@@ -22,7 +22,7 @@ failure, surfaced by the intake stage.
 
 | Operation | jira implementation |
 | --- | --- |
-| **pickup** | Operator supplies the JIRA key on invocation (`/dev-pipeline:dev-pipeline GH-540`). No queue, no claim, no label mutation. |
+| **pickup** | Operator supplies the JIRA key on invocation (`/dev-pipeline:run GH-540`). No queue, no claim, no label mutation. |
 | **fetch-ticket** | `mcp__atlassian__getJiraIssue` for the body; `mcp__atlassian__getJiraIssueRemoteIssueLinks` → `mcp__atlassian__getConfluencePage` for linked design/spec pages. |
 | **post-status-comment** | *no-op.* Progress is written to the state file only. |
 | **set-status** | *no-op.* The ticket stays in its current JIRA status for the whole run. |

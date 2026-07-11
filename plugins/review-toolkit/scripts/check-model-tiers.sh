@@ -24,7 +24,7 @@
 # -----------------
 #   .mjs tables      live in the dev-pipeline PLUGIN:
 #                    $SECOND_SHIFT_DEV_PIPELINE_ROOT (or $SCRIPT_DIR/../../dev-pipeline)
-#                      /skills/dev-pipeline/workflows/
+#                      /skills/run/workflows/
 #                    If this dir is unlocatable the check FAILS naming the override.
 #   agent frontmatter is read from BOTH roots:
 #                    PLUGIN agents   $SECOND_SHIFT_PLUGIN_ROOT (or $SCRIPT_DIR/..)/agents
@@ -108,9 +108,9 @@ resolve_sibling_plugin_root() {
         (cd "$cand" && pwd)
     done | tail -1
 }
-DEV_PIPELINE_ROOT=$(resolve_sibling_plugin_root dev-pipeline "skills/dev-pipeline/workflows" "${SECOND_SHIFT_DEV_PIPELINE_ROOT:-}")
-WF="$DEV_PIPELINE_ROOT/skills/dev-pipeline/workflows"
-skill_md="$DEV_PIPELINE_ROOT/skills/dev-pipeline/SKILL.md"
+DEV_PIPELINE_ROOT=$(resolve_sibling_plugin_root dev-pipeline "skills/run/workflows" "${SECOND_SHIFT_DEV_PIPELINE_ROOT:-}")
+WF="$DEV_PIPELINE_ROOT/skills/run/workflows"
+skill_md="$DEV_PIPELINE_ROOT/skills/run/SKILL.md"
 
 # design-toolkit plugin root -> design-faithful agent-family frontmatter
 # (design-sync.mjs / code-review.mjs tables reference these agents, which ship
@@ -151,7 +151,7 @@ fi
 # The .mjs tables are the reason this check exists — if we can't find them, fail
 # loudly naming the override rather than silently passing.
 if [ -z "$DEV_PIPELINE_ROOT" ] || [ ! -d "$WF" ]; then
-    msg="UNLOCATABLE: dev-pipeline workflow tables not found via env override, repo-layout sibling ($SCRIPT_DIR/../../dev-pipeline), or cache-layout siblings ($SCRIPT_DIR/../../../dev-pipeline/<ver>) — expected <root>/skills/dev-pipeline/workflows. Set SECOND_SHIFT_DEV_PIPELINE_ROOT to the dev-pipeline plugin root."
+    msg="UNLOCATABLE: dev-pipeline workflow tables not found via env override, repo-layout sibling ($SCRIPT_DIR/../../dev-pipeline), or cache-layout siblings ($SCRIPT_DIR/../../../dev-pipeline/<ver>) — expected <root>/skills/run/workflows. Set SECOND_SHIFT_DEV_PIPELINE_ROOT to the dev-pipeline plugin root."
     printf '%s\n' "$msg" >&2
     if [ $HOOK_MODE -eq 1 ]; then
         jq -n --arg r "$msg" '{

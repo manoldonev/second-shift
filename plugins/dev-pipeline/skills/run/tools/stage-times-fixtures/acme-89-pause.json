@@ -1,5 +1,5 @@
 {
-  "_fixture": "Regression fixture for #89 pause-window accounting. A run paused at 10:30 (session-quota exhaustion) and resumed at 14:05, straddling Stage 5. Drives the (pause3) selftest case: stage-times.sh must report effective total << wall, and Stage 5's effective duration must shrink to ~15 min (wall ~230 min). Committed (NOT in the gitignored .claude/pipeline-state/). Read it with: STATECTL_STATE_DIR=docs/eval-fixtures bash .claude/skills/dev-pipeline/tools/stage-times.sh acme-89-pause",
+  "_fixture": "Regression fixture for #89 pause-window accounting. A run paused at 10:30 (session-quota exhaustion) and resumed at 14:05, straddling Stage 5. Drives the (pause3) selftest case: stage-times.sh must report effective total << wall, and Stage 5's effective duration must shrink to ~15 min (wall ~230 min). Committed (NOT in the gitignored .claude/pipeline-state/). Read it with: STATECTL_STATE_DIR=docs/eval-fixtures bash .claude/skills/run/tools/stage-times.sh acme-89-pause",
   "ticketKey": "89-pause-fixture",
   "runId": "2026-04-09T10:00:00Z-fixturehost-deadbeef",
   "currentStage": 5,

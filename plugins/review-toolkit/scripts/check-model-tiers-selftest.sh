@@ -62,7 +62,7 @@ run_cli() {
 make_dp_variant() {
   local key="$2" model="$3" dst="$TMP/$1"
   cp -R "$DP" "$dst"
-  cat > "$dst/skills/dev-pipeline/workflows/code-review.mjs" <<MJS
+  cat > "$dst/skills/run/workflows/code-review.mjs" <<MJS
 const REVIEWER_MODEL = {
   '$key': '$model',
   'performance-reviewer': 'sonnet',

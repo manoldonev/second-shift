@@ -6,11 +6,11 @@ Hermetic OTel metrics fixtures for ad-hoc verification of `pipeline-cost-block.s
 
 ```bash
 # Set the metrics file override and a temp state file, then invoke:
-export OTEL_METRICS_FILE="$(pwd)/.claude/skills/dev-pipeline/cost-tracking-fixtures/single-session-mini.jsonl"
+export OTEL_METRICS_FILE="$(pwd)/.claude/skills/run/cost-tracking-fixtures/single-session-mini.jsonl"
 mkdir -p .claude/pipeline-state
-cp .claude/skills/dev-pipeline/cost-tracking-fixtures/state-single-session-mini.json \
+cp .claude/skills/run/cost-tracking-fixtures/state-single-session-mini.json \
    .claude/pipeline-state/test-cost.json
-bash .claude/skills/dev-pipeline/pipeline-cost-block.sh test-cost
+bash .claude/skills/run/pipeline-cost-block.sh test-cost
 jq '.costBlockApplied' .claude/pipeline-state/test-cost.json
 ```
 
@@ -35,7 +35,7 @@ Fixtures are intentionally tiny and human-readable; expand them if you need to t
 ## Regression selftest
 
 ```bash
-bash .claude/skills/dev-pipeline/tools/cost-block-selftest.sh
+bash .claude/skills/run/tools/cost-block-selftest.sh
 ```
 
 Drives both shared-session runs through the `COST_BLOCK_DUMP_ROLLUP` hook and asserts run A totals `$1.00`, run B totals `$0.45` (A's `$1.00` not inhaled), run B's `Other` holds only the `$0.10` in-fence gap cost, and the `$0.05` datapoint at exactly `fenceHi` is kept (inclusive bound) under `PR Creation`. Exit 0 = pass.

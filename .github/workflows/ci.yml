@@ -45,7 +45,7 @@ jobs:
           #     Workflows are invoked by bare filename (D-15). Validator/eval tools that resolve
           #     the sibling dev-pipeline plugin are exempt — they live under scripts/ and evals/,
           #     which are excluded here (grep the toolkit roots directly so paths are never empty).
-          if grep -rnE 'skills/dev-pipeline/|dev-pipeline/(workflows|stages|state-schema|doc-update)|\.\./dev-pipeline/' \
+          if grep -rnE 'skills/run/|dev-pipeline/(workflows|stages|state-schema|doc-update)|\.\./dev-pipeline/' \
                $TOOLKITS --include='*.md' --include='*.mjs' --exclude-dir=scripts --exclude-dir=evals 2>/dev/null; then
             echo "::error::rule 3(b): toolkit content hard-paths into dev-pipeline (invoke workflows by bare filename; reference artifacts by name)"; exit 1
           fi

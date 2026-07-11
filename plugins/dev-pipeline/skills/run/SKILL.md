@@ -1,5 +1,5 @@
 ---
-name: dev-pipeline
+name: run
 description: 'Fully autonomous pipeline: GitHub issue → branch → implement → review → PR'
 ---
 
@@ -13,14 +13,14 @@ Fully autonomous pipeline: GitHub issue → branch → implement → review → 
 
 One default mode plus a diagnostic escape hatch. The pipeline runs interactively in a Claude Code session (subscription-covered per ADR-015); the interactive escape hatch is for manual recovery and first-use priming, not a normal way to run the pipeline.
 
-**Default — `/dev-pipeline:dev-pipeline <issue-number>`** in your existing Claude Code session. Runs all stages (1–10) in this one session with no prompts at the gates (autonomous fail-fast contract — see "Skill-body failure contract" below) and ends with a draft PR URL. Stage 8's reviewer fan-out runs as fresh `agent()` calls inside the `Workflow` script (`workflows/code-review.mjs`), so each reviewer gets clean context; synthesis runs in-session on the caller's model.
+**Default — `/dev-pipeline:run <issue-number>`** in your existing Claude Code session. Runs all stages (1–10) in this one session with no prompts at the gates (autonomous fail-fast contract — see "Skill-body failure contract" below) and ends with a draft PR URL. Stage 8's reviewer fan-out runs as fresh `agent()` calls inside the `Workflow` script (`workflows/code-review.mjs`), so each reviewer gets clean context; synthesis runs in-session on the caller's model.
 
-**Diagnostic fallback — `DEV_PIPELINE_MODE=interactive /dev-pipeline:dev-pipeline <issue-number>`.** Not a peer mode; a manual-recovery / first-use-priming escape hatch. Same single-session in-process flow as the default, but the per-stage gates **prompt** for a decision instead of taking the autonomous fail-fast write. Use only when an autonomous abort needs to be debugged interactively — e.g., stepping through after a `failureContext.reason` was written.
+**Diagnostic fallback — `DEV_PIPELINE_MODE=interactive /dev-pipeline:run <issue-number>`.** Not a peer mode; a manual-recovery / first-use-priming escape hatch. Same single-session in-process flow as the default, but the per-stage gates **prompt** for a decision instead of taking the autonomous fail-fast write. Use only when an autonomous abort needs to be debugged interactively — e.g., stepping through after a `failureContext.reason` was written.
 
 ```bash
 # Batch mode (processes issues until queue is empty), in an interactive session:
 claude --permission-mode auto
-# then type: /ralph-loop:ralph-loop "/dev-pipeline:dev-pipeline" --max-iterations 10 --completion-promise "No issues in queue"
+# then type: /ralph-loop:ralph-loop "/dev-pipeline:run" --max-iterations 10 --completion-promise "No issues in queue"
 ```
 
 Stage 8 is the highest-stakes synthesis in the pipeline (review-toolkit:review-lead dedup + Scope Completeness Gate). It gets clean context where it matters most — at the reviewer layer — because each reviewer runs as a fresh `agent()`.
@@ -88,7 +88,7 @@ A failure here is an **abort-with-instructions**, not a `failureContext` write: 
 # Stage write convention below.
 CFG="${SECOND_SHIFT_CONFIG:-.claude/second-shift.config.json}"
 if [[ -f "$CFG" ]]; then
-  bash "${CLAUDE_PLUGIN_ROOT}/skills/dev-pipeline/tools/config-lint.sh" "$CFG" \
+  bash "${CLAUDE_PLUGIN_ROOT}/skills/run/tools/config-lint.sh" "$CFG" \
     || { echo "[pre-flight] FAIL: config-lint rejected $CFG (see errors above)" >&2; exit 1; }
 fi
 

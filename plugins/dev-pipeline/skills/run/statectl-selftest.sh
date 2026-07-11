@@ -5,7 +5,7 @@
 # pipeline run. Independent of any pipeline state on disk.
 #
 # Usage:
-#   .claude/skills/dev-pipeline/statectl-selftest.sh
+#   .claude/skills/run/statectl-selftest.sh
 #
 # Env:
 #   SKIP_STRESS=1   skips the optional stress section (CI environments where
@@ -15,7 +15,7 @@
 
 set -uo pipefail
 
-# Sibling plugin files resolve against this script's own dir (skills/dev-pipeline/).
+# Sibling plugin files resolve against this script's own dir (skills/run/).
 # Post-pluginization the scripts no longer live under a consumer .claude tree.
 SKILL_DIR="$(cd "$(dirname "$0")" && pwd)"
 STATECTL="${SKILL_DIR}/statectl.sh"

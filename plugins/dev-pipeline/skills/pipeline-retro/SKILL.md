@@ -1,6 +1,6 @@
 ---
 name: pipeline-retro
-description: 'Post-run retrospective for a dev-pipeline run: independent eval re-scoring, contract-deviation audit, and improvement routing. Run after a /dev-pipeline:dev-pipeline run completes (or aborts).'
+description: 'Post-run retrospective for a dev-pipeline run: independent eval re-scoring, contract-deviation audit, and improvement routing. Run after a /dev-pipeline:run run completes (or aborts).'
 ---
 
 # Pipeline Retro

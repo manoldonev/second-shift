@@ -71,8 +71,8 @@ echo "[self-test] predicate cases (rc 0 = gate, rc 1 = skip)"
 # --- SKIP: no JS/TS surface, or every JS/TS-relevant path is inert .claude script ---
 check "empty diff -> skip"                       1 ""
 check "docs + shell only -> skip"                1 $'README.md\nscripts/run.sh'
-check "inert .claude .mjs only -> skip"          1 $'.claude/skills/dev-pipeline/workflows/code-review.mjs'
-check "inert .claude .cjs only -> skip"          1 $'.claude/skills/dev-pipeline/workflows/foo.cjs'
+check "inert .claude .mjs only -> skip"          1 $'.claude/skills/run/workflows/code-review.mjs'
+check "inert .claude .cjs only -> skip"          1 $'.claude/skills/run/workflows/foo.cjs'
 check "inert .mjs + docs + shell -> skip"        1 $'.claude/skills/x/workflows/y.mjs\nREADME.md\nrun.sh'
 check "two inert .claude scripts -> skip"        1 $'.claude/a/b.mjs\n.claude/c/d.cjs'
 

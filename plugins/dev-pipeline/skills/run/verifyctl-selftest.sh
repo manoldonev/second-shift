@@ -7,13 +7,13 @@
 # statectl-selftest.sh).
 #
 # Usage:
-#   .claude/skills/dev-pipeline/verifyctl-selftest.sh
+#   .claude/skills/run/verifyctl-selftest.sh
 #
 # Exit code = number of failed tests (0 = all pass).
 
 set -uo pipefail
 
-# Sibling plugin files resolve against this script's own dir (skills/dev-pipeline/).
+# Sibling plugin files resolve against this script's own dir (skills/run/).
 SKILL_DIR="$(cd "$(dirname "$0")" && pwd)"
 VERIFYCTL="${SKILL_DIR}/verifyctl.sh"
 STATECTL="${SKILL_DIR}/statectl.sh"

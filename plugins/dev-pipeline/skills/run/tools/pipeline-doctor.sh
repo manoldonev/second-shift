@@ -7,7 +7,7 @@
 # breakage, missing labels, and a broken statectl state machine.
 #
 # Usage:
-#   bash .claude/skills/dev-pipeline/tools/pipeline-doctor.sh
+#   bash .claude/skills/run/tools/pipeline-doctor.sh
 #
 # Exit code: number of FAILED checks (0 = ready). WARN lines are informational
 # (degraded-but-runnable, e.g. cost tracking off) and do not affect the exit code.
@@ -326,7 +326,7 @@ fi
 if pb=$(bash "$SCRIPT_DIR/prose-budget.sh" 2>&1); then
   ok "prose-budget: $(tail -1 <<< "$pb" | sed 's/\[prose-budget\] //')"
 else
-  warn "prose-budget: instruction layer grew past baseline — run: bash .claude/skills/dev-pipeline/tools/prose-budget.sh"
+  warn "prose-budget: instruction layer grew past baseline — run: bash .claude/skills/run/tools/prose-budget.sh"
   grep -E 'FAIL ' <<< "$pb" | sed 's/^/[doctor]        /' | head -5
 fi
 

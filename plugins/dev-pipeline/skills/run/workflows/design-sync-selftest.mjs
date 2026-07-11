@@ -20,7 +20,7 @@
 // Mirrors the conventions of null-reviewer-selftest.mjs: numbered cases, pass/fail counters,
 // exit code = number of failed cases (0 = all pass).
 //
-// Run: node .claude/skills/dev-pipeline/workflows/design-sync-selftest.mjs
+// Run: node .claude/skills/run/workflows/design-sync-selftest.mjs
 
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
@@ -29,7 +29,7 @@ import { dirname, join } from 'node:path'
 const HERE = dirname(fileURLToPath(import.meta.url))
 const DESIGN_SYNC_MJS = join(HERE, 'design-sync.mjs')
 // contract-types.mjs lives in the design-toolkit plugin (sibling under plugins/), not
-// dev-pipeline. HERE=plugins/dev-pipeline/skills/dev-pipeline/workflows → up 4 to plugins/.
+// dev-pipeline. HERE=plugins/dev-pipeline/skills/run/workflows → up 4 to plugins/.
 const CONTRACT_TYPES_MJS = join(HERE, '..', '..', '..', '..', 'design-toolkit', 'skills', 'design-faithful', 'lib', 'contract-types.mjs')
 
 let PASS = 0

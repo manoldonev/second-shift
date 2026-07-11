@@ -63,7 +63,7 @@ Validate it:
 
 ```bash
 # config-lint ships INSIDE the dev-pipeline plugin (so installed-cache consumers can run it):
-bash "${CLAUDE_PLUGIN_ROOT:-<dev-pipeline-plugin-root>}/skills/dev-pipeline/tools/config-lint.sh" \
+bash "${CLAUDE_PLUGIN_ROOT:-<dev-pipeline-plugin-root>}/skills/run/tools/config-lint.sh" \
   .claude/second-shift.config.json
 ```
 
@@ -81,7 +81,7 @@ bash "${CLAUDE_PLUGIN_ROOT:-<dev-pipeline-plugin-root>}/skills/dev-pipeline/tool
 Run config-lint (above), then a first run on a small, self-contained ticket:
 
 ```text
-/dev-pipeline:dev-pipeline <ticket>
+/dev-pipeline:run <ticket>
 ```
 
 Autonomous mode is safe to trust on day one because it never guesses: the Target Confirmation Gate echoes the resolved config (tracker, repos, base branches) at the top of the run, and every gate **fail-fasts with a written reason** instead of asking — a mis-declared repo aborts before anything is mutated, and `.claude/pipeline-state/<key>.json` tells you exactly why. Two tips for a clean first run: set `tracker.branchPrefix` in config (skips runtime branch-identity derivation, which has nothing to match in a repo with no prior pipeline branches), and pick a ticket with no external-infrastructure ACs. An interactive step-through mode exists for debugging aborted runs — see the `dev-pipeline` SKILL — but onboarding doesn't need it.

@@ -4,7 +4,9 @@ All notable changes to the second-shift marketplace. Versions are per-plugin (`p
 this file tracks the marketplace release. `configVersion` stays `const 1` — v2 is fully backward-compatible for a
 consumer with an empty config; the migration notes below are only for consumers using the changed features.
 
-## v2.0.1 — pipeline-doctor cache-layout fix
+## v2.0.1 — pipeline-doctor cache-layout fix + flagship command rename
+
+- **Flagship command renamed** `/dev-pipeline:dev-pipeline` → **`/dev-pipeline:run`** (skill `dev-pipeline` → `run`). The plugin is the namespace; the skill is the action — matching the other plugins. Breaking; no alias (pre-adoption).
 
 - **`pipeline-doctor.sh`** located sibling-plugin selftests (review-toolkit's reviewer-references +
   model-tiers, intake-toolkit's ledger-lint) via the monorepo `plugins/` layout, so they reported
