@@ -1,0 +1,38 @@
+{
+  "name": "second-shift",
+  "owner": {
+    "name": "Manol Donev",
+    "url": "https://github.com/manoldonev"
+  },
+  "metadata": {
+    "description": "The dev team that works while you're away — an autonomous-development toolkit for Claude Code: ticket-to-PR pipeline, multi-agent review, elicitation/intake surface, design fidelity, and session auditing. Generic tooling only; each consumer repo supplies static context (one config file) and dynamic context (repo-local knowledge skills).",
+    "version": "0.1.0"
+  },
+  "plugins": [
+    {
+      "name": "dev-pipeline",
+      "source": "./plugins/dev-pipeline",
+      "description": "Autonomous ticket → intake → plan → implement → verify → review → PR pipeline with crash-recoverable state, deterministic verify runner, and tracker adapters (github|jira)."
+    },
+    {
+      "name": "review-toolkit",
+      "source": "./plugins/review-toolkit",
+      "description": "Multi-agent parallel code review: review-lead orchestration, reviewer-baseline protocol, and the generic reviewer panel."
+    },
+    {
+      "name": "intake-toolkit",
+      "source": "./plugins/intake-toolkit",
+      "description": "Elicitation surface: intake front door, intake-interviewer, intake-orchestrator, plan-interview with Decision Ledger, grill-me, decomposition/spec reviewers."
+    },
+    {
+      "name": "design-toolkit",
+      "source": "./plugins/design-toolkit",
+      "description": "Design-fidelity toolkit: design-faithful translation/review skills and agents, optional Figma-MCP capability, playwright-cli."
+    },
+    {
+      "name": "audit-toolkit",
+      "source": "./plugins/audit-toolkit",
+      "description": "Session tool-call audit ledger: audit hooks, /audit and /audit-history query skills, self-tests."
+    }
+  ]
+}

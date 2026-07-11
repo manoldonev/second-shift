@@ -1,0 +1,117 @@
+# Stage 3. Write Implementation Plan
+
+**First, mark the stage started** — per the global Stage write convention (SKILL.md), Stage 3 begins with `statectl set-stage "$ISSUE_NUMBER" 3 --status started` BEFORE reading the issue and authoring the plan file below. Plan authoring takes real time, so deferring the started-write until the closing state writes collapses `stages.3` to a 0:00 window with the authoring work mis-attributed to the Stage 2→3 gap (a state-discipline deviation `/pipeline-retro` flags; `set-stage ... --status completed` also errors with "cannot complete stage 3 with no startedAt" if `startedAt` is missing). Write `started` first.
+
+- Read the full issue body + referenced files from the codebase.
+- Bootstrap context: read the repo's `CLAUDE.md` and any repo-local session-state conventions it defines (see its CLAUDE.md).
+- **Plan file naming:**
+  - **Single PR:** `docs/plans/acme-${ISSUE_NUMBER}.md`
+  - **Stacked PR slice N:** `docs/plans/acme-${ISSUE_NUMBER}-pr${N}.md`
+    - Plan scope is constrained to this slice only
+    - Plan references the decomposition plan from the intake comment for context
+- **Resume:** if the plan file already exists in the worktree (matching the appropriate naming pattern above), skip to Stage 4 (Plan Review).
+- Write plan to the appropriate path in the worktree.
+- **Commit the plan into the branch immediately** (bot identity, `docs:` — the plan is Markdown, so it rides the INERT lane and the pre-commit hook skips type-check). This is the first commit on the branch, before any implementation. It guarantees the plan reaches the PR/the base branch like the other `docs/plans/*.md` — committing it only at Stage 10 risks it being stranded if the PR is merged before the late push lands (acme-228 retro). Resume-safe: skip if the plan file is already tracked at HEAD.
+  ```bash
+  git -C "$WORKTREE" add "docs/plans/acme-${ISSUE_NUMBER}${SLICE_SUFFIX}.md"
+  # Commit identity comes from the installed bot (config `tracker.bot`); the wrapper
+  # sets user.name / user.email. When the bot is disabled, commit as the repo default.
+  git -C "$WORKTREE" commit -m "docs(dev-pipeline): plan for #${ISSUE_NUMBER}"
+  ```
+- **Required plan sections:**
+  - Context / problem framing
+  - Assumptions
+  - **Decision Ledger** — _advisory-tier (NOT one of the 10 hard-linted sections below; `plan-lint.sh` only warns on its absence, deep checks are the `intake-toolkit:plan-interview` ledger-lint's job)_. Contract: `intake-toolkit:interviewing-baseline`. If a pre-flight `/plan-interview` wrote `.claude/pipeline-state/{ISSUE_NUMBER}-ledger.md` (main repo, pre-worktree — same lifecycle as the Product-Essence Brief), hydrate its rows into this section **verbatim** (resolve it against the MAIN repo, since Stage 3 runs in the worktree: `MAIN_ROOT="$(dirname "$(cd "$(git -C "$WORKTREE" rev-parse --git-common-dir)" && pwd)")"`, then read `$MAIN_ROOT/.claude/pipeline-state/${ISSUE_NUMBER}-ledger.md`). Otherwise author the section in-pipeline with `codebase-derived` / `deferred` provenance ONLY — the autonomous contract forbids prompting, so `user-answered` / `user-delegated` rows can never originate inside a run; a material decision the pipeline cannot ground goes in as `deferred`, and `pipeline-retro` audits undisclosed ones. Trivial work uses the explicit empty form.
+  - Affected files/modules
+  - **Reuse inventory** — existing helpers/utilities/services this change should reuse (each grep-verified per the grounding-tag rule below). Any helper the plan invents must be tagged `[NEW]` only after confirming no existing equivalent (the grounding-tag rule owns the `[NEW]` token semantics — this section adds the confirm-no-equivalent obligation, not a second tag vocabulary; mind the reserve-the-literal-token rule for "none" lines). `none — no new helpers introduced` is a valid entry — do not pad this section to look thorough.
+  - Implementation steps (ordered, bite-sized)
+  - Test strategy (test-first for behavior changes; verify-after for refactors/infra)
+  - **Acceptance-criteria traceability** — a table **keyed by AC ID** mapping each acceptance criterion → covering implementation step(s) → covering test(s). One row per ID; see the traceability rule below.
+  - Verification commands
+  - Risks / rollback notes
+  - Out-of-scope
+- **Grounding tags (eval criterion 2 scores these literally):** every file path / function / class the plan references must exist in the codebase (verify by grep or read), tagged **`[NEW]`** if the plan creates it, or **`[UNVERIFIED]`** if existence could not be confirmed. Prose like "New `cmd_foo()`" does NOT satisfy the criterion — the literal `[NEW]` tag does. Zero `[UNVERIFIED]` tags may survive into Stage 6.
+  - **Reserve the literal `[NEW]`/`[UNVERIFIED]` tokens for per-reference grounding tags ONLY.** Criterion 2 is grep-scored, so the bare token in a register/summary/"none" line (e.g. "`[UNVERIFIED]` none.") reads as a surviving unverified tag and trips a false FAIL. Phrase such lines without the bracketed token — write "Unverified references: none" (or "No unverified references"), not "`[UNVERIFIED]` none".
+
+- **Acceptance-criteria traceability rule.** The table is `| AC ID | Criterion (short) | Step(s) | Test(s) |`, one row per `AC-n`. The AC set is **snapshot-authoritative**: when state carries a non-empty `acceptanceCriteria[]` (the Stage-1 intent snapshot), key the table by those exact IDs — do NOT re-derive from the live issue (it may have been edited since intake). Explicit `AC-n` labels in the snapshot win; otherwise the fallback rule ([`state-schema.md` § Intake intent snapshot](../state-schema.md) — normative) already fixed the IDs at Stage 1. Each row's Test(s) cell is either a concrete test (a `(AC-n)`-suffixed title where natural) or the exact escape hatch `— no test (<category>)` with `<category> ∈ {non-functional | infra-only | covered-by-selftest | covered-by-render-verify}`. A refactor/chore with no ACs leaves the table header present with no rows (the empty-table case the lint passes when the snapshot is empty).
+
+- **Advisory self-lint (before the plan commit).** Run the plan structure lint and fix any violation it names (max 2 attempts, advisory — never abort here; the Stage-4 gate is the hard stop). Re-run before the plan commit, or amend the commit if a fix landed after it:
+
+  ```bash
+  # State lives in the MAIN checkout; resolve it via git-common-dir from the worktree.
+  MAIN_ROOT="$(dirname "$(cd "$(git -C "$WORKTREE" rev-parse --git-common-dir)" && pwd)")"
+  bash "tools/plan-lint.sh" \
+    "$WORKTREE/docs/plans/acme-${ISSUE_NUMBER}${SLICE_SUFFIX}.md" \
+    "$MAIN_ROOT/.claude/pipeline-state/${ISSUE_NUMBER}.json"
+  ```
+
+### Unit test surface (apps/api behavior changes)
+
+Classify whether this ticket needs mutation-resistant unit test work, then persist it for Stages 4–5. Scope is the **backend TypeScript source matched by config `commands.<host>.unitTestScope`** (the acme value — used in every `apps/api/src/**` example below — is `apps/api/src/**`; ML/Rust are out of scope — see [`unit-testing`](../../unit-testing/SKILL.md)). A repo with no `unitTestScope` configured has no mutation surface and skips the gate.
+
+- **`skip`** when the change is FE-only, pure config/CI/docs/dependency, or otherwise has no `apps/api/src/**` behavior change. Include a one-line `skipReason`.
+- **`strengthen`** when `apps/api/src/**` behavior (a service/controller/worker branch, guard, or `userId`-scoped query) changes. Then the plan's **Test strategy** section MUST also enumerate, per [`unit-testing`](../../unit-testing/SKILL.md):
+  - **Mutation targets** — concrete branches/edge cases tests must kill (one per new/changed conditional; cross-user isolation when `userId`-scoped). Not generic "test the service".
+  - **Mock boundary** — which collaborators are real vs mocked (mock only the Drizzle handle / external I/O).
+  - **Spec paths** — co-located `*.spec.ts` to create or extend.
+  - **Integration decision** — `integrationAction`: `run | skip` with reason.
+- If classification is genuinely ambiguous (behavior-change vs skip unclear), abort rather than guess:
+  ```bash
+  statectl.sh mark-failed "$ISSUE_NUMBER" \
+    --reason unit-test-surface-ambiguous --stage 3 \
+    --json "$(statectl.sh build-failure-context \
+      --reason unit-test-surface-ambiguous --stage 3 --kv-lines candidates="$CANDIDATES_LOG")"
+  ```
+
+**Persist `unitTestSurface`** before `set-stage 3 --status completed` (statectl-owned — never raw jq):
+
+```bash
+statectl.sh unit-test-surface-set "$ISSUE_NUMBER" --json '{
+  "applicable": true, "action": "strengthen",
+  "planPath": "docs/plans/acme-'"$ISSUE_NUMBER"'.md",
+  "modulesTouched": ["apps/api/src/..."], "specPaths": ["apps/api/src/.../*.spec.ts"],
+  "mutationTargets": ["..."], "integrationAction": "skip"
+}'
+# skip case: --json '{"applicable":false,"action":"skip","skipReason":"FE-only / no apps/api behavior change"}'
+```
+
+- Comment via `$GH_BOT issue comment $ISSUE_NUMBER --body "..."`: `stage: plan`, `status: written`.
+
+### Design-faithful FE spec (designDriven runs)
+
+When `statectl get "$ISSUE_NUMBER" '.stageCheckpoint."1".designDriven'` is `true`, the standard plan above is still written **and** a faithful acme FE spec is produced from the handoff — the spec is the design contract Stage 5 implements against and Stage 4 gates. Skip this entire sub-step on non-design runs (the default).
+
+Resolve the worktree to an absolute path (the engine has no filesystem access), read `designSource`, then dispatch the produce engine (`implement:false` → spec only, no code):
+
+```
+PROJECT_ID=$(statectl get "$ISSUE_NUMBER" '.stageCheckpoint."1".designSource.projectId')
+SCREEN=$(statectl get "$ISSUE_NUMBER" '.stageCheckpoint."1".designSource.screen')
+Workflow({
+  scriptPath: "workflows/design-sync.mjs",
+  // The caller also passes args.config = the parsed second-shift.config.json.
+  args: { kind: "produce", implement: false, projectId: "$PROJECT_ID", screen: "$SCREEN",
+          specPath: "docs/design-specs/$SCREEN-spec.md", issue: "$ISSUE_NUMBER", config: CONFIG }
+})
+# Returns { kind, implement, result } | { kind, implement, failClosed } | { kind, budgetExhausted: true }.
+```
+
+Handle the result exactly like the other engine dispatches (mirrors Stage 4's unit-test plan-review posture):
+
+- **`budgetExhausted: true`** — clean skip for token budget (NOT a defect). Stop and tell the operator to re-run; do **not** `mark-failed`.
+- **`result.infraFailure: true`** — the produce agent died without StructuredOutput after the engine's inline retries. Re-dispatch **once**; still infra → surface as an infra failure, never `mark-failed --reason design-source-unreachable`.
+- **`failClosed.reason`** (any of the engine's four `FAIL_CLOSED` values) — the handoff could not be turned into a contract. Map to the single pipeline reason:
+
+  ```bash
+  statectl.sh mark-failed "$ISSUE_NUMBER" \
+    --reason design-source-unreachable --stage 3 \
+    --json "$(statectl.sh build-failure-context \
+      --reason design-source-unreachable --stage 3 --kv engineFailClosed="$ENGINE_REASON")"
+  ```
+
+  Comment + keep worktree + STOP rc=0.
+
+- **Success** — record the returned `artifactPath` (the FE spec) for Stage 4's gate and Stage 5's implement. The spec lives alongside the plan as an additional reviewable artifact.
+
+---
+
+_Stage 3 of the [dev-pipeline](../SKILL.md) flow. Return to the router for cross-stage contracts (Invocation Routing, Failure Contract, State Persistence, etc.)._

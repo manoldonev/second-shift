@@ -1,0 +1,26 @@
+{
+  "description": "dev-pipeline commit gate — config-aware type-check before any git commit (fires only when the consumer repo has onboarded a typecheck command; fails open otherwise).",
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "if": "Bash(git commit *)",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/pre-commit-typecheck.sh\"",
+            "timeout": 120,
+            "statusMessage": "Running type-check pre-commit gate..."
+          },
+          {
+            "type": "command",
+            "if": "Bash(git -c * commit *)",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/pre-commit-typecheck.sh\"",
+            "timeout": 120,
+            "statusMessage": "Running type-check pre-commit gate (bot-identity commit)..."
+          }
+        ]
+      }
+    ]
+  }
+}

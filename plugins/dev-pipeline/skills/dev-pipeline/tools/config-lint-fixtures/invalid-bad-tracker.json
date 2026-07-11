@@ -1,0 +1,6 @@
+{
+  "configVersion": 1,
+  "tracker": { "type": "gitlab" },
+  "topology": { "type": "standalone", "repos": { "app": { "path": ".", "baseBranch": "main" } } },
+  "commands": { "app": { "test": "yarn test" } }
+}

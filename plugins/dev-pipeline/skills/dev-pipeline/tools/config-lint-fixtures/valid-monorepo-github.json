@@ -1,0 +1,35 @@
+{
+  "configVersion": 1,
+  "tracker": {
+    "type": "github",
+    "writes": true,
+    "keyPattern": "[0-9]+",
+    "branchPrefix": "claude/acme-",
+    "bot": {
+      "enabled": true,
+      "envVar": "GH_BOT",
+      "wrapperPath": "~/.config/acme/gh-as-bot.sh",
+      "app": { "clientId": "Iv23linWw3EWmAuuAiZP", "appName": "acme-dev-pipeline", "privateKeyFilename": "acme-dev-pipeline.private-key.pem" }
+    }
+  },
+  "topology": {
+    "type": "monorepo",
+    "repos": { "mono": { "path": ".", "baseBranch": "main", "worktreesDir": "../acme-worktrees" } }
+  },
+  "commands": {
+    "mono": {
+      "lint": "yarn lint", "lintAutofixes": true, "typecheck": "yarn typecheck", "test": "yarn test",
+      "testFile": "yarn --cwd apps/api test {file}", "unitTestScope": "apps/api/src/**",
+      "build": "yarn build", "format": "yarn format", "integrationTest": null, "apiTest": null,
+      "lanes": [
+        { "name": "apps", "cwd": "apps", "commands": ["yarn workspaces foreach -pt run ci"] },
+        { "name": "packages", "cwd": "packages", "commands": ["yarn workspaces foreach -pt run build"] }
+      ]
+    }
+  },
+  "reviewers": {
+    "add": [{ "name": "coaching-reviewer", "dimensions": ["domain-coaching"] }],
+    "modelOverrides": { "security-reviewer": "opus" }
+  },
+  "gates": { "mutation": true, "costTracking": true }
+}

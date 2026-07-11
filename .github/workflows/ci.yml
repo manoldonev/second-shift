@@ -1,0 +1,82 @@
+# Model-free CI (design principle: subscription-first — no API-billed model calls in CI).
+name: ci
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  lint-and-selftests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # full history + tags: the version-bump check needs the latest release tag
+
+      - name: shellcheck
+        run: |
+          sudo apt-get update -q && sudo apt-get install -y shellcheck jq
+          # SC1091: sourced files resolved at runtime
+          # SC2015: `A && B || C` guard style is the tree's deliberate idiom (57 sites)
+          # SC2181: selftests check `$?` after run_cli-style wrappers deliberately (the
+          #         command under test is a variable invocation, not inlineable)
+          find . -name '*.sh' -type f -print0 | xargs -0 shellcheck -e SC1091,SC2015,SC2181
+
+      - name: validate JSON (manifests, schema, fixtures)
+        run: find . -name '*.json' -type f -print0 | xargs -0 -n1 jq empty
+
+      - name: run all selftests
+        run: |
+          fails=0
+          while IFS= read -r -d '' t; do
+            echo "── $t"
+            bash "$t" || fails=$((fails+1))
+          done < <(find . -name '*-selftest.sh' -type f -print0)
+          exit "$fails"
+
+      - name: namespace direction check (docs/namespaces.md rule 3)
+        run: |
+          TOOLKITS="plugins/review-toolkit plugins/intake-toolkit plugins/design-toolkit plugins/audit-toolkit"
+          # (a) no dev-pipeline: namespace token anywhere in the four toolkits
+          if grep -rn 'dev-pipeline:' $TOOLKITS --include='*.md' --include='*.mjs' --include='*.sh' --include='*.json' 2>/dev/null; then
+            echo "::error::rule 3(a): a toolkit references the dev-pipeline: namespace"; exit 1
+          fi
+          # (b) no hard dev-pipeline/ PATH reference in toolkit CONTENT (skills + agents).
+          #     Workflows are invoked by bare filename (D-15). Validator/eval tools that resolve
+          #     the sibling dev-pipeline plugin are exempt — they live under scripts/ and evals/,
+          #     which are excluded here (grep the toolkit roots directly so paths are never empty).
+          if grep -rnE 'skills/dev-pipeline/|dev-pipeline/(workflows|stages|state-schema|doc-update)|\.\./dev-pipeline/' \
+               $TOOLKITS --include='*.md' --include='*.mjs' --exclude-dir=scripts --exclude-dir=evals 2>/dev/null; then
+            echo "::error::rule 3(b): toolkit content hard-paths into dev-pipeline (invoke workflows by bare filename; reference artifacts by name)"; exit 1
+          fi
+
+      - name: version-bump discipline (changed plugin ⇒ bumped plugin.json)
+        run: bash scripts/check-plugin-version-bumps.sh
+
+  # macOS ships /bin/bash 3.2 and every shipped script claims 3.2 compat — two real
+  # statectl bugs (generator mapfile, mark-failed brace-default expansion) lived
+  # undetected while the selftests only ever ran under bash 4+. GitHub macOS runners
+  # put Homebrew bash 5 first on PATH, so shim PATH to force `#!/usr/bin/env bash`
+  # back to the stock 3.2 binary. (Ported from the acme vendored-era workflow,
+  # widened from statectl-only to the full selftest set.)
+  selftests-bash32:
+    name: selftests (macos, bash 3.2)
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: run all selftests under stock bash 3.2
+        env:
+          # Parallel-write stress cases are documented as too flaky for CI.
+          SKIP_STRESS: '1'
+        run: |
+          mkdir -p /tmp/bash32
+          ln -sf /bin/bash /tmp/bash32/bash
+          export PATH="/tmp/bash32:$PATH"
+          bash --version | head -1
+          fails=0
+          while IFS= read -r -d '' t; do
+            echo "── $t"
+            bash "$t" || fails=$((fails+1))
+          done < <(find . -name '*-selftest.sh' -type f -print0)
+          exit "$fails"

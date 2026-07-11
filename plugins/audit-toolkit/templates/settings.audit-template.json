@@ -1,0 +1,69 @@
+{
+    "//": "AUDIT INFRASTRUCTURE — LEGACY / MANUAL-WIRING FALLBACK.",
+    "//0": "PREFERRED: enable the audit-toolkit plugin. Its hooks/hooks.json",
+    "//0a": "wires these same four events automatically — you do NOT need this",
+    "//0b": "file at all. Use this template ONLY for manual per-engineer wiring",
+    "//0c": "(a repo not adopting the plugin, or a local-only opt-in).",
+    "//1": "Copy this file to .claude/settings.local.json (or merge its 'hooks'",
+    "//2": "block into your existing settings.local.json) and restart Claude",
+    "//3": "Code to enable per-session tool-call logging.",
+    "//4": "",
+    "//5": "What you get: every tool call is appended to a per-session JSONL",
+    "//6": "ledger at .claude/audit/{session_id}.jsonl. Inspect via /audit",
+    "//7": "(current session) or /audit-history (cross-session aggregator).",
+    "//8": "",
+    "//9": "What you DON'T get: any kind of automatic block. The hooks do not",
+    "//10": "stop pushes, commits, or PRs. Drift surfaces in the ledger and in",
+    "//11": "/audit-history reports as visibility signals; follow-up is manual.",
+    "//12": "",
+    "//13": "settings.local.json is gitignored — manual wiring is per-engineer.",
+    "//14": "The command paths below use ${CLAUDE_PLUGIN_ROOT}, which resolves",
+    "//15": "only when the audit-toolkit plugin is present. A repo that vendors",
+    "//16": "the script instead must repoint these to its own copy's path.",
+    "hooks": {
+        "PostToolUse": [
+            {
+                "hooks": [
+                    {
+                        "type": "command",
+                        "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/audit-tool-calls.sh\"",
+                        "timeout": 5
+                    }
+                ]
+            }
+        ],
+        "PostToolUseFailure": [
+            {
+                "hooks": [
+                    {
+                        "type": "command",
+                        "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/audit-tool-calls.sh\"",
+                        "timeout": 5
+                    }
+                ]
+            }
+        ],
+        "SubagentStop": [
+            {
+                "hooks": [
+                    {
+                        "type": "command",
+                        "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/audit-tool-calls.sh\"",
+                        "timeout": 5
+                    }
+                ]
+            }
+        ],
+        "UserPromptExpansion": [
+            {
+                "hooks": [
+                    {
+                        "type": "command",
+                        "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/audit-tool-calls.sh\"",
+                        "timeout": 5
+                    }
+                ]
+            }
+        ]
+    }
+}

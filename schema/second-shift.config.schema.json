@@ -1,0 +1,168 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/manoldonev/second-shift/schema/second-shift.config.schema.json",
+  "title": "second-shift consumer-repo configuration (static context)",
+  "description": "The single per-repo onboarding file (.claude/second-shift.config.json). Everything repo-specific that the generic plugins need: tracker, topology, base branches, command truth table, reviewer registry deltas, paths, gates. Domain knowledge does NOT belong here — it lives in repo-local skills and extension files (see docs/extension-points.md).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["configVersion", "tracker", "topology", "commands"],
+  "properties": {
+    "configVersion": {
+      "const": 1,
+      "description": "Schema version of this config file; bumped only on breaking schema changes."
+    },
+    "tracker": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type"],
+      "properties": {
+        "type": { "enum": ["github", "jira"] },
+        "writes": {
+          "type": "boolean",
+          "default": true,
+          "description": "Whether the pipeline writes back to the tracker (stage comments, status/label transitions, claim). github default true (queue+claim+comment model); the JIRA lineage runs read-only (fetch the ticket via MCP, never transition or comment — the state file + draft-PR metadata are the audit trail), so JIRA repos set false. A false value makes the tracker-write steps in stages 1/8/9 no-ops; ticket fetch stays active regardless."
+        },
+        "branchPrefix": {
+          "type": "string",
+          "description": "Branch-name namespace prepended to the ticket key. The work branch is \"<branchPrefix><ticketKey>\" for slice 1 and \"<branchPrefix><ticketKey>-pr<N>\" for stacked slice N. github lineage: \"claude/acme-\" (→ claude/acme-42). JIRA lineage: a per-user identifier plus a slash, e.g. \"jdoe/\" (→ jdoe/gh-540). Gives the previously-hardcoded prefix in max-pushed-slice.sh a config home."
+        },
+        "bot": {
+          "type": "object",
+          "description": "github only: dedicated bot identity for issue/PR writes (claim safety).",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": { "type": "boolean" },
+            "envVar": { "type": "string", "default": "GH_BOT" },
+            "wrapperPath": {
+              "type": "string",
+              "description": "Explicit path to the gh-as-bot wrapper script. When set, install-gh-bot.sh writes it here and claim-issue.sh's GH_BOT default resolves to it, instead of the $HOME/.config/<repo-basename>/gh-as-bot.sh derivation (which was derived wrong once — a canary catch). Supports $HOME/~ expansion."
+            },
+            "app": {
+              "type": "object",
+              "additionalProperties": false,
+              "description": "GitHub App identity for the bot (previously hardcoded in install-gh-bot.sh with no config home). Onboarding a different repo's bot app sets these instead of editing script constants.",
+              "properties": {
+                "clientId": { "type": "string", "description": "GitHub App client ID (JWT issuer)." },
+                "appName": { "type": "string", "description": "GitHub App slug, e.g. \"acme-dev-pipeline\" (used in settings-page URLs and messages)." },
+                "privateKeyFilename": { "type": "string", "description": "Private-key filename installed under the bot config dir, e.g. \"acme-dev-pipeline.private-key.pem\"." },
+                "installationId": { "type": "string", "description": "Optional: pin the installation ID to skip API discovery." }
+              }
+            }
+          }
+        },
+        "keyPattern": {
+          "type": "string",
+          "description": "Regex for ticket keys as used in branch names and state files (e.g. \"[A-Z]+-[0-9]+\" for JIRA, \"[0-9]+\" for GitHub issue numbers). statectl init validates the key against this anchored pattern (fails closed on a malformed key); absent = accept any non-empty key."
+        }
+      }
+    },
+    "topology": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "repos"],
+      "properties": {
+        "type": { "enum": ["standalone", "be-fe-pair", "monorepo"] },
+        "repos": {
+          "type": "object",
+          "description": "Keyed by logical repo id (\"be\", \"fe\", or a single id for standalone/monorepo). The pipeline is always invoked from the repo this config lives in; sibling repos are reached via relative paths.",
+          "minProperties": 1,
+          "additionalProperties": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["path", "baseBranch"],
+            "properties": {
+              "path": { "type": "string", "description": "Relative to the config's repo root; \".\" for the host repo." },
+              "baseBranch": { "type": "string", "description": "The integration mainline PRs target (repos in a pair may differ, e.g. BE alpha / FE main)." },
+              "worktreesDir": { "type": "string", "description": "Where pipeline worktrees are created for this repo (default ../<repo>-worktrees)." },
+              "ticketTag": { "type": "string", "description": "Ticket-title tag routing work to this repo (e.g. \"[BE]\")." }
+            }
+          }
+        }
+      }
+    },
+    "commands": {
+      "type": "object",
+      "description": "Command truth table per logical repo id (keys must exist in topology.repos). null = lane not available in this repo (verifyctl must not select it).",
+      "minProperties": 1,
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "lint": { "type": ["string", "null"] },
+          "lintAutofixes": { "type": "boolean", "description": "Whether the lint command mutates files (verifyctl LINT_AUTOFIX failure classification)." },
+          "typecheck": { "type": ["string", "null"] },
+          "test": { "type": ["string", "null"] },
+          "testFile": { "type": ["string", "null"], "description": "Template for running ONE spec file (the mutation gate's per-spec runner). {file} is replaced with the spec path; the command runs from the worktree root. e.g. \"yarn --cwd apps/api test {file}\". null = no per-spec runner (previously hardcoded to the acme apps/api form)." },
+          "unitTestScope": { "type": ["string", "null"], "description": "Glob selecting the backend source in scope for the unit-test mutation gate (Stages 3-5 classify unitTestSurface against it). e.g. \"apps/api/src/**\". null = not scoped (the whole repo, or the gate is off)." },
+          "integrationTest": { "type": ["string", "null"] },
+          "apiTest": { "type": ["string", "null"] },
+          "build": { "type": ["string", "null"] },
+          "format": { "type": ["string", "null"] },
+          "lanes": {
+            "type": "array",
+            "description": "Monorepo lane matrix: per-workspace command sets verifyctl expands (e.g. apps/*, packages/*).",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["name"],
+              "properties": {
+                "name": { "type": "string" },
+                "cwd": { "type": "string" },
+                "commands": { "type": "array", "items": { "type": "string" } }
+              }
+            }
+          }
+        }
+      }
+    },
+    "reviewers": {
+      "type": "object",
+      "description": "Deltas against the plugin-shipped review-lead registry.",
+      "additionalProperties": false,
+      "properties": {
+        "add": {
+          "type": "array",
+          "description": "Repo-local reviewer agents (in this repo's .claude/agents/) to register with review-lead.",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["name"],
+            "properties": {
+              "name": { "type": "string" },
+              "dimensions": { "type": "array", "items": { "type": "string" }, "description": "Review dimensions this agent covers (dedup/routing hint for review-lead)." }
+            }
+          }
+        },
+        "remove": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Plugin-shipped reviewers to disable in this repo (e.g. db-reviewer in an FE repo)."
+        },
+        "modelOverrides": {
+          "type": "object",
+          "description": "Per-reviewer model-tier override (observed need: security-reviewer opus in one repo, sonnet in another). check-model-tiers validates .mjs tables against frontmatter + these overrides.",
+          "additionalProperties": { "enum": ["haiku", "sonnet", "opus"] }
+        }
+      }
+    },
+    "paths": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "plansDir": { "type": "string", "default": ".claude/plans" },
+        "pipelineStateDir": { "type": "string", "default": ".claude/pipeline-state" }
+      }
+    },
+    "gates": {
+      "type": "object",
+      "description": "Optional pipeline gates/capabilities. Everything defaults to off; a gate that is on but missing its prerequisites must fail closed at run time.",
+      "additionalProperties": false,
+      "properties": {
+        "mutation": { "type": "boolean", "default": false },
+        "apiTests": { "type": "boolean", "default": false },
+        "figma": { "type": "boolean", "default": false, "description": "Enables the Figma-MCP capability of design-toolkit." },
+        "costTracking": { "type": "boolean", "default": false, "description": "Local OTel cost estimation (requires operator-side collector setup)." }
+      }
+    }
+  }
+}

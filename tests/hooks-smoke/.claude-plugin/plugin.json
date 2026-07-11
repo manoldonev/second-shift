@@ -1,0 +1,5 @@
+{
+  "name": "hooks-smoke",
+  "description": "Runtime verification plugin for second-shift Phase 0: proves plugin-shipped hooks fire and ${CLAUDE_PLUGIN_ROOT} resolves. Load with: claude --plugin-dir <repo>/tests/hooks-smoke, then run any Bash command and check /tmp/second-shift-hooks-smoke.log.",
+  "version": "0.1.0"
+}

@@ -1,0 +1,101 @@
+#!/usr/bin/env bash
+# config-lint.sh — validate a consumer repo's .claude/second-shift.config.json
+#
+# Structural validator in bash+jq (no node/ajv dependency, same toolchain as the
+# pipeline's shell tools). Mirrors schema/second-shift.config.schema.json; the
+# schema file is the documentation contract, this script is the enforcement the
+# plugins actually run. Keep the two in lockstep.
+#
+# Usage: config-lint.sh <config-file>
+# Exit:  0 valid · 1 violations (listed on stderr) · 3 usage/IO error
+set -euo pipefail
+
+CONFIG="${1:?usage: config-lint.sh <config-file>}"
+[[ -f "$CONFIG" ]] || { echo "config-lint: no such file: $CONFIG" >&2; exit 3; }
+
+jq empty "$CONFIG" 2>/dev/null || { echo "config-lint: not valid JSON: $CONFIG" >&2; exit 1; }
+
+ERRORS=$(jq -r '
+  def err(cond; msg): if cond then [msg] else [] end;
+
+  # ---- top level ----------------------------------------------------------
+  err(.configVersion != 1; "configVersion must be 1")
+  + err((.tracker | type) != "object"; "tracker: required object")
+  + err((.topology | type) != "object"; "topology: required object")
+  + err((.commands | type) != "object"; "commands: required object")
+  + err(
+      (keys - ["configVersion","tracker","topology","commands","reviewers","paths","gates"]) != [];
+      "unknown top-level keys: " + ((keys - ["configVersion","tracker","topology","commands","reviewers","paths","gates"]) | join(", "))
+    )
+
+  # ---- tracker -------------------------------------------------------------
+  + err((.tracker.type? // "") | IN("github","jira") | not; "tracker.type must be github|jira")
+  + err((.tracker.bot? != null) and (.tracker.type? == "jira"); "tracker.bot is github-only")
+  + err((.tracker | type == "object") and ((.tracker | keys) - ["type","writes","bot","keyPattern","branchPrefix"]) != []; "tracker: unknown keys")
+  + err((.tracker.writes? != null) and ((.tracker.writes | type) != "boolean"); "tracker.writes: must be boolean")
+  + err((.tracker.branchPrefix? != null) and ((.tracker.branchPrefix | type) != "string"); "tracker.branchPrefix: must be string")
+  + err((.tracker.keyPattern? != null) and ((.tracker.keyPattern | type) != "string"); "tracker.keyPattern: must be string")
+  + ((.tracker.bot // {}) |
+      err((type == "object") and ((keys) - ["enabled","envVar","wrapperPath","app"]) != []; "tracker.bot: unknown keys")
+      + ((.app // {}) | err((type == "object") and ((keys) - ["clientId","appName","privateKeyFilename","installationId"]) != []; "tracker.bot.app: unknown keys"))
+    )
+
+  # ---- topology ------------------------------------------------------------
+  + err((.topology.type? // "") | IN("standalone","be-fe-pair","monorepo") | not; "topology.type must be standalone|be-fe-pair|monorepo")
+  + err(((.topology.repos? // {}) | length) < 1; "topology.repos: at least one repo required")
+  + ((.topology.repos // {}) | to_entries | map(
+      err((.value.path? // "") == ""; "topology.repos." + .key + ".path: required")
+      + err((.value.baseBranch? // "") == ""; "topology.repos." + .key + ".baseBranch: required")
+      + err(((.value | keys) - ["path","baseBranch","worktreesDir","ticketTag"]) != []; "topology.repos." + .key + ": unknown keys")
+    ) | add // [])
+  + err(
+      (.topology.type? == "be-fe-pair") and ((((.topology.repos? // {}) | keys) | contains(["be","fe"])) | not);
+      "topology.type be-fe-pair requires repos.be and repos.fe"
+    )
+
+  # ---- commands ------------------------------------------------------------
+  + err(
+      ((.commands // {}) | keys) - ((.topology.repos // {}) | keys) != [];
+      "commands keyed by unknown repo ids: " + ((((.commands // {}) | keys) - ((.topology.repos // {}) | keys)) | join(", "))
+    )
+  + ((.commands // {}) | to_entries | map(
+      (.key as $repo | .value |
+        err(((keys) - ["lint","lintAutofixes","typecheck","test","testFile","unitTestScope","integrationTest","apiTest","build","format","lanes"]) != []; "commands." + $repo + ": unknown keys")
+        + ([to_entries[] | select(.key | IN("lint","typecheck","test","testFile","unitTestScope","integrationTest","apiTest","build","format")) |
+            err((.value | type) | IN("string","null") | not; "commands." + $repo + "." + .key + ": must be string or null")
+          ] | add // [])
+        + ((.lanes // []) | to_entries | map(
+            err((.value.name? // "") == ""; "commands." + $repo + ".lanes[" + (.key|tostring) + "].name: required")
+          ) | add // [])
+      )
+    ) | add // [])
+
+  # ---- reviewers -----------------------------------------------------------
+  + err((.reviewers? != null) and ((.reviewers | type) != "object"); "reviewers: must be object")
+  + ((.reviewers // {}) |
+      err(((keys) - ["add","remove","modelOverrides"]) != []; "reviewers: unknown keys")
+      + ((.add // []) | to_entries | map(
+          err((.value.name? // "") == ""; "reviewers.add[" + (.key|tostring) + "].name: required")
+        ) | add // [])
+      + ((.modelOverrides // {}) | to_entries | map(
+          err(.value | IN("haiku","sonnet","opus") | not; "reviewers.modelOverrides." + .key + ": must be haiku|sonnet|opus")
+        ) | add // [])
+    )
+
+  # ---- paths / gates ---------------------------------------------------------
+  + ((.paths // {}) | err(((keys) - ["plansDir","pipelineStateDir"]) != []; "paths: unknown keys"))
+  + ((.gates // {}) |
+      err(((keys) - ["mutation","apiTests","figma","costTracking"]) != []; "gates: unknown keys")
+      + (to_entries | map(err((.value | type) != "boolean"; "gates." + .key + ": must be boolean")) | add // [])
+    )
+
+  | .[]
+' "$CONFIG")
+
+if [[ -n "$ERRORS" ]]; then
+  echo "config-lint: $CONFIG:" >&2
+  while IFS= read -r line; do echo "  ✗ $line" >&2; done <<< "$ERRORS"
+  exit 1
+fi
+
+echo "config-lint: OK ($CONFIG)"

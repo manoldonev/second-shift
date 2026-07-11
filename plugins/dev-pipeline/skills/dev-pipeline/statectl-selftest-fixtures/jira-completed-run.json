@@ -1,0 +1,79 @@
+{
+  "ticketKey": "gh-540",
+  "runId": "2026-07-11T00:00:00Z-host-abcd1234",
+  "status": "completed",
+  "startedAt": "2026-07-11T08:52:31Z",
+  "lastUpdatedAt": "2026-07-11T08:52:32Z",
+  "stages": {
+    "1": {
+      "status": "completed",
+      "startedAt": "2026-07-11T08:52:31Z",
+      "completedAt": "2026-07-11T08:52:31Z"
+    },
+    "2": {
+      "status": "completed",
+      "startedAt": "2026-07-11T08:52:31Z",
+      "completedAt": "2026-07-11T08:52:32Z"
+    },
+    "3": {
+      "status": "completed",
+      "startedAt": "2026-07-11T08:52:32Z",
+      "completedAt": "2026-07-11T08:52:32Z"
+    },
+    "4": {
+      "status": "completed",
+      "startedAt": "2026-07-11T08:52:32Z",
+      "planReview": {
+        "overall": "pass"
+      },
+      "completedAt": "2026-07-11T08:52:32Z"
+    },
+    "5": {
+      "status": "completed",
+      "startedAt": "2026-07-11T08:52:32Z",
+      "completedAt": "2026-07-11T08:52:32Z"
+    },
+    "6": {
+      "status": "completed",
+      "startedAt": "2026-07-11T08:52:32Z",
+      "completedAt": "2026-07-11T08:52:32Z"
+    },
+    "7": {
+      "status": "completed",
+      "startedAt": "2026-07-11T08:52:32Z",
+      "completedAt": "2026-07-11T08:52:32Z"
+    },
+    "8": {
+      "status": "completed",
+      "startedAt": "2026-07-11T08:52:32Z",
+      "completedAt": "2026-07-11T08:52:32Z"
+    },
+    "9": {
+      "status": "completed",
+      "startedAt": "2026-07-11T08:52:32Z",
+      "completedAt": "2026-07-11T08:52:32Z"
+    }
+  },
+  "currentStage": 9,
+  "stageCheckpoint": {
+    "1": {
+      "verdict": "no-split"
+    },
+    "5": {
+      "changedFiles": []
+    },
+    "7": {
+      "ticketKey": "gh-540",
+      "branch": "jdoe/gh-540",
+      "headSha": "abc123",
+      "worktreePath": ".claude/worktrees/jdoe-gh-540",
+      "deviations": []
+    }
+  },
+  "worktreePath": ".claude/worktrees/jdoe-gh-540",
+  "branch": "jdoe/gh-540",
+  "verifySummary": {
+    "format": "clean"
+  },
+  "codeReviewRounds": 1
+}

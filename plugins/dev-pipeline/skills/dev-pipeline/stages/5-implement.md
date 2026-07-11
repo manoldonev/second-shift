@@ -1,0 +1,144 @@
+# Stage 5. Implement
+
+**First, mark the stage started** — per the global Stage write convention (SKILL.md), Stage 5 begins with `statectl set-stage "$ISSUE_NUMBER" 5 --status started` BEFORE following the plan / writing code below. Implementation is real work, so deferring the started-write collapses `stages.5` to a 0:00 window, and `set-stage ... --status completed` then errors with "cannot complete stage 5 with no startedAt". Write `started` first.
+
+- Follow the plan task-by-task.
+- **Check the plan's Reuse inventory (and grep) before creating any new helper** — a near-duplicate of an existing utility is the Stage-6 quality pass's top cleanup target; reusing it now is cheaper than having the pass rewrite it later.
+- **Disposition every Stage 4 plan-review warning** — apply it, or record an explicit deferral (with reason) in the Stage 5 checkpoint's `deviations`. A silently un-actioned warning is exactly the deviation class retros exist to catch. **If applying a warning changes a file the plan listed under "NOT changed" (or otherwise excluded from "Affected files/modules"), reconcile the plan's file list in the same commit** — never leave the plan artifact contradicting the diff. A plan that still says "NOT changed" for a file the diff modifies reads as scope creep on review even when the change was surfaced as a deviation.
+- **Track fix loops on plan-specific verification commands immediately** — if a verification command from the plan (selftest, custom script) fails during Stage 5 and you fix code or test in response, increment `statectl verify-attempts "$ISSUE_NUMBER" --incr PLAN_CMD_FAILURE` at that moment. Stage 6's rule ("a fix loop on them is a verify fix loop regardless of which stage discovered it") applies here; running the command early does not exempt the loop from tracking. Track per-occurrence and immediately — never reconstruct the count at the end of the stage (a count backfilled after the fact is itself a state-discipline deviation `/pipeline-retro` flags). **The four suite classes (`FORMAT`/`LINT_AUTOFIX`/`TYPE_ERROR`/`TEST_FAILURE`) are charged exclusively by `verifyctl.sh`** — never self-charge them here; a mid-Stage-5 fix loop on the configured test command (config `commands.<host>.test`) that still fails at Stage 6 is charged by verifyctl's re-run detection. A test-first / TDD first-red of a freshly-written test with no implementation yet is expected and never a tracked loop.
+- **Test strategy is context-dependent:**
+  - Behavior changes / bug fixes: prefer test-first (write failing test → implement → verify)
+  - Refactors / infrastructure / config / CI: add or update tests where practical, verify through standard commands
+  - **`(AC-n)` test-title convention:** when a test verifies a specific acceptance criterion from the plan's traceability table, suffix its `it(...)` / `test(...)` title with `(AC-n)` (see [`unit-testing`](../../unit-testing/SKILL.md)) — best-effort, so the retro's AC-coverage audit can grep the diff for it.
+- Commit after each logical chunk (conventional commits, reference issue number in body).
+- Follow all conventions from `.project/reference/conventions.md`.
+
+**Configuration impact check:** When adding new dependencies, verify they work with existing toolchain configuration (tsconfig, ESLint, bundler, etc.) BEFORE writing application code. If a dependency requires config changes (e.g., `moduleResolution`, `compilerOptions`, ESLint plugins):
+
+1. Research the minimal, correct fix — not just the first thing that compiles.
+2. Test the config change against the full codebase (the configured type-check and build commands, config `commands.<host>.typecheck` / `commands.<host>.build`) to catch cascading effects.
+3. If the correct fix is too invasive (e.g., monorepo-wide migration), document the workaround and the future fix in an ADR or plan.
+4. Never silently add workarounds to shared config files without documenting why.
+
+---
+
+## Unit test mutation review (when `unitTestSurface.applicable == true` and `unitTestSurface.action != "skip"`)
+
+Runs **after** all implementation commits land (including co-located `*.spec.ts`), before `set-stage 5 --status completed`. The worktree is clean, so the gate uses an explicit commit range. Propose + execute + verdict all run inside ONE `mutation-gate.mjs` dispatch — no in-session apply/run/revert (the executions are machine-attested by the workflow journal, not self-reported). See [`unit-testing`](../../unit-testing/SKILL.md) for the assertion-strength conventions and blocker taxonomy.
+
+**Worktree + range (resolve once).** The state `worktreePath` is repo-relative; resolve it to an absolute path against repo root, and derive the range against the persisted `worktreeBase` (stacked slices never diff the bare base branch):
+
+```bash
+WT="$(git rev-parse --show-toplevel)/$(statectl.sh get "$ISSUE_NUMBER" '.worktreePath')"
+WORKTREE_BASE="$(statectl.sh get "$ISSUE_NUMBER" '.worktreeBase // "main"')"
+HEAD="$(git -C "$WT" rev-parse HEAD)"
+BASE="$(git -C "$WT" merge-base HEAD "origin/${WORKTREE_BASE}" 2>/dev/null || git -C "$WT" merge-base HEAD "$WORKTREE_BASE")"
+# Config-driven per-host: the host repo id is the topology.repos entry with path ".".
+# unitTestScope (acme: apps/api/src/**) bounds the backend diff; testFile ({file}
+# placeholder) is the mutation gate's per-spec runner.
+HOST_Q='(.topology.repos | to_entries[] | select(.value.path==".") | .key)'
+UNIT_SCOPE="$(jq -r "$HOST_Q as \$h | .commands[\$h].unitTestScope // \"apps/api/src/**\"" "$SECOND_SHIFT_CONFIG" 2>/dev/null || echo 'apps/api/src/**')"
+CHANGED_BACKEND_FILES="$(git -C "$WT" diff --name-only "${BASE}..${HEAD}" -- "$UNIT_SCOPE")"
+TEST_FILE_CMD="$(jq -r "$HOST_Q as \$h | .commands[\$h].testFile // \"yarn --cwd apps/api test {file}\"" "$SECOND_SHIFT_CONFIG" 2>/dev/null || echo 'yarn --cwd apps/api test {file}')"
+```
+
+Recompute `HEAD` (and `CHANGED_BACKEND_FILES`) before any re-dispatch after test-strengthening commits.
+
+1. **Dispatch the mutation gate (ONE call — propose, execute, verdict all inside).** `statectl stage-substatus "$ISSUE_NUMBER" --stage 5 --key unitTestMutationReview --value reviewing`, then dispatch. `mutation-gate.mjs` nests the propose call (`unit-tests.mjs`, propose-only, own staller mitigations) and executes each blocker mutant via a sequential **schema-free** executor agent (apply via Edit → run spec → revert → plain-text `MUTANT_RESULT` line parsed in the script — no StructuredOutput anywhere in the execution phase). Propose `infraFailure` gets ONE in-script re-dispatch.
+
+   ```
+   Workflow({
+     scriptPath: "workflows/mutation-gate.mjs",
+     // The caller also passes args.config = the parsed second-shift.config.json.
+     args: { worktree: "$WT", base: "$BASE", head: "$HEAD", issue: "$ISSUE_NUMBER",
+             config: CONFIG,
+             testFileCommand: "$TEST_FILE_CMD",   // resolved from commands.<host>.testFile
+             workflowsDir: "workflows",
+             round: 1,
+             inputs: { modulesTouched: <unitTestSurface.modulesTouched>,
+                       specPaths: <unitTestSurface.specPaths>,
+                       changedBackendFiles: [<paths from CHANGED_BACKEND_FILES>],
+                       mutationTargets: <unitTestSurface.mutationTargets> } }
+   })
+   # Returns { overall, round, proposalSummary, mockAuditFindings, executions[], mutationScore, survivedMutants[] }.
+   ```
+
+2. **Post-gate worktree assertion (always, before anything else):** `git -C "$WT" status --porcelain`; if dirty (an executor died on the LAST mutant — the script has no Bash to clean up after it), `git -C "$WT" checkout -- .`. Defense-in-depth, stated explicitly: the script aborts its loop on a ceiling-orphaned executor, this assertion heals a dead last executor, and Stage-6 verify is the backstop if both are missed (mutated source fails the suite); a ceiling orphan could theoretically re-dirty the tree after this checkout — the three layers are accepted as sufficient.
+
+3. **Apply the returned `overall`:**
+
+   | `overall`           | Action                                                                                                                                          |
+   | ------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+   | `budget-skipped`    | Stop; tell the operator to re-run when budget allows. Do **not** `mark-failed`.                                                                 |
+   | `infra`             | Stop; surface to the operator (the in-script re-dispatch already happened). **Never** `mark-failed --reason unit-test-mutation-reviewer-block`. |
+   | `survived-blockers` | Round loop (step 4).                                                                                                                            |
+   | `pass`              | Address `mockAuditFindings` (warning+) inline if any, run affected tests, commit if changed. Continue to step 5.                                |
+
+4. **Round loop (max 2 rounds, in-session judgment):** strengthen tests per each `survivedMutants[].suggestedFix`, run the affected specs, commit `test:`, recompute `HEAD`/`BASE`/changed files, dispatch `mutation-gate.mjs` again with `round: 2` (fresh Workflow invocation — full re-propose on the new range; survivor-only re-execution would trust round-1 proposals against specs they never saw). Round 2 still `survived-blockers` → `mark-failed --reason unit-test-mutation-reviewer-block --stage 5` (carry `mutationScore` + survived mutants via `build-failure-context --kv-lines`), keep worktree, STOP rc=0.
+
+5. **Persist the audit from the ledger, then close the sub-status:**
+
+   ```bash
+   statectl.sh mutation-audit-set "$ISSUE_NUMBER" \
+     --json '{"rounds":[{"round":1,"executions":[...],"mutationScore":{"killed":N,"survived":0}}],"finalDisposition":"pass"}'
+   statectl.sh stage-substatus "$ISSUE_NUMBER" --stage 5 --key unitTestMutationReview --value completed
+   ```
+
+   The audit is composed from the workflow's returned ledger (`executions[]` per dispatch) — machine-attested, never reconstructed from memory.
+
+**Resume** (fresh session re-entering Stage 5): read `stages.5.unitTestMutationReview` — `reviewing` → `git -C "$WT" checkout -- .` first (a dead executor can leave a half-applied mutant), then re-dispatch round 1; `executing` (legacy — pre-sequencer state files only) → treat as `reviewing`; `completed` (or absent when `action == skip`) → standard Stage-5 resume.
+
+---
+
+## Design-faithful implement + live-render verify (when `stageCheckpoint["1"].designDriven == true`)
+
+On a design-driven run the screen is implemented **by the engine**, not hand-coded: the `design-toolkit:design-faithful` skill reads the handoff, writes `apps/web` code mirroring the nearest analog (the repo's design tokens and real UI components), and commits in-session. Then a live-render verify gate compares the rendered screen against the handoff screenshots. Skip this entire section on non-design runs (the default — hand-code per the plan as above). The `designPlanReview` sub-status tracks the two phases for resume; mirrors `unitTestMutationReview`. Resolve `WT` (absolute worktree path) and `designSource` as for the other dispatches.
+
+1. **Implement via the engine.** `statectl stage-substatus "$ISSUE_NUMBER" --stage 5 --key designPlanReview --value implementing`, then:
+
+   ```
+   Workflow({
+     scriptPath: "workflows/design-sync.mjs",
+     // The caller also passes args.config = the parsed second-shift.config.json.
+     args: { kind: "produce", implement: true, projectId: "$PROJECT_ID", screen: "$SCREEN",
+             issue: "$ISSUE_NUMBER", config: CONFIG }
+   })
+   # implement:true → dispatches the design-toolkit:design-faithful skill, which writes apps/web + commits.
+   # Returns { kind, implement, result } | { kind, implement, failClosed } | { kind, budgetExhausted: true }.
+   ```
+
+   - **`budgetExhausted: true`** — clean skip; stop and tell the operator to re-run. Never `mark-failed`.
+   - **`result.infraFailure: true`** — agent died without StructuredOutput after the engine's inline retries. Assert a clean worktree, re-dispatch **once**; still infra → surface as infra (never `mark-failed --reason design-source-unreachable`).
+   - **`failClosed.reason`** (any engine `FAIL_CLOSED` value) → `mark-failed --reason design-source-unreachable --stage 5` with the specific reason in `--kv engineFailClosed=<r>` (same mapping as Stage 3). Keep worktree, STOP rc=0.
+   - **Success** — the engine committed the apps/web changes; record `result.changedFiles`.
+
+2. **Live-render verify gate.** `statectl stage-substatus "$ISSUE_NUMBER" --stage 5 --key designPlanReview --value verifying`. Start the web dev server, render the implemented screen, and diff **computed styles + a screenshot** against the handoff screenshots from the contract (token roles, spacing/radii, typography, layout). On a meaningful mismatch, fix in `apps/web` (an in-session fix loop — track via `statectl verify-attempts --incr PLAN_CMD_FAILURE`; the suite classes are verifyctl-owned), re-render, and re-check.
+   - **No dev server reachable** (e.g. a headless run) → record **`render-verify-unavailable`** as a degraded, **non-blocking** condition: note it in the Stage-5 comment / for the PR body and continue. **Do NOT `mark-failed`** — it is not a `valid_failure_reason` (state-schema.md **Design Mode**). The engine's `implement:true` path already self-verifies against the bundled screenshot in-session; this gate is the pipeline-level confirmation when a live server is available.
+
+3. **Close the sub-status:** `statectl stage-substatus "$ISSUE_NUMBER" --stage 5 --key designPlanReview --value implemented`.
+
+**Completion guard (load-bearing):** on a design-driven run, do **not** write `set-stage 5 --status completed` while `stages.5.designPlanReview` is non-terminal (`implementing` / `verifying`). The value must be `implemented` first. `statectl` enforces the value enum but **not** this completion-ordering rule — it lives here (mirrors the `unitTestMutationReview` completion discipline).
+
+**Resume** (fresh session re-entering Stage 5, design-driven): read `stages.5.designPlanReview` — `implementing` → assert a clean worktree (`git -C "$WT" status --porcelain` empty; `git -C "$WT" checkout -- .` if not) then re-dispatch the engine produce-implement; `verifying` → re-run the live-render verify gate; `implemented` (or absent on non-design runs) → standard Stage-5 resume.
+
+---
+
+## Write the Stage 5 checkpoint (crash recovery)
+
+After all implementation commits land — including the unit-test mutation review and any design-toolkit:design-faithful implement+verify above — and **before** `set-stage 5 --status completed`, write the Stage-5 checkpoint per SKILL.md "Stage Checkpoints — After Stage 5". It is crash-recovery only (never read on the happy path), but its absence leaves a mid-Stage-5/6 resume blind. Unlike Stage 7 there is **no `build-checkpoint-5` helper** — the Stage-1/5 checkpoints are free-shape, written directly (mirrors the Stage-7 inline checkpoint discipline in [`7-doc-update.md`](./7-doc-update.md), without the builder):
+
+```bash
+statectl.sh checkpoint "$ISSUE_NUMBER" 5 --json '{
+  "changedFiles": ["..."],
+  "commits": ["<sha>"],
+  "planPath": "docs/plans/acme-'"$ISSUE_NUMBER"'.md",
+  "verifyCommands": ["..."],
+  "planRisks": ["..."]
+}'
+```
+
+Then mark the stage completed (`statectl set-stage "$ISSUE_NUMBER" 5 --status completed`) and proceed to Stage 6.
+
+---
+
+_Stage 5 of the [dev-pipeline](../SKILL.md) flow. Return to the router for cross-stage contracts (Invocation Routing, Failure Contract, State Persistence, etc.)._
