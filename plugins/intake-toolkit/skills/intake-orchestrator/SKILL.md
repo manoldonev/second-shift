@@ -18,6 +18,23 @@ You are the intake orchestrator for the dev-pipeline. Every issue that enters th
 
 This skill loads instructions into the **calling session**, which gathers evidence from the sub-agents (`review-toolkit:spec-reviewer`, `review-toolkit:codebase-explorer`) as a **structured fan-out** (transports in Step 2) and reasons over the returned structured object. Dependency analysis runs as an in-session subroutine (see "## Dependency Analysis (subroutine)" below) — no sub-agent hop. (Bare `spec-reviewer` / `codebase-explorer` below always mean these review-toolkit agents.)
 
+> **Tracker delta (config `tracker.type: jira`).** The prose below is the **github**
+> default (`tracker.writes: true`): the orchestrator reads the issue via `gh issue view`,
+> and on a `sub-issues` verdict it **auto-creates** the ≤5 slices and swaps parent labels
+> through `$GH_BOT`. Under the jira adapter (dev-pipeline's `tools/tracker/jira/` contract,
+> `tracker.writes: false`) the ticket is fetched **read-only** via `mcp__atlassian__getJiraIssue`
+> (Step 0 reads it there instead of `gh issue view`, and remote design/spec links via
+> `mcp__atlassian__getJiraIssueRemoteIssueLinks`); the `sub-issues` verdict **presents** the
+> ≤5 sub-ticket specs to the operator rather than writing them — **no issue-create, no label
+> swap, no comment**. The escalation and status-comment steps (Step 6, Escalation) become
+> operator-facing notes surfaced in-session, not tracker writes. Everything else here
+> (classification, Step 0.5 quarantine, the evidence fan-out, dependency analysis,
+> decomposition judgment, the coverage back-check, brief persistence) is tracker-agnostic.
+> `$GH_BOT` stays the sanctioned bot convention on the github path. The labels named
+> below (`ready-for-dev`, `epic`, `in-progress`, `needs-intake-review`, `needs-spec-work`)
+> are the shipped `stageParams.requiredLabels` default set — a consumer that overrides that
+> set is honored; substitute its names.
+
 ## Pre-flight: Tool availability
 
 Before any other action, verify the calling session has a dispatch surface for the evidence fan-out: the `Workflow` tool (production — runs `workflows/intake-review.mjs`), or the `Task` tool with both sub-agents `spec-reviewer` and `codebase-explorer` (the eval-harness transport). One of the two must be present.
@@ -48,7 +65,7 @@ You dispatch two sub-agents and run dependency analysis inline. Their findings a
 
 - **Required**: Issue number (pipeline provides this after claim)
 - **Required**: RUN_ID (passed from pipeline Stage 1 — do not generate a new one. Use this value in all `{RUN_ID}` comment templates.)
-- **Assumed**: `gh` CLI is authenticated, repo root is working directory
+- **Assumed** (github adapter): `gh` CLI is authenticated, repo root is working directory. Under `tracker.type: jira` the equivalent assumption is a connected Atlassian MCP (`mcp__atlassian__*`) on the calling session; repo root is still the working directory.
 - **Context**: Bootstrap from the repo's `CLAUDE.md` (and whatever convention / current-focus docs and knowledge skills it routes to)
 
 ## Process
@@ -56,10 +73,11 @@ You dispatch two sub-agents and run dependency analysis inline. Their findings a
 ### Step 0: Read the Issue
 
 ```bash
+# github adapter (tracker.type: github) — the default path:
 gh issue view $ISSUE_NUMBER --json body,comments,labels
 ```
 
-Read the full issue body and all comments.
+Read the full issue body and all comments. Under the jira adapter (`tracker.type: jira`) fetch the ticket **read-only** instead — `mcp__atlassian__getJiraIssue` for the body/description and `$KEY` in place of `$ISSUE_NUMBER`; there are no queue labels to read and the resume guards below that key off labels/`stage: intake` comments don't apply (JIRA carries no pipeline-written comment trail — `tracker.writes: false`).
 
 **Resume guards (cross-session — issue-state-aware):**
 
@@ -105,7 +123,7 @@ Produce a **Product-Essence Brief** — a clean restatement of the KEEP bucket o
 
 **User guardrails outrank both buckets.** If the user has stated a deviation, that is binding truth even where the PM's product text says otherwise — record it in the brief as a settled decision, above PM intent.
 
-**GitHub-body invariant:** `AC-n` IDs reach the scope-completeness gate only through the GitHub issue body (its independence contract ignores dispatch/state input). When recommending issue bodies or sub-issue splits, carry the AC section verbatim — paraphrasing it silently downgrades scope review to fallback numbering.
+**Tracker-body invariant:** `AC-n` IDs reach the scope-completeness gate only through the tracker ticket body — the GitHub issue body on the default adapter, or the JIRA description under `tracker.type: jira` (its independence contract ignores dispatch/state input either way). When recommending ticket bodies or sub-issue/sub-ticket splits, carry the AC section verbatim — paraphrasing it silently downgrades scope review to fallback numbering.
 
 ### Step 1: Classify the Issue Type
 
@@ -222,29 +240,35 @@ Before acting on your decision, verify:
 
 ### Step 6: Act on Verdict
 
+The write operations below are the **github** adapter (`tracker.writes: true`). Under `tracker.type: jira` (`tracker.writes: false`) the tracker is read-only: there is no `$GH_BOT` issue-create or label swap. The `no-split` / `stacked-prs` comment and the `sub-issues` slice specs are **presented to the operator in-session** (the operator creates and re-queues any sub-tickets); the run's audit trail is the state file + brief, not a tracker comment. `$GH_BOT` remains the sanctioned bot convention on the github path. Labels below are the shipped `stageParams.requiredLabels` default set — use a consumer's overrides where configured.
+
 **`no-split`:**
 
-1. Post spec review results + resolved decisions as issue comment
+1. Post spec review results + resolved decisions as issue comment (github; **present in-session** under jira)
 2. Return control to pipeline (Stage 3: create worktree)
 
 **`sub-issues`:**
 
 1. Verify ≤5 sub-issues. If >5: escalate via `needs-intake-review`
 2. For each sub-issue, synthesize a self-contained spec from your analysis — not a copy-paste of the parent, but a focused spec for that slice
-3. Create sub-issues:
+3. Create sub-issues (github adapter):
 
 ```bash
 $GH_BOT issue create --title "[slice title]" --body "$BODY" --label ready-for-dev
 ```
 
-4. Update parent issue:
+   Under jira: **present** the ≤5 sub-ticket specs to the operator; make no tracker writes.
+
+4. Update parent issue (github adapter):
 
 ```bash
 $GH_BOT issue edit $ISSUE_NUMBER --add-label epic --remove-label ready-for-dev --remove-label in-progress
 gh issue edit $ISSUE_NUMBER --remove-assignee @me
 ```
 
-5. Post decomposition rationale + links as issue comment
+   Under jira: no-op — the operator moves the parent ticket manually after creating the sub-tickets.
+
+5. Post decomposition rationale + links as issue comment (github; **present in-session** under jira)
 6. Pipeline stops for this run
 
 **`stacked-prs`:**
@@ -307,12 +331,14 @@ When you're not confident in your decision, STOP and escalate:
 - Domain/business logic you don't have context for
 - Any threshold exceeded
 
-**Mechanism:**
+**Mechanism (github adapter):**
 
 1. Comment on issue: `stage: intake`, `status: needs-human-input`
    Include: what you understood, what's uncertain, the options you're considering, a clear question
 2. Label: `$GH_BOT issue edit $ISSUE_NUMBER --add-label needs-intake-review --remove-label in-progress`; `gh issue edit $ISSUE_NUMBER --remove-assignee @me`
 3. **STOP**
+
+Under `tracker.type: jira` (`tracker.writes: false`): skip the comment and label steps — **surface the same content (what you understood, what's uncertain, options, the question) to the operator in-session** and STOP. No JIRA transition or comment. `needs-intake-review` here is the shipped `stageParams.requiredLabels` name; use a consumer's override where configured.
 
 ## Issue Comment Format
 

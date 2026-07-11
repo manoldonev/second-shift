@@ -21,6 +21,20 @@ The layered taxonomy of everything the toolkit and its agents consume. A piece o
 - If they'd differ in **behavior**, it's a config-selected adapter or gate (layer 0 machinery, layer 1 switch).
 - If it's **prose-shaped knowledge** — why, how, gotchas — it's layer 3 (or layer 2 if it's true of every repo in the org). Prose never goes in config; enumerable facts never go in knowledge docs.
 
+## The disposition test — does this earn a place in stock (layer 0)?
+
+The litmus tests above place a *new* value or fact. This one triages an *existing* piece of code or prose when you're deciding whether it belongs in the generic plugins at all — the genericization call. Score it on two axes:
+
+- **Authorship purity** — was it **sole-authored** by one repo/domain (its shape encodes that one place), or **co-evolved** across several (its shape is the intersection)?
+- **Integration depth** — is it a **leaf** (self-contained, nothing else depends on its internals), or **woven** (other machinery calls into it, branches on it, shares its state)?
+
+| | leaf | woven |
+| --- | --- | --- |
+| **sole-authored** | **never stock** — remove it, or push it down to repo-local / an extension file | **extract the interface** — the woven seam stays stock as a hook/adapter; the sole-authored payload moves down to config or an extension |
+| **co-evolved** | keep, but it's low-stakes; fine as stock or repo-local | **legit stock** — earned its place in layer 0 |
+
+The failure mode this catches: a woven, sole-authored blob that *looks* load-bearing (everything calls it) but is actually one domain's opinion wired into the core. Don't bless it as stock because it's woven — **extract the seam, evict the payload**. Only co-evolved-and-woven is genuine generic machinery. (Every extension point in [`extending.md`](extending.md) is the "extract the interface" cell resolved: a stock seam plus a repo-local or config-supplied payload.)
+
 ## Layer 3: the four sub-kinds of repo dynamic context
 
 | Sub-kind | Authority | Typical home | Staleness rule |

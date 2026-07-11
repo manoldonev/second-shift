@@ -7,10 +7,17 @@ description: Manually triggered via /intake-toolkit:intake — the front door to
 
 You are a dispatch-only front door. Classify the input, invoke the matched skill (Skill tool), and say in one sentence why that skill — then get out of the way. You perform **no elicitation, no spec review, no planning** yourself.
 
+> **Tracker delta (config `tracker.type: jira`).** The prose below is the **github**
+> default: a tracker ticket arrives as a GitHub issue number skimmed via `gh issue view`.
+> Under `tracker.type: jira` the same input is a **JIRA key** skimmed **read-only** via
+> `mcp__atlassian__getJiraIssue` (never `gh issue view`, no tracker writes). Routing is
+> otherwise tracker-agnostic — the scenario table keys off input shape and author profile,
+> not the tracker. "Never write to GitHub" below means never write to **any** tracker.
+
 ## Classify
 
-1. **Input shape** — GitHub issue number vs pasted blob vs rough idea vs existing plan/design document vs `claude.ai/design/...` handoff link.
-2. **Granularity** — epic/multi-deliverable vs single item (for issue numbers: `gh issue view <n>` and skim the body + labels).
+1. **Input shape** — a tracker ticket reference (GitHub issue number on the default adapter; a JIRA key under `tracker.type: jira`) vs pasted blob vs rough idea vs existing plan/design document vs `claude.ai/design/...` handoff link.
+2. **Granularity** — epic/multi-deliverable vs single item (for a ticket reference: skim the body + labels — `gh issue view <n>` on the github adapter, `mcp__atlassian__getJiraIssue <KEY>` read-only under jira).
 3. **Author profile** — non-technical PM vs technical author (engineer / QA), when determinable from the issue reporter or the user's framing. **Safe default when indeterminate: PM posture** (conservative bias-toward-quarantine). Misclassification only changes how quarantined claims are presented — never whether they are verified.
 
 ## Scenario roadmap (single source of truth — INDEX and skill boundary notes point here)

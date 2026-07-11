@@ -1,5 +1,7 @@
 # Extension points (dynamic context)
 
+> This is the **reference** for the extension surface. If you're deciding *which* mechanism to use — config vs an extension file vs a repo-local reviewer vs a companion pack — start with the funnel in [`extending.md`](extending.md), which cites this page for the field-level detail.
+
 The contract between generic plugin machinery and repo-local domain knowledge. Rule of thumb: **missing extension = generic behavior** — every extension is optional, so onboarding is incremental. (Where this sits in the overall taxonomy — and what belongs in config vs knowledge docs vs run state: [`context-model.md`](context-model.md).)
 
 ## Where extensions live

@@ -12,7 +12,18 @@ You are the intake interviewer for this repository. You take raw input — a bug
 
 This skill loads instructions into the **calling session**. The calling session — not this skill — dispatches `review-toolkit:spec-reviewer` and `review-toolkit:codebase-explorer` (when needed) via its `Task` tool, and uses its `Write` tool for the optional save-to-disk path. The skill body below tells the calling session HOW to run the interview. (Bare `spec-reviewer` / `codebase-explorer` below always means these review-toolkit agents.)
 
-**Your audience**: The developer who picks up this GitHub issue cold, and the `intake-orchestrator` skill that may analyze it next.
+**Your audience**: The developer who picks up this tracker ticket cold, and the `intake-orchestrator` skill that may analyze it next.
+
+> **Tracker delta (config `tracker.type: jira`).** The prose below is the **github**
+> default: it emits a **GitHub-issue-ready** body and speaks of GitHub issue numbers/titles.
+> The interviewer only ever **produces a body** — it never writes to the tracker on either
+> adapter (that guard is unconditional) — so the jira delta is purely presentational: the
+> same body is a paste-able **JIRA ticket description**, the enrich-a-thin-issue input is a
+> JIRA key fetched read-only via `mcp__atlassian__getJiraIssue` (never `gh issue view`), and
+> the title/number conventions below map to JIRA's (the tracker assigns the key; long titles
+> are still a readability problem in JIRA list/board views). The interview mechanics, the
+> reproducibility/spec checklists, the provenance marker, redaction, and the Decision Ledger
+> seed are all tracker-agnostic.
 
 ## Pre-flight: Tool availability
 
@@ -44,7 +55,7 @@ You produce the issue body. You do NOT:
 
 - **Required**: Unstructured text from the user (pasted blob, description, screenshot caption).
 - **Optional**: Target codebase area.
-- **Conditional**: A GitHub issue number — only accept if the user explicitly asks you to enrich a thin issue. If the existing issue already has meaningful STR or ACs, route the user to `intake-orchestrator` instead.
+- **Conditional**: A tracker ticket reference — a GitHub issue number on the default adapter, or a JIRA key (fetched read-only via `mcp__atlassian__getJiraIssue`) under `tracker.type: jira` — only accept if the user explicitly asks you to enrich a thin ticket. If the existing ticket already has meaningful STR or ACs, route the user to `intake-orchestrator` instead.
 - **Assumed**: Repo root is the working directory; the repo's `CLAUDE.md` (and whatever docs it routes to) describes the codebase.
 
 ## Step 0: Classify mode
@@ -137,10 +148,10 @@ Every emission begins with a **suggested title line** on its own line. Use the *
 
 Title rules:
 
-- **Keep under 70 characters.** If your first draft is 71+, reword it — don't emit anyway. GitHub list views truncate silently past that length.
+- **Keep under 70 characters.** If your first draft is 71+, reword it — don't emit anyway. GitHub list views truncate silently past that length (JIRA board/list views have the same readability limit under `tracker.type: jira`).
 - **Prefix with the product-facing area/component** when known (e.g., `Billing: …`, `[api] …`, `[importer] …`). Use the product-facing area name, **not an internal version or build identifier** — `Billing` not `Billing v2`. Internal version / regression-vector context belongs in the Environment section, not the title.
 - Describe the symptom (bug) or the goal (feature). No implementation hypotheses.
-- Don't include an issue number — GitHub assigns one.
+- Don't include a ticket number — the tracker assigns it (GitHub the issue number; JIRA the key under `tracker.type: jira`).
 - If unsure between two framings, emit your best option plus an `Alternative titles:` line with 1–2 options.
 
 **Copy-paste emission**: emit the title + body as a single continuous markdown block (title on line 1, then the body sections immediately below), with no interleaved commentary, questions, or meta-notes inside the block. Delimit the whole block with a pair of `---` horizontal rules so the reporter can select from the opening `---` to the closing `---` and paste into GitHub with the rendered formatting preserved. Any hand-off line (see "End with" below) goes **outside** the closing `---`. The feature provenance marker is the one exception that belongs **inside** the block: it is the last body line, sitting above the closing `---` (after `## Known Gaps`, or after `## Deferred` when there are no known gaps), so the fence-to-fence copy carries it.
@@ -190,7 +201,7 @@ The issue body stays user-observable. Codebase corroboration is an internal inte
 
 **Acceptance Criteria section format:** one criterion per line, each prefixed with its stable ID — `AC-1: …`, `AC-2: …` — negatives included and ID'd. Phrase EARS-lite as _guidance_, not a hard template: `WHEN <trigger> THEN <observable outcome>` for behavior, `… does NOT …` for negatives; plain observable-outcome phrasing is fine where EARS reads forced.
 
-**GitHub-body invariant:** the `AC-n` block must land in the GitHub issue body **verbatim** — the issue is the _only_ channel to the scope-completeness gate (its independence contract ignores everything but the self-fetched issue). Tell the user this when emitting: paraphrasing the AC section during paste silently downgrades scope review to positional-fallback numbering. The `AC-n` IDs are load-bearing.
+**Tracker-body invariant:** the `AC-n` block must land in the tracker ticket body **verbatim** — the GitHub issue body on the default adapter, or the JIRA description under `tracker.type: jira`. The ticket is the _only_ channel to the scope-completeness gate (its independence contract ignores everything but the self-fetched ticket). Tell the user this when emitting: paraphrasing the AC section during paste silently downgrades scope review to positional-fallback numbering. The `AC-n` IDs are load-bearing.
 
 The marker is the final line **inside** the emitted block — below the last section and above the closing `---`, with the hand-off line outside it:
 
