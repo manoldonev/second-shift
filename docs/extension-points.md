@@ -38,3 +38,13 @@ Failures: registry entry with no agent file (either root); consumer agent file r
 ### `check-model-tiers.sh` (config-aware)
 
 Asserts the `.mjs` workflow model tables ↔ agent frontmatter agreement, now with a third input: config `reviewers.modelOverrides`. Precedence: `modelOverrides` > agent frontmatter default. The observed need: security-reviewer runs `opus` in one repo and `sonnet` in another from the same plugin-shipped agent file.
+
+### `check-extensions.sh` (manifest lint — EP-3)
+
+The plugin ships a versioned **manifest** of known extension-file names/globs ([`tools/extension-manifest.txt`](../plugins/dev-pipeline/skills/dev-pipeline/tools/extension-manifest.txt)); `check-extensions.sh` runs at pre-flight and **fails closed** on any file under a consumer's `.claude/second-shift/` that matches no manifest entry. This converts "missing extension = generic behavior" from silent degradation into a checked contract — a typo'd `blocker-mutants.md.md` is loud, not silently ignored. A new well-known file in a future plugin version is discoverable via a manifest entry; an unrecognized file today is a config-lint failure.
+
+**Companion-pack / repo-local extensions** the stock manifest doesn't ship (e.g. an org QA pack's `api-testing/*.md`) are declared, additive-only and auditable, in a consumer-maintained `.claude/second-shift/.known-extensions` file (one glob per line) that `check-extensions.sh` unions onto the shipped manifest.
+
+### `check-config-shadowing.sh` (EP-1 companion)
+
+Fails closed if any `stageParams` key the schema publishes is not actually read by its owning stage/tool file — the report's defect-#1 guard against "a published key the plugin ignores" (surface rot). Fixture-covered by its selftest.
