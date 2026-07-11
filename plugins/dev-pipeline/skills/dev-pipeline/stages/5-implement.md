@@ -116,7 +116,13 @@ On a design-driven run the screen is implemented **by the engine**, not hand-cod
    # Returns { kind, implement, result } | { kind, implement, failClosed } | { kind, budgetExhausted: true }.
    ```
 
-   **`figma`** — `figma.mjs`, `produceArgs.implement: true` (writes apps/web + commits in the FE worktree):
+   **`figma`** — `figma.mjs`, `produceArgs.implement: true` (writes apps/web + commits in the FE worktree). Resolve the inputs first — `FE_WT` is the `[FE]` ticket's worktree (identical to the claude-design `WT` resolution):
+
+   ```bash
+   FE_WT="$(git rev-parse --show-toplevel)/$(statectl.sh get "$ISSUE_NUMBER" '.worktreePath')"
+   SCREEN=$(statectl.sh get "$ISSUE_NUMBER" '.stageCheckpoint."1".designSource.screen')
+   FIGMA_SOURCES=$(statectl.sh get "$ISSUE_NUMBER" '.stageCheckpoint."1".designSource.figmaSources')
+   ```
 
    ```
    Workflow({

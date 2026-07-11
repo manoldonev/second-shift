@@ -102,7 +102,7 @@ Workflow({
 **`figma`** — dispatch `figma.mjs` (BE session → FE worktree; arg contract in the workflow header):
 
 ```
-FE_WT=$(statectl get "$ISSUE_NUMBER" '.stageCheckpoint."1".designSource.feWorktree')
+FE_WT="$(git rev-parse --show-toplevel)/$(statectl get "$ISSUE_NUMBER" '.worktreePath')"   # [FE] ticket's worktree = the FE worktree (same resolution as claude-design's WT)
 SCREEN=$(statectl get "$ISSUE_NUMBER" '.stageCheckpoint."1".designSource.screen')
 FIGMA_SOURCES=$(statectl get "$ISSUE_NUMBER" '.stageCheckpoint."1".designSource.figmaSources')
 Workflow({
