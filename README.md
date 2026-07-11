@@ -41,9 +41,9 @@ Requirements: Claude Code ≥ 2.x, `bash`, `jq`, `git`; `gh` CLI for the GitHub 
 ```
 
 ```text
-# 3. validate, then a first guided run on a small ticket (autonomous is the default; the flag makes gates prompt)
+# 3. validate, then run it on a small ticket — autonomous is the only mode you need
 bash <dev-pipeline plugin root>/tools/config-lint.sh .claude/second-shift.config.json
-DEV_PIPELINE_MODE=interactive /dev-pipeline:dev-pipeline <ticket>
+/dev-pipeline:dev-pipeline <ticket>
 ```
 
 Full onboarding — topologies (monorepo, BE+FE pair), the JIRA tracker, reviewer tuning, extension files — in [`docs/onboarding.md`](docs/onboarding.md). To keep collaborators on the same toolset, pin a release in `.claude/settings.json` (`extraKnownMarketplaces` + `enabledPlugins`); track latest only in a canary.

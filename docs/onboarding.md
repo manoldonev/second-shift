@@ -78,6 +78,12 @@ bash "${CLAUDE_PLUGIN_ROOT:-<dev-pipeline-plugin-root>}/skills/dev-pipeline/tool
 
 ## 4. Verify
 
-Run the smoke checks: config-lint (above), then a dry-run on a small ticket. Autonomous is the pipeline's default mode; for this **first** run set `DEV_PIPELINE_MODE=interactive` so each gate prompts instead of fail-fasting — you watch the stages fire, confirm the Target Confirmation Gate's echo of your resolved config (tracker, repos, base branches), and prime first-use detection. Subsequent runs drop the flag.
+Run config-lint (above), then a first run on a small, self-contained ticket:
 
-**Sequencing note (migrating repos with vendored copies):** delete the repo-local files that shadow plugin-shipped names, commit, and **start a fresh session** before the dry-run — deleting same-named skills mid-session invalidates that session's skill registry and every `Skill(<plugin>:<name>)` call returns "Unknown skill" until restart ([`namespaces.md`](namespaces.md) rule 6). Pick a dry-run ticket with no external-infrastructure ACs (live DB, running services) unless the machine actually has them — otherwise the run exercises the degraded-verification path instead of the happy path.
+```text
+/dev-pipeline:dev-pipeline <ticket>
+```
+
+Autonomous mode is safe to trust on day one because it never guesses: the Target Confirmation Gate echoes the resolved config (tracker, repos, base branches) at the top of the run, and every gate **fail-fasts with a written reason** instead of asking — a mis-declared repo aborts before anything is mutated, and `.claude/pipeline-state/<key>.json` tells you exactly why. Two tips for a clean first run: set `tracker.branchPrefix` in config (skips runtime branch-identity derivation, which has nothing to match in a repo with no prior pipeline branches), and pick a ticket with no external-infrastructure ACs. An interactive step-through mode exists for debugging aborted runs — see the `dev-pipeline` SKILL — but onboarding doesn't need it.
+
+**Sequencing note (migrating repos with vendored copies):** delete the repo-local files that shadow plugin-shipped names, commit, and **start a fresh session** before the dry-run — deleting same-named skills mid-session invalidates that session's skill registry and every `Skill(<plugin>:<name>)` call returns "Unknown skill" until restart ([`namespaces.md`](namespaces.md) rule 6).
