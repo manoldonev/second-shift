@@ -22,9 +22,9 @@ In the repo's `.claude/settings.json`:
 
 Enable only what fits — a repo can adopt `review-toolkit` without the pipeline. Team repos should **pin a release**; only a canary repo tracks latest.
 
-### Pinning a release (work repos)
+### Pinning a release (team repos)
 
-Two mechanisms compose, and both are needed for a durable pin (validated on the first JIRA-pair migration):
+Two mechanisms compose, and both are needed for a durable pin:
 
 1. **Marketplace ref** — point `extraKnownMarketplaces` at the release tag so the catalog itself can't drift (`ref` accepts a branch or tag; per-plugin `sha` pinning exists only for plugin sources inside `marketplace.json`):
 
@@ -78,6 +78,6 @@ bash "${CLAUDE_PLUGIN_ROOT:-<dev-pipeline-plugin-root>}/skills/dev-pipeline/tool
 
 ## 4. Verify
 
-Run the smoke checks: config-lint (above), then a `DEV_PIPELINE_MODE=interactive` dry-run on a small ticket. The pipeline's Target Confirmation Gate will echo the resolved config (tracker, repos, base branches) before doing anything.
+Run the smoke checks: config-lint (above), then a dry-run on a small ticket. Autonomous is the pipeline's default mode; for this **first** run set `DEV_PIPELINE_MODE=interactive` so each gate prompts instead of fail-fasting — you watch the stages fire, confirm the Target Confirmation Gate's echo of your resolved config (tracker, repos, base branches), and prime first-use detection. Subsequent runs drop the flag.
 
 **Sequencing note (migrating repos with vendored copies):** delete the repo-local files that shadow plugin-shipped names, commit, and **start a fresh session** before the dry-run — deleting same-named skills mid-session invalidates that session's skill registry and every `Skill(<plugin>:<name>)` call returns "Unknown skill" until restart ([`namespaces.md`](namespaces.md) rule 6). Pick a dry-run ticket with no external-infrastructure ACs (live DB, running services) unless the machine actually has them — otherwise the run exercises the degraded-verification path instead of the happy path.
