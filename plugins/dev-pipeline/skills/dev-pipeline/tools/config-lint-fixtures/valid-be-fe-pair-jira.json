@@ -13,5 +13,6 @@
     "fe": { "lint": "yarn lint", "typecheck": "yarn type-check", "test": "yarn test:ci", "build": "yarn build", "format": "yarn format:check", "apiTest": null }
   },
   "reviewers": { "remove": ["db-reviewer"], "modelOverrides": { "security-reviewer": "sonnet" } },
-  "gates": { "mutation": true, "figma": true, "apiTests": true }
+  "gates": { "mutation": true },
+  "design": { "provider": "figma" }
 }

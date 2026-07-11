@@ -85,7 +85,8 @@ const withCeiling = (dispatchPromise) =>
 //   issue        — issue number, for labels/logging
 //   workflowsDir — absolute path to this workflows/ dir (scripts cannot read
 //                  files or introspect their own location — the caller supplies it)
-//   design       — { enabled, specPath } (designDriven runs; specPath = the
+//   design       — { enabled, provider, specPath } (designDriven runs; provider ∈
+//                  claude-design|figma selects the spec rubric; specPath = the
 //                  Stage-3 FE-spec artifact, e.g. docs/design-specs/<screen>-spec.md)
 //   unitTests    — { enabled, planPath, modulesTouched, mutationTargets }
 //   briefPath    — ABSOLUTE main-repo path to the Product-Essence Brief, or null.
@@ -205,11 +206,18 @@ await planReviewerGate(
 // Strictly serial after Gate 1, first-block short-circuits (matches the
 // pre-sequencer "after plan-reviewer passes" ordering and saves tokens).
 if (design.enabled) {
+  // Provider-aware rubric (design axis): claude-design → design-faithful-spec template;
+  // figma → figma-faithful-spec template. Same rubric-driven plan-reviewer dispatch for both
+  // (symmetric with the claude-design path, which has no dedicated spec-reviewer agent); the
+  // figma lineage also ships design-toolkit:figma-faithful-spec-reviewer for direct/manual review.
+  const isFigma = design.provider === 'figma'
+  const engineNote = isFigma ? 'Stage-3 figma-faithful engine' : 'Stage-3 design-sync engine'
+  const templateNote = isFigma ? 'figma-faithful-spec' : 'design-faithful-spec'
   await planReviewerGate(
     'design-fe-spec',
-    `Review the design-faithful FE spec artifact at \`${design.specPath}\` (produced by the Stage-3 ` +
-      `design-sync engine). All file reads / Grep / Glob / Bash must target the worktree \`${worktree}\`. ` +
-      `Apply the design-faithful-spec template rules as the rubric: a completeness inventory with NO ` +
+    `Review the ${isFigma ? 'figma-faithful' : 'design-faithful'} FE spec artifact at \`${design.specPath}\` ` +
+      `(produced by the ${engineNote}). All file reads / Grep / Glob / Bash must target the worktree \`${worktree}\`. ` +
+      `Apply the ${templateNote} template rules as the rubric: a completeness inventory with NO ` +
       `silent drops (one row per rendered element), a design→real-stack component map (@acme/ui / ` +
       `nearest apps/web analog / uplot / Server-Component fetch, acme token roles — never the ` +
       `handoff's raw token values), a behavioral/state contract with every inference flagged ` +

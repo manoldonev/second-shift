@@ -24,8 +24,8 @@ ERRORS=$(jq -r '
   + err((.topology | type) != "object"; "topology: required object")
   + err((.commands | type) != "object"; "commands: required object")
   + err(
-      (keys - ["configVersion","tracker","topology","commands","reviewers","paths","gates"]) != [];
-      "unknown top-level keys: " + ((keys - ["configVersion","tracker","topology","commands","reviewers","paths","gates"]) | join(", "))
+      (keys - ["configVersion","tracker","topology","commands","reviewers","paths","gates","design"]) != [];
+      "unknown top-level keys: " + ((keys - ["configVersion","tracker","topology","commands","reviewers","paths","gates","design"]) | join(", "))
     )
 
   # ---- tracker -------------------------------------------------------------
@@ -82,12 +82,17 @@ ERRORS=$(jq -r '
         ) | add // [])
     )
 
-  # ---- paths / gates ---------------------------------------------------------
+  # ---- paths / gates / design ------------------------------------------------
   + ((.paths // {}) | err(((keys) - ["plansDir","pipelineStateDir"]) != []; "paths: unknown keys"))
   + ((.gates // {}) |
-      err(((keys) - ["mutation","apiTests","figma","costTracking"]) != []; "gates: unknown keys")
+      err(((keys) - ["mutation","costTracking"]) != []; "gates: unknown keys")
       + (to_entries | map(err((.value | type) != "boolean"; "gates." + .key + ": must be boolean")) | add // [])
     )
+  + (if (.design != null) then (.design |
+      err((type) != "object"; "design: must be object")
+      + err(((keys) - ["provider"]) != []; "design: unknown keys")
+      + err((.provider? // "") | IN("figma","claude-design") | not; "design.provider must be figma|claude-design")
+    ) else [] end)
 
   | .[]
 ' "$CONFIG")

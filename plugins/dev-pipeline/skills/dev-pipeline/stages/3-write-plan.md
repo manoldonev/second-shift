@@ -79,9 +79,9 @@ statectl.sh unit-test-surface-set "$ISSUE_NUMBER" --json '{
 
 ### Design-faithful FE spec (designDriven runs)
 
-When `statectl get "$ISSUE_NUMBER" '.stageCheckpoint."1".designDriven'` is `true`, the standard plan above is still written **and** a faithful acme FE spec is produced from the handoff — the spec is the design contract Stage 5 implements against and Stage 4 gates. Skip this entire sub-step on non-design runs (the default).
+When `statectl get "$ISSUE_NUMBER" '.stageCheckpoint."1".designDriven'` is `true`, the standard plan above is still written **and** a faithful acme FE spec is produced from the handoff — the spec is the design contract Stage 5 implements against and Stage 4 gates. Skip this entire sub-step on non-design runs (the default). **Select the engine by provider:** read `PROVIDER=$(statectl get "$ISSUE_NUMBER" '.stageCheckpoint."1".designSource.provider')` and dispatch the matching produce engine (`implement:false` → spec only, no code). Resolve the worktree to an absolute path first (the engines have no filesystem access).
 
-Resolve the worktree to an absolute path (the engine has no filesystem access), read `designSource`, then dispatch the produce engine (`implement:false` → spec only, no code):
+**`claude-design`** — dispatch `design-sync.mjs`:
 
 ```
 PROJECT_ID=$(statectl get "$ISSUE_NUMBER" '.stageCheckpoint."1".designSource.projectId')
@@ -95,11 +95,28 @@ Workflow({
 # Returns { kind, implement, result } | { kind, implement, failClosed } | { kind, budgetExhausted: true }.
 ```
 
-Handle the result exactly like the other engine dispatches (mirrors Stage 4's unit-test plan-review posture):
+**`figma`** — dispatch `figma.mjs` (BE session → FE worktree; arg contract in the workflow header):
+
+```
+FE_WT=$(statectl get "$ISSUE_NUMBER" '.stageCheckpoint."1".designSource.feWorktree')
+SCREEN=$(statectl get "$ISSUE_NUMBER" '.stageCheckpoint."1".designSource.screen')
+FIGMA_SOURCES=$(statectl get "$ISSUE_NUMBER" '.stageCheckpoint."1".designSource.figmaSources')
+Workflow({
+  scriptPath: "workflows/figma.mjs",
+  args: { kind: "produce", feWorktree: "$FE_WT", target: "design-toolkit:figma-faithful-spec",
+          inputs: { figmaSources: FIGMA_SOURCES }, outputPath: "docs/design-specs/$SCREEN-spec.md",
+          framesDir: ".claude/pipeline-state/$ISSUE_NUMBER-figma-frames", produceArgs: { implement: false },
+          jiraKey: "$ISSUE_NUMBER" }
+})
+# Returns { kind, target, feWorktree, result } | { kind, target, feWorktree, budgetExhausted: true }.
+# result = { status: "ok"|"error", artifactPath, committed, commitSha, summary }, optionally { infraFailure: true }.
+```
+
+Handle the result exactly like the other engine dispatches (mirrors Stage 4's unit-test plan-review posture). The two engines share the same three outcomes; note the figma envelope difference:
 
 - **`budgetExhausted: true`** — clean skip for token budget (NOT a defect). Stop and tell the operator to re-run; do **not** `mark-failed`.
 - **`result.infraFailure: true`** — the produce agent died without StructuredOutput after the engine's inline retries. Re-dispatch **once**; still infra → surface as an infra failure, never `mark-failed --reason design-source-unreachable`.
-- **`failClosed.reason`** (any of the engine's four `FAIL_CLOSED` values) — the handoff could not be turned into a contract. Map to the single pipeline reason:
+- **Handoff unreadable** — map to the single pipeline reason `design-source-unreachable`. The two engines signal this differently: **claude-design** returns `failClosed.reason` (any of the engine's four `FAIL_CLOSED` values → carry it in `engineFailClosed`); **figma** returns `result.status === "error"` (the Figma MCP was unreachable / the sparse dump did not resolve → carry the `result.summary` in `engineFailClosed`). Either way:
 
   ```bash
   statectl.sh mark-failed "$ISSUE_NUMBER" \
@@ -110,7 +127,7 @@ Handle the result exactly like the other engine dispatches (mirrors Stage 4's un
 
   Comment + keep worktree + STOP rc=0.
 
-- **Success** — record the returned `artifactPath` (the FE spec) for Stage 4's gate and Stage 5's implement. The spec lives alongside the plan as an additional reviewable artifact.
+- **Success** — record the returned `artifactPath` (claude-design) / `result.artifactPath` (figma) — the FE spec — for Stage 4's gate and Stage 5's implement. The spec lives alongside the plan as an additional reviewable artifact.
 
 ---
 

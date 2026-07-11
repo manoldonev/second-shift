@@ -5,12 +5,13 @@ export const meta = {
   phases: [{ title: 'Figma', detail: 'one agent() per produce/gate dispatch' }],
 }
 
-// Gated by config `gates.figma` (the design-toolkit Figma-MCP capability). Stage 1
-// flips figmaDriven only when gates.figma is on and a node-specific Figma URL is
-// present; Stages 3/4/5 dispatch this workflow only on a figmaDriven run. The
-// produce/gate targets are the design-toolkit plugin components
-// (design-toolkit:figma-faithful[-spec], design-toolkit:figma-faithful-*-reviewer),
-// passed in via args.target — this workflow is namespace-agnostic about them.
+// Selected by the design-provider axis (config `design.provider: "figma"`). Stage 1
+// flips designDriven only when the provider is figma and a figma.com URL is present;
+// Stages 3/5 dispatch this workflow (produce) and Stage 8 routes the figma-faithful
+// code reviewer on a figma-provider designDriven run. The produce/gate targets are the
+// design-toolkit plugin components (design-toolkit:figma-faithful[-spec],
+// design-toolkit:figma-faithful-*-reviewer), passed in via args.target — this workflow
+// is namespace-agnostic about them.
 
 // Figma dispatches run at the reasoning tier (was `--model opus` under the retired claude -p path).
 // Keep in lockstep with SKILL.md's Model Tier Mapping (reasoning → claude-opus-4-8).

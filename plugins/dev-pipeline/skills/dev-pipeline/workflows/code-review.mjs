@@ -27,6 +27,7 @@ const REVIEWER_MODEL = {
   'review-toolkit:scope-completeness-reviewer': 'opus',
   'review-toolkit:a11y-reviewer': 'sonnet',
   'design-toolkit:design-faithful-reviewer': 'sonnet',
+  'design-toolkit:figma-faithful-reviewer': 'sonnet',
 }
 
 // Bare (unqualified) agent name — tolerant of both `plugin:agent` and bare forms.

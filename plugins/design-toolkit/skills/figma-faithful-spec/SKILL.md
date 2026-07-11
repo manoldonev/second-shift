@@ -1,6 +1,6 @@
 ---
 name: figma-faithful-spec
-description: Transcribe an existing Figma design + ticket into a faithful FE spec — verbatim Copy Index, component identity, state coverage, BE-field map. Use when a Figma design already exists; not for shaping a feature that is still undecided. Requires the Figma design capability (config `gates.figma`).
+description: Transcribe an existing Figma design + ticket into a faithful FE spec — verbatim Copy Index, component identity, state coverage, BE-field map. Use when a Figma design already exists; not for shaping a feature that is still undecided. Requires the figma design provider (config `design.provider: "figma"`).
 ---
 
 You are turning a ticket + an existing Figma design into a structured FE spec — the contract
@@ -28,7 +28,7 @@ absent, resolve components conservatively from the FE app's component library an
 
 ## Figma capability
 
-This skill reads the design via the **Figma design capability** (config `gates.figma`). The MCP
+This skill reads the design via the **figma design provider** (config `design.provider: "figma"`). The MCP
 is exposed under one of two tool namespaces depending on how it is installed — tolerate **both**
 `mcp__figma__*` and `mcp__plugin_figma_figma__*` (`get_metadata`, `get_design_context`,
 `get_variable_defs`, `get_screenshot`, `get_code_connect_map`). If neither namespace is

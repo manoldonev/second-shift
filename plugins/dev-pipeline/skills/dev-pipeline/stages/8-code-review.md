@@ -69,11 +69,13 @@ for round in 1..3:
     - always: review-toolkit:security-reviewer, review-toolkit:performance-reviewer, review-toolkit:maintainability-reviewer
     - Medium/Large: + review-toolkit:complexity-reviewer, review-toolkit:test-coverage-reviewer
     - conditional by path: review-toolkit:db-reviewer / review-toolkit:pipeline-reviewer / review-toolkit:unit-test-mutation-reviewer, plus any repo-registered domain reviewers from config `reviewers.add` (referenced bare)
-    - conditional by path: design-toolkit:design-faithful-reviewer + review-toolkit:a11y-reviewer when the diff touches
-      apps/web components (apps/web/**/*.{tsx,jsx}) — already routed by review-toolkit:review-lead's
-      Reviewer Routing (per the design-faithful epic); a designDriven run always hits this,
-      since Stage 5 implemented apps/web from the handoff. No separate designDriven-gated
-      selector — the path trigger is the single source of truth.
+    - conditional by path: the provider-appropriate design fidelity reviewer + review-toolkit:a11y-reviewer
+      when the diff touches apps/web components (apps/web/**/*.{tsx,jsx}). The design reviewer is selected by
+      `stageCheckpoint["1"].designSource.provider`: **claude-design** → design-toolkit:design-faithful-reviewer;
+      **figma** → design-toolkit:figma-faithful-reviewer; on a non-design run (no provider) the path trigger
+      still routes design-toolkit:design-faithful-reviewer as the generic apps/web fidelity reviewer (its
+      prior default). a11y-reviewer is shared. A designDriven run always hits this, since Stage 5 implemented
+      apps/web from the handoff.
     - review-toolkit:scope-completeness-reviewer iff an issue number is referenced (Closes/Part of #N)
 
   # (b) Dispatch via the Workflow tool (this skill instruction IS the multi-agent

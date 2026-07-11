@@ -31,5 +31,6 @@
     "add": [{ "name": "coaching-reviewer", "dimensions": ["domain-coaching"] }],
     "modelOverrides": { "security-reviewer": "opus" }
   },
-  "gates": { "mutation": true, "costTracking": true }
+  "gates": { "mutation": true, "costTracking": true },
+  "design": { "provider": "claude-design" }
 }

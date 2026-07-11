@@ -24,7 +24,7 @@ The plan gates — `plan-reviewer`, design FE-spec review (designDriven runs), u
    Note for the plan-reviewer dispatch below: structural/coverage-row presence is now mechanical — the reviewer judges mapping _quality_, not section/row presence.
 2. **Skip-plausibility check (in-session, no dispatch).** When `unitTestSurface.action == "skip"`: verify `skipReason` is plausible and affected files confirm no `apps/api/src/**` behavior change.
 3. **Assemble applicability flags from state** so the script's gate skips are deterministic:
-   - `design.enabled = stageCheckpoint["1"].designDriven == true`; when enabled, `design.specPath` = the Stage-3 FE-spec artifact (`docs/design-specs/<screen>-spec.md`).
+   - `design.enabled = stageCheckpoint["1"].designDriven == true`; when enabled, `design.provider` = `stageCheckpoint["1"].designSource.provider` (selects the spec rubric) and `design.specPath` = the Stage-3 FE-spec artifact (`docs/design-specs/<screen>-spec.md`).
    - `unitTests.enabled = (unitTestSurface.applicable && unitTestSurface.action == "strengthen")`.
 4. **Resolve paths.** `WT="$(git rev-parse --show-toplevel)/$(statectl get "$ISSUE_NUMBER" '.worktreePath')"` — the workflow takes an **absolute** `worktree` (it has no filesystem access to resolve a relative path; same contract as `code-review.mjs`). `briefPath` = `statectl get "$ISSUE_NUMBER" '.briefPath'`; when non-null (an orchestrator Step-0.5 run — rare in acme), resolve it to an **absolute main-repo path** (`"$MAIN_ROOT/.claude/pipeline-state/${ISSUE_NUMBER}-brief.md"`); otherwise pass literal `null` — never worktree-relative (worktrees don't carry gitignored main-repo files).
 
@@ -41,7 +41,7 @@ Workflow({
     issue: "$ISSUE_NUMBER",
     config: CONFIG,
     workflowsDir: "workflows",
-    design:    { enabled: <bool>, specPath: "docs/design-specs/<screen>-spec.md" },
+    design:    { enabled: <bool>, provider: "<claude-design|figma>", specPath: "docs/design-specs/<screen>-spec.md" },
     unitTests: { enabled: <bool>, planPath: "<unitTestSurface.planPath or the plan file>",
                  modulesTouched: <unitTestSurface.modulesTouched>,
                  mutationTargets: <unitTestSurface.mutationTargets> },
@@ -52,7 +52,7 @@ Workflow({
 
 When `briefPath` is non-null, the script folds it into the plan-reviewer prompt: a plan step contradicting a resolved QUARANTINE decision or user guardrail in the Brief is a Blocker.
 
-The script runs `plan-reviewer` as a direct `agent()` (reasoning tier, full staller stack: output mandate + inline retry ×2 + 15-min ceiling), the design FE-spec gate as a **second plan-reviewer dispatch** over the FE-spec artifact with the `design-toolkit:design-faithful-spec` rubric (there is no dedicated design-spec-reviewer agent — `design-toolkit:design-faithful-reviewer` reviews **code**, not specs), and the unit-test gate as a nested `workflow()` into `unit-tests.mjs` (`kind: "plan-review"`) — its own budget/staller handling preserved. All three gates always appear in the returned `gates[]` (with `skipped` markers when not run) so `pipeline-retro` can audit coverage.
+The script runs `plan-reviewer` as a direct `agent()` (reasoning tier, full staller stack: output mandate + inline retry ×2 + 15-min ceiling), the design FE-spec gate as a **second plan-reviewer dispatch** over the FE-spec artifact with the provider-appropriate rubric (`design-toolkit:design-faithful-spec` for claude-design, `figma-faithful-spec` for figma — the claude-design lineage has no dedicated design-spec-reviewer agent, so both use the rubric-driven plan-reviewer path; `*-faithful-reviewer` agents review **code**, not specs), and the unit-test gate as a nested `workflow()` into `unit-tests.mjs` (`kind: "plan-review"`) — its own budget/staller handling preserved. All three gates always appear in the returned `gates[]` (with `skipped` markers when not run) so `pipeline-retro` can audit coverage.
 
 ## Verdict handling (in-session)
 

@@ -94,7 +94,9 @@ Recompute `HEAD` (and `CHANGED_BACKEND_FILES`) before any re-dispatch after test
 
 On a design-driven run the screen is implemented **by the engine**, not hand-coded: the `design-toolkit:design-faithful` skill reads the handoff, writes `apps/web` code mirroring the nearest analog (the repo's design tokens and real UI components), and commits in-session. Then a live-render verify gate compares the rendered screen against the handoff screenshots. Skip this entire section on non-design runs (the default — hand-code per the plan as above). The `designPlanReview` sub-status tracks the two phases for resume; mirrors `unitTestMutationReview`. Resolve `WT` (absolute worktree path) and `designSource` as for the other dispatches.
 
-1. **Implement via the engine.** `statectl stage-substatus "$ISSUE_NUMBER" --stage 5 --key designPlanReview --value implementing`, then:
+1. **Implement via the engine.** `statectl stage-substatus "$ISSUE_NUMBER" --stage 5 --key designPlanReview --value implementing`, then dispatch the engine selected by `PROVIDER=$(statectl get "$ISSUE_NUMBER" '.stageCheckpoint."1".designSource.provider')`:
+
+   **`claude-design`** — `design-sync.mjs`, `implement: true`:
 
    ```
    Workflow({
@@ -107,10 +109,24 @@ On a design-driven run the screen is implemented **by the engine**, not hand-cod
    # Returns { kind, implement, result } | { kind, implement, failClosed } | { kind, budgetExhausted: true }.
    ```
 
+   **`figma`** — `figma.mjs`, `produceArgs.implement: true` (writes apps/web + commits in the FE worktree):
+
+   ```
+   Workflow({
+     scriptPath: "workflows/figma.mjs",
+     args: { kind: "produce", feWorktree: "$FE_WT", target: "design-toolkit:figma-faithful",
+             inputs: { figmaSources: FIGMA_SOURCES, bindingSpecPath: "docs/design-specs/$SCREEN-spec.md" },
+             outputPath: "docs/design-specs/$SCREEN-impl.md", produceArgs: { implement: true, specFed: true },
+             jiraKey: "$ISSUE_NUMBER" }
+   })
+   # implement:true → figma-faithful skill writes apps/web + commits in $FE_WT (committed=true, commitSha).
+   # Returns { kind, target, feWorktree, result } | { kind, target, feWorktree, budgetExhausted: true }.
+   ```
+
    - **`budgetExhausted: true`** — clean skip; stop and tell the operator to re-run. Never `mark-failed`.
    - **`result.infraFailure: true`** — agent died without StructuredOutput after the engine's inline retries. Assert a clean worktree, re-dispatch **once**; still infra → surface as infra (never `mark-failed --reason design-source-unreachable`).
-   - **`failClosed.reason`** (any engine `FAIL_CLOSED` value) → `mark-failed --reason design-source-unreachable --stage 5` with the specific reason in `--kv engineFailClosed=<r>` (same mapping as Stage 3). Keep worktree, STOP rc=0.
-   - **Success** — the engine committed the apps/web changes; record `result.changedFiles`.
+   - **Handoff unreadable** → `mark-failed --reason design-source-unreachable --stage 5` with the engine detail in `--kv engineFailClosed=<r>` (same mapping as Stage 3: claude-design `failClosed.reason`; figma `result.status === "error"`). Keep worktree, STOP rc=0.
+   - **Success** — the engine committed the apps/web changes (figma: in `$FE_WT`, `result.committed === true`); record the changed files.
 
 2. **Live-render verify gate.** `statectl stage-substatus "$ISSUE_NUMBER" --stage 5 --key designPlanReview --value verifying`. Start the web dev server, render the implemented screen, and diff **computed styles + a screenshot** against the handoff screenshots from the contract (token roles, spacing/radii, typography, layout). On a meaningful mismatch, fix in `apps/web` (an in-session fix loop — track via `statectl verify-attempts --incr PLAN_CMD_FAILURE`; the suite classes are verifyctl-owned), re-render, and re-check.
    - **No dev server reachable** (e.g. a headless run) → record **`render-verify-unavailable`** as a degraded, **non-blocking** condition: note it in the Stage-5 comment / for the PR body and continue. **Do NOT `mark-failed`** — it is not a `valid_failure_reason` (state-schema.md **Design Mode**). The engine's `implement:true` path already self-verifies against the bundled screenshot in-session; this gate is the pipeline-level confirmation when a live server is available.

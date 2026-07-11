@@ -1,6 +1,6 @@
 ---
 name: figma-faithful
-description: Faithful Figma-to-code implementation for FE work — enforces token extraction, layout-context reading, real-component resolution, and self-verification so spacing/copy/components are measured, not guessed. Use when building a screen/component from a Figma design. Requires the Figma design capability (config `gates.figma`).
+description: Faithful Figma-to-code implementation for FE work — enforces token extraction, layout-context reading, real-component resolution, and self-verification so spacing/copy/components are measured, not guessed. Use when building a screen/component from a Figma design. Requires the figma design provider (config `design.provider: "figma"`).
 ---
 
 You are implementing an FE screen or component from a Figma design. This skill makes the
@@ -30,7 +30,7 @@ discipline below is the same for every surface, only the value _translation_ dif
 
 ## Figma capability
 
-This skill reads the design via the **Figma design capability** (config `gates.figma`). The
+This skill reads the design via the **figma design provider** (config `design.provider: "figma"`). The
 MCP is exposed under one of two tool namespaces depending on how it is installed — tolerate
 **both** `mcp__figma__*` and `mcp__plugin_figma_figma__*` (e.g. `get_metadata`,
 `get_design_context`, `get_variable_defs`, `get_screenshot`). If neither namespace is
@@ -216,8 +216,7 @@ misses — verify them against the parent, not against the file you started from
 
 **Live-render verify (when a dev server is reachable — the strongest check).** The token table
 and a Figma-blind code reviewer cannot see layout _behavior_, _placement_, or _default state_ in
-the running app. When a dev server is up, render the implemented screen (e.g. with the
-[`design-toolkit:playwright-cli`](../playwright-cli/SKILL.md) skill or a headless Playwright
+the running app. When a dev server is up, render the implemented screen (e.g. with a headless Playwright
 script at the feature URL), screenshot it, and compare against the cached Figma frame for:
 placement (each control under the right container — a field in the right rail, not the content
 column), sizing/fill (no unintended stretch on an incomplete row; fixed dimensions hold —

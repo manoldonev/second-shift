@@ -159,9 +159,20 @@
       "additionalProperties": false,
       "properties": {
         "mutation": { "type": "boolean", "default": false },
-        "apiTests": { "type": "boolean", "default": false },
-        "figma": { "type": "boolean", "default": false, "description": "Enables the Figma-MCP capability of design-toolkit." },
         "costTracking": { "type": "boolean", "default": false, "description": "Local OTel cost estimation (requires operator-side collector setup)." }
+      }
+    },
+    "design": {
+      "type": "object",
+      "description": "Optional design-fidelity axis. Selects the design-toolkit adapter family. Key absent = design fidelity off (a run behaves exactly as a non-design run). Prerequisites missing at run time (Figma MCP for figma; DesignSync for claude-design) fail closed, same posture as every gate.",
+      "additionalProperties": false,
+      "required": ["provider"],
+      "properties": {
+        "provider": {
+          "type": "string",
+          "enum": ["figma", "claude-design"],
+          "description": "figma → figma-faithful skills + Figma-MCP prerequisite; claude-design → design-faithful/design-sync path + DesignSync prerequisite."
+        }
       }
     }
   }

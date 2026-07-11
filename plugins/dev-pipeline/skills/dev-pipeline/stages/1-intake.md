@@ -8,8 +8,8 @@
 > `mcp__atlassian__getJiraIssue` (Step 1.B reads it there instead of `gh issue view`),
 > the `sub-issues` verdict **presents** sub-ticket specs to the operator rather than
 > auto-creating them, and the `sub-issues`/`stacked-prs` design-detection below is the
-> Figma path (see `tracker/jira/README.md` and the design-toolkit `gates.figma`
-> capability). Everything else in this stage (intake orchestration, AC snapshot,
+> design-provider path (see `tracker/jira/README.md` and the `design.provider` axis —
+> `figma` | `claude-design`). Everything else in this stage (intake orchestration, AC snapshot,
 > `statectl` writes keyed off `ticketKey`, slice derivation) is tracker-agnostic.
 
 #### Step 1.A: Atomic Pickup
@@ -76,25 +76,35 @@ The skill loads orchestration instructions into the current session — the call
 - Max 5 referenced docs read
 - Flag if any slice touches >10 files
 
-#### Step 1.C: Design-driven detection
+#### Step 1.C: Design-driven detection (provider-aware)
 
 Runs only when the orchestrator verdict continues the pipeline (`no-split` or `stacked-prs`), as the **last Stage-1 step before the `stageCheckpoint["1"]` write** — its result is folded into that checkpoint's payload (alongside `verdict` / decomposition fields), not a separate write.
 
-1. **Detect the handoff link.** Scan the issue body for a `claude.ai/design/` URL (e.g. `grep -oiE 'https?://claude\.ai/design/[^ )"]+'`). No match → `designDriven: false`, `designSource: null` (the default path — the run behaves exactly as a non-design run; skip the rest of this step). This is the common case — most issues carry no handoff link.
+**Provider gate first.** Read `design.provider` from the config (`PROVIDER=$(jq -r '.design.provider // "off"' "$CONFIG")`). If it is `off` (key absent), set `designDriven: false`, `designSource: null` and **skip the rest of this step** — the run behaves exactly as a non-design run. This is the common case. Otherwise detect the provider-appropriate handoff:
+
+**Provider `claude-design`:**
+1. **Detect the handoff link.** Scan the issue body for a `claude.ai/design/` URL (e.g. `grep -oiE 'https?://claude\.ai/design/[^ )"]+'`). No match → `designDriven: false`, `designSource: null` (behaves as a non-design run; skip the rest).
 2. **On a match — extract `{ link, projectId, screen }`.** The DesignSync handoff is opened **by project id** (per `.project/reference/designsync-probe-findings.md`); resolve the `projectId` from the link (and `screen`, e.g. `detail`, from the issue text — the screen/component to spec + implement).
-3. **Reachability probe (fail-closed).** Confirm the project can be read via the `DesignSync` tool (`get_project(projectId)` → assert `type === 'PROJECT_TYPE_PROJECT'`). On success, set `designDriven: true` and record `designSource: { link, projectId, screen }` in the `stageCheckpoint["1"]` payload. On failure — the project is unreachable, the type mismatches, **or the `DesignSync` tool is unavailable in this session (a headless run)** — fail closed:
+3. **Reachability probe (fail-closed).** Confirm the project can be read via the `DesignSync` tool (`get_project(projectId)` → assert `type === 'PROJECT_TYPE_PROJECT'`). On success, set `designDriven: true` and record `designSource: { provider: "claude-design", link, projectId, screen }` in the `stageCheckpoint["1"]` payload. On failure — unreachable, type mismatch, **or `DesignSync` unavailable (a headless run)** — fail closed (see the fail-closed block below).
+
+**Provider `figma`:**
+1. **Detect the handoff link.** Scan the issue body for a `figma.com/` URL (e.g. `grep -oiE 'https?://(www\.)?figma\.com/(design|file)/[^ )"]+'`). No match → `designDriven: false`, `designSource: null` (behaves as a non-design run; skip the rest).
+2. **On a match — extract `{ link, figmaSources, screen }`.** `figmaSources` = the figma node URL(s)/id(s) from the issue body (the `node-id=` query param(s), one per frame to spec + implement); `screen` = the screen/component name from the issue text.
+3. **Resolve `feWorktree` (be-fe-pair).** `figma.mjs` runs from the BE session but all file ops target the FE worktree (where `apps/web` lives). Resolve `feWorktree` to the absolute FE worktree path for this run — the same worktree Stage 3/5 resolve for the FE repo. Record `designDriven: true`, `designSource: { provider: "figma", link, figmaSources, screen, feWorktree }`. <!-- Reconstructed contract: figma had no in-stock stage wiring (its dispatch was consumer-side in the BE session); the figma-URL detection + figmaSources/feWorktree shape here mirrors the claude-design detection + figma.mjs's documented arg contract. The Figma MCP has no cheap Stage-1 reachability probe like DesignSync.get_project, so figma reachability is enforced fail-closed at the first produce dispatch (figma.mjs status:error → design-source-unreachable), not here. -->
+
+**Fail-closed block (both providers).** On a detected-but-unreadable handoff:
 
    ```bash
    statectl.sh mark-failed "$ISSUE_NUMBER" \
      --reason design-source-unreachable --stage 1 \
      --json "$(statectl.sh build-failure-context \
        --reason design-source-unreachable --stage 1 \
-       --kv designLink="$DESIGN_LINK" --kv projectId="$PROJECT_ID")"
+       --kv provider="$PROVIDER" --kv designLink="$DESIGN_LINK")"
    ```
 
-   Comment (`stage: intake`, `status: failed`) noting the unreachable handoff, keep `in-progress` for manual rescue, and **STOP** rc=0 (autonomous abort). DesignSync needs interactive auth (design scopes) — see the **Design Mode** launch note in `SKILL.md`: a design-driven issue should be run **interactively**, and a headless run legitimately fails closed here rather than guessing a contract.
+   Comment (`stage: intake`, `status: failed`) noting the unreachable handoff, keep `in-progress` for manual rescue, and **STOP** rc=0 (autonomous abort). Both providers' reads need interactive/MCP access — see the **Design Mode** launch note in `SKILL.md`: a design-driven issue should be run **interactively**, and a headless run legitimately fails closed rather than guessing a contract.
 
-Consumers read the result downstream via `statectl get "$ISSUE_NUMBER" '.stageCheckpoint."1".designDriven'` (Stage 3 spec produce, Stage 5 implement + verify, Stage 8 reviewer note). See state-schema.md **Design Mode**.
+Consumers read the result downstream via `statectl get "$ISSUE_NUMBER" '.stageCheckpoint."1".designDriven'`, then branch on `.designSource.provider` (Stage 3 spec produce, Stage 4 spec gate, Stage 5 implement + verify, Stage 8 reviewer routing). See state-schema.md **Design Mode**.
 
 #### Step 1.D: Intent snapshot (statectl-owned)
 

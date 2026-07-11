@@ -27,7 +27,7 @@
     {
       "name": "design-toolkit",
       "source": "./plugins/design-toolkit",
-      "description": "Design-fidelity toolkit: design-faithful translation/review skills and agents, optional Figma-MCP capability, playwright-cli."
+      "description": "Design-fidelity toolkit: design-faithful translation/review skills and agents, with a config-selected design provider (figma or claude-design)."
     },
     {
       "name": "audit-toolkit",
