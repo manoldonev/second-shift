@@ -5,14 +5,20 @@
 #
 # Why this matters: each agent's model tier is the source of truth in its
 # `<name>.md` frontmatter, but the Workflow .mjs scripts can't read files, so they
-# RE-STATE the tier in a table and pass `model` explicitly. The .mjs value wins at
-# runtime — so a frontmatter downgrade that misses the table keeps dispatching the
-# more expensive model, silently (cost-increasing drift). This check fails the
-# commit when a table and the agent's effective model disagree.
+# RE-STATE the tier in a table and pass `model` explicitly — so a frontmatter
+# downgrade that misses the table keeps dispatching the more expensive model,
+# silently (cost-increasing drift). This check fails the commit when a table and
+# the agent's effective model disagree.
 #
-# Effective model precedence: config reviewers.modelOverrides > agent frontmatter.
-# (Observed need: security-reviewer runs opus in one repo, sonnet in another, from
-# the same plugin-shipped agent file — reconciled by a per-repo override.)
+# Runtime precedence: config reviewers.modelOverrides > .mjs table (every
+# validated .mjs consults modelOverrides before its table); the table is the
+# plugin-shipped default, immutable to consumers. So without an override the
+# table must equal the frontmatter (plugin-internal lockstep); with an override,
+# the table may keep the plugin default OR equal the override — a consumer
+# override differing from the shipped table is the per-repo tiering feature
+# (observed need: security-reviewer runs opus in one repo, sonnet in another,
+# from the same plugin-shipped agent file), and only a table matching neither
+# is drift.
 #
 # Two-root contract
 # -----------------
@@ -195,29 +201,45 @@ override_model() {
 }
 
 # Compare a single (table agent, table-model) pair against the effective model.
-# Precedence: modelOverride > frontmatter. Agent name compared bare.
+# Precedence at runtime: modelOverride > table (every validated .mjs looks up
+# args.config.reviewers.modelOverrides before its table). The table itself is the
+# PLUGIN-SHIPPED default, immutable to consumers — so when an override exists, the
+# table is allowed to keep the plugin default (override wins at dispatch) or to
+# already equal the override; either is consistent. A consumer override differing
+# from the shipped table is the FEATURE (per-repo tiering from the same plugin),
+# not drift. Without an override, table ↔ frontmatter lockstep is required as
+# before. Agent name compared bare.
 check_pair() {
     local raw="$1" table_model="$2" table="$3"
-    local agent file fm ov expected src
+    local agent file fm ov
     agent=$(bare "$raw")
     ov=$(override_model "$agent")
-    if [ -n "$ov" ]; then
-        expected="$ov"; src="modelOverride"
-    else
-        file=$(agent_file "$agent")
-        if [ -z "$file" ]; then
+    file=$(agent_file "$agent")
+    if [ -z "$file" ]; then
+        if [ -z "$ov" ]; then
             errors+=("DANGLING: $table declares '$agent' => '$table_model' but no agent file exists in the review-toolkit root ($PLUGIN_AGENTS), the design-toolkit root (${DESIGN_AGENTS:-<not installed>}), or the consumer root, and reviewers.modelOverrides has no entry")
             return
         fi
-        fm=$(frontmatter_model "$file")
-        if [ -z "$fm" ]; then
+        # Override present with no agent file anywhere: the override still names the
+        # runtime model; nothing further to lockstep against.
+        return
+    fi
+    fm=$(frontmatter_model "$file")
+    if [ -z "$fm" ]; then
+        if [ -z "$ov" ]; then
             errors+=("NO-FRONTMATTER: $table declares '$agent' => '$table_model' but $file has no 'model:' field (and reviewers.modelOverrides has no entry)")
             return
         fi
-        expected="$fm"; src="frontmatter"
+        fm="$ov"
     fi
-    if [ "$expected" != "$table_model" ]; then
-        errors+=("MISMATCH: '$agent' — $src says '$expected' but $table says '$table_model' (expected '$expected')")
+    if [ -n "$ov" ]; then
+        if [ "$table_model" != "$ov" ] && [ "$table_model" != "$fm" ]; then
+            errors+=("MISMATCH: '$agent' — table $table says '$table_model', which matches neither the modelOverride ('$ov') nor the agent frontmatter default ('$fm')")
+        fi
+        return
+    fi
+    if [ "$fm" != "$table_model" ]; then
+        errors+=("MISMATCH: '$agent' — frontmatter says '$fm' but $table says '$table_model' (expected '$fm')")
     fi
 }
 

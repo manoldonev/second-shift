@@ -12,7 +12,11 @@
 #   agreement            table == frontmatter                          -> exit 0
 #   frontmatter mismatch table 'sonnet' vs frontmatter 'opus'          -> exit 1 + MISMATCH
 #   override reconciles  mismatched table, modelOverride matches table -> exit 0
-#   override contradicts table 'opus' vs modelOverride 'sonnet'        -> exit 1 + MISMATCH
+#   override differs     table == frontmatter default, modelOverride
+#                        'sonnet' — per-repo tiering; override wins at
+#                        dispatch, table keeps the plugin default       -> exit 0
+#   override three-way   table matches neither modelOverride nor
+#                        frontmatter                                    -> exit 1 + MISMATCH
 #   qualified name       table key 'review-toolkit:security-reviewer'  -> exit 0
 #
 # Convention mirrors check-reviewer-references-selftest.sh. Bash 3.2 compatible.
@@ -103,12 +107,23 @@ run_cli "$DRIFT" "$CFG_RECONCILE"
 [ $? -eq 0 ] && ok "override reconciles: modelOverride matches table -> exit 0" \
   || fail "override reconciles expected exit 0 (stderr: $(cat "$TMP/.stderr"))"
 
-# override contradicts — clean table ('opus'), modelOverride says 'sonnet' -> mismatch
-CFG_CONTRADICT=$(make_override_config "security-reviewer" "sonnet")
-run_cli "$DP" "$CFG_CONTRADICT"
-if [ $? -eq 0 ]; then fail "override contradicts expected exit 1"; else
-  grep -q "MISMATCH: 'security-reviewer' — modelOverride" "$TMP/.stderr" && ok "override contradicts: table vs modelOverride -> exit 1 + MISMATCH (override source)" \
-    || fail "override contradicts: exit 1 but no modelOverride MISMATCH line (stderr: $(cat "$TMP/.stderr"))"
+# override differs — clean table ('opus' == frontmatter default), modelOverride says
+# 'sonnet'. This is the per-repo tiering feature (same plugin-shipped table + agent,
+# a different tier per consumer): the table keeps the plugin default and the .mjs
+# applies the override at dispatch (modelOverrides[...] || TABLE[...]). Legal.
+CFG_DIFFERS=$(make_override_config "security-reviewer" "sonnet")
+run_cli "$DP" "$CFG_DIFFERS"
+[ $? -eq 0 ] && ok "override differs: table keeps plugin default, override wins at dispatch -> exit 0" \
+  || fail "override differs expected exit 0 (stderr: $(cat "$TMP/.stderr"))"
+
+# override three-way mismatch — drifted table ('sonnet'), frontmatter 'opus',
+# modelOverride 'haiku': the table matches neither the override nor the
+# frontmatter default -> genuine drift, mismatch.
+CFG_THREEWAY=$(make_override_config "security-reviewer" "haiku")
+run_cli "$DRIFT" "$CFG_THREEWAY"
+if [ $? -eq 0 ]; then fail "override three-way expected exit 1"; else
+  grep -q "MISMATCH: 'security-reviewer'" "$TMP/.stderr" && ok "override three-way: table matches neither override nor frontmatter -> exit 1 + MISMATCH" \
+    || fail "override three-way: exit 1 but no MISMATCH line (stderr: $(cat "$TMP/.stderr"))"
 fi
 
 # qualified name — table key is plugin:-qualified; compared on the bare name
