@@ -1,6 +1,6 @@
 // design-faithful fixtures — PROJECT_TYPE_DESIGN_SYSTEM components.
 //
-// Mirrors the throwaway preview written during the #194 spike: a @dsCard-marked component
+// A minimal design-system preview: a @dsCard-marked component
 // with two variants and a :hover state, plus a marker-less component to exercise the
 // "missing @dsCard marker → skipped + diagnostic" path. Stored as exported strings.
 

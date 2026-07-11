@@ -159,7 +159,7 @@ Title rules:
 
 **Default structure is Summary / STR / Expected / Actual — nothing else.** The optional sections are opt-in, not opt-out:
 
-- **Environment:** include only when the bug depends on a specific platform / build / config / data condition a reproducer must match — e.g., "only Safari ≤ 16", "only with FLAG_X=true", "only for activities with no power data". A reproduction URL alone is **not** Environment — fold it inline into STR step 1 (`Navigate to <URL>.`). Regression-vector context ("introduced by the X rework") is **not** Environment either — fold it into Summary, or add a single `Context:` / `Related:` line below Summary.
+- **Environment:** include only when the bug depends on a specific platform / build / config / data condition a reproducer must match — e.g., "only Safari ≤ 16", "only with FLAG_X=true", "only for activities with no results". A reproduction URL alone is **not** Environment — fold it inline into STR step 1 (`Navigate to <URL>.`). Regression-vector context ("introduced by the X rework") is **not** Environment either — fold it into Summary, or add a single `Context:` / `Related:` line below Summary.
 - **Frequency / Impact:** include only when either is **non-default**. Default frequency = always reproducible (implied by clean deterministic STR). Default impact = user-facing confusion on a broken UI. Include when: repro is intermittent, first-time-only, or state-dependent; **or** impact is more severe than confusing UX — data loss, silent corruption, miscalculated derived data, security issue, blocks all users of a critical flow.
 
 These defaults exist because filler sections dilute the issue, add reader work, and teach reporters to pad rather than write tight.

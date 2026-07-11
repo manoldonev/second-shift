@@ -61,6 +61,4 @@ There was no team-wide enforcement to begin with — the audit is observability 
 
 ## Background
 
-For 2+ months, three orchestrator agents (`review-lead`, `intake-orchestrator`, `decomposition-reviewer`) declared `tools: Task(...)` in their YAML, but Claude Code subagents cannot spawn other subagents. In subagent contexts, every dispatch silently failed and the orchestrator inlined the work in its own context. Output looked like a multi-reviewer verdict; in reality it was one model impersonating eight reviewers.
-
-The structural fix (orchestrators converted from agents to skills loaded into the calling session) landed in earlier commits. This audit infrastructure is the trust-recovery companion: harness-level evidence of what tools actually fired, independent of Claude's chat output.
+This audit infrastructure surfaces claimed-vs-actual sub-agent tool calls: harness-level evidence of what tools actually fired, independent of Claude's chat output, so any gap between the two is visible.

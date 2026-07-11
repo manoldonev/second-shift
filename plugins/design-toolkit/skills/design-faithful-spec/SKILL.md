@@ -4,7 +4,7 @@ description: Normalize a Claude Design handoff into a faithful frontend spec for
 ---
 
 You produce a **faithful frontend spec for the repo** from a Claude Design handoff. You read
-the handoff via the `DesignSync` tool, extract a sanitized design contract with the #195
+the handoff via the `DesignSync` tool, extract a sanitized design contract with the contract
 library, and fill in the FE-spec template for one named screen/component. You do **not**
 write or commit application code — that is the sibling [`design-faithful`](../design-faithful/SKILL.md)
 skill.
@@ -45,7 +45,7 @@ The handoff is `PROJECT_TYPE_PROJECT` — a screen-level bundle. Open it **by id
    inferred states/variants, screens, screenshots, a11y, diagnostics).
 
 The contract lib is **shared** and lives in the sibling skill dir
-(`../design-faithful/lib/*.mjs`, the #195 library) — this spec skill has no `lib/` of its
+(`../design-faithful/lib/*.mjs`, the shared contract library) — this spec skill has no `lib/` of its
 own; it imports that one. Run it from the repo root, e.g.:
 
 ```bash
@@ -105,4 +105,4 @@ unreachable or exceeds a DesignSync limit, do **not** guess — return:
 [`examples/detail-spec.example.md`](./examples/detail-spec.example.md) is a worked spec
 produced from the committed `detail` handoff fixture (`../design-faithful/fixtures/handoff.mjs`,
 real captured bytes) — the offline-reproducible demonstration of this skill's output (live
-DesignSync auth is interactive-session-bound — DesignSync probe findings, Probe 7).
+DesignSync auth is interactive-session-bound).

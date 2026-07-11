@@ -9,7 +9,7 @@
       "enabled": true,
       "envVar": "GH_BOT",
       "wrapperPath": "~/.config/acme/gh-as-bot.sh",
-      "app": { "clientId": "Iv23linWw3EWmAuuAiZP", "appName": "acme-dev-pipeline", "privateKeyFilename": "acme-dev-pipeline.private-key.pem" }
+      "app": { "clientId": "Iv1EXAMPLECLIENTID000", "appName": "acme-dev-pipeline", "privateKeyFilename": "acme-dev-pipeline.private-key.pem" }
     }
   },
   "topology": {
@@ -28,7 +28,7 @@
     }
   },
   "reviewers": {
-    "add": [{ "name": "coaching-reviewer", "dimensions": ["domain-coaching"] }],
+    "add": [{ "name": "orders-reviewer", "dimensions": ["domain-orders"] }],
     "modelOverrides": { "security-reviewer": "opus" }
   },
   "gates": { "mutation": true, "costTracking": true },

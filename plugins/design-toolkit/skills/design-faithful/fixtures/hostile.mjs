@@ -1,7 +1,7 @@
 // design-faithful fixtures — hostile / untrusted input for the sanitizer.
 //
-// get_file returns content authored by other org members; the #194 findings flag the whole
-// surface as untrusted. This fixture bundles the active-content vectors sanitize() must
+// get_file returns content authored by other org members; the whole
+// surface is untrusted. This fixture bundles the active-content vectors sanitize() must
 // neutralize before any parse. Includes a prompt-injection comment that must be treated as
 // inert data, never as instructions.
 

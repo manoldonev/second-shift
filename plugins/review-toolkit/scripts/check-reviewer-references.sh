@@ -119,7 +119,7 @@ preflight=$(
 
 # 2. Reviewer Routing — **bold** registry entries between "## Reviewer Routing"
 #    and the next top-level heading. Bold-only, deliberately: prose examples in
-#    that section (e.g. the backticked `coaching-reviewer` in the repo-local
+#    that section (e.g. the backticked `orders-reviewer` in the repo-local
 #    domain-reviewers row) illustrate consumer-registered reviewers and must not
 #    parse into the plugin registry.
 routing=$(
@@ -147,7 +147,7 @@ verdict=$(
             s/^Complexity$/complexity-reviewer/;
             s/^Maintainability$/maintainability-reviewer/;
             s/^Test Coverage$/test-coverage-reviewer/;
-            s/^Coaching$/coaching-reviewer/;
+            s/^Orders$/orders-reviewer/;
             s/^Pipeline$/pipeline-reviewer/;
             s/^Unit Test Mutation$/unit-test-mutation-reviewer/;
             s/^Design Faithful$/design-faithful-reviewer/;

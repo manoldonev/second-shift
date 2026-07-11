@@ -1,9 +1,9 @@
 # design-faithful — DesignSync adapter (read + push)
 
-The foundation of the `design-faithful` capability (epic #193), in both directions:
+The foundation of the `design-faithful` capability, in both directions:
 
 - **Read** — turn a Claude Design project into a structured, sanitized **design contract** that
-  the #196 engine consumes (`lib/extractor.mjs` and friends).
+  the workflow engine consumes (`lib/extractor.mjs` and friends).
 - **Push** — emit the repo's own design system (tokens + a representative component set) as Claude
   Design `@dsCard` previews and sync them delta-only to a design-system project
   (`lib/emit-*.mjs`, `lib/sync-plan.mjs`, `tools/build-ds-files.mjs`, [`PUSH.md`](./PUSH.md)).
@@ -18,14 +18,14 @@ driver/runbook, plus the invocable **`design-faithful` implement skill** (`SKILL
 body imports the lib to read a handoff and implement a screen in the repo's FE app. The sibling
 spec-producing skill lives at [`../design-faithful-spec/`](../design-faithful-spec/SKILL.md).
 
-> `SKILL.md` here is the **implement** skill (dispatched by the #196 engine as `agentType`
+> `SKILL.md` here is the **implement** skill (dispatched by the workflow engine as `agentType`
 > `design-faithful`); `lib/*.mjs` are plain importable ESM the skill loads.
 
 ## What's here
 
 | File                         | Role                                                                                                                                                                                             |
 | ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `lib/contract-types.mjs`     | `DesignContract` JSDoc typedefs, the `inferred:true` marker convention, the `FAIL_CLOSED` reason enum + `FailClosedError`. The interface #196/#200 build against.                                |
+| `lib/contract-types.mjs`     | `DesignContract` JSDoc typedefs, the `inferred:true` marker convention, the `FAIL_CLOSED` reason enum + `FailClosedError`. The interface the read engine and push path build against.                                |
 | `lib/sanitize.mjs`           | `sanitize(text)` — strip `<script>`, inline `on*=` handlers, `javascript:`/`data:text/html` URLs. Runs on every byte before any parse. Never evaluates input.                                    |
 | `lib/css-tokens.mjs`         | `extractCss(css)` — OKLch/hex tokens grouped by theme selector, spacing/radii scales, typography, first-class `@media` breakpoints, layout primitives, inferred pseudo-states.                   |
 | `lib/html-markup.mjs`        | `parseDsCard(html)`, `extractMarkup(html, {path})` — `@dsCard` marker, semantic/ARIA markup, inferred states + variants (flagged `inferred:true`), missing-marker diagnostic.                    |
@@ -45,10 +45,10 @@ spec-producing skill lives at [`../design-faithful-spec/`](../design-faithful-sp
 
 `DesignSync` is a model-invoked **tool**, not an importable function — so the actual
 `get_project` / `list_files` / `get_file` calls are made by the orchestrating agent: the
-`design-faithful` / `design-faithful-spec` skills, which carry the tool. (The #196 Workflow
+`design-faithful` / `design-faithful-spec` skills, which carry the tool. (The Workflow
 engine has no tool/fs access — it only dispatches those skills; see its READ BOUNDARY note.)
 The code here is **pure**: it operates on already-fetched bytes. Shape-specific
-discovery (per the #194 DesignSync probe findings):
+discovery (established by probing the DesignSync tool):
 
 - **`PROJECT_TYPE_PROJECT`** (handoff bundle) — open **by project id** via
   `get_project → list_files → get_file`. `list_projects` is **design-system-only** and returns

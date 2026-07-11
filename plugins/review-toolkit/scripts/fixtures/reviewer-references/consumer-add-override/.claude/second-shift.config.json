@@ -4,7 +4,7 @@
   "topology": { "type": "standalone", "repos": { "app": { "path": ".", "baseBranch": "main" } } },
   "commands": { "app": {} },
   "reviewers": {
-    "add": [{ "name": "coaching-reviewer", "dimensions": ["physiology"] }],
-    "modelOverrides": { "coaching-reviewer": "opus" }
+    "add": [{ "name": "orders-reviewer", "dimensions": ["domain-orders"] }],
+    "modelOverrides": { "orders-reviewer": "opus" }
   }
 }

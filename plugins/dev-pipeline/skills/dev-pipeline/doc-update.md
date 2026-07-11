@@ -107,48 +107,48 @@ Which reviewer agent carries which invariant is repo-specific — read each agen
 
 **7.A — path → code-area category (this repo's layout):**
 
-| Changed path pattern                                                          | Code area                                                    |
-| ----------------------------------------------------------------------------- | ------------------------------------------------------------ |
-| `apps/api/src/**/*.controller.ts`                                             | API endpoints / DTOs                                         |
-| `apps/api/src/**/*.service.ts`                                                | Business logic                                               |
-| `packages/db/src/schema/**`                                                   | Database schemas (Drizzle)                                   |
-| `packages/db/src/migrations/**`                                               | Migration files                                              |
-| `apps/api/src/workers/**/*.processor.ts`                                      | BullMQ workers                                               |
-| `services/ml-service/**`                                                      | Python ML service (XGBoost classification, PDC fitting)      |
-| `apps/web/src/**/*.tsx`                                                       | Frontend components / pages                                  |
-| `apps/web/src/**/*.ts` (non-tsx)                                              | Frontend utilities / hooks                                   |
-| `packages/core/src/types/**`                                                  | Shared type definitions                                      |
-| `services/pelt-service-rust/**`                                               | Rust PELT segmentation service                               |
-| `.project/decisions/ADR-0{09,10,11}*` (brace glob: ADR-009, ADR-010, ADR-011) | ADR / domain-constant changes (zones, PDC, MMP, equivalence) |
+| Changed path pattern                                                          | Code area                                                       |
+| ----------------------------------------------------------------------------- | -------------------------------------------------------------- |
+| `apps/api/src/**/*.controller.ts`                                             | API endpoints / DTOs                                           |
+| `apps/api/src/**/*.service.ts`                                                | Business logic                                                 |
+| `packages/db/src/schema/**`                                                   | Database schemas                                               |
+| `packages/db/src/migrations/**`                                               | Migration files                                               |
+| `apps/api/src/workers/**/*.processor.ts`                                      | Background job workers                                         |
+| `services/report-service/**`                                                  | Report generation service (aggregation, export rendering)     |
+| `apps/web/src/**/*.tsx`                                                       | Frontend components / pages                                    |
+| `apps/web/src/**/*.ts` (non-tsx)                                              | Frontend utilities / hooks                                     |
+| `packages/core/src/types/**`                                                  | Shared type definitions                                        |
+| `services/notification-service/**`                                            | Notification dispatch service                                  |
+| `.project/decisions/ADR-0{09,10,11}*` (brace glob: ADR-009, ADR-010, ADR-011) | ADR / decision-constant changes (rate limits, pagination, retention) |
 
 **7.B — code-area category → candidate docs (this repo's `doc-routing.md` map):**
 
-- **API / endpoint changes** → `.project/architecture/system-overview.md`, `.project/frameworks/nestjs.md` (if exists)
-- **DB schema changes** → `.project/frameworks/drizzle.md`, `.project/reference/conventions.md` (multi-tenant `userId` filter rule)
-- **BullMQ worker changes** → `.project/frameworks/bullmq.md` (if exists), `.project/architecture/system-overview.md` (pipeline diagram)
-- **ML rules / interval detection** → `.project/reference/ml-rules.md`, `.project/frameworks/uplot-charts.md` (if interval visualization affected)
-- **ADR / domain-constant changes** (ADR-009/010/011, or any zone / PDC / MMP / equivalence boundary) → `.project/reference/domain-constants.md` (the canonical source) **and** its mirrors in any repo-registered domain reviewers (config `reviewers.add`, e.g. a coaching-reviewer) and `.claude/agents/test-coverage-reviewer.md` — re-check that the restated values still match. (Belt-and-suspenders: `domain-constants.md` cites each ADR by full filename, so the Step 7.C basename grep also surfaces it when an ADR is in the diff.)
-- **Frontend / chart changes** → `.project/frameworks/uplot-charts.md`, `.project/frameworks/nextjs.md`, `.project/architecture/frontend-ux.md`
+- **API / endpoint changes** → `.project/architecture/system-overview.md`, `.project/frameworks/api-framework.md` (if exists)
+- **DB schema changes** → `.project/frameworks/database.md`, `.project/reference/conventions.md` (multi-tenant `userId` filter rule)
+- **Background job worker changes** → `.project/frameworks/job-queue.md` (if exists), `.project/architecture/system-overview.md` (pipeline diagram)
+- **Report generation rules** → `.project/reference/report-rules.md`, `.project/frameworks/charts.md` (if export/visualization affected)
+- **ADR / decision-constant changes** (ADR-009/010/011, or any rate-limit / pagination / retention boundary) → `.project/reference/decision-constants.md` (the canonical source) **and** its mirrors in any repo-registered domain reviewers (config `reviewers.add`, e.g. a billing-reviewer) and `.claude/agents/test-coverage-reviewer.md` — re-check that the restated values still match. (Belt-and-suspenders: `decision-constants.md` cites each ADR by full filename, so the Step 7.C basename grep also surfaces it when an ADR is in the diff.)
+- **Frontend / chart changes** → `.project/frameworks/charts.md`, `.project/frameworks/frontend.md`, `.project/architecture/frontend-ux.md`
 - **New architectural decisions** → `.project/decisions/` (may need a new ADR — append-only by convention)
 - **New commands or root-level conventions** → `CLAUDE.md`
-- **Reviewer agent rules** → `.claude/agents/security-reviewer.md`, `.claude/agents/db-reviewer.md`, `.claude/agents/plan-reviewer.md`, `.claude/agents/test-coverage-reviewer.md`, `.claude/agents/performance-reviewer.md`, plus any repo-registered domain reviewers (config `reviewers.add`, e.g. a coaching-reviewer) (convention checklists; the domain reviewers + `test-coverage-reviewer` mirror repo-local domain-constant docs)
+- **Reviewer agent rules** → `.claude/agents/security-reviewer.md`, `.claude/agents/db-reviewer.md`, `.claude/agents/plan-reviewer.md`, `.claude/agents/test-coverage-reviewer.md`, `.claude/agents/performance-reviewer.md`, plus any repo-registered domain reviewers (config `reviewers.add`, e.g. a billing-reviewer) (convention checklists; the domain reviewers + `test-coverage-reviewer` mirror repo-local decision-constant docs)
 
 **7.E — reviewer agent → invariants it restates (this repo's roster):**
 
 - `.claude/agents/security-reviewer.md` — auth patterns, `userId` filter rule, JWT/cookie posture
-- `.claude/agents/db-reviewer.md` — Drizzle conventions, index patterns, N+1 guards
+- `.claude/agents/db-reviewer.md` — DB conventions, index patterns, N+1 guards
 - `.claude/agents/plan-reviewer.md` — convention checklists, file coverage tables
-- Repo-registered domain reviewers (config `reviewers.add`) — e.g. a coaching-reviewer carrying domain invariants that mirror repo-local knowledge docs (see the repo's CLAUDE.md); re-check them when the underlying domain constants change.
-- `.claude/agents/test-coverage-reviewer.md` — cycling edge-case boundaries (87/88% FTP, 2% MMP, 5-record min, indoor/outdoor minimums). **Mirrors `.project/reference/domain-constants.md`** — same re-check on ADR/constant changes.
-- `.claude/agents/performance-reviewer.md` — performance thresholds (chart point counts, query latencies, worker throughput)
+- Repo-registered domain reviewers (config `reviewers.add`) — e.g. a billing-reviewer carrying domain invariants that mirror repo-local knowledge docs (see the repo's CLAUDE.md); re-check them when the underlying decision constants change.
+- `.claude/agents/test-coverage-reviewer.md` — edge-case boundaries (max page size 100, default page size 20, 5-item minimum batch, retention window in days). **Mirrors `.project/reference/decision-constants.md`** — same re-check on ADR/constant changes.
+- `.claude/agents/performance-reviewer.md` — performance thresholds (result set sizes, query latencies, worker throughput)
 - `.claude/agents/maintainability-reviewer.md` — readability heuristics
-- `.claude/agents/pipeline-reviewer.md` — BullMQ payload shapes, idempotency rules
+- `.claude/agents/pipeline-reviewer.md` — job payload shapes, idempotency rules
 
 ## Severity classification
 
 | Level       | Meaning                                                                      | Example                                                                                                                       |
 | ----------- | ---------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
-| **Blocker** | Doc actively contradicts code. AI will generate wrong code if it reads this. | `.project/reference/ml-rules.md` says PELT penalty=15 but `services/pelt-service-rust/src/pelt.rs` now uses 10                |
+| **Blocker** | Doc actively contradicts code. AI will generate wrong code if it reads this. | `.project/reference/rate-limits.md` says default rate-limit=15 but `services/geo-service/src/limiter.rs` now uses 10                |
 | **Warning** | Doc is incomplete. AI might miss something.                                  | New stream kind added to `packages/core/src/types/streams.ts` but `.project/reference/conventions.md` enumeration not updated |
 | **Note**    | Doc could be improved. Not wrong, just missing new context.                  | New pattern not documented yet                                                                                                |
 

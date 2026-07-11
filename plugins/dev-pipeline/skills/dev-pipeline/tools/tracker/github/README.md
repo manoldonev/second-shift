@@ -32,7 +32,7 @@ files. It has no scripts of its own in this directory — see
     "envVar": "GH_BOT",
     "wrapperPath": "~/.config/acme/gh-as-bot.sh",   // optional: explicit path both writer + reader use
     "app": {
-      "clientId": "Iv23linWw3EWmAuuAiZP",
+      "clientId": "Iv1EXAMPLECLIENTID000",
       "appName": "acme-dev-pipeline",
       "privateKeyFilename": "acme-dev-pipeline.private-key.pem"
     }

@@ -87,13 +87,13 @@ button:focus-visible, a:focus-visible, .nav-link:focus-visible {
 // Verdict block + stats strip from screens/detail.jsx — a backtick-free real slice
 // (semantic h1/p/button/strong, verdict-cold/verdict-warm variant pair, var(--token) refs).
 export const detailJsx = `
-// Activity Detail — the verdict moment
-function ActivityDetail({ theme, mobile, onBack }) {
+// Order Detail — the verdict moment
+function OrderDetail({ theme, mobile, onBack }) {
   const a = window.ACME_DATA.detail;
   return (
     <div style={{ maxWidth: 1320, margin: '0 auto', padding: '24px 28px 80px' }}>
       <button onClick={onBack} style={{ background: 'transparent', border: 0, color: 'var(--ink-3)', fontSize: 13 }}>
-        ← Back to Activities
+        ← Back to Orders
       </button>
       <div className={theme === 'warm' ? 'verdict-warm' : 'verdict-cold'} style={{ borderRadius: 18, padding: '30px 36px' }}>
         <div className="row center gap-2" style={{ color: 'var(--ink-3)', fontSize: 11, textTransform: 'uppercase' }}>
@@ -103,16 +103,16 @@ function ActivityDetail({ theme, mobile, onBack }) {
         <div className="row between" style={{ alignItems: 'flex-end', marginTop: 14, gap: 32 }}>
           <div>
             <div style={{ color: 'var(--ink-3)', fontSize: 14 }}>We saw</div>
-            <h1 style={{ margin: 0, fontSize: 76, fontWeight: 600, color: 'var(--ink)' }}>4× Tempo</h1>
+            <h1 style={{ margin: 0, fontSize: 76, fontWeight: 600, color: 'var(--ink)' }}>4× Priority</h1>
             <p style={{ margin: '14px 0 0', fontSize: 16, color: 'var(--ink-2)' }}>
-              Four reps of <strong style={{ color: 'var(--ink)' }}>7:45 at 254 W</strong> (86% FTP).
+              Four batches of <strong style={{ color: 'var(--ink)' }}>1,240 units</strong> (86% of target).
               <button style={{ background: 'transparent', border: 0, color: 'var(--ink-3)', textDecoration: 'underline' }}>This isn't right</button>
             </p>
           </div>
         </div>
         <div className="row" style={{ marginTop: 28, borderTop: '1px solid var(--line)', paddingTop: 22 }}>
           <div className="col gap-1"><span style={{ fontSize: 10 }}>Duration</span><span className="hero-num">45m</span></div>
-          <div className="col gap-1"><span style={{ fontSize: 10 }}>Avg Power</span><span className="hero-num">218 W</span></div>
+          <div className="col gap-1"><span style={{ fontSize: 10 }}>Avg Value</span><span className="hero-num">1,050 units</span></div>
         </div>
       </div>
     </div>
@@ -121,7 +121,7 @@ function ActivityDetail({ theme, mobile, onBack }) {
 `
 
 export const screenshots = [
-  'design_handoff_acme_redesign/screenshots/activity-detail.png',
+  'design_handoff_acme_redesign/screenshots/order-detail.png',
   'design_handoff_acme_redesign/screenshots/dashboard.png',
-  'design_handoff_acme_redesign/screenshots/activities.png'
+  'design_handoff_acme_redesign/screenshots/orders.png'
 ]

@@ -30,7 +30,7 @@ You review the **spec document itself** — its clarity, completeness, and inter
 
 - **Required**: Spec content (pasted, file path, or URL)
 - **Optional**: Target codebase area — if provided, verify spec aligns with existing patterns
-- **Assumed**: Repo root is the working directory; `.project/` docs define codebase truth
+- **Assumed**: Repo root is the working directory; the repo's `CLAUDE.md` routes to its docs — never assume a fixed `.project/` layout
 
 ## Process
 

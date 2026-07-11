@@ -67,10 +67,10 @@ if [ $? -eq 0 ]; then fail "(a) dangling expected exit 1"; else
     || fail "(a) dangling: exit 1 but no DANGLING db-reviewer line (stderr: $(cat "$TMP/.stderr"))"
 fi
 
-# (b) ORPHAN — consumer coaching-reviewer.md registered nowhere (no config)
+# (b) ORPHAN — consumer orders-reviewer.md registered nowhere (no config)
 run_cli "$PLUGIN" "$FX/consumer-orphan"
 if [ $? -eq 0 ]; then fail "(b) orphan expected exit 1"; else
-  grep -q "ORPHAN:.*coaching-reviewer" "$TMP/.stderr" && ok "(b) ORPHAN: unregistered consumer reviewer -> exit 1 + message" \
+  grep -q "ORPHAN:.*orders-reviewer" "$TMP/.stderr" && ok "(b) ORPHAN: unregistered consumer reviewer -> exit 1 + message" \
     || fail "(b) orphan: exit 1 but no ORPHAN line (stderr: $(cat "$TMP/.stderr"))"
 fi
 

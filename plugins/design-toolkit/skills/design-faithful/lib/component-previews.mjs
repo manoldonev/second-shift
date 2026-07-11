@@ -1,23 +1,30 @@
-// design-faithful — representative component preview set + assembler (#200 push direction).
+// design-faithful — component-preview assembler (design-system push direction).
 //
-// The "representative set" the issue asks for, split per the intake decision (D1):
-//   • Token cards            — emitted mechanically from globals.css (emit-tokens.mjs).
-//   • Composite cards        — @acme/ui components that ALREADY bind to acme tokens, so
-//                              their previews are faithful transcriptions of the real visuals.
-//   • Primitive cards        — stock shadcn primitives (button/badge/card) that use Tailwind
-//                              gray/primary classes, rendered via the EXPLICIT, documented
-//                              role→token map below (SHADCN_TOKEN_MAP). The map is the one design
-//                              decision; it is written down once, not re-invented per component.
+// This is the ENGINE, not a product design system. It is domain-empty by default: the exported
+// COMPONENT_PREVIEWS below carry only generic, universal shadcn primitives (button/badge/card) —
+// no product domain. A consumer drives the richer surface by passing its own preview specs +
+// token roles (sourced from its .claude/second-shift design-system reference) into
+// buildDesignSystem; the defaults leak nothing.
 //
-// Variants are sibling DOM instances within one preview (#194 Probe 4). Pure, dependency-free.
+// The split (per the intake decision D1) a consumer reference is expected to follow:
+//   • Token cards      — emitted mechanically from globals.css (emit-tokens.mjs).
+//   • Composite cards  — components that ALREADY bind to the consumer's tokens, so their previews
+//                        are faithful transcriptions of the real visuals (consumer-supplied).
+//   • Primitive cards  — stock shadcn primitives (button/badge/card) that use Tailwind
+//                        gray/primary classes, rendered via an EXPLICIT, documented role→token
+//                        map (SHADCN_TOKEN_MAP). The map is the one design decision; it is written
+//                        down once, not re-invented per component.
+//
+// Variants are sibling DOM instances within one preview. Pure, dependency-free.
+// See fixtures/component-previews.mjs for a complete neutral example spec set (composites too).
 
 import { emitCard } from './emit-card.mjs'
-import { emitTokenCards, tokenRootCss } from './emit-tokens.mjs'
+import { emitTokenCards, tokenRootCss, TOKEN_RAMPS } from './emit-tokens.mjs'
 
-// The documented shadcn-class → acme-token mapping used to render the primitive previews.
-// Source of the shadcn classes: packages/ui/src/components/{button,badge,card}.tsx (stock
-// Tailwind). Target tokens: apps/web/src/app/globals.css. This is documentation AND the basis the
-// primitive bodies below are authored against — keep them in sync.
+// The documented shadcn-class → design-token mapping a consumer uses to render its primitive
+// previews. Source of the shadcn classes: the consumer's ui package (stock Tailwind). Target
+// tokens: the consumer's globals.css. This is documentation AND the basis primitive bodies are
+// authored against — a consumer keeps the two in sync.
 export const SHADCN_TOKEN_MAP = Object.freeze({
   'bg-primary': '--accent fill, --accent-ink text',
   'bg-gray-100 / dark:bg-gray-800 (secondary)': '--surface-2 fill, --ink text',
@@ -39,97 +46,19 @@ const btn = (style, text) =>
   `padding:0 18px;border-radius:8px;border:none;font-size:14px;font-weight:600;cursor:pointer;` +
   `font-family:inherit;${style}">${text}</button>`
 
-// Confidence ring SVG — a faithful port of packages/ui/src/confidence-ring.tsx so the preview
-// math matches the real component rather than hardcoding (possibly wrong) dash values.
-function ringSvg(score, tokenVar, size, stroke) {
-  const radius = (size - stroke) / 2
-  const circumference = 2 * Math.PI * radius
-  const center = size / 2
-  const color = `var(${tokenVar})`
-  if (score === null) {
-    return (
-      `<svg width="${size}" height="${size}" viewBox="0 0 ${size} ${size}" role="img" aria-label="Unscored confidence">` +
-      `<circle cx="${center}" cy="${center}" r="${radius}" fill="none" stroke="var(--ink-4)" stroke-width="${stroke}"/></svg>`
-    )
-  }
-  const clamped = Math.max(0, Math.min(100, score))
-  const fill = (clamped / 100) * circumference
-  return (
-    `<svg width="${size}" height="${size}" viewBox="0 0 ${size} ${size}" role="img" aria-label="${Math.round(clamped)}% confidence">` +
-    `<circle cx="${center}" cy="${center}" r="${radius}" fill="none" stroke="var(--ink-4)" stroke-width="${stroke}" opacity="0.2"/>` +
-    `<circle cx="${center}" cy="${center}" r="${radius}" fill="none" stroke="${color}" stroke-width="${stroke}" stroke-linecap="round" ` +
-    `stroke-dasharray="${fill.toFixed(2)} ${circumference.toFixed(2)}" transform="rotate(-90 ${center} ${center})"/>` +
-    `<text x="${center}" y="${center}" text-anchor="middle" dominant-baseline="central" fill="${color}" ` +
-    `style="font-family:ui-monospace,monospace;font-size:${Math.round(size * 0.32)}px;font-weight:600;">${Math.round(clamped)}%</text></svg>`
-  )
-}
-
-// confidence-badge tiers (mirrors getTier in confidence-badge.tsx; --low is shared by Low and
-// Best-guess<40, differentiated by glyph). bg = color-mix(token, transparent 85%).
-const CONF_TIERS = [
-  { label: 'High', token: '--hi', glyph: '●●●●●', pct: 92 },
-  { label: 'Good', token: '--good', glyph: '●●●●○', pct: 78 },
-  { label: 'Moderate', token: '--mod', glyph: '●●●○○', pct: 61 },
-  { label: 'Low', token: '--low', glyph: '●●○○○', pct: 47 },
-  { label: 'Best guess', token: '--low', glyph: '●○○○○', pct: 22 },
-  { label: 'Best guess', token: '--ink-4', glyph: '○○○○○', pct: null }
-]
-
-const confidenceBadge = (t) =>
-  chip(
-    `color:var(${t.token});background:color-mix(in oklab, var(${t.token}), transparent 85%);`,
-    `<span aria-hidden="true">${t.glyph}</span><span>${t.label}</span>` +
-      (t.pct == null ? '' : `<span style="opacity:.7;font-variant-numeric:tabular-nums;">${t.pct}%</span>`)
-  )
-
-// type-chip recipes (verbatim from the .type-* rules in globals.css).
-const TYPE_CHIPS = [
-  { label: 'Endurance', style: 'background:color-mix(in oklab, var(--hi), transparent 80%);color:var(--hi);' },
-  { label: 'Intervals', style: 'background:color-mix(in oklab, var(--accent), transparent 78%);color:var(--accent);' },
-  { label: 'Recovery', style: 'background:color-mix(in oklab, var(--good), transparent 80%);color:var(--good);' },
-  { label: 'Commute', style: 'background:color-mix(in oklab, var(--mod), transparent 80%);color:var(--mod);' },
-  { label: 'Race', style: 'background:color-mix(in oklab, var(--low), transparent 78%);color:var(--low);' },
-  { label: 'Group Ride', style: 'background:var(--accent-soft);color:var(--accent);' },
-  { label: 'Other', style: 'background:var(--surface-3);color:var(--ink-3);' }
-]
-
-// data-stream-chip recipes (verbatim from the .stream-* rules in globals.css).
-const STREAM_CHIPS = [
-  { label: 'POWER', style: 'background:var(--accent-soft);color:var(--accent);' },
-  { label: 'HR', style: 'background:color-mix(in oklab, var(--low), transparent 78%);color:var(--low);' },
-  { label: 'CAD', style: 'background:color-mix(in oklab, var(--accent), transparent 78%);color:var(--accent);' },
-  { label: 'GPS', style: 'background:color-mix(in oklab, var(--good), transparent 78%);color:var(--good);' },
-  // 'HR' again on purpose = the .stream-unavailable variant (dashed border, ink-4) — not a dup bug.
-  { label: 'HR', style: 'background:transparent;color:var(--ink-4);border:1px dashed var(--ink-4);' }
-]
-
-const SEGMENTS = [
-  { label: 'Power', selected: true },
-  { label: 'HR', selected: false },
-  { label: 'Cadence', selected: false }
-]
-
-const segment = (s) =>
-  `<button style="border:none;border-radius:999px;padding:4px 14px;font-size:14px;font-weight:500;` +
-  `cursor:pointer;font-family:inherit;` +
-  (s.selected
-    ? 'background:var(--surface-3);box-shadow:var(--shadow);color:var(--ink);'
-    : 'background:transparent;color:var(--ink-3);') +
-  `">${s.label}</button>`
-
-// Type scale. globals.css defines NO --text-* custom properties, so the typographic scale is the
-// Tailwind size steps the previewed components actually use (text-xs/sm/base/lg) plus the two
-// families: system-ui for body/UI and JetBrains Mono for numerics (var(--font-jetbrains-mono),
-// referenced by confidence-ring.tsx). Authored here — the one Tokens card NOT extracted from
-// globals.css — so the issue's "type scale" token card is faithful to what the design system uses.
+// ── Type scale ───────────────────────────────────────────────────────────────
+// globals.css typically defines NO --text-* custom properties, so the typographic scale is the
+// Tailwind size steps the previewed components actually use (text-xs/sm/base/lg) plus two
+// families: system-ui for body/UI and a mono for numerics (var(--font-jetbrains-mono)). This
+// neutral default is domain-empty; a consumer passes its own scale into typeScaleCard.
 const SANS = "system-ui, -apple-system, 'Segoe UI', sans-serif"
 const MONO = 'var(--font-jetbrains-mono, ui-monospace), monospace'
 const TYPE_SCALE = [
-  { name: 'text-lg · 18 / 600', size: 18, weight: 600, family: SANS, sample: 'Threshold effort' },
-  { name: 'base · 16 / 500', size: 16, weight: 500, family: SANS, sample: 'Detected from an outdoor ride' },
-  { name: 'text-sm · 14 / 400', size: 14, weight: 400, family: SANS, sample: '4 × 8 min @ FTP' },
-  { name: 'text-xs · 12 / 600', size: 12, weight: 600, family: SANS, sample: 'POWER · HR · CAD' },
-  { name: 'mono · tabular-nums', size: 16, weight: 600, family: MONO, sample: '274 W · 92%' }
+  { name: 'text-lg · 18 / 600', size: 18, weight: 600, family: SANS, sample: 'Section heading' },
+  { name: 'base · 16 / 500', size: 16, weight: 500, family: SANS, sample: 'Body copy for a record detail' },
+  { name: 'text-sm · 14 / 400', size: 14, weight: 400, family: SANS, sample: 'Secondary label text' },
+  { name: 'text-xs · 12 / 600', size: 12, weight: 600, family: SANS, sample: 'STATUS · META · TAG' },
+  { name: 'mono · tabular-nums', size: 16, weight: 600, family: MONO, sample: '1,280 · 98%' }
 ]
 
 const typeScaleRow = (t) =>
@@ -138,69 +67,31 @@ const typeScaleRow = (t) =>
   `<span style="font-size:${t.size}px;font-weight:${t.weight};font-family:${t.family};color:var(--ink);` +
   `font-variant-numeric:tabular-nums;">${t.sample}</span></div>`
 
-/** The "Type scale" Tokens card (authored — see TYPE_SCALE note). @param {string} tokenCss */
-export function typeScaleCard(tokenCss) {
+/**
+ * The "Type scale" Tokens card.
+ * @param {string} tokenCss inlined `:root { … }` block
+ * @param {{name:string, size:number, weight:number, family:string, sample:string}[]} [scale]
+ *   the type scale rows, sourced from the consumer's design-system reference. Defaults to the
+ *   neutral TYPE_SCALE.
+ */
+export function typeScaleCard(tokenCss, scale = TYPE_SCALE) {
   return emitCard({
     group: 'Tokens',
     name: 'Type scale',
-    subtitle: 'system-ui · JetBrains Mono numerics',
+    subtitle: 'system-ui · mono numerics',
     slug: 'tokens-type-scale',
     tokenCss,
-    body: `<div class="ds-stack" style="gap:16px;">\n    ${TYPE_SCALE.map(typeScaleRow).join('\n    ')}\n  </div>`
+    body: `<div class="ds-stack" style="gap:16px;">\n    ${scale.map(typeScaleRow).join('\n    ')}\n  </div>`
   })
 }
 
 // ── the representative preview specs ─────────────────────────────────────────
-// Each: { group, name, subtitle, slug, body }. tokenCss is injected by buildDesignSystem.
+// Domain-empty by default: only generic, universal shadcn primitives (via SHADCN_TOKEN_MAP), with
+// neutral placeholder copy. A consumer passes its own richer specs — each
+// { group, name, subtitle, slug, body } (tokenCss is injected by buildDesignSystem) — sourced from
+// its design-system reference. See fixtures/component-previews.mjs for a complete neutral example
+// set including composites.
 export const COMPONENT_PREVIEWS = [
-  // Composites — faithful, token-bound.
-  {
-    group: 'Composites',
-    name: 'ConfidenceBadge',
-    subtitle: 'High / Good / Moderate / Low / Best guess',
-    slug: 'confidence-badge',
-    body: `<div class="ds-row">\n    ${CONF_TIERS.map(confidenceBadge).join('\n    ')}\n  </div>`
-  },
-  {
-    group: 'Composites',
-    name: 'ConfidenceRing',
-    subtitle: 'High / Good / Moderate / Low / Unscored',
-    slug: 'confidence-ring',
-    body:
-      `<div class="ds-row" style="gap:18px;">\n    ` +
-      [
-        ringSvg(92, '--hi', 48, 5),
-        ringSvg(78, '--good', 48, 5),
-        ringSvg(61, '--mod', 48, 5),
-        ringSvg(47, '--low', 48, 5),
-        ringSvg(null, '--ink-4', 48, 5)
-      ].join('\n    ') +
-      `\n  </div>`
-  },
-  {
-    group: 'Composites',
-    name: 'TypeChip',
-    subtitle: 'ride-type palette',
-    slug: 'type-chip',
-    body: `<div class="ds-row">\n    ${TYPE_CHIPS.map((t) => chip(t.style, t.label)).join('\n    ')}\n  </div>`
-  },
-  {
-    group: 'Composites',
-    name: 'DataStreamChip',
-    subtitle: 'power / hr / cadence / gps / unavailable',
-    slug: 'data-stream-chip',
-    body: `<div class="ds-row">\n    ${STREAM_CHIPS.map((s) => chip(s.style + 'padding:2px 10px;', s.label)).join('\n    ')}\n  </div>`
-  },
-  {
-    group: 'Composites',
-    name: 'SegmentedControl',
-    subtitle: 'single-select toggle group',
-    slug: 'segmented-control',
-    body:
-      `<div role="group" aria-label="Metric" style="display:inline-flex;align-items:center;gap:2px;` +
-      `border-radius:999px;padding:2px;background:var(--surface-2);">\n    ${SEGMENTS.map(segment).join('\n    ')}\n  </div>`
-  },
-  // Primitives — via SHADCN_TOKEN_MAP.
   {
     group: 'Primitives',
     name: 'Button',
@@ -241,24 +132,35 @@ export const COMPONENT_PREVIEWS = [
       `<div style="width:300px;background:var(--surface);border:1px solid var(--line);` +
       `border-radius:var(--radius);box-shadow:var(--shadow);overflow:hidden;">\n` +
       `    <div style="padding:20px 20px 0;">\n` +
-      `      <div style="font-size:18px;font-weight:600;color:var(--ink);">Threshold effort</div>\n` +
-      `      <div style="font-size:14px;color:var(--ink-3);margin-top:4px;">4 × 8 min @ FTP</div>\n` +
+      `      <div style="font-size:18px;font-weight:600;color:var(--ink);">Record title</div>\n` +
+      `      <div style="font-size:14px;color:var(--ink-3);margin-top:4px;">Updated 3 days ago</div>\n` +
       `    </div>\n` +
       `    <div style="padding:16px 20px 20px;font-size:14px;color:var(--ink-2);">` +
-      `Detected from a chaotic outdoor ride.</div>\n  </div>`
+      `A short summary of this record's contents.</div>\n  </div>`
   }
 ]
 
 /**
- * Assemble the full local design-system file set from the acme token source.
- * @param {{globalsCss: string}} input  already-sanitized apps/web globals.css text
+ * Assemble the full local design-system file set from a consumer's token source + preview specs.
+ * @param {{globalsCss?: string,
+ *          previews?: {group?:string, name:string, subtitle?:string, slug:string, body:string}[],
+ *          ramps?: {key:string, name:string, subtitle?:string, names:string[]}[],
+ *          typeScale?: {name:string, size:number, weight:number, family:string, sample:string}[]}} input
+ *   - `globalsCss` — already-sanitized globals.css text (the consumer's token source).
+ *   - `previews`   — component preview specs from the consumer's design-system reference. Defaults
+ *                    to the neutral/empty COMPONENT_PREVIEWS so the published output hardcodes none.
+ *   - `ramps`      — token roles (see emit-tokens.TOKEN_RAMPS). Defaults to the neutral TOKEN_RAMPS.
+ *   - `typeScale`  — type scale rows (see typeScaleCard). Defaults to the neutral TYPE_SCALE.
  * @returns {{path:string, content:string}[]}  token cards + component cards, ready for planSync
  */
 export function buildDesignSystem(input) {
   const globalsCss = (input && input.globalsCss) || ''
+  const previews = (input && input.previews) || COMPONENT_PREVIEWS
+  const ramps = (input && input.ramps) || TOKEN_RAMPS
+  const typeScale = (input && input.typeScale) || TYPE_SCALE
   const tokenCss = tokenRootCss(globalsCss)
   // Token cards: the CSS-property ramps (emitTokenCards) + the authored Type scale card.
-  const tokenCards = [...emitTokenCards(globalsCss), typeScaleCard(tokenCss)]
-  const componentCards = COMPONENT_PREVIEWS.map((spec) => emitCard({ ...spec, tokenCss }))
+  const tokenCards = [...emitTokenCards(globalsCss, ramps), typeScaleCard(tokenCss, typeScale)]
+  const componentCards = previews.map((spec) => emitCard({ ...spec, tokenCss }))
   return [...tokenCards, ...componentCards]
 }

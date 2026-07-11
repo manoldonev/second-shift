@@ -3,7 +3,7 @@
 // extractContract({ projectType, files }) -> DesignContract. Pure: operates on
 // already-fetched bytes (the DesignSync read orchestration is the caller's job; see
 // SKILL.md). Sanitizes every byte before parsing, dispatches by project shape, and
-// assembles the structured contract that #196/#200 consume.
+// assembles the structured contract that the read engine and push path consume.
 
 import { emptyContract, FAIL_CLOSED, FailClosedError, PROJECT_TYPES } from './contract-types.mjs'
 import { sanitize } from './sanitize.mjs'

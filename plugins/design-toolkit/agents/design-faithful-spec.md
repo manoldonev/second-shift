@@ -18,7 +18,7 @@ conservatively (find the FE app, its component library, its global CSS token fil
 in your output.
 
 The `design-faithful-spec` skill is loaded (see `skills:` above) — its body is your single
-source of truth: the DesignSync read path, the contract extraction via the #195 lib, the
+source of truth: the DesignSync read path, the contract extraction via the contract lib, the
 FE-spec template and its rules, and the `PRODUCE_SCHEMA` output contract. Do **not**
 re-implement or paraphrase it here; if this wrapper and the skill disagree, the skill wins.
 (Source of record: the loaded `design-faithful-spec` SKILL.md.)

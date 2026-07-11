@@ -47,7 +47,7 @@ Before classifying findings, understand the codebase's current maturity. If `.cl
 
 The panel named throughout this skill is the **plugin-shipped generic registry**. The consumer repo tunes it through `<repo-root>/.claude/second-shift.config.json` (env override `SECOND_SHIFT_CONFIG`) under the `reviewers` key. Read that file at the start of Routing and compute the **effective registry**:
 
-- `reviewers.add[]` — repo-local reviewer agents living in the repo's `.claude/agents/` (referenced **bare**, e.g. `coaching-reviewer`). Each entry declares `dimensions[]` (a routing/dedup hint — treat those dimensions as the reviewer's domain when deciding whether to spawn it and when merging its findings). Register these alongside the plugin panel; spawn them per their declared domain the same way the conditional reviewers below are spawned.
+- `reviewers.add[]` — repo-local reviewer agents living in the repo's `.claude/agents/` (referenced **bare**, e.g. `orders-reviewer`). Each entry declares `dimensions[]` (a routing/dedup hint — treat those dimensions as the reviewer's domain when deciding whether to spawn it and when merging its findings). Register these alongside the plugin panel; spawn them per their declared domain the same way the conditional reviewers below are spawned.
 - `reviewers.remove[]` — plugin-shipped reviewers disabled in this repo (e.g. `db-reviewer` in a pure-FE repo). Never spawn a removed reviewer; omit its Verdicts row.
 - `reviewers.modelOverrides{}` — per-reviewer model-tier override applied when dispatching (e.g. `security-reviewer: opus` in one repo, `sonnet` in another). The `code-review.mjs` fan-out reads these; pass the overridden tier, not the agent-frontmatter default.
 
@@ -143,7 +143,7 @@ Analyze the `git diff --stat` output and spawn reviewers accordingly.
 | **unit-test-mutation-reviewer** | A production file within the repo's mutation-review target surface changed AND a co-located spec is in the diff; OR the pipeline ran with `unitTestSurface.action == strengthen`. Advisory mode (LLM-predicted, no execution — Stage 5 owns execution-verified blocking).    |
 | **scope-completeness-reviewer** | Invocation references a tracker issue number (e.g., `Closes #758`, `Part of #758`, an explicit `--issue 758` flag, or PR body contains `#<number>`). Spawn unconditionally — depth routing does not apply. If no issue is referenced, do not spawn.                          |
 | **a11y-reviewer**               | Diff touches a web component (the repo's web UI file globs, e.g. `**/*.tsx` / `**/*.jsx`). WCAG/ARIA/keyboard/contrast/reduced-motion, primitives-library-aware. Static path trigger.                                                                              |
-| **repo-local domain reviewers** | Registered via config `reviewers.add`; spawn per the `dimensions[]` each declares (e.g. a `coaching-reviewer` on physiology-domain paths, a design-fidelity reviewer on web components). Never suppressed by depth routing.                                                   |
+| **repo-local domain reviewers** | Registered via config `reviewers.add`; spawn per the `dimensions[]` each declares (e.g. an `orders-reviewer` on orders-domain paths, a design-fidelity reviewer on web components). Never suppressed by depth routing.                                                   |
 
 When in doubt about whether a domain reviewer is relevant, spawn it — a "no issues found" response is cheap.
 

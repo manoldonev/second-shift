@@ -1,7 +1,7 @@
 // design-faithful — HTML / JSX markup contract extraction.
 //
-// Pure, regex-based (no deps). Operates on already-sanitized markup. Per #194 findings,
-// the @dsCard first-line marker is the card-index source of truth (NOT _ds_manifest.json,
+// Pure, regex-based (no deps). Operates on already-sanitized markup. The
+// @dsCard first-line marker is the card-index source of truth (NOT _ds_manifest.json,
 // which is a web-app render artifact). Inferred states/variants are flagged inferred:true
 // for human review.
 

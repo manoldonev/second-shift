@@ -35,7 +35,7 @@ In an AI-native repo the knowledge docs are load-bearing, and the repo's `CLAUDE
 
 ### Step 1: Identify changed code areas
 
-Run `git diff --stat` and classify each changed path into a **conceptual code-area category** — workers / pipeline, API endpoints, business logic, API contracts / DTOs, database schema, algorithms, shared types, frontend, ML service/training/models, native/service tiers, and so on. Derive the path → category mapping from the repo's own layout as declared in its `CLAUDE.md` (stack / module / directory sections); do not assume a fixed directory tree. The **"Example (acme's map)"** block at the end shows one repo's concrete path → category table.
+Run `git diff --stat` and classify each changed path into a **conceptual code-area category** — workers / pipeline, API endpoints, business logic, API contracts / DTOs, database schema, algorithms, shared types, frontend, report service/templates/renderers, native/service tiers, and so on. Derive the path → category mapping from the repo's own layout as declared in its `CLAUDE.md` (stack / module / directory sections); do not assume a fixed directory tree. The **"Example (acme's map)"** block at the end shows one repo's concrete path → category table.
 
 ### Step 2: Look up affected docs
 
@@ -182,12 +182,12 @@ All documentation is consistent with the code changes.
 | `packages/db/src/schema/`       | Database schema        |
 | `packages/analysis/`            | Detection algorithms   |
 | `packages/core/`                | Shared types/utilities |
-| `packages/fit/`                 | FIT file parsing       |
+| `packages/import/`              | Import file parsing    |
 | `apps/web/`                     | Frontend               |
-| `services/ml-service/`          | ML service             |
-| `services/ml-service/training/` | ML training            |
-| `services/ml-service/models/`   | ML models              |
-| `services/pelt-service-rust/`   | PELT Rust service      |
+| `services/report-service/`      | Report service         |
+| `services/report-service/templates/` | Report templates       |
+| `services/report-service/renderers/`  | Report renderers       |
+| `services/geo-service-rust/`    | Geo Rust service       |
 
 **Step 2 — code-area category → candidate docs (this repo's `doc-routing.md` map):**
 
@@ -217,33 +217,33 @@ All documentation is consistent with the code changes.
 
 **Detection algorithm changes** → check:
 
-- `.project/architecture/interval-detection.md` (detection pipeline, thresholds)
-- `.project/decisions/ADR-009-three-layer-truth-model.md` (intensity bands)
-- `.claude/agents/coaching-reviewer.md` (zone boundaries, duration minimums)
+- `.project/architecture/detection.md` (detection pipeline, thresholds)
+- `.project/decisions/ADR-009-three-layer-truth-model.md` (band definitions)
+- `.claude/agents/orders-reviewer.md` (rate limits, pagination bounds)
 
-**ML service changes** → check:
+**Report service changes** → check:
 
-- `.project/frameworks/xgboost-ml-service.md` (model classes, feature schema)
-- `.project/frameworks/ml-workflow-automation.md` (experiment tracking)
-- `.project/decisions/ADR-005-ml-classifier.md` (if classification approach changed)
-- `.project/decisions/ADR-006-ride-classifier-terrain-features.md` (if features changed)
-- `.project/decisions/ADR-007-ride-classifier-v4-evolution.md` (if ILR features changed)
-- `.claude/agents/coaching-reviewer.md` (if zone/threshold logic changed)
-- `.claude/agents/test-coverage-reviewer.md` (ML feature schema section)
+- `.project/frameworks/report-service.md` (renderer classes, field schema)
+- `.project/frameworks/report-workflow-automation.md` (job tracking)
+- `.project/decisions/ADR-005-report-renderer.md` (if rendering approach changed)
+- `.project/decisions/ADR-006-report-fields.md` (if fields changed)
+- `.project/decisions/ADR-007-report-v4-evolution.md` (if template fields changed)
+- `.claude/agents/orders-reviewer.md` (if pagination/limit logic changed)
+- `.claude/agents/test-coverage-reviewer.md` (report field schema section)
 
-**PELT service changes** → check:
+**Geo service changes** → check:
 
-- `.project/decisions/ADR-002-pelt-rust.md` (if interface changed)
-- `.project/architecture/interval-detection.md` (PELT role in pipeline)
+- `.project/decisions/ADR-002-geo-rust.md` (if interface changed)
+- `.project/architecture/detection.md` (geo-service role in pipeline)
 
 **Frontend changes** → check:
 
 - `.project/frameworks/nextjs.md` (if new patterns introduced)
 - `.project/architecture/system-overview.md` (if new routes added)
 
-**FIT parsing changes** → check:
+**Import parsing changes** → check:
 
-- `.project/frameworks/fit-processing.md` (parsing pipeline, stream types)
+- `.project/frameworks/import-processing.md` (parsing pipeline, record fields)
 
 **Cross-cutting changes** (new module, new service boundary) → also check:
 
@@ -254,9 +254,9 @@ All documentation is consistent with the code changes.
 
 **Step 5 — reviewer agent → invariants it restates (this repo's roster):**
 
-- `.claude/agents/coaching-reviewer.md` — zone boundaries, duration minimums, PDC constraints
+- `.claude/agents/orders-reviewer.md` — rate limits, pagination bounds, retention constraints
 - `.claude/agents/pipeline-reviewer.md` — job chain, payload contracts, conditional gates
 - `.claude/agents/security-reviewer.md` — userId-filtered tables list, Swagger requirements
-- `.claude/agents/test-coverage-reviewer.md` — ML feature schema section, edge case values
+- `.claude/agents/test-coverage-reviewer.md` — report field schema section, edge case values
 - `.claude/agents/plan-reviewer.md` — convention checklists, file coverage tables
 ```

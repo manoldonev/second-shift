@@ -1,9 +1,9 @@
-// design-faithful — design-system card emit (the #200 push direction).
+// design-faithful — design-system card emit (the push direction).
 //
 // Pure, dependency-free ESM. The inverse of lib/html-markup.mjs (which PARSES a
 // components/<name>/index.html preview into a contract): here we SERIALIZE a component
 // preview into the same on-disk shape DesignSync expects — a standalone HTML document whose
-// first line is the @dsCard marker (the card-index source of truth, per #194 Probe 3) and
+// first line is the @dsCard marker (the card-index source of truth) and
 // whose styling is self-contained (inline acme OKLch tokens, no external stylesheet).
 //
 // .mjs under .claude/ is prettier-ignored and hand-styled (single quotes, no semicolons) to
@@ -82,7 +82,7 @@ const DEFAULT_FRAME = `  *, *::before, *::after { box-sizing: border-box; }
  *   - `tokenCss`  — a `:root { … }` block of acme tokens (from emit-tokens.tokenRootCss) so
  *                   the preview renders faithfully standalone. Optional (token swatch cards that
  *                   already inline their own values can omit it).
- *   - `body`      — the inner HTML of <body>: variant instances as sibling DOM nodes (#194 Probe 4).
+ *   - `body`      — the inner HTML of <body>: variant instances as sibling DOM nodes.
  *   - `baseStyles`— optional extra CSS appended after the default preview frame.
  * @returns {{path:string, content:string}}
  */

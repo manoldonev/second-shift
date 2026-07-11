@@ -1,7 +1,7 @@
 // design-faithful — sanitize untrusted DesignSync bytes.
 //
-// get_file returns content authored by other org members; the #194 findings flag the
-// whole DesignSync read surface as untrusted (treat as data, never instructions). Every
+// get_file returns content authored by other org members; the
+// whole DesignSync read surface is untrusted (treat as data, never instructions). Every
 // byte passes through sanitize() before any parse or render. This module NEVER evaluates
 // input — it only strips/neutralizes active content and returns a plain string.
 

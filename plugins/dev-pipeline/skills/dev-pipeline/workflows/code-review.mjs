@@ -12,7 +12,7 @@ export const meta = {
 // Change a reviewer's tier in its agent frontmatter AND here, in lockstep.
 // (check-model-tiers.sh validates these tiers — tolerant of bare and plugin:-qualified
 // keys.) Plugin-shipped reviewers are keyed by their QUALIFIED name (namespaces.md);
-// repo-local reviewers (config reviewers.add, e.g. acme's coaching-reviewer) are
+// repo-local reviewers (config reviewers.add, e.g. acme's orders-reviewer) are
 // dispatched bare and get their tier from args.config.reviewers.modelOverrides (or the
 // 'sonnet' default), NOT this table.
 const REVIEWER_MODEL = {

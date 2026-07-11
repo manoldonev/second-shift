@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// design-faithful — offline build driver for the #200 design-system push.
+// design-faithful — offline build driver for the design-system push.
 //
 // Reads the repo's global token CSS, assembles the design-system card set
 // (buildDesignSystem), diffs it against whatever is already in the output dir (planSync), applies
@@ -7,6 +7,10 @@
 // produces the exact components/<name>/index.html bytes a human/agent then pushes from an
 // interactive session (see ../PUSH.md), and — run twice — demonstrates the delta-only idempotency
 // AC without needing DesignSync auth.
+//
+// buildDesignSystem is domain-empty by default (token cards only); a consumer supplies its own
+// component preview specs + token roles via the `previews`/`ramps`/`typeScale` inputs, sourced
+// from its design-system reference. See fixtures/component-previews.mjs for a worked example.
 //
 // Usage:  node tools/build-ds-files.mjs <globals-css-path> [outDir]
 //   globals-css-path — the repo's global token CSS file, as declared in the consumer repo's

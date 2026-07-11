@@ -108,4 +108,4 @@ First entry: <ts>; last entry: <ts>; ledger size: <KB>.
 
 ## Background
 
-For 2+ months, three orchestrator agents (`review-lead`, `intake-orchestrator`, `decomposition-reviewer`) silently inlined sub-agent work because Claude Code subagents cannot spawn other subagents — every `Task()` failed silently and the orchestrator impersonated all sub-agents in its own context. The structural fix (orchestrators converted to skills loaded into the calling session) landed earlier. This audit skill is the trust-recovery companion: a read-only window onto what tools actually fired, so a recurrence of the silent-inline pattern is _visible_ even when not auto-blocked.
+This audit skill surfaces claimed-vs-actual sub-agent tool calls: a read-only window onto what tools actually fired, so any gap between what Claude's chat output reports and what the harness recorded is _visible_ even when not auto-blocked.

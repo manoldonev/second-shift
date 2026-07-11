@@ -1,4 +1,4 @@
-# design-system push — interactive runbook (#200)
+# design-system push — interactive runbook
 
 The **push** direction: publish the repo's design system (tokens + a representative component set)
 to a Claude Design `PROJECT_TYPE_DESIGN_SYSTEM` project, so future designs are authored against
@@ -12,7 +12,7 @@ the repo's actual tokens and components. Code is the source of truth; this is a 
 ## Why this is a runbook, not an automated step
 
 DesignSync is a **model-invoked tool** and its auth is **interactive-session-bound** — there is no
-proven non-interactive/refreshable token (DesignSync probe findings, Probe 7). A Workflow script
+proven non-interactive/refreshable token. A Workflow script
 has no tool access, so it cannot call DesignSync. The push therefore runs in
 an **interactive agent session** (with `/design-login` scopes), eyes-on. The offline-testable
 pieces — building the exact card bytes and computing the delta — are the library
@@ -40,8 +40,8 @@ covers the live tool calls that the library cannot make.
    - `list_projects` (returns design-system projects only). If the repo's design-system project
      (name per the design-tokens extension file) exists, note its `projectId`.
    - **Cold start (none exists):** `create_project({ name: '<repo design-system project name>' })`
-     — its only input is `name`, and it always returns a `PROJECT_TYPE_DESIGN_SYSTEM` project
-     (Probe bonus). A freshly created project has no files, so its `remote` set is `[]`.
+     — its only input is `name`, and it always returns a `PROJECT_TYPE_DESIGN_SYSTEM` project.
+     A freshly created project has no files, so its `remote` set is `[]`.
 
 3. **Read current remote state.** `list_files(projectId)`, then `get_file` each existing
    `components/*/index.html`. **Sanitize every fetched file** (`lib/sanitize.mjs`) before using it —
@@ -52,7 +52,7 @@ covers the live tool calls that the library cannot make.
    - `writes` — new or byte-changed cards (the only paths to push).
    - `deletes` — stale remote cards under the `components/` tree that are no longer emitted. By
      design, paths outside `components/` (e.g. a `_ds_manifest.json` render artifact, which is NOT
-     upload-generated — Probe 3) are never deleted. Do not hand `planSync` a `remote` set padded
+     upload-generated) are never deleted. Do not hand `planSync` a `remote` set padded
      with render artifacts and expect them pruned.
    - If `writes` and `deletes` are both empty, the design system is already in sync — stop.
 
@@ -63,7 +63,7 @@ covers the live tool calls that the library cannot make.
 6. **Push the delta.**
    - `finalize_plan({ writes: [<paths in writes>], deletes: [<paths in deletes>] })` — **both**
      arrays are required (empty is fine); every path must be in-plan; it mints a fresh `planId`
-     reusable across calls (Probe 6).
+     reusable across calls.
    - `write_files(planId, <writes>)` and `delete_files(planId, <deletes>)`, ≤256 files per call
      (split larger sets across calls under the same `planId`).
 

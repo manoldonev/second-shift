@@ -6,7 +6,7 @@ Reviewer selection happens in-session: choose from the effective reviewer regist
 
 - **security-reviewer** — always
 - **performance-reviewer** — always
-- **repo-local domain reviewers** — registered via config `reviewers.add` (e.g. a `coaching-reviewer` on domain paths); backticked prose examples here must not parse into the plugin registry.
+- **repo-local domain reviewers** — registered via config `reviewers.add` (e.g. an `orders-reviewer` on domain paths); backticked prose examples here must not parse into the plugin registry.
 
 ## Spawning Reviewers
 

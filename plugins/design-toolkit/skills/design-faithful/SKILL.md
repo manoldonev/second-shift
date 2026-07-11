@@ -4,7 +4,7 @@ description: Implement a screen/component in the repo's FE app with high visual 
 ---
 
 You implement a screen/component in the repo's FE app that is **visually faithful** to a
-Claude Design handoff, then commit it. You read the handoff via `DesignSync` + the #195 lib
+Claude Design handoff, then commit it. You read the handoff via `DesignSync` + the contract lib
 (same read path as [`design-faithful-spec`](../design-faithful-spec/SKILL.md)), prefer a
 `design-faithful-spec` artifact as your primary input when one exists, implement onto the
 repo's **real** stack, self-verify against the bundled screenshot, and commit via bot
@@ -16,7 +16,7 @@ token roles and their source file, and the design-handoff bundle location. If ab
 discover conservatively (find the FE app, its component library, its global CSS token file)
 and say so in your output.
 
-> This directory also ships the #195 **contract library** (`lib/`, see [README.md](./README.md))
+> This directory also ships the **contract library** (`lib/`, see [README.md](./README.md))
 > and its fixtures/tests. This SKILL.md is the invocable implement skill; the lib is what it
 > imports.
 
@@ -105,7 +105,7 @@ If the design source is unreachable or exceeds a DesignSync limit, do **not** gu
 ## Verification reality (interactive-only live e2e)
 
 The full live run (fetch real handoff → implement → commit) needs an interactive DesignSync
-session (auth is session-bound — DesignSync probe findings, Probe 7).
-It is the operator-run demo, mirroring the #195 README AC1 framing. The offline-reproducible
+session (auth is session-bound).
+It is the operator-run demo, mirroring the README acceptance-demo framing. The offline-reproducible
 substitute for the contract surface is `lib/extractor.test.mjs` plus the worked spec at
 `../design-faithful-spec/examples/detail-spec.example.md`.

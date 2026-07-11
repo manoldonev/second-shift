@@ -209,7 +209,7 @@ if (design.enabled) {
   // Provider-aware rubric (design axis): claude-design → design-faithful-spec template;
   // figma → figma-faithful-spec template. Same rubric-driven plan-reviewer dispatch for both
   // (symmetric with the claude-design path, which has no dedicated spec-reviewer agent); the
-  // figma lineage also ships design-toolkit:figma-faithful-spec-reviewer for direct/manual review.
+  // figma family also ships design-toolkit:figma-faithful-spec-reviewer for direct/manual review.
   const isFigma = design.provider === 'figma'
   const engineNote = isFigma ? 'Stage-3 figma-faithful engine' : 'Stage-3 design-sync engine'
   const templateNote = isFigma ? 'figma-faithful-spec' : 'design-faithful-spec'

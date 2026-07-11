@@ -281,7 +281,7 @@ Plan is complete, consistent with codebase patterns, and accounts for downstream
 
 ## Example (one reference stack)
 
-> **Illustration only — not the contract.** These are the fully worked Plan Omissions and Convention Compliance checklists for one repo (a TS monorepo: NestJS API + BullMQ workers + Drizzle DB + Next.js frontend + a Python ML service + a Rust PELT service). A different repo declares different conventions in its `CLAUDE.md` / `.claude/second-shift/review-context.md`, and this agent checks against those. Read this as the *shape* of a filled-in convention map, never as rules to apply verbatim.
+> **Illustration only — not the contract.** These are the fully worked Plan Omissions and Convention Compliance checklists for one repo (a TS monorepo: NestJS API + BullMQ workers + Drizzle DB + Next.js frontend + a Python report service + a Rust geo service). A different repo declares different conventions in its `CLAUDE.md` / `.claude/second-shift/review-context.md`, and this agent checks against those. Read this as the *shape* of a filled-in convention map, never as rules to apply verbatim.
 
 ### Plan Omissions — `proposes → also requires` (this repo)
 
@@ -305,19 +305,19 @@ Plan is complete, consistent with codebase patterns, and accounts for downstream
 | List rendering        | Pagination or virtualization strategy for large datasets (100s of activities)               |
 | Chart/visualization   | Performance strategy for 3600+ data points, responsive behavior, touch interaction          |
 
-**ML domain** (`ml`):
+**Report domain** (`report`):
 
-| Plan proposes           | Also requires                                                                                  |
-| ----------------------- | ---------------------------------------------------------------------------------------------- |
-| New feature in training | Matching feature in inference (`_features_to_array()`), schema test update, model version bump |
-| New endpoint            | Pydantic model, matching TypeScript interface on caller side                                   |
-| Model change            | Version string update in health endpoint, retraining if feature order changed                  |
+| Plan proposes             | Also requires                                                                                |
+| ------------------------- | -------------------------------------------------------------------------------------------- |
+| New field in a template   | Matching field in the renderer (`_fields_to_array()`), schema test update, template version bump |
+| New endpoint              | Pydantic model, matching TypeScript interface on caller side                                 |
+| Renderer change           | Version string update in health endpoint, re-render if field order changed                   |
 
 **Rust domain** (`rust`):
 
-| Plan proposes      | Also requires                                       |
-| ------------------ | --------------------------------------------------- |
-| New PELT parameter | Matching TypeScript request type, validation bounds |
+| Plan proposes            | Also requires                                       |
+| ------------------------ | --------------------------------------------------- |
+| New geo-service parameter | Matching TypeScript request type, validation bounds |
 | Algorithm change   | `#[test]` blocks with known signals                 |
 
 ### Convention Compliance — per-surface checklists (this repo)

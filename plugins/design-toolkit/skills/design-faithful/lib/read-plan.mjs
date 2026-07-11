@@ -1,13 +1,13 @@
 // design-faithful — pure read-path limit logic.
 //
 // DesignSync is a model-invoked tool, so the actual list_projects/get_project/list_files/
-// get_file calls are made by the orchestrating agent — the design-faithful skills (#197), which
-// carry the DesignSync tool. (The #196 Workflow engine does NOT call DesignSync; its runtime has
+// get_file calls are made by the orchestrating agent — the design-faithful skills, which
+// carry the DesignSync tool. (The Workflow engine does NOT call DesignSync; its runtime has
 // no tool access — see design-sync.mjs READ BOUNDARY.) These helpers are
 // pure: they take the JSON those calls return and apply the limits / fail-closed
 // classification, so the contract is testable without the live tool.
 //
-// Per #194 findings: get_file is capped at 256 KiB (returns truncated:true past the cap);
+// DesignSync read limits: get_file is capped at 256 KiB (returns truncated:true past the cap);
 // write/delete batches are capped at 256 per call; a PROJECT_TYPE_PROJECT handoff bundle is
 // opened BY PROJECT ID (list_projects is design-system-only and never lists it).
 

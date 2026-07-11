@@ -34,9 +34,11 @@
 
 set -euo pipefail
 
-# GitHub App defaults: acme-dev-pipeline (App ID 3218891, bot acme-dev-pipeline[bot]).
-# Overridden per-repo by tracker.bot.app.* in second-shift.config.json (below).
-CLIENT_ID="Iv23linWw3EWmAuuAiZP"
+# GitHub App defaults: acme-dev-pipeline (App ID <APP_ID>, bot acme-dev-pipeline[bot]).
+# clientId has NO baked-in default — supply it via tracker.bot.app.clientId in
+# second-shift.config.json (below) or --client-id. Overridden per-repo by
+# tracker.bot.app.* otherwise.
+CLIENT_ID=""
 INSTALLATION_ID=""
 APP_NAME="acme-dev-pipeline"
 KEY_FILENAME="acme-dev-pipeline.private-key.pem"

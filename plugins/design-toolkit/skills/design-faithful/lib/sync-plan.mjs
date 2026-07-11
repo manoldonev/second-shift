@@ -1,9 +1,9 @@
-// design-faithful — delta-only sync planner (#200 push direction).
+// design-faithful — delta-only sync planner (push direction).
 //
 // Pure, dependency-free. Computes what to write/delete to converge a Claude Design design-system
 // project onto the locally-emitted card set, WITHOUT a wholesale replace. This is the delta basis
-// the issue's idempotency AC requires: re-running with an unchanged source must produce an empty
-// `writes` array (#194 left no readable manifest to diff against, so the diff is byte-for-byte
+// idempotency requires: re-running with an unchanged source must produce an empty
+// `writes` array (there is no readable remote manifest to diff against, so the diff is byte-for-byte
 // over the components/*/index.html contents the caller fetched + sanitized).
 //
 // The caller (an interactive DesignSync session — see PUSH.md) feeds:

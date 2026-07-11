@@ -87,7 +87,7 @@ Every literal string the screen renders (so nothing is paraphrased in implementa
 
 | Key | Literal text | Notes (casing, dynamic parts) |
 | --- | ------------ | ----------------------------- |
-| `<back-link>` | `<"← Back to Activities">` | — |
+| `<back-link>` | `<"← Back to Orders">` | — |
 
 ## 6. Accessibility
 
@@ -105,7 +105,7 @@ must not silently change these.
 
 | Datum | Format | Example from design |
 | ----- | ------ | ------------------- |
-| `<power>` | `<integer + " W">` | `<"254 W">` |
+| `<value>` | `<integer + " units">` | `<"1,240 units">` |
 | `<duration>` | `<"m" / "h:mm">` | `<"45m">` |
 | `<date>` | `<"Weekday · Month D">` | `<"Thursday · January 29">` |
 

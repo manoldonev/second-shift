@@ -25,7 +25,7 @@ You produce a **factual map** of the codebase surface area that a spec affects. 
 
 - **Required**: Spec content (issue body or file content)
 - **Optional**: Specific modules or paths to focus on
-- **Assumed**: Repo root is the working directory; `.project/` docs define codebase truth
+- **Assumed**: Repo root is the working directory; the repo's `CLAUDE.md` routes to its docs — never assume a fixed `.project/` layout
 
 ## Process
 

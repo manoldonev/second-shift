@@ -1,9 +1,9 @@
-// design-faithful — token-swatch card emit (#200 push direction).
+// design-faithful — token-swatch card emit (design-system push direction).
 //
-// Turns acme's globals.css OKLch custom properties into Claude Design "Tokens" cards.
+// Turns a consumer's globals.css OKLch custom properties into Claude Design "Tokens" cards.
 // Reuses the read-path extractor (css-tokens.extractCss) rather than re-parsing: the dark-first
-// `:root, .theme-cold` ramp is extractCss(...).themes[0]. We deliberately take ONLY the first
-// theme block so the `.theme-cold.lighten` light-mode overrides never leak into the dark-first
+// `:root, .theme-*` ramp is extractCss(...).themes[0]. We deliberately take ONLY the first
+// theme block so any `.theme-*.lighten` light-mode overrides never leak into the dark-first
 // :root block we inline into every preview (the v1 scope is the dark canonical ramp only).
 //
 // Pure, dependency-free, hand-styled to match the sibling lib.
@@ -11,14 +11,16 @@
 import { extractCss } from './css-tokens.mjs'
 import { emitCard, escAttr } from './emit-card.mjs'
 
-// Ordered ramps. Each lists the token names that belong to it; emit skips any name the source
-// CSS does not define, so trimming globals.css never produces an empty/garbage swatch.
+// Neutral default token roles. Each ramp lists the token names that belong to it; emit skips any
+// name the source CSS does not define, so trimming globals.css never produces an empty/garbage
+// swatch. Domain-empty by design — a consumer supplies its own ramp roles by passing a `ramps`
+// argument to emitTokenCards sourced from its design-system reference; these are only the fallback.
 export const TOKEN_RAMPS = [
   { key: 'surfaces', name: 'Surfaces', subtitle: 'bg / surface ramp', names: ['--bg', '--surface', '--surface-2', '--surface-3'] },
   { key: 'ink', name: 'Ink ramp', subtitle: 'text foreground ramp', names: ['--ink', '--ink-2', '--ink-3', '--ink-4'] },
   { key: 'lines', name: 'Lines', subtitle: 'hairline borders', names: ['--line', '--line-2'] },
-  { key: 'accent', name: 'Accent', subtitle: 'cadence cyan', names: ['--accent', '--accent-soft', '--accent-ink'] },
-  { key: 'confidence', name: 'Confidence tiers', subtitle: 'High / Good / Moderate / Low', names: ['--hi', '--good', '--mod', '--low'] },
+  { key: 'accent', name: 'Accent', subtitle: 'brand accent', names: ['--accent', '--accent-soft', '--accent-ink'] },
+  { key: 'status', name: 'Status tiers', subtitle: 'success / info / warning / danger', names: ['--hi', '--good', '--mod', '--low'] },
   { key: 'vibe', name: 'Radius & shadow', subtitle: 'radius / elevation / grid', names: ['--radius', '--shadow', '--grid'] }
 ]
 
@@ -28,10 +30,11 @@ const RADIUS_TOKENS = new Set(['--radius'])
 const SHADOW_TOKENS = new Set(['--shadow'])
 
 // The dark-first ramp's tokens, in declared order. Selection is by first-theme membership
-// (extractCss themes[0]) — NOT selector-string equality, which fails because the leading
+// (extractCss themes[0]) — NOT selector-string equality, which fails because any leading
 // brace-less `@tailwind` lines get absorbed into the first block's selector prefix. Taking
-// themes[0] also excludes `.theme-cold.lighten` (themes[1]). Operates on an already-parsed
-// `themes` array so a single extractCss() call can feed both the :root block and the token map.
+// themes[0] also excludes any `.theme-*.lighten` light-mode block (themes[1]). Operates on an
+// already-parsed `themes` array so a single extractCss() call can feed both the :root block and
+// the token map.
 function firstThemeTokens(themes) {
   const first = (themes && themes[0]) || { colors: [], other: [] }
   return [...first.colors, ...first.other]
@@ -72,14 +75,17 @@ function renderToken(name, value) {
 /**
  * Emit one Tokens card per ramp present in the source CSS.
  * @param {string} cssText already-sanitized globals.css text
+ * @param {{key:string, name:string, subtitle?:string, names:string[]}[]} [ramps]
+ *   token roles to emit, sourced from the consumer's design-system reference. Defaults to the
+ *   neutral TOKEN_RAMPS so the published output hardcodes no domain-specific roles.
  * @returns {{path:string, content:string}[]}
  */
-export function emitTokenCards(cssText) {
+export function emitTokenCards(cssText, ramps = TOKEN_RAMPS) {
   const list = firstThemeTokens(extractCss(cssText).themes) // single parse feeds both below
   const tokens = new Map(list.map((t) => [t.name, t.value]))
   const tokenCss = rootCssFrom(list)
   const cards = []
-  for (const ramp of TOKEN_RAMPS) {
+  for (const ramp of ramps) {
     const present = ramp.names.filter((n) => tokens.has(n))
     if (present.length === 0) continue
     const body = `<div class="ds-row">\n${present.map((n) => '    ' + renderToken(n, tokens.get(n))).join('\n')}\n  </div>`

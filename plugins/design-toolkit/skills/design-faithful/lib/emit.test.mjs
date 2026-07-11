@@ -1,4 +1,4 @@
-// design-faithful — emit + sync-plan tests (#200 push direction).
+// design-faithful — emit + sync-plan tests (push direction).
 //
 // Zero external deps (node:test + node:assert) — the .claude/ tooling convention (mirrors
 // lib/extractor.test.mjs). Run: node --test .claude/skills/design-faithful/lib/emit.test.mjs
@@ -159,7 +159,7 @@ test('the "type scale" scope item is emitted as a Tokens card', () => {
   assert.ok(files.some((f) => f.path === 'components/tokens-type-scale/index.html'))
 })
 
-test('planSync: unchanged source is a no-op (AC2 idempotency)', () => {
+test('planSync: unchanged source is a no-op (idempotency)', () => {
   const local = buildDesignSystem({ globalsCss: GLOBALS_FIXTURE })
   const plan = planSync({ local, remote: local })
   assert.deepEqual(plan.writes, [])

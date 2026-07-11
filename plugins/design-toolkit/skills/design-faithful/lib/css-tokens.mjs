@@ -1,7 +1,7 @@
 // design-faithful — CSS contract extraction.
 //
-// Pure, regex-based (no deps). Operates on already-sanitized CSS text. Per #194 findings,
-// design tokens are inline OKLch CSS custom properties grouped under theme selectors
+// Pure, regex-based (no deps). Operates on already-sanitized CSS text. Design
+// tokens are inline OKLch CSS custom properties grouped under theme selectors
 // (.theme-cold / .theme-warm) — there is no token JSON — so the extractor parses custom
 // properties out of the CSS directly.
 
