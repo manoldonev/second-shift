@@ -4,6 +4,15 @@ All notable changes to the second-shift marketplace. Versions are per-plugin (`p
 this file tracks the marketplace release. `configVersion` stays `const 1` — v2 is fully backward-compatible for a
 consumer with an empty config; the migration notes below are only for consumers using the changed features.
 
+## v2.0.1 — pipeline-doctor cache-layout fix
+
+- **`pipeline-doctor.sh`** located sibling-plugin selftests (review-toolkit's reviewer-references +
+  model-tiers, intake-toolkit's ledger-lint) via the monorepo `plugins/` layout, so they reported
+  spurious FAILs when the doctor ran from the version-keyed install cache
+  (`cache/<marketplace>/<plugin>/<version>/`). Added a layout-agnostic resolver (monorepo → this
+  plugin's cache version → newest sibling version). Diagnostic-only; the checks themselves always
+  passed. Consumers re-pin to `v2.0.1` only if they run `pipeline-doctor` from the cache. (dev-pipeline only.)
+
 ## v2.0.0 — "the extensible core"
 
 The de-orged, extensible core: a genuinely generic marketplace + the Extension Contract v1. Semver-major.

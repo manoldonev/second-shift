@@ -20,6 +20,24 @@ SKILL_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 # here; their selftests are reached script-relative (they are NOT in the consumer repo).
 PLUGINS_DIR="$(cd "$SKILL_DIR/../../.." && pwd)"
 
+# Resolve a sibling-plugin file across BOTH layouts the doctor runs from:
+#   monorepo checkout:  <PLUGINS_DIR>/<sib>/<rel>              (PLUGINS_DIR = .../plugins)
+#   version-keyed install cache: <cacheroot>/<sib>/<ver>/<rel>  (PLUGINS_DIR = <cacheroot>/<this-plugin>)
+# Tries the monorepo path, then this plugin's own version in the cache, then the newest sibling
+# version that has the file. Prints the first hit; returns non-zero if none exists.
+resolve_sibling() { # $1 = sibling plugin name, $2 = path under that plugin
+  local sib="$1" rel="$2" cand v cacheroot myver
+  cand="$PLUGINS_DIR/$sib/$rel"; [[ -f "$cand" ]] && { printf '%s\n' "$cand"; return 0; }
+  cacheroot="$(cd "$PLUGINS_DIR/.." 2>/dev/null && pwd)" || return 1
+  myver="$(basename "$(cd "$SCRIPT_DIR/../../.." 2>/dev/null && pwd)")"
+  cand="$cacheroot/$sib/$myver/$rel"; [[ -f "$cand" ]] && { printf '%s\n' "$cand"; return 0; }
+  # shellcheck disable=SC2012  # version dirs are alphanumeric (X.Y.Z); ls is safe and 3.2-portable here
+  for v in $(ls -1 "$cacheroot/$sib" 2>/dev/null | sort -r); do
+    cand="$cacheroot/$sib/$v/$rel"; [[ -f "$cand" ]] && { printf '%s\n' "$cand"; return 0; }
+  done
+  return 1
+}
+
 # Consumer repo root (state, worktrees, toolchain probes) — NOT the plugin checkout.
 # SECOND_SHIFT_REPO_ROOT overrides; else the main checkout via git-common-dir
 # (worktree-safe); else cwd.
@@ -182,7 +200,7 @@ else
 fi
 
 # --- 5d. reviewer-drift gate selftest (real-commit self-gate + registry lockstep) ---
-if out=$(bash "$PLUGINS_DIR/review-toolkit/scripts/check-reviewer-references-selftest.sh" 2>&1); then
+if _st=$(resolve_sibling review-toolkit scripts/check-reviewer-references-selftest.sh) && out=$(bash "$_st" 2>&1); then
   ok "reviewer-drift selftest: $(tail -1 <<< "$out")"
 else
   bad "reviewer-drift selftest FAILED — the reviewer-drift hook's real-commit self-gate (or the three-registry lockstep) drifted. Output tail:"
@@ -220,7 +238,7 @@ fi
 # table (REVIEWER_MODEL / INTAKE_MODEL / DESIGN_MODEL / UNIT_TEST_MODEL /
 # PLAN_REVIEWER_MODEL) and the dispatched agent's `model:` frontmatter, and that
 # its #208 hook self-gate holds.
-if out=$(bash "$PLUGINS_DIR/review-toolkit/scripts/check-model-tiers-selftest.sh" 2>&1); then
+if _st=$(resolve_sibling review-toolkit scripts/check-model-tiers-selftest.sh) && out=$(bash "$_st" 2>&1); then
   ok "model-tier selftest: $(tail -1 <<< "$out")"
 else
   bad "model-tier selftest FAILED — the .mjs model tables drifted from agent frontmatter (or the check itself drifted). Output tail:"
@@ -250,7 +268,7 @@ fi
 # --- 5h3. ledger-lint selftest (Decision Ledger structural lint) ------------------
 # Lives in the intake-toolkit plugin (plan-interview skill), not dev-pipeline — reach
 # it script-relative via the sibling-plugins dir, not the consumer repo.
-if out=$(bash "$PLUGINS_DIR/intake-toolkit/skills/plan-interview/tools/ledger-lint-selftest.sh" 2>&1); then
+if _st=$(resolve_sibling intake-toolkit skills/plan-interview/tools/ledger-lint-selftest.sh) && out=$(bash "$_st" 2>&1); then
   ok "ledger-lint selftest: $(tail -1 <<< "$out" | sed 's/\[ledger-lint-selftest\] //')"
 else
   bad "ledger-lint selftest FAILED — the Decision Ledger lint (provenance enum / explicit-empty form / quoting-safe trim) drifted. Output tail:"
