@@ -20,7 +20,31 @@ In the repo's `.claude/settings.json`:
 }
 ```
 
-Enable only what fits — a repo can adopt `review-toolkit` without the pipeline. Team repos should **pin a release** (see version policy in the README); only a canary repo tracks latest.
+Enable only what fits — a repo can adopt `review-toolkit` without the pipeline. Team repos should **pin a release**; only a canary repo tracks latest.
+
+### Pinning a release (work repos)
+
+Two mechanisms compose, and both are needed for a durable pin (validated on the first JIRA-pair migration):
+
+1. **Marketplace ref** — point `extraKnownMarketplaces` at the release tag so the catalog itself can't drift (`ref` accepts a branch or tag; per-plugin `sha` pinning exists only for plugin sources inside `marketplace.json`):
+
+    ```json
+    {
+      "extraKnownMarketplaces": {
+        "second-shift": {
+          "source": { "source": "github", "repo": "manoldonev/second-shift", "ref": "v1.1.0" }
+        }
+      }
+    }
+    ```
+
+2. **Plugin `version` field** — each plugin's `plugin.json` carries an explicit `version`; the install cache is keyed by it (`~/.claude/plugins/cache/second-shift/<plugin>/<version>/`) and an installed plugin only moves when that string changes. Third-party marketplaces do **not** auto-update, so an installed version stays put until an explicit `/plugin marketplace update` + reinstall.
+
+    ```bash
+    claude plugin install dev-pipeline@second-shift --scope project   # records version + git SHA
+    ```
+
+Upgrading = a PR that bumps the `ref` in settings, then `claude plugin marketplace update second-shift` + reinstall, then the repo's validation gates re-run (config-lint, selftests, a dry-run ticket). One caveat: a **user-level** marketplace registration with the same name (typical on the machine that developed the marketplace) is ref-less and takes precedence locally — the project-settings `ref` is what protects everyone else, and `claude plugin list` should confirm the expected version after any update.
 
 ## 2. Write the static context
 
