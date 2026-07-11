@@ -149,7 +149,7 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "plansDir": { "type": "string", "default": ".claude/plans" },
+        "plansDir": { "type": "string", "default": "docs/plans", "description": "Directory (worktree-relative) where Stage 3 writes plan files. Default = the plugin's current literal; a consumer that sets it has it honored (Stage 3 reads the key — fixed the prior drift where it was ignored)." },
         "pipelineStateDir": { "type": "string", "default": ".claude/pipeline-state" }
       }
     },
@@ -173,6 +173,45 @@
           "enum": ["figma", "claude-design"],
           "description": "figma → figma-faithful skills + Figma-MCP prerequisite; claude-design → design-faithful/design-sync path + DesignSync prerequisite."
         }
+      }
+    },
+    "stageParams": {
+      "type": "object",
+      "description": "Optional stage-prose constants promoted to config. Every key is optional and defaults to the plugin's current shipped literal, so an empty config reproduces today's behavior byte-for-byte. Pure parameterization — no ordering, no logic.",
+      "additionalProperties": false,
+      "properties": {
+        "planFilePattern": {
+          "type": "string",
+          "default": "{plansDir}/acme-{issueKey}{slice}.md",
+          "description": "Plan file path pattern. Tokens: {plansDir} (from paths.plansDir), {issueKey}, {slice} (e.g. -pr2, empty for single-PR)."
+        },
+        "requiredLabels": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Tracker labels the queue-and-claim model requires. Default = the plugin's shipped set (ready-for-dev, needs-spec-work, needs-plan-review, needs-intake-review, in-progress, epic)."
+        },
+        "visualCapture": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "Stage-6 render-surface visual capture. Defaults reproduce the shipped literals.",
+          "properties": {
+            "baseUrl": { "type": "string", "default": "http://localhost:3001/" },
+            "devServerCommand": { "type": "string", "default": "yarn dev" },
+            "smokeRoutes": { "type": "array", "items": { "type": "string" }, "default": ["/"] },
+            "viewports": {
+              "type": "array",
+              "items": { "type": "string", "enum": ["mobile", "tablet", "laptop", "desktop"] },
+              "default": ["mobile", "tablet", "laptop"],
+              "description": "Closed enum of named viewports; the stage maps each name to its pixel dimensions."
+            },
+            "triggerGlobs": {
+              "type": "array",
+              "items": { "type": "string" },
+              "description": "Render-surface globs that gate visual capture. Default = the shipped apps/web component/CSS/tailwind globs."
+            }
+          }
+        },
+        "formatGlob": { "type": "string", "default": "*.{ts,tsx,js,json,md}" }
       }
     }
   }

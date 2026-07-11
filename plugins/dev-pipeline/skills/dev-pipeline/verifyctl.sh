@@ -152,6 +152,20 @@ load_config() {
   CMD_TEST=$(jq -r --arg h "$host" '.commands[$h].test // empty' "$cfg")
   LINT_AUTOFIXES=$(jq -r --arg h "$host" '.commands[$h].lintAutofixes // false' "$cfg")
   SETUP_LANES=$(jq -c --arg h "$host" '.commands[$h].lanes // []' "$cfg")
+
+  # resolve stageParams.formatGlob (default = *.{ts,tsx,js,json,md}) — the
+  # prettier scoped-format file glob. Absent key => the shipped literal, so an
+  # empty config is byte-for-byte today's behavior. Expanded once here into
+  # brace alternatives (FORMAT_GLOB_ALTS) that collect_format_files matches each
+  # changed file against; the default expands to exactly the shipped
+  # *.ts/*.tsx/*.js/*.json/*.md set. Brace expansion only — pathname expansion
+  # is disabled across the eval so no glob value ever touches the filesystem.
+  FORMAT_GLOB=$(jq -r '.stageParams.formatGlob // "*.{ts,tsx,js,json,md}"' "$cfg")
+  local _had_noglob=off
+  case $- in *f*) _had_noglob=on ;; esac
+  set -f
+  eval "FORMAT_GLOB_ALTS=( $FORMAT_GLOB )"
+  [[ "$_had_noglob" == off ]] && set +f
 }
 
 sget() { # $1 = issue, $2 = jq path — statectl get with error passthrough
@@ -322,15 +336,22 @@ cmd_run() {
   # INFRA detection: command not found / not executable.
   is_infra_rc() { [[ "$1" == "126" || "$1" == "127" ]]; }
 
-  # Changed files matching the prettier format-glob *.{ts,tsx,js,json,md},
-  # existing in the worktree. Populates the CHECK_FILES array.
+  # Changed files matching the resolved prettier format glob (FORMAT_GLOB, from
+  # stageParams.formatGlob; default *.{ts,tsx,js,json,md}), existing in the
+  # worktree. Populates the CHECK_FILES array. Each changed file is tested
+  # against the brace alternatives expanded in load_config — the default set
+  # reproduces the former *.ts|*.tsx|*.js|*.json|*.md case exactly.
   collect_format_files() {
     CHECK_FILES=()
-    local f
+    local f a
     while IFS= read -r f; do
-      case "$f" in
-        *.ts|*.tsx|*.js|*.json|*.md) [[ -f "$wt/$f" ]] && CHECK_FILES+=("$f") ;;
-      esac
+      for a in "${FORMAT_GLOB_ALTS[@]}"; do
+        # shellcheck disable=SC2053 # glob-style pattern match — RHS intentionally unquoted
+        if [[ "$f" == $a ]]; then
+          [[ -f "$wt/$f" ]] && CHECK_FILES+=("$f")
+          break
+        fi
+      done
     done <<< "$changed"
   }
 

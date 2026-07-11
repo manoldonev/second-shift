@@ -148,23 +148,51 @@ Stage 7 composes `qualityPassSummary` from this state (so a fresh-session crash-
 
 After the verify commands above pass, capture rendered screenshots so the next reviewer (LLM or human) sees the page, not just the diff. **Observation only — no assertion, no retry, no failure class, never blocks the pipeline.** The point is to surface renders when they are cheaply available, not to gate on a brittle heuristic. (This stays in-stage prose — Playwright MCP tools cannot run inside a bash runner.)
 
-**Trigger.** Run the capture only if `git diff --name-only` against the PR base contains any path matching:
+**Resolve `stageParams.visualCapture` (default = the shipped literals).** Read the capture constants from the consumer config once. Every key is optional; an absent key (an empty config) resolves to exactly today's value, so the default case is byte-for-byte unchanged:
+
+```bash
+# baseUrl (default "http://localhost:3001/") and devServerCommand (default "yarn dev").
+VC_BASE_URL=$(jq -r '.stageParams.visualCapture.baseUrl // "http://localhost:3001/"' "$SECOND_SHIFT_CONFIG" 2>/dev/null || echo "http://localhost:3001/")
+VC_DEV_SERVER_CMD=$(jq -r '.stageParams.visualCapture.devServerCommand // "yarn dev"' "$SECOND_SHIFT_CONFIG" 2>/dev/null || echo "yarn dev")
+# smokeRoutes (default ["/"]) and viewports (default ["mobile","tablet","laptop"]) — newline-delimited.
+VC_SMOKE_ROUTES=$(jq -r '(.stageParams.visualCapture.smokeRoutes // ["/"]) | .[]' "$SECOND_SHIFT_CONFIG" 2>/dev/null || echo "/")
+VC_VIEWPORTS=$(jq -r '(.stageParams.visualCapture.viewports // ["mobile","tablet","laptop"]) | .[]' "$SECOND_SHIFT_CONFIG" 2>/dev/null || printf 'mobile\ntablet\nlaptop\n')
+# triggerGlobs (default = the shipped render-surface globs) — newline-delimited.
+VC_TRIGGER_GLOBS=$(jq -r '(.stageParams.visualCapture.triggerGlobs // ["apps/web/src/app/**/*.{tsx,jsx}","apps/web/src/app/**/*.css","apps/web/src/components/**/*.{tsx,jsx}","apps/web/tailwind.config.{ts,js}"]) | .[]' "$SECOND_SHIFT_CONFIG" 2>/dev/null || printf 'apps/web/src/app/**/*.{tsx,jsx}\napps/web/src/app/**/*.css\napps/web/src/components/**/*.{tsx,jsx}\napps/web/tailwind.config.{ts,js}\n')
+```
+
+**Viewport name → pixel dimensions (owned by the stage, not config).** `viewports` carries only names from the closed enum (`mobile` · `tablet` · `laptop` · `desktop`); this stage maps each name to its `WIDTHxHEIGHT`. The map lives here so config stays pure names:
+
+| Name      | Dimensions  |
+| --------- | ----------- |
+| `mobile`  | 375 × 812   |
+| `tablet`  | 768 × 1024  |
+| `laptop`  | 1480 × 900  |
+| `desktop` | 1920 × 1080 |
+
+```bash
+declare -A VC_VIEWPORT_DIMS=(
+  [mobile]="375x812" [tablet]="768x1024" [laptop]="1480x900" [desktop]="1920x1080"
+)
+```
+
+**Trigger.** Run the capture only if `git diff --name-only` against the PR base contains any path matching one of the resolved `$VC_TRIGGER_GLOBS`. The default set (config `stageParams.visualCapture.triggerGlobs` overrides it) is:
 
 - `apps/web/src/app/**/*.{tsx,jsx}`
 - `apps/web/src/app/**/*.css`
 - `apps/web/src/components/**/*.{tsx,jsx}`
 - `apps/web/tailwind.config.{ts,js}`
 
-If the diff contains only excluded paths (`apps/web/src/lib/**/*.ts`, `apps/web/src/hooks/**/*.ts`, `apps/web/src/types/**`, `apps/web/**/*.test.{ts,tsx}`, `apps/web/**/*.spec.{ts,tsx}`, `apps/web/next.config.{mjs,js,ts}`, `apps/web/**/*.md`, `apps/web/public/**`), skip silently.
+If the diff contains only paths matching none of `$VC_TRIGGER_GLOBS` (with the default set, e.g. `apps/web/src/lib/**/*.ts`, `apps/web/src/hooks/**/*.ts`, `apps/web/src/types/**`, `apps/web/**/*.test.{ts,tsx}`, `apps/web/**/*.spec.{ts,tsx}`, `apps/web/next.config.{mjs,js,ts}`, `apps/web/**/*.md`, `apps/web/public/**`), skip silently.
 
 **Capture procedure.**
 
-1. Start the dev server (`yarn dev` from repo root, run in background) and wait for `http://localhost:3001/` to respond — 60 s timeout.
-2. For each `(route, viewport)` pair below: `mcp__playwright__browser_navigate` → `mcp__playwright__browser_resize` → `mcp__playwright__browser_take_screenshot`. Save to `.claude/pipeline-state/{ISSUE_NUMBER}-screenshots/{route-slug}-{viewport-width}.png` (route `/` → `root`).
+1. Start the dev server (`$VC_DEV_SERVER_CMD` — default `yarn dev` — from repo root, run in background) and wait for `$VC_BASE_URL` (default `http://localhost:3001/`) to respond — 60 s timeout.
+2. For each `(route, viewport)` pair — the Cartesian product of the resolved `$VC_SMOKE_ROUTES` × `$VC_VIEWPORTS`, each route joined onto `$VC_BASE_URL` and each viewport name resolved to `WIDTHxHEIGHT` via `VC_VIEWPORT_DIMS`: `mcp__playwright__browser_navigate` → `mcp__playwright__browser_resize` → `mcp__playwright__browser_take_screenshot`. Save to `.claude/pipeline-state/{ISSUE_NUMBER}-screenshots/{route-slug}-{viewport-width}.png` (route `/` → `root`). With the default config this is exactly:
    - `/` × 375 × 812 (mobile)
    - `/` × 768 × 1024 (tablet)
    - `/` × 1480 × 900 (laptop)
-3. The smoke-route list is exactly `/` for now. User-scoped routes are deliberately out — without a dev-auth posture, navigating to them silently measures the login page. Adding more routes is a separate concern that this skill does not solve today.
+3. The smoke-route list defaults to exactly `/` (the resolved `$VC_SMOKE_ROUTES`). User-scoped routes are deliberately out of the default set — without a dev-auth posture, navigating to them silently measures the login page; a repo that has solved dev-auth opts them in via `stageParams.visualCapture.smokeRoutes` rather than editing this skill.
 
 **Failure handling.** If the dev server fails to start, the route fails to load, or any Playwright call errors, append one line to the **Stage 6 log** and `echo` the same line to stdout, then proceed to Stage 7 Doc Update.
 

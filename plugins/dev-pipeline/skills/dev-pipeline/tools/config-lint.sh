@@ -24,8 +24,8 @@ ERRORS=$(jq -r '
   + err((.topology | type) != "object"; "topology: required object")
   + err((.commands | type) != "object"; "commands: required object")
   + err(
-      (keys - ["configVersion","tracker","topology","commands","reviewers","paths","gates","design"]) != [];
-      "unknown top-level keys: " + ((keys - ["configVersion","tracker","topology","commands","reviewers","paths","gates","design"]) | join(", "))
+      (keys - ["configVersion","tracker","topology","commands","reviewers","paths","gates","design","stageParams"]) != [];
+      "unknown top-level keys: " + ((keys - ["configVersion","tracker","topology","commands","reviewers","paths","gates","design","stageParams"]) | join(", "))
     )
 
   # ---- tracker -------------------------------------------------------------
@@ -92,6 +92,19 @@ ERRORS=$(jq -r '
       err((type) != "object"; "design: must be object")
       + err(((keys) - ["provider"]) != []; "design: unknown keys")
       + err((.provider? // "") | IN("figma","claude-design") | not; "design.provider must be figma|claude-design")
+    ) else [] end)
+  + (if (.stageParams != null) then (.stageParams |
+      err((type) != "object"; "stageParams: must be object")
+      + err(((keys) - ["planFilePattern","requiredLabels","visualCapture","formatGlob"]) != []; "stageParams: unknown keys")
+      + err((.planFilePattern? != null) and ((.planFilePattern | type) != "string"); "stageParams.planFilePattern: must be string")
+      + err((.formatGlob? != null) and ((.formatGlob | type) != "string"); "stageParams.formatGlob: must be string")
+      + err((.requiredLabels? != null) and ((.requiredLabels | type) != "array"); "stageParams.requiredLabels: must be array")
+      + ((.visualCapture // {}) |
+          err((type) != "object"; "stageParams.visualCapture: must be object")
+          + err(((keys) - ["baseUrl","devServerCommand","smokeRoutes","viewports","triggerGlobs"]) != []; "stageParams.visualCapture: unknown keys")
+          + ((.viewports // []) | map(select(. as $v | ["mobile","tablet","laptop","desktop"] | index($v) | not)) |
+              if length > 0 then ["stageParams.visualCapture.viewports must be a subset of mobile|tablet|laptop|desktop"] else [] end)
+        )
     ) else [] end)
 
   | .[]

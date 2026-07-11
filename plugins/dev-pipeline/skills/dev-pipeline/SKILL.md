@@ -65,7 +65,7 @@ and `tracker.branchPrefix` (branch namespace — `claude/acme-` github, `jdoe/` 
 - Claude Code CLI installed (`claude --version`)
 - `--permission-mode auto` — the auto-approval permission classifier the pipeline runs under
 - `gh auth status` must succeed
-- Repository must have labels: `ready-for-dev`, `needs-spec-work`, `needs-plan-review`, `needs-intake-review`, `in-progress`, `epic`
+- Repository must have the required labels (config `stageParams.requiredLabels`; default = `ready-for-dev`, `needs-spec-work`, `needs-plan-review`, `needs-intake-review`, `in-progress`, `epic`)
 - Worktree base dir: config `topology.repos.<host>.worktreesDir`
 
 **Verify all of the above in one shot with [`tools/pipeline-doctor.sh`](./tools/pipeline-doctor.sh)** — run it before the first pipeline run on a new machine and after any environment change (gh upgrade, key rotation, OS update). It checks core tools, gh auth + the two known gh feature breakages (Projects-classic GraphQL deprecation, missing `pr list --head`), bot-wrapper token minting, required labels, worktree dir, cost-tracking preconditions, AND runs the full statectl selftest so the state machine (including `mark-failed` failure paths) is proven on the machine that will depend on it, plus the `null-reviewer-selftest.mjs` that proves the Stage 8 dark-reviewer retry contract (and that `code-review.mjs` still carries its load-bearing tokens). Exit code = number of failed checks; WARN lines are degraded-but-runnable.
@@ -101,7 +101,20 @@ if [[ ! -x "$GH_BOT" ]]; then
 fi
 
 # (2) Required label set must exist in the repo (one read, then assert each).
-REQUIRED_LABELS=(ready-for-dev needs-spec-work needs-plan-review needs-intake-review in-progress epic)
+# Resolve stageParams.requiredLabels (default = ready-for-dev needs-spec-work
+# needs-plan-review needs-intake-review in-progress epic). An absent key — or an
+# absent/unreadable config file — reproduces the shipped set byte-for-byte:
+# `// empty` makes jq emit nothing when the key is absent, so the array stays empty
+# and the fallback below re-establishes the exact shipped literal. (while-read, not
+# mapfile — macOS ships bash 3.2.)
+REQUIRED_LABELS=()
+if [[ -f "$CFG" ]]; then
+  while IFS= read -r l; do REQUIRED_LABELS+=("$l"); done \
+    < <(jq -r '.stageParams.requiredLabels // empty | .[]' "$CFG" 2>/dev/null)
+fi
+if (( ${#REQUIRED_LABELS[@]} == 0 )); then
+  REQUIRED_LABELS=(ready-for-dev needs-spec-work needs-plan-review needs-intake-review in-progress epic)
+fi
 HAVE_LABELS=$(gh api "repos/{owner}/{repo}/labels?per_page=100" --jq '.[].name' 2>/dev/null)
 # Distinguish "gh call failed" (empty result → would mis-report ALL labels missing)
 # from "labels genuinely absent". An empty read here means gh itself failed.

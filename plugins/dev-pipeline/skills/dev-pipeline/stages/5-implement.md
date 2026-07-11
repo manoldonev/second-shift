@@ -144,10 +144,14 @@ On a design-driven run the screen is implemented **by the engine**, not hand-cod
 After all implementation commits land — including the unit-test mutation review and any design-toolkit:design-faithful implement+verify above — and **before** `set-stage 5 --status completed`, write the Stage-5 checkpoint per SKILL.md "Stage Checkpoints — After Stage 5". It is crash-recovery only (never read on the happy path), but its absence leaves a mid-Stage-5/6 resume blind. Unlike Stage 7 there is **no `build-checkpoint-5` helper** — the Stage-1/5 checkpoints are free-shape, written directly (mirrors the Stage-7 inline checkpoint discipline in [`7-doc-update.md`](./7-doc-update.md), without the builder):
 
 ```bash
+# Resolve the plan path from config (same contract as Stage 3/4; defaults preserve the literal)
+PLAN_DIR="$(jq -r '.paths.plansDir // "docs/plans"' "$SECOND_SHIFT_CONFIG" 2>/dev/null || echo "docs/plans")"
+PLAN_PAT="$(jq -r '.stageParams.planFilePattern // "{plansDir}/acme-{issueKey}{slice}.md"' "$SECOND_SHIFT_CONFIG" 2>/dev/null || echo "{plansDir}/acme-{issueKey}{slice}.md")"
+PLAN_REL="$(printf '%s' "$PLAN_PAT" | sed -e "s|{plansDir}|$PLAN_DIR|" -e "s|{issueKey}|$ISSUE_NUMBER|" -e "s|{slice}|${SLICE_SUFFIX:-}|")"
 statectl.sh checkpoint "$ISSUE_NUMBER" 5 --json '{
   "changedFiles": ["..."],
   "commits": ["<sha>"],
-  "planPath": "docs/plans/acme-'"$ISSUE_NUMBER"'.md",
+  "planPath": "'"$PLAN_REL"'",
   "verifyCommands": ["..."],
   "planRisks": ["..."]
 }'

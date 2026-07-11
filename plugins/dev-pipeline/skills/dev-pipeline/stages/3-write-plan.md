@@ -4,16 +4,20 @@
 
 - Read the full issue body + referenced files from the codebase.
 - Bootstrap context: read the repo's `CLAUDE.md` and any repo-local session-state conventions it defines (see its CLAUDE.md).
-- **Plan file naming:**
-  - **Single PR:** `docs/plans/acme-${ISSUE_NUMBER}.md`
-  - **Stacked PR slice N:** `docs/plans/acme-${ISSUE_NUMBER}-pr${N}.md`
-    - Plan scope is constrained to this slice only
-    - Plan references the decomposition plan from the intake comment for context
-- **Resume:** if the plan file already exists in the worktree (matching the appropriate naming pattern above), skip to Stage 4 (Plan Review).
-- Write plan to the appropriate path in the worktree.
+- **Plan file naming (resolved from config).** The plan directory is `paths.plansDir` (default `docs/plans`) and the file pattern is `stageParams.planFilePattern` (default `{plansDir}/acme-{issueKey}{slice}.md`). Resolve once into `$PLAN_REL` (worktree-relative); every plan-path reference below — and in Stage 4/5 — resolves the same way:
+  ```bash
+  PLAN_DIR="$(jq -r '.paths.plansDir // "docs/plans"' "$SECOND_SHIFT_CONFIG" 2>/dev/null || echo "docs/plans")"
+  PLAN_PAT="$(jq -r '.stageParams.planFilePattern // "{plansDir}/acme-{issueKey}{slice}.md"' "$SECOND_SHIFT_CONFIG" 2>/dev/null || echo "{plansDir}/acme-{issueKey}{slice}.md")"
+  # {slice} = "" for a single PR, "-pr${N}" for stacked slice N
+  PLAN_REL="$(printf '%s' "$PLAN_PAT" | sed -e "s|{plansDir}|$PLAN_DIR|" -e "s|{issueKey}|$ISSUE_NUMBER|" -e "s|{slice}|${SLICE_SUFFIX:-}|")"
+  ```
+  - **Single PR:** `$PLAN_REL` (slice empty, e.g. `docs/plans/acme-228.md`)
+  - **Stacked PR slice N:** `$PLAN_REL` with `SLICE_SUFFIX=-pr${N}` — plan scope constrained to this slice; references the decomposition plan from the intake comment for context.
+- **Resume:** if `$WORKTREE/$PLAN_REL` already exists, skip to Stage 4 (Plan Review).
+- Write plan to `$WORKTREE/$PLAN_REL`.
 - **Commit the plan into the branch immediately** (bot identity, `docs:` — the plan is Markdown, so it rides the INERT lane and the pre-commit hook skips type-check). This is the first commit on the branch, before any implementation. It guarantees the plan reaches the PR/the base branch like the other `docs/plans/*.md` — committing it only at Stage 10 risks it being stranded if the PR is merged before the late push lands (acme-228 retro). Resume-safe: skip if the plan file is already tracked at HEAD.
   ```bash
-  git -C "$WORKTREE" add "docs/plans/acme-${ISSUE_NUMBER}${SLICE_SUFFIX}.md"
+  git -C "$WORKTREE" add "$PLAN_REL"
   # Commit identity comes from the installed bot (config `tracker.bot`); the wrapper
   # sets user.name / user.email. When the bot is disabled, commit as the repo default.
   git -C "$WORKTREE" commit -m "docs(dev-pipeline): plan for #${ISSUE_NUMBER}"
@@ -41,7 +45,7 @@
   # State lives in the MAIN checkout; resolve it via git-common-dir from the worktree.
   MAIN_ROOT="$(dirname "$(cd "$(git -C "$WORKTREE" rev-parse --git-common-dir)" && pwd)")"
   bash "tools/plan-lint.sh" \
-    "$WORKTREE/docs/plans/acme-${ISSUE_NUMBER}${SLICE_SUFFIX}.md" \
+    "$WORKTREE/$PLAN_REL" \
     "$MAIN_ROOT/.claude/pipeline-state/${ISSUE_NUMBER}.json"
   ```
 
@@ -68,7 +72,7 @@ Classify whether this ticket needs mutation-resistant unit test work, then persi
 ```bash
 statectl.sh unit-test-surface-set "$ISSUE_NUMBER" --json '{
   "applicable": true, "action": "strengthen",
-  "planPath": "docs/plans/acme-'"$ISSUE_NUMBER"'.md",
+  "planPath": "'"$PLAN_REL"'",
   "modulesTouched": ["apps/api/src/..."], "specPaths": ["apps/api/src/.../*.spec.ts"],
   "mutationTargets": ["..."], "integrationAction": "skip"
 }'

@@ -10,8 +10,12 @@ The plan gates — `plan-reviewer`, design FE-spec review (designDriven runs), u
 
    ```bash
    MAIN_ROOT="$(dirname "$(cd "$(git -C "$WORKTREE" rev-parse --git-common-dir)" && pwd)")"
+   # Resolve the plan path from config (paths.plansDir + stageParams.planFilePattern; defaults preserve the literal)
+   PLAN_DIR="$(jq -r '.paths.plansDir // "docs/plans"' "$SECOND_SHIFT_CONFIG" 2>/dev/null || echo "docs/plans")"
+   PLAN_PAT="$(jq -r '.stageParams.planFilePattern // "{plansDir}/acme-{issueKey}{slice}.md"' "$SECOND_SHIFT_CONFIG" 2>/dev/null || echo "{plansDir}/acme-{issueKey}{slice}.md")"
+   PLAN_REL="$(printf '%s' "$PLAN_PAT" | sed -e "s|{plansDir}|$PLAN_DIR|" -e "s|{issueKey}|$ISSUE_NUMBER|" -e "s|{slice}|${SLICE_SUFFIX:-}|")"
    LINT_STDERR="$(bash "tools/plan-lint.sh" \
-     "$WORKTREE/docs/plans/acme-${ISSUE_NUMBER}${SLICE_SUFFIX}.md" \
+     "$WORKTREE/$PLAN_REL" \
      "$MAIN_ROOT/.claude/pipeline-state/${ISSUE_NUMBER}.json" 2>&1 1>/dev/null)" || {
      statectl.sh mark-failed "$ISSUE_NUMBER" \
        --reason plan-structure-invalid --stage 4 \
@@ -37,7 +41,7 @@ Workflow({
   // reviewers from config `reviewers.add` are referenced bare; plugin reviewers qualified).
   args: {
     worktree: "$WT",
-    planPath: "docs/plans/acme-${ISSUE_NUMBER}${SLICE_SUFFIX}.md",
+    planPath: "$PLAN_REL",
     issue: "$ISSUE_NUMBER",
     config: CONFIG,
     workflowsDir: "workflows",

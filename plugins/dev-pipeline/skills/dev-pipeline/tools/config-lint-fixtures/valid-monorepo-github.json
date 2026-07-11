@@ -32,5 +32,11 @@
     "modelOverrides": { "security-reviewer": "opus" }
   },
   "gates": { "mutation": true, "costTracking": true },
-  "design": { "provider": "claude-design" }
+  "design": { "provider": "claude-design" },
+  "stageParams": {
+    "planFilePattern": "{plansDir}/acme-{issueKey}{slice}.md",
+    "requiredLabels": ["ready-for-dev", "in-progress", "epic"],
+    "visualCapture": { "baseUrl": "http://localhost:4000/", "smokeRoutes": ["/", "/dashboard"], "viewports": ["mobile", "desktop"] },
+    "formatGlob": "*.{ts,tsx,js,json,md}"
+  }
 }
