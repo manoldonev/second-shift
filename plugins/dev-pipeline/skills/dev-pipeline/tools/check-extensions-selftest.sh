@@ -45,5 +45,26 @@ rm "$TMP/pack/.claude/second-shift/.known-extensions"
 bash "$CHECK" "$TMP/pack" >/dev/null 2>&1 && bad "undeclared companion-pack file should FAIL" \
   || ok "undeclared companion-pack file -> fail closed"
 
+# (6) EP-6/EP-7 reference resolution: plugin-namespaced refs pass; bad local refs fail closed
+mkdir -p "$TMP/refs/.claude/agents"
+cat > "$TMP/refs/.claude/second-shift.config.json" <<'JSON'
+{ "stageWorkflows": [ { "stage": 6, "name": "v", "workflow": "acme-qa-pack:workflows/api-verify.mjs" } ],
+  "implementDelegates": [ { "surface": "tests/api/**", "agent": "acme-qa-pack:api-test-coder" } ] }
+JSON
+bash "$CHECK" "$TMP/refs" >/dev/null 2>&1 && ok "plugin-namespaced refs (runtime-resolved) -> clean" \
+  || bad "plugin-namespaced refs should pass but failed"
+
+cat > "$TMP/refs/.claude/second-shift.config.json" <<'JSON'
+{ "stageWorkflows": [ { "stage": 6, "name": "v", "workflow": "scripts/does-not-exist.mjs" } ] }
+JSON
+if bash "$CHECK" "$TMP/refs" >/tmp/ext-ref.out 2>&1; then bad "unresolved repo-relative workflow should FAIL"
+else grep -q "UNRESOLVED-WORKFLOW" /tmp/ext-ref.out && ok "unresolved repo-relative workflow -> fail closed" || bad "workflow failed w/o expected message"; fi
+
+cat > "$TMP/refs/.claude/second-shift.config.json" <<'JSON'
+{ "implementDelegates": [ { "surface": "unit", "agent": "ghost-reviewer" } ] }
+JSON
+if bash "$CHECK" "$TMP/refs" >/tmp/ext-ref.out 2>&1; then bad "unresolved bare agent should FAIL"
+else grep -q "UNRESOLVED-AGENT" /tmp/ext-ref.out && ok "unresolved bare agent -> fail closed" || bad "agent failed w/o expected message"; fi
+
 if [[ "$FAILS" -gt 0 ]]; then echo "check-extensions selftest: $FAILS FAILURE(S)"; exit 1; fi
 echo "check-extensions selftest: all green"

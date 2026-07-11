@@ -232,6 +232,33 @@
         },
         "formatGlob": { "type": "string", "default": "*.{ts,tsx,js,json,md}" }
       }
+    },
+    "stageWorkflows": {
+      "type": "array",
+      "description": "EP-6: gate-owned workflow dispatch. Registers a Workflow script (a companion plugin's, or repo-local) as a BLOCKING stage sub-step — dispatched AFTER the stage's built-in sub-steps and BEFORE the stage-completion write. Registration lives in consumer config (auditable, per-repo), never in the plugin manifest. Always blocking (no advisory field — advisory lanes don't exist). Result recorded under stageCheckpoint[N].extWorkflows[<name>]; a failure produces the stage's standard fail-fast write with reason ext-workflow-failed (the name in the detail field). The workflow may write state ONLY via statectl checkpoint payloads namespaced ext: (adds evidence, never reinterprets it). Unresolvable reference = config-lint failure, fail closed.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["stage", "name", "workflow"],
+        "properties": {
+          "stage": { "type": "integer", "minimum": 1, "maximum": 10 },
+          "name": { "type": "string", "description": "kebab-case, unique across stageWorkflows; results recorded under this name." },
+          "workflow": { "type": "string", "description": "\"<plugin>:<relpath>\" (a companion plugin's workflow script) or a repo-relative path." }
+        }
+      }
+    },
+    "implementDelegates": {
+      "type": "array",
+      "description": "EP-7: implementer delegation (Stage 5). Routes matching work items to a delegate agent INSTEAD of inline implementation; the delegate's output passes through the unchanged Stage-5 scope-enforcement gate and all downstream gates (adds work, waives nothing). Unresolvable agent = fail closed at pre-flight.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["surface", "agent"],
+        "properties": {
+          "surface": { "type": "string", "description": "A path glob, or the reserved surface key 'unit'. Work items matching it route to the delegate instead of inline implementation." },
+          "agent": { "type": "string", "description": "\"<plugin>:<agent>\" (a companion pack agent) or a repo-local bare agent name (in .claude/agents/)." }
+        }
+      }
     }
   }
 }

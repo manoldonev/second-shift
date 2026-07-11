@@ -80,6 +80,12 @@ A failure here is an **abort-with-instructions**, not a `failureContext` write: 
 # (0) Config validation — tracker-agnostic, runs for BOTH adapters. config-lint
 # ships INSIDE this plugin so an installed-cache consumer can run it. Fails fast
 # on a malformed .claude/second-shift.config.json before any tracker work.
+# config-lint validates the SHAPE of stageWorkflows[] (stage 1-10, non-empty
+# name/workflow, unique names). The Pre-flight config gate additionally FAILS
+# CLOSED on an UNRESOLVABLE stageWorkflows[].workflow reference — every workflow
+# must resolve to a <plugin>:<relpath> in the plugin cache or an existing repo-
+# relative path (a blocking extension gate must never silently skip). See the
+# Stage write convention below.
 CFG="${SECOND_SHIFT_CONFIG:-.claude/second-shift.config.json}"
 if [[ -f "$CFG" ]]; then
   bash "${CLAUDE_PLUGIN_ROOT}/skills/dev-pipeline/tools/config-lint.sh" "$CFG" \
@@ -395,6 +401,22 @@ statectl.sh set-stage "$ISSUE_NUMBER" N --status completed    # LAST — after t
 ```
 
 Issuing both in one closing call (or doing the work before the `started` write) collapses the window to `0:00` and mis-attributes the work to the prior inter-stage gap. The mechanical/quick-scripting stages are where this slips — each carries an inline "mark started first" reminder (stages 2, 3, 5, 6, 7). A genuinely sub-second stage (e.g. Stage 2's `git worktree add`) will still show ~0 even when marked correctly; the convention is about correct _attribution_, not forcing a non-zero number.
+
+**Gate-owned extension workflows (config `stageWorkflows`) — dispatched just before the stage-completion write.** This is part of the completion protocol above and applies to **every** stage — when config carries a `stageWorkflows: [{stage, name, workflow}]` entry for stage N, the referenced workflow is dispatched **after** stage N's built-in sub-steps finish but **BEFORE** the `set-stage N --status completed` write. It applies to any stage N with a matching entry (there is no per-stage opt-in beyond the config entry itself).
+
+- **Always blocking.** There is no `blocking` field and no advisory lane — extensions ADD blocking checks, they never waive a gate or downgrade to advisory. A stage with a `stageWorkflows` entry does not reach its `completed` write until the workflow passes.
+- **Invocation contract.** The workflow is dispatched with `{ issueKey, statePath, configPath }`. It may write state **only** via statectl `checkpoint` payloads namespaced `ext:`; it never mutates load-bearing pipeline fields.
+- **Success → record, then complete.** On a passing workflow, record the result under `stageCheckpoint[N].extWorkflows["<name>"] = { status, summary }` (free-shape, `ext:`-namespaced, additive — schema in [`state-schema.md`](./state-schema.md)), then proceed to the normal `set-stage N --status completed` write.
+- **Failure → the stage's STANDARD fail-fast write.** A nonzero / failed workflow takes stage N's ordinary gate-failure path — the workflow name rides in the `failureContext` detail field via `--kv extWorkflow=<name>`:
+
+  ```bash
+  statectl.sh mark-failed "$ISSUE" \
+    --json "$(statectl.sh build-failure-context --reason ext-workflow-failed --stage N --kv extWorkflow=<name>)"
+  ```
+
+  Then STOP: under autonomous mode exit rc=0 and stop emitting tool calls; under interactive mode present the situation — same posture as every other gate. The `ext-workflow-failed` reason is a single value for the whole class (see the `failureContext.reason` index in `state-schema.md`), with the specific workflow disambiguated by the `extWorkflow` detail — never a per-workflow enum value.
+
+**Pre-flight reference resolution (fail closed).** Every `stageWorkflows[].workflow` reference must resolve at pre-flight — either a `<plugin>:<relpath>` present in the plugin cache, or a repo-relative path that exists on disk. An unresolvable reference is a **config-lint / pre-flight FAIL CLOSED**: `config-lint.sh` validates the entry's shape at Pre-flight step (0), and the Pre-flight config gate additionally resolves each reference and aborts before any issue is claimed if one does not resolve. A mis-referenced blocking workflow never degrades to a skipped or advisory dispatch — fail-closed is the only safe posture, since a silently-skipped blocking gate would waive a check the config demanded.
 
 Per-stage `startedAt` and `completedAt` are required by the in-band Stage 9 `pipeline-cost-block.sh` sub-step to bucket OTel metrics into stage windows; they are also useful for general run analytics. That sub-step degrades to a single-row "Session total" cost table if these are missing.
 

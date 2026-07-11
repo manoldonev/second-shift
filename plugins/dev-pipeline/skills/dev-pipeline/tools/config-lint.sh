@@ -24,8 +24,8 @@ ERRORS=$(jq -r '
   + err((.topology | type) != "object"; "topology: required object")
   + err((.commands | type) != "object"; "commands: required object")
   + err(
-      (keys - ["configVersion","tracker","topology","commands","reviewers","paths","gates","design","stageParams"]) != [];
-      "unknown top-level keys: " + ((keys - ["configVersion","tracker","topology","commands","reviewers","paths","gates","design","stageParams"]) | join(", "))
+      (keys - ["configVersion","tracker","topology","commands","reviewers","paths","gates","design","stageParams","stageWorkflows","implementDelegates"]) != [];
+      "unknown top-level keys: " + ((keys - ["configVersion","tracker","topology","commands","reviewers","paths","gates","design","stageParams","stageWorkflows","implementDelegates"]) | join(", "))
     )
 
   # ---- tracker -------------------------------------------------------------
@@ -100,6 +100,28 @@ ERRORS=$(jq -r '
       err((type) != "object"; "design: must be object")
       + err(((keys) - ["provider"]) != []; "design: unknown keys")
       + err((.provider? // "") | IN("figma","claude-design") | not; "design.provider must be figma|claude-design")
+    ) else [] end)
+  + (if (.stageWorkflows != null) then (.stageWorkflows |
+      err((type) != "array"; "stageWorkflows: must be array")
+      + (to_entries | map(
+          (.key as $i | .value |
+            err(((keys) - ["stage","name","workflow"]) != []; "stageWorkflows[" + ($i|tostring) + "]: unknown keys")
+            + err(((.stage? // 0) | type) != "number" or (.stage < 1) or (.stage > 10); "stageWorkflows[" + ($i|tostring) + "].stage: must be an integer 1-10")
+            + err((.name? // "") == ""; "stageWorkflows[" + ($i|tostring) + "].name: required")
+            + err((.workflow? // "") == ""; "stageWorkflows[" + ($i|tostring) + "].workflow: required")
+          )
+        ) | add // [])
+      + err(([.[].name] | length) != ([.[].name] | unique | length); "stageWorkflows: names must be unique")
+    ) else [] end)
+  + (if (.implementDelegates != null) then (.implementDelegates |
+      err((type) != "array"; "implementDelegates: must be array")
+      + (to_entries | map(
+          (.key as $i | .value |
+            err(((keys) - ["surface","agent"]) != []; "implementDelegates[" + ($i|tostring) + "]: unknown keys")
+            + err((.surface? // "") == ""; "implementDelegates[" + ($i|tostring) + "].surface: required")
+            + err((.agent? // "") == ""; "implementDelegates[" + ($i|tostring) + "].agent: required")
+          )
+        ) | add // [])
     ) else [] end)
   + (if (.stageParams != null) then (.stageParams |
       err((type) != "object"; "stageParams: must be object")

@@ -332,7 +332,8 @@ valid_failure_reason() {
     |plan-structure-invalid \
     |unit-test-plan-reviewer-block \
     |unit-test-mutation-reviewer-block \
-    |design-source-unreachable) return 0 ;;
+    |design-source-unreachable \
+    |ext-workflow-failed) return 0 ;;
     *) return 1 ;;
   esac
 }
