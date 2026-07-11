@@ -20,11 +20,11 @@
         "writes": {
           "type": "boolean",
           "default": true,
-          "description": "Whether the pipeline writes back to the tracker (stage comments, status/label transitions, claim). github default true (queue+claim+comment model); the JIRA lineage runs read-only (fetch the ticket via MCP, never transition or comment — the state file + draft-PR metadata are the audit trail), so JIRA repos set false. A false value makes the tracker-write steps in stages 1/8/9 no-ops; ticket fetch stays active regardless."
+          "description": "Whether the pipeline writes back to the tracker (stage comments, status/label transitions, claim). github default true (queue+claim+comment model); JIRA setups typically run read-only (fetch the ticket via MCP, never transition or comment — the state file + draft-PR metadata are the audit trail), so JIRA repos usually set false. A false value makes the tracker-write steps in stages 1/8/9 no-ops; ticket fetch stays active regardless."
         },
         "branchPrefix": {
           "type": "string",
-          "description": "Branch-name namespace prepended to the ticket key. The work branch is \"<branchPrefix><ticketKey>\" for slice 1 and \"<branchPrefix><ticketKey>-pr<N>\" for stacked slice N. github lineage: \"claude/acme-\" (→ claude/acme-42). JIRA lineage: a per-user identifier plus a slash, e.g. \"jdoe/\" (→ jdoe/gh-540). Gives the previously-hardcoded prefix in max-pushed-slice.sh a config home."
+          "description": "Branch-name namespace prepended to the ticket key. The work branch is \"<branchPrefix><ticketKey>\" for slice 1 and \"<branchPrefix><ticketKey>-pr<N>\" for stacked slice N. github example: \"claude/acme-\" (→ claude/acme-42). JIRA example: a per-user identifier plus a slash, e.g. \"jdoe/\" (→ jdoe/gh-540). Gives the previously-hardcoded prefix in max-pushed-slice.sh a config home."
         },
         "bot": {
           "type": "object",

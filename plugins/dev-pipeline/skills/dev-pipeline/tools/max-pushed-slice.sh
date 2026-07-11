@@ -9,8 +9,8 @@
 # ref-parsing bug (`${ref##*/}` stripped the `claude/` prefix, so no ref ever
 # matched and the result was always 0). See #147.
 #
-# The branch-name namespace is config-driven (tracker.branchPrefix): github lineage
-# "claude/acme-", JIRA lineage a per-user "jdoe/". Pass it via $BRANCH_PREFIX;
+# The branch-name namespace is config-driven (tracker.branchPrefix): e.g.
+# "claude/acme-" (github) or a per-user "jdoe/" (JIRA). Pass it via $BRANCH_PREFIX;
 # it defaults to "claude/acme-" so pre-config callers are unchanged.
 #
 # Usage:

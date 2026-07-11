@@ -132,7 +132,7 @@ else
   # resume sanity guard — see tools/max-pushed-slice.sh).
   git fetch origin --quiet
   # Branch namespace is config-driven (tracker.branchPrefix); default is the github
-  # lineage's "claude/acme-". max-pushed-slice.sh honors it via $BRANCH_PREFIX.
+  # e.g. "claude/acme-". max-pushed-slice.sh honors it via $BRANCH_PREFIX.
   BRANCH_PREFIX=$(jq -r '.tracker.branchPrefix // "claude/acme-"' "$SECOND_SHIFT_CONFIG" 2>/dev/null || echo "claude/acme-")
   MAX_N=$(git ls-remote --heads origin "${BRANCH_PREFIX}${ISSUE_NUMBER}*" 2>/dev/null \
     | awk '{print $2}' \

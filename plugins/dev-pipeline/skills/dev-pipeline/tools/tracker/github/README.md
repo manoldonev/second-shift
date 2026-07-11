@@ -1,6 +1,6 @@
 # github tracker adapter
 
-Active when config `tracker.type: github`. The acme lineage: a labelled work
+Active when config `tracker.type: github`. The queue-and-claim model: a labelled work
 queue, atomic claim, and bot-authored status comments — the pipeline **writes back**
 to the tracker (`tracker.writes: true`).
 

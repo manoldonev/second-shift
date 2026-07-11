@@ -46,7 +46,7 @@ the **github** default, with per-stage "Tracker delta (jira)" callouts marking w
 changes under the JIRA adapter. Full contract + the operation-by-adapter table:
 [`tools/tracker/README.md`](./tools/tracker/README.md).
 
-- **github** (`tracker.type: github`, `tracker.writes: true`) — the acme lineage:
+- **github** (`tracker.type: github`, `tracker.writes: true`) — the queue-and-claim model:
   labelled work queue, atomic claim ([`tools/claim-issue.sh`](./tools/claim-issue.sh)),
   bot-authored status comments. This is what the Pre-flight, Bot Identity, and Stage
   1/8/9 sections below describe.

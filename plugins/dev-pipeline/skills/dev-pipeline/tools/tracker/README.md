@@ -9,7 +9,7 @@ Two adapters ship:
 
 | Adapter | Home | Consumer set | Posture |
 | --- | --- | --- | --- |
-| **github** | [`github/`](github/) → shell tools in [`../`](..) | acme lineage | queue + claim + comment (writes back to the tracker) |
+| **github** | [`github/`](github/) → shell tools in [`../`](..) | queue + claim model | queue + claim + comment (writes back to the tracker) |
 | **jira** | [`jira/`](jira/) | read-only JIRA shops | **read-only** — fetch the ticket via MCP, never transition or comment |
 
 ## The operation contract
@@ -35,7 +35,7 @@ draft-PR metadata, not the ticket.
 
 - `tracker.type` — selects the adapter (`github` | `jira`).
 - `tracker.writes` — whether tracker-write operations fire (`true` for github’s
-  queue/comment model; `false` for the JIRA read-only lineage). A `false` value
+  queue/comment model; `false` for the read-only JIRA model). A `false` value
   turns *post-status-comment* / *set-status* / *close-out* into no-ops.
 - `tracker.keyPattern` — anchored regex the ticket key must match at `statectl init`
   (`[0-9]+` github, `[A-Z]+-[0-9]+` jira). One statectl, tracker-shaped validation.

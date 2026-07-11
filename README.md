@@ -41,12 +41,12 @@ Requirements: Claude Code ≥ 2.x, `bash`, `jq`, `git`; `gh` CLI for the GitHub 
 ```
 
 ```text
-# 3. validate, then take it for a spin on a small ticket
+# 3. validate, then a first guided run on a small ticket (autonomous is the default; the flag makes gates prompt)
 bash <dev-pipeline plugin root>/tools/config-lint.sh .claude/second-shift.config.json
 DEV_PIPELINE_MODE=interactive /dev-pipeline:dev-pipeline <ticket>
 ```
 
-Full onboarding — topologies (monorepo, BE+FE pair), the JIRA tracker, reviewer tuning, extension files — in [`docs/onboarding.md`](docs/onboarding.md). Teams: pin a release in `.claude/settings.json` (`extraKnownMarketplaces` + `enabledPlugins`) so collaborators get the same toolset on repo trust; track latest only in a canary repo.
+Full onboarding — topologies (monorepo, BE+FE pair), the JIRA tracker, reviewer tuning, extension files — in [`docs/onboarding.md`](docs/onboarding.md). To keep collaborators on the same toolset, pin a release in `.claude/settings.json` (`extraKnownMarketplaces` + `enabledPlugins`); track latest only in a canary.
 
 ## How it stays generic
 

@@ -20,9 +20,9 @@ In the repo's `.claude/settings.json`:
 }
 ```
 
-Enable only what fits — a repo can adopt `review-toolkit` without the pipeline. Team repos should **pin a release**; only a canary repo tracks latest.
+Enable only what fits — a repo can adopt `review-toolkit` without the pipeline. Pin a release wherever stability matters; track latest only in a canary.
 
-### Pinning a release (team repos)
+### Pinning a release
 
 Two mechanisms compose, and both are needed for a durable pin:
 

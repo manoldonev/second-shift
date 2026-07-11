@@ -33,7 +33,7 @@ failure, surfaced by the intake stage.
 
 ## Deriving `branchPrefix` (the user identifier)
 
-The JIRA lineage’s branch prefix is a team-specific short name, not the git username.
+With JIRA the branch prefix is typically a per-user short name, not the git username.
 Set it explicitly in config (`tracker.branchPrefix: "jdoe/"`) or let Stage 2 detect
 it once from existing `*/gh-*` branches and confirm with the operator (interactive
 priming round), caching it. Config is the durable home; detection is the first-run
@@ -41,7 +41,7 @@ convenience. See [`../../../stages/2-worktree.md`](../../../stages/2-worktree.md
 
 ## Topology note
 
-JIRA-lineage repos are typically a **be-fe-pair** (`topology.type: be-fe-pair`): the
+JIRA-model repos are often a **be-fe-pair** (`topology.type: be-fe-pair`): the
 ticket summary prefix (`[BE]`, `[FE]`, `[Core]`) routes work to one or both repos
 (`topology.repos.<id>.ticketTag`), and Stage 9 opens one draft PR per target repo
 with cross-repo companion links. Base branches may differ per repo (BE `alpha`, FE

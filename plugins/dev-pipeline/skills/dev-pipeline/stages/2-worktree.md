@@ -6,7 +6,7 @@
 > `tracker.branchPrefix` is unset in a jira repo, detect the identifier once from
 > existing `*/gh-*` branches (`git branch -r --sort=-committerdate`), confirm with
 > the operator, and cache it (`userIdentifier` in state); config is the durable home.
-> For a **be-fe-pair** topology (typical JIRA lineage) create one worktree per target
+> For a **be-fe-pair** topology (common with JIRA) create one worktree per target
 > repo (`git -C <repoPath> worktree add`), each branching from that repo's configured
 > `baseBranch` (which may differ, e.g. BE `alpha` / FE `main`). See
 > [`tools/tracker/jira/`](../tools/tracker/jira/README.md).
