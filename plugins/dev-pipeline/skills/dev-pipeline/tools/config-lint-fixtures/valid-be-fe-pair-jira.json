@@ -20,5 +20,8 @@
   ],
   "implementDelegates": [
     { "surface": "tests/api/**", "agent": "acme-qa-pack:api-test-coder" }
+  ],
+  "planGates": [
+    { "name": "api-plan", "surface": "tests/api/**", "agent": "acme-qa-pack:api-test-plan-reviewer" }
   ]
 }

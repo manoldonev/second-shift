@@ -259,6 +259,20 @@
           "agent": { "type": "string", "description": "\"<plugin>:<agent>\" (a companion pack agent) or a repo-local bare agent name (in .claude/agents/)." }
         }
       }
+    },
+    "planGates": {
+      "type": "array",
+      "description": "EP-8: additive Stage-4 plan-review gates. Registers a consumer/companion plan-reviewer agent that runs AFTER the built-in plan gates (plan-reviewer, design FE-spec, unit-test-plan) and returns a trinary verdict — additive-only: it can only make a passing plan-review block, never waive a built-in gate. A block maps to the existing plan-reviewer-block reason (no per-extension reason). Symmetric with commands.<repo>.extraLanes (Stage-6 verify) and reviewers.add (Stage-8 code review).",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "agent"],
+        "properties": {
+          "name": { "type": "string", "description": "kebab-case, unique; the gate ledger key is plan-gate:<name>." },
+          "surface": { "type": "string", "description": "Optional path glob — Stage 4 runs the gate only when the plan touches this surface (absent = always)." },
+          "agent": { "type": "string", "description": "\"<plugin>:<agent>\" (companion pack) or a repo-local bare agent name (in .claude/agents/). Unresolvable = fail closed at pre-flight." }
+        }
+      }
     }
   }
 }

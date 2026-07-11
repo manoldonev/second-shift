@@ -30,6 +30,7 @@ The plan gates — `plan-reviewer`, design FE-spec review (designDriven runs), u
 3. **Assemble applicability flags from state** so the script's gate skips are deterministic:
    - `design.enabled = stageCheckpoint["1"].designDriven == true`; when enabled, `design.provider` = `stageCheckpoint["1"].designSource.provider` (selects the spec rubric) and `design.specPath` = the Stage-3 FE-spec artifact (`docs/design-specs/<screen>-spec.md`).
    - `unitTests.enabled = (unitTestSurface.applicable && unitTestSurface.action == "strengthen")`.
+   - `planGates` = the config `planGates` (EP-8) whose `surface` glob matches a path in the plan's **Affected files/modules** section (a planGate with no `surface` always applies). Pass the applicable set `[{name, surface, agent}]`; an empty set is fine (no additive plan gates). These run after the built-in gates and are additive-only — a `block` cannot waive a built-in gate.
 4. **Resolve paths.** `WT="$(git rev-parse --show-toplevel)/$(statectl get "$ISSUE_NUMBER" '.worktreePath')"` — the workflow takes an **absolute** `worktree` (it has no filesystem access to resolve a relative path; same contract as `code-review.mjs`). `briefPath` = `statectl get "$ISSUE_NUMBER" '.briefPath'`; when non-null (an orchestrator Step-0.5 run — rare in acme), resolve it to an **absolute main-repo path** (`"$MAIN_ROOT/.claude/pipeline-state/${ISSUE_NUMBER}-brief.md"`); otherwise pass literal `null` — never worktree-relative (worktrees don't carry gitignored main-repo files).
 
 ## Dispatch
@@ -49,6 +50,7 @@ Workflow({
     unitTests: { enabled: <bool>, planPath: "<unitTestSurface.planPath or the plan file>",
                  modulesTouched: <unitTestSurface.modulesTouched>,
                  mutationTargets: <unitTestSurface.mutationTargets> },
+    planGates: [<applicable EP-8 plan gates: {name, surface, agent}>],
     briefPath: "<state.briefPath as ABSOLUTE main-repo path, or null>"
   }
 })
@@ -56,7 +58,7 @@ Workflow({
 
 When `briefPath` is non-null, the script folds it into the plan-reviewer prompt: a plan step contradicting a resolved QUARANTINE decision or user guardrail in the Brief is a Blocker.
 
-The script runs `plan-reviewer` as a direct `agent()` (reasoning tier, full staller stack: output mandate + inline retry ×2 + 15-min ceiling), the design FE-spec gate as a **second plan-reviewer dispatch** over the FE-spec artifact with the provider-appropriate rubric (`design-toolkit:design-faithful-spec` for claude-design, `figma-faithful-spec` for figma — the claude-design family has no dedicated design-spec-reviewer agent, so both use the rubric-driven plan-reviewer path; `*-faithful-reviewer` agents review **code**, not specs), and the unit-test gate as a nested `workflow()` into `unit-tests.mjs` (`kind: "plan-review"`) — its own budget/staller handling preserved. All three gates always appear in the returned `gates[]` (with `skipped` markers when not run) so `pipeline-retro` can audit coverage.
+The script runs `plan-reviewer` as a direct `agent()` (reasoning tier, full staller stack: output mandate + inline retry ×2 + 15-min ceiling), the design FE-spec gate as a **second plan-reviewer dispatch** over the FE-spec artifact with the provider-appropriate rubric (`design-toolkit:design-faithful-spec` for claude-design, `figma-faithful-spec` for figma — the claude-design family has no dedicated design-spec-reviewer agent, so both use the rubric-driven plan-reviewer path; `*-faithful-reviewer` agents review **code**, not specs), the unit-test gate as a nested `workflow()` into `unit-tests.mjs` (`kind: "plan-review"`) — its own budget/staller handling preserved — and then any **EP-8 `planGates`** as additive trinary plan reviewers (each dispatched with the same staller stack; strictly serial, first-block short-circuit). All built-in gates always appear in the returned `gates[]` (with `skipped` markers when not run), and each plan gate appears as `plan-gate:<name>`, so `pipeline-retro` can audit coverage.
 
 ## Verdict handling (in-session)
 
@@ -77,6 +79,7 @@ Blocking-gate → reason mapping (the sequencer short-circuits, so exactly one g
 | `plan-reviewer`  | `plan-reviewer-block`           |
 | `design-fe-spec` | `plan-reviewer-block` (the FE spec is part of the plan deliverable — same reason, second trigger path, per state-schema.md) |
 | `unit-test-plan` | `unit-test-plan-reviewer-block` |
+| `plan-gate:<name>` (EP-8) | `plan-reviewer-block` (an additive plan gate is part of the plan deliverable — same reason, no per-extension enum value) |
 
 **On `block` (autonomous default; example — plan-reviewer):**
 

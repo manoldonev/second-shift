@@ -24,6 +24,9 @@ The de-orged, extensible core: a genuinely generic marketplace + the Extension C
 - **EP-6 `stageWorkflows`** — register a blocking Workflow as a gate-owned stage sub-step; new closed reason
   `ext-workflow-failed`; `ext:`-namespaced state only. **EP-7 `implementDelegates`** — route Stage-5 work items to
   a delegate agent; output flows through the unchanged scope + downstream gates.
+- **EP-8 `planGates`** — additive Stage-4 plan-review gates: register a plan-reviewer agent that runs after the
+  built-in plan gates; additive-only (a `block` maps to `plan-reviewer-block`, never waives a gate). Completes the
+  additive-gate symmetry: `planGates` (Stage 4) · `extraLanes` (Stage 6) · `reviewers.add` (Stage 8).
 - New consumer guide **`docs/extending.md`**; `extension-points.md` is its field reference; the disposition test
   is codified in `context-model.md`.
 

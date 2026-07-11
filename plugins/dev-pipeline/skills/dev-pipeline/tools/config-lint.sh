@@ -24,8 +24,8 @@ ERRORS=$(jq -r '
   + err((.topology | type) != "object"; "topology: required object")
   + err((.commands | type) != "object"; "commands: required object")
   + err(
-      (keys - ["configVersion","tracker","topology","commands","reviewers","paths","gates","design","stageParams","stageWorkflows","implementDelegates"]) != [];
-      "unknown top-level keys: " + ((keys - ["configVersion","tracker","topology","commands","reviewers","paths","gates","design","stageParams","stageWorkflows","implementDelegates"]) | join(", "))
+      (keys - ["configVersion","tracker","topology","commands","reviewers","paths","gates","design","stageParams","stageWorkflows","implementDelegates","planGates"]) != [];
+      "unknown top-level keys: " + ((keys - ["configVersion","tracker","topology","commands","reviewers","paths","gates","design","stageParams","stageWorkflows","implementDelegates","planGates"]) | join(", "))
     )
 
   # ---- tracker -------------------------------------------------------------
@@ -122,6 +122,17 @@ ERRORS=$(jq -r '
             + err((.agent? // "") == ""; "implementDelegates[" + ($i|tostring) + "].agent: required")
           )
         ) | add // [])
+    ) else [] end)
+  + (if (.planGates != null) then (.planGates |
+      err((type) != "array"; "planGates: must be array")
+      + (to_entries | map(
+          (.key as $i | .value |
+            err(((keys) - ["name","surface","agent"]) != []; "planGates[" + ($i|tostring) + "]: unknown keys")
+            + err((.name? // "") == ""; "planGates[" + ($i|tostring) + "].name: required")
+            + err((.agent? // "") == ""; "planGates[" + ($i|tostring) + "].agent: required")
+          )
+        ) | add // [])
+      + err(([.[].name] | length) != ([.[].name] | unique | length); "planGates: names must be unique")
     ) else [] end)
   + (if (.stageParams != null) then (.stageParams |
       err((type) != "object"; "stageParams: must be object")

@@ -88,6 +88,9 @@ const withCeiling = (dispatchPromise) =>
 //   design       — { enabled, provider, specPath } (designDriven runs; provider ∈
 //                  claude-design|figma selects the spec rubric; specPath = the
 //                  Stage-3 FE-spec artifact, e.g. docs/design-specs/<screen>-spec.md)
+//   planGates    — EP-8 additive plan gates: [{ name, surface?, agent }] (Stage 4 passes the
+//                  surface-applicable set; each runs after the built-in gates as an additive
+//                  trinary plan reviewer — a block maps to plan-reviewer-block)
 //   unitTests    — { enabled, planPath, modulesTouched, mutationTargets }
 //   briefPath    — ABSOLUTE main-repo path to the Product-Essence Brief, or null.
 //                  Never worktree-relative: the reviewer's cwd is the worktree and
@@ -100,6 +103,7 @@ const {
   workflowsDir,
   design = { enabled: false },
   unitTests = { enabled: false },
+  planGates = [],
   briefPath = null,
   config = {},
 } = a
@@ -188,6 +192,33 @@ const planReviewerGate = async (gate, prompt) => {
   }
 }
 
+// EP-8: dispatch a consumer-registered plan-gate agent (an additive Stage-4 plan reviewer) with the
+// SAME trinary schema + staller stack + ledger folding as the built-in gates. `agentType` is the
+// consumer/companion-pack agent; `model` comes from modelOverrides (bare-keyed) or the 'sonnet' default.
+const planGateAgent = async (gate, agentType, model, prompt) => {
+  const why = skipReason()
+  if (why) {
+    if (why === 'budget') budgetSkipped = true
+    recordSkip(gate, why)
+    return
+  }
+  try {
+    const result = await withCeiling(
+      dispatchSchemaAgent(prompt + STRUCTURED_OUTPUT_MANDATE, {
+        agentType,
+        model,
+        label: gate,
+        phase: 'Plan Review',
+        schema: PLAN_REVIEW_SCHEMA,
+      }),
+    )
+    if (result === null) recordInfra(gate, `dispatch exceeded the wall-clock ceiling (${CEILING_MS}ms) — declared dark`)
+    else recordVerdict(gate, result)
+  } catch (err) {
+    recordInfra(gate, err)
+  }
+}
+
 // ---- Gate 1: plan-reviewer (direct agent dispatch) ----
 await planReviewerGate(
   'plan-reviewer',
@@ -270,6 +301,27 @@ if (unitTests.enabled) {
   }
 } else {
   recordSkip('unit-test-plan', 'not-applicable')
+}
+
+// ---- Gate 4+: consumer plan gates (EP-8 `planGates`) — additive, blocking, strictly serial ----
+// Registered via config `planGates: [{name, surface, agent}]`; Stage 4 passes the applicable set
+// (surface-filtered in-session). Each is an ADDITIVE plan reviewer — it can only make a passing
+// plan-review block, never waive a built-in gate. A `block` folds into `blocked` and the stage maps
+// it to `plan-reviewer-block` (no per-extension reason). First-block short-circuit applies.
+for (const pg of Array.isArray(planGates) ? planGates : []) {
+  const agentType = pg.agent
+  const bareName = String(agentType).includes(':') ? String(agentType).split(':').pop() : String(agentType)
+  const model = modelOverrides[bareName] || 'sonnet'
+  await planGateAgent(
+    `plan-gate:${pg.name}`,
+    agentType,
+    model,
+    `Review the implementation plan at \`${planPath}\` for your domain concern` +
+      (pg.surface ? ` (scope: \`${pg.surface}\`)` : '') +
+      `. All file reads / Grep / Glob / Bash must target the worktree \`${worktree}\`. ` +
+      `You ADD a plan gate — surface real blockers in your domain; if the plan is fine for your concern, pass. ` +
+      `Return trinary verdict (block | fix-and-go | pass) and findings.`,
+  )
 }
 
 // Consolidated verdict. Precedence: block > infra > budget-skipped >

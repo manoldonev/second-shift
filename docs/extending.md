@@ -33,6 +33,7 @@ You have a repo-, org-, or domain-specific need. Walk it down this list; the fir
 | Turn on **design-fidelity** review against Figma or Claude-Design | `design.provider` config | config | fail-closed gate |
 | Run a **blocking workflow at a specific stage** (a schema-diff gate, a license scan, a codegen-drift check) | `stageWorkflows` (EP-6) | config → workflow | always |
 | Route certain **Stage-5 implementation work** to a specialist agent | `implementDelegates` (EP-7) | config → agent | passes the normal gates |
+| Add a **blocking plan-review gate** (a QA-tier plan review, an ADR-compliance check on the plan) | `planGates` (EP-8) | config → agent | additive, runs after the built-in Stage-4 gates |
 | Ship any of the above **across many repos in your org**, versioned and pinned | a **companion pack** plugin (EP-5) that the config points at | its own plugin | per the mechanism it uses |
 
 Two cuts make almost every decision:
@@ -165,7 +166,21 @@ You want certain implementation work done by a specialist agent instead of the i
 
 `surface` is a path glob or the reserved key `unit`; matching work items route to the delegate. The delegate's output then passes through the **unchanged** Stage-5 scope-enforcement gate and every downstream gate — it *adds work* (a different author) and *waives nothing*. `agent` is `"<plugin>:<agent>"` (a companion pack) or a bare repo-local agent name. An unresolvable agent fails closed at pre-flight.
 
-### 3.8 Companion pack — package the above for the whole org
+### 3.8 `planGates` — a blocking plan-review gate (EP-8)
+
+You want an extra reviewer of the *plan itself* at Stage 4 — a QA-tier review of the test strategy for a surface, an ADR-compliance check — that can block a bad plan before any code is written.
+
+```jsonc
+{
+  "planGates": [
+    { "name": "api-plan", "surface": "tests/api/**", "agent": "acme-qa-pack:api-test-plan-reviewer" }
+  ]
+}
+```
+
+Each plan gate runs **after** the built-in Stage-4 gates (plan-reviewer, design FE-spec, unit-test-plan) as an additive trinary reviewer over the plan; it appears in the gate ledger as `plan-gate:<name>`. `surface` (optional) scopes it — Stage 4 runs the gate only when the plan touches that glob. A `block` maps to the existing `plan-reviewer-block` reason (no per-extension enum value) — it can only make a passing plan-review *block*, never waive a built-in gate. This is the Stage-4 counterpart of `extraLanes` (Stage-6 verify) and `reviewers.add` (Stage-8 code review): the three additive-gate seams, one per gating stage. `agent` is `"<plugin>:<agent>"` or a bare repo-local name; unresolvable fails closed at pre-flight.
+
+### 3.9 Companion pack — package the above for the whole org
 
 When the extension files, reviewers, workflows, or delegate agents above would be copied across many of your repos, package them once as a companion pack plugin and point config at it. That's §4.
 

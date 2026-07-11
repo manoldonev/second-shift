@@ -35,6 +35,15 @@ if [[ -f "$CONFIG" ]] && command -v jq >/dev/null 2>&1; then
       fails=$((fails+1))
     fi
   done < <(jq -r '(.implementDelegates // [])[].agent // empty' "$CONFIG" 2>/dev/null)
+
+  while IFS= read -r ag; do
+    [[ -z "$ag" ]] && continue
+    if [[ "$ag" == *:* ]]; then continue; fi   # <plugin>:<agent> — companion pack, resolved at runtime
+    if [[ ! -f "$ROOT/.claude/agents/$ag.md" ]]; then
+      echo "UNRESOLVED-AGENT: planGates references bare agent '$ag' but .claude/agents/$ag.md does not exist — fail closed (EP-8)" >&2
+      fails=$((fails+1))
+    fi
+  done < <(jq -r '(.planGates // [])[].agent // empty' "$CONFIG" 2>/dev/null)
 fi
 
 # ---- (1) EP-3 extension-file manifest lint ----
