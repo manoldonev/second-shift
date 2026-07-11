@@ -4,20 +4,11 @@ All notable changes to the second-shift marketplace. Versions are per-plugin (`p
 this file tracks the marketplace release. `configVersion` stays `const 1` — v2 is fully backward-compatible for a
 consumer with an empty config; the migration notes below are only for consumers using the changed features.
 
-## v2.0.1 — pipeline-doctor cache-layout fix + flagship command rename
-
-- **Flagship command renamed** `/dev-pipeline:dev-pipeline` → **`/dev-pipeline:run`** (skill `dev-pipeline` → `run`). The plugin is the namespace; the skill is the action — matching the other plugins. Breaking; no alias (pre-adoption).
-
-- **`pipeline-doctor.sh`** located sibling-plugin selftests (review-toolkit's reviewer-references +
-  model-tiers, intake-toolkit's ledger-lint) via the monorepo `plugins/` layout, so they reported
-  spurious FAILs when the doctor ran from the version-keyed install cache
-  (`cache/<marketplace>/<plugin>/<version>/`). Added a layout-agnostic resolver (monorepo → this
-  plugin's cache version → newest sibling version). Diagnostic-only; the checks themselves always
-  passed. Consumers re-pin to `v2.0.1` only if they run `pipeline-doctor` from the cache. (dev-pipeline only.)
-
 ## v2.0.0 — "the extensible core"
 
 The de-orged, extensible core: a genuinely generic marketplace + the Extension Contract v1. Semver-major.
+
+**Run the pipeline with `/dev-pipeline:run <issue>`** — the `dev-pipeline` plugin's flagship `run` skill (plugin = namespace, skill = action; consistent with the other toolkits).
 
 ### Extension Contract v1 (all optional; defaults reproduce v1 behavior byte-for-byte)
 - **EP-1 `stageParams`** — stage-prose constants promoted to config (`planFilePattern`, `requiredLabels`,
@@ -62,6 +53,8 @@ The de-orged, extensible core: a genuinely generic marketplace + the Extension C
 - Base-branch, format-glob, viewport, and label constants routed through config (EP-1) instead of hardcoded.
 - De-anonymization: removed a shipped private-repo inventory, real GitHub App identifiers, and domain-fingerprint
   substance from the stock and its examples.
+- `pipeline-doctor.sh` locates sibling-plugin selftests in both the monorepo and the version-keyed install-cache
+  layout (previously reported spurious FAILs from the cache; the checks always passed).
 
 ### v1 → v2 migration (consumers)
 1. Bump the marketplace `ref` and each `plugin.json` version pin to `v2.0.0`.
