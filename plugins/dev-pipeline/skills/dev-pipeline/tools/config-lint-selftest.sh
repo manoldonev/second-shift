@@ -37,6 +37,7 @@ expect_violation invalid-tracker-unknown-key.json   "tracker: unknown keys"
 expect_violation invalid-bot-app-unknown-key.json   "tracker.bot.app: unknown keys"
 expect_violation invalid-bad-design-provider.json   "design.provider must be figma|claude-design"
 expect_violation invalid-bad-viewport.json          "stageParams.visualCapture.viewports must be a subset"
+expect_violation invalid-bad-extralane.json         "extraLanes[0].failureClass: must be a closed failure-taxonomy value"
 
 # missing file → usage error (3), not a lint failure
 if "$LINT" "$FIX/does-not-exist.json" > /dev/null 2>&1; then rc=0; else rc=$?; fi

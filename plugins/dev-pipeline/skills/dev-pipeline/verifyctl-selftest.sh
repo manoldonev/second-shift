@@ -110,6 +110,9 @@ cat > "$CONFIG_FIXTURE" <<'CFG'
       "lanes": [
         { "name": "install", "commands": ["yarn install --immutable"] },
         { "name": "workspaces", "commands": ["yarn workspaces foreach -A -t --include 'packages/*' run build"] }
+      ],
+      "extraLanes": [
+        { "name": "contract-check", "commands": ["true"], "failureClass": "TEST_FAILURE" }
       ]
     }
   }
@@ -160,12 +163,14 @@ vrun
 lane=$(jq -r '.lane' <<< "$VERDICT")
 tsc=$(jq -r '.verifySummary.typeCheck' <<< "$VERDICT")
 build=$(jq -r '.verifySummary.build' <<< "$VERDICT")
+ext=$(jq -r '.verifySummary."ext:contract-check"' <<< "$VERDICT")   # EP-2: extra lane, namespaced
 if [[ "$VRC" == "0" && "$lane" == "SUITE" && "$tsc" == "clean" && "$build" == "clean" \
+      && "$ext" == "clean" \
       && -f "$MARKERS/ran-workspaces" && -f "$MARKERS/ran-type-check" \
       && -f "$MARKERS/ran-lint" && -f "$MARKERS/ran-test" ]]; then
-  pass "(v2) SUITE lane clean run — packages build + lint/type-check/test ran, verdict pass"
+  pass "(v2) SUITE lane clean run — packages build + lint/type-check/test + ext:contract-check ran, verdict pass"
 else
-  fail "(v2) SUITE clean — rc=$VRC lane=$lane tsc=$tsc build=$build"
+  fail "(v2) SUITE clean — rc=$VRC lane=$lane tsc=$tsc build=$build ext=$ext"
 fi
 
 # (v3) type-check failure → TYPE_ERROR classified, exit 1, sidecar fail

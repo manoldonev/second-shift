@@ -60,12 +60,20 @@ ERRORS=$(jq -r '
     )
   + ((.commands // {}) | to_entries | map(
       (.key as $repo | .value |
-        err(((keys) - ["lint","lintAutofixes","typecheck","test","testFile","unitTestScope","integrationTest","apiTest","build","format","lanes"]) != []; "commands." + $repo + ": unknown keys")
+        err(((keys) - ["lint","lintAutofixes","typecheck","test","testFile","unitTestScope","integrationTest","apiTest","build","format","lanes","extraLanes"]) != []; "commands." + $repo + ": unknown keys")
         + ([to_entries[] | select(.key | IN("lint","typecheck","test","testFile","unitTestScope","integrationTest","apiTest","build","format")) |
             err((.value | type) | IN("string","null") | not; "commands." + $repo + "." + .key + ": must be string or null")
           ] | add // [])
         + ((.lanes // []) | to_entries | map(
             err((.value.name? // "") == ""; "commands." + $repo + ".lanes[" + (.key|tostring) + "].name: required")
+          ) | add // [])
+        + ((.extraLanes // []) | to_entries | map(
+            (.key as $i | .value |
+              err(((keys) - ["name","when","commands","failureClass"]) != []; "commands." + $repo + ".extraLanes[" + ($i|tostring) + "]: unknown keys")
+              + err((.name? // "") == ""; "commands." + $repo + ".extraLanes[" + ($i|tostring) + "].name: required")
+              + err(((.commands // []) | length) < 1; "commands." + $repo + ".extraLanes[" + ($i|tostring) + "].commands: at least one required")
+              + err((.failureClass? // "") | IN("FORMAT","LINT_AUTOFIX","TYPE_ERROR","TEST_FAILURE","PLAN_CMD_FAILURE","INFRA") | not; "commands." + $repo + ".extraLanes[" + ($i|tostring) + "].failureClass: must be a closed failure-taxonomy value (FORMAT|LINT_AUTOFIX|TYPE_ERROR|TEST_FAILURE|PLAN_CMD_FAILURE|INFRA)")
+            )
           ) | add // [])
       )
     ) | add // [])

@@ -24,6 +24,9 @@
       "lanes": [
         { "name": "apps", "cwd": "apps", "commands": ["yarn workspaces foreach -pt run ci"] },
         { "name": "packages", "cwd": "packages", "commands": ["yarn workspaces foreach -pt run build"] }
+      ],
+      "extraLanes": [
+        { "name": "contract-tests", "when": ["src/modules/**"], "commands": ["yarn contract:test"], "failureClass": "TEST_FAILURE" }
       ]
     }
   },

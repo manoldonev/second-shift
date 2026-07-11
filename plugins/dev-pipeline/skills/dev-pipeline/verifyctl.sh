@@ -152,6 +152,8 @@ load_config() {
   CMD_TEST=$(jq -r --arg h "$host" '.commands[$h].test // empty' "$cfg")
   LINT_AUTOFIXES=$(jq -r --arg h "$host" '.commands[$h].lintAutofixes // false' "$cfg")
   SETUP_LANES=$(jq -c --arg h "$host" '.commands[$h].lanes // []' "$cfg")
+  # EP-2 additive verify lanes (run AFTER the SUITE trio, blocking, ext:<name> keys).
+  EXTRA_LANES=$(jq -c --arg h "$host" '.commands[$h].extraLanes // []' "$cfg")
 
   # resolve stageParams.formatGlob (default = *.{ts,tsx,js,json,md}) — the
   # prettier scoped-format file glob. Absent key => the shipped literal, so an
@@ -518,10 +520,64 @@ cmd_run() {
       fi
     fi
 
+    # ---- EP-2: extra lanes (additive, append-after-SUITE, blocking, ext:<name> keys) ----
+    # Built-in SUITE lanes ran first; extra lanes append sequentially, never interleave or
+    # replace. `when` globs gate execution (empty = always); results land under NAMESPACED
+    # ext:<name> keys (canonical keys unreachable). A lane failure records under its declared
+    # (closed-enum) failureClass and charges the standard attempt budget — no advisory mode.
+    # Skipped entirely when the SUITE already failed (the verdict is failed regardless) or on an
+    # inert diff (this whole branch only runs on a non-inert SUITE diff).
+    local ext_json="{}"
+    local el_count
+    el_count=$(jq 'length' <<< "$EXTRA_LANES")
+    if [[ "$el_count" -gt 0 && "$failures" == "[]" ]]; then
+      local el_i
+      for (( el_i=0; el_i<el_count; el_i++ )); do
+        local el_name el_fc el_when_count el_run el_status el_cmds el_ci el_cmd el_rc
+        el_name=$(jq -r --argjson i "$el_i" '.[$i].name' <<< "$EXTRA_LANES")
+        el_fc=$(jq -r --argjson i "$el_i" '.[$i].failureClass' <<< "$EXTRA_LANES")
+        el_when_count=$(jq --argjson i "$el_i" '(.[$i].when // []) | length' <<< "$EXTRA_LANES")
+        el_run=1
+        if [[ "$el_when_count" -gt 0 ]]; then
+          el_run=0
+          local wi wg cf
+          for (( wi=0; wi<el_when_count; wi++ )); do
+            wg=$(jq -r --argjson i "$el_i" --argjson j "$wi" '.[$i].when[$j]' <<< "$EXTRA_LANES")
+            while IFS= read -r cf; do
+              [[ -z "$cf" ]] && continue
+              # shellcheck disable=SC2053
+              if [[ "$cf" == $wg ]]; then el_run=1; break 2; fi
+            done <<< "$changed"
+          done
+        fi
+        if [[ "$el_run" -ne 1 ]]; then
+          ext_json=$(jq --arg n "$el_name" '. + {("ext:"+$n): "skipped"}' <<< "$ext_json")
+          continue
+        fi
+        el_status="clean"
+        el_cmds=$(jq --argjson i "$el_i" '(.[$i].commands // []) | length' <<< "$EXTRA_LANES")
+        for (( el_ci=0; el_ci<el_cmds; el_ci++ )); do
+          el_cmd=$(jq -r --argjson i "$el_i" --argjson j "$el_ci" '.[$i].commands[$j]' <<< "$EXTRA_LANES")
+          run_cmd "ext:$el_name" bash -c "cd \"$wt\" && $el_cmd"
+          el_rc=$?
+          if [[ "$el_rc" -ne 0 ]]; then
+            record_failure "$el_fc" "extra lane '$el_name': $el_cmd" "$el_rc" "$RUN_CMD_OUT"
+            el_status="failed"
+            if [[ "$no_attempt" -ne 1 ]]; then
+              "$STATECTL" verify-attempts "$key" --incr "$el_fc" >/dev/null \
+                || { EXIT_CODE=2 die "run: statectl verify-attempts --incr $el_fc (extra lane $el_name) failed"; }
+            fi
+            break
+          fi
+        done
+        ext_json=$(jq --arg n "$el_name" --arg s "$el_status" '. + {("ext:"+$n): $s}' <<< "$ext_json")
+      done
+    fi
+
     local vs_json
     vs_json=$(jq -n --arg f "$vs_format" --arg l "$vs_lint" --arg t "$vs_tsc" \
-                    --arg te "$vs_test" --arg b "$vs_build" \
-                    '{format: $f, lint: $l, typeCheck: $t, test: $te, build: $b}')
+                    --arg te "$vs_test" --arg b "$vs_build" --argjson ext "$ext_json" \
+                    '{format: $f, lint: $l, typeCheck: $t, test: $te, build: $b} + $ext')
     emit_verdict "$key" "$(build_verdict_ctx "$vs_json")"
   fi
 }

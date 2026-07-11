@@ -111,6 +111,25 @@
                 "commands": { "type": "array", "items": { "type": "string" } }
               }
             }
+          },
+          "extraLanes": {
+            "type": "array",
+            "description": "EP-2: additive verify lanes. Run sequentially AFTER the built-in SUITE lanes, never interleaving or replacing them. Results land under namespaced ext:<name> keys in the verify summary (canonical keys unreachable). No advisory mode — a lane blocks Stage-6 completion or it does not exist.",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["name", "commands", "failureClass"],
+              "properties": {
+                "name": { "type": "string", "description": "kebab-case, unique; results recorded under ext:<name>." },
+                "when": { "type": "array", "items": { "type": "string" }, "description": "Changed-file globs gating execution; empty/absent = always run. An inert diff skips extra lanes too." },
+                "commands": { "type": "array", "items": { "type": "string" }, "minItems": 1 },
+                "failureClass": {
+                  "type": "string",
+                  "enum": ["FORMAT", "LINT_AUTOFIX", "TYPE_ERROR", "TEST_FAILURE", "PLAN_CMD_FAILURE", "INFRA"],
+                  "description": "MUST be an existing closed failure-taxonomy value — extensions borrow the taxonomy, never extend it; gets the standard 2-attempt budget."
+                }
+              }
+            }
           }
         }
       }
