@@ -222,4 +222,64 @@ platform/*.md
 
 ---
 
-**In one breath:** config for values and switches; extension files to add evidence; extraLanes / stageWorkflows / delegates / reviewers to add work — all registered from config so they're auditable; a companion pack to ship any of it across an org, two-pinned and namespaced. And through all of it: extensions add, they never subtract; if your change could turn a red run green, you wanted a fork.
+## 5. End-to-end case study: an API-test QA tier
+
+The single snippets above each touch one seam. Real capabilities compose several. Here's a worked case a QA-minded org actually wants: **black-box API tests as a first-class pipeline concern** — the plan's API-test strategy gets reviewed *before* code is written, the tests are authored by a specialist, the suite runs as a blocking gate, and the tests themselves get code-reviewed. That's four different gating stages, so it's four seams — packaged once as a companion pack, `acme-qa-pack`, and wired from each consumer's config.
+
+**What the pack ships** (authored once, versioned, pinned — §4):
+- `agents/api-test-plan-reviewer.md` — reviews the plan's API-test strategy (trinary verdict).
+- `agents/api-test-coder.md` — a write-only agent that authors black-box tests under `tests/api/`.
+- `agents/api-test-reviewer.md` — reviews the written test code.
+- `skills/api-testing/` — the shared "how we write API tests here" playbook the agents load.
+
+**What each consumer repo puts in `.claude/second-shift.config.json`** — one block, every stage of the tier registered and auditable:
+
+```jsonc
+{
+  // Stage 4 — gate the PLAN: block a ticket whose API-test strategy is wrong before any code exists
+  "planGates": [
+    { "name": "api-plan", "surface": "tests/api/**", "agent": "acme-qa-pack:api-test-plan-reviewer" }
+  ],
+  // Stage 5 — WRITE: route API-test work to the specialist instead of the inline implementer
+  "implementDelegates": [
+    { "surface": "tests/api/**", "agent": "acme-qa-pack:api-test-coder" }
+  ],
+  // Stage 6 — RUN: the API suite is a blocking verify lane, gated to when API surface changed
+  "commands": {
+    "<repo-id>": {
+      "extraLanes": [
+        { "name": "api-tests", "when": ["src/**", "tests/api/**"],
+          "commands": ["<the repo's API-test command, e.g. yarn test:api>"], "failureClass": "TEST_FAILURE" }
+      ]
+    }
+  },
+  // Stage 8 — REVIEW: the written tests get a domain code review
+  "reviewers": {
+    "add": [{ "name": "acme-qa-pack:api-test-reviewer", "dimensions": ["api-testing"] }]
+  }
+}
+```
+
+Plus the pack's harness reference, declared so the manifest lint recognizes it (§4.3):
+
+```
+# .claude/second-shift/.known-extensions
+api-testing/*.md
+```
+
+**How it maps — one seam per gating stage:**
+
+| Pipeline stage | Seam | What runs | Fails how |
+| --- | --- | --- | --- |
+| 4 — plan review | `planGates` (EP-8) | `api-test-plan-reviewer` judges the plan's test strategy | `block` → `plan-reviewer-block` |
+| 5 — implement | `implementDelegates` (EP-7) | `api-test-coder` writes `tests/api/**` | output passes the unchanged scope + downstream gates |
+| 6 — verify | `extraLanes` (EP-2) | the API suite runs | nonzero → `TEST_FAILURE`, standard budget |
+| 8 — code review | `reviewers.add` | `api-test-reviewer` reviews the tests | its verdict folds into the review round |
+
+Every one of these **adds** a gate or a unit of work; not one can waive a shipped check — an API-test tier can only make a green run *red* (a bad plan, a failing suite, a rejected review), which is exactly the fork-vs-extend line from §1. And because the wiring lives in the consumer's config, anyone auditing the repo sees the whole tier in one file — while the *implementation* (agents, skill) is versioned and pinned in the pack, bumped independently.
+
+> **Two-pin note (phase 1 vs phase 2).** Under the phase-1 vendoring model, `second-shift sync` copies the pack's agents/skill into the repo's `.claude/agents/` and `.claude/skills/` (referenced **bare** — `api-test-plan-reviewer`, not `acme-qa-pack:api-test-plan-reviewer`), so every byte influencing a run is visible in the repo's own history. The namespaced `acme-qa-pack:…` form shown above is the phase-2 live-resolution target. Either way the *config shape* is identical; only the reference form differs.
+
+---
+
+**In one breath:** config for values and switches; extension files to add evidence; planGates / extraLanes / reviewers to add a gate at each of the three gating stages, and stageWorkflows / delegates to add work — all registered from config so they're auditable; a companion pack to ship any of it across an org, two-pinned and namespaced. And through all of it: extensions add, they never subtract; if your change could turn a red run green, you wanted a fork.
