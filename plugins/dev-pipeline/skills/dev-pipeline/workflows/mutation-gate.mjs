@@ -7,8 +7,11 @@ export const meta = {
 
 // Executors run at the code tier — keep in lockstep with SKILL.md's Model Tiering
 // note (mutation-gate executors: sonnet). Mechanical apply/run/revert work.
-// check-model-tiers.sh asserts this scalar (no agent-frontmatter counterpart —
-// executors are anonymous agent() calls, not a .claude/agents/ type).
+// EP-4: the executor is a NAMED logical agent 'mutation-executor'; its tier is the
+// shipped default here, overridable via config reviewers.modelOverrides['mutation-executor']
+// (resolved below, after args). check-model-tiers.sh asserts this scalar as the default and
+// honors the override (no agent-frontmatter counterpart — executors are schema-free agent()
+// calls, not a .claude/agents/ type).
 const EXECUTOR_MODEL = 'sonnet'
 
 // Parse LAST match wins: the executor prompt itself contains the literal token,
@@ -70,6 +73,9 @@ const computeVerdict = (executions) => {
 //   inputs       — { modulesTouched, specPaths, changedBackendFiles, mutationTargets }
 const a = typeof args === 'string' ? JSON.parse(args) : args || {}
 const { worktree, base, head, issue = '', workflowsDir, round = 1, inputs = {}, config = {}, testFileCommand } = a
+// EP-4: resolve the 'mutation-executor' tier via the standard modelOverrides idiom (bare-keyed).
+const modelOverrides = (config && config.reviewers && config.reviewers.modelOverrides) || {}
+const executorModel = modelOverrides['mutation-executor'] || EXECUTOR_MODEL
 if (!worktree || !base || !head || !workflowsDir) {
   throw new Error('mutation-gate workflow: args.worktree, args.base, args.head and args.workflowsDir are required')
 }
@@ -171,7 +177,7 @@ for (const [i, m] of executable.entries()) {
     const label = `mutant-exec ${i + 1}/${executable.length}: ${m.file}${attempt ? ' (retry)' : ''}`
     try {
       const reply = await withCeiling(
-        agent(executorPrompt(m, i, executable.length), { model: EXECUTOR_MODEL, label, phase: 'Mutation Gate' }),
+        agent(executorPrompt(m, i, executable.length), { model: executorModel, label, phase: 'Mutation Gate' }),
       )
       if (reply === CEILING) {
         // Orphaned executor may still be mutating the shared worktree — abort

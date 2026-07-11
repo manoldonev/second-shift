@@ -296,6 +296,11 @@ if [ -f "$mg" ]; then
             errors+=("MISMATCH: 'mutation-gate executors' — SKILL.md says '$skill_note' but mutation-gate.mjs (EXECUTOR_MODEL) says '$mg_model'")
         fi
     fi
+    # EP-4: the executor is a NAMED logical agent 'mutation-executor' — assert the modelOverrides
+    # lookup exists so the tier is consumer-overridable, not a bare scalar the override can't reach.
+    if ! grep -qF "modelOverrides['mutation-executor']" "$mg"; then
+        errors+=("LOOKUP: mutation-gate.mjs must route the executor tier through modelOverrides['mutation-executor'] (EP-4 named-agent override), not a bare EXECUTOR_MODEL scalar")
+    fi
 fi
 
 if [ ${#errors[@]} -gt 0 ]; then
