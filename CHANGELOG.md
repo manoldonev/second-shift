@@ -30,6 +30,18 @@ consumer with an empty config; the migration notes below are only for consumers 
   drift guard on the `.md` block's load-bearing tokens. Single-target pairs and non-pair topologies are
   unchanged (the flat path). Stage 5 (per-repo implement) and Stage 8 (per-repo review) land in Phases 3–4.
 
+### `dev-pipeline` 2.2.1 → 2.2.2
+- **#48 (Phase 3) — dual-target Stage 5 per-repo implement.** The behavioral fix: for a dual `[BE]+[FE]` ticket
+  Stage 5 now authors code in **every** target worktree, not just the primary. Following Stage 3's repo-grouped
+  plan, each repo's work is done in that repo's own worktree (resolved from the `worktrees` map) and committed
+  there with `git -C <repo worktree>` — one commit lands in exactly one repo, never mixing files from two repos.
+  Downstream stays per-repo (Stage 6 verify, Stage 7 checkpoint, Stage 8 review, Stage 9 PR). The unit-test
+  mutation gate is unchanged — it operates on the mutation-surface (host) worktree, which the flat mirror
+  already points `WT` at. Mirrors the vendored be-fe-pair reference. Gated on `targetRepos > 1`; single-target
+  pairs and non-pair topologies implement in the one flat worktree exactly as before. New
+  `stage5-perrepo-implement-selftest.sh` drift-guards the per-repo commit instruction (a silent removal would
+  regress dual-target to primary-only). Stage 8 per-repo review is the final phase (4).
+
 ### `second-shift` 1.3.1 → 1.4.0
 - **Onboard Step 8.5 now runs the preflight as the finish line** (resolves the dev-pipeline install path via
   `claude plugin list --json` — never a cache path from memory), surfacing the report verdict before the
