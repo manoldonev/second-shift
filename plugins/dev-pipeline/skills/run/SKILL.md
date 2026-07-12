@@ -107,16 +107,22 @@ if [[ ! -x "$GH_BOT" ]]; then
 fi
 
 # (2) Required label set must exist in the repo (one read, then assert each).
-# Resolve stageParams.requiredLabels (default = ready-for-dev needs-spec-work
-# needs-plan-review needs-intake-review in-progress epic). An absent key — or an
-# absent/unreadable config file — reproduces the shipped set byte-for-byte:
-# `// empty` makes jq emit nothing when the key is absent, so the array stays empty
-# and the fallback below re-establishes the exact shipped literal. (while-read, not
-# mapfile — macOS ships bash 3.2.)
+# Precedence (#11): the tracker.labels role vocabulary (union of queue + claimed +
+# blockers) is authoritative when set — the SAME labels the queue/claim/guard sites
+# consume, so the existence check can never drift from the used set (F75's
+# structural fix). Falls back to the legacy flat stageParams.requiredLabels, then
+# the shipped six. An absent config / absent keys reproduce the six byte-for-byte.
+# (while-read, not mapfile — macOS ships bash 3.2.)
 REQUIRED_LABELS=()
 if [[ -f "$CFG" ]]; then
+  # tracker.labels union first (empty when tracker.labels absent).
   while IFS= read -r l; do REQUIRED_LABELS+=("$l"); done \
-    < <(jq -r '.stageParams.requiredLabels // empty | .[]' "$CFG" 2>/dev/null)
+    < <(jq -r '(.tracker.labels // {}) | ([.queue, .claimed] + (.blockers // [])) | map(select(. != null and . != "")) | .[]' "$CFG" 2>/dev/null)
+  # legacy stageParams.requiredLabels when tracker.labels gave nothing.
+  if (( ${#REQUIRED_LABELS[@]} == 0 )); then
+    while IFS= read -r l; do REQUIRED_LABELS+=("$l"); done \
+      < <(jq -r '.stageParams.requiredLabels // empty | .[]' "$CFG" 2>/dev/null)
+  fi
 fi
 if (( ${#REQUIRED_LABELS[@]} == 0 )); then
   REQUIRED_LABELS=(ready-for-dev needs-spec-work needs-plan-review needs-intake-review in-progress epic)

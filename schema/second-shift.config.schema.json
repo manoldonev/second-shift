@@ -57,6 +57,16 @@
         "keyPattern": {
           "type": "string",
           "description": "Regex for ticket keys as used in branch names and state files (e.g. \"[A-Z]+-[0-9]+\" for JIRA, \"[0-9]+\" for GitHub issue numbers). statectl init validates the key against this anchored pattern (fails closed on a malformed key); absent = accept any non-empty key."
+        },
+        "labels": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "github only: the queue/claim/blocker label vocabulary by ROLE (not a flat list). Every functional site reads these roles — the Stage-1 queue query, the claim label-swap, the do-not-pick-up guard, claim-issue.sh, and pipeline-doctor — and the pre-flight existence check verifies their union. Absent → the shipped defaults. Config home for the previously-hardcoded label literals (F75); a consumer with custom labels sets these once and every site follows.",
+          "properties": {
+            "queue": { "type": "string", "description": "The label the pipeline picks work from and drops at claim. Default \"ready-for-dev\"." },
+            "claimed": { "type": "string", "description": "The label added atomically at claim (and removed at terminal stages). Default \"in-progress\"." },
+            "blockers": { "type": "array", "items": { "type": "string" }, "description": "Labels that block auto-pickup (an issue carrying any is skipped). Default [\"epic\",\"needs-intake-review\",\"needs-spec-work\",\"needs-plan-review\"]." }
+          }
         }
       }
     },

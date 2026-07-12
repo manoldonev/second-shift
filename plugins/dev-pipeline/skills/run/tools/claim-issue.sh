@@ -43,7 +43,18 @@
 
 set -uo pipefail
 
-ISSUE="${1:-}"
+ISSUE="${1:-}"; shift || true
+# Label vocabulary (config tracker.labels; #11) — Stage 1 passes the resolved
+# names, defaulting to the shipped queue/claimed labels when omitted.
+QUEUE_LABEL="ready-for-dev"
+CLAIMED_LABEL="in-progress"
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --queue)   QUEUE_LABEL="${2:-}"; shift 2 ;;
+    --claimed) CLAIMED_LABEL="${2:-}"; shift 2 ;;
+    *) echo "[claim-issue] unknown arg '$1'" >&2; exit 2 ;;
+  esac
+done
 
 # Resolve the bot wrapper path. An explicit GH_BOT always wins (the selftest's
 # mock seam). Otherwise, config tracker.bot.wrapperPath wins (the explicit path
@@ -78,23 +89,22 @@ if [[ -z "$ISSUE" ]]; then
   exit 2
 fi
 
-# 1. ADD `in-progress`; capture the resulting label-name array (the add-labels POST
-#    returns the issue's full label set; `--jq '[.[].name]'` reduces it to names).
-ADDED=$(echo '{"labels":["in-progress"]}' \
+# 1. ADD the claimed label; capture the resulting label-name array (the add-labels
+#    POST returns the issue's full label set; `--jq '[.[].name]'` reduces it to names).
+ADDED=$(jq -nc --arg l "$CLAIMED_LABEL" '{labels: [$l]}' \
   | "$GH_BOT" api -X POST "repos/{owner}/{repo}/issues/$ISSUE/labels" --input - --jq '[.[].name]')
 
 # 2. Confirm the add applied BEFORE removing the queue label. The decision is the
-#    response-body CONTENT (does it contain `in-progress`?), not the HTTP status —
+#    response-body CONTENT (does it contain the claimed label?), not the HTTP status —
 #    an empty body, a 422 error object, or any array lacking the label all abort.
-case "$ADDED" in
-  *'"in-progress"'*) ;;  # add confirmed — safe to remove the queue label
-  *)
-    echo "[claim-issue] in-progress add did not apply ($ADDED) — aborting, leaving ready-for-dev intact" >&2
-    exit 1
-    ;;
-esac
+if [[ "$ADDED" == *"\"$CLAIMED_LABEL\""* ]]; then
+  :  # add confirmed — safe to remove the queue label
+else
+  echo "[claim-issue] '$CLAIMED_LABEL' add did not apply ($ADDED) — aborting, leaving '$QUEUE_LABEL' intact" >&2
+  exit 1
+fi
 
-# 3. Remove `ready-for-dev`.
-"$GH_BOT" api -X DELETE "repos/{owner}/{repo}/issues/$ISSUE/labels/ready-for-dev"
+# 3. Remove the queue label.
+"$GH_BOT" api -X DELETE "repos/{owner}/{repo}/issues/$ISSUE/labels/$QUEUE_LABEL"
 
-echo "[claim-issue] claimed #$ISSUE (in-progress added, ready-for-dev removed)"
+echo "[claim-issue] claimed #$ISSUE ('$CLAIMED_LABEL' added, '$QUEUE_LABEL' removed)"

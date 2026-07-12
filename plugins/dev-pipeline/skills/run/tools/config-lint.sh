@@ -35,10 +35,17 @@ ERRORS=$(jq -r '
   # ---- tracker -------------------------------------------------------------
   + err((.tracker.type? // "") | IN("github","jira") | not; "tracker.type must be github|jira")
   + err((.tracker.bot? != null) and (.tracker.type? == "jira"); "tracker.bot is github-only")
-  + err((.tracker | type == "object") and ((.tracker | keys) - ["type","writes","bot","keyPattern","branchPrefix"]) != []; "tracker: unknown keys")
+  + err((.tracker | type == "object") and ((.tracker | keys) - ["type","writes","bot","keyPattern","branchPrefix","labels"]) != []; "tracker: unknown keys")
   + err((.tracker.writes? != null) and ((.tracker.writes | type) != "boolean"); "tracker.writes: must be boolean")
   + err((.tracker.branchPrefix? != null) and ((.tracker.branchPrefix | type) != "string"); "tracker.branchPrefix: must be string")
   + err((.tracker.keyPattern? != null) and ((.tracker.keyPattern | type) != "string"); "tracker.keyPattern: must be string")
+  + err((.tracker.labels? != null) and (.tracker.type? == "jira"); "tracker.labels is github-only (a JIRA repo has no queue/claim/label vocabulary)")
+  + ((.tracker.labels // {}) |
+      err((type == "object") and ((keys) - ["queue","claimed","blockers"]) != []; "tracker.labels: unknown keys")
+      + err((.queue? != null) and ((.queue | type) != "string"); "tracker.labels.queue: must be string")
+      + err((.claimed? != null) and ((.claimed | type) != "string"); "tracker.labels.claimed: must be string")
+      + err((.blockers? != null) and ((.blockers | type) != "array"); "tracker.labels.blockers: must be array")
+    )
   + ((.tracker.bot // {}) |
       err((type == "object") and ((keys) - ["enabled","envVar","wrapperPath","app"]) != []; "tracker.bot: unknown keys")
       + ((.app // {}) | err((type == "object") and ((keys) - ["clientId","appName","privateKeyFilename","installationId"]) != []; "tracker.bot.app: unknown keys"))
