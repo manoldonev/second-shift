@@ -1,0 +1,7 @@
+[
+  { "id": "dev-pipeline@second-shift",   "version": "2.1.0", "scope": "project", "enabled": true, "installPath": "__INSTALL__/dev-pipeline/2.1.0",   "projectPath": "__ROOT__" },
+  { "id": "review-toolkit@second-shift", "version": "2.0.2", "scope": "project", "enabled": true, "installPath": "__INSTALL__/review-toolkit/2.0.2", "projectPath": "__ROOT__" },
+  { "id": "intake-toolkit@second-shift", "version": "2.0.0", "scope": "project", "enabled": true, "installPath": "__INSTALL__/intake-toolkit/2.0.0", "projectPath": "__ROOT__" },
+  { "id": "audit-toolkit@second-shift",  "version": "2.0.0", "scope": "project", "enabled": true, "installPath": "__INSTALL__/audit-toolkit/2.0.0",  "projectPath": "__ROOT__" },
+  { "id": "second-shift@second-shift",   "version": "1.0.0", "scope": "user",    "enabled": true, "installPath": "__INSTALL__/second-shift/1.0.0" }
+]

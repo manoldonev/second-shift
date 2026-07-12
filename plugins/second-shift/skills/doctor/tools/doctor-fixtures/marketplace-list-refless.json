@@ -1,0 +1,8 @@
+[
+  {
+    "name": "second-shift",
+    "source": "github",
+    "repo": "manoldonev/second-shift",
+    "installLocation": "/home/acme/.claude/plugins/marketplaces/second-shift"
+  }
+]
