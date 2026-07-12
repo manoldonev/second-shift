@@ -14,7 +14,7 @@ All extension files sit under the consumer repo's `.claude/second-shift/` direct
 | --- | --- | --- |
 | `.claude/second-shift/blocker-mutants.md` | unit-test-mutation-reviewer, unit-test-plan-reviewer | Domain-specific blocker-class mutants (e.g. "account-scope filter removed", "financial rounding guard flipped") appended to the generic blocker list |
 | `.claude/second-shift/security-rules.md` | security-reviewer | Domain security review rules (tenancy invariants, credential-handling rules, permission-set ↔ OAuth-scope mapping requirements) |
-| `.claude/second-shift/review-context.md` | review-lead (handed to all reviewers); **db-reviewer** reads its database-stack section | Repo-wide review context: architectural invariants, deliberate deviations, known-accepted patterns. **Database stack** (engine, ORM/ODM/driver, schema/model + data-access globs, migration tooling, special capabilities like vector search) — db-reviewer is engine-agnostic and applies its checks in the terms this section declares (e.g. Drizzle+Postgres vs MongoDB); absent = db-reviewer infers the stack and lowers confidence |
+| `.claude/second-shift/review-context.md` | review-lead (handed to all reviewers); **db-reviewer** reads its database-stack section; performance/complexity/maintainability/a11y reviewers key on the sections named in "Authoring review-context.md" below | Repo-wide review context: the ~8 named sections the shipped reviewers actually read — stack, maturity stage, invariants, intentional-complexity and convention catalogs, UI stack/design system, naming, latency budgets. **Database stack** (engine, ORM/ODM/driver, schema/model + data-access globs, migration tooling, special capabilities like vector search) — db-reviewer is engine-agnostic and applies its checks in the terms this section declares (e.g. Drizzle+Postgres vs MongoDB); absent = db-reviewer infers the stack and lowers confidence |
 | `.claude/second-shift/doc-routing.md` | dev-pipeline `doc-update` (Stage-7 protocol), review-toolkit `doc-updater` | Change-category → doc-path routing map: for each conceptual code-area category (API/endpoint, DB schema, background worker, decision/domain-constant, frontend, …) the doc(s) that document it, plus which reviewer agents restate those constants. Supplements the repo's `CLAUDE.md` context router when a specific-enough category→doc map is wanted. Absent = fall back to CLAUDE.md's declared doc roots + basename grep |
 | `.claude/second-shift/design-tokens/*.md` | design-toolkit `design-faithful`, `figma-faithful`, `figma-faithful-spec` skills + `design-faithful-reviewer` / `figma-faithful-reviewer` / `figma-faithful-plan-reviewer` | Design-system reference: component catalog, token roles + arithmetic, primitives package, known-good analogs. May declare **multiple surfaces** (fixed-theme value tables vs a branded/host-relative surface) so the plugin stays surface-agnostic |
 | `.claude/agents/*.md` + config `reviewers.add` | review-lead registry | Whole domain reviewers (e.g. an orders-reviewer); dimensions declared in config for routing/dedup |
@@ -22,6 +22,57 @@ All extension files sit under the consumer repo's `.claude/second-shift/` direct
 | `findings.md`, `CLAUDE.md` | session start / all agents | As before — the plugins respect but never require them |
 
 Each consuming agent's prompt declares its extension files explicitly ("if `.claude/second-shift/security-rules.md` exists, load it and treat its rules as additive — they never weaken the generic protocol"). Extensions are **additive-only**: they cannot disable generic checks (use config `reviewers.remove` / `gates` for that — auditable in one file).
+
+## Authoring `review-context.md`
+
+The shipped reviewers key on **named sections**, not free prose — a section they can't find
+means they infer conservatively from the diff and say so. These are the sections that have
+readers today (every one optional; write only what's true for your repo):
+
+```markdown
+# Review context — <repo>
+
+## Stack
+Web framework + rendering model, background-job/queue system, data store(s) + special
+index capabilities (vector/text search), service languages. Read by: performance-reviewer
+(applies every check in this stack's terms).
+
+## Database stack
+Engine, ORM/ODM/driver, schema/model + data-access globs, migration tooling, special
+capabilities. Read by: db-reviewer (engine-agnostic; this section IS its engine).
+
+## Maturity stage
+E.g. "pre-auth: no ownership parameter or guards exist yet". Read by: security-reviewer
+(missing tenancy scoping in a declared pre-auth codebase files as forward-compatibility,
+not a new Critical).
+
+## Architectural invariants & deliberate deviations
+The rules that must hold, and the places you knowingly break convention. Read by: all
+reviewers via review-lead.
+
+## Intentional complexity
+Named pipelines, layered domain models, planned-swap seams — abstractions that exist on
+purpose. Read by: complexity-reviewer (honors them as additive exemptions, never flags).
+
+## Convention-required structure
+Framework-mandated scaffolding that must NOT be flagged (module/DTO/model layout,
+per-worker processor files, workspace-package separation). Read by: maintainability-reviewer.
+
+## UI stack & design system
+UI framework, the design-system/primitives package to prefer (headless primitives library
+if any). Read by: complexity-reviewer (ad-hoc-primitive check), a11y-reviewer.
+
+## Naming & structure conventions
+Table/collection names, field casing, key naming — the prevailing convention new code is
+held to. Read by: db-reviewer, maintainability-reviewer.
+
+## Performance budgets
+Per-layer latency budgets, hot paths. Read by: performance-reviewer.
+```
+
+Keep entries short and declarative — reviewers quote them back as exemption justifications,
+so every line is effectively policy. (Doc routing does NOT go here; that's
+`doc-routing.md` above.)
 
 ## Cross-cutting tool contracts
 
@@ -40,6 +91,12 @@ Failures: registry entry with no agent file (either root); consumer agent file r
 ### `check-model-tiers.sh` (config-aware)
 
 Asserts the `.mjs` workflow model tables ↔ agent frontmatter agreement, now with a third input: config `reviewers.modelOverrides`. Precedence: `modelOverrides` > agent frontmatter default. The observed need: security-reviewer runs `opus` in one repo and `sonnet` in another from the same plugin-shipped agent file.
+
+**EP-4 covers named workflow agents too, not just panel reviewers.** `modelOverrides` keys
+accept any agent the `.mjs` dispatch tables model — including `mutation-executor` (the
+mutation gate's executor tier), not only `<name>-reviewer` entries. The schema description
+says "per-reviewer" as the common case, not as a constraint; `check-model-tiers.sh`
+validates whatever key you override against the actual tables.
 
 ### `check-extensions.sh` (manifest lint — EP-3)
 

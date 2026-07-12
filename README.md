@@ -74,7 +74,7 @@ The full taxonomy — what goes in config vs knowledge files vs run state, and t
 
 ## Docs
 
-[`onboarding.md`](docs/onboarding.md) · [`extending.md`](docs/extending.md) · [`config-schema.md`](docs/config-schema.md) · [`context-model.md`](docs/context-model.md) · [`extension-points.md`](docs/extension-points.md) · [`namespaces.md`](docs/namespaces.md) · [`native-primitive-audit.md`](docs/native-primitive-audit.md)
+[`onboarding.md`](docs/onboarding.md) · [`team-rollout.md`](docs/team-rollout.md) · [`extending.md`](docs/extending.md) · [`config-schema.md`](docs/config-schema.md) · [`context-model.md`](docs/context-model.md) · [`extension-points.md`](docs/extension-points.md) · [`namespaces.md`](docs/namespaces.md) · [`native-primitive-audit.md`](docs/native-primitive-audit.md)
 
 ## License
 
