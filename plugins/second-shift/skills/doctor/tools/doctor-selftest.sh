@@ -31,6 +31,7 @@ mkdir -p "$INSTALL/dev-pipeline/2.1.0/skills/run/tools" \
          "$INSTALL/audit-toolkit/2.0.0/skills/audit" \
          "$INSTALL/second-shift/1.0.0/skills/onboard" \
          "$INSTALL/second-shift/1.0.0/skills/doctor"
+# shellcheck disable=SC2016 # emitting a literal stub script — $1 must not expand here
 printf '#!/usr/bin/env bash\necho "config-lint: OK ($1)"\n' > "$INSTALL/dev-pipeline/2.1.0/skills/run/tools/config-lint.sh"
 
 echo "doctor selftest:"
