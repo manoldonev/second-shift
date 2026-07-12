@@ -353,8 +353,10 @@ stage_completion_preconditions() {
       fi
       ;;
     8)
-      jq -e '(.codeReviewRounds // 0) >= 1' <<< "$current" >/dev/null \
-        || { EXIT_CODE=1 die "set-stage: cannot complete stage 8 — no codeReviewRounds recorded (run the review loop and record the round count via review-rounds); --force for crash-recovery"; }
+      jq -e '((.codeReviewRounds // 0) >= 1)
+             or ((.crossBoundaryReviews // []) | length > 0)
+             or ((.skippedReviews // []) | length > 0)' <<< "$current" >/dev/null \
+        || { EXIT_CODE=1 die "set-stage: cannot complete stage 8 — no codeReviewRounds recorded and no crossBoundaryReviews/skippedReviews entry (run the review loop and record the round count via review-rounds, or — for a be-fe-pair dual-target secondary repo, #48 — record the cross-boundary handoff/skip); --force for crash-recovery"; }
       ;;
   esac
   return 0
@@ -449,11 +451,35 @@ validate_stage7_payload() {
   local payload_key
   payload_key=$(jq -r '.ticketKey // ""' <<< "$parsed")
   [[ "$payload_key" == "$key" ]] || die "checkpoint payload ticketKey ('$payload_key') does not match state file ticketKey ('$key')"
-  # Required flat fields
-  for f in branch headSha worktreePath; do
-    jq -e --arg f "$f" '.[$f] | type == "string" and length > 0' <<< "$parsed" >/dev/null \
-      || die "checkpoint payload .$f missing or empty"
-  done
+  # Dual-mode required fields (#48). A be-fe-pair DUAL-target Stage-7 payload carries a
+  # `perRepo` object keyed by every id in `targetRepos` (each with branch/headSha/
+  # worktreePath); the flat single-target / non-pair payload carries those three at the
+  # top level. Discriminate on `perRepo` presence — the per-repo builder
+  # (build-checkpoint-7-perrepo) always emits it, the flat builder never does.
+  if jq -e '.perRepo | type == "object"' <<< "$parsed" >/dev/null 2>&1; then
+    # Per-repo schema: targetRepos non-empty, and a well-formed perRepo entry per id.
+    local repo_count
+    repo_count=$(jq '.targetRepos | if type == "array" then length else -1 end' <<< "$parsed")
+    [[ "$repo_count" -gt 0 ]] || die "checkpoint payload targetRepos must be a non-empty array (per-repo Stage-7 payload)"
+    local repos
+    repos=$(jq -r '.targetRepos[]' <<< "$parsed")
+    for r in $repos; do
+      jq -e --arg r "$r" '.perRepo[$r] | type == "object"' <<< "$parsed" >/dev/null \
+        || die "checkpoint payload perRepo['$r'] missing or not an object (a repo in targetRepos has no per-repo checkpoint)"
+      local f
+      for f in worktreePath branch headSha; do
+        jq -e --arg r "$r" --arg f "$f" '.perRepo[$r][$f] | type == "string" and length > 0' <<< "$parsed" >/dev/null \
+          || die "checkpoint payload perRepo['$r'].$f missing or empty"
+      done
+    done
+  else
+    # Flat schema (single-target / non-pair) — unchanged.
+    local f
+    for f in branch headSha worktreePath; do
+      jq -e --arg f "$f" '.[$f] | type == "string" and length > 0' <<< "$parsed" >/dev/null \
+        || die "checkpoint payload .$f missing or empty"
+    done
+  fi
   # deviations validation (if non-empty)
   local dev_count
   dev_count=$(jq '.deviations | if type == "array" then length else -1 end' <<< "$parsed")
@@ -1664,6 +1690,68 @@ cmd_build_checkpoint_7() {
   printf '%s\n' "$payload"
 }
 
+# build-checkpoint-7-perrepo — one repo's slice of a be-fe-pair DUAL-target Stage-7
+# checkpoint (#48). Called once per repo in `.targetRepos`; each emits
+# `{perRepo: {<repo>: {branch, headSha, worktreePath, changedFiles, verifySummary}}}`
+# so the Stage-7 caller merges them with `jq -s 'reduce .[] as $x ({}; .perRepo +=
+# $x.perRepo)'` and then injects the shared envelope (ticketKey, targetRepos, planPath,
+# deviations, …) before `checkpoint 7 --json`. Unlike the flat build-checkpoint-7 this
+# does NOT self-validate — it is a fragment, not a complete payload; the merged whole is
+# validated by validate_stage7_payload (per-repo branch) at checkpoint-write time.
+cmd_build_checkpoint_7_perrepo() {
+  local repo="" branch="" head="" worktree=""
+  local changed="" verify=""
+  local changed_set=0 verify_set=0
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --repo)            repo="${2:-}";     shift 2 ;;
+      --branch)          branch="${2:-}";   shift 2 ;;
+      --head)            head="${2:-}";     shift 2 ;;
+      --worktree)        worktree="${2:-}"; shift 2 ;;
+      --changed-files)   changed="${2:-}";  changed_set=1; shift 2 ;;
+      --verify-summary)  verify="${2:-}";   verify_set=1;  shift 2 ;;
+      *) EXIT_CODE=3 die "build-checkpoint-7-perrepo: unrecognized argument: $1" ;;
+    esac
+  done
+  [[ -n "$repo" && -n "$branch" && -n "$head" && -n "$worktree" ]] \
+    || { EXIT_CODE=3 die "build-checkpoint-7-perrepo: --repo, --branch, --head, --worktree are required"; }
+
+  # JSON pass-through fields: validate top-level type if set; neutral defaults
+  # otherwise. changedFiles is a string array; verifySummary an object (state-schema.md).
+  local cf_json="[]" vs_json="{}"
+  if [[ "$changed_set" -eq 1 ]]; then
+    jq -e 'type == "array"' <<< "$changed" >/dev/null 2>&1 \
+      || die "build-checkpoint-7-perrepo: --changed-files must be a JSON array"
+    cf_json="$changed"
+  fi
+  if [[ "$verify_set" -eq 1 ]]; then
+    jq -e 'type == "object"' <<< "$verify" >/dev/null 2>&1 \
+      || die "build-checkpoint-7-perrepo: --verify-summary must be a JSON object"
+    vs_json="$verify"
+  fi
+
+  local payload
+  payload=$(jq -n \
+      --arg repo "$repo" \
+      --arg branch "$branch" \
+      --arg head "$head" \
+      --arg wt "$worktree" \
+      --argjson cf "$cf_json" \
+      --argjson vs "$vs_json" \
+      '{
+        perRepo: ({} + {($repo): {
+          branch: $branch,
+          headSha: $head,
+          worktreePath: $wt,
+          changedFiles: $cf,
+          verifySummary: $vs
+        }})
+      }') \
+    || { EXIT_CODE=2 die "build-checkpoint-7-perrepo: jq assembly failed"; }
+
+  printf '%s\n' "$payload"
+}
+
 cmd_unit_test_surface_set() {
   # Persist the full unitTestSurface object at Stage 3 close (the pipeline bans raw-jq
   # state writes — see SKILL.md "Every load-bearing state write goes through statectl").
@@ -1819,6 +1907,7 @@ main() {
     mark-completed)         cmd_mark_completed "$@" ;;
     build-failure-context)  cmd_build_failure_context "$@" ;;
     build-checkpoint-7)     cmd_build_checkpoint_7 "$@" ;;
+    build-checkpoint-7-perrepo) cmd_build_checkpoint_7_perrepo "$@" ;;
     *) EXIT_CODE=3 die "unknown subcommand: '$subcmd'" ;;
   esac
 }

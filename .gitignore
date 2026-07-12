@@ -1,3 +1,7 @@
 # Claude Code / second-shift local session telemetry — per-run audit hook logs.
 # Never version-controlled: machine-local, regenerated each run, pure noise in diffs.
 .claude/audit/
+
+# dev-pipeline run state — machine-local per-ticket state files (incl. this repo's
+# own canary/dogfooding runs). Transient; the default paths.pipelineStateDir.
+.claude/pipeline-state/
