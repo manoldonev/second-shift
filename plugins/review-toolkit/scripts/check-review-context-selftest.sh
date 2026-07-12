@@ -39,9 +39,9 @@ fi
 
 # (4) consumer-added reviewer -> allowed via config
 mkdir -p "$TMP/r4/.claude/second-shift/review-context" "$TMP/r4/.claude"
-: > "$TMP/r4/.claude/second-shift/review-context/coaching-reviewer.md"
+: > "$TMP/r4/.claude/second-shift/review-context/orders-reviewer.md"
 cat > "$TMP/r4/.claude/second-shift.config.json" <<'JSON'
-{ "reviewers": { "add": [ { "name": "coaching-reviewer", "dimensions": ["coaching"] } ] } }
+{ "reviewers": { "add": [ { "name": "orders-reviewer", "dimensions": ["orders"] } ] } }
 JSON
 bash "$CHECK" "$TMP/r4" >/dev/null 2>&1 && ok "config-added reviewer file -> clean" \
   || bad "config-added reviewer file should pass"

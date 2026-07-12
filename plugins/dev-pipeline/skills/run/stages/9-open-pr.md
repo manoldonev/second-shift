@@ -66,7 +66,49 @@ fi
 
 **Under `DEV_PIPELINE_MODE=interactive`:** skip the `mark-failed` write; present the overlapping files to the user and ask whether to resolve them manually (merge the PR base `origin/<baseBranch>` / re-cut from it) and re-run, abort, or proceed anyway.
 
-**Guard against duplicates:**
+**be-fe-pair (config `topology.type: be-fe-pair`) — one PR per target repo (#4).** Run push + PR creation **per repo in the `worktrees` map** (`.targetRepos`), each in its own repo, from its own base, to its own owner. The single-repo flow below (duplicate guard → push → create → `pr-add`) is the **`standalone`/`monorepo`** path; a be-fe-pair run uses this loop instead:
+
+```bash
+if [[ "$(jq -r '.topology.type // "standalone"' "$SECOND_SHIFT_CONFIG" 2>/dev/null || echo standalone)" == "be-fe-pair" ]]; then
+  MAIN_ROOT="$(git rev-parse --show-toplevel)"
+  for r in $(statectl.sh get "$ISSUE_NUMBER" '.targetRepos // [] | join(" ")'); do
+    WT="$MAIN_ROOT/$(statectl.sh get "$ISSUE_NUMBER" ".worktrees[\"$r\"].worktreePath")"
+    BR=$(statectl.sh get "$ISSUE_NUMBER" ".worktrees[\"$r\"].branch")
+    BASE=$(statectl.sh get "$ISSUE_NUMBER" ".worktrees[\"$r\"].base")
+    # owner/name for `gh pr create --repo`, from THIS repo's origin remote.
+    OWNER=$(git -C "$WT" remote get-url origin | sed -E 's#(git@[^:]+:|https?://[^/]+/)##; s#\.git$##')
+    # Freshness gate (per repo): overlap of THIS branch vs its own base — same
+    # deny-safe logic as the single-repo gate above; a genuine overlap fails closed.
+    git -C "$WT" fetch origin "$BASE" --quiet
+    OVL=$(comm -12 <(git -C "$WT" diff --name-only "$(git -C "$WT" merge-base "origin/$BASE" "$BR")" "$BR" | sort -u) \
+                   <(git -C "$WT" diff --name-only "$(git -C "$WT" merge-base "origin/$BASE" "$BR")" "origin/$BASE" | sort -u) | grep -c .)
+    if [[ "$OVL" -gt 0 ]]; then
+      statectl.sh mark-failed "$ISSUE_NUMBER" --reason stale-branch-autonomous --stage 9 \
+        --json "$(statectl.sh build-failure-context --reason stale-branch-autonomous --stage 9 --kv repo="$r" --kv-num overlapCount="$OVL")"
+      exit 0
+    fi
+    git -C "$WT" push -u origin "$BR"
+    EXISTING=$(gh pr list --repo "$OWNER" --head "$BR" --json number --jq '.[0].number' 2>/dev/null)
+    if [[ -n "$EXISTING" ]]; then
+      URL=$(gh pr view "$EXISTING" --repo "$OWNER" --json url --jq '.url')
+    else
+      # Cross-repo title carries the repo prefix (feat(be)/feat(fe)); body from the
+      # repo's own .github/pull_request_template.md when present, Closes/link filled.
+      URL=$($GH_BOT pr create --draft --repo "$OWNER" --head "$BR" --base "$BASE" \
+        --title "<type>(${r}): <summary> (${ISSUE_NUMBER})" --body-file "$BODY_FILE")  # $BODY_FILE = a fresh mktemp built per repo from its PR template
+    fi
+    statectl.sh pr-add "$ISSUE_NUMBER" --repo "$r" --branch "$BR" --url "$URL"
+  done
+  # Cross-repo companion links (best-effort): after all PRs exist, amend each body
+  # to reference the others' URLs from `.prs` (fresh mktemp per amend — never a
+  # fixed /tmp name; see SKILL.md "Multi-line comments"). Then run the cost block
+  # once, `set-stage 9 --status completed`, and mark-completed as below.
+fi
+```
+
+`pr-add --repo` records `prs.<id> = {url, branch, repo}` (the branch is shared across repos, so `.prs` is keyed by repo id, not branch). Each PR targets ITS repo's base (BE `alpha` / FE `main`). Everything else in this stage (cost block, completion write) runs once after the loop.
+
+**Guard against duplicates (single-repo — `standalone`/`monorepo` only; be-fe-pair used the per-repo loop above):**
 
 ```bash
 EXISTING_PR=$(gh pr list --head "$BRANCH" --json number --jq '.[0].number')
