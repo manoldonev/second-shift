@@ -8,6 +8,23 @@
 # DOCTOR_MARKETPLACE_LIST_FILE, DOCTOR_USER_SETTINGS.
 set -uo pipefail
 
+# --- arg parsing ----------------------------------------------------------
+# Default (no args) = the install/config verification below; exit code = FAILs.
+# --report = assemble a paste-ready feedback bundle (see emit_report); exit 0.
+REPORT_MODE=0
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --report) REPORT_MODE=1; shift ;;
+    -h|--help)
+      echo "usage: doctor.sh [--report]"
+      echo "  (no args)  verify install/config state against the lockfile; exit code = number of FAILs"
+      echo "  --report   assemble a paste-ready feedback bundle (doctor output + claude plugin list --json"
+      echo "             + redacted config + newest pipeline-state excerpt) for a feedback issue; exit 0"
+      exit 0 ;;
+    *) echo "[doctor] unknown argument: $1 (try --help)" >&2; exit 2 ;;
+  esac
+done
+
 ROOT="${DOCTOR_REPO_ROOT:-$(git rev-parse --show-toplevel 2>/dev/null || pwd)}"
 LOCK="$ROOT/.claude/second-shift.lock.json"
 SETTINGS="$ROOT/.claude/settings.json"
@@ -18,6 +35,79 @@ FAILS=0
 ok()   { echo "[doctor] OK    $1"; }
 warn() { echo "[doctor] WARN  $1"; }
 bad()  { echo "[doctor] FAIL  $1"; FAILS=$((FAILS+1)); }
+
+# --- report mode (--report): assemble a paste-ready feedback bundle -----------
+# For a zero-telemetry project, structured issues ARE the analytics. This mode
+# gathers the evidence the feedback issue forms ask for in one command, so a filer
+# never hand-assembles (and never pastes an UNredacted config). It never gates:
+# it captures the normal check run's output but always exits 0.
+
+# Redact secret-SHAPED keys (best-effort, defensive — the config carries no true
+# secret today). Matches on the KEY name, so non-secret identifiers (clientId,
+# appName, installationId) are preserved while a future token/secret/password is
+# masked. jq `walk` handles nested objects (e.g. tracker.bot.app).
+redact_config() { # $1 = config path
+  jq 'walk(
+        if type == "object" then
+          with_entries(
+            if (.key | ascii_downcase
+                 | test("secret|token|password|passwd|privatekey|apikey|pem|credential"))
+            then .value = "***REDACTED***" else . end)
+        else . end)' "$1" 2>/dev/null || echo "(config unreadable or invalid JSON)"
+}
+
+# Newest pipeline-state file → the abort-relevant fields. The "state-file excerpt"
+# the feedback forms ask for is exactly the .failureContext statectl writes on a
+# fail-fast abort. Guards the glob against literal-pattern expansion when the dir
+# is empty/absent (a fresh clone has no runs).
+state_excerpt() {
+  local dir="$ROOT/.claude/pipeline-state" newest="" f
+  if [[ -d "$dir" ]]; then
+    for f in "$dir"/*.json; do
+      [[ -e "$f" ]] || continue                       # no-match glob → skip
+      [[ -z "$newest" || "$f" -nt "$newest" ]] && newest="$f"
+    done
+  fi
+  if [[ -n "$newest" ]]; then
+    echo "// $(basename "$newest")"
+    jq '{ticketKey, status, currentStage, failureContext}' "$newest" 2>/dev/null \
+      || echo "(state file unreadable or invalid JSON)"
+  else
+    echo "no pipeline runs recorded (.claude/pipeline-state/ is empty or absent)"
+  fi
+}
+
+emit_report() {
+  local conf="$ROOT/.claude/second-shift.config.json" pluglist
+  if [[ -n "${DOCTOR_PLUGIN_LIST_FILE:-}" ]]; then pluglist="$(cat "$DOCTOR_PLUGIN_LIST_FILE")"
+  else pluglist="$(claude plugin list --json 2>/dev/null)" || pluglist="[]"; fi
+
+  echo "## second-shift feedback report"
+  echo
+  echo "Paste this whole block into your feedback issue. Sensitive-shaped config values are auto-redacted — review before posting."
+  echo
+  echo "### doctor output"
+  echo '```'
+  bash "$0" 2>&1 || true          # nested no-arg run: the normal checks (inherits DOCTOR_* injections)
+  echo '```'
+  echo
+  echo "### claude plugin list --json"
+  echo '```json'
+  echo "$pluglist"
+  echo '```'
+  echo
+  echo "### redacted config (.claude/second-shift.config.json)"
+  echo '```json'
+  if [[ -f "$conf" ]]; then redact_config "$conf"; else echo "(no config found at $conf)"; fi
+  echo '```'
+  echo
+  echo "### pipeline-state excerpt (newest run)"
+  echo '```json'
+  state_excerpt
+  echo '```'
+}
+
+if [[ "$REPORT_MODE" -eq 1 ]]; then emit_report; exit 0; fi
 
 # --- 0. prerequisites -----------------------------------------------------
 for dep in jq git; do

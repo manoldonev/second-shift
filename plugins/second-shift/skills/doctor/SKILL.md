@@ -16,3 +16,16 @@ You are `/second-shift:doctor`.
    them to dev-pipeline's pipeline-doctor: it ships inside the dev-pipeline plugin at
    `skills/run/tools/pipeline-doctor.sh` (resolve via `claude plugin list --json`
    installPath — never have them type a cache path from memory).
+
+## `--report` — assemble a feedback bundle
+
+When the user wants to file a feedback issue (a pipeline abort, a config-lint disagreement, a
+review false positive) or asks for a report bundle, run doctor with `--report`:
+
+`bash "${CLAUDE_PLUGIN_ROOT}/skills/doctor/tools/doctor.sh" --report`
+
+It prints one paste-ready Markdown block — the normal doctor output, `claude plugin list --json`,
+the **redacted** config, and the newest `.claude/pipeline-state/` excerpt (the `.failureContext` of
+the last run) — sized to drop straight into the matching issue form under `.github/ISSUE_TEMPLATE/`.
+Relay it verbatim. Sensitive-shaped config values are auto-redacted, but remind the user to glance
+over it before posting. `--report` always exits 0 — it assembles, it does not gate.
