@@ -108,6 +108,22 @@ if [[ "$TOPO" == "be-fe-pair" ]]; then
     statectl.sh worktree-set "$ISSUE_NUMBER" --repo "$r" --path "$WT_REL" --branch "$BRANCH" --base "$REPO_BASE"
     echo "[stage-2] be-fe-pair worktree: repo='$r' path='$WT_REL' base='$REPO_BASE'"
   done
+
+  # Flat-mirror the PRIMARY target into the flat worktreePath / branch / worktreeBase
+  # so the MIDDLE stages (3/4/5/7/8) — which still read the flat fields — operate on
+  # it. A single-target ([FE]-only / [BE]-only) pair run thus flows end-to-end
+  # unchanged; Stage 6/9/10 keep using the per-repo `worktrees` map. Primary = the
+  # host repo (path ".") when it is a target, else the first target. (Dual-target,
+  # where the middle stages must handle BOTH worktrees, is the tracked follow-up.)
+  HOST_ID=$(jq -r '.topology.repos | to_entries[] | select(.value.path==".") | .key' "$SECOND_SHIFT_CONFIG" 2>/dev/null | head -n1)
+  TR="$(statectl.sh get "$ISSUE_NUMBER" '.targetRepos // [] | join(" ")')"
+  PRIMARY=""
+  for r in $TR; do [[ "$r" == "$HOST_ID" ]] && PRIMARY="$r"; done
+  [[ -n "$PRIMARY" ]] || PRIMARY="${TR%% *}"   # first target when the host isn't one
+  P_WT=$(statectl.sh get "$ISSUE_NUMBER" ".worktrees[\"$PRIMARY\"].worktreePath")
+  P_BASE=$(statectl.sh get "$ISSUE_NUMBER" ".worktrees[\"$PRIMARY\"].base")
+  statectl.sh worktree-set "$ISSUE_NUMBER" --path "$P_WT" --branch "$BRANCH" --base "$P_BASE"
+  echo "[stage-2] be-fe-pair flat-mirror: primary='$PRIMARY' worktreePath='$P_WT' base='$P_BASE'"
 fi
 
 # Single-repo (standalone/monorepo) worktree creation — SKIPPED for be-fe-pair
