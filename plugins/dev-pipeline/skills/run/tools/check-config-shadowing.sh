@@ -8,7 +8,7 @@
 #
 # Usage: check-config-shadowing.sh [dev-pipeline-skill-dir]   (exit 1 on any shadow)
 set -euo pipefail
-DP="${1:-$(cd "$(dirname "$0")/.." && pwd)}"   # .../skills/dev-pipeline
+DP="${1:-$(cd "$(dirname "$0")/.." && pwd)}"   # .../skills/run
 fails=0
 
 # Each config key promoted from a hardcoded literal must be READ (referenced) by the

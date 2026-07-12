@@ -5,7 +5,7 @@
 # pipeline run. Independent of any pipeline state on disk.
 #
 # Usage:
-#   .claude/skills/run/statectl-selftest.sh
+#   bash plugins/dev-pipeline/skills/run/statectl-selftest.sh
 #
 # Env:
 #   SKIP_STRESS=1   skips the optional stress section (CI environments where
