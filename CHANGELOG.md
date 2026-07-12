@@ -4,6 +4,11 @@ All notable changes to the second-shift marketplace. Versions are per-plugin (`p
 this file tracks the marketplace release. `configVersion` stays `const 1` — v2 is fully backward-compatible for a
 consumer with an empty config; the migration notes below are only for consumers using the changed features.
 
+## v2.0.11 — be-fe-pair: target routing (#4, PR 2, in progress)
+
+### `dev-pipeline` 2.0.10 → 2.0.11
+- **#4 — Stage 1 `targetRepos` routing + the multi-repo failure reasons.** Added `targetRepos-ambiguous` + `fe-repo-unreachable` to the `valid_failure_reason` closed enum (state-schema.md table → regenerated `statectl.sh` via `gen-statectl-validators.sh`; drift-check byte-match verified). New topology-gated Stage-1 **Step 1.T** (runs only for `topology.type: be-fe-pair`) resolves `TARGET_REPOS` from the fetched ticket **title** matched against each repo's `topology.repos.<id>.ticketTag` — a single tag → that repo, both tags → cross-repo (`"be fe"`), no recognizable tag → fail closed `targetRepos-ambiguous` (never guess); each target repo's `path` must be reachable in the session (`claude --add-dir`), else `fe-repo-unreachable`. `ticketTag` finally has readers (was dead config). Strictly additive — a `standalone`/`monorepo` consumer skips Step 1.T entirely. Per-repo worktree creation (Stage 2) lands in the next PR.
+
 ## v2.0.10 — be-fe-pair foundation: additive per-repo state (#4/#5, PR 1 of 4, in progress)
 
 First of a 4-PR series restoring full multi-repo (be-fe-pair) support to the generic core (the de-orging had collapsed it to single-repo). **Strictly additive and topology-gated** — no stage touched yet, so single-repo behavior is byte-for-byte unchanged.
