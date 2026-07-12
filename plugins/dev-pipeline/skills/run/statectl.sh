@@ -336,6 +336,8 @@ valid_failure_reason() {
   case "$1" in
     non-main-base-autonomous \
     |worktree-creation-failed \
+    |targetRepos-ambiguous \
+    |fe-repo-unreachable \
     |plan-reviewer-block \
     |approach-failure-circuit-breaker \
     |stale-branch-autonomous \

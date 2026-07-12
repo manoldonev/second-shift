@@ -12,6 +12,46 @@
 > `figma` | `claude-design`). Everything else in this stage (intake orchestration, AC snapshot,
 > `statectl` writes keyed off `ticketKey`, slice derivation) is tracker-agnostic.
 
+#### Step 1.T: Target routing (config `topology.type: be-fe-pair` only)
+
+> **Skip entirely unless `topology.type == "be-fe-pair"`.** A `standalone`/`monorepo` topology has one repo — the host (`path: "."`) is the implicit sole target — and this step is a no-op. This block is purely additive: it never runs for a single-repo consumer.
+
+A **be-fe-pair** ticket targets one or both repos, routed by each repo's `topology.repos.<id>.ticketTag` (e.g. `"[BE]"` / `"[FE]"`). Resolve `TARGET_REPOS` from the fetched issue/ticket **title** once the ticket is in hand (right after the pickup/fetch below — github: the queue/`gh issue view` title; jira: the `getJiraIssue` summary). `TARGET_REPOS` drives Stage 2's per-repo worktree loop, Stage 6's per-repo verify, and Stage 9's per-repo PRs (each keyed by `worktree-set --repo <id>` / `verify-attempts --repo <id>` — see state-schema.md "be-fe-pair note").
+
+```bash
+TOPO=$(jq -r '.topology.type // "standalone"' "$SECOND_SHIFT_CONFIG" 2>/dev/null || echo standalone)
+if [[ "$TOPO" == "be-fe-pair" ]]; then
+  # $TITLE = the fetched issue/ticket title. Collect every repo whose ticketTag
+  # appears in it (both tags present ⇒ cross-repo, i.e. TARGET_REPOS="be fe").
+  TARGET_REPOS=$(jq -r --arg t "$TITLE" '
+    [ .topology.repos | to_entries[]
+      | select((.value.ticketTag // "") as $tag | $tag != "" and ($t | contains($tag)))
+      | .key ] | join(" ")' "$SECOND_SHIFT_CONFIG")
+
+  # No recognizable tag ⇒ ambiguous. Autonomous: fail closed (never guess which
+  # repo to touch). Interactive: present the title and ask.
+  if [[ -z "$TARGET_REPOS" ]]; then
+    statectl.sh mark-failed "$ISSUE_NUMBER" --reason targetRepos-ambiguous \
+      --json "$(statectl.sh build-failure-context --reason targetRepos-ambiguous --kv-lines title="$TITLE")"
+    exit 0   # autonomous abort (rc=0); interactive mode asks instead
+  fi
+
+  # Reachability: every target repo's path (topology.repos.<id>.path) must resolve
+  # to a directory in THIS session — a sibling FE repo must be added via
+  # `claude --add-dir <path>`, else nothing downstream can operate on it.
+  MAIN_ROOT="$(git rev-parse --show-toplevel)"
+  for r in $TARGET_REPOS; do
+    RP=$(jq -r --arg r "$r" '.topology.repos[$r].path' "$SECOND_SHIFT_CONFIG")
+    if [[ ! -d "$MAIN_ROOT/$RP" ]]; then
+      statectl.sh mark-failed "$ISSUE_NUMBER" --reason fe-repo-unreachable \
+        --json "$(statectl.sh build-failure-context --reason fe-repo-unreachable --kv repo="$r" --kv path="$RP")"
+      exit 0
+    fi
+  done
+  echo "[stage-1] be-fe-pair target routing: TARGET_REPOS='$TARGET_REPOS'"
+fi
+```
+
 #### Step 1.A: Atomic Pickup
 
 **Argument override:** if the skill was invoked with an explicit issue number (`/dev-pipeline <N>`), skip the queue query below and use that issue. The argument overrides queue ordering only — every other check still applies: the issue must be open, must carry `ready-for-dev`, and must pass the do-not-pick-up guard. An argument-specified issue that fails those checks is a reject (report why and stop), not an exemption.
