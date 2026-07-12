@@ -715,10 +715,11 @@ cmd_verify_attempts() {
   # in the gen-statectl-validators generated set (it is a command-classification
   # vocabulary, not a state-schema closed enum).
   local key="${1:-}"; shift || true
-  local cls="" force=0
+  local cls="" force=0 repo=""
   while [[ $# -gt 0 ]]; do
     case "$1" in
       --incr) cls="${2:-}"; shift 2 ;;
+      --repo) repo="${2:-}"; shift 2 ;;
       --force) force=1; shift ;;
       *) EXIT_CODE=3 die "verify-attempts: unknown arg '$1'" ;;
     esac
@@ -734,13 +735,25 @@ cmd_verify_attempts() {
   local now
   now=$(now_iso)
   local new_state
-  new_state=$(jq --arg cls "$cls" --arg now "$now" '
-    .verifyAttempts = ((.verifyAttempts // {}) | .[$cls] = ((.[$cls] // 0) + 1))
-    | .lastUpdatedAt = $now
-  ' <<< "$current") || { EXIT_CODE=2 die "verify-attempts: jq mutation failed"; }
-  atomic_write "$key" "$new_state"
-  # Echo the new count for the caller's per-class budget comparison.
-  jq -r --arg cls "$cls" '.verifyAttempts[$cls]' <<< "$new_state"
+  # --repo <id> (be-fe-pair, additive): the counter lives per-repo at
+  # `worktrees[$repo].verifyAttempts[$cls]`; without --repo it stays the flat
+  # top-level `verifyAttempts[$cls]` — byte-for-byte the single-repo behavior.
+  if [[ -n "$repo" ]]; then
+    new_state=$(jq --arg cls "$cls" --arg now "$now" --arg repo "$repo" '
+      .worktrees = ((.worktrees // {}) | .[$repo] = ((.[$repo] // {}) | .verifyAttempts = ((.verifyAttempts // {}) | .[$cls] = ((.[$cls] // 0) + 1))))
+      | .lastUpdatedAt = $now
+    ' <<< "$current") || { EXIT_CODE=2 die "verify-attempts: jq mutation failed"; }
+    atomic_write "$key" "$new_state"
+    jq -r --arg cls "$cls" --arg repo "$repo" '.worktrees[$repo].verifyAttempts[$cls]' <<< "$new_state"
+  else
+    new_state=$(jq --arg cls "$cls" --arg now "$now" '
+      .verifyAttempts = ((.verifyAttempts // {}) | .[$cls] = ((.[$cls] // 0) + 1))
+      | .lastUpdatedAt = $now
+    ' <<< "$current") || { EXIT_CODE=2 die "verify-attempts: jq mutation failed"; }
+    atomic_write "$key" "$new_state"
+    # Echo the new count for the caller's per-class budget comparison.
+    jq -r --arg cls "$cls" '.verifyAttempts[$cls]' <<< "$new_state"
+  fi
 }
 
 cmd_slice_set() {
@@ -812,11 +825,13 @@ cmd_worktree_set() {
   # Usage:
   #   statectl worktree-set <issue-number> --path <worktreePath> --branch <branch>
   local key="${1:-}"; shift || true
-  local path="" branch="" force=0
+  local path="" branch="" force=0 repo="" base=""
   while [[ $# -gt 0 ]]; do
     case "$1" in
       --path)   path="${2:-}"; shift 2 ;;
       --branch) branch="${2:-}"; shift 2 ;;
+      --repo)   repo="${2:-}"; shift 2 ;;
+      --base)   base="${2:-}"; shift 2 ;;
       --force)  force=1; shift ;;
       *) EXIT_CODE=3 die "worktree-set: unknown arg '$1'" ;;
     esac
@@ -827,7 +842,9 @@ cmd_worktree_set() {
   # always operates from repo root, so every consumer resolves worktreePath against
   # it. Reject an absolute path (leading '/') so the schema↔behavior drift this guard
   # was added for (issue #152) cannot silently return. Checked after the missing-arg
-  # guard and before read_state — pure arg-shape validation (EXIT_CODE=3).
+  # guard and before read_state — pure arg-shape validation (EXIT_CODE=3). A be-fe-pair
+  # FE worktreePath is repo-relative to the HOST root (e.g. `../acme-web-worktrees/x`),
+  # so it passes this guard (only a leading '/' is rejected).
   [[ "$path" != /* ]] \
     || { EXIT_CODE=3 die "worktree-set: --path must be repo-relative (no leading '/'): '$path'"; }
   local current
@@ -836,11 +853,25 @@ cmd_worktree_set() {
   local now
   now=$(now_iso)
   local new_state
-  new_state=$(jq --arg p "$path" --arg b "$branch" --arg now "$now" '
-    .worktreePath = $p
-    | .branch = $b
-    | .lastUpdatedAt = $now
-  ' <<< "$current") || { EXIT_CODE=2 die "worktree-set: jq mutation failed"; }
+  # --repo <id> (be-fe-pair, additive): persist the boundary fields per-repo at
+  # worktrees[$repo].{worktreePath, branch, base?}. Without --repo the flat
+  # top-level worktreePath/branch are written — byte-for-byte the single-repo
+  # behavior, so a standalone/monorepo consumer's state is unchanged.
+  if [[ -n "$repo" ]]; then
+    new_state=$(jq --arg p "$path" --arg b "$branch" --arg now "$now" --arg repo "$repo" --arg base "$base" '
+      .worktrees = ((.worktrees // {}) | .[$repo] = ((.[$repo] // {})
+        | .worktreePath = $p
+        | .branch = $b
+        | (if $base != "" then (.base = $base) else . end)))
+      | .lastUpdatedAt = $now
+    ' <<< "$current") || { EXIT_CODE=2 die "worktree-set: jq mutation failed"; }
+  else
+    new_state=$(jq --arg p "$path" --arg b "$branch" --arg now "$now" '
+      .worktreePath = $p
+      | .branch = $b
+      | .lastUpdatedAt = $now
+    ' <<< "$current") || { EXIT_CODE=2 die "worktree-set: jq mutation failed"; }
+  fi
   atomic_write "$key" "$new_state"
 }
 
