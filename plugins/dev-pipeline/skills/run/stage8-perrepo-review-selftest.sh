@@ -55,7 +55,7 @@ ISSUE_NUMBER=48
 for s in 1 2 3 4 5 6 7; do
   "$SC" set-stage "$ISSUE_NUMBER" "$s" --status started >/dev/null
   case "$s" in
-    1) "$SC" checkpoint "$ISSUE_NUMBER" 1 --json '{"verdict":"no-split"}' >/dev/null ;;
+    1) "$SC" checkpoint "$ISSUE_NUMBER" 1 --json '{"verdict":"no-split","preflight":{"baseBranch":"main","workingTreeClean":true,"guardOutcome":"proceed-clean"}}' >/dev/null ;;
     4) "$SC" plan-review-set "$ISSUE_NUMBER" --overall pass >/dev/null ;;
     5) "$SC" checkpoint "$ISSUE_NUMBER" 5 --json '{"changedFiles":[]}' >/dev/null ;;
     6) for rr in be fe ml; do "$SC" verify-summary-set "$ISSUE_NUMBER" --repo "$rr" --json '{"format":"clean"}' >/dev/null; done ;;

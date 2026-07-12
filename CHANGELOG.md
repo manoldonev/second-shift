@@ -72,6 +72,24 @@ consumer with an empty config; the migration notes below are only for consumers 
   `tools/intake-readroot-selftest.sh` pins the seam's load-bearing tokens in the green gate.
   `eval-criteria.md` criterion 1 rewords to the pin posture (wrong-repo/branch/diff detection unchanged).
 
+### `dev-pipeline` 2.2.4 → 2.2.5
+- **#1 — persist a Stage-1 pre-flight attestation and gate Stage-1 completion on it.** Converts eval criterion 1
+  (correct base / clean-tree pre-flight) from executor-self-asserted to **state-machine-enforced**. Step 1.P
+  (stages/1-intake.md) now records `preflight: { baseBranch, workingTreeClean, guardOutcome }` into the Stage-1
+  checkpoint payload, and `statectl set-stage 1 --status completed` refuses unless
+  `stageCheckpoint["1"].preflight` is present and **well-formed** — a shared `preflight_wellformed` jq predicate
+  checks *shape* (`baseBranch` non-empty string, `workingTreeClean` boolean, `guardOutcome` non-empty string),
+  **not truthiness**: `workingTreeClean:false` is valid, the blessed dirty-tree WARN-and-proceed state.
+  `checkpoint 1` additionally rejects a present-but-malformed `preflight` at write time (`validate_stage1_payload`,
+  mirroring `validate_stage7_payload`). `guardOutcome` is deliberately **free-form** (canonical `proceed-clean` /
+  `proceed-dirty-warn`) — not a closed enum — so the change stays off the `gen-statectl-validators.sh` drift
+  contract; the edited gate lives above the generated region, so the drift-check is unaffected. `--force` still
+  bypasses the gate (crash-recovery escape for pre-attestation state files). `statectl-selftest.sh` gains `sc1`
+  negative/positive cases (`workingTreeClean:false` allowed) + an `sc1b` write-time-validation case; the
+  `complete_stage` helper, the `(r4)` drift-check round-trip, the `(u)` stress case, both jira fixtures, and
+  `stage8-perrepo-review-selftest.sh`'s setup loop all seed a well-formed preflight so the strengthened gate does
+  not cascade the suite. Tracker-agnostic (the attestation is written by the shared Stage-1 path).
+
 ### `intake-toolkit` 2.0.0 → 2.0.1
 - **#59 (docs) — intake fan-out arg contract gains `readRoot`.** The intake-orchestrator transport
   description now documents the optional pinned-read-surface arg the dev-pipeline passes from Step 1.P.

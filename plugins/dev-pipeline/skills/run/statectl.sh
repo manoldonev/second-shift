@@ -303,6 +303,23 @@ require_eval_file() {
     || { EXIT_CODE=1 die "mark-completed: $eval_file exists but is not a valid self-eval (needs parseable JSON with non-empty .criteria and .ticketKey == \"$lower\")"; }
 }
 
+# preflight_wellformed <json> — 0 iff <json> is a well-formed Stage-1 pre-flight
+# attestation: an object carrying baseBranch (non-empty string), workingTreeClean
+# (boolean — BOTH true and false are valid; false is the blessed dirty-tree
+# WARN-and-proceed state, so this is a SHAPE check, never a truthiness check), and
+# guardOutcome (non-empty string). guardOutcome is deliberately free-form (canonical
+# values proceed-clean / proceed-dirty-warn) rather than a closed enum, so this stays
+# OFF the gen-statectl-validators.sh drift contract. Shared by the Stage-1 completion
+# gate (below) and validate_stage1_payload (write-time, above cmd_checkpoint).
+preflight_wellformed() {
+  jq -e '
+    (type == "object")
+    and (.baseBranch      | type == "string" and length > 0)
+    and (.workingTreeClean | type == "boolean")
+    and (.guardOutcome     | type == "string" and length > 0)
+  ' <<< "$1" >/dev/null 2>&1
+}
+
 # Per-stage completion-evidence preconditions (imperative stage machine): a
 # `set-stage N --status completed` write is refused unless the state carries the
 # evidence that stage N's mandated work actually happened. Deterministic state
@@ -319,6 +336,8 @@ stage_completion_preconditions() {
     1)
       jq -e '(.stageCheckpoint // {})["1"] | type == "object"' <<< "$current" >/dev/null \
         || { EXIT_CODE=1 die "set-stage: cannot complete stage 1 — stageCheckpoint[\"1\"] is missing (write the Stage-1 checkpoint first); --force for crash-recovery"; }
+      preflight_wellformed "$(jq -c '(.stageCheckpoint // {})["1"].preflight' <<< "$current")" \
+        || { EXIT_CODE=1 die "set-stage: cannot complete stage 1 — stageCheckpoint[\"1\"].preflight is missing or malformed (needs {baseBranch: non-empty string, workingTreeClean: boolean, guardOutcome: non-empty string} — workingTreeClean:false IS valid, the dirty-tree WARN-and-proceed state); --force for crash-recovery"; }
       ;;
     2)
       jq -e '(.worktreePath | type == "string" and length > 0) and (.branch | type == "string" and length > 0)' <<< "$current" >/dev/null \
@@ -491,6 +510,20 @@ validate_stage7_payload() {
       valid_deviation_kind "$kind" \
         || die "checkpoint payload has deviation with invalid kind '$kind' (allowed: scope-creep, alternate-approach, deferred, surprise)"
     done <<< "$kinds"
+  fi
+}
+
+# Write-time defense for the Stage-1 checkpoint payload. The MANDATORY enforcement
+# point is the `set-stage 1 --status completed` gate (a checkpoint may legitimately
+# be written before the pre-flight attestation is assembled), so this rejects only a
+# preflight that is PRESENT but malformed — catching a bad attestation at the earliest
+# point without forcing every Stage-1 checkpoint to carry one. Mirrors
+# validate_stage7_payload's placement (called from cmd_checkpoint for n==1).
+validate_stage1_payload() {
+  local payload="$1"
+  if jq -e '(type == "object") and has("preflight")' <<< "$payload" >/dev/null 2>&1; then
+    preflight_wellformed "$(jq -c '.preflight' <<< "$payload")" \
+      || die "checkpoint payload .preflight is present but malformed (needs {baseBranch: non-empty string, workingTreeClean: boolean, guardOutcome: non-empty string} — workingTreeClean:false is valid)"
   fi
 }
 
@@ -683,8 +716,11 @@ cmd_checkpoint() {
   done
   [[ -n "$key" && -n "$n" && -n "$payload" ]] || { EXIT_CODE=3 die "checkpoint: missing <issue-number> <N> --json <payload>"; }
   [[ "$n" =~ ^[1-9]$ ]] || { EXIT_CODE=1 die "checkpoint: N must be in {1..9}"; }
-  # JSON parse + Stage 7 schema validation
+  # JSON parse + per-stage schema validation (Stage 1 preflight, Stage 7 payload)
   jq '.' <<< "$payload" >/dev/null 2>&1 || die "checkpoint: --json payload is not valid JSON"
+  if [[ "$n" == "1" ]]; then
+    validate_stage1_payload "$payload"
+  fi
   if [[ "$n" == "7" ]]; then
     local lower
     lower=$(echo "$key" | tr '[:upper:]' '[:lower:]')

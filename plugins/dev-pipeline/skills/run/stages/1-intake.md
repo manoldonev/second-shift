@@ -115,6 +115,21 @@ PIN_ERR=$(git fetch origin "$BASE_BRANCH_CFG" --quiet 2>&1 \
 
 Pass the **absolute** pin path as `readRoot` in the intake Workflow args (Step 1.B — `workflows/intake-review.mjs` prefixes every dispatch prompt with the pinned-read instruction); resolve referenced docs (max 5) against the same root. **Teardown:** best-effort `git worktree remove "$PIN_WT" 2>/dev/null || true` right after the Stage-1 completion write; Stage 10 cleanup removes it unconditionally if it survived (crash between the two points).
 
+**Capture the pre-flight attestation (carry forward to the Stage-1 checkpoint).** The predicate outcomes above are the attestation `stageCheckpoint["1"].preflight` records — the Stage-1 completion gate is enforced on it (`set-stage 1 --status completed` refuses without a well-formed `preflight`; state-schema.md row 1). Record the three fields here (the pin is established at this point — the fail-closed case above already exited), so the checkpoint write below can fold them in:
+
+```bash
+# baseBranch: the configured base ($BASE_BRANCH_CFG above). workingTreeClean: the
+# porcelain emptiness that drives the clean-vs-WARN predicate (git status --porcelain
+# in the MAIN checkout). guardOutcome: the free-form outcome tag — proceed-clean when
+# clean, proceed-dirty-warn when the WARN fired (the pin-unestablishable / wrong-target
+# cases mark-failed and never reach the checkpoint, so those tags never appear here).
+if [[ -z "$(git status --porcelain)" ]]; then
+  WORKING_TREE_CLEAN=true;  GUARD_OUTCOME=proceed-clean
+else
+  WORKING_TREE_CLEAN=false; GUARD_OUTCOME=proceed-dirty-warn   # WARN already surfaced above
+fi
+```
+
 #### Step 1.B: Intake + Decomposition
 
 **Lightweight inline intake (interactive-mode only, explicit-approval gated).** The full intake below — loading `intake-toolkit:intake-orchestrator` + the structured `intake-toolkit:spec-reviewer`/`intake-toolkit:codebase-explorer` fan-out — is the default and is **MANDATORY in `auto` mode**: the no-input-prompts invariant means `auto` has no way to express approval, so the carve-out simply does not exist there. **A human design session completed before claim (e.g. via `grill-me`) does NOT authorize skipping the auto-mode fan-out** — there is no "consolidated-into-design-session" intake mode; to legitimately use the lightweight inline path on a trivial change, run under `DEV_PIPELINE_MODE=interactive` so the approval gate can fire. A _lightweight inline intake_ performs the classification / scope / decomposition reasoning in-session (reading the touched files directly) **without** loading `intake-toolkit:intake-orchestrator` or dispatching the fan-out. It is permitted **only** when BOTH hold:
@@ -193,7 +208,7 @@ Runs when the verdict continues the pipeline (`no-split` or `stacked-prs`), befo
      --brief-path "$BRIEF_PATH" --acceptance-criteria "$AC_JSON"
    ```
 
-The Stage-1 checkpoint payload additionally carries `briefPath` + the AC count alongside the `verdict` / decomposition / design fields.
+The Stage-1 checkpoint payload additionally carries `briefPath` + the AC count alongside the `verdict` / decomposition / design fields, **plus the `preflight` attestation captured in Step 1.P** — the `checkpoint 1` write folds in `preflight: { baseBranch: "$BASE_BRANCH_CFG", workingTreeClean: $WORKING_TREE_CLEAN, guardOutcome: "$GUARD_OUTCOME" }`. This is **required**: `set-stage 1 --status completed` refuses unless `stageCheckpoint["1"].preflight` is present and well-formed (state-schema.md **Completion-evidence preconditions**, row 1), and `checkpoint 1` rejects a present-but-malformed `preflight` at write time. `workingTreeClean:false` is valid (the dirty-tree WARN-and-proceed outcome).
 
 ## Stacked-PR Outer Loop
 
