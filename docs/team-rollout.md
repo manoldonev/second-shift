@@ -14,7 +14,9 @@ CONTRIBUTING snippet).
    (see [onboarding.md §2b](onboarding.md)).
 3. Review and commit the emitted files in one PR: `.claude/settings.json`,
    `.claude/second-shift.config.json`, `.claude/second-shift.lock.json`,
-   `.claude/tools/second-shift-doctor.sh`, `.claude/SECOND-SHIFT.md`.
+   `.claude/tools/second-shift-doctor.sh`, `.claude/SECOND-SHIFT.md` — plus, if you
+   accepted the CI evidence workflow, `.github/workflows/second-shift-ci.yml` and
+   `.claude/tools/second-shift-ci-check.sh`.
 4. Dry-run: pick a small ticket with no external-infrastructure acceptance criteria and
    run `/dev-pipeline:run <ticket>` end to end before inviting the team.
 
@@ -93,6 +95,11 @@ Managed `enabledPlugins: false` is an org-wide ban; individual repos can't re-en
 
 Any control that depends on a voluntarily-installed, individually-declinable client
 plugin is **fast local feedback, not a gate**. The gate of record is server-side —
-required CI on the committed artifacts and branch protection. That's why doctor says
-"missing your accelerators" instead of anything compliance-shaped: 80% adoption plus
-server-side enforcement beats 100% by nagging.
+required CI on the committed artifacts and branch protection. `/second-shift:onboard`
+can emit that CI on request (`.github/workflows/second-shift-ci.yml` + the committed
+`second-shift-ci-check.sh`): on every PR it config-lints the committed config at the
+pinned marketplace ref and asserts the settings ref and lockfile ref agree, so a
+half-done upgrade PR is caught server-side. It reports a red check; you make it a *gate*
+by marking "second-shift evidence" a required status check in branch protection. That's
+why doctor says "missing your accelerators" instead of anything compliance-shaped: 80%
+adoption plus server-side enforcement beats 100% by nagging.
