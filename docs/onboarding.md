@@ -2,6 +2,33 @@
 
 Onboarding = enable plugins + write one config file (+ optional extension files). No file copying.
 
+## 0. Fast path: `/second-shift:onboard`
+
+The marketplace writes its own consumer config. Three commands:
+
+```text
+claude plugin marketplace add manoldonev/second-shift
+claude plugin install second-shift@second-shift        # user scope
+# in the target repo:
+/second-shift:onboard
+```
+
+`onboard` detects tracker/topology/commands with provenance (never asking what git or
+package.json can answer), presents ONE accept-or-edit screen, and emits:
+
+- `.claude/second-shift.config.json` — with a `$schema` first key at the pinned ref, so editors validate live
+- a pinned `.claude/settings.json` block — `extraKnownMarketplaces` at the release ref + the blessed-bundle `enabledPlugins` (merged into your existing settings, never clobbered)
+- `.claude/second-shift.lock.json` — the plugin→version contract `/second-shift:doctor` verifies against
+- the repo-committed thin check (`.claude/tools/second-shift-doctor.sh` + a SessionStart nudge)
+- `.claude/SECOND-SHIFT.md` — the consent doc: what installs, what hooks fire, before the trust prompt
+- a paste-ready CONTRIBUTING snippet for teammates
+
+The config is validated with the plugin-shipped `config-lint` in-loop before anything lands.
+If the live settings write is blocked, the merged document goes to
+`.claude/settings.json.second-shift-proposed` with exact apply instructions.
+
+Sections 1–2 below are the manual/reference path — what the skill automates.
+
 ## 1. Enable the marketplace + plugins
 
 In the repo's `.claude/settings.json`:

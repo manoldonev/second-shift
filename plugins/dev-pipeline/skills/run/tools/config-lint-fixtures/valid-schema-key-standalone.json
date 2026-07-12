@@ -1,0 +1,7 @@
+{
+  "$schema": "https://raw.githubusercontent.com/manoldonev/second-shift/v2.1.0/schema/second-shift.config.schema.json",
+  "configVersion": 1,
+  "tracker": { "type": "jira" },
+  "topology": { "type": "standalone", "repos": { "app": { "path": ".", "baseBranch": "main" } } },
+  "commands": { "app": { "lint": "yarn lint", "test": "yarn test" } }
+}
