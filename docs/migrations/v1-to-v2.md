@@ -22,8 +22,25 @@ Design fidelity is no longer a boolean Figma gate; it is a top-level `design` ob
 "design": { "provider": "claude-design" }  // no external design tool
 ```
 
-Key absent = design fidelity off. `gates` retains exactly two keys in v2: `mutation` and
-`costTracking`.
+Key absent = design fidelity off. As of **v2.1.6** `gates` retains exactly one key: `mutation`
+(see the v2.1.6 removals below).
+
+### v2.1.6 dead-key removals — `commands.<repo>.integrationTest` / `apiTest`, `gates.costTracking`
+
+Three published keys had **zero readers** — a consumer set them and nothing happened. They are
+removed; config-lint now rejects them with a migration pointer (fail closed).
+
+- **`commands.<repo>.integrationTest` / `commands.<repo>.apiTest`** — never executed by any
+  verify lane. Ship an integration/API test tier via **`commands.<repo>.extraLanes`** (an
+  additive verify lane with a real `failureClass`, so failures get the correct fix budget)
+  or as a companion pack through extension points EP-6/EP-7. See [`extending.md`](../extending.md).
+- **`gates.costTracking`** — the mutation gate keyed off `unitTestScope` presence, and cost
+  attribution ran unconditionally regardless of this flag; it toggled nothing in either
+  direction. Removed. Local OTel cost attribution is now simply always-on (passive, never
+  blocks). Delete the key from your config.
+
+`gates.mutation` is now **wired as a real off-switch**: `false` disables the Stage-5 unit-test
+mutation gate even when `commands.<host>.unitTestScope` is set (previously ignored).
 
 ### `gates.apiTests` → removed (extension point)
 

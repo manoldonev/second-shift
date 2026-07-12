@@ -104,7 +104,7 @@ fi
 CMD_TOOLS=""
 [[ -f "$CFG" ]] && CMD_TOOLS=$(jq -r '
   [ (.commands // {}) | .[]
-    | ( .lint,.typecheck,.test,.testFile,.build,.format,.integrationTest,.apiTest )
+    | ( .lint,.typecheck,.test,.testFile,.build,.format )
     , ( (.lanes // [])      | .[] | (.commands // [])[] )
     , ( (.extraLanes // []) | .[] | (.commands // [])[] ) ]
   | map(select(type=="string" and length>0) | ltrimstr(" ") | split(" ")[0])

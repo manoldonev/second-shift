@@ -29,6 +29,29 @@ consumer with an empty config; the migration notes below are only for consumers 
   emit `ref: "main"` + all-"latest" lockfile instead of the release pin, and say so in the consent doc.
   This repo's own onboard artifacts (#51) converted accordingly; docs note the canary form in onboarding.md §1.
 
+### `dev-pipeline` 2.1.5 → 2.1.6
+- **#15 — validator/schema integrity (F83/F81).** Four fixes closing the gap between what the schema
+  publishes and what the pipeline enforces:
+  - **`check-extensions.sh` now runs at pre-flight** (SKILL.md step 0b), fail closed — restoring the EP-3
+    guarantee that a typo'd `.claude/second-shift/` extension file (e.g. `blocker-mutants.md.md`) is LOUD,
+    not silently degraded, and that every `stageWorkflows[].workflow` / `implementDelegates[].agent`
+    reference resolves. Previously it was shipped but invoked by nothing.
+  - **12 config-lint type-check gaps closed** (`stageWorkflows[].stage` integer; `smokeRoutes` /
+    `reviewers.remove` / `extraLanes[].when` / lane `commands` array-ness; `paths.*` /
+    `implementDelegates[].surface` / `planGates[].surface` / `visualCapture.baseUrl` / lane `cwd`
+    string-ness; `bot.enabled` boolean; lane `commands` min-1; `requiredLabels` item strings) — the
+    no-node config-lint now matches the schema's stricter contract (packed mutant fixture kills all 12).
+    Schema gains `minLength: 1` on `topology.repos.<id>.{path,baseBranch}` to match.
+  - **Removed 3 dead keys** (**BREAKING**, config-lint rejects with a migration pointer):
+    `commands.<repo>.integrationTest` / `apiTest` (no verify lane ever ran them — use `extraLanes` /
+    EP-6/EP-7) and `gates.costTracking` (toggled nothing; cost attribution is unconditional/passive).
+    `check-config-shadowing.sh` extended beyond `stageParams` (now also asserts readers for
+    `commands.<host>.format`, `ticketTag`, `gates.mutation`) so the dead-key class can't ship again.
+  - **`gates.mutation` wired as a real off-switch** — `false` now disables the Stage-5 unit-test mutation
+    gate even when `unitTestScope` is set (previously ignored in both directions).
+  - **F81 — `commands.<repo>.lanes` documented as SETUP-only** (INFRA-classed on failure) in the schema;
+    a verify/test command belongs in `extraLanes` (real `failureClass`, correct fix budget), not `lanes`.
+
 ## v2.1.6 — be-fe-pair: pair runs end-to-end (release)
 
 The be-fe-pair series (#4/#5, PRs 3–5 + flat-mirror) shipped as logic-only PRs with the version bump deferred

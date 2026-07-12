@@ -60,15 +60,20 @@ Build the draft config from detection:
   baseBranch is detected by running detect.sh again with the sibling path as argument.
 - `commands.<repo>` from detection: the emitted block contains EXACTLY these keys —
   `lint`, `lintAutofixes`, `typecheck`, `test`, `build`, `format` from detect.sh, PLUS
-  `testFile`, `unitTestScope`, `integrationTest`, `apiTest` always as explicit `null`
-  (undetectable — their provenance comment reads "set when adopting the mutation/api
-  gates"). **Undetected lanes are explicit `null`** — never omit, never invent.
+  `testFile`, `unitTestScope` always as explicit `null`
+  (undetectable — their provenance comment reads "set when adopting the mutation
+  gate"). **Undetected lanes are explicit `null`** — never omit, never invent.
+  (Integration/API test tiers are NOT config command keys — removed in v2.1.6;
+  ship them via `extraLanes` / extension points EP-6/EP-7. Never emit
+  `integrationTest`/`apiTest` under `commands.<repo>`.)
 Ask AT MOST one AskUserQuestion batch, containing ONLY (skip any that detection settled):
   1. tracker (only if ambiguous — show evidence per option)
   2. topology pair confirm (only if be-fe-pair-candidate)
   3. `tracker.branchPrefix` (recommended: `claude/<repo-basename>-` for github; `<user>/` for jira)
-  4. gates to enable (**mutation / costTracking** — both default false; these are the only
-     two `gates` keys the v2 schema has — never emit anything else under `gates`)
+  4. gates to enable (**mutation** — defaults false; `gates.mutation:false` is an explicit
+     off-switch for the Stage-5 unit-test mutation gate even when `unitTestScope` is set.
+     It is the ONLY `gates` key the schema has as of v2.1.6 — `costTracking` was removed
+     (cost attribution now runs unconditionally, passive) — never emit anything else under `gates`)
   5. design fidelity, two-part (only if detection saw a UI-shaped repo — sibling FE candidate,
      or framework deps like react/vue/svelte in package.json — or a design MCP in
      `claude mcp list`): include design-toolkit? If yes, WHICH provider — emit top-level

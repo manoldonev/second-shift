@@ -57,11 +57,20 @@ BASE="$(git -C "$WT" merge-base HEAD "origin/${WORKTREE_BASE}" 2>/dev/null || gi
 # (rc 127 → every mutant INFRA → run halts). See issue #9.
 UNIT_SCOPE="$(jq -r "$HOST_Q as \$h | .commands[\$h].unitTestScope // empty" "$SECOND_SHIFT_CONFIG" 2>/dev/null)"
 TEST_FILE_CMD="$(jq -r "$HOST_Q as \$h | .commands[\$h].testFile // empty" "$SECOND_SHIFT_CONFIG" 2>/dev/null)"
+# gates.mutation is an explicit off-switch (#15): false disables the gate even
+# when a mutation surface (unitTestScope) is configured. Absent/true = honor the
+# unitTestScope contract below. `// empty` ⇒ absent resolves empty (not "false").
+MUTATION_GATE="$(jq -r '.gates.mutation // empty' "$SECOND_SHIFT_CONFIG" 2>/dev/null)"
 
-# null/absent unitTestScope ⇒ no mutation surface ⇒ gate OFF (record + skip the
-# dispatch below). Gate ON but null testFile ⇒ no per-spec runner ⇒ FAIL CLOSED
-# (never a silent green, never a hardcoded yarn).
-if [[ -z "$UNIT_SCOPE" || "$UNIT_SCOPE" == "null" ]]; then
+# gates.mutation:false ⇒ gate OFF regardless of surface. Else null/absent
+# unitTestScope ⇒ no mutation surface ⇒ gate OFF (record + skip the dispatch
+# below). Gate ON but null testFile ⇒ no per-spec runner ⇒ FAIL CLOSED (never a
+# silent green, never a hardcoded yarn).
+if [[ "$MUTATION_GATE" == "false" ]]; then
+  echo "[stage-5] unit-test mutation gate OFF: gates.mutation is false (explicit off-switch, overrides unitTestScope)."
+  statectl.sh stage-substatus "$ISSUE_NUMBER" --stage 5 --key unitTestMutationReview --value completed
+  # SKIP the mutation-gate dispatch below; proceed to `set-stage 5 --status completed`.
+elif [[ -z "$UNIT_SCOPE" || "$UNIT_SCOPE" == "null" ]]; then
   echo "[stage-5] unit-test mutation gate OFF: commands.<host>.unitTestScope is null/absent (no mutation surface)."
   statectl.sh stage-substatus "$ISSUE_NUMBER" --stage 5 --key unitTestMutationReview --value completed
   # SKIP the mutation-gate dispatch below; proceed to `set-stage 5 --status completed`.
