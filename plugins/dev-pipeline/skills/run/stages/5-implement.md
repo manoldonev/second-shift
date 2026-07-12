@@ -131,7 +131,7 @@ Recompute `HEAD` (and `CHANGED_BACKEND_FILES`) before any re-dispatch after test
 
 ## Design-faithful implement + live-render verify (when `stageCheckpoint["1"].designDriven == true`)
 
-On a design-driven run the screen is implemented **by the engine**, not hand-coded: the `design-toolkit:design-faithful` skill reads the handoff, writes `apps/web` code mirroring the nearest analog (the repo's design tokens and real UI components), and commits in-session. Then a live-render verify gate compares the rendered screen against the handoff screenshots. Skip this entire section on non-design runs (the default — hand-code per the plan as above). The `designPlanReview` sub-status tracks the two phases for resume; mirrors `unitTestMutationReview`. Resolve `WT` (absolute worktree path) and `designSource` as for the other dispatches.
+On a design-driven run the screen is implemented **by the engine**, not hand-coded: the `design-toolkit:design-faithful` skill reads the handoff, writes the repo's FE-app code mirroring the nearest analog (it grounds the FE app dir, primitives, and token vocabulary from `.claude/second-shift/design-tokens/*.md`, or conservative discovery when absent — never a hardwired `apps/web`/shadcn), and commits in-session. Then a live-render verify gate compares the rendered screen against the handoff screenshots. Skip this entire section on non-design runs (the default — hand-code per the plan as above). The `designPlanReview` sub-status tracks the two phases for resume; mirrors `unitTestMutationReview`. Resolve `WT` (absolute worktree path) and `designSource` as for the other dispatches.
 
 1. **Implement via the engine.** `statectl stage-substatus "$ISSUE_NUMBER" --stage 5 --key designPlanReview --value implementing`, then dispatch the engine selected by `PROVIDER=$(statectl get "$ISSUE_NUMBER" '.stageCheckpoint."1".designSource.provider')`:
 
@@ -141,10 +141,14 @@ On a design-driven run the screen is implemented **by the engine**, not hand-cod
    Workflow({
      scriptPath: "workflows/design-sync.mjs",
      // The caller also passes args.config = the parsed second-shift.config.json.
-     args: { kind: "produce", implement: true, projectId: "$PROJECT_ID", screen: "$SCREEN",
+     // worktree anchors ALL engine reads/writes/commits to THIS ticket's worktree —
+     // without it implement:true commits land on the session's default checkout, i.e.
+     // the wrong branch (F26). Mirrors the figma twin's feWorktree below. $WT is the
+     // absolute worktree path resolved above.
+     args: { kind: "produce", implement: true, worktree: "$WT", projectId: "$PROJECT_ID", screen: "$SCREEN",
              issue: "$ISSUE_NUMBER", config: CONFIG }
    })
-   # implement:true → dispatches the design-toolkit:design-faithful skill, which writes apps/web + commits.
+   # implement:true → dispatches the design-toolkit:design-faithful skill, which writes the repo's FE code + commits IN $WT.
    # Returns { kind, implement, result } | { kind, implement, failClosed } | { kind, budgetExhausted: true }.
    ```
 
