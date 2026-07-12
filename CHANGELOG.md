@@ -30,7 +30,6 @@ First of a 4-PR series restoring full multi-repo (be-fe-pair) support to the gen
 
 ### `dev-pipeline` 2.0.9 → 2.0.10
 - **statectl `worktree-set --repo <id>` / `verify-attempts --repo <id>`** — a `be-fe-pair` run persists boundary fields and the per-class retry budget **per repo** at `worktrees.<repoId>.{worktreePath, branch, base, verifyAttempts}`, rather than the flat top-level `worktreePath`/`branch`/`verifyAttempts`. With `--repo` omitted (every standalone/monorepo consumer) the flat fields are written exactly as before — the `worktrees` map is absent. New `(va5)`/`(ws-repo)` selftests assert per-repo independence and that the flat path is untouched; the generated-validator drift-check is unaffected (no new enums). Documented in state-schema.md ("be-fe-pair note"). Stages 1/2/6/7/9/10 that consume the map land in PRs 2–4.
->>>>>>> origin/main
 
 ## v2.0.9 — docs hotfixes: onboarding path rot (in progress)
 
