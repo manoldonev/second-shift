@@ -4,6 +4,25 @@ All notable changes to the second-shift marketplace. Versions are per-plugin (`p
 this file tracks the marketplace release. `configVersion` stays `const 1` — v2 is fully backward-compatible for a
 consumer with an empty config; the migration notes below are only for consumers using the changed features.
 
+## v2.2.0 — read-only preflight: the onboarding finish line (in progress)
+
+### `dev-pipeline` 2.1.8 → 2.2.0
+- **New tool `skills/run/tools/preflight.sh` (+ selftest): read-only onboarding finish line (#30).** Echoes the
+  resolved targets (tracker/repos/branches + string-only worktree paths — no `statectl init`, no `git worktree
+  add`), runs the config gates (`config-lint`, `check-extensions`), invokes the config-aware `pipeline-doctor.sh`
+  as its environment section (the #17 layer — reused, not duplicated), performs ONE tracker READ (no claim;
+  queue head without a ticket key; jira SKIPs with a note — its fetch is session-side MCP), executes every
+  non-null command lane once in the current checkout (source-mutating lanes — `format` as a string, `lint`
+  with `lintAutofixes: true` — SKIP-with-note, never run), and writes `.claude/pipeline-state/preflight-report.md`.
+  Exit code = FAIL count. Zero tracker/git/remote mutations — proven by `preflight-selftest.sh`'s zero-write
+  suite (git-state diff + mock-gh verb recording). Tracker README gains the `preflight-read` operation row.
+
+### `second-shift` 1.3.1 → 1.4.0
+- **Onboard Step 8.5 now runs the preflight as the finish line** (resolves the dev-pipeline install path via
+  `claude plugin list --json` — never a cache path from memory), surfacing the report verdict before the
+  first-run instructions. The "until a read-only preflight ships" hedge is gone; `docs/onboarding.md` names
+  preflight as the step between validation and the first real ticket.
+
 ## v2.1.8 — /second-shift:local-dev-refresh (release)
 
 ### `second-shift` 1.2.0 → 1.3.0
