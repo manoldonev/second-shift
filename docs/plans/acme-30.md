@@ -46,6 +46,7 @@ Intake resolved decisions (binding, from the issue #30 intake comment):
 | `plugins/dev-pipeline/.claude-plugin/plugin.json` | Version bump (minor — re-derive latest at commit time) |
 | `plugins/second-shift/.claude-plugin/plugin.json` | Version bump (minor — re-derive latest at commit time) |
 | `CHANGELOG.md` | Entries under the in-progress marketplace release |
+| `.claude/second-shift.config.json` | (added during implementation, surfaced as scope-creep deviation) drop `integrationTest`/`apiTest`/`gates.costTracking` — removed in v2.1.6; the new config-lint hard-rejects them, discovered by the live preflight smoke |
 
 ## Reuse inventory
 
