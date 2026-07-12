@@ -19,7 +19,11 @@ ERRORS=$(jq -r '
   def err(cond; msg): if cond then [msg] else [] end;
 
   # ---- top level ----------------------------------------------------------
-  err(.configVersion != 1; "configVersion must be 1")
+  err((.configVersion? | type) != "number"; "configVersion: required number (current: 1)")
+  + err(((.configVersion? | type) == "number") and .configVersion > 1;
+        "configVersion \(.configVersion) is newer than this plugin understands — upgrade the marketplace pin (docs/releasing.md)")
+  + err(((.configVersion? | type) == "number") and .configVersion < 1;
+        "configVersion \(.configVersion) predates this plugin — see docs/migrations/ for the upgrade path")
   + err((.tracker | type) != "object"; "tracker: required object")
   + err((.topology | type) != "object"; "topology: required object")
   + err((.commands | type) != "object"; "commands: required object")
@@ -93,7 +97,10 @@ ERRORS=$(jq -r '
   # ---- paths / gates / design ------------------------------------------------
   + ((.paths // {}) | err(((keys) - ["plansDir","pipelineStateDir"]) != []; "paths: unknown keys"))
   + ((.gates // {}) |
-      err(((keys) - ["mutation","costTracking"]) != []; "gates: unknown keys")
+      err(has("figma"); "gates.figma was removed in v2 — use design: {\"provider\": ...} (docs/migrations/v1-to-v2.md)")
+      + err(has("apiTests"); "gates.apiTests was removed in v2 — ship an API-test tier via extension points EP-6/EP-7 (docs/migrations/v1-to-v2.md)")
+      + err(((keys) - ["mutation","costTracking","figma","apiTests"]) != [];
+            "gates: unknown keys: " + (((keys) - ["mutation","costTracking","figma","apiTests"]) | join(", ")))
       + (to_entries | map(err((.value | type) != "boolean"; "gates." + .key + ": must be boolean")) | add // [])
     )
   + (if (.design != null) then (.design |
