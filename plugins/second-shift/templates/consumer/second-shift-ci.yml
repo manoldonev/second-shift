@@ -1,0 +1,26 @@
+# second-shift evidence — emitted (on request) into a consumer repo by
+# /second-shift:onboard (#33). Runs the committed check script, which verifies a PR
+# hasn't left the second-shift pin half-upgraded:
+#   (a) config-lint the committed config with the linter shipped at the pinned ref;
+#   (b) settings ref <-> lockfile ref lockstep.
+#
+# This workflow only REPORTS a check. To BLOCK merges on drift, mark the
+# "second-shift evidence" check a required status check in this repo's branch
+# protection rules — a committed workflow cannot require itself.
+#
+# Model-free: no API-billed model calls, just jq + gh (both preinstalled on
+# ubuntu-latest; gh authenticates via the built-in github.token).
+name: second-shift evidence
+on:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  evidence:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: second-shift evidence checks (config-lint @ pinned ref + ref lockstep)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: bash .claude/tools/second-shift-ci-check.sh
