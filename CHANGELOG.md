@@ -17,7 +17,17 @@ consumer with an empty config; the migration notes below are only for consumers 
   when the machine registration's ref differs from the current repo's lockfile pin. Cross-referenced from
   team-rollout's Upgrades section; namespaces rule 1 gains the invocation.
 
-### `dev-pipeline` 2.1.6 → 2.1.7
+### `dev-pipeline` 2.1.6 → 2.1.8
+- **#48 (Phase 1) — be-fe-pair dual-target Stage-7/8 statectl foundation.** Groundwork for looping the
+  middle stages per-repo on a dual `[BE]+[FE]` ticket, additive and gated on `targetRepos > 1` (single-target
+  pairs and non-pair topologies are byte-for-byte unchanged). New `statectl build-checkpoint-7-perrepo`
+  emits a `{perRepo:{<repo>:{…}}}` fragment (merged caller-side into one Stage-7 manifest); `validate_stage7_payload`
+  is now **dual-mode** — per-repo schema (a well-formed `perRepo[<id>]` for every `targetRepos` id, fail-closed
+  on a missing one) when a `perRepo` object is present, flat schema otherwise; and the **Stage-8 completion gate**
+  gains an escape hatch — a non-empty `crossBoundaryReviews[]` or `skippedReviews[]` completes the stage for a
+  secondary repo reviewed-via-handoff or explicitly skipped, without a primary-worktree review round. 8 new
+  statectl-selftest cases (dt1–dt8); state-schema.md documents the per-repo manifest + the two new arrays. The
+  Stage 3/5/7/8 producers that consume this land in follow-on phases.
 - **#6 (F26) — claude-design produce dispatch now passes the worktree.** Stage 5's `claude-design`
   produce dispatch omitted `worktree`, so `implement:true` commits landed on the session's default
   checkout (the wrong branch) — the R7 fix that was mirrored to the figma twin but never the
