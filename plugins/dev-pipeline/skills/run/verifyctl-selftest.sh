@@ -280,6 +280,36 @@ else
   fail "(v11) verdict JSON shape — got: $(head -c 200 <<< "$VERDICT")"
 fi
 
+# (v12) commands.<host>.format = a command -> FORMAT_MODE=config: verifyctl runs
+#       it VERBATIM (not prettier). The yarn shim touches ran-format. (#12)
+reset_all
+echo "export const z = 3" >> "$WORK/src/thing.ts"
+git -C "$WORK" add -A && git -C "$WORK" commit -qm feat-fmt-config
+FMT_CFG="$TMPDIR_VT/cfg-format-config.json"
+jq '.commands.mono.format = "yarn format"' "$CONFIG_FIXTURE" > "$FMT_CFG"
+VERDICT=$(SECOND_SHIFT_CONFIG="$FMT_CFG" "$VERIFYCTL" run 8888 2>/dev/null); VRC=$?
+fmt=$(jq -r '.verifySummary.format' <<< "$VERDICT")
+if [[ "$VRC" == "0" && -f "$MARKERS/ran-format" && "$fmt" != "skipped" ]]; then
+  pass "(v12) config format command runs verbatim (ran-format marker; prettier not forced)"
+else
+  fail "(v12) config format — rc=$VRC ran-format=$([[ -f "$MARKERS/ran-format" ]] && echo yes || echo no) fmt=$fmt"
+fi
+
+# (v13) commands.<host>.format = null -> FORMAT_MODE=skip: NO formatter runs
+#       (no ran-format marker, no prettier/npx), verdict format = "skipped". (#12)
+reset_all
+echo "export const w = 4" >> "$WORK/src/thing.ts"
+git -C "$WORK" add -A && git -C "$WORK" commit -qm feat-fmt-null
+FMT_NULL="$TMPDIR_VT/cfg-format-null.json"
+jq '.commands.mono.format = null' "$CONFIG_FIXTURE" > "$FMT_NULL"
+VERDICT=$(SECOND_SHIFT_CONFIG="$FMT_NULL" "$VERIFYCTL" run 8888 2>/dev/null); VRC=$?
+fmt=$(jq -r '.verifySummary.format' <<< "$VERDICT")
+if [[ "$VRC" == "0" && ! -f "$MARKERS/ran-format" && "$fmt" == "skipped" ]]; then
+  pass "(v13) null format -> lane skipped (no formatter run, verdict format=skipped)"
+else
+  fail "(v13) null format skip — rc=$VRC ran-format=$([[ -f "$MARKERS/ran-format" ]] && echo yes || echo no) fmt=$fmt"
+fi
+
 echo
 echo "[self-test] summary: $PASS passed, $FAIL failed"
 exit "$FAIL"
