@@ -154,13 +154,11 @@ if [ -z "$DEV_PIPELINE_ROOT" ] || [ ! -d "$WF" ]; then
     msg="UNLOCATABLE: dev-pipeline workflow tables not found via env override, repo-layout sibling ($SCRIPT_DIR/../../dev-pipeline), or cache-layout siblings ($SCRIPT_DIR/../../../dev-pipeline/<ver>) — expected <root>/skills/run/workflows. Set SECOND_SHIFT_DEV_PIPELINE_ROOT to the dev-pipeline plugin root."
     printf '%s\n' "$msg" >&2
     if [ $HOOK_MODE -eq 1 ]; then
-        jq -n --arg r "$msg" '{
-            hookSpecificOutput: {
-                hookEventName: "PreToolUse",
-                permissionDecision: "deny",
-                permissionDecisionReason: $r
-            }
-        }'
+        # Standalone adoption (#14, F57): the sibling dev-pipeline plugin isn't
+        # installed, so the .mjs model-tier lockstep contract is not in force — a
+        # repo adopting review-toolkit alone must NOT have its commits denied. Fail
+        # OPEN (allow the commit). The standalone CLI path still exits 1 (advisory).
+        echo "[check-model-tiers] dev-pipeline plugin not installed — standalone repo, hook allows the commit (lockstep check applies only with dev-pipeline present)." >&2
         exit 0
     fi
     exit 1

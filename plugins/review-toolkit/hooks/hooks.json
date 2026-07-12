@@ -1,5 +1,5 @@
 {
-  "description": "review-toolkit commit gates — keep review-lead's reviewer registry and the .mjs model-tier tables in lockstep with agent frontmatter + config overrides, before any git commit. Two-root aware; no-ops in repos without a second-shift.config.json.",
+  "description": "review-toolkit commit gates — keep review-lead's reviewer registry and the .mjs model-tier tables in lockstep with agent frontmatter + config overrides, before any git commit. Two-root aware. FAIL OPEN (allow the commit, no deny) in a standalone repo — one with no second-shift.config.json (reviewer-references) or without the sibling dev-pipeline plugin installed (model-tiers); the deny gates apply only to onboarded repos where the lockstep contract is in force.",
   "hooks": {
     "PreToolUse": [
       {

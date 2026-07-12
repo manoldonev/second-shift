@@ -107,6 +107,16 @@ fi
 # Nothing to check if the plugin's review-lead skill isn't present.
 [ -f "$SKILL" ] || exit 0
 
+# Standalone adoption (#14, F17): in HOOK mode with NO consumer second-shift config,
+# the reviewer-registry lockstep contract is not in force — a repo that adopts
+# review-toolkit alone (no dev-pipeline, no config) must not have its commits denied.
+# Fail OPEN (allow the commit); the orphan/shadow deny loops below apply only to
+# onboarded repos. The standalone CLI path still runs the checks (advisory).
+if [ "$HOOK_MODE" -eq 1 ] && { [ -z "$CONFIG" ] || [ ! -f "$CONFIG" ]; }; then
+    echo "[check-reviewer-references] no second-shift config — standalone repo, hook allows the commit (checks run only when onboarded)." >&2
+    exit 0
+fi
+
 # --- Parse the plugin registry from SKILL.md -------------------------------
 # 1. Pre-flight enumeration — names in a single comma-separated parenthetical
 #    after "the plugin-shipped panel (" (the registry sentence in
