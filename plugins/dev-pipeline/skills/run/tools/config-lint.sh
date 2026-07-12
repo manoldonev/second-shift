@@ -24,8 +24,8 @@ ERRORS=$(jq -r '
   + err((.topology | type) != "object"; "topology: required object")
   + err((.commands | type) != "object"; "commands: required object")
   + err(
-      (keys - ["configVersion","tracker","topology","commands","reviewers","paths","gates","design","stageParams","stageWorkflows","implementDelegates","planGates"]) != [];
-      "unknown top-level keys: " + ((keys - ["configVersion","tracker","topology","commands","reviewers","paths","gates","design","stageParams","stageWorkflows","implementDelegates","planGates"]) | join(", "))
+      (keys - ["$schema","configVersion","tracker","topology","commands","reviewers","paths","gates","design","stageParams","stageWorkflows","implementDelegates","planGates"]) != [];
+      "unknown top-level keys: " + ((keys - ["$schema","configVersion","tracker","topology","commands","reviewers","paths","gates","design","stageParams","stageWorkflows","implementDelegates","planGates"]) | join(", "))
     )
 
   # ---- tracker -------------------------------------------------------------
