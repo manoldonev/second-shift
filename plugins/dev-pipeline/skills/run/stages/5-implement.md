@@ -50,9 +50,26 @@ WORKTREE_BASE="$(statectl.sh get "$ISSUE_NUMBER" '.worktreeBase // empty')"
 [[ -z "$WORKTREE_BASE" || "$WORKTREE_BASE" == "null" ]] && WORKTREE_BASE="$BASE_BRANCH_CFG"
 HEAD="$(git -C "$WT" rev-parse HEAD)"
 BASE="$(git -C "$WT" merge-base HEAD "origin/${WORKTREE_BASE}" 2>/dev/null || git -C "$WT" merge-base HEAD "$WORKTREE_BASE")"
-UNIT_SCOPE="$(jq -r "$HOST_Q as \$h | .commands[\$h].unitTestScope // \"apps/api/src/**\"" "$SECOND_SHIFT_CONFIG" 2>/dev/null || echo 'apps/api/src/**')"
+# Schema contract (commands.<host>.{unitTestScope,testFile}): null/absent = OFF /
+# no per-spec runner. Resolve with `// empty` — NEVER an acme literal fallback: a
+# hardcoded `apps/api/src/**` / `yarn --cwd apps/api test {file}` on a pytest repo
+# scopes the diff to a nonexistent path (gate self-waives) or runs yarn on Python
+# (rc 127 → every mutant INFRA → run halts). See issue #9.
+UNIT_SCOPE="$(jq -r "$HOST_Q as \$h | .commands[\$h].unitTestScope // empty" "$SECOND_SHIFT_CONFIG" 2>/dev/null)"
+TEST_FILE_CMD="$(jq -r "$HOST_Q as \$h | .commands[\$h].testFile // empty" "$SECOND_SHIFT_CONFIG" 2>/dev/null)"
+
+# null/absent unitTestScope ⇒ no mutation surface ⇒ gate OFF (record + skip the
+# dispatch below). Gate ON but null testFile ⇒ no per-spec runner ⇒ FAIL CLOSED
+# (never a silent green, never a hardcoded yarn).
+if [[ -z "$UNIT_SCOPE" || "$UNIT_SCOPE" == "null" ]]; then
+  echo "[stage-5] unit-test mutation gate OFF: commands.<host>.unitTestScope is null/absent (no mutation surface)."
+  statectl.sh stage-substatus "$ISSUE_NUMBER" --stage 5 --key unitTestMutationReview --value completed
+  # SKIP the mutation-gate dispatch below; proceed to `set-stage 5 --status completed`.
+elif [[ -z "$TEST_FILE_CMD" || "$TEST_FILE_CMD" == "null" ]]; then
+  echo "[stage-5] FAIL (fail-closed): mutation gate is enabled (commands.<host>.unitTestScope='$UNIT_SCOPE') but commands.<host>.testFile is null — no per-spec runner, so mutants cannot be executed. Set testFile to your per-spec template (e.g. \"pytest {file}\") or set unitTestScope null to disable the gate. NOT defaulting to the acme yarn form." >&2
+  exit 1
+fi
 CHANGED_BACKEND_FILES="$(git -C "$WT" diff --name-only "${BASE}..${HEAD}" -- "$UNIT_SCOPE")"
-TEST_FILE_CMD="$(jq -r "$HOST_Q as \$h | .commands[\$h].testFile // \"yarn --cwd apps/api test {file}\"" "$SECOND_SHIFT_CONFIG" 2>/dev/null || echo 'yarn --cwd apps/api test {file}')"
 ```
 
 Recompute `HEAD` (and `CHANGED_BACKEND_FILES`) before any re-dispatch after test-strengthening commits.

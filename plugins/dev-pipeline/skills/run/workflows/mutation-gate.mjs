@@ -143,6 +143,14 @@ for (const m of blockers) {
 }
 log(`propose: ${mutants.length} mutants, ${blockers.length} blockers (${executable.length} executable)`)
 
+// Fail closed: executable mutants require a per-spec runner. The dispatching stage
+// passes testFileCommand from commands.<host>.testFile; an empty one means the gate is
+// enabled without a runner (issue #9). Never default to a hardcoded command that would
+// run the wrong test framework (e.g. yarn on a pytest repo) — throw instead.
+if (executable.length > 0 && !testFileCommand) {
+  throw new Error('mutation-gate workflow: executable mutants exist but args.testFileCommand is empty (commands.<host>.testFile is null). Configure the per-spec runner or disable the gate (unitTestScope null). Failing closed rather than defaulting to a hardcoded command.')
+}
+
 // ---- Phase c: sequential executor loop (schema-free — no StructuredOutput,
 // no dispatchSchemaAgent: that death class does not exist without a schema) ----
 const executorPrompt = (m, i, n) =>
@@ -155,8 +163,10 @@ const executorPrompt = (m, i, n) =>
   `skip to step 3 and report UNAPPLIED.\n` +
   // Per-spec test invocation is config-driven (commands.<repo>.testFile, a template
   // with a {file} placeholder), resolved by the dispatching stage and passed as
-  // testFileCommand. Default is the acme monorepo form. Run from the worktree root.
-  `2. Run \`${(testFileCommand || 'yarn --cwd apps/api test {file}').replace('{file}', m.specPath)}\` from \`${worktree}\`.\n` +
+  // testFileCommand. Guaranteed non-empty here (the executable>0 && !testFileCommand
+  // fail-closed guard above rejects a null runner — no hardcoded acme default). Run
+  // from the worktree root.
+  `2. Run \`${testFileCommand.replace('{file}', m.specPath)}\` from \`${worktree}\`.\n` +
   `3. ALWAYS revert, even if a previous step errored: \`git -C ${worktree} checkout -- ${m.file}\`, ` +
   `then confirm \`git -C ${worktree} status --porcelain\` is empty.\n` +
   `4. Classification: ANY test failure in step 2 means the mutant was KILLED. All tests passing means it SURVIVED. ` +
