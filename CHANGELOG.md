@@ -4,14 +4,14 @@ All notable changes to the second-shift marketplace. Versions are per-plugin (`p
 this file tracks the marketplace release. `configVersion` stays `const 1` — v2 is fully backward-compatible for a
 consumer with an empty config; the migration notes below are only for consumers using the changed features.
 
-## v2.1.2 — review-context per-reviewer split
+## v2.1.4 — review-context per-reviewer split
 
 ### `review-toolkit` 2.0.2 → 2.1.0
 - **Per-reviewer review-context files.** New extension surface `.claude/second-shift/review-context/<reviewer-name>.md`: each panel reviewer self-loads its own file after the shared `review-context.md` (additive, never protocol-weakening). All ten panel reviewer prompts carry the self-load line; review-lead no longer instructs handing the shared file to every reviewer (agents self-load; review-lead honors context in triage only). Placement rule documented in `docs/extension-points.md`: single-consumer prose → per-reviewer file; multi-consumer contracts (`security-rules.md`, `blocker-mutants.md`) stay standalone; cross-cutting calibration stays in the shared core.
 - **New lint `scripts/check-review-context.sh` (+ selftest).** Fails closed when a file under `review-context/` has a basename that is not a reviewer in the effective registry (panel − `reviewers.remove` + `reviewers.add`) or is not markdown — a typo'd filename is loud instead of silently read by nobody. Wired into review-lead pre-flight so interactive sessions lint too; registry extraction mirrors `check-reviewer-references.sh`.
 
-### `dev-pipeline` 2.1.1 → 2.1.2
-- **Extension manifest: `review-context/*.md` glob** added to `extension-manifest.txt` (+ selftest scenario) so the per-reviewer files pass config-lint. Consumers on older cached manifests can bridge with a `.known-extensions` line until they update.
+### `dev-pipeline` 2.1.2 → 2.1.3
+- **Extension manifest: `review-context/*.md` glob** added to `extension-manifest.txt` (+ selftest scenario) so the per-reviewer files pass config-lint. Consumers on cached manifests older than 2.1.3 can bridge with a `.known-extensions` line until they update.
 
 ## v2.1.1 — be-fe-pair: target routing (#4, PR 2, in progress)
 
