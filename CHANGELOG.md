@@ -42,6 +42,23 @@ consumer with an empty config; the migration notes below are only for consumers 
   `stage5-perrepo-implement-selftest.sh` drift-guards the per-repo commit instruction (a silent removal would
   regress dual-target to primary-only). Stage 8 per-repo review is the final phase (4).
 
+### `dev-pipeline` 2.2.2 → 2.2.3
+- **#48 (Phase 4, CLOSES #48) — dual-target Stage 8 per-repo review.** The finish line. For a dual `[BE]+[FE]`
+  ticket Stage 8 now reviews **every** target repo, not just the primary. The main review loop covers the
+  primary (flat-mirror) worktree unchanged; a new secondary-review loop then, for each other target repo,
+  asserts a clean worktree, and — if that repo's branch has a diff — reviews it in-session via the same
+  `code-review.mjs` fan-out scoped to its worktree (review-lead routing auto-selects design/FE reviewers by
+  diff), recording `crossBoundaryReviews[].status="completed-in-session"`; a no-diff repo records
+  `skippedReviews[]`, and a repo that can't be reviewed in-session records a non-blocking `pending` handoff
+  (Stage 9 already surfaces these as PR "review pending" bullets). Two new statectl writers
+  (`cross-boundary-review-add`, `skipped-review-add`) — array-append, idempotent per `--repo`, a `pending`
+  handoff requires the boundary triple — replacing the vendored's raw-jq state writes (second-shift bans them).
+  6 new statectl-selftest cases (cbr1–cbr5, skr1) + `stage8-perrepo-review-selftest.sh` (integration over three
+  synthetic worktrees: primary skipped, diff repo → completed-in-session, no-diff repo → skipped, Stage 8
+  completes; plus a drift guard). The Stage-8 completion escape hatch (Phase 1) and Stage-9 handoff consumer
+  already existed. Gated on `targetRepos > 1`; single-target pairs and non-pair topologies are unchanged.
+  **With this, a `[BE]+[FE]` cross-repo ticket implements, reviews, and opens PRs in both repos — #48 done.**
+
 ### `second-shift` 1.3.1 → 1.4.0
 - **Onboard Step 8.5 now runs the preflight as the finish line** (resolves the dev-pipeline install path via
   `claude plugin list --json` — never a cache path from memory), surfacing the report verdict before the

@@ -1,7 +1,7 @@
 {
   "name": "dev-pipeline",
   "description": "Autonomous ticket-to-PR pipeline: 10-stage state machine (statectl), deterministic verify runner (verifyctl), plan lint with AC traceability, tracker adapters (github|jira), Workflow-based review/plan/mutation gates, cost tracking, retro. Reads per-repo static context from .claude/second-shift.config.json.",
-  "version": "2.2.2",
+  "version": "2.2.3",
   "author": {
     "name": "Manol Donev"
   }

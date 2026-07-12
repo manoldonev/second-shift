@@ -2126,6 +2126,42 @@ if [[ "$(sct_rc set-stage 9999 8 --status completed)" != "0" && "$err" == *"stag
 else
   fail "(dt8) Stage-8 gate wrongly opened — err='$err'"
 fi
+
+# (cbr1) cross-boundary-review-add completed-in-session → appends an entry
+reset_state; sct init 9107 --run-id "selftest-run-$$" >/dev/null
+sct cross-boundary-review-add 9107 --repo fe --status completed-in-session --note "reviewed FE" >/dev/null
+got=$(sct get 9107 '.crossBoundaryReviews[0] | .repo + ":" + .status')
+[[ "$got" == "fe:completed-in-session" ]] && pass "(cbr1) cross-boundary-review-add completed-in-session → appended" || fail "(cbr1) got '$got'"
+
+# (cbr2) pending handoff without --worktree/--base/--head → rejected
+err=$(sct_err cross-boundary-review-add 9107 --repo fe --status pending)
+[[ "$(sct_rc cross-boundary-review-add 9107 --repo fe --status pending)" != "0" && "$err" == *"requires --worktree"* ]] \
+  && pass "(cbr2) pending handoff without boundary → rejected" || fail "(cbr2) err='$err'"
+
+# (cbr3) pending handoff WITH boundary → appended with handoffEmittedAt, overwrites fe (idempotent)
+sct cross-boundary-review-add 9107 --repo fe --status pending --worktree wt/fe --base b1 --head h1 >/dev/null
+n=$(sct get 9107 '.crossBoundaryReviews | length')
+hs=$(sct get 9107 '.crossBoundaryReviews[0] | (.handoffEmittedAt != null) and .baseSha == "b1"')
+[[ "$n" == "1" && "$hs" == "true" ]] && pass "(cbr3) pending handoff w/ boundary → overwrites fe, carries handoffEmittedAt+boundary" || fail "(cbr3) n=$n hs=$hs"
+
+# (cbr4) invalid status → rejected
+err=$(sct_err cross-boundary-review-add 9107 --repo fe --status bogus)
+[[ "$(sct_rc cross-boundary-review-add 9107 --repo fe --status bogus)" != "0" && "$err" == *"completed-in-session|pending"* ]] \
+  && pass "(cbr4) invalid --status → rejected" || fail "(cbr4) err='$err'"
+
+# (skr1) skipped-review-add → appends
+sct skipped-review-add 9107 --repo ml --reason "no diff" >/dev/null
+got=$(sct get 9107 '.skippedReviews[0] | .repo + ":" + .reason')
+[[ "$got" == "ml:no diff" ]] && pass "(skr1) skipped-review-add → appended" || fail "(skr1) got '$got'"
+
+# (cbr5) Stage-8 completes via the REAL writer (end-to-end: no codeReviewRounds, one crossBoundaryReviews)
+reset_state; sct init 9999 --run-id "selftest-run-$$" >/dev/null
+for s in 1 2 3 4 5 6 7; do complete_stage 9999 "$s"; done
+sct set-stage 9999 8 --status started >/dev/null
+sct cross-boundary-review-add 9999 --repo fe --status completed-in-session >/dev/null
+[[ "$(sct_rc set-stage 9999 8 --status completed)" == "0" ]] \
+  && pass "(cbr5) Stage-8 completes via cross-boundary-review-add writer (no raw jq)" || fail "(cbr5) rejected"
+
 reset_state
 
 # ========================================================== drift-check (must-pass) ===
