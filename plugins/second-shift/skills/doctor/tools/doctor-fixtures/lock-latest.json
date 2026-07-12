@@ -1,6 +1,6 @@
 {
   "lockfileVersion": 1,
-  "marketplace": { "name": "second-shift", "repo": "manoldonev/second-shift", "ref": "main" },
+  "marketplace": { "name": "second-shift", "repo": "manoldonev/second-shift", "ref": "v9.9.0" },
   "plugins": {
     "dev-pipeline": "latest",
     "review-toolkit": "latest",

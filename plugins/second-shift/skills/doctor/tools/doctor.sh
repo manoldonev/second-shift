@@ -83,6 +83,9 @@ for p in $(jq -r '.plugins | keys[]' "$LOCK"); do
     NEED_RESTART=1; continue
   fi
   have="$(jq -r '.version' <<< "$entry")"
+  # "latest" = the canary form (the marketplace repo consuming itself, lockfile ref
+  # "main"): presence-only — any installed version is correct by definition.
+  if [[ "$want" == "latest" ]]; then ok "$p @ $have installed (lockfile tracks latest — canary)"; continue; fi
   if [[ "$have" == "$want" ]]; then ok "$p @ $want installed"
   elif semver_lt "$have" "$want"; then
     bad "$p: installed $have, lockfile wants $want. Fix: claude plugin marketplace update $MKT && claude plugin install $p@$MKT --scope project"; NEED_RESTART=1

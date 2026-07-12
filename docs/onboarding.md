@@ -75,7 +75,11 @@ CI-tested*. Everything else is possible via `enabledPlugins: false` and yours to
 Why so strict: five optional plugins is a 2^5 support matrix, and the seams between plugins
 (pipeline → review panel, intake → plan gates) break precisely at partial installs. One
 blessed bundle keeps every CI-tested path identical to every consumer's path. Pin a release
-wherever stability matters; track latest only in a canary.
+wherever stability matters; track latest only in a canary. (The canary form: settings +
+lockfile `ref: "main"` and every lockfile plugin version set to the literal `"latest"` —
+doctor and the SessionStart nudge then check presence only. The marketplace repo itself is
+onboarded this way; `/second-shift:onboard` applies it automatically when the target repo
+is the marketplace's own checkout.)
 
 ### Pinning a release
 

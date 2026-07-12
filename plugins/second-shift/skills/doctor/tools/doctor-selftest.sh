@@ -6,9 +6,10 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DOCTOR="$HERE/doctor.sh"; FIX="$HERE/doctor-fixtures"; FAILS=0
 check() { if [[ "$2" -eq 0 ]]; then echo "  ✓ $1"; else echo "  ✗ $1"; FAILS=$((FAILS+1)); fi; }
 scenario() { # $1 label, $2 plugin-list fixture, $3 settings fixture, $4 marketplace fixture,
-             # $5 expected exit code, $6 expected substring in output
+             # $5 expected exit code, $6 expected substring in output,
+             # $7 (optional) lock fixture — default lock-v1.json
   local root="$TMP/$1"; mkdir -p "$root/.claude"
-  cp "$FIX/lock-v1.json" "$root/.claude/second-shift.lock.json"
+  cp "$FIX/${7:-lock-v1.json}" "$root/.claude/second-shift.lock.json"
   cp "$FIX/config-valid.json" "$root/.claude/second-shift.config.json"
   sed -e "s#__ROOT__#$root#g" -e "s#__INSTALL__#$INSTALL#g" "$FIX/$3" > "$root/.claude/settings.json"
   sed -e "s#__ROOT__#$root#g" -e "s#__INSTALL__#$INSTALL#g" "$FIX/$2" > "$TMP/$1-pluglist.json"
@@ -41,6 +42,9 @@ scenario version-behind   plugin-list-behind.json  settings-green.json     marke
 scenario version-ahead    plugin-list-ahead.json   settings-green.json     marketplace-list-pinned.json  1 "ahead of the lockfile"
 scenario ref-drift        plugin-list-green.json   settings-ref-drift.json marketplace-list-pinned.json  1 "settings ref (v9.8.0) and lockfile ref (v9.9.0) disagree"
 scenario refless-shadow   plugin-list-green.json   settings-green.json     marketplace-list-refless.json 0 "ref-less"
+# canary form: lockfile pins "latest" → presence-only; a DRIFTED install (behind fixture)
+# must still be green — version comparison is skipped by definition.
+scenario latest-lock      plugin-list-behind.json  settings-green.json     marketplace-list-pinned.json  0 "lockfile tracks latest" lock-latest.json
 # WARN-only scenarios (exit stays 0): shadow skill + opt-out.
 # Extra files are pre-created under $TMP/<label> BEFORE the scenario call
 # (scenario's mkdir -p tolerates the existing tree). The shadow uses the REAL
