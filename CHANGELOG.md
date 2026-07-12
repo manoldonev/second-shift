@@ -4,7 +4,7 @@ All notable changes to the second-shift marketplace. Versions are per-plugin (`p
 this file tracks the marketplace release. `configVersion` stays `const 1` — v2 is fully backward-compatible for a
 consumer with an empty config; the migration notes below are only for consumers using the changed features.
 
-## v2.1.8 — /second-shift:local-dev-refresh (in progress)
+## v2.1.8 — /second-shift:local-dev-refresh (release)
 
 ### `second-shift` 1.2.0 → 1.3.0
 - **New skill `local-dev-refresh`: the dogfooding ladder, one command.** Machine-level refresh of the local
@@ -31,7 +31,14 @@ consumer with an empty config; the migration notes below are only for consumers 
   FE app dir + primitives + token vocabulary from `.claude/second-shift/design-tokens/*.md` (mirroring the
   figma family). No `apps/web`/`acme`/`shadcn`/`cn()` literals remain in dispatched prompts.
 
-## v2.1.7 — canary self-consumption: lockfile "latest" (in progress)
+### `second-shift` 1.3.0 → 1.3.1 (release-absorbed bump)
+- **Onboard no longer emits the removed dead keys.** The #15 dead-key removal (see v2.1.7,
+  `dev-pipeline` 2.1.6) also touched the onboard skill — the drafted `commands.<repo>` block no longer
+  contains `integrationTest` / `apiTest` and the drafted `gates` block no longer contains `costTracking`,
+  so a fresh onboard can't emit a config that config-lint 2.1.6+ rejects. The change shipped in the #15 PR
+  without a `second-shift` bump; this release absorbs it (the version string is the update cache key).
+
+## v2.1.7 — canary self-consumption: lockfile "latest"
 
 ### `second-shift` 1.1.0 → 1.2.0
 - **The canary exception, mechanized.** The marketplace repo consuming itself must track latest, not a pinned
@@ -42,6 +49,37 @@ consumer with an empty config; the migration notes below are only for consumers 
   selftest cases). Onboard's Step 2 gains **canary mode**: when the target repo IS the marketplace checkout,
   emit `ref: "main"` + all-"latest" lockfile instead of the release pin, and say so in the consent doc.
   This repo's own onboard artifacts (#51) converted accordingly; docs note the canary form in onboarding.md §1.
+
+### `dev-pipeline` 2.1.4 → 2.1.5
+- **#11 (F75) — config-driven label roles via `tracker.labels`.** `stageParams.requiredLabels` was validated
+  at pre-flight but every functional site (queue query, claim swap, do-not-pick-up guard, `claim-issue.sh`,
+  doctor) hardcoded the six shipped label literals — a consumer with custom labels passed pre-flight, then
+  the queue was permanently empty. New named role object (github-only): `tracker.labels =
+  { queue, claimed, blockers[] }`, validated by schema + config-lint. Stage 1's queue query, claim swap, and
+  blocker guard all resolve from it; `claim-issue.sh` gains `--queue`/`--claimed`; the pre-flight/doctor
+  existence-check set is DERIVED from the `tracker.labels` union when set — the validated set can never
+  drift from the used set again. Strictly additive: absent `tracker.labels` reproduces the shipped six
+  byte-for-byte; JIRA repos untouched.
+
+### `review-toolkit` 2.1.1 → 2.1.2
+- **#14 (F17/F57) — commit-gate hooks fail OPEN in a standalone repo.** The two PreToolUse git-commit gates
+  claimed to no-op in repos without a `second-shift.config.json` but emitted `permissionDecision:"deny"`
+  unconditionally, so a repo adopting review-toolkit ALONE (an advertised path) had every Claude-driven
+  commit denied — `check-reviewer-references.sh` scanned `.claude/agents` regardless of config, and
+  `check-model-tiers.sh` denied everything when the sibling dev-pipeline plugin was absent. Both hooks now
+  fail open (allow) in hook mode when the lockstep contract isn't in force: no config (reviewer-references)
+  or no sibling dev-pipeline (model-tiers). The standalone CLI path still checks (advisory exit 1);
+  onboarded repos keep the deny gates.
+
+### Repo-local (not shipped in any plugin)
+- **`/release` skill (#50):** the release-cut runbook operationalizing `docs/releasing.md` — completeness
+  audit, green gate, publish, post-release verification, maintainer-machine refresh. Deliberately
+  repo-local: consumers can't cut releases.
+- **Dogfood onboard (#51):** this repo onboarded as its own consumer via the shipped `/second-shift:onboard`
+  at v2.1.6 — the five artifacts (config, settings pin, lockfile, SessionStart thin check, consent doc),
+  labels + bot wrapper provisioned; converted to canary form by #54 above.
+- **Chore (#53):** untracked two machine-local `.claude/audit/*.jsonl` session-telemetry logs committed by
+  an earlier `git add -A`; the `.gitignore` entry now takes effect for fresh clones.
 
 ### `dev-pipeline` 2.1.5 → 2.1.6
 - **#15 — validator/schema integrity (F83/F81).** Four fixes closing the gap between what the schema
