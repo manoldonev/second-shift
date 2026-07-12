@@ -40,6 +40,9 @@ expect_violation invalid-bad-viewport.json          "stageParams.visualCapture.v
 expect_violation invalid-bad-extralane.json         "extraLanes[0].failureClass: must be a closed failure-taxonomy value"
 expect_violation invalid-bad-stageworkflow.json     "stageWorkflows[0].stage: must be an integer 1-10"
 expect_violation invalid-bad-plangate.json          "planGates[0].agent: required"
+expect_violation invalid-configversion-2.json       "configVersion 2 is newer than this plugin understands — upgrade the marketplace pin (docs/releasing.md)"
+expect_violation invalid-configversion-0.json       "configVersion 0 predates this plugin — see docs/migrations/ for the upgrade path"
+expect_violation invalid-v1-gates-figma.json        'gates.figma was removed in v2 — use design: {"provider": ...} (docs/migrations/v1-to-v2.md)'
 
 # missing file → usage error (3), not a lint failure
 if "$LINT" "$FIX/does-not-exist.json" > /dev/null 2>&1; then rc=0; else rc=$?; fi
