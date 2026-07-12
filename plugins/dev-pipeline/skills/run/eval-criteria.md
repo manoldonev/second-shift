@@ -16,9 +16,9 @@ Derived from real pipeline sessions in the acme repo and the hardening patterns 
 
 ### 1. Autonomous Pre-flight
 
-**PASS:** Before claiming the issue (Stage 1), the run established its target — repo, base branch, issue number, and working-tree status — and the non-`main` / dirty-base guard behaved correctly (proceeded only on a clean `main` base, or surfaced and handled a non-`main`/dirty base rather than silently building on it).
+**PASS:** Before claiming the issue (Stage 1), the run established its target — repo, base branch, issue number, and working-tree status — and the dirty-base guard behaved correctly (proceeded only on a clean **configured base branch** — the host repo's `topology.repos.<host>.baseBranch`, which may be `develop`/`alpha`, not necessarily `main` — or surfaced and handled a dirty/wrong base rather than silently building on it).
 
-**FAIL:** The run targeted the wrong repo/branch/diff, OR proceeded on a dirty or non-`main` base without the guard firing.
+**FAIL:** The run targeted the wrong repo/branch/diff, OR proceeded on a dirty base or a base other than the configured base branch without the guard firing.
 
 _Failure mode this catches: "wrong branch/repo/diff" — the single most common pipeline failure mode. (Scored against the autonomous pre-flight, not user confirmation: `auto` mode's no-input-prompts invariant means a correct run never waits for the user.)_
 

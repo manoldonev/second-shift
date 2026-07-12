@@ -27,7 +27,11 @@ In an AI-native repo the knowledge docs are load-bearing, and the repo's `CLAUDE
 
 ## Inputs
 
-- **Default**: Run `git diff main...HEAD --stat` (or `git diff --stat` for uncommitted changes) to find what changed
+- **Default**: Diff against the **configured base branch**, not a hardcoded `main` (which finds nothing on a `develop`/`alpha`-based repo). Resolve it from the repo-local config, then diff:
+  ```bash
+  BASE=$(jq -r '(.topology.repos|to_entries[]|select(.value.path==".")|.key) as $h|.topology.repos[$h].baseBranch // "main"' .claude/second-shift.config.json 2>/dev/null || echo main)
+  git diff "$BASE...HEAD" --stat   # (or `git diff --stat` for uncommitted changes)
+  ```
 - **Optional**: Specific commit range or file list passed by user
 - **Optional**: Brief description of what was implemented (helps narrow doc search)
 

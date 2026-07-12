@@ -1,6 +1,8 @@
 {
   "name": "design-toolkit",
   "description": "Design-fidelity toolkit unifying two design-provider adapters: design-faithful (the claude-design / DesignSync provider) and figma-faithful (the figma / Figma-MCP provider). Ships each provider's translation + spec skills (design-faithful, design-faithful-spec, figma-faithful, figma-faithful-spec) and its fidelity reviewer agent. The active provider is selected by config (the design-provider axis).",
-  "version": "2.0.0",
-  "author": { "name": "Manol Donev" }
+  "version": "2.0.1",
+  "author": {
+    "name": "Manol Donev"
+  }
 }

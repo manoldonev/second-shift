@@ -41,7 +41,7 @@ Hard limits — state them rather than guessing:
 
 ## Process
 
-1. Run `git diff main..HEAD`; collect the changed FE-app style/component files (per the reference's app dir(s)).
+1. Diff against the **configured base branch**, not a hardcoded `main` (which finds nothing on a `develop`/`alpha`-based repo): `BASE=$(jq -r '(.topology.repos|to_entries[]|select(.value.path==".")|.key) as $h|.topology.repos[$h].baseBranch // "main"' .claude/second-shift.config.json 2>/dev/null || echo main); git diff "$BASE..HEAD"`. Collect the changed FE-app style/component files (per the reference's app dir(s)).
 2. **Read the repo's design-system reference** (`.claude/second-shift/design-tokens/*.md`) for the surface(s) in the diff — the spacing/palette/type token roles and the component catalog. If absent, infer from surrounding code and say so.
 3. **Look for an approved FE spec / Copy Index** — a path passed in your prompt, or a `*-fe-spec.md` under a `specs/` directory matching the changed feature (`Glob`/`Grep`). If found, read its Copy Index for the conditional copy-drift check. If not, note that copy fidelity is unverified.
 4. Apply the **shared** rules to all surfaces; apply **surface-specific** rules per the reference (fixed-theme lookup vs branded "always abstract").

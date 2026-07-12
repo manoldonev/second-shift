@@ -17,7 +17,7 @@ If neither supplies a category→doc map, fall back to grepping the repo's decla
 
 ## Step 7.A: Identify changed code areas
 
-Run `git diff main...HEAD --stat` (or `git diff --stat` for uncommitted) and classify each changed path into a **conceptual code-area category** — API endpoints / DTOs, business logic, database schema, background workers, ML / algorithm services, frontend, shared types, decision / domain-constant docs, and so on. Derive the path → category mapping from the repo's own layout as declared in its `CLAUDE.md` (its stack / module / directory sections); do not assume a fixed directory tree. The **"Example (acme's map)"** block below shows one repo's concrete path → category table.
+Run `git diff "$BASE_REF...HEAD" --stat` (or `git diff --stat` for uncommitted), where `$BASE_REF` is the **configured base branch** resolved as in Step 7.C (the host repo's `topology.repos.<host>.baseBranch`, default `main`) — a hardcoded `main` silently yields an empty candidate set on a develop/alpha-based repo. Classify each changed path into a **conceptual code-area category** — API endpoints / DTOs, business logic, database schema, background workers, ML / algorithm services, frontend, shared types, decision / domain-constant docs, and so on. Derive the path → category mapping from the repo's own layout as declared in its `CLAUDE.md` (its stack / module / directory sections); do not assume a fixed directory tree. The **"Example (acme's map)"** block below shows one repo's concrete path → category table.
 
 ## Step 7.B: Look up affected docs
 
@@ -34,11 +34,18 @@ Whatever the source, the output of this step is a set of candidate doc paths key
 Before dispatching LLM reasoning in Step 7.D, narrow the candidate-doc set with a filesystem grep on the basenames of files changed in Stage 5. This shrinks the set the model reasons over to the docs that textually reference touched files.
 
 ```bash
+# Base ref: the host repo's configured base branch (topology.repos.<host>.baseBranch),
+# NOT a hardcoded "main" — on a develop/alpha-based repo `main...HEAD` is empty and this
+# step silently reports "0 candidates". (Advisory step; a mainline base over-reports
+# harmlessly on stacked slices, whereas a wrong literal under-reports to nothing.)
+CFG="${SECOND_SHIFT_CONFIG:-.claude/second-shift.config.json}"
+BASE_REF="$(jq -r '(.topology.repos | to_entries[] | select(.value.path==".") | .key) as $h | .topology.repos[$h].baseBranch // "main"' "$CFG" 2>/dev/null || echo main)"
+
 # 1. Extract basenames of changed files.
 #    `while IFS= read -r` handles any path safely (including hypothetical whitespace);
-#    `main...HEAD` matches Step 7.A's local-ref form so both steps see the same scope.
+#    `$BASE_REF...HEAD` matches Step 7.A's ref form so both steps see the same scope.
 CHANGED_BASENAMES=$(
-  git diff --name-only main...HEAD \
+  git diff --name-only "$BASE_REF...HEAD" \
     | while IFS= read -r f; do basename "$f"; done \
     | sort -u
 )
