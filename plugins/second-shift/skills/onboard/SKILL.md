@@ -10,7 +10,8 @@ batch; anything unprovable and required is a written abort.
 
 Hard rules:
 - Never copy plugin content (skills/agents/hooks) into the consumer repo. You emit config,
-  a settings block, a lockfile — nothing else (later versions add a thin doctor hook + consent doc).
+  a settings block, a lockfile, and the thin presence-check + its SessionStart hook (the
+  sanctioned no-vendoring exception: it verifies plugin presence, it is not plugin content).
 - Never ask the human to type or open a plugin-cache path.
 - Never weaken a failing config-lint: fix the config until the lint is green.
 - All example values you print must be the repo's real detected values; placeholders only
@@ -127,6 +128,16 @@ Exactly the lockfile schema v1 (the contract /second-shift:doctor and consumer C
 `plugins` = the pin-resolve `plugins` map verbatim — exact plugin.json versions AT the
 pinned ref, never local cache values. `design-toolkit` appears only when accepted.
 
+Also emit the thin check (presence-verification, the sanctioned no-vendoring exception):
+1. Copy `${CLAUDE_PLUGIN_ROOT}/templates/consumer/second-shift-doctor.sh` to
+   `.claude/tools/second-shift-doctor.sh` (create the dir; keep the executable bit).
+2. Merge into `.claude/settings.json` (same merge mechanics + .proposed fallback as Step 6):
+       "hooks": { "SessionStart": [ { "hooks": [ { "type": "command",
+         "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/tools/second-shift-doctor.sh\"",
+         "timeout": 10 } ] } ] }
+   MERGE rule: if a SessionStart array already exists, APPEND the entry — never replace.
+3. Tell the human these two files get committed with the config + lockfile.
+
 ## Step 8 — Verify and hand off
 1. Run `claude plugin list` and `claude plugin marketplace list --json`, and check the
    second-shift marketplace registration: if a USER-scope registration of `second-shift`
@@ -152,4 +163,4 @@ pinned ref, never local cache values. `design-toolkit` appears only when accepte
    branch-identity derivation); the bot/labels wall was already handled in Step 3 for the
    github tracker; run `/dev-pipeline:run <ticket>`.
 6. Remind: commit `.claude/settings.json`, `.claude/second-shift.config.json`,
-   `.claude/second-shift.lock.json` in one PR.
+   `.claude/second-shift.lock.json`, and `.claude/tools/second-shift-doctor.sh` in one PR.
