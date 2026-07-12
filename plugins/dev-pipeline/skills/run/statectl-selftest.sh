@@ -535,6 +535,32 @@ else
   fail "(va4) verify-attempts invalid class — rc=$rc err='$err'"
 fi
 
+# (va5) verify-attempts --repo: the be-fe-pair per-repo counter is additive —
+# independent of the flat top-level counter and of other repos (#4/#5).
+fe1=$(sct verify-attempts 9999 --repo fe --incr TYPE_ERROR)
+fe2=$(sct verify-attempts 9999 --repo fe --incr TYPE_ERROR)
+be1=$(sct verify-attempts 9999 --repo be --incr TYPE_ERROR)
+flat=$(sct get 9999 '.verifyAttempts.TYPE_ERROR')          # from va1/va2 = 2, must be untouched
+fe_stored=$(sct get 9999 '.worktrees.fe.verifyAttempts.TYPE_ERROR')
+if [[ "$fe1" == "1" && "$fe2" == "2" && "$be1" == "1" && "$fe_stored" == "2" && "$flat" == "2" ]]; then
+  pass "(va5) verify-attempts --repo: per-repo counters independent; flat counter untouched"
+else
+  fail "(va5) verify-attempts --repo — fe=$fe1/$fe2 be=$be1 fe_stored=$fe_stored flat=$flat"
+fi
+
+# (ws-repo) worktree-set --repo: per-repo boundary fields land at worktrees.<repo>.*
+# (worktreePath/branch/base); the flat worktreePath is NOT written (additive). The FE
+# worktreePath is repo-relative to the HOST root (leading ../) and passes the path guard.
+reset_state
+sct init 9999 --run-id "selftest-run-$$" >/dev/null
+sct worktree-set 9999 --repo fe --path "../acme-web-wt/fe-9999" --branch "claude/acme-9999" --base main >/dev/null
+wp=$(sct get 9999 '.worktrees.fe.worktreePath'); wb=$(sct get 9999 '.worktrees.fe.base'); flatwp=$(sct get 9999 '.worktreePath')
+if [[ "$wp" == "../acme-web-wt/fe-9999" && "$wb" == "main" && "$flatwp" == "null" ]]; then
+  pass "(ws-repo) worktree-set --repo: per-repo map entry set; flat worktreePath untouched"
+else
+  fail "(ws-repo) worktree-set --repo — wp='$wp' base='$wb' flat='$flatwp'"
+fi
+
 # (psa6) pipeline-session-add: a synthetic RUN_ID-derived id (the old, never-matching
 # format) is rejected — regression guard for the cost-tracking session-id mismatch bug.
 err=$(sct_err pipeline-session-add 9999 --session-id "2026-06-08T214945Z-Mac-edf895c0-slice1-stage2")
