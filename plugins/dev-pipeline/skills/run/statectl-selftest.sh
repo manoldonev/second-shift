@@ -561,6 +561,17 @@ else
   fail "(ws-repo) worktree-set --repo — wp='$wp' base='$wb' flat='$flatwp'"
 fi
 
+# (trs1) target-repos-set: persists the space-separated repo ids as an array (#4).
+reset_state
+sct init 9999 --run-id "selftest-run-$$" >/dev/null
+out=$(sct target-repos-set 9999 --repos "be fe")
+stored=$(sct get 9999 '.targetRepos // [] | join(",")')
+if [[ "$out" == '["be","fe"]' && "$stored" == "be,fe" ]]; then
+  pass "(trs1) target-repos-set: 'be fe' -> array echoed and stored"
+else
+  fail "(trs1) target-repos-set — out='$out' stored='$stored'"
+fi
+
 # (psa6) pipeline-session-add: a synthetic RUN_ID-derived id (the old, never-matching
 # format) is rejected — regression guard for the cost-tracking session-id mismatch bug.
 err=$(sct_err pipeline-session-add 9999 --session-id "2026-06-08T214945Z-Mac-edf895c0-slice1-stage2")

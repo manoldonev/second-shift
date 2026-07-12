@@ -200,6 +200,34 @@ cmd_state_path() {
   state_path "$key"
 }
 
+# `target-repos-set <issue> --repos "be fe"` — be-fe-pair (#4): persist the
+# resolved target repo ids (Stage 1 Step 1.T) as an array, so Stage 2 and the
+# downstream per-repo stages loop over them without re-deriving from the ticket
+# title. Additive: only a be-fe-pair run writes it; single-repo runs never call it.
+cmd_target_repos_set() {
+  local key="${1:-}"; shift || true
+  local repos="" force=0
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --repos) repos="${2:-}"; shift 2 ;;
+      --force) force=1; shift ;;
+      *) EXIT_CODE=3 die "target-repos-set: unknown arg '$1'" ;;
+    esac
+  done
+  [[ -n "$key" && -n "$repos" ]] \
+    || { EXIT_CODE=3 die "target-repos-set: usage: target-repos-set <issue> --repos \"be fe\""; }
+  local current now new_state
+  current=$(read_state "$key") || exit $?
+  require_mutable "$current" "$force" "target-repos-set"
+  now=$(now_iso)
+  new_state=$(jq --arg now "$now" --arg repos "$repos" '
+    .targetRepos = ($repos | split(" ") | map(select(length > 0)))
+    | .lastUpdatedAt = $now
+  ' <<< "$current") || { EXIT_CODE=2 die "target-repos-set: jq mutation failed"; }
+  atomic_write "$key" "$new_state"
+  jq -c '.targetRepos' <<< "$new_state"
+}
+
 # Write atomically via writer-suffixed tmp file.
 # $1 = issue number, $2 = new JSON content
 atomic_write() {
@@ -1732,6 +1760,7 @@ main() {
     init)                   cmd_init "$@" ;;
     get)                    cmd_get "$@" ;;
     state-path)             cmd_state_path "$@" ;;
+    target-repos-set)       cmd_target_repos_set "$@" ;;
     set-stage)              cmd_set_stage "$@" ;;
     checkpoint)             cmd_checkpoint "$@" ;;
     worktree-set)           cmd_worktree_set "$@" ;;
