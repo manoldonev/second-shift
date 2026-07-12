@@ -14,7 +14,8 @@ All extension files sit under the consumer repo's `.claude/second-shift/` direct
 | --- | --- | --- |
 | `.claude/second-shift/blocker-mutants.md` | unit-test-mutation-reviewer, unit-test-plan-reviewer | Domain-specific blocker-class mutants (e.g. "account-scope filter removed", "financial rounding guard flipped") appended to the generic blocker list |
 | `.claude/second-shift/security-rules.md` | security-reviewer | Domain security review rules (tenancy invariants, credential-handling rules, permission-set ↔ OAuth-scope mapping requirements) |
-| `.claude/second-shift/review-context.md` | review-lead (handed to all reviewers); **db-reviewer** reads its database-stack section | Repo-wide review context: architectural invariants, deliberate deviations, known-accepted patterns. **Database stack** (engine, ORM/ODM/driver, schema/model + data-access globs, migration tooling, special capabilities like vector search) — db-reviewer is engine-agnostic and applies its checks in the terms this section declares (e.g. Drizzle+Postgres vs MongoDB); absent = db-reviewer infers the stack and lowers confidence |
+| `.claude/second-shift/review-context.md` | every panel reviewer + review-lead (each self-loads it) | Repo-wide review context: stack orientation, maturity/severity calibration, architectural invariants, known-accepted patterns, and an ownership table pointing at the docs that own enumerable values. **Database stack** (engine, ORM/ODM/driver, schema/model + data-access globs, migration tooling, special capabilities like vector search) — db-reviewer applies its checks in the terms this section (or `review-context/db-reviewer.md`) declares; absent = db-reviewer infers the stack and lowers confidence |
+| `.claude/second-shift/review-context/<reviewer-name>.md` | exactly that reviewer (self-loaded after the shared file) | Per-reviewer repo rules: severity examples, what-not-to-flag lists, stack resolutions only that reviewer consumes. Basename must be a reviewer in the effective registry — linted fail-closed by `review-toolkit/scripts/check-review-context.sh` (review-lead pre-flight) on top of the manifest glob |
 | `.claude/second-shift/doc-routing.md` | dev-pipeline `doc-update` (Stage-7 protocol), review-toolkit `doc-updater` | Change-category → doc-path routing map: for each conceptual code-area category (API/endpoint, DB schema, background worker, decision/domain-constant, frontend, …) the doc(s) that document it, plus which reviewer agents restate those constants. Supplements the repo's `CLAUDE.md` context router when a specific-enough category→doc map is wanted. Absent = fall back to CLAUDE.md's declared doc roots + basename grep |
 | `.claude/second-shift/design-tokens/*.md` | design-toolkit `design-faithful`, `figma-faithful`, `figma-faithful-spec` skills + `design-faithful-reviewer` / `figma-faithful-reviewer` / `figma-faithful-plan-reviewer` | Design-system reference: component catalog, token roles + arithmetic, primitives package, known-good analogs. May declare **multiple surfaces** (fixed-theme value tables vs a branded/host-relative surface) so the plugin stays surface-agnostic |
 | `.claude/agents/*.md` + config `reviewers.add` | review-lead registry | Whole domain reviewers (e.g. an orders-reviewer); dimensions declared in config for routing/dedup |
@@ -22,6 +23,18 @@ All extension files sit under the consumer repo's `.claude/second-shift/` direct
 | `findings.md`, `CLAUDE.md` | session start / all agents | As before — the plugins respect but never require them |
 
 Each consuming agent's prompt declares its extension files explicitly ("if `.claude/second-shift/security-rules.md` exists, load it and treat its rules as additive — they never weaken the generic protocol"). Extensions are **additive-only**: they cannot disable generic checks (use config `reviewers.remove` / `gates` for that — auditable in one file).
+
+## Placement: shared file, per-reviewer file, or standalone?
+
+- **Single-consumer prose** (rules exactly one reviewer uses) → `review-context/<reviewer-name>.md`.
+- **Multi-consumer contracts** (read by several agents or by tools — `security-rules.md` has three plugin consumers, `blocker-mutants.md` four) → their own standalone well-known file.
+- **Cross-cutting calibration** (maturity stage, severity ladders every reviewer needs to triage) → the shared `review-context.md` core.
+
+Authoring litmus questions for the shared core (keep it small — owned facts point, they don't restate):
+
+1. Is this an enumerable value a tool or config could ever own? → it belongs to that owner; the core gets a pointer row.
+2. Does exactly one reviewer consume it? → per-reviewer file.
+3. Would EVERY reviewer mis-triage without it? → core. Otherwise it is probably a per-reviewer rule.
 
 ## Cross-cutting tool contracts
 

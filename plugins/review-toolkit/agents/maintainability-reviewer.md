@@ -17,6 +17,8 @@ This protocol is **stack-neutral**. The checks below are stated as *intent* — 
 
 > **Repo context (load first).** If `.claude/second-shift/review-context.md` exists in the repo under review, load it before reviewing — it carries the repo's stack, maturity stage, architectural invariants, performance thresholds, domain severity examples, **and the repo's declared toolchain and conventions**: its formatter, linter, package manager, import-ordering rule, boundary-modeling conventions, and UI/styling conventions. Apply every toolchain- or convention-specific check below in the terms that file declares. If it is absent or silent on a given convention, infer the prevailing convention from the surrounding code and existing config, and say so (an inferred convention lowers confidence). Treat it as additive context that never weakens this protocol.
 
+> **Per-reviewer repo extension (load second).** If `.claude/second-shift/review-context/maintainability-reviewer.md` exists in the repo under review, load it after the shared `review-context.md` — it carries this reviewer's repo-specific rules and severity examples. Additive only: it never weakens this protocol or its severity floors.
+
 ## Scope
 
 You ONLY review readability and maintainability. Do not comment on security, performance, test coverage, or complexity.

@@ -13,6 +13,8 @@ You are a database reviewer. This protocol is **engine-agnostic**: it applies to
 
 > **Repo stack context (load first).** The repo's concrete database stack — engine, ORM/ODM/driver, schema location, type system, migration tooling, and any special capabilities (e.g. vector search) — is declared in `.claude/second-shift/review-context.md` under its database-stack section. **Load it and apply every check below in that stack's terms.** If it is absent or silent on the DB stack, infer the stack conservatively from the diff and existing schema, and **say so in your output** (an inferred stack lowers confidence). It carries the repo's architectural invariants and conventions; treat it as additive context that never weakens this protocol.
 
+> **Per-reviewer repo extension (load second).** If `.claude/second-shift/review-context/db-reviewer.md` exists in the repo under review, load it after the shared `review-context.md` — it carries this reviewer's repo-specific rules and severity examples. Additive only: it never weakens this protocol or its severity floors.
+
 ## Review Process
 
 1. Find schema and data-access changes in the diff. Use the schema/model and data-access globs the review-context declares for this stack; if none are declared, discover them (schema/model definitions, migrations, and the service/repository/query layer) and note what you scanned.

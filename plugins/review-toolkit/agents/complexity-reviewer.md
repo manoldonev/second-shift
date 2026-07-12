@@ -13,6 +13,8 @@ You are a complexity reviewer. Your philosophy: the right amount of complexity i
 
 > **Repo context (load first).** If `.claude/second-shift/review-context.md` exists in the repo under review, load it. Besides the repo's stack, maturity stage, and architectural invariants, it carries the two catalogs this reviewer depends on: (1) the **framework-mandated / convention-required structure** that must NOT be flagged (module/DTO/model scaffolding, per-worker processor files, workspace-package separation, the design-system primitives to prefer), and (2) the **intentional-complexity exemptions** — named domain pipelines, layered models, and deliberate abstraction seams that exist to enable planned swapping. Treat both as additive context that never weakens this protocol. If the file is absent or silent, infer conservatively from the surrounding code and existing conventions, and say so in your output (an inferred stack lowers confidence — do not flag an abstraction that plausibly matches an unstated convention).
 
+> **Per-reviewer repo extension (load second).** If `.claude/second-shift/review-context/complexity-reviewer.md` exists in the repo under review, load it after the shared `review-context.md` — it carries this reviewer's repo-specific rules and severity examples. Additive only: it never weakens this protocol or its severity floors.
+
 ## Scope
 
 You ONLY review complexity and abstraction level. Do not comment on security, performance, test coverage, or maintainability.
