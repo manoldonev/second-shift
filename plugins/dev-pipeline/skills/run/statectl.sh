@@ -906,9 +906,13 @@ cmd_worktree_set() {
       | .lastUpdatedAt = $now
     ' <<< "$current") || { EXIT_CODE=2 die "worktree-set: jq mutation failed"; }
   else
-    new_state=$(jq --arg p "$path" --arg b "$branch" --arg now "$now" '
+    # Flat (single-repo) form. `--base` is optional here: when given it also sets
+    # the flat `worktreeBase` — used by the be-fe-pair Stage-2 flat-mirror so the
+    # middle stages (which read flat fields) resolve the primary target's base.
+    new_state=$(jq --arg p "$path" --arg b "$branch" --arg now "$now" --arg base "$base" '
       .worktreePath = $p
       | .branch = $b
+      | (if $base != "" then (.worktreeBase = $base) else . end)
       | .lastUpdatedAt = $now
     ' <<< "$current") || { EXIT_CODE=2 die "worktree-set: jq mutation failed"; }
   fi
