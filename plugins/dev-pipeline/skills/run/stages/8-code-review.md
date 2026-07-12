@@ -191,6 +191,48 @@ A code-remediable blocker (the diff can be fixed) is unaffected — it stays in 
 
 **State:** Write the review counters via `statectl` — clean path: `statectl.sh review-rounds "$ISSUE" --set "$ROUND"` (round count 1–3); exhaustion: `--set 3 --exhausted`. The `--exhausted` flag is additive-only — the subcommand never writes `codeReviewExhausted: false`, so a later plain `--set` cannot reset a recorded exhaustion.
 
+### be-fe-pair dual-target: secondary-repo review (`.targetRepos` has more than one repo, #48)
+
+The main loop above reviews the **primary** target (the flat-mirror worktree that `.worktreePath` points at) exactly as any single-target run does. On a **dual `[BE]+[FE]` ticket** every OTHER target repo is also reviewed here, before Stage 9 — the secondary repo's diff must not ship unreviewed. **Skip this entire subsection** when `.targetRepos` has fewer than two entries (every single-target pair and every non-pair topology — the primary review above was the whole job).
+
+For each repo id in `.targetRepos` that is not the primary:
+
+```bash
+PRIMARY_WT_REL="$(statectl.sh get "$ISSUE_NUMBER" '.worktreePath')"
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+if [[ "$(statectl.sh get "$ISSUE_NUMBER" '.targetRepos // [] | length')" -gt 1 ]]; then
+  while IFS= read -r r; do
+    R_WT_REL="$(statectl.sh get "$ISSUE_NUMBER" ".worktrees.\"$r\".worktreePath")"
+    [[ "$R_WT_REL" == "$PRIMARY_WT_REL" ]] && continue   # the primary was reviewed by the main loop above
+    R_WT="$REPO_ROOT/$R_WT_REL"
+    R_BASE="$(statectl.sh get "$ISSUE_NUMBER" ".worktrees.\"$r\".base")"
+    R_HEAD="$(git -C "$R_WT" rev-parse HEAD)"
+    R_MB="$(git -C "$R_WT" merge-base HEAD "origin/$R_BASE" 2>/dev/null || git -C "$R_WT" merge-base HEAD "$R_BASE")"
+    # Clean-worktree assertion — a review over the committed state while uncommitted work is
+    # invisible is misleading; hard stop, never a silent skip.
+    if ! { git -C "$R_WT" diff --quiet && git -C "$R_WT" diff --cached --quiet; }; then
+      echo "[stage-8] FAIL: '$r' worktree is dirty — commit/stash/discard before resuming." >&2
+      exit 1
+    fi
+    # No diff on this repo's branch ⇒ nothing to review; record the skip and move on.
+    if [[ -z "$(git -C "$R_WT" diff --name-only "$R_MB..$R_HEAD")" ]]; then
+      statectl.sh skipped-review-add "$ISSUE_NUMBER" --repo "$r" --reason "no changes on this repo's branch"
+      continue
+    fi
+    # Otherwise REVIEW IT IN-SESSION: run the SAME Workflow fan-out (workflows/code-review.mjs)
+    # scoped to THIS worktree's diff — WORKTREE=$R_WT, BASE=$R_MB, HEAD=$R_HEAD. review-lead
+    # Reviewer Routing selects reviewers from the diff exactly as for the primary (the
+    # design/FE reviewers auto-select when the diff touches UI surfaces per config
+    # `design.provider`); synthesize in-session per review-toolkit:review-lead. A surviving
+    # blocker/major loops the fix-and-re-run cycle on THIS worktree before proceeding (same
+    # 3-round cap as the primary). Then record the outcome:
+    statectl.sh cross-boundary-review-add "$ISSUE_NUMBER" --repo "$r" --status completed-in-session
+  done < <(statectl.sh get "$ISSUE_NUMBER" '.targetRepos // [] | .[]' 2>/dev/null | tr -d '"')
+fi
+```
+
+**Non-blocking handoff fallback.** When a secondary repo genuinely cannot be reviewed in this session (its reviewer set is unresolvable, or an interactive-only constraint applies), record a **pending handoff** instead of the in-session review — `statectl.sh cross-boundary-review-add "$ISSUE_NUMBER" --repo "$r" --status pending --worktree "$R_WT_REL" --base "$R_MB" --head "$R_HEAD" --note "run review-lead in this repo's own session"`. Stage 9 already surfaces pending handoffs as PR "review pending" bullets. Either outcome — an in-session `completed-in-session` review, a `pending` handoff, or a `skippedReviews` no-diff record — satisfies the Stage-8 completion precondition for that repo (the escape hatch added in #48 Phase 1), so the run reaches Stage 9 with every target repo accounted for.
+
 ---
 
 _Stage 8 of the [dev-pipeline](../SKILL.md) flow. Return to the router for cross-stage contracts (Invocation Routing, Failure Contract, State Persistence, etc.)._

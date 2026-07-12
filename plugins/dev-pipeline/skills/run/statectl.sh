@@ -998,6 +998,91 @@ cmd_pr_add() {
   atomic_write "$key" "$new_state"
 }
 
+cmd_cross_boundary_review_add() {
+  # be-fe-pair DUAL-target (#48): record a Stage-8 review outcome for a SECONDARY
+  # target repo — either an in-session review (status completed-in-session) or a
+  # non-blocking handoff (status pending, carrying the boundary so a later session can
+  # run the review). Appends to .crossBoundaryReviews[]; a repeat --repo overwrites that
+  # repo's entry (idempotent on retry). A non-empty array satisfies the Stage-8
+  # completion precondition on its own (the primary repo still records codeReviewRounds).
+  #
+  # Usage: cross-boundary-review-add <issue> --repo <id> --status <completed-in-session|pending>
+  #        [--worktree <p>] [--base <sha>] [--head <sha>] [--note <s>]
+  local key="${1:-}"; shift || true
+  local repo="" status="" wt="" base="" head="" note="" force=0
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --repo)     repo="${2:-}"; shift 2 ;;
+      --status)   status="${2:-}"; shift 2 ;;
+      --worktree) wt="${2:-}"; shift 2 ;;
+      --base)     base="${2:-}"; shift 2 ;;
+      --head)     head="${2:-}"; shift 2 ;;
+      --note)     note="${2:-}"; shift 2 ;;
+      --force)    force=1; shift ;;
+      *) EXIT_CODE=3 die "cross-boundary-review-add: unknown arg '$1'" ;;
+    esac
+  done
+  [[ -n "$key" && -n "$repo" && -n "$status" ]] \
+    || { EXIT_CODE=3 die "cross-boundary-review-add: missing <issue>, --repo, or --status"; }
+  case "$status" in
+    completed-in-session|pending) : ;;
+    *) EXIT_CODE=3 die "cross-boundary-review-add: --status must be completed-in-session|pending (got '$status')" ;;
+  esac
+  # A pending handoff must carry the boundary so a later session can run the review.
+  if [[ "$status" == "pending" ]]; then
+    [[ -n "$wt" && -n "$base" && -n "$head" ]] \
+      || { EXIT_CODE=3 die "cross-boundary-review-add: a pending handoff requires --worktree, --base and --head"; }
+  fi
+  local current now new_state
+  current=$(read_state "$key") || exit $?
+  require_mutable "$current" "$force" "cross-boundary-review-add"
+  now=$(now_iso)
+  new_state=$(jq --arg r "$repo" --arg s "$status" --arg wt "$wt" --arg base "$base" --arg head "$head" --arg note "$note" --arg now "$now" '
+    .crossBoundaryReviews = ((.crossBoundaryReviews // []) | map(select(.repo != $r)))
+      + [ ( { repo: $r, status: $s }
+            + (if $wt   != "" then {worktreePath: $wt} else {} end)
+            + (if $base != "" then {baseSha: $base} else {} end)
+            + (if $head != "" then {headSha: $head} else {} end)
+            + (if $note != "" then {note: $note} else {} end)
+            + (if $s == "pending" then {handoffEmittedAt: $now} else {} end) ) ]
+    | .lastUpdatedAt = $now
+  ' <<< "$current") || { EXIT_CODE=2 die "cross-boundary-review-add: jq mutation failed"; }
+  atomic_write "$key" "$new_state"
+  jq -c '.crossBoundaryReviews' <<< "$new_state"
+}
+
+cmd_skipped_review_add() {
+  # be-fe-pair DUAL-target (#48): record that a target repo's Stage-8 review was neither
+  # performed in-session nor handed off (e.g. no diff to review, or no reviewer
+  # resolvable). Appends to .skippedReviews[]; a repeat --repo overwrites. A non-empty
+  # array satisfies the Stage-8 completion precondition on its own.
+  #
+  # Usage: skipped-review-add <issue> --repo <id> --reason <s>
+  local key="${1:-}"; shift || true
+  local repo="" reason="" force=0
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --repo)   repo="${2:-}"; shift 2 ;;
+      --reason) reason="${2:-}"; shift 2 ;;
+      --force)  force=1; shift ;;
+      *) EXIT_CODE=3 die "skipped-review-add: unknown arg '$1'" ;;
+    esac
+  done
+  [[ -n "$key" && -n "$repo" && -n "$reason" ]] \
+    || { EXIT_CODE=3 die "skipped-review-add: missing <issue>, --repo, or --reason"; }
+  local current now new_state
+  current=$(read_state "$key") || exit $?
+  require_mutable "$current" "$force" "skipped-review-add"
+  now=$(now_iso)
+  new_state=$(jq --arg r "$repo" --arg reason "$reason" --arg now "$now" '
+    .skippedReviews = ((.skippedReviews // []) | map(select(.repo != $r)))
+      + [ { repo: $r, reason: $reason } ]
+    | .lastUpdatedAt = $now
+  ' <<< "$current") || { EXIT_CODE=2 die "skipped-review-add: jq mutation failed"; }
+  atomic_write "$key" "$new_state"
+  jq -c '.skippedReviews' <<< "$new_state"
+}
+
 cmd_review_rounds() {
   # Persist the Stage 8 review counters atomically. `--set` is mandatory on
   # every write (clean path and exhaustion path both record the round count);
@@ -1908,6 +1993,8 @@ main() {
     build-failure-context)  cmd_build_failure_context "$@" ;;
     build-checkpoint-7)     cmd_build_checkpoint_7 "$@" ;;
     build-checkpoint-7-perrepo) cmd_build_checkpoint_7_perrepo "$@" ;;
+    cross-boundary-review-add) cmd_cross_boundary_review_add "$@" ;;
+    skipped-review-add)     cmd_skipped_review_add "$@" ;;
     *) EXIT_CODE=3 die "unknown subcommand: '$subcmd'" ;;
   esac
 }
