@@ -24,6 +24,7 @@ draft-PR metadata, not the ticket.
 | --- | --- | --- |
 | **pickup** — select the next unit of work | queue query (`gh issue list --label ready-for-dev`) then atomic claim ([`../claim-issue.sh`](../claim-issue.sh), label swap `ready-for-dev`→`in-progress`) | operator supplies the JIRA key; no queue, no claim |
 | **fetch-ticket** — load body + comments | `gh api repos/{o}/{r}/issues/$KEY` (+ `/comments`) | `mcp__atlassian__getJiraIssue` (+ remote links → `mcp__atlassian__getConfluencePage`) |
+| **preflight-read** — the read-only onboarding finish line's single tracker READ ([`../preflight.sh`](../preflight.sh), no claim) | `gh api repos/{o}/{r}/issues/$KEY` with a key; queue head via `gh issue list --label <queue>` without one | *SKIP-with-note* — the jira fetch is session-side MCP, unreachable from a shell tool |
 | **post-status-comment** — surface stage progress | REST comment via `$GH_BOT` (see SKILL.md Bot Identity) | *no-op* (`tracker.writes: false` — no JIRA comment mirror) |
 | **set-status** — advance the tracker’s own status | label swaps via `$GH_BOT` | *no-op* — operator moves the ticket manually after promoting the PR |
 | **create-sub-tickets** — decomposition into `sub-issues` | auto-create ≤5 sub-issues with `ready-for-dev`; parent → `epic` | present ≤5 sub-ticket specs to the operator; no JIRA writes |

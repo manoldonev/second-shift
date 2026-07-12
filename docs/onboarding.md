@@ -200,6 +200,8 @@ Three layers, in order:
    by `check-extensions.sh` against the shipped manifest (a typo'd extension filename is
    loud, never silently ignored).
 
+Then the read-only preflight — the onboarding finish line. `/second-shift:onboard` runs it as its final step; manually, resolve the dev-pipeline install path (`claude plugin list --json` → `.installPath`) and run `bash "<installPath>/skills/run/tools/preflight.sh"`. It echoes the resolved targets, runs the config gates and the environment doctor, performs one tracker READ (no claim), executes every non-null command lane once (source-mutating lanes are skipped with a note), and writes `.claude/pipeline-state/preflight-report.md` — zero tracker/git/remote mutations, so the first mutating contact happens only after everything else is proven green.
+
 Then a first run on a small, self-contained ticket:
 
 ```text
