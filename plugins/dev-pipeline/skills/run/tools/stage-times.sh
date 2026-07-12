@@ -15,7 +15,7 @@
 # (pauseSpans absent ⇒ []) effective == wall.
 #
 # Usage:
-#   bash .claude/skills/run/tools/stage-times.sh <issue-number>
+#   bash "${CLAUDE_PLUGIN_ROOT}/skills/run/tools/stage-times.sh" <issue-number>
 #
 # State location: mirrors statectl.sh state_dir()'s precedence exactly so a fixture
 # pointed at by $STATECTL_STATE_DIR is assertable through this tool:

@@ -1,5 +1,5 @@
 # OTel Collector config for dev-pipeline cost tracking.
-# Consumed by .claude/skills/run/pipeline-cost-block.sh (invoked
+# Consumed by the run skill's pipeline-cost-block.sh (invoked
 # in-band at Stage 9 of the dev-pipeline skill).
 #
 # Receives OTLP/gRPC on 4317 from Claude Code processes with
