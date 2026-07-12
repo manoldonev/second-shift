@@ -57,7 +57,7 @@ if [[ -n "$SLICE_BRANCH" && "$SLICE_BRANCH" != "null" ]]; then
   # (single source of truth with Stage 1 seeding — see tools/max-pushed-slice.sh).
   MAX_PUSHED=$(git ls-remote --heads origin "claude/acme-${ISSUE_NUMBER}*" 2>/dev/null \
     | awk '{print $2}' \
-    | bash tools/max-pushed-slice.sh "$ISSUE_NUMBER")
+    | bash "${CLAUDE_PLUGIN_ROOT}/skills/run/tools/max-pushed-slice.sh" "$ISSUE_NUMBER")
   if [[ -n "$CURRENT_SLICE" && "$CURRENT_SLICE" != "null" && "$CURRENT_SLICE" -gt $((MAX_PUSHED + 1)) ]]; then
     echo "[stage-2] STOP: persisted currentSlice=$CURRENT_SLICE is inconsistent with the remote branch set (highest pushed slice=$MAX_PUSHED). Slices $((MAX_PUSHED + 1))..$((CURRENT_SLICE - 1)) were never pushed — the state file is corrupt or hand-edited. Not overwriting slice state. Inspect .claude/pipeline-state/${ISSUE_NUMBER}.json and the open PR set, then re-run." >&2
     # Autonomous abort: do not claim/overwrite; stop emitting tool calls (rc=0).

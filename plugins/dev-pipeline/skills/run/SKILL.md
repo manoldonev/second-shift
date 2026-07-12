@@ -102,7 +102,7 @@ fi
 if [[ ! -x "$GH_BOT" ]]; then
   echo "[pre-flight] FAIL: bot wrapper missing or non-executable at $GH_BOT" >&2
   echo "[pre-flight]   Bootstrap it with a freshly downloaded App private key:" >&2
-  echo "[pre-flight]   bash tools/install-gh-bot.sh <private-key.pem>" >&2
+  echo "[pre-flight]   bash \"${CLAUDE_PLUGIN_ROOT}/skills/run/tools/install-gh-bot.sh\" <private-key.pem>" >&2
   exit 1
 fi
 
@@ -134,7 +134,7 @@ for l in "${REQUIRED_LABELS[@]}"; do
 done
 if (( ${#MISSING[@]} > 0 )); then
   echo "[pre-flight] FAIL: required label(s) missing in repo: ${MISSING[*]}" >&2
-  echo "[pre-flight]   Create them (gh label create <name>) or run tools/pipeline-doctor.sh for the full check." >&2
+  echo "[pre-flight]   Create them (gh label create <name>) or run \"${CLAUDE_PLUGIN_ROOT}/skills/run/tools/pipeline-doctor.sh\" for the full check." >&2
   exit 1
 fi
 echo "[pre-flight] OK: bot wrapper present, all required labels exist."
@@ -222,8 +222,9 @@ $GH_BOT api -X POST "repos/{owner}/{repo}/issues/$ISSUE/comments" -F body=@"$BOD
 # ready-for-dev intact if the add did not apply (the silent-failed-add guard). Why
 # both the order and the confirm are load-bearing: see the Label-swap ordering rule
 # below. The helper takes the bot wrapper via $GH_BOT (so it is mockable — see
-# tools/claim-selftest.sh):
-bash tools/claim-issue.sh "$ISSUE"
+# tools/claim-selftest.sh). The helper ships in the plugin checkout, NOT the
+# de-vendored consumer repo — resolve it via ${CLAUDE_PLUGIN_ROOT}, never CWD-relative:
+bash "${CLAUDE_PLUGIN_ROOT}/skills/run/tools/claim-issue.sh" "$ISSUE"
 
 # Label/assignee verification (read) — REST, since `gh issue view --json` may be broken:
 gh api "repos/{owner}/{repo}/issues/$ISSUE" --jq '{labels: [.labels[].name], assignees: [.assignees[].login]}'
@@ -291,8 +292,9 @@ Combining them is how duplicate-post bugs happen: the inline `--body "$(...)"` p
 Git commits use the bot identity via [`tools/bot-commit.sh`](./tools/bot-commit.sh) — the gh wrapper covers API writes only and does NOT set git `user.name`/`user.email`, so a bare `git commit` silently commits as the operator (observed in a retro — 4 of 5 PR commits carried the user identity). The helper resolves `<appName>[bot]` + the bot's noreply email from config `tracker.bot` (caching the bot user id in the git common dir) and falls through to the repo default when the bot is disabled:
 
 ```bash
-# EVERY pipeline commit (plan, docs, implement fixes, quality pass) goes through this:
-bash tools/bot-commit.sh -C "$WT" -m "..."
+# EVERY pipeline commit (plan, docs, implement fixes, quality pass) goes through this
+# (helper ships in the plugin checkout — resolve via ${CLAUDE_PLUGIN_ROOT}, never CWD-relative):
+bash "${CLAUDE_PLUGIN_ROOT}/skills/run/tools/bot-commit.sh" -C "$WT" -m "..."
 ```
 
 ## State Tracking

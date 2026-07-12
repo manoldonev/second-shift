@@ -14,7 +14,7 @@ The plan gates — `plan-reviewer`, design FE-spec review (designDriven runs), u
    PLAN_DIR="$(jq -r '.paths.plansDir // "docs/plans"' "$SECOND_SHIFT_CONFIG" 2>/dev/null || echo "docs/plans")"
    PLAN_PAT="$(jq -r '.stageParams.planFilePattern // "{plansDir}/acme-{issueKey}{slice}.md"' "$SECOND_SHIFT_CONFIG" 2>/dev/null || echo "{plansDir}/acme-{issueKey}{slice}.md")"
    PLAN_REL="$(printf '%s' "$PLAN_PAT" | sed -e "s|{plansDir}|$PLAN_DIR|" -e "s|{issueKey}|$ISSUE_NUMBER|" -e "s|{slice}|${SLICE_SUFFIX:-}|")"
-   LINT_STDERR="$(bash "tools/plan-lint.sh" \
+   LINT_STDERR="$(bash "${CLAUDE_PLUGIN_ROOT}/skills/run/tools/plan-lint.sh" \
      "$WORKTREE/$PLAN_REL" \
      "$MAIN_ROOT/.claude/pipeline-state/${ISSUE_NUMBER}.json" 2>&1 1>/dev/null)" || {
      statectl.sh mark-failed "$ISSUE_NUMBER" \

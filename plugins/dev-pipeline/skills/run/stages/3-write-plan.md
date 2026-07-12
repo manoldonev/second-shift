@@ -20,7 +20,7 @@
   git -C "$WORKTREE" add "$PLAN_REL"
   # bot-commit.sh resolves the bot git identity from config `tracker.bot` (a bare
   # `git commit` would silently commit as the operator — SKILL.md "Bot Identity").
-  bash tools/bot-commit.sh -C "$WORKTREE" -m "docs(dev-pipeline): plan for #${ISSUE_NUMBER}"
+  bash "${CLAUDE_PLUGIN_ROOT}/skills/run/tools/bot-commit.sh" -C "$WORKTREE" -m "docs(dev-pipeline): plan for #${ISSUE_NUMBER}"
   ```
 - **Required plan sections:**
   - Context / problem framing
@@ -44,7 +44,7 @@
   ```bash
   # State lives in the MAIN checkout; resolve it via git-common-dir from the worktree.
   MAIN_ROOT="$(dirname "$(cd "$(git -C "$WORKTREE" rev-parse --git-common-dir)" && pwd)")"
-  bash "tools/plan-lint.sh" \
+  bash "${CLAUDE_PLUGIN_ROOT}/skills/run/tools/plan-lint.sh" \
     "$WORKTREE/$PLAN_REL" \
     "$MAIN_ROOT/.claude/pipeline-state/${ISSUE_NUMBER}.json"
   ```
