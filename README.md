@@ -42,8 +42,6 @@ screen, and writes the config, the pinned settings block, and the lockfile — v
 `config-lint` in-loop. Install the plugins it lists, restart the session, then run it on a
 small ticket — autonomous is the only mode you need: `/dev-pipeline:run <ticket>`.
 
-> Requires marketplace release ≥ v2.1.0 (the release that ships the `second-shift` plugin).
-
 ```jsonc
 // What onboard writes (the config is still yours to edit) — .claude/second-shift.config.json
 {

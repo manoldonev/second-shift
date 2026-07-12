@@ -4,6 +4,32 @@ All notable changes to the second-shift marketplace. Versions are per-plugin (`p
 this file tracks the marketplace release. `configVersion` stays `const 1` — v2 is fully backward-compatible for a
 consumer with an empty config; the migration notes below are only for consumers using the changed features.
 
+## v2.1.6 — be-fe-pair: pair runs end-to-end (release)
+
+The be-fe-pair series (#4/#5, PRs 3–5 + flat-mirror) shipped as logic-only PRs with the version bump deferred
+to release, per the series convention. This section is that bump plus the deferred coverage.
+
+### `dev-pipeline` 2.1.3 → 2.1.4
+- **#4 PR 3 — Stage 2 per-repo worktree creation.** A pair ticket creates one worktree per target repo, each
+  cut from that repo's OWN `baseBranch` (BE `alpha` / FE `main` may differ) or the prior slice branch when
+  stacked, persisted via `worktree-set --repo`; new `statectl target-repos-set` persists Stage-1 routing as
+  `.targetRepos` (`(trs1)` selftest). Single-repo creation blocks are guarded to a no-op for pairs.
+- **#5 (PR 4) — per-repo verify, never a silent green.** `verifyctl run <issue> --repo <id>` keys the command
+  table, worktree, base ref, sidecar, and retry budget on `<id>`; `verify-summary-set --repo` writes
+  `worktrees.<id>.verifySummary`; the Stage-6 completion precondition requires a per-repo summary for EVERY
+  target — a repo whose verify never ran cannot complete the stage. `--repo` omitted = byte-for-byte the prior
+  single-repo path.
+- **#4 PR 5 — Stage 9/10 pair-aware.** `statectl pr-add --repo` keys `.prs` by repo id (pair PRs share a
+  branch); Stage 9 pushes each target to ITS origin and opens the PR against ITS base with a per-repo freshness
+  gate; Stage 10 cleans up over the `worktrees` map.
+- **#4 — flat-mirror the primary target.** Stage 2 mirrors the primary target (host repo when it's a target,
+  else the first target) into the flat `worktreePath`/`worktreeBase` fields, so the middle stages (3/4/5/7/8)
+  run unchanged on it — the piece that makes a single-target pair run flow end-to-end.
+
+### `review-toolkit` 2.1.0 → 2.1.1
+- Selftest fixture in `check-review-context-selftest.sh` renamed to the generic `orders-reviewer` (canonical
+  example from review-lead's SKILL) — removes an org-traceable fixture name; test semantics unchanged.
+
 ## v2.1.5 — review-context per-reviewer split
 
 ### `review-toolkit` 2.0.2 → 2.1.0
@@ -13,7 +39,7 @@ consumer with an empty config; the migration notes below are only for consumers 
 ### `dev-pipeline` 2.1.2 → 2.1.3
 - **Extension manifest: `review-context/*.md` glob** added to `extension-manifest.txt` (+ selftest scenario) so the per-reviewer files pass config-lint. Consumers on cached manifests older than 2.1.3 can bridge with a `.known-extensions` line until they update.
 
-## v2.1.4 — consumer docs, July-2026 grade (in progress)
+## v2.1.4 — consumer docs, July-2026 grade
 
 Docs-only (no plugin content changed): the #18 docs pass merged with the onboarding program's Phase E — one
 rewrite, closing the last confirmed doc gaps.
@@ -38,7 +64,7 @@ rewrite, closing the last confirmed doc gaps.
   sanctioned second arrow (second-shift → dev-pipeline via installPath / pinned-ref contents API) and why
   `second-shift` is deliberately NOT in the CI grep's TOOLKITS list.
 
-## v2.1.3 — release contract: configVersion migrations + release discipline (in progress)
+## v2.1.3 — release contract: configVersion migrations + release discipline
 
 ### `dev-pipeline` 2.1.1 → 2.1.2
 - **config-lint learns the migration contract (issue #32).** `configVersion` errors now carry pointers instead
@@ -52,7 +78,7 @@ rewrite, closing the last confirmed doc gaps.
   map (≥ v2.1.193, append-only), doc-pin-example refresh — the v1.1.0 lesson), `docs/migrations/README.md`
   (the contract + the honest v2.0.0 history line), and the retroactive `docs/migrations/v1-to-v2.md`.
 
-## v2.1.2 — one blessed bundle + the consent doc (in progress)
+## v2.1.2 — one blessed bundle + the consent doc
 
 ### `second-shift` 1.0.0 → 1.1.0
 - **One blessed bundle + the consent doc (issue #31).** Onboard now also emits `.claude/SECOND-SHIFT.md`
@@ -62,11 +88,11 @@ rewrite, closing the last confirmed doc gaps.
   prompt. Docs now bless exactly one artifact (full suite at a pinned tag, design-toolkit sole conditional)
   with review-only as the single documented community-supported downgrade.
 
-## v2.1.1 — be-fe-pair: target routing (#4, PR 2, in progress)
+## v2.1.1 — be-fe-pair: target routing (#4, PR 2)
 
 ### `dev-pipeline` 2.1.0 → 2.1.1
 - **#4 — Stage 1 `targetRepos` routing + the multi-repo failure reasons.** Added `targetRepos-ambiguous` + `fe-repo-unreachable` to the `valid_failure_reason` closed enum (state-schema.md table → regenerated `statectl.sh` via `gen-statectl-validators.sh`; drift-check byte-match verified). New topology-gated Stage-1 **Step 1.T** (runs only for `topology.type: be-fe-pair`) resolves `TARGET_REPOS` from the fetched ticket **title** matched against each repo's `topology.repos.<id>.ticketTag` — a single tag → that repo, both tags → cross-repo (`"be fe"`), no recognizable tag → fail closed `targetRepos-ambiguous` (never guess); each target repo's `path` must be reachable in the session (`claude --add-dir`), else `fe-repo-unreachable`. `ticketTag` finally has readers (was dead config). Strictly additive — a `standalone`/`monorepo` consumer skips Step 1.T entirely. Per-repo worktree creation (Stage 2) lands in the next PR.
-## v2.1.0 — onboarding release: the marketplace writes its own consumer config (in progress)
+## v2.1.0 — onboarding release: the marketplace writes its own consumer config
 
 ### `second-shift` (new) 1.0.0
 - **New sixth plugin: the user-scope onboarding micro-plugin (issue #28).** `/second-shift:onboard` runs in the
@@ -94,14 +120,14 @@ rewrite, closing the last confirmed doc gaps.
   validation at the pinned ref; both the lint's unknown-top-level-keys check and the JSON schema
   (`additionalProperties: false`) rejected it before. New `valid-schema-key-standalone.json` fixture.
 
-## v2.0.10 — be-fe-pair foundation: additive per-repo state (#4/#5, PR 1 of 4, in progress)
+## v2.0.10 — be-fe-pair foundation: additive per-repo state (#4/#5, PR 1 of 4)
 
 First of a 4-PR series restoring full multi-repo (be-fe-pair) support to the generic core (the de-orging had collapsed it to single-repo). **Strictly additive and topology-gated** — no stage touched yet, so single-repo behavior is byte-for-byte unchanged.
 
 ### `dev-pipeline` 2.0.9 → 2.0.10
 - **statectl `worktree-set --repo <id>` / `verify-attempts --repo <id>`** — a `be-fe-pair` run persists boundary fields and the per-class retry budget **per repo** at `worktrees.<repoId>.{worktreePath, branch, base, verifyAttempts}`, rather than the flat top-level `worktreePath`/`branch`/`verifyAttempts`. With `--repo` omitted (every standalone/monorepo consumer) the flat fields are written exactly as before — the `worktrees` map is absent. New `(va5)`/`(ws-repo)` selftests assert per-repo independence and that the flat path is untouched; the generated-validator drift-check is unaffected (no new enums). Documented in state-schema.md ("be-fe-pair note"). Stages 1/2/6/7/9/10 that consume the map land in PRs 2–4.
 
-## v2.0.9 — docs hotfixes: onboarding path rot (in progress)
+## v2.0.9 — docs hotfixes: onboarding path rot
 
 ### `dev-pipeline` 2.0.8 → 2.0.9
 - **Docs/comment-only: stale pre-v2 paths purged from tool headers and executed docs.** The README quick-start's
@@ -118,7 +144,7 @@ First of a 4-PR series restoring full multi-repo (be-fe-pair) support to the gen
   states the history was not carried over. The stale `.claude/scripts/` hook paths in `hooks.md` are left for
   #14 (review-toolkit commit-gate rework) to avoid a collision.
 
-## v2.0.8 — generalization-audit fixes: JIRA scope-gate parity (in progress)
+## v2.0.8 — generalization-audit fixes: JIRA scope-gate parity
 
 Restores the JIRA-aware ticket fetch the vendored (pre-second-shift) skills carried — the generic reviewer had regressed to GitHub-only.
 
@@ -128,27 +154,27 @@ Restores the JIRA-aware ticket fetch the vendored (pre-second-shift) skills carr
 ### `review-toolkit` 2.0.1 → 2.0.2
 - **#16 — `agents/scope-completeness-reviewer.md`** Step 1 now tracker-branches the fetch (github `gh issue view` / jira Atlassian MCP `getJiraIssue` + `getJiraIssueRemoteIssueLinks`, `cloudId` via `getAccessibleAtlassianResources`), with the MCP tools added to the agent frontmatter and the BLOCKED verdict + description generalized from "GitHub issue" to "issue/ticket". Mirrors the vendored JIRA reviewer (capability parity).
 
-## v2.0.7 — generalization-audit fixes: config-aware doctor (in progress)
+## v2.0.7 — generalization-audit fixes: config-aware doctor
 
 ### `dev-pipeline` 2.0.6 → 2.0.7
 - **#17 (F05 + tracker-blindness + wrapperPath drift) — `pipeline-doctor.sh` read no config and was permanently red for every non-yarn / non-GitHub consumer.** node + yarn were unconditional hard FAILs (a JIRA/pnpm/poetry consumer failed prerequisites it never uses, masking real FAILs by inflating the count); the gh/bot/label sections ran regardless of tracker; the label set was hardcoded; and the bot-wrapper path ignored `tracker.bot.wrapperPath` (reader/prober drift vs claim-issue.sh). Doctor now loads the consumer config first: **node** stays a real probe (the Workflow gates `code-review.mjs`/`mutation-gate.mjs` need it), but **package managers are probed from the configured command table** (first word of each `commands.<host>.*` entry — a pnpm repo probes pnpm, a poetry repo probes poetry) instead of a hardcoded yarn; the **gh auth / feature-probe / bot-wrapper / required-label** sections gate on `tracker.type == github`; **required labels** read from `stageParams.requiredLabels`; and the bot wrapper honors `tracker.bot.wrapperPath`. Green on a pnpm-GitHub repo and a poetry-JIRA repo; red only for genuinely missing prerequisites.
 
-## v2.0.6 — generalization-audit fixes: config-driven format lane (in progress)
+## v2.0.6 — generalization-audit fixes: config-driven format lane
 
 ### `dev-pipeline` 2.0.5 → 2.0.6
 - **#12 (F06/F20 + dead `commands.format`) — the format lane was hardwired to prettier and imposed node/npx on every consumer, on every run.** `resolve_prettier` was the only formatter path (with a `npx --yes prettier@x` fallback), so a Python consumer got `npx prettier --write src/app.py` (FORMAT fail, budget-charged) and a no-node machine got rc-127 → INFRA → run kill even on a docs-only diff (the plan `.md` Stage 3 always commits reached npx prettier). Meanwhile `commands.<host>.format` was published, fixture-set, config-lint-validated — and read by nothing. Now `verifyctl` resolves `FORMAT_MODE` from `commands.<host>.format`: **string** → run it verbatim as the repo's own formatter (`black .`, `yarn format`; no node assumption; the command owns its scope); **null** → skip the format lane entirely (prettier + npx never run); **absent** → the documented scoped-prettier default (byte-for-byte prior behavior — the ONLY path needing node/npx). The INERT-lane prettier check now runs only in prettier mode, so a config/`null` consumer's inert docs run never reaches npx. New `(v12)`/`(v13)` selftests assert the config command runs verbatim (not prettier) and that `null` skips with `verifySummary.format: "skipped"`.
 
-## v2.0.5 — generalization-audit fixes: mutation-gate null-off semantics (in progress)
+## v2.0.5 — generalization-audit fixes: mutation-gate null-off semantics
 
 ### `dev-pipeline` 2.0.4 → 2.0.5
 - **#9 (F03) — null/absent `commands.<host>.testFile` / `unitTestScope` fell back to the acme yarn/`apps/api/src/**` literals, violating the schema's null=off contract.** The `//` operator mapped explicit-null AND absent to the acme literal, so a pytest consumer that left `testFile: null` per the schema got `yarn --cwd apps/api test tests/test_x.py` (rc 127 → every mutant INFRA → run halts), and a null `unitTestScope` scoped the diff to a nonexistent path (gate self-waives). Stage 5 now resolves both with `// empty`: null/absent `unitTestScope` ⇒ gate **OFF** (recorded, skipped); `unitTestScope` set but `testFile` null ⇒ **fail closed** (explicit config error, never a silent green or a hardcoded yarn). `mutation-gate.mjs` throws if executable mutants exist without a `testFileCommand` (defense-in-depth; dropped the `|| 'yarn …'` default). Genericized the Stage-3/4 prose gate rules to "the configured `unitTestScope` surface" (acme `apps/api/src/**` kept as illustration).
 
-## v2.0.4 — generalization-audit fixes: Stage-3/4 state-path resolution (in progress)
+## v2.0.4 — generalization-audit fixes: Stage-3/4 state-path resolution
 
 ### `dev-pipeline` 2.0.3 → 2.0.4
 - **#10 (F24) — Stage-4 plan gate ignored `paths.pipelineStateDir` + used the raw uppercase ticket key.** Stages 3 and 4 handed plan-lint the reconstructed literal `$MAIN_ROOT/.claude/pipeline-state/${ISSUE_NUMBER}.json`, but statectl honors `paths.pipelineStateDir` and lowercases the key — so for a Jira-keyed ticket (`AB-123`) or a custom state dir the real file is elsewhere, plan-lint exits "state file not found", and the run aborts spuriously with `plan-structure-invalid`. Added a read-only `statectl state-path <ticket>` subcommand (prints the resolved absolute path via the existing `state_path()`/`state_dir()` logic) and switched both plan-lint call sites to it. New `(sp1)` selftest asserts default dir, custom `pipelineStateDir`, Jira-key lowercasing, and the no-arg usage error. Outside statectl's generated validator region — drift-check unaffected.
 
-## v2.0.3 — generalization-audit fixes: residual base-branch literals (in progress)
+## v2.0.3 — generalization-audit fixes: residual base-branch literals
 
 Residual `main` base-branch literals off the C1 critical path — silent no-ops and rubric noise on non-`main`-based consumers.
 
@@ -162,13 +188,13 @@ Residual `main` base-branch literals off the C1 critical path — silent no-ops 
 ### `design-toolkit` 2.0.0 → 2.0.1
 - **#13 — `agents/figma-faithful-reviewer.md`** `git diff main..HEAD` now resolves the configured base branch from repo-local config (default `main`).
 
-## v2.0.2 — generalization-audit fixes: base/prefix generalization (Wave 1, in progress)
+## v2.0.2 — generalization-audit fixes: base/prefix generalization (Wave 1)
 
 ### `dev-pipeline` 2.0.1 → 2.0.2
 
 - **#8 — executed stage bash hardcoded `main` + `claude/acme-` despite config `baseBranch`/`branchPrefix`.** Branch creation and verification disagreed about the base on the same run for any consumer whose mainline ≠ `main` or branch prefix ≠ `claude/acme-` (e.g. a `develop`-based, `team/`-prefixed repo). Threaded one shared resolution idiom — `PREFIX = tracker.branchPrefix // "claude/acme-"`, `BASE = state field // host(path==".").baseBranch // "main"` (the model verifyctl already uses) — through the executed blocks of **Stage 1** (outer-loop slice branch/base), **Stage 2** (single-PR fallback, resume-guard glob + `$BRANCH_PREFIX`, mainline cut-from-`origin/<base>` discriminator, worktree dir name now the branch basename `${BRANCH##*/}` instead of an `acme-` literal; **Stage 10** cleanup removes the worktree at the persisted `worktreePath` rather than reconstructing the `acme-` literal, which would orphan a non-default consumer's worktree), **Stage 5** (mutation-gate range base — a wrong base silently emptied the changed-file set and waived the blocking gate), and **Stage 9** (stale-branch freshness gate + `--base` PR target). Extended `check-config-shadowing.sh` to assert `tracker.branchPrefix` + `baseBranch` are read per owning stage, with a new selftest strip-case, so the class can't regress. Defaults reproduce prior behavior byte-for-byte (verified against empty and `main`-based configs).
 
-## v2.0.1 — generalization-audit fixes (in progress)
+## v2.0.1 — generalization-audit fixes
 
 Consumer-generalization fixes from the v2.0.0 audit. Patch-level: no schema change, `configVersion` stays `const 1`, all defaults reproduce prior behavior.
 
