@@ -150,8 +150,10 @@ if [[ ! -f "$HELPER" ]]; then
   bad "claim-issue.sh not found at $HELPER"
 else
   # shellcheck disable=SC2016 # literal $ADDED is the grep pattern, not an expansion
-  parity "in-progress add confirm branch" 'case "\$ADDED"'                       "$HELPER"
-  parity "ready-for-dev DELETE"           'labels/ready-for-dev'                 "$HELPER"
+  parity "claimed-label add confirm branch" '\[\[ "\$ADDED" =='                  "$HELPER"
+  # shellcheck disable=SC2016 # literal $QUEUE_LABEL is the grep pattern, not an expansion
+  parity "queue-label DELETE (config-driven)" 'labels/\$QUEUE_LABEL'             "$HELPER"
+  parity "config label args (#11)"          '\-\-queue) *QUEUE_LABEL'            "$HELPER"
   parity "failed-add abort (exit 1)"      'exit 1'                               "$HELPER"
   parity "injectable GH_BOT env seam"     'GH_BOT:-'                             "$HELPER"
   parity "bot wrapper under \$HOME/.config/<repo>/" '\.config/.*gh-as-bot\.sh'   "$HELPER"

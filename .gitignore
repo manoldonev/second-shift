@@ -1,0 +1,3 @@
+# Claude Code / second-shift local session telemetry — per-run audit hook logs.
+# Never version-controlled: machine-local, regenerated each run, pure noise in diffs.
+.claude/audit/

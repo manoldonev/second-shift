@@ -59,8 +59,15 @@ fi
 **Argument override:** if the skill was invoked with an explicit issue number (`/dev-pipeline <N>`), skip the queue query below and use that issue. The argument overrides queue ordering only — every other check still applies: the issue must be open, must carry `ready-for-dev`, and must pass the do-not-pick-up guard. An argument-specified issue that fails those checks is a reject (report why and stop), not an exemption.
 
 ```bash
+# Label vocabulary is config-driven (tracker.labels — #11); defaults reproduce the
+# shipped six. github-only (a jira repo has no queue/claim/label model). Every site
+# below — the queue query, the claim swap, and the do-not-pick-up guard — reads these.
+QUEUE_LABEL=$(jq -r '.tracker.labels.queue // "ready-for-dev"' "$SECOND_SHIFT_CONFIG" 2>/dev/null || echo "ready-for-dev")
+CLAIMED_LABEL=$(jq -r '.tracker.labels.claimed // "in-progress"' "$SECOND_SHIFT_CONFIG" 2>/dev/null || echo "in-progress")
+BLOCKER_LABELS=$(jq -r '(.tracker.labels.blockers // ["epic","needs-intake-review","needs-spec-work","needs-plan-review"]) | join(" ")' "$SECOND_SHIFT_CONFIG" 2>/dev/null || echo "epic needs-intake-review needs-spec-work needs-plan-review")
+
 # Queue pickup (no argument given):
-ISSUE=$(gh issue list --label ready-for-dev --json number,title --limit 10 --jq 'sort_by(.number) | .[0]')
+ISSUE=$(gh issue list --label "$QUEUE_LABEL" --json number,title --limit 10 --jq 'sort_by(.number) | .[0]')
 ```
 
 - If no issues: print "No issues in queue", stop.
@@ -70,16 +77,16 @@ ISSUE=$(gh issue list --label ready-for-dev --json number,title --limit 10 --jq 
 **Claim sequence (guard against race conditions):**
 
 1. Mutate — **add `in-progress` before removing `ready-for-dev`, and confirm the add applied before removing** (Label-swap ordering rule, SKILL.md Bot Identity): the reverse order has a crash window where the issue carries neither label and is silently lost from the queue; and even in the correct order, a _silently-failed_ add followed by a successful remove reaches the same zero-label window.
-   - **Single-call (GraphQL healthy):** `$GH_BOT issue edit $ISSUE_NUMBER --add-label in-progress --remove-label ready-for-dev`. This is one atomic API call — add and remove apply together or not at all, so there is no intermediate zero-label window and no separate confirm step is needed (the confirm requirement below exists only because the REST fallback splits the swap into two calls).
-   - **REST fallback (GraphQL broken — doctor WARN; current in this repo):** run `bash "${CLAUDE_PLUGIN_ROOT}/skills/run/tools/claim-issue.sh" "$ISSUE_NUMBER"` (bot wrapper injected via `$GH_BOT`; the helper ships in the plugin checkout, never the de-vendored consumer repo — resolve it via `${CLAUDE_PLUGIN_ROOT}`, not CWD-relative). It POSTs `in-progress`, asserts the add applied from the response body, THEN DELETEs `ready-for-dev`; on a failed add it aborts (exit `1`) **leaving `ready-for-dev` intact** — a bare stop (nothing was mutated yet), NOT the step-2 undo below (which reverses _applied_ mutations). Exit `0` = claimed.
+   - **Single-call (GraphQL healthy):** `$GH_BOT issue edit $ISSUE_NUMBER --add-label "$CLAIMED_LABEL" --remove-label "$QUEUE_LABEL"`. This is one atomic API call — add and remove apply together or not at all, so there is no intermediate zero-label window and no separate confirm step is needed (the confirm requirement below exists only because the REST fallback splits the swap into two calls).
+   - **REST fallback (GraphQL broken — doctor WARN; current in this repo):** run `bash "${CLAUDE_PLUGIN_ROOT}/skills/run/tools/claim-issue.sh" "$ISSUE_NUMBER" --queue "$QUEUE_LABEL" --claimed "$CLAIMED_LABEL"` (bot wrapper injected via `$GH_BOT`; the helper ships in the plugin checkout, never the de-vendored consumer repo — resolve it via `${CLAUDE_PLUGIN_ROOT}`, not CWD-relative; the two label args default to `ready-for-dev`/`in-progress` when omitted). It POSTs the claimed label, asserts the add applied from the response body, THEN DELETEs the queue label; on a failed add it aborts (exit `1`) **leaving the queue label intact** — a bare stop (nothing was mutated yet), NOT the step-2 undo below (which reverses _applied_ mutations). Exit `0` = claimed.
    - **Assignee:** use regular `gh` for `--add-assignee @me` separately — bot can't assign itself; skip on failure.
 2. Verify via REST: `gh api "repos/{owner}/{repo}/issues/$ISSUE_NUMBER" --jq '{labels: [.labels[].name]}'`
-   - Assert: `ready-for-dev` is gone, `in-progress` is present
-   - If any check fails: undo mutations (add `ready-for-dev` back first, then remove `in-progress` — same add-before-remove safety), exit — another runner claimed it. (This post-verify undo reverses mutations that _did_ apply; it is distinct from the step-1 pre-DELETE failed-add abort, which is a bare stop because nothing was mutated yet.)
+   - Assert: `$QUEUE_LABEL` is gone, `$CLAIMED_LABEL` is present
+   - If any check fails: undo mutations (add `$QUEUE_LABEL` back first, then remove `$CLAIMED_LABEL` — same add-before-remove safety), exit — another runner claimed it. (This post-verify undo reverses mutations that _did_ apply; it is distinct from the step-1 pre-DELETE failed-add abort, which is a bare stop because nothing was mutated yet.)
 3. Post claim comment (REST form per SKILL.md Bot Identity) with `run_id` and `stage: claimed`.
 4. Read full issue body via REST: `gh api "repos/{owner}/{repo}/issues/$ISSUE_NUMBER" --jq .body` (+ `/comments`).
 
-**Do-not-pick-up guard:** Before claiming, verify the issue does NOT have any of these labels: `epic`, `needs-intake-review`, `needs-spec-work`, `needs-plan-review`. These labels block auto-pickup. The `gh issue list --label ready-for-dev` query implicitly excludes them (since `ready-for-dev` is removed when these labels are added), but verify after claiming in case of a race condition.
+**Do-not-pick-up guard:** Before claiming, verify the issue does NOT have any of the **blocker labels** (`$BLOCKER_LABELS`, resolved above — default `epic`, `needs-intake-review`, `needs-spec-work`, `needs-plan-review`). These labels block auto-pickup. The `gh issue list --label "$QUEUE_LABEL"` query implicitly excludes them (since the queue label is removed when these labels are added), but verify after claiming in case of a race condition.
 
 **State:** Seed the state file via `statectl init "$ISSUE_NUMBER" --run-id "$RUN_ID"` (creates `ticketKey` + `runId` + `startedAt` + initial `status: in_progress`). `RUN_ID` is generated by the Pre-flight step in `SKILL.md` and persisted to top-level `.runId` here; resumes inherit it via `statectl get "$ISSUE_NUMBER" '.runId'` so the original session and its restart share comment markers (see `state-schema.md`).
 

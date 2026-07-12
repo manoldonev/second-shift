@@ -199,12 +199,17 @@ else
 fi
 
 # --- 4. Required labels ---------------------------------------------------------
-# Read stageParams.requiredLabels from config (#17); absent => the shipped six
-# (reproduces prior behavior). Same resolution as the SKILL.md pre-flight gate.
+# Required-label set, same precedence as the SKILL.md pre-flight gate (#11 → #17):
+# tracker.labels role union (queue + claimed + blockers) when set, else the legacy
+# flat stageParams.requiredLabels, else the shipped six.
 required_labels=()
 if [[ -f "$CFG" ]]; then
   while IFS= read -r _l; do [[ -n "$_l" ]] && required_labels+=("$_l"); done \
-    < <(jq -r '.stageParams.requiredLabels // empty | .[]' "$CFG" 2>/dev/null)
+    < <(jq -r '(.tracker.labels // {}) | ([.queue, .claimed] + (.blockers // [])) | map(select(. != null and . != "")) | .[]' "$CFG" 2>/dev/null)
+  if (( ${#required_labels[@]} == 0 )); then
+    while IFS= read -r _l; do [[ -n "$_l" ]] && required_labels+=("$_l"); done \
+      < <(jq -r '.stageParams.requiredLabels // empty | .[]' "$CFG" 2>/dev/null)
+  fi
 fi
 if (( ${#required_labels[@]} == 0 )); then
   required_labels=(ready-for-dev needs-spec-work needs-plan-review needs-intake-review in-progress epic)
