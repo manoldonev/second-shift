@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="docs/second-shift-banner.png" alt="second-shift — the dev team that works while you're away: a ticket goes in, a gate-enforced state machine ships a draft PR" width="800">
+</p>
+
 # second-shift
 
 > The dev team that works while you're away.
