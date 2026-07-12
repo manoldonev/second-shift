@@ -26,7 +26,7 @@ Each plugin ships its own selftests and evals; the marketplace CI is fully model
 
 ## Quick start
 
-Requirements: Claude Code ≥ 2.x, `bash`, `jq`, `git`; `gh` CLI for the GitHub tracker; an Atlassian MCP connection for the JIRA tracker; a Figma MCP only if you enable the figma gate.
+Requirements: Claude Code ≥ 2.x, `bash`, `jq`, `git`, `node` (the Stage-8 review and mutation Workflow gates run under it), and the `gh` CLI — Stage 9 opens PRs via `gh pr create` for **every** tracker (JIRA runs included), and the GitHub tracker additionally uses `gh` for issues/labels. For the JIRA tracker, an Atlassian MCP connection; a Figma MCP only if you enable the figma gate. (A repo whose `commands.<host>.format` is `null` and that uses no prettier-based command needs no Node beyond the Workflow gates.)
 
 ```text
 # 1. in Claude Code
