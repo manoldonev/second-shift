@@ -7,7 +7,12 @@
   },
   "topology": {
     "type": "standalone",
-    "repos": { "second-shift": { "path": ".", "baseBranch": "main" } }
+    "repos": {
+      "second-shift": {
+        "path": ".",
+        "baseBranch": "main"
+      }
+    }
   },
   "commands": {
     "second-shift": {
@@ -18,12 +23,7 @@
       "build": null,
       "format": null,
       "testFile": null,
-      "unitTestScope": null,
-      "integrationTest": null,
-      "apiTest": null
+      "unitTestScope": null
     }
-  },
-  "gates": {
-    "costTracking": true
   }
 }

@@ -184,7 +184,10 @@ fi
 hdr "Command lanes (one pass, current checkout)"
 run_lane() { # $1 = lane label, $2 = command string
   local label="$1" cmd="$2" out rc
-  out=$(cd "$REPO_ROOT" && bash -c "$cmd" 2>&1); rc=$?
+  # Lanes run in the environment a normal shell would see — preflight's own env
+  # seams must not leak in (a consumer lane may itself be second-shift tooling;
+  # a leaked SECOND_SHIFT_REPO_ROOT re-roots it and fails it spuriously).
+  out=$(cd "$REPO_ROOT" && env -u SECOND_SHIFT_REPO_ROOT -u SECOND_SHIFT_CONFIG -u PREFLIGHT_DOCTOR_CMD bash -c "$cmd" 2>&1); rc=$?
   if [[ $rc -eq 0 ]]; then
     ok "lane '$label': green ($cmd)"
   else

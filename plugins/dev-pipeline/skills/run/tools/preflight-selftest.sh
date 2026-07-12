@@ -61,7 +61,7 @@ write_config() { # $1 = tracker type
       "test": "echo test-green",
       "build": null,
       "format": "touch $CANARY_DIR/format-ran",
-      "lanes": [ { "name": "setup", "commands": ["echo setup-green"] } ]
+      "lanes": [ { "name": "setup", "commands": ["echo setup-green", "test -z \\"\${SECOND_SHIFT_REPO_ROOT:-}\${SECOND_SHIFT_CONFIG:-}\${PREFLIGHT_DOCTOR_CMD:-}\\""] } ]
     }
   }
 }
@@ -106,6 +106,8 @@ grep -q "lane 'format': configured string" "$BASE/out.log"; assert "format skip 
 grep -q "lane 'typecheck': green" "$BASE/out.log"; assert "typecheck lane ran" "$?"
 grep -q "lane 'test': green" "$BASE/out.log";      assert "test lane ran" "$?"
 grep -q "lane 'setup\[1\]': green" "$BASE/out.log"; assert "setup lane ran" "$?"
+grep -q "lane 'setup\[2\]': green" "$BASE/out.log"
+assert "env hygiene: preflight seams (SECOND_SHIFT_REPO_ROOT et al.) do not leak into lanes" "$?"
 grep -q "lane 'build': null/absent" "$BASE/out.log"; assert "null lane skipped" "$?"
 
 grep -q "^issue list" "$GH_LOG"; assert "no-key run reads the queue head (gh issue list)" "$?"
