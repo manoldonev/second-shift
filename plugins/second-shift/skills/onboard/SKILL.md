@@ -180,10 +180,20 @@ Also emit the consent doc:
        Health check: `/second-shift:doctor`.
 4. State the restart verdict plainly: "Restart this Claude Code session after installing
    plugins — component registration happens at session start."
-5. Print the first-run instructions (until a read-only preflight ships): pick a small ticket
-   with no external-infrastructure ACs; `tracker.branchPrefix` is already set (skips
-   branch-identity derivation); the bot/labels wall was already handled in Step 3 for the
-   github tracker; run `/dev-pipeline:run <ticket>`.
+5. **Run the read-only preflight — the onboarding finish line.** Resolve the dev-pipeline
+   install path (never a cache path from memory):
+   `claude plugin list --json | jq -r '.[] | select(.id == "dev-pipeline@second-shift") | .installPath'`,
+   then run `bash "<installPath>/skills/run/tools/preflight.sh"` from the repo root. It is
+   zero-write (no claim, no branch/worktree, no push, no tracker comment): target echo,
+   config gates, the environment doctor, one tracker READ, one pass over every non-null
+   command lane, and a report at `.claude/pipeline-state/preflight-report.md`. Surface the
+   report's verdict; exit code = failed checks. On FAILs, fix and re-run before handing off.
+   (If the dev-pipeline plugin is not installed yet — restart pending — print the two
+   commands above as the post-restart step instead.) Then print the first-run
+   instructions: pick a small ticket with no external-infrastructure ACs;
+   `tracker.branchPrefix` is already set (skips branch-identity derivation); the
+   bot/labels wall was already handled in Step 3 for the github tracker; run
+   `/dev-pipeline:run <ticket>`.
 6. Remind: commit `.claude/settings.json`, `.claude/second-shift.config.json`,
    `.claude/second-shift.lock.json`, `.claude/tools/second-shift-doctor.sh`, and
    `.claude/SECOND-SHIFT.md` in one PR.

@@ -12,13 +12,13 @@ Intake resolved decisions (binding, from the issue #30 intake comment):
 2. **"Existing gate machinery"** = the Pre-flight environment gate pieces (`config-lint.sh`, `check-extensions.sh`, label-existence READ) + doctor's config-aware layer. There is no factored "Target Confirmation Gate" artifact today; the target echo is newly written, read-only.
 3. **Worktree/branch resolution is string-only** — computed from config, no `git worktree add`, no `statectl init`, no state file.
 4. **Ticket source** — optional ticket-key argument; when absent, github reads the queue head (a READ); jira skips the tracker read with a note.
-5. **Scope boundary** — in-scope: the preflight tool + onboard finish-line wiring + doc ripples. Deferred: removing onboard's Step 7 interactive bot/label wall.
+5. **Scope boundary** — in-scope: the preflight tool + onboard finish-line wiring + doc ripples. Deferred: removing onboard's interactive bot/label wall (the intake comment cited it as "Step 7"; it actually lives in onboard Step 3, elicitation item 7).
 
 ## Assumptions
 
 - Preflight is a shell tool (`preflight.sh`), not a new pipeline mode flag on `/dev-pipeline:run` — the "mode" the issue names is delivered as a directly invokable read-only entry point that onboard (a Claude session) runs via Bash, mirroring how `pipeline-doctor.sh` is invoked today. No `DEV_PIPELINE_MODE` value is added (that enum stays `auto|interactive`).
 - Doctor's one filesystem write (`mkdir -p .claude/worktrees`, pipeline-doctor.sh section 6) and its `mktemp` scratch files are inside the permitted write boundary (local, non-git-tracked, non-tracker). The report notes this.
-- The consumer repo's `.claude/pipeline-state/` directory is the established local-only artifact home (gitignored by convention per the run SKILL's State Persistence section) — the preflight report lands there.
+- The consumer repo's `.claude/pipeline-state/` directory is the established local-only artifact home — the preflight report lands there. It is NOT gitignored in every repo (not in this one), so the report writer surfaces a gitignore reminder when the path is not ignored rather than assuming.
 - macOS `/bin/bash` 3.2 compatibility is required for all new shell (repo-wide convention, proven by selftests).
 
 ## Decision Ledger
@@ -31,7 +31,7 @@ Intake resolved decisions (binding, from the issue #30 intake comment):
 | 4 | Ticket source: optional `<ticket-key>` argument; absent + github → queue-head READ via `gh issue list`; absent/present + jira → SKIP-with-note (MCP reads are session-side, unreachable from bash) | codebase-derived | `tools/tracker/README.md` operation table: jira fetch-ticket is `mcp__atlassian__getJiraIssue` — not invokable from a shell tool. Preflight stays runnable issue-independent (the onboard finish line has no ticket in hand). |
 | 5 | Report location: `.claude/pipeline-state/preflight-report.md`, overwritten per run; exit code = FAIL count (doctor convention) | codebase-derived | Same lifecycle as other local-only run artifacts; a stable path lets onboard print it and CONTRIBUTING snippets reference it. |
 | 6 | eval-criteria.md gains no preflight clause | deferred | Criterion 1 scores pipeline runs; preflight is not a pipeline run. Revisit if retro data shows preflight runs being mis-scored. |
-| 7 | Onboard Step 7 interactive bot/label wall stays (creation belongs to onboarding; preflight only verifies) | codebase-derived | Preflight is read-only by contract — it can never create labels or a bot wrapper, so the wall's creation half cannot be subsumed. Follow-up owns any dedup. |
+| 7 | Onboard's Step 3 bot/label wall (elicitation item 7) stays — creation belongs to onboarding; preflight only verifies | codebase-derived | Preflight is read-only by contract — it can never create labels or a bot wrapper, so the wall's creation half cannot be subsumed. Follow-up owns any dedup. |
 
 ## Affected files/modules
 
@@ -65,7 +65,7 @@ Intake resolved decisions (binding, from the issue #30 intake comment):
    c. **Target Confirmation echo** (read-only, the issue's parenthetical): tracker.type + writes-effective, branchPrefix, keyPattern, topology.type, per-repo `path`/`baseBranch`/`worktreesDir` (with defaults), the computed branch (`<branchPrefix><key-or-EXAMPLE>`), the computed worktree path string, plans-dir/plan-file pattern. Echo only — no `statectl`, no git mutations.
    d. **Environment section**: run `pipeline-doctor.sh` (capture output verbatim into the report; its exit code adds to the FAIL count). Doctor is already tracker-gated and PM-probing (#17).
    e. **Tracker READ (no claim)**: github → with `<ticket-key>`: `gh api repos/{owner}/{repo}/issues/<key>` (assert readable, echo title/labels); without: `gh issue list --label <queue-label> --limit 1` (queue-head READ; empty queue = OK-with-note). jira → SKIP-with-note (MCP is session-side). Uses regular `gh` — reads never need `$GH_BOT`.
-   f. **Command lanes, once each, in the current checkout**: `commands.<host>.lanes[]` (setup) sequentially, then `lint` / `typecheck` / `test` / `build` (each non-null), then `extraLanes[].commands[]`. Mutating skips: `format` configured as a string → SKIP (`repo formatter mutates the tree`); absent `format` → SKIP (`scoped prettier needs a diff; nothing to format-check at preflight`); `lint` with `lintAutofixes: true` → SKIP (`configured lint mutates files`). Each lane: OK on rc=0, FAIL with an output tail otherwise.
+   f. **Command lanes, once each, in the current checkout**: `commands.<host>.lanes[]` (setup) sequentially, then `lint` / `typecheck` / `test` / `build` (each non-null), then `extraLanes[].commands[]` (their `when` changed-file gate is not evaluable at preflight — no diff exists — so they run unconditionally with a "when-gate not evaluated" note). Mutating skips: `format` configured as a string → SKIP (`repo formatter mutates the tree`); absent `format` → SKIP (`scoped prettier needs a diff; nothing to format-check at preflight`); `lint` with `lintAutofixes: true` → SKIP (`configured lint mutates files`). Each lane: OK on rc=0, FAIL with an output tail otherwise.
    g. **Report**: write `.claude/pipeline-state/preflight-report.md` (`mkdir -p` the dir) — header (date, config path, ticket key or "issue-independent"), the target echo, per-section results, doctor output, lane table, the write-boundary statement (what was deliberately not done: no claim, no branch, no worktree, no push, no comment), and the verdict line. Exit code = total FAIL count.
 2. **`preflight-selftest.sh` [NEW]** — fixture-driven (temp dir + fixture config + mock `gh`/doctor via PATH shims + `SECOND_SHIFT_REPO_ROOT`/`SECOND_SHIFT_CONFIG` overrides), asserting:
    - **Zero-write**: fixture repo is a real `git init` checkout; after a full run, `git status --porcelain` is empty except the report path, no new branches (`git branch` unchanged), the mock `gh` recorded **only** read verbs (no `-X POST/PATCH/PUT/DELETE`, no `issue edit/comment`, no `pr create`).
@@ -113,7 +113,7 @@ bash plugins/dev-pipeline/skills/run/tools/preflight.sh 30 || true   # exit = FA
 
 ## Out-of-scope
 
-- Removing/refactoring onboard Step 7's interactive bot/label wall (creation half — deferred follow-up).
+- Removing/refactoring onboard's Step 3 interactive bot/label wall (elicitation item 7; creation half — deferred follow-up).
 - `eval-criteria.md` preflight clause (deferred; criterion 1 scores pipeline runs).
 - Any `DEV_PIPELINE_MODE` enum change, statectl/state-schema surface, or new failureContext reason — preflight never touches state.
 - CI-native preflight (issue #52's architecture) and jira MCP reads from shell.
