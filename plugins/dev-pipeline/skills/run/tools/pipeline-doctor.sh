@@ -7,7 +7,9 @@
 # breakage, missing labels, and a broken statectl state machine.
 #
 # Usage:
-#   bash .claude/skills/run/tools/pipeline-doctor.sh
+#   bash "${CLAUDE_PLUGIN_ROOT}/skills/run/tools/pipeline-doctor.sh"
+#   (outside plugin execution, resolve the root first:
+#    claude plugin list --json | jq -r '.[] | select(.id == "dev-pipeline@second-shift") | .installPath')
 #
 # Exit code: number of FAILED checks (0 = ready). WARN lines are informational
 # (degraded-but-runnable, e.g. cost tracking off) and do not affect the exit code.

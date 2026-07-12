@@ -278,7 +278,7 @@ api-testing/*.md
 
 Every one of these **adds** a gate or a unit of work; not one can waive a shipped check — an API-test tier can only make a green run *red* (a bad plan, a failing suite, a rejected review), which is exactly the fork-vs-extend line from §1. And because the wiring lives in the consumer's config, anyone auditing the repo sees the whole tier in one file — while the *implementation* (agents, skill) is versioned and pinned in the pack, bumped independently.
 
-> **Two-pin note (phase 1 vs phase 2).** Under the phase-1 vendoring model, `second-shift sync` copies the pack's agents/skill into the repo's `.claude/agents/` and `.claude/skills/` (referenced **bare** — `api-test-plan-reviewer`, not `acme-qa-pack:api-test-plan-reviewer`), so every byte influencing a run is visible in the repo's own history. The namespaced `acme-qa-pack:…` form shown above is the phase-2 live-resolution target. Either way the *config shape* is identical; only the reference form differs.
+> **Two-pin note (phase 1 vs phase 2).** Under the phase-1 vendoring model, the pack's agents/skill are copied by hand into the repo's `.claude/agents/` and `.claude/skills/` (referenced **bare** — `api-test-plan-reviewer`, not `acme-qa-pack:api-test-plan-reviewer`), so every byte influencing a run is visible in the repo's own history; there is no sync command — the copy step belongs in the pack's install notes. The namespaced `acme-qa-pack:…` form shown above is the phase-2 live-resolution target. Either way the *config shape* is identical; only the reference form differs.
 
 ---
 

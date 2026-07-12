@@ -4,6 +4,23 @@ All notable changes to the second-shift marketplace. Versions are per-plugin (`p
 this file tracks the marketplace release. `configVersion` stays `const 1` — v2 is fully backward-compatible for a
 consumer with an empty config; the migration notes below are only for consumers using the changed features.
 
+## v2.0.8 — docs hotfixes: onboarding path rot (in progress)
+
+### `dev-pipeline` 2.0.7 → 2.0.8
+- **Docs/comment-only: stale pre-v2 paths purged from tool headers and executed docs.** The README quick-start's
+  config-lint step was unrunnable (`<dev-pipeline plugin root>/tools/` — the tool lives under `skills/run/tools/`;
+  the command now resolves the install path via `claude plugin list --json`), and the settings-pin example in
+  `docs/onboarding.md` pointed at the dead pre-recreation tag `v1.1.0` (→ `v2.0.0`). Inside the plugin, usage
+  headers and generated banners still claimed the vendored `.claude/skills/run/` layout: `pipeline-doctor.sh`,
+  `stage-times.sh`, `gen-statectl-validators.sh` (+ the three banners it prints into `statectl.sh`, kept in
+  byte-lockstep for the regeneration selftest), `statectl-selftest.sh`, the cost-tracking fixtures README,
+  `otel-collector-config.yaml`, and a `check-config-shadowing.sh` comment. `SKILL.md`'s model-tier section now
+  names the real `check-model-tiers.sh` home (review-toolkit `scripts/`). Root docs: README no longer promises
+  JIRA content in `docs/onboarding.md` (links the JIRA tracker README instead), `docs/extending.md` drops the
+  phantom `second-shift sync` command (phase-1 vendoring is a manual copy), and the changelog's pre-2.0 pointer
+  states the history was not carried over. The stale `.claude/scripts/` hook paths in `hooks.md` are left for
+  #14 (review-toolkit commit-gate rework) to avoid a collision.
+
 ## v2.0.7 — generalization-audit fixes: config-aware doctor (in progress)
 
 ### `dev-pipeline` 2.0.6 → 2.0.7
@@ -116,4 +133,4 @@ The de-orged, extensible core: a genuinely generic marketplace + the Extension C
 6. If you set `paths.plansDir`, note it is now honored — plans move to that directory.
 
 ## v1.1.1 and earlier
-Pre-extensible-core history (per-plugin evolution). See git history.
+Pre-extensible-core history (per-plugin evolution) was not carried over in the 2026-07 tree recreation — v2.0.0 is the earliest commit in this repository's history.
