@@ -17,6 +17,19 @@ consumer with an empty config; the migration notes below are only for consumers 
   Exit code = FAIL count. Zero tracker/git/remote mutations — proven by `preflight-selftest.sh`'s zero-write
   suite (git-state diff + mock-gh verb recording). Tracker README gains the `preflight-read` operation row.
 
+### `dev-pipeline` 2.2.0 → 2.2.1
+- **#48 (Phase 2) — dual-target Stage 3 plan grouping + Stage 7 per-repo checkpoint.** Consumes the Phase-1
+  statectl foundation. When `.targetRepos` has more than one repo: **Stage 3** groups the plan's "Affected
+  files/modules" section by repo (`### <repoId> files`, paths relative to each repo's worktree — one plan
+  file still covers the whole ticket); **Stage 7** builds a per-repo checkpoint — one
+  `build-checkpoint-7-perrepo` fragment per target (branch/worktreePath from the `worktrees` map, HEAD +
+  changed files recomputed per worktree, INERT-lane verifySummary wrapped to an object), merged and given the
+  shared envelope, written through the dual-mode `validate_stage7_payload`. The `deviations[]` ledger gains a
+  required `repo` field per entry when `targetRepos > 1`. New `stage7-perrepo-checkpoint-selftest.sh`:
+  integration (two synthetic git worktrees → the exact Stage-7 block → an accepted per-repo checkpoint) + a
+  drift guard on the `.md` block's load-bearing tokens. Single-target pairs and non-pair topologies are
+  unchanged (the flat path). Stage 5 (per-repo implement) and Stage 8 (per-repo review) land in Phases 3–4.
+
 ### `second-shift` 1.3.1 → 1.4.0
 - **Onboard Step 8.5 now runs the preflight as the finish line** (resolves the dev-pipeline install path via
   `claude plugin list --json` — never a cache path from memory), surfacing the report verdict before the

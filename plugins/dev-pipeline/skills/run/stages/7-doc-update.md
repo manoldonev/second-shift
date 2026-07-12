@@ -18,19 +18,61 @@ Then write the checkpoint before handing off or proceeding. The payload carries 
 # Quality-pass disclosure: composed FROM STATE (crash-recovery safe), defaults {}.
 QUALITY_PASS_JSON="$(statectl.sh get "$ISSUE_NUMBER" '.stages."6".qualityPass // {}')"
 
-CHECKPOINT_JSON=$(statectl.sh build-checkpoint-7 \
-  --issue "$ISSUE_NUMBER" \
-  --branch "$BRANCH" \
-  --head "$HEAD_SHA" \
-  --worktree "$WORKTREE_PATH" \
-  --plan "$PLAN_PATH" \
-  --changed-files "$CHANGED_FILES_JSON" \
-  --verify-summary "$VERIFY_SUMMARY_JSON" \
-  --deviations "$DEVIATIONS_JSON" \
-  --free-note "$FREE_NOTE" \
-  --plan-risks "$PLAN_RISKS_JSON" \
-  --doc-updater-findings "$DOC_UPDATER_FINDINGS" \
-  --quality-pass-summary "$QUALITY_PASS_JSON")
+# be-fe-pair DUAL-target (#48): a single Stage-7 checkpoint spans BOTH repos. When
+# `.targetRepos` has more than one repo, build a per-repo manifest — one
+# `build-checkpoint-7-perrepo` fragment per repo (the boundary is read from the
+# `worktrees` map: Stage-2 branch + worktreePath, Stage-6 verifySummary; HEAD and the
+# changed-file set are recomputed per worktree), merged and given the shared envelope.
+# Single-target / non-pair runs (targetRepos absent or length 1) take the unchanged
+# flat build-checkpoint-7 path in the else branch below.
+TARGET_REPOS_JSON="$(statectl.sh get "$ISSUE_NUMBER" '.targetRepos // []')"
+if [[ "$(echo "$TARGET_REPOS_JSON" | jq 'length')" -gt 1 ]]; then
+  REPO_ROOT="$(git rev-parse --show-toplevel)"
+  TICKET_LC="$(echo "$ISSUE_NUMBER" | tr '[:upper:]' '[:lower:]')"
+  CHECKPOINT_JSON=$(
+    echo "$TARGET_REPOS_JSON" | jq -r '.[]' | while IFS= read -r r; do
+      R_WT_REL="$(statectl.sh get "$ISSUE_NUMBER" ".worktrees.\"$r\".worktreePath")"
+      R_BRANCH="$(statectl.sh get "$ISSUE_NUMBER" ".worktrees.\"$r\".branch")"
+      R_BASE="$(statectl.sh get "$ISSUE_NUMBER" ".worktrees.\"$r\".base")"
+      R_WT="$REPO_ROOT/$R_WT_REL"
+      R_HEAD="$(git -C "$R_WT" rev-parse HEAD)"
+      R_MB="$(git -C "$R_WT" merge-base HEAD "origin/$R_BASE" 2>/dev/null || git -C "$R_WT" merge-base HEAD "$R_BASE")"
+      R_CHANGED="$(git -C "$R_WT" diff --name-only "$R_MB..HEAD" | jq -R . | jq -s .)"
+      R_VERIFY="$(statectl.sh get "$ISSUE_NUMBER" ".worktrees.\"$r\".verifySummary")"
+      # build-checkpoint-7-perrepo wants a JSON object; an INERT-lane verifySummary is the
+      # skipped-string — wrap it (same convention as the flat --verify-summary note above).
+      echo "$R_VERIFY" | jq -e 'type == "object"' >/dev/null 2>&1 \
+        || R_VERIFY="$(jq -n --arg s "$R_VERIFY" '{lane:"INERT",note:$s}')"
+      statectl.sh build-checkpoint-7-perrepo \
+        --repo "$r" --branch "$R_BRANCH" --head "$R_HEAD" \
+        --worktree "$R_WT_REL" --changed-files "$R_CHANGED" --verify-summary "$R_VERIFY"
+    done \
+    | jq -s 'reduce .[] as $x ({}; .perRepo += $x.perRepo)' \
+    | jq --arg k "$TICKET_LC" \
+         --argjson tr "$TARGET_REPOS_JSON" \
+         --arg pp "$PLAN_PATH" \
+         --argjson dv "$DEVIATIONS_JSON" \
+         --arg fn "$FREE_NOTE" \
+         --argjson prisk "$PLAN_RISKS_JSON" \
+         --arg du "$DOC_UPDATER_FINDINGS" \
+         --argjson qps "$QUALITY_PASS_JSON" \
+         '. + {ticketKey:$k, targetRepos:$tr, planPath:$pp, deviations:$dv, freeNote:$fn, planRisks:$prisk, docUpdaterFindings:$du, qualityPassSummary:$qps}'
+  )
+else
+  CHECKPOINT_JSON=$(statectl.sh build-checkpoint-7 \
+    --issue "$ISSUE_NUMBER" \
+    --branch "$BRANCH" \
+    --head "$HEAD_SHA" \
+    --worktree "$WORKTREE_PATH" \
+    --plan "$PLAN_PATH" \
+    --changed-files "$CHANGED_FILES_JSON" \
+    --verify-summary "$VERIFY_SUMMARY_JSON" \
+    --deviations "$DEVIATIONS_JSON" \
+    --free-note "$FREE_NOTE" \
+    --plan-risks "$PLAN_RISKS_JSON" \
+    --doc-updater-findings "$DOC_UPDATER_FINDINGS" \
+    --quality-pass-summary "$QUALITY_PASS_JSON")
+fi
 
 statectl.sh checkpoint "$ISSUE_NUMBER" 7 --json "$CHECKPOINT_JSON"
 ```
@@ -39,7 +81,7 @@ The builder validates the payload's flat schema eagerly (ticketKey matches; `bra
 
 Mark Stage 7 completed (`statectl set-stage "$ISSUE_NUMBER" 7 --status completed`), then proceed in-process to Stage 8. (The `currentStage == 7` + `stages.7.status == "completed"` state is also what a crash-recovery resume detects to re-enter at Stage 8 in a fresh session after an interruption.)
 
-**`deviations[]` discipline:** Each entry is `{kind, planSection, file?, line?, note}` where `kind` is one of `"scope-creep" | "alternate-approach" | "deferred" | "surprise"`. Empty array is acceptable when implementation matched the plan exactly; an empty array PLUS empty `freeNote` triggers a soft warning ("checkpoint produced no observable signal") in the eval ledger. **Quality-pass reverted outcome:** when `stages.6.qualityPass.outcome == "reverted"`, additionally append a `{kind: "surprise"}` deviation naming the reverted cleanup — the reset left no branch trace, so this ledger entry is the only disclosure. An `applied` outcome is disclosed via `qualityPassSummary` alone, not `deviations[]`.
+**`deviations[]` discipline:** Each entry is `{kind, planSection, file?, line?, note}` where `kind` is one of `"scope-creep" | "alternate-approach" | "deferred" | "surprise"`. **be-fe-pair dual-target (#48):** when `.targetRepos` has more than one repo, each entry also carries a `repo` field naming which target repo the deviation is in (so the shared ledger stays per-repo attributable); optional otherwise. Empty array is acceptable when implementation matched the plan exactly; an empty array PLUS empty `freeNote` triggers a soft warning ("checkpoint produced no observable signal") in the eval ledger. **Quality-pass reverted outcome:** when `stages.6.qualityPass.outcome == "reverted"`, additionally append a `{kind: "surprise"}` deviation naming the reverted cleanup — the reset left no branch trace, so this ledger entry is the only disclosure. An `applied` outcome is disclosed via `qualityPassSummary` alone, not `deviations[]`.
 
 #### Proceed to Stage 8 (in-process)
 
