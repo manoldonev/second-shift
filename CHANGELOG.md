@@ -4,6 +4,20 @@ All notable changes to the second-shift marketplace. Versions are per-plugin (`p
 this file tracks the marketplace release. `configVersion` stays `const 1` — v2 is fully backward-compatible for a
 consumer with an empty config; the migration notes below are only for consumers using the changed features.
 
+## v2.1.3 — release contract: configVersion migrations + release discipline (in progress)
+
+### `dev-pipeline` 2.1.1 → 2.1.2
+- **config-lint learns the migration contract (issue #32).** `configVersion` errors now carry pointers instead
+  of the bare "must be 1": a number > 1 → "newer than this plugin understands — upgrade the marketplace pin
+  (docs/releasing.md)"; < 1 → "predates this plugin — see docs/migrations/"; non-number → "required number
+  (current: 1)". The two v1 keys removed in v2.0.0 are special-cased with their exact migration pointers
+  (`gates.figma` → `design: {"provider": ...}`; `gates.apiTests` → EP-6/EP-7 companion pack — both →
+  docs/migrations/v1-to-v2.md), and the generic gates unknown-keys message now names the offending keys.
+  Three new invalid fixtures. Docs: `docs/releasing.md` (maintainer checklist: version-bump discipline,
+  CHANGELOG step, metadata lockstep, mandatory "What breaks / what to do" Release body, official `renames`
+  map (≥ v2.1.193, append-only), doc-pin-example refresh — the v1.1.0 lesson), `docs/migrations/README.md`
+  (the contract + the honest v2.0.0 history line), and the retroactive `docs/migrations/v1-to-v2.md`.
+
 ## v2.1.2 — one blessed bundle + the consent doc (in progress)
 
 ### `second-shift` 1.0.0 → 1.1.0
