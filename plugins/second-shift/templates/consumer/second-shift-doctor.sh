@@ -12,7 +12,12 @@ command -v jq >/dev/null 2>&1 || exit 0
 missing=""
 while IFS='	' read -r p v; do
   [ -n "$p" ] || continue
-  [ -d "$CACHE/$p/$v" ] || missing="$missing $p"
+  # "latest" (canary lockfile): any installed version counts — check the plugin dir only.
+  if [ "$v" = "latest" ]; then
+    [ -d "$CACHE/$p" ] || missing="$missing $p"
+  else
+    [ -d "$CACHE/$p/$v" ] || missing="$missing $p"
+  fi
 done <<EOF
 $(jq -r '.plugins | to_entries[] | "\(.key)\t\(.value)"' "$LOCK" 2>/dev/null)
 EOF

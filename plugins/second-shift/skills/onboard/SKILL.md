@@ -40,6 +40,15 @@ Run: `bash "${CLAUDE_PLUGIN_ROOT}/skills/onboard/tools/pin-resolve.sh" manoldone
 <ref>; this marketplace has not cut a GitHub Release yet)". Resolution failure → ABORT
 with the stderr reason (likely offline or gh unauthenticated).
 
+**Canary mode (self-consumption):** if detection's `git.originUrl` points at the
+marketplace repo itself (`manoldonev/second-shift`), do NOT pin the release: use
+`ref: "main"` in the settings block and the lockfile, and set every lockfile `plugins`
+value to the literal `"latest"` (doctor and the thin check treat `"latest"` as
+presence-only — any installed version is correct by definition, so no PR ever has to
+touch the lockfile). This repo is the canary — it dogfoods every change; only real
+consumers get the release pin. Say so on the review screen, and the consent doc must
+state the canary exception explicitly.
+
 ## Step 3 — Draft + one-batch elicitation
 Build the draft config from detection:
 - `configVersion: 1`

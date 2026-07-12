@@ -1,18 +1,21 @@
 # second-shift in this repo — what you're consenting to
 
-This repo pins the [second-shift](https://github.com/manoldonev/second-shift) plugin
-marketplace at `v2.1.6` (see `.claude/second-shift.lock.json`). When you trust this
-workspace, Claude Code will ask to install the marketplace and these plugins. The trust
-dialog says "arbitrary code with your privileges" — this file is the inventory of what
-that actually is, so you can decide BEFORE the prompt.
+This repo tracks the [second-shift](https://github.com/manoldonev/second-shift) plugin
+marketplace at `main` (see `.claude/second-shift.lock.json`). **This is the canary
+exception, on purpose:** this repo IS the marketplace, consuming itself to dogfood every
+change — real consumers get a pinned release tag via `/second-shift:onboard`; only the
+canary tracks latest. When you trust this workspace, Claude Code will ask to install the
+marketplace and these plugins. The trust dialog says "arbitrary code with your
+privileges" — this file is the inventory of what that actually is, so you can decide
+BEFORE the prompt.
 
 | plugin | version |
 | --- | --- |
-| dev-pipeline | 2.1.4 |
-| review-toolkit | 2.1.1 |
-| intake-toolkit | 2.0.0 |
-| audit-toolkit | 2.0.0 |
-| second-shift | 1.1.0 |
+| dev-pipeline | latest (canary) |
+| review-toolkit | latest (canary) |
+| intake-toolkit | latest (canary) |
+| audit-toolkit | latest (canary) |
+| second-shift | latest (canary) |
 
 ## What each plugin installs and when its code runs
 

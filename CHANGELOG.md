@@ -4,6 +4,18 @@ All notable changes to the second-shift marketplace. Versions are per-plugin (`p
 this file tracks the marketplace release. `configVersion` stays `const 1` — v2 is fully backward-compatible for a
 consumer with an empty config; the migration notes below are only for consumers using the changed features.
 
+## v2.1.7 — canary self-consumption: lockfile "latest" (in progress)
+
+### `second-shift` 1.1.0 → 1.2.0
+- **The canary exception, mechanized.** The marketplace repo consuming itself must track latest, not a pinned
+  release (a frozen pin fights the dogfooding loop: fix on N → bump → reinstall → next issue on N+1). The
+  lockfile now supports the literal version `"latest"`: `doctor.sh` treats it as presence-only (any installed
+  version is correct by definition — new `latest-lock` selftest scenario proves a drifted install stays green),
+  and the consumer thin check accepts any cached version dir (`cache/<p>/` instead of `cache/<p>/<v>` — new
+  selftest cases). Onboard's Step 2 gains **canary mode**: when the target repo IS the marketplace checkout,
+  emit `ref: "main"` + all-"latest" lockfile instead of the release pin, and say so in the consent doc.
+  This repo's own onboard artifacts (#51) converted accordingly; docs note the canary form in onboarding.md §1.
+
 ## v2.1.6 — be-fe-pair: pair runs end-to-end (release)
 
 The be-fe-pair series (#4/#5, PRs 3–5 + flat-mirror) shipped as logic-only PRs with the version bump deferred

@@ -36,6 +36,25 @@ check "missing: exit stays 0"        "$([[ "$rc" -eq 0 ]] && echo 0 || echo 1)"
 check "missing: nudge text"          "$(grep -q "missing your accelerators" <<< "$out" && echo 0 || echo 1)"
 check "missing: names the plugin"    "$(grep -q "dev-pipeline" <<< "$out" && echo 0 || echo 1)"
 
+# (d) "latest" lockfile (canary form): any cached version satisfies the check
+mkdir -p "$TMP/repo-latest/.claude" "$CACHE/audit-toolkit/2.0.0"
+cat > "$TMP/repo-latest/.claude/second-shift.lock.json" <<'EOF'
+{
+  "lockfileVersion": 1,
+  "marketplace": { "name": "second-shift", "repo": "manoldonev/second-shift", "ref": "main" },
+  "plugins": { "dev-pipeline": "latest", "audit-toolkit": "latest" },
+  "generatedBy": "second-shift:onboard@1.2.0"
+}
+EOF
+mkdir -p "$CACHE/dev-pipeline/3.4.5"   # ANY version dir counts for "latest"
+out="$(cd "$TMP/repo-latest" && SECOND_SHIFT_CACHE_DIR="$CACHE" bash "$TOOL")"; rc=$?
+check "latest: exit 0"          "$([[ "$rc" -eq 0 ]] && echo 0 || echo 1)"
+check "latest: silent when any version cached" "$([[ -z "$out" ]] && echo 0 || echo 1)"
+rm -rf "$CACHE/dev-pipeline"           # plugin dir gone entirely → nudge fires
+out="$(cd "$TMP/repo-latest" && SECOND_SHIFT_CACHE_DIR="$CACHE" bash "$TOOL")"; rc=$?
+check "latest: missing plugin dir nudges" "$(grep -q "dev-pipeline" <<< "$out" && echo 0 || echo 1)"
+check "latest: still exit 0"    "$([[ "$rc" -eq 0 ]] && echo 0 || echo 1)"
+
 # (c) no jq on PATH → silent exit 0 (SessionStart must never break a session)
 mkdir -p "$TMP/bin"
 for b in bash sh dirname basename cat grep; do
