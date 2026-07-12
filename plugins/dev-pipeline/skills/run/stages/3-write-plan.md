@@ -42,11 +42,12 @@
 - **Advisory self-lint (before the plan commit).** Run the plan structure lint and fix any violation it names (max 2 attempts, advisory — never abort here; the Stage-4 gate is the hard stop). Re-run before the plan commit, or amend the commit if a fix landed after it:
 
   ```bash
-  # State lives in the MAIN checkout; resolve it via git-common-dir from the worktree.
-  MAIN_ROOT="$(dirname "$(cd "$(git -C "$WORKTREE" rev-parse --git-common-dir)" && pwd)")"
+  # The state file lives in the MAIN checkout (crash-recovery state outlives the
+  # worktree). `statectl state-path` resolves it — honoring paths.pipelineStateDir and
+  # the ticket-key lowercasing — so no manual git-common-dir reconstruction is needed.
   bash "${CLAUDE_PLUGIN_ROOT}/skills/run/tools/plan-lint.sh" \
     "$WORKTREE/$PLAN_REL" \
-    "$MAIN_ROOT/.claude/pipeline-state/${ISSUE_NUMBER}.json"
+    "$(statectl.sh state-path "$ISSUE_NUMBER")"
   ```
 
 ### Unit test surface (apps/api behavior changes)

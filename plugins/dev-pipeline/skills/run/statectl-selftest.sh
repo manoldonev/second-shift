@@ -1223,6 +1223,31 @@ else
   fail "(sd2) state-dir derivation — err='$err'"
 fi
 
+# (sp1) `state-path` prints the resolved ABSOLUTE state-file path — honoring
+# paths.pipelineStateDir and the ticket-key lowercasing — WITHOUT requiring the
+# file to exist. The Stage-3/4 plan gates call it instead of reconstructing the
+# literal `.claude/pipeline-state/${KEY}.json`, which ignored both (issue #10).
+sp_root="$TMPDIR_ST/sp-consumer"
+mkdir -p "$sp_root"
+sp_out=$(STATECTL_STATE_DIR="" SECOND_SHIFT_REPO_ROOT="$sp_root" "$STATECTL" state-path 42)
+if [[ "$sp_out" == "$sp_root/.claude/pipeline-state/42.json" ]]; then
+  pass "(sp1) state-path default dir + numeric key"
+else
+  fail "(sp1) state-path default — out='$sp_out'"
+fi
+printf '%s' '{"configVersion":1,"paths":{"pipelineStateDir":".pipeline/state"}}' > "$sp_root/ss.config.json"
+sp_out2=$(STATECTL_STATE_DIR="" SECOND_SHIFT_REPO_ROOT="$sp_root" SECOND_SHIFT_CONFIG="$sp_root/ss.config.json" "$STATECTL" state-path AB-123)
+if [[ "$sp_out2" == "$sp_root/.pipeline/state/ab-123.json" ]]; then
+  pass "(sp1) state-path custom pipelineStateDir + lowercased JIRA key"
+else
+  fail "(sp1) state-path custom dir/key — out='$sp_out2'"
+fi
+if STATECTL_STATE_DIR="" SECOND_SHIFT_REPO_ROOT="$sp_root" "$STATECTL" state-path >/dev/null 2>&1; then
+  fail "(sp1) state-path with no key should error"
+else
+  pass "(sp1) state-path no-arg → usage error"
+fi
+
 # (mk1) valid_stage_marker: documented markers accepted, retired + junk rejected.
 # The validator is not CLI-reachable (statectl posts no comments), so source the
 # generated region out of the committed file and probe the function directly.

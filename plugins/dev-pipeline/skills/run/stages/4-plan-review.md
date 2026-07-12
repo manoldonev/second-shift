@@ -16,7 +16,7 @@ The plan gates — `plan-reviewer`, design FE-spec review (designDriven runs), u
    PLAN_REL="$(printf '%s' "$PLAN_PAT" | sed -e "s|{plansDir}|$PLAN_DIR|" -e "s|{issueKey}|$ISSUE_NUMBER|" -e "s|{slice}|${SLICE_SUFFIX:-}|")"
    LINT_STDERR="$(bash "${CLAUDE_PLUGIN_ROOT}/skills/run/tools/plan-lint.sh" \
      "$WORKTREE/$PLAN_REL" \
-     "$MAIN_ROOT/.claude/pipeline-state/${ISSUE_NUMBER}.json" 2>&1 1>/dev/null)" || {
+     "$(statectl.sh state-path "$ISSUE_NUMBER")" 2>&1 1>/dev/null)" || {
      statectl.sh mark-failed "$ISSUE_NUMBER" \
        --reason plan-structure-invalid --stage 4 \
        --json "$(statectl.sh build-failure-context \

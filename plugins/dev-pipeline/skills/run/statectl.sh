@@ -188,6 +188,18 @@ state_path() {
   echo "$(state_dir)/${key}.json"
 }
 
+# `state-path <ticket>` — print the resolved state-file ABSOLUTE path (honors
+# paths.pipelineStateDir + the ticket-key lowercasing rule). Read-only: it does
+# not require the file to exist. Stages that must locate the state file (e.g. the
+# Stage-4 plan gate handing it to plan-lint.sh) call this instead of
+# reconstructing the literal `.claude/pipeline-state/${KEY}.json`, which ignores
+# both pipelineStateDir and the lowercasing and so breaks Jira / custom-dir consumers.
+cmd_state_path() {
+  local key="${1:-}"
+  [[ -n "$key" ]] || { EXIT_CODE=3 die "state-path: usage: state-path <ticket-key>"; }
+  state_path "$key"
+}
+
 # Write atomically via writer-suffixed tmp file.
 # $1 = issue number, $2 = new JSON content
 atomic_write() {
@@ -1686,6 +1698,7 @@ main() {
   case "$subcmd" in
     init)                   cmd_init "$@" ;;
     get)                    cmd_get "$@" ;;
+    state-path)             cmd_state_path "$@" ;;
     set-stage)              cmd_set_stage "$@" ;;
     checkpoint)             cmd_checkpoint "$@" ;;
     worktree-set)           cmd_worktree_set "$@" ;;
