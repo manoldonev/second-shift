@@ -1,0 +1,70 @@
+{
+  "ticketKey": "test-cost",
+  "runId": "fixture-run-mini",
+  "status": "in_progress",
+  "currentStage": 9,
+  "startedAt": "2026-05-25T12:00:00Z",
+  "lastUpdatedAt": "2026-05-25T12:35:00Z",
+  "branch": "claude/acme-test-cost",
+  "worktreePath": "/tmp/acme-test-cost",
+  "stages": {
+    "1": {
+      "status": "completed",
+      "startedAt": "2026-05-25T12:00:00Z",
+      "completedAt": "2026-05-25T12:05:00Z"
+    },
+    "2": {
+      "status": "completed",
+      "startedAt": "2026-05-25T12:05:00Z",
+      "completedAt": "2026-05-25T12:08:00Z"
+    },
+    "3": {
+      "status": "completed",
+      "startedAt": "2026-05-25T12:08:00Z",
+      "completedAt": "2026-05-25T12:12:00Z"
+    },
+    "4": {
+      "status": "completed",
+      "startedAt": "2026-05-25T12:12:00Z",
+      "completedAt": "2026-05-25T12:15:00Z"
+    },
+    "5": {
+      "status": "completed",
+      "startedAt": "2026-05-25T12:15:00Z",
+      "completedAt": "2026-05-25T12:18:00Z"
+    },
+    "6": {
+      "status": "completed",
+      "startedAt": "2026-05-25T12:18:00Z",
+      "completedAt": "2026-05-25T12:28:00Z"
+    },
+    "7": {
+      "status": "completed",
+      "startedAt": "2026-05-25T12:28:00Z",
+      "completedAt": "2026-05-25T12:30:00Z"
+    },
+    "8": {
+      "status": "completed",
+      "startedAt": "2026-05-25T12:30:00Z",
+      "completedAt": "2026-05-25T12:33:00Z"
+    },
+    "9": {
+      "status": "completed",
+      "startedAt": "2026-05-25T12:33:00Z",
+      "completedAt": "2026-05-25T12:35:00Z"
+    }
+  },
+  "pipelineSessions": [
+    {
+      "sessionId": "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee",
+      "launchedAt": "2026-05-25T12:00:00Z",
+      "source": "skill"
+    }
+  ],
+  "prs": {
+    "claude/acme-test-cost": {
+      "url": "https://github.com/owner/repo/pull/9999"
+    }
+  },
+  "costBlockApplied": null
+}

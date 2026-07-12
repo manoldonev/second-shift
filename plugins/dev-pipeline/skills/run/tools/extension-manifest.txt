@@ -1,0 +1,12 @@
+# second-shift extension-file manifest (EP-3) — the versioned list of known well-known
+# filenames/globs under a consumer repo's .claude/second-shift/. check-extensions.sh fails
+# config-lint on any file here that doesn't match a line below (a typo'd name — e.g.
+# blocker-mutants.md.md — is loud, not silently ignored). Add a line when a plugin release
+# introduces a new consultation point. Globs are matched with bash [[ == ]] semantics.
+# (CLAUDE.md / findings.md live at the repo root, not under .claude/second-shift/, and are
+#  respected-but-never-required conventions — intentionally not listed here.)
+blocker-mutants.md
+security-rules.md
+review-context.md
+doc-routing.md
+design-tokens/*.md

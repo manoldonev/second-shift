@@ -1,0 +1,113 @@
+#!/usr/bin/env bash
+#
+# fake-gh — drop-in replacement for the `gh` CLI used during agent evals.
+#
+# Intercepts all gh subcommands invoked by an agent under test. Reads are
+# served from canned JSON files in $GH_MOCK_DIR. Writes are logged to
+# $GH_MOCK_LOGS so the judge can score the side-effects the agent attempted.
+#
+# Required env vars (set by the eval harness before invoking `claude`):
+#   GH_MOCK_DIR   — directory containing issue-view.json, issue-comments.json,
+#                    and other canned responses.
+#   GH_MOCK_LOGS  — path to the writes.log file (one line per mutation).
+#
+# Supported subcommands (matching intake-orchestrator.md):
+#   gh auth status               → print "Logged in to github.com (fake)" and exit 0
+#   gh issue view N [--json ...] → print $GH_MOCK_DIR/issue-view.json
+#   gh issue create ARGS         → log and print a plausible PR URL
+#   gh issue edit N ARGS         → log and exit 0
+#   gh issue comment N ARGS      → log and exit 0
+#   gh issue list ARGS           → print $GH_MOCK_DIR/issue-list.json if present, else []
+#   gh api PATH [ARGS]           → print $GH_MOCK_DIR/api-<sanitized-path>.json if present, else {}
+#   anything else                → log + exit 0 with empty stdout (fail-safe for unknown commands)
+
+set -u
+
+if [ -z "${GH_MOCK_LOGS:-}" ]; then
+  echo "fake-gh: GH_MOCK_LOGS env var not set" >&2
+  exit 2
+fi
+if [ -z "${GH_MOCK_DIR:-}" ]; then
+  echo "fake-gh: GH_MOCK_DIR env var not set" >&2
+  exit 2
+fi
+
+log_write() {
+  # One line per attempted mutation, tab-separated.
+  local ts
+  ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+  printf '%s\t%s\n' "$ts" "$*" >> "$GH_MOCK_LOGS"
+}
+
+first="${1:-}"
+second="${2:-}"
+
+case "$first" in
+  auth)
+    # `gh auth status` — always succeed silently.
+    echo "Logged in to github.com (fake-gh mock)"
+    exit 0
+    ;;
+  issue)
+    case "$second" in
+      view)
+        # Read the canned issue data. Optional --json flag is ignored (agent
+        # can ask for subset; mock returns full body and the agent can parse).
+        file="$GH_MOCK_DIR/issue-view.json"
+        if [ -f "$file" ]; then
+          cat "$file"
+          exit 0
+        fi
+        echo "{}"
+        exit 0
+        ;;
+      create)
+        log_write "issue create $*"
+        # gh prints the new issue URL on success
+        echo "https://github.com/fake/repo/issues/99999"
+        exit 0
+        ;;
+      edit|comment)
+        log_write "issue $second $*"
+        exit 0
+        ;;
+      list)
+        file="$GH_MOCK_DIR/issue-list.json"
+        if [ -f "$file" ]; then
+          cat "$file"
+          exit 0
+        fi
+        echo "[]"
+        exit 0
+        ;;
+      *)
+        log_write "issue $*"
+        exit 0
+        ;;
+    esac
+    ;;
+  api)
+    # gh api PATH — sanitize path to a filename and look for a canned response.
+    # E.g. `gh api repos/x/y/issues/5/comments` → api-repos-x-y-issues-5-comments.json
+    if [ -z "$second" ]; then
+      echo "{}"
+      exit 0
+    fi
+    sanitized=$(echo "$second" | tr '/' '-' | tr -cd 'a-zA-Z0-9-')
+    file="$GH_MOCK_DIR/api-$sanitized.json"
+    if [ -f "$file" ]; then
+      cat "$file"
+      exit 0
+    fi
+    echo "{}"
+    exit 0
+    ;;
+  *)
+    # Unknown subcommand — log and return empty success so the agent doesn't
+    # die on an unexpected call. If an unknown subcommand mattered, the
+    # judge will score low on d7 (sideeffect correctness) because writes.log
+    # won't match expected.
+    log_write "UNKNOWN $*"
+    exit 0
+    ;;
+esac

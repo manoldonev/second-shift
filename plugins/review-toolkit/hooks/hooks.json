@@ -1,0 +1,40 @@
+{
+  "description": "review-toolkit commit gates — keep review-lead's reviewer registry and the .mjs model-tier tables in lockstep with agent frontmatter + config overrides, before any git commit. Two-root aware; no-ops in repos without a second-shift.config.json.",
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "if": "Bash(git commit *)",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/check-reviewer-references.sh\"",
+            "timeout": 15,
+            "statusMessage": "Checking review-lead reviewer-name registry consistency..."
+          },
+          {
+            "type": "command",
+            "if": "Bash(git -c * commit *)",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/check-reviewer-references.sh\"",
+            "timeout": 15,
+            "statusMessage": "Checking review-lead reviewer-name registry consistency (bot-identity commit)..."
+          },
+          {
+            "type": "command",
+            "if": "Bash(git commit *)",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/check-model-tiers.sh\"",
+            "timeout": 15,
+            "statusMessage": "Checking .mjs model-tier lockstep with agent frontmatter..."
+          },
+          {
+            "type": "command",
+            "if": "Bash(git -c * commit *)",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/check-model-tiers.sh\"",
+            "timeout": 15,
+            "statusMessage": "Checking .mjs model-tier lockstep with agent frontmatter (bot-identity commit)..."
+          }
+        ]
+      }
+    ]
+  }
+}

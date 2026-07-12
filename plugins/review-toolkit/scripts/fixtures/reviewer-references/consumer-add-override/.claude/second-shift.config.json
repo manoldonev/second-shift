@@ -1,0 +1,10 @@
+{
+  "configVersion": 1,
+  "tracker": { "type": "github" },
+  "topology": { "type": "standalone", "repos": { "app": { "path": ".", "baseBranch": "main" } } },
+  "commands": { "app": {} },
+  "reviewers": {
+    "add": [{ "name": "orders-reviewer", "dimensions": ["domain-orders"] }],
+    "modelOverrides": { "orders-reviewer": "opus" }
+  }
+}

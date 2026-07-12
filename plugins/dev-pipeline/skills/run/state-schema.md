@@ -1,0 +1,312 @@
+# Dev Pipeline State Schema
+
+Reference for the state file at `.claude/pipeline-state/{issue-number}.json` written by the pipeline for crash recovery. Runtime behavior (resume logic, write discipline) stays in `SKILL.md` — this file is the schema reference only.
+
+**Mutations are owned by [`statectl.sh`](./statectl.sh)** — a sibling Bash helper that enforces atomic field bundles, closed-enum validation against the indexes below, and server-clock timestamps. The skill body invokes statectl at every write site rather than inlining jq, with **one documented exception**: `costBlockApplied`, written only by `pipeline-cost-block.sh` (see its field entry under Outputs). Three of the closed-enum validators (`valid_failure_reason`, `valid_deviation_kind`, `valid_stage_marker`) are **generated** from this schema by [`tools/gen-statectl-validators.sh`](./tools/gen-statectl-validators.sh) (developer-step, output committed). Drift between this schema and the committed helper is detected by `statectl-selftest.sh` via regenerate-and-diff.
+
+## JSON Schema
+
+```json
+{
+  "ticketKey": 42,
+  "runId": "2026-04-09T10:00:00Z-host-deadbeef",
+  "currentStage": 6,
+  "status": "in_progress",
+  "worktreePath": ".claude/worktrees/acme-42",
+  "branch": "claude/acme-42",
+  "codeReviewRounds": 0,
+  "codeReviewExhausted": false,
+  "verifyAttempts": {},
+  "verifySummary": null,
+  "stageCheckpoint": {},
+  "failureContext": null,
+  "startedAt": "2026-04-09T10:00:00Z",
+  "lastUpdatedAt": "2026-04-09T10:32:00Z",
+  "stages": {
+    "1": { "status": "completed", "startedAt": "...", "completedAt": "..." },
+    "2": { "status": "completed", "startedAt": "...", "completedAt": "..." },
+    "3": { "status": "completed", "startedAt": "...", "completedAt": "..." },
+    "4": { "status": "completed", "startedAt": "...", "completedAt": "..." },
+    "5": { "status": "completed", "startedAt": "...", "completedAt": "..." },
+    "6": { "status": "in_progress", "startedAt": "..." }
+  },
+  "prs": {
+    "claude/acme-42": { "url": "https://github.com/owner/repo/pull/123" }
+  },
+  "pauseSpans": [
+    {
+      "from": "2026-04-09T10:32:00Z",
+      "to": "2026-04-09T14:05:00Z",
+      "reason": "session-resume"
+    }
+  ],
+  "costBlockApplied": null
+}
+```
+
+## Field Reference
+
+### Identity
+
+- `ticketKey` — GitHub issue number (integer). Primary key for the state file name and branch name.
+- `runId` — RUN_ID for this session (format: `{ISO timestamp}-{hostname}-{random 8 hex chars}`). Set once at init via `statectl init --run-id`; never overwritten. Resumes (e.g. a fresh session re-invoked to run Stage 8) read this field via `statectl get "$ISSUE" '.runId'` and reuse the value so all `<!-- run_id: ... -->` comment markers from the original session and any later resume match. Field is mandatory; Stage 8 resume fails fast if absent.
+
+### Run Status
+
+- `currentStage` — integer 1–9 indicating the stage in progress. Stage 10 (cleanup) runs after Stage 9 completes and is not assigned a `currentStage` value.
+- `status` — top-level run status: `in_progress | completed | failed`. Distinct from per-stage status in `stages.N.status`. Written via `statectl init` (`in_progress`), `statectl mark-completed` (Stage 9 terminal write), and `statectl mark-failed`. **Terminal-state guard:** every mutating subcommand routes through the shared `require_mutable` helper and refuses to overwrite a terminal (`completed`/`failed`) run unless `--force` is passed — the `mark-*` pair plus `worktree-set`, `pr-add`, `review-rounds`, `verify-attempts`, `slice-set`, `checkpoint`, `pause-add`, `plan-review-set`, and `verify-summary-set`. Two deliberate exceptions: `set-stage` carries a _stricter_ terminal guard (its own inline check, **not** `require_mutable`, with no `--force` escape — re-entering a stage on a terminal run is never valid recovery), and `pipeline-session-add` is _exempt_ (a post-terminal manual cost backfill is a documented, legitimate write — see `cost-tracking-setup.md`). `set-stage` _does_ accept `--force`, but it escapes **only** the monotonic stage-progression guard (see `stages.N.status` below) and the per-stage **completion-evidence preconditions** (below) — never the terminal-state / forward-skip / re-start guards, which stay unconditional.
+
+  **`mark-completed` terminal gates (imperative stage machine).** The terminal `completed` write is refused unless (a) every stage 1–9 has `stages.N.status == "completed"`, and (b) the Post-Run Eval file `.claude/pipeline-state/{issue}-eval.json` exists, parses, and is a plausible self-eval (non-empty `.criteria` object + matching `.ticketKey` — read-only against the LOCKED `eval-criteria.md` template). Neither gate is bypassed by `--force` (which only overrides the terminal-overwrite guard above). `statectl init` complements the eval gate with a **stale-eval quarantine**: a leftover `{issue}-eval.json` at fresh-init time is renamed to `{issue}-eval-stale-{ts}.json` so a re-run from scratch cannot satisfy the gate with a previous run's self-score. Stacked-PR runs call `mark-completed` once, after the last slice (see `stages/9-open-pr.md`).
+- `startedAt` / `lastUpdatedAt` — ISO timestamps. `startedAt` is seeded in Stage 1 and never rewritten.
+
+### Intake intent snapshot
+
+- `briefPath` — path to the persisted Product-Essence Brief (`.claude/pipeline-state/{issue}-brief.md`, main-repo, gitignored, written pre-worktree so it survives Stage-10 cleanup); `null` when intake produced no Brief (engineer-authored specs skip the orchestrator's Step 0.5 — the common acme case, since most issue bodies are interviewer-authored). Written by `statectl intake-brief` at Stage-1 close. Consumers pass it downstream as an **absolute main-repo path or inlined content, never worktree-relative** (worktrees don't carry gitignored main-repo files).
+- `acceptanceCriteria[]` — Stage-1 snapshot of the issue's acceptance criteria: `[{ id, text, negative, source }]` where `id` matches `^AC-[0-9]+$` (unique), `negative` is boolean, `source` is `explicit` (ID carried in the issue body) or `derived` (assigned via the fallback rule below). Snapshot is taken from the fetched issue at intake and is immune to later issue edits — it is the run-authoritative AC set for state-reading consumers (plan-lint, pipeline-retro). Empty array when the issue yields no AC IDs. Absent on pre-schema state files → consumers skip.
+
+**AC-ID positional fallback rule (normative home — consumer copies must match byte-for-byte; `scope-completeness-reviewer.md` keeps a permanent inline copy because its independence contract precludes reading pipeline docs at review time):** AC IDs exist only under an explicit AC heading: the _first_ heading matching `/acceptance criteria/i`. If **any** explicit `AC-n` label appears under that heading, only the explicitly labeled items carry IDs — unlabeled items in that section get no ID (all-or-nothing; assigned numbering never mixes with explicit labels). If **no** explicit label appears, number only **top-level** list items under that heading, in document order, as `AC-1..n`. Sub-bullets are never separate IDs (one naming a separate deliverable stays an un-ID'd scope item). One top-level bullet = one `AC-n` regardless of sentence count. Prose outside that section is never AC-numbered. No matching heading → no AC IDs. Snapshot at first derivation; never renumber.
+
+### Worktree
+
+- `worktreePath` — path to the worktree created in Stage 2, under the host's configured worktrees dir (config `topology.repos.<host>.worktreesDir`; e.g. `<worktreesDir>/acme-42`). The pipeline always operates with its working directory at the repo root, so every consumer resolves this value against the repo root (`git -C "$worktreePath" …`, `cd "$worktreePath"`). This is the canonical form — `worktree-set` enforces it by rejecting an absolute path (leading `/`).
+- `branch` — branch name (e.g., `claude/acme-42`).
+
+Both fields are written atomically via `statectl worktree-set <issue> --path <p> --branch <b>` at Stage 2. **Ordering contract:** the `worktree-set` call MUST precede `set-stage 2 --status completed`, so a state file showing Stage 2 completed always carries the boundary fields — a crash between the two writes leaves Stage 2 merely in-progress (resumable), never "complete but unresumable". Stage 8's crash-recovery entry depends on this (it asserts `worktreePath` is non-empty and valid).
+
+**Stacked-PR note:** In stacked-PR mode (see Stacked-PR Outer Loop in `stages/1-intake.md`), `worktreePath` and `branch` are **overwritten per slice**. The state file reflects the currently active slice only; historical slice state is not preserved here — it is inferable from the decomposition plan on disk plus the set of already-opened PRs.
+
+### Stacked-PR slice state
+
+Persisted at Stage 1 (when the verdict is `stacked-prs`) and re-derived at the start of each slice iteration. All five fields are computed, not user-set.
+
+- `currentSlice` — 1-indexed slice counter. The live `SLICE_NUMBER` loop variable mirrors this field; the persisted value is the source of truth on resume. State files written before this field existed default to `1` when read (no migration required).
+- `sliceBranch` — branch name for this slice (e.g., `claude/acme-42` for slice 1, `claude/acme-42-pr2` for slice 2).
+- `priorSliceBranch` — branch name of slice N-1, or `null` for slice 1. Used by Stage 9 to set the PR base and to render the "Stacked on PR #XYZ" prose.
+- `worktreeBase` — the branch / ref `git worktree add -b <new>` cuts from. The host's configured base branch (config `topology.repos.<host>.baseBranch`) for slice 1; `priorSliceBranch` for slice N>1.
+- `prBase` — the branch `gh pr create --base <prBase>` targets. Equal to `worktreeBase` in the standard model; kept as a separate field for future cases where a slice is rebased onto a fresher main but its PR still stacks on the prior slice's branch.
+
+**Precedence rule (non-negotiable):**
+
+When `currentSlice` is present and non-null in the state file, it is **authoritative**. Stage 1's remote-branch derivation only runs to **seed** the field on first entry or when it is absent on resume. A resume into the middle of a multi-slice run trusts the persisted slice number; it does NOT re-derive from `git ls-remote` (the remote may have changed between sessions, but the in-progress slice is fixed).
+
+**Compatible exception — Stage-2 upper-bound sanity guard.** The precedence rule forbids _re-deriving_ `currentSlice` from the remote; it does **not** forbid a read-only consistency assertion. Stage 2 (stacked-PR runs only) computes `M` = highest pushed slice number from the remote branch set and **stops** if `currentSlice > M + 1` — a structurally impossible state (one or more intermediate slices were never pushed, so the persisted slice points past the end of the real work; the state file is corrupt or hand-edited). This never overwrites `currentSlice` and never fires on legitimate advancement: normal progress only raises `M`, and post-merge branch deletion lowers the pushed set only _below_ `currentSlice`, never above `M + 1`. It is therefore compatible with the precedence rule. See `stages/2-worktree.md`.
+
+**Derivation logic** (Stage 1, only when seeding): list remote branches matching `claude/acme-{ISSUE_NUMBER}` and `claude/acme-{ISSUE_NUMBER}-pr{N}`, compute the maximum `N` (treating the unsuffixed branch as slice 1), and set `currentSlice = max + 1` when the decomposition plan has more slices remaining. If no matching remote branch exists, `currentSlice = 1`. State files written before this field existed read as `currentSlice = 1` on the first state load.
+
+### Iteration Counters
+
+- `codeReviewRounds` — Stage 8 iteration count (1–3). Written on success, via `statectl review-rounds` (Stage 8).
+- `codeReviewExhausted` — boolean. Defaults to `false` (by absence — `init` does not seed it; consumers check `== true`). Set to `true` if Stage 8 exits its 3-round budget with unresolved blockers, via `statectl review-rounds --set 3 --exhausted` (Stage 8). The flag is additive-only: the subcommand never writes `false`, so a recorded exhaustion survives later plain `--set` writes. Disambiguates "exhausted draft" from "clean draft" (since all PRs open as draft) — consumed by the Resume / Idempotency table in `SKILL.md` and the Stacked-PR Outer Loop in `stages/1-intake.md`.
+- `verifyAttempts` — Stage 6 retry bookkeeping. Map of failure class → attempt count (e.g., `{"TYPE_ERROR": 1, "TEST_FAILURE": 2}`). **Unique**: this is the only field written mid-stage rather than at stage boundaries — it is incremented each time a fix attempt is made for a given failure class, and the per-class budget (2) is enforced against it. Written via `statectl verify-attempts <issue> --incr <FAILURE_CLASS>` (the subcommand increments and echoes the new count; it does not cap). **Class ownership:** `FORMAT | LINT_AUTOFIX | TYPE_ERROR | TEST_FAILURE` are charged **exclusively by [`verifyctl.sh`](./verifyctl.sh)** (its runId-scoped sidecar detects fix-attempt re-runs and charges them itself — the session never self-charges these); `PLAN_CMD_FAILURE` (plan-specific verification commands) is the one in-session-charged class; `INFRA` is never charged. Shared ownership of a suite class would corrupt the sidecar's fix-attempt detection. The class list is a hand-authored enum in `cmd_verify_attempts` — deliberately NOT in the `gen-statectl-validators.sh` generated set (a command-classification vocabulary, not a state-schema closed enum).
+- `verifySummary` — **top-level persisted verify result** (the source of truth; `stageCheckpoint["7"].verifySummary` is a copy of it). A structured object on the SUITE lane (`{format, lint, typeCheck, test, build}` verdicts) or the skipped-string on the INERT lane (`"skipped (inert diff — no JS/TS surface)"`). Written from the verifyctl verdict JSON via `statectl verify-summary-set <issue> --json <v>` BEFORE `set-stage 6 --status completed` (the Stage-6 completion precondition refuses without it). Stage 7 sources its checkpoint copy from this field (`statectl get <issue> '.verifySummary'`) so a crash-recovery resume into Stage 7 still hydrates Stage 8 + retro; the Stage-8 review loop refreshes it after each re-verify.
+
+### Crash-Recovery Metadata
+
+**verifyctl sidecar + log (gitignored, verifyctl-owned).** [`verifyctl.sh`](./verifyctl.sh) keeps its fix-attempt accounting in `.claude/pipeline-state/{issue}-verify.json` — `{ runId, headSha, chargedHead, at, failedClasses[], status }` — owned EXCLUSIVELY by verifyctl (never edit it; a sidecar whose `runId` ≠ state `.runId` is discarded on the next run, so it self-cleans across slices and state clears). Full command output spools to `.claude/pipeline-state/{issue}-verify.log` (overwritten per run); the verdict JSON carries only 80-line tails. Neither file is statectl state — they are runner-internal accounting, documented here so a resume doesn't mistake them for checkpoints.
+
+- `stageCheckpoint` — map keyed by stage number (string, e.g. `"1"`, `"5"`, `"7"`); each value is a structured manifest written at a stage boundary (per the Stage Checkpoints section of SKILL.md). Crash-recovery for Stages 1 (Intake) and 5 (Implement); **the Stage 7 manifest hydrates Stage 8's review context** (Doc Update — Stage 8 reads `stageCheckpoint["7"]`, in-process on the happy path or from disk on a crash-recovery resume). The Stage 7 manifest schema is:
+
+  ```json
+  {
+    "ticketKey": "60",
+    "branch": "claude/acme-60",
+    "headSha": "abc1234",
+    "worktreePath": ".claude/worktrees/acme-60",
+    "planPath": "docs/plans/acme-60.md",
+    "changedFiles": ["packages/ui/src/confidence-ring.tsx", "..."],
+    "verifySummary": {
+      "format": "clean",
+      "lint": "clean",
+      "typeCheck": "clean",
+      "test": "passed",
+      "build": "clean"
+    },
+    "deviations": [
+      {
+        "kind": "alternate-approach",
+        "planSection": "Step 3 — confidence-ring stroke calc",
+        "file": "packages/ui/src/confidence-ring.tsx",
+        "line": 34,
+        "note": "Used SVG stroke-dasharray fraction directly rather than computing pixel-perfect arc length per the plan; visually identical, simpler to maintain."
+      }
+    ],
+    "freeNote": "Optional irreducible texture not covered by deviations[]. May be empty.",
+    "planRisks": ["Tier mapping at score=85 boundary — verify >= not >", "..."],
+    "docUpdaterFindings": "0 blockers, 1 warning (event-topic-guidelines.md not yet documenting the new stream kind), 0 notes.",
+    "qualityPassSummary": {
+      "runId": "...",
+      "status": "completed",
+      "outcome": "applied",
+      "commitSha": "abc1234",
+      "applied": ["replaced inline zone-clamp with existing clampToZone() helper"],
+      "suggestions": []
+    }
+  }
+  ```
+
+  The `worktreePath` here is the same repo-relative value written by `worktree-set` at Stage 2 (the Stage 7 manifest copies it from state); it inherits that already-validated form and is not independently path-form-guarded by `checkpoint`/`build-checkpoint-7`.
+
+  `docUpdaterFindings` is the free-form markdown report produced by Stage 7 Doc Update, per [`doc-update.md`](./doc-update.md). `""` (empty string) for the no-findings case. Stage 8 review-toolkit:review-lead reads this field as part of the resume context.
+
+  `qualityPassSummary` is a copy of `stages.6.qualityPass` (the Stage-6 advisory quality pass — see its entry under `stages` below), composed from state by Stage 7 via `build-checkpoint-7 --quality-pass-summary`; `{}` when the pass did not run (pre-schema runs). Stage 8 reviewers read it to verify applied cleanups instead of re-proposing them.
+
+  `deviations[].kind` is one of `"scope-creep" | "alternate-approach" | "deferred" | "surprise"`. Empty `deviations` array is acceptable when implementation matched the plan exactly. Empty `deviations` AND empty `freeNote` together trigger a soft warning in the eval ledger ("checkpoint produced no observable signal").
+
+  `deviations[]` is a **single ledger** written at two points. The Stage-7 originals are written with the checkpoint via `statectl build-checkpoint-7` / `checkpoint 7` (kind-validated by `validate_stage7_payload`). When a **Stage 8 review-fix** introduces an out-of-plan change, it is appended to this same array via `statectl deviations-add <issue> --kind <enum> --note <s> [--plan-section <s>] [--file <f>] [--line <n>] [--stage <N>]` (Stage 8) — `deviations-add` runs the same closed-enum `valid_deviation_kind` check and requires `stageCheckpoint["7"]` to already exist. The optional `introducedAtStage` field (number) records which stage added the entry: `deviations-add` stamps it (default `8`) on Stage-8 review-fix entries, while the Stage-7 checkpoint originals **omit** it — absence ⇒ Stage 7. So consumers tell the two apart by this field's presence/value within the one array. There is no separate `stageCheckpoint["8"]` deviations slot.
+
+  **`stageCheckpoint["{N}"].extWorkflows`** — results of the EP-6 **gate-owned extension workflow dispatch** (config `stageWorkflows: [{stage, name, workflow}]`; the dispatch contract lives in the Stage write convention of `SKILL.md`). A map keyed by workflow `name`; each value is `{ status, summary }`, recorded when the stage-N extension workflow **passes** (dispatched after stage N's built-in sub-steps, before `set-stage N --status completed`). Present under **any** stage N that has a matching `stageWorkflows` entry; absent when no extension workflow ran for that stage.
+
+  This slot is **free-shape, `ext:`-namespaced, and additive** — it is not on any closed enum or generated validator. Extension workflows may write state ONLY via statectl `checkpoint` payloads under the `ext:` namespace (they receive `{ issueKey, statePath, configPath }` and never mutate load-bearing pipeline fields), so `extWorkflows` grows purely additively and needs no schema-enum change — the same posture as the free-shape Stage-1 `designDriven` / `intakeMode` keys. A **failed** extension workflow does NOT land here: it takes the stage's standard fail-fast write via `mark-failed --reason ext-workflow-failed --stage N` with the workflow name carried in the `extWorkflow` detail field (`--kv extWorkflow=<name>`) — the reason is in the `failureContext.reason` index below.
+
+- `failureContext` — populated alongside `status: "failed"` BEFORE errors are surfaced. `null` while the run is healthy. Atomic with `status` and `stages.{stage}.status` via `statectl mark-failed`. Shape:
+
+  ```json
+  {
+    "reason": "plan-reviewer-block",
+    "stage": 4,
+    "blockers": ["..."]
+  }
+  ```
+
+  - `reason` — required; closed enum, validated by statectl against `### failureContext.reason index` below.
+  - `stage` — optional integer 1–9. Omitted for pre-Stage-1 failures (e.g., the routing-conflict short-circuit).
+  - Any additional keys (`blockers`, `note`, etc.) are passed through unchanged via the `--json` flag of `statectl mark-failed`.
+
+#### `failureContext.reason` index
+
+The closed enum below is authoritative. `statectl.sh::valid_failure_reason()` is generated from this table by [`tools/gen-statectl-validators.sh`](./tools/gen-statectl-validators.sh); after changing this table, regenerate via `bash tools/gen-statectl-validators.sh > statectl.sh.new && mv statectl.sh.new statectl.sh`. `statectl-selftest.sh` enforces drift via regenerate-and-diff (case `(r1+r5)`).
+
+| Reason                              | Stage | Trigger                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| ----------------------------------- | ----- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `non-main-base-autonomous`          | pre-1 | Current branch ≠ the configured base branch in autonomous mode. Interactive mode offers an escape hatch.                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| `worktree-creation-failed`          | 2     | `git worktree add` failed at Stage 2 (branch/worktree could not be created); the git error is carried in `gitError`.                                                                                                                                                                                                                                                                                                                                                                                 |
+| `plan-reviewer-block`               | 4     | plan-reviewer returned a `block` verdict on the re-dispatch (single allowed retry exhausted). Also emitted when the Stage-4 design-toolkit:design-faithful FE-spec review (designDriven runs) returns `block` after its single retry — same reason, second trigger path.                                                                                                                                                                                                                                            |
+| `approach-failure-circuit-breaker`  | 6     | Two consecutive `TEST_FAILURE` budget exhaustions in a row suggest a fundamental approach mismatch; stop rather than churn.                                                                                                                                                                                                                                                                                                                                                                          |
+| `stale-branch-autonomous`           | 9     | Branch and `origin/main` changed an overlapping set of files since their merge base — a real merge-conflict risk on open. Details carry `overlapCount` + `overlapFiles`. Autonomous recovery is unavailable (`git merge`/`rebase`/`reset` are denied, so the branch cannot be freshened in place); a human resolves the overlap and re-runs.                                                                                                                                                         |
+| `worktree-missing`                  | 8     | At Stage 8 entry, the recorded `worktreePath` no longer exists (manual deletion, or a fresh session resumed without it).                                                                                                                                                                                                                                                                                                                                                                             |
+| `unit-test-surface-ambiguous`       | 3     | Stage 3 could not classify the ticket as behavior-change vs skip for the unit-test surface; stop rather than guess.                                                                                                                                                                                                                                                                                                                                                                                  |
+| `plan-structure-invalid`            | 4     | The Stage-4 pre-dispatch plan lint (`tools/plan-lint.sh`) failed — a mandated section is missing, the acceptance-criteria traceability table is malformed, or the table is not 1:1 with the state `acceptanceCriteria[]` snapshot. Stage 3 already ran the lint advisorily with a 2-attempt fix budget; a failure at Stage 4 is final. Details carry `violations`.                                                                                                                                     |
+| `unit-test-plan-reviewer-block`     | 4     | unit-test-plan-reviewer returned a `block` verdict on the test strategy (single allowed retry exhausted).                                                                                                                                                                                                                                                                                                                                                                                            |
+| `unit-test-mutation-reviewer-block` | 5     | Stage-5 execution-verified blocker mutant(s) survived after the strengthen + re-dispatch retry; carries `mutationScore` + survived mutants.                                                                                                                                                                                                                                                                                                                                                          |
+| `design-source-unreachable`         | 1     | designDriven run (see **Design Mode** below): a `claude.ai/design/...` link was detected but the DesignSync handoff could not be read — the Stage-1 reachability probe failed, or a Stage-3 `produce` returned any engine `FAIL_CLOSED` reason. When the underlying cause is a non-unreachable engine reason (`file-too-large` / `batch-overflow` / `project-type-mismatch`), it is mapped to this single pipeline reason and the specific engine reason is carried in details (`engineFailClosed`). |
+| `ext-workflow-failed`               | 1-10  | EP-6 gate-owned workflow dispatch (config `stageWorkflows`): a registered BLOCKING stage workflow returned nonzero. The stage takes its standard fail-fast write; the workflow name is carried in the detail field (`extWorkflow`). **One value for the whole class — never per-workflow** (per-extension enum values would fragment triage). Extensions add blocking checks, never waive one.                                                                                                       |
+
+`design-source-unreachable` (the `mark-failed` reason above) is **distinct from, but shares its string with**, the engine's `FAIL_CLOSED.SOURCE_UNREACHABLE` in the `design-toolkit:design-faithful` engine's `lib/contract-types.mjs`. They are independent enums: the `valid_failure_reason` set generated from this table governs `mark-failed`, while the engine's four-member `FAIL_CLOSED` set (drift-guarded byte-for-byte by `workflows/design-sync-selftest.mjs` case H) governs what a `design-sync.mjs` dispatch may report. Adding a pipeline reason here never touches the engine enum.
+
+`worktree-creation-failed` (Stage 2 — `git worktree add` failed) and `worktree-missing` (Stage 8 — a previously-recorded `worktreePath` no longer exists at review entry) are distinct and coexist: the former is a creation failure, the latter a disappearance after successful creation. Acme-ai is single-repo; multi-repo failure reasons (target ambiguation, FE-repo reachability, user-identifier detection) are intentionally omitted from this enum. The drift-check (`statectl-selftest.sh` case `(r1+r5)`) fails if a fresh regeneration via `tools/gen-statectl-validators.sh` does not byte-match the committed `statectl.sh` — covering both schema→statectl divergence (a doc change without a regen) and statectl→schema divergence (a manual edit to the generated region).
+
+- `stages` — map keyed by stage number. Each entry tracks:
+  - `status` — `in_progress | completed | failed`.
+  - `startedAt` — ISO timestamp written at stage start.
+  - `completedAt` — ISO timestamp written at stage end (success or failure). Absent on stages still in progress.
+
+  Per-stage `startedAt` and `completedAt` are first-class fields used by `pipeline-cost-block.sh` (the in-band Stage 9 sub-step) to bucket OTel metrics into stage windows; the pipeline writes them at every stage boundary.
+
+  **Monotonic stage-progression guard.** `set-stage N --status started` rejects (infrastructure-fatal, `EXIT_CODE=1`) when `stages.{N-1}` exists and its `status` is not `completed` — you cannot start stage N while N-1 is still `in_progress` (or `failed`). This mechanically prevents the stage-overlap class (a `started`-N write while N-1 is unfinished mis-attributes wall-clock and can produce negative inter-stage gaps). Base case: N==1 (no `stages.0`) and any N whose `stages.{N-1}` is absent are always allowed — the first `set-stage 1 --status started` of every run has no `currentStage` and no `stages.0`. The guard composes with the forward-skip guard: re-entry (N==`currentStage`) and backward (N<`currentStage`) transitions have an already-`completed` N-1, so it is benign there; it bites only the forward `N==currentStage+1` case with N-1 still in progress. `--force` escapes this guard for genuine crash-recovery where a prior session left N-1 `in_progress` on disk. (The Stage-8 review loop never calls `set-stage` for its re-verifies — it re-runs `verifyctl` directly, per `stages/8-code-review.md`.)
+
+  **Completion-evidence preconditions (imperative stage machine).** `set-stage N --status completed` is refused (`EXIT_CODE=1`) unless the state carries the evidence that stage N's mandated work actually happened — deterministic state reads only, with conditional applicability from the flags the run itself recorded. `--force` bypasses these (crash-recovery escape, same as the monotonic guard):
+
+  | Stage | Required evidence                                                                                                                                                          |
+  | ----- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+  | 1     | `stageCheckpoint["1"]` is an object                                                                                                                                        |
+  | 2     | `worktreePath` + `branch` non-empty (the `worktree-set` ordering contract, now mechanical)                                                                                 |
+  | 4     | `stages.4.planReview.overall` non-empty (written via `plan-review-set` from the plan-review Workflow's consolidated verdict)                                               |
+  | 5     | `stageCheckpoint["5"]` is an object; AND when unit-test-applicable (`unitTestSurface.applicable && action != "skip"`) `stages.5.unitTestMutationReview == "completed"`; AND when `stageCheckpoint["1"].designDriven` `stages.5.designPlanReview == "implemented"` (a non-terminal sub-status under a completed stage is a swallowed stall) |
+  | 6     | top-level `verifySummary` present (object, or the INERT lane's non-empty skipped-string — written via `verify-summary-set`)                                                |
+  | 8     | `codeReviewRounds >= 1`                                                                                                                                                    |
+
+  Stages 3, 7, and 9 have no entry: Stage 3's plan is enforced by Stage 4's gates, Stage 7's checkpoint is schema-validated at write (`validate_stage7_payload`), Stage 9 by `mark-completed`'s terminal gates.
+
+  On `pass`/`fix-and-go`, `stages.4` additionally carries `planReview` — `{ overall: "pass" | "fix-and-go" }`, written via `statectl plan-review-set <issue> --overall <v>` BEFORE `set-stage 4 --status completed` (the completion precondition refuses without it). `block`/`infra`/`budget-skipped` never reach a completion write (block → `mark-failed`; infra/budget → stop without closing the stage).
+
+  `stages.6` additionally carries `qualityPass` — the Stage-6 advisory "make it good" pass bookkeeping: `{ runId, status: "running" | "completed", outcome?: "applied" | "applied-unverified" | "no-candidates" | "skipped-inert" | "reverted", commitSha?, applied?: string[], suggestions?: string[] }`. `runId` anchors the once-per-run guard (the pass must not re-fire when Stage 8's review loop re-verifies); `applied-unverified` exists only between the cleanup commit and its one-shot `--no-attempt` safety-net re-verify (crash-recovery resets it to `reverted` via `git reset --hard {commitSha}^`). Written via `statectl quality-pass-set <issue> --json <payload>` (raw-jq state writes are banned). Advisory: never gates stage completion, never touches `verifyAttempts`. Stage 7 copies it into `stageCheckpoint["7"].qualityPassSummary` (composed from state, crash-recovery safe); a `reverted` outcome additionally requires a `deviations[]` `{kind: "surprise"}` entry (see `stages/7-doc-update.md`).
+
+  On unit-test-applicable runs, `stages.5` additionally carries `unitTestMutationReview` ∈ `reviewing | completed` — the mid-stage sub-status read by Stage-5 resume (`executing` is a legacy value from pre-sequencer state files; statectl still accepts it, and resume treats it as `reviewing`). The `unit-test-mutation-reviewer` is **propose-only**; the `mutation-gate.mjs` sequencer executes the proposed blocker mutants via sequential schema-free executor agents (apply → run spec → revert) and computes the verdict in JS — so there is no in-session `executing` phase anymore: `reviewing` → clean the worktree (`git checkout -- .`; a dead executor can leave a half-applied mutant), then re-dispatch round 1; `completed` → proceed. Written via `statectl stage-substatus <issue> --stage 5 --key unitTestMutationReview --value <v>` (acme bans raw-jq state writes). Additive; absent when `unitTestSurface.action` is `skip` or `unitTestSurface.applicable` is `false`. This is acme's first `stages.N.*` sub-status.
+
+  On `designDriven` runs, `stages.5` additionally carries `designPlanReview` ∈ `implementing | verifying | implemented` — the mid-stage sub-status read by Stage-5 resume on the design path (terminal value `implemented`; Stage 5 must not close while the value is non-terminal). It mirrors `unitTestMutationReview`: `implementing` → re-dispatch the engine produce-implement (assert a clean worktree first); `verifying` → re-run the live-render verify gate; `implemented` → proceed. Written via `statectl stage-substatus <issue> --stage 5 --key designPlanReview --value <v>`. Additive; absent on non-`designDriven` runs. See **Design Mode** below for the full Stage-1→8 contract.
+
+### Unit Test Surface
+
+Written at Stage 3 close when the diff touches `apps/api` backend TypeScript with a behavior change. Absent on FE-only / non-`apps/api` runs (all unit-test mutation gates skip). The unit-test `plan-review` dispatch runs via `Workflow(workflows/unit-tests.mjs)` (nested inside `plan-review.mjs` at Stage 4); the Stage-5 mutation gate runs via `Workflow(workflows/mutation-gate.mjs)` — ONE dispatch that nests the propose child (`unit-tests.mjs`, `kind: "mutation-review"`), executes each blocker mutant via sequential **schema-free** executor agents, and computes the verdict in JS. The `unit-test-mutation-reviewer` stays **propose-only** (returns `{ mutants, mockAuditFindings, summary }` — no verdict); because the execution phase is schema-free (plain-text `MUTANT_RESULT` line, parsed last-match in the script), the StructuredOutput staller class cannot occur there at all. A propose-phase StructuredOutput death returns `infraFailure` and gets one in-script re-dispatch; a residual failure surfaces as `overall: "infra"` — never `unit-test-mutation-reviewer-block`. `budget-skipped` is a clean skip, not a fake block.
+
+- `unitTestSurface` — object classifying whether this ticket needs mutation-resistant unit test work. When `applicable` is `false` and `action` is `skip`, Stages 4–5 unit test sub-steps skip (after a lightweight in-session skip check at Stage 4). Shape: `{ applicable: bool, action: "skip" | "strengthen", planPath?, modulesTouched?: string[], specPaths?: string[], mutationTargets?: string[], integrationAction?: "run" | "skip", skipReason? }`. Written via `statectl unit-test-surface-set <issue> --json <payload>` before `set-stage 3 --status completed`.
+- `mutationReviewAudit` — `{ rounds: [{ round, executions[], mutationScore }], finalDisposition }`, one `rounds[]` entry per `mutation-gate.mjs` dispatch (round 1, and round 2 after a strengthen loop). `executions[]` is the workflow's returned per-mutant ledger (`{ file, specPath, message, status: "killed" | "survived" | "unapplied" | "unparseable" | "infra" | "skipped-budget" | "skipped-after-infra", attempts? }`) — **machine-attested by the workflow journal, never self-reported**. `mutationScore` = `{ killed, survived, unapplied }` as computed by the script's `computeVerdict`. Set on unit-test-applicable runs that reach the execute phase, via `statectl mutation-audit-set <issue> --json <payload>`. (Pre-sequencer state files carry the legacy flat `{ executions[], mutationScore, finalDisposition }` shape — read-compatible, no migration.)
+
+### Design Mode
+
+`designDriven` runs wire the **config-selected design provider** (config `design.provider`, the design axis) through the pipeline. Two providers, each a design-toolkit adapter family:
+
+- **`claude-design`** — engine `workflows/design-sync.mjs`, skills `design-toolkit:design-faithful` / `design-toolkit:design-faithful-spec`, reviewers `design-toolkit:design-faithful-reviewer` + `review-toolkit:a11y-reviewer`. Handoff = a `claude.ai/design/...` link, read via the interactive **DesignSync** tool (design scopes; project opened by id).
+- **`figma`** — engine `workflows/figma.mjs`, skills `design-toolkit:figma-faithful` / `design-toolkit:figma-faithful-spec`, reviewers `design-toolkit:figma-faithful-reviewer` + `review-toolkit:a11y-reviewer`. Handoff = a `figma.com/...` link, read via the **Figma MCP**; `figma.mjs` runs natively from the BE session and dispatches against the **FE worktree** (the `apps/web` repo in a be-fe-pair).
+
+A run is design-driven only when config sets `design.provider` **and** Stage 1 detects a provider-appropriate handoff link. The mode is **off by default** — with `design.provider` absent, Stage 1 skips design detection entirely and none of the fields below are written; the run behaves exactly as a non-design run. Each provider's read prerequisite is interactive/MCP-backed, so a design-driven issue is expected to run **interactively**; a headless run (no DesignSync / no Figma MCP) fail-closes `design-source-unreachable` at the first design read (see `SKILL.md` launch note). Prerequisites-missing-at-run-time = fail closed, the same posture as every gate.
+
+- **`stageCheckpoint["1"].designDriven`** — boolean. `true` when config sets `design.provider` and Stage 1 resolved a provider-appropriate handoff (claude-design: link + reachability probe; figma: `figma.com` link + Figma source resolved); `false` (or absent) otherwise. Stages 3/4/5/8 branch on it via `statectl get <issue> '.stageCheckpoint."1".designDriven'`, then on `designSource.provider` to select the engine/reviewers. It lives inside the free-shape Stage-1 checkpoint manifest (no statectl validator — same posture as `intakeMode`), so no schema-enum change is needed.
+- **`stageCheckpoint["1"].designSource`** — **provider-discriminated** (or `null` on non-design runs). Common fields `{ provider, link, screen }` where `provider` ∈ `claude-design | figma` (mirrors config `design.provider`) and `screen` is the screen/component to spec + implement (e.g. `detail`). Per provider:
+  - claude-design: `+ { projectId }` — the DesignSync project, opened **by id**; Stage 3/5 pass `projectId`/`screen` to `design-sync.mjs`.
+  - figma: `+ { figmaSources }` — `figmaSources` = the figma node URLs/ids extracted from the issue body. The **FE worktree is NOT persisted** here: it does not exist at Stage 1 (worktrees are created at Stage 2). Stage 3/5 resolve `figma.mjs`'s `feWorktree` at dispatch from `worktreePath` — a figma/design ticket is `[FE]`-tagged, so its Stage-2 worktree **is** the FE worktree, identical to how the claude-design path resolves its `WT`.
+- **`stages.5.designPlanReview`** — mid-stage sub-status ∈ `implementing | verifying | implemented` (terminal `implemented`). The key name parallels the `unitTestMutationReview` slot; it tracks the design **implement + live-render verify** phases (not a plan-review step — the phase values make the meaning explicit). Documented under Crash-Recovery Metadata above (mirrors `unitTestMutationReview`); enforced by `statectl stage-substatus`. **Stage 5 must not write `set-stage 5 --status completed` while this value is non-terminal** — the closing guard lives in `stages/5-implement.md` (statectl enforces the value enum, not the completion-ordering rule).
+
+**Reason / status vocabulary (two members, deliberately asymmetric):**
+
+- **`design-source-unreachable`** — a hard stop, in the `failureContext.reason` index above. Written by `mark-failed` at Stage 1 (probe failed) or Stage 3 (`produce` returned any engine `FAIL_CLOSED` reason — mapped to this single reason, with the specific engine reason in `engineFailClosed`). A design-driven run cannot proceed without a readable contract.
+- **`render-verify-unavailable`** — a **recorded, non-blocking degraded condition**, NOT a `mark-failed` reason and NOT in any generated enum. Stage 5's live-render verify gate records it (and surfaces it in the Stage-5 comment / PR body) when no dev server is reachable to diff computed styles + screenshots against the handoff. The run **continues** to `designPlanReview: implemented` — because headless runs legitimately lack a dev server, a hard-fail here would abort every headless design-driven run and contradict the end-to-end, resume-safe contract. It is therefore intentionally absent from `valid_failure_reason` and from the engine's `FAIL_CLOSED` enum.
+
+### Outputs
+
+- `prs` — map keyed by branch name. Populated after Stage 9 with the PR URL returned by `gh pr create`, via `statectl pr-add <issue> --branch <b> --url <u>` (same-branch re-runs overwrite the URL; distinct branches accumulate). **Ordering contract:** the `pr-add` call MUST precede `set-stage 9 --status completed` (same rule as `worktree-set` at Stage 2). Shape: `{ [branchName]: { url: string } }`. For single-PR runs there is one entry; for stacked-PR runs there is one entry per slice. Consumed by `pipeline-cost-block.sh` (the in-band Stage 9 sub-step) to amend each PR's body with a per-stage cost block.
+- `pipelineSessions` — array of `{ sessionId, launchedAt, source }` records, one per Claude session that contributed to the run. Appended by `statectl pipeline-session-add` at Stage 2 (initial skill launch) and again only when a crash-recovery resume re-enters Stage 8 in a fresh session (the normal single-session run records just the Stage 2 id). `source` is one of `interactive | null`. Consumed by `pipeline-cost-block.sh` as the canonical session set for OTel attribution. Empty / absent → in-band cost tracking degrades gracefully (records `costBlockApplied = "skipped-no-sessions"`). `sessionId` is the **native Claude Code session UUID** read from `$CLAUDE_CODE_SESSION_ID` — the exact value the OTel exporter tags datapoints with as `session.id`. `pipeline-session-add` enforces the UUID shape (8-4-4-4-12 hex) and rejects anything else. The add is idempotent on `sessionId`, so a run records **one record per Claude session**: a single-PR run, and a stacked-PR run iterating slices within the same session, both record one id; only a fresh-session Stage 8 resume adds a second, distinct UUID.
+- `pauseSpans` — array of `{ from, to, reason }` records, one **closed** span per pause/resume. A pause is the idle gap between a dying session's last state write and the resuming session's first write (e.g. session-quota exhaustion → resume hours later). The autonomous flow never blocks for input, so there is no explicit pause event — instead one closed span is recorded at each crash-recovery resume, where it is already observable that a fresh session re-enters mid-pipeline. Appended by `statectl pause-add <issue> --reason <r>` as the **first state write** at the Stage 8 crash-recovery resume entry (`stages/8-code-review.md`), before `set-stage`/`pipeline-session-add` (both bump `lastUpdatedAt`, which `pause-add` self-anchors as `from`). `from` is the value of `.lastUpdatedAt` at call time (the dying session's final write); `to` is the resuming session's `now`. `reason` is a **free string** (sole value today: `session-resume`) — informational-only, deliberately NOT a generated closed enum (single value, like `pipelineSessions[].source`), so it stays off the `gen-statectl-validators.sh` drift contract. Absent on never-paused runs (every consumer treats absence as `[]` ⇒ effective == wall; pure-additive, no migration). Consumed by `tools/stage-times.sh` to report **effective** (compute) time vs. wall-clock.
+
+  **Effective-duration math** (authoritative pseudocode; read-only, single consumer `stage-times.sh`). Spans are closed, non-overlapping, and contained in `[startedAt, lastUpdatedAt]` (guaranteed by self-anchoring: each `from` is the prior `lastUpdatedAt`, each `to` a strictly later `now`):
+
+  ```
+  overlap(a_start, a_end, b_start, b_end) = max(0, min(a_end, b_end) − max(a_start, b_start))
+
+  effective_total    = max(0, (lastUpdatedAt − startedAt) − Σ_spans (span.to − span.from))
+  effective_stage(N) = (completedAt_N − startedAt_N)
+                       − Σ_spans overlap(startedAt_N, completedAt_N, span.from, span.to)
+  ```
+
+  The `max(0, …)` on the total mirrors the per-stage `overlap` clamp — defense-in-depth against a hand-edited state file (the file is gitignored and editable), not a case reachable on a well-formed self-anchored run.
+
+- `costBlockApplied` — written **only** by `pipeline-cost-block.sh` (the in-band Stage 9 sub-step), never by the pipeline state-mutation core. This is **intentionally external to statectl** — the sole exception to the ownership rule in this file's lead paragraph: the cost-block script is an always-exits-0 best-effort sub-step whose outcome field is informational, not load-bearing for resume. JSON union of `boolean | string | null`:
+  - `null` (or absent) — sub-step hasn't run yet.
+  - `true` — sub-step ran successfully and amended every PR in `prs`.
+  - `"skipped-no-sessions"` — `pipelineSessions[]` is empty (Stage 2 did not record a session id — e.g. `$CLAUDE_CODE_SESSION_ID` was unset, or a hand-driven partial run).
+  - `"skipped-telemetry-off"` — OTel metrics file empty or absent.
+  - `"skipped-otel-error"` — metrics query failed; check stderr.
+  - `"skipped-zero-datapoints"` — collector reachable but the recorded session UUID returned `$0.00` (the session was launched without the OTEL\_\* env vars exported, or the collector missed the run).
+  - `"skipped-no-bot-wrapper"` — the configured bot wrapper (config `tracker.bot`) is missing or non-executable.
+  - `"skipped-amend-failed"` — `gh pr edit` failed for at least one PR; check stderr.
+
+## Issue-comment markers
+
+Every pipeline-posted issue comment carries `<!-- stage: X -->` / `<!-- status: Y -->` markers (see State Tracking in `SKILL.md`). Resume logic infers progress from these markers, so the `stage:` vocabulary is a closed enum, centralized here exactly like the `failureContext.reason` index.
+
+#### Stage-comment markers
+
+The closed enum below is authoritative. `statectl.sh::valid_stage_marker()` is generated from this table by [`tools/gen-statectl-validators.sh`](./tools/gen-statectl-validators.sh) (same regenerate-and-diff drift-check as the other generated validators). The validator is not on any statectl write path — statectl does not post comments — but the selftest's **marker-emission parity case** greps the stage files and `SKILL.md` for emitted `stage:` tokens and asserts each one is in this enum, so an undocumented marker fails the selftest.
+
+| Marker        | Emitting stage                   | Statuses emitted                                                                                                 |
+| ------------- | -------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| `claimed`     | Stage 1.A (atomic pickup)        | `started`                                                                                                        |
+| `intake`      | Stage 1.B (orchestrator verdict) | `passed`, `passed-with-decisions`, `split-into-sub-issues`, `stacked-prs-planned`, `failed`, `needs-human-input` |
+| `plan`        | Stage 3                          | `written`                                                                                                        |
+| `plan-review` | Stage 4                          | `passed`, `passed-with-warnings`, `blocked`                                                                      |
+| `verify`      | Stage 6 (failure path only)      | `failed`                                                                                                         |
+| `doc-update`  | Stage 7                          | per `stages/7-doc-update.md`                                                                                     |
+| `code-review` | Stage 8                          | `passed`, `passed-after-N-rounds`, `exhausted-after-3-rounds`, `scope-blocker-no-code-remedy`                    |
+| `pr`          | Stage 9                          | `opened-as-draft`, `opened-as-draft (review exhausted)`, `all-prs-opened` (stacked-PR terminal comment)          |
+
+**Stage 1 intentionally emits two markers**: `claimed` during atomic pickup (before any analysis — the claim-race guard) and `intake` for the orchestrator verdict. They are distinct events and both are load-bearing for resume inference.
+
+**`all-prs-opened`** is the stacked-PR outer loop's terminal comment, emitted under `stage: pr` (Stage 9's marker) because "all PRs opened" is a Stage 9-class event. It replaces the retired `stage: implementation` marker, which was not any stage's name.
+
+**The "Statuses emitted" column is documentation only.** Only the first column (the `Marker` name) feeds the generated `valid_stage_marker()` enum — `tools/gen-statectl-validators.sh::parse_stage_markers` extracts just that backticked token, and statectl never enum-validates a comment status (`valid_status()` covers only the state-file `status` field: `in_progress | completed | failed`). So editing the Statuses column needs **no** validator regeneration and triggers no drift-check or marker-emission-parity change. The `code-review` marker emits across the Stage 8 terminating paths: `passed` / `passed-after-N-rounds` on the clean path, `exhausted-after-3-rounds` on the genuine 3-round exhaustion path, and `scope-blocker-no-code-remedy` on the no-code-remedy scope-gate short-circuit (typically a round-1 short-circuit — kept distinct precisely so it is not misreported as a 3-round exhaustion). Because the marker token is unchanged, the parity selftest (which greps only `stage:` tokens) stays green.
+
+## Concepts NOT Persisted
+
+The following are acme-specific concepts that live **outside** the state file. Documented here to avoid ambiguity on resume:
+
+- **`SLICE_NUMBER` and `TOTAL_SLICES`** — live loop variables in the Stage 1 outer loop. `SLICE_NUMBER` mirrors the persisted `currentSlice` (see "Stacked-PR slice state" above); the loop variable is the convenient in-memory name, the persisted field is the source of truth. `TOTAL_SLICES` is the length of the decomposition plan on disk; not persisted because the plan file is authoritative.

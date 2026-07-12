@@ -1,0 +1,17 @@
+{"ts":"2026-07-12T10:03:54Z","session_id":"40b472d2-4ebe-495f-a7fe-bafdff1832e3","event":"PostToolUseFailure","tool":"Bash","subagent":"","command_name":"","outcome":"fail"}
+{"ts":"2026-07-12T10:03:55Z","session_id":"40b472d2-4ebe-495f-a7fe-bafdff1832e3","event":"PostToolUse","tool":"Bash","subagent":"","command_name":"","outcome":"ok"}
+{"ts":"2026-07-12T10:04:03Z","session_id":"40b472d2-4ebe-495f-a7fe-bafdff1832e3","event":"PostToolUse","tool":"Bash","subagent":"","command_name":"","outcome":"ok"}
+{"ts":"2026-07-12T10:04:10Z","session_id":"40b472d2-4ebe-495f-a7fe-bafdff1832e3","event":"PostToolUse","tool":"Bash","subagent":"","command_name":"","outcome":"ok"}
+{"ts":"2026-07-12T10:04:31Z","session_id":"40b472d2-4ebe-495f-a7fe-bafdff1832e3","event":"PostToolUse","tool":"Read","subagent":"","command_name":"","outcome":"ok"}
+{"ts":"2026-07-12T10:04:32Z","session_id":"40b472d2-4ebe-495f-a7fe-bafdff1832e3","event":"PostToolUse","tool":"Read","subagent":"","command_name":"","outcome":"ok"}
+{"ts":"2026-07-12T10:04:53Z","session_id":"40b472d2-4ebe-495f-a7fe-bafdff1832e3","event":"PostToolUse","tool":"Bash","subagent":"","command_name":"","outcome":"ok"}
+{"ts":"2026-07-12T10:05:11Z","session_id":"40b472d2-4ebe-495f-a7fe-bafdff1832e3","event":"PostToolUse","tool":"Edit","subagent":"","command_name":"","outcome":"ok"}
+{"ts":"2026-07-12T10:05:13Z","session_id":"40b472d2-4ebe-495f-a7fe-bafdff1832e3","event":"PostToolUse","tool":"Edit","subagent":"","command_name":"","outcome":"ok"}
+{"ts":"2026-07-12T10:05:30Z","session_id":"40b472d2-4ebe-495f-a7fe-bafdff1832e3","event":"PostToolUse","tool":"Bash","subagent":"","command_name":"","outcome":"ok"}
+{"ts":"2026-07-12T10:05:58Z","session_id":"40b472d2-4ebe-495f-a7fe-bafdff1832e3","event":"PostToolUse","tool":"Bash","subagent":"","command_name":"","outcome":"ok"}
+{"ts":"2026-07-12T10:06:58Z","session_id":"40b472d2-4ebe-495f-a7fe-bafdff1832e3","event":"PostToolUse","tool":"Bash","subagent":"","command_name":"","outcome":"ok"}
+{"ts":"2026-07-12T10:07:05Z","session_id":"40b472d2-4ebe-495f-a7fe-bafdff1832e3","event":"PostToolUse","tool":"Edit","subagent":"","command_name":"","outcome":"ok"}
+{"ts":"2026-07-12T10:07:07Z","session_id":"40b472d2-4ebe-495f-a7fe-bafdff1832e3","event":"PostToolUse","tool":"Edit","subagent":"","command_name":"","outcome":"ok"}
+{"ts":"2026-07-12T10:07:08Z","session_id":"40b472d2-4ebe-495f-a7fe-bafdff1832e3","event":"PostToolUse","tool":"Edit","subagent":"","command_name":"","outcome":"ok"}
+{"ts":"2026-07-12T10:07:09Z","session_id":"40b472d2-4ebe-495f-a7fe-bafdff1832e3","event":"PostToolUse","tool":"Edit","subagent":"","command_name":"","outcome":"ok"}
+{"ts":"2026-07-12T10:07:19Z","session_id":"40b472d2-4ebe-495f-a7fe-bafdff1832e3","event":"PostToolUse","tool":"Bash","subagent":"","command_name":"","outcome":"ok"}

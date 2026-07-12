@@ -1,0 +1,44 @@
+# OTel Collector config for dev-pipeline cost tracking.
+# Consumed by .claude/skills/run/pipeline-cost-block.sh (invoked
+# in-band at Stage 9 of the dev-pipeline skill).
+#
+# Receives OTLP/gRPC on 4317 from Claude Code processes with
+# CLAUDE_CODE_ENABLE_TELEMETRY=1. Writes each export batch as one JSONL line
+# to ~/.claude/otel-metrics/metrics.jsonl for later per-stage bucketing.
+#
+# Run: otelcol-contrib --config=/path/to/this/file
+# Setup: see cost-tracking-setup.md for install + launch instructions.
+
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 127.0.0.1:4317
+
+processors:
+  batch:
+    # 1s batching keeps the flush race with the in-band Stage 9
+    # pipeline-cost-block.sh sub-step to ~single-second headroom
+    # (the sub-step also sleeps 5s before querying).
+    timeout: 1s
+
+exporters:
+  file:
+    # Written relative to $HOME at launch time; verify with:
+    #   ls -la ~/.claude/otel-metrics/metrics.jsonl
+    path: ${env:HOME}/.claude/otel-metrics/metrics.jsonl
+    rotation:
+      max_megabytes: 50
+      max_days: 30
+      max_backups: 30
+      localtime: true
+
+service:
+  pipelines:
+    metrics:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [file]
+  telemetry:
+    logs:
+      level: warn

@@ -1,0 +1,45 @@
+{
+  "configVersion": 1,
+  "tracker": {
+    "type": "github",
+    "writes": true,
+    "keyPattern": "[0-9]+",
+    "branchPrefix": "claude/acme-",
+    "bot": {
+      "enabled": true,
+      "envVar": "GH_BOT",
+      "wrapperPath": "~/.config/acme/gh-as-bot.sh",
+      "app": { "clientId": "Iv1EXAMPLECLIENTID000", "appName": "acme-dev-pipeline", "privateKeyFilename": "acme-dev-pipeline.private-key.pem" }
+    }
+  },
+  "topology": {
+    "type": "monorepo",
+    "repos": { "mono": { "path": ".", "baseBranch": "main", "worktreesDir": "../acme-worktrees" } }
+  },
+  "commands": {
+    "mono": {
+      "lint": "yarn lint", "lintAutofixes": true, "typecheck": "yarn typecheck", "test": "yarn test",
+      "testFile": "yarn --cwd apps/api test {file}", "unitTestScope": "apps/api/src/**",
+      "build": "yarn build", "format": "yarn format", "integrationTest": null, "apiTest": null,
+      "lanes": [
+        { "name": "apps", "cwd": "apps", "commands": ["yarn workspaces foreach -pt run ci"] },
+        { "name": "packages", "cwd": "packages", "commands": ["yarn workspaces foreach -pt run build"] }
+      ],
+      "extraLanes": [
+        { "name": "contract-tests", "when": ["src/modules/**"], "commands": ["yarn contract:test"], "failureClass": "TEST_FAILURE" }
+      ]
+    }
+  },
+  "reviewers": {
+    "add": [{ "name": "orders-reviewer", "dimensions": ["domain-orders"] }],
+    "modelOverrides": { "security-reviewer": "opus" }
+  },
+  "gates": { "mutation": true, "costTracking": true },
+  "design": { "provider": "claude-design" },
+  "stageParams": {
+    "planFilePattern": "{plansDir}/acme-{issueKey}{slice}.md",
+    "requiredLabels": ["ready-for-dev", "in-progress", "epic"],
+    "visualCapture": { "baseUrl": "http://localhost:4000/", "smokeRoutes": ["/", "/dashboard"], "viewports": ["mobile", "desktop"] },
+    "formatGlob": "*.{ts,tsx,js,json,md}"
+  }
+}

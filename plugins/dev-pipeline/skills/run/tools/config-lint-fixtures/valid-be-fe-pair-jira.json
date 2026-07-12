@@ -1,0 +1,27 @@
+{
+  "configVersion": 1,
+  "tracker": { "type": "jira", "writes": false, "keyPattern": "[A-Z]+-[0-9]+", "branchPrefix": "jdoe/" },
+  "topology": {
+    "type": "be-fe-pair",
+    "repos": {
+      "be": { "path": ".", "baseBranch": "alpha", "worktreesDir": "../acme-api-worktrees", "ticketTag": "[BE]" },
+      "fe": { "path": "../acme-web", "baseBranch": "main", "worktreesDir": "../acme-web-worktrees", "ticketTag": "[FE]" }
+    }
+  },
+  "commands": {
+    "be": { "lint": "yarn lint", "lintAutofixes": true, "typecheck": "yarn lint:tsc", "test": "yarn test", "build": "yarn build", "format": "yarn format", "integrationTest": null, "apiTest": null },
+    "fe": { "lint": "yarn lint", "typecheck": "yarn type-check", "test": "yarn test:ci", "build": "yarn build", "format": "yarn format:check", "apiTest": null }
+  },
+  "reviewers": { "remove": ["db-reviewer"], "modelOverrides": { "security-reviewer": "sonnet" } },
+  "gates": { "mutation": true },
+  "design": { "provider": "figma" },
+  "stageWorkflows": [
+    { "stage": 6, "name": "behavioral-api-verify", "workflow": "acme-qa-pack:workflows/api-verify.mjs" }
+  ],
+  "implementDelegates": [
+    { "surface": "tests/api/**", "agent": "acme-qa-pack:api-test-coder" }
+  ],
+  "planGates": [
+    { "name": "api-plan", "surface": "tests/api/**", "agent": "acme-qa-pack:api-test-plan-reviewer" }
+  ]
+}

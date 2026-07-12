@@ -1,0 +1,7 @@
+{
+  "configVersion": 1,
+  "tracker": { "type": "github" },
+  "topology": { "type": "standalone", "repos": { "app": { "path": ".", "baseBranch": "main" } } },
+  "commands": { "app": { "test": "yarn test" }, "ghost": { "test": "yarn test" } },
+  "reviewers": { "modelOverrides": { "security-reviewer": "gpt-4" } }
+}

@@ -1,0 +1,8 @@
+{
+  "ticketKey": "9999",
+  "briefPath": null,
+  "acceptanceCriteria": [
+    { "id": "AC-1", "text": "WHEN a FIT file is uploaded THEN the ride is credited", "negative": false, "source": "explicit" },
+    { "id": "AC-2", "text": "No credit when the FIT file is empty", "negative": true, "source": "derived" }
+  ]
+}

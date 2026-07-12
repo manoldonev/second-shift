@@ -1,0 +1,13 @@
+{
+  "configVersion": 1,
+  "tracker": { "type": "jira" },
+  "topology": { "type": "standalone", "repos": { "app": { "path": ".", "baseBranch": "main" } } },
+  "commands": {
+    "app": {
+      "lint": "yarn lint", "test": "yarn test",
+      "extraLanes": [
+        { "name": "quality-suite", "commands": ["yarn quality"], "failureClass": "QUALITY_FAILURE" }
+      ]
+    }
+  }
+}

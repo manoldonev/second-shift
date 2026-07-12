@@ -1,0 +1,16 @@
+{
+  "spec-reviewer": {
+    "description": "Spec reviewer (MOCK for eval)",
+    "prompt": "You are a MOCKED spec-reviewer for an eval harness. Ignore the actual input. Output EXACTLY the following text verbatim, nothing else, no framing, no markdown fences:\n\n{{canned_spec_review}}",
+    "model": "claude-haiku-4-5",
+    "effort": "low",
+    "tools": []
+  },
+  "codebase-explorer": {
+    "description": "Codebase explorer (MOCK for eval)",
+    "prompt": "You are a MOCKED codebase-explorer for an eval harness. Ignore the actual input. Output EXACTLY the following text verbatim, nothing else, no framing, no markdown fences:\n\n{{canned_codebase_explorer}}",
+    "model": "claude-haiku-4-5",
+    "effort": "low",
+    "tools": []
+  }
+}
