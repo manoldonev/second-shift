@@ -37,13 +37,19 @@ Runs **after** all implementation commits land (including co-located `*.spec.ts`
 
 ```bash
 WT="$(git rev-parse --show-toplevel)/$(statectl.sh get "$ISSUE_NUMBER" '.worktreePath')"
-WORKTREE_BASE="$(statectl.sh get "$ISSUE_NUMBER" '.worktreeBase // "main"')"
-HEAD="$(git -C "$WT" rev-parse HEAD)"
-BASE="$(git -C "$WT" merge-base HEAD "origin/${WORKTREE_BASE}" 2>/dev/null || git -C "$WT" merge-base HEAD "$WORKTREE_BASE")"
 # Config-driven per-host: the host repo id is the topology.repos entry with path ".".
 # unitTestScope (acme: apps/api/src/**) bounds the backend diff; testFile ({file}
 # placeholder) is the mutation gate's per-spec runner.
 HOST_Q='(.topology.repos | to_entries[] | select(.value.path==".") | .key)'
+# Base: persisted worktreeBase (stacked slices) else the host repo's configured
+# baseBranch — NOT a hardcoded "main" (an alpha/develop-based consumer's diff range,
+# and thus the mutation-gate changed-file set, would otherwise be empty/garbage and
+# the blocking gate would silently waive itself). Mirror of verifyctl's base_ref.
+BASE_BRANCH_CFG="$(jq -r "$HOST_Q as \$h | .topology.repos[\$h].baseBranch // \"main\"" "$SECOND_SHIFT_CONFIG" 2>/dev/null || echo main)"
+WORKTREE_BASE="$(statectl.sh get "$ISSUE_NUMBER" '.worktreeBase // empty')"
+[[ -z "$WORKTREE_BASE" || "$WORKTREE_BASE" == "null" ]] && WORKTREE_BASE="$BASE_BRANCH_CFG"
+HEAD="$(git -C "$WT" rev-parse HEAD)"
+BASE="$(git -C "$WT" merge-base HEAD "origin/${WORKTREE_BASE}" 2>/dev/null || git -C "$WT" merge-base HEAD "$WORKTREE_BASE")"
 UNIT_SCOPE="$(jq -r "$HOST_Q as \$h | .commands[\$h].unitTestScope // \"apps/api/src/**\"" "$SECOND_SHIFT_CONFIG" 2>/dev/null || echo 'apps/api/src/**')"
 CHANGED_BACKEND_FILES="$(git -C "$WT" diff --name-only "${BASE}..${HEAD}" -- "$UNIT_SCOPE")"
 TEST_FILE_CMD="$(jq -r "$HOST_Q as \$h | .commands[\$h].testFile // \"yarn --cwd apps/api test {file}\"" "$SECOND_SHIFT_CONFIG" 2>/dev/null || echo 'yarn --cwd apps/api test {file}')"

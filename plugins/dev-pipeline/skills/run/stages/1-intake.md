@@ -166,18 +166,23 @@ for SLICE_NUMBER in START_SLICE..TOTAL_SLICES:
   SLICE = SLICES[SLICE_NUMBER]
 
   # Persist slice-derived fields BEFORE Stage 2 runs.
-  # priorSliceBranch is null for slice 1, else claude/acme-{ISSUE_NUMBER}-pr{N-1}
+  # Branch namespace + base are config-driven (single source of truth with Stage 2):
+  #   PREFIX = tracker.branchPrefix          // "claude/acme-"
+  #   BASE_BRANCH_CFG = host repo (path ".") baseBranch // "main"
+  BRANCH_PREFIX=$(jq -r '.tracker.branchPrefix // "claude/acme-"' "$SECOND_SHIFT_CONFIG" 2>/dev/null || echo "claude/acme-")
+  BASE_BRANCH_CFG=$(jq -r '(.topology.repos | to_entries[] | select(.value.path==".") | .key) as $h | .topology.repos[$h].baseBranch // "main"' "$SECOND_SHIFT_CONFIG" 2>/dev/null || echo "main")
+  # priorSliceBranch is null for slice 1, else ${BRANCH_PREFIX}{ISSUE_NUMBER}-pr{N-1}
   # (or unsuffixed for slice 2 referring to slice 1).
   if [[ "$SLICE_NUMBER" -eq 1 ]]; then
-    SLICE_BRANCH="claude/acme-${ISSUE_NUMBER}"
+    SLICE_BRANCH="${BRANCH_PREFIX}${ISSUE_NUMBER}"
     PRIOR_BRANCH=""
-    BASE="main"
+    BASE="$BASE_BRANCH_CFG"
   else
-    SLICE_BRANCH="claude/acme-${ISSUE_NUMBER}-pr${SLICE_NUMBER}"
+    SLICE_BRANCH="${BRANCH_PREFIX}${ISSUE_NUMBER}-pr${SLICE_NUMBER}"
     if [[ "$SLICE_NUMBER" -eq 2 ]]; then
-      PRIOR_BRANCH="claude/acme-${ISSUE_NUMBER}"
+      PRIOR_BRANCH="${BRANCH_PREFIX}${ISSUE_NUMBER}"
     else
-      PRIOR_BRANCH="claude/acme-${ISSUE_NUMBER}-pr$((SLICE_NUMBER-1))"
+      PRIOR_BRANCH="${BRANCH_PREFIX}${ISSUE_NUMBER}-pr$((SLICE_NUMBER-1))"
     fi
     BASE="$PRIOR_BRANCH"
   fi

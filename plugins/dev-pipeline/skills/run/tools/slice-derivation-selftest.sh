@@ -163,7 +163,9 @@ elif [[ ! -f "$MAX_PUSHED" ]]; then
 else
   # Inline in 1-intake.md (the slice-derivation pre-check):
   parity_check "currentSlice precedence read"   'currentSlice // empty'
-  parity_check "unsuffixed slice-1 match"       'claude/acme-\$\{ISSUE_NUMBER\}'
+  # Slice-1 branch is now config-prefix-parameterized (#8): ${BRANCH_PREFIX}${ISSUE_NUMBER},
+  # BRANCH_PREFIX = tracker.branchPrefix // "claude/acme-". The default reproduces the old literal.
+  parity_check "unsuffixed slice-1 match"       '\$\{BRANCH_PREFIX\}\$\{ISSUE_NUMBER\}'
   parity_check "MAX_N accumulator"              'MAX_N'
   # shellcheck disable=SC2016 # literal $TOTAL_SLICES is the grep pattern, not an expansion
   parity_check "all-pushed early-exit guard"    'MAX_N" -ge "\$TOTAL_SLICES'

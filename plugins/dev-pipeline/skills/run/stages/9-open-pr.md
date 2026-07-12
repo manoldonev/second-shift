@@ -13,18 +13,27 @@
 
 **All PRs open as draft.** The human reviewer flips to ready-for-review after a manual eyes-on pass. Clean drafts and exhausted-review drafts are distinguished by the `needs-deep-review` label and the `codeReviewExhausted` state field — not by draft status.
 
-**Stale-branch freshness check (autonomous default):** Before pushing, check whether opening the PR risks a **real** merge conflict — whether the branch and `origin/main` changed an **overlapping set of files** since their merge base. Raw distance does not matter: a branch far "behind" a fast-moving base branch still merges cleanly when the two changed-file sets are disjoint (disjoint sets cannot produce a merge conflict). Only a genuine file overlap is worth stopping for:
+**Stale-branch freshness check (autonomous default):** Before pushing, check whether opening the PR risks a **real** merge conflict — whether the branch and its PR base (`origin/<baseBranch>`, or the prior slice for a stacked run) changed an **overlapping set of files** since their merge base. Raw distance does not matter: a branch far "behind" a fast-moving base branch still merges cleanly when the two changed-file sets are disjoint (disjoint sets cannot produce a merge conflict). Only a genuine file overlap is worth stopping for:
 
 ```bash
-git fetch origin main --quiet
+# Effective PR base: persisted prBase (a stacked slice targets its prior slice) else the
+# host repo's configured baseBranch — never a hardcoded "main" (a develop/alpha-based
+# consumer's freshness check and PR target would otherwise both point at the wrong ref).
+# Single source of truth with the `--base` target at PR creation below.
+CFG="${SECOND_SHIFT_CONFIG:-.claude/second-shift.config.json}"
+PR_BASE_EFF=$(statectl.sh get "$ISSUE_NUMBER" '.prBase // empty')
+if [[ -z "$PR_BASE_EFF" || "$PR_BASE_EFF" == "null" ]]; then
+  PR_BASE_EFF=$(jq -r '(.topology.repos | to_entries[] | select(.value.path==".") | .key) as $h | .topology.repos[$h].baseBranch // "main"' "$CFG" 2>/dev/null || echo main)
+fi
+git fetch origin "$PR_BASE_EFF" --quiet
 # Conflict gate keyed on overlapping changed files since the merge base. Uses only
 # deny-safe plumbing — `git merge*` (which covers both the in-place `git merge` freshen
 # AND `git merge-tree`), `git rebase*`, and `git reset*` are denied, so the autonomous
 # path has no in-place freshen. Prevention (Stage 2 cuts the branch from a fresh
-# `origin/main`) plus this gate is the recovery story; a genuine overlap needs a human.
-MERGE_BASE=$(git merge-base origin/main "$BRANCH")
+# `origin/<baseBranch>`) plus this gate is the recovery story; a genuine overlap needs a human.
+MERGE_BASE=$(git merge-base "origin/$PR_BASE_EFF" "$BRANCH")
 OURS=$(git diff --name-only "$MERGE_BASE" "$BRANCH" | sort -u)
-THEIRS=$(git diff --name-only "$MERGE_BASE" origin/main | sort -u)
+THEIRS=$(git diff --name-only "$MERGE_BASE" "origin/$PR_BASE_EFF" | sort -u)
 OVERLAP_FILES=$(comm -12 <(printf '%s\n' "$OURS") <(printf '%s\n' "$THEIRS"))
 OVERLAP_COUNT=$(printf '%s' "$OVERLAP_FILES" | grep -c .)
 
@@ -45,7 +54,7 @@ if [[ "$OVERLAP_COUNT" -gt 0 ]]; then
     '<!-- stage: pr -->' \
     '<!-- status: failed -->' \
     '' \
-    "Stage 9 stopped: branch \`$BRANCH\` and \`origin/main\` both changed $OVERLAP_COUNT file(s) since their merge base, so opening the PR risks a real merge conflict. \`git merge\`/\`rebase\`/\`reset\` are denied, so the autonomous path cannot freshen the branch in place — a human must resolve (merge \`origin/main\` or re-cut from it), then re-run. Overlapping files:" \
+    "Stage 9 stopped: branch \`$BRANCH\` and \`origin/$PR_BASE_EFF\` both changed $OVERLAP_COUNT file(s) since their merge base, so opening the PR risks a real merge conflict. \`git merge\`/\`rebase\`/\`reset\` are denied, so the autonomous path cannot freshen the branch in place — a human must resolve (merge \`origin/$PR_BASE_EFF\` or re-cut from it), then re-run. Overlapping files:" \
     "$OVERLAP_FILES" \
     > "$BODY"
   $GH_BOT issue comment "$ISSUE_NUMBER" --body-file "$BODY"
@@ -55,7 +64,7 @@ fi
 # Empty overlap → disjoint file sets → guaranteed clean merge → fall through and open the PR.
 ```
 
-**Under `DEV_PIPELINE_MODE=interactive`:** skip the `mark-failed` write; present the overlapping files to the user and ask whether to resolve them manually (merge `origin/main` / re-cut from it) and re-run, abort, or proceed anyway.
+**Under `DEV_PIPELINE_MODE=interactive`:** skip the `mark-failed` write; present the overlapping files to the user and ask whether to resolve them manually (merge the PR base `origin/<baseBranch>` / re-cut from it) and re-run, abort, or proceed anyway.
 
 **Guard against duplicates:**
 
@@ -75,9 +84,12 @@ git push -u origin "$BRANCH"
 PR_BASE=$(statectl.sh get "$ISSUE_NUMBER" '.prBase // empty')
 PRIOR_BRANCH=$(statectl.sh get "$ISSUE_NUMBER" '.priorSliceBranch // empty')
 
-# Single-PR fallback: no slice fields → target main.
+# Single-PR fallback: no slice fields → the host repo's configured baseBranch (not a
+# hardcoded "main"). CFG resolved in the freshness gate above; re-resolve defensively
+# in case this block runs in a separate shell.
+CFG="${SECOND_SHIFT_CONFIG:-.claude/second-shift.config.json}"
 if [[ -z "$PR_BASE" || "$PR_BASE" == "null" ]]; then
-  TARGET="main"
+  TARGET=$(jq -r '(.topology.repos | to_entries[] | select(.value.path==".") | .key) as $h | .topology.repos[$h].baseBranch // "main"' "$CFG" 2>/dev/null || echo main)
 else
   TARGET="$PR_BASE"
 fi
