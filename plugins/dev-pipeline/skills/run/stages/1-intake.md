@@ -16,7 +16,7 @@
 
 > **Skip entirely unless `topology.type == "be-fe-pair"`.** A `standalone`/`monorepo` topology has one repo — the host (`path: "."`) is the implicit sole target — and this step is a no-op. This block is purely additive: it never runs for a single-repo consumer.
 
-A **be-fe-pair** ticket targets one or both repos, routed by each repo's `topology.repos.<id>.ticketTag` (e.g. `"[BE]"` / `"[FE]"`). Resolve `TARGET_REPOS` from the fetched issue/ticket **title** once the ticket is in hand (right after the pickup/fetch below — github: the queue/`gh issue view` title; jira: the `getJiraIssue` summary). `TARGET_REPOS` drives Stage 2's per-repo worktree loop, Stage 6's per-repo verify, and Stage 9's per-repo PRs (each keyed by `worktree-set --repo <id>` / `verify-attempts --repo <id>` — see state-schema.md "be-fe-pair note").
+A **be-fe-pair** ticket targets one or both repos, routed by each repo's `topology.repos.<id>.ticketTag` (e.g. `"[BE]"` / `"[FE]"`). **Ordering:** this block EXECUTES after Step 1.A's pickup + `statectl init` (it needs both the fetched ticket **title** — github: the queue/`gh issue view` title; jira: the `getJiraIssue` summary — and an initialized state file for the `mark-failed` / `target-repos-set` writes). Resolve `TARGET_REPOS` and **persist it** via `statectl target-repos-set` so Stage 2 (and the downstream per-repo stages) loop over the targets without re-deriving from the title. `TARGET_REPOS` drives Stage 2's per-repo worktree loop, Stage 6's per-repo verify, and Stage 9's per-repo PRs (each keyed by `worktree-set --repo <id>` / `verify-attempts --repo <id>` — see state-schema.md "be-fe-pair note").
 
 ```bash
 TOPO=$(jq -r '.topology.type // "standalone"' "$SECOND_SHIFT_CONFIG" 2>/dev/null || echo standalone)
@@ -48,6 +48,8 @@ if [[ "$TOPO" == "be-fe-pair" ]]; then
       exit 0
     fi
   done
+  # Persist the resolved targets so Stage 2+ loop over them without re-deriving.
+  statectl.sh target-repos-set "$ISSUE_NUMBER" --repos "$TARGET_REPOS"
   echo "[stage-1] be-fe-pair target routing: TARGET_REPOS='$TARGET_REPOS'"
 fi
 ```

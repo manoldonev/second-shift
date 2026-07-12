@@ -73,6 +73,47 @@ if [[ -n "$SLICE_BRANCH" && "$SLICE_BRANCH" != "null" ]]; then
   fi
 fi
 
+# ---- be-fe-pair (#4): one worktree PER target repo ----
+# Each target repo (routed in Stage 1 Step 1.T, persisted as .targetRepos) gets a
+# worktree in ITS OWN checkout, cut from ITS OWN base branch (BE `alpha` / FE
+# `main` may differ), persisted per-repo via `worktree-set --repo`. The single-repo
+# block that follows is then skipped. A standalone/monorepo run (TOPO != be-fe-pair)
+# falls straight through to that block, unchanged.
+TOPO=$(jq -r '.topology.type // "standalone"' "$SECOND_SHIFT_CONFIG" 2>/dev/null || echo standalone)
+if [[ "$TOPO" == "be-fe-pair" ]]; then
+  MAIN_ROOT="$(git rev-parse --show-toplevel)"
+  for r in $(statectl.sh get "$ISSUE_NUMBER" '.targetRepos // [] | join(" ")'); do
+    RP=$(jq -r --arg r "$r" '.topology.repos[$r].path' "$SECOND_SHIFT_CONFIG")
+    REPO_ABS="$(cd "$MAIN_ROOT/$RP" && pwd)"
+    if [[ -n "$WORKTREE_BASE" && "$WORKTREE_BASE" != "null" ]]; then
+      REPO_BASE="$WORKTREE_BASE"                 # stacked slice: the prior slice's branch
+    else
+      REPO_BASE=$(jq -r --arg r "$r" '.topology.repos[$r].baseBranch // "main"' "$SECOND_SHIFT_CONFIG")
+    fi
+    WTDIR=$(jq -r --arg r "$r" '.topology.repos[$r].worktreesDir // empty' "$SECOND_SHIFT_CONFIG")
+    [[ -n "$WTDIR" ]] || WTDIR="../${r}-worktrees"
+    WT_REL="${WTDIR}/${BRANCH##*/}"              # host-root-relative — the state canonical form
+    git -C "$REPO_ABS" fetch origin "$REPO_BASE" --quiet 2>/dev/null || true
+    if git -C "$REPO_ABS" branch --list "$BRANCH" | grep -q .; then
+      WT_ERR=$(git -C "$REPO_ABS" worktree add "$MAIN_ROOT/$WT_REL" "$BRANCH" 2>&1); WT_RC=$?
+    else
+      WT_ERR=$(git -C "$REPO_ABS" worktree add "$MAIN_ROOT/$WT_REL" -b "$BRANCH" "origin/$REPO_BASE" 2>&1); WT_RC=$?
+    fi
+    if [[ $WT_RC -ne 0 ]]; then
+      echo "[stage-2] git worktree add failed for repo '$r' (rc=$WT_RC): $WT_ERR" >&2
+      statectl.sh mark-failed "$ISSUE_NUMBER" --reason worktree-creation-failed --stage 2 \
+        --json "$(statectl.sh build-failure-context --reason worktree-creation-failed --stage 2 --kv repo="$r" --kv gitError="$WT_ERR")"
+      exit 0
+    fi
+    statectl.sh worktree-set "$ISSUE_NUMBER" --repo "$r" --path "$WT_REL" --branch "$BRANCH" --base "$REPO_BASE"
+    echo "[stage-2] be-fe-pair worktree: repo='$r' path='$WT_REL' base='$REPO_BASE'"
+  done
+fi
+
+# Single-repo (standalone/monorepo) worktree creation — SKIPPED for be-fe-pair
+# (the per-repo loop above already created + persisted every target's worktree).
+if [[ "$TOPO" != "be-fe-pair" ]]; then
+
 # For slice N>1, ensure the prior slice's branch is available locally so
 # `git worktree add -b <new> <base>` can resolve <base>. Best-effort fetch;
 # fall through if the branch is already local. (The mainline base is handled
@@ -127,6 +168,7 @@ if [[ $WT_RC -ne 0 ]]; then
   # $WT_ERR to the user and ask how to proceed (retry, abort, manual fix).
   exit 0
 fi
+fi   # end single-repo (TOPO != be-fe-pair) worktree creation
 ```
 
 - `cd` into the worktree for ALL subsequent work.
@@ -134,15 +176,17 @@ fi
 - For stacked-PR runs, `SLICE_SUFFIX` is `-pr${N}` (e.g., `-pr2`, `-pr3`). For slice 1 / single-PR runs it is empty. The worktree dir name is the branch basename `${BRANCH##*/}` — for the github default that is `acme-${ISSUE_NUMBER}${SLICE_SUFFIX}`, but it tracks `tracker.branchPrefix` for any consumer.
 - Do **NOT** run `yarn install` here. The Stage 6 verification matrix installs deps only when the diff actually requires the configured verify suite (~50s saved on inert diffs); the pre-commit type-check hook is staged-path-aware, so docs/shell-only commits don't need `node_modules` either.
 
-**State:** Persist both boundary fields atomically via statectl:
+**State:** Persist both boundary fields atomically via statectl. **be-fe-pair runs skip this block** — the per-repo `worktree-set --repo <id>` calls in the loop above already persisted every target's boundary fields into the `worktrees` map; only the single-repo path writes the flat top-level fields here:
 
 ```bash
-statectl.sh worktree-set "$ISSUE_NUMBER" \
-  --path "${WORKTREES_DIR}/${BRANCH##*/}" \
-  --branch "$BRANCH"
+if [[ "$(jq -r '.topology.type // "standalone"' "$SECOND_SHIFT_CONFIG" 2>/dev/null || echo standalone)" != "be-fe-pair" ]]; then
+  statectl.sh worktree-set "$ISSUE_NUMBER" \
+    --path "${WORKTREES_DIR}/${BRANCH##*/}" \
+    --branch "$BRANCH"
+fi
 ```
 
-**Canonical path form:** `worktreePath` is persisted in **repo-relative** form (`${WORKTREES_DIR}/${BRANCH##*/}`, as written above). This is the contract — `worktree-set` rejects an absolute path (leading `/`). The pipeline always runs with CWD at the repo root, so consumers resolve the value against the repo root (`git -C "$worktreePath" …` at the Stage 8 entry, `cd "$worktreePath"`); see state-schema.md "Worktree".
+**Canonical path form:** `worktreePath` is persisted in **repo-relative** form (`${WORKTREES_DIR}/${BRANCH##*/}` for single-repo; `worktrees.<id>.worktreePath` host-root-relative for be-fe-pair, as written above). This is the contract — `worktree-set` rejects an absolute path (leading `/`). This is the contract — `worktree-set` rejects an absolute path (leading `/`). The pipeline always runs with CWD at the repo root, so consumers resolve the value against the repo root (`git -C "$worktreePath" …` at the Stage 8 entry, `cd "$worktreePath"`); see state-schema.md "Worktree".
 
 **Ordering contract:** this call MUST precede `set-stage 2 --status completed` — a completed Stage 2 then always implies the boundary fields are present, so a crash between the two writes leaves Stage 2 merely in-progress (resumable), never "complete but unresumable" (Stage 8's crash-recovery entry asserts `worktreePath` is valid). In stacked-PR mode both fields are overwritten per slice (by design — see state-schema.md "Worktree").
 

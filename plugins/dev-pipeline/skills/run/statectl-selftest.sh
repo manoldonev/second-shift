@@ -561,6 +561,17 @@ else
   fail "(ws-repo) worktree-set --repo — wp='$wp' base='$wb' flat='$flatwp'"
 fi
 
+# (trs1) target-repos-set: persists the space-separated repo ids as an array (#4).
+reset_state
+sct init 9999 --run-id "selftest-run-$$" >/dev/null
+out=$(sct target-repos-set 9999 --repos "be fe")
+stored=$(sct get 9999 '.targetRepos // [] | join(",")')
+if [[ "$out" == '["be","fe"]' && "$stored" == "be,fe" ]]; then
+  pass "(trs1) target-repos-set: 'be fe' -> array echoed and stored"
+else
+  fail "(trs1) target-repos-set — out='$out' stored='$stored'"
+fi
+
 # (psa6) pipeline-session-add: a synthetic RUN_ID-derived id (the old, never-matching
 # format) is rejected — regression guard for the cost-tracking session-id mismatch bug.
 err=$(sct_err pipeline-session-add 9999 --session-id "2026-06-08T214945Z-Mac-edf895c0-slice1-stage2")
@@ -1757,6 +1768,26 @@ if [[ "$rc_obj" == "0" && "$rc_str" == "0" && "$rc_empty" == "1" && "$rc_bad" !=
   pass "(vss1) verify-summary-set — object/string accepted, empty/bad-JSON rejected"
 else
   fail "(vss1) verify-summary-set — rc_obj=$rc_obj rc_str=$rc_str rc_empty=$rc_empty rc_bad=$rc_bad type=$got_type"
+fi
+
+# (vss-repo) verify-summary-set --repo writes worktrees.<id>.verifySummary; and the
+# Stage-6 completion precondition for a be-fe-pair run (targetRepos set) requires a
+# summary for EVERY target — a repo whose verify never ran blocks completion (#5).
+reset_state
+sct init 9999 --run-id "selftest-run-$$" >/dev/null
+sct target-repos-set 9999 --repos "be fe" >/dev/null
+for n in 1 2 3 4 5; do sct set-stage 9999 $n --status started --force >/dev/null 2>&1; sct set-stage 9999 $n --status completed --force >/dev/null 2>&1; done
+sct set-stage 9999 6 --status started --force >/dev/null 2>&1
+rc_none=$(sct_rc set-stage 9999 6 --status completed)                 # no summaries → blocked
+sct verify-summary-set 9999 --repo be --json '{"test":"passed"}' >/dev/null
+rc_partial=$(sct_rc set-stage 9999 6 --status completed)              # only BE → still blocked
+sct verify-summary-set 9999 --repo fe --json '"skipped (inert)"' >/dev/null
+be_sum=$(sct get 9999 '.worktrees.be.verifySummary.test')
+rc_both=$(sct_rc set-stage 9999 6 --status completed)                # both → allowed
+if [[ "$rc_none" != "0" && "$rc_partial" != "0" && "$rc_both" == "0" && "$be_sum" == "passed" ]]; then
+  pass "(vss-repo) per-repo verifySummary + be-fe-pair Stage-6 gate (no silent green)"
+else
+  fail "(vss-repo) — rc_none=$rc_none rc_partial=$rc_partial rc_both=$rc_both be_sum=$be_sum"
 fi
 
 # (va4) verify-attempts accepts PLAN_CMD_FAILURE (the in-session class); still rejects bogus

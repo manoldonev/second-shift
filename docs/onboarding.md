@@ -43,6 +43,9 @@ the trust prompt, since project hooks run regardless of plugin install state. It
 exits 0 (it nudges, never blocks). Together with the lockfile it is the sanctioned
 exception to no-vendoring: both files verify plugin presence, they are not plugin content.
 
+Rolling this out to a whole team — trust flow, opt-outs, upgrades, rollback, the managed
+variant — is its own playbook: [`team-rollout.md`](team-rollout.md).
+
 Sections 1–2 below are the manual/reference path — what the skill automates.
 
 ## 1. Enable the marketplace + plugins
@@ -63,7 +66,16 @@ In the repo's `.claude/settings.json`:
 }
 ```
 
-Enable only what fits — a repo can adopt `review-toolkit` without the pipeline. Pin a release wherever stability matters; track latest only in a canary.
+**One supported artifact: the full suite, pinned to a release tag** — exactly what
+`/second-shift:onboard` writes. `design-toolkit` is the single conditional, offered when the
+repo is UI-shaped or a design MCP is connected. **One documented downgrade:** review-only
+(`enabledPlugins` with just `review-toolkit@second-shift: true`) — *community-supported, not
+CI-tested*. Everything else is possible via `enabledPlugins: false` and yours to own.
+
+Why so strict: five optional plugins is a 2^5 support matrix, and the seams between plugins
+(pipeline → review panel, intake → plan gates) break precisely at partial installs. One
+blessed bundle keeps every CI-tested path identical to every consumer's path. Pin a release
+wherever stability matters; track latest only in a canary.
 
 ### Pinning a release
 
@@ -87,7 +99,7 @@ Two mechanisms compose, and both are needed for a durable pin:
     claude plugin install dev-pipeline@second-shift --scope project   # records version + git SHA
     ```
 
-Upgrading = a PR that bumps the `ref` in settings, then `claude plugin marketplace update second-shift` + reinstall, then the repo's validation gates re-run (config-lint, selftests, a dry-run ticket). One caveat: a **user-level** marketplace registration with the same name (typical on the machine that developed the marketplace) is ref-less and takes precedence locally — the project-settings `ref` is what protects everyone else, and `claude plugin list` should confirm the expected version after any update.
+Upgrading = a PR that bumps the `ref` in settings **and** `.claude/second-shift.lock.json` together (the full recipe: [`releasing.md`](releasing.md) §6; verify with `/second-shift:doctor`), then `claude plugin marketplace update second-shift` + reinstall, then the repo's validation gates re-run (config-lint, selftests, a dry-run ticket). Breaking schema changes carry a migration doc in [`migrations/`](migrations/README.md) — config-lint points at it. One caveat: a **user-level** marketplace registration with the same name (typical on the machine that developed the marketplace) is ref-less and takes precedence locally — the project-settings `ref` is what protects everyone else, and `claude plugin list` should confirm the expected version after any update.
 
 ## 2. Write the static context
 
@@ -102,6 +114,26 @@ Create `.claude/second-shift.config.json` (the schema: [`schema/second-shift.con
 }
 ```
 
+Nothing here assumes JavaScript. The same shape for a Python service on JIRA
+(poetry/pytest; note `"writes": false` — the documented JIRA default — and `format: null`,
+which switches the format lane off entirely, no prettier, no node):
+
+```json
+{
+  "configVersion": 1,
+  "tracker": { "type": "jira", "writes": false, "branchPrefix": "acme-dev/" },
+  "topology": { "type": "standalone", "repos": { "app": { "path": ".", "baseBranch": "develop" } } },
+  "commands": {
+    "app": {
+      "lint": "poetry run ruff check .",
+      "typecheck": "poetry run mypy .",
+      "test": "poetry run pytest",
+      "format": null
+    }
+  }
+}
+```
+
 Validate it:
 
 ```bash
@@ -112,6 +144,37 @@ bash "${CLAUDE_PLUGIN_ROOT:-<dev-pipeline-plugin-root>}/skills/run/tools/config-
 
 (The pipeline runs this itself at startup — Pre-flight, `dev-pipeline` SKILL — and fails fast on violations.)
 
+## 2b. Prerequisites the first run enforces (GitHub tracker)
+
+`/second-shift:onboard` walks you through both of these; if you onboarded manually, the
+first `/dev-pipeline:run` pre-flight enforces them, so handle them now rather than mid-run:
+
+- **The six queue labels.** Pre-flight requires `ready-for-dev`, `needs-spec-work`,
+  `needs-plan-review`, `needs-intake-review`, `in-progress`, `epic` to exist on the repo
+  (shipped literals until `stageParams.requiredLabels` is authoritative end-to-end — issue #11):
+
+  ```bash
+  for l in ready-for-dev needs-spec-work needs-plan-review needs-intake-review in-progress epic; do
+    gh label create "$l" || true
+  done
+  ```
+
+- **A GitHub-App bot identity.** The pipeline claims issues and pushes commits as a bot
+  (clean audit trail; your personal identity never authors autonomous writes). Pre-flight
+  checks the bot wrapper FIRST, unconditionally, for the GitHub tracker. You need a GitHub
+  App (issues+contents write) and its private key; the dev-pipeline plugin ships the
+  bootstrap — resolve the plugin root via `claude plugin list --json` → `installPath`, then
+  run its `skills/run/tools/install-gh-bot.sh`. No bot yet = the run aborts at pre-flight with a
+  written reason; that is a pipeline requirement, not an onboarding failure.
+
+Neither applies to the JIRA tracker (reads via the Atlassian MCP; `writes: false` is the
+default posture). Both trackers need `gh` regardless — Stage 9 opens the PR with
+`gh pr create` — plus `node` for the Stage-8 review and mutation Workflow gates.
+
+Environment sanity for all of the above in one command: `pipeline-doctor.sh` (ships in the
+dev-pipeline plugin at `skills/run/tools/pipeline-doctor.sh`, config-aware since 2.0.7 —
+probes only what YOUR tracker and command table actually use).
+
 ## 3. Optional: dynamic context
 
 - **Knowledge skills** — ordinary repo-local skills in `.claude/skills/`; discovered natively, no registration.
@@ -121,7 +184,19 @@ bash "${CLAUDE_PLUGIN_ROOT:-<dev-pipeline-plugin-root>}/skills/run/tools/config-
 
 ## 4. Verify
 
-Run config-lint (above), then a first run on a small, self-contained ticket:
+Three layers, in order:
+
+1. **Config**: config-lint (above) — green means the static context parses and every value
+   is schema-legal.
+2. **Install state**: `/second-shift:doctor` — installed plugins vs the lockfile, settings
+   pin, shadow collisions (see §0).
+3. **Runtime environment**: `pipeline-doctor.sh` (dev-pipeline plugin, `skills/run/tools/`)
+   — tracker CLI/auth, bot wrapper, labels, node, statectl. Different layer from
+   `/second-shift:doctor`; both exist on purpose. Extension files are checked at pre-flight
+   by `check-extensions.sh` against the shipped manifest (a typo'd extension filename is
+   loud, never silently ignored).
+
+Then a first run on a small, self-contained ticket:
 
 ```text
 /dev-pipeline:run <ticket>

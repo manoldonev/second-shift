@@ -200,6 +200,34 @@ cmd_state_path() {
   state_path "$key"
 }
 
+# `target-repos-set <issue> --repos "be fe"` — be-fe-pair (#4): persist the
+# resolved target repo ids (Stage 1 Step 1.T) as an array, so Stage 2 and the
+# downstream per-repo stages loop over them without re-deriving from the ticket
+# title. Additive: only a be-fe-pair run writes it; single-repo runs never call it.
+cmd_target_repos_set() {
+  local key="${1:-}"; shift || true
+  local repos="" force=0
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --repos) repos="${2:-}"; shift 2 ;;
+      --force) force=1; shift ;;
+      *) EXIT_CODE=3 die "target-repos-set: unknown arg '$1'" ;;
+    esac
+  done
+  [[ -n "$key" && -n "$repos" ]] \
+    || { EXIT_CODE=3 die "target-repos-set: usage: target-repos-set <issue> --repos \"be fe\""; }
+  local current now new_state
+  current=$(read_state "$key") || exit $?
+  require_mutable "$current" "$force" "target-repos-set"
+  now=$(now_iso)
+  new_state=$(jq --arg now "$now" --arg repos "$repos" '
+    .targetRepos = ($repos | split(" ") | map(select(length > 0)))
+    | .lastUpdatedAt = $now
+  ' <<< "$current") || { EXIT_CODE=2 die "target-repos-set: jq mutation failed"; }
+  atomic_write "$key" "$new_state"
+  jq -c '.targetRepos' <<< "$new_state"
+}
+
 # Write atomically via writer-suffixed tmp file.
 # $1 = issue number, $2 = new JSON content
 atomic_write() {
@@ -311,8 +339,18 @@ stage_completion_preconditions() {
         || { EXIT_CODE=1 die "set-stage: cannot complete stage 5 — designDriven run with stages.5.designPlanReview not at terminal \"implemented\"; --force for crash-recovery"; }
       ;;
     6)
-      jq -e '.verifySummary | (type == "object") or (type == "string" and length > 0)' <<< "$current" >/dev/null \
-        || { EXIT_CODE=1 die "set-stage: cannot complete stage 6 — top-level verifySummary is missing (write it from the verifyctl verdict JSON via verify-summary-set, on both lanes); --force for crash-recovery"; }
+      # be-fe-pair (targetRepos present) requires a per-repo verifySummary for
+      # EVERY target (worktrees.<id>.verifySummary via verify-summary-set --repo);
+      # single-repo requires the flat top-level field. This is the "never a silent
+      # green" gate for a pair run (#5): a target whose verify never ran has no
+      # summary, so Stage 6 cannot complete.
+      if [[ "$(jq -r '(.targetRepos // []) | length' <<< "$current")" -gt 0 ]]; then
+        jq -e '. as $s | ($s.targetRepos // []) | length > 0 and all(.[]; ($s.worktrees[.].verifySummary) | (type == "object") or (type == "string" and length > 0))' <<< "$current" >/dev/null \
+          || { EXIT_CODE=1 die "set-stage: cannot complete stage 6 — a be-fe-pair run needs a per-repo verifySummary for every targetRepo (worktrees.<id>.verifySummary via verify-summary-set --repo, both lanes); --force for crash-recovery"; }
+      else
+        jq -e '.verifySummary | (type == "object") or (type == "string" and length > 0)' <<< "$current" >/dev/null \
+          || { EXIT_CODE=1 die "set-stage: cannot complete stage 6 — top-level verifySummary is missing (write it from the verifyctl verdict JSON via verify-summary-set, on both lanes); --force for crash-recovery"; }
+      fi
       ;;
     8)
       jq -e '(.codeReviewRounds // 0) >= 1' <<< "$current" >/dev/null \
@@ -1192,10 +1230,11 @@ cmd_verify_summary_set() {
   # Usage:
   #   statectl verify-summary-set <issue-number> --json <verifySummary>
   local key="${1:-}"; shift || true
-  local payload="" force=0
+  local payload="" force=0 repo=""
   while [[ $# -gt 0 ]]; do
     case "$1" in
       --json)  payload="${2:-}"; shift 2 ;;
+      --repo)  repo="${2:-}"; shift 2 ;;
       --force) force=1; shift ;;
       *) EXIT_CODE=3 die "verify-summary-set: unknown arg '$1'" ;;
     esac
@@ -1212,10 +1251,19 @@ cmd_verify_summary_set() {
   local now
   now=$(now_iso)
   local new_state
-  new_state=$(jq --argjson p "$payload" --arg now "$now" '
-    .verifySummary = $p
-    | .lastUpdatedAt = $now
-  ' <<< "$current") || { EXIT_CODE=2 die "verify-summary-set: jq mutation failed"; }
+  # --repo <id> (be-fe-pair): the summary lives per-repo at
+  # worktrees.<id>.verifySummary; without --repo it is the flat top-level field.
+  if [[ -n "$repo" ]]; then
+    new_state=$(jq --argjson p "$payload" --arg now "$now" --arg repo "$repo" '
+      .worktrees = ((.worktrees // {}) | .[$repo] = ((.[$repo] // {}) | .verifySummary = $p))
+      | .lastUpdatedAt = $now
+    ' <<< "$current") || { EXIT_CODE=2 die "verify-summary-set: jq mutation failed"; }
+  else
+    new_state=$(jq --argjson p "$payload" --arg now "$now" '
+      .verifySummary = $p
+      | .lastUpdatedAt = $now
+    ' <<< "$current") || { EXIT_CODE=2 die "verify-summary-set: jq mutation failed"; }
+  fi
   atomic_write "$key" "$new_state"
 }
 
@@ -1732,6 +1780,7 @@ main() {
     init)                   cmd_init "$@" ;;
     get)                    cmd_get "$@" ;;
     state-path)             cmd_state_path "$@" ;;
+    target-repos-set)       cmd_target_repos_set "$@" ;;
     set-stage)              cmd_set_stage "$@" ;;
     checkpoint)             cmd_checkpoint "$@" ;;
     worktree-set)           cmd_worktree_set "$@" ;;

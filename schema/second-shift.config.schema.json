@@ -163,7 +163,7 @@
         },
         "modelOverrides": {
           "type": "object",
-          "description": "Per-reviewer model-tier override (observed need: security-reviewer opus in one repo, sonnet in another). check-model-tiers validates .mjs tables against frontmatter + these overrides.",
+          "description": "Per-agent model-tier override, keyed by any agent the .mjs dispatch tables model — panel reviewers AND named workflow agents like mutation-executor (EP-4). Observed need: security-reviewer opus in one repo, sonnet in another. check-model-tiers validates .mjs tables against frontmatter + these overrides.",
           "additionalProperties": { "enum": ["haiku", "sonnet", "opus"] }
         }
       }

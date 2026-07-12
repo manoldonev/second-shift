@@ -138,6 +138,14 @@ Also emit the thin check (presence-verification, the sanctioned no-vendoring exc
    MERGE rule: if a SessionStart array already exists, APPEND the entry — never replace.
 3. Tell the human these two files get committed with the config + lockfile.
 
+Also emit the consent doc:
+1. Copy `${CLAUDE_PLUGIN_ROOT}/templates/consumer/SECOND-SHIFT.md` to `.claude/SECOND-SHIFT.md`,
+   substituting `{{REF}}` with the pinned ref and rendering `{{PLUGIN_VERSIONS_TABLE}}` as a
+   `| plugin | version |` markdown table from the lockfile's `plugins` map. Strip the
+   design-toolkit section when design-toolkit was not accepted.
+2. If the repo has a `CLAUDE.md`, offer (in the SAME final message — never a new interview,
+   never silently): append `- Toolkit consent + inventory: .claude/SECOND-SHIFT.md` to it.
+
 ## Step 8 — Verify and hand off
 1. Run `claude plugin list` and `claude plugin marketplace list --json`, and check the
    second-shift marketplace registration: if a USER-scope registration of `second-shift`
@@ -163,4 +171,5 @@ Also emit the thin check (presence-verification, the sanctioned no-vendoring exc
    branch-identity derivation); the bot/labels wall was already handled in Step 3 for the
    github tracker; run `/dev-pipeline:run <ticket>`.
 6. Remind: commit `.claude/settings.json`, `.claude/second-shift.config.json`,
-   `.claude/second-shift.lock.json`, and `.claude/tools/second-shift-doctor.sh` in one PR.
+   `.claude/second-shift.lock.json`, `.claude/tools/second-shift-doctor.sh`, and
+   `.claude/SECOND-SHIFT.md` in one PR.

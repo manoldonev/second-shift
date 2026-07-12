@@ -34,7 +34,22 @@ Everything else (worktree path, base ref incl. stacked-slice stacking via the pe
 statectl.sh verify-summary-set "$ISSUE_NUMBER" --json "$VERIFY_SUMMARY_JSON"
 ```
 
-The Stage-6 completion precondition refuses `set-stage 6 --status completed` without it, and Stage 7's `build-checkpoint-7 --verify-summary` sources the same top-level field (crash-recovery safe).
+The Stage-6 completion precondition refuses `set-stage 6 --status completed` without it, and Stage 7's `build-checkpoint-7 --verify-summary` sources the same top-level field (crash-recovery safe). The single-repo `{verifyctl} run {issue-number}` above is the `standalone`/`monorepo` path.
+
+**be-fe-pair (config `topology.type: be-fe-pair`) — verify EACH target repo (#5).** A pair run verifies every repo in `.targetRepos` independently, passing `--repo <id>`:
+
+```bash
+if [[ "$(jq -r '.topology.type // "standalone"' "$SECOND_SHIFT_CONFIG" 2>/dev/null || echo standalone)" == "be-fe-pair" ]]; then
+  for r in $(statectl.sh get "$ISSUE_NUMBER" '.targetRepos // [] | join(" ")'); do
+    VERDICT=$({verifyctl} run "$ISSUE_NUMBER" --repo "$r")   # the exit-code table above applies PER repo
+    # On pass, persist THIS repo's summary (both lanes). verifyctl already charged
+    # this repo's per-class retry budget itself (worktrees.<r>.verifyAttempts).
+    statectl.sh verify-summary-set "$ISSUE_NUMBER" --repo "$r" --json "$VERIFY_SUMMARY_JSON"
+  done
+fi
+```
+
+`--repo <id>` makes verifyctl load **`commands.<id>`** (never the host's), verify **`worktrees.<id>.worktreePath`** against **`worktrees.<id>.base`** (the BE `alpha` / FE `main` cut in Stage 2), use a **per-repo sidecar** (`{issue}-<id>-verify.log`), and charge **`worktrees.<id>.verifyAttempts`**. The Stage-6 completion precondition then requires a `worktrees.<id>.verifySummary` for **every** target — a repo whose verify never ran has no summary, so Stage 6 **cannot complete**. That is the pair "never a silent green" gate (#5): a `[FE]`-touching run is verified with `commands.fe` in the FE worktree, or it fails closed.
 
 ### Lane reference (verifyctl consumes this; documented for humans)
 
