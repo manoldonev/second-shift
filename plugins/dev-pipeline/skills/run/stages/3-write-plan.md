@@ -54,8 +54,8 @@
 
 Classify whether this ticket needs mutation-resistant unit test work, then persist it for Stages 4–5. Scope is the **backend TypeScript source matched by config `commands.<host>.unitTestScope`** (the acme value — used in every `apps/api/src/**` example below — is `apps/api/src/**`; ML/Rust are out of scope — see [`unit-testing`](../../unit-testing/SKILL.md)). A repo with no `unitTestScope` configured has no mutation surface and skips the gate.
 
-- **`skip`** when the change is FE-only, pure config/CI/docs/dependency, or otherwise has no `apps/api/src/**` behavior change. Include a one-line `skipReason`.
-- **`strengthen`** when `apps/api/src/**` behavior (a service/controller/worker branch, guard, or `userId`-scoped query) changes. Then the plan's **Test strategy** section MUST also enumerate, per [`unit-testing`](../../unit-testing/SKILL.md):
+- **`skip`** when the change is FE-only, pure config/CI/docs/dependency, or otherwise has no behavior change in the configured `unitTestScope` surface (acme: `apps/api/src/**`). Include a one-line `skipReason`. A repo with no `unitTestScope` configured always skips (no mutation surface).
+- **`strengthen`** when behavior in the configured `unitTestScope` surface changes (acme `apps/api/src/**`: a service/controller/worker branch, guard, or `userId`-scoped query). Then the plan's **Test strategy** section MUST also enumerate, per [`unit-testing`](../../unit-testing/SKILL.md):
   - **Mutation targets** — concrete branches/edge cases tests must kill (one per new/changed conditional; cross-user isolation when `userId`-scoped). Not generic "test the service".
   - **Mock boundary** — which collaborators are real vs mocked (mock only the Drizzle handle / external I/O).
   - **Spec paths** — co-located `*.spec.ts` to create or extend.

@@ -26,7 +26,7 @@ The plan gates — `plan-reviewer`, design FE-spec review (designDriven runs), u
    ```
 
    Note for the plan-reviewer dispatch below: structural/coverage-row presence is now mechanical — the reviewer judges mapping _quality_, not section/row presence.
-2. **Skip-plausibility check (in-session, no dispatch).** When `unitTestSurface.action == "skip"`: verify `skipReason` is plausible and affected files confirm no `apps/api/src/**` behavior change.
+2. **Skip-plausibility check (in-session, no dispatch).** When `unitTestSurface.action == "skip"`: verify `skipReason` is plausible and affected files confirm no behavior change in the configured `unitTestScope` surface (acme: `apps/api/src/**`).
 3. **Assemble applicability flags from state** so the script's gate skips are deterministic:
    - `design.enabled = stageCheckpoint["1"].designDriven == true`; when enabled, `design.provider` = `stageCheckpoint["1"].designSource.provider` (selects the spec rubric) and `design.specPath` = the Stage-3 FE-spec artifact (`docs/design-specs/<screen>-spec.md`).
    - `unitTests.enabled = (unitTestSurface.applicable && unitTestSurface.action == "strengthen")`.
