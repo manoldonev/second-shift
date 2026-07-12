@@ -72,6 +72,10 @@ consumer with an empty config; the migration notes below are only for consumers 
   `tools/intake-readroot-selftest.sh` pins the seam's load-bearing tokens in the green gate.
   `eval-criteria.md` criterion 1 rewords to the pin posture (wrong-repo/branch/diff detection unchanged).
 
+### `intake-toolkit` 2.0.0 → 2.0.1
+- **#59 (docs) — intake fan-out arg contract gains `readRoot`.** The intake-orchestrator transport
+  description now documents the optional pinned-read-surface arg the dev-pipeline passes from Step 1.P.
+
 ### `second-shift` 1.3.1 → 1.4.0
 - **Onboard Step 8.5 now runs the preflight as the finish line** (resolves the dev-pipeline install path via
   `claude plugin list --json` — never a cache path from memory), surfacing the report verdict before the
