@@ -32,10 +32,12 @@
 # test — null means "lane not available", skipped; lintAutofixes gates the
 # in-run `<lint> --fix` loop and requires the lint command to accept a --fix
 # suffix; commands.lanes[] are setup steps run sequentially before the trio,
-# INFRA-grade on failure — e.g. install / workspace-package builds). Scoped
-# formatting assumes a prettier-based repo (the one toolchain assumption
-# verifyctl keeps; all current consumers are prettier repos). Single-repo
-# operation: no --repo flag, no per-repo sidecars, no integration lane.
+# INFRA-grade on failure — e.g. install / workspace-package builds). Formatting
+# is config-driven (commands.<host>.format, #12): a string runs verbatim as the
+# repo's own formatter (`black .`, `yarn format`), null skips the format lane
+# entirely, and an ABSENT key falls back to scoped prettier (the documented
+# default — the ONLY path that needs node/npx). Single-repo operation: no --repo
+# flag, no per-repo sidecars, no integration lane.
 #
 # Attempt accounting (skipped entirely under --no-attempt):
 #   Sidecar {state-dir}/{issue}-verify.json, owned EXCLUSIVELY by verifyctl:
@@ -150,6 +152,24 @@ load_config() {
   CMD_LINT=$(jq -r --arg h "$host" '.commands[$h].lint // empty' "$cfg")
   CMD_TYPECHECK=$(jq -r --arg h "$host" '.commands[$h].typecheck // empty' "$cfg")
   CMD_TEST=$(jq -r --arg h "$host" '.commands[$h].test // empty' "$cfg")
+  # commands.<host>.format (#12): decouple formatting from the hardcoded prettier.
+  #   string -> FORMAT_MODE=config: run the command verbatim from the worktree
+  #             (the repo's own formatter, e.g. "black ." / "yarn format"). The
+  #             command owns its scope; the caller scopes the commit (Stage 6).
+  #   null   -> FORMAT_MODE=skip: NO format lane (a no-node / non-prettier consumer
+  #             opts out; prettier + the npx fallback never run).
+  #   absent -> FORMAT_MODE=prettier: the documented default (scoped prettier
+  #             --check/--write over stageParams.formatGlob) — byte-for-byte the
+  #             prior behavior, so a config that never set `format` is unchanged.
+  #             (This is the ONLY path that needs node/npx — see docs/onboarding.md.)
+  CMD_FORMAT=$(jq -r --arg h "$host" '.commands[$h].format // empty' "$cfg")
+  if [[ -n "$CMD_FORMAT" ]]; then
+    FORMAT_MODE=config
+  elif [[ "$(jq -r --arg h "$host" '.commands[$h] | has("format")' "$cfg")" == "true" ]]; then
+    FORMAT_MODE=skip
+  else
+    FORMAT_MODE=prettier
+  fi
   LINT_AUTOFIXES=$(jq -r --arg h "$host" '.commands[$h].lintAutofixes // false' "$cfg")
   SETUP_LANES=$(jq -c --arg h "$host" '.commands[$h].lanes // []' "$cfg")
   # EP-2 additive verify lanes (run AFTER the SUITE trio, blocking, ext:<name> keys).
@@ -359,20 +379,26 @@ cmd_run() {
 
   if [[ "$lane" == "INERT" ]]; then
     # Scoped prettier --check on changed format-glob files only (a
-    # .claude/**/*.mjs-only diff has nothing to check — correct).
-    collect_format_files
-    if (( ${#CHECK_FILES[@]} > 0 )); then
-      local prettier rc=0
-      prettier=$(resolve_prettier "$wt")
-      # shellcheck disable=SC2086 # resolve_prettier may echo an npx prefix
-      ( cd "$wt" && $prettier --check "${CHECK_FILES[@]}" ) > "$logfile" 2>&1
-      rc=$?
-      if [[ "$rc" -ne 0 ]]; then
-        if is_infra_rc "$rc"; then
-          record_failure "INFRA" "prettier --check (inert lane)" "$rc" "$logfile"
-        else
-          record_failure "FORMAT" "prettier --check (inert lane)" "$rc" "$logfile"
-          vs_format="failed"
+    # .claude/**/*.mjs-only diff has nothing to check — correct). ONLY in the
+    # prettier default mode: a config `format` command (FORMAT_MODE=config) is a
+    # whole-repo formatter gated in the SUITE lane, and FORMAT_MODE=skip disables
+    # formatting entirely — neither runs on an inert docs/shell diff, so a no-node
+    # consumer's inert run never reaches npx prettier (#12).
+    if [[ "$FORMAT_MODE" == "prettier" ]]; then
+      collect_format_files
+      if (( ${#CHECK_FILES[@]} > 0 )); then
+        local prettier rc=0
+        prettier=$(resolve_prettier "$wt")
+        # shellcheck disable=SC2086 # resolve_prettier may echo an npx prefix
+        ( cd "$wt" && $prettier --check "${CHECK_FILES[@]}" ) > "$logfile" 2>&1
+        rc=$?
+        if [[ "$rc" -ne 0 ]]; then
+          if is_infra_rc "$rc"; then
+            record_failure "INFRA" "prettier --check (inert lane)" "$rc" "$logfile"
+          else
+            record_failure "FORMAT" "prettier --check (inert lane)" "$rc" "$logfile"
+            vs_format="failed"
+          fi
         fi
       fi
     fi
@@ -409,26 +435,45 @@ cmd_run() {
       done
     done
 
-    # 2. Scoped format: prettier --write on the changed format-glob files only
-    #    (never repo-wide; never .mjs — outside the format glob). Files it
-    #    changed are reported in formatChanged[] for the caller's scoped commit.
-    if [[ "$overall" == "pass" ]]; then
-      collect_format_files
-      if (( ${#CHECK_FILES[@]} > 0 )); then
-        local prettier pre_format post_format
-        prettier=$(resolve_prettier "$wt")
+    # 2. Format (#12, FORMAT_MODE resolved in load_config):
+    #    prettier -> scoped `prettier --write` on the changed format-glob files
+    #                (default; never repo-wide; never .mjs — outside the glob).
+    #    config   -> run commands.<host>.format VERBATIM from the worktree root
+    #                (the repo's own whole-set formatter, e.g. `black .`). No node
+    #                assumption. The command owns its scope.
+    #    skip     -> no formatter runs at all (commands.<host>.format is null).
+    #    In every mode the files that changed are collected into formatChanged[]
+    #    for the caller's scoped commit; a non-INFRA non-zero exit is a FORMAT fail.
+    if [[ "$overall" == "pass" && "$FORMAT_MODE" != "skip" ]]; then
+      local pre_format post_format fmt_out fmt_label=""
+      fmt_out=$(mktemp)
+      if [[ "$FORMAT_MODE" == "config" ]]; then
+        fmt_label="format: $CMD_FORMAT"
         pre_format=$(git -C "$wt" status --porcelain | awk '{print $2}' | sort)
-        local fmt_out
-        fmt_out=$(mktemp)
-        # shellcheck disable=SC2086
-        ( cd "$wt" && $prettier --write "${CHECK_FILES[@]}" ) > "$fmt_out" 2>&1
+        ( cd "$wt" && bash -c "$CMD_FORMAT" ) > "$fmt_out" 2>&1
         rc=$?
-        { echo "===== [format] prettier --write (exit=$rc) ====="; cat "$fmt_out"; } >> "$logfile"
+      else
+        # prettier default (scoped over the changed format-glob files)
+        collect_format_files
+        pre_format=$(git -C "$wt" status --porcelain | awk '{print $2}' | sort)
+        if (( ${#CHECK_FILES[@]} > 0 )); then
+          local prettier
+          fmt_label="prettier --write (scoped)"
+          prettier=$(resolve_prettier "$wt")
+          # shellcheck disable=SC2086
+          ( cd "$wt" && $prettier --write "${CHECK_FILES[@]}" ) > "$fmt_out" 2>&1
+          rc=$?
+        else
+          rc=0   # nothing to format on this diff
+        fi
+      fi
+      if [[ -n "$fmt_label" ]]; then
+        { echo "===== [format] $fmt_label (exit=$rc) ====="; cat "$fmt_out"; } >> "$logfile"
         if [[ "$rc" -ne 0 ]]; then
           if is_infra_rc "$rc"; then
-            record_failure "INFRA" "prettier --write (scoped)" "$rc" "$fmt_out"
+            record_failure "INFRA" "$fmt_label" "$rc" "$fmt_out"
           else
-            record_failure "FORMAT" "prettier --write (scoped)" "$rc" "$fmt_out"
+            record_failure "FORMAT" "$fmt_label" "$rc" "$fmt_out"
             vs_format="failed"
           fi
         fi
@@ -437,6 +482,7 @@ cmd_run() {
         [[ "$format_changed" != "[]" && "$vs_format" == "clean" ]] && vs_format="applied"
       fi
     fi
+    [[ "$FORMAT_MODE" == "skip" ]] && vs_format="skipped"
 
     # 3. lint & type-check & test — the configured commands, independent, run
     #    CONCURRENTLY (background jobs; collect all before classifying —
