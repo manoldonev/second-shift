@@ -4,6 +4,26 @@ All notable changes to the second-shift marketplace. Versions are per-plugin (`p
 this file tracks the marketplace release. `configVersion` stays `const 1` — v2 is fully backward-compatible for a
 consumer with an empty config; the migration notes below are only for consumers using the changed features.
 
+## v2.1.0 — onboarding release: the marketplace writes its own consumer config (in progress)
+
+### `second-shift` (new) 1.0.0
+- **New sixth plugin: the user-scope onboarding micro-plugin (issue #28).** `/second-shift:onboard` runs in the
+  target consumer repo: provenance-first detection (`detect.sh` — tracker from origin host + MCP evidence, topology
+  from workspaces/siblings, baseBranch from origin/HEAD only — an undetectable base branch is a written abort,
+  never a guess), release-pin resolution (`pin-resolve.sh` — latest GitHub Release, highest-semver-tag fallback,
+  per-plugin versions read AT the pinned ref via the contents API), ONE accept-or-edit elicitation batch
+  (branchPrefix, mutation/costTracking gates, design provider, reviewer deltas, and — github tracker — the
+  bot-identity decision plus optional creation of the six queue labels, absorbing the previously undocumented
+  first-run wall), then emits `.claude/second-shift.config.json` (with a `$schema` first key at the pinned ref),
+  a merged `.claude/settings.json` pin block (`.second-shift-proposed` fallback when blocked), and
+  `.claude/second-shift.lock.json` (lockfileVersion 1) — lint-looped green with the plugin-shipped config-lint
+  before anything lands. Zero agents, zero hooks. Both shell tools ship hermetic bash-3.2-safe selftests.
+
+### `dev-pipeline` 2.0.9 → 2.1.0
+- **config-lint + schema accept a top-level `$schema` key.** `/second-shift:onboard` emits it for live editor
+  validation at the pinned ref; both the lint's unknown-top-level-keys check and the JSON schema
+  (`additionalProperties: false`) rejected it before. New `valid-schema-key-standalone.json` fixture.
+
 ## v2.0.9 — docs hotfixes: onboarding path rot (in progress)
 
 ### `dev-pipeline` 2.0.8 → 2.0.9
