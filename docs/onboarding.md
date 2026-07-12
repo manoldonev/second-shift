@@ -27,6 +27,22 @@ The config is validated with the plugin-shipped `config-lint` in-loop before any
 If the live settings write is blocked, the merged document goes to
 `.claude/settings.json.second-shift-proposed` with exact apply instructions.
 
+**Verify (any machine, any time): `/second-shift:doctor`.** It checks the installed state
+against the committed lockfile and catches all five drift states — never-installed,
+enabled-but-not-installed (the default state of a fresh clone whose owner accepted the
+trust prompt but not the install prompts), version-behind, version-AHEAD (the rollback
+case), and settings-ref↔lockfile-ref drift (a half-done upgrade PR) — plus ref-less
+marketplace shadowing, repo-local skill/agent shadow collisions, and opt-outs. Every FAIL
+prints its exact remediation command; the exit code is the FAIL count.
+
+The SessionStart nudge (`.claude/tools/second-shift-doctor.sh`) is the tiny committed
+presence check wired into project settings: on session start it compares the lockfile
+against the local plugin cache and prints one friendly "you're missing your accelerators"
+line when the toolkit isn't installed — the only channel that reaches someone who skipped
+the trust prompt, since project hooks run regardless of plugin install state. It always
+exits 0 (it nudges, never blocks). Together with the lockfile it is the sanctioned
+exception to no-vendoring: both files verify plugin presence, they are not plugin content.
+
 Sections 1–2 below are the manual/reference path — what the skill automates.
 
 ## 1. Enable the marketplace + plugins

@@ -18,6 +18,14 @@ consumer with an empty config; the migration notes below are only for consumers 
   a merged `.claude/settings.json` pin block (`.second-shift-proposed` fallback when blocked), and
   `.claude/second-shift.lock.json` (lockfileVersion 1) — lint-looped green with the plugin-shipped config-lint
   before anything lands. Zero agents, zero hooks. Both shell tools ship hermetic bash-3.2-safe selftests.
+- **`/second-shift:doctor` + the consumer lockfile contract (issue #29).** `doctor.sh` verifies install state
+  against the committed lockfile — never-installed, enabled-but-not-installed (the v2.1.195 fresh-clone default,
+  the most common finding), version-behind, version-AHEAD (rollback), settings-ref↔lockfile-ref drift — plus
+  ref-less marketplace shadowing (via `claude plugin marketplace list --json`, text-parse fallback), repo-local
+  skill/agent shadow collisions, opt-out scan, and config-lint. Every FAIL prints its exact remediation; exit
+  code = FAIL count. Hermetic 8-scenario selftest with env-injected data sources. Onboard now also emits the
+  repo-committed thin check (`.claude/tools/second-shift-doctor.sh` + SessionStart nudge — presence check only,
+  always exits 0, <50ms) — with the lockfile, the sanctioned exception to no-vendoring.
 
 ### `dev-pipeline` 2.0.10 → 2.1.0
 - **config-lint + schema accept a top-level `$schema` key.** `/second-shift:onboard` emits it for live editor

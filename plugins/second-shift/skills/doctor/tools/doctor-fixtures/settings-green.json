@@ -1,0 +1,12 @@
+{
+  "extraKnownMarketplaces": {
+    "second-shift": { "source": { "source": "github", "repo": "manoldonev/second-shift", "ref": "v9.9.0" } }
+  },
+  "enabledPlugins": {
+    "dev-pipeline@second-shift": true,
+    "review-toolkit@second-shift": true,
+    "intake-toolkit@second-shift": true,
+    "audit-toolkit@second-shift": true,
+    "second-shift@second-shift": true
+  }
+}
