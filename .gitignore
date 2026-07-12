@@ -5,3 +5,7 @@
 # dev-pipeline run state — machine-local per-ticket state files (incl. this repo's
 # own canary/dogfooding runs). Transient; the default paths.pipelineStateDir.
 .claude/pipeline-state/
+
+# Per-machine direnv env (OTel telemetry export for cost tracking) — local-only,
+# opt-in per engineer; see the dev-pipeline plugin's cost-tracking-setup.md.
+.envrc

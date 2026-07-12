@@ -8,6 +8,47 @@
 
 **second-shift** is a [Claude Code](https://claude.com/claude-code) plugin marketplace for orchestrating autonomous development. Point it at a ticket and it runs the full loop — intake, planning, implementation, verification, multi-agent code review, and a draft PR — as a crash-recoverable state machine inside a single local session. Adopt the whole pipeline, or just the pieces you want (parallel review, structured intake interviews, design-fidelity checks, session auditing).
 
+## Get started
+
+Requirements: Claude Code ≥ 2.x, `bash`, `jq`, `git`, `node` (the Stage-8 review and mutation Workflow gates run under it), and the `gh` CLI — Stage 9 opens PRs via `gh pr create` for **every** tracker, JIRA runs included. Tracker extras: an Atlassian MCP connection for the JIRA tracker; a Figma MCP only if you enable the figma gate.
+
+Onboarding is three commands and one skill invocation:
+
+```bash
+# 1. Register the marketplace and install the bootstrap plugin (once per machine)
+claude plugin marketplace add manoldonev/second-shift
+claude plugin install second-shift@second-shift        # user scope — bootstraps everything else
+
+# 2. Start a Claude Code session inside the repo you want to onboard
+cd ~/code/your-repo
+claude
+```
+
+```text
+# 3. Inside that session, type:
+/second-shift:onboard
+```
+
+`onboard` detects your tracker, topology, and command truth table with provenance, shows one accept-or-edit screen, and writes three files — the config, the pinned settings block, and the lockfile — validated with `config-lint` in-loop. It finishes by telling you which plugins to install and reminding you to restart the session (plugin registration happens at session start).
+
+```jsonc
+// What onboard writes (the config is still yours to edit) — .claude/second-shift.config.json
+{
+  "configVersion": 1,
+  "tracker": { "type": "github" },
+  "topology": { "type": "standalone", "repos": { "app": { "path": ".", "baseBranch": "main" } } },
+  "commands": { "app": { "lint": "yarn lint", "typecheck": "yarn tsc --noEmit", "test": "yarn test" } }
+}
+```
+
+Then pick a small, self-contained ticket and let the pipeline run it end to end — autonomous is the only mode you need:
+
+```text
+/dev-pipeline:run <ticket>
+```
+
+Full onboarding — topologies (monorepo, BE+FE pair), reviewer tuning, extension files — is in [`docs/onboarding.md`](docs/onboarding.md); the JIRA tracker's setup and behavioral delta live in [the JIRA tracker README](plugins/dev-pipeline/skills/run/tools/tracker/jira/README.md). To keep collaborators on the same toolset, commit the settings pin `onboard` writes (`extraKnownMarketplaces` + `enabledPlugins` in `.claude/settings.json`); track latest only in a canary.
+
 ## Why
 
 Agent-assisted development gets dramatically better when the *process* is engineered, not improvised: gates that fail closed instead of self-asserted claims, review by a panel of specialized reviewers instead of one generalist pass, plans whose load-bearing decisions were elicited from you instead of assumed, and an audit trail of what the agent actually did. second-shift packages that process discipline as installable plugins, with a strict boundary between the generic machinery (here) and everything specific to your repo (one config file + optional knowledge files in your repo).
@@ -24,35 +65,6 @@ Agent-assisted development gets dramatically better when the *process* is engine
 | **second-shift** | Onboarding + health for the marketplace itself: `/second-shift:onboard` writes your repo's config, settings pin, and lockfile from provenance-first detection; `/second-shift:doctor` verifies install state against the lockfile. Install at user scope; it bootstraps everything else. |
 
 Each plugin ships its own selftests and evals; the marketplace CI is fully model-free (shellcheck, selftests, schema fixtures). The supported install is the full suite pinned to a release tag (`/second-shift:onboard` writes exactly that); review-only is a documented, community-supported downgrade.
-
-## Quick start
-
-Requirements: Claude Code ≥ 2.x, `bash`, `jq`, `git`, `node` (the Stage-8 review and mutation Workflow gates run under it), and the `gh` CLI — Stage 9 opens PRs via `gh pr create` for **every** tracker (JIRA runs included), and the GitHub tracker additionally uses `gh` for issues/labels. For the JIRA tracker, an Atlassian MCP connection; a Figma MCP only if you enable the figma gate. (A repo whose `commands.<host>.format` is `null` and that uses no prettier-based command needs no Node beyond the Workflow gates.)
-
-```text
-# the whole setup is three commands
-claude plugin marketplace add manoldonev/second-shift
-claude plugin install second-shift@second-shift        # user scope
-# then, inside the target repo:
-/second-shift:onboard
-```
-
-`onboard` detects your tracker/topology/commands with provenance, shows one accept-or-edit
-screen, and writes the config, the pinned settings block, and the lockfile — validated with
-`config-lint` in-loop. Install the plugins it lists, restart the session, then run it on a
-small ticket — autonomous is the only mode you need: `/dev-pipeline:run <ticket>`.
-
-```jsonc
-// What onboard writes (the config is still yours to edit) — .claude/second-shift.config.json
-{
-  "configVersion": 1,
-  "tracker": { "type": "github" },
-  "topology": { "type": "standalone", "repos": { "app": { "path": ".", "baseBranch": "main" } } },
-  "commands": { "app": { "lint": "yarn lint", "typecheck": "yarn tsc --noEmit", "test": "yarn test" } }
-}
-```
-
-Full onboarding — topologies (monorepo, BE+FE pair), reviewer tuning, extension files — in [`docs/onboarding.md`](docs/onboarding.md); the JIRA tracker's setup and behavioral delta live in [the JIRA tracker README](plugins/dev-pipeline/skills/run/tools/tracker/jira/README.md). To keep collaborators on the same toolset, pin a release in `.claude/settings.json` (`extraKnownMarketplaces` + `enabledPlugins`); track latest only in a canary.
 
 ## How it stays generic
 
