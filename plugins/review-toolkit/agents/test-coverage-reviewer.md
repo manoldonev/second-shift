@@ -27,7 +27,7 @@ Before flagging missing tests, **check whether the workspace has test infrastruc
 2. Search for any existing test files, using the naming and location convention the review-context declares for this stack (or the prevailing convention you observe in the repo)
 3. If the workspace has **no test runner configured and no existing tests**, do NOT flag missing tests as Critical. Instead, report: `[Pre-existing] Workspace has no test infrastructure. Recommend setting up a test runner before requiring test coverage.`
 
-This prevents false-positive failures on workspaces that currently have zero tests and no test runner configured. Repo-specific maturity notes (which workspaces intentionally lack test infra) live in `review-context.md` (load if present) — honor them as additive.
+This prevents false-positive failures on workspaces that currently have zero tests and no test runner configured. Repo-specific maturity notes (which workspaces intentionally lack test infra) are resolvable via the repo's review-context surface (the shared file, this reviewer's `review-context/` file, or an owner document its ownership table points to; load if present) — honor them as additive.
 
 ## Process
 
@@ -95,7 +95,7 @@ Generic edge cases to verify for any data-processing code:
 - Update/change thresholds at the exact trigger value
 - Fits/aggregations at the minimum required sample count
 
-Repo-specific domain edge cases (exact boundary values and the domain scenarios that own them) live in `review-context.md` (load if present) — honor them as additive; on disagreement the repo's own constants file wins.
+Repo-specific domain edge cases (exact boundary values and the domain scenarios that own them) are resolvable via the repo's review-context surface (the shared file, this reviewer's `review-context/` file, or an owner document its ownership table points to; load if present) — honor them as additive; on disagreement the repo's own constants file wins.
 
 ### Test Quality Issues (all languages)
 

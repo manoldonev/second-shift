@@ -48,7 +48,7 @@ Flag when values that will never vary are extracted into config / env vars — a
 
 Flag factory / strategy / observer / builder patterns (and their equivalents in any language — including trait/interface seams over a single concrete type) where a plain function or an `if`/`switch` would suffice. An abstraction layer over an interface that already has **two or more** real implementations is usually correct; adding *further* layers on top of it is not.
 
-**Exception:** repo-specific intentional seam/pattern exemptions — abstractions that exist to enable a *planned* swap — live in `review-context.md` (load if present). Honor them as additive and don't flag them.
+**Exception:** repo-specific intentional seam/pattern exemptions — abstractions that exist to enable a *planned* swap — are resolvable via the repo's review-context surface (the shared file, this reviewer's `review-context/` file, or an owner document its ownership table points to; load if present). Honor them as additive and don't flag them.
 
 ---
 
@@ -86,7 +86,7 @@ Do **not** flag structure that is mandated by the repo's framework, runtime, or 
 - **Convention-required domain objects** — request/response models, typed data objects, and the standard data-class / value-object patterns the repo uses by convention.
 - **An interface/trait design that already has two or more real implementations** — that is appropriate abstraction, not over-engineering.
 - **Architectural separation between workspace packages / services** — these boundaries exist for a reason.
-- **Inherent domain complexity** — multi-stage domain pipelines and layered domain models. Repo-specific intentional-complexity exemptions (named pipelines, layered models, seams) live in `review-context.md` — honor them as additive.
+- **Inherent domain complexity** — multi-stage domain pipelines and layered domain models. Repo-specific intentional-complexity exemptions (named pipelines, layered models, seams) are resolvable via the repo's review-context surface — honor them as additive.
 - **Per-job-type worker/processor files** — one file per background job type is separation of concerns, not duplication; each has different concerns.
 
 ## Output Format

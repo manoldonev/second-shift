@@ -35,7 +35,7 @@ See **Confidence Scoring**, **Suppressed Findings**, and **Standard Output Forma
 
 ## Performance Targets
 
-Repo-specific performance thresholds (per-operation latency budgets by layer) live in `review-context.md` (load if present) — honor them as additive. Absent that file, apply the general rules below.
+Repo-specific performance thresholds (per-operation latency budgets by layer) are resolvable via the repo's review-context surface (the shared file, this reviewer's `review-context/` file, or an owner document its ownership table points to; load if present) — honor them as additive. Absent that file, apply the general rules below.
 
 ---
 
