@@ -2042,6 +2042,92 @@ else
 fi
 reset_state
 
+# ============ #48 be-fe-pair dual-target: Stage-7 per-repo checkpoint + Stage-8 gate ===
+
+echo
+echo "[self-test] #48 dual-target — build-checkpoint-7-perrepo + dual-mode Stage-7 validator + Stage-8 escape hatch"
+
+# (dt1) build-checkpoint-7-perrepo emits a {perRepo:{<repo>:{...}}} fragment
+frag=$(sct build-checkpoint-7-perrepo --repo be --branch claude/x-be --head abc --worktree /w/be --changed-files '["a.ts"]')
+if [[ "$(jq -r '.perRepo.be.branch' <<< "$frag")" == "claude/x-be" && "$(jq -r '.perRepo.be.worktreePath' <<< "$frag")" == "/w/be" ]]; then
+  pass "(dt1) build-checkpoint-7-perrepo → per-repo fragment"
+else
+  fail "(dt1) build-checkpoint-7-perrepo — got '$frag'"
+fi
+
+# (dt2) two fragments merged + shared envelope → per-repo Stage-7 payload validates on write
+reset_state; sct init 9101 --run-id "selftest-run-$$" >/dev/null
+be=$(sct build-checkpoint-7-perrepo --repo be --branch claude/x-be --head abc --worktree /w/be)
+fe=$(sct build-checkpoint-7-perrepo --repo fe --branch claude/x-fe --head def --worktree /w/fe)
+merged=$(printf '%s\n%s\n' "$be" "$fe" | jq -s 'reduce .[] as $x ({}; .perRepo += $x.perRepo)' | jq '. + {ticketKey:"9101",targetRepos:["be","fe"],deviations:[]}')
+if [[ "$(sct_rc checkpoint 9101 7 --json "$merged")" == "0" ]]; then
+  pass "(dt2) per-repo Stage-7 payload (be+fe) → accepted"
+else
+  fail "(dt2) per-repo payload rejected"
+fi
+
+# (dt3) a targetRepo with no perRepo entry → rejected (fail-closed, never a silent partial)
+reset_state; sct init 9102 --run-id "selftest-run-$$" >/dev/null
+bad=$(echo "$merged" | jq '.ticketKey="9102" | .targetRepos=["be","fe","ml"]')
+err=$(sct_err checkpoint 9102 7 --json "$bad")
+if [[ "$(sct_rc checkpoint 9102 7 --json "$bad")" != "0" && "$err" == *"perRepo['ml']"* ]]; then
+  pass "(dt3) per-repo payload missing a targetRepo's perRepo entry → rejected"
+else
+  fail "(dt3) missing-repo not rejected — err='$err'"
+fi
+
+# (dt4) build-checkpoint-7-perrepo missing required field → rejected at builder
+err=$(sct_err build-checkpoint-7-perrepo --repo be --branch b --worktree /w/be)
+if [[ "$(sct_rc build-checkpoint-7-perrepo --repo be --branch b --worktree /w/be)" != "0" && "$err" == *"required"* ]]; then
+  pass "(dt4) build-checkpoint-7-perrepo missing --head → rejected"
+else
+  fail "(dt4) missing --head not rejected — err='$err'"
+fi
+
+# (dt5) flat Stage-7 payload STILL validates (dual-mode must not regress single-target/non-pair)
+reset_state; sct init 9103 --run-id "selftest-run-$$" >/dev/null
+if [[ "$(sct_rc checkpoint 9103 7 --json '{"ticketKey":"9103","branch":"claude/y","headSha":"h","worktreePath":"/w","deviations":[]}')" == "0" ]]; then
+  pass "(dt5) flat Stage-7 payload still accepted (dual-mode, no regression)"
+else
+  fail "(dt5) flat payload wrongly rejected"
+fi
+
+# (dt6) Stage-8 completes on crossBoundaryReviews with NO codeReviewRounds (#48 escape hatch).
+# Phase 4 ships the writer; here the handoff is injected raw to exercise the gate in isolation.
+reset_state; sct init 9999 --run-id "selftest-run-$$" >/dev/null
+for s in 1 2 3 4 5 6 7; do complete_stage 9999 "$s"; done
+sct set-stage 9999 8 --status started >/dev/null
+f=".claude/pipeline-state/9999.json"
+jq '.crossBoundaryReviews = [{"repo":"fe","status":"pending"}]' "$f" > "$f.tmp" && mv "$f.tmp" "$f"
+if [[ "$(sct_rc set-stage 9999 8 --status completed)" == "0" ]]; then
+  pass "(dt6) Stage-8 completes on crossBoundaryReviews (no codeReviewRounds)"
+else
+  fail "(dt6) Stage-8 wrongly rejected a cross-boundary handoff"
+fi
+
+# (dt7) Stage-8 completes on skippedReviews with NO codeReviewRounds
+reset_state; sct init 9999 --run-id "selftest-run-$$" >/dev/null
+for s in 1 2 3 4 5 6 7; do complete_stage 9999 "$s"; done
+sct set-stage 9999 8 --status started >/dev/null
+jq '.skippedReviews = [{"repo":"fe","reason":"no reviewer available"}]' "$f" > "$f.tmp" && mv "$f.tmp" "$f"
+if [[ "$(sct_rc set-stage 9999 8 --status completed)" == "0" ]]; then
+  pass "(dt7) Stage-8 completes on skippedReviews (no codeReviewRounds)"
+else
+  fail "(dt7) Stage-8 wrongly rejected a skipped-review record"
+fi
+
+# (dt8) Stage-8 with NEITHER codeReviewRounds NOR cross-boundary/skip → STILL rejected (gate intact)
+reset_state; sct init 9999 --run-id "selftest-run-$$" >/dev/null
+for s in 1 2 3 4 5 6 7; do complete_stage 9999 "$s"; done
+sct set-stage 9999 8 --status started >/dev/null
+err=$(sct_err set-stage 9999 8 --status completed)
+if [[ "$(sct_rc set-stage 9999 8 --status completed)" != "0" && "$err" == *"stage 8"* ]]; then
+  pass "(dt8) Stage-8 with no review evidence at all → still rejected"
+else
+  fail "(dt8) Stage-8 gate wrongly opened — err='$err'"
+fi
+reset_state
+
 # ========================================================== drift-check (must-pass) ===
 
 echo

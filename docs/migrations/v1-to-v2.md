@@ -22,10 +22,10 @@ Design fidelity is no longer a boolean Figma gate; it is a top-level `design` ob
 "design": { "provider": "claude-design" }  // no external design tool
 ```
 
-Key absent = design fidelity off. As of **v2.1.6** `gates` retains exactly one key: `mutation`
-(see the v2.1.6 removals below).
+Key absent = design fidelity off. As of **dev-pipeline 2.1.6** (marketplace release v2.1.8) `gates` retains exactly one key:
+`mutation` (see the dead-key removals below).
 
-### v2.1.6 dead-key removals — `commands.<repo>.integrationTest` / `apiTest`, `gates.costTracking`
+### Dead-key removals (dev-pipeline 2.1.6, marketplace v2.1.8) — `commands.<repo>.integrationTest` / `apiTest`, `gates.costTracking`
 
 Three published keys had **zero readers** — a consumer set them and nothing happened. They are
 removed; config-lint now rejects them with a migration pointer (fail closed).
