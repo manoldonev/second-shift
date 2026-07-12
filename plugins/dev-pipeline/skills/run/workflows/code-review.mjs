@@ -90,7 +90,7 @@ if (!Array.isArray(reviewers) || reviewers.length === 0) {
 // supposed to include this reviewer only when an issue is referenced — make that
 // contract explicit here rather than silently producing a broken dispatch.
 if (reviewers.some((r) => bare(r) === 'scope-completeness-reviewer') && !issue) {
-  throw new Error('code-review workflow: scope-completeness-reviewer requires args.issue (GitHub issue number)')
+  throw new Error('code-review workflow: scope-completeness-reviewer requires args.issue (GitHub issue number or JIRA ticket key)')
 }
 
 // Workflow runtime globals used below — injected by the Workflow runtime, not
@@ -208,14 +208,20 @@ const dispatchReviewer = async (agentType) => {
   const model = modelOverrides[bare(agentType)] || REVIEWER_MODEL[agentType] || 'sonnet'
   let prompt
   if (bare(agentType) === 'scope-completeness-reviewer') {
-    // Independence rule (review-lead): evidence ONLY — issue number + branch/base.
-    // No scope paraphrase, no diff summary; the reviewer fetches the issue itself.
+    // Independence rule (review-lead): evidence ONLY — issue/ticket ref + branch/base.
+    // No scope paraphrase, no diff summary; the reviewer fetches the ticket itself.
+    // Tracker-branch the fetch (#16): github -> `gh issue view`; jira -> Atlassian MCP.
+    const trackerType = (config && config.tracker && config.tracker.type) || 'github'
+    const ref = trackerType === 'jira' ? `JIRA ticket ${issue}` : `GitHub issue #${issue}`
+    const fetchInstr =
+      trackerType === 'jira'
+        ? `Fetch the ticket yourself via the Atlassian MCP (\`mcp__atlassian__getJiraIssue\` with key \`${issue}\`, responseContentFormat "markdown"; resolve cloudId via \`mcp__atlassian__getAccessibleAtlassianResources\` if you don't have one)`
+        : `Fetch the issue yourself with \`gh issue view ${issue}\``
     prompt =
-      `Verify scope completeness for GitHub issue #${issue}. ` +
+      `Verify scope completeness for ${ref}. ` +
       `Branch head \`${head}\` vs base \`${base}\`; repo worktree \`${worktree}\` ` +
       `(run \`git -C ${worktree} diff ${range}\` to see the change). ` +
-      `Fetch the issue yourself with \`gh issue view ${issue}\` and classify each scope item ` +
-      `against the diff. Return your verdict and findings.` +
+      `${fetchInstr} and classify each scope item against the diff. Return your verdict and findings.` +
       STRUCTURED_OUTPUT_FIRST
   } else if (bare(agentType) === 'unit-test-mutation-reviewer') {
     prompt =

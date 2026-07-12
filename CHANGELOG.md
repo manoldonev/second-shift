@@ -4,6 +4,16 @@ All notable changes to the second-shift marketplace. Versions are per-plugin (`p
 this file tracks the marketplace release. `configVersion` stays `const 1` — v2 is fully backward-compatible for a
 consumer with an empty config; the migration notes below are only for consumers using the changed features.
 
+## v2.0.8 — generalization-audit fixes: JIRA scope-gate parity (in progress)
+
+Restores the JIRA-aware ticket fetch the vendored (pre-second-shift) skills carried — the generic reviewer had regressed to GitHub-only.
+
+### `dev-pipeline` 2.0.7 → 2.0.8
+- **#16 (F13/F78) — the Stage-8 scope-completeness gate could only `gh issue view`, so every JIRA run returned BLOCKED→FAIL.** `code-review.mjs` now tracker-branches the scope-reviewer dispatch prompt on `config.tracker.type`: GitHub → `gh issue view #N`; JIRA → fetch via `mcp__atlassian__getJiraIssue` (key from `$ISSUE_NUMBER`, `cloudId` via `getAccessibleAtlassianResources`). Stage 8's reviewer-selection note generalized to spawn the gate on JIRA runs (always ticket-driven). README requirements corrected: `gh` is needed on **every** tracker (Stage 9 `gh pr create`), and `node` (the Workflow gates) is now listed.
+
+### `review-toolkit` 2.0.1 → 2.0.2
+- **#16 — `agents/scope-completeness-reviewer.md`** Step 1 now tracker-branches the fetch (github `gh issue view` / jira Atlassian MCP `getJiraIssue` + `getJiraIssueRemoteIssueLinks`, `cloudId` via `getAccessibleAtlassianResources`), with the MCP tools added to the agent frontmatter and the BLOCKED verdict + description generalized from "GitHub issue" to "issue/ticket". Mirrors the vendored JIRA reviewer (capability parity).
+
 ## v2.0.7 — generalization-audit fixes: config-aware doctor (in progress)
 
 ### `dev-pipeline` 2.0.6 → 2.0.7

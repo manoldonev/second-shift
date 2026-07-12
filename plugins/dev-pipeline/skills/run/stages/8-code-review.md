@@ -76,7 +76,7 @@ for round in 1..3:
       still routes design-toolkit:design-faithful-reviewer as the generic apps/web fidelity reviewer (its
       prior default). a11y-reviewer is shared. A designDriven run always hits this, since Stage 5 implemented
       apps/web from the handoff.
-    - review-toolkit:scope-completeness-reviewer iff an issue number is referenced (Closes/Part of #N)
+    - review-toolkit:scope-completeness-reviewer iff an issue/ticket is referenced — a GitHub `Closes/Part of #N`, or the run's JIRA ticket key (a JIRA run is always ticket-driven, so this reviewer spawns whenever `tracker.type: jira`). Pass `issue: "$ISSUE_NUMBER"` (the github number or the JIRA key) so the reviewer fetches the right one.
 
   # (b) Dispatch via the Workflow tool (this skill instruction IS the multi-agent
   #     opt-in). Pass the selected reviewer agentTypes + diff context as args:
