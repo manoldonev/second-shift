@@ -49,9 +49,20 @@ else
   REPO_ROOT="$(pwd)"
 fi
 
-# Bot wrapper: kept in lockstep with claim-issue.sh / install-gh-bot.sh
-# ($HOME/.config/<consumer-repo-dir-basename>/gh-as-bot.sh); GH_BOT env overrides.
-GH_BOT="${GH_BOT:-$HOME/.config/$(basename "$REPO_ROOT")/gh-as-bot.sh}"
+# --- Consumer config (tracker-aware, PM-aware doctor, #17) ----------------------
+# Doctor reads the consumer config first: the gh/bot/label sections gate on
+# tracker.type, and the toolchain probes derive from the configured command table
+# (not a hardcoded yarn). Absent config => github/yarn defaults (backward-compatible).
+CFG="${SECOND_SHIFT_CONFIG:-$REPO_ROOT/.claude/second-shift.config.json}"
+TRACKER_TYPE=github
+[[ -f "$CFG" ]] && TRACKER_TYPE=$(jq -r '.tracker.type // "github"' "$CFG" 2>/dev/null || echo github)
+
+# Bot wrapper: config tracker.bot.wrapperPath overrides the default location
+# ($HOME/.config/<consumer-repo-dir-basename>/gh-as-bot.sh) — reader/prober parity
+# with claim-issue.sh / install-gh-bot.sh; the GH_BOT env var overrides all.
+_wp=""
+[[ -f "$CFG" ]] && _wp=$(jq -r '.tracker.bot.wrapperPath // empty' "$CFG" 2>/dev/null)
+GH_BOT="${GH_BOT:-${_wp:-$HOME/.config/$(basename "$REPO_ROOT")/gh-as-bot.sh}}"
 
 FAILS=0
 ok()   { echo "[doctor] OK    $1"; }
@@ -74,22 +85,42 @@ echo "[doctor] info  /bin/bash is $(/bin/bash -c 'echo $BASH_VERSION') (macOS sh
 # from within this shell (the script is itself such a shell) and key on the EXIT CODE,
 # not on `command -v`. node + yarn are hard deps (FAIL); npx/prettier/ruff degrade (WARN).
 
-# node — hard dep: the Stage 6 SUITE lane and every yarn command need it.
+# node — hard dep of the PIPELINE ITSELF: the Workflow gates (code-review.mjs at
+# Stage 8, mutation-gate.mjs) run under node regardless of the consumer's language.
 if node --version >/dev/null 2>&1; then
-  ok "node invokable ($(node --version 2>/dev/null)) in this non-interactive shell"
+  ok "node invokable ($(node --version 2>/dev/null)) — Workflow gates (code-review.mjs / mutation-gate.mjs)"
 elif command -v node >/dev/null 2>&1; then
   bad "node is on PATH but 'node --version' fails to run — a broken nvm/shell wrapper? The pipeline's Bash sees the same failure. Fix the shell init, or put an absolute node bin dir on PATH"
 else
-  bad "node not invokable in this non-interactive shell — if nvm-managed, login-shell aliases don't apply to the pipeline's Bash; put an absolute node bin dir on PATH. Stage 6 SUITE lane + all yarn commands need it"
+  bad "node not invokable in this non-interactive shell — the Workflow gates (code-review.mjs, mutation-gate.mjs) need it; if nvm-managed, login-shell aliases don't apply to the pipeline's Bash. Put an absolute node bin dir on PATH"
 fi
 
-# yarn (4.x via corepack) — hard dep: the package manager for every SUITE-lane command.
-if yarn --version >/dev/null 2>&1; then
-  ok "yarn invokable ($(yarn --version 2>/dev/null)) in this non-interactive shell"
-elif command -v yarn >/dev/null 2>&1; then
-  bad "yarn is on PATH but 'yarn --version' fails to run — broken corepack/nvm wrapper? Stage 6 SUITE lane cannot run. Fix the shell init, or run 'corepack enable'"
+# Package managers / tools the CONFIGURED commands invoke (first word of each
+# command in commands.<host>.*) — probe THESE, not a hardcoded yarn (#17). A pnpm
+# / poetry repo probes pnpm / poetry; a yarn repo probes yarn. Each is a hard dep
+# of the SUITE lane that references it (FAIL if referenced but not invokable).
+CMD_TOOLS=""
+[[ -f "$CFG" ]] && CMD_TOOLS=$(jq -r '
+  [ (.commands // {}) | .[]
+    | ( .lint,.typecheck,.test,.testFile,.build,.format,.integrationTest,.apiTest )
+    , ( (.lanes // [])      | .[] | (.commands // [])[] )
+    , ( (.extraLanes // []) | .[] | (.commands // [])[] ) ]
+  | map(select(type=="string" and length>0) | ltrimstr(" ") | split(" ")[0])
+  | map(select(. != "bash" and . != "true" and . != "cd" and . != "env" and . != "npx"))
+  | unique | .[]' "$CFG" 2>/dev/null)
+if [[ -z "$CMD_TOOLS" ]]; then
+  warn "no consumer command table found at $CFG — skipping package-manager probes (config-lint owns the hard fail on a missing/invalid config; doctor is advisory)"
 else
-  bad "yarn not invokable in this non-interactive shell — enable it with 'corepack enable' (the repo pins yarn@4 via packageManager). Stage 6 SUITE lane needs it"
+  while IFS= read -r tool; do
+    [[ -z "$tool" ]] && continue
+    if "$tool" --version >/dev/null 2>&1; then
+      ok "command tool '$tool' invokable ($("$tool" --version 2>/dev/null | head -1))"
+    elif command -v "$tool" >/dev/null 2>&1; then
+      bad "'$tool' is on PATH but '$tool --version' fails in this non-interactive shell — the SUITE lane that runs it will see the same failure (fix the shell init / corepack / venv activation)"
+    else
+      bad "'$tool' not invokable — a configured command (commands.<host>.*) uses it, but the pipeline's non-interactive shell can't run it. Install it or fix PATH"
+    fi
+  done <<< "$CMD_TOOLS"
 fi
 
 # npx — WARN: one-off tool runner; absolute-path (node_modules/.bin/<tool>) fallback exists.
@@ -123,6 +154,12 @@ if [[ -n "$PY_IN_SCOPE" ]]; then
 else
   ok "no Python under pipeline scope — ruff probe skipped"
 fi
+
+# Sections 2-4 (gh auth, gh feature probes, bot wrapper, required labels) are
+# GitHub-tracker-only (#17). A jira consumer has no gh queue / App bot / GitHub
+# label vocabulary — gate on tracker.type rather than FAILing forever on gh/bot/
+# labels it never uses (which masked real FAILs by inflating the count).
+if [[ "$TRACKER_TYPE" == "github" ]]; then
 
 # --- 2. gh auth + feature probes ------------------------------------------------
 if gh auth status >/dev/null 2>&1; then ok "gh auth"; else bad "gh auth status failed — run gh auth login"; fi
@@ -160,11 +197,24 @@ else
 fi
 
 # --- 4. Required labels ---------------------------------------------------------
-required_labels=(ready-for-dev needs-spec-work needs-plan-review needs-intake-review in-progress epic)
+# Read stageParams.requiredLabels from config (#17); absent => the shipped six
+# (reproduces prior behavior). Same resolution as the SKILL.md pre-flight gate.
+required_labels=()
+if [[ -f "$CFG" ]]; then
+  while IFS= read -r _l; do [[ -n "$_l" ]] && required_labels+=("$_l"); done \
+    < <(jq -r '.stageParams.requiredLabels // empty | .[]' "$CFG" 2>/dev/null)
+fi
+if (( ${#required_labels[@]} == 0 )); then
+  required_labels=(ready-for-dev needs-spec-work needs-plan-review needs-intake-review in-progress epic)
+fi
 have_labels=$(gh api "repos/{owner}/{repo}/labels?per_page=100" --jq '.[].name' 2>/dev/null)
 for l in "${required_labels[@]}"; do
   if grep -qx "$l" <<< "$have_labels"; then ok "label '$l'"; else bad "label '$l' missing — create it before running the pipeline"; fi
 done
+
+else
+  echo "[doctor] info  tracker.type=$TRACKER_TYPE — GitHub sections (gh auth, gh feature probes, bot wrapper, required labels) skipped (not applicable to this tracker)"
+fi
 
 # --- 5. statectl state machine (the safety net must work on THIS machine) -------
 if out=$(bash "$SKILL_DIR/statectl-selftest.sh" 2>&1); then
