@@ -1,0 +1,27 @@
+{
+  "extraKnownMarketplaces": {
+    "second-shift": {
+      "source": { "source": "github", "repo": "manoldonev/second-shift", "ref": "v2.1.6" }
+    }
+  },
+  "enabledPlugins": {
+    "dev-pipeline@second-shift": true,
+    "review-toolkit@second-shift": true,
+    "intake-toolkit@second-shift": true,
+    "audit-toolkit@second-shift": true,
+    "second-shift@second-shift": true
+  },
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/tools/second-shift-doctor.sh\"",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}
