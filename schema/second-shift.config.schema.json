@@ -7,6 +7,10 @@
   "additionalProperties": false,
   "required": ["configVersion", "tracker", "topology", "commands"],
   "properties": {
+    "$schema": {
+      "type": "string",
+      "description": "Optional editor-validation pointer; onboard writes the schema URL at the pinned marketplace ref."
+    },
     "configVersion": {
       "const": 1,
       "description": "Schema version of this config file; bumped only on breaking schema changes."

@@ -1,0 +1,1 @@
+{ "name": "widget-api", "scripts": { "lint": "eslint --fix .", "test": "jest" } }

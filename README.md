@@ -21,6 +21,7 @@ Agent-assisted development gets dramatically better when the *process* is engine
 | **intake-toolkit** | The elicitation surface: `/intake-toolkit:intake` front door, requirement and decomposition interviews, `plan-interview` that turns design decisions into a machine-lintable Decision Ledger, `grill-me` plan stress-testing. |
 | **design-toolkit** | Design-fidelity translation and review (`design-faithful`), with an optional Figma-MCP-backed mode (`figma-faithful`), plus a Playwright CLI helper. |
 | **audit-toolkit** | A per-repo tool-call audit ledger (what the agent *actually* invoked), with `/audit-toolkit:audit` and cross-session history queries. |
+| **second-shift** | Onboarding + health for the marketplace itself: `/second-shift:onboard` writes your repo's config, settings pin, and lockfile from provenance-first detection; `/second-shift:doctor` verifies install state against the lockfile. Install at user scope; it bootstraps everything else. |
 
 Each plugin ships its own selftests and evals; the marketplace CI is fully model-free (shellcheck, selftests, schema fixtures).
 
@@ -29,26 +30,28 @@ Each plugin ships its own selftests and evals; the marketplace CI is fully model
 Requirements: Claude Code ≥ 2.x, `bash`, `jq`, `git`, `node` (the Stage-8 review and mutation Workflow gates run under it), and the `gh` CLI — Stage 9 opens PRs via `gh pr create` for **every** tracker (JIRA runs included), and the GitHub tracker additionally uses `gh` for issues/labels. For the JIRA tracker, an Atlassian MCP connection; a Figma MCP only if you enable the figma gate. (A repo whose `commands.<host>.format` is `null` and that uses no prettier-based command needs no Node beyond the Workflow gates.)
 
 ```text
-# 1. in Claude Code
-/plugin marketplace add manoldonev/second-shift
-/plugin install dev-pipeline@second-shift      # and/or review-toolkit, intake-toolkit, ...
+# the whole setup is three commands
+claude plugin marketplace add manoldonev/second-shift
+claude plugin install second-shift@second-shift        # user scope
+# then, inside the target repo:
+/second-shift:onboard
 ```
 
+`onboard` detects your tracker/topology/commands with provenance, shows one accept-or-edit
+screen, and writes the config, the pinned settings block, and the lockfile — validated with
+`config-lint` in-loop. Install the plugins it lists, restart the session, then run it on a
+small ticket — autonomous is the only mode you need: `/dev-pipeline:run <ticket>`.
+
+> Requires marketplace release ≥ v2.1.0 (the release that ships the `second-shift` plugin).
+
 ```jsonc
-// 2. describe your repo — .claude/second-shift.config.json (this is ALL the setup)
+// What onboard writes (the config is still yours to edit) — .claude/second-shift.config.json
 {
   "configVersion": 1,
   "tracker": { "type": "github" },
   "topology": { "type": "standalone", "repos": { "app": { "path": ".", "baseBranch": "main" } } },
   "commands": { "app": { "lint": "yarn lint", "typecheck": "yarn tsc --noEmit", "test": "yarn test" } }
 }
-```
-
-```text
-# 3. validate, then run it on a small ticket — autonomous is the only mode you need
-DP="$(claude plugin list --json | jq -r '.[] | select(.id == "dev-pipeline@second-shift") | .installPath')"
-bash "$DP/skills/run/tools/config-lint.sh" .claude/second-shift.config.json
-/dev-pipeline:run <ticket>
 ```
 
 Full onboarding — topologies (monorepo, BE+FE pair), reviewer tuning, extension files — in [`docs/onboarding.md`](docs/onboarding.md); the JIRA tracker's setup and behavioral delta live in [the JIRA tracker README](plugins/dev-pipeline/skills/run/tools/tracker/jira/README.md). To keep collaborators on the same toolset, pin a release in `.claude/settings.json` (`extraKnownMarketplaces` + `enabledPlugins`); track latest only in a canary.
