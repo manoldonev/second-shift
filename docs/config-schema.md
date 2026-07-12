@@ -6,10 +6,10 @@ Machine contract: [`schema/second-shift.config.schema.json`](../schema/second-sh
 | --- | --- | --- |
 | `tracker` | `github` (optional bot identity for claim-safe issue writes, key pattern) or `jira` | a gh-bot claim model vs read-only JIRA |
 | `topology` | `standalone` \| `be-fe-pair` \| `monorepo`; per-repo `path`, `baseBranch`, `worktreesDir`, `ticketTag` | a BE-`alpha`/FE-`main` pair asymmetry; `[BE]`/`[FE]` ticket routing; sibling paths |
-| `commands` | Per-repo command truth table (lint/typecheck/test/…; `null` = lane unavailable) + monorepo `lanes` | verifyctl lane config; a monorepo `apps/*`/`packages/*` matrix; "this repo has no `test:integration` yet" |
+| `commands` | Per-repo command truth table (lint/typecheck/test/testFile/unitTestScope/build/format; `null` = lane unavailable) + `lanes` (SETUP-only, INFRA-classed) + `extraLanes` (additive verify lanes with a real failureClass) | verifyctl lane config; a monorepo `apps/*`/`packages/*` install matrix in `lanes`; an integration/e2e tier in `extraLanes` |
 | `reviewers` | Registry deltas (`add`/`remove`) + per-reviewer `modelOverrides` | a repo-local domain reviewer; FE repos dropping db-reviewer; security-reviewer opus-vs-sonnet split |
 | `paths` | plans dir, pipeline-state dir | defaults match all three forks |
-| `gates` | `mutation`, `costTracking` — all default off; on-but-unprovisioned fails closed | mutation testing; cost tracking opt-in |
+| `gates` | `mutation` — defaults off; `false` is an explicit off-switch for the Stage-5 unit-test mutation gate even when `unitTestScope` is set | disabling mutation testing on a repo that has a `unitTestScope` |
 | `design` | `provider`: `figma` \| `claude-design` — the design-fidelity axis; key absent = off; prerequisites missing at run time fail closed | a Figma-MCP FE shop vs a Claude-Design (design-sync) shop |
 
 Principles:

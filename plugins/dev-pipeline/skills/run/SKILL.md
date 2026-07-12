@@ -92,6 +92,17 @@ if [[ -f "$CFG" ]]; then
     || { echo "[pre-flight] FAIL: config-lint rejected $CFG (see errors above)" >&2; exit 1; }
 fi
 
+# (0b) Extension integrity — EP-3 manifest lint + EP-6/EP-7 reference resolution
+# (check-extensions.sh). Runs REGARDLESS of config presence: (1) a typo'd
+# extension file under .claude/second-shift/ (e.g. blocker-mutants.md.md) must be
+# LOUD, not silently degraded to generic behavior — the EP-3 guarantee; and (2)
+# every stageWorkflows[].workflow / implementDelegates[].agent reference must
+# resolve on disk (a bare repo-relative path/agent) — a mis-referenced blocking
+# extension must never degrade to a skipped dispatch. Fail closed. No-op (exit 0)
+# when neither an extension dir nor config references exist.
+bash "${CLAUDE_PLUGIN_ROOT}/skills/run/tools/check-extensions.sh" . \
+  || { echo "[pre-flight] FAIL: check-extensions rejected the repo (a typo'd .claude/second-shift/ extension file or an unresolvable EP-6/EP-7 reference — see errors above)" >&2; exit 1; }
+
 # The remaining github-adapter checks below apply only when config `tracker.type: github`
 # (a jira repo has no bot wrapper / label queue — skip 1 and 2).
 # When config `tracker.bot.enabled`, the bot wrapper is installed by

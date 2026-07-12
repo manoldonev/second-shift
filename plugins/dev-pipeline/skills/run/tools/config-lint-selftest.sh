@@ -44,6 +44,26 @@ expect_violation invalid-configversion-2.json       "configVersion 2 is newer th
 expect_violation invalid-configversion-0.json       "configVersion 0 predates this plugin — see docs/migrations/ for the upgrade path"
 expect_violation invalid-v1-gates-figma.json        'gates.figma was removed in v2 — use design: {"provider": ...} (docs/migrations/v1-to-v2.md)'
 
+# --- #15: the 12 config-lint type-check gaps (F83 mutant matrix). One packed fixture,
+# one assertion per surviving-mutant class it must now KILL. Plus the removed-key notes.
+expect_violation invalid-type-gaps.json             "stageWorkflows[0].stage: must be an integer 1-10"
+expect_violation invalid-type-gaps.json             "stageParams.visualCapture.smokeRoutes: must be array"
+expect_violation invalid-type-gaps.json             "stageParams.visualCapture.baseUrl: must be string"
+expect_violation invalid-type-gaps.json             "reviewers.remove: must be array"
+expect_violation invalid-type-gaps.json             "commands.host.extraLanes[0].when: must be array"
+expect_violation invalid-type-gaps.json             "paths.plansDir: must be string"
+expect_violation invalid-type-gaps.json             "implementDelegates[0].surface: must be string"
+expect_violation invalid-type-gaps.json             "planGates[0].surface: must be string"
+expect_violation invalid-type-gaps.json             "commands.host.lanes[0].cwd: must be string"
+expect_violation invalid-type-gaps.json             "commands.host.lanes[0].commands: must be array"
+expect_violation invalid-type-gaps.json             "commands.host.lanes[1].commands: at least one required when present"
+expect_violation invalid-type-gaps.json             "tracker.bot.enabled: must be boolean"
+expect_violation invalid-type-gaps.json             "stageParams.requiredLabels: every entry must be a string"
+
+# --- #15: the two removed dead keys must be rejected with a migration note.
+expect_violation invalid-removed-commands-tiers.json "integrationTest/apiTest were removed in v2.1.6"
+expect_violation invalid-removed-gates-costtracking.json "gates.costTracking was removed in v2.1.6"
+
 # missing file → usage error (3), not a lint failure
 if "$LINT" "$FIX/does-not-exist.json" > /dev/null 2>&1; then rc=0; else rc=$?; fi
 check "missing file exits 3" "$([[ "$rc" -eq 3 ]] && echo 0 || echo 1)"

@@ -27,6 +27,11 @@ CHECKS=(
   "stages/2-worktree.md|baseBranch|Stage-2 base branch"
   "stages/5-implement.md|baseBranch|Stage-5 base branch"
   "stages/9-open-pr.md|baseBranch|Stage-9 base branch"
+  # #15: extended BEYOND stageParams — every published key that gained a reader
+  # must keep it, or the dead-key class (a config key nothing reads) ships again.
+  "verifyctl.sh|.commands[\$h].format|commands.<host>.format format lane (#12)"
+  "stages/1-intake.md|ticketTag|topology.repos.<id>.ticketTag pair routing (#4)"
+  "stages/5-implement.md|gates.mutation|gates.mutation off-switch (#15)"
 )
 
 for c in "${CHECKS[@]}"; do

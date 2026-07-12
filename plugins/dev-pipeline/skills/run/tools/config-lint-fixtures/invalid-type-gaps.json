@@ -1,0 +1,28 @@
+{
+  "configVersion": 1,
+  "tracker": { "type": "github", "bot": { "enabled": "yes" } },
+  "topology": {
+    "type": "standalone",
+    "repos": { "host": { "path": ".", "baseBranch": "main" } }
+  },
+  "commands": {
+    "host": {
+      "lanes": [
+        { "name": "install", "cwd": 5, "commands": "yarn install" },
+        { "name": "build", "commands": [] }
+      ],
+      "extraLanes": [
+        { "name": "e2e", "when": "changed", "commands": ["yarn e2e"], "failureClass": "INFRA" }
+      ]
+    }
+  },
+  "reviewers": { "remove": "security-reviewer" },
+  "paths": { "plansDir": 5 },
+  "stageParams": {
+    "requiredLabels": [1],
+    "visualCapture": { "baseUrl": 5, "smokeRoutes": "/" }
+  },
+  "implementDelegates": [ { "surface": 5, "agent": "a" } ],
+  "planGates": [ { "name": "p", "surface": 5, "agent": "a" } ],
+  "stageWorkflows": [ { "stage": 2.5, "name": "n", "workflow": "w.mjs" } ]
+}
