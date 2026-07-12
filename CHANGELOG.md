@@ -4,6 +4,16 @@ All notable changes to the second-shift marketplace. Versions are per-plugin (`p
 this file tracks the marketplace release. `configVersion` stays `const 1` — v2 is fully backward-compatible for a
 consumer with an empty config; the migration notes below are only for consumers using the changed features.
 
+## v2.1.2 — one blessed bundle + the consent doc (in progress)
+
+### `second-shift` 1.0.0 → 1.1.0
+- **One blessed bundle + the consent doc (issue #31).** Onboard now also emits `.claude/SECOND-SHIFT.md`
+  (from `templates/consumer/SECOND-SHIFT.md`): per-plugin component inventory — what installs, which hooks
+  fire on which events, when code actually runs — plus the sanctioned personal opt-out recipe
+  (`settings.local.json`) and the support boundary, so the trust-dialog decision is made BEFORE the scary
+  prompt. Docs now bless exactly one artifact (full suite at a pinned tag, design-toolkit sole conditional)
+  with review-only as the single documented community-supported downgrade.
+
 ## v2.1.1 — be-fe-pair: target routing (#4, PR 2, in progress)
 
 ### `dev-pipeline` 2.1.0 → 2.1.1

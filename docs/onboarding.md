@@ -63,7 +63,16 @@ In the repo's `.claude/settings.json`:
 }
 ```
 
-Enable only what fits — a repo can adopt `review-toolkit` without the pipeline. Pin a release wherever stability matters; track latest only in a canary.
+**One supported artifact: the full suite, pinned to a release tag** — exactly what
+`/second-shift:onboard` writes. `design-toolkit` is the single conditional, offered when the
+repo is UI-shaped or a design MCP is connected. **One documented downgrade:** review-only
+(`enabledPlugins` with just `review-toolkit@second-shift: true`) — *community-supported, not
+CI-tested*. Everything else is possible via `enabledPlugins: false` and yours to own.
+
+Why so strict: five optional plugins is a 2^5 support matrix, and the seams between plugins
+(pipeline → review panel, intake → plan gates) break precisely at partial installs. One
+blessed bundle keeps every CI-tested path identical to every consumer's path. Pin a release
+wherever stability matters; track latest only in a canary.
 
 ### Pinning a release
 
