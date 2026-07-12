@@ -1770,6 +1770,26 @@ else
   fail "(vss1) verify-summary-set — rc_obj=$rc_obj rc_str=$rc_str rc_empty=$rc_empty rc_bad=$rc_bad type=$got_type"
 fi
 
+# (vss-repo) verify-summary-set --repo writes worktrees.<id>.verifySummary; and the
+# Stage-6 completion precondition for a be-fe-pair run (targetRepos set) requires a
+# summary for EVERY target — a repo whose verify never ran blocks completion (#5).
+reset_state
+sct init 9999 --run-id "selftest-run-$$" >/dev/null
+sct target-repos-set 9999 --repos "be fe" >/dev/null
+for n in 1 2 3 4 5; do sct set-stage 9999 $n --status started --force >/dev/null 2>&1; sct set-stage 9999 $n --status completed --force >/dev/null 2>&1; done
+sct set-stage 9999 6 --status started --force >/dev/null 2>&1
+rc_none=$(sct_rc set-stage 9999 6 --status completed)                 # no summaries → blocked
+sct verify-summary-set 9999 --repo be --json '{"test":"passed"}' >/dev/null
+rc_partial=$(sct_rc set-stage 9999 6 --status completed)              # only BE → still blocked
+sct verify-summary-set 9999 --repo fe --json '"skipped (inert)"' >/dev/null
+be_sum=$(sct get 9999 '.worktrees.be.verifySummary.test')
+rc_both=$(sct_rc set-stage 9999 6 --status completed)                # both → allowed
+if [[ "$rc_none" != "0" && "$rc_partial" != "0" && "$rc_both" == "0" && "$be_sum" == "passed" ]]; then
+  pass "(vss-repo) per-repo verifySummary + be-fe-pair Stage-6 gate (no silent green)"
+else
+  fail "(vss-repo) — rc_none=$rc_none rc_partial=$rc_partial rc_both=$rc_both be_sum=$be_sum"
+fi
+
 # (va4) verify-attempts accepts PLAN_CMD_FAILURE (the in-session class); still rejects bogus
 rc_plan=$(sct_rc verify-attempts 9999 --incr PLAN_CMD_FAILURE)
 count=$(sct get 9999 '.verifyAttempts.PLAN_CMD_FAILURE')

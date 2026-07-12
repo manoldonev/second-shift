@@ -143,9 +143,17 @@ load_config() {
   cfg=$(config_path)
   [[ -f "$cfg" ]] \
     || { EXIT_CODE=2 die "run: no consumer config at $cfg (write .claude/second-shift.config.json — see second-shift docs/onboarding.md; selftest override: SECOND_SHIFT_CONFIG)"; }
-  host=$(jq -r '.topology.repos | to_entries[] | select(.value.path == ".") | .key' "$cfg" 2>/dev/null | head -n1)
-  [[ -n "$host" ]] \
-    || { EXIT_CODE=2 die "run: config has no topology.repos entry with path \".\" ($cfg)"; }
+  # --repo <id> (be-fe-pair): key the command table on that repo id; else the
+  # path="." host (single-repo default).
+  if [[ -n "${REPO_ID:-}" ]]; then
+    host="$REPO_ID"
+    [[ "$(jq -r --arg h "$host" '.topology.repos | has($h)' "$cfg" 2>/dev/null)" == "true" ]] \
+      || { EXIT_CODE=2 die "run: --repo '$host' is not a topology.repos entry ($cfg)"; }
+  else
+    host=$(jq -r '.topology.repos | to_entries[] | select(.value.path == ".") | .key' "$cfg" 2>/dev/null | head -n1)
+    [[ -n "$host" ]] \
+      || { EXIT_CODE=2 die "run: config has no topology.repos entry with path \".\" ($cfg)"; }
+  fi
   BASE_BRANCH=$(jq -r --arg h "$host" '.topology.repos[$h].baseBranch // empty' "$cfg")
   [[ -n "$BASE_BRANCH" ]] \
     || { EXIT_CODE=2 die "run: config topology.repos.$host.baseBranch missing ($cfg)"; }
@@ -218,16 +226,23 @@ resolve_prettier() { # $1 = worktree abs path
 # ---------------------------------------------------------------- run ---------
 
 cmd_run() {
-  local key="" no_attempt=0
+  # REPO_ID (be-fe-pair, #5): `--repo <id>` verifies ONE target repo — load_config
+  # keys the command table + baseBranch on <id> (not the path="." host), and the
+  # worktree/base/verify-budget are read from `worktrees.<id>.*`. Empty (no --repo)
+  # = the single-repo path: host = path ".", flat worktreePath/worktreeBase/
+  # verifyAttempts — byte-for-byte the prior behavior. REPO_ID is a cmd_run local,
+  # visible to load_config via bash dynamic scoping.
+  local key="" no_attempt=0 REPO_ID=""
   key="${1:-}"; shift || true
   while [[ $# -gt 0 ]]; do
     case "$1" in
       --no-attempt) no_attempt=1; shift ;;
+      --repo) REPO_ID="${2:-}"; shift 2 ;;
       *) EXIT_CODE=3 die "run: unknown arg '$1'" ;;
     esac
   done
   [[ -n "$key" ]] \
-    || { EXIT_CODE=3 die "usage: verifyctl.sh run <issue-number> [--no-attempt]"; }
+    || { EXIT_CODE=3 die "usage: verifyctl.sh run <issue-number> [--repo <id>] [--no-attempt]"; }
 
   local key_lc
   key_lc=$(echo "$key" | tr '[:upper:]' '[:lower:]')
@@ -237,8 +252,15 @@ cmd_run() {
 
   # ---- derive everything from state / git ----
   local wt run_id base_ref
-  wt=$(sget "$key" '.worktreePath // ""')
-  [[ -n "$wt" ]] || { EXIT_CODE=2 die "run: state has no .worktreePath (worktree-set not run?)"; }
+  # --repo <id> reads the per-repo worktree map (worktrees.<id>.*); else the flat
+  # single-repo field. REPO_ID is a safe config repo id (no jq injection).
+  if [[ -n "$REPO_ID" ]]; then
+    wt=$(sget "$key" ".worktrees[\"$REPO_ID\"].worktreePath // \"\"")
+    [[ -n "$wt" ]] || { EXIT_CODE=2 die "run: state has no .worktrees.$REPO_ID.worktreePath (Stage-2 pair worktree not created?)"; }
+  else
+    wt=$(sget "$key" '.worktreePath // ""')
+    [[ -n "$wt" ]] || { EXIT_CODE=2 die "run: state has no .worktreePath (worktree-set not run?)"; }
+  fi
   # Canonical form is repo-relative — resolve against the main checkout root.
   # An absolute value (selftest fixtures write one directly) passes through.
   [[ "$wt" == /* ]] || wt="$(main_root)/$wt"
@@ -248,8 +270,18 @@ cmd_run() {
   # Persisted by slice-set on stacked runs (priorSliceBranch for slice N>1);
   # absent on single-PR runs => the config's host-repo baseBranch. No
   # branch-name arithmetic — the persisted field is the source of truth.
-  base_ref=$(sget "$key" '.worktreeBase // ""')
+  if [[ -n "$REPO_ID" ]]; then
+    base_ref=$(sget "$key" ".worktrees[\"$REPO_ID\"].base // \"\"")
+  else
+    base_ref=$(sget "$key" '.worktreeBase // ""')
+  fi
   [[ -n "$base_ref" ]] || base_ref="$BASE_BRANCH"
+
+  # verify-attempts --repo passthrough: charges the per-repo budget
+  # (worktrees.<id>.verifyAttempts) for a --repo run, the flat verifyAttempts
+  # otherwise. Expanded bash-3.2-safe at each call site: ${VA_REPO[@]+"${VA_REPO[@]}"}.
+  local -a VA_REPO=()
+  [[ -n "$REPO_ID" ]] && VA_REPO=(--repo "$REPO_ID")
 
   # merge-base (immune to the base ref advancing under the worktree). Prefer the
   # origin/ ref; fall back to the local ref; neither resolvable => INFRA-grade.
@@ -273,8 +305,11 @@ cmd_run() {
   local sdir sidecar logfile
   sdir=$(state_dir)
   mkdir -p "$sdir"
-  sidecar="$sdir/${key_lc}-verify.json"
-  logfile="$sdir/${key_lc}-verify.log"
+  # Per-repo sidecar/log suffix (be-fe-pair): isolates each target repo's
+  # attempt-detection + log so a `--repo be` and a `--repo fe` run in the same
+  # issue never corrupt each other's accounting. Empty for single-repo (unchanged).
+  sidecar="$sdir/${key_lc}${REPO_ID:+-$REPO_ID}-verify.json"
+  logfile="$sdir/${key_lc}${REPO_ID:+-$REPO_ID}-verify.log"
 
   # ---- attempt accounting (pre-run) ----
   local attempts_charged="{}"
@@ -313,7 +348,7 @@ cmd_run() {
           || { EXIT_CODE=2 die "run: could not update sidecar $sidecar"; }
         while IFS= read -r c; do
           [[ -z "$c" ]] && continue
-          "$STATECTL" verify-attempts "$key" --incr "$c" >/dev/null \
+          "$STATECTL" verify-attempts "$key" ${VA_REPO[@]+"${VA_REPO[@]}"} --incr "$c" >/dev/null \
             || { EXIT_CODE=2 die "run: statectl verify-attempts --incr $c failed"; }
           attempts_charged=$(jq --arg c "$c" '.[$c] = ((.[$c] // 0) + 1)' <<< "$attempts_charged")
         done <<< "$classes"
@@ -546,7 +581,7 @@ cmd_run() {
           if [[ "$recheck_rc" -eq 0 ]]; then
             vs_lint="autofixed"
             if [[ "$no_attempt" -ne 1 ]]; then
-              "$STATECTL" verify-attempts "$key" --incr LINT_AUTOFIX >/dev/null \
+              "$STATECTL" verify-attempts "$key" ${VA_REPO[@]+"${VA_REPO[@]}"} --incr LINT_AUTOFIX >/dev/null \
                 || { EXIT_CODE=2 die "run: statectl verify-attempts --incr LINT_AUTOFIX failed"; }
               attempts_charged=$(jq '.LINT_AUTOFIX = ((.LINT_AUTOFIX // 0) + 1)' <<< "$attempts_charged")
             fi
@@ -610,7 +645,7 @@ cmd_run() {
             record_failure "$el_fc" "extra lane '$el_name': $el_cmd" "$el_rc" "$RUN_CMD_OUT"
             el_status="failed"
             if [[ "$no_attempt" -ne 1 ]]; then
-              "$STATECTL" verify-attempts "$key" --incr "$el_fc" >/dev/null \
+              "$STATECTL" verify-attempts "$key" ${VA_REPO[@]+"${VA_REPO[@]}"} --incr "$el_fc" >/dev/null \
                 || { EXIT_CODE=2 die "run: statectl verify-attempts --incr $el_fc (extra lane $el_name) failed"; }
             fi
             break
@@ -658,7 +693,8 @@ emit_verdict() {
   local key_lc sdir sidecar
   key_lc=$(echo "$key" | tr '[:upper:]' '[:lower:]')
   sdir=$(state_dir)
-  sidecar="$sdir/${key_lc}-verify.json"
+  # Same per-repo suffix as cmd_run (REPO_ID inherited from the calling run's scope).
+  sidecar="$sdir/${key_lc}${REPO_ID:+-$REPO_ID}-verify.json"
 
   if [[ "$no_attempt" != "true" ]]; then
     local run_id charged failed_classes
