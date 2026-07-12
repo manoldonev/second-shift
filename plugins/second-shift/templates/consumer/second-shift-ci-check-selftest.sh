@@ -73,6 +73,24 @@ mkdir -p "$TMP/nolock/.claude"
 out="$(cd "$TMP/nolock" && bash "$TOOL")"; rc=$?
 check "no lockfile: exit >=1"                          "$([ "$rc" -ge 1 ] && echo 0 || echo 1)"
 
+# (6b) missing settings.json → FAIL
+make_repo "$TMP/noset" "v9.9.0" "v9.9.0" "manoldonev/second-shift"
+rm -f "$TMP/noset/.claude/settings.json"
+out="$(cd "$TMP/noset" && SECOND_SHIFT_CONFIG_LINT="$STUB" STUB_RC=0 bash "$TOOL")"; rc=$?
+check "no settings.json: exit >=1"                     "$([ "$rc" -ge 1 ] && echo 0 || echo 1)"
+
+# (6c) missing config.json → FAIL
+make_repo "$TMP/nocfg" "v9.9.0" "v9.9.0" "manoldonev/second-shift"
+rm -f "$TMP/nocfg/.claude/second-shift.config.json"
+out="$(cd "$TMP/nocfg" && SECOND_SHIFT_CONFIG_LINT="$STUB" STUB_RC=0 bash "$TOOL")"; rc=$?
+check "no config.json: exit >=1"                       "$([ "$rc" -ge 1 ] && echo 0 || echo 1)"
+
+# (6d) empty settings marketplace ref → FAIL ("no marketplace ref pin")
+make_repo "$TMP/norefpin" "" "v9.9.0" "manoldonev/second-shift"
+out="$(cd "$TMP/norefpin" && SECOND_SHIFT_CONFIG_LINT="$STUB" STUB_RC=0 bash "$TOOL")"; rc=$?
+check "empty settings ref: exit >=1"                   "$([ "$rc" -ge 1 ] && echo 0 || echo 1)"
+check "empty settings ref: names the missing pin"     "$(grep -q "no marketplace ref pin" <<<"$out" && echo 0 || echo 1)"
+
 # (7) the emitted workflow YAML wires the check correctly
 check "yml: triggers on pull_request"                  "$(grep -q "pull_request" "$YML" && echo 0 || echo 1)"
 check "yml: runs the check script"                     "$(grep -q "second-shift-ci-check.sh" "$YML" && echo 0 || echo 1)"
