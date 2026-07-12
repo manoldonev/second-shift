@@ -59,6 +59,23 @@ consumer with an empty config; the migration notes below are only for consumers 
   already existed. Gated on `targetRepos > 1`; single-target pairs and non-pair topologies are unchanged.
   **With this, a `[BE]+[FE]` cross-repo ticket implements, reviews, and opens PRs in both repos — #48 done.**
 
+### `dev-pipeline` 2.2.3 → 2.2.4
+- **#59 — Stage-1 reads pin to `origin/<baseBranch>`; the non-main-base reject becomes a graded posture.**
+  New Step 1.P (stages/1-intake.md): after the claim, fetch the configured base and create a throwaway
+  detached worktree (`<worktreesDir>/intake-pin-<issue>`); the intake fan-out reads ONLY under it —
+  `workflows/intake-review.mjs` gains a `readRoot` arg that prefixes both dispatch prompts with the
+  pinned-read instruction. With reads pinned, a non-base current branch is no longer a reject: clean tree →
+  proceed silently; dirty tree → WARN ("a human appears to be mid-work in this checkout") and proceed; pin
+  unestablishable → fail closed with the retained `non-main-base-autonomous` reason (re-semanticized to the
+  pin-failure trigger in state-schema.md — value neither renamed nor retired, so statectl validators and the
+  selftest are untouched). Stage 10 removes a surviving pin worktree as the crash backstop. New
+  `tools/intake-readroot-selftest.sh` pins the seam's load-bearing tokens in the green gate.
+  `eval-criteria.md` criterion 1 rewords to the pin posture (wrong-repo/branch/diff detection unchanged).
+
+### `intake-toolkit` 2.0.0 → 2.0.1
+- **#59 (docs) — intake fan-out arg contract gains `readRoot`.** The intake-orchestrator transport
+  description now documents the optional pinned-read-surface arg the dev-pipeline passes from Step 1.P.
+
 ### `second-shift` 1.3.1 → 1.4.0
 - **Onboard Step 8.5 now runs the preflight as the finish line** (resolves the dev-pipeline install path via
   `claude plugin list --json` — never a cache path from memory), surfacing the report verdict before the

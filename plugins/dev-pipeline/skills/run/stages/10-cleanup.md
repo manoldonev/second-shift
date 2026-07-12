@@ -12,6 +12,7 @@
     [[ -n "$WT" ]] && git -C "$(cd "$MAIN_ROOT/$RP" && pwd)" worktree remove "$MAIN_ROOT/$WT" 2>/dev/null || true
   done
   ```
+- **Intake pin worktree (#59, all topologies):** remove the Stage-1 read-pin worktree if it survived (Step 1.P already removes it best-effort after Stage 1; this is the crash backstop): `git worktree remove --force "${WORKTREES_DIR}/intake-pin-${ISSUE_NUMBER}" 2>/dev/null || true`. Runs on success AND on the recoverable-failure path below — the pin holds no work product, so it is always safe to drop.
 - **On recoverable failure (spec/plan/verify stopped):** keep worktree, include worktree path in the failure comment for manual rescue.
 - **On CI:** workspace dies with the runner — no explicit cleanup needed.
 
