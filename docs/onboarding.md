@@ -99,7 +99,7 @@ Two mechanisms compose, and both are needed for a durable pin:
     claude plugin install dev-pipeline@second-shift --scope project   # records version + git SHA
     ```
 
-Upgrading = a PR that bumps the `ref` in settings, then `claude plugin marketplace update second-shift` + reinstall, then the repo's validation gates re-run (config-lint, selftests, a dry-run ticket). One caveat: a **user-level** marketplace registration with the same name (typical on the machine that developed the marketplace) is ref-less and takes precedence locally — the project-settings `ref` is what protects everyone else, and `claude plugin list` should confirm the expected version after any update.
+Upgrading = a PR that bumps the `ref` in settings **and** `.claude/second-shift.lock.json` together (the full recipe: [`releasing.md`](releasing.md) §6; verify with `/second-shift:doctor`), then `claude plugin marketplace update second-shift` + reinstall, then the repo's validation gates re-run (config-lint, selftests, a dry-run ticket). Breaking schema changes carry a migration doc in [`migrations/`](migrations/README.md) — config-lint points at it. One caveat: a **user-level** marketplace registration with the same name (typical on the machine that developed the marketplace) is ref-less and takes precedence locally — the project-settings `ref` is what protects everyone else, and `claude plugin list` should confirm the expected version after any update.
 
 ## 2. Write the static context
 
