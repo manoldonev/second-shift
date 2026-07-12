@@ -4,6 +4,31 @@ All notable changes to the second-shift marketplace. Versions are per-plugin (`p
 this file tracks the marketplace release. `configVersion` stays `const 1` — v2 is fully backward-compatible for a
 consumer with an empty config; the migration notes below are only for consumers using the changed features.
 
+## v2.1.4 — consumer docs, July-2026 grade (in progress)
+
+Docs-only (no plugin content changed): the #18 docs pass merged with the onboarding program's Phase E — one
+rewrite, closing the last confirmed doc gaps.
+
+- **`docs/team-rollout.md` (new):** Day-0 champion flow, every-engineer first contact (trust dialog →
+  enabled-but-not-installed → the nudge), personal opt-out (settings.local.json; why user-scope false can't
+  override), upgrades (atomic ref+lockfile PR; laggards converge via doctor; the marketplace-removal sharp
+  edge), rollback (version-AHEAD symmetry — read before the incident), the managed-settings regulated variant,
+  and what-is-a-gate (client plugins = fast local feedback; the gate of record is server-side).
+- **`docs/onboarding.md`:** new §2b — the GitHub-tracker prerequisites the first run enforces (six queue labels
+  with the copy-paste loop, until #11 makes `stageParams.requiredLabels` authoritative; GitHub-App bot identity
+  + `install-gh-bot.sh` bootstrap + the no-bot outcome; node/gh scoping), a **non-JS persona example**
+  (poetry/pytest on JIRA with `format: null`) beside the yarn one — both examples verified lint-green verbatim —
+  §4 restructured as the three verification layers (config-lint / `/second-shift:doctor` / `pipeline-doctor.sh`
+  + `check-extensions.sh`), and the team-rollout cross-link.
+- **`docs/extension-points.md`:** an "Authoring `review-context.md`" template documenting the ~8 named sections
+  the shipped reviewers actually read (stack, DB stack, maturity stage, invariants, intentional complexity,
+  convention-required structure, UI stack/design system, naming, perf budgets); **EP-4 documented** —
+  `reviewers.modelOverrides` accepts named workflow agents like `mutation-executor`, not only panel reviewers
+  (schema description corrected to match).
+- **`docs/namespaces.md`:** rule 1 gains `/second-shift:onboard` + `/second-shift:doctor`; rule 3 documents the
+  sanctioned second arrow (second-shift → dev-pipeline via installPath / pinned-ref contents API) and why
+  `second-shift` is deliberately NOT in the CI grep's TOOLKITS list.
+
 ## v2.1.3 — release contract: configVersion migrations + release discipline (in progress)
 
 ### `dev-pipeline` 2.1.1 → 2.1.2
