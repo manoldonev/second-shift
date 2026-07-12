@@ -29,7 +29,7 @@ ISSUE=$(gh issue list --label ready-for-dev --json number,title --limit 10 --jq 
 
 1. Mutate — **add `in-progress` before removing `ready-for-dev`, and confirm the add applied before removing** (Label-swap ordering rule, SKILL.md Bot Identity): the reverse order has a crash window where the issue carries neither label and is silently lost from the queue; and even in the correct order, a _silently-failed_ add followed by a successful remove reaches the same zero-label window.
    - **Single-call (GraphQL healthy):** `$GH_BOT issue edit $ISSUE_NUMBER --add-label in-progress --remove-label ready-for-dev`. This is one atomic API call — add and remove apply together or not at all, so there is no intermediate zero-label window and no separate confirm step is needed (the confirm requirement below exists only because the REST fallback splits the swap into two calls).
-   - **REST fallback (GraphQL broken — doctor WARN; current in this repo):** run `bash tools/claim-issue.sh "$ISSUE_NUMBER"` (bot wrapper injected via `$GH_BOT`). It POSTs `in-progress`, asserts the add applied from the response body, THEN DELETEs `ready-for-dev`; on a failed add it aborts (exit `1`) **leaving `ready-for-dev` intact** — a bare stop (nothing was mutated yet), NOT the step-2 undo below (which reverses _applied_ mutations). Exit `0` = claimed.
+   - **REST fallback (GraphQL broken — doctor WARN; current in this repo):** run `bash "${CLAUDE_PLUGIN_ROOT}/skills/run/tools/claim-issue.sh" "$ISSUE_NUMBER"` (bot wrapper injected via `$GH_BOT`; the helper ships in the plugin checkout, never the de-vendored consumer repo — resolve it via `${CLAUDE_PLUGIN_ROOT}`, not CWD-relative). It POSTs `in-progress`, asserts the add applied from the response body, THEN DELETEs `ready-for-dev`; on a failed add it aborts (exit `1`) **leaving `ready-for-dev` intact** — a bare stop (nothing was mutated yet), NOT the step-2 undo below (which reverses _applied_ mutations). Exit `0` = claimed.
    - **Assignee:** use regular `gh` for `--add-assignee @me` separately — bot can't assign itself; skip on failure.
 2. Verify via REST: `gh api "repos/{owner}/{repo}/issues/$ISSUE_NUMBER" --jq '{labels: [.labels[].name]}'`
    - Assert: `ready-for-dev` is gone, `in-progress` is present
@@ -146,7 +146,7 @@ else
   BRANCH_PREFIX=$(jq -r '.tracker.branchPrefix // "claude/acme-"' "$SECOND_SHIFT_CONFIG" 2>/dev/null || echo "claude/acme-")
   MAX_N=$(git ls-remote --heads origin "${BRANCH_PREFIX}${ISSUE_NUMBER}*" 2>/dev/null \
     | awk '{print $2}' \
-    | BRANCH_PREFIX="$BRANCH_PREFIX" bash tools/max-pushed-slice.sh "$ISSUE_NUMBER")
+    | BRANCH_PREFIX="$BRANCH_PREFIX" bash "${CLAUDE_PLUGIN_ROOT}/skills/run/tools/max-pushed-slice.sh" "$ISSUE_NUMBER")
 
   if [[ "$MAX_N" -ge "$TOTAL_SLICES" ]]; then
     echo "[stage-1] all slices already pushed (MAX_N=$MAX_N, TOTAL_SLICES=$TOTAL_SLICES); nothing to do"

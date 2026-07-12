@@ -6,10 +6,11 @@
 
 The suite is run by the sibling helper [`verifyctl.sh`](../verifyctl.sh) — NOT by hand-composed `yarn` commands. verifyctl owns lane derivation (INERT/SUITE from the merge-base diff via [`tools/is-inert-diff.sh`](../tools/is-inert-diff.sh)), prettier resolution, the SUITE commands (install-if-missing → packages build → scoped format → `lint` & `type-check` & `test` concurrent), by-command failure classification, and **every `FORMAT` / `LINT_AUTOFIX` / `TYPE_ERROR` / `TEST_FAILURE` `verifyAttempts` increment** — it detects fix-attempt re-runs via its own runId-scoped sidecar and charges `statectl verify-attempts` itself, refusing to run once a class budget (2) is exhausted. **Never charge those four classes yourself**; the plan-specific-command class (`PLAN_CMD_FAILURE`) remains in-session per the section below. This closes the drift class where real fix loops leave `verifyAttempts` at `{}`.
 
-Resolve `{verifyctl}` ONCE, alongside `{statectl}`, by the same git-common-dir idiom (never CWD-relative):
+Resolve `{verifyctl}` ONCE. verifyctl.sh ships in the **plugin checkout** (`skills/run/`), NOT the consumer repo — every consumer is de-vendored — so anchor it to `${CLAUDE_PLUGIN_ROOT}` (the same resolution SKILL.md pre-flight uses for `config-lint.sh`), falling back to the sibling location of `statectl.sh` (both ship side-by-side in `skills/run/`). **Never** resolve it through the git-common-dir: that idiom is correct for `main_root()` (consumer state/worktree), but it points at the consumer repo root, where no `verifyctl.sh` exists.
 
 ```bash
-VERIFYCTL="$(dirname "$(cd "$(git rev-parse --git-common-dir)" && pwd)")/verifyctl.sh"
+VERIFYCTL="${CLAUDE_PLUGIN_ROOT:-}/skills/run/verifyctl.sh"
+[[ -x "$VERIFYCTL" ]] || VERIFYCTL="$(dirname "$(command -v statectl.sh)")/verifyctl.sh"
 ```
 
 Then run:
@@ -120,7 +121,7 @@ Apply-scope rules:
 - Altitude: logic sitting at the wrong layer within the changed files.
 - Skip style-only churn the formatter/linter owns.
 
-**Apply + commit.** If no cleanups are warranted, record `{runId, status: "completed", outcome: "no-candidates"}` and move on — no commit, no re-verify (zero cost; the common case). Otherwise apply the cleanups, run the scoped prettier on the touched files (discard unrelated-file formatting), and land **at most one commit**: `refactor(scope): <summary>` via bot identity (`bash tools/bot-commit.sh -C "$WT" -m ...` — a bare `git commit` silently uses the operator identity). If the pre-commit `type-check` hook rejects the commit, discard the edits (`git -C "$WT" checkout -- .`) and record `outcome: "reverted"` — no retry. Immediately after a successful commit, record `{runId, status: "running", outcome: "applied-unverified", commitSha: "<sha>"}` — the sha makes crash rollback deterministic.
+**Apply + commit.** If no cleanups are warranted, record `{runId, status: "completed", outcome: "no-candidates"}` and move on — no commit, no re-verify (zero cost; the common case). Otherwise apply the cleanups, run the scoped prettier on the touched files (discard unrelated-file formatting), and land **at most one commit**: `refactor(scope): <summary>` via bot identity (`bash "${CLAUDE_PLUGIN_ROOT}/skills/run/tools/bot-commit.sh" -C "$WT" -m ...` — a bare `git commit` silently uses the operator identity). If the pre-commit `type-check` hook rejects the commit, discard the edits (`git -C "$WT" checkout -- .`) and record `outcome: "reverted"` — no retry. Immediately after a successful commit, record `{runId, status: "running", outcome: "applied-unverified", commitSha: "<sha>"}` — the sha makes crash rollback deterministic.
 
 **Safety-net re-verify (one shot).** Run `{verifyctl} run {issue-number} --no-attempt` — the `--no-attempt` contract is load-bearing: no budget check, no `verifyAttempts` increment, no sidecar write (read-only accounting posture; a red safety net followed by the reset leaves accounting byte-identical to the pre-cleanup state).
 
