@@ -93,7 +93,7 @@ parsing at all. So #34 owns building `--report` — the templates and the bundle
 
 ## Test strategy
 
-Verify-after (infra/tooling + static templates; no `apps/api` behavior surface — see Unit test surface). New behavior (`--report`) is covered by the doctor selftest; templates by a structural selftest.
+Verify-after (infra/tooling + static templates; this is a shell-only repo with no TypeScript/unit-test mutation surface, so `unitTestSurface.action = skip`). New behavior (`--report`) is covered by the doctor selftest; the templates by a structural selftest.
 
 **Per-template evidence matrix** (D3 — each form's required fields):
 

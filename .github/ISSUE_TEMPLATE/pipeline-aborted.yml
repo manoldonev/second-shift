@@ -1,0 +1,40 @@
+name: Pipeline aborted
+description: A dev-pipeline run stopped with a failureContext (fail-fast abort).
+title: "[pipeline-abort]: "
+labels: ["feedback", "pipeline-abort"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Every fail-fast abort writes its reason to the pipeline state file, so a good report is mostly a paste.
+
+        **Run `/second-shift:doctor --report`** (or `bash <path-to>/doctor.sh --report`) and paste the bundle below — it already carries the plugin list, the redacted config, and the newest pipeline-state excerpt. Sensitive-shaped config values are auto-redacted, but glance over it before posting.
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What you ran, what you expected, and what the pipeline did instead.
+      placeholder: "Ran /dev-pipeline:run 42; expected a draft PR, got an abort at Stage 6."
+    validations:
+      required: true
+  - type: textarea
+    id: state-excerpt
+    attributes:
+      label: State-file excerpt (failureContext)
+      description: The `.failureContext` object from `.claude/pipeline-state/<issue>.json` — the stage and reason. It is included in the `--report` bundle under "pipeline-state excerpt"; paste it here too if you have it directly.
+    validations:
+      required: true
+  - type: textarea
+    id: doctor-report
+    attributes:
+      label: /second-shift:doctor --report output
+      description: The full bundle — doctor output + `claude plugin list --json` + redacted config + pipeline-state excerpt.
+    validations:
+      required: true
+  - type: input
+    id: run-ref
+    attributes:
+      label: run_id + issue/PR link
+      description: The run_id from the pipeline's issue comment, plus any related issue or PR.
+    validations:
+      required: false

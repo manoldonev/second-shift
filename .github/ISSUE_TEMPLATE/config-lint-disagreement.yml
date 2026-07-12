@@ -1,0 +1,32 @@
+name: config-lint disagreement
+description: config-lint rejected a config you believe is valid (or accepted one you believe is wrong).
+title: "[config-lint]: "
+labels: ["feedback", "config-lint"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        `config-lint` guards `.claude/second-shift.config.json`. If you think its verdict is wrong, paste the message and the (redacted) config so we can reproduce.
+
+        **`/second-shift:doctor --report`** bundles the redacted config and the live config-lint output for you — paste it below.
+  - type: textarea
+    id: lint-message
+    attributes:
+      label: The config-lint message you disagree with
+      description: Paste the exact line(s) config-lint emitted.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected
+      description: Why the config should be accepted (or rejected) differently, and any spec/schema you're relying on.
+    validations:
+      required: true
+  - type: textarea
+    id: doctor-report
+    attributes:
+      label: /second-shift:doctor --report output
+      description: Carries the redacted config plus doctor's config-lint section.
+    validations:
+      required: true

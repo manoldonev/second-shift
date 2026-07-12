@@ -1,0 +1,7 @@
+# Issue-form chooser config. Blank issues stay enabled — the maintainer files
+# plenty of freeform work items; the feedback forms below are additive.
+blank_issues_enabled: true
+contact_links:
+  - name: second-shift docs
+    url: https://github.com/manoldonev/second-shift#readme
+    about: Onboarding, /second-shift:doctor, and the dev-pipeline — check here before filing.

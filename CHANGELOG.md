@@ -81,6 +81,20 @@ consumer with an empty config; the migration notes below are only for consumers 
   `claude plugin list --json` — never a cache path from memory), surfacing the report verdict before the
   first-run instructions. The "until a read-only preflight ships" hedge is gone; `docs/onboarding.md` names
   preflight as the step between validation and the first real ticket.
+- **Feedback channel: `/second-shift:doctor --report` + issue forms (#34).** `doctor.sh` gains a `--report`
+  flag that assembles a paste-ready bundle in one command — the normal doctor output (captured from a nested
+  no-arg run), `claude plugin list --json`, the **auto-redacted** config (secret-shaped keys masked; `clientId`
+  / `appName` / `installationId` preserved), and the newest `.claude/pipeline-state/` excerpt (the
+  `.failureContext` a fail-fast abort writes). Always exits 0 — it assembles, it does not gate. Covered by two
+  new `doctor-selftest.sh` scenarios (`report-sections`, `report-redaction`) + a `config-with-secret.json`
+  fixture. For a zero-telemetry project, structured issues ARE the analytics.
+
+### Repo-local (not shipped in any plugin)
+- **Three GitHub issue forms (#34)** under `.github/ISSUE_TEMPLATE/` — `pipeline-aborted`,
+  `config-lint-disagreement`, `review-false-positive` — YAML issue forms (so evidence fields are `required`),
+  each asking for the `/second-shift:doctor --report` bundle plus its scenario-specific evidence, with a
+  `config.yml` chooser (blank issues stay enabled). New dependency-free `tests/issue-forms-selftest.sh`
+  structurally validates them (grep + optional `ruby -ryaml`; GitHub's form schema isn't locally validatable).
 
 ## v2.1.8 — /second-shift:local-dev-refresh (release)
 
