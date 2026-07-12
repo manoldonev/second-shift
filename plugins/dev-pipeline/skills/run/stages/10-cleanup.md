@@ -2,7 +2,7 @@
 
 **Cleanup policy:**
 
-- **On success (PR opened):** `cd` to repo root, `git worktree remove "${WORKTREES_DIR}/acme-${ISSUE_NUMBER}${SLICE_SUFFIX}"` (WORKTREES_DIR = config `topology.repos.<host>.worktreesDir`) — code is on remote. For stacked-PR runs, each slice's worktree is cleaned up after its PR is opened.
+- **On success (PR opened):** `cd` to repo root and remove the worktree at the **persisted `worktreePath`** — the exact repo-relative path Stage 2 wrote via `worktree-set`, resolved against repo root: `git worktree remove "$(git rev-parse --show-toplevel)/$(statectl.sh get "$ISSUE_NUMBER" '.worktreePath')"` — code is on remote. Do **NOT** reconstruct the path from a naming literal (`acme-${ISSUE_NUMBER}…`): the worktree dir name is the branch basename `${BRANCH##*/}`, which tracks `tracker.branchPrefix` per consumer, so a hardcoded `acme-` would orphan the worktree for any non-default consumer. For stacked-PR runs, each slice's worktree is cleaned up after its PR is opened (the active slice's `worktreePath` is the one in state).
 - **On recoverable failure (spec/plan/verify stopped):** keep worktree, include worktree path in the failure comment for manual rescue.
 - **On CI:** workspace dies with the runner — no explicit cleanup needed.
 
