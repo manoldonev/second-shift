@@ -82,6 +82,9 @@ function validateArgs(a) {
   if (kind === 'produce' && (!projectId || !screen)) {
     throw new Error('design-sync produce: args.projectId and args.screen are required')
   }
+  if (kind === 'produce' && a.implement && !worktree) {
+    throw new Error('design-sync produce: args.worktree is required when implement:true — without it the design-faithful skill writes/commits to the session default checkout instead of the ticket worktree (F26)')
+  }
   if (kind === 'gate') {
     if (!worktree || !base || !head) {
       throw new Error('design-sync gate: args.worktree, args.base and args.head are required')
@@ -171,6 +174,11 @@ async function main() {
     await throws('A5 gate without head throws', async () => validateArgs({ kind: 'gate', worktree: '/w', base: 'a' }), /worktree, args.base and args.head/)
     await throws('A6 gate with empty reviewers throws', async () => validateArgs({ kind: 'gate', worktree: '/w', base: 'a', head: 'b', reviewers: [] }), /non-empty array/)
     eq('A7 gate with defaults ok', validateArgs({ kind: 'gate', worktree: '/w', base: 'a', head: 'b' }), true)
+    // F26: produce implement:true commits — a missing worktree must fail closed, not
+    // silently commit to the session default checkout (wrong branch).
+    await throws('A8 produce implement:true without worktree throws (F26)', async () => validateArgs({ kind: 'produce', projectId: 'p1', screen: 'detail', implement: true }), /worktree is required when implement:true/)
+    eq('A9 produce implement:true WITH worktree ok (F26)', validateArgs({ kind: 'produce', projectId: 'p1', screen: 'detail', implement: true, worktree: '/w' }), true)
+    eq('A10 produce implement:false without worktree ok — spec-only, no commits', validateArgs({ kind: 'produce', projectId: 'p1', screen: 'detail', implement: false }), true)
   }
 
   // ---- Case B: budget clean-skip (NOT a fake block) ----
@@ -285,6 +293,7 @@ async function main() {
       ["phase('Design Sync')", 'progress phase'],
       ["kind === 'produce'", 'produce branch discriminator'],
       ["kind === 'gate'", 'gate branch discriminator'],
+      ['implement && !worktree', 'F26 fail-closed guard — implement:true without worktree must throw, not commit to the wrong branch'],
       ['budgetExhausted: true', 'budget clean-skip marker (not a fake block/error)'],
       ['isNoStructuredOutputError', 'retry-decision predicate name'],
       ['/StructuredOutput/.test', 'predicate regex (the only signal the runtime surfaces)'],

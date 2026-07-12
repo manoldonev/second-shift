@@ -17,6 +17,20 @@ consumer with an empty config; the migration notes below are only for consumers 
   when the machine registration's ref differs from the current repo's lockfile pin. Cross-referenced from
   team-rollout's Upgrades section; namespaces rule 1 gains the invocation.
 
+### `dev-pipeline` 2.1.6 → 2.1.7
+- **#6 (F26) — claude-design produce dispatch now passes the worktree.** Stage 5's `claude-design`
+  produce dispatch omitted `worktree`, so `implement:true` commits landed on the session's default
+  checkout (the wrong branch) — the R7 fix that was mirrored to the figma twin but never the
+  claude-design one. Stage 5 now passes `worktree: "$WT"`, and `design-sync.mjs` **fails closed** when
+  `implement:true` arrives without a worktree (a worktree-less implement is rejected loudly, not silently
+  committed to the wrong branch). New selftest cases A8–A10 + a drift-guard token.
+- **#7 (F16) — claude-design dispatch prompts de-hardwired.** `design-sync.mjs` baked the original org's
+  FE stack (`apps/web`, "acme tokens + shadcn + cn()", "acme FE spec", "apps/web design change") into every
+  dispatched prompt, so a consumer with a different FE got prompts grounded in a stack it doesn't have. The
+  prompts are now **neutral** and delegate grounding to the `design-faithful` skill, which already reads the
+  FE app dir + primitives + token vocabulary from `.claude/second-shift/design-tokens/*.md` (mirroring the
+  figma family). No `apps/web`/`acme`/`shadcn`/`cn()` literals remain in dispatched prompts.
+
 ## v2.1.7 — canary self-consumption: lockfile "latest" (in progress)
 
 ### `second-shift` 1.1.0 → 1.2.0

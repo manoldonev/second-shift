@@ -1,7 +1,7 @@
 export const meta = {
   name: 'dev-pipeline-design-sync',
   description:
-    "design-faithful produce/gate engine for the dev-pipeline. kind='produce' dispatches the design-faithful-spec skill to write a acme FE spec artifact (implement:true → the design-faithful skill, which writes apps/web code + commits in-session); kind='gate' dispatches the FE review agents (design-faithful-reviewer / a11y-reviewer) in parallel and returns their trinary verdicts. Results are normalized into the same envelope shape as the review fan-out (code-review.mjs). Aggregate gate-verdict synthesis is NOT done here — it stays in the caller's session (#199 integration), mirroring code-review.mjs.",
+    "design-faithful produce/gate engine for the dev-pipeline. kind='produce' dispatches the design-faithful-spec skill to write the repo's FE spec artifact (implement:true → the design-faithful skill, which writes the repo's FE code + commits in-session, grounding app dir/tokens from .claude/second-shift/design-tokens/*.md); kind='gate' dispatches the FE review agents (design-faithful-reviewer / a11y-reviewer) in parallel and returns their trinary verdicts. Results are normalized into the same envelope shape as the review fan-out (code-review.mjs). Aggregate gate-verdict synthesis is NOT done here — it stays in the caller's session (#199 integration), mirroring code-review.mjs.",
   phases: [{ title: 'Design Sync', detail: 'produce (1 agent) or gate (1..N reviewer agents)' }],
 }
 
@@ -9,7 +9,7 @@ export const meta = {
 // A Workflow script's runtime injects only agent()/parallel()/log()/phase()/budget + args —
 // NO tool access and NO Node/fs. So this engine CANNOT call DesignSync, run extractContract, or
 // do git/fs. The DesignSync read (get_project/list_files/get_file) + contract extraction AND any
-// apps/web write+commit happen INSIDE the dispatched agent's session: design-faithful /
+// FE-app write+commit happen INSIDE the dispatched agent's session: design-faithful /
 // design-faithful-spec (#197) carry the DesignSync tool and load the #195 design-faithful lib via
 // their skill body. The engine only dispatches and normalizes.
 //
@@ -195,6 +195,13 @@ if (kind !== 'produce' && kind !== 'gate') {
 if (kind === 'produce' && (!projectId || !screen)) {
   throw new Error('design-sync produce: args.projectId and args.screen are required')
 }
+// F26: implement:true writes code and COMMITS. Without an explicit worktree the
+// design-faithful skill works in the session's default checkout and the commits
+// land on the wrong branch. Fail closed rather than silently corrupt the ticket
+// branch. (implement:false only writes a spec artifact — worktree stays optional.)
+if (kind === 'produce' && implement && !worktree) {
+  throw new Error('design-sync produce: args.worktree is required when implement:true — without it the design-faithful skill writes/commits to the session default checkout instead of the ticket worktree (F26)')
+}
 if (kind === 'gate') {
   if (!worktree || !base || !head) {
     throw new Error('design-sync gate: args.worktree, args.base and args.head are required')
@@ -231,9 +238,10 @@ if (kind === 'produce') {
   const skillBare = implement ? 'design-faithful' : 'design-faithful-spec'
   const skill = `design-toolkit:${skillBare}`
   const reasonList = FAIL_CLOSED_REASONS.join(', ')
-  // args.worktree (optional for produce; same arg the gate path requires): anchor ALL repo
-  // reads/writes/commits to the pipeline worktree — without it the dispatched agent works in
-  // the session's default checkout and implement:true commits land on the wrong branch.
+  // args.worktree: anchor ALL repo reads/writes/commits to the pipeline worktree.
+  // REQUIRED when implement:true (enforced fail-closed above, F26) — without it the
+  // dispatched agent works in the session's default checkout and commits land on the
+  // wrong branch. Optional for implement:false (spec-only, no commits).
   const worktreeClause = worktree
     ? ` All repository reads, writes, and commits MUST target the worktree at \`${worktree}\` ` +
       `(absolute path) — never the default checkout.`
@@ -243,11 +251,12 @@ if (kind === 'produce') {
     `DesignSync tool (get_project → list_files → get_file), sanitize each file, and extract the ` +
     `design contract using the design-faithful lib (#195). Then ` +
     (implement
-      ? `implement the "${screen}" screen/component in apps/web — mirror the nearest analog, use ` +
-        `acme tokens + shadcn + cn(), reuse real components, live-render self-verify against the ` +
-        `bundled screenshot — and commit per repo convention (bot identity). Return { summary, ` +
-        `committed, changedFiles }.`
-      : `produce the acme FE spec for the "${screen}" screen` +
+      ? `implement the "${screen}" screen/component in the repo's FE app. The skill grounds the FE app ` +
+        `dir, primitives package, and token/component vocabulary from \`.claude/second-shift/design-tokens/*.md\` ` +
+        `(or conservative discovery when that file is absent) — mirror the nearest analog, reuse the repo's ` +
+        `real components and tokens, live-render self-verify against the bundled screenshot — and commit per ` +
+        `repo convention (bot identity). Return { summary, committed, changedFiles }.`
+      : `produce the repo's FE spec for the "${screen}" screen` +
         (specPath ? ` and write it to \`${specPath}\`` : '') +
         `. Return { summary, artifactPath }.`) +
     ` If the design source is unreachable or exceeds a DesignSync limit, do NOT guess — return ` +
@@ -287,7 +296,7 @@ const reasonList = FAIL_CLOSED_REASONS.join(', ')
 const dispatchGateReviewer = async (agentType) => {
   const model = modelOverrides[bare(agentType)] || DESIGN_MODEL[agentType] || 'sonnet'
   const prompt =
-    `Review this apps/web design change in your domain (${agentType}). ` +
+    `Review this FE design change in your domain (${agentType}). ` +
     `Diff scope: \`git -C ${worktree} diff ${range}\`. Changed files: ${fileList}.` +
     (prContext ? ` Context: ${prContext}.` : '') +
     ` Return a trinary verdict (pass | warn | block) and a deduplicated list of findings ` +
