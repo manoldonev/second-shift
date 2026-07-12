@@ -57,7 +57,9 @@ atomically, never separately (doctor's ref-drift check exists because half-done 
 PRs happen). The full maintainer-side recipe is in [releasing.md](releasing.md); the
 consumer side is: merge the upgrade PR, then
 `claude plugin marketplace update second-shift` + reinstall, then re-run the repo's
-validation gates.
+validation gates — or just run `/second-shift:local-dev-refresh`, which does the
+update + per-plugin upgrade (including project-scope stragglers in the current repo)
+and prints the before → after version delta.
 
 - **Laggards converge lazily:** anyone who hasn't updated gets doctor's two remediation
   commands next session (version-behind, exact commands printed). Completion signal =

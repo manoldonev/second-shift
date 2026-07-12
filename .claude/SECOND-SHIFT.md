@@ -38,7 +38,7 @@ BEFORE the prompt.
 - Skills: `audit`, `audit-history` for querying the ledger — loaded only when invoked.
 
 ### second-shift
-- Skills: `onboard`, `doctor`. Zero hooks, zero agents — near-zero session cost.
+- Skills: `onboard`, `doctor`, `local-dev-refresh`. Zero hooks, zero agents — near-zero session cost.
 
 ## Opting out (sanctioned, personal)
 
