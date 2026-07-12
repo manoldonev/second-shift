@@ -6,7 +6,7 @@
   },
   "metadata": {
     "description": "The dev team that works while you're away — an autonomous-development toolkit for Claude Code: ticket-to-PR pipeline, multi-agent review, elicitation/intake surface, design fidelity, and session auditing. Generic tooling only; each consumer repo supplies static context (one config file) and dynamic context (repo-local knowledge skills).",
-    "version": "2.1.7"
+    "version": "2.1.8"
   },
   "plugins": [
     {
@@ -37,7 +37,7 @@
     {
       "name": "second-shift",
       "source": "./plugins/second-shift",
-      "description": "Onboarding + health for this marketplace: provenance-first /second-shift:onboard (writes consumer config, settings pin, lockfile) and /second-shift:doctor (install-state verification). Install at user scope; it bootstraps everything else."
+      "description": "Onboarding + health for this marketplace: provenance-first /second-shift:onboard (writes consumer config, settings pin, lockfile), /second-shift:doctor (install-state verification), /second-shift:local-dev-refresh (machine-level plugin refresh). Install at user scope; it bootstraps everything else."
     }
   ]
 }

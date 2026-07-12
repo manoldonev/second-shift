@@ -4,6 +4,19 @@ All notable changes to the second-shift marketplace. Versions are per-plugin (`p
 this file tracks the marketplace release. `configVersion` stays `const 1` — v2 is fully backward-compatible for a
 consumer with an empty config; the migration notes below are only for consumers using the changed features.
 
+## v2.1.8 — /second-shift:local-dev-refresh (in progress)
+
+### `second-shift` 1.2.0 → 1.3.0
+- **New skill `local-dev-refresh`: the dogfooding ladder, one command.** Machine-level refresh of the local
+  dev plugin state: updates EVERY registered marketplace, then EVERY installed plugin across all marketplaces
+  (`claude plugin update` — the verb that actually upgrades; `install` no-ops as "already installed"), fixes
+  project-scope stragglers in the current repo (scoped uninstall+install — `update` only touches user scope),
+  prints one before → after version-delta table, and states the restart verdict. Encodes the sharp edges as
+  hard rules: never remove/re-add a marketplace to change a ref (last-scope removal uninstalls everything;
+  the sanctioned re-point is `marketplace add owner/repo@ref`, in-place), and warns — never silently fixes —
+  when the machine registration's ref differs from the current repo's lockfile pin. Cross-referenced from
+  team-rollout's Upgrades section; namespaces rule 1 gains the invocation.
+
 ## v2.1.7 — canary self-consumption: lockfile "latest" (in progress)
 
 ### `second-shift` 1.1.0 → 1.2.0

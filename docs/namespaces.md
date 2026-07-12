@@ -2,7 +2,7 @@
 
 Plugin content is addressed as `<plugin>:<name>`. Rules the extraction follows:
 
-1. **Skills**: invoked as `dev-pipeline:run`, `review-toolkit:review-lead`, `intake-toolkit:plan-interview`, etc. **User-facing slash invocations are namespaced too**: `/dev-pipeline:run`, `/intake-toolkit:intake`, `/dev-pipeline:pipeline-retro`, `/audit-toolkit:audit`, `/second-shift:onboard`, `/second-shift:doctor`. (Verified empirically: bare short forms like `/pipeline-retro` do NOT resolve for plugin skills once the same-named vendored copy is gone — "Unknown command". Docs and stage files must always show the qualified spelling.)
+1. **Skills**: invoked as `dev-pipeline:run`, `review-toolkit:review-lead`, `intake-toolkit:plan-interview`, etc. **User-facing slash invocations are namespaced too**: `/dev-pipeline:run`, `/intake-toolkit:intake`, `/dev-pipeline:pipeline-retro`, `/audit-toolkit:audit`, `/second-shift:onboard`, `/second-shift:doctor`, `/second-shift:local-dev-refresh`. (Verified empirically: bare short forms like `/pipeline-retro` do NOT resolve for plugin skills once the same-named vendored copy is gone — "Unknown command". Docs and stage files must always show the qualified spelling.)
 2. **Agents**: `.mjs` workflows and stage files reference agents by qualified name (`review-toolkit:security-reviewer`). Repo-local agents (config `reviewers.add`) are referenced bare — that's the disambiguation between roots.
 3. **Cross-plugin dependencies are one-directional**: dev-pipeline → {review-toolkit, intake-toolkit, design-toolkit, audit-toolkit}. The four toolkits never reference dev-pipeline or each other, except intake-toolkit ← review-toolkit sharing the `reviewer-baseline` protocol (review-toolkit owns it; intake-toolkit references it qualified).
 
