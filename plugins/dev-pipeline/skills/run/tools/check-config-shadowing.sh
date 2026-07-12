@@ -11,7 +11,9 @@ set -euo pipefail
 DP="${1:-$(cd "$(dirname "$0")/.." && pwd)}"   # .../skills/dev-pipeline
 fails=0
 
-# Each stageParams (and the plansDir) key must be READ (referenced) by the file that owns its resolution.
+# Each config key promoted from a hardcoded literal must be READ (referenced) by the
+# file(s) that own its resolution — stageParams, plansDir, and the base/prefix keys
+# (tracker.branchPrefix, topology.repos.<host>.baseBranch) threaded through stages 1/2/5/9.
 # form: "<relative-file>|<config-key-reference>|<label>"
 CHECKS=(
   "stages/6-verify.md|stageParams.visualCapture|Stage-6 visual capture"
@@ -19,6 +21,12 @@ CHECKS=(
   "verifyctl.sh|stageParams.formatGlob|format glob"
   "stages/3-write-plan.md|stageParams.planFilePattern|plan-file pattern"
   "stages/3-write-plan.md|paths.plansDir|plans dir"
+  "stages/1-intake.md|tracker.branchPrefix|Stage-1 branch prefix"
+  "stages/1-intake.md|baseBranch|Stage-1 base branch"
+  "stages/2-worktree.md|tracker.branchPrefix|Stage-2 branch prefix"
+  "stages/2-worktree.md|baseBranch|Stage-2 base branch"
+  "stages/5-implement.md|baseBranch|Stage-5 base branch"
+  "stages/9-open-pr.md|baseBranch|Stage-9 base branch"
 )
 
 for c in "${CHECKS[@]}"; do

@@ -27,5 +27,20 @@ else
     || bad "stripped reader failed but without the expected SHADOW message"
 fi
 
+# (3) a tree where the Stage-2 branch-prefix reader is stripped must fail (base/prefix
+# generalization regression tripwire — issue #8).
+TMP2="$(mktemp -d)"; trap 'rm -rf "$TMP" "$TMP2"' EXIT
+cp -R "$DP/." "$TMP2/"
+if grep -q "tracker.branchPrefix" "$TMP2/stages/2-worktree.md"; then
+  grep -v "tracker.branchPrefix" "$TMP2/stages/2-worktree.md" > "$TMP2/stages/2-worktree.md.tmp"
+  mv "$TMP2/stages/2-worktree.md.tmp" "$TMP2/stages/2-worktree.md"
+fi
+if bash "$CHECK" "$TMP2" >/tmp/shadow-selftest2.out 2>&1; then
+  bad "stripped Stage-2 branchPrefix reader should FAIL but passed"
+else
+  grep -q "SHADOW: 'tracker.branchPrefix'" /tmp/shadow-selftest2.out && ok "stripped branchPrefix reader -> SHADOW failure + message" \
+    || bad "stripped branchPrefix reader failed but without the expected SHADOW message"
+fi
+
 if [[ "$FAILS" -gt 0 ]]; then echo "check-config-shadowing selftest: $FAILS FAILURE(S)"; exit 1; fi
 echo "check-config-shadowing selftest: all green"

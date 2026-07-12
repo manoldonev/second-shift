@@ -26,16 +26,22 @@
 SLICE_BRANCH=$(statectl.sh get "$ISSUE_NUMBER" '.sliceBranch // empty')
 WORKTREE_BASE=$(statectl.sh get "$ISSUE_NUMBER" '.worktreeBase // empty')
 
+# Branch namespace + base are config-driven (single source of truth with Stage 1):
+#   BRANCH_PREFIX   = tracker.branchPrefix                 // "claude/acme-"
+#   BASE_BRANCH_CFG = host repo (path ".") baseBranch      // "main"
+BRANCH_PREFIX=$(jq -r '.tracker.branchPrefix // "claude/acme-"' "$SECOND_SHIFT_CONFIG" 2>/dev/null || echo "claude/acme-")
+BASE_BRANCH_CFG=$(jq -r '(.topology.repos | to_entries[] | select(.value.path==".") | .key) as $h | .topology.repos[$h].baseBranch // "main"' "$SECOND_SHIFT_CONFIG" 2>/dev/null || echo "main")
+
 # Single-PR fallback: no stacked-PR fields in state.
 if [[ -z "$SLICE_BRANCH" || "$SLICE_BRANCH" == "null" ]]; then
-  BRANCH="claude/acme-${ISSUE_NUMBER}"
-  BASE_BRANCH="main"
+  BRANCH="${BRANCH_PREFIX}${ISSUE_NUMBER}"
+  BASE_BRANCH="$BASE_BRANCH_CFG"
   SLICE_SUFFIX=""
 else
   BRANCH="$SLICE_BRANCH"
   BASE_BRANCH="$WORKTREE_BASE"
   # Slice 1's branch is unsuffixed; slice N>1 has -prN suffix.
-  if [[ "$BRANCH" == "claude/acme-${ISSUE_NUMBER}" ]]; then
+  if [[ "$BRANCH" == "${BRANCH_PREFIX}${ISSUE_NUMBER}" ]]; then
     SLICE_SUFFIX=""
   else
     SLICE_SUFFIX="-${BRANCH##*-}"  # e.g. -pr2
@@ -55,9 +61,9 @@ if [[ -n "$SLICE_BRANCH" && "$SLICE_BRANCH" != "null" ]]; then
   git fetch origin --quiet 2>/dev/null || true
   # Highest pushed slice from the remote, via the shared tested derivation helper
   # (single source of truth with Stage 1 seeding — see tools/max-pushed-slice.sh).
-  MAX_PUSHED=$(git ls-remote --heads origin "claude/acme-${ISSUE_NUMBER}*" 2>/dev/null \
+  MAX_PUSHED=$(git ls-remote --heads origin "${BRANCH_PREFIX}${ISSUE_NUMBER}*" 2>/dev/null \
     | awk '{print $2}' \
-    | bash "${CLAUDE_PLUGIN_ROOT}/skills/run/tools/max-pushed-slice.sh" "$ISSUE_NUMBER")
+    | BRANCH_PREFIX="$BRANCH_PREFIX" bash "${CLAUDE_PLUGIN_ROOT}/skills/run/tools/max-pushed-slice.sh" "$ISSUE_NUMBER")
   if [[ -n "$CURRENT_SLICE" && "$CURRENT_SLICE" != "null" && "$CURRENT_SLICE" -gt $((MAX_PUSHED + 1)) ]]; then
     echo "[stage-2] STOP: persisted currentSlice=$CURRENT_SLICE is inconsistent with the remote branch set (highest pushed slice=$MAX_PUSHED). Slices $((MAX_PUSHED + 1))..$((CURRENT_SLICE - 1)) were never pushed — the state file is corrupt or hand-edited. Not overwriting slice state. Inspect .claude/pipeline-state/${ISSUE_NUMBER}.json and the open PR set, then re-run." >&2
     # Autonomous abort: do not claim/overwrite; stop emitting tool calls (rc=0).
@@ -69,29 +75,33 @@ fi
 
 # For slice N>1, ensure the prior slice's branch is available locally so
 # `git worktree add -b <new> <base>` can resolve <base>. Best-effort fetch;
-# fall through if the branch is already local.
-if [[ "$BASE_BRANCH" != "main" ]]; then
+# fall through if the branch is already local. (The mainline base is handled
+# below; a stacked base is always a prior slice branch, never the mainline.)
+if [[ "$BASE_BRANCH" != "$BASE_BRANCH_CFG" ]]; then
   git fetch origin "$BASE_BRANCH:$BASE_BRANCH" 2>/dev/null \
     || git fetch origin "$BASE_BRANCH" 2>/dev/null \
     || true
 fi
 
-# When basing on main (single-PR runs and stacked slice 1), cut the branch from the
-# freshly-fetched remote-tracking ref `origin/main`, not a possibly-stale local `main`.
-# A concurrent merge can advance `origin/main` mid-run; cutting from a transiently-stale
-# local `main` starts the branch on stale files and silently implements against them.
-# Slice N>1 bases on the prior slice's branch (fetched just above), never `main`, so this
-# remaps only the `main` case and leaves stacking intact.
-if [[ "$BASE_BRANCH" == "main" ]]; then
-  git fetch origin main --quiet 2>/dev/null || true
-  BASE_BRANCH="origin/main"
+# When basing on the mainline (single-PR runs and stacked slice 1), cut the branch from
+# the freshly-fetched remote-tracking ref `origin/<baseBranch>`, not a possibly-stale local
+# ref. A concurrent merge can advance the base mid-run; cutting from a transiently-stale
+# local ref starts the branch on stale files and silently implements against them.
+# Slice N>1 bases on the prior slice's branch (fetched just above), never the mainline, so
+# this remaps only the mainline case and leaves stacking intact.
+if [[ "$BASE_BRANCH" == "$BASE_BRANCH_CFG" ]]; then
+  git fetch origin "$BASE_BRANCH_CFG" --quiet 2>/dev/null || true
+  BASE_BRANCH="origin/$BASE_BRANCH_CFG"
 fi
 
 # Resume support: reuse existing branch if it exists.
 # Capture stderr so a failure can be recorded in failureContext.gitError.
 # WORKTREES_DIR = the host repo's configured worktrees dir
-# (config `topology.repos.<host>.worktreesDir`).
-WT_PATH="${WORKTREES_DIR}/acme-${ISSUE_NUMBER}${SLICE_SUFFIX}"
+# (config `topology.repos.<host>.worktreesDir`). The worktree dir name is the
+# branch basename (`${BRANCH##*/}` — strips the `tracker.branchPrefix` namespace,
+# e.g. `claude/acme-42` -> `acme-42`, `team/gh-42-pr2` -> `gh-42-pr2`), so it is
+# config-derived, never a hardcoded `acme-` literal, and already carries SLICE_SUFFIX.
+WT_PATH="${WORKTREES_DIR}/${BRANCH##*/}"
 if git branch --list "$BRANCH" | grep -q .; then
   WT_ERR=$(git worktree add "$WT_PATH" "$BRANCH" 2>&1)
 else
@@ -121,18 +131,18 @@ fi
 
 - `cd` into the worktree for ALL subsequent work.
 - All file paths in stages 3-9 are relative to the worktree root.
-- For stacked-PR runs, `SLICE_SUFFIX` is `-pr${N}` (e.g., `-pr2`, `-pr3`). For slice 1 / single-PR runs it is empty (the worktree path is `${WORKTREES_DIR}/acme-${ISSUE_NUMBER}`).
+- For stacked-PR runs, `SLICE_SUFFIX` is `-pr${N}` (e.g., `-pr2`, `-pr3`). For slice 1 / single-PR runs it is empty. The worktree dir name is the branch basename `${BRANCH##*/}` — for the github default that is `acme-${ISSUE_NUMBER}${SLICE_SUFFIX}`, but it tracks `tracker.branchPrefix` for any consumer.
 - Do **NOT** run `yarn install` here. The Stage 6 verification matrix installs deps only when the diff actually requires the configured verify suite (~50s saved on inert diffs); the pre-commit type-check hook is staged-path-aware, so docs/shell-only commits don't need `node_modules` either.
 
 **State:** Persist both boundary fields atomically via statectl:
 
 ```bash
 statectl.sh worktree-set "$ISSUE_NUMBER" \
-  --path "${WORKTREES_DIR}/acme-${ISSUE_NUMBER}${SLICE_SUFFIX}" \
+  --path "${WORKTREES_DIR}/${BRANCH##*/}" \
   --branch "$BRANCH"
 ```
 
-**Canonical path form:** `worktreePath` is persisted in **repo-relative** form (`${WORKTREES_DIR}/acme-${ISSUE_NUMBER}${SLICE_SUFFIX}`, as written above). This is the contract — `worktree-set` rejects an absolute path (leading `/`). The pipeline always runs with CWD at the repo root, so consumers resolve the value against the repo root (`git -C "$worktreePath" …` at the Stage 8 entry, `cd "$worktreePath"`); see state-schema.md "Worktree".
+**Canonical path form:** `worktreePath` is persisted in **repo-relative** form (`${WORKTREES_DIR}/${BRANCH##*/}`, as written above). This is the contract — `worktree-set` rejects an absolute path (leading `/`). The pipeline always runs with CWD at the repo root, so consumers resolve the value against the repo root (`git -C "$worktreePath" …` at the Stage 8 entry, `cd "$worktreePath"`); see state-schema.md "Worktree".
 
 **Ordering contract:** this call MUST precede `set-stage 2 --status completed` — a completed Stage 2 then always implies the boundary fields are present, so a crash between the two writes leaves Stage 2 merely in-progress (resumable), never "complete but unresumable" (Stage 8's crash-recovery entry asserts `worktreePath` is valid). In stacked-PR mode both fields are overwritten per slice (by design — see state-schema.md "Worktree").
 
