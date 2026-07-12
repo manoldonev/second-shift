@@ -33,6 +33,11 @@
       "name": "audit-toolkit",
       "source": "./plugins/audit-toolkit",
       "description": "Session tool-call audit ledger: audit hooks, /audit and /audit-history query skills, self-tests."
+    },
+    {
+      "name": "second-shift",
+      "source": "./plugins/second-shift",
+      "description": "Onboarding + health for this marketplace: provenance-first /second-shift:onboard (writes consumer config, settings pin, lockfile) and /second-shift:doctor (install-state verification). Install at user scope; it bootstraps everything else."
     }
   ]
 }
