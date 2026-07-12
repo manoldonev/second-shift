@@ -155,6 +155,31 @@ SECOND_SHIFT_REPO_ROOT="$FIX" PREFLIGHT_DOCTOR_CMD="bash $DOC_BAD" \
   bash "$PREFLIGHT" >"$BASE/out.log" 2>&1; rc=$?
 [[ "$rc" -eq 2 ]] && _c=0 || _c=1; assert "doctor's 2 FAILs fold into exit code (rc=$rc)" "$_c"
 
+# ---- run 6: config-gate failure path — config-lint reject FAILs ----------------------
+# gates.costTracking was removed in v2.1.6; a config carrying it must be rejected by
+# config-lint and land in preflight's exit code with the lanes never reached green-only.
+jq '. + {gates: {costTracking: true}}' "$FIX/.claude/second-shift.config.json" > "$BASE/cfg.tmp" \
+  && mv "$BASE/cfg.tmp" "$FIX/.claude/second-shift.config.json"
+run_preflight; rc=$?
+[[ "$rc" -ge 1 ]] && _c=0 || _c=1; assert "config-lint reject lands in the exit code (rc=$rc)" "$_c"
+grep -q "config-lint rejected" "$BASE/out.log"; assert "config-lint reject surfaced as FAIL" "$?"
+
+# ---- run 7: missing config FAILs with the onboard hint -------------------------------
+rm -f "$FIX/.claude/second-shift.config.json"
+run_preflight; rc=$?
+[[ "$rc" -ge 1 ]] && _c=0 || _c=1; assert "missing config => nonzero exit (rc=$rc)" "$_c"
+grep -q "no consumer config at" "$BASE/out.log"; assert "missing config surfaced with the onboard hint" "$?"
+
+# ---- run 8: extraLanes execute with the when-gate note --------------------------------
+write_config github
+jq '.commands.fix.extraLanes = [{"name": "extra", "commands": ["echo extra-green"], "when": ["src/**"], "failureClass": "TEST_FAILURE"}]' \
+  "$FIX/.claude/second-shift.config.json" > "$BASE/cfg.tmp" \
+  && mv "$BASE/cfg.tmp" "$FIX/.claude/second-shift.config.json"
+run_preflight; rc=$?
+[[ "$rc" -eq 0 ]] && _c=0 || _c=1; assert "extraLanes fixture run is green (rc=$rc)" "$_c"
+grep -q "extraLanes\[1\] (when-gate not evaluated — no diff at preflight)': green" "$BASE/out.log"
+assert "extraLanes run unconditionally with the when-gate note" "$?"
+
 echo "[self-test] $PASS passed, $FAIL failed"
 [[ "$FAIL" -eq 0 ]] || exit 1
 exit 0
