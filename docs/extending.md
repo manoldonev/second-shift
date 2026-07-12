@@ -120,7 +120,8 @@ The shipped agents are domain-blind by design; you feed them domain knowledge th
 ```
 .claude/second-shift/security-rules.md      # read by security-reviewer, treated as additive rules
 .claude/second-shift/blocker-mutants.md      # extra blocker-class mutants for unit-test review
-.claude/second-shift/review-context.md       # repo-wide invariants + the db-reviewer's stack section
+.claude/second-shift/review-context.md       # repo-wide calibration core + ownership pointers
+.claude/second-shift/review-context/<r>.md   # per-reviewer rules (basename = registry reviewer name)
 .claude/second-shift/doc-routing.md          # change-category → doc-path map for Stage-7 doc updates
 ```
 

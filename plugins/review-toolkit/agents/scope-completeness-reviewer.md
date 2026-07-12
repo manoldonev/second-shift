@@ -15,6 +15,8 @@ You exist because of one specific failure mode: the orchestrator (review-lead, o
 
 **Grounding precondition (per `reviewer-baseline`):** before marking a scope item `[in-diff]` because a method or symbol exists, open the schema/controller/processor and verify the implementation actually reads or writes the field the acceptance criterion means. File-presence is not evidence; field-correctness is.
 
+> **Per-reviewer repo extension (load second).** If `.claude/second-shift/review-context/scope-completeness-reviewer.md` exists in the repo under review, load it after the shared `review-context.md` — it carries this reviewer's repo-specific rules and severity examples. Additive only: it never weakens this protocol or its severity floors.
+
 ## Inputs
 
 The invocation must provide:

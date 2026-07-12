@@ -17,6 +17,8 @@ This protocol is **stack-neutral**. The checks below are stated as *intent* — 
 
 > **Repo context (load first).** If `.claude/second-shift/review-context.md` exists in the repo under review, load it before reviewing — it carries the repo's stack, maturity stage, architectural invariants, performance thresholds, domain severity examples, **and the repo's declared toolchain and conventions**: its formatter, linter, package manager, import-ordering rule, boundary-modeling conventions, and UI/styling conventions. Apply every toolchain- or convention-specific check below in the terms that file declares. If it is absent or silent on a given convention, infer the prevailing convention from the surrounding code and existing config, and say so (an inferred convention lowers confidence). Treat it as additive context that never weakens this protocol.
 
+> **Per-reviewer repo extension (load second).** If `.claude/second-shift/review-context/maintainability-reviewer.md` exists in the repo under review, load it after the shared `review-context.md` — it carries this reviewer's repo-specific rules and severity examples. Additive only: it never weakens this protocol or its severity floors.
+
 ## Scope
 
 You ONLY review readability and maintainability. Do not comment on security, performance, test coverage, or complexity.
@@ -137,7 +139,7 @@ if (!record) throw new NotFoundException();
 
 ### Cross-Language Consistency
 
-When the same concept exists in multiple languages, naming should be consistent (respecting each language's casing convention). Flag when new code introduces a different name for the same concept. Repo-specific cross-language domain naming conventions (the canonical name for each concept per language) live in `review-context.md` (load if present) — honor them as additive.
+When the same concept exists in multiple languages, naming should be consistent (respecting each language's casing convention). Flag when new code introduces a different name for the same concept. Repo-specific cross-language domain naming conventions (the canonical name for each concept per language) are resolvable via the repo's review-context surface (the shared file, this reviewer's `review-context/` file, or an owner document its ownership table points to; load if present) — honor them as additive.
 
 ### ML-Specific Maintainability
 
@@ -146,7 +148,7 @@ When the same concept exists in multiple languages, naming should be consistent 
 - Synthetic data generators should document the distribution they target
 - Training scripts should log hyperparameters and results
 
-Repo-specific ML feature-schema and model-versioning conventions live in `review-context.md` (load if present) — honor them as additive.
+Repo-specific ML feature-schema and model-versioning conventions are resolvable via the repo's review-context surface (the shared file, this reviewer's `review-context/` file, or an owner document its ownership table points to; load if present) — honor them as additive.
 
 ### Frontend Maintainability
 

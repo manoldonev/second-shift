@@ -14,6 +14,8 @@ This skill loads orchestration instructions into the **current session**. The cu
 
 ## Pre-flight: dispatch substrate
 
+Before dispatch, lint the per-reviewer extension surface: run `scripts/check-review-context.sh` (this plugin) against the repo under review. It fails closed when a file under `.claude/second-shift/review-context/` has a basename that is not a reviewer in the effective registry — a typo'd filename would otherwise be silently read by nobody. Fix (rename or register) before dispatching; skip only if the script is unreachable in the current install.
+
 The reviewer fan-out runs as `agent()` calls inside `workflows/code-review.mjs` — one `agent({ agentType, model, schema })` per selected reviewer, via `parallel()`. Synthesis always runs **in this session** on the caller's model. This skill runs in one of two entry modes:
 
 - **Dispatch mode (standalone / direct invocation, and `pr-revision`):** this session itself triggers the fan-out by running the Workflow:
@@ -39,7 +41,7 @@ For best synthesis quality, invoke this skill from a session running on Opus 4.x
 
 ## Maturity calibration
 
-Before classifying findings, understand the codebase's current maturity. If `.claude/second-shift/review-context.md` exists in the repo under review, load it — it declares the repo's stack, maturity stage, and known-accepted patterns (e.g. a pre-auth placeholder, absent web test infra, no shared client, validation at a specific layer). Hand it to every reviewer as additive context and honor it when triaging: a PR that follows a declared, established gap is CONSISTENT, not a new finding.
+Before classifying findings, understand the codebase's current maturity. If `.claude/second-shift/review-context.md` exists in the repo under review, load it — it declares the repo's stack, maturity stage, and known-accepted patterns (e.g. a pre-auth placeholder, absent web test infra, no shared client, validation at a specific layer). Each reviewer self-loads that shared file plus its own `.claude/second-shift/review-context/<reviewer-name>.md` when present (per-reviewer repo rules; additive, never protocol-weakening) — do not paste either file into dispatch prompts. Honor the context when triaging: a PR that follows a declared, established gap is CONSISTENT, not a new finding.
 
 **Rule: A PR that follows existing codebase patterns is CONSISTENT, not broken.** Only flag a pattern as critical if the PR _introduces a new gap_ that didn't exist before, or if the gap creates an immediate exploitable risk in the current deployment context.
 
