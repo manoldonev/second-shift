@@ -925,11 +925,12 @@ cmd_pr_add() {
   # Usage:
   #   statectl pr-add <issue-number> --branch <branch> --url <pr-url>
   local key="${1:-}"; shift || true
-  local branch="" url="" force=0
+  local branch="" url="" force=0 repo=""
   while [[ $# -gt 0 ]]; do
     case "$1" in
       --branch) branch="${2:-}"; shift 2 ;;
       --url)    url="${2:-}"; shift 2 ;;
+      --repo)   repo="${2:-}"; shift 2 ;;
       --force)  force=1; shift ;;
       *) EXIT_CODE=3 die "pr-add: unknown arg '$1'" ;;
     esac
@@ -947,11 +948,23 @@ cmd_pr_add() {
   local now
   now=$(now_iso)
   local new_state
-  new_state=$(jq --arg b "$branch" --arg u "$url" --arg now "$now" '
-    .prs = (.prs // {})
-    | .prs[$b] = { url: $u }
-    | .lastUpdatedAt = $now
-  ' <<< "$current") || { EXIT_CODE=2 die "pr-add: jq mutation failed"; }
+  # --repo <id> (be-fe-pair): a pair run opens one PR per target repo, all on the
+  # SAME branch name — so key `.prs` by REPO ID (not branch, which would collide)
+  # and stamp repo + branch. Consumers iterate `.prs[].url` either way. Without
+  # --repo the branch-keyed form (single-repo / one entry per stacked slice).
+  if [[ -n "$repo" ]]; then
+    new_state=$(jq --arg r "$repo" --arg b "$branch" --arg u "$url" --arg now "$now" '
+      .prs = (.prs // {})
+      | .prs[$r] = { url: $u, branch: $b, repo: $r }
+      | .lastUpdatedAt = $now
+    ' <<< "$current") || { EXIT_CODE=2 die "pr-add: jq mutation failed"; }
+  else
+    new_state=$(jq --arg b "$branch" --arg u "$url" --arg now "$now" '
+      .prs = (.prs // {})
+      | .prs[$b] = { url: $u }
+      | .lastUpdatedAt = $now
+    ' <<< "$current") || { EXIT_CODE=2 die "pr-add: jq mutation failed"; }
+  fi
   atomic_write "$key" "$new_state"
 }
 
