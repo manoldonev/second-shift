@@ -113,6 +113,12 @@ const CODEBASE_EXPLORER_SCHEMA = {
 //   referencedDocs — optional array of {path, content} the orchestrator pre-read (max 5)
 //   agents       — optional subset to dispatch (default both). Bug/chore intake passes
 //                  ['spec-reviewer'] for the spec-review-only path.
+//   readRoot     — optional ABSOLUTE path to the Stage-1 pinned read surface (the
+//                  detached origin/<base> worktree from Step 1.P). When set, every
+//                  sub-agent is instructed to perform ALL codebase reads under it and
+//                  never the main checkout (whose branch/dirty state must not inform
+//                  intake — see stages/1-intake.md Step 1.P / issue #59). Empty = the
+//                  legacy unpinned behavior (reads resolve against the session CWD).
 // `args` arrives as the value passed to Workflow's `args` input. Defensive: it may
 // be an object, or (per the Workflow contract's stringified-args caveat) a JSON string.
 const a = typeof args === 'string' ? JSON.parse(args) : args || {}
@@ -121,6 +127,7 @@ const {
   issueBody = '',
   referencedDocs = [],
   agents = ['review-toolkit:spec-reviewer', 'review-toolkit:codebase-explorer'],
+  readRoot = '',
   config = {},
 } = a
 const modelOverrides = (config && config.reviewers && config.reviewers.modelOverrides) || {}
@@ -138,6 +145,15 @@ if (!Array.isArray(agents) || agents.length === 0) {
 // log(), phase(), parallel(), agent(). See the Workflow tool API.
 const docsNote = referencedDocs.length
   ? ` Referenced docs already read (do not re-fetch): ${referencedDocs.map((d) => d.path).join(', ')}.`
+  : ''
+
+// Stage-1 read-surface pin (issue #59): prefixed to EVERY dispatch prompt so the
+// sub-agents ground against origin/<base>, not the operator's checkout. Leads the
+// prompt (not appended) so it is the first instruction the agent reads.
+const readRootNote = readRoot
+  ? `PINNED READ SURFACE (read first): perform ALL codebase reads (Read/Grep/Glob/Bash) inside ${readRoot} — ` +
+    `a pinned checkout of the configured base branch. Do NOT read from the main repo checkout: its branch and ` +
+    `working-tree state are unrelated to this analysis and must not inform it. `
   : ''
 
 log(`intake-review: ${agents.join(' + ')} for issue #${issue}`)
@@ -171,6 +187,7 @@ const DISPATCH = [
     agentType: 'review-toolkit:spec-reviewer',
     schema: SPEC_REVIEW_SCHEMA,
     prompt:
+      readRootNote +
       `Review the spec for GitHub issue #${issue} for implementability.${docsNote} ` +
       `Issue body:\n\n${issueBody}\n\n` +
       `Return your verdict and a list of findings. For EACH finding the \`rationale\` field is ` +
@@ -183,6 +200,7 @@ const DISPATCH = [
     agentType: 'review-toolkit:codebase-explorer',
     schema: CODEBASE_EXPLORER_SCHEMA,
     prompt:
+      readRootNote +
       `Map the impact surface for GitHub issue #${issue}.${docsNote} ` +
       `Issue body:\n\n${issueBody}\n\n` +
       `Return modulesAffected (files to create/modify), crossModuleDependencies, existingPatterns, ` +

@@ -346,6 +346,8 @@ Before starting, gather situational context:
 
 Use this to detect dirty working trees, in-progress work, or stash conflicts before creating worktrees.
 
+**Non-base-branch posture (#59):** a current branch other than the configured base is **not** a reject — Stage-1 reads are pinned to `origin/<baseBranch>` (stages/1-intake.md Step 1.P) and Stage 2 cuts the work branch from the same remote ref, so the checkout's branch cannot leak into the run. The predicates: pin established + clean tree → proceed silently; **dirty working tree** (any branch) → surface a WARN — "a human appears to be mid-work in this checkout" — in the run's final report and proceed; **pin not establishable** (fetch/worktree-add failure) → fail closed via `mark-failed --reason non-main-base-autonomous` (interactive mode presents the failure instead). Wrong-target detection (wrong repo, wrong issue, wrong diff base) is unchanged and still aborts.
+
 ---
 
 ## Model Tier Mapping

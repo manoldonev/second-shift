@@ -52,7 +52,7 @@ All paths repo-relative; all exist at `origin/main` @ `2a9c962` unless tagged `[
 4. **`state-schema.md:189`:** trigger text → "Stage-1 read pin to origin/<base> could not be established in autonomous mode (fetch or pin-worktree creation failed). Interactive mode offers an escape hatch."
 5. **`eval-criteria.md:19-21`:** PASS = run pinned Stage-1 reads to the configured base (or surfaced a pin failure); dirty tree handled by WARN-and-proceed; FAIL = intake read an unpinned non-base tree without the WARN/fail-closed posture firing.
 6. **`stages/10-cleanup.md`:** after the work-worktree removal, remove `<worktreesDir>/intake-pin-<issue>` if present (`git worktree remove --force ... 2>/dev/null || true`).
-7. **`tools/intake-readroot-selftest.sh` [NEW]:** `node --check` on `intake-review.mjs`; assert the load-bearing tokens exist (`readRoot` destructure, prompt-prefix wiring into both DISPATCH prompts); assert `state-schema.md` still carries the `non-main-base-autonomous` row (AC-5 guard). Follows `statectl-selftest.sh` conventions; auto-discovered by the green-gate find.
+7. **`tools/intake-readroot-selftest.sh` [NEW]:** assert the load-bearing tokens exist (`readRoot` destructure, prompt-prefix wiring into both DISPATCH prompts); assert `state-schema.md` still carries the `non-main-base-autonomous` row (AC-5 guard); assert the Step 1.P / Stage-10 prose anchors. Follows `statectl-selftest.sh` conventions; auto-discovered by the green-gate find. *(Deviation from the drafted plan, disclosed: the originally-planned `node --check` assertion is impossible — Workflow scripts execute in the runtime's async context and carry top-level `return` statements, a SyntaxError to node's module parser by design; grep-token assertions are the correct technique, per `null-reviewer-selftest.mjs` precedent.)*
 8. **`CHANGELOG.md` + `plugin.json`:** Unreleased entry; bump dev-pipeline patch/minor after re-deriving the latest released version.
 9. Run the full green gate (shellcheck lint + all selftests) per Verification commands.
 
@@ -62,7 +62,7 @@ Verify-after (infra/contract change — no runtime product surface):
 
 - New `intake-readroot-selftest.sh` is the mutation-resistant regression: deleting the `readRoot` destructure, dropping the prefix from either prompt, or retiring the enum row each fails a distinct assertion.
 - `statectl-selftest.sh` (existing, unmodified) proves AC-5's enum retention + generator drift check.
-- `shellcheck` over the new selftest; `node --check` over the modified `.mjs`.
+- `shellcheck` over the new selftest. (No `node --check` on the `.mjs` — see Verification commands note.)
 - Prose-contract ACs (AC-1, AC-2) are model-behavior contracts scored by `eval-criteria.md` on real runs — no in-repo test can execute them.
 
 ## Acceptance-criteria traceability
@@ -81,7 +81,8 @@ Verify-after (infra/contract change — no runtime product surface):
 # in the worktree root
 find . -name '*.sh' -type f -print0 | xargs -0 shellcheck -e SC1091,SC2015,SC2181
 find . -name '*-selftest.sh' -type f -print0 | xargs -0 -n1 -I{} env SKIP_STRESS=1 bash {}
-node --check plugins/dev-pipeline/skills/run/workflows/intake-review.mjs
+# NOTE: no `node --check` on intake-review.mjs — Workflow scripts carry top-level `return`
+# (async-context execution) and are not standalone-parsable; the selftest's token asserts cover the seam.
 bash plugins/dev-pipeline/skills/run/tools/gen-statectl-validators.sh > /tmp/statectl.regen && diff /tmp/statectl.regen plugins/dev-pipeline/skills/run/statectl.sh && rm /tmp/statectl.regen
 ```
 
