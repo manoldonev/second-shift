@@ -69,7 +69,7 @@ complete_stage() {
   local key="$1" n="$2"
   sct set-stage "$key" "$n" --status started >/dev/null
   case "$n" in
-    1) sct checkpoint "$key" 1 --json '{"verdict":"no-split"}' >/dev/null ;;
+    1) sct checkpoint "$key" 1 --json '{"verdict":"no-split","preflight":{"baseBranch":"main","workingTreeClean":true,"guardOutcome":"proceed-clean"}}' >/dev/null ;;
     2) sct worktree-set "$key" --path ".claude/worktrees/acme-$key" --branch "claude/acme-$key" >/dev/null ;;
     4) sct plan-review-set "$key" --overall pass >/dev/null ;;
     5) sct checkpoint "$key" 5 --json '{"changedFiles":[]}' >/dev/null ;;
@@ -1560,18 +1560,44 @@ fi
 echo
 echo "[self-test] stage machine — completion preconditions + terminal gates"
 
-# (sc1) stage 1 completed without stageCheckpoint["1"] → refused; with → allowed
+# (sc1) stage-1 completion gate: refused without a checkpoint, refused with a
+# checkpoint that lacks a well-formed preflight, allowed with one — INCLUDING
+# workingTreeClean:false (the blessed dirty-tree WARN-and-proceed state; the gate is
+# a SHAPE check, never a truthiness check).
 reset_state
 sct init 9999 --run-id "selftest-run-$$" >/dev/null
 sct set-stage 9999 1 --status started >/dev/null
-err=$(sct_err set-stage 9999 1 --status completed)
-rc=$(sct_rc set-stage 9999 1 --status completed)
+err_nockpt=$(sct_err set-stage 9999 1 --status completed)
+rc_nockpt=$(sct_rc set-stage 9999 1 --status completed)
+# checkpoint present but NO preflight → completion still refused (the preflight leg)
 sct checkpoint 9999 1 --json '{"verdict":"no-split"}' >/dev/null
-rc2=$(sct_rc set-stage 9999 1 --status completed)
-if [[ "$rc" == "1" && "$err" == *'stageCheckpoint["1"] is missing'* && "$rc2" == "0" ]]; then
-  pass "(sc1) stage-1 completion precondition — refused without checkpoint, allowed with"
+err_nopf=$(sct_err set-stage 9999 1 --status completed)
+rc_nopf=$(sct_rc set-stage 9999 1 --status completed)
+# well-formed preflight with workingTreeClean:FALSE → completion ALLOWED
+sct checkpoint 9999 1 --json '{"verdict":"no-split","preflight":{"baseBranch":"main","workingTreeClean":false,"guardOutcome":"proceed-dirty-warn"}}' >/dev/null
+rc_ok=$(sct_rc set-stage 9999 1 --status completed)
+if [[ "$rc_nockpt" == "1" && "$err_nockpt" == *'stageCheckpoint["1"] is missing'* \
+      && "$rc_nopf" == "1" && "$err_nopf" == *'preflight is missing or malformed'* \
+      && "$rc_ok" == "0" ]]; then
+  pass "(sc1) stage-1 completion gate — no-checkpoint refused, preflight-less refused, well-formed (workingTreeClean:false) allowed"
 else
-  fail "(sc1) stage-1 precondition — rc=$rc rc2=$rc2 err='$err'"
+  fail "(sc1) stage-1 gate — rc_nockpt=$rc_nockpt rc_nopf=$rc_nopf rc_ok=$rc_ok err_nopf='$err_nopf'"
+fi
+
+# (sc1b) checkpoint 1 with a PRESENT-but-malformed preflight → rejected at WRITE time
+# (validate_stage1_payload, the defense-in-depth mirror of validate_stage7_payload).
+# Uses a SEPARATE key (9998) and does NOT reset_state — so it leaves the 9999
+# stage-1-completed state (from sc1) intact for the sc2+ chain that assumes it.
+sct init 9998 --run-id "selftest-run-$$" >/dev/null
+sct set-stage 9998 1 --status started >/dev/null
+bad_pf='{"verdict":"no-split","preflight":{"baseBranch":"main","workingTreeClean":"yes","guardOutcome":"proceed-clean"}}'  # workingTreeClean must be boolean
+err_bad=$(sct_err checkpoint 9998 1 --json "$bad_pf")
+rc_bad=$(sct_rc checkpoint 9998 1 --json "$bad_pf")
+rc_bad2=$(sct_rc checkpoint 9998 1 --json '{"preflight":{"baseBranch":"main","workingTreeClean":true}}')  # missing guardOutcome
+if [[ "$rc_bad" != "0" && "$err_bad" == *'present but malformed'* && "$rc_bad2" != "0" ]]; then
+  pass "(sc1b) stage-1 checkpoint write — present-but-malformed preflight rejected (validate_stage1_payload)"
+else
+  fail "(sc1b) stage-1 write validation — rc_bad=$rc_bad rc_bad2=$rc_bad2 err_bad='$err_bad'"
 fi
 
 # (sc2) stage 2 completed without worktree-set → refused; with → allowed
@@ -1632,7 +1658,7 @@ fi
 reset_state
 sct init 9999 --run-id "selftest-run-$$" >/dev/null
 sct set-stage 9999 1 --status started >/dev/null
-sct checkpoint 9999 1 --json '{"verdict":"no-split","designDriven":true}' >/dev/null
+sct checkpoint 9999 1 --json '{"verdict":"no-split","designDriven":true,"preflight":{"baseBranch":"main","workingTreeClean":true,"guardOutcome":"proceed-clean"}}' >/dev/null
 sct set-stage 9999 1 --status completed >/dev/null
 for n in 2 3 4; do complete_stage 9999 "$n"; done
 sct set-stage 9999 5 --status started >/dev/null
@@ -2278,7 +2304,7 @@ reset_state
 sct init 9999 --run-id "selftest-run-$$" >/dev/null
 sct set-stage 9999 1 --status started >/dev/null
 got_inprogress=$(sct get 9999 '.stages."1".status')
-sct checkpoint 9999 1 --json '{"verdict":"no-split"}' >/dev/null   # stage-1 completion evidence
+sct checkpoint 9999 1 --json '{"verdict":"no-split","preflight":{"baseBranch":"main","workingTreeClean":true,"guardOutcome":"proceed-clean"}}' >/dev/null   # stage-1 completion evidence (well-formed preflight)
 sct set-stage 9999 1 --status completed >/dev/null
 got_completed=$(sct get 9999 '.stages."1".status')
 sct set-stage 9999 2 --status started >/dev/null
@@ -2321,7 +2347,7 @@ if [[ "${SKIP_STRESS:-0}" != "1" ]]; then
   reset_state
   sct init 9999 --run-id "selftest-run-$$" >/dev/null
   sct set-stage 9999 1 --status started >/dev/null
-  sct checkpoint 9999 1 --json '{"verdict":"no-split"}' >/dev/null   # evidence, so the write path actually runs
+  sct checkpoint 9999 1 --json '{"verdict":"no-split","preflight":{"baseBranch":"main","workingTreeClean":true,"guardOutcome":"proceed-clean"}}' >/dev/null   # evidence (well-formed preflight), so the write path actually runs
   before_hash=$(shasum .claude/pipeline-state/9999.json | awk '{print $1}')
   STATECTL_TEST_PAUSE_BEFORE_MV=1 \
     "$STATECTL" set-stage 9999 1 --status completed >/dev/null 2>&1 &

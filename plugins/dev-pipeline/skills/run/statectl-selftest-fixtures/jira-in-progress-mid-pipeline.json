@@ -37,7 +37,12 @@
   "currentStage": 5,
   "stageCheckpoint": {
     "1": {
-      "verdict": "no-split"
+      "verdict": "no-split",
+      "preflight": {
+        "baseBranch": "main",
+        "workingTreeClean": true,
+        "guardOutcome": "proceed-clean"
+      }
     },
     "5": {
       "changedFiles": []
