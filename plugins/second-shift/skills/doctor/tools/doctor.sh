@@ -51,7 +51,7 @@ redact_config() { # $1 = config path
         if type == "object" then
           with_entries(
             if (.key | ascii_downcase
-                 | test("secret|token|password|passwd|privatekey|apikey|pem|credential"))
+                 | test("secret|token|password|passwd|passphrase|privatekey|apikey|accesskey|signingkey|authorization|bearer|pem|credential"))
             then .value = "***REDACTED***" else . end)
         else . end)' "$1" 2>/dev/null || echo "(config unreadable or invalid JSON)"
 }

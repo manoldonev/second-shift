@@ -78,5 +78,23 @@ scenario opt-out          plugin-list-green.json   settings-green.json     marke
 report report-sections    config-valid.json
 # --report redaction: secret-shaped keys masked, non-secret identifier preserved.
 report report-redaction   config-with-secret.json  "***REDACTED***" "119943793" "SUPER_SECRET_VALUE"
+# --report state excerpt (populated pipeline-state dir): the NEWEST run's failureContext
+# surfaces; the older run does not. Exercises state_excerpt()'s -nt selection + jq extraction
+# (the empty-dir branch is covered by the two scenarios above).
+sroot="$TMP/report-state"; mkdir -p "$sroot/.claude/pipeline-state"
+cp "$FIX/lock-v1.json" "$sroot/.claude/second-shift.lock.json"
+cp "$FIX/config-valid.json" "$sroot/.claude/second-shift.config.json"
+sed -e "s#__ROOT__#$sroot#g" -e "s#__INSTALL__#$INSTALL#g" "$FIX/settings-green.json" > "$sroot/.claude/settings.json"
+sed -e "s#__ROOT__#$sroot#g" -e "s#__INSTALL__#$INSTALL#g" "$FIX/plugin-list-green.json" > "$TMP/report-state-pluglist.json"
+printf '{"ticketKey":"7","status":"completed","currentStage":10,"failureContext":null}\n'  > "$sroot/.claude/pipeline-state/7.json"
+printf '{"ticketKey":"42","status":"failed","currentStage":6,"failureContext":{"stage":6,"reason":"approach-failure-circuit-breaker"}}\n' > "$sroot/.claude/pipeline-state/42.json"
+touch -t 202001010000 "$sroot/.claude/pipeline-state/7.json"   # force 7 older ⇒ 42 is newest, deterministically
+sout="$(DOCTOR_REPO_ROOT="$sroot" DOCTOR_PLUGIN_LIST_FILE="$TMP/report-state-pluglist.json" \
+        DOCTOR_MARKETPLACE_LIST_FILE="$FIX/marketplace-list-pinned.json" DOCTOR_USER_SETTINGS="$TMP/empty-user-settings.json" \
+        bash "$DOCTOR" --report 2>&1)"
+if grep -qF "approach-failure-circuit-breaker" <<< "$sout" \
+   && grep -qF '"ticketKey": "42"' <<< "$sout" \
+   && ! grep -qF "no pipeline runs recorded" <<< "$sout"; then check "report-state-excerpt" 0
+else check "report-state-excerpt" 1; echo "$sout" | sed 's/^/      /' | head -20; fi
 if [[ "$FAILS" -gt 0 ]]; then echo "doctor selftest: $FAILS FAILURE(S)"; exit 1; fi
 echo "doctor selftest: all green"
