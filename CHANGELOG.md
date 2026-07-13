@@ -4,7 +4,7 @@ All notable changes to the second-shift marketplace. Versions are per-plugin (`p
 this file tracks the marketplace release. `configVersion` stays `const 1` — v2 is fully backward-compatible for a
 consumer with an empty config; the migration notes below are only for consumers using the changed features.
 
-## v2.2.0 — read-only preflight: the onboarding finish line (in progress)
+## v2.2.0 — read-only preflight: the onboarding finish line
 
 ### `dev-pipeline` 2.1.8 → 2.2.0
 - **New tool `skills/run/tools/preflight.sh` (+ selftest): read-only onboarding finish line (#30).** Echoes the
@@ -124,6 +124,14 @@ consumer with an empty config; the migration notes below are only for consumers 
   each asking for the `/second-shift:doctor --report` bundle plus its scenario-specific evidence, with a
   `config.yml` chooser (blank issues stay enabled). New dependency-free `tests/issue-forms-selftest.sh`
   structurally validates them (grep + optional `ruby -ryaml`; GitHub's form schema isn't locally validatable).
+- **Repo dogfood config declares `tracker.bot` explicitly (#66).** The self-consumption config
+  (`.claude/second-shift.config.json`) now declares the bot block (`enabled` / `envVar` / `wrapperPath` / `app`)
+  instead of relying on convention discovery — the repo runs its own pipeline under its bot identity.
+- **README onboarding-first restructure + `.envrc` gitignore (#63).** The README now leads with onboarding;
+  `.gitignore` adds `.envrc` (per-machine direnv OTel telemetry export — local-only, opt-in per engineer).
+- **Gitignore `.claude/worktrees/` (#80).** The pipeline creates its own linked worktrees there; an untracked
+  entry made `git status --porcelain` non-empty and mis-recorded the Stage-1 pre-flight `workingTreeClean`
+  attestation on this repo's own dogfooding runs (surfaced by the #1 retro).
 
 ## v2.1.8 — /second-shift:local-dev-refresh (release)
 

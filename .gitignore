@@ -17,3 +17,9 @@
 # Per-machine direnv env (OTel telemetry export for cost tracking) — local-only,
 # opt-in per engineer; see the dev-pipeline plugin's cost-tracking-setup.md.
 .envrc
+
+# This repo's own dogfooding config — carries real, machine-local bot/app identifiers
+# (GitHub App clientId/appName/installationId + private-key path). Same per-machine class
+# as the ignored paths above; must never ship in the public marketplace (trace gate denylists
+# these tokens). Keep it on disk locally for self-consumption runs; do not version it.
+.claude/second-shift.config.json

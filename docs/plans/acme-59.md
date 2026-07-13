@@ -20,7 +20,7 @@ Run `2026-07-12T174135Z-Mac-9f9e387b` (this issue) is the working precedent: a d
 | 2 | Enum value fate | Keep `non-main-base-autonomous`; update trigger text only | codebase-derived | Renaming forces the generate-and-diff cycle (`tools/gen-statectl-validators.sh`, selftest drift check) for zero behavioral gain. |
 | 3 | WARN predicates | Clean non-base branch → silent; dirty tree → WARN + proceed; pin unestablishable → fail closed | codebase-derived | Matches the issue's observed-instance analysis; avoids WARN noise on idle machines. |
 | 4 | Pin-worktree teardown | Best-effort immediately after Stage 1 completes; guaranteed at Stage 10 cleanup | codebase-derived | Mirrors the existing persisted-`worktreePath` removal contract in `stages/10-cleanup.md`. |
-| 5 | be-fe-pair pinning | Deferred to the dual-target program (#48 lineage) | deferred | Dual-target Stage-3..7 work is mid-flight; adding per-repo pins now would collide with it. |
+| 5 | be-fe-pair pinning | Deferred to the dual-target program (#48 series) | deferred | Dual-target Stage-3..7 work is mid-flight; adding per-repo pins now would collide with it. |
 
 ## Affected files
 
