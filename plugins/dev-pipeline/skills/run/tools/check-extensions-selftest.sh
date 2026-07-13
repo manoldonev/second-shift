@@ -1,6 +1,11 @@
 #!/usr/bin/env bash
 # Selftest for check-extensions.sh: known names pass; a typo'd/unknown file fails closed.
 set -euo pipefail
+# Hermetic hygiene: a dev-pipeline Stage-6 verify run exports pipeline seam vars
+# (SECOND_SHIFT_CONFIG, BRANCH_PREFIX, …) into the test command, and the tools under
+# test honor them as overrides — which would clobber this selftest's own fixtures.
+# Unset them so the selftest controls its environment regardless of the caller (#34).
+unset SECOND_SHIFT_CONFIG SECOND_SHIFT_REPO_ROOT SECOND_SHIFT_EXTENSION_MANIFEST BRANCH_PREFIX
 HERE="$(cd "$(dirname "$0")" && pwd)"
 CHECK="$HERE/check-extensions.sh"
 FAILS=0
