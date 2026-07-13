@@ -71,6 +71,11 @@ consumer with an empty config; the migration notes below are only for consumers 
   selftest are untouched). Stage 10 removes a surviving pin worktree as the crash backstop. New
   `tools/intake-readroot-selftest.sh` pins the seam's load-bearing tokens in the green gate.
   `eval-criteria.md` criterion 1 rewords to the pin posture (wrong-repo/branch/diff detection unchanged).
+- **Hermetic-selftest env hygiene (#34, found while dogfooding).** A Stage-6 verify run exports pipeline
+  seam vars (`SECOND_SHIFT_CONFIG`, `BRANCH_PREFIX`) into the test command; the tools under test honor them
+  as documented overrides, which clobbered the fixtures of four hermetic selftests (`check-extensions`,
+  `preflight`, `statectl`, `slice-derivation`) — spuriously red under the pipeline while green in CI. Each
+  now `unset`s the seam vars at its top so it controls its own environment. No tool/verifyctl behavior changed.
 
 ### `dev-pipeline` 2.2.4 → 2.2.5
 - **#1 — persist a Stage-1 pre-flight attestation and gate Stage-1 completion on it.** Converts eval criterion 1
@@ -94,11 +99,31 @@ consumer with an empty config; the migration notes below are only for consumers 
 - **#59 (docs) — intake fan-out arg contract gains `readRoot`.** The intake-orchestrator transport
   description now documents the optional pinned-read-surface arg the dev-pipeline passes from Step 1.P.
 
+### `review-toolkit` 2.1.2 → 2.1.3
+- **Hermetic-selftest env hygiene (#34).** `check-review-context-selftest.sh` now unsets the pipeline seam
+  vars (`SECOND_SHIFT_CONFIG` et al.) at its top — a leaked ambient `SECOND_SHIFT_CONFIG` (exported by a
+  dev-pipeline Stage-6 verify run) previously clobbered its fixture config. Same class of fix as the four
+  dev-pipeline selftests above; no reviewer behavior changed.
+
 ### `second-shift` 1.3.1 → 1.4.0
 - **Onboard Step 8.5 now runs the preflight as the finish line** (resolves the dev-pipeline install path via
   `claude plugin list --json` — never a cache path from memory), surfacing the report verdict before the
   first-run instructions. The "until a read-only preflight ships" hedge is gone; `docs/onboarding.md` names
   preflight as the step between validation and the first real ticket.
+- **Feedback channel: `/second-shift:doctor --report` + issue forms (#34).** `doctor.sh` gains a `--report`
+  flag that assembles a paste-ready bundle in one command — the normal doctor output (captured from a nested
+  no-arg run), `claude plugin list --json`, the **auto-redacted** config (secret-shaped keys masked; `clientId`
+  / `appName` / `installationId` preserved), and the newest `.claude/pipeline-state/` excerpt (the
+  `.failureContext` a fail-fast abort writes). Always exits 0 — it assembles, it does not gate. Covered by two
+  new `doctor-selftest.sh` scenarios (`report-sections`, `report-redaction`) + a `config-with-secret.json`
+  fixture. For a zero-telemetry project, structured issues ARE the analytics.
+
+### Repo-local (not shipped in any plugin)
+- **Three GitHub issue forms (#34)** under `.github/ISSUE_TEMPLATE/` — `pipeline-aborted`,
+  `config-lint-disagreement`, `review-false-positive` — YAML issue forms (so evidence fields are `required`),
+  each asking for the `/second-shift:doctor --report` bundle plus its scenario-specific evidence, with a
+  `config.yml` chooser (blank issues stay enabled). New dependency-free `tests/issue-forms-selftest.sh`
+  structurally validates them (grep + optional `ruby -ryaml`; GitHub's form schema isn't locally validatable).
 
 ## v2.1.8 — /second-shift:local-dev-refresh (release)
 

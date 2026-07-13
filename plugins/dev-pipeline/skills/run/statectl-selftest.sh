@@ -14,6 +14,11 @@
 # Exit code = number of failed tests (0 = all pass).
 
 set -uo pipefail
+# Hermetic hygiene: a dev-pipeline Stage-6 verify run exports pipeline seam vars
+# (SECOND_SHIFT_CONFIG, BRANCH_PREFIX, …) into the test command, and the tools under
+# test honor them as overrides — which would clobber this selftest's own fixtures.
+# Unset them so the selftest controls its environment regardless of the caller (#34).
+unset SECOND_SHIFT_CONFIG SECOND_SHIFT_REPO_ROOT SECOND_SHIFT_EXTENSION_MANIFEST BRANCH_PREFIX
 
 # Sibling plugin files resolve against this script's own dir (skills/run/).
 # Post-pluginization the scripts no longer live under a consumer .claude tree.

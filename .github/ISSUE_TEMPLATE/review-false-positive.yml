@@ -1,0 +1,37 @@
+name: Review false positive
+description: A review-toolkit reviewer flagged something that isn't a real problem.
+title: "[review-fp]: "
+labels: ["feedback", "review-false-positive"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Reviewers are advisory and occasionally wrong. Paste the exact finding, the code under dispute, and why it's a false positive so we can tune the rubric.
+  - type: textarea
+    id: finding
+    attributes:
+      label: The reviewer finding you're disputing
+      description: Paste it verbatim — reviewer/agent name, the finding text, and its confidence.
+    validations:
+      required: true
+  - type: textarea
+    id: code-under-dispute
+    attributes:
+      label: Code under dispute
+      description: A file:line, the diff hunk, or a PR link the finding points at.
+    validations:
+      required: true
+  - type: textarea
+    id: why-fp
+    attributes:
+      label: Why it's a false positive
+      description: What the reviewer missed or misread.
+    validations:
+      required: true
+  - type: textarea
+    id: doctor-report
+    attributes:
+      label: /second-shift:doctor --report output (environment context)
+      description: Optional but helpful — the plugin versions/config the review ran against.
+    validations:
+      required: false
