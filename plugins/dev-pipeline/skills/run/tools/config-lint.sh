@@ -129,10 +129,19 @@ ERRORS=$(jq -r '
             "gates: unknown keys: " + (((keys) - ["mutation","costTracking","figma","apiTests"]) | join(", ")))
       + (to_entries | map(select(.key == "mutation") | err((.value | type) != "boolean"; "gates." + .key + ": must be boolean")) | add // [])
     )
-  + (if (.design != null) then (.design |
+  + (if (.design != null) then ((.topology.repos // {} | keys) as $repoIds | .design |
       err((type) != "object"; "design: must be object")
-      + err(((keys) - ["provider"]) != []; "design: unknown keys")
+      + err(((keys) - ["provider","liveRender"]) != []; "design: unknown keys")
       + err((.provider? // "") | IN("figma","claude-design") | not; "design.provider must be figma|claude-design")
+      + (if (.liveRender != null) then (.liveRender |
+          err((type) != "object"; "design.liveRender: must be object")
+          + err(((keys) - ["command","cwd","readyProbe"]) != []; "design.liveRender: unknown keys")
+          + err((.command? // "") == ""; "design.liveRender.command: required")
+          + err((.command? != null) and ((.command | type) != "string"); "design.liveRender.command: must be string")
+          + err((.cwd? != null) and ((.cwd | type) != "string"); "design.liveRender.cwd: must be string")
+          + err((.cwd? != null) and ((.cwd | type) == "string") and ($repoIds != []) and ((.cwd as $c | $repoIds | index($c)) == null); "design.liveRender.cwd: not a topology.repos id")
+          + err((.readyProbe? != null) and ((.readyProbe | type) != "string"); "design.liveRender.readyProbe: must be string")
+        ) else [] end)
     ) else [] end)
   + (if (.stageWorkflows != null) then (.stageWorkflows |
       err((type) != "array"; "stageWorkflows: must be array")

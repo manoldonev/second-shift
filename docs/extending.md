@@ -135,7 +135,7 @@ An opt-in axis, off unless the key is present:
 { "design": { "provider": "figma" } }        // or "claude-design"
 ```
 
-`figma` selects the figma-faithful skills and requires a Figma MCP connection; `claude-design` selects the design-faithful / design-sync path and requires DesignSync. Same fail-closed posture as every gate: if the provider's prerequisite is missing at run time, the design steps fail closed rather than degrading silently. Absent key = a run behaves exactly like a non-design run. The design-system reference itself (component catalog, token roles) is knowledge — it lives in `.claude/second-shift/design-tokens/*.md`, an extension file per §3.4.
+`figma` selects the figma-faithful skills and requires a Figma MCP connection; `claude-design` selects the design-faithful / design-sync path and requires DesignSync. Same fail-closed posture as every gate: if the provider's prerequisite is missing at run time, the design steps fail closed rather than degrading silently. Absent key = a run behaves exactly like a non-design run. The design-system reference itself (component catalog, token roles) is knowledge — it lives in `.claude/second-shift/design-tokens/*.md`, an extension file per §3.4. To make the Stage-5 live-render verify gate actually execute (a repo-owned render command the gate screenshots through), add the optional `design.liveRender` block — see [`live-render.md`](live-render.md).
 
 ### 3.6 `stageWorkflows` — a blocking gate owned by you (EP-6)
 
