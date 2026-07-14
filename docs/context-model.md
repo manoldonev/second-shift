@@ -48,6 +48,8 @@ The failure mode this catches: a woven, sole-authored blob that *looks* load-bea
 
 Plugin agents additionally read the **extension files** documented in [`extension-points.md`](extension-points.md) (blocker-mutant lists, domain security rules, review context) — those are layer 3 exposed at fixed, documented paths precisely so layer-0 agents can consume them without knowing the repo's doc layout. Extensions are additive-only; disabling generic behavior happens in config (layer 1), where it's auditable.
 
+One staleness-rule exception inside that surface: **severity-downgrading calibration claims** (maturity prose reviewers honor as waivers) don't follow the Observed sub-kind's "pruned rarely" rule — they carry a mandatory expiry via the fenced `second-shift-claims` block (see `extension-points.md`), because a stale waiver keeps suppressing findings after the code moves.
+
 ## Layer 2: the org/platform overlay (future)
 
 The named gap. Knowledge shared across an organization's repos but proprietary to it — platform-library conventions, internal SDK playbooks, shared infrastructure patterns, org-wide review rules. Without this layer it gets duplicated per repo (observed in the wild: the same platform-SDK playbook vendored near-identically in two sibling repos — the same disease this marketplace cures for tooling, one layer up).

@@ -112,6 +112,47 @@ drift apart. Two authoring consequences:
   one-line context-coverage summary (which reviewers are running degraded) and never affects
   the exit code.
 
+### Verified calibration claims (`second-shift-claims`)
+
+Maturity-calibration claims are severity waivers — security-reviewer downgrades Criticals to
+`[Pre-existing]` on their word — and prose does not expire on its own. Declare every
+severity-downgrading claim in a fenced, machine-parsed block (fence-tag anchored, so it works
+in any `.claude/second-shift/**/*.md` regardless of heading layout):
+
+````markdown
+```second-shift-claims
+- id: no-auth-system
+  claim: "No auth system exists yet; hardcoded userId placeholder"
+  reverify-by: 2026-10-01            # MANDATORY, date-form YYYY-MM-DD
+  verified-against: v2.3.0           # optional ref: what was checked when last blessed
+  probe: pattern-absent:"AuthGuard|@CurrentUser|passport" in apps/api/src   # optional
+```
+````
+
+`claims-lint.sh` (dev-pipeline) evaluates the blocks at every pipeline pre-flight, inside
+onboarding `preflight.sh`, and behind the doctor's quiet summary line. The contract:
+
+- **`reverify-by` is mandatory and load-bearing; probes are optional accelerators.** Negative-existence
+  claims cannot be proven by grep (auth landing as middleware keeps a string probe green), so
+  the expiry is the guard; a probe only accelerates staleness discovery. Date-form only — a
+  version/ref form has no defined "current" to compare; record the ref in `verified-against`,
+  which makes re-blessing a reviewable diff (extending the date names what was re-checked).
+- **Probe DSL, never shell:** `path-exists:<glob>` | `path-absent:<glob>` |
+  `pattern-absent:<ere> in <target>`. Args are literal find/grep inputs — arbitrary command
+  strings are parse failures; extensions gain no execution surface. Every probe pairs an
+  applicability assertion: the probed root must exist, so a moved tree reports `probe-broken`,
+  never a silent pass.
+- **Severity by failure class:** expired `reverify-by` → pre-flight **FAIL** naming the claim id
+  (regardless of probe outcome — a passing probe never suppresses the expiry); failing probe →
+  loud **WARN** with remediation (re-verify and edit the prose — date-bumping without a prose
+  change is an audit smell, and a failing probe can coexist with a still-correct claim);
+  vanished probe target → **`probe-broken` WARN**.
+- **A pass never mints evidence.** Output is `not-yet-contradicted`, never "verified" — the
+  mechanism adds ways to go red, none to go green (the extending.md axiom).
+- **Quiet:** probe-less claims surface as ONE summary line (count + slugs), not per-run nagging.
+- **Dual-target topologies:** probes evaluate in the repo whose extension file declares them;
+  cross-repo claims are expiry-only.
+
 
 ## Cross-cutting tool contracts
 

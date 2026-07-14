@@ -6,6 +6,24 @@ consumer with an empty config; the migration notes below are only for consumers 
 
 ## v2.4.2 (in progress)
 
+### `dev-pipeline` 2.2.8 → 2.2.9
+- **Verified calibration claims — expiry + declarative probes (#68).** New `claims-lint.sh`: severity-downgrading
+  maturity claims declared in fenced `second-shift-claims` blocks under `.claude/second-shift/**/*.md` carry a
+  MANDATORY date-form `reverify-by`; an expired or malformed claim FAILs the per-run pipeline pre-flight (new
+  step 0c) and onboarding `preflight.sh`. Optional declarative probe DSL (`path-exists:` / `path-absent:` /
+  `pattern-absent:<ere> in <target>`) — literal find/grep args, never eval; failing probe = WARN with remediation,
+  vanished probe root = `probe-broken` WARN, a passing probe reports `not-yet-contradicted` (never "verified").
+  Fixture + selftest triad mirrors config-lint. Contract: `docs/extension-points.md` "Verified calibration claims".
+  Migration: none — no claims fences reproduces prior behavior byte-for-byte.
+
+### `second-shift` 1.4.3 → 1.4.4
+- doctor: quiet `claims-lint` summary line (claim count + probe-less slugs) when calibration claims exist;
+  FAILs when a claim is expired/malformed (#68).
+
+### `review-toolkit` 2.1.5 → 2.1.6
+- security-reviewer: Maturity calibration now points at the `second-shift-claims` contract — a claim past its
+  `reverify-by` is not honored for `[Pre-existing]` downgrades when a claims block is present (#68).
+
 ### `review-toolkit` 2.1.4 → 2.1.5
 - **Review-context section catalog + exact-name lint (#67).** `scripts/section-catalog.txt` is the
   machine-readable source of truth for the named `review-context.md` sections reviewers key on

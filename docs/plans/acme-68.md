@@ -18,7 +18,7 @@ Expiry × probe matrix (explicit, closing the spec ambiguity): an expired `rever
 
 - Consumers without `.claude/second-shift/` (or with no claims fences) see byte-for-byte current behavior: the lint exits 0 silently. Missing extension = generic behavior.
 - No config keys are added; the fence is opt-in inside already-manifest'd extension files, so `extension-manifest.txt` and `config-lint.sh` need no changes.
-- The doctor quiet line does not evaluate probes (cross-plugin call from second-shift → dev-pipeline is not a dependency we can assume installed); it grep-counts fences and probe-less entries only.
+- The doctor quiet line evaluates via `claims-lint.sh` resolved from the dev-pipeline install path doctor already computes for config-lint, with a graceful skip when dev-pipeline is not installed — no new cross-plugin dependency class.
 - macOS bash 3.2 compatibility required for all new shell (repo convention; `preflight.sh:44`).
 
 ## Decision Ledger
@@ -29,8 +29,9 @@ Expiry × probe matrix (explicit, closing the spec ambiguity): an expired `rever
 | reverify-by form | Date-only in v1; verified-against ref recorded, never compared | codebase-derived (no defined current-version source exists in a consumer repo) |
 | Scanned surface | All .claude/second-shift/**/*.md, fence-tag anchored | codebase-derived (extension-manifest.txt bounds the file set; fence is opt-in per spec point 5) |
 | Probe grammar | Colon-form verbs; ERE dialect via grep -E; pattern-absent takes an `in <target>` clause | codebase-derived (matches spec DSL text; ERE is the repo shellcheck-era default) |
-| Doctor surface | grep-count summary line, no DSL evaluation | codebase-derived (second-shift plugin cannot assume dev-pipeline is installed) |
+| Doctor surface | Invoke claims-lint via the doctor-resolved dev-pipeline install path (the section-7 config-lint idiom); graceful skip when dev-pipeline is absent | codebase-derived (doctor.sh already resolves DP_PATH for config-lint — invoke-not-duplicate beats a parallel grep counter) |
 | CHANGELOG heading | Entries added under an Unreleased heading; release names the marketplace version | deferred (release-time decision owned by /release) |
+| cadenza migration boundary | Out of scope for this repo PR; owning follow-up in the cadenza consumer repo | codebase-derived (single-repo pipeline; a cross-repo same-PR deliverable is not satisfiable) |
 
 ## Affected files
 
@@ -72,7 +73,7 @@ Expiry × probe matrix (explicit, closing the spec ambiguity): an expired `rever
 3. **`claims-lint-selftest.sh`** [NEW], mirroring `config-lint-selftest.sh`: pins `SECOND_SHIFT_CLAIMS_TODAY`, asserts per fixture — (a) `expired/` exits nonzero naming the id; matrix: `expired-with-passing-probe/` still FAILs; (b) `probe-failing/` exits 0 with WARN containing the remediation text; (c) `probe-broken/` exits 0 with `probe-broken`/`vanished` wording and without pass wording for that probe; (d) `passing/` exits 0 and output contains no case-insensitive "verified"; `injection/` + `version-form/` + `missing-reverify/` + `parse-error/` exit nonzero with the expected messages.
 4. **Wire `preflight.sh`**: Section 1 (config gates) gains a claims-lint invocation after `check-extensions.sh` — rc>0 → `bad` with tail lines into the report; rc=0 → `ok` with the summary line (WARNs ride through to the report).
 5. **Wire the per-run gate**: dev-pipeline `SKILL.md` pre-flight gains step (0c) invoking `claims-lint.sh .` fail-closed (mirrors step (0b) shape); WARN-only outcomes proceed. Brief prose: what FAILs (expired / parse), what WARNs (failing or broken probes).
-6. **Doctor quiet line**: `doctor.sh` gains a fence-aware grep count — when claims exist, print one line: claim count + probe-less slugs; nothing when none. Extend `doctor-selftest.sh` with one fixture assertion only if the existing fixture harness makes it cheap; otherwise note the gap in the selftest header.
+6. **Doctor quiet line**: `doctor.sh` invokes `claims-lint.sh` via its already-resolved dev-pipeline install path (the section-7 config-lint idiom) — when claims exist, one summary line (claim count + probe-less slugs), FAIL on expired/malformed, graceful skip when dev-pipeline is absent. `doctor-selftest.sh` gains two scenarios (quiet line + expired FAIL) using the real claims-lint copied into the fake install tree.
 7. **`security-reviewer.md` pointer**: in Maturity calibration, add that severity-downgrading calibration claims are expected in the `second-shift-claims` block with an unexpired `reverify-by`; a claim past its expiry is not honored for `[Pre-existing]` downgrades (treat as absent — enforcement lives in the pre-flight lint). Additive; severity floors untouched.
 8. **Docs**: `extension-points.md` — the block contract (grammar, matrix table, failure classes, quiet-surface rule, dual-target note: probes evaluate in the declaring repo, cross-repo claims expiry-only); `extending.md` — one axiom paragraph; `context-model.md` — one staleness-rule sentence for calibration claims.
 9. **Versions + CHANGELOG**: bump the three plugin.json versions (re-derive latest from main at commit time); add per-plugin entries under an Unreleased heading.
