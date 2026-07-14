@@ -1,5 +1,7 @@
 # Stage 7. Doc Update (in-session, no Task dispatch)
 
+**First, mark the stage started** — per the global Stage write convention (SKILL.md), Stage 7 begins with `statectl set-stage "$ISSUE_NUMBER" 7 --status started` BEFORE the doc scan + any doc-update commit below. The scan and its surgical diffs take real time, so deferring the started-write until the closing checkpoint collapses `stages.7` to a 0:00 window with the doc work mis-attributed to the Stage 6→7 gap (a state-discipline deviation `/pipeline-retro` flags — observed on the #67 run). Write `started` first.
+
 In-session structured pass — no `Task` hop. Scans `.project/` docs (and `CLAUDE.md`, `.claude/agents/`) for references to files or APIs touched in Stage 5, identifies stale documentation, and applies surgical diffs.
 
 Full protocol — change-area → affected-docs map, stale criteria, severity classification, report template, and pipeline-level handling — lives in [`doc-update.md`](../doc-update.md). On invocation, read that file and follow it; do not re-derive the protocol from this section.
