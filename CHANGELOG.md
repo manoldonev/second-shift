@@ -4,7 +4,7 @@ All notable changes to the second-shift marketplace. Versions are per-plugin (`p
 this file tracks the marketplace release. `configVersion` stays `const 1` — v2 is fully backward-compatible for a
 consumer with an empty config; the migration notes below are only for consumers using the changed features.
 
-## (in progress)
+## v2.3.0 — design.liveRender: the live-render verify gate executes
 
 ### `dev-pipeline` 2.2.5 → 2.2.6
 - **`design.liveRender` — the Stage-5 live-render verify gate actually executes (#84).** New optional config
