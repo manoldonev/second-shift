@@ -115,5 +115,25 @@ ccout2="$(env "${ccenv[@]}" SECOND_SHIFT_REVIEW_TOOLKIT_ROOT="" bash "$DOCTOR" -
 grep -q "review-toolkit not resolved" <<< "$ccout2" && check "context-coverage unresolved -> fallback line" 0 \
   || { check "context-coverage unresolved -> fallback line" 1; echo "$ccout2" | grep -A2 'context coverage' | sed 's/^/      /'; }
 
+# Verified calibration claims quiet line (#68): the REAL claims-lint.sh (sibling
+# plugin in this repo checkout) is copied into the fake tree — invoke-not-duplicate,
+# same posture as the config-lint stub above. Runs AFTER the scenarios above so the
+# copy cannot alter their claims-free expectations.
+REAL_CLAIMS="$HERE/../../../../dev-pipeline/skills/run/tools/claims-lint.sh"
+if [[ -f "$REAL_CLAIMS" ]]; then
+  cp "$REAL_CLAIMS" "$INSTALL/dev-pipeline/2.1.0/skills/run/tools/claims-lint.sh"
+  mkdir -p "$TMP/claims-ok/.claude/second-shift"
+  # shellcheck disable=SC2016 # literal fence content — backticks must not expand
+  printf -- '```second-shift-claims\n- id: no-auth-system\n  claim: "fixture claim"\n  reverify-by: 9999-12-31\n```\n' \
+    > "$TMP/claims-ok/.claude/second-shift/review-context.md"
+  scenario claims-ok      plugin-list-green.json   settings-green.json     marketplace-list-pinned.json  0 "claims-lint: 1 claim(s)"
+  mkdir -p "$TMP/claims-expired/.claude/second-shift"
+  # shellcheck disable=SC2016 # literal fence content — backticks must not expand
+  printf -- '```second-shift-claims\n- id: no-auth-system\n  claim: "fixture claim"\n  reverify-by: 2020-01-01\n```\n' \
+    > "$TMP/claims-expired/.claude/second-shift/review-context.md"
+  scenario claims-expired plugin-list-green.json   settings-green.json     marketplace-list-pinned.json  1 "expired or malformed severity-downgrading claim"
+else
+  echo "  - claims-lint scenarios skipped (dev-pipeline sibling not in this checkout)"
+fi
 if [[ "$FAILS" -gt 0 ]]; then echo "doctor selftest: $FAILS FAILURE(S)"; exit 1; fi
 echo "doctor selftest: all green"

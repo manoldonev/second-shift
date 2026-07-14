@@ -70,7 +70,7 @@ and `tracker.branchPrefix` (branch namespace — `claude/acme-` github, `jdoe/` 
 
 **Verify all of the above in one shot with [`tools/pipeline-doctor.sh`](./tools/pipeline-doctor.sh)** — run it before the first pipeline run on a new machine and after any environment change (gh upgrade, key rotation, OS update). It checks core tools, gh auth + the two known gh feature breakages (Projects-classic GraphQL deprecation, missing `pr list --head`), bot-wrapper token minting, required labels, worktree dir, cost-tracking preconditions, AND runs the full statectl selftest so the state machine (including `mark-failed` failure paths) is proven on the machine that will depend on it, plus the `null-reviewer-selftest.mjs` that proves the Stage 8 dark-reviewer retry contract (and that `code-review.mjs` still carries its load-bearing tokens). Exit code = number of failed checks; WARN lines are degraded-but-runnable.
 
-**Onboarding finish line — [`tools/preflight.sh`](./tools/preflight.sh) (read-only).** Where doctor verifies the *environment*, preflight verifies the *whole first contact* without a mutating run: it echoes the resolved targets (tracker/repos/branches + string-only worktree paths — no `statectl init`, no `git worktree add`), runs the config gates (`config-lint.sh`, `check-extensions.sh`), invokes `pipeline-doctor.sh` as its environment section, performs ONE tracker READ (no claim — `gh api issues/<key>` with a ticket key, the queue head via `gh issue list` without one; the jira adapter SKIPs with a note since its fetch is session-side MCP), executes every non-null command lane once in the current checkout (source-mutating lanes — `format` configured as a string, `lint` with `lintAutofixes: true` — are SKIPped with a note, never run), and writes `.claude/pipeline-state/preflight-report.md`. Zero tracker/git/remote mutations, proven by `preflight-selftest.sh`'s zero-write suite. `/second-shift:onboard` invokes it as its final step; run it manually with `bash "${CLAUDE_PLUGIN_ROOT}/skills/run/tools/preflight.sh" [<ticket-key>]`. Exit code = number of failed checks (doctor convention).
+**Onboarding finish line — [`tools/preflight.sh`](./tools/preflight.sh) (read-only).** Where doctor verifies the *environment*, preflight verifies the *whole first contact* without a mutating run: it echoes the resolved targets (tracker/repos/branches + string-only worktree paths — no `statectl init`, no `git worktree add`), runs the config gates (`config-lint.sh`, `check-extensions.sh`, `claims-lint.sh`), invokes `pipeline-doctor.sh` as its environment section, performs ONE tracker READ (no claim — `gh api issues/<key>` with a ticket key, the queue head via `gh issue list` without one; the jira adapter SKIPs with a note since its fetch is session-side MCP), executes every non-null command lane once in the current checkout (source-mutating lanes — `format` configured as a string, `lint` with `lintAutofixes: true` — are SKIPped with a note, never run), and writes `.claude/pipeline-state/preflight-report.md`. Zero tracker/git/remote mutations, proven by `preflight-selftest.sh`'s zero-write suite. `/second-shift:onboard` invokes it as its final step; run it manually with `bash "${CLAUDE_PLUGIN_ROOT}/skills/run/tools/preflight.sh" [<ticket-key>]`. Exit code = number of failed checks (doctor convention).
 
 ## Pre-flight: Environment gate
 
@@ -104,6 +104,16 @@ fi
 # when neither an extension dir nor config references exist.
 bash "${CLAUDE_PLUGIN_ROOT}/skills/run/tools/check-extensions.sh" . \
   || { echo "[pre-flight] FAIL: check-extensions rejected the repo (a typo'd .claude/second-shift/ extension file or an unresolvable EP-6/EP-7 reference — see errors above)" >&2; exit 1; }
+
+# (0c) Verified calibration claims (claims-lint.sh) — severity-downgrading claims in
+# `second-shift-claims` fences under .claude/second-shift/ carry a mandatory
+# reverify-by expiry; an EXPIRED or malformed claim is a standing severity waiver
+# and FAILS the run here (fail-closed, per-run — onboarding-time preflight.sh alone
+# would never catch post-onboarding drift). Failing/broken probes are WARNs and
+# proceed; no claims = silent no-op. Contract: docs/extension-points.md
+# "Verified calibration claims".
+bash "${CLAUDE_PLUGIN_ROOT}/skills/run/tools/claims-lint.sh" . \
+  || { echo "[pre-flight] FAIL: claims-lint rejected the repo (an expired or malformed severity-downgrading claim — re-verify the claim, edit the prose, set a new reverify-by; see errors above)" >&2; exit 1; }
 
 # The remaining github-adapter checks below apply only when config `tracker.type: github`
 # (a jira repo has no bot wrapper / label queue — skip 1 and 2).

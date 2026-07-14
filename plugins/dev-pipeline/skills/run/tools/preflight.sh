@@ -138,6 +138,19 @@ else
     warn "check-review-context-sections: review-toolkit not resolved — section lint skipped (set SECOND_SHIFT_REVIEW_TOOLKIT_ROOT or install review-toolkit@second-shift)"
   fi
 fi
+# claims-lint runs REGARDLESS of config presence — calibration claims live in
+# extension files, which can exist without a config. Silent exit 0 = no claims.
+if out=$(bash "$SCRIPT_DIR/claims-lint.sh" "$REPO_ROOT" 2>&1); then
+  if [[ -n "$out" ]]; then
+    ok "claims-lint: $(tail -1 <<< "$out" | sed 's/^\[claims-lint\] //')"
+    while IFS= read -r l; do case "$l" in *"WARN"*) say "[preflight]        $l" ;; esac; done <<< "$out"
+  else
+    ok "claims-lint: no calibration claims declared"
+  fi
+else
+  bad "claims-lint rejected the repo (expired or malformed severity-downgrading claims):"
+  while IFS= read -r l; do say "[preflight]        $l"; done < <(tail -10 <<< "$out")
+fi
 
 # --- Section 2: Target Confirmation echo (read-only) ------------------------------
 # The resolved config the first real run will operate on — tracker, repos, branch
