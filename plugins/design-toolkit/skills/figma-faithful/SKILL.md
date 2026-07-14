@@ -216,8 +216,10 @@ misses — verify them against the parent, not against the file you started from
 
 **Live-render verify (when a dev server is reachable — the strongest check).** The token table
 and a Figma-blind code reviewer cannot see layout _behavior_, _placement_, or _default state_ in
-the running app. When a dev server is up, render the implemented screen (e.g. with a headless Playwright
-script at the feature URL), screenshot it, and compare against the cached Figma frame for:
+the running app. When the consumer config defines `design.liveRender`, its command is the canonical
+render mechanism (the dev-pipeline Stage-5 gate runs it — marketplace `docs/live-render.md`);
+otherwise, when a dev server is up, render the implemented screen (e.g. with a headless Playwright
+script at the feature URL). Screenshot it and compare against the cached Figma frame for:
 placement (each control under the right container — a field in the right rail, not the content
 column), sizing/fill (no unintended stretch on an incomplete row; fixed dimensions hold —
 measure the rendered rects where decisive), truncation, and default/empty state (no field

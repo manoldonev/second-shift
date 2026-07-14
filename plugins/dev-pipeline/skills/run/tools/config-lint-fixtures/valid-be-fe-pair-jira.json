@@ -52,7 +52,12 @@
     "mutation": true
   },
   "design": {
-    "provider": "figma"
+    "provider": "figma",
+    "liveRender": {
+      "command": "yarn render:verify --route {route} --out {out}",
+      "cwd": "fe",
+      "readyProbe": "http://localhost:3000/system/status"
+    }
   },
   "stageWorkflows": [
     {

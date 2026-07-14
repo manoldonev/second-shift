@@ -68,7 +68,9 @@ In the repo's `.claude/settings.json`:
 
 **One supported artifact: the full suite, pinned to a release tag** — exactly what
 `/second-shift:onboard` writes. `design-toolkit` is the single conditional, offered when the
-repo is UI-shaped or a design MCP is connected. **One documented downgrade:** review-only
+repo is UI-shaped or a design MCP is connected (accepting it also offers the optional
+`design.liveRender` render-command block when a harness is detected — [`live-render.md`](live-render.md)).
+**One documented downgrade:** review-only
 (`enabledPlugins` with just `review-toolkit@second-shift: true`) — *community-supported, not
 CI-tested*. Everything else is possible via `enabledPlugins: false` and yours to own.
 

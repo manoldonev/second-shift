@@ -10,7 +10,7 @@ Machine contract: [`schema/second-shift.config.schema.json`](../schema/second-sh
 | `reviewers` | Registry deltas (`add`/`remove`) + per-reviewer `modelOverrides` | a repo-local domain reviewer; FE repos dropping db-reviewer; security-reviewer opus-vs-sonnet split |
 | `paths` | plans dir, pipeline-state dir | defaults match all three forks |
 | `gates` | `mutation` — defaults off; `false` is an explicit off-switch for the Stage-5 unit-test mutation gate even when `unitTestScope` is set | disabling mutation testing on a repo that has a `unitTestScope` |
-| `design` | `provider`: `figma` \| `claude-design` — the design-fidelity axis; key absent = off; prerequisites missing at run time fail closed | a Figma-MCP FE shop vs a Claude-Design (design-sync) shop |
+| `design` | `provider`: `figma` \| `claude-design` — the design-fidelity axis; key absent = off; prerequisites missing at run time fail closed. Optional `liveRender` `{ command, cwd?, readyProbe? }` arms the Stage-5 live-render verify gate with a repo-owned render command (`{route}`/`{out}` placeholders) — see [`live-render.md`](live-render.md) | a Figma-MCP FE shop vs a Claude-Design (design-sync) shop; a MIFE wiring `yarn render:verify` |
 
 Principles:
 

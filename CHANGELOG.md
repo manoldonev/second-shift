@@ -4,6 +4,25 @@ All notable changes to the second-shift marketplace. Versions are per-plugin (`p
 this file tracks the marketplace release. `configVersion` stays `const 1` — v2 is fully backward-compatible for a
 consumer with an empty config; the migration notes below are only for consumers using the changed features.
 
+## (in progress)
+
+### `dev-pipeline` 2.2.5 → 2.2.6
+- **`design.liveRender` — the Stage-5 live-render verify gate actually executes (#84).** New optional config
+  block `design.liveRender = { command, cwd?, readyProbe? }`: `command` is a repo-owned render script with
+  `{route}`/`{out}` placeholders; the consumer harness owns boot/auth/screenshot and emits a PNG the gate
+  semantically diffs against the cached design frame. Config absent / probe failure / command failure all
+  degrade to `render-verify-unavailable` **with a detail** — non-blocking, exactly the pre-existing posture.
+  Schema + config-lint (+ fixtures/selftest), Stage-5 gate rewrite, state-schema vocabulary update, new
+  consumer guide `docs/live-render.md`. Migration: none — key absent reproduces prior behavior byte-for-byte.
+
+### `design-toolkit` 2.0.1 → 2.0.2
+- figma-faithful step-9 live-render note: when consumer config defines `design.liveRender`, its command is
+  the canonical render mechanism (#84).
+
+### `second-shift` 1.4.0 → 1.4.1
+- `/second-shift:onboard` design step: when design is accepted, detect a `render:verify`-shaped script in the
+  FE repo and offer a pre-filled `design.liveRender` block (#84).
+
 ## v2.2.0 — read-only preflight: the onboarding finish line
 
 ### `dev-pipeline` 2.1.8 → 2.2.0

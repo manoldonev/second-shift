@@ -79,6 +79,11 @@ Ask AT MOST one AskUserQuestion batch, containing ONLY (skip any that detection 
      `claude mcp list`): include design-toolkit? If yes, WHICH provider — emit top-level
      `design: { "provider": "figma" }` or `{ "provider": "claude-design" }`.
      Declined or not UI-shaped → NO `design` key at all (absent = off).
+     When design is accepted, also detect a render harness (#84): a `render:verify` script in
+     the FE repo's package.json (or a script whose usage names `--route`/`--out`). Detected →
+     offer `design.liveRender` pre-filled (`command: "yarn render:verify --route {route} --out {out}"`,
+     `cwd: <fe repo id>`); the operator may add `readyProbe`. Undetected or declined → omit the
+     `liveRender` key (the Stage-5 gate degrades to render-verify-unavailable; docs/live-render.md).
   6. reviewer deltas (`reviewers.add` for repo-local reviewer agents, `.remove` for shipped
      reviewers that don't fit — e.g. db-reviewer in an FE repo —, `.modelOverrides`).
      Recommended default: none. Emit the `reviewers` key ONLY when the answer is non-empty.

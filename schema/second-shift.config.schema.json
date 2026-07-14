@@ -202,6 +202,27 @@
           "type": "string",
           "enum": ["figma", "claude-design"],
           "description": "figma → figma-faithful skills + Figma-MCP prerequisite; claude-design → design-faithful/design-sync path + DesignSync prerequisite."
+        },
+        "liveRender": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["command"],
+          "description": "Arms the Stage-5 live-render verify gate with a repo-owned render command (#84). Key absent = the gate records render-verify-unavailable (unconfigured) exactly as before. Command failure stays non-blocking — the gate degrades with the failure detail, never mark-failed.",
+          "properties": {
+            "command": {
+              "type": "string",
+              "description": "Repo-owned render script with {route} and {out} placeholders, e.g. \"yarn render:verify --route {route} --out {out}\". {route} is the app-relative leaf below the feature mount path (the harness owns any shell/org prefix); the harness owns boot/auth/screenshot and must emit a PNG at {out}, exiting nonzero with a clear message on failure. See docs/live-render.md."
+            },
+            "cwd": {
+              "type": "string",
+              "description": "Topology repo id (topology.repos key) whose checkout the command runs in. Default: the fe repo when the topology has one, else the sole repo. The gate resolves it to the ticket's worktree, never the main checkout."
+            },
+            "readyProbe": {
+              "type": "string",
+              "format": "uri",
+              "description": "Optional URL curl-checked before spawning the command (e.g. a sibling BE health endpoint). Probe failure degrades fast with the probe detail instead of waiting out the render timeout."
+            }
+          }
         }
       }
     },
