@@ -1,0 +1,29 @@
+# second-shift review-context SECTION catalog — the machine-readable source of truth for
+# the named H2 sections the shipped reviewers key on in a consumer's
+# .claude/second-shift/review-context.md (and the per-reviewer review-context/<reviewer>.md
+# files). check-review-context-sections.sh lints a consumer's headings against this list;
+# docs/extension-points.md "Authoring the review-context surface" is the human-readable
+# mirror. A release selftest (check-review-context-sections-selftest.sh, the lockstep case)
+# fails if the catalog's active names and the docs template diverge.
+#
+# Format (pipe-separated, one section per line):
+#   <section-name> | <comma-separated readers> | <status>
+#     status = active                       (a live catalog section)
+#            | deprecated-alias-of:<name>   (a drifted spelling; <name> must be an active row)
+#   readers = effective-registry reviewer names (no plugin: prefix), or the sentinel `all`
+#             (every panel reviewer reads it, via review-lead).
+#
+# H1 title lines (`# ...`) are NEVER linted — only H2+ (`## ...`) headings. Sibling
+# discipline to tools/extension-manifest.txt (EP-3). Additions/renames are breaking-class:
+# check against known-consumer headings before release and list them in the release
+# What-breaks body (docs/releasing.md).
+Stack | performance-reviewer | active
+Database stack | db-reviewer | active
+Maturity stage | security-reviewer | active
+Architectural invariants & deliberate deviations | all | active
+Intentional complexity | complexity-reviewer | active
+Convention-required structure | maintainability-reviewer | active
+UI stack & design system | complexity-reviewer,a11y-reviewer | active
+Naming & structure conventions | db-reviewer,maintainability-reviewer | active
+Performance budgets | performance-reviewer | active
+Maturity calibration (MVP stage) | security-reviewer | deprecated-alias-of:Maturity stage
