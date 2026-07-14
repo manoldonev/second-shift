@@ -64,8 +64,11 @@ CONFIG="${SECOND_SHIFT_CONFIG:-$CONSUMER_ROOT/.claude/second-shift.config.json}"
 
 # Surface unused → clean, whatever the mode.
 if [ ! -f "$SHARED" ] && [ ! -d "$RC_DIR" ]; then
-    [ "$MODE" = "report" ] && echo "context-coverage: no review-context surface (clean)"
-    echo "check-review-context-sections: clean (no review-context surface)"
+    if [ "$MODE" = "report" ]; then
+        echo "context-coverage: no review-context surface (clean)"
+    else
+        echo "check-review-context-sections: clean (no review-context surface)"
+    fi
     exit 0
 fi
 

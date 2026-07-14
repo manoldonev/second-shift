@@ -101,6 +101,22 @@ emit_report() {
   if [[ -f "$conf" ]]; then redact_config "$conf"; else echo "(no config found at $conf)"; fi
   echo '```'
   echo
+  echo "### context coverage (review-context sections)"
+  echo '```'
+  # One informational line from the review-toolkit section lint (which reviewers run
+  # degraded). Resolve review-toolkit cross-plugin: env override -> pluglist installPath.
+  # Never affects doctor's exit code (this is --report mode, which always exits 0).
+  local rt_root="${SECOND_SHIFT_REVIEW_TOOLKIT_ROOT:-}"
+  if [[ -z "$rt_root" ]] && command -v jq >/dev/null 2>&1; then
+    rt_root="$(jq -r '[.[] | select(.id=="review-toolkit@second-shift")] | (sort_by(.lastUpdated // "") | last | .installPath) // empty' <<< "$pluglist" 2>/dev/null || true)"
+  fi
+  if [[ -n "$rt_root" && -x "$rt_root/scripts/check-review-context-sections.sh" ]]; then
+    bash "$rt_root/scripts/check-review-context-sections.sh" --report "$ROOT" 2>&1 || true
+  else
+    echo "(review-toolkit not resolved — section coverage unavailable)"
+  fi
+  echo '```'
+  echo
   echo "### pipeline-state excerpt (newest run)"
   echo '```json'
   state_excerpt

@@ -99,6 +99,23 @@ Ask AT MOST one AskUserQuestion batch, containing ONLY (skip any that detection 
         `needs-intake-review`, `in-progress`, `epic` (skip ones that already exist).
         Note on the screen: these six are shipped literals until the marketplace makes
         `stageParams.requiredLabels` authoritative end-to-end.
+  8. **`review-context.md` scaffold (accept-or-edit, never mandatory; default "later").**
+     Offer to scaffold a starter `.claude/second-shift/review-context.md` so reviewers key on
+     named sections instead of inferring from the diff. **The offer default is "later"** —
+     onboarding stays green without it. Hard rules if accepted:
+     - Emit **only sections whose content the human confirmed in this batch** — never a
+       TODO-bodied heading (`scaffold-review-context.sh` refuses empty bodies; a present-but-
+       hollow section is a fake policy reviewers quote back).
+     - **Never scaffold `## Maturity stage` with example text** — a maturity declaration is a
+       severity waiver; write it only from the human's real posture, else omit it.
+     - `detect.sh` detects tracker/topology/pkg-manager/lanes — **not** stack/ORM — so every
+       section body is elicited, not auto-filled; a value you can only guess goes in as a
+       pointer line, not a fabricated fact.
+     - Never regenerate: the tool refuses when the file already exists.
+     Section names + readers come from the catalog (`docs/extension-points.md` "Authoring the
+     review-context surface"). To write it, pipe confirmed H2 blocks to
+     `bash "<installPath>/skills/onboard/tools/scaffold-review-context.sh" <repo-root> --title "<repo>"`,
+     then run `check-review-context-sections.sh --preflight <repo-root>` to confirm it is clean.
 Then present the **complete draft as one accept-or-edit screen**: a JSONC block where every
 line carries a provenance comment, e.g.
     "baseBranch": "alpha",        // from origin/HEAD
