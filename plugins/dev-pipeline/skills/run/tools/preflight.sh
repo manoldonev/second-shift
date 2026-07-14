@@ -112,7 +112,10 @@ else
   # coverage --report line is informational and can never contribute to the exit code.
   RT_ROOT="${SECOND_SHIFT_REVIEW_TOOLKIT_ROOT:-}"
   if [[ -z "$RT_ROOT" ]] && command -v claude >/dev/null 2>&1 && command -v jq >/dev/null 2>&1; then
-    RT_ROOT=$(claude plugin list --json 2>/dev/null | jq -r '[.[] | select(.id=="review-toolkit@second-shift")] | (sort_by(.lastUpdated) | last | .installPath) // empty' 2>/dev/null || true)
+    # Same jq shape as doctor.sh's resolver (kept identical so the two cannot drift — the
+    # cross-plugin boundary means they can't share a sourced helper the way the review-toolkit
+    # scripts share _effective-registry.sh: each must FIND review-toolkit before sourcing it).
+    RT_ROOT=$(claude plugin list --json 2>/dev/null | jq -r '[.[] | select(.id=="review-toolkit@second-shift")] | (sort_by(.lastUpdated // "") | last | .installPath) // empty' 2>/dev/null || true)
   fi
   SECTION_LINT="$RT_ROOT/scripts/check-review-context-sections.sh"
   if [[ -n "$RT_ROOT" && -x "$SECTION_LINT" ]]; then

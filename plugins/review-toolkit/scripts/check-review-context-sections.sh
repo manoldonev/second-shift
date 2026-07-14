@@ -245,7 +245,7 @@ emit_alias() {
     while IFS='	' read -r al tgt file; do
         [ -z "$al" ] && continue
         local rel="${file#"$CONSUMER_ROOT"/}"
-        local msg="ALIAS: \"## $al\" in $rel is a drifted spelling of the catalog section \"## $tgt\" — rename it: sed -i '' 's/^## $al\$/## $tgt/' \"$rel\""
+        local msg="ALIAS: \"## $al\" in $rel is a drifted spelling of the catalog section \"## $tgt\" — rename the heading \"## $al\" to \"## $tgt\" in $rel"
         if [ "$MODE" = "preflight" ]; then echo "$msg" >&2; RC=1; else echo "check-review-context-sections: WARN — $msg" >&2; fi
     done < <(printf '%s' "$ALIAS_HITS")
 }

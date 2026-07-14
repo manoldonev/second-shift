@@ -201,6 +201,31 @@ run_preflight; rc=$?
 grep -q "extraLanes\[1\] (when-gate not evaluated — no diff at preflight)': green" "$BASE/out.log"
 assert "extraLanes run unconditionally with the when-gate note" "$?"
 
+# ---- run 9: section lint rejects a drifted (alias) review-context heading ------------
+write_config github
+printf '# Review context — fix\n\n## Maturity calibration (MVP stage)\nPre-auth MVP.\n' \
+  > "$FIX/.claude/second-shift/review-context.md"
+run_preflight; rc=$?
+[[ "$rc" -ge 1 ]] && _c=0 || _c=1; assert "section lint alias drift => nonzero exit (rc=$rc)" "$_c"
+grep -q "check-review-context-sections rejected the repo" "$BASE/out.log"
+assert "section lint alias drift surfaced as FAIL" "$?"
+# restore the clean fixture for any later run
+git -C "$FIX" checkout -- .claude/second-shift/review-context.md 2>/dev/null \
+  || printf '# Review context — fix\n\n## Stack\nNext.js + Postgres.\n' > "$FIX/.claude/second-shift/review-context.md"
+
+# ---- run 10: review-toolkit unresolved => section lint skips with a WARN, preflight green
+# Force the skip branch deterministically: empty env override AND a mock `claude` returning
+# [] so the pluglist fallback resolves nothing. (Runs 1-9 keep RT_TEST_ROOT set, so the
+# `-z RT_ROOT` guard short-circuits before claude is ever consulted there.)
+printf '#!/usr/bin/env bash\necho "[]"\n' > "$MOCKBIN/claude"; chmod +x "$MOCKBIN/claude"
+SECOND_SHIFT_REPO_ROOT="$FIX" PREFLIGHT_DOCTOR_CMD="bash $DOC_OK" \
+  SECOND_SHIFT_REVIEW_TOOLKIT_ROOT="" \
+  bash "$PREFLIGHT" >"$BASE/out.log" 2>&1; rc=$?
+grep -q "check-review-context-sections: review-toolkit not resolved" "$BASE/out.log"
+assert "unresolved review-toolkit => section lint skips with a WARN" "$?"
+[[ "$rc" -eq 0 ]] && _c=0 || _c=1; assert "section-lint skip does not fail preflight (rc=$rc)" "$_c"
+rm -f "$MOCKBIN/claude"
+
 echo "[self-test] $PASS passed, $FAIL failed"
 [[ "$FAIL" -eq 0 ]] || exit 1
 exit 0

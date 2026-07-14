@@ -182,6 +182,16 @@ else
     bad "AC-3: docs/extension-points.md not found at $DOCS (lockstep cannot run)"
 fi
 
+# ---- (8) --verbose surfaces novel headings + coverage in the default (mid-run) venue ----
+# Default mode suppresses OFF-CATALOG/coverage; --verbose must reveal both.
+RC=0; OUT="$(bash "$CHECK" --verbose "$TMP/r1" 2>&1)" || RC=$?
+if [ "$RC" -eq 0 ] && printf '%s\n' "$OUT" | grep -q 'OFF-CATALOG:' \
+   && printf '%s\n' "$OUT" | grep -q 'context-coverage:'; then
+    ok "--verbose surfaces novel headings + coverage in the default venue (suppressed without it)"
+else
+    bad "--verbose should reveal OFF-CATALOG + coverage in default mode (rc=$RC)"
+fi
+
 echo ""
 if [ "$FAILS" -eq 0 ]; then
     echo "check-review-context-sections-selftest: ALL PASS"

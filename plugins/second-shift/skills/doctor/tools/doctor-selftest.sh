@@ -31,8 +31,8 @@ report() { # $1 label, $2 config fixture, $3 extra-present (optional), $4 extra-
          DOCTOR_MARKETPLACE_LIST_FILE="$FIX/marketplace-list-pinned.json" DOCTOR_USER_SETTINGS="$TMP/empty-user-settings.json" \
          bash "$DOCTOR" --report 2>&1)" || rc=$?
   [[ "$rc" -eq 0 ]] || ok=0                              # report mode always exits 0
-  # Every bundle carries the four sections + the nested check run's summary line.
-  for want in "### doctor output" "### claude plugin list --json" "### redacted config" "### pipeline-state excerpt" "[doctor] summary:"; do
+  # Every bundle carries the five sections + the nested check run's summary line.
+  for want in "### doctor output" "### claude plugin list --json" "### redacted config" "### context coverage (review-context sections)" "### pipeline-state excerpt" "[doctor] summary:"; do
     grep -qF "$want" <<< "$out" || ok=0
   done
   [[ -z "${3:-}" ]] || grep -qF "$3" <<< "$out" || ok=0
@@ -96,5 +96,24 @@ if grep -qF "approach-failure-circuit-breaker" <<< "$sout" \
    && grep -qF '"ticketKey": "42"' <<< "$sout" \
    && ! grep -qF "no pipeline runs recorded" <<< "$sout"; then check "report-state-excerpt" 0
 else check "report-state-excerpt" 1; echo "$sout" | sed 's/^/      /' | head -20; fi
+
+# --report context-coverage section: resolved (real review-toolkit) emits a coverage line;
+# unresolved (env empty + fake-cache pluglist install path has no script) emits the fallback.
+RT_REAL="$(cd "$HERE/../../../../review-toolkit" 2>/dev/null && pwd || true)"
+ccroot="$TMP/cc"; mkdir -p "$ccroot/.claude/second-shift"
+cp "$FIX/lock-v1.json" "$ccroot/.claude/second-shift.lock.json"
+cp "$FIX/config-valid.json" "$ccroot/.claude/second-shift.config.json"
+sed -e "s#__ROOT__#$ccroot#g" -e "s#__INSTALL__#$INSTALL#g" "$FIX/settings-green.json" > "$ccroot/.claude/settings.json"
+sed -e "s#__ROOT__#$ccroot#g" -e "s#__INSTALL__#$INSTALL#g" "$FIX/plugin-list-green.json" > "$TMP/cc-pluglist.json"
+printf '# Review context — cc\n\n## Stack\nNext.js + Postgres.\n' > "$ccroot/.claude/second-shift/review-context.md"
+ccenv=(DOCTOR_REPO_ROOT="$ccroot" DOCTOR_PLUGIN_LIST_FILE="$TMP/cc-pluglist.json"
+       DOCTOR_MARKETPLACE_LIST_FILE="$FIX/marketplace-list-pinned.json" DOCTOR_USER_SETTINGS="$TMP/empty-user-settings.json")
+ccout="$(env "${ccenv[@]}" SECOND_SHIFT_REVIEW_TOOLKIT_ROOT="$RT_REAL" bash "$DOCTOR" --report 2>&1)" || true
+grep -q "context-coverage:" <<< "$ccout" && check "context-coverage resolved -> coverage line" 0 \
+  || { check "context-coverage resolved -> coverage line" 1; echo "$ccout" | grep -A2 'context coverage' | sed 's/^/      /'; }
+ccout2="$(env "${ccenv[@]}" SECOND_SHIFT_REVIEW_TOOLKIT_ROOT="" bash "$DOCTOR" --report 2>&1)" || true
+grep -q "review-toolkit not resolved" <<< "$ccout2" && check "context-coverage unresolved -> fallback line" 0 \
+  || { check "context-coverage unresolved -> fallback line" 1; echo "$ccout2" | grep -A2 'context coverage' | sed 's/^/      /'; }
+
 if [[ "$FAILS" -gt 0 ]]; then echo "doctor selftest: $FAILS FAILURE(S)"; exit 1; fi
 echo "doctor selftest: all green"
