@@ -27,10 +27,15 @@ set -uo pipefail
 # (SECOND_SHIFT_CONFIG, BRANCH_PREFIX, …) into the test command, and the tools under
 # test honor them as overrides — which would clobber this selftest's own fixtures.
 # Unset them so the selftest controls its environment regardless of the caller (#34).
-unset SECOND_SHIFT_CONFIG SECOND_SHIFT_REPO_ROOT SECOND_SHIFT_EXTENSION_MANIFEST BRANCH_PREFIX
+unset SECOND_SHIFT_CONFIG SECOND_SHIFT_REPO_ROOT SECOND_SHIFT_EXTENSION_MANIFEST BRANCH_PREFIX \
+      SECOND_SHIFT_REVIEW_TOOLKIT_ROOT
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PREFLIGHT="$SCRIPT_DIR/preflight.sh"
+# review-toolkit sibling plugin root — resolved for the section-lint wiring so the selftest
+# exercises the cross-plugin path hermetically (no `claude` binary), via the env override
+# preflight.sh reads. plugins/dev-pipeline/skills/run/tools -> plugins/review-toolkit.
+RT_TEST_ROOT="$(cd "$SCRIPT_DIR/../../../../review-toolkit" 2>/dev/null && pwd || true)"
 
 PASS=0; FAIL=0
 assert() { # $1 = description, $2 = condition result (0 = pass)
@@ -48,7 +53,11 @@ git init -q "$FIX"
 git -C "$FIX" config user.email t@t
 git -C "$FIX" config user.name t
 echo "hello" > "$FIX/README.md"
-git -C "$FIX" add README.md && git -C "$FIX" commit -qm init
+# A CLEAN review-context surface so the section lint passes (exit 0) + surfaces its
+# coverage line — committed so it does not perturb the zero-write assertion.
+mkdir -p "$FIX/.claude/second-shift"
+printf '# Review context — fix\n\n## Stack\nNext.js + Postgres.\n' > "$FIX/.claude/second-shift/review-context.md"
+git -C "$FIX" add README.md .claude/second-shift/review-context.md && git -C "$FIX" commit -qm init
 
 CANARY_DIR="$BASE/canaries"; mkdir -p "$CANARY_DIR"
 
@@ -96,6 +105,7 @@ printf '#!/usr/bin/env bash\necho "[doctor] summary: 0 failed check(s)"\nexit 0\
 
 run_preflight() { # $@ = extra args; uses current fixture config
   SECOND_SHIFT_REPO_ROOT="$FIX" PREFLIGHT_DOCTOR_CMD="bash $DOC_OK" \
+    SECOND_SHIFT_REVIEW_TOOLKIT_ROOT="$RT_TEST_ROOT" \
     bash "$PREFLIGHT" "$@" >"$BASE/out.log" 2>&1
 }
 
@@ -129,6 +139,12 @@ COMMITS="$(git -C "$FIX" rev-list --count HEAD)"
 [[ "$COMMITS" == "1" ]] && _c=0 || _c=1; assert "zero-write: no new commits (count=$COMMITS)" "$_c"
 ! grep -qE -- '-X (POST|PATCH|PUT|DELETE)|issue (edit|comment)|pr create|label create' "$GH_LOG"
 assert "zero-write: mock gh saw only reads" "$?"
+
+# section lint (review-toolkit) surfaces via the env-override wiring, with its coverage line
+grep -q "check-review-context-sections: no alias drift" "$BASE/out.log"
+assert "section lint surfaces at preflight (clean review-context)" "$?"
+grep -q "context-coverage:.*catalog sections present" "$BASE/out.log"
+assert "context-coverage line surfaces (exit-neutral)" "$?"
 
 # ---- run 2: explicit ticket key ----------------------------------------------------
 : > "$GH_LOG"

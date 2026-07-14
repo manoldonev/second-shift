@@ -103,6 +103,30 @@ else
     bad "check-extensions rejected the repo:"
     while IFS= read -r l; do say "[preflight]        $l"; done < <(tail -10 <<< "$out")
   fi
+  # review-context SECTION lint (review-toolkit) — the in-file counterpart to
+  # check-extensions. review-toolkit is a SEPARATE plugin, so resolve its install path:
+  # env override (hermetic selftests) -> installed plugin path -> skip-note. A missing
+  # review-toolkit is NOT a preflight failure (the section lint is a review-toolkit
+  # capability; dev-pipeline can preflight without it). check-review-context-sections.sh
+  # --preflight fails closed on alias drift + present-but-empty catalog sections; the
+  # coverage --report line is informational and can never contribute to the exit code.
+  RT_ROOT="${SECOND_SHIFT_REVIEW_TOOLKIT_ROOT:-}"
+  if [[ -z "$RT_ROOT" ]] && command -v claude >/dev/null 2>&1 && command -v jq >/dev/null 2>&1; then
+    RT_ROOT=$(claude plugin list --json 2>/dev/null | jq -r '[.[] | select(.id=="review-toolkit@second-shift")] | (sort_by(.lastUpdated) | last | .installPath) // empty' 2>/dev/null || true)
+  fi
+  SECTION_LINT="$RT_ROOT/scripts/check-review-context-sections.sh"
+  if [[ -n "$RT_ROOT" && -x "$SECTION_LINT" ]]; then
+    if out=$(bash "$SECTION_LINT" --preflight "$REPO_ROOT" 2>&1); then
+      ok "check-review-context-sections: no alias drift or empty catalog sections"
+    else
+      bad "check-review-context-sections rejected the repo (alias drift or empty catalog section):"
+      while IFS= read -r l; do say "[preflight]        $l"; done < <(grep -E 'ALIAS:|EMPTY-SECTION:' <<< "$out" | head -10)
+    fi
+    cov=$(bash "$SECTION_LINT" --report "$REPO_ROOT" 2>/dev/null | grep -m1 'context-coverage:' || true)
+    [[ -n "$cov" ]] && say "[preflight]        $cov"
+  else
+    warn "check-review-context-sections: review-toolkit not resolved — section lint skipped (set SECOND_SHIFT_REVIEW_TOOLKIT_ROOT or install review-toolkit@second-shift)"
+  fi
 fi
 
 # --- Section 2: Target Confirmation echo (read-only) ------------------------------

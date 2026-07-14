@@ -43,6 +43,8 @@ For the failure classes observed in past reviews:
 
 This precondition is non-negotiable and applies to every reviewer agent that inherits this baseline.
 
+**Empty/TODO-bodied review-context sections count as ABSENT.** When you load `.claude/second-shift/review-context.md` (or your `review-context/<reviewer-name>.md`) and the named section you key on **exists as a heading but its body is empty or a TODO/placeholder**, treat it exactly as if the section were missing: infer conservatively from the diff **and disclose** that you did (e.g. "`## Maturity stage` present but empty — inferred pre-auth posture from the diff, lower confidence"). A present-but-hollow heading is not a policy declaration — do not quote an empty section back as an exemption justification. (`check-review-context-sections.sh --preflight` is the pre-work gate that turns an empty catalog section red; this rule is its mid-run counterpart, so a section emptied after work began still degrades gracefully instead of silently.)
+
 ## Confidence Scoring
 
 Assign a confidence score (0-100) to every finding:
