@@ -4,7 +4,7 @@ All notable changes to the second-shift marketplace. Versions are per-plugin (`p
 this file tracks the marketplace release. `configVersion` stays `const 1` — v2 is fully backward-compatible for a
 consumer with an empty config; the migration notes below are only for consumers using the changed features.
 
-## (in progress)
+## v2.4.0 — figma-iterate: the interactive fast-path over figma-faithful
 
 ### `design-toolkit` 2.0.2 → 2.1.0
 - **New skill `figma-iterate`: an interactive fast-path over `figma-faithful` for quick UX
