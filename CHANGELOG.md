@@ -4,6 +4,22 @@ All notable changes to the second-shift marketplace. Versions are per-plugin (`p
 this file tracks the marketplace release. `configVersion` stays `const 1` — v2 is fully backward-compatible for a
 consumer with an empty config; the migration notes below are only for consumers using the changed features.
 
+## (in progress)
+
+### `design-toolkit` 2.0.2 → 2.1.0
+- **New skill `figma-iterate`: an interactive fast-path over `figma-faithful` for quick UX
+  iteration.** Takes Figma node URL(s) + optional override notes and produces a structurally
+  faithful implementation, but swaps the dev-pipeline ceremony (ticket → branch → plan-reviewer
+  gate → review panel → PR) for **one batched discrepancy checkpoint** (`AskUserQuestion`:
+  follow-Figma / follow-my-note / skip, per row) and leaves the tree dirty (never commits). A
+  hard **interactive-only guard** rejects a non-interactive context (Workflow/pipeline-dispatched
+  or no `AskUserQuestion`) before any Figma read. Precedence: override notes beat Figma; Figma
+  beats code for structure; code beats Figma only for mechanical token/component mapping (mapped
+  and noted, never silent). Optional `review` flag runs `figma-faithful-reviewer` on the
+  uncommitted working-tree diff (`git add -N . && git diff HEAD`). Reuses figma-faithful's
+  discipline by reference — no new config keys, no new agents, no pipeline plumbing. Migration:
+  none — additive; `figma-faithful` and the pipeline path are untouched.
+
 ## v2.3.0 — design.liveRender: the live-render verify gate executes
 
 ### `dev-pipeline` 2.2.5 → 2.2.6
