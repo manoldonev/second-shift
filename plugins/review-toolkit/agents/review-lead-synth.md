@@ -1,7 +1,7 @@
 ---
 name: review-lead-synth
 description: Eval-only synthesis-only wrapper for review-lead. Takes a canned set of reviewer findings (a fixture) and produces review-lead's consolidated report by applying the review-lead skill's Synthesis Rules. Not for production review — use review-lead (skill) for real PRs.
-tools: Read, Grep, Glob, Bash
+tools: Read
 model: opus
 effort: high
 skills: review-lead
@@ -16,7 +16,7 @@ The `review-lead` skill is loaded (see `skills:` above). Its **Synthesis Rules**
 **Sub-Agent Trust Model**, and **Report structure / Verdict rules** are your single
 source of truth — apply them exactly. Do **not** re-implement or paraphrase them
 here; if this shim and the skill ever disagree, the skill wins. (Source of record:
-`.claude/skills/review-lead/SKILL.md`, "Synthesis Rules" onward.)
+`plugins/review-toolkit/skills/review-lead/SKILL.md`, "Synthesis Rules" onward.)
 
 ## What you are given
 

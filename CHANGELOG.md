@@ -14,6 +14,36 @@ consumer with an empty config; the migration notes below are only for consumers 
   `figma-iterate` (#96). Migration: none — the doc regenerates on the next
   `/second-shift:onboard`; existing consumer docs keep working as-is.
 
+### `review-toolkit` 2.1.3 → 2.1.4
+
+- **Tool Discipline contract in `reviewer-baseline` (#95).** New `## Tool Discipline` section: an
+  availability-conditional preference (prefer `Grep`/`Glob`/`Read` where the harness exposes them;
+  where it does not — the current condition, `Bash` present + `Grep`/`Glob` withheld — batched Bash
+  search is **sanctioned**, explicitly NOT one-command-per-call), a substitution-into-variable ban
+  scoped to locating/reading files (`F=$(find …); grep "$F"`), and a four-part Bash sanction list
+  (git; tests/linters/build; mandated config-resolution one-liners — the base-branch resolvers stay
+  as-is; mandated tracker fetches). It is a documented contract, not a dispatch-time nudge (the nudge
+  measured null/harmful — #95). The test-coverage grounding bullet no longer models `wc -l` → `Read`.
+  `review-lead-synth` now declares `tools: Read` (the eval dispatcher needs no Bash/Grep/Glob) and
+  cites the plugin-shipped `review-lead` source path. Availability-conditional wording on
+  `codebase-explorer`'s search step. Migration: none — documentation/agent-metadata only.
+
+### `design-toolkit` 2.1.0 → 2.1.1
+
+- **Availability-conditional search wording (#95).** The `Grep`/`Glob` search lines in
+  `figma-faithful-reviewer` (3), `figma-faithful-spec-reviewer` (1), and the `figma-faithful` skill
+  (1) now read as availability-conditional (Grep/Glob where exposed, otherwise batched Bash search).
+  The sanctioned base-branch `BASE=$(jq …)` config idioms are byte-unchanged. Migration: none —
+  agent/skill-doc wording only.
+
+### `dev-pipeline` 2.2.6 → 2.2.7
+
+- **`tool-discipline-probe.mjs` — the measurement instrument (#95).** New Workflow probe beside
+  `stall-probe.mjs`: dispatches shell-touching reviewers under one selected instruction arm
+  (`baseline` | `grep-nudge` | `strict-one-command`) over a shell-heavy diff and captures
+  StructuredOutput deaths, so a future tool-preference proposal is A/B'd, not asserted. Its header
+  documents the measured three-arm baseline (~71% compound-shaped Bash; grep-nudge null; strict
+  one-command 3/6 turn-cap reviewer deaths). Migration: none — additive instrument.
 ## v2.4.0 — figma-iterate: the interactive fast-path over figma-faithful
 
 ### `design-toolkit` 2.0.2 → 2.1.0

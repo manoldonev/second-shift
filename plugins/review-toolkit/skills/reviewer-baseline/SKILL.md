@@ -30,7 +30,7 @@ For the failure classes observed in past reviews:
 - **Schema / data-model claims** ("filtered by the owner key", "joined on a foreign key", "grouped by type") -> open the relevant schema / data-model file, identify the actual column, cite `file:line` in the finding. If the spec term has multiple plausible referents in the schema (e.g. `userId` vs `user.id` vs a join table), name the chosen one and flag the ambiguity.
 - **Module-boundary / dependency-graph claims** ("no new coupling", "imports look fine") -> open every module/definition file whose import list changed in the diff. Verify each new import represents a true dependency of that module's responsibility, not an implementation detail that belongs deeper.
 - **Worker / pipeline-stage claims** ("the processor is idempotent", "the job chain is correct") -> open the queue processor and the producer that enqueues it. Idempotency is a runtime property — re-running the same job payload must converge to the same state. Inspect both sides of the boundary, not just one.
-- **Test-coverage claims** ("the spec file was deleted", "no new tests added") -> open the spec file and check actual line count and test blocks (`describe` / `it` or the framework's equivalents). A `-N` in `--stat` is a delta, not a tombstone. Run `wc -l` or enumerate test symbols before asserting deletion or absence.
+- **Test-coverage claims** ("the spec file was deleted", "no new tests added") -> open the spec file and check actual line count and test blocks (`describe` / `it` or the framework's equivalents). A `-N` in `--stat` is a delta, not a tombstone. `Read` the file and enumerate its test symbols before asserting deletion or absence.
 - **Endpoint-behavior claims** ("the handler forwards `extras`", "the input is validated") -> open the controller/handler method body and verify the destructuring/forwarding. A DTO/interface/type alone does not imply runtime use; validation decorators/schemas must actually be invoked by the request pipeline.
 
 **Behavioral claims require case enumeration.** When the claim is about runtime behavior — "the gate fires correctly", "the response shape is right", "the handler is correctly gated" — code-reading alone isn't grounding. Enumerate the input cases the code branches on, trace each through to the output, and cite the cases in the finding. For boolean composition the case matrix is non-negotiable: `A && B` has four cases (¬A¬B, A¬B, ¬AB, AB), and bugs frequently hide in the single-true cases. "The gate is correct" without naming the cases is not grounding; it is restating the code.
@@ -121,6 +121,21 @@ Every reviewer follows this general flow:
 5. Score confidence on every finding
 6. Filter: report >= 80 in main sections, < 80 in Suppressed
 7. Output (see "Output Mode"): under a schema (your normal mode), emit a single StructuredOutput call as your sole output — call it first, no prose report in front of it; only when dispatched without a schema, format using the prose structure above
+
+## Tool Discipline
+
+How you reach for tools when gathering evidence. This is a **documented contract**, not a dispatch-time nudge — it steers nothing at runtime; it sets the standard your review is held to.
+
+**Prefer the structured tools where the harness provides them.** When `Grep`, `Glob`, and `Read` are available to you, use them to locate and read code — they are statically analyzable and produce no permission friction. Where the harness does **not** expose them (the current condition on this machine: with `Bash` present, `Grep`/`Glob` are not offered to reviewer agents, and the harness's own error redirects you to Bash `grep`/`find`), **batched Bash search is sanctioned** — a compound `grep`/`find` (or a small `;`/newline/pipe batch) is the rational, turn-budget-respecting way to search, and is explicitly **NOT** to be broken into one analyzable command per call. There is no one-command-per-call rule; batching is expected.
+
+**Do not assign a command substitution to a variable to locate or read files** — e.g. `F=$(find … ); grep "$F"` or `cat "$(ls …)"`. This is the one Bash search shape to avoid: it defeats static analysis for no benefit over a direct `grep`/`Read`. The prohibition is scoped to *codebase inspection* (locating/reading files); it does **not** touch the sanctioned config-resolution one-liners below.
+
+**Bash remains the right tool for:**
+
+1. **`git`** — `git diff` (your review scope), `git log`, `git show`, `git status`.
+2. **Tests / linters / build** — running the repo's configured commands to observe behavior.
+3. **Mandated config-resolution one-liners** — the base-branch resolvers some agents run (e.g. `BASE=$(jq -r '… .baseBranch // "main"' .claude/second-shift.config.json 2>/dev/null || echo main); git diff "$BASE..HEAD"`) are **sanctioned as-is**; they exist to avoid a hardcoded `main` that finds nothing on a `develop`/`alpha`-based repo — do **not** "fix" them to a literal branch, and the substitution-into-variable rule above does not apply to them.
+4. **Mandated tracker fetches** — `gh issue view` / the Atlassian MCP fetch a linked issue/ticket when your prompt requires it.
 
 ## Sub-Agent Output Is Advisory
 
