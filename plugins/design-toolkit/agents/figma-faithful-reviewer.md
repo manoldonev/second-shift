@@ -43,7 +43,7 @@ Hard limits — state them rather than guessing:
 
 1. Diff against the **configured base branch**, not a hardcoded `main` (which finds nothing on a `develop`/`alpha`-based repo): `BASE=$(jq -r '(.topology.repos|to_entries[]|select(.value.path==".")|.key) as $h|.topology.repos[$h].baseBranch // "main"' .claude/second-shift.config.json 2>/dev/null || echo main); git diff "$BASE..HEAD"`. Collect the changed FE-app style/component files (per the reference's app dir(s)).
 2. **Read the repo's design-system reference** (`.claude/second-shift/design-tokens/*.md`) for the surface(s) in the diff — the spacing/palette/type token roles and the component catalog. If absent, infer from surrounding code and say so.
-3. **Look for an approved FE spec / Copy Index** — a path passed in your prompt, or a `*-fe-spec.md` under a `specs/` directory matching the changed feature (`Glob`/`Grep`). If found, read its Copy Index for the conditional copy-drift check. If not, note that copy fidelity is unverified.
+3. **Look for an approved FE spec / Copy Index** — a path passed in your prompt, or a `*-fe-spec.md` under a `specs/` directory matching the changed feature (`Glob`/`Grep` where the harness exposes them, otherwise batched Bash `grep`/`find` per `reviewer-baseline` Tool Discipline). If found, read its Copy Index for the conditional copy-drift check. If not, note that copy fidelity is unverified.
 4. Apply the **shared** rules to all surfaces; apply **surface-specific** rules per the reference (fixed-theme lookup vs branded "always abstract").
 5. For each finding, check if the same pattern exists in unchanged files. If pre-existing, label `[Pre-existing]`.
 6. Report using the output format at the bottom.
@@ -76,11 +76,11 @@ Flag a raw `<button>` / `<input>` / `<select>` / `<textarea>` (or a bespoke wrap
 <input value={name} onChange={…} />     <TextField value={name} onChange={…} />
 ```
 
-Don't self-suppress import findings — **verify them in the repo.** The catalog's import paths may be unverified, so instead of guessing, `Grep` for the real export (e.g. `export const Button` / `export { Button }` under the catalog's source path, or the package entry) before flagging. A confirmed "this component exists, the diff hand-rolled it instead" is a high-confidence finding; an unconfirmable one stays suppressed. The reliable case is a raw interactive/form element where a catalog component clearly exists.
+Don't self-suppress import findings — **verify them in the repo.** The catalog's import paths may be unverified, so instead of guessing, search for the real export (e.g. `export const Button` / `export { Button }` under the catalog's source path, or the package entry) before flagging — `Grep` where the harness exposes it, otherwise batched Bash `grep` per `reviewer-baseline` Tool Discipline. A confirmed "this component exists, the diff hand-rolled it instead" is a high-confidence finding; an unconfirmable one stays suppressed. The reliable case is a raw interactive/form element where a catalog component clearly exists.
 
 ### Raw `<img>` where a shared image component is the established pattern (Warning, narrow)
 
-Flag a raw `<img>` rendering a static asset **only when the same file already imports/uses the repo's shared image component** — i.e. the diff dropped to a primitive instead of the component the file already uses (often to dodge an awkward default like `position: absolute`, which is meant to be overridden with a style, not avoided). `Grep` the file to confirm the shared component is already in use before flagging; if the file has no such usage, do **not** flag (a raw `<img>` can be legitimate). This is the narrow, verifiable form of "reuse the component the codebase already uses" — not a license to flag every `<img>`.
+Flag a raw `<img>` rendering a static asset **only when the same file already imports/uses the repo's shared image component** — i.e. the diff dropped to a primitive instead of the component the file already uses (often to dodge an awkward default like `position: absolute`, which is meant to be overridden with a style, not avoided). Confirm the shared component is already in use in the file before flagging (`Grep` where the harness exposes it, otherwise batched Bash `grep`); if the file has no such usage, do **not** flag (a raw `<img>` can be legitimate). This is the narrow, verifiable form of "reuse the component the codebase already uses" — not a license to flag every `<img>`.
 
 ### Copy drift vs the Copy Index — conditional (Warning)
 

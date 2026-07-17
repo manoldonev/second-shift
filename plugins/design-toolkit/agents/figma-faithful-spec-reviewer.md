@@ -34,7 +34,7 @@ You ONLY review the spec's **completeness and internal consistency**. Do not:
 1. Read the spec artifact in full.
 2. Read the references the spec was built against: the repo's **component catalog** (from `.claude/second-shift/design-tokens/*.md`, or inferred from the FE app's component library) to confirm component identities resolve, and the bundled `fe-spec-template.md` from the `figma-faithful-spec` skill (the mandated sections).
 3. Run the checklist below in a single pass.
-4. For component-resolution findings, `Grep` the repo / catalog to confirm before flagging — do not guess.
+4. For component-resolution findings, search the repo / catalog to confirm before flagging — do not guess (`Grep` where the harness exposes it, otherwise batched Bash `grep`).
 5. Emit the consolidated verdict block. Do not pause mid-review.
 
 ## Severity Levels
