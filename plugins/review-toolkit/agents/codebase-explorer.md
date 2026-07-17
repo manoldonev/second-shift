@@ -41,7 +41,7 @@ Read the spec once. Extract:
 
 For each entity mentioned in the spec:
 
-1. Search for it: `Grep` for the name, `Glob` for likely file patterns
+1. Search for it — `Grep` for the name, `Glob` for likely file patterns where the harness exposes those tools; otherwise batched Bash `grep`/`find` (the harness's own fallback search surface when `Grep`/`Glob` are unavailable)
 2. Read at most 2-3 files per entity. If an entity spans many files, note the pattern and stop — do not trace the entire import graph.
 3. Note: file path, module it belongs to, its public interface
 4. Check if a file is auto-generated (header comment, build output directory, `*.generated.ts`). If so, note it as `[auto-generated — do not plan direct edits]`.

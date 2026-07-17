@@ -32,7 +32,7 @@ All paths worktree-relative; every referenced file verified to exist (grep/read)
 - `plugins/review-toolkit/agents/review-lead-synth.md` — `tools: Read, Grep, Glob, Bash` → `tools: Read` (line 4); correct source-of-record pointer line 19 `.claude/skills/review-lead/SKILL.md` → `plugins/review-toolkit/skills/review-lead/SKILL.md` (AC-3).
 - `plugins/review-toolkit/agents/codebase-explorer.md` — line 44 `Grep`/`Glob` search step → availability-conditional wording (AC-4).
 - `plugins/design-toolkit/agents/figma-faithful-spec-reviewer.md` — line 37 `Grep` → availability-conditional wording (AC-4).
-- `plugins/design-toolkit/agents/figma-faithful-reviewer.md` — lines 46, 79, 83 `Grep`/`Glob` → availability-conditional wording (AC-4). Lines 44/46 `BASE=$(jq …); git diff` config idiom **byte-unchanged**.
+- `plugins/design-toolkit/agents/figma-faithful-reviewer.md` — lines 46, 79, 83 `Grep`/`Glob` → availability-conditional wording (AC-4). Line 44 `BASE=$(jq …); git diff` config idiom **byte-unchanged** (line 46 is a rewording target, not the idiom — Stage-4 warning dispositioned).
 - `plugins/review-toolkit/agents/doc-updater.md` — config idiom lines 32-33 **byte-unchanged** (no rewording; verified no `Grep`/`Glob` tool commands present, only the English verb "grepping").
 - `plugins/dev-pipeline/skills/run/workflows/tool-discipline-probe.mjs` — `[NEW]` the three-arm measurement probe (AC-5), mirroring `stall-probe.mjs` shape.
 - `plugins/review-toolkit/.claude-plugin/plugin.json`, `plugins/design-toolkit/.claude-plugin/plugin.json`, `plugins/dev-pipeline/.claude-plugin/plugin.json` — patch version bump (AC-7).
@@ -75,8 +75,9 @@ Verify-after (docs/infra change; no `apps/api` behavior surface — `unitTestSur
 # shellcheck + selftest lanes (config commands.second-shift.lint / .test)
 find . -name '*.sh' -type f -print0 | xargs -0 shellcheck -e SC1091,SC2015,SC2181
 find . -name '*-selftest.sh' -type f -print0 | xargs -0 -n1 -I{} env SKIP_STRESS=1 bash {}
-# new probe parses
-node --check plugins/dev-pipeline/skills/run/workflows/tool-discipline-probe.mjs
+# new probe: Workflow scripts have a top-level `return`/`await` (harness-wrapped),
+# so `node --check` is inapplicable (stall-probe.mjs fails it identically). Validate by
+# wrapping the body in an async fn — same shape check as its sibling probe.
 # AC greps (spot-check)
 grep -n 'Tool Discipline' plugins/review-toolkit/skills/reviewer-baseline/SKILL.md
 grep -c 'wc -l' plugins/review-toolkit/skills/reviewer-baseline/SKILL.md   # expect 0
