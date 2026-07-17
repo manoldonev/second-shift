@@ -44,7 +44,6 @@ consumer with an empty config; the migration notes below are only for consumers 
   StructuredOutput deaths, so a future tool-preference proposal is A/B'd, not asserted. Its header
   documents the measured three-arm baseline (~71% compound-shaped Bash; grep-nudge null; strict
   one-command 3/6 turn-cap reviewer deaths). Migration: none — additive instrument.
-
 ## v2.4.0 — figma-iterate: the interactive fast-path over figma-faithful
 
 ### `design-toolkit` 2.0.2 → 2.1.0
