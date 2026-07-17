@@ -6,7 +6,8 @@ workspace, Claude Code will ask to install the marketplace and these plugins. Th
 dialog says "arbitrary code with your privileges" — this file is the inventory of what
 that actually is, so you can decide BEFORE the prompt.
 
-{{PLUGIN_VERSIONS_TABLE}}
+The exact plugin→version set is owned by `.claude/second-shift.lock.json` (single source; this
+repo enables {{PLUGIN_LIST}}) — `/second-shift:doctor` verifies the install against it.
 
 ## What each plugin installs and when its code runs
 
