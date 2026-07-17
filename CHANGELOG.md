@@ -4,7 +4,7 @@ All notable changes to the second-shift marketplace. Versions are per-plugin (`p
 this file tracks the marketplace release. `configVersion` stays `const 1` — v2 is fully backward-compatible for a
 consumer with an empty config; the migration notes below are only for consumers using the changed features.
 
-## (in progress)
+## v2.4.1 — tool-discipline contract for reviewers; consent doc defers to the lockfile
 
 ### `second-shift` 1.4.1 → 1.4.2
 - Consent-doc template (`SECOND-SHIFT.md`) no longer renders a `| plugin | version |` table — a
