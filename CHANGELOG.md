@@ -6,6 +6,14 @@ consumer with an empty config; the migration notes below are only for consumers 
 
 ## (in progress)
 
+### `second-shift` 1.4.1 → 1.4.2
+- Consent-doc template (`SECOND-SHIFT.md`) no longer renders a `| plugin | version |` table — a
+  second copy of the lockfile's `plugins` map that drifted on every release. It now names the
+  enabled plugins (`{{PLUGIN_LIST}}`) and defers versions to `second-shift.lock.json`, which
+  doctor already verifies; the template's design-toolkit skill list also gains the missed
+  `figma-iterate` (#96). Migration: none — the doc regenerates on the next
+  `/second-shift:onboard`; existing consumer docs keep working as-is.
+
 ### `review-toolkit` 2.1.3 → 2.1.4
 
 - **Tool Discipline contract in `reviewer-baseline` (#95).** New `## Tool Discipline` section: an
