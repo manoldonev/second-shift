@@ -266,8 +266,9 @@ the wrong column, or an input loads empty — only a live render against the des
 - **Reuse the component the codebase already uses — never drop to a raw primitive to dodge a
   quirk.** If a node maps to a component that already appears in the target file or the nearest
   analog, reuse that exact usage including its documented style override. When a design-system
-  component has an awkward default (e.g. an image primitive that is `position: absolute`), `Grep`
-  the file for how it's already tamed and copy that — emitting a raw `<img>`/`<div>`/`<button>` to
+  component has an awkward default (e.g. an image primitive that is `position: absolute`), search
+  the file for how it's already tamed and copy that (`Grep` where the harness exposes it, otherwise
+  batched Bash `grep`) — emitting a raw `<img>`/`<div>`/`<button>` to
   sidestep the quirk is a regression, not a fix.
 - **A sparse Figma dump blocks implementation** until the instance nodes are pulled.
 - **Follow the repo's coding conventions.** Match the repo's established conventions (export style,

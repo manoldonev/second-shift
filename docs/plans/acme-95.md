@@ -20,7 +20,7 @@ Explicit empty form for user-answered rows (autonomous run — no prompting). Al
 | --- | --- | --- |
 | Commit verb for AI-infra content change | `chore(scope):` not `feat:` | codebase-derived (repo convention: skill/agent/pipeline changes take `chore`) |
 | Where the Tool Discipline section lives | new top-level `## Tool Discipline` section in `reviewer-baseline/SKILL.md` (contract only; **no** dispatch-time nudge — AC-6) | codebase-derived (v2 spec; `code-review.mjs` precedent is scoped to the *stall* instruction, not tool-preference) |
-| AC-4 rewording set | 5 lines: `codebase-explorer.md:44`, `figma-faithful-spec-reviewer.md:37`, `figma-faithful-reviewer.md:46/79/83` | codebase-derived (grep of `plugins/*/agents/*.md`) |
+| AC-4 rewording set | 6 lines: `codebase-explorer.md:44`, `figma-faithful-spec-reviewer.md:37`, `figma-faithful-reviewer.md:46/79/83`, `figma-faithful/SKILL.md:269` | codebase-derived (grep of `plugins/**/*.md` — the SKILL.md line was surfaced by the Stage-8 scope-completeness gate) |
 | Sanctioned config idioms preserved verbatim | `figma-faithful-reviewer.md:44`, `doc-updater.md:32-33` `BASE=$(jq …)` lines | codebase-derived (AC-4 byte-unchanged requirement) |
 | Plugins bumped | review-toolkit, design-toolkit, dev-pipeline | codebase-derived (only these three have content changes) |
 
@@ -32,6 +32,7 @@ All paths worktree-relative; every referenced file verified to exist (grep/read)
 - `plugins/review-toolkit/agents/review-lead-synth.md` — `tools: Read, Grep, Glob, Bash` → `tools: Read` (line 4); correct source-of-record pointer line 19 `.claude/skills/review-lead/SKILL.md` → `plugins/review-toolkit/skills/review-lead/SKILL.md` (AC-3).
 - `plugins/review-toolkit/agents/codebase-explorer.md` — line 44 `Grep`/`Glob` search step → availability-conditional wording (AC-4).
 - `plugins/design-toolkit/agents/figma-faithful-spec-reviewer.md` — line 37 `Grep` → availability-conditional wording (AC-4).
+- `plugins/design-toolkit/skills/figma-faithful/SKILL.md` — line 269 imperative `Grep` (the "already tamed" reuse step) → availability-conditional wording (AC-4; caught by the Stage-8 scope-completeness gate — the Stage-1 explorer scan was limited to `agents/*.md`).
 - `plugins/design-toolkit/agents/figma-faithful-reviewer.md` — lines 46, 79, 83 `Grep`/`Glob` → availability-conditional wording (AC-4). Line 44 `BASE=$(jq …); git diff` config idiom **byte-unchanged** (line 46 is a rewording target, not the idiom — Stage-4 warning dispositioned).
 - `plugins/review-toolkit/agents/doc-updater.md` — config idiom lines 32-33 **byte-unchanged** (no rewording; verified no `Grep`/`Glob` tool commands present, only the English verb "grepping").
 - `plugins/dev-pipeline/skills/run/workflows/tool-discipline-probe.mjs` — `[NEW]` the three-arm measurement probe (AC-5), mirroring `stall-probe.mjs` shape.
@@ -48,7 +49,7 @@ All paths worktree-relative; every referenced file verified to exist (grep/read)
 1. **AC-1** — Insert a `## Tool Discipline` section into `reviewer-baseline/SKILL.md` (after `## Review Process Template`, before `## Sub-Agent Output Is Advisory`). Content: availability-conditional preference (`Grep`/`Glob`/`Read` where the harness provides them; where it does not — the current condition on this harness — batched Bash search is sanctioned, explicitly NOT one-command-per-call); the substitution-into-variable ban **scoped to locating/reading files**; and the four-part sanction list (git; tests/linters; mandated config-resolution one-liners — naming the base-branch resolvers as sanctioned, do not "fix" to a hardcoded branch; mandated tracker fetches — `gh issue view` / Atlassian MCP).
 2. **AC-2** — In the same file, rewrite line 33's `Run \`wc -l\` or enumerate test symbols` → a `Read` instruction (open the spec file and read it / enumerate test blocks).
 3. **AC-3** — `review-lead-synth.md`: frontmatter `tools: Read`; body line 19 pointer → `plugins/review-toolkit/skills/review-lead/SKILL.md`.
-4. **AC-4** — Add availability-conditional wording to the 5 `Grep`/`Glob` lines (each gains "where the harness exposes them; otherwise batched Bash search per the tool-discipline contract"). Leave the two `BASE=$(jq …)` config idioms byte-for-byte.
+4. **AC-4** — Add availability-conditional wording to the 6 `Grep`/`Glob` lines (each gains "where the harness exposes them; otherwise batched Bash search per the tool-discipline contract"). Leave the two `BASE=$(jq …)` config idioms byte-for-byte.
 5. **AC-5** — Write `tool-discipline-probe.mjs`: `meta` + rationale header documenting the measured three-arm baseline (baseline ~71% compound; grep-nudge null ~71.3%/71.4%; strict-one-command 72%→54% compound but 3/6 turn-cap deaths); `arm ∈ {baseline, grep-nudge, strict-one-command}` selecting the appended instruction; required `worktree`; shell-heavy default range (`4df8fc8^..4df8fc8`); `agent()` dispatch with death detection; per-arm/per-reviewer aggregation returned.
 6. **AC-7** — Patch-bump the three plugin.json versions; add repo-root `CHANGELOG.md` "(in progress)" entries for each.
 7. **AC-6 (negative) guard** — do NOT touch `code-review.mjs` / `intake-review.mjs` tool-preference-wise; do NOT introduce any one-command-per-call mandate anywhere.
@@ -64,7 +65,7 @@ Verify-after (docs/infra change; no `apps/api` behavior surface — `unitTestSur
 | AC-1 | Tool Discipline section w/ 4-part sanction list | 1 | grep section + its four sanctions in `reviewer-baseline/SKILL.md` — no test (covered-by-selftest) |
 | AC-2 | grounding bullet drops `wc -l` → `Read` | 2 | grep: no `wc -l` in the bullet, `Read` present — no test (covered-by-selftest) |
 | AC-3 | `review-lead-synth` `tools: Read` + plugin path | 3 | grep frontmatter `tools: Read`; grep pointer path — no test (infra-only) |
-| AC-4 | Grep/Glob lines availability-conditional; idioms byte-unchanged | 4 | `git diff` shows the 2 idiom lines unchanged; 5 lines reworded — no test (infra-only) |
+| AC-4 | Grep/Glob lines availability-conditional; idioms byte-unchanged | 4 | `git diff` shows the 2 idiom lines unchanged; 6 lines reworded — no test (infra-only) |
 | AC-5 | probe exists, Workflow shape, documents baseline | 5 | `node --check` parse; grep three-arm baseline in header — no test (infra-only) |
 | AC-6 | no dispatch nudge; no one-command mandate | 7 | grep `.mjs` workflows for absence — no test (infra-only) |
 | AC-7 | version bump + CHANGELOG per changed plugin | 6 | git diff plugin.json versions + CHANGELOG entries — no test (infra-only) |

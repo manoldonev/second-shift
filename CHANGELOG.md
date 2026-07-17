@@ -23,9 +23,10 @@ consumer with an empty config; the migration notes below are only for consumers 
 ### `design-toolkit` 2.1.0 → 2.1.1
 
 - **Availability-conditional search wording (#95).** The `Grep`/`Glob` search lines in
-  `figma-faithful-reviewer` (3) and `figma-faithful-spec-reviewer` (1) now read as availability-
-  conditional (Grep/Glob where exposed, otherwise batched Bash search). The sanctioned base-branch
-  `BASE=$(jq …)` config idioms are byte-unchanged. Migration: none — agent-doc wording only.
+  `figma-faithful-reviewer` (3), `figma-faithful-spec-reviewer` (1), and the `figma-faithful` skill
+  (1) now read as availability-conditional (Grep/Glob where exposed, otherwise batched Bash search).
+  The sanctioned base-branch `BASE=$(jq …)` config idioms are byte-unchanged. Migration: none —
+  agent/skill-doc wording only.
 
 ### `dev-pipeline` 2.2.6 → 2.2.7
 
