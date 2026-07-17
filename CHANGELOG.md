@@ -4,6 +4,16 @@ All notable changes to the second-shift marketplace. Versions are per-plugin (`p
 this file tracks the marketplace release. `configVersion` stays `const 1` — v2 is fully backward-compatible for a
 consumer with an empty config; the migration notes below are only for consumers using the changed features.
 
+## (in progress)
+
+### `second-shift` 1.4.1 → 1.4.2
+- Consent-doc template (`SECOND-SHIFT.md`) no longer renders a `| plugin | version |` table — a
+  second copy of the lockfile's `plugins` map that drifted on every release. It now names the
+  enabled plugins (`{{PLUGIN_LIST}}`) and defers versions to `second-shift.lock.json`, which
+  doctor already verifies; the template's design-toolkit skill list also gains the missed
+  `figma-iterate` (#96). Migration: none — the doc regenerates on the next
+  `/second-shift:onboard`; existing consumer docs keep working as-is.
+
 ## v2.4.0 — figma-iterate: the interactive fast-path over figma-faithful
 
 ### `design-toolkit` 2.0.2 → 2.1.0
