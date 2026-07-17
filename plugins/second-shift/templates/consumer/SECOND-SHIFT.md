@@ -6,7 +6,8 @@ workspace, Claude Code will ask to install the marketplace and these plugins. Th
 dialog says "arbitrary code with your privileges" — this file is the inventory of what
 that actually is, so you can decide BEFORE the prompt.
 
-{{PLUGIN_VERSIONS_TABLE}}
+The exact plugin→version set is owned by `.claude/second-shift.lock.json` (single source; this
+repo enables {{PLUGIN_LIST}}) — `/second-shift:doctor` verifies the install against it.
 
 ## What each plugin installs and when its code runs
 
@@ -25,7 +26,7 @@ that actually is, so you can decide BEFORE the prompt.
 - Hook: a PreToolUse gate on ExitPlanMode (checks a Decision Ledger exists when a plan is submitted).
 
 ### design-toolkit (only present if this repo enabled it)
-- Skills: `design-faithful` / `design-faithful-spec` and `figma-faithful` / `figma-faithful-spec`; six design/figma reviewer + translation agents. The active provider is selected by this repo's config (`design.provider`: `figma` needs a Figma MCP connection; `claude-design` does not). No hooks.
+- Skills: `design-faithful` / `design-faithful-spec`, `figma-faithful` / `figma-faithful-spec`, and `figma-iterate`; six design/figma reviewer + translation agents. The active provider is selected by this repo's config (`design.provider`: `figma` needs a Figma MCP connection; `claude-design` does not). No hooks.
 
 ### audit-toolkit
 - Hooks: PostToolUse / PostToolUseFailure / SubagentStop / UserPromptExpansion → appends one JSONL line per tool call to the repo-local audit ledger (observability only; never blocks anything).

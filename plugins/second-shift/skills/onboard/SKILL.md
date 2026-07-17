@@ -159,9 +159,10 @@ Also emit the thin check (presence-verification, the sanctioned no-vendoring exc
 
 Also emit the consent doc:
 1. Copy `${CLAUDE_PLUGIN_ROOT}/templates/consumer/SECOND-SHIFT.md` to `.claude/SECOND-SHIFT.md`,
-   substituting `{{REF}}` with the pinned ref and rendering `{{PLUGIN_VERSIONS_TABLE}}` as a
-   `| plugin | version |` markdown table from the lockfile's `plugins` map. Strip the
-   design-toolkit section when design-toolkit was not accepted.
+   substituting `{{REF}}` with the pinned ref and `{{PLUGIN_LIST}}` with the comma-separated
+   backticked names of the enabled plugins from the lockfile's `plugins` map — names only,
+   never versions: the lockfile owns those, and a rendered copy drifts on every release.
+   Strip the design-toolkit section when design-toolkit was not accepted.
 2. If the repo has a `CLAUDE.md`, offer (in the SAME final message — never a new interview,
    never silently): append `- Toolkit consent + inventory: .claude/SECOND-SHIFT.md` to it.
 
