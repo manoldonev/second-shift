@@ -1,0 +1,20 @@
+{
+  "configVersion": 1,
+  "tracker": { "type": "github" },
+  "topology": {
+    "type": "standalone",
+    "repos": { "host": { "path": ".", "baseBranch": "main" } }
+  },
+  "commands": {
+    "host": {
+      "lanes": [
+        "npm ci",
+        123,
+        null,
+        true,
+        { "name": "good", "commands": ["npm run build"] }
+      ],
+      "extraLanes": ["yarn e2e"]
+    }
+  }
+}

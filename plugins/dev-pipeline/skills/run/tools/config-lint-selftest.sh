@@ -63,6 +63,19 @@ expect_violation invalid-type-gaps.json             "commands.host.lanes[1].comm
 expect_violation invalid-type-gaps.json             "tracker.bot.enabled: must be boolean"
 expect_violation invalid-type-gaps.json             "stageParams.requiredLabels: every entry must be a string"
 
+# --- #100: a non-object lanes[]/extraLanes[] entry must be a CLEAN violation.
+# Before the entry-shape guard, a string/number/array lane lint-clean-passed
+# (jq's right-to-left `+` and `.name?`-on-a-string yielding `empty` collapsed the
+# whole chain), and verifyctl then silently skipped it — a false green. `null`
+# and a non-object extraLane crashed jq with rc=5 instead of reporting. Every
+# non-object type must now name the required shape. The trailing well-formed
+# lane in the fixture proves the guard is per-entry, not a whole-block abort.
+expect_violation invalid-bad-lane-shape.json        "commands.host.lanes[0]: must be an object"
+expect_violation invalid-bad-lane-shape.json        "commands.host.lanes[1]: must be an object"
+expect_violation invalid-bad-lane-shape.json        "commands.host.lanes[2]: must be an object"
+expect_violation invalid-bad-lane-shape.json        "commands.host.lanes[3]: must be an object"
+expect_violation invalid-bad-lane-shape.json        "commands.host.extraLanes[0]: must be an object"
+
 # --- #15: the two removed dead keys must be rejected with a migration note.
 expect_violation invalid-removed-commands-tiers.json "integrationTest/apiTest were removed in v2.1.6"
 expect_violation invalid-removed-gates-costtracking.json "gates.costTracking was removed in v2.1.6"

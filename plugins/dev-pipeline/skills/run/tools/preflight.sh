@@ -207,7 +207,13 @@ if [[ -f "$CFG" ]] && command -v jq >/dev/null 2>&1; then
     while IFS= read -r cmd; do
       [[ -z "$cmd" ]] && continue
       i=$((i+1)); run_lane "setup[$i]" "$cmd"
-    done < <(jq -r --arg h "$HOST_ID" '(.commands[$h].lanes // []) | .[] | (.commands // [])[]' "$CFG" 2>/dev/null)
+    # `select(type == "object")` (#100): a non-object lanes[] entry otherwise aborts
+    # the whole jq stream, and the 2>/dev/null hides it — so ONE malformed entry
+    # silently drops EVERY lane, including well-formed ones, while preflight still
+    # reports it executed the lanes. config-lint is the gate that rejects such a
+    # config, but bad() only counts the failure and preflight continues into this
+    # section on the same run, so the read itself must be safe.
+    done < <(jq -r --arg h "$HOST_ID" '(.commands[$h].lanes // []) | .[] | select(type == "object") | (.commands // [])[]' "$CFG" 2>/dev/null)
     # the trio + build
     for lane in lint typecheck test build; do
       cmd=$(jq -r --arg h "$HOST_ID" --arg l "$lane" '.commands[$h][$l] // empty' "$CFG" 2>/dev/null)
