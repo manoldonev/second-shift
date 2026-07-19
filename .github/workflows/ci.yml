@@ -9,7 +9,7 @@ jobs:
   lint-and-selftests:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           fetch-depth: 0   # full history + tags: selftests (derive-release) diff against the latest release tag
 
@@ -47,10 +47,12 @@ jobs:
 
       - name: namespace direction check (docs/namespaces.md rule 3)
         run: |
-          # shellcheck disable=SC2086  # $TOOLKITS is a deliberate space-separated dir list
-          TOOLKITS="plugins/review-toolkit plugins/intake-toolkit plugins/design-toolkit plugins/audit-toolkit"
+          # Array, not a space-separated string: the multi-dir expansion is intentional, and
+          # "${TOOLKITS[@]}" expresses that without tripping shellcheck's SC2086 (which
+          # actionlint runs over every `run:` block).
+          TOOLKITS=(plugins/review-toolkit plugins/intake-toolkit plugins/design-toolkit plugins/audit-toolkit)
           # (a) no dev-pipeline: namespace token anywhere in the four toolkits
-          if grep -rn 'dev-pipeline:' $TOOLKITS --include='*.md' --include='*.mjs' --include='*.sh' --include='*.json' 2>/dev/null; then
+          if grep -rn 'dev-pipeline:' "${TOOLKITS[@]}" --include='*.md' --include='*.mjs' --include='*.sh' --include='*.json' 2>/dev/null; then
             echo "::error::rule 3(a): a toolkit references the dev-pipeline: namespace"; exit 1
           fi
           # (b) no hard dev-pipeline/ PATH reference in toolkit CONTENT (skills + agents).
@@ -58,7 +60,7 @@ jobs:
           #     the sibling dev-pipeline plugin are exempt — they live under scripts/ and evals/,
           #     which are excluded here (grep the toolkit roots directly so paths are never empty).
           if grep -rnE 'skills/run/|dev-pipeline/(workflows|stages|state-schema|doc-update)|\.\./dev-pipeline/' \
-               $TOOLKITS --include='*.md' --include='*.mjs' --exclude-dir=scripts --exclude-dir=evals 2>/dev/null; then
+               "${TOOLKITS[@]}" --include='*.md' --include='*.mjs' --exclude-dir=scripts --exclude-dir=evals 2>/dev/null; then
             echo "::error::rule 3(b): toolkit content hard-paths into dev-pipeline (invoke workflows by bare filename; reference artifacts by name)"; exit 1
           fi
 
@@ -76,7 +78,7 @@ jobs:
         github.event.pull_request.head.repo.full_name == github.repository)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           fetch-depth: 0
 
@@ -102,7 +104,7 @@ jobs:
       github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           fetch-depth: 0
 
@@ -122,7 +124,7 @@ jobs:
     name: selftests (macos, bash 3.2)
     runs-on: macos-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: run all selftests under stock bash 3.2
         env:
