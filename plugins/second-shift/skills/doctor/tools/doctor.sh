@@ -270,6 +270,19 @@ else
   else
     warn "dev-pipeline not installed — config-lint skipped (install it, then re-run doctor)"
   fi
+  # --- 7.5 verified calibration claims (claims-lint, quiet) -----------------------
+  # ONE summary line when second-shift-claims fences exist (count + probe-less slugs);
+  # silent when none. Expired/malformed claims are FAILs here too — a stale
+  # severity-downgrading claim blocks pipeline runs at their pre-flight.
+  CLAIMS="$DP_PATH/skills/run/tools/claims-lint.sh"
+  if [[ -n "$DP_PATH" && -f "$CLAIMS" ]]; then
+    if out="$(bash "$CLAIMS" "$ROOT" 2>&1)"; then
+      [[ -n "$out" ]] && ok "claims-lint: $(tail -1 <<< "$out" | sed 's/^\[claims-lint\] summary: //')"
+    else
+      bad "claims-lint: expired or malformed severity-downgrading claim(s) — pipeline pre-flight will fail until re-verified:"
+      n=0; while IFS= read -r line; do echo "[doctor]        $line"; n=$((n+1)); [[ "$n" -ge 10 ]] && break; done <<< "$out"
+    fi
+  fi
 fi
 
 # --- 8. verdict ------------------------------------------------------------------

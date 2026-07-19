@@ -23,6 +23,8 @@ You ONLY review security concerns. Do not comment on performance, style, test co
 
 Before flagging a pattern as a vulnerability, calibrate against the repo's maturity — if `review-context.md` / `security-rules.md` declare a maturity stage (e.g. pre-auth MVP, validation-at-API-layer, no shared client), honor it: a PR that follows an established gap is CONSISTENT, not broken.
 
+> **Verified calibration claims.** Severity-downgrading maturity claims are expected to be declared in a fenced `second-shift-claims` block with an unexpired `reverify-by` (contract: the toolkit's extension-points doc; enforced by `claims-lint.sh` at pipeline pre-flight). When a claims block is present, do not honor a claim past its `reverify-by` for `[Pre-existing]` downgrades — treat it as absent and apply the generic rules. Bare prose claims outside a claims block remain honored as before (the block is opt-in, additive adoption).
+
 1. **Check if the pattern exists in adjacent files.** If every sibling in the directory does the same thing (e.g. unauthenticated fetches), a new file doing the same is consistent — label it `[Pre-existing]`, not a critical finding.
 2. **Repo-specific pre-auth / validation-boundary calibration** (e.g. a hardcoded userId placeholder, API-layer validation as the trust boundary) lives in the extension files when present. Absent an extension, default to the generic rule below.
 
