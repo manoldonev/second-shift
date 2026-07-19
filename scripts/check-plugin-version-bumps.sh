@@ -11,6 +11,11 @@
 # (the very first release) → nothing to compare, pass. Runs in marketplace CI
 # (model-free). Exit 0 = all good; 1 = a plugin changed without a version bump.
 #
+# CALL SITE (#119): runs ONLY on the release PR (ci.yml release-pr-gates, branch
+# release/next) — feature PRs no longer bump versions (scripts/check-frozen-files.sh
+# enforces the inverse there); the bumps this script verifies are the ones
+# scripts/derive-release.sh derived onto the release PR.
+#
 # Usage: check-plugin-version-bumps.sh [base-ref]
 #   base-ref defaults to the latest tag reachable from HEAD (excluding HEAD's own
 #   tag, so the check is meaningful on the release commit itself).

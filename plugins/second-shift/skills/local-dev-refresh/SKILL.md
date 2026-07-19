@@ -16,6 +16,14 @@ Hard rules:
   so: `claude plugin marketplace add <owner/repo>@<ref>` — in-place replace, no uninstalls).
 - `claude plugin install` does NOT upgrade (it no-ops as "already installed") — the
   upgrade verb is `claude plugin update`, and it touches USER scope only.
+- **A `main`-pinned registration goes stale mid-cycle, and `update` cannot fix it.** In a
+  repo whose versions are derived at release time (second-shift itself), `plugin.json`
+  versions move only when the release PR merges — so between releases main's *content*
+  advances while its *version strings* do not. `claude plugin update` is keyed on the
+  version string, so it correctly reports "already at the latest version" while serving
+  older content. Report this plainly when a registration is `main`-pinned and the user
+  expects mid-cycle changes; the escape is uninstall + reinstall (re-reads content, not the
+  version key), NOT a version bump.
 
 ## Step 1 — Snapshot + context
 
