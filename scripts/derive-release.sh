@@ -35,6 +35,8 @@
 #     generated '## vX.Y.Z' whose tag does not exist yet) is absorbed: its hand-written
 #     per-plugin prose is preserved verbatim, its PR references are treated as already
 #     covered (no double-counting), and re-running apply is idempotent.
+#
+# shellcheck disable=SC2016  # single-quoted printf formats carry literal markdown backticks
 set -uo pipefail
 
 cd "$(git rev-parse --show-toplevel)" || { echo "not in a git repo" >&2; exit 2; }

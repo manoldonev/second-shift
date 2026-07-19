@@ -1,0 +1,48 @@
+# release-publish — merging the release PR tags the release and publishes the GitHub
+# Release (#119). Trigger is the merged PR itself (head == release/next), never subject
+# sniffing on main. The Release body (What breaks / upgrade recipe) is assembled by
+# scripts/derive-release.sh release-notes from BREAKING CHANGE: / Changelog: trailers —
+# computed BEFORE the tag exists, so the derivation range (last-tag..HEAD) still covers
+# this release's commits. gh release create then creates the tag and the Release together.
+name: release-publish
+on:
+  pull_request:
+    types: [closed]
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    if: github.event.pull_request.merged == true && github.event.pull_request.head.ref == 'release/next'
+    steps:
+      - name: mint app token
+        id: app
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ secrets.RELEASE_APP_ID }}
+          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.merge_commit_sha }}
+          token: ${{ steps.app.outputs.token }}
+
+      - name: tag + publish release
+        env:
+          GH_TOKEN: ${{ steps.app.outputs.token }}
+        run: |
+          set -euo pipefail
+          VERSION="$(jq -r '.metadata.version' .claude-plugin/marketplace.json)"
+          if git rev-parse -q --verify "refs/tags/v$VERSION" >/dev/null; then
+            echo "tag v$VERSION already exists — nothing to publish."
+            exit 0
+          fi
+          NOTES="$(mktemp)"
+          bash scripts/derive-release.sh release-notes > "$NOTES"
+          gh release create "v$VERSION" \
+            --target "${{ github.event.pull_request.merge_commit_sha }}" \
+            --title "v$VERSION" --notes-file "$NOTES"
+          echo "published v$VERSION"

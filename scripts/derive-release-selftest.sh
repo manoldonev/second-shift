@@ -9,6 +9,8 @@
 # (AC-8), apply-mode idempotency, version-field shape for consumers (AC-7), the What-breaks
 # assembly incl. "Nothing breaks." (AC-8), and both PR gates in pass and fail directions
 # (AC-1, AC-5). bash-3.2-safe; runs in CI via the '*-selftest.sh' discovery loop.
+#
+# shellcheck disable=SC2016  # single-quoted needles carry literal markdown backticks
 set -uo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
@@ -31,7 +33,7 @@ WORK="$(mktemp -d -t derive-release-selftest.XXXXXX)"
 trap 'rm -rf "$WORK"' EXIT
 REPO="$WORK/repo"
 mkdir -p "$REPO"
-cd "$REPO"
+cd "$REPO" || exit 2
 git init -q
 git config user.name selftest
 git config user.email selftest@example.invalid

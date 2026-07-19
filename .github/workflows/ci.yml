@@ -11,7 +11,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 0   # full history + tags: the version-bump check needs the latest release tag
+          fetch-depth: 0   # full history + tags: selftests (derive-release) diff against the latest release tag
 
       - name: shellcheck
         run: |
@@ -50,8 +50,49 @@ jobs:
             echo "::error::rule 3(b): toolkit content hard-paths into dev-pipeline (invoke workflows by bare filename; reference artifacts by name)"; exit 1
           fi
 
-      - name: version-bump discipline (changed plugin ⇒ bumped plugin.json)
+  # Release-time derivation (#119): feature PRs must NOT write the release-owned files —
+  # plugin.json version fields and CHANGELOG.md are computed on the release PR by
+  # scripts/derive-release.sh. These two gates are pull_request-only and skip the release
+  # branch (release/next), which is the one legitimate writer.
+  pr-gates:
+    if: github.event_name == 'pull_request' && github.head_ref != 'release/next'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: frozen files guard (plugin.json versions + CHANGELOG are release-owned)
+        run: bash scripts/check-frozen-files.sh "origin/${{ github.base_ref }}"
+
+      - name: changelog trailer guard (plugins/** PRs carry Changelog:/Changelog: none)
+        run: bash scripts/check-changelog-trailer.sh "origin/${{ github.base_ref }}"
+
+  # Gates that run ONLY on the release PR: the old version-bump discipline (every
+  # content-changed plugin carries its derived bump — same script, new call site) and the
+  # configVersion migration-doc gate (a schema-breaking change ships its upgrade doc).
+  release-pr-gates:
+    if: github.event_name == 'pull_request' && github.head_ref == 'release/next'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: bump discipline (changed plugin ⇒ derived bump applied)
         run: bash scripts/check-plugin-version-bumps.sh
+
+      - name: configVersion migration-doc gate
+        run: |
+          LAST_TAG="$(git describe --tags --abbrev=0)"
+          OLD="$(git show "$LAST_TAG:schema/second-shift.config.schema.json" | jq -r '.properties.configVersion.const')"
+          NEW="$(jq -r '.properties.configVersion.const' schema/second-shift.config.schema.json)"
+          if [ "$OLD" != "$NEW" ]; then
+            if [ ! -f "docs/migrations/v${OLD}-to-v${NEW}.md" ]; then
+              echo "::error::configVersion ${OLD} -> ${NEW} without docs/migrations/v${OLD}-to-v${NEW}.md (docs/migrations/README.md contract)"
+              exit 1
+            fi
+          fi
 
   # macOS ships /bin/bash 3.2 and every shipped script claims 3.2 compat — two real
   # statectl bugs (generator mapfile, mark-failed brace-default expansion) lived

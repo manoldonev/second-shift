@@ -1,0 +1,113 @@
+# release-pr — open/update the accumulating release PR from every push to main (#119).
+#
+# All derivation logic lives in scripts/derive-release.sh (selftest-covered, model-free);
+# this workflow is a thin shell: derive -> force-push the bot-owned release/next branch ->
+# open/update the release PR. Human judgment (migration prose, section-catalog check,
+# renames) lands as commits on that PR — LATE, after the last feature merge, because every
+# re-derive wholesale-regenerates and force-pushes the branch (superseded human commits get
+# a loud PR comment; the old head stays reachable from the PR history).
+#
+# Token: the PR must be authored with a GitHub App token, NOT the default GITHUB_TOKEN —
+# events caused by GITHUB_TOKEN do not trigger workflows, so a default-token PR would get
+# no CI (and the release-PR gates in ci.yml would never run). One-time setup, documented in
+# docs/releasing.md: repo secrets RELEASE_APP_ID + RELEASE_APP_PRIVATE_KEY for an App with
+# contents:write + pull_requests:write on this repo.
+name: release-pr
+on:
+  push:
+    branches: [main]
+  workflow_dispatch: {}
+
+concurrency:
+  group: release-pr
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  derive:
+    runs-on: ubuntu-latest
+    # Skip the push event of the release PR's own squash merge (release-publish handles it;
+    # re-deriving before the new tag exists would recreate a just-published release PR).
+    if: github.event_name == 'workflow_dispatch' || !startsWith(github.event.head_commit.message, 'release:')
+    steps:
+      - name: check release-PR secrets
+        env:
+          APP_ID: ${{ secrets.RELEASE_APP_ID }}
+        run: |
+          if [ -z "$APP_ID" ]; then
+            echo "::error::RELEASE_APP_ID / RELEASE_APP_PRIVATE_KEY secrets are not configured — the release PR cannot be authored (a GITHUB_TOKEN PR gets no CI). See docs/releasing.md 'One-time setup'." >&2
+            exit 1
+          fi
+
+      - name: mint app token
+        id: app
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ secrets.RELEASE_APP_ID }}
+          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # full history + tags: derivation diffs against the last release tag
+          token: ${{ steps.app.outputs.token }}
+
+      - name: derive release + update branch
+        id: derive
+        env:
+          GH_TOKEN: ${{ steps.app.outputs.token }}
+        run: |
+          set -euo pipefail
+          BODY="$(mktemp)"
+          bash scripts/derive-release.sh apply > "$BODY"
+          if grep -qx 'NOTHING_TO_RELEASE' "$BODY"; then
+            echo "no plugin changed since the last tag — nothing to release."
+            echo "release=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "release=true" >> "$GITHUB_OUTPUT"
+          VERSION="$(jq -r '.metadata.version' .claude-plugin/marketplace.json)"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "body-file=$BODY" >> "$GITHUB_OUTPUT"
+
+          # Loud supersede: if the existing release branch carries non-bot commits, say so
+          # on the PR before the force-push buries them (old head stays in PR history).
+          git fetch origin release/next 2>/dev/null || true
+          if git rev-parse -q --verify origin/release/next >/dev/null; then
+            HUMANS="$(git log origin/release/next --not origin/main --format='%an' | grep -v '\[bot\]$' | sort -u || true)"
+            if [ -n "$HUMANS" ]; then
+              PR="$(gh api "repos/${GITHUB_REPOSITORY}/pulls?head=${GITHUB_REPOSITORY_OWNER}:release/next&state=open" --jq '.[0].number // empty')"
+              if [ -n "$PR" ]; then
+                OLD_HEAD="$(git rev-parse origin/release/next)"
+                gh api -X POST "repos/${GITHUB_REPOSITORY}/issues/${PR}/comments" \
+                  -f body="Re-derive superseded human commits on this branch (authors: ${HUMANS}). Previous head: ${OLD_HEAD} — recover edits from there and re-apply AFTER the last feature merge." >/dev/null
+              fi
+            fi
+          fi
+
+          git config user.name "second-shift-release[bot]"
+          git config user.email "second-shift-release[bot]@users.noreply.github.com"
+          git checkout -B release/next
+          git add -A
+          git commit -m "release: v$VERSION"
+          git push -f origin release/next
+
+      - name: open or update the release PR
+        if: steps.derive.outputs.release == 'true'
+        env:
+          GH_TOKEN: ${{ steps.app.outputs.token }}
+        run: |
+          set -euo pipefail
+          VERSION='${{ steps.derive.outputs.version }}'
+          BODY_FILE='${{ steps.derive.outputs.body-file }}'
+          PR="$(gh api "repos/${GITHUB_REPOSITORY}/pulls?head=${GITHUB_REPOSITORY_OWNER}:release/next&state=open" --jq '.[0].number // empty')"
+          if [ -z "$PR" ]; then
+            gh pr create --base main --head release/next \
+              --title "release: v$VERSION" --body-file "$BODY_FILE"
+          else
+            gh api -X PATCH "repos/${GITHUB_REPOSITORY}/pulls/${PR}" \
+              -f title="release: v$VERSION" -F body=@"$BODY_FILE" >/dev/null
+            echo "updated release PR #$PR to v$VERSION"
+          fi
