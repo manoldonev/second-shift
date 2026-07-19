@@ -121,9 +121,16 @@ else
   if [[ -n "$RT_ROOT" && -x "$SECTION_LINT" ]]; then
     if out=$(bash "$SECTION_LINT" --preflight "$REPO_ROOT" 2>&1); then
       ok "check-review-context-sections: no alias drift or empty catalog sections"
+      # Surface the lint's OFF-CATALOG WARNs even on success — a reviewer-degrading rename
+      # to a NOVEL heading is (by the reconciled #67 contract) WARN-not-red, so this line
+      # plus the coverage line below IS its entire disclosure. Swallowing it here would
+      # reduce the reconciliation to a coverage-count footnote.
+      while IFS= read -r l; do [[ -n "$l" ]] && say "[preflight]        $l"; done < <(grep 'OFF-CATALOG' <<< "$out" | head -10)
     else
-      bad "check-review-context-sections rejected the repo (alias drift or empty catalog section):"
-      while IFS= read -r l; do say "[preflight]        $l"; done < <(grep -E 'ALIAS:|EMPTY-SECTION:' <<< "$out" | head -10)
+      bad "check-review-context-sections rejected the repo (alias drift, empty catalog section, or lint error):"
+      hits=$(grep -E 'ALIAS:|EMPTY-SECTION:' <<< "$out" | head -10)
+      [[ -z "$hits" ]] && hits=$(tail -5 <<< "$out")   # exit-2 infra error: show the real message
+      while IFS= read -r l; do say "[preflight]        $l"; done <<< "$hits"
     fi
     cov=$(bash "$SECTION_LINT" --report "$REPO_ROOT" 2>/dev/null | grep -m1 'context-coverage:' || true)
     [[ -n "$cov" ]] && say "[preflight]        $cov"

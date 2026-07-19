@@ -1,13 +1,14 @@
 #!/usr/bin/env bash
-# check-review-context-sections.sh — lint the NAMED SECTIONS (H2+ headings) inside a
+# check-review-context-sections.sh — lint the NAMED SECTIONS (H2 headings) inside a
 # consumer's .claude/second-shift/review-context.md and review-context/<reviewer>.md files
 # against the machine-readable section catalog (section-catalog.txt, sibling). This is the
 # in-file counterpart to check-review-context.sh (which lints file BASENAMES): it closes the
 # "silent inside the file" gap where a renamed or emptied section silently degrades the
 # reviewer that keys on it.
 #
-# SCOPE: H2+ headings only (`^##+ `). H1 title lines (`^# `) are NEVER linted — a repo's
-# per-reviewer files legitimately open with `# <reviewer> — <repo>`.
+# SCOPE: H2 headings only (`^## `). H1 title lines (`^# `) are NEVER linted — a repo's
+# per-reviewer files legitimately open with `# <reviewer> — <repo>` — and H3+ headings are
+# section content (subsection structure), not sections. Fenced code lines are never headings.
 #
 # VENUES / MODES (severity by venue — the approved #67 ladder):
 #   (default, no flag)  mid-run posture: alias hits + present-but-empty catalog sections
@@ -128,22 +129,39 @@ is_known() { [ -n "$KNOWN" ] && printf '%s\n' "$KNOWN" | grep -Fxq "$1"; }
 is_active() { printf '%s\n' "$ACTIVE_NAMES" | grep -Fxq "$1"; }
 alias_target() { printf '%s\n' "$ALIASES" | awk -F'\t' -v a="$1" '$1==a{print $2; exit}'; }
 
-# ---- Walk both homes, emit "heading<TAB>empty|nonempty" per H2+ heading -------
+# ---- Walk both homes, emit "heading<TAB>empty|nonempty" per H2 heading --------
+# Sections are H2 ONLY: an H3+ heading is section CONTENT (it structures the body and
+# marks the enclosing H2 non-empty), never a section itself — `## Stack` organized into
+# `### Frontend` / `### Backend` is one present section, not three findings. Lines inside
+# ``` / ~~~ code fences are never headings (a quoted `## Maturity stage` example must not
+# trip the alias gate); a fence in a section body counts as real content. Single-level
+# fences only — a fence nested inside another fence re-toggles.
+# The placeholder ERE is mirrored VERBATIM (case-insensitively) in onboard's
+# scaffold-review-context.sh guard — change them together.
 emit_headings() {  # $1 = file
     awk '
-      /^#+[[:space:]]/ {
+      /^[[:space:]]*(```|~~~)/ {
+        fence = !fence;
+        if (prevh != "") seen=1;   # fenced example/code in a body is real content
+        next;
+      }
+      fence { if (prevh != "") seen=1; next; }
+      /^##[[:space:]]/ {
         if (prevh != "") print prevh "\t" (seen ? "nonempty" : "empty");
-        if ($0 ~ /^##+[[:space:]]/) {
-          h=$0; sub(/^##+[[:space:]]+/,"",h); sub(/[[:space:]]+$/,"",h);
-          prevh=h; seen=0;
-        } else { prevh=""; }   # H1 — never linted
+        h=$0; sub(/^##[[:space:]]+/,"",h); sub(/[[:space:]]+$/,"",h);
+        prevh=h; seen=0;
+        next;
+      }
+      /^#[[:space:]]/ {
+        if (prevh != "") print prevh "\t" (seen ? "nonempty" : "empty");
+        prevh="";   # H1 — never linted; ends the current section
         next;
       }
       {
         if (prevh != "") {
           l=$0;
-          # real content = a non-blank line that is not a whole-line placeholder
-          if (l ~ /[^[:space:]]/ && l !~ /^[[:space:]]*(TODO|TBD|_?TBD_?|<[^>]*>|\(fill[^)]*\)|\(TODO[^)]*\)|…|\.\.\.)[[:space:]]*$/) seen=1;
+          # real content = a non-blank line that is not a whole-line/prefix placeholder
+          if (l ~ /[^[:space:]]/ && l !~ /^[[:space:]]*((TODO|TBD|FIXME)([[:space:]:.-].*)?|_+TBD_+|<[^>]*>|\((TODO|fill)[^)]*\)|…|\.\.\.)[[:space:]]*$/) seen=1;
         }
       }
       END { if (prevh != "") print prevh "\t" (seen ? "nonempty" : "empty"); }

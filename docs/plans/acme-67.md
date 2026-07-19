@@ -2,7 +2,7 @@
 
 ## Context / problem framing
 
-The review-context extension surface is fail-closed at the **file** boundary (basename typos, unknown extension files) but silent **inside** a file. Two mutations survive every guard today: renaming a named section heading (`## Maturity stage` → anything else) and emptying `review-context.md`. The named-section catalog reviewers key on exists only as prose in `docs/extension-points.md` ("Authoring the review-context surface"), and is already drifted in the wild (cadenza writes `## Maturity calibration (MVP stage)`). Onboarding never mentions the surface, so fresh consumers finish green while every reviewer silently runs in infer-and-lower-confidence mode.
+The review-context extension surface is fail-closed at the **file** boundary (basename typos, unknown extension files) but silent **inside** a file. Two mutations survive every guard today: renaming a named section heading (`## Maturity stage` → anything else) and emptying `review-context.md`. The named-section catalog reviewers key on exists only as prose in `docs/extension-points.md` ("Authoring the review-context surface"), and is already drifted in the wild (acme writes `## Maturity calibration (MVP stage)`). Onboarding never mentions the surface, so fresh consumers finish green while every reviewer silently runs in infer-and-lower-confidence mode.
 
 This change ships **one machine-readable catalog** (sibling discipline to `extension-manifest.txt`) and derives a linter, a coverage report, a preflight gate, an onboard scaffold, and reviewer-side empty-section semantics from it. `no-split` verdict (Stage 1): ~11 files across review-toolkit / dev-pipeline / second-shift / docs, all hanging off the one catalog artifact.
 
@@ -19,7 +19,7 @@ This change ships **one machine-readable catalog** (sibling discipline to `exten
 | --- | --- | --- |
 | D1 | **Severity ladder (approved reconciliation).** At the `--preflight` venue the RED (non-zero exit) class is exactly (a) alias-table hits and (b) present-but-empty/TODO-bodied *catalog* sections. Novel off-catalog headings → WARN at `--preflight`/`--verbose`, **suppressed INFO** by default. Genuinely-absent catalog sections → coverage INFO. Mid-run (default) venue never exits non-zero. | user-answered (Option 1, this run) |
 | D2 | **Acceptance bullet reworded.** "M1 (section rename) goes red at preflight" → "M1 is surfaced as WARN + a coverage-disclosed reviewer degradation, not red." Making a rename-to-novel-heading hard-fail requires failing all novel headings, which breaks the `.known-sections` escape hatch + optional-sections contract. Disclosed as an `alternate-approach` deviation at Stage 7. | user-answered (Option 1, this run) |
-| D3 | **Novel off-catalog = suppressed-INFO by default** (not WARN). Required so the four non-alias cadenza H2s pass untouched with no `.known-sections`. The `.known-sections` file upgrades a novel heading to recognized (silences its `--preflight`/`--verbose` WARN and counts it as known for coverage). | codebase-derived (cadenza real headings) |
+| D3 | **Novel off-catalog = suppressed-INFO by default** (not WARN). Required so the four non-alias acme H2s pass untouched with no `.known-sections`. The `.known-sections` file upgrades a novel heading to recognized (silences its `--preflight`/`--verbose` WARN and counts it as known for coverage). | codebase-derived (acme real headings) |
 | D4 | **Empty-file (M4) vs empty-body distinction.** No headings at all → all-absent → coverage INFO, exit 0 (M4 disclosed, not red). A *present* catalog heading with an empty/TODO body → red at `--preflight`. | codebase-derived (spec-reviewer finding) |
 | D5 | **#33 CI-list cross-link** — resolved conditionally at implementation: if a concrete onboard-emitted CI-evidence artifact exists, add the new lint; else defer (the client-gate/CI-backstop intent is met by the preflight wiring). | deferred |
 
@@ -76,7 +76,7 @@ Unverified references: none.
 ## Test strategy (verify-after — infra/tooling change, no product behavior)
 
 New selftest `check-review-context-sections-selftest.sh` asserts:
-- **Fixture (AC-1):** consumer dir with H1 `# Review context — Cadenza AI` + cadenza's 5 real H2s (`Owned elsewhere — pointers, not values`, `Stack`, `Repo topology & package architecture`, `Maturity calibration (MVP stage)`, `Domain test edge cases (test-coverage severity examples)`) + 7 `review-context/<reviewer>.md` files each headed `# <reviewer> — Cadenza AI`. Default venue → **exactly** `Maturity calibration (MVP stage)` flagged (alias); the other 4 H2s produce no finding (Stack=active, 3 novel=suppressed); the 7 H1s produce zero findings.
+- **Fixture (AC-1):** consumer dir with H1 `# Review context — Acme Web` + acme's 5 real H2s (`Owned elsewhere — pointers, not values`, `Stack`, `Repo topology & package architecture`, `Maturity calibration (MVP stage)`, `Domain test edge cases (test-coverage severity examples)`) + 7 `review-context/<reviewer>.md` files each headed `# <reviewer> — Acme Web`. Default venue → **exactly** `Maturity calibration (MVP stage)` flagged (alias); the other 4 H2s produce no finding (Stack=active, 3 novel=suppressed); the 7 H1s produce zero findings.
 - **M1 (AC-2, reworded per D2):** rename the alias heading → `## Historical notes`; `--preflight` exit 0 (no alias, no empty body); coverage line reports security-reviewer degraded.
 - **empty-body (AC-2):** `## Stack` with empty body → `--preflight` exit non-zero (red).
 - **M4 empty-file (AC-2):** empty `review-context.md` → coverage line discloses all-absent; `--preflight` exit 0.
@@ -88,7 +88,7 @@ New selftest `check-review-context-sections-selftest.sh` asserts:
 
 | AC ID | Criterion (short) | Step(s) | Test(s) |
 | --- | --- | --- | --- |
-| AC-1 | cadenza 5-H2 fixture: only alias flagged, 7 H1s silent | 1,2,3 | fixture assertion (AC-1) |
+| AC-1 | acme 5-H2 fixture: only alias flagged, 7 H1s silent | 1,2,3 | fixture assertion (AC-1) |
 | AC-2 | M1 + empty-body outcomes at preflight; M4 by coverage | 2,3 | M1 / empty-body / M4 assertions (AC-2) — M1 reworded per D2 |
 | AC-3 | selftests: lockstep, coverage-cannot-fail-exit, escape-hatch | 1,2,4 | lockstep / coverage-cannot-fail / escape-hatch assertions (AC-3) |
 
@@ -110,4 +110,4 @@ find . -name '*-selftest.sh' -type f -print0 | xargs -0 -n1 -I{} env SKIP_STRESS
 ## Out-of-scope
 
 - `doc-routing.md`, `design-tokens/*.md`, `security-rules.md`, `blocker-mutants.md` intra-file contracts (tracked separately per the issue).
-- Auto-editing cadenza's real `review-context.md` (propagation is pull-only; cadenza reconciles on its own via the printed rename command).
+- Auto-editing acme's real `review-context.md` (propagation is pull-only; acme reconciles on its own via the printed rename command).

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Selftest for check-review-context-sections.sh + section-catalog.txt.
-# Covers the #67 acceptance: the cadenza 5-H2 fixture (only the alias flagged, 7 H1s
+# Covers the #67 acceptance: the acme 5-H2 fixture (only the alias flagged, 7 H1s
 # silent), the M1 / empty-body / M4 mutation outcomes at the preflight venue, the
 # coverage-cannot-fail-exit invariant, the .known-sections escape hatch, and the
 # catalog<->extension-points.md template lockstep.
@@ -32,12 +32,12 @@ choose from the effective reviewer registry — the plugin-shipped panel (securi
 MD
 export SECOND_SHIFT_PLUGIN_ROOT="$TMP/plugin"
 
-# ---- fixture builder: cadenza's five real H2s + seven per-reviewer H1 files ----
-build_cadenza() {  # $1 = root ; optional $2 = maturity heading override
+# ---- fixture builder: acme's five real H2s + seven per-reviewer H1 files ----
+build_acme() {  # $1 = root ; optional $2 = maturity heading override
     local root="$1" maturity="${2:-## Maturity calibration (MVP stage)}"
     mkdir -p "$root/.claude/second-shift/review-context"
     cat > "$root/.claude/second-shift/review-context.md" <<MD
-# Review context — Cadenza AI
+# Review context — Acme Web
 
 ## Owned elsewhere — pointers, not values
 The severity ladder lives in docs/; this file points, not restates.
@@ -58,27 +58,27 @@ MD
     for r in a11y-reviewer performance-reviewer maintainability-reviewer \
              complexity-reviewer test-coverage-reviewer pipeline-reviewer db-reviewer; do
         cat > "$root/.claude/second-shift/review-context/$r.md" <<MD
-# $r — Cadenza AI
+# $r — Acme Web
 Repo-specific notes for this reviewer.
 MD
     done
 }
 
-# ---- (1) AC-1: cadenza fixture, DEFAULT venue -> exactly the alias flagged --------------
-build_cadenza "$TMP/r1"
+# ---- (1) AC-1: acme fixture, DEFAULT venue -> exactly the alias flagged --------------
+build_acme "$TMP/r1"
 RC=0; OUT="$(bash "$CHECK" "$TMP/r1" 2>&1)" || RC=$?
 n_alias=$(printf '%s\n' "$OUT" | grep -c 'ALIAS:' || true)
 n_offcat=$(printf '%s\n' "$OUT" | grep -c 'OFF-CATALOG:' || true)
 n_empty=$(printf '%s\n' "$OUT" | grep -c 'EMPTY-SECTION:' || true)
 if [ "$RC" -eq 0 ] && [ "$n_alias" -eq 1 ] && [ "$n_offcat" -eq 0 ] && [ "$n_empty" -eq 0 ] \
    && printf '%s\n' "$OUT" | grep -q 'Maturity calibration (MVP stage)'; then
-    ok "AC-1: cadenza fixture (default) -> exactly the alias flagged; 4 other H2s + 7 H1s silent"
+    ok "AC-1: acme fixture (default) -> exactly the alias flagged; 4 other H2s + 7 H1s silent"
 else
     bad "AC-1: expected exactly 1 alias finding at default (rc=$RC alias=$n_alias offcat=$n_offcat empty=$n_empty)"
 fi
 
 # ---- (2) AC-2: M1 (rename alias -> novel) at --preflight -> NOT red, coverage discloses --
-build_cadenza "$TMP/r2" "## Historical notes"
+build_acme "$TMP/r2" "## Historical notes"
 RC=0; OUT="$(bash "$CHECK" --preflight "$TMP/r2" 2>&1)" || RC=$?
 if [ "$RC" -eq 0 ] && printf '%s\n' "$OUT" | grep -q 'context-coverage:' \
    && printf '%s\n' "$OUT" | grep -q 'security-reviewer'; then
@@ -190,6 +190,64 @@ if [ "$RC" -eq 0 ] && printf '%s\n' "$OUT" | grep -q 'OFF-CATALOG:' \
     ok "--verbose surfaces novel headings + coverage in the default venue (suppressed without it)"
 else
     bad "--verbose should reveal OFF-CATALOG + coverage in default mode (rc=$RC)"
+fi
+
+# ---- (9) headings inside code fences are NOT linted (a quoted alias example is clean) ----
+mkdir -p "$TMP/r9/.claude/second-shift"
+cat > "$TMP/r9/.claude/second-shift/review-context.md" <<'MD'
+# Review context — Repo
+
+## Stack
+Rails monolith. The old heading spelling was:
+
+```markdown
+## Maturity calibration (MVP stage)
+```
+
+## Maturity stage
+Pre-auth MVP.
+MD
+RC=0; OUT="$(bash "$CHECK" --preflight "$TMP/r9" 2>&1)" || RC=$?
+if [ "$RC" -eq 0 ] && ! printf '%s\n' "$OUT" | grep -q 'ALIAS:'; then
+    ok "fenced alias example is not linted (fence-aware heading walk)"
+else
+    bad "a heading quoted inside a code fence must not trip the alias gate (rc=$RC)"
+fi
+
+# ---- (10) H3 subsections are section CONTENT: H2 counts present, H3s never flagged ------
+mkdir -p "$TMP/r10/.claude/second-shift"
+cat > "$TMP/r10/.claude/second-shift/review-context.md" <<'MD'
+# Review context — Repo
+
+## Stack
+
+### Frontend
+Next.js app router.
+
+### Backend
+NestJS + Postgres.
+MD
+RC=0; OUT="$(bash "$CHECK" --preflight "$TMP/r10" 2>&1)" || RC=$?
+if [ "$RC" -eq 0 ] && ! printf '%s\n' "$OUT" | grep -q 'EMPTY-SECTION:' \
+   && ! printf '%s\n' "$OUT" | grep -q 'OFF-CATALOG: "## Frontend"'; then
+    ok "H2 organized into H3 subsections is one present section (H3 = content, not a section)"
+else
+    bad "H3 subsections must not make the H2 empty or appear as sections (rc=$RC out=$(printf '%s' "$OUT" | head -3))"
+fi
+
+# ---- (11) TODO:-prefixed body is a placeholder -> EMPTY-SECTION red at preflight --------
+mkdir -p "$TMP/r11/.claude/second-shift"
+cat > "$TMP/r11/.claude/second-shift/review-context.md" <<'MD'
+# Review context — Repo
+
+## Stack
+TODO: describe the stack here
+MD
+RC=0; OUT="$(bash "$CHECK" --preflight "$TMP/r11" 2>&1)" || RC=$?
+if [ "$RC" -ne 0 ] && printf '%s\n' "$OUT" | grep -q 'EMPTY-SECTION: "## Stack"'; then
+    ok "TODO:-prefixed body counts as placeholder -> red at preflight (docs promise held)"
+else
+    bad "a TODO:-prefixed body must be EMPTY-SECTION red at preflight (rc=$RC)"
 fi
 
 echo ""

@@ -42,6 +42,19 @@ RC=0; printf '' | bash "$TOOL" "$TMP/r4" >/dev/null 2>&1 || RC=$?
 [ "$RC" -ne 0 ] && [ ! -f "$TMP/r4/.claude/second-shift/review-context.md" ] \
     && ok "empty stdin -> nothing written" || bad "empty stdin should write nothing"
 
+# (5) placeholder-definition parity with the section lint: _TBD_ and TODO:-prefixed
+# bodies are placeholders — the scaffold must never write a body the lint REDs as empty.
+mkdir -p "$TMP/r5"
+RC=0; printf '## Stack\n_TBD_\n' | bash "$TOOL" "$TMP/r5" >/dev/null 2>&1 || RC=$?
+[ "$RC" -ne 0 ] && [ ! -f "$TMP/r5/.claude/second-shift/review-context.md" ] \
+    && ok "refuses a _TBD_ body (lint-parity placeholder)" \
+    || bad "_TBD_ body must be refused (rc=$RC)"
+mkdir -p "$TMP/r6"
+RC=0; printf '## Stack\nTODO: fill me in later\n' | bash "$TOOL" "$TMP/r6" >/dev/null 2>&1 || RC=$?
+[ "$RC" -ne 0 ] && [ ! -f "$TMP/r6/.claude/second-shift/review-context.md" ] \
+    && ok "refuses a TODO:-prefixed body (lint-parity placeholder)" \
+    || bad "TODO:-prefixed body must be refused (rc=$RC)"
+
 echo ""
 if [ "$FAILS" -eq 0 ]; then echo "scaffold-review-context-selftest: ALL PASS"; else
     echo "scaffold-review-context-selftest: $FAILS FAILURE(S)"; exit 1; fi

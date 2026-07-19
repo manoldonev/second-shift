@@ -13,7 +13,7 @@
 #   readers = effective-registry reviewer names (no plugin: prefix), or the sentinel `all`
 #             (every panel reviewer reads it, via review-lead).
 #
-# H1 title lines (`# ...`) are NEVER linted — only H2+ (`## ...`) headings. Sibling
+# H1 title lines (`# ...`) are NEVER linted — only H2 (`## ...`) headings (H3+ subsection headings are section content). Sibling
 # discipline to tools/extension-manifest.txt (EP-3). Additions/renames are breaking-class:
 # check against known-consumer headings before release and list them in the release
 # What-breaks body (docs/releasing.md).
