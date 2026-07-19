@@ -4,6 +4,29 @@ All notable changes to the second-shift marketplace. Versions are per-plugin (`p
 this file tracks the marketplace release. `configVersion` stays `const 1` — v2 is fully backward-compatible for a
 consumer with an empty config; the migration notes below are only for consumers using the changed features.
 
+## (in progress)
+
+### `review-toolkit` 2.1.4 → 2.1.5
+- **Review-context section catalog + exact-name lint (#67).** `scripts/section-catalog.txt` is the
+  machine-readable source of truth for the named `review-context.md` sections reviewers key on
+  (`section-name | readers | status`, plus a `deprecated-alias-of` tombstone table).
+  `scripts/check-review-context-sections.sh` lints against it: `--preflight` fails closed on alias
+  drift and present-but-empty catalog sections, `--report` prints an exit-neutral coverage line
+  (which reviewers run degraded), default mid-run is advisory; `.known-sections` (and `section:`
+  lines in `.known-extensions`) whitelist intentional off-catalog headings. The effective-registry
+  computation is shared with the basename lint via `scripts/_effective-registry.sh`.
+  `reviewer-baseline` treats an empty/TODO-bodied section as absent (infer conservatively AND
+  disclose). Migration: none — repos without off-catalog headings lint clean as-is.
+
+### `dev-pipeline` 2.2.7 → 2.2.8
+- Pre-flight surfaces the section gate + coverage line (cross-plugin review-toolkit resolution
+  with a hermetic env override); a missing review-toolkit is a disclosed skip, not a silent pass (#67).
+
+### `second-shift` 1.4.2 → 1.4.3
+- `doctor --report` gains a one-line section-coverage summary; `/second-shift:onboard` offers a
+  `review-context.md` scaffold (accept-or-edit, default "later"; only human-confirmed sections,
+  never a TODO body, never a fabricated `## Maturity stage`) (#67).
+
 ## v2.4.1 — tool-discipline contract for reviewers; consent doc defers to the lockfile
 
 ### `second-shift` 1.4.1 → 1.4.2
