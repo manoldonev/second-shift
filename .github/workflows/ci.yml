@@ -47,6 +47,7 @@ jobs:
 
       - name: namespace direction check (docs/namespaces.md rule 3)
         run: |
+          # shellcheck disable=SC2086  # $TOOLKITS is a deliberate space-separated dir list
           TOOLKITS="plugins/review-toolkit plugins/intake-toolkit plugins/design-toolkit plugins/audit-toolkit"
           # (a) no dev-pipeline: namespace token anywhere in the four toolkits
           if grep -rn 'dev-pipeline:' $TOOLKITS --include='*.md' --include='*.mjs' --include='*.sh' --include='*.json' 2>/dev/null; then
