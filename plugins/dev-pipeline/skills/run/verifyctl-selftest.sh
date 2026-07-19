@@ -310,6 +310,36 @@ else
   fail "(v13) null format skip — rc=$VRC ran-format=$([[ -f "$MARKERS/ran-format" ]] && echo yes || echo no) fmt=$fmt"
 fi
 
+# (v14) a non-object lanes[] entry must fail INFRA, NOT be silently skipped (#100).
+#       Before the shape backstop, `.[$i].name` errored to stderr, lane_cmds came
+#       back empty, the inner command loop ran zero times, and the run reached a
+#       GREEN verdict having never executed the setup lane (no install, no build).
+reset_all
+BAD_LANE="$TMPDIR_VT/cfg-bad-lane-shape.json"
+jq '.commands.mono.lanes = ["yarn install --immutable"]' "$CONFIG_FIXTURE" > "$BAD_LANE"
+VERDICT=$(SECOND_SHIFT_CONFIG="$BAD_LANE" "$VERIFYCTL" run 8888 2>/dev/null); VRC=$?
+status=$(jq -r '.status' <<< "$VERDICT")
+class=$(jq -r '.failures[0].class' <<< "$VERDICT")
+detail=$(jq -r '.failures[0].detail // ""' <<< "$VERDICT")
+if [[ "$VRC" != "0" && "$status" != "pass" && "$class" == "INFRA" ]]; then
+  pass "(v14) non-object setup lane -> INFRA failure, not a silent skip to green"
+else
+  fail "(v14) non-object setup lane — rc=$VRC status=$status class=$class detail=$detail"
+fi
+
+# (v15) same backstop on the extraLanes loop (#100) — identical fail-open shape.
+reset_all
+BAD_EXTRA="$TMPDIR_VT/cfg-bad-extralane-shape.json"
+jq '.commands.mono.extraLanes = ["true"]' "$CONFIG_FIXTURE" > "$BAD_EXTRA"
+VERDICT=$(SECOND_SHIFT_CONFIG="$BAD_EXTRA" "$VERIFYCTL" run 8888 2>/dev/null); VRC=$?
+status=$(jq -r '.status' <<< "$VERDICT")
+class=$(jq -r '.failures[0].class' <<< "$VERDICT")
+if [[ "$VRC" != "0" && "$status" != "pass" && "$class" == "INFRA" ]]; then
+  pass "(v15) non-object extra lane -> INFRA failure, not recorded-without-running"
+else
+  fail "(v15) non-object extra lane — rc=$VRC status=$status class=$class"
+fi
+
 echo
 echo "[self-test] summary: $PASS passed, $FAIL failed"
 exit "$FAIL"

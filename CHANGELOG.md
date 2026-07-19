@@ -4,7 +4,7 @@ All notable changes to the second-shift marketplace. Versions are per-plugin (`p
 this file tracks the marketplace release. `configVersion` stays `const 1` — v2 is fully backward-compatible for a
 consumer with an empty config; the migration notes below are only for consumers using the changed features.
 
-## v2.4.2 — record Stage-1 intake terminal verdicts in pipeline state (in progress)
+## v2.4.2 (in progress)
 
 ### `dev-pipeline` 2.2.7 → 2.2.8
 
@@ -27,6 +27,26 @@ consumer with an empty config; the migration notes below are only for consumers 
   The Stage-1 read-pin teardown now runs at EVERY Stage-1 exit, not only the completion path —
   intake stops never reach Stage 10, so the stop paths previously leaked the pin worktree.
   Migration: none — additive enum values + a new state write on paths that previously wrote none.
+
+### `dev-pipeline` 2.2.8 → 2.2.9
+
+- **A mis-shaped setup lane is no longer a silent false green (#100).** `commands.<id>.lanes[]` is
+  declared object-only in the schema, but `config-lint` never enforced it and `verifyctl` silently
+  skipped what it could not read — so a config with `lanes: ["npm ci"]` linted clean, installed
+  nothing, and still reported `status: pass`.
+  - `config-lint.sh` now rejects a non-object `lanes[]` / `extraLanes[]` entry with a clean
+    `must be an object {...}` violation. Previously a string/number/array entry produced **zero
+    findings** (jq evaluates `+` right-to-left, and `.name?` on a non-object yields `empty`, which
+    collapsed the whole check chain before the `keys` call was reached), while `null` and a
+    non-object `extraLane` crashed jq with rc=5 instead of reporting.
+  - `verifyctl.sh` now records an **INFRA** failure for a non-object entry in both the setup-lane
+    and `extraLanes` loops, instead of leaving the command count empty and skipping the lane.
+  - `preflight.sh`'s lane read is guarded with `select(type == "object")` — one malformed entry
+    used to abort the whole jq stream (its error hidden by `2>/dev/null`), silently dropping
+    **every** lane including well-formed ones.
+  - Migration: a config using the undocumented string shorthand now **fails config-lint**. This
+    surfaces an existing break rather than creating one — such a lane never executed under any
+    consumer. Rewrite `["npm ci"]` as `[{"name": "install", "commands": ["npm ci"]}]`.
 
 ## v2.4.1 — tool-discipline contract for reviewers; consent doc defers to the lockfile
 
