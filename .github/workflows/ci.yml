@@ -25,6 +25,17 @@ jobs:
       - name: validate JSON (manifests, schema, fixtures)
         run: find . -name '*.json' -type f -print0 | xargs -0 -n1 jq empty
 
+      # Static analysis of the workflow files themselves: invalid `if:` expressions, unknown
+      # contexts, bad `uses:` refs, plus shellcheck over `run:` blocks. Pinned image, no
+      # curl|bash. NOTE the chicken-and-egg: a YAML *syntax* error in this very file means
+      # GitHub refuses to run it, so this step never fires for its own breakage — that floor
+      # is held locally by scripts/check-workflows-selftest.sh, which is the gate that must
+      # catch it before the push.
+      - name: actionlint (workflow static analysis)
+        uses: docker://rhysd/actionlint:1.7.7
+        with:
+          args: -color
+
       - name: run all selftests
         run: |
           fails=0
@@ -75,7 +86,7 @@ jobs:
           BASE_REF: ${{ github.base_ref }}
         run: bash scripts/check-frozen-files.sh "origin/$BASE_REF"
 
-      - name: changelog trailer guard (plugins/** PRs carry Changelog:/Changelog: none)
+      - name: "changelog trailer guard (plugins/** PRs carry a Changelog: trailer)"
         env:
           BASE_REF: ${{ github.base_ref }}
         run: bash scripts/check-changelog-trailer.sh "origin/$BASE_REF"
