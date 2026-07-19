@@ -456,10 +456,21 @@ cmd_run() {
     #    class); an error that survives setup is a real classified failure
     #    from step 3. Each lane: {name, cwd?, commands[]}, cwd relative to
     #    the worktree.
-    local lane_count li lane_name lane_cwd lane_cmds lc_i lane_cmd lane_dir
+    local lane_count li lane_name lane_cwd lane_cmds lc_i lane_cmd lane_dir lane_type
     lane_count=$(jq 'length' <<< "$SETUP_LANES")
     for (( li=0; li<lane_count; li++ )); do
       [[ "$overall" == "pass" ]] || break
+      # Shape backstop (#100): config-lint is the primary gate, but verifyctl can
+      # run against a config that was never linted. A non-object entry used to
+      # make the `.name`/`.commands` reads below error to stderr, leaving
+      # lane_cmds empty so the inner loop ran zero times — the lane was SILENTLY
+      # skipped and the run still reached a green verdict. Fail INFRA instead.
+      lane_type=$(jq -r --argjson i "$li" '.[$i] | type' <<< "$SETUP_LANES")
+      if [[ "$lane_type" != "object" ]]; then
+        record_failure "INFRA" "setup lane [$li]: must be an object {name, cwd?, commands[]}, got $lane_type" 1 ""
+        vs_setup="failed"   # #98 rename: the setup field carries the lanes[] outcome
+        break
+      fi
       lane_name=$(jq -r --argjson i "$li" '.[$i].name' <<< "$SETUP_LANES")
       lane_cwd=$(jq -r --argjson i "$li" '.[$i].cwd // ""' <<< "$SETUP_LANES")
       lane_dir="$wt${lane_cwd:+/$lane_cwd}"
@@ -634,7 +645,16 @@ cmd_run() {
     if [[ "$el_count" -gt 0 && "$failures" == "[]" ]]; then
       local el_i
       for (( el_i=0; el_i<el_count; el_i++ )); do
-        local el_name el_fc el_when_count el_run el_status el_cmds el_ci el_cmd el_rc
+        local el_name el_fc el_when_count el_run el_status el_cmds el_ci el_cmd el_rc el_type
+        # Shape backstop (#100) — same fail-open as the setup-lane loop above:
+        # a non-object entry left el_cmds empty, so the lane was recorded without
+        # ever running. INFRA is correct here (a malformed config is an
+        # environment defect, not the lane's own failureClass).
+        el_type=$(jq -r --argjson i "$el_i" '.[$i] | type' <<< "$EXTRA_LANES")
+        if [[ "$el_type" != "object" ]]; then
+          record_failure "INFRA" "extra lane [$el_i]: must be an object {name, when?, commands[], failureClass?}, got $el_type" 1 ""
+          break
+        fi
         el_name=$(jq -r --argjson i "$el_i" '.[$i].name' <<< "$EXTRA_LANES")
         el_fc=$(jq -r --argjson i "$el_i" '.[$i].failureClass' <<< "$EXTRA_LANES")
         el_when_count=$(jq --argjson i "$el_i" '(.[$i].when // []) | length' <<< "$EXTRA_LANES")

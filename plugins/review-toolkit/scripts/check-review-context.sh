@@ -46,24 +46,18 @@ RC_DIR="$CONSUMER_ROOT/.claude/second-shift/review-context"
 
 [ -f "$SKILL" ] || { echo "check-review-context: ERROR — review-lead SKILL.md not found at $SKILL" >&2; exit 1; }
 
-# Plugin panel: same enumeration check-reviewer-references.sh parses.
-plugin_registry=$(grep -oE 'the plugin-shipped panel \([^)]+\)' "$SKILL" \
-    | grep -oE '[a-z][a-z0-9-]+-reviewer' | sort -u || true)
-[ -n "$plugin_registry" ] || { echo "check-review-context: ERROR — could not parse the plugin panel from $SKILL" >&2; exit 1; }
-
 CONFIG="${SECOND_SHIFT_CONFIG:-$CONSUMER_ROOT/.claude/second-shift.config.json}"
-adds=""; removes=""
-if [ -f "$CONFIG" ]; then
-    if command -v jq >/dev/null 2>&1; then
-        adds=$(jq -r '.reviewers.add[]?.name // empty' "$CONFIG" 2>/dev/null | grep -v '^$' | sort -u || true)
-        removes=$(jq -r '.reviewers.remove[]? // empty' "$CONFIG" 2>/dev/null | grep -v '^$' | sort -u || true)
-    else
-        echo "check-review-context: WARN — jq unavailable; config reviewer deltas not applied" >&2
-    fi
+# jq-absence WARN kept here (the shared helper is silent about it) for behavior parity.
+if [ -f "$CONFIG" ] && ! command -v jq >/dev/null 2>&1; then
+    echo "check-review-context: WARN — jq unavailable; config reviewer deltas not applied" >&2
 fi
 
-effective=$( { comm -23 <(printf '%s\n' "$plugin_registry") <(printf '%s\n' "$removes"); printf '%s\n' "$adds"; } \
-    | grep -v '^$' | sort -u )
+# Effective registry (plugin panel ± config deltas) — the single source of truth shared
+# with check-review-context-sections.sh (avoids a divergent second copy of the extraction).
+# shellcheck source=_effective-registry.sh
+. "$SCRIPT_DIR/_effective-registry.sh"
+effective="$(compute_effective_registry "$SKILL" "$CONFIG")" \
+    || { echo "check-review-context: ERROR — could not parse the plugin panel from $SKILL" >&2; exit 1; }
 
 errors=()
 while IFS= read -r -d '' f; do

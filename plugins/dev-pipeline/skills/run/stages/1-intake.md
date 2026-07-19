@@ -113,7 +113,7 @@ PIN_ERR=$(git fetch origin "$BASE_BRANCH_CFG" --quiet 2>&1 \
 }
 ```
 
-Pass the **absolute** pin path as `readRoot` in the intake Workflow args (Step 1.B — `workflows/intake-review.mjs` prefixes every dispatch prompt with the pinned-read instruction); resolve referenced docs (max 5) against the same root. **Teardown:** best-effort `git worktree remove "$PIN_WT" 2>/dev/null || true` right after the Stage-1 completion write; Stage 10 cleanup removes it unconditionally if it survived (crash between the two points).
+Pass the **absolute** pin path as `readRoot` in the intake Workflow args (Step 1.B — `workflows/intake-review.mjs` prefixes every dispatch prompt with the pinned-read instruction); resolve referenced docs (max 5) against the same root. **Teardown:** best-effort `git worktree remove "$PIN_WT" 2>/dev/null || true` at EVERY Stage-1 exit — right after the Stage-1 completion write on the continue path, AND right after the terminal write/comment on every Stage-1 stop (spec fails, escalation, `sub-issues` split, `design-source-unreachable`). Stage-1 stops never reach Stage 10, so a stop that skips teardown leaks the pin permanently. Stage 10 cleanup removes it unconditionally if it survived (crash between the two points).
 
 **Capture the pre-flight attestation (carry forward to the Stage-1 checkpoint).** The predicate outcomes above are the attestation `stageCheckpoint["1"].preflight` records — the Stage-1 completion gate is enforced on it (`set-stage 1 --status completed` refuses without a well-formed `preflight`; state-schema.md row 1). Record the three fields here (the pin is established at this point — the fail-closed case above already exited), so the checkpoint write below can fold them in:
 
@@ -153,10 +153,10 @@ The skill loads orchestration instructions into the current session — the call
 | Verdict       | Action                                                                                                                       | Pipeline continues?                                                  |
 | ------------- | ---------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------- |
 | `no-split`    | Posts spec review + decisions as comment. `stage: intake`, `status: passed` or `passed-with-decisions`                       | Yes — proceed to Stage 2                                             |
-| `sub-issues`  | Creates ≤5 sub-issues with `ready-for-dev` label. Parent gets `epic` label. `stage: intake`, `status: split-into-sub-issues` | **No** — pipeline stops. Sub-issues enter queue independently.       |
+| `sub-issues`  | Creates ≤5 sub-issues with `ready-for-dev` label. Parent gets `epic` label. `stage: intake`, `status: split-into-sub-issues` | **No** — pipeline stops. Sub-issues enter queue independently. State carve-out: success-shaped, no `mark-failed` (leaves `in_progress`; follow-up). |
 | `stacked-prs` | Posts decomposition plan as comment (≤3 ordered slices). `stage: intake`, `status: stacked-prs-planned`                      | Yes — pipeline enters **outer loop** starting at Stage 2 for slice 1 |
-| Spec fails    | True blockers found. `stage: intake`, `status: failed`                                                                       | **No** — `needs-spec-work` label, STOP                               |
-| Escalation    | Orchestrator uncertain. `stage: intake`, `status: needs-human-input`                                                         | **No** — `needs-intake-review` label, STOP                           |
+| Spec fails    | True blockers found. `stage: intake`, `status: failed`                                                                       | **No** — `needs-spec-work` label + `mark-failed(intake-spec-blocked)`, STOP |
+| Escalation    | Orchestrator uncertain. `stage: intake`, `status: needs-human-input`                                                         | **No** — `needs-intake-review` label + `mark-failed(intake-needs-human-input)`, STOP |
 
 **Thresholds enforced by the orchestrator:**
 
@@ -164,6 +164,31 @@ The skill loads orchestration instructions into the current session — the call
 - Stop after 3 true blockers from intake-toolkit:spec-reviewer
 - Max 5 referenced docs read
 - Flag if any slice touches >10 files
+
+**State (terminal verdicts).** When the orchestrator returns a **failure-shaped, pipeline-stopping** verdict, the pipeline — not the orchestrator — writes the state file AFTER the orchestrator's tracker actions (comment + label) complete, mirroring the `design-source-unreachable` call shape in Step 1.C. The `--reason`/`--stage` pair is passed to BOTH `mark-failed` (its `--reason` is what lands in `failureContext.reason`) AND `build-failure-context`. The state file already exists (Step 1.A `statectl init`); `mark-failed` has no worktree precondition and `--stage 1` is legal.
+
+- **Spec fails / >5 resolvable gaps** → `intake-spec-blocked` (the `outcome` detail disambiguates the two triggers):
+
+  ```bash
+  statectl.sh mark-failed "$ISSUE_NUMBER" \
+    --reason intake-spec-blocked --stage 1 \
+    --json "$(statectl.sh build-failure-context --reason intake-spec-blocked --stage 1 \
+        --kv outcome=true-blockers --kv-lines blockers="$BLOCKERS")"   # or --kv outcome=gap-overflow --kv-num gapCount=N
+  ```
+
+- **Escalation** → `intake-needs-human-input` (the `question` is a scalar → `--kv`, not `--kv-lines`, which would emit a JSON array):
+
+  ```bash
+  statectl.sh mark-failed "$ISSUE_NUMBER" \
+    --reason intake-needs-human-input --stage 1 \
+    --json "$(statectl.sh build-failure-context --reason intake-needs-human-input --stage 1 \
+        --kv question="$QUESTION")"
+  ```
+
+- **`sub-issues` split** → NOT state-terminated (success-shaped: the ticket decomposed into children). No `mark-failed` — `status` stays `in_progress`. This is a declared carve-out, tracked by a follow-up (neither `mark-failed` nor `mark-completed` fits a split); the split's own tracker comment + `epic` label are the durable record on github.
+- **`budgetExhausted`** orchestrator stop → a **non-failure**, transient stop (re-run with budget available). No `mark-failed` — recording `status: failed` would mis-classify a transient condition and block the invited re-run.
+
+**Re-queue semantics (originating machine).** After an intake stop, the state file is left at `status: failed` locally. `statectl init` is idempotent and does NOT reset it, and the resume rule reads-and-exits on `failed`. So the fix-spec → relabel `ready-for-dev` → re-run flow needs the originating machine to also clear its local state file (`rm .claude/pipeline-state/{issue}.json`) before re-running. New/other machines are unaffected (no state file exists there).
 
 #### Step 1.C: Design-driven detection (provider-aware)
 

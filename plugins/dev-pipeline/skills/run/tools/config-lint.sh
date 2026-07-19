@@ -82,20 +82,38 @@ ERRORS=$(jq -r '
         + err((.allowUnverified? != null) and ((.allowUnverified | type) != "boolean"); "commands." + $repo + ".allowUnverified: must be boolean")
         + ((.lanes // []) | if type != "array" then ["commands." + $repo + ".lanes: must be array"] else (to_entries | map(
             (.key as $li | .value |
+              # Entry-shape guard FIRST (#100). Without it a non-object entry is
+              # silently accepted: jq evaluates `+` operands right-to-left, and
+              # `.name?` on a string/number/array yields `empty`, which collapses
+              # the whole chain before `keys` below is ever reached — so the lane
+              # lints clean and verifyctl then skips it, reaching a false green.
+              # An `and` guard on `keys` alone is NOT sufficient (the sibling
+              # field accesses still collapse); the branch must precede them all.
+              if (type != "object") then
+                ["commands." + $repo + ".lanes[" + ($li|tostring) + "]: must be an object {name, cwd?, commands[]}"]
+              else
               err(((keys) - ["name","cwd","commands"]) != []; "commands." + $repo + ".lanes[" + ($li|tostring) + "]: unknown keys")
               + err((.name? // "") == ""; "commands." + $repo + ".lanes[" + ($li|tostring) + "].name: required")
               + err((.cwd? != null) and ((.cwd | type) != "string"); "commands." + $repo + ".lanes[" + ($li|tostring) + "].cwd: must be string")
               + err((.commands? != null) and ((.commands | type) != "array"); "commands." + $repo + ".lanes[" + ($li|tostring) + "].commands: must be array")
               + err((.commands? != null) and ((.commands | type) == "array") and ((.commands | length) < 1); "commands." + $repo + ".lanes[" + ($li|tostring) + "].commands: at least one required when present")
+              end
             )
           ) | add // []) end)
         + ((.extraLanes // []) | if type != "array" then ["commands." + $repo + ".extraLanes: must be array"] else (to_entries | map(
             (.key as $i | .value |
+              # Same entry-shape guard as lanes[] above (#100). extraLanes was not
+              # silent — a non-object entry crashed jq with rc=5 via `.commands`
+              # below — but a raw crash is not a lint violation; make it clean.
+              if (type != "object") then
+                ["commands." + $repo + ".extraLanes[" + ($i|tostring) + "]: must be an object {name, when?, commands[], failureClass?}"]
+              else
               err(((keys) - ["name","when","commands","failureClass"]) != []; "commands." + $repo + ".extraLanes[" + ($i|tostring) + "]: unknown keys")
               + err((.name? // "") == ""; "commands." + $repo + ".extraLanes[" + ($i|tostring) + "].name: required")
               + err((.when? != null) and ((.when | type) != "array"); "commands." + $repo + ".extraLanes[" + ($i|tostring) + "].when: must be array")
               + err(((.commands // []) | length) < 1; "commands." + $repo + ".extraLanes[" + ($i|tostring) + "].commands: at least one required")
               + err((.failureClass? // "") | IN("FORMAT","LINT_AUTOFIX","TYPE_ERROR","TEST_FAILURE","PLAN_CMD_FAILURE","INFRA") | not; "commands." + $repo + ".extraLanes[" + ($i|tostring) + "].failureClass: must be a closed failure-taxonomy value (FORMAT|LINT_AUTOFIX|TYPE_ERROR|TEST_FAILURE|PLAN_CMD_FAILURE|INFRA)")
+              end
             )
           ) | add // []) end)
       )

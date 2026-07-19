@@ -1,6 +1,7 @@
 # Onboarding a repo
 
-Onboarding = enable plugins + write one config file (+ optional extension files). No file copying.
+Onboarding = enable plugins + write one config file. No file copying. The one extension
+file worth writing early is `review-context.md` — see [Your first `review-context.md`](#your-first-review-contextmd).
 
 ## 0. Fast path: `/second-shift:onboard`
 
@@ -187,6 +188,39 @@ probes only what YOUR tracker and command table actually use).
 - **Domain reviewers** — repo-local agents in `.claude/agents/`, registered via config `reviewers.add`.
 - **Extension files** — documented hook points the generic agents read when present ([`extension-points.md`](extension-points.md)): blocker-mutant lists, domain security rules, design-token references.
 - `findings.md`, `CLAUDE.md` — as before; the plugins never require them but respect them.
+
+### Your first `review-context.md`
+
+The single highest-leverage extension file. Without it, every reviewer infers your stack and
+maturity from the diff and lowers its confidence; with it, they key on **named sections** you
+declare. Write only the sections that are true for your repo (all optional) — the exact names
+and their readers are the catalog in [extension-points.md → Authoring the review-context
+surface](extension-points.md#authoring-the-review-context-surface). A minimal start:
+
+```markdown
+# Review context — <your repo>
+
+## Stack
+Web framework + rendering model, job/queue system, data store(s), service languages.
+
+## Maturity stage
+E.g. "pre-auth MVP: no ownership parameter or tenant guards exist yet."
+```
+
+Two rules the tooling enforces so this file stays honest:
+
+- **Use the exact catalog heading names.** `check-review-context-sections.sh` matches them
+  exactly (no fuzzy guessing). A drifted spelling (e.g. `## Maturity calibration (MVP stage)`
+  instead of `## Maturity stage`) is flagged at the pre-work preflight with the exact rename
+  command; an invented heading is fine — list it in `.claude/second-shift/.known-sections` to
+  mark it intentional.
+- **Never leave a heading with an empty or TODO body.** A present-but-hollow section reads as
+  a policy declaration reviewers quote back — worse than an honest absence. The linter treats
+  it as absent and fails preflight. Write the section, or omit the heading.
+
+`/second-shift:onboard` offers to scaffold a starter file from your confirmed answers (never
+mandatory, never a TODO-bodied stub). Run `check-review-context-sections.sh --report` any time
+for a one-line coverage summary of which reviewers are running degraded.
 
 ## 4. Verify
 

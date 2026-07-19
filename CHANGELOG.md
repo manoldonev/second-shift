@@ -4,9 +4,72 @@ All notable changes to the second-shift marketplace. Versions are per-plugin (`p
 this file tracks the marketplace release. `configVersion` stays `const 1` — v2 is fully backward-compatible for a
 consumer with an empty config; the migration notes below are only for consumers using the changed features.
 
-## (in progress)
+## v2.4.2 (in progress)
 
-### `dev-pipeline` 2.2.7 → 2.2.10
+### `review-toolkit` 2.1.4 → 2.1.5
+- **Review-context section catalog + exact-name lint (#67).** `scripts/section-catalog.txt` is the
+  machine-readable source of truth for the named `review-context.md` sections reviewers key on
+  (`section-name | readers | status`, plus a `deprecated-alias-of` tombstone table).
+  `scripts/check-review-context-sections.sh` lints against it: `--preflight` fails closed on alias
+  drift and present-but-empty catalog sections, `--report` prints an exit-neutral coverage line
+  (which reviewers run degraded), default mid-run is advisory; `.known-sections` (and `section:`
+  lines in `.known-extensions`) whitelist intentional off-catalog headings. The effective-registry
+  computation is shared with the basename lint via `scripts/_effective-registry.sh`.
+  `reviewer-baseline` treats an empty/TODO-bodied section as absent (infer conservatively AND
+  disclose). Migration: none — repos without off-catalog headings lint clean as-is.
+
+### `second-shift` 1.4.2 → 1.4.3
+- `doctor --report` gains a one-line section-coverage summary; `/second-shift:onboard` offers a
+  `review-context.md` scaffold (accept-or-edit, default "later"; only human-confirmed sections,
+  never a TODO body, never a fabricated `## Maturity stage`) (#67).
+
+### `dev-pipeline` 2.2.7 → 2.2.8
+
+- **Stage-1 intake terminal stops now write pipeline state.** The failure-shaped Stage-1 intake
+  verdicts (spec-reviewer true blockers, >5 resolvable gaps, escalation) previously ended the run
+  via tracker comment + label swap but wrote nothing to `.claude/pipeline-state/{issue}.json` —
+  the file was left at `status: in_progress` forever, so under `tracker.type: jira`
+  (`tracker.writes: false`) the run left zero durable record. Two new `failureContext.reason`
+  values — `intake-spec-blocked` (blockers / gap-overflow, disambiguated by an `outcome` detail)
+  and `intake-needs-human-input` (escalation, carrying the `question`) — added to the
+  `valid_failure_reason` closed enum (state-schema.md table → regenerated `statectl.sh` via
+  `gen-statectl-validators.sh`; drift-check byte-match). Stage-1 (`stages/1-intake.md`) now calls
+  `mark-failed` after the orchestrator's tracker actions for these stops. The `SKILL.md`
+  "No silent failures" contract is corrected: the three intake stops are no longer undeclared
+  state-less failures; the one remaining state-less carve-out — the `sub-issues` split verdict
+  (success-shaped, tracker-recorded) — is now explicitly declared, with a follow-up tracked for
+  its success-shaped state termination. **Re-queue note:** an intake-stopped issue leaves
+  `status: failed` locally; re-running requires the originating machine to clear its state file
+  (`rm .claude/pipeline-state/{issue}.json`) — `statectl init` will not reset a `failed` file.
+  The Stage-1 read-pin teardown now runs at EVERY Stage-1 exit, not only the completion path —
+  intake stops never reach Stage 10, so the stop paths previously leaked the pin worktree.
+  Migration: none — additive enum values + a new state write on paths that previously wrote none.
+
+### `dev-pipeline` 2.2.8 → 2.2.9
+
+- **A mis-shaped setup lane is no longer a silent false green (#100).** `commands.<id>.lanes[]` is
+  declared object-only in the schema, but `config-lint` never enforced it and `verifyctl` silently
+  skipped what it could not read — so a config with `lanes: ["npm ci"]` linted clean, installed
+  nothing, and still reported `status: pass`.
+  - `config-lint.sh` now rejects a non-object `lanes[]` / `extraLanes[]` entry with a clean
+    `must be an object {...}` violation. Previously a string/number/array entry produced **zero
+    findings** (jq evaluates `+` right-to-left, and `.name?` on a non-object yields `empty`, which
+    collapsed the whole check chain before the `keys` call was reached), while `null` and a
+    non-object `extraLane` crashed jq with rc=5 instead of reporting.
+  - `verifyctl.sh` now records an **INFRA** failure for a non-object entry in both the setup-lane
+    and `extraLanes` loops, instead of leaving the command count empty and skipping the lane.
+  - `preflight.sh`'s lane read is guarded with `select(type == "object")` — one malformed entry
+    used to abort the whole jq stream (its error hidden by `2>/dev/null`), silently dropping
+    **every** lane including well-formed ones.
+  - Migration: a config using the undocumented string shorthand now **fails config-lint**. This
+    surfaces an existing break rather than creating one — such a lane never executed under any
+    consumer. Rewrite `["npm ci"]` as `[{"name": "install", "commands": ["npm ci"]}]`.
+
+### `dev-pipeline` 2.2.9 → 2.2.10
+- Pre-flight surfaces the section gate + coverage line (cross-plugin review-toolkit resolution
+  with a hermetic env override); a missing review-toolkit is a disclosed skip, not a silent pass (#67).
+
+### `dev-pipeline` 2.2.10 → 2.2.11
 
 - **The verify verdict can no longer claim lanes that never ran (#98).** Three convergent defects
   let a run assert verification it did not perform — release-blocking for the generality claim.

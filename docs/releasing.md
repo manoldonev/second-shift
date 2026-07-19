@@ -21,6 +21,13 @@ Checklist (in order):
    then `claude plugin marketplace update second-shift` + reinstall, then re-run the repo's
    validation gates. `/second-shift:onboard` resolves `releases/latest` — cutting the
    Release IS the publish step.
+   - **Section-catalog changes are breaking-class.** Adding, renaming, or tombstoning a row
+     in `plugins/review-toolkit/scripts/section-catalog.txt` changes what
+     `check-review-context-sections.sh` accepts. Before tagging, check the new catalog against
+     known-consumer `review-context.md` headings (propagation is pull-only, so a consumer only
+     sees it on their next bump) and list any heading that would newly flag in the What-breaks
+     body, with the rename command. A rename ships as a `deprecated-alias-of:` row (never a
+     bare deletion) so the linter can print the exact fix instead of a bare failure.
 7. Schema-breaking change? → major version + `configVersion` bump + `docs/migrations/vN-to-vN+1.md`
    BEFORE the tag (config-lint points at it) — the contract in `docs/migrations/README.md`.
 8. Plugin renames: never silently. Use the official marketplace.json **`renames` map**
