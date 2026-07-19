@@ -95,6 +95,35 @@ check "empty settings ref: names the missing pin"     "$(grep -q "no marketplace
 check "yml: triggers on pull_request"                  "$(grep -q "pull_request" "$YML" && echo 0 || echo 1)"
 check "yml: runs the check script"                     "$(grep -q "second-shift-ci-check.sh" "$YML" && echo 0 || echo 1)"
 check "yml: passes github.token as GH_TOKEN"           "$(grep -q "GH_TOKEN" "$YML" && grep -q "github.token" "$YML" && echo 0 || echo 1)"
+check "yml: job permissions are contents: read"        "$(grep -q "contents: read" "$YML" && echo 0 || echo 1)"
+check "yml: job name matches the documented required-status-check context" "$(grep -q "name: second-shift evidence" "$YML" && echo 0 || echo 1)"
+
+# (8) gh fetch paths (stubbed gh on PATH; SECOND_SHIFT_CONFIG_LINT unset so the fetch runs).
+# 404 = the pinned ref / linter path does not exist = DRIFT = FAIL, never a warn-green.
+mkdir -p "$TMP/bin404"
+printf '#!/usr/bin/env bash\necho "gh: Not Found (HTTP 404)" >&2\nexit 1\n' > "$TMP/bin404/gh"
+chmod +x "$TMP/bin404/gh"
+make_repo "$TMP/gh404" "v9.9.0" "v9.9.0" "manoldonev/second-shift"
+out="$(cd "$TMP/gh404" && env -u SECOND_SHIFT_CONFIG_LINT PATH="$TMP/bin404:$PATH" bash "$TOOL")"; rc=$?
+check "gh 404: exit >=1 (nonexistent pinned ref IS drift)"  "$([ "$rc" -ge 1 ] && echo 0 || echo 1)"
+check "gh 404: classified FAIL naming HTTP 404"             "$(grep -q "FAIL" <<<"$out" && grep -q "HTTP 404" <<<"$out" && echo 0 || echo 1)"
+
+# network/auth error stays a non-fatal WARN (an infra blip must not red-X a clean PR).
+mkdir -p "$TMP/binnet"
+printf '#!/usr/bin/env bash\necho "gh: error connecting to api.github.com" >&2\nexit 1\n' > "$TMP/binnet/gh"
+chmod +x "$TMP/binnet/gh"
+make_repo "$TMP/ghnet" "v9.9.0" "v9.9.0" "manoldonev/second-shift"
+out="$(cd "$TMP/ghnet" && env -u SECOND_SHIFT_CONFIG_LINT PATH="$TMP/binnet:$PATH" bash "$TOOL")"; rc=$?
+check "gh network error: exit 0 (non-fatal WARN)"           "$([ "$rc" -eq 0 ] && echo 0 || echo 1)"
+check "gh network error: says could not verify"             "$(grep -q "could not verify" <<<"$out" && echo 0 || echo 1)"
+
+# fetch success: the base64 pipeline decodes and executes the fetched linter.
+mkdir -p "$TMP/binok"
+printf '#!/usr/bin/env bash\nprintf %%s "IyEvdXNyL2Jpbi9lbnYgYmFzaApleGl0IDAK"\n' > "$TMP/binok/gh"
+chmod +x "$TMP/binok/gh"
+make_repo "$TMP/ghok" "v9.9.0" "v9.9.0" "manoldonev/second-shift"
+out="$(cd "$TMP/ghok" && env -u SECOND_SHIFT_CONFIG_LINT PATH="$TMP/binok:$PATH" bash "$TOOL")"; rc=$?
+check "gh fetch success: exit 0 and config-lint passed"     "$([ "$rc" -eq 0 ] && grep -q "config-lint passed" <<<"$out" && echo 0 || echo 1)"
 
 if [ "$FAILS" -gt 0 ]; then echo "second-shift-ci-check selftest: $FAILS FAILURE(S)"; exit 1; fi
 echo "second-shift-ci-check selftest: all green"

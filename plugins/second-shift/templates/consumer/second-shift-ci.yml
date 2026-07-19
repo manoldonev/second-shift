@@ -15,8 +15,16 @@ on:
   pull_request:
   workflow_dispatch:
 
+# contents:read is load-bearing, not hygiene: the check executes a script fetched
+# from the marketplace repo at the pinned ref, so the token this job holds is the
+# blast radius if that repo is ever compromised. Read-only caps it at "read a repo
+# that's already checked out" — never widen this job's permissions.
+permissions:
+  contents: read
+
 jobs:
   evidence:
+    name: second-shift evidence
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

@@ -19,8 +19,11 @@
 #
 # "Couldn't verify" (a transient config-lint fetch failure, a missing runner tool) is a
 # WARN, NOT a FAIL: it does not conflate an infra hiccup with a real drift/violation, so
-# a network blip never red-Xes an otherwise-clean PR. The lockstep check (no network)
-# always runs regardless.
+# a network blip never red-Xes an otherwise-clean PR. ONE exception: an HTTP 404 on the
+# pinned ref / linter path is a FAIL — a ref that doesn't exist (typo'd upgrade PR,
+# force-deleted tag, moved linter path) IS the drift this gate exists to catch, and
+# WARNing it would let the gate self-disable green forever. The lockstep check (no
+# network) always runs regardless.
 #
 # Env seam (testing / vendored fork): SECOND_SHIFT_CONFIG_LINT — path to a local
 #   config-lint.sh. When set, the fetch is skipped and this file is run instead (the
@@ -39,7 +42,12 @@ FAILS=0
 WARNS=0
 ok()   { echo "[second-shift-ci] OK    $1"; }
 bad()  { echo "[second-shift-ci] FAIL  $1"; FAILS=$((FAILS+1)); }
-warn() { echo "[second-shift-ci] WARN  $1"; WARNS=$((WARNS+1)); }
+# On a green check nobody opens the job log — surface WARNs as GitHub Actions
+# annotations (PR checks tab) so "could not verify" is visible, not vanished.
+warn() {
+  echo "[second-shift-ci] WARN  $1"; WARNS=$((WARNS+1))
+  [ -n "${GITHUB_ACTIONS:-}" ] && echo "::warning title=second-shift evidence::$1"
+}
 
 command -v jq >/dev/null 2>&1 || { warn "jq not found on the runner — cannot verify (install jq)"; echo "[second-shift-ci] summary: $FAILS failed, $WARNS could-not-verify"; exit "$FAILS"; }
 if [ ! -f "$LOCK" ] || ! jq empty "$LOCK" 2>/dev/null; then
@@ -81,15 +89,25 @@ else
     warn "config-lint: could not verify — lockfile marketplace.repo/ref is empty"
   else
     LINT="$(mktemp)"; CLEANUP="$LINT"
+    ERRF="$(mktemp)"
     LINT_PATH="plugins/dev-pipeline/skills/run/tools/config-lint.sh"
     # onboard Step 5 uses this exact fetch-at-ref form for the not-yet-installed case.
-    if gh api "repos/$LOCK_REPO/contents/$LINT_PATH?ref=$LOCK_REF" --jq '.content' 2>/dev/null \
+    if gh api "repos/$LOCK_REPO/contents/$LINT_PATH?ref=$LOCK_REF" --jq '.content' 2>"$ERRF" \
          | base64 --decode > "$LINT" 2>/dev/null && [ -s "$LINT" ]; then
       : # fetched
     else
-      warn "config-lint: could not verify — failed to fetch $LINT_PATH from ${LOCK_REPO}@${LOCK_REF} (network / auth / ref)"
+      # A 404 is NOT an infra hiccup — it means the pinned ref (or the linter's path
+      # at that ref) does not exist. A PR that typos/deletes the ref, or a moved
+      # linter path, is exactly the half-done-upgrade drift this gate exists to
+      # catch; classifying it WARN would let the gate pass green forever.
+      if grep -qiE 'HTTP 404|Not Found' "$ERRF" 2>/dev/null; then
+        bad "config-lint: $LINT_PATH does not exist at ${LOCK_REPO}@${LOCK_REF} (HTTP 404) — a nonexistent pinned ref or moved linter path IS drift; fix the ref pin (or vendor via SECOND_SHIFT_CONFIG_LINT)"
+      else
+        warn "config-lint: could not verify — failed to fetch $LINT_PATH from ${LOCK_REPO}@${LOCK_REF} (network / auth: $(head -1 "$ERRF" 2>/dev/null || true))"
+      fi
       LINT=""
     fi
+    rm -f "$ERRF"
   fi
   if [ -n "$LINT" ]; then
     if bash "$LINT" "$CONFIG"; then
