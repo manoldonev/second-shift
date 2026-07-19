@@ -378,6 +378,32 @@ else
   fail "(v17) when-gated miss — rc=$VRC type=$vs_type str='$vs_str'"
 fi
 
+# (v18) #98 D2b precedence: allowUnverified can NEVER mask a recorded failure.
+#       Zero verifying lanes + opt-out true + a failing lanes[] setup step →
+#       the OBJECT summary (setup=failed) is emitted, not the opt-out string;
+#       and with lanes configured + opt-out true + everything clean, the flag
+#       is inert (object emitted — the opt-out is a zero-lane valve only).
+reset_all
+touch "$MARKERS/INFRA"
+OPTOUT_SETUP="$TMPDIR_VT/cfg-optout-setup.json"
+jq '.commands.mono |= (.lint = null | .typecheck = null | .test = null | .format = null | .extraLanes = [] | .allowUnverified = true)' "$CONFIG_FIXTURE" > "$OPTOUT_SETUP"
+VERDICT=$(SECOND_SHIFT_CONFIG="$OPTOUT_SETUP" "$VERIFYCTL" run 8888 2>/dev/null); VRC=$?
+vs_type=$(jq -r '.verifySummary | type' <<< "$VERDICT")
+setup=$(jq -r '.verifySummary.setup' <<< "$VERDICT")
+rm -f "$MARKERS/INFRA"
+reset_all
+OPTOUT_LANES="$TMPDIR_VT/cfg-optout-lanes.json"
+jq '.commands.mono.allowUnverified = true' "$CONFIG_FIXTURE" > "$OPTOUT_LANES"
+VERDICT2=$(SECOND_SHIFT_CONFIG="$OPTOUT_LANES" "$VERIFYCTL" run 8888 2>/dev/null); VRC2=$?
+vs2_type=$(jq -r '.verifySummary | type' <<< "$VERDICT2")
+vs2_test=$(jq -r '.verifySummary.test' <<< "$VERDICT2")
+if [[ "$VRC" == "1" && "$vs_type" == "object" && "$setup" == "failed" \
+      && "$VRC2" == "0" && "$vs2_type" == "object" && "$vs2_test" == "passed" ]]; then
+  pass "(v18) allowUnverified precedence — setup failure emits the object (never the opt-out string); flag inert when lanes are configured"
+else
+  fail "(v18) allowUnverified precedence — rc=$VRC type=$vs_type setup=$setup rc2=$VRC2 type2=$vs2_type test2=$vs2_test"
+fi
+
 echo
 echo "[self-test] summary: $PASS passed, $FAIL failed"
 exit "$FAIL"

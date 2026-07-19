@@ -1855,6 +1855,32 @@ else
   fail "(vss-repo) — rc_none=$rc_none rc_partial=$rc_partial rc_both=$rc_both be_sum=$be_sum"
 fi
 
+# (vss-repo2) #98 content gate on the PER-TARGET branch — the predicate is
+# implemented separately there, so it gets its own cases: a target with an
+# absent-key object ({"format":"clean"}) refuses; a per-target setup-failed
+# object refuses with the die naming the setup lane; ext-only run accepted.
+# (fresh key, NO reset_state — va4 below still reads key 9999)
+sct init 9799 --run-id "selftest-run-$$" >/dev/null
+sct target-repos-set 9799 --repos "be fe" >/dev/null
+for n in 1 2 3 4 5; do sct set-stage 9799 $n --status started --force >/dev/null 2>&1; sct set-stage 9799 $n --status completed --force >/dev/null 2>&1; done
+sct set-stage 9799 6 --status started --force >/dev/null 2>&1
+sct verify-summary-set 9799 --repo be --json '{"test":"passed"}' >/dev/null
+sct verify-summary-set 9799 --repo fe --json '{"format":"clean"}' >/dev/null
+rc_absent=$(sct_rc set-stage 9799 6 --status completed)               # fe absent-key → blocked
+err_absent=$(sct_err set-stage 9799 6 --status completed)
+sct verify-summary-set 9799 --repo fe --json '{"setup":"failed","format":"skipped","lint":"skipped","typeCheck":"skipped","test":"skipped"}' >/dev/null
+rc_setup=$(sct_rc set-stage 9799 6 --status completed)                # fe setup-failed → blocked, named
+err_setup=$(sct_err set-stage 9799 6 --status completed)
+sct verify-summary-set 9799 --repo fe --json '{"lint":"skipped","typeCheck":"skipped","test":"skipped","ext:e2e":"clean"}' >/dev/null
+rc_ext=$(sct_rc set-stage 9799 6 --status completed)                  # fe ext-only → allowed
+if [[ "$rc_absent" == "1" && "$err_absent" == *"no verifying lane"* \
+      && "$rc_setup" == "1" && "$err_setup" == *"setup lane"* \
+      && "$rc_ext" == "0" ]]; then
+  pass "(vss-repo2) per-target content gate — absent-key + setup-failed refused, ext-only allowed (AC-3, AC-8 per-target)"
+else
+  fail "(vss-repo2) — rc_absent=$rc_absent rc_setup=$rc_setup rc_ext=$rc_ext err_absent='$err_absent' err_setup='$err_setup'"
+fi
+
 # (va4) verify-attempts accepts PLAN_CMD_FAILURE (the in-session class); still rejects bogus
 rc_plan=$(sct_rc verify-attempts 9999 --incr PLAN_CMD_FAILURE)
 count=$(sct get 9999 '.verifyAttempts.PLAN_CMD_FAILURE')
