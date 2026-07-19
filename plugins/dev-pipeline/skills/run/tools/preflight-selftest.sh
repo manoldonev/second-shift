@@ -226,6 +226,24 @@ assert "unresolved review-toolkit => section lint skips with a WARN" "$?"
 [[ "$rc" -eq 0 ]] && _c=0 || _c=1; assert "section-lint skip does not fail preflight (rc=$rc)" "$_c"
 rm -f "$MOCKBIN/claude"
 
+# ---- run 11: a malformed lanes[] entry must not silently drop the GOOD lanes (#100) ----
+# Before the select(type == "object") guard, `.[] | (.commands // [])[]` aborted the whole
+# jq stream on the first non-object entry — and the read's 2>/dev/null hid the error — so a
+# single bad entry silently dropped EVERY lane while preflight still reported it had run
+# them. config-lint (run earlier by preflight) now rejects such a config, but bad() only
+# counts the failure and execution continues into the lane section on the SAME run, so the
+# read itself must stay safe. Assert both halves: the config IS rejected, AND the
+# well-formed sibling lane still executes.
+write_config github
+jq '.commands.fix.lanes = ["bogus-string-lane", {"name": "setup", "commands": ["echo setup-green"]}]' \
+  "$FIX/.claude/second-shift.config.json" > "$BASE/cfg.tmp" \
+  && mv "$BASE/cfg.tmp" "$FIX/.claude/second-shift.config.json"
+run_preflight; rc=$?
+[[ "$rc" -ge 1 ]] && _c=0 || _c=1; assert "malformed lane entry is rejected by the config gate (rc=$rc)" "$_c"
+grep -q "config-lint rejected" "$BASE/out.log"; assert "malformed lane surfaced as a config-lint FAIL" "$?"
+grep -q "lane 'setup\[1\]': green" "$BASE/out.log"
+assert "well-formed sibling lane still runs — one bad entry does not drop every lane" "$?"
+
 echo "[self-test] $PASS passed, $FAIL failed"
 [[ "$FAIL" -eq 0 ]] || exit 1
 exit 0

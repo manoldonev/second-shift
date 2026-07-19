@@ -406,6 +406,8 @@ valid_failure_reason() {
     |unit-test-plan-reviewer-block \
     |unit-test-mutation-reviewer-block \
     |design-source-unreachable \
+    |intake-spec-blocked \
+    |intake-needs-human-input \
     |ext-workflow-failed) return 0 ;;
     *) return 1 ;;
   esac
