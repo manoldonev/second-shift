@@ -28,7 +28,9 @@ Everything else (worktree path, base ref incl. stacked-slice stacking via the pe
 | 4    | budget-exhausted | A class exhausted its 2-attempt budget. Take the budget-exhaustion failure path below — do NOT retry.                                                                                                   |
 | 2/3  | internal / usage | `[verifyctl-error]` infra-fatal posture (helper-failure contract) — surface the stderr text.                                                                                                            |
 
-`INFRA` entries in `failures[]` are never charged and never retried — surface immediately (a `packages-build` or `install` failure is INFRA-grade: a build-order/environment prerequisite, not a verify fix loop). On `status: "pass"`, persist the verify summary — **both lanes**, the INERT lane's skipped-string included:
+`INFRA` entries in `failures[]` are never charged and never retried — surface immediately (a `packages-build` or `install` failure is INFRA-grade: a build-order/environment prerequisite, not a verify fix loop). On `status: "pass"`, persist the verify summary — **both lanes**, verifyctl's skip strings included (the INERT skipped-string, the zero-lane `allowUnverified` opt-out string, the when-gated extraLanes-miss string — #98):
+
+**Verdict-honesty contract (#98).** The object summary's lanes initialize `skipped` and are promoted on execution — a lane that did not run never reports `clean`/`passed`; `setup` (renamed from the pre-#98 `build` field) reports the `lanes[]` setup outcome. `set-stage 6 --status completed` additionally enforces a content gate on object summaries: at least one verifying lane (`lint`/`typeCheck`/`test`/`ext:*`) must have actually run (`format`/`setup` never satisfy it; absent keys fail). A zero-lane repo either sets `commands.<repo-id>.allowUnverified: true` (verifyctl then emits the opt-out string — only when nothing failed) or the gate refuses with instructions. `commands.<id>.build` remains accepted-but-unexecuted config until #113.
 
 ```bash
 statectl.sh verify-summary-set "$ISSUE_NUMBER" --json "$VERIFY_SUMMARY_JSON"

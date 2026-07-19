@@ -78,7 +78,7 @@ complete_stage() {
     2) sct worktree-set "$key" --path ".claude/worktrees/acme-$key" --branch "claude/acme-$key" >/dev/null ;;
     4) sct plan-review-set "$key" --overall pass >/dev/null ;;
     5) sct checkpoint "$key" 5 --json '{"changedFiles":[]}' >/dev/null ;;
-    6) sct verify-summary-set "$key" --json '{"format":"clean"}' >/dev/null ;;
+    6) sct verify-summary-set "$key" --json '{"format":"clean","test":"passed"}' >/dev/null ;;
     7) sct checkpoint "$key" 7 --json "$VALID_PAYLOAD" >/dev/null ;;
     8) sct review-rounds "$key" --set 1 >/dev/null ;;
   esac
@@ -1692,6 +1692,40 @@ else
   fail "(sc5) stage-6 precondition — rc=$rc rc2=$rc2 err='$err'"
 fi
 
+# (sc5b) #98 content gate (AC-3, AC-6) — fresh key, own stage chain: an object
+# summary with no verifying lane run is refused (both the absent-key shape
+# {"format":"clean"} and the explicit all-skipped shape); a summary where only an
+# ext:* extra lane ran is accepted.
+sct init 9898 --run-id "selftest-run-$$" >/dev/null
+for _n in 1 2 3 4 5; do complete_stage 9898 "$_n"; done
+sct set-stage 9898 6 --status started >/dev/null
+sct verify-summary-set 9898 --json '{"format":"clean"}' >/dev/null
+rc=$(sct_rc set-stage 9898 6 --status completed)
+err=$(sct_err set-stage 9898 6 --status completed)
+sct verify-summary-set 9898 --json '{"format":"clean","lint":"skipped","typeCheck":"skipped","test":"skipped"}' >/dev/null
+rc2=$(sct_rc set-stage 9898 6 --status completed)
+sct verify-summary-set 9898 --json '{"format":"clean","lint":"skipped","typeCheck":"skipped","test":"skipped","ext:contract-check":"clean"}' >/dev/null
+rc3=$(sct_rc set-stage 9898 6 --status completed)
+if [[ "$rc" == "1" && "$err" == *"no verifying lane"* && "$rc2" == "1" && "$rc3" == "0" ]]; then
+  pass "(sc5b) stage-6 content gate — absent-key and all-skipped refused, ext-only run allowed (AC-3, AC-6)"
+else
+  fail "(sc5b) stage-6 content gate — rc=$rc rc2=$rc2 rc3=$rc3 err='$err'"
+fi
+
+# (sc5c) #98 AC-8 — fresh key: a setup-failed summary is refused by a die that
+# names the setup failure, not the configure-a-lane advice.
+sct init 9897 --run-id "selftest-run-$$" >/dev/null
+for _n in 1 2 3 4 5; do complete_stage 9897 "$_n"; done
+sct set-stage 9897 6 --status started >/dev/null
+sct verify-summary-set 9897 --json '{"setup":"failed","format":"skipped","lint":"skipped","typeCheck":"skipped","test":"skipped"}' >/dev/null
+rc=$(sct_rc set-stage 9897 6 --status completed)
+err=$(sct_err set-stage 9897 6 --status completed)
+if [[ "$rc" == "1" && "$err" == *"setup lane"* && "$err" != *"Configure a verify lane"* ]]; then
+  pass "(sc5c) stage-6 setup-failed refusal names the setup failure (AC-8)"
+else
+  fail "(sc5c) stage-6 setup-failed refusal — rc=$rc err='$err'"
+fi
+
 # (sc6) stage 8 completed without codeReviewRounds → refused; with → allowed
 complete_stage 9999 7
 sct set-stage 9999 8 --status started >/dev/null
@@ -1819,6 +1853,32 @@ if [[ "$rc_none" != "0" && "$rc_partial" != "0" && "$rc_both" == "0" && "$be_sum
   pass "(vss-repo) per-repo verifySummary + be-fe-pair Stage-6 gate (no silent green)"
 else
   fail "(vss-repo) — rc_none=$rc_none rc_partial=$rc_partial rc_both=$rc_both be_sum=$be_sum"
+fi
+
+# (vss-repo2) #98 content gate on the PER-TARGET branch — the predicate is
+# implemented separately there, so it gets its own cases: a target with an
+# absent-key object ({"format":"clean"}) refuses; a per-target setup-failed
+# object refuses with the die naming the setup lane; ext-only run accepted.
+# (fresh key, NO reset_state — va4 below still reads key 9999)
+sct init 9799 --run-id "selftest-run-$$" >/dev/null
+sct target-repos-set 9799 --repos "be fe" >/dev/null
+for n in 1 2 3 4 5; do sct set-stage 9799 $n --status started --force >/dev/null 2>&1; sct set-stage 9799 $n --status completed --force >/dev/null 2>&1; done
+sct set-stage 9799 6 --status started --force >/dev/null 2>&1
+sct verify-summary-set 9799 --repo be --json '{"test":"passed"}' >/dev/null
+sct verify-summary-set 9799 --repo fe --json '{"format":"clean"}' >/dev/null
+rc_absent=$(sct_rc set-stage 9799 6 --status completed)               # fe absent-key → blocked
+err_absent=$(sct_err set-stage 9799 6 --status completed)
+sct verify-summary-set 9799 --repo fe --json '{"setup":"failed","format":"skipped","lint":"skipped","typeCheck":"skipped","test":"skipped"}' >/dev/null
+rc_setup=$(sct_rc set-stage 9799 6 --status completed)                # fe setup-failed → blocked, named
+err_setup=$(sct_err set-stage 9799 6 --status completed)
+sct verify-summary-set 9799 --repo fe --json '{"lint":"skipped","typeCheck":"skipped","test":"skipped","ext:e2e":"clean"}' >/dev/null
+rc_ext=$(sct_rc set-stage 9799 6 --status completed)                  # fe ext-only → allowed
+if [[ "$rc_absent" == "1" && "$err_absent" == *"no verifying lane"* \
+      && "$rc_setup" == "1" && "$err_setup" == *"setup lane"* \
+      && "$rc_ext" == "0" ]]; then
+  pass "(vss-repo2) per-target content gate — absent-key + setup-failed refused, ext-only allowed (AC-3, AC-8 per-target)"
+else
+  fail "(vss-repo2) — rc_absent=$rc_absent rc_setup=$rc_setup rc_ext=$rc_ext err_absent='$err_absent' err_setup='$err_setup'"
 fi
 
 # (va4) verify-attempts accepts PLAN_CMD_FAILURE (the in-session class); still rejects bogus

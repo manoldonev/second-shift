@@ -363,12 +363,35 @@ stage_completion_preconditions() {
       # single-repo requires the flat top-level field. This is the "never a silent
       # green" gate for a pair run (#5): a target whose verify never ran has no
       # summary, so Stage 6 cannot complete.
+      # #98 content gate: an OBJECT summary must show at least one verifying lane
+      # (lint/typeCheck/test/ext:*) that actually ran — "skipped" and absent keys
+      # both fail (the predicate is positive over present keys; a negated form is
+      # null-unsafe). format/setup never satisfy it (not verification). STRING
+      # summaries keep their existing acceptance — they are verifyctl's closed set
+      # of legitimate skips (INERT, allowUnverified opt-out, when-gated miss).
+      local _vs_verified='def vs_verified: [ to_entries[] | select((.key | IN("lint","typeCheck","test")) or (.key | startswith("ext:"))) | .value ] | map(select(. != "skipped")) | length > 0;'
       if [[ "$(jq -r '(.targetRepos // []) | length' <<< "$current")" -gt 0 ]]; then
         jq -e '. as $s | ($s.targetRepos // []) | length > 0 and all(.[]; ($s.worktrees[.].verifySummary) | (type == "object") or (type == "string" and length > 0))' <<< "$current" >/dev/null \
           || { EXIT_CODE=1 die "set-stage: cannot complete stage 6 — a be-fe-pair run needs a per-repo verifySummary for every targetRepo (worktrees.<id>.verifySummary via verify-summary-set --repo, both lanes); --force for crash-recovery"; }
+        jq -e "$_vs_verified"' . as $s | ($s.targetRepos // []) | all(.[]; ($s.worktrees[.].verifySummary) | (type == "string" and length > 0) or (type == "object" and vs_verified))' <<< "$current" >/dev/null \
+          || {
+            if jq -e '. as $s | ($s.targetRepos // []) | any(.[]; ($s.worktrees[.].verifySummary | type == "object") and ($s.worktrees[.].verifySummary.setup == "failed"))' <<< "$current" >/dev/null; then
+              EXIT_CODE=1 die "set-stage: cannot complete stage 6 — a target verify failed at a setup lane (verifySummary.setup=failed; the remaining lanes never ran). Fix the setup failure and re-run verify; --force for crash-recovery"
+            else
+              EXIT_CODE=1 die "set-stage: cannot complete stage 6 — a target verifySummary shows no verifying lane (lint/typeCheck/test/ext:*) actually ran. Configure a verify lane for that repo id or set commands.<repo-id>.allowUnverified; --force for crash-recovery"
+            fi
+          }
       else
         jq -e '.verifySummary | (type == "object") or (type == "string" and length > 0)' <<< "$current" >/dev/null \
           || { EXIT_CODE=1 die "set-stage: cannot complete stage 6 — top-level verifySummary is missing (write it from the verifyctl verdict JSON via verify-summary-set, on both lanes); --force for crash-recovery"; }
+        jq -e "$_vs_verified"' .verifySummary | (type == "string" and length > 0) or (type == "object" and vs_verified)' <<< "$current" >/dev/null \
+          || {
+            if [[ "$(jq -r '.verifySummary.setup // empty' <<< "$current")" == "failed" ]]; then
+              EXIT_CODE=1 die "set-stage: cannot complete stage 6 — verify failed at a setup lane (verifySummary.setup=failed; the remaining lanes never ran). Fix the setup failure and re-run verify; --force for crash-recovery"
+            else
+              EXIT_CODE=1 die "set-stage: cannot complete stage 6 — verifySummary shows no verifying lane (lint/typeCheck/test/ext:*) actually ran. Configure a verify lane or set commands.<repo-id>.allowUnverified; --force for crash-recovery"
+            fi
+          }
       fi
       ;;
     8)

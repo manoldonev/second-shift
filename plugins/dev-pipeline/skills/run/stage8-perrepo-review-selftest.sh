@@ -58,7 +58,7 @@ for s in 1 2 3 4 5 6 7; do
     1) "$SC" checkpoint "$ISSUE_NUMBER" 1 --json '{"verdict":"no-split","preflight":{"baseBranch":"main","workingTreeClean":true,"guardOutcome":"proceed-clean"}}' >/dev/null ;;
     4) "$SC" plan-review-set "$ISSUE_NUMBER" --overall pass >/dev/null ;;
     5) "$SC" checkpoint "$ISSUE_NUMBER" 5 --json '{"changedFiles":[]}' >/dev/null ;;
-    6) for rr in be fe ml; do "$SC" verify-summary-set "$ISSUE_NUMBER" --repo "$rr" --json '{"format":"clean"}' >/dev/null; done ;;
+    6) for rr in be fe ml; do "$SC" verify-summary-set "$ISSUE_NUMBER" --repo "$rr" --json '{"format":"clean","test":"passed"}' >/dev/null; done ;;   # test key: the #98 content gate refuses a summary with no verifying lane run
     7) "$SC" checkpoint "$ISSUE_NUMBER" 7 --json "{\"ticketKey\":\"$ISSUE_NUMBER\",\"branch\":\"claude/x-be\",\"headSha\":\"$(git -C "$ROOT/wt/be" rev-parse HEAD)\",\"worktreePath\":\"wt/be\",\"deviations\":[]}" >/dev/null ;;
   esac
   "$SC" set-stage "$ISSUE_NUMBER" "$s" --status completed >/dev/null

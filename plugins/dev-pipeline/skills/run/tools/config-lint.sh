@@ -74,11 +74,12 @@ ERRORS=$(jq -r '
     )
   + ((.commands // {}) | to_entries | map(
       (.key as $repo | .value |
-        err(((keys) - ["lint","lintAutofixes","typecheck","test","testFile","unitTestScope","build","format","lanes","extraLanes"]) != []; "commands." + $repo + ": unknown keys (note: integrationTest/apiTest were removed in v2.1.6 — ship those tiers via extraLanes / extension points EP-6/EP-7; see docs/migrations)")
+        err(((keys) - ["lint","lintAutofixes","typecheck","test","testFile","unitTestScope","build","format","lanes","extraLanes","allowUnverified"]) != []; "commands." + $repo + ": unknown keys (note: integrationTest/apiTest were removed in v2.1.6 — ship those tiers via extraLanes / extension points EP-6/EP-7; see docs/migrations)")
         + ([to_entries[] | select(.key | IN("lint","typecheck","test","testFile","unitTestScope","build","format")) |
             err((.value | type) | IN("string","null") | not; "commands." + $repo + "." + .key + ": must be string or null")
           ] | add // [])
         + err((.lintAutofixes? != null) and ((.lintAutofixes | type) != "boolean"); "commands." + $repo + ".lintAutofixes: must be boolean")
+        + err((.allowUnverified? != null) and ((.allowUnverified | type) != "boolean"); "commands." + $repo + ".allowUnverified: must be boolean")
         + ((.lanes // []) | if type != "array" then ["commands." + $repo + ".lanes: must be array"] else (to_entries | map(
             (.key as $li | .value |
               # Entry-shape guard FIRST (#100). Without it a non-object entry is
