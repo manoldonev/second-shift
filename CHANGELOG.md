@@ -4,22 +4,10 @@ All notable changes to the second-shift marketplace. Versions are per-plugin (`p
 this file tracks the marketplace release. `configVersion` stays `const 1` — v2 is fully backward-compatible for a
 consumer with an empty config; the migration notes below are only for consumers using the changed features.
 
-## v2.4.2 (in progress)
+## v2.5.0
 
-### `second-shift` 1.4.4 → 1.5.0
-- **Onboard emits a consumer-repo CI evidence workflow (on request) — the server-side backstop (#33).** New
-  templates `templates/consumer/second-shift-ci.yml` + `second-shift-ci-check.sh` (+ hermetic selftest): on
-  every PR the check **(a)** config-lints the committed config with the `config-lint.sh` shipped AT the pinned
-  marketplace ref (fetched fresh — CI runners have no plugin cache; mirrors onboard Step 5's fetch-at-ref) and
-  **(b)** asserts the settings ref and lockfile ref agree (ports `doctor.sh`'s lockstep check), so a half-done
-  upgrade PR is caught. Exit = FAIL count; a real drift/violation is a FAIL, a "couldn't verify" fetch/tool
-  failure is a non-fatal WARN. The workflow only reports a red check — marking it a required status check in
-  branch protection (the repo admin's step; onboard never configures branch protection) is what blocks merge.
-  Onboard offers it in the Step-3 elicitation batch and emits both files verbatim (the check reads repo+ref from
-  the committed lockfile — no emit-time substitution). The `Second-Shift:` PR trailer + `gates-unverified` label
-  from the issue's second paragraph are deferred (out of scope). `docs/onboarding.md` + the consent doc updated.
+### `dev-pipeline` 2.2.7 → 2.3.0
 
-### `dev-pipeline` 2.2.11 → 2.2.12
 - **Verified calibration claims — expiry + declarative probes (#68).** New `claims-lint.sh`: severity-downgrading
   maturity claims declared in fenced `second-shift-claims` blocks under `.claude/second-shift/**/*.md` carry a
   MANDATORY date-form `reverify-by`; an expired or malformed claim FAILs the per-run pipeline pre-flight (new
@@ -29,32 +17,6 @@ consumer with an empty config; the migration notes below are only for consumers 
   Fixture + selftest triad mirrors config-lint. Contract: `docs/extension-points.md` "Verified calibration claims".
   Migration: none — no claims fences reproduces prior behavior byte-for-byte.
 
-### `second-shift` 1.4.3 → 1.4.4
-- doctor: quiet `claims-lint` summary line (claim count + probe-less slugs) when calibration claims exist;
-  FAILs when a claim is expired/malformed (#68).
-
-### `review-toolkit` 2.1.5 → 2.1.6
-- security-reviewer: Maturity calibration now points at the `second-shift-claims` contract — a claim past its
-  `reverify-by` is not honored for `[Pre-existing]` downgrades when a claims block is present (#68).
-
-### `review-toolkit` 2.1.4 → 2.1.5
-- **Review-context section catalog + exact-name lint (#67).** `scripts/section-catalog.txt` is the
-  machine-readable source of truth for the named `review-context.md` sections reviewers key on
-  (`section-name | readers | status`, plus a `deprecated-alias-of` tombstone table).
-  `scripts/check-review-context-sections.sh` lints against it: `--preflight` fails closed on alias
-  drift and present-but-empty catalog sections, `--report` prints an exit-neutral coverage line
-  (which reviewers run degraded), default mid-run is advisory; `.known-sections` (and `section:`
-  lines in `.known-extensions`) whitelist intentional off-catalog headings. The effective-registry
-  computation is shared with the basename lint via `scripts/_effective-registry.sh`.
-  `reviewer-baseline` treats an empty/TODO-bodied section as absent (infer conservatively AND
-  disclose). Migration: none — repos without off-catalog headings lint clean as-is.
-
-### `second-shift` 1.4.2 → 1.4.3
-- `doctor --report` gains a one-line section-coverage summary; `/second-shift:onboard` offers a
-  `review-context.md` scaffold (accept-or-edit, default "later"; only human-confirmed sections,
-  never a TODO body, never a fabricated `## Maturity stage`) (#67).
-
-### `dev-pipeline` 2.2.7 → 2.2.8
 
 - **Stage-1 intake terminal stops now write pipeline state.** The failure-shaped Stage-1 intake
   verdicts (spec-reviewer true blockers, >5 resolvable gaps, escalation) previously ended the run
@@ -76,7 +38,6 @@ consumer with an empty config; the migration notes below are only for consumers 
   intake stops never reach Stage 10, so the stop paths previously leaked the pin worktree.
   Migration: none — additive enum values + a new state write on paths that previously wrote none.
 
-### `dev-pipeline` 2.2.8 → 2.2.9
 
 - **A mis-shaped setup lane is no longer a silent false green (#100).** `commands.<id>.lanes[]` is
   declared object-only in the schema, but `config-lint` never enforced it and `verifyctl` silently
@@ -96,11 +57,9 @@ consumer with an empty config; the migration notes below are only for consumers 
     surfaces an existing break rather than creating one — such a lane never executed under any
     consumer. Rewrite `["npm ci"]` as `[{"name": "install", "commands": ["npm ci"]}]`.
 
-### `dev-pipeline` 2.2.9 → 2.2.10
 - Pre-flight surfaces the section gate + coverage line (cross-plugin review-toolkit resolution
   with a hermetic env override); a missing review-toolkit is a disclosed skip, not a silent pass (#67).
 
-### `dev-pipeline` 2.2.10 → 2.2.11
 
 - **The verify verdict can no longer claim lanes that never ran (#98).** Three convergent defects
   let a run assert verification it did not perform — release-blocking for the generality claim.
@@ -125,6 +84,66 @@ consumer with an empty config; the migration notes below are only for consumers 
     `extraLanes` all null/absent) will now fail Stage-6 completion; configure a lane or set
     `commands.<repo-id>.allowUnverified: true`. Consumers reading `verifySummary.build` (none
     known in-tree) read `setup` instead.
+- **feat(dev-pipeline): record intake terminal verdicts in pipeline state (#117)** (#117)
+- **fix(dev-pipeline): a mis-shaped setup lane must be loud, not a false green (#100) (#114)** (#114)
+- **feat: review-context section catalog, exact-name lint, coverage report + onboard scaffold (#86)** (#86)
+- **fix(dev-pipeline): verify verdict never claims a lane that did not run (#98) (#120)** (#120)
+- **feat(dev-pipeline): verified calibration claims — claims-lint expiry + declarative probe DSL (#68) (#87)** (#87)
+- **docs(dev-pipeline): Stage-1 started-write instruction + Post-Run Eval file shape (#121)** (#121)
+
+### `review-toolkit` 2.1.4 → 2.2.0
+
+- security-reviewer: Maturity calibration now points at the `second-shift-claims` contract — a claim past its
+  `reverify-by` is not honored for `[Pre-existing]` downgrades when a claims block is present (#68).
+
+- **Review-context section catalog + exact-name lint (#67).** `scripts/section-catalog.txt` is the
+  machine-readable source of truth for the named `review-context.md` sections reviewers key on
+  (`section-name | readers | status`, plus a `deprecated-alias-of` tombstone table).
+  `scripts/check-review-context-sections.sh` lints against it: `--preflight` fails closed on alias
+  drift and present-but-empty catalog sections, `--report` prints an exit-neutral coverage line
+  (which reviewers run degraded), default mid-run is advisory; `.known-sections` (and `section:`
+  lines in `.known-extensions`) whitelist intentional off-catalog headings. The effective-registry
+  computation is shared with the basename lint via `scripts/_effective-registry.sh`.
+  `reviewer-baseline` treats an empty/TODO-bodied section as absent (infer conservatively AND
+  disclose). Migration: none — repos without off-catalog headings lint clean as-is.
+- **feat: review-context section catalog, exact-name lint, coverage report + onboard scaffold (#86)** (#86)
+- **feat(dev-pipeline): verified calibration claims — claims-lint expiry + declarative probe DSL (#68) (#87)** (#87)
+
+### `second-shift` 1.4.2 → 1.5.0
+
+- **Onboard emits a consumer-repo CI evidence workflow (on request) — the server-side backstop (#33).** New
+  templates `templates/consumer/second-shift-ci.yml` + `second-shift-ci-check.sh` (+ hermetic selftest): on
+  every PR the check **(a)** config-lints the committed config with the `config-lint.sh` shipped AT the pinned
+  marketplace ref (fetched fresh — CI runners have no plugin cache; mirrors onboard Step 5's fetch-at-ref) and
+  **(b)** asserts the settings ref and lockfile ref agree (ports `doctor.sh`'s lockstep check), so a half-done
+  upgrade PR is caught. Exit = FAIL count; a real drift/violation is a FAIL, a "couldn't verify" fetch/tool
+  failure is a non-fatal WARN. The workflow only reports a red check — marking it a required status check in
+  branch protection (the repo admin's step; onboard never configures branch protection) is what blocks merge.
+  Onboard offers it in the Step-3 elicitation batch and emits both files verbatim (the check reads repo+ref from
+  the committed lockfile — no emit-time substitution). The `Second-Shift:` PR trailer + `gates-unverified` label
+  from the issue's second paragraph are deferred (out of scope). `docs/onboarding.md` + the consent doc updated.
+
+- doctor: quiet `claims-lint` summary line (claim count + probe-less slugs) when calibration claims exist;
+  FAILs when a claim is expired/malformed (#68).
+
+- `doctor --report` gains a one-line section-coverage summary; `/second-shift:onboard` offers a
+  `review-context.md` scaffold (accept-or-edit, default "later"; only human-confirmed sections,
+  never a TODO body, never a fabricated `## Maturity stage`) (#67).
+- **feat: review-context section catalog, exact-name lint, coverage report + onboard scaffold (#86)** (#86)
+- **feat(dev-pipeline): verified calibration claims — claims-lint expiry + declarative probe DSL (#68) (#87)** (#87)
+- **feat(second-shift): onboard emits on-request consumer CI evidence workflow (#33) (#73)** (#73)
+- **feat: derive plugin versions + CHANGELOG at release time (#125)** (#125)
+  PRs stop bumping plugin.json / editing CHANGELOG.md; versions and the
+  changelog section are derived at release time on the release PR from conventional
+  commits and Changelog: trailers.
+  Migration: put consumer-visible change notes in a Changelog: commit trailer
+  (or Changelog: none); never edit CHANGELOG.md or version fields in a feature PR.
+  releases are cut by merging the auto-generated release PR; /release is gone.
+  Migration: maintainers trigger a release with 'gh workflow run release-pr.yml' (or just
+  merge the open release/next PR) instead of running /release, and refresh their machine
+  with /second-shift:local-dev-refresh. Contributors must stop editing plugin.json
+  versions and CHANGELOG.md, and must add a 'Changelog:' trailer (or 'Changelog: none')
+  to any PR touching plugins/**.
 
 ## v2.4.1 — tool-discipline contract for reviewers; consent doc defers to the lockfile
 
