@@ -7,7 +7,8 @@
 .claude/pipeline-state/
 
 # dev-pipeline linked worktrees — the pipeline creates its own git worktrees here
-# (Stage-2 work branches, Stage-1 intake-pin, config default topology.repos.<host>.worktreesDir).
+# (Stage-2 work branches, Stage-1 intake-pin) when this is a locally-configured worktreesDir location.
+# The shipped default worktreesDir is ../<repo>-worktrees (outside the tree).
 # Machine-local and registered as git worktrees, but an untracked entry here still makes
 # `git status --porcelain` non-empty, which mis-records the Stage-1 pre-flight attestation
 # (workingTreeClean) on this repo's own dogfooding runs. Ignore it so the pipeline's own
