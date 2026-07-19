@@ -90,6 +90,28 @@ Keep entries short and declarative — reviewers quote them back as exemption ju
 so every line is effectively policy. (Doc routing does NOT go here; that's
 `doc-routing.md` above.)
 
+**This section is machine-mirrored.** The section names above are not just prose — they are
+the exact keys reviewers match on, shipped as a machine-readable catalog at
+[`plugins/review-toolkit/scripts/section-catalog.txt`](../plugins/review-toolkit/scripts/section-catalog.txt)
+(`section-name | readers | status`). `check-review-context-sections.sh` lints a consumer's
+`review-context.md` (and `review-context/<reviewer>.md`) H2 headings against it (H3+ subsection headings are section content, and fenced code lines are never headings) — **exact
+match, no fuzzy heuristics** — and a release selftest fails if this template and the catalog
+drift apart. Two authoring consequences:
+
+- **A renamed/drifted heading is caught, not silently ignored.** The catalog carries a
+  **deprecated-alias-of** tombstone table for known drifted spellings (e.g.
+  `## Maturity calibration (MVP stage)` → `## Maturity stage`); an alias hit FAILs the
+  pre-work preflight and prints the exact rename command. An **empty/TODO-bodied** catalog
+  section is likewise treated as absent (reviewers infer conservatively and say so) and FAILs
+  preflight. A section that is simply missing is fine — that stays "generic behavior."
+- **Off-catalog headings are your prerogative.** A heading the catalog doesn't know is not an
+  error; mark it recognized-and-intentional in `.claude/second-shift/.known-sections` (one
+  per line) or a `section:<name>` line in `.known-extensions` (mirrors the EP-3 escape hatch)
+  to silence it in `--verbose`/preflight (coverage counts only catalog sections — a known
+  off-catalog heading is recognized, not covered). `--report` prints a
+  one-line context-coverage summary (which reviewers are running degraded) and never affects
+  the exit code.
+
 
 ## Cross-cutting tool contracts
 
