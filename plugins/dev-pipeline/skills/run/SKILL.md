@@ -562,6 +562,8 @@ If the pre-commit hook denies a commit during Stage 6, fix the type error before
 
 After Stage 9 (or any pipeline abort), score the run against [`eval-criteria.md`](./eval-criteria.md) and write results to `.claude/pipeline-state/{issue-number}-eval.json`. Every run produces a score — this data feeds the next optimization iteration of the skill.
 
+**Required file shape** (`mark-completed` refuses a terminal write without it — write the eval BEFORE `mark-completed`): parseable JSON with `ticketKey` = the issue key **as a string** (e.g. `"98"`) and a non-empty `criteria` object (the five criterion scores). Everything else (outcome, notes, evidence) is free-shape. When self-scoring `scope_compliance`, cross-check the **committed file list** against the plan's Affected files — not just the AC verdict (a retro FAIL class: out-of-plan commits graded PASS off the scope-reviewer alone).
+
 **This self-score is a floor, not the record.** The executor grading its own run is structurally generous; the operator should follow up with **`/dev-pipeline:pipeline-retro <issue-number>`** (sibling skill, [`../pipeline-retro/SKILL.md`](../pipeline-retro/SKILL.md)) — it re-scores the five criteria with a fresh-context agent from artifacts only (evidence quotes required), audits the run for contract deviations (silent deviations are the headline metric), logs environment friction, and routes every finding to a skill edit, issue, doctor check, or criteria proposal.
 
 ---
