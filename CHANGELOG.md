@@ -4,6 +4,30 @@ All notable changes to the second-shift marketplace. Versions are per-plugin (`p
 this file tracks the marketplace release. `configVersion` stays `const 1` — v2 is fully backward-compatible for a
 consumer with an empty config; the migration notes below are only for consumers using the changed features.
 
+## v2.4.2 — record Stage-1 intake terminal verdicts in pipeline state (in progress)
+
+### `dev-pipeline` 2.2.7 → 2.2.8
+
+- **Stage-1 intake terminal stops now write pipeline state.** The failure-shaped Stage-1 intake
+  verdicts (spec-reviewer true blockers, >5 resolvable gaps, escalation) previously ended the run
+  via tracker comment + label swap but wrote nothing to `.claude/pipeline-state/{issue}.json` —
+  the file was left at `status: in_progress` forever, so under `tracker.type: jira`
+  (`tracker.writes: false`) the run left zero durable record. Two new `failureContext.reason`
+  values — `intake-spec-blocked` (blockers / gap-overflow, disambiguated by an `outcome` detail)
+  and `intake-needs-human-input` (escalation, carrying the `question`) — added to the
+  `valid_failure_reason` closed enum (state-schema.md table → regenerated `statectl.sh` via
+  `gen-statectl-validators.sh`; drift-check byte-match). Stage-1 (`stages/1-intake.md`) now calls
+  `mark-failed` after the orchestrator's tracker actions for these stops. The `SKILL.md`
+  "No silent failures" contract is corrected: the three intake stops are no longer undeclared
+  state-less failures; the one remaining state-less carve-out — the `sub-issues` split verdict
+  (success-shaped, tracker-recorded) — is now explicitly declared, with a follow-up tracked for
+  its success-shaped state termination. **Re-queue note:** an intake-stopped issue leaves
+  `status: failed` locally; re-running requires the originating machine to clear its state file
+  (`rm .claude/pipeline-state/{issue}.json`) — `statectl init` will not reset a `failed` file.
+  The Stage-1 read-pin teardown now runs at EVERY Stage-1 exit, not only the completion path —
+  intake stops never reach Stage 10, so the stop paths previously leaked the pin worktree.
+  Migration: none — additive enum values + a new state write on paths that previously wrote none.
+
 ## v2.4.1 — tool-discipline contract for reviewers; consent doc defers to the lockfile
 
 ### `second-shift` 1.4.1 → 1.4.2
