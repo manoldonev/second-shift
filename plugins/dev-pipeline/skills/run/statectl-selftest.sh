@@ -78,7 +78,7 @@ complete_stage() {
     2) sct worktree-set "$key" --path ".claude/worktrees/acme-$key" --branch "claude/acme-$key" >/dev/null ;;
     4) sct plan-review-set "$key" --overall pass >/dev/null ;;
     5) sct checkpoint "$key" 5 --json '{"changedFiles":[]}' >/dev/null ;;
-    6) sct verify-summary-set "$key" --json '{"format":"clean"}' >/dev/null ;;
+    6) sct verify-summary-set "$key" --json '{"format":"clean","test":"passed"}' >/dev/null ;;
     7) sct checkpoint "$key" 7 --json "$VALID_PAYLOAD" >/dev/null ;;
     8) sct review-rounds "$key" --set 1 >/dev/null ;;
   esac
@@ -1690,6 +1690,40 @@ if [[ "$rc" == "1" && "$err" == *"verifySummary is missing"* && "$rc2" == "0" ]]
   pass "(sc5) stage-6 completion precondition — refused without verify-summary-set, INERT string allowed"
 else
   fail "(sc5) stage-6 precondition — rc=$rc rc2=$rc2 err='$err'"
+fi
+
+# (sc5b) #98 content gate (AC-3, AC-6) — fresh key, own stage chain: an object
+# summary with no verifying lane run is refused (both the absent-key shape
+# {"format":"clean"} and the explicit all-skipped shape); a summary where only an
+# ext:* extra lane ran is accepted.
+sct init 9898 --run-id "selftest-run-$$" >/dev/null
+for _n in 1 2 3 4 5; do complete_stage 9898 "$_n"; done
+sct set-stage 9898 6 --status started >/dev/null
+sct verify-summary-set 9898 --json '{"format":"clean"}' >/dev/null
+rc=$(sct_rc set-stage 9898 6 --status completed)
+err=$(sct_err set-stage 9898 6 --status completed)
+sct verify-summary-set 9898 --json '{"format":"clean","lint":"skipped","typeCheck":"skipped","test":"skipped"}' >/dev/null
+rc2=$(sct_rc set-stage 9898 6 --status completed)
+sct verify-summary-set 9898 --json '{"format":"clean","lint":"skipped","typeCheck":"skipped","test":"skipped","ext:contract-check":"clean"}' >/dev/null
+rc3=$(sct_rc set-stage 9898 6 --status completed)
+if [[ "$rc" == "1" && "$err" == *"no verifying lane"* && "$rc2" == "1" && "$rc3" == "0" ]]; then
+  pass "(sc5b) stage-6 content gate — absent-key and all-skipped refused, ext-only run allowed (AC-3, AC-6)"
+else
+  fail "(sc5b) stage-6 content gate — rc=$rc rc2=$rc2 rc3=$rc3 err='$err'"
+fi
+
+# (sc5c) #98 AC-8 — fresh key: a setup-failed summary is refused by a die that
+# names the setup failure, not the configure-a-lane advice.
+sct init 9897 --run-id "selftest-run-$$" >/dev/null
+for _n in 1 2 3 4 5; do complete_stage 9897 "$_n"; done
+sct set-stage 9897 6 --status started >/dev/null
+sct verify-summary-set 9897 --json '{"setup":"failed","format":"skipped","lint":"skipped","typeCheck":"skipped","test":"skipped"}' >/dev/null
+rc=$(sct_rc set-stage 9897 6 --status completed)
+err=$(sct_err set-stage 9897 6 --status completed)
+if [[ "$rc" == "1" && "$err" == *"setup lane"* && "$err" != *"Configure a verify lane"* ]]; then
+  pass "(sc5c) stage-6 setup-failed refusal names the setup failure (AC-8)"
+else
+  fail "(sc5c) stage-6 setup-failed refusal — rc=$rc err='$err'"
 fi
 
 # (sc6) stage 8 completed without codeReviewRounds → refused; with → allowed

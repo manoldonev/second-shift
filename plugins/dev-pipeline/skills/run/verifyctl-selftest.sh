@@ -162,15 +162,16 @@ git -C "$WORK" add -A && git -C "$WORK" commit -qm feat
 vrun
 lane=$(jq -r '.lane' <<< "$VERDICT")
 tsc=$(jq -r '.verifySummary.typeCheck' <<< "$VERDICT")
-build=$(jq -r '.verifySummary.build' <<< "$VERDICT")
+setup=$(jq -r '.verifySummary.setup' <<< "$VERDICT")   # #98 D1: renamed from build
+buildkey=$(jq -r '.verifySummary | has("build")' <<< "$VERDICT")   # AC-2: no build field
 ext=$(jq -r '.verifySummary."ext:contract-check"' <<< "$VERDICT")   # EP-2: extra lane, namespaced
-if [[ "$VRC" == "0" && "$lane" == "SUITE" && "$tsc" == "clean" && "$build" == "clean" \
-      && "$ext" == "clean" \
+if [[ "$VRC" == "0" && "$lane" == "SUITE" && "$tsc" == "clean" && "$setup" == "clean" \
+      && "$buildkey" == "false" && "$ext" == "clean" \
       && -f "$MARKERS/ran-workspaces" && -f "$MARKERS/ran-type-check" \
       && -f "$MARKERS/ran-lint" && -f "$MARKERS/ran-test" ]]; then
-  pass "(v2) SUITE lane clean run — packages build + lint/type-check/test + ext:contract-check ran, verdict pass"
+  pass "(v2) SUITE lane clean run — setup lanes + lint/type-check/test + ext:contract-check ran, no build field (AC-2)"
 else
-  fail "(v2) SUITE clean — rc=$VRC lane=$lane tsc=$tsc build=$build ext=$ext"
+  fail "(v2) SUITE clean — rc=$VRC lane=$lane tsc=$tsc setup=$setup buildkey=$buildkey ext=$ext"
 fi
 
 # (v3) type-check failure → TYPE_ERROR classified, exit 1, sidecar fail
@@ -308,6 +309,73 @@ if [[ "$VRC" == "0" && ! -f "$MARKERS/ran-format" && "$fmt" == "skipped" ]]; the
   pass "(v13) null format -> lane skipped (no formatter run, verdict format=skipped)"
 else
   fail "(v13) null format skip — rc=$VRC ran-format=$([[ -f "$MARKERS/ran-format" ]] && echo yes || echo no) fmt=$fmt"
+fi
+
+# (v14) #98 AC-1: a failing lanes[] setup step → setup="failed" AND format/lint/
+#       typeCheck/test all "skipped" — the short-circuited lanes never report
+#       clean/passed (init-to-skipped promotion invariant).
+reset_all
+touch "$MARKERS/INFRA"
+vrun
+setup=$(jq -r '.verifySummary.setup' <<< "$VERDICT")
+trio=$(jq -r '[.verifySummary.format, .verifySummary.lint, .verifySummary.typeCheck, .verifySummary.test] | unique | join(",")' <<< "$VERDICT")
+if [[ "$VRC" == "1" && "$setup" == "failed" && "$trio" == "skipped" ]]; then
+  pass "(v14) setup-lane failure — setup=failed, format+trio all skipped (AC-1)"
+else
+  fail "(v14) setup-lane failure — rc=$VRC setup=$setup trio=$trio"
+fi
+rm -f "$MARKERS/INFRA"
+
+# (v15) #98 AC-10: a format-lane failure short-circuits the trio → format="failed",
+#       lint/typeCheck/test all "skipped" (never their old optimistic inits).
+reset_all
+echo "export const v15 = 1" >> "$WORK/src/thing.ts"
+git -C "$WORK" add -A && git -C "$WORK" commit -qm feat-v15
+FMT_FAIL="$TMPDIR_VT/cfg-format-fail.json"
+jq '.commands.mono.format = "false"' "$CONFIG_FIXTURE" > "$FMT_FAIL"
+VERDICT=$(SECOND_SHIFT_CONFIG="$FMT_FAIL" "$VERIFYCTL" run 8888 2>/dev/null); VRC=$?
+fmt=$(jq -r '.verifySummary.format' <<< "$VERDICT")
+trio=$(jq -r '[.verifySummary.lint, .verifySummary.typeCheck, .verifySummary.test] | unique | join(",")' <<< "$VERDICT")
+if [[ "$VRC" == "1" && "$fmt" == "failed" && "$trio" == "skipped" ]]; then
+  pass "(v15) format-lane failure — format=failed, trio all skipped (AC-10)"
+else
+  fail "(v15) format-lane failure — rc=$VRC fmt=$fmt trio=$trio"
+fi
+
+# (v16) #98 AC-4 + D2b fallthrough: zero verifying lanes + allowUnverified=true →
+#       STRING summary naming the opt-out; without the flag → honest all-skipped
+#       OBJECT (which the statectl Stage-6 content gate then refuses — AC-3's shape).
+reset_all
+ZERO_OPTOUT="$TMPDIR_VT/cfg-zero-optout.json"
+jq '.commands.mono |= (.lint = null | .typecheck = null | .test = null | .format = null | .lanes = [] | .extraLanes = [] | .allowUnverified = true)' "$CONFIG_FIXTURE" > "$ZERO_OPTOUT"
+VERDICT=$(SECOND_SHIFT_CONFIG="$ZERO_OPTOUT" "$VERIFYCTL" run 8888 2>/dev/null); VRC=$?
+vs_type=$(jq -r '.verifySummary | type' <<< "$VERDICT")
+vs_str=$(jq -r '.verifySummary' <<< "$VERDICT")
+ZERO_PLAIN="$TMPDIR_VT/cfg-zero-plain.json"
+jq 'del(.commands.mono.allowUnverified)' "$ZERO_OPTOUT" > "$ZERO_PLAIN"
+VERDICT2=$(SECOND_SHIFT_CONFIG="$ZERO_PLAIN" "$VERIFYCTL" run 8888 2>/dev/null)
+vs2_type=$(jq -r '.verifySummary | type' <<< "$VERDICT2")
+vs2_vals=$(jq -r '.verifySummary | [.lint, .typeCheck, .test] | unique | join(",")' <<< "$VERDICT2")
+if [[ "$VRC" == "0" && "$vs_type" == "string" && "$vs_str" == *"allowUnverified"* \
+      && "$vs2_type" == "object" && "$vs2_vals" == "skipped" ]]; then
+  pass "(v16) zero-lane opt-out — string summary with flag (AC-4), honest all-skipped object without"
+else
+  fail "(v16) zero-lane opt-out — rc=$VRC type=$vs_type str='$vs_str' type2=$vs2_type vals2=$vs2_vals"
+fi
+
+# (v17) #98 AC-7: only verification is when-gated extraLanes and the diff matches
+#       no glob → STRING summary (the when-gated miss is INERT-posture, never a
+#       hard block); the flag is NOT required for this path.
+reset_all
+WHEN_GATED="$TMPDIR_VT/cfg-when-gated.json"
+jq '.commands.mono |= (.lint = null | .typecheck = null | .test = null | .format = null | .lanes = [] | .extraLanes = [{ "name": "pytests", "when": ["**/*.py"], "commands": ["true"], "failureClass": "TEST_FAILURE" }])' "$CONFIG_FIXTURE" > "$WHEN_GATED"
+VERDICT=$(SECOND_SHIFT_CONFIG="$WHEN_GATED" "$VERIFYCTL" run 8888 2>/dev/null); VRC=$?
+vs_type=$(jq -r '.verifySummary | type' <<< "$VERDICT")
+vs_str=$(jq -r '.verifySummary' <<< "$VERDICT")
+if [[ "$VRC" == "0" && "$vs_type" == "string" && "$vs_str" == *"when-gated"* ]]; then
+  pass "(v17) when-gated extraLanes miss — string summary, not a hard block (AC-7)"
+else
+  fail "(v17) when-gated miss — rc=$VRC type=$vs_type str='$vs_str'"
 fi
 
 echo

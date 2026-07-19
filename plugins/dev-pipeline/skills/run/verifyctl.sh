@@ -179,6 +179,9 @@ load_config() {
     FORMAT_MODE=prettier
   fi
   LINT_AUTOFIXES=$(jq -r --arg h "$host" '.commands[$h].lintAutofixes // false' "$cfg")
+  # #98 D2b: zero-lane safety valve — read by the SUITE verdict emission only when
+  # nothing verifying is configured; never a gate kill-switch for configured lanes.
+  ALLOW_UNVERIFIED=$(jq -r --arg h "$host" '.commands[$h].allowUnverified // false' "$cfg")
   SETUP_LANES=$(jq -c --arg h "$host" '.commands[$h].lanes // []' "$cfg")
   # EP-2 additive verify lanes (run AFTER the SUITE trio, blocking, ext:<name> keys).
   EXTRA_LANES=$(jq -c --arg h "$host" '.commands[$h].extraLanes // []' "$cfg")
@@ -359,7 +362,10 @@ cmd_run() {
   # ---- execute the lane ----
   : > "$logfile"
   local failures="[]" format_changed="[]" lint_autofixed="[]"
-  local vs_format="clean" vs_lint="clean" vs_tsc="clean" vs_test="passed" vs_build="clean"
+  # #98: lanes initialize to "skipped" and are PROMOTED on execution — a lane
+  # that did not run can never report clean/passed (the demotion invariant is
+  # structural, covering setup- and format-short-circuits alike).
+  local vs_format="skipped" vs_lint="skipped" vs_tsc="skipped" vs_test="skipped" vs_setup="skipped"
   local overall="pass"
 
   # Append one command's spooled output + record a failure entry.
@@ -464,11 +470,14 @@ cmd_run() {
         rc=$?
         if [[ "$rc" -ne 0 ]]; then
           record_failure "INFRA" "setup lane '$lane_name': $lane_cmd" "$rc" "$RUN_CMD_OUT"
-          vs_build="failed"
+          vs_setup="failed"
           break
         fi
       done
     done
+    # Promote: all configured setup lanes ran without failure. No lanes[] configured
+    # leaves the init "skipped" (#98 D1 — setup never claims a lane that didn't run).
+    [[ "$lane_count" -gt 0 && "$overall" == "pass" ]] && vs_setup="clean"
 
     # 2. Format (#12, FORMAT_MODE resolved in load_config):
     #    prettier -> scoped `prettier --write` on the changed format-glob files
@@ -481,6 +490,11 @@ cmd_run() {
     #    for the caller's scoped commit; a non-INFRA non-zero exit is a FORMAT fail.
     if [[ "$overall" == "pass" && "$FORMAT_MODE" != "skip" ]]; then
       local pre_format post_format fmt_out fmt_label=""
+      # #98: the format lane is executing — promote from the "skipped" init at
+      # block entry so the `applied` guard below (which keys off "clean") still
+      # fires. The prettier zero-files path keeps "clean": the lane ran and had
+      # nothing to check. A short-circuited block never reaches this line.
+      vs_format="clean"
       fmt_out=$(mktemp)
       if [[ "$FORMAT_MODE" == "config" ]]; then
         fmt_label="format: $CMD_FORMAT"
@@ -599,6 +613,12 @@ cmd_run() {
           vs_test="failed"
         fi
       fi
+      # #98: promote lanes that ran and passed (rc==0) from the "skipped" init.
+      # Failure/autofix paths above already wrote their tokens; an INFRA-failed
+      # lane stays "skipped" — it did not complete, and overall is fail anyway.
+      [[ -n "$lint_pid" && "$lint_rc" -eq 0 ]] && vs_lint="clean"
+      [[ -n "$tsc_pid" && "$tsc_rc" -eq 0 ]] && vs_tsc="clean"
+      [[ -n "$test_pid" && "$test_rc" -eq 0 ]] && vs_test="passed"
     fi
 
     # ---- EP-2: extra lanes (additive, append-after-SUITE, blocking, ext:<name> keys) ----
@@ -655,10 +675,31 @@ cmd_run() {
       done
     fi
 
-    local vs_json
-    vs_json=$(jq -n --arg f "$vs_format" --arg l "$vs_lint" --arg t "$vs_tsc" \
-                    --arg te "$vs_test" --arg b "$vs_build" --argjson ext "$ext_json" \
-                    '{format: $f, lint: $l, typeCheck: $t, test: $te, build: $b} + $ext')
+    # #98 D2b/D2c: a clean run with nothing verifying executed must not emit an
+    # optimistic object. Two LEGITIMATE skips ride the string path (statectl's
+    # existing string acceptance — same mechanism as INERT); anything else falls
+    # through to the object emit, where the Stage-6 content gate refuses an
+    # all-skipped summary. A recorded failure ALWAYS falls through — the opt-out
+    # can never mask a failure (overall gate below).
+    local vs_json unverified_string=""
+    if [[ "$overall" == "pass" && -z "$CMD_LINT" && -z "$CMD_TYPECHECK" && -z "$CMD_TEST" ]]; then
+      if [[ "$el_count" -eq 0 ]]; then
+        # D2b: zero verifying lanes configured — string path only via explicit opt-in.
+        [[ "$ALLOW_UNVERIFIED" == "true" ]] \
+          && unverified_string="skipped (no verify lanes configured — allowUnverified opt-out)"
+      elif jq -e '[.[]] | length > 0 and all(. == "skipped")' <<< "$ext_json" >/dev/null 2>&1; then
+        # D2c: verification IS configured (when-gated extraLanes) but the config
+        # scoped it away from this diff — the INERT posture, not a gate failure.
+        unverified_string="skipped (when-gated verify lanes did not match the diff)"
+      fi
+    fi
+    if [[ -n "$unverified_string" ]]; then
+      vs_json=$(jq -n --arg s "$unverified_string" '$s')
+    else
+      vs_json=$(jq -n --arg f "$vs_format" --arg l "$vs_lint" --arg t "$vs_tsc" \
+                      --arg te "$vs_test" --arg s "$vs_setup" --argjson ext "$ext_json" \
+                      '{format: $f, lint: $l, typeCheck: $t, test: $te, setup: $s} + $ext')
+    fi
     emit_verdict "$key" "$(build_verdict_ctx "$vs_json")"
   fi
 }

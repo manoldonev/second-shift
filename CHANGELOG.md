@@ -4,6 +4,34 @@ All notable changes to the second-shift marketplace. Versions are per-plugin (`p
 this file tracks the marketplace release. `configVersion` stays `const 1` — v2 is fully backward-compatible for a
 consumer with an empty config; the migration notes below are only for consumers using the changed features.
 
+## (in progress)
+
+### `dev-pipeline` 2.2.7 → 2.2.10
+
+- **The verify verdict can no longer claim lanes that never ran (#98).** Three convergent defects
+  let a run assert verification it did not perform — release-blocking for the generality claim.
+  - `verifyctl.sh` lane verdicts now initialize `skipped` and are **promoted on execution** — a
+    setup- or format-lane failure that short-circuits the trio leaves the un-run lanes `skipped`,
+    never their old optimistic `clean`/`passed` inits.
+  - `verifySummary.build` → **`setup`** (`clean|failed|skipped`): the field only ever reported the
+    `lanes[]` setup outcome; the misleading name and its `"clean"` default are gone. The **config
+    key** `commands.<id>.build` is retained unchanged — executing it as a real lane is #113.
+  - `statectl set-stage 6 --status completed` now enforces a **content gate** on object summaries:
+    at least one verifying lane (`lint`/`typeCheck`/`test`/`ext:*`) must have actually run. The
+    predicate is positive over present keys (absent keys fail — `{"format":"clean"}` is refused);
+    `format`/`setup` never satisfy it; a `setup:"failed"` summary gets a die naming the setup
+    failure. Applied per-target in the be-fe-pair branch too. String summaries are untouched.
+  - Two legitimate skips ride the existing string path: `commands.<repo-id>.allowUnverified: true`
+    (zero-lane safety valve — inert when any verifying lane is configured, and never emitted over
+    a recorded failure) and the when-gated `extraLanes` miss (verification configured, diff matched
+    no glob — the INERT posture). `config-lint` accepts `allowUnverified` (boolean, type-checked).
+  - Out of scope, tracked separately: executing `commands.<id>.build` (#113); the verdict's own
+    top-level `status` staying `pass` on a zero-verification run (#115).
+  - Migration: a consumer whose config has **no verifying lane** (`lint`/`typecheck`/`test`/
+    `extraLanes` all null/absent) will now fail Stage-6 completion; configure a lane or set
+    `commands.<repo-id>.allowUnverified: true`. Consumers reading `verifySummary.build` (none
+    known in-tree) read `setup` instead.
+
 ## v2.4.1 — tool-discipline contract for reviewers; consent doc defers to the lockfile
 
 ### `second-shift` 1.4.1 → 1.4.2
