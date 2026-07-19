@@ -6,7 +6,7 @@ consumer with an empty config; the migration notes below are only for consumers 
 
 ## v2.4.2 (in progress)
 
-### `dev-pipeline` 2.2.8 → 2.2.9
+### `dev-pipeline` 2.2.11 → 2.2.12
 - **Verified calibration claims — expiry + declarative probes (#68).** New `claims-lint.sh`: severity-downgrading
   maturity claims declared in fenced `second-shift-claims` blocks under `.claude/second-shift/**/*.md` carry a
   MANDATORY date-form `reverify-by`; an expired or malformed claim FAILs the per-run pipeline pre-flight (new

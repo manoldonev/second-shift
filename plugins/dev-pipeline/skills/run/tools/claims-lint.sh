@@ -41,8 +41,11 @@
 #
 # Usage:  claims-lint.sh [consumer-repo-root]     (default: cwd)
 # Env:    SECOND_SHIFT_CLAIMS_TODAY  — YYYY-MM-DD "today" override (selftest seam)
-# Exit:   number of FAILed checks (0 = clean). No .claude/second-shift dir or no
-#         claims fences = silent exit 0 (missing extension = generic behavior).
+# Exit:   number of FAILed checks, capped at 125 (0 = clean). The cap keeps the
+#         nonzero contract honest — a raw count would wrap mod 256 and report
+#         exactly 256 FAILs as a CLEAN exit 0 to every fail-closed caller.
+#         No .claude/second-shift dir or no claims fences = silent exit 0
+#         (missing extension = generic behavior).
 #
 # macOS ships bash 3.2 as /bin/bash; this script stays 3.2-compatible (no globstar,
 # no mapfile). Date comparison is lexicographic on YYYY-MM-DD (no BSD/GNU date).
@@ -124,10 +127,13 @@ pattern_found() { # $1 = ere, $2 = target (repo-relative dir or glob)
 }
 
 # Validate a path/glob argument: reject shell metacharacters and whitespace so a
-# probe arg can never smuggle a command (defense in depth — nothing here evals).
+# probe arg can never smuggle a command (defense in depth — nothing here evals),
+# and reject `..` segments / absolute paths so a probe can never read outside the
+# repo root — a claims block must not be a read-oracle over the runner's filesystem.
 valid_glob_arg() { # $1 = candidate
   case "$1" in
     '' | *[';&|$`\\ '\''"']* ) return 1 ;;
+    /* | .. | ../* | */.. | */../* ) return 1 ;;
     *) return 0 ;;
   esac
 }
@@ -172,7 +178,7 @@ flush_entry() { # $1 = file, $2 = line of the `- id:` opener
     path-exists:*|path-absent:*)
       verb="${E_PROBE%%:*}"; arg="${E_PROBE#*:}"
       if ! valid_glob_arg "$arg"; then
-        bad "claims-parse-error $file:$line: probe glob '$arg' carries whitespace/shell metacharacters — the DSL takes literal globs only"
+        bad "claims-parse-error $file:$line: probe glob '$arg' carries whitespace/shell metacharacters or escapes the repo root ('..'/absolute) — the DSL takes literal repo-relative globs only"
         return
       fi
       if [[ "$verb" == "path-exists" ]]; then
@@ -197,7 +203,14 @@ flush_entry() { # $1 = file, $2 = line of the `- id:` opener
       rest="${E_PROBE#pattern-absent:}"
       case "$rest" in
         \"*\"\ in\ *) ere="${rest#\"}"; ere="${ere%%\" in *}"; target="${rest##*\" in }" ;;
-        *\ in\ *)     ere="${rest%% in *}"; target="${rest##* in }" ;;
+        *\ in\ *)
+          # Unquoted form: more than one " in " is ambiguous (an ERE containing the
+          # word "in" would be silently truncated) — fail loud, tell them to quote.
+          if [[ "${rest#* in }" == *" in "* ]]; then
+            bad "claims-parse-error $file:$line: pattern-absent '$rest' contains ' in ' more than once — double-quote the regex: pattern-absent:\"<ere>\" in <target>"
+            return
+          fi
+          ere="${rest%% in *}"; target="${rest##* in }" ;;
         *) bad "claims-parse-error $file:$line: pattern-absent needs '<ere> in <target>' — got '$rest'"; return ;;
       esac
       if [[ -z "$ere" ]] || ! valid_glob_arg "$target"; then
@@ -275,6 +288,14 @@ while IFS= read -r mdfile; do
     esac
   done < <(awk '/^```second-shift-claims[[:space:]]*$/{inb=1; next} inb && /^```[[:space:]]*$/{inb=0; next} inb{printf "%d:%s\n", NR, $0}' "$mdfile")
   if [[ "$in_entry" -eq 1 ]]; then flush_entry "$entry_file" "$entry_line"; reset_entry; fi
+  # Near-miss fence guard (fail-closed): an indented fence, a typo'd tag
+  # (second-shift-claim), or a ~~~ fence is INVISIBLE to the extractor above — and
+  # an invisible waiver block silently reopens the exact bare-prose hole this tool
+  # closes. The tag must be exactly ```second-shift-claims at column 0.
+  while IFS= read -r nm; do
+    [[ -z "$nm" ]] && continue
+    bad "claims-parse-error $mdfile:${nm%%:*}: near-miss claims fence — the tag must be exactly \`\`\`second-shift-claims at column 0 (no indent, no typo, backtick fence only)"
+  done < <(grep -nE '^[[:space:]]*(```|~~~)[[:space:]]*second-shift-claim' "$mdfile" 2>/dev/null | grep -vE '^[0-9]+:```second-shift-claims[[:space:]]*$' || true)
 done < <(find "$SS" -type f -name '*.md' 2>/dev/null | sort)
 
 # E_VERIFIED is intentionally unread beyond parsing: the recorded ref is for the
@@ -282,7 +303,10 @@ done < <(find "$SS" -type f -name '*.md' 2>/dev/null | sort)
 # set -u tooling and reviewers see the intent.
 : "${E_VERIFIED:-}"
 
-[[ "$TOTAL" -eq 0 ]] && exit 0
+# Quiet no-op ONLY when truly nothing happened: zero entries AND zero findings.
+# A file with a near-miss fence or a junk-only fence has TOTAL=0 but real FAILs —
+# exiting 0 there would be the silent fail-open this tool exists to close.
+[[ "$TOTAL" -eq 0 && "$FAILS" -eq 0 && "$WARNS" -eq 0 ]] && exit 0
 
 # The ONE quiet summary line (probe-less claims are never per-claim nagged).
 summary="$TOTAL claim(s) — $EXPIRED expired, $WARNS probe warning(s), $PROBED_OK probe(s) not-yet-contradicted"
@@ -290,4 +314,8 @@ if [[ -n "$PROBELESS_SLUGS" ]]; then
   summary="$summary; probe-less (expiry-only): $PROBELESS_SLUGS"
 fi
 say "summary: $summary"
+# Bash exit status is mod 256: an uncapped count would report 256 FAILs as exit 0
+# (a clean pass to SKILL.md 0c, preflight.sh, and doctor). All callers only test
+# nonzero, so the cap loses nothing.
+[[ "$FAILS" -gt 125 ]] && FAILS=125
 exit "$FAILS"

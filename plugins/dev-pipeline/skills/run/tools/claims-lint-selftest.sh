@@ -106,6 +106,55 @@ set +e; OUT=$("$LINT" "$NODIR" 2>&1); RC=$?; set -e
   || check "repo without .claude/second-shift is a silent exit 0" 1
 rmdir "$NODIR"
 
+# Near-miss fences are loud parse FAILs, never invisible blocks (the typo'd-waiver hole).
+NM="$(mktemp -d -t claims-nearmiss.XXXXXX)"; mkdir -p "$NM/.claude/second-shift"
+# shellcheck disable=SC2016 # literal fence content — backticks must not expand
+printf '```second-shift-claim\n- id: typo-tag\n  claim: "x"\n  reverify-by: 9999-01-01\n```\n' \
+  > "$NM/.claude/second-shift/review-context.md"
+set +e; OUT=$("$LINT" "$NM" 2>&1); RC=$?; set -e
+[[ "$RC" -ne 0 ]] && grep -q "near-miss claims fence" <<< "$OUT" \
+  && check "typo'd fence tag (second-shift-claim) is a loud near-miss FAIL, not silent" 0 \
+  || check "typo'd fence tag must FAIL loudly (rc=$RC)" 1
+# shellcheck disable=SC2016 # literal fence content — backticks must not expand
+printf '  ```second-shift-claims\n- id: indented\n  claim: "x"\n  reverify-by: 9999-01-01\n  ```\n' \
+  > "$NM/.claude/second-shift/review-context.md"
+set +e; OUT=$("$LINT" "$NM" 2>&1); RC=$?; set -e
+[[ "$RC" -ne 0 ]] && grep -q "near-miss claims fence" <<< "$OUT" \
+  && check "indented claims fence is a loud near-miss FAIL, not silent" 0 \
+  || check "indented claims fence must FAIL loudly (rc=$RC)" 1
+rm -rf "$NM"
+
+# Probes cannot escape the repo root ('..' / absolute are parse FAILs, not read-oracles).
+TRAV="$(mktemp -d -t claims-traversal.XXXXXX)"; mkdir -p "$TRAV/.claude/second-shift"
+# shellcheck disable=SC2016 # literal fence content — backticks must not expand
+printf '```second-shift-claims\n- id: traversal\n  claim: "x"\n  reverify-by: 9999-01-01\n  probe: path-exists:../outside/secret.txt\n```\n' \
+  > "$TRAV/.claude/second-shift/review-context.md"
+set +e; OUT=$("$LINT" "$TRAV" 2>&1); RC=$?; set -e
+[[ "$RC" -ne 0 ]] && grep -q "escapes the repo root" <<< "$OUT" \
+  && check "'..' probe glob rejected (no read-oracle outside the repo)" 0 \
+  || check "'..' probe glob must be rejected (rc=$RC)" 1
+rm -rf "$TRAV"
+
+# Unquoted ERE with a second ' in ' is ambiguous -> loud FAIL telling them to quote.
+AMB="$(mktemp -d -t claims-ambig.XXXXXX)"; mkdir -p "$AMB/.claude/second-shift" "$AMB/src"
+# shellcheck disable=SC2016 # literal fence content — backticks must not expand
+printf '```second-shift-claims\n- id: ambiguous\n  claim: "x"\n  reverify-by: 9999-01-01\n  probe: pattern-absent:logged in user in src\n```\n' \
+  > "$AMB/.claude/second-shift/review-context.md"
+set +e; OUT=$("$LINT" "$AMB" 2>&1); RC=$?; set -e
+[[ "$RC" -ne 0 ]] && grep -q "more than once" <<< "$OUT" \
+  && check "unquoted ERE with a second ' in ' FAILs (no silent truncation)" 0 \
+  || check "ambiguous unquoted pattern-absent must FAIL (rc=$RC)" 1
+rm -rf "$AMB"
+
+# Exit-code cap: 300 FAILs must NOT wrap mod 256 — the exit stays in 1..125.
+CAP="$(mktemp -d -t claims-cap.XXXXXX)"; mkdir -p "$CAP/.claude/second-shift"
+{ printf '```second-shift-claims\n'; for i in $(seq 1 300); do printf 'junk line %d\n' "$i"; done; printf '```\n'; } \
+  > "$CAP/.claude/second-shift/review-context.md"
+set +e; OUT=$("$LINT" "$CAP" 2>&1); RC=$?; set -e
+[[ "$RC" -eq 125 ]] && check "300 FAILs exit 125 (capped; never wraps to a clean 0)" 0 \
+  || check "300 FAILs must exit 125 (got $RC)" 1
+rm -rf "$CAP"
+
 echo ""
 if [[ "$FAILS" -eq 0 ]]; then
   echo "claims-lint selftest: OK"

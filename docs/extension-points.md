@@ -117,7 +117,9 @@ drift apart. Two authoring consequences:
 Maturity-calibration claims are severity waivers — security-reviewer downgrades Criticals to
 `[Pre-existing]` on their word — and prose does not expire on its own. Declare every
 severity-downgrading claim in a fenced, machine-parsed block (fence-tag anchored, so it works
-in any `.claude/second-shift/**/*.md` regardless of heading layout):
+in any `.claude/second-shift/**/*.md` regardless of heading layout). The tag must be exactly
+` ```second-shift-claims ` at column 0 — an indented or typo'd tag is a loud parse FAIL,
+never an invisible block; don't quote claims examples inside extension files:
 
 ````markdown
 ```second-shift-claims

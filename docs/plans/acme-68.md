@@ -10,7 +10,7 @@ Intake resolutions binding here (issue #68 intake comment, run `2026-07-14T21424
 2. Scanned surface = fence-tag scan over `.claude/second-shift/**/*.md` (the manifest-recognized set).
 3. `reverify-by` v1 is **date-form only** (`YYYY-MM-DD`); an optional `verified-against:` ref is recorded for re-blessing diffs but never drives expiry.
 4. Probe applicability: the deepest non-wildcard parent of the probed glob must exist, else `probe-broken` — never a silent pass.
-5. The cadenza consumer migration is **out of scope** (cross-repo; owning follow-up in that repo).
+5. The seed-consumer migration is **out of scope** (cross-repo; owning follow-up in that repo).
 
 Expiry × probe matrix (explicit, closing the spec ambiguity): an expired `reverify-by` is a FAIL **regardless of probe outcome**; a passing probe only withholds its own probe WARN — it never suppresses the expiry FAIL and never mints "verified" evidence (output wording: `not-yet-contradicted`).
 
@@ -31,7 +31,7 @@ Expiry × probe matrix (explicit, closing the spec ambiguity): an expired `rever
 | Probe grammar | Colon-form verbs; ERE dialect via grep -E; pattern-absent takes an `in <target>` clause | codebase-derived (matches spec DSL text; ERE is the repo shellcheck-era default) |
 | Doctor surface | Invoke claims-lint via the doctor-resolved dev-pipeline install path (the section-7 config-lint idiom); graceful skip when dev-pipeline is absent | codebase-derived (doctor.sh already resolves DP_PATH for config-lint — invoke-not-duplicate beats a parallel grep counter) |
 | CHANGELOG heading | Entries added under an Unreleased heading; release names the marketplace version | deferred (release-time decision owned by /release) |
-| cadenza migration boundary | Out of scope for this repo PR; owning follow-up in the cadenza consumer repo | codebase-derived (single-repo pipeline; a cross-repo same-PR deliverable is not satisfiable) |
+| seed-consumer migration boundary | Out of scope for this repo PR; owning follow-up in the consumer repo | codebase-derived (single-repo pipeline; a cross-repo same-PR deliverable is not satisfiable) |
 
 ## Affected files
 
@@ -119,7 +119,7 @@ jq . plugins/dev-pipeline/.claude-plugin/plugin.json plugins/second-shift/.claud
 
 ## Out-of-scope
 
-- cadenza consumer migration (ids + reverify-by + headline rewording) — owning follow-up in the cadenza repo (cross-repo; intake decision 5).
+- seed-consumer migration (ids + reverify-by + headline rewording) — owning follow-up in the consumer repo (cross-repo; intake decision 5).
 - Onboard scaffolding of probes (issue #67 catalog/scaffold territory; the issue itself says onboard never scaffolds probes).
 - Version-form (`reverify-by: v2.3.0`) expiry comparison — deferred until a defined current-version source exists; v1 rejects it with a clear message.
 - Any staleness pass over `.claude/second-shift/` by Stage-7 doc-update (this mechanism is the independent guard; doc-update scope unchanged).
