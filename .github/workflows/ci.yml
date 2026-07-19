@@ -54,25 +54,40 @@ jobs:
   # plugin.json version fields and CHANGELOG.md are computed on the release PR by
   # scripts/derive-release.sh. These two gates are pull_request-only and skip the release
   # branch (release/next), which is the one legitimate writer.
+  # The release-branch exemption is keyed on branch name AND head repo: `head_ref` alone is
+  # chosen by the PR author (a fork can name its branch release/next), so name-only routing
+  # would let any contributor skip both guards. A fork PR is ALWAYS a feature PR here.
   pr-gates:
-    if: github.event_name == 'pull_request' && github.head_ref != 'release/next'
+    if: >-
+      github.event_name == 'pull_request' &&
+      !(github.head_ref == 'release/next' &&
+        github.event.pull_request.head.repo.full_name == github.repository)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
+      # BASE_REF rides in the environment, never spliced into the run body: git ref names
+      # permit $, backticks and ; so `${{ }}` interpolation into a shell line is injectable.
       - name: frozen files guard (plugin.json versions + CHANGELOG are release-owned)
-        run: bash scripts/check-frozen-files.sh "origin/${{ github.base_ref }}"
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: bash scripts/check-frozen-files.sh "origin/$BASE_REF"
 
       - name: changelog trailer guard (plugins/** PRs carry Changelog:/Changelog: none)
-        run: bash scripts/check-changelog-trailer.sh "origin/${{ github.base_ref }}"
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: bash scripts/check-changelog-trailer.sh "origin/$BASE_REF"
 
   # Gates that run ONLY on the release PR: the old version-bump discipline (every
   # content-changed plugin carries its derived bump — same script, new call site) and the
   # configVersion migration-doc gate (a schema-breaking change ships its upgrade doc).
   release-pr-gates:
-    if: github.event_name == 'pull_request' && github.head_ref == 'release/next'
+    if: >-
+      github.event_name == 'pull_request' &&
+      github.head_ref == 'release/next' &&
+      github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -83,16 +98,7 @@ jobs:
         run: bash scripts/check-plugin-version-bumps.sh
 
       - name: configVersion migration-doc gate
-        run: |
-          LAST_TAG="$(git describe --tags --abbrev=0)"
-          OLD="$(git show "$LAST_TAG:schema/second-shift.config.schema.json" | jq -r '.properties.configVersion.const')"
-          NEW="$(jq -r '.properties.configVersion.const' schema/second-shift.config.schema.json)"
-          if [ "$OLD" != "$NEW" ]; then
-            if [ ! -f "docs/migrations/v${OLD}-to-v${NEW}.md" ]; then
-              echo "::error::configVersion ${OLD} -> ${NEW} without docs/migrations/v${OLD}-to-v${NEW}.md (docs/migrations/README.md contract)"
-              exit 1
-            fi
-          fi
+        run: bash scripts/check-configversion-migration-doc.sh
 
   # macOS ships /bin/bash 3.2 and every shipped script claims 3.2 compat — two real
   # statectl bugs (generator mapfile, mark-failed brace-default expansion) lived

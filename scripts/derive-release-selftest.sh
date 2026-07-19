@@ -237,6 +237,27 @@ git add -A
 git commit -qm "docs: no plugin surface (#19)"
 if bash "$TRAILER" v2.0.0 > /dev/null 2>&1; then ok "trailer gate skips non-plugins PR (AC-5)"; else bad "trailer gate demanded a trailer on a non-plugins PR"; fi
 
+echo "== configVersion migration-doc gate =="
+CFGGATE="$HERE/check-configversion-migration-doc.sh"
+git checkout -q v2.0.0
+git checkout -qb cfgver
+mkdir -p schema docs/migrations
+printf '{ "properties": { "configVersion": { "const": 1 } } }\n' > schema/second-shift.config.schema.json
+git add -A
+git commit -qm "chore: schema fixture (#20)" -m "Changelog: none"
+git tag v3.0.0
+if bash "$CFGGATE" v3.0.0 > /dev/null 2>&1; then ok "configVersion unchanged -> pass"; else bad "configVersion unchanged should pass"; fi
+
+printf '{ "properties": { "configVersion": { "const": 2 } } }\n' > schema/second-shift.config.schema.json
+git add -A
+git commit -qm "feat!: schema v2 (#21)" -m "Changelog: none"
+if bash "$CFGGATE" v3.0.0 > /dev/null 2>&1; then bad "configVersion 1->2 without migration doc should FAIL"; else ok "configVersion bump without migration doc -> fail"; fi
+
+printf 'migration notes\n' > docs/migrations/v1-to-v2.md
+git add -A
+git commit -qm "docs: migration doc (#22)" -m "Changelog: none"
+if bash "$CFGGATE" v3.0.0 > /dev/null 2>&1; then ok "configVersion bump WITH migration doc -> pass"; else bad "configVersion bump with doc present should pass"; fi
+
 echo
 echo "derive-release-selftest: $PASS ok, $FAIL failed"
 exit "$FAIL"

@@ -15,7 +15,14 @@ permissions:
 jobs:
   publish:
     runs-on: ubuntu-latest
-    if: github.event.pull_request.merged == true && github.event.pull_request.head.ref == 'release/next'
+    # head repo check is load-bearing: the branch NAME is author-chosen, so without it a
+    # merged fork PR named release/next would enter a job holding contents:write. (Fork PRs
+    # get no secrets today, so the token mint fails first — but that is a side effect, not a
+    # gate.) Keep the trigger on pull_request; never pull_request_target.
+    if: >-
+      github.event.pull_request.merged == true &&
+      github.event.pull_request.head.ref == 'release/next' &&
+      github.event.pull_request.head.repo.full_name == github.repository
     steps:
       - name: mint app token
         id: app
