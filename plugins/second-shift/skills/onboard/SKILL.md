@@ -116,6 +116,14 @@ Ask AT MOST one AskUserQuestion batch, containing ONLY (skip any that detection 
      review-context surface"). To write it, pipe confirmed H2 blocks to
      `bash "<installPath>/skills/onboard/tools/scaffold-review-context.sh" <repo-root> --title "<repo>"`,
      then run `check-review-context-sections.sh --preflight <repo-root>` to confirm it is clean.
+  9. **CI evidence workflow (offer; the server-side backstop):** "Emit a consumer-repo CI
+     workflow that, on every PR, (a) config-lints the committed config with the linter
+     shipped AT the pinned marketplace ref and (b) asserts the settings ref and lockfile
+     ref agree — so a half-done upgrade PR is caught server-side?" Recommended: yes for a
+     repo that runs GitHub Actions. On yes, the two files below are emitted in Step 7; note
+     that the workflow only REPORTS a red check — to make it *block* merges, the repo admin
+     marks "second-shift evidence" a required status check in branch protection (onboard
+     never edits branch protection). On no / a non-Actions repo, emit nothing (absent = off).
 Then present the **complete draft as one accept-or-edit screen**: a JSONC block where every
 line carries a provenance comment, e.g.
     "baseBranch": "alpha",        // from origin/HEAD
@@ -183,6 +191,20 @@ Also emit the consent doc:
 2. If the repo has a `CLAUDE.md`, offer (in the SAME final message — never a new interview,
    never silently): append `- Toolkit consent + inventory: .claude/SECOND-SHIFT.md` to it.
 
+Also emit the CI evidence workflow — **only when accepted in Step 3 item 8** (skip this
+entire block otherwise; it is opt-in, not part of the default emitted set):
+1. Copy `${CLAUDE_PLUGIN_ROOT}/templates/consumer/second-shift-ci-check.sh` to
+   `.claude/tools/second-shift-ci-check.sh` (create the dir; keep the executable bit) and
+   `${CLAUDE_PLUGIN_ROOT}/templates/consumer/second-shift-ci.yml` to
+   `.github/workflows/second-shift-ci.yml`. Both are copied **verbatim** — the check script
+   reads the marketplace `repo` and `ref` from the committed lockfile at runtime, so there
+   is nothing to substitute at emit time.
+2. Tell the human: these two files get committed with the config + lockfile; the workflow
+   runs `jq` + `gh` on every PR (both preinstalled on `ubuntu-latest`; `gh` uses the
+   built-in `github.token`) and reports a red check on a half-done upgrade. To make that
+   check **block** merges, mark "second-shift evidence" a required status check in this
+   repo's branch protection — onboard emits the file but never configures branch protection.
+
 ## Step 8 — Verify and hand off
 1. Run `claude plugin list` and `claude plugin marketplace list --json`, and check the
    second-shift marketplace registration: if a USER-scope registration of `second-shift`
@@ -219,4 +241,6 @@ Also emit the consent doc:
    `/dev-pipeline:run <ticket>`.
 6. Remind: commit `.claude/settings.json`, `.claude/second-shift.config.json`,
    `.claude/second-shift.lock.json`, `.claude/tools/second-shift-doctor.sh`, and
-   `.claude/SECOND-SHIFT.md` in one PR.
+   `.claude/SECOND-SHIFT.md` in one PR — **plus**, only if the CI evidence workflow was
+   accepted (Step 3 item 8), `.github/workflows/second-shift-ci.yml` and
+   `.claude/tools/second-shift-ci-check.sh` in the same PR.

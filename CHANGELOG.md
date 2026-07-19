@@ -6,6 +6,19 @@ consumer with an empty config; the migration notes below are only for consumers 
 
 ## v2.4.2 (in progress)
 
+### `second-shift` 1.4.4 → 1.5.0
+- **Onboard emits a consumer-repo CI evidence workflow (on request) — the server-side backstop (#33).** New
+  templates `templates/consumer/second-shift-ci.yml` + `second-shift-ci-check.sh` (+ hermetic selftest): on
+  every PR the check **(a)** config-lints the committed config with the `config-lint.sh` shipped AT the pinned
+  marketplace ref (fetched fresh — CI runners have no plugin cache; mirrors onboard Step 5's fetch-at-ref) and
+  **(b)** asserts the settings ref and lockfile ref agree (ports `doctor.sh`'s lockstep check), so a half-done
+  upgrade PR is caught. Exit = FAIL count; a real drift/violation is a FAIL, a "couldn't verify" fetch/tool
+  failure is a non-fatal WARN. The workflow only reports a red check — marking it a required status check in
+  branch protection (the repo admin's step; onboard never configures branch protection) is what blocks merge.
+  Onboard offers it in the Step-3 elicitation batch and emits both files verbatim (the check reads repo+ref from
+  the committed lockfile — no emit-time substitution). The `Second-Shift:` PR trailer + `gates-unverified` label
+  from the issue's second paragraph are deferred (out of scope). `docs/onboarding.md` + the consent doc updated.
+
 ### `dev-pipeline` 2.2.11 → 2.2.12
 - **Verified calibration claims — expiry + declarative probes (#68).** New `claims-lint.sh`: severity-downgrading
   maturity claims declared in fenced `second-shift-claims` blocks under `.claude/second-shift/**/*.md` carry a

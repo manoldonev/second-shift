@@ -22,6 +22,7 @@ package.json can answer), presents ONE accept-or-edit screen, and emits:
 - `.claude/second-shift.lock.json` — the plugin→version contract `/second-shift:doctor` verifies against
 - the repo-committed thin check (`.claude/tools/second-shift-doctor.sh` + a SessionStart nudge)
 - `.claude/SECOND-SHIFT.md` — the consent doc: what installs, what hooks fire, before the trust prompt
+- **(on request)** `.github/workflows/second-shift-ci.yml` + `.claude/tools/second-shift-ci-check.sh` — the server-side backstop: on every PR it config-lints the committed config with the linter shipped at the pinned marketplace ref and asserts the settings ref and lockfile ref agree, so a half-done upgrade PR is caught. Reports a red check; mark it a required status check in branch protection to block merges.
 - a paste-ready CONTRIBUTING snippet for teammates
 
 The config is validated with the plugin-shipped `config-lint` in-loop before anything lands.

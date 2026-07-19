@@ -33,7 +33,13 @@ repo enables {{PLUGIN_LIST}}) — `/second-shift:doctor` verifies the install ag
 - Skills: `audit`, `audit-history` for querying the ledger — loaded only when invoked.
 
 ### second-shift
-- Skills: `onboard`, `doctor`, `local-dev-refresh`. Zero hooks, zero agents — near-zero session cost.
+- Skills: `onboard`, `doctor`, `local-dev-refresh`. Zero session hooks, zero agents — near-zero session cost.
+- Optional committed CI files (present only if you enabled the evidence workflow at onboard):
+  `.github/workflows/second-shift-ci.yml` + `.claude/tools/second-shift-ci-check.sh`. These run
+  in **GitHub Actions on your PRs** (not in a Claude session — no session cost): they config-lint
+  the committed config at the pinned marketplace ref and assert the settings ref and lockfile ref
+  agree. The workflow only reports a check; it blocks a merge only if you mark it a required status
+  check in branch protection.
 
 ## Opting out (sanctioned, personal)
 
