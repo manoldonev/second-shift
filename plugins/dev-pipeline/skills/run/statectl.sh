@@ -38,6 +38,7 @@
 #   statectl.sh deviations-add <issue-number> --kind <enum> --note <s> [--plan-section <s>] [--file <f>] [--line <n>] [--stage <N>] [--force]
 #   statectl.sh verify-attempts <issue-number> --incr <FAILURE_CLASS> [--force]
 #   statectl.sh skill-load-add <issue-number> --stage <N> --skill <plugin:skill> [--force]
+#   statectl.sh comment-add <issue-number> --marker <stage-marker> --url <comment-url> [--force]
 #   statectl.sh intake-brief <issue-number> --brief-path <path|null> --acceptance-criteria '<json-array>'
 #   statectl.sh plan-review-set <issue-number> --overall <pass|fix-and-go> [--force]
 #   statectl.sh verify-summary-set <issue-number> --json <verifySummary> [--force]
@@ -177,6 +178,20 @@ validate_ticket_key() {
   lower_pat=$(printf '%s' "$pattern" | tr '[:upper:]' '[:lower:]')
   [[ "$lower_key" =~ ^(${lower_pat})$ ]] \
     || { EXIT_CODE=3 die "init: ticket key '$key' does not match config tracker.keyPattern '$pattern'"; }
+}
+
+# Tracker comment mandates apply only when the tracker is written at all
+# (config tracker.writes; the github queue-and-claim model). The jira adapter
+# (tracker.writes: false) posts no comments by contract, so the comment-receipt
+# completion preconditions do not fire there. Absent/unresolvable config
+# defaults to writes-ON — fail-closed toward requiring the receipt (a github
+# consumer with an unreachable config gets a loud refusal, never a silent
+# receipt-less completion).
+tracker_writes() {
+  local cfg
+  cfg=$(config_file)
+  [[ -n "$cfg" && -f "$cfg" ]] || return 0
+  [[ "$(jq -r '.tracker.writes' "$cfg" 2>/dev/null)" != "false" ]]
 }
 
 # State-file path for a given ticket key. The key is lowercased defensively in case
@@ -327,9 +342,10 @@ preflight_wellformed() {
 # reads only; conditional applicability comes from the flags the run itself
 # recorded (unitTestSurface, stageCheckpoint["1"].designDriven). --force
 # bypasses these the same way it bypasses the monotonic guard (crash-recovery
-# escape). Stages 3, 7, and 9 have no entry: Stage 3's plan is enforced by
-# Stage 4's lint gate + reviewer, Stage 7's checkpoint is validated at write by
-# validate_stage7_payload, Stage 9 by mark-completed's terminal gates.
+# escape). Stages 3, 7, and 9 carry only the comment-receipt leg
+# (require_comment_receipts): Stage 3's plan content is enforced by Stage 4's
+# lint gate + reviewer, Stage 7's checkpoint is validated at write by
+# validate_stage7_payload, Stage 9's terminal integrity by mark-completed.
 stage_completion_preconditions() {
   local n="$1"
   local current="$2"
@@ -349,6 +365,10 @@ stage_completion_preconditions() {
       jq -e '((.stages["1"].skillsLoaded // []) | index("intake-toolkit:intake-orchestrator") != null)
              or ((.stageCheckpoint // {})["1"].intakeMode == "inline-approved")' <<< "$current" >/dev/null \
         || { EXIT_CODE=1 die "set-stage: cannot complete stage 1 — intake-toolkit:intake-orchestrator is not in stages.1.skillsLoaded[] and intakeMode is not \"inline-approved\" (load the skill and record it via skill-load-add, or record the operator-approved inline path in the checkpoint); --force for crash-recovery"; }
+      require_comment_receipts 1 "$current" claimed intake
+      ;;
+    3)
+      require_comment_receipts 3 "$current" plan
       ;;
     2)
       jq -e '(.worktreePath | type == "string" and length > 0) and (.branch | type == "string" and length > 0)' <<< "$current" >/dev/null \
@@ -418,8 +438,43 @@ stage_completion_preconditions() {
              or ((.crossBoundaryReviews // []) | length > 0)
              or ((.skippedReviews // []) | length > 0)' <<< "$current" >/dev/null \
         || { EXIT_CODE=1 die "set-stage: cannot complete stage 8 — review-toolkit:review-lead is not in stages.8.skillsLoaded[] (load it for synthesis and record it via skill-load-add before closing the stage); --force for crash-recovery"; }
+      # The code-review comment is mandated by the PRIMARY review loop's
+      # terminating paths, so its receipt is required exactly when a primary
+      # round ran; an escape-hatch-only completion (be-fe-pair secondary
+      # handoff/skip, no in-session round) posts none.
+      if jq -e '(.codeReviewRounds // 0) >= 1' <<< "$current" >/dev/null; then
+        require_comment_receipts 8 "$current" code-review
+      fi
+      ;;
+    7)
+      require_comment_receipts 7 "$current" doc-update
+      ;;
+    9)
+      require_comment_receipts 9 "$current" pr
       ;;
   esac
+  return 0
+}
+
+# Comment-receipt precondition (shared by the stage cases above): a stage whose
+# stage file mandates issue comments cannot complete without a recorded URL per
+# mandated marker (`comments.<marker>`, written by comment-add at post time).
+# Backgrounded posts must therefore be reconciled BEFORE the stage closes — the
+# fix for mandated comments silently dropping with no end-of-run surfacing.
+# Skipped entirely when the tracker is read-only (jira, tracker.writes: false —
+# no stage posts comments there by contract). Conditional-path-only markers
+# (plan-review, verify) are deliberately not gated.
+# Args: <stage-n> <current-state-json> <marker>...
+require_comment_receipts() {
+  local n="$1" current="$2"; shift 2
+  tracker_writes || return 0
+  local m missing=""
+  for m in "$@"; do
+    jq -e --arg m "$m" '(.comments // {})[$m] | type == "string" and length > 0' <<< "$current" >/dev/null \
+      || missing="${missing:+$missing,}$m"
+  done
+  [[ -z "$missing" ]] \
+    || { EXIT_CODE=1 die "set-stage: cannot complete stage $n — mandated comment receipt(s) missing for marker(s) [$missing] (post the comment and record its URL via comment-add; a backgrounded post must be reconciled before the stage closes, never silently dropped); --force for crash-recovery"; }
   return 0
 }
 
@@ -2022,6 +2077,47 @@ cmd_skill_load_add() {
   jq -c --arg n "$n" '.stages[$n].skillsLoaded' <<< "$new_state"
 }
 
+cmd_comment_add() {
+  # Record a posted stage comment's URL as completion evidence:
+  # `.comments.<marker> = <url>` (marker from the generated stage-marker enum).
+  # Written by the same flow that posts the comment — the bot wrapper's REST
+  # response carries html_url. The comment-receipt preconditions read it
+  # (require_comment_receipts); a repeat post for the same marker overwrites
+  # (last write wins — markers are one-per-run in the comment trail contract).
+  #
+  # Usage:
+  #   statectl comment-add <issue-number> --marker <stage-marker> --url <comment-url> [--force]
+  local key_arg="${1:-}"; shift || true
+  local marker="" url="" force=0
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --marker) marker="${2:-}"; shift 2 ;;
+      --url)    url="${2:-}"; shift 2 ;;
+      --force)  force=1; shift ;;
+      *) EXIT_CODE=3 die "comment-add: unknown arg '$1'" ;;
+    esac
+  done
+  [[ -n "$key_arg" && -n "$marker" && -n "$url" ]] \
+    || { EXIT_CODE=3 die "comment-add: missing <issue-number> --marker <stage-marker> --url <comment-url>"; }
+  valid_stage_marker "$marker" \
+    || { EXIT_CODE=1 die "comment-add: --marker must be a documented stage-comment marker (state-schema.md), got '$marker'"; }
+  [[ "$url" =~ ^https?:// ]] \
+    || { EXIT_CODE=1 die "comment-add: --url must be an http(s) URL (the post response's html_url), got '$url'"; }
+  local current
+  current=$(read_state "$key_arg") || exit $?
+  require_mutable "$current" "$force" "comment-add"
+  local now
+  now=$(now_iso)
+  local new_state
+  new_state=$(jq --arg m "$marker" --arg u "$url" --arg now "$now" '
+    .comments = (.comments // {})
+    | .comments[$m] = $u
+    | .lastUpdatedAt = $now
+  ' <<< "$current") || { EXIT_CODE=2 die "comment-add: jq mutation failed"; }
+  atomic_write "$key_arg" "$new_state"
+  jq -c '.comments' <<< "$new_state"
+}
+
 cmd_stage_substatus() {
   # Write a mid-stage sub-status into `.stages.N.<key>`. the pipeline's FIRST stages.N.*
   # sub-status mechanism (no figmaPlanReview/apiTestImplement precedent here).
@@ -2105,6 +2201,7 @@ main() {
     unit-test-surface-set)  cmd_unit_test_surface_set "$@" ;;
     mutation-audit-set)     cmd_mutation_audit_set "$@" ;;
     skill-load-add)         cmd_skill_load_add "$@" ;;
+    comment-add)            cmd_comment_add "$@" ;;
     stage-substatus)        cmd_stage_substatus "$@" ;;
     intake-brief)           cmd_intake_brief "$@" ;;
     plan-review-set)        cmd_plan_review_set "$@" ;;
