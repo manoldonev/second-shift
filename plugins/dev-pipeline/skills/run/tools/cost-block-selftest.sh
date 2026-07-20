@@ -165,5 +165,133 @@ else
 fi
 
 echo
+echo "=== write identity: tracker.bot.enabled decides bot-vs-operator (#74) ==="
+#
+# These cases drive the REAL script end-to-end through the amend path (no dump
+# hook short-circuits them), with both `gh` and the bot wrapper stubbed as
+# argv-logging scripts. Each asserts BOTH the recorded costBlockApplied AND which
+# binary actually received `pr edit` — so a case cannot pass by recording the
+# right value while writing through the wrong identity.
+#
+# Fake-`gh` contract (load-bearing):
+#   1. named exactly `gh` in a dir prepended to PATH, so `command -v gh` finds it;
+#   2. answers `pr view --json body --jq .body` with exit 0 and a body WITHOUT the
+#      <!-- pipeline-cost-block --> marker (a nonzero exit would make amend_pr
+#      return 1 and record skipped-amend-failed, never reaching the write);
+#   3. logs argv and exits 0 for everything else, including `pr edit`.
+#
+# Each case runs in its own temp dir with its own SECOND_SHIFT_CONFIG,
+# STATECTL_STATE_DIR (holding a copy of the state fixture) and COST_LOG_FILE, so
+# nothing touches the operator's real pipeline-state dir or cost-log.jsonl.
+
+# Build an argv-logging stub satisfying the contract above.
+#   $1 destination path   $2 log file path
+make_gh_stub() {
+  cat > "$1" <<STUB
+#!/usr/bin/env bash
+echo "\$*" >> "$2"
+if [ "\${1:-}" = "pr" ] && [ "\${2:-}" = "view" ]; then
+  echo "existing body without the marker"
+fi
+exit 0
+STUB
+  chmod +x "$1"
+}
+
+# Run the script for one write-identity case.
+#   $1 case dir   $2 config JSON (or the literal ABSENT)   $3 value for GH_BOT
+# Echoes the recorded costBlockApplied. Leaves gh.log / bot.log in the case dir.
+run_identity_case() {
+  local dir="$1" cfg_json="$2" bot_val="$3"
+  local id="cost-identity-selftest"
+  mkdir -p "$dir/bin" "$dir/state" "$dir/home"
+  cp "$FIX/state-two-runs-B.json" "$dir/state/$id.json"
+
+  local cfg_path="$dir/second-shift.config.json"
+  if [[ "$cfg_json" == "ABSENT" ]]; then
+    cfg_path="$dir/does-not-exist.json"
+  else
+    printf '%s\n' "$cfg_json" > "$cfg_path"
+  fi
+
+  make_gh_stub "$dir/bin/gh" "$dir/gh.log"
+  [[ -f "$dir/wrapper.sh" ]] || make_gh_stub "$dir/wrapper.sh" "$dir/bot.log"
+
+  # HOME is sandboxed per case so _default_bot()'s derived fallback
+  # ($HOME/.config/<repo>/gh-as-bot.sh) can never resolve to a wrapper that
+  # happens to exist on the operator's machine. Without this the AC-1 assertion
+  # is machine-dependent: a real wrapper would take the write and then delegate
+  # to the PATH-stubbed `gh` internally, so gh.log records `pr edit` and the case
+  # passes for the wrong reason (verified — it survives the unconditional-guard
+  # mutant on a machine with a wrapper installed).
+  PATH="$dir/bin:$PATH" \
+  HOME="$dir/home" \
+  OTEL_METRICS_FILE="$METRICS" \
+  SECOND_SHIFT_CONFIG="$cfg_path" \
+  STATECTL_STATE_DIR="$dir/state" \
+  COST_LOG_FILE="$dir/cost-log.jsonl" \
+  GH_BOT="$bot_val" \
+    bash "$SCRIPT" "$id" >/dev/null 2>&1
+
+  jq -r '.costBlockApplied' "$dir/state/$id.json"
+}
+
+# --- AC-1: bot disabled + gh present -> amended via plain gh, NOT skipped -----
+D1="$TMP/case-bot-disabled"
+R1="$(run_identity_case "$D1" '{"tracker":{"bot":{"enabled":false}}}' '')"
+[[ "$R1" == "true" ]] \
+  && ok "(AC-1) bot-disabled repo amends the cost block (costBlockApplied=true)" \
+  || bad "(AC-1) bot-disabled repo recorded '$R1', expected true"
+grep -q 'pr edit' "$D1/gh.log" 2>/dev/null \
+  && ok "(AC-1) the amend went through plain gh" \
+  || bad "(AC-1) plain gh never received 'pr edit'"
+
+# --- AC-2: bot ENABLED + wrapper missing -> skipped-no-bot-wrapper ------------
+D2="$TMP/case-wrapper-missing"
+R2="$(run_identity_case "$D2" '{"tracker":{"bot":{"enabled":true}}}' "$TMP/nonexistent-wrapper.sh")"
+[[ "$R2" == "skipped-no-bot-wrapper" ]] \
+  && ok "(AC-2) bot-enabled + missing wrapper records skipped-no-bot-wrapper" \
+  || bad "(AC-2) recorded '$R2', expected skipped-no-bot-wrapper"
+if grep -q 'pr edit' "$D2/gh.log" 2>/dev/null || grep -q 'pr edit' "$D2/bot.log" 2>/dev/null; then
+  bad "(AC-2) a 'pr edit' was issued despite the missing wrapper"
+else
+  ok "(AC-2) no 'pr edit' reached either binary"
+fi
+
+# --- AC-3: bot ENABLED + wrapper present -> amends THROUGH THE WRAPPER --------
+# The regression guard: a naive "always fall through to gh" breaks exactly here.
+D3="$TMP/case-wrapper-present"
+mkdir -p "$D3"
+make_gh_stub "$D3/wrapper.sh" "$D3/bot.log"
+R3="$(run_identity_case "$D3" '{"tracker":{"bot":{"enabled":true}}}' "$D3/wrapper.sh")"
+[[ "$R3" == "true" ]] \
+  && ok "(AC-3) bot-enabled + present wrapper amends (costBlockApplied=true)" \
+  || bad "(AC-3) recorded '$R3', expected true"
+grep -q 'pr edit' "$D3/bot.log" 2>/dev/null \
+  && ok "(AC-3) the amend went through the bot wrapper" \
+  || bad "(AC-3) the bot wrapper never received 'pr edit'"
+grep -q 'pr edit' "$D3/gh.log" 2>/dev/null \
+  && bad "(AC-3) plain gh received 'pr edit' — identity was downgraded" \
+  || ok "(AC-3) plain gh did NOT receive the write"
+
+# --- AC-4: config absent -> treated as bot-disabled -> plain gh ---------------
+# $GH_BOT deliberately points at a WORKING wrapper, so this can only pass if the
+# absent config (not a missing wrapper) drove the identity choice. Also covers
+# D-3: a stray $GH_BOT never overrides a disabled/defaulted bot.
+D4="$TMP/case-config-absent"
+mkdir -p "$D4"
+make_gh_stub "$D4/wrapper.sh" "$D4/bot.log"
+R4="$(run_identity_case "$D4" ABSENT "$D4/wrapper.sh")"
+[[ "$R4" == "true" ]] \
+  && ok "(AC-4) absent config defaults to bot-disabled and amends" \
+  || bad "(AC-4) recorded '$R4', expected true"
+grep -q 'pr edit' "$D4/gh.log" 2>/dev/null \
+  && ok "(AC-4) the amend went through plain gh" \
+  || bad "(AC-4) plain gh never received 'pr edit'"
+grep -q 'pr edit' "$D4/bot.log" 2>/dev/null \
+  && bad "(AC-4) a stray \$GH_BOT wrapper took the write despite no config" \
+  || ok "(AC-4) the stray \$GH_BOT wrapper was correctly ignored"
+
+echo
 echo "Result: $PASS passed, $FAIL failed"
 [[ "$FAIL" -eq 0 ]] && exit 0 || exit 1
