@@ -1,153 +1,159 @@
-# Plan — #106: genericize Stage-3/5 prompt contracts off the birth stack
+# Plan — #106: genericize the Stage-3/5 prose + prompt contracts off the birth stack
 
-## Context / problem framing
+## Context
 
-The dev-pipeline's **executable** seams are already stack-agnostic: `commands.<host>.unitTestScope` and `commands.<host>.testFile` are resolved from config, with an explicit fail-closed refusal to fall back to the birth stack's yarn form (`stages/5-implement.md:79`). The **prose** layer those seams sit inside was never given the same treatment. It still names the birth stack as normative, so on a non-TS consumer the LLM-facing contract asks for idioms the repo does not use.
+The dev-pipeline's *executable* seams (`commands.<host>.unitTestScope` / `testFile`) are already config-driven and stack-agnostic. The **prose and prompt layer** they sit inside was never brought along: Stage 3 and Stage 5 still name the birth stack (Drizzle, `*.spec.ts`, "backend TypeScript", `.project/`) as normative, the `(AC-n)` traceability convention is written in JS syntax, and a skill reference points at a directory that no longer exists.
 
-Four defects were reported; two more of the same class were found during intake:
+Intake widened this in one materially important way. The issue asserts the executable seams are clean; that framing hid the worst instance of the dangling-reference defect. Three **live agent-dispatch prompt strings** tell a dispatched model to `Load the unit-testing skill.` — a skill that does not exist:
 
-| # | Defect | Site(s) |
-| --- | --- | --- |
-| 1 | `.project/` hardcode in the Stage-5 instruction | `stages/5-implement.md:22` |
-| 2 | Birth-stack ORM / language / spec suffix named as normative | `stages/3-write-plan.md:56, :61, :62` |
-| 3 | `(AC-n)` convention has a JS-only attachment point | `stages/5-implement.md:19` |
-| 4 | Dangling `../../unit-testing/SKILL.md` link | `stages/3-write-plan.md:56, :59`; `stages/5-implement.md:19, :35` |
-| 5 | Same `.project/` hardcode, Stage-7 stage file + tier table + the agent it dispatches | `stages/7-doc-update.md:3`; `SKILL.md:384`; `review-toolkit/agents/doc-updater.md:3` |
-| 6 | Third `(AC-n)` site — the skill that *defines* the convention | `plugins/review-toolkit/skills/mutation-review/SKILL.md:39` |
+| Site | Form |
+| --- | --- |
+| `workflows/unit-tests.mjs:181` | concatenated into `prompt` for `unit-test-plan-reviewer` |
+| `workflows/unit-tests.mjs:203` | concatenated into `prompt` for the propose-phase mutation reviewer |
+| `workflows/code-review.mjs:231` | concatenated into `prompt` for the Stage-8 mutation reviewer |
 
-Defects 5 and 6 are in scope because each is the same defect as one already reported, at a site that would otherwise contradict the fix: leaving `7-doc-update.md` hardcoded contradicts `doc-update.md:11`, the file this issue cites as the correct precedent; and genericizing `(AC-n)` in dev-pipeline while `mutation-review` still states the JS-only form leaves the defining skill disagreeing with its consumer.
+The `.md` links are inert prose a human might follow. These are text sent to a model on every unit-test plan review and every mutation propose — the reference is dead *at runtime*, which is the harmful form.
 
-**This is alignment, not invention.** Every pattern needed already exists in-repo and is only being extended to sites that missed it.
+A second pattern recurs across the `.project/` sites: **a file whose body is already generic, contradicted by its own summary line.** `7-doc-update.md:3` says "Scans `.project/` docs" while the protocol it defers to (`doc-update.md:3`) explicitly forbids that hardcode; `review-toolkit/agents/doc-updater.md:3`'s frontmatter description says "cross-references against .project/ docs" while its own body at :13 carries the full generic router. The genericization reached the bodies and stopped short of the descriptions.
+
+The fix is alignment, not invention. Every pattern needed already exists in-repo: `doc-update.md:11-26`'s three-tier doc router, the `> **Illustration only — not the contract.**` callout (`doc-update.md:113`, `doc-updater.md:176`) for retained birth-stack examples, and `review-toolkit:mutation-review`, which already carries the mock-boundary / assertion-strength / blocker-taxonomy / `(AC-n)` contracts the dead link was reaching for.
 
 ## Assumptions
 
-- No new config keys. The resolution mechanisms already shipped are sufficient (verified below).
-- Prose-only change: no script is added or modified, so the repo's "every checked-in script pairs with a `*-selftest.sh`" rule is not triggered.
-- `commands.second-shift.unitTestScope` is `null` in this repo, so the unit-test mutation gate correctly classifies this ticket as `skip`.
+- **No new config keys.** Convention sourcing reuses the existing `doc-update.md` three-tier router (CLAUDE.md context router → optional `.claude/second-shift/doc-routing.md` → grep fallback with disclosure). Operator-directed at intake; adopted unchanged.
+- **`review-toolkit:mutation-review` is the repoint target** for all `unit-testing` references. Verified: it carries `## Mock boundary`, `## Assertion strength`, `## Blocker-class mutants`, and the `(AC-n)` convention. Do **not** recreate a `unit-testing` skill.
+- **The literal `(AC-n)` token is load-bearing and must survive.** `pipeline-retro/SKILL.md:56` greps the PR diff for it. Generalizing the *attachment point* is in scope; changing the *token* is not — that would break the audit channel this ticket exists to repair.
+- **`tools/prose-budget.baseline.tsv:21` is not a reference.** It is a measurement-baseline row that happens to record the path `.claude/skills/unit-testing/SKILL.md`. Data about a historical prose budget, not a link; excluded from the AC-3 grep rather than edited.
+- **`.project/` occurrences already inside an "Illustration only" block are correct and stay** (`doc-update.md` example map, `doc-updater.md:200-213`). The defect is unlabeled normative use, not the existence of a worked example.
+- Markdown-and-prompt-only change with no script control-flow change, so the existing gates (shellcheck / `jq empty` / selftest sweep) stay green by construction — which is exactly why AC-6 adds a real guard rather than leaning on a vacuous sweep.
 
-## Decision Ledger
+## Affected files
 
-| ID | Decision | Provenance | Rationale |
-| --- | --- | --- | --- |
-| D-1 | Resolve conventions via the existing `doc-update.md:11` three-tier router; introduce no config key | codebase-derived | Neither `review-context.md` nor `docs/config-schema.md` has a conventions/ORM key, and `review-context.md` is optional (onboard scaffolds it as accept-or-edit, default later). A second protocol would need its own absent-source fallback. The router already specifies all three tiers plus a disclosure requirement. |
-| D-2 | Repoint every dangling link to `review-toolkit:mutation-review` rather than recreating a `unit-testing` skill | codebase-derived | Verified that skill carries all three cited contracts as top-level sections: Mock boundary, Assertion strength, Blocker-class mutants. Recreating a skill would duplicate them. |
-| D-3 | Generalize the `(AC-n)` attachment point, preserve the `(AC-n)` token | codebase-derived | The consumer at `pipeline-retro/SKILL.md:56` greps the PR diff for the token. Preserving the token keeps that channel working with no consumer change; generalizing only the attachment point makes it reachable from frameworks with no test-title string. |
-| D-4 | Do not add a lint/selftest guarding against dangling links or stack literals | deferred | Would be a new checked-in script, pulling a paired selftest and CI wiring into a prose fix. Worth a follow-up issue; recorded here so the omission is disclosed rather than silent. |
+**Changed:**
 
-## Affected files/modules
+| File | Change |
+| --- | --- |
+| `plugins/dev-pipeline/skills/run/stages/5-implement.md` | drop `.project/` hardcode (:22) → router deferral; genericize `(AC-n)` (:19); repoint 2 dead links (:19, :35); drop normative `*.spec.ts` (:35) |
+| `plugins/dev-pipeline/skills/run/stages/7-doc-update.md` | drop `.project/` literal (:3) → the repo's declared documentation roots |
+| `plugins/dev-pipeline/skills/run/SKILL.md` | drop `.project/` literal in the Stage-7 Model Tiering row (:384) |
+| `plugins/review-toolkit/agents/doc-updater.md` | drop `.project/` literal from the frontmatter `description` (:3) — currently contradicts its own generic body at :13 |
+| `plugins/dev-pipeline/skills/run/stages/3-write-plan.md` | genericize unit-test-surface prose (:56, :59, :61, :62); repoint 2 dead links (:56, :59); wrap retained acme examples in the illustrative callout |
+| `plugins/dev-pipeline/skills/run/state-schema.md` | genericize `unitTestSurface` prose (:246) — `apps/api` backend TypeScript → the configured `unitTestScope` surface |
+| `plugins/dev-pipeline/skills/run/workflows/unit-tests.mjs` | remove `Load the unit-testing skill.` from 2 live prompts (:181, :203); genericize `apps/api` in the prompt (:194) |
+| `plugins/dev-pipeline/skills/run/workflows/code-review.mjs` | remove `Load the unit-testing skill.` from 1 live prompt (:231) |
+| `plugins/dev-pipeline/skills/run/workflows/mutation-gate.mjs` | repoint the `(unit-testing skill)` comment citation (:139) |
+| `plugins/review-toolkit/skills/mutation-review/SKILL.md` | genericize the `(AC-n)` example (:39) beyond the JS-only `it(...)` form |
 
-- `plugins/dev-pipeline/skills/run/stages/3-write-plan.md`
-- `plugins/dev-pipeline/skills/run/stages/5-implement.md`
-- `plugins/dev-pipeline/skills/run/stages/7-doc-update.md`
-- `plugins/dev-pipeline/skills/run/SKILL.md`
-- `plugins/dev-pipeline/skills/pipeline-retro/SKILL.md`
-- `plugins/review-toolkit/skills/mutation-review/SKILL.md`
-- `plugins/review-toolkit/agents/doc-updater.md`
+**Created:**
 
-Not changed: `plugins/dev-pipeline/skills/run/doc-update.md` (already correct — it is the precedent being propagated), and all `.mjs` / `.sh` executable seams (already generic).
+| File | Purpose |
+| --- | --- |
+| `plugins/dev-pipeline/skills/run/tools/stack-generality-lint.sh` | regression guard for AC-1..AC-5 — greps for reintroduced birth-stack literals and dead skill refs |
+| `plugins/dev-pipeline/skills/run/tools/stack-generality-lint-selftest.sh` | paired selftest (repo convention; CI discovers by glob) |
+
+**NOT changed:**
+
+- `plugins/dev-pipeline/skills/run/doc-update.md` — already generic; it is the *precedent* being adopted, not a defect site.
+- `plugins/dev-pipeline/skills/pipeline-retro/SKILL.md` — its `(AC-n)` grep is the consumer this plan protects. Touching it would defeat the point of preserving the token.
+- `plugins/dev-pipeline/skills/run/tools/prose-budget.baseline.tsv` — measurement data, not a reference (see Assumptions).
+- `doc-updater.md:176-213` — already correctly labeled as illustrative.
 
 ## Reuse inventory
 
-Three existing in-repo patterns are reused verbatim rather than reinvented:
-
-- **Three-tier doc router** — `plugins/dev-pipeline/skills/run/doc-update.md:11` (CLAUDE.md router, then optional `.claude/second-shift/doc-routing.md`, then grep fallback with an explicit disclosure). Reused for defects 1 and 5.
-- **Already-generic mock-boundary table** — `plugins/review-toolkit/skills/mutation-review/SKILL.md:12` ("the data-access handle", "the tenant/owner-scope predicate"). Its wording is adopted for defect 2, so the two files agree instead of one naming an ORM.
-- **Illustration-vs-contract split** — `plugins/review-toolkit/agents/plan-reviewer.md:284` ("Illustration only — not the contract") and `doc-update.md:113`. Reused to demote birth-stack examples to labelled illustrations.
-
-No new helpers introduced.
+| Existing asset | How it is reused |
+| --- | --- |
+| `doc-update.md:11-26` three-tier router | Stage 5 and Stage 7 defer to it instead of naming `.project/`. Single source of truth; no protocol duplicated. |
+| `> **Illustration only — not the contract.**` callout (`doc-update.md:113`, `doc-updater.md:176`) | The required labeling form for every retained acme example. Makes AC-2 greppable rather than a judgment call. |
+| `review-toolkit:mutation-review` | Repoint target for all 8 `unit-testing` references. Already carries every contract the dead link cited. |
+| `mutation-review/SKILL.md:39` | Already framework-neutral in its lead sentence ("suffix its **test title**"); only its example needs widening. Less work than the issue implies. |
+| `doc-updater.md:13` generic router paragraph | Proves the intended end-state for the Stage-5 deferral — the wording is copied in shape, not re-derived. |
+| Repo selftest convention (`*-selftest.sh`, glob-discovered by CI) | The new lint follows it exactly — no CI registration needed, and the guard stays model-free. |
 
 ## Implementation steps
 
-1. **`stages/5-implement.md:22`** — replace the bare `Follow all conventions from .project/reference/conventions.md.` with a router-based instruction pointing at the repo's `CLAUDE.md` context router and the optional `.claude/second-shift/doc-routing.md`, matching `doc-update.md:11`.
-2. **`stages/5-implement.md:19`** — restate the `(AC-n)` convention with a framework-agnostic attachment point: the test title where the framework has one, an adjacent comment where it does not. Preserve the literal `(AC-n)` token. Repoint the link to `review-toolkit:mutation-review`.
-3. **`stages/5-implement.md:35`** — repoint the second dangling link, **and** genericize the "including co-located `*.spec.ts`" clause the same way step 7 treats `3-write-plan.md:62`. Leaving it normative here while genericizing the identical idiom two files away is the inconsistency the plan's own logic argues against.
-4. **`stages/3-write-plan.md:56`** — drop "backend TypeScript source"; describe the scope purely as what `commands.<host>.unitTestScope` matches, and demote the `apps/api/src/**` value to a labelled example. Repoint the dangling link.
-5. **`stages/3-write-plan.md:59`** — repoint the dangling link; demote the parenthesised birth-stack example.
-6. **`stages/3-write-plan.md:61`** — replace "mock only the Drizzle handle / external I/O" with the wording already used in `mutation-review` ("the data-access handle").
-7. **`stages/3-write-plan.md:62`** — replace "co-located `*.spec.ts`" with a config-derived phrasing keyed to `commands.<host>.testFile`, with `*.spec.ts` shown as an example.
-8. **`stages/7-doc-update.md:3`** — replace "Scans `.project/` docs" with "Scans the repo's declared documentation roots", matching the wording already in `doc-update.md:3`.
-9. **`SKILL.md:384`** — same substitution in the model-tier table row for Stage 7.
-10. **`review-toolkit/skills/mutation-review/SKILL.md:39`** — apply the same `(AC-n)` restatement as step 2, keeping the existing `it(...)` form as a labelled JS example.
-11. **`pipeline-retro/SKILL.md:56`** — adjust "grep the PR diff for `(AC-n)` test titles" to "`(AC-n)` markers", so the retro's description matches the now-broader convention. Grep behavior is unchanged.
-12. **`review-toolkit/agents/doc-updater.md:3`** — the `description:` frontmatter says the agent "cross-references against `.project/` docs". Same hardcode as defects 1 and 5, in the agent Stage 7 dispatches; replace with "the repo's declared documentation roots". Frontmatter `description` is load-bearing (it drives agent selection), so the edit stays a one-phrase substitution.
+1. **`5-implement.md:22`** — replace `Follow all conventions from `.project/reference/conventions.md`.` with a deferral to the repo's declared doc roots via the `doc-update.md` router. State Stage 5's *own* question explicitly: the router answers "which docs are stale" for Stage 7, whereas Stage 5 needs "which conventions to follow while writing code" — same doc roots, different question. Cross-link rather than inline the three tiers (single source of truth, and it keeps AC-5 greppable).
+2. **`5-implement.md:19`** — restate the `(AC-n)` convention framework-agnostically: suffix the test title where the framework has one; use an adjacent comment where it does not (`def test_foo():  # (AC-1)`). Preserve the literal `(AC-n)` token. Repoint the link to `review-toolkit:mutation-review`.
+3. **`5-implement.md:35`** — repoint the second dead link; drop the normative `*.spec.ts` in favor of the configured test-file convention.
+4. **`7-doc-update.md:3`, `SKILL.md:384`, `doc-updater.md:3`** — replace each `.project/` literal with the repo's declared documentation roots, matching the generic bodies these summary lines currently contradict.
+5. **`3-write-plan.md:56, :59, :61, :62`** — split the normative clause from the acme example. Normative text names only `commands.<host>.unitTestScope`, the configured test-file convention, and "the repo's data-access handle / external I/O" for the mock boundary. Retained acme values (`apps/api/src/**`, Drizzle, `*.spec.ts`) move into a block carrying the `> **Illustration only — not the contract.**` callout. Repoint both dead links.
+6. **`state-schema.md:246`** — `apps/api` backend TypeScript → the configured `unitTestScope` surface; "Absent on FE-only / non-`apps/api` runs" → absent when no `unitTestScope` is configured or the diff does not touch it.
+7. **`unit-tests.mjs:181, :194, :203` and `code-review.mjs:231`** — remove `Load the unit-testing skill.` from the three live prompts. The dispatched agents (`unit-test-plan-reviewer`, `unit-test-mutation-reviewer`) already carry the mutation-review contract via their own agent definitions, so the instruction is redundant as well as dangling — deleting it is correct, not merely safe. Genericize `for apps/api changes` at :194.
+8. **`mutation-gate.mjs:139`** — repoint the comment citation to the mutation-review skill.
+9. **Add `stack-generality-lint.sh`** — asserts, over `plugins/`: no unlabeled `.project/` literal in the five stage/agent files (AC-1); no normative Drizzle / `*.spec.ts` / "backend TypeScript" / `apps/api` literal outside an illustrative-callout block (AC-2); zero `unit-testing` matches excluding `prose-budget.baseline.tsv` (AC-3); the `(AC-n)` token still present at both convention sites (AC-4); the router deferral links and the three-tier order both present (AC-5). Exit code = number of violations, per the repo's doctor convention.
+10. **Add `stack-generality-lint-selftest.sh`** — fixture-driven: prove each assertion fires on a seeded violation and passes on the clean tree. A lint that cannot fail is not a guard.
+11. Run the full verification sweep; commit with a `Changelog:` trailer.
 
 ## Test strategy
 
-Verify-after (prose/infra refactor — no behavior change, no runtime code touched). There is no unit-test surface: `commands.second-shift.unitTestScope` is `null`, so the mutation gate classifies this `skip`.
+Prose-and-prompt change with no runtime control-flow change, so there is no unit-test mutation surface (`unitTestSurface.applicable == false`; this repo configures no `unitTestScope`). Verification is therefore **static and greppable by design**, which is also what makes the ACs honest in a model-free CI.
 
-Coverage is by targeted grep assertions over the worktree, each mapping to an acceptance criterion, plus the repo's standing gates to prove nothing regressed.
+The load-bearing test work is the new `stack-generality-lint-selftest.sh`. It must prove the lint *fails* on seeded violations, not merely that it passes on the current tree — a guard that only ever returns green is indistinguishable from no guard. Cases:
+
+- Seeded `.project/` literal in a stage/agent file → lint fails (AC-1 leg).
+- Seeded `Drizzle` / `*.spec.ts` outside an illustrative block → lint fails; the same literal *inside* a block carrying the callout → lint passes (AC-2 leg, **both directions** — this is the case that proves the normative-vs-illustrative distinction is mechanized rather than asserted).
+- Seeded `unit-testing` reference in a `.md` **and** in a `.mjs` prompt string → lint fails in both forms; a `prose-budget.baseline.tsv` occurrence → lint passes (AC-3 leg, incl. the documented exclusion).
+- Removed `(AC-n)` token at a convention site → lint fails (AC-4 leg — guards the token `pipeline-retro:56` depends on).
+- Removed router deferral or a mangled three-tier order → lint fails (AC-5 leg).
+- Clean tree → exit 0.
 
 ## Acceptance-criteria traceability
 
-Each row names the concrete command that decides it; all are collected in the verification block below as `A1`–`A6` and run as one script. No row claims selftest coverage — this change adds no selftest (see D-4).
-
-| AC ID | Criterion (short) | Step(s) | Test(s) |
+| AC | Criterion | Step(s) | Test(s) |
 | --- | --- | --- | --- |
-| AC-1 | Stage 5 resolves conventions via the CLAUDE.md router, no `.project/` literal | 1 | `A1` — asserts zero `.project/` matches in `stages/5-implement.md` |
-| AC-2 | Stage 3 names no birth-stack ORM, language, or spec suffix as normative | 4, 5, 6, 7 | `A2` — asserts zero matches for `Drizzle`, `backend TypeScript`, and normative `*.spec.ts` in `stages/3-write-plan.md` |
-| AC-3 | `(AC-n)` attachment point is framework-agnostic, token preserved | 2, 3, 10, 11 | `A3` — asserts each of the three sites contains both the literal `(AC-n)` token and a non-title fallback phrase |
-| AC-4 | Zero dangling `unit-testing/SKILL.md` references remain in prose | 2, 3, 4, 5 | `A4` — asserts zero matches across `plugins/**/*.md` |
-| AC-5 | NEGATIVE — birth stack unaffected; JS `it('... (AC-1)')` still valid, retro grep unchanged | 2, 10, 11 | `A5` — asserts the JS `it(` example survives at both `(AC-n)` definition sites and that `pipeline-retro` still greps the unchanged token |
-| AC-6 | No `.project/` hardcode in the Stage-7 stage file, the tier table, or the doc-updater agent | 8, 9, 12 | `A6` — asserts zero `.project/` matches across all three files |
-
-**AC-4 is scoped to `*.md` deliberately.** An unscoped `grep -rn 'unit-testing/SKILL.md' plugins/` can never pass: `plugins/dev-pipeline/skills/run/tools/prose-budget.baseline.tsv:21` carries a historical size row for `.claude/skills/unit-testing/SKILL.md`, which this change does not touch. That row is inert — `prose-budget.sh:87` looks the baseline up per **existing** file (`awk '$1==p'`), so a row for a deleted file is never read — and it is a size record, not a link, so it is out of the defect class. It is listed as a follow-up in Out-of-scope.
-
-Unverified references: none. Every path, line, and section name above was confirmed by read or grep against `origin/main` at `b0cf362`.
+| AC-1 | No normative `.project/` literal in `5-implement.md` / `7-doc-update.md` (and the two same-class sites found at plan time: `SKILL.md:384`, `doc-updater.md:3`); all defer to declared doc roots | 1, 4 | `stack-generality-lint-selftest.sh` — seeded `.project/` literal fails the lint |
+| AC-2 | No normative Drizzle / `*.spec.ts` / "backend TypeScript" / `apps/api` literal in the Stage-3 unit-test-surface section, `5-implement.md:35`, `state-schema.md` §`unitTestSurface`, or `unit-tests.mjs` prompts; retained examples carry the "Illustration only" callout | 3, 5, 6, 7 | `stack-generality-lint-selftest.sh` — both directions: literal outside a callout block fails, inside passes |
+| AC-3 | Zero `unit-testing` references across `plugins/` (excluding `prose-budget.baseline.tsv`), covering the 4 `.md` links, the 3 live dispatch prompts, and the `mutation-gate.mjs` comment | 2, 3, 5, 7, 8 | `stack-generality-lint-selftest.sh` — seeded ref fails in both `.md` and `.mjs`-prompt form; baseline-tsv occurrence passes |
+| AC-4 | `(AC-n)` stated framework-agnostically at `5-implement.md:19` and `mutation-review/SKILL.md:39`, preserving the literal `(AC-n)` token for the grep in `pipeline-retro:56` | 2 | `stack-generality-lint-selftest.sh` — removing the token at a convention site fails the lint |
+| AC-5 | `5-implement.md` / `7-doc-update.md` defer to the `doc-update.md` router, and that section still names the CLAUDE.md → `doc-routing.md` → grep-fallback order | 1, 4 | `stack-generality-lint-selftest.sh` — asserts the deferral links and the three-tier router order are both present |
+| AC-6 | Verification sweep green, and the new lint + paired selftest guard AC-1..AC-5 against regression | 9, 10, 11 | — no test (infra-only) |
 
 ## Verification commands
 
 ```bash
+# Repo-wide sweep (CLAUDE.md § Verification) — run from the worktree root.
 find . -name '*.sh' -type f -print0 | xargs -0 shellcheck -e SC1091,SC2015,SC2181
 find . -name '*.json' -type f -print0 | xargs -0 -n1 jq empty
 find . -name '*-selftest.sh' -type f -print0 | xargs -0 -n1 -I{} env SKIP_STRESS=1 bash {}
 
-Per-AC checks, run from the worktree root. Each is a plain command whose non-zero exit fails the criterion:
+# The new guard, run directly (exit code = violation count).
+bash plugins/dev-pipeline/skills/run/tools/stack-generality-lint.sh .
 
-```bash
-R=plugins/dev-pipeline/skills/run
-M=plugins/review-toolkit/skills/mutation-review/SKILL.md
+# AC-3 spot check — must print nothing.
+grep -rn 'unit-testing' plugins/ | grep -v 'prose-budget.baseline.tsv'
 
-# A1 (AC-1)
-! grep -n '\.project/' "$R/stages/5-implement.md"
-
-# A2 (AC-2) — note -E with a real alternation; an escaped \| would match a
-# literal pipe and pass vacuously.
-! grep -nE 'Drizzle|backend TypeScript|co-located `\*\.spec\.ts`' "$R/stages/3-write-plan.md"
-
-# A3 (AC-3) — token preserved AND a non-title fallback present, at all three sites.
-for f in "$R/stages/5-implement.md" "$M" "$R/../pipeline-retro/SKILL.md"; do
-  grep -q '(AC-n)' "$f" || { echo "A3 FAIL: token missing in $f"; exit 1; }
+# .mjs syntax is not covered by shellcheck — parse the three edited workflows.
+for f in unit-tests code-review mutation-gate; do
+  node --check "plugins/dev-pipeline/skills/run/workflows/$f.mjs"
 done
-grep -qi 'comment' "$R/stages/5-implement.md" && grep -qi 'comment' "$M"
-
-# A4 (AC-4) — prose only; see the scoping note above.
-! grep -rn --include='*.md' 'unit-testing/SKILL.md' plugins/
-
-# A5 (AC-5) — birth-stack example must survive at both definition sites, and the
-# retro must still grep the unchanged token.
-grep -q "it(" "$M" && grep -q '(AC-n)' "$R/../pipeline-retro/SKILL.md"
-
-# A6 (AC-6)
-! grep -n '\.project/' "$R/stages/7-doc-update.md" \
-    plugins/review-toolkit/agents/doc-updater.md
-! grep -n '`\.project/` docs' "$R/SKILL.md"
 ```
 
-`prose-budget.baseline.tsv` tracks per-file prose size; these edits are net-neutral to slightly negative, so no baseline refresh is expected. If a budget check flags a file, refresh the baseline row in the same commit.
+## Risks
 
-## Risks / rollback notes
-
-- **Risk: over-genericizing into vagueness.** Stripping the concrete example leaves an instruction with no worked referent, degrading plan quality on *every* stack. Mitigated by the illustration-vs-contract split — examples are kept, explicitly labelled as illustrations rather than deleted.
-- **Risk: breaking the birth stack.** Guarded by AC-5 as an explicit negative criterion.
-- **Risk: `(AC-n)` token drift.** If the token were changed rather than the attachment point, `pipeline-retro:56` would silently stop matching and the AC-audit channel would go empty on *all* stacks — a strictly worse outcome than the reported bug. D-3 forbids touching the token.
-- **Rollback:** documentation-only; `git revert` of the single commit restores prior behavior with no migration.
+| Risk | Mitigation |
+| --- | --- |
+| **Breaking `pipeline-retro:56`'s AC-coverage grep** by altering the `(AC-n)` token while generalizing its attachment point — this would deepen the exact defect the ticket repairs. | The token is preserved verbatim at every site; AC-4's lint leg asserts its presence, so a future edit that drops it fails CI rather than silently emptying the audit channel. |
+| **Deleting `Load the unit-testing skill.` weakens the dispatched agents** if the instruction was doing real work. | It is not: `unit-test-plan-reviewer` and `unit-test-mutation-reviewer` carry the mutation-review contract in their own agent definitions. The string names a nonexistent skill, so its current runtime effect is at best nil and at worst a model chasing a dead reference. Verify against both agent definitions before deleting. |
+| **The normative-vs-illustrative line is a judgment call**, so two implementers produce different diffs and a reviewer cannot adjudicate. | Mechanized: retained examples must sit inside a block carrying the repo's existing callout, and the lint enforces it in both directions. The distinction becomes a grep, not an opinion. |
+| **A lint that only ever passes** gives false confidence — the classic guard failure. | The selftest is fixture-driven and asserts each leg *fails* on a seeded violation. A guard that cannot fail does not ship. |
+| **The lint's own greps become birth-stack-coupled**, re-introducing the defect inside the guard. | The banned-literal list is a single declared array at the top of the script with a comment stating it is a denylist of *birth-stack* tokens, not a general vocabulary — reviewable in one place rather than scattered through the checks. |
+| **Over-genericizing loses useful concreteness** — fully abstract prose is harder for an implementing model to act on than a worked example. | Examples are retained deliberately, just relabeled as non-normative. Same shape `doc-update.md` already settled on, so the pipeline reads in one idiom rather than two. |
 
 ## Out-of-scope
 
-- Adding a lint or selftest that guards against dangling links / stack literals (D-4 — deferred, worth a follow-up issue).
-- **The stale `.claude/skills/unit-testing/SKILL.md` row in `prose-budget.baseline.tsv:21`.** It is birth-stack residue and worth removing, but it is a size-baseline record rather than a link, and it is provably inert (`prose-budget.sh:87` reads the baseline only for files that exist). Cleaning it is a separate concern from repairing prose links; folding it in would widen this PR into the prose-budget tooling. Follow-up.
-- **Birth-stack `acme:` labels in the Stage-5 bash comments** (`stages/5-implement.md:42, :54, :79`). These sit inside fenced code as *worked examples* of config resolution, and `:79` deliberately names the acme form in a fail-closed error message that exists precisely to refuse defaulting to it. They are illustrations, not normative instructions, so they are outside this defect class.
-- `plugins/review-toolkit/agents/plan-reviewer.md:284-296` — already carries the "Illustration only" label, so its Drizzle mentions are correctly framed.
-- `stages/1-intake.md:203`, which cites a birth-repo `.project/` probe-findings doc as a provenance reference rather than as an instruction to read.
-- Genericizing the executable `.mjs` / `.sh` seams — already clean, as the issue states.
-- Version bumps and `CHANGELOG.md` edits — derived at release time per repo convention.
+- **Recreating a `unit-testing` skill.** Operator-directed: repoint to `review-toolkit:mutation-review`, which already carries the contracts.
+- **New config keys** for conventions / ORM / test convention. The `review-context.md`/config sourcing the issue's "Suggested fix" proposes names a key that does not exist; the router precedent is used instead.
+- **Editing `pipeline-retro/SKILL.md`.** Its grep is the consumer this plan protects.
+- **Genericizing `docs/plans/acme-*.md` naming.** The `acme-` plan-file prefix is itself birth-stack residue, but it is a separate surface (plan-artifact naming, not a prompt contract) with its own consumers. Flagging, not fixing — worth its own issue.
+- **A repo-wide birth-stack audit** beyond the sites named here. The new lint makes such a sweep cheap to run later, but running it across all plugins is not this ticket.
+
+## Decision Ledger
+
+| D-n | Decision | Provenance | Rationale |
+| --- | --- | --- | --- |
+| D-1 | Reuse the `doc-update.md` three-tier router; introduce no new config keys | user | Operator intake comment; the `review-context.md` key the issue proposes does not exist |
+| D-2 | Repoint all `unit-testing` refs to `review-toolkit:mutation-review` rather than recreating the skill | user | Operator intake comment; target verified to carry all cited contracts |
+| D-3 | Generalize the `(AC-n)` attachment point but preserve the literal token | user | Operator intake comment; keeps `pipeline-retro:56` and `mutation-review:39` greps working |
+| D-4 | Fold the 3 live dispatch prompts into AC-3 scope | codebase-derived | Verified at `unit-tests.mjs:175-206` / `code-review.mjs:231`; the executable form of the same dead reference |
+| D-5 | Restate AC-5 as a static assertion instead of runtime router behavior | codebase-derived | CI is model-free by design and the repo has no `.project/` fixture; the original phrasing could only be marked done on assertion |
+| D-6 | Add a lint + paired selftest rather than treating this as a point-in-time cleanup | codebase-derived | Repo convention (`every checked-in script pairs with a *-selftest.sh`); makes AC-6 non-vacuous for a markdown-only change |
+| D-7 | Retained acme examples must carry the "Illustration only — not the contract" callout | codebase-derived | Existing precedent at `doc-update.md:113` / `doc-updater.md:176`; turns AC-2 into a grep |
