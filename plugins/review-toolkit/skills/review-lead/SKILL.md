@@ -162,7 +162,7 @@ One dispatch substrate — the `code-review.mjs` Workflow — across both entry 
 
 In both modes the script returns structured findings and this session runs the Synthesis Rules over them. The args the script forwards to each reviewer:
 
-- **Git diff scope**: `git diff [BASE_SHA]..[HEAD_SHA] -- <relevant paths>` or full diff if no range provided
+- **Git diff scope**: `git diff [BASE]...[HEAD] -- <relevant paths>` (three-dot, matching what the script renders) or full diff if no range provided
 - Which files changed (from `git diff --stat`)
 - The branch name and any PR context the user provided
 - Any specific areas of concern the user mentioned
