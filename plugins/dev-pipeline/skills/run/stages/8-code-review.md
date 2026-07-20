@@ -80,9 +80,26 @@ intended surface and decide whether a changed path belongs to it; a brace/`**` p
 shell expanded is still a clear statement of intent.
 
 ```
+# Resolve the review bounds HERE rather than inheriting them from the Stage-5 session
+# (#130). $WORKTREE/$BASE/$HEAD were used below without ever being assigned in this lane —
+# they carried over in-session from 5-implement.md, so a crash-recovery resume (a fresh
+# session with no Stage-5 variables) or a long session whose base moved could review
+# against a stale branch point. Same derivation idiom as 5-implement.md:40-53 and the
+# be-fe-pair R_MB lane further down; resolve once, before the round loop.
+WORKTREE="$(git rev-parse --show-toplevel)/$(statectl.sh get "$ISSUE_NUMBER" '.worktreePath')"
+HOST_Q='(.topology.repos | to_entries[] | select(.value.path==".") | .key)'
+BASE_BRANCH_CFG="$(jq -r "$HOST_Q as \$h | .topology.repos[\$h].baseBranch // \"main\"" "$SECOND_SHIFT_CONFIG" 2>/dev/null || echo main)"
+WORKTREE_BASE="$(statectl.sh get "$ISSUE_NUMBER" '.worktreeBase // empty')"
+[[ -z "$WORKTREE_BASE" || "$WORKTREE_BASE" == "null" ]] && WORKTREE_BASE="$BASE_BRANCH_CFG"
+HEAD="$(git -C "$WORKTREE" rev-parse HEAD)"
+BASE="$(git -C "$WORKTREE" merge-base HEAD "origin/${WORKTREE_BASE}" 2>/dev/null \
+        || git -C "$WORKTREE" merge-base HEAD "$WORKTREE_BASE")"
+
 for round in 1..3:
   # (a) In-session (has Bash): size + route per review-toolkit:review-lead's Reviewer Routing.
-  git -C "$WORKTREE" diff --stat "$BASE".."$HEAD"   # size class + changed paths
+  # THREE-DOT (#130): changedFiles rides in the SAME reviewer prompt as the diff range, so a
+  # two-dot --stat here would list base-only files even once the range itself is correct.
+  git -C "$WORKTREE" diff --stat "$BASE"..."$HEAD"   # size class + changed paths
   Select reviewers per review-toolkit:review-lead Reviewer Routing:
     - always: review-toolkit:security-reviewer, review-toolkit:performance-reviewer, review-toolkit:maintainability-reviewer
     - Medium/Large: + review-toolkit:complexity-reviewer, review-toolkit:test-coverage-reviewer
