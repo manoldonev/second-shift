@@ -2131,8 +2131,10 @@ cmd_reclaim() {
   # (connection loss, token expiry, killed session). A claim is STALE when the
   # state is `in_progress` and `lastUpdatedAt` is older than the threshold
   # (default 30 min) — statectl has no process-liveness signal, so age is the
-  # proxy and the caller must confirm no live session owns the run before
-  # acting (--force overrides a fresh age for that confirmed-dead case).
+  # proxy (a long silent stage is indistinguishable from a dead one) and the
+  # caller must confirm no live session owns the run before acting (--force
+  # overrides a fresh or undeterminable age for that confirmed-dead case). A
+  # missing/unparseable lastUpdatedAt is UNDETERMINABLE, never auto-stale.
   #
   # Without --release: READ-ONLY verdict JSON — `resumable` names the stage the
   # existing crash-recovery path re-enters (`/dev-pipeline:run <issue>` resumes
@@ -2153,7 +2155,9 @@ cmd_reclaim() {
   while [[ $# -gt 0 ]]; do
     case "$1" in
       --release)       release=1; shift ;;
-      --threshold-min) threshold="${2:-}"; shift 2 ;;
+      --threshold-min)
+        [[ $# -ge 2 ]] || { EXIT_CODE=3 die "reclaim: --threshold-min needs a value"; }
+        threshold="$2"; shift 2 ;;
       --force)         force=1; shift ;;
       *) EXIT_CODE=3 die "reclaim: unknown arg '$1'" ;;
     esac
@@ -2173,20 +2177,33 @@ cmd_reclaim() {
     *)
       EXIT_CODE=1 die "reclaim: unrecognized status '$top_status'" ;;
   esac
+  # Age computation fails closed: a crashed run's state is exactly where a
+  # malformed/missing lastUpdatedAt is plausible, and an unparseable timestamp
+  # must not read as "fresh" (silent) or "stale" (auto-reclaimable) — it reads
+  # as undeterminable, requiring --force.
   local age_min
-  age_min=$(jq -r 'if .lastUpdatedAt then ((now - (.lastUpdatedAt | fromdateiso8601)) / 60 | floor) else -1 end' <<< "$current")
-  if [[ "$age_min" -ge 0 && "$age_min" -lt "$threshold" && "$force" -ne 1 ]]; then
-    EXIT_CODE=1 die "reclaim: not stale — last state write was ${age_min} min ago (< ${threshold} min threshold); a live session may own this run. --force only if you have confirmed the owning process is dead"
+  age_min=$(jq -r 'if .lastUpdatedAt then ((now - (.lastUpdatedAt | fromdateiso8601)) / 60 | floor) else "unknown" end' <<< "$current" 2>/dev/null) || age_min="unknown"
+  [[ "$age_min" =~ ^-?[0-9]+$ ]] || age_min="unknown"
+  local stale=false
+  if [[ "$age_min" != "unknown" && "$age_min" -ge "$threshold" ]]; then
+    stale=true
+  fi
+  if [[ "$stale" != "true" && "$force" -ne 1 ]]; then
+    if [[ "$age_min" == "unknown" ]]; then
+      EXIT_CODE=1 die "reclaim: staleness undeterminable — lastUpdatedAt is missing or unparseable in the state file. --force only if you have confirmed the owning process is dead"
+    fi
+    EXIT_CODE=1 die "reclaim: not stale — last state write was ${age_min} min ago (< ${threshold} min threshold; a negative age means the timestamp is in the future — clock skew). A live session may own this run; note a long silent stage is indistinguishable from a dead one at this threshold. --force only if you have confirmed the owning process is dead"
   fi
   local stage
   stage=$(jq -r '.currentStage // 1' <<< "$current")
   if [[ "$release" -ne 1 ]]; then
-    jq -n --arg k "$key" --argjson stage "$stage" --argjson age "$age_min" '{
-      ticketKey: $k, stale: true, verdict: "resumable", resumableFromStage: $stage,
-      ageMin: $age,
+    jq -n --arg k "$key" --argjson stage "$stage" --arg age "$age_min" \
+      --argjson stale "$stale" --argjson forced "$([[ "$force" -eq 1 ]] && echo true || echo false)" '{
+      ticketKey: $k, stale: $stale, forced: $forced, verdict: "resumable", resumableFromStage: $stage,
+      ageMin: (($age | tonumber?) // $age),
       resume: "re-invoke /dev-pipeline:run \($k) — crash recovery resumes from currentStage",
       release: "statectl reclaim \($k) --release, then swap the tracker labels (in-progress -> queue) via the bot wrapper"
-    }'
+    }' || { EXIT_CODE=2 die "reclaim: verdict JSON emission failed"; }
     return 0
   fi
   local state released

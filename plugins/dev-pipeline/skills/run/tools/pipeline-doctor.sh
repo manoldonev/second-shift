@@ -438,15 +438,21 @@ if [[ -d "$STATE_DIR_D" ]]; then
   stale_found=0
   for sf in "$STATE_DIR_D"/*.json; do
     [[ -f "$sf" ]] || continue
+    # Quarantined artifacts keep their in_progress content by design (retro
+    # evidence, renamed not rewritten) — they are resolved, not stale.
+    case "$(basename "$sf")" in *-released-*|*-stale-*) continue ;; esac
+    # Missing/unparseable lastUpdatedAt anchors at epoch → flagged as ancient
+    # (matching reclaim's fail-closed posture: undeterminable is surfaced, not
+    # invisible).
     stale_line=$(jq -r '
       select((.runId? | type == "string") and (.stages? | type == "object") and (.status == "in_progress"))
-      | ((now - ((.lastUpdatedAt // empty) | fromdateiso8601? // now)) / 60 | floor) as $age
+      | ((now - ((.lastUpdatedAt // empty) | fromdateiso8601? // 0)) / 60 | floor) as $age
       | select($age >= 30)
       | "\(.ticketKey) stage=\(.currentStage // 1) last-write=\($age)min-ago"
     ' "$sf" 2>/dev/null)
     if [[ -n "$stale_line" ]]; then
       stale_found=1
-      warn "stale claim: #${stale_line} — no liveness signal available; if no session owns it: resume with '/dev-pipeline:run ${stale_line%% *}', or release with statectl reclaim ${stale_line%% *} --release + the in-progress -> queue label swap via the bot wrapper"
+      warn "stale claim: ${stale_line} — no liveness signal available (a long silent stage looks identical); if no session owns it: resume with '/dev-pipeline:run ${stale_line%% *}', or release with statectl reclaim ${stale_line%% *} --release + the in-progress -> queue label swap via the bot wrapper"
     fi
   done
   [[ "$stale_found" == "0" ]] && ok "no stale in_progress claims (>=30 min since last state write)"

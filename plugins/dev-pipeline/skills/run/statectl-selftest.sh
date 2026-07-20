@@ -1933,11 +1933,32 @@ reset_state
 sct init 9999 --run-id "selftest-run-$$" >/dev/null
 err_fresh=$(sct_err reclaim 9999)
 rc_fresh=$(sct_rc reclaim 9999)
-rc_forced=$(sct_rc reclaim 9999 --force)
-if [[ "$rc_fresh" == "1" && "$err_fresh" == *"not stale"* && "$rc_forced" == "0" ]]; then
-  pass "(rec2) reclaim freshness — fresh run refused, --force overrides"
+forced_verdict=$("$STATECTL" reclaim 9999 --force 2>/dev/null)
+rc_forced=$?
+forced_stale=$(jq -r '.stale' <<< "$forced_verdict")
+forced_flag=$(jq -r '.forced' <<< "$forced_verdict")
+if [[ "$rc_fresh" == "1" && "$err_fresh" == *"not stale"* && "$rc_forced" == "0" \
+      && "$forced_stale" == "false" && "$forced_flag" == "true" \
+      && -f .claude/pipeline-state/9999.json ]]; then
+  pass "(rec2) reclaim freshness — fresh refused; --force overrides read-only, verdict honest (stale:false, forced:true)"
 else
-  fail "(rec2) reclaim freshness — rc_fresh=$rc_fresh rc_forced=$rc_forced err='$err_fresh'"
+  fail "(rec2) reclaim freshness — rc_fresh=$rc_fresh rc_forced=$rc_forced stale=$forced_stale forced=$forced_flag err='$err_fresh'"
+fi
+
+# (rec2b) undeterminable staleness (malformed lastUpdatedAt) fails closed: plain
+# reclaim refused with a non-garbled message; --force verdict still emits valid
+# JSON (rc 0 + parseable) instead of empty stdout.
+jq '.lastUpdatedAt = "not-a-timestamp"' .claude/pipeline-state/9999.json > .claude/pipeline-state/9999.json.tmp \
+  && mv .claude/pipeline-state/9999.json.tmp .claude/pipeline-state/9999.json
+err_bad=$(sct_err reclaim 9999)
+rc_bad=$(sct_rc reclaim 9999)
+bad_verdict=$("$STATECTL" reclaim 9999 --force 2>/dev/null)
+rc_badf=$?
+bad_age=$(jq -r '.ageMin' <<< "$bad_verdict" 2>/dev/null)
+if [[ "$rc_bad" == "1" && "$err_bad" == *"undeterminable"* && "$rc_badf" == "0" && "$bad_age" == "unknown" ]]; then
+  pass "(rec2b) reclaim undeterminable age — refused without --force, forced verdict emits valid JSON (ageMin:unknown)"
+else
+  fail "(rec2b) reclaim undeterminable age — rc_bad=$rc_bad rc_badf=$rc_badf bad_age='$bad_age' err='$err_bad'"
 fi
 
 # (rec3) --release quarantines the state file ({key}-released-{ts}.json) so a
@@ -1953,6 +1974,17 @@ else
   fail "(rec3) reclaim --release — released=$released rel_count=$rel_count"
 fi
 rm -f .claude/pipeline-state/9999-released-*.json
+
+# (rec5) --release on a FRESH run without --force is refused — the staleness
+# gate guards the destructive path, not only the verdict path.
+reset_state
+sct init 9999 --run-id "selftest-run-$$" >/dev/null
+rc_rel_fresh=$(sct_rc reclaim 9999 --release)
+if [[ "$rc_rel_fresh" == "1" && -f .claude/pipeline-state/9999.json ]]; then
+  pass "(rec5) reclaim --release fresh run — refused, state file untouched"
+else
+  fail "(rec5) reclaim --release fresh — rc=$rc_rel_fresh file-present=$([[ -f .claude/pipeline-state/9999.json ]] && echo y || echo n)"
+fi
 
 # (rec4) terminal states are NOT reclaimable: failed exits by contract (needs a
 # manual clear), completed has nothing to reclaim — even with --force.
