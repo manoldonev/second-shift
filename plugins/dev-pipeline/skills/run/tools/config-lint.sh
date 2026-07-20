@@ -199,11 +199,13 @@ ERRORS=$(jq -r '
     ) else [] end)
   + (if (.stageParams != null) then (.stageParams |
       err((type) != "object"; "stageParams: must be object")
-      + err(((keys) - ["planFilePattern","requiredLabels","visualCapture","formatGlob"]) != []; "stageParams: unknown keys")
+      + err(((keys) - ["planFilePattern","requiredLabels","visualCapture","webComponentGlobs","formatGlob"]) != []; "stageParams: unknown keys")
       + err((.planFilePattern? != null) and ((.planFilePattern | type) != "string"); "stageParams.planFilePattern: must be string")
       + err((.formatGlob? != null) and ((.formatGlob | type) != "string"); "stageParams.formatGlob: must be string")
       + err((.requiredLabels? != null) and ((.requiredLabels | type) != "array"); "stageParams.requiredLabels: must be array")
       + ((.requiredLabels // []) | if type == "array" then (map(select((type) != "string")) | if length > 0 then ["stageParams.requiredLabels: every entry must be a string"] else [] end) else [] end)
+      + err((.webComponentGlobs? != null) and ((.webComponentGlobs | type) != "array"); "stageParams.webComponentGlobs: must be array")
+      + ((.webComponentGlobs // []) | if type == "array" then (map(select((type) != "string")) | if length > 0 then ["stageParams.webComponentGlobs: every entry must be a string"] else [] end) else [] end)
       + ((.visualCapture // {}) |
           err((type) != "object"; "stageParams.visualCapture: must be object")
           + err(((keys) - ["baseUrl","devServerCommand","smokeRoutes","viewports","triggerGlobs"]) != []; "stageParams.visualCapture: unknown keys")

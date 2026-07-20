@@ -93,12 +93,18 @@ No `[NEW]` helpers.
 
 ## Test strategy
 
-Verify-after (infra/prose change, no runtime code). The load-bearing coverage is the
-**shadowing lint**: it mechanically proves the stage file reads the key, which is the exact
-regression this issue is about — a published key with a hardcoded literal still shadowing it.
+Verify-after (infra/prose change, no runtime code).
 
-- `check-config-shadowing.sh` — new CHECKS row must pass, and must FAIL if step 3 is
-  reverted. Negative-verified by hand during implementation (strip the reader, confirm red).
+**What the shadowing lint does and does not prove.** `check-config-shadowing.sh` is a
+`grep -qF` for the key string in the owning stage file. It proves the key is *mentioned*, not
+that it is genuinely read — a stray comment naming the key would satisfy it. That is enough to
+catch this issue's regression class (key published, reader never written / later deleted), and it
+is the only mechanical guard available for a prose stage file, but it is a tripwire, not a proof
+of behavior. Correctness of the reader itself rests on review, not on the lint.
+
+- `check-config-shadowing.sh` — new CHECKS row must pass, and must go red if the reader is
+  removed. Negative-verified by hand during implementation (strip the reader, confirm red,
+  restore).
 - `config-lint-selftest.sh` — valid fixture with the key passes; wrong-type fixture fails
   with the exact message.
 - Full selftest sweep + shellcheck + `jq empty` per CLAUDE.md.

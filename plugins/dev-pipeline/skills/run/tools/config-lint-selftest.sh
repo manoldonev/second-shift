@@ -62,6 +62,7 @@ expect_violation invalid-type-gaps.json             "commands.host.lanes[0].comm
 expect_violation invalid-type-gaps.json             "commands.host.lanes[1].commands: at least one required when present"
 expect_violation invalid-type-gaps.json             "tracker.bot.enabled: must be boolean"
 expect_violation invalid-type-gaps.json             "stageParams.requiredLabels: every entry must be a string"
+expect_violation invalid-type-gaps.json             "stageParams.webComponentGlobs: must be array"
 
 # --- #100: a non-object lanes[]/extraLanes[] entry must be a CLEAN violation.
 # Before the entry-shape guard, a string/number/array lane lint-clean-passed
