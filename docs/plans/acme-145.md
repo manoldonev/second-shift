@@ -140,6 +140,8 @@ bash plugins/dev-pipeline/skills/run/tools/prose-budget.sh; echo "exit=$?"
 ## Out-of-scope
 
 - Promoting prose-budget from a doctor WARN to a blocking pre-flight check.
+- Measuring `plugins/*/templates` and `plugins/*/evals` markdown. They sit outside the skills/agents trees and are not context-loaded instruction prose; bringing them in is a scope question for a separate ticket, not a silent widening here.
+- Acting on what the gate now reports. It measures 71 files / ~158k tokens; reducing that number is the L2 debloat work this ratchet exists to enable, not part of making the ratchet honest.
 - Retro-fitting repo-local baselines into other consumer repos (they regenerate on their own next run).
 - Any change to the narrative-`#NNN` detector or the tolerance default.
 - Reducing actual instruction-layer prose size — this ticket makes the gate measure; it does not act on what it measures.

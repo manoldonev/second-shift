@@ -407,9 +407,21 @@ fi
 # Quality signal, not an environment blocker: surface prose-layer growth over the
 # committed baseline (+ narrative #NNN archaeology) as WARN — it never fails pre-flight.
 if pb=$(bash "$SCRIPT_DIR/prose-budget.sh" 2>&1); then
-  ok "prose-budget: $(tail -1 <<< "$pb" | sed 's/\[prose-budget\] //')"
+  # An n/a result is a legitimate pass, but it must not READ like a measured one —
+  # "0 fail(s)" against nothing inspected is the ambiguity this check now closes.
+  if grep -q 'n/a — no instruction layer' <<< "$pb"; then
+    ok "prose-budget: n/a — no instruction layer in this repo (nothing to measure)"
+  else
+    ok "prose-budget: $(tail -1 <<< "$pb" | sed 's/\[prose-budget\] //')"
+  fi
+elif grep -q 'FAIL vacuous coverage' <<< "$pb"; then
+  warn "prose-budget: VACUOUS — root(s) exist but matched 0 files, so the gate measured nothing. Fix the scan roots, then: bash \"$SCRIPT_DIR/prose-budget.sh\" --update-baseline"
+  grep -E 'roots searched' <<< "$pb" | sed 's/^/[doctor]        /' | head -2
+elif grep -q 'FAIL stale baseline' <<< "$pb"; then
+  warn "prose-budget: STALE baseline — no row resolves against the files on disk. Regenerate: bash \"$SCRIPT_DIR/prose-budget.sh\" --update-baseline"
+  grep -E 'FAIL stale baseline' <<< "$pb" | sed 's/^/[doctor]        /' | head -2
 else
-  warn "prose-budget: instruction layer grew past baseline — run: bash .claude/skills/run/tools/prose-budget.sh"
+  warn "prose-budget: instruction layer grew past baseline — run: bash \"$SCRIPT_DIR/prose-budget.sh\""
   grep -E 'FAIL ' <<< "$pb" | sed 's/^/[doctor]        /' | head -5
 fi
 
