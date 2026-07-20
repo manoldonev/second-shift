@@ -292,6 +292,69 @@ grep -q 'pr edit' "$D4/bot.log" 2>/dev/null \
   && bad "(AC-4) a stray \$GH_BOT wrapper took the write despite no config" \
   || ok "(AC-4) the stray \$GH_BOT wrapper was correctly ignored"
 
+# --- wrapper resolution: config tracker.bot.wrapperPath, with ~ expansion -----
+# The middle rung of the $GH_BOT > wrapperPath > _default_bot precedence. The
+# four AC cases above all set $GH_BOT explicitly, so none of them reach this
+# branch; without these two cases a broken jq path or a lost ~ expansion would
+# ship silently (both would fall through to _default_bot and, under a sandboxed
+# HOME, degrade to skipped-no-bot-wrapper).
+D5="$TMP/case-wrapperpath"
+mkdir -p "$D5"
+make_gh_stub "$D5/wrapper.sh" "$D5/bot.log"
+R5="$(run_identity_case "$D5" "{\"tracker\":{\"bot\":{\"enabled\":true,\"wrapperPath\":\"$D5/wrapper.sh\"}}}" '')"
+[[ "$R5" == "true" ]] \
+  && ok "(wrapperPath) config-resolved wrapper amends with \$GH_BOT unset" \
+  || bad "(wrapperPath) recorded '$R5', expected true"
+grep -q 'pr edit' "$D5/bot.log" 2>/dev/null \
+  && ok "(wrapperPath) the config-resolved wrapper received 'pr edit'" \
+  || bad "(wrapperPath) the config-resolved wrapper never received 'pr edit'"
+
+# A leading ~ in wrapperPath must expand against $HOME (sandboxed per case), so
+# the wrapper is planted inside the case's home dir and referenced as ~/wrapper.sh.
+D6="$TMP/case-wrapperpath-tilde"
+mkdir -p "$D6/home"
+make_gh_stub "$D6/home/wrapper.sh" "$D6/bot.log"
+R6="$(run_identity_case "$D6" '{"tracker":{"bot":{"enabled":true,"wrapperPath":"~/wrapper.sh"}}}' '')"
+[[ "$R6" == "true" ]] \
+  && ok "(wrapperPath) a leading ~ in wrapperPath expands against \$HOME" \
+  || bad "(wrapperPath) ~ expansion failed — recorded '$R6', expected true"
+grep -q 'pr edit' "$D6/bot.log" 2>/dev/null \
+  && ok "(wrapperPath) the ~-expanded wrapper received 'pr edit'" \
+  || bad "(wrapperPath) the ~-expanded wrapper never received 'pr edit'"
+
+# --- skipped-no-gh-cli: gh absent from PATH entirely -------------------------
+# Guards the retag from the misleading skipped-otel-error. Runs bot-DISABLED so
+# the write-identity gate passes and execution actually reaches `command -v gh`.
+#
+# The PATH must still carry the tools the script genuinely needs to get that far
+# (jq above all — `record` itself is a jq call, so a jq-less PATH records nothing
+# and the case reads a vacuous `null`). A bare/empty PATH is therefore wrong. We
+# use the system dirs, which on a normal install hold jq/git/coreutils but NOT
+# `gh` (Homebrew installs that under its own prefix) — and we ASSERT that rather
+# than assume it, skipping the case on a host where the assumption fails.
+NOGH_PATH="/usr/bin:/bin:/usr/sbin:/sbin"
+if PATH="$NOGH_PATH" command -v gh >/dev/null 2>&1; then
+  echo "  SKIP (no-gh) system PATH still resolves gh on this host — cannot stage the absent-gh case"
+elif ! PATH="$NOGH_PATH" command -v jq >/dev/null 2>&1; then
+  echo "  SKIP (no-gh) system PATH lacks jq — the script could not reach the gh check"
+else
+  D7="$TMP/case-no-gh"
+  mkdir -p "$D7/state" "$D7/home"
+  cp "$FIX/state-two-runs-B.json" "$D7/state/cost-identity-selftest.json"
+  printf '%s\n' '{"tracker":{"bot":{"enabled":false}}}' > "$D7/second-shift.config.json"
+  PATH="$NOGH_PATH" \
+  HOME="$D7/home" \
+  OTEL_METRICS_FILE="$METRICS" \
+  SECOND_SHIFT_CONFIG="$D7/second-shift.config.json" \
+  STATECTL_STATE_DIR="$D7/state" \
+  COST_LOG_FILE="$D7/cost-log.jsonl" \
+    bash "$SCRIPT" cost-identity-selftest >/dev/null 2>&1
+  R7="$(jq -r '.costBlockApplied' "$D7/state/cost-identity-selftest.json")"
+  [[ "$R7" == "skipped-no-gh-cli" ]] \
+    && ok "(no-gh) absent gh CLI records skipped-no-gh-cli, not skipped-otel-error" \
+    || bad "(no-gh) recorded '$R7', expected skipped-no-gh-cli"
+fi
+
 echo
 echo "Result: $PASS passed, $FAIL failed"
 [[ "$FAIL" -eq 0 ]] && exit 0 || exit 1
