@@ -4,6 +4,72 @@ All notable changes to the second-shift marketplace. Versions are per-plugin (`p
 this file tracks the marketplace release. `configVersion` stays `const 1` — v2 is fully backward-compatible for a
 consumer with an empty config; the migration notes below are only for consumers using the changed features.
 
+## v2.7.0
+
+### `dev-pipeline` 2.4.0 → 2.5.0
+
+- **fix(dev-pipeline): prose-budget distinguishes no-instruction-layer from vacuous coverage (#151)** (#151)
+  prose-budget.sh now reports a distinct failure when its instruction-layer
+  roots exist but match no files, and reports n/a (passing) when a repo has no local
+  instruction layer at all — previously both cases silently exited 0. Baselines are now
+  per-repo at .claude/prose-budget.baseline.tsv.
+  Migration: run 'prose-budget.sh --update-baseline' once per repo to snapshot a local
+  baseline; until then files report NEW, which is a warning and not a failure.
+- **fix(dev-pipeline): reviewer diff ranges resolve the merge-base (#130) (#155)** (#155)
+  reviewer prompts now describe a three-dot diff range, so a review branch
+  is never reported as deleting commits that only exist on its base branch.
+  Migration: none.
+  reviewer agents and the review-lead / mutation-review skills now specify
+  a three-dot diff range, so reviewers see only the branch's own changes.
+  Migration: none.
+- **fix(dev-pipeline): mandated skill loads are recorded completion evidence (#158)** (#158)
+  Stage 1 and Stage 8 completion now require the mandated skill load
+  (intake-toolkit:intake-orchestrator / review-toolkit:review-lead) to be
+  recorded via the new statectl skill-load-add subcommand; the interactive
+  inline-approved intake carve-out and the be-fe-pair cross-boundary/skip
+  paths remain exempt, --force bypasses for crash-recovery. pipeline-retro now
+  diffs skillsLoaded[] against the session audit ledger. Migration: runs
+  started before this version resume with --force at the stage-1/8 boundary.
+- **fix(dev-pipeline): scope-compliance eval credits deviations[]-disclosed edits (#161)** (#161)
+  scope-compliance eval criterion now treats a Stage-6 edit
+  disclosed in deviations[] before commit as in-scope (the auto-mode analog
+  of user approval); silent unplanned edits still fail. Migration: none.
+- **fix(dev-pipeline): mandated stage comments gate completion via recorded receipts (#162)** (#162)
+  stages that mandate an issue comment (1: claimed+intake, 3: plan,
+  7: doc-update, 8: code-review when a primary round ran, 9: pr) cannot
+  complete without the posted comment's URL recorded via the new statectl
+  comment-add subcommand, so a dropped backgrounded post surfaces at the stage
+  boundary instead of vanishing; read-only trackers (tracker.writes: false)
+  are exempt; Stage 8 additionally files its consolidated report as a real PR
+  review on every terminating path. Migration: pre-existing runs resume with
+  --force at the gated boundaries.
+- **fix(dev-pipeline): plan-lint gates Decision Ledger provenance (#163)** (#163)
+  dev-pipeline Stage-4 plan-lint now hard-fails a plan whose
+  Decision Ledger asserts a human decision (user-answered/user-delegated)
+  without a pre-flight {issue}-ledger.md backing it — mechanizing the
+  pipeline-retro provenance contract into the mechanical gate. An
+  autonomous run must use codebase-derived/deferred provenance only.
+  Migration: none.
+  none.
+  none.
+- **feat(dev-pipeline): statectl reclaim — detect and release stale orphaned claims (#164)** (#164)
+  new statectl reclaim subcommand detects a run stranded in_progress
+  by an infra drop (age-based staleness, read-only verdict naming the
+  resumable stage) and --release quarantines the state file so the queue can
+  re-pick the issue; pipeline-doctor lists stale claims with the exact
+  remediation commands; failed/completed runs are never reclaimable.
+  Migration: none.
+
+### `review-toolkit` 2.2.0 → 2.2.1
+
+- **fix(dev-pipeline): reviewer diff ranges resolve the merge-base (#130) (#155)** (#155)
+  reviewer prompts now describe a three-dot diff range, so a review branch
+  is never reported as deleting commits that only exist on its base branch.
+  Migration: none.
+  reviewer agents and the review-lead / mutation-review skills now specify
+  a three-dot diff range, so reviewers see only the branch's own changes.
+  Migration: none.
+
 ## v2.6.0
 
 ### `dev-pipeline` 2.3.0 → 2.4.0
