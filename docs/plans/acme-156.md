@@ -27,9 +27,8 @@ The contract already exists in prose (pipeline-retro Step 3 item 8): in-pipeline
 
 - `plugins/dev-pipeline/skills/run/tools/plan-lint.sh` — add Check 4 (Decision Ledger provenance legality).
 - `plugins/dev-pipeline/skills/run/tools/plan-lint-selftest.sh` — add cases for AC-1/2/3, apostrophe-safe ledger parsing, the fail-closed no-state case, the malformed-row evasion guard, and a prose false-positive guard.
-- `plugins/dev-pipeline/skills/run/stages/3-write-plan.md` — Stage-7 doc sync: note that the ledger's advisory-tier status now has one hard exception (Check 4), so the doc no longer reads as "plan-lint never row-checks the ledger". Docs only; no call-site change.
 
-No new files. No Stage-4/Stage-3 plan-lint **invocation** change (D-2) — the stages/3 edit is documentation, not a call-site change.
+No new files. No Stage-4/Stage-3 call-site changes (D-2).
 
 ## Reuse inventory
 
