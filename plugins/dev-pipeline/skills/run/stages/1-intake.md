@@ -146,6 +146,12 @@ Otherwise — `auto` mode, no approval, or a non-trivial change — run the full
   - Referenced docs/ADRs (max 5 — orchestrator picks most relevant)
   - Codebase context: Bootstrap from the repo's `CLAUDE.md` and any repo-local session-state conventions it defines (see its CLAUDE.md)
 
+Immediately after the load, record it as completion evidence — `set-stage 1 --status completed` refuses without it (unless the checkpoint carries `intakeMode: "inline-approved"`):
+
+```bash
+"$STATECTL" skill-load-add "$ISSUE_NUMBER" --stage 1 --skill intake-toolkit:intake-orchestrator
+```
+
 The skill loads orchestration instructions into the current session — the calling session gathers evidence from `intake-toolkit:spec-reviewer` and `intake-toolkit:codebase-explorer` as a **structured fan-out** that returns rationale-carrying objects (not prose): in production via the intake Workflow (`workflows/intake-review.mjs`, run with the `Workflow` tool), and under the eval harness via the `Task` tool with the structured findings mocked. Dependency analysis runs as an in-session subroutine — no sub-agent hop. The skill handles everything: issue classification, spec review, codebase exploration, dependency analysis, gap resolution, and decomposition decision.
 
 **Sub-agent dispatch order:** `intake-toolkit:spec-reviewer` and `intake-toolkit:codebase-explorer` run in parallel — except on the clean-marker skip path (a feature body whose interviewer provenance marker proves a clean, self-contained spec), where the orchestrator dispatches `intake-toolkit:codebase-explorer` only and elides `intake-toolkit:spec-reviewer` (see `intake-toolkit:intake-orchestrator` Step 2). The dependency-analysis subroutine runs in-session after the structured `codebaseExplorer` object is in hand (it requires the impact surface as input).

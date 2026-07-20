@@ -157,6 +157,11 @@ for round in 1..3:
   #     in-context copy is the same process violation as not loading at all, and
   #     a fresh-session crash-recovery resume has no earlier load to fall back on,
   #     so the fresh invocation is the only contract that holds on every path.
+  #
+  #     Immediately after the load, record it as completion evidence —
+  #     `set-stage 8 --status completed` refuses without it (the be-fe-pair
+  #     crossBoundaryReviews/skippedReviews paths are exempt):
+  #       "$STATECTL" skill-load-add "$ISSUE_NUMBER" --stage 8 --skill review-toolkit:review-lead
   Review contract (reminder — review-toolkit:review-lead's rules are authoritative):
     - Deduplicated findings only (no reviewer overlap)
     - Severity: blocker / major / minor / nit
