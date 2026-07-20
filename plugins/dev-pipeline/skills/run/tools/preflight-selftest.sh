@@ -244,6 +244,57 @@ grep -q "config-lint rejected" "$BASE/out.log"; assert "malformed lane surfaced 
 grep -q "lane 'setup\[1\]': green" "$BASE/out.log"
 assert "well-formed sibling lane still runs — one bad entry does not drop every lane" "$?"
 
+# ---- run 12: an all-null command table must not preflight "pipeline-ready" (#102, AC-1) ----
+# The onboarding failure this closes: for a stack detect.sh does not cover (Python, bun,
+# cargo, go) onboard correctly refuses to guess and drafts every lane null. That config
+# passes config-lint and prints only per-lane SKIPs, so the run still closed with
+# "pipeline-ready" while verifying nothing. Setup lanes[] stay configured here on purpose —
+# they are SETUP-only and must NOT count as verification.
+write_config github
+jq '.commands.fix |= (.lint = null | .typecheck = null | .test = null | .build = null | .format = null | .extraLanes = [])' \
+  "$FIX/.claude/second-shift.config.json" > "$BASE/cfg.tmp" \
+  && mv "$BASE/cfg.tmp" "$FIX/.claude/second-shift.config.json"
+run_preflight; rc=$?
+[[ "$rc" -eq 0 ]] && _c=0 || _c=1
+assert "zero verifying lanes stays exit-0 — a warning, never a hard stop (rc=$rc)" "$_c"
+grep -q "no verifying lane configured for 'fix'" "$BASE/out.log"
+assert "zero verifying lanes surfaced as a WARN (AC-1)" "$?"
+! grep -q -- "— pipeline-ready" "$BASE/out.log"
+assert "verdict does not claim pipeline-ready when nothing verifies (AC-1)" "$?"
+grep -q "NOT pipeline-ready: nothing verified this repo" "$BASE/out.log"
+assert "verdict states plainly why it is not ready (AC-1)" "$?"
+grep -q "lane 'setup\[1\]': green" "$BASE/out.log"
+assert "setup lanes still run but do not count as verification (AC-1)" "$?"
+
+# ---- run 13: allowUnverified is the explicit opt-out — stay silent (#102, AC-2) ----
+# The repo already ships allowUnverified as the sanctioned zero-lane safety valve
+# (verifyctl emits its labeled skip at Stage 6). An operator who has declared the opt-out
+# has answered the question, so the warning must not nag — and readiness is honest again.
+jq '.commands.fix.allowUnverified = true' \
+  "$FIX/.claude/second-shift.config.json" > "$BASE/cfg.tmp" \
+  && mv "$BASE/cfg.tmp" "$FIX/.claude/second-shift.config.json"
+run_preflight; rc=$?
+[[ "$rc" -eq 0 ]] && _c=0 || _c=1; assert "opt-out run is green (rc=$rc)" "$_c"
+! grep -q "no verifying lane configured for 'fix'" "$BASE/out.log"
+assert "allowUnverified suppresses the warning (AC-2)" "$?"
+grep -q "allowUnverified opt-out is set" "$BASE/out.log"
+assert "the deliberate opt-out is still surfaced as a SKIP note (AC-2)" "$?"
+grep -q -- "— pipeline-ready" "$BASE/out.log"
+assert "an explicit opt-out still reports pipeline-ready (AC-2)" "$?"
+
+# ---- run 14: one verifying lane is enough — no warning (#102, AC-3) ----
+# The negative case that keeps the check from firing on every ordinary repo.
+write_config github
+jq '.commands.fix |= (.lint = null | .test = null | .build = null | .extraLanes = [])' \
+  "$FIX/.claude/second-shift.config.json" > "$BASE/cfg.tmp" \
+  && mv "$BASE/cfg.tmp" "$FIX/.claude/second-shift.config.json"
+run_preflight; rc=$?
+[[ "$rc" -eq 0 ]] && _c=0 || _c=1; assert "single-verifying-lane run is green (rc=$rc)" "$_c"
+! grep -q "no verifying lane configured" "$BASE/out.log"
+assert "a single configured typecheck lane suppresses the warning (AC-3)" "$?"
+grep -q -- "— pipeline-ready" "$BASE/out.log"
+assert "a repo that verifies something still reports pipeline-ready (AC-3)" "$?"
+
 echo "[self-test] $PASS passed, $FAIL failed"
 [[ "$FAIL" -eq 0 ]] || exit 1
 exit 0
