@@ -12,9 +12,14 @@
 #      OR at least one `| D-n |` table row.
 #   3. Every `| D-n |` row has 4 columns, a non-empty Decision cell, a
 #      non-empty Resolution cell, and a Provenance cell from the closed enum
-#      `user-answered | user-delegated | codebase-derived | deferred`.
-#      (`assumed` is deliberately NOT legal — ask, ground, or defer.)
-#   4. No duplicate D-n ids.
+#      `user-answered | user-delegated | codebase-derived | deferred |
+#      ticket-sourced`. (`assumed` is deliberately NOT legal — ask, ground,
+#      or defer.)
+#   4. A `ticket-sourced` row cites its source comment: the Resolution cell
+#      must contain an `https://` URL. Tracker-neutral by design — the repo
+#      models `tracker.type` as github|jira, so this is deliberately NOT a
+#      github.com-shaped pattern.
+#   5. No duplicate D-n ids.
 #
 # Scope honesty: this lint buys structural presence + on-page disclosure,
 # NOT decision quality — a load-bearing decision missing from the ledger
@@ -32,7 +37,7 @@ VIOLATIONS=0
 violate() { echo "ledger-lint: VIOLATION: $1" >&2; VIOLATIONS=$((VIOLATIONS + 1)); }
 
 # mirror of interviewing-baseline provenance enum — keep verbatim
-PROVENANCE_ENUM='user-answered|user-delegated|codebase-derived|deferred'
+PROVENANCE_ENUM='user-answered|user-delegated|codebase-derived|deferred|ticket-sourced'
 EMPTY_FORM='No material decisions — all choices codebase-derived.'
 
 # quoting-safe whitespace trim — xargs aborts on quotes/apostrophes/backslashes in cells
@@ -72,6 +77,12 @@ while IFS= read -r line; do
   [[ -n "$resolution" ]] || violate "$id row has an empty Resolution cell"
   if ! [[ "$provenance" =~ ^(${PROVENANCE_ENUM})$ ]]; then
     violate "$id row: provenance '$provenance' not in {${PROVENANCE_ENUM//|/ | }} ('assumed' is not legal — ask, ground, or defer)"
+  fi
+  # Check 4: a ticket-sourced row must cite the comment it adopted. Without the
+  # citation the value is indistinguishable from an assumption, which is the
+  # failure mode the closed enum exists to prevent. Tracker-neutral on purpose.
+  if [[ "$provenance" == "ticket-sourced" && "$resolution" != *"https://"* ]]; then
+    violate "$id row: 'ticket-sourced' provenance requires the Resolution cell to cite the source comment by URL (https://...)"
   fi
 done < <(grep -E '^\|[[:space:]]*D-[0-9]+[[:space:]]*\|' "$PLAN" || true)
 
