@@ -48,7 +48,7 @@ _Failure mode this catches: "validity.badInput" class — hours wasted iterating
 
 ### 4. Scope Compliance
 
-**PASS:** Every file modified during Stage 6 is either (a) listed in the plan's "Affected files/modules" section, (b) a test file for a listed module, or (c) a shared dependency explicitly flagged before commit. No unplanned files are modified without user approval.
+**PASS:** Every file modified during Stage 6 is either (a) listed in the plan's "Affected files/modules" section, (b) a test file for a listed module, or (c) a shared dependency, or any unplanned edit recorded in `stageCheckpoint["7"].deviations[]` before the commit that introduced it — in `auto` mode a `deviations[]` entry **is** the "flagged before commit" record, since there is no user to ask. No unplanned files are modified without either user approval or a `deviations[]` disclosure.
 
 **FAIL:** A file not in the plan is modified and committed without the user being asked, OR changes are made to files outside the GitHub issue's scope.
 
