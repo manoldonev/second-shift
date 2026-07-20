@@ -85,10 +85,12 @@ complete_stage() {
   sct set-stage "$key" "$n" --status completed >/dev/null
 }
 
-# Helper: write a plausible self-eval file for <key> (the mark-completed eval gate).
+# Helper: write a valid self-eval file for <key> (the mark-completed eval gate).
+# Scores exactly the five locked criteria from eval-criteria.md with binary
+# values — the shape the criteria-shape gate enforces.
 write_eval() {
   local key="$1"
-  printf '{"ticketKey":%s,"criteria":{"plan_grounding":"PASS"}}\n' "$key" \
+  printf '{"ticketKey":%s,"criteria":{"target_confirmation":"PASS","plan_grounding":"PASS","implementation_resilience":"N/A","scope_compliance":"PASS","review_precision":"PASS"}}\n' "$key" \
     > ".claude/pipeline-state/${key}-eval.json"
 }
 
@@ -1787,6 +1789,47 @@ else
   fail "(mcg3) eval plausibility — rc_empty=$rc_empty rc_wrong=$rc_wrong rc_ok=$rc_ok"
 fi
 
+# (mcg5) criteria-shape gate: the eval must score exactly the five locked
+# criteria with binary values. Renamed key (an invented criterion in a locked
+# slot), illegal value (PARTIAL), and missing key are each refused with the
+# offender named; --force bypasses the shape check (crash-recovery escape) but
+# never existence/plausibility. Fresh non-terminal state: mcg3's successful
+# terminal write left 9999 completed, and the shape gate sits behind the
+# terminal guard.
+reset_state
+sct init 9999 --run-id "selftest-run-$$" >/dev/null
+for n in 1 2 3 4 5 6 7 8 9; do complete_stage 9999 "$n"; done
+renamed='{"ticketKey":9999,"criteria":{"target_confirmation":"PASS","plan_grounding":"PASS","implementation_resilience":"N/A","4_verification_honesty":"PASS","review_precision":"PASS"}}'
+printf '%s\n' "$renamed" > .claude/pipeline-state/9999-eval.json
+err_renamed=$(sct_err mark-completed 9999)
+rc_renamed=$(sct_rc mark-completed 9999)
+partial='{"ticketKey":9999,"criteria":{"target_confirmation":"PASS","plan_grounding":"PASS","implementation_resilience":"N/A","scope_compliance":"PASS","review_precision":"PARTIAL"}}'
+printf '%s\n' "$partial" > .claude/pipeline-state/9999-eval.json
+err_partial=$(sct_err mark-completed 9999)
+rc_partial=$(sct_rc mark-completed 9999)
+missing='{"ticketKey":9999,"criteria":{"target_confirmation":"PASS","plan_grounding":"PASS","implementation_resilience":"N/A","scope_compliance":"PASS"}}'
+printf '%s\n' "$missing" > .claude/pipeline-state/9999-eval.json
+rc_missing=$(sct_rc mark-completed 9999)
+if [[ "$rc_renamed" == "1" && "$err_renamed" == *"missing=[scope_compliance]"* && "$err_renamed" == *"extra=[4_verification_honesty]"* \
+      && "$rc_partial" == "1" && "$err_partial" == *'illegal-values=[review_precision="PARTIAL"]'* \
+      && "$rc_missing" == "1" ]]; then
+  pass "(mcg5) criteria-shape gate — renamed/illegal-value/missing each refused, offenders named"
+else
+  fail "(mcg5) criteria-shape gate — rc_renamed=$rc_renamed err_renamed='$err_renamed' rc_partial=$rc_partial err_partial='$err_partial' rc_missing=$rc_missing"
+fi
+
+# (mcg6) --force bypasses the shape check alone: a mis-shaped eval terminalizes
+# under --force, but a MISSING eval is still refused even with --force.
+printf '%s\n' "$renamed" > .claude/pipeline-state/9999-eval.json
+rc_forced=$(sct_rc mark-completed 9999 --force)
+rm -f .claude/pipeline-state/9999-eval.json
+rc_forced_missing=$(sct_rc mark-completed 9999 --force)
+if [[ "$rc_forced" == "0" && "$rc_forced_missing" == "1" ]]; then
+  pass "(mcg6) --force bypasses shape only — mis-shaped allowed, absent eval still refused"
+else
+  fail "(mcg6) --force shape bypass — rc_forced=$rc_forced rc_forced_missing=$rc_forced_missing"
+fi
+
 # (mcg4) --force does NOT bypass the all-stages / eval gates
 reset_state
 sct init 9999 --run-id "selftest-run-$$" >/dev/null
@@ -2123,7 +2166,7 @@ complete_stage gh-540 8
 sct set-stage gh-540 9 --status started >/dev/null
 sct set-stage gh-540 9 --status completed >/dev/null
 rc_no_eval=$(sct_rc mark-completed gh-540)     # eval file absent → refused
-printf '{"ticketKey":"gh-540","criteria":{"plan_grounding":"PASS"}}\n' > .claude/pipeline-state/gh-540-eval.json
+printf '{"ticketKey":"gh-540","criteria":{"target_confirmation":"PASS","plan_grounding":"PASS","implementation_resilience":"N/A","scope_compliance":"PASS","review_precision":"PASS"}}\n' > .claude/pipeline-state/gh-540-eval.json
 rc_eval=$(sct_rc mark-completed gh-540)         # JIRA-keyed eval present → accepted
 final_status=$(sct get gh-540 '.status')
 if [[ "$rc_no_eval" != "0" && "$rc_eval" == "0" && "$final_status" == "completed" ]]; then
@@ -2258,7 +2301,7 @@ reset_state
 # ========================================================== drift-check (must-pass) ===
 
 echo
-echo "[self-test] drift-check — 5 enums (r1+r5+marker via regenerate-and-diff, r3/r4 via fixture mirror)"
+echo "[self-test] drift-check — 6 enums (r1+r5+marker+evalkeys via regenerate-and-diff, r3/r4 via fixture mirror)"
 
 drift_pass=1
 
@@ -2300,6 +2343,12 @@ else
       | grep -cE '^    \|?[a-z][a-z0-9-]+')
     if (( marker_count < 8 )); then
       echo "    DRIFT (marker): generator emitted only $marker_count stage-comment marker values (expected >= 8)"
+      drift_pass=0
+    fi
+    evalkeys_count=$(awk '/^# >>> generated: eval_criteria_keys >>>$/,/^# <<< generated: eval_criteria_keys <<<$/' "$gen_tmp" \
+      | grep -cE '^    [a-z][a-z0-9_]+')
+    if (( evalkeys_count != 5 )); then
+      echo "    DRIFT (evalkeys): generator emitted $evalkeys_count eval criteria keys (expected exactly 5 — eval-criteria.md is LOCKED)"
       drift_pass=0
     fi
     # Byte-equal regenerate-and-diff against the committed file.
