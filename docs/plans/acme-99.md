@@ -34,7 +34,9 @@ charges justifying its own refusal.
 2. The charging path in `statectl.sh` is already correct and is **not** in scope — only the reads
    are wrong.
 3. `stages/6-verify.md` already documents the intended per-repo behavior (`worktrees.<r>.verifyAttempts`),
-   so the docs are right and the code is wrong. Code-only fix.
+   so no change is needed there. **Corrected after plan review:** the blanket "the docs are right" claim
+   was over-broad — `state-schema.md` documents per-repo *charging* but describes the budget as enforced
+   against the flat map, with no read-side rule. That contract gap is in scope (see step 6).
 
 ## Decision Ledger
 
@@ -49,13 +51,14 @@ charges justifying its own refusal.
 
 - `plugins/dev-pipeline/skills/run/verifyctl.sh` — add `va_path()`, route the three reads through it.
 - `plugins/dev-pipeline/skills/run/verifyctl-selftest.sh` — add the per-repo budget/emission coverage.
+- `plugins/dev-pipeline/skills/run/state-schema.md` — document the per-repo **read** rule (added after plan review).
 
 ## Reuse inventory
 
-- `sget()` (`verifyctl.sh:96`) — the existing state-read helper; the fix composes with it, changing only the jq path it is handed.
-- `REPO_ID` (`verifyctl.sh:238`) — the existing per-repo switch; no new flag or plumbing.
-- The `${REPO_ID:+-$REPO_ID}` suffix pattern (`verifyctl.sh:314-315`, `:758`) — established precedent for `REPO_ID`-conditional resources in this same file.
-- `reset_all()` / `vrun()` / `attempts()` (`verifyctl-selftest.sh:132-139`) — existing fixture helpers; the new cases add a per-repo sibling of `attempts()` rather than a parallel harness.
+- `sget()` (`verifyctl.sh:204`) — the existing state-read helper; the fix composes with it, changing only the jq path it is handed.
+- `REPO_ID` (`verifyctl.sh:255`, the `cmd_run` local) — the existing per-repo switch; no new flag or plumbing.
+- The `${REPO_ID:+-$REPO_ID}` suffix pattern (`verifyctl.sh:331-332` in `cmd_run`, `:775` in `emit_verdict`) — established precedent for `REPO_ID`-conditional resources in this same file, and the existing proof that `emit_verdict` already inherits `REPO_ID`.
+- `reset_all()` / `vrun()` / `attempts()` (`verifyctl-selftest.sh:126`, `:134`, `:139`) — existing fixture helpers; the new cases add per-repo siblings (`reset_repo`/`rvrun`/`rattempts`) rather than a parallel harness.
 - `va_path()` `[NEW]` — no existing equivalent; confirmed by `grep -n 'verifyAttempts' verifyctl.sh`, which shows three independently-inlined flat reads and no shared accessor.
 
 ## Implementation steps
@@ -67,6 +70,9 @@ charges justifying its own refusal.
 3. Site `:339` — exit-4 verdict payload: `--argjson attempts "$(sget "$key" "$(va_path) // {}")"`.
 4. Site `:775` — `emit_verdict` attempts map: `attempts=$(sget "$key" "$(va_path) // {}")`.
 5. Extend `verifyctl-selftest.sh` with the per-repo cases (see Test strategy).
+6. Document the per-repo read rule in `state-schema.md` (D-1's contract): the `verifyAttempts` field
+   entry gains an explicit "`--repo` reads the per-repo map, never falls back to flat" rule, and the
+   be-fe-pair note's field enumeration stops implying the map holds only `{worktreePath, branch, base}`.
 
 ## Test strategy
 
@@ -122,6 +128,6 @@ find . -name '*-selftest.sh' -type f -print0 | xargs -0 -n1 -I{} env SKIP_STRESS
 ## Out-of-scope
 
 - The charging path in `statectl.sh` (already correct).
-- `stages/6-verify.md` (already documents the intended behavior).
+- `stages/6-verify.md` (already documents the intended behavior). Note `state-schema.md` is **in** scope — see Assumptions 3.
 - Any change to the flat single-repo path's semantics.
 - Reconciling or migrating counters that a pre-fix run left in both locations.
