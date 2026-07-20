@@ -435,6 +435,106 @@ else
   fail "(v20) non-object extra lane — rc=$VRC status=$status class=$class"
 fi
 
+# ---- per-repo (--repo) budget accounting (#99) ---------------------------------
+# The charging path writes worktrees.<id>.verifyAttempts (statectl verify-attempts
+# --repo); before #99 all three verifyctl READ sites hit the flat .verifyAttempts,
+# so the 2-attempt budget never tripped and every --repo verdict reported
+# attempts:{}. These cases pin the read side to the same map the charge writes.
+#
+# The fixture's monorepo host id is "mono" (topology.repos.mono), so `--repo mono`
+# is a valid target and verifyctl's sidecar is suffixed to 8888-mono-verify.json.
+
+reset_repo() { # per-repo variant of reset_all — seeds the worktrees map too
+  reset_all
+  jq --arg wt "$WORK" '.worktrees.mono = {worktreePath: $wt, branch: "feature", base: "main"}' \
+    "$STATE" > "$STATE.tmp" && mv "$STATE.tmp" "$STATE"
+}
+rattempts() { "$STATECTL" get 8888 ".worktrees[\"mono\"].verifyAttempts.${1} // 0"; }
+rvrun() { VERDICT=$("$VERIFYCTL" run 8888 --repo mono 2>/dev/null); VRC=$?; }
+
+# (v21) --repo charge is VISIBLE: the per-repo counter increments AND the emitted
+#       verdict's attempts map is non-empty (pre-fix this was always {}).
+reset_repo
+touch "$MARKERS/FAIL_TYPE_CHECK"
+rvrun                                                    # first failure — establishes the sidecar
+git -C "$WORK" commit -qam "fix attempt 1" --allow-empty  # advance HEAD past chargedHead
+rvrun                                                    # fix-attempt re-run — charges
+rcount=$(rattempts TYPE_ERROR)
+flat=$(attempts TYPE_ERROR)
+emitted=$(jq -r '.attempts.TYPE_ERROR // 0' <<< "$VERDICT")
+if [[ "$rcount" == "1" && "$emitted" == "1" && "$flat" == "0" ]]; then
+  pass "(v21) --repo charge is visible — per-repo counter=1, verdict attempts.TYPE_ERROR=1, flat untouched"
+else
+  fail "(v21) --repo attempts emission — perRepo=$rcount emitted=$emitted flat=$flat"
+fi
+
+# (v22) --repo budget REFUSAL fires: with the per-repo counter at 2, the next
+#       re-run at a fresh HEAD exits 4 and runs nothing. The count stays 2 — the
+#       check precedes the charge, so the refusal REPLACES the third charge (the
+#       issue's measured {TEST_FAILURE:3} is the bug's signature, not the target).
+"$STATECTL" verify-attempts 8888 --repo mono --incr TYPE_ERROR >/dev/null   # -> 2
+git -C "$WORK" commit -qam "fix attempt 2" --allow-empty
+rm -f "$MARKERS"/ran-*
+rvrun
+status=$(jq -r '.status' <<< "$VERDICT")
+rcount=$(rattempts TYPE_ERROR)
+ran=$(find "$MARKERS" -maxdepth 1 -name 'ran-*' 2>/dev/null | wc -l | tr -d ' ')
+if [[ "$VRC" == "4" && "$status" == "budget-exhausted" && "$rcount" == "2" && "$ran" == "0" ]]; then
+  pass "(v22) --repo budget exhausted → exit 4, nothing ran, per-repo counter stays 2"
+else
+  fail "(v22) --repo budget refuse — rc=$VRC status=$status perRepo=$rcount ran=$ran"
+fi
+
+# (v23) the exit-4 verdict is SELF-JUSTIFYING: its own attempts map is non-empty.
+#       This is a read site distinct from emit_verdict's — the budget-exhausted
+#       path exits before ever reaching it — so v21/v22 alone would not catch a
+#       verdict that refuses without showing the charges behind the refusal.
+emitted=$(jq -r '.attempts.TYPE_ERROR // 0' <<< "$VERDICT")
+if [[ "$emitted" == "2" ]]; then
+  pass "(v23) exit-4 verdict carries its own attempts map (TYPE_ERROR=2), not {}"
+else
+  fail "(v23) exit-4 verdict attempts — emitted=$emitted (expected 2)"
+fi
+
+# (v24) NO FLAT FALLBACK: per-repo counter 0 + flat counter 2 must PROCEED, not
+#       refuse. A "helpful" fallback to the flat field would re-import the very
+#       read/write split this fix closes; this case fails loudly if one is added.
+reset_repo
+touch "$MARKERS/FAIL_TYPE_CHECK"
+"$STATECTL" verify-attempts 8888 --incr TYPE_ERROR >/dev/null   # flat -> 1
+"$STATECTL" verify-attempts 8888 --incr TYPE_ERROR >/dev/null   # flat -> 2
+# The budget check lives INSIDE the fix-attempt re-run branch (sidecar status
+# "fail" AND HEAD past chargedHead), so a single first run would never consult
+# the read path at all — the assertions would hold vacuously under a flat-only
+# implementation. Establish the sidecar, then re-run at a fresh HEAD.
+rvrun                                                    # first failure — establishes the sidecar
+git -C "$WORK" commit -qam "fix attempt" --allow-empty    # advance HEAD past chargedHead
+rm -f "$MARKERS"/ran-*
+rvrun                                                    # fix-attempt re-run — budget check RUNS here
+status=$(jq -r '.status' <<< "$VERDICT")
+rcount=$(rattempts TYPE_ERROR)
+if [[ "$VRC" != "4" && "$status" != "budget-exhausted" && "$rcount" == "1" && -f "$MARKERS/ran-type-check" ]]; then
+  pass "(v24) no flat fallback — flat=2 does not exhaust an unspent per-repo budget"
+else
+  fail "(v24) flat fallback leaked — rc=$VRC status=$status perRepo=$rcount"
+fi
+
+# (v25) single-repo NON-REGRESSION: with the per-repo map present but --repo
+#       omitted, the flat field remains authoritative for both check and emission.
+reset_repo
+touch "$MARKERS/FAIL_TYPE_CHECK"
+vrun                                                     # no --repo
+git -C "$WORK" commit -qam "flat fix attempt" --allow-empty
+vrun
+flat=$(attempts TYPE_ERROR)
+rcount=$(rattempts TYPE_ERROR)
+emitted=$(jq -r '.attempts.TYPE_ERROR // 0' <<< "$VERDICT")
+if [[ "$flat" == "1" && "$emitted" == "1" && "$rcount" == "0" ]]; then
+  pass "(v25) no --repo → flat path unchanged (flat=1, emitted=1, per-repo untouched)"
+else
+  fail "(v25) single-repo non-regression — flat=$flat emitted=$emitted perRepo=$rcount"
+fi
+
 echo
 echo "[self-test] summary: $PASS passed, $FAIL failed"
 exit "$FAIL"

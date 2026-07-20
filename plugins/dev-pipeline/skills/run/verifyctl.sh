@@ -205,6 +205,23 @@ sget() { # $1 = issue, $2 = jq path — statectl get with error passthrough
   "$STATECTL" get "$1" "$2" || exit 2
 }
 
+# va_path — the jq path to THIS lane's verifyAttempts map, mirroring the charging
+# path (`statectl verify-attempts --repo`, which writes worktrees.<id>.verifyAttempts).
+# Under `--repo <id>` the per-repo map is the SOLE source of truth: an absent key
+# reads 0/{} and never falls back to the flat field. A fallback would let a stale
+# flat count satisfy a per-repo check — a variant of the read/write split that made
+# the budget inert on every pair/monorepo consumer in the first place.
+# REPO_ID is a cmd_run local; emit_verdict sees it by bash dynamic scoping — the same
+# inheritance the per-repo sidecar suffix already relies on. ${REPO_ID:-} keeps the
+# helper safe under `set -u` from any call frame.
+va_path() {
+  if [[ -n "${REPO_ID:-}" ]]; then
+    printf '.worktrees["%s"].verifyAttempts' "$REPO_ID"
+  else
+    printf '.verifyAttempts'
+  fi
+}
+
 # Resolve the prettier binary: the worktree's own install (SUITE lane installed
 # it), then the main checkout's (INERT lane skipped install — the main checkout
 # always has one; pipeline-doctor probes it), then a pinned npx fallback.
@@ -333,10 +350,10 @@ cmd_run() {
         local c count
         while IFS= read -r c; do
           [[ -z "$c" ]] && continue
-          count=$(sget "$key" ".verifyAttempts.${c} // 0")
+          count=$(sget "$key" "$(va_path).${c} // 0")
           if (( count >= 2 )); then
             jq -n --arg class "$c" --arg lane "$lane" \
-                  --argjson attempts "$(sget "$key" ".verifyAttempts // {}")" '
+                  --argjson attempts "$(sget "$key" "$(va_path) // {}")" '
               { lane: $lane, status: "budget-exhausted",
                 class: $class, attempts: $attempts,
                 note: "fix-attempt budget (2) exhausted for this class; surface to the user — do not retry" }'
@@ -772,7 +789,7 @@ emit_verdict() {
   fi
 
   local attempts
-  attempts=$(sget "$key" ".verifyAttempts // {}")
+  attempts=$(sget "$key" "$(va_path) // {}")
   jq --argjson attempts "$attempts" '. + {attempts: $attempts}' <<< "$ctx"
 
   [[ "$status" == "pass" ]] && exit 0 || exit 1
