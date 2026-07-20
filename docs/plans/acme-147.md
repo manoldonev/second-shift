@@ -22,8 +22,8 @@ This plan adds a fifth value, `ticket-sourced`, whose Resolution cell must cite 
 | ID  | Decision | Resolution | Provenance |
 | --- | -------- | ---------- | ---------- |
 | D-1 | Is the comment-URL citation lint-enforced, and in what shape? | Lint-enforced in `ledger-lint.sh`: a `ticket-sourced` row's Resolution cell must contain an `https://` URL. Tracker-neutral rather than a `github.com` pattern, because `schema/second-shift.config.schema.json` models `tracker.type` as github\|jira and a GitHub-specific regex would regress that genericity | codebase-derived |
-| D-2 | Which sites move in lockstep with the canonical enum? | The eight verified sites in "Affected files" below. `plugins/intake-toolkit/hooks/exitplan-ledger-gate.sh` is deliberately NOT edited: it carries no provenance literal and shells out to `ledger-lint.sh`, so extending the lint covers the hook with zero changes | codebase-derived |
-| D-3 | Which ticket comments may a run adopt as authoritative? | Contract rule in the canonical section: only comments whose `author_association` is `OWNER` / `MEMBER` / `COLLABORATOR`. Grounded in what is already available — Stage 1 reads issue comments via the REST payload that carries this field, so the rule needs no new infrastructure. Not lint-enforceable: `ledger-lint.sh` sees only the plan file, never the tracker | codebase-derived |
+| D-2 | Which sites move in lockstep with the canonical enum? | The nine verified sites in "Affected files" below, discovered by grepping the enum **values** (not the `<!-- mirror ... -->` marker, which cannot see unmarked sites such as `plan-lint.sh`). `plugins/intake-toolkit/hooks/exitplan-ledger-gate.sh` is deliberately NOT edited: it carries no provenance literal and shells out to `ledger-lint.sh`, so extending the lint covers the hook with zero changes | codebase-derived |
+| D-3 | Which ticket comments may a run adopt as authoritative? | **Parked for maintainer ratification** (owner: repo maintainer; must resolve before a run is permitted to adopt a non-maintainer comment). This PR ships the value and its mandatory URL citation only. Choosing an `author_association` allowlist is a trust-policy call the codebase does not ground — the REST payload carrying the field grounds feasibility, not which associations are trustworthy — so it is deferred rather than invented in-run. Residual risk named in Risks | deferred |
 | D-4 | Precedence when a pre-flight ledger and a comment disagree | The pre-flight ledger row wins; conflicting or ambiguous comments resolve to `deferred` naming the conflict in the Resolution cell — the fallback the contract already prescribes for ungroundable decisions (`interviewing-baseline/SKILL.md`) | codebase-derived |
 
 ## Affected files / modules
@@ -42,6 +42,7 @@ This plan adds a fifth value, `ticket-sourced`, whose Resolution cell must cite 
 
 - `plugins/dev-pipeline/skills/run/stages/3-write-plan.md` — line 28's `codebase-derived` / `deferred` ONLY clause.
 - `plugins/dev-pipeline/skills/pipeline-retro/SKILL.md` — line 57's in-pipeline provenance restriction + fabrication-class rule.
+- `plugins/dev-pipeline/skills/run/tools/plan-lint.sh` — the explanatory comment at lines 57–64 names the in-run legal set (`codebase-derived`/`deferred`). Comment-only edit; the file's ledger logic is presence-only (advisory warning) and needs no code change. **Carries no mirror marker** — found only by grepping the enum values themselves, which is why D-2's marker-based inventory missed it.
 
 **Tests**
 
@@ -69,7 +70,7 @@ This plan adds a fifth value, `ticket-sourced`, whose Resolution cell must cite 
 4. **`3-write-plan.md`** — amend line 28 so in-pipeline authoring permits `codebase-derived` / `deferred` / `ticket-sourced`, with `ticket-sourced` requiring the cited comment URL; keep the prohibition on `user-answered` / `user-delegated` originating in-run.
 5. **`pipeline-retro/SKILL.md`** — amend line 57's audit rule the same way: `ticket-sourced` joins the legal in-pipeline set, and a `ticket-sourced` row whose Resolution cites no URL becomes the fabrication-class finding (the un-cited row is the fabrication risk, not the value itself).
 6. **Fixture** — add `| D-5 | ... | ... https://... | ticket-sourced |` to `ledger-lint-fixtures/valid-ledger.md`.
-7. **Selftest** — update `(ll-c)` to expect `5 ledger row(s)`; add `(ll-l)` positive (a cited `ticket-sourced` row lints clean, covered by `ll-a` on the extended fixture) and `(ll-m)` negative (strip the URL from the `ticket-sourced` row → exit 1, violation names the citation requirement).
+7. **Selftest** — update `(ll-c)` to expect `5 ledger row(s)` and `(ll-a)`'s pass-message string from "4 rows" to "5 rows" (cosmetic, but it goes stale otherwise); add `(ll-l)` negative — strip the URL from the `ticket-sourced` row → exit 1, violation names the citation requirement. The positive case needs no new block: `(ll-a)` on the extended fixture already covers it.
 
 ## Test strategy
 
@@ -93,6 +94,9 @@ The Stage-1 intent snapshot is **empty** — the issue carries no `AC-n` section
 | AC-3 (derived) | The enum literal is identical across canonical + all three literal mirrors | 1, 2, 3 | `grep` in Verification |
 | AC-4 (derived) | An in-pipeline Stage-3 plan may carry `ticket-sourced` without tripping Stage 4 or the retro audit | 4, 5 | `grep` in Verification |
 | AC-5 (derived) | The enum stays closed — `assumed` still fails | 2 | `ll-e` |
+| AC-6 (derived) | D-4's precedence rule (pre-flight ledger wins; conflicts → `deferred`) is stated in the canonical contract | 1 | `grep` in Verification |
+
+**Prose-only rules (no mechanical gate).** D-4 is contract text a reviewer reads; `ledger-lint.sh` takes only the plan file as input and can never verify it. AC-6 asserts the text is present, not that it is obeyed. D-3 ships as a `deferred` row and is therefore untested by design.
 
 ## Verification commands
 
@@ -101,27 +105,34 @@ find . -name '*.sh' -type f -print0 | xargs -0 shellcheck -e SC1091,SC2015,SC218
 find . -name '*.json' -type f -print0 | xargs -0 -n1 jq empty
 find . -name '*-selftest.sh' -type f -print0 | xargs -0 -n1 -I{} env SKIP_STRESS=1 bash {}
 
-# AC-3: the five-value enum is verbatim across canonical + literal mirrors (expect 4 hits)
-grep -rc 'user-answered | user-delegated | codebase-derived | deferred | ticket-sourced' \
-  plugins/intake-toolkit/skills/interviewing-baseline/SKILL.md \
+# AC-3: each site carries the new value, in the shape that site actually uses.
+# The canonical block is a bulleted list, the two agent mirrors are inline
+# pipe-joined literals, the lint is a shell variable — so this is a per-shape
+# check, not one grep. Every line below must print a hit.
+grep -n '^- `ticket-sourced`' plugins/intake-toolkit/skills/interviewing-baseline/SKILL.md
+grep -n 'user-answered | user-delegated | codebase-derived | deferred | ticket-sourced' \
   plugins/review-toolkit/agents/plan-reviewer.md \
   plugins/design-toolkit/agents/figma-faithful-plan-reviewer.md
-grep -n "PROVENANCE_ENUM=" plugins/intake-toolkit/skills/plan-interview/tools/ledger-lint.sh
+grep -n "^PROVENANCE_ENUM=.*ticket-sourced" plugins/intake-toolkit/skills/plan-interview/tools/ledger-lint.sh
 
-# AC-4: both behavioral sites now permit the value in-run
+# AC-4 / AC-6: all three behavioral sites permit the value in-run, and the
+# precedence rule is stated in the canonical contract.
 grep -n 'ticket-sourced' plugins/dev-pipeline/skills/run/stages/3-write-plan.md \
-  plugins/dev-pipeline/skills/pipeline-retro/SKILL.md
+  plugins/dev-pipeline/skills/pipeline-retro/SKILL.md \
+  plugins/dev-pipeline/skills/run/tools/plan-lint.sh
+grep -n 'wins over a ticket comment' plugins/intake-toolkit/skills/interviewing-baseline/SKILL.md
 ```
 
 ## Risks / rollback notes
 
 - **Lockstep drift** is the standing risk of this design: five files restate the enum as a string literal and nothing mechanically enforces agreement. This change does not fix that (out of scope) — it moves all of them together and relies on the `<!-- mirror ... keep verbatim -->` markers. The AC-3 grep above is the manual guard.
-- **Widened trust surface.** `ticket-sourced` lets a ticket comment become a lint-blessed design decision inside an autonomous run, where previously user-provenance required a local file a human wrote. Mitigations: the mandatory URL citation makes every such row auditable, the `author_association` rule (D-3) excludes drive-by commenters, and the always-draft PR posture keeps a human review hop before merge. The residual risk is a maintainer-authored comment being over-read by a run — visible in the cited row at review time.
+- **Widened trust surface — partially unmitigated by design.** `ticket-sourced` lets a ticket comment become a lint-blessed design decision inside an autonomous run, where previously user-provenance required a local file a human wrote. What this PR ships as mitigation: the mandatory URL citation makes every such row auditable, and the always-draft PR posture keeps a human review hop before merge. What it does **not** ship: any rule about *whose* comment is adoptable (D-3, deferred). Until that is ratified, a run could in principle adopt a drive-by third-party comment, and nothing mechanical stops it — the cited URL only makes it visible at review. This is a knowing trade: inventing a trust policy in-run is exactly the ungrounded-decision class the ledger exists to surface.
 - **Rollback** is a clean revert: the change is additive (one enum value, one lint check, doc text). Reverting restores the four-value enum; any plan already carrying a `ticket-sourced` row would then fail lint, which is the correct loud failure.
 
 ## Out-of-scope
 
 - Option 2 — Stage-1 materialization of a pre-flight ledger from a comment.
 - Mechanically enforcing lockstep across the mirror set (e.g. generating the mirrors from the canonical block, as `gen-statectl-validators.sh` does for statectl's enums). Worth a follow-up; not this ticket.
+- Ratifying the adoption-authority policy (D-3) — parked for the maintainer; follow-up.
 - Teaching `intake-interviewer`'s ledger-seed emission to produce `ticket-sourced` rows — that path interviews a live human, so `user-answered` / `user-delegated` remain correct there.
 - Any version bump or `CHANGELOG.md` entry (release-derived; frozen in feature PRs).

@@ -57,7 +57,7 @@ section_present() {
 # DO NOT add "Decision Ledger" to this HARD set: it is advisory-only in-pipeline
 # (see the advisory check near the bottom of this file). The autonomous contract
 # forbids prompting mid-run, so a run legitimately authors the ledger's
-# explicit-empty-form or `codebase-derived`/`deferred` rows — but a run that omits
+# explicit-empty-form or `codebase-derived`/`deferred`/`ticket-sourced` rows — but a run that omits
 # the section entirely must NOT hard-abort Stage 4 (which maps any plan-lint
 # violation to `mark-failed --reason plan-structure-invalid`). Keeping the ledger
 # out of this array is what preserves that; the "keep SECTIONS in lockstep with

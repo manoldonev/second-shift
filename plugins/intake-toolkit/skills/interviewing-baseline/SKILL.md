@@ -34,14 +34,16 @@ The machine-checkable residue every elicitation leaves behind. It is a mandated 
 | D-2 | 404 vs 409 on duplicate import | 409 | user-delegated |
 | D-3 | DTO validation library | class-validator (repo convention, CLAUDE.md) | codebase-derived |
 | D-4 | Backfill order for historical records | deferred to next milestone (owner: reporter) | deferred |
+| D-5 | Max import size | 50 MB, per the operator's comment https://github.com/acme/repo/issues/42#issuecomment-1234567 | ticket-sourced |
 ```
 
-**Provenance closed enum** — exactly these four values:
+**Provenance closed enum** — exactly these five values:
 
 - `user-answered` — the engineer made the call in the interview.
 - `user-delegated` — the engineer said "your call"; the grounded recommendation is recorded as the resolution.
 - `codebase-derived` — grounded in code, an ADR, the repo's CLAUDE.md, or the Product-Essence Brief; the Resolution cites the source.
 - `deferred` — explicitly parked, with owner and when it must be resolved in the Resolution cell.
+- `ticket-sourced` — the operator resolved it **in a ticket comment** and the run adopted that resolution. The Resolution cell MUST cite the comment by URL (`https://…`) — an uncited row is an assumption wearing a label, and the lint rejects it. This is the one user-provenance value an autonomous run may originate, precisely because the citation is independently verifiable without a local pre-flight artifact.
 
 `assumed` is **not** a legal value. An assumption either gets asked, grounded, or deferred explicitly — the ledger makes a silent assumption a lint error instead of a style problem.
 
@@ -49,6 +51,7 @@ The machine-checkable residue every elicitation leaves behind. It is a mandated 
 
 - IDs are stable `D-1..n` and never reused after retirement (same discipline as `AC-n` IDs).
 - Resolution is never empty.
+- **Precedence when sources disagree:** a row hydrated from a pre-flight `.claude/pipeline-state/{issue}-ledger.md` wins over a ticket comment covering the same decision. Two comments that conflict, or one that is ambiguous, resolve to `deferred` naming the conflict in the Resolution cell — never to a `ticket-sourced` row that picks a side.
 - **Explicit empty form** for trivial work — the section must still exist, containing exactly this line instead of a table:
 
   ```
