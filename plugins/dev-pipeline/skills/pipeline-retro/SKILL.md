@@ -22,6 +22,10 @@ ISSUE=<n>
 S=../dev-pipeline/statectl.sh
 cat .claude/pipeline-state/${ISSUE}.json          # state: stages, checkpoints, deviations, failureContext
 cat .claude/pipeline-state/${ISSUE}-eval.json     # the run's SELF-score
+# The run report — Stage 9's durable narrative, written before the terminal
+# narration so an API disconnect cannot destroy it. Absent = either a pre-schema
+# run or a run that never reached Stage 9's pr-add.
+[ -f ".claude/pipeline-state/${ISSUE}-report.md" ] && cat ".claude/pipeline-state/${ISSUE}-report.md"
 bash ../dev-pipeline/tools/stage-times.sh ${ISSUE}   # per-stage wall times + transition gaps
 gh api "repos/{owner}/{repo}/issues/${ISSUE}/comments" --jq '[.[] | {user: .user.login, body}]'   # run_id-marked trail
 PR_URL=$(jq -r '.prs | to_entries[0].value.url // empty' .claude/pipeline-state/${ISSUE}.json)
