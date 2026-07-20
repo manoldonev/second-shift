@@ -179,6 +179,31 @@ Neither applies to the JIRA tracker (reads via the Atlassian MCP; `writes: false
 default posture). Both trackers need `gh` regardless — Stage 9 opens the PR with
 `gh pr create` — plus `node` for the Stage-8 review and mutation Workflow gates.
 
+### Finish the command table — and give it a setup lane
+
+Detection only covers JS package managers plus a Makefile fallback. On any other stack
+(Python/pip/poetry/uv, bun, cargo, go) onboard refuses to guess and drafts every
+`commands.<id>` lane as `null`. **That table is a starting point, not a finished config** —
+fill in your repo's real commands. Until at least one verifying lane (`lint`, `typecheck`,
+`test`, or an `extraLanes` entry) is configured, `preflight` warns and withholds its
+`pipeline-ready` verdict, and Stage 6 refuses to complete a run that verified nothing. If
+verifying nothing is genuinely intended (a docs-only repo, say), set
+`commands.<id>.allowUnverified: true` so the choice is explicit rather than an oversight.
+
+Then add a **setup lane**. The pipeline works in a `git worktree` — a fresh checkout that
+starts with no `node_modules` and no `.venv`, since both are gitignored. Verify lanes that
+need installed dependencies fail on the first real run unless the install runs first, and
+that is what `commands.<id>.lanes[]` is for (sequential setup steps, run before the verify
+lanes and classed as infrastructure on failure):
+
+```jsonc
+"lanes": [{ "name": "install", "commands": ["python3 -m venv .venv", ".venv/bin/pip install -e '.[dev]'"] }]
+// JS equivalent: [{ "name": "install", "commands": ["npm ci"] }]
+```
+
+Field reference — including `extraLanes` and `allowUnverified` — is in
+[`config-schema.md`](config-schema.md).
+
 Environment sanity for all of the above in one command: `pipeline-doctor.sh` (ships in the
 dev-pipeline plugin at `skills/run/tools/pipeline-doctor.sh`, config-aware since 2.0.7 —
 probes only what YOUR tracker and command table actually use).

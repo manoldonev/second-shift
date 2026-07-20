@@ -110,6 +110,7 @@
           "unitTestScope": { "type": ["string", "null"], "description": "Glob selecting the backend source in scope for the unit-test mutation gate (Stages 3-5 classify unitTestSurface against it). e.g. \"apps/api/src/**\". null = not scoped (the whole repo, or the gate is off)." },
           "build": { "type": ["string", "null"] },
           "format": { "type": ["string", "null"] },
+          "allowUnverified": { "type": "boolean", "description": "Zero-lane safety valve. When no verifying lane is configured (lint/typecheck/test all null and extraLanes empty), Stage 6 refuses an all-skipped verifySummary and preflight withholds its pipeline-ready verdict — unless this is true, which declares the opt-out deliberate. Inert when any verifying lane is configured." },
           "lanes": {
             "type": "array",
             "description": "SETUP-ONLY steps run sequentially BEFORE the built-in lint/typecheck/test trio (e.g. dependency install, workspace-package builds for apps/*, packages/*). Every lane failure is classed INFRA (environment/setup), NOT a code defect — a lane never gets the TEST_FAILURE/TYPE_ERROR fix budget. Do NOT put a test/lint/typecheck command here (e.g. `poetry run pytest`): its failures would be misreported as environment errors and bypass the fix budget. For additive VERIFY-style lanes that carry a real failure class and the standard fix budget, use extraLanes (EP-2) below.",

@@ -66,6 +66,16 @@ Build the draft config from detection:
   (Integration/API test tiers are NOT config command keys — removed in v2.1.6;
   ship them via `extraLanes` / extension points EP-6/EP-7. Never emit
   `integrationTest`/`apiTest` under `commands.<repo>`.)
+  `lanes` (setup steps) is deliberately NOT in that key list — detection cannot prove a
+  repo's install command, so onboard never writes one. It is raised on the review screen
+  instead (below), where the human can supply it.
+- **When detection returned no command lanes at all** (every one `null` — the normal
+  outcome for a stack `detect.sh` does not cover: Python/pip/poetry/uv, bun, cargo, go),
+  say so plainly on the review screen rather than presenting the empty table as done:
+  the pipeline verifies nothing until at least one lane is filled in, and `preflight`
+  will withhold its `pipeline-ready` verdict until then. Offer the two honest exits —
+  fill in the repo's real commands now, or set `allowUnverified: true` to declare the
+  zero-lane opt-out deliberately.
 Ask AT MOST one AskUserQuestion batch, containing ONLY (skip any that detection settled):
   1. tracker (only if ambiguous — show evidence per option)
   2. topology pair confirm (only if be-fe-pair-candidate)
@@ -128,6 +138,19 @@ Then present the **complete draft as one accept-or-edit screen**: a JSONC block 
 line carries a provenance comment, e.g.
     "baseBranch": "alpha",        // from origin/HEAD
     "test": null,                 // no scripts.test in package.json — pipeline will skip this lane
+    // "lanes": [{"name": "install", "commands": ["npm ci"]}],
+    //                            ^ setup steps, run before every verify. A pipeline worktree
+    //                              is a FRESH checkout with no node_modules/.venv (gitignored),
+    //                              so add this if your verify lanes need installed deps.
+    //                              Undetectable — supply it here or leave it out.
+Render that `lanes` line with the install command of the package manager detection actually
+found — `yarn install --immutable` for yarn, `pnpm install --frozen-lockfile` for pnpm, `npm ci`
+for npm — rather than the `npm ci` literal above; showing a pnpm adopter an npm command is a
+wrong-but-plausible suggestion. When `packageManager` is null (the stack detection does not
+cover), omit the example command and point at the onboarding guide instead of guessing one.
+The `lanes` line is review-screen guidance only: it is shown commented, and Step 4 emits the
+accepted config as pure JSON, so a stub the human does not fill in is simply absent from the
+file (`config-lint` runs `jq empty` and would reject a comment).
 The human accepts or edits values; loop the screen until accepted. This is a diff review
 of a 90%-correct document, not a wizard.
 
