@@ -503,11 +503,17 @@ reset_repo
 touch "$MARKERS/FAIL_TYPE_CHECK"
 "$STATECTL" verify-attempts 8888 --incr TYPE_ERROR >/dev/null   # flat -> 1
 "$STATECTL" verify-attempts 8888 --incr TYPE_ERROR >/dev/null   # flat -> 2
+# The budget check lives INSIDE the fix-attempt re-run branch (sidecar status
+# "fail" AND HEAD past chargedHead), so a single first run would never consult
+# the read path at all — the assertions would hold vacuously under a flat-only
+# implementation. Establish the sidecar, then re-run at a fresh HEAD.
+rvrun                                                    # first failure — establishes the sidecar
+git -C "$WORK" commit -qam "fix attempt" --allow-empty    # advance HEAD past chargedHead
 rm -f "$MARKERS"/ran-*
-rvrun
+rvrun                                                    # fix-attempt re-run — budget check RUNS here
 status=$(jq -r '.status' <<< "$VERDICT")
 rcount=$(rattempts TYPE_ERROR)
-if [[ "$VRC" != "4" && "$status" != "budget-exhausted" && "$rcount" == "0" && -f "$MARKERS/ran-type-check" ]]; then
+if [[ "$VRC" != "4" && "$status" != "budget-exhausted" && "$rcount" == "1" && -f "$MARKERS/ran-type-check" ]]; then
   pass "(v24) no flat fallback — flat=2 does not exhaust an unspent per-repo budget"
 else
   fail "(v24) flat fallback leaked — rc=$VRC status=$status perRepo=$rcount"
