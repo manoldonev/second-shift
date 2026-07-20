@@ -295,6 +295,28 @@ assert "a single configured typecheck lane suppresses the warning (AC-3)" "$?"
 grep -q -- "— pipeline-ready" "$BASE/out.log"
 assert "a repo that verifies something still reports pipeline-ready (AC-3)" "$?"
 
+# ---- run 15: no host repo (path ".") also suppresses pipeline-ready (#102, AC-1) ----
+# The lane pass is skipped wholesale when no topology.repos entry maps to path "." — so
+# nothing was verified, and the verdict must not claim readiness. config-lint only requires
+# >=1 topology.repos entry, not that one of them be the host, so this state is reachable
+# with a config-lint-clean file. Distinct from run 12: there the host exists and its lanes
+# are null; here the lane section never runs at all.
+write_config github
+jq '.topology.repos = {"elsewhere": (.topology.repos.fix + {"path": "sub/dir"})}' \
+  "$FIX/.claude/second-shift.config.json" > "$BASE/cfg.tmp" \
+  && mv "$BASE/cfg.tmp" "$FIX/.claude/second-shift.config.json"
+run_preflight; rc=$?
+grep -q "no host repo" "$BASE/out.log"
+assert "no-host-repo config surfaces the lane-pass-skipped WARN (AC-1)" "$?"
+if [[ "$rc" -eq 0 ]]; then
+  ! grep -q -- "— pipeline-ready" "$BASE/out.log"
+  assert "no-host-repo run does not claim pipeline-ready (AC-1)" "$?"
+else
+  # Other gates failed on this fixture; the third verdict arm already omits the claim.
+  ! grep -q -- "— pipeline-ready" "$BASE/out.log"
+  assert "no-host-repo run does not claim pipeline-ready even with FAILs (rc=$rc) (AC-1)" "$?"
+fi
+
 echo "[self-test] $PASS passed, $FAIL failed"
 [[ "$FAIL" -eq 0 ]] || exit 1
 exit 0

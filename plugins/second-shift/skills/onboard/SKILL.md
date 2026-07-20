@@ -143,6 +143,11 @@ line carries a provenance comment, e.g.
     //                              is a FRESH checkout with no node_modules/.venv (gitignored),
     //                              so add this if your verify lanes need installed deps.
     //                              Undetectable — supply it here or leave it out.
+Render that `lanes` line with the install command of the package manager detection actually
+found — `yarn install --immutable` for yarn, `pnpm install --frozen-lockfile` for pnpm, `npm ci`
+for npm — rather than the `npm ci` literal above; showing a pnpm adopter an npm command is a
+wrong-but-plausible suggestion. When `packageManager` is null (the stack detection does not
+cover), omit the example command and point at the onboarding guide instead of guessing one.
 The `lanes` line is review-screen guidance only: it is shown commented, and Step 4 emits the
 accepted config as pure JSON, so a stub the human does not fill in is simply absent from the
 file (`config-lint` runs `jq empty` and would reject a comment).
