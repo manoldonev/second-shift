@@ -39,6 +39,14 @@ fi
 VIOLATIONS=0
 violate() { echo "plan-lint: VIOLATION: $1" >&2; VIOLATIONS=$((VIOLATIONS + 1)); }
 
+# quoting-safe whitespace trim — xargs aborts on quotes/apostrophes/backslashes in cells
+trim() {
+  local s="$1"
+  s="${s#"${s%%[![:space:]]*}"}"
+  s="${s%"${s##*[![:space:]]}"}"
+  printf '%s' "$s"
+}
+
 # ---- Check 1: mandated section headers -------------------------------------
 # A section counts as present when a markdown heading (or a bold-line header)
 # matches its pattern, case-insensitive.
@@ -85,9 +93,9 @@ while IFS= read -r line; do
     violate "malformed traceability row (expected 4 columns): $line"
     continue
   fi
-  id="$(echo "${cells[1]}" | xargs)"
-  steps="$(echo "${cells[3]}" | xargs)"
-  tests="$(echo "${cells[4]}" | xargs)"
+  id="$(trim "${cells[1]}")"
+  steps="$(trim "${cells[3]}")"
+  tests="$(trim "${cells[4]}")"
   ROW_IDS+=("$id")
   [[ -n "$steps" ]] || violate "$id row has an empty Step(s) cell"
   if [[ -z "$tests" ]]; then

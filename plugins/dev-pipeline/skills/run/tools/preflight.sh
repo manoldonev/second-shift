@@ -64,6 +64,12 @@ REPORT="$REPORT_DIR/preflight-report.md"
 mkdir -p "$REPORT_DIR"
 
 FAILS=0
+# UNVERIFIED is set when this run proved nothing about whether the repo can verify
+# itself — either no verifying lane is configured, or the lane pass never ran at all.
+# It never counts as a FAIL (an unfinished command table must not block onboarding),
+# but it DOES suppress the "pipeline-ready" claim in the verdict: reporting ready for
+# a repo that verifies nothing is the false green this counter exists to kill.
+UNVERIFIED=0
 # Every line goes to stdout AND the report (built in a scratch buffer, moved into
 # place at the end so a crashed run never leaves a half-written report behind).
 BUF="$(mktemp -t preflight-report.XXXXXX)"
@@ -246,6 +252,7 @@ if [[ -f "$CFG" ]] && command -v jq >/dev/null 2>&1; then
   HOST_ID=$(jq -r '(.topology.repos // {}) | to_entries[] | select(.value.path==".") | .key' "$CFG" 2>/dev/null | head -n1)
   if [[ -z "$HOST_ID" ]]; then
     warn "no host repo (path \".\") in topology.repos — lane pass skipped"
+    UNVERIFIED=1
   else
     LINT_AUTOFIX=$(jq -r --arg h "$HOST_ID" '.commands[$h].lintAutofixes // false' "$CFG" 2>/dev/null || echo false)
     FORMAT_KIND=$(jq -r --arg h "$HOST_ID" '.commands[$h] | if has("format") then (if .format == null then "null" else "string" end) else "absent" end' "$CFG" 2>/dev/null || echo absent)
@@ -286,9 +293,34 @@ if [[ -f "$CFG" ]] && command -v jq >/dev/null 2>&1; then
       [[ -z "$cmd" ]] && continue
       i=$((i+1)); run_lane "extraLanes[$i] (when-gate not evaluated — no diff at preflight)" "$cmd"
     done < <(jq -r --arg h "$HOST_ID" '(.commands[$h].extraLanes // []) | .[] | (.commands // [])[]' "$CFG" 2>/dev/null)
+
+    # Aggregate: does this repo verify ANYTHING? A stack onboard's detection does not
+    # cover (Python, bun, cargo, go) correctly drafts every lane null rather than
+    # guessing — but an all-null table then passes config-lint and prints only per-lane
+    # SKIPs, so the adopter is never told the table is unfinished. The predicate mirrors
+    # verifyctl.sh's zero-verifying-lane check (which feeds the verifySummary that
+    # statectl.sh's Stage-6 gate then refuses): VERIFYING lanes are lint/typecheck/test
+    # and extraLanes[]. lanes[] is SETUP-only, and build/format never verify — so none
+    # of the three count here. Keep this set in lockstep with verifyctl.sh; an early
+    # warning that disagrees with the late gate is worse than no warning.
+    VERIFYING=$(jq -r --arg h "$HOST_ID" '
+      ([.commands[$h] | .lint, .typecheck, .test | select(. != null and . != "")] | length)
+      + ((.commands[$h].extraLanes // []) | length)' "$CFG" 2>/dev/null || echo 0)
+    ALLOW_UNVERIFIED=$(jq -r --arg h "$HOST_ID" '.commands[$h].allowUnverified // false' "$CFG" 2>/dev/null || echo false)
+    if [[ "${VERIFYING:-0}" -eq 0 ]]; then
+      if [[ "$ALLOW_UNVERIFIED" == "true" ]]; then
+        # The deliberate opt-out: already explicit in the config, so it stays silent
+        # here and verifyctl emits its labeled zero-lane skip at Stage 6.
+        skipn "no verifying lane for '$HOST_ID' — allowUnverified opt-out is set, so this is deliberate"
+      else
+        UNVERIFIED=1
+        warn "no verifying lane configured for '$HOST_ID': lint/typecheck/test are all null and extraLanes is empty — this repo verifies NOTHING. Configure at least one lane, or set commands.$HOST_ID.allowUnverified=true to declare the opt-out explicitly. (lanes[] is setup-only and does not verify.)"
+      fi
+    fi
   fi
 else
   warn "no config / no jq — lane pass skipped"
+  UNVERIFIED=1
 fi
 
 # --- Verdict -----------------------------------------------------------------------
@@ -297,7 +329,17 @@ say "[preflight] deliberately NOT done: no issue claim, no label swap, no branch
 if ! (cd "$REPO_ROOT" && git check-ignore -q "$STATE_DIR/preflight-report.md" 2>/dev/null); then
   warn "'$STATE_DIR/' is not gitignored in this repo — add it to .gitignore (local-only run artifacts, never version-controlled)"
 fi
-say "[preflight] summary: $FAILS failed check(s)$( [[ $FAILS -eq 0 ]] && echo ' — pipeline-ready' )"
+# "pipeline-ready" requires BOTH no failures AND evidence that something verifies.
+# Zero failures alone is not readiness when every lane was skipped — that is the
+# false green this guard closes. The exit code stays $FAILS either way: an
+# unfinished command table is a warning to the adopter, never a hard stop.
+if [[ $FAILS -eq 0 && $UNVERIFIED -eq 0 ]]; then
+  say "[preflight] summary: 0 failed check(s) — pipeline-ready"
+elif [[ $FAILS -eq 0 ]]; then
+  say "[preflight] summary: 0 failed check(s) — NOT pipeline-ready: nothing verified this repo (see the WARN above)"
+else
+  say "[preflight] summary: $FAILS failed check(s)"
+fi
 say "[preflight] report: $REPORT"
 
 mv "$BUF" "$REPORT"
