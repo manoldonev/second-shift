@@ -160,7 +160,10 @@ while IFS= read -r f; do
     fi
   fi
   flag=""; (( nnn > 0 )) && flag=" [#NNN]" && warns=$(( warns + 1 ))
-  printf '%-58s %7s %8s %6s  %s%s\n' "${f#.claude/}" "$w" "$tok" "$nnn" "$status" "$flag"
+  # Print the path as-is. The old `${f#.claude/}` strip assumed a single-rooted layout;
+  # with two layouts it fires for one and not the other, so the column silently mixed
+  # stripped and unstripped paths.
+  printf '%-58s %7s %8s %6s  %s%s\n' "$f" "$w" "$tok" "$nnn" "$status" "$flag"
 done < <(tracked_files)
 
 echo "----"

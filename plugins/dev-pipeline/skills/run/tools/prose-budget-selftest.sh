@@ -220,6 +220,64 @@ for tok in 'FAIL vacuous coverage' 'n/a — no instruction layer'; do
   fi
 done
 
+echo "[prose-budget-selftest] doctor routing"
+
+# --- T11: doctor's branch patterns route real tool output correctly ----------
+# T10 proves the marker strings exist in both files; it does NOT prove they still MATCH.
+# A reworded marker, a changed dash, or an overlapping pattern would keep T10 green while
+# the vacuous case silently reported as "grew past baseline". So: take doctor's own
+# patterns and apply them to the tool's REAL output in each state, asserting exactly one
+# branch claims each. (pipeline-doctor.sh cannot be executed wholesale here — its other
+# checks need gh auth and network — so the branch conditions are tested in isolation.)
+VACUOUS_PAT='FAIL vacuous coverage'
+NA_PAT='n/a — no instruction layer'
+STALE_PAT='FAIL stale baseline'
+
+# Guard: these are the literals doctor branches on. If they drift there, T10 fails; if
+# they drift in the tool, the assertions below fail. Both directions are covered.
+for pat in "$VACUOUS_PAT" "$NA_PAT" "$STALE_PAT"; do
+  grep -qF -- "$pat" "$DOCTOR" || bad "T11 precondition: doctor no longer contains '$pat'"
+done
+
+# n/a output must hit the n/a branch and NO warn branch.
+R="$(mkrepo t11na)"
+run_tool "$R"
+if grep -qF -- "$NA_PAT" <<< "$OUT" \
+   && ! grep -qF -- "$VACUOUS_PAT" <<< "$OUT" \
+   && ! grep -qF -- "$STALE_PAT" <<< "$OUT" \
+   && (( RC == 0 )); then
+  ok "T11 n/a output routes to doctor's n/a branch only"
+else
+  bad "T11 n/a output did not route cleanly (rc=$RC)"
+fi
+
+# vacuous output must hit the vacuous branch, not the generic growth fallback.
+R="$(mkrepo t11vac)"
+mkdir -p "$R/.claude/agents"
+run_tool "$R"
+if grep -qF -- "$VACUOUS_PAT" <<< "$OUT" \
+   && ! grep -qF -- "$NA_PAT" <<< "$OUT" \
+   && (( RC != 0 )); then
+  ok "T11 vacuous output routes to doctor's vacuous branch (not the growth fallback)"
+else
+  bad "T11 vacuous output did not route to the vacuous branch (rc=$RC)"
+fi
+
+# stale output must hit the stale branch, not the vacuous one.
+R="$(mkrepo t11stale)"
+mkdir -p "$R/.claude/skills"
+printf 'one two three\n' > "$R/.claude/skills/a.md"
+{
+  printf '# path\twords\tchars\tnarrative_nnn\n'
+  printf '.claude/agents/vanished.md\t10\t50\t0\n'
+} > "$R/.claude/prose-budget.baseline.tsv"
+run_tool "$R"
+if grep -qF -- "$STALE_PAT" <<< "$OUT" && ! grep -qF -- "$VACUOUS_PAT" <<< "$OUT"; then
+  ok "T11 stale output routes to doctor's stale branch (not the vacuous branch)"
+else
+  bad "T11 stale output did not route to the stale branch"
+fi
+
 echo
 echo "[prose-budget-selftest] $PASS passed, $FAIL failed"
 exit "$FAIL"
