@@ -89,6 +89,8 @@ After each pipeline run, score all 5 binary criteria. Record in `.claude/pipelin
 
 The five binary criteria above are the sole inputs to the pass-rate calculation.
 
+The example's `criteria` keys are the **canonical machine names** — `mark-completed` refuses any other key set, and `statectl.sh`'s validator is generated from this example block. Criterion 1's key is `target_confirmation` (its title, "Autonomous Pre-flight", evolved later): the key keeps its original name because every historical eval file scores under it, and cross-era comparability outranks title symmetry. Titles are prose; keys are the contract.
+
 Use `N/A` when a criterion is not exercised (e.g., `implementation_resilience` when there are no test failures). N/A criteria are excluded from the pass rate denominator.
 
 The eval output path (`.claude/pipeline-state/{issue-number}-eval.json`) is covered by the existing `.gitignore` entry for `.claude/pipeline-state/` — eval files are local-only and not version-controlled.
