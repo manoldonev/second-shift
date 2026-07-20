@@ -48,7 +48,9 @@ Four independent pipeline retros (#88, #89, #100, #99) recorded this failure in 
 | D-3 | "Resolvable repo" is defined as `git rev-parse --git-common-dir` succeeding from `$DIR` | codebase-derived | Same predicate the anchor itself uses, so definition and mechanism cannot drift. Makes AC-2 testable. |
 | D-4 | Two distinct WARN strings, one per fallback cause | codebase-derived | Lets the dangerous cause (no config found anywhere) be grepped apart from the benign one (config found, bot deliberately off). Follows the `[bot-commit] WARN:` prefix at `:67`. |
 | D-5 | Correct the stale contract prose in four sibling artifacts; change no behavior outside `bot-commit.sh` | codebase-derived | They state the fallback is silent and three name `bot-commit.sh` as reference. `pipeline-cost-block.sh` is already correctly anchored, so only its comment is wrong. |
-| D-6 | Take the optional `pipeline-doctor.sh` check (issue item 4) into scope | codebase-derived | ~5 lines on the existing `warn()` helper; it converts a luck-dependent post-hoc discovery into a pre-run signal, which is the exact complaint in all four retros. |
+| D-6 | Take the optional `pipeline-doctor.sh` check (issue item 4) into scope | user-delegated | A scope-boundary call, not a codebase-derived one (Stage-4 warning 2): the issue offers item 4 as optional and the autonomous run took it. ~5 lines on the existing `warn()` helper, converting a luck-dependent post-hoc discovery into a pre-run signal — the exact complaint in all four retros. Ships with no automated test; see the traceability table. |
+| D-7 | `SECOND_SHIFT_REPO_ROOT` moves the CONFIG root only — the bot-id cache stays on the real `--git-common-dir` | codebase-derived | Stage-4 warning 4 flagged the desync. Deliberate, not parity-for-its-own-sake with `verifyctl.sh:99-116`: the cache must sit in a real git dir to be writable and worktree-shared, while the override exists so selftests can redirect config resolution at a fixture. Documented in the helper header. |
+| D-8 | Keep `dirname "$COMMON_DIR"` despite non-standard git-dir layouts | codebase-derived | Stage-4 warning 5. The house idiom in three siblings; consistency beats a bespoke scheme. It degrades safely — a wrong root only makes candidate 3 miss, falling through to the pre-existing repo-default path plus the new WARN, never a wrong identity. |
 
 ## Affected files/modules
 
@@ -120,6 +122,7 @@ has no mutation surface.
 | AC-1 | Worktree + untracked config, no env → `<appName>[bot]` identity | 1, 2, 3 | selftest case 5 (AC-1) |
 | AC-2 | Bot genuinely disabled → repo default still works, and says so on stderr when `-C` is resolvable | 4 | selftest cases 3, 6, 7 (AC-2) |
 | AC-3 | Selftests cover both cases, green in the standard sweep | 6, 7 | full `*-selftest.sh` sweep |
+| — | Doctor pre-run WARN on a gitignored config (D-6, issue item 4) | 8 | — no test — `pipeline-doctor.sh` has no paired selftest in this repo (pre-existing); the check is a `warn()` line on an environment probe, verified by running the doctor. Building a doctor harness is out of scope for a bug fix. |
 
 ## Verification commands
 
@@ -128,7 +131,15 @@ bash plugins/dev-pipeline/skills/run/tools/bot-commit-selftest.sh
 find . -name '*.sh' -type f -print0 | xargs -0 shellcheck -e SC1091,SC2015,SC2181
 find . -name '*.json' -type f -print0 | xargs -0 -n1 jq empty
 find . -name '*-selftest.sh' -type f -print0 | xargs -0 -n1 -I{} env SKIP_STRESS=1 bash {}
+
+# Repo CI gates that also gate this PR (Stage-4 warning 3):
+bash scripts/check-frozen-files.sh        # no version/CHANGELOG edits in a feature PR
+bash scripts/check-changelog-trailer.sh   # every plugins/** PR carries a Changelog: trailer
 ```
+
+Per CLAUDE.md this PR touches `plugins/**`, so its commits carry a **`Changelog:`** trailer, and it
+must NOT edit `plugin.json` `version`, `CHANGELOG.md`, or `marketplace.json` `metadata.version` —
+those are derived at release time and `check-frozen-files.sh` rejects a feature PR that writes them.
 
 ## Risks / rollback notes
 

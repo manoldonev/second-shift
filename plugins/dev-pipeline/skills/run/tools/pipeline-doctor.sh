@@ -198,6 +198,16 @@ else
   bad "bot wrapper missing at $GH_BOT — bootstrap with tools/install-gh-bot.sh <private-key.pem>"
 fi
 
+# Commit identity: a GITIGNORED consumer config is absent from every pipeline worktree, so
+# bot-commit.sh resolves it from the main checkout (--git-common-dir). That works unattended,
+# but it is worth surfacing here because it is the condition under which a stale bot-commit.sh
+# (or an unset SECOND_SHIFT_CONFIG in a hand-run command) silently commits as the operator.
+if [[ -f "$CFG" ]] && git -C "$REPO_ROOT" check-ignore -q "$CFG" 2>/dev/null; then
+  warn "consumer config $CFG is gitignored — it will be ABSENT in pipeline worktrees. bot-commit.sh resolves it from the main checkout, so pipeline commits are fine; hand-run git commands in a worktree should export SECOND_SHIFT_CONFIG to keep the bot identity."
+elif [[ -f "$CFG" ]]; then
+  ok "consumer config is tracked — present in worktrees"
+fi
+
 # --- 4. Required labels ---------------------------------------------------------
 # Required-label set, same precedence as the SKILL.md pre-flight gate (#11 → #17):
 # tracker.labels role union (queue + claimed + blockers) when set, else the legacy

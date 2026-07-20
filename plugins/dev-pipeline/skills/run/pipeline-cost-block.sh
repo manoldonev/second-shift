@@ -118,7 +118,10 @@ write_cost_log_row() {
 # writes through the wrapper (missing wrapper => skipped-no-bot-wrapper). A
 # bot-DISABLED repo — including one whose config is absent, unreadable, or
 # malformed, which resolves to disabled per `// false` — writes with plain `gh`
-# under operator identity. Mirrors tools/bot-commit.sh.
+# under operator identity. Same enabled/disabled default as tools/bot-commit.sh,
+# but NOT the same config lookup: that helper searches $SECOND_SHIFT_CONFIG, its
+# -C dir, then the main checkout, so a gitignored config absent from a worktree
+# still resolves there. This script's _repo_root() is already common-dir anchored.
 # ────────────────────────────────────────────────────────────────────────────
 # Bot wrapper: env contract first; then config tracker.bot.wrapperPath (parity
 # with claim-issue.sh / pipeline-doctor.sh); then a default derived from the
