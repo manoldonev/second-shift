@@ -39,6 +39,7 @@
 #   statectl.sh verify-attempts <issue-number> --incr <FAILURE_CLASS> [--force]
 #   statectl.sh skill-load-add <issue-number> --stage <N> --skill <plugin:skill> [--force]
 #   statectl.sh comment-add <issue-number> --marker <stage-marker> --url <comment-url> [--force]
+#   statectl.sh reclaim <issue-number> [--release] [--threshold-min <N>] [--force]
 #   statectl.sh intake-brief <issue-number> --brief-path <path|null> --acceptance-criteria '<json-array>'
 #   statectl.sh plan-review-set <issue-number> --overall <pass|fix-and-go> [--force]
 #   statectl.sh verify-summary-set <issue-number> --json <verifySummary> [--force]
@@ -2125,6 +2126,97 @@ cmd_skill_load_add() {
   jq -c --arg n "$n" '.stages[$n].skillsLoaded' <<< "$new_state"
 }
 
+cmd_reclaim() {
+  # Stale-claim detection + release for a run orphaned by an infra drop
+  # (connection loss, token expiry, killed session). A claim is STALE when the
+  # state is `in_progress` and `lastUpdatedAt` is older than the threshold
+  # (default 30 min) — statectl has no process-liveness signal, so age is the
+  # proxy (a long silent stage is indistinguishable from a dead one) and the
+  # caller must confirm no live session owns the run before acting (--force
+  # overrides a fresh or undeterminable age for that confirmed-dead case). A
+  # missing/unparseable lastUpdatedAt is UNDETERMINABLE, never auto-stale.
+  #
+  # Without --release: READ-ONLY verdict JSON — `resumable` names the stage the
+  # existing crash-recovery path re-enters (`/dev-pipeline:run <issue>` resumes
+  # from currentStage; this subcommand never re-enters the pipeline itself).
+  # With --release: quarantine-rename the state file ({key}-released-{ts}.json,
+  # mirroring init's stale-eval quarantine — run artifacts are retro evidence,
+  # never deleted) so a fresh claim re-inits from scratch. Tracker-side release
+  # (the in-progress -> queue label swap) is the caller's step — statectl does
+  # no network IO; the emitted JSON carries the reminder.
+  #
+  # A `failed` run is NOT reclaimable (it exited by contract and needs a manual
+  # clear + spec/plan fix); a `completed` run has nothing to reclaim.
+  #
+  # Usage:
+  #   statectl reclaim <issue-number> [--release] [--threshold-min <N>] [--force]
+  local key="${1:-}"; shift || true
+  local release=0 threshold=30 force=0
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --release)       release=1; shift ;;
+      --threshold-min)
+        [[ $# -ge 2 ]] || { EXIT_CODE=3 die "reclaim: --threshold-min needs a value"; }
+        threshold="$2"; shift 2 ;;
+      --force)         force=1; shift ;;
+      *) EXIT_CODE=3 die "reclaim: unknown arg '$1'" ;;
+    esac
+  done
+  [[ -n "$key" ]] || { EXIT_CODE=3 die "reclaim: missing <issue-number>"; }
+  [[ "$threshold" =~ ^[0-9]+$ ]] || { EXIT_CODE=3 die "reclaim: --threshold-min must be a non-negative integer, got '$threshold'"; }
+  local current
+  current=$(read_state "$key") || exit $?
+  local top_status
+  top_status=$(jq -r '.status // ""' <<< "$current")
+  case "$top_status" in
+    failed)
+      EXIT_CODE=1 die "reclaim: run is status=failed (reason: $(jq -r '.failureContext.reason // "unrecorded"' <<< "$current")) — a gate-blocked run exits by contract and is NOT stale-reclaimable; fix the underlying block and clear the state manually" ;;
+    completed)
+      EXIT_CODE=1 die "reclaim: run is status=completed — nothing to reclaim" ;;
+    in_progress|"") ;;
+    *)
+      EXIT_CODE=1 die "reclaim: unrecognized status '$top_status'" ;;
+  esac
+  # Age computation fails closed: a crashed run's state is exactly where a
+  # malformed/missing lastUpdatedAt is plausible, and an unparseable timestamp
+  # must not read as "fresh" (silent) or "stale" (auto-reclaimable) — it reads
+  # as undeterminable, requiring --force.
+  local age_min
+  age_min=$(jq -r 'if .lastUpdatedAt then ((now - (.lastUpdatedAt | fromdateiso8601)) / 60 | floor) else "unknown" end' <<< "$current" 2>/dev/null) || age_min="unknown"
+  [[ "$age_min" =~ ^-?[0-9]+$ ]] || age_min="unknown"
+  local stale=false
+  if [[ "$age_min" != "unknown" && "$age_min" -ge "$threshold" ]]; then
+    stale=true
+  fi
+  if [[ "$stale" != "true" && "$force" -ne 1 ]]; then
+    if [[ "$age_min" == "unknown" ]]; then
+      EXIT_CODE=1 die "reclaim: staleness undeterminable — lastUpdatedAt is missing or unparseable in the state file. --force only if you have confirmed the owning process is dead"
+    fi
+    EXIT_CODE=1 die "reclaim: not stale — last state write was ${age_min} min ago (< ${threshold} min threshold; a negative age means the timestamp is in the future — clock skew). A live session may own this run; note a long silent stage is indistinguishable from a dead one at this threshold. --force only if you have confirmed the owning process is dead"
+  fi
+  local stage
+  stage=$(jq -r '.currentStage // 1' <<< "$current")
+  if [[ "$release" -ne 1 ]]; then
+    jq -n --arg k "$key" --argjson stage "$stage" --arg age "$age_min" \
+      --argjson stale "$stale" --argjson forced "$([[ "$force" -eq 1 ]] && echo true || echo false)" '{
+      ticketKey: $k, stale: $stale, forced: $forced, verdict: "resumable", resumableFromStage: $stage,
+      ageMin: (($age | tonumber?) // $age),
+      resume: "re-invoke /dev-pipeline:run \($k) — crash recovery resumes from currentStage",
+      release: "statectl reclaim \($k) --release, then swap the tracker labels (in-progress -> queue) via the bot wrapper"
+    }' || { EXIT_CODE=2 die "reclaim: verdict JSON emission failed"; }
+    return 0
+  fi
+  local state released
+  state=$(state_path "$key")
+  released="$(dirname "$state")/$(basename "$state" .json)-released-$(now_iso | tr -d ':').json"
+  mv "$state" "$released" \
+    || { EXIT_CODE=2 die "reclaim: could not quarantine state file $state"; }
+  jq -n --arg k "$key" --arg to "$(basename "$released")" '{
+    ticketKey: $k, released: true, quarantinedTo: $to,
+    remaining: "tracker labels (in-progress -> queue) via the bot wrapper, and remove any leftover worktree — statectl does no network/worktree IO"
+  }'
+}
+
 cmd_comment_add() {
   # Record a posted stage comment's URL as completion evidence:
   # `.comments.<marker> = <url>` (marker from the generated stage-marker enum).
@@ -2250,6 +2342,7 @@ main() {
     mutation-audit-set)     cmd_mutation_audit_set "$@" ;;
     skill-load-add)         cmd_skill_load_add "$@" ;;
     comment-add)            cmd_comment_add "$@" ;;
+    reclaim)                cmd_reclaim "$@" ;;
     stage-substatus)        cmd_stage_substatus "$@" ;;
     intake-brief)           cmd_intake_brief "$@" ;;
     plan-review-set)        cmd_plan_review_set "$@" ;;
