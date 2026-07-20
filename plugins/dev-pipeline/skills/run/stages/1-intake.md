@@ -83,7 +83,7 @@ ISSUE=$(gh issue list --label "$QUEUE_LABEL" --json number,title --limit 10 --jq
 2. Verify via REST: `gh api "repos/{owner}/{repo}/issues/$ISSUE_NUMBER" --jq '{labels: [.labels[].name]}'`
    - Assert: `$QUEUE_LABEL` is gone, `$CLAIMED_LABEL` is present
    - If any check fails: undo mutations (add `$QUEUE_LABEL` back first, then remove `$CLAIMED_LABEL` — same add-before-remove safety), exit — another runner claimed it. (This post-verify undo reverses mutations that _did_ apply; it is distinct from the step-1 pre-DELETE failed-add abort, which is a bare stop because nothing was mutated yet.)
-3. Post claim comment (REST form per SKILL.md Bot Identity) with `run_id` and `stage: claimed`.
+3. Post claim comment (REST form per SKILL.md Bot Identity) with `run_id` and `stage: claimed`. Record the receipt from the response's `html_url`: `"$STATECTL" comment-add "$ISSUE_NUMBER" --marker claimed --url <html_url>` — Stage-1 completion refuses without it (as with the `intake` marker; see the verdict table).
 4. Read full issue body via REST: `gh api "repos/{owner}/{repo}/issues/$ISSUE_NUMBER" --jq .body` (+ `/comments`).
 
 **Do-not-pick-up guard:** Before claiming, verify the issue does NOT have any of the **blocker labels** (`$BLOCKER_LABELS`, resolved above — default `epic`, `needs-intake-review`, `needs-spec-work`, `needs-plan-review`). These labels block auto-pickup. The `gh issue list --label "$QUEUE_LABEL"` query implicitly excludes them (since the queue label is removed when these labels are added), but verify after claiming in case of a race condition.
@@ -165,6 +165,8 @@ The skill loads orchestration instructions into the current session — the call
 | `stacked-prs` | Posts decomposition plan as comment (≤3 ordered slices). `stage: intake`, `status: stacked-prs-planned`                      | Yes — pipeline enters **outer loop** starting at Stage 2 for slice 1 |
 | Spec fails    | True blockers found. `stage: intake`, `status: failed`                                                                       | **No** — `needs-spec-work` label + `mark-failed(intake-spec-blocked)`, STOP |
 | Escalation    | Orchestrator uncertain. `stage: intake`, `status: needs-human-input`                                                         | **No** — `needs-intake-review` label + `mark-failed(intake-needs-human-input)`, STOP |
+
+**Receipt (proceeding verdicts).** For the verdicts that proceed (`no-split`, `stacked-prs`), record the posted intake comment's URL: `"$STATECTL" comment-add "$ISSUE_NUMBER" --marker intake --url <html_url>` — Stage-1 completion refuses without both the `claimed` and `intake` receipts. Failure-shaped verdicts stop before Stage-1 completion, so no receipt gate applies there.
 
 **Thresholds enforced by the orchestrator:**
 

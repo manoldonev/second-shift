@@ -56,15 +56,20 @@ for s in 1 2 3 4 5 6 7; do
   "$SC" set-stage "$ISSUE_NUMBER" "$s" --status started >/dev/null
   case "$s" in
     1) "$SC" checkpoint "$ISSUE_NUMBER" 1 --json '{"verdict":"no-split","preflight":{"baseBranch":"main","workingTreeClean":true,"guardOutcome":"proceed-clean"}}' >/dev/null
-       "$SC" skill-load-add "$ISSUE_NUMBER" --stage 1 --skill intake-toolkit:intake-orchestrator >/dev/null ;;
+       "$SC" skill-load-add "$ISSUE_NUMBER" --stage 1 --skill intake-toolkit:intake-orchestrator >/dev/null
+       "$SC" comment-add "$ISSUE_NUMBER" --marker claimed --url "https://github.example/c/claimed" >/dev/null
+       "$SC" comment-add "$ISSUE_NUMBER" --marker intake --url "https://github.example/c/intake" >/dev/null ;;
+    3) "$SC" comment-add "$ISSUE_NUMBER" --marker plan --url "https://github.example/c/plan" >/dev/null ;;
     4) "$SC" plan-review-set "$ISSUE_NUMBER" --overall pass >/dev/null ;;
     5) "$SC" checkpoint "$ISSUE_NUMBER" 5 --json '{"changedFiles":[]}' >/dev/null ;;
     6) for rr in be fe ml; do "$SC" verify-summary-set "$ISSUE_NUMBER" --repo "$rr" --json '{"format":"clean","test":"passed"}' >/dev/null; done ;;   # test key: the #98 content gate refuses a summary with no verifying lane run
-    7) "$SC" checkpoint "$ISSUE_NUMBER" 7 --json "{\"ticketKey\":\"$ISSUE_NUMBER\",\"branch\":\"claude/x-be\",\"headSha\":\"$(git -C "$ROOT/wt/be" rev-parse HEAD)\",\"worktreePath\":\"wt/be\",\"deviations\":[]}" >/dev/null ;;
+    7) "$SC" checkpoint "$ISSUE_NUMBER" 7 --json "{\"ticketKey\":\"$ISSUE_NUMBER\",\"branch\":\"claude/x-be\",\"headSha\":\"$(git -C "$ROOT/wt/be" rev-parse HEAD)\",\"worktreePath\":\"wt/be\",\"deviations\":[]}" >/dev/null
+       "$SC" comment-add "$ISSUE_NUMBER" --marker doc-update --url "https://github.example/c/doc-update" >/dev/null ;;
   esac
   "$SC" set-stage "$ISSUE_NUMBER" "$s" --status completed >/dev/null
 done
 "$SC" review-rounds "$ISSUE_NUMBER" --set 1 >/dev/null   # primary review done
+"$SC" comment-add "$ISSUE_NUMBER" --marker code-review --url "https://github.example/c/code-review" >/dev/null   # its mandated terminating comment
 "$SC" set-stage "$ISSUE_NUMBER" 8 --status started >/dev/null
 
 statectl.sh() { "$SC" "$@"; }
