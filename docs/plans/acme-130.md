@@ -29,6 +29,8 @@ The issue frames this as ladder rung 2 — the script should own the computation
 | D-8 | Can a grep-token test satisfy AC-4? | No — add a real throwaway-git-fixture behavioral test, with token guards on top | codebase-derived |
 | D-9 | Is the two-dot `--stat` at `stages/8-code-review.md:85` in scope? | Yes — in scope by AC-1's letter | codebase-derived |
 | D-10 | What about the remaining stage-level two-dot ranges? | Confirmed safe and recorded in the AC-5 audit; not modified | codebase-derived |
+| D-11 | `$BASE`/`$HEAD` are undefined in the Stage-8 single-repo lane — define or leave? | Define them explicitly via merge-base in that lane | codebase-derived |
+| D-12 | How do the drift-guard greps match the range tokens? | Pin fixed-string mode (`grep -F`) at every guard site | codebase-derived |
 
 **Rationale.**
 
@@ -49,6 +51,10 @@ The issue frames this as ladder rung 2 — the script should own the computation
 **D-8.** AC-4 requires asserting "the constructed range excludes base-only commits" — a token grep cannot demonstrate that. A throwaway `git init` fixture with an ahead base can, and it also pins AC-2's equivalence claim.
 
 **D-9.** `stages/8-code-review.md:85` builds `changedFiles`, which rides in the *same reviewer prompt* as the range (`code-review.mjs:229`, `:239`). Fixing only the script would leave the prompt's `Changed files:` line listing base-only files — AC-1 requires the prompt's diff to contain only the branch's own changes, so this is in scope by AC-1's letter, not scope creep.
+
+**D-11.** `stages/8-code-review.md` uses `$BASE` and `$HEAD` at `:85` and `:107` but never assigns them anywhere in its single-repo lane — they are inherited in-session from `5-implement.md:53`. That silent inheritance is a plausible mechanism for run #119's stale ref: a resume or a long session can carry a `$BASE` that no longer reflects the branch point. Since step 5 edits `:85` anyway, defining the pair explicitly (mirroring the be-fe-pair lane's correct `R_MB` derivation at `:245`) closes the gap at its source rather than leaving the corrected range dependent on an undeclared variable.
+
+**D-12.** Adopted as hardening on plan review's recommendation. Note honestly: the specific inversion the reviewer described does not reproduce — with these tokens neither `grep` mode actually cross-matches the two-dot and three-dot forms (checked both directions). But `-F` removes the class of question entirely at zero cost, and these tokens are punctuation-dense (`$`, `{`, `}`, `.`), so fixed-string is the right default regardless of whether today's exact strings happen to be safe.
 
 **D-10.** Three stage-level two-dot ranges survive: `stages/5-implement.md:82`, `stages/7-doc-update.md:40`, and `stages/8-code-review.md:253`. All three are safe because their left operand is *already* a merge-base SHA (`5-implement.md:53` computes `BASE` via `git merge-base`; `7-doc-update.md` and `8-code-review.md:245` use `R_MB`), so three-dot would be a no-op. They are recorded here rather than changed, so AC-5's audit is complete rather than silently partial.
 
@@ -79,7 +85,7 @@ Unverified references: none — every path and line above was read in the pinned
 2. **`design-sync.mjs`** — same two edits (`:293` const, `:169` contract line).
 3. **`unit-tests.mjs`** — three edits: the `:190` range const, the **`:153` `log()` range** (a second two-dot site in the same file), and the `:127` contract line; relax the "git SHAs" wording to "git refs (branch/ref/SHA)" so its contract matches `code-review.mjs`'s. Both range sites must change together — the file must contain zero two-dot forms or the Case D/E guard below goes red.
 4. **`mutation-gate.mjs`** — update the `:83` log range and the `:68` contract line for consistency with the child it dispatches.
-5. **`stages/8-code-review.md`** — change the `--stat` range at `:85` to three-dot so `changedFiles` and the size class match the range the reviewers are given (D-9).
+5. **`stages/8-code-review.md`** — change the `--stat` range at `:85` to three-dot so `changedFiles` and the size class match the range the reviewers are given (D-9). **Also define `$BASE`/`$HEAD` in this lane** (D-11): they are used at `:85` and `:107` but never assigned anywhere in the single-repo lane — they are silently inherited in-session from `5-implement.md:53`. Add an explicit merge-base derivation mirroring the be-fe-pair lane's already-correct `R_MB` pattern (`:245`).
 6. **`null-reviewer-selftest.mjs`** — add `` `${base}...${head}` `` to the Case-F token list so the drift guard fails if production reverts to two-dot.
 7. **`tools/diff-range-selftest.sh` [NEW]** — behavioral fixture + drift guards (below).
 
@@ -91,8 +97,8 @@ Verify-after (infra/behavior-preserving-at-the-contract-level change); the new s
 
 - **Case A (AC-1, the bug):** build a throwaway `git init` fixture — a base commit, a branch commit touching `feature.txt`, then an *ahead* base commit touching `unrelated.txt`. Assert `git diff base...head --name-only` yields **only** `feature.txt`, and assert `git diff base..head --name-only` **does** include `unrelated.txt` (proving the fixture genuinely reproduces the bug — a fixture that cannot fail the old way proves nothing).
 - **Case B (AC-2):** with `MB=$(git merge-base base head)`, assert `git diff $MB...head --name-only` equals `git diff $MB..head --name-only` — explicit-SHA callers are unaffected.
-- **Case C–E (drift guards):** assert `code-review.mjs`, `design-sync.mjs`, `unit-tests.mjs` and `mutation-gate.mjs` each carry the three-dot form and contain **zero** occurrences of `` `${base}..${head}` ``. The guard is **scoped to exactly these four files** — the two eval probes (D-5) intentionally retain two-dot, so a repo-wide assertion would be wrong. Note `unit-tests.mjs` has *two* sites (`:153`, `:190`); the zero-occurrence form catches a partial fix that a "carries three-dot" check alone would pass.
-- **Case F (AC-5 registration):** assert `plan-review.mjs` still constructs no range, so its confirmed-unaffected status is mechanically re-checked rather than trusted to this plan's prose.
+- **Case C–E (drift guards):** assert `code-review.mjs`, `design-sync.mjs`, `unit-tests.mjs` and `mutation-gate.mjs` each carry the three-dot form and contain **zero** occurrences of `` `${base}..${head}` ``. All guard greps use **`grep -F`** (D-12). The guard is **scoped to exactly these four files** — the two eval probes (D-5) intentionally retain two-dot, so a repo-wide assertion would be wrong. Note `unit-tests.mjs` has *two* sites (`:153`, `:190`); the zero-occurrence form catches a partial fix that a "carries three-dot" check alone would pass.
+- **Case G (AC-5 registration):** assert `plan-review.mjs` still constructs no range, so its confirmed-unaffected status is mechanically re-checked rather than trusted to this plan's prose. (Named `G`, not `F`, to avoid colliding with the existing Case F drift-guard in `null-reviewer-selftest.mjs`, which step 6 also edits.)
 - Fixture is created under `mktemp -d` and removed on exit; degrades to SKIP if `git` is unavailable.
 
 Unit-test surface: **skip** — this repo configures `commands.second-shift.unitTestScope: null`, so there is no mutation surface.
@@ -113,6 +119,17 @@ Unit-test surface: **skip** — this repo configures `commands.second-shift.unit
 find . -name '*.sh' -type f -print0 | xargs -0 shellcheck -e SC1091,SC2015,SC2181
 find . -name '*.json' -type f -print0 | xargs -0 -n1 jq empty
 find . -name '*-selftest.sh' -type f -print0 | xargs -0 -n1 -I{} env SKIP_STRESS=1 bash {}
+# repo CI gates that specifically police a plugins/** PR:
+bash scripts/check-frozen-files.sh
+bash scripts/check-changelog-trailer.sh
+```
+
+**Release-artifact discipline.** This PR must NOT touch `plugins/*/.claude-plugin/plugin.json` `version`, `CHANGELOG.md`, or `.claude-plugin/marketplace.json` `metadata.version` — those are derived on the release PR and a feature PR touching them is rejected by `scripts/check-frozen-files.sh`. Changelog intent rides a commit trailer instead:
+
+```
+Changelog: reviewer prompts now describe a three-dot diff range, so a review branch
+  is never reported as deleting commits that only exist on its base branch.
+  Migration: none.
 ```
 
 ## Risks / rollback notes
