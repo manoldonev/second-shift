@@ -14,6 +14,14 @@
 #      `non-functional | infra-only | covered-by-selftest | covered-by-render-verify`.
 #   3. When <state-path> is given and carries a non-empty `acceptanceCriteria[]`
 #      (the Stage-1 snapshot): table rows ⇄ snapshot ids exactly 1:1.
+#   4. Decision Ledger provenance legality: a `| D-n |` row carrying a
+#      human-attributed provenance (`user-answered` / `user-delegated`) is a
+#      hard FAIL unless the backing `{issue}-ledger.md` — the sibling of the
+#      passed <state-path> — exists. `codebase-derived` / `deferred` rows pass
+#      unconditionally, and an absent ledger section (or the explicit empty
+#      form) is untouched by this check (the section stays advisory, below).
+#      Fail-closed when human-attributed rows are present but no <state-path>
+#      was given to resolve the ledger context.
 #
 # Degradation: no state path / pre-schema state / empty `acceptanceCriteria[]`
 # → checks 1-2 only. An empty table under a present traceability header with an
@@ -135,6 +143,57 @@ if [[ -n "$STATE" ]]; then
     fi
   fi
   # Empty/absent snapshot → structure-only by design (pre-schema resumes, no-AC runs).
+fi
+
+# ---- Check 4: Decision Ledger provenance legality ---------------------------
+# Human-attributed provenance (user-answered / user-delegated) asserts a human
+# made the call. In-pipeline that is legitimate ONLY when a pre-flight
+# /plan-interview wrote the backing {issue}-ledger.md; the autonomous contract
+# forbids prompting mid-run, so a run authoring such a row with no backing file is
+# the fabrication class this check closes (a run negotiating its provenance to
+# satisfy a gate). codebase-derived / deferred rows pass unconditionally, and a
+# plan that omits the ledger (or uses the explicit empty form) is untouched here —
+# the section stays advisory (below), NOT a mandated hard-gated section.
+#
+# mirror of interviewing-baseline provenance enum — the HUMAN-ATTRIBUTED SUBSET;
+# keep in lockstep with plan-interview/tools/ledger-lint.sh's PROVENANCE_ENUM. If
+# #147 adds an operator-attributed value, it joins this subset here too.
+HUMAN_PROVENANCE='user-answered|user-delegated'
+# The backing ledger is the SIBLING of the state file: both live in the main-repo
+# .claude/pipeline-state/, keyed by the same issue number ({issue}.json /
+# {issue}-ledger.md). Derived from <state-path> — no extra argument, no call-site
+# change. Empty when no state path was passed (fail-closed branch below).
+LEDGER_FILE=""
+[[ -n "$STATE" ]] && LEDGER_FILE="$(dirname "$STATE")/$(basename "$STATE" .json)-ledger.md"
+
+declare -a HUMAN_ROWS=()
+while IFS= read -r line; do
+  masked="${line//\\|/${PIPE_SENTINEL:-__PLAN_LINT_PIPE__}}"
+  IFS='|' read -r -a cells <<< "$masked"
+  # cells[1] is the anchored `D-n` id (the row grep guarantees it). Scan every
+  # OTHER cell for a cell whose ENTIRE trimmed content is a human-attributed
+  # provenance token — not just cells[4] — so a malformed (wrong-column-count) row
+  # cannot smuggle a human provenance past the gate (in-pipeline ledger-lint.sh
+  # does not run, so this is the only gate). The `^...$` anchor keeps prose that
+  # merely mentions the enum from false-positiving — only a bare-token cell matches.
+  did="$(trim "${cells[1]}")"
+  human=0
+  for (( ci = 2; ci < ${#cells[@]}; ci++ )); do
+    [[ "$(trim "${cells[ci]}")" =~ ^(${HUMAN_PROVENANCE})$ ]] && { human=1; break; }
+  done
+  (( human == 1 )) && HUMAN_ROWS+=("$did")
+done < <(grep -E '^\|[[:space:]]*D-[0-9]+[[:space:]]*\|' "$PLAN" || true)
+
+if (( ${#HUMAN_ROWS[@]} > 0 )); then
+  if [[ -n "$LEDGER_FILE" && -f "$LEDGER_FILE" ]]; then
+    : # backed by a pre-flight ledger — the human-attributed rows are legitimate
+  elif [[ -n "$LEDGER_FILE" ]]; then
+    violate "Decision Ledger row(s) ${HUMAN_ROWS[*]} carry human-attributed provenance (${HUMAN_PROVENANCE//|/ / }) but no backing ledger file exists at $LEDGER_FILE — an autonomous run may only use codebase-derived/deferred (run /plan-interview pre-flight to author human-attributed rows)"
+  else
+    # No state path ⇒ the ledger context is unresolvable. Fail closed rather than
+    # silently no-op: the #110 fabrication happened on a crash-recovery resume.
+    violate "Decision Ledger row(s) ${HUMAN_ROWS[*]} carry human-attributed provenance (${HUMAN_PROVENANCE//|/ / }) but no state path was given to resolve the backing {issue}-ledger.md (fail-closed)"
+  fi
 fi
 
 # ---- Advisory: Decision Ledger presence (never a violation) -------------------
