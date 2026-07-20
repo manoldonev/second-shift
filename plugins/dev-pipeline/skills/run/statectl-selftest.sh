@@ -74,13 +74,15 @@ complete_stage() {
   local key="$1" n="$2"
   sct set-stage "$key" "$n" --status started >/dev/null
   case "$n" in
-    1) sct checkpoint "$key" 1 --json '{"verdict":"no-split","preflight":{"baseBranch":"main","workingTreeClean":true,"guardOutcome":"proceed-clean"}}' >/dev/null ;;
+    1) sct checkpoint "$key" 1 --json '{"verdict":"no-split","preflight":{"baseBranch":"main","workingTreeClean":true,"guardOutcome":"proceed-clean"}}' >/dev/null
+       sct skill-load-add "$key" --stage 1 --skill intake-toolkit:intake-orchestrator >/dev/null ;;
     2) sct worktree-set "$key" --path ".claude/worktrees/acme-$key" --branch "claude/acme-$key" >/dev/null ;;
     4) sct plan-review-set "$key" --overall pass >/dev/null ;;
     5) sct checkpoint "$key" 5 --json '{"changedFiles":[]}' >/dev/null ;;
     6) sct verify-summary-set "$key" --json '{"format":"clean","test":"passed"}' >/dev/null ;;
     7) sct checkpoint "$key" 7 --json "$VALID_PAYLOAD" >/dev/null ;;
-    8) sct review-rounds "$key" --set 1 >/dev/null ;;
+    8) sct review-rounds "$key" --set 1 >/dev/null
+       sct skill-load-add "$key" --stage 8 --skill review-toolkit:review-lead >/dev/null ;;
   esac
   sct set-stage "$key" "$n" --status completed >/dev/null
 }
@@ -1579,7 +1581,9 @@ sct checkpoint 9999 1 --json '{"verdict":"no-split"}' >/dev/null
 err_nopf=$(sct_err set-stage 9999 1 --status completed)
 rc_nopf=$(sct_rc set-stage 9999 1 --status completed)
 # well-formed preflight with workingTreeClean:FALSE → completion ALLOWED
+# (skill-load evidence recorded — the skill-load leg has its own (sl*) cases)
 sct checkpoint 9999 1 --json '{"verdict":"no-split","preflight":{"baseBranch":"main","workingTreeClean":false,"guardOutcome":"proceed-dirty-warn"}}' >/dev/null
+sct skill-load-add 9999 --stage 1 --skill intake-toolkit:intake-orchestrator >/dev/null
 rc_ok=$(sct_rc set-stage 9999 1 --status completed)
 if [[ "$rc_nockpt" == "1" && "$err_nockpt" == *'stageCheckpoint["1"] is missing'* \
       && "$rc_nopf" == "1" && "$err_nopf" == *'preflight is missing or malformed'* \
@@ -1664,6 +1668,7 @@ reset_state
 sct init 9999 --run-id "selftest-run-$$" >/dev/null
 sct set-stage 9999 1 --status started >/dev/null
 sct checkpoint 9999 1 --json '{"verdict":"no-split","designDriven":true,"preflight":{"baseBranch":"main","workingTreeClean":true,"guardOutcome":"proceed-clean"}}' >/dev/null
+sct skill-load-add 9999 --stage 1 --skill intake-toolkit:intake-orchestrator >/dev/null
 sct set-stage 9999 1 --status completed >/dev/null
 for n in 2 3 4; do complete_stage 9999 "$n"; done
 sct set-stage 9999 5 --status started >/dev/null
@@ -1732,6 +1737,7 @@ sct set-stage 9999 8 --status started >/dev/null
 rc=$(sct_rc set-stage 9999 8 --status completed)
 err=$(sct_err set-stage 9999 8 --status completed)
 sct review-rounds 9999 --set 1 >/dev/null
+sct skill-load-add 9999 --stage 8 --skill review-toolkit:review-lead >/dev/null
 rc2=$(sct_rc set-stage 9999 8 --status completed)
 if [[ "$rc" == "1" && "$err" == *"no codeReviewRounds recorded"* && "$rc2" == "0" ]]; then
   pass "(sc6) stage-8 completion precondition — refused without review-rounds, allowed with"
@@ -1748,6 +1754,74 @@ if [[ "$rc" == "0" ]]; then
   pass "(sc7) --force bypasses completion precondition"
 else
   fail "(sc7) --force bypass — rc=$rc"
+fi
+
+# (sl1) stage-1 skill-load evidence gate: well-formed checkpoint but NO recorded
+# intake-orchestrator load and no inline-approved carve-out → refused; recording
+# the load allows completion.
+reset_state
+sct init 9999 --run-id "selftest-run-$$" >/dev/null
+sct set-stage 9999 1 --status started >/dev/null
+sct checkpoint 9999 1 --json '{"verdict":"no-split","preflight":{"baseBranch":"main","workingTreeClean":true,"guardOutcome":"proceed-clean"}}' >/dev/null
+err_noload=$(sct_err set-stage 9999 1 --status completed)
+rc_noload=$(sct_rc set-stage 9999 1 --status completed)
+sct skill-load-add 9999 --stage 1 --skill intake-toolkit:intake-orchestrator >/dev/null
+rc_loaded=$(sct_rc set-stage 9999 1 --status completed)
+if [[ "$rc_noload" == "1" && "$err_noload" == *"intake-toolkit:intake-orchestrator is not in stages.1.skillsLoaded"* && "$rc_loaded" == "0" ]]; then
+  pass "(sl1) stage-1 skill-load gate — unrecorded load refused, recorded load allowed"
+else
+  fail "(sl1) stage-1 skill-load gate — rc_noload=$rc_noload rc_loaded=$rc_loaded err='$err_noload'"
+fi
+
+# (sl1b) the interactive-only inline-approved carve-out: intakeMode recorded in
+# the checkpoint → completion allowed with no skill load.
+reset_state
+sct init 9999 --run-id "selftest-run-$$" >/dev/null
+sct set-stage 9999 1 --status started >/dev/null
+sct checkpoint 9999 1 --json '{"verdict":"no-split","intakeMode":"inline-approved","preflight":{"baseBranch":"main","workingTreeClean":true,"guardOutcome":"proceed-clean"}}' >/dev/null
+rc_inline=$(sct_rc set-stage 9999 1 --status completed)
+if [[ "$rc_inline" == "0" ]]; then
+  pass "(sl1b) stage-1 skill-load gate — intakeMode inline-approved carve-out allowed"
+else
+  fail "(sl1b) inline-approved carve-out — rc=$rc_inline"
+fi
+
+# (sl2) stage-8 skill-load evidence gate: rounds recorded but review-lead not
+# loaded → refused; recorded → allowed. Second walk: --force bypasses.
+reset_state
+sct init 9999 --run-id "selftest-run-$$" >/dev/null
+for n in 1 2 3 4 5 6 7; do complete_stage 9999 "$n"; done
+sct set-stage 9999 8 --status started >/dev/null
+sct review-rounds 9999 --set 1 >/dev/null
+err_norl=$(sct_err set-stage 9999 8 --status completed)
+rc_norl=$(sct_rc set-stage 9999 8 --status completed)
+sct skill-load-add 9999 --stage 8 --skill review-toolkit:review-lead >/dev/null
+rc_rl=$(sct_rc set-stage 9999 8 --status completed)
+reset_state
+sct init 9998 --run-id "selftest-run-$$" >/dev/null
+for n in 1 2 3 4 5 6 7; do complete_stage 9998 "$n"; done
+sct set-stage 9998 8 --status started >/dev/null
+sct review-rounds 9998 --set 1 >/dev/null
+rc_forced=$(sct_rc set-stage 9998 8 --status completed --force)
+if [[ "$rc_norl" == "1" && "$err_norl" == *"review-toolkit:review-lead is not in stages.8.skillsLoaded"* && "$rc_rl" == "0" && "$rc_forced" == "0" ]]; then
+  pass "(sl2) stage-8 skill-load gate — unrecorded refused, recorded allowed, --force bypasses"
+else
+  fail "(sl2) stage-8 skill-load gate — rc_norl=$rc_norl rc_rl=$rc_rl rc_forced=$rc_forced err='$err_norl'"
+fi
+
+# (sl3) skill-load-add validation + dedupe: unqualified/malformed names and
+# out-of-range stages rejected; a repeat add stays deduped.
+reset_state
+sct init 9999 --run-id "selftest-run-$$" >/dev/null
+rc_noqual=$(sct_rc skill-load-add 9999 --stage 1 --skill orchestrator)
+rc_upper=$(sct_rc skill-load-add 9999 --stage 1 --skill "Intake:Orchestrator")
+rc_badstage=$(sct_rc skill-load-add 9999 --stage 0 --skill intake-toolkit:intake-orchestrator)
+sct skill-load-add 9999 --stage 1 --skill intake-toolkit:intake-orchestrator >/dev/null
+dedup=$("$STATECTL" skill-load-add 9999 --stage 1 --skill intake-toolkit:intake-orchestrator 2>/dev/null)
+if [[ "$rc_noqual" == "1" && "$rc_upper" == "1" && "$rc_badstage" == "1" && "$dedup" == '["intake-toolkit:intake-orchestrator"]' ]]; then
+  pass "(sl3) skill-load-add — malformed name/stage rejected, repeat add deduped"
+else
+  fail "(sl3) skill-load-add validation — rc_noqual=$rc_noqual rc_upper=$rc_upper rc_badstage=$rc_badstage dedup='$dedup'"
 fi
 
 # (mcg1) mark-completed with an incomplete stage → refused, names the gaps
@@ -2370,6 +2444,7 @@ sct init 9999 --run-id "selftest-run-$$" >/dev/null
 sct set-stage 9999 1 --status started >/dev/null
 got_inprogress=$(sct get 9999 '.stages."1".status')
 sct checkpoint 9999 1 --json '{"verdict":"no-split","preflight":{"baseBranch":"main","workingTreeClean":true,"guardOutcome":"proceed-clean"}}' >/dev/null   # stage-1 completion evidence (well-formed preflight)
+sct skill-load-add 9999 --stage 1 --skill intake-toolkit:intake-orchestrator >/dev/null
 sct set-stage 9999 1 --status completed >/dev/null
 got_completed=$(sct get 9999 '.stages."1".status')
 sct set-stage 9999 2 --status started >/dev/null
@@ -2413,6 +2488,7 @@ if [[ "${SKIP_STRESS:-0}" != "1" ]]; then
   sct init 9999 --run-id "selftest-run-$$" >/dev/null
   sct set-stage 9999 1 --status started >/dev/null
   sct checkpoint 9999 1 --json '{"verdict":"no-split","preflight":{"baseBranch":"main","workingTreeClean":true,"guardOutcome":"proceed-clean"}}' >/dev/null   # evidence (well-formed preflight), so the write path actually runs
+  sct skill-load-add 9999 --stage 1 --skill intake-toolkit:intake-orchestrator >/dev/null
   before_hash=$(shasum .claude/pipeline-state/9999.json | awk '{print $1}')
   STATECTL_TEST_PAUSE_BEFORE_MV=1 \
     "$STATECTL" set-stage 9999 1 --status completed >/dev/null 2>&1 &

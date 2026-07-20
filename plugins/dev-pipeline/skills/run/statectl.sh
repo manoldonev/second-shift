@@ -37,6 +37,7 @@
 #   statectl.sh review-rounds <issue-number> --set <1-3> [--exhausted] [--force]
 #   statectl.sh deviations-add <issue-number> --kind <enum> --note <s> [--plan-section <s>] [--file <f>] [--line <n>] [--stage <N>] [--force]
 #   statectl.sh verify-attempts <issue-number> --incr <FAILURE_CLASS> [--force]
+#   statectl.sh skill-load-add <issue-number> --stage <N> --skill <plugin:skill> [--force]
 #   statectl.sh intake-brief <issue-number> --brief-path <path|null> --acceptance-criteria '<json-array>'
 #   statectl.sh plan-review-set <issue-number> --overall <pass|fix-and-go> [--force]
 #   statectl.sh verify-summary-set <issue-number> --json <verifySummary> [--force]
@@ -338,6 +339,16 @@ stage_completion_preconditions() {
         || { EXIT_CODE=1 die "set-stage: cannot complete stage 1 — stageCheckpoint[\"1\"] is missing (write the Stage-1 checkpoint first); --force for crash-recovery"; }
       preflight_wellformed "$(jq -c '(.stageCheckpoint // {})["1"].preflight' <<< "$current")" \
         || { EXIT_CODE=1 die "set-stage: cannot complete stage 1 — stageCheckpoint[\"1\"].preflight is missing or malformed (needs {baseBranch: non-empty string, workingTreeClean: boolean, guardOutcome: non-empty string} — workingTreeClean:false IS valid, the dirty-tree WARN-and-proceed state); --force for crash-recovery"; }
+      # Skill-load evidence: the mandated intake-orchestrator load must be
+      # recorded (skill-load-add) unless the run took the interactive-only
+      # inline path, which the checkpoint already attests as
+      # intakeMode == "inline-approved". Prose alone did not hold: a run once
+      # improvised the orchestration inline and nothing noticed. Self-reported
+      # evidence, but strictly better than none — the audit ledger stays the
+      # independent cross-check (pipeline-retro Step 3).
+      jq -e '((.stages["1"].skillsLoaded // []) | index("intake-toolkit:intake-orchestrator") != null)
+             or ((.stageCheckpoint // {})["1"].intakeMode == "inline-approved")' <<< "$current" >/dev/null \
+        || { EXIT_CODE=1 die "set-stage: cannot complete stage 1 — intake-toolkit:intake-orchestrator is not in stages.1.skillsLoaded[] and intakeMode is not \"inline-approved\" (load the skill and record it via skill-load-add, or record the operator-approved inline path in the checkpoint); --force for crash-recovery"; }
       ;;
     2)
       jq -e '(.worktreePath | type == "string" and length > 0) and (.branch | type == "string" and length > 0)' <<< "$current" >/dev/null \
@@ -399,6 +410,14 @@ stage_completion_preconditions() {
              or ((.crossBoundaryReviews // []) | length > 0)
              or ((.skippedReviews // []) | length > 0)' <<< "$current" >/dev/null \
         || { EXIT_CODE=1 die "set-stage: cannot complete stage 8 — no codeReviewRounds recorded and no crossBoundaryReviews/skippedReviews entry (run the review loop and record the round count via review-rounds, or — for a be-fe-pair dual-target secondary repo, #48 — record the cross-boundary handoff/skip); --force for crash-recovery"; }
+      # Skill-load evidence: an in-repo review round mandates review-lead for
+      # synthesis (SKILL.md "Stage 8 skill loadout"); the be-fe-pair
+      # cross-boundary/skip paths carry their own evidence and are exempt, as
+      # in the round-count gate above.
+      jq -e '((.stages["8"].skillsLoaded // []) | index("review-toolkit:review-lead") != null)
+             or ((.crossBoundaryReviews // []) | length > 0)
+             or ((.skippedReviews // []) | length > 0)' <<< "$current" >/dev/null \
+        || { EXIT_CODE=1 die "set-stage: cannot complete stage 8 — review-toolkit:review-lead is not in stages.8.skillsLoaded[] (load it for synthesis and record it via skill-load-add before closing the stage); --force for crash-recovery"; }
       ;;
   esac
   return 0
@@ -1962,6 +1981,47 @@ cmd_mutation_audit_set() {
   atomic_write "$key" "$new_state"
 }
 
+cmd_skill_load_add() {
+  # Record a mandated skill load as stage-completion evidence:
+  # `.stages.N.skillsLoaded[]` (deduped append). Written at the point of load —
+  # Stage 1's intake-orchestrator and Stage 8's review-lead completion
+  # preconditions read it (stage_completion_preconditions). Self-reported by
+  # design: the harness has no load attestation, so this converts "prose
+  # mandate, silently skippable" into "recorded evidence, mechanically gated" —
+  # with the session audit ledger as the independent cross-check.
+  #
+  # Usage:
+  #   statectl skill-load-add <issue-number> --stage N --skill <plugin:skill> [--force]
+  local key_arg="${1:-}"; shift || true
+  local n="" skill="" force=0
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --stage) n="${2:-}"; shift 2 ;;
+      --skill) skill="${2:-}"; shift 2 ;;
+      --force) force=1; shift ;;
+      *) EXIT_CODE=3 die "skill-load-add: unknown arg '$1'" ;;
+    esac
+  done
+  [[ -n "$key_arg" && -n "$n" && -n "$skill" ]] \
+    || { EXIT_CODE=3 die "skill-load-add: missing <issue-number> --stage N --skill <plugin:skill>"; }
+  [[ "$n" =~ ^[1-9]$ ]] || { EXIT_CODE=1 die "skill-load-add: --stage must be in {1..9}, got '$n'"; }
+  [[ "$skill" =~ ^[a-z0-9][a-z0-9-]*:[a-z0-9][a-z0-9-]*$ ]] \
+    || { EXIT_CODE=1 die "skill-load-add: --skill must be a qualified plugin:skill name (lowercase/digits/hyphens), got '$skill'"; }
+  local current
+  current=$(read_state "$key_arg") || exit $?
+  require_mutable "$current" "$force" "skill-load-add"
+  local now
+  now=$(now_iso)
+  local new_state
+  new_state=$(jq --arg n "$n" --arg s "$skill" --arg now "$now" '
+    .stages[$n] = (.stages[$n] // {})
+    | .stages[$n].skillsLoaded = (((.stages[$n].skillsLoaded // []) + [$s]) | unique)
+    | .lastUpdatedAt = $now
+  ' <<< "$current") || { EXIT_CODE=2 die "skill-load-add: jq mutation failed"; }
+  atomic_write "$key_arg" "$new_state"
+  jq -c --arg n "$n" '.stages[$n].skillsLoaded' <<< "$new_state"
+}
+
 cmd_stage_substatus() {
   # Write a mid-stage sub-status into `.stages.N.<key>`. the pipeline's FIRST stages.N.*
   # sub-status mechanism (no figmaPlanReview/apiTestImplement precedent here).
@@ -2044,6 +2104,7 @@ main() {
     slice-set)              cmd_slice_set "$@" ;;
     unit-test-surface-set)  cmd_unit_test_surface_set "$@" ;;
     mutation-audit-set)     cmd_mutation_audit_set "$@" ;;
+    skill-load-add)         cmd_skill_load_add "$@" ;;
     stage-substatus)        cmd_stage_substatus "$@" ;;
     intake-brief)           cmd_intake_brief "$@" ;;
     plan-review-set)        cmd_plan_review_set "$@" ;;
