@@ -42,7 +42,7 @@ Idioms below are illustrated with a common matcher vocabulary; use your test fra
 
 The reviewer **proposes**; the sequencer **executes**. The mutation reviewer agent does NOT apply mutants or run the test command — keeping execution out of the schema-forced agent turn is what prevents a StructuredOutput staller. The agent emits machine-applicable patches; the sequencer executes each blocker patch via a sequential **schema-free** executor agent (apply via Edit → run the spec → revert → emit a plain-text `MUTANT_RESULT` line parsed in JS) and computes the verdict deterministically — the pipeline session never applies/runs/reverts mutants itself.
 
-The mutation stage runs after all commits land, so the worktree is clean — use `git diff <base>..<head>` (an explicit commit range from the dispatching stage), not `git diff HEAD`. Scope mutants to lines changed in that range only.
+The mutation stage runs after all commits land, so the worktree is clean — use `git diff <base>...<head>` (an explicit commit range from the dispatching stage), not `git diff HEAD`. Scope mutants to lines changed in that range only. Three dots, not two: three-dot measures from `merge-base(<base>, <head>)`, so commits that landed on the base branch after the branch point stay out of the range. Under two-dot they appear as deletions and you would propose mutants for code this ticket never touched.
 
 For each changed production file in the diff (the **reviewer's** job, propose-only):
 
