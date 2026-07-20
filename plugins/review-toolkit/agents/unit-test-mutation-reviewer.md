@@ -25,14 +25,14 @@ The dispatch prompt and the enforced output schema tell you which mode you are i
 
 ## Scope
 
-- Production files **changed in the commit range** (`git diff <base>..<head>`) that fall within the repo's mutation-review target surface. `modulesTouched` / `changedFiles` are hints only — the diff is authoritative.
+- Production files **changed in the commit range** (`git diff <base>...<head>` — three dots, so the range is measured from `merge-base(<base>, <head>)` and excludes commits that only landed on the base branch) that fall within the repo's mutation-review target surface. `modulesTouched` / `changedFiles` are hints only — the diff is authoritative.
 - Co-located / `test/`-dir specs changed in the same range (plus specs cited for new production lines).
 - Propose mutants only for **lines added or modified in the diff** — do not flag pre-existing test gaps in untouched code.
 - Honor the repo's declared mutation-review scope. If `blocker-mutants.md` (or the consumer config) narrows the surface to a specific language/workspace and excludes others, respect that exclusion — out-of-scope surfaces stay with their own domain / coverage reviewers.
 
 ## Process
 
-1. Run `git diff <base>..<head>` (and `--name-only`) to enumerate this ticket's changes.
+1. Run `git diff <base>...<head>` (and `--name-only`) to enumerate this ticket's changes. Three dots, not two — two-dot renders base-branch commits made after the branch point as deletions, which would have you propose mutants for code this ticket never touched.
 2. Read each changed production file and its spec (if any).
 3. Identify mutation targets per the `mutation-review` skill — **only in diff hunks**.
 4. Propose 5–15 mutants per materially changed module (fewer for tiny diffs).

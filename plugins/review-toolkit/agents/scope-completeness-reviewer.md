@@ -69,9 +69,14 @@ If the issue body has zero extractable items (e.g., empty, or "fix the bug"), em
 ### Step 3: Read the diff
 
 ```bash
-git diff <base>..HEAD --stat
-git diff <base>..HEAD          # or scoped per-file as needed
+git diff <base>...HEAD --stat
+git diff <base>...HEAD         # or scoped per-file as needed
 ```
+
+**Three dots, not two.** Three-dot diffs from `merge-base(<base>, HEAD)`, so you see only this
+branch's own changes. With two dots, every commit that landed on `<base>` after this branch was
+cut renders as a **deletion** — and the branch appears to revert work it never touched. Reporting
+that as a scope failure is a false positive, and it has happened in practice.
 
 Read changed file paths and a short excerpt of the diff for each meaningfully-changed file.
 
