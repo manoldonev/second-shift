@@ -246,6 +246,11 @@ A code-remediable blocker (the diff can be fixed) is unaffected — it stays in 
   - Continue to step 9. The PR is already going to be draft (all PRs are draft) — additionally, on PR creation, apply the `needs-deep-review` label and include the Outstanding Review Blockers section in the body.
   - Comment via `$GH_BOT issue comment`: `stage: code-review`, `status: exhausted-after-3-rounds`.
 
+**Receipt + PR review (every terminating path — clean, exhausted, scope-blocker):**
+
+1. Record the terminating `code-review` comment's URL: `statectl.sh comment-add "$ISSUE" --marker code-review --url <html_url>` — Stage-8 completion refuses without it whenever a primary round ran (`codeReviewRounds >= 1`; the be-fe-pair cross-boundary/skip-only paths post none and are exempt).
+2. File the consolidated report as an actual **PR review** — `$GH_BOT pr review "$PR_NUMBER" --comment --body-file <report>` — not only as prose folded into the PR description by the session being scored. The PR review is the GitHub-native artifact an independent re-scorer and a human reviewer inspect; six reviewers leaving zero PR-side trace is the failure this exists to stop. (Skip only when no PR exists yet on this path — Stage 9 then carries the report into the PR body as before.)
+
 **State:** Write the review counters via `statectl` — clean path: `statectl.sh review-rounds "$ISSUE" --set "$ROUND"` (round count 1–3); exhaustion: `--set 3 --exhausted`. The `--exhausted` flag is additive-only — the subcommand never writes `codeReviewExhausted: false`, so a later plain `--set` cannot reset a recorded exhaustion.
 
 ### be-fe-pair dual-target: secondary-repo review (`.targetRepos` has more than one repo, #48)
