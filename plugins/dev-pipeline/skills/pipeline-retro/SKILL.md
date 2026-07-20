@@ -82,17 +82,27 @@ If a finding is already covered by an open issue: do **not** re-file or silently
 
 Proposing "more prose" for a bent rule is the anti-pattern this ladder exists to stop — prose is what already failed.
 
-Every finding from Steps 2–4 gets exactly one route — **do not leave findings unrouted** (drift-class findings pick their ladder rung first, then land in `Skill-file edit` or `GitHub issue` per size as usual):
+Every finding from Steps 2–4 gets exactly one route — **do not leave findings unrouted** — but **routing is not artifact production**: `Record only` (the retro report itself) satisfies routing, and it is the **default** route. The report is on disk and greppable; a finding that matters will recur and arrive at the next retro with two datapoints instead of one. **A zero-new-issues retro is the expected outcome, not a failure to route.** (Observed failure mode this exists to stop: consecutive retros each minting 2+ speculative issues, growing a backlog faster than it can be burned down.)
+
+**Meaningful-issue bar.** The `GitHub issue` route is legal only when ALL three hold:
+
+1. **Recurred, or actively corrupts** a gate, artifact, or eval — never "could theoretically". One clean occurrence of anything is `Record only`.
+2. **The fix is known.** No "investigate X" issues — an un-root-caused observation is `Record only` until someone (this retro or a later session) has done the five minutes of diagnosis that makes it actionable.
+3. **Not already covered** by an open issue (the dedup step above) — recurrence of a covered finding is a one-line datapoint comment on that issue, which is exactly the signal that bumps its priority.
+
+Drift-class findings pick their ladder rung first, then land in `Record only`, `Skill-file edit`, or `GitHub issue` per the bar and size as usual.
 
 **Approval gate (no-auto-commit):** routing decides _what_ each finding needs; it does **not** authorize the write. Before any git commit, branch push, or GitHub issue/PR creation, **present the proposed routes and get explicit user approval** — then apply only the approved ones. Writing the retro report itself (Step 6, a gitignored `.claude/pipeline-state/` file) and read-only dedup queries need no approval. If running fully unattended (no user to ask), record each actionable route as **proposed** in the report and stop short of the write.
 
-| Route             | When                                                       | Action                                                                                                                                   |
-| ----------------- | ---------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
-| Skill-file edit   | Small doc/contract fix, no design needed                   | On approval: apply (prettier, commit via bot identity), reference the retro in the commit body. Commit on a branch, not the base branch directly. |
-| GitHub issue      | Code/tooling change, design choices, or anything > ~30 min | `$GH_BOT` create issue; label `ready-for-dev` only if genuinely pipeline-able, else leave unlabeled                                      |
-| Doctor check      | Environment friction that pre-flight could catch           | Edit `pipeline-doctor.sh` + its selftest expectations                                                                                    |
-| Criteria proposal | Eval criterion ambiguous/mis-calibrated                    | Proposal text in the report ONLY — never edit `eval-criteria.md`                                                                         |
-| Process note      | Behavioral lapse by the executing model                    | Surface to the user; they decide whether it becomes a CLAUDE.md/skill guardrail                                                          |
+| Route             | When                                                                                        | Action                                                                                                                                   |
+| ----------------- | ------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| Record only       | **Default.** Single occurrence, un-root-caused, or speculative — fails any meaningful-issue bar | Finding stays in the retro report (Step 6). No further artifact. Recurrence at a later retro re-tests the bar with the prior report as evidence. |
+| Datapoint comment | Finding is covered by an open issue and recurred this run                                   | One-line `$GH_BOT` comment on that issue citing this run — the recurrence signal that bumps its priority. Never a new issue.             |
+| Skill-file edit   | Small doc/contract fix, no design needed                                                    | On approval: apply (prettier, commit via bot identity), reference the retro in the commit body. Commit on a branch, not the base branch directly. |
+| GitHub issue      | Passes ALL THREE meaningful-issue bars, and needs code/tooling change or design > ~30 min   | `$GH_BOT` create issue; label `ready-for-dev` only if genuinely pipeline-able, else leave unlabeled                                      |
+| Doctor check      | Environment friction that pre-flight could catch, seen more than once                       | Edit `pipeline-doctor.sh` + its selftest expectations                                                                                    |
+| Criteria proposal | Eval criterion ambiguous/mis-calibrated                                                     | Proposal text in the report ONLY — never edit `eval-criteria.md`                                                                         |
+| Process note      | Behavioral lapse by the executing model                                                     | Surface to the user; they decide whether it becomes a CLAUDE.md/skill guardrail                                                          |
 
 ## Step 6: Write the report
 
