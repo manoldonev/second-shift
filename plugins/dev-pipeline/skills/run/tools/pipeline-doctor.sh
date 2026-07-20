@@ -425,5 +425,32 @@ else
   grep -E 'FAIL ' <<< "$pb" | sed 's/^/[doctor]        /' | head -5
 fi
 
+# --- 8. Stale claims (orphaned in_progress runs) --------------------------------
+# A run stranded by an infra drop (connection loss, 401, killed session) keeps
+# its state in_progress with no owning process and is invisible to the queue.
+# Surface every in_progress state file whose last write is older than 30 min,
+# with the exact reclaim commands. WARN, never FAIL — an environment can be
+# pipeline-ready while a previous run sits orphaned; and doctor has no process-
+# liveness signal, so confirm no live session owns a run before reclaiming.
+STATE_DIR_D="$REPO_ROOT/.claude/pipeline-state"
+[[ -f "$CFG" ]] && STATE_DIR_D="$REPO_ROOT/$(jq -r '.paths.pipelineStateDir // ".claude/pipeline-state"' "$CFG" 2>/dev/null)"
+if [[ -d "$STATE_DIR_D" ]]; then
+  stale_found=0
+  for sf in "$STATE_DIR_D"/*.json; do
+    [[ -f "$sf" ]] || continue
+    stale_line=$(jq -r '
+      select((.runId? | type == "string") and (.stages? | type == "object") and (.status == "in_progress"))
+      | ((now - ((.lastUpdatedAt // empty) | fromdateiso8601? // now)) / 60 | floor) as $age
+      | select($age >= 30)
+      | "\(.ticketKey) stage=\(.currentStage // 1) last-write=\($age)min-ago"
+    ' "$sf" 2>/dev/null)
+    if [[ -n "$stale_line" ]]; then
+      stale_found=1
+      warn "stale claim: #${stale_line} — no liveness signal available; if no session owns it: resume with '/dev-pipeline:run ${stale_line%% *}', or release with statectl reclaim ${stale_line%% *} --release + the in-progress -> queue label swap via the bot wrapper"
+    fi
+  done
+  [[ "$stale_found" == "0" ]] && ok "no stale in_progress claims (>=30 min since last state write)"
+fi
+
 echo "[doctor] summary: $FAILS failed check(s)"
 exit "$FAILS"

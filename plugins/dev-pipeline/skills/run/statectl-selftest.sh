@@ -1910,6 +1910,70 @@ else
   fail "(cr4) comment-add validation — rc_badm=$rc_badm rc_badu=$rc_badu over='$over'"
 fi
 
+# (rec1) reclaim verdict: a stale in_progress run (backdated lastUpdatedAt) is
+# detected READ-ONLY — verdict JSON names the resumable stage, state untouched.
+reset_state
+sct init 9999 --run-id "selftest-run-$$" >/dev/null
+complete_stage 9999 1
+sct set-stage 9999 2 --status started >/dev/null
+jq '.lastUpdatedAt = "2026-01-01T00:00:00Z"' .claude/pipeline-state/9999.json > .claude/pipeline-state/9999.json.tmp \
+  && mv .claude/pipeline-state/9999.json.tmp .claude/pipeline-state/9999.json
+verdict=$("$STATECTL" reclaim 9999 2>/dev/null)
+stale=$(jq -r '.stale' <<< "$verdict"); rstage=$(jq -r '.resumableFromStage' <<< "$verdict")
+status_after=$(sct get 9999 '.status')
+if [[ "$stale" == "true" && "$rstage" == "2" && "$status_after" == "in_progress" ]]; then
+  pass "(rec1) reclaim verdict — stale run detected, resumable stage named, read-only"
+else
+  fail "(rec1) reclaim verdict — stale=$stale rstage=$rstage status_after=$status_after"
+fi
+
+# (rec2) a FRESH in_progress run is refused (age under threshold — a live
+# session may own it); --force overrides for the confirmed-dead case.
+reset_state
+sct init 9999 --run-id "selftest-run-$$" >/dev/null
+err_fresh=$(sct_err reclaim 9999)
+rc_fresh=$(sct_rc reclaim 9999)
+rc_forced=$(sct_rc reclaim 9999 --force)
+if [[ "$rc_fresh" == "1" && "$err_fresh" == *"not stale"* && "$rc_forced" == "0" ]]; then
+  pass "(rec2) reclaim freshness — fresh run refused, --force overrides"
+else
+  fail "(rec2) reclaim freshness — rc_fresh=$rc_fresh rc_forced=$rc_forced err='$err_fresh'"
+fi
+
+# (rec3) --release quarantines the state file ({key}-released-{ts}.json) so a
+# fresh claim re-inits; --threshold-min 0 makes a fresh run immediately stale.
+reset_state
+sct init 9999 --run-id "selftest-run-$$" >/dev/null
+rel=$("$STATECTL" reclaim 9999 --release --threshold-min 0 2>/dev/null)
+released=$(jq -r '.released' <<< "$rel")
+rel_count=$(find .claude/pipeline-state -maxdepth 1 -name '9999-released-*.json' | wc -l | tr -d ' ')
+if [[ "$released" == "true" && ! -f .claude/pipeline-state/9999.json && "$rel_count" == "1" ]]; then
+  pass "(rec3) reclaim --release — state quarantined (renamed, original gone)"
+else
+  fail "(rec3) reclaim --release — released=$released rel_count=$rel_count"
+fi
+rm -f .claude/pipeline-state/9999-released-*.json
+
+# (rec4) terminal states are NOT reclaimable: failed exits by contract (needs a
+# manual clear), completed has nothing to reclaim — even with --force.
+reset_state
+sct init 9999 --run-id "selftest-run-$$" >/dev/null
+sct set-stage 9999 1 --status started >/dev/null
+sct mark-failed 9999 --reason plan-reviewer-block >/dev/null
+err_failed=$(sct_err reclaim 9999 --force --threshold-min 0)
+rc_failed=$(sct_rc reclaim 9999 --force --threshold-min 0)
+reset_state
+sct init 9998 --run-id "selftest-run-$$" >/dev/null
+for n in 1 2 3 4 5 6 7 8 9; do complete_stage 9998 "$n"; done
+write_eval 9998
+sct mark-completed 9998 >/dev/null
+rc_completed=$(sct_rc reclaim 9998 --force --threshold-min 0)
+if [[ "$rc_failed" == "1" && "$err_failed" == *"NOT stale-reclaimable"* && "$rc_completed" == "1" ]]; then
+  pass "(rec4) reclaim terminal exclusion — failed and completed both refused"
+else
+  fail "(rec4) reclaim terminal exclusion — rc_failed=$rc_failed rc_completed=$rc_completed err='$err_failed'"
+fi
+
 # (mcg1) mark-completed with an incomplete stage → refused, names the gaps
 reset_state
 sct init 9999 --run-id "selftest-run-$$" >/dev/null
