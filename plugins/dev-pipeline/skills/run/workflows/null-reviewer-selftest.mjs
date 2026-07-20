@@ -227,6 +227,7 @@ async function main() {
       ['budgetExhausted: true', 'all-or-nothing budget-skip dark-reviewer marker (#168)'],
       ['REVIEWER_CEILING_MS', 'per-reviewer wall-clock ceiling constant (#219) — the wedge bound'],
       ['ceiling: true', 'ceiling-timeout diagnostic flag (#219) on the reused died-after-retry marker'],
+      ['`${base}...${head}`', 'THREE-DOT review range (#130) — two-dot renders base-only commits as phantom deletions'],
     ]
     for (const [tok, why] of tokens) {
       src.includes(tok)

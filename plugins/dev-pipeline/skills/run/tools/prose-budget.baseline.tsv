@@ -1,21 +1,11 @@
 # path	words	chars	narrative_nnn   (regenerate with: prose-budget.sh --update-baseline)
-# NOTE: neutral starter stub. Run `prose-budget.sh --update-baseline` in your
-# consumer repo to snapshot your own .claude/skills + .claude/agents inventory.
-.claude/agents/a11y-reviewer.md	612	4606	0
-.claude/agents/api-contract-reviewer.md	1293	9204	0
-.claude/agents/codebase-explorer.md	757	5204	0
-.claude/agents/complexity-reviewer.md	780	6005	0
-.claude/agents/db-reviewer.md	732	5450	0
-.claude/agents/doc-updater.md	1282	9928	0
-.claude/agents/maintainability-reviewer.md	994	7210	0
-.claude/agents/performance-reviewer.md	894	6276	0
-.claude/agents/security-reviewer.md	2415	17981	0
-.claude/agents/spec-reviewer.md	1442	10024	0
-.claude/agents/test-coverage-reviewer.md	999	7134	0
-.claude/skills/README.md	534	6477	0
-.claude/skills/commit/SKILL.md	68	430	0
-.claude/skills/run/SKILL.md	5822	50496	1
-.claude/skills/run/stages/1-intake.md	2199	17091	0
-.claude/skills/run/stages/5-implement.md	1816	14857	0
-.claude/skills/run/stages/6-verify.md	2965	23194	0
-.claude/skills/unit-testing/SKILL.md	966	7697	0
+# NEUTRAL STUB — intentionally header-only, zero rows.
+#
+# This file ships inside the plugin and describes no particular repo. Concrete rows here
+# would be inherited by every consumer, where the paths do not resolve — the exact failure
+# mode this stub exists to avoid. (It previously carried 18 pre-de-vendoring
+# `.claude/agents/*` rows, which is how it came to be treated as a live baseline.)
+#
+# Your repo's real baseline is written to <repo>/.claude/prose-budget.baseline.tsv by
+# `prose-budget.sh --update-baseline`, and that is what the checker reads when present.
+# Until then every tracked file reports NEW — a warning, never a failure.

@@ -68,7 +68,18 @@ const FINDINGS_SCHEMA = {
 
 // args (assembled in-session by Stage 8, which has Bash to size the diff and route):
 //   worktree     — absolute path the reviewers run git against
-//   base, head   — git range (reviewers run `git -C <worktree> diff <base>..<head>`)
+//   base, head   — git refs bounding the review: a branch, a ref, or a SHA — all accepted.
+//                  The range is rendered THREE-DOT (`<base>...<head>`), which is merge-base
+//                  semantics by definition: git diffs from merge-base(base, head) to head.
+//                  So a `base` BRANCH whose tip has advanced past the branch point does not
+//                  leak its own newer commits into the reviewed diff. Under two-dot they
+//                  render as deletions and reviewers report the branch as reverting work it
+//                  never touched (observed: two false BLOCKERs, #130).
+//                  Callers passing an explicit merge-base SHA are unaffected — when base is
+//                  already an ancestor of head, merge-base(base, head) == base, so
+//                  `base...head` and `base..head` are the same range.
+//                  The merge-base is resolved BY GIT at reviewer-run time via three-dot, not
+//                  computed here: Workflow scripts have no Bash/filesystem access.
 //   issue        — GitHub issue number (drives scope-completeness; omit to skip it)
 //   reviewers    — array of agentType strings already selected per review-lead routing
 //   changedFiles — array of changed paths (context for the prompt)
@@ -95,7 +106,9 @@ if (reviewers.some((r) => bare(r) === 'scope-completeness-reviewer') && !issue) 
 
 // Workflow runtime globals used below — injected by the Workflow runtime, not
 // imported: log(), phase(), parallel(), agent(). See the Workflow tool API.
-const range = `${base}..${head}`
+// THREE-DOT is load-bearing (#130) — see the base/head contract above. Do not
+// "simplify" to two-dot: it re-admits base-only commits as phantom deletions.
+const range = `${base}...${head}`
 const fileList = changedFiles.length ? changedFiles.join(', ') : '(see diff)'
 
 // ROOT CAUSE (measured by workflows/stall-probe.mjs — refines the earlier #168/#182 analysis):

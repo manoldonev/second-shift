@@ -4,6 +4,90 @@ All notable changes to the second-shift marketplace. Versions are per-plugin (`p
 this file tracks the marketplace release. `configVersion` stays `const 1` — v2 is fully backward-compatible for a
 consumer with an empty config; the migration notes below are only for consumers using the changed features.
 
+## v2.6.0
+
+### `dev-pipeline` 2.3.0 → 2.4.0
+
+- **feat(dev-pipeline): stage-8 a11y/design trigger reads stageParams.webComponentGlobs (#132)** (#132)
+  the Stage-8 accessibility and design-fidelity reviewers now trigger on the
+  globs in stageParams.webComponentGlobs instead of a hardcoded apps/web React path,
+  so non-React or non-apps/web frontends get that reviewer class. An unmatched surface
+  is now reported instead of silently skipped.
+  Migration: none — the key defaults to the previous literal.
+- **fix(dev-pipeline): plan-lint trims AC cells without xargs quote semantics (#135)** (#135)
+  plan-lint no longer aborts with "xargs: unterminated quote" when an
+  acceptance-criteria traceability cell contains an apostrophe, so a plan naming
+  a test like coverage-can't-fail clears the Stage-4 plan-structure gate instead
+  of hard-failing it.
+  Migration: none.
+  none.
+- **feat(second-shift): flag the false-green all-null command table and document setup lanes (#137)** (#137)
+  preflight now warns and withholds its "pipeline-ready" verdict when a
+  repo has no verifying lane configured, instead of reporting green while
+  verifying nothing. Set commands.<id>.allowUnverified=true to declare a
+  deliberate zero-lane opt-out and restore the green verdict.
+  Migration: none.
+  onboarding now flags an all-null command table instead of presenting it
+  as finished, and documents that a fresh pipeline worktree needs a
+  commands.<id>.lanes[] setup step before dependency-requiring verify lanes can run.
+  Migration: none.
+  none.
+  the config JSON schema now documents commands.<id>.allowUnverified,
+  so editors stop flagging a valid zero-lane opt-out.
+  Migration: none.
+- **fix(dev-pipeline): is-inert-diff treats .known-extensions as inert (#139)** (#139)
+  the dev-pipeline INERT lane now covers
+  `.claude/second-shift/.known-extensions`, so a diff that only touches the
+  extension allowlist no longer pays the full verify suite. A same-named file
+  at any other path still selects SUITE.
+  Migration: none.
+- **fix(dev-pipeline): cost-block amends via plain gh when the bot is disabled (#142)** (#142)
+  the Stage-9 cost block now lands on repos that do not run a GitHub
+  App bot, amended under operator identity instead of being skipped. A missing
+  gh CLI now records skipped-no-gh-cli rather than skipped-otel-error, and
+  skipped-no-bot-wrapper is recorded only when a bot is actually enabled.
+  Migration: none.
+- **fix(dev-pipeline): per-repo fix-attempt budget is enforced and reported (#99) (#138)** (#138)
+  the fix-attempt budget now actually stops a runaway verify lane on
+  be-fe-pair and monorepo consumers, and per-repo verdicts report their charge
+  counts instead of an empty map. Single-repo behavior is unchanged.
+  Migration: none.
+  none.
+- **fix(dev-pipeline): anchor bot-commit.sh config resolution at the git common dir (#144)** (#144)
+  pipeline commits now carry the bot identity in worktrees where the
+  consumer config is gitignored, instead of silently falling back to the
+  operator's git identity; the fallback that remains announces itself on
+  stderr. Migration: none.
+  none.
+- **fix(dev-pipeline): pipeline-retro files only meaningful issues (#148)** (#148)
+  pipeline-retro no longer files an issue per finding — "Record
+  only" (the retro report) is the default route, and new issues require
+  recurrence-or-corruption, a known fix, and no existing coverage.
+  Migration: none.
+- **fix(dev-pipeline): mark-completed enforces the locked eval criteria shape (#153)** (#153)
+  mark-completed now refuses a self-eval whose criteria do not score
+  exactly the five locked keys from eval-criteria.md with PASS|FAIL|N/A values,
+  naming the offending keys; --force bypasses the shape check only
+  (crash-recovery escape). Migration: none — eval files already following the
+  eval-criteria.md example shape are unaffected.
+
+### `second-shift` 1.5.0 → 1.6.0
+
+- **feat(second-shift): flag the false-green all-null command table and document setup lanes (#137)** (#137)
+  preflight now warns and withholds its "pipeline-ready" verdict when a
+  repo has no verifying lane configured, instead of reporting green while
+  verifying nothing. Set commands.<id>.allowUnverified=true to declare a
+  deliberate zero-lane opt-out and restore the green verdict.
+  Migration: none.
+  onboarding now flags an all-null command table instead of presenting it
+  as finished, and documents that a fresh pipeline worktree needs a
+  commands.<id>.lanes[] setup step before dependency-requiring verify lanes can run.
+  Migration: none.
+  none.
+  the config JSON schema now documents commands.<id>.allowUnverified,
+  so editors stop flagging a valid zero-lane opt-out.
+  Migration: none.
+
 ## v2.5.0
 
 ### `dev-pipeline` 2.2.7 → 2.3.0

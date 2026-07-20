@@ -166,7 +166,10 @@ const normalizeFailClosed = (result) => {
 //   --- gate ---
 //   reviewers  — agentType[] (default ['design-faithful-reviewer','a11y-reviewer'])
 //   worktree   — ABSOLUTE worktree path the reviewers run git against (required)
-//   base, head — git range the reviewers diff (required)
+//   base, head — git refs bounding the review: branch, ref, or SHA (required). Rendered
+//                THREE-DOT (`<base>...<head>`) = merge-base semantics, so an advanced base
+//                branch never leaks its own commits into the reviewed diff (#130). An
+//                explicit merge-base SHA is unaffected (base already an ancestor of head).
 //   changedFiles — string[] context for the prompt
 //   prContext  — free-text context
 // `args` arrives as the value passed to Workflow's `args` input. Defensive: it may be an object,
@@ -290,7 +293,8 @@ if (kind === 'produce') {
 // reported a known fail-closed reason carries { failClosed } so synthesis reads it as a clean skip,
 // not a false `block`.
 const fileList = changedFiles.length ? changedFiles.join(', ') : '(see diff)'
-const range = `${base}..${head}`
+// THREE-DOT is load-bearing (#130) — see the base/head contract above.
+const range = `${base}...${head}`
 const reasonList = FAIL_CLOSED_REASONS.join(', ')
 
 const dispatchGateReviewer = async (agentType) => {

@@ -65,7 +65,9 @@ const computeVerdict = (executions) => {
 // args (assembled in-session by Stage 5):
 //   worktree     — ABSOLUTE worktree path (executors apply/run/revert here;
 //                  the per-spec test command runs from ${worktree})
-//   base, head   — git SHAs bounding the reviewed range (propose child contract)
+//   base, head   — git refs bounding the reviewed range (propose child contract): branch,
+//                  ref, or SHA. Forwarded to unit-tests.mjs, which renders them THREE-DOT
+//                  (merge-base semantics, #130); the log line below matches that form.
 //   issue        — issue number, for labels/logging
 //   workflowsDir — absolute path to this workflows/ dir (scripts cannot
 //                  introspect their own location — the caller supplies it)
@@ -80,7 +82,7 @@ if (!worktree || !base || !head || !workflowsDir) {
   throw new Error('mutation-gate workflow: args.worktree, args.base, args.head and args.workflowsDir are required')
 }
 
-log(`mutation-gate: round ${round} over ${base}..${head} in ${worktree}${issue ? ` (#${issue})` : ''}`)
+log(`mutation-gate: round ${round} over ${base}...${head} in ${worktree}${issue ? ` (#${issue})` : ''}`)
 phase('Mutation Gate')
 
 const budgetLeft = () =>

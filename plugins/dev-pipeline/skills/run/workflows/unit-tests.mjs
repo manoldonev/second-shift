@@ -124,7 +124,10 @@ const dispatchSchemaAgent = async (prompt, opts, retries = 2) => {
 //               state `worktreePath` against repo root before passing — Workflow scripts cannot
 //               resolve a relative path themselves; matches code-review.mjs's contract).
 //   target    — 'unit-test-plan-reviewer' | 'unit-test-mutation-reviewer'
-//   base, head — git SHAs for mutation-review (required); agent runs `git diff base..head`
+//   base, head — git refs bounding mutation-review (required): branch, ref, or SHA. The
+//                agent runs `git diff base...head` — THREE-DOT, i.e. merge-base semantics,
+//                so an advanced base branch never leaks its own commits into the reviewed
+//                diff (#130). An explicit merge-base SHA is unaffected.
 //   inputs    — { planPath?, modulesTouched?, specPaths?, changedBackendFiles? }
 //   issue     — for labels/logging
 const a = typeof args === 'string' ? JSON.parse(args) : args || {}
@@ -150,7 +153,7 @@ const failClosed = (note) =>
         summary: note,
       }
 
-log(`unit-tests: ${kind} via ${target} in ${worktree}${kind === 'mutation-review' ? ` (${base}..${head})` : ''}${issue ? ` (#${issue})` : ''}`)
+log(`unit-tests: ${kind} via ${target} in ${worktree}${kind === 'mutation-review' ? ` (${base}...${head})` : ''}${issue ? ` (#${issue})` : ''}`)
 phase('Unit Tests')
 
 if (typeof budget !== 'undefined' && budget && budget.total) {
@@ -187,7 +190,8 @@ if (kind === 'plan-review') {
     schema: PLAN_REVIEW_SCHEMA,
   }
 } else {
-  const range = `${base}..${head}`
+  // THREE-DOT is load-bearing (#130) — see the base/head contract above.
+  const range = `${base}...${head}`
   const fileList = inputs.changedBackendFiles?.length
     ? inputs.changedBackendFiles.join(', ')
     : '(run git diff --name-only)'
