@@ -304,13 +304,13 @@ fi
 
 # --- 5h. is-inert-diff classifier selftest (INERT-lane single source of truth) ---
 # Proves is-inert-diff.sh classifies every inert pattern and the SUITE defaults
-# correctly, and that it stays byte-identical to the canonical inline regex it
-# extracted (golden-master parity). This is the single source of truth the Stage-6
+# correctly, and that its INERT_RE has not drifted from the selftest's CANONICAL_RE
+# lockstep mirror (golden-master parity). This is the single source of truth the Stage-6
 # lane decision and the pre-commit hook carve-out both depend on (#249).
 if out=$(bash "$SCRIPT_DIR/is-inert-diff-selftest.sh" 2>&1); then
   ok "is-inert-diff selftest: $(tail -1 <<< "$out")"
 else
-  bad "is-inert-diff selftest FAILED — the INERT-lane classifier drifted from the canonical regex (byte-identical broken). Output tail:"
+  bad "is-inert-diff selftest FAILED — a lane classification is wrong, or INERT_RE drifted from the selftest's CANONICAL_RE mirror. Output tail:"
   tail -5 <<< "$out" | sed 's/^/[doctor]        /'
 fi
 
