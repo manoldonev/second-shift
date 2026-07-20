@@ -136,7 +136,7 @@ for (const m of blockers) {
   if (m.originalSnippet && m.mutatedSnippet && m.specPath) {
     executable.push(m)
   } else {
-    // "An unverifiable mutant must never block" (unit-testing skill) —
+    // "An unverifiable mutant must never block" (review-toolkit:mutation-review skill) —
     // warning-class ledger entry, counts as unapplied.
     executions.push({ file: m.file, specPath: m.specPath || null, message: m.message, status: 'unapplied', reason: 'missing-patch-fields' })
   }

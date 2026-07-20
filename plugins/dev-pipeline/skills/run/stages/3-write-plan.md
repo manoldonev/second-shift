@@ -51,16 +51,18 @@
     "$(statectl.sh state-path "$ISSUE_NUMBER")"
   ```
 
-### Unit test surface (apps/api behavior changes)
+### Unit test surface (behavior changes in the configured `unitTestScope`)
 
-Classify whether this ticket needs mutation-resistant unit test work, then persist it for Stages 4–5. Scope is the **backend TypeScript source matched by config `commands.<host>.unitTestScope`** (the acme value — used in every `apps/api/src/**` example below — is `apps/api/src/**`; ML/Rust are out of scope — see [`unit-testing`](../../unit-testing/SKILL.md)). A repo with no `unitTestScope` configured has no mutation surface and skips the gate.
+Classify whether this ticket needs mutation-resistant unit test work, then persist it for Stages 4–5. Scope is the **source matched by config `commands.<host>.unitTestScope`** — whatever language and layout the consumer declares there; anything outside that surface is out of scope (assertion-strength conventions and blocker taxonomy: the `review-toolkit:mutation-review` skill). A repo with no `unitTestScope` configured has no mutation surface and skips the gate.
 
-- **`skip`** when the change is FE-only, pure config/CI/docs/dependency, or otherwise has no behavior change in the configured `unitTestScope` surface (acme: `apps/api/src/**`). Include a one-line `skipReason`. A repo with no `unitTestScope` configured always skips (no mutation surface).
-- **`strengthen`** when behavior in the configured `unitTestScope` surface changes (acme `apps/api/src/**`: a service/controller/worker branch, guard, or `userId`-scoped query). Then the plan's **Test strategy** section MUST also enumerate, per [`unit-testing`](../../unit-testing/SKILL.md):
-  - **Mutation targets** — concrete branches/edge cases tests must kill (one per new/changed conditional; cross-user isolation when `userId`-scoped). Not generic "test the service".
-  - **Mock boundary** — which collaborators are real vs mocked (mock only the Drizzle handle / external I/O).
-  - **Spec paths** — co-located `*.spec.ts` to create or extend.
+- **`skip`** when the change is FE-only, pure config/CI/docs/dependency, or otherwise has no behavior change in the configured `unitTestScope` surface. Include a one-line `skipReason`. A repo with no `unitTestScope` configured always skips (no mutation surface).
+- **`strengthen`** when behavior in the configured `unitTestScope` surface changes (a service/controller/worker branch, a guard, a tenancy-scoped query). Then the plan's **Test strategy** section MUST also enumerate, per the `review-toolkit:mutation-review` skill:
+  - **Mutation targets** — concrete branches/edge cases tests must kill (one per new/changed conditional; cross-tenant isolation when tenancy-scoped). Not generic "test the service".
+  - **Mock boundary** — which collaborators are real vs mocked (mock only the repo's data-access handle / external I/O).
+  - **Spec paths** — the co-located unit-test files, per the repo's configured test-file convention, to create or extend.
   - **Integration decision** — `integrationAction`: `run | skip` with reason.
+
+> **Illustration only — not the contract.** On the birth repo the configured surface is `unitTestScope: apps/api/src/**` (backend TypeScript; ML/Rust out of scope), a `strengthen` trigger looks like a `userId`-scoped query change, the data-access handle to mock is the Drizzle handle, and the spec convention is co-located `*.spec.ts`. A pytest consumer reads the same rows as its own surface glob, its own DB handle, and `test_*.py`.
 - If classification is genuinely ambiguous (behavior-change vs skip unclear), abort rather than guess:
   ```bash
   statectl.sh mark-failed "$ISSUE_NUMBER" \
@@ -75,10 +77,11 @@ Classify whether this ticket needs mutation-resistant unit test work, then persi
 statectl.sh unit-test-surface-set "$ISSUE_NUMBER" --json '{
   "applicable": true, "action": "strengthen",
   "planPath": "'"$PLAN_REL"'",
-  "modulesTouched": ["apps/api/src/..."], "specPaths": ["apps/api/src/.../*.spec.ts"],
+  "modulesTouched": ["<paths under the configured unitTestScope>"],
+  "specPaths": ["<co-located unit-test files, per the configured test-file convention>"],
   "mutationTargets": ["..."], "integrationAction": "skip"
 }'
-# skip case: --json '{"applicable":false,"action":"skip","skipReason":"FE-only / no apps/api behavior change"}'
+# skip case: --json '{"applicable":false,"action":"skip","skipReason":"FE-only / no behavior change in the configured unitTestScope surface"}'
 ```
 
 - Comment via `$GH_BOT issue comment $ISSUE_NUMBER --body "..."`: `stage: plan`, `status: written`.
