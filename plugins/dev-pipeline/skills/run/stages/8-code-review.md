@@ -61,6 +61,24 @@ Steps 3–5 (advance `currentStage`, hydrate from `stageCheckpoint["7"]`, valida
 
 **Dispatch substrate — `Workflow` script.** The reviewer fan-out runs as `agent()` calls inside `workflows/code-review.mjs`. The script owns the fan-out + the `{agentType → model}` table + the findings schema + the scope-completeness evidence-only prompt; **synthesis stays in this session** (review-toolkit:review-lead's Synthesis Rules on the caller's Opus model). Because Workflow scripts have no Bash/filesystem access, this session does the diff sizing + reviewer **selection** (which needs the diff) and passes the result in `args`.
 
+**Resolve `stageParams.webComponentGlobs` (default = the shipped literal).** The a11y +
+design-fidelity trigger is config-driven, so a consumer whose FE is not React-under-`apps/web`
+still gets that reviewer class. An absent key resolves to exactly today's glob, so the default
+case is byte-for-byte unchanged:
+
+```bash
+WEB_COMPONENT_GLOBS=$(jq -r '(.stageParams.webComponentGlobs // ["apps/web/**/*.{tsx,jsx}"]) | .[]' "$SECOND_SHIFT_CONFIG" 2>/dev/null || echo 'apps/web/**/*.{tsx,jsx}')
+```
+
+Examples of what a consumer sets: `["src/app/**/*.{html,ts}"]` (Angular), `["src/**/*.vue"]`
+(Vue), `["app/**/*.tsx"]` (React Router v7).
+
+**Matching is model judgment over the configured patterns**, not a mechanical pathspec match —
+reviewer selection here reads the `git diff --stat` path list in-session, the same posture Stage 6
+takes for `visualCapture.triggerGlobs` (`6-verify.md:197`). Read `$WEB_COMPONENT_GLOBS` as the
+intended surface and decide whether a changed path belongs to it; a brace/`**` pattern that no
+shell expanded is still a clear statement of intent.
+
 ```
 for round in 1..3:
   # (a) In-session (has Bash): size + route per review-toolkit:review-lead's Reviewer Routing.
@@ -70,12 +88,13 @@ for round in 1..3:
     - Medium/Large: + review-toolkit:complexity-reviewer, review-toolkit:test-coverage-reviewer
     - conditional by path: review-toolkit:db-reviewer / review-toolkit:pipeline-reviewer / review-toolkit:unit-test-mutation-reviewer, plus any repo-registered domain reviewers from config `reviewers.add` (referenced bare)
     - conditional by path: the provider-appropriate design fidelity reviewer + review-toolkit:a11y-reviewer
-      when the diff touches apps/web components (apps/web/**/*.{tsx,jsx}). The design reviewer is selected by
+      when the diff touches the repo's web-component surface — the globs resolved into $WEB_COMPONENT_GLOBS
+      below, NOT a hardcoded path. The design reviewer is selected by
       `stageCheckpoint["1"].designSource.provider`: **claude-design** → design-toolkit:design-faithful-reviewer;
       **figma** → design-toolkit:figma-faithful-reviewer; on a non-design run (no provider) the path trigger
-      still routes design-toolkit:design-faithful-reviewer as the generic apps/web fidelity reviewer (its
+      still routes design-toolkit:design-faithful-reviewer as the generic web-component fidelity reviewer (its
       prior default). a11y-reviewer is shared. A designDriven run always hits this, since Stage 5 implemented
-      apps/web from the handoff.
+      the web-component surface from the handoff.
     - review-toolkit:scope-completeness-reviewer iff an issue/ticket is referenced — a GitHub `Closes/Part of #N`, or the run's JIRA ticket key (a JIRA run is always ticket-driven, so this reviewer spawns whenever `tracker.type: jira`). Pass `issue: "$ISSUE_NUMBER"` (the github number or the JIRA key) so the reviewer fetches the right one.
 
   # (b) Dispatch via the Workflow tool (this skill instruction IS the multi-agent
@@ -167,6 +186,22 @@ For either case, synthesize with the reviewers you DO have and **record the cove
 `review-toolkit:review-lead`'s Synthesis Rules are authoritative for HOW the gap is rendered in the consolidated report (the `[Coverage gap]` line, the `Dark (no output)` Verdicts-table row, and the effect on "Ready to merge?"). This subsection is the pipeline-specific operational contract: no off-substrate re-dispatch, and surface the gap in the round summary + issue comment.
 
 **Audit note:** the audit is observability only and does not gate the push.
+
+### Unmatched web-component surface (not-selected ≠ dark)
+
+A reviewer that was **never selected** because no changed path matched `$WEB_COMPONENT_GLOBS` is a
+different case from a dark reviewer: nothing failed, the trigger simply did not fire. It still must
+not be invisible. A repo whose FE lives outside the configured globs would otherwise ship every PR
+with the accessibility/design dimension silently absent and the run looking fully green.
+
+So when the diff contains **no** path matching `$WEB_COMPONENT_GLOBS`, note it once in the round
+summary — e.g. "a11y + design-fidelity not routed: no changed path matched `stageParams.webComponentGlobs`
+(`apps/web/**/*.{tsx,jsx}`)". Include the resolved globs so a mis-scoped config is diagnosable from the
+line itself.
+
+This is a **note, never a blocker** — the overwhelmingly common case is a genuinely non-FE diff, and
+escalating that would make every backend PR noisy. It is also **not** a `[Coverage gap]`: reserve
+that rendering for reviewers that were selected and went dark.
 
 ### Scope blocker with no code remedy
 

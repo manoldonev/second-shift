@@ -20,6 +20,7 @@
   "paths": { "plansDir": 5 },
   "stageParams": {
     "requiredLabels": [1],
+    "webComponentGlobs": "src/**/*.vue",
     "visualCapture": { "baseUrl": 5, "smokeRoutes": "/" }
   },
   "implementDelegates": [ { "surface": 5, "agent": "a" } ],

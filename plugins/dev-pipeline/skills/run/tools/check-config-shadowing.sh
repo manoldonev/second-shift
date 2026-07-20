@@ -17,6 +17,7 @@ fails=0
 # form: "<relative-file>|<config-key-reference>|<label>"
 CHECKS=(
   "stages/6-verify.md|stageParams.visualCapture|Stage-6 visual capture"
+  "stages/8-code-review.md|stageParams.webComponentGlobs|Stage-8 a11y/design-fidelity trigger"
   "SKILL.md|stageParams.requiredLabels|required labels"
   "verifyctl.sh|stageParams.formatGlob|format glob"
   "stages/3-write-plan.md|stageParams.planFilePattern|plan-file pattern"

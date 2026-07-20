@@ -262,6 +262,12 @@
             }
           }
         },
+        "webComponentGlobs": {
+          "type": "array",
+          "items": { "type": "string" },
+          "default": ["apps/web/**/*.{tsx,jsx}"],
+          "description": "Stage-8 web-component surface: the globs whose presence in the diff route the a11y reviewer and the design-fidelity reviewer. Set this when the FE is not React-under-apps/web — e.g. [\"src/app/**/*.{html,ts}\"] (Angular), [\"src/**/*.vue\"] (Vue), [\"app/**/*.tsx\"] (React Router v7). Distinct from stageParams.visualCapture.triggerGlobs, which gates screenshot capture and includes CSS/tailwind config."
+        },
         "formatGlob": { "type": "string", "default": "*.{ts,tsx,js,json,md}" }
       }
     },

@@ -57,6 +57,7 @@ Every `stageParams` key defaults to the plugin's current literal, so an empty co
     "planFilePattern": "{plansDir}/plan-{issueKey}{slice}.md",   // drop the shipped "acme-" prefix
     "requiredLabels": ["ready", "in-progress"],                   // your tracker's label vocabulary
     "formatGlob": "*.{ts,tsx,css,md}",
+    "webComponentGlobs": ["src/**/*.vue"],                        // Stage-8 a11y + design-fidelity trigger — set when the FE isn't React under apps/web
     "visualCapture": {
       "baseUrl": "http://localhost:5173/",
       "devServerCommand": "pnpm dev",
