@@ -79,9 +79,16 @@ The fix is alignment, not invention. Every pattern needed already exists in-repo
 6. **`state-schema.md:246`** — `apps/api` backend TypeScript → the configured `unitTestScope` surface; "Absent on FE-only / non-`apps/api` runs" → absent when no `unitTestScope` is configured or the diff does not touch it.
 7. **`unit-tests.mjs:181, :194, :203` and `code-review.mjs:231`** — remove `Load the unit-testing skill.` from the three live prompts. The dispatched agents (`unit-test-plan-reviewer`, `unit-test-mutation-reviewer`) already carry the mutation-review contract via their own agent definitions, so the instruction is redundant as well as dangling — deleting it is correct, not merely safe. Genericize `for apps/api changes` at :194.
 8. **`mutation-gate.mjs:139`** — repoint the comment citation to the mutation-review skill.
-9. **Add `stack-generality-lint.sh`** — asserts, over `plugins/`: no unlabeled `.project/` literal in the five stage/agent files (AC-1); no normative Drizzle / `*.spec.ts` / "backend TypeScript" / `apps/api` literal outside an illustrative-callout block (AC-2); zero `unit-testing` matches excluding `prose-budget.baseline.tsv` (AC-3); the `(AC-n)` token still present at both convention sites (AC-4); the router deferral links and the three-tier order both present (AC-5). Exit code = number of violations, per the repo's doctor convention.
-10. **Add `stack-generality-lint-selftest.sh`** — fixture-driven: prove each assertion fires on a seeded violation and passes on the clean tree. A lint that cannot fail is not a guard.
-11. Run the full verification sweep; commit with a `Changelog:` trailer.
+9. **Add `stack-generality-lint.sh`.** Two deliberately different scopes — the distinction is what makes the guard able to go green:
+
+   - **`GUARDED_FILES` (a declared array at the top of the script)** — exactly the files this ticket genericizes. The AC-1, AC-2, AC-4 and AC-5 legs run **only** over this list. They cannot run repo-wide: 18 files under `plugins/` contain `apps/api`, 5 contain `spec.ts`, and 3 contain `Drizzle`, nearly all in surfaces this plan declares Out-of-scope. A repo-wide AC-2 leg would fail on its first run and would contradict this plan's own scope boundary.
+   - **AC-3 runs repo-wide over `plugins/`**, because it genuinely can: only 8 `unit-testing` references exist and this ticket removes all of them. Three **documented exclusions**: `tools/prose-budget.baseline.tsv` (measurement data, see Assumptions) and `stack-generality-lint.sh` + `stack-generality-lint-selftest.sh` themselves — a denylist-based linter necessarily contains the strings it bans, so it must not match itself or its fixtures.
+
+   Legs: no unlabeled `.project/` literal in the guarded files (AC-1); no normative Drizzle / `*.spec.ts` / "backend TypeScript" / `apps/api` literal outside an illustrative-callout block, guarded files only (AC-2); zero `unit-testing` matches repo-wide minus the three exclusions (AC-3); the `(AC-n)` token still present at both convention sites (AC-4); the router deferral links and the three-tier order both present (AC-5). Exit code = number of violations, per the repo's doctor convention. Extending `GUARDED_FILES` is how a future ticket widens the sweep — the mechanism is reusable even though this ticket's list is deliberately narrow.
+
+10. **`mutation-review/SKILL.md:39`** — widen the `(AC-n)` example beyond the JS-only `it('… (AC-1)', …)` form so the convention reads as framework-neutral in its example as well as its lead sentence. The lead sentence ("suffix its **test title**") already is; only the example needs the non-JS companion.
+11. **Add `stack-generality-lint-selftest.sh`** — fixture-driven: prove each assertion fires on a seeded violation and passes on the clean tree. A lint that cannot fail is not a guard.
+12. Run the full verification sweep; commit with a `Changelog:` trailer.
 
 ## Test strategy
 
@@ -101,11 +108,11 @@ The load-bearing test work is the new `stack-generality-lint-selftest.sh`. It mu
 | AC | Criterion | Step(s) | Test(s) |
 | --- | --- | --- | --- |
 | AC-1 | No normative `.project/` literal in `5-implement.md` / `7-doc-update.md` (and the two same-class sites found at plan time: `SKILL.md:384`, `doc-updater.md:3`); all defer to declared doc roots | 1, 4 | `stack-generality-lint-selftest.sh` — seeded `.project/` literal fails the lint |
-| AC-2 | No normative Drizzle / `*.spec.ts` / "backend TypeScript" / `apps/api` literal in the Stage-3 unit-test-surface section, `5-implement.md:35`, `state-schema.md` §`unitTestSurface`, or `unit-tests.mjs` prompts; retained examples carry the "Illustration only" callout | 3, 5, 6, 7 | `stack-generality-lint-selftest.sh` — both directions: literal outside a callout block fails, inside passes |
-| AC-3 | Zero `unit-testing` references across `plugins/` (excluding `prose-budget.baseline.tsv`), covering the 4 `.md` links, the 3 live dispatch prompts, and the `mutation-gate.mjs` comment | 2, 3, 5, 7, 8 | `stack-generality-lint-selftest.sh` — seeded ref fails in both `.md` and `.mjs`-prompt form; baseline-tsv occurrence passes |
-| AC-4 | `(AC-n)` stated framework-agnostically at `5-implement.md:19` and `mutation-review/SKILL.md:39`, preserving the literal `(AC-n)` token for the grep in `pipeline-retro:56` | 2 | `stack-generality-lint-selftest.sh` — removing the token at a convention site fails the lint |
+| AC-2 | No normative Drizzle / `*.spec.ts` / "backend TypeScript" / `apps/api` literal in the guarded files (Stage-3 unit-test-surface section, `5-implement.md:35`, `state-schema.md` §`unitTestSurface`, `unit-tests.mjs` prompts); retained examples carry the "Illustration only" callout | 3, 5, 6, 7 | `stack-generality-lint-selftest.sh` — both directions over `GUARDED_FILES`: literal outside a callout block fails, inside passes |
+| AC-3 | Zero `unit-testing` references across `plugins/` minus three documented exclusions (`prose-budget.baseline.tsv`, the lint, its selftest), covering the 4 `.md` links, the 3 live dispatch prompts, and the `mutation-gate.mjs` comment | 2, 3, 5, 7, 8 | `stack-generality-lint-selftest.sh` — seeded ref fails in both `.md` and `.mjs`-prompt form; an excluded-file occurrence passes |
+| AC-4 | `(AC-n)` stated framework-agnostically at `5-implement.md:19` and `mutation-review/SKILL.md:39`, preserving the literal `(AC-n)` token for the grep in `pipeline-retro:56` | 2, 10 | `stack-generality-lint-selftest.sh` — removing the token at a convention site fails the lint |
 | AC-5 | `5-implement.md` / `7-doc-update.md` defer to the `doc-update.md` router, and that section still names the CLAUDE.md → `doc-routing.md` → grep-fallback order | 1, 4 | `stack-generality-lint-selftest.sh` — asserts the deferral links and the three-tier router order are both present |
-| AC-6 | Verification sweep green, and the new lint + paired selftest guard AC-1..AC-5 against regression | 9, 10, 11 | — no test (infra-only) |
+| AC-6 | Verification sweep green, and the new lint + paired selftest guard AC-1..AC-5 against regression | 9, 11, 12 | — no test (infra-only) |
 
 ## Verification commands
 
@@ -118,10 +125,15 @@ find . -name '*-selftest.sh' -type f -print0 | xargs -0 -n1 -I{} env SKIP_STRESS
 # The new guard, run directly (exit code = violation count).
 bash plugins/dev-pipeline/skills/run/tools/stack-generality-lint.sh .
 
-# AC-3 spot check — must print nothing.
-grep -rn 'unit-testing' plugins/ | grep -v 'prose-budget.baseline.tsv'
+# AC-3 spot check — must print nothing. Three documented exclusions: measurement
+# data, plus the denylist linter and its selftest, which necessarily contain the
+# strings they ban.
+grep -rn 'unit-testing' plugins/ \
+  | grep -Ev 'prose-budget\.baseline\.tsv|stack-generality-lint(-selftest)?\.sh'
 
-# .mjs syntax is not covered by shellcheck — parse the three edited workflows.
+# .mjs syntax is not covered by shellcheck or by any CI lane in this repo, so this
+# is a LOCAL-ONLY check — it does not gate the PR. Run it before committing the
+# three edited workflows; the CI-side guarantee for them is the selftest sweep.
 for f in unit-tests code-review mutation-gate; do
   node --check "plugins/dev-pipeline/skills/run/workflows/$f.mjs"
 done
@@ -148,12 +160,13 @@ done
 
 ## Decision Ledger
 
-| D-n | Decision | Provenance | Rationale |
+| D-n | Decision | Resolution | Provenance |
 | --- | --- | --- | --- |
-| D-1 | Reuse the `doc-update.md` three-tier router; introduce no new config keys | user | Operator intake comment; the `review-context.md` key the issue proposes does not exist |
-| D-2 | Repoint all `unit-testing` refs to `review-toolkit:mutation-review` rather than recreating the skill | user | Operator intake comment; target verified to carry all cited contracts |
-| D-3 | Generalize the `(AC-n)` attachment point but preserve the literal token | user | Operator intake comment; keeps `pipeline-retro:56` and `mutation-review:39` greps working |
-| D-4 | Fold the 3 live dispatch prompts into AC-3 scope | codebase-derived | Verified at `unit-tests.mjs:175-206` / `code-review.mjs:231`; the executable form of the same dead reference |
-| D-5 | Restate AC-5 as a static assertion instead of runtime router behavior | codebase-derived | CI is model-free by design and the repo has no `.project/` fixture; the original phrasing could only be marked done on assertion |
-| D-6 | Add a lint + paired selftest rather than treating this as a point-in-time cleanup | codebase-derived | Repo convention (`every checked-in script pairs with a *-selftest.sh`); makes AC-6 non-vacuous for a markdown-only change |
-| D-7 | Retained acme examples must carry the "Illustration only — not the contract" callout | codebase-derived | Existing precedent at `doc-update.md:113` / `doc-updater.md:176`; turns AC-2 into a grep |
+| D-1 | How should Stage 5 source the repo conventions, given the `review-context.md` key the issue names does not exist? | Reuse the existing `doc-update.md` three-tier router; introduce no new config keys | user-answered |
+| D-2 | Repoint the dangling refs, or recreate a `unit-testing` skill? | Repoint all refs to `review-toolkit:mutation-review`, which already carries the cited contracts | user-answered |
+| D-3 | Make `(AC-n)` framework-agnostic, or gate it on a JS runner? | Generalize the attachment point, preserve the literal token, so the retro grep keeps working | user-answered |
+| D-4 | Are the executable seams in scope, given the issue says they are already clean? | Fold the 3 live dispatch prompts into AC-3 — verified at `unit-tests.mjs:175-206` and `code-review.mjs:231` | codebase-derived |
+| D-5 | How can AC-5 be verified in a model-free CI with no birth-stack fixture? | Restate it as a static assertion over the deferral links and router order, not runtime behavior | codebase-derived |
+| D-6 | Is a point-in-time cleanup sufficient for a markdown-only change? | Add a lint plus paired selftest, per the repo convention that every script pairs with a selftest | codebase-derived |
+| D-7 | What distinguishes a normative literal from a retained example? | Retained examples must sit inside a block carrying the existing Illustration-only callout | codebase-derived |
+| D-8 | What scope can the new lint enforce without failing on out-of-scope files? | AC-2 is guarded over a declared file list; AC-3 stays repo-wide with three documented exclusions | codebase-derived |
