@@ -122,6 +122,8 @@ has no mutation surface.
 | AC-1 | Worktree + untracked config, no env → `<appName>[bot]` identity | 1, 2, 3 | selftest case 5 (AC-1) |
 | AC-2 | Bot genuinely disabled → repo default still works, and says so on stderr when `-C` is resolvable | 4 | selftest cases 3, 6, 7 (AC-2) |
 | AC-3 | Selftests cover both cases, green in the standard sweep | 6, 7 | full `*-selftest.sh` sweep |
+| D-7 | `SECOND_SHIFT_REPO_ROOT` moves the config root but not the id cache | 1 | selftest case 9a/9b/9c (added at Stage-8 review) |
+| — | `$SECOND_SHIFT_CONFIG` (candidate 1) outranks the `-C` dir config | 2 | selftest case 8 (added at Stage-8 review) |
 | — | Doctor pre-run WARN on a gitignored config (D-6, issue item 4) | 8 | — no test — `pipeline-doctor.sh` has no paired selftest in this repo (pre-existing); the check is a `warn()` line on an environment probe, verified by running the doctor. Building a doctor harness is out of scope for a bug fix. |
 
 ## Verification commands

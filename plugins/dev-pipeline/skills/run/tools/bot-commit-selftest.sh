@@ -149,6 +149,43 @@ grep -q "bot-commit] WARN" <<< "$ERR7" \
   && fail "7 WARN emitted for a non-repo dir: $ERR7" \
   || pass "7 non-repo dir → no bot-commit WARN (AC-2)"
 
+# ---- Case 8: $SECOND_SHIFT_CONFIG (candidate 1) wins over the -C dir config ------
+# Candidate 1 has the highest precedence and is what operators/CI invoke directly, but
+# every other positive case leaves it unset. Point it at a DIFFERENT appName than the
+# repo's own config so the winner is unambiguous from the resulting identity alone.
+mkrepo "$TMP/r8" '{"tracker":{"bot":{"enabled":true,"app":{"appName":"in-repo-app"}}}}'
+mkdir -p "$TMP/override"
+printf '%s' '{"tracker":{"bot":{"enabled":true,"app":{"appName":"override-app"}}}}' \
+  > "$TMP/override/cfg.json"
+AUTHOR8="$(SECOND_SHIFT_CONFIG="$TMP/override/cfg.json" \
+  bash "$BOT_COMMIT" -C "$TMP/r8" -q -m "test: override" >/dev/null 2>&1; \
+  git -C "$TMP/r8" log --format='%an' -1)"
+[[ "$AUTHOR8" == "override-app[bot]" ]] \
+  && pass "8 \$SECOND_SHIFT_CONFIG (candidate 1) outranks the -C dir config" \
+  || fail "8 got '$AUTHOR8', want 'override-app[bot]' — candidate precedence is wrong"
+
+# ---- Case 9: SECOND_SHIFT_REPO_ROOT moves the CONFIG root, NOT the id cache (D-7) --
+# The override exists so a selftest can aim config resolution at a fixture; the bot-id
+# cache must STAY on the real --git-common-dir (it needs a writable, worktree-shared git
+# dir). Asserting both halves is the point — a "parity" implementation that moved the
+# cache too would pass an identity-only check.
+mkrepo "$TMP/r9"                     # deliberately NO config in the repo itself
+mkdir -p "$TMP/fakeroot/.claude"
+printf '%s' "$BOT_CFG" > "$TMP/fakeroot/.claude/second-shift.config.json"
+rm -f "$TMP/r9/.git/second-shift-bot-user-id"
+AUTHOR9="$(SECOND_SHIFT_REPO_ROOT="$TMP/fakeroot" \
+  bash "$BOT_COMMIT" -C "$TMP/r9" -q -m "test: repo-root override" >/dev/null 2>&1; \
+  git -C "$TMP/r9" log --format='%an' -1)"
+[[ "$AUTHOR9" == "test-pipeline[bot]" ]] \
+  && pass "9a SECOND_SHIFT_REPO_ROOT redirects config resolution (D-7)" \
+  || fail "9a got '$AUTHOR9', want 'test-pipeline[bot]' — override did not move the config root"
+[[ -s "$TMP/r9/.git/second-shift-bot-user-id" ]] \
+  && pass "9b id cache stayed in the REAL git common dir, not the override (D-7)" \
+  || fail "9b cache missing from \$TMP/r9/.git — the override wrongly moved the cache too"
+[[ ! -e "$TMP/fakeroot/second-shift-bot-user-id" && ! -e "$TMP/fakeroot/.git" ]] \
+  && pass "9c override dir received no cache write (D-7)" \
+  || fail "9c cache leaked into the override root"
+
 echo ""
 echo "[bot-commit-selftest] $PASS passed, $FAIL failed"
 exit "$FAIL"
