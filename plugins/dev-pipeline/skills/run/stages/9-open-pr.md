@@ -292,9 +292,9 @@ What it does:
 - Buckets the in-fence metrics per stage using each row's timestamp and the `stages.{N}.startedAt/completedAt` windows; in-fence datapoints in no stage window land in an explicit "Other" bucket. Degrades to a single "Session total" row if windows are missing.
 - For stacked-PR runs (`len(prs) > 1`), splits total cost evenly across slices.
 - Renders a Markdown cost block with the `<!-- pipeline-cost-block -->` sentinel marker for idempotent detection.
-- Reads each PR body via plain `gh pr view`, appends the cost block, writes back via `$GH_BOT pr edit` (bot identity). Re-runs detect the marker and skip.
+- Reads each PR body via plain `gh pr view`, appends the cost block, and writes back with the identity config selects: `$GH_BOT pr edit` when `tracker.bot.enabled` is true, plain `gh pr edit` (operator identity) when the bot is disabled or the config is absent/unreadable. Re-runs detect the marker and skip.
 
-If any prerequisite is missing (no `pipelineSessions[]`, no metrics file, no bot wrapper, no `gh` CLI), the sub-step records a descriptive `costBlockApplied` string (`"skipped-no-sessions"`, `"skipped-telemetry-off"`, `"skipped-no-bot-wrapper"`, etc.) and exits 0. The pipeline continues regardless.
+If any prerequisite is missing (no `pipelineSessions[]`, no metrics file, no `gh` CLI, or — **on a bot-enabled repo only** — no bot wrapper), the sub-step records a descriptive `costBlockApplied` string (`"skipped-no-sessions"`, `"skipped-telemetry-off"`, `"skipped-no-gh-cli"`, `"skipped-no-bot-wrapper"`, etc.) and exits 0. The pipeline continues regardless.
 
 **Recovering a `"skipped-otel-error"`:** this stage is already complete when the cost block fails, so the pipeline does not retry it. The operator fixes the precondition (collector reachable / `OTEL_*` exported) and re-runs just the sub-step — `bash pipeline-cost-block.sh "$ISSUE_NUMBER"` — which is idempotent on the `<!-- pipeline-cost-block -->` marker. Full procedure: [`cost-tracking-setup.md` → "Manual re-run after an OTel query failure"](../cost-tracking-setup.md#manual-re-run-after-an-otel-query-failure).
 

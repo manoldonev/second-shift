@@ -16,8 +16,9 @@ jq '.costBlockApplied' .claude/pipeline-state/test-cost.json
 
 Expected outcome depends on local prerequisites:
 
-- No `$GH_BOT` wrapper → `"skipped-no-bot-wrapper"`.
-- `$GH_BOT` present + no real PR in the fixture → reaches the amend step, fails the parse (fixture PRs are fake URLs) → `"skipped-amend-failed"`.
+- Bot **enabled** (config `tracker.bot.enabled: true`) with no wrapper → `"skipped-no-bot-wrapper"`.
+- Otherwise (bot disabled, or no config at all) the amend proceeds under operator identity via plain `gh` — no wrapper needed.
+- Either way, once the amend is reached the fixture PR does not exist, so `gh pr view` fails and the outcome is `"skipped-amend-failed"`. Note the URL itself parses fine (`https://github.com/owner/repo/pull/8002` yields `owner/repo` + `8002`) — the failure is the read against a nonexistent PR, not a parse error.
 - For an actual end-to-end check, swap the `prs` block in the state fixture for a real scratch PR URL before invoking.
 
 To inspect the computed rollup without a PR, set `COST_BLOCK_DUMP_ROLLUP=1` — the script prints the time-fenced rollup JSON and exits before any PR I/O.

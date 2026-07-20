@@ -19,21 +19,49 @@ ISSUE=$(echo "$ISSUE_RAW" | tr '[:upper:]' '[:lower:]')
 # > cwd-derived main checkout; config paths.pipelineStateDir overrides the
 # default subdir).
 # ────────────────────────────────────────────────────────────────────────────
+# Repo root: SECOND_SHIFT_REPO_ROOT > git-common-dir parent > empty.
+_repo_root() {
+  local cd
+  if [ -n "${SECOND_SHIFT_REPO_ROOT:-}" ]; then
+    echo "$SECOND_SHIFT_REPO_ROOT"
+  elif cd=$(git rev-parse --git-common-dir 2>/dev/null) \
+     && cd=$(cd "$cd" 2>/dev/null && pwd); then
+    dirname "$cd"
+  else
+    echo ""
+  fi
+}
+
+# Consumer config path: SECOND_SHIFT_CONFIG > <root>/.claude/second-shift.config.json
+# > empty (no resolvable root). Empty means "no config" — callers treat that as
+# absent, not as an error. Deliberately does NOT honor STATECTL_STATE_DIR: that is
+# a state-file override, and inheriting it here would make the tracker.bot read
+# skip the config entirely (silently downgrading write identity) whenever a state
+# dir is set.
+_config_path() {
+  local root
+  if [ -n "${SECOND_SHIFT_CONFIG:-}" ]; then
+    echo "$SECOND_SHIFT_CONFIG"
+    return 0
+  fi
+  root=$(_repo_root)
+  if [ -n "$root" ]; then
+    echo "$root/.claude/second-shift.config.json"
+  else
+    echo ""
+  fi
+}
+
 resolve_state() {
   if [ -n "${STATECTL_STATE_DIR:-}" ]; then
     echo "${STATECTL_STATE_DIR}/${ISSUE}.json"
     return 0
   fi
-  local root="" cd cfg rel=".claude/pipeline-state"
-  if [ -n "${SECOND_SHIFT_REPO_ROOT:-}" ]; then
-    root="$SECOND_SHIFT_REPO_ROOT"
-  elif cd=$(git rev-parse --git-common-dir 2>/dev/null) \
-     && cd=$(cd "$cd" 2>/dev/null && pwd); then
-    root="$(dirname "$cd")"
-  fi
+  local root="" cfg rel=".claude/pipeline-state"
+  root=$(_repo_root)
   if [ -n "$root" ]; then
-    cfg="${SECOND_SHIFT_CONFIG:-$root/.claude/second-shift.config.json}"
-    if [ -f "$cfg" ]; then
+    cfg=$(_config_path)
+    if [ -n "$cfg" ] && [ -f "$cfg" ]; then
       rel=$(jq -r '.paths.pipelineStateDir // ".claude/pipeline-state"' "$cfg" 2>/dev/null) \
         || rel=".claude/pipeline-state"
     fi
@@ -85,10 +113,16 @@ write_cost_log_row() {
 }
 
 # ────────────────────────────────────────────────────────────────────────────
-# Bot identity guard. The pipeline requires PR writes through the bot wrapper.
+# Write identity. Config `tracker.bot.enabled` decides bot-vs-operator identity;
+# the runtime value of $GH_BOT is never sniffed to infer it. A bot-ENABLED repo
+# writes through the wrapper (missing wrapper => skipped-no-bot-wrapper). A
+# bot-DISABLED repo — including one whose config is absent, unreadable, or
+# malformed, which resolves to disabled per `// false` — writes with plain `gh`
+# under operator identity. Mirrors tools/bot-commit.sh.
 # ────────────────────────────────────────────────────────────────────────────
-# Bot wrapper: env contract first; default derives from the consumer repo's
-# directory name (install-gh-bot.sh creates it at this path).
+# Bot wrapper: env contract first; then config tracker.bot.wrapperPath (parity
+# with claim-issue.sh / pipeline-doctor.sh); then a default derived from the
+# consumer repo's directory name (install-gh-bot.sh creates it at this path).
 _default_bot() {
   local cd root
   if cd=$(git rev-parse --git-common-dir 2>/dev/null) && cd=$(cd "$cd" 2>/dev/null && pwd); then
@@ -98,11 +132,32 @@ _default_bot() {
     echo "$HOME/.config/gh-as-bot/gh-as-bot.sh"
   fi
 }
-GH_BOT="${GH_BOT:-$(_default_bot)}"
-if [ ! -x "$GH_BOT" ]; then
-  log "GH_BOT wrapper not found at $GH_BOT — skipping PR amend (see cost-tracking-setup.md prerequisites)"
-  record '"skipped-no-bot-wrapper"'
-  exit 0
+
+CFG_FILE=$(_config_path)
+BOT_ENABLED=false
+if [ -n "$CFG_FILE" ] && [ -f "$CFG_FILE" ]; then
+  BOT_ENABLED=$(jq -r '.tracker.bot.enabled // false' "$CFG_FILE" 2>/dev/null) || BOT_ENABLED=false
+  [ "$BOT_ENABLED" = "true" ] || BOT_ENABLED=false
+fi
+
+if [ "$BOT_ENABLED" = "true" ]; then
+  if [ -z "${GH_BOT:-}" ]; then
+    WRAPPER=$(jq -r '.tracker.bot.wrapperPath // empty' "$CFG_FILE" 2>/dev/null) || WRAPPER=""
+    if [ -n "$WRAPPER" ]; then
+      GH_BOT="${WRAPPER/#\~/$HOME}"
+    else
+      GH_BOT=$(_default_bot)
+    fi
+  fi
+  if [ ! -x "$GH_BOT" ]; then
+    log "GH_BOT wrapper not found at $GH_BOT — skipping PR amend (see cost-tracking-setup.md prerequisites)"
+    record '"skipped-no-bot-wrapper"'
+    exit 0
+  fi
+  GH_CMD="$GH_BOT"
+else
+  GH_CMD="gh"
+  log "config tracker.bot.enabled is not true — amending PR under operator identity via plain gh"
 fi
 
 # ────────────────────────────────────────────────────────────────────────────
@@ -409,11 +464,12 @@ fi
 
 # ────────────────────────────────────────────────────────────────────────────
 # Amend each PR body, idempotent via the <!-- pipeline-cost-block --> marker.
-# Reads use plain `gh`; writes use `$GH_BOT` per the pipeline's bot identity rule.
+# Reads always use plain `gh`; writes use `$GH_CMD` — the wrapper on a bot-enabled
+# repo, plain `gh` (operator identity) otherwise. See the write-identity block above.
 # ────────────────────────────────────────────────────────────────────────────
 if ! command -v gh >/dev/null 2>&1; then
   log "gh CLI not found — skipping PR amend"
-  record '"skipped-otel-error"'
+  record '"skipped-no-gh-cli"'
   exit 0
 fi
 
@@ -434,7 +490,7 @@ amend_pr() {
   local new_body_file
   new_body_file=$(mktemp)
   { printf '%s\n\n' "$existing"; printf '%s\n' "$COST_BLOCK"; } > "$new_body_file"
-  if "$GH_BOT" pr edit --repo "$owner_repo" "$number" --body-file "$new_body_file" >/dev/null 2>&1; then
+  if "$GH_CMD" pr edit --repo "$owner_repo" "$number" --body-file "$new_body_file" >/dev/null 2>&1; then
     log "appended cost block to $owner_repo#$number"
   else
     log "gh pr edit failed for $owner_repo#$number"

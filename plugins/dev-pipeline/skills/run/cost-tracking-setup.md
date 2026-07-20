@@ -10,7 +10,9 @@ Opting in is just steps 1–3 below (collector + telemetry env + bot wrapper) �
 
 - **macOS** (tested on Darwin arm64; Linux works with minor tweaks to the date commands in `pipeline-cost-block.sh`).
 - **`gh` CLI** installed and authenticated (`gh auth status` should succeed). Used for PR reads.
-- **Bot wrapper** — when config `tracker.bot.enabled`, installed by `tools/install-gh-bot.sh` and referenced via the env var named by `tracker.bot.envVar` (default GH_BOT), executable. The script uses it for the `gh pr edit` write call (writes to GitHub go through the bot identity per the dev-pipeline's bot-identity convention). If the wrapper is missing or non-executable, the script records `costBlockApplied: "skipped-no-bot-wrapper"` and exits 0 with an actionable log line — no PR is amended.
+- **Bot wrapper** — required **only when config `tracker.bot.enabled` is true**. Installed by `tools/install-gh-bot.sh`; the script resolves it from `$GH_BOT` first, then config `tracker.bot.wrapperPath`, then a path derived from the consumer repo's directory name. (This script reads the literal `GH_BOT` name — it does not yet honor `tracker.bot.envVar`.) It uses the wrapper for the `gh pr edit` write call, per the dev-pipeline's bot-identity convention. If the bot is enabled and the wrapper is missing or non-executable, the script records `costBlockApplied: "skipped-no-bot-wrapper"` and exits 0 with an actionable log line — no PR is amended.
+
+  On a **bot-disabled** repo no wrapper is needed: the script amends the PR with plain `gh` under **operator identity**. An absent, unreadable, or malformed config counts as disabled (`.tracker.bot.enabled // false`, the same default `tools/bot-commit.sh` applies), so a repo with no config still gets its cost block.
 - **`jq` ≥ 1.6** (ships with macOS).
 - **Native session UUID recorded.** The in-band sub-step relies on `pipelineSessions[]` being populated by the skill at Stage 2 (and on a crash-recovery Stage 8 resume in a fresh session), which reads `$CLAUDE_CODE_SESSION_ID` and records it via `statectl pipeline-session-add` (the subcommand enforces the UUID shape). A run whose Stage 2 never recorded a session id — e.g. `$CLAUDE_CODE_SESSION_ID` was unset — leaves `pipelineSessions[]` empty and skips cost tracking gracefully (`costBlockApplied = "skipped-no-sessions"`).
 - **Pipeline state with timestamps + PR URL.** The script reads `stages.{N}.startedAt`/`completedAt` (for stage windows) and `prs.{branch}.url` (to know which PRs to amend) from `.claude/pipeline-state/{issue}.json`. The dev-pipeline writes both at every stage boundary.
@@ -110,10 +112,11 @@ jq '.costBlockApplied' .claude/pipeline-state/<issue-number>.json
 - `"skipped-telemetry-off"` — `~/.claude/otel-metrics/metrics.jsonl` is empty or absent. Was the collector running? Is your `.envrc` loaded (`direnv status` should show "Found RC")?
 - `"skipped-otel-error"` — the jq query against the metrics file failed. Re-run from a terminal to see stderr, then follow **Manual re-run after an OTel query failure** below.
 - `"skipped-zero-datapoints"` — the recorded session UUID returned `$0.00` from the collector. The likely cause: the session was launched WITHOUT the OTEL\_\* env vars exported (your `.envrc` was not loaded when the session started — see step 3 above), so the collector never received datapoints for it. (A malformed, non-UUID session id can no longer reach this state — `statectl pipeline-session-add` rejects it at record time.)
-- `"skipped-no-bot-wrapper"` — the configured bot wrapper (config `tracker.bot`) is missing or non-executable. Install / repair the bot wrapper.
+- `"skipped-no-bot-wrapper"` — the bot is **enabled** but its wrapper is missing or non-executable. Install / repair the bot wrapper. (A bot-disabled repo cannot record this — it amends via plain `gh`. Seeing it on a repo you believe is bot-disabled means the config really does set `tracker.bot.enabled: true`.)
+- `"skipped-no-gh-cli"` — `gh` is not on `PATH`. Install the GitHub CLI; no PR write is possible under either identity without it.
 - `"skipped-amend-failed"` — `gh pr edit` failed. Check stderr from the most recent Stage 9 run.
 
-The cost log at `.claude/pipeline-state/cost-log.jsonl` has the run's rollup. If it's there but the PR wasn't amended, the bot-identity `gh pr edit` call failed.
+The cost log at `.claude/pipeline-state/cost-log.jsonl` has the run's rollup. If it's there but the PR wasn't amended, the `gh pr edit` call failed — through the bot wrapper on a bot-enabled repo, or under operator identity otherwise.
 
 ### Manual re-run after an OTel query failure
 
