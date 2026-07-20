@@ -49,20 +49,25 @@ grep -q "1 '— no test' row(s)" <<< "$out" \
   && pass "(pl-d) no-test count reported" \
   || fail "(pl-d) no-test count — got: $out"
 
-# (pl-m) apostrophe in a Test(s) cell → 0. Regression guard: the cells were once
+# (pl-m) apostrophe in a trimmed cell → 0. Regression guard: the cells were once
 # trimmed via `echo ... | xargs`, which reads its input with shell quoting rules and
 # aborts with "unterminated quote" on a lone apostrophe — failing the whole lint on a
 # legitimate plan (a test named coverage-can't-fail). awk, not sed, so the apostrophe
 # never traverses this harness's own shell quoting.
-awk -v q="'" '{ sub(/example\.service\.spec \(AC-1\)/, "coverage-can" q "t-fail (AC-1)"); print }' \
+# Covers BOTH trimmed cells that can legitimately carry prose — Step(s) and Test(s) —
+# because trim() is applied at three separate call sites; exercising one would not
+# catch a partial revert of another. (The id cell is excluded by design: an AC id
+# containing an apostrophe never matches the anchored `| AC-n |` row grep.)
+awk -v q="'" '{ sub(/example\.service\.spec \(AC-1\)/, "coverage-can" q "t-fail (AC-1)");
+                sub(/\| 1       \|/, "| 1 (per D-1" q "s note) |"); print }' \
   "$FIX/valid-plan.md" > "$TMP/apostrophe.md"
 if ! grep -q "coverage-can.t-fail" "$TMP/apostrophe.md"; then
   fail "(pl-m) fixture setup — apostrophe cell was not written"
 else
   rc=$(lint_rc "$TMP/apostrophe.md" "$FIX/valid-state.json")
   [[ "$rc" -eq 0 ]] \
-    && pass "(pl-m) apostrophe in Test cell → 0" \
-    || fail "(pl-m) apostrophe in Test cell — got rc=$rc"
+    && pass "(pl-m) apostrophe in Step(s) + Test(s) cells → 0" \
+    || fail "(pl-m) apostrophe in Step(s) + Test(s) cells — got rc=$rc"
 fi
 
 echo "[plan-lint-selftest] mutants (each must exit 1 with a named violation)"
