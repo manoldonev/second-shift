@@ -10,6 +10,7 @@
 # Inert iff every path matches one of:
 #   *.md (any path) · *.sh (any path) · .github/workflows/*.yml ·
 #   .claude/**/*.{mjs,cjs,py,tsv,json,jsonl} ·
+#   .claude/second-shift/.known-extensions (exact path — extensionless) ·
 #   .prettierignore (any depth) · .gitignore (any depth)
 #
 # Output contract: the EXIT CODE is the contract (0 = inert, 1 = suite); the lane token
@@ -29,7 +30,7 @@
 # The canonical inert regex — the single definition for the whole pipeline. `.json` and
 # `.jsonl` are folded into `jsonl?`; the ignore files allow a `(^|/)` prefix so a nested
 # .gitignore / .prettierignore matches at any depth.
-INERT_RE='(\.md$|\.sh$|^\.github/workflows/.*\.yml$|^\.claude/.*\.mjs$|^\.claude/.*\.cjs$|^\.claude/.*\.py$|^\.claude/.*\.tsv$|^\.claude/.*\.jsonl?$|(^|/)\.prettierignore$|(^|/)\.gitignore$)'
+INERT_RE='(\.md$|\.sh$|^\.github/workflows/.*\.yml$|^\.claude/.*\.mjs$|^\.claude/.*\.cjs$|^\.claude/.*\.py$|^\.claude/.*\.tsv$|^\.claude/.*\.jsonl?$|^\.claude/second-shift/\.known-extensions$|(^|/)\.prettierignore$|(^|/)\.gitignore$)'
 
 # inert iff there is NO line that fails to match. `grep -vE` selects the non-inert paths;
 # if it selects any (exit 0) the diff is SUITE, otherwise (exit 1) it is INERT. Output is

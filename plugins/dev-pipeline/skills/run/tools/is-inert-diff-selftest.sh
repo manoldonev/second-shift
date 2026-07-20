@@ -7,17 +7,20 @@
 # pure-local, no Claude CLI, no network, no yarn. It drives the real script with
 # synthetic newline-delimited path lists and asserts INERT (exit 0) vs SUITE (exit 1).
 #
-# Coverage: every inert pattern (each in isolation, including nested-path ignore files
-# and the .json/.jsonl fold), the SUITE defaults (any path that could feed the JS/TS
-# suite), and mixed diffs. Plus a GOLDEN-MASTER tail that re-derives the expected lane
-# from the canonical inline regex embedded here and asserts the script agrees over the
-# whole case list — discharging the "byte-identical to the old inline grep" constraint
-# and catching any transcription drift in the script's copy of the regex.
+# Coverage: every inert pattern (each in isolation, including nested-path ignore files,
+# the .json/.jsonl fold, and the exact-path .known-extensions carve-out), the SUITE
+# defaults (any path that could feed the JS/TS suite), and mixed diffs. Plus a
+# GOLDEN-MASTER tail that re-derives the expected lane from the CANONICAL_RE mirror
+# embedded here and asserts the script agrees over the whole case list.
 #
-# DRIFT MODEL: if the script's INERT_RE diverges from the canonical regex below, the
-# golden-master tail fails. If a future edit re-inlines the grep into 6-verify.md (so the
-# script stops being the single definition), pre-commit-typecheck-selftest.sh's delegation
-# assertion catches that — not this test.
+# DRIFT MODEL: CANONICAL_RE is a LOCKSTEP MIRROR of the script's INERT_RE, not a frozen
+# historical baseline — a deliberate change to the inert set updates BOTH copies in the
+# same commit. What the tail buys is transcription-drift detection: an edit that lands in
+# only one copy fails it. Because the mirror moves with the regex, the tail alone cannot
+# prove a NEW alternative is correct — the per-pattern check() cases above are what assert
+# intended behavior, and every new alternative needs one. If a future edit re-inlines the
+# grep into 6-verify.md (so the script stops being the single definition),
+# pre-commit-typecheck-selftest.sh's delegation assertion catches that — not this test.
 
 set -uo pipefail
 
@@ -64,6 +67,7 @@ check ".claude .py"                    inert ".claude/pipeline-state/agent-eval-
 check ".claude .tsv"                   inert ".claude/skills/run/tools/prose-budget.baseline.tsv"
 check ".claude .json"                  inert ".claude/settings.json"
 check ".claude .jsonl"                 inert ".claude/audit/ledger.jsonl"
+check ".known-extensions (canonical)"  inert ".claude/second-shift/.known-extensions"
 check ".prettierignore (root)"         inert ".prettierignore"
 check ".prettierignore (nested)"       inert "packages/core/.prettierignore"
 check ".gitignore (root)"              inert ".gitignore"
@@ -83,21 +87,29 @@ check "yarn.lock"                      suite "yarn.lock"
 check ".npmrc (not an inert dotfile)"  suite ".npmrc"
 check ".yarnrc.yml (not workflow yml)" suite ".yarnrc.yml"
 check "yml outside workflows"          suite "config/app.yml"
+# The .known-extensions carve-out is anchored to the ONE canonical location
+# (check-extensions.sh reads $ROOT/.claude/second-shift/.known-extensions and
+# nowhere else). Same-named file at any other path keeps selecting SUITE.
+check ".known-extensions elsewhere"    suite ".claude/other/.known-extensions"
+check ".known-extensions (root)"       suite ".known-extensions"
 
 # --- MIXED: any non-inert path forces SUITE (order-independent) ---
 check "inert + .ts (ts last)"          suite $'README.md\napps/api/x.ts'
 check "inert + .ts (ts first)"         suite $'apps/api/x.ts\nREADME.md'
 check ".claude .mjs + package.json"    suite $'.claude/x/y.mjs\npackage.json'
+check ".known-extensions + .ts"        suite $'.claude/second-shift/.known-extensions\napps/api/x.ts'
+check ".known-extensions + .md"        inert $'.claude/second-shift/.known-extensions\nREADME.md'
 
 # ---------------------------------------------------------------------------
-# Golden-master parity tail: the script must agree with the canonical inline regex
-# (the old Stage-6 grep) on every case. CANONICAL_RE below is the verbatim regex the
-# refactor extracted; classify_old() reproduces the original `grep -vE … && suite ||
-# inert` idiom. Any drift between the script's INERT_RE and this canonical copy fails.
+# Golden-master parity tail: the script must agree with the CANONICAL_RE mirror below on
+# every case. classify_old() reproduces the `grep -vE … && suite || inert` idiom the
+# classifier was extracted from, so the tail also pins the evaluation semantics (not just
+# the pattern). Any drift between the script's INERT_RE and this mirror fails — see the
+# DRIFT MODEL note in the file header for what that does and does not prove.
 # ---------------------------------------------------------------------------
-echo "[self-test] golden-master parity vs canonical inline regex"
+echo "[self-test] golden-master parity vs canonical regex mirror"
 
-CANONICAL_RE='(\.md$|\.sh$|^\.github/workflows/.*\.yml$|^\.claude/.*\.mjs$|^\.claude/.*\.cjs$|^\.claude/.*\.py$|^\.claude/.*\.tsv$|^\.claude/.*\.jsonl?$|(^|/)\.prettierignore$|(^|/)\.gitignore$)'
+CANONICAL_RE='(\.md$|\.sh$|^\.github/workflows/.*\.yml$|^\.claude/.*\.mjs$|^\.claude/.*\.cjs$|^\.claude/.*\.py$|^\.claude/.*\.tsv$|^\.claude/.*\.jsonl?$|^\.claude/second-shift/\.known-extensions$|(^|/)\.prettierignore$|(^|/)\.gitignore$)'
 classify_old() { if printf '%s' "$1" | grep -vE "$CANONICAL_RE" >/dev/null; then echo suite; else echo inert; fi; }
 
 GOLDEN_CASES=(
@@ -112,6 +124,9 @@ GOLDEN_CASES=(
   ".claude/x/y.tsv"
   ".claude/settings.json"
   ".claude/audit/ledger.jsonl"
+  ".claude/second-shift/.known-extensions"
+  ".claude/other/.known-extensions"
+  ".known-extensions"
   ".prettierignore"
   "packages/core/.prettierignore"
   ".gitignore"
@@ -139,7 +154,7 @@ for c in "${GOLDEN_CASES[@]}"; do
   fi
 done
 if [ "$PARITY_FAILS" -eq 0 ]; then
-  ok "script matches canonical inline regex on all ${#GOLDEN_CASES[@]} golden cases"
+  ok "script INERT_RE matches the CANONICAL_RE mirror on all ${#GOLDEN_CASES[@]} golden cases"
 fi
 
 echo "[self-test] $PASS passed, $FAIL failed"
