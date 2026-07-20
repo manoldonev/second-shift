@@ -68,13 +68,16 @@ CALLS="$(wc -l < "$GH_SHIM_CALLS" | tr -d ' ')"
   && pass "2b second commit reuses cache (gh called once total)" \
   || fail "2b gh called $CALLS times, want 1"
 
-# ---- Case 3: bot disabled / no config → repo default identity -------------------
+# ---- Case 3: bot disabled / no config → repo default identity + WARN (AC-2) ------
 mkrepo "$TMP/r3"
-bash "$BOT_COMMIT" -C "$TMP/r3" -q -m "test: default" >/dev/null 2>&1
+ERR3="$(bash "$BOT_COMMIT" -C "$TMP/r3" -q -m "test: default" 2>&1 >/dev/null || true)"
 AUTHOR3="$(git -C "$TMP/r3" log --format='%an <%ae>' -1)"
 [[ "$AUTHOR3" == "Repo Default <default@example.com>" ]] \
-  && pass "3 no config → repo default identity" \
-  || fail "3 got '$AUTHOR3', want repo default"
+  && pass "3a no config → repo default identity" \
+  || fail "3a got '$AUTHOR3', want repo default"
+grep -q "no second-shift config found" <<< "$ERR3" \
+  && pass "3b no-config fallback is loud (AC-2)" \
+  || fail "3b silent no-config fallback — want a stderr WARN"
 
 # ---- Case 4: unresolvable id → warn + repo default (never a fabricated email) ---
 mkrepo "$TMP/r4" '{"tracker":{"bot":{"enabled":true,"app":{"appName":"no-such-app"}}}}'
@@ -91,6 +94,97 @@ AUTHOR4="$(git -C "$TMP/r4" log --format='%an <%ae>' -1)"
 grep -q "could not resolve bot user id" <<< "$ERR" \
   && pass "4b fallback is noisy (stderr WARN)" \
   || fail "4b no WARN on stderr — silent fallback"
+
+# ---- Case 5: gitignored config + worktree, no env → bot identity (AC-1) ----------
+# THE regression test for #110. Unlike cases 1-4 (single `git init` repos) this builds a real
+# main-checkout + worktree pair with the config GITIGNORED, reproducing the production setup:
+# the config never lands in the worktree, so resolution must reach the main checkout via
+# --git-common-dir. Against the pre-#110 --show-toplevel anchor this case fails.
+cat > "$TMP/bin/gh" <<'SHIM'
+#!/usr/bin/env bash
+echo "1" >> "${GH_SHIM_CALLS:?}"
+if [[ "$1" == "api" && "$2" == users/* ]]; then
+  echo "424242"
+  exit 0
+fi
+exit 1
+SHIM
+chmod +x "$TMP/bin/gh"
+
+mkrepo "$TMP/r5" "$BOT_CFG"
+printf '.claude/second-shift.config.json\n' > "$TMP/r5/.gitignore"
+git -C "$TMP/r5" add .gitignore
+git -C "$TMP/r5" -c user.name=Seed -c user.email=seed@example.com commit -q -m "seed"
+git -C "$TMP/r5" worktree add -q -b wt5 "$TMP/r5-wt" >/dev/null 2>&1
+
+[[ ! -f "$TMP/r5-wt/.claude/second-shift.config.json" ]] \
+  && pass "5a config is absent from the worktree (reproduces the bug's precondition)" \
+  || fail "5a config unexpectedly present in worktree — case does not reproduce #110"
+
+echo wt > "$TMP/r5-wt/w.txt"; git -C "$TMP/r5-wt" add w.txt
+ERR5="$(bash "$BOT_COMMIT" -C "$TMP/r5-wt" -q -m "test: worktree" 2>&1 >/dev/null || true)"
+AUTHOR5="$(git -C "$TMP/r5-wt" log --format='%an <%ae>' -1)"
+[[ "$AUTHOR5" == "$WANT" ]] \
+  && pass "5b worktree + gitignored config, no env → bot identity (AC-1)" \
+  || fail "5b got '$AUTHOR5', want '$WANT'"
+grep -q "bot-commit] WARN" <<< "$ERR5" \
+  && fail "5c unexpected WARN on the success path: $ERR5" \
+  || pass "5c success path is silent (no WARN)"
+
+# ---- Case 6: explicit enabled:false → repo default + the bot-disabled WARN (AC-2) -
+mkrepo "$TMP/r6" '{"tracker":{"bot":{"enabled":false,"app":{"appName":"test-pipeline"}}}}'
+ERR6="$(bash "$BOT_COMMIT" -C "$TMP/r6" -q -m "test: disabled" 2>&1 >/dev/null || true)"
+AUTHOR6="$(git -C "$TMP/r6" log --format='%an <%ae>' -1)"
+[[ "$AUTHOR6" == "Repo Default <default@example.com>" ]] \
+  && pass "6a bot disabled → repo default identity (AC-2)" \
+  || fail "6a got '$AUTHOR6', want repo default"
+grep -q "bot disabled in" <<< "$ERR6" \
+  && pass "6b deliberate-disable WARN is distinct from the no-config WARN (AC-2)" \
+  || fail "6b wrong or missing WARN: $ERR6"
+
+# ---- Case 7: -C a non-repo dir → our WARN is absent (no consumer to be wrong about) -
+mkdir -p "$TMP/notarepo"
+ERR7="$(bash "$BOT_COMMIT" -C "$TMP/notarepo" -q -m "test: nonrepo" 2>&1 >/dev/null || true)"
+grep -q "bot-commit] WARN" <<< "$ERR7" \
+  && fail "7 WARN emitted for a non-repo dir: $ERR7" \
+  || pass "7 non-repo dir → no bot-commit WARN (AC-2)"
+
+# ---- Case 8: $SECOND_SHIFT_CONFIG (candidate 1) wins over the -C dir config ------
+# Candidate 1 has the highest precedence and is what operators/CI invoke directly, but
+# every other positive case leaves it unset. Point it at a DIFFERENT appName than the
+# repo's own config so the winner is unambiguous from the resulting identity alone.
+mkrepo "$TMP/r8" '{"tracker":{"bot":{"enabled":true,"app":{"appName":"in-repo-app"}}}}'
+mkdir -p "$TMP/override"
+printf '%s' '{"tracker":{"bot":{"enabled":true,"app":{"appName":"override-app"}}}}' \
+  > "$TMP/override/cfg.json"
+AUTHOR8="$(SECOND_SHIFT_CONFIG="$TMP/override/cfg.json" \
+  bash "$BOT_COMMIT" -C "$TMP/r8" -q -m "test: override" >/dev/null 2>&1; \
+  git -C "$TMP/r8" log --format='%an' -1)"
+[[ "$AUTHOR8" == "override-app[bot]" ]] \
+  && pass "8 \$SECOND_SHIFT_CONFIG (candidate 1) outranks the -C dir config" \
+  || fail "8 got '$AUTHOR8', want 'override-app[bot]' — candidate precedence is wrong"
+
+# ---- Case 9: SECOND_SHIFT_REPO_ROOT moves the CONFIG root, NOT the id cache (D-7) --
+# The override exists so a selftest can aim config resolution at a fixture; the bot-id
+# cache must STAY on the real --git-common-dir (it needs a writable, worktree-shared git
+# dir). Asserting both halves is the point — a "parity" implementation that moved the
+# cache too would pass an identity-only check.
+mkrepo "$TMP/r9"                     # deliberately NO config in the repo itself
+mkdir -p "$TMP/fakeroot/.claude"
+printf '%s' "$BOT_CFG" > "$TMP/fakeroot/.claude/second-shift.config.json"
+rm -f "$TMP/r9/.git/second-shift-bot-user-id"
+AUTHOR9="$(SECOND_SHIFT_REPO_ROOT="$TMP/fakeroot" \
+  bash "$BOT_COMMIT" -C "$TMP/r9" -q -m "test: repo-root override" >/dev/null 2>&1; \
+  git -C "$TMP/r9" log --format='%an' -1)"
+[[ "$AUTHOR9" == "test-pipeline[bot]" ]] \
+  && pass "9a SECOND_SHIFT_REPO_ROOT redirects config resolution (D-7)" \
+  || fail "9a got '$AUTHOR9', want 'test-pipeline[bot]' — override did not move the config root"
+[[ -s "$TMP/r9/.git/second-shift-bot-user-id" ]] \
+  && pass "9b id cache stayed in the REAL git common dir, not the override (D-7)" \
+  || fail "9b cache missing from \$TMP/r9/.git — the override wrongly moved the cache too"
+[[ ! -e "$TMP/fakeroot/second-shift-bot-user-id" && ! -e "$TMP/fakeroot/.git" ]] \
+  && pass "9c override dir received no cache write (D-7)" \
+  || fail "9c cache leaked into the override root"
 
 echo ""
 echo "[bot-commit-selftest] $PASS passed, $FAIL failed"

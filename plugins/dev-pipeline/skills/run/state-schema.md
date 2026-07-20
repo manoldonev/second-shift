@@ -293,7 +293,7 @@ A run is design-driven only when config sets `design.provider` **and** Stage 1 d
   - `"skipped-telemetry-off"` — OTel metrics file empty or absent.
   - `"skipped-otel-error"` — metrics query failed; check stderr.
   - `"skipped-zero-datapoints"` — collector reachable but the recorded session UUID returned `$0.00` (the session was launched without the OTEL\_\* env vars exported, or the collector missed the run).
-  - `"skipped-no-bot-wrapper"` — the bot is **enabled** (config `tracker.bot.enabled` is true) but its wrapper is missing or non-executable. A bot-**disabled** repo never records this: it amends under operator identity via plain `gh`. An absent, unreadable, or malformed config resolves to disabled (`// false`, matching `tools/bot-commit.sh`).
+  - `"skipped-no-bot-wrapper"` — the bot is **enabled** (config `tracker.bot.enabled` is true) but its wrapper is missing or non-executable. A bot-**disabled** repo never records this: it amends under operator identity via plain `gh`. An absent, unreadable, or malformed config resolves to disabled (`// false`, the same default `tools/bot-commit.sh` applies — though note that helper searches three candidate paths, including the main checkout via `--git-common-dir`, before concluding a config is absent, and warns on stderr when it falls back).
   - `"skipped-no-gh-cli"` — the `gh` CLI is not on `PATH`, so no PR write is possible under either identity.
   - `"skipped-amend-failed"` — `gh pr edit` failed for at least one PR; check stderr.
 
