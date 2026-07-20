@@ -12,7 +12,7 @@ tests="$(echo "${cells[4]}" | xargs)"
 
 `xargs` reads its input with shell-like quoting rules, so a single quote in any parsed cell — a test named `coverage-can't-fail`, a criterion phrased "the run's verdict" — makes it abort with `xargs: unterminated quote`. Under `set -euo pipefail` the command substitution's failure propagates and `plan-lint.sh` returns non-zero. In run `2026-07-13T212453Z-Mac-fd3f3c6e` (#67) this hard-failed the Stage-4 plan-structure gate on a legitimate plan; the workaround was to keep every table cell apostrophe-free.
 
-Intake narrowed the blast radius: the sibling `ledger-lint.sh` was already fixed in an earlier change. It carries a quoting-safe parameter-expansion `trim()` ([`ledger-lint.sh`](../../plugins/intake-toolkit/skills/plan-interview/tools/ledger-lint.sh):38-43) and its selftest already asserts an apostrophe-bearing ledger row lints clean ([`ledger-lint-selftest.sh`](../../plugins/intake-toolkit/skills/plan-interview/tools/ledger-lint-selftest.sh):104). A repo-wide `grep -rn xargs plugins/**/*.sh` returns only the three `plan-lint.sh` lines plus that file's explanatory comment. **The bug lives only in `plan-lint.sh`.**
+Intake narrowed the blast radius: the sibling `ledger-lint.sh` was already fixed in an earlier change. It carries a quoting-safe parameter-expansion `trim()` ([`ledger-lint.sh`](../../plugins/intake-toolkit/skills/plan-interview/tools/ledger-lint.sh):39-44, under its explanatory comment at line 38) and its selftest already asserts an apostrophe-bearing ledger row lints clean ([`ledger-lint-selftest.sh`](../../plugins/intake-toolkit/skills/plan-interview/tools/ledger-lint-selftest.sh):104). A repo-wide `grep -rn xargs plugins/**/*.sh` returns only the three `plan-lint.sh` lines plus that file's explanatory comment. **The bug lives only in `plan-lint.sh`.**
 
 ## Assumptions
 
@@ -45,7 +45,7 @@ Intake narrowed the blast radius: the sibling `ledger-lint.sh` was already fixed
 1. In `plan-lint.sh`, add the quoting-safe `trim()` helper next to `violate()` (~line 41), matching `ledger-lint.sh`'s implementation and comment.
 2. Replace the three `xargs` pipes at lines 88-90 with `trim` calls: `id="$(trim "${cells[1]}")"` and likewise for `steps` / `tests`.
 3. In `plan-lint-selftest.sh`, add positive case `(pl-m)`: derive a plan from `valid-plan.md` whose Test(s) cell contains `coverage-can't-fail`, assert `rc == 0`. Place it with the other positive cases, before the mutants block.
-4. Verify `ledger-lint.sh` and its selftest already satisfy AC-3 — assert `grep -c xargs ledger-lint.sh` finds no trim usage and case `(ll-k)` exists. No edit.
+4. Verify `ledger-lint.sh` and its selftest already satisfy AC-3 — confirm `grep -n xargs ledger-lint.sh` returns only the line-38 explanatory comment (no functional `xargs` call), that `git status --porcelain plugins/intake-toolkit/` stays empty, and that selftest case `(ll-k)` passes. No edit.
 
 ## Test strategy
 
@@ -72,6 +72,7 @@ No unit-test-surface work: the repo's `commands.second-shift.unitTestScope` is `
 
 - **Behavior change on cells with internal double spaces / backslashes / quotes.** Previously normalized by `xargs`, now preserved. Assessed as inert: the no-test regex tolerates internal whitespace runs, and AC ids are matched by an anchored grep that a multi-space id would already have missed. Rollback is a three-line revert.
 - **Low blast radius.** `plan-lint.sh` is advisory at Stage 3 and gating at Stage 4; a regression surfaces immediately as a Stage-4 abort on the next pipeline run, not silently.
+- **Repo convention:** this touches `plugins/**`, so the implementation commit must carry a `Changelog:` trailer (enforced by `scripts/check-changelog-trailer.sh`). Versions and `CHANGELOG.md` stay untouched — they are derived at release time by `scripts/derive-release.sh`.
 
 Unverified references: none — every path and function above was read or grepped in this worktree.
 
