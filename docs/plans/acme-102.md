@@ -32,7 +32,7 @@ plus the missing documentation.
 | D-n | Decision | Provenance | Rationale |
 | --- | --- | --- | --- |
 | D-1 | Scope is the early signal only; no second opt-out mechanism | codebase-derived | #98 already ships the Stage-6 gate and `allowUnverified`; the issue body scopes itself to "the onboarding/guidance half" |
-| D-2 | Verifying = non-null `lint`/`typecheck`/`test` or >=1 `extraLanes` entry | codebase-derived | Mirrors the shipped predicate in `statectl.sh` so the early warning cannot drift from the late gate |
+| D-2 | Verifying = non-null `lint`/`typecheck`/`test` or >=1 `extraLanes` entry | codebase-derived | Mirrors the config-level predicate in `verifyctl.sh`, which produces the `verifySummary` that `statectl.sh`'s Stage-6 gate refuses; keeping all three in lockstep is the point |
 | D-3 | The warning lives in `preflight.sh`, not `config-lint.sh` | codebase-derived | `config-lint.sh` has a binary exit contract and no WARN channel; adding one risks reddening consumer CI over a legitimately unfinished table |
 | D-4 | The verdict line stops claiming `pipeline-ready` when the warning fires; exit code unchanged | codebase-derived | `warn()` does not increment `FAILS`, so a bare WARN would leave the exact false-green the issue reports |
 | D-5 | The `lanes` stub lives in the JSONC review screen and the docs, never the emitted JSON | codebase-derived | `onboard` Step 4 writes pure JSON and `config-lint.sh` runs `jq empty` — a commented stub cannot persist in the file |
@@ -68,6 +68,9 @@ Unverified references: none. Every path and function above was read in the workt
 3. Change the verdict line so `— pipeline-ready` is printed only when `FAILS` is 0 **and**
    `UNVERIFIED` is 0; when `FAILS` is 0 but `UNVERIFIED` is 1, state plainly that the repo is not
    pipeline-ready and why. Leave `exit "$FAILS"` untouched.
+   Set the same flag in the two other branches that skip the lane pass entirely — "no host repo
+   (path `.`)" and "no config / no jq". Both verify nothing yet still closed green; they are the
+   same false-green defect and get the same suppression. (Stage-4 plan-review warning.)
 4. Extend `preflight-selftest.sh` with three runs: an all-null table asserting the WARN fires and
    `pipeline-ready` is absent (AC-1); the same table with `allowUnverified: true` asserting silence
    (AC-2); a table with one verifying lane asserting silence (AC-3).
@@ -95,8 +98,11 @@ or absence of the warning and the `pipeline-ready` token.
 | AC-4 | onboard surfaces a `lanes` stub; emitted JSON unchanged | 5 | — no test (covered-by-selftest) |
 | AC-5 | Onboarding guide documents the fresh-worktree install requirement | 6 | — no test (non-functional) |
 
-AC-4's emitted-JSON invariant is asserted indirectly: `onboard` emits no `lanes` key, so the
-existing `config-lint` fixtures remain valid unchanged. AC-5 is prose.
+AC-4 and AC-5 are prose contracts with no executable assertion. AC-4's "emitted JSON unchanged"
+half is **not** machine-enforced: `config-lint` accepts a `lanes` key (it is valid config), so a
+leaked stub would pass. Adding a rule to reject it would be wrong. The invariant is held by the
+review screen showing the line commented and Step 4 emitting pure JSON — a review-level contract,
+deliberately not a lint. (Stage-4 plan-review warning.)
 
 ## Verification commands
 
@@ -113,8 +119,9 @@ find . -name '*-selftest.sh' -type f -print0 | xargs -0 -n1 -I{} env SKIP_STRESS
 - **Predicate drift from the Stage-6 gate.** Mitigated by D-2 (same field set) and a comment at the
   call site naming `statectl.sh` as the source of truth. A future change to the Stage-6 predicate
   must update both; the selftests would not catch that, so the comment is the guard.
-- **This repo's own config** sets `lint` and `test` non-null, so AC-3 holds here and its own
-  preflight is unaffected.
+- **This repo's own config** sets `lint` and `test` non-null, so its own preflight keeps reporting
+  ready. Verified in the main checkout, not the worktree: `.claude/second-shift.config.json` is
+  gitignored and therefore absent from a pipeline worktree. (Stage-4 plan-review warning.)
 - Rollback is a single revert; no state, schema, or config migration.
 
 ## Out-of-scope
