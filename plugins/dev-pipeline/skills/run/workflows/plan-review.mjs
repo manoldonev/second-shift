@@ -38,16 +38,9 @@ const PLAN_REVIEW_SCHEMA = {
   },
 }
 
-// --- StructuredOutput-staller mitigation (the full reused stack) ---
-// plan-reviewer is a heavy exploration agent (reads the plan + greps the
-// codebase); same layered defenses as code-review.mjs / unit-tests.mjs:
-// output-first framing + non-negotiable mandate, inline retry on the
-// StructuredOutput death class, and a wall-clock ceiling on the dispatch.
-const STRUCTURED_OUTPUT_MANDATE =
-  ' IMPORTANT: the StructuredOutput tool call is your ONLY deliverable — a prose write-up is' +
-  ' discarded and counts as producing nothing. Do your work, then your FINAL action MUST be the' +
-  ' StructuredOutput call; if you are running low on budget, call it early with partial results' +
-  ' rather than writing a summary. Never end your turn without calling StructuredOutput.'
+// STRUCTURED_OUTPUT_MANDATE is retired on this dispatcher: the explorer runs schema-free
+// (see the explorer/emitter block below), so there is no forced call to mandate. The text
+// lives on only in stall-probe.mjs's schema-forced control arm, which measures the old path.
 
 // The PRIMARY stall fix for this dispatcher. Deliberately NOT code-review.mjs's wording: that one
 // says a reviewer need not exhaustively read the diff to assert the ABSENCE of findings, which is
@@ -56,6 +49,10 @@ const STRUCTURED_OUTPUT_MANDATE =
 // grounding happens, not WHETHER: batch the cheap existence checks, sample the expensive content
 // reads, open a file only to support a finding you intend to raise.
 //
+// SHIPPING NOTE (#169): the explorer dispatch below sends this nudge NOWHERE — the measured
+// 0/8-stall / 8/8-usable arm ran WITHOUT it, and the fix ships exactly what was measured. The
+// constant stays defined verbatim because stall-probe.mjs's control arm copies it in lockstep
+// (drift guard B5) and it remains available for future cost tuning behind a new measurement.
 // Inventory completeness is explicitly exempted because planReviewerGate also serves the design
 // FE-spec gate, whose rubric demands one row per rendered element with no silent drops — the same
 // exhaustiveness class that justifies the scope-completeness-reviewer opt-out in code-review.mjs.
@@ -81,24 +78,95 @@ const RETRY_ESCALATION =
   ' text where you cannot cheaply verify it, and call StructuredOutput as early as you can defend,' +
   ' with partial findings if necessary. An early partial verdict is worth far more than no verdict.'
 
-const isNoStructuredOutputError = (err) => /StructuredOutput/.test(String(err))
+// --- explorer/emitter transport (the structural stall fix; #169) ---
+// The stall class is `schema AND can-explore` in ONE agent. Measured on this exact dispatch
+// (opus, k=8, 51-file-reference plan): schema-forced 7/8 deaths with 0 usable verdicts;
+// schema-free text contract 0/8 with 8/8 usable at a third of the tokens. So the schema
+// NEVER rides on the exploring dispatch. The explorer reviews schema-free and ends with a
+// sentinel + fenced JSON block, parsed and validated in-script; only the transcription-only
+// emitter agent (tools: [], maxTurns: 2 — it cannot explore) ever carries the schema, and
+// only when a sentinel-bearing block failed to parse. A MISSING sentinel means the explorer
+// truncated — that goes DARK (throw → the caller's existing infra path), never to the
+// emitter: transcribing a truncated exploration would launder incompleteness into a
+// valid-looking verdict.
+const REVIEW_RESULT_EPILOGUE =
+  '\n\nWrite your review, grounding as much as you need. Your FINAL output MUST end with' +
+  ' this sentinel line followed by one fenced json block and NOTHING after it:\n\n' +
+  'REVIEW_RESULT\n```json\n{ "verdict": "block|fix-and-go|pass", "findings": [ { "severity":' +
+  ' "blocker|warning|note", "message": "...", "evidence": "...", "impact": "...",' +
+  ' "suggestedFix": "..." } ], "summary": "..." }\n```'
 
-// retries = 1 (was 2): see RETRY_ESCALATION — further identical attempts bought no information.
-const dispatchSchemaAgent = async (prompt, opts, retries = 1) => {
-  let lastErr
-  for (let attempt = 0; attempt <= retries; attempt++) {
-    try {
-      return await agent(
-        attempt === 0 ? prompt : prompt + RETRY_ESCALATION,
-        attempt === 0 ? opts : { ...opts, label: `${opts.label} (retry ${attempt})` },
-      )
-    } catch (err) {
-      lastErr = err
-      if (!isNoStructuredOutputError(err)) throw err
-      log(`${opts.label}: died without StructuredOutput — retry ${attempt + 1}/${retries}`)
+// Last-match-wins: the agent may quote the instruction mid-prose (mutation-gate precedent).
+const parseReviewResult = (text) => {
+  const m = [...String(text ?? '').matchAll(/REVIEW_RESULT\s*```json\s*([\s\S]*?)```/g)]
+  if (!m.length) return null
+  try {
+    return JSON.parse(m[m.length - 1][1])
+  } catch {
+    return null
+  }
+}
+
+// In-script validator: the schema objects stop being dispatch schemas and become checkers —
+// required keys plus enum membership, one level into array items. Downstream shapes unchanged.
+const validateShape = (obj, schema) => {
+  if (!obj || typeof obj !== 'object') return false
+  for (const key of schema.required || []) if (!(key in obj)) return false
+  const props = schema.properties || {}
+  for (const k of Object.keys(props)) {
+    const p = props[k]
+    if (!(k in obj) || obj[k] == null) continue
+    if (p.enum && !p.enum.includes(obj[k])) return false
+    if (p.type === 'array') {
+      if (!Array.isArray(obj[k])) return false
+      if (p.items) {
+        for (const it of obj[k]) {
+          if (!it || typeof it !== 'object') return false
+          for (const rk of p.items.required || []) if (!(rk in it)) return false
+          const ip = p.items.properties || {}
+          for (const ik of Object.keys(ip)) {
+            if (ip[ik].enum && ik in it && it[ik] != null && !ip[ik].enum.includes(it[ik])) return false
+          }
+        }
+      }
     }
   }
-  throw lastErr
+  return true
+}
+
+// Rung 2: the transcription-only schema sink. Its input is complete in the prompt; with
+// tools: [] and maxTurns: 2 it cannot exhaust a budget, so schema-forcing is safe here.
+const emitStructured = (text, opts) =>
+  // bounded-exploration-optout: structured-emitter -- tools:[] maxTurns:2 transcription sink;
+  //   it has nothing to explore, which is precisely why it may carry the schema.
+  agent(
+    'Convert this completed review into the required structured object. Transcribe EXACTLY' +
+      ' what the review states — never invent, drop, merge, soften or upgrade findings.' +
+      '\n\n---REVIEW---\n' + String(text) + '\n---END---',
+    { agentType: 'review-toolkit:structured-emitter', model: 'haiku', label: `${opts.label} (emit)`, phase: opts.phase, schema: opts.schema },
+  )
+
+// The dispatch ladder. Signature and name kept for the callers and drift guards:
+// retries = 1 — one escalated re-explore on a contract miss (truncation or bad JSON can be
+// stochastic), never a verbatim repeat.
+const dispatchSchemaAgent = async (prompt, opts, retries = 1) => {
+  let lastText = null
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    const text = await agent(
+      (attempt === 0 ? prompt : prompt + RETRY_ESCALATION) + REVIEW_RESULT_EPILOGUE,
+      { agentType: opts.agentType, model: opts.model, label: attempt === 0 ? opts.label : `${opts.label} (retry ${attempt})`, phase: opts.phase },
+    )
+    const parsed = parseReviewResult(text)
+    if (parsed && validateShape(parsed, opts.schema)) return parsed
+    lastText = text
+    log(`${opts.label}: text-contract miss (${/REVIEW_RESULT/.test(String(text ?? '')) ? 'invalid json' : 'no sentinel'}) — attempt ${attempt + 1}/${retries + 1}`)
+  }
+  if (/REVIEW_RESULT/.test(String(lastText ?? ''))) {
+    const emitted = await emitStructured(lastText, opts)
+    if (emitted && validateShape(emitted, opts.schema)) return emitted
+    throw new Error('text-contract: emitter produced an invalid shape — declared dark')
+  }
+  throw new Error('text-contract: explorer never produced the REVIEW_RESULT block (truncation) — declared dark')
 }
 
 // Wall-clock ceiling (mirrors code-review.mjs): race the full dispatch against a
@@ -209,13 +277,14 @@ const planReviewerGate = async (gate, prompt) => {
     return
   }
   try {
-    // bounded-exploration: BOUNDED_PLAN_GROUNDING
     const result = await withCeiling(
-      dispatchSchemaAgent(prompt + STRUCTURED_OUTPUT_MANDATE + BOUNDED_PLAN_GROUNDING, {
+      dispatchSchemaAgent(prompt, {
         agentType: PLAN_REVIEWER_AGENT,
         model: planReviewerModel,
         label: gate,
         phase: 'Plan Review',
+        // bounded-exploration-optout: validator-reference -- this schema: key never rides a
+        //   dispatch; dispatchSchemaAgent uses it for validateShape and the tool-less emitter only.
         schema: PLAN_REVIEW_SCHEMA,
       }),
     )
@@ -240,13 +309,14 @@ const planGateAgent = async (gate, agentType, model, prompt) => {
     return
   }
   try {
-    // bounded-exploration: BOUNDED_PLAN_GROUNDING
     const result = await withCeiling(
-      dispatchSchemaAgent(prompt + STRUCTURED_OUTPUT_MANDATE + BOUNDED_PLAN_GROUNDING, {
+      dispatchSchemaAgent(prompt, {
         agentType,
         model,
         label: gate,
         phase: 'Plan Review',
+        // bounded-exploration-optout: validator-reference -- this schema: key never rides a
+        //   dispatch; dispatchSchemaAgent uses it for validateShape and the tool-less emitter only.
         schema: PLAN_REVIEW_SCHEMA,
       }),
     )

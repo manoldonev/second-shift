@@ -85,19 +85,14 @@ const MUTATION_REVIEW_SCHEMA = {
   },
 }
 
-// --- StructuredOutput-staller mitigation (shared posture with code-review.mjs, strengthened) ---
-// unit-test-mutation-reviewer is a heavy exploration agent: it greps/reads broadly then can end its
-// turn WITHOUT the forced StructuredOutput call. Same two defenses mirrored across every
-// schema-forced workflow: a non-negotiable mandate ("final action MUST be the call") + an inline
-// retry on the StructuredOutput death class. With Stage-5's one re-dispatch this drives the staller
-// to ~zero. The plan-review path shares the same dispatch and benefits too.
-const STRUCTURED_OUTPUT_MANDATE =
-  ' IMPORTANT: the StructuredOutput tool call is your ONLY deliverable — a prose write-up is' +
-  ' discarded and counts as producing nothing. Do your work, then your FINAL action MUST be the' +
-  ' StructuredOutput call; if you are running low on budget, call it early with partial results' +
-  ' rather than writing a summary. Never end your turn without calling StructuredOutput.'
+// STRUCTURED_OUTPUT_MANDATE is retired on this dispatcher: both kinds now run their explorer
+// schema-FREE via the explorer/emitter transport below (#169 — measured: the forced schema on an
+// exploring agent IS the stall mechanism; schema-free 0/8 stalls vs 7/8 at a third of the cost).
 
-// Bounding nudges — the PRIMARY stall fix (see the ROOT CAUSE block in code-review.mjs). One per
+// SHIPPING NOTE (#169): the explorer dispatches below send these nudges NOWHERE — the measured
+// schema-free arm ran WITHOUT them and the fix ships what was measured. Constants stay defined
+// for probe lockstep and future cost tuning behind a new measurement.
+// Bounding nudges — formerly the PRIMARY stall fix (see the ROOT CAUSE block in code-review.mjs). One per
 // kind, because the two dispatches have opposite exhaustiveness needs and one shared wording would
 // be wrong for one of them.
 //
@@ -130,30 +125,79 @@ const RETRY_ESCALATION =
   ' which counts as producing nothing. Explore MARKEDLY less this time and call StructuredOutput as' +
   ' early as you can defend, with partial results if necessary.'
 
-// Only the StructuredOutput-death error class is retried; genuine tool/permission errors throw
-// straight through. Brittle substring match — the only signal the runtime surfaces.
-const isNoStructuredOutputError = (err) => /StructuredOutput/.test(String(err))
+// --- explorer/emitter transport (the structural stall fix; #169) ---
+// The explorer runs schema-FREE and ends with a sentinel + fenced JSON block, parsed and
+// validated in-script; the schema objects become validators. The transcription-only emitter
+// agent (tools: [], maxTurns: 2) is the only schema carrier — and ONLY for the plan-review
+// kind. The mutation kind never routes through the emitter: its blocker mutants carry
+// {originalSnippet, mutatedSnippet} patch bytes that Stage 5 applies MECHANICALLY, and a
+// transcription model is a corruption surface for verbatim code. A mutation contract miss
+// goes straight to the caller's infraFailure envelope instead (Stage 5 re-dispatches once).
+const parseReviewResult = (text) => {
+  const m = [...String(text ?? '').matchAll(/REVIEW_RESULT\s*```json\s*([\s\S]*?)```/g)]
+  if (!m.length) return null
+  try {
+    return JSON.parse(m[m.length - 1][1])
+  } catch {
+    return null
+  }
+}
 
-// One schema'd dispatch with up to `retries` INLINE retries on a StructuredOutput death. Resolves
-// to the agent result on success; throws the last error after exhausting retries (the caller maps
-// that throw to its infraFailure envelope).
-// retries = 1 (was 2): repeating an identical attempt after a turn-budget death is a foregone
-// conclusion — measured at 480k wasted tokens across six such dispatches in one Stage-4 run.
-const dispatchSchemaAgent = async (prompt, opts, retries = 1) => {
-  let lastErr
-  for (let attempt = 0; attempt <= retries; attempt++) {
-    try {
-      return await agent(
-        attempt === 0 ? prompt : prompt + RETRY_ESCALATION,
-        attempt === 0 ? opts : { ...opts, label: `${opts.label} (retry ${attempt})` },
-      )
-    } catch (err) {
-      lastErr = err
-      if (!isNoStructuredOutputError(err)) throw err
-      log(`${opts.label}: died without StructuredOutput — retry ${attempt + 1}/${retries}`)
+const validateShape = (obj, schema) => {
+  if (!obj || typeof obj !== 'object') return false
+  for (const key of schema.required || []) if (!(key in obj)) return false
+  const props = schema.properties || {}
+  for (const k of Object.keys(props)) {
+    const p = props[k]
+    if (!(k in obj) || obj[k] == null) continue
+    if (p.enum && !p.enum.includes(obj[k])) return false
+    if (p.type === 'array') {
+      if (!Array.isArray(obj[k])) return false
+      if (p.items) {
+        for (const it of obj[k]) {
+          if (!it || typeof it !== 'object') return false
+          for (const rk of p.items.required || []) if (!(rk in it)) return false
+          const ip = p.items.properties || {}
+          for (const ik of Object.keys(ip)) {
+            if (ip[ik].enum && ik in it && it[ik] != null && !ip[ik].enum.includes(it[ik])) return false
+          }
+        }
+      }
     }
   }
-  throw lastErr
+  return true
+}
+
+const emitStructured = (text, opts) =>
+  // bounded-exploration-optout: structured-emitter -- tools:[] maxTurns:2 transcription sink;
+  //   nothing to explore, which is why it may carry the schema.
+  agent(
+    'Convert this completed review into the required structured object. Transcribe EXACTLY' +
+      ' what the review states — never invent, drop, merge, soften or upgrade findings.' +
+      '\n\n---REVIEW---\n' + String(text) + '\n---END---',
+    { agentType: 'review-toolkit:structured-emitter', model: 'haiku', label: `${opts.label} (emit)`, phase: opts.phase, schema: opts.schema },
+  )
+
+// retries = 1 — one escalated re-explore on a contract miss, never a verbatim repeat.
+// opts.allowEmit gates rung 2 (true for plan-review, false for mutation-review).
+const dispatchSchemaAgent = async (prompt, opts, retries = 1) => {
+  let lastText = null
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    const text = await agent(
+      (attempt === 0 ? prompt : prompt + RETRY_ESCALATION) + opts.epilogue,
+      { agentType: opts.agentType, model: opts.model, label: attempt === 0 ? opts.label : `${opts.label} (retry ${attempt})`, phase: opts.phase },
+    )
+    const parsed = parseReviewResult(text)
+    if (parsed && validateShape(parsed, opts.schema)) return parsed
+    lastText = text
+    log(`${opts.label}: text-contract miss (${/REVIEW_RESULT/.test(String(text ?? '')) ? 'invalid json' : 'no sentinel'}) — attempt ${attempt + 1}/${retries + 1}`)
+  }
+  if (opts.allowEmit && /REVIEW_RESULT/.test(String(lastText ?? ''))) {
+    const emitted = await emitStructured(lastText, opts)
+    if (emitted && validateShape(emitted, opts.schema)) return emitted
+    throw new Error('text-contract: emitter produced an invalid shape — declared dark')
+  }
+  throw new Error('text-contract: explorer never produced a parseable REVIEW_RESULT block — declared dark')
 }
 
 // args (assembled in-session by the dispatching Stage):
@@ -219,15 +263,22 @@ if (kind === 'plan-review') {
     (inputs.mutationTargets?.length
       ? `Planned mutation targets: ${inputs.mutationTargets.join('; ')}. `
       : '') +
-    `Load the unit-testing skill. Return trinary verdict (block | fix-and-go | pass) and findings.` +
-    BOUNDED_PLAN_GROUNDING
-  // bounded-exploration: BOUNDED_PLAN_GROUNDING
+    `Load the unit-testing skill. Return trinary verdict (block | fix-and-go | pass) and findings.`
   opts = {
     agentType: 'review-toolkit:unit-test-plan-reviewer',
     model: modelOverrides['unit-test-plan-reviewer'] || UNIT_TEST_MODEL,
     label: 'unit-test-plan-reviewer',
     phase: 'Unit Tests',
+    // bounded-exploration-optout: validator-reference -- this schema: key never rides a
+    //   dispatch; dispatchSchemaAgent uses it for validateShape and the tool-less emitter only.
     schema: PLAN_REVIEW_SCHEMA,
+    allowEmit: true,
+    epilogue:
+      '\n\nWrite your review, grounding as much as you need. Your FINAL output MUST end with' +
+      ' this sentinel line followed by one fenced json block and NOTHING after it:\n\n' +
+      'REVIEW_RESULT\n```json\n{ "verdict": "block|fix-and-go|pass", "findings": [ { "severity":' +
+      ' "blocker|warning|note", "message": "...", "evidence": "...", "impact": "...",' +
+      ' "suggestedFix": "..." } ], "summary": "..." }\n```',
   }
 } else {
   // THREE-DOT is load-bearing (#130) — see the base/head contract above.
@@ -248,19 +299,30 @@ if (kind === 'plan-review') {
     `Do NOT apply mutants or run tests — for each blocker-class mutant predicted survived/untested, emit a ` +
     `uniquely-matching {originalSnippet, mutatedSnippet} patch so the orchestrator can verify it by execution. ` +
     `No Stryker. No verdict (the orchestrator computes it). ` +
-    `Return {mutants, mockAuditFindings, summary}.` +
-    BOUNDED_MUTATION_SWEEP
-  // bounded-exploration: BOUNDED_MUTATION_SWEEP
+    `Return {mutants, mockAuditFindings, summary}.`
   opts = {
     agentType: 'review-toolkit:unit-test-mutation-reviewer',
     model: modelOverrides['unit-test-mutation-reviewer'] || UNIT_TEST_MODEL,
     label: 'unit-test-mutation-reviewer',
     phase: 'Unit Tests',
+    // bounded-exploration-optout: validator-reference -- this schema: key never rides a
+    //   dispatch; validateShape-only. NO emitter for this kind: patch bytes must never
+    //   transit a transcription model.
     schema: MUTATION_REVIEW_SCHEMA,
+    allowEmit: false,
+    epilogue:
+      '\n\nWrite your review. Your FINAL output MUST end with this sentinel line followed by one' +
+      ' fenced json block and NOTHING after it (escape code snippets into valid JSON strings):\n\n' +
+      'REVIEW_RESULT\n```json\n{ "mutants": [ { "severity": "blocker|warning|note",' +
+      ' "classification": "survived|untested", "file": "...", "specPath": "...",' +
+      ' "originalSnippet": "...", "mutatedSnippet": "...", "predictedKilled": false,' +
+      ' "message": "...", "suggestedFix": "..." } ], "mockAuditFindings": [ { "severity":' +
+      ' "warning|note", "specPath": "...", "message": "...", "evidence": "..." } ],' +
+      ' "summary": "..." }\n```',
   }
 }
 
-prompt += STRUCTURED_OUTPUT_MANDATE
+// The epilogue (per-kind, in opts) replaces the retired STRUCTURED_OUTPUT_MANDATE append.
 
 // `infraFailure: true` marks a dispatch/StructuredOutput death that survived the inline retries, so
 // the orchestrator + pipeline-retro can tell it apart from a real agent verdict — never route it to
