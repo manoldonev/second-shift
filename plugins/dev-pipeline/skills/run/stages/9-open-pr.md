@@ -291,7 +291,7 @@ Two behaviors this stage owns: in-fence datapoints matching no stage window land
 
 A missing prerequisite records a descriptive `costBlockApplied` string and exits 0 — the pipeline continues regardless.
 
-**Recovering a `"skipped-otel-error"`:** this stage is already complete when the cost block fails, so the pipeline does not retry it. The operator fixes the precondition (collector reachable / `OTEL_*` exported) and re-runs just the sub-step — `bash pipeline-cost-block.sh "$ISSUE_NUMBER"` — which is idempotent on the `<!-- pipeline-cost-block -->` marker. Full procedure: [`cost-tracking-setup.md` → "Manual re-run after an OTel query failure"](../cost-tracking-setup.md#manual-re-run-after-an-otel-query-failure).
+**Recovering a `"skipped-otel-error"`:** the stage is already complete when the cost block fails, so the pipeline does not retry it — the operator re-runs the sub-step by hand. Procedure: [`cost-tracking-setup.md` → "Manual re-run after an OTel query failure"](../cost-tracking-setup.md#manual-re-run-after-an-otel-query-failure).
 
 **Setup:** see [`cost-tracking-setup.md`](../cost-tracking-setup.md) for OTel collector install + telemetry env vars. There is no per-engineer hook-wiring step.
 
