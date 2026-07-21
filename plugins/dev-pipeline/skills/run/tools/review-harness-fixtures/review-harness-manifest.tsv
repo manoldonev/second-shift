@@ -12,5 +12,5 @@ M6	detect	wrong-symbol	withCeiling	unit-tests|not exist|absent|no such|does not|
 M7	detect	process-violation	plugin\.json|version bump|2\.5\.1|bump.*version	frozen|derive-release|check-frozen|release PR|CI|reject|CLAUDE	version bumps are release-derived; a feature PR bumping plugin.json is CI-rejected
 M8	detect	missing-reference	state-times	.	state-times.md does not exist (near-miss of stage-times.sh)
 P1	precision	real-deep-file	jira/README|tracker/jira	missing|not exist|absent|unverified|broken|cannot find	tracker/jira/README.md exists; flagging it missing is a false positive
-P2	precision	hedged-deferral	ceiling|CEILING_MS	blocker	the plan defers the ceiling change with reason; a blocker on it is over-reach
+P2	precision	hedged-deferral	CEILING_MS|rais(e|ed|ing)[^.]*ceiling|ceiling[^.]*(must|should|needs)	blocker	the plan defers the ceiling change with reason; a blocker DEMANDING the raise is over-reach (withCeiling symbol findings must not match)
 P3	precision	new-tagged-file	state-migrate-selftest|v22-state	missing|not exist|absent|does not exist	[NEW]-tagged files flagged as missing is a false positive
