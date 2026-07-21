@@ -166,9 +166,8 @@ const REVIEW_RESULT_EPILOGUE =
   ' this sentinel line followed by one fenced json block and NOTHING after it:\n\n' +
   'REVIEW_RESULT\n```json\n{ "verdict": "...", "findings": [ { "severity": "...", "file": "...",' +
   ' "message": "..." } ] }\n```'
-const SENTINEL_RE = /REVIEW_RESULT\s*```json\s*([\s\S]*?)```/g
 const parseReviewResult = (text) => {
-  const m = [...String(text ?? '').matchAll(SENTINEL_RE)]
+  const m = [...String(text ?? '').matchAll(/REVIEW_RESULT\s*```json\s*([\s\S]*?)```/g)]
   if (!m.length) return null
   try {
     return JSON.parse(m[m.length - 1][1])
