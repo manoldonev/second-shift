@@ -135,6 +135,9 @@ const dispatchOnce = async (agentType, i) => {
     STRUCTURED_OUTPUT_FIRST +
     ARM_INSTRUCTION[arm]
   try {
+    // bounded-exploration-optout: tool-discipline-probe -- arm-controlled instrument. The prompt
+    //   is set by ARM_INSTRUCTION so the arms stay comparable; a mandated nudge would contaminate
+    //   every arm and make the A/B meaningless.
     const result = await agent(prompt, { agentType, model, label: `${agentType} #${i + 1} [${arm}]`, phase: 'Probe', schema: FINDINGS_SCHEMA })
     const findings = result && Array.isArray(result.findings) ? result.findings : []
     return {

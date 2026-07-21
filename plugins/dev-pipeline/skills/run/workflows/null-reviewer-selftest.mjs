@@ -219,9 +219,15 @@ async function main() {
     } catch (e) {
       fail(`F0 could not read code-review.mjs at ${CODE_REVIEW_MJS}: ${e}`)
     }
+    // #169: the transport converted to explorer/emitter — the old StructuredOutput retry
+    // predicate is retired; the contract tokens below are its replacements. The reference
+    // harness above still models the DARK-MARKER CONTRACT (result/error/retried/failed/
+    // ceiling shapes), which is transport-independent and unchanged; the transport itself
+    // is guarded by check-bounded-exploration-selftest.sh and the stall probe.
     const tokens = [
-      ['isNoStructuredOutputError', 'retry-decision predicate name'],
-      ['/StructuredOutput/.test', 'predicate regex (the only signal the runtime surfaces)'],
+      ['parseReviewResult', 'text-contract extractor — the explorer dispatches schema-free (#169)'],
+      ['REVIEW_RESULT', 'sentinel token of the explorer text contract (#169)'],
+      ['structured-emitter', 'tool-less schema sink — the only schema carrier (#169)'],
       ['retried: true', 'twice-dead flag — synthesis must not mistake a dead reviewer for "no findings"'],
       ['failed: true', 'twice-dead flag'],
       ['budgetExhausted: true', 'all-or-nothing budget-skip dark-reviewer marker (#168)'],
