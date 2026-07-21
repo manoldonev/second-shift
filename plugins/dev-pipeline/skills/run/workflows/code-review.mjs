@@ -142,9 +142,65 @@ const fileList = changedFiles.length ? changedFiles.join(', ') : '(see diff)'
 // that still goes dark, surfaced as a coverage gap and never silently dropped. Drift-guard:
 // workflows/null-reviewer-selftest.mjs. reviewer-baseline carries the same principle as documented
 // contract ("Proportionate grounding"); this file is the operative delivery.
-const STRUCTURED_OUTPUT_FIRST =
-  ' Call StructuredOutput FIRST with your verdict and findings, before any prose' +
-  ' explanation — do not write a long write-up before the structured call.'
+// --- explorer/emitter transport (the structural stall fix; #169) ---
+// The stall class is `schema AND can-explore` in one agent; measured on plan-reviewer (opus,
+// k=8, worst-case plan): schema-forced 7/8 deaths, 0 usable; schema-free text contract 0/8,
+// 8/8 usable at a third of the tokens, detection parity 6.75 vs 6.63. Explorers dispatch
+// schema-FREE and end with a sentinel + fenced JSON block parsed here; the schema objects
+// become in-script validators, and only the transcription-only structured-emitter agent
+// (tools: [], maxTurns: 2) ever carries a schema — fired solely when a sentinel-bearing
+// block failed to parse. Missing sentinel = truncation = dark, never the emitter.
+const parseReviewResult = (text) => {
+  const m = [...String(text ?? '').matchAll(/REVIEW_RESULT\s*```json\s*([\s\S]*?)```/g)]
+  if (!m.length) return null
+  try {
+    return JSON.parse(m[m.length - 1][1])
+  } catch {
+    return null
+  }
+}
+
+const validateShape = (obj, schema) => {
+  if (!obj || typeof obj !== 'object') return false
+  for (const key of schema.required || []) if (!(key in obj)) return false
+  const props = schema.properties || {}
+  for (const k of Object.keys(props)) {
+    const p = props[k]
+    if (!(k in obj) || obj[k] == null) continue
+    if (p.enum && !p.enum.includes(obj[k])) return false
+    if (p.type === 'array') {
+      if (!Array.isArray(obj[k])) return false
+      if (p.items) {
+        for (const it of obj[k]) {
+          if (!it || typeof it !== 'object') return false
+          for (const rk of p.items.required || []) if (!(rk in it)) return false
+          const ip = p.items.properties || {}
+          for (const ik of Object.keys(ip)) {
+            if (ip[ik].enum && ik in it && it[ik] != null && !ip[ik].enum.includes(it[ik])) return false
+          }
+        }
+      }
+    }
+  }
+  return true
+}
+
+const emitStructured = (text, opts) =>
+  // bounded-exploration-optout: structured-emitter -- tools:[] maxTurns:2 transcription sink;
+  //   nothing to explore, which is why it may carry the schema.
+  agent(
+    'Convert this completed review into the required structured object. Transcribe EXACTLY' +
+      ' what the review states — never invent, drop, merge, soften or upgrade findings.' +
+      '\n\n---REVIEW---\n' + String(text) + '\n---END---',
+    { agentType: 'review-toolkit:structured-emitter', model: 'haiku', label: `${opts.label} (emit)`, phase: 'Review', schema: opts.schema },
+  )
+
+const FINDINGS_EPILOGUE =
+  '\n\nWrite your review, grounding as much as you need. Your FINAL output MUST end with this' +
+  ' sentinel line followed by one fenced json block and NOTHING after it:\n\n' +
+  'REVIEW_RESULT\n```json\n{ "verdict": "approve|approve-with-nits|request-changes|block",' +
+  ' "findings": [ { "severity": "blocker|major|minor|nit", "file": "...", "line": 0, "title": "...",' +
+  ' "description": "...", "confidence": 0 } ], "suppressed": [] }\n```'
 
 // Bounded exploration / triage — the PRIMARY stall fix (see ROOT CAUSE above for the evidence).
 // Caps the absence-grounding exploration that exhausts a reviewer's turn budget on a large diff.
@@ -154,7 +210,7 @@ const BOUNDED_EXPLORATION =
   ' docs/config/reformatting — or otherwise has nothing in your domain — emit StructuredOutput' +
   ' immediately (approve, no findings) WITHOUT opening every file. Open files only to ground a' +
   ' SPECIFIC finding you intend to raise; you do NOT have to exhaustively read the whole diff to' +
-  ' assert the ABSENCE of findings. Stop exploring and emit StructuredOutput before your budget runs low.'
+  ' assert the ABSENCE of findings. Stop exploring and emit your final result before your budget runs low.'
 
 // Per-reviewer wall-clock ceiling (#219). The Workflow runtime's own agent-stall loop
 // (multiple attempts × a no-progress window) can let a genuinely wedged reviewer burn
@@ -195,15 +251,8 @@ if (typeof budget !== 'undefined' && budget && budget.total) {
   }
 }
 
-// The Workflow runtime rejects agent() with a message containing the substring
-// "StructuredOutput" when a subagent ends without producing structured output
-// (observed in the #151 run: "subagent completed without calling StructuredOutput
-// (after 2 in-conversation nudges)"). ONLY this error class is retried — genuine
-// tool/permission errors fall through to the forward-as-error path unretried.
-// This is a brittle substring match because it is the only signal the runtime
-// surfaces; if the runtime ever changes the message the retry stops firing and the
-// behavior degrades safely to the pre-retry forward-as-error path.
-const isNoStructuredOutputError = (err) => /StructuredOutput/.test(String(err))
+// The StructuredOutput death class is structurally impossible here (#169): no explorer
+// carries a schema, and the emitter cannot explore. The contract-miss ladder below owns retry.
 
 // One reviewer dispatch, with ONE automatic retry when the dispatch dies without
 // StructuredOutput. The retry runs INLINE inside this task closure (it awaits a
@@ -234,8 +283,7 @@ const dispatchReviewer = async (agentType) => {
       `Verify scope completeness for ${ref}. ` +
       `Branch head \`${head}\` vs base \`${base}\`; repo worktree \`${worktree}\` ` +
       `(run \`git -C ${worktree} diff ${range}\` to see the change). ` +
-      `${fetchInstr} and classify each scope item against the diff. Return your verdict and findings.` +
-      STRUCTURED_OUTPUT_FIRST
+      `${fetchInstr} and classify each scope item against the diff. Return your verdict and findings.`
   } else if (bare(agentType) === 'unit-test-mutation-reviewer') {
     prompt =
       `Mutation review in ADVISORY mode on unit tests for this change. ` +
@@ -245,8 +293,7 @@ const dispatchReviewer = async (agentType) => {
       `do NOT apply mutants or run tests (this fan-out has no executor). ` +
       `Blocker-class mutants map to severity \`major\` (never \`blocker\` — only the Stage-5 ` +
       `execution-verified gate can block). No Stryker. ` +
-      `Return verdict and findings (severity major/minor/nit, file, line, confidence 0-100).` +
-      STRUCTURED_OUTPUT_FIRST
+      `Return verdict and findings (severity major/minor/nit, file, line, confidence 0-100).`
   } else {
     prompt =
       `Review this change in your domain. Diff scope: \`git -C ${worktree} diff ${range}\`. ` +
@@ -254,49 +301,52 @@ const dispatchReviewer = async (agentType) => {
       (prContext ? ` Context: ${prContext}.` : '') +
       ` Return your verdict and a deduplicated list of findings (severity blocker/major/minor/nit, ` +
       `file, line, confidence 0-100). Ignore stylistic issues handled by formatter/linter.` +
-      STRUCTURED_OUTPUT_FIRST +
       BOUNDED_EXPLORATION
   }
-  try {
-    // Stacked markers: one dispatch, three dispositions, because `prompt` above is built by an
-    // if/else chain over agentType. The lint is satisfied by any one of them; all three are listed
-    // so the waivers stay declared rather than implied by the generic branch.
-    // bounded-exploration-optout: scope-completeness-reviewer -- its job is to verify EVERY scope
-    //   item exhaustively, so bounding the sweep would bound the deliverable.
-    // bounded-exploration-optout: unit-test-mutation-reviewer -- it enumerates mutants across the
-    //   whole diff; with no narrower range to anchor to, a triage bound would suppress real mutants.
-    // bounded-exploration: BOUNDED_EXPLORATION
-    const result = await agent(prompt, { agentType, model, label: agentType, phase: 'Review', schema: FINDINGS_SCHEMA })
-    return { agentType, result }
-  } catch (err) {
-    if (!isNoStructuredOutputError(err)) {
-      return { agentType, result: null, error: String(err) }
-    }
-    log(`${agentType}: died without StructuredOutput — retrying once`)
+  // Prompt-branch dispositions (doc, transport-independent): scope-completeness-reviewer and
+  // unit-test-mutation-reviewer deliberately carry no bounding nudge (exhaustive enumeration IS
+  // the deliverable); the generic branch keeps BOUNDED_EXPLORATION as its measured cost control.
+  //
+  // Explorer/emitter ladder. Dark-marker shapes are UNCHANGED from the schema era — review-lead
+  // synthesis keys on { result: null } + { retried: true, failed: true } and must keep doing so.
+  let lastText = null
+  for (let attempt = 0; attempt < 2; attempt++) {
+    let text
     try {
-      // bounded-exploration: BOUNDED_EXPLORATION
-      // Re-dispatches the identical `prompt`, so this site inherits whichever disposition the
-      // branch above selected.
-      const result = await agent(prompt, {
+      text = await agent(prompt + FINDINGS_EPILOGUE, {
         agentType,
         model,
-        label: `${agentType} (retry)`,
+        label: attempt === 0 ? agentType : `${agentType} (retry)`,
         phase: 'Review',
-        schema: FINDINGS_SCHEMA,
       })
-      return { agentType, result }
-    } catch (retryErr) {
-      // Surface BOTH failures — the retry error AND the original first-attempt
-      // error — so a twice-dead reviewer's full diagnostic trail survives, not
-      // just the second death.
-      return {
-        agentType,
-        result: null,
-        error: `retry failed: ${retryErr}; first attempt: ${err}`,
-        retried: true,
-        failed: true,
-      }
+    } catch (err) {
+      // Hard dispatch errors (tool/permission/budget) — forwarded, twice-dead-flagged on the retry.
+      return attempt === 0
+        ? { agentType, result: null, error: String(err) }
+        : { agentType, result: null, error: `retry failed: ${err}`, retried: true, failed: true }
     }
+    const parsed = parseReviewResult(text)
+    if (parsed && validateShape(parsed, FINDINGS_SCHEMA)) return { agentType, result: parsed }
+    lastText = text
+    log(`${agentType}: text-contract miss (${/REVIEW_RESULT/.test(String(text ?? '')) ? 'invalid json' : 'no sentinel'})${attempt === 0 ? ' — retrying once' : ''}`)
+  }
+  if (/REVIEW_RESULT/.test(String(lastText ?? ''))) {
+    try {
+      // bounded-exploration-optout: validator-reference -- this schema: key parameterizes the
+      //   emitter helper (whose own dispatch site carries the structured-emitter marker).
+      const emitted = await emitStructured(lastText, { label: agentType, schema: FINDINGS_SCHEMA })
+      if (emitted && validateShape(emitted, FINDINGS_SCHEMA)) return { agentType, result: emitted }
+    } catch (emitErr) {
+      return { agentType, result: null, error: `emit failed: ${emitErr}`, retried: true, failed: true }
+    }
+  }
+  // Missing sentinel (truncation) or unmappable text: dark, with the SAME twice-dead marker.
+  return {
+    agentType,
+    result: null,
+    error: 'text-contract: explorer never produced a parseable REVIEW_RESULT block after retry — declared dark',
+    retried: true,
+    failed: true,
   }
 }
 
