@@ -106,11 +106,26 @@ for f in "$WORKFLOWS"/*.mjs; do
     window=""
     [[ "$end" -ge "$start" ]] && window=$(sed -n "${start},${end}p" "$f")
 
+    # Is this a probe file? Probes (stall-probe, tool-discipline-probe) keep the full grammar:
+    # their schema-forced control arms deliberately preserve the retired transport so BEFORE
+    # rates stay measurable. Production files are held to the graduated rule below.
+    is_probe=0
+    case "$f" in *-probe.mjs) is_probe=1 ;; esac
+
     # --- nudge marker ---
     ident=$(printf '%s\n' "$window" \
       | grep -oE '//[[:space:]]*bounded-exploration:[[:space:]]*[A-Za-z_][A-Za-z0-9_]*' \
       | sed -E 's|.*bounded-exploration:[[:space:]]*||' | tail -1)
     if [[ -n "$ident" ]]; then
+      # GRADUATION (#169): a nudge marker on a schema site outside a probe file declares a
+      # schema'd EXPLORING dispatch — the eliminated class. Measured: schema-forced 7/8 deaths
+      # vs schema-free 0/8. The nudge belongs in the prompt of a schema-free explorer; the
+      # schema belongs only on the emitter sink or a validator reference.
+      if [[ "$is_probe" -eq 0 ]]; then
+        echo "  FAIL: $f:$line — schema on an exploring dispatch is a retired class (#169); convert to the explorer/emitter transport (schema only on structured-emitter or as a validator-reference)" >&2
+        FAILS=$((FAILS + 1))
+        continue
+      fi
       if grep -qE "(^|[[:space:]])(const|let|var)[[:space:]]+${ident}[[:space:]]*=" "$f"; then
         continue
       fi
@@ -125,17 +140,40 @@ for f in "$WORKFLOWS"/*.mjs; do
     if [[ -n "$optout" ]]; then
       # Require `<target> -- <reason>` with a non-empty reason.
       reason=$(printf '%s\n' "$optout" | sed -E 's|.*[[:space:]]--[[:space:]]*||')
-      if [[ "$optout" == *" -- "* && -n "${reason// /}" ]]; then
+      if [[ "$optout" != *" -- "* || -z "${reason// /}" ]]; then
+        echo "  FAIL: $f:$line — opt-out must read 'bounded-exploration-optout: <target> -- <reason>' with a non-empty reason" >&2
+        FAILS=$((FAILS + 1))
         continue
       fi
-      echo "  FAIL: $f:$line — opt-out must read 'bounded-exploration-optout: <target> -- <reason>' with a non-empty reason" >&2
-      FAILS=$((FAILS + 1))
+      # GRADUATION (#169): in production files only two opt-out targets may sit on a schema site —
+      # the tool-less emitter (the one legal schema carrier) and a validator reference (a schema:
+      # key that never rides a dispatch). Anything else is a schema'd exploring dispatch wearing a
+      # waiver. Probe files keep the open grammar for their measurement-control arms.
+      if [[ "$is_probe" -eq 0 ]]; then
+        target_word=$(printf '%s\n' "$optout" | sed -E 's|.*bounded-exploration-optout:[[:space:]]*||; s|[[:space:]]*--.*||')
+        case "$target_word" in
+          structured-emitter|validator-reference) ;;
+          *)
+            echo "  FAIL: $f:$line — opt-out target '$target_word' is not a legal schema carrier (#169); only 'structured-emitter' or 'validator-reference' may sit on a schema site in production files" >&2
+            FAILS=$((FAILS + 1))
+            continue
+            ;;
+        esac
+      fi
       continue
     fi
 
     # --- delegated to per-entry descriptors ---
     delegated=$(printf '%s\n' "$window" \
       | grep -oE '//[[:space:]]*bounded-exploration-delegated:.*' | tail -1)
+    if [[ -n "$delegated" && "$is_probe" -eq 0 ]]; then
+      # GRADUATION (#169): `delegated` existed for one shared schema'd dispatch serving entries
+      # with opposite dispositions. Post-conversion no production dispatch carries a schema, so a
+      # delegated marker on a schema site can only be hiding one.
+      echo "  FAIL: $f:$line — 'delegated' on a schema site is retired (#169); schema sites in production files are only the emitter sink or validator references" >&2
+      FAILS=$((FAILS + 1))
+      continue
+    fi
     if [[ -n "$delegated" ]]; then
       dreason=$(printf '%s\n' "$delegated" | sed -E 's|.*bounded-exploration-delegated:[[:space:]]*||')
       if [[ -z "${dreason// /}" ]]; then

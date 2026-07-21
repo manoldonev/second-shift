@@ -47,8 +47,10 @@ run_lint "$FIX"; rc=$?
 [ "$rc" -eq 1 ] && ok "A1 unmarked dispatch is rejected (rc=1)" || bad "A1 expected rc=1, got $rc"
 
 # A2: a nudge marker naming a constant that does not exist is rejected — catches a renamed or
-# never-defined nudge, which would otherwise read as a declared disposition.
-cat > "$FIX/a.mjs" <<'EOF'
+# never-defined nudge. Nudge markers are only legal in probe files post-graduation, so the
+# fixture is probe-named.
+rm -f "$FIX/a.mjs"
+cat > "$FIX/a-probe.mjs" <<'EOF'
 const S = { type: 'object' }
 // bounded-exploration: NO_SUCH_CONSTANT
 const r = await agent(prompt, { agentType: 'x', schema: S })
@@ -56,8 +58,9 @@ EOF
 run_lint "$FIX"; rc=$?
 [ "$rc" -eq 1 ] && ok "A2 marker naming an undefined constant is rejected" || bad "A2 expected rc=1, got $rc"
 
-# A3: a well-formed nudge marker whose constant IS defined passes.
-cat > "$FIX/a.mjs" <<'EOF'
+# A3: a well-formed nudge marker whose constant IS defined passes — in a probe file, the one
+# place the schema-forced control arm legitimately lives.
+cat > "$FIX/a-probe.mjs" <<'EOF'
 const S = { type: 'object' }
 const BOUNDED_THING = ' bound your exploration.'
 // bounded-exploration: BOUNDED_THING
@@ -67,6 +70,7 @@ run_lint "$FIX"; rc=$?
 [ "$rc" -eq 0 ] && ok "A3 valid nudge marker passes" || bad "A3 expected rc=0, got $rc"
 
 # A4: an opt-out with no reason is rejected — a waiver must be declared, not merely asserted.
+rm -f "$FIX/a-probe.mjs"
 cat > "$FIX/a.mjs" <<'EOF'
 const S = { type: 'object' }
 // bounded-exploration-optout: some-agent
@@ -76,8 +80,9 @@ run_lint "$FIX"; rc=$?
 [ "$rc" -eq 1 ] && ok "A4 reasonless opt-out is rejected" || bad "A4 expected rc=1, got $rc"
 
 # A5: `delegated` with no per-entry disposition anywhere in the file is rejected — otherwise the
-# verb degrades into a blanket waiver for the whole file.
-cat > "$FIX/a.mjs" <<'EOF'
+# verb degrades into a blanket waiver. Probe-named: production files reject delegated outright (G4).
+rm -f "$FIX/a.mjs"
+cat > "$FIX/a-probe.mjs" <<'EOF'
 const S = { type: 'object' }
 // bounded-exploration-delegated: entries declare their own
 const r = await agent(prompt, { agentType: 'x', schema: S })
@@ -89,7 +94,8 @@ run_lint "$FIX"; rc=$?
 # still be reported. Without the previous-site floor, the 40-line window would swallow both — which
 # is exactly the shape (13 lines apart) that the two intake-review.mjs descriptors have, and the
 # conflicting dispositions there are the reason this grammar exists at all.
-cat > "$FIX/a.mjs" <<'EOF'
+rm -f "$FIX/a.mjs"
+cat > "$FIX/a-probe.mjs" <<'EOF'
 const S = { type: 'object' }
 const BOUNDED_THING = ' bound it.'
 // bounded-exploration: BOUNDED_THING
@@ -101,7 +107,7 @@ run_lint "$FIX"; rc=$?
 
 # A7: give the second site its own marker and the same file passes — proves A6 failed for the
 # lookback bound specifically, not because two sites are inherently unsatisfiable.
-cat > "$FIX/a.mjs" <<'EOF'
+cat > "$FIX/a-probe.mjs" <<'EOF'
 const S = { type: 'object' }
 const BOUNDED_THING = ' bound it.'
 // bounded-exploration: BOUNDED_THING
@@ -115,6 +121,7 @@ run_lint "$FIX"; rc=$?
 # A8: inline `agent(..., { ... schema: X })` is detected. A line-anchored regex finds only 10 of the
 # live tree's sites and misses every inline form — the under-detection that would let this lint
 # report green while a quarter of the surface went unguarded.
+rm -f "$FIX/a-probe.mjs"
 cat > "$FIX/a.mjs" <<'EOF'
 const S = { type: 'object' }
 const r = await agent(prompt, { agentType: 'x', model: 'sonnet', phase: 'P', schema: S })
@@ -132,6 +139,52 @@ const r = await agent(prompt, { agentType: 'x' })
 EOF
 run_lint "$FIX"; rc=$?
 [ "$rc" -eq 1 ] && ok "A8b comment-only schema: mention is not a site (zero real sites fails)" || bad "A8b expected rc=1 (no real sites), got $rc"
+
+# G1: GRADUATION — a nudge marker on a schema site in a PRODUCTION file is rejected even when the
+# constant exists: schema on an exploring dispatch is the retired class (#169).
+cat > "$FIX/a.mjs" <<'EOF'
+const S = { type: 'object' }
+const BOUNDED_THING = ' bound it.'
+// bounded-exploration: BOUNDED_THING
+const r = await agent(prompt + BOUNDED_THING, { agentType: 'x', schema: S })
+EOF
+run_lint "$FIX"; rc=$?
+[ "$rc" -eq 1 ] && ok "G1 nudge marker on a production schema site is rejected (retired class)" || bad "G1 expected rc=1, got $rc"
+
+# G2: GRADUATION — an opt-out with a non-blessed target on a production schema site is rejected;
+# only structured-emitter and validator-reference may carry/reference a schema there.
+cat > "$FIX/a.mjs" <<'EOF'
+const S = { type: 'object' }
+// bounded-exploration-optout: some-agent -- its job is exhaustive, honest waiver
+const r = await agent(prompt, { agentType: 'x', schema: S })
+EOF
+run_lint "$FIX"; rc=$?
+[ "$rc" -eq 1 ] && ok "G2 non-blessed opt-out target on a production schema site is rejected" || bad "G2 expected rc=1, got $rc"
+
+# G3: GRADUATION — the two blessed forms pass in a production file.
+cat > "$FIX/a.mjs" <<'EOF'
+const S = { type: 'object' }
+const emit = (text) =>
+  // bounded-exploration-optout: structured-emitter -- tools:[] transcription sink
+  agent(text, { agentType: 'review-toolkit:structured-emitter', schema: S })
+const opts = {
+  // bounded-exploration-optout: validator-reference -- feeds validateShape only
+  schema: S,
+}
+EOF
+run_lint "$FIX"; rc=$?
+[ "$rc" -eq 0 ] && ok "G3 emitter + validator-reference forms pass in a production file" || bad "G3 expected rc=0, got $rc"
+
+# G4: GRADUATION — 'delegated' on a production schema site is rejected (retired verb there).
+cat > "$FIX/a.mjs" <<'EOF'
+const S = { type: 'object' }
+// bounded-exploration-optout: validator-reference -- keeps the file non-delegated-only
+const V = { schema: S }
+// bounded-exploration-delegated: entries declare their own
+const r = await agent(prompt, { agentType: 'x', schema: S })
+EOF
+run_lint "$FIX"; rc=$?
+[ "$rc" -eq 1 ] && ok "G4 delegated on a production schema site is rejected" || bad "G4 expected rc=1, got $rc"
 
 # A9: *-selftest.mjs files are excluded (offline harnesses carry no live dispatches). With only an
 # excluded file present the lint finds zero sites, which is itself a failure by design.
