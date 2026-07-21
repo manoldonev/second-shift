@@ -138,37 +138,16 @@ for round in 1..3:
   # "Dark-reviewer handling" subsection below for the full deterministic contract.
 
   # (c) Load review-toolkit:review-lead for SYNTHESIS ONLY (synthesis-only mode — its dispatch
-  #     Pre-flight does not apply; the fan-out already ran in the script).
-  #     Run its Synthesis Rules over the returned structured findings.
+  #     Pre-flight does not apply; the fan-out already ran in the script), then run its
+  #     Synthesis Rules over the returned structured findings. Those rules are
+  #     AUTHORITATIVE — do not paraphrase them here.
   #
-  #     The Skill load is MANDATORY — there is NO inline fast-path, no matter
-  #     how small or clean the finding set looks ("all approvals, one nit" is
-  #     not an exemption; cheap-looking rounds are exactly where unloaded
-  #     synthesis silently diverges from the Synthesis Rules). The contract
-  #     summary below is a REMINDER of what review-toolkit:review-lead enforces, not a
-  #     substitute for loading it. If synthesis somehow proceeded without the
-  #     load, that is a process violation: say so explicitly in the round
-  #     summary and in the issue comment — never paper over it.
-  #
-  #     Load it FRESH at THIS Stage 8, even if review-toolkit:review-lead was already loaded
-  #     earlier in the same session (a prior issue in a batch / ralph-loop run,
-  #     or an earlier turn in this conversation). "It's still in my context from
-  #     before" is NOT an exemption — re-invoke the Skill. Relying on a stale
-  #     in-context copy is the same process violation as not loading at all, and
-  #     a fresh-session crash-recovery resume has no earlier load to fall back on,
-  #     so the fresh invocation is the only contract that holds on every path.
-  #
-  #     Immediately after the load, record it as completion evidence —
-  #     `set-stage 8 --status completed` refuses without it (the be-fe-pair
+  #     MANDATORY on every path: no inline fast-path however small or clean the finding
+  #     set looks, and a load earlier in this session does not carry over — load FRESH
+  #     here (a crash-recovery resume has no earlier load to inherit). Record it
+  #     immediately as completion evidence (completion-gated; the be-fe-pair
   #     crossBoundaryReviews/skippedReviews paths are exempt):
   #       "$STATECTL" skill-load-add "$ISSUE_NUMBER" --stage 8 --skill review-toolkit:review-lead
-  Review contract (reminder — review-toolkit:review-lead's rules are authoritative):
-    - Deduplicated findings only (no reviewer overlap)
-    - Severity: blocker / major / minor / nit
-    - Ignore stylistic issues handled by formatter/linter
-    - Prioritize: correctness > safety > maintainability
-    - Max 10 actionable items per round
-    - Scope Completeness Gate uses the scope-completeness-reviewer's result.
 
   if no blockers or majors: break   # clean path — emit the clean-path comment (below)
   Fix blocker + major findings, commit fixes, then re-run verify DIRECTLY via
@@ -248,7 +227,7 @@ A code-remediable blocker (the diff can be fixed) is unaffected — it stays in 
 
 **Receipt + PR review (every terminating path — clean, exhausted, scope-blocker):**
 
-1. Record the terminating `code-review` comment's URL: `statectl.sh comment-add "$ISSUE" --marker code-review --url <html_url>` — Stage-8 completion refuses without it whenever a primary round ran (`codeReviewRounds >= 1`; the be-fe-pair cross-boundary/skip-only paths post none and are exempt).
+1. Record the terminating `code-review` comment's URL: `statectl.sh comment-add "$ISSUE" --marker code-review --url <html_url>` — completion-gated whenever a primary round ran (`codeReviewRounds >= 1`; the be-fe-pair cross-boundary/skip-only paths post none and are exempt).
 2. File the consolidated report as an actual **PR review** — `$GH_BOT pr review "$PR_NUMBER" --comment --body-file <report>` — not only as prose folded into the PR description by the session being scored. The PR review is the GitHub-native artifact an independent re-scorer and a human reviewer inspect; six reviewers leaving zero PR-side trace is the failure this exists to stop. (Skip only when no PR exists yet on this path — Stage 9 then carries the report into the PR body as before.)
 
 **State:** Write the review counters via `statectl` — clean path: `statectl.sh review-rounds "$ISSUE" --set "$ROUND"` (round count 1–3); exhaustion: `--set 3 --exhausted`. The `--exhausted` flag is additive-only — the subcommand never writes `codeReviewExhausted: false`, so a later plain `--set` cannot reset a recorded exhaustion.

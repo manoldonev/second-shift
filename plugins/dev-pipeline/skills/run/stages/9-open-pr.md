@@ -271,7 +271,7 @@ dev-pipeline run: ${RUN_ID}
 ```
 
 - **If `codeReviewExhausted == true`:** after `gh pr create` returns, add the `needs-deep-review` label: `$GH_BOT pr edit "$PR_URL" --add-label needs-deep-review`.
-- Comment on issue via `$GH_BOT issue comment`: `stage: pr`, `status: opened-as-draft` for clean runs and `status: opened-as-draft (review exhausted)` for the unhappy path. The exhausted comment also includes the marker `<!-- review-exhausted -->` for resume disambiguation. Record the receipt: `"$STATECTL" comment-add "$ISSUE_NUMBER" --marker pr --url <html_url>` — Stage-9 completion refuses without it.
+- Comment on issue via `$GH_BOT issue comment`: `stage: pr`, `status: opened-as-draft` for clean runs and `status: opened-as-draft (review exhausted)` for the unhappy path. The exhausted comment also includes the marker `<!-- review-exhausted -->` for resume disambiguation. Record the receipt (completion-gated): `"$STATECTL" comment-add "$ISSUE_NUMBER" --marker pr --url <html_url>`.
 - For single-PR runs: `$GH_BOT issue edit $ISSUE_NUMBER --remove-label in-progress` (use regular `gh` for `--remove-assignee @me` separately)
 - For stacked-PR runs: do NOT remove `in-progress` until all slices are done (handled by the outer loop completion step).
 
@@ -285,16 +285,11 @@ After every PR in `prs` has its URL recorded, invoke the cost-block sub-step to 
 bash pipeline-cost-block.sh "$ISSUE_NUMBER"
 ```
 
-What it does:
+What it does: reads `pipelineSessions[]`, queries the OTel metrics for those sessions clamped to the run's wall-clock fence, buckets the in-fence datapoints into the `stages.{N}` windows, and appends a cost block to each PR body — idempotent on the `<!-- pipeline-cost-block -->` marker. The mechanism, the write identity (bot wrapper vs operator `gh`), and the full `costBlockApplied` string catalog are specified in [`cost-tracking-setup.md`](../cost-tracking-setup.md).
 
-- Reads `pipelineSessions[]` (populated by Stage 2 / Stage 8 `pipeline-session-add` calls).
-- Queries `~/.claude/otel-metrics/metrics.jsonl` for cost + token datapoints whose `session.id` is in that set, clamped to the run's wall-clock fence (`[startedAt, max(stage completedAt) // lastUpdatedAt]`) so a co-resident sequential run/retro under the same `session.id` is excluded.
-- Buckets the in-fence metrics per stage using each row's timestamp and the `stages.{N}.startedAt/completedAt` windows; in-fence datapoints in no stage window land in an explicit "Other" bucket. Degrades to a single "Session total" row if windows are missing.
-- For stacked-PR runs (`len(prs) > 1`), splits total cost evenly across slices.
-- Renders a Markdown cost block with the `<!-- pipeline-cost-block -->` sentinel marker for idempotent detection.
-- Reads each PR body via plain `gh pr view`, appends the cost block, and writes back with the identity config selects: `$GH_BOT pr edit` when `tracker.bot.enabled` is true, plain `gh pr edit` (operator identity) when the bot is disabled or the config is absent/unreadable. Re-runs detect the marker and skip.
+Two behaviors this stage owns: in-fence datapoints matching no stage window land in an explicit "Other" bucket, and a stacked-PR run (`len(prs) > 1`) splits total cost evenly across slices.
 
-If any prerequisite is missing (no `pipelineSessions[]`, no metrics file, no `gh` CLI, or — **on a bot-enabled repo only** — no bot wrapper), the sub-step records a descriptive `costBlockApplied` string (`"skipped-no-sessions"`, `"skipped-telemetry-off"`, `"skipped-no-gh-cli"`, `"skipped-no-bot-wrapper"`, etc.) and exits 0. The pipeline continues regardless.
+A missing prerequisite records a descriptive `costBlockApplied` string and exits 0 — the pipeline continues regardless.
 
 **Recovering a `"skipped-otel-error"`:** this stage is already complete when the cost block fails, so the pipeline does not retry it. The operator fixes the precondition (collector reachable / `OTEL_*` exported) and re-runs just the sub-step — `bash pipeline-cost-block.sh "$ISSUE_NUMBER"` — which is idempotent on the `<!-- pipeline-cost-block -->` marker. Full procedure: [`cost-tracking-setup.md` → "Manual re-run after an OTel query failure"](../cost-tracking-setup.md#manual-re-run-after-an-otel-query-failure).
 
