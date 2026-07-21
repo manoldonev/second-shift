@@ -36,7 +36,7 @@ autonomous `/dev-pipeline:run` context. It is not the whole layer, and it is not
 | D-3 | Does the `state-schema.md` bullet count toward AC-1? | No. The report classes it reference / per-section read and excludes it from the 15-file set. The work stays in scope, scoring against the whole-layer secondary metric only. | codebase-derived |
 | D-4 | Defect 3 — two stale stage refs or three? | Three. `hooks.md:131` carries the two the issue names; `hooks.md:133` carries a third of the same class. Fixing two would leave a contradiction two lines down. | codebase-derived |
 | D-5 | Where does "name the surviving canonical statement" get delivered? | A `Cut → surviving canonical statement / enforcing gate` table in the PR body, one row per cut site. | codebase-derived |
-| D-6 | AC-1 is 40,500 but the surface measures 45,313 today, not the report's 44,320. | The guardrail outranks the number. Cuts stay scoped to the named candidates; contract is never cut to reach a target. If the honest cuts land above 40,500, the PR discloses the measured figure and the delta. The report itself sets this posture: "no margin is claimed", and a deeper target "would force cutting contract and is explicitly not proposed". | codebase-derived |
+| D-6 | AC-1 is 40,500 but the surface measures 45,349 today, not the report's 44,320. | The guardrail outranks the number. Cuts stay scoped to the named candidates; contract is never cut to reach a target. If the honest cuts land above 40,500, the PR discloses the measured figure and the delta. The report itself sets this posture: "no margin is claimed", and a deeper target "would force cutting contract and is explicitly not proposed". | codebase-derived |
 | D-7 | `6-verify.md` — five inert essays or six? | Six blocks (`6-verify.md` lines 60/62/64/66/68/70); the issue says five because the last covers two file types. All six relocate. | codebase-derived |
 
 The +993-word drift from the report's 44,320 baseline came from #158/#161/#162/#163/#164
@@ -46,7 +46,10 @@ available cut scales with the growth — but not by enough to close the full gap
 
 ## Affected files/modules
 
-Run-surface files (these are the ones AC-1 measures):
+Run-surface files (edited here). Note the AC-1 command measures **15** paths — these 12
+plus `stages/4-plan-review.md`, `intake-orchestrator/SKILL.md` and `review-lead/SKILL.md`;
+measured-but-not-edited is expected, and `4-plan-review.md` is edited here only by the
+archaeology sweep:
 
 - `plugins/dev-pipeline/skills/run/SKILL.md`
 - `plugins/dev-pipeline/skills/run/stages/1-intake.md`
@@ -143,9 +146,12 @@ No new helpers introduced.
     `cost-tracking-setup.md` or the three tracker READMEs (they are `See […]` pointers
     today), and cut the ~250 words of operator prose duplicated between stages 1/9 and those
     docs. Inline nothing new.
-11. **Archaeology sweep**: 39 narrative `#NNN` refs across 16 files (verified: the
-    `prose-budget.sh` `narrative_nnn` counter totals exactly 39/16) plus version citations.
-    Keep every annotated rule; drop the number and the origin story.
+11. **Archaeology sweep**: 41 narrative `#NNN` refs across 17 files (the counter read 39/16
+    when this plan was written; the rebase onto `origin/main` added two `#169` refs). Keep
+    every annotated rule; drop the number and the origin story. **Not all 41 are
+    archaeology** — 8 are hex colors, instructional issue-reference examples, and an
+    example-table cross-reference, which the counter's `#<2-4 digits>` regex cannot
+    distinguish and which must survive. The reachable floor is 8, not 0.
 12. **Re-snapshot** `bash plugins/dev-pipeline/skills/run/tools/prose-budget.sh --update-baseline`
     and commit `.claude/prose-budget.baseline.tsv`.
 13. **Measure** the run surface with the frozen command and record the figure for the PR body.
@@ -222,13 +228,20 @@ cat "$R/SKILL.md" \
 Mitigation: full selftest sweep after each step-group, so a break is attributable to one
 step-group rather than to a 20-file diff.
 
-**R2 — AC-1 is likely to miss, and that is disclosed rather than closed by cutting
-contract.** The surface measures 45,313 today against the report's 44,320, so an absolute
-40,500 needs a 4,813-word cut where the candidate estimates sum to ~3.8–4.0k (labeled ±15%
-analyst judgment). Adjusting upward for the fact that most of the drift sits inside the
-candidate targets, the honest projection is **~41.0–41.7k**, i.e. a shortfall of roughly
-500–1,200 words. Per D-6 the PR reports the measured number and the delta. This is a
-projection from measured inputs, not a measurement — the real figure comes from step 13.
+**R2 — AC-1 missed, and that is disclosed rather than closed by cutting contract.** The
+surface measured 45,349 at implementation start against the report's 44,320, so an absolute
+40,500 needed a 4,849-word cut where the candidate estimates summed to ~3.8–4.0k (labeled
+±15% analyst judgment). The plan projected **~41.0–41.7k**.
+
+**Measured at step 13: 43,618** — a shortfall of 3,118, roughly 2k worse than projected.
+Per D-6 the number is reported, not closed by cutting contract. Why the projection missed:
+only the *relocation* candidate hit its estimate (6-verify's inert essays, est. ~895 /
+actual 898, because moving prose out of a run-surface file removes its full weight). Every
+*compression* candidate under-delivered by 50–75% (SKILL.md est. ~830 / actual 287;
+doc-update est. ~455 / actual 115; 9-open-pr est. ~250 / actual 130), because the "no rule
+is deleted" guardrail means a restatement can only be tightened, not removed — and a
+tightened clause still costs most of its words. The estimating lesson for #166/#167:
+relocation and deletion budgets are reliable; compression budgets are not.
 
 **R3 — baseline TSV collision with #166.** `--update-baseline` rewrites the entire TSV, so
 whichever of #165/#166 merges second gets a whole-file conflict. Resolution is mechanical:
