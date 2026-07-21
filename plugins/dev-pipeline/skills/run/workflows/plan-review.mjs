@@ -49,13 +49,49 @@ const STRUCTURED_OUTPUT_MANDATE =
   ' StructuredOutput call; if you are running low on budget, call it early with partial results' +
   ' rather than writing a summary. Never end your turn without calling StructuredOutput.'
 
+// The PRIMARY stall fix for this dispatcher. Deliberately NOT code-review.mjs's wording: that one
+// says a reviewer need not exhaustively read the diff to assert the ABSENCE of findings, which is
+// right for a domain reviewer and wrong here — a plan reviewer's entire job is checking plan claims
+// against the codebase, so telling it to stop grounding would gut the gate. This variant bounds HOW
+// grounding happens, not WHETHER: batch the cheap existence checks, sample the expensive content
+// reads, open a file only to support a finding you intend to raise.
+//
+// Inventory completeness is explicitly exempted because planReviewerGate also serves the design
+// FE-spec gate, whose rubric demands one row per rendered element with no silent drops — the same
+// exhaustiveness class that justifies the scope-completeness-reviewer opt-out in code-review.mjs.
+// Sampling THAT would defeat the gate, so the carve-out is stated rather than left to inference.
+const BOUNDED_PLAN_GROUNDING =
+  ' GROUND PROPORTIONATELY: verify that the paths and symbols the plan references exist using' +
+  ' BATCHED checks (one ls/glob/grep covering many paths — not one Read per path). Read a file in' +
+  ' full only when its CONTENT is needed to support a specific finding you intend to raise; a plan' +
+  ' reference that merely needs to exist does not need a read. You do NOT have to open every' +
+  ' referenced file to conclude the plan is grounded. This bounds how you ground, not whether — it' +
+  ' never licenses skipping a completeness inventory this prompt asks for, nor asserting a claim' +
+  ' you did not check. Stop exploring and emit StructuredOutput before your budget runs low.'
+
+// Appended ONLY to a retry. Repeating an attempt verbatim is a foregone conclusion when the death
+// was a turn-budget wall rather than a stochastic drop, and the two are indistinguishable from here
+// (the runtime surfaces no turn count; the error string is identical). Rather than invent a
+// discriminator that does not exist, make the second attempt materially different and cheaper.
+// Measured motivation: one Stage-4 run burned 480k tokens and ~23 min re-deriving its first
+// attempt's result across six dispatches that all died at 24-28 tool calls.
+const RETRY_ESCALATION =
+  ' RETRY CONTEXT: your previous attempt exhausted its turn budget exploring and never emitted a' +
+  ' verdict, which counts as producing nothing. Explore MARKEDLY less this time — trust the plan' +
+  ' text where you cannot cheaply verify it, and call StructuredOutput as early as you can defend,' +
+  ' with partial findings if necessary. An early partial verdict is worth far more than no verdict.'
+
 const isNoStructuredOutputError = (err) => /StructuredOutput/.test(String(err))
 
-const dispatchSchemaAgent = async (prompt, opts, retries = 2) => {
+// retries = 1 (was 2): see RETRY_ESCALATION — further identical attempts bought no information.
+const dispatchSchemaAgent = async (prompt, opts, retries = 1) => {
   let lastErr
   for (let attempt = 0; attempt <= retries; attempt++) {
     try {
-      return await agent(prompt, attempt === 0 ? opts : { ...opts, label: `${opts.label} (retry ${attempt})` })
+      return await agent(
+        attempt === 0 ? prompt : prompt + RETRY_ESCALATION,
+        attempt === 0 ? opts : { ...opts, label: `${opts.label} (retry ${attempt})` },
+      )
     } catch (err) {
       lastErr = err
       if (!isNoStructuredOutputError(err)) throw err
@@ -173,8 +209,9 @@ const planReviewerGate = async (gate, prompt) => {
     return
   }
   try {
+    // bounded-exploration: BOUNDED_PLAN_GROUNDING
     const result = await withCeiling(
-      dispatchSchemaAgent(prompt + STRUCTURED_OUTPUT_MANDATE, {
+      dispatchSchemaAgent(prompt + STRUCTURED_OUTPUT_MANDATE + BOUNDED_PLAN_GROUNDING, {
         agentType: PLAN_REVIEWER_AGENT,
         model: planReviewerModel,
         label: gate,
@@ -203,8 +240,9 @@ const planGateAgent = async (gate, agentType, model, prompt) => {
     return
   }
   try {
+    // bounded-exploration: BOUNDED_PLAN_GROUNDING
     const result = await withCeiling(
-      dispatchSchemaAgent(prompt + STRUCTURED_OUTPUT_MANDATE, {
+      dispatchSchemaAgent(prompt + STRUCTURED_OUTPUT_MANDATE + BOUNDED_PLAN_GROUNDING, {
         agentType,
         model,
         label: gate,

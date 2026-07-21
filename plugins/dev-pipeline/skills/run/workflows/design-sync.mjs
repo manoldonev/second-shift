@@ -267,6 +267,9 @@ if (kind === 'produce') {
     STRUCTURED_OUTPUT_MANDATE
 
   const opts = {
+    // bounded-exploration-optout: design produce -- a produce dispatch WRITES a spec or
+    //   implements a screen; "emit early without opening files" is semantically wrong for work
+    //   whose whole output depends on reading the design and the surrounding code.
     agentType: skill,
     model: modelOverrides[skillBare] || DESIGN_MODEL[skill] || 'sonnet',
     label: skill,
@@ -314,6 +317,9 @@ const dispatchGateReviewer = async (agentType) => {
     return failClosed ? { agentType, result, failClosed } : { agentType, result }
   }
   try {
+    // bounded-exploration-optout: design gate -- unprobed surface, deliberately deferred. No
+    //   stall has been measured here, and the issue guardrail forbids shipping a nudge without a
+    //   before/after rate. Revisit if a design run ever stalls.
     const result = await agent(prompt, { agentType, model, label: agentType, phase: 'Design Sync', schema: GATE_SCHEMA })
     return annotate(result)
   } catch (err) {
@@ -323,6 +329,8 @@ const dispatchGateReviewer = async (agentType) => {
     log(`${agentType}: died without StructuredOutput — retrying once`)
     try {
       const result = await agent(prompt, {
+        // bounded-exploration-optout: design gate retry -- re-dispatches the identical prompt,
+        //   so it inherits the primary dispatch's deferral above.
         agentType,
         model,
         label: `${agentType} (retry)`,

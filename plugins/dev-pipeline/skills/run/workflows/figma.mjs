@@ -152,6 +152,8 @@ if (kind === 'gate') {
     `resolve your reference docs there.` +
     (inputs.bindingSpecPath ? ` Cross-check against the binding spec at \`${inputs.bindingSpecPath}\`.` : '') +
     ` Return your trinary verdict (block | fix-and-go | pass) and findings.`
+  // bounded-exploration-optout: figma gate -- unprobed surface, deliberately deferred; no measured
+  //   stall and no before/after rate, which the issue guardrail requires before shipping a nudge.
   opts = { agentType: target, model: FIGMA_MODEL, label: target, phase: 'Figma', schema: GATE_SCHEMA }
 } else {
   if (!outputPath) {
@@ -182,6 +184,8 @@ if (kind === 'gate') {
       : `PLAN/SPEC mode: write the artifact only — do NOT write component code, do NOT commit (committed=false).`) +
     ` On any failure (Figma MCP unreachable, unresolved sparse dump, etc.) set status="error". ` +
     `Return {status, artifactPath, committed, commitSha, summary}.`
+  // bounded-exploration-optout: figma produce -- a produce dispatch writes the artifact and may
+  //   commit; bounding its reads would bound the deliverable itself.
   opts = { model: FIGMA_MODEL, label: `produce:${target}`, phase: 'Figma', schema: PRODUCE_SCHEMA }
 }
 

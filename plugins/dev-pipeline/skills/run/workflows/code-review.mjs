@@ -258,6 +258,14 @@ const dispatchReviewer = async (agentType) => {
       BOUNDED_EXPLORATION
   }
   try {
+    // Stacked markers: one dispatch, three dispositions, because `prompt` above is built by an
+    // if/else chain over agentType. The lint is satisfied by any one of them; all three are listed
+    // so the waivers stay declared rather than implied by the generic branch.
+    // bounded-exploration-optout: scope-completeness-reviewer -- its job is to verify EVERY scope
+    //   item exhaustively, so bounding the sweep would bound the deliverable.
+    // bounded-exploration-optout: unit-test-mutation-reviewer -- it enumerates mutants across the
+    //   whole diff; with no narrower range to anchor to, a triage bound would suppress real mutants.
+    // bounded-exploration: BOUNDED_EXPLORATION
     const result = await agent(prompt, { agentType, model, label: agentType, phase: 'Review', schema: FINDINGS_SCHEMA })
     return { agentType, result }
   } catch (err) {
@@ -266,6 +274,9 @@ const dispatchReviewer = async (agentType) => {
     }
     log(`${agentType}: died without StructuredOutput — retrying once`)
     try {
+      // bounded-exploration: BOUNDED_EXPLORATION
+      // Re-dispatches the identical `prompt`, so this site inherits whichever disposition the
+      // branch above selected.
       const result = await agent(prompt, {
         agentType,
         model,

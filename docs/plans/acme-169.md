@@ -90,6 +90,13 @@ All paths are worktree-relative. Every file below was confirmed present unless t
 - `plugins/dev-pipeline/skills/run/tools/check-bounded-exploration.sh` `[NEW]`
 - `plugins/dev-pipeline/skills/run/tools/check-bounded-exploration-selftest.sh` `[NEW]`
 
+**Docs whose stated contract the change invalidates**
+
+- `plugins/dev-pipeline/skills/run/stages/4-plan-review.md` — line 61 documents the staller stack as
+  "inline retry ×2"; AC-6 makes it 1 plus an escalated preamble, and the nudge joins the stack.
+  Added after Stage-4 review flagged it: leaving it would make the stage doc a false statement of
+  the shipped contract, on the very stage this issue concerns.
+
 **Unchanged, referenced for grounding**
 
 - `plugins/dev-pipeline/skills/run/tools/diff-range-selftest.sh` — the offline `.mjs`-text-reading precedent

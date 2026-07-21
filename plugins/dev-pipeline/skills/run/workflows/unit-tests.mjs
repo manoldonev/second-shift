@@ -97,6 +97,39 @@ const STRUCTURED_OUTPUT_MANDATE =
   ' StructuredOutput call; if you are running low on budget, call it early with partial results' +
   ' rather than writing a summary. Never end your turn without calling StructuredOutput.'
 
+// Bounding nudges — the PRIMARY stall fix (see the ROOT CAUSE block in code-review.mjs). One per
+// kind, because the two dispatches have opposite exhaustiveness needs and one shared wording would
+// be wrong for one of them.
+//
+// plan-review kind: the agent checks a plan's test strategy against the codebase, so bound HOW it
+// grounds (batch the existence checks, sample the content reads), never WHETHER — that would gut
+// the gate. Mirrors plan-review.mjs's constant of the same name; restated because Workflow scripts
+// cannot import.
+const BOUNDED_PLAN_GROUNDING =
+  ' GROUND PROPORTIONATELY: verify that referenced paths and symbols exist using BATCHED checks' +
+  ' (one ls/glob/grep covering many paths — not one Read per path). Read a file in full only when' +
+  ' its CONTENT is needed to support a specific finding you intend to raise. You do NOT have to' +
+  ' open every referenced file to conclude the test strategy is sound. Stop exploring and emit' +
+  ' StructuredOutput before your budget runs low.'
+
+// mutation-review kind: enumerating mutants across the changed surface IS the deliverable, so this
+// bounds the SWEEP (stay inside the diff rather than touring the codebase), not the enumeration.
+// That distinction is why unit-test-mutation-reviewer is a declared opt-out on the code-review.mjs
+// side, where the same agent has no diff-scoped range to anchor a bound to.
+const BOUNDED_MUTATION_SWEEP =
+  ' BOUND YOUR SWEEP: enumerate mutants for the files in the stated diff range and their co-located' +
+  ' specs. Do not tour the wider codebase for context — read outside the changed files only when a' +
+  ' specific mutant you are proposing depends on it. Fewer well-grounded mutants beat an exhaustive' +
+  ' tour that never emits. Stop exploring and emit StructuredOutput before your budget runs low.'
+
+// Appended ONLY to a retry, so a second attempt is never a verbatim repeat of one that hit a turn
+// wall. The runtime surfaces no turn count and the error string is identical for a stochastic death
+// and a budget wall, so this changes what the retry DOES rather than inventing a discriminator.
+const RETRY_ESCALATION =
+  ' RETRY CONTEXT: your previous attempt exhausted its turn budget exploring and never emitted,' +
+  ' which counts as producing nothing. Explore MARKEDLY less this time and call StructuredOutput as' +
+  ' early as you can defend, with partial results if necessary.'
+
 // Only the StructuredOutput-death error class is retried; genuine tool/permission errors throw
 // straight through. Brittle substring match — the only signal the runtime surfaces.
 const isNoStructuredOutputError = (err) => /StructuredOutput/.test(String(err))
@@ -104,11 +137,16 @@ const isNoStructuredOutputError = (err) => /StructuredOutput/.test(String(err))
 // One schema'd dispatch with up to `retries` INLINE retries on a StructuredOutput death. Resolves
 // to the agent result on success; throws the last error after exhausting retries (the caller maps
 // that throw to its infraFailure envelope).
-const dispatchSchemaAgent = async (prompt, opts, retries = 2) => {
+// retries = 1 (was 2): repeating an identical attempt after a turn-budget death is a foregone
+// conclusion — measured at 480k wasted tokens across six such dispatches in one Stage-4 run.
+const dispatchSchemaAgent = async (prompt, opts, retries = 1) => {
   let lastErr
   for (let attempt = 0; attempt <= retries; attempt++) {
     try {
-      return await agent(prompt, attempt === 0 ? opts : { ...opts, label: `${opts.label} (retry ${attempt})` })
+      return await agent(
+        attempt === 0 ? prompt : prompt + RETRY_ESCALATION,
+        attempt === 0 ? opts : { ...opts, label: `${opts.label} (retry ${attempt})` },
+      )
     } catch (err) {
       lastErr = err
       if (!isNoStructuredOutputError(err)) throw err
@@ -181,7 +219,9 @@ if (kind === 'plan-review') {
     (inputs.mutationTargets?.length
       ? `Planned mutation targets: ${inputs.mutationTargets.join('; ')}. `
       : '') +
-    `Load the unit-testing skill. Return trinary verdict (block | fix-and-go | pass) and findings.`
+    `Load the unit-testing skill. Return trinary verdict (block | fix-and-go | pass) and findings.` +
+    BOUNDED_PLAN_GROUNDING
+  // bounded-exploration: BOUNDED_PLAN_GROUNDING
   opts = {
     agentType: 'review-toolkit:unit-test-plan-reviewer',
     model: modelOverrides['unit-test-plan-reviewer'] || UNIT_TEST_MODEL,
@@ -208,7 +248,9 @@ if (kind === 'plan-review') {
     `Do NOT apply mutants or run tests — for each blocker-class mutant predicted survived/untested, emit a ` +
     `uniquely-matching {originalSnippet, mutatedSnippet} patch so the orchestrator can verify it by execution. ` +
     `No Stryker. No verdict (the orchestrator computes it). ` +
-    `Return {mutants, mockAuditFindings, summary}.`
+    `Return {mutants, mockAuditFindings, summary}.` +
+    BOUNDED_MUTATION_SWEEP
+  // bounded-exploration: BOUNDED_MUTATION_SWEEP
   opts = {
     agentType: 'review-toolkit:unit-test-mutation-reviewer',
     model: modelOverrides['unit-test-mutation-reviewer'] || UNIT_TEST_MODEL,

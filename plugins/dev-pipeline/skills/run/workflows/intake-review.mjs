@@ -182,8 +182,24 @@ const STRUCTURED_OUTPUT_FIRST =
   ' Call StructuredOutput FIRST with your verdict and findings, before any prose' +
   ' explanation — do not write a long write-up before the structured call.'
 
+// PROPHYLACTIC, not a measured fix — and the distinction is load-bearing. Both agents in this file
+// emitted cleanly in the run that motivated the wider change (spec-reviewer 18 tool calls,
+// codebase-explorer 12, against the 24-28 range where dispatches die), so there is no stall here to
+// cure and no before/after rate to cite. It ships for uniform coverage, so the lint's rule has no
+// silent hole, and it is exempt from the "a nudge lands with its measurement" guardrail precisely
+// because it is not claimed as a fix. If it ever needs defending, the probe's avgFindings
+// comparison — not a stall rate — is the instrument.
+const BOUNDED_SPEC_GROUNDING =
+  ' GROUND PROPORTIONATELY: the issue body is your primary artifact. Consult the codebase to check' +
+  ' a specific claim you intend to raise as a finding — not to build general familiarity, and not' +
+  ' to prove the absence of findings across the repo. Stop exploring and emit StructuredOutput' +
+  ' before your budget runs low.'
+
+// Per-entry dispositions. These two descriptors take OPPOSITE treatment yet share one agent() call
+// downstream — the shape that forced the lint grammar's `delegated` verb (see dispatchIntake).
 const DISPATCH = [
   {
+    // bounded-exploration: BOUNDED_SPEC_GROUNDING
     agentType: 'review-toolkit:spec-reviewer',
     schema: SPEC_REVIEW_SCHEMA,
     prompt:
@@ -194,9 +210,14 @@ const DISPATCH = [
       `mandatory and must carry your actual reasoning / how you verified it (file:line where ` +
       `relevant) — the orchestrator uses it to accept or dismiss the finding, so a bare ` +
       `conclusion without rationale is unusable.` +
-      STRUCTURED_OUTPUT_FIRST,
+      STRUCTURED_OUTPUT_FIRST +
+      BOUNDED_SPEC_GROUNDING,
   },
   {
+    // bounded-exploration-optout: codebase-explorer -- mapping the impact surface IS its
+    // deliverable, so bounding exploration would bound the output itself. Same class as
+    // scope-completeness-reviewer in code-review.mjs. It also runs well inside budget (12 tool
+    // calls observed), so there is nothing here to cure.
     agentType: 'review-toolkit:codebase-explorer',
     schema: CODEBASE_EXPLORER_SCHEMA,
     prompt:
@@ -237,6 +258,10 @@ const isNoStructuredOutputError = (err) => /StructuredOutput/.test(String(err))
 //     retried: true, failed: true } — flagged so the orchestrator cannot mistake a dead
 //     sub-agent for a clean result.
 const dispatchIntake = async (d) => {
+  // bounded-exploration-delegated: this one call serves every DISPATCH[] entry, and the entries
+  // take opposite dispositions (spec-reviewer nudged, codebase-explorer opted out). Each entry
+  // declares its own above, and each bakes its treatment into its own `prompt` — which is why no
+  // single marker here could be correct.
   const opts = {
     agentType: d.agentType,
     model: modelOverrides[bare(d.agentType)] || INTAKE_MODEL[d.agentType] || 'sonnet',

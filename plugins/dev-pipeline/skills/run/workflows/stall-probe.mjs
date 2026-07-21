@@ -29,9 +29,15 @@ const {
   worktree,
   base = 'cf8a059^',
   head = 'cf8a059',
-  reviewers = ['review-toolkit:maintainability-reviewer', 'review-toolkit:test-coverage-reviewer'],
+  reviewers,
   k = 4,
-  model = 'sonnet',
+  model,
+  // target: which production dispatch this run imitates. See TARGETS below.
+  target = 'diff-reviewer',
+  // planPath: the low-signal input for the plan-shaped targets. Default is a plan already on the
+  // base branch (263 lines, 51 distinct file references) so the probe keeps the reproducibility
+  // property the diff-range default has — see the planPin note in TARGETS.
+  planPath = 'docs/plans/160-prose-debloat-scoping.md',
   // bounded: append a triage / bounded-exploration instruction to the prompt. Used to
   // A/B test whether disciplining the absence-grounding (vs raising budget / model tier)
   // is what eliminates the stall.
@@ -40,10 +46,19 @@ const {
 if (!worktree) {
   throw new Error('stall-probe: args.worktree (absolute repo path the reviewers run git against) is required')
 }
-if (!Array.isArray(reviewers) || reviewers.length === 0) {
+const TARGET = TARGETS[target]
+if (!TARGET) {
+  throw new Error(`stall-probe: unknown args.target '${target}' (known: ${Object.keys(TARGETS).join(', ')})`)
+}
+// Explicit args still win; otherwise the target supplies its production agents and tier.
+const AGENTS = Array.isArray(reviewers) && reviewers.length ? reviewers : TARGET.agents
+const MODEL = model || TARGET.model
+if (!Array.isArray(AGENTS) || AGENTS.length === 0) {
   throw new Error('stall-probe: args.reviewers must be a non-empty array of agentType strings')
 }
 const range = `${base}..${head}`
+// What this arm measured, echoed into the return so a recorded rate is self-describing.
+const inputRef = target === 'diff-reviewer' ? range : `${planPath}@${PLAN_PIN}`
 
 // Copied verbatim from code-review.mjs so the probe dispatch is identical to production.
 // (Permissive: only severity/description/confidence required; findings may be empty —
@@ -81,6 +96,112 @@ const STRUCTURED_OUTPUT_FIRST =
   ' Call StructuredOutput FIRST with your verdict and findings, before any prose' +
   ' explanation — do not write a long write-up before the structured call.'
 
+// Copied verbatim from plan-review.mjs so a plan-shaped arm dispatches identically to production.
+// The trinary shape is NOT interchangeable with FINDINGS_SCHEMA above: plan reviewers return
+// block|fix-and-go|pass, diff reviewers return approve|...|block. Measuring one with the other's
+// schema would not be measuring the dispatch that stalls.
+const PLAN_REVIEW_SCHEMA = {
+  type: 'object',
+  additionalProperties: true,
+  required: ['verdict', 'findings'],
+  properties: {
+    verdict: { type: 'string', enum: ['block', 'fix-and-go', 'pass'] },
+    findings: {
+      type: 'array',
+      items: {
+        type: 'object',
+        additionalProperties: true,
+        required: ['severity', 'message'],
+        properties: {
+          severity: { type: 'string', enum: ['blocker', 'warning', 'note'] },
+          evidence: { type: 'string' },
+          impact: { type: 'string' },
+          message: { type: 'string' },
+          suggestedFix: { type: 'string' },
+        },
+      },
+    },
+    summary: { type: 'string' },
+  },
+}
+
+// Production plan-shaped dispatches append the MANDATE, not code-review's FIRST. An arm carrying
+// the wrong one is not measuring the dispatch that died — copied verbatim from plan-review.mjs.
+const STRUCTURED_OUTPUT_MANDATE =
+  ' IMPORTANT: the StructuredOutput tool call is your ONLY deliverable — a prose write-up is' +
+  ' discarded and counts as producing nothing. Do your work, then your FINAL action MUST be the' +
+  ' StructuredOutput call; if you are running low on budget, call it early with partial results' +
+  ' rather than writing a summary. Never end your turn without calling StructuredOutput.'
+
+// The plan-shaped candidate FIX under test. Verbatim from plan-review.mjs's constant of the same
+// name — the AFTER arm must carry the exact text production ships, or it measures something else.
+const BOUNDED_PLAN_GROUNDING =
+  ' GROUND PROPORTIONATELY: verify that the paths and symbols the plan references exist using' +
+  ' BATCHED checks (one ls/glob/grep covering many paths — not one Read per path). Read a file in' +
+  ' full only when its CONTENT is needed to support a specific finding you intend to raise; a plan' +
+  ' reference that merely needs to exist does not need a read. You do NOT have to open every' +
+  ' referenced file to conclude the plan is grounded. This bounds how you ground, not whether — it' +
+  ' never licenses skipping a completeness inventory this prompt asks for, nor asserting a claim' +
+  ' you did not check. Stop exploring and emit StructuredOutput before your budget runs low.'
+
+// Target-keyed dispatch table. Each entry mirrors ONE production dispatch: same schema, same prompt
+// shape, same mandate/nudge text, same model tier. Extending the probe to a new agent is adding a
+// row, not editing the dispatch loop.
+//
+// planPin: the plan-shaped default input is a live path on the base branch, so pin the commit that
+// introduced it when quoting a rate. The diff-shaped default is already SHA-pinned (see the header);
+// this keeps the plan-shaped arms equally reproducible after the file is edited.
+//
+// MODEL TIERS are re-stated here and are NOT covered by check-model-tiers.sh, which validates six
+// named tables and does not include this file. A change to PLAN_REVIEWER_MODEL or UNIT_TEST_MODEL
+// must be mirrored here by hand or the instrument silently drifts from production. Accepted, known
+// gap; extending that lint's file list is the follow-up.
+const PLAN_PIN = '521b387'
+const TARGETS = {
+  // The original diff-shaped arm — unchanged default so existing invocations behave as before.
+  'diff-reviewer': {
+    // bounded-exploration-optout: probe target -- measurement control; the nudge is this probe's
+    //   independent variable, supplied per-arm via the `bounded` arg.
+    schema: FINDINGS_SCHEMA,
+    model: 'sonnet',
+    agents: ['review-toolkit:maintainability-reviewer', 'review-toolkit:test-coverage-reviewer'],
+    nudge: BOUNDED_EXPLORATION,
+    build: (agentType) =>
+      `Review this change in your domain. Diff scope: \`git -C ${worktree} diff ${base}..${head}\`. ` +
+      `Return your verdict and a deduplicated list of findings (severity blocker/major/minor/nit, ` +
+      `file, line, confidence 0-100). Ignore stylistic issues handled by formatter/linter.` +
+      STRUCTURED_OUTPUT_FIRST,
+  },
+  // The Stage-4 gate that aborted runs #165 and #169 at 6/6 apiece.
+  'plan-reviewer': {
+    // bounded-exploration-optout: probe target -- measurement control, as above.
+    schema: PLAN_REVIEW_SCHEMA,
+    model: 'opus',
+    agents: ['review-toolkit:plan-reviewer'],
+    nudge: BOUNDED_PLAN_GROUNDING,
+    build: () =>
+      `Review the implementation plan at \`${planPath}\`. ` +
+      `All file reads / Grep / Glob / Bash must target the worktree \`${worktree}\`. ` +
+      `Verify plan grounding (every referenced path/symbol exists or is tagged [NEW]/[UNVERIFIED]), ` +
+      `completeness against the required plan sections, consistency with codebase patterns, and ` +
+      `missed downstream impacts. Return trinary verdict (block | fix-and-go | pass) and findings.` +
+      STRUCTURED_OUTPUT_MANDATE,
+  },
+  // The Stage-4 child plan-review.mjs nests via workflow() (unit-tests.mjs kind: 'plan-review').
+  'unit-test-plan-reviewer': {
+    // bounded-exploration-optout: probe target -- measurement control, as above.
+    schema: PLAN_REVIEW_SCHEMA,
+    model: 'sonnet',
+    agents: ['review-toolkit:unit-test-plan-reviewer'],
+    nudge: BOUNDED_PLAN_GROUNDING,
+    build: () =>
+      `Review the unit test strategy in the plan at \`${planPath}\`. ` +
+      `All file reads / Grep / Glob / Bash must target the worktree \`${worktree}\`. ` +
+      `Load the unit-testing skill. Return trinary verdict (block | fix-and-go | pass) and findings.` +
+      STRUCTURED_OUTPUT_MANDATE,
+  },
+}
+
 // Candidate FIX under test: proportionate absence-grounding. Targets the EXPLORATION
 // (tool calls reading files), not the output format — the stall is the reviewer opening
 // every file to prove the absence of findings on a large low-signal diff and exhausting
@@ -94,18 +215,16 @@ const BOUNDED_EXPLORATION =
 
 const isNoStructuredOutputError = (err) => /StructuredOutput/.test(String(err))
 
-log(`stall-probe: ${reviewers.join(', ')} × ${k} over ${range} in ${worktree}`)
+log(`stall-probe: [${target}] ${AGENTS.join(', ')} × ${k} (${bounded ? 'bounded' : 'unbounded'}) over ${inputRef} in ${worktree}`)
 phase('Probe')
 
 const dispatchOnce = async (agentType, i) => {
-  const prompt =
-    `Review this change in your domain. Diff scope: \`git -C ${worktree} diff ${range}\`. ` +
-    `Return your verdict and a deduplicated list of findings (severity blocker/major/minor/nit, ` +
-    `file, line, confidence 0-100). Ignore stylistic issues handled by formatter/linter.` +
-    STRUCTURED_OUTPUT_FIRST +
-    (bounded ? BOUNDED_EXPLORATION : '')
+  const prompt = TARGET.build(agentType) + (bounded ? TARGET.nudge : '')
   try {
-    const result = await agent(prompt, { agentType, model, label: `${agentType} #${i + 1}`, phase: 'Probe', schema: FINDINGS_SCHEMA })
+    // bounded-exploration-optout: stall-probe -- THE MEASUREMENT CONTROL. The nudge is the
+    //   independent variable here, applied via the `bounded` arg. Mandating it at this site would
+    //   delete the unbounded arm and destroy the instrument that measures the fix.
+    const result = await agent(prompt, { agentType, model: MODEL, label: `${agentType} #${i + 1}`, phase: 'Probe', schema: TARGET.schema })
     // Capture findings so a bounded-vs-unbounded run can be compared for review QUALITY
     // (does the triage nudge suppress real findings?), not just stall rate.
     const findings = result && Array.isArray(result.findings) ? result.findings : []
@@ -128,13 +247,13 @@ const dispatchOnce = async (agentType, i) => {
 }
 
 const thunks = []
-for (const agentType of reviewers) {
+for (const agentType of AGENTS) {
   for (let i = 0; i < k; i++) thunks.push(() => dispatchOnce(agentType, i))
 }
 const results = (await parallel(thunks)).filter(Boolean)
 
 const perReviewer = {}
-for (const agentType of reviewers) {
+for (const agentType of AGENTS) {
   const rs = results.filter((r) => r.agentType === agentType)
   const completed = rs.filter((r) => !r.error)
   const findingCounts = completed.map((r) => r.findingCount || 0)
@@ -149,6 +268,6 @@ for (const agentType of reviewers) {
   }
 }
 const totalStalls = results.filter((r) => r.stalled).length
-log(`stall-probe: ${totalStalls}/${results.length} StructuredOutput stalls (${reviewers.map((rv) => `${rv}: ${perReviewer[rv].stalls}/${perReviewer[rv].dispatches}`).join(', ')})`)
+log(`stall-probe: ${totalStalls}/${results.length} StructuredOutput stalls (${AGENTS.map((rv) => `${rv}: ${perReviewer[rv].stalls}/${perReviewer[rv].dispatches}`).join(', ')})`)
 
-return { range, worktree, k, reviewers, totalDispatches: results.length, totalStalls, perReviewer, results }
+return { target, inputRef, range, worktree, k, bounded, model: MODEL, reviewers: AGENTS, totalDispatches: results.length, totalStalls, perReviewer, results }
