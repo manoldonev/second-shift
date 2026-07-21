@@ -115,6 +115,7 @@ const SCHEMA = {
       },
     },
     summary: { type: 'string' },
+    suppressed: { type: 'array', items: { type: 'string' } },
   },
 }
 const good = { verdict: 'pass', findings: [{ severity: 'note', message: 'm' }] }
@@ -130,6 +131,12 @@ assert('B12 non-array where array required fails',
 assert('B13 absent optional field tolerated', validateShape({ verdict: 'pass', findings: [] }, SCHEMA) === true)
 assert('B14 null input fails closed', validateShape(null, SCHEMA) === false)
 assert('B15 non-object item fails', validateShape({ verdict: 'pass', findings: ['str'] }, SCHEMA) === false)
+// B16/B17: string-typed array items. Regression: run #165 declared security-reviewer dark
+// because a non-empty suppressed[] (strings) was rejected by the object-only item check.
+assert('B16 non-empty string-array passes',
+  validateShape({ verdict: 'pass', findings: [], suppressed: ['sub-threshold: note'] }, SCHEMA) === true)
+assert('B17 non-string element in string-array fails',
+  validateShape({ verdict: 'pass', findings: [], suppressed: [{ not: 'a string' }] }, SCHEMA) === false)
 EOF
 } > "$TMP/behavior.mjs"
 

@@ -121,6 +121,10 @@ const validateShape = (obj, schema) => {
       if (!Array.isArray(obj[k])) return false
       if (p.items) {
         for (const it of obj[k]) {
+          if (p.items.type === 'string') {
+            if (typeof it !== 'string') return false
+            continue
+          }
           if (!it || typeof it !== 'object') return false
           for (const rk of p.items.required || []) if (!(rk in it)) return false
           const ip = p.items.properties || {}
