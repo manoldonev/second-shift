@@ -181,6 +181,41 @@ else
   bad "B6 stall-probe lost its unbounded control arm"
 fi
 
+# B7/B8: declaration order in stall-probe.mjs. A `const` sits in its temporal dead zone until its
+# declaration executes, so a table that closes over a constant declared BELOW it throws before a
+# single agent dispatches. `node --check` cannot see this (TDZ is a runtime error) and no offline
+# harness can execute a Workflow script, so assert the order textually. This bit twice while the
+# TARGETS table was being written — once for TARGETS itself, once for a nudge constant it closes
+# over — which is why B8 checks the whole closure rather than the one name that failed first.
+SP="$WORKFLOWS/stall-probe.mjs"
+t_line="$(grep -n '^const TARGETS = {' "$SP" | cut -d: -f1)"
+u_line="$(grep -n '^const TARGET = TARGETS\[' "$SP" | cut -d: -f1)"
+if [ -n "$t_line" ] && [ -n "$u_line" ] && [ "$t_line" -lt "$u_line" ]; then
+  ok "B7 stall-probe defines TARGETS (line $t_line) before resolving it (line $u_line)"
+else
+  bad "B7 stall-probe resolves TARGETS before defining it — temporal dead zone at dispatch"
+fi
+
+if [ -n "$t_line" ] && [ -n "$u_line" ]; then
+  # Every SHOUTY_CASE identifier referenced inside the table must be declared above it.
+  body_end=$((u_line - 1))
+  refs="$(sed -n "$((t_line + 1)),${body_end}p" "$SP" \
+    | grep -oE '\b[A-Z][A-Z0-9_]{3,}\b' | sort -u)"
+  bad_refs=""
+  for r in $refs; do
+    # TARGET/TARGETS are the table and its resolution, not things it closes over.
+    case "$r" in TARGET|TARGETS) continue ;; esac
+    d="$(grep -n "^const ${r} " "$SP" | cut -d: -f1 | head -1)"
+    [ -z "$d" ] && continue # not a local const (enum literal, arg name, etc.)
+    [ "$d" -lt "$t_line" ] || bad_refs="$bad_refs $r"
+  done
+  if [ -z "$bad_refs" ]; then
+    ok "B8 every constant the TARGETS table closes over is declared above it"
+  else
+    bad "B8 TARGETS closes over constant(s) declared below it (TDZ at dispatch):$bad_refs"
+  fi
+fi
+
 echo "check-bounded-exploration-selftest: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ] || exit 1
 exit 0

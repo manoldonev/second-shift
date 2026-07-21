@@ -46,19 +46,7 @@ const {
 if (!worktree) {
   throw new Error('stall-probe: args.worktree (absolute repo path the reviewers run git against) is required')
 }
-const TARGET = TARGETS[target]
-if (!TARGET) {
-  throw new Error(`stall-probe: unknown args.target '${target}' (known: ${Object.keys(TARGETS).join(', ')})`)
-}
-// Explicit args still win; otherwise the target supplies its production agents and tier.
-const AGENTS = Array.isArray(reviewers) && reviewers.length ? reviewers : TARGET.agents
-const MODEL = model || TARGET.model
-if (!Array.isArray(AGENTS) || AGENTS.length === 0) {
-  throw new Error('stall-probe: args.reviewers must be a non-empty array of agentType strings')
-}
 const range = `${base}..${head}`
-// What this arm measured, echoed into the return so a recorded rate is self-describing.
-const inputRef = target === 'diff-reviewer' ? range : `${planPath}@${PLAN_PIN}`
 
 // Copied verbatim from code-review.mjs so the probe dispatch is identical to production.
 // (Permissive: only severity/description/confidence required; findings may be empty —
@@ -144,6 +132,20 @@ const BOUNDED_PLAN_GROUNDING =
   ' never licenses skipping a completeness inventory this prompt asks for, nor asserting a claim' +
   ' you did not check. Stop exploring and emit StructuredOutput before your budget runs low.'
 
+
+// Candidate FIX under test: proportionate absence-grounding. Targets the EXPLORATION
+// (tool calls reading files), not the output format — the stall is the reviewer opening
+// every file to prove the absence of findings on a large low-signal diff and exhausting
+// its turn budget before it emits.
+const BOUNDED_EXPLORATION =
+  ' TRIAGE FIRST: skim the diff to judge whether it touches your domain at all. If it is' +
+  ' docs/config/reformatting — or otherwise has nothing in your domain — emit StructuredOutput' +
+  ' immediately (approve, no findings) WITHOUT opening every file. Open files only to ground a' +
+  ' SPECIFIC finding you intend to raise; you do NOT have to exhaustively read the whole diff to' +
+  ' assert the ABSENCE of findings. Stop exploring and emit StructuredOutput before your budget runs low.'
+
+const isNoStructuredOutputError = (err) => /StructuredOutput/.test(String(err))
+
 // Target-keyed dispatch table. Each entry mirrors ONE production dispatch: same schema, same prompt
 // shape, same mandate/nudge text, same model tier. Extending the probe to a new agent is adding a
 // row, not editing the dispatch loop.
@@ -202,18 +204,21 @@ const TARGETS = {
   },
 }
 
-// Candidate FIX under test: proportionate absence-grounding. Targets the EXPLORATION
-// (tool calls reading files), not the output format — the stall is the reviewer opening
-// every file to prove the absence of findings on a large low-signal diff and exhausting
-// its turn budget before it emits.
-const BOUNDED_EXPLORATION =
-  ' TRIAGE FIRST: skim the diff to judge whether it touches your domain at all. If it is' +
-  ' docs/config/reformatting — or otherwise has nothing in your domain — emit StructuredOutput' +
-  ' immediately (approve, no findings) WITHOUT opening every file. Open files only to ground a' +
-  ' SPECIFIC finding you intend to raise; you do NOT have to exhaustively read the whole diff to' +
-  ' assert the ABSENCE of findings. Stop exploring and emit StructuredOutput before your budget runs low.'
-
-const isNoStructuredOutputError = (err) => /StructuredOutput/.test(String(err))
+// Target resolution lives HERE, below every constant the table closes over. A `const` is in its
+// temporal dead zone until its declaration executes, so resolving args.target any earlier throws
+// before a single agent dispatches — twice observed while building this table.
+const TARGET = TARGETS[target]
+if (!TARGET) {
+  throw new Error(`stall-probe: unknown args.target '${target}' (known: ${Object.keys(TARGETS).join(', ')})`)
+}
+// Explicit args still win; otherwise the target supplies its production agents and tier.
+const AGENTS = Array.isArray(reviewers) && reviewers.length ? reviewers : TARGET.agents
+const MODEL = model || TARGET.model
+if (!Array.isArray(AGENTS) || AGENTS.length === 0) {
+  throw new Error('stall-probe: args.reviewers must be a non-empty array of agentType strings')
+}
+// What this arm measured, echoed into the return so a recorded rate is self-describing.
+const inputRef = target === 'diff-reviewer' ? range : `${planPath}@${PLAN_PIN}`
 
 log(`stall-probe: [${target}] ${AGENTS.join(', ')} × ${k} (${bounded ? 'bounded' : 'unbounded'}) over ${inputRef} in ${worktree}`)
 phase('Probe')
