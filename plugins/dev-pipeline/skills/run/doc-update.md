@@ -2,12 +2,6 @@
 
 Structured in-session pass — no Task hop. Scans the repo's declared documentation roots (and `CLAUDE.md`, `.claude/agents/`) for references to files or APIs touched in Stage 5, identifies stale documentation, and applies surgical diffs.
 
-**Why this matters:** In an AI-native repo the knowledge docs are load-bearing — downstream Claude Code sessions and reviewer agents read them before writing code, so a stale doc produces wrong code or missed findings:
-
-- Stale ADR about a mapping → AI rewrites code matching the doc, contradicting the decision's intent
-- Stale convention doc → AI follows outdated patterns and reviewers fail to flag them
-- Stale architecture doc → AI misunderstands the repo's service boundaries
-
 **Where the repo's docs live — read the router, never assume `.project/`.** This is a layer-0 plugin protocol; it must not hardcode any one repo's doc layout. Two sources declare it, in priority order:
 
 1. **The repo's `CLAUDE.md` context router** (the harness loads it) — it declares where the repo's architecture / decisions / reference / framework docs live and their read-priority (the proven order: code > decisions > architecture > reference > plans). This is the authoritative source for the repo's doc roots.
@@ -206,6 +200,4 @@ If no docs are stale, emit the Verdict line only with `0 blockers, 0 warnings, 0
 
 **Surgical diffs only** — never rewrite sections that aren't stale. ADR / decision-record files (in the repo's decisions directory, wherever its CLAUDE.md declares) are append-only by convention — suggest a new ADR or addendum, do not modify existing ADR bodies.
 
-## Where `docUpdaterFindings` lives
-
-The free-form report from this stage (or its empty-state equivalent) is folded into `stageCheckpoint["7"].docUpdaterFindings` by the Stage 7 checkpoint write. Stage 8 review-toolkit:review-lead reads this field as part of its hydration context — stale-doc Blockers that were auto-fixed are signal for the review; Warnings / Notes are signal for the human reviewer.
+This stage's report is folded into `stageCheckpoint["7"].docUpdaterFindings` by the Stage 7 checkpoint write; see state-schema.md for the field contract.
