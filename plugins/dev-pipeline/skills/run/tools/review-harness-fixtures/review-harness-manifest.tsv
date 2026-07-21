@@ -1,0 +1,16 @@
+# review-harness-manifest.tsv — planted mutants in harness-plan-alpha.md and their detection signatures.
+# Columns (TAB): id  kind  class  regexA  regexB  note
+# detect: DETECTED when one finding line matches regexA AND regexB (case-insensitive ERE).
+# precision: every finding line matching regexA AND regexB counts as a FALSE POSITIVE.
+# Scored lines are "severity | file | title | description" per finding. Anchor drift guards in score-review-selftest.sh.
+M1	detect	exists-behaviorally-wrong	mark-failed|--reason|failure reason	enum|closed|validat|reject	plan assumes free-text reasons; statectl validates a closed enum
+M2	detect	exists-behaviorally-wrong	bot-commit|SECOND_SHIFT_CONFIG	main checkout|git-common|common dir|candidate|already resolv|not (needed|required)|unnecessar|incorrect|false|outdated	plan mandates a config export bot-commit.sh made obsolete (candidate 3)
+M3	detect	exists-behaviorally-wrong	claim-issue|ready-for-dev|in-progress	order|first|before|revers|zero.label|window|backward	plan states remove-then-add; helper adds first and confirms
+M4	detect	cross-file-dependency	FINDINGS_SCHEMA|stall-probe|tool-discipline	cop|verbatim|depend|drift|rename|mirror|lockstep|sibling|probe	D-2 claims no sibling depends on FINDINGS_SCHEMA; two probes copy it verbatim
+M5	detect	wrong-symbol	dispatchSchemaAgent	code-review|not exist|absent|no such|dispatchReviewer|wrong file|does not	dispatchSchemaAgent does not exist in code-review.mjs
+M6	detect	wrong-symbol	withCeiling	unit-tests|not exist|absent|no such|does not|plan-review|code-review	unit-tests.mjs has no withCeiling
+M7	detect	process-violation	plugin\.json|version bump|2\.5\.1|bump.*version	frozen|derive-release|check-frozen|release PR|CI|reject|CLAUDE	version bumps are release-derived; a feature PR bumping plugin.json is CI-rejected
+M8	detect	missing-reference	state-times	.	state-times.md does not exist (near-miss of stage-times.sh)
+P1	precision	real-deep-file	jira/README|tracker/jira	missing|not exist|absent|unverified|broken|cannot find	tracker/jira/README.md exists; flagging it missing is a false positive
+P2	precision	hedged-deferral	ceiling|CEILING_MS	blocker	the plan defers the ceiling change with reason; a blocker on it is over-reach
+P3	precision	new-tagged-file	state-migrate-selftest|v22-state	missing|not exist|absent|does not exist	[NEW]-tagged files flagged as missing is a false positive

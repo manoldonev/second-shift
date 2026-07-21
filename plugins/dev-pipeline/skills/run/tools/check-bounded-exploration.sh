@@ -83,8 +83,10 @@ for f in "$WORKFLOWS"/*.mjs; do
     *-selftest.mjs) continue ;; # offline test harnesses carry no live dispatches
   esac
 
-  # Sites in this file, in line order. A `schema:` key anywhere on the line (see SITE DETECTION).
-  site_lines=$(grep -nE '(^|[[:space:]{(,])schema:' "$f" | cut -d: -f1)
+  # Sites in this file, in line order. A `schema:` key anywhere on the line (see SITE DETECTION) —
+  # except comment lines: prose like "// No schema: the death class cannot occur" is not a
+  # dispatch site, and counting it would demand markers for documentation.
+  site_lines=$(grep -nE '(^|[[:space:]{(,])schema:' "$f" | grep -Ev '^[0-9]+:[[:space:]]*//' | cut -d: -f1)
   [[ -n "$site_lines" ]] || continue
   FILES=$((FILES + 1))
 

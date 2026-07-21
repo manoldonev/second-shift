@@ -42,6 +42,16 @@ const {
   // A/B test whether disciplining the absence-grounding (vs raising budget / model tier)
   // is what eliminates the stall.
   bounded = false,
+  // schemaFree: dispatch WITHOUT a schema and parse a REVIEW_RESULT text contract instead —
+  // the falsification arm for the explorer/emitter architecture. The stall error class cannot
+  // occur without a forced call, so this arm measures the questions that then matter:
+  // sentinel-hit rate (did the agent end with the contract block?) and parse rate.
+  schemaFree = false,
+  // fullFindings: return complete finding objects (not 80-char truncations) so the harness
+  // scorer (tools/score-review.sh) can score detection against the planted-mutant manifest.
+  fullFindings = false,
+  // planPin: commit that pins the planPath content for the record (defaults to PLAN_PIN below).
+  planPin = '',
 } = a
 if (!worktree) {
   throw new Error('stall-probe: args.worktree (absolute repo path the reviewers run git against) is required')
@@ -146,6 +156,27 @@ const BOUNDED_EXPLORATION =
 
 const isNoStructuredOutputError = (err) => /StructuredOutput/.test(String(err))
 
+// --- schema-free text contract (the explorer arm) ---
+// Mirrors the future production rung 1: no schema is passed, so the StructuredOutput death
+// class cannot occur; the agent ends with a sentinel + fenced JSON block that the script
+// parses. Last-match-wins guards against the agent quoting the instruction mid-prose
+// (mutation-gate.mjs parseResult precedent).
+const REVIEW_RESULT_EPILOGUE =
+  '\n\nWrite your review, grounding as much as you need. Your FINAL output MUST end with' +
+  ' this sentinel line followed by one fenced json block and NOTHING after it:\n\n' +
+  'REVIEW_RESULT\n```json\n{ "verdict": "...", "findings": [ { "severity": "...", "file": "...",' +
+  ' "message": "..." } ] }\n```'
+const SENTINEL_RE = /REVIEW_RESULT\s*```json\s*([\s\S]*?)```/g
+const parseReviewResult = (text) => {
+  const m = [...String(text ?? '').matchAll(SENTINEL_RE)]
+  if (!m.length) return null
+  try {
+    return JSON.parse(m[m.length - 1][1])
+  } catch {
+    return null
+  }
+}
+
 // Target-keyed dispatch table. Each entry mirrors ONE production dispatch: same schema, same prompt
 // shape, same mandate/nudge text, same model tier. Extending the probe to a new agent is adding a
 // row, not editing the dispatch loop.
@@ -171,8 +202,8 @@ const TARGETS = {
     build: (agentType) =>
       `Review this change in your domain. Diff scope: \`git -C ${worktree} diff ${base}..${head}\`. ` +
       `Return your verdict and a deduplicated list of findings (severity blocker/major/minor/nit, ` +
-      `file, line, confidence 0-100). Ignore stylistic issues handled by formatter/linter.` +
-      STRUCTURED_OUTPUT_FIRST,
+      `file, line, confidence 0-100). Ignore stylistic issues handled by formatter/linter.`,
+    mandate: STRUCTURED_OUTPUT_FIRST,
   },
   // The Stage-4 gate that aborted runs #165 and #169 at 6/6 apiece.
   'plan-reviewer': {
@@ -186,8 +217,8 @@ const TARGETS = {
       `All file reads / Grep / Glob / Bash must target the worktree \`${worktree}\`. ` +
       `Verify plan grounding (every referenced path/symbol exists or is tagged [NEW]/[UNVERIFIED]), ` +
       `completeness against the required plan sections, consistency with codebase patterns, and ` +
-      `missed downstream impacts. Return trinary verdict (block | fix-and-go | pass) and findings.` +
-      STRUCTURED_OUTPUT_MANDATE,
+      `missed downstream impacts. Return trinary verdict (block | fix-and-go | pass) and findings.`,
+    mandate: STRUCTURED_OUTPUT_MANDATE,
   },
   // The Stage-4 child plan-review.mjs nests via workflow() (unit-tests.mjs kind: 'plan-review').
   'unit-test-plan-reviewer': {
@@ -199,8 +230,8 @@ const TARGETS = {
     build: () =>
       `Review the unit test strategy in the plan at \`${planPath}\`. ` +
       `All file reads / Grep / Glob / Bash must target the worktree \`${worktree}\`. ` +
-      `Load the unit-testing skill. Return trinary verdict (block | fix-and-go | pass) and findings.` +
-      STRUCTURED_OUTPUT_MANDATE,
+      `Load the unit-testing skill. Return trinary verdict (block | fix-and-go | pass) and findings.`,
+    mandate: STRUCTURED_OUTPUT_MANDATE,
   },
 }
 
@@ -218,18 +249,58 @@ if (!Array.isArray(AGENTS) || AGENTS.length === 0) {
   throw new Error('stall-probe: args.reviewers must be a non-empty array of agentType strings')
 }
 // What this arm measured, echoed into the return so a recorded rate is self-describing.
-const inputRef = target === 'diff-reviewer' ? range : `${planPath}@${PLAN_PIN}`
+const inputRef = target === 'diff-reviewer' ? range : `${planPath}@${planPin || PLAN_PIN}`
 
-log(`stall-probe: [${target}] ${AGENTS.join(', ')} × ${k} (${bounded ? 'bounded' : 'unbounded'}) over ${inputRef} in ${worktree}`)
+log(`stall-probe: [${target}${schemaFree ? '/schema-free' : ''}] ${AGENTS.join(', ')} × ${k} (${bounded ? 'bounded' : 'unbounded'}) over ${inputRef} in ${worktree}`)
 phase('Probe')
 
+const shapeFindings = (findings) =>
+  fullFindings
+    ? findings
+    : findings.map((f) => ({
+        severity: f.severity,
+        confidence: f.confidence,
+        title: f.title || String(f.description || f.message || '').slice(0, 80),
+      }))
+
 const dispatchOnce = async (agentType, i) => {
-  const prompt = TARGET.build(agentType) + (bounded ? TARGET.nudge : '')
+  // Composition mirrors the arm under test: schema-forced arms carry the production mandate;
+  // the schema-free arm swaps it for the REVIEW_RESULT text contract. The bounded nudge is
+  // orthogonal and applies to either arm.
+  const prompt =
+    TARGET.build(agentType) + (schemaFree ? REVIEW_RESULT_EPILOGUE : TARGET.mandate) + (bounded ? TARGET.nudge : '')
+  const label = `${agentType} #${i + 1}${schemaFree ? ' [free]' : ''}`
+  if (schemaFree) {
+    // No schema: the StructuredOutput death class cannot occur. The failure modes here are the
+    // contract ones — no sentinel (truncation / never wrote the block) or unparseable JSON —
+    // and both are recorded distinctly; `stalled` for this arm means contract-miss, so the
+    // aggregate stays comparable across arms.
+    try {
+      const text = await agent(prompt, { agentType, model: MODEL, label, phase: 'Probe' })
+      // Fresh non-global regex: .test() on a shared /g regex mutates lastIndex, and eight
+      // concurrent dispatches racing one object would corrupt sentinel readings.
+      const sentinel = /REVIEW_RESULT\s*```json/.test(String(text ?? ''))
+      const parsed = parseReviewResult(text)
+      const findings = parsed && Array.isArray(parsed.findings) ? parsed.findings : []
+      return {
+        agentType,
+        mode: 'schema-free',
+        stalled: !parsed,
+        sentinel,
+        parsed: !!parsed,
+        verdict: parsed && parsed.verdict,
+        findingCount: findings.length,
+        findings: shapeFindings(findings),
+      }
+    } catch (err) {
+      return { agentType, mode: 'schema-free', stalled: false, sentinel: false, parsed: false, error: String(err) }
+    }
+  }
   try {
     // bounded-exploration-optout: stall-probe -- THE MEASUREMENT CONTROL. The nudge is the
     //   independent variable here, applied via the `bounded` arg. Mandating it at this site would
     //   delete the unbounded arm and destroy the instrument that measures the fix.
-    const result = await agent(prompt, { agentType, model: MODEL, label: `${agentType} #${i + 1}`, phase: 'Probe', schema: TARGET.schema })
+    const result = await agent(prompt, { agentType, model: MODEL, label, phase: 'Probe', schema: TARGET.schema })
     // Capture findings so a bounded-vs-unbounded run can be compared for review QUALITY
     // (does the triage nudge suppress real findings?), not just stall rate.
     const findings = result && Array.isArray(result.findings) ? result.findings : []
@@ -238,11 +309,7 @@ const dispatchOnce = async (agentType, i) => {
       stalled: false,
       verdict: result && result.verdict,
       findingCount: findings.length,
-      findings: findings.map((f) => ({
-        severity: f.severity,
-        confidence: f.confidence,
-        title: f.title || String(f.description || '').slice(0, 80),
-      })),
+      findings: shapeFindings(findings),
     }
   } catch (err) {
     // A StructuredOutput death is the stall we're measuring; any other rejection
@@ -275,4 +342,4 @@ for (const agentType of AGENTS) {
 const totalStalls = results.filter((r) => r.stalled).length
 log(`stall-probe: ${totalStalls}/${results.length} StructuredOutput stalls (${AGENTS.map((rv) => `${rv}: ${perReviewer[rv].stalls}/${perReviewer[rv].dispatches}`).join(', ')})`)
 
-return { target, inputRef, range, worktree, k, bounded, model: MODEL, reviewers: AGENTS, totalDispatches: results.length, totalStalls, perReviewer, results }
+return { target, schemaFree, inputRef, range, worktree, k, bounded, model: MODEL, reviewers: AGENTS, totalDispatches: results.length, totalStalls, perReviewer, results }

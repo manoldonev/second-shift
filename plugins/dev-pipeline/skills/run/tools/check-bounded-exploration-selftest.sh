@@ -122,6 +122,17 @@ EOF
 run_lint "$FIX"; rc=$?
 [ "$rc" -eq 1 ] && ok "A8 inline agent() opts are detected as a site" || bad "A8 expected rc=1, got $rc"
 
+# A8b: a COMMENT mentioning "schema:" is not a dispatch site — prose documentation must not
+# demand a marker (observed live: "// No schema: the death class cannot occur" tripped the
+# detector before this rule).
+cat > "$FIX/a.mjs" <<'EOF'
+const S = { type: 'object' }
+// No schema: this call is deliberately schema-free, the death class cannot occur.
+const r = await agent(prompt, { agentType: 'x' })
+EOF
+run_lint "$FIX"; rc=$?
+[ "$rc" -eq 1 ] && ok "A8b comment-only schema: mention is not a site (zero real sites fails)" || bad "A8b expected rc=1 (no real sites), got $rc"
+
 # A9: *-selftest.mjs files are excluded (offline harnesses carry no live dispatches). With only an
 # excluded file present the lint finds zero sites, which is itself a failure by design.
 rm -f "$FIX/a.mjs"
