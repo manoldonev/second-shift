@@ -94,7 +94,7 @@ ISSUE=$(gh issue list --label "$QUEUE_LABEL" --json number,title --limit 10 --jq
 
 #### Step 1.P: Pin the Stage-1 read surface
 
-Runs after the claim (Step 1.A) and BEFORE the intake fan-out (Step 1.B). Stage-1 reads (spec-reviewer, codebase-explorer, referenced-doc resolution) must ground against `origin/<baseBranch>` — never the operator's checkout, whose branch and uncommitted edits are unrelated to the run (the work branch is cut from `origin/<base>` at Stage 2 either way; an unpinned intake read is the mismatch hazard #59 closed). Because reads are pinned, **the current branch of the main checkout is NOT a reject condition** — the predicates are:
+Runs after the claim (Step 1.A) and BEFORE the intake fan-out (Step 1.B). Stage-1 reads (spec-reviewer, codebase-explorer, referenced-doc resolution) must ground against `origin/<baseBranch>` — never the operator's checkout, whose branch and uncommitted edits are unrelated to the run (the work branch is cut from `origin/<base>` at Stage 2 either way; an unpinned intake read is the mismatch hazard this closed). Because reads are pinned, **the current branch of the main checkout is NOT a reject condition** — the predicates are:
 
 - **Pin established, any current branch, clean tree** → proceed **silently** (the branch name still lands in the Dynamic Context snapshot for the record).
 - **Pin established, dirty working tree** (any branch; `git status --porcelain` non-empty) → emit a **WARN** — "a human appears to be mid-work in this checkout" — surfaced in the run's final report, and proceed.

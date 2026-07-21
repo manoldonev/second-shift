@@ -176,7 +176,7 @@ A reviewer that produces no findings because it went **dark** (never returned a 
 
 Two named dark cases (do **not** infer darkness from array length alone):
 
-1. **Died-after-retry (per-reviewer).** The reviewer is **present** in `reviewers[]` as `{ result: null, ... }`, with `{ retried: true, failed: true }` if it also failed its one automatic retry. Exactly that one reviewer is dark; the others are fine. A reviewer that exceeded the per-reviewer wall-clock ceiling (`REVIEWER_CEILING_MS`, #219 — bounds a wedged reviewer so it cannot add ~90 min to the round) reaches this **same** marker shape, additionally carrying `{ ceiling: true }`. It is a **sub-cause** of this case, not a new dark case: the coverage-gap reason stays `died-after-retry` (the `ceiling: true` flag is an optional human annotation for _why_ it went dark — "wall-clock ceiling" — never a new reason token).
+1. **Died-after-retry (per-reviewer).** The reviewer is **present** in `reviewers[]` as `{ result: null, ... }`, with `{ retried: true, failed: true }` if it also failed its one automatic retry. Exactly that one reviewer is dark; the others are fine. A reviewer that exceeded the per-reviewer wall-clock ceiling (`REVIEWER_CEILING_MS` — bounds a wedged reviewer so it cannot add ~90 min to the round) reaches this **same** marker shape, additionally carrying `{ ceiling: true }`. It is a **sub-cause** of this case, not a new dark case: the coverage-gap reason stays `died-after-retry` (the `ceiling: true` flag is an optional human annotation for _why_ it went dark — "wall-clock ceiling" — never a new reason token).
 2. **Budget-skipped (all-or-nothing).** The return carries `budgetExhausted: true` and `reviewers` is **empty by construction** — the fan-out never dispatched, so **every** selected reviewer (the `args.reviewers` you passed) is dark, not a partial subset.
 
 For either case, synthesize with the reviewers you DO have and **record the coverage gap explicitly** — never silently drop it:
@@ -232,7 +232,7 @@ A code-remediable blocker (the diff can be fixed) is unaffected — it stays in 
 
 **State:** Write the review counters via `statectl` — clean path: `statectl.sh review-rounds "$ISSUE" --set "$ROUND"` (round count 1–3); exhaustion: `--set 3 --exhausted`. The `--exhausted` flag is additive-only — the subcommand never writes `codeReviewExhausted: false`, so a later plain `--set` cannot reset a recorded exhaustion.
 
-### be-fe-pair dual-target: secondary-repo review (`.targetRepos` has more than one repo, #48)
+### be-fe-pair dual-target: secondary-repo review (`.targetRepos` has more than one repo)
 
 The main loop above reviews the **primary** target (the flat-mirror worktree that `.worktreePath` points at) exactly as any single-target run does. On a **dual `[BE]+[FE]` ticket** every OTHER target repo is also reviewed here, before Stage 9 — the secondary repo's diff must not ship unreviewed. **Skip this entire subsection** when `.targetRepos` has fewer than two entries (every single-target pair and every non-pair topology — the primary review above was the whole job).
 
@@ -272,7 +272,7 @@ if [[ "$(statectl.sh get "$ISSUE_NUMBER" '.targetRepos // [] | length')" -gt 1 ]
 fi
 ```
 
-**Non-blocking handoff fallback.** When a secondary repo genuinely cannot be reviewed in this session (its reviewer set is unresolvable, or an interactive-only constraint applies), record a **pending handoff** instead of the in-session review — `statectl.sh cross-boundary-review-add "$ISSUE_NUMBER" --repo "$r" --status pending --worktree "$R_WT_REL" --base "$R_MB" --head "$R_HEAD" --note "run review-lead in this repo's own session"`. Stage 9 already surfaces pending handoffs as PR "review pending" bullets. Either outcome — an in-session `completed-in-session` review, a `pending` handoff, or a `skippedReviews` no-diff record — satisfies the Stage-8 completion precondition for that repo (the escape hatch added in #48 Phase 1), so the run reaches Stage 9 with every target repo accounted for.
+**Non-blocking handoff fallback.** When a secondary repo genuinely cannot be reviewed in this session (its reviewer set is unresolvable, or an interactive-only constraint applies), record a **pending handoff** instead of the in-session review — `statectl.sh cross-boundary-review-add "$ISSUE_NUMBER" --repo "$r" --status pending --worktree "$R_WT_REL" --base "$R_MB" --head "$R_HEAD" --note "run review-lead in this repo's own session"`. Stage 9 already surfaces pending handoffs as PR "review pending" bullets. Either outcome — an in-session `completed-in-session` review, a `pending` handoff, or a `skippedReviews` no-diff record — satisfies the Stage-8 completion precondition for that repo (the documented escape hatch), so the run reaches Stage 9 with every target repo accounted for.
 
 ---
 

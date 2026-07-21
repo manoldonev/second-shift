@@ -89,7 +89,7 @@ Ask AT MOST one AskUserQuestion batch, containing ONLY (skip any that detection 
      `claude mcp list`): include design-toolkit? If yes, WHICH provider — emit top-level
      `design: { "provider": "figma" }` or `{ "provider": "claude-design" }`.
      Declined or not UI-shaped → NO `design` key at all (absent = off).
-     When design is accepted, also detect a render harness (#84): a `render:verify` script in
+     When design is accepted, also detect a render harness: a `render:verify` script in
      the FE repo's package.json (or a script whose usage names `--route`/`--out`). Detected →
      offer `design.liveRender` pre-filled (`command: "yarn render:verify --route {route} --out {out}"`,
      `cwd: <fe repo id>`); the operator may add `readyProbe`. Undetected or declined → omit the
