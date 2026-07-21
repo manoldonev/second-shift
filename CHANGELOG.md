@@ -4,6 +4,64 @@ All notable changes to the second-shift marketplace. Versions are per-plugin (`p
 this file tracks the marketplace release. `configVersion` stays `const 1` — v2 is fully backward-compatible for a
 consumer with an empty config; the migration notes below are only for consumers using the changed features.
 
+## v2.8.0
+
+### `dev-pipeline` 2.5.0 → 2.6.0
+
+- **feat(dev-pipeline): eliminate the StructuredOutput stall class via explorer/emitter transport (#170)** (#170)
+  schema-forced dev-pipeline dispatchers now carry a dispatch-time
+  bounding nudge, and a new lint fails CI when one is added without a declared
+  disposition. Plan-review and unit-test dispatches retry once instead of twice,
+  with an escalated emit-early retry prompt.
+  Migration: none.
+  none.
+  none.
+  none.
+  Stage 4/5 reviewer dispatches no longer force a structured-output
+  call on the exploring agent — reviewers emit a parsed text contract, with a
+  tool-less transcription agent as the schema fallback. Eliminates the
+  StructuredOutput stall class on those stages (measured 7/8 -> 0/8 on the
+  worst-case plan at a third of the token cost). Migration: none.
+  all schema-forced reviewer/produce dispatches across the six
+  workflow dispatchers now use the schema-free explorer text contract with a
+  tool-less transcription fallback; reviewer-visible envelopes are unchanged.
+  Migration: none.
+  the bounded-exploration lint now fails any schema-carrying dispatch
+  in production workflow files that is not the tool-less emitter or a declared
+  validator reference — reintroducing a schema onto an exploring agent is a CI
+  failure, not a style choice. Migration: none.
+  none.
+  none.
+  none.
+
+### `review-toolkit` 2.2.1 → 2.3.0
+
+- **feat(dev-pipeline): eliminate the StructuredOutput stall class via explorer/emitter transport (#170)** (#170)
+  schema-forced dev-pipeline dispatchers now carry a dispatch-time
+  bounding nudge, and a new lint fails CI when one is added without a declared
+  disposition. Plan-review and unit-test dispatches retry once instead of twice,
+  with an escalated emit-early retry prompt.
+  Migration: none.
+  none.
+  none.
+  none.
+  Stage 4/5 reviewer dispatches no longer force a structured-output
+  call on the exploring agent — reviewers emit a parsed text contract, with a
+  tool-less transcription agent as the schema fallback. Eliminates the
+  StructuredOutput stall class on those stages (measured 7/8 -> 0/8 on the
+  worst-case plan at a third of the token cost). Migration: none.
+  all schema-forced reviewer/produce dispatches across the six
+  workflow dispatchers now use the schema-free explorer text contract with a
+  tool-less transcription fallback; reviewer-visible envelopes are unchanged.
+  Migration: none.
+  the bounded-exploration lint now fails any schema-carrying dispatch
+  in production workflow files that is not the tool-less emitter or a declared
+  validator reference — reintroducing a schema onto an exploring agent is a CI
+  failure, not a style choice. Migration: none.
+  none.
+  none.
+  none.
+
 ## v2.7.0
 
 ### `dev-pipeline` 2.4.0 → 2.5.0
