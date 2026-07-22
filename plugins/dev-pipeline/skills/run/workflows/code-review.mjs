@@ -216,6 +216,39 @@ const BOUNDED_EXPLORATION =
   ' SPECIFIC finding you intend to raise; you do NOT have to exhaustively read the whole diff to' +
   ' assert the ABSENCE of findings. Stop exploring and emit your final result before your budget runs low.'
 
+// The counterpart nudge for the two EXHAUSTIVE reviewers, which cannot take BOUNDED_EXPLORATION
+// without losing the coverage that IS their deliverable (#183). Their death mode is the same
+// turn-budget wall, but the cure is inverted: not "explore less", but "write down what you have
+// as you go", so the wall truncates a result instead of erasing one.
+//
+// Raising the cap does NOT fix this and has now been measured twice. #175 raised both agents
+// 15 -> 30; at the new cap scope-completeness-reviewer still died on BOTH attempts of a
+// standalone review-lead run (31 and 33 tool calls, final text "I'll fetch the issue and the
+// diff.", agents_error 0). The control in that same fan-out is security-reviewer: opus,
+// effort high, HALF the cap (maxTurns 15) — and it completed, because its agent doc carries an
+// explicit turn-numbered emit deadline. The variable is the deadline, not the budget: an agent
+// told to enumerate exhaustively and never told when to stop will spend any finite budget.
+//
+// Safe for exactly these two because a truncated result can only under-claim:
+//   - scope-completeness-reviewer is fail-closed by contract ("Default to FAIL when the evidence
+//     is ambiguous"), so its honest early skeleton is every item [unsatisfied], refined upward
+//     only as evidence lands. A cut-short result over-reports FAIL, never a false PASS.
+//   - unit-test-mutation-reviewer's unreached mutants are simply absent, and an absent mutant
+//     never blocks (execution-verified blocking is Stage 5's, not this fan-out's).
+// This does NOT weaken the dark path (#175's stated non-fix): nothing transcribes partial text
+// and no parser changes — the AGENT emits a well-formed block, and a missing sentinel is still
+// dark. parseReviewResult() is already last-match-wins, which is what makes re-emission free.
+const PROGRESSIVE_EMIT =
+  ' EMIT AS YOU GO — do NOT save your result for the end. As soon as you have enumerated your' +
+  ' items (before classifying them), write a COMPLETE REVIEW_RESULT block reflecting what you' +
+  ' know so far, then keep working and re-emit the whole block each time you learn something.' +
+  ' Emitting more than one block is expected here and overrides the single-block instruction' +
+  ' below: the LAST complete block wins, so an early one costs you nothing and refinement is' +
+  ' free. Your enumeration must stay exhaustive — this governs when you write, never how much' +
+  ' you cover. Budget your turns so the final block is written well before your limit: a review' +
+  ' you never emit is scored exactly like a review that never ran, and your entire domain is' +
+  ' then recorded as unverified.'
+
 // Per-reviewer wall-clock ceiling (#219). The Workflow runtime's own agent-stall loop
 // (multiple attempts × a no-progress window) can let a genuinely wedged reviewer burn
 // ~90 min before agent() settles — observed in run #183, where one dark reviewer added
@@ -287,7 +320,8 @@ const dispatchReviewer = async (agentType) => {
       `Verify scope completeness for ${ref}. ` +
       `Branch head \`${head}\` vs base \`${base}\`; repo worktree \`${worktree}\` ` +
       `(run \`git -C ${worktree} diff ${range}\` to see the change). ` +
-      `${fetchInstr} and classify each scope item against the diff. Return your verdict and findings.`
+      `${fetchInstr} and classify each scope item against the diff. Return your verdict and findings.` +
+      PROGRESSIVE_EMIT
   } else if (bare(agentType) === 'unit-test-mutation-reviewer') {
     prompt =
       `Mutation review in ADVISORY mode on unit tests for this change. ` +
@@ -297,7 +331,8 @@ const dispatchReviewer = async (agentType) => {
       `do NOT apply mutants or run tests (this fan-out has no executor). ` +
       `Blocker-class mutants map to severity \`major\` (never \`blocker\` — only the Stage-5 ` +
       `execution-verified gate can block). No Stryker. ` +
-      `Return verdict and findings (severity major/minor/nit, file, line, confidence 0-100).`
+      `Return verdict and findings (severity major/minor/nit, file, line, confidence 0-100).` +
+      PROGRESSIVE_EMIT
   } else {
     prompt =
       `Review this change in your domain. Diff scope: \`git -C ${worktree} diff ${range}\`. ` +
@@ -310,6 +345,10 @@ const dispatchReviewer = async (agentType) => {
   // Prompt-branch dispositions (doc, transport-independent): scope-completeness-reviewer and
   // unit-test-mutation-reviewer deliberately carry no bounding nudge (exhaustive enumeration IS
   // the deliverable); the generic branch keeps BOUNDED_EXPLORATION as its measured cost control.
+  // The two exhaustive branches instead carry PROGRESSIVE_EMIT — same turn-budget death, opposite
+  // cure ("write as you go" rather than "explore less"), so neither loses coverage (#183). Every
+  // branch now carries exactly one of the two; a branch carrying neither is the omission class
+  // check-bounded-exploration.sh was written for, and null-reviewer-selftest Case F pins this pair.
   //
   // Explorer/emitter ladder. Dark-marker shapes are UNCHANGED from the schema era — review-lead
   // synthesis keys on { result: null } + { retried: true, failed: true } and must keep doing so.
@@ -345,10 +384,20 @@ const dispatchReviewer = async (agentType) => {
     }
   }
   // Missing sentinel (truncation) or unmappable text: dark, with the SAME twice-dead marker.
+  // The two causes get DIFFERENT error strings because they point triage at different layers,
+  // and conflating them cost real time (#183): a turn-cap death reported as "never produced a
+  // parseable block" reads as a transport/parser bug, so the investigation goes to the sentinel
+  // and the emitter — when in fact the agent wrote nothing at all and the fix is an emit
+  // deadline in its doc. Empty final text with a tool-call count at the cap is the cap signature.
+  // The returned SHAPE is identical in both cases: review-lead synthesis and 8-code-review.md
+  // detect darkness via { result: null } + { retried: true, failed: true }, never via this string.
+  const producedNothing = !String(lastText ?? '').trim()
   return {
     agentType,
     result: null,
-    error: 'text-contract: explorer never produced a parseable REVIEW_RESULT block after retry — declared dark',
+    error: producedNothing
+      ? 'turn-budget: agent emitted no text on either attempt (maxTurns cap reached mid-exploration — needs an emit deadline, not a bigger cap) — declared dark'
+      : 'text-contract: explorer produced text but no parseable REVIEW_RESULT block after retry — declared dark',
     retried: true,
     failed: true,
   }

@@ -91,12 +91,28 @@ For every item from Step 2, assign exactly one of:
 
 **Confidence floor:** if you are unsure whether the cited evidence actually implements the item (e.g., the diff touches the right area but you cannot confirm the behavior), classify it `[unsatisfied]`. Default to FAIL when the evidence is ambiguous. A noisy false-FAIL that forces the human to confirm or explicitly defer the item is the **intended** behavior — it is how this gate is enforced.
 
+### Step 4b: Emit as soon as you can enumerate, then refine
+
+**Write a complete result the moment Step 2 finishes — before you classify anything.** Every item starts `[unsatisfied]`, which is not a placeholder: it is the state the confidence floor above already mandates for an item whose evidence you have not yet confirmed. Then keep working, re-emitting the whole result each time evidence promotes an item to `[in-diff]`. A later complete result supersedes an earlier one, so refinement costs you nothing.
+
+This exists because you are budgeted in turns and your mandate is exhaustive. An enumeration that is still perfect at the moment your budget runs out is worth nothing to the caller — a review that is never emitted is indistinguishable from a review that never ran, and the caller must then record your entire domain as unverified. Emitting early converts that silence into your honest current verdict: *these items exist, these are confirmed, the rest are not*.
+
+Refinement only ever moves an item **from** `[unsatisfied]` **to** `[in-diff]`. So a result cut short by your budget always errs toward FAIL, never toward a false PASS — the same direction the confidence floor already sends you.
+
 ### Step 5: Verdict
 
 - **PASS** — every item is `[in-diff]`.
 - **FAIL** — any item is `[unsatisfied]`.
 
 If no issue number was provided in the invocation, return immediately with `verdict: N/A — no issue provided`.
+
+## Time-boxing (hard backstop)
+
+By **turn 20** (of your 30 maximum) you MUST be writing the final result. No further tool use after turn 20 except producing it. Any item you have not confirmed by then stays `[unsatisfied]` and says so in its reason — "not verified within the review budget" is an honest reason for this gate, and it produces exactly the FAIL that forces a human to confirm or explicitly defer the item.
+
+**Never end a turn mid-investigation** with a sentence like "let me check one more thing" or "I'll fetch the issue and the diff" without a complete result in that same turn. That is how this reviewer dies: the caller receives nothing, records your domain as unreviewed, and the merge gate you exist to enforce silently does not run.
+
+Do **not** read either rule as license to enumerate less. Step 2 stays liberal and exhaustive — the deadline governs when you stop *classifying*, never how many items you extract. Dropping an item is the one failure this gate cannot tolerate; leaving one `[unsatisfied]` is routine.
 
 ## Output Format
 

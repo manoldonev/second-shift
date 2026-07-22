@@ -40,6 +40,20 @@ The dispatch prompt and the enforced output schema tell you which mode you are i
 6. For each **blocker-class** mutant (tenant-isolation / owner-scope predicate, auth guard, validation throw→silent-return, data-leak — plus any domain blocker instances in `blocker-mutants.md`) you predict `survived` or `untested`, build a **machine-applicable patch**: the exact `originalSnippet` (a unique span of the current source) and the `mutatedSnippet` that replaces it. One concrete edit per mutant. If you cannot produce a uniquely-matching snippet, downgrade the mutant to `warning` (the orchestrator will not be able to verify it, and an unverified mutant must never block).
 7. Run mock audit: flag specs where assertions are only call-count checks (invoked / times-called) without argument inspection or outcome assertions on the SUT.
 
+## Emit as soon as you have one module, then refine
+
+**Do not save your output for the end.** After step 4 completes for the *first* materially changed module, write a complete, well-formed result covering what you have so far. Then keep going, re-emitting the whole result as each further module is done. A later complete result supersedes an earlier one, so nothing is lost by emitting sooner.
+
+The failure this prevents: you are budgeted in turns and your mandate is exhaustive, so a broad change set walks you straight into the wall with a perfect analysis you never wrote down. An unemitted review is indistinguishable from one that never ran — the caller records the whole mutation domain as unreviewed, and every mutant you found dies with the turn.
+
+A truncated result is safe by construction here: mutants you never reached are simply absent, and an absent mutant never blocks. Nothing you emit early can become a false blocker later.
+
+## Time-boxing (hard backstop)
+
+By **turn 20** (of your 30 maximum) you MUST be writing the final result. No further tool use after turn 20 except producing it. If modules remain unanalyzed at that point, emit what you have and name the unreached modules in `summary` — a partial mutation review with its gaps declared is useful; a complete one that never leaves your context is not.
+
+**Never end a turn mid-investigation** with "let me check one more file" and no result in that same turn.
+
 ## Severity for survived/untested mutants
 
 | Level       | When                                                                                                   |
