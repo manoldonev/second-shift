@@ -234,12 +234,34 @@ async function main() {
       ['REVIEWER_CEILING_MS', 'per-reviewer wall-clock ceiling constant (#219) — the wedge bound'],
       ['ceiling: true', 'ceiling-timeout diagnostic flag (#219) on the reused died-after-retry marker'],
       ['`${base}...${head}`', 'THREE-DOT review range (#130) — two-dot renders base-only commits as phantom deletions'],
+      ['PROGRESSIVE_EMIT', 'emit-as-you-go nudge for the exhaustive reviewers (#183) — the turn-cap cure'],
+      ['turn-budget:', 'cap-death error string, kept distinct from the text-contract miss (#183)'],
     ]
     for (const [tok, why] of tokens) {
       src.includes(tok)
         ? pass(`F drift-guard: code-review.mjs carries \`${tok}\` (${why})`)
         : fail(`F drift-guard: code-review.mjs is MISSING \`${tok}\` (${why}) — production lost the behavior this selftest validates`)
     }
+
+    // F-wiring: a constant that exists but reaches no prompt is the exact rot
+    // check-bounded-exploration.sh was written for ("shipped on exactly one of six
+    // dispatchers and the omission went unnoticed for months"). PROGRESSIVE_EMIT is not
+    // BOUNDED_*, so that lint's dormancy rule does not see it — pin its wiring here.
+    // Count APPENDS (`+\n      PROGRESSIVE_EMIT`), not mentions: the definition and the
+    // explanatory comments also contain the bare name, so a mention count cannot tell a
+    // wired constant from a dead one.
+    const appends = (src.match(/\+\s*\n\s*PROGRESSIVE_EMIT\b/g) || []).length
+    appends === 2
+      ? pass('F wiring: PROGRESSIVE_EMIT is appended to exactly the 2 exhaustive prompt branches')
+      : fail(`F wiring: PROGRESSIVE_EMIT is appended to ${appends} prompt branch(es), expected 2 (scope-completeness + unit-test-mutation)`)
+
+    // The bounded/progressive split must stay disjoint: an exhaustive reviewer that also
+    // got BOUNDED_EXPLORATION would be told to skip the exhaustive enumeration that IS
+    // its deliverable — the failure mode the exemption exists to prevent.
+    const boundedAppends = (src.match(/\+\s*\n\s*BOUNDED_EXPLORATION\b/g) || []).length
+    boundedAppends === 1
+      ? pass('F wiring: BOUNDED_EXPLORATION stays on exactly the 1 generic branch')
+      : fail(`F wiring: BOUNDED_EXPLORATION is appended to ${boundedAppends} branch(es), expected 1 (generic only)`)
   }
 
   console.log(`\n[null-reviewer-selftest] ${PASS} passed, ${FAIL} failed`)
