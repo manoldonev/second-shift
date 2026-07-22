@@ -28,6 +28,13 @@
 #       (scope-completeness-reviewer, unit-test-mutation-reviewer), produce dispatches that write
 #       specs or implement screens, and the probes whose unbounded arm is the measurement control.
 #
+#   // bounded-exploration-dormant: <CONSTANT_NAME> -- <reason>
+#       A file-level declaration (not site-anchored): <CONSTANT_NAME> is defined in this file
+#       but deliberately wired into no prompt (e.g. kept only for probe lockstep, #170). The
+#       dormancy rule below fails an UNDECLARED dead constant — dead wiring passed this lint
+#       for months because the site-anchored check has no site to fail at when a nudge never
+#       reaches a prompt (#175).
+#
 #   // bounded-exploration-delegated: <reason>
 #       This site's prompt is assembled from per-entry descriptors elsewhere in the same file, so
 #       the disposition is declared at those descriptors instead. The motivating case is
@@ -187,6 +194,29 @@ for f in "$WORKFLOWS"/*.mjs; do
     fi
 
     echo "  FAIL: $f:$line — schema-carrying dispatch with no bounded-exploration marker" >&2
+    FAILS=$((FAILS + 1))
+  done
+done
+
+# --- Declared-dormancy rule (#175) --- a defined BOUNDED_* constant must be either
+# referenced outside its definition (wired into a prompt or a table) or declared dormant
+# via the bounded-exploration-dormant marker. Probe files keep their own grammar and are
+# exempt; selftest harnesses are excluded as above.
+for f in "$WORKFLOWS"/*.mjs; do
+  [[ -f "$f" ]] || continue
+  case "$f" in
+    *-selftest.mjs) continue ;;
+    *-probe.mjs) continue ;;
+  esac
+  defs=$(grep -oE '^const BOUNDED_[A-Z_]+' "$f" | sed 's/^const //')
+  [[ -n "$defs" ]] || continue
+  for c in $defs; do
+    refs=$(grep -nw "$c" "$f" | grep -Ev '^[0-9]+:[[:space:]]*//' | grep -vc "const ${c} =")
+    [[ "$refs" -gt 0 ]] && continue
+    if grep -qE "//[[:space:]]*bounded-exploration-dormant:[[:space:]]*${c}[[:space:]]+--[[:space:]]*[^[:space:]]" "$f"; then
+      continue
+    fi
+    echo "  FAIL: $f — const ${c} is defined but never referenced and not declared dormant (wire it or add '// bounded-exploration-dormant: ${c} -- <reason>')" >&2
     FAILS=$((FAILS + 1))
   done
 done
