@@ -4,7 +4,7 @@
 
 The goal: at Stage 9 (after the PR is opened), the pipeline invokes `pipeline-cost-block.sh` in-band. The script reads OTel metrics emitted under the sessions recorded in `pipelineSessions[]`, clamps them to the run's own wall-clock fence (`[startedAt, terminal-stage completedAt]`) so a co-resident sequential run or `/pipeline-retro` sharing the same `session.id` doesn't leak in, buckets the in-fence datapoints per stage, and appends a single cost block to each PR's body (idempotently — re-runs detect the marker and no-op).
 
-Opting in is just steps 1–3 below (collector + telemetry env + bot wrapper) — no per-engineer hook wiring. The skill records the native Claude Code session UUID (`$CLAUDE_CODE_SESSION_ID`) at Stage 2 (and again only on a crash-recovery Stage 8 resume in a fresh session) via `statectl pipeline-session-add`, and Stage 9 reads the resulting `pipelineSessions[]` to attribute cost. That UUID is the same value the OTel exporter tags datapoints with as `session.id`, which is what lets the cost block match them.
+Opting in is just steps 1–3 below (collector + telemetry env + bot wrapper) — no per-engineer hook wiring. The skill records the native Claude Code session UUID (`$CLAUDE_CODE_SESSION_ID`) at Stage 2, on any resume of an `in_progress` run (SKILL.md resume rule 2), and on a crash-recovery Stage 8 resume, via `statectl pipeline-session-add`, and Stage 9 reads the resulting `pipelineSessions[]` to attribute cost. That UUID is the same value the OTel exporter tags datapoints with as `session.id`, which is what lets the cost block match them.
 
 ## Prerequisites
 
