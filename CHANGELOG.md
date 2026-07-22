@@ -4,6 +4,26 @@ All notable changes to the second-shift marketplace. Versions are per-plugin (`p
 this file tracks the marketplace release. `configVersion` stays `const 1` — v2 is fully backward-compatible for a
 consumer with an empty config; the migration notes below are only for consumers using the changed features.
 
+## v2.8.3
+
+### `dev-pipeline` 2.6.2 → 2.6.3
+
+- **fix(review-toolkit): raise exhaustive-agent turn caps out of the deterministic death zone (#179)** (#179)
+  review-toolkit's scope-completeness-reviewer and
+  unit-test-mutation-reviewer no longer die at their turn caps on large
+  surfaces (caps raised 15/12 to 30); dev-pipeline's bounded-exploration lint
+  now requires dormant nudge constants to be declared with a dormancy marker.
+  Migration: none.
+
+### `review-toolkit` 2.3.1 → 2.3.2
+
+- **fix(review-toolkit): raise exhaustive-agent turn caps out of the deterministic death zone (#179)** (#179)
+  review-toolkit's scope-completeness-reviewer and
+  unit-test-mutation-reviewer no longer die at their turn caps on large
+  surfaces (caps raised 15/12 to 30); dev-pipeline's bounded-exploration lint
+  now requires dormant nudge constants to be declared with a dormancy marker.
+  Migration: none.
+
 ## v2.8.2
 
 ### `dev-pipeline` 2.6.1 → 2.6.2
