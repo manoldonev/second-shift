@@ -100,22 +100,24 @@ const MUTATION_REVIEW_SCHEMA = {
 // grounds (batch the existence checks, sample the content reads), never WHETHER — that would gut
 // the gate. Mirrors plan-review.mjs's constant of the same name; restated because Workflow scripts
 // cannot import.
+// bounded-exploration-dormant: BOUNDED_PLAN_GROUNDING -- defined for probe lockstep; deliberately not appended (measured no-nudge arm)
 const BOUNDED_PLAN_GROUNDING =
   ' GROUND PROPORTIONATELY: verify that referenced paths and symbols exist using BATCHED checks' +
   ' (one ls/glob/grep covering many paths — not one Read per path). Read a file in full only when' +
   ' its CONTENT is needed to support a specific finding you intend to raise. You do NOT have to' +
   ' open every referenced file to conclude the test strategy is sound. Stop exploring and emit' +
-  ' StructuredOutput before your budget runs low.'
+  ' the REVIEW_RESULT block before your budget runs low.'
 
 // mutation-review kind: enumerating mutants across the changed surface IS the deliverable, so this
 // bounds the SWEEP (stay inside the diff rather than touring the codebase), not the enumeration.
 // That distinction is why unit-test-mutation-reviewer is a declared opt-out on the code-review.mjs
 // side, where the same agent has no diff-scoped range to anchor a bound to.
+// bounded-exploration-dormant: BOUNDED_MUTATION_SWEEP -- defined for probe lockstep; deliberately not appended (measured no-nudge arm)
 const BOUNDED_MUTATION_SWEEP =
   ' BOUND YOUR SWEEP: enumerate mutants for the files in the stated diff range and their co-located' +
   ' specs. Do not tour the wider codebase for context — read outside the changed files only when a' +
   ' specific mutant you are proposing depends on it. Fewer well-grounded mutants beat an exhaustive' +
-  ' tour that never emits. Stop exploring and emit StructuredOutput before your budget runs low.'
+  ' tour that never emits. Stop exploring and emit the REVIEW_RESULT block before your budget runs low.'
 
 // Appended ONLY to a retry, so a second attempt is never a verbatim repeat of one that hit a turn
 // wall. The runtime surfaces no turn count and the error string is identical for a stochastic death

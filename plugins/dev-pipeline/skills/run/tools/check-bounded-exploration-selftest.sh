@@ -195,6 +195,67 @@ EOF
 run_lint "$FIX"; rc=$?
 [ "$rc" -eq 1 ] && ok "A9 zero detected sites fails rather than passing vacuously" || bad "A9 expected rc=1, got $rc"
 
+# D1-D5: declared-dormancy rule (#175). Each fixture carries one validly-marked schema site so
+# rc isolates the dormancy verdict from the zero-sites guard.
+
+# D1: a defined-but-unreferenced BOUNDED_* with no dormant marker is rejected.
+rm -f "$FIX/thing-selftest.mjs"
+cat > "$FIX/a.mjs" <<'EOF2'
+const S = { type: 'object' }
+const BOUNDED_DEAD = ' never wired.'
+// bounded-exploration-optout: validator-reference -- schema used only as an in-script validator
+const r = await agent(prompt, { agentType: 'x', schema: S })
+EOF2
+run_lint "$FIX"; rc=$?
+[ "$rc" -eq 1 ] && ok "D1 undeclared dead constant is rejected (rc=1)" || bad "D1 expected rc=1, got $rc"
+
+# D2: the same dead constant with a reasoned dormant marker passes.
+cat > "$FIX/a.mjs" <<'EOF2'
+const S = { type: 'object' }
+// bounded-exploration-dormant: BOUNDED_DEAD -- kept for probe lockstep
+const BOUNDED_DEAD = ' never wired.'
+// bounded-exploration-optout: validator-reference -- schema used only as an in-script validator
+const r = await agent(prompt, { agentType: 'x', schema: S })
+EOF2
+run_lint "$FIX"; rc=$?
+[ "$rc" -eq 0 ] && ok "D2 declared-dormant dead constant passes" || bad "D2 expected rc=0, got $rc"
+
+# D3: a dormant marker with no reason after the separator is rejected — declaration means a
+# stated reason, same contract as opt-out.
+cat > "$FIX/a.mjs" <<'EOF2'
+const S = { type: 'object' }
+// bounded-exploration-dormant: BOUNDED_DEAD --
+const BOUNDED_DEAD = ' never wired.'
+// bounded-exploration-optout: validator-reference -- schema used only as an in-script validator
+const r = await agent(prompt, { agentType: 'x', schema: S })
+EOF2
+run_lint "$FIX"; rc=$?
+[ "$rc" -eq 1 ] && ok "D3 reasonless dormant marker is rejected" || bad "D3 expected rc=1, got $rc"
+
+# D4: a referenced (wired) constant needs no marker — the rule keys on reachability, not naming.
+cat > "$FIX/a.mjs" <<'EOF2'
+const S = { type: 'object' }
+const BOUNDED_LIVE = ' bound your sweep.'
+const prompt2 = prompt + BOUNDED_LIVE
+// bounded-exploration-optout: validator-reference -- schema used only as an in-script validator
+const r = await agent(prompt2, { agentType: 'x', schema: S })
+EOF2
+run_lint "$FIX"; rc=$?
+[ "$rc" -eq 0 ] && ok "D4 wired constant passes without a marker" || bad "D4 expected rc=0, got $rc"
+
+# D5: probe files are exempt from the dormancy rule (their arms are the measurement control).
+rm -f "$FIX/a.mjs"
+cat > "$FIX/a-probe.mjs" <<'EOF2'
+const S = { type: 'object' }
+const BOUNDED_THING = ' bound your exploration.'
+const BOUNDED_PROBE_ONLY = ' dead in a probe, deliberately.'
+// bounded-exploration: BOUNDED_THING
+const r = await agent(prompt + BOUNDED_THING, { agentType: 'x', schema: S })
+EOF2
+run_lint "$FIX"; rc=$?
+[ "$rc" -eq 0 ] && ok "D5 probe file is exempt from the dormancy rule" || bad "D5 expected rc=0, got $rc"
+rm -f "$FIX/a-probe.mjs"
+
 # ---------- (B) drift guards + real tree ----------
 
 out="$(bash "$LINT" "$WORKFLOWS" 2>&1)"; rc=$?
