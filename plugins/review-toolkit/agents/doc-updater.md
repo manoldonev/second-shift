@@ -1,6 +1,6 @@
 ---
 name: doc-updater
-description: Post-implementation agent that identifies stale documentation after code changes. Reads git diff, cross-references against .project/ docs, and drafts updates. Run after completing a feature or behavior change.
+description: Post-implementation agent that identifies stale documentation after code changes. Reads git diff, cross-references against the repo's declared documentation roots (resolved via its doc router), and drafts updates. Run after completing a feature or behavior change.
 tools: Read, Grep, Glob, Bash
 model: sonnet
 effort: medium

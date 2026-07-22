@@ -229,7 +229,7 @@ const TARGETS = {
     build: () =>
       `Review the unit test strategy in the plan at \`${planPath}\`. ` +
       `All file reads / Grep / Glob / Bash must target the worktree \`${worktree}\`. ` +
-      `Load the unit-testing skill. Return trinary verdict (block | fix-and-go | pass) and findings.`,
+      `Return trinary verdict (block | fix-and-go | pass) and findings.`,
     mandate: STRUCTURED_OUTPUT_MANDATE,
   },
 }

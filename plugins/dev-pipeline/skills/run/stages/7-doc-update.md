@@ -1,6 +1,6 @@
 # Stage 7. Doc Update (in-session, no Task dispatch)
 
-In-session structured pass — no `Task` hop. Scans `.project/` docs (and `CLAUDE.md`, `.claude/agents/`) for references to files or APIs touched in Stage 5, identifies stale documentation, and applies surgical diffs.
+In-session structured pass — no `Task` hop. Scans the repo's declared documentation roots (and `CLAUDE.md`, `.claude/agents/`) for references to files or APIs touched in Stage 5, identifies stale documentation, and applies surgical diffs.
 
 Full protocol — change-area → affected-docs map, stale criteria, severity classification, report template, and pipeline-level handling — lives in [`doc-update.md`](../doc-update.md). On invocation, read that file and follow it; do not re-derive the protocol from this section.
 

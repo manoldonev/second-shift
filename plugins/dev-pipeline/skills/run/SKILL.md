@@ -383,7 +383,7 @@ Each stage has a recommended tier. Follow these unless overridden by the user:
 | 4. Plan Review              | reasoning | Reviewing reasoning quality (plan-review.mjs sequencer; `PLAN_REVIEWER_MODEL`)      |
 | 5. Implement                | code      | Code generation — fast and capable (mutation-gate executors: sonnet, `EXECUTOR_MODEL`) |
 | 6. Verify                   | —         | verifyctl script execution + in-session advisory quality pass + visual capture (inherits caller) |
-| 7. Doc Update               | —         | In-session reasoning over the diff + `.project/` docs (inherits caller)             |
+| 7. Doc Update               | —         | In-session reasoning over the diff + the repo's declared doc roots (inherits caller) |
 | 8. Code Review              | reasoning | Multi-domain judgment                                                               |
 | 9. Open PR                  | —         | Templated output + gh CLI calls — runs in-session on the caller's model             |
 | 10. Cleanup                 | —         | Mechanical — no LLM dispatch                                                        |

@@ -269,7 +269,7 @@ if (kind === 'plan-review') {
     (inputs.mutationTargets?.length
       ? `Planned mutation targets: ${inputs.mutationTargets.join('; ')}. `
       : '') +
-    `Load the unit-testing skill. Return trinary verdict (block | fix-and-go | pass) and findings.`
+    `Return trinary verdict (block | fix-and-go | pass) and findings.`
   opts = {
     agentType: 'review-toolkit:unit-test-plan-reviewer',
     model: modelOverrides['unit-test-plan-reviewer'] || UNIT_TEST_MODEL,
@@ -293,7 +293,7 @@ if (kind === 'plan-review') {
     ? inputs.changedBackendFiles.join(', ')
     : '(run git diff --name-only)'
   prompt =
-    `Mutation review in PROPOSE-ONLY mode on unit tests for apps/api changes in worktree \`${worktree}\`. ` +
+    `Mutation review in PROPOSE-ONLY mode on unit tests for this ticket's changes in the configured unit-test scope, in worktree \`${worktree}\`. ` +
     `Diff scope: \`git -C ${worktree} diff ${range}\` — review ONLY lines changed in this ticket's commit range; ` +
     `do not flag pre-existing test gaps outside the diff. ` +
     (inputs.modulesTouched?.length
@@ -301,7 +301,7 @@ if (kind === 'plan-review') {
       : '') +
     (inputs.specPaths?.length ? `Spec files (plan context): ${inputs.specPaths.join(', ')}. ` : '') +
     `Changed files in range: ${fileList}. ` +
-    `Load the unit-testing skill. Propose mutants, classify survived/untested, audit mock-only assertions. ` +
+    `Propose mutants, classify survived/untested, audit mock-only assertions. ` +
     `Do NOT apply mutants or run tests — for each blocker-class mutant predicted survived/untested, emit a ` +
     `uniquely-matching {originalSnippet, mutatedSnippet} patch so the orchestrator can verify it by execution. ` +
     `No Stryker. No verdict (the orchestrator computes it). ` +
