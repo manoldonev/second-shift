@@ -4,6 +4,16 @@ All notable changes to the second-shift marketplace. Versions are per-plugin (`p
 this file tracks the marketplace release. `configVersion` stays `const 1` — v2 is fully backward-compatible for a
 consumer with an empty config; the migration notes below are only for consumers using the changed features.
 
+## v2.8.1
+
+### `dev-pipeline` 2.6.0 → 2.6.1
+
+- **fix(dev-pipeline): validateShape honors string-typed array items (#174)** (#174)
+  reviewers that record sub-threshold notes in suppressed[] are no
+  longer declared dark — validateShape now checks the schema's declared
+  items.type instead of requiring every array element to be an object.
+  Migration: none.
+
 ## v2.8.0
 
 ### `dev-pipeline` 2.5.0 → 2.6.0
