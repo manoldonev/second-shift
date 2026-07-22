@@ -94,6 +94,20 @@ echo d >> "plugins/alpha/i.txt"
 git add -A
 git commit -qm "chore(alpha): tidy internals (#13)"
 
+# C4b: the PUNCTUATED no-op form. Every fixture above writes the bare "none", which is why
+# an exact `$0 != "none"` comparison passed this selftest for months while shipping literal
+# "  none." bullets into the real CHANGELOG.md (12 commits' worth). "none." is the form
+# contributors actually type.
+echo d2 >> "plugins/alpha/i2.txt"
+git add -A
+git commit -qm "chore(alpha): punctuated no-op trailer (#14)" -m "Changelog: none."
+
+# C4c: a real entry that merely STARTS with the no-op word must still render â€” the drop is
+# whole-block, not a prefix match.
+echo d3 >> "plugins/beta/i3.txt"
+git add -A
+git commit -qm "fix(beta): narrow no-op lookalike (#19)" -m "Changelog: none of the exported helpers changed shape."
+
 # C5: a release: commit that must be EXCLUDED from derivation.
 echo e >> "plugins/alpha/j.txt"
 git add -A
@@ -172,6 +186,16 @@ assert_contains "per-plugin heading with old -> new (AC-3)" '### `beta` 2.0.1 â†
 assert_contains "hand-written prose preserved verbatim (AC-8 cutover)" 'hand-written rich entry for the flux fix' CHANGELOG.md
 assert_contains "trailer prose rendered as migration note (AC-3)" 'Migration: rewrite ["npm ci"]' CHANGELOG.md
 assert_contains "no-trailer commit still gets a bullet (AC-4)" 'tidy internals' CHANGELOG.md
+assert_contains "punctuated no-op commit still gets its bullet" 'punctuated no-op trailer' CHANGELOG.md
+assert_contains "no-op lookalike still renders in full" 'none of the exported helpers changed shape' CHANGELOG.md
+# Exact-line, not substring: the lookalike bullet above legitimately BEGINS with "  none",
+# so a grep -F "  none" would false-fail on it. Only a line that is nothing but the no-op
+# word is the defect.
+if grep -qxE '[[:space:]]*[Nn]one\.?[[:space:]]*' CHANGELOG.md; then
+  bad "no-op trailer rendered as a literal bullet line ($(grep -nxE '[[:space:]]*[Nn]one\.?[[:space:]]*' CHANGELOG.md | head -1))"
+else
+  ok "no-op trailers ('none' and 'none.') render no literal bullet line"
+fi
 assert_contains "released section untouched" '- **old released entry** (#1)' CHANGELOG.md
 COUNT_FLUX="$(grep -c 'flux' CHANGELOG.md || true)"
 [[ "$COUNT_FLUX" == "1" ]] && ok "covered PR #10 not double-counted" || bad "PR #10 rendered $COUNT_FLUX times"

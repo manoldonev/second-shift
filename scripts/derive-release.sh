@@ -30,7 +30,12 @@
 #     squash body is a COMMIT_MESSAGES concatenation, and git recognizes trailers only in the
 #     final paragraph, so a mid-body 'Changelog:' line must still count. Every '^Changelog:'
 #     line opens a block; indented lines continue it; blocks are collected in order.
-#     'Changelog: none' counts as trailer-present but renders nothing.
+#     'Changelog: none' counts as trailer-present but renders nothing. The no-op match is
+#     normalized (case-insensitive, trailing period and whitespace stripped), because the
+#     form people actually type is 'Changelog: none.' — an exact 'none' comparison shipped
+#     literal '  none.' bullets into CHANGELOG.md for 12 commits before anyone noticed.
+#     Only a block that is ENTIRELY the no-op word is dropped: 'none of the exported
+#     helpers changed' is a real entry and still renders.
 #   - The unreleased CHANGELOG section (a '## vX.Y.Z (in progress)' heading, or a previously
 #     generated '## vX.Y.Z' whose tag does not exist yet) is absorbed: its hand-written
 #     per-plugin prose is preserved verbatim, its PR references are treated as already
@@ -227,8 +232,14 @@ render_bullet() { # render_bullet <sha> <subject> <pr> -> markdown bullet with t
   [[ -n "$pr" ]] && suffix=" (#$pr)"
   printf -- '- **%s**%s\n' "$subj" "$suffix"
   if [[ -s "$SCRATCH/trailer-$sha" ]]; then
-    # Render every non-"none" block as indented bullet body.
-    awk 'BEGIN { RS = "" } $0 != "none" { n = split($0, lines, "\n"); for (i = 1; i <= n; i++) print "  " lines[i] }' \
+    # Render every non-"none" block as indented bullet body. The no-op test normalizes
+    # case, trailing whitespace and a trailing period first: contributors write
+    # "Changelog: none." far more often than the bare "none", and an exact comparison
+    # silently rendered those as literal "  none." bullets in the release notes.
+    # Whole-block only — "none of the public helpers changed" is a real entry.
+    awk 'BEGIN { RS = "" }
+      { t = $0; sub(/[[:space:]]+$/, "", t); sub(/\.$/, "", t); sub(/[[:space:]]+$/, "", t) }
+      tolower(t) != "none" { n = split($0, lines, "\n"); for (i = 1; i <= n; i++) print "  " lines[i] }' \
       "$SCRATCH/trailer-$sha"
   fi
   if [[ -s "$SCRATCH/breaking-$sha" ]]; then
