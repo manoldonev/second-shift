@@ -4,6 +4,80 @@ All notable changes to the second-shift marketplace. Versions are per-plugin (`p
 this file tracks the marketplace release. `configVersion` stays `const 1` — v2 is fully backward-compatible for a
 consumer with an empty config; the migration notes below are only for consumers using the changed features.
 
+## v2.8.4
+
+### `design-toolkit` 2.1.1 → 2.1.2
+
+- **refactor(dev-pipeline): run-surface prose debloat — dedup, ceremony cuts, audit defect fixes (#172)** (#172)
+  the dev-pipeline run-surface instruction layer is ~1.9k words slimmer —
+  duplicated contracts collapsed to a single canonical site, the inert-lane rationale
+  relocated into tools/is-inert-diff.sh (guarded by its selftest's 28-case golden-master
+  parity check), and narrative issue-number references dropped from operational prose.
+  Also corrects three documentation defects: stale stage references in hooks.md, a
+  duplicated sentence in stages/2-worktree.md, and an off-by-one step citation in
+  second-shift/onboard. Migration: none.
+
+### `dev-pipeline` 2.6.3 → 2.6.4
+
+- **fix(dev-pipeline): plan-lint mechanically enforces [NEW] grounding tags (#181)** (#181)
+  dev-pipeline plan-lint now fails a plan that creates files or
+  helpers without the literal [NEW] grounding tags (eval criterion 2 is
+  grep-scored, so untagged plans scored FAIL at retro time despite passing
+  the Stage-4 gate). Migration: none for existing merged plans; new plans
+  must tag planned creations with [NEW].
+- **fix(dev-pipeline): genericize the Stage-3/5 prose contracts off the birth stack (#154)** (#154)
+  the Stage-3/5 prompt contracts and doc-update surfaces no longer name
+  the birth stack as normative — .project/, Drizzle, *.spec.ts, and apps/api
+  literals are config-resolved or labeled illustrative, and dead unit-testing
+  skill references are repointed to review-toolkit:mutation-review.
+  Migration: none.
+- **fix(review-toolkit): exhaustive reviewers need an emit deadline, not a bigger maxTurns cap (#184)** (#184)
+  scope-completeness and mutation reviewers now emit their result
+  incrementally and write by a turn-numbered deadline, so a large diff yields a
+  partial verdict instead of a dark reviewer. Dark-reviewer errors now distinguish a
+  turn-cap death from a malformed result. Migration: none.
+  new check-emit-deadline.sh gate - an agent whose maxTurns exceeds the
+  default must declare a turn-numbered emit deadline below it, and the cap cited in
+  the agent doc must match frontmatter. Migration: none; the shipped panel already
+  complies.
+- **refactor(dev-pipeline): run-surface prose debloat — dedup, ceremony cuts, audit defect fixes (#172)** (#172)
+  the dev-pipeline run-surface instruction layer is ~1.9k words slimmer —
+  duplicated contracts collapsed to a single canonical site, the inert-lane rationale
+  relocated into tools/is-inert-diff.sh (guarded by its selftest's 28-case golden-master
+  parity check), and narrative issue-number references dropped from operational prose.
+  Also corrects three documentation defects: stale stage references in hooks.md, a
+  duplicated sentence in stages/2-worktree.md, and an off-by-one step citation in
+  second-shift/onboard. Migration: none.
+
+### `review-toolkit` 2.3.2 → 2.3.3
+
+- **fix(dev-pipeline): genericize the Stage-3/5 prose contracts off the birth stack (#154)** (#154)
+  the Stage-3/5 prompt contracts and doc-update surfaces no longer name
+  the birth stack as normative — .project/, Drizzle, *.spec.ts, and apps/api
+  literals are config-resolved or labeled illustrative, and dead unit-testing
+  skill references are repointed to review-toolkit:mutation-review.
+  Migration: none.
+- **fix(review-toolkit): exhaustive reviewers need an emit deadline, not a bigger maxTurns cap (#184)** (#184)
+  scope-completeness and mutation reviewers now emit their result
+  incrementally and write by a turn-numbered deadline, so a large diff yields a
+  partial verdict instead of a dark reviewer. Dark-reviewer errors now distinguish a
+  turn-cap death from a malformed result. Migration: none.
+  new check-emit-deadline.sh gate - an agent whose maxTurns exceeds the
+  default must declare a turn-numbered emit deadline below it, and the cap cited in
+  the agent doc must match frontmatter. Migration: none; the shipped panel already
+  complies.
+
+### `second-shift` 1.6.0 → 1.6.1
+
+- **refactor(dev-pipeline): run-surface prose debloat — dedup, ceremony cuts, audit defect fixes (#172)** (#172)
+  the dev-pipeline run-surface instruction layer is ~1.9k words slimmer —
+  duplicated contracts collapsed to a single canonical site, the inert-lane rationale
+  relocated into tools/is-inert-diff.sh (guarded by its selftest's 28-case golden-master
+  parity check), and narrative issue-number references dropped from operational prose.
+  Also corrects three documentation defects: stale stage references in hooks.md, a
+  duplicated sentence in stages/2-worktree.md, and an off-by-one step citation in
+  second-shift/onboard. Migration: none.
+
 ## v2.8.3
 
 ### `dev-pipeline` 2.6.2 → 2.6.3
