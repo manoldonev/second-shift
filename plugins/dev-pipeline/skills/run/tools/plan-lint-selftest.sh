@@ -233,6 +233,55 @@ rc=$(lint_rc "$TMP/prose.md" "$LEDGER_STATE")
   && pass "(pl-u) enum in prose cell, provenance codebase-derived → 0 (no false positive)" \
   || fail "(pl-u) prose false-positive — rc=$rc"
 
+# (pl-n1) Check 5b: 2+ creation-verb steps with zero [NEW] tags → 1, named (the run-#175 shape).
+# Fixture must live INSIDE a git repo for Check 5a's PLAN_ROOT resolution; use a
+# harness-local scratch dir under the repo tree, cleaned on exit.
+NTMP="$HERE/.plan-lint-newtag-tmp"
+mkdir -p "$NTMP"
+trap 'rm -rf "$TMP" "$NTMP"' EXIT
+BT="$(printf '\140')"
+sed "s/^1\\. Step one\\./1. Add a ${BT}dormancy${BT} rule./; s/^2\\. Step two\\./2. Add the marker grammar./" \
+  "$FIX/valid-plan.md" > "$NTMP/no-tags.md"
+rc=$(lint_rc "$NTMP/no-tags.md")
+err=$(bash "$LINT" "$NTMP/no-tags.md" 2>&1 >/dev/null || true)
+[[ "$rc" -eq 1 ]] && grep -q "zero \[NEW\] grounding tags" <<< "$err" \
+  && pass "(pl-n1) creation steps without [NEW] → 1, named" \
+  || fail "(pl-n1) creation steps without [NEW] — rc=$rc err=$err"
+
+# (pl-n2) same plan with a [NEW] tag present anywhere → 0 (5b keys on token presence).
+sed "s/Add a ${BT}dormancy${BT} rule\\./Add a ${BT}dormancy${BT} rule [NEW]./" "$NTMP/no-tags.md" > "$NTMP/tagged.md"
+rc=$(lint_rc "$NTMP/tagged.md")
+[[ "$rc" -eq 0 ]] \
+  && pass "(pl-n2) creation steps with [NEW] → 0" \
+  || fail "(pl-n2) tagged plan — got rc=$rc"
+
+# (pl-n3) Check 5a: a nonexistent path under an existing top dir, untagged → 1, named.
+sed "s|^1\\. Step one\\.|1. Wire ${BT}plugins/no-such-plugin/fake-tool.sh${BT} into CI.|" \
+  "$FIX/valid-plan.md" > "$NTMP/ghost-path.md"
+rc=$(lint_rc "$NTMP/ghost-path.md")
+err=$(bash "$LINT" "$NTMP/ghost-path.md" 2>&1 >/dev/null || true)
+[[ "$rc" -eq 1 ]] && grep -q "does not exist" <<< "$err" \
+  && pass "(pl-n3) nonexistent untagged path → 1, named" \
+  || fail "(pl-n3) ghost path — rc=$rc err=$err"
+
+# (pl-n4) the same path tagged [NEW] on the same line → 0.
+sed "s|fake-tool.sh${BT} into CI\\.|fake-tool.sh${BT} [NEW] into CI.|" "$NTMP/ghost-path.md" > "$NTMP/ghost-tagged.md"
+rc=$(lint_rc "$NTMP/ghost-tagged.md")
+[[ "$rc" -eq 0 ]] \
+  && pass "(pl-n4) [NEW]-tagged nonexistent path → 0" \
+  || fail "(pl-n4) tagged ghost path — got rc=$rc"
+
+# (pl-n5) precision guard: a fictional path whose TOP DIR does not exist in this repo
+# (a fixture plan referencing another repo's tree) is skipped, and branch-name shapes
+# (origin/main — no dotted final segment) never match. valid-plan.md itself carries
+# `apps/api/...` and stays green (pl-a above is the standing witness).
+sed "s|^2\\. Step two\\.|2. Cut from ${BT}origin/main${BT} and touch ${BT}elsewhere/repo/thing.ts${BT}.|" \
+  "$FIX/valid-plan.md" > "$NTMP/foreign.md"
+rc=$(lint_rc "$NTMP/foreign.md")
+[[ "$rc" -eq 0 ]] \
+  && pass "(pl-n5) foreign-tree path + branch-name shape → 0 (precision guards)" \
+  || fail "(pl-n5) precision guards — got rc=$rc"
+
 echo
 echo "[plan-lint-selftest] summary: $PASS passed, $FAIL failed"
 exit $FAIL
