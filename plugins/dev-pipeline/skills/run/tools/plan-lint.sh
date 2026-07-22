@@ -22,6 +22,15 @@
 #      form) is untouched by this check (the section stays advisory, below).
 #      Fail-closed when human-attributed rows are present but no <state-path>
 #      was given to resolve the ledger context.
+#   5. [NEW] grounding-tag presence (#175 retro): eval criterion 2 is grep-scored,
+#      so a reference the plan CREATES must carry the literal [NEW] tag — prose
+#      conventions score FAIL at retro time regardless of grounding quality.
+#      5a. A backtick-quoted repo path (contains /, dotted final segment, top
+#          directory exists in the plan's repo, not .claude/-scoped) that does
+#          not exist on disk must sit on a line carrying [NEW] or [UNVERIFIED].
+#      5b. Two or more creation-verb steps (Add/Create/Introduce at a numbered
+#          or bulleted step) with ZERO [NEW] tokens anywhere in the plan is the
+#          run-#175 shape: planned creations with no tags. One named violation.
 #
 # Degradation: no state path / pre-schema state / empty `acceptanceCriteria[]`
 # → checks 1-2 only. An empty table under a present traceability header with an
@@ -194,6 +203,36 @@ if (( ${#HUMAN_ROWS[@]} > 0 )); then
     # silently no-op: the #110 fabrication happened on a crash-recovery resume.
     violate "Decision Ledger row(s) ${HUMAN_ROWS[*]} carry human-attributed provenance (${HUMAN_PROVENANCE//|/ / }) but no state path was given to resolve the backing {issue}-ledger.md (fail-closed)"
   fi
+fi
+
+# ---- Check 5: [NEW] grounding-tag presence (#175 retro) ---------------------
+# 5a: nonexistent untagged path = either a planned creation (tag it [NEW]) or a
+# typo (fix it). Precision guards: token must contain a slash and a dotted final
+# segment (skips branch names like origin/main), its top directory must exist in
+# the plan's repo (skips fixture plans referencing a fictional tree), and
+# .claude/ paths are skipped (pipeline-state artifacts live in the MAIN repo and
+# are legitimately absent from worktrees).
+BT="$(printf '\140')"   # a literal backtick, built via octal so grep patterns can double-quote it (avoids SC2016 noise)
+PLAN_ROOT="$(git -C "$(cd "$(dirname "$PLAN")" && pwd)" rev-parse --show-toplevel 2>/dev/null || true)"
+if [[ -n "$PLAN_ROOT" ]]; then
+  while IFS= read -r pline; do
+    lineno="${pline%%:*}"; content="${pline#*:}"
+    grep -qE '\[(NEW|UNVERIFIED)\]' <<< "$content" && continue
+    while IFS= read -r tok; do
+      [[ -z "$tok" ]] && continue
+      [[ "$tok" == .claude/* ]] && continue
+      topdir="${tok%%/*}"
+      [[ -d "$PLAN_ROOT/$topdir" ]] || continue
+      [[ -e "$PLAN_ROOT/$tok" ]] && continue
+      violate "line $lineno references \`$tok\` which does not exist — tag it [NEW] (planned creation) or fix the path (grounding-tag rule, stages/3-write-plan.md)"
+    done < <(grep -oE "${BT}[A-Za-z0-9_./-]+${BT}" <<< "$content" | tr -d "\`" \
+             | grep -E '^[A-Za-z0-9_.-]+(/[A-Za-z0-9_.-]+)*/[A-Za-z0-9_-]+\.[A-Za-z0-9_.]+$' || true)
+  done < <(grep -nE "${BT}[A-Za-z0-9_.-]+/[A-Za-z0-9_./-]+${BT}" "$PLAN" || true)
+fi
+# 5b: the run-#175 shape — creation-verb steps with zero tags anywhere.
+CREATION_LINES=$(grep -cE '^[[:space:]]*([0-9]+\.|-)[[:space:]].*\b(Add|add|Create|create|Introduce|introduce)\b' "$PLAN") || true
+if (( ${CREATION_LINES:-0} >= 2 )) && ! grep -q '\[NEW\]' "$PLAN"; then
+  violate "$CREATION_LINES creation-verb step(s) but zero [NEW] grounding tags anywhere in the plan — tag every reference the plan creates with the literal [NEW] token (grounding-tag rule, stages/3-write-plan.md; eval criterion 2 is grep-scored)"
 fi
 
 # ---- Advisory: Decision Ledger presence (never a violation) -------------------

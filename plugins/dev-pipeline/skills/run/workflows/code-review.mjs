@@ -172,6 +172,10 @@ const validateShape = (obj, schema) => {
       if (!Array.isArray(obj[k])) return false
       if (p.items) {
         for (const it of obj[k]) {
+          if (p.items.type === 'string') {
+            if (typeof it !== 'string') return false
+            continue
+          }
           if (!it || typeof it !== 'object') return false
           for (const rk of p.items.required || []) if (!(rk in it)) return false
           const ip = p.items.properties || {}
@@ -289,7 +293,7 @@ const dispatchReviewer = async (agentType) => {
       `Mutation review in ADVISORY mode on unit tests for this change. ` +
       `Diff scope: \`git -C ${worktree} diff ${range}\`. Changed files: ${fileList}.` +
       (prContext ? ` Context: ${prContext}.` : '') +
-      ` Load the unit-testing skill. Propose mutants and predict survived/untested — LLM prediction ONLY; ` +
+      ` Propose mutants and predict survived/untested — LLM prediction ONLY; ` +
       `do NOT apply mutants or run tests (this fan-out has no executor). ` +
       `Blocker-class mutants map to severity \`major\` (never \`blocker\` — only the Stage-5 ` +
       `execution-verified gate can block). No Stryker. ` +

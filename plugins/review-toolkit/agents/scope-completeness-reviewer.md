@@ -4,7 +4,7 @@ description: Verifies that a PR fully implements all scope items of its linked i
 tools: Read, Grep, Glob, Bash, WebFetch, mcp__atlassian__getJiraIssue, mcp__atlassian__getJiraIssueRemoteIssueLinks, mcp__atlassian__getAccessibleAtlassianResources
 model: opus
 effort: high
-maxTurns: 15
+maxTurns: 30
 permissionMode: bypassPermissions
 skills: reviewer-baseline
 ---

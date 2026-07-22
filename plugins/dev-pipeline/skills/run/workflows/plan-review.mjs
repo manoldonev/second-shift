@@ -57,6 +57,7 @@ const PLAN_REVIEW_SCHEMA = {
 // FE-spec gate, whose rubric demands one row per rendered element with no silent drops — the same
 // exhaustiveness class that justifies the scope-completeness-reviewer opt-out in code-review.mjs.
 // Sampling THAT would defeat the gate, so the carve-out is stated rather than left to inference.
+// bounded-exploration-dormant: BOUNDED_PLAN_GROUNDING -- defined for probe lockstep; deliberately not appended (measured no-nudge arm)
 const BOUNDED_PLAN_GROUNDING =
   ' GROUND PROPORTIONATELY: verify that the paths and symbols the plan references exist using' +
   ' BATCHED checks (one ls/glob/grep covering many paths — not one Read per path). Read a file in' +
@@ -64,7 +65,7 @@ const BOUNDED_PLAN_GROUNDING =
   ' reference that merely needs to exist does not need a read. You do NOT have to open every' +
   ' referenced file to conclude the plan is grounded. This bounds how you ground, not whether — it' +
   ' never licenses skipping a completeness inventory this prompt asks for, nor asserting a claim' +
-  ' you did not check. Stop exploring and emit StructuredOutput before your budget runs low.'
+  ' you did not check. Stop exploring and emit the REVIEW_RESULT block before your budget runs low.'
 
 // Appended ONLY to a retry. Repeating an attempt verbatim is a foregone conclusion when the death
 // was a turn-budget wall rather than a stochastic drop, and the two are indistinguishable from here
@@ -121,6 +122,10 @@ const validateShape = (obj, schema) => {
       if (!Array.isArray(obj[k])) return false
       if (p.items) {
         for (const it of obj[k]) {
+          if (p.items.type === 'string') {
+            if (typeof it !== 'string') return false
+            continue
+          }
           if (!it || typeof it !== 'object') return false
           for (const rk of p.items.required || []) if (!(rk in it)) return false
           const ip = p.items.properties || {}

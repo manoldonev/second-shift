@@ -382,7 +382,7 @@ Each stage has a recommended tier. Follow these unless overridden by the user:
 | 4. Plan Review              | reasoning | Reviewing reasoning quality (plan-review.mjs sequencer; `PLAN_REVIEWER_MODEL`)      |
 | 5. Implement                | code      | Code generation — fast and capable (mutation-gate executors: sonnet, `EXECUTOR_MODEL`) |
 | 6. Verify                   | —         | verifyctl script execution + in-session advisory quality pass + visual capture (inherits caller) |
-| 7. Doc Update               | —         | In-session reasoning over the diff + `.project/` docs (inherits caller)             |
+| 7. Doc Update               | —         | In-session reasoning over the diff + the repo's declared doc roots (inherits caller) |
 | 8. Code Review              | reasoning | Multi-domain judgment                                                               |
 | 9. Open PR                  | —         | Templated output + gh CLI calls — runs in-session on the caller's model             |
 | 10. Cleanup                 | —         | Mechanical — no LLM dispatch                                                        |
@@ -460,7 +460,16 @@ Stages that write additional stage-specific fields carry an inline **State:** li
 **Resume logic:** On pipeline start, check for an existing state file:
 
 1. If `status: "completed"` — inform user this issue was already delivered. Ask: re-run from scratch or skip?
-2. If `status: "in_progress"` — resume from the `currentStage`. Print a one-line summary of what was already completed.
+2. If `status: "in_progress"` — resume from the `currentStage`. Print a one-line summary of what was already completed. **Then record this session for cost attribution**, before doing any stage work:
+
+   ```bash
+   if [[ -n "${CLAUDE_CODE_SESSION_ID:-}" ]]; then
+     bash statectl.sh pipeline-session-add "$ISSUE_NUMBER" \
+       --session-id "$CLAUDE_CODE_SESSION_ID" --source interactive
+   fi
+   ```
+
+   A resumed run is a **different** Claude session from the one Stage 2 recorded, and Stage 9's cost block attributes cost by `session.id` against `pipelineSessions[]`. Recording only at Stage 2 and at the Stage-8 crash-recovery entry means a resume that re-enters at any other stage (7, 6, 5, …) contributes **zero** rows to the cost block — its entire cost silently vanishes rather than showing up as a gap. `pipeline-session-add` is idempotent on the session id and is deliberately exempt from the terminal-state guard, so this is safe on every resume path, including a post-terminal backfill.
 3. If `status: "failed"` — reads state and exits (no-prompt, per the failure contract above); print the failure context. Re-running requires the operator to first clear the local state file (`rm .claude/pipeline-state/{issue}.json`, or reset `status: "in_progress"` + `currentStage` + clear `failureContext`) — `statectl init` is idempotent and will NOT reset a `failed` file. This covers the Stage-1 intake stops (no worktree to keep), where the fix-spec → relabel `ready-for-dev` → re-run flow needs the originating machine's state file cleared.
 
 **Orphaned claims (infra drops).** A run killed mid-stage (API drop, token expiry, dead session) strands its tracker claim and `status: in_progress` state — invisible to the queue, which skips claimed issues. `statectl reclaim <issue>` emits a read-only verdict for a stale claim (`in_progress` + last state write older than 30 min; statectl has no process-liveness signal, so confirm no live session owns the run first) naming the resumable stage — resume via rule 2 above. When the state is too early or corrupt to resume, `statectl reclaim <issue> --release` quarantines the state file (`{key}-released-{ts}.json`, evidence preserved for retro) and the caller swaps the labels (`in-progress` → queue) via the bot wrapper. A `status: failed` run is NOT stale-reclaimable — it exited by contract (rule 3). `pipeline-doctor.sh` lists stale claims with these commands; a batch runner treats an orphaned claim as resumable, skipping only live ones.
