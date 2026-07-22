@@ -18,7 +18,7 @@
 #
 # FIXTURE GEOMETRY (cost.usage datapoints, all under one session.id):
 #   run A fence [10:00,10:30]: $1.00 @ 10:15 (inside a stage window)
-#   run B fence [11:00,11:20]: $0.30 @ 11:08 (in a stage window -> "Plan")
+#   run B fence [11:00,11:20]: $0.30 @ 11:08 (inside stage 5's window -> "Implementation")
 #                              $0.10 @ 11:11 (in the 11:09->11:12 gap -> "Other")
 #                              $0.05 @ 11:20 (EXACTLY fenceHi == stage-9 completedAt;
 #                                             exercises the inclusive <= bound -> "PR Creation")
@@ -120,11 +120,15 @@ else
     && ok "run B 'Other' == \$0.10 (in-fence gap cost only, never run A's)" \
     || bad "run B 'Other' expected 0.10, got $B_OTHER"
 
-  # The in-window datapoint must land in a real stage bucket, not Other.
-  B_PLAN="$(label_cost Plan <<<"$B_ROLLUP")"
-  [[ "$B_PLAN" == "0.30" || "$B_PLAN" == "0.3" ]] \
-    && ok "run B in-window \$0.30 buckets to a real stage (Plan), not Other" \
-    || bad "run B 'Plan' expected 0.30, got $B_PLAN"
+  # The in-window datapoint must land in a real stage bucket, not Other. 11:08 sits
+  # inside stage 5's window, and stage 5 is Implement -> "Implementation". Asserting the
+  # label (not just the amount) is what pins the stage->label map to SKILL.md's stage
+  # numbering; the map was previously shifted one stage late, so stage 5 (Implement)
+  # rendered as "Plan" and no Implementation row ever appeared.
+  B_IMPL="$(label_cost Implementation <<<"$B_ROLLUP")"
+  [[ "$B_IMPL" == "0.30" || "$B_IMPL" == "0.3" ]] \
+    && ok "run B in-window \$0.30 buckets to stage 5 => Implementation, not Plan/Other" \
+    || bad "run B 'Implementation' expected 0.30, got $B_IMPL"
 
   # The datapoint at EXACTLY fenceHi must be kept (inclusive <=) and bucket to
   # the terminal stage window (stage 9 / PR Creation), not be dropped.
