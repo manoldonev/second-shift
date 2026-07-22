@@ -4,6 +4,22 @@ All notable changes to the second-shift marketplace. Versions are per-plugin (`p
 this file tracks the marketplace release. `configVersion` stays `const 1` — v2 is fully backward-compatible for a
 consumer with an empty config; the migration notes below are only for consumers using the changed features.
 
+## v2.8.2
+
+### `dev-pipeline` 2.6.1 → 2.6.2
+
+- **fix: cost-block stage labels, resumed-session cost attribution, and a commit-blocking model-tier false positive (#177)** (#177)
+  Pipeline cost blocks now label stages correctly (Implement was reported as "Plan", Verify as "Implementation", Doc Update as "Verify") and include the cost of a resumed session, which was previously dropped entirely.
+  Migration: none for new runs. Cost blocks on already-open PRs keep the old labels and totals until regenerated — delete the block from the PR body and re-run pipeline-cost-block.sh <issue>.
+  check-model-tiers no longer reports false drift for a workflow dispatch that re-states its model inline (e.g. structured-emitter dispatched model: 'haiku' from a file whose scalar default is sonnet or opus). As a PreToolUse hook, that false positive denied every commit in an affected repo.
+
+### `review-toolkit` 2.3.0 → 2.3.1
+
+- **fix: cost-block stage labels, resumed-session cost attribution, and a commit-blocking model-tier false positive (#177)** (#177)
+  Pipeline cost blocks now label stages correctly (Implement was reported as "Plan", Verify as "Implementation", Doc Update as "Verify") and include the cost of a resumed session, which was previously dropped entirely.
+  Migration: none for new runs. Cost blocks on already-open PRs keep the old labels and totals until regenerated — delete the block from the PR body and re-run pipeline-cost-block.sh <issue>.
+  check-model-tiers no longer reports false drift for a workflow dispatch that re-states its model inline (e.g. structured-emitter dispatched model: 'haiku' from a file whose scalar default is sonnet or opus). As a PreToolUse hook, that false positive denied every commit in an affected repo.
+
 ## v2.8.1
 
 ### `dev-pipeline` 2.6.0 → 2.6.1
