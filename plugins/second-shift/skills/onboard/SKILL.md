@@ -89,7 +89,7 @@ Ask AT MOST one AskUserQuestion batch, containing ONLY (skip any that detection 
      `claude mcp list`): include design-toolkit? If yes, WHICH provider — emit top-level
      `design: { "provider": "figma" }` or `{ "provider": "claude-design" }`.
      Declined or not UI-shaped → NO `design` key at all (absent = off).
-     When design is accepted, also detect a render harness (#84): a `render:verify` script in
+     When design is accepted, also detect a render harness: a `render:verify` script in
      the FE repo's package.json (or a script whose usage names `--route`/`--out`). Detected →
      offer `design.liveRender` pre-filled (`command: "yarn render:verify --route {route} --out {out}"`,
      `cwd: <fe repo id>`); the operator may add `readyProbe`. Undetected or declined → omit the
@@ -214,7 +214,7 @@ Also emit the consent doc:
 2. If the repo has a `CLAUDE.md`, offer (in the SAME final message — never a new interview,
    never silently): append `- Toolkit consent + inventory: .claude/SECOND-SHIFT.md` to it.
 
-Also emit the CI evidence workflow — **only when accepted in Step 3 item 8** (skip this
+Also emit the CI evidence workflow — **only when accepted in Step 3 item 9** (skip this
 entire block otherwise; it is opt-in, not part of the default emitted set):
 1. Copy `${CLAUDE_PLUGIN_ROOT}/templates/consumer/second-shift-ci-check.sh` to
    `.claude/tools/second-shift-ci-check.sh` (create the dir; keep the executable bit) and
@@ -265,5 +265,5 @@ entire block otherwise; it is opt-in, not part of the default emitted set):
 6. Remind: commit `.claude/settings.json`, `.claude/second-shift.config.json`,
    `.claude/second-shift.lock.json`, `.claude/tools/second-shift-doctor.sh`, and
    `.claude/SECOND-SHIFT.md` in one PR — **plus**, only if the CI evidence workflow was
-   accepted (Step 3 item 8), `.github/workflows/second-shift-ci.yml` and
+   accepted (Step 3 item 9), `.github/workflows/second-shift-ci.yml` and
    `.claude/tools/second-shift-ci-check.sh` in the same PR.

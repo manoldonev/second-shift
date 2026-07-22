@@ -16,7 +16,7 @@ Derived from real pipeline sessions in the acme repo and the hardening patterns 
 
 ### 1. Autonomous Pre-flight
 
-**PASS:** Before claiming the issue (Stage 1), the run established its target — repo, base branch, issue number, and working-tree status — and the read-pin posture behaved correctly (#59): Stage-1 reads pinned to `origin/<baseBranch>` — the host repo's `topology.repos.<host>.baseBranch`, which may be `develop`/`alpha`, not necessarily `main` — with a dirty working tree surfaced as a WARN-and-proceed, and a failed pin (fetch/worktree-add) failing closed rather than silently reading the checkout.
+**PASS:** Before claiming the issue (Stage 1), the run established its target — repo, base branch, issue number, and working-tree status — and the read-pin posture behaved correctly: Stage-1 reads pinned to `origin/<baseBranch>` — the host repo's `topology.repos.<host>.baseBranch`, which may be `develop`/`alpha`, not necessarily `main` — with a dirty working tree surfaced as a WARN-and-proceed, and a failed pin (fetch/worktree-add) failing closed rather than silently reading the checkout.
 
 **FAIL:** The run targeted the wrong repo/branch/diff (built or analyzed against anything other than `origin/<configured base>`), OR read an unpinned non-base/dirty checkout at Stage 1 without the WARN or fail-closed posture firing.
 

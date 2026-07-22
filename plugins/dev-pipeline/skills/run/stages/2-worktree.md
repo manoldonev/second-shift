@@ -202,7 +202,7 @@ if [[ "$(jq -r '.topology.type // "standalone"' "$SECOND_SHIFT_CONFIG" 2>/dev/nu
 fi
 ```
 
-**Canonical path form:** `worktreePath` is persisted in **repo-relative** form (`${WORKTREES_DIR}/${BRANCH##*/}` for single-repo; `worktrees.<id>.worktreePath` host-root-relative for be-fe-pair, as written above). This is the contract — `worktree-set` rejects an absolute path (leading `/`). This is the contract — `worktree-set` rejects an absolute path (leading `/`). The pipeline always runs with CWD at the repo root, so consumers resolve the value against the repo root (`git -C "$worktreePath" …` at the Stage 8 entry, `cd "$worktreePath"`); see state-schema.md "Worktree".
+**Canonical path form:** `worktreePath` is persisted in **repo-relative** form (`${WORKTREES_DIR}/${BRANCH##*/}` for single-repo; `worktrees.<id>.worktreePath` host-root-relative for be-fe-pair, as written above). This is the contract — `worktree-set` rejects an absolute path (leading `/`). The pipeline always runs with CWD at the repo root, so consumers resolve the value against the repo root (`git -C "$worktreePath" …` at the Stage 8 entry, `cd "$worktreePath"`); see state-schema.md "Worktree".
 
 **Ordering contract:** this call MUST precede `set-stage 2 --status completed` — a completed Stage 2 then always implies the boundary fields are present, so a crash between the two writes leaves Stage 2 merely in-progress (resumable), never "complete but unresumable" (Stage 8's crash-recovery entry asserts `worktreePath` is valid). In stacked-PR mode both fields are overwritten per slice (by design — see state-schema.md "Worktree").
 

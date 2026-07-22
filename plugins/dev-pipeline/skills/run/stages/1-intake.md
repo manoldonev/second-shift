@@ -83,7 +83,7 @@ ISSUE=$(gh issue list --label "$QUEUE_LABEL" --json number,title --limit 10 --jq
 2. Verify via REST: `gh api "repos/{owner}/{repo}/issues/$ISSUE_NUMBER" --jq '{labels: [.labels[].name]}'`
    - Assert: `$QUEUE_LABEL` is gone, `$CLAIMED_LABEL` is present
    - If any check fails: undo mutations (add `$QUEUE_LABEL` back first, then remove `$CLAIMED_LABEL` — same add-before-remove safety), exit — another runner claimed it. (This post-verify undo reverses mutations that _did_ apply; it is distinct from the step-1 pre-DELETE failed-add abort, which is a bare stop because nothing was mutated yet.)
-3. Post claim comment (REST form per SKILL.md Bot Identity) with `run_id` and `stage: claimed`. Record the receipt from the response's `html_url`: `"$STATECTL" comment-add "$ISSUE_NUMBER" --marker claimed --url <html_url>` — Stage-1 completion refuses without it (as with the `intake` marker; see the verdict table).
+3. Post claim comment (REST form per SKILL.md Bot Identity) with `run_id` and `stage: claimed`. Record the receipt (completion-gated) from the response's `html_url`: `"$STATECTL" comment-add "$ISSUE_NUMBER" --marker claimed --url <html_url>`.
 4. Read full issue body via REST: `gh api "repos/{owner}/{repo}/issues/$ISSUE_NUMBER" --jq .body` (+ `/comments`).
 
 **Do-not-pick-up guard:** Before claiming, verify the issue does NOT have any of the **blocker labels** (`$BLOCKER_LABELS`, resolved above — default `epic`, `needs-intake-review`, `needs-spec-work`, `needs-plan-review`). These labels block auto-pickup. The `gh issue list --label "$QUEUE_LABEL"` query implicitly excludes them (since the queue label is removed when these labels are added), but verify after claiming in case of a race condition.
@@ -94,7 +94,7 @@ ISSUE=$(gh issue list --label "$QUEUE_LABEL" --json number,title --limit 10 --jq
 
 #### Step 1.P: Pin the Stage-1 read surface
 
-Runs after the claim (Step 1.A) and BEFORE the intake fan-out (Step 1.B). Stage-1 reads (spec-reviewer, codebase-explorer, referenced-doc resolution) must ground against `origin/<baseBranch>` — never the operator's checkout, whose branch and uncommitted edits are unrelated to the run (the work branch is cut from `origin/<base>` at Stage 2 either way; an unpinned intake read is the mismatch hazard #59 closed). Because reads are pinned, **the current branch of the main checkout is NOT a reject condition** — the predicates are:
+Runs after the claim (Step 1.A) and BEFORE the intake fan-out (Step 1.B). Stage-1 reads (spec-reviewer, codebase-explorer, referenced-doc resolution) must ground against `origin/<baseBranch>` — never the operator's checkout, whose branch and uncommitted edits are unrelated to the run (the work branch is cut from `origin/<base>` at Stage 2 either way; an unpinned intake read is the mismatch hazard this closed). Because reads are pinned, **the current branch of the main checkout is NOT a reject condition** — the predicates are:
 
 - **Pin established, any current branch, clean tree** → proceed **silently** (the branch name still lands in the Dynamic Context snapshot for the record).
 - **Pin established, dirty working tree** (any branch; `git status --porcelain` non-empty) → emit a **WARN** — "a human appears to be mid-work in this checkout" — surfaced in the run's final report, and proceed.
@@ -117,7 +117,7 @@ PIN_ERR=$(git fetch origin "$BASE_BRANCH_CFG" --quiet 2>&1 \
 
 Pass the **absolute** pin path as `readRoot` in the intake Workflow args (Step 1.B — `workflows/intake-review.mjs` prefixes every dispatch prompt with the pinned-read instruction); resolve referenced docs (max 5) against the same root. **Teardown:** best-effort `git worktree remove "$PIN_WT" 2>/dev/null || true` at EVERY Stage-1 exit — right after the Stage-1 completion write on the continue path, AND right after the terminal write/comment on every Stage-1 stop (spec fails, escalation, `sub-issues` split, `design-source-unreachable`). Stage-1 stops never reach Stage 10, so a stop that skips teardown leaks the pin permanently. Stage 10 cleanup removes it unconditionally if it survived (crash between the two points).
 
-**Capture the pre-flight attestation (carry forward to the Stage-1 checkpoint).** The predicate outcomes above are the attestation `stageCheckpoint["1"].preflight` records — the Stage-1 completion gate is enforced on it (`set-stage 1 --status completed` refuses without a well-formed `preflight`; state-schema.md row 1). Record the three fields here (the pin is established at this point — the fail-closed case above already exited), so the checkpoint write below can fold them in:
+**Capture the pre-flight attestation (carry forward to the Stage-1 checkpoint).** The predicate outcomes above are the attestation `stageCheckpoint["1"].preflight` records (completion-gated on a well-formed `preflight`; state-schema.md row 1). Record the three fields here (the pin is established at this point — the fail-closed case above already exited), so the checkpoint write below can fold them in:
 
 ```bash
 # baseBranch: the configured base ($BASE_BRANCH_CFG above). workingTreeClean: the
@@ -146,7 +146,7 @@ Otherwise — `auto` mode, no approval, or a non-trivial change — run the full
   - Referenced docs/ADRs (max 5 — orchestrator picks most relevant)
   - Codebase context: Bootstrap from the repo's `CLAUDE.md` and any repo-local session-state conventions it defines (see its CLAUDE.md)
 
-Immediately after the load, record it as completion evidence — `set-stage 1 --status completed` refuses without it (unless the checkpoint carries `intakeMode: "inline-approved"`):
+Immediately after the load, record it as completion evidence (completion-gated, unless the checkpoint carries `intakeMode: "inline-approved"`):
 
 ```bash
 "$STATECTL" skill-load-add "$ISSUE_NUMBER" --stage 1 --skill intake-toolkit:intake-orchestrator
@@ -166,7 +166,7 @@ The skill loads orchestration instructions into the current session — the call
 | Spec fails    | True blockers found. `stage: intake`, `status: failed`                                                                       | **No** — `needs-spec-work` label + `mark-failed(intake-spec-blocked)`, STOP |
 | Escalation    | Orchestrator uncertain. `stage: intake`, `status: needs-human-input`                                                         | **No** — `needs-intake-review` label + `mark-failed(intake-needs-human-input)`, STOP |
 
-**Receipt (proceeding verdicts).** For the verdicts that proceed (`no-split`, `stacked-prs`), record the posted intake comment's URL: `"$STATECTL" comment-add "$ISSUE_NUMBER" --marker intake --url <html_url>` — Stage-1 completion refuses without both the `claimed` and `intake` receipts. Failure-shaped verdicts stop before Stage-1 completion, so no receipt gate applies there.
+**Receipt (proceeding verdicts).** For the verdicts that proceed (`no-split`, `stacked-prs`), record the posted intake comment's URL (completion-gated — both `claimed` and `intake` are required): `"$STATECTL" comment-add "$ISSUE_NUMBER" --marker intake --url <html_url>`. Failure-shaped verdicts stop before Stage-1 completion, so no receipt gate applies there.
 
 **Thresholds enforced by the orchestrator:**
 
