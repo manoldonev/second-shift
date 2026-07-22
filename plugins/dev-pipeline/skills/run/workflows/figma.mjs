@@ -68,36 +68,85 @@ const GATE_SCHEMA = {
   },
 }
 
-// --- StructuredOutput-staller mitigation (shared posture with code-review.mjs, strengthened) ---
-// figma `produce` is a heavy action agent (ToolSearch + run the plugin skill + write/commit) — the
-// class most prone to ending its turn WITHOUT the forced StructuredOutput call. Same two defenses
-// mirrored across every schema-forced workflow: a non-negotiable mandate ("final action MUST be the
-// call", correct for an action agent that must act before reporting) + an inline retry on the
-// StructuredOutput death class.
-const STRUCTURED_OUTPUT_MANDATE =
-  ' IMPORTANT: the StructuredOutput tool call is your ONLY deliverable — a prose write-up is' +
-  ' discarded and counts as producing nothing. Do your work, then your FINAL action MUST be the' +
-  ' StructuredOutput call; if you are running low on budget, call it early with partial results' +
-  ' rather than writing a summary. Never end your turn without calling StructuredOutput.'
+// --- explorer/emitter transport (the structural stall fix; #169) ---
+// Explorers dispatch schema-FREE and end with a sentinel + fenced JSON block parsed here;
+// the schema objects become in-script validators, and only the transcription-only
+// structured-emitter agent (tools: [], maxTurns: 2) ever carries a schema — fired solely
+// when a sentinel-bearing block failed to parse. Missing sentinel = truncation = dark.
+// Measured basis: plan-reviewer opus k=8 — schema-forced 7/8 deaths 0 usable; schema-free
+// 0/8, 8/8 usable at a third of the tokens, detection parity 6.75 vs 6.63.
+const parseReviewResult = (text) => {
+  const m = [...String(text ?? '').matchAll(/REVIEW_RESULT\s*```json\s*([\s\S]*?)```/g)]
+  if (!m.length) return null
+  try {
+    return JSON.parse(m[m.length - 1][1])
+  } catch {
+    return null
+  }
+}
 
-// Only the StructuredOutput-death error class is retried; genuine tool/permission errors throw
-// straight through. Brittle substring match — the only signal the runtime surfaces.
-const isNoStructuredOutputError = (err) => /StructuredOutput/.test(String(err))
-
-// One schema'd dispatch with up to `retries` INLINE retries on a StructuredOutput death. Resolves
-// to the agent result on success; throws the last error after exhausting retries.
-const dispatchSchemaAgent = async (prompt, opts, retries = 2) => {
-  let lastErr
-  for (let attempt = 0; attempt <= retries; attempt++) {
-    try {
-      return await agent(prompt, attempt === 0 ? opts : { ...opts, label: `${opts.label} (retry ${attempt})` })
-    } catch (err) {
-      lastErr = err
-      if (!isNoStructuredOutputError(err)) throw err
-      log(`${opts.label}: died without StructuredOutput — retry ${attempt + 1}/${retries}`)
+const validateShape = (obj, schema) => {
+  if (!obj || typeof obj !== 'object') return false
+  for (const key of schema.required || []) if (!(key in obj)) return false
+  const props = schema.properties || {}
+  for (const k of Object.keys(props)) {
+    const p = props[k]
+    if (!(k in obj) || obj[k] == null) continue
+    if (p.enum && !p.enum.includes(obj[k])) return false
+    if (p.type === 'array') {
+      if (!Array.isArray(obj[k])) return false
+      if (p.items) {
+        for (const it of obj[k]) {
+          if (p.items.type === 'string') {
+            if (typeof it !== 'string') return false
+            continue
+          }
+          if (!it || typeof it !== 'object') return false
+          for (const rk of p.items.required || []) if (!(rk in it)) return false
+          const ip = p.items.properties || {}
+          for (const ik of Object.keys(ip)) {
+            if (ip[ik].enum && ik in it && it[ik] != null && !ip[ik].enum.includes(it[ik])) return false
+          }
+        }
+      }
     }
   }
-  throw lastErr
+  return true
+}
+
+const emitStructured = (text, opts) =>
+  // bounded-exploration-optout: structured-emitter -- tools:[] maxTurns:2 transcription sink;
+  //   nothing to explore, which is why it may carry the schema.
+  agent(
+    'Convert this completed review into the required structured object. Transcribe EXACTLY' +
+      ' what the review states — never invent, drop, merge, soften or upgrade findings.' +
+      '\n\n---REVIEW---\n' + String(text) + '\n---END---',
+    { agentType: 'review-toolkit:structured-emitter', model: 'haiku', label: `${opts.label} (emit)`, phase: 'Figma', schema: opts.schema },
+  )
+
+// The contract-miss dispatch ladder. Name and signature kept for callers: one escalated
+// re-explore on a miss, then the emitter (sentinel present) or a dark throw. The caller's
+// existing catch maps the throw to its infraFailure envelope, exactly as before.
+const dispatchSchemaAgent = async (prompt, opts, retries = 1) => {
+  let lastText = null
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    const text = await agent(prompt + opts.epilogue, {
+      ...(opts.agentType ? { agentType: opts.agentType } : {}),
+      model: opts.model,
+      label: attempt === 0 ? opts.label : `${opts.label} (retry ${attempt})`,
+      phase: opts.phase,
+    })
+    const parsed = parseReviewResult(text)
+    if (parsed && validateShape(parsed, opts.schema)) return parsed
+    lastText = text
+    log(`${opts.label}: text-contract miss (${/REVIEW_RESULT/.test(String(text ?? '')) ? 'invalid json' : 'no sentinel'}) — attempt ${attempt + 1}/${retries + 1}`)
+  }
+  if (/REVIEW_RESULT/.test(String(lastText ?? ''))) {
+    const emitted = await emitStructured(lastText, opts)
+    if (emitted && validateShape(emitted, opts.schema)) return emitted
+    throw new Error('text-contract: emitter produced an invalid shape — declared dark')
+  }
+  throw new Error('text-contract: explorer never produced the REVIEW_RESULT block (truncation) — declared dark')
 }
 
 // args (assembled in-session by the dispatching Stage; defensive string-or-object):
@@ -152,7 +201,23 @@ if (kind === 'gate') {
     `resolve your reference docs there.` +
     (inputs.bindingSpecPath ? ` Cross-check against the binding spec at \`${inputs.bindingSpecPath}\`.` : '') +
     ` Return your trinary verdict (block | fix-and-go | pass) and findings.`
-  opts = { agentType: target, model: FIGMA_MODEL, label: target, phase: 'Figma', schema: GATE_SCHEMA }
+  // bounded-exploration-optout: figma gate -- unprobed surface, deliberately deferred; no measured
+  //   stall and no before/after rate, which the issue guardrail requires before shipping a nudge.
+  // bounded-exploration-optout: validator-reference -- feeds validateShape and the emitter;
+  //   the explorer dispatch itself is schema-free (#169).
+  opts = {
+    agentType: target,
+    model: FIGMA_MODEL,
+    label: target,
+    phase: 'Figma',
+    schema: GATE_SCHEMA,
+    epilogue:
+      '\n\nWrite your review. Your FINAL output MUST end with this sentinel line followed by one' +
+      ' fenced json block and NOTHING after it:\n\n' +
+      'REVIEW_RESULT\n```json\n{ "verdict": "block|fix-and-go|pass|unreachable", "findings":' +
+      ' [ { "severity": "blocker|major|minor|nit", "file": "...", "line": 0, "message": "...",' +
+      ' "source": "..." } ], "summary": "..." }\n```',
+  }
 } else {
   if (!outputPath) {
     throw new Error('figma produce: args.outputPath is required')
@@ -182,16 +247,32 @@ if (kind === 'gate') {
       : `PLAN/SPEC mode: write the artifact only — do NOT write component code, do NOT commit (committed=false).`) +
     ` On any failure (Figma MCP unreachable, unresolved sparse dump, etc.) set status="error". ` +
     `Return {status, artifactPath, committed, commitSha, summary}.`
-  opts = { model: FIGMA_MODEL, label: `produce:${target}`, phase: 'Figma', schema: PRODUCE_SCHEMA }
+  // bounded-exploration-optout: figma produce -- a produce dispatch writes the artifact and may
+  //   commit; bounding its reads would bound the deliverable itself.
+  // bounded-exploration-optout: validator-reference -- feeds validateShape and the emitter;
+  //   the explorer dispatch itself is schema-free (#169).
+  opts = {
+    model: FIGMA_MODEL,
+    label: `produce:${target}`,
+    phase: 'Figma',
+    schema: PRODUCE_SCHEMA,
+    epilogue:
+      '\n\nAfter completing the work, your FINAL output MUST end with this sentinel line followed' +
+      ' by one fenced json block and NOTHING after it:\n\n' +
+      'REVIEW_RESULT\n```json\n{ "status": "ok|error", "artifactPath": null, "committed": false,' +
+      ' "commitSha": null, "summary": "..." }\n```',
+  }
 }
 
-prompt += STRUCTURED_OUTPUT_MANDATE
+// The per-kind epilogue in opts replaces the retired STRUCTURED_OUTPUT_MANDATE append (#169).
 
 // A StructuredOutput death that survived the inline retries is flagged infraFailure so the stage can
 // tell it apart from a genuine MCP-unreachable / spec error — never map it to figma-mcp-unreachable.
 const result = await dispatchSchemaAgent(prompt, opts).catch((err) => ({
   ...failClosed('agent dispatch failed: ' + String(err)),
-  ...(isNoStructuredOutputError(err) ? { infraFailure: true } : {}),
+  // A text-contract death that survived the ladder is infra (the old StructuredOutput class);
+  // hard tool/permission errors keep their plain fail-closed envelope.
+  ...(/text-contract/.test(String(err)) ? { infraFailure: true } : {}),
 }))
 
 return { kind, target, feWorktree, result }

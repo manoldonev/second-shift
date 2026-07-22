@@ -87,7 +87,7 @@ Mark Stage 7 completed (`statectl set-stage "$ISSUE_NUMBER" 7 --status completed
 
 After the checkpoint write above:
 
-1. **Post the issue comment** via `$GH_BOT issue comment`: `stage: doc-update, status: completed`.
+1. **Post the issue comment** via `$GH_BOT issue comment`: `stage: doc-update, status: completed`. Record the receipt: `"$STATECTL" comment-add "$ISSUE_NUMBER" --marker doc-update --url <html_url>` — Stage-7 completion refuses without it.
 2. **Continue in-process to Stage 8** in the same session. Stage 8 reads the just-written `stageCheckpoint["7"]` from state and begins the review loop.
 
 ---

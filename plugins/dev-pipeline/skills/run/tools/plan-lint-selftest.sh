@@ -145,6 +145,143 @@ else
   fail "(pl-l) Decision Ledger must NOT appear as a SECTIONS row (hard-lint would false-abort Stage 4)"
 fi
 
+echo "[plan-lint-selftest] Decision Ledger provenance legality (Check 4)"
+
+# Build a plan carrying a Decision Ledger, plus a state file whose SIBLING ledger
+# path Check 4 derives. State named 156.json so the sibling is $TMP/156-ledger.md
+# (the derivation is filename-based: dirname(state)/$(basename state .json)-ledger.md).
+LEDGER_STATE="$TMP/156.json"
+cp "$FIX/valid-state.json" "$LEDGER_STATE"
+make_ledger_plan() { # make_ledger_plan <out> <ledger-rows-block>
+  cp "$FIX/valid-plan.md" "$1"
+  { printf '\n## Decision Ledger\n\n'
+    printf '| ID | Decision | Resolution | Provenance |\n'
+    printf '| --- | --- | --- | --- |\n'
+    printf '%s\n' "$2"
+  } >> "$1"
+}
+
+# (pl-n) AC-1: human-attributed provenance + state present, NO sibling ledger → FAIL, names row + path
+make_ledger_plan "$TMP/human-noledger.md" "| D-1 | 404 vs 409 on duplicate import | 409 | user-delegated |"
+rm -f "$TMP/156-ledger.md"
+rc=$(lint_rc "$TMP/human-noledger.md" "$LEDGER_STATE")
+err=$(bash "$LINT" "$TMP/human-noledger.md" "$LEDGER_STATE" 2>&1 >/dev/null || true)
+[[ "$rc" -eq 1 ]] && grep -q "D-1" <<< "$err" && grep -q "156-ledger.md" <<< "$err" \
+  && pass "(pl-n) human provenance, no backing ledger → 1, names row + path (AC-1)" \
+  || fail "(pl-n) human provenance, no ledger — rc=$rc err=$err"
+
+# (pl-o) AC-2: the SAME plan passes once the backing {issue}-ledger.md exists (existence-only)
+: > "$TMP/156-ledger.md"
+rc=$(lint_rc "$TMP/human-noledger.md" "$LEDGER_STATE")
+[[ "$rc" -eq 0 ]] \
+  && pass "(pl-o) human provenance + backing ledger present → 0 (AC-2)" \
+  || fail "(pl-o) human provenance + backing ledger — rc=$rc"
+rm -f "$TMP/156-ledger.md"
+
+# (pl-p) AC-3: codebase-derived/deferred-only ledger is unaffected (no backing file needed)
+make_ledger_plan "$TMP/grounded.md" "$(printf '| D-1 | DTO validation library | class-validator (repo convention) | codebase-derived |\n| D-2 | Backfill order | deferred to next milestone (owner: reporter) | deferred |')"
+rm -f "$TMP/156-ledger.md"
+rc=$(lint_rc "$TMP/grounded.md" "$LEDGER_STATE")
+[[ "$rc" -eq 0 ]] \
+  && pass "(pl-p) codebase-derived/deferred rows only → 0 (AC-3)" \
+  || fail "(pl-p) grounded rows — rc=$rc"
+
+# (pl-q) invariant: the explicit empty form (no rows, no human provenance) still passes
+cp "$FIX/valid-plan.md" "$TMP/empty-form.md"
+printf '\n## Decision Ledger\n\nNo material decisions — all choices codebase-derived.\n' >> "$TMP/empty-form.md"
+rm -f "$TMP/156-ledger.md"
+rc=$(lint_rc "$TMP/empty-form.md" "$LEDGER_STATE")
+[[ "$rc" -eq 0 ]] \
+  && pass "(pl-q) explicit empty form → 0 (ledger stays advisory, not hard-gated)" \
+  || fail "(pl-q) explicit empty form — rc=$rc"
+
+# (pl-r) AC-4: apostrophe in a ledger cell must not break parsing — the human row is
+# still detected (regression guard, mirrors pl-m for the AC table). awk injects a lone
+# apostrophe so it never traverses this harness's own shell quoting.
+awk -v q="'" 'BEGIN{print "| D-1 | Owner" q "s call on retention window | keep 30d | user-answered |"}' > "$TMP/apostrophe-row.txt"
+make_ledger_plan "$TMP/apostrophe-ledger.md" "$(cat "$TMP/apostrophe-row.txt")"
+rm -f "$TMP/156-ledger.md"
+rc=$(lint_rc "$TMP/apostrophe-ledger.md" "$LEDGER_STATE")
+err=$(bash "$LINT" "$TMP/apostrophe-ledger.md" "$LEDGER_STATE" 2>&1 >/dev/null || true)
+[[ "$rc" -eq 1 ]] && grep -q "D-1" <<< "$err" \
+  && pass "(pl-r) apostrophe in ledger cell — human row still parsed → 1, names D-1 (AC-4)" \
+  || fail "(pl-r) apostrophe ledger cell — rc=$rc err=$err"
+
+# (pl-s) fail-closed: human provenance with NO state arg (degraded/resume path) → FAIL
+rc=$(lint_rc "$TMP/apostrophe-ledger.md")
+err=$(bash "$LINT" "$TMP/apostrophe-ledger.md" 2>&1 >/dev/null || true)
+[[ "$rc" -eq 1 ]] && grep -q "fail-closed" <<< "$err" \
+  && pass "(pl-s) human provenance, no state path → 1 (fail-closed)" \
+  || fail "(pl-s) fail-closed no-state — rc=$rc err=$err"
+
+# (pl-t) evasion guard: a MALFORMED (wrong-column-count) row carrying human provenance
+# is still caught — Check 4 scans every cell, not just the 4th column.
+make_ledger_plan "$TMP/malformed-human.md" "| D-1 | user-delegated |"
+rm -f "$TMP/156-ledger.md"
+rc=$(lint_rc "$TMP/malformed-human.md" "$LEDGER_STATE")
+err=$(bash "$LINT" "$TMP/malformed-human.md" "$LEDGER_STATE" 2>&1 >/dev/null || true)
+[[ "$rc" -eq 1 ]] && grep -q "D-1" <<< "$err" \
+  && pass "(pl-t) malformed row with human provenance still caught → 1" \
+  || fail "(pl-t) malformed-human — rc=$rc err=$err"
+
+# (pl-u) no false positive: the enum mentioned in prose (Decision/Resolution) — with a
+# codebase-derived provenance — must NOT trip the gate (the `^...$` cell anchor guards this).
+make_ledger_plan "$TMP/prose.md" "| D-1 | When to use user-delegated vs user-answered | prefer user-delegated for your-call cases | codebase-derived |"
+rm -f "$TMP/156-ledger.md"
+rc=$(lint_rc "$TMP/prose.md" "$LEDGER_STATE")
+[[ "$rc" -eq 0 ]] \
+  && pass "(pl-u) enum in prose cell, provenance codebase-derived → 0 (no false positive)" \
+  || fail "(pl-u) prose false-positive — rc=$rc"
+
+# (pl-n1) Check 5b: 2+ creation-verb steps with zero [NEW] tags → 1, named (the run-#175 shape).
+# Fixture must live INSIDE a git repo for Check 5a's PLAN_ROOT resolution; use a
+# harness-local scratch dir under the repo tree, cleaned on exit.
+NTMP="$HERE/.plan-lint-newtag-tmp"
+mkdir -p "$NTMP"
+trap 'rm -rf "$TMP" "$NTMP"' EXIT
+BT="$(printf '\140')"
+sed "s/^1\\. Step one\\./1. Add a ${BT}dormancy${BT} rule./; s/^2\\. Step two\\./2. Add the marker grammar./" \
+  "$FIX/valid-plan.md" > "$NTMP/no-tags.md"
+rc=$(lint_rc "$NTMP/no-tags.md")
+err=$(bash "$LINT" "$NTMP/no-tags.md" 2>&1 >/dev/null || true)
+[[ "$rc" -eq 1 ]] && grep -q "zero \[NEW\] grounding tags" <<< "$err" \
+  && pass "(pl-n1) creation steps without [NEW] → 1, named" \
+  || fail "(pl-n1) creation steps without [NEW] — rc=$rc err=$err"
+
+# (pl-n2) same plan with a [NEW] tag present anywhere → 0 (5b keys on token presence).
+sed "s/Add a ${BT}dormancy${BT} rule\\./Add a ${BT}dormancy${BT} rule [NEW]./" "$NTMP/no-tags.md" > "$NTMP/tagged.md"
+rc=$(lint_rc "$NTMP/tagged.md")
+[[ "$rc" -eq 0 ]] \
+  && pass "(pl-n2) creation steps with [NEW] → 0" \
+  || fail "(pl-n2) tagged plan — got rc=$rc"
+
+# (pl-n3) Check 5a: a nonexistent path under an existing top dir, untagged → 1, named.
+sed "s|^1\\. Step one\\.|1. Wire ${BT}plugins/no-such-plugin/fake-tool.sh${BT} into CI.|" \
+  "$FIX/valid-plan.md" > "$NTMP/ghost-path.md"
+rc=$(lint_rc "$NTMP/ghost-path.md")
+err=$(bash "$LINT" "$NTMP/ghost-path.md" 2>&1 >/dev/null || true)
+[[ "$rc" -eq 1 ]] && grep -q "does not exist" <<< "$err" \
+  && pass "(pl-n3) nonexistent untagged path → 1, named" \
+  || fail "(pl-n3) ghost path — rc=$rc err=$err"
+
+# (pl-n4) the same path tagged [NEW] on the same line → 0.
+sed "s|fake-tool.sh${BT} into CI\\.|fake-tool.sh${BT} [NEW] into CI.|" "$NTMP/ghost-path.md" > "$NTMP/ghost-tagged.md"
+rc=$(lint_rc "$NTMP/ghost-tagged.md")
+[[ "$rc" -eq 0 ]] \
+  && pass "(pl-n4) [NEW]-tagged nonexistent path → 0" \
+  || fail "(pl-n4) tagged ghost path — got rc=$rc"
+
+# (pl-n5) precision guard: a fictional path whose TOP DIR does not exist in this repo
+# (a fixture plan referencing another repo's tree) is skipped, and branch-name shapes
+# (origin/main — no dotted final segment) never match. valid-plan.md itself carries
+# `apps/api/...` and stays green (pl-a above is the standing witness).
+sed "s|^2\\. Step two\\.|2. Cut from ${BT}origin/main${BT} and touch ${BT}elsewhere/repo/thing.ts${BT}.|" \
+  "$FIX/valid-plan.md" > "$NTMP/foreign.md"
+rc=$(lint_rc "$NTMP/foreign.md")
+[[ "$rc" -eq 0 ]] \
+  && pass "(pl-n5) foreign-tree path + branch-name shape → 0 (precision guards)" \
+  || fail "(pl-n5) precision guards — got rc=$rc"
+
 echo
 echo "[plan-lint-selftest] summary: $PASS passed, $FAIL failed"
 exit $FAIL

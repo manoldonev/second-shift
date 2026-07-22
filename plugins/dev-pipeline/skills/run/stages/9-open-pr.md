@@ -271,7 +271,7 @@ dev-pipeline run: ${RUN_ID}
 ```
 
 - **If `codeReviewExhausted == true`:** after `gh pr create` returns, add the `needs-deep-review` label: `$GH_BOT pr edit "$PR_URL" --add-label needs-deep-review`.
-- Comment on issue via `$GH_BOT issue comment`: `stage: pr`, `status: opened-as-draft` for clean runs and `status: opened-as-draft (review exhausted)` for the unhappy path. The exhausted comment also includes the marker `<!-- review-exhausted -->` for resume disambiguation.
+- Comment on issue via `$GH_BOT issue comment`: `stage: pr`, `status: opened-as-draft` for clean runs and `status: opened-as-draft (review exhausted)` for the unhappy path. The exhausted comment also includes the marker `<!-- review-exhausted -->` for resume disambiguation. Record the receipt: `"$STATECTL" comment-add "$ISSUE_NUMBER" --marker pr --url <html_url>` — Stage-9 completion refuses without it.
 - For single-PR runs: `$GH_BOT issue edit $ISSUE_NUMBER --remove-label in-progress` (use regular `gh` for `--remove-assignee @me` separately)
 - For stacked-PR runs: do NOT remove `in-progress` until all slices are done (handled by the outer loop completion step).
 

@@ -278,6 +278,8 @@ $GH_BOT api -X PATCH "repos/{owner}/{repo}/pulls/$PR_NUMBER" -F body=@"$BODY"
 
 Stage-progress comments and post-claim label edits are **observability, not gates** — nothing downstream reads them in-session. Posting them synchronously costs a REST round-trip per stage boundary (~2–3 min per run in aggregate). Run them in the background (`run_in_background`) and continue to the next step immediately.
 
+**Backgrounded or not, a mandated comment must be reconciled before its stage closes.** The mandated markers (`claimed`/`intake` for Stage 1, `plan` for 3, `doc-update` for 7, `code-review` for 8 when a primary round ran, `pr` for 9) are completion evidence: record each post's `html_url` via `statectl comment-add <issue> --marker <m> --url <url>` once the post lands, and `set-stage --status completed` refuses without the receipt. A backgrounded post that failed therefore surfaces at the stage boundary, not at end of run — check the background result and re-post before closing the stage. (Read-only trackers — `tracker.writes: false` — post nothing and are exempt.)
+
 **A backgrounded post must own its `mktemp` body cleanup — never `rm` the `--body-file` from the foreground.** Background the _whole_ post-then-`rm` as one unit via the Bash tool's `run_in_background`, so the temp file outlives the post. Do **not** background only the post with a trailing shell `&` and then `rm -f "$BODY"` in the foreground: the `rm` races ahead of the still-reading background job and the post fails with `open … no such file or directory` (observed: a Stage-3 plan comment failed this way and had to be re-posted synchronously). If you cannot background the cleanup with the post, post synchronously.
 
 **Never background** (these ARE load-bearing, in order of appearance): the claim-sequence mutations + verification (Step 1.A — the race guard depends on read-after-write), `statectl` state writes (always synchronous), failure comments + `mark-failed` (the failure contract requires the comment to exist before the session stops), `gh pr create` (Stage 9 reads the URL), and the `pr-add`/label/comment calls in Stage 9's completion sequence when a later step in the same run consumes their result. If a backgrounded post fails, surface it at the end of the run — never silently drop a comment.
@@ -459,8 +461,19 @@ Stages that write additional stage-specific fields carry an inline **State:** li
 **Resume logic:** On pipeline start, check for an existing state file:
 
 1. If `status: "completed"` — inform user this issue was already delivered. Ask: re-run from scratch or skip?
-2. If `status: "in_progress"` — resume from the `currentStage`. Print a one-line summary of what was already completed.
+2. If `status: "in_progress"` — resume from the `currentStage`. Print a one-line summary of what was already completed. **Then record this session for cost attribution**, before doing any stage work:
+
+   ```bash
+   if [[ -n "${CLAUDE_CODE_SESSION_ID:-}" ]]; then
+     bash statectl.sh pipeline-session-add "$ISSUE_NUMBER" \
+       --session-id "$CLAUDE_CODE_SESSION_ID" --source interactive
+   fi
+   ```
+
+   A resumed run is a **different** Claude session from the one Stage 2 recorded, and Stage 9's cost block attributes cost by `session.id` against `pipelineSessions[]`. Recording only at Stage 2 and at the Stage-8 crash-recovery entry means a resume that re-enters at any other stage (7, 6, 5, …) contributes **zero** rows to the cost block — its entire cost silently vanishes rather than showing up as a gap. `pipeline-session-add` is idempotent on the session id and is deliberately exempt from the terminal-state guard, so this is safe on every resume path, including a post-terminal backfill.
 3. If `status: "failed"` — reads state and exits (no-prompt, per the failure contract above); print the failure context. Re-running requires the operator to first clear the local state file (`rm .claude/pipeline-state/{issue}.json`, or reset `status: "in_progress"` + `currentStage` + clear `failureContext`) — `statectl init` is idempotent and will NOT reset a `failed` file. This covers the Stage-1 intake stops (no worktree to keep), where the fix-spec → relabel `ready-for-dev` → re-run flow needs the originating machine's state file cleared.
+
+**Orphaned claims (infra drops).** A run killed mid-stage by an API drop / token expiry / dead session leaves its tracker claim and `status: in_progress` state stranded — invisible to the queue, which skips claimed issues. Detection + trigger: `statectl reclaim <issue>` emits a read-only verdict for a stale claim (`in_progress` + last state write older than 30 min — statectl has no process-liveness signal, so confirm no live session owns the run first) naming the resumable stage; resume is the existing rule 2 above (`/dev-pipeline:run <issue>`). When the state is too early or corrupt to resume, `statectl reclaim <issue> --release` quarantines the state file (`{key}-released-{ts}.json`, evidence preserved for retro) and the caller swaps the tracker labels (`in-progress` → queue) via the bot wrapper so the queue re-picks it. A `status: failed` run is NOT stale-reclaimable — it exited by contract (rule 3). `pipeline-doctor.sh` lists stale claims with these exact commands; a batch runner should treat an orphaned claim as resumable, skipping only live ones.
 
 **Location:** the pipeline-state dir (config `paths.pipelineStateDir`, default `.claude/pipeline-state`) is gitignored. It is local-only crash-recovery data, not a version-controlled artifact.
 

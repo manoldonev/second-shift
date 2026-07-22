@@ -22,7 +22,8 @@ fails=0
 ok()  { echo "  ok: $1"; passes=$((passes + 1)); }
 bad() { echo "  ✗ $1" >&2; fails=$((fails + 1)); }
 
-TMP="$(mktemp -d -t stack-generality-selftest)" || exit 2
+# Explicit XXXXXX template: GNU mktemp rejects a -t template without them.
+TMP="$(mktemp -d "${TMPDIR:-/tmp}/stack-generality-selftest.XXXXXX")" || exit 2
 trap 'rm -rf "$TMP"' EXIT
 
 FIX="$TMP/fixture"

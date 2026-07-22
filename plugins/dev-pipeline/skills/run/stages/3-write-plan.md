@@ -84,7 +84,7 @@ statectl.sh unit-test-surface-set "$ISSUE_NUMBER" --json '{
 # skip case: --json '{"applicable":false,"action":"skip","skipReason":"FE-only / no behavior change in the configured unitTestScope surface"}'
 ```
 
-- Comment via `$GH_BOT issue comment $ISSUE_NUMBER --body "..."`: `stage: plan`, `status: written`.
+- Comment via `$GH_BOT issue comment $ISSUE_NUMBER --body "..."`: `stage: plan`, `status: written`. Record the receipt: `"$STATECTL" comment-add "$ISSUE_NUMBER" --marker plan --url <html_url>` — Stage-3 completion refuses without it (a backgrounded post reconciles here, not at end of run).
 
 ### Design-faithful FE spec (designDriven runs)
 

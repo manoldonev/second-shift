@@ -112,36 +112,85 @@ const GATE_SCHEMA = {
   },
 }
 
-// --- StructuredOutput-staller mitigation (shared posture with unit-tests.mjs / code-review.mjs) ---
-// A schema-forced agent can end its turn on prose WITHOUT the StructuredOutput call. Two defenses:
-// a non-negotiable mandate appended to every prompt, plus an inline retry on the StructuredOutput
-// death class.
-const STRUCTURED_OUTPUT_MANDATE =
-  ' IMPORTANT: the StructuredOutput tool call is your ONLY deliverable — a prose write-up is' +
-  ' discarded and counts as producing nothing. Do your work, then your FINAL action MUST be the' +
-  ' StructuredOutput call; if you are running low on budget, call it early with partial results' +
-  ' rather than writing a summary. Never end your turn without calling StructuredOutput.'
+// --- explorer/emitter transport (the structural stall fix; #169) ---
+// Explorers dispatch schema-FREE and end with a sentinel + fenced JSON block parsed here;
+// the schema objects become in-script validators, and only the transcription-only
+// structured-emitter agent (tools: [], maxTurns: 2) ever carries a schema — fired solely
+// when a sentinel-bearing block failed to parse. Missing sentinel = truncation = dark.
+// Measured basis: plan-reviewer opus k=8 — schema-forced 7/8 deaths 0 usable; schema-free
+// 0/8, 8/8 usable at a third of the tokens, detection parity 6.75 vs 6.63.
+const parseReviewResult = (text) => {
+  const m = [...String(text ?? '').matchAll(/REVIEW_RESULT\s*```json\s*([\s\S]*?)```/g)]
+  if (!m.length) return null
+  try {
+    return JSON.parse(m[m.length - 1][1])
+  } catch {
+    return null
+  }
+}
 
-// Only the StructuredOutput-death error class is retried; genuine tool/permission errors throw
-// straight through. Brittle substring match — the only signal the runtime surfaces (if the runtime
-// ever changes the message the retry stops firing and degrades to the unretried path).
-const isNoStructuredOutputError = (err) => /StructuredOutput/.test(String(err))
-
-// One schema'd dispatch with up to `retries` INLINE retries on a StructuredOutput death. Resolves
-// to the agent result on success; throws the last error after exhausting retries (the produce
-// caller maps that throw to its infraFailure envelope). Used for the single-agent produce path.
-const dispatchSchemaAgent = async (prompt, opts, retries = 2) => {
-  let lastErr
-  for (let attempt = 0; attempt <= retries; attempt++) {
-    try {
-      return await agent(prompt, attempt === 0 ? opts : { ...opts, label: `${opts.label} (retry ${attempt})` })
-    } catch (err) {
-      lastErr = err
-      if (!isNoStructuredOutputError(err)) throw err
-      log(`${opts.label}: died without StructuredOutput — retry ${attempt + 1}/${retries}`)
+const validateShape = (obj, schema) => {
+  if (!obj || typeof obj !== 'object') return false
+  for (const key of schema.required || []) if (!(key in obj)) return false
+  const props = schema.properties || {}
+  for (const k of Object.keys(props)) {
+    const p = props[k]
+    if (!(k in obj) || obj[k] == null) continue
+    if (p.enum && !p.enum.includes(obj[k])) return false
+    if (p.type === 'array') {
+      if (!Array.isArray(obj[k])) return false
+      if (p.items) {
+        for (const it of obj[k]) {
+          if (p.items.type === 'string') {
+            if (typeof it !== 'string') return false
+            continue
+          }
+          if (!it || typeof it !== 'object') return false
+          for (const rk of p.items.required || []) if (!(rk in it)) return false
+          const ip = p.items.properties || {}
+          for (const ik of Object.keys(ip)) {
+            if (ip[ik].enum && ik in it && it[ik] != null && !ip[ik].enum.includes(it[ik])) return false
+          }
+        }
+      }
     }
   }
-  throw lastErr
+  return true
+}
+
+const emitStructured = (text, opts) =>
+  // bounded-exploration-optout: structured-emitter -- tools:[] maxTurns:2 transcription sink;
+  //   nothing to explore, which is why it may carry the schema.
+  agent(
+    'Convert this completed review into the required structured object. Transcribe EXACTLY' +
+      ' what the review states — never invent, drop, merge, soften or upgrade findings.' +
+      '\n\n---REVIEW---\n' + String(text) + '\n---END---',
+    { agentType: 'review-toolkit:structured-emitter', model: 'haiku', label: `${opts.label} (emit)`, phase: 'Design Sync', schema: opts.schema },
+  )
+
+// The contract-miss dispatch ladder. Name and signature kept for callers: one escalated
+// re-explore on a miss, then the emitter (sentinel present) or a dark throw. The caller's
+// existing catch maps the throw to its infraFailure envelope, exactly as before.
+const dispatchSchemaAgent = async (prompt, opts, retries = 1) => {
+  let lastText = null
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    const text = await agent(prompt + opts.epilogue, {
+      ...(opts.agentType ? { agentType: opts.agentType } : {}),
+      model: opts.model,
+      label: attempt === 0 ? opts.label : `${opts.label} (retry ${attempt})`,
+      phase: opts.phase,
+    })
+    const parsed = parseReviewResult(text)
+    if (parsed && validateShape(parsed, opts.schema)) return parsed
+    lastText = text
+    log(`${opts.label}: text-contract miss (${/REVIEW_RESULT/.test(String(text ?? '')) ? 'invalid json' : 'no sentinel'}) — attempt ${attempt + 1}/${retries + 1}`)
+  }
+  if (/REVIEW_RESULT/.test(String(lastText ?? ''))) {
+    const emitted = await emitStructured(lastText, opts)
+    if (emitted && validateShape(emitted, opts.schema)) return emitted
+    throw new Error('text-contract: emitter produced an invalid shape — declared dark')
+  }
+  throw new Error('text-contract: explorer never produced the REVIEW_RESULT block (truncation) — declared dark')
 }
 
 // If the agent reported a KNOWN fail-closed reason, return the validated marker; else null. Only a
@@ -263,15 +312,25 @@ if (kind === 'produce') {
         (specPath ? ` and write it to \`${specPath}\`` : '') +
         `. Return { summary, artifactPath }.`) +
     ` If the design source is unreachable or exceeds a DesignSync limit, do NOT guess — return ` +
-    `{ summary, failClosed: { reason } } where reason is one of: ${reasonList}.` +
-    STRUCTURED_OUTPUT_MANDATE
+    `{ summary, failClosed: { reason } } where reason is one of: ${reasonList}.`
 
   const opts = {
+    // bounded-exploration-optout: design produce -- a produce dispatch WRITES a spec or
+    //   implements a screen; "emit early without opening files" is semantically wrong for work
+    //   whose whole output depends on reading the design and the surrounding code.
     agentType: skill,
     model: modelOverrides[skillBare] || DESIGN_MODEL[skill] || 'sonnet',
     label: skill,
     phase: 'Design Sync',
+    // bounded-exploration-optout: validator-reference -- feeds validateShape and the emitter;
+    //   the explorer dispatch itself is schema-free (#169).
     schema: PRODUCE_SCHEMA,
+    epilogue:
+      '\n\nAfter completing the work, your FINAL output MUST end with this sentinel line followed' +
+      ' by one fenced json block and NOTHING after it:\n\n' +
+      'REVIEW_RESULT\n```json\n{ "summary": "...", "artifactPath": "...", "committed": false,' +
+      ' "changedFiles": [], "failClosed": { "reason": "...", "detail": "..." } }\n```' +
+      '\n(omit failClosed entirely on success)',
   }
 
   // `infraFailure: true` marks a dispatch/StructuredOutput death that survived the inline retries,
@@ -313,32 +372,50 @@ const dispatchGateReviewer = async (agentType) => {
     const failClosed = normalizeFailClosed(result)
     return failClosed ? { agentType, result, failClosed } : { agentType, result }
   }
-  try {
-    const result = await agent(prompt, { agentType, model, label: agentType, phase: 'Design Sync', schema: GATE_SCHEMA })
-    return annotate(result)
-  } catch (err) {
-    if (!isNoStructuredOutputError(err)) {
-      return { agentType, result: null, error: String(err) }
-    }
-    log(`${agentType}: died without StructuredOutput — retrying once`)
+  // Explorer/emitter ladder — dark-marker shapes unchanged.
+  const GATE_EPILOGUE =
+    '\n\nWrite your review. Your FINAL output MUST end with this sentinel line followed by one' +
+    ' fenced json block and NOTHING after it:\n\n' +
+    'REVIEW_RESULT\n```json\n{ "verdict": "pass|warn|block", "findings": [ { "severity":' +
+    ' "blocker|major|minor|nit", "file": "...", "line": 0, "title": "...", "description": "...",' +
+    ' "confidence": 0 } ], "failClosed": { "reason": "..." } }\n```' +
+    '\n(omit failClosed entirely unless you could not read the design source)'
+  let lastText = null
+  for (let attempt = 0; attempt < 2; attempt++) {
+    let text
     try {
-      const result = await agent(prompt, {
+      text = await agent(prompt + GATE_EPILOGUE, {
         agentType,
         model,
-        label: `${agentType} (retry)`,
+        label: attempt === 0 ? agentType : `${agentType} (retry)`,
         phase: 'Design Sync',
-        schema: GATE_SCHEMA,
       })
-      return annotate(result)
-    } catch (retryErr) {
-      return {
-        agentType,
-        result: null,
-        error: `retry failed: ${retryErr}; first attempt: ${err}`,
-        retried: true,
-        failed: true,
-      }
+    } catch (err) {
+      return attempt === 0
+        ? { agentType, result: null, error: String(err) }
+        : { agentType, result: null, error: `retry failed: ${err}`, retried: true, failed: true }
     }
+    const parsed = parseReviewResult(text)
+    if (parsed && validateShape(parsed, GATE_SCHEMA)) return annotate(parsed)
+    lastText = text
+    log(`${agentType}: text-contract miss (${/REVIEW_RESULT/.test(String(text ?? '')) ? 'invalid json' : 'no sentinel'})${attempt === 0 ? ' — retrying once' : ''}`)
+  }
+  if (/REVIEW_RESULT/.test(String(lastText ?? ''))) {
+    try {
+      // bounded-exploration-optout: validator-reference -- this schema: key parameterizes the
+      //   emitter helper (whose own dispatch site carries the structured-emitter marker).
+      const emitted = await emitStructured(lastText, { label: agentType, schema: GATE_SCHEMA })
+      if (emitted && validateShape(emitted, GATE_SCHEMA)) return annotate(emitted)
+    } catch (emitErr) {
+      return { agentType, result: null, error: `emit failed: ${emitErr}`, retried: true, failed: true }
+    }
+  }
+  return {
+    agentType,
+    result: null,
+    error: 'text-contract: explorer never produced a parseable REVIEW_RESULT block after retry — declared dark',
+    retried: true,
+    failed: true,
   }
 }
 

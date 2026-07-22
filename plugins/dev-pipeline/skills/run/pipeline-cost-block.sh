@@ -203,10 +203,12 @@ fi
 # assign each row to its stage label based on the row's timestamp falling
 # inside the stage's [startedAt, completedAt] window.
 #
-# Stage → bucket label (10 stages):
-#   1,2,3 → Intake + Planning    4,5 → Plan          6   → Implementation
-#   7     → Verify               8   → Code Review   9   → PR Creation
-#   10    → Cleanup
+# Stage → bucket label (10 stages). MUST track the stage numbering in SKILL.md's
+# Pipeline Checklist: 1 Intake, 2 Worktree, 3 Write Plan, 4 Plan Review,
+# 5 Implement, 6 Verify, 7 Doc Update, 8 Code Review, 9 Open PR, 10 Cleanup.
+#   1,2 → Intake                 3,4 → Plan          5   → Implementation
+#   6   → Verify                 7   → Doc Update    8   → Code Review
+#   9   → PR Creation            10  → Cleanup
 # ────────────────────────────────────────────────────────────────────────────
 SIDS_JSON=$(jq -R -s 'split("\n") | map(select(length > 0))' <<<"$SESSIONS")
 
@@ -240,9 +242,9 @@ compute_bucket_rollup() {
         --argjson stages "$(jq -c '.stages' "$STATE_FILE")" '
     def nanos_to_iso: tonumber / 1e9 | todate;
     def stage_label(n):
-      {"1":"Intake + Planning","2":"Intake + Planning","3":"Intake + Planning",
-       "4":"Plan","5":"Plan",
-       "6":"Implementation","7":"Verify",
+      {"1":"Intake","2":"Intake",
+       "3":"Plan","4":"Plan",
+       "5":"Implementation","6":"Verify","7":"Doc Update",
        "8":"Code Review","9":"PR Creation","10":"Cleanup"}
       [n|tostring] // "Other";
 
@@ -293,8 +295,8 @@ compute_bucket_rollup() {
             models: ( [.[] | .model // empty] | unique | sort )
           })
         | sort_by(
-            {"Intake + Planning":1,"Plan":2,"Implementation":3,"Verify":4,
-             "Code Review":5,"PR Creation":6,"Cleanup":7,"Other":8}
+            {"Intake":1,"Plan":2,"Implementation":3,"Verify":4,"Doc Update":5,
+             "Code Review":6,"PR Creation":7,"Cleanup":8,"Other":9}
              [.label] // 10
           )
       ),

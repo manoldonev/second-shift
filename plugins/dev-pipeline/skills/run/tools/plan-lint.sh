@@ -14,6 +14,23 @@
 #      `non-functional | infra-only | covered-by-selftest | covered-by-render-verify`.
 #   3. When <state-path> is given and carries a non-empty `acceptanceCriteria[]`
 #      (the Stage-1 snapshot): table rows ⇄ snapshot ids exactly 1:1.
+#   4. Decision Ledger provenance legality: a `| D-n |` row carrying a
+#      human-attributed provenance (`user-answered` / `user-delegated`) is a
+#      hard FAIL unless the backing `{issue}-ledger.md` — the sibling of the
+#      passed <state-path> — exists. `codebase-derived` / `deferred` rows pass
+#      unconditionally, and an absent ledger section (or the explicit empty
+#      form) is untouched by this check (the section stays advisory, below).
+#      Fail-closed when human-attributed rows are present but no <state-path>
+#      was given to resolve the ledger context.
+#   5. [NEW] grounding-tag presence (#175 retro): eval criterion 2 is grep-scored,
+#      so a reference the plan CREATES must carry the literal [NEW] tag — prose
+#      conventions score FAIL at retro time regardless of grounding quality.
+#      5a. A backtick-quoted repo path (contains /, dotted final segment, top
+#          directory exists in the plan's repo, not .claude/-scoped) that does
+#          not exist on disk must sit on a line carrying [NEW] or [UNVERIFIED].
+#      5b. Two or more creation-verb steps (Add/Create/Introduce at a numbered
+#          or bulleted step) with ZERO [NEW] tokens anywhere in the plan is the
+#          run-#175 shape: planned creations with no tags. One named violation.
 #
 # Degradation: no state path / pre-schema state / empty `acceptanceCriteria[]`
 # → checks 1-2 only. An empty table under a present traceability header with an
@@ -135,6 +152,87 @@ if [[ -n "$STATE" ]]; then
     fi
   fi
   # Empty/absent snapshot → structure-only by design (pre-schema resumes, no-AC runs).
+fi
+
+# ---- Check 4: Decision Ledger provenance legality ---------------------------
+# Human-attributed provenance (user-answered / user-delegated) asserts a human
+# made the call. In-pipeline that is legitimate ONLY when a pre-flight
+# /plan-interview wrote the backing {issue}-ledger.md; the autonomous contract
+# forbids prompting mid-run, so a run authoring such a row with no backing file is
+# the fabrication class this check closes (a run negotiating its provenance to
+# satisfy a gate). codebase-derived / deferred rows pass unconditionally, and a
+# plan that omits the ledger (or uses the explicit empty form) is untouched here —
+# the section stays advisory (below), NOT a mandated hard-gated section.
+#
+# mirror of interviewing-baseline provenance enum — the HUMAN-ATTRIBUTED SUBSET;
+# keep in lockstep with plan-interview/tools/ledger-lint.sh's PROVENANCE_ENUM. If
+# #147 adds an operator-attributed value, it joins this subset here too.
+HUMAN_PROVENANCE='user-answered|user-delegated'
+# The backing ledger is the SIBLING of the state file: both live in the main-repo
+# .claude/pipeline-state/, keyed by the same issue number ({issue}.json /
+# {issue}-ledger.md). Derived from <state-path> — no extra argument, no call-site
+# change. Empty when no state path was passed (fail-closed branch below).
+LEDGER_FILE=""
+[[ -n "$STATE" ]] && LEDGER_FILE="$(dirname "$STATE")/$(basename "$STATE" .json)-ledger.md"
+
+declare -a HUMAN_ROWS=()
+while IFS= read -r line; do
+  masked="${line//\\|/${PIPE_SENTINEL:-__PLAN_LINT_PIPE__}}"
+  IFS='|' read -r -a cells <<< "$masked"
+  # cells[1] is the anchored `D-n` id (the row grep guarantees it). Scan every
+  # OTHER cell for a cell whose ENTIRE trimmed content is a human-attributed
+  # provenance token — not just cells[4] — so a malformed (wrong-column-count) row
+  # cannot smuggle a human provenance past the gate (in-pipeline ledger-lint.sh
+  # does not run, so this is the only gate). The `^...$` anchor keeps prose that
+  # merely mentions the enum from false-positiving — only a bare-token cell matches.
+  did="$(trim "${cells[1]}")"
+  human=0
+  for (( ci = 2; ci < ${#cells[@]}; ci++ )); do
+    [[ "$(trim "${cells[ci]}")" =~ ^(${HUMAN_PROVENANCE})$ ]] && { human=1; break; }
+  done
+  (( human == 1 )) && HUMAN_ROWS+=("$did")
+done < <(grep -E '^\|[[:space:]]*D-[0-9]+[[:space:]]*\|' "$PLAN" || true)
+
+if (( ${#HUMAN_ROWS[@]} > 0 )); then
+  if [[ -n "$LEDGER_FILE" && -f "$LEDGER_FILE" ]]; then
+    : # backed by a pre-flight ledger — the human-attributed rows are legitimate
+  elif [[ -n "$LEDGER_FILE" ]]; then
+    violate "Decision Ledger row(s) ${HUMAN_ROWS[*]} carry human-attributed provenance (${HUMAN_PROVENANCE//|/ / }) but no backing ledger file exists at $LEDGER_FILE — an autonomous run may only use codebase-derived/deferred (run /plan-interview pre-flight to author human-attributed rows)"
+  else
+    # No state path ⇒ the ledger context is unresolvable. Fail closed rather than
+    # silently no-op: the #110 fabrication happened on a crash-recovery resume.
+    violate "Decision Ledger row(s) ${HUMAN_ROWS[*]} carry human-attributed provenance (${HUMAN_PROVENANCE//|/ / }) but no state path was given to resolve the backing {issue}-ledger.md (fail-closed)"
+  fi
+fi
+
+# ---- Check 5: [NEW] grounding-tag presence (#175 retro) ---------------------
+# 5a: nonexistent untagged path = either a planned creation (tag it [NEW]) or a
+# typo (fix it). Precision guards: token must contain a slash and a dotted final
+# segment (skips branch names like origin/main), its top directory must exist in
+# the plan's repo (skips fixture plans referencing a fictional tree), and
+# .claude/ paths are skipped (pipeline-state artifacts live in the MAIN repo and
+# are legitimately absent from worktrees).
+BT="$(printf '\140')"   # a literal backtick, built via octal so grep patterns can double-quote it (avoids SC2016 noise)
+PLAN_ROOT="$(git -C "$(cd "$(dirname "$PLAN")" && pwd)" rev-parse --show-toplevel 2>/dev/null || true)"
+if [[ -n "$PLAN_ROOT" ]]; then
+  while IFS= read -r pline; do
+    lineno="${pline%%:*}"; content="${pline#*:}"
+    grep -qE '\[(NEW|UNVERIFIED)\]' <<< "$content" && continue
+    while IFS= read -r tok; do
+      [[ -z "$tok" ]] && continue
+      [[ "$tok" == .claude/* ]] && continue
+      topdir="${tok%%/*}"
+      [[ -d "$PLAN_ROOT/$topdir" ]] || continue
+      [[ -e "$PLAN_ROOT/$tok" ]] && continue
+      violate "line $lineno references \`$tok\` which does not exist — tag it [NEW] (planned creation) or fix the path (grounding-tag rule, stages/3-write-plan.md)"
+    done < <(grep -oE "${BT}[A-Za-z0-9_./-]+${BT}" <<< "$content" | tr -d "\`" \
+             | grep -E '^[A-Za-z0-9_.-]+(/[A-Za-z0-9_.-]+)*/[A-Za-z0-9_-]+\.[A-Za-z0-9_.]+$' || true)
+  done < <(grep -nE "${BT}[A-Za-z0-9_.-]+/[A-Za-z0-9_./-]+${BT}" "$PLAN" || true)
+fi
+# 5b: the run-#175 shape — creation-verb steps with zero tags anywhere.
+CREATION_LINES=$(grep -cE '^[[:space:]]*([0-9]+\.|-)[[:space:]].*\b(Add|add|Create|create|Introduce|introduce)\b' "$PLAN") || true
+if (( ${CREATION_LINES:-0} >= 2 )) && ! grep -q '\[NEW\]' "$PLAN"; then
+  violate "$CREATION_LINES creation-verb step(s) but zero [NEW] grounding tags anywhere in the plan — tag every reference the plan creates with the literal [NEW] token (grounding-tag rule, stages/3-write-plan.md; eval criterion 2 is grep-scored)"
 fi
 
 # ---- Advisory: Decision Ledger presence (never a violation) -------------------

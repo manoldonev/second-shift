@@ -3,7 +3,7 @@ name: unit-test-mutation-reviewer
 description: Mutation review of co-located unit tests — proposes concrete mutants and predicts whether the specs would catch them. Does NOT apply mutants or run tests; execution-verification of blocker-class mutants is owned by the Stage-5 orchestrator. No Stryker.
 tools: Read, Grep, Glob, Bash
 model: sonnet
-maxTurns: 12
+maxTurns: 30
 permissionMode: bypassPermissions
 skills: mutation-review, reviewer-baseline
 ---
