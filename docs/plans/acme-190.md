@@ -38,7 +38,7 @@ codebase-derived only (autonomous contract forbids human-attributed provenance).
 | D-1 | Number of the new check | Check 6 — Check 5 is already the `[NEW]` grounding-tag gate (#175); the issue's "Check 5" name predates it | codebase-derived |
 | D-2 | Hardness scope of the missing-section rule | Hard only when the backing ledger carries at least one `D-n` row; an empty-form / zero-row backing ledger keeps the section advisory, preserving `pl-o` and AC-2 byte-identity | codebase-derived |
 | D-3 | Whitespace normalization for the Resolution compare | `trim()` leading/trailing only (existing helper, `plan-lint.sh:60`); internal whitespace significant — neutralizes prettier per-table column padding | codebase-derived |
-| D-4 | Cell-location rule for the plan/ledger compare | Positional per the canonical `ID / Decision / Resolution / Provenance` schema (`ledger-lint.sh:60-68`) that verbatim hydration preserves: cells[3]=Resolution, cells[4]=Provenance | codebase-derived |
+| D-4 | Cell-location rule for the plan/ledger compare | Positional per the canonical `ID / Decision / Resolution / Provenance` schema (`ledger-lint.sh:60-68`) that verbatim hydration preserves: compares cells[2]=Decision, cells[3]=Resolution, cells[4]=Provenance — all three content cells, true "verbatim" (adopted from Stage-4 plan-review warning W1; broader than the issue's Provenance+Resolution scope, AC-1 is a subset) | codebase-derived |
 
 ## Affected files/modules
 
@@ -90,6 +90,7 @@ Verify-after (shell gate change; no product behavior). Coverage via
 - `pl-w` missing `D-n` row: backing `D-1`,`D-2`; plan omits `D-2` → rc 1, names `D-2`.
 - `pl-x` mutated provenance: plan `D-1` provenance differs → rc 1, names `D-1`.
 - `pl-y` drifted resolution: plan `D-1` resolution differs → rc 1, names `D-1`.
+- `pl-ad` drifted Decision cell (the all-3-cells "verbatim" enforcement, W1) → rc 1, names the row.
 - `pl-z` missing section with a backing ledger (>=1 row) → rc 1, names the missing section.
 - `pl-aa` no-backing-file unchanged: plan with ledger rows, no backing file → rc 0.
 - `pl-ab` padding-only resolution difference (prettier column padding) → rc 0 (trim, D-3).
