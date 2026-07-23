@@ -41,6 +41,7 @@
 #   statectl.sh comment-add <issue-number> --marker <stage-marker> --url <comment-url> [--force]
 #   statectl.sh reclaim <issue-number> [--release] [--threshold-min <N>] [--force]
 #   statectl.sh intake-brief <issue-number> --brief-path <path|null> --acceptance-criteria '<json-array>'
+#   statectl.sh slice-partition-set <issue-number> --json '[{"slice":1,"acIds":["AC-1"]}, ...]' [--force]
 #   statectl.sh plan-review-set <issue-number> --overall <pass|fix-and-go> [--force]
 #   statectl.sh verify-summary-set <issue-number> --json <verifySummary> [--force]
 #   statectl.sh quality-pass-set <issue-number> --json <payload> [--force]
@@ -1082,6 +1083,72 @@ cmd_slice_set() {
     | .lastUpdatedAt  = $now
   ' <<< "$current_state") || { EXIT_CODE=2 die "slice-set: jq mutation failed"; }
   atomic_write "$key" "$new_state"
+}
+
+cmd_slice_partition_set() {
+  # Persist the Stage-1 AC→slice partition (`decomposition.slices[].acIds`) —
+  # the intake orchestrator's coverage back-check result, written ONCE at intake
+  # before any code exists. Part of the intent-snapshot family alongside
+  # acceptanceCriteria[] (same trust model: write-once, run-authoritative,
+  # immune to mid-run authoring). Consumers: plan-lint Check 3 slice mode,
+  # the Stage-8 scope-gate slice mode, pipeline-retro's AC-coverage audit.
+  # See state-schema.md "Stacked-PR AC partition".
+  #
+  # Usage:
+  #   statectl slice-partition-set <issue-number> --json '[{"slice":1,"acIds":["AC-1",...]}, ...]' [--force]
+  local key="${1:-}"; shift || true
+  local partition_json="" force=0
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --json)  partition_json="${2:-}"; shift 2 ;;
+      --force) force=1; shift ;;
+      *) EXIT_CODE=3 die "slice-partition-set: unknown arg '$1'" ;;
+    esac
+  done
+  [[ -n "$key" && -n "$partition_json" ]] \
+    || { EXIT_CODE=3 die "slice-partition-set: usage: slice-partition-set <issue-number> --json '<json-array>' [--force]"; }
+  jq -e 'type == "array" and length > 0' <<< "$partition_json" >/dev/null 2>&1 \
+    || { EXIT_CODE=3 die "slice-partition-set: --json must be a non-empty JSON array"; }
+  local bad
+  bad=$(jq -r '[.[] | select(((.slice | type) != "number") or (.slice | floor != .) or (.slice < 1))] | length' <<< "$partition_json")
+  [[ "$bad" == "0" ]] || { EXIT_CODE=3 die "slice-partition-set: every entry's .slice must be a positive integer"; }
+  # Slice indices must be exactly 1..N (contiguous, no duplicates) — the same
+  # 1-based index space as currentSlice/slice-set.
+  bad=$(jq -r '(map(.slice) | sort) == [range(1; length + 1)] | if . then "0" else "1" end' <<< "$partition_json")
+  [[ "$bad" == "0" ]] || { EXIT_CODE=3 die "slice-partition-set: .slice values must be exactly 1..N (contiguous, unique)"; }
+  bad=$(jq -r '[.[] | select((.acIds | type) != "array" or (.acIds | length) == 0)] | length' <<< "$partition_json")
+  [[ "$bad" == "0" ]] || { EXIT_CODE=3 die "slice-partition-set: every entry's .acIds must be a non-empty array"; }
+  bad=$(jq -r '[.[].acIds[] | select((type != "string") or (test("^AC-[0-9]+$") | not))] | length' <<< "$partition_json")
+  [[ "$bad" == "0" ]] || { EXIT_CODE=3 die "slice-partition-set: every acId must be a string matching ^AC-[0-9]+\$"; }
+  # Disjoint: an AC id may appear in exactly one slice.
+  bad=$(jq -r '([.[].acIds[]] | length) - ([.[].acIds[]] | unique | length)' <<< "$partition_json")
+  [[ "$bad" == "0" ]] || { EXIT_CODE=3 die "slice-partition-set: acIds must be disjoint across slices (an AC belongs to exactly one slice)"; }
+  local current_state
+  current_state=$(read_state "$key") || exit $?
+  require_mutable "$current_state" "$force" "slice-partition-set"
+  # Every acId must exist in the acceptanceCriteria[] snapshot (the partition is
+  # a partition OF the snapshot — never a parallel AC universe).
+  bad=$(jq --argjson p "$partition_json" -r '
+    (.acceptanceCriteria // [] | map(.id)) as $snap
+    | [$p[].acIds[] | select(. as $a | $snap | index($a) | not)] | length
+  ' <<< "$current_state")
+  [[ "$bad" == "0" ]] || { EXIT_CODE=1 die "slice-partition-set: every acId must exist in the acceptanceCriteria[] snapshot (write intake-brief first)"; }
+  # Write-once: the partition is intent-snapshot data. Overwriting an existing
+  # partition mid-run is the scope-narrowing move the write-once posture blocks.
+  local existing
+  existing=$(jq -r '.decomposition.slices // [] | length' <<< "$current_state")
+  if [[ "$existing" != "0" && "$force" -ne 1 ]]; then
+    EXIT_CODE=1 die "slice-partition-set: decomposition.slices already present (write-once); pass --force to overwrite"
+  fi
+  local now
+  now=$(now_iso)
+  local new_state
+  new_state=$(jq --argjson p "$partition_json" --arg now "$now" '
+    .decomposition.slices = ($p | sort_by(.slice) | map({slice, acIds}))
+    | .lastUpdatedAt = $now
+  ' <<< "$current_state") || { EXIT_CODE=2 die "slice-partition-set: jq mutation failed"; }
+  atomic_write "$key" "$new_state"
+  jq -r '.decomposition.slices | length' <<< "$new_state"
 }
 
 cmd_worktree_set() {
@@ -2379,6 +2446,7 @@ main() {
     verify-attempts)        cmd_verify_attempts "$@" ;;
     pipeline-session-add)   cmd_pipeline_session_add "$@" ;;
     slice-set)              cmd_slice_set "$@" ;;
+    slice-partition-set)    cmd_slice_partition_set "$@" ;;
     unit-test-surface-set)  cmd_unit_test_surface_set "$@" ;;
     mutation-audit-set)     cmd_mutation_audit_set "$@" ;;
     skill-load-add)         cmd_skill_load_add "$@" ;;
