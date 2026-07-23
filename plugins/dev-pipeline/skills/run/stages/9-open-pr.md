@@ -106,7 +106,7 @@ if [[ "$(jq -r '.topology.type // "standalone"' "$SECOND_SHIFT_CONFIG" 2>/dev/nu
 fi
 ```
 
-`pr-add --repo` records `prs.<id> = {url, branch, repo}` (the branch is shared across repos, so `.prs` is keyed by repo id, not branch). Each PR targets ITS repo's base (BE `alpha` / FE `main`). Everything else in this stage (cost block, completion write) runs once after the loop.
+`pr-add --repo` records `prs.<id> = {url, branch, repo}` (the branch is shared across repos, so `.prs` is keyed by repo id, not branch). This per-repo loop (and its `pr-add --repo` keying) applies whenever `topology.type == be-fe-pair` — **including a single-target (`[FE]`-only or `[BE]`-only) pair run**; taking the single-repo branch-keyed path for a pair run is what produced the observed `.prs` value drift (#188). Each PR targets ITS repo's base (BE `alpha` / FE `main`). Everything else in this stage (cost block, completion write) runs once after the loop. (The branch-keyed single-repo form now also stamps `{ url, branch, repo }` — the value shape is uniform across keyings; only the KEY differs — see `state-schema.md` `.prs`.)
 
 **Guard against duplicates (single-repo — `standalone`/`monorepo` only; be-fe-pair used the per-repo loop above):**
 
@@ -279,9 +279,19 @@ dev-pipeline run: ${RUN_ID}
 
 ## Cost-block sub-step (in-band, opt-in)
 
-After every PR in `prs` has its URL recorded, invoke the cost-block sub-step to amend each PR body with the cost block. It is idempotent on the `<!-- pipeline-cost-block -->` marker. The sub-step always exits 0 — it never blocks Stage 9 completion. It records its own outcome to `costBlockApplied` in the state file.
+After every PR in `prs` has its URL recorded, invoke the cost-block sub-step to amend each PR body with the cost block. It is idempotent on the `<!-- pipeline-cost-block -->` marker. It records its own outcome to `costBlockApplied` in the state file and **never blocks Stage 9 completion** — the caller below invokes it without checking rc.
+
+**Anchor the sub-step at the CONTROL repo's state (#188).** `pipeline-cost-block.sh` resolves its state file from `$PWD`'s git-common-dir. A cross-repo run whose cwd at this point is not the control repo (e.g. a bespoke setup that drives a foreign FE checkout via `--add-dir`) would anchor to the wrong repo, find no state, and — before this fix — exit silently leaving `costBlockApplied: null`. Export the control-repo root so `resolve_state()` (which already honors `SECOND_SHIFT_REPO_ROOT`) always finds the real state, for **all topologies** — a no-op for `standalone`/`monorepo` (the export equals what `resolve_state()` would derive anyway) and the fix for the be-fe-pair path (whose cwd here is the control main checkout):
 
 ```bash
+# Control repo root = parent of the MAIN checkout's git-common-dir. Correct for
+# both topologies at THIS call site: a standalone/monorepo cwd is a worktree that
+# shares the control .git (common-dir parent = control root); a be-fe-pair cwd is
+# the control main checkout itself (common-dir = <control>/.git, parent = control
+# root). NOT `git rev-parse --show-toplevel` — from a worktree that returns the
+# worktree top, not the control root. Operators of a truly foreign cwd (no git link
+# back to control) set STATECTL_STATE_DIR themselves; see cost-tracking-setup.md.
+export SECOND_SHIFT_REPO_ROOT="$(dirname "$(cd "$(git rev-parse --git-common-dir)" && pwd)")"
 bash pipeline-cost-block.sh "$ISSUE_NUMBER"
 ```
 
@@ -289,7 +299,7 @@ What it does: reads `pipelineSessions[]`, queries the OTel metrics for those ses
 
 Two behaviors this stage owns: in-fence datapoints matching no stage window land in an explicit "Other" bucket, and a stacked-PR run (`len(prs) > 1`) splits total cost evenly across slices.
 
-A missing prerequisite records a descriptive `costBlockApplied` string and exits 0 — the pipeline continues regardless.
+A missing prerequisite records a descriptive `costBlockApplied` string and exits 0. The one non-zero exit is **state-unresolvable** (no state file at the resolved path — nothing to record into): it logs loudly and exits non-zero (rc 2), which is why the anchor export above matters. Either way the pipeline continues regardless — Stage 9 never checks the sub-step's rc (#188).
 
 **Recovering a `"skipped-otel-error"`:** the stage is already complete when the cost block fails, so the pipeline does not retry it — the operator re-runs the sub-step by hand. Procedure: [`cost-tracking-setup.md` → "Manual re-run after an OTel query failure"](../cost-tracking-setup.md#manual-re-run-after-an-otel-query-failure).
 

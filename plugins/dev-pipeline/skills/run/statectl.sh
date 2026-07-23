@@ -1158,21 +1158,40 @@ cmd_pr_add() {
   require_mutable "$current" "$force" "pr-add"
   local now
   now=$(now_iso)
+  # Capture whether --repo was explicitly passed (be-fe-pair repo-keying) BEFORE we
+  # derive a fallback alias below — the derivation must not blur the two keyings.
+  local repo_keyed=0
+  [[ -n "$repo" ]] && repo_keyed=1
+  # #188: normalize the VALUE shape to { url, branch, repo } across BOTH keyings so
+  # no reader hits url-only drift. The KEYS stay run-shape-specific (branch-keyed
+  # single-repo/stacked, repo-keyed be-fe-pair — stacked slices collide on a repo
+  # key, pair runs collide on a branch key). Without --repo, derive `repo` from the
+  # config host-repo alias (the topology.repos entry with path ".") so single-repo
+  # entries still carry it; unresolvable config (e.g. the config-less selftest
+  # harness / CI, where the gitignored config is absent) → repo: null.
+  if [[ "$repo_keyed" -eq 0 ]]; then
+    local cfg
+    cfg=$(config_file)
+    if [[ -n "$cfg" && -f "$cfg" ]]; then
+      repo=$(jq -r '(.topology.repos | to_entries[] | select(.value.path == ".") | .key) // empty' "$cfg" 2>/dev/null) || repo=""
+    fi
+  fi
   local new_state
   # --repo <id> (be-fe-pair): a pair run opens one PR per target repo, all on the
   # SAME branch name — so key `.prs` by REPO ID (not branch, which would collide)
   # and stamp repo + branch. Consumers iterate `.prs[].url` either way. Without
-  # --repo the branch-keyed form (single-repo / one entry per stacked slice).
-  if [[ -n "$repo" ]]; then
+  # --repo the branch-keyed form (single-repo / one entry per stacked slice), now
+  # also stamped with branch + the resolved repo alias (null when unresolvable).
+  if [[ "$repo_keyed" -eq 1 ]]; then
     new_state=$(jq --arg r "$repo" --arg b "$branch" --arg u "$url" --arg now "$now" '
       .prs = (.prs // {})
       | .prs[$r] = { url: $u, branch: $b, repo: $r }
       | .lastUpdatedAt = $now
     ' <<< "$current") || { EXIT_CODE=2 die "pr-add: jq mutation failed"; }
   else
-    new_state=$(jq --arg b "$branch" --arg u "$url" --arg now "$now" '
+    new_state=$(jq --arg b "$branch" --arg u "$url" --arg r "$repo" --arg now "$now" '
       .prs = (.prs // {})
-      | .prs[$b] = { url: $u }
+      | .prs[$b] = { url: $u, branch: $b, repo: (if $r == "" then null else $r end) }
       | .lastUpdatedAt = $now
     ' <<< "$current") || { EXIT_CODE=2 die "pr-add: jq mutation failed"; }
   fi

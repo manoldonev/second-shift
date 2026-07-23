@@ -3,9 +3,12 @@
 # run's PR(s). Invoked explicitly by Stage 9 (this is NOT a Stop hook).
 #
 # Usage:  pipeline-cost-block.sh <issue-number>
-# Exit:   0 on success and on graceful skip (no metrics, no bot wrapper, no
-#         collector). Always non-fatal — the pipeline continues regardless.
-#         The outcome is recorded in the state file's costBlockApplied field.
+# Exit:   0 = ran, or recorded a documented skip (no metrics, no bot wrapper, no
+#         collector, no PRs, …) into the state file's costBlockApplied field.
+#         non-zero = the state file could not be resolved (nothing to record
+#         into) — a loud, state-unresolvable failure. Either way the sub-step is
+#         non-fatal to Stage 9: the caller invokes it without checking rc, so a
+#         non-zero exit surfaces in the run summary but never blocks completion.
 
 set -uo pipefail
 log() { echo "[pipeline-cost-block] $*" >&2; }
@@ -71,7 +74,14 @@ resolve_state() {
   fi
 }
 STATE_FILE=$(resolve_state)
-[ -f "$STATE_FILE" ] || { log "no state file at $STATE_FILE — nothing to do"; exit 0; }
+# No state file at the resolved path is UNRECORDABLE: record() writes into
+# $STATE_FILE, which by definition does not exist here, so we cannot leave a
+# costBlockApplied breadcrumb. Fail LOUD (non-zero) instead of the old silent
+# `exit 0` — a bare null was the #188 silent-skip. A cross-repo run must point
+# this script at the CONTROL repo's state (Stage 9 exports SECOND_SHIFT_REPO_ROOT
+# on the invocation; operators of a bespoke cwd set STATECTL_STATE_DIR). Stage 9
+# invokes this without checking rc, so the non-zero never blocks completion.
+[ -f "$STATE_FILE" ] || { log "no state file at $STATE_FILE — state unresolvable, cannot record costBlockApplied (see #188: export SECOND_SHIFT_REPO_ROOT/STATECTL_STATE_DIR to the control repo)"; exit 2; }
 
 # ────────────────────────────────────────────────────────────────────────────
 # Record outcome into costBlockApplied (raw jq — statectl does not own this).
@@ -365,7 +375,9 @@ fi
 # Stacked-PR runs split evenly across slices; single-PR runs use factor 1.
 # ────────────────────────────────────────────────────────────────────────────
 PR_COUNT=$(jq -r '[.prs | values[]? | select(. != null)] | length' "$STATE_FILE")
-[ "$PR_COUNT" -eq 0 ] && { log "no PRs in state — skipping"; exit 0; }
+# State exists but carries no PRs → record the skip reason (never a bare null /
+# silent exit — #188). Sibling of the skipped-* paths above.
+[ "$PR_COUNT" -eq 0 ] && { log "no PRs in state — skipping"; record '"skipped-no-prs"'; exit 0; }
 
 SPLIT_FACTOR="1"
 if [ "$PR_COUNT" -gt 1 ]; then
