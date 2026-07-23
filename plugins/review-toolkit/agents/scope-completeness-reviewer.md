@@ -1,7 +1,7 @@
 ---
 name: scope-completeness-reviewer
 description: Verifies that a PR fully implements all scope items of its linked issue/ticket (a GitHub issue or a JIRA ticket). Spawned by review-lead when an issue/ticket is referenced in the invocation. Independent of the orchestrator's scope interpretation — fetches the issue/ticket, enumerates scope items, classifies each against the diff.
-tools: Read, Grep, Glob, Bash, WebFetch, mcp__atlassian__getJiraIssue, mcp__atlassian__getJiraIssueRemoteIssueLinks, mcp__atlassian__getAccessibleAtlassianResources
+tools: Read, Grep, Glob, Bash, WebFetch, ToolSearch, mcp__atlassian__getJiraIssue, mcp__atlassian__getJiraIssueRemoteIssueLinks, mcp__atlassian__getAccessibleAtlassianResources, mcp__plugin_atlassian_atlassian__getJiraIssue, mcp__plugin_atlassian_atlassian__getJiraIssueRemoteIssueLinks, mcp__plugin_atlassian_atlassian__getAccessibleAtlassianResources, mcp__claude_ai_Atlassian_Rovo__getJiraIssue, mcp__claude_ai_Atlassian_Rovo__getJiraIssueRemoteIssueLinks, mcp__claude_ai_Atlassian_Rovo__getAccessibleAtlassianResources
 model: opus
 effort: high
 maxTurns: 30
@@ -37,13 +37,20 @@ Read the repo's topology from the consumer config at `<repo-root>/.claude/second
 Always fetch the issue/ticket yourself, regardless of what the dispatch prompt says. **Which fetch depends on the tracker** — resolve it from the repo-local config (`jq -r '.tracker.type // "github"' .claude/second-shift.config.json`), or trust the tracker/key named in your dispatch prompt:
 
 - **`tracker.type: github`** — `gh issue view $ISSUE_NUMBER --json body,title,number,labels`.
-- **`tracker.type: jira`** — fetch with `mcp__atlassian__getJiraIssue` (pass the ticket key; `responseContentFormat: "markdown"`). If you don't already have a `cloudId`, call `mcp__atlassian__getAccessibleAtlassianResources` first. Also fetch `mcp__atlassian__getJiraIssueRemoteIssueLinks` — it surfaces any PRs/branches the ticket itself links, which become candidate sibling-PR evidence.
+- **`tracker.type: jira`** — fetch the ticket via the Atlassian MCP. **Do NOT assume the `mcp__atlassian__*` prefix** — the MCP's tool namespace depends on how the session registered it, and a hardcoded prefix is exactly what makes this gate unsatisfiable elsewhere. This session may expose the Atlassian tools under any of three namespaces, all declared in your `tools`:
+  - `mcp__atlassian__*` — a top-level `mcpServers` registration
+  - `mcp__plugin_atlassian_atlassian__*` — a plugin-bundled server
+  - `mcp__claude_ai_Atlassian_Rovo__*` — the claude.ai Atlassian (Rovo) integration
 
-If the fetch fails (auth error, network failure, MCP not available, issue/ticket not found), do not fall back to the dispatch prompt's content. Return:
+  Call whichever `getJiraIssue` is on your tool surface (pass the ticket key; `responseContentFormat: "markdown"`). Resolve `cloudId` via whichever `getAccessibleAtlassianResources` is present if you don't already have one, and fetch whichever `getJiraIssueRemoteIssueLinks` is present — it surfaces any PRs/branches the ticket links, candidate sibling-PR evidence. **If these tools are deferred rather than directly callable** (the Workflow-subagent surface — a direct call to a deferred tool fails with `InputValidationError`), first run `ToolSearch` with a `select:` query listing all three namespaces' `getJiraIssue`, `getAccessibleAtlassianResources`, and `getJiraIssueRemoteIssueLinks`, then call the exact names it returns. This mirrors `figma.mjs`'s multi-namespace ToolSearch: an absent prefix is silently ignored, so a consumer with only one registration is unaffected.
+
+If the fetch genuinely fails — auth/network error, ticket not found, or **none** of the three Atlassian namespaces resolved a `getJiraIssue` even after the ToolSearch probe — do not fall back to the dispatch prompt's content. Return:
 
 ```
 Verdict: BLOCKED — <GitHub issue #N | JIRA ticket KEY> could not be fetched (<error reason>). Scope completeness cannot be verified without it. Re-run from an environment where the tracker is accessible (`gh` authenticated, or the Atlassian MCP connected).
 ```
+
+**For a tracker-MCP miss, the `<error reason>` MUST name the namespaces you probed** — `mcp__atlassian__`, `mcp__plugin_atlassian_atlassian__`, `mcp__claude_ai_Atlassian_Rovo__` — so the orchestrator can distinguish a tracker that is genuinely unreachable from one registered under a namespace not in that set (a tool-surface gap, not a scope problem). The two are different failures and should read differently in the report.
 
 A BLOCKED verdict is treated by review-lead the same as FAIL — the merge gate stays "No."
 
