@@ -78,6 +78,8 @@ Run this **first**, before generating `RUN_ID` and before Stage 1.A's claim sequ
 
 A failure here is an **abort-with-instructions**, not a `failureContext` write: no issue is claimed yet, so there is no state file and nothing to comment on. Print the onboarding error to stderr and exit non-zero — this is the one pipeline stop that legitimately exits non-zero (it precedes the autonomous fail-fast contract, which only governs post-claim stages). Under `DEV_PIPELINE_MODE=interactive` the behavior is identical (the gate never prompts; a missing prerequisite is unrecoverable in-session either way).
 
+**Recovery from a pre-flight abort is a hard handoff, not an in-place continue.** After the operator fixes the failed prerequisite (installs the bot wrapper, creates a missing label), the run does **not** resume from where the abort stopped. Re-invoke `/dev-pipeline:run <n>` from the top so every early step runs in order — the **Pre-flight: Generate RUN_ID** step, Stage 1.A's atomic claim, and the Stage-2 `pipeline-session-add` cost-attribution record. An agent that continues in-place after an abort silently skips these setup steps (observed: a skipped Stage-2 session record → a `skipped-no-sessions` cost block) and takes a control-flow decision that belongs to the operator. If continuing in-place is genuinely unavoidable, surface the choice to the operator first — never take it silently.
+
 ```bash
 # (0) Config validation — tracker-agnostic, runs for BOTH adapters. config-lint
 # ships INSIDE this plugin so an installed-cache consumer can run it. Fails fast
