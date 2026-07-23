@@ -95,6 +95,25 @@ HEAD="$(git -C "$WORKTREE" rev-parse HEAD)"
 BASE="$(git -C "$WORKTREE" merge-base HEAD "origin/${WORKTREE_BASE}" 2>/dev/null \
         || git -C "$WORKTREE" merge-base HEAD "$WORKTREE_BASE")"
 
+# Scope-gate slice mode (#204): on a stacked run (non-null currentSlice + a
+# persisted decomposition.slices partition) the scope reviewer grades the union
+# of ACs for slices 1..N against the CUMULATIVE diff, so its range is anchored
+# at SLICE 1's base — the CONFIGURED base branch ($BASE_BRANCH_CFG), NOT the
+# per-slice $WORKTREE_BASE (the prior slice's branch for N>1). All other
+# reviewers keep $BASE (this slice's own diff). Single-PR runs leave SCOPE_BASE
+# empty — the dispatch below then behaves byte-identically to before.
+SCOPE_BASE=""
+STATE_PATH="$(statectl.sh state-path "$ISSUE_NUMBER")"
+CUR_SLICE="$(statectl.sh get "$ISSUE_NUMBER" '.currentSlice // empty')"
+PARTITION_LEN="$(statectl.sh get "$ISSUE_NUMBER" '.decomposition.slices // [] | length')"
+if [[ -n "$CUR_SLICE" && "$CUR_SLICE" != "null" && "$PARTITION_LEN" != "0" ]]; then
+  SCOPE_BASE="$(git -C "$WORKTREE" merge-base HEAD "origin/${BASE_BRANCH_CFG}" 2>/dev/null \
+                || git -C "$WORKTREE" merge-base HEAD "$BASE_BRANCH_CFG")"
+  # Advisory visibility only — the reviewer re-derives the graded set itself
+  # from the state file (integrity checks included; fail-closed to full ticket).
+  bash "${CLAUDE_PLUGIN_ROOT}/skills/run/tools/slice-scope.sh" "$STATE_PATH" --slice "$CUR_SLICE" || true
+fi
+
 for round in 1..3:
   # (a) In-session (has Bash): size + route per review-toolkit:review-lead's Reviewer Routing.
   # THREE-DOT (#130): changedFiles rides in the SAME reviewer prompt as the diff range, so a
@@ -123,6 +142,9 @@ for round in 1..3:
     // from config `reviewers.add` are passed bare).
     args: { worktree: "$WORKTREE", base: "$BASE", head: "$HEAD", issue: "$ISSUE_NUMBER",
             config: CONFIG,
+            # Stacked runs only (#204) — omit both on single-PR runs:
+            #   scopeBase: "$SCOPE_BASE"  (slice 1's base; scope reviewer diffs scopeBase...head)
+            #   statePath: "$STATE_PATH"  (path-only pointer to the partition state file)
             reviewers: [<selected agentType strings>],
             changedFiles: [<from --stat>], prContext: "<branch/PR context; include unitTestSurface.mutationTargets when unit-test-mutation-reviewer is selected; include stageCheckpoint[\"7\"].qualityPassSummary so reviewers VERIFY the applied Stage-6 cleanups instead of re-proposing them — unapplied quality-pass suggestions[] cap at minor/nit (they were already judged out of apply scope); when .briefPath is non-null, include it for the NON-scope reviewers so they can flag plan/impl drift from the Brief's binding intent — but NEVER forward briefPath to scope-completeness-reviewer (its independence contract fetches the issue itself; feeding it derived intent would corrupt the anti-gaslighting property)>" }
   })
