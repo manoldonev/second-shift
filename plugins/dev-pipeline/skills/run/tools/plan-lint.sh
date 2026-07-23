@@ -31,6 +31,14 @@
 #      5b. Two or more creation-verb steps (Add/Create/Introduce at a numbered
 #          or bulleted step) with ZERO [NEW] tokens anywhere in the plan is the
 #          run-#175 shape: planned creations with no tags. One named violation.
+#   6. Decision Ledger hydration completeness (#190): the FORWARD twin of Check 4.
+#      When a backing {issue}-ledger.md carries >=1 `| D-n |` row, Stage 3 mandates
+#      hydrating those rows into the plan's Decision Ledger section VERBATIM, so
+#      each backing row must reappear with a whitespace-trimmed-equal Decision,
+#      Resolution, AND Provenance cell. A missing plan row, a drifted cell, or (when
+#      the backing ledger has rows) a wholly absent Decision Ledger section is one
+#      named violation each. No backing ledger / empty-form / zero-row backing → a
+#      no-op (byte-identical to a no-backing run; the section stays advisory below).
 #
 # Degradation: no state path / pre-schema state / empty `acceptanceCriteria[]`
 # → checks 1-2 only. An empty table under a present traceability header with an
@@ -71,14 +79,17 @@ section_present() {
   grep -qiE "^(#{1,6}[[:space:]]+|\*\*).*$1" "$PLAN"
 }
 # name<TAB>pattern — patterns use `.` where hyphen/space variants both occur.
-# DO NOT add "Decision Ledger" to this HARD set: it is advisory-only in-pipeline
-# (see the advisory check near the bottom of this file). The autonomous contract
-# forbids prompting mid-run, so a run legitimately authors the ledger's
-# explicit-empty-form or `codebase-derived`/`deferred` rows — but a run that omits
-# the section entirely must NOT hard-abort Stage 4 (which maps any plan-lint
-# violation to `mark-failed --reason plan-structure-invalid`). Keeping the ledger
-# out of this array is what preserves that; the "keep SECTIONS in lockstep with
-# stages/3-write-plan.md" instinct is the trap this comment exists to stop.
+# DO NOT add "Decision Ledger" to this HARD set: its presence is only CONDITIONALLY
+# hard. Absent a backing pre-flight ledger it is advisory-only in-pipeline (see the
+# advisory check near the bottom of this file) — the autonomous contract forbids
+# prompting mid-run, so a run legitimately authors the ledger's explicit-empty-form or
+# `codebase-derived`/`deferred` rows, and a run that omits the section entirely must
+# NOT hard-abort Stage 4 (which maps any plan-lint violation to `mark-failed --reason
+# plan-structure-invalid`). Its presence becomes hard ONLY when a backing ledger with
+# >=1 `D-n` row exists — enforced by Check 6, NOT by this unconditional array. Keeping
+# the ledger out of this array is what preserves the advisory default; the "keep
+# SECTIONS in lockstep with stages/3-write-plan.md" instinct is the trap this comment
+# exists to stop.
 SECTIONS=$'Context\tcontext
 Assumptions\tassumptions
 Affected files\taffected files
@@ -235,13 +246,86 @@ if (( ${CREATION_LINES:-0} >= 2 )) && ! grep -q '\[NEW\]' "$PLAN"; then
   violate "$CREATION_LINES creation-verb step(s) but zero [NEW] grounding tags anywhere in the plan — tag every reference the plan creates with the literal [NEW] token (grounding-tag rule, stages/3-write-plan.md; eval criterion 2 is grep-scored)"
 fi
 
+# ---- Check 6: Decision Ledger hydration completeness (#190) ------------------
+# The FORWARD twin of Check 4. When a pre-flight /plan-interview wrote the backing
+# {issue}-ledger.md, Stage 3 mandates hydrating its rows into the plan's Decision
+# Ledger section VERBATIM (stages/3-write-plan.md). This gate enforces that: every
+# backing `D-n` row must reappear in the plan with a whitespace-trimmed-equal
+# Decision, Resolution, AND Provenance cell (all three — "verbatim", not a subset).
+#
+# Parse rule: positional per the canonical `ID | Decision | Resolution | Provenance`
+# schema (mirror of plan-interview/tools/ledger-lint.sh, which validated the backing
+# ledger's shape/enum at pre-flight) that verbatim hydration preserves — cells[2]=
+# Decision, cells[3]=Resolution, cells[4]=Provenance. A plan that reorders its ledger
+# columns while claiming verbatim hydration has itself drifted, so a mismatch there is
+# a correct violation, not a false positive. Comparison uses trim() (leading/trailing
+# only — neutralizes prettier's per-table column padding); internal whitespace is
+# significant.
+#
+# Scope: no-op unless a backing ledger with >=1 `D-n` row exists ($LEDGER_FILE is the
+# same sibling-of-state path Check 4 derived). An absent / empty-form / zero-row
+# backing ledger has nothing to hydrate, so behavior is byte-identical to a no-backing
+# run (preserves the existing corpus). bash 3.2 — parallel indexed arrays, no assoc.
+LEDGER_MISSING_SECTION=0
+if [[ -n "$LEDGER_FILE" && -f "$LEDGER_FILE" ]]; then
+  declare -a BACK_ID=() BACK_DEC=() BACK_RES=() BACK_PROV=()
+  while IFS= read -r line; do
+    masked="${line//\\|/${PIPE_SENTINEL:-__PLAN_LINT_PIPE__}}"
+    IFS='|' read -r -a cells <<< "$masked"
+    # Malformed backing row (wrong column count): ledger-lint owns it at pre-flight;
+    # Check 6 only hydration-checks well-formed backing rows.
+    (( ${#cells[@]} < 5 || ${#cells[@]} > 6 )) && continue
+    BACK_ID+=("$(trim "${cells[1]}")")
+    BACK_DEC+=("$(trim "${cells[2]}")")
+    BACK_RES+=("$(trim "${cells[3]}")")
+    BACK_PROV+=("$(trim "${cells[4]}")")
+  done < <(grep -E '^\|[[:space:]]*D-[0-9]+[[:space:]]*\|' "$LEDGER_FILE" || true)
+
+  if (( ${#BACK_ID[@]} > 0 )); then
+    # Backing ledger carries material rows → the plan MUST carry a hydrated section.
+    if ! grep -qiE '^(#{1,6}[[:space:]]+|\*\*)[[:space:]]*decision ledger' "$PLAN"; then
+      violate "backing ledger $LEDGER_FILE carries ${#BACK_ID[@]} decision row(s) but the plan has no Decision Ledger section — hydrate them verbatim (stages/3-write-plan.md)"
+      LEDGER_MISSING_SECTION=1
+    else
+      declare -a PLAN_ID=() PLAN_DEC=() PLAN_RES=() PLAN_PROV=()
+      while IFS= read -r line; do
+        masked="${line//\\|/${PIPE_SENTINEL:-__PLAN_LINT_PIPE__}}"
+        IFS='|' read -r -a cells <<< "$masked"
+        (( ${#cells[@]} < 5 || ${#cells[@]} > 6 )) && continue
+        PLAN_ID+=("$(trim "${cells[1]}")")
+        PLAN_DEC+=("$(trim "${cells[2]}")")
+        PLAN_RES+=("$(trim "${cells[3]}")")
+        PLAN_PROV+=("$(trim "${cells[4]}")")
+      done < <(grep -E '^\|[[:space:]]*D-[0-9]+[[:space:]]*\|' "$PLAN" || true)
+
+      for (( bi = 0; bi < ${#BACK_ID[@]}; bi++ )); do
+        bid="${BACK_ID[bi]}"
+        found=-1
+        for (( pi = 0; pi < ${#PLAN_ID[@]}; pi++ )); do
+          [[ "${PLAN_ID[pi]}" == "$bid" ]] && { found="$pi"; break; }
+        done
+        if (( found < 0 )); then
+          violate "backing ledger row $bid is not hydrated into the plan's Decision Ledger section (Stage-3 verbatim mandate)"
+          continue
+        fi
+        [[ "${PLAN_DEC[found]}" == "${BACK_DEC[bi]}" ]] || violate "$bid Decision cell drifted from the backing ledger (verbatim hydration required)"
+        [[ "${PLAN_RES[found]}" == "${BACK_RES[bi]}" ]] || violate "$bid Resolution cell drifted from the backing ledger (verbatim hydration required)"
+        [[ "${PLAN_PROV[found]}" == "${BACK_PROV[bi]}" ]] || violate "$bid Provenance '${PLAN_PROV[found]}' does not match the backing ledger '${BACK_PROV[bi]}' (verbatim hydration required)"
+      done
+    fi
+  fi
+fi
+
 # ---- Advisory: Decision Ledger presence (never a violation) -------------------
 # Deep checks live in plan-interview/tools/ledger-lint.sh; in-pipeline the ledger
 # is advisory-only (user-provenance rows can only come from a pre-flight
 # /plan-interview — the autonomous contract forbids prompting mid-run), so a
 # missing section WARNS but never trips the Stage-4 hard gate. Deliberately kept
-# out of the mandated-SECTIONS array above.
-if ! grep -qiE '^(#{1,6}[[:space:]]+|\*\*)[[:space:]]*decision ledger' "$PLAN"; then
+# out of the mandated-SECTIONS array above. Suppressed when Check 6 already
+# hard-flagged the same absent section (a backing ledger with rows) — else the
+# missing section would be reported twice.
+if (( LEDGER_MISSING_SECTION == 0 )) \
+   && ! grep -qiE '^(#{1,6}[[:space:]]+|\*\*)[[:space:]]*decision ledger' "$PLAN"; then
   echo "plan-lint: WARNING (advisory): no Decision Ledger section — see stages/3-write-plan.md / interviewing-baseline"
 fi
 
