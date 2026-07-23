@@ -20,8 +20,9 @@
 # Imperative stage machine: `set-stage N --status completed` is refused unless
 # the state carries the evidence stage N's mandated work actually happened
 # (stage_completion_preconditions), and `mark-completed` is refused unless all
-# stages 1-9 completed AND a plausible self-eval file exists (NOT bypassed by
-# --force). Enforcement by refusal, not prose — see state-schema.md.
+# stages 1-9 completed AND a plausible self-eval file exists AND the Stage-9 run
+# report was persisted (none bypassed by --force). Enforcement by refusal, not
+# prose — see state-schema.md.
 #
 # Does NOT own:
 #   costBlockApplied (written only by pipeline-cost-block.sh — intentionally
@@ -368,6 +369,32 @@ require_eval_file() {
       EXIT_CODE=1 die "mark-completed: $eval_file scores implementation_resilience: PASS on an inert-lane run — no verifying test lane ran (verifySummary is a skip string and no TEST_FAILURE was charged), so the resilience circuit-breaker was never exercised. PASS requires it to have been exercised (eval-criteria.md); score it N/A. Fix the eval file, or --force for crash-recovery."
     fi
   fi
+}
+
+# Run-report fail-closed gate (SKILL.md "Run report"): the terminal `completed`
+# write is refused unless Stage 9 persisted the run report. The report is the
+# only artifact the operator reads per run, and before it was written to disk it
+# existed solely as streamed model output — a mid-response disconnect destroyed
+# it and left a log that read as total failure for a run that shipped.
+#
+# Plausibility is deliberately shallow: the marker plus at least one non-blank
+# prose line after it. That defeats `touch`/empty-file without inventing a
+# report schema (the report is operator-facing narrative, not machine-read
+# state). Mirrors require_eval_file's posture and, like it, is NOT bypassed by
+# --force and is NOT called from mark-failed (an aborting run has no PR to
+# report on; the abort-path narrative stays a prose contract).
+require_report_file() {
+  local key="$1"
+  local lower state report_file
+  lower=$(echo "$key" | tr '[:upper:]' '[:lower:]')
+  state=$(state_path "$key")
+  report_file="$(dirname "$state")/${lower}-report.md"
+  [[ -f "$report_file" ]] \
+    || { EXIT_CODE=1 die "mark-completed: terminal write refused — run report $report_file is missing. Stage 9 writes it right after pr-add, BEFORE the narration (SKILL.md 'Run report', fail-closed), then retry."; }
+  grep -q '<!-- dev-pipeline-report -->' "$report_file" \
+    || { EXIT_CODE=1 die "mark-completed: $report_file exists but carries no <!-- dev-pipeline-report --> marker — write the real report, not a placeholder."; }
+  grep -v '<!-- dev-pipeline-report -->' "$report_file" | grep -q '[^[:space:]]' \
+    || { EXIT_CODE=1 die "mark-completed: $report_file has the marker but no content — the report must carry the run's narrative."; }
 }
 
 # preflight_wellformed <json> — 0 iff <json> is a well-formed Stage-1 pre-flight
@@ -743,6 +770,18 @@ cmd_init() {
     mv "$eval_file" "$stale_dest" \
       || { EXIT_CODE=2 die "init: could not quarantine stale self-eval $eval_file"; }
     echo "[statectl] init: quarantined stale self-eval -> $(basename "$stale_dest")" >&2
+  fi
+  # Stale-report quarantine: same reasoning for the Stage-9 run report — a fresh
+  # run must not satisfy the mark-completed report gate with a previous run's
+  # narrative. Rename, don't delete; the old report stays readable.
+  local report_file
+  report_file="$(dirname "$state")/${lower}-report.md"
+  if [[ -f "$report_file" ]]; then
+    local stale_report
+    stale_report="$(dirname "$state")/${lower}-report-stale-$(now_iso | tr -d ':').md"
+    mv "$report_file" "$stale_report" \
+      || { EXIT_CODE=2 die "init: could not quarantine stale run report $report_file"; }
+    echo "[statectl] init: quarantined stale run report -> $(basename "$stale_report")" >&2
   fi
   local now
   now=$(now_iso)
@@ -1767,6 +1806,10 @@ cmd_mark_completed() {
   # score the locked criteria shape. Existence/plausibility ignore --force;
   # the shape sub-check honors it.
   require_eval_file "$key" "$force"
+
+  # Run-report fail-closed gate: the durable operator-facing report must exist.
+  # NOT bypassed by --force.
+  require_report_file "$key"
 
   local now
   now=$(now_iso)
