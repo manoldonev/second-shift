@@ -4,6 +4,23 @@ All notable changes to the second-shift marketplace. Versions are per-plugin (`p
 this file tracks the marketplace release. `configVersion` stays `const 1` — v2 is fully backward-compatible for a
 consumer with an empty config; the migration notes below are only for consumers using the changed features.
 
+## v2.9.0
+
+### `dev-pipeline` 2.6.4 → 2.7.0
+
+- **feat(dev-pipeline): plan-lint Check 6 hard-verifies pre-flight ledger hydration (#193)** (#193)
+  plan-lint now hard-verifies that a pre-flight /plan-interview ledger's
+  decisions were actually hydrated into the plan verbatim — a run that ignores or
+  drifts from an existing {issue}-ledger.md now fails the Stage-4 plan gate instead
+  of passing silently. Runs with no backing ledger are unaffected.
+  Migration: none.
+- **fix(dev-pipeline): pre-flight abort recovery is a hard handoff (#192)** (#192)
+  dev-pipeline now documents that recovery from a pre-flight
+  abort is a hard handoff — re-run /dev-pipeline:run from the top rather
+  than continuing in-place, so early setup steps (RUN_ID, claim, Stage-2
+  session record) are not silently skipped.
+  Migration: none.
+
 ## v2.8.4
 
 ### `design-toolkit` 2.1.1 → 2.1.2
