@@ -877,6 +877,30 @@ else
   fail "(pa5) pr-add missing --url — rc=$rc err='$err'"
 fi
 
+# (pa6) #188 value-shape normalization: the branch-keyed value carries `branch`
+# (== the key) and a `repo` KEY. Assert branch STRICTLY and repo-key PRESENCE only,
+# not repo's value: this harness runs config-less on CI (the gitignored config is
+# absent), so config_file() cannot resolve the host alias and `repo` is null —
+# presence is the invariant, the alias value is environment-dependent.
+sct pr-add 9999 --branch "claude/acme-9999-shape" --url "https://github.com/o/r/pull/6" >/dev/null
+brc=$(sct get 9999 '.prs."claude/acme-9999-shape".branch')
+hasrepo=$(sct get 9999 '.prs."claude/acme-9999-shape" | has("repo")')
+if [[ "$brc" == "claude/acme-9999-shape" && "$hasrepo" == "true" ]]; then
+  pass "(pa6) pr-add branch-keyed value carries branch + repo key (#188 shape)"
+else
+  fail "(pa6) pr-add value shape — branch='$brc' has(repo)='$hasrepo'"
+fi
+
+# (pa7) #188 repo-keyed (be-fe-pair --repo): keyed by repo id, value stamps repo == id.
+sct pr-add 9999 --repo fe --branch "claude/acme-9999-shape" --url "https://github.com/o/r/pull/7" >/dev/null
+rrepo=$(sct get 9999 '.prs.fe.repo')
+rbranch=$(sct get 9999 '.prs.fe.branch')
+if [[ "$rrepo" == "fe" && "$rbranch" == "claude/acme-9999-shape" ]]; then
+  pass "(pa7) pr-add --repo → repo-keyed, value {branch, repo:id} (#188 shape)"
+else
+  fail "(pa7) pr-add --repo shape — repo='$rrepo' branch='$rbranch'"
+fi
+
 # (pause1) pause-add → appends ONE closed span; from = prior .lastUpdatedAt
 # (self-anchor), to = now, from < to. now_iso is second-resolution, so sleep 1
 # to guarantee a measurable gap. ISO-8601 fixed-width Z timestamps sort

@@ -360,5 +360,41 @@ else
 fi
 
 echo
+echo "=== #188: fail-loud skips (no bare null) ==="
+# (AC-1) no-PRs: state resolves and has sessions+cost, but prs is empty. The script
+# must RECORD skipped-no-prs (not exit silently), leaving a breadcrumb instead of
+# a bare null. Drive the real script with a stubbed GH_BOT; the record happens
+# before any PR I/O so no gh stubbing is needed.
+D8="$TMP/case-no-prs"
+mkdir -p "$D8"
+jq '.prs = {}' "$FIX/state-two-runs-B.json" > "$D8/noprs.json"
+OTEL_METRICS_FILE="$METRICS" \
+STATECTL_STATE_DIR="$D8" \
+GH_BOT="$STUB_BOT" \
+  bash "$SCRIPT" noprs >/dev/null 2>&1
+R8_RC=$?
+R8="$(jq -r '.costBlockApplied' "$D8/noprs.json")"
+[[ "$R8" == "skipped-no-prs" ]] \
+  && ok "(AC-1) no-PRs run records skipped-no-prs (never bare null)" \
+  || bad "(AC-1) recorded '$R8', expected skipped-no-prs"
+[[ "$R8_RC" -eq 0 ]] \
+  && ok "(AC-1) no-PRs run exits 0 (recorded skip is not a failure)" \
+  || bad "(AC-1) no-PRs run exited $R8_RC, expected 0"
+
+# (AC-1) no-state: the resolved state file does not exist, so nothing can be
+# recorded. The script must fail LOUD — non-zero (rc 2) — not the old silent exit 0
+# that left the control repo's real state file at costBlockApplied:null (#188).
+D9_EMPTY="$TMP/case-no-state"   # dir exists, but no <issue>.json inside it
+mkdir -p "$D9_EMPTY"
+OTEL_METRICS_FILE="$METRICS" \
+STATECTL_STATE_DIR="$D9_EMPTY" \
+GH_BOT="$STUB_BOT" \
+  bash "$SCRIPT" 424242 >/dev/null 2>&1
+R9_RC=$?
+[[ "$R9_RC" -eq 2 ]] \
+  && ok "(AC-1) unresolvable state exits non-zero (rc 2), fails loud" \
+  || bad "(AC-1) no-state run exited $R9_RC, expected 2"
+
+echo
 echo "Result: $PASS passed, $FAIL failed"
 [[ "$FAIL" -eq 0 ]] && exit 0 || exit 1
