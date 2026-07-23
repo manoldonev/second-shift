@@ -59,7 +59,7 @@ You produce the issue body. You do NOT:
 
 - **Required**: Unstructured text from the user (pasted blob, description, screenshot caption).
 - **Optional**: Target codebase area.
-- **Conditional**: A tracker ticket reference — a GitHub issue number on the default adapter, or a JIRA key (fetched read-only via `mcp__atlassian__getJiraIssue`) under `tracker.type: jira` — only accept if the user explicitly asks you to enrich a thin ticket. If the existing ticket already has meaningful STR or ACs, route the user to `intake-orchestrator` instead.
+- **Conditional**: A tracker ticket reference — a GitHub issue number on the default adapter, or a JIRA key (fetched read-only via the session's `getJiraIssue`, namespace per the tracker-delta note above) under `tracker.type: jira` — only accept if the user explicitly asks you to enrich a thin ticket. If the existing ticket already has meaningful STR or ACs, route the user to `intake-orchestrator` instead.
 - **Assumed**: Repo root is the working directory; the repo's `CLAUDE.md` (and whatever docs it routes to) describes the codebase.
 
 ## Step 0: Classify mode

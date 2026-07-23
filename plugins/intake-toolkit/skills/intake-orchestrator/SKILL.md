@@ -80,7 +80,7 @@ You dispatch two sub-agents and run dependency analysis inline. Their findings a
 gh issue view $ISSUE_NUMBER --json body,comments,labels
 ```
 
-Read the full issue body and all comments. Under the jira adapter (`tracker.type: jira`) fetch the ticket **read-only** instead — `mcp__atlassian__getJiraIssue` for the body/description and `$KEY` in place of `$ISSUE_NUMBER`; there are no queue labels to read and the resume guards below that key off labels/`stage: intake` comments don't apply (JIRA carries no pipeline-written comment trail — `tracker.writes: false`).
+Read the full issue body and all comments. Under the jira adapter (`tracker.type: jira`) fetch the ticket **read-only** instead — the session's `getJiraIssue` (namespace per the jira-delta callout above) for the body/description and `$KEY` in place of `$ISSUE_NUMBER`; there are no queue labels to read and the resume guards below that key off labels/`stage: intake` comments don't apply (JIRA carries no pipeline-written comment trail — `tracker.writes: false`).
 
 **Resume guards (cross-session — issue-state-aware):**
 

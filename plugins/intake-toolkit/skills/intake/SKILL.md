@@ -21,7 +21,7 @@ You are a dispatch-only front door. Classify the input, invoke the matched skill
 ## Classify
 
 1. **Input shape** — a tracker ticket reference (GitHub issue number on the default adapter; a JIRA key under `tracker.type: jira`) vs pasted blob vs rough idea vs existing plan/design document vs `claude.ai/design/...` handoff link.
-2. **Granularity** — epic/multi-deliverable vs single item (for a ticket reference: skim the body + labels — `gh issue view <n>` on the github adapter, `mcp__atlassian__getJiraIssue <KEY>` read-only under jira).
+2. **Granularity** — epic/multi-deliverable vs single item (for a ticket reference: skim the body + labels — `gh issue view <n>` on the github adapter, or the session's `getJiraIssue <KEY>` read-only under jira — namespace per the tracker-delta note above).
 3. **Author profile** — non-technical PM vs technical author (engineer / QA), when determinable from the issue reporter or the user's framing. **Safe default when indeterminate: PM posture** (conservative bias-toward-quarantine). Misclassification only changes how quarantined claims are presented — never whether they are verified.
 
 ## Scenario roadmap (single source of truth — INDEX and skill boundary notes point here)
