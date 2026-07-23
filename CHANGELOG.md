@@ -4,6 +4,26 @@ All notable changes to the second-shift marketplace. Versions are per-plugin (`p
 this file tracks the marketplace release. `configVersion` stays `const 1` — v2 is fully backward-compatible for a
 consumer with an empty config; the migration notes below are only for consumers using the changed features.
 
+## v2.9.1
+
+### `dev-pipeline` 2.7.0 → 2.7.1
+
+- **fix(review-toolkit): scope-completeness-reviewer namespace-agnostic Atlassian MCP (#189)** (#189)
+  scope-completeness-reviewer now discovers the Atlassian MCP under any
+  of its three registration namespaces (top-level, plugin-bundled, or claude.ai
+  Rovo) instead of a single hardcoded prefix, so the Scope Completeness Gate is no
+  longer unsatisfiable for plugin/Rovo-registered JIRA consumers.
+  Migration: none.
+
+### `review-toolkit` 2.3.3 → 2.3.4
+
+- **fix(review-toolkit): scope-completeness-reviewer namespace-agnostic Atlassian MCP (#189)** (#189)
+  scope-completeness-reviewer now discovers the Atlassian MCP under any
+  of its three registration namespaces (top-level, plugin-bundled, or claude.ai
+  Rovo) instead of a single hardcoded prefix, so the Scope Completeness Gate is no
+  longer unsatisfiable for plugin/Rovo-registered JIRA consumers.
+  Migration: none.
+
 ## v2.9.0
 
 ### `dev-pipeline` 2.6.4 → 2.7.0
