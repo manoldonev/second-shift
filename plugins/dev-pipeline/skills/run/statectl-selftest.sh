@@ -63,7 +63,9 @@ sct_rc() {
 
 # Helper: reset state file between tests.
 reset_state() {
-  rm -f .claude/pipeline-state/*.json .claude/pipeline-state/*.tmp
+  # *.md clears the run report (and any quarantined copy) too — otherwise a
+  # report leaks across cases and init's stale-report quarantine fires on it.
+  rm -f .claude/pipeline-state/*.json .claude/pipeline-state/*.tmp .claude/pipeline-state/*.md
 }
 
 # Helper: start + complete one stage with the minimal evidence its completion
@@ -101,6 +103,13 @@ write_eval() {
   local key="$1"
   printf '{"ticketKey":%s,"criteria":{"target_confirmation":"PASS","plan_grounding":"PASS","implementation_resilience":"N/A","scope_compliance":"PASS","review_precision":"PASS"}}\n' "$key" \
     > ".claude/pipeline-state/${key}-eval.json"
+}
+
+# Helper: write a plausible run report for <key> (the mark-completed report gate).
+write_report() {
+  local key="$1"
+  printf '<!-- dev-pipeline-report -->\n\n# Run report — #%s\n\nPR: https://example.com/pr/1\n' "$key" \
+    > ".claude/pipeline-state/${key}-report.md"
 }
 
 # Acme single-repo Stage 7 checkpoint payload — flat fields, no perRepo wrapper.
@@ -1122,11 +1131,13 @@ else
 fi
 
 # (mc1) mark-completed happy path → terminal status + lastUpdatedAt in one bundle
-# (walks all 9 stages with evidence + writes the self-eval — the terminal gates)
+# (walks all 9 stages with evidence + writes the self-eval AND the run report —
+# the three terminal gates)
 reset_state
 sct init 9999 --run-id "selftest-run-$$" >/dev/null
 for n in 1 2 3 4 5 6 7 8 9; do complete_stage 9999 "$n"; done
 write_eval 9999
+write_report 9999
 sct mark-completed 9999 >/dev/null
 status=$(sct get 9999 '.status')
 updated=$(sct get 9999 '.lastUpdatedAt | length > 0')
@@ -1191,7 +1202,8 @@ write_eval_pass() {
 
 # Helper: walk all 9 stages but set Stage-6 verifySummary to $2 (raw JSON), and
 # charge one TEST_FAILURE when $3 == "tf". Leaves the run at in_progress with all
-# stages completed — ready for the terminal mark-completed gate.
+# stages completed and the run report written — so the resilience value-check is
+# the only terminal gate under test.
 complete_run_vs() {
   local key="$1" vs="$2" tf="${3:-}"
   reset_state
@@ -1202,6 +1214,7 @@ complete_run_vs() {
   [[ "$tf" == "tf" ]] && sct verify-attempts "$key" --incr TEST_FAILURE >/dev/null
   sct set-stage "$key" 6 --status completed >/dev/null
   for n in 7 8 9; do complete_stage "$key" "$n"; done
+  write_report "$key"
 }
 
 # (mc-ir1) inert-string verifySummary + no TEST_FAILURE + PASS → REFUSED,
@@ -1276,6 +1289,80 @@ if [[ "$status" == "completed" ]]; then
   pass "(mc-ir5) per-repo TEST_FAILURE PASS → accepted (be-fe-pair union)"
 else
   fail "(mc-ir5) per-repo TEST_FAILURE accept — status='$status'"
+fi
+
+# ============ (rpt) mark-completed run-report gate (#146) =====================
+# The run report is the only artifact the operator reads per run; before it was
+# persisted, a mid-response API disconnect destroyed it. The terminal write is
+# refused unless Stage 9 wrote it — and, like the eval gate, --force does not
+# bypass. Each case walks all 9 stages and writes the eval, so the REPORT is the
+# only gate under test.
+
+# (rpt1) report missing → terminal write refused, status untouched
+reset_state
+sct init 9999 --run-id "selftest-run-$$" >/dev/null
+for n in 1 2 3 4 5 6 7 8 9; do complete_stage 9999 "$n"; done
+write_eval 9999
+rc=$(sct_rc mark-completed 9999)
+err=$(sct_err mark-completed 9999)
+status=$(sct get 9999 '.status')
+if [[ "$rc" == "1" && "$err" == *"run report"* && "$status" == "in_progress" ]]; then
+  pass "(rpt1) mark-completed without run report → refused, status untouched"
+else
+  fail "(rpt1) report gate — rc=$rc status='$status' err='$err'"
+fi
+
+# (rpt2) --force does NOT bypass the report gate (same posture as the eval gate)
+rc_force=$(sct_rc mark-completed 9999 --force)
+status=$(sct get 9999 '.status')
+if [[ "$rc_force" == "1" && "$status" == "in_progress" ]]; then
+  pass "(rpt2) --force does not bypass the report gate"
+else
+  fail "(rpt2) report gate --force — rc=$rc_force status='$status'"
+fi
+
+# (rpt3) empty report (the `touch` defeat) → refused for lacking the marker
+: > .claude/pipeline-state/9999-report.md
+rc=$(sct_rc mark-completed 9999)
+err=$(sct_err mark-completed 9999)
+if [[ "$rc" == "1" && "$err" == *"marker"* ]]; then
+  pass "(rpt3) empty report → refused (no marker)"
+else
+  fail "(rpt3) empty report — rc=$rc err='$err'"
+fi
+
+# (rpt4) marker present but no content → refused (a bare marker is not a report)
+printf '<!-- dev-pipeline-report -->\n\n' > .claude/pipeline-state/9999-report.md
+rc=$(sct_rc mark-completed 9999)
+err=$(sct_err mark-completed 9999)
+if [[ "$rc" == "1" && "$err" == *"no content"* ]]; then
+  pass "(rpt4) marker-only report → refused (no content)"
+else
+  fail "(rpt4) marker-only report — rc=$rc err='$err'"
+fi
+
+# (rpt5) well-formed report → terminal write succeeds
+write_report 9999
+rc=$(sct_rc mark-completed 9999)
+status=$(sct get 9999 '.status')
+if [[ "$rc" == "0" && "$status" == "completed" ]]; then
+  pass "(rpt5) well-formed report → mark-completed succeeds"
+else
+  fail "(rpt5) well-formed report — rc=$rc status='$status'"
+fi
+
+# (rpt6) init quarantines a stale report — a re-run must not satisfy the gate
+# with the previous run's narrative (mirrors the stale-eval quarantine).
+reset_state
+sct init 9999 --run-id "selftest-run-$$" >/dev/null
+write_report 9999
+rm -f .claude/pipeline-state/9999.json          # simulate a cleared-state re-run
+sct init 9999 --run-id "selftest-rerun-$$" >/dev/null
+stale_count=$(find .claude/pipeline-state -name '9999-report-stale-*.md' | wc -l | tr -d ' ')
+if [[ ! -f .claude/pipeline-state/9999-report.md && "$stale_count" == "1" ]]; then
+  pass "(rpt6) init quarantines a stale run report"
+else
+  fail "(rpt6) stale-report quarantine — live=$([[ -f .claude/pipeline-state/9999-report.md ]] && echo yes || echo no) stale=$stale_count"
 fi
 
 # ============ (rm) shared terminal-state guard on the stage-mutators (#154) ====
@@ -2192,6 +2279,7 @@ reset_state
 sct init 9998 --run-id "selftest-run-$$" >/dev/null
 for n in 1 2 3 4 5 6 7 8 9; do complete_stage 9998 "$n"; done
 write_eval 9998
+write_report 9998
 sct mark-completed 9998 >/dev/null
 rc_completed=$(sct_rc reclaim 9998 --force --threshold-min 0)
 if [[ "$rc_failed" == "1" && "$err_failed" == *"NOT stale-reclaimable"* && "$rc_completed" == "1" ]]; then
@@ -2230,6 +2318,7 @@ rc_empty=$(sct_rc mark-completed 9999)
 printf '{"ticketKey":1234,"criteria":{"x":"PASS"}}\n' > .claude/pipeline-state/9999-eval.json
 rc_wrong=$(sct_rc mark-completed 9999)
 write_eval 9999
+write_report 9999          # the report gate is also terminal — satisfy it so the EVAL gate is what rc_ok measures
 rc_ok=$(sct_rc mark-completed 9999)
 if [[ "$rc_empty" == "1" && "$rc_wrong" == "1" && "$rc_ok" == "0" ]]; then
   pass "(mcg3) mark-completed eval plausibility — empty/wrong-issue refused, valid allowed"
@@ -2247,6 +2336,7 @@ fi
 reset_state
 sct init 9999 --run-id "selftest-run-$$" >/dev/null
 for n in 1 2 3 4 5 6 7 8 9; do complete_stage 9999 "$n"; done
+write_report 9999
 renamed='{"ticketKey":9999,"criteria":{"target_confirmation":"PASS","plan_grounding":"PASS","implementation_resilience":"N/A","4_verification_honesty":"PASS","review_precision":"PASS"}}'
 printf '%s\n' "$renamed" > .claude/pipeline-state/9999-eval.json
 err_renamed=$(sct_err mark-completed 9999)
@@ -2620,12 +2710,14 @@ sct set-stage gh-540 9 --status started >/dev/null
 sct set-stage gh-540 9 --status completed >/dev/null
 rc_no_eval=$(sct_rc mark-completed gh-540)     # eval file absent → refused
 printf '{"ticketKey":"gh-540","criteria":{"target_confirmation":"PASS","plan_grounding":"PASS","implementation_resilience":"N/A","scope_compliance":"PASS","review_precision":"PASS"}}\n' > .claude/pipeline-state/gh-540-eval.json
-rc_eval=$(sct_rc mark-completed gh-540)         # JIRA-keyed eval present → accepted
+rc_no_report=$(sct_rc mark-completed gh-540)   # eval present, report absent → still refused
+write_report gh-540                             # JIRA-keyed report resolves the same way
+rc_eval=$(sct_rc mark-completed gh-540)         # both JIRA-keyed artifacts present → accepted
 final_status=$(sct get gh-540 '.status')
-if [[ "$rc_no_eval" != "0" && "$rc_eval" == "0" && "$final_status" == "completed" ]]; then
-  pass "(kp-e) jira mid-pipeline fixture → terminal — eval gate keys off ticketKey (gh-540)"
+if [[ "$rc_no_eval" != "0" && "$rc_no_report" != "0" && "$rc_eval" == "0" && "$final_status" == "completed" ]]; then
+  pass "(kp-e) jira mid-pipeline fixture → terminal — eval + report gates key off ticketKey (gh-540)"
 else
-  fail "(kp-e) jira mid-pipeline fixture — rc_no_eval=$rc_no_eval rc_eval=$rc_eval status=$final_status"
+  fail "(kp-e) jira mid-pipeline fixture — rc_no_eval=$rc_no_eval rc_no_report=$rc_no_report rc_eval=$rc_eval status=$final_status"
 fi
 unset SECOND_SHIFT_CONFIG
 reset_state

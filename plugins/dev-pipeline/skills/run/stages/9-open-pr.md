@@ -173,6 +173,60 @@ statectl.sh pr-add "$ISSUE_NUMBER" \
 # (same rule as worktree-set at Stage 2 — stage completion implies the field).
 ```
 
+## Run report (durable artifact — write it BEFORE narrating)
+
+**Write the run report to disk immediately after the `pr-add` above** — before the cost block, the eval write, `mark-completed`, and the terminal narration. `mark-completed` refuses without it (`statectl` `require_report_file`, not bypassed by `--force`).
+
+The report is the only artifact the operator reads per run. Until it was persisted it existed **solely as streamed model output**, so a mid-response API disconnect destroyed it — leaving a two-line log that read as total failure for a run that had already opened its PR. The terminal narration is now a **view of this file**, not the artifact itself.
+
+Two properties of the placement are load-bearing:
+
+- **Here, not just before `mark-completed`.** The observed loss came in two shapes: a run that died after `mark-completed` (state `completed`, report gone) and one that died before the eval write (state stuck at `stages.9.status: in_progress`, report gone). Only a write anchored at the earliest point where the PR URL exists covers both.
+- **Once per Stage-9 pass, after every `pr-add` of that pass.** Under be-fe-pair the per-repo loop calls `pr-add` N times — write the report once, after the loop, so it names all PRs. Under stacked-PRs each slice refreshes the same `{issue}-report.md`, and the last slice's version is the durable one (`mark-completed` runs once, after the final slice).
+
+Write it to the **main checkout** — never the worktree, which Stage 10 removes:
+
+```bash
+# MAIN_ROOT, not $WORKTREE — the report must survive Stage-10 cleanup, exactly
+# like {issue}-brief.md. `.claude/pipeline-state/` is already gitignored.
+MAIN_ROOT="$(dirname "$(cd "$(git -C "$WORKTREE" rev-parse --git-common-dir)" && pwd)")"
+REPORT_PATH="$MAIN_ROOT/.claude/pipeline-state/${ISSUE_NUMBER}-report.md"
+```
+
+**Report template.** The `<!-- dev-pipeline-report -->` marker is required — the gate keys on it.
+
+```markdown
+<!-- dev-pipeline-report -->
+<!-- run_id: {RUN_ID} -->
+
+# Run report — #{ISSUE_NUMBER}: {issue title}
+
+**PR:** {PR_URL} (draft) {plus one line per additional PR under be-fe-pair / stacked-PR}
+**Branch:** {BRANCH} → {TARGET}
+
+## What shipped
+
+{what the change actually does, in the operator's terms — not a file list}
+
+## Verification
+
+{the verifySummary lane verdicts}
+
+## Code review
+
+{N} rounds; {blockers resolved | outstanding blockers, when codeReviewExhausted}
+
+## Deviations
+
+{the structured deviations[] recorded during the run, or "none"}
+
+## Still outstanding at report time
+
+Written right after the PR was opened, so these had not yet run: cost block, post-run eval, terminal completion write. If the log ends here, the run reached at least this point — the PR above is real.
+```
+
+That last section is deliberate: it makes a truncated run self-describing from **inside** the pipeline. The operator's terminal log is not something the plugin owns — a session killed mid-response has no execution point left to annotate it — but the report can state what had and had not run at the moment it was written.
+
 **PR body template** (single, always-draft):
 
 ```markdown
@@ -307,7 +361,7 @@ A missing prerequisite records a descriptive `costBlockApplied` string and exits
 
 **State:** After the sub-step returns, write the terminal top-level status via `statectl`: `statectl.sh mark-completed "$ISSUE_NUMBER"` (atomic `status: "completed"` + `lastUpdatedAt` bundle; refuses to overwrite an already-terminal state without `--force`). Order it AFTER `set-stage 9 --status completed` — `set-stage` rejects mutations once the top-level status is terminal.
 
-`mark-completed` additionally enforces two terminal gates, **not** bypassed by `--force`: every stage 1–9 must be `completed`, and the Post-Run Eval file (`.claude/pipeline-state/{issue}-eval.json`, SKILL.md "Post-Run Eval") must exist with a plausible score — **so the eval write must precede `mark-completed`**.
+`mark-completed` additionally enforces three terminal gates, **not** bypassed by `--force`: every stage 1–9 must be `completed`; the Post-Run Eval file (`.claude/pipeline-state/{issue}-eval.json`, SKILL.md "Post-Run Eval") must exist with a plausible score — **so the eval write must precede `mark-completed`**; and the run report (`.claude/pipeline-state/{issue}-report.md`, the "Run report" sub-step above) must exist and carry its marker plus real content.
 
 **Stacked-PR runs:** call `mark-completed` **once, after the LAST slice** (as part of the outer loop's completion step in `stages/1-intake.md`, alongside the `all-prs-opened` comment) — never per slice; a mid-run terminal write would make every later slice's state mutation refuse. (Stacked-slice stage-machine semantics — how per-slice stage re-entries interact with the completion preconditions and re-start guards — are single-PR-scoped for now; a follow-up issue tracks the full model.)
 

@@ -574,6 +574,16 @@ If the pre-commit hook denies a commit during Stage 6, fix the type error before
 
 ---
 
+## Run report
+
+Stage 9 persists the run's narrative to `.claude/pipeline-state/{issue-number}-report.md` **immediately after `pr-add`** — before the cost block, the eval write, `mark-completed`, and the terminal narration. Template, placement rationale, and the multi-PR rule: [`stages/9-open-pr.md`](./stages/9-open-pr.md) "Run report".
+
+The report is the only artifact the operator reads per run, and it used to be the one artifact with no durability guarantee — it existed solely as streamed model output. A mid-response API disconnect therefore destroyed it, leaving a log whose last line was `API Error: Connection closed mid-response` for runs that had already opened and merged their PRs. **The terminal narration is a view of this file, not the artifact itself.**
+
+`mark-completed` refuses the terminal write when the report is missing, marker-less, or empty (`statectl` `require_report_file`) — not bypassed by `--force`, same posture as the eval gate. A stale report from a prior run is quarantined at `statectl init`.
+
+---
+
 ## Post-Run Eval
 
 After Stage 9 (or any pipeline abort), score the run against [`eval-criteria.md`](./eval-criteria.md) and write results to `.claude/pipeline-state/{issue-number}-eval.json`. Every run produces a score — this data feeds the next optimization iteration of the skill.
