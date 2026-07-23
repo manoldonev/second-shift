@@ -4,8 +4,11 @@
 > default (queue query + atomic claim + bot label swap). Under the jira adapter
 > ([`tools/tracker/jira/`](../tools/tracker/jira/README.md)) Step 1.A is replaced by
 > an operator-supplied JIRA key — there is **no queue, no claim, and no label
-> mutation** (`tracker.writes: false`). The ticket is fetched via
-> `mcp__atlassian__getJiraIssue` (Step 1.B reads it there instead of `gh issue view`),
+> mutation** (`tracker.writes: false`). The ticket is fetched via the Atlassian MCP's
+> `getJiraIssue` — under whichever namespace the session exposes (`mcp__atlassian__*`,
+> `mcp__plugin_atlassian_atlassian__*`, or `mcp__claude_ai_Atlassian_Rovo__*`;
+> `ToolSearch` to discover a deferred tool; see [`tools/tracker/jira/`](../tools/tracker/jira/README.md))
+> (Step 1.B reads it there instead of `gh issue view`),
 > the `sub-issues` verdict **presents** sub-ticket specs to the operator rather than
 > auto-creating them, and the `sub-issues`/`stacked-prs` design-detection below is the
 > design-provider path (see `tracker/jira/README.md` and the `design.provider` axis —
