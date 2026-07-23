@@ -35,6 +35,21 @@ const REVIEWER_MODEL = {
 // (config keys reviewers by bare name, per second-shift.config.schema.json).
 const bare = (t) => (String(t).includes(':') ? String(t).split(':').pop() : String(t))
 
+// The Atlassian MCP tools scope-completeness-reviewer fetches the JIRA ticket with
+// are DEFERRED in a Workflow subagent (same surface figma.mjs documents) and their
+// namespace depends on HOW the MCP was registered: a top-level `mcpServers` entry
+// exposes `mcp__atlassian__*`; a plugin-bundled server exposes
+// `mcp__plugin_atlassian_atlassian__*`; the claude.ai Atlassian (Rovo) integration
+// exposes `mcp__claude_ai_Atlassian_Rovo__*`. Select ALL THREE namespaces — `select:`
+// returns the names that exist and silently ignores the absent ones, so the same
+// dispatch works regardless of provenance. Hardcoding one prefix made the Scope
+// Completeness Gate unsatisfiable for consumers registered under the other two.
+// Mirrors figma.mjs's FIGMA_MCP_TOOLSEARCH.
+const ATLASSIAN_MCP_TOOLSEARCH =
+  'select:mcp__atlassian__getJiraIssue,mcp__plugin_atlassian_atlassian__getJiraIssue,mcp__claude_ai_Atlassian_Rovo__getJiraIssue,' +
+  'mcp__atlassian__getAccessibleAtlassianResources,mcp__plugin_atlassian_atlassian__getAccessibleAtlassianResources,mcp__claude_ai_Atlassian_Rovo__getAccessibleAtlassianResources,' +
+  'mcp__atlassian__getJiraIssueRemoteIssueLinks,mcp__plugin_atlassian_atlassian__getJiraIssueRemoteIssueLinks,mcp__claude_ai_Atlassian_Rovo__getJiraIssueRemoteIssueLinks'
+
 // Findings contract. Kept permissive (only severity/description/confidence required)
 // so reviewers don't burn retries on over-strict shapes; file/line/title are optional.
 const FINDINGS_SCHEMA = {
@@ -314,7 +329,7 @@ const dispatchReviewer = async (agentType) => {
     const ref = trackerType === 'jira' ? `JIRA ticket ${issue}` : `GitHub issue #${issue}`
     const fetchInstr =
       trackerType === 'jira'
-        ? `Fetch the ticket yourself via the Atlassian MCP (\`mcp__atlassian__getJiraIssue\` with key \`${issue}\`, responseContentFormat "markdown"; resolve cloudId via \`mcp__atlassian__getAccessibleAtlassianResources\` if you don't have one)`
+        ? `Fetch the ticket yourself via the Atlassian MCP for key \`${issue}\` (responseContentFormat "markdown"). Do NOT assume the \`mcp__atlassian__*\` prefix — the tools are deferred and their namespace depends on how the MCP was registered. FIRST call ToolSearch with query "${ATLASSIAN_MCP_TOOLSEARCH}" to load whichever of the three Atlassian namespaces this session exposes (\`mcp__atlassian__*\`, \`mcp__plugin_atlassian_atlassian__*\`, or \`mcp__claude_ai_Atlassian_Rovo__*\`), then call the exact \`getJiraIssue\` / \`getAccessibleAtlassianResources\` names it returns; ToolSearch silently omits absent namespaces`
         : `Fetch the issue yourself with \`gh issue view ${issue}\``
     prompt =
       `Verify scope completeness for ${ref}. ` +
