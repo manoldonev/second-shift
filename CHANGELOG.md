@@ -4,6 +4,17 @@ All notable changes to the second-shift marketplace. Versions are per-plugin (`p
 this file tracks the marketplace release. `configVersion` stays `const 1` — v2 is fully backward-compatible for a
 consumer with an empty config; the migration notes below are only for consumers using the changed features.
 
+## v2.9.2
+
+### `second-shift` 1.6.1 → 1.6.2
+
+- **fix(second-shift): scope local-dev-refresh to the second-shift marketplace (#196)** (#196)
+  /second-shift:local-dev-refresh now refreshes only the
+  second-shift marketplace and the plugins installed from it, instead of
+  every marketplace on the machine. Use `claude plugin update <id>@<mkt>`
+  for other marketplaces.
+  Migration: none.
+
 ## v2.9.1
 
 ### `dev-pipeline` 2.7.0 → 2.7.1
