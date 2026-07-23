@@ -1188,6 +1188,44 @@ else
   fail "(mc-ir3) inert+TEST_FAILURE PASS accept — status='$status'"
 fi
 
+# Helper: inject a per-repo worktrees map into <key>'s state (be-fe-pair shape) —
+# jq-edit directly, same technique as mk_completed, so the require_eval_file union
+# branch over worktrees.<id> is exercised without the full be-fe-pair stage machine.
+inject_worktrees() {
+  local key="$1" wt_json="$2"
+  jq --argjson w "$wt_json" '.worktrees = $w' ".claude/pipeline-state/${key}.json" \
+    > ".claude/pipeline-state/${key}.json.tmp" \
+    && mv ".claude/pipeline-state/${key}.json.tmp" ".claude/pipeline-state/${key}.json"
+}
+
+# (mc-ir4) be-fe-pair union — flat verifySummary inert, but a per-repo
+# worktrees.<id>.verifySummary is a suite object → the gate's union sees a
+# verifying lane → PASS accepted. Grounds the per-repo any_suite_object branch.
+complete_run_vs 9999 '"skipped (inert diff)"'
+inject_worktrees 9999 '{"fe":{"verifySummary":{"test":"passed"},"verifyAttempts":{}}}'
+write_eval_pass 9999
+sct mark-completed 9999 >/dev/null
+status=$(sct get 9999 '.status')
+if [[ "$status" == "completed" ]]; then
+  pass "(mc-ir4) per-repo (worktrees.<id>) suite object PASS → accepted (be-fe-pair union)"
+else
+  fail "(mc-ir4) per-repo union suite-object accept — status='$status'"
+fi
+
+# (mc-ir5) be-fe-pair union — flat inert + no flat TEST_FAILURE, but a per-repo
+# worktrees.<id>.verifyAttempts.TEST_FAILURE is charged → union sees it → PASS
+# accepted. Grounds the per-repo any_test_failure branch.
+complete_run_vs 9999 '"skipped (inert diff)"'
+inject_worktrees 9999 '{"fe":{"verifySummary":"skipped (inert)","verifyAttempts":{"TEST_FAILURE":1}}}'
+write_eval_pass 9999
+sct mark-completed 9999 >/dev/null
+status=$(sct get 9999 '.status')
+if [[ "$status" == "completed" ]]; then
+  pass "(mc-ir5) per-repo TEST_FAILURE PASS → accepted (be-fe-pair union)"
+else
+  fail "(mc-ir5) per-repo TEST_FAILURE accept — status='$status'"
+fi
+
 # ============ (rm) shared terminal-state guard on the stage-mutators (#154) ====
 # The six subcommands that previously had NO terminal check now route through
 # require_mutable: each rejects a post-terminal mutation with rc=1 (status
