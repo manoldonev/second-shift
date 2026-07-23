@@ -535,6 +535,66 @@ else
   fail "(v25) single-repo non-regression — flat=$flat emitted=$emitted perRepo=$rcount"
 fi
 
+# ---- #186: bare-invocation command table derived from .targetRepos --------------
+# A single-target be-fe-pair run flowing through a BARE `verifyctl run` (no --repo)
+# — e.g. Stage 8's re-verify on the flat-mirror worktree — must key the command
+# table on the ONE target repo (whose worktree the flat-mirror already points at),
+# not the path="." host. Absent / >1-entry .targetRepos keeps the host, byte-for-byte
+# the standalone/monorepo behavior. base_ref stays flat (state .worktreeBase) even
+# when the command host derives to the target.
+BEFE_CFG="$TMPDIR_VT/cfg-befe.json"
+cat > "$BEFE_CFG" <<'CFG'
+{
+  "configVersion": 1,
+  "tracker": { "type": "github" },
+  "topology": { "type": "be-fe-pair", "repos": {
+    "be": { "path": ".",      "baseBranch": "main", "ticketTag": "[BE]" },
+    "fe": { "path": "apps/fe", "baseBranch": "main", "ticketTag": "[FE]" }
+  } },
+  "commands": {
+    "be": { "lint": null, "typecheck": null, "test": "yarn test-be", "format": null },
+    "fe": { "lint": null, "typecheck": null, "test": "yarn test-fe", "format": null }
+  }
+}
+CFG
+
+befe_run() { # $1 = .targetRepos JSON array ("" = leave absent). reset, seed, non-inert diff, bare run.
+  reset_all
+  [[ -n "${1:-}" ]] && { jq --argjson tr "$1" '.targetRepos = $tr' "$STATE" > "$STATE.tmp" && mv "$STATE.tmp" "$STATE"; }
+  echo "export const befe = 1" >> "$WORK/src/thing.ts"
+  git -C "$WORK" add -A && git -C "$WORK" commit -qm feat-befe
+  VERDICT=$(SECOND_SHIFT_CONFIG="$BEFE_CFG" "$VERIFYCTL" run 8888 2>/dev/null); VRC=$?
+}
+
+# (v26) DERIVE: single-entry .targetRepos → the TARGET repo's command table (not the
+#       host's), and base stays flat (verdict.base == worktreeBase "main"). Pre-fix
+#       this runs the host's `yarn test-be` — the bug's signature.
+befe_run '["fe"]'
+base=$(jq -r '.base' <<< "$VERDICT")
+if [[ "$VRC" == "0" && -f "$MARKERS/ran-test-fe" && ! -f "$MARKERS/ran-test-be" && "$base" == "main" ]]; then
+  pass "(v26) bare run, .targetRepos=[fe] → fe command table (ran-test-fe), base stays flat (main)"
+else
+  fail "(v26) derive — rc=$VRC ran-fe=$([[ -f "$MARKERS/ran-test-fe" ]] && echo y || echo n) ran-be=$([[ -f "$MARKERS/ran-test-be" ]] && echo y || echo n) base=$base"
+fi
+
+# (v27) FALLBACK (>1 entry): a two-entry .targetRepos cannot derive → path="." host
+#       (be). Preserves "dual-target needs --repo" — only Stage 6's --repo loop handles it.
+befe_run '["be","fe"]'
+if [[ "$VRC" == "0" && -f "$MARKERS/ran-test-be" && ! -f "$MARKERS/ran-test-fe" ]]; then
+  pass "(v27) bare run, .targetRepos=[be,fe] (>1) → host fallback (ran-test-be)"
+else
+  fail "(v27) >1-entry fallback — rc=$VRC ran-be=$([[ -f "$MARKERS/ran-test-be" ]] && echo y || echo n) ran-fe=$([[ -f "$MARKERS/ran-test-fe" ]] && echo y || echo n)"
+fi
+
+# (v28) FALLBACK (absent): no .targetRepos → path="." host (be), byte-for-byte the
+#       prior standalone/monorepo behavior.
+befe_run ''
+if [[ "$VRC" == "0" && -f "$MARKERS/ran-test-be" && ! -f "$MARKERS/ran-test-fe" ]]; then
+  pass "(v28) bare run, no .targetRepos → host fallback (ran-test-be)"
+else
+  fail "(v28) absent fallback — rc=$VRC ran-be=$([[ -f "$MARKERS/ran-test-be" ]] && echo y || echo n) ran-fe=$([[ -f "$MARKERS/ran-test-fe" ]] && echo y || echo n)"
+fi
+
 echo
 echo "[self-test] summary: $PASS passed, $FAIL failed"
 exit "$FAIL"
