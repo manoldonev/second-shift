@@ -52,10 +52,12 @@ changes under the JIRA adapter. Full contract + the operation-by-adapter table:
   1/8/9 sections below describe.
 - **jira** (`tracker.type: jira`, `tracker.writes: false`) — the read-only
   model: operator supplies the JIRA key, the ticket is fetched **read-only** via the
-  Atlassian MCP (`mcp__atlassian__getJiraIssue`), and **no stage writes to the tracker**
-  (no transitions, no comments — the state file + draft-PR metadata are the audit
-  trail). No bot claim; the Pre-flight bot/label gate below does not apply.
-  See [`tools/tracker/jira/README.md`](./tools/tracker/jira/README.md).
+  Atlassian MCP's `getJiraIssue` — under whichever namespace the session exposes
+  (`mcp__atlassian__*`, `mcp__plugin_atlassian_atlassian__*`, or
+  `mcp__claude_ai_Atlassian_Rovo__*`; `ToolSearch` to discover a deferred tool) — and
+  **no stage writes to the tracker** (no transitions, no comments — the state file +
+  draft-PR metadata are the audit trail). No bot claim; the Pre-flight bot/label gate
+  below does not apply. See [`tools/tracker/jira/README.md`](./tools/tracker/jira/README.md).
 
 Shared, tracker-independent config: `tracker.keyPattern` (statectl init validation)
 and `tracker.branchPrefix` (branch namespace — `claude/acme-` github, `jdoe/` jira).

@@ -14,16 +14,20 @@ transitions or comments — the run’s audit trail is the state file
 
 ## Prerequisite
 
-The Atlassian MCP (`mcp__atlassian__*`) must be connected on the calling session —
-Stage 1 fetches the ticket through it. A missing MCP is a fetch-time prerequisite
-failure, surfaced by the intake stage.
+The Atlassian MCP must be connected on the calling session — Stage 1 fetches the
+ticket through it. **Do not assume the `mcp__atlassian__*` prefix:** the MCP's tool
+namespace depends on how the session registered the server — `mcp__atlassian__*`
+(top-level `mcpServers`), `mcp__plugin_atlassian_atlassian__*` (plugin-bundled), or
+`mcp__claude_ai_Atlassian_Rovo__*` (claude.ai Rovo). Call whichever `getJiraIssue` the
+session exposes (`ToolSearch` to discover it when it is a deferred tool). A missing MCP
+is a fetch-time prerequisite failure, surfaced by the intake stage.
 
 ## Operations (all read-only on the tracker)
 
 | Operation | jira implementation |
 | --- | --- |
 | **pickup** | Operator supplies the JIRA key on invocation (`/dev-pipeline:run GH-540`). No queue, no claim, no label mutation. |
-| **fetch-ticket** | `mcp__atlassian__getJiraIssue` for the body; `mcp__atlassian__getJiraIssueRemoteIssueLinks` → `mcp__atlassian__getConfluencePage` for linked design/spec pages. |
+| **fetch-ticket** | `getJiraIssue` for the body; `getJiraIssueRemoteIssueLinks` → `getConfluencePage` for linked design/spec pages — under whichever namespace the session exposes (see **Prerequisite**). |
 | **post-status-comment** | *no-op.* Progress is written to the state file only. |
 | **set-status** | *no-op.* The ticket stays in its current JIRA status for the whole run. |
 | **create-sub-tickets** (`sub-issues` verdict) | Present ≤5 recommended sub-ticket specs to the operator; make **no** JIRA writes. The operator creates and re-queues them. |

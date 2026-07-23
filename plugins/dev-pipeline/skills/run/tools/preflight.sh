@@ -30,7 +30,9 @@
 # Without a ticket key (the onboard finish-line case) the github tracker read is
 # the queue head (`gh issue list` — a READ); with a key it is that issue. Under
 # tracker.type: jira the tracker read is SKIPped with a note — the jira fetch is
-# session-side MCP (mcp__atlassian__getJiraIssue), unreachable from a shell tool.
+# session-side MCP getJiraIssue (namespace varies: mcp__atlassian__,
+# mcp__plugin_atlassian_atlassian__, or mcp__claude_ai_Atlassian_Rovo__),
+# unreachable from a shell tool.
 #
 # Env seams (mirroring the sibling tools):
 #   SECOND_SHIFT_REPO_ROOT   — consumer repo root override (else git-common-dir, else cwd)
@@ -229,7 +231,7 @@ if [[ "$TRACKER_TYPE" == "github" ]]; then
     fi
   fi
 else
-  skipn "tracker read: tracker.type=$TRACKER_TYPE — the jira fetch is session-side MCP (mcp__atlassian__getJiraIssue), not reachable from a shell tool; verify it from the Claude session"
+  skipn "tracker read: tracker.type=$TRACKER_TYPE — the jira fetch is session-side MCP getJiraIssue (namespace varies: mcp__atlassian__, mcp__plugin_atlassian_atlassian__, or mcp__claude_ai_Atlassian_Rovo__), not reachable from a shell tool; verify it from the Claude session"
 fi
 
 # --- Section 5: command lanes, once each, in the current checkout ------------------

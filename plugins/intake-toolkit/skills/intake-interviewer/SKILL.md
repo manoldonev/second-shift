@@ -19,7 +19,11 @@ This skill loads instructions into the **calling session**. The calling session 
 > The interviewer only ever **produces a body** — it never writes to the tracker on either
 > adapter (that guard is unconditional) — so the jira delta is purely presentational: the
 > same body is a paste-able **JIRA ticket description**, the enrich-a-thin-issue input is a
-> JIRA key fetched read-only via `mcp__atlassian__getJiraIssue` (never `gh issue view`), and
+> JIRA key fetched read-only via the Atlassian MCP's `getJiraIssue` (never `gh issue view`) —
+> **do not assume the `mcp__atlassian__*` prefix**; the MCP namespace depends on how the
+> session registered it (`mcp__atlassian__*`, `mcp__plugin_atlassian_atlassian__*`, or
+> `mcp__claude_ai_Atlassian_Rovo__*`), so call whichever `getJiraIssue` is exposed
+> (`ToolSearch` to discover a deferred tool) — and
 > the title/number conventions below map to JIRA's (the tracker assigns the key; long titles
 > are still a readability problem in JIRA list/board views). The interview mechanics, the
 > reproducibility/spec checklists, the provenance marker, redaction, and the Decision Ledger
@@ -55,7 +59,7 @@ You produce the issue body. You do NOT:
 
 - **Required**: Unstructured text from the user (pasted blob, description, screenshot caption).
 - **Optional**: Target codebase area.
-- **Conditional**: A tracker ticket reference — a GitHub issue number on the default adapter, or a JIRA key (fetched read-only via `mcp__atlassian__getJiraIssue`) under `tracker.type: jira` — only accept if the user explicitly asks you to enrich a thin ticket. If the existing ticket already has meaningful STR or ACs, route the user to `intake-orchestrator` instead.
+- **Conditional**: A tracker ticket reference — a GitHub issue number on the default adapter, or a JIRA key (fetched read-only via the session's `getJiraIssue`, namespace per the tracker-delta note above) under `tracker.type: jira` — only accept if the user explicitly asks you to enrich a thin ticket. If the existing ticket already has meaningful STR or ACs, route the user to `intake-orchestrator` instead.
 - **Assumed**: Repo root is the working directory; the repo's `CLAUDE.md` (and whatever docs it routes to) describes the codebase.
 
 ## Step 0: Classify mode

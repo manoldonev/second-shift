@@ -10,14 +10,18 @@ You are a dispatch-only front door. Classify the input, invoke the matched skill
 > **Tracker delta (config `tracker.type: jira`).** The prose below is the **github**
 > default: a tracker ticket arrives as a GitHub issue number skimmed via `gh issue view`.
 > Under `tracker.type: jira` the same input is a **JIRA key** skimmed **read-only** via
-> `mcp__atlassian__getJiraIssue` (never `gh issue view`, no tracker writes). Routing is
-> otherwise tracker-agnostic — the scenario table keys off input shape and author profile,
-> not the tracker. "Never write to GitHub" below means never write to **any** tracker.
+> the Atlassian MCP's `getJiraIssue` (never `gh issue view`, no tracker writes). **Do not
+> assume the `mcp__atlassian__*` prefix** — the MCP namespace depends on how the session
+> registered it (`mcp__atlassian__*`, `mcp__plugin_atlassian_atlassian__*`, or
+> `mcp__claude_ai_Atlassian_Rovo__*`); call whichever `getJiraIssue` is exposed
+> (`ToolSearch` to discover a deferred tool). Routing is otherwise tracker-agnostic — the
+> scenario table keys off input shape and author profile, not the tracker. "Never write
+> to GitHub" below means never write to **any** tracker.
 
 ## Classify
 
 1. **Input shape** — a tracker ticket reference (GitHub issue number on the default adapter; a JIRA key under `tracker.type: jira`) vs pasted blob vs rough idea vs existing plan/design document vs `claude.ai/design/...` handoff link.
-2. **Granularity** — epic/multi-deliverable vs single item (for a ticket reference: skim the body + labels — `gh issue view <n>` on the github adapter, `mcp__atlassian__getJiraIssue <KEY>` read-only under jira).
+2. **Granularity** — epic/multi-deliverable vs single item (for a ticket reference: skim the body + labels — `gh issue view <n>` on the github adapter, or the session's `getJiraIssue <KEY>` read-only under jira — namespace per the tracker-delta note above).
 3. **Author profile** — non-technical PM vs technical author (engineer / QA), when determinable from the issue reporter or the user's framing. **Safe default when indeterminate: PM posture** (conservative bias-toward-quarantine). Misclassification only changes how quarantined claims are presented — never whether they are verified.
 
 ## Scenario roadmap (single source of truth — INDEX and skill boundary notes point here)
