@@ -110,6 +110,23 @@ verdict=$(bash "$SCOPE" "$TMP/tampered.json" --slice 1 | head -n1)
   && pass "(vp5) tampered partition → union-mismatch (slice-scoping void, fail-closed)" \
   || fail "(vp5) tampered partition — verdict=$verdict"
 
+# No partition at all (every non-stacked run — the tool's most common invocation)
+# → no-partition, and consumers keep full-ticket behavior.
+jq 'del(.decomposition)' "$STATE" > "$TMP/nopart.json"
+verdict=$(bash "$SCOPE" "$TMP/nopart.json" | head -n1)
+[[ "$verdict" == "no-partition" ]] \
+  && pass "(vp5b) state without decomposition.slices → no-partition" \
+  || fail "(vp5b) no partition — verdict=$verdict"
+
+# Usage/IO errors → exit 2 with a message (missing state file; non-integer --slice).
+set +e
+bash "$SCOPE" "$TMP/does-not-exist.json" >/dev/null 2>&1; rc_missing=$?
+bash "$SCOPE" "$STATE" --slice foo >/dev/null 2>&1; rc_badslice=$?
+set -e
+[[ "$rc_missing" -eq 2 && "$rc_badslice" -eq 2 ]] \
+  && pass "(vp5c) usage/IO errors (missing state, non-integer --slice) → exit 2" \
+  || fail "(vp5c) usage errors — rc_missing=$rc_missing rc_badslice=$rc_badslice"
+
 # ---- Slice 1 → 2: stop-condition evaluation ---------------------------------
 echo "[verdict-path-liveness] stop-condition evaluation"
 # Clean slice-1 review: one round, NOT exhausted → loop must proceed.
