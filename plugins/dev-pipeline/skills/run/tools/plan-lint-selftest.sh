@@ -282,6 +282,97 @@ rc=$(lint_rc "$NTMP/foreign.md")
   && pass "(pl-n5) foreign-tree path + branch-name shape → 0 (precision guards)" \
   || fail "(pl-n5) precision guards — got rc=$rc"
 
+echo "[plan-lint-selftest] Decision Ledger hydration completeness (Check 6, #190)"
+
+# Backing ledger = the SIBLING of $LEDGER_STATE ($TMP/156-ledger.md). Check 6 only
+# greps its `| D-n |` rows, but write a realistic canonical ledger for fidelity.
+make_backing_ledger() { # <rows-block> → $TMP/156-ledger.md
+  { printf '## Decision Ledger\n\n'
+    printf '| ID | Decision | Resolution | Provenance |\n'
+    printf '| --- | --- | --- | --- |\n'
+    printf '%s\n' "$1"
+  } > "$TMP/156-ledger.md"
+}
+BACK_TWO=$'| D-1 | 404 vs 409 on duplicate import | 409 | user-delegated |\n| D-2 | DTO validation library | class-validator | codebase-derived |'
+
+# (pl-v) hydrated-ok: backing D-1,D-2 + verbatim plan rows → 0
+make_backing_ledger "$BACK_TWO"
+make_ledger_plan "$TMP/hydrated-ok.md" "$BACK_TWO"
+rc=$(lint_rc "$TMP/hydrated-ok.md" "$LEDGER_STATE")
+[[ "$rc" -eq 0 ]] \
+  && pass "(pl-v) backing rows hydrated verbatim → 0" \
+  || fail "(pl-v) hydrated-ok — rc=$rc"
+
+# (pl-w) missing D-n row: plan omits D-2 → 1, names D-2
+make_backing_ledger "$BACK_TWO"
+make_ledger_plan "$TMP/missing-row.md" "| D-1 | 404 vs 409 on duplicate import | 409 | user-delegated |"
+rc=$(lint_rc "$TMP/missing-row.md" "$LEDGER_STATE")
+err=$(bash "$LINT" "$TMP/missing-row.md" "$LEDGER_STATE" 2>&1 >/dev/null || true)
+[[ "$rc" -eq 1 ]] && grep -q "D-2" <<< "$err" && grep -q "not hydrated" <<< "$err" \
+  && pass "(pl-w) backing row omitted from plan → 1, names D-2" \
+  || fail "(pl-w) missing-row — rc=$rc err=$err"
+
+# (pl-x) mutated provenance: plan D-2 provenance drifts (codebase-derived → deferred) → 1
+make_backing_ledger "$BACK_TWO"
+make_ledger_plan "$TMP/mut-prov.md" "$(printf '| D-1 | 404 vs 409 on duplicate import | 409 | user-delegated |\n| D-2 | DTO validation library | class-validator | deferred |')"
+rc=$(lint_rc "$TMP/mut-prov.md" "$LEDGER_STATE")
+err=$(bash "$LINT" "$TMP/mut-prov.md" "$LEDGER_STATE" 2>&1 >/dev/null || true)
+[[ "$rc" -eq 1 ]] && grep -q "D-2 Provenance" <<< "$err" \
+  && pass "(pl-x) drifted provenance → 1, names D-2" \
+  || fail "(pl-x) mutated provenance — rc=$rc err=$err"
+
+# (pl-y) drifted resolution: plan D-1 resolution 404 vs backing 409 → 1
+make_backing_ledger "$BACK_TWO"
+make_ledger_plan "$TMP/drift-res.md" "$(printf '| D-1 | 404 vs 409 on duplicate import | 404 | user-delegated |\n| D-2 | DTO validation library | class-validator | codebase-derived |')"
+rc=$(lint_rc "$TMP/drift-res.md" "$LEDGER_STATE")
+err=$(bash "$LINT" "$TMP/drift-res.md" "$LEDGER_STATE" 2>&1 >/dev/null || true)
+[[ "$rc" -eq 1 ]] && grep -q "D-1 Resolution cell drifted" <<< "$err" \
+  && pass "(pl-y) drifted resolution → 1, names D-1" \
+  || fail "(pl-y) drifted resolution — rc=$rc err=$err"
+
+# (pl-ad) drifted Decision cell — the "verbatim = all 3 cells" enforcement (W1) → 1
+make_backing_ledger "$BACK_TWO"
+make_ledger_plan "$TMP/drift-dec.md" "$(printf '| D-1 | 404 vs 409 on duplicate import | 409 | user-delegated |\n| D-2 | DTO validation lib CHANGED | class-validator | codebase-derived |')"
+rc=$(lint_rc "$TMP/drift-dec.md" "$LEDGER_STATE")
+err=$(bash "$LINT" "$TMP/drift-dec.md" "$LEDGER_STATE" 2>&1 >/dev/null || true)
+[[ "$rc" -eq 1 ]] && grep -q "D-2 Decision cell drifted" <<< "$err" \
+  && pass "(pl-ad) drifted Decision cell → 1, names D-2 (verbatim = all 3 cells)" \
+  || fail "(pl-ad) drifted decision — rc=$rc err=$err"
+
+# (pl-z) missing section WITH a backing ledger (>=1 row) → 1 hard; advisory suppressed (W2)
+make_backing_ledger "$BACK_TWO"
+rc=$(lint_rc "$FIX/valid-plan.md" "$LEDGER_STATE")   # valid-plan.md has no Decision Ledger section
+err=$(bash "$LINT" "$FIX/valid-plan.md" "$LEDGER_STATE" 2>&1 >/dev/null || true)
+out=$(bash "$LINT" "$FIX/valid-plan.md" "$LEDGER_STATE" 2>/dev/null || true)
+[[ "$rc" -eq 1 ]] && grep -q "no Decision Ledger section" <<< "$err" \
+  && ! grep -q "WARNING (advisory): no Decision Ledger" <<< "$out" \
+  && pass "(pl-z) backing rows + no plan section → 1 hard, advisory suppressed" \
+  || fail "(pl-z) missing section w/ backing — rc=$rc err=$err out=$out"
+
+# (pl-aa) no-backing-file unchanged: plan WITH ledger rows, no backing file → 0 (Check 6 no-op)
+rm -f "$TMP/156-ledger.md"
+make_ledger_plan "$TMP/nobacking.md" "| D-1 | DTO library | class-validator | codebase-derived |"
+rc=$(lint_rc "$TMP/nobacking.md" "$LEDGER_STATE")
+[[ "$rc" -eq 0 ]] \
+  && pass "(pl-aa) ledger rows, no backing file → 0 (Check 6 no-op)" \
+  || fail "(pl-aa) no-backing unchanged — rc=$rc"
+
+# (pl-ab) padding-only cell differences (prettier column padding) → 0 (trim, D-3)
+make_backing_ledger "| D-1 | Retention window | keep 30d | codebase-derived |"
+make_ledger_plan "$TMP/padded.md" "| D-1 |   Retention window   |     keep 30d      | codebase-derived   |"
+rc=$(lint_rc "$TMP/padded.md" "$LEDGER_STATE")
+[[ "$rc" -eq 0 ]] \
+  && pass "(pl-ab) padding-only cell differences → 0 (trim neutralizes prettier padding)" \
+  || fail "(pl-ab) padding-only — rc=$rc"
+
+# (pl-ac) empty-form backing ledger (zero D-n rows) + plan without section → 0 (D-2)
+printf '## Decision Ledger\n\nNo material decisions — all choices codebase-derived.\n' > "$TMP/156-ledger.md"
+rc=$(lint_rc "$FIX/valid-plan.md" "$LEDGER_STATE")
+[[ "$rc" -eq 0 ]] \
+  && pass "(pl-ac) empty-form backing ledger (zero rows) + no plan section → 0 (D-2 no-op)" \
+  || fail "(pl-ac) empty-form backing — rc=$rc"
+rm -f "$TMP/156-ledger.md"
+
 echo
 echo "[plan-lint-selftest] summary: $PASS passed, $FAIL failed"
 exit $FAIL
