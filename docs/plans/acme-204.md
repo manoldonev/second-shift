@@ -10,7 +10,7 @@ Fix: persist the partition write-once at intake; make plan-lint, the Stage-8 sco
 
 - The partition is part of the Stage-1 intent snapshot: written once, before any code exists, by the same trust model as `acceptanceCriteria[]`. A run can never author or edit it mid-flight.
 - The stacked branch for slice N contains slices 1..N cumulatively (each slice branches from the prior — `stages/1-intake.md` outer-loop branch derivation), so grading the union of ACs for slices 1..N against a diff anchored at slice 1's base is honest.
-- Intake decisions recorded on the issue (comment 2026-07-23): partition arrives at the scope reviewer via the **state file on disk**, never the dispatch prompt; integrity checks key on the **snapshot** AC set; drift ⇒ full-ticket fallback (fail-closed); partition keyed by **slice index**; "slice 1's base" = configured `topology.repos.<host>.baseBranch`.
+- The gap resolutions from intake (surfaced on the issue comment 2026-07-23) were made by the pipeline itself, grounded in the codebase — hence their `codebase-derived` provenance in the ledger below; no user input was involved: partition arrives at the scope reviewer via the **state file on disk**, never the dispatch prompt; integrity checks key on the **snapshot** AC set; drift ⇒ full-ticket fallback (fail-closed); partition keyed by **slice index**; "slice 1's base" = configured `topology.repos.<host>.baseBranch`.
 
 ## Decision Ledger
 
