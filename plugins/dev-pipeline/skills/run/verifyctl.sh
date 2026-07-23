@@ -36,8 +36,11 @@
 # is config-driven (commands.<host>.format, #12): a string runs verbatim as the
 # repo's own formatter (`black .`, `yarn format`), null skips the format lane
 # entirely, and an ABSENT key falls back to scoped prettier (the documented
-# default — the ONLY path that needs node/npx). Single-repo operation: no --repo
-# flag, no per-repo sidecars, no integration lane.
+# default — the ONLY path that needs node/npx). The commands table is keyed on the
+# RESOLVED verify target: the path="." host by default, the `--repo <id>` repo when
+# passed, or — for a BARE run — the single repo named by `.targetRepos` when it has
+# exactly one entry (#186). Single-repo operation: no --repo flag, no per-repo
+# sidecars, no integration lane.
 #
 # Attempt accounting (skipped entirely under --no-attempt):
 #   Sidecar {state-dir}/{issue}-verify.json, owned EXCLUSIVELY by verifyctl:
