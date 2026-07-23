@@ -42,6 +42,25 @@ else
     echo "PASS: check rejects an agent with no ToolSearch discovery"
 fi
 
+# 4) Red when a namespace is dropped from code-review.mjs's ATLASSIAN_MCP_TOOLSEARCH
+# (assertion 3). Restore the real agent so only the cross-check fails, and point the
+# dev-pipeline sibling env at a fixture root carrying a mutated code-review.mjs.
+REAL_CR="$SCRIPT_DIR/../../dev-pipeline/skills/run/workflows/code-review.mjs"
+if [ -f "$REAL_CR" ]; then
+    cp "$REAL_AGENT" "$TMP/agents/scope-completeness-reviewer.md"
+    DP_FIX="$TMP/dp/skills/run/workflows"
+    mkdir -p "$DP_FIX"
+    sed 's/mcp__claude_ai_Atlassian_Rovo__getJiraIssue,//' "$REAL_CR" > "$DP_FIX/code-review.mjs"
+    if SECOND_SHIFT_PLUGIN_ROOT="$REAL_PLUGIN_ROOT" SECOND_SHIFT_DEV_PIPELINE_ROOT="$TMP/dp" bash "$CHECK" >/dev/null 2>&1; then
+        echo "FAIL: check should reject code-review.mjs missing a namespace in ATLASSIAN_MCP_TOOLSEARCH" >&2
+        fail=1
+    else
+        echo "PASS: check rejects code-review.mjs missing a namespace in ATLASSIAN_MCP_TOOLSEARCH"
+    fi
+else
+    echo "SKIP: dev-pipeline sibling code-review.mjs not found — cross-check red path not exercised"
+fi
+
 if [ "$fail" -ne 0 ]; then
     echo "check-scope-tracker-namespaces-selftest: FAILED" >&2
     exit 1
