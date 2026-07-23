@@ -1125,6 +1125,69 @@ else
   fail "(mc4) mark-completed absent state — rc=$rc err='$err'"
 fi
 
+# ==== (mc-ir) inert-lane implementation_resilience gate (issue #199) ============
+# mark-completed refuses implementation_resilience: PASS when the run is inert
+# (no verifying-lane object anywhere AND no TEST_FAILURE charged); a SUITE-lane
+# run (object verifySummary, or any TEST_FAILURE) is unaffected.
+
+# Helper: write a valid self-eval scoring implementation_resilience: PASS.
+write_eval_pass() {
+  local key="$1"
+  printf '{"ticketKey":%s,"criteria":{"target_confirmation":"PASS","plan_grounding":"PASS","implementation_resilience":"PASS","scope_compliance":"PASS","review_precision":"PASS"}}\n' "$key" \
+    > ".claude/pipeline-state/${key}-eval.json"
+}
+
+# Helper: walk all 9 stages but set Stage-6 verifySummary to $2 (raw JSON), and
+# charge one TEST_FAILURE when $3 == "tf". Leaves the run at in_progress with all
+# stages completed — ready for the terminal mark-completed gate.
+complete_run_vs() {
+  local key="$1" vs="$2" tf="${3:-}"
+  reset_state
+  sct init "$key" --run-id "selftest-run-$$" >/dev/null
+  for n in 1 2 3 4 5; do complete_stage "$key" "$n"; done
+  sct set-stage "$key" 6 --status started >/dev/null
+  sct verify-summary-set "$key" --json "$vs" >/dev/null
+  [[ "$tf" == "tf" ]] && sct verify-attempts "$key" --incr TEST_FAILURE >/dev/null
+  sct set-stage "$key" 6 --status completed >/dev/null
+  for n in 7 8 9; do complete_stage "$key" "$n"; done
+}
+
+# (mc-ir1) inert-string verifySummary + no TEST_FAILURE + PASS → REFUSED,
+# message names the criterion + required N/A, status left untouched.
+complete_run_vs 9999 '"skipped (inert diff)"'
+write_eval_pass 9999
+rc=$(sct_rc mark-completed 9999)
+err=$(sct_err mark-completed 9999)
+status=$(sct get 9999 '.status')
+if [[ "$rc" == "1" && "$err" == *"implementation_resilience"* && "$err" == *"N/A"* && "$status" != "completed" ]]; then
+  pass "(mc-ir1) inert-lane PASS → refused, names criterion + N/A, status untouched"
+else
+  fail "(mc-ir1) inert-lane PASS refusal — rc=$rc status='$status' err='$err'"
+fi
+
+# (mc-ir2) object verifySummary (SUITE lane) + PASS → ACCEPTED (AC-2).
+complete_run_vs 9999 '{"format":"clean","test":"passed"}'
+write_eval_pass 9999
+sct mark-completed 9999 >/dev/null
+status=$(sct get 9999 '.status')
+if [[ "$status" == "completed" ]]; then
+  pass "(mc-ir2) suite-lane (object verifySummary) PASS → accepted (AC-2)"
+else
+  fail "(mc-ir2) suite-lane PASS accept — status='$status'"
+fi
+
+# (mc-ir3) inert-string verifySummary but a TEST_FAILURE charged + PASS →
+# ACCEPTED (AC-2 TEST_FAILURE branch — the breaker had a chance to fire).
+complete_run_vs 9999 '"skipped (inert diff)"' tf
+write_eval_pass 9999
+sct mark-completed 9999 >/dev/null
+status=$(sct get 9999 '.status')
+if [[ "$status" == "completed" ]]; then
+  pass "(mc-ir3) inert-string + TEST_FAILURE PASS → accepted (AC-2)"
+else
+  fail "(mc-ir3) inert+TEST_FAILURE PASS accept — status='$status'"
+fi
+
 # ============ (rm) shared terminal-state guard on the stage-mutators (#154) ====
 # The six subcommands that previously had NO terminal check now route through
 # require_mutable: each rejects a post-terminal mutation with rc=1 (status

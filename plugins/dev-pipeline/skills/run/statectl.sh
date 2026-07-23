@@ -346,6 +346,28 @@ require_eval_file() {
     || { EXIT_CODE=2 die "mark-completed: criteria shape check failed to evaluate on $eval_file"; }
   [[ -z "$shape_err" ]] \
     || { EXIT_CODE=1 die "mark-completed: $eval_file does not score the five locked criteria from eval-criteria.md — $shape_err. Legal values: PASS | FAIL | N/A. Fix the eval file, or --force for crash-recovery."; }
+  # Inert-lane implementation_resilience gate: PASS requires the resilience
+  # circuit-breaker to have been EXERCISED (a real test failure handled), per
+  # eval-criteria.md. On an INERT-lane run no verifying test lane ran anywhere,
+  # so the breaker had no opportunity to fire and PASS is structurally
+  # impossible — the criterion's letter mandates N/A. Cross-check the self-score
+  # against the run's recorded verify evidence and refuse a generous PASS.
+  # Honors --force like the shape check it neighbors (the function already
+  # returned above under --force): a crash-recovery terminalization of an
+  # older-era file is not re-gated. The inert test is a UNION over the flat
+  # fields AND every per-repo worktrees.<id> entry, so a be-fe-pair run is
+  # covered rather than silently holed. Scoped to PASS->N/A on inert runs ONLY:
+  # a SUITE-lane run (object verifySummary, or any TEST_FAILURE charged) is
+  # unaffected and scores PASS/FAIL/N/A as today.
+  if [[ "$(jq -r '.criteria.implementation_resilience // ""' "$eval_file")" == "PASS" ]]; then
+    if jq -e '
+        def any_suite_object: [.verifySummary, ((.worktrees // {})[].verifySummary)] | any(type == "object");
+        def any_test_failure: [(.verifyAttempts.TEST_FAILURE // 0), ((.worktrees // {})[].verifyAttempts.TEST_FAILURE // 0)] | any(. > 0);
+        (any_suite_object or any_test_failure) | not
+      ' "$state" >/dev/null 2>&1; then
+      EXIT_CODE=1 die "mark-completed: $eval_file scores implementation_resilience: PASS on an inert-lane run — no verifying test lane ran (verifySummary is a skip string and no TEST_FAILURE was charged), so the resilience circuit-breaker was never exercised. PASS requires it to have been exercised (eval-criteria.md); score it N/A. Fix the eval file, or --force for crash-recovery."
+    fi
+  fi
 }
 
 # preflight_wellformed <json> — 0 iff <json> is a well-formed Stage-1 pre-flight
