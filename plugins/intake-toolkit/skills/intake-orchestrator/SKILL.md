@@ -22,9 +22,12 @@ This skill loads instructions into the **calling session**, which gathers eviden
 > default (`tracker.writes: true`): the orchestrator reads the issue via `gh issue view`,
 > and on a `sub-issues` verdict it **auto-creates** the ≤5 slices and swaps parent labels
 > through `$GH_BOT`. Under the jira adapter (dev-pipeline's `tools/tracker/jira/` contract,
-> `tracker.writes: false`) the ticket is fetched **read-only** via `mcp__atlassian__getJiraIssue`
-> (Step 0 reads it there instead of `gh issue view`, and remote design/spec links via
-> `mcp__atlassian__getJiraIssueRemoteIssueLinks`); the `sub-issues` verdict **presents** the
+> `tracker.writes: false`) the ticket is fetched **read-only** via the Atlassian MCP's
+> `getJiraIssue` (Step 0 reads it there instead of `gh issue view`, and remote design/spec
+> links via `getJiraIssueRemoteIssueLinks`). **Do not assume the `mcp__atlassian__*`
+> prefix** — the MCP namespace depends on how the session registered it (`mcp__atlassian__*`,
+> `mcp__plugin_atlassian_atlassian__*`, or `mcp__claude_ai_Atlassian_Rovo__*`); call whichever
+> is exposed (`ToolSearch` to discover a deferred tool). The `sub-issues` verdict **presents** the
 > ≤5 sub-ticket specs to the operator rather than writing them — **no issue-create, no label
 > swap, no comment**. The escalation and status-comment steps (Step 6, Escalation) become
 > operator-facing notes surfaced in-session, not tracker writes. Everything else here

@@ -10,9 +10,13 @@ You are a dispatch-only front door. Classify the input, invoke the matched skill
 > **Tracker delta (config `tracker.type: jira`).** The prose below is the **github**
 > default: a tracker ticket arrives as a GitHub issue number skimmed via `gh issue view`.
 > Under `tracker.type: jira` the same input is a **JIRA key** skimmed **read-only** via
-> `mcp__atlassian__getJiraIssue` (never `gh issue view`, no tracker writes). Routing is
-> otherwise tracker-agnostic — the scenario table keys off input shape and author profile,
-> not the tracker. "Never write to GitHub" below means never write to **any** tracker.
+> the Atlassian MCP's `getJiraIssue` (never `gh issue view`, no tracker writes). **Do not
+> assume the `mcp__atlassian__*` prefix** — the MCP namespace depends on how the session
+> registered it (`mcp__atlassian__*`, `mcp__plugin_atlassian_atlassian__*`, or
+> `mcp__claude_ai_Atlassian_Rovo__*`); call whichever `getJiraIssue` is exposed
+> (`ToolSearch` to discover a deferred tool). Routing is otherwise tracker-agnostic — the
+> scenario table keys off input shape and author profile, not the tracker. "Never write
+> to GitHub" below means never write to **any** tracker.
 
 ## Classify
 

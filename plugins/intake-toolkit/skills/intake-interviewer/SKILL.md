@@ -19,7 +19,11 @@ This skill loads instructions into the **calling session**. The calling session 
 > The interviewer only ever **produces a body** — it never writes to the tracker on either
 > adapter (that guard is unconditional) — so the jira delta is purely presentational: the
 > same body is a paste-able **JIRA ticket description**, the enrich-a-thin-issue input is a
-> JIRA key fetched read-only via `mcp__atlassian__getJiraIssue` (never `gh issue view`), and
+> JIRA key fetched read-only via the Atlassian MCP's `getJiraIssue` (never `gh issue view`) —
+> **do not assume the `mcp__atlassian__*` prefix**; the MCP namespace depends on how the
+> session registered it (`mcp__atlassian__*`, `mcp__plugin_atlassian_atlassian__*`, or
+> `mcp__claude_ai_Atlassian_Rovo__*`), so call whichever `getJiraIssue` is exposed
+> (`ToolSearch` to discover a deferred tool) — and
 > the title/number conventions below map to JIRA's (the tracker assigns the key; long titles
 > are still a readability problem in JIRA list/board views). The interview mechanics, the
 > reproducibility/spec checklists, the provenance marker, redaction, and the Decision Ledger
