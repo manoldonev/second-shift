@@ -12,7 +12,7 @@ The fix is the issue's own first-listed, cheapest option (1): derive the command
 
 - `.targetRepos` is persisted by Stage 1 target routing (`state-schema.md`) and is a JSON array of topology repo ids; absent/empty on `standalone`/`monorepo` runs.
 - `load_config` runs inside `cmd_run`, so `key` and the `sget` helper are visible via bash dynamic scoping (same inheritance `REPO_ID` already relies on) — confirmed at `verifyctl.sh:249-273`.
-- Only the **command table** needs the target repo's id; base/worktree/sidecar/budget selection stay flat (they key off `REPO_ID`, which stays empty on the bare path). This matches the issue's "base resolves correctly; only the commands are wrong".
+- Only the **command table** needs the target repo's id. Worktree/sidecar/budget selection key off `REPO_ID` (empty on the bare path) and stay flat. Base resolution is subtler: the observable `base_ref` is read from state's flat `.worktreeBase` (`verifyctl.sh:296`) and is unchanged; the host-keyed `BASE_BRANCH` (`verifyctl.sh:157`) *does* follow the derived host but is used only as the **fallback** when state carries no `worktreeBase` (`verifyctl.sh:298`) — benign, and arguably more correct (the target repo's own baseBranch). This matches the issue's "base resolves correctly; only the commands are wrong".
 
 ## Decision Ledger
 
@@ -20,7 +20,7 @@ The fix is the issue's own first-listed, cheapest option (1): derive the command
 | --- | --- | --- | --- |
 | D-1 | Suggested-fix option (2) "add `--repo`" | Dropped — already shipped in #45 (`146b5ca`, 2026-07-12); re-implementing is a no-op | codebase-derived |
 | D-2 | Which fix to implement | Option (1): in `load_config`, when no `--repo` and `.targetRepos` has exactly one entry, key the command table on that entry, else fall back to `path:"."` host | codebase-derived |
-| D-3 | Scope boundary | Command-table `host` resolution only; base/worktree/sidecar/budget stay flat (avoid re-introducing the inverse of #141) | codebase-derived |
+| D-3 | Scope boundary | Command-table `host` resolution only; worktree/sidecar/budget stay flat. `base_ref` (state's flat `.worktreeBase`) is unchanged; the host-keyed `BASE_BRANCH` follows the derived host but is only the fallback when state lacks `worktreeBase` (benign). Avoid re-introducing the inverse of #141 | codebase-derived |
 | D-4 | Regression safety | Absent/empty/>1-entry `.targetRepos` ⇒ `$host` fallback, byte-for-byte the prior `standalone`/`monorepo` behavior; add selftest coverage for the new derive path (currently only `--repo` is tested) | codebase-derived |
 
 ## Affected files/modules
@@ -32,7 +32,7 @@ No consumer repo files (verifyctl ships in the plugin checkout, de-vendored). No
 
 ## Reuse inventory
 
-- `sget "$key" '<jq>'` (`verifyctl.sh:216`) — the existing state-read helper; reused to read `.targetRepos`. No new helper.
+- `sget "$key" '<jq>'` (`verifyctl.sh:204`) — the existing state-read helper; reused to read `.targetRepos`. No new helper.
 - The `has($h)` topology-membership check already used for the `--repo` id (`verifyctl.sh:150`) — mirrored for the derived id.
 - Selftest fixtures: `$CONFIG_FIXTURE`, `reset_all`, the `SECOND_SHIFT_CONFIG=<cfg>` inline-config pattern (as v12/v13/v16 use), and the yarn shim's `ran-<script>` markers — all reused.
 - New helpers introduced: none — no new functions in either file.
