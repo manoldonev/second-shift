@@ -278,7 +278,8 @@ gh issue edit $ISSUE_NUMBER --remove-assignee @me
 
 1. Verify ≤3 stacked PRs. If >3: escalate via `needs-intake-review`
 2. Post decomposition plan as issue comment (ordered slices with scope, dependencies, targets)
-3. Return control to pipeline (enters outer loop at Stage 3 for slice 1)
+3. **Return the AC→slice partition structurally in the verdict payload (#204).** The Step-5 coverage back-check already reconciled every `AC-n` to exactly one slice — emit that map as `slicePartition: [{slice: 1, acIds: ["AC-1", ...]}, ...]` (1-based slice indices matching the decomposition plan's order; only ID'd ACs appear — un-ID'd deliverables ride the slice prose). The pipeline persists it via `statectl slice-partition-set` (Stage 1 Step 1.D — a local state write, legal under `tracker.writes: false` too); without it every downstream gate (plan-lint Check 3, the Stage-8 scope gate, the retro AC audit) grades slice 1 against the full ticket and the stacked path dead-ends.
+4. Return control to pipeline (enters outer loop at Stage 3 for slice 1)
 
 ### Brief persistence (all continue-verdicts)
 
