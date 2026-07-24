@@ -61,6 +61,7 @@ const range = `${base}..${head}`
 // Copied verbatim from code-review.mjs so the probe dispatch is identical to production.
 // (Permissive: only severity/description/confidence required; findings may be empty —
 // so an honest "approve, nothing to flag" is a single valid StructuredOutput call.)
+// LOCKSTEP-BEGIN findings-schema
 const FINDINGS_SCHEMA = {
   type: 'object',
   additionalProperties: true,
@@ -89,6 +90,7 @@ const FINDINGS_SCHEMA = {
     suppressed: { type: 'array', items: { type: 'string' } },
   },
 }
+// LOCKSTEP-END findings-schema
 
 const STRUCTURED_OUTPUT_FIRST =
   ' Call StructuredOutput FIRST with your verdict and findings, before any prose' +

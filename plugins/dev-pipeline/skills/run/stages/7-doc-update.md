@@ -25,6 +25,7 @@ QUALITY_PASS_JSON="$(statectl.sh get "$ISSUE_NUMBER" '.stages."6".qualityPass //
 # changed-file set are recomputed per worktree), merged and given the shared envelope.
 # Single-target / non-pair runs (targetRepos absent or length 1) take the unchanged
 # flat build-checkpoint-7 path in the else branch below.
+# LOCKSTEP-BEGIN stage7-dual-target
 TARGET_REPOS_JSON="$(statectl.sh get "$ISSUE_NUMBER" '.targetRepos // []')"
 if [[ "$(echo "$TARGET_REPOS_JSON" | jq 'length')" -gt 1 ]]; then
   REPO_ROOT="$(git rev-parse --show-toplevel)"
@@ -58,6 +59,7 @@ if [[ "$(echo "$TARGET_REPOS_JSON" | jq 'length')" -gt 1 ]]; then
          --argjson qps "$QUALITY_PASS_JSON" \
          '. + {ticketKey:$k, targetRepos:$tr, planPath:$pp, deviations:$dv, freeNote:$fn, planRisks:$prisk, docUpdaterFindings:$du, qualityPassSummary:$qps}'
   )
+# LOCKSTEP-END stage7-dual-target
 else
   CHECKPOINT_JSON=$(statectl.sh build-checkpoint-7 \
     --issue "$ISSUE_NUMBER" \

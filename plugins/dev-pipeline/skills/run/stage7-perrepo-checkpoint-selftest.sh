@@ -57,6 +57,7 @@ QUALITY_PASS_JSON="$("$SC" get "$ISSUE_NUMBER" '.stages."6".qualityPass // {}')"
 statectl.sh() { "$SC" "$@"; }   # the stage block calls `statectl.sh` (on PATH at runtime)
 
 # >>> BEGIN verbatim mirror of the dual-target branch in stages/7-doc-update.md >>>
+# LOCKSTEP-BEGIN stage7-dual-target
 TARGET_REPOS_JSON="$(statectl.sh get "$ISSUE_NUMBER" '.targetRepos // []')"
 if [[ "$(echo "$TARGET_REPOS_JSON" | jq 'length')" -gt 1 ]]; then
   REPO_ROOT="$(git rev-parse --show-toplevel)"
@@ -71,6 +72,8 @@ if [[ "$(echo "$TARGET_REPOS_JSON" | jq 'length')" -gt 1 ]]; then
       R_MB="$(git -C "$R_WT" merge-base HEAD "origin/$R_BASE" 2>/dev/null || git -C "$R_WT" merge-base HEAD "$R_BASE")"
       R_CHANGED="$(git -C "$R_WT" diff --name-only "$R_MB..HEAD" | jq -R . | jq -s .)"
       R_VERIFY="$(statectl.sh get "$ISSUE_NUMBER" ".worktrees.\"$r\".verifySummary")"
+      # build-checkpoint-7-perrepo wants a JSON object; an INERT-lane verifySummary is the
+      # skipped-string — wrap it (same convention as the flat --verify-summary note above).
       echo "$R_VERIFY" | jq -e 'type == "object"' >/dev/null 2>&1 \
         || R_VERIFY="$(jq -n --arg s "$R_VERIFY" '{lane:"INERT",note:$s}')"
       statectl.sh build-checkpoint-7-perrepo \
@@ -88,6 +91,7 @@ if [[ "$(echo "$TARGET_REPOS_JSON" | jq 'length')" -gt 1 ]]; then
          --argjson qps "$QUALITY_PASS_JSON" \
          '. + {ticketKey:$k, targetRepos:$tr, planPath:$pp, deviations:$dv, freeNote:$fn, planRisks:$prisk, docUpdaterFindings:$du, qualityPassSummary:$qps}'
   )
+# LOCKSTEP-END stage7-dual-target
 fi
 # <<< END verbatim mirror <<<
 

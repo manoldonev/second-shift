@@ -68,4 +68,22 @@ scenario mechanics and is named so it does **not** match the discovery glob. It 
 its own because it has no independent contract — both `statectl-selftest.sh` and
 `scenario-liveness-selftest.sh` exercise it on every run.
 
+### What to write when you add a test
+
+**Scenario-first.** A new per-tool fixture case must name the invariant it guards and why no
+scenario in `scenario-liveness-selftest.sh` covers it. The stacked-prs path died with all 42
+selftests green because every one of them checked a component against itself.
+
+**No prose-presence guards.** Grepping a literal out of a markdown file asserts only that prose
+contains words — it cannot fail for a reason a reader of the diff would not already see. Pin the
+contract in `scripts/lockstep-manifest.tsv` instead, which compares the two copies. **One
+sanctioned exception:** token pins on Workflow-runtime `.mjs` seams, which carry a top-level
+`return` by design and so can be neither executed nor `node --check`ed — grep is the only
+technique available there (`tools/intake-readroot-selftest.sh`, `null-reviewer-selftest.mjs`'s
+Case F). Pre-existing mutation-eval anchors (`tools/score-review-selftest.sh`) are grandfathered;
+this rule binds newly added guards.
+
+**A new gate contract extends the liveness scenario** for every verdict path it touches — a gate
+nothing composes against is a gate the next `#204` walks straight through.
+
 Release process: [`docs/releasing.md`](docs/releasing.md) — the checklist of record.

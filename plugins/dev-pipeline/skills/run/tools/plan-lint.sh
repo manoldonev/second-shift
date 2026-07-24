@@ -216,7 +216,11 @@ fi
 # mirror of interviewing-baseline provenance enum — the HUMAN-ATTRIBUTED SUBSET;
 # keep in lockstep with plan-interview/tools/ledger-lint.sh's PROVENANCE_ENUM. If
 # #147 adds an operator-attributed value, it joins this subset here too.
+# Enforced as a `subset-of` pair by scripts/check-lockstep-pairs.sh — deliberately NOT
+# verbatim: this literal is a proper narrowing of the canonical enum.
+# LOCKSTEP-BEGIN provenance-enum
 HUMAN_PROVENANCE='user-answered|user-delegated'
+# LOCKSTEP-END provenance-enum
 # The backing ledger is the SIBLING of the state file: both live in the main-repo
 # .claude/pipeline-state/, keyed by the same issue number ({issue}.json /
 # {issue}-ledger.md). Derived from <state-path> — no extra argument, no call-site

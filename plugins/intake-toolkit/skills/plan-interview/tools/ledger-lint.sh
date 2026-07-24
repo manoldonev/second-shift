@@ -31,8 +31,12 @@ PLAN="${1:-}"
 VIOLATIONS=0
 violate() { echo "ledger-lint: VIOLATION: $1" >&2; VIOLATIONS=$((VIOLATIONS + 1)); }
 
-# mirror of interviewing-baseline provenance enum — keep verbatim
+# mirror of interviewing-baseline provenance enum — keep verbatim.
+# Mechanical canonical of the lockstep pair: plan-lint.sh's HUMAN_PROVENANCE must be a
+# subset of this literal (scripts/lockstep-manifest.tsv).
+# LOCKSTEP-BEGIN provenance-enum
 PROVENANCE_ENUM='user-answered|user-delegated|codebase-derived|deferred'
+# LOCKSTEP-END provenance-enum
 EMPTY_FORM='No material decisions — all choices codebase-derived.'
 
 # quoting-safe whitespace trim — xargs aborts on quotes/apostrophes/backslashes in cells

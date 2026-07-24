@@ -52,6 +52,7 @@ const ATLASSIAN_MCP_TOOLSEARCH =
 
 // Findings contract. Kept permissive (only severity/description/confidence required)
 // so reviewers don't burn retries on over-strict shapes; file/line/title are optional.
+// LOCKSTEP-BEGIN findings-schema
 const FINDINGS_SCHEMA = {
   type: 'object',
   additionalProperties: true,
@@ -80,6 +81,7 @@ const FINDINGS_SCHEMA = {
     suppressed: { type: 'array', items: { type: 'string' } },
   },
 }
+// LOCKSTEP-END findings-schema
 
 // args (assembled in-session by Stage 8, which has Bash to size the diff and route):
 //   worktree     — absolute path the reviewers run git against
