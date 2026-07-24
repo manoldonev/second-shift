@@ -42,6 +42,11 @@ sct_rc() {
 # Keyed on $STATECTL_STATE_DIR rather than a relative `.claude/pipeline-state`, so
 # the lib works for a caller that cds into its fixture root AND one that does not.
 reset_state() {
+  # `:?` guard, not bare expansion: `set -u` catches an UNSET var but not an empty
+  # one, and an empty value here would expand the globs to `/*.json` at filesystem
+  # root. Both current callers set it from `mktemp -d`, but this lib exists to be
+  # sourced by future scenarios too — fail loudly instead of deleting.
+  : "${STATECTL_STATE_DIR:?reset_state: STATECTL_STATE_DIR must be set to a non-empty fixture dir}"
   # *.md clears the run report (and any quarantined copy) too — otherwise a
   # report leaks across cases and init's stale-report quarantine fires on it.
   rm -f "$STATECTL_STATE_DIR"/*.json "$STATECTL_STATE_DIR"/*.tmp "$STATECTL_STATE_DIR"/*.md
