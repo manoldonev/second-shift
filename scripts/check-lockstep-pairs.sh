@@ -104,8 +104,12 @@ while IFS=$'\t' read -r pair relation fa aa fb ab; do
     subset-of)
       EA=$(printf '%s' "$BA" | first_enum)
       EB=$(printf '%s' "$BB" | first_enum)
-      if [[ -z "$EA" || -z "$EB" ]]; then
-        bad "$pair (subset-of): no single-quoted '...|...' literal in ${EA:+$fb}${EA:-$fa}"
+      if [[ -z "$EA" ]]; then
+        bad "$pair (subset-of): no single-quoted '...|...' literal in $fa"
+        continue
+      fi
+      if [[ -z "$EB" ]]; then
+        bad "$pair (subset-of): no single-quoted '...|...' literal in $fb"
         continue
       fi
       missing=""
