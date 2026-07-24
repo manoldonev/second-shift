@@ -32,6 +32,11 @@ text) belong to PR 2 and are deliberately absent here.
 | D-2 | Which helpers move into `scenario-lib.sh` alongside the two named ones? | The transitive set the two helpers actually reference: `sct`, `sct_err`, `sct_rc`, `reset_state`, `write_report`, `write_eval`, and `VALID_PAYLOAD`. Reporting helpers (`pass` / `fail`) stay with each caller since neither extracted helper calls them. | codebase-derived |
 | D-3 | Does the migrated stacked-prs scenario keep its own fixture identity? | Yes. All 11 checks keep their `vp*` labels and their `plan-lint` / `slice-scope` drive so the migration is auditable as a move, not a rewrite. | codebase-derived |
 | D-4 | How does the harness prove liveness rather than merely exercising code? | Each scenario ends on a terminal assertion: `no-split` on an accepted `mark-completed`, `sub-issues` on the accepted non-terminal shape plus a refused `mark-completed`, failure-path on `status == failed`. | codebase-derived |
+| D-5 | Which coverage does the step-7 prune actually delete, and why is that acceptable? | `stage5-perrepo-implement-selftest.sh` is deleted outright: all five of its checks are `grep -qF` token presence against `stages/5-implement.md`, so it asserts that prose contains words — it can never fail for a reason a reader of the diff would not already see. The stage-7/8 `(B)` halves are the same class over the same two stage docs. Their `(A)` behavioral halves, which drive real `statectl` writes, are retained untouched. Accepted cost: the dual-target prose loses its mechanical tripwire. | codebase-derived |
+| D-6 | Stage-5 prose keeps no successor guard at all, unlike stage-7/8 whose mirrors become manifest entries in PR 2. Accept? | Accept, as the issue directs. Stage 5 carries no marker-delimited mirror block to anchor a lockstep pair against, so there is nothing for PR 2 to pick up without authoring a new canonical literal — which is scope the issue explicitly declines. Recorded as an accepted, reversible loss rather than silently dropped. | codebase-derived |
+| D-7 | The stage-7/8 `(B)` guards are removed in PR 1 while their lockstep replacement lands in PR 2 — a coverage window across two PRs. | Accept the window. It is inherent to the declared two-PR split, and it is narrow: the `(A)` behavioral halves and both marker-delimited mirror blocks stay in-tree throughout, so PR 2 mechanizes existing anchors rather than reconstructing deleted ones. | codebase-derived |
+| D-8 | `scenario-lib.sh` ships with no paired `*-selftest.sh`, against the repo-wide pairing convention. | No dedicated selftest. The lib is pure mechanics with no independent contract, and it is exercised on every CI run by BOTH callers — `statectl-selftest.sh` at 25+ call sites and the new harness across four verdict paths. A dedicated fixture test would be exactly the per-tool accretion this ticket exists to remove, so pairing it would contradict the change it belongs to. | codebase-derived |
+| D-9 | `complete_stage` hardcodes `verdict: no-split` in its stage-1 checkpoint, so a `sub-issues` scenario reusing it would assert against a no-split state. | Parameterize: `complete_stage` takes an optional third argument for the stage-1 verdict, defaulting to `no-split` so all 25+ existing `statectl-selftest.sh` call sites are unchanged. The `sub-issues` scenario passes its own verdict, closing the vacuity the default would have hidden. | codebase-derived |
 
 ## Affected files/modules
 
@@ -67,14 +72,18 @@ text) belong to PR 2 and are deliberately absent here.
 1. Create `scenario-lib.sh` holding `sct`, `sct_err`, `sct_rc`, `reset_state`, `write_eval`,
    `write_report`, `VALID_PAYLOAD`, `complete_stage`, `complete_run_vs`. The lib requires the
    caller to have set `STATECTL` and to have `cd`-ed into its own tmp state dir; it defines no
-   `pass` / `fail` and runs no assertions.
+   `pass` / `fail` and runs no assertions. Per D-9, `complete_stage` takes an optional third
+   argument for the stage-1 verdict, defaulting to `no-split`. **Each caller resolves the lib
+   path to an absolute path from `BASH_SOURCE` and sources it BEFORE `cd`-ing into its tmp dir**
+   — a relative source after the `cd` would resolve against the tmp dir and fail.
 2. Rewire `statectl-selftest.sh` to source the lib and delete the nine inline definitions.
    Its `write_eval_pass` (`:1197`) stays local — it is a case-specific variant, not scenario
    mechanics.
 3. Create `scenario-liveness-selftest.sh` with the `no-split` scenario: `complete_run_vs` with
    an object `verifySummary`, a fixture plan threaded through `plan-lint.sh` between stages 3
    and 4, then `write_eval` and an accepted `mark-completed` as the terminal assertion.
-4. Add the `sub-issues` scenario per D-1 and the failure-path scenario
+4. Add the `sub-issues` scenario per D-1 — passing its own stage-1 verdict via the D-9
+   parameter so it does not assert against a `no-split` checkpoint — and the failure-path scenario
    (`build-failure-context --reason intake-spec-blocked` then `mark-failed`, asserting
    terminal `failed`).
 5. Migrate all 11 `vp*` checks out of `tools/verdict-path-liveness-selftest.sh` into the
@@ -126,6 +135,11 @@ surface and no co-located unit-test convention to extend.
   migrated file runs `set -euo pipefail`. The harness adopts the `-uo pipefail` posture so the
   shared lib behaves identically in both callers; migrated checks that relied on `-e` get their
   explicit `set +e` / `set -e` fences preserved.
+- **Coverage window across the two PRs (D-7).** The stage-7/8 `(B)` guards go in PR 1 while their
+  lockstep replacement lands in PR 2. Narrow by construction: the `(A)` behavioral halves and both
+  marker-delimited mirror blocks stay in-tree throughout.
+- **Stage-5 dual-target prose loses its tripwire permanently (D-6).** Accepted and reversible —
+  re-adding a guard is a one-file change if the dual-target instruction ever regresses.
 - **Rollback:** every step is an isolated commit; reverting the extraction commit restores the
   inline helpers.
 
