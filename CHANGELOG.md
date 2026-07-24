@@ -4,6 +4,49 @@ All notable changes to the second-shift marketplace. Versions are per-plugin (`p
 this file tracks the marketplace release. `configVersion` stays `const 1` — v2 is fully backward-compatible for a
 consumer with an empty config; the migration notes below are only for consumers using the changed features.
 
+## v2.10.1
+
+### `dev-pipeline` 2.8.0 → 2.8.1
+
+- **test(dev-pipeline): verdict-path liveness harness + CI holes + prose-presence prune (PR 1 of 2 for #205) (#208)** (#208)
+  dev-pipeline selftests now assert composed verdict-path liveness
+  (no-split, sub-issues, failure-path, stacked-prs) rather than only per-tool
+  contracts, and the two previously CI-invisible workflows .mjs selftests run in
+  CI. Migration: none.
+- **test(dev-pipeline): contract-lockstep manifest + containment policy (PR 2 of 2 for #205) (#209)** (#209)
+  dev-pipeline selftests now assert composed verdict-path liveness
+  (no-split, sub-issues, failure-path, stacked-prs) rather than only per-tool
+  contracts, and the two previously CI-invisible workflows .mjs selftests run in
+  CI. Migration: none.
+  contract pairs that were previously kept in sync by prose alone (the
+  Decision-Ledger provenance enum, the AC-ID fallback rule, the FINDINGS_SCHEMA
+  triple, and the stage-7/8 dual-target mirrors) are now mechanically enforced in
+  CI. Migration: none.
+
+### `intake-toolkit` 2.0.2 → 2.0.3
+
+- **test(dev-pipeline): contract-lockstep manifest + containment policy (PR 2 of 2 for #205) (#209)** (#209)
+  dev-pipeline selftests now assert composed verdict-path liveness
+  (no-split, sub-issues, failure-path, stacked-prs) rather than only per-tool
+  contracts, and the two previously CI-invisible workflows .mjs selftests run in
+  CI. Migration: none.
+  contract pairs that were previously kept in sync by prose alone (the
+  Decision-Ledger provenance enum, the AC-ID fallback rule, the FINDINGS_SCHEMA
+  triple, and the stage-7/8 dual-target mirrors) are now mechanically enforced in
+  CI. Migration: none.
+
+### `review-toolkit` 2.3.5 → 2.3.6
+
+- **test(dev-pipeline): contract-lockstep manifest + containment policy (PR 2 of 2 for #205) (#209)** (#209)
+  dev-pipeline selftests now assert composed verdict-path liveness
+  (no-split, sub-issues, failure-path, stacked-prs) rather than only per-tool
+  contracts, and the two previously CI-invisible workflows .mjs selftests run in
+  CI. Migration: none.
+  contract pairs that were previously kept in sync by prose alone (the
+  Decision-Ledger provenance enum, the AC-ID fallback rule, the FINDINGS_SCHEMA
+  triple, and the stage-7/8 dual-target mirrors) are now mechanically enforced in
+  CI. Migration: none.
+
 ## v2.10.0
 
 ### `dev-pipeline` 2.7.1 → 2.8.0
