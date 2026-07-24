@@ -48,78 +48,14 @@ FAIL=0
 pass() { echo "  PASS: $1"; PASS=$((PASS+1)); }
 fail() { echo "  FAIL: $1"; FAIL=$((FAIL+1)); }
 
-# Helper: run statectl, capture stdout and exit code.
-sct() {
-  "$STATECTL" "$@" 2>/dev/null
-}
-sct_err() {
-  # shellcheck disable=SC2069 # deliberate stderr-only capture: stderr -> stdout, original stdout discarded
-  "$STATECTL" "$@" 2>&1 >/dev/null
-}
-sct_rc() {
-  "$STATECTL" "$@" >/dev/null 2>&1
-  echo "$?"
-}
-
-# Helper: reset state file between tests.
-reset_state() {
-  # *.md clears the run report (and any quarantined copy) too — otherwise a
-  # report leaks across cases and init's stale-report quarantine fires on it.
-  rm -f .claude/pipeline-state/*.json .claude/pipeline-state/*.tmp .claude/pipeline-state/*.md
-}
-
-# Helper: start + complete one stage with the minimal evidence its completion
-# precondition requires (the imperative stage machine refuses a bare
-# `--status completed`). Stages 3/7/9 carry only the comment-receipt leg;
-# stage 7's checkpoint is written where a case needs it (validate_stage7_payload
-# applies there).
-complete_stage() {
-  local key="$1" n="$2"
-  sct set-stage "$key" "$n" --status started >/dev/null
-  case "$n" in
-    1) sct checkpoint "$key" 1 --json '{"verdict":"no-split","preflight":{"baseBranch":"main","workingTreeClean":true,"guardOutcome":"proceed-clean"}}' >/dev/null
-       sct skill-load-add "$key" --stage 1 --skill intake-toolkit:intake-orchestrator >/dev/null
-       sct comment-add "$key" --marker claimed --url "https://github.example/c/claimed" >/dev/null
-       sct comment-add "$key" --marker intake --url "https://github.example/c/intake" >/dev/null ;;
-    2) sct worktree-set "$key" --path ".claude/worktrees/acme-$key" --branch "claude/acme-$key" >/dev/null ;;
-    3) sct comment-add "$key" --marker plan --url "https://github.example/c/plan" >/dev/null ;;
-    4) sct plan-review-set "$key" --overall pass >/dev/null ;;
-    5) sct checkpoint "$key" 5 --json '{"changedFiles":[]}' >/dev/null ;;
-    6) sct verify-summary-set "$key" --json '{"format":"clean","test":"passed"}' >/dev/null ;;
-    7) sct checkpoint "$key" 7 --json "$VALID_PAYLOAD" >/dev/null
-       sct comment-add "$key" --marker doc-update --url "https://github.example/c/doc-update" >/dev/null ;;
-    8) sct review-rounds "$key" --set 1 >/dev/null
-       sct skill-load-add "$key" --stage 8 --skill review-toolkit:review-lead >/dev/null
-       sct comment-add "$key" --marker code-review --url "https://github.example/c/code-review" >/dev/null ;;
-    9) sct comment-add "$key" --marker pr --url "https://github.example/c/pr" >/dev/null ;;
-  esac
-  sct set-stage "$key" "$n" --status completed >/dev/null
-}
-
-# Helper: write a valid self-eval file for <key> (the mark-completed eval gate).
-# Scores exactly the five locked criteria from eval-criteria.md with binary
-# values — the shape the criteria-shape gate enforces.
-write_eval() {
-  local key="$1"
-  printf '{"ticketKey":%s,"criteria":{"target_confirmation":"PASS","plan_grounding":"PASS","implementation_resilience":"N/A","scope_compliance":"PASS","review_precision":"PASS"}}\n' "$key" \
-    > ".claude/pipeline-state/${key}-eval.json"
-}
-
-# Helper: write a plausible run report for <key> (the mark-completed report gate).
-write_report() {
-  local key="$1"
-  printf '<!-- dev-pipeline-report -->\n\n# Run report — #%s\n\nPR: https://example.com/pr/1\n' "$key" \
-    > ".claude/pipeline-state/${key}-report.md"
-}
-
-# Acme single-repo Stage 7 checkpoint payload — flat fields, no perRepo wrapper.
-# NOTE: worktreePath here is intentionally absolute. checkpoint/build-checkpoint-7
-# store a copy of an already-validated worktreePath and do NOT flow through
-# worktree-set, so the repo-relative path-form guard (ws5) does not apply to these
-# checkpoint fixtures — they exercise the payload-shape checks in isolation. The
-# canonical repo-relative form is enforced only at the worktree-set writer (see
-# cmd_worktree_set in statectl.sh and state-schema.md "Worktree").
-VALID_PAYLOAD='{"ticketKey":"9999","branch":"claude/acme-9999","headSha":"abc123","worktreePath":"/tmp/x","deviations":[]}'
+# Scenario mechanics (sct*, reset_state, complete_stage, write_eval, write_report,
+# VALID_PAYLOAD, complete_run_vs) are shared with scenario-liveness-selftest.sh so the
+# composed full-green-run recipe has one definition. SCENARIO_LIB is an absolute path
+# resolved from SKILL_DIR above, so the `cd "$TMPDIR_ST"` earlier cannot break it.
+SCENARIO_LIB="${SKILL_DIR}/scenario-lib.sh"
+[[ -f "$SCENARIO_LIB" ]] || { echo "[self-test] FATAL: $SCENARIO_LIB missing"; exit 99; }
+# shellcheck source=/dev/null
+. "$SCENARIO_LIB"
 
 # ============================================================ core (must-pass) ===
 
@@ -1200,22 +1136,8 @@ write_eval_pass() {
     > ".claude/pipeline-state/${key}-eval.json"
 }
 
-# Helper: walk all 9 stages but set Stage-6 verifySummary to $2 (raw JSON), and
-# charge one TEST_FAILURE when $3 == "tf". Leaves the run at in_progress with all
-# stages completed and the run report written — so the resilience value-check is
-# the only terminal gate under test.
-complete_run_vs() {
-  local key="$1" vs="$2" tf="${3:-}"
-  reset_state
-  sct init "$key" --run-id "selftest-run-$$" >/dev/null
-  for n in 1 2 3 4 5; do complete_stage "$key" "$n"; done
-  sct set-stage "$key" 6 --status started >/dev/null
-  sct verify-summary-set "$key" --json "$vs" >/dev/null
-  [[ "$tf" == "tf" ]] && sct verify-attempts "$key" --incr TEST_FAILURE >/dev/null
-  sct set-stage "$key" 6 --status completed >/dev/null
-  for n in 7 8 9; do complete_stage "$key" "$n"; done
-  write_report "$key"
-}
+# complete_run_vs lives in scenario-lib.sh (sourced above) — shared with the
+# liveness harness so the composed full-green-run recipe has one definition.
 
 # (mc-ir1) inert-string verifySummary + no TEST_FAILURE + PASS → REFUSED,
 # message names the criterion + required N/A, status left untouched.

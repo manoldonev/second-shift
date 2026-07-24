@@ -29,7 +29,7 @@
 # by design; scope-completeness-reviewer performs it per its inline copy.
 #
 # Consumers: Stage 8 scope-gate slice mode (stages/8-code-review.md) and
-# tools/verdict-path-liveness-selftest.sh.
+# scenario-liveness-selftest.sh (its stacked-prs scenario).
 #
 # Exit: 0 on any verdict (a verdict is data, not an error), 2 on usage/IO error.
 set -euo pipefail
