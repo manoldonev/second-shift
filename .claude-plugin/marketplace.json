@@ -6,7 +6,7 @@
   },
   "metadata": {
     "description": "The dev team that works while you're away — an autonomous-development toolkit for Claude Code: ticket-to-PR pipeline, multi-agent review, elicitation/intake surface, design fidelity, and session auditing. Generic tooling only; each consumer repo supplies static context (one config file) and dynamic context (repo-local knowledge skills).",
-    "version": "2.10.0"
+    "version": "2.10.1"
   },
   "plugins": [
     {
