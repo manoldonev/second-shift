@@ -4,6 +4,76 @@ All notable changes to the second-shift marketplace. Versions are per-plugin (`p
 this file tracks the marketplace release. `configVersion` stays `const 1` — v2 is fully backward-compatible for a
 consumer with an empty config; the migration notes below are only for consumers using the changed features.
 
+## v2.10.0
+
+### `dev-pipeline` 2.7.1 → 2.8.0
+
+- **fix: namespace-agnostic Atlassian MCP at intake/Stage-1 fetch sites (#198)** (#198)
+  intake-toolkit jira-fetch prose (intake-orchestrator / intake /
+  intake-interviewer) references all three Atlassian MCP namespaces and the
+  ToolSearch discovery step, not just mcp__atlassian__*.
+  Migration: none.
+  dev-pipeline Stage-1 / tracker-adapter fetch prose references all three
+  Atlassian MCP namespaces + ToolSearch discovery, not just mcp__atlassian__*; a new
+  scripts/check-intake-tracker-namespaces.sh guards the whole intake/Stage-1 surface
+  against regressing to a single hardcoded prefix.
+  Migration: none.
+- **fix(dev-pipeline): cost block never leaves a bare null; uniform prs value shape (#201)** (#201)
+  Stage-9 cost block no longer skips silently — a no-PRs run records
+  costBlockApplied "skipped-no-prs" and an unresolvable state file fails loud
+  (exit 2, never bare null); the sub-step is anchored at the control repo so
+  cross-repo runs resolve the right state. statectl pr-add records a uniform
+  { url, branch, repo } value across single-repo and be-fe-pair runs.
+  Migration: none — readers key off .url; legacy url-only entries stay readable.
+- **fix(dev-pipeline): verifyctl keys the command table on a single-target .targetRepos (#203)** (#203)
+  a bare `verifyctl run` (no --repo) on a single-target be-fe-pair run now
+  derives the command table from that one target repo instead of the path="." host, so
+  Stage 8's re-verify and the Stage 6 safety-net stop running the host's commands against
+  the target's flat-mirror worktree (a false TYPE_ERROR, an unrequested format mutation,
+  and lost verify accounting). Absent / empty / >1-entry .targetRepos is unchanged;
+  base/worktree/sidecar/budget resolution is untouched.
+  Migration: none.
+- **fix(dev-pipeline): mark-completed refuses a generous implementation_resilience PASS on an inert-lane run (#202)** (#202)
+  mark-completed now refuses a Post-Run Eval scoring
+  implementation_resilience: PASS on an inert-lane run (no test lane ran, no
+  TEST_FAILURE charged) and requires N/A, closing a self-score inflation hole;
+  suite-lane runs are unaffected. Migration: none.
+- **feat(dev-pipeline): persist the Stage-9 run report before narrating it (#150)** (#150)
+  the Stage-9 run report is now persisted to
+  .claude/pipeline-state/{issue}-report.md before the pipeline narrates it, so
+  an API disconnect during the final response no longer destroys the record of
+  a successful run. mark-completed refuses the terminal write when the report
+  is missing.
+  Migration: none.
+- **fix(dev-pipeline): slice-scope the gates that dead-ended every stacked-prs run (#206)** (#206)
+  stacked-prs runs persist the intake AC->slice partition into
+  state (decomposition.slices[].acIds) so downstream gates can scope by
+  slice. Migration: none (field is additive; absent = full-ticket behavior).
+
+### `intake-toolkit` 2.0.1 → 2.0.2
+
+- **fix: namespace-agnostic Atlassian MCP at intake/Stage-1 fetch sites (#198)** (#198)
+  intake-toolkit jira-fetch prose (intake-orchestrator / intake /
+  intake-interviewer) references all three Atlassian MCP namespaces and the
+  ToolSearch discovery step, not just mcp__atlassian__*.
+  Migration: none.
+  dev-pipeline Stage-1 / tracker-adapter fetch prose references all three
+  Atlassian MCP namespaces + ToolSearch discovery, not just mcp__atlassian__*; a new
+  scripts/check-intake-tracker-namespaces.sh guards the whole intake/Stage-1 surface
+  against regressing to a single hardcoded prefix.
+  Migration: none.
+- **fix(dev-pipeline): slice-scope the gates that dead-ended every stacked-prs run (#206)** (#206)
+  stacked-prs runs persist the intake AC->slice partition into
+  state (decomposition.slices[].acIds) so downstream gates can scope by
+  slice. Migration: none (field is additive; absent = full-ticket behavior).
+
+### `review-toolkit` 2.3.4 → 2.3.5
+
+- **fix(dev-pipeline): slice-scope the gates that dead-ended every stacked-prs run (#206)** (#206)
+  stacked-prs runs persist the intake AC->slice partition into
+  state (decomposition.slices[].acIds) so downstream gates can scope by
+  slice. Migration: none (field is additive; absent = full-ticket behavior).
+
 ## v2.9.2
 
 ### `second-shift` 1.6.1 → 1.6.2
