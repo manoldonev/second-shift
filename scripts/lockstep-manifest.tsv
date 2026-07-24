@@ -1,0 +1,57 @@
+# lockstep-manifest.tsv — contract pairs enforced by scripts/check-lockstep-pairs.sh.
+#
+# TAB-separated. Columns:
+#   pair-id <TAB> relation <TAB> fileA <TAB> anchorA <TAB> fileB <TAB> anchorB
+# relation: verbatim | subset-of   (see the script header for exact semantics)
+# Paths are repo-root-relative. Blocks are delimited in-file by LOCKSTEP-BEGIN/END <anchor>.
+#
+# What belongs here: a contract duplicated across files where the ONLY thing keeping the
+# copies together is a prose instruction. What does NOT: pairs already mechanically
+# enforced elsewhere — model tiers (check-model-tiers.sh), the reviewer registry, the
+# section catalog, statectl's codegen byte-match (statectl-selftest drift-check), the
+# text-contract carriers, config-lint vs schema. Duplicate machinery is worse than none.
+#
+# Decision-Ledger provenance enum. ledger-lint.sh holds the canonical literal; plan-lint's
+# HUMAN_PROVENANCE is a deliberate narrowing to the human-attributed values, so this is
+# subset-of and NOT verbatim. The prose canonical (interviewing-baseline) and the agent-md
+# mirrors are a fourth and fifth representation in bullet/prose form — not byte-anchorable
+# without authoring new canonical literals, so they stay reviewer-guarded.
+provenance-enum	subset-of	plugins/intake-toolkit/skills/plan-interview/tools/ledger-lint.sh	provenance-enum	plugins/dev-pipeline/skills/run/tools/plan-lint.sh	provenance-enum
+#
+# AC-ID positional fallback rule. Both docs already SAY they must match byte-for-byte;
+# nothing checked it until now. The markers sit after each site's differing parenthetical
+# prefix, so only the shared rule body is compared — the prefixes stay free to differ.
+ac-id-rule	verbatim	plugins/dev-pipeline/skills/run/state-schema.md	ac-id-rule	plugins/review-toolkit/agents/scope-completeness-reviewer.md	ac-id-rule
+#
+# FINDINGS_SCHEMA triple. The Workflow runtime gives these scripts no import, so each
+# declares its own copy; stall-probe and tool-discipline-probe exist to reproduce
+# production behavior exactly, which is worthless if their schema has drifted. A triple is
+# expressed as two pairs against the same canonical leg (code-review.mjs). design-sync.mjs
+# is NOT a leg — it only references the schema in a comment.
+findings-schema-stall	verbatim	plugins/dev-pipeline/skills/run/workflows/code-review.mjs	findings-schema	plugins/dev-pipeline/skills/run/workflows/stall-probe.mjs	findings-schema
+findings-schema-tdp	verbatim	plugins/dev-pipeline/skills/run/workflows/code-review.mjs	findings-schema	plugins/dev-pipeline/skills/run/workflows/tool-discipline-probe.mjs	findings-schema
+#
+# Stage-7/8 dual-target branches: the selftests embed a mirror of the stage doc's bash and
+# test THAT, so a doc-side edit the mirror does not track means the selftest is green about
+# a behavior production no longer has. These replace the deleted (B) prose-presence halves.
+stage7-dual-target	verbatim	plugins/dev-pipeline/skills/run/stages/7-doc-update.md	stage7-dual-target	plugins/dev-pipeline/skills/run/stage7-perrepo-checkpoint-selftest.sh	stage7-dual-target
+stage8-secondary-review	verbatim	plugins/dev-pipeline/skills/run/stages/8-code-review.md	stage8-secondary-review	plugins/dev-pipeline/skills/run/stage8-perrepo-review-selftest.sh	stage8-secondary-review
+#
+# ---------------------------------------------------------------------------------------
+# DROPPED to reviewer-guarded — recorded here rather than forgotten. Each was considered
+# for the mechanical manifest and rejected for a stated reason.
+#
+# preflight ↔ verifyctl zero-verifying-lane predicate. preflight.sh computes an aggregated
+# VERIFYING count inline; verifyctl.sh reads allowUnverified / lanes / extraLanes into
+# separate variables under a different jq arg name. No byte-identical block exists, and
+# reaching one means restructuring working code for the benefit of its own guard. The
+# intent is already declared in prose at preflight.sh's VERIFYING comment ("Keep this set
+# in lockstep with verifyctl.sh").
+#
+# Stage-8 secondary-review loop, past the clean-worktree assertion. The stage doc
+# interleaves in-session review prose that the selftest's bash mirror deliberately omits,
+# so no single contiguous block spans the rest of the loop. The pinned span above covers
+# the preamble and the clean-worktree assertion; the remainder is reviewer-guarded.
+#
+# GH_BOT config-dir basename (install-gh-bot.sh ↔ claim-issue.sh). Semantically parallel,
+# not byte-parallel — forcing parity means refactoring working code for its own guard.

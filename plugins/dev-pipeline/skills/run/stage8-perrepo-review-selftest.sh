@@ -77,20 +77,28 @@ done
 
 statectl.sh() { "$SC" "$@"; }
 # >>> BEGIN verbatim mirror of the secondary-review loop in stages/8-code-review.md >>>
+# Only the PREAMBLE + clean-worktree assertion is lockstep-pinned: past that point the stage
+# doc interleaves in-session review prose this bash deliberately omits, so no single
+# contiguous block spans the whole loop. The remainder stays reviewer-guarded — see the
+# commented row in scripts/lockstep-manifest.tsv.
+# LOCKSTEP-BEGIN stage8-secondary-review
 PRIMARY_WT_REL="$(statectl.sh get "$ISSUE_NUMBER" '.worktreePath')"
 REPO_ROOT="$(git rev-parse --show-toplevel)"
 if [[ "$(statectl.sh get "$ISSUE_NUMBER" '.targetRepos // [] | length')" -gt 1 ]]; then
   while IFS= read -r r; do
     R_WT_REL="$(statectl.sh get "$ISSUE_NUMBER" ".worktrees.\"$r\".worktreePath")"
-    [[ "$R_WT_REL" == "$PRIMARY_WT_REL" ]] && continue
+    [[ "$R_WT_REL" == "$PRIMARY_WT_REL" ]] && continue   # the primary was reviewed by the main loop above
     R_WT="$REPO_ROOT/$R_WT_REL"
     R_BASE="$(statectl.sh get "$ISSUE_NUMBER" ".worktrees.\"$r\".base")"
     R_HEAD="$(git -C "$R_WT" rev-parse HEAD)"
     R_MB="$(git -C "$R_WT" merge-base HEAD "origin/$R_BASE" 2>/dev/null || git -C "$R_WT" merge-base HEAD "$R_BASE")"
+    # Clean-worktree assertion — a review over the committed state while uncommitted work is
+    # invisible is misleading; hard stop, never a silent skip.
     if ! { git -C "$R_WT" diff --quiet && git -C "$R_WT" diff --cached --quiet; }; then
       echo "[stage-8] FAIL: '$r' worktree is dirty — commit/stash/discard before resuming." >&2
       exit 1
     fi
+# LOCKSTEP-END stage8-secondary-review
     if [[ -z "$(git -C "$R_WT" diff --name-only "$R_MB..$R_HEAD")" ]]; then
       statectl.sh skipped-review-add "$ISSUE_NUMBER" --repo "$r" --reason "no changes on this repo's branch" >/dev/null
       continue

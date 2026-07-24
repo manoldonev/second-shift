@@ -74,6 +74,7 @@ const range = `${base}..${head}`
 
 // Copied verbatim from code-review.mjs / stall-probe.mjs so the probe dispatch is
 // identical to production. (Permissive: only severity/description/confidence required.)
+// LOCKSTEP-BEGIN findings-schema
 const FINDINGS_SCHEMA = {
   type: 'object',
   additionalProperties: true,
@@ -102,6 +103,7 @@ const FINDINGS_SCHEMA = {
     suppressed: { type: 'array', items: { type: 'string' } },
   },
 }
+// LOCKSTEP-END findings-schema
 
 const STRUCTURED_OUTPUT_FIRST =
   ' Call StructuredOutput FIRST with your verdict and findings, before any prose' +

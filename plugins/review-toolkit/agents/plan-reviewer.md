@@ -103,6 +103,10 @@ If the plan satisfies every Plan Omissions row, every convention, every downstre
 
 ---
 
+## Test-Surface Shape (plans touching a pipeline gate contract)
+
+- When the plan changes a **pipeline gate contract**, require it to name the affected verdict paths and the composed-path liveness-scenario updates for each. Catch this at plan time: a gate whose reachability nothing composes against is far cheaper to fix as a plan line than as a diff. Flag a plan that adds per-tool fixture cases an existing scenario already subsumes, and flag any new **prose-presence guard** (a `grep` for a literal token in a prose file) as the banned class — the remedy is a lockstep-manifest entry comparing the two copies, the sole exception being Workflow-runtime `.mjs` seams that can be neither executed nor parsed.
+
 ## File Coverage (all plan types)
 
 Split into two checks:

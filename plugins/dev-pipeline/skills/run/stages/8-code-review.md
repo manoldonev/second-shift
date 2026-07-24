@@ -261,6 +261,7 @@ The main loop above reviews the **primary** target (the flat-mirror worktree tha
 For each repo id in `.targetRepos` that is not the primary:
 
 ```bash
+# LOCKSTEP-BEGIN stage8-secondary-review
 PRIMARY_WT_REL="$(statectl.sh get "$ISSUE_NUMBER" '.worktreePath')"
 REPO_ROOT="$(git rev-parse --show-toplevel)"
 if [[ "$(statectl.sh get "$ISSUE_NUMBER" '.targetRepos // [] | length')" -gt 1 ]]; then
@@ -277,6 +278,7 @@ if [[ "$(statectl.sh get "$ISSUE_NUMBER" '.targetRepos // [] | length')" -gt 1 ]
       echo "[stage-8] FAIL: '$r' worktree is dirty — commit/stash/discard before resuming." >&2
       exit 1
     fi
+# LOCKSTEP-END stage8-secondary-review
     # No diff on this repo's branch ⇒ nothing to review; record the skip and move on.
     if [[ -z "$(git -C "$R_WT" diff --name-only "$R_MB..$R_HEAD")" ]]; then
       statectl.sh skipped-review-add "$ISSUE_NUMBER" --repo "$r" --reason "no changes on this repo's branch"
