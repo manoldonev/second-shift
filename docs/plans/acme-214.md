@@ -42,7 +42,9 @@ The structural replacement for the mirror class is a **runtime shim** that execu
 - `plugins/audit-toolkit/scripts/audit-selftest.sh` (from audit-self-test.sh, which dodged the discovery glob)
 
 **Deleted**
-- `plugins/dev-pipeline/skills/run/tools/slice-derivation-selftest.sh`
+- slice-derivation-selftest.sh, under `plugins/dev-pipeline/skills/run/tools/` (path unbackticked
+  deliberately: plan-lint resolves backticked paths against the tree, and a deletion entry names
+  one that must NOT exist)
 
 **Modified**
 - `plugins/dev-pipeline/skills/run/workflows/design-sync-selftest.mjs`
@@ -65,6 +67,8 @@ The structural replacement for the mirror class is a **runtime shim** that execu
 - `plugins/audit-toolkit/skills/audit/SETUP.md`
 - `scripts/lockstep-manifest.tsv`
 - `CLAUDE.md`
+- `plugins/review-toolkit/agents/test-coverage-reviewer.md` — Stage-7 doc update: carried the now-false "neither executed nor parsed" claim
+- `plugins/review-toolkit/agents/plan-reviewer.md` — same
 
 ## Reuse inventory
 
