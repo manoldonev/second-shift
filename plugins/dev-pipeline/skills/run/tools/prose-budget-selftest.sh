@@ -139,6 +139,22 @@ else
   bad "T9 expected refusal + no file written; rc=$RC"
 fi
 
+# --- T9b: PROSE_ALLOW_EMPTY_BASELINE is the sanctioned override for T9 -------
+# Converted from a spelling-pin to a behavioral case (#214). The old check grepped the
+# tool's source for the variable NAME, which proves nothing about the hatch working —
+# and it was the ONLY coverage of the escape hatch anywhere in the tree, so deleting it
+# outright would have let the hatch be removed silently while prose-budget.sh:118 still
+# instructs operators to set it, stranding a legitimately instruction-layer-free consumer
+# at the refusal above.
+R="$(mkrepo t9b)"
+mkdir -p "$R/.claude/skills"          # same empty-root state T9 refuses
+OUT="$(cd "$R" && PROSE_ALLOW_EMPTY_BASELINE=1 bash "$TOOL" --update-baseline 2>&1)"; RC=$?
+if (( RC == 0 )) && [[ -f "$R/.claude/prose-budget.baseline.tsv" ]]; then
+  ok "T9b PROSE_ALLOW_EMPTY_BASELINE=1 permits the empty snapshot (rc 0, baseline written)"
+else
+  bad "T9b escape hatch did not permit the empty snapshot; rc=$RC file=$([[ -f "$R/.claude/prose-budget.baseline.tsv" ]] && echo yes || echo no)"
+fi
+
 # --- T4 (AC-3): stale rows in a repo-local baseline are reported -------------
 R="$(mkrepo t4)"
 mkdir -p "$R/.claude/skills"
@@ -202,23 +218,14 @@ fi
 
 echo "[prose-budget-selftest] drift"
 
-# --- T10: load-bearing tokens survive in the tool and its doctor consumer ----
-# The doctor branches on these exact strings; renaming a marker without updating the
-# consumer silently restores the "reads like a pass" ambiguity this fix removed.
-for tok in 'prose_roots' 'FAIL vacuous coverage' 'n/a — no instruction layer' 'PROSE_ALLOW_EMPTY_BASELINE'; do
-  if grep -qF -- "$tok" "$TOOL"; then
-    ok "T10 prose-budget.sh still carries '$tok'"
-  else
-    bad "T10 prose-budget.sh lost the load-bearing token '$tok'"
-  fi
-done
-for tok in 'FAIL vacuous coverage' 'n/a — no instruction layer'; do
-  if grep -qF -- "$tok" "$DOCTOR"; then
-    ok "T10 pipeline-doctor.sh still branches on '$tok'"
-  else
-    bad "T10 pipeline-doctor.sh no longer branches on '$tok' — the vacuous case would report as growth"
-  fi
-done
+# T10 (6 source greps over the tool and pipeline-doctor.sh) was deleted (#214): the four
+# tool-side greps were strictly weaker duplicates of T1/T7/T4b/T11, which assert the same
+# markers in the tool's REAL output with an exit code; the 'prose_roots' grep pinned only a
+# lowercase function name and did not even match the uppercase PROSE_ROOTS env seam; and the
+# two doctor-side greps are a strict subset of T11's precondition loop below, which is kept
+# precisely because pipeline-doctor.sh needs gh auth and network and so cannot be executed
+# here. The one check with unique value — the PROSE_ALLOW_EMPTY_BASELINE hatch — was
+# CONVERTED to the behavioral case T9b above rather than dropped.
 
 echo "[prose-budget-selftest] doctor routing"
 

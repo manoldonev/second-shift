@@ -55,3 +55,12 @@ stage8-secondary-review	verbatim	plugins/dev-pipeline/skills/run/stages/8-code-r
 #
 # GH_BOT config-dir basename (install-gh-bot.sh ↔ claim-issue.sh). Semantically parallel,
 # not byte-parallel — forcing parity means refactoring working code for its own guard.
+#
+# intake-pin- worktree-name coupling (stages/1-intake.md Step 1.P ↔ stages/10-cleanup.md).
+# The Stage-1 read pin is created under an `intake-pin-<issue>` name and removed by the
+# Stage-10 backstop; a ONE-SIDED rename orphans the cleanup. Considered for a row and
+# DROPPED: the two sites carry no byte-identical anchorable line without restructuring
+# working prose, the two greps that used to assert it (intake-readroot-selftest.sh checks
+# 5-6, deleted in #214) were independent presence checks — a consistent rename false-passed
+# both — and the missed regression is a benign per-issue-namespaced detached worktree leak
+# on crashed runs, not a verdict path. Reviewer-guarded.

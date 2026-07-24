@@ -131,14 +131,13 @@ grep -q "Copied verbatim from code-review.mjs" "$RUN_DIR/workflows/stall-probe.m
 
 # ---------- (C) manifest sanity ----------
 
-ids="$(grep -v '^#' "$MANIFEST" | cut -f1 | grep -c .)"
-uniq_ids="$(grep -v '^#' "$MANIFEST" | cut -f1 | sort -u | grep -c .)"
-[[ "$ids" -eq "$uniq_ids" && "$ids" -gt 0 ]] \
-  && ok "C1 manifest ids unique ($ids rows)" \
-  || bad "C1 duplicate or zero manifest ids ($ids rows, $uniq_ids unique)"
-
-badkind="$(grep -v '^#' "$MANIFEST" | cut -f2 | grep -Ev '^(detect|precision)$' | grep -c . || true)"
-[[ "${badkind:-0}" -eq 0 ]] && ok "C2 manifest kinds legal" || bad "C2 illegal kind in manifest"
+# C1/C2 (id uniqueness, legal kinds) were deleted as redundant: score-review.sh exits 2
+# on an unknown kind, and A1 runs the scorer over the LIVE manifest asserting the exact
+# total `detected=8/8 fp=0` — so a duplicated, added, or kind-flipped row already turns A1
+# red. NOTE: that redundancy is load-bearing on A1 pinning exact totals; if A1's grep is
+# ever loosened, the uniqueness check must come back. C3 stays — it is NOT redundant,
+# because the scorer fails OPEN on a broken precision regex (grep 2>/dev/null || true
+# scores 0 matches, fp=0, still green through A1).
 
 regex_fail=0
 while IFS=$'\t' read -r id _kind _cls regexA regexB _note; do
