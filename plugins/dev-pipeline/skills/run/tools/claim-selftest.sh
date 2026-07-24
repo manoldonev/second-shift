@@ -2,7 +2,7 @@
 #
 # Self-test for the Stage 1.A claim swap helper (tools/claim-issue.sh).
 #
-# A self-test in the style of slice-derivation-selftest.sh, located under tools/
+# A self-test in the style of the other tools/ harnesses, located under tools/
 # and wired into pipeline-doctor.sh (block 5e). Pure-local: no Claude CLI, no
 # network, no real `gh` — it injects a MOCK bot wrapper via the helper's `GH_BOT`
 # env seam and drives the add-labels response so BOTH the successful-add (DELETE
@@ -21,8 +21,7 @@
 #
 # DRIFT MODEL: the parity tail asserts claim-issue.sh still carries the load-bearing
 # tokens AND that SKILL.md / 1-intake.md reference the helper rather than re-inlining
-# the snippet (the #170/#183 no-duplication goal). Same technique as
-# slice-derivation-selftest's drift-check.
+# the snippet (the #170/#183 no-duplication goal).
 
 set -uo pipefail
 

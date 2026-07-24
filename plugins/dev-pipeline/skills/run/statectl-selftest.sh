@@ -403,6 +403,28 @@ rc=0; printf '' | bash "$MAXSLICE" >/dev/null 2>&1 || rc=$?
 [[ "$rc" == "2" ]] && pass "(mps6) missing issue arg → usage error rc=2" \
   || fail "(mps6) missing issue arg → rc=$rc (want 2)"
 
+# (mps7-9) BRANCH_PREFIX parameterization — salvaged from the deleted
+#          slice-derivation-selftest.sh (#214). One helper serves both trackers
+#          (github "claude/acme-", jira e.g. "jdoe/"); unset stays the github default.
+got=$(mps $'refs/heads/claude/acme-149\nrefs/heads/claude/acme-149-pr2' 149)
+[[ "$got" == "2" ]] && pass "(mps7) default prefix (claude/acme-) → 2" \
+  || fail "(mps7) default prefix → got '$got' (want 2)"
+got=$(printf 'refs/heads/jdoe/gh-540\nrefs/heads/jdoe/gh-540-pr3\n' | BRANCH_PREFIX="jdoe/" bash "$MAXSLICE" gh-540 2>/dev/null)
+[[ "$got" == "3" ]] && pass "(mps8) custom prefix (jdoe/, key gh-540) → 3" \
+  || fail "(mps8) custom prefix → got '$got' (want 3)"
+got=$(printf 'refs/heads/jdoe/gh-5400\nrefs/heads/jdoe/gh-540\n' | BRANCH_PREFIX="jdoe/" bash "$MAXSLICE" gh-540 2>/dev/null)
+[[ "$got" == "1" ]] && pass "(mps9) custom prefix cross-key isolation (gh-5400 ≠ gh-540) → 1" \
+  || fail "(mps9) custom prefix cross-key isolation → got '$got' (want 1)"
+
+# (mps10) OUT-OF-ORDER refs — the mutant killer this suite was missing (#214).
+#         `git ls-remote` emits refs LEXICOGRAPHICALLY, so at >=10 slices `pr10`
+#         sorts BEFORE `pr2`. A last-wins implementation (MAX=$n unconditional)
+#         passes every other case here, because in all of them the highest slice
+#         happens to be last. This fixture is the only one that fails it.
+got=$(mps $'refs/heads/claude/acme-42-pr10\nrefs/heads/claude/acme-42-pr9\nrefs/heads/claude/acme-42-pr2' 42)
+[[ "$got" == "10" ]] && pass "(mps10) out-of-order refs → max (10), not last (2)" \
+  || fail "(mps10) out-of-order refs → got '$got' (want 10 — last-wins regression?)"
+
 # (psa1) pipeline-session-add: first call appends; second call same sid is idempotent
 reset_state
 sct init 9999 --run-id "selftest-run-$$" >/dev/null
