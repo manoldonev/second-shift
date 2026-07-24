@@ -366,8 +366,13 @@ const dispatchGateReviewer = async (agentType) => {
     `(severity blocker/major/minor/nit, file, line, confidence 0-100). Ignore stylistic issues ` +
     `handled by formatter/linter. If you cannot read the design source to compare against, return ` +
     `{ verdict, findings, failClosed: { reason } } with reason one of: ${reasonList} — rather than ` +
-    `a false block.` +
-    STRUCTURED_OUTPUT_MANDATE
+    `a false block.`
+  // The GATE_EPILOGUE appended at the dispatch site below replaces the retired
+  // STRUCTURED_OUTPUT_MANDATE (#169) — same treatment as unit-tests.mjs and figma.mjs.
+  // The append survived here as a live reference to an identifier this file never
+  // defines, so every gate dispatch threw ReferenceError before reaching the model.
+  // The mirror-harness selftest could not see it: it exercised its own copy of this
+  // function, never this one. Found by runtime-shim-selftest.mjs (#214).
   const annotate = (result) => {
     const failClosed = normalizeFailClosed(result)
     return failClosed ? { agentType, result, failClosed } : { agentType, result }

@@ -8,7 +8,7 @@ The 40-agent adversarial audit behind #213 found the selftest suite is **not** m
 
 1. **Two `.mjs` mirror-harness suites** — `design-sync-selftest.mjs` and `null-reviewer-selftest.mjs` behaviorally test hand-maintained *copies* of production dispatch logic that still model the **retired pre-#169 transport**. Production has no `isNoStructuredOutputError`; its ladder is text-contract retry + emitter fallback. These suites pass green against code that no longer exists — the #204 pathology inside the tests built to prevent it.
 2. **Prose-presence tails** in ~8 further files, plus one selftest (`slice-derivation-selftest.sh`) that is a self-vs-self re-implementation of markdown pseudo-code.
-3. **Dark surfaces** — `plugins/audit-toolkit/scripts/audit-self-test.sh` has never run in CI (its name dodges the `*-selftest.sh` discovery glob), and design-toolkit ships two real `node --test` suites no CI lane executes.
+3. **Dark surfaces** — `plugins/audit-toolkit/scripts/audit-selftest.sh` had never run in CI under its original name (audit-self-test.sh dodged the `*-selftest.sh` discovery glob), and design-toolkit ships two real `node --test` suites no CI lane executes.
 
 The structural replacement for the mirror class is a **runtime shim** that executes whole production `.mjs` bodies the way the Workflow runtime does, rather than re-testing hand copies of them.
 
@@ -39,7 +39,7 @@ The structural replacement for the mirror class is a **runtime shim** that execu
 - `docs/testing.md` `[NEW]`
 
 **Renamed**
-- `plugins/audit-toolkit/scripts/audit-self-test.sh` → `audit-selftest.sh`
+- `plugins/audit-toolkit/scripts/audit-selftest.sh` (from audit-self-test.sh, which dodged the discovery glob)
 
 **Deleted**
 - `plugins/dev-pipeline/skills/run/tools/slice-derivation-selftest.sh`
@@ -61,6 +61,7 @@ The structural replacement for the mirror class is a **runtime shim** that execu
 - `plugins/dev-pipeline/skills/run/statectl-selftest.sh`
 - `tests/issue-forms-selftest.sh`
 - `plugins/dev-pipeline/skills/run/workflows/code-review.mjs` (pointer prose only)
+- `plugins/dev-pipeline/skills/run/workflows/design-sync.mjs` — **not pointer prose: a one-line production fix.** The shim found a live reference to the retired `STRUCTURED_OUTPUT_MANDATE` (#169) that this file never defines, so every gate dispatch threw `ReferenceError`. Recorded as a Stage-5 deviation; blocking prerequisite for AC-3.
 - `plugins/audit-toolkit/skills/audit/SETUP.md`
 - `scripts/lockstep-manifest.tsv`
 - `CLAUDE.md`
