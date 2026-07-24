@@ -1,21 +1,24 @@
 #!/usr/bin/env bash
-# stage8-perrepo-review-selftest.sh — integration + drift guard for the be-fe-pair
+# stage8-perrepo-review-selftest.sh — integration test for the be-fe-pair
 # DUAL-target secondary-repo review loop (#48 Phase 4).
 #
-#   (A) INTEGRATION — reproduce the exact stages/8-code-review.md secondary-review loop
-#       against a synthetic three-repo state (primary be with a diff, secondary fe with a
-#       diff, secondary ml with NO diff) and assert: the primary is skipped (reviewed by
-#       the main loop), fe records a completed-in-session crossBoundaryReviews entry, ml
-#       records a skippedReviews no-diff entry, and Stage 8 then completes. The in-session
-#       review itself is LLM work (a comment in the .md); the bash the loop actually runs
-#       is the clean-worktree assertion + no-diff skip + the statectl writes — tested here.
-#   (B) DRIFT GUARD — assert the .md loop still carries its load-bearing tokens.
+# Reproduces the exact stages/8-code-review.md secondary-review loop against a
+# synthetic three-repo state (primary be with a diff, secondary fe with a diff,
+# secondary ml with NO diff) and asserts: the primary is skipped (reviewed by the main
+# loop), fe records a completed-in-session crossBoundaryReviews entry, ml records a
+# skippedReviews no-diff entry, and Stage 8 then completes. The in-session review itself
+# is LLM work (a comment in the .md); the bash the loop actually runs is the
+# clean-worktree assertion + no-diff skip + the statectl writes — tested here.
+#
+# No token-presence guard over the .md: grepping literals out of markdown asserts only
+# that prose contains words, and cannot fail for a reason a reader of the diff would not
+# already see. The mirror block below is pinned byte-for-byte against the stage doc by
+# scripts/check-lockstep-pairs.sh instead.
 set -uo pipefail
 export GIT_AUTHOR_NAME=ss-selftest GIT_AUTHOR_EMAIL=selftest@example.invalid
 export GIT_COMMITTER_NAME=ss-selftest GIT_COMMITTER_EMAIL=selftest@example.invalid
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SC="$HERE/statectl.sh"
-STAGE8_MD="$HERE/stages/8-code-review.md"
 FAILS=0
 ok() { echo "  PASS: $1"; }
 no() { echo "  FAIL: $1"; FAILS=$((FAILS+1)); }
@@ -112,14 +115,6 @@ exit $FAILS
 )
 FAILS=$((FAILS + $?))
 rm -rf "$ROOT"
-
-# --------------------------------------------------------------- (B) drift guard ---
-drift() { grep -qF "$1" "$STAGE8_MD" && ok "(b) stage8 carries \`$1\` ($2)" || no "(b) stage8 MISSING \`$1\` ($2)"; }
-drift 'cross-boundary-review-add' 'the secondary in-session/handoff writer call'
-drift 'skipped-review-add' 'the no-diff skip writer call'
-drift '.targetRepos // [] | length' 'the dual-target gate (single-target/non-pair skip the loop)'
-drift 'worktree is dirty' 'the clean-worktree assertion'
-drift 'the primary was reviewed by the main loop above' 'the primary-skip guard'
 
 echo "[stage8-perrepo-review-selftest] $([[ $FAILS -eq 0 ]] && echo 'all green' || echo "$FAILS FAILURE(S)")"
 [[ $FAILS -eq 0 ]]
