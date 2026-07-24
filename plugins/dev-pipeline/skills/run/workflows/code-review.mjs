@@ -99,10 +99,17 @@ const FINDINGS_SCHEMA = {
 //   reviewers    — array of agentType strings already selected per review-lead routing
 //   changedFiles — array of changed paths (context for the prompt)
 //   prContext    — optional free-text branch/PR context
+//   scopeBase    — optional (#204, stacked runs): slice 1's base (merge-base vs the
+//                  configured base branch). scope-completeness-reviewer alone diffs
+//                  `scopeBase...head` (the cumulative 1..N range); all other
+//                  reviewers keep `base...head`. Absent = single-PR behavior.
+//   statePath    — optional (#204, with scopeBase): absolute path of the pipeline
+//                  state file carrying the AC->slice partition; passed to the scope
+//                  reviewer's prompt as a PATH ONLY (content authority is the file).
 // `args` arrives as the value passed to Workflow's `args` input. Defensive: it may
 // be an object, or (per the Workflow contract's stringified-args caveat) a JSON string.
 const a = typeof args === 'string' ? JSON.parse(args) : args || {}
-const { worktree, base, head, issue, reviewers = [], changedFiles = [], prContext = '', config = {} } = a
+const { worktree, base, head, issue, reviewers = [], changedFiles = [], prContext = '', config = {}, scopeBase = '', statePath = '' } = a
 // Per-reviewer model-tier overrides from the consumer config (bare-keyed).
 const modelOverrides = (config && config.reviewers && config.reviewers.modelOverrides) || {}
 if (!worktree || !base || !head) {
@@ -125,6 +132,17 @@ if (reviewers.some((r) => bare(r) === 'scope-completeness-reviewer') && !issue) 
 // "simplify" to two-dot: it re-admits base-only commits as phantom deletions.
 const range = `${base}...${head}`
 const fileList = changedFiles.length ? changedFiles.join(', ') : '(see diff)'
+// Scope-gate slice mode (#204): on a stacked run the caller passes `scopeBase`
+// (slice 1's base — the configured base branch's merge-base, NOT the per-slice
+// worktreeBase) and `statePath` (the pipeline state file carrying the write-once
+// AC->slice partition). scope-completeness-reviewer alone reviews the CUMULATIVE
+// range `scopeBase...head`; every other reviewer keeps `range` (this slice's
+// diff). Absent scopeBase (single-PR runs) both ranges are identical — behavior
+// byte-unchanged. The prompt names only the state-file PATH — the partition
+// content authority is the file the reviewer reads itself, never prompt prose
+// (its independence contract; see agents/scope-completeness-reviewer.md).
+const scopeRange = scopeBase ? `${scopeBase}...${head}` : range
+const scopeBaseRef = scopeBase || base
 
 // ROOT CAUSE (measured by workflows/stall-probe.mjs — refines the earlier #168/#182 analysis):
 // reviewers die "without calling StructuredOutput" because they exhaust their turn budget
@@ -331,11 +349,16 @@ const dispatchReviewer = async (agentType) => {
       trackerType === 'jira'
         ? `Fetch the ticket yourself via the Atlassian MCP for key \`${issue}\` (responseContentFormat "markdown"). Do NOT assume the \`mcp__atlassian__*\` prefix — the tools are deferred and their namespace depends on how the MCP was registered. FIRST call ToolSearch with query "${ATLASSIAN_MCP_TOOLSEARCH}" to load whichever of the three Atlassian namespaces this session exposes (\`mcp__atlassian__*\`, \`mcp__plugin_atlassian_atlassian__*\`, or \`mcp__claude_ai_Atlassian_Rovo__*\`), then call the exact \`getJiraIssue\` / \`getAccessibleAtlassianResources\` names it returns; ToolSearch silently omits absent namespaces`
         : `Fetch the issue yourself with \`gh issue view ${issue}\``
+    // Stacked-slice runs (#204): path-only pointer to the state file — the
+    // reviewer reads the partition itself and applies its own integrity rules.
+    const statePathNote = statePath
+      ? ` Stacked-slice run: the pipeline state file is at \`${statePath}\` (apply your stacked-slice partition rules).`
+      : ''
     prompt =
       `Verify scope completeness for ${ref}. ` +
-      `Branch head \`${head}\` vs base \`${base}\`; repo worktree \`${worktree}\` ` +
-      `(run \`git -C ${worktree} diff ${range}\` to see the change). ` +
-      `${fetchInstr} and classify each scope item against the diff. Return your verdict and findings.` +
+      `Branch head \`${head}\` vs base \`${scopeBaseRef}\`; repo worktree \`${worktree}\` ` +
+      `(run \`git -C ${worktree} diff ${scopeRange}\` to see the change). ` +
+      `${fetchInstr} and classify each scope item against the diff.${statePathNote} Return your verdict and findings.` +
       PROGRESSIVE_EMIT
   } else if (bare(agentType) === 'unit-test-mutation-reviewer') {
     prompt =

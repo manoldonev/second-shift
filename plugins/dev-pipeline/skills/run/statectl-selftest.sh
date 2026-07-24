@@ -677,6 +677,58 @@ else
   fail "(sls5) slice-set non-integer current — rc=$rc err='$err'"
 fi
 
+# (sps1) slice-partition-set happy path: valid 2-slice partition over the snapshot
+# → decomposition.slices written sorted, count echoed (#204)
+reset_state
+sct init 9999 --run-id "selftest-run-$$" >/dev/null
+sct intake-brief 9999 --brief-path null --acceptance-criteria \
+  '[{"id":"AC-1","text":"a","negative":false,"source":"explicit"},{"id":"AC-2","text":"b","negative":false,"source":"explicit"},{"id":"AC-3","text":"c","negative":false,"source":"explicit"}]' >/dev/null
+out=$(sct slice-partition-set 9999 --json '[{"slice":2,"acIds":["AC-3"]},{"slice":1,"acIds":["AC-1","AC-2"]}]')
+got=$(sct get 9999 '.decomposition.slices | map(.slice) | join(",")')
+ids1=$(sct get 9999 '.decomposition.slices[0].acIds | join(",")')
+if [[ "$out" == "2" && "$got" == "1,2" && "$ids1" == "AC-1,AC-2" ]]; then
+  pass "(sps1) slice-partition-set happy path → sorted slices persisted, count echoed"
+else
+  fail "(sps1) slice-partition-set happy — out=$out slices=$got ids1=$ids1"
+fi
+
+# (sps2) write-once: second write without --force → rejected; --force overwrites
+err=$(sct_err slice-partition-set 9999 --json '[{"slice":1,"acIds":["AC-1","AC-2","AC-3"]}]')
+rc=$(sct_rc slice-partition-set 9999 --json '[{"slice":1,"acIds":["AC-1","AC-2","AC-3"]}]')
+rc2=$(sct_rc slice-partition-set 9999 --force --json '[{"slice":1,"acIds":["AC-1","AC-2","AC-3"]}]')
+if [[ "$rc" != "0" && "$err" == *"write-once"* && "$rc2" == "0" ]]; then
+  pass "(sps2) slice-partition-set overwrite → rejected without --force, allowed with"
+else
+  fail "(sps2) slice-partition-set write-once — rc=$rc rc2=$rc2 err='$err'"
+fi
+
+# (sps3) acId not in the snapshot → rejected (partition OF the snapshot)
+err=$(sct_err slice-partition-set 9999 --force --json '[{"slice":1,"acIds":["AC-9"]}]')
+rc=$(sct_rc slice-partition-set 9999 --force --json '[{"slice":1,"acIds":["AC-9"]}]')
+if [[ "$rc" != "0" && "$err" == *"acceptanceCriteria"* ]]; then
+  pass "(sps3) slice-partition-set unknown acId → rejected"
+else
+  fail "(sps3) slice-partition-set unknown acId — rc=$rc err='$err'"
+fi
+
+# (sps4) non-contiguous slice indices → rejected
+err=$(sct_err slice-partition-set 9999 --force --json '[{"slice":1,"acIds":["AC-1"]},{"slice":3,"acIds":["AC-2"]}]')
+rc=$(sct_rc slice-partition-set 9999 --force --json '[{"slice":1,"acIds":["AC-1"]},{"slice":3,"acIds":["AC-2"]}]')
+if [[ "$rc" != "0" && "$err" == *"contiguous"* ]]; then
+  pass "(sps4) slice-partition-set non-contiguous slices → rejected"
+else
+  fail "(sps4) slice-partition-set non-contiguous — rc=$rc err='$err'"
+fi
+
+# (sps5) overlapping acIds across slices → rejected (disjoint partition)
+err=$(sct_err slice-partition-set 9999 --force --json '[{"slice":1,"acIds":["AC-1"]},{"slice":2,"acIds":["AC-1","AC-2"]}]')
+rc=$(sct_rc slice-partition-set 9999 --force --json '[{"slice":1,"acIds":["AC-1"]},{"slice":2,"acIds":["AC-1","AC-2"]}]')
+if [[ "$rc" != "0" && "$err" == *"disjoint"* ]]; then
+  pass "(sps5) slice-partition-set overlapping acIds → rejected"
+else
+  fail "(sps5) slice-partition-set overlap — rc=$rc err='$err'"
+fi
+
 # (b1) build-failure-context happy path: --kv-lines splits on \n, output is full failureContext JSON
 reset_state
 out=$(sct build-failure-context --reason plan-reviewer-block --stage 4 --kv-lines "blockers=line1

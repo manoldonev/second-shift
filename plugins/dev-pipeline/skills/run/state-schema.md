@@ -99,6 +99,18 @@ When `currentSlice` is present and non-null in the state file, it is **authorita
 
 **Derivation logic** (Stage 1, only when seeding): list remote branches matching `claude/acme-{ISSUE_NUMBER}` and `claude/acme-{ISSUE_NUMBER}-pr{N}`, compute the maximum `N` (treating the unsuffixed branch as slice 1), and set `currentSlice = max + 1` when the decomposition plan has more slices remaining. If no matching remote branch exists, `currentSlice = 1`. State files written before this field existed read as `currentSlice = 1` on the first state load.
 
+### Stacked-PR AC partition
+
+- `decomposition.slices[]` — the AC→slice partition from the intake orchestrator's coverage back-check, persisted on a `stacked-prs` verdict via `statectl slice-partition-set <issue> --json '[{"slice":1,"acIds":["AC-1",...]}, ...]'` (Stage 1 Step 1.D, right after `intake-brief`). Shape: `[{ slice, acIds }]`, sorted by `slice`. Absent on `no-split` / `sub-issues` runs and on pre-partition state files (consumers treat absence as "no partition" and keep full-ticket behavior).
+
+**Intent-snapshot family — write-once.** The partition shares `acceptanceCriteria[]`'s trust model: written once at intake, **before any code exists**, so a run can never author or edit it mid-flight to narrow scope (`slice-partition-set` refuses an overwrite without `--force`). A legitimate re-run after an intake stop clears the whole state file first (SKILL.md Resume logic rule 3), so the fresh `init` + fresh partition is not an overwrite. The flat slice fields above (`currentSlice`, `sliceBranch`, …) remain the _loop-position_ state — overwritten per slice by design; the partition under `.decomposition` is _intent_ state — write-once. The two homes are deliberate: loop position mutates, intent does not.
+
+**Validation at write:** slice indices exactly `1..N` (contiguous, unique — the same 1-based index space as `currentSlice`); `acIds` non-empty, `^AC-[0-9]+$`, disjoint across slices, and every id present in the `acceptanceCriteria[]` snapshot (the partition is a partition _of_ the snapshot).
+
+**Precedence:** the state partition is authoritative for **AC scoping** (plan-lint Check 3 slice mode, the Stage-8 scope-gate slice mode, pipeline-retro's AC-coverage audit). The decomposition plan on disk remains authoritative for **slice content and branch derivation** (see the `TOTAL_SLICES` note under Loop Variables) — the partition never overrides it and vice versa.
+
+**Partition-integrity contract (normative home; `scope-completeness-reviewer.md` keeps an inline copy because its independence contract precludes reading pipeline docs at review time):** a consumer scoping by the partition must first verify BOTH: (1) the union of all `slices[].acIds` equals the id set of `acceptanceCriteria[]` (the snapshot), and (2) for the scope gate, the snapshot id set equals the AC set the reviewer independently derives from the live issue body via the AC-ID positional fallback rule. Any mismatch — missing AC, unknown AC, snapshot/live drift — **voids slice-scoping for the run and the consumer falls back to full-ticket behavior** (fail-closed: degradation grades _more_, never less). The graded scope for slice N is the **union of `acIds` for slices 1..N** (the stacked branch contains slices 1..N cumulatively); the final slice (`N == length`) therefore always grades the complete ticket, so end-of-run completeness enforcement is never weakened. Non-AC scope items (deliverables outside the AC section) are graded on the final slice and Noted on earlier slices.
+
 ### Iteration Counters
 
 - `codeReviewRounds` — Stage 8 iteration count (1–3). Written on success, via `statectl review-rounds` (Stage 8).

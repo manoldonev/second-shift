@@ -374,5 +374,45 @@ rc=$(lint_rc "$FIX/valid-plan.md" "$LEDGER_STATE")
 rm -f "$TMP/156-ledger.md"
 
 echo
+echo "[plan-lint-selftest] Check 3 slice mode (#204)"
+
+# Sliced state: valid-state's 2 ACs partitioned slice1=[AC-1] slice2=[AC-2], currentSlice=1.
+jq '. + {currentSlice: 1, decomposition: {slices: [{slice: 1, acIds: ["AC-1"]}, {slice: 2, acIds: ["AC-2"]}]}}' \
+  "$FIX/valid-state.json" > "$TMP/sliced-state.json"
+# Slice-1 plan: the valid fixture minus its AC-2 row.
+grep -v '^| AC-2' "$FIX/valid-plan.md" > "$TMP/slice1-plan.md"
+
+# (pl-sm1) slice mode: slice-1 plan rows only this slice's AC → 0
+rc=$(lint_rc "$TMP/slice1-plan.md" "$TMP/sliced-state.json")
+[[ "$rc" -eq 0 ]] \
+  && pass "(pl-sm1) slice mode: slice-subset table → 0" \
+  || fail "(pl-sm1) slice-subset table — rc=$rc"
+
+# (pl-sm2) slice mode: a row for another slice's AC → 1, named as fabricated coverage
+rc=$(lint_rc "$FIX/valid-plan.md" "$TMP/sliced-state.json")
+err=$(bash "$LINT" "$FIX/valid-plan.md" "$TMP/sliced-state.json" 2>&1 >/dev/null || true)
+[[ "$rc" -eq 1 ]] && grep -q "belongs to another slice" <<< "$err" \
+  && pass "(pl-sm2) slice mode: other slice's AC row → 1 (fabricated coverage)" \
+  || fail "(pl-sm2) other-slice row — rc=$rc err=$err"
+
+# (pl-sm3) union-integrity failure (partition missing AC-2) → slice mode VOID,
+# full-snapshot universe: the slice-1 plan now misses AC-2's row → 1 (fail-closed)
+jq '. + {currentSlice: 1, decomposition: {slices: [{slice: 1, acIds: ["AC-1"]}]}}' \
+  "$FIX/valid-state.json" > "$TMP/broken-part.json"
+rc=$(lint_rc "$TMP/slice1-plan.md" "$TMP/broken-part.json")
+err=$(bash "$LINT" "$TMP/slice1-plan.md" "$TMP/broken-part.json" 2>&1 >/dev/null || true)
+[[ "$rc" -eq 1 ]] && grep -q "AC-2 has 0 traceability" <<< "$err" \
+  && pass "(pl-sm3) broken union → slice mode void, full universe enforced (fail-closed)" \
+  || fail "(pl-sm3) broken union — rc=$rc err=$err"
+
+# (pl-sm4) partition present but NO currentSlice → full universe (single-PR semantics)
+jq '. + {decomposition: {slices: [{slice: 1, acIds: ["AC-1"]}, {slice: 2, acIds: ["AC-2"]}]}}' \
+  "$FIX/valid-state.json" > "$TMP/no-cur.json"
+rc=$(lint_rc "$FIX/valid-plan.md" "$TMP/no-cur.json")
+[[ "$rc" -eq 0 ]] \
+  && pass "(pl-sm4) partition without currentSlice → full-snapshot universe unchanged" \
+  || fail "(pl-sm4) no currentSlice — rc=$rc"
+
+echo
 echo "[plan-lint-selftest] summary: $PASS passed, $FAIL failed"
 exit $FAIL

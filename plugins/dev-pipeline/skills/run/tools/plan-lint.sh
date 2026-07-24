@@ -14,6 +14,11 @@
 #      `non-functional | infra-only | covered-by-selftest | covered-by-render-verify`.
 #   3. When <state-path> is given and carries a non-empty `acceptanceCriteria[]`
 #      (the Stage-1 snapshot): table rows ⇄ snapshot ids exactly 1:1.
+#      Slice mode (#204): with a valid `decomposition.slices[]` partition AND a
+#      non-null `currentSlice`, the universe narrows to this slice's acIds — a
+#      row for another slice's AC violates (fabricated coverage). A partition
+#      failing the union-integrity check voids slice mode (full-snapshot
+#      universe, fail-closed).
 #   4. Decision Ledger provenance legality: a `| D-n |` row carrying a
 #      human-attributed provenance (`user-answered` / `user-delegated`) is a
 #      hard FAIL unless the backing `{issue}-ledger.md` — the sibling of the
@@ -144,21 +149,54 @@ if (( ${#ROW_IDS[@]} > 0 )); then
 fi
 
 # ---- Check 3: 1:1 with the Stage-1 snapshot ---------------------------------
+# Slice mode (#204): when the state also carries the Stage-1 AC->slice partition
+# (`decomposition.slices[]`) AND a non-null `currentSlice`, the Check-3 universe
+# narrows to THIS slice's acIds — a slice plan rows only the ACs it implements,
+# and a row for another slice's AC is fabricated coverage (one named violation).
+# Integrity fail-closed: a partition whose acIds union != the snapshot id set
+# voids slice mode and the universe stays the FULL snapshot (degradation grades
+# more, never less). Contract: state-schema.md "Stacked-PR AC partition".
 if [[ -n "$STATE" ]]; then
   if ! SNAPSHOT_IDS=$(jq -er '.acceptanceCriteria // [] | .[].id' "$STATE" 2>/dev/null); then
     SNAPSHOT_IDS=""
   fi
+  UNIVERSE_IDS="$SNAPSHOT_IDS"
+  SLICE_MODE=""
   if [[ -n "$SNAPSHOT_IDS" ]]; then
+    CUR_SLICE=$(jq -r '.currentSlice // empty' "$STATE" 2>/dev/null || true)
+    if [[ -n "$CUR_SLICE" && "$CUR_SLICE" != "null" ]]; then
+      PARTITION_OK=$(jq -r '
+        (.decomposition.slices // []) as $slices
+        | (.acceptanceCriteria // [] | map(.id)) as $snap
+        | ($slices | length) > 0 and (([$slices[].acIds[]] | sort | unique) == ($snap | sort | unique))
+      ' "$STATE" 2>/dev/null || echo false)
+      if [[ "$PARTITION_OK" == "true" ]]; then
+        SLICE_IDS=$(jq -r --argjson n "$CUR_SLICE" \
+          '.decomposition.slices[] | select(.slice == $n) | .acIds[]' "$STATE" 2>/dev/null || true)
+        if [[ -n "$SLICE_IDS" ]]; then
+          UNIVERSE_IDS="$SLICE_IDS"
+          SLICE_MODE=1
+        fi
+      fi
+    fi
+  fi
+  if [[ -n "$UNIVERSE_IDS" ]]; then
     while IFS= read -r sid; do
       hits=0
       if (( ${#ROW_IDS[@]} > 0 )); then
         for rid in "${ROW_IDS[@]}"; do [[ "$rid" == "$sid" ]] && hits=$((hits + 1)); done
       fi
       (( hits == 1 )) || violate "snapshot id $sid has $hits traceability row(s) (expected exactly 1)"
-    done <<< "$SNAPSHOT_IDS"
+    done <<< "$UNIVERSE_IDS"
     if (( ${#ROW_IDS[@]} > 0 )); then
       for rid in "${ROW_IDS[@]}"; do
-        grep -qx "$rid" <<< "$SNAPSHOT_IDS" || violate "table row $rid does not exist in the state acceptanceCriteria snapshot"
+        if ! grep -qx "$rid" <<< "$UNIVERSE_IDS"; then
+          if [[ -n "$SLICE_MODE" ]] && grep -qx "$rid" <<< "$SNAPSHOT_IDS"; then
+            violate "table row $rid belongs to another slice (slice mode: universe is slice ${CUR_SLICE}'s acIds — a row for another slice's AC is fabricated coverage)"
+          else
+            violate "table row $rid does not exist in the state acceptanceCriteria snapshot"
+          fi
+        fi
       done
     fi
   fi

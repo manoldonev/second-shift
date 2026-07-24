@@ -246,6 +246,15 @@ Runs when the verdict continues the pipeline (`no-split` or `stacked-prs`), befo
      --brief-path "$BRIEF_PATH" --acceptance-criteria "$AC_JSON"
    ```
 
+4. **`stacked-prs` verdict only (#204):** persist the orchestrator's AC→slice partition (its verdict payload's `slicePartition` — the coverage back-check's map) immediately after the `intake-brief` write, while the AC snapshot it validates against is fresh:
+
+   ```bash
+   statectl.sh slice-partition-set "$ISSUE_NUMBER" \
+     --json "$SLICE_PARTITION_JSON"   # [{"slice":1,"acIds":["AC-1",...]}, ...]
+   ```
+
+   Write-once intent state — the downstream slice-scoped gates (plan-lint Check 3 slice mode, the Stage-8 scope gate, the retro AC audit) key off it; schema + integrity contract: state-schema.md § Stacked-PR AC partition. Skip when the snapshot is empty (`AC_JSON == []` — no AC IDs means nothing to partition; the gates then run in their pre-partition full-ticket mode). A `no-split` / `sub-issues` verdict never writes it.
+
 The Stage-1 checkpoint payload additionally carries `briefPath` + the AC count alongside the `verdict` / decomposition / design fields, **plus the `preflight` attestation captured in Step 1.P** — the `checkpoint 1` write folds in `preflight: { baseBranch: "$BASE_BRANCH_CFG", workingTreeClean: $WORKING_TREE_CLEAN, guardOutcome: "$GUARD_OUTCOME" }`. This is **required**: `set-stage 1 --status completed` refuses unless `stageCheckpoint["1"].preflight` is present and well-formed (state-schema.md **Completion-evidence preconditions**, row 1), and `checkpoint 1` rejects a present-but-malformed `preflight` at write time. `workingTreeClean:false` is valid (the dirty-tree WARN-and-proceed outcome).
 
 ## Stacked-PR Outer Loop
@@ -337,6 +346,9 @@ for SLICE_NUMBER in START_SLICE..TOTAL_SLICES:
   # - Code review exhaustion (codeReviewExhausted == true; PR carries needs-deep-review label)
   # An exhausted code review counts as a failure — unresolved blockers in the base code.
   # All clean PRs are draft by default; only the codeReviewExhausted marker stops the loop.
+  # A non-final slice passes the Stage-8 scope gate via the persisted AC->slice
+  # partition (slice-scoped grading, #204) — later-slice ACs are partition-deferred
+  # Notes, NOT scope blockers, so a clean slice exits cleanly and the loop proceeds.
 
 # After all slices succeed:
 $GH_BOT issue comment: stage: pr, status: all-prs-opened (with links to all PRs)
