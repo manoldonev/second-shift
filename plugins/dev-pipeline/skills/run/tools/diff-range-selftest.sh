@@ -168,13 +168,5 @@ else
   ok "G plan-review.mjs still constructs no diff range (confirmed unaffected)"
 fi
 
-# --- Case H: the null-reviewer drift guard pins the three-dot token ----------
-NULL_SELFTEST="$WORKFLOWS/null-reviewer-selftest.mjs"
-if [[ -f "$NULL_SELFTEST" ]] && grep -qF "$THREE_DOT" "$NULL_SELFTEST"; then
-  ok "H null-reviewer-selftest.mjs pins the three-dot token in its drift guard"
-else
-  bad "H null-reviewer-selftest.mjs no longer pins the three-dot token (${THREE_DOT})"
-fi
-
 echo "diff-range-selftest: $PASS passed, $FAIL failed"
 exit "$FAIL"

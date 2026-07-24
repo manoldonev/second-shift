@@ -5,17 +5,25 @@
 // null-reviewer-selftest.mjs), this file is NOT covered by the repo `format` script (which globs
 // only .{ts,tsx,js,json,md}), so it follows their hand-style: no semicolons, single quotes.
 //
-// WHY THIS IS SELF-CONTAINED (and does not import design-sync.mjs):
-//   design-sync.mjs is a Workflow script, NOT a node-importable ESM module. It uses a top-level
-//   `return` (the Workflow runtime wraps the body in an async function) and references
-//   runtime-injected globals (agent, parallel, args, log, phase, budget) with no imports.
-//   `node --check` rejects its top-level return, and importing it under node would throw on the
-//   undefined globals. So this selftest carries a REFERENCE harness that mirrors the engine's pure
-//   decision logic (validation, budget skip, normalizeFailClosed, the produce dispatchSchemaAgent
-//   retry, the gate dispatchReviewer retry), PLUS a structural drift-guard (Cases G/H) that reads
-//   design-sync.mjs as text and asserts the load-bearing tokens are present and the inlined
-//   FAIL_CLOSED_REASONS byte-match contract-types.mjs — so the production engine cannot silently
-//   lose the behavior this selftest validates, nor drift from the #195 fail-closed enum.
+// WHAT THIS FILE COVERS (and what moved out of it, #214):
+//   It used to carry a REFERENCE HARNESS — hand-written copies of the engine's validation, budget
+//   skip, normalizeFailClosed, and both dispatch ladders — on the premise that design-sync.mjs
+//   could not be executed under node (top-level `return`, runtime-injected globals). That premise
+//   was wrong, and the copies rotted: they still modelled the pre-#169 StructuredOutput transport
+//   and stayed green for months while production had moved on. A copy cannot fail on a production
+//   edit, which is the only failure that matters.
+//
+//   Behavioral coverage of the real ladders now lives in runtime-shim-selftest.mjs, which strips
+//   the meta block and executes the ACTUAL design-sync.mjs body with injected fakes. (On its first
+//   run it found a live ReferenceError on the gate path that every case here passed straight over.)
+//
+//   What remains here is what the shim cannot reach, all of it reading production as TEXT:
+//     Case G — load-bearing token presence in design-sync.mjs.
+//     Case H — the engine's inlined FAIL_CLOSED_REASONS vs the #195 contract-types.mjs vocabulary;
+//              both sides are extracted from source, so neither can drift unnoticed.
+//     Case I — Workflow meta literal-purity across every sibling workflows/*.mjs (a non-literal
+//              meta makes the runtime reject the whole script at dispatch; v2.0.0 shipped exactly
+//              that defect and it surfaced only on a live canary run).
 //
 // Mirrors the conventions of null-reviewer-selftest.mjs: numbered cases, pass/fail counters,
 // exit code = number of failed cases (0 = all pass).
@@ -47,239 +55,7 @@ const eq = (label, got, want) => {
   const w = JSON.stringify(want)
   g === w ? pass(label) : fail(`${label} — got ${g}, want ${w}`)
 }
-const throws = async (label, fn, regex) => {
-  try {
-    await fn()
-    fail(`${label} — expected throw, got none`)
-  } catch (e) {
-    regex.test(String(e)) ? pass(label) : fail(`${label} — threw ${JSON.stringify(String(e))}, wanted ${regex}`)
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Reference harness — faithful copies of design-sync.mjs's pure decision logic, with the Workflow
-// globals (agent, log) injected as params so the control flow is exercisable under plain node.
-// Prompt-building is elided (irrelevant to the decisions). Drift-guards (Cases G/H) keep these in
-// sync with production.
-// ---------------------------------------------------------------------------
-const FAIL_CLOSED_REASONS = ['design-source-unreachable', 'project-type-mismatch', 'file-too-large', 'batch-overflow']
-const isNoStructuredOutputError = (err) => /StructuredOutput/.test(String(err))
-
-const normalizeFailClosed = (result) => {
-  const fc = result && result.failClosed
-  if (fc && typeof fc.reason === 'string' && FAIL_CLOSED_REASONS.includes(fc.reason)) {
-    return fc.detail === undefined ? { reason: fc.reason } : { reason: fc.reason, detail: fc.detail }
-  }
-  return null
-}
-
-// Mirrors the args-validation block in design-sync.mjs.
-function validateArgs(a) {
-  const { kind, projectId, screen, reviewers = ['design-faithful-reviewer', 'a11y-reviewer'], worktree, base, head } = a
-  if (kind !== 'produce' && kind !== 'gate') {
-    throw new Error("design-sync workflow: args.kind must be 'produce' or 'gate'")
-  }
-  if (kind === 'produce' && (!projectId || !screen)) {
-    throw new Error('design-sync produce: args.projectId and args.screen are required')
-  }
-  if (kind === 'produce' && a.implement && !worktree) {
-    throw new Error('design-sync produce: args.worktree is required when implement:true — without it the design-faithful skill writes/commits to the session default checkout instead of the ticket worktree (F26)')
-  }
-  if (kind === 'gate') {
-    if (!worktree || !base || !head) {
-      throw new Error('design-sync gate: args.worktree, args.base and args.head are required')
-    }
-    if (!Array.isArray(reviewers) || reviewers.length === 0) {
-      throw new Error('design-sync gate: args.reviewers must be a non-empty array of agentType strings')
-    }
-  }
-  return true
-}
-
-// Mirrors the budget clean-skip in design-sync.mjs.
-function budgetCleanSkip(kind, budget) {
-  if (budget && budget.total && budget.remaining() <= 0) return { kind, budgetExhausted: true }
-  return null
-}
-
-// Mirrors dispatchSchemaAgent() (produce path).
-function makeDispatchSchemaAgent({ agent, log }) {
-  return async function dispatchSchemaAgent(opts, retries = 2) {
-    let lastErr
-    for (let attempt = 0; attempt <= retries; attempt++) {
-      try {
-        return await agent(attempt === 0 ? opts : { ...opts, label: `${opts.label} (retry ${attempt})` })
-      } catch (err) {
-        lastErr = err
-        if (!isNoStructuredOutputError(err)) throw err
-        log(`${opts.label}: died without StructuredOutput — retry ${attempt + 1}/${retries}`)
-      }
-    }
-    throw lastErr
-  }
-}
-
-// Mirrors the produce-path .catch → infraFailure envelope.
-const produceCatch = (err) => ({ summary: 'agent dispatch failed: ' + String(err), infraFailure: true })
-
-// Mirrors dispatchGateReviewer() (gate path).
-function makeDispatchGateReviewer({ agent, log }) {
-  return async function dispatchGateReviewer(agentType) {
-    const annotate = (result) => {
-      const failClosed = normalizeFailClosed(result)
-      return failClosed ? { agentType, result, failClosed } : { agentType, result }
-    }
-    try {
-      return annotate(await agent({ agentType, attempt: 1 }))
-    } catch (err) {
-      if (!isNoStructuredOutputError(err)) return { agentType, result: null, error: String(err) }
-      log(`${agentType}: died without StructuredOutput — retrying once`)
-      try {
-        return annotate(await agent({ agentType, attempt: 2 }))
-      } catch (retryErr) {
-        return {
-          agentType,
-          result: null,
-          error: `retry failed: ${retryErr}; first attempt: ${err}`,
-          retried: true,
-          failed: true,
-        }
-      }
-    }
-  }
-}
-
-function fakeAgent(behaviors) {
-  let calls = 0
-  const fn = async () => {
-    const b = behaviors[calls] ?? behaviors[behaviors.length - 1]
-    calls++
-    if (b.throw !== undefined) throw b.throw
-    return b.ok
-  }
-  fn.callCount = () => calls
-  return fn
-}
-
-const noopLog = () => {}
-const soError = new Error('subagent completed without calling StructuredOutput (after 2 in-conversation nudges)')
-
 async function main() {
-  // ---- Case A: args validation ----
-  {
-    await throws('A1 bad kind throws', async () => validateArgs({ kind: 'frobnicate' }), /must be 'produce' or 'gate'/)
-    await throws('A2 produce without projectId throws', async () => validateArgs({ kind: 'produce', screen: 'detail' }), /projectId and args.screen/)
-    await throws('A3 produce without screen throws', async () => validateArgs({ kind: 'produce', projectId: 'p1' }), /projectId and args.screen/)
-    eq('A4 produce with projectId+screen ok', validateArgs({ kind: 'produce', projectId: 'p1', screen: 'detail' }), true)
-    await throws('A5 gate without head throws', async () => validateArgs({ kind: 'gate', worktree: '/w', base: 'a' }), /worktree, args.base and args.head/)
-    await throws('A6 gate with empty reviewers throws', async () => validateArgs({ kind: 'gate', worktree: '/w', base: 'a', head: 'b', reviewers: [] }), /non-empty array/)
-    eq('A7 gate with defaults ok', validateArgs({ kind: 'gate', worktree: '/w', base: 'a', head: 'b' }), true)
-    // F26: produce implement:true commits — a missing worktree must fail closed, not
-    // silently commit to the session default checkout (wrong branch).
-    await throws('A8 produce implement:true without worktree throws (F26)', async () => validateArgs({ kind: 'produce', projectId: 'p1', screen: 'detail', implement: true }), /worktree is required when implement:true/)
-    eq('A9 produce implement:true WITH worktree ok (F26)', validateArgs({ kind: 'produce', projectId: 'p1', screen: 'detail', implement: true, worktree: '/w' }), true)
-    eq('A10 produce implement:false without worktree ok — spec-only, no commits', validateArgs({ kind: 'produce', projectId: 'p1', screen: 'detail', implement: false }), true)
-  }
-
-  // ---- Case B: budget clean-skip (NOT a fake block) ----
-  {
-    eq('B1 exhausted budget → clean skip', budgetCleanSkip('gate', { total: 100, remaining: () => 0 }), { kind: 'gate', budgetExhausted: true })
-    eq('B2 budget remaining → no skip', budgetCleanSkip('produce', { total: 100, remaining: () => 50 }), null)
-    eq('B3 no budget set → no skip', budgetCleanSkip('produce', { total: null, remaining: () => 0 }), null)
-    eq('B4 skip shape carries no verdict/block', Object.keys(budgetCleanSkip('gate', { total: 1, remaining: () => 0 })).sort(), ['budgetExhausted', 'kind'])
-  }
-
-  // ---- Case C: normalizeFailClosed ----
-  {
-    eq('C1 known reason → marker', normalizeFailClosed({ failClosed: { reason: 'design-source-unreachable' } }), { reason: 'design-source-unreachable' })
-    eq('C2 known reason preserves detail', normalizeFailClosed({ failClosed: { reason: 'file-too-large', detail: 'styles.css' } }), { reason: 'file-too-large', detail: 'styles.css' })
-    eq('C3 unknown reason → null (cannot mask a real verdict)', normalizeFailClosed({ failClosed: { reason: 'made-up' } }), null)
-    eq('C4 no failClosed → null', normalizeFailClosed({ verdict: 'block', findings: [] }), null)
-    eq('C5 null/undefined result → null', normalizeFailClosed(undefined), null)
-    eq('C6 all four #195 reasons are recognized', FAIL_CLOSED_REASONS.map((r) => normalizeFailClosed({ failClosed: { reason: r } }) !== null), [true, true, true, true])
-  }
-
-  // ---- Case D: dispatchSchemaAgent retry (produce path) ----
-  {
-    const okVal = { summary: 'wrote spec', artifactPath: 'docs/x.md' }
-    {
-      const agent = fakeAgent([{ ok: okVal }])
-      const d = makeDispatchSchemaAgent({ agent, log: noopLog })
-      eq('D1 success first try', await d({ label: 'design-faithful-spec' }), okVal)
-      eq('D2 success calls agent once', agent.callCount(), 1)
-    }
-    {
-      const agent = fakeAgent([{ throw: soError }, { ok: okVal }])
-      const d = makeDispatchSchemaAgent({ agent, log: noopLog })
-      eq('D3 SO death then recover', await d({ label: 'design-faithful-spec' }), okVal)
-      eq('D4 recover calls agent twice', agent.callCount(), 2)
-    }
-    {
-      const agent = fakeAgent([{ throw: soError }, { throw: soError }, { throw: soError }])
-      const d = makeDispatchSchemaAgent({ agent, log: noopLog })
-      await throws('D5 SO death exhausts retries → throws', async () => d({ label: 'design-faithful-spec' }, 2), /StructuredOutput/)
-      eq('D6 retries=2 means 3 attempts total', agent.callCount(), 3)
-    }
-    {
-      const agent = fakeAgent([{ throw: new Error('permission denied: tool DesignSync') }])
-      const d = makeDispatchSchemaAgent({ agent, log: noopLog })
-      await throws('D7 genuine error throws immediately', async () => d({ label: 'design-faithful' }), /permission denied/)
-      eq('D8 genuine error NOT retried', agent.callCount(), 1)
-    }
-    // produce .catch → infraFailure envelope
-    {
-      const out = produceCatch(soError)
-      eq('D9 produce dispatch-death maps to infraFailure (not a verdict)', [out.infraFailure, typeof out.summary], [true, 'string'])
-    }
-  }
-
-  // ---- Case E: dispatchGateReviewer retry + failClosed annotation (gate path) ----
-  {
-    {
-      const agent = fakeAgent([{ ok: { verdict: 'pass', findings: [] } }])
-      const d = makeDispatchGateReviewer({ agent, log: noopLog })
-      eq('E1 success → {agentType,result}', await d('design-faithful-reviewer'), { agentType: 'design-faithful-reviewer', result: { verdict: 'pass', findings: [] } })
-      eq('E2 success calls agent once', agent.callCount(), 1)
-    }
-    {
-      const agent = fakeAgent([{ ok: { verdict: 'block', findings: [], failClosed: { reason: 'design-source-unreachable' } } }])
-      const d = makeDispatchGateReviewer({ agent, log: noopLog })
-      const out = await d('a11y-reviewer')
-      eq('E3 known failClosed is annotated onto the entry', out.failClosed, { reason: 'design-source-unreachable' })
-      // The whole entry is still forwarded (agentType + full result intact) alongside the marker, so
-      // the caller reads it as a clean skip, not a dropped reviewer or a real `block`.
-      eq('E4 fail-closed reviewer forwarded with agentType+result intact (clean skip, not block)', [out.agentType, out.result.verdict, out.result.findings.length], ['a11y-reviewer', 'block', 0])
-    }
-    {
-      const agent = fakeAgent([{ throw: soError }, { ok: { verdict: 'warn', findings: [] } }])
-      const d = makeDispatchGateReviewer({ agent, log: noopLog })
-      eq('E5 SO death then recover', await d('design-faithful-reviewer'), { agentType: 'design-faithful-reviewer', result: { verdict: 'warn', findings: [] } })
-      eq('E6 recover calls agent twice', agent.callCount(), 2)
-    }
-    {
-      const agent = fakeAgent([{ throw: soError }, { throw: soError }])
-      const d = makeDispatchGateReviewer({ agent, log: noopLog })
-      const out = await d('a11y-reviewer')
-      eq('E7 twice-dead result null + retried/failed', [out.result, out.retried, out.failed], [null, true, true])
-      eq('E8 twice-dead calls agent twice (one retry, not a loop)', agent.callCount(), 2)
-    }
-    {
-      const agent = fakeAgent([{ throw: new Error('permission denied: tool Bash') }])
-      const d = makeDispatchGateReviewer({ agent, log: noopLog })
-      const out = await d('design-faithful-reviewer')
-      eq('E9 genuine error forwarded, not retried', [out.result, out.retried, out.failed], [null, undefined, undefined])
-      eq('E10 genuine error calls agent once', agent.callCount(), 1)
-    }
-  }
-
-  // ---- Case F: isNoStructuredOutputError predicate semantics ----
-  {
-    eq('F1 matches the runtime death message', isNoStructuredOutputError(soError), true)
-    eq('F2 matches a bare string containing the token', isNoStructuredOutputError('...StructuredOutput...'), true)
-    eq('F3 rejects an unrelated error', isNoStructuredOutputError(new Error('permission denied')), false)
-    eq('F4 rejects empty/undefined', isNoStructuredOutputError(undefined), false)
-  }
-
   // ---- Case G: structural drift-guard against production design-sync.mjs ----
   {
     let src = ''
@@ -288,6 +64,9 @@ async function main() {
     } catch (e) {
       fail(`G0 could not read design-sync.mjs at ${DESIGN_SYNC_MJS}: ${e}`)
     }
+    // parseReviewResult / REVIEW_RESULT are deliberately NOT pinned here: text-contract-selftest.sh
+    // already byte-locksteps AND behaviorally executes the extracted production copies of both, and
+    // fails if this file stops carrying them. Duplicating them here adds maintenance, not detection.
     const tokens = [
       ['export const meta', 'Workflow loader entry — engine will not register without it'],
       ["phase('Design Sync')", 'progress phase'],
@@ -295,8 +74,6 @@ async function main() {
       ["kind === 'gate'", 'gate branch discriminator'],
       ['implement && !worktree', 'F26 fail-closed guard — implement:true without worktree must throw, not commit to the wrong branch'],
       ['budgetExhausted: true', 'budget clean-skip marker (not a fake block/error)'],
-      ['parseReviewResult', 'text-contract extractor — explorer dispatches are schema-free (#169)'],
-      ['REVIEW_RESULT', 'sentinel token of the explorer text contract (#169)'],
       ['structured-emitter', 'tool-less schema sink — the only schema carrier (#169)'],
       ['dispatchSchemaAgent', 'produce single-agent ladder helper'],
       ['normalizeFailClosed', 'fail-closed → clean-skip mapping (the headline AC behavior)'],
@@ -337,12 +114,19 @@ async function main() {
       fail('H1 could not locate the FAIL_CLOSED Object.freeze block in contract-types.mjs')
     } else {
       const ctReasons = [...block[1].matchAll(/:\s*'([a-z][a-z-]*)'/g)].map((m) => m[1]).sort()
-      const engineReasons = [...FAIL_CLOSED_REASONS].sort()
-      eq('H1 contract-types FAIL_CLOSED values == engine FAIL_CLOSED_REASONS', ctReasons, engineReasons)
-      // And assert the engine SOURCE inlines exactly those (catches the reference harness drifting
-      // from production even if the harness copy above happens to match contract-types).
-      const allInEngineSrc = engineReasons.every((r) => dsSrc.includes(`'${r}'`))
-      eq('H2 engine source inlines every reason string', allInEngineSrc, true)
+      // Extract the engine's OWN inlined array from design-sync.mjs source. This previously read
+      // a hand-maintained copy declared inside this selftest, which meant H1 compared
+      // contract-types against the HARNESS rather than against production — so a reason added to
+      // the engine alone could never fail it. Reading the engine source closes that gap and
+      // removes the last mirror from this file (#214).
+      const engineBlock = dsSrc.match(/FAIL_CLOSED_REASONS\s*=\s*\[([\s\S]*?)\]/)
+      if (!engineBlock) {
+        fail('H1 could not locate the FAIL_CLOSED_REASONS array in design-sync.mjs')
+      } else {
+        const engineReasons = [...engineBlock[1].matchAll(/'([a-z][a-z-]*)'/g)].map((m) => m[1]).sort()
+        eq('H1 contract-types FAIL_CLOSED values == engine FAIL_CLOSED_REASONS', ctReasons, engineReasons)
+        eq('H2 engine inlines a non-empty reason vocabulary', engineReasons.length > 0, true)
+      }
     }
   }
 
