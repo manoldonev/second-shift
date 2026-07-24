@@ -49,7 +49,7 @@ ls .claude/audit/
 Plugin maintainers can run the smoke test directly against the plugin checkout:
 
 ```bash
-<plugin>/scripts/audit-self-test.sh
+<plugin>/scripts/audit-selftest.sh
 ```
 
 ## Disable / opt out
