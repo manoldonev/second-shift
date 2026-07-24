@@ -52,8 +52,11 @@ cat > "$MOCK" <<'MOCKEOF'
 #!/usr/bin/env bash
 set -uo pipefail
 args="$*"
+# Resolve into a plain variable: a case PATTERN interprets glob metacharacters, so
+# expanding the label inline would let a metacharacter in it match unintended calls.
+Q="${MOCK_QUEUE_LABEL:-ready-for-dev}"
 case "$args" in
-  *"-X DELETE"*"labels/${MOCK_QUEUE_LABEL:-ready-for-dev}"*)
+  *"-X DELETE"*"labels/$Q"*)
     printf 'DELETE %s\n' "$args" >> "$CALL_LOG"
     : > "$DELETE_SENTINEL"
     exit 0
