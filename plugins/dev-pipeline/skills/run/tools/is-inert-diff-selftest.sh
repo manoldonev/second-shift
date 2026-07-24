@@ -100,62 +100,14 @@ check ".claude .mjs + package.json"    suite $'.claude/x/y.mjs\npackage.json'
 check ".known-extensions + .ts"        suite $'.claude/second-shift/.known-extensions\napps/api/x.ts'
 check ".known-extensions + .md"        inert $'.claude/second-shift/.known-extensions\nREADME.md'
 
-# ---------------------------------------------------------------------------
-# Golden-master parity tail: the script must agree with the CANONICAL_RE mirror below on
-# every case. classify_old() reproduces the `grep -vE … && suite || inert` idiom the
-# classifier was extracted from, so the tail also pins the evaluation semantics (not just
-# the pattern). Any drift between the script's INERT_RE and this mirror fails — see the
-# DRIFT MODEL note in the file header for what that does and does not prove.
-# ---------------------------------------------------------------------------
-echo "[self-test] golden-master parity vs canonical regex mirror"
-
-CANONICAL_RE='(\.md$|\.sh$|^\.github/workflows/.*\.yml$|^\.claude/.*\.mjs$|^\.claude/.*\.cjs$|^\.claude/.*\.py$|^\.claude/.*\.tsv$|^\.claude/.*\.jsonl?$|^\.claude/second-shift/\.known-extensions$|(^|/)\.prettierignore$|(^|/)\.gitignore$)'
-classify_old() { if printf '%s' "$1" | grep -vE "$CANONICAL_RE" >/dev/null; then echo suite; else echo inert; fi; }
-
-GOLDEN_CASES=(
-  ""
-  "README.md"
-  "run.sh"
-  "apps/api/scripts/seed.sh"
-  ".github/workflows/ci.yml"
-  ".claude/x/y.mjs"
-  ".claude/x/y.cjs"
-  ".claude/x/y.py"
-  ".claude/x/y.tsv"
-  ".claude/settings.json"
-  ".claude/audit/ledger.jsonl"
-  ".claude/second-shift/.known-extensions"
-  ".claude/other/.known-extensions"
-  ".known-extensions"
-  ".prettierignore"
-  "packages/core/.prettierignore"
-  ".gitignore"
-  "apps/web/.gitignore"
-  "apps/api/src/foo.ts"
-  "package.json"
-  "apps/web/next.config.mjs"
-  "tsconfig.json"
-  "services/ml-service/app.py"
-  "yarn.lock"
-  ".npmrc"
-  ".yarnrc.yml"
-  $'README.md\napps/api/x.ts'
-  $'apps/api/x.ts\nREADME.md'
-)
-
-PARITY_FAILS=0
-for c in "${GOLDEN_CASES[@]}"; do
-  run "$c"; rc=$?
-  if [ "$rc" -eq 0 ]; then got=inert; else got=suite; fi
-  want="$(classify_old "$c")"
-  if [ "$got" != "$want" ]; then
-    PARITY_FAILS=$((PARITY_FAILS + 1))
-    bad "golden-master mismatch on $(printf '%q' "$c"): script=$got canonical=$want"
-  fi
-done
-if [ "$PARITY_FAILS" -eq 0 ]; then
-  ok "script INERT_RE matches the CANONICAL_RE mirror on all ${#GOLDEN_CASES[@]} golden cases"
-fi
+# Salvaged from the deleted golden-master parity tail (#214): these two inputs were the
+# ONLY ones the tail covered that the check table did not. The tail itself was a mirror
+# of INERT_RE whose sole failure mode was stale transcription, and the dangerous
+# direction (inert-set WIDENING, which skips the suite) is covered by the table's hard
+# suite rows. A mis-narrowed regex here only misroutes an inert diff to the conservative
+# SUITE lane — wasted CI, never a skipped verification.
+check ".claude subtree .py"            inert $'.claude/x/y.py'
+check ".claude subtree .tsv"           inert $'.claude/x/y.tsv'
 
 echo "[self-test] $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]

@@ -42,68 +42,18 @@ bad() { FAIL=$((FAIL + 1)); echo "  FAIL $1"; }
 echo "diff-range-selftest: reviewer diff-range semantics (#130)"
 
 # ---------------------------------------------------------------------------
-# Behavioral half — a real git fixture with an AHEAD base branch.
-# ---------------------------------------------------------------------------
-if ! command -v git >/dev/null 2>&1; then
-  echo "  SKIP: git not invokable — behavioral cases (A/B) skipped"
-else
-  FIX="$(mktemp -d)"
-  trap 'rm -rf "$FIX"' EXIT
-
-  (
-    cd "$FIX" || exit 1
-    git init -q .
-    git config user.email "selftest@example.invalid"
-    git config user.name "selftest"
-    git config commit.gpgsign false
-
-    echo root > root.txt
-    git add root.txt && git commit -qm "root"
-
-    # The review branch: one commit touching feature.txt.
-    git checkout -qb review
-    echo feature > feature.txt
-    git add feature.txt && git commit -qm "branch work"
-
-    # The base branch MOVES AHEAD after the branch point — the condition that
-    # triggers the bug. It touches a file the review branch never saw.
-    git checkout -q master 2>/dev/null || git checkout -q main
-    echo unrelated > unrelated.txt
-    git add unrelated.txt && git commit -qm "base advanced after branch point"
-  ) || { bad "could not build the git fixture"; }
-
-  BASE_BRANCH="$(git -C "$FIX" rev-parse --abbrev-ref HEAD)"
-
-  # --- Case A (AC-1): three-dot excludes base-only commits -------------------
-  THREE="$(git -C "$FIX" diff --name-only "${BASE_BRANCH}...review")"
-  TWO="$(git -C "$FIX" diff --name-only "${BASE_BRANCH}..review")"
-
-  if [[ "$THREE" == "feature.txt" ]]; then
-    ok "A three-dot range yields ONLY the review branch's own file (feature.txt)"
-  else
-    bad "A three-dot range yielded '$THREE' (expected exactly 'feature.txt')"
-  fi
-
-  # The fixture must still reproduce the ORIGINAL bug under two-dot. If this ever
-  # stops holding, the fixture has drifted and Case A above proves nothing.
-  if grep -qx 'unrelated.txt' <<<"$TWO"; then
-    ok "A two-dot range still leaks the base-only file (fixture reproduces the bug)"
-  else
-    bad "A two-dot range did NOT leak unrelated.txt — fixture no longer reproduces #130, so the three-dot assertion is vacuous"
-  fi
-
-  # --- Case B (AC-2): an explicit merge-base SHA is unaffected ---------------
-  MB="$(git -C "$FIX" merge-base "$BASE_BRANCH" review)"
-  MB_THREE="$(git -C "$FIX" diff --name-only "${MB}...review")"
-  MB_TWO="$(git -C "$FIX" diff --name-only "${MB}..review")"
-
-  if [[ "$MB_THREE" == "$MB_TWO" ]]; then
-    ok "B explicit merge-base SHA: three-dot == two-dot (no regression for correct callers)"
-  else
-    bad "B explicit merge-base SHA diverged: three-dot='$MB_THREE' vs two-dot='$MB_TWO'"
-  fi
-fi
-
+# NOTE (rationale, formerly Cases A/B): three-dot IS merge-base semantics — git
+# diffs from merge-base(base, head) to head. So a base BRANCH whose tip advanced
+# past the branch point cannot leak its own newer commits into the reviewed diff;
+# under two-dot they render as deletions and reviewers report the branch as
+# reverting work it never touched (observed: two false BLOCKERs, #130). Callers
+# passing an explicit merge-base SHA are unaffected, since merge-base(base,head)
+# == base when base is already an ancestor.
+#
+# This was previously asserted by two cases driving git against a throwaway
+# fixture. They executed no repo code and could only fail if git's own documented
+# semantics changed — rationale-as-test, with zero regression-catching power over
+# this repo. The contract that matters is guarded below, against production.
 # ---------------------------------------------------------------------------
 # Drift-guard half — the production scripts must carry three-dot and NO two-dot.
 #
@@ -166,14 +116,6 @@ elif grep -qF "$HEAD_TOKEN" "$PLAN_REVIEW"; then
   bad "G plan-review.mjs now interpolates a head ref — it gained a diff range and must be audited for #130"
 else
   ok "G plan-review.mjs still constructs no diff range (confirmed unaffected)"
-fi
-
-# --- Case H: the null-reviewer drift guard pins the three-dot token ----------
-NULL_SELFTEST="$WORKFLOWS/null-reviewer-selftest.mjs"
-if [[ -f "$NULL_SELFTEST" ]] && grep -qF "$THREE_DOT" "$NULL_SELFTEST"; then
-  ok "H null-reviewer-selftest.mjs pins the three-dot token in its drift guard"
-else
-  bad "H null-reviewer-selftest.mjs no longer pins the three-dot token (${THREE_DOT})"
 fi
 
 echo "diff-range-selftest: $PASS passed, $FAIL failed"

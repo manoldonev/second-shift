@@ -2,7 +2,7 @@
 #
 # Self-test for the Stage 1.A claim swap helper (tools/claim-issue.sh).
 #
-# A self-test in the style of slice-derivation-selftest.sh, located under tools/
+# A self-test in the style of the other tools/ harnesses, located under tools/
 # and wired into pipeline-doctor.sh (block 5e). Pure-local: no Claude CLI, no
 # network, no real `gh` — it injects a MOCK bot wrapper via the helper's `GH_BOT`
 # env seam and drives the add-labels response so BOTH the successful-add (DELETE
@@ -21,15 +21,12 @@
 #
 # DRIFT MODEL: the parity tail asserts claim-issue.sh still carries the load-bearing
 # tokens AND that SKILL.md / 1-intake.md reference the helper rather than re-inlining
-# the snippet (the #170/#183 no-duplication goal). Same technique as
-# slice-derivation-selftest's drift-check.
+# the snippet (the #170/#183 no-duplication goal).
 
 set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 HELPER="$SCRIPT_DIR/claim-issue.sh"
-SKILL="$SCRIPT_DIR/../SKILL.md"
-INTAKE="$SCRIPT_DIR/../stages/1-intake.md"
 
 PASS=0
 FAIL=0
@@ -44,8 +41,9 @@ trap 'rm -rf "$TMP"' EXIT
 # makes, distinguishing them by scanning the argument string:
 #   POST   .../labels                 -> prints $MOCK_ADD_STDOUT (emulates the
 #                                        `--jq '[.[].name]'` output), exits $MOCK_ADD_RC
-#   DELETE .../labels/ready-for-dev    -> logs its args to $CALL_LOG, touches
-#                                        $DELETE_SENTINEL, exits 0
+#   DELETE .../labels/$MOCK_QUEUE_LABEL -> logs its args to $CALL_LOG, touches
+#                                        $DELETE_SENTINEL, exits 0 (label defaults to
+#                                        ready-for-dev; case (g) drives a custom one)
 # MOCK_ADD_STDOUT / MOCK_ADD_RC / CALL_LOG / DELETE_SENTINEL arrive via the
 # environment the helper inherits from each run_claim invocation.
 # ---------------------------------------------------------------------------
@@ -54,14 +52,20 @@ cat > "$MOCK" <<'MOCKEOF'
 #!/usr/bin/env bash
 set -uo pipefail
 args="$*"
+# Resolve into a plain variable: a case PATTERN interprets glob metacharacters, so
+# expanding the label inline would let a metacharacter in it match unintended calls.
+Q="${MOCK_QUEUE_LABEL:-ready-for-dev}"
 case "$args" in
-  *"-X DELETE"*"labels/ready-for-dev"*)
+  *"-X DELETE"*"labels/$Q"*)
     printf 'DELETE %s\n' "$args" >> "$CALL_LOG"
     : > "$DELETE_SENTINEL"
     exit 0
     ;;
   *"-X POST"*"/labels"*)
-    printf 'POST %s\n' "$args" >> "$CALL_LOG"
+    # The label name travels on STDIN (--input -), never in argv — record both so a
+    # hardcoded claimed label is catchable, not just a hardcoded queue label.
+    post_body="$(cat 2>/dev/null || true)"
+    printf 'POST %s BODY=%s\n' "$args" "$post_body" >> "$CALL_LOG"
     printf '%s\n' "$MOCK_ADD_STDOUT"
     exit "$MOCK_ADD_RC"
     ;;
@@ -82,15 +86,19 @@ DELETE_SENTINEL="$TMP/delete_called"
 CALL_LOG="$TMP/calls.log"
 run_claim() {
   local add_stdout="$1" add_rc="$2" issue_arg="${3-183}"
+  # Extra args (case (g)'s --queue/--claimed) are optional; callers passing only
+  # two or three args must be unaffected.
+  if [[ $# -gt 3 ]]; then shift 3; else shift $#; fi
   rm -f "$DELETE_SENTINEL"
   : > "$CALL_LOG"
   # shellcheck disable=SC2086 # issue_arg deliberately unquoted: empty for the no-arg case
   GH_BOT="$MOCK" \
   MOCK_ADD_STDOUT="$add_stdout" \
   MOCK_ADD_RC="$add_rc" \
+  MOCK_QUEUE_LABEL="${MOCK_QUEUE_LABEL:-ready-for-dev}" \
   CALL_LOG="$CALL_LOG" \
   DELETE_SENTINEL="$DELETE_SENTINEL" \
-    bash "$HELPER" $issue_arg >/dev/null 2>&1
+    bash "$HELPER" $issue_arg "$@" >/dev/null 2>&1
   echo "$?"
 }
 
@@ -133,6 +141,32 @@ echo "=== claim-issue.sh: usage contract ==="
 rc=$(run_claim '["ready-for-dev","in-progress"]' 0 "")
 if [[ "$rc" == "2" ]] && ! deleted; then ok "no issue arg -> exit 2 (usage), no calls"; else bad "usage: rc=$rc deleted=$(deleted && echo y || echo n)"; fi
 
+# (g) CONFIG-DRIVEN LABELS (#11) — the behavioral case the token pin could not give us.
+# Every case above runs on the DEFAULT labels, so a mutant that hardcodes the DELETE URL
+# to `labels/ready-for-dev` (a plausible default-inlining refactor, or a partial #11
+# revert) emits byte-identical calls and passes all of them. Production calls this helper
+# with CONFIG-RESOLVED labels (stages/1-intake.md), so on a consumer with a custom queue
+# label that mutant 404s the DELETE, the script swallows it (set -uo pipefail, no -e) and
+# exits 0 — leaving the issue claimed-but-still-queued, the silent label-corruption class
+# #170/#183 exist to prevent. Drive non-default labels end to end and assert BOTH calls
+# target them.
+rc=$(MOCK_QUEUE_LABEL="triage-ready" run_claim '["triage-ready","wip"]' 0 183 --queue triage-ready --claimed wip)
+if [[ "$rc" == "0" ]] && deleted; then
+  ok "custom labels: --queue/--claimed honored end to end (exit 0, DELETE ran)"
+else
+  bad "custom labels: rc=$rc deleted=$(deleted && echo y || echo n)"
+fi
+if grep -q 'DELETE .*labels/triage-ready' "$CALL_LOG"; then
+  ok "custom labels: DELETE targeted labels/triage-ready (not the hardcoded default)"
+else
+  bad "custom labels: DELETE did not target labels/triage-ready ($(cat "$CALL_LOG"))"
+fi
+if grep -q 'BODY=.*wip' "$CALL_LOG"; then
+  ok "custom labels: POST added the configured claimed label (wip)"
+else
+  bad "custom labels: POST did not add 'wip' ($(cat "$CALL_LOG"))"
+fi
+
 # ---------------------------------------------------------------------------
 # Drift parity: assert the helper still carries the load-bearing tokens this
 # self-test models, AND that the prose call-sites reference the helper rather than
@@ -142,29 +176,18 @@ echo "=== drift parity vs helper + prose call-sites ==="
 parity()     { # label, pattern, file
   if grep -Eq -- "$2" "$3"; then ok "${3##*/} contains: $1"; else bad "${3##*/} MISSING token ($1) — drifted from this self-test: /$2/"; fi
 }
-anti_parity() { # label, pattern, file (must NOT be present)
-  if grep -Eq -- "$2" "$3"; then bad "${3##*/} STILL inlines ($1) — duplication the helper was meant to remove: /$2/"; else ok "${3##*/} no longer inlines: $1"; fi
-}
 
 if [[ ! -f "$HELPER" ]]; then
   bad "claim-issue.sh not found at $HELPER"
 else
-  # shellcheck disable=SC2016 # literal $ADDED is the grep pattern, not an expansion
-  parity "claimed-label add confirm branch" '\[\[ "\$ADDED" =='                  "$HELPER"
-  # shellcheck disable=SC2016 # literal $QUEUE_LABEL is the grep pattern, not an expansion
-  parity "queue-label DELETE (config-driven)" 'labels/\$QUEUE_LABEL'             "$HELPER"
-  parity "config label args (#11)"          '\-\-queue) *QUEUE_LABEL'            "$HELPER"
-  parity "failed-add abort (exit 1)"      'exit 1'                               "$HELPER"
-  parity "injectable GH_BOT env seam"     'GH_BOT:-'                             "$HELPER"
+  # Only the pin the behavioral half genuinely cannot reach is kept (#214). The confirm
+  # branch, the exit-1 abort, the DELETE target and the GH_BOT seam are all proven by the
+  # cases above — the seam by the mock working at all, and case (g) now covers the
+  # config-driven label path that used to rest on a token pin. The three markdown greps
+  # over SKILL.md / 1-intake.md were the banned prose-presence class: they assert only
+  # that prose contains words, and the anti-inline pattern could not even match a
+  # re-inline of the helper's current form.
   parity "bot wrapper under \$HOME/.config/<repo>/" '\.config/.*gh-as-bot\.sh'   "$HELPER"
-fi
-
-if [[ ! -f "$SKILL" ]]; then bad "SKILL.md not found at $SKILL"; else
-  parity      "claim-issue.sh invocation"     'claim-issue\.sh'   "$SKILL"
-  anti_parity "old inline add-labels pipeline" 'ADDED=\$\(echo'   "$SKILL"
-fi
-if [[ ! -f "$INTAKE" ]]; then bad "1-intake.md not found at $INTAKE"; else
-  parity "claim-issue.sh invocation" 'claim-issue\.sh' "$INTAKE"
 fi
 
 echo

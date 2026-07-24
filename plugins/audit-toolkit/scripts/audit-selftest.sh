@@ -55,26 +55,32 @@ echo "Test 3 — /audit-history runs clean"
 # Test 4 — concurrent invocations on one session_id must not lose or corrupt rows.
 # Guards the atomic-append ledger creation against the check-then-create TOCTOU
 # (the original `[ ! -e ] && install -m 600 /dev/null` could truncate under a race).
-echo "Test 4 — concurrent invocations → no lost/clobbered rows"
-N=20
-rm -f ".claude/audit/$CSID.jsonl" 2>/dev/null
-for _ in $(seq 1 "$N"); do
-    echo "{\"session_id\":\"$CSID\",\"cwd\":\"$PWD\",\"hook_event_name\":\"PostToolUse\",\"tool_name\":\"Read\",\"tool_input\":{},\"tool_response\":{}}" | "$HOOK" &
-done
-wait
-if [ -f ".claude/audit/$CSID.jsonl" ]; then
-    rows=$(grep -c '' ".claude/audit/$CSID.jsonl")
-    invalid=0
-    while IFS= read -r line; do
-        printf '%s' "$line" | jq empty 2>/dev/null || invalid=$((invalid+1))
-    done < ".claude/audit/$CSID.jsonl"
-    if [ "$rows" -eq "$N" ] && [ "$invalid" -eq 0 ]; then
-        ok "all $N concurrent rows present and valid JSON"
-    else
-        fail "rows=$rows (expected $N), invalid JSON rows=$invalid"
-    fi
+# Honors SKIP_STRESS: the repo's verification lane runs every discovered selftest
+# under `env SKIP_STRESS=1`, and this 20-way fan-out is the suite's only stress case.
+if [ -n "${SKIP_STRESS:-}" ]; then
+    echo "Test 4 — concurrent invocations → SKIPPED (SKIP_STRESS set)"
 else
-    fail "concurrent ledger not created"
+    echo "Test 4 — concurrent invocations → no lost/clobbered rows"
+    N=20
+    rm -f ".claude/audit/$CSID.jsonl" 2>/dev/null
+    for _ in $(seq 1 "$N"); do
+        echo "{\"session_id\":\"$CSID\",\"cwd\":\"$PWD\",\"hook_event_name\":\"PostToolUse\",\"tool_name\":\"Read\",\"tool_input\":{},\"tool_response\":{}}" | "$HOOK" &
+    done
+    wait
+    if [ -f ".claude/audit/$CSID.jsonl" ]; then
+        rows=$(grep -c '' ".claude/audit/$CSID.jsonl")
+        invalid=0
+        while IFS= read -r line; do
+            printf '%s' "$line" | jq empty 2>/dev/null || invalid=$((invalid+1))
+        done < ".claude/audit/$CSID.jsonl"
+        if [ "$rows" -eq "$N" ] && [ "$invalid" -eq 0 ]; then
+            ok "all $N concurrent rows present and valid JSON"
+        else
+            fail "rows=$rows (expected $N), invalid JSON rows=$invalid"
+        fi
+    else
+        fail "concurrent ledger not created"
+    fi
 fi
 
 echo

@@ -174,8 +174,9 @@ const scopeBaseRef = scopeBase || base
 // structured verdict first; kept (cheap, right on principle) though it is not the stall cure. (3) the
 // one-shot retry in dispatchReviewer() recovers residual stochastic deaths. (4) the dark-reviewer
 // coverage-gap contract (review-lead Synthesis Rules + stages/8-code-review.md) backstops anything
-// that still goes dark, surfaced as a coverage gap and never silently dropped. Drift-guard:
-// workflows/null-reviewer-selftest.mjs. reviewer-baseline carries the same principle as documented
+// that still goes dark, surfaced as a coverage gap and never silently dropped. Guards:
+// workflows/runtime-shim-selftest.mjs executes THIS body against the real ladder;
+// workflows/null-reviewer-selftest.mjs Case F pins the load-bearing tokens + emit wiring. reviewer-baseline carries the same principle as documented
 // contract ("Proportionate grounding"); this file is the operative delivery.
 // --- explorer/emitter transport (the structural stall fix; #169) ---
 // The stall class is `schema AND can-explore` in one agent; measured on plan-reviewer (opus,

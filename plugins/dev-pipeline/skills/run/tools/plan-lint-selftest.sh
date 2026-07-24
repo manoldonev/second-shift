@@ -136,14 +136,11 @@ out=$(bash "$LINT" "$FIX/valid-plan.md" "$FIX/valid-state.json" 2>/dev/null || t
   && pass "(pl-k) missing Decision Ledger → advisory WARNING, still exit 0" \
   || fail "(pl-k) ledger advisory — rc=$rc out=$out"
 
-# (pl-l) anti-resync guard: Decision Ledger is NOT in the hard mandated-SECTIONS
-#        set (else the Stage-4 gate would false-abort autonomous ledger-less runs)
-if grep -qi 'Decision Ledger' "$LINT" \
-   && ! grep -qE '^(Decision Ledger|.*\\tdecision ledger)' "$LINT"; then
-  pass "(pl-l) Decision Ledger excluded from hard SECTIONS (advisory-only)"
-else
-  fail "(pl-l) Decision Ledger must NOT appear as a SECTIONS row (hard-lint would false-abort Stage 4)"
-fi
+# (pl-l) was a grep over plan-lint.sh's own source asserting Decision Ledger is not a
+# hard SECTIONS row. Deleted: pl-k already fails (rc 1 instead of 0) if it joins that set,
+# as does every positive check running a ledger-less plan — and the grep was strictly
+# weaker, recognizing only the current $'...' textual SECTIONS format. The anti-resync
+# rationale lives in plan-lint.sh's own comment and in pl-k's message.
 
 echo "[plan-lint-selftest] Decision Ledger provenance legality (Check 4)"
 
