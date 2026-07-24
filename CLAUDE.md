@@ -63,4 +63,9 @@ find . -name '*-selftest.sh' -type f -print0 | xargs -0 -n1 -I{} env SKIP_STRESS
 Every checked-in script pairs with a `*-selftest.sh`; CI discovers them by glob, so a new
 selftest needs no registration. CI is model-free by design (no API-billed calls).
 
+One deliberate non-pairing: `plugins/dev-pipeline/skills/run/scenario-lib.sh` holds the shared
+scenario mechanics and is named so it does **not** match the discovery glob. It has no suite of
+its own because it has no independent contract — both `statectl-selftest.sh` and
+`scenario-liveness-selftest.sh` exercise it on every run.
+
 Release process: [`docs/releasing.md`](docs/releasing.md) — the checklist of record.
