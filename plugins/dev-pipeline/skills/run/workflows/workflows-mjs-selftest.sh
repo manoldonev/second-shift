@@ -47,6 +47,10 @@ run_mjs() {
 echo "[workflows-mjs-selftest]"
 run_mjs design-sync-selftest.mjs
 run_mjs null-reviewer-selftest.mjs
+# runtime-shim-selftest.mjs executes the PRODUCTION .mjs bodies (meta-stripped, injected
+# fakes) instead of hand-maintained copies of them — the structural replacement for the
+# mirror-harness technique the two suites above used to rely on (#214).
+run_mjs runtime-shim-selftest.mjs
 
 echo "[workflows-mjs-selftest] $([[ $FAILS -eq 0 ]] && echo 'all green' || echo "$FAILS FAILURE(S)")"
 exit $FAILS

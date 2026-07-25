@@ -258,14 +258,6 @@ else
   warn "node not invokable — skipping null-reviewer selftest (Stage 8 dark-reviewer contract unverified on this machine; see the node FAIL in section 1b for the cause)"
 fi
 
-# --- 5c. slice-derivation selftest (Stage 1 stacked-PR slice math + 1-intake.md tokens) ---
-if out=$(bash "$SCRIPT_DIR/slice-derivation-selftest.sh" 2>&1); then
-  ok "slice-derivation selftest: $(tail -1 <<< "$out")"
-else
-  bad "slice-derivation selftest FAILED — Stage 1 stacked-PR slice derivation (or its 1-intake.md load-bearing tokens) drifted. Output tail:"
-  tail -5 <<< "$out" | sed 's/^/[doctor]        /'
-fi
-
 # --- 5d. reviewer-drift gate selftest (real-commit self-gate + registry lockstep) ---
 if _st=$(resolve_sibling review-toolkit scripts/check-reviewer-references-selftest.sh) && out=$(bash "$_st" 2>&1); then
   ok "reviewer-drift selftest: $(tail -1 <<< "$out")"

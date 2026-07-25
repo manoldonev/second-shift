@@ -7,9 +7,13 @@
 # Step 1.P) plus ONE code seam — the `readRoot` arg in workflows/intake-review.mjs
 # that prefixes every dispatch prompt with the pinned-read instruction. This test
 # pins the load-bearing tokens of that seam so a refactor cannot silently drop the
-# pin from one (or both) dispatch prompts, and guards AC-5: the
-# `non-main-base-autonomous` reason value is retained (re-semanticized to the
-# pin-failure trigger, never renamed/retired).
+# pin from one (or both) dispatch prompts.
+#
+# AC-5 (the `non-main-base-autonomous` reason value is retained, re-semanticized to the
+# pin-failure trigger rather than renamed) is NOT guarded here — it is guarded where it
+# is mechanically enforceable, in statectl-selftest.sh: the validator enum is generated
+# from the state-schema.md row, so its regenerate-and-diff drift check plus the
+# mark-failed case cover deletion both with and without regeneration.
 #
 # WHY grep-shaped (and grep-ONLY): intake-review.mjs runs inside the Workflow
 # tool's runtime (its globals — agent()/parallel()/log() — are injected there, and
@@ -24,9 +28,6 @@ set -uo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 RUN_DIR="$(dirname "$SCRIPT_DIR")"                    # skills/run
 WORKFLOW="$RUN_DIR/workflows/intake-review.mjs"
-SCHEMA="$RUN_DIR/state-schema.md"
-INTAKE_STAGE="$RUN_DIR/stages/1-intake.md"
-CLEANUP_STAGE="$RUN_DIR/stages/10-cleanup.md"
 
 PASS=0
 FAIL=0
@@ -57,26 +58,18 @@ else
   bad "readRootNote must prefix BOTH dispatch prompts (found $NOTE_USES use(s))"
 fi
 
-# --- (2) AC-5 guard: reason value retained, re-semanticized not renamed --------
-# shellcheck disable=SC2016  # literal backticks in the schema row, no expansion intended
-if grep -q '`non-main-base-autonomous`' "$SCHEMA"; then
-  ok "state-schema.md retains the non-main-base-autonomous reason row"
-else
-  bad "state-schema.md lost the non-main-base-autonomous reason row (AC-5)"
-fi
-
-# --- (3) prose contract anchors: Step 1.P + Stage-10 backstop ------------------
-if grep -q 'Step 1.P' "$INTAKE_STAGE" && grep -q 'intake-pin-' "$INTAKE_STAGE"; then
-  ok "stages/1-intake.md documents Step 1.P with the intake-pin worktree"
-else
-  bad "stages/1-intake.md lost the Step 1.P pin contract"
-fi
-
-if grep -q 'intake-pin-' "$CLEANUP_STAGE"; then
-  ok "stages/10-cleanup.md removes the intake pin worktree (crash backstop)"
-else
-  bad "stages/10-cleanup.md lost the intake-pin removal backstop"
-fi
+# The three markdown-prose checks that used to sit here were deleted (#214):
+#   - the state-schema.md `non-main-base-autonomous` row grep was DOUBLY redundant: the
+#     statectl enum is GENERATED from that very row (gen-statectl-validators.sh), and
+#     statectl-selftest.sh guards both mutation paths — its regenerate-and-diff drift
+#     check catches deletion without regeneration, and its mark-failed case catches
+#     deletion WITH regeneration. That is where the AC-5 guarantee actually lives.
+#   - the two `intake-pin-` prose anchors (1-intake.md / 10-cleanup.md) were the banned
+#     prose-presence class: independent greps, not a comparison, so a consistent rename
+#     across both files false-passes and an inconsistent one is visible in the diff. The
+#     coupling is recorded in scripts/lockstep-manifest.tsv as a DROPPED entry.
+# What remains above is the sanctioned exception: token pins on a Workflow-runtime .mjs
+# seam that can be neither executed nor node --check'ed.
 
 echo "Result: $PASS passed, $FAIL failed"
 [[ "$FAIL" -eq 0 ]] && exit 0 || exit 1
