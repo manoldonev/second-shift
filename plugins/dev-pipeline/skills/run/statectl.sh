@@ -2477,6 +2477,23 @@ cmd_comment_add() {
   local current
   current=$(read_state "$key_arg") || exit $?
   require_mutable "$current" "$force" "comment-add"
+  # Ordering precondition (code-review marker only): the synthesis comment cannot
+  # get its receipt before `review-toolkit:review-lead` is recorded as loaded. The
+  # stage-8 completion gate already refuses without this receipt, so the two gates
+  # compose transitively into "load the skill before you synthesize" — closing the
+  # post-hoc load the presence-only gate could not distinguish from a real one.
+  #
+  # Deliberately NOT mirroring the completion gate's crossBoundaryReviews[] /
+  # skippedReviews[] escape hatches: this receipt is only mandated when a PRIMARY
+  # in-repo round ran (codeReviewRounds >= 1), and such a run genuinely synthesized,
+  # so review-lead is genuinely mandated. A handoff-only / skip-only run posts no
+  # code-review comment and never reaches here. Likewise no tracker.writes guard —
+  # a read-only tracker posts no comments by contract, so this call is unreachable
+  # there, and a config-driven skip would only add a bypass of an ordering gate.
+  if [[ "$marker" == "code-review" && "$force" -eq 0 ]]; then
+    jq -e '(.stages["8"].skillsLoaded // []) | index("review-toolkit:review-lead") != null' <<< "$current" >/dev/null \
+      || { EXIT_CODE=1 die "comment-add: cannot record the 'code-review' receipt — review-toolkit:review-lead is not in stages.8.skillsLoaded[]. The skill must be loaded BEFORE the synthesis it governs is authored, not afterwards to satisfy a gate: load it, record it via skill-load-add, then re-run the synthesis and post that. Recording this receipt after the fact does not satisfy the ordering requirement; --force for crash-recovery"; }
+  fi
   local now
   now=$(now_iso)
   local new_state

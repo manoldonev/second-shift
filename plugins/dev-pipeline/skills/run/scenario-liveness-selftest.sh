@@ -148,6 +148,31 @@ s6=$(sct get "$KEY" '.stages."6".status')
   && pass "(ns5) the same stage-6 leg completes once the sidecar is planted (AC-3)" \
   || fail "(ns5) stage 6 did not complete with a sidecar present — status='$s6'"
 
+# Stage-8 skill-load ORDERING, composed. complete_stage's stage-8 leg loads
+# review-lead BEFORE recording the code-review receipt, so the green run above
+# already proves the correct order still reaches terminal. This is the other
+# direction: a run that authors its synthesis FIRST cannot launder the load
+# afterwards, because the receipt write itself now refuses — and with no receipt
+# the stage cannot close, so mark-completed stays unreachable.
+#
+# Scenario-tier rather than per-tool: it asserts that a COMPOSED run is stopped by
+# the two gates acting together (comment-add's precondition + the stage-8 receipt
+# leg), which is the property the presence-only gate lacked.
+reset_state
+sct init "$KEY" --run-id "scenario-liveness-$$" >/dev/null
+for n in 1 2 3 4 5 6 7; do complete_stage "$KEY" "$n"; done
+sct set-stage "$KEY" 8 --status started >/dev/null
+sct review-rounds "$KEY" --set 1 >/dev/null
+rc_receipt=$(sct_rc comment-add "$KEY" --marker code-review --url "https://github.example/c/code-review")
+sct set-stage "$KEY" 8 --status completed >/dev/null
+s8=$(sct get "$KEY" '.stages."8".status')
+write_report "$KEY"
+write_eval "$KEY"
+rc_term=$(sct_rc mark-completed "$KEY")
+[[ "$rc_receipt" -ne 0 && "$s8" != "completed" && "$rc_term" -ne 0 ]] \
+  && pass "(ns6) non-vacuity: synthesis-before-skill-load is REFUSED its receipt, so stage 8 never closes and terminal is unreachable" \
+  || fail "(ns6) inverted stage-8 order wrongly reached terminal — rc_receipt=$rc_receipt s8='$s8' rc_term=$rc_term"
+
 # ========================================================== sub-issues carve-out ===
 # Declared carve-out (stages/1-intake.md): success-shaped, NOT state-terminated.
 # NOTE the honest scope — statectl.sh carries NO verdict-aware handling of

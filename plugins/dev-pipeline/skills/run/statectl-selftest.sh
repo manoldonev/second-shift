@@ -2092,10 +2092,14 @@ sct init 9999 --run-id "selftest-run-$$" >/dev/null
 for n in 1 2 3 4 5 6 7; do complete_stage 9999 "$n"; done
 sct set-stage 9999 8 --status started >/dev/null
 sct review-rounds 9999 --set 1 >/dev/null
-sct comment-add 9999 --marker code-review --url "https://github.example/c/code-review" >/dev/null
+# The refused leg needs NO receipt: the stage-8 case checks rounds -> skill ->
+# receipt in that order, so the skill message fires first. Asserting here (rather
+# than after a comment-add) also keeps this fixture legal under the comment-add
+# ordering precondition, which forbids recording the receipt before the load.
 err_norl=$(sct_err set-stage 9999 8 --status completed)
 rc_norl=$(sct_rc set-stage 9999 8 --status completed)
 sct skill-load-add 9999 --stage 8 --skill review-toolkit:review-lead >/dev/null
+sct comment-add 9999 --marker code-review --url "https://github.example/c/code-review" >/dev/null
 rc_rl=$(sct_rc set-stage 9999 8 --status completed)
 reset_state
 sct init 9998 --run-id "selftest-run-$$" >/dev/null
@@ -2189,6 +2193,46 @@ if [[ "$rc_badm" == "1" && "$rc_badu" == "1" && "$over" == '{"plan":"https://git
   pass "(cr4) comment-add — bad marker/url rejected, repeat overwrites"
 else
   fail "(cr4) comment-add validation — rc_badm=$rc_badm rc_badu=$rc_badu over='$over'"
+fi
+
+# (cr5) comment-add ORDERING precondition: the `code-review` receipt cannot be
+# recorded before review-toolkit:review-lead is in stages.8.skillsLoaded[]. The
+# stage-8 completion gate already refuses without the receipt, so this makes the
+# ordering transitive — a synthesis authored before the skill load cannot be
+# laundered into completion evidence by loading the skill afterwards.
+#
+# Guards all four ACs of #227: refusal + ordering language (AC-1), acceptance
+# after skill-load-add (AC-2), both directions in one case (AC-3), and that no
+# other marker is affected under the identical empty-skillsLoaded state (AC-4).
+reset_state
+sct init 9999 --run-id "selftest-run-$$" >/dev/null
+for n in 1 2 3 4 5 6 7; do complete_stage 9999 "$n"; done
+sct set-stage 9999 8 --status started >/dev/null
+sct review-rounds 9999 --set 1 >/dev/null
+# AC-1: no recorded load -> refused, and the message names the ordering.
+rc_pre=$(sct_rc comment-add 9999 --marker code-review --url "https://github.example/c/cr")
+err_pre=$(sct_err comment-add 9999 --marker code-review --url "https://github.example/c/cr")
+# AC-4: a different marker is unaffected by the same empty state.
+rc_other=$(sct_rc comment-add 9999 --marker plan --url "https://github.example/c/plan")
+# The refusal is real, not cosmetic: with no receipt the stage still cannot close.
+rc_stage_pre=$(sct_rc set-stage 9999 8 --status completed)
+# --force is the documented crash-recovery escape, as for every other precondition.
+rc_forced=$(sct_rc comment-add 9999 --marker code-review --url "https://github.example/c/forced" --force)
+# AC-2: recording the load first lets the same call through.
+reset_state
+sct init 9999 --run-id "selftest-run-$$" >/dev/null
+for n in 1 2 3 4 5 6 7; do complete_stage 9999 "$n"; done
+sct set-stage 9999 8 --status started >/dev/null
+sct review-rounds 9999 --set 1 >/dev/null
+sct skill-load-add 9999 --stage 8 --skill review-toolkit:review-lead >/dev/null
+rc_post=$(sct_rc comment-add 9999 --marker code-review --url "https://github.example/c/cr")
+rc_stage_post=$(sct_rc set-stage 9999 8 --status completed)
+if [[ "$rc_pre" == "1" && "$err_pre" == *"BEFORE the synthesis it governs is authored"* \
+      && "$rc_other" == "0" && "$rc_stage_pre" == "1" && "$rc_forced" == "0" \
+      && "$rc_post" == "0" && "$rc_stage_post" == "0" ]]; then
+  pass "(cr5) comment-add ordering — code-review receipt refused before the review-lead load, allowed after; other markers unaffected; --force bypasses"
+else
+  fail "(cr5) comment-add ordering — rc_pre=$rc_pre rc_other=$rc_other rc_stage_pre=$rc_stage_pre rc_forced=$rc_forced rc_post=$rc_post rc_stage_post=$rc_stage_post err_pre='$err_pre'"
 fi
 
 # (rec1) reclaim verdict: a stale in_progress run (backdated lastUpdatedAt) is
