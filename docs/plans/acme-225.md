@@ -152,8 +152,11 @@ Change-specific, beyond the triple:
 bash scripts/check-frozen-files.sh origin/main
 # AC-7: no ticket-number literals in the new skill prose (expect no output).
 grep -nE '#[0-9]{2,4}' plugins/dev-pipeline/skills/perf-retro/SKILL.md
-# AC-6: both consent-doc copies name the new skill identically.
-grep -h 'Skills:' .claude/SECOND-SHIFT.md plugins/second-shift/templates/consumer/SECOND-SHIFT.md | sort -u
+# AC-6: both consent-doc dev-pipeline skills lines are identical AND name the new skill.
+# Exits non-zero on drift, rather than printing for eyeballing.
+diff <(grep -F 'the 10-stage ticket' .claude/SECOND-SHIFT.md) \
+     <(grep -F 'the 10-stage ticket' plugins/second-shift/templates/consumer/SECOND-SHIFT.md) \
+  && grep -qF '`perf-retro`' .claude/SECOND-SHIFT.md
 # AC-1: sibling-parity length.
 wc -l plugins/dev-pipeline/skills/perf-retro/SKILL.md plugins/dev-pipeline/skills/pipeline-retro/SKILL.md
 ```
