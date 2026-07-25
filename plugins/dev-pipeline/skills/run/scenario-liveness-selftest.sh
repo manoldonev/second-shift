@@ -123,6 +123,31 @@ rc=$(sct_rc mark-completed "$KEY")
   && pass "(ns3) non-vacuity: an incomplete run is REFUSED terminal (stage 9 never completed)" \
   || fail "(ns3) incomplete run wrongly accepted terminal — the no-split scenario is vacuous"
 
+# Same shape for the Stage-6 verifyctl attestation: drive the IDENTICAL recipe with
+# the sidecar plant suppressed, and stage 6 must not complete. Without this the
+# scenario would stay green with the attestation gate deleted, since the recipe now
+# plants a sidecar on every run.
+#
+# The assertion reads STATE, not an exit code: complete_stage discards set-stage's
+# rc (`sct … >/dev/null`), so `.stages."6".status` is the only observable — the same
+# posture as (ns3), which reads mark-completed's effect rather than its rc.
+reset_state
+sct init "$KEY" --run-id "scenario-liveness-$$" >/dev/null
+for n in 1 2 3 4 5; do complete_stage "$KEY" "$n"; done
+SCENARIO_SKIP_VERIFY_SIDECAR=1 complete_stage "$KEY" 6
+s6=$(sct get "$KEY" '.stages."6".status')
+[[ "$s6" != "completed" ]] \
+  && pass "(ns4) non-vacuity: stage 6 is REFUSED with no verifyctl sidecar (the attestation gate is live)" \
+  || fail "(ns4) stage 6 completed with no verifyctl attestation — the attestation gate is inert"
+
+# …and the same leg DOES complete once the sidecar is planted, so (ns4) pins the
+# sidecar's absence rather than some unrelated breakage in the stage-6 recipe.
+complete_stage "$KEY" 6
+s6=$(sct get "$KEY" '.stages."6".status')
+[[ "$s6" == "completed" ]] \
+  && pass "(ns5) the same stage-6 leg completes once the sidecar is planted (AC-3)" \
+  || fail "(ns5) stage 6 did not complete with a sidecar present — status='$s6'"
+
 # ========================================================== sub-issues carve-out ===
 # Declared carve-out (stages/1-intake.md): success-shaped, NOT state-terminated.
 # NOTE the honest scope — statectl.sh carries NO verdict-aware handling of

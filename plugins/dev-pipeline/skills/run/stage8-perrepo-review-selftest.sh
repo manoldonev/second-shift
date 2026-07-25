@@ -65,7 +65,18 @@ for s in 1 2 3 4 5 6 7; do
     3) "$SC" comment-add "$ISSUE_NUMBER" --marker plan --url "https://github.example/c/plan" >/dev/null ;;
     4) "$SC" plan-review-set "$ISSUE_NUMBER" --overall pass >/dev/null ;;
     5) "$SC" checkpoint "$ISSUE_NUMBER" 5 --json '{"changedFiles":[]}' >/dev/null ;;
-    6) for rr in be fe ml; do "$SC" verify-summary-set "$ISSUE_NUMBER" --repo "$rr" --json '{"format":"clean","test":"passed"}' >/dev/null; done ;;   # test key: the #98 content gate refuses a summary with no verifying lane run
+    # Two Stage-6 completion legs, both per-target on a pair run: the #98 content
+    # gate refuses a summary with no verifying lane run, and the verifyctl
+    # attestation refuses a target with no runId-matching sidecar. This harness
+    # never invokes verifyctl, so the sidecar is stubbed — stem via `state-path`
+    # (the gate lowercases the key through it, as verifyctl does), never composed
+    # from the raw key.
+    6) SIDECAR_STEM="$("$SC" state-path "$ISSUE_NUMBER")"; SIDECAR_STEM="${SIDECAR_STEM%.json}"
+       for rr in be fe ml; do
+         "$SC" verify-summary-set "$ISSUE_NUMBER" --repo "$rr" --json '{"format":"clean","test":"passed"}' >/dev/null
+         printf '{"runId":"itest","headSha":"stage8selftest0000","chargedHead":"","at":"1970-01-01T00:00:00Z","failedClasses":[],"status":"pass"}\n' \
+           > "${SIDECAR_STEM}-${rr}-verify.json"
+       done ;;
     7) "$SC" checkpoint "$ISSUE_NUMBER" 7 --json "{\"ticketKey\":\"$ISSUE_NUMBER\",\"branch\":\"claude/x-be\",\"headSha\":\"$(git -C "$ROOT/wt/be" rev-parse HEAD)\",\"worktreePath\":\"wt/be\",\"deviations\":[]}" >/dev/null
        "$SC" comment-add "$ISSUE_NUMBER" --marker doc-update --url "https://github.example/c/doc-update" >/dev/null ;;
   esac

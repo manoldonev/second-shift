@@ -415,6 +415,78 @@ preflight_wellformed() {
   ' <<< "$1" >/dev/null 2>&1
 }
 
+# sidecar_attests <file> <run-id> — 0 iff <file> is a verifyctl sidecar written by
+# THIS run. Two distinct non-zero codes, because the Stage-6 gate below reports
+# them differently: 1 = the sidecar does not exist (verifyctl never ran), 2 = it
+# exists but carries a different runId (it belongs to an earlier run and this one
+# never re-verified). An empty <run-id> is also 2 — a state file with no runId
+# cannot attest anything, and fail-closed is the only safe reading.
+#
+# Deliberately NOT checked: the sidecar's `.status` and `.headSha`. Both are
+# available for free in the payload, and requiring `.status == "pass"` would be a
+# strictly stronger gate — but the question this precondition answers is "did
+# verifyctl run for this run", not "was it green at this commit". That narrowing
+# is a recorded decision, not an oversight.
+sidecar_attests() {
+  local file="$1" run_id="$2" sc_run_id
+  [[ -f "$file" ]] || return 1
+  [[ -n "$run_id" ]] || return 2
+  sc_run_id=$(jq -r '.runId // ""' "$file" 2>/dev/null) || sc_run_id=""
+  [[ "$sc_run_id" == "$run_id" ]] || return 2
+  return 0
+}
+
+# verifyctl-attestation precondition for Stage 6 (the completion gate's proof that
+# the suite was actually RUN, not merely summarized). `verify-summary-set` records
+# whatever JSON the session hands it, so before this gate a hand-composed summary
+# reached a completed Stage 6 that was byte-indistinguishable in state from a real
+# verifyctl run — observed on a run that verified through raw Bash, leaving
+# `verifyAttempts` null and no sidecar at all while Stage 6 completed anyway.
+#
+# The attesting artifact is verifyctl's own runId-scoped sidecar, already written
+# by every compliant run — nothing new is produced for this gate. `runId` is set
+# once at init and never overwritten, which is what makes "carries the current
+# runId" mean "written by THIS run"; it is the same comparison verifyctl itself
+# uses to self-clean a stale sidecar.
+#
+# Stacked runs: one sidecar per run, overwritten by each slice's own verifyctl
+# run. Because runId is constant across slices, this gate cannot distinguish
+# slice N's sidecar from slice N-1's. That residual weakness is declared rather
+# than implied — per-slice attestation belongs with the per-slice stage
+# accounting, not here.
+require_verify_sidecar() {
+  local key="$1" current="$2"
+  local run_id stem targets sidecar scope rc r
+  run_id=$(jq -r '.runId // ""' <<< "$current")
+  # Both the directory AND the lowercased filename stem come from state_path:
+  # verifyctl lowercases the key (`key_lc`) before composing the sidecar name, and
+  # state_path applies the same lowercasing plus paths.pipelineStateDir. Composing
+  # the filename from the raw argv key would look for `PROJ-123-verify.json` while
+  # verifyctl wrote `proj-123-verify.json` — hard-refusing every Stage-6
+  # completion on a JIRA-key consumer, a break numeric-key repos cannot surface.
+  stem=$(state_path "$key")
+  stem="${stem%.json}"
+  targets=$(jq -r '(.targetRepos // []) | .[]' <<< "$current")
+  # An empty `targets` yields ONE empty line here, i.e. the single-repo flat
+  # sidecar; a be-fe-pair run yields one line per target and requires a sidecar
+  # for EVERY one — mirroring the per-repo verifySummary requirement above, so a
+  # target whose verify never ran cannot complete Stage 6.
+  while IFS= read -r r; do
+    if [[ -z "$r" ]]; then
+      sidecar="${stem}-verify.json"; scope=""
+    else
+      sidecar="${stem}-${r}-verify.json"; scope=" for repo '$r'"
+    fi
+    sidecar_attests "$sidecar" "$run_id"
+    rc=$?
+    [[ "$rc" -eq 0 ]] && continue
+    if [[ "$rc" -eq 1 ]]; then
+      EXIT_CODE=1 die "set-stage: cannot complete stage 6 — no verifyctl attestation$scope: $sidecar does not exist. The suite must be run by verifyctl.sh ('verifyctl.sh run $key'), which writes that sidecar; a hand-composed verifySummary attests nothing. --force for crash-recovery"
+    fi
+    EXIT_CODE=1 die "set-stage: cannot complete stage 6 — stale verifyctl attestation$scope: $sidecar carries a runId from an earlier run, not this run's ($run_id). Re-run verifyctl.sh ('verifyctl.sh run $key') for this run. --force for crash-recovery"
+  done <<< "$targets"
+}
+
 # Per-stage completion-evidence preconditions (imperative stage machine): a
 # `set-stage N --status completed` write is refused unless the state carries the
 # evidence that stage N's mandated work actually happened. Deterministic state
@@ -428,6 +500,10 @@ preflight_wellformed() {
 stage_completion_preconditions() {
   local n="$1"
   local current="$2"
+  # The ticket key — needed by the Stage-6 verifyctl-attestation leg, whose
+  # evidence is a sidecar FILE rather than a state field, so it cannot be read
+  # out of "$current".
+  local key="$3"
   case "$n" in
     1)
       jq -e '(.stageCheckpoint // {})["1"] | type == "object"' <<< "$current" >/dev/null \
@@ -503,6 +579,10 @@ stage_completion_preconditions() {
             fi
           }
       fi
+      # Attestation leg — LAST, so the summary diagnostics above (missing
+      # summary, no verifying lane, setup-failed) still fire first: they name a
+      # more specific defect than "verifyctl never ran".
+      require_verify_sidecar "$key" "$current"
       ;;
     8)
       jq -e '((.codeReviewRounds // 0) >= 1)
@@ -897,7 +977,7 @@ cmd_set_stage() {
     # close a stage whose mandated evidence is absent from state. --force is the
     # crash-recovery escape.
     if [[ "$force" -ne 1 ]]; then
-      stage_completion_preconditions "$n" "$current"
+      stage_completion_preconditions "$n" "$current" "$key"
     fi
     # Atomic field bundle (completed): does NOT advance currentStage
     local new_state
