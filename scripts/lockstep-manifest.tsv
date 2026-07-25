@@ -56,6 +56,18 @@ stage8-secondary-review	verbatim	plugins/dev-pipeline/skills/run/stages/8-code-r
 # GH_BOT config-dir basename (install-gh-bot.sh ↔ claim-issue.sh). Semantically parallel,
 # not byte-parallel — forcing parity means refactoring working code for its own guard.
 #
+# Check-6 hydration-compare contract (plan-lint.sh Check-6 header ↔ stages/3-write-plan.md
+# Decision Ledger bullet). Both state what hydration requires of a plan author, and #219
+# changed that requirement — the compare now normalizes whitespace and paired emphasis
+# delimiters instead of matching trimmed bytes — so both copies were edited together.
+# Considered for a row and DROPPED: neither site carries a byte-anchorable literal. The
+# stage doc states the rule as one clause inside a long italic bullet aimed at a plan
+# author; the lint states it as implementation commentary aimed at a maintainer, next to
+# the code. Forcing a shared literal would mean writing prose that serves neither reader.
+# The behavior itself is not reviewer-guarded — norm_cell()'s closure is pinned by
+# plan-lint-selftest.sh (pl-ae/af/ag); it is only the doc WORDING that is, and per the
+# repo's no-prose-presence rule that is the correct tier for it.
+#
 # intake-pin- worktree-name coupling (stages/1-intake.md Step 1.P ↔ stages/10-cleanup.md).
 # The Stage-1 read pin is created under an `intake-pin-<issue>` name and removed by the
 # Stage-10 backstop; a ONE-SIDED rename orphans the cleanup. Considered for a row and
