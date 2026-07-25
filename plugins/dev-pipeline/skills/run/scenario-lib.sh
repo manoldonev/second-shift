@@ -52,6 +52,32 @@ reset_state() {
   rm -f "$STATECTL_STATE_DIR"/*.json "$STATECTL_STATE_DIR"/*.tmp "$STATECTL_STATE_DIR"/*.md
 }
 
+# Helper: plant the verifyctl sidecar the Stage-6 completion gate requires
+# (`require_verify_sidecar` in statectl.sh). That gate attests verifyctl actually
+# RAN; these fixtures never invoke it, so the sidecar is stubbed here — once, in
+# the shared recipe, rather than at every call site that walks stage 6.
+#
+# The stem comes from `statectl state-path` (minus `.json`), NOT from string
+# composition on $key: the gate derives the filename through state_path, which
+# lowercases the key exactly as verifyctl does. A fixture composing
+# "${STATECTL_STATE_DIR}/${key}-verify.json" would diverge for any non-lowercase
+# key — and non-numeric jira-style keys do appear among the callers — producing a
+# plant the gate cannot see and a red that looks like a gate bug.
+#
+# $2 (optional) — a repo id, for a be-fe-pair per-target sidecar.
+# SCENARIO_SKIP_VERIFY_SIDECAR=1 suppresses the write: the non-vacuity case in
+# scenario-liveness-selftest.sh must drive the SAME recipe with no attestation,
+# which it cannot do by omitting a plant that lives inside the recipe.
+write_verify_sidecar() {
+  [[ "${SCENARIO_SKIP_VERIFY_SIDECAR:-0}" == "1" ]] && return 0
+  local key="$1" repo="${2:-}" stem run_id
+  stem=$(sct state-path "$key") || return 0
+  stem="${stem%.json}"
+  run_id=$(sct get "$key" '.runId // ""')
+  printf '{"runId":"%s","headSha":"scenariolib000000","chargedHead":"","at":"1970-01-01T00:00:00Z","failedClasses":[],"status":"pass"}\n' \
+    "$run_id" > "${stem}${repo:+-$repo}-verify.json"
+}
+
 # Helper: start + complete one stage with the minimal evidence its completion
 # precondition requires (the imperative stage machine refuses a bare
 # `--status completed`). Stages 3/7/9 carry only the comment-receipt leg;
@@ -73,7 +99,8 @@ complete_stage() {
     3) sct comment-add "$key" --marker plan --url "https://github.example/c/plan" >/dev/null ;;
     4) sct plan-review-set "$key" --overall pass >/dev/null ;;
     5) sct checkpoint "$key" 5 --json '{"changedFiles":[]}' >/dev/null ;;
-    6) sct verify-summary-set "$key" --json '{"format":"clean","test":"passed"}' >/dev/null ;;
+    6) sct verify-summary-set "$key" --json '{"format":"clean","test":"passed"}' >/dev/null
+       write_verify_sidecar "$key" ;;
     7) sct checkpoint "$key" 7 --json "$VALID_PAYLOAD" >/dev/null
        sct comment-add "$key" --marker doc-update --url "https://github.example/c/doc-update" >/dev/null ;;
     8) sct review-rounds "$key" --set 1 >/dev/null
@@ -120,6 +147,7 @@ complete_run_vs() {
   for n in 1 2 3 4 5; do complete_stage "$key" "$n"; done
   sct set-stage "$key" 6 --status started >/dev/null
   sct verify-summary-set "$key" --json "$vs" >/dev/null
+  write_verify_sidecar "$key"
   [[ "$tf" == "tf" ]] && sct verify-attempts "$key" --incr TEST_FAILURE >/dev/null
   sct set-stage "$key" 6 --status completed >/dev/null
   for n in 7 8 9; do complete_stage "$key" "$n"; done

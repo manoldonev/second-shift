@@ -30,6 +30,7 @@ The attesting signal already exists and is already written by every compliant ru
 - `plugins/dev-pipeline/skills/run/scenario-lib.sh` — the shared fixture plant.
 - `plugins/dev-pipeline/skills/run/statectl-selftest.sh` — refusal + pass-path + per-repo cases.
 - `plugins/dev-pipeline/skills/run/scenario-liveness-selftest.sh` — the `no-split` Stage-6 leg plus its non-vacuity check.
+- `plugins/dev-pipeline/skills/run/stage8-perrepo-review-selftest.sh` — **added during implementation.** It does not source `scenario-lib.sh`, so the shared plant does not reach it; its be-fe-pair fixture walks Stage 6 with its own inline recipe and needed per-target sidecars. Missed at planning time because the blast-radius survey grepped for `set-stage … 6 --status completed` and this harness completes stage 6 from inside a `for s in 1 2 3 4 5 6 7` loop, which that pattern does not match.
 - `plugins/dev-pipeline/skills/run/state-schema.md` — the Stage-6 gate-table row and the verifyctl-sidecar note.
 - `plugins/dev-pipeline/skills/run/stages/6-verify.md` — the stage doc states the Stage-6 completion precondition set in three places; a session reading it must be forewarned of the new refusal, and the `--no-attempt` non-attestation rule belongs beside the advisory quality pass that uses it.
 

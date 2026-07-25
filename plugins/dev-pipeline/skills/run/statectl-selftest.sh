@@ -1928,6 +1928,7 @@ sct set-stage 9999 6 --status started >/dev/null
 rc=$(sct_rc set-stage 9999 6 --status completed)
 err=$(sct_err set-stage 9999 6 --status completed)
 sct verify-summary-set 9999 --json '"skipped (inert diff — no JS/TS surface)"' >/dev/null
+write_verify_sidecar 9999   # attestation leg (#212) — a real run's verifyctl writes this
 rc2=$(sct_rc set-stage 9999 6 --status completed)
 if [[ "$rc" == "1" && "$err" == *"verifySummary is missing"* && "$rc2" == "0" ]]; then
   pass "(sc5) stage-6 completion precondition — refused without verify-summary-set, INERT string allowed"
@@ -1942,6 +1943,7 @@ fi
 sct init 9898 --run-id "selftest-run-$$" >/dev/null
 for _n in 1 2 3 4 5; do complete_stage 9898 "$_n"; done
 sct set-stage 9898 6 --status started >/dev/null
+write_verify_sidecar 9898   # attestation leg (#212) — isolates the content gate under test
 sct verify-summary-set 9898 --json '{"format":"clean"}' >/dev/null
 rc=$(sct_rc set-stage 9898 6 --status completed)
 err=$(sct_err set-stage 9898 6 --status completed)
@@ -1967,6 +1969,60 @@ if [[ "$rc" == "1" && "$err" == *"setup lane"* && "$err" != *"Configure a verify
   pass "(sc5c) stage-6 setup-failed refusal names the setup failure (AC-8)"
 else
   fail "(sc5c) stage-6 setup-failed refusal — rc=$rc err='$err'"
+fi
+
+# (sc5d) #212 verifyctl-attestation leg — the Stage-6 gate's proof that the suite
+# was RUN, not merely summarized. Fresh key, own stage chain. Four cases, in the
+# order a real run meets them: sidecar ABSENT (verifyctl never ran) refuses naming
+# verifyctl.sh; sidecar present but carrying an EARLIER run's runId refuses as
+# stale (the crash-resume / re-run case, which reads as "exists" to a naive
+# file-existence check); --force bypasses; a matching sidecar is accepted.
+sct init 9896 --run-id "selftest-run-$$" >/dev/null
+for _n in 1 2 3 4 5; do complete_stage 9896 "$_n"; done
+sct set-stage 9896 6 --status started >/dev/null
+sct verify-summary-set 9896 --json '{"test":"passed"}' >/dev/null
+rc_absent=$(sct_rc set-stage 9896 6 --status completed)
+err_absent=$(sct_err set-stage 9896 6 --status completed)
+# Stale: a sidecar from some earlier run of the same ticket.
+SIDECAR_9896="${STATECTL_STATE_DIR}/9896-verify.json"
+printf '{"runId":"a-previous-run","headSha":"deadbeef","chargedHead":"","at":"1970-01-01T00:00:00Z","failedClasses":[],"status":"pass"}\n' > "$SIDECAR_9896"
+rc_stale=$(sct_rc set-stage 9896 6 --status completed)
+err_stale=$(sct_err set-stage 9896 6 --status completed)
+rc_forced=$(sct_rc set-stage 9896 6 --status completed --force)
+# --force wrote `completed`; re-open the stage so the un-forced pass path is a
+# real test of the gate rather than a no-op on an already-completed stage.
+sct set-stage 9896 6 --status started --force >/dev/null 2>&1
+write_verify_sidecar 9896
+rc_match=$(sct_rc set-stage 9896 6 --status completed)
+if [[ "$rc_absent" == "1" && "$err_absent" == *"verifyctl.sh"* && "$err_absent" == *"does not exist"* \
+      && "$rc_stale" == "1" && "$err_stale" == *"stale verifyctl attestation"* \
+      && "$rc_forced" == "0" && "$rc_match" == "0" ]]; then
+  pass "(sc5d) stage-6 verifyctl attestation — absent + stale-runId refused naming verifyctl.sh, --force bypasses, matching sidecar allowed (AC-1, AC-2, AC-3)"
+else
+  fail "(sc5d) stage-6 attestation — rc_absent=$rc_absent rc_stale=$rc_stale rc_forced=$rc_forced rc_match=$rc_match err_absent='$err_absent' err_stale='$err_stale'"
+fi
+
+# (sc5e) #212 per-target attestation — a be-fe-pair run needs a sidecar for EVERY
+# target (verifyctl writes {stem}-<id>-verify.json under --repo), so a run that
+# verified only one repo cannot complete. The flat sidecar must NOT satisfy it —
+# that is the hole a single-filename reading of the AC would have left.
+sct init 9895 --run-id "selftest-run-$$" >/dev/null
+sct target-repos-set 9895 --repos "be fe" >/dev/null
+for _n in 1 2 3 4 5; do sct set-stage 9895 "$_n" --status started --force >/dev/null 2>&1; sct set-stage 9895 "$_n" --status completed --force >/dev/null 2>&1; done
+sct set-stage 9895 6 --status started --force >/dev/null 2>&1
+sct verify-summary-set 9895 --repo be --json '{"test":"passed"}' >/dev/null
+sct verify-summary-set 9895 --repo fe --json '{"test":"passed"}' >/dev/null
+write_verify_sidecar 9895            # flat only — wrong shape for a pair run
+rc_flat=$(sct_rc set-stage 9895 6 --status completed)
+write_verify_sidecar 9895 be
+rc_one=$(sct_rc set-stage 9895 6 --status completed)
+err_one=$(sct_err set-stage 9895 6 --status completed)
+write_verify_sidecar 9895 fe
+rc_all=$(sct_rc set-stage 9895 6 --status completed)
+if [[ "$rc_flat" == "1" && "$rc_one" == "1" && "$err_one" == *"for repo 'fe'"* && "$rc_all" == "0" ]]; then
+  pass "(sc5e) stage-6 attestation is per-target — flat sidecar and single-target sidecar both refused, every target allowed (AC-1)"
+else
+  fail "(sc5e) per-target attestation — rc_flat=$rc_flat rc_one=$rc_one rc_all=$rc_all err_one='$err_one'"
 fi
 
 # (sc6) stage 8 completed without codeReviewRounds → refused; with → allowed
@@ -2370,8 +2426,10 @@ for n in 1 2 3 4 5; do sct set-stage 9999 $n --status started --force >/dev/null
 sct set-stage 9999 6 --status started --force >/dev/null 2>&1
 rc_none=$(sct_rc set-stage 9999 6 --status completed)                 # no summaries → blocked
 sct verify-summary-set 9999 --repo be --json '{"test":"passed"}' >/dev/null
+write_verify_sidecar 9999 be                                          # per-target attestation (#212)
 rc_partial=$(sct_rc set-stage 9999 6 --status completed)              # only BE → still blocked
 sct verify-summary-set 9999 --repo fe --json '"skipped (inert)"' >/dev/null
+write_verify_sidecar 9999 fe
 be_sum=$(sct get 9999 '.worktrees.be.verifySummary.test')
 rc_both=$(sct_rc set-stage 9999 6 --status completed)                # both → allowed
 if [[ "$rc_none" != "0" && "$rc_partial" != "0" && "$rc_both" == "0" && "$be_sum" == "passed" ]]; then
@@ -2389,6 +2447,8 @@ sct init 9799 --run-id "selftest-run-$$" >/dev/null
 sct target-repos-set 9799 --repos "be fe" >/dev/null
 for n in 1 2 3 4 5; do sct set-stage 9799 $n --status started --force >/dev/null 2>&1; sct set-stage 9799 $n --status completed --force >/dev/null 2>&1; done
 sct set-stage 9799 6 --status started --force >/dev/null 2>&1
+write_verify_sidecar 9799 be                                          # per-target attestation (#212)
+write_verify_sidecar 9799 fe                                          # — isolates the content gate under test
 sct verify-summary-set 9799 --repo be --json '{"test":"passed"}' >/dev/null
 sct verify-summary-set 9799 --repo fe --json '{"format":"clean"}' >/dev/null
 rc_absent=$(sct_rc set-stage 9799 6 --status completed)               # fe absent-key → blocked
