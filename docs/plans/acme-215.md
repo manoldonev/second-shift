@@ -59,6 +59,23 @@ This is a coverage PR. It changes no gate's behavior.
   parser fixtures; turn the node-absent `SKIP` into a `fail`.
 - `plugins/intake-toolkit/skills/plan-interview/tools/ledger-lint-selftest.sh` — assert
   `(ll-k)` still guards the quoting-safe `trim`.
+- `CLAUDE.md` — the "Genuinely uncovered, and tracked — not exempt" debt register
+  (lines 78-81) names both `check-plugin-version-bumps.sh` and
+  `exitplan-ledger-gate.sh` as "#215 scope"; landing this PR makes that entry false, so
+  it moves to the covered list.
+
+## Conventions this PR must satisfy
+
+- **Scenario-first justification.** Each of the three new per-tool suites carries a header
+  naming the invariant it guards and why no scenario in
+  `plugins/dev-pipeline/skills/run/scenario-liveness-selftest.sh` covers it (`CLAUDE.md`,
+  "What to write when you add a test").
+- **`Changelog:` trailer.** This PR touches `plugins/**`, so at least one commit carries a
+  `Changelog:` trailer (CI-enforced by `scripts/check-changelog-trailer.sh`).
+- **No frozen-file edits.** No `plugin.json` `version`, no `CHANGELOG.md`, no
+  `marketplace.json` `metadata.version` (CI-enforced by `scripts/check-frozen-files.sh`).
+- **bash 3.2.** CI runs the full selftest set on stock macOS bash — no `mapfile`, no
+  associative arrays.
 
 ## Reuse inventory
 
@@ -90,16 +107,23 @@ This is a coverage PR. It changes no gate's behavior.
    JSON: `in_progress` older than 30 min emits a line; `in_progress` fresh emits nothing;
    `completed` and `failed` emit nothing regardless of age; missing `lastUpdatedAt`
    anchors at epoch and is flagged ancient; a non-string `runId` or non-object `stages`
-   is filtered out. Assert the quarantine filename filter (`*-released-*`, `*-stale-*`)
-   separately against the doctor's `case` pattern.
+   is filtered out. The quarantine filename filter (`*-released-*`, `*-stale-*`) is
+   exercised as **executed code** — the extracted block is run over a fixture state dir
+   containing a quarantined file that would otherwise be flagged, asserting it is not —
+   never by grepping the doctor's `case` pattern out of its source (banned
+   prose-presence / mirror-harness class).
 5. **`check-plugin-version-bumps-selftest.sh`** — build a fixture repo with two plugins and
    a `v1.0.0` tag, then assert rc and stdout for: content changed without a bump (rc 1 —
    the fail direction); content changed with a bump (rc 0); no content change (rc 0);
    no tag at all (rc 0, "first release" message); a plugin absent at BASE (rc 0, "new
    plugin" message); a plugin whose manifest at BASE is unreadable, which takes the same
    empty-`old_ver` path (rc 0, "new plugin" message — the characterized degradation);
-   explicit `base-ref` argument honored. Add the fail-open mutant check: copy the gate,
-   rewrite its `exit 1` to `exit 0`, and assert the rc-1 case then goes red.
+   **empty `new_ver` against a non-empty `old_ver`** — a plugin that loses its `version`
+   field entirely: equality is false, so the gate prints `✓` and passes (rc 0), the
+   silent-pass branch the ACs did not name; explicit `base-ref` argument honored; and the
+   `HEAD^`-has-no-tag path falling through to the second `git describe`. Add the fail-open
+   mutant check: copy the gate, rewrite its `exit 1` to `exit 0`, and assert the rc-1 case
+   then goes red.
 6. **`exitplan-ledger-gate-selftest.sh`** — drive the hook as a subprocess with fixture
    JSON on stdin, `SECOND_SHIFT_REPO_ROOT` pointed at a fixture repo:
    - tier 1: `tool_input.plan` inline, valid ledger → rc 0; invalid → rc 2.
@@ -111,6 +135,12 @@ This is a coverage PR. It changes no gate's behavior.
      (rc 0 with the zero-candidates warning) so the case is live on both platforms.
    - `PLAN_INTERVIEW_SKIP=1` → rc 0 without linting.
    - no plans dir → rc 0; no `transcript_path` → rc 0.
+   - **fail-open branches** (the headline risk class named in Context): `ledger-lint.sh`
+     absent or non-executable → rc 0 with the "fix the install" warning; `jq` unavailable
+     on `PATH` → rc 0. Both allow without linting, so both need a live case.
+   - **`resolve_plans_dir` config branch**: a fixture repo whose
+     `.claude/second-shift.config.json` sets `paths.plansDir` resolves candidates there
+     rather than at the `.claude/plans` default.
    - never-exit-1: assert rc is in `{0,2}` across every case above.
 7. **`ledger-lint-selftest.sh`** — assert `(ll-k)` is present and that `ledger-lint.sh`
    contains no `xargs` in its trim path, so the landed fix cannot silently regress.
