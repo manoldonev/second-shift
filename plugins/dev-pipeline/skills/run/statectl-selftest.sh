@@ -1224,11 +1224,12 @@ complete_run_vs 9999 '"skipped (inert diff)"'
 inject_worktrees 9999 '{"fe":{"verifySummary":{"test":"passed"},"verifyAttempts":{}}}'
 write_eval_ir 9999
 rc=$(sct_rc mark-completed 9999)
+err=$(sct_err mark-completed 9999)
 status=$(sct get 9999 '.status')
-if [[ "$rc" == "1" && "$status" != "completed" ]]; then
+if [[ "$rc" == "1" && "$err" == *"no TEST_FAILURE was ever charged"* && "$status" != "completed" ]]; then
   pass "(mc-ir4) per-repo suite object, nothing charged, PASS → refused (be-fe-pair leg)"
 else
-  fail "(mc-ir4) per-repo suite-object refusal — rc=$rc status='$status'"
+  fail "(mc-ir4) per-repo suite-object refusal — rc=$rc status='$status' err='$err'"
 fi
 
 # (mc-ir5) be-fe-pair union — no flat TEST_FAILURE, but a per-repo
