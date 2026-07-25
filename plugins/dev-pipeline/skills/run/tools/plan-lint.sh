@@ -38,12 +38,14 @@
 #          run-#175 shape: planned creations with no tags. One named violation.
 #   6. Decision Ledger hydration completeness (#190): the FORWARD twin of Check 4.
 #      When a backing {issue}-ledger.md carries >=1 `| D-n |` row, Stage 3 mandates
-#      hydrating those rows into the plan's Decision Ledger section VERBATIM, so
-#      each backing row must reappear with a whitespace-trimmed-equal Decision,
-#      Resolution, AND Provenance cell. A missing plan row, a drifted cell, or (when
-#      the backing ledger has rows) a wholly absent Decision Ledger section is one
-#      named violation each. No backing ledger / empty-form / zero-row backing → a
-#      no-op (byte-identical to a no-backing run; the section stays advisory below).
+#      hydrating those rows into the plan's Decision Ledger section, so each backing
+#      row must reappear with a matching Decision, Resolution, AND Provenance cell.
+#      Cells are compared through norm_cell() (#219): whitespace and PAIRED emphasis
+#      delimiters are formatter-owned and neutralized; every other byte difference is
+#      still drift. A missing plan row, a drifted cell, or (when the backing ledger
+#      has rows) a wholly absent Decision Ledger section is one named violation each.
+#      No backing ledger / empty-form / zero-row backing → a no-op (byte-identical to
+#      a no-backing run; the section stays advisory below).
 #
 # Degradation: no state path / pre-schema state / empty `acceptanceCriteria[]`
 # → checks 1-2 only. An empty table under a present traceability header with an
@@ -75,6 +77,33 @@ trim() {
   s="${s#"${s%%[![:space:]]*}"}"
   s="${s%"${s##*[![:space:]]}"}"
   printf '%s' "$s"
+}
+
+# Formatter-tolerant cell normalization for the Check-6 hydration compare (#219).
+# The backing ledger and the plan are authored by DIFFERENT actors, so bytes nobody
+# chose differ between them: a markdown formatter (or an agent re-typing the row)
+# aligns table columns and may swap emphasis delimiters. Comparing raw bytes reports
+# those rewrites as "drift" that does not exist at the level anyone authored, and the
+# only remedy left is to edit the backing ledger to match its own hydration target —
+# inverting which file is the source of truth.
+#
+# CLOSURE (deliberate — do not widen without a decision): ONLY whitespace and PAIRED
+# emphasis delimiters are neutralized. Every other byte difference stays a violation,
+# GFM pipe escaping included, so the drift detection Check 6 exists for is preserved.
+#
+# Emphasis folding is PAIRED-only, never a blanket `_` -> `*` fold: Resolution cells
+# routinely carry identifiers, and a blanket fold would equate `snake_case` with
+# `snake*case`. Accepted consequence: an interior pair still folds, so `a_b_c` and
+# `a*b*c` compare equal. That is symmetric across both sides, so it can only ever
+# produce a false PASS, never a false failure.
+#
+# Textual only — no markdown parser (the shape of the fix #219 asked for).
+norm_cell() {
+  local s
+  s="$(trim "$1")"
+  # 1. collapse internal whitespace runs (tabs included) to a single space
+  # 2. fold paired emphasis delimiters: __x__ -> **x**, then _x_ -> *x*
+  printf '%s' "$s" | sed -E -e 's/[[:space:]]+/ /g' -e 's/__([^_]+)__/**\1**/g' -e 's/_([^_]+)_/*\1*/g'
 }
 
 # ---- Check 1: mandated section headers -------------------------------------
@@ -291,18 +320,22 @@ fi
 # ---- Check 6: Decision Ledger hydration completeness (#190) ------------------
 # The FORWARD twin of Check 4. When a pre-flight /plan-interview wrote the backing
 # {issue}-ledger.md, Stage 3 mandates hydrating its rows into the plan's Decision
-# Ledger section VERBATIM (stages/3-write-plan.md). This gate enforces that: every
-# backing `D-n` row must reappear in the plan with a whitespace-trimmed-equal
-# Decision, Resolution, AND Provenance cell (all three — "verbatim", not a subset).
+# Ledger section (stages/3-write-plan.md). This gate enforces that: every backing
+# `D-n` row must reappear in the plan with a matching Decision, Resolution, AND
+# Provenance cell (all three — hydration is not a subset).
 #
 # Parse rule: positional per the canonical `ID | Decision | Resolution | Provenance`
 # schema (mirror of plan-interview/tools/ledger-lint.sh, which validated the backing
-# ledger's shape/enum at pre-flight) that verbatim hydration preserves — cells[2]=
-# Decision, cells[3]=Resolution, cells[4]=Provenance. A plan that reorders its ledger
-# columns while claiming verbatim hydration has itself drifted, so a mismatch there is
-# a correct violation, not a false positive. Comparison uses trim() (leading/trailing
-# only — neutralizes prettier's per-table column padding); internal whitespace is
-# significant.
+# ledger's shape/enum at pre-flight) that hydration preserves — cells[2]=Decision,
+# cells[3]=Resolution, cells[4]=Provenance. A plan that reorders its ledger columns
+# has itself drifted, so a mismatch there is a correct violation, not a false positive.
+#
+# Comparison goes through norm_cell() (#219), NOT raw bytes: the ledger and the plan
+# are authored by different actors, so whitespace and emphasis delimiters differ for
+# reasons nobody chose. norm_cell() neutralizes exactly those two classes — leading,
+# trailing and internal whitespace, plus paired emphasis delimiters — and nothing
+# else. Anything beyond that closure is still drift. See norm_cell() for the rationale
+# and the one accepted false-equal.
 #
 # Scope: no-op unless a backing ledger with >=1 `D-n` row exists ($LEDGER_FILE is the
 # same sibling-of-state path Check 4 derived). An absent / empty-form / zero-row
@@ -350,9 +383,13 @@ if [[ -n "$LEDGER_FILE" && -f "$LEDGER_FILE" ]]; then
           violate "backing ledger row $bid is not hydrated into the plan's Decision Ledger section (Stage-3 verbatim mandate)"
           continue
         fi
-        [[ "${PLAN_DEC[found]}" == "${BACK_DEC[bi]}" ]] || violate "$bid Decision cell drifted from the backing ledger (verbatim hydration required)"
-        [[ "${PLAN_RES[found]}" == "${BACK_RES[bi]}" ]] || violate "$bid Resolution cell drifted from the backing ledger (verbatim hydration required)"
-        [[ "${PLAN_PROV[found]}" == "${BACK_PROV[bi]}" ]] || violate "$bid Provenance '${PLAN_PROV[found]}' does not match the backing ledger '${BACK_PROV[bi]}' (verbatim hydration required)"
+        # Compare through norm_cell() so formatter-owned rewrites (padding, internal
+        # whitespace runs, emphasis-delimiter swaps) are not reported as drift. The
+        # violation messages keep the RAW cell values — the operator needs to see what
+        # they actually wrote, not the normalized form the compare used.
+        [[ "$(norm_cell "${PLAN_DEC[found]}")" == "$(norm_cell "${BACK_DEC[bi]}")" ]] || violate "$bid Decision cell drifted from the backing ledger (formatting-only differences are already tolerated — this is a wording difference)"
+        [[ "$(norm_cell "${PLAN_RES[found]}")" == "$(norm_cell "${BACK_RES[bi]}")" ]] || violate "$bid Resolution cell drifted from the backing ledger (formatting-only differences are already tolerated — this is a wording difference)"
+        [[ "$(norm_cell "${PLAN_PROV[found]}")" == "$(norm_cell "${BACK_PROV[bi]}")" ]] || violate "$bid Provenance '${PLAN_PROV[found]}' does not match the backing ledger '${BACK_PROV[bi]}'"
       done
     fi
   fi

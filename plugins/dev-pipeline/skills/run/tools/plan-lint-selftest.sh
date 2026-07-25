@@ -371,6 +371,43 @@ rc=$(lint_rc "$FIX/valid-plan.md" "$LEDGER_STATE")
 rm -f "$TMP/156-ledger.md"
 
 echo
+echo "[plan-lint-selftest] Check 6 formatter-tolerant compare (#219)"
+
+# Checked-in fixture pair: hydration.json derives its sibling hydration-ledger.md via
+# `dirname(state)/$(basename state .json)-ledger.md` — the SAME derivation production
+# uses for {issue}.json -> {issue}-ledger.md, so the fixture exercises the real path
+# rather than a bespoke one. The three plan fixtures are otherwise-clean complete plans,
+# so Check 6 is the only check that can speak in these cases.
+HYD_STATE="$FIX/hydration.json"
+
+# (pl-ae) AC-1: a Resolution cell differing ONLY in emphasis delimiters (*object* vs
+# _object_) is a formatter-owned rewrite, not drift → 0.
+rc=$(lint_rc "$FIX/hydration-emphasis-plan.md" "$HYD_STATE")
+[[ "$rc" -eq 0 ]] \
+  && pass "(pl-ae) emphasis-delimiter-only difference → 0 (formatter-owned, not drift)" \
+  || fail "(pl-ae) emphasis-only — rc=$rc"
+
+# (pl-af) AC-2: a cell differing ONLY in INTERNAL whitespace runs → 0. Leading/trailing
+# padding was already tolerated by trim() before #219 — (pl-ab) covers that — so the
+# internal run is the residual this case exists to guard. Without it there is no case
+# here that could fail before the fix.
+rc=$(lint_rc "$FIX/hydration-whitespace-plan.md" "$HYD_STATE")
+[[ "$rc" -eq 0 ]] \
+  && pass "(pl-af) internal-whitespace-run difference → 0 (padding was already tolerated)" \
+  || fail "(pl-af) internal whitespace — rc=$rc"
+
+# (pl-ag) AC-3: normalization must not swallow real drift. Two rows differ for reasons no
+# formatter produces — D-1 is genuinely reworded, and D-3 swaps the LONE underscore of
+# `snake_case` for an asterisk. D-3 is the paired-only boundary: a blanket `_` -> `*`
+# fold would wrongly pass it, so this case is what keeps the fold honest.
+rc=$(lint_rc "$FIX/hydration-wording-plan.md" "$HYD_STATE")
+err=$(bash "$LINT" "$FIX/hydration-wording-plan.md" "$HYD_STATE" 2>&1 >/dev/null || true)
+[[ "$rc" -eq 1 ]] && grep -q "D-1 Resolution cell drifted" <<< "$err" \
+  && grep -q "D-3 Resolution cell drifted" <<< "$err" \
+  && pass "(pl-ag) real wording drift + lone-underscore swap → 1, names D-1 and D-3 (fold is paired-only)" \
+  || fail "(pl-ag) real drift still caught — rc=$rc err=$err"
+
+echo
 echo "[plan-lint-selftest] Check 3 slice mode (#204)"
 
 # Sliced state: valid-state's 2 ACs partitioned slice1=[AC-1] slice2=[AC-2], currentSlice=1.
