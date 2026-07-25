@@ -39,6 +39,7 @@ This is a coverage PR. It changes no gate's behavior.
 | D-4 | How is pipeline-doctor block 8 reached without booting the whole doctor? | Sentinel-extract its jq program and execute it against fixture state files. No `--only` seam is added to the doctor. | codebase-derived |
 | D-5 | How does tier 3 of the ledger gate behave under GNU find, which lacks `-newermB`? | The `find` errors, `|| true` yields zero candidates, and the hook warn-and-allows. The suite probes support and asserts the platform-correct contract on each; neither platform is skipped. | codebase-derived |
 | D-6 | Is the GNU-find tier-3 vacuity fixed here? | Deferred. It is a real gap (on Linux the hook can never lint a session-fresh plan) but a behavior change outside AC-2, which asks for coverage. Recorded as a finding for follow-up. | deferred |
+| D-7 | pipeline-doctor block 8 skips a state file with no `lastUpdatedAt`, contradicting its own comment. Fix here? | Deferred, same posture as D-6. `(.lastUpdatedAt // empty) \| fromdateiso8601? // 0` short-circuits on an absent field, so a truncated state file is invisible to the stale-claim check. Case (d5a) pins the real behavior and names it a known fail-open. | deferred |
 
 ## Affected files/modules
 

@@ -2453,10 +2453,50 @@ fi
 # workflow script (between its >>> verdict >>> sentinels) and execute it under
 # node against fixture execution arrays. Proves the verdict mapping (survivors
 # win; zero-verified guard; entry-based budget skip; clean pass) without a
-# Workflow runtime. Gated on node invocability (same posture as the doctor's 5b).
+# Workflow runtime.
+#
+# node is REQUIRED, not optional: a skip here would report success for a case
+# that never ran — the same false-green posture text-contract-selftest.sh and
+# workflows-mjs-selftest.sh both reject at their own node guards.
 MG_MJS="${SKILL_DIR}/workflows/mutation-gate.mjs"
 if node --version >/dev/null 2>&1 && [[ -f "$MG_MJS" ]]; then
   verdict_block=$(sed -n '/^\/\/ >>> verdict/,/^\/\/ <<< verdict/p' "$MG_MJS")
+  parse_block=$(sed -n '/^\/\/ >>> parse/,/^\/\/ <<< parse/p' "$MG_MJS")
+
+  # (mg-p) MUTANT_RESULT parsing — the last-match-wins contract. The executor
+  # prompt embeds the literal token, so an agent echoing its instructions before
+  # the real verdict must not win; and the anchored form must reject a token that
+  # is indented, lowercased, or trailed by prose. Unparseable input maps to null,
+  # which the caller turns into 'unparseable' and the zero-verified guard catches.
+  if [[ -z "$parse_block" ]]; then
+    fail "(mg-p) parseResult — sentinel block not found in mutation-gate.mjs"
+  else
+    mgp_out=$(node -e "
+$parse_block
+const t = (label, input, want) => {
+  const got = parseResult(input)
+  console.log(got === want ? 'ok ' + label : 'BAD ' + label + ' got=' + JSON.stringify(got) + ' want=' + JSON.stringify(want))
+}
+t('killed', 'MUTANT_RESULT: KILLED', 'KILLED')
+t('survived', 'MUTANT_RESULT: SURVIVED', 'SURVIVED')
+t('unapplied', 'MUTANT_RESULT: UNAPPLIED', 'UNAPPLIED')
+t('last-match-wins', 'MUTANT_RESULT: SURVIVED\nthinking out loud\nMUTANT_RESULT: KILLED', 'KILLED')
+t('padded-token', 'MUTANT_RESULT:   KILLED   ', 'KILLED')
+t('prompt-echo-not-a-match', 'MUTANT_RESULT: KILLED    (or SURVIVED, or UNAPPLIED)', null)
+t('indented-rejected', '  MUTANT_RESULT: KILLED', null)
+t('lowercase-rejected', 'MUTANT_RESULT: killed', null)
+t('absent', 'no verdict line here', null)
+t('empty', '', null)
+t('null-input', null, null)
+t('undefined-input', undefined, null)
+" 2>&1)
+    if grep -q "BAD" <<< "$mgp_out" || ! grep -q "ok last-match-wins" <<< "$mgp_out"; then
+      fail "(mg-p) parseResult — $mgp_out"
+    else
+      pass "(mg-p) mutation-gate parseResult — last-match-wins + anchored token ($(grep -c '^ok ' <<< "$mgp_out") fixtures)"
+    fi
+  fi
+
   if [[ -z "$verdict_block" ]]; then
     fail "(mg) computeVerdict — sentinel block not found in mutation-gate.mjs"
   else
@@ -2479,8 +2519,10 @@ t('empty-pass', [], 'pass')
       pass "(mg) mutation-gate computeVerdict — verdict mapping holds ($(grep -c '^ok ' <<< "$mg_out") fixtures)"
     fi
   fi
+elif [[ ! -f "$MG_MJS" ]]; then
+  fail "(mg) mutation-gate — workflow script absent at $MG_MJS"
 else
-  echo "  SKIP: (mg) computeVerdict — node not invokable or mutation-gate.mjs absent"
+  fail "(mg) mutation-gate — node is required to execute the extracted blocks; skipping would report success for cases that never ran"
 fi
 
 # ==================================== intake-brief + plan-structure-invalid (PR D) ===

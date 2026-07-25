@@ -14,6 +14,7 @@ export const meta = {
 // calls, not a .claude/agents/ type).
 const EXECUTOR_MODEL = 'sonnet'
 
+// >>> parse (pure — extracted and executed by the (mg) selftest case) >>>
 // Parse LAST match wins: the executor prompt itself contains the literal token,
 // and an agent may echo the instructions before its final line.
 const RESULT_RE = /^MUTANT_RESULT:\s*(KILLED|SURVIVED|UNAPPLIED)\s*$/gm
@@ -21,6 +22,7 @@ const parseResult = (text) => {
   const matches = [...String(text ?? '').matchAll(RESULT_RE)]
   return matches.length ? matches[matches.length - 1][1] : null
 }
+// <<< parse <<<
 
 // Per-executor wall-clock ceiling. Unlike code-review.mjs's read-only reviewers,
 // a ceiling-orphaned executor KEEPS RUNNING and can keep mutating the shared
