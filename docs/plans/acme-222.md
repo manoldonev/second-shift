@@ -35,11 +35,17 @@ none — no new helpers introduced. This change adds prose to one markdown parag
 
 1. **Step 1** — In `plugins/dev-pipeline/skills/run/SKILL.md`, replace the Non-base-branch posture paragraph (line 364) with a revision that:
    - appends the per-worktree clause to the pin sentence — merge/index state is per-worktree, so
-     `worktree add` neither reads nor disturbs it;
-   - widens the dirty-working-tree predicate to name an in-progress merge or rebase, conflicts and all;
-   - adds the closing classification: an in-progress merge or rebase is **never** a stop — it proceeds either way, surfacing as the WARN when it leaves the tree dirty and under the clean predicate when it does not;
-   - keeps every base-branch reference generic (`origin/<baseBranch>` / "the configured base"), introducing no `main`/`master`/`alpha` literal.
-2. **Step 2** — Run the repo verification triad (shellcheck / jq / selftests) to confirm the markdown edit broke nothing that reads this file.
+     `worktree add` neither reads nor disturbs it (AC-2);
+   - widens the **dirty working tree** predicate so it names an in-progress merge or rebase, conflicts
+     and all, directly inside the WARN-and-proceed clause — AC-1 as written;
+   - closes with one sentence that fixes the classification end-to-end: such a state is never a stop,
+     riding the dirty-tree predicate when it leaves changes behind and the clean predicate when it does
+     not. This resolves the paused-clean-rebase edge (D-2) without weakening the AC-1 clause above;
+   - keeps every base-branch reference generic (`origin/<baseBranch>` / "the configured base"), introducing no `main`/`master`/`alpha` literal (AC-3).
+2. **Step 2** — Commit with a `Changelog:` trailer. `CLAUDE.md` requires one on every `plugins/**` PR
+   and `scripts/check-changelog-trailer.sh` enforces it in CI; the change is consumer-visible prose, so
+   it takes a real entry rather than `Changelog: none`. Verb is `docs:` (patch bump).
+3. **Step 3** — Run the repo verification triad (shellcheck / jq / selftests) to confirm the markdown edit broke nothing that reads this file.
 
 ## Test strategy
 
@@ -56,7 +62,7 @@ Unit test surface: **skip** — documentation-only, and this repo configures no 
 | AC-1 | In-progress merge/rebase explicitly in the WARN-and-proceed class | Step 1 | — no test (non-functional) |
 | AC-2 | Paragraph states merge/index state is per-worktree, so `worktree add` is unaffected | Step 1 | — no test (non-functional) |
 | AC-3 | Added prose keeps the base branch generic, no hardcoded literal | Step 1 | — no test (non-functional) |
-| AC-4 | No selftest and no lockstep row added | Step 1, Step 2 | — no test (non-functional) |
+| AC-4 | No selftest and no lockstep row added | Step 1, Step 3 | — no test (non-functional) |
 
 ## Verification commands
 
