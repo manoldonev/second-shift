@@ -18,7 +18,7 @@
 #
 # FIXTURE GEOMETRY (cost.usage datapoints, all under one session.id):
 #   run A fence [10:00,10:30]: $1.00 @ 10:15 (inside a stage window)
-#   run B fence [11:00,11:20]: $0.30 @ 11:08 (in a stage window -> "Plan")
+#   run B fence [11:00,11:20]: $0.30 @ 11:08 (inside stage 5's window -> "Implementation")
 #                              $0.10 @ 11:11 (in the 11:09->11:12 gap -> "Other")
 #                              $0.05 @ 11:20 (EXACTLY fenceHi == stage-9 completedAt;
 #                                             exercises the inclusive <= bound -> "PR Creation")
@@ -120,11 +120,15 @@ else
     && ok "run B 'Other' == \$0.10 (in-fence gap cost only, never run A's)" \
     || bad "run B 'Other' expected 0.10, got $B_OTHER"
 
-  # The in-window datapoint must land in a real stage bucket, not Other.
-  B_PLAN="$(label_cost Plan <<<"$B_ROLLUP")"
-  [[ "$B_PLAN" == "0.30" || "$B_PLAN" == "0.3" ]] \
-    && ok "run B in-window \$0.30 buckets to a real stage (Plan), not Other" \
-    || bad "run B 'Plan' expected 0.30, got $B_PLAN"
+  # The in-window datapoint must land in a real stage bucket, not Other. 11:08 sits
+  # inside stage 5's window, and stage 5 is Implement -> "Implementation". Asserting the
+  # label (not just the amount) is what pins the stage->label map to SKILL.md's stage
+  # numbering; the map was previously shifted one stage late, so stage 5 (Implement)
+  # rendered as "Plan" and no Implementation row ever appeared.
+  B_IMPL="$(label_cost Implementation <<<"$B_ROLLUP")"
+  [[ "$B_IMPL" == "0.30" || "$B_IMPL" == "0.3" ]] \
+    && ok "run B in-window \$0.30 buckets to stage 5 => Implementation, not Plan/Other" \
+    || bad "run B 'Implementation' expected 0.30, got $B_IMPL"
 
   # The datapoint at EXACTLY fenceHi must be kept (inclusive <=) and bucket to
   # the terminal stage window (stage 9 / PR Creation), not be dropped.
@@ -354,6 +358,42 @@ else
     && ok "(no-gh) absent gh CLI records skipped-no-gh-cli, not skipped-otel-error" \
     || bad "(no-gh) recorded '$R7', expected skipped-no-gh-cli"
 fi
+
+echo
+echo "=== #188: fail-loud skips (no bare null) ==="
+# (AC-1) no-PRs: state resolves and has sessions+cost, but prs is empty. The script
+# must RECORD skipped-no-prs (not exit silently), leaving a breadcrumb instead of
+# a bare null. Drive the real script with a stubbed GH_BOT; the record happens
+# before any PR I/O so no gh stubbing is needed.
+D8="$TMP/case-no-prs"
+mkdir -p "$D8"
+jq '.prs = {}' "$FIX/state-two-runs-B.json" > "$D8/noprs.json"
+OTEL_METRICS_FILE="$METRICS" \
+STATECTL_STATE_DIR="$D8" \
+GH_BOT="$STUB_BOT" \
+  bash "$SCRIPT" noprs >/dev/null 2>&1
+R8_RC=$?
+R8="$(jq -r '.costBlockApplied' "$D8/noprs.json")"
+[[ "$R8" == "skipped-no-prs" ]] \
+  && ok "(AC-1) no-PRs run records skipped-no-prs (never bare null)" \
+  || bad "(AC-1) recorded '$R8', expected skipped-no-prs"
+[[ "$R8_RC" -eq 0 ]] \
+  && ok "(AC-1) no-PRs run exits 0 (recorded skip is not a failure)" \
+  || bad "(AC-1) no-PRs run exited $R8_RC, expected 0"
+
+# (AC-1) no-state: the resolved state file does not exist, so nothing can be
+# recorded. The script must fail LOUD — non-zero (rc 2) — not the old silent exit 0
+# that left the control repo's real state file at costBlockApplied:null (#188).
+D9_EMPTY="$TMP/case-no-state"   # dir exists, but no <issue>.json inside it
+mkdir -p "$D9_EMPTY"
+OTEL_METRICS_FILE="$METRICS" \
+STATECTL_STATE_DIR="$D9_EMPTY" \
+GH_BOT="$STUB_BOT" \
+  bash "$SCRIPT" 424242 >/dev/null 2>&1
+R9_RC=$?
+[[ "$R9_RC" -eq 2 ]] \
+  && ok "(AC-1) unresolvable state exits non-zero (rc 2), fails loud" \
+  || bad "(AC-1) no-state run exited $R9_RC, expected 2"
 
 echo
 echo "Result: $PASS passed, $FAIL failed"

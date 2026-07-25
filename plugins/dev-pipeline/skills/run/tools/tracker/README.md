@@ -23,7 +23,7 @@ draft-PR metadata, not the ticket.
 | Operation | github (`tracker.type: github`) | jira (`tracker.type: jira`) |
 | --- | --- | --- |
 | **pickup** — select the next unit of work | queue query (`gh issue list --label ready-for-dev`) then atomic claim ([`../claim-issue.sh`](../claim-issue.sh), label swap `ready-for-dev`→`in-progress`) | operator supplies the JIRA key; no queue, no claim |
-| **fetch-ticket** — load body + comments | `gh api repos/{o}/{r}/issues/$KEY` (+ `/comments`) | `mcp__atlassian__getJiraIssue` (+ remote links → `mcp__atlassian__getConfluencePage`) |
+| **fetch-ticket** — load body + comments | `gh api repos/{o}/{r}/issues/$KEY` (+ `/comments`) | `getJiraIssue` (+ remote links → `getConfluencePage`), under whichever Atlassian namespace the session exposes — see the note below |
 | **preflight-read** — the read-only onboarding finish line's single tracker READ ([`../preflight.sh`](../preflight.sh), no claim) | `gh api repos/{o}/{r}/issues/$KEY` with a key; queue head via `gh issue list --label <queue>` without one | *SKIP-with-note* — the jira fetch is session-side MCP, unreachable from a shell tool |
 | **post-status-comment** — surface stage progress | REST comment via `$GH_BOT` (see SKILL.md Bot Identity) | *no-op* (`tracker.writes: false` — no JIRA comment mirror) |
 | **set-status** — advance the tracker’s own status | label swaps via `$GH_BOT` | *no-op* — operator moves the ticket manually after promoting the PR |
@@ -31,6 +31,13 @@ draft-PR metadata, not the ticket.
 | **close-out** — release the work item | remove `in-progress` label via `$GH_BOT` | *no-op* |
 | **branch name** — the work branch | `<branchPrefix><key>` (`claude/acme-42`) | `<branchPrefix><key>` (`jdoe/gh-540`) |
 | **PR ticket reference** — link the PR back | `Closes #<key>` | `Closes [<KEY>]` in the template’s `### Jira Items` section |
+
+> **Atlassian MCP namespace (jira fetch).** Do not hardcode a single prefix: the MCP's
+> tool namespace depends on how the session registered the server — `mcp__atlassian__*`
+> (top-level `mcpServers`), `mcp__plugin_atlassian_atlassian__*` (plugin-bundled), or
+> `mcp__claude_ai_Atlassian_Rovo__*` (claude.ai Rovo). Call whichever `getJiraIssue` the
+> session exposes (`ToolSearch` to discover a deferred tool). Full contract:
+> [`jira/README.md`](jira/README.md).
 
 ## Config that drives the adapter (all layer 1)
 

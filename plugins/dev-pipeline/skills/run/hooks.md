@@ -128,9 +128,9 @@ exit 0
 
 ### Scope
 
-The full verify suite (`format`, `lint`, `type-check`, `test`) runs at stage boundaries in Stage 7. This hook is intentionally scoped to `type-check` only — it must be fast enough to not slow down the commit-per-chunk workflow in Stage 6.
+The full verify suite (`format`, `lint`, `type-check`, `test`) runs at stage boundaries in Stage 6. This hook is intentionally scoped to `type-check` only — it must be fast enough to not slow down the commit-per-chunk workflow in Stage 5.
 
-If the hook denies a commit during Stage 6, fix the type error before retrying. Do not remove the hook to work around failures.
+If the hook denies a commit during Stage 5, fix the type error before retrying. Do not remove the hook to work around failures.
 
 ## 2. Stop — session-end type-check (informational)
 

@@ -4,8 +4,11 @@
 > default (queue query + atomic claim + bot label swap). Under the jira adapter
 > ([`tools/tracker/jira/`](../tools/tracker/jira/README.md)) Step 1.A is replaced by
 > an operator-supplied JIRA key — there is **no queue, no claim, and no label
-> mutation** (`tracker.writes: false`). The ticket is fetched via
-> `mcp__atlassian__getJiraIssue` (Step 1.B reads it there instead of `gh issue view`),
+> mutation** (`tracker.writes: false`). The ticket is fetched via the Atlassian MCP's
+> `getJiraIssue` — under whichever namespace the session exposes (`mcp__atlassian__*`,
+> `mcp__plugin_atlassian_atlassian__*`, or `mcp__claude_ai_Atlassian_Rovo__*`;
+> `ToolSearch` to discover a deferred tool; see [`tools/tracker/jira/`](../tools/tracker/jira/README.md))
+> (Step 1.B reads it there instead of `gh issue view`),
 > the `sub-issues` verdict **presents** sub-ticket specs to the operator rather than
 > auto-creating them, and the `sub-issues`/`stacked-prs` design-detection below is the
 > design-provider path (see `tracker/jira/README.md` and the `design.provider` axis —
@@ -83,7 +86,7 @@ ISSUE=$(gh issue list --label "$QUEUE_LABEL" --json number,title --limit 10 --jq
 2. Verify via REST: `gh api "repos/{owner}/{repo}/issues/$ISSUE_NUMBER" --jq '{labels: [.labels[].name]}'`
    - Assert: `$QUEUE_LABEL` is gone, `$CLAIMED_LABEL` is present
    - If any check fails: undo mutations (add `$QUEUE_LABEL` back first, then remove `$CLAIMED_LABEL` — same add-before-remove safety), exit — another runner claimed it. (This post-verify undo reverses mutations that _did_ apply; it is distinct from the step-1 pre-DELETE failed-add abort, which is a bare stop because nothing was mutated yet.)
-3. Post claim comment (REST form per SKILL.md Bot Identity) with `run_id` and `stage: claimed`.
+3. Post claim comment (REST form per SKILL.md Bot Identity) with `run_id` and `stage: claimed`. Record the receipt (completion-gated) from the response's `html_url`: `"$STATECTL" comment-add "$ISSUE_NUMBER" --marker claimed --url <html_url>`.
 4. Read full issue body via REST: `gh api "repos/{owner}/{repo}/issues/$ISSUE_NUMBER" --jq .body` (+ `/comments`).
 
 **Do-not-pick-up guard:** Before claiming, verify the issue does NOT have any of the **blocker labels** (`$BLOCKER_LABELS`, resolved above — default `epic`, `needs-intake-review`, `needs-spec-work`, `needs-plan-review`). These labels block auto-pickup. The `gh issue list --label "$QUEUE_LABEL"` query implicitly excludes them (since the queue label is removed when these labels are added), but verify after claiming in case of a race condition.
@@ -94,7 +97,7 @@ ISSUE=$(gh issue list --label "$QUEUE_LABEL" --json number,title --limit 10 --jq
 
 #### Step 1.P: Pin the Stage-1 read surface
 
-Runs after the claim (Step 1.A) and BEFORE the intake fan-out (Step 1.B). Stage-1 reads (spec-reviewer, codebase-explorer, referenced-doc resolution) must ground against `origin/<baseBranch>` — never the operator's checkout, whose branch and uncommitted edits are unrelated to the run (the work branch is cut from `origin/<base>` at Stage 2 either way; an unpinned intake read is the mismatch hazard #59 closed). Because reads are pinned, **the current branch of the main checkout is NOT a reject condition** — the predicates are:
+Runs after the claim (Step 1.A) and BEFORE the intake fan-out (Step 1.B). Stage-1 reads (spec-reviewer, codebase-explorer, referenced-doc resolution) must ground against `origin/<baseBranch>` — never the operator's checkout, whose branch and uncommitted edits are unrelated to the run (the work branch is cut from `origin/<base>` at Stage 2 either way; an unpinned intake read is the mismatch hazard this closed). Because reads are pinned, **the current branch of the main checkout is NOT a reject condition** — the predicates are:
 
 - **Pin established, any current branch, clean tree** → proceed **silently** (the branch name still lands in the Dynamic Context snapshot for the record).
 - **Pin established, dirty working tree** (any branch; `git status --porcelain` non-empty) → emit a **WARN** — "a human appears to be mid-work in this checkout" — surfaced in the run's final report, and proceed.
@@ -117,7 +120,7 @@ PIN_ERR=$(git fetch origin "$BASE_BRANCH_CFG" --quiet 2>&1 \
 
 Pass the **absolute** pin path as `readRoot` in the intake Workflow args (Step 1.B — `workflows/intake-review.mjs` prefixes every dispatch prompt with the pinned-read instruction); resolve referenced docs (max 5) against the same root. **Teardown:** best-effort `git worktree remove "$PIN_WT" 2>/dev/null || true` at EVERY Stage-1 exit — right after the Stage-1 completion write on the continue path, AND right after the terminal write/comment on every Stage-1 stop (spec fails, escalation, `sub-issues` split, `design-source-unreachable`). Stage-1 stops never reach Stage 10, so a stop that skips teardown leaks the pin permanently. Stage 10 cleanup removes it unconditionally if it survived (crash between the two points).
 
-**Capture the pre-flight attestation (carry forward to the Stage-1 checkpoint).** The predicate outcomes above are the attestation `stageCheckpoint["1"].preflight` records — the Stage-1 completion gate is enforced on it (`set-stage 1 --status completed` refuses without a well-formed `preflight`; state-schema.md row 1). Record the three fields here (the pin is established at this point — the fail-closed case above already exited), so the checkpoint write below can fold them in:
+**Capture the pre-flight attestation (carry forward to the Stage-1 checkpoint).** The predicate outcomes above are the attestation `stageCheckpoint["1"].preflight` records (completion-gated on a well-formed `preflight`; state-schema.md row 1). Record the three fields here (the pin is established at this point — the fail-closed case above already exited), so the checkpoint write below can fold them in:
 
 ```bash
 # baseBranch: the configured base ($BASE_BRANCH_CFG above). workingTreeClean: the
@@ -146,6 +149,12 @@ Otherwise — `auto` mode, no approval, or a non-trivial change — run the full
   - Referenced docs/ADRs (max 5 — orchestrator picks most relevant)
   - Codebase context: Bootstrap from the repo's `CLAUDE.md` and any repo-local session-state conventions it defines (see its CLAUDE.md)
 
+Immediately after the load, record it as completion evidence (completion-gated, unless the checkpoint carries `intakeMode: "inline-approved"`):
+
+```bash
+"$STATECTL" skill-load-add "$ISSUE_NUMBER" --stage 1 --skill intake-toolkit:intake-orchestrator
+```
+
 The skill loads orchestration instructions into the current session — the calling session gathers evidence from `intake-toolkit:spec-reviewer` and `intake-toolkit:codebase-explorer` as a **structured fan-out** that returns rationale-carrying objects (not prose): in production via the intake Workflow (`workflows/intake-review.mjs`, run with the `Workflow` tool), and under the eval harness via the `Task` tool with the structured findings mocked. Dependency analysis runs as an in-session subroutine — no sub-agent hop. The skill handles everything: issue classification, spec review, codebase exploration, dependency analysis, gap resolution, and decomposition decision.
 
 **Sub-agent dispatch order:** `intake-toolkit:spec-reviewer` and `intake-toolkit:codebase-explorer` run in parallel — except on the clean-marker skip path (a feature body whose interviewer provenance marker proves a clean, self-contained spec), where the orchestrator dispatches `intake-toolkit:codebase-explorer` only and elides `intake-toolkit:spec-reviewer` (see `intake-toolkit:intake-orchestrator` Step 2). The dependency-analysis subroutine runs in-session after the structured `codebaseExplorer` object is in hand (it requires the impact surface as input).
@@ -159,6 +168,8 @@ The skill loads orchestration instructions into the current session — the call
 | `stacked-prs` | Posts decomposition plan as comment (≤3 ordered slices). `stage: intake`, `status: stacked-prs-planned`                      | Yes — pipeline enters **outer loop** starting at Stage 2 for slice 1 |
 | Spec fails    | True blockers found. `stage: intake`, `status: failed`                                                                       | **No** — `needs-spec-work` label + `mark-failed(intake-spec-blocked)`, STOP |
 | Escalation    | Orchestrator uncertain. `stage: intake`, `status: needs-human-input`                                                         | **No** — `needs-intake-review` label + `mark-failed(intake-needs-human-input)`, STOP |
+
+**Receipt (proceeding verdicts).** For the verdicts that proceed (`no-split`, `stacked-prs`), record the posted intake comment's URL (completion-gated — both `claimed` and `intake` are required): `"$STATECTL" comment-add "$ISSUE_NUMBER" --marker intake --url <html_url>`. Failure-shaped verdicts stop before Stage-1 completion, so no receipt gate applies there.
 
 **Thresholds enforced by the orchestrator:**
 
@@ -234,6 +245,15 @@ Runs when the verdict continues the pipeline (`no-split` or `stacked-prs`), befo
    statectl.sh intake-brief "$ISSUE_NUMBER" \
      --brief-path "$BRIEF_PATH" --acceptance-criteria "$AC_JSON"
    ```
+
+4. **`stacked-prs` verdict only (#204):** persist the orchestrator's AC→slice partition (its verdict payload's `slicePartition` — the coverage back-check's map) immediately after the `intake-brief` write, while the AC snapshot it validates against is fresh:
+
+   ```bash
+   statectl.sh slice-partition-set "$ISSUE_NUMBER" \
+     --json "$SLICE_PARTITION_JSON"   # [{"slice":1,"acIds":["AC-1",...]}, ...]
+   ```
+
+   Write-once intent state — the downstream slice-scoped gates (plan-lint Check 3 slice mode, the Stage-8 scope gate, the retro AC audit) key off it; schema + integrity contract: state-schema.md § Stacked-PR AC partition. Skip when the snapshot is empty (`AC_JSON == []` — no AC IDs means nothing to partition; the gates then run in their pre-partition full-ticket mode). A `no-split` / `sub-issues` verdict never writes it.
 
 The Stage-1 checkpoint payload additionally carries `briefPath` + the AC count alongside the `verdict` / decomposition / design fields, **plus the `preflight` attestation captured in Step 1.P** — the `checkpoint 1` write folds in `preflight: { baseBranch: "$BASE_BRANCH_CFG", workingTreeClean: $WORKING_TREE_CLEAN, guardOutcome: "$GUARD_OUTCOME" }`. This is **required**: `set-stage 1 --status completed` refuses unless `stageCheckpoint["1"].preflight` is present and well-formed (state-schema.md **Completion-evidence preconditions**, row 1), and `checkpoint 1` rejects a present-but-malformed `preflight` at write time. `workingTreeClean:false` is valid (the dirty-tree WARN-and-proceed outcome).
 
@@ -326,6 +346,9 @@ for SLICE_NUMBER in START_SLICE..TOTAL_SLICES:
   # - Code review exhaustion (codeReviewExhausted == true; PR carries needs-deep-review label)
   # An exhausted code review counts as a failure — unresolved blockers in the base code.
   # All clean PRs are draft by default; only the codeReviewExhausted marker stops the loop.
+  # A non-final slice passes the Stage-8 scope gate via the persisted AC->slice
+  # partition (slice-scoped grading, #204) — later-slice ACs are partition-deferred
+  # Notes, NOT scope blockers, so a clean slice exits cleanly and the loop proceeds.
 
 # After all slices succeed:
 $GH_BOT issue comment: stage: pr, status: all-prs-opened (with links to all PRs)

@@ -3,12 +3,14 @@
 # DUAL-target Stage-7 checkpoint block (#48 Phase 2).
 #
 # Stage bash blocks live in the executed .md files, not in a testable function, so this
-# selftest does two things:
-#   (A) INTEGRATION — reproduce the exact stages/7-doc-update.md dual-target block against
-#       a synthetic two-worktree state and assert it composes a per-repo payload that
-#       validate_stage7_payload (per-repo branch) accepts on the checkpoint write.
-#   (B) DRIFT GUARD — assert stages/7-doc-update.md still carries the load-bearing tokens,
-#       so the block cannot be silently deleted/renamed without this test failing.
+# selftest reproduces the exact stages/7-doc-update.md dual-target block against a
+# synthetic two-worktree state and asserts it composes a per-repo payload that
+# validate_stage7_payload (per-repo branch) accepts on the checkpoint write.
+#
+# It carries no token-presence guard over the .md. That class — grep a literal out of a
+# markdown file — asserts only that prose contains words, and cannot fail for a reason a
+# reader of the diff would not already see. The mirror block below is instead pinned
+# byte-for-byte against the stage doc by scripts/check-lockstep-pairs.sh.
 set -uo pipefail
 # Hermetic git identity — CI runners often have no global user.name/user.email, and this
 # selftest makes real commits in throwaway repos. These env vars override config, so the
@@ -17,7 +19,6 @@ export GIT_AUTHOR_NAME=ss-selftest GIT_AUTHOR_EMAIL=selftest@example.invalid
 export GIT_COMMITTER_NAME=ss-selftest GIT_COMMITTER_EMAIL=selftest@example.invalid
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SC="$HERE/statectl.sh"
-STAGE7_MD="$HERE/stages/7-doc-update.md"
 FAILS=0
 ok() { echo "  PASS: $1"; }
 no() { echo "  FAIL: $1"; FAILS=$((FAILS+1)); }
@@ -56,6 +57,7 @@ QUALITY_PASS_JSON="$("$SC" get "$ISSUE_NUMBER" '.stages."6".qualityPass // {}')"
 statectl.sh() { "$SC" "$@"; }   # the stage block calls `statectl.sh` (on PATH at runtime)
 
 # >>> BEGIN verbatim mirror of the dual-target branch in stages/7-doc-update.md >>>
+# LOCKSTEP-BEGIN stage7-dual-target
 TARGET_REPOS_JSON="$(statectl.sh get "$ISSUE_NUMBER" '.targetRepos // []')"
 if [[ "$(echo "$TARGET_REPOS_JSON" | jq 'length')" -gt 1 ]]; then
   REPO_ROOT="$(git rev-parse --show-toplevel)"
@@ -70,6 +72,8 @@ if [[ "$(echo "$TARGET_REPOS_JSON" | jq 'length')" -gt 1 ]]; then
       R_MB="$(git -C "$R_WT" merge-base HEAD "origin/$R_BASE" 2>/dev/null || git -C "$R_WT" merge-base HEAD "$R_BASE")"
       R_CHANGED="$(git -C "$R_WT" diff --name-only "$R_MB..HEAD" | jq -R . | jq -s .)"
       R_VERIFY="$(statectl.sh get "$ISSUE_NUMBER" ".worktrees.\"$r\".verifySummary")"
+      # build-checkpoint-7-perrepo wants a JSON object; an INERT-lane verifySummary is the
+      # skipped-string — wrap it (same convention as the flat --verify-summary note above).
       echo "$R_VERIFY" | jq -e 'type == "object"' >/dev/null 2>&1 \
         || R_VERIFY="$(jq -n --arg s "$R_VERIFY" '{lane:"INERT",note:$s}')"
       statectl.sh build-checkpoint-7-perrepo \
@@ -87,6 +91,7 @@ if [[ "$(echo "$TARGET_REPOS_JSON" | jq 'length')" -gt 1 ]]; then
          --argjson qps "$QUALITY_PASS_JSON" \
          '. + {ticketKey:$k, targetRepos:$tr, planPath:$pp, deviations:$dv, freeNote:$fn, planRisks:$prisk, docUpdaterFindings:$du, qualityPassSummary:$qps}'
   )
+# LOCKSTEP-END stage7-dual-target
 fi
 # <<< END verbatim mirror <<<
 
@@ -105,18 +110,6 @@ exit $FAILS
 )
 FAILS=$((FAILS + $?))
 rm -rf "$ROOT"
-
-# --------------------------------------------------------------- (B) drift guard ---
-# Tokens the .md dual-target block must keep, or the integration mirror above tests a
-# behavior production no longer has.
-drift() { grep -qF "$1" "$STAGE7_MD" && ok "(b) stage7 carries \`$1\` ($2)" || no "(b) stage7 MISSING \`$1\` ($2)"; }
-# shellcheck disable=SC2016 # these are literal drift-guard tokens to grep for, not expansions
-drift 'build-checkpoint-7-perrepo' 'per-repo fragment builder call'
-# shellcheck disable=SC2016
-drift '.perRepo += $x.perRepo' 'the per-repo merge incantation'
-drift "'.targetRepos // []'" 'the targetRepos read that gates the dual-target branch'
-# shellcheck disable=SC2016
-drift 'ticketKey:$k, targetRepos:$tr' 'the shared envelope injection'
 
 echo "[stage7-perrepo-checkpoint-selftest] $([[ $FAILS -eq 0 ]] && echo 'all green' || echo "$FAILS FAILURE(S)")"
 [[ $FAILS -eq 0 ]]

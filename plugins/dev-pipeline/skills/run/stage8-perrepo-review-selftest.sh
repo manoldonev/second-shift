@@ -1,21 +1,24 @@
 #!/usr/bin/env bash
-# stage8-perrepo-review-selftest.sh — integration + drift guard for the be-fe-pair
+# stage8-perrepo-review-selftest.sh — integration test for the be-fe-pair
 # DUAL-target secondary-repo review loop (#48 Phase 4).
 #
-#   (A) INTEGRATION — reproduce the exact stages/8-code-review.md secondary-review loop
-#       against a synthetic three-repo state (primary be with a diff, secondary fe with a
-#       diff, secondary ml with NO diff) and assert: the primary is skipped (reviewed by
-#       the main loop), fe records a completed-in-session crossBoundaryReviews entry, ml
-#       records a skippedReviews no-diff entry, and Stage 8 then completes. The in-session
-#       review itself is LLM work (a comment in the .md); the bash the loop actually runs
-#       is the clean-worktree assertion + no-diff skip + the statectl writes — tested here.
-#   (B) DRIFT GUARD — assert the .md loop still carries its load-bearing tokens.
+# Reproduces the exact stages/8-code-review.md secondary-review loop against a
+# synthetic three-repo state (primary be with a diff, secondary fe with a diff,
+# secondary ml with NO diff) and asserts: the primary is skipped (reviewed by the main
+# loop), fe records a completed-in-session crossBoundaryReviews entry, ml records a
+# skippedReviews no-diff entry, and Stage 8 then completes. The in-session review itself
+# is LLM work (a comment in the .md); the bash the loop actually runs is the
+# clean-worktree assertion + no-diff skip + the statectl writes — tested here.
+#
+# No token-presence guard over the .md: grepping literals out of markdown asserts only
+# that prose contains words, and cannot fail for a reason a reader of the diff would not
+# already see. The mirror block below is pinned byte-for-byte against the stage doc by
+# scripts/check-lockstep-pairs.sh instead.
 set -uo pipefail
 export GIT_AUTHOR_NAME=ss-selftest GIT_AUTHOR_EMAIL=selftest@example.invalid
 export GIT_COMMITTER_NAME=ss-selftest GIT_COMMITTER_EMAIL=selftest@example.invalid
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SC="$HERE/statectl.sh"
-STAGE8_MD="$HERE/stages/8-code-review.md"
 FAILS=0
 ok() { echo "  PASS: $1"; }
 no() { echo "  FAIL: $1"; FAILS=$((FAILS+1)); }
@@ -55,33 +58,47 @@ ISSUE_NUMBER=48
 for s in 1 2 3 4 5 6 7; do
   "$SC" set-stage "$ISSUE_NUMBER" "$s" --status started >/dev/null
   case "$s" in
-    1) "$SC" checkpoint "$ISSUE_NUMBER" 1 --json '{"verdict":"no-split","preflight":{"baseBranch":"main","workingTreeClean":true,"guardOutcome":"proceed-clean"}}' >/dev/null ;;
+    1) "$SC" checkpoint "$ISSUE_NUMBER" 1 --json '{"verdict":"no-split","preflight":{"baseBranch":"main","workingTreeClean":true,"guardOutcome":"proceed-clean"}}' >/dev/null
+       "$SC" skill-load-add "$ISSUE_NUMBER" --stage 1 --skill intake-toolkit:intake-orchestrator >/dev/null
+       "$SC" comment-add "$ISSUE_NUMBER" --marker claimed --url "https://github.example/c/claimed" >/dev/null
+       "$SC" comment-add "$ISSUE_NUMBER" --marker intake --url "https://github.example/c/intake" >/dev/null ;;
+    3) "$SC" comment-add "$ISSUE_NUMBER" --marker plan --url "https://github.example/c/plan" >/dev/null ;;
     4) "$SC" plan-review-set "$ISSUE_NUMBER" --overall pass >/dev/null ;;
     5) "$SC" checkpoint "$ISSUE_NUMBER" 5 --json '{"changedFiles":[]}' >/dev/null ;;
     6) for rr in be fe ml; do "$SC" verify-summary-set "$ISSUE_NUMBER" --repo "$rr" --json '{"format":"clean","test":"passed"}' >/dev/null; done ;;   # test key: the #98 content gate refuses a summary with no verifying lane run
-    7) "$SC" checkpoint "$ISSUE_NUMBER" 7 --json "{\"ticketKey\":\"$ISSUE_NUMBER\",\"branch\":\"claude/x-be\",\"headSha\":\"$(git -C "$ROOT/wt/be" rev-parse HEAD)\",\"worktreePath\":\"wt/be\",\"deviations\":[]}" >/dev/null ;;
+    7) "$SC" checkpoint "$ISSUE_NUMBER" 7 --json "{\"ticketKey\":\"$ISSUE_NUMBER\",\"branch\":\"claude/x-be\",\"headSha\":\"$(git -C "$ROOT/wt/be" rev-parse HEAD)\",\"worktreePath\":\"wt/be\",\"deviations\":[]}" >/dev/null
+       "$SC" comment-add "$ISSUE_NUMBER" --marker doc-update --url "https://github.example/c/doc-update" >/dev/null ;;
   esac
   "$SC" set-stage "$ISSUE_NUMBER" "$s" --status completed >/dev/null
 done
 "$SC" review-rounds "$ISSUE_NUMBER" --set 1 >/dev/null   # primary review done
+"$SC" comment-add "$ISSUE_NUMBER" --marker code-review --url "https://github.example/c/code-review" >/dev/null   # its mandated terminating comment
 "$SC" set-stage "$ISSUE_NUMBER" 8 --status started >/dev/null
 
 statectl.sh() { "$SC" "$@"; }
 # >>> BEGIN verbatim mirror of the secondary-review loop in stages/8-code-review.md >>>
+# Only the PREAMBLE + clean-worktree assertion is lockstep-pinned: past that point the stage
+# doc interleaves in-session review prose this bash deliberately omits, so no single
+# contiguous block spans the whole loop. The remainder stays reviewer-guarded — see the
+# commented row in scripts/lockstep-manifest.tsv.
+# LOCKSTEP-BEGIN stage8-secondary-review
 PRIMARY_WT_REL="$(statectl.sh get "$ISSUE_NUMBER" '.worktreePath')"
 REPO_ROOT="$(git rev-parse --show-toplevel)"
 if [[ "$(statectl.sh get "$ISSUE_NUMBER" '.targetRepos // [] | length')" -gt 1 ]]; then
   while IFS= read -r r; do
     R_WT_REL="$(statectl.sh get "$ISSUE_NUMBER" ".worktrees.\"$r\".worktreePath")"
-    [[ "$R_WT_REL" == "$PRIMARY_WT_REL" ]] && continue
+    [[ "$R_WT_REL" == "$PRIMARY_WT_REL" ]] && continue   # the primary was reviewed by the main loop above
     R_WT="$REPO_ROOT/$R_WT_REL"
     R_BASE="$(statectl.sh get "$ISSUE_NUMBER" ".worktrees.\"$r\".base")"
     R_HEAD="$(git -C "$R_WT" rev-parse HEAD)"
     R_MB="$(git -C "$R_WT" merge-base HEAD "origin/$R_BASE" 2>/dev/null || git -C "$R_WT" merge-base HEAD "$R_BASE")"
+    # Clean-worktree assertion — a review over the committed state while uncommitted work is
+    # invisible is misleading; hard stop, never a silent skip.
     if ! { git -C "$R_WT" diff --quiet && git -C "$R_WT" diff --cached --quiet; }; then
       echo "[stage-8] FAIL: '$r' worktree is dirty — commit/stash/discard before resuming." >&2
       exit 1
     fi
+# LOCKSTEP-END stage8-secondary-review
     if [[ -z "$(git -C "$R_WT" diff --name-only "$R_MB..$R_HEAD")" ]]; then
       statectl.sh skipped-review-add "$ISSUE_NUMBER" --repo "$r" --reason "no changes on this repo's branch" >/dev/null
       continue
@@ -106,14 +123,6 @@ exit $FAILS
 )
 FAILS=$((FAILS + $?))
 rm -rf "$ROOT"
-
-# --------------------------------------------------------------- (B) drift guard ---
-drift() { grep -qF "$1" "$STAGE8_MD" && ok "(b) stage8 carries \`$1\` ($2)" || no "(b) stage8 MISSING \`$1\` ($2)"; }
-drift 'cross-boundary-review-add' 'the secondary in-session/handoff writer call'
-drift 'skipped-review-add' 'the no-diff skip writer call'
-drift '.targetRepos // [] | length' 'the dual-target gate (single-target/non-pair skip the loop)'
-drift 'worktree is dirty' 'the clean-worktree assertion'
-drift 'the primary was reviewed by the main loop above' 'the primary-skip guard'
 
 echo "[stage8-perrepo-review-selftest] $([[ $FAILS -eq 0 ]] && echo 'all green' || echo "$FAILS FAILURE(S)")"
 [[ $FAILS -eq 0 ]]

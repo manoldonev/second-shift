@@ -25,7 +25,12 @@ if git diff --quiet "$MERGE_BASE"..HEAD -- 'plugins/' 2>/dev/null; then
   exit 0
 fi
 
-if git log "$MERGE_BASE..HEAD" --format=%B | grep -qE '^Changelog:'; then
+# grep -c, NOT grep -q: -q exits at the first match, git log takes SIGPIPE (141) on its
+# next write, and pipefail turns that into pipeline failure — so the gate reported "no
+# trailer" precisely when a trailer was found EARLY in a LONG log (first observed on a
+# 13-commit PR; 1-3-commit PRs fit one write and never tripped it). -c consumes the whole
+# stream (producer never SIGPIPEs) and exits 0 iff at least one line matches.
+if git log "$MERGE_BASE..HEAD" --format=%B | grep -cE '^Changelog:' >/dev/null; then
   echo "[changelog-trailer] OK — a 'Changelog:' trailer is present."
   exit 0
 fi

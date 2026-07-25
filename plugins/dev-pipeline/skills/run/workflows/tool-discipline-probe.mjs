@@ -74,6 +74,7 @@ const range = `${base}..${head}`
 
 // Copied verbatim from code-review.mjs / stall-probe.mjs so the probe dispatch is
 // identical to production. (Permissive: only severity/description/confidence required.)
+// LOCKSTEP-BEGIN findings-schema
 const FINDINGS_SCHEMA = {
   type: 'object',
   additionalProperties: true,
@@ -102,6 +103,7 @@ const FINDINGS_SCHEMA = {
     suppressed: { type: 'array', items: { type: 'string' } },
   },
 }
+// LOCKSTEP-END findings-schema
 
 const STRUCTURED_OUTPUT_FIRST =
   ' Call StructuredOutput FIRST with your verdict and findings, before any prose' +
@@ -135,6 +137,9 @@ const dispatchOnce = async (agentType, i) => {
     STRUCTURED_OUTPUT_FIRST +
     ARM_INSTRUCTION[arm]
   try {
+    // bounded-exploration-optout: tool-discipline-probe -- arm-controlled instrument. The prompt
+    //   is set by ARM_INSTRUCTION so the arms stay comparable; a mandated nudge would contaminate
+    //   every arm and make the A/B meaningless.
     const result = await agent(prompt, { agentType, model, label: `${agentType} #${i + 1} [${arm}]`, phase: 'Probe', schema: FINDINGS_SCHEMA })
     const findings = result && Array.isArray(result.findings) ? result.findings : []
     return {

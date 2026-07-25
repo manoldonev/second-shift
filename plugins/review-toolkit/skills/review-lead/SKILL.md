@@ -78,7 +78,11 @@ The Scope Completeness Gate (see Synthesis Rules) is the one exception — its F
 
 ## Process
 
-1. First `git fetch origin <base>`, then run `git diff origin/<base>..HEAD --stat` to understand the scope of **committed** changes. Resolve `<base>` = the user's specified base if given, else the repo-local config's host base branch (`BASE=$(jq -r '(.topology.repos|to_entries[]|select(.value.path==".")|.key) as $h|.topology.repos[$h].baseBranch // "main"' .claude/second-shift.config.json 2>/dev/null || echo main)`), else `main` — a hardcoded `main` diffs against the wrong ref on a develop/alpha-based repo. Diff against the freshly-fetched **remote** ref, NOT local `<base>` — a behind local `main` sweeps in changes that already landed on real main (e.g. an unrelated module merged via another PR), inflating the diff and producing fabricated findings against code the branch never touched. (`git log <base>..HEAD` can still show the right commit count while `git diff <base>..HEAD` is inflated — trust `origin/<base>`, not the log alone.) Do NOT use bare `git diff --stat` — it includes uncommitted working-tree edits, which pollute the review when the working directory has unrelated work in progress.
+1. First `git fetch origin <base>`, then run `git diff origin/<base>...HEAD --stat` to understand the scope of **committed** changes. Resolve `<base>` = the user's specified base if given, else the repo-local config's host base branch (`BASE=$(jq -r '(.topology.repos|to_entries[]|select(.value.path==".")|.key) as $h|.topology.repos[$h].baseBranch // "main"' .claude/second-shift.config.json 2>/dev/null || echo main)`), else `main` — a hardcoded `main` diffs against the wrong ref on a develop/alpha-based repo.
+
+   **Use three dots (`origin/<base>...HEAD`), not two.** Three-dot diffs from `merge-base(origin/<base>, HEAD)` — the point this branch was actually cut from — so the diff contains only the branch's own changes. Two-dot compares the two tips, so every commit merged into the base *after* the branch point shows up as a **deletion**, and reviewers report the branch as reverting work it never touched. Fetching first makes this strictly worse: a freshly-fetched `origin/<base>` is as far ahead as it gets. (Observed: two confidently-argued false BLOCKERs on a PR whose base had moved a few merges. `git log <base>..HEAD` can still show the right commit count while the two-dot *diff* is inflated — so a plausible-looking commit list is not evidence the diff is clean.)
+
+   Fetch anyway, and diff against the **remote** ref rather than a local `<base>`: three-dot fixes the ahead-base direction, but a *stale local* base can still sit behind the real merge-base. Do NOT use bare `git diff --stat` — it includes uncommitted working-tree edits, which pollute the review when the working directory has unrelated work in progress.
 2. Classify change size for depth routing (see below)
 3. Read 2-3 existing files in the same directory to understand current patterns
 4. Check for plan/spec awareness (see below) and for an issue number in the invocation (used to dispatch scope-completeness-reviewer)
@@ -95,7 +99,7 @@ The Scope Completeness Gate (see Synthesis Rules) is the one exception — its F
 
 ## Review Depth Routing
 
-After `git diff origin/<base>..HEAD --stat` (Process step 1), classify the change size:
+After `git diff origin/<base>...HEAD --stat` (Process step 1), classify the change size:
 
 | Change Size                                                                                                    | Heuristic                                                       | Reviewers                                                                                                                                                                                     |
 | -------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -158,7 +162,7 @@ One dispatch substrate — the `code-review.mjs` Workflow — across both entry 
 
 In both modes the script returns structured findings and this session runs the Synthesis Rules over them. The args the script forwards to each reviewer:
 
-- **Git diff scope**: `git diff [BASE_SHA]..[HEAD_SHA] -- <relevant paths>` or full diff if no range provided
+- **Git diff scope**: `git diff [BASE]...[HEAD] -- <relevant paths>` (three-dot, matching what the script renders) or full diff if no range provided
 - Which files changed (from `git diff --stat`)
 - The branch name and any PR context the user provided
 - Any specific areas of concern the user mentioned

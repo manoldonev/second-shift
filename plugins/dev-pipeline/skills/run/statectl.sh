@@ -20,8 +20,9 @@
 # Imperative stage machine: `set-stage N --status completed` is refused unless
 # the state carries the evidence stage N's mandated work actually happened
 # (stage_completion_preconditions), and `mark-completed` is refused unless all
-# stages 1-9 completed AND a plausible self-eval file exists (NOT bypassed by
-# --force). Enforcement by refusal, not prose — see state-schema.md.
+# stages 1-9 completed AND a plausible self-eval file exists AND the Stage-9 run
+# report was persisted (none bypassed by --force). Enforcement by refusal, not
+# prose — see state-schema.md.
 #
 # Does NOT own:
 #   costBlockApplied (written only by pipeline-cost-block.sh — intentionally
@@ -37,7 +38,11 @@
 #   statectl.sh review-rounds <issue-number> --set <1-3> [--exhausted] [--force]
 #   statectl.sh deviations-add <issue-number> --kind <enum> --note <s> [--plan-section <s>] [--file <f>] [--line <n>] [--stage <N>] [--force]
 #   statectl.sh verify-attempts <issue-number> --incr <FAILURE_CLASS> [--force]
+#   statectl.sh skill-load-add <issue-number> --stage <N> --skill <plugin:skill> [--force]
+#   statectl.sh comment-add <issue-number> --marker <stage-marker> --url <comment-url> [--force]
+#   statectl.sh reclaim <issue-number> [--release] [--threshold-min <N>] [--force]
 #   statectl.sh intake-brief <issue-number> --brief-path <path|null> --acceptance-criteria '<json-array>'
+#   statectl.sh slice-partition-set <issue-number> --json '[{"slice":1,"acIds":["AC-1"]}, ...]' [--force]
 #   statectl.sh plan-review-set <issue-number> --overall <pass|fix-and-go> [--force]
 #   statectl.sh verify-summary-set <issue-number> --json <verifySummary> [--force]
 #   statectl.sh quality-pass-set <issue-number> --json <payload> [--force]
@@ -178,6 +183,20 @@ validate_ticket_key() {
     || { EXIT_CODE=3 die "init: ticket key '$key' does not match config tracker.keyPattern '$pattern'"; }
 }
 
+# Tracker comment mandates apply only when the tracker is written at all
+# (config tracker.writes; the github queue-and-claim model). The jira adapter
+# (tracker.writes: false) posts no comments by contract, so the comment-receipt
+# completion preconditions do not fire there. Absent/unresolvable config
+# defaults to writes-ON — fail-closed toward requiring the receipt (a github
+# consumer with an unreachable config gets a loud refusal, never a silent
+# receipt-less completion).
+tracker_writes() {
+  local cfg
+  cfg=$(config_file)
+  [[ -n "$cfg" && -f "$cfg" ]] || return 0
+  [[ "$(jq -r '.tracker.writes' "$cfg" 2>/dev/null)" != "false" ]]
+}
+
 # State-file path for a given ticket key. The key is lowercased defensively in case
 # a future caller passes a non-numeric slice suffix (`123-pr2`) or a JIRA key
 # (`PROJ-123`); pure-numeric keys pass through unchanged.
@@ -285,14 +304,20 @@ require_mutable() {
 # Post-Run Eval fail-closed gate (SKILL.md "Post-Run Eval"): the terminal
 # `completed` write is refused unless the run's self-eval exists and is a
 # plausible score (parseable JSON, non-empty .criteria, matching .ticketKey —
-# enough to defeat `touch`/`echo {}` without inventing an eval schema; the
-# scored template in eval-criteria.md carries both fields — read-only against
-# that LOCKED file). Deliberately NOT called from mark-failed: its call sites
-# across stages 1-9 do not write an eval first, and gating them would strand
-# aborting runs `in_progress` with no failureContext. The abort-path eval
-# remains a prose contract audited by pipeline-retro.
+# enough to defeat `touch`/`echo {}`), AND its .criteria scores exactly the
+# locked key set from eval-criteria.md's canonical example with binary verdicts
+# (PASS | FAIL | N/A — nothing else, PARTIAL included). The shape check exists
+# because a run once scored an invented criterion in the slot of the one it
+# would have failed, and an illegal softening verdict in another — a self-score
+# that can rename its rubric makes the pass rate unfalsifiable. Existence and
+# plausibility are never bypassed; the shape check alone honors --force
+# (crash-recovery escape: a resumed run terminalizing an older-era eval file).
+# Deliberately NOT called from mark-failed: its call sites across stages 1-9 do
+# not write an eval first, and gating them would strand aborting runs
+# `in_progress` with no failureContext. The abort-path eval remains a prose
+# contract audited by pipeline-retro.
 require_eval_file() {
-  local key="$1"
+  local key="$1" force="${2:-0}"
   local lower state eval_file
   lower=$(echo "$key" | tr '[:upper:]' '[:lower:]')
   state=$(state_path "$key")
@@ -301,6 +326,76 @@ require_eval_file() {
     || { EXIT_CODE=1 die "mark-completed: terminal write refused — self-eval $eval_file is missing. Score the run against eval-criteria.md and write it FIRST (SKILL.md 'Post-Run Eval', fail-closed), then retry."; }
   jq -e --arg k "$lower" '(.criteria | type == "object" and length > 0) and ((.ticketKey | tostring) == $k)' "$eval_file" >/dev/null 2>&1 \
     || { EXIT_CODE=1 die "mark-completed: $eval_file exists but is not a valid self-eval (needs parseable JSON with non-empty .criteria and .ticketKey == \"$lower\")"; }
+  [[ "$force" -eq 1 ]] && return 0
+  local canon shape_err
+  canon=$(eval_criteria_keys | jq -Rn '[inputs]')
+  shape_err=$(jq -r --argjson canon "$canon" '
+    (.criteria | keys) as $have
+    | ($canon - $have) as $missing
+    | ($have - $canon) as $extra
+    | ([.criteria | to_entries[]
+        | select((.value | type) != "string"
+                 or ((.value == "PASS" or .value == "FAIL" or .value == "N/A") | not))
+        | "\(.key)=\(.value | tojson)"]) as $bad
+    | if ($missing | length) == 0 and ($extra | length) == 0 and ($bad | length) == 0 then empty
+      else [
+          (if ($missing | length) > 0 then "missing=[\($missing | join(","))]" else empty end),
+          (if ($extra | length) > 0 then "extra=[\($extra | join(","))]" else empty end),
+          (if ($bad | length) > 0 then "illegal-values=[\($bad | join(","))]" else empty end)
+        ] | join(" ")
+      end
+  ' "$eval_file") \
+    || { EXIT_CODE=2 die "mark-completed: criteria shape check failed to evaluate on $eval_file"; }
+  [[ -z "$shape_err" ]] \
+    || { EXIT_CODE=1 die "mark-completed: $eval_file does not score the five locked criteria from eval-criteria.md — $shape_err. Legal values: PASS | FAIL | N/A. Fix the eval file, or --force for crash-recovery."; }
+  # Inert-lane implementation_resilience gate: PASS requires the resilience
+  # circuit-breaker to have been EXERCISED (a real test failure handled), per
+  # eval-criteria.md. On an INERT-lane run no verifying test lane ran anywhere,
+  # so the breaker had no opportunity to fire and PASS is structurally
+  # impossible — the criterion's letter mandates N/A. Cross-check the self-score
+  # against the run's recorded verify evidence and refuse a generous PASS.
+  # Honors --force like the shape check it neighbors (the function already
+  # returned above under --force): a crash-recovery terminalization of an
+  # older-era file is not re-gated. The inert test is a UNION over the flat
+  # fields AND every per-repo worktrees.<id> entry, so a be-fe-pair run is
+  # covered rather than silently holed. Scoped to PASS->N/A on inert runs ONLY:
+  # a SUITE-lane run (object verifySummary, or any TEST_FAILURE charged) is
+  # unaffected and scores PASS/FAIL/N/A as today.
+  if [[ "$(jq -r '.criteria.implementation_resilience // ""' "$eval_file")" == "PASS" ]]; then
+    if jq -e '
+        def any_suite_object: [.verifySummary, ((.worktrees // {})[].verifySummary)] | any(type == "object");
+        def any_test_failure: [(.verifyAttempts.TEST_FAILURE // 0), ((.worktrees // {})[].verifyAttempts.TEST_FAILURE // 0)] | any(. > 0);
+        (any_suite_object or any_test_failure) | not
+      ' "$state" >/dev/null 2>&1; then
+      EXIT_CODE=1 die "mark-completed: $eval_file scores implementation_resilience: PASS on an inert-lane run — no verifying test lane ran (verifySummary is a skip string and no TEST_FAILURE was charged), so the resilience circuit-breaker was never exercised. PASS requires it to have been exercised (eval-criteria.md); score it N/A. Fix the eval file, or --force for crash-recovery."
+    fi
+  fi
+}
+
+# Run-report fail-closed gate (SKILL.md "Run report"): the terminal `completed`
+# write is refused unless Stage 9 persisted the run report. The report is the
+# only artifact the operator reads per run, and before it was written to disk it
+# existed solely as streamed model output — a mid-response disconnect destroyed
+# it and left a log that read as total failure for a run that shipped.
+#
+# Plausibility is deliberately shallow: the marker plus at least one non-blank
+# prose line after it. That defeats `touch`/empty-file without inventing a
+# report schema (the report is operator-facing narrative, not machine-read
+# state). Mirrors require_eval_file's posture and, like it, is NOT bypassed by
+# --force and is NOT called from mark-failed (an aborting run has no PR to
+# report on; the abort-path narrative stays a prose contract).
+require_report_file() {
+  local key="$1"
+  local lower state report_file
+  lower=$(echo "$key" | tr '[:upper:]' '[:lower:]')
+  state=$(state_path "$key")
+  report_file="$(dirname "$state")/${lower}-report.md"
+  [[ -f "$report_file" ]] \
+    || { EXIT_CODE=1 die "mark-completed: terminal write refused — run report $report_file is missing. Stage 9 writes it right after pr-add, BEFORE the narration (SKILL.md 'Run report', fail-closed), then retry."; }
+  grep -q '<!-- dev-pipeline-report -->' "$report_file" \
+    || { EXIT_CODE=1 die "mark-completed: $report_file exists but carries no <!-- dev-pipeline-report --> marker — write the real report, not a placeholder."; }
+  grep -v '<!-- dev-pipeline-report -->' "$report_file" | grep -q '[^[:space:]]' \
+    || { EXIT_CODE=1 die "mark-completed: $report_file has the marker but no content — the report must carry the run's narrative."; }
 }
 
 # preflight_wellformed <json> — 0 iff <json> is a well-formed Stage-1 pre-flight
@@ -326,9 +421,10 @@ preflight_wellformed() {
 # reads only; conditional applicability comes from the flags the run itself
 # recorded (unitTestSurface, stageCheckpoint["1"].designDriven). --force
 # bypasses these the same way it bypasses the monotonic guard (crash-recovery
-# escape). Stages 3, 7, and 9 have no entry: Stage 3's plan is enforced by
-# Stage 4's lint gate + reviewer, Stage 7's checkpoint is validated at write by
-# validate_stage7_payload, Stage 9 by mark-completed's terminal gates.
+# escape). Stages 3, 7, and 9 carry only the comment-receipt leg
+# (require_comment_receipts): Stage 3's plan content is enforced by Stage 4's
+# lint gate + reviewer, Stage 7's checkpoint is validated at write by
+# validate_stage7_payload, Stage 9's terminal integrity by mark-completed.
 stage_completion_preconditions() {
   local n="$1"
   local current="$2"
@@ -338,6 +434,20 @@ stage_completion_preconditions() {
         || { EXIT_CODE=1 die "set-stage: cannot complete stage 1 — stageCheckpoint[\"1\"] is missing (write the Stage-1 checkpoint first); --force for crash-recovery"; }
       preflight_wellformed "$(jq -c '(.stageCheckpoint // {})["1"].preflight' <<< "$current")" \
         || { EXIT_CODE=1 die "set-stage: cannot complete stage 1 — stageCheckpoint[\"1\"].preflight is missing or malformed (needs {baseBranch: non-empty string, workingTreeClean: boolean, guardOutcome: non-empty string} — workingTreeClean:false IS valid, the dirty-tree WARN-and-proceed state); --force for crash-recovery"; }
+      # Skill-load evidence: the mandated intake-orchestrator load must be
+      # recorded (skill-load-add) unless the run took the interactive-only
+      # inline path, which the checkpoint already attests as
+      # intakeMode == "inline-approved". Prose alone did not hold: a run once
+      # improvised the orchestration inline and nothing noticed. Self-reported
+      # evidence, but strictly better than none — the audit ledger stays the
+      # independent cross-check (pipeline-retro Step 3).
+      jq -e '((.stages["1"].skillsLoaded // []) | index("intake-toolkit:intake-orchestrator") != null)
+             or ((.stageCheckpoint // {})["1"].intakeMode == "inline-approved")' <<< "$current" >/dev/null \
+        || { EXIT_CODE=1 die "set-stage: cannot complete stage 1 — intake-toolkit:intake-orchestrator is not in stages.1.skillsLoaded[] and intakeMode is not \"inline-approved\" (load the skill and record it via skill-load-add, or record the operator-approved inline path in the checkpoint); --force for crash-recovery"; }
+      require_comment_receipts 1 "$current" claimed intake
+      ;;
+    3)
+      require_comment_receipts 3 "$current" plan
       ;;
     2)
       jq -e '(.worktreePath | type == "string" and length > 0) and (.branch | type == "string" and length > 0)' <<< "$current" >/dev/null \
@@ -399,8 +509,51 @@ stage_completion_preconditions() {
              or ((.crossBoundaryReviews // []) | length > 0)
              or ((.skippedReviews // []) | length > 0)' <<< "$current" >/dev/null \
         || { EXIT_CODE=1 die "set-stage: cannot complete stage 8 — no codeReviewRounds recorded and no crossBoundaryReviews/skippedReviews entry (run the review loop and record the round count via review-rounds, or — for a be-fe-pair dual-target secondary repo, #48 — record the cross-boundary handoff/skip); --force for crash-recovery"; }
+      # Skill-load evidence: an in-repo review round mandates review-lead for
+      # synthesis (SKILL.md "Stage 8 skill loadout"); the be-fe-pair
+      # cross-boundary/skip paths carry their own evidence and are exempt, as
+      # in the round-count gate above.
+      jq -e '((.stages["8"].skillsLoaded // []) | index("review-toolkit:review-lead") != null)
+             or ((.crossBoundaryReviews // []) | length > 0)
+             or ((.skippedReviews // []) | length > 0)' <<< "$current" >/dev/null \
+        || { EXIT_CODE=1 die "set-stage: cannot complete stage 8 — review-toolkit:review-lead is not in stages.8.skillsLoaded[] (load it for synthesis and record it via skill-load-add before closing the stage); --force for crash-recovery"; }
+      # The code-review comment is mandated by the PRIMARY review loop's
+      # terminating paths, so its receipt is required exactly when a primary
+      # round ran; an escape-hatch-only completion (be-fe-pair secondary
+      # handoff/skip, no in-session round) posts none.
+      if jq -e '(.codeReviewRounds // 0) >= 1' <<< "$current" >/dev/null; then
+        require_comment_receipts 8 "$current" code-review
+      fi
+      ;;
+    7)
+      require_comment_receipts 7 "$current" doc-update
+      ;;
+    9)
+      require_comment_receipts 9 "$current" pr
       ;;
   esac
+  return 0
+}
+
+# Comment-receipt precondition (shared by the stage cases above): a stage whose
+# stage file mandates issue comments cannot complete without a recorded URL per
+# mandated marker (`comments.<marker>`, written by comment-add at post time).
+# Backgrounded posts must therefore be reconciled BEFORE the stage closes — the
+# fix for mandated comments silently dropping with no end-of-run surfacing.
+# Skipped entirely when the tracker is read-only (jira, tracker.writes: false —
+# no stage posts comments there by contract). Conditional-path-only markers
+# (plan-review, verify) are deliberately not gated.
+# Args: <stage-n> <current-state-json> <marker>...
+require_comment_receipts() {
+  local n="$1" current="$2"; shift 2
+  tracker_writes || return 0
+  local m missing=""
+  for m in "$@"; do
+    jq -e --arg m "$m" '(.comments // {})[$m] | type == "string" and length > 0' <<< "$current" >/dev/null \
+      || missing="${missing:+$missing,}$m"
+  done
+  [[ -z "$missing" ]] \
+    || { EXIT_CODE=1 die "set-stage: cannot complete stage $n — mandated comment receipt(s) missing for marker(s) [$missing] (post the comment and record its URL via comment-add; a backgrounded post must be reconciled before the stage closes, never silently dropped); --force for crash-recovery"; }
   return 0
 }
 
@@ -481,6 +634,23 @@ valid_stage_marker() {
   esac
 }
 # <<< generated: valid_stage_marker <<<
+
+# Eval criteria keys — the locked five from eval-criteria.md's canonical example
+# JSON (the sole inputs to the pass-rate calculation). Emitted as a list (not a
+# case-validator) because require_eval_file needs both directions: extra keys
+# AND missing keys, by array subtraction.
+# >>> generated: eval_criteria_keys >>>
+# Generated by tools/gen-statectl-validators.sh from eval-criteria.md
+# Do not hand-edit. Regenerate: bash tools/gen-statectl-validators.sh > statectl.sh.new && mv statectl.sh.new statectl.sh
+eval_criteria_keys() {
+  printf '%s\n' \
+    target_confirmation \
+    plan_grounding \
+    implementation_resilience \
+    scope_compliance \
+    review_precision
+}
+# <<< generated: eval_criteria_keys <<<
 
 # Validate a Stage 7 checkpoint payload (JSON on stdin). Other stages get JSON-parse-only.
 # Flat single-repo schema: branch, headSha, worktreePath as top-level string fields.
@@ -601,6 +771,18 @@ cmd_init() {
     mv "$eval_file" "$stale_dest" \
       || { EXIT_CODE=2 die "init: could not quarantine stale self-eval $eval_file"; }
     echo "[statectl] init: quarantined stale self-eval -> $(basename "$stale_dest")" >&2
+  fi
+  # Stale-report quarantine: same reasoning for the Stage-9 run report — a fresh
+  # run must not satisfy the mark-completed report gate with a previous run's
+  # narrative. Rename, don't delete; the old report stays readable.
+  local report_file
+  report_file="$(dirname "$state")/${lower}-report.md"
+  if [[ -f "$report_file" ]]; then
+    local stale_report
+    stale_report="$(dirname "$state")/${lower}-report-stale-$(now_iso | tr -d ':').md"
+    mv "$report_file" "$stale_report" \
+      || { EXIT_CODE=2 die "init: could not quarantine stale run report $report_file"; }
+    echo "[statectl] init: quarantined stale run report -> $(basename "$stale_report")" >&2
   fi
   local now
   now=$(now_iso)
@@ -942,6 +1124,72 @@ cmd_slice_set() {
   atomic_write "$key" "$new_state"
 }
 
+cmd_slice_partition_set() {
+  # Persist the Stage-1 AC→slice partition (`decomposition.slices[].acIds`) —
+  # the intake orchestrator's coverage back-check result, written ONCE at intake
+  # before any code exists. Part of the intent-snapshot family alongside
+  # acceptanceCriteria[] (same trust model: write-once, run-authoritative,
+  # immune to mid-run authoring). Consumers: plan-lint Check 3 slice mode,
+  # the Stage-8 scope-gate slice mode, pipeline-retro's AC-coverage audit.
+  # See state-schema.md "Stacked-PR AC partition".
+  #
+  # Usage:
+  #   statectl slice-partition-set <issue-number> --json '[{"slice":1,"acIds":["AC-1",...]}, ...]' [--force]
+  local key="${1:-}"; shift || true
+  local partition_json="" force=0
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --json)  partition_json="${2:-}"; shift 2 ;;
+      --force) force=1; shift ;;
+      *) EXIT_CODE=3 die "slice-partition-set: unknown arg '$1'" ;;
+    esac
+  done
+  [[ -n "$key" && -n "$partition_json" ]] \
+    || { EXIT_CODE=3 die "slice-partition-set: usage: slice-partition-set <issue-number> --json '<json-array>' [--force]"; }
+  jq -e 'type == "array" and length > 0' <<< "$partition_json" >/dev/null 2>&1 \
+    || { EXIT_CODE=3 die "slice-partition-set: --json must be a non-empty JSON array"; }
+  local bad
+  bad=$(jq -r '[.[] | select(((.slice | type) != "number") or (.slice | floor != .) or (.slice < 1))] | length' <<< "$partition_json")
+  [[ "$bad" == "0" ]] || { EXIT_CODE=3 die "slice-partition-set: every entry's .slice must be a positive integer"; }
+  # Slice indices must be exactly 1..N (contiguous, no duplicates) — the same
+  # 1-based index space as currentSlice/slice-set.
+  bad=$(jq -r '(map(.slice) | sort) == [range(1; length + 1)] | if . then "0" else "1" end' <<< "$partition_json")
+  [[ "$bad" == "0" ]] || { EXIT_CODE=3 die "slice-partition-set: .slice values must be exactly 1..N (contiguous, unique)"; }
+  bad=$(jq -r '[.[] | select((.acIds | type) != "array" or (.acIds | length) == 0)] | length' <<< "$partition_json")
+  [[ "$bad" == "0" ]] || { EXIT_CODE=3 die "slice-partition-set: every entry's .acIds must be a non-empty array"; }
+  bad=$(jq -r '[.[].acIds[] | select((type != "string") or (test("^AC-[0-9]+$") | not))] | length' <<< "$partition_json")
+  [[ "$bad" == "0" ]] || { EXIT_CODE=3 die "slice-partition-set: every acId must be a string matching ^AC-[0-9]+\$"; }
+  # Disjoint: an AC id may appear in exactly one slice.
+  bad=$(jq -r '([.[].acIds[]] | length) - ([.[].acIds[]] | unique | length)' <<< "$partition_json")
+  [[ "$bad" == "0" ]] || { EXIT_CODE=3 die "slice-partition-set: acIds must be disjoint across slices (an AC belongs to exactly one slice)"; }
+  local current_state
+  current_state=$(read_state "$key") || exit $?
+  require_mutable "$current_state" "$force" "slice-partition-set"
+  # Every acId must exist in the acceptanceCriteria[] snapshot (the partition is
+  # a partition OF the snapshot — never a parallel AC universe).
+  bad=$(jq --argjson p "$partition_json" -r '
+    (.acceptanceCriteria // [] | map(.id)) as $snap
+    | [$p[].acIds[] | select(. as $a | $snap | index($a) | not)] | length
+  ' <<< "$current_state")
+  [[ "$bad" == "0" ]] || { EXIT_CODE=1 die "slice-partition-set: every acId must exist in the acceptanceCriteria[] snapshot (write intake-brief first)"; }
+  # Write-once: the partition is intent-snapshot data. Overwriting an existing
+  # partition mid-run is the scope-narrowing move the write-once posture blocks.
+  local existing
+  existing=$(jq -r '.decomposition.slices // [] | length' <<< "$current_state")
+  if [[ "$existing" != "0" && "$force" -ne 1 ]]; then
+    EXIT_CODE=1 die "slice-partition-set: decomposition.slices already present (write-once); pass --force to overwrite"
+  fi
+  local now
+  now=$(now_iso)
+  local new_state
+  new_state=$(jq --argjson p "$partition_json" --arg now "$now" '
+    .decomposition.slices = ($p | sort_by(.slice) | map({slice, acIds}))
+    | .lastUpdatedAt = $now
+  ' <<< "$current_state") || { EXIT_CODE=2 die "slice-partition-set: jq mutation failed"; }
+  atomic_write "$key" "$new_state"
+  jq -r '.decomposition.slices | length' <<< "$new_state"
+}
+
 cmd_worktree_set() {
   # Persist the Stage 2 boundary fields atomically. ORDERING CONTRACT: this
   # call MUST precede `set-stage 2 --status completed`, so a completed Stage 2
@@ -1038,21 +1286,40 @@ cmd_pr_add() {
   require_mutable "$current" "$force" "pr-add"
   local now
   now=$(now_iso)
+  # Capture whether --repo was explicitly passed (be-fe-pair repo-keying) BEFORE we
+  # derive a fallback alias below — the derivation must not blur the two keyings.
+  local repo_keyed=0
+  [[ -n "$repo" ]] && repo_keyed=1
+  # #188: normalize the VALUE shape to { url, branch, repo } across BOTH keyings so
+  # no reader hits url-only drift. The KEYS stay run-shape-specific (branch-keyed
+  # single-repo/stacked, repo-keyed be-fe-pair — stacked slices collide on a repo
+  # key, pair runs collide on a branch key). Without --repo, derive `repo` from the
+  # config host-repo alias (the topology.repos entry with path ".") so single-repo
+  # entries still carry it; unresolvable config (e.g. the config-less selftest
+  # harness / CI, where the gitignored config is absent) → repo: null.
+  if [[ "$repo_keyed" -eq 0 ]]; then
+    local cfg
+    cfg=$(config_file)
+    if [[ -n "$cfg" && -f "$cfg" ]]; then
+      repo=$(jq -r '(.topology.repos | to_entries[] | select(.value.path == ".") | .key) // empty' "$cfg" 2>/dev/null) || repo=""
+    fi
+  fi
   local new_state
   # --repo <id> (be-fe-pair): a pair run opens one PR per target repo, all on the
   # SAME branch name — so key `.prs` by REPO ID (not branch, which would collide)
   # and stamp repo + branch. Consumers iterate `.prs[].url` either way. Without
-  # --repo the branch-keyed form (single-repo / one entry per stacked slice).
-  if [[ -n "$repo" ]]; then
+  # --repo the branch-keyed form (single-repo / one entry per stacked slice), now
+  # also stamped with branch + the resolved repo alias (null when unresolvable).
+  if [[ "$repo_keyed" -eq 1 ]]; then
     new_state=$(jq --arg r "$repo" --arg b "$branch" --arg u "$url" --arg now "$now" '
       .prs = (.prs // {})
       | .prs[$r] = { url: $u, branch: $b, repo: $r }
       | .lastUpdatedAt = $now
     ' <<< "$current") || { EXIT_CODE=2 die "pr-add: jq mutation failed"; }
   else
-    new_state=$(jq --arg b "$branch" --arg u "$url" --arg now "$now" '
+    new_state=$(jq --arg b "$branch" --arg u "$url" --arg r "$repo" --arg now "$now" '
       .prs = (.prs // {})
-      | .prs[$b] = { url: $u }
+      | .prs[$b] = { url: $u, branch: $b, repo: (if $r == "" then null else $r end) }
       | .lastUpdatedAt = $now
     ' <<< "$current") || { EXIT_CODE=2 die "pr-add: jq mutation failed"; }
   fi
@@ -1568,9 +1835,11 @@ cmd_mark_completed() {
   # site in the skill body (#151/#153). Mirrors mark-failed's terminal-state
   # guard: refuses to overwrite a completed/failed state without --force.
   # Additionally gates on all-stages completeness and the Post-Run Eval file
-  # (imperative stage machine) — those gates are NOT bypassed by --force
-  # (which only overrides the terminal-overwrite guard; a terminal state has
-  # all stages done anyway).
+  # (imperative stage machine) — completeness and eval existence/plausibility
+  # are NOT bypassed by --force (which only overrides the terminal-overwrite
+  # guard; a terminal state has all stages done anyway). The eval criteria
+  # SHAPE check (locked key set + binary values) alone honors --force — see
+  # require_eval_file.
   #
   # Usage:
   #   statectl mark-completed <issue-number> [--force]
@@ -1600,9 +1869,14 @@ cmd_mark_completed() {
   [[ -z "$incomplete" ]] \
     || { EXIT_CODE=1 die "mark-completed: stages [$incomplete] are not completed — every stage 1-9 must complete before the terminal write"; }
 
-  # Post-Run Eval fail-closed gate: self-eval must exist and be plausible. NOT
-  # bypassed by --force.
-  require_eval_file "$key"
+  # Post-Run Eval fail-closed gate: self-eval must exist, be plausible, and
+  # score the locked criteria shape. Existence/plausibility ignore --force;
+  # the shape sub-check honors it.
+  require_eval_file "$key" "$force"
+
+  # Run-report fail-closed gate: the durable operator-facing report must exist.
+  # NOT bypassed by --force.
+  require_report_file "$key"
 
   local now
   now=$(now_iso)
@@ -1962,6 +2236,179 @@ cmd_mutation_audit_set() {
   atomic_write "$key" "$new_state"
 }
 
+cmd_skill_load_add() {
+  # Record a mandated skill load as stage-completion evidence:
+  # `.stages.N.skillsLoaded[]` (deduped append). Written at the point of load —
+  # Stage 1's intake-orchestrator and Stage 8's review-lead completion
+  # preconditions read it (stage_completion_preconditions). Self-reported by
+  # design: the harness has no load attestation, so this converts "prose
+  # mandate, silently skippable" into "recorded evidence, mechanically gated" —
+  # with the session audit ledger as the independent cross-check.
+  #
+  # Usage:
+  #   statectl skill-load-add <issue-number> --stage N --skill <plugin:skill> [--force]
+  local key_arg="${1:-}"; shift || true
+  local n="" skill="" force=0
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --stage) n="${2:-}"; shift 2 ;;
+      --skill) skill="${2:-}"; shift 2 ;;
+      --force) force=1; shift ;;
+      *) EXIT_CODE=3 die "skill-load-add: unknown arg '$1'" ;;
+    esac
+  done
+  [[ -n "$key_arg" && -n "$n" && -n "$skill" ]] \
+    || { EXIT_CODE=3 die "skill-load-add: missing <issue-number> --stage N --skill <plugin:skill>"; }
+  [[ "$n" =~ ^[1-9]$ ]] || { EXIT_CODE=1 die "skill-load-add: --stage must be in {1..9}, got '$n'"; }
+  [[ "$skill" =~ ^[a-z0-9][a-z0-9-]*:[a-z0-9][a-z0-9-]*$ ]] \
+    || { EXIT_CODE=1 die "skill-load-add: --skill must be a qualified plugin:skill name (lowercase/digits/hyphens), got '$skill'"; }
+  local current
+  current=$(read_state "$key_arg") || exit $?
+  require_mutable "$current" "$force" "skill-load-add"
+  local now
+  now=$(now_iso)
+  local new_state
+  new_state=$(jq --arg n "$n" --arg s "$skill" --arg now "$now" '
+    .stages[$n] = (.stages[$n] // {})
+    | .stages[$n].skillsLoaded = (((.stages[$n].skillsLoaded // []) + [$s]) | unique)
+    | .lastUpdatedAt = $now
+  ' <<< "$current") || { EXIT_CODE=2 die "skill-load-add: jq mutation failed"; }
+  atomic_write "$key_arg" "$new_state"
+  jq -c --arg n "$n" '.stages[$n].skillsLoaded' <<< "$new_state"
+}
+
+cmd_reclaim() {
+  # Stale-claim detection + release for a run orphaned by an infra drop
+  # (connection loss, token expiry, killed session). A claim is STALE when the
+  # state is `in_progress` and `lastUpdatedAt` is older than the threshold
+  # (default 30 min) — statectl has no process-liveness signal, so age is the
+  # proxy (a long silent stage is indistinguishable from a dead one) and the
+  # caller must confirm no live session owns the run before acting (--force
+  # overrides a fresh or undeterminable age for that confirmed-dead case). A
+  # missing/unparseable lastUpdatedAt is UNDETERMINABLE, never auto-stale.
+  #
+  # Without --release: READ-ONLY verdict JSON — `resumable` names the stage the
+  # existing crash-recovery path re-enters (`/dev-pipeline:run <issue>` resumes
+  # from currentStage; this subcommand never re-enters the pipeline itself).
+  # With --release: quarantine-rename the state file ({key}-released-{ts}.json,
+  # mirroring init's stale-eval quarantine — run artifacts are retro evidence,
+  # never deleted) so a fresh claim re-inits from scratch. Tracker-side release
+  # (the in-progress -> queue label swap) is the caller's step — statectl does
+  # no network IO; the emitted JSON carries the reminder.
+  #
+  # A `failed` run is NOT reclaimable (it exited by contract and needs a manual
+  # clear + spec/plan fix); a `completed` run has nothing to reclaim.
+  #
+  # Usage:
+  #   statectl reclaim <issue-number> [--release] [--threshold-min <N>] [--force]
+  local key="${1:-}"; shift || true
+  local release=0 threshold=30 force=0
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --release)       release=1; shift ;;
+      --threshold-min)
+        [[ $# -ge 2 ]] || { EXIT_CODE=3 die "reclaim: --threshold-min needs a value"; }
+        threshold="$2"; shift 2 ;;
+      --force)         force=1; shift ;;
+      *) EXIT_CODE=3 die "reclaim: unknown arg '$1'" ;;
+    esac
+  done
+  [[ -n "$key" ]] || { EXIT_CODE=3 die "reclaim: missing <issue-number>"; }
+  [[ "$threshold" =~ ^[0-9]+$ ]] || { EXIT_CODE=3 die "reclaim: --threshold-min must be a non-negative integer, got '$threshold'"; }
+  local current
+  current=$(read_state "$key") || exit $?
+  local top_status
+  top_status=$(jq -r '.status // ""' <<< "$current")
+  case "$top_status" in
+    failed)
+      EXIT_CODE=1 die "reclaim: run is status=failed (reason: $(jq -r '.failureContext.reason // "unrecorded"' <<< "$current")) — a gate-blocked run exits by contract and is NOT stale-reclaimable; fix the underlying block and clear the state manually" ;;
+    completed)
+      EXIT_CODE=1 die "reclaim: run is status=completed — nothing to reclaim" ;;
+    in_progress|"") ;;
+    *)
+      EXIT_CODE=1 die "reclaim: unrecognized status '$top_status'" ;;
+  esac
+  # Age computation fails closed: a crashed run's state is exactly where a
+  # malformed/missing lastUpdatedAt is plausible, and an unparseable timestamp
+  # must not read as "fresh" (silent) or "stale" (auto-reclaimable) — it reads
+  # as undeterminable, requiring --force.
+  local age_min
+  age_min=$(jq -r 'if .lastUpdatedAt then ((now - (.lastUpdatedAt | fromdateiso8601)) / 60 | floor) else "unknown" end' <<< "$current" 2>/dev/null) || age_min="unknown"
+  [[ "$age_min" =~ ^-?[0-9]+$ ]] || age_min="unknown"
+  local stale=false
+  if [[ "$age_min" != "unknown" && "$age_min" -ge "$threshold" ]]; then
+    stale=true
+  fi
+  if [[ "$stale" != "true" && "$force" -ne 1 ]]; then
+    if [[ "$age_min" == "unknown" ]]; then
+      EXIT_CODE=1 die "reclaim: staleness undeterminable — lastUpdatedAt is missing or unparseable in the state file. --force only if you have confirmed the owning process is dead"
+    fi
+    EXIT_CODE=1 die "reclaim: not stale — last state write was ${age_min} min ago (< ${threshold} min threshold; a negative age means the timestamp is in the future — clock skew). A live session may own this run; note a long silent stage is indistinguishable from a dead one at this threshold. --force only if you have confirmed the owning process is dead"
+  fi
+  local stage
+  stage=$(jq -r '.currentStage // 1' <<< "$current")
+  if [[ "$release" -ne 1 ]]; then
+    jq -n --arg k "$key" --argjson stage "$stage" --arg age "$age_min" \
+      --argjson stale "$stale" --argjson forced "$([[ "$force" -eq 1 ]] && echo true || echo false)" '{
+      ticketKey: $k, stale: $stale, forced: $forced, verdict: "resumable", resumableFromStage: $stage,
+      ageMin: (($age | tonumber?) // $age),
+      resume: "re-invoke /dev-pipeline:run \($k) — crash recovery resumes from currentStage",
+      release: "statectl reclaim \($k) --release, then swap the tracker labels (in-progress -> queue) via the bot wrapper"
+    }' || { EXIT_CODE=2 die "reclaim: verdict JSON emission failed"; }
+    return 0
+  fi
+  local state released
+  state=$(state_path "$key")
+  released="$(dirname "$state")/$(basename "$state" .json)-released-$(now_iso | tr -d ':').json"
+  mv "$state" "$released" \
+    || { EXIT_CODE=2 die "reclaim: could not quarantine state file $state"; }
+  jq -n --arg k "$key" --arg to "$(basename "$released")" '{
+    ticketKey: $k, released: true, quarantinedTo: $to,
+    remaining: "tracker labels (in-progress -> queue) via the bot wrapper, and remove any leftover worktree — statectl does no network/worktree IO"
+  }'
+}
+
+cmd_comment_add() {
+  # Record a posted stage comment's URL as completion evidence:
+  # `.comments.<marker> = <url>` (marker from the generated stage-marker enum).
+  # Written by the same flow that posts the comment — the bot wrapper's REST
+  # response carries html_url. The comment-receipt preconditions read it
+  # (require_comment_receipts); a repeat post for the same marker overwrites
+  # (last write wins — markers are one-per-run in the comment trail contract).
+  #
+  # Usage:
+  #   statectl comment-add <issue-number> --marker <stage-marker> --url <comment-url> [--force]
+  local key_arg="${1:-}"; shift || true
+  local marker="" url="" force=0
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --marker) marker="${2:-}"; shift 2 ;;
+      --url)    url="${2:-}"; shift 2 ;;
+      --force)  force=1; shift ;;
+      *) EXIT_CODE=3 die "comment-add: unknown arg '$1'" ;;
+    esac
+  done
+  [[ -n "$key_arg" && -n "$marker" && -n "$url" ]] \
+    || { EXIT_CODE=3 die "comment-add: missing <issue-number> --marker <stage-marker> --url <comment-url>"; }
+  valid_stage_marker "$marker" \
+    || { EXIT_CODE=1 die "comment-add: --marker must be a documented stage-comment marker (state-schema.md), got '$marker'"; }
+  [[ "$url" =~ ^https?:// ]] \
+    || { EXIT_CODE=1 die "comment-add: --url must be an http(s) URL (the post response's html_url), got '$url'"; }
+  local current
+  current=$(read_state "$key_arg") || exit $?
+  require_mutable "$current" "$force" "comment-add"
+  local now
+  now=$(now_iso)
+  local new_state
+  new_state=$(jq --arg m "$marker" --arg u "$url" --arg now "$now" '
+    .comments = (.comments // {})
+    | .comments[$m] = $u
+    | .lastUpdatedAt = $now
+  ' <<< "$current") || { EXIT_CODE=2 die "comment-add: jq mutation failed"; }
+  atomic_write "$key_arg" "$new_state"
+  jq -c '.comments' <<< "$new_state"
+}
+
 cmd_stage_substatus() {
   # Write a mid-stage sub-status into `.stages.N.<key>`. the pipeline's FIRST stages.N.*
   # sub-status mechanism (no figmaPlanReview/apiTestImplement precedent here).
@@ -2042,8 +2489,12 @@ main() {
     verify-attempts)        cmd_verify_attempts "$@" ;;
     pipeline-session-add)   cmd_pipeline_session_add "$@" ;;
     slice-set)              cmd_slice_set "$@" ;;
+    slice-partition-set)    cmd_slice_partition_set "$@" ;;
     unit-test-surface-set)  cmd_unit_test_surface_set "$@" ;;
     mutation-audit-set)     cmd_mutation_audit_set "$@" ;;
+    skill-load-add)         cmd_skill_load_add "$@" ;;
+    comment-add)            cmd_comment_add "$@" ;;
+    reclaim)                cmd_reclaim "$@" ;;
     stage-substatus)        cmd_stage_substatus "$@" ;;
     intake-brief)           cmd_intake_brief "$@" ;;
     plan-review-set)        cmd_plan_review_set "$@" ;;

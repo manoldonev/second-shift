@@ -16,7 +16,7 @@ Derived from real pipeline sessions in the acme repo and the hardening patterns 
 
 ### 1. Autonomous Pre-flight
 
-**PASS:** Before claiming the issue (Stage 1), the run established its target — repo, base branch, issue number, and working-tree status — and the read-pin posture behaved correctly (#59): Stage-1 reads pinned to `origin/<baseBranch>` — the host repo's `topology.repos.<host>.baseBranch`, which may be `develop`/`alpha`, not necessarily `main` — with a dirty working tree surfaced as a WARN-and-proceed, and a failed pin (fetch/worktree-add) failing closed rather than silently reading the checkout.
+**PASS:** Before claiming the issue (Stage 1), the run established its target — repo, base branch, issue number, and working-tree status — and the read-pin posture behaved correctly: Stage-1 reads pinned to `origin/<baseBranch>` — the host repo's `topology.repos.<host>.baseBranch`, which may be `develop`/`alpha`, not necessarily `main` — with a dirty working tree surfaced as a WARN-and-proceed, and a failed pin (fetch/worktree-add) failing closed rather than silently reading the checkout.
 
 **FAIL:** The run targeted the wrong repo/branch/diff (built or analyzed against anything other than `origin/<configured base>`), OR read an unpinned non-base/dirty checkout at Stage 1 without the WARN or fail-closed posture firing.
 
@@ -48,7 +48,7 @@ _Failure mode this catches: "validity.badInput" class — hours wasted iterating
 
 ### 4. Scope Compliance
 
-**PASS:** Every file modified during Stage 6 is either (a) listed in the plan's "Affected files/modules" section, (b) a test file for a listed module, or (c) a shared dependency explicitly flagged before commit. No unplanned files are modified without user approval.
+**PASS:** Every file modified during Stage 6 is either (a) listed in the plan's "Affected files/modules" section, (b) a test file for a listed module, or (c) a shared dependency, or any unplanned edit recorded in `stageCheckpoint["7"].deviations[]` before the commit that introduced it — in `auto` mode a `deviations[]` entry **is** the "flagged before commit" record, since there is no user to ask. No unplanned files are modified without either user approval or a `deviations[]` disclosure.
 
 **FAIL:** A file not in the plan is modified and committed without the user being asked, OR changes are made to files outside the GitHub issue's scope.
 
@@ -88,6 +88,8 @@ After each pipeline run, score all 5 binary criteria. Record in `.claude/pipelin
 ```
 
 The five binary criteria above are the sole inputs to the pass-rate calculation.
+
+The example's `criteria` keys are the **canonical machine names** — `mark-completed` refuses any other key set, and `statectl.sh`'s validator is generated from this example block. Criterion 1's key is `target_confirmation` (its title, "Autonomous Pre-flight", evolved later): the key keeps its original name because every historical eval file scores under it, and cross-era comparability outranks title symmetry. Titles are prose; keys are the contract.
 
 Use `N/A` when a criterion is not exercised (e.g., `implementation_resilience` when there are no test failures). N/A criteria are excluded from the pass rate denominator.
 

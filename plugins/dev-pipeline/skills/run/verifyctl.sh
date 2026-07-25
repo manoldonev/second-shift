@@ -36,8 +36,11 @@
 # is config-driven (commands.<host>.format, #12): a string runs verbatim as the
 # repo's own formatter (`black .`, `yarn format`), null skips the format lane
 # entirely, and an ABSENT key falls back to scoped prettier (the documented
-# default — the ONLY path that needs node/npx). Single-repo operation: no --repo
-# flag, no per-repo sidecars, no integration lane.
+# default — the ONLY path that needs node/npx). The commands table is keyed on the
+# RESOLVED verify target: the path="." host by default, the `--repo <id>` repo when
+# passed, or — for a BARE run — the single repo named by `.targetRepos` when it has
+# exactly one entry (#186). Single-repo operation: no --repo flag, no per-repo
+# sidecars, no integration lane.
 #
 # Attempt accounting (skipped entirely under --no-attempt):
 #   Sidecar {state-dir}/{issue}-verify.json, owned EXCLUSIVELY by verifyctl:
@@ -143,12 +146,22 @@ load_config() {
   cfg=$(config_path)
   [[ -f "$cfg" ]] \
     || { EXIT_CODE=2 die "run: no consumer config at $cfg (write .claude/second-shift.config.json — see second-shift docs/onboarding.md; selftest override: SECOND_SHIFT_CONFIG)"; }
-  # --repo <id> (be-fe-pair): key the command table on that repo id; else the
-  # path="." host (single-repo default).
+  # --repo <id> (be-fe-pair): key the command table on that repo id. Else, when NO
+  # --repo was passed but .targetRepos names exactly ONE target repo (a single-target
+  # be-fe-pair run whose flat-mirror worktree IS that repo's — Stage 2), key on it, so
+  # a BARE `verifyctl run` (Stage 8 re-verify, Stage 6 safety-net) uses the target's
+  # command table, not the host's (#186). Absent / empty / >1-entry .targetRepos falls
+  # back to the path="." host — byte-for-byte the standalone/monorepo behavior. Only the
+  # command host moves: REPO_ID stays empty, so worktree/base/sidecar/budget stay flat.
+  local derived=""
   if [[ -n "${REPO_ID:-}" ]]; then
     host="$REPO_ID"
     [[ "$(jq -r --arg h "$host" '.topology.repos | has($h)' "$cfg" 2>/dev/null)" == "true" ]] \
       || { EXIT_CODE=2 die "run: --repo '$host' is not a topology.repos entry ($cfg)"; }
+  elif derived=$(sget "$key" '.targetRepos // [] | if length == 1 then .[0] else "" end') && [[ -n "$derived" ]]; then
+    host="$derived"
+    [[ "$(jq -r --arg h "$host" '.topology.repos | has($h)' "$cfg" 2>/dev/null)" == "true" ]] \
+      || { EXIT_CODE=2 die "run: .targetRepos names '$host', not a topology.repos entry ($cfg)"; }
   else
     host=$(jq -r '.topology.repos | to_entries[] | select(.value.path == ".") | .key' "$cfg" 2>/dev/null | head -n1)
     [[ -n "$host" ]] \

@@ -106,7 +106,7 @@ if [[ "$(jq -r '.topology.type // "standalone"' "$SECOND_SHIFT_CONFIG" 2>/dev/nu
 fi
 ```
 
-`pr-add --repo` records `prs.<id> = {url, branch, repo}` (the branch is shared across repos, so `.prs` is keyed by repo id, not branch). Each PR targets ITS repo's base (BE `alpha` / FE `main`). Everything else in this stage (cost block, completion write) runs once after the loop.
+`pr-add --repo` records `prs.<id> = {url, branch, repo}` (the branch is shared across repos, so `.prs` is keyed by repo id, not branch). This per-repo loop (and its `pr-add --repo` keying) applies whenever `topology.type == be-fe-pair` — **including a single-target (`[FE]`-only or `[BE]`-only) pair run**; taking the single-repo branch-keyed path for a pair run is what produced the observed `.prs` value drift (#188). Each PR targets ITS repo's base (BE `alpha` / FE `main`). Everything else in this stage (cost block, completion write) runs once after the loop. (The branch-keyed single-repo form now also stamps `{ url, branch, repo }` — the value shape is uniform across keyings; only the KEY differs — see `state-schema.md` `.prs`.)
 
 **Guard against duplicates (single-repo — `standalone`/`monorepo` only; be-fe-pair used the per-repo loop above):**
 
@@ -172,6 +172,60 @@ statectl.sh pr-add "$ISSUE_NUMBER" \
 # Ordering contract: pr-add MUST precede `set-stage 9 --status completed`
 # (same rule as worktree-set at Stage 2 — stage completion implies the field).
 ```
+
+## Run report (durable artifact — write it BEFORE narrating)
+
+**Write the run report to disk immediately after the `pr-add` above** — before the cost block, the eval write, `mark-completed`, and the terminal narration. `mark-completed` refuses without it (`statectl` `require_report_file`, not bypassed by `--force`).
+
+The report is the only artifact the operator reads per run. Until it was persisted it existed **solely as streamed model output**, so a mid-response API disconnect destroyed it — leaving a two-line log that read as total failure for a run that had already opened its PR. The terminal narration is now a **view of this file**, not the artifact itself.
+
+Two properties of the placement are load-bearing:
+
+- **Here, not just before `mark-completed`.** The observed loss came in two shapes: a run that died after `mark-completed` (state `completed`, report gone) and one that died before the eval write (state stuck at `stages.9.status: in_progress`, report gone). Only a write anchored at the earliest point where the PR URL exists covers both.
+- **Once per Stage-9 pass, after every `pr-add` of that pass.** Under be-fe-pair the per-repo loop calls `pr-add` N times — write the report once, after the loop, so it names all PRs. Under stacked-PRs each slice refreshes the same `{issue}-report.md`, and the last slice's version is the durable one (`mark-completed` runs once, after the final slice).
+
+Write it to the **main checkout** — never the worktree, which Stage 10 removes:
+
+```bash
+# MAIN_ROOT, not $WORKTREE — the report must survive Stage-10 cleanup, exactly
+# like {issue}-brief.md. `.claude/pipeline-state/` is already gitignored.
+MAIN_ROOT="$(dirname "$(cd "$(git -C "$WORKTREE" rev-parse --git-common-dir)" && pwd)")"
+REPORT_PATH="$MAIN_ROOT/.claude/pipeline-state/${ISSUE_NUMBER}-report.md"
+```
+
+**Report template.** The `<!-- dev-pipeline-report -->` marker is required — the gate keys on it.
+
+```markdown
+<!-- dev-pipeline-report -->
+<!-- run_id: {RUN_ID} -->
+
+# Run report — #{ISSUE_NUMBER}: {issue title}
+
+**PR:** {PR_URL} (draft) {plus one line per additional PR under be-fe-pair / stacked-PR}
+**Branch:** {BRANCH} → {TARGET}
+
+## What shipped
+
+{what the change actually does, in the operator's terms — not a file list}
+
+## Verification
+
+{the verifySummary lane verdicts}
+
+## Code review
+
+{N} rounds; {blockers resolved | outstanding blockers, when codeReviewExhausted}
+
+## Deviations
+
+{the structured deviations[] recorded during the run, or "none"}
+
+## Still outstanding at report time
+
+Written right after the PR was opened, so these had not yet run: cost block, post-run eval, terminal completion write. If the log ends here, the run reached at least this point — the PR above is real.
+```
+
+That last section is deliberate: it makes a truncated run self-describing from **inside** the pipeline. The operator's terminal log is not something the plugin owns — a session killed mid-response has no execution point left to annotate it — but the report can state what had and had not run at the moment it was written.
 
 **PR body template** (single, always-draft):
 
@@ -271,7 +325,7 @@ dev-pipeline run: ${RUN_ID}
 ```
 
 - **If `codeReviewExhausted == true`:** after `gh pr create` returns, add the `needs-deep-review` label: `$GH_BOT pr edit "$PR_URL" --add-label needs-deep-review`.
-- Comment on issue via `$GH_BOT issue comment`: `stage: pr`, `status: opened-as-draft` for clean runs and `status: opened-as-draft (review exhausted)` for the unhappy path. The exhausted comment also includes the marker `<!-- review-exhausted -->` for resume disambiguation.
+- Comment on issue via `$GH_BOT issue comment`: `stage: pr`, `status: opened-as-draft` for clean runs and `status: opened-as-draft (review exhausted)` for the unhappy path. The exhausted comment also includes the marker `<!-- review-exhausted -->` for resume disambiguation. Record the receipt (completion-gated): `"$STATECTL" comment-add "$ISSUE_NUMBER" --marker pr --url <html_url>`.
 - For single-PR runs: `$GH_BOT issue edit $ISSUE_NUMBER --remove-label in-progress` (use regular `gh` for `--remove-assignee @me` separately)
 - For stacked-PR runs: do NOT remove `in-progress` until all slices are done (handled by the outer loop completion step).
 
@@ -279,30 +333,35 @@ dev-pipeline run: ${RUN_ID}
 
 ## Cost-block sub-step (in-band, opt-in)
 
-After every PR in `prs` has its URL recorded, invoke the cost-block sub-step to amend each PR body with the cost block. It is idempotent on the `<!-- pipeline-cost-block -->` marker. The sub-step always exits 0 — it never blocks Stage 9 completion. It records its own outcome to `costBlockApplied` in the state file.
+After every PR in `prs` has its URL recorded, invoke the cost-block sub-step to amend each PR body with the cost block. It is idempotent on the `<!-- pipeline-cost-block -->` marker. It records its own outcome to `costBlockApplied` in the state file and **never blocks Stage 9 completion** — the caller below invokes it without checking rc.
+
+**Anchor the sub-step at the CONTROL repo's state (#188).** `pipeline-cost-block.sh` resolves its state file from `$PWD`'s git-common-dir. A cross-repo run whose cwd at this point is not the control repo (e.g. a bespoke setup that drives a foreign FE checkout via `--add-dir`) would anchor to the wrong repo, find no state, and — before this fix — exit silently leaving `costBlockApplied: null`. Export the control-repo root so `resolve_state()` (which already honors `SECOND_SHIFT_REPO_ROOT`) always finds the real state, for **all topologies** — a no-op for `standalone`/`monorepo` (the export equals what `resolve_state()` would derive anyway) and the fix for the be-fe-pair path (whose cwd here is the control main checkout):
 
 ```bash
+# Control repo root = parent of the MAIN checkout's git-common-dir. Correct for
+# both topologies at THIS call site: a standalone/monorepo cwd is a worktree that
+# shares the control .git (common-dir parent = control root); a be-fe-pair cwd is
+# the control main checkout itself (common-dir = <control>/.git, parent = control
+# root). NOT `git rev-parse --show-toplevel` — from a worktree that returns the
+# worktree top, not the control root. Operators of a truly foreign cwd (no git link
+# back to control) set STATECTL_STATE_DIR themselves; see cost-tracking-setup.md.
+export SECOND_SHIFT_REPO_ROOT="$(dirname "$(cd "$(git rev-parse --git-common-dir)" && pwd)")"
 bash pipeline-cost-block.sh "$ISSUE_NUMBER"
 ```
 
-What it does:
+What it does: reads `pipelineSessions[]`, queries the OTel metrics for those sessions clamped to the run's wall-clock fence, buckets the in-fence datapoints into the `stages.{N}` windows, and appends a cost block to each PR body — idempotent on the `<!-- pipeline-cost-block -->` marker. The mechanism, the write identity (bot wrapper vs operator `gh`), and the full `costBlockApplied` string catalog are specified in [`cost-tracking-setup.md`](../cost-tracking-setup.md).
 
-- Reads `pipelineSessions[]` (populated by Stage 2 / Stage 8 `pipeline-session-add` calls).
-- Queries `~/.claude/otel-metrics/metrics.jsonl` for cost + token datapoints whose `session.id` is in that set, clamped to the run's wall-clock fence (`[startedAt, max(stage completedAt) // lastUpdatedAt]`) so a co-resident sequential run/retro under the same `session.id` is excluded.
-- Buckets the in-fence metrics per stage using each row's timestamp and the `stages.{N}.startedAt/completedAt` windows; in-fence datapoints in no stage window land in an explicit "Other" bucket. Degrades to a single "Session total" row if windows are missing.
-- For stacked-PR runs (`len(prs) > 1`), splits total cost evenly across slices.
-- Renders a Markdown cost block with the `<!-- pipeline-cost-block -->` sentinel marker for idempotent detection.
-- Reads each PR body via plain `gh pr view`, appends the cost block, and writes back with the identity config selects: `$GH_BOT pr edit` when `tracker.bot.enabled` is true, plain `gh pr edit` (operator identity) when the bot is disabled or the config is absent/unreadable. Re-runs detect the marker and skip.
+Two behaviors this stage owns: in-fence datapoints matching no stage window land in an explicit "Other" bucket, and a stacked-PR run (`len(prs) > 1`) splits total cost evenly across slices.
 
-If any prerequisite is missing (no `pipelineSessions[]`, no metrics file, no `gh` CLI, or — **on a bot-enabled repo only** — no bot wrapper), the sub-step records a descriptive `costBlockApplied` string (`"skipped-no-sessions"`, `"skipped-telemetry-off"`, `"skipped-no-gh-cli"`, `"skipped-no-bot-wrapper"`, etc.) and exits 0. The pipeline continues regardless.
+A missing prerequisite records a descriptive `costBlockApplied` string and exits 0. The one non-zero exit is **state-unresolvable** (no state file at the resolved path — nothing to record into): it logs loudly and exits non-zero (rc 2), which is why the anchor export above matters. Either way the pipeline continues regardless — Stage 9 never checks the sub-step's rc (#188).
 
-**Recovering a `"skipped-otel-error"`:** this stage is already complete when the cost block fails, so the pipeline does not retry it. The operator fixes the precondition (collector reachable / `OTEL_*` exported) and re-runs just the sub-step — `bash pipeline-cost-block.sh "$ISSUE_NUMBER"` — which is idempotent on the `<!-- pipeline-cost-block -->` marker. Full procedure: [`cost-tracking-setup.md` → "Manual re-run after an OTel query failure"](../cost-tracking-setup.md#manual-re-run-after-an-otel-query-failure).
+**Recovering a `"skipped-otel-error"`:** the stage is already complete when the cost block fails, so the pipeline does not retry it — the operator re-runs the sub-step by hand. Procedure: [`cost-tracking-setup.md` → "Manual re-run after an OTel query failure"](../cost-tracking-setup.md#manual-re-run-after-an-otel-query-failure).
 
 **Setup:** see [`cost-tracking-setup.md`](../cost-tracking-setup.md) for OTel collector install + telemetry env vars. There is no per-engineer hook-wiring step.
 
 **State:** After the sub-step returns, write the terminal top-level status via `statectl`: `statectl.sh mark-completed "$ISSUE_NUMBER"` (atomic `status: "completed"` + `lastUpdatedAt` bundle; refuses to overwrite an already-terminal state without `--force`). Order it AFTER `set-stage 9 --status completed` — `set-stage` rejects mutations once the top-level status is terminal.
 
-`mark-completed` additionally enforces two terminal gates, **not** bypassed by `--force`: every stage 1–9 must be `completed`, and the Post-Run Eval file (`.claude/pipeline-state/{issue}-eval.json`, SKILL.md "Post-Run Eval") must exist with a plausible score — **so the eval write must precede `mark-completed`**.
+`mark-completed` additionally enforces three terminal gates, **not** bypassed by `--force`: every stage 1–9 must be `completed`; the Post-Run Eval file (`.claude/pipeline-state/{issue}-eval.json`, SKILL.md "Post-Run Eval") must exist with a plausible score — **so the eval write must precede `mark-completed`**; and the run report (`.claude/pipeline-state/{issue}-report.md`, the "Run report" sub-step above) must exist and carry its marker plus real content.
 
 **Stacked-PR runs:** call `mark-completed` **once, after the LAST slice** (as part of the outer loop's completion step in `stages/1-intake.md`, alongside the `all-prs-opened` comment) — never per slice; a mid-run terminal write would make every later slice's state mutation refuse. (Stacked-slice stage-machine semantics — how per-slice stage re-entries interact with the completion preconditions and re-start guards — are single-PR-scoped for now; a follow-up issue tracks the full model.)
 

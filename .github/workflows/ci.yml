@@ -45,6 +45,12 @@ jobs:
           done < <(find . -name '*-selftest.sh' -type f -print0)
           exit "$fails"
 
+      # Contract pairs duplicated across files (an agent's inline copy of a rule, a schema
+      # three Workflow scripts each redeclare) where prose alone said "keep verbatim".
+      # Replaces the deleted prose-presence guards: byte-parity beats token presence.
+      - name: contract lockstep pairs (scripts/lockstep-manifest.tsv)
+        run: bash scripts/check-lockstep-pairs.sh
+
       - name: namespace direction check (docs/namespaces.md rule 3)
         run: |
           # Array, not a space-separated string: the multi-dir expansion is intentional, and

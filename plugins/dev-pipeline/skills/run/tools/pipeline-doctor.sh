@@ -258,14 +258,6 @@ else
   warn "node not invokable — skipping null-reviewer selftest (Stage 8 dark-reviewer contract unverified on this machine; see the node FAIL in section 1b for the cause)"
 fi
 
-# --- 5c. slice-derivation selftest (Stage 1 stacked-PR slice math + 1-intake.md tokens) ---
-if out=$(bash "$SCRIPT_DIR/slice-derivation-selftest.sh" 2>&1); then
-  ok "slice-derivation selftest: $(tail -1 <<< "$out")"
-else
-  bad "slice-derivation selftest FAILED — Stage 1 stacked-PR slice derivation (or its 1-intake.md load-bearing tokens) drifted. Output tail:"
-  tail -5 <<< "$out" | sed 's/^/[doctor]        /'
-fi
-
 # --- 5d. reviewer-drift gate selftest (real-commit self-gate + registry lockstep) ---
 if _st=$(resolve_sibling review-toolkit scripts/check-reviewer-references-selftest.sh) && out=$(bash "$_st" 2>&1); then
   ok "reviewer-drift selftest: $(tail -1 <<< "$out")"
@@ -407,10 +399,55 @@ fi
 # Quality signal, not an environment blocker: surface prose-layer growth over the
 # committed baseline (+ narrative #NNN archaeology) as WARN — it never fails pre-flight.
 if pb=$(bash "$SCRIPT_DIR/prose-budget.sh" 2>&1); then
-  ok "prose-budget: $(tail -1 <<< "$pb" | sed 's/\[prose-budget\] //')"
+  # An n/a result is a legitimate pass, but it must not READ like a measured one —
+  # "0 fail(s)" against nothing inspected is the ambiguity this check now closes.
+  if grep -q 'n/a — no instruction layer' <<< "$pb"; then
+    ok "prose-budget: n/a — no instruction layer in this repo (nothing to measure)"
+  else
+    ok "prose-budget: $(tail -1 <<< "$pb" | sed 's/\[prose-budget\] //')"
+  fi
+elif grep -q 'FAIL vacuous coverage' <<< "$pb"; then
+  warn "prose-budget: VACUOUS — root(s) exist but matched 0 files, so the gate measured nothing. Fix the scan roots, then: bash \"$SCRIPT_DIR/prose-budget.sh\" --update-baseline"
+  grep -E 'roots searched' <<< "$pb" | sed 's/^/[doctor]        /' | head -2
+elif grep -q 'FAIL stale baseline' <<< "$pb"; then
+  warn "prose-budget: STALE baseline — no row resolves against the files on disk. Regenerate: bash \"$SCRIPT_DIR/prose-budget.sh\" --update-baseline"
+  grep -E 'FAIL stale baseline' <<< "$pb" | sed 's/^/[doctor]        /' | head -2
 else
-  warn "prose-budget: instruction layer grew past baseline — run: bash .claude/skills/run/tools/prose-budget.sh"
+  warn "prose-budget: instruction layer grew past baseline — run: bash \"$SCRIPT_DIR/prose-budget.sh\""
   grep -E 'FAIL ' <<< "$pb" | sed 's/^/[doctor]        /' | head -5
+fi
+
+# --- 8. Stale claims (orphaned in_progress runs) --------------------------------
+# A run stranded by an infra drop (connection loss, 401, killed session) keeps
+# its state in_progress with no owning process and is invisible to the queue.
+# Surface every in_progress state file whose last write is older than 30 min,
+# with the exact reclaim commands. WARN, never FAIL — an environment can be
+# pipeline-ready while a previous run sits orphaned; and doctor has no process-
+# liveness signal, so confirm no live session owns a run before reclaiming.
+STATE_DIR_D="$REPO_ROOT/.claude/pipeline-state"
+[[ -f "$CFG" ]] && STATE_DIR_D="$REPO_ROOT/$(jq -r '.paths.pipelineStateDir // ".claude/pipeline-state"' "$CFG" 2>/dev/null)"
+if [[ -d "$STATE_DIR_D" ]]; then
+  stale_found=0
+  for sf in "$STATE_DIR_D"/*.json; do
+    [[ -f "$sf" ]] || continue
+    # Quarantined artifacts keep their in_progress content by design (retro
+    # evidence, renamed not rewritten) — they are resolved, not stale.
+    case "$(basename "$sf")" in *-released-*|*-stale-*) continue ;; esac
+    # Missing/unparseable lastUpdatedAt anchors at epoch → flagged as ancient
+    # (matching reclaim's fail-closed posture: undeterminable is surfaced, not
+    # invisible).
+    stale_line=$(jq -r '
+      select((.runId? | type == "string") and (.stages? | type == "object") and (.status == "in_progress"))
+      | ((now - ((.lastUpdatedAt // empty) | fromdateiso8601? // 0)) / 60 | floor) as $age
+      | select($age >= 30)
+      | "\(.ticketKey) stage=\(.currentStage // 1) last-write=\($age)min-ago"
+    ' "$sf" 2>/dev/null)
+    if [[ -n "$stale_line" ]]; then
+      stale_found=1
+      warn "stale claim: ${stale_line} — no liveness signal available (a long silent stage looks identical); if no session owns it: resume with '/dev-pipeline:run ${stale_line%% *}', or release with statectl reclaim ${stale_line%% *} --release + the in-progress -> queue label swap via the bot wrapper"
+    fi
+  done
+  [[ "$stale_found" == "0" ]] && ok "no stale in_progress claims (>=30 min since last state write)"
 fi
 
 echo "[doctor] summary: $FAILS failed check(s)"

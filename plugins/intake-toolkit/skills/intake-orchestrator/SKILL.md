@@ -22,9 +22,12 @@ This skill loads instructions into the **calling session**, which gathers eviden
 > default (`tracker.writes: true`): the orchestrator reads the issue via `gh issue view`,
 > and on a `sub-issues` verdict it **auto-creates** the ≤5 slices and swaps parent labels
 > through `$GH_BOT`. Under the jira adapter (dev-pipeline's `tools/tracker/jira/` contract,
-> `tracker.writes: false`) the ticket is fetched **read-only** via `mcp__atlassian__getJiraIssue`
-> (Step 0 reads it there instead of `gh issue view`, and remote design/spec links via
-> `mcp__atlassian__getJiraIssueRemoteIssueLinks`); the `sub-issues` verdict **presents** the
+> `tracker.writes: false`) the ticket is fetched **read-only** via the Atlassian MCP's
+> `getJiraIssue` (Step 0 reads it there instead of `gh issue view`, and remote design/spec
+> links via `getJiraIssueRemoteIssueLinks`). **Do not assume the `mcp__atlassian__*`
+> prefix** — the MCP namespace depends on how the session registered it (`mcp__atlassian__*`,
+> `mcp__plugin_atlassian_atlassian__*`, or `mcp__claude_ai_Atlassian_Rovo__*`); call whichever
+> is exposed (`ToolSearch` to discover a deferred tool). The `sub-issues` verdict **presents** the
 > ≤5 sub-ticket specs to the operator rather than writing them — **no issue-create, no label
 > swap, no comment**. The escalation and status-comment steps (Step 6, Escalation) become
 > operator-facing notes surfaced in-session, not tracker writes. Everything else here
@@ -77,7 +80,7 @@ You dispatch two sub-agents and run dependency analysis inline. Their findings a
 gh issue view $ISSUE_NUMBER --json body,comments,labels
 ```
 
-Read the full issue body and all comments. Under the jira adapter (`tracker.type: jira`) fetch the ticket **read-only** instead — `mcp__atlassian__getJiraIssue` for the body/description and `$KEY` in place of `$ISSUE_NUMBER`; there are no queue labels to read and the resume guards below that key off labels/`stage: intake` comments don't apply (JIRA carries no pipeline-written comment trail — `tracker.writes: false`).
+Read the full issue body and all comments. Under the jira adapter (`tracker.type: jira`) fetch the ticket **read-only** instead — the session's `getJiraIssue` (namespace per the jira-delta callout above) for the body/description and `$KEY` in place of `$ISSUE_NUMBER`; there are no queue labels to read and the resume guards below that key off labels/`stage: intake` comments don't apply (JIRA carries no pipeline-written comment trail — `tracker.writes: false`).
 
 **Resume guards (cross-session — issue-state-aware):**
 
@@ -275,7 +278,8 @@ gh issue edit $ISSUE_NUMBER --remove-assignee @me
 
 1. Verify ≤3 stacked PRs. If >3: escalate via `needs-intake-review`
 2. Post decomposition plan as issue comment (ordered slices with scope, dependencies, targets)
-3. Return control to pipeline (enters outer loop at Stage 3 for slice 1)
+3. **Return the AC→slice partition structurally in the verdict payload (#204).** The Step-5 coverage back-check already reconciled every `AC-n` to exactly one slice — emit that map as `slicePartition: [{slice: 1, acIds: ["AC-1", ...]}, ...]` (1-based slice indices matching the decomposition plan's order; only ID'd ACs appear — un-ID'd deliverables ride the slice prose). The pipeline persists it via `statectl slice-partition-set` (Stage 1 Step 1.D — a local state write, legal under `tracker.writes: false` too); without it every downstream gate (plan-lint Check 3, the Stage-8 scope gate, the retro AC audit) grades slice 1 against the full ticket and the stacked path dead-ends.
+4. Return control to pipeline (enters outer loop at Stage 3 for slice 1)
 
 ### Brief persistence (all continue-verdicts)
 

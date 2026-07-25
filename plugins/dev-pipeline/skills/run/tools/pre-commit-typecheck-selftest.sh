@@ -3,7 +3,7 @@
 # Self-test for the pre-commit type-check hook's inert carve-out
 # (.claude/hooks/pre-commit-typecheck.sh).
 #
-# A self-test in the style of claim-selftest.sh / slice-derivation-selftest.sh:
+# A self-test in the style of claim-selftest.sh:
 # pure-local, no Claude CLI, no network, no yarn. It SOURCES the hook to obtain its
 # `needs_typecheck` predicate (the hook's sourcing guard returns before the gate
 # body, so no /dev/stdin read or `yarn type-check` runs) and drives it with

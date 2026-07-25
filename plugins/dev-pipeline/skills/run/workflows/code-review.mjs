@@ -35,8 +35,24 @@ const REVIEWER_MODEL = {
 // (config keys reviewers by bare name, per second-shift.config.schema.json).
 const bare = (t) => (String(t).includes(':') ? String(t).split(':').pop() : String(t))
 
+// The Atlassian MCP tools scope-completeness-reviewer fetches the JIRA ticket with
+// are DEFERRED in a Workflow subagent (same surface figma.mjs documents) and their
+// namespace depends on HOW the MCP was registered: a top-level `mcpServers` entry
+// exposes `mcp__atlassian__*`; a plugin-bundled server exposes
+// `mcp__plugin_atlassian_atlassian__*`; the claude.ai Atlassian (Rovo) integration
+// exposes `mcp__claude_ai_Atlassian_Rovo__*`. Select ALL THREE namespaces — `select:`
+// returns the names that exist and silently ignores the absent ones, so the same
+// dispatch works regardless of provenance. Hardcoding one prefix made the Scope
+// Completeness Gate unsatisfiable for consumers registered under the other two.
+// Mirrors figma.mjs's FIGMA_MCP_TOOLSEARCH.
+const ATLASSIAN_MCP_TOOLSEARCH =
+  'select:mcp__atlassian__getJiraIssue,mcp__plugin_atlassian_atlassian__getJiraIssue,mcp__claude_ai_Atlassian_Rovo__getJiraIssue,' +
+  'mcp__atlassian__getAccessibleAtlassianResources,mcp__plugin_atlassian_atlassian__getAccessibleAtlassianResources,mcp__claude_ai_Atlassian_Rovo__getAccessibleAtlassianResources,' +
+  'mcp__atlassian__getJiraIssueRemoteIssueLinks,mcp__plugin_atlassian_atlassian__getJiraIssueRemoteIssueLinks,mcp__claude_ai_Atlassian_Rovo__getJiraIssueRemoteIssueLinks'
+
 // Findings contract. Kept permissive (only severity/description/confidence required)
 // so reviewers don't burn retries on over-strict shapes; file/line/title are optional.
+// LOCKSTEP-BEGIN findings-schema
 const FINDINGS_SCHEMA = {
   type: 'object',
   additionalProperties: true,
@@ -65,18 +81,37 @@ const FINDINGS_SCHEMA = {
     suppressed: { type: 'array', items: { type: 'string' } },
   },
 }
+// LOCKSTEP-END findings-schema
 
 // args (assembled in-session by Stage 8, which has Bash to size the diff and route):
 //   worktree     — absolute path the reviewers run git against
-//   base, head   — git range (reviewers run `git -C <worktree> diff <base>..<head>`)
+//   base, head   — git refs bounding the review: a branch, a ref, or a SHA — all accepted.
+//                  The range is rendered THREE-DOT (`<base>...<head>`), which is merge-base
+//                  semantics by definition: git diffs from merge-base(base, head) to head.
+//                  So a `base` BRANCH whose tip has advanced past the branch point does not
+//                  leak its own newer commits into the reviewed diff. Under two-dot they
+//                  render as deletions and reviewers report the branch as reverting work it
+//                  never touched (observed: two false BLOCKERs, #130).
+//                  Callers passing an explicit merge-base SHA are unaffected — when base is
+//                  already an ancestor of head, merge-base(base, head) == base, so
+//                  `base...head` and `base..head` are the same range.
+//                  The merge-base is resolved BY GIT at reviewer-run time via three-dot, not
+//                  computed here: Workflow scripts have no Bash/filesystem access.
 //   issue        — GitHub issue number (drives scope-completeness; omit to skip it)
 //   reviewers    — array of agentType strings already selected per review-lead routing
 //   changedFiles — array of changed paths (context for the prompt)
 //   prContext    — optional free-text branch/PR context
+//   scopeBase    — optional (#204, stacked runs): slice 1's base (merge-base vs the
+//                  configured base branch). scope-completeness-reviewer alone diffs
+//                  `scopeBase...head` (the cumulative 1..N range); all other
+//                  reviewers keep `base...head`. Absent = single-PR behavior.
+//   statePath    — optional (#204, with scopeBase): absolute path of the pipeline
+//                  state file carrying the AC->slice partition; passed to the scope
+//                  reviewer's prompt as a PATH ONLY (content authority is the file).
 // `args` arrives as the value passed to Workflow's `args` input. Defensive: it may
 // be an object, or (per the Workflow contract's stringified-args caveat) a JSON string.
 const a = typeof args === 'string' ? JSON.parse(args) : args || {}
-const { worktree, base, head, issue, reviewers = [], changedFiles = [], prContext = '', config = {} } = a
+const { worktree, base, head, issue, reviewers = [], changedFiles = [], prContext = '', config = {}, scopeBase = '', statePath = '' } = a
 // Per-reviewer model-tier overrides from the consumer config (bare-keyed).
 const modelOverrides = (config && config.reviewers && config.reviewers.modelOverrides) || {}
 if (!worktree || !base || !head) {
@@ -95,8 +130,21 @@ if (reviewers.some((r) => bare(r) === 'scope-completeness-reviewer') && !issue) 
 
 // Workflow runtime globals used below — injected by the Workflow runtime, not
 // imported: log(), phase(), parallel(), agent(). See the Workflow tool API.
-const range = `${base}..${head}`
+// THREE-DOT is load-bearing (#130) — see the base/head contract above. Do not
+// "simplify" to two-dot: it re-admits base-only commits as phantom deletions.
+const range = `${base}...${head}`
 const fileList = changedFiles.length ? changedFiles.join(', ') : '(see diff)'
+// Scope-gate slice mode (#204): on a stacked run the caller passes `scopeBase`
+// (slice 1's base — the configured base branch's merge-base, NOT the per-slice
+// worktreeBase) and `statePath` (the pipeline state file carrying the write-once
+// AC->slice partition). scope-completeness-reviewer alone reviews the CUMULATIVE
+// range `scopeBase...head`; every other reviewer keeps `range` (this slice's
+// diff). Absent scopeBase (single-PR runs) both ranges are identical — behavior
+// byte-unchanged. The prompt names only the state-file PATH — the partition
+// content authority is the file the reviewer reads itself, never prompt prose
+// (its independence contract; see agents/scope-completeness-reviewer.md).
+const scopeRange = scopeBase ? `${scopeBase}...${head}` : range
+const scopeBaseRef = scopeBase || base
 
 // ROOT CAUSE (measured by workflows/stall-probe.mjs — refines the earlier #168/#182 analysis):
 // reviewers die "without calling StructuredOutput" because they exhaust their turn budget
@@ -126,12 +174,73 @@ const fileList = changedFiles.length ? changedFiles.join(', ') : '(see diff)'
 // structured verdict first; kept (cheap, right on principle) though it is not the stall cure. (3) the
 // one-shot retry in dispatchReviewer() recovers residual stochastic deaths. (4) the dark-reviewer
 // coverage-gap contract (review-lead Synthesis Rules + stages/8-code-review.md) backstops anything
-// that still goes dark, surfaced as a coverage gap and never silently dropped. Drift-guard:
-// workflows/null-reviewer-selftest.mjs. reviewer-baseline carries the same principle as documented
+// that still goes dark, surfaced as a coverage gap and never silently dropped. Guards:
+// workflows/runtime-shim-selftest.mjs executes THIS body against the real ladder;
+// workflows/null-reviewer-selftest.mjs Case F pins the load-bearing tokens + emit wiring. reviewer-baseline carries the same principle as documented
 // contract ("Proportionate grounding"); this file is the operative delivery.
-const STRUCTURED_OUTPUT_FIRST =
-  ' Call StructuredOutput FIRST with your verdict and findings, before any prose' +
-  ' explanation — do not write a long write-up before the structured call.'
+// --- explorer/emitter transport (the structural stall fix; #169) ---
+// The stall class is `schema AND can-explore` in one agent; measured on plan-reviewer (opus,
+// k=8, worst-case plan): schema-forced 7/8 deaths, 0 usable; schema-free text contract 0/8,
+// 8/8 usable at a third of the tokens, detection parity 6.75 vs 6.63. Explorers dispatch
+// schema-FREE and end with a sentinel + fenced JSON block parsed here; the schema objects
+// become in-script validators, and only the transcription-only structured-emitter agent
+// (tools: [], maxTurns: 2) ever carries a schema — fired solely when a sentinel-bearing
+// block failed to parse. Missing sentinel = truncation = dark, never the emitter.
+const parseReviewResult = (text) => {
+  const m = [...String(text ?? '').matchAll(/REVIEW_RESULT\s*```json\s*([\s\S]*?)```/g)]
+  if (!m.length) return null
+  try {
+    return JSON.parse(m[m.length - 1][1])
+  } catch {
+    return null
+  }
+}
+
+const validateShape = (obj, schema) => {
+  if (!obj || typeof obj !== 'object') return false
+  for (const key of schema.required || []) if (!(key in obj)) return false
+  const props = schema.properties || {}
+  for (const k of Object.keys(props)) {
+    const p = props[k]
+    if (!(k in obj) || obj[k] == null) continue
+    if (p.enum && !p.enum.includes(obj[k])) return false
+    if (p.type === 'array') {
+      if (!Array.isArray(obj[k])) return false
+      if (p.items) {
+        for (const it of obj[k]) {
+          if (p.items.type === 'string') {
+            if (typeof it !== 'string') return false
+            continue
+          }
+          if (!it || typeof it !== 'object') return false
+          for (const rk of p.items.required || []) if (!(rk in it)) return false
+          const ip = p.items.properties || {}
+          for (const ik of Object.keys(ip)) {
+            if (ip[ik].enum && ik in it && it[ik] != null && !ip[ik].enum.includes(it[ik])) return false
+          }
+        }
+      }
+    }
+  }
+  return true
+}
+
+const emitStructured = (text, opts) =>
+  // bounded-exploration-optout: structured-emitter -- tools:[] maxTurns:2 transcription sink;
+  //   nothing to explore, which is why it may carry the schema.
+  agent(
+    'Convert this completed review into the required structured object. Transcribe EXACTLY' +
+      ' what the review states — never invent, drop, merge, soften or upgrade findings.' +
+      '\n\n---REVIEW---\n' + String(text) + '\n---END---',
+    { agentType: 'review-toolkit:structured-emitter', model: 'haiku', label: `${opts.label} (emit)`, phase: 'Review', schema: opts.schema },
+  )
+
+const FINDINGS_EPILOGUE =
+  '\n\nWrite your review, grounding as much as you need. Your FINAL output MUST end with this' +
+  ' sentinel line followed by one fenced json block and NOTHING after it:\n\n' +
+  'REVIEW_RESULT\n```json\n{ "verdict": "approve|approve-with-nits|request-changes|block",' +
+  ' "findings": [ { "severity": "blocker|major|minor|nit", "file": "...", "line": 0, "title": "...",' +
+  ' "description": "...", "confidence": 0 } ], "suppressed": [] }\n```'
 
 // Bounded exploration / triage — the PRIMARY stall fix (see ROOT CAUSE above for the evidence).
 // Caps the absence-grounding exploration that exhausts a reviewer's turn budget on a large diff.
@@ -141,7 +250,40 @@ const BOUNDED_EXPLORATION =
   ' docs/config/reformatting — or otherwise has nothing in your domain — emit StructuredOutput' +
   ' immediately (approve, no findings) WITHOUT opening every file. Open files only to ground a' +
   ' SPECIFIC finding you intend to raise; you do NOT have to exhaustively read the whole diff to' +
-  ' assert the ABSENCE of findings. Stop exploring and emit StructuredOutput before your budget runs low.'
+  ' assert the ABSENCE of findings. Stop exploring and emit your final result before your budget runs low.'
+
+// The counterpart nudge for the two EXHAUSTIVE reviewers, which cannot take BOUNDED_EXPLORATION
+// without losing the coverage that IS their deliverable (#183). Their death mode is the same
+// turn-budget wall, but the cure is inverted: not "explore less", but "write down what you have
+// as you go", so the wall truncates a result instead of erasing one.
+//
+// Raising the cap does NOT fix this and has now been measured twice. #175 raised both agents
+// 15 -> 30; at the new cap scope-completeness-reviewer still died on BOTH attempts of a
+// standalone review-lead run (31 and 33 tool calls, final text "I'll fetch the issue and the
+// diff.", agents_error 0). The control in that same fan-out is security-reviewer: opus,
+// effort high, HALF the cap (maxTurns 15) — and it completed, because its agent doc carries an
+// explicit turn-numbered emit deadline. The variable is the deadline, not the budget: an agent
+// told to enumerate exhaustively and never told when to stop will spend any finite budget.
+//
+// Safe for exactly these two because a truncated result can only under-claim:
+//   - scope-completeness-reviewer is fail-closed by contract ("Default to FAIL when the evidence
+//     is ambiguous"), so its honest early skeleton is every item [unsatisfied], refined upward
+//     only as evidence lands. A cut-short result over-reports FAIL, never a false PASS.
+//   - unit-test-mutation-reviewer's unreached mutants are simply absent, and an absent mutant
+//     never blocks (execution-verified blocking is Stage 5's, not this fan-out's).
+// This does NOT weaken the dark path (#175's stated non-fix): nothing transcribes partial text
+// and no parser changes — the AGENT emits a well-formed block, and a missing sentinel is still
+// dark. parseReviewResult() is already last-match-wins, which is what makes re-emission free.
+const PROGRESSIVE_EMIT =
+  ' EMIT AS YOU GO — do NOT save your result for the end. As soon as you have enumerated your' +
+  ' items (before classifying them), write a COMPLETE REVIEW_RESULT block reflecting what you' +
+  ' know so far, then keep working and re-emit the whole block each time you learn something.' +
+  ' Emitting more than one block is expected here and overrides the single-block instruction' +
+  ' below: the LAST complete block wins, so an early one costs you nothing and refinement is' +
+  ' free. Your enumeration must stay exhaustive — this governs when you write, never how much' +
+  ' you cover. Budget your turns so the final block is written well before your limit: a review' +
+  ' you never emit is scored exactly like a review that never ran, and your entire domain is' +
+  ' then recorded as unverified.'
 
 // Per-reviewer wall-clock ceiling (#219). The Workflow runtime's own agent-stall loop
 // (multiple attempts × a no-progress window) can let a genuinely wedged reviewer burn
@@ -182,15 +324,8 @@ if (typeof budget !== 'undefined' && budget && budget.total) {
   }
 }
 
-// The Workflow runtime rejects agent() with a message containing the substring
-// "StructuredOutput" when a subagent ends without producing structured output
-// (observed in the #151 run: "subagent completed without calling StructuredOutput
-// (after 2 in-conversation nudges)"). ONLY this error class is retried — genuine
-// tool/permission errors fall through to the forward-as-error path unretried.
-// This is a brittle substring match because it is the only signal the runtime
-// surfaces; if the runtime ever changes the message the retry stops firing and the
-// behavior degrades safely to the pre-retry forward-as-error path.
-const isNoStructuredOutputError = (err) => /StructuredOutput/.test(String(err))
+// The StructuredOutput death class is structurally impossible here (#169): no explorer
+// carries a schema, and the emitter cannot explore. The contract-miss ladder below owns retry.
 
 // One reviewer dispatch, with ONE automatic retry when the dispatch dies without
 // StructuredOutput. The retry runs INLINE inside this task closure (it awaits a
@@ -215,25 +350,30 @@ const dispatchReviewer = async (agentType) => {
     const ref = trackerType === 'jira' ? `JIRA ticket ${issue}` : `GitHub issue #${issue}`
     const fetchInstr =
       trackerType === 'jira'
-        ? `Fetch the ticket yourself via the Atlassian MCP (\`mcp__atlassian__getJiraIssue\` with key \`${issue}\`, responseContentFormat "markdown"; resolve cloudId via \`mcp__atlassian__getAccessibleAtlassianResources\` if you don't have one)`
+        ? `Fetch the ticket yourself via the Atlassian MCP for key \`${issue}\` (responseContentFormat "markdown"). Do NOT assume the \`mcp__atlassian__*\` prefix — the tools are deferred and their namespace depends on how the MCP was registered. FIRST call ToolSearch with query "${ATLASSIAN_MCP_TOOLSEARCH}" to load whichever of the three Atlassian namespaces this session exposes (\`mcp__atlassian__*\`, \`mcp__plugin_atlassian_atlassian__*\`, or \`mcp__claude_ai_Atlassian_Rovo__*\`), then call the exact \`getJiraIssue\` / \`getAccessibleAtlassianResources\` names it returns; ToolSearch silently omits absent namespaces`
         : `Fetch the issue yourself with \`gh issue view ${issue}\``
+    // Stacked-slice runs (#204): path-only pointer to the state file — the
+    // reviewer reads the partition itself and applies its own integrity rules.
+    const statePathNote = statePath
+      ? ` Stacked-slice run: the pipeline state file is at \`${statePath}\` (apply your stacked-slice partition rules).`
+      : ''
     prompt =
       `Verify scope completeness for ${ref}. ` +
-      `Branch head \`${head}\` vs base \`${base}\`; repo worktree \`${worktree}\` ` +
-      `(run \`git -C ${worktree} diff ${range}\` to see the change). ` +
-      `${fetchInstr} and classify each scope item against the diff. Return your verdict and findings.` +
-      STRUCTURED_OUTPUT_FIRST
+      `Branch head \`${head}\` vs base \`${scopeBaseRef}\`; repo worktree \`${worktree}\` ` +
+      `(run \`git -C ${worktree} diff ${scopeRange}\` to see the change). ` +
+      `${fetchInstr} and classify each scope item against the diff.${statePathNote} Return your verdict and findings.` +
+      PROGRESSIVE_EMIT
   } else if (bare(agentType) === 'unit-test-mutation-reviewer') {
     prompt =
       `Mutation review in ADVISORY mode on unit tests for this change. ` +
       `Diff scope: \`git -C ${worktree} diff ${range}\`. Changed files: ${fileList}.` +
       (prContext ? ` Context: ${prContext}.` : '') +
-      ` Load the unit-testing skill. Propose mutants and predict survived/untested — LLM prediction ONLY; ` +
+      ` Propose mutants and predict survived/untested — LLM prediction ONLY; ` +
       `do NOT apply mutants or run tests (this fan-out has no executor). ` +
       `Blocker-class mutants map to severity \`major\` (never \`blocker\` — only the Stage-5 ` +
       `execution-verified gate can block). No Stryker. ` +
       `Return verdict and findings (severity major/minor/nit, file, line, confidence 0-100).` +
-      STRUCTURED_OUTPUT_FIRST
+      PROGRESSIVE_EMIT
   } else {
     prompt =
       `Review this change in your domain. Diff scope: \`git -C ${worktree} diff ${range}\`. ` +
@@ -241,38 +381,66 @@ const dispatchReviewer = async (agentType) => {
       (prContext ? ` Context: ${prContext}.` : '') +
       ` Return your verdict and a deduplicated list of findings (severity blocker/major/minor/nit, ` +
       `file, line, confidence 0-100). Ignore stylistic issues handled by formatter/linter.` +
-      STRUCTURED_OUTPUT_FIRST +
       BOUNDED_EXPLORATION
   }
-  try {
-    const result = await agent(prompt, { agentType, model, label: agentType, phase: 'Review', schema: FINDINGS_SCHEMA })
-    return { agentType, result }
-  } catch (err) {
-    if (!isNoStructuredOutputError(err)) {
-      return { agentType, result: null, error: String(err) }
-    }
-    log(`${agentType}: died without StructuredOutput — retrying once`)
+  // Prompt-branch dispositions (doc, transport-independent): scope-completeness-reviewer and
+  // unit-test-mutation-reviewer deliberately carry no bounding nudge (exhaustive enumeration IS
+  // the deliverable); the generic branch keeps BOUNDED_EXPLORATION as its measured cost control.
+  // The two exhaustive branches instead carry PROGRESSIVE_EMIT — same turn-budget death, opposite
+  // cure ("write as you go" rather than "explore less"), so neither loses coverage (#183). Every
+  // branch now carries exactly one of the two; a branch carrying neither is the omission class
+  // check-bounded-exploration.sh was written for, and null-reviewer-selftest Case F pins this pair.
+  //
+  // Explorer/emitter ladder. Dark-marker shapes are UNCHANGED from the schema era — review-lead
+  // synthesis keys on { result: null } + { retried: true, failed: true } and must keep doing so.
+  let lastText = null
+  for (let attempt = 0; attempt < 2; attempt++) {
+    let text
     try {
-      const result = await agent(prompt, {
+      text = await agent(prompt + FINDINGS_EPILOGUE, {
         agentType,
         model,
-        label: `${agentType} (retry)`,
+        label: attempt === 0 ? agentType : `${agentType} (retry)`,
         phase: 'Review',
-        schema: FINDINGS_SCHEMA,
       })
-      return { agentType, result }
-    } catch (retryErr) {
-      // Surface BOTH failures — the retry error AND the original first-attempt
-      // error — so a twice-dead reviewer's full diagnostic trail survives, not
-      // just the second death.
-      return {
-        agentType,
-        result: null,
-        error: `retry failed: ${retryErr}; first attempt: ${err}`,
-        retried: true,
-        failed: true,
-      }
+    } catch (err) {
+      // Hard dispatch errors (tool/permission/budget) — forwarded, twice-dead-flagged on the retry.
+      return attempt === 0
+        ? { agentType, result: null, error: String(err) }
+        : { agentType, result: null, error: `retry failed: ${err}`, retried: true, failed: true }
     }
+    const parsed = parseReviewResult(text)
+    if (parsed && validateShape(parsed, FINDINGS_SCHEMA)) return { agentType, result: parsed }
+    lastText = text
+    log(`${agentType}: text-contract miss (${/REVIEW_RESULT/.test(String(text ?? '')) ? 'invalid json' : 'no sentinel'})${attempt === 0 ? ' — retrying once' : ''}`)
+  }
+  if (/REVIEW_RESULT/.test(String(lastText ?? ''))) {
+    try {
+      // bounded-exploration-optout: validator-reference -- this schema: key parameterizes the
+      //   emitter helper (whose own dispatch site carries the structured-emitter marker).
+      const emitted = await emitStructured(lastText, { label: agentType, schema: FINDINGS_SCHEMA })
+      if (emitted && validateShape(emitted, FINDINGS_SCHEMA)) return { agentType, result: emitted }
+    } catch (emitErr) {
+      return { agentType, result: null, error: `emit failed: ${emitErr}`, retried: true, failed: true }
+    }
+  }
+  // Missing sentinel (truncation) or unmappable text: dark, with the SAME twice-dead marker.
+  // The two causes get DIFFERENT error strings because they point triage at different layers,
+  // and conflating them cost real time (#183): a turn-cap death reported as "never produced a
+  // parseable block" reads as a transport/parser bug, so the investigation goes to the sentinel
+  // and the emitter — when in fact the agent wrote nothing at all and the fix is an emit
+  // deadline in its doc. Empty final text with a tool-call count at the cap is the cap signature.
+  // The returned SHAPE is identical in both cases: review-lead synthesis and 8-code-review.md
+  // detect darkness via { result: null } + { retried: true, failed: true }, never via this string.
+  const producedNothing = !String(lastText ?? '').trim()
+  return {
+    agentType,
+    result: null,
+    error: producedNothing
+      ? 'turn-budget: agent emitted no text on either attempt (maxTurns cap reached mid-exploration — needs an emit deadline, not a bigger cap) — declared dark'
+      : 'text-contract: explorer produced text but no parseable REVIEW_RESULT block after retry — declared dark',
+    retried: true,
+    failed: true,
   }
 }
 

@@ -1,6 +1,6 @@
 # Stage 7. Doc Update (in-session, no Task dispatch)
 
-In-session structured pass — no `Task` hop. Scans `.project/` docs (and `CLAUDE.md`, `.claude/agents/`) for references to files or APIs touched in Stage 5, identifies stale documentation, and applies surgical diffs.
+In-session structured pass — no `Task` hop. Scans the repo's declared documentation roots (and `CLAUDE.md`, `.claude/agents/`) for references to files or APIs touched in Stage 5, identifies stale documentation, and applies surgical diffs.
 
 Full protocol — change-area → affected-docs map, stale criteria, severity classification, report template, and pipeline-level handling — lives in [`doc-update.md`](../doc-update.md). On invocation, read that file and follow it; do not re-derive the protocol from this section.
 
@@ -25,6 +25,7 @@ QUALITY_PASS_JSON="$(statectl.sh get "$ISSUE_NUMBER" '.stages."6".qualityPass //
 # changed-file set are recomputed per worktree), merged and given the shared envelope.
 # Single-target / non-pair runs (targetRepos absent or length 1) take the unchanged
 # flat build-checkpoint-7 path in the else branch below.
+# LOCKSTEP-BEGIN stage7-dual-target
 TARGET_REPOS_JSON="$(statectl.sh get "$ISSUE_NUMBER" '.targetRepos // []')"
 if [[ "$(echo "$TARGET_REPOS_JSON" | jq 'length')" -gt 1 ]]; then
   REPO_ROOT="$(git rev-parse --show-toplevel)"
@@ -58,6 +59,7 @@ if [[ "$(echo "$TARGET_REPOS_JSON" | jq 'length')" -gt 1 ]]; then
          --argjson qps "$QUALITY_PASS_JSON" \
          '. + {ticketKey:$k, targetRepos:$tr, planPath:$pp, deviations:$dv, freeNote:$fn, planRisks:$prisk, docUpdaterFindings:$du, qualityPassSummary:$qps}'
   )
+# LOCKSTEP-END stage7-dual-target
 else
   CHECKPOINT_JSON=$(statectl.sh build-checkpoint-7 \
     --issue "$ISSUE_NUMBER" \
@@ -81,13 +83,13 @@ The builder validates the payload's flat schema eagerly (ticketKey matches; `bra
 
 Mark Stage 7 completed (`statectl set-stage "$ISSUE_NUMBER" 7 --status completed`), then proceed in-process to Stage 8. (The `currentStage == 7` + `stages.7.status == "completed"` state is also what a crash-recovery resume detects to re-enter at Stage 8 in a fresh session after an interruption.)
 
-**`deviations[]` discipline:** Each entry is `{kind, planSection, file?, line?, note}` where `kind` is one of `"scope-creep" | "alternate-approach" | "deferred" | "surprise"`. **be-fe-pair dual-target (#48):** when `.targetRepos` has more than one repo, each entry also carries a `repo` field naming which target repo the deviation is in (so the shared ledger stays per-repo attributable); optional otherwise. Empty array is acceptable when implementation matched the plan exactly; an empty array PLUS empty `freeNote` triggers a soft warning ("checkpoint produced no observable signal") in the eval ledger. **Quality-pass reverted outcome:** when `stages.6.qualityPass.outcome == "reverted"`, additionally append a `{kind: "surprise"}` deviation naming the reverted cleanup — the reset left no branch trace, so this ledger entry is the only disclosure. An `applied` outcome is disclosed via `qualityPassSummary` alone, not `deviations[]`.
+**`deviations[]` discipline:** Each entry is `{kind, planSection, file?, line?, note}` where `kind` is one of `"scope-creep" | "alternate-approach" | "deferred" | "surprise"`. **be-fe-pair dual-target:** when `.targetRepos` has more than one repo, each entry also carries a `repo` field naming which target repo the deviation is in (so the shared ledger stays per-repo attributable); optional otherwise. Empty array is acceptable when implementation matched the plan exactly; an empty array PLUS empty `freeNote` triggers a soft warning ("checkpoint produced no observable signal") in the eval ledger. **Quality-pass reverted outcome:** when `stages.6.qualityPass.outcome == "reverted"`, additionally append a `{kind: "surprise"}` deviation naming the reverted cleanup — the reset left no branch trace, so this ledger entry is the only disclosure. An `applied` outcome is disclosed via `qualityPassSummary` alone, not `deviations[]`.
 
 #### Proceed to Stage 8 (in-process)
 
 After the checkpoint write above:
 
-1. **Post the issue comment** via `$GH_BOT issue comment`: `stage: doc-update, status: completed`.
+1. **Post the issue comment** via `$GH_BOT issue comment`: `stage: doc-update, status: completed`. Record the receipt: `"$STATECTL" comment-add "$ISSUE_NUMBER" --marker doc-update --url <html_url>` — Stage-7 completion refuses without it.
 2. **Continue in-process to Stage 8** in the same session. Stage 8 reads the just-written `stageCheckpoint["7"]` from state and begins the review loop.
 
 ---

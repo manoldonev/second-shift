@@ -1,7 +1,7 @@
 # FE Spec: <screen/component name>
 
 > Filled in by the `design-faithful-spec` skill from a sanitized Claude Design handoff
-> contract (the `extractContract` output of the #195 lib). One spec per screen/component.
+> contract (the `extractContract` output of the contract lib). One spec per screen/component.
 > **Faithful = visual/UX fidelity onto the repo's real stack** (per the repo's
 > `.claude/second-shift/design-tokens/*.md` reference, or conservative discovery), never the
 > handoff README's stack claims.

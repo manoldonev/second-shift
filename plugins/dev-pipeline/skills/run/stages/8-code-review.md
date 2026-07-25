@@ -80,9 +80,45 @@ intended surface and decide whether a changed path belongs to it; a brace/`**` p
 shell expanded is still a clear statement of intent.
 
 ```
+# Resolve the review bounds HERE rather than inheriting them from the Stage-5 session
+# (#130). $WORKTREE/$BASE/$HEAD were used below without ever being assigned in this lane —
+# they carried over in-session from 5-implement.md, so a crash-recovery resume (a fresh
+# session with no Stage-5 variables) or a long session whose base moved could review
+# against a stale branch point. Same derivation idiom as 5-implement.md:40-53 and the
+# be-fe-pair R_MB lane further down; resolve once, before the round loop.
+WORKTREE="$(git rev-parse --show-toplevel)/$(statectl.sh get "$ISSUE_NUMBER" '.worktreePath')"
+HOST_Q='(.topology.repos | to_entries[] | select(.value.path==".") | .key)'
+BASE_BRANCH_CFG="$(jq -r "$HOST_Q as \$h | .topology.repos[\$h].baseBranch // \"main\"" "$SECOND_SHIFT_CONFIG" 2>/dev/null || echo main)"
+WORKTREE_BASE="$(statectl.sh get "$ISSUE_NUMBER" '.worktreeBase // empty')"
+[[ -z "$WORKTREE_BASE" || "$WORKTREE_BASE" == "null" ]] && WORKTREE_BASE="$BASE_BRANCH_CFG"
+HEAD="$(git -C "$WORKTREE" rev-parse HEAD)"
+BASE="$(git -C "$WORKTREE" merge-base HEAD "origin/${WORKTREE_BASE}" 2>/dev/null \
+        || git -C "$WORKTREE" merge-base HEAD "$WORKTREE_BASE")"
+
+# Scope-gate slice mode (#204): on a stacked run (non-null currentSlice + a
+# persisted decomposition.slices partition) the scope reviewer grades the union
+# of ACs for slices 1..N against the CUMULATIVE diff, so its range is anchored
+# at SLICE 1's base — the CONFIGURED base branch ($BASE_BRANCH_CFG), NOT the
+# per-slice $WORKTREE_BASE (the prior slice's branch for N>1). All other
+# reviewers keep $BASE (this slice's own diff). Single-PR runs leave SCOPE_BASE
+# empty — the dispatch below then behaves byte-identically to before.
+SCOPE_BASE=""
+STATE_PATH="$(statectl.sh state-path "$ISSUE_NUMBER")"
+CUR_SLICE="$(statectl.sh get "$ISSUE_NUMBER" '.currentSlice // empty')"
+PARTITION_LEN="$(statectl.sh get "$ISSUE_NUMBER" '.decomposition.slices // [] | length')"
+if [[ -n "$CUR_SLICE" && "$CUR_SLICE" != "null" && "$PARTITION_LEN" != "0" ]]; then
+  SCOPE_BASE="$(git -C "$WORKTREE" merge-base HEAD "origin/${BASE_BRANCH_CFG}" 2>/dev/null \
+                || git -C "$WORKTREE" merge-base HEAD "$BASE_BRANCH_CFG")"
+  # Advisory visibility only — the reviewer re-derives the graded set itself
+  # from the state file (integrity checks included; fail-closed to full ticket).
+  bash "${CLAUDE_PLUGIN_ROOT}/skills/run/tools/slice-scope.sh" "$STATE_PATH" --slice "$CUR_SLICE" || true
+fi
+
 for round in 1..3:
   # (a) In-session (has Bash): size + route per review-toolkit:review-lead's Reviewer Routing.
-  git -C "$WORKTREE" diff --stat "$BASE".."$HEAD"   # size class + changed paths
+  # THREE-DOT (#130): changedFiles rides in the SAME reviewer prompt as the diff range, so a
+  # two-dot --stat here would list base-only files even once the range itself is correct.
+  git -C "$WORKTREE" diff --stat "$BASE"..."$HEAD"   # size class + changed paths
   Select reviewers per review-toolkit:review-lead Reviewer Routing:
     - always: review-toolkit:security-reviewer, review-toolkit:performance-reviewer, review-toolkit:maintainability-reviewer
     - Medium/Large: + review-toolkit:complexity-reviewer, review-toolkit:test-coverage-reviewer
@@ -106,6 +142,9 @@ for round in 1..3:
     // from config `reviewers.add` are passed bare).
     args: { worktree: "$WORKTREE", base: "$BASE", head: "$HEAD", issue: "$ISSUE_NUMBER",
             config: CONFIG,
+            # Stacked runs only (#204) — omit both on single-PR runs:
+            #   scopeBase: "$SCOPE_BASE"  (slice 1's base; scope reviewer diffs scopeBase...head)
+            #   statePath: "$STATE_PATH"  (path-only pointer to the partition state file)
             reviewers: [<selected agentType strings>],
             changedFiles: [<from --stat>], prContext: "<branch/PR context; include unitTestSurface.mutationTargets when unit-test-mutation-reviewer is selected; include stageCheckpoint[\"7\"].qualityPassSummary so reviewers VERIFY the applied Stage-6 cleanups instead of re-proposing them — unapplied quality-pass suggestions[] cap at minor/nit (they were already judged out of apply scope); when .briefPath is non-null, include it for the NON-scope reviewers so they can flag plan/impl drift from the Brief's binding intent — but NEVER forward briefPath to scope-completeness-reviewer (its independence contract fetches the issue itself; feeding it derived intent would corrupt the anti-gaslighting property)>" }
   })
@@ -121,32 +160,16 @@ for round in 1..3:
   # "Dark-reviewer handling" subsection below for the full deterministic contract.
 
   # (c) Load review-toolkit:review-lead for SYNTHESIS ONLY (synthesis-only mode — its dispatch
-  #     Pre-flight does not apply; the fan-out already ran in the script).
-  #     Run its Synthesis Rules over the returned structured findings.
+  #     Pre-flight does not apply; the fan-out already ran in the script), then run its
+  #     Synthesis Rules over the returned structured findings. Those rules are
+  #     AUTHORITATIVE — do not paraphrase them here.
   #
-  #     The Skill load is MANDATORY — there is NO inline fast-path, no matter
-  #     how small or clean the finding set looks ("all approvals, one nit" is
-  #     not an exemption; cheap-looking rounds are exactly where unloaded
-  #     synthesis silently diverges from the Synthesis Rules). The contract
-  #     summary below is a REMINDER of what review-toolkit:review-lead enforces, not a
-  #     substitute for loading it. If synthesis somehow proceeded without the
-  #     load, that is a process violation: say so explicitly in the round
-  #     summary and in the issue comment — never paper over it.
-  #
-  #     Load it FRESH at THIS Stage 8, even if review-toolkit:review-lead was already loaded
-  #     earlier in the same session (a prior issue in a batch / ralph-loop run,
-  #     or an earlier turn in this conversation). "It's still in my context from
-  #     before" is NOT an exemption — re-invoke the Skill. Relying on a stale
-  #     in-context copy is the same process violation as not loading at all, and
-  #     a fresh-session crash-recovery resume has no earlier load to fall back on,
-  #     so the fresh invocation is the only contract that holds on every path.
-  Review contract (reminder — review-toolkit:review-lead's rules are authoritative):
-    - Deduplicated findings only (no reviewer overlap)
-    - Severity: blocker / major / minor / nit
-    - Ignore stylistic issues handled by formatter/linter
-    - Prioritize: correctness > safety > maintainability
-    - Max 10 actionable items per round
-    - Scope Completeness Gate uses the scope-completeness-reviewer's result.
+  #     MANDATORY on every path: no inline fast-path however small or clean the finding
+  #     set looks, and a load earlier in this session does not carry over — load FRESH
+  #     here (a crash-recovery resume has no earlier load to inherit). Record it
+  #     immediately as completion evidence (completion-gated; the be-fe-pair
+  #     crossBoundaryReviews/skippedReviews paths are exempt):
+  #       "$STATECTL" skill-load-add "$ISSUE_NUMBER" --stage 8 --skill review-toolkit:review-lead
 
   if no blockers or majors: break   # clean path — emit the clean-path comment (below)
   Fix blocker + major findings, commit fixes, then re-run verify DIRECTLY via
@@ -175,7 +198,7 @@ A reviewer that produces no findings because it went **dark** (never returned a 
 
 Two named dark cases (do **not** infer darkness from array length alone):
 
-1. **Died-after-retry (per-reviewer).** The reviewer is **present** in `reviewers[]` as `{ result: null, ... }`, with `{ retried: true, failed: true }` if it also failed its one automatic retry. Exactly that one reviewer is dark; the others are fine. A reviewer that exceeded the per-reviewer wall-clock ceiling (`REVIEWER_CEILING_MS`, #219 — bounds a wedged reviewer so it cannot add ~90 min to the round) reaches this **same** marker shape, additionally carrying `{ ceiling: true }`. It is a **sub-cause** of this case, not a new dark case: the coverage-gap reason stays `died-after-retry` (the `ceiling: true` flag is an optional human annotation for _why_ it went dark — "wall-clock ceiling" — never a new reason token).
+1. **Died-after-retry (per-reviewer).** The reviewer is **present** in `reviewers[]` as `{ result: null, ... }`, with `{ retried: true, failed: true }` if it also failed its one automatic retry. Exactly that one reviewer is dark; the others are fine. A reviewer that exceeded the per-reviewer wall-clock ceiling (`REVIEWER_CEILING_MS` — bounds a wedged reviewer so it cannot add ~90 min to the round) reaches this **same** marker shape, additionally carrying `{ ceiling: true }`. It is a **sub-cause** of this case, not a new dark case: the coverage-gap reason stays `died-after-retry` (the `ceiling: true` flag is an optional human annotation for _why_ it went dark — "wall-clock ceiling" — never a new reason token).
 2. **Budget-skipped (all-or-nothing).** The return carries `budgetExhausted: true` and `reviewers` is **empty by construction** — the fan-out never dispatched, so **every** selected reviewer (the `args.reviewers` you passed) is dark, not a partial subset.
 
 For either case, synthesize with the reviewers you DO have and **record the coverage gap explicitly** — never silently drop it:
@@ -224,15 +247,21 @@ A code-remediable blocker (the diff can be fixed) is unaffected — it stays in 
   - Continue to step 9. The PR is already going to be draft (all PRs are draft) — additionally, on PR creation, apply the `needs-deep-review` label and include the Outstanding Review Blockers section in the body.
   - Comment via `$GH_BOT issue comment`: `stage: code-review`, `status: exhausted-after-3-rounds`.
 
+**Receipt + PR review (every terminating path — clean, exhausted, scope-blocker):**
+
+1. Record the terminating `code-review` comment's URL: `statectl.sh comment-add "$ISSUE" --marker code-review --url <html_url>` — completion-gated whenever a primary round ran (`codeReviewRounds >= 1`; the be-fe-pair cross-boundary/skip-only paths post none and are exempt).
+2. File the consolidated report as an actual **PR review** — `$GH_BOT pr review "$PR_NUMBER" --comment --body-file <report>` — not only as prose folded into the PR description by the session being scored. The PR review is the GitHub-native artifact an independent re-scorer and a human reviewer inspect; six reviewers leaving zero PR-side trace is the failure this exists to stop. (Skip only when no PR exists yet on this path — Stage 9 then carries the report into the PR body as before.)
+
 **State:** Write the review counters via `statectl` — clean path: `statectl.sh review-rounds "$ISSUE" --set "$ROUND"` (round count 1–3); exhaustion: `--set 3 --exhausted`. The `--exhausted` flag is additive-only — the subcommand never writes `codeReviewExhausted: false`, so a later plain `--set` cannot reset a recorded exhaustion.
 
-### be-fe-pair dual-target: secondary-repo review (`.targetRepos` has more than one repo, #48)
+### be-fe-pair dual-target: secondary-repo review (`.targetRepos` has more than one repo)
 
 The main loop above reviews the **primary** target (the flat-mirror worktree that `.worktreePath` points at) exactly as any single-target run does. On a **dual `[BE]+[FE]` ticket** every OTHER target repo is also reviewed here, before Stage 9 — the secondary repo's diff must not ship unreviewed. **Skip this entire subsection** when `.targetRepos` has fewer than two entries (every single-target pair and every non-pair topology — the primary review above was the whole job).
 
 For each repo id in `.targetRepos` that is not the primary:
 
 ```bash
+# LOCKSTEP-BEGIN stage8-secondary-review
 PRIMARY_WT_REL="$(statectl.sh get "$ISSUE_NUMBER" '.worktreePath')"
 REPO_ROOT="$(git rev-parse --show-toplevel)"
 if [[ "$(statectl.sh get "$ISSUE_NUMBER" '.targetRepos // [] | length')" -gt 1 ]]; then
@@ -249,6 +278,7 @@ if [[ "$(statectl.sh get "$ISSUE_NUMBER" '.targetRepos // [] | length')" -gt 1 ]
       echo "[stage-8] FAIL: '$r' worktree is dirty — commit/stash/discard before resuming." >&2
       exit 1
     fi
+# LOCKSTEP-END stage8-secondary-review
     # No diff on this repo's branch ⇒ nothing to review; record the skip and move on.
     if [[ -z "$(git -C "$R_WT" diff --name-only "$R_MB..$R_HEAD")" ]]; then
       statectl.sh skipped-review-add "$ISSUE_NUMBER" --repo "$r" --reason "no changes on this repo's branch"
@@ -266,7 +296,7 @@ if [[ "$(statectl.sh get "$ISSUE_NUMBER" '.targetRepos // [] | length')" -gt 1 ]
 fi
 ```
 
-**Non-blocking handoff fallback.** When a secondary repo genuinely cannot be reviewed in this session (its reviewer set is unresolvable, or an interactive-only constraint applies), record a **pending handoff** instead of the in-session review — `statectl.sh cross-boundary-review-add "$ISSUE_NUMBER" --repo "$r" --status pending --worktree "$R_WT_REL" --base "$R_MB" --head "$R_HEAD" --note "run review-lead in this repo's own session"`. Stage 9 already surfaces pending handoffs as PR "review pending" bullets. Either outcome — an in-session `completed-in-session` review, a `pending` handoff, or a `skippedReviews` no-diff record — satisfies the Stage-8 completion precondition for that repo (the escape hatch added in #48 Phase 1), so the run reaches Stage 9 with every target repo accounted for.
+**Non-blocking handoff fallback.** When a secondary repo genuinely cannot be reviewed in this session (its reviewer set is unresolvable, or an interactive-only constraint applies), record a **pending handoff** instead of the in-session review — `statectl.sh cross-boundary-review-add "$ISSUE_NUMBER" --repo "$r" --status pending --worktree "$R_WT_REL" --base "$R_MB" --head "$R_HEAD" --note "run review-lead in this repo's own session"`. Stage 9 already surfaces pending handoffs as PR "review pending" bullets. Either outcome — an in-session `completed-in-session` review, a `pending` handoff, or a `skippedReviews` no-diff record — satisfies the Stage-8 completion precondition for that repo (the documented escape hatch), so the run reaches Stage 9 with every target repo accounted for.
 
 ---
 

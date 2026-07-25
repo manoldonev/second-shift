@@ -4,7 +4,7 @@
 
 The goal: at Stage 9 (after the PR is opened), the pipeline invokes `pipeline-cost-block.sh` in-band. The script reads OTel metrics emitted under the sessions recorded in `pipelineSessions[]`, clamps them to the run's own wall-clock fence (`[startedAt, terminal-stage completedAt]`) so a co-resident sequential run or `/pipeline-retro` sharing the same `session.id` doesn't leak in, buckets the in-fence datapoints per stage, and appends a single cost block to each PR's body (idempotently — re-runs detect the marker and no-op).
 
-Opting in is just steps 1–3 below (collector + telemetry env + bot wrapper) — no per-engineer hook wiring. The skill records the native Claude Code session UUID (`$CLAUDE_CODE_SESSION_ID`) at Stage 2 (and again only on a crash-recovery Stage 8 resume in a fresh session) via `statectl pipeline-session-add`, and Stage 9 reads the resulting `pipelineSessions[]` to attribute cost. That UUID is the same value the OTel exporter tags datapoints with as `session.id`, which is what lets the cost block match them.
+Opting in is just steps 1–3 below (collector + telemetry env + bot wrapper) — no per-engineer hook wiring. The skill records the native Claude Code session UUID (`$CLAUDE_CODE_SESSION_ID`) at Stage 2, on any resume of an `in_progress` run (SKILL.md resume rule 2), and on a crash-recovery Stage 8 resume, via `statectl pipeline-session-add`, and Stage 9 reads the resulting `pipelineSessions[]` to attribute cost. That UUID is the same value the OTel exporter tags datapoints with as `session.id`, which is what lets the cost block match them.
 
 ## Prerequisites
 
@@ -115,12 +115,14 @@ jq '.costBlockApplied' .claude/pipeline-state/<issue-number>.json
 - `"skipped-no-bot-wrapper"` — the bot is **enabled** but its wrapper is missing or non-executable. Install / repair the bot wrapper. (A bot-disabled repo cannot record this — it amends via plain `gh`. Seeing it on a repo you believe is bot-disabled means the config really does set `tracker.bot.enabled: true`.)
 - `"skipped-no-gh-cli"` — `gh` is not on `PATH`. Install the GitHub CLI; no PR write is possible under either identity without it.
 - `"skipped-amend-failed"` — `gh pr edit` failed. Check stderr from the most recent Stage 9 run.
+- `"skipped-no-prs"` — the run resolved its state file and had cost, but `prs` was empty (no PR to amend). Recorded so the miss is never a bare `null` (#188).
+- **`costBlockApplied` left `null`/absent AND the sub-step exited non-zero (rc 2)** — the state file could not be **resolved** at all (`no state file at … — state unresolvable` on stderr). This is the one non-zero exit; nothing can be recorded because there is no file to write into. On a **cross-repo run** (a control repo driving a foreign checkout via `--add-dir`, or any cwd not linked to the control repo's `.git`), point the sub-step at the control repo's state: `SECOND_SHIFT_REPO_ROOT=<control-repo root> bash pipeline-cost-block.sh <issue>` (or `STATECTL_STATE_DIR=<control>/.claude/pipeline-state …`). Stage 9 already exports `SECOND_SHIFT_REPO_ROOT` for the in-tree topologies; this is only needed for a bespoke foreign-cwd setup.
 
 The cost log at `.claude/pipeline-state/cost-log.jsonl` has the run's rollup. If it's there but the PR wasn't amended, the `gh pr edit` call failed — through the bot wrapper on a bot-enabled repo, or under operator identity otherwise.
 
 ### Manual re-run after an OTel query failure
 
-The cost block is a **best-effort, in-band sub-step that always exits 0** — Stage 9 (and the whole pipeline run) is already **complete** when it records `skipped-otel-error`. `costBlockApplied` is informational and is **not** load-bearing for resume, so the pipeline never re-enters on your behalf to retry it. Recovery is a manual, idempotent re-run:
+The cost block is a **best-effort, in-band sub-step** — Stage 9 (and the whole pipeline run) is already **complete** when it records `skipped-otel-error`. Its exit contract (#188): **exit 0** whenever it ran or recorded a documented skip; **non-zero (rc 2)** only when the state file could not be resolved. Stage 9 invokes it without checking rc, so neither outcome blocks completion. `costBlockApplied` is informational and is **not** load-bearing for resume, so the pipeline never re-enters on your behalf to retry it. Recovery is a manual, idempotent re-run:
 
 1. **Fix the precondition that made the query fail.** Usually one of:
    - the OTel collector wasn't reachable / wasn't running when the sub-step ran — start it (steps 1–2 above) and confirm `~/.claude/otel-metrics/metrics.jsonl` is non-empty;

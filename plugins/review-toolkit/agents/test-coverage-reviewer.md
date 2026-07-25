@@ -79,6 +79,12 @@ The concrete boundary constants, model/feature files, and expected-signal fixtur
 
 ## Warning Rules
 
+### Test-Surface Shape (pipeline-gate and contract-duplication changes)
+
+- When the diff touches a **pipeline gate contract**, require it to name the affected verdict paths and say how the composed-path liveness scenario was extended for each. A gate that no scenario composes against is one nothing proves reachable — a full suite of green per-component tests has already missed exactly this.
+- Flag a **new per-tool fixture case that an existing scenario subsumes**. Coverage that restates what a scenario already drives is accretion, not assurance.
+- Flag a **new prose-presence guard** — a `grep` for a literal token in a markdown/prose file — as the banned class. It asserts only that prose contains words. The remedy is a lockstep-manifest entry comparing the two copies. Narrow exception: token pins on Workflow-runtime `.mjs` seams for what execution cannot reach. Note that these files ARE executable — `runtime-shim-selftest.mjs` strips the `export const meta` block and runs the real body with injected fakes — so a grep asserting *behavior* on such a seam is no longer sanctioned; the shim is. Also flag any **mirror harness**: a selftest that re-declares production logic and tests the copy can never fail on a production edit.
+
 ### Changed Logic Without Updated Tests (ALL languages)
 
 If existing function behavior changes (new branch, different return value, added parameter), existing tests should cover the change.

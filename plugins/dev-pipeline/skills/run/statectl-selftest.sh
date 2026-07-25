@@ -48,58 +48,14 @@ FAIL=0
 pass() { echo "  PASS: $1"; PASS=$((PASS+1)); }
 fail() { echo "  FAIL: $1"; FAIL=$((FAIL+1)); }
 
-# Helper: run statectl, capture stdout and exit code.
-sct() {
-  "$STATECTL" "$@" 2>/dev/null
-}
-sct_err() {
-  # shellcheck disable=SC2069 # deliberate stderr-only capture: stderr -> stdout, original stdout discarded
-  "$STATECTL" "$@" 2>&1 >/dev/null
-}
-sct_rc() {
-  "$STATECTL" "$@" >/dev/null 2>&1
-  echo "$?"
-}
-
-# Helper: reset state file between tests.
-reset_state() {
-  rm -f .claude/pipeline-state/*.json .claude/pipeline-state/*.tmp
-}
-
-# Helper: start + complete one stage with the minimal evidence its completion
-# precondition requires (the imperative stage machine refuses a bare
-# `--status completed`). Stages 3/7/9 have no precondition; stage 7's checkpoint
-# is written where a case needs it (validate_stage7_payload applies there).
-complete_stage() {
-  local key="$1" n="$2"
-  sct set-stage "$key" "$n" --status started >/dev/null
-  case "$n" in
-    1) sct checkpoint "$key" 1 --json '{"verdict":"no-split","preflight":{"baseBranch":"main","workingTreeClean":true,"guardOutcome":"proceed-clean"}}' >/dev/null ;;
-    2) sct worktree-set "$key" --path ".claude/worktrees/acme-$key" --branch "claude/acme-$key" >/dev/null ;;
-    4) sct plan-review-set "$key" --overall pass >/dev/null ;;
-    5) sct checkpoint "$key" 5 --json '{"changedFiles":[]}' >/dev/null ;;
-    6) sct verify-summary-set "$key" --json '{"format":"clean","test":"passed"}' >/dev/null ;;
-    7) sct checkpoint "$key" 7 --json "$VALID_PAYLOAD" >/dev/null ;;
-    8) sct review-rounds "$key" --set 1 >/dev/null ;;
-  esac
-  sct set-stage "$key" "$n" --status completed >/dev/null
-}
-
-# Helper: write a plausible self-eval file for <key> (the mark-completed eval gate).
-write_eval() {
-  local key="$1"
-  printf '{"ticketKey":%s,"criteria":{"plan_grounding":"PASS"}}\n' "$key" \
-    > ".claude/pipeline-state/${key}-eval.json"
-}
-
-# Acme single-repo Stage 7 checkpoint payload — flat fields, no perRepo wrapper.
-# NOTE: worktreePath here is intentionally absolute. checkpoint/build-checkpoint-7
-# store a copy of an already-validated worktreePath and do NOT flow through
-# worktree-set, so the repo-relative path-form guard (ws5) does not apply to these
-# checkpoint fixtures — they exercise the payload-shape checks in isolation. The
-# canonical repo-relative form is enforced only at the worktree-set writer (see
-# cmd_worktree_set in statectl.sh and state-schema.md "Worktree").
-VALID_PAYLOAD='{"ticketKey":"9999","branch":"claude/acme-9999","headSha":"abc123","worktreePath":"/tmp/x","deviations":[]}'
+# Scenario mechanics (sct*, reset_state, complete_stage, write_eval, write_report,
+# VALID_PAYLOAD, complete_run_vs) are shared with scenario-liveness-selftest.sh so the
+# composed full-green-run recipe has one definition. SCENARIO_LIB is an absolute path
+# resolved from SKILL_DIR above, so the `cd "$TMPDIR_ST"` earlier cannot break it.
+SCENARIO_LIB="${SKILL_DIR}/scenario-lib.sh"
+[[ -f "$SCENARIO_LIB" ]] || { echo "[self-test] FATAL: $SCENARIO_LIB missing"; exit 99; }
+# shellcheck source=/dev/null
+. "$SCENARIO_LIB"
 
 # ============================================================ core (must-pass) ===
 
@@ -222,8 +178,7 @@ reset_state
 sct init 9999 --run-id "selftest-run-$$" >/dev/null
 complete_stage 9999 1
 complete_stage 9999 2
-sct set-stage 9999 3 --status started >/dev/null
-sct set-stage 9999 3 --status completed >/dev/null
+complete_stage 9999 3
 err=$(sct_err set-stage 9999 3 --status started)
 rc=$(sct_rc set-stage 9999 3 --status started)
 if [[ "$rc" != "0" && "$err" == *"cannot re-start a completed stage"* ]]; then
@@ -448,6 +403,28 @@ rc=0; printf '' | bash "$MAXSLICE" >/dev/null 2>&1 || rc=$?
 [[ "$rc" == "2" ]] && pass "(mps6) missing issue arg → usage error rc=2" \
   || fail "(mps6) missing issue arg → rc=$rc (want 2)"
 
+# (mps7-9) BRANCH_PREFIX parameterization — salvaged from the deleted
+#          slice-derivation-selftest.sh (#214). One helper serves both trackers
+#          (github "claude/acme-", jira e.g. "jdoe/"); unset stays the github default.
+got=$(mps $'refs/heads/claude/acme-149\nrefs/heads/claude/acme-149-pr2' 149)
+[[ "$got" == "2" ]] && pass "(mps7) default prefix (claude/acme-) → 2" \
+  || fail "(mps7) default prefix → got '$got' (want 2)"
+got=$(printf 'refs/heads/jdoe/gh-540\nrefs/heads/jdoe/gh-540-pr3\n' | BRANCH_PREFIX="jdoe/" bash "$MAXSLICE" gh-540 2>/dev/null)
+[[ "$got" == "3" ]] && pass "(mps8) custom prefix (jdoe/, key gh-540) → 3" \
+  || fail "(mps8) custom prefix → got '$got' (want 3)"
+got=$(printf 'refs/heads/jdoe/gh-5400\nrefs/heads/jdoe/gh-540\n' | BRANCH_PREFIX="jdoe/" bash "$MAXSLICE" gh-540 2>/dev/null)
+[[ "$got" == "1" ]] && pass "(mps9) custom prefix cross-key isolation (gh-5400 ≠ gh-540) → 1" \
+  || fail "(mps9) custom prefix cross-key isolation → got '$got' (want 1)"
+
+# (mps10) OUT-OF-ORDER refs — the mutant killer this suite was missing (#214).
+#         `git ls-remote` emits refs LEXICOGRAPHICALLY, so at >=10 slices `pr10`
+#         sorts BEFORE `pr2`. A last-wins implementation (MAX=$n unconditional)
+#         passes every other case here, because in all of them the highest slice
+#         happens to be last. This fixture is the only one that fails it.
+got=$(mps $'refs/heads/claude/acme-42-pr10\nrefs/heads/claude/acme-42-pr9\nrefs/heads/claude/acme-42-pr2' 42)
+[[ "$got" == "10" ]] && pass "(mps10) out-of-order refs → max (10), not last (2)" \
+  || fail "(mps10) out-of-order refs → got '$got' (want 10 — last-wins regression?)"
+
 # (psa1) pipeline-session-add: first call appends; second call same sid is idempotent
 reset_state
 sct init 9999 --run-id "selftest-run-$$" >/dev/null
@@ -656,6 +633,58 @@ if [[ "$rc" != "0" && "$err" == *"positive integer"* ]]; then
   pass "(sls5) slice-set non-integer --current → rejected"
 else
   fail "(sls5) slice-set non-integer current — rc=$rc err='$err'"
+fi
+
+# (sps1) slice-partition-set happy path: valid 2-slice partition over the snapshot
+# → decomposition.slices written sorted, count echoed (#204)
+reset_state
+sct init 9999 --run-id "selftest-run-$$" >/dev/null
+sct intake-brief 9999 --brief-path null --acceptance-criteria \
+  '[{"id":"AC-1","text":"a","negative":false,"source":"explicit"},{"id":"AC-2","text":"b","negative":false,"source":"explicit"},{"id":"AC-3","text":"c","negative":false,"source":"explicit"}]' >/dev/null
+out=$(sct slice-partition-set 9999 --json '[{"slice":2,"acIds":["AC-3"]},{"slice":1,"acIds":["AC-1","AC-2"]}]')
+got=$(sct get 9999 '.decomposition.slices | map(.slice) | join(",")')
+ids1=$(sct get 9999 '.decomposition.slices[0].acIds | join(",")')
+if [[ "$out" == "2" && "$got" == "1,2" && "$ids1" == "AC-1,AC-2" ]]; then
+  pass "(sps1) slice-partition-set happy path → sorted slices persisted, count echoed"
+else
+  fail "(sps1) slice-partition-set happy — out=$out slices=$got ids1=$ids1"
+fi
+
+# (sps2) write-once: second write without --force → rejected; --force overwrites
+err=$(sct_err slice-partition-set 9999 --json '[{"slice":1,"acIds":["AC-1","AC-2","AC-3"]}]')
+rc=$(sct_rc slice-partition-set 9999 --json '[{"slice":1,"acIds":["AC-1","AC-2","AC-3"]}]')
+rc2=$(sct_rc slice-partition-set 9999 --force --json '[{"slice":1,"acIds":["AC-1","AC-2","AC-3"]}]')
+if [[ "$rc" != "0" && "$err" == *"write-once"* && "$rc2" == "0" ]]; then
+  pass "(sps2) slice-partition-set overwrite → rejected without --force, allowed with"
+else
+  fail "(sps2) slice-partition-set write-once — rc=$rc rc2=$rc2 err='$err'"
+fi
+
+# (sps3) acId not in the snapshot → rejected (partition OF the snapshot)
+err=$(sct_err slice-partition-set 9999 --force --json '[{"slice":1,"acIds":["AC-9"]}]')
+rc=$(sct_rc slice-partition-set 9999 --force --json '[{"slice":1,"acIds":["AC-9"]}]')
+if [[ "$rc" != "0" && "$err" == *"acceptanceCriteria"* ]]; then
+  pass "(sps3) slice-partition-set unknown acId → rejected"
+else
+  fail "(sps3) slice-partition-set unknown acId — rc=$rc err='$err'"
+fi
+
+# (sps4) non-contiguous slice indices → rejected
+err=$(sct_err slice-partition-set 9999 --force --json '[{"slice":1,"acIds":["AC-1"]},{"slice":3,"acIds":["AC-2"]}]')
+rc=$(sct_rc slice-partition-set 9999 --force --json '[{"slice":1,"acIds":["AC-1"]},{"slice":3,"acIds":["AC-2"]}]')
+if [[ "$rc" != "0" && "$err" == *"contiguous"* ]]; then
+  pass "(sps4) slice-partition-set non-contiguous slices → rejected"
+else
+  fail "(sps4) slice-partition-set non-contiguous — rc=$rc err='$err'"
+fi
+
+# (sps5) overlapping acIds across slices → rejected (disjoint partition)
+err=$(sct_err slice-partition-set 9999 --force --json '[{"slice":1,"acIds":["AC-1"]},{"slice":2,"acIds":["AC-1","AC-2"]}]')
+rc=$(sct_rc slice-partition-set 9999 --force --json '[{"slice":1,"acIds":["AC-1"]},{"slice":2,"acIds":["AC-1","AC-2"]}]')
+if [[ "$rc" != "0" && "$err" == *"disjoint"* ]]; then
+  pass "(sps5) slice-partition-set overlapping acIds → rejected"
+else
+  fail "(sps5) slice-partition-set overlap — rc=$rc err='$err'"
 fi
 
 # (b1) build-failure-context happy path: --kv-lines splits on \n, output is full failureContext JSON
@@ -867,6 +896,47 @@ else
   fail "(pa5) pr-add missing --url — rc=$rc err='$err'"
 fi
 
+# (pa6) #188 value-shape normalization: the branch-keyed value carries `branch`
+# (== the key) and a `repo` KEY. Assert branch STRICTLY and repo-key PRESENCE only,
+# not repo's value: this harness runs config-less on CI (the gitignored config is
+# absent), so config_file() cannot resolve the host alias and `repo` is null —
+# presence is the invariant, the alias value is environment-dependent.
+sct pr-add 9999 --branch "claude/acme-9999-shape" --url "https://github.com/o/r/pull/6" >/dev/null
+brc=$(sct get 9999 '.prs."claude/acme-9999-shape".branch')
+hasrepo=$(sct get 9999 '.prs."claude/acme-9999-shape" | has("repo")')
+if [[ "$brc" == "claude/acme-9999-shape" && "$hasrepo" == "true" ]]; then
+  pass "(pa6) pr-add branch-keyed value carries branch + repo key (#188 shape)"
+else
+  fail "(pa6) pr-add value shape — branch='$brc' has(repo)='$hasrepo'"
+fi
+
+# (pa7) #188 repo-keyed (be-fe-pair --repo): keyed by repo id, value stamps repo == id.
+sct pr-add 9999 --repo fe --branch "claude/acme-9999-shape" --url "https://github.com/o/r/pull/7" >/dev/null
+rrepo=$(sct get 9999 '.prs.fe.repo')
+rbranch=$(sct get 9999 '.prs.fe.branch')
+if [[ "$rrepo" == "fe" && "$rbranch" == "claude/acme-9999-shape" ]]; then
+  pass "(pa7) pr-add --repo → repo-keyed, value {branch, repo:id} (#188 shape)"
+else
+  fail "(pa7) pr-add --repo shape — repo='$rrepo' branch='$rbranch'"
+fi
+
+# (pa8) #188 branch-keyed alias resolution — the POSITIVE path of the new
+# config_file() derivation (pa6 only covers the config-less null fallback). Install
+# a temp SECOND_SHIFT_CONFIG whose host repo has path == "." and assert the
+# branch-keyed value's `repo` resolves to that alias (not just key presence).
+_PA8_SAVED_CFG="${SECOND_SHIFT_CONFIG:-}"
+PA8_CFG="$TMPDIR_ST/pa8-config.json"
+printf '{"configVersion":1,"tracker":{"type":"github"},"topology":{"type":"standalone","repos":{"hostrepo":{"path":".","baseBranch":"main"}}},"commands":{"hostrepo":{}}}\n' > "$PA8_CFG"
+export SECOND_SHIFT_CONFIG="$PA8_CFG"
+sct pr-add 9999 --branch "claude/acme-9999-alias" --url "https://github.com/o/r/pull/8" >/dev/null
+alias_repo=$(sct get 9999 '.prs."claude/acme-9999-alias".repo')
+if [[ "$alias_repo" == "hostrepo" ]]; then
+  pass "(pa8) pr-add branch-keyed → repo resolves to config host alias (#188)"
+else
+  fail "(pa8) pr-add alias resolution — repo='$alias_repo' expected 'hostrepo'"
+fi
+if [[ -n "$_PA8_SAVED_CFG" ]]; then export SECOND_SHIFT_CONFIG="$_PA8_SAVED_CFG"; else unset SECOND_SHIFT_CONFIG; fi
+
 # (pause1) pause-add → appends ONE closed span; from = prior .lastUpdatedAt
 # (self-anchor), to = now, from < to. now_iso is second-resolution, so sleep 1
 # to guarantee a measurable gap. ISO-8601 fixed-width Z timestamps sort
@@ -1019,11 +1089,13 @@ else
 fi
 
 # (mc1) mark-completed happy path → terminal status + lastUpdatedAt in one bundle
-# (walks all 9 stages with evidence + writes the self-eval — the terminal gates)
+# (walks all 9 stages with evidence + writes the self-eval AND the run report —
+# the three terminal gates)
 reset_state
 sct init 9999 --run-id "selftest-run-$$" >/dev/null
 for n in 1 2 3 4 5 6 7 8 9; do complete_stage 9999 "$n"; done
 write_eval 9999
+write_report 9999
 sct mark-completed 9999 >/dev/null
 status=$(sct get 9999 '.status')
 updated=$(sct get 9999 '.lastUpdatedAt | length > 0')
@@ -1072,6 +1144,169 @@ if [[ "$rc" == "2" && "$err" == *"no state file"* ]]; then
   pass "(mc4) mark-completed on absent state → rejected"
 else
   fail "(mc4) mark-completed absent state — rc=$rc err='$err'"
+fi
+
+# ==== (mc-ir) inert-lane implementation_resilience gate (issue #199) ============
+# mark-completed refuses implementation_resilience: PASS when the run is inert
+# (no verifying-lane object anywhere AND no TEST_FAILURE charged); a SUITE-lane
+# run (object verifySummary, or any TEST_FAILURE) is unaffected.
+
+# Helper: write a valid self-eval scoring implementation_resilience: PASS.
+write_eval_pass() {
+  local key="$1"
+  printf '{"ticketKey":%s,"criteria":{"target_confirmation":"PASS","plan_grounding":"PASS","implementation_resilience":"PASS","scope_compliance":"PASS","review_precision":"PASS"}}\n' "$key" \
+    > ".claude/pipeline-state/${key}-eval.json"
+}
+
+# complete_run_vs lives in scenario-lib.sh (sourced above) — shared with the
+# liveness harness so the composed full-green-run recipe has one definition.
+
+# (mc-ir1) inert-string verifySummary + no TEST_FAILURE + PASS → REFUSED,
+# message names the criterion + required N/A, status left untouched.
+complete_run_vs 9999 '"skipped (inert diff)"'
+write_eval_pass 9999
+rc=$(sct_rc mark-completed 9999)
+err=$(sct_err mark-completed 9999)
+status=$(sct get 9999 '.status')
+if [[ "$rc" == "1" && "$err" == *"implementation_resilience"* && "$err" == *"N/A"* && "$status" != "completed" ]]; then
+  pass "(mc-ir1) inert-lane PASS → refused, names criterion + N/A, status untouched"
+else
+  fail "(mc-ir1) inert-lane PASS refusal — rc=$rc status='$status' err='$err'"
+fi
+
+# (mc-ir2) object verifySummary (SUITE lane) + PASS → ACCEPTED (AC-2).
+complete_run_vs 9999 '{"format":"clean","test":"passed"}'
+write_eval_pass 9999
+sct mark-completed 9999 >/dev/null
+status=$(sct get 9999 '.status')
+if [[ "$status" == "completed" ]]; then
+  pass "(mc-ir2) suite-lane (object verifySummary) PASS → accepted (AC-2)"
+else
+  fail "(mc-ir2) suite-lane PASS accept — status='$status'"
+fi
+
+# (mc-ir3) inert-string verifySummary but a TEST_FAILURE charged + PASS →
+# ACCEPTED (AC-2 TEST_FAILURE branch — the breaker had a chance to fire).
+complete_run_vs 9999 '"skipped (inert diff)"' tf
+write_eval_pass 9999
+sct mark-completed 9999 >/dev/null
+status=$(sct get 9999 '.status')
+if [[ "$status" == "completed" ]]; then
+  pass "(mc-ir3) inert-string + TEST_FAILURE PASS → accepted (AC-2)"
+else
+  fail "(mc-ir3) inert+TEST_FAILURE PASS accept — status='$status'"
+fi
+
+# Helper: inject a per-repo worktrees map into <key>'s state (be-fe-pair shape) —
+# jq-edit directly, same technique as mk_completed, so the require_eval_file union
+# branch over worktrees.<id> is exercised without the full be-fe-pair stage machine.
+inject_worktrees() {
+  local key="$1" wt_json="$2"
+  jq --argjson w "$wt_json" '.worktrees = $w' ".claude/pipeline-state/${key}.json" \
+    > ".claude/pipeline-state/${key}.json.tmp" \
+    && mv ".claude/pipeline-state/${key}.json.tmp" ".claude/pipeline-state/${key}.json"
+}
+
+# (mc-ir4) be-fe-pair union — flat verifySummary inert, but a per-repo
+# worktrees.<id>.verifySummary is a suite object → the gate's union sees a
+# verifying lane → PASS accepted. Grounds the per-repo any_suite_object branch.
+complete_run_vs 9999 '"skipped (inert diff)"'
+inject_worktrees 9999 '{"fe":{"verifySummary":{"test":"passed"},"verifyAttempts":{}}}'
+write_eval_pass 9999
+sct mark-completed 9999 >/dev/null
+status=$(sct get 9999 '.status')
+if [[ "$status" == "completed" ]]; then
+  pass "(mc-ir4) per-repo (worktrees.<id>) suite object PASS → accepted (be-fe-pair union)"
+else
+  fail "(mc-ir4) per-repo union suite-object accept — status='$status'"
+fi
+
+# (mc-ir5) be-fe-pair union — flat inert + no flat TEST_FAILURE, but a per-repo
+# worktrees.<id>.verifyAttempts.TEST_FAILURE is charged → union sees it → PASS
+# accepted. Grounds the per-repo any_test_failure branch.
+complete_run_vs 9999 '"skipped (inert diff)"'
+inject_worktrees 9999 '{"fe":{"verifySummary":"skipped (inert)","verifyAttempts":{"TEST_FAILURE":1}}}'
+write_eval_pass 9999
+sct mark-completed 9999 >/dev/null
+status=$(sct get 9999 '.status')
+if [[ "$status" == "completed" ]]; then
+  pass "(mc-ir5) per-repo TEST_FAILURE PASS → accepted (be-fe-pair union)"
+else
+  fail "(mc-ir5) per-repo TEST_FAILURE accept — status='$status'"
+fi
+
+# ============ (rpt) mark-completed run-report gate (#146) =====================
+# The run report is the only artifact the operator reads per run; before it was
+# persisted, a mid-response API disconnect destroyed it. The terminal write is
+# refused unless Stage 9 wrote it — and, like the eval gate, --force does not
+# bypass. Each case walks all 9 stages and writes the eval, so the REPORT is the
+# only gate under test.
+
+# (rpt1) report missing → terminal write refused, status untouched
+reset_state
+sct init 9999 --run-id "selftest-run-$$" >/dev/null
+for n in 1 2 3 4 5 6 7 8 9; do complete_stage 9999 "$n"; done
+write_eval 9999
+rc=$(sct_rc mark-completed 9999)
+err=$(sct_err mark-completed 9999)
+status=$(sct get 9999 '.status')
+if [[ "$rc" == "1" && "$err" == *"run report"* && "$status" == "in_progress" ]]; then
+  pass "(rpt1) mark-completed without run report → refused, status untouched"
+else
+  fail "(rpt1) report gate — rc=$rc status='$status' err='$err'"
+fi
+
+# (rpt2) --force does NOT bypass the report gate (same posture as the eval gate)
+rc_force=$(sct_rc mark-completed 9999 --force)
+status=$(sct get 9999 '.status')
+if [[ "$rc_force" == "1" && "$status" == "in_progress" ]]; then
+  pass "(rpt2) --force does not bypass the report gate"
+else
+  fail "(rpt2) report gate --force — rc=$rc_force status='$status'"
+fi
+
+# (rpt3) empty report (the `touch` defeat) → refused for lacking the marker
+: > .claude/pipeline-state/9999-report.md
+rc=$(sct_rc mark-completed 9999)
+err=$(sct_err mark-completed 9999)
+if [[ "$rc" == "1" && "$err" == *"marker"* ]]; then
+  pass "(rpt3) empty report → refused (no marker)"
+else
+  fail "(rpt3) empty report — rc=$rc err='$err'"
+fi
+
+# (rpt4) marker present but no content → refused (a bare marker is not a report)
+printf '<!-- dev-pipeline-report -->\n\n' > .claude/pipeline-state/9999-report.md
+rc=$(sct_rc mark-completed 9999)
+err=$(sct_err mark-completed 9999)
+if [[ "$rc" == "1" && "$err" == *"no content"* ]]; then
+  pass "(rpt4) marker-only report → refused (no content)"
+else
+  fail "(rpt4) marker-only report — rc=$rc err='$err'"
+fi
+
+# (rpt5) well-formed report → terminal write succeeds
+write_report 9999
+rc=$(sct_rc mark-completed 9999)
+status=$(sct get 9999 '.status')
+if [[ "$rc" == "0" && "$status" == "completed" ]]; then
+  pass "(rpt5) well-formed report → mark-completed succeeds"
+else
+  fail "(rpt5) well-formed report — rc=$rc status='$status'"
+fi
+
+# (rpt6) init quarantines a stale report — a re-run must not satisfy the gate
+# with the previous run's narrative (mirrors the stale-eval quarantine).
+reset_state
+sct init 9999 --run-id "selftest-run-$$" >/dev/null
+write_report 9999
+rm -f .claude/pipeline-state/9999.json          # simulate a cleared-state re-run
+sct init 9999 --run-id "selftest-rerun-$$" >/dev/null
+stale_count=$(find .claude/pipeline-state -name '9999-report-stale-*.md' | wc -l | tr -d ' ')
+if [[ ! -f .claude/pipeline-state/9999-report.md && "$stale_count" == "1" ]]; then
+  pass "(rpt6) init quarantines a stale run report"
+else
+  fail "(rpt6) stale-report quarantine — live=$([[ -f .claude/pipeline-state/9999-report.md ]] && echo yes || echo no) stale=$stale_count"
 fi
 
 # ============ (rm) shared terminal-state guard on the stage-mutators (#154) ====
@@ -1579,7 +1814,12 @@ sct checkpoint 9999 1 --json '{"verdict":"no-split"}' >/dev/null
 err_nopf=$(sct_err set-stage 9999 1 --status completed)
 rc_nopf=$(sct_rc set-stage 9999 1 --status completed)
 # well-formed preflight with workingTreeClean:FALSE → completion ALLOWED
+# (skill-load + comment-receipt evidence recorded — those legs have their own
+# (sl*)/(cr*) cases)
 sct checkpoint 9999 1 --json '{"verdict":"no-split","preflight":{"baseBranch":"main","workingTreeClean":false,"guardOutcome":"proceed-dirty-warn"}}' >/dev/null
+sct skill-load-add 9999 --stage 1 --skill intake-toolkit:intake-orchestrator >/dev/null
+sct comment-add 9999 --marker claimed --url "https://github.example/c/claimed" >/dev/null
+sct comment-add 9999 --marker intake --url "https://github.example/c/intake" >/dev/null
 rc_ok=$(sct_rc set-stage 9999 1 --status completed)
 if [[ "$rc_nockpt" == "1" && "$err_nockpt" == *'stageCheckpoint["1"] is missing'* \
       && "$rc_nopf" == "1" && "$err_nopf" == *'preflight is missing or malformed'* \
@@ -1664,6 +1904,9 @@ reset_state
 sct init 9999 --run-id "selftest-run-$$" >/dev/null
 sct set-stage 9999 1 --status started >/dev/null
 sct checkpoint 9999 1 --json '{"verdict":"no-split","designDriven":true,"preflight":{"baseBranch":"main","workingTreeClean":true,"guardOutcome":"proceed-clean"}}' >/dev/null
+sct skill-load-add 9999 --stage 1 --skill intake-toolkit:intake-orchestrator >/dev/null
+sct comment-add 9999 --marker claimed --url "https://github.example/c/claimed" >/dev/null
+sct comment-add 9999 --marker intake --url "https://github.example/c/intake" >/dev/null
 sct set-stage 9999 1 --status completed >/dev/null
 for n in 2 3 4; do complete_stage 9999 "$n"; done
 sct set-stage 9999 5 --status started >/dev/null
@@ -1732,6 +1975,8 @@ sct set-stage 9999 8 --status started >/dev/null
 rc=$(sct_rc set-stage 9999 8 --status completed)
 err=$(sct_err set-stage 9999 8 --status completed)
 sct review-rounds 9999 --set 1 >/dev/null
+sct skill-load-add 9999 --stage 8 --skill review-toolkit:review-lead >/dev/null
+sct comment-add 9999 --marker code-review --url "https://github.example/c/code-review" >/dev/null
 rc2=$(sct_rc set-stage 9999 8 --status completed)
 if [[ "$rc" == "1" && "$err" == *"no codeReviewRounds recorded"* && "$rc2" == "0" ]]; then
   pass "(sc6) stage-8 completion precondition — refused without review-rounds, allowed with"
@@ -1748,6 +1993,243 @@ if [[ "$rc" == "0" ]]; then
   pass "(sc7) --force bypasses completion precondition"
 else
   fail "(sc7) --force bypass — rc=$rc"
+fi
+
+# (sl1) stage-1 skill-load evidence gate: well-formed checkpoint but NO recorded
+# intake-orchestrator load and no inline-approved carve-out → refused; recording
+# the load allows completion.
+reset_state
+sct init 9999 --run-id "selftest-run-$$" >/dev/null
+sct set-stage 9999 1 --status started >/dev/null
+sct checkpoint 9999 1 --json '{"verdict":"no-split","preflight":{"baseBranch":"main","workingTreeClean":true,"guardOutcome":"proceed-clean"}}' >/dev/null
+sct comment-add 9999 --marker claimed --url "https://github.example/c/claimed" >/dev/null
+sct comment-add 9999 --marker intake --url "https://github.example/c/intake" >/dev/null
+err_noload=$(sct_err set-stage 9999 1 --status completed)
+rc_noload=$(sct_rc set-stage 9999 1 --status completed)
+sct skill-load-add 9999 --stage 1 --skill intake-toolkit:intake-orchestrator >/dev/null
+rc_loaded=$(sct_rc set-stage 9999 1 --status completed)
+if [[ "$rc_noload" == "1" && "$err_noload" == *"intake-toolkit:intake-orchestrator is not in stages.1.skillsLoaded"* && "$rc_loaded" == "0" ]]; then
+  pass "(sl1) stage-1 skill-load gate — unrecorded load refused, recorded load allowed"
+else
+  fail "(sl1) stage-1 skill-load gate — rc_noload=$rc_noload rc_loaded=$rc_loaded err='$err_noload'"
+fi
+
+# (sl1b) the interactive-only inline-approved carve-out: intakeMode recorded in
+# the checkpoint → completion allowed with no skill load.
+reset_state
+sct init 9999 --run-id "selftest-run-$$" >/dev/null
+sct set-stage 9999 1 --status started >/dev/null
+sct checkpoint 9999 1 --json '{"verdict":"no-split","intakeMode":"inline-approved","preflight":{"baseBranch":"main","workingTreeClean":true,"guardOutcome":"proceed-clean"}}' >/dev/null
+sct comment-add 9999 --marker claimed --url "https://github.example/c/claimed" >/dev/null
+sct comment-add 9999 --marker intake --url "https://github.example/c/intake" >/dev/null
+rc_inline=$(sct_rc set-stage 9999 1 --status completed)
+if [[ "$rc_inline" == "0" ]]; then
+  pass "(sl1b) stage-1 skill-load gate — intakeMode inline-approved carve-out allowed"
+else
+  fail "(sl1b) inline-approved carve-out — rc=$rc_inline"
+fi
+
+# (sl2) stage-8 skill-load evidence gate: rounds recorded but review-lead not
+# loaded → refused; recorded → allowed. Second walk: --force bypasses.
+reset_state
+sct init 9999 --run-id "selftest-run-$$" >/dev/null
+for n in 1 2 3 4 5 6 7; do complete_stage 9999 "$n"; done
+sct set-stage 9999 8 --status started >/dev/null
+sct review-rounds 9999 --set 1 >/dev/null
+sct comment-add 9999 --marker code-review --url "https://github.example/c/code-review" >/dev/null
+err_norl=$(sct_err set-stage 9999 8 --status completed)
+rc_norl=$(sct_rc set-stage 9999 8 --status completed)
+sct skill-load-add 9999 --stage 8 --skill review-toolkit:review-lead >/dev/null
+rc_rl=$(sct_rc set-stage 9999 8 --status completed)
+reset_state
+sct init 9998 --run-id "selftest-run-$$" >/dev/null
+for n in 1 2 3 4 5 6 7; do complete_stage 9998 "$n"; done
+sct set-stage 9998 8 --status started >/dev/null
+sct review-rounds 9998 --set 1 >/dev/null
+rc_forced=$(sct_rc set-stage 9998 8 --status completed --force)
+if [[ "$rc_norl" == "1" && "$err_norl" == *"review-toolkit:review-lead is not in stages.8.skillsLoaded"* && "$rc_rl" == "0" && "$rc_forced" == "0" ]]; then
+  pass "(sl2) stage-8 skill-load gate — unrecorded refused, recorded allowed, --force bypasses"
+else
+  fail "(sl2) stage-8 skill-load gate — rc_norl=$rc_norl rc_rl=$rc_rl rc_forced=$rc_forced err='$err_norl'"
+fi
+
+# (sl3) skill-load-add validation + dedupe: unqualified/malformed names and
+# out-of-range stages rejected; a repeat add stays deduped.
+reset_state
+sct init 9999 --run-id "selftest-run-$$" >/dev/null
+rc_noqual=$(sct_rc skill-load-add 9999 --stage 1 --skill orchestrator)
+rc_upper=$(sct_rc skill-load-add 9999 --stage 1 --skill "Intake:Orchestrator")
+rc_badstage=$(sct_rc skill-load-add 9999 --stage 0 --skill intake-toolkit:intake-orchestrator)
+sct skill-load-add 9999 --stage 1 --skill intake-toolkit:intake-orchestrator >/dev/null
+dedup=$("$STATECTL" skill-load-add 9999 --stage 1 --skill intake-toolkit:intake-orchestrator 2>/dev/null)
+if [[ "$rc_noqual" == "1" && "$rc_upper" == "1" && "$rc_badstage" == "1" && "$dedup" == '["intake-toolkit:intake-orchestrator"]' ]]; then
+  pass "(sl3) skill-load-add — malformed name/stage rejected, repeat add deduped"
+else
+  fail "(sl3) skill-load-add validation — rc_noqual=$rc_noqual rc_upper=$rc_upper rc_badstage=$rc_badstage dedup='$dedup'"
+fi
+
+# (cr1) comment-receipt gate, stage 3: mandated `plan` marker missing → refused
+# naming the marker; recorded → allowed.
+reset_state
+sct init 9999 --run-id "selftest-run-$$" >/dev/null
+for n in 1 2; do complete_stage 9999 "$n"; done
+sct set-stage 9999 3 --status started >/dev/null
+err_nocm=$(sct_err set-stage 9999 3 --status completed)
+rc_nocm=$(sct_rc set-stage 9999 3 --status completed)
+sct comment-add 9999 --marker plan --url "https://github.example/c/plan" >/dev/null
+rc_cm=$(sct_rc set-stage 9999 3 --status completed)
+if [[ "$rc_nocm" == "1" && "$err_nocm" == *"receipt(s) missing for marker(s) [plan]"* && "$rc_cm" == "0" ]]; then
+  pass "(cr1) stage-3 comment-receipt gate — missing plan receipt refused (named), recorded allowed"
+else
+  fail "(cr1) stage-3 receipt gate — rc_nocm=$rc_nocm rc_cm=$rc_cm err='$err_nocm'"
+fi
+
+# (cr2) stage-1 names BOTH missing markers; stage-9 gates on the pr receipt.
+reset_state
+sct init 9999 --run-id "selftest-run-$$" >/dev/null
+sct set-stage 9999 1 --status started >/dev/null
+sct checkpoint 9999 1 --json '{"verdict":"no-split","preflight":{"baseBranch":"main","workingTreeClean":true,"guardOutcome":"proceed-clean"}}' >/dev/null
+sct skill-load-add 9999 --stage 1 --skill intake-toolkit:intake-orchestrator >/dev/null
+err_two=$(sct_err set-stage 9999 1 --status completed)
+sct comment-add 9999 --marker claimed --url "https://github.example/c/claimed" >/dev/null
+sct comment-add 9999 --marker intake --url "https://github.example/c/intake" >/dev/null
+sct set-stage 9999 1 --status completed >/dev/null
+for n in 2 3 4 5 6 7 8; do complete_stage 9999 "$n"; done
+sct set-stage 9999 9 --status started >/dev/null
+rc_nopr=$(sct_rc set-stage 9999 9 --status completed)
+sct comment-add 9999 --marker pr --url "https://github.example/c/pr" >/dev/null
+rc_pr=$(sct_rc set-stage 9999 9 --status completed)
+if [[ "$err_two" == *"[claimed,intake]"* && "$rc_nopr" == "1" && "$rc_pr" == "0" ]]; then
+  pass "(cr2) receipt gate — stage-1 names both missing markers; stage-9 gates on pr"
+else
+  fail "(cr2) receipt gate — err_two='$err_two' rc_nopr=$rc_nopr rc_pr=$rc_pr"
+fi
+
+# (cr3) jira exemption: tracker.writes:false config → stage-3 completes with no
+# receipt (a read-only tracker mandates no comments).
+reset_state
+printf '%s' '{"configVersion":1,"tracker":{"type":"jira","writes":false}}' > "$TMPDIR_ST/cr3-config.json"
+export SECOND_SHIFT_CONFIG="$TMPDIR_ST/cr3-config.json"
+sct init 9999 --run-id "selftest-run-$$" >/dev/null
+for n in 1 2; do complete_stage 9999 "$n"; done
+sct set-stage 9999 3 --status started >/dev/null
+rc_jira=$(sct_rc set-stage 9999 3 --status completed)
+unset SECOND_SHIFT_CONFIG
+if [[ "$rc_jira" == "0" ]]; then
+  pass "(cr3) receipt gate — tracker.writes:false exempts (read-only jira posts no comments)"
+else
+  fail "(cr3) jira exemption — rc=$rc_jira"
+fi
+
+# (cr4) comment-add validation: undocumented marker and non-URL rejected; a
+# repeat post for the same marker overwrites (last write wins).
+reset_state
+sct init 9999 --run-id "selftest-run-$$" >/dev/null
+rc_badm=$(sct_rc comment-add 9999 --marker implementation --url "https://github.example/c/x")
+rc_badu=$(sct_rc comment-add 9999 --marker plan --url "not-a-url")
+sct comment-add 9999 --marker plan --url "https://github.example/c/first" >/dev/null
+over=$("$STATECTL" comment-add 9999 --marker plan --url "https://github.example/c/second" 2>/dev/null)
+if [[ "$rc_badm" == "1" && "$rc_badu" == "1" && "$over" == '{"plan":"https://github.example/c/second"}' ]]; then
+  pass "(cr4) comment-add — bad marker/url rejected, repeat overwrites"
+else
+  fail "(cr4) comment-add validation — rc_badm=$rc_badm rc_badu=$rc_badu over='$over'"
+fi
+
+# (rec1) reclaim verdict: a stale in_progress run (backdated lastUpdatedAt) is
+# detected READ-ONLY — verdict JSON names the resumable stage, state untouched.
+reset_state
+sct init 9999 --run-id "selftest-run-$$" >/dev/null
+complete_stage 9999 1
+sct set-stage 9999 2 --status started >/dev/null
+jq '.lastUpdatedAt = "2026-01-01T00:00:00Z"' .claude/pipeline-state/9999.json > .claude/pipeline-state/9999.json.tmp \
+  && mv .claude/pipeline-state/9999.json.tmp .claude/pipeline-state/9999.json
+verdict=$("$STATECTL" reclaim 9999 2>/dev/null)
+stale=$(jq -r '.stale' <<< "$verdict"); rstage=$(jq -r '.resumableFromStage' <<< "$verdict")
+status_after=$(sct get 9999 '.status')
+if [[ "$stale" == "true" && "$rstage" == "2" && "$status_after" == "in_progress" ]]; then
+  pass "(rec1) reclaim verdict — stale run detected, resumable stage named, read-only"
+else
+  fail "(rec1) reclaim verdict — stale=$stale rstage=$rstage status_after=$status_after"
+fi
+
+# (rec2) a FRESH in_progress run is refused (age under threshold — a live
+# session may own it); --force overrides for the confirmed-dead case.
+reset_state
+sct init 9999 --run-id "selftest-run-$$" >/dev/null
+err_fresh=$(sct_err reclaim 9999)
+rc_fresh=$(sct_rc reclaim 9999)
+forced_verdict=$("$STATECTL" reclaim 9999 --force 2>/dev/null)
+rc_forced=$?
+forced_stale=$(jq -r '.stale' <<< "$forced_verdict")
+forced_flag=$(jq -r '.forced' <<< "$forced_verdict")
+if [[ "$rc_fresh" == "1" && "$err_fresh" == *"not stale"* && "$rc_forced" == "0" \
+      && "$forced_stale" == "false" && "$forced_flag" == "true" \
+      && -f .claude/pipeline-state/9999.json ]]; then
+  pass "(rec2) reclaim freshness — fresh refused; --force overrides read-only, verdict honest (stale:false, forced:true)"
+else
+  fail "(rec2) reclaim freshness — rc_fresh=$rc_fresh rc_forced=$rc_forced stale=$forced_stale forced=$forced_flag err='$err_fresh'"
+fi
+
+# (rec2b) undeterminable staleness (malformed lastUpdatedAt) fails closed: plain
+# reclaim refused with a non-garbled message; --force verdict still emits valid
+# JSON (rc 0 + parseable) instead of empty stdout.
+jq '.lastUpdatedAt = "not-a-timestamp"' .claude/pipeline-state/9999.json > .claude/pipeline-state/9999.json.tmp \
+  && mv .claude/pipeline-state/9999.json.tmp .claude/pipeline-state/9999.json
+err_bad=$(sct_err reclaim 9999)
+rc_bad=$(sct_rc reclaim 9999)
+bad_verdict=$("$STATECTL" reclaim 9999 --force 2>/dev/null)
+rc_badf=$?
+bad_age=$(jq -r '.ageMin' <<< "$bad_verdict" 2>/dev/null)
+if [[ "$rc_bad" == "1" && "$err_bad" == *"undeterminable"* && "$rc_badf" == "0" && "$bad_age" == "unknown" ]]; then
+  pass "(rec2b) reclaim undeterminable age — refused without --force, forced verdict emits valid JSON (ageMin:unknown)"
+else
+  fail "(rec2b) reclaim undeterminable age — rc_bad=$rc_bad rc_badf=$rc_badf bad_age='$bad_age' err='$err_bad'"
+fi
+
+# (rec3) --release quarantines the state file ({key}-released-{ts}.json) so a
+# fresh claim re-inits; --threshold-min 0 makes a fresh run immediately stale.
+reset_state
+sct init 9999 --run-id "selftest-run-$$" >/dev/null
+rel=$("$STATECTL" reclaim 9999 --release --threshold-min 0 2>/dev/null)
+released=$(jq -r '.released' <<< "$rel")
+rel_count=$(find .claude/pipeline-state -maxdepth 1 -name '9999-released-*.json' | wc -l | tr -d ' ')
+if [[ "$released" == "true" && ! -f .claude/pipeline-state/9999.json && "$rel_count" == "1" ]]; then
+  pass "(rec3) reclaim --release — state quarantined (renamed, original gone)"
+else
+  fail "(rec3) reclaim --release — released=$released rel_count=$rel_count"
+fi
+rm -f .claude/pipeline-state/9999-released-*.json
+
+# (rec5) --release on a FRESH run without --force is refused — the staleness
+# gate guards the destructive path, not only the verdict path.
+reset_state
+sct init 9999 --run-id "selftest-run-$$" >/dev/null
+rc_rel_fresh=$(sct_rc reclaim 9999 --release)
+if [[ "$rc_rel_fresh" == "1" && -f .claude/pipeline-state/9999.json ]]; then
+  pass "(rec5) reclaim --release fresh run — refused, state file untouched"
+else
+  fail "(rec5) reclaim --release fresh — rc=$rc_rel_fresh file-present=$([[ -f .claude/pipeline-state/9999.json ]] && echo y || echo n)"
+fi
+
+# (rec4) terminal states are NOT reclaimable: failed exits by contract (needs a
+# manual clear), completed has nothing to reclaim — even with --force.
+reset_state
+sct init 9999 --run-id "selftest-run-$$" >/dev/null
+sct set-stage 9999 1 --status started >/dev/null
+sct mark-failed 9999 --reason plan-reviewer-block >/dev/null
+err_failed=$(sct_err reclaim 9999 --force --threshold-min 0)
+rc_failed=$(sct_rc reclaim 9999 --force --threshold-min 0)
+reset_state
+sct init 9998 --run-id "selftest-run-$$" >/dev/null
+for n in 1 2 3 4 5 6 7 8 9; do complete_stage 9998 "$n"; done
+write_eval 9998
+write_report 9998
+sct mark-completed 9998 >/dev/null
+rc_completed=$(sct_rc reclaim 9998 --force --threshold-min 0)
+if [[ "$rc_failed" == "1" && "$err_failed" == *"NOT stale-reclaimable"* && "$rc_completed" == "1" ]]; then
+  pass "(rec4) reclaim terminal exclusion — failed and completed both refused"
+else
+  fail "(rec4) reclaim terminal exclusion — rc_failed=$rc_failed rc_completed=$rc_completed err='$err_failed'"
 fi
 
 # (mcg1) mark-completed with an incomplete stage → refused, names the gaps
@@ -1780,11 +2262,54 @@ rc_empty=$(sct_rc mark-completed 9999)
 printf '{"ticketKey":1234,"criteria":{"x":"PASS"}}\n' > .claude/pipeline-state/9999-eval.json
 rc_wrong=$(sct_rc mark-completed 9999)
 write_eval 9999
+write_report 9999          # the report gate is also terminal — satisfy it so the EVAL gate is what rc_ok measures
 rc_ok=$(sct_rc mark-completed 9999)
 if [[ "$rc_empty" == "1" && "$rc_wrong" == "1" && "$rc_ok" == "0" ]]; then
   pass "(mcg3) mark-completed eval plausibility — empty/wrong-issue refused, valid allowed"
 else
   fail "(mcg3) eval plausibility — rc_empty=$rc_empty rc_wrong=$rc_wrong rc_ok=$rc_ok"
+fi
+
+# (mcg5) criteria-shape gate: the eval must score exactly the five locked
+# criteria with binary values. Renamed key (an invented criterion in a locked
+# slot), illegal value (PARTIAL), and missing key are each refused with the
+# offender named; --force bypasses the shape check (crash-recovery escape) but
+# never existence/plausibility. Fresh non-terminal state: mcg3's successful
+# terminal write left 9999 completed, and the shape gate sits behind the
+# terminal guard.
+reset_state
+sct init 9999 --run-id "selftest-run-$$" >/dev/null
+for n in 1 2 3 4 5 6 7 8 9; do complete_stage 9999 "$n"; done
+write_report 9999
+renamed='{"ticketKey":9999,"criteria":{"target_confirmation":"PASS","plan_grounding":"PASS","implementation_resilience":"N/A","4_verification_honesty":"PASS","review_precision":"PASS"}}'
+printf '%s\n' "$renamed" > .claude/pipeline-state/9999-eval.json
+err_renamed=$(sct_err mark-completed 9999)
+rc_renamed=$(sct_rc mark-completed 9999)
+partial='{"ticketKey":9999,"criteria":{"target_confirmation":"PASS","plan_grounding":"PASS","implementation_resilience":"N/A","scope_compliance":"PASS","review_precision":"PARTIAL"}}'
+printf '%s\n' "$partial" > .claude/pipeline-state/9999-eval.json
+err_partial=$(sct_err mark-completed 9999)
+rc_partial=$(sct_rc mark-completed 9999)
+missing='{"ticketKey":9999,"criteria":{"target_confirmation":"PASS","plan_grounding":"PASS","implementation_resilience":"N/A","scope_compliance":"PASS"}}'
+printf '%s\n' "$missing" > .claude/pipeline-state/9999-eval.json
+rc_missing=$(sct_rc mark-completed 9999)
+if [[ "$rc_renamed" == "1" && "$err_renamed" == *"missing=[scope_compliance]"* && "$err_renamed" == *"extra=[4_verification_honesty]"* \
+      && "$rc_partial" == "1" && "$err_partial" == *'illegal-values=[review_precision="PARTIAL"]'* \
+      && "$rc_missing" == "1" ]]; then
+  pass "(mcg5) criteria-shape gate — renamed/illegal-value/missing each refused, offenders named"
+else
+  fail "(mcg5) criteria-shape gate — rc_renamed=$rc_renamed err_renamed='$err_renamed' rc_partial=$rc_partial err_partial='$err_partial' rc_missing=$rc_missing"
+fi
+
+# (mcg6) --force bypasses the shape check alone: a mis-shaped eval terminalizes
+# under --force, but a MISSING eval is still refused even with --force.
+printf '%s\n' "$renamed" > .claude/pipeline-state/9999-eval.json
+rc_forced=$(sct_rc mark-completed 9999 --force)
+rm -f .claude/pipeline-state/9999-eval.json
+rc_forced_missing=$(sct_rc mark-completed 9999 --force)
+if [[ "$rc_forced" == "0" && "$rc_forced_missing" == "1" ]]; then
+  pass "(mcg6) --force bypasses shape only — mis-shaped allowed, absent eval still refused"
+else
+  fail "(mcg6) --force shape bypass — rc_forced=$rc_forced rc_forced_missing=$rc_forced_missing"
 fi
 
 # (mcg4) --force does NOT bypass the all-stages / eval gates
@@ -2112,8 +2637,13 @@ else
 fi
 
 # Mid-pipeline JIRA fixture drives to terminal: mutate (stage 6+) + eval gate all
-# accept a JIRA key. Proves the terminal completeness/eval gate is key-agnostic.
+# accept a JIRA key. Proves the terminal completeness/eval gate is key-agnostic —
+# and, with the read-only jira config below (tracker.writes:false), that the
+# comment-receipt preconditions correctly do NOT fire on a tracker that posts
+# no comments by contract.
 reset_state
+printf '%s' '{"configVersion":1,"tracker":{"type":"jira","writes":false}}' > "$TMPDIR_ST/jira-config.json"
+export SECOND_SHIFT_CONFIG="$TMPDIR_ST/jira-config.json"
 cp "$FIXTURES_DIR/jira-in-progress-mid-pipeline.json" .claude/pipeline-state/gh-540.json
 complete_stage gh-540 6
 sct set-stage gh-540 7 --status started >/dev/null
@@ -2123,14 +2653,17 @@ complete_stage gh-540 8
 sct set-stage gh-540 9 --status started >/dev/null
 sct set-stage gh-540 9 --status completed >/dev/null
 rc_no_eval=$(sct_rc mark-completed gh-540)     # eval file absent → refused
-printf '{"ticketKey":"gh-540","criteria":{"plan_grounding":"PASS"}}\n' > .claude/pipeline-state/gh-540-eval.json
-rc_eval=$(sct_rc mark-completed gh-540)         # JIRA-keyed eval present → accepted
+printf '{"ticketKey":"gh-540","criteria":{"target_confirmation":"PASS","plan_grounding":"PASS","implementation_resilience":"N/A","scope_compliance":"PASS","review_precision":"PASS"}}\n' > .claude/pipeline-state/gh-540-eval.json
+rc_no_report=$(sct_rc mark-completed gh-540)   # eval present, report absent → still refused
+write_report gh-540                             # JIRA-keyed report resolves the same way
+rc_eval=$(sct_rc mark-completed gh-540)         # both JIRA-keyed artifacts present → accepted
 final_status=$(sct get gh-540 '.status')
-if [[ "$rc_no_eval" != "0" && "$rc_eval" == "0" && "$final_status" == "completed" ]]; then
-  pass "(kp-e) jira mid-pipeline fixture → terminal — eval gate keys off ticketKey (gh-540)"
+if [[ "$rc_no_eval" != "0" && "$rc_no_report" != "0" && "$rc_eval" == "0" && "$final_status" == "completed" ]]; then
+  pass "(kp-e) jira mid-pipeline fixture → terminal — eval + report gates key off ticketKey (gh-540)"
 else
-  fail "(kp-e) jira mid-pipeline fixture — rc_no_eval=$rc_no_eval rc_eval=$rc_eval status=$final_status"
+  fail "(kp-e) jira mid-pipeline fixture — rc_no_eval=$rc_no_eval rc_no_report=$rc_no_report rc_eval=$rc_eval status=$final_status"
 fi
+unset SECOND_SHIFT_CONFIG
 reset_state
 
 # ============ #48 be-fe-pair dual-target: Stage-7 per-repo checkpoint + Stage-8 gate ===
@@ -2258,7 +2791,7 @@ reset_state
 # ========================================================== drift-check (must-pass) ===
 
 echo
-echo "[self-test] drift-check — 5 enums (r1+r5+marker via regenerate-and-diff, r3/r4 via fixture mirror)"
+echo "[self-test] drift-check — 6 enums (r1+r5+marker+evalkeys via regenerate-and-diff, r3/r4 via fixture mirror)"
 
 drift_pass=1
 
@@ -2300,6 +2833,12 @@ else
       | grep -cE '^    \|?[a-z][a-z0-9-]+')
     if (( marker_count < 8 )); then
       echo "    DRIFT (marker): generator emitted only $marker_count stage-comment marker values (expected >= 8)"
+      drift_pass=0
+    fi
+    evalkeys_count=$(awk '/^# >>> generated: eval_criteria_keys >>>$/,/^# <<< generated: eval_criteria_keys <<<$/' "$gen_tmp" \
+      | grep -cE '^    [a-z][a-z0-9_]+')
+    if (( evalkeys_count != 5 )); then
+      echo "    DRIFT (evalkeys): generator emitted $evalkeys_count eval criteria keys (expected exactly 5 — eval-criteria.md is LOCKED)"
       drift_pass=0
     fi
     # Byte-equal regenerate-and-diff against the committed file.
@@ -2370,6 +2909,9 @@ sct init 9999 --run-id "selftest-run-$$" >/dev/null
 sct set-stage 9999 1 --status started >/dev/null
 got_inprogress=$(sct get 9999 '.stages."1".status')
 sct checkpoint 9999 1 --json '{"verdict":"no-split","preflight":{"baseBranch":"main","workingTreeClean":true,"guardOutcome":"proceed-clean"}}' >/dev/null   # stage-1 completion evidence (well-formed preflight)
+sct skill-load-add 9999 --stage 1 --skill intake-toolkit:intake-orchestrator >/dev/null
+sct comment-add 9999 --marker claimed --url "https://github.example/c/claimed" >/dev/null
+sct comment-add 9999 --marker intake --url "https://github.example/c/intake" >/dev/null
 sct set-stage 9999 1 --status completed >/dev/null
 got_completed=$(sct get 9999 '.stages."1".status')
 sct set-stage 9999 2 --status started >/dev/null
@@ -2413,6 +2955,9 @@ if [[ "${SKIP_STRESS:-0}" != "1" ]]; then
   sct init 9999 --run-id "selftest-run-$$" >/dev/null
   sct set-stage 9999 1 --status started >/dev/null
   sct checkpoint 9999 1 --json '{"verdict":"no-split","preflight":{"baseBranch":"main","workingTreeClean":true,"guardOutcome":"proceed-clean"}}' >/dev/null   # evidence (well-formed preflight), so the write path actually runs
+  sct skill-load-add 9999 --stage 1 --skill intake-toolkit:intake-orchestrator >/dev/null
+  sct comment-add 9999 --marker claimed --url "https://github.example/c/claimed" >/dev/null
+  sct comment-add 9999 --marker intake --url "https://github.example/c/intake" >/dev/null
   before_hash=$(shasum .claude/pipeline-state/9999.json | awk '{print $1}')
   STATECTL_TEST_PAUSE_BEFORE_MV=1 \
     "$STATECTL" set-stage 9999 1 --status completed >/dev/null 2>&1 &

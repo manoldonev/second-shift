@@ -4,6 +4,452 @@ All notable changes to the second-shift marketplace. Versions are per-plugin (`p
 this file tracks the marketplace release. `configVersion` stays `const 1` — v2 is fully backward-compatible for a
 consumer with an empty config; the migration notes below are only for consumers using the changed features.
 
+## v2.10.0
+
+### `dev-pipeline` 2.7.1 → 2.8.0
+
+- **fix: namespace-agnostic Atlassian MCP at intake/Stage-1 fetch sites (#198)** (#198)
+  intake-toolkit jira-fetch prose (intake-orchestrator / intake /
+  intake-interviewer) references all three Atlassian MCP namespaces and the
+  ToolSearch discovery step, not just mcp__atlassian__*.
+  Migration: none.
+  dev-pipeline Stage-1 / tracker-adapter fetch prose references all three
+  Atlassian MCP namespaces + ToolSearch discovery, not just mcp__atlassian__*; a new
+  scripts/check-intake-tracker-namespaces.sh guards the whole intake/Stage-1 surface
+  against regressing to a single hardcoded prefix.
+  Migration: none.
+- **fix(dev-pipeline): cost block never leaves a bare null; uniform prs value shape (#201)** (#201)
+  Stage-9 cost block no longer skips silently — a no-PRs run records
+  costBlockApplied "skipped-no-prs" and an unresolvable state file fails loud
+  (exit 2, never bare null); the sub-step is anchored at the control repo so
+  cross-repo runs resolve the right state. statectl pr-add records a uniform
+  { url, branch, repo } value across single-repo and be-fe-pair runs.
+  Migration: none — readers key off .url; legacy url-only entries stay readable.
+- **fix(dev-pipeline): verifyctl keys the command table on a single-target .targetRepos (#203)** (#203)
+  a bare `verifyctl run` (no --repo) on a single-target be-fe-pair run now
+  derives the command table from that one target repo instead of the path="." host, so
+  Stage 8's re-verify and the Stage 6 safety-net stop running the host's commands against
+  the target's flat-mirror worktree (a false TYPE_ERROR, an unrequested format mutation,
+  and lost verify accounting). Absent / empty / >1-entry .targetRepos is unchanged;
+  base/worktree/sidecar/budget resolution is untouched.
+  Migration: none.
+- **fix(dev-pipeline): mark-completed refuses a generous implementation_resilience PASS on an inert-lane run (#202)** (#202)
+  mark-completed now refuses a Post-Run Eval scoring
+  implementation_resilience: PASS on an inert-lane run (no test lane ran, no
+  TEST_FAILURE charged) and requires N/A, closing a self-score inflation hole;
+  suite-lane runs are unaffected. Migration: none.
+- **feat(dev-pipeline): persist the Stage-9 run report before narrating it (#150)** (#150)
+  the Stage-9 run report is now persisted to
+  .claude/pipeline-state/{issue}-report.md before the pipeline narrates it, so
+  an API disconnect during the final response no longer destroys the record of
+  a successful run. mark-completed refuses the terminal write when the report
+  is missing.
+  Migration: none.
+- **fix(dev-pipeline): slice-scope the gates that dead-ended every stacked-prs run (#206)** (#206)
+  stacked-prs runs persist the intake AC->slice partition into
+  state (decomposition.slices[].acIds) so downstream gates can scope by
+  slice. Migration: none (field is additive; absent = full-ticket behavior).
+
+### `intake-toolkit` 2.0.1 → 2.0.2
+
+- **fix: namespace-agnostic Atlassian MCP at intake/Stage-1 fetch sites (#198)** (#198)
+  intake-toolkit jira-fetch prose (intake-orchestrator / intake /
+  intake-interviewer) references all three Atlassian MCP namespaces and the
+  ToolSearch discovery step, not just mcp__atlassian__*.
+  Migration: none.
+  dev-pipeline Stage-1 / tracker-adapter fetch prose references all three
+  Atlassian MCP namespaces + ToolSearch discovery, not just mcp__atlassian__*; a new
+  scripts/check-intake-tracker-namespaces.sh guards the whole intake/Stage-1 surface
+  against regressing to a single hardcoded prefix.
+  Migration: none.
+- **fix(dev-pipeline): slice-scope the gates that dead-ended every stacked-prs run (#206)** (#206)
+  stacked-prs runs persist the intake AC->slice partition into
+  state (decomposition.slices[].acIds) so downstream gates can scope by
+  slice. Migration: none (field is additive; absent = full-ticket behavior).
+
+### `review-toolkit` 2.3.4 → 2.3.5
+
+- **fix(dev-pipeline): slice-scope the gates that dead-ended every stacked-prs run (#206)** (#206)
+  stacked-prs runs persist the intake AC->slice partition into
+  state (decomposition.slices[].acIds) so downstream gates can scope by
+  slice. Migration: none (field is additive; absent = full-ticket behavior).
+
+## v2.9.2
+
+### `second-shift` 1.6.1 → 1.6.2
+
+- **fix(second-shift): scope local-dev-refresh to the second-shift marketplace (#196)** (#196)
+  /second-shift:local-dev-refresh now refreshes only the
+  second-shift marketplace and the plugins installed from it, instead of
+  every marketplace on the machine. Use `claude plugin update <id>@<mkt>`
+  for other marketplaces.
+  Migration: none.
+
+## v2.9.1
+
+### `dev-pipeline` 2.7.0 → 2.7.1
+
+- **fix(review-toolkit): scope-completeness-reviewer namespace-agnostic Atlassian MCP (#189)** (#189)
+  scope-completeness-reviewer now discovers the Atlassian MCP under any
+  of its three registration namespaces (top-level, plugin-bundled, or claude.ai
+  Rovo) instead of a single hardcoded prefix, so the Scope Completeness Gate is no
+  longer unsatisfiable for plugin/Rovo-registered JIRA consumers.
+  Migration: none.
+
+### `review-toolkit` 2.3.3 → 2.3.4
+
+- **fix(review-toolkit): scope-completeness-reviewer namespace-agnostic Atlassian MCP (#189)** (#189)
+  scope-completeness-reviewer now discovers the Atlassian MCP under any
+  of its three registration namespaces (top-level, plugin-bundled, or claude.ai
+  Rovo) instead of a single hardcoded prefix, so the Scope Completeness Gate is no
+  longer unsatisfiable for plugin/Rovo-registered JIRA consumers.
+  Migration: none.
+
+## v2.9.0
+
+### `dev-pipeline` 2.6.4 → 2.7.0
+
+- **feat(dev-pipeline): plan-lint Check 6 hard-verifies pre-flight ledger hydration (#193)** (#193)
+  plan-lint now hard-verifies that a pre-flight /plan-interview ledger's
+  decisions were actually hydrated into the plan verbatim — a run that ignores or
+  drifts from an existing {issue}-ledger.md now fails the Stage-4 plan gate instead
+  of passing silently. Runs with no backing ledger are unaffected.
+  Migration: none.
+- **fix(dev-pipeline): pre-flight abort recovery is a hard handoff (#192)** (#192)
+  dev-pipeline now documents that recovery from a pre-flight
+  abort is a hard handoff — re-run /dev-pipeline:run from the top rather
+  than continuing in-place, so early setup steps (RUN_ID, claim, Stage-2
+  session record) are not silently skipped.
+  Migration: none.
+
+## v2.8.4
+
+### `design-toolkit` 2.1.1 → 2.1.2
+
+- **refactor(dev-pipeline): run-surface prose debloat — dedup, ceremony cuts, audit defect fixes (#172)** (#172)
+  the dev-pipeline run-surface instruction layer is ~1.9k words slimmer —
+  duplicated contracts collapsed to a single canonical site, the inert-lane rationale
+  relocated into tools/is-inert-diff.sh (guarded by its selftest's 28-case golden-master
+  parity check), and narrative issue-number references dropped from operational prose.
+  Also corrects three documentation defects: stale stage references in hooks.md, a
+  duplicated sentence in stages/2-worktree.md, and an off-by-one step citation in
+  second-shift/onboard. Migration: none.
+
+### `dev-pipeline` 2.6.3 → 2.6.4
+
+- **fix(dev-pipeline): plan-lint mechanically enforces [NEW] grounding tags (#181)** (#181)
+  dev-pipeline plan-lint now fails a plan that creates files or
+  helpers without the literal [NEW] grounding tags (eval criterion 2 is
+  grep-scored, so untagged plans scored FAIL at retro time despite passing
+  the Stage-4 gate). Migration: none for existing merged plans; new plans
+  must tag planned creations with [NEW].
+- **fix(dev-pipeline): genericize the Stage-3/5 prose contracts off the birth stack (#154)** (#154)
+  the Stage-3/5 prompt contracts and doc-update surfaces no longer name
+  the birth stack as normative — .project/, Drizzle, *.spec.ts, and apps/api
+  literals are config-resolved or labeled illustrative, and dead unit-testing
+  skill references are repointed to review-toolkit:mutation-review.
+  Migration: none.
+- **fix(review-toolkit): exhaustive reviewers need an emit deadline, not a bigger maxTurns cap (#184)** (#184)
+  scope-completeness and mutation reviewers now emit their result
+  incrementally and write by a turn-numbered deadline, so a large diff yields a
+  partial verdict instead of a dark reviewer. Dark-reviewer errors now distinguish a
+  turn-cap death from a malformed result. Migration: none.
+  new check-emit-deadline.sh gate - an agent whose maxTurns exceeds the
+  default must declare a turn-numbered emit deadline below it, and the cap cited in
+  the agent doc must match frontmatter. Migration: none; the shipped panel already
+  complies.
+- **refactor(dev-pipeline): run-surface prose debloat — dedup, ceremony cuts, audit defect fixes (#172)** (#172)
+  the dev-pipeline run-surface instruction layer is ~1.9k words slimmer —
+  duplicated contracts collapsed to a single canonical site, the inert-lane rationale
+  relocated into tools/is-inert-diff.sh (guarded by its selftest's 28-case golden-master
+  parity check), and narrative issue-number references dropped from operational prose.
+  Also corrects three documentation defects: stale stage references in hooks.md, a
+  duplicated sentence in stages/2-worktree.md, and an off-by-one step citation in
+  second-shift/onboard. Migration: none.
+
+### `review-toolkit` 2.3.2 → 2.3.3
+
+- **fix(dev-pipeline): genericize the Stage-3/5 prose contracts off the birth stack (#154)** (#154)
+  the Stage-3/5 prompt contracts and doc-update surfaces no longer name
+  the birth stack as normative — .project/, Drizzle, *.spec.ts, and apps/api
+  literals are config-resolved or labeled illustrative, and dead unit-testing
+  skill references are repointed to review-toolkit:mutation-review.
+  Migration: none.
+- **fix(review-toolkit): exhaustive reviewers need an emit deadline, not a bigger maxTurns cap (#184)** (#184)
+  scope-completeness and mutation reviewers now emit their result
+  incrementally and write by a turn-numbered deadline, so a large diff yields a
+  partial verdict instead of a dark reviewer. Dark-reviewer errors now distinguish a
+  turn-cap death from a malformed result. Migration: none.
+  new check-emit-deadline.sh gate - an agent whose maxTurns exceeds the
+  default must declare a turn-numbered emit deadline below it, and the cap cited in
+  the agent doc must match frontmatter. Migration: none; the shipped panel already
+  complies.
+
+### `second-shift` 1.6.0 → 1.6.1
+
+- **refactor(dev-pipeline): run-surface prose debloat — dedup, ceremony cuts, audit defect fixes (#172)** (#172)
+  the dev-pipeline run-surface instruction layer is ~1.9k words slimmer —
+  duplicated contracts collapsed to a single canonical site, the inert-lane rationale
+  relocated into tools/is-inert-diff.sh (guarded by its selftest's 28-case golden-master
+  parity check), and narrative issue-number references dropped from operational prose.
+  Also corrects three documentation defects: stale stage references in hooks.md, a
+  duplicated sentence in stages/2-worktree.md, and an off-by-one step citation in
+  second-shift/onboard. Migration: none.
+
+## v2.8.3
+
+### `dev-pipeline` 2.6.2 → 2.6.3
+
+- **fix(review-toolkit): raise exhaustive-agent turn caps out of the deterministic death zone (#179)** (#179)
+  review-toolkit's scope-completeness-reviewer and
+  unit-test-mutation-reviewer no longer die at their turn caps on large
+  surfaces (caps raised 15/12 to 30); dev-pipeline's bounded-exploration lint
+  now requires dormant nudge constants to be declared with a dormancy marker.
+  Migration: none.
+
+### `review-toolkit` 2.3.1 → 2.3.2
+
+- **fix(review-toolkit): raise exhaustive-agent turn caps out of the deterministic death zone (#179)** (#179)
+  review-toolkit's scope-completeness-reviewer and
+  unit-test-mutation-reviewer no longer die at their turn caps on large
+  surfaces (caps raised 15/12 to 30); dev-pipeline's bounded-exploration lint
+  now requires dormant nudge constants to be declared with a dormancy marker.
+  Migration: none.
+
+## v2.8.2
+
+### `dev-pipeline` 2.6.1 → 2.6.2
+
+- **fix: cost-block stage labels, resumed-session cost attribution, and a commit-blocking model-tier false positive (#177)** (#177)
+  Pipeline cost blocks now label stages correctly (Implement was reported as "Plan", Verify as "Implementation", Doc Update as "Verify") and include the cost of a resumed session, which was previously dropped entirely.
+  Migration: none for new runs. Cost blocks on already-open PRs keep the old labels and totals until regenerated — delete the block from the PR body and re-run pipeline-cost-block.sh <issue>.
+  check-model-tiers no longer reports false drift for a workflow dispatch that re-states its model inline (e.g. structured-emitter dispatched model: 'haiku' from a file whose scalar default is sonnet or opus). As a PreToolUse hook, that false positive denied every commit in an affected repo.
+
+### `review-toolkit` 2.3.0 → 2.3.1
+
+- **fix: cost-block stage labels, resumed-session cost attribution, and a commit-blocking model-tier false positive (#177)** (#177)
+  Pipeline cost blocks now label stages correctly (Implement was reported as "Plan", Verify as "Implementation", Doc Update as "Verify") and include the cost of a resumed session, which was previously dropped entirely.
+  Migration: none for new runs. Cost blocks on already-open PRs keep the old labels and totals until regenerated — delete the block from the PR body and re-run pipeline-cost-block.sh <issue>.
+  check-model-tiers no longer reports false drift for a workflow dispatch that re-states its model inline (e.g. structured-emitter dispatched model: 'haiku' from a file whose scalar default is sonnet or opus). As a PreToolUse hook, that false positive denied every commit in an affected repo.
+
+## v2.8.1
+
+### `dev-pipeline` 2.6.0 → 2.6.1
+
+- **fix(dev-pipeline): validateShape honors string-typed array items (#174)** (#174)
+  reviewers that record sub-threshold notes in suppressed[] are no
+  longer declared dark — validateShape now checks the schema's declared
+  items.type instead of requiring every array element to be an object.
+  Migration: none.
+
+## v2.8.0
+
+### `dev-pipeline` 2.5.0 → 2.6.0
+
+- **feat(dev-pipeline): eliminate the StructuredOutput stall class via explorer/emitter transport (#170)** (#170)
+  schema-forced dev-pipeline dispatchers now carry a dispatch-time
+  bounding nudge, and a new lint fails CI when one is added without a declared
+  disposition. Plan-review and unit-test dispatches retry once instead of twice,
+  with an escalated emit-early retry prompt.
+  Migration: none.
+  none.
+  none.
+  none.
+  Stage 4/5 reviewer dispatches no longer force a structured-output
+  call on the exploring agent — reviewers emit a parsed text contract, with a
+  tool-less transcription agent as the schema fallback. Eliminates the
+  StructuredOutput stall class on those stages (measured 7/8 -> 0/8 on the
+  worst-case plan at a third of the token cost). Migration: none.
+  all schema-forced reviewer/produce dispatches across the six
+  workflow dispatchers now use the schema-free explorer text contract with a
+  tool-less transcription fallback; reviewer-visible envelopes are unchanged.
+  Migration: none.
+  the bounded-exploration lint now fails any schema-carrying dispatch
+  in production workflow files that is not the tool-less emitter or a declared
+  validator reference — reintroducing a schema onto an exploring agent is a CI
+  failure, not a style choice. Migration: none.
+  none.
+  none.
+  none.
+
+### `review-toolkit` 2.2.1 → 2.3.0
+
+- **feat(dev-pipeline): eliminate the StructuredOutput stall class via explorer/emitter transport (#170)** (#170)
+  schema-forced dev-pipeline dispatchers now carry a dispatch-time
+  bounding nudge, and a new lint fails CI when one is added without a declared
+  disposition. Plan-review and unit-test dispatches retry once instead of twice,
+  with an escalated emit-early retry prompt.
+  Migration: none.
+  none.
+  none.
+  none.
+  Stage 4/5 reviewer dispatches no longer force a structured-output
+  call on the exploring agent — reviewers emit a parsed text contract, with a
+  tool-less transcription agent as the schema fallback. Eliminates the
+  StructuredOutput stall class on those stages (measured 7/8 -> 0/8 on the
+  worst-case plan at a third of the token cost). Migration: none.
+  all schema-forced reviewer/produce dispatches across the six
+  workflow dispatchers now use the schema-free explorer text contract with a
+  tool-less transcription fallback; reviewer-visible envelopes are unchanged.
+  Migration: none.
+  the bounded-exploration lint now fails any schema-carrying dispatch
+  in production workflow files that is not the tool-less emitter or a declared
+  validator reference — reintroducing a schema onto an exploring agent is a CI
+  failure, not a style choice. Migration: none.
+  none.
+  none.
+  none.
+
+## v2.7.0
+
+### `dev-pipeline` 2.4.0 → 2.5.0
+
+- **fix(dev-pipeline): prose-budget distinguishes no-instruction-layer from vacuous coverage (#151)** (#151)
+  prose-budget.sh now reports a distinct failure when its instruction-layer
+  roots exist but match no files, and reports n/a (passing) when a repo has no local
+  instruction layer at all — previously both cases silently exited 0. Baselines are now
+  per-repo at .claude/prose-budget.baseline.tsv.
+  Migration: run 'prose-budget.sh --update-baseline' once per repo to snapshot a local
+  baseline; until then files report NEW, which is a warning and not a failure.
+- **fix(dev-pipeline): reviewer diff ranges resolve the merge-base (#130) (#155)** (#155)
+  reviewer prompts now describe a three-dot diff range, so a review branch
+  is never reported as deleting commits that only exist on its base branch.
+  Migration: none.
+  reviewer agents and the review-lead / mutation-review skills now specify
+  a three-dot diff range, so reviewers see only the branch's own changes.
+  Migration: none.
+- **fix(dev-pipeline): mandated skill loads are recorded completion evidence (#158)** (#158)
+  Stage 1 and Stage 8 completion now require the mandated skill load
+  (intake-toolkit:intake-orchestrator / review-toolkit:review-lead) to be
+  recorded via the new statectl skill-load-add subcommand; the interactive
+  inline-approved intake carve-out and the be-fe-pair cross-boundary/skip
+  paths remain exempt, --force bypasses for crash-recovery. pipeline-retro now
+  diffs skillsLoaded[] against the session audit ledger. Migration: runs
+  started before this version resume with --force at the stage-1/8 boundary.
+- **fix(dev-pipeline): scope-compliance eval credits deviations[]-disclosed edits (#161)** (#161)
+  scope-compliance eval criterion now treats a Stage-6 edit
+  disclosed in deviations[] before commit as in-scope (the auto-mode analog
+  of user approval); silent unplanned edits still fail. Migration: none.
+- **fix(dev-pipeline): mandated stage comments gate completion via recorded receipts (#162)** (#162)
+  stages that mandate an issue comment (1: claimed+intake, 3: plan,
+  7: doc-update, 8: code-review when a primary round ran, 9: pr) cannot
+  complete without the posted comment's URL recorded via the new statectl
+  comment-add subcommand, so a dropped backgrounded post surfaces at the stage
+  boundary instead of vanishing; read-only trackers (tracker.writes: false)
+  are exempt; Stage 8 additionally files its consolidated report as a real PR
+  review on every terminating path. Migration: pre-existing runs resume with
+  --force at the gated boundaries.
+- **fix(dev-pipeline): plan-lint gates Decision Ledger provenance (#163)** (#163)
+  dev-pipeline Stage-4 plan-lint now hard-fails a plan whose
+  Decision Ledger asserts a human decision (user-answered/user-delegated)
+  without a pre-flight {issue}-ledger.md backing it — mechanizing the
+  pipeline-retro provenance contract into the mechanical gate. An
+  autonomous run must use codebase-derived/deferred provenance only.
+  Migration: none.
+  none.
+  none.
+- **feat(dev-pipeline): statectl reclaim — detect and release stale orphaned claims (#164)** (#164)
+  new statectl reclaim subcommand detects a run stranded in_progress
+  by an infra drop (age-based staleness, read-only verdict naming the
+  resumable stage) and --release quarantines the state file so the queue can
+  re-pick the issue; pipeline-doctor lists stale claims with the exact
+  remediation commands; failed/completed runs are never reclaimable.
+  Migration: none.
+
+### `review-toolkit` 2.2.0 → 2.2.1
+
+- **fix(dev-pipeline): reviewer diff ranges resolve the merge-base (#130) (#155)** (#155)
+  reviewer prompts now describe a three-dot diff range, so a review branch
+  is never reported as deleting commits that only exist on its base branch.
+  Migration: none.
+  reviewer agents and the review-lead / mutation-review skills now specify
+  a three-dot diff range, so reviewers see only the branch's own changes.
+  Migration: none.
+
+## v2.6.0
+
+### `dev-pipeline` 2.3.0 → 2.4.0
+
+- **feat(dev-pipeline): stage-8 a11y/design trigger reads stageParams.webComponentGlobs (#132)** (#132)
+  the Stage-8 accessibility and design-fidelity reviewers now trigger on the
+  globs in stageParams.webComponentGlobs instead of a hardcoded apps/web React path,
+  so non-React or non-apps/web frontends get that reviewer class. An unmatched surface
+  is now reported instead of silently skipped.
+  Migration: none — the key defaults to the previous literal.
+- **fix(dev-pipeline): plan-lint trims AC cells without xargs quote semantics (#135)** (#135)
+  plan-lint no longer aborts with "xargs: unterminated quote" when an
+  acceptance-criteria traceability cell contains an apostrophe, so a plan naming
+  a test like coverage-can't-fail clears the Stage-4 plan-structure gate instead
+  of hard-failing it.
+  Migration: none.
+  none.
+- **feat(second-shift): flag the false-green all-null command table and document setup lanes (#137)** (#137)
+  preflight now warns and withholds its "pipeline-ready" verdict when a
+  repo has no verifying lane configured, instead of reporting green while
+  verifying nothing. Set commands.<id>.allowUnverified=true to declare a
+  deliberate zero-lane opt-out and restore the green verdict.
+  Migration: none.
+  onboarding now flags an all-null command table instead of presenting it
+  as finished, and documents that a fresh pipeline worktree needs a
+  commands.<id>.lanes[] setup step before dependency-requiring verify lanes can run.
+  Migration: none.
+  none.
+  the config JSON schema now documents commands.<id>.allowUnverified,
+  so editors stop flagging a valid zero-lane opt-out.
+  Migration: none.
+- **fix(dev-pipeline): is-inert-diff treats .known-extensions as inert (#139)** (#139)
+  the dev-pipeline INERT lane now covers
+  `.claude/second-shift/.known-extensions`, so a diff that only touches the
+  extension allowlist no longer pays the full verify suite. A same-named file
+  at any other path still selects SUITE.
+  Migration: none.
+- **fix(dev-pipeline): cost-block amends via plain gh when the bot is disabled (#142)** (#142)
+  the Stage-9 cost block now lands on repos that do not run a GitHub
+  App bot, amended under operator identity instead of being skipped. A missing
+  gh CLI now records skipped-no-gh-cli rather than skipped-otel-error, and
+  skipped-no-bot-wrapper is recorded only when a bot is actually enabled.
+  Migration: none.
+- **fix(dev-pipeline): per-repo fix-attempt budget is enforced and reported (#99) (#138)** (#138)
+  the fix-attempt budget now actually stops a runaway verify lane on
+  be-fe-pair and monorepo consumers, and per-repo verdicts report their charge
+  counts instead of an empty map. Single-repo behavior is unchanged.
+  Migration: none.
+  none.
+- **fix(dev-pipeline): anchor bot-commit.sh config resolution at the git common dir (#144)** (#144)
+  pipeline commits now carry the bot identity in worktrees where the
+  consumer config is gitignored, instead of silently falling back to the
+  operator's git identity; the fallback that remains announces itself on
+  stderr. Migration: none.
+  none.
+- **fix(dev-pipeline): pipeline-retro files only meaningful issues (#148)** (#148)
+  pipeline-retro no longer files an issue per finding — "Record
+  only" (the retro report) is the default route, and new issues require
+  recurrence-or-corruption, a known fix, and no existing coverage.
+  Migration: none.
+- **fix(dev-pipeline): mark-completed enforces the locked eval criteria shape (#153)** (#153)
+  mark-completed now refuses a self-eval whose criteria do not score
+  exactly the five locked keys from eval-criteria.md with PASS|FAIL|N/A values,
+  naming the offending keys; --force bypasses the shape check only
+  (crash-recovery escape). Migration: none — eval files already following the
+  eval-criteria.md example shape are unaffected.
+
+### `second-shift` 1.5.0 → 1.6.0
+
+- **feat(second-shift): flag the false-green all-null command table and document setup lanes (#137)** (#137)
+  preflight now warns and withholds its "pipeline-ready" verdict when a
+  repo has no verifying lane configured, instead of reporting green while
+  verifying nothing. Set commands.<id>.allowUnverified=true to declare a
+  deliberate zero-lane opt-out and restore the green verdict.
+  Migration: none.
+  onboarding now flags an all-null command table instead of presenting it
+  as finished, and documents that a fresh pipeline worktree needs a
+  commands.<id>.lanes[] setup step before dependency-requiring verify lanes can run.
+  Migration: none.
+  none.
+  the config JSON schema now documents commands.<id>.allowUnverified,
+  so editors stop flagging a valid zero-lane opt-out.
+  Migration: none.
+
 ## v2.5.0
 
 ### `dev-pipeline` 2.2.7 → 2.3.0

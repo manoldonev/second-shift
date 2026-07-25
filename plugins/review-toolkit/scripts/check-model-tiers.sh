@@ -268,10 +268,39 @@ for spec in "unit-tests.mjs:UNIT_TEST_MODEL" "plan-review.mjs:PLAN_REVIEWER_MODE
     if [ -z "$scalar_model" ]; then
         errors+=("PARSE: could not resolve $var in $file")
     else
-        while IFS= read -r agent; do
+        # Per-DISPATCH model. A dispatch may re-state the tier INLINE
+        # (`{ agentType: 'x', model: 'haiku', ... }`), and that literal — not the
+        # file's scalar — is what is passed at runtime. Attributing such a dispatch
+        # to the scalar is a false MISMATCH: observed with structured-emitter, which
+        # is dispatched `model: 'haiku'` from both unit-tests.mjs (scalar sonnet) and
+        # plan-review.mjs (scalar opus), denying every commit in the repo while the
+        # code was correct.
+        #
+        # An inline literal is still a re-statement of the tier, so it is locksteped
+        # against frontmatter exactly like the scalar — only the SOURCE of the
+        # declared model changes, never the strictness. A dispatch whose `model:` is
+        # an expression (`modelOverrides[...] || SCALAR`) carries no literal and
+        # correctly falls through to the scalar.
+        #
+        # Matching is per-line, which is the shape these dispatches have. If one is
+        # ever reformatted so an inline literal no longer shares the agentType's
+        # line, this reverts to comparing against the scalar — a LOUD false positive,
+        # never a silent pass, so the failure direction stays safe.
+        pairs=$(
+            grep -E "agentType: '[a-z0-9:-]+'" "$file" | while IFS= read -r line; do
+                a=$(printf '%s' "$line" | sed -E "s/.*agentType: '([^']+)'.*/\1/")
+                if printf '%s' "$line" | grep -qE "model: '(opus|sonnet|haiku)'"; then
+                    m=$(printf '%s' "$line" | sed -E "s/.*model: '(opus|sonnet|haiku)'.*/\1/")
+                else
+                    m="$scalar_model"
+                fi
+                printf '%s\t%s\n' "$a" "$m"
+            done | sort -u
+        )
+        while IFS=$'\t' read -r agent agent_model; do
             [ -z "$agent" ] && continue
-            check_pair "$agent" "$scalar_model" "$tbl ($var)"
-        done <<< "$(grep -oE "agentType: '[a-z0-9:-]+'" "$file" | sed -E "s/agentType: '([^']+)'/\1/" | sort -u)"
+            check_pair "$agent" "$agent_model" "$tbl ($var)"
+        done <<< "$pairs"
     fi
 done
 

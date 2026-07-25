@@ -7,7 +7,7 @@ description: 'Fully autonomous pipeline: GitHub issue → branch → implement �
 
 Fully autonomous pipeline: GitHub issue → branch → implement → review → PR.
 
-**Runtime:** Claude Code CLI with `--permission-mode auto`. Not designed for GitHub Actions — the pipeline depends on Claude Code's Agent tool for intake, planning, implementation, and code review. See issue #52 for the CI-native architecture design.
+**Runtime:** Claude Code CLI with `--permission-mode auto`. Not designed for GitHub Actions — the pipeline depends on Claude Code's Agent tool for intake, planning, implementation, and code review.
 
 **How to run:**
 
@@ -25,7 +25,7 @@ claude --permission-mode auto
 
 Stage 8 is the highest-stakes synthesis in the pipeline (review-toolkit:review-lead dedup + Scope Completeness Gate). It gets clean context where it matters most — at the reviewer layer — because each reviewer runs as a fresh `agent()`.
 
-**Design-driven runs (interactive only).** The **design-provider axis** (config `design.provider`) selects the design-fidelity adapter; a run is `designDriven` when the provider is set **and** the issue carries a provider-appropriate handoff link. Stage 1 detects + records it, Stage 3 produces a faithful FE spec via the selected engine, Stage 5 implements the screen in `apps/web` via the engine + a live-render verify gate, and Stage 8 routes the provider's fidelity reviewer + `review-toolkit:a11y-reviewer`. Two providers: **`claude-design`** — a `claude.ai/design/...` link read via the `design-sync.mjs` engine + **DesignSync** tool (reviewer `design-toolkit:design-faithful-reviewer`); **`figma`** — a `figma.com/...` link read via the `figma.mjs` engine + **Figma MCP**, dispatched from the BE session against the FE worktree (reviewer `design-toolkit:figma-faithful-reviewer`). Both reads need interactive auth (design scopes / MCP) — so **run a design-driven issue interactively, not headless**. A headless run fails closed `design-source-unreachable` at the first design read (it does not guess a contract). The mode is off by default: with `design.provider` absent, an issue runs exactly as before. Full state contract: state-schema.md **Design Mode**.
+**Design-driven runs (interactive only).** With config `design.provider` set (`claude-design` or `figma`) and a provider-appropriate handoff link on the issue, Stages 1/3/5/8 route the design engine, the FE spec, a live-render verify gate, and the provider's fidelity reviewer. Both providers read the handoff through interactive auth (design scopes / Figma MCP), so **run a design-driven issue interactively, not headless** — a headless run fails closed `design-source-unreachable` at the first design read rather than guessing a contract. Off by default. Full contract (providers, engines, reviewers, state fields): state-schema.md **Design Mode**.
 
 **Design docs:**
 
@@ -52,10 +52,12 @@ changes under the JIRA adapter. Full contract + the operation-by-adapter table:
   1/8/9 sections below describe.
 - **jira** (`tracker.type: jira`, `tracker.writes: false`) — the read-only
   model: operator supplies the JIRA key, the ticket is fetched **read-only** via the
-  Atlassian MCP (`mcp__atlassian__getJiraIssue`), and **no stage writes to the tracker**
-  (no transitions, no comments — the state file + draft-PR metadata are the audit
-  trail). No bot claim; the Pre-flight bot/label gate below does not apply.
-  See [`tools/tracker/jira/README.md`](./tools/tracker/jira/README.md).
+  Atlassian MCP's `getJiraIssue` — under whichever namespace the session exposes
+  (`mcp__atlassian__*`, `mcp__plugin_atlassian_atlassian__*`, or
+  `mcp__claude_ai_Atlassian_Rovo__*`; `ToolSearch` to discover a deferred tool) — and
+  **no stage writes to the tracker** (no transitions, no comments — the state file +
+  draft-PR metadata are the audit trail). No bot claim; the Pre-flight bot/label gate
+  below does not apply. See [`tools/tracker/jira/README.md`](./tools/tracker/jira/README.md).
 
 Shared, tracker-independent config: `tracker.keyPattern` (statectl init validation)
 and `tracker.branchPrefix` (branch namespace — `claude/acme-` github, `jdoe/` jira).
@@ -77,6 +79,8 @@ and `tracker.branchPrefix` (branch namespace — `claude/acme-` github, `jdoe/` 
 Run this **first**, before generating `RUN_ID` and before Stage 1.A's claim sequence. It is issue-independent (it validates the host/repo, not a specific issue) and is a fast, load-bearing **subset** of `pipeline-doctor.sh` — the two prerequisites the pipeline cannot recover from mid-run: the bot wrapper (every GitHub write assumes it) and the required label set (claim, escalation, and decomposition all mutate these labels). The full doctor (gh-feature probes, token minting, selftest, cost preconditions) remains the recommended one-shot check on a new machine; this gate just guarantees the two essentials at every entry.
 
 A failure here is an **abort-with-instructions**, not a `failureContext` write: no issue is claimed yet, so there is no state file and nothing to comment on. Print the onboarding error to stderr and exit non-zero — this is the one pipeline stop that legitimately exits non-zero (it precedes the autonomous fail-fast contract, which only governs post-claim stages). Under `DEV_PIPELINE_MODE=interactive` the behavior is identical (the gate never prompts; a missing prerequisite is unrecoverable in-session either way).
+
+**Recovery from a pre-flight abort is a hard handoff, not an in-place continue.** After the operator fixes the failed prerequisite (installs the bot wrapper, creates a missing label), the run does **not** resume from where the abort stopped. Re-invoke `/dev-pipeline:run <n>` from the top so every early step runs in order — the **Pre-flight: Generate RUN_ID** step, Stage 1.A's atomic claim, and the Stage-2 `pipeline-session-add` cost-attribution record. An agent that continues in-place after an abort silently skips these setup steps (observed: a skipped Stage-2 session record → a `skipped-no-sessions` cost block) and takes a control-flow decision that belongs to the operator. If continuing in-place is genuinely unavoidable, surface the choice to the operator first — never take it silently.
 
 ```bash
 # (0) Config validation — tracker-agnostic, runs for BOTH adapters. config-lint
@@ -209,7 +213,7 @@ statectl.sh mark-failed "$ISSUE" \
 
 This single call writes `failureContext = { stage: N, reason, ...details }` + `status: "failed"` + `stages.{N}.status: "failed"` + `stages.{N}.completedAt` in one atomic write. `--stage` is omitted for pre-Stage-1 failures (routing rejects, Target Confirmation rejects) — for those the `failureContext` object has no `stage` field. After the call, exit cleanly with rc=0; the session stops emitting tool calls.
 
-Per-stage failure points (Pre-Stage-1 routing reject, Stages 4, 6, 8 crash-recovery resume, 9) cite only the `failureContext.reason` string and any stage-specific payload at the call site. Resume from a `failed` state is also no-prompt: the in-session path reads state and exits. Operator clears the failed state manually (`rm .claude/pipeline-state/{issue}.json`, or reset `status: "in_progress"` + `currentStage` + clear `failureContext`) before re-running. **Authoritative index of all `failureContext.reason` values is in [`state-schema.md`](./state-schema.md#failurecontextreason-index); `statectl mark-failed` validates the reason against this closed enum at write time.**
+Per-stage failure points (Pre-Stage-1 routing reject, Stages 4, 6, 8 crash-recovery resume, 9) cite only the `failureContext.reason` string and any stage-specific payload at the call site. Resume from a `failed` state is also no-prompt: the in-session path reads state and exits. Operator clears the failed state manually before re-running (recipe under **Resume logic** below). **Authoritative index of all `failureContext.reason` values is in [`state-schema.md`](./state-schema.md#failurecontextreason-index); `statectl mark-failed` validates the reason against this closed enum at write time.**
 
 **Helper-failure contract.** `statectl.sh` errors (validation rejects, precondition violations, JSON parse errors) are infrastructure-fatal: the helper prints `[statectl-error] ...` to stderr and exits non-zero. These do NOT route through `failureContext.reason` (would require a `statectl-error` enum value — out of scope until eval data shows the stderr-only path is too coarse for autonomous mode). The calling session presents the stderr text to the user (interactive) or follows the autonomous abort contract (final assistant turn cites the error and stops emitting tool calls). See `statectl.sh` header comments for the full contract.
 
@@ -242,8 +246,7 @@ If the wrapper is missing (fresh machine), bootstrap it with [`tools/install-gh-
 `gh issue edit`, `gh issue comment`, and `gh issue view --json` hit the Projects-classic GraphQL deprecation on some gh-version + repo combinations (`pipeline-doctor.sh` detects this; it is currently the case in this repo) — the command prints a GraphQL error and **the mutation silently does not apply**. The REST forms below are canonical for all issue writes; use them everywhere the stage files say `$GH_BOT issue comment` / `$GH_BOT issue edit`:
 
 ```bash
-# Comment (body built in a fresh per-post `mktemp` file first — see "Multi-line comments"
-# below for the BODY=$(mktemp …) + rm -f "$BODY" pattern; never a fixed /tmp name):
+# Comment ($BODY = a fresh per-post file — see "Multi-line comments" below):
 $GH_BOT api -X POST "repos/{owner}/{repo}/issues/$ISSUE/comments" -F body=@"$BODY"
 
 # Claim swap (ready-for-dev → in-progress): ADD in-progress, confirm the add applied
@@ -262,7 +265,7 @@ gh api "repos/{owner}/{repo}/issues/$ISSUE" --jq '{labels: [.labels[].name], ass
 **PR writes hit the same breakage.** `gh pr edit` (body/label mutations) fails with the identical GraphQL error. The REST forms:
 
 ```bash
-# PR body update (body built in a fresh per-post `mktemp` file — see "Multi-line comments"):
+# PR body update ($BODY = a fresh per-post file — see "Multi-line comments"):
 $GH_BOT api -X PATCH "repos/{owner}/{repo}/pulls/$PR_NUMBER" -F body=@"$BODY"
 
 # PR labels — PRs are issues for labeling purposes; use the issues endpoints above with the PR number.
@@ -278,7 +281,9 @@ $GH_BOT api -X PATCH "repos/{owner}/{repo}/pulls/$PR_NUMBER" -F body=@"$BODY"
 
 Stage-progress comments and post-claim label edits are **observability, not gates** — nothing downstream reads them in-session. Posting them synchronously costs a REST round-trip per stage boundary (~2–3 min per run in aggregate). Run them in the background (`run_in_background`) and continue to the next step immediately.
 
-**A backgrounded post must own its `mktemp` body cleanup — never `rm` the `--body-file` from the foreground.** Background the _whole_ post-then-`rm` as one unit via the Bash tool's `run_in_background`, so the temp file outlives the post. Do **not** background only the post with a trailing shell `&` and then `rm -f "$BODY"` in the foreground: the `rm` races ahead of the still-reading background job and the post fails with `open … no such file or directory` (observed: a Stage-3 plan comment failed this way and had to be re-posted synchronously). If you cannot background the cleanup with the post, post synchronously.
+**Backgrounded or not, a mandated comment must be reconciled before its stage closes.** The mandated markers (`claimed`/`intake` for Stage 1, `plan` for 3, `doc-update` for 7, `code-review` for 8 when a primary round ran, `pr` for 9) are completion evidence: record each post's `html_url` via `statectl comment-add <issue> --marker <m> --url <url>` once the post lands, and `set-stage --status completed` refuses without the receipt. A backgrounded post that failed therefore surfaces at the stage boundary, not at end of run — check the background result and re-post before closing the stage. (Read-only trackers — `tracker.writes: false` — post nothing and are exempt.)
+
+**A backgrounded post must own its body cleanup — never `rm` the `--body-file` from the foreground.** Background the _whole_ post-then-`rm` as one unit via the Bash tool's `run_in_background`. Backgrounding only the post (trailing `&`) and cleaning up in the foreground races the `rm` ahead of the still-reading job, and the post fails `open … no such file or directory` (observed on a Stage-3 plan comment). If you cannot background the cleanup with the post, post synchronously.
 
 **Never background** (these ARE load-bearing, in order of appearance): the claim-sequence mutations + verification (Step 1.A — the race guard depends on read-after-write), `statectl` state writes (always synchronous), failure comments + `mark-failed` (the failure contract requires the comment to exist before the session stops), `gh pr create` (Stage 9 reads the URL), and the `pr-add`/label/comment calls in Stage 9's completion sequence when a later step in the same run consumes their result. If a backgrounded post fails, surface it at the end of the run — never silently drop a comment.
 
@@ -302,7 +307,7 @@ $GH_BOT issue comment "$ISSUE" --body-file "$BODY"
 rm -f "$BODY"
 ```
 
-**Use a fresh `mktemp` file per post — never a fixed name like `/tmp/comment-body.md`.** Two pipeline runs on the same machine share a fixed temp name, and even within a single run the non-gating stage-progress comments post in the background (see "Non-gating writes run in the background" above), so two posts can be in flight at once. A shared name means last-writer-wins: one post clobbers another's body and you publish the wrong run's comment under this issue — observed in practice when a concurrent run's code-review summary landed on the wrong thread. A fresh `mktemp` per post (not one file reused per run, and not a `$RUN_ID`-embedded name — `$RUN_ID` is constant within a run and still collides across backgrounded intra-run posts) gives every post its own file. Note the bot wrapper returns the new comment's URL, so `--jq .html_url` confirms the post **landed** — but it does NOT confirm the post's **content**; the per-post temp file is the only real guard against a clobbered body.
+**Use a fresh `mktemp` file per post — never a fixed name, a file reused per run, or a `$RUN_ID`-embedded name.** Concurrent runs share a fixed name, and backgrounded stage-progress comments collide *within* one run (`$RUN_ID` is constant across them), so a shared name is last-writer-wins: one post clobbers another's body and publishes the wrong content — observed when a concurrent run's code-review summary landed on the wrong thread. `--jq .html_url` confirms a post **landed**, never its **content**, so the per-post file is the only real guard.
 
 **Permission-classifier fallback (same contract, different writer).** Some `auto`-mode permission classifiers deny the compound `mktemp` + heredoc + post command as a single Bash call (observed on a canary run). When that happens, keep the two-step contract but swap the writer: build the body with the harness file-write tool (Write/Edit) at a **unique per-post path** in the session scratchpad, then post it as its own small command — `$GH_BOT api -X POST "repos/{owner}/{repo}/issues/$ISSUE/comments" -F body=@"$FILE"`. The fresh-file-per-post rule is unchanged; only the file author moves from the shell to the harness.
 
@@ -339,7 +344,7 @@ Every issue comment from this pipeline includes machine-readable markers:
 Human-readable message here.
 ```
 
-`RUN_ID` is generated in the **Pre-flight: Generate RUN_ID** step (top of this file) — once per run, before Invocation Routing. It is persisted to top-level `.runId` in the state file via `statectl init --run-id "$RUN_ID"`, and re-read from state if a crash-recovery resume re-enters in a fresh session so the original session and the resumed one share the same `<!-- run_id: ... -->` marker. Include `run_id` in every comment for traceability across retries.
+`RUN_ID` comes from the **Pre-flight: Generate RUN_ID** step above, which specifies its generation, persistence, and crash-recovery re-read. Include `run_id` in every comment for traceability across retries.
 
 ---
 
@@ -356,7 +361,7 @@ Before starting, gather situational context:
 
 Use this to detect dirty working trees, in-progress work, or stash conflicts before creating worktrees.
 
-**Non-base-branch posture (#59):** a current branch other than the configured base is **not** a reject — Stage-1 reads are pinned to `origin/<baseBranch>` (stages/1-intake.md Step 1.P) and Stage 2 cuts the work branch from the same remote ref, so the checkout's branch cannot leak into the run. The predicates: pin established + clean tree → proceed silently; **dirty working tree** (any branch) → surface a WARN — "a human appears to be mid-work in this checkout" — in the run's final report and proceed; **pin not establishable** (fetch/worktree-add failure) → fail closed via `mark-failed --reason non-main-base-autonomous` (interactive mode presents the failure instead). Wrong-target detection (wrong repo, wrong issue, wrong diff base) is unchanged and still aborts.
+**Non-base-branch posture:** a current branch other than the configured base is **not** a reject — Stage-1 reads are pinned to `origin/<baseBranch>` (stages/1-intake.md Step 1.P) and Stage 2 cuts the work branch from the same remote ref, so the checkout's branch cannot leak into the run. The predicates: pin established + clean tree → proceed silently; **dirty working tree** (any branch) → surface a WARN — "a human appears to be mid-work in this checkout" — in the run's final report and proceed; **pin not establishable** (fetch/worktree-add failure) → fail closed via `mark-failed --reason non-main-base-autonomous` (interactive mode presents the failure instead). Wrong-target detection (wrong repo, wrong issue, wrong diff base) is unchanged and still aborts.
 
 ---
 
@@ -381,7 +386,7 @@ Each stage has a recommended tier. Follow these unless overridden by the user:
 | 4. Plan Review              | reasoning | Reviewing reasoning quality (plan-review.mjs sequencer; `PLAN_REVIEWER_MODEL`)      |
 | 5. Implement                | code      | Code generation — fast and capable (mutation-gate executors: sonnet, `EXECUTOR_MODEL`) |
 | 6. Verify                   | —         | verifyctl script execution + in-session advisory quality pass + visual capture (inherits caller) |
-| 7. Doc Update               | —         | In-session reasoning over the diff + `.project/` docs (inherits caller)             |
+| 7. Doc Update               | —         | In-session reasoning over the diff + the repo's declared doc roots (inherits caller) |
 | 8. Code Review              | reasoning | Multi-domain judgment                                                               |
 | 9. Open PR                  | —         | Templated output + gh CLI calls — runs in-session on the caller's model             |
 | 10. Cleanup                 | —         | Mechanical — no LLM dispatch                                                        |
@@ -459,8 +464,19 @@ Stages that write additional stage-specific fields carry an inline **State:** li
 **Resume logic:** On pipeline start, check for an existing state file:
 
 1. If `status: "completed"` — inform user this issue was already delivered. Ask: re-run from scratch or skip?
-2. If `status: "in_progress"` — resume from the `currentStage`. Print a one-line summary of what was already completed.
+2. If `status: "in_progress"` — resume from the `currentStage`. Print a one-line summary of what was already completed. **Then record this session for cost attribution**, before doing any stage work:
+
+   ```bash
+   if [[ -n "${CLAUDE_CODE_SESSION_ID:-}" ]]; then
+     bash statectl.sh pipeline-session-add "$ISSUE_NUMBER" \
+       --session-id "$CLAUDE_CODE_SESSION_ID" --source interactive
+   fi
+   ```
+
+   A resumed run is a **different** Claude session from the one Stage 2 recorded, and Stage 9's cost block attributes cost by `session.id` against `pipelineSessions[]`. Recording only at Stage 2 and at the Stage-8 crash-recovery entry means a resume that re-enters at any other stage (7, 6, 5, …) contributes **zero** rows to the cost block — its entire cost silently vanishes rather than showing up as a gap. `pipeline-session-add` is idempotent on the session id and is deliberately exempt from the terminal-state guard, so this is safe on every resume path, including a post-terminal backfill.
 3. If `status: "failed"` — reads state and exits (no-prompt, per the failure contract above); print the failure context. Re-running requires the operator to first clear the local state file (`rm .claude/pipeline-state/{issue}.json`, or reset `status: "in_progress"` + `currentStage` + clear `failureContext`) — `statectl init` is idempotent and will NOT reset a `failed` file. This covers the Stage-1 intake stops (no worktree to keep), where the fix-spec → relabel `ready-for-dev` → re-run flow needs the originating machine's state file cleared.
+
+**Orphaned claims (infra drops).** A run killed mid-stage (API drop, token expiry, dead session) strands its tracker claim and `status: in_progress` state — invisible to the queue, which skips claimed issues. `statectl reclaim <issue>` emits a read-only verdict for a stale claim (`in_progress` + last state write older than 30 min; statectl has no process-liveness signal, so confirm no live session owns the run first) naming the resumable stage — resume via rule 2 above. When the state is too early or corrupt to resume, `statectl reclaim <issue> --release` quarantines the state file (`{key}-released-{ts}.json`, evidence preserved for retro) and the caller swaps the labels (`in-progress` → queue) via the bot wrapper. A `status: failed` run is NOT stale-reclaimable — it exited by contract (rule 3). `pipeline-doctor.sh` lists stale claims with these commands; a batch runner treats an orphaned claim as resumable, skipping only live ones.
 
 **Location:** the pipeline-state dir (config `paths.pipelineStateDir`, default `.claude/pipeline-state`) is gitignored. It is local-only crash-recovery data, not a version-controlled artifact.
 
@@ -558,11 +574,21 @@ If the pre-commit hook denies a commit during Stage 6, fix the type error before
 
 ---
 
+## Run report
+
+Stage 9 persists the run's narrative to `.claude/pipeline-state/{issue-number}-report.md` **immediately after `pr-add`** — before the cost block, the eval write, `mark-completed`, and the terminal narration. Template, placement rationale, and the multi-PR rule: [`stages/9-open-pr.md`](./stages/9-open-pr.md) "Run report".
+
+The report is the only artifact the operator reads per run, and it used to be the one artifact with no durability guarantee — it existed solely as streamed model output. A mid-response API disconnect therefore destroyed it, leaving a log whose last line was `API Error: Connection closed mid-response` for runs that had already opened and merged their PRs. **The terminal narration is a view of this file, not the artifact itself.**
+
+`mark-completed` refuses the terminal write when the report is missing, marker-less, or empty (`statectl` `require_report_file`) — not bypassed by `--force`, same posture as the eval gate. A stale report from a prior run is quarantined at `statectl init`.
+
+---
+
 ## Post-Run Eval
 
 After Stage 9 (or any pipeline abort), score the run against [`eval-criteria.md`](./eval-criteria.md) and write results to `.claude/pipeline-state/{issue-number}-eval.json`. Every run produces a score — this data feeds the next optimization iteration of the skill.
 
-**Required file shape** (`mark-completed` refuses a terminal write without it — write the eval BEFORE `mark-completed`): parseable JSON with `ticketKey` = the issue key **as a string** (e.g. `"98"`) and a non-empty `criteria` object (the five criterion scores). Everything else (outcome, notes, evidence) is free-shape. When self-scoring `scope_compliance`, cross-check the **committed file list** against the plan's Affected files — not just the AC verdict (a retro FAIL class: out-of-plan commits graded PASS off the scope-reviewer alone).
+**Required file shape** (`mark-completed` refuses a terminal write without it — write the eval BEFORE `mark-completed`): parseable JSON with `ticketKey` = the issue key **as a string** (e.g. `"98"`) and a `criteria` object scoring **exactly** the five locked keys from `eval-criteria.md`'s example — `target_confirmation`, `plan_grounding`, `implementation_resilience`, `scope_compliance`, `review_precision` — each valued `PASS` | `FAIL` | `N/A` (nothing else; `mark-completed` rejects renamed/missing/extra keys and any other value, naming the offenders). Everything else (outcome, notes, evidence) is free-shape. When self-scoring `scope_compliance`, cross-check the **committed file list** against the plan's Affected files — not just the AC verdict (a retro FAIL class: out-of-plan commits graded PASS off the scope-reviewer alone).
 
 **This self-score is a floor, not the record.** The executor grading its own run is structurally generous; the operator should follow up with **`/dev-pipeline:pipeline-retro <issue-number>`** (sibling skill, [`../pipeline-retro/SKILL.md`](../pipeline-retro/SKILL.md)) — it re-scores the five criteria with a fresh-context agent from artifacts only (evidence quotes required), audits the run for contract deviations (silent deviations are the headline metric), logs environment friction, and routes every finding to a skill edit, issue, doctor check, or criteria proposal.
 
@@ -574,6 +600,6 @@ After Stage 9 (or any pipeline abort), score the run against [`eval-criteria.md`
 - **All PRs are opened as draft by default.** Engineers flip to ready-for-review after a manual eyes-on pass. The `needs-deep-review` label and the `codeReviewExhausted` state field distinguish review-exhausted drafts from clean drafts; draft status alone is not a failure signal.
 - **Eval criteria 3 (implementation_resilience) and 5 (review_precision) can only be scored on real pipeline runs** — dry-run optimization loops cannot exercise these paths. Scores accumulate organically with actual issue runs.
 - **Single-repo only.** Unlike some sibling forks of this skill, the acme pipeline has no cross-repo orchestration (no `targetRepos`, no per-repo `worktrees` map). All work happens in this repo.
-- **Stacked-PR mode overwrites `worktreePath` / `branch`** per slice. Historical slice state is not preserved in the JSON — it is inferable only from the decomposition plan on disk plus the set of already-opened PRs.
+- **Stacked-PR mode overwrites `worktreePath` / `branch`** per slice. Historical loop-position state is not preserved in the JSON — it is inferable only from the decomposition plan on disk plus the set of already-opened PRs. (The AC→slice partition is the exception: `decomposition.slices[].acIds` is write-once intent state, persisted at intake — see state-schema.md § Stacked-PR AC partition.)
 - **Single-session, in-process flow.** All stages (1–10) run in one session, end to end; the Stage 8 review loop iterates in place (up to 3 rounds).
 - **Stage 8 skill loadout.** Stage 8 does NOT load `intake-toolkit:intake-orchestrator` (Stage 2 is past). It dispatches the reviewer fan-out via the `Workflow` script (`workflows/code-review.mjs`) and loads `review-toolkit:review-lead` for **synthesis only**, plus the `$GH_BOT` wrapper. On a crash-recovery resume in a fresh session, the state file plus `stageCheckpoint["7"]` is the entire context contract.

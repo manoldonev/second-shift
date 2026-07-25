@@ -132,6 +132,43 @@ run_cli "$QUAL"
 [ $? -eq 0 ] && ok "qualified name: 'review-toolkit:security-reviewer' parsed bare -> exit 0" \
   || fail "qualified name expected exit 0 (stderr: $(cat "$TMP/.stderr"))"
 
+# --- scalar-table files: a dispatch may re-state its tier INLINE ---------------
+# Regression guard. A scalar-table file (`const UNIT_TEST_MODEL = 'sonnet'`) can also
+# dispatch an agent with an explicit `model: '<tier>'` on the dispatch itself; that
+# literal is what runs, not the scalar. The checker used to attribute EVERY agentType
+# in the file to the scalar, so a `model: 'haiku'` dispatch inside a sonnet file was
+# reported as drift and DENIED EVERY COMMIT IN THE REPO while the code was correct.
+# Copy the dev-pipeline fixture and rewrite unit-tests.mjs with such a dispatch.
+# Args: <dest_name> <inline-model-for-structured-emitter> -> prints the root path
+make_dp_inline_variant() {
+  local dst="$TMP/$1" inline="$2"
+  cp -R "$DP" "$dst"
+  cat > "$dst/skills/run/workflows/unit-tests.mjs" <<MJS
+const UNIT_TEST_MODEL = 'sonnet'
+const emit = { agentType: 'review-toolkit:structured-emitter', model: '$inline', label: 'x' }
+const plan = { agentType: 'unit-test-plan-reviewer', model: modelOverrides['unit-test-plan-reviewer'] || UNIT_TEST_MODEL }
+MJS
+  printf '%s' "$dst"
+}
+
+# honored — inline 'haiku' matches structured-emitter's frontmatter, so no drift,
+# even though the file's scalar is 'sonnet'. (The sibling dispatch with no inline
+# literal must still fall through to the scalar and match its own frontmatter.)
+INLINE_OK=$(make_dp_inline_variant inline-ok "haiku")
+run_cli "$INLINE_OK"
+[ $? -eq 0 ] && ok "scalar table: inline model literal is honored over the scalar -> exit 0" \
+  || fail "inline model expected exit 0 (stderr: $(cat "$TMP/.stderr"))"
+
+# still locksteped — an inline literal is a re-statement like any other, so an inline
+# 'opus' against haiku frontmatter is real drift. Proves the fix narrowed the SOURCE
+# of the declared model without opening a blind spot.
+INLINE_DRIFT=$(make_dp_inline_variant inline-drift "opus")
+run_cli "$INLINE_DRIFT"
+if [ $? -eq 0 ]; then fail "inline model drift expected exit 1"; else
+  grep -q "MISMATCH: 'structured-emitter'" "$TMP/.stderr" && ok "scalar table: inline literal still locksteped against frontmatter -> exit 1 + MISMATCH" \
+    || fail "inline drift: exit 1 but no MISMATCH for structured-emitter (stderr: $(cat "$TMP/.stderr"))"
+fi
+
 # cache layout — installed marketplace cache is cache/<mkt>/<plugin>/<version>/;
 # the dev-pipeline root must resolve via the versioned-sibling fallback with NO
 # SECOND_SHIFT_DEV_PIPELINE_ROOT override (0.1.0 shipped resolving only the
