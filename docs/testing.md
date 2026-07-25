@@ -43,6 +43,15 @@ it, and say so in the commit body. This is a repo idiom, not a suggestion.
 selftests because every one of them checked a component against itself. If a new gate has a
 verdict path, extend `scenario-liveness-selftest.sh`.
 
+**Characterization is allowed; silent characterization is not.** Covering a gate often means
+reaching a branch that is wrong but out of scope to fix. Pinning it is correct — an unpinned
+wrong branch is free to get quietly worse. But a case asserting broken behavior reads exactly
+like a case blessing it, so it must say, at the assertion: what the real behavior is, what the
+documented or intended behavior was, why it was not fixed here, and that the case is expected
+to flip when it is. A characterization case that only asserts an exit code is indistinguishable
+from an author who did not notice. Examples live in `exitplan-ledger-gate-selftest.sh` `(t3h)`
+and `pipeline-doctor-selftest.sh` `(d5a)`.
+
 ## The runtime shim
 
 Workflow `.mjs` scripts are not node-importable: they carry a top-level `return` and reference

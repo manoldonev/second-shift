@@ -48,7 +48,9 @@ trap 'rm -rf "$WORK"' EXIT
 # fixture repo. Captures stdout+stderr together; echoes "rc=<n>" as the last line.
 run_gate() { # run_gate <repo> [base-ref] [gate-override]
   local repo="$1" base="${2:-}" g="${3:-$GATE}" out rc
-  out="$(cd "$repo" && bash "$g" $base 2>&1)"; rc=$?
+  # Quoted: the gate reads BASE="${1:-}", so an empty arg and no arg are the same
+  # code path (both fall through to tag discovery).
+  out="$(cd "$repo" && bash "$g" "$base" 2>&1)"; rc=$?
   printf '%s\nrc=%s\n' "$out" "$rc"
 }
 rc_of()  { printf '%s' "$1" | sed -n 's/^rc=//p' | tail -1; }
