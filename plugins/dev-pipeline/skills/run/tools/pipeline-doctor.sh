@@ -430,6 +430,10 @@ if [[ -d "$STATE_DIR_D" ]]; then
   stale_found=0
   for sf in "$STATE_DIR_D"/*.json; do
     [[ -f "$sf" ]] || continue
+    # >>> stale-claim-classify (pure — extracted and executed by tools/pipeline-doctor-selftest.sh) >>>
+    # Reads only $sf, emits $stale_line (empty = not stale). The `continue` is
+    # deliberate: the extracting selftest re-hosts this block inside its own loop.
+    #
     # Quarantined artifacts keep their in_progress content by design (retro
     # evidence, renamed not rewritten) — they are resolved, not stale.
     case "$(basename "$sf")" in *-released-*|*-stale-*) continue ;; esac
@@ -442,6 +446,7 @@ if [[ -d "$STATE_DIR_D" ]]; then
       | select($age >= 30)
       | "\(.ticketKey) stage=\(.currentStage // 1) last-write=\($age)min-ago"
     ' "$sf" 2>/dev/null)
+    # <<< stale-claim-classify <<<
     if [[ -n "$stale_line" ]]; then
       stale_found=1
       warn "stale claim: ${stale_line} — no liveness signal available (a long silent stage looks identical); if no session owns it: resume with '/dev-pipeline:run ${stale_line%% *}', or release with statectl reclaim ${stale_line%% *} --release + the in-progress -> queue label swap via the bot wrapper"

@@ -117,6 +117,43 @@ err=$(bash "$LINT" "$TMP/uncited.md" 2>&1 >/dev/null || true)
   && pass "(ll-l) uncited ticket-sourced row → 1, named" \
   || fail "(ll-l) uncited ticket-sourced — rc=$rc err=$err"
 
+# (ll-m) quoting-safe, widened: the trim() that replaced xargs must survive every
+# character class xargs chokes on — double quotes, a backslash, and an UNBALANCED
+# quote (the classic xargs abort, since xargs parses quoting and dies on an unmatched
+# one). (ll-k) covers apostrophes; this widens the same guard so a revert to any
+# xargs-based trim fails here rather than surfacing as a hook crash during a live
+# ExitPlanMode. Deliberately behavioral: grepping ledger-lint.sh for the ABSENCE of
+# `xargs` would assert only that a word is missing from a file (the prose-presence
+# class CLAUDE.md bans) and would miss a different quoting-unsafe rewrite.
+printf '%s\n' \
+  '# P' \
+  '## Decision Ledger' \
+  '| ID | Decision | Resolution | Provenance |' \
+  '| --- | --- | --- | --- |' \
+  '| D-1 | use "double quotes" | a back\slash and an unmatched '"'"' | codebase-derived |' \
+  > "$TMP/quoting.md"
+rc=$(lint_rc "$TMP/quoting.md")
+[[ "$rc" -eq 0 ]] \
+  && pass "(ll-m) double quotes, backslash, unmatched quote in cells → trim survives, 0" \
+  || fail "(ll-m) quoting-safe trim widened — got rc=$rc"
+
+# (ll-n) the widened guard must still DISCRIMINATE. Surviving exotic quoting is not
+# the same as parsing it correctly: a trim that swallowed the cell would also pass
+# (ll-m). The same row with an illegal provenance must still be rejected, which is
+# only possible if the Provenance cell was actually parsed out. `assumed` remains
+# outside the enum after main widened it with `ticket-sourced` (#152).
+printf '%s\n' \
+  '# P' \
+  '## Decision Ledger' \
+  '| ID | Decision | Resolution | Provenance |' \
+  '| --- | --- | --- | --- |' \
+  '| D-1 | use "double quotes" | a back\slash and an unmatched '"'"' | assumed |' \
+  > "$TMP/quoting-bad.md"
+rc=$(lint_rc "$TMP/quoting-bad.md")
+[[ "$rc" -eq 1 ]] \
+  && pass "(ll-n) same quote-laden row, illegal provenance → still rejected, 1" \
+  || fail "(ll-n) quote-laden discrimination — got rc=$rc"
+
 echo
 echo "[ledger-lint-selftest] summary: $PASS passed, $FAIL failed"
 exit $FAIL

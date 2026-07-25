@@ -69,16 +69,32 @@ The rule is coverage, not naming. Several scripts are covered under a differentl
 `scenario-liveness-selftest.sh`, `check-frozen-files.sh` and `check-configversion-migration-doc.sh`
 by `derive-release-selftest.sh`. Do not "fix" those by adding a same-named suite.
 
-Genuine exceptions, in two kinds:
+Genuine exceptions, one kind:
 
 - **By design, no independent contract:** `plugins/dev-pipeline/skills/run/scenario-lib.sh` (shared
   scenario mechanics, named so it does **not** match the discovery glob — `statectl-selftest.sh`
   and `scenario-liveness-selftest.sh` exercise it on every run), `_effective-registry.sh`,
   `install-gh-bot.sh`, and the eval runners.
-- **Genuinely uncovered, and tracked — not exempt:** `scripts/check-plugin-version-bumps.sh` (a
-  merge-blocking release gate whose error branches all degrade to PASS) and
-  `plugins/intake-toolkit/hooks/exitplan-ledger-gate.sh` (a live enforcing hook that fails open).
-  Both are #215 scope. Listing them is a debt register, not a waiver.
+
+The debt register that used to sit here — `check-plugin-version-bumps.sh` and
+`exitplan-ledger-gate.sh`, both listed as genuinely uncovered — is closed: each now has a
+same-named behavioral suite, as does `pipeline-doctor.sh`.
+
+**Characterization is not endorsement.** Two of those suites pin fail-open behavior they did
+not fix, and each says so at the assertion:
+
+- `exitplan-ledger-gate.sh` tier 3 resolves session-fresh plans with BSD `find -newermB`. Under
+  GNU find that predicate does not exist, the scan errors into `|| true`, and the hook allows —
+  so on Linux the tier can never lint a plan. `(t3h)` proves it on any platform.
+- `pipeline-doctor.sh` block 8 skips a state file with no `lastUpdatedAt`, contradicting its own
+  comment: `(.lastUpdatedAt // empty) | fromdateiso8601? // 0` short-circuits the whole pipeline
+  on an absent field, so a truncated state file is invisible to the stale-claim check. `(d5a)`
+  pins it.
+
+Both are behavior changes rather than coverage, so each is tracked rather than fixed here — the
+ledger gate as #228, the doctor as #229. Do not drop an entry from this list without landing its
+fix; the tracked issues each require their register line removed in the same PR. When either is
+fixed, its case flips — and that flip is the intended signal, not a broken test.
 
 A previous version of this section claimed every script pairs with a *same-named* suite. That was
 false in both directions, and the false claim is part of how the dark gates above stayed invisible.
