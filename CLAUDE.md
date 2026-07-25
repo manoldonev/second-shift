@@ -91,8 +91,11 @@ not fix, and each says so at the assertion:
   on an absent field, so a truncated state file is invisible to the stale-claim check. `(d5a)`
   pins it.
 
-Both are behavior changes rather than coverage, so they were left for a follow-up. When either
-is fixed, its case flips — and that flip is the intended signal, not a broken test.
+Both are behavior changes rather than coverage, so they were left for a follow-up. Neither has a
+tracker issue yet — until one exists, **this list is the register**, and the reasoning lives in
+`docs/plans/acme-215.md` as ledger entries D-6 and D-7. Do not drop an entry from here without
+either landing the fix or filing the issue that replaces it. When either is fixed, its case flips
+— and that flip is the intended signal, not a broken test.
 
 A previous version of this section claimed every script pairs with a *same-named* suite. That was
 false in both directions, and the false claim is part of how the dark gates above stayed invisible.
