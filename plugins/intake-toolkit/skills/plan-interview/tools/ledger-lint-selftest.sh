@@ -25,10 +25,11 @@ trap 'rm -rf "$TMP"' EXIT
 
 echo "[ledger-lint-selftest] positive cases"
 
-# (ll-a) valid ledger with every provenance value (incl. escaped pipe in a cell) → 0
+# (ll-a) valid ledger with every provenance value (incl. escaped pipe in a cell,
+#        and a cited ticket-sourced row) → 0
 rc=$(lint_rc "$FIX/valid-ledger.md")
 [[ "$rc" -eq 0 ]] \
-  && pass "(ll-a) valid ledger (4 rows, all provenance values) → 0" \
+  && pass "(ll-a) valid ledger (5 rows, all provenance values) → 0" \
   || fail "(ll-a) valid ledger — got rc=$rc"
 
 # (ll-b) explicit empty form (trivial work) → 0
@@ -39,7 +40,7 @@ rc=$(lint_rc "$FIX/empty-form-ledger.md")
 
 # (ll-c) row count reported on stdout
 out=$(bash "$LINT" "$FIX/valid-ledger.md" 2>/dev/null)
-grep -q "4 ledger row(s)" <<< "$out" \
+grep -q "5 ledger row(s)" <<< "$out" \
   && pass "(ll-c) row count reported" \
   || fail "(ll-c) row count — got: $out"
 
@@ -106,6 +107,15 @@ rc=$(lint_rc "$TMP/apostrophe.md")
 [[ "$rc" -eq 0 ]] \
   && pass "(ll-k) apostrophe/quote in cells → trim survives, 0" \
   || fail "(ll-k) quoting-safe trim — got rc=$rc"
+
+# (ll-l) ticket-sourced row with no cited URL → 1
+sed 's|, per the operator.s comment https://example.invalid/tracker/PROJ-9999#comment-7||' \
+  "$FIX/valid-ledger.md" > "$TMP/uncited.md"
+rc=$(lint_rc "$TMP/uncited.md")
+err=$(bash "$LINT" "$TMP/uncited.md" 2>&1 >/dev/null || true)
+[[ "$rc" -eq 1 ]] && grep -q "cite the source comment by URL" <<< "$err" \
+  && pass "(ll-l) uncited ticket-sourced row → 1, named" \
+  || fail "(ll-l) uncited ticket-sourced — rc=$rc err=$err"
 
 echo
 echo "[ledger-lint-selftest] summary: $PASS passed, $FAIL failed"
