@@ -88,7 +88,7 @@ section_present() {
 # hard. Absent a backing pre-flight ledger it is advisory-only in-pipeline (see the
 # advisory check near the bottom of this file) — the autonomous contract forbids
 # prompting mid-run, so a run legitimately authors the ledger's explicit-empty-form or
-# `codebase-derived`/`deferred` rows, and a run that omits the section entirely must
+# `codebase-derived`/`deferred`/`ticket-sourced` rows, and a run that omits the section entirely must
 # NOT hard-abort Stage 4 (which maps any plan-lint violation to `mark-failed --reason
 # plan-structure-invalid`). Its presence becomes hard ONLY when a backing ledger with
 # >=1 `D-n` row exists — enforced by Check 6, NOT by this unconditional array. Keeping

@@ -25,10 +25,11 @@ trap 'rm -rf "$TMP"' EXIT
 
 echo "[ledger-lint-selftest] positive cases"
 
-# (ll-a) valid ledger with every provenance value (incl. escaped pipe in a cell) → 0
+# (ll-a) valid ledger with every provenance value (incl. escaped pipe in a cell,
+#        and a cited ticket-sourced row) → 0
 rc=$(lint_rc "$FIX/valid-ledger.md")
 [[ "$rc" -eq 0 ]] \
-  && pass "(ll-a) valid ledger (4 rows, all provenance values) → 0" \
+  && pass "(ll-a) valid ledger (5 rows, all provenance values) → 0" \
   || fail "(ll-a) valid ledger — got rc=$rc"
 
 # (ll-b) explicit empty form (trivial work) → 0
@@ -39,7 +40,7 @@ rc=$(lint_rc "$FIX/empty-form-ledger.md")
 
 # (ll-c) row count reported on stdout
 out=$(bash "$LINT" "$FIX/valid-ledger.md" 2>/dev/null)
-grep -q "4 ledger row(s)" <<< "$out" \
+grep -q "5 ledger row(s)" <<< "$out" \
   && pass "(ll-c) row count reported" \
   || fail "(ll-c) row count — got: $out"
 
@@ -107,7 +108,16 @@ rc=$(lint_rc "$TMP/apostrophe.md")
   && pass "(ll-k) apostrophe/quote in cells → trim survives, 0" \
   || fail "(ll-k) quoting-safe trim — got rc=$rc"
 
-# (ll-l) quoting-safe, widened: the trim() that replaced xargs must survive every
+# (ll-l) ticket-sourced row with no cited URL → 1
+sed 's|, per the operator.s comment https://example.invalid/tracker/PROJ-9999#comment-7||' \
+  "$FIX/valid-ledger.md" > "$TMP/uncited.md"
+rc=$(lint_rc "$TMP/uncited.md")
+err=$(bash "$LINT" "$TMP/uncited.md" 2>&1 >/dev/null || true)
+[[ "$rc" -eq 1 ]] && grep -q "cite the source comment by URL" <<< "$err" \
+  && pass "(ll-l) uncited ticket-sourced row → 1, named" \
+  || fail "(ll-l) uncited ticket-sourced — rc=$rc err=$err"
+
+# (ll-m) quoting-safe, widened: the trim() that replaced xargs must survive every
 # character class xargs chokes on — double quotes, a backslash, and an UNBALANCED
 # quote (the classic xargs abort, since xargs parses quoting and dies on an unmatched
 # one). (ll-k) covers apostrophes; this widens the same guard so a revert to any
@@ -124,13 +134,14 @@ printf '%s\n' \
   > "$TMP/quoting.md"
 rc=$(lint_rc "$TMP/quoting.md")
 [[ "$rc" -eq 0 ]] \
-  && pass "(ll-l) double quotes, backslash, unmatched quote in cells → trim survives, 0" \
-  || fail "(ll-l) quoting-safe trim widened — got rc=$rc"
+  && pass "(ll-m) double quotes, backslash, unmatched quote in cells → trim survives, 0" \
+  || fail "(ll-m) quoting-safe trim widened — got rc=$rc"
 
-# (ll-m) the widened guard must still DISCRIMINATE. Surviving exotic quoting is not
+# (ll-n) the widened guard must still DISCRIMINATE. Surviving exotic quoting is not
 # the same as parsing it correctly: a trim that swallowed the cell would also pass
-# (ll-l). The same row with an illegal provenance must still be rejected, which is
-# only possible if the Provenance cell was actually parsed out.
+# (ll-m). The same row with an illegal provenance must still be rejected, which is
+# only possible if the Provenance cell was actually parsed out. `assumed` remains
+# outside the enum after main widened it with `ticket-sourced` (#152).
 printf '%s\n' \
   '# P' \
   '## Decision Ledger' \
@@ -140,8 +151,8 @@ printf '%s\n' \
   > "$TMP/quoting-bad.md"
 rc=$(lint_rc "$TMP/quoting-bad.md")
 [[ "$rc" -eq 1 ]] \
-  && pass "(ll-m) same quote-laden row, illegal provenance → still rejected, 1" \
-  || fail "(ll-m) quote-laden discrimination — got rc=$rc"
+  && pass "(ll-n) same quote-laden row, illegal provenance → still rejected, 1" \
+  || fail "(ll-n) quote-laden discrimination — got rc=$rc"
 
 echo
 echo "[ledger-lint-selftest] summary: $PASS passed, $FAIL failed"
