@@ -143,8 +143,14 @@ This is a coverage PR. It changes no gate's behavior.
      `.claude/second-shift.config.json` sets `paths.plansDir` resolves candidates there
      rather than at the `.claude/plans` default.
    - never-exit-1: assert rc is in `{0,2}` across every case above.
-7. **`ledger-lint-selftest.sh`** — assert `(ll-k)` is present and that `ledger-lint.sh`
-   contains no `xargs` in its trim path, so the landed fix cannot silently regress.
+7. **`ledger-lint-selftest.sh`** — widen the existing `(ll-k)` apostrophe guard
+   behaviorally: add a row carrying double quotes, a backslash, and an unmatched quote
+   (the classic `xargs` abort), plus a discrimination case proving the Provenance cell is
+   still parsed out of that row. Grepping `ledger-lint.sh` for the absence of `xargs`
+   was rejected — that is the prose-presence class `CLAUDE.md` bans, and it would miss
+   any other quoting-unsafe rewrite.
+8. **`CLAUDE.md`** — close the debt register (both files are now covered), and record the
+   two characterized fail-opens (D-6, D-7) so "pinned" is never mistaken for "endorsed".
 
 ## Test strategy
 
