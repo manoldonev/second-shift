@@ -36,17 +36,18 @@ fix does not depend on the mechanism claim, so this plan corrects the record and
 | D-3 | Closure of the normalization | Only whitespace and PAIRED emphasis delimiters are neutralized. Every other byte difference, GFM pipe escaping included, stays a violation. The raw-pipe-vs-escaped-pipe asymmetry is out of scope: such a backing row is already dropped by the column-count guard before Check 6 compares it | codebase-derived |
 | D-4 | Emphasis folding strategy | Fold paired delimiters only via `sed -E` — `__x__` to `**x**`, `_x_` to `*x*`. A blanket underscore-to-asterisk fold would equate `snake_case` with `snake*case`; paired-only keeps single-underscore identifiers intact. Still textual, no markdown parser | codebase-derived |
 | D-5 | Are the contract docs in scope | Yes. Normalizing the compare falsifies two shipped statements — the Check-6 header comment saying internal whitespace is significant, and the Stage-3 hydration contract. Both are corrected here so behavior and documented contract do not diverge | codebase-derived |
-| D-6 | Where the new fixtures live | Checked-in files under `plan-lint-fixtures/`, named so the state fixture derives its sibling ledger inside that same directory. This satisfies the acceptance criterion literally without copying files at test time and without rewriting the existing inline Check-6 cases | codebase-derived |
+| D-6 | Where the new fixtures live | Checked-in files under `plan-lint-fixtures/`, named so the state fixture derives its sibling ledger inside that same directory. The derivation is `dirname(state)/$(basename state .json)-ledger.md`, so the pair must be `hydration.json` and `hydration-ledger.md` — mirroring the real `{issue}.json` / `{issue}-ledger.md` pairing. This satisfies the acceptance criterion literally without copying files at test time and without rewriting the existing inline Check-6 cases | codebase-derived |
 
 ## Affected files/modules
 
 - `plugins/dev-pipeline/skills/run/tools/plan-lint.sh` — the `norm_cell()` helper, the three Check-6
   compare sites, the Check-6 inline header comment, and the file-header check-list entry for Check 6.
 - `plugins/dev-pipeline/skills/run/tools/plan-lint-selftest.sh` — three new Check-6 cases.
+- `plugins/dev-pipeline/skills/run/tools/plan-lint-fixtures/hydration.json` `[NEW]` — the state
+  fixture. Named so `basename hydration.json .json` + `-ledger.md` resolves to the file below;
+  a `hydration-state.json` would derive `hydration-state-ledger.md` and silently no-op Check 6.
 - `plugins/dev-pipeline/skills/run/tools/plan-lint-fixtures/hydration-ledger.md` `[NEW]` — the backing
-  ledger the three plan fixtures hydrate from.
-- `plugins/dev-pipeline/skills/run/tools/plan-lint-fixtures/hydration-state.json` `[NEW]` — the state
-  fixture whose sibling derivation resolves to `hydration-ledger.md`.
+  ledger the three plan fixtures hydrate from, resolved as the sibling of the state fixture above.
 - `plugins/dev-pipeline/skills/run/tools/plan-lint-fixtures/hydration-emphasis-plan.md` `[NEW]` — AC-1.
 - `plugins/dev-pipeline/skills/run/tools/plan-lint-fixtures/hydration-whitespace-plan.md` `[NEW]` — AC-2.
 - `plugins/dev-pipeline/skills/run/tools/plan-lint-fixtures/hydration-wording-plan.md` `[NEW]` — AC-3.
@@ -65,30 +66,43 @@ fix does not depend on the mechanism claim, so this plan corrects the record and
 
 ## Implementation steps
 
-1. Add `norm_cell()` to `plan-lint.sh` directly below `trim()`. It trims, collapses internal
+Steps 1–3 land the tests first, so each new case is observed failing against unmodified
+`plan-lint.sh` before the fix exists.
+
+1. Add the five fixture files. The backing ledger carries three rows chosen to exercise every case:
+   an emphasis-bearing Resolution, a multi-word Resolution for the whitespace case, and an
+   identifier carrying **exactly one** underscore that paired folding must leave intact (a second
+   underscore in that cell would pair and the invariant would be false). The three plan fixtures are
+   otherwise-clean, complete plans — all ten mandated sections present, traceability rows matching
+   the state fixture's AC ids, no ungrounded paths — so Check 6 is the only check that can speak.
+2. Add three cases to `plan-lint-selftest.sh` under the Check-6 section, each naming the invariant it
+   guards.
+3. Run the three cases against unmodified `plan-lint.sh` and confirm the emphasis, whitespace, and
+   wording cases are red, red, and red-for-the-right-reason respectively. A case that is already
+   green here is a can't-fail test and must be re-authored before proceeding.
+4. Add `norm_cell()` to `plan-lint.sh` directly below `trim()`. It trims, collapses internal
    whitespace runs to a single space, then folds paired emphasis delimiters with one `sed -E`.
-   Document the closure from D-3 and the accepted `snake_case_name` false-equal from D-4 in the
-   comment above it.
-2. Route the three Check-6 compares through `norm_cell()` on both sides. Keep the raw cell values in
+   Document the closure from D-3 and the accepted `a_b_c` false-equal from D-4 in the comment above it.
+5. Route the three Check-6 compares through `norm_cell()` on both sides. Keep the raw cell values in
    the violation messages so the operator still sees what they actually wrote.
-3. Reword the trailing parenthetical of the three Check-6 violation messages so a reported drift no
+6. Reword the trailing parenthetical of the three Check-6 violation messages so a reported drift no
    longer claims a verbatim byte match is required. Keep each message's leading text (`<id> Decision
    cell drifted`, `<id> Resolution cell drifted`, `<id> Provenance`) byte-stable — the existing
    selftest cases grep those prefixes.
-4. Add the five fixture files. The backing ledger carries three rows chosen to exercise every case:
-   an emphasis-bearing Resolution, a multi-word Resolution for the whitespace case, and a
-   single-underscore identifier that paired folding must leave intact.
-5. Add three cases to `plan-lint-selftest.sh` under the Check-6 section, each naming the invariant it
-   guards.
-6. Update the two contract statements from D-5: the Check-6 inline header comment in `plan-lint.sh`
+7. Update the two contract statements from D-5: the Check-6 inline header comment in `plan-lint.sh`
    (including the file-header check list) and the hydration sentence in `stages/3-write-plan.md`.
 
 ## Test strategy
 
-Test-first: the three new fixture cases are written and confirmed to fail against unmodified
-`plan-lint.sh` before step 1 lands, so each case is proven capable of failing. This is the explicit
-guard against the can't-fail-test class the repo's conventions call out — and it is load-bearing
-here, because the AC-2 case as originally worded would have been green from the start (D-2).
+Test-first: steps 1–3 write the three fixture cases and confirm them red against unmodified
+`plan-lint.sh` before the helper exists, so each case is proven capable of failing. This is the
+explicit guard against the can't-fail-test class the repo's conventions call out — and it is
+load-bearing here, because the AC-2 case as originally worded would have been green from the start
+(D-2).
+
+The fixtures directory has a second consumer, `scenario-liveness-selftest.sh`. It asserts the
+directory exists and reads `valid-plan.md` **by name** — it does not glob — so adding files to the
+directory cannot perturb it.
 
 Coverage tier: these are per-tool behavioral cases against fixtures, so they belong in
 `plan-lint-selftest.sh` next to the tool. No scenario is added to `scenario-liveness-selftest.sh`:
@@ -109,10 +123,10 @@ Invariants guarded by each new case:
 
 | AC ID | Criterion (short)                              | Step(s) | Test(s)                                    |
 | ----- | ---------------------------------------------- | ------- | ------------------------------------------ |
-| AC-1  | Emphasis-only difference passes Check 6         | 1, 2, 4 | plan-lint-selftest emphasis case (AC-1)    |
-| AC-2  | Whitespace-only difference passes Check 6       | 1, 2, 4 | plan-lint-selftest whitespace case (AC-2)  |
-| AC-3  | Real wording difference still fails Check 6     | 1, 2, 4 | plan-lint-selftest wording case (AC-3)     |
-| AC-4  | Fixtures land in the fixtures dir and are run   | 4, 5    | all three cases above drive the fixtures   |
+| AC-1  | Emphasis-only difference passes Check 6         | 1, 4, 5 | plan-lint-selftest emphasis case (AC-1)    |
+| AC-2  | Whitespace-only difference passes Check 6       | 1, 4, 5 | plan-lint-selftest whitespace case (AC-2)  |
+| AC-3  | Real wording difference still fails Check 6     | 1, 4, 5 | plan-lint-selftest wording case (AC-3)     |
+| AC-4  | Fixtures land in the fixtures dir and are run   | 1, 2    | all three cases above drive the fixtures   |
 
 ## Verification commands
 
@@ -122,10 +136,11 @@ Invariants guarded by each new case:
 
 ## Risks / rollback notes
 
-- **Over-normalization weakening the gate.** Paired folding equates `a_b_c` with `a*b*c`. This is
-  symmetric across both sides, so it can never cause a false failure — only a false pass, and only
-  when one side uses underscores and the other asterisks in the same interior position. The wording
-  fixture pins the boundary that matters: a lone-underscore identifier is not folded.
+- **Over-normalization weakening the gate.** Paired folding equates `a_b_c` with `a*b*c`, because
+  the interior `_b_` pairs. This is symmetric across both sides, so it can never cause a false
+  failure — only a false pass, and only when one side uses underscores and the other asterisks in the
+  same interior position. The wording fixture pins the boundary that matters: an identifier carrying
+  a single underscore has nothing to pair with and is not folded.
 - **`sed -E` portability.** Both BSD and GNU sed accept `-E`. If a consumer's environment disagreed,
   the compare would error under `set -euo pipefail` rather than silently pass — a loud failure.
 - **Rollback** is reverting the commit: the helper is additive and the compare sites return to raw
