@@ -35,8 +35,11 @@ No pre-flight `/plan-interview` ledger backs this ticket, so this section is aut
 - `plugins/dev-pipeline/skills/run/statectl.sh` — `require_eval_file()`: the predicate, its comment block, and the `--force` sentence in the function docstring.
 - `plugins/dev-pipeline/skills/run/statectl-selftest.sh` — the `(mc-ir)` case block: header, two inverted cases, four added cases, one generalized local helper.
 - `plugins/dev-pipeline/skills/run/state-schema.md` — the `mark-completed` terminal-gates paragraph, which documents the value check's lane scoping in prose.
+- `scripts/lockstep-manifest.tsv` — a DROPPED comment entry recording the code-comment ↔ schema-prose coupling and why it stays reviewer-guarded. Added on the Stage-4 plan review's first warning (see the amendment note below).
 
-All three paths exist on the base branch. Unverified references: none.
+All four paths exist on the base branch. Unverified references: none.
+
+**Post-review amendment.** Stage 4 returned `fix-and-go` with four warnings, all adopted. Two of them widen this section and the step list beyond the version that was reviewed: warning 1 adds `scripts/lockstep-manifest.tsv`, and warning 3 adds the `(mc-ir3)`/`(mc-ir5)` relabel to the selftest edit surface. The plan is reconciled here rather than left contradicting the diff; the amendment is also recorded as a run deviation.
 
 ## Reuse inventory
 
@@ -50,7 +53,7 @@ All three paths exist on the base branch. Unverified references: none.
 1. **`statectl.sh` — predicate.** Delete the `any_suite_object` definition and reduce the jq program to `any_test_failure | not`. `any_test_failure` is unchanged, including its `worktrees.<id>` union.
 2. **`statectl.sh` — refusal message.** Restate it in evidence terms: no `TEST_FAILURE` was ever charged, so the circuit breaker was never exercised → score `N/A`. Drop the "inert-lane"/"verifySummary is a skip string" wording, which would be wrong for the newly-covered case (AC-5).
 3. **`statectl.sh` — gate comment block.** Retitle from "Inert-lane implementation_resilience gate" to an evidence-shape framing, and delete the closing "Scoped to PASS->N/A on inert runs ONLY: a SUITE-lane run … is unaffected" sentence, which this change falsifies.
-4. **`statectl.sh` — docstring.** "the shape check **alone** honors `--force`" becomes false once two neighbouring checks honor it; reword to name both.
+4. **`statectl.sh` — docstring.** "the shape check **alone** honors `--force`" is already false: the resilience gate has sat below the same `--force` early return since it shipped, so the sentence is *pre-existing* drift rather than something this change causes. Reword to name both checks. (Rationale corrected on the Stage-4 plan review's second warning, which caught the original framing as inverted.)
 5. **`statectl-selftest.sh` — helper.** Replace `write_eval_pass <key>` with `write_eval_ir <key> <value>` (default `PASS`), updating its call sites.
 6. **`statectl-selftest.sh` — block header.** Retitle the `(mc-ir)` block: it is no longer an inert-lane gate, and its comment repeats the "SUITE-lane … unaffected" claim.
 7. **`statectl-selftest.sh` — invert `(mc-ir2)`.** Suite-object `verifySummary`, nothing charged, `PASS` → now **refused**; assert rc, the message naming the missing evidence, and `status` untouched (AC-1).
@@ -59,6 +62,8 @@ All three paths exist on the base branch. Unverified references: none.
 10. **`statectl-selftest.sh` — add `(mc-ir7)`/`(mc-ir8)`.** Suite lane, nothing charged, `N/A` and `FAIL` → accepted; the gate must not fire on a non-`PASS` score (AC-4).
 11. **`statectl-selftest.sh` — add `(mc-ir9)`.** Suite lane, nothing charged, `PASS`, `--force` → accepted (AC-4's bypass half).
 12. **`state-schema.md`.** Rewrite the terminal-gates sentence describing the value check so it states the evidence rule and drops the "a SUITE-lane run … is unaffected" parenthetical.
+13. **`(mc-ir3)`/`(mc-ir5)` labels.** Both label themselves "(AC-2)" after the ticket that introduced them, which collides with this ticket's AC-2. Restate both labels behaviorally, carrying no cross-ticket AC reference.
+14. **`scripts/lockstep-manifest.tsv`.** Add a DROPPED comment entry for the gate-comment ↔ schema-prose coupling, stating why it stays reviewer-guarded and which selftest cases pin the behavior instead.
 
 ## Test strategy
 
@@ -102,4 +107,4 @@ find . -name '*-selftest.sh' -type f -print0 | xargs -0 -n1 -I{} env SKIP_STRESS
 - `eval-criteria.md` — LOCKED, and its wording already covers this case.
 - Widening the evidence test to other `verifyAttempts` classes (see D-3).
 - Criterion 4's separate structural problem, tracked elsewhere.
-- A `scripts/lockstep-manifest.tsv` row for the `state-schema.md` prose ↔ `statectl.sh` comment coupling. The manifest is for byte-anchorable duplicated literals; its own header rules out representations that are "not byte-anchorable without authoring new canonical literals" and leaves them reviewer-guarded. The two texts here are a prose paragraph and a code comment, not copies of one literal.
+- A mechanical `scripts/lockstep-manifest.tsv` **row** for the `state-schema.md` prose ↔ `statectl.sh` comment coupling. The manifest's enforced rows are for byte-anchorable duplicated literals, and these two texts are a prose paragraph and a code comment, not copies of one literal. The coupling is nonetheless real, so per CLAUDE.md it is recorded as a DROPPED comment entry (step 14) rather than dropped silently — that is in scope; only the enforced row is not.

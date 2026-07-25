@@ -310,8 +310,10 @@ require_mutable() {
 # because a run once scored an invented criterion in the slot of the one it
 # would have failed, and an illegal softening verdict in another — a self-score
 # that can rename its rubric makes the pass rate unfalsifiable. Existence and
-# plausibility are never bypassed; the shape check alone honors --force
-# (crash-recovery escape: a resumed run terminalizing an older-era eval file).
+# plausibility are never bypassed; the two checks below the --force early return
+# — the criteria shape check and the implementation_resilience evidence gate —
+# both honor it (crash-recovery escape: a resumed run terminalizing an
+# older-era eval file).
 # Deliberately NOT called from mark-failed: its call sites across stages 1-9 do
 # not write an eval first, and gating them would strand aborting runs
 # `in_progress` with no failureContext. The abort-path eval remains a prose
@@ -348,26 +350,25 @@ require_eval_file() {
     || { EXIT_CODE=2 die "mark-completed: criteria shape check failed to evaluate on $eval_file"; }
   [[ -z "$shape_err" ]] \
     || { EXIT_CODE=1 die "mark-completed: $eval_file does not score the five locked criteria from eval-criteria.md — $shape_err. Legal values: PASS | FAIL | N/A. Fix the eval file, or --force for crash-recovery."; }
-  # Inert-lane implementation_resilience gate: PASS requires the resilience
+  # implementation_resilience evidence gate: PASS requires the resilience
   # circuit-breaker to have been EXERCISED (a real test failure handled), per
-  # eval-criteria.md. On an INERT-lane run no verifying test lane ran anywhere,
-  # so the breaker had no opportunity to fire and PASS is structurally
-  # impossible — the criterion's letter mandates N/A. Cross-check the self-score
-  # against the run's recorded verify evidence and refuse a generous PASS.
+  # eval-criteria.md — whose N/A clause reads "no executable test surface ... or
+  # otherwise produced ZERO test failures". Lane is not the test: a green SUITE
+  # run meets that N/A bar exactly as an inert one does. So the gate keys on the
+  # evidence a compliant PASS necessarily leaves behind — a charged TEST_FAILURE
+  # — and NOT on whether a verifying lane could have run. (It once also accepted
+  # any object verifySummary, which let every green suite run through.)
+  # The test is a UNION over the flat counter AND every per-repo worktrees.<id>
+  # entry, so a be-fe-pair run is covered rather than silently holed.
   # Honors --force like the shape check it neighbors (the function already
   # returned above under --force): a crash-recovery terminalization of an
-  # older-era file is not re-gated. The inert test is a UNION over the flat
-  # fields AND every per-repo worktrees.<id> entry, so a be-fe-pair run is
-  # covered rather than silently holed. Scoped to PASS->N/A on inert runs ONLY:
-  # a SUITE-lane run (object verifySummary, or any TEST_FAILURE charged) is
-  # unaffected and scores PASS/FAIL/N/A as today.
+  # older-era file is not re-gated.
   if [[ "$(jq -r '.criteria.implementation_resilience // ""' "$eval_file")" == "PASS" ]]; then
     if jq -e '
-        def any_suite_object: [.verifySummary, ((.worktrees // {})[].verifySummary)] | any(type == "object");
         def any_test_failure: [(.verifyAttempts.TEST_FAILURE // 0), ((.worktrees // {})[].verifyAttempts.TEST_FAILURE // 0)] | any(. > 0);
-        (any_suite_object or any_test_failure) | not
+        any_test_failure | not
       ' "$state" >/dev/null 2>&1; then
-      EXIT_CODE=1 die "mark-completed: $eval_file scores implementation_resilience: PASS on an inert-lane run — no verifying test lane ran (verifySummary is a skip string and no TEST_FAILURE was charged), so the resilience circuit-breaker was never exercised. PASS requires it to have been exercised (eval-criteria.md); score it N/A. Fix the eval file, or --force for crash-recovery."
+      EXIT_CODE=1 die "mark-completed: $eval_file scores implementation_resilience: PASS but no TEST_FAILURE was ever charged (neither the flat verifyAttempts nor any per-repo worktrees.<id> entry), so the resilience circuit-breaker was never exercised. PASS requires it to have been exercised (eval-criteria.md); a run that produced zero test failures scores N/A regardless of which verify lane ran. Fix the eval file, or --force for crash-recovery."
     fi
   fi
 }
