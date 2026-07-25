@@ -65,9 +65,10 @@ selftest needs no registration. CI is model-free by design (no API-billed calls)
 
 The rule is coverage, not naming. Several scripts are covered under a differently-named suite —
 `claim-issue.sh` by `claim-selftest.sh`, `pipeline-cost-block.sh` by `cost-block-selftest.sh`,
-`max-pushed-slice.sh` by `statectl-selftest.sh`'s `(mps)` section, `slice-scope.sh` by
-`scenario-liveness-selftest.sh`, `check-frozen-files.sh` and `check-configversion-migration-doc.sh`
-by `derive-release-selftest.sh`. Do not "fix" those by adding a same-named suite.
+`max-pushed-slice.sh` by `statectl-selftest.sh`'s `(mps)` section, `slice-scope.sh` and
+`start-slice.sh` by `scenario-liveness-selftest.sh`, `check-frozen-files.sh` and
+`check-configversion-migration-doc.sh` by `derive-release-selftest.sh`. Do not "fix" those by
+adding a same-named suite.
 
 Genuine exceptions, one kind:
 

@@ -28,6 +28,7 @@ This ticket adds three scenarios, one extracted tool plus its scenario, and a bo
 - `plugins/dev-pipeline/skills/run/scenario-liveness-selftest.sh` **[VERIFIED]** — header boundary list; four new scenario blocks.
 - `plugins/dev-pipeline/skills/run/tools/start-slice.sh` **[NEW]** — the extracted precedence tool.
 - `plugins/dev-pipeline/skills/run/stages/1-intake.md` **[VERIFIED]** — slice-derivation pre-check block rewired to invoke the tool.
+- `CLAUDE.md` **[VERIFIED]** — one line in the differently-named-suite coverage register, recording that `start-slice.sh` is covered by `scenario-liveness-selftest.sh`. Added while dispositioning a plan-review warning; the register exists precisely to record this pairing.
 - `docs/plans/acme-216.md` **[NEW]** — this plan.
 
 ## Reuse inventory
