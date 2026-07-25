@@ -17,6 +17,7 @@ the internal runs are the residual this fixture exists to guard.
 | D-1 | Serialization shape for the import payload | return a bare *object*, never an array      | codebase-derived |
 | D-2 | Retry budget for the import worker         | three   attempts  with exponential backoff  | codebase-derived |
 | D-3 | Naming convention for the new helper       | use snake_case to match the sibling tools   | codebase-derived |
+| D-4 | Behavior on a duplicate import id          | reject it as **conflict**, do not overwrite | codebase-derived |
 
 ## Affected files/modules
 

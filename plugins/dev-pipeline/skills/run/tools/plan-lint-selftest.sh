@@ -380,11 +380,13 @@ echo "[plan-lint-selftest] Check 6 formatter-tolerant compare (#219)"
 # so Check 6 is the only check that can speak in these cases.
 HYD_STATE="$FIX/hydration.json"
 
-# (pl-ae) AC-1: a Resolution cell differing ONLY in emphasis delimiters (*object* vs
-# _object_) is a formatter-owned rewrite, not drift → 0.
+# (pl-ae) AC-1: Resolution cells differing ONLY in emphasis delimiters are a
+# formatter-owned rewrite, not drift → 0. Covers BOTH of norm_cell()'s fold rules —
+# italic (D-1: *object* vs _object_) and bold (D-4: **conflict** vs __conflict__) —
+# since they are separate sed expressions and one fixture would leave the other dark.
 rc=$(lint_rc "$FIX/hydration-emphasis-plan.md" "$HYD_STATE")
 [[ "$rc" -eq 0 ]] \
-  && pass "(pl-ae) emphasis-delimiter-only difference → 0 (formatter-owned, not drift)" \
+  && pass "(pl-ae) emphasis-delimiter-only difference, italic + bold → 0 (formatter-owned, not drift)" \
   || fail "(pl-ae) emphasis-only — rc=$rc"
 
 # (pl-af) AC-2: a cell differing ONLY in INTERNAL whitespace runs → 0. Leading/trailing

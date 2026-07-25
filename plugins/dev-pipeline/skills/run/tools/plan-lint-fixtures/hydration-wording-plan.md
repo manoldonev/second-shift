@@ -21,6 +21,7 @@ could produce, so Check 6 must still fail on both:
 | D-1 | Serialization shape for the import payload | return an array, never a bare *object* | codebase-derived |
 | D-2 | Retry budget for the import worker | three attempts with exponential backoff | codebase-derived |
 | D-3 | Naming convention for the new helper | use snake*case to match the sibling tools | codebase-derived |
+| D-4 | Behavior on a duplicate import id | reject it as **conflict**, do not overwrite | codebase-derived |
 
 ## Affected files/modules
 
