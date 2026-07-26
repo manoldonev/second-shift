@@ -20,7 +20,7 @@
 // async arrow taking the injected globals as parameters, and the body is ordinary
 // executable JavaScript:
 //
-//     (async (agent, parallel, pipeline, args, log, phase, budget) => { …body… })
+//     (async (agent, parallel, pipeline, args, log, phase, budget, workflow) => { …body… })
 //
 // The top-level `return` becomes a legal return from that arrow. Every global the body
 // touches arrives as a parameter we control. So we can drive PRODUCTION code with canned
@@ -39,11 +39,27 @@
 // (no template interpolation, no computed values), so a brace inside a string in the
 // meta block cannot ship.
 //
+// The shim mechanics themselves (stripMeta / makeRunner / the injected fakes) live in
+// `runtime-shim-lib.mjs` — a non-glob sibling, so CI never executes it directly — because
+// the E2E replay's stage-4/5/8 legs drive production workflows through the same wrapper.
+// Two consumers, one definition; see that file's header.
+//
 // Exit code = number of failed checks (repo selftest convention).
 
 import { readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import {
+  makeBudget,
+  makeFakeAgent,
+  makeFakeWorkflow,
+  makeRunner,
+  noop,
+  parallel,
+  pipeline,
+  reviewBlock,
+  stripMeta,
+} from './runtime-shim-lib.mjs'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 const CODE_REVIEW_MJS = join(HERE, 'code-review.mjs')
@@ -66,107 +82,23 @@ const eq = (m, actual, expected) => {
 }
 const ok = (m, cond) => (cond ? pass(m) : fail(m))
 
-// ---------------------------------------------------------------------------
-// The shim itself.
-// ---------------------------------------------------------------------------
-
-// Strip `export const meta = {…}` by balanced-brace scan. Returns the remaining body.
-export const stripMeta = (src) => {
-  const i = src.indexOf('export const meta')
-  if (i < 0) throw new Error('no `export const meta` block found')
-  let j = src.indexOf('{', i)
-  if (j < 0) throw new Error('meta block has no opening brace')
-  let depth = 0
-  let k = j
-  for (; k < src.length; k++) {
-    if (src[k] === '{') depth++
-    else if (src[k] === '}') {
-      depth--
-      if (depth === 0) {
-        k++
-        break
-      }
-    }
-  }
-  if (depth !== 0) throw new Error('meta block braces never balanced')
-  return src.slice(0, i) + src.slice(k)
-}
-
-// Build a runnable function from a production workflow body. The injected globals are
-// exactly the ones the Workflow tool documents: agent, parallel, pipeline, args, log,
-// phase, budget.
-const makeRunner = (path) => {
-  const body = stripMeta(readFileSync(path, 'utf8'))
-  // eslint-disable-next-line no-new-func
-  return new Function(
-    'agent',
-    'parallel',
-    'pipeline',
-    'args',
-    'log',
-    'phase',
-    'budget',
-    `return (async () => {\n${body}\n})()`,
-  )
-}
-
-// A fake agent driven by a behavior QUEUE (the pattern proven in the suite this file
-// replaces). Each entry is either a string (returned as the agent's text), or
-// { throw: 'msg' }, or a function of the dispatch opts, or a plain object.
-//
-// The string-vs-object distinction models the runtime faithfully and is load-bearing:
-// a schema-FREE dispatch (every explorer, post-#169) resolves to TEXT that production
-// parses itself, while a schema-carrying dispatch (only ever the structured-emitter)
-// resolves to an already-VALIDATED OBJECT. Feeding a text block to the emitter leg
-// would make production's validateShape reject a string and the case would fail for
-// the wrong reason.
-const makeFakeAgent = (behaviors) => {
-  const calls = []
-  const queue = [...behaviors]
-  const agent = async (prompt, opts = {}) => {
-    calls.push({ prompt, opts })
-    const next = queue.length ? queue.shift() : ''
-    if (next && typeof next === 'object' && 'throw' in next) throw new Error(next.throw)
-    return typeof next === 'function' ? next(opts) : next
-  }
-  return { agent, calls, remaining: () => queue.length }
-}
-
-// Runtime doubles. parallel() is a barrier over thunks; pipeline() threads stages.
-const parallel = (thunks) => Promise.all(thunks.map((t) => t()))
-const pipeline = async (items, ...stages) => {
-  const out = []
-  for (let i = 0; i < items.length; i++) {
-    let v = items[i]
-    for (const s of stages) v = await s(v, items[i], i)
-    out.push(v)
-  }
-  return out
-}
-const noop = () => {}
-const makeBudget = (total, remaining) => ({ total, spent: () => total - remaining, remaining: () => remaining })
-
 // A well-formed REVIEW_RESULT block for code-review's FINDINGS_SCHEMA. The field names
 // and the verdict enum are NOT interchangeable with the intake/gate schemas — production's
 // validateShape rejects a near-miss, which is the point.
 const findingsBlock = (verdict = 'approve') =>
-  'REVIEW_RESULT\n```json\n' +
-  JSON.stringify({
+  reviewBlock({
     verdict,
     findings: [{ severity: 'minor', title: 't', description: 'd', confidence: 70, file: 'f.ts', line: 1 }],
-  }) +
-  '\n```'
+  })
 
 // The same for design-sync's GATE_SCHEMA (verdict enum pass|warn|block), optionally
 // carrying a failClosed marker.
 const gateBlock = (extra = {}) =>
-  'REVIEW_RESULT\n```json\n' +
-  JSON.stringify({
+  reviewBlock({
     verdict: 'pass',
     findings: [{ severity: 'nit', title: 't', description: 'd', confidence: 60 }],
     ...extra,
-  }) +
-  '\n```'
+  })
 
 const runCodeReview = (behaviors, argsOverride = {}) => {
   const f = makeFakeAgent(behaviors)
@@ -403,6 +335,57 @@ console.log('── Case F: design-sync.mjs fail-closed normalization (end-to-en
     'F the known-reason path DOES promote (proving the check above is not vacuous)',
     'failClosed' in knownResult.reviewers[0] && knownResult.reviewers[0].failClosed.reason === 'file-too-large',
   )
+}
+
+// ---------------------------------------------------------------------------
+// Case G — the injected `workflow` global (the 8th wrapper parameter, #217).
+//
+// Without it, mutation-gate.mjs and plan-review.mjs die with a ReferenceError before
+// reaching a fake — the same class as design-sync.mjs's retired STRUCTURED_OUTPUT_MANDATE
+// (Case E0). An 8th parameter that nothing invokes is untested wiring, so this case
+// asserts the nested dispatch actually goes THROUGH it, and that the argument really is
+// last (a mis-ordered insert would silently shift `args` and is caught by G3).
+//
+// G1 is deliberately the WEAK assertion and must not be read as the guard. Verified by
+// removing the parameter and re-running: G1 stays green, because mutation-gate.mjs wraps
+// its propose call in try/catch (`proposalError = 'propose dispatch threw: …'`) and
+// swallows the ReferenceError into its own retry loop. G2/G3/G4 are the killers — they go
+// red on that mutant. The distinction matters: a future reader trimming this case to "the
+// ReferenceError check" would be left with a guard that cannot fail.
+// ---------------------------------------------------------------------------
+console.log('── Case G: the injected workflow() global')
+{
+  const MUTATION_GATE_MJS = join(HERE, 'mutation-gate.mjs')
+  const gateArgs = {
+    worktree: '/tmp/wt',
+    base: 'aaa',
+    head: 'bbb',
+    issue: '217',
+    workflowsDir: 'workflows',
+    round: 1,
+    inputs: {},
+    config: { reviewers: {} },
+    testFileCommand: 'true {file}',
+  }
+  // The nested propose call resolves to unit-tests.mjs's envelope. No blocker mutants ⇒
+  // no executor dispatches, so the gate reaches its verdict on the proposal alone.
+  const f = makeFakeAgent([])
+  const w = makeFakeWorkflow([{ result: { mutants: [], mockAuditFindings: [], summary: 'canned' } }])
+  let result
+  let error
+  try {
+    result = await makeRunner(MUTATION_GATE_MJS)(f.agent, parallel, pipeline, gateArgs, noop, noop, undefined, w.workflow)
+  } catch (e) {
+    error = e
+  }
+  ok('G1 mutation-gate.mjs executes without a ReferenceError on the workflow global', !error || !/is not defined/.test(String(error.message)))
+  eq('G2 the nested propose goes through the injected workflow()', w.calls.length, 1)
+  ok('G3 the nested dispatch targets unit-tests.mjs (proving args reached the body intact)', String(w.calls[0]?.ref?.scriptPath) === 'workflows/unit-tests.mjs')
+  // NOT merely `typeof overall === 'string'` — under the missing-parameter mutant the
+  // swallowed ReferenceError produces overall:'infra', which is also a string. Asserting
+  // the propose SUCCEEDED is what makes this a killer.
+  ok('G4 the canned proposal is consumed (overall is a real verdict, not the infra path)', !!result && result.overall !== 'infra' && typeof result.overall === 'string')
+  eq('G5 no executor is dispatched when there are no blocker mutants', f.calls.length, 0)
 }
 
 console.log(`\n[runtime-shim-selftest] ${PASS} passed, ${FAIL} failed`)
