@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# scenario-liveness-selftest.sh — verdict-path liveness for the pipeline's four verdicts.
+# scenario-liveness-selftest.sh — composed-path liveness for the pipeline's declared verdicts.
 #
 # NOT per-tool fixture accretion. Every other selftest in this tree verifies one
 # component's own contract; this one asserts that a COMPOSED pipeline path still
@@ -7,7 +7,7 @@
 # each other ACROSS components while every per-tool selftest stays green — how the
 # stacked-prs path died in #204 with a fully green suite.
 #
-# Scenarios (one per declared verdict):
+# Scenarios:
 #
 #   no-split     init -> stages 1..3 -> plan-lint over a real fixture plan
 #                -> stages 4..9 -> mark-completed ACCEPTED (the terminal write)
@@ -15,11 +15,57 @@
 #                stays in_progress, and mark-completed correctly REFUSES
 #   failure      intake-spec-blocked via build-failure-context -> terminal `failed`
 #   stacked-prs  the 11 checks migrated from tools/verdict-path-liveness-selftest.sh
+#   breaker      real verifyctl charges TEST_FAILURE to exhaustion (twice, no clean
+#                run between) -> mark-failed approach-failure-circuit-breaker ->
+#                terminal `failed`
+#   exhausted    review-rounds --exhausted -> stage 9 -> mark-completed ACCEPTED
+#   be-fe-pair   per-repo worktrees + per-repo stage-6 attestation + per-repo
+#                checkpoint 7 + the stage-8 cross-boundary escape hatch
+#                -> mark-completed ACCEPTED (top-level `completed`)
+#   start-slice  the extracted persisted-currentSlice precedence tool, all verdicts
 #
 # Scope boundary: scenarios exercise the MECHANICAL chain. Agent-prose gates (the
 # scope reviewer, review-lead synthesis) appear only as their mechanical shadows —
 # the state writes their outcomes produce. A model-free harness cannot execute
 # prose; it CAN assert that the prose's declared state protocol composes.
+#
+# ---------------------------------------------------------------------------
+# Reach boundary — what is deliberately NOT scenarioed, and why.
+#
+# Stated so the next reach audit is a DIFF of this list rather than a
+# re-derivation. The two groups are NOT interchangeable: (A) is settled, (B) is
+# debt. Collapsing them into one list is how deferred debt starts reading as a
+# deliberate exclusion, which is the failure this list exists to prevent.
+#
+# (A) Out of reach BY CONTRACT — nothing to add until the contract itself changes:
+#   - Design mode (design-source-unreachable at stages 1/3, render-verify-unavailable
+#     degradation, the designPlanReview sub-status). The mode is contractually
+#     interactive/MCP-backed and headless fail-closes by design (state-schema.md
+#     "Design Mode"); design-sync-selftest.mjs covers the engine enum drift.
+#   - Stage 10 (cleanup). It has no stage status, so there is no state shadow to
+#     assert against.
+#   - The stacked-prs TERMINAL leg (mark-completed after the LAST slice, plus the
+#     all-prs-opened comment). BLOCKED ON #211: per-slice stage-machine semantics are
+#     single-PR-scoped today (stages/9-open-pr.md concedes this), so statectl's
+#     re-start/forward-skip guards give slice 2 no defined re-entry and the harness
+#     cannot drive it without --force. Faking it would assert the harness against
+#     itself. EXTEND THE stacked-prs SCENARIO WHEN #211 LANDS.
+#
+# (B) Uncovered, TRACKED — reachable today; absence here is debt, not a decision:
+#   - failureContext.reason paths with no composed driver: worktree-missing (stage-8
+#     resume), targetRepos-ambiguous and fe-repo-unreachable (be-fe-pair pre-stage-1),
+#     intake-needs-human-input (stage 1), ext-workflow-failed (the EP-6 stageWorkflows
+#     blocking class). statectl-selftest.sh covers several as enum-ACCEPTANCE writes,
+#     which is not the same as driving them from the triggering component.
+#   - scope-blocker-no-code-remedy (the stage-8 short-circuit marker).
+#   - Crash-recovery composition: pause-add as the first resume write ->
+#     pipeline-session-add -> stage-8 re-entry; reclaim --release quarantine -> fresh
+#     init; init's stale-artifact quarantine; the Stage-2 currentSlice > M+1 sanity
+#     stop. Each exists as a per-command statectl-selftest case, never as a resume
+#     scenario.
+#   - Production Workflow .mjs dispatch ladders. Those belong on the runtime shim
+#     (workflows/runtime-shim-selftest.mjs), not here.
+# ---------------------------------------------------------------------------
 #
 # The full-green-run recipe is NOT re-enumerated here — complete_stage /
 # complete_run_vs come from scenario-lib.sh, shared with statectl-selftest.sh.
@@ -35,14 +81,18 @@ unset SECOND_SHIFT_CONFIG SECOND_SHIFT_REPO_ROOT SECOND_SHIFT_EXTENSION_MANIFEST
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 STATECTL="$HERE/statectl.sh"
 SCENARIO_LIB="$HERE/scenario-lib.sh"
+VERIFYCTL="$HERE/verifyctl.sh"
 LINT="$HERE/tools/plan-lint.sh"
 SCOPE="$HERE/tools/slice-scope.sh"
+START_SLICE_SH="$HERE/tools/start-slice.sh"
 FIX="$HERE/tools/plan-lint-fixtures"
 
 [[ -x "$STATECTL" ]] || { echo "[scenario-liveness] FATAL: $STATECTL not executable"; exit 99; }
 [[ -f "$SCENARIO_LIB" ]] || { echo "[scenario-liveness] FATAL: $SCENARIO_LIB missing"; exit 99; }
+[[ -x "$VERIFYCTL" ]] || { echo "[scenario-liveness] FATAL: $VERIFYCTL not executable"; exit 99; }
 [[ -f "$LINT" ]] || { echo "[scenario-liveness] FATAL: $LINT missing"; exit 99; }
 [[ -f "$SCOPE" ]] || { echo "[scenario-liveness] FATAL: $SCOPE missing"; exit 99; }
+[[ -f "$START_SLICE_SH" ]] || { echo "[scenario-liveness] FATAL: $START_SLICE_SH missing"; exit 99; }
 [[ -d "$FIX" ]] || { echo "[scenario-liveness] FATAL: $FIX missing"; exit 99; }
 
 PASS=0
@@ -311,6 +361,370 @@ exhausted=$(sct get "$ISSUE" '.codeReviewExhausted // false')
 [[ "$exhausted" == "true" ]] \
   && pass "(vp9) --exhausted still trips the stop predicate (guard not weakened)" \
   || fail "(vp9) exhausted predicate — codeReviewExhausted=$exhausted"
+
+# ======================================================= exhausted-review ===
+# A review-exhausted run is opened as a draft and STILL terminates (the marker
+# table's "exhausted-after-3-rounds" case). Before this scenario the exhaustion
+# flag was asserted only in isolation (vp9); whether the terminal gates ACCEPT
+# such a run was unproven composition.
+
+echo "[scenario-liveness] exhausted-review: an exhausted run still reaches terminal completed"
+KEY=9004
+reset_state
+sct init "$KEY" --run-id "scenario-liveness-$$" >/dev/null
+for n in 1 2 3 4 5 6 7; do complete_stage "$KEY" "$n"; done
+
+# Stage 8 is driven inline rather than via complete_stage: the helper plants
+# `review-rounds --set 1`, and the path under test is three rounds ending in
+# --exhausted. The remaining stage-8 evidence matches the helper's.
+sct set-stage "$KEY" 8 --status started >/dev/null
+sct review-rounds "$KEY" --set 3 --exhausted >/dev/null
+sct skill-load-add "$KEY" --stage 8 --skill review-toolkit:review-lead >/dev/null
+sct comment-add "$KEY" --marker code-review --url "https://github.example/c/code-review" >/dev/null
+sct set-stage "$KEY" 8 --status completed >/dev/null
+
+complete_stage "$KEY" 9
+write_report "$KEY"
+write_eval "$KEY"
+rc=$(sct_rc mark-completed "$KEY")
+status=$(sct get "$KEY" '.status')
+exhausted=$(sct get "$KEY" '.codeReviewExhausted // false')
+[[ "$rc" -eq 0 && "$status" == "completed" && "$exhausted" == "true" ]] \
+  && pass "(xr1) exhausted-review TERMINAL: mark-completed accepted, status=completed, exhaustion flag intact (AC-2)" \
+  || fail "(xr1) exhausted-review terminal — rc=$rc status='$status' exhausted='$exhausted' err='$(sct_err mark-completed "$KEY")'"
+
+# Non-vacuity: the terminal acceptance above must come from the run being
+# COMPLETE, not from the exhaustion flag waiving anything. Same recipe, stage 9
+# never completed -> still refused.
+reset_state
+sct init "$KEY" --run-id "scenario-liveness-$$" >/dev/null
+for n in 1 2 3 4 5 6 7; do complete_stage "$KEY" "$n"; done
+sct set-stage "$KEY" 8 --status started >/dev/null
+sct review-rounds "$KEY" --set 3 --exhausted >/dev/null
+sct skill-load-add "$KEY" --stage 8 --skill review-toolkit:review-lead >/dev/null
+sct comment-add "$KEY" --marker code-review --url "https://github.example/c/code-review" >/dev/null
+sct set-stage "$KEY" 8 --status completed >/dev/null
+write_report "$KEY"
+write_eval "$KEY"
+rc=$(sct_rc mark-completed "$KEY")
+[[ "$rc" -ne 0 ]] \
+  && pass "(xr2) non-vacuity: an exhausted run with stage 9 incomplete is still REFUSED terminal" \
+  || fail "(xr2) exhausted run wrongly accepted with stage 9 incomplete — the exhausted scenario is vacuous"
+
+# ==================================================== be-fe-pair to terminal ===
+# The pair topology's per-repo pieces each have a per-tool suite; what none of
+# them proves is that a pair run REACHES a terminal write. That is the same
+# all-green-units/unproven-composition posture stacked-prs had before #204.
+# Terminal here means the TOP-LEVEL status, not a per-repo write — a per-repo
+# stage-8 write is exactly the coverage that already existed.
+
+echo "[scenario-liveness] be-fe-pair: a two-repo run reaches terminal completed"
+KEY=9006
+reset_state
+sct init "$KEY" --run-id "scenario-liveness-$$" >/dev/null
+sct target-repos-set "$KEY" --repos "be fe" >/dev/null
+complete_stage "$KEY" 1
+sct set-stage "$KEY" 2 --status started >/dev/null
+sct worktree-set "$KEY" --repo be --path ".claude/worktrees/be-$KEY" --branch "claude/acme-$KEY" --base main >/dev/null
+sct worktree-set "$KEY" --repo fe --path ".claude/worktrees/fe-$KEY" --branch "claude/acme-$KEY" --base main >/dev/null
+# Flat mirror of the primary target — what Stage 2 writes so the middle stages,
+# which still read the flat fields, operate on the primary repo.
+sct worktree-set "$KEY" --path ".claude/worktrees/be-$KEY" --branch "claude/acme-$KEY" --base main >/dev/null
+sct set-stage "$KEY" 2 --status completed >/dev/null
+for n in 3 4 5; do complete_stage "$KEY" "$n"; done
+
+# Stage 6 inline: a pair run needs a per-repo verifySummary AND a per-repo
+# verifyctl attestation for EVERY target (both gates iterate targetRepos).
+befe_stage6() {  # $1 = key; plants both targets' summary + sidecar
+  local k="$1" r
+  sct set-stage "$k" 6 --status started >/dev/null
+  for r in be fe; do
+    sct verify-summary-set "$k" --repo "$r" --json '{"format":"clean","test":"passed"}' >/dev/null
+    write_verify_sidecar "$k" "$r"
+  done
+  sct set-stage "$k" 6 --status completed >/dev/null
+}
+befe_stage6 "$KEY"
+s6=$(sct get "$KEY" '.stages."6".status')
+[[ "$s6" == "completed" ]] \
+  && pass "(bf1) pair stage 6 completes with a per-repo summary + attestation for every target" \
+  || fail "(bf1) pair stage 6 — status='$s6' err='$(sct_err set-stage "$KEY" 6 --status completed)'"
+
+# Stage 7: the per-repo checkpoint shape (perRepo map), composed from the
+# per-repo builder exactly as the dual-target stage doc composes it.
+sct set-stage "$KEY" 7 --status started >/dev/null
+PERREPO=$(
+  for r in be fe; do
+    sct build-checkpoint-7-perrepo --repo "$r" --branch "claude/acme-$KEY" \
+      --head "beefcafe$KEY" --worktree ".claude/worktrees/$r-$KEY" \
+      --changed-files '[]' --verify-summary '{"format":"clean","test":"passed"}'
+  done | jq -s 'reduce .[] as $x ({}; .perRepo += $x.perRepo)'
+)
+CP7=$(jq --arg k "$KEY" '. + {ticketKey:$k, targetRepos:["be","fe"], planPath:"docs/plans/acme-9006.md", deviations:[]}' <<< "$PERREPO")
+sct checkpoint "$KEY" 7 --json "$CP7" >/dev/null
+sct comment-add "$KEY" --marker doc-update --url "https://github.example/c/doc-update" >/dev/null
+sct set-stage "$KEY" 7 --status completed >/dev/null
+perrepo_keys=$(sct get "$KEY" '.stageCheckpoint."7".perRepo | keys | join(",")')
+[[ "$perrepo_keys" == "be,fe" ]] \
+  && pass "(bf2) pair checkpoint 7 carries both targets under perRepo" \
+  || fail "(bf2) perRepo keys='$perrepo_keys'"
+
+# Stage 8: the primary repo records rounds; the SECONDARY repo goes through the
+# cross-boundary escape hatch (which also exempts the review-lead skill-load gate).
+sct set-stage "$KEY" 8 --status started >/dev/null
+sct review-rounds "$KEY" --set 1 >/dev/null
+sct skill-load-add "$KEY" --stage 8 --skill review-toolkit:review-lead >/dev/null
+sct cross-boundary-review-add "$KEY" --repo fe --status completed-in-session \
+  --worktree ".claude/worktrees/fe-$KEY" --note "secondary reviewed in session" >/dev/null
+sct comment-add "$KEY" --marker code-review --url "https://github.example/c/code-review" >/dev/null
+sct set-stage "$KEY" 8 --status completed >/dev/null
+
+complete_stage "$KEY" 9
+write_report "$KEY"
+write_eval "$KEY"
+rc=$(sct_rc mark-completed "$KEY")
+status=$(sct get "$KEY" '.status')
+cbr=$(sct get "$KEY" '.crossBoundaryReviews | length')
+[[ "$rc" -eq 0 && "$status" == "completed" && "$cbr" == "1" ]] \
+  && pass "(bf3) be-fe-pair TERMINAL: mark-completed accepted, top-level status=completed (AC-3)" \
+  || fail "(bf3) pair terminal — rc=$rc status='$status' crossBoundaryReviews=$cbr err='$(sct_err mark-completed "$KEY")'"
+
+# Non-vacuity: the per-target attestation gate must be what carried (bf1). Drive
+# the IDENTICAL recipe with ONE target's sidecar suppressed — stage 6 must refuse.
+# Suppressing `fe` (not `be`) also proves the gate iterates every target rather
+# than checking only the first.
+reset_state
+sct init "$KEY" --run-id "scenario-liveness-$$" >/dev/null
+sct target-repos-set "$KEY" --repos "be fe" >/dev/null
+complete_stage "$KEY" 1
+sct set-stage "$KEY" 2 --status started >/dev/null
+sct worktree-set "$KEY" --repo be --path ".claude/worktrees/be-$KEY" --branch "claude/acme-$KEY" --base main >/dev/null
+sct worktree-set "$KEY" --repo fe --path ".claude/worktrees/fe-$KEY" --branch "claude/acme-$KEY" --base main >/dev/null
+sct worktree-set "$KEY" --path ".claude/worktrees/be-$KEY" --branch "claude/acme-$KEY" --base main >/dev/null
+sct set-stage "$KEY" 2 --status completed >/dev/null
+for n in 3 4 5; do complete_stage "$KEY" "$n"; done
+sct set-stage "$KEY" 6 --status started >/dev/null
+for r in be fe; do
+  sct verify-summary-set "$KEY" --repo "$r" --json '{"format":"clean","test":"passed"}' >/dev/null
+done
+write_verify_sidecar "$KEY" be     # fe's attestation deliberately absent
+sct set-stage "$KEY" 6 --status completed >/dev/null
+s6=$(sct get "$KEY" '.stages."6".status')
+[[ "$s6" != "completed" ]] \
+  && pass "(bf4) non-vacuity: pair stage 6 is REFUSED when one target has no attestation" \
+  || fail "(bf4) pair stage 6 completed with a missing per-target attestation — the gate is inert"
+
+# =============================================== circuit breaker (real verifyctl) ===
+# Composes three components that had only ever been tested against themselves:
+# verifyctl's sidecar accounting, statectl's verifyAttempts budget, and the
+# terminal mark-failed write.
+#
+# HONEST SCOPE — read before extending. The breaker's TRIGGER ("two consecutive
+# TEST_FAILURE budget exhaustions with no clean run in between", stages/6-verify.md)
+# is agent prose and is NOT derivable from persisted state: verifyctl evaluates
+# `count >= 2` BEFORE charging, so the counter is monotonic and every exhausted
+# run emits an identical exit-4 verdict; verify-attempts has no reset; and the
+# sidecar carries no clean-run marker. So this scenario drives the REAL chain up
+# to the edge of that prose — real verifyctl, real charging, two real consecutive
+# exhaustions — and then asserts the state shadow the prose's decision produces.
+# It does NOT re-implement the trigger predicate: a harness-authored predicate
+# cannot fail on a production edit and would read as composition coverage while
+# proving nothing (the tautology this file exists to avoid).
+
+echo "[scenario-liveness] breaker: real verifyctl exhaustion -> approach-failure-circuit-breaker -> terminal failed"
+KEY=9005
+BRK="$TMP/breaker"
+BRK_MARKERS="$BRK/markers"
+mkdir -p "$BRK_MARKERS" "$BRK/bin" "$BRK/work/src"
+
+# `yarn` PATH shim — the technique proven in verifyctl-selftest.sh. Never runs a
+# real suite; behavior is driven by marker files.
+cat > "$BRK/bin/yarn" <<'SHIM'
+#!/usr/bin/env bash
+M="${VERIFYCTL_TEST_MARKERS:?}"
+SCRIPT="${1:-}"; shift || true
+case "$SCRIPT" in
+  test) [[ -f "$M/FAIL_TEST" ]] && { echo "FAIL src/thing.spec.ts"; exit 1; }; exit 0 ;;
+  *) exit 0 ;;
+esac
+SHIM
+chmod +x "$BRK/bin/yarn"
+
+cat > "$BRK/cfg.json" <<'CFG'
+{
+  "configVersion": 1,
+  "tracker": { "type": "github" },
+  "topology": { "type": "monorepo", "repos": { "mono": { "path": ".", "baseBranch": "main" } } },
+  "commands": {
+    "mono": {
+      "lint": null, "lintAutofixes": false, "typecheck": null,
+      "test": "yarn test", "format": null
+    }
+  }
+}
+CFG
+
+BRK_WORK="$BRK/work"
+git -C "$BRK_WORK" init -q -b main 2>/dev/null \
+  || { git -C "$BRK_WORK" init -q && git -C "$BRK_WORK" checkout -qb main; }
+git -C "$BRK_WORK" config user.email t@t
+git -C "$BRK_WORK" config user.name t
+echo '{"devDependencies":{}}' > "$BRK_WORK/package.json"
+mkdir -p "$BRK_WORK/node_modules/.bin"
+printf '#!/usr/bin/env bash\nexit 0\n' > "$BRK_WORK/node_modules/.bin/prettier"
+chmod +x "$BRK_WORK/node_modules/.bin/prettier"
+echo "export const x = 1" > "$BRK_WORK/src/thing.ts"
+git -C "$BRK_WORK" add -A
+git -C "$BRK_WORK" commit -qm init
+# Branch off the base so the merge-base diff is non-empty and the SUITE lane is
+# selected (a .ts outside .claude/ is non-inert).
+git -C "$BRK_WORK" checkout -qb feature
+
+reset_state
+sct init "$KEY" --run-id "scenario-liveness-$$" >/dev/null
+BRK_STATE="$STATECTL_STATE_DIR/$KEY.json"
+# worktreePath is written ABSOLUTE via raw jq — fixture-only, matching
+# verifyctl-selftest.sh: production paths are repo-relative via worktree-set, and
+# verifyctl passes an absolute value through unchanged.
+jq --arg wt "$BRK_WORK" '.worktreePath = $wt | .worktreeBase = "main"' "$BRK_STATE" > "$BRK_STATE.tmp"
+mv "$BRK_STATE.tmp" "$BRK_STATE"
+sct set-stage "$KEY" 6 --status started >/dev/null
+touch "$BRK_MARKERS/FAIL_TEST"
+
+# Charging is RETROSPECTIVE and needs a fresh HEAD. verifyctl charges the classes
+# recorded in the EXISTING sidecar — i.e. the previous run's failures — because a
+# re-invocation after a failed run IS the fix attempt being counted; and it writes
+# `chargedHead` before incrementing, skipping the charge when that already equals
+# HEAD. So the first run charges nothing (no prior sidecar), and a "fix" commit
+# between attempts is required — which is what the real Stage-5 -> 6 loop does.
+# Consequence, and the reason the ticket's "double TEST_FAILURE" phrasing is
+# wrong: exhaustion surfaces on the FOURTH invocation, not the second.
+brk_run() {  # $1 = a label used to make the commit unique; sets BRK_RC/BRK_VERDICT
+  echo "// $1" >> "$BRK_WORK/src/thing.ts"
+  git -C "$BRK_WORK" add -A
+  git -C "$BRK_WORK" commit -qm "fix attempt $1"
+  BRK_VERDICT=$(SECOND_SHIFT_CONFIG="$BRK/cfg.json" VERIFYCTL_TEST_MARKERS="$BRK_MARKERS" \
+    PATH="$BRK/bin:$PATH" "$VERIFYCTL" run "$KEY" 2>/dev/null)
+  BRK_RC=$?
+}
+
+brk_run a; rc1=$BRK_RC
+brk_run b; rc2=$BRK_RC
+brk_run c; rc3=$BRK_RC
+n_after3=$(sct get "$KEY" '.verifyAttempts.TEST_FAILURE // 0')
+[[ "$rc1" -ne 0 && "$rc2" -ne 0 && "$rc3" -ne 0 \
+   && "$rc1" -ne 4 && "$rc2" -ne 4 && "$rc3" -ne 4 && "$n_after3" == "2" ]] \
+  && pass "(cb1) failing runs charge TEST_FAILURE to the budget (2) without exhausting — real charging, real budget" \
+  || fail "(cb1) charging — rc1=$rc1 rc2=$rc2 rc3=$rc3 TEST_FAILURE=$n_after3"
+
+brk_run d; rc4=$BRK_RC; v4="$BRK_VERDICT"
+brk_run e; rc5=$BRK_RC
+cls=$(jq -r '.class // ""' <<< "$v4" 2>/dev/null)
+stat4=$(jq -r '.status // ""' <<< "$v4" 2>/dev/null)
+n_after5=$(sct get "$KEY" '.verifyAttempts.TEST_FAILURE // 0')
+# The counter stays at 2 across both exhaustions: exit 4 precedes the charge. That
+# is precisely why "two consecutive exhaustions" cannot be read back from state,
+# and why the trigger stays prose (see the scope note above).
+[[ "$rc4" -eq 4 && "$rc5" -eq 4 && "$cls" == "TEST_FAILURE" \
+   && "$stat4" == "budget-exhausted" && "$n_after5" == "2" ]] \
+  && pass "(cb2) two CONSECUTIVE budget exhaustions (exit 4, class TEST_FAILURE) with no clean run between" \
+  || fail "(cb2) exhaustion — rc4=$rc4 rc5=$rc5 class='$cls' status='$stat4' TEST_FAILURE=$n_after5"
+
+# The prose gate fires here. Its mechanical shadow — the terminal write — is what
+# this harness can and does assert.
+FCTX=$(sct build-failure-context --reason approach-failure-circuit-breaker --stage 6 \
+  --kv failureClass=TEST_FAILURE --kv errorTail="FAIL src/thing.spec.ts")
+rc=$(sct_rc mark-failed "$KEY" --reason approach-failure-circuit-breaker --stage 6 --json "$FCTX")
+status=$(sct get "$KEY" '.status')
+reason=$(sct get "$KEY" '.failureContext.reason')
+stage6=$(sct get "$KEY" '.stages."6".status')
+fclass=$(sct get "$KEY" '.failureContext.failureClass')
+[[ "$rc" -eq 0 && "$status" == "failed" && "$reason" == "approach-failure-circuit-breaker" \
+   && "$stage6" == "failed" && "$fclass" == "TEST_FAILURE" ]] \
+  && pass "(cb3) breaker TERMINAL: status=failed, reason recorded, stage 6 marked failed (AC-1)" \
+  || fail "(cb3) breaker terminal — rc=$rc status='$status' reason='$reason' stage6='$stage6' class='$fclass'"
+
+# Non-vacuity: exit 4 must come from the failing suite, not from the fixture.
+# Same repo, same config, marker cleared, a FRESH key so the budget starts at 0.
+rm -f "$BRK_MARKERS/FAIL_TEST"
+KEY=9007
+reset_state
+sct init "$KEY" --run-id "scenario-liveness-$$" >/dev/null
+BRK_STATE="$STATECTL_STATE_DIR/$KEY.json"
+jq --arg wt "$BRK_WORK" '.worktreePath = $wt | .worktreeBase = "main"' "$BRK_STATE" > "$BRK_STATE.tmp"
+mv "$BRK_STATE.tmp" "$BRK_STATE"
+brk_run clean
+n_clean=$(sct get "$KEY" '.verifyAttempts.TEST_FAILURE // 0')
+[[ "$BRK_RC" -eq 0 && "$n_clean" == "0" ]] \
+  && pass "(cb4) non-vacuity: a passing suite exits 0 and charges nothing (exit 4 tracked the failure)" \
+  || fail "(cb4) clean run — rc=$BRK_RC TEST_FAILURE=$n_clean"
+
+# ============================================ start-slice precedence (AC-5) ===
+# The persisted-currentSlice precedence rule used to live only in the stage doc's
+# prose, where nothing could drive it. tools/start-slice.sh is that rule extracted
+# into an executable; this scenario drives the TOOL, not a copy of it — a
+# harness-side re-implementation would assert the harness against itself.
+
+echo "[scenario-liveness] start-slice: persisted currentSlice wins over the derived seed"
+KEY=9008
+reset_state
+sct init "$KEY" --run-id "scenario-liveness-$$" >/dev/null
+SS_STATE="$STATECTL_STATE_DIR/$KEY.json"
+
+ss_run() {  # echoes "<verdict>,<value>"; the tool prints verdict then value
+  bash "$START_SLICE_SH" "$@" | paste -sd, -
+}
+
+# No currentSlice yet -> the tool asks for the derived value rather than guessing.
+out=$(ss_run "$SS_STATE" 3)
+[[ "$out" == "need-max-pushed" ]] \
+  && pass "(ss1) absent currentSlice -> need-max-pushed (the seed leg stays with the caller)" \
+  || fail "(ss1) need-max-pushed — got '$out'"
+
+out=$(ss_run "$SS_STATE" 3 --max-pushed 1)
+[[ "$out" == "seed,2" ]] \
+  && pass "(ss2) seed path: max-pushed 1 of 3 -> start at slice 2" \
+  || fail "(ss2) seed — got '$out'"
+
+out=$(ss_run "$SS_STATE" 3 --max-pushed 3)
+[[ "$out" == "all-pushed" ]] \
+  && pass "(ss3) all slices pushed -> all-pushed short-circuit (no start slice)" \
+  || fail "(ss3) all-pushed — got '$out'"
+
+# The precedence assertion proper: a persisted currentSlice must win even when the
+# derived value CONTRADICTS it. Written through slice-set, the real writer.
+sct slice-set "$KEY" --current 2 --branch "claude/acme-$KEY-pr2" \
+  --prior-branch "claude/acme-$KEY" --worktree-base "claude/acme-$KEY" \
+  --pr-base "claude/acme-$KEY" >/dev/null
+out=$(ss_run "$SS_STATE" 3 --max-pushed 0)
+[[ "$out" == "persisted,2" ]] \
+  && pass "(ss4) persisted currentSlice=2 WINS over a contradicting --max-pushed=0 (AC-5)" \
+  || fail "(ss4) precedence — got '$out'"
+
+# ...and the persisted branch is not subject to the all-pushed short-circuit,
+# which lived inside the seed branch in the extracted block.
+out=$(ss_run "$SS_STATE" 2 --max-pushed 5)
+[[ "$out" == "persisted,2" ]] \
+  && pass "(ss5) the persisted branch bypasses the all-pushed short-circuit, as the original block did" \
+  || fail "(ss5) persisted vs all-pushed — got '$out'"
+
+# Non-vacuity: (ss4)/(ss5) must reflect the PERSISTED value, not a constant. With
+# currentSlice removed the same call falls back to the seed path.
+jq 'del(.currentSlice)' "$SS_STATE" > "$SS_STATE.tmp"
+mv "$SS_STATE.tmp" "$SS_STATE"
+out=$(ss_run "$SS_STATE" 3 --max-pushed 0)
+[[ "$out" == "seed,1" ]] \
+  && pass "(ss6) non-vacuity: with currentSlice deleted the same call seeds instead of reporting persisted" \
+  || fail "(ss6) non-vacuity — got '$out'"
+
+# Declared usage/IO contract: exit 2, not a verdict (a caller must be able to tell
+# a broken invocation from a legitimate verdict).
+bash "$START_SLICE_SH" "$TMP/no-such-state.json" 3 >/dev/null 2>&1; rc_missing=$?
+bash "$START_SLICE_SH" "$SS_STATE" notanumber >/dev/null 2>&1; rc_badtotal=$?
+bash "$START_SLICE_SH" "$SS_STATE" 3 --max-pushed x >/dev/null 2>&1; rc_badmax=$?
+[[ "$rc_missing" -eq 2 && "$rc_badtotal" -eq 2 && "$rc_badmax" -eq 2 ]] \
+  && pass "(ss7) usage/IO errors (missing state, non-integer total, non-integer --max-pushed) -> exit 2" \
+  || fail "(ss7) usage errors — missing=$rc_missing total=$rc_badtotal max=$rc_badmax"
 
 echo
 echo "[scenario-liveness] summary: $PASS passed, $FAIL failed"

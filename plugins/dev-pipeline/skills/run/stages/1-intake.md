@@ -265,13 +265,17 @@ If the intake orchestrator verdict is `stacked-prs`, Stages 2–10 run inside an
 
 Before entering the loop, derive the starting slice. The persisted `currentSlice` field in `.claude/pipeline-state/{ISSUE_NUMBER}.json` is **authoritative** when present and non-null (see state-schema.md "Stacked-PR slice state" precedence rule). Remote-branch derivation is the seed used only when `currentSlice` is absent — typically on the first entry into the loop or when the state file predates this field.
 
+The precedence rule itself and the all-pushed short-circuit live in [`tools/start-slice.sh`](../tools/start-slice.sh), so they are executable and driven by a scenario rather than re-implemented per caller (the same markdown-calls-tool shape as `max-pushed-slice.sh`). The remote derivation stays here: the tool asks for `--max-pushed` only on the seed path, so a resume whose persisted value wins does no network work.
+
 ```bash
 TOTAL_SLICES=$(jq -r '. | length' "$DECOMP_PLAN_FILE")
+STATE_PATH=$(statectl.sh state-path "$ISSUE_NUMBER")
+START_SLICE_SH="${CLAUDE_PLUGIN_ROOT}/skills/run/tools/start-slice.sh"
 
-PERSISTED=$(statectl.sh get "$ISSUE_NUMBER" '.currentSlice // empty' 2>/dev/null)
-if [[ -n "$PERSISTED" && "$PERSISTED" != "null" ]]; then
-  START_SLICE="$PERSISTED"
-else
+OUT=$(bash "$START_SLICE_SH" "$STATE_PATH" "$TOTAL_SLICES")
+VERDICT=$(printf '%s\n' "$OUT" | head -n1)
+
+if [[ "$VERDICT" == "need-max-pushed" ]]; then
   # Seed from remote branches matching the slice naming scheme.
   # Slice 1's branch is unsuffixed (claude/acme-N); slice K>1 is claude/acme-N-prK.
   # Derivation is the shared tested helper (single source of truth with the Stage 2
@@ -284,13 +288,17 @@ else
     | awk '{print $2}' \
     | BRANCH_PREFIX="$BRANCH_PREFIX" bash "${CLAUDE_PLUGIN_ROOT}/skills/run/tools/max-pushed-slice.sh" "$ISSUE_NUMBER")
 
-  if [[ "$MAX_N" -ge "$TOTAL_SLICES" ]]; then
-    echo "[stage-1] all slices already pushed (MAX_N=$MAX_N, TOTAL_SLICES=$TOTAL_SLICES); nothing to do"
-    exit 0
-  fi
-  START_SLICE=$((MAX_N + 1))
+  OUT=$(bash "$START_SLICE_SH" "$STATE_PATH" "$TOTAL_SLICES" --max-pushed "$MAX_N")
+  VERDICT=$(printf '%s\n' "$OUT" | head -n1)
 fi
-echo "[stage-1] entering outer loop at slice $START_SLICE of $TOTAL_SLICES"
+
+if [[ "$VERDICT" == "all-pushed" ]]; then
+  echo "[stage-1] all slices already pushed (TOTAL_SLICES=$TOTAL_SLICES); nothing to do"
+  exit 0
+fi
+
+START_SLICE=$(printf '%s\n' "$OUT" | sed -n '2p')
+echo "[stage-1] entering outer loop at slice $START_SLICE of $TOTAL_SLICES (derivation: $VERDICT)"
 ```
 
 ### Outer loop
