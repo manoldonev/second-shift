@@ -4,6 +4,183 @@ All notable changes to the second-shift marketplace. Versions are per-plugin (`p
 this file tracks the marketplace release. `configVersion` stays `const 1` — v2 is fully backward-compatible for a
 consumer with an empty config; the migration notes below are only for consumers using the changed features.
 
+## v2.11.0
+
+### `audit-toolkit` 2.0.0 → 2.0.1
+
+- **test(dev-pipeline): prune the mirror-harness/prose class, add the Workflow runtime shim, fix CI reachability (PR 1 of 5 for #213) (#220)** (#220)
+  the audit-toolkit smoke suite and the design-toolkit lib test suites
+  now execute in CI; both were shipped but unreachable by the discovery glob.
+  Migration: none.
+  fixed the dev-pipeline design-sync gate path, which raised
+  ReferenceError on every reviewer dispatch and could never have run.
+  Migration: none.
+  reviewer agents flag mirror-harness selftests and no longer sanction
+  behavioral greps on Workflow .mjs seams, which are now executable via the
+  runtime shim. Migration: none.
+
+### `design-toolkit` 2.1.2 → 2.2.0
+
+- **test(dev-pipeline): prune the mirror-harness/prose class, add the Workflow runtime shim, fix CI reachability (PR 1 of 5 for #213) (#220)** (#220)
+  the audit-toolkit smoke suite and the design-toolkit lib test suites
+  now execute in CI; both were shipped but unreachable by the discovery glob.
+  Migration: none.
+  fixed the dev-pipeline design-sync gate path, which raised
+  ReferenceError on every reviewer dispatch and could never have run.
+  Migration: none.
+  reviewer agents flag mirror-harness selftests and no longer sanction
+  behavioral greps on Workflow .mjs seams, which are now executable via the
+  runtime shim. Migration: none.
+- **feat(intake-toolkit): ticket-sourced provenance for operator decisions in comments (#152)** (#152)
+  Decision Ledger provenance gains a fifth value, ticket-sourced,
+  for decisions the operator resolved in a ticket comment and the run
+  adopted. Its Resolution cell must cite the comment URL or ledger-lint
+  fails the plan. Autonomous runs may now originate this value, unlike
+  user-answered / user-delegated.
+  Migration: none — existing four-value ledgers are unaffected.
+
+### `dev-pipeline` 2.8.0 → 2.9.0
+
+- **test(dev-pipeline): verdict-path liveness harness + CI holes + prose-presence prune (PR 1 of 2 for #205) (#208)** (#208)
+  dev-pipeline selftests now assert composed verdict-path liveness
+  (no-split, sub-issues, failure-path, stacked-prs) rather than only per-tool
+  contracts, and the two previously CI-invisible workflows .mjs selftests run in
+  CI. Migration: none.
+- **test(dev-pipeline): contract-lockstep manifest + containment policy (PR 2 of 2 for #205) (#209)** (#209)
+  dev-pipeline selftests now assert composed verdict-path liveness
+  (no-split, sub-issues, failure-path, stacked-prs) rather than only per-tool
+  contracts, and the two previously CI-invisible workflows .mjs selftests run in
+  CI. Migration: none.
+  contract pairs that were previously kept in sync by prose alone (the
+  Decision-Ledger provenance enum, the AC-ID fallback rule, the FINDINGS_SCHEMA
+  triple, and the stage-7/8 dual-target mirrors) are now mechanically enforced in
+  CI. Migration: none.
+- **test(dev-pipeline): prune the mirror-harness/prose class, add the Workflow runtime shim, fix CI reachability (PR 1 of 5 for #213) (#220)** (#220)
+  the audit-toolkit smoke suite and the design-toolkit lib test suites
+  now execute in CI; both were shipped but unreachable by the discovery glob.
+  Migration: none.
+  fixed the dev-pipeline design-sync gate path, which raised
+  ReferenceError on every reviewer dispatch and could never have run.
+  Migration: none.
+  reviewer agents flag mirror-harness selftests and no longer sanction
+  behavioral greps on Workflow .mjs seams, which are now executable via the
+  runtime shim. Migration: none.
+- **feat(intake-toolkit): ticket-sourced provenance for operator decisions in comments (#152)** (#152)
+  Decision Ledger provenance gains a fifth value, ticket-sourced,
+  for decisions the operator resolved in a ticket comment and the run
+  adopted. Its Resolution cell must cite the comment URL or ledger-lint
+  fails the plan. Autonomous runs may now originate this value, unlike
+  user-answered / user-delegated.
+  Migration: none — existing four-value ledgers are unaffected.
+- **docs(dev-pipeline): name in-progress merge/rebase in the non-base-branch posture (#223)** (#223)
+  the non-base-branch posture now places an in-progress merge or rebase
+  (conflicts and all) in the dirty-working-tree WARN-and-proceed predicate, and states
+  that merge and index state is per-worktree so `worktree add` neither reads nor
+  disturbs it. Such a state is never a stop.
+  Migration: none.
+- **test: cover the dark enforcing gates — version-bump gate, exitplan ledger hook, mutation-gate parser, pipeline-doctor (PR 2 of 5 for #213) (#224)** (#224)
+- **fix(dev-pipeline): plan-lint Check 6 tolerates formatter-owned byte differences (#226)** (#226)
+  plan-lint Check 6 no longer fails Decision Ledger hydration on
+  formatting-only differences between the backing ledger and the plan --
+  whitespace runs and paired markdown emphasis delimiters are normalized
+  before comparison, while any wording change still fails the gate.
+  Migration: none.
+- **feat(dev-pipeline): gate Stage-6 completion on a verifyctl attestation (#231)** (#231)
+  Stage 6 of the dev-pipeline now refuses to complete unless
+  verifyctl.sh actually ran for the current run, proven by its runId-scoped
+  sidecar (per-target on a be-fe-pair run). A hand-composed verifySummary no
+  longer closes the stage. Migration: none — any run that invokes verifyctl as
+  the stage already mandates satisfies the gate; --force remains the
+  crash-recovery escape for state files predating the sidecar convention.
+- **test(dev-pipeline): extend scenario-liveness reach — circuit breaker, exhausted-review terminal, be-fe-pair, boundary header (PR 3 of 5 for #213) (#236)** (#236)
+  the stacked-PR starting-slice precedence rule moves out of the
+  Stage-1 stage doc into tools/start-slice.sh, which the doc now invokes; the
+  rule is unchanged, including doing no remote derivation when a persisted
+  currentSlice wins. Migration: none.
+- **feat(dev-pipeline): perf-retro — cross-run execution-latency retrospective skill (#233)** (#233)
+  new skill /dev-pipeline:perf-retro — a cross-run performance
+  retrospective that profiles per-stage execution latency across recorded runs
+  and proposes optimizations, each required to name an existing regression guard
+  so speed is never bought by weakening a gate.
+  Migration: none.
+- **fix(dev-pipeline): key the implementation_resilience PASS gate on charged evidence (#235)** (#235)
+  mark-completed now refuses `implementation_resilience: PASS` on any
+  run that charged no TEST_FAILURE, not just on inert-lane runs — a green suite
+  run exercised the resilience breaker no more than an inert one did, and scores
+  N/A. The refusal message names the missing evidence instead of the lane, and
+  `--force` still bypasses for crash recovery.
+  Migration: none.
+- **feat(dev-pipeline): order the Stage-8 review-lead load before its synthesis receipt (#234)** (#234)
+  the Stage-8 skill-load gate now enforces ordering, not just presence
+  — the review-lead load must be recorded before the synthesis comment's receipt
+  is written, so loading the skill afterwards no longer satisfies it. The
+  refusal message asks for a re-synthesis rather than a re-ordering.
+  Migration: none.
+  pipeline-retro's mandated-loads audit item now names what the new
+  Stage-8 ordering gate enforces vs what still needs manual comparison — a
+  review-lead load that post-dates the published synthesis is still a deviation
+  even though its receipt was accepted.
+  Migration: none.
+- **test(dev-pipeline): E2E null-model full-run replay — gh shim, verdict-payload fixtures, crash-recovery resume (PR 4 of 5 for #213) (#238)** (#238)
+
+### `intake-toolkit` 2.0.2 → 2.1.0
+
+- **test(dev-pipeline): contract-lockstep manifest + containment policy (PR 2 of 2 for #205) (#209)** (#209)
+  dev-pipeline selftests now assert composed verdict-path liveness
+  (no-split, sub-issues, failure-path, stacked-prs) rather than only per-tool
+  contracts, and the two previously CI-invisible workflows .mjs selftests run in
+  CI. Migration: none.
+  contract pairs that were previously kept in sync by prose alone (the
+  Decision-Ledger provenance enum, the AC-ID fallback rule, the FINDINGS_SCHEMA
+  triple, and the stage-7/8 dual-target mirrors) are now mechanically enforced in
+  CI. Migration: none.
+- **feat(intake-toolkit): ticket-sourced provenance for operator decisions in comments (#152)** (#152)
+  Decision Ledger provenance gains a fifth value, ticket-sourced,
+  for decisions the operator resolved in a ticket comment and the run
+  adopted. Its Resolution cell must cite the comment URL or ledger-lint
+  fails the plan. Autonomous runs may now originate this value, unlike
+  user-answered / user-delegated.
+  Migration: none — existing four-value ledgers are unaffected.
+- **test: cover the dark enforcing gates — version-bump gate, exitplan ledger hook, mutation-gate parser, pipeline-doctor (PR 2 of 5 for #213) (#224)** (#224)
+
+### `review-toolkit` 2.3.5 → 2.4.0
+
+- **test(dev-pipeline): contract-lockstep manifest + containment policy (PR 2 of 2 for #205) (#209)** (#209)
+  dev-pipeline selftests now assert composed verdict-path liveness
+  (no-split, sub-issues, failure-path, stacked-prs) rather than only per-tool
+  contracts, and the two previously CI-invisible workflows .mjs selftests run in
+  CI. Migration: none.
+  contract pairs that were previously kept in sync by prose alone (the
+  Decision-Ledger provenance enum, the AC-ID fallback rule, the FINDINGS_SCHEMA
+  triple, and the stage-7/8 dual-target mirrors) are now mechanically enforced in
+  CI. Migration: none.
+- **test(dev-pipeline): prune the mirror-harness/prose class, add the Workflow runtime shim, fix CI reachability (PR 1 of 5 for #213) (#220)** (#220)
+  the audit-toolkit smoke suite and the design-toolkit lib test suites
+  now execute in CI; both were shipped but unreachable by the discovery glob.
+  Migration: none.
+  fixed the dev-pipeline design-sync gate path, which raised
+  ReferenceError on every reviewer dispatch and could never have run.
+  Migration: none.
+  reviewer agents flag mirror-harness selftests and no longer sanction
+  behavioral greps on Workflow .mjs seams, which are now executable via the
+  runtime shim. Migration: none.
+- **feat(intake-toolkit): ticket-sourced provenance for operator decisions in comments (#152)** (#152)
+  Decision Ledger provenance gains a fifth value, ticket-sourced,
+  for decisions the operator resolved in a ticket comment and the run
+  adopted. Its Resolution cell must cite the comment URL or ledger-lint
+  fails the plan. Autonomous runs may now originate this value, unlike
+  user-answered / user-delegated.
+  Migration: none — existing four-value ledgers are unaffected.
+
+### `second-shift` 1.6.2 → 1.7.0
+
+- **feat(dev-pipeline): perf-retro — cross-run execution-latency retrospective skill (#233)** (#233)
+  new skill /dev-pipeline:perf-retro — a cross-run performance
+  retrospective that profiles per-stage execution latency across recorded runs
+  and proposes optimizations, each required to name an existing regression guard
+  so speed is never bought by weakening a gate.
+  Migration: none.
+
 ## v2.10.0
 
 ### `dev-pipeline` 2.7.1 → 2.8.0
