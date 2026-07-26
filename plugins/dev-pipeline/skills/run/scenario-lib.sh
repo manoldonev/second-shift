@@ -101,7 +101,15 @@ complete_stage() {
     5) sct checkpoint "$key" 5 --json '{"changedFiles":[]}' >/dev/null ;;
     6) sct verify-summary-set "$key" --json '{"format":"clean","test":"passed"}' >/dev/null
        write_verify_sidecar "$key" ;;
-    7) sct checkpoint "$key" 7 --json "$VALID_PAYLOAD" >/dev/null
+    7) # RE-KEY the payload to $key. VALID_PAYLOAD is pinned to ticketKey 9999 because
+       # statectl-selftest.sh's payload-shape cases run under that key; but `checkpoint`
+       # rejects a payload whose ticketKey does not match the state file, so passing it
+       # verbatim made this write FAIL for every caller keyed anything else — silently,
+       # since sct discards stderr and stage-7 completion does not require the checkpoint.
+       # Both callers were therefore walking stage 7 with no stageCheckpoint["7"] at all,
+       # which is exactly the object a crash-recovery resume hydrates from. Found by
+       # e2e-replay-selftest.sh, the first suite to assert on that object's contents.
+       sct checkpoint "$key" 7 --json "$(jq -c --arg k "$key" '.ticketKey = $k' <<< "$VALID_PAYLOAD")" >/dev/null
        sct comment-add "$key" --marker doc-update --url "https://github.example/c/doc-update" >/dev/null ;;
     8) sct review-rounds "$key" --set 1 >/dev/null
        sct skill-load-add "$key" --stage 8 --skill review-toolkit:review-lead >/dev/null
