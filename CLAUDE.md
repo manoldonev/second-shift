@@ -73,9 +73,12 @@ adding a same-named suite.
 Genuine exceptions, one kind:
 
 - **By design, no independent contract:** `plugins/dev-pipeline/skills/run/scenario-lib.sh` (shared
-  scenario mechanics, named so it does **not** match the discovery glob — `statectl-selftest.sh`
-  and `scenario-liveness-selftest.sh` exercise it on every run), `_effective-registry.sh`,
-  `install-gh-bot.sh`, and the eval runners.
+  scenario mechanics, named so it does **not** match the discovery glob — `statectl-selftest.sh`,
+  `scenario-liveness-selftest.sh` and `e2e-replay-selftest.sh` exercise it on every run),
+  `workflows/runtime-shim-lib.mjs` (the meta-strip + injected-fake mechanics, same non-glob naming
+  — `runtime-shim-selftest.mjs` and `e2e-workflow-leg.mjs` both drive it),
+  `workflows/e2e-workflow-leg.mjs` (the E2E replay's stage-4/5/8 leg driver, executed by
+  `e2e-replay-selftest.sh`), `_effective-registry.sh`, `install-gh-bot.sh`, and the eval runners.
 
 The debt register that used to sit here — `check-plugin-version-bumps.sh` and
 `exitplan-ledger-gate.sh`, both listed as genuinely uncovered — is closed: each now has a
@@ -138,6 +141,7 @@ anchors (`tools/score-review-selftest.sh`) stay grandfathered; this rule binds n
 | two copies of one contract staying identical | a lockstep row | `scripts/lockstep-manifest.tsv` |
 | a composed verdict path reaching a terminal write | a scenario | `scenario-liveness-selftest.sh` |
 | a production Workflow `.mjs` dispatch ladder | a shim case | `workflows/runtime-shim-selftest.mjs` |
+| a whole run's mechanical seams, end to end | a replay scenario | `e2e-replay-selftest.sh` |
 | prose in a markdown file | **nothing** — see above | — |
 
 **A new gate contract extends the liveness scenario** for every verdict path it touches — a gate

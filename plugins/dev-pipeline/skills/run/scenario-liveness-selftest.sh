@@ -58,11 +58,14 @@
 #     blocking class). statectl-selftest.sh covers several as enum-ACCEPTANCE writes,
 #     which is not the same as driving them from the triggering component.
 #   - scope-blocker-no-code-remedy (the stage-8 short-circuit marker).
-#   - Crash-recovery composition: pause-add as the first resume write ->
-#     pipeline-session-add -> stage-8 re-entry; reclaim --release quarantine -> fresh
-#     init; init's stale-artifact quarantine; the Stage-2 currentSlice > M+1 sanity
-#     stop. Each exists as a per-command statectl-selftest case, never as a resume
-#     scenario.
+#   - Crash-recovery composition — PARTIALLY DISCHARGED (#217), one clause of four.
+#     The resume leg (pause-add as the first resume write -> pipeline-session-add ->
+#     stage-8 re-entry -> terminal write) is now a scenario in e2e-replay-selftest.sh,
+#     which owns it because it needs that file's minted-receipt machinery. STILL
+#     UNCOVERED, here and there: reclaim --release quarantine -> fresh init; init's
+#     stale-artifact quarantine; the Stage-2 currentSlice > M+1 sanity stop. Those three
+#     remain per-command statectl-selftest cases with no composed driver. Do NOT collapse
+#     this entry to "covered" — most of it is still debt.
 #   - Production Workflow .mjs dispatch ladders. Those belong on the runtime shim
 #     (workflows/runtime-shim-selftest.mjs), not here.
 # ---------------------------------------------------------------------------

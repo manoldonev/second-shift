@@ -88,3 +88,16 @@ stage8-secondary-review	verbatim	plugins/dev-pipeline/skills/run/stages/8-code-r
 # BEHAVIOR is not reviewer-guarded: statectl-selftest.sh's (mc-ir1)-(mc-ir9) pin every
 # branch of the predicate, and (mc-ir2) asserts the refusal message's wording. Only the doc
 # WORDING is, and per the repo's no-prose-presence rule that is the correct tier for it.
+#
+# Test-tier map (CLAUDE.md "Where a new test goes" table ↔ docs/testing.md "Why a tier map at
+# all" table). Two representations of one routing contract: a tier added to one and not the
+# other sends the next author to the wrong file, which is how a tier accretes per-tool
+# fixtures instead of a scenario. Considered for a row and DROPPED: the two are deliberately
+# NOT parallel — CLAUDE.md's is a three-column router keyed by what you are guarding
+# ("If you are guarding… | Write it as | Lives in"), docs/testing.md's is a three-column
+# STATUS table keyed by the classic pyramid tier ("Classic tier | Here | Status"), and they
+# carry different row sets on purpose (the status table lists Adversarial and Mutation, which
+# are not places a new test goes). Forcing a shared anchorable literal would mean collapsing a
+# router and a status board into one table that serves neither reader. Reviewer-guarded: both
+# tables are short, sit in the two files every contributor reads first, and a new tier lands
+# with its own suite in the same PR.
