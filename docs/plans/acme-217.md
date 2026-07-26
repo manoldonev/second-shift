@@ -41,6 +41,8 @@ intake from the codebase and are restated here as the binding record.
 | D-3 | How a shell harness composes with the `.mjs` runtime shim | Extract the shim internals into `workflows/runtime-shim-lib.mjs` (non-glob name, `scenario-lib.sh` precedent); both the existing shim selftest and the new leg driver import it | codebase-derived |
 | D-4 | Where the crash-recovery scenario lands relative to `scenario-liveness-selftest.sh` | Lands in the new E2E file; the liveness debt-register bullet is updated in the same PR so it stops claiming the gap | codebase-derived |
 | D-5 | Whether any of #108's L0/L1 consumer tier ships here | No CI or workflow changes; the new suite rides the existing glob. Consumer tier ships under #108 | ticket-sourced (issue #217 Scope: "adopt #108 as filed … No new design here") |
+| D-6 | Where the `workflow` global goes in the shim's injected-global order | Appended as the **eighth, trailing** parameter. Inserting anywhere else shifts every existing positional call site (`args` would arrive as `log`) and cases would fail for reasons that look like production bugs. Callers driving a workflow that never calls it pass nothing | codebase-derived (added at Stage 5 on plan-review warning 3) |
+| D-7 | What to do about the `scenario-lib.sh` stage-7 checkpoint defect the new harness surfaced | Fix at the source rather than route around it. `VALID_PAYLOAD` is pinned to `ticketKey: 9999` and `checkpoint` rejects a mismatched key, so `complete_stage <key> 7` silently wrote nothing for any other caller. Re-key the payload to `$key`; both existing consumers verified green. Working around it in the new harness would have left the defect in place while asserting over it | codebase-derived (discovered at Stage 5) |
 
 ## Affected files/modules
 
@@ -52,6 +54,15 @@ intake from the codebase and are restated here as the binding record.
 - `plugins/dev-pipeline/skills/run/scenario-liveness-selftest.sh` — debt-register bullet updated
 - `docs/testing.md` — E2E tier row flips from *Planned* to *Established*
 - `CLAUDE.md` — the two new non-glob helpers join the covered-under-a-differently-named-suite list
+
+Two files below were **not** in this list when the plan was written and are reconciled here
+rather than left contradicting the diff:
+
+- `plugins/dev-pipeline/skills/run/scenario-lib.sh` — the stage-7 checkpoint re-key (D-7), a
+  latent defect the new harness surfaced. Not foreseeable at plan time: the write was failing
+  silently.
+- `scripts/lockstep-manifest.tsv` — the tier-map DROPPED entry, added on plan-review warning 2
+  (the two tier tables are one contract with no byte-anchorable literal).
 
 ## Reuse inventory
 
@@ -135,6 +146,11 @@ same artifact. Two obligations beyond "it passes":
   indistinguishable from one that cannot fail.
 - **Refactor safety (step 3).** `runtime-shim-selftest.mjs`'s pass count must be byte-identical
   before and after the extraction. Recorded in the commit body per the repo's red-on-mutation idiom.
+  Measured: 45 before, 45 after, 50 with Case G added.
+- **The new global's guard (step 2).** Removing the eighth parameter must take Case G red.
+  Measured: G2/G3/G4 fail (50 → 47). G1 stays green because `mutation-gate.mjs` swallows the
+  `ReferenceError` into its own propose-retry `catch` — recorded at the assertion so nobody trims
+  the case down to a check that cannot fail.
 
 No `unitTestScope` is configured for this repo, so there is no mutation surface and the Stage-5
 mutation gate does not apply to the change itself.
