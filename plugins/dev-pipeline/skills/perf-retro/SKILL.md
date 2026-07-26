@@ -1,0 +1,130 @@
+---
+name: perf-retro
+description: 'Cross-run execution-latency retrospective for dev-pipeline runs: fidelity-triaged timing profile, ranked optimization candidates with named regression guards, and improvement routing. Run periodically over the recorded run corpus.'
+---
+
+# Perf Retro
+
+Cross-run performance retrospective for the dev-pipeline. `pipeline-retro` sharpens a **single** run for correctness — this skill is the second axis, **execution speed across runs**. It exists because nothing else in the improvement loop argues against latency: every fix lands as another gate, another round, another serialized dispatch, and run wall-time drifts upward unopposed while each individual change looks justified.
+
+The data to argue with already exists and has had no systematic consumer. Per-stage `startedAt`/`completedAt` sit in every run-state file, [`stage-times.sh`](../run/tools/stage-times.sh) turns them into pause-aware effective time plus inter-stage gaps, and the audit ledger timestamps every tool call and `SubagentStop`.
+
+**Usage:** `/dev-pipeline:perf-retro` — profiles the 15 most recent trusted runs. `--last N` widens or narrows that window; a **bare integer is a ticket key**, focusing the profile on that one run. So `perf-retro 30` profiles ticket 30, while `perf-retro --last 30` profiles the last 30 runs. The two readings never collide.
+
+**Hard rules:**
+
+- **Read-only over run artifacts.** This skill never mutates existing run state, an eval file, a prior retro, or a tracker item. Everything it wants changed routes through Step 5 and lands elsewhere, under approval. The Step 6 report is its own artifact and the one thing it writes.
+- **No candidate without a measured baseline.** A proposal that cannot cite minutes from the Step 3 profile is not a candidate — it is an impression, and impressions are exactly what this data exists to replace.
+- **Quality is the invariant, not a tradeoff.** A candidate that weakens a gate, drops a review round, removes a retry, or reuses context where a fresh load was deliberate MUST name the concrete mechanism that would catch the regression it risks. Absent one it routes `needs-guard-first` and is **never applied directly** — the guard lands first, in its own change, and the optimization waits for it. Speed is worth having only while the pipeline still catches what it used to.
+- **Server-clock timestamps only.** Every duration derives from the recorded `startedAt`/`completedAt` fields as written by the state helper. Never substitute the wall clock at read time, and never repair a missing field by inference — a missing lifecycle field is a Step 2 signal, not a gap to fill.
+- **Per-run timing anomalies stay with `pipeline-retro`.** This skill aggregates across runs; it does not re-audit one run's contract compliance.
+
+## Step 1: Gather the corpus
+
+The corpus lives in the **main checkout**, resolved the way the state helper resolves it — anchored via `--git-common-dir`. A glob relative to the session's working directory is empty inside a pipeline worktree, which reads as "no runs recorded" rather than as the wrong directory.
+
+```bash
+MAIN_ROOT="$(dirname "$(cd "$(git rev-parse --git-common-dir)" && pwd)")"
+CFG="$MAIN_ROOT/.claude/second-shift.config.json"
+STATE_DIR="$MAIN_ROOT/$(jq -r '.paths.pipelineStateDir // ".claude/pipeline-state"' "$CFG" 2>/dev/null || echo .claude/pipeline-state)"
+
+# Run-state files ONLY: a top-level `stages` key, minus both quarantine families.
+# The key gate alone is not enough. `*-stale-*` and `*-released-*` are prior-run
+# snapshots the state helper quarantines rather than deletes (run artifacts are retro
+# evidence); a released file is a complete state file with `stages` intact, so it would
+# otherwise aggregate as if it were a live run and double-count its ticket.
+for f in "$STATE_DIR"/*.json; do
+  case "$f" in *-stale-*|*-released-*) continue ;; esac
+  [ "$(jq -r 'has("stages")' "$f" 2>/dev/null)" = true ] || continue
+  printf '%s\t%s\n' "$(jq -r '.startedAt // ""' "$f")" "$(basename "$f" .json)"
+done | sort -r | head -15   # 15 = the default window; --last N replaces it
+```
+
+The gate also drops the co-resident `-eval` / `-verify` artifacts for free — neither carries a `stages` key. The second column is the **ticket key**, which is what the timing tool takes; it reads one run per invocation, so the enumeration produces the key list and the loop below does the join.
+
+**Completed and aborted runs are both in scope.** An abort is a real cost, often the most expensive shape of run, and excluding it flatters the profile.
+
+Per selected run, gather: `bash "${CLAUDE_PLUGIN_ROOT}/skills/run/tools/stage-times.sh" <key>`; the cost log at `<STATE_DIR>/cost-log.jsonl` when present; the timing paragraphs of any existing `<key>-retro.md`; and, for each session id in that run's `pipelineSessions[]`, the audit ledger at `.claude/audit/<session>.jsonl` when it exists on disk.
+
+## Step 2: Fidelity triage
+
+**Classify every window trusted or degraded BEFORE aggregating anything.** Some recorded numbers are known-bad, and averaging them in produces a profile that is confidently wrong — worse than no profile, because it survives scrutiny.
+
+Degraded signals:
+
+1. **Multi-session run with empty or implausibly short pause spans** — wall time far exceeds any plausible compute time, because the idle gap between sessions was never recorded and so was never subtracted.
+2. **Effective equal to wall across calendar days** — the same defect seen from the other side: a run that spans days with nothing subtracted did not pause, according to the data, which cannot be true.
+3. **A window where start and completion nearly coincide, preceded by a large inter-stage gap** — the stage's real work happened before its start was recorded, so the time landed in the gap instead of the stage.
+4. **Interactive-source sessions** — a human-paced session measures the human, not the pipeline.
+5. **A stage present in state but absent from the timing table** — a missing lifecycle field dropped it. On an aborted run this is always the terminal stage, and is expected there.
+
+Degraded windows are **excluded from every aggregate**. They are not discarded: each distinct fidelity defect is a routable instrumentation finding for Step 5, deduped against already-scoped work **by mechanism** — describe what is unrecorded and where, never by ticket number, which rots as fast as it is written.
+
+## Step 3: Profile
+
+Across trusted runs only, build the table every candidate must cite:
+
+- **Per-stage effective time** — median, worst, and share of run. Compute shares over the **sum of the listed stage times**, not the tool's independently computed run total; the two differ whenever a stage was dropped, and dividing by the larger number silently understates every stage's share.
+- **Lifecycle-dropped stages as explicit known-unknown rows.** A stage omitted from the table is invisible; a stage listed as unknown is a question. Never let a dropped stage read as a fast one.
+- **Inter-stage gap totals** — transition overhead, where synchronous non-gating writes accumulate.
+- **Review-round count against review time** — one round is the common case, so a round count above one is the first thing to check before attributing the cost to the stage itself.
+- **Ceiling and dark-marker hits** — a dispatch that hit its time ceiling, or died without emitting, costs its full ceiling and returns nothing.
+- **Per-dispatch latency** from audit-ledger `SubagentStop` differencing, where ledgers exist. When no ledger covers the window, **omit the column entirely** rather than showing partial rows that read as complete.
+- **Cost rows** where the cost log covers the run.
+
+This table is the measured baseline. Steps 4 and 5 refer back to it by number, not by recollection.
+
+## Step 4: Optimization candidates
+
+Ranked, each a four-field record:
+
+| Field | Contract |
+| --- | --- |
+| **Evidence** | Measured minutes from Step 3 — across 2+ runs, or 1 run plus a structural cause visible in the skill or workflow contract. Nothing else counts. |
+| **Mechanism** | What concretely changes, and why that removes the measured time rather than moving it. |
+| **Risk class** | `behavior-preserving` \| `gate-weakening` \| `contract-changing`. |
+| **Regression guard** | The **existing** selftest, scenario, eval criterion, or gate that fails if this change degrades quality. No such guard → `needs-guard-first`. |
+
+`needs-guard-first` is a terminal state for this pass, not a warning to be argued past. It routes as a guard-first proposal; the optimization is reconsidered only once the guard exists.
+
+To seed a first pass — **examples, not a checklist, and never a substitute for what the profile actually shows**: the strictly serial plan-gate chain, sequential mutant execution, the re-verify scope after each review fix round, reviewer time ceilings, and synchronous posting of non-gating comments. If the profile does not implicate one of these, it is not a candidate this pass.
+
+## Step 5: Route improvements
+
+Route by reference to `pipeline-retro`'s **"Route improvements"** section, which owns this machinery for both retro axes: dedup-first, the enforcement-mechanism ladder, the meaningful-issue bar, the approval gate, and the route table. Apply it as written there. Do **not** restate it here — a copy cannot fail when the original changes, and it would quietly drift into a second, weaker policy.
+
+One perf-specific addition: a candidate that clears the issue bar files **with its measured baseline quoted**, so the change that implements it can prove the saving with a before-and-after comparison from the timing tool instead of asserting one.
+
+## Step 6: Write the report
+
+Write `.claude/pipeline-state/perf-retro-{YYYY-MM-DD}.md`. A second pass on the same date overwrites, matching the per-run retro's posture.
+
+```markdown
+# Perf retro: {N} runs ({earliest} → {latest})
+
+## Profile (trusted runs only)
+
+| Stage | Median | Worst | Share | Notes |
+| ----- | ------ | ----- | ----- | ----- |
+
+Inter-stage gap total: {m} min. Runs profiled: {n} trusted, {d} degraded.
+
+## Fidelity debt
+
+{each degraded window: which run, which signal, what is unrecorded}
+
+## Candidates
+
+| Rank | Candidate | Evidence (min) | Mechanism | Risk class | Regression guard |
+| ---- | --------- | -------------- | --------- | ---------- | ---------------- |
+
+## Routed
+
+{route → action taken or proposed}
+
+## Verdict
+
+{2-4 sentences: where the time actually goes, and the single change that most reduces it without weakening a gate}
+```
+
+Finish by giving the operator, inline: the **top 3 candidates with projected minutes saved**, and the **fidelity-debt count**. A high debt count means the profile is thinner than it looks, and that is the more urgent finding.

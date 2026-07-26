@@ -66,6 +66,8 @@ List every mid-run improvisation the trail reveals (REST fallbacks, version work
 
 Also read the `stage-times.sh` output against expectations: an inert-diff run that still paid the configured verify suite (Stage 6 ≳ 4 min on a docs/shell-only diff), large inter-stage gaps (synchronous posting of non-gating comments), or a stage whose recorded window is implausibly short (work done before `set-stage N --status started` — a state-discipline deviation for Step 3) are all findings.
 
+Scope boundary: this step reads **this run's** timing for anomalies. Cross-run trend analysis — the aggregated per-stage profile and the ranked optimization candidates it supports — is `/dev-pipeline:perf-retro`, not this step.
+
 ## Step 5: Route improvements
 
 **Dedup against already-routed findings FIRST.** Before routing (or directly fixing) anything, check whether a prior retro already routed the same finding — otherwise the same item gets both queued and separately fixed. Search open dev-pipeline issues and the `ready-for-dev` queue:
