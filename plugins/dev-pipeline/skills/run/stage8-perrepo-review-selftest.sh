@@ -82,9 +82,13 @@ for s in 1 2 3 4 5 6 7; do
   esac
   "$SC" set-stage "$ISSUE_NUMBER" "$s" --status completed >/dev/null
 done
-"$SC" review-rounds "$ISSUE_NUMBER" --set 1 >/dev/null   # primary review done
-"$SC" comment-add "$ISSUE_NUMBER" --marker code-review --url "https://github.example/c/code-review" >/dev/null   # its mandated terminating comment
 "$SC" set-stage "$ISSUE_NUMBER" 8 --status started >/dev/null
+"$SC" review-rounds "$ISSUE_NUMBER" --set 1 >/dev/null   # primary review done
+# A primary round mandates review-lead for synthesis, and comment-add enforces that
+# ordering for the code-review marker — so the load is recorded before the receipt,
+# matching the real Stage-8 sequence rather than working around the precondition.
+"$SC" skill-load-add "$ISSUE_NUMBER" --stage 8 --skill review-toolkit:review-lead >/dev/null
+"$SC" comment-add "$ISSUE_NUMBER" --marker code-review --url "https://github.example/c/code-review" >/dev/null   # its mandated terminating comment
 
 statectl.sh() { "$SC" "$@"; }
 # >>> BEGIN verbatim mirror of the secondary-review loop in stages/8-code-review.md >>>
