@@ -29,15 +29,9 @@
 
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { makeFakeAgent, makeFakeWorkflow, makeRunner, noop, parallel, pipeline } from './runtime-shim-lib.mjs'
+import { makeFakeAgent, makeFakeWorkflow, makeRunner, noop, parallel, pipeline, reviewBlock } from './runtime-shim-lib.mjs'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
-
-// A well-formed REVIEW_RESULT block for the plan-reviewer / code-reviewer text contract.
-// Production parses this itself (explorer dispatches are schema-free, #169), so the fake
-// agent must hand back TEXT here — an object would be the emitter leg's shape and
-// validateShape would reject it.
-const reviewBlock = (payload) => `REVIEW_RESULT\n\`\`\`json\n${JSON.stringify(payload)}\n\`\`\``
 
 const LEGS = {
   // Stage 4 — plan-review.mjs. Its `overall` is what the stage writes via

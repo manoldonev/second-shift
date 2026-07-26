@@ -123,6 +123,18 @@ export const makeFakeWorkflow = (behaviors) => {
   return { workflow, calls, remaining: () => queue.length }
 }
 
+// Build the REVIEW_RESULT sentinel + fenced-JSON block that every schema-free explorer
+// emits and every production carrier parses (#169). ONE definition of the wire shape:
+// the sentinel and the fence are load-bearing (production's parseReviewResult regex keys
+// on them), so a suite that spells them out per call site would let a format change pass
+// unnoticed in whichever copy nobody updated.
+//
+// Takes an already-shaped payload — the SCHEMAS are not interchangeable between carriers
+// (code-review's findings[].title/description vs plan-review's findings[].message, and
+// different verdict enums), and production's validateShape rejects a near-miss. Picking
+// the right payload stays with the caller; only the envelope is shared.
+export const reviewBlock = (payload) => 'REVIEW_RESULT\n```json\n' + JSON.stringify(payload) + '\n```'
+
 // Runtime doubles. parallel() is a barrier over thunks; pipeline() threads stages.
 export const parallel = (thunks) => Promise.all(thunks.map((t) => t()))
 export const pipeline = async (items, ...stages) => {

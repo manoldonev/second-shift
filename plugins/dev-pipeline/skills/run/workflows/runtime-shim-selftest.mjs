@@ -57,6 +57,7 @@ import {
   noop,
   parallel,
   pipeline,
+  reviewBlock,
   stripMeta,
 } from './runtime-shim-lib.mjs'
 
@@ -85,23 +86,19 @@ const ok = (m, cond) => (cond ? pass(m) : fail(m))
 // and the verdict enum are NOT interchangeable with the intake/gate schemas — production's
 // validateShape rejects a near-miss, which is the point.
 const findingsBlock = (verdict = 'approve') =>
-  'REVIEW_RESULT\n```json\n' +
-  JSON.stringify({
+  reviewBlock({
     verdict,
     findings: [{ severity: 'minor', title: 't', description: 'd', confidence: 70, file: 'f.ts', line: 1 }],
-  }) +
-  '\n```'
+  })
 
 // The same for design-sync's GATE_SCHEMA (verdict enum pass|warn|block), optionally
 // carrying a failClosed marker.
 const gateBlock = (extra = {}) =>
-  'REVIEW_RESULT\n```json\n' +
-  JSON.stringify({
+  reviewBlock({
     verdict: 'pass',
     findings: [{ severity: 'nit', title: 't', description: 'd', confidence: 60 }],
     ...extra,
-  }) +
-  '\n```'
+  })
 
 const runCodeReview = (behaviors, argsOverride = {}) => {
   const f = makeFakeAgent(behaviors)
