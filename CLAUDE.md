@@ -120,10 +120,13 @@ fail on a production edit, so it converges on green while the real code drifts a
 — and it reads as coverage the whole time. Two `.mjs` suites did exactly this: they modelled the
 pre-#169 StructuredOutput transport for months after production replaced it, and while they were
 green `design-sync.mjs`'s gate path was throwing `ReferenceError` on every dispatch. The sanctioned
-replacement is `workflows/runtime-shim-selftest.mjs`, which strips the `export const meta` block,
-wraps the remainder in `(async (agent, parallel, pipeline, args, log, phase, budget) => { … })`,
-and executes the **real** production body with injected fakes. If you are about to re-declare a
-production function inside a selftest, use the shim instead.
+replacement is `workflows/runtime-shim-lib.mjs`, which strips the `export const meta` block,
+wraps the remainder in
+`(async (agent, parallel, pipeline, args, log, phase, budget, workflow) => { … })`,
+and executes the **real** production body with injected fakes. Import it — do not re-create the
+wrapper; `runtime-shim-selftest.mjs` (per-workflow ladder cases) and `e2e-workflow-leg.mjs` (the
+E2E replay's stage-4/5/8 legs) are both consumers. If you are about to re-declare a production
+function inside a selftest, use the shim instead.
 
 **The mjs-seam grep exception, narrowed.** It used to read "grep is the only technique available"
 for Workflow-runtime `.mjs` files. That is no longer true — the shim executes them. The sanction

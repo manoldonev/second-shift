@@ -69,20 +69,31 @@ runtime-injected globals. That made them look untestable, and the repo settled f
 They are testable. Strip the meta block and wrap the rest:
 
 ```js
-(async (agent, parallel, pipeline, args, log, phase, budget) => { …body… })
+(async (agent, parallel, pipeline, args, log, phase, budget, workflow) => { …body… })
 ```
 
 The top-level `return` becomes a legal return from the arrow, and every injected global arrives
 as a parameter the test controls. Drive it with a behavior queue of canned agent outputs and
 assert on what the workflow actually returns.
 
-Two notes from building it:
+The mechanics live in `workflows/runtime-shim-lib.mjs` — import them. Two suites consume it:
+`runtime-shim-selftest.mjs` for per-workflow dispatch-ladder cases, and `e2e-workflow-leg.mjs`
+for the E2E replay's stage-4/5/8 legs.
+
+Notes from building it:
 
 - Model the runtime faithfully. A schema-free dispatch resolves to **text** the workflow parses
   itself; a schema-carrying dispatch resolves to an already-validated **object**. Getting this
   backwards makes cases fail for the wrong reason.
 - The meta-strip is a balanced-brace scan, not a parser. That is safe only because
   `design-sync-selftest.mjs` Case I lints every workflow for meta-literal purity.
+- `workflow` is **last** in the parameter list, and adding a global must stay an append —
+  inserting one shifts every existing positional call site, and cases then fail for reasons that
+  look like production bugs. `plan-review.mjs` and `mutation-gate.mjs` need it for their nested
+  dispatches; a workflow that never calls it is driven by omitting the argument.
+- A script that drives a workflow must `process.exit()` explicitly. The dispatch ceiling timers
+  keep node's event loop alive, so merely reaching the end of the file hangs for fifteen minutes
+  rather than returning.
 
 ## Adversarial tier (operator-run, never CI)
 
