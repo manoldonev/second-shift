@@ -1146,15 +1146,19 @@ else
   fail "(mc4) mark-completed absent state — rc=$rc err='$err'"
 fi
 
-# ==== (mc-ir) inert-lane implementation_resilience gate (issue #199) ============
-# mark-completed refuses implementation_resilience: PASS when the run is inert
-# (no verifying-lane object anywhere AND no TEST_FAILURE charged); a SUITE-lane
-# run (object verifySummary, or any TEST_FAILURE) is unaffected.
+# ==== (mc-ir) implementation_resilience evidence gate ==========================
+# mark-completed refuses implementation_resilience: PASS unless a TEST_FAILURE
+# was charged somewhere (flat verifyAttempts or any per-repo worktrees.<id>) —
+# the evidence that the resilience circuit-breaker was actually exercised. The
+# verify LANE is irrelevant: a green SUITE run produced zero test failures just
+# as an inert run did, and eval-criteria.md mandates N/A for both.
 
-# Helper: write a valid self-eval scoring implementation_resilience: PASS.
-write_eval_pass() {
-  local key="$1"
-  printf '{"ticketKey":%s,"criteria":{"target_confirmation":"PASS","plan_grounding":"PASS","implementation_resilience":"PASS","scope_compliance":"PASS","review_precision":"PASS"}}\n' "$key" \
+# Helper: write a valid self-eval scoring implementation_resilience: $2 (default
+# PASS). Value-parameterized because the gate must be proven inert for the other
+# two legal verdicts, not only for PASS.
+write_eval_ir() {
+  local key="$1" ir="${2:-PASS}"
+  printf '{"ticketKey":%s,"criteria":{"target_confirmation":"PASS","plan_grounding":"PASS","implementation_resilience":"%s","scope_compliance":"PASS","review_precision":"PASS"}}\n' "$key" "$ir" \
     > ".claude/pipeline-state/${key}-eval.json"
 }
 
@@ -1164,35 +1168,40 @@ write_eval_pass() {
 # (mc-ir1) inert-string verifySummary + no TEST_FAILURE + PASS → REFUSED,
 # message names the criterion + required N/A, status left untouched.
 complete_run_vs 9999 '"skipped (inert diff)"'
-write_eval_pass 9999
+write_eval_ir 9999
 rc=$(sct_rc mark-completed 9999)
 err=$(sct_err mark-completed 9999)
 status=$(sct get 9999 '.status')
 if [[ "$rc" == "1" && "$err" == *"implementation_resilience"* && "$err" == *"N/A"* && "$status" != "completed" ]]; then
-  pass "(mc-ir1) inert-lane PASS → refused, names criterion + N/A, status untouched"
+  pass "(mc-ir1) inert lane, nothing charged, PASS → refused, names criterion + N/A, status untouched"
 else
   fail "(mc-ir1) inert-lane PASS refusal — rc=$rc status='$status' err='$err'"
 fi
 
-# (mc-ir2) object verifySummary (SUITE lane) + PASS → ACCEPTED (AC-2).
+# (mc-ir2) object verifySummary (SUITE lane) + no TEST_FAILURE + PASS → REFUSED.
+# The lane ran green, so the breaker was never exercised and the criterion
+# mandates N/A exactly as on the inert lane. This case is the whole point of the
+# gate's evidence framing: it was an ACCEPT while the predicate keyed on lane.
+# The message must name the missing evidence, not the lane.
 complete_run_vs 9999 '{"format":"clean","test":"passed"}'
-write_eval_pass 9999
-sct mark-completed 9999 >/dev/null
+write_eval_ir 9999
+rc=$(sct_rc mark-completed 9999)
+err=$(sct_err mark-completed 9999)
 status=$(sct get 9999 '.status')
-if [[ "$status" == "completed" ]]; then
-  pass "(mc-ir2) suite-lane (object verifySummary) PASS → accepted (AC-2)"
+if [[ "$rc" == "1" && "$err" == *"no TEST_FAILURE was ever charged"* && "$err" == *"N/A"* && "$status" != "completed" ]]; then
+  pass "(mc-ir2) suite lane, nothing charged, PASS → refused, message names the missing evidence"
 else
-  fail "(mc-ir2) suite-lane PASS accept — status='$status'"
+  fail "(mc-ir2) suite-lane PASS refusal — rc=$rc status='$status' err='$err'"
 fi
 
 # (mc-ir3) inert-string verifySummary but a TEST_FAILURE charged + PASS →
-# ACCEPTED (AC-2 TEST_FAILURE branch — the breaker had a chance to fire).
+# ACCEPTED — the breaker had a chance to fire, which is the whole PASS bar.
 complete_run_vs 9999 '"skipped (inert diff)"' tf
-write_eval_pass 9999
+write_eval_ir 9999
 sct mark-completed 9999 >/dev/null
 status=$(sct get 9999 '.status')
 if [[ "$status" == "completed" ]]; then
-  pass "(mc-ir3) inert-string + TEST_FAILURE PASS → accepted (AC-2)"
+  pass "(mc-ir3) inert lane + charged TEST_FAILURE, PASS → accepted"
 else
   fail "(mc-ir3) inert+TEST_FAILURE PASS accept — status='$status'"
 fi
@@ -1207,32 +1216,77 @@ inject_worktrees() {
     && mv ".claude/pipeline-state/${key}.json.tmp" ".claude/pipeline-state/${key}.json"
 }
 
-# (mc-ir4) be-fe-pair union — flat verifySummary inert, but a per-repo
-# worktrees.<id>.verifySummary is a suite object → the gate's union sees a
-# verifying lane → PASS accepted. Grounds the per-repo any_suite_object branch.
+# (mc-ir4) be-fe-pair — a per-repo worktrees.<id>.verifySummary suite object with
+# nothing charged anywhere → REFUSED. A per-repo verifying lane no longer rescues
+# a PASS any more than the flat one does; this is the be-fe-pair leg of the same
+# hole (mc-ir2) closes, and it was likewise an ACCEPT under the lane predicate.
 complete_run_vs 9999 '"skipped (inert diff)"'
 inject_worktrees 9999 '{"fe":{"verifySummary":{"test":"passed"},"verifyAttempts":{}}}'
-write_eval_pass 9999
-sct mark-completed 9999 >/dev/null
+write_eval_ir 9999
+rc=$(sct_rc mark-completed 9999)
+err=$(sct_err mark-completed 9999)
 status=$(sct get 9999 '.status')
-if [[ "$status" == "completed" ]]; then
-  pass "(mc-ir4) per-repo (worktrees.<id>) suite object PASS → accepted (be-fe-pair union)"
+if [[ "$rc" == "1" && "$err" == *"no TEST_FAILURE was ever charged"* && "$status" != "completed" ]]; then
+  pass "(mc-ir4) per-repo suite object, nothing charged, PASS → refused (be-fe-pair leg)"
 else
-  fail "(mc-ir4) per-repo union suite-object accept — status='$status'"
+  fail "(mc-ir4) per-repo suite-object refusal — rc=$rc status='$status' err='$err'"
 fi
 
-# (mc-ir5) be-fe-pair union — flat inert + no flat TEST_FAILURE, but a per-repo
+# (mc-ir5) be-fe-pair union — no flat TEST_FAILURE, but a per-repo
 # worktrees.<id>.verifyAttempts.TEST_FAILURE is charged → union sees it → PASS
-# accepted. Grounds the per-repo any_test_failure branch.
+# accepted. Grounds the per-repo leg of any_test_failure, the surviving union.
 complete_run_vs 9999 '"skipped (inert diff)"'
 inject_worktrees 9999 '{"fe":{"verifySummary":"skipped (inert)","verifyAttempts":{"TEST_FAILURE":1}}}'
-write_eval_pass 9999
+write_eval_ir 9999
 sct mark-completed 9999 >/dev/null
 status=$(sct get 9999 '.status')
 if [[ "$status" == "completed" ]]; then
-  pass "(mc-ir5) per-repo TEST_FAILURE PASS → accepted (be-fe-pair union)"
+  pass "(mc-ir5) per-repo charged TEST_FAILURE, PASS → accepted (be-fe-pair union)"
 else
   fail "(mc-ir5) per-repo TEST_FAILURE accept — status='$status'"
+fi
+
+# (mc-ir6) suite lane AND a charged TEST_FAILURE + PASS → ACCEPTED. The gate no
+# longer reads verifySummary at all, so this differs from (mc-ir3) only in a
+# field it ignores — kept deliberately: it pins that a legitimately exercised
+# PASS is accepted on the SUITE lane too, and a re-introduced lane disjunct that
+# inverted the sense would surface here.
+complete_run_vs 9999 '{"format":"clean","test":"passed"}' tf
+write_eval_ir 9999
+sct mark-completed 9999 >/dev/null
+status=$(sct get 9999 '.status')
+if [[ "$status" == "completed" ]]; then
+  pass "(mc-ir6) suite lane + charged TEST_FAILURE, PASS → accepted"
+else
+  fail "(mc-ir6) suite+TEST_FAILURE PASS accept — status='$status'"
+fi
+
+# (mc-ir7)/(mc-ir8) the gate is scoped to PASS: N/A and FAIL terminalize on a
+# green suite lane with nothing charged, where PASS is refused. Characterization
+# — the `== "PASS"` guard already gives this — pinned so a future rewrite of the
+# predicate cannot start refusing an honest N/A.
+for ir in "N/A" FAIL; do
+  complete_run_vs 9999 '{"format":"clean","test":"passed"}'
+  write_eval_ir 9999 "$ir"
+  sct mark-completed 9999 >/dev/null
+  status=$(sct get 9999 '.status')
+  if [[ "$status" == "completed" ]]; then
+    pass "(mc-ir7/8) suite lane, nothing charged, $ir → accepted (gate is PASS-scoped)"
+  else
+    fail "(mc-ir7/8) non-PASS accept ($ir) — status='$status'"
+  fi
+done
+
+# (mc-ir9) --force bypasses the evidence gate, matching the criteria shape check
+# it neighbors below the same early return (crash-recovery escape).
+complete_run_vs 9999 '{"format":"clean","test":"passed"}'
+write_eval_ir 9999
+sct mark-completed 9999 --force >/dev/null
+status=$(sct get 9999 '.status')
+if [[ "$status" == "completed" ]]; then
+  pass "(mc-ir9) suite lane, nothing charged, PASS + --force → accepted (bypass)"
+else
+  fail "(mc-ir9) --force bypass — status='$status'"
 fi
 
 # ============ (rpt) mark-completed run-report gate (#146) =====================

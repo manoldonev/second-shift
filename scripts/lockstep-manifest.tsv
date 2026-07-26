@@ -76,3 +76,15 @@ stage8-secondary-review	verbatim	plugins/dev-pipeline/skills/run/stages/8-code-r
 # 5-6, deleted in #214) were independent presence checks — a consistent rename false-passed
 # both — and the missed regression is a benign per-issue-namespaced detached worktree leak
 # on crashed runs, not a verdict path. Reviewer-guarded.
+#
+# implementation_resilience evidence gate (statectl.sh require_eval_file's gate comment ↔
+# state-schema.md's `mark-completed` terminal-gates paragraph). Both describe what the gate
+# keys on, and the two drifted apart once already: the gate shipped scoped to the inert lane
+# and both copies said so, which is exactly the narrowness that let a green SUITE run
+# self-score PASS. Considered for a row and DROPPED: neither site carries a byte-anchorable
+# literal — the schema states it as one clause of a long consumer-facing paragraph about all
+# three terminal gates, the code states it as maintainer commentary next to the predicate,
+# and forcing a shared literal would mean writing prose that serves neither reader. The
+# BEHAVIOR is not reviewer-guarded: statectl-selftest.sh's (mc-ir1)-(mc-ir9) pin every
+# branch of the predicate, and (mc-ir2) asserts the refusal message's wording. Only the doc
+# WORDING is, and per the repo's no-prose-presence rule that is the correct tier for it.
