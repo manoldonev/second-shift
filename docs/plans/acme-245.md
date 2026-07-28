@@ -116,9 +116,10 @@ beyond one fixture helper the issue's AC-4(d) explicitly requires.
 - `run_cli()` (`check-model-tiers-selftest.sh:49`) — the env-override CLI runner; all new cases use it unchanged.
 - `make_dp_variant()` (`:62`) — rewrites the fixture `code-review.mjs` MAP with a given key/model. Covers AC-4(b) (`fable`) and AC-4(c) (`gpt-4`) with **no** modification.
 - `make_override_config()` (`:76`) — writes a config with one `modelOverrides` entry. Covers AC-4(a) with `"fable"` as the value, unchanged.
-- `make_dp_inline_variant()` (`:143`) — the existing inline helper. **Reused as-is** for the MAP-file inline case; **not** reusable for AC-4(d) (see below), which is why one sibling helper is added.
+- `make_dp_inline_variant()` (`:143`) — the existing inline helper. Left untouched and still driving the two pre-existing inline cases, but **not reusable for either new inline case**: it hardcodes the file it writes (`unit-tests.mjs`) *and* its contents (`const UNIT_TEST_MODEL = 'sonnet'` plus a sibling `unit-test-plan-reviewer` dispatch). An earlier revision of this section claimed it could be reused as-is for AC-4(e); the Stage-4 plan review caught that, and it is wrong twice over — wrong file for (e), and wrong scalar for (d).
 - `ok()` / `fail()` (`:36`–`:37`), `expect_violation()` (`config-lint-selftest.sh:35`) — assertion primitives, unchanged.
-- New helper: `make_dp_inline_scalar_variant()` **`[NEW]`** — confirmed no existing equivalent. `make_dp_inline_variant` hardcodes `const UNIT_TEST_MODEL = 'sonnet'` plus a sibling `unit-test-plan-reviewer` dispatch. With an out-of-enum inline token the pre-fix script falls through to that `sonnet` scalar and compares it against `structured-emitter`'s `haiku` frontmatter → `MISMATCH`, exit 1. That breaks AC-4(d)'s required "pre-fix exits 0" precondition, exactly as the issue predicts. The new helper writes a scalar equal to the dispatched agent's frontmatter tier (`haiku`) and **only** the inline dispatch, so pre-fix the file is genuinely silent.
+- New helper: `make_dp_inline_scalar_variant()` **`[NEW]`** — confirmed no existing equivalent. With an out-of-enum inline token, `make_dp_inline_variant`'s hardcoded `sonnet` scalar is what the pre-fix script falls through to, and it compares that against `structured-emitter`'s `haiku` frontmatter → `MISMATCH`, exit 1. That breaks AC-4(d)'s required "pre-fix exits 0" precondition, exactly as the issue predicts. The new helper parameterizes the scalar so it can equal the dispatched agent's frontmatter tier (`haiku`) and writes **only** the inline dispatch, so pre-fix the file is genuinely silent.
+- New helper: `make_dp_map_inline_variant()` **`[NEW]`** — confirmed no existing equivalent. AC-4(e) needs the inline dispatch inside a **MAP** file (`code-review.mjs`); `make_dp_variant` writes a MAP table with no inline dispatch, and `make_dp_inline_variant` writes a scalar file. Neither shape exists.
 
 ## Implementation steps
 
@@ -202,7 +203,14 @@ Existing cases stay green unchanged — in particular `inline-ok` (inline `haiku
 together pin that the new scan did not disturb in-enum inline handling.
 
 **In `config-lint-selftest.sh`:** the updated `invalid-unknown-repo-and-tier.json` assertion
-(full message) plus the new `valid-fable-override.json` fixture asserted valid.
+(full message) plus the new `valid-fable-override.json` fixture asserted valid — and, folded in
+from the Stage-4 plan review, an executable **schema ↔ config-lint enum mirror** check. Step 1's
+schema edit otherwise had no assertion behind it beyond `jq empty` (syntax only) and a mirror
+implemented separately in `config-lint.sh`, so a one-sided widening was silent. The check drives
+both artifacts rather than grepping either: forward, every tier the schema declares must be
+accepted by `config-lint`; backward, `config-lint`'s rejection message must name **exactly** the
+schema's enum, compared with `=` rather than a substring grep (a prefix match would go green in
+precisely the direction the check exists to catch — the same false-green shape AC-1 fixes).
 
 **AC-5 red-on-mutation demos** are recorded in the commit body: for each new guard, revert the
 guard, observe the case go green (i.e. the hole reopens), restore.
@@ -212,9 +220,9 @@ guard, observe the case go green (i.e. the hole reopens), restore.
 | AC ID | Criterion (short) | Step(s) | Test(s) |
 | --- | --- | --- | --- |
 | AC-1 | `config-lint.sh` accepts `fable`, rejects unknown with the full new message; selftest asserts full text | 2, 3 | `config-lint-selftest.sh` — updated `expect_violation` (full message) + new `valid-fable-override.json` valid case |
-| AC-2 | schema enum in lockstep; `jq empty` + existing config-lint suite green | 1, 2 | `config-lint-selftest.sh` full suite; `jq empty` sweep |
+| AC-2 | schema enum in lockstep; `jq empty` + existing config-lint suite green | 1, 2 | `config-lint-selftest.sh` — the schema↔config-lint enum mirror check (forward per-tier acceptance + exact backward message comparison) plus the full suite; `jq empty` sweep |
 | AC-3 | `UNKNOWN-MODEL` + exit 1 for out-of-enum MAP entry and inline literal; exit 0 on the real repo | 4, 5 | `check-model-tiers-selftest.sh` cases (b)–(e); real-repo run in the verification sweep |
-| AC-4 | new behavioral fixture cases (a)–(e) | 7 | `check-model-tiers-selftest.sh` cases (a)–(e), incl. `make_dp_inline_scalar_variant` |
+| AC-4 | new behavioral fixture cases (a)–(e) | 7 | `check-model-tiers-selftest.sh` cases (a)–(e), incl. the two new helpers `make_dp_inline_scalar_variant` and `make_dp_map_inline_variant` |
 | AC-5 | red-on-mutation demos recorded in the commit body | 4, 5, 7 | — no test (non-functional) |
 | AC-6 | verification sweeps green | 1–8 | — no test (infra-only) |
 
@@ -260,7 +268,8 @@ bash plugins/dev-pipeline/skills/run/tools/config-lint.sh .claude/second-shift.c
   `intake-review.mjs:234` and `design-sync.mjs:168` are validated by neither loop today, and this
   change adds only the *out-of-enum* error path for them — flipping one to `model: 'opus'`
   against `structured-emitter`'s `haiku` frontmatter stays silent. Declared at intake, wider
-  than this issue's unknown-token scope, routed to a follow-up.
+  than this issue's unknown-token scope, and **filed as its own tracked issue** (#247) rather
+  than left as an unnamed intention.
 - **Agent frontmatter enum-guarding** — deliberately not done; see the Decision Ledger prose.
 - **`figma.mjs` and `stall-probe.mjs`** (D-8) — the former has no `modelOverrides` path and is
   not parsed by `check-model-tiers.sh` at all; the latter is an arg-parameterized instrument.
