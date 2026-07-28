@@ -74,6 +74,12 @@ All paths verified to exist at `origin/main`.
 **Baseline re-snapshot:**
 - `.claude/prose-budget.baseline.tsv`
 
+**Doc reconciliation (Stage-7 finding, added during implementation):**
+- `docs/namespaces.md` — rule 3 named `reviewer-baseline` as the protocol intake-toolkit shares from
+  review-toolkit. D-1 moves that contract to `review-lead`, and after the repoint intake-toolkit's
+  only remaining `reviewer-baseline` mention is an analogy in `interviewing-baseline`, not a
+  dependency. Updated to name the Sub-Agent Trust Model at its new home.
+
 ## Reuse inventory
 
 - `plugins/dev-pipeline/skills/run/tools/prose-budget.sh` — existing `--update-baseline` flag drives
