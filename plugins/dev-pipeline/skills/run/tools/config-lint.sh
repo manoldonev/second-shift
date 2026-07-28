@@ -199,9 +199,11 @@ ERRORS=$(jq -r '
     ) else [] end)
   + (if (.stageParams != null) then (.stageParams |
       err((type) != "object"; "stageParams: must be object")
-      + err(((keys) - ["planFilePattern","requiredLabels","visualCapture","webComponentGlobs","formatGlob"]) != []; "stageParams: unknown keys")
+      + err(((keys) - ["planFilePattern","requiredLabels","visualCapture","webComponentGlobs","formatGlob","inertPattern"]) != []; "stageParams: unknown keys")
       + err((.planFilePattern? != null) and ((.planFilePattern | type) != "string"); "stageParams.planFilePattern: must be string")
       + err((.formatGlob? != null) and ((.formatGlob | type) != "string"); "stageParams.formatGlob: must be string")
+      + err((.inertPattern? != null) and ((.inertPattern | type) != "string"); "stageParams.inertPattern: must be string")
+      + err((.inertPattern? != null) and ((.inertPattern | type) == "string") and (.inertPattern == ""); "stageParams.inertPattern: must be non-empty (omit the key to use the default inert set)")
       + err((.requiredLabels? != null) and ((.requiredLabels | type) != "array"); "stageParams.requiredLabels: must be array")
       + ((.requiredLabels // []) | if type == "array" then (map(select((type) != "string")) | if length > 0 then ["stageParams.requiredLabels: every entry must be a string"] else [] end) else [] end)
       + err((.webComponentGlobs? != null) and ((.webComponentGlobs | type) != "array"); "stageParams.webComponentGlobs: must be array")
@@ -221,6 +223,25 @@ ERRORS=$(jq -r '
 
   | .[]
 ' "$CONFIG")
+
+# stageParams.inertPattern must actually COMPILE as an ERE. jq can only check that it
+# is a non-empty string; whether `grep -E` accepts it is knowable only by asking grep.
+# Doing it here means a typo is a config-time rejection rather than a Stage-6 surprise
+# — and while is-inert-diff.sh fails closed to SUITE on an uncompilable pattern, that
+# is a safety net, not a diagnosis: it fires once per verify with the run already
+# underway. rc 0/1 are both "compiled" (matched / did not match); rc >= 2 is the
+# compile failure. Empty input keeps this a pure syntax probe.
+INERT_PATTERN_CFG=$(jq -r '.stageParams.inertPattern // empty' "$CONFIG" 2>/dev/null)
+if [[ -n "$INERT_PATTERN_CFG" ]]; then
+  # rc must be captured from grep itself, not read as $? inside an `if !` branch
+  # (there it is the negation's status, always 0). `|| true` keeps `set -e` out of it,
+  # since rc 1 — "compiled fine, matched nothing" — is the expected result here.
+  grep_rc=0
+  printf '' | grep -E "$INERT_PATTERN_CFG" >/dev/null 2>&1 || grep_rc=$?
+  if [[ "$grep_rc" -ge 2 ]]; then
+    ERRORS="${ERRORS:+$ERRORS$'\n'}stageParams.inertPattern: not a valid extended regular expression (grep -E rejected it)"
+  fi
+fi
 
 if [[ -n "$ERRORS" ]]; then
   echo "config-lint: $CONFIG:" >&2

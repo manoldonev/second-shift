@@ -47,6 +47,14 @@ expect_violation invalid-configversion-2.json       "configVersion 2 is newer th
 expect_violation invalid-configversion-0.json       "configVersion 0 predates this plugin — see docs/migrations/ for the upgrade path"
 expect_violation invalid-v1-gates-figma.json        'gates.figma was removed in v2 — use design: {"provider": ...} (docs/migrations/v1-to-v2.md)'
 
+# --- stageParams.inertPattern: the two rejection classes need two fixtures, because a
+# single key cannot hold both an empty and an uncompilable value. Empty is caught by the
+# jq pass; uncompilable is only knowable by asking grep, so it is a separate bash-side
+# probe after it. Rejecting at config time is the point: is-inert-diff.sh's fail-closed
+# is a safety net that fires mid-run, not a diagnosis.
+expect_violation invalid-empty-inertpattern.json    "stageParams.inertPattern: must be non-empty"
+expect_violation invalid-bad-inertpattern.json      "stageParams.inertPattern: not a valid extended regular expression"
+
 # --- #15: the 12 config-lint type-check gaps (F83 mutant matrix). One packed fixture,
 # one assertion per surviving-mutant class it must now KILL. Plus the removed-key notes.
 expect_violation invalid-type-gaps.json             "stageWorkflows[0].stage: must be an integer 1-10"
