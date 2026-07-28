@@ -190,6 +190,17 @@ fill in your repo's real commands. Until at least one verifying lane (`lint`, `t
 verifying nothing is genuinely intended (a docs-only repo, say), set
 `commands.<id>.allowUnverified: true` so the choice is explicit rather than an oversight.
 
+**A configured lane can still never run.** Stage 6 skips the suite for an "inert" diff —
+one whose every changed path is zero-coverage for a JS/TS suite — and the shipped inert
+set includes `*.md` and `*.sh`. On a repo where those ARE the product (a shell toolchain,
+a docs site, a Python project whose tooling lives in shell), every real diff classifies
+inert, your correctly-configured `lint`/`test` never execute, and Stage 6 reports
+`skipped (inert diff)` — a false green that looks like a pass. If that is your stack, set
+`stageParams.inertPattern` to an ERE that leaves your product's file types OUT of the
+inert set; it replaces the shipped default outright. `preflight` warns when the effective
+pattern makes your configured lanes unreachable, so you find out before a run rather than
+after one.
+
 Then add a **setup lane**. The pipeline works in a `git worktree` — a fresh checkout that
 starts with no `node_modules` and no `.venv`, since both are gitignored. Verify lanes that
 need installed dependencies fail on the first real run unless the install runs first, and
