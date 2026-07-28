@@ -27,9 +27,6 @@ Intake resolved four gaps (D-1..D-4 below) and recorded two implementation choic
    and not `cp -R`. The one exception is `scripts/check-workflows-selftest.sh`, which resolves via
    `cd "$(git rev-parse --show-toplevel)"` — inside a detached worktree that resolves to the
    **sandbox** root, so pairing holds there too and no special case is needed.
-6. The harness reads `GITHUB_ACTIONS`, `RUNNER_OS` and `SKIP_STRESS` from the ambient environment.
-   Anything that invokes the harness must therefore control that environment explicitly rather than
-   inherit it — see D-8.
 3. `tools/mutation-sweep-selftest.sh` is picked up by the existing discovery glob in **both** CI
    lanes, including `selftests-bash32` on macOS. That lane checks out **without** `fetch-depth: 0`
    and runs stock **bash 3.2**, so the companion selftest — and every harness path it exercises —
@@ -41,6 +38,9 @@ Intake resolved four gaps (D-1..D-4 below) and recorded two implementation choic
 5. The seed baseline can only be produced on CI. Seeding rides a temporary `push:` trigger on
    `.github/workflows/mutation-sweep.yml` [NEW], because a workflow existing only on a PR branch is
    not `workflow_dispatch`-able.
+6. The harness reads `GITHUB_ACTIONS`, `RUNNER_OS` and `SKIP_STRESS` from the ambient environment.
+   Anything that invokes the harness must therefore control that environment explicitly rather than
+   inherit it — see D-8.
 
 ## Decision Ledger
 
@@ -81,7 +81,7 @@ Intake resolved four gaps (D-1..D-4 below) and recorded two implementation choic
 - `scripts/lockstep-manifest.tsv:1-12` — the commented TSV header style (columns documented in-file); the six new TSVs follow it.
 - `scripts/check-lockstep-pairs-selftest.sh:72,86,106` — the LOUD anchor-drift convention (`mutation did not apply — the sed anchor has moved`). The catalog tier's red is this exact convention, cited by the spec as precedent.
 - `.github/workflows/ci.yml:91-96` — the `BASE_REF`-via-`env` pattern (never spliced into the `run:` body, because ref names permit `$`, backticks and `;`). The new PR-scoped step copies it.
-- `.github/workflows/ci.yml:39-45` — the selftest exit-code convention (exit code = fail count); the companion selftest follows it.
+- `.github/workflows/ci.yml:39-46` — the selftest exit-code convention (`exit "$fails"` at `:46`); the companion selftest follows it.
 - No new shared helpers are introduced — the harness is the deliverable, not a utility other scripts consume.
 
 ## Implementation steps
@@ -123,7 +123,11 @@ Intake resolved four gaps (D-1..D-4 below) and recorded two implementation choic
    unrunnable pair, environment mismatch, sandbox failure. Warn (never red) on: a killed mutant
    still listed in the baseline, and a baseline row whose guard relpath no longer resolves.
 9. **PR mode.** Restrict the universe to guards touched by `origin/$BASE_REF...HEAD` (three-dot,
-   base from the PR event). Zero touched guards → exit 0 with an empty report. Defer any guard
+   base from the PR event). Zero touched guards → exit 0 with an empty report **before any baseline
+   resolution** — the ordering is load-bearing, not incidental: it is what stops a doc-only or
+   workflow-only PR from reding on `baseline-missing`, and it is what lets this PR's own
+   merge-blocking lane stay green while the seed run is still in flight (this diff touches no
+   in-universe guard except the self-excluded sweep). Defer any guard
    whose kill set is not a **single fast suite** (slow-list membership or a multi-suite union both
    defer), plus the D-5 count cap; deferred guards are reported, never run.
 10. **Seed mode.** Scoped to `mutation-sweep.yml` only. Enter iff the baseline is absent **and** the

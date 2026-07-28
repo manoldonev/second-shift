@@ -45,6 +45,26 @@ jobs:
           done < <(find . -name '*-selftest.sh' -type f -print0)
           exit "$fails"
 
+      # Test-the-tests, diff-scoped. Mutates only the guards this PR touches and runs their
+      # paired selftests; a mutant that SURVIVES is a regression the suite would not have
+      # caught. Guards whose kill set is not a single fast suite defer to the nightly
+      # wholesale sweep rather than being graded against a weaker criterion than the one
+      # that produced the baseline.
+      #
+      # pull_request only: this job also runs on push-to-main, where no base ref exists.
+      # BASE_REF rides in the environment for the same injection reason as pr-gates below.
+      # SKIP_STRESS is set HERE, on the step, not on the job: the canonical sweep
+      # environment includes it, but the job's own selftest step above must keep exercising
+      # the stress legs. The harness never exports it itself — that would make the
+      # baseline's environment check vacuous.
+      - name: mutation sweep (PR-scoped)
+        if: github.event_name == 'pull_request'
+        timeout-minutes: 15
+        env:
+          BASE_REF: ${{ github.base_ref }}
+          SKIP_STRESS: '1'
+        run: bash tools/mutation-sweep.sh --mode pr --base "origin/$BASE_REF"
+
       # Contract pairs duplicated across files (an agent's inline copy of a rule, a schema
       # three Workflow scripts each redeclare) where prose alone said "keep verbatim".
       # Replaces the deleted prose-presence guards: byte-parity beats token presence.

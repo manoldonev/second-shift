@@ -1,0 +1,87 @@
+# Nightly wholesale mutation sweep — the standing measurement of selftest strength.
+#
+# The repo's first cron workflow. Model-free, like every other lane here.
+#
+# fetch-depth: 0 is load-bearing, not boilerplate: derive-release-selftest.sh diffs
+# against the latest release tag and check-workflows-selftest.sh cd's to the repo
+# toplevel, and both run as paired killers inside the sweep's sandbox.
+#
+# CANONICAL ENVIRONMENT — ubuntu-latest + SKIP_STRESS=1. Kill verdicts and the committed
+# baseline are only comparable inside it, which is why local runs are advisory and why the
+# harness asserts RUNNER_OS + SKIP_STRESS against the baseline header before comparing any
+# survivor.
+#
+# SEED MODE LIVES ONLY HERE. The ci.yml PR-scoped step never seeds: an absent baseline
+# there is the `baseline-missing` infra red, so deleting or renaming the baseline can
+# never turn the merge-blocking lane green. Seeding is trigger-independent — a
+# workflow_dispatch cannot carry it alone, because a workflow existing only on a PR branch
+# is not dispatchable. The run enters seed mode iff the baseline is ABSENT and the event
+# is not `schedule`, OR `seed=true` was dispatched (the explicit re-baseline override,
+# which never enforces even with a baseline present). A `schedule` run never seeds — a
+# missing baseline stays infra red there.
+name: mutation-sweep
+
+on:
+  schedule:
+    # 03:17 UTC — off the hour to avoid GitHub's scheduler pileup.
+    - cron: '17 3 * * *'
+  workflow_dispatch:
+    inputs:
+      seed:
+        description: 'Re-baseline: publish a fresh baseline + slow-suites artifact and exit green without enforcing.'
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  sweep:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0 # full history + tags: paired killers diff against the latest release tag
+
+      - name: resolve mode
+        id: mode
+        env:
+          SEED_INPUT: ${{ inputs.seed }}
+          EVENT: ${{ github.event_name }}
+        run: |
+          seed=0
+          if [[ "$SEED_INPUT" == "true" ]]; then
+            seed=1
+            echo "seed mode: explicit seed=true dispatch (never enforces)"
+          elif [[ ! -f tools/mutation-baseline.tsv && "$EVENT" != "schedule" ]]; then
+            seed=1
+            echo "seed mode: baseline absent and event is '$EVENT' (not schedule)"
+          else
+            echo "enforcing mode: event='$EVENT', baseline present=$([[ -f tools/mutation-baseline.tsv ]] && echo yes || echo no)"
+          fi
+          echo "seed=$seed" >> "$GITHUB_OUTPUT"
+
+      - name: full sweep
+        env:
+          SKIP_STRESS: '1' # canonical sweep environment; asserted against the baseline header
+        run: |
+          mkdir -p .sweep-out
+          if [[ "${{ steps.mode.outputs.seed }}" == "1" ]]; then
+            bash tools/mutation-sweep.sh --mode full --seed \
+              --report .sweep-out/mutation-report.tsv \
+              --baseline-out .sweep-out/mutation-baseline.tsv \
+              --slow-out .sweep-out/mutation-slow-suites.tsv
+          else
+            bash tools/mutation-sweep.sh --mode full \
+              --report .sweep-out/mutation-report.tsv
+          fi
+
+      # always(): a RED run is exactly the run whose evidence matters most.
+      - name: publish sweep artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mutation-sweep
+          path: .sweep-out/
+          if-no-files-found: warn

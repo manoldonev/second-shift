@@ -1,0 +1,66 @@
+# mutation-catalog.tsv — the hand-authored seed-corpus predictions.
+#
+# TAB-separated. Columns:
+#   id <TAB> guard <TAB> sed <TAB> note
+#
+# id    Echoes the seed-corpus entry it encodes. Survivor id is `catalog::<id>` —
+#       inherently stable, unlike the generic tier's positional ordinals.
+# guard Repo-root-relative path of the file the sed mutates. Must be in-universe and
+#       must NOT be excluded (the companion selftest lints both).
+# sed   A sed -E program applied to the WHOLE guard file.
+# note  What regression the mutant models, i.e. what a survivor would MEAN.
+#
+# THE LOUD RULE. Unlike a generic mutant, a catalog sed that leaves the file
+# byte-identical, or yields `bash -n`-invalid output, is ANCHOR DRIFT = RED. These are
+# hand-authored against named sites, so "it no longer applies" is a bug in THIS FILE, not
+# a passing mutant. Precedent: scripts/check-lockstep-pairs-selftest.sh's
+# "mutation did not apply — the sed anchor has moved" convention.
+#
+# PATTERN ADDRESSES ONLY (D-3) — a bare line address is not permitted, and the companion
+# selftest rejects one. This is not defensive style: the check-emit-deadline site below
+# was verified at :132/:133 during one intake run of this ticket and sits at :200 in the
+# base the work branched from, moved by an unrelated PR two merges later. It survived only
+# because it was addressed by its expression. A multi-line block uses a start/end pattern
+# range. A PR that edits a guard re-anchors that guard's rows in the same diff — the same
+# obligation the generic tier has to re-baseline its ordinals.
+#
+# SCOPE. Bash guards only. The .mjs / .md / .yml / multi-file corpus entries are deferred
+# to #240, and the struck diff-range entry (a future-refactor prediction with nothing to
+# sed) stays struck. No corpus line is silently dropped.
+plan-lint-partition-union	plugins/dev-pipeline/skills/run/tools/plan-lint.sh	s#> 0 and #> 0 or #	Check 3: drops the union-integrity conjunct from PARTITION_OK, so a tampered AC->slice partition silently keeps slice mode instead of failing closed to the full snapshot.
+bot-commit-jq-default	plugins/dev-pipeline/skills/run/tools/bot-commit.sh	s#\.tracker\.bot\.enabled // false#.tracker.bot.enabled // true#	Bot silently ENABLED for configs that omit the key — the inverse of the fail-loud posture the helper exists for.
+bounded-exploration-lookback	plugins/dev-pipeline/skills/run/tools/check-bounded-exploration.sh	s#^LOOKBACK=40$#LOOKBACK=400#	Loosened marker window. No fixture places a marker 40-400 lines above a site and the floor is window-independent, so the clean live tree passes either way.
+config-shadowing-drop-row	plugins/dev-pipeline/skills/run/tools/check-config-shadowing.sh	s#^  "stages/9-open-pr\.md.*$##	Deletes an unexercised CHECKS row: coverage silently narrows while every existing injection fixture still passes.
+check-extensions-plangates	plugins/dev-pipeline/skills/run/tools/check-extensions.sh	s#\(\.planGates // \[\]\)\[\]\.agent // empty#empty#	Neuters the planGates (EP-8) resolution loop — a mis-referenced blocking plan gate degrades to a skipped dispatch instead of failing closed.
+claim-issue-wrapperpath	plugins/dev-pipeline/skills/run/tools/claim-issue.sh	s#\.tracker\.bot\.wrapperPath // empty#empty#	Drops the config wrapperPath resolution, so GH_BOT always derives the basename path and the reader/writer agreement with install-gh-bot.sh silently breaks.
+claims-lint-seen-ids	plugins/dev-pipeline/skills/run/tools/claims-lint.sh	s#SEEN_IDS="\$SEEN_IDS\$E_ID "#:#	Stops recording seen ids, so repo-unique claim ids are no longer enforced and a duplicate severity waiver lints clean.
+config-lint-lanes-name	plugins/dev-pipeline/skills/run/tools/config-lint.sh	s#\(\.name\? // ""\) == ""#false#	Deletes the lanes[].name required check: no invalid fixture asserts it and every valid fixture still passes.
+cost-block-cache-numerator	plugins/dev-pipeline/skills/run/pipeline-cost-block.sh	s#\.totals\.cache_read_tokens / \$denom#.totals.cache_creation_tokens / $denom#	Swapped operand in cache_hit_rate: the reported rate silently measures cache CREATION against the read+creation denominator.
+is-inert-claude-anchor	plugins/dev-pipeline/skills/run/tools/is-inert-diff.sh	s#\^\\\.claude/#\\.claude/#g	Drops the ^ anchor from the .claude/ alternatives, so a mid-path .claude/ segment (apps/web/.claude/x.mjs) is misclassified as inert and skips the verify suite.
+plan-lint-dup-traceability	plugins/dev-pipeline/skills/run/tools/plan-lint.sh	s#\[\[ -z "\$dupes" \]\] \|\| violate#[[ -z "$dupes" ]] || :#	Duplicate AC rows in a structure-only run go unreported, so a plan can claim the same criterion twice.
+pre-commit-deny-drop	plugins/dev-pipeline/hooks/pre-commit-typecheck.sh	s#permissionDecision: "deny"#permissionDecision: "allow"#	Gate-body regression: on typecheck failure the hook silently ALLOWS the commit.
+preflight-queue-label	plugins/dev-pipeline/skills/run/tools/preflight.sh	s#gh issue list --label "\$QUEUE_LABEL" #gh issue list #	Preflight reads the unfiltered issue list instead of the queue, so its reported queue head is not the queue head.
+prose-budget-stale-gate	plugins/dev-pipeline/skills/run/tools/prose-budget.sh	s#stale == rows#stale >= 1#	Escalates PARTIAL baseline staleness from warn to FAIL — a false-red class rather than a fail-open one.
+score-review-title	plugins/dev-pipeline/skills/run/tools/score-review.sh	s#\(\.title // ""\),##	Narrows the tolerant field fallback: reviewers that put the claim in .title score as MISSED.
+max-pushed-cmp	plugins/dev-pipeline/skills/run/tools/max-pushed-slice.sh	s#\(\( n > MAX \)\) && MAX=\$n#MAX=$n#	Drops the comparison, so the LAST-SEEN pr-suffix ref wins instead of the highest — slice derivation resumes at the wrong slice.
+verifyctl-targetrepos	plugins/dev-pipeline/skills/run/verifyctl.sh	s#if length == 1 then#if length >= 1 then#	Loosened single-target derivation: a DUAL-target run silently verifies only the first repo's command table.
+ledger-lint-empty-decision	plugins/intake-toolkit/skills/plan-interview/tools/ledger-lint.sh	s#\[\[ -n "\$decision" \]\] \|\| violate#[[ -n "$decision" ]] || :#	A ledger row with a blank Decision cell lints clean, so an undisclosed decision passes the gate that exists to surface it.
+emit-deadline-ceil	plugins/review-toolkit/scripts/check-emit-deadline.sh	s#\(2 \* cap \+ 2\) / 3#2 * cap / 3#	Rounding regression: the emit deadline's ceil becomes a floor, shortening every reviewer's budget by one turn at the boundary.
+model-tiers-executor	plugins/review-toolkit/scripts/check-model-tiers.sh	s#const EXECUTOR_MODEL = '\(opus\|sonnet\|haiku\)'#const NEVER_MATCHES = '(opus|sonnet|haiku)'#	Breaks EXECUTOR_MODEL resolution in the mutation-gate tier check, so mutation-executor tier drift goes unguarded.
+review-context-sections-rc	plugins/review-toolkit/scripts/check-review-context-sections.sh	s#RC=1; else#RC=0; else#	Drops the preflight-mode failure, so an alias heading warns but never blocks at --preflight.
+review-context-maxdepth	plugins/review-toolkit/scripts/check-review-context.sh	s#-maxdepth 1 ##	Files in SUBDIRECTORIES of review-context/ start getting flagged — a false-positive class the depth limit exists to prevent.
+reviewer-references-removes	plugins/review-toolkit/scripts/check-reviewer-references.sh	s#comm -23 <\(printf '%s\\n' "\$plugin_registry"\) <\(printf '%s\\n' "\$removes"\)#printf '%s\\n' "$plugin_registry"#	Drops the reviewers.remove subtraction from the effective registry, so a removed reviewer is still treated as registered.
+reviewer-references-hook-open	plugins/review-toolkit/scripts/check-reviewer-references.sh	s#^if \[ "\$HOOK_MODE" -eq 1 \] && \{ \[ -z "\$CONFIG" \] \|\| \[ ! -f "\$CONFIG" \]; \}; then#if false; then#	Deletes the hook-mode standalone fail-open, so un-onboarded repos get their commits denied again.
+scope-namespaces-fail-closed	plugins/review-toolkit/scripts/check-scope-tracker-namespaces.sh	s#printf 'note: dev-pipeline plugin not resolved#exit 1; printf 'note: dev-pipeline plugin not resolved#	Makes the sibling-absent path fail CLOSED instead of skip-with-note, breaking the standalone review-toolkit adoption contract.
+doctor-marketplace-fallback	plugins/second-shift/skills/doctor/tools/doctor.sh	s#grep -q "\(\$LOCK_REPO@"#grep -qv "($LOCK_REPO@"#	Inverts the text-fallback marketplace-ref branch: only JSON marketplace lists are ever injected, so the text path is unexercised.
+detect-makefile-fallback	plugins/second-shift/skills/onboard/tools/detect.sh	s#! -f package\.json && -f Makefile#! -f package.json \&\& -f __NEVER__#	Deletes the Makefile fallback, so make-based repos onboard with all-undetected commands.
+pin-resolve-numeric-sort	plugins/second-shift/skills/onboard/tools/pin-resolve.sh	s#sort -t\. -k1,1n -k2,2n -k3,3n#sort#	Drops the numeric sort flags: fixture tags order identically lexicographically, and only a double-digit component (v10 vs v9) exposes it.
+pin-resolve-ref	plugins/second-shift/skills/onboard/tools/pin-resolve.sh	s#plugin\.json\?ref=\$REF#plugin.json#	Drops the pinned ref from the contents API URL, so the lockfile silently records default-branch versions — the exact defect the script header exists to prevent.
+scaffold-empty-exit	plugins/second-shift/skills/onboard/tools/scaffold-review-context.sh	s#nothing written\." >&2; exit 1#nothing written." >\&2; exit 0#	Silent success on input that was all H1/comment lines, so an empty scaffold reads as a successful one.
+ci-check-lint-path	plugins/second-shift/templates/consumer/second-shift-ci-check.sh	s#LINT_PATH="plugins/dev-pipeline/skills/run/tools/config-lint\.sh"#LINT_PATH="plugins/dev-pipeline/skills/run/tools/MOVED-config-lint.sh"#	Typos the fetched lint path: every stubbed gh ignores its arguments, so the literal is never validated end to end.
+template-doctor-jq-guard	plugins/second-shift/templates/consumer/second-shift-doctor.sh	s#^command -v jq >/dev/null 2>&1 \|\| exit 0$#:#	Drops the jq-absent guard; with jq missing the behavior is accidentally identical (silent, exit 0), so nothing observes the difference.
+changelog-trailer-anchor	scripts/check-changelog-trailer.sh	s#'\^Changelog:'#'Changelog:'#	Accepts a mid-line mention as a trailer: no fixture has a non-trailer 'Changelog' mention, so all cases still pass.
+intake-namespaces-unlocatable	scripts/check-intake-tracker-namespaces.sh	s#^    if \[ ! -d "\$dir" \]; then$#    if false; then#	Removes the UNLOCATABLE hard-error branch, so a moved tree passes vacuously instead of failing loudly.
+lockstep-normalize	scripts/check-lockstep-pairs.sh	s#tr -s ' \\t' ' '#tr -d ' \\t'#	Weakens normalize() to strip ALL whitespace instead of collapsing runs, so blocks differing only in token boundaries compare equal.
+derive-release-ver-max	scripts/derive-release.sh	s#\(\( a3 >= b3 \)\)#(( a3 <= b3 ))#	Patch-tiebreak operand swap in ver_max: no fixture compares versions equal in major and minor but differing in patch.
+stack-generality-filewide	scripts/stack-generality-lint.sh	s#^  "plugins/dev-pipeline/skills/run/stages/7-doc-update\.md"$##	Drops a guarded file from PROJECT_FILEWIDE, silently narrowing the .project/ leg's coverage.

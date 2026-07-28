@@ -1,0 +1,34 @@
+# mutation-operators.tsv — the generic mutant operators swept over every paired guard.
+#
+# TAB-separated. Columns:
+#   id <TAB> match <TAB> flip
+#
+# id     A stable token. It is BYTE-COMPARED inside generic survivor ids
+#        (`<guard relpath>::<id>::<ordinal>`), so renaming an id re-keys every survivor
+#        it produced. One id per textual mutation — never a prose "family".
+# match  The site-enumerating ERE, applied with `grep -nE`. A SITE IS A MATCHED LINE:
+#        at most one mutation per line per operator. Ordinals index this operator's FULL
+#        matched-line list in file order (1-based), so raising the per-guard budget K
+#        re-keys nothing; editing a guard's applicable-site set DOES re-key its ordinals,
+#        and the PR that edits the guard re-baselines those rows in its own diff.
+# flip   The sed -E program applied to that ONE line. Two-way swaps route through the
+#        placeholder __MUT__ so the program is not self-cancelling (a naive
+#        `s/-eq/-ne/; s/-ne/-eq/` restores the original).
+#
+# Editing a `match` regex re-keys that operator's ordinals sweep-wide, and the PR that
+# edits it re-baselines them — the same rule as editing a guard.
+#
+# An operator with no applicable site in a guard is NORMAL: it contributes no mutants.
+# Non-application is data, never red. (15 of the 34 same-stem-paired guards contain no
+# literal `exit 1`, so `fail-open` alone is inapplicable to roughly a third of them.)
+#
+# A generic mutant that fails `bash -n` is a HARNESS ARTIFACT: skipped and logged, never
+# red. Only CATALOG mutants red on validity (that is anchor drift). The tiers are
+# deliberately asymmetric — generic sites are machine-enumerated and may land somewhere a
+# blind sed cannot express, whereas a catalog row is hand-authored against a named site.
+fail-open	exit 1	s/exit 1/exit 0/
+cmp-eq	-eq|-ne	s/-eq/__MUT__/g; s/-ne/-eq/g; s/__MUT__/-ne/g
+cmp-z	-z |-n 	s/-z /__MUT__/g; s/-n /-z /g; s/__MUT__/-n /g
+logic	&&|\|\|	s/&&/__MUT__/g; s/\|\|/\&\&/g; s/__MUT__/||/g
+detector	grep[^|;&]*('[^']*'|"[^"]*")	s/(grep[^'"]*)('[^']*'|"[^"]*")/\1'__MUTANT_NEVER_MATCHES__'/
+default	\$\{[A-Za-z_][A-Za-z0-9_]*:-[^}]*\}	s/(\$\{[A-Za-z_][A-Za-z0-9_]*:-)[^}]*\}/\1__MUTANT_DEFAULT__}/
