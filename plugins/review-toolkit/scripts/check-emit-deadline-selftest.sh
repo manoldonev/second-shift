@@ -49,6 +49,15 @@ run_check() {
   echo $?
 }
 
+# run_check_env <enrollment-list> <dir> <outfile>
+# Same as run_check but sets the DEADLINE_AT_DEFAULT enrollment seam and captures to a
+# caller-named file, so a case asserting on the message text cannot read another case's
+# output.
+run_check_env() {
+  DEADLINE_AT_DEFAULT="$1" bash "$CHECK" "$2" >"$3" 2>&1
+  echo $?
+}
+
 echo "[A] fixture cases"
 
 # A1: above-default cap, no deadline -> reject.
@@ -122,6 +131,61 @@ rc=$(run_check "$d")
 [ "$rc" -eq 1 ] && ok "A9 exemption with an empty reason is rejected" \
   || bad "A9 expected rc=1, got $rc"
 
+# --- default-cap enrollment (#232) ---------------------------------------------------
+# A6 above proves an unenrolled default-cap agent is still out of jurisdiction. A10-A14
+# cover the opt-in that brings ONE named default-cap agent in, without widening the rule
+# to the whole panel.
+
+# A10: enrolled, at the default cap, no deadline -> reject, and say WHY it is in scope.
+# The message matters: the pre-#232 wording ("is above the default 15") is self-
+# contradictory for a cap-15 agent, so an operator could not act on it.
+d="$TMP/a10/agents"
+write_agent "$d" "enrolled-reviewer" "maxTurns: 15" "No deadline, but enrolled."
+rc=$(run_check_env "enrolled-reviewer" "$d" "$TMP/.a10")
+if [ "$rc" -eq 1 ] && grep -q "enrolled" "$TMP/.a10"; then
+  ok "A10 enrolled default-cap agent with no deadline is rejected, naming the enrollment"
+else
+  bad "A10 expected rc=1 naming the enrollment, got $rc ($(cat "$TMP/.a10"))"
+fi
+
+# A11: enrolled, at the default cap, deadline at the ratio bound -> accept.
+# turn 10 is ceil(2*15/3) — the value plan-reviewer.md itself must use.
+d="$TMP/a11/agents"
+write_agent "$d" "enrolled-reviewer" "maxTurns: 15" \
+  "By **turn 10** (of your 15 maximum) you MUST be writing the verdict."
+rc=$(run_check_env "enrolled-reviewer" "$d" "$TMP/.a11")
+[ "$rc" -eq 0 ] && ok "A11 enrolled default-cap agent with a turn-10 deadline is accepted" \
+  || bad "A11 expected rc=0, got $rc ($(cat "$TMP/.a11"))"
+
+# A12: enrolled, at the default cap, deadline one past the ratio bound -> reject.
+# Proves the ratio rule applies at the default cap too, rather than the enrollment
+# merely requiring SOME deadline.
+d="$TMP/a12/agents"
+write_agent "$d" "enrolled-reviewer" "maxTurns: 15" \
+  "By **turn 11** (of your 15 maximum) you MUST be writing the verdict."
+rc=$(run_check_env "enrolled-reviewer" "$d" "$TMP/.a12")
+[ "$rc" -eq 1 ] && ok "A12 enrolled default-cap deadline past ceil(2N/3) is rejected" \
+  || bad "A12 expected rc=1, got $rc ($(cat "$TMP/.a12"))"
+
+# A13: NOT enrolled, at the default cap, no deadline, while a different name IS enrolled
+# -> accept. With A6 this is the pair that keeps the deferred scope (deadlines for every
+# default-cap agent) mechanically deferred: enrollment is per-agent, not a cap-15 rule.
+d="$TMP/a13/agents"
+write_agent "$d" "ordinary-reviewer" "maxTurns: 15" "No deadline; not enrolled."
+rc=$(run_check_env "some-other-agent" "$d" "$TMP/.a13")
+[ "$rc" -eq 0 ] && ok "A13 unenrolled default-cap agent is untouched while another is enrolled" \
+  || bad "A13 expected rc=0, got $rc ($(cat "$TMP/.a13"))"
+
+# A14: enrollment matches the agent name EXACTLY, never as a substring. `plan-reviewer`
+# is a substring of both `unit-test-plan-reviewer` (cap 15, no deadline) and
+# `figma-faithful-plan-reviewer`, so a substring implementation would sweep in agents
+# nobody enrolled and turn the live tree (B1) red.
+d="$TMP/a14/agents"
+write_agent "$d" "unit-test-plan-reviewer" "maxTurns: 15" "No deadline; not enrolled."
+rc=$(run_check_env "plan-reviewer" "$d" "$TMP/.a14")
+[ "$rc" -eq 0 ] && ok "A14 enrollment matches whole agent names, not substrings" \
+  || bad "A14 expected rc=0 (substring sweep), got $rc ($(cat "$TMP/.a14"))"
+
 echo
 echo "[B] real tree"
 
@@ -142,6 +206,26 @@ for a in scope-completeness-reviewer unit-test-mutation-reviewer; do
 done
 [ "$covered" -eq 2 ] && ok "B2 both above-default exhaustive agents are covered by the lint" \
   || bad "B2 expected both exhaustive agents in the lint output, saw $covered"
+
+# B3: an enrolled name that matches no agent file must be LOUD. A typo'd or renamed
+# enrollment would otherwise be a silent no-op — the lint would report clean while the
+# agent it was meant to cover went unchecked, which is the #232 failure wearing a
+# different hat.
+if DEADLINE_AT_DEFAULT="no-such-agent" bash "$CHECK" >"$TMP/.b3" 2>&1; then
+  bad "B3 expected rc=1 for an unresolvable enrollment, got rc=0 ($(cat "$TMP/.b3"))"
+else
+  grep -q "no-such-agent" "$TMP/.b3" \
+    && ok "B3 an enrolled name matching no agent file fails, naming it" \
+    || bad "B3 failed but did not name the unresolved enrollment ($(cat "$TMP/.b3"))"
+fi
+
+# B4: plan-reviewer must actually appear in the live lint output under the shipped
+# default enrollment. B1 only proves the tree passes — it would keep passing if
+# plan-reviewer were quietly dropped from the enrollment list, which is exactly the
+# regression this issue closes. Mirrors B2's coverage shape.
+grep -q "plan-reviewer" "$TMP/.live" \
+  && ok "B4 plan-reviewer is covered by the lint under the shipped enrollment" \
+  || bad "B4 expected plan-reviewer in the live lint output ($(cat "$TMP/.live"))"
 
 echo
 echo "[check-emit-deadline-selftest] $PASS passed, $FAIL failed"
