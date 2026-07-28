@@ -24,7 +24,12 @@ Intake resolved four gaps (D-1..D-4 below) and recorded two implementation choic
 2. Selftests resolve their guard by path relative to their own location (48 of 49 use
    `dirname $0` / `BASH_SOURCE`), so running a killer from inside a mutated sandbox keeps pairing
    intact. Six suites need real git state, which is why the sandbox is `git worktree add --detach`
-   and not `cp -R`.
+   and not `cp -R`. The one exception is `scripts/check-workflows-selftest.sh`, which resolves via
+   `cd "$(git rev-parse --show-toplevel)"` — inside a detached worktree that resolves to the
+   **sandbox** root, so pairing holds there too and no special case is needed.
+6. The harness reads `GITHUB_ACTIONS`, `RUNNER_OS` and `SKIP_STRESS` from the ambient environment.
+   Anything that invokes the harness must therefore control that environment explicitly rather than
+   inherit it — see D-8.
 3. `tools/mutation-sweep-selftest.sh` is picked up by the existing discovery glob in **both** CI
    lanes, including `selftests-bash32` on macOS. That lane checks out **without** `fetch-depth: 0`
    and runs stock **bash 3.2**, so the companion selftest — and every harness path it exercises —
@@ -48,6 +53,7 @@ Intake resolved four gaps (D-1..D-4 below) and recorded two implementation choic
 | D-5 | Cap the PR lane's work when a diff touches many fast guards? | Yes — cap at **6** touched fast guards; the remainder reports `deferred-to-nightly` through the mechanism the spec already defines, and the step carries `timeout-minutes: 15`. AC-2 honestly bounds only a 0–2-guard diff. Measured over the last 40 merges the maximum universe-guard touch count is 3 and 12 merges touch none, so 6 is 2x the observed ceiling and its worst case stays inside the timeout. Additive to AC-2, not a weakening. | `codebase-derived` |
 | D-6 | Pin the unspecified report/TSV formatting? | Yes, by choice rather than by spec defect: deferred rows carry zero counts and an empty `survivor_ids`; `measured_at` is an ISO-8601 date; `seconds` comes from the seed run's unmutated precheck of that suite. Any consistent choice works and the companion selftest pins it by construction. | `codebase-derived` |
 | D-7 | Seed the baseline locally to avoid the CI round-trip? | No. Local macOS seeding would ship BSD kill verdicts into a GNU enforcement lane across a divergence this repo documents (assumption 4). The 2–3h round-trip is accepted, as rev 3 already settled. | `ticket-sourced` — https://github.com/manoldonev/second-shift/issues/218#issuecomment-5109998579 |
+| D-8 | How does the in-glob companion selftest avoid tripping the harness's own environment assertion? | **Every fixture invocation pins the environment explicitly; none inherits the lane's.** The companion suite is in-glob by design, so it runs on both CI lanes — where `GITHUB_ACTIONS=1` is always set, `RUNNER_OS` is `Linux` on ubuntu and **`macOS`** on `selftests-bash32`, and `SKIP_STRESS` is unset on ubuntu and `1` on macOS. Inheriting that, the harness would enter enforcing mode and red the environment check on **both** lanes, failing the exit-0 cases for a reason unrelated to any mutant. So: advisory-mode cases run under `env -u GITHUB_ACTIONS`, enforcing-mode cases under `env GITHUB_ACTIONS=1 RUNNER_OS=Linux SKIP_STRESS=1`, and each fixture baseline carries the header matching its case. Case `(i)` then asserts the mismatch red deliberately instead of suffering it. This is the same env-hygiene discipline the existing suites use for `SECOND_SHIFT_CONFIG`. | `codebase-derived` |
 
 ## Affected files/modules
 
@@ -128,7 +134,12 @@ Intake resolved four gaps (D-1..D-4 below) and recorded two implementation choic
     `install-gh-bot.sh`, `.claude/tools/second-shift-doctor.sh`, `tools/mutation-sweep.sh` itself);
     pair map (the enumerated rows, `note` justifying each); operators (the 6 seed ids with concrete
     `match`/`flip`); catalog (one row per in-scope bash-guard corpus prediction, pattern-addressed).
-12. **`tools/mutation-sweep-selftest.sh`.** See Test strategy.
+    Two of the exclusions restate exceptions CLAUDE.md's "Genuine exceptions" register already
+    carries, so each such `reason` cell **cites that register as its origin** rather than asserting
+    an independent rationale, and the Stage-7 doc update points the register at the TSV. One
+    register stays authoritative; the other defers to it.
+12. **`tools/mutation-sweep-selftest.sh`.** See Test strategy — including the D-8 env pinning, which
+    is what keeps this suite green on the macOS lane.
 13. **CI wiring.** The `ci.yml` PR-scoped step (`if: github.event_name == 'pull_request'`,
     `env: BASE_REF` + `SKIP_STRESS: '1'`, `timeout-minutes: 15`) and `mutation-sweep.yml`
     (`schedule` + `workflow_dispatch` with a `seed` input, `fetch-depth: 0`, `SKIP_STRESS=1`,
@@ -143,9 +154,29 @@ Intake resolved four gaps (D-1..D-4 below) and recorded two implementation choic
 Verify-after (infrastructure, no product behavior change). The harness is proved by its companion
 selftest; the guards it sweeps already have their own suites.
 
-`tools/mutation-sweep-selftest.sh` [NEW], exit code = fail count, bash-3.2-clean (assumption 3),
-against a tiny **fixture** guard + selftest pair created in a temp dir — never against the real
-tree, so it stays fast enough for both per-push lanes:
+`tools/mutation-sweep-selftest.sh` [NEW], exit code = fail count, bash-3.2-clean (assumption 3).
+
+**Why per-tool fixture cases rather than a scenario** (CLAUDE.md's scenario-first rule): the invariant
+guarded here is a *repo-level test-infrastructure* contract — the sweep's exit semantics, its two
+mutant tiers, and the resolution rules over its TSV family. `scenario-liveness-selftest.sh` composes
+**dev-pipeline verdict paths** (stage gates reaching a terminal write); the mutation sweep touches
+none of them and is never invoked from a pipeline stage, so no scenario there covers it and extending
+it would mean bolting an unrelated harness onto the pipeline composition suite. The rule's real
+target — a component tested only against itself — is answered by cases `(j)`/`(k)`, which bind the
+harness to the **live tree** rather than to its own fixtures.
+
+**Environment control (D-8):** every case pins `GITHUB_ACTIONS` / `RUNNER_OS` / `SKIP_STRESS`
+explicitly and never inherits the lane's; fixture baselines carry headers matching their case.
+
+**Two kinds of case, deliberately:**
+
+- `(j)` and `(k)` run against the **real tree**. They are pure resolution/parse lints — no mutation,
+  no sandbox, no suite execution — so they are cheap enough for both per-push lanes and they are what
+  stops the harness from converging on green while the tree drifts underneath it.
+- `(a)`–`(i)` and `(l)` run against a tiny **fixture** guard + selftest pair in a temp dir, because
+  they must actually mutate and actually run a killer.
+
+Cases:
 
 - **(a) green direction** — fixture guard, fixture killer that catches the mutant → the sweep
   reports the mutant killed and exits 0.
@@ -188,11 +219,14 @@ tree, so it stays fast enough for both per-push lanes:
 # Repo-standard gates (CLAUDE.md).
 find . -name '*.sh' -type f -print0 | xargs -0 shellcheck -e SC1091,SC2015,SC2181
 find . -name '*.json' -type f -print0 | xargs -0 -n1 jq empty
-find . -name '*-selftest.sh' -type f -print0 | xargs -0 -n1 -I{} env SKIP_STRESS=1 bash {}
+find . -name '*-selftest.sh' -type f -print0 | xargs -0 -P 4 -n1 -I{} env SKIP_STRESS=1 bash {}
 
-# The new companion suite on its own, and under stock bash 3.2 (the macOS lane's shape).
+# The new companion suite on its own, and under the macOS lane's exact shape:
+# stock bash 3.2 WITH the lane's environment, which is what D-8 exists to survive.
 bash tools/mutation-sweep-selftest.sh
-/bin/bash tools/mutation-sweep-selftest.sh
+env GITHUB_ACTIONS=1 RUNNER_OS=macOS SKIP_STRESS=1 /bin/bash tools/mutation-sweep-selftest.sh
+# ...and the ubuntu lane's shape (GITHUB_ACTIONS set, SKIP_STRESS unset).
+env -u SKIP_STRESS GITHUB_ACTIONS=1 RUNNER_OS=Linux bash tools/mutation-sweep-selftest.sh
 
 # Advisory local sweep of a couple of fast guards — proves the harness end to end
 # without the 2-3h full run. Local runs are advisory by contract and say so.
@@ -215,7 +249,16 @@ docker run --rm -v "$PWD":/repo -w /repo rhysd/actionlint:1.7.7 -color
   If the lane proves noisy in practice, the step can be reverted independently of the harness.
 - **bash 3.2 on the macOS lane** is the tightest implementation constraint (assumption 3); a bash-4
   idiom will fail there and not on ubuntu. Verified by running the companion suite under
-  `/bin/bash` locally.
+  `/bin/bash` locally. The same lane is also where an un-pinned environment would red the suite
+  (D-8) — the two lane hazards are independent and both are covered by the Verification commands.
+- **Two registers of "script with no paired suite"** now exist: CLAUDE.md's "Genuine exceptions"
+  prose register and `tools/mutation-exclusions.tsv`. They can drift. Mitigated by making the TSV's
+  `reason` cells cite the register as origin (step 11) and by pointing the register at the TSV in the
+  Stage-7 doc update; not eliminated. Mechanically reconciling the two is a candidate for #248.
+- **`tools/` collides in shorthand** with the long-established `plugins/dev-pipeline/skills/run/tools/`,
+  so "the tools dir" becomes ambiguous in conversation and in future prose. The name is spec-mandated
+  (rev 2 fixed it deliberately, to separate repo-level test infrastructure from `scripts/`' merge-blocking
+  gates), so this is accepted rather than resolved; references in docs use the full path.
 - **Catalog anchor drift is red on a merge-blocking lane.** D-3's pattern-only rule is the
   mitigation; the residual risk is a guard edit that changes the pattern itself, which by design
   obliges the same PR to re-anchor the row.
