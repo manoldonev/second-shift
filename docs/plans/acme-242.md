@@ -49,6 +49,7 @@ Defect B was added to the issue mid-run and is the reason this run is not docs-o
 | --- | --- | --- | --- |
 | D-1 | Fix only the two sites the issue names, or the whole `--repo` drift class? | Whole class — 4 commands. The issue's rationale ("a caller reading the CLI surface sees the pair-aware form") is command-agnostic, and it holds `worktree-set` up as the discoverable counterexample while that command's own CLI surface carries the identical trap. | `codebase-derived` |
 | D-2 | Which repair mechanism for defect B? | Option 1 (self-healing `pr-add --repo`) + option 3 (schema invariant). Not option 2 (`pr-remove`). | `ticket-sourced` — https://github.com/manoldonev/second-shift/issues/242#issuecomment-5107831395 |
+| D-7 | The filer retracted the rung-1 precondition (refuse the branch-keyed form on a pair topology) and reassigned it to #243. Implement it anyway? | **Yes — reversed at Stage 8 on evidence.** The Scope Completeness Gate blocked, and the claim held up when checked: on a dual-target pair run with `--repo` omitted, two PRs still collapse to one `.prs` entry (verified — the BE PR is destroyed). The self-heal cannot reach that caller, since it only fires on a later correct `--repo` call. #243's stage-file read receipt is strictly weaker: it cannot stop a caller who reads the file and still omits the flag, nor any non-pipeline caller — a gap the intake spec-reviewer independently flagged as "owned by neither issue". The filer left it on the merits ("remains cheap", "would have converted my mistake into a loud refusal"), so this is a reversal on evidence rather than against a hard no. Silent, unrecoverable data loss is the wrong thing to leave to a weaker downstream gate. | `codebase-derived` |
 | D-3 | Should the branch-keyed path heal symmetrically? | No. Asymmetric by design (assumption 3) — a wrong call must not clobber a right record. Pinned by a dedicated selftest case. | `codebase-derived` |
 | D-4 | How is the doc contract kept from re-drifting, given a lockstep row cannot express it? | A `statectl-selftest.sh` case derived from the script itself: any command whose parser accepts `--repo` **and** carries a usage line must name `--repo` in it. Plus a DROPPED manifest entry for the `statectl.sh` ↔ `SKILL.md` leg. | `codebase-derived` |
 | D-5 | Cover commands that have no usage line at all? | No. `cmd_build_checkpoint_7_perrepo` accepts `--repo` and has no usage comment; its requiredness is stated in its error message. "Has no usage text" is a different, lesser gap than "has usage text that drifted". Guard covers drift only; recorded in Out-of-scope. | `codebase-derived` |
@@ -100,6 +101,10 @@ Defect B was added to the issue mid-run and is the reason this run is not docs-o
 6. **`statectl-selftest.sh`** — three `[NEW]` cases (see Test strategy).
 7. **`scripts/lockstep-manifest.tsv`** — `[NEW]` DROPPED entry recording why the
    `statectl.sh` ↔ `SKILL.md` leg stays reviewer-guarded.
+8. **`cmd_pr_add` be-fe-pair precondition (added at Stage 8, D-7).** Before any state read,
+   refuse the branch-keyed form when the resolved `topology.type` is `be-fe-pair`, naming
+   `--repo` and the collision in the error. Unresolvable config (the config-less selftest
+   harness / CI) skips the check — never guess a topology. Pairs with `[NEW]` `(pa12)`.
 
 ## Test strategy
 
@@ -148,7 +153,8 @@ half of AC-2 is reviewer-guarded.
 | AC-2 | Each command's own usage comment names `--repo` (+ requiredness prose, reviewer-guarded) | 2 | `(pa11)` pass (b) |
 | AC-3 | `SKILL.md` listing names `--repo` + requiredness note | 4 | — no test (non-functional) |
 | AC-4 | A `--repo`-accepting command omitting `--repo` from its usage text fails a test | 6 | `(pa11)` |
-| AC-5 | (negative) parser surface unchanged — no new flags, preconditions, or key choice | 3 | `(pa1)`–`(pa8)`, `(pa10)` |
+| AC-5 | (negative) no new flags, and no change to which key each form writes | 3 | `(pa1)`–`(pa8)`, `(pa10)` |
+| AC-9 | `pr-add` refuses the branch-keyed form under `topology.type: be-fe-pair`; `--repo` accepted; standalone unaffected | 8 | `(pa12)` |
 | AC-6 | `pr-add --repo` drops a same-url entry under a different key | 3 | `(pa9)` |
 | AC-7 | `state-schema.md` records one PR ⇒ exactly one `.prs` entry | 5 | — no test (non-functional) |
 | AC-8 | Asymmetry pinned; branch-keyed path does not delete a repo-keyed entry | 3, 6 | `(pa10)` |
@@ -182,8 +188,9 @@ not `Changelog: none` — `pr-add`'s write behavior changes.
 
 ## Out-of-scope
 
-- The rung-1 fail-closed precondition (refuse branch-keyed writes on a pair topology) —
-  retracted by the filer, subsumed by #243.
+- ~~The rung-1 fail-closed precondition~~ — **moved INTO scope at Stage 8; see D-7.** The
+  Scope Completeness Gate blocked on it and the blocker survived verification, so it is
+  implemented (step 8) rather than deferred.
 - `pr-remove` (option 2) — superseded by the self-heal (D-2) for the duplicate case.
   **Residual gap, recorded rather than closed:** the self-heal keys on url equality, so it
   repairs a same-url duplicate only. A `.prs` entry that is stale for any other reason — a

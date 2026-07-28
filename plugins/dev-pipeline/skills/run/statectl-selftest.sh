@@ -1016,6 +1016,39 @@ else
   fail "(pa11) usage drift — undocumented --repo at:${_ud_fail}"
 fi
 
+# (pa12) be-fe-pair PRECONDITION: the branch-keyed form is refused outright on a pair
+# topology. The self-heal in (pa9) repairs a mis-keyed write only once a later CORRECT
+# --repo call arrives — but the caller this guards against never makes one, and on a
+# DUAL-target run the two PRs share a branch name, so both land on one branch key and
+# last-write-wins silently destroys a PR record. That loss is unrecoverable from state,
+# so the write must fail closed rather than be healed after the fact.
+# Three legs: pair+no-repo → refused; pair+--repo → accepted; standalone+no-repo →
+# still accepted (the precondition must not leak onto single-repo consumers).
+_PA12_SAVED_CFG="${SECOND_SHIFT_CONFIG:-}"
+PA12_PAIR_CFG="$TMPDIR_ST/pa12-pair-config.json"
+PA12_SOLO_CFG="$TMPDIR_ST/pa12-solo-config.json"
+printf '{"configVersion":1,"tracker":{"type":"github"},"topology":{"type":"be-fe-pair","repos":{"be":{"path":".","baseBranch":"alpha"},"fe":{"path":"../fe","baseBranch":"main"}}},"commands":{"be":{},"fe":{}}}\n' > "$PA12_PAIR_CFG"
+printf '{"configVersion":1,"tracker":{"type":"github"},"topology":{"type":"standalone","repos":{"hostrepo":{"path":".","baseBranch":"main"}}},"commands":{"hostrepo":{}}}\n' > "$PA12_SOLO_CFG"
+reset_state
+export SECOND_SHIFT_CONFIG="$PA12_PAIR_CFG"
+sct init 9999 --run-id "selftest-run-$$" >/dev/null
+err=$(sct_err pr-add 9999 --branch "team/gh-900" --url "https://github.com/o/r/pull/10")
+rc=$(sct_rc pr-add 9999 --branch "team/gh-900" --url "https://github.com/o/r/pull/10")
+sct pr-add 9999 --repo fe --branch "team/gh-900" --url "https://github.com/o/r/pull/11" >/dev/null
+pair_ok=$(sct get 9999 '.prs.fe.repo')
+export SECOND_SHIFT_CONFIG="$PA12_SOLO_CFG"
+reset_state
+sct init 9999 --run-id "selftest-run-$$" >/dev/null
+sct pr-add 9999 --branch "team/gh-900" --url "https://github.com/o/r/pull/12" >/dev/null
+solo_ok=$(sct get 9999 '.prs."team/gh-900".url')
+if [[ "$rc" != "0" && "$err" == *"--repo"* && "$err" == *"be-fe-pair"* \
+      && "$pair_ok" == "fe" && "$solo_ok" == "https://github.com/o/r/pull/12" ]]; then
+  pass "(pa12) pr-add refuses the branch-keyed form on be-fe-pair; --repo accepted; standalone unaffected"
+else
+  fail "(pa12) be-fe-pair precondition — rc=$rc pairRepo='$pair_ok' solo='$solo_ok' err='$err'"
+fi
+if [[ -n "$_PA12_SAVED_CFG" ]]; then export SECOND_SHIFT_CONFIG="$_PA12_SAVED_CFG"; else unset SECOND_SHIFT_CONFIG; fi
+
 # (pause1) pause-add → appends ONE closed span; from = prior .lastUpdatedAt
 # (self-anchor), to = now, from < to. now_iso is second-resolution, so sleep 1
 # to guarantee a measurable gap. ISO-8601 fixed-width Z timestamps sort

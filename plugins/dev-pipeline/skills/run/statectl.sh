@@ -1374,6 +1374,28 @@ cmd_pr_add() {
   # fail-at-write posture of pipeline-session-add's UUID check.
   [[ "$url" =~ ^https:// ]] \
     || { EXIT_CODE=1 die "pr-add: --url must start with https:// (got '$url')"; }
+  # be-fe-pair precondition: --repo is REQUIRED on a pair topology, so refuse the
+  # branch-keyed form outright rather than writing a record that is wrong twice.
+  # A pair run opens one PR per target repo on the SAME branch name, so the
+  # branch-keyed form (a) stamps `repo` with the host alias — wrong for any
+  # non-host target — and (b) keys every target's PR to one colliding branch key,
+  # so a DUAL-target run silently loses a PR to last-write-wins. That loss is
+  # unrecoverable from state alone, which is why this fails closed instead of
+  # relying on the cross-keying self-heal below: the heal only fires on a later
+  # correct --repo call, and the caller this guards against never makes one.
+  # Applies to single-target ([FE]-only / [BE]-only) pair runs too — the per-repo
+  # loop in stages/9-open-pr.md is the contract for the whole topology.
+  # Unresolvable config (the config-less selftest harness / CI) leaves topo empty
+  # and skips the check — never guess a topology.
+  if [[ -z "$repo" ]]; then
+    local pa_cfg pa_topo=""
+    pa_cfg=$(config_file)
+    if [[ -n "$pa_cfg" && -f "$pa_cfg" ]]; then
+      pa_topo=$(jq -r '.topology.type // empty' "$pa_cfg" 2>/dev/null) || pa_topo=""
+    fi
+    [[ "$pa_topo" != "be-fe-pair" ]] \
+      || { EXIT_CODE=1 die "pr-add: --repo <id> is required on a be-fe-pair topology (including a single-target [FE]-only / [BE]-only run). The branch-keyed form keys .prs by branch, which collides across target repos sharing a branch name — a dual-target run would silently lose a PR. Pass --repo <id>; see the per-repo loop in stages/9-open-pr.md."; }
+  fi
   local current
   current=$(read_state "$key") || exit $?
   require_mutable "$current" "$force" "pr-add"
