@@ -184,8 +184,8 @@ find . -name '*-selftest.sh' -type f -print0 | xargs -0 -P 4 -n1 -I{} env SKIP_S
 # without a reader.
 bash plugins/dev-pipeline/skills/run/tools/check-config-shadowing.sh
 bash plugins/dev-pipeline/skills/run/tools/check-config-shadowing-selftest.sh
-bash scripts/check-frozen-files.sh
-bash scripts/check-changelog-trailer.sh
+bash scripts/check-frozen-files.sh main        # both take the base ref; without it
+bash scripts/check-changelog-trailer.sh main   # they print usage and exit non-zero
 
 # the config-lint contract against this repo's own config
 bash plugins/dev-pipeline/skills/run/tools/config-lint.sh .claude/second-shift.config.json
