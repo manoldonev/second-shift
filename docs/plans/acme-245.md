@@ -82,6 +82,19 @@ provenance is `codebase-derived`:
   the script's in-file contract spec (repo idiom — the inline-literal fix's reasoning sits
   in-file at `:271`–`:288`). It is the same file the code change edits, so this adds no new
   file to the touch list.
+- **Override-value validation stays owned by `config-lint.sh` — deliberately not duplicated
+  here.** `override_model()` (`:195`–`:199`) reads `reviewers.modelOverrides[$a]` with no enum
+  check, and `check_pair`'s override branch (`:233`–`:238`) only string-compares it, so a typo'd
+  override (`"opuss"`) is still accepted silently by this script whenever the table and
+  frontmatter agree. That is the correct boundary, not an oversight: `config-lint.sh` validates
+  the config surface at pre-flight, and a second copy of the enum inside `check-model-tiers.sh`
+  would be the duplicate machinery the lockstep manifest's own header warns against. Stated so
+  a reader does not take the Problem's "dark hole in the same surface" as closed end to end.
+- **The four doc touches carry an explicit completion signal, but no test.** Change 6 maps to no
+  acceptance criterion, and the repo's no-prose-presence rule forbids inventing a grep-based one
+  (`CLAUDE.md`: grepping a literal out of a markdown file "cannot fail for a reason a reader of
+  the diff would not already see"). The signal is therefore the plan's Affected-files list plus
+  this sentence, checked by review rather than by a suite — which is the correct tier for prose.
 
 ## Affected files/modules
 
@@ -146,9 +159,14 @@ beyond one fixture helper the issue's AC-4(d) explicitly requires.
    lines carrying an inline `model: '<token>'` literal whose token is outside the enum → the
    same `UNKNOWN-MODEL:` error. Per the intake decision above, this runs over **all five**
    parsed workflow files (the three MAP files plus `unit-tests.mjs` and `plan-review.mjs`), not
-   just the scalar pair. Lines whose `model:` is an expression rather than a literal carry no
-   token and are unaffected — the existing fall-through to the scalar is preserved for in-enum
-   literals, so the `:292`–`:295` behavior only changes for out-of-enum tokens.
+   just the scalar pair. **The scan fires only on a quote-delimited `model: '<token>'`.** Lines
+   whose `model:` is an expression (`modelOverrides[...] || SCALAR`) carry no literal, do not
+   match, and keep falling through to the scalar exactly as before — so the `:292`–`:295`
+   behavior changes only for out-of-enum *literals*. This discriminator is load-bearing rather
+   than incidental: the naive reading, treating any non-enum text after `model:` as an unknown
+   token, flags every expression-valued dispatch and denies every commit in the repo. AC-3's
+   "still exits 0 on the real repo" is what catches that, so the failure would be loud — but it
+   is stated here so the rule is read rather than discovered by breaking the build.
 6. **`check-model-tiers.sh` — header.** Update the contract narrative (`:1`–`:56`) to name the
    `UNKNOWN-MODEL` error class and the surfaces the two new scans cover, and to state that agent
    frontmatter tokens are *not* enum-guarded and why.
