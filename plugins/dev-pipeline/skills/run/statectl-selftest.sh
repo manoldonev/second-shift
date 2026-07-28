@@ -3138,10 +3138,14 @@ sct init 9902 --run-id "selftest-run-$$" --mode auto >/dev/null
 mode_rec=$(sct get 9902 '.mode')
 err=$(sct_err pause-add 9902 --reason session-resume --force --force-reason "selftest crash-recovery simulation of an operator waiver")
 rc=$(sct_rc pause-add 9902 --reason session-resume --force --force-reason "selftest crash-recovery simulation of an operator waiver")
-if [[ "$mode_rec" == "auto" && "$rc" == "1" && "$err" == *"refused in autonomous mode"* && "$err" == *"DEV_PIPELINE_MODE=interactive"* ]]; then
-  pass "(am1) init --mode auto persists; --force refused with recovery-naming stderr, env unset"
+# AC-11 letter: refused outright WITH OR WITHOUT a reason, recovery named both
+# ways — the auto gate precedes the reason gate, so the no-reason case still
+# surfaces the env-override recovery, not the reason refusal.
+err_noreason=$(sct_err pause-add 9902 --reason session-resume --force)
+if [[ "$mode_rec" == "auto" && "$rc" == "1" && "$err" == *"refused in autonomous mode"* && "$err" == *"DEV_PIPELINE_MODE=interactive"*       && "$err_noreason" == *"refused in autonomous mode"* ]]; then
+  pass "(am1) init --mode auto persists; --force refused with recovery-naming stderr, with and without a reason"
 else
-  fail "(am1) mode=$mode_rec rc=$rc err='$err'"
+  fail "(am1) mode=$mode_rec rc=$rc err='$err' err_noreason='$err_noreason'"
 fi
 
 # (am2) env DEV_PIPELINE_MODE=interactive overrides state .mode=auto (the

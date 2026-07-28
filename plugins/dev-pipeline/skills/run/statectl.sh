@@ -332,7 +332,8 @@ apply_waivers() {  # apply_waivers <state-json> → stdout
     id="${entry%%$'\t'*}"
     rest="${entry#*$'\t'}"
     stage="${rest%%$'\t'*}"
-    doc=$(jq --arg id "$id" --arg stage "$stage" --arg r "$FORCE_REASON"              --arg at "$now" --arg sc "$CURRENT_SUBCMD" '
+    doc=$(jq --arg id "$id" --arg stage "$stage" --arg r "$FORCE_REASON" \
+             --arg at "$now" --arg sc "$CURRENT_SUBCMD" '
       .waivers = ((.waivers // []) + [{
         stage: (if $stage == "" then null else ($stage | tonumber) end),
         precondition: $id, reason: $r, at: $at, subcommand: $sc }])
@@ -2773,10 +2774,11 @@ main() {
     set --
   fi
   if [[ "$FORCE_PRESENT" -eq 1 ]]; then
-    # (1) Reason gate — refused before any state read.
-    [[ ${#FORCE_REASON} -ge 20 ]] \
-      || { EXIT_CODE=1 die "statectl: --force requires --force-reason \"<text>\" (min 20 chars) naming what is being waived and why; a waiver with no stated cause is not crash-recovery"; }
-    # (2) Auto-mode rejection (state-transport, #243): resolved mode = env
+    # (1) Auto-mode rejection FIRST (AC-11: refused outright, with or WITHOUT a
+    # reason, and the refusal always names the env-override recovery — a reason
+    # gate ahead of it would mask the recovery text on the no-reason auto case).
+    # Resolution reads state but writes nothing; the reason gate below stays
+    # ahead of any state WRITE. (2) resolved mode = env
     # DEV_PIPELINE_MODE when set (LITERAL value — the attended override; this
     # gate never mirrors the skill's unset→auto default: an unset var with no
     # state .mode is an operator shell, not an auto run) → else state .mode →
@@ -2795,6 +2797,9 @@ main() {
     if [[ "$_mode_resolved" == "auto" ]]; then
       EXIT_CODE=1 die "statectl: --force is refused in autonomous mode (resolved mode: auto, from env DEV_PIPELINE_MODE or state .mode). Crash-recovery is an attended activity — re-run with the env override on the command itself: DEV_PIPELINE_MODE=interactive statectl $subcmd … --force --force-reason \"<why>\""
     fi
+    # (2) Reason gate — refused before any state write.
+    [[ ${#FORCE_REASON} -ge 20 ]] \
+      || { EXIT_CODE=1 die "statectl: --force requires --force-reason \"<text>\" (min 20 chars) naming what is being waived and why; a waiver with no stated cause is not crash-recovery"; }
   fi
   case "$subcmd" in
     init)                   cmd_init "$@" ;;

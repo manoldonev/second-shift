@@ -44,6 +44,12 @@
    ```
 6. _(crash-recovery only)_ **Record this resume session for cost attribution:** a crash-recovery Stage 8 session is a distinct Claude session from the Stage 1–7 one, so it records its own native session UUID:
    ```bash
+   # Re-assert the resumed session's mode first (#243): init --mode re-stamps .mode on
+   # the existing state (documented carve-out) so a crash-recovery session resumed
+   # under a different mode cannot inherit the dead session's. Substitute the mode
+   # THIS session resolved at Invocation Routing as a literal.
+   MODE="${DEV_PIPELINE_MODE:-auto}"
+   bash statectl.sh init "$ISSUE_NUMBER" --run-id "$RUN_ID" --mode "$MODE"
    if [[ -n "${CLAUDE_CODE_SESSION_ID:-}" ]]; then
      bash statectl.sh pipeline-session-add "$ISSUE_NUMBER" \
        --session-id "$CLAUDE_CODE_SESSION_ID" \

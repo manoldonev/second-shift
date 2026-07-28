@@ -473,6 +473,12 @@ Stages that write additional stage-specific fields carry an inline **State:** li
 2. If `status: "in_progress"` — resume from the `currentStage`. Print a one-line summary of what was already completed. **Then record this session for cost attribution**, before doing any stage work:
 
    ```bash
+   # Re-assert the resumed session's mode FIRST (#243) — init --mode re-stamps .mode
+   # even on the existing state (the documented idempotency carve-out), so a run
+   # resumed under a different mode cannot keep the stale one. Substitute the mode
+   # THIS session resolved at Invocation Routing as a literal.
+   MODE="${DEV_PIPELINE_MODE:-auto}"
+   bash statectl.sh init "$ISSUE_NUMBER" --run-id "$(bash statectl.sh get "$ISSUE_NUMBER" '.runId')" --mode "$MODE"
    if [[ -n "${CLAUDE_CODE_SESSION_ID:-}" ]]; then
      bash statectl.sh pipeline-session-add "$ISSUE_NUMBER" \
        --session-id "$CLAUDE_CODE_SESSION_ID" --source interactive
