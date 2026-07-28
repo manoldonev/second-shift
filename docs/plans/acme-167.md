@@ -34,7 +34,7 @@ Every candidate below was measured with `wc -w` against `origin/main` at `d2fdc2
 | ID | Decision | Resolution | Provenance |
 | --- | --- | --- | --- |
 | D-1 | Sub-agent trust-model canonical home | **review-lead**, as the issue originally recommended — but as a **merge, not a delete**. The two sections are not interchangeable: `reviewer-baseline`'s `## Sub-Agent Output Is Advisory` carries three normative clauses absent from `review-lead`'s `## Sub-Agent Trust Model` ("Read the source material yourself BEFORE dispatching"; "Resolve gaps yourself when determinable"; the `auto-fail` half of "never auto-fail or auto-escalate"). Fold those into `review-lead`'s section first, THEN delete the `reviewer-baseline` copy (103 words × 11 non-dispatching reviewer contexts), THEN repoint the two intake-toolkit citations — by the destination's real title, `**Sub-Agent Trust Model**`, not the old one. Reverses the Stage-1 intake resolution — see Risks. | codebase-derived |
-| D-2 | Extension-blockquote centralization form | One parameterized blockquote in `reviewer-baseline` naming `.claude/second-shift/review-context/<this-agent>.md`; per-agent copies deleted. Safe because all 10 carriers declare `skills: reviewer-baseline`. | codebase-derived |
+| D-2 | Extension-blockquote centralization form | One parameterized blockquote in `reviewer-baseline` naming `.claude/second-shift/review-context/<this-agent>.md`; the per-agent copies **of the relocation targets only** are deleted. Precisely: **12** agents carry the blockquote, but only **10** of them are relocation targets and may lose it. `doc-updater.md` and `plan-reviewer.md` carry it and declare **no** `skills: reviewer-baseline`, so for them the blockquote is the sole carrier of the contract — deleting it strips the extension contract with no auto-load fallback. Their copies **stay**. (`spec-reviewer.md` is the mirror case: declares the skill, does not carry the blockquote.) | codebase-derived |
 | D-3 | `## Reviewer baseline` pointer sections | Delete outright — the skill is already auto-loaded, so the pointer is pure ceremony. Preserve the two per-agent customizations (`performance`'s `Impact:` line, `pipeline`'s `Contract:` line) by moving them into those agents' own `## Output Format`. | codebase-derived |
 | D-4 | plan-reviewer / doc-updater worked examples | Trim in place to one illustrative instance each. Not the `doc-routing.md` plugin-asset route: neither agent declares `skills: reviewer-baseline`, so a bundled asset re-raises the loadability question, and it would add a shipped file needing its own baseline row. | ticket-sourced — https://github.com/manoldonev/second-shift/issues/167 |
 | D-5 | Per-file 10–15% reduction band | Treated as a program-level aim, not a per-file gate. Measured projection puts 5 of 8 touched files below 10%. Disclosed up front per the issue's re-baselining comment rather than at Stage 6. | ticket-sourced — https://github.com/manoldonev/second-shift/issues/167#issuecomment-5083019755 |
@@ -89,7 +89,9 @@ All paths verified to exist at `origin/main`.
    naming `.claude/second-shift/review-context/<this-agent>.md`, carrying the load-order and
    additive-only semantics verbatim from the existing per-agent copies (~45 words).
 2. **Delete the 10 per-agent extension blockquotes** from the relocation-target agents. Measured:
-   41 words each.
+   41 words each. **Exactly 10, not 12** — `doc-updater.md` and `plan-reviewer.md` also carry the
+   blockquote but declare no `skills: reviewer-baseline`, so deleting theirs would drop the contract
+   entirely. Leave those two untouched (D-2).
 3. **Delete the `## Reviewer baseline` pointer sections** (21 words each) from the agents that carry
    the plain variant. For `performance-reviewer.md` and `pipeline-reviewer.md`, move the
    domain-specific `Impact:` / `Contract:` clause into that agent's own `## Output Format` before
@@ -216,5 +218,23 @@ The selftest sweep carries `-P 4` per `CLAUDE.md` — the serial form was retire
 - Adding `skills: reviewer-baseline` to agents that lack it. Changing an agent's loaded-skill set is a
   behavior change, not prose debloat.
 - Any version bump or `CHANGELOG.md` edit — repo convention derives both at release time.
+
+## Commit convention
+
+This is a `plugins/**` change, so CI (`scripts/check-changelog-trailer.sh`) requires a `Changelog:`
+trailer on some commit of the branch. The slice is consumer-visible (reviewer agents lose restated
+boilerplate and gain it via the auto-loaded baseline; the trust-model contract moves to
+`review-lead`), so it takes a real entry rather than `Changelog: none` — for example:
+
+```
+refactor(review-toolkit): centralize reviewer boilerplate into reviewer-baseline
+
+Changelog: reviewer agents now inherit the extension-file contract and review-process
+  boilerplate from the auto-loaded reviewer-baseline skill instead of restating it; the
+  sub-agent trust model is now canonical in review-lead.
+  Migration: none.
+```
+
+Verb is `refactor:` (patch bump) — no new capability, so `feat:` would overstate it.
 
 Unverified references: none.
