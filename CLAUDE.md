@@ -80,6 +80,13 @@ Genuine exceptions, one kind:
   `workflows/e2e-workflow-leg.mjs` (the E2E replay's stage-4/5/8 leg driver, executed by
   `e2e-replay-selftest.sh`), `_effective-registry.sh`, `install-gh-bot.sh`, and the eval runners.
 
+**This register is authoritative; `tools/mutation-exclusions.tsv` defers to it.** The mutation
+sweep needs the same "no kill criterion exists" facts in machine-readable form, so two of its
+exclusion rows restate entries from the list above — and each cites this register as its origin
+rather than asserting an independent rationale. Dropping an entry here obliges dropping its row
+there. Rows in that file with no counterpart here (local operator tooling, the sweep's own
+recursion guard) are the sweep's alone.
+
 The debt register that used to sit here — `check-plugin-version-bumps.sh` and
 `exitplan-ledger-gate.sh`, both listed as genuinely uncovered — is closed: each now has a
 same-named behavioral suite, as does `pipeline-doctor.sh`.
@@ -145,7 +152,16 @@ anchors (`tools/score-review-selftest.sh`) stay grandfathered; this rule binds n
 | a composed verdict path reaching a terminal write | a scenario | `scenario-liveness-selftest.sh` |
 | a production Workflow `.mjs` dispatch ladder | a shim case | `workflows/runtime-shim-selftest.mjs` |
 | a whole run's mechanical seams, end to end | a replay scenario | `e2e-replay-selftest.sh` |
+| whether an existing suite actually catches a regression | a mutation-catalog row | `tools/mutation-catalog.tsv` |
 | prose in a markdown file | **nothing** — see above | — |
+
+**Test-the-tests.** `tools/mutation-sweep.sh` mutates the repo's shell guards and runs their
+paired selftests; a mutant that survives is a regression the suite would not have caught. It runs
+diff-scoped on every PR and wholesale nightly. Survivors are **data**, not a red build — only a
+survivor absent from `tools/mutation-baseline.tsv`, or a named infra failure, reds a lane. Two
+obligations land on ordinary PRs: editing a guard re-keys its generic survivor ordinals (re-baseline
+those rows in the same diff), and re-anchors any `tools/mutation-catalog.tsv` row addressing it.
+Full contract: [`docs/testing.md`](docs/testing.md).
 
 **A new gate contract extends the liveness scenario** for every verdict path it touches — a gate
 nothing composes against is a gate the next `#204` walks straight through.

@@ -95,6 +95,50 @@ Notes from building it:
   keep node's event loop alive, so merely reaching the end of the file hangs for fifteen minutes
   rather than returning.
 
+## Test-the-tests: the mutation sweep
+
+Every tier above answers "is this behavior guarded?". None answers "does the guard actually fail
+when the behavior breaks?" — and that is what "every new guard ships a red-on-mutation demo" asks
+each author to do by hand, once, at authoring time. `tools/mutation-sweep.sh` makes it a standing
+measurement instead: it mutates the repo's shell guards, runs their paired selftests, and reports
+which mutants **survive**. A survivor is a regression the suite would not have caught.
+
+**Pairing is a rule, not a list.** Every git-tracked `*.sh` that is not a `*-selftest.sh` and is
+not under `*/evals/*` or `tests/hooks-smoke/` must resolve to its killer(s) via directory-scoped
+same-stem pairing, a `tools/mutation-pair-map.tsv` row, or a reasoned
+`tools/mutation-exclusions.tsv` row. An unaccounted guard is red — that is what keeps the data
+files honest as the tree grows, and why adding a guard with a cross-named suite means adding a
+map row. Same-stem is directory-scoped, never basename-anywhere: two `second-shift-doctor.sh`
+files exist at different paths, and only one of them is swept.
+
+**Two mutant tiers, deliberately asymmetric on validity.** Generic operators
+(`tools/mutation-operators.tsv`) are machine-enumerated over every paired guard, so a mutant that
+will not parse is a harness artifact — skipped and logged, never red. Catalog mutants
+(`tools/mutation-catalog.tsv`) are hand-authored against named sites, so a sed that no longer
+applies, or yields invalid output, is **anchor drift = red** — the
+`check-lockstep-pairs-selftest.sh` convention.
+
+**Survivors are data, not a red build.** Only a survivor absent from `tools/mutation-baseline.tsv`,
+or a named infra failure (`baseline-missing`, `baseline-environment-mismatch`, an unrunnable pair,
+an unaccounted guard, sandbox failure), reds a lane. A baselined survivor is report-only; a
+baselined survivor that is now killed is a warn to shrink the baseline.
+
+**An unrunnable pair is infra red.** Every killer must exit 0 against the unmutated sandbox before
+any of its guard's mutants are scored, so a broken or environment-starved suite can never report
+its guard as fully killed.
+
+**Two obligations land on ordinary PRs.** Editing a guard re-keys its generic survivor ordinals,
+so that PR re-baselines those rows in its own diff; and it re-anchors any catalog row addressing
+it. Catalog rows are pattern-addressed for exactly that reason — a bare line address is rejected,
+because during this harness's own intake the `check-emit-deadline` site moved by 68 lines between
+two runs a day apart, and only the expression-addressed entry survived.
+
+**Where it runs.** Diff-scoped on every PR — guards whose kill set is not a single fast suite defer
+to nightly rather than being graded against a weaker criterion than the one that produced the
+baseline — and wholesale in the nightly `mutation-sweep.yml`. Kill verdicts are only comparable
+inside the canonical environment (ubuntu-latest, `SKIP_STRESS=1`), so local runs are advisory and
+say so.
+
 ## Adversarial tier (operator-run, never CI)
 
 The model tier cannot live in CI without API-billed calls. It runs on demand, by an operator, in
