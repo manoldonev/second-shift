@@ -87,7 +87,3 @@ Apply the sub-section that matches the stack (per review-context):
 
 - **Engines with migrations (relational, etc.):** verify no accidental destructive operations (drop table/column, drop constraint) without clear intent; type changes are safe (widening safe, narrowing not); a removed not-null constraint has a default or backfill; and any engine-specific migration caveat the review-context flags (e.g. online-index-build limitations) is honored. Confirm the migration is reversible or the irreversibility is intentional and noted.
 - **Schema-on-write / document stores:** a shape change (new required field, renamed/removed field, changed type) has a **backfill or migration story** for existing documents, and any schema-validator change won't reject in-flight writes. Flag a shape change applied only to new writes while old documents silently violate it.
-
-## Output Format
-
-Per `reviewer-baseline`. Standard four-field structure (severity / Issue / Evidence / Recommendation).

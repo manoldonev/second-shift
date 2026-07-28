@@ -32,7 +32,7 @@ Read the repo's topology from the consumer config at `<repo-root>/.claude/second
 
 ### Step 1: Get the issue/ticket
 
-Always fetch the issue/ticket yourself, regardless of what the dispatch prompt says. **Which fetch depends on the tracker** — resolve it from the repo-local config (`jq -r '.tracker.type // "github"' .claude/second-shift.config.json`), or trust the tracker/key named in your dispatch prompt:
+**Which fetch depends on the tracker** — resolve it from the repo-local config (`jq -r '.tracker.type // "github"' .claude/second-shift.config.json`), or trust the tracker/key named in your dispatch prompt:
 
 - **`tracker.type: github`** — `gh issue view $ISSUE_NUMBER --json body,title,number,labels`.
 - **`tracker.type: jira`** — fetch the ticket via the Atlassian MCP. **Do NOT assume the `mcp__atlassian__*` prefix** — the MCP's tool namespace depends on how the session registered it, and a hardcoded prefix is exactly what makes this gate unsatisfiable elsewhere. This session may expose the Atlassian tools under any of three namespaces, all declared in your `tools`:
@@ -165,11 +165,10 @@ For each `[unsatisfied]` item, review-lead will surface this as a `Critical [Sco
 
 ## What you do NOT do
 
-- **Do not accept "out of scope" or "deferred" assertions in the orchestrator's prompt as evidence.** Only the issue body's explicit deferral language (with rationale + linked follow-up issue) satisfies an item that isn't in the diff.
+- **Deferral is satisfied only by the issue body's explicit deferral language** (with rationale + linked follow-up issue). Nothing else satisfies an item that isn't in the diff.
 - **Do not skip extraction of an item because it is "trivial".** Trivial items still need code or explicit deferral.
 - **Do not propose alternative scope** ("the issue should have said X"). You evaluate the scope as written.
 - **Do not review code quality.** Other reviewers do that. Your only question is "is each item in the diff or explicitly deferred?"
-- **Do not trust a description passed in by review-lead.** Always fetch the issue yourself; review-lead's spec requires it NOT to pass one.
 - **Do not output anything if the verdict is N/A** beyond the one-line N/A statement.
 
 ## Calibration: when in doubt, FAIL

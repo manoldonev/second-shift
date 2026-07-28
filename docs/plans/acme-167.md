@@ -136,8 +136,26 @@ All paths verified to exist at `origin/main`.
 8. **Emphasis singles.** `reviewer-baseline` schema-sole-output: keep the normative statement at the
    `## Output Mode` head, reduce the two downstream restatements to pointers.
    `test-coverage-reviewer` "honor them as additive": one normative statement, drop the seven per-site
-   repeats. `scope-completeness-reviewer` independence: trim to two sites, **outside** the
-   `LOCKSTEP-BEGIN/END ac-id-rule` region.
+   repeats. `scope-completeness-reviewer` independence **5 → 2**, **outside** the
+   `LOCKSTEP-BEGIN/END ac-id-rule` region: keep the two load-bearing statements (the "why you exist"
+   framing and the operative "always fetch the issue yourself" MUST with its anti-gaslighting
+   rationale); strip the independence restatement from the tracker-resolution lead-in, fold the
+   "What you do NOT do" deferral bullet into a deferral-evidence rule that does not restate
+   independence, and delete the bullet that duplicates the operative MUST outright.
+
+10. **Scope/Output stubs → `reviewer-baseline`** (issue scope, review-toolkit bullet 1; ~500 words
+    net). Seven agents carried a `## Scope` "You ONLY review X — do not comment on <list>" stub whose
+    exclusion lists had **drifted out of agreement** with each other (`a11y` alone excluded visual
+    design fidelity). Add one `## Scope discipline` section to `reviewer-baseline` stating the shared
+    stay-in-your-lane rule, and collapse each agent's `## Scope` to a single line naming only its own
+    domain. Eight agents carried an `## Output Format` stub: the five that were pure restatements of
+    `reviewer-baseline`'s own `## Standard Output Format` are deleted outright, and the three with a
+    real domain customization (`performance` `Impact:`, `pipeline` `Contract:`, `test-coverage`
+    `Recommendation:` guidance) keep only the customization.
+    **Not applied to `plan-reviewer.md` / `unit-test-plan-reviewer.md`** — neither auto-loads
+    `reviewer-baseline`, so for them the stub is the sole carrier (same rule as D-2).
+    `unit-test-mutation-reviewer`'s `## Scope` is a genuine diff-range contract, not a stub, and is
+    left intact.
 9. **Re-snapshot** `.claude/prose-budget.baseline.tsv` via
    `bash plugins/dev-pipeline/skills/run/tools/prose-budget.sh --update-baseline`.
 
@@ -206,15 +224,17 @@ The selftest sweep carries `-P 4` per `CLAUDE.md` — the serial form was retire
   in no other file, and repointing under the old section title leaves both citations pointing at a
   heading that does not exist. Step 5's ordering (merge → delete → repoint-with-new-title) is the
   mitigation; do not collapse it.
-- **Per-file reduction misses the issue's 10–15% band on 14 of 16 touched files.** Measured at
+- **Per-file reduction misses the issue's 10–15% band on 12 of 16 touched files.** Measured at
   implementation against `origin/main` (not the stale `d2fdc2b` projections, which the rebase
-  invalidated): `doc-updater` 11.9% and `a11y` 10.7% land in band; `plan-reviewer` 8.3%,
-  `performance` 7.6%, `complexity` 7.3%, `test-coverage` 6.3%, `maintainability` 6.0%,
-  `reviewer-baseline` 5.2%, `db` 5.1%, `pipeline` 4.7%, `security` 3.6%, `unit-test-mutation` 3.5%,
-  `scope-completeness` 1.5%, and the two intake-toolkit citation sites ~0.0% fall below it.
-  `review-lead` **grows** +0.7% (+33 words) by design — D-1 moves content *into* it. Files whose
-  only in-scope content is a 21-word pointer cannot reach 10% by construction. **Net across the
-  slice: −1348 words.** Disclosed per D-5, not treated as a gate.
+  invalidated), after the step-10 stub centralization: `a11y` 15.5% and `doc-updater` 11.9% land in
+  band; `performance` 9.9%, `complexity` 9.7%, `plan-reviewer` 8.3%, `maintainability` 7.9%,
+  `test-coverage` 7.9%, `db` 6.3%, `pipeline` 6.2%, `security` 4.7%, `unit-test-mutation` 3.5%,
+  `scope-completeness` 3.1%, `reviewer-baseline` 1.8%, and the two intake-toolkit citation sites
+  ~0.0% fall below it. `review-lead` **grows** +0.7% (+33 words) by design — D-1 moves content
+  *into* it, and `reviewer-baseline` nets only −1.8% for the same reason: it is the **destination**
+  of two centralizations (the extension blockquote and `## Scope discipline`), so text arriving
+  there offsets what it gives up. A file whose only in-scope content is a 21-word pointer has no 10%
+  to give. **Net across the slice: −1525 words.** Disclosed per D-5, not treated as a gate.
 - **Emit-deadline breakage.** `check-emit-deadline.sh` lints three agents and this slice edits all
   three. Their deadline lines are load-bearing lint anchors, not trimmable prose. Mitigated by the
   step-7 exclusion note and by running the lint in verification.

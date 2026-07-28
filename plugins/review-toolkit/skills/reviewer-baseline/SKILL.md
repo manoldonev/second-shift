@@ -9,6 +9,10 @@ This skill defines the shared review protocol that ALL code reviewer agents foll
 
 > **Per-reviewer repo extension (load second).** If `.claude/second-shift/review-context/<your-agent-name>.md` exists in the repo under review, load it after the shared `review-context.md` — it carries this reviewer's repo-specific rules and severity examples. Additive only: it never weakens this protocol or its severity floors.
 
+## Scope discipline
+
+**Review ONLY your own domain** — the one your agent prompt declares. The panel divides the diff between specialists; another reviewer owns every other domain, and the orchestrator merges the results. Commenting outside your lane produces duplicate findings the orchestrator must dedup, and dilutes the findings that are actually yours. When something outside your domain looks wrong, leave it: the reviewer who owns it is reading the same diff.
+
 ## Output Mode
 
 Read this first — it governs HOW you record everything below.

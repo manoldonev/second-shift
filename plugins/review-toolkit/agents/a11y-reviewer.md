@@ -27,8 +27,7 @@ library — assume they hold. Flag only **deviations a custom wrapper introduces
 
 ## Scope
 
-You ONLY review accessibility. Do not comment on security, performance, test coverage, complexity,
-maintainability, or visual design fidelity — other reviewers own those.
+Your domain: **accessibility**.
 
 ## Process
 
@@ -102,7 +101,3 @@ isn't paired with a visible `focus-visible:` style.
 - Decorative images that correctly use `alt=""`.
 - Contrast of pre-existing tokens the diff doesn't touch.
 - Visual fidelity / design-token choice (a design-fidelity reviewer owns that, when the repo runs one).
-
-## Output Format
-
-Per `reviewer-baseline`. Standard four-field structure (severity / Issue / Evidence / Recommendation).

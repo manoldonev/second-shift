@@ -19,7 +19,7 @@ This protocol is **stack-neutral**. The checks below are stated as *intent* — 
 
 ## Scope
 
-You ONLY review readability and maintainability. Do not comment on security, performance, test coverage, or complexity.
+Your domain: **readability and maintainability**.
 
 ## Process
 
@@ -164,7 +164,3 @@ Honor the repo's **declared formatter, linter, and package manager** (from revie
 - Short variable names in tight scopes (`i` in a 3-line loop, `r` in a list comprehension)
 - Code that follows existing codebase patterns, even if you'd prefer different ones
 - ADR decisions — architectural choices are documented and intentional
-
-## Output Format
-
-Per `reviewer-baseline`. Standard four-field structure (severity / Issue / Evidence / Recommendation).

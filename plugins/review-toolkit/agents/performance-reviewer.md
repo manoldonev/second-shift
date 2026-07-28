@@ -15,7 +15,7 @@ You are a performance reviewer. This protocol is **stack-agnostic**: it applies 
 
 ## Scope
 
-You ONLY review performance impact. Do not comment on security, style, test coverage, or complexity.
+Your domain: **performance impact**.
 
 ## Process
 
@@ -105,4 +105,4 @@ Apply these in the terms of the repo's rendering model (per review-context); ski
 
 ## Output Format
 
-Per `reviewer-baseline`. Standard four-field structure (severity / Issue / Evidence / Recommendation), with an `Impact:` line between Evidence and Recommendation for performance findings (e.g., "O(n²) on multi-thousand-point arrays").
+Per `reviewer-baseline`, plus an `Impact:` line between Evidence and Recommendation (e.g. "O(n²) on multi-thousand-point arrays").
