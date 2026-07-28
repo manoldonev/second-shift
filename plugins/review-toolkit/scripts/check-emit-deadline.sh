@@ -23,7 +23,8 @@
 # A deadline is the only thing that makes the agent write before the wall.
 #
 # THE RULE (applies to agents above the panel default cap — i.e. exactly the agents
-# somebody already tried to fix by raising the number):
+# somebody already tried to fix by raising the number — plus any agent explicitly
+# enrolled via DEADLINE_AT_DEFAULT below):
 #
 #   1. The body must carry a turn-numbered deadline: "turn <D> (of your <N> maximum)".
 #   2. D < N — a deadline at or past the cap is not a deadline.
@@ -42,28 +43,66 @@
 # reason must be non-empty, mirroring the declared-waiver idiom in
 # check-bounded-exploration.sh.
 #
-# Agents AT or BELOW the default cap are not required to carry a deadline: they are held
-# by the dispatch-time bounding nudge instead, which is check-bounded-exploration.sh's
-# jurisdiction. The two lints are complements — that one polices "explore less" for the
-# bounded agents, this one polices "write sooner" for the exhaustive ones that cannot
-# take a bounding nudge without losing the coverage that is their deliverable.
+# Agents AT or BELOW the default cap are USUALLY not required to carry a deadline: they are
+# meant to be held by the dispatch-time bounding nudge instead, which is
+# check-bounded-exploration.sh's jurisdiction. The two lints are complements — that one
+# polices "explore less" for the bounded agents, this one polices "write sooner" for the
+# exhaustive ones that cannot take a bounding nudge without losing the coverage that is
+# their deliverable.
+#
+# THE GAP BETWEEN THEM. That division assumes every default-cap agent's dispatch site
+# actually appends a nudge. plan-reviewer's does not — its dispatch declares the nudge
+# dormant on purpose:
+#
+#   // bounded-exploration-dormant: BOUNDED_PLAN_GROUNDING -- defined for probe lockstep;
+#   // deliberately not appended (measured no-nudge arm)
+#       — plugins/dev-pipeline/skills/run/workflows/plan-review.mjs
+#
+# So plan-reviewer was held by NEITHER lint: unbounded at dispatch (deliberately, as the
+# measurement control) and unlinted here (because it sits exactly at the cap). It died at
+# the cap without emitting while this lint reported clean. DEADLINE_AT_DEFAULT is the
+# narrow fix: it brings a NAMED default-cap agent into jurisdiction without extending the
+# requirement to the whole panel. Enrollment lives here, in the lint, rather than as a
+# marker in the agent doc, so removing one is visible in this file's diff instead of being
+# a one-line silent edit in somebody's prose — the same reason the exemption above must
+# state a reason.
 #
 # Usage: check-emit-deadline.sh [agents-dir ...]   (default: every plugins/*/agents dir)
+# Env:   DEADLINE_AT_DEFAULT   space-separated agent names (basename, no .md) to lint even
+#                              at the default cap. Overridable so fixtures can exercise the
+#                              mechanism without depending on who is really enrolled.
 # Exit 0 = clean, 1 = violations.
 
 set -uo pipefail
 
-# The panel default cap. An agent at or below this is bounded at dispatch instead.
+# The panel default cap. An agent at or below this is bounded at dispatch instead —
+# UNLESS it is enrolled below.
 DEFAULT_CAP=15
+
+# Agents held to the deadline contract despite sitting at (or below) the default cap.
+# Space-separated basenames, matched WHOLE — never as substrings: `plan-reviewer` is a
+# substring of both `unit-test-plan-reviewer` and `figma-faithful-plan-reviewer`, and a
+# substring match would silently conscript agents nobody enrolled.
+#
+# Add a name only on a DEMONSTRATED death — an agent observed hitting its cap without
+# emitting — never prophylactically. Enrolling the whole default-cap panel is a different
+# (and much larger) decision than fixing an agent known to be falling through the gap.
+DEADLINE_AT_DEFAULT="${DEADLINE_AT_DEFAULT:-plan-reviewer}"
 
 FAIL=0
 CHECKED=0
+# Names from DEADLINE_AT_DEFAULT actually matched by a scanned file, so an enrollment that
+# resolves to nothing can be reported rather than silently doing nothing.
+ENROLLED_SEEN=""
+FILES_SEEN=0
 
 # Resolve the roots to scan. Explicit args win; otherwise walk up from this script to the
 # repo root and take every plugins/*/agents dir that exists.
+LIVE_SCAN=0
 if [ "$#" -gt 0 ]; then
   ROOTS="$*"
 else
+  LIVE_SCAN=1
   HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
   REPO="$(cd "$HERE/../../.." && pwd)"
   ROOTS=""
@@ -80,10 +119,31 @@ for dir in $ROOTS; do
     # Frontmatter cap only: the first `maxTurns:` between the opening and closing `---`.
     cap="$(awk '/^---[[:space:]]*$/{n++; next} n==1 && /^maxTurns:[[:space:]]*[0-9]+/{gsub(/[^0-9]/,""); print; exit}' "$f")"
     [ -n "$cap" ] || continue
-    [ "$cap" -gt "$DEFAULT_CAP" ] || continue
+
+    # Resolved BEFORE the jurisdiction gate: enrollment is keyed on the agent name, so the
+    # name has to exist by the time we decide whether this agent is in scope at all.
+    name="$(basename "$f")"
+    agent="$(basename "$f" .md)"
+    FILES_SEEN=$((FILES_SEEN + 1))
+
+    # Whole-name membership, not a substring test.
+    enrolled=0
+    for e in $DEADLINE_AT_DEFAULT; do
+      if [ "$agent" = "$e" ]; then
+        enrolled=1
+        ENROLLED_SEEN="$ENROLLED_SEEN $e"
+        break
+      fi
+    done
+
+    # Two ways into jurisdiction: above the default cap (the original rule, untouched), or
+    # explicitly enrolled. Skip only when NEITHER holds — so this widens the gate and can
+    # never narrow it.
+    if [ "$cap" -le "$DEFAULT_CAP" ] && [ "$enrolled" -eq 0 ]; then
+      continue
+    fi
 
     CHECKED=$((CHECKED + 1))
-    name="$(basename "$f")"
 
     # Declared waiver — must carry a non-empty reason. The reason is extracted between the
     # colon and the comment close and then trimmed, rather than matched by a character
@@ -106,7 +166,14 @@ for dir in $ROOTS; do
     # tolerated, since both live docs bold the turn number.
     line="$(grep -oiE 'turn[[:space:]]+\*{0,2}[0-9]+\*{0,2}[[:space:]]*\([[:space:]]*of[[:space:]]+your[[:space:]]+\*{0,2}[0-9]+\*{0,2}[[:space:]]+maximum' "$f" | head -1)"
     if [ -z "$line" ]; then
-      echo "  FAIL: $name — maxTurns:$cap is above the default $DEFAULT_CAP but the body declares no emit deadline." >&2
+      # Branch on WHY this agent is in jurisdiction. Telling an operator that a cap-15
+      # agent "is above the default 15" is self-contradictory and unactionable.
+      if [ "$cap" -gt "$DEFAULT_CAP" ]; then
+        echo "  FAIL: $name — maxTurns:$cap is above the default $DEFAULT_CAP but the body declares no emit deadline." >&2
+      else
+        echo "  FAIL: $name — maxTurns:$cap is at the default cap, but '$agent' is enrolled in the deadline contract (DEADLINE_AT_DEFAULT) and the body declares no emit deadline." >&2
+        echo "        Enrolled because its dispatch site appends no bounding nudge, so nothing else holds it." >&2
+      fi
       echo "        Add: 'By **turn <D>** (of your $cap maximum) you MUST be writing the final result.'" >&2
       echo "        Raising the cap is not a fix on its own (#183) — the deadline is what makes the agent emit." >&2
       FAIL=$((FAIL + 1))
@@ -142,10 +209,31 @@ for dir in $ROOTS; do
   done
 done
 
+# An enrolled name that matched no agent file is a dead entry — a typo or a rename — and
+# would otherwise be a silent no-op: the lint reports clean while the agent it was meant to
+# cover goes unchecked, which is the failure this enrollment exists to fix.
+#
+# Live scan only. With explicit dirs the caller has deliberately scoped the scan, so an
+# absent agent there carries no signal (and every fixture passes a synthetic one-agent
+# dir). Also requires having seen at least one agent file, so an empty or misconfigured
+# scan is not misreported as a bad enrollment.
+if [ "$LIVE_SCAN" -eq 1 ] && [ "$FILES_SEEN" -gt 0 ]; then
+  for e in $DEADLINE_AT_DEFAULT; do
+    case " $ENROLLED_SEEN " in
+      *" $e "*) ;;
+      *)
+        echo "  FAIL: enrolled agent '$e' (DEADLINE_AT_DEFAULT) matched no agent file in the scanned roots." >&2
+        echo "        A renamed or misspelled enrollment silently lints nothing — fix the name or drop the entry." >&2
+        FAIL=$((FAIL + 1))
+        ;;
+    esac
+  done
+fi
+
 if [ "$FAIL" -gt 0 ]; then
-  echo "[emit-deadline] $FAIL violation(s) across $CHECKED above-default agent(s)" >&2
+  echo "[emit-deadline] $FAIL violation(s) across $CHECKED linted agent(s)" >&2
   exit 1
 fi
 
-echo "[emit-deadline] clean — $CHECKED above-default agent(s) carry a matching emit deadline"
+echo "[emit-deadline] clean — $CHECKED linted agent(s) carry a matching emit deadline"
 exit 0

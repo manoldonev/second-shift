@@ -280,6 +280,7 @@ Plan is complete, consistent with codebase patterns, and accounts for downstream
 
 - Do not assume priorities on timeline or scale.
 - Single-pass review: complete the entire checklist before emitting the verdict block. Direct callers (`Task(plan-reviewer)` from CLI / dev-pipeline Stage 5) get one shot per dispatch — no interactive walkthrough.
+- **By turn 10** (of your 15 maximum) you MUST be writing the verdict block. No further tool use after turn 10 except emitting it. If a checklist item is still unresolved at turn 10, emit anyway and name it — `unable to verify — pointer needed: <specific file or fact>` — rather than dropping it silently. A review cut short by this deadline must **not** return `pass` with zero findings: an unfinished checklist is not a clean plan, and reporting it as one is worse than reporting nothing.
 
 ---
 

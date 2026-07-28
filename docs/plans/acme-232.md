@@ -48,9 +48,17 @@ So `plan-reviewer` is held by **neither** mechanism: not bounded at dispatch (de
 | --- | --- |
 | `plugins/review-toolkit/agents/plan-reviewer.md` | Add the emit deadline + degradation clause to the `## Workflow` section. Body only — frontmatter untouched. |
 | `plugins/review-toolkit/scripts/check-emit-deadline.sh` | Add the `DEADLINE_AT_DEFAULT` `[NEW]` enrollment list, widen the jurisdiction gate, add the enrollment-resolution assertion, reword the jurisdiction-asserting messages + header block. |
-| `plugins/review-toolkit/scripts/check-emit-deadline-selftest.sh` | Add fixture cases A10–A13 `[NEW]` and real-tree cases B3–B4 `[NEW]`. Existing A1–A9, B1–B2 unchanged. |
+| `plugins/review-toolkit/scripts/check-emit-deadline-selftest.sh` | Add fixture cases A10–A14 `[NEW]` and real-tree cases B3–B4 `[NEW]`. Existing A1–A9, B1–B2 unchanged. |
+| `.claude/prose-budget.baseline.tsv` | Update the single `plan-reviewer.md` row to record the deadline's added words (Stage-4 warning 6). |
 
-All three exist (read at `origin/main` @ `d2fdc2b`). No new files. Unverified references: none.
+All four exist (read at `origin/main` @ `d2fdc2b`). No new files. Unverified references: none.
+
+**Added during implementation (Stage-4 warning disposition):** the baseline row and case A14
+were not in the plan as reviewed. The deadline paragraph pushes `plan-reviewer.md` past the
+prose ratchet's +5% tolerance (the file was already 3465 words against a 3307 baseline —
+7 words of headroom), so the row is updated to record the intentional growth. Only that one
+row is touched; `--update-baseline` was deliberately **not** run, since it would rewrite all
+73 rows and silently absolve 17 pre-existing failures unrelated to this change.
 
 ## Reuse inventory
 
@@ -85,6 +93,7 @@ New cases:
 | A11 | enrolled agent, `maxTurns: 15`, "turn 10 (of your 15 maximum)" | rc=0 | AC-2 positive |
 | A12 | enrolled agent, `maxTurns: 15`, "turn 11 (of your 15 maximum)" | rc=1 | ratio rule applies at the default cap too (the D-2 arithmetic) |
 | A13 | **non**-enrolled agent, `maxTurns: 15`, no deadline, while another name is enrolled | rc=0 | enrollment is per-agent, not a blanket cap-15 requirement — the deferred scope stays mechanically deferred |
+| A14 | agent named `unit-test-plan-reviewer`, cap 15, no deadline, while `plan-reviewer` is enrolled | rc=0 | enrollment matches whole names, never substrings — `plan-reviewer` is a substring of both `unit-test-plan-reviewer` and `figma-faithful-plan-reviewer`, so a substring match would conscript unenrolled agents and turn B1 red |
 | B3 | live tree, `DEADLINE_AT_DEFAULT` set to a non-existent agent | rc=1 | a typo'd enrollment is loud, not silently unchecked |
 | B4 | live tree, default enrollment | `plan-reviewer` appears in lint output | `plan-reviewer` cannot be silently dropped from the lint — the B2 coverage shape |
 
