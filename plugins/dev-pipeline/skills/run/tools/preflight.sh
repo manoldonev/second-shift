@@ -318,6 +318,27 @@ if [[ -f "$CFG" ]] && command -v jq >/dev/null 2>&1; then
         UNVERIFIED=1
         warn "no verifying lane configured for '$HOST_ID': lint/typecheck/test are all null and extraLanes is empty — this repo verifies NOTHING. Configure at least one lane, or set commands.$HOST_ID.allowUnverified=true to declare the opt-out explicitly. (lanes[] is setup-only and does not verify.)"
       fi
+    else
+      # Sibling condition, opposite cause: lanes ARE configured but can never run,
+      # because every tracked file classifies INERT and Stage 6 skips the suite on an
+      # inert diff. That is a false green — the config looks verified, the pipeline
+      # verifies nothing — and it is invisible until a run reports "skipped (inert
+      # diff)". The predicate is decided by feeding the real classifier rather than by
+      # reasoning about the regex: if the whole tracked tree is inert, no diff drawn
+      # from it can be anything else.
+      IS_INERT_TOOL="$SCRIPT_DIR/is-inert-diff.sh"
+      INERT_PATTERN_CFG=$(jq -r '.stageParams.inertPattern // ""' "$CFG" 2>/dev/null || echo "")
+      if [[ -f "$IS_INERT_TOOL" ]]; then
+        TRACKED=$(git -C "$REPO_ROOT" ls-files 2>/dev/null || true)
+        if [[ -n "$TRACKED" ]] && bash "$IS_INERT_TOOL" "$INERT_PATTERN_CFG" <<< "$TRACKED" >/dev/null 2>&1; then
+          UNVERIFIED=1
+          if [[ -n "$INERT_PATTERN_CFG" ]]; then
+            warn "configured lanes for '$HOST_ID' can never run: every tracked file classifies INERT under your stageParams.inertPattern, so Stage 6 always takes the inert lane and lint/typecheck/test never execute. Narrow the pattern so your product surface is not inert."
+          else
+            warn "configured lanes for '$HOST_ID' can never run: every tracked file classifies INERT under the default (JS/TS-centric) inert set, so Stage 6 always takes the inert lane and lint/typecheck/test never execute. Set stageParams.inertPattern to a pattern that excludes your product's file types."
+          fi
+        fi
+      fi
     fi
   fi
 else
