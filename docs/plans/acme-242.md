@@ -60,6 +60,11 @@ Defect B was added to the issue mid-run and is the reason this run is not docs-o
   comments; the `cmd_pr_add` repo-keyed `jq` branch.
 - `plugins/dev-pipeline/skills/run/SKILL.md` — CLI-surface listing + one requiredness note.
 - `plugins/dev-pipeline/skills/run/state-schema.md` — the one-PR-one-entry invariant under `.prs`.
+- `plugins/dev-pipeline/skills/run/stages/9-open-pr.md` — **added at Stage 7 (doc-update).** Its
+  closing `**State:**` line still described `prs[BRANCH] = { url }`, contradicting `:109` of the
+  same file and the `{ url, branch, repo }` shape #188 already shipped. Stale before this ticket,
+  but squarely in its change area, so the doc-update pass corrected it and folded in the
+  self-heal. Recorded here so the plan's file list matches the diff.
 - `plugins/dev-pipeline/skills/run/statectl-selftest.sh` — three `[NEW]` cases.
 - `scripts/lockstep-manifest.tsv` — one `[NEW]` DROPPED entry.
 

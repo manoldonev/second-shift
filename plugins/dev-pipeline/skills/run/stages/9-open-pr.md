@@ -329,7 +329,7 @@ dev-pipeline run: ${RUN_ID}
 - For single-PR runs: `$GH_BOT issue edit $ISSUE_NUMBER --remove-label in-progress` (use regular `gh` for `--remove-assignee @me` separately)
 - For stacked-PR runs: do NOT remove `in-progress` until all slices are done (handled by the outer loop completion step).
 
-**State:** `prs[BRANCH] = { url: "<PR URL>" }` is recorded for every PR opened in this stage via `statectl pr-add` (see the create block above) — ordered BEFORE the Stage 9 completion write.
+**State:** a `{ url, branch, repo }` record is written for every PR opened in this stage via `statectl pr-add` (see the create block above) — ordered BEFORE the Stage 9 completion write. The KEY is run-shape-specific: branch-keyed on the single-repo / stacked path, repo-keyed under `--repo` on a be-fe-pair run (`:109` above). One PR always yields exactly one `.prs` entry — `pr-add --repo` drops any same-URL entry left under a different key, so re-running the correct call repairs a mis-keyed write instead of adding a duplicate. See `state-schema.md` `.prs`.
 
 ## Cost-block sub-step (in-band, opt-in)
 
