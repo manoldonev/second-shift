@@ -651,6 +651,42 @@ else
   fail "(v30) override md — rc=$VRC lane=$lane vs='$vs' ran-test=$([[ -f "$MARKERS/ran-test" ]] && echo y || echo n)"
 fi
 
+# (v31) AC-3's third case: a repo with ALL lanes null, under an override.
+#       The override cannot manufacture a false green. It flips a *.sh-only diff to
+#       SUITE (so the lane decision is genuinely re-derived), but with nothing
+#       configured to run, the summary must be the honest all-skipped OBJECT that the
+#       statectl Stage-6 content gate refuses -- NOT the "skipped (inert diff)" string,
+#       which would read as a pass.
+#
+#       This case lives here rather than in is-inert-diff-selftest.sh because the
+#       classifier takes no lane input at all: under the override design the lane set
+#       and the pattern are independent, so "all lanes null" is only expressible once
+#       config, verifyctl and the classifier are composed. AC-3's other two cases
+#       (shell-only-with-lanes, docs-only-in-a-JS/TS-repo) ARE classifier-level and
+#       live there.
+INERT_ZERO_CFG="$TMPDIR_VT/second-shift.inert-zero-lane.json"
+jq '.commands.mono |= (.lint = null | .typecheck = null | .test = null | .format = null | .lanes = [] | .extraLanes = [])' \
+  "$INERT_CFG" > "$INERT_ZERO_CFG"
+
+reset_all
+rm -f "$MARKERS"/ran-*
+git -C "$WORK" checkout -q main
+git -C "$WORK" branch -qD inert-override-zerolane 2>/dev/null || true
+git -C "$WORK" checkout -qb inert-override-zerolane
+mkdir -p "$WORK/scripts"
+echo '#!/usr/bin/env bash' > "$WORK/scripts/tool.sh"
+git -C "$WORK" add -A && git -C "$WORK" commit -qm "override-case zero-lane"
+VERDICT=$(SECOND_SHIFT_CONFIG="$INERT_ZERO_CFG" "$VERIFYCTL" run 8888 2>/dev/null); VRC=$?
+lane=$(jq -r '.lane' <<< "$VERDICT" 2>/dev/null)
+vstype=$(jq -r '.verifySummary | type' <<< "$VERDICT" 2>/dev/null)
+vsvals=$(jq -r '.verifySummary | [.lint, .typeCheck, .test] | unique | join(",")' <<< "$VERDICT" 2>/dev/null)
+if [[ "$lane" == "SUITE" && "$vstype" == "object" && "$vsvals" == "skipped" \
+      && ! -f "$MARKERS/ran-test" ]]; then
+  pass "(v31) override + all lanes null — SUITE lane, honest all-skipped object, no false green (AC-3)"
+else
+  fail "(v31) override zero-lane — rc=$VRC lane=$lane vsType=$vstype vals=$vsvals"
+fi
+
 echo
 echo "[self-test] summary: $PASS passed, $FAIL failed"
 exit "$FAIL"

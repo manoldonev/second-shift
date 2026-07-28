@@ -27,6 +27,12 @@ supersedes that wording and post-dates the AC section. The effective reading thi
   `lint`/`test` at Stage 6, and `verifySummary` reports their real result.
 - **AC-3′** — the effective pattern set is the configured override when present and the shipped JS/TS
   default otherwise; the selftest covers override-absent, override-present, and malformed-override.
+  AC-3's literal third case — "a repo with all lanes null" — is **not** expressible in the classifier's
+  own selftest under this design, because the classifier takes no lane input at all: the pattern and the
+  lane set are independent once the decision stops being derived from `commands.<host>.*`. It is covered
+  where it becomes expressible, composed through config + verifyctl, by `verifyctl-selftest.sh` `(v31)`:
+  an all-lanes-null repo under an override still re-derives SUITE and still emits the honest all-skipped
+  summary the Stage-6 content gate refuses, so the override cannot manufacture a false green.
 
 AC-2 and AC-4 stand as written. The issue body is not rewritten; the divergence is disclosed here, in
 the intake comment, and in the PR body because the Stage-8 scope gate reads the body literally.
@@ -160,7 +166,7 @@ AC-1′, because AC-1′ is a claim about what Stage 6 executes.
 | --- | --- | --- | --- |
 | AC-1 | `*.sh`-only diff runs the configured lanes; `verifySummary` is real (read as AC-1′) | 3, 5, 6 | `verifyctl-selftest.sh` `(v29)`; `is-inert-diff-selftest.sh` override-present `*.sh` → suite |
 | AC-2 | docs-only diff still skips the suite (override absent — the discriminating input) | 1, 3, 6 | `verifyctl-selftest.sh` `(v1)` unchanged + `(v30)`; `is-inert-diff-selftest.sh` override-absent rows (28 pre-existing) |
-| AC-3 | pattern set is override-when-present / default-otherwise; selftest covers the three states (read as AC-3′) | 1, 2, 3, 4 | `is-inert-diff-selftest.sh` — override-absent, override-present, malformed-override |
+| AC-3 | pattern set is override-when-present / default-otherwise; selftest covers the three states (read as AC-3′) | 1, 2, 3, 4, 6 | `is-inert-diff-selftest.sh` — override-absent, override-present, malformed-override; `verifyctl-selftest.sh` `(v31)` for the all-lanes-null case |
 | AC-4 | unreachable configured lanes surface as a WARN before a run | 10, 11 | `preflight-selftest.sh` — WARN fires / does not fire |
 
 ## Verification commands
