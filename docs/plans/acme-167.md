@@ -135,6 +135,16 @@ All paths verified to exist at `origin/main`.
 9. **Re-snapshot** `.claude/prose-budget.baseline.tsv` via
    `bash plugins/dev-pipeline/skills/run/tools/prose-budget.sh --update-baseline`.
 
+   The flag is whole-repo — there is no scoped mode — so the re-snapshot also absorbs growth that
+   happened on the base branch since the baseline was last taken, in files this slice never touches.
+   That drift is **enumerated in the PR body** rather than left silent: 18 rows move for reasons
+   unrelated to this slice (largest: `state-schema.md` +1598, `9-open-pr.md` +859, `run/SKILL.md`
+   +522; `second-shift/skills/local-dev-refresh/SKILL.md` +101 is untouched by all three slices).
+   `prose-budget.sh` is an advisory local tool, not a CI gate, so absorbing the drift re-arms the
+   growth guard from today's floor rather than weakening an enforcing check — but the numbers are
+   disclosed so the reset is auditable. It also drops one stale row whose path no longer exists
+   (`.claude/agents/plan-reviewer-mt30.md`).
+
 ## Test strategy
 
 Verify-after (prose refactor, no behavior change). No new tests: this slice changes no executable
@@ -190,16 +200,15 @@ The selftest sweep carries `-P 4` per `CLAUDE.md` — the serial form was retire
   in no other file, and repointing under the old section title leaves both citations pointing at a
   heading that does not exist. Step 5's ordering (merge → delete → repoint-with-new-title) is the
   mitigation; do not collapse it.
-- **Projected per-file reduction misses the issue's 10–15% band.** The eight files with measured
-  projections: `complexity` 8.0%, `db` 5.1%, `performance` 8.4%, `test-coverage` 7.8%,
-  `reviewer-baseline` 2.7% net (below band); `a11y` 11.8%, `plan-reviewer` 10.1%, `doc-updater` 12.8%
-  (in band). The slice edits ~15 files in total — the remaining seven (the other relocation-target
-  agents, `review-lead`, the two intake-toolkit citation sites, the baseline TSV) were not
-  individually projected, and the pointer-only ones cannot reach 10% by construction: a file whose
-  only in-scope content is a 21-word pointer has no 10% to give. Disclosed per D-5, not a gate.
-- **`plan-reviewer.md`'s 10.1% projection is stale.** It was measured against `d2fdc2b`; the branch
-  now sits on `b17e953`, where the emit-deadline line landed and the file's baseline row moved
-  3307 → 3554 words. Re-measure at implementation rather than trusting the figure.
+- **Per-file reduction misses the issue's 10–15% band on 14 of 16 touched files.** Measured at
+  implementation against `origin/main` (not the stale `d2fdc2b` projections, which the rebase
+  invalidated): `doc-updater` 11.9% and `a11y` 10.7% land in band; `plan-reviewer` 8.3%,
+  `performance` 7.6%, `complexity` 7.3%, `test-coverage` 6.3%, `maintainability` 6.0%,
+  `reviewer-baseline` 5.2%, `db` 5.1%, `pipeline` 4.7%, `security` 3.6%, `unit-test-mutation` 3.5%,
+  `scope-completeness` 1.5%, and the two intake-toolkit citation sites ~0.0% fall below it.
+  `review-lead` **grows** +0.7% (+33 words) by design — D-1 moves content *into* it. Files whose
+  only in-scope content is a 21-word pointer cannot reach 10% by construction. **Net across the
+  slice: −1348 words.** Disclosed per D-5, not treated as a gate.
 - **Emit-deadline breakage.** `check-emit-deadline.sh` lints three agents and this slice edits all
   three. Their deadline lines are load-bearing lint anchors, not trimmable prose. Mitigated by the
   step-7 exclusion note and by running the lint in verification.
