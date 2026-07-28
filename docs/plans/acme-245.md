@@ -120,6 +120,9 @@ new sibling helper, following the harness's mktemp'd-variant convention (`:62`, 
 - `docs/extension-points.md` — `### check-model-tiers.sh (config-aware)` (`:173`)
 - `docs/config-schema.md` — the `reviewers` row (`:10`)
 - `plugins/review-toolkit/skills/review-lead/SKILL.md` — `## Caller model guidance` (`:38`–`:40`)
+- `scripts/lockstep-manifest.tsv` — the header's exclusion-list comment (`:12`), **header only,
+  no row**. Its "already mechanically enforced elsewhere" claim about `config-lint vs schema` is
+  false until the mirror check in step 3 exists; step 9 points it at the enforcer.
 
 ## Reuse inventory
 
@@ -171,7 +174,10 @@ beyond one fixture helper the issue's AC-4(d) explicitly requires.
    `UNKNOWN-MODEL` error class and the surfaces the two new scans cover, and to state that agent
    frontmatter tokens are *not* enum-guarded and why.
 7. **`check-model-tiers-selftest.sh` — new cases.** Add the five AC-4 cases (a–e) using the
-   reuse inventory above, plus `make_dp_inline_scalar_variant()`. Extend the file's case-list
+   reuse inventory above, plus **both** new helpers — `make_dp_inline_scalar_variant()` for case
+   (d) and `make_dp_map_inline_variant()` for case (e). Neither is optional: (e) is the only case
+   that fails if the inline scan is scoped to the scalar files, so dropping its helper drops the
+   anti-vacuity proof for the whole D1 decision. Extend the file's case-list
    header comment to match.
 8. **Docs (D-9 + the header addition already covered in step 6).** One paragraph in the
    dev-pipeline `SKILL.md` Model Tier Mapping section (dispatched reasoning default stays
@@ -180,6 +186,17 @@ beyond one fixture helper the issue's AC-4(d) explicitly requires.
    shipped table is a lint error by design). One added sentence each in `docs/extension-points.md`
    (`:173` section) and `docs/config-schema.md` (`:10` row). One clause in review-lead's
    `## Caller model guidance` naming Fable alongside Opus.
+9. **`scripts/lockstep-manifest.tsv` — header only, no row.** Its header lists `config-lint vs
+   schema` among pairs "already mechanically enforced elsewhere", which is **false until step 3
+   lands** the driven mirror check. Point the claim at its enforcer so it is checkable. No
+   manifest row is added or changed, so `D-8`'s "no lockstep-manifest row owed" holds exactly —
+   that row is about model tiers and about *rows*, and neither is touched here.
+
+**Commit contract (beyond D-7).** `D-7` fixes the verb, the squash, and the version freeze, but
+the repo additionally requires a `Changelog:` trailer on every `plugins/**` PR, enforced by
+`scripts/check-changelog-trailer.sh`. This change is consumer-visible (a new config enum value
+plus a new failure mode), so `Changelog: none` is not the honest form — the trailer names the
+`fable` override value and the `UNKNOWN-MODEL` enforcement, with `Migration: none`.
 
 ## Test strategy
 
@@ -209,7 +226,7 @@ itself (D-8).
 | (b) `fable` in a shipped MAP entry | `make_dp_variant fablemap "security-reviewer" "fable"` | exit 0 (silent) | exit 1 + `UNKNOWN-MODEL` |
 | (c) `gpt-4` in a shipped MAP entry | `make_dp_variant unknownmap "security-reviewer" "gpt-4"` | exit 0 (silent) | exit 1 + `UNKNOWN-MODEL` |
 | (d) out-of-enum inline literal, scalar file | `make_dp_inline_scalar_variant` **`[NEW]`** — scalar `haiku`, only the `structured-emitter` dispatch, `model: 'gpt-4'` | exit 0 (silent) | exit 1 + `UNKNOWN-MODEL` |
-| (e) out-of-enum inline literal, MAP file | a `code-review.mjs` variant carrying a `structured-emitter` dispatch with `model: 'gpt-4'` | exit 0 (silent) | exit 1 + `UNKNOWN-MODEL` |
+| (e) out-of-enum inline literal, MAP file | `make_dp_map_inline_variant` **`[NEW]`** — a `code-review.mjs` variant carrying a `structured-emitter` dispatch with `model: 'gpt-4'` | exit 0 (silent) | exit 1 + `UNKNOWN-MODEL` |
 
 Case (d)'s fixture shape is not incidental — with the existing `make_dp_inline_variant` the
 pre-fix run exits **1** (`MISMATCH`, scalar `sonnet` vs `structured-emitter` frontmatter
@@ -259,8 +276,11 @@ bash plugins/review-toolkit/scripts/check-model-tiers-selftest.sh
 # AC-3's real-repo assertion: the gate must still pass on this repo unchanged
 bash plugins/review-toolkit/scripts/check-model-tiers.sh </dev/null; echo "exit=$?"
 
-# AC-1/AC-2 spot check against this repo's own config
-bash plugins/dev-pipeline/skills/run/tools/config-lint.sh .claude/second-shift.config.json
+# AC-1/AC-2 spot check against this repo's own config. NOTE the path: the config is
+# gitignored, so it does NOT exist in the worktree — resolve it against the MAIN checkout
+# or the command silently lints nothing. (A bare worktree-relative path here exits 3.)
+bash plugins/dev-pipeline/skills/run/tools/config-lint.sh \
+  "$(dirname "$(cd "$(git rev-parse --git-common-dir)" && pwd)")/.claude/second-shift.config.json"
 ```
 
 ## Risks / rollback notes
