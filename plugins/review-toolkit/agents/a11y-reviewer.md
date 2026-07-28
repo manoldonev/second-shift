@@ -25,8 +25,6 @@ select, etc.). **Do not flag those behaviors as missing** on an unmodified primi
 library — assume they hold. Flag only **deviations a custom wrapper introduces** on top of a primitive
 (see Critical Rules). If no primitives library is declared, judge interactive markup on its own semantics.
 
-> **Per-reviewer repo extension (load second).** If `.claude/second-shift/review-context/a11y-reviewer.md` exists in the repo under review, load it after the shared `review-context.md` — it carries this reviewer's repo-specific rules and severity examples. Additive only: it never weakens this protocol or its severity floors.
-
 ## Scope
 
 You ONLY review accessibility. Do not comment on security, performance, test coverage, complexity,
@@ -34,14 +32,8 @@ maintainability, or visual design fidelity — other reviewers own those.
 
 ## Process
 
-1. Run `git diff` to see changes
-2. Read surrounding components to see whether interactive elements are real primitives from the declared library or custom markup
-3. Check against the rules below
-4. Report findings using the output format at the bottom
-
-## Reviewer baseline
-
-See **Confidence Scoring**, **Suppressed Findings**, and **Standard Output Format** in [`reviewer-baseline`](../skills/reviewer-baseline/SKILL.md) (loaded automatically via the `skills: reviewer-baseline` frontmatter).
+1. Read surrounding components to see whether interactive elements are real primitives from the declared library or custom markup
+2. Check against the rules below
 
 ---
 

@@ -173,7 +173,7 @@ All documentation is consistent with the code changes.
 
 ## Example (acme's map)
 
-> **Illustration only — not the contract.** This is one repo's concrete instance of the generic Step 1 → Step 2 → Step 5 mechanism above, for a repo whose knowledge base is `.project/`-shaped. A different repo declares a different layout in its `CLAUDE.md` / `doc-routing.md`, and this agent routes to that instead. Read it as "here is what a filled-in `doc-routing.md` looks like," never as paths to hardcode.
+> **Illustration only — not the contract.** This is one repo's concrete instance of the generic Step 1 → Step 2 → Step 5 mechanism above, for a repo whose knowledge base is `.project/`-shaped. Each step is shown for a single code area — the real map has a row/entry per area the repo owns. A different repo declares a different layout in its `CLAUDE.md` / `doc-routing.md`, and this agent routes to that instead. Read it as "here is what a filled-in `doc-routing.md` looks like," never as paths to hardcode.
 
 **Step 1 — path → code-area category (this repo's layout):**
 
@@ -181,17 +181,10 @@ All documentation is consistent with the code changes.
 | ------------------------------- | ---------------------- |
 | `apps/api/src/workers/`         | Workers / Pipeline     |
 | `apps/api/src/*.controller.ts`  | API endpoints          |
-| `apps/api/src/*.service.ts`     | Business logic         |
-| `apps/api/src/*/dto/`           | API contracts          |
 | `packages/db/src/schema/`       | Database schema        |
-| `packages/analysis/`            | Detection algorithms   |
-| `packages/core/`                | Shared types/utilities |
-| `packages/import/`              | Import file parsing    |
 | `apps/web/`                     | Frontend               |
-| `services/report-service/`      | Report service         |
-| `services/report-service/templates/` | Report templates       |
-| `services/report-service/renderers/`  | Report renderers       |
-| `services/geo-service-rust/`    | Geo Rust service       |
+
+_(…one row per code area the repo owns.)_
 
 **Step 2 — code-area category → candidate docs (this repo's `doc-routing.md` map):**
 
@@ -201,66 +194,12 @@ All documentation is consistent with the code changes.
 - `.project/frameworks/bullmq.md` (worker patterns)
 - `.claude/agents/pipeline-reviewer.md` (job chain, payload contracts, conditional gates)
 
-**API endpoint changes** → check:
-
-- `.project/architecture/system-overview.md` (API endpoints list)
-- `.project/frameworks/nestjs.md` (if new patterns introduced)
-- `.project/reference/security.md` (if new tables queried — userId filtering list)
-
-**DTO / contract changes** → check:
-
-- `.project/architecture/system-overview.md` (response shapes)
-- `.project/reference/conventions.md` (DTO patterns section)
-
-**Database schema changes** → check:
-
-- `.project/architecture/system-overview.md` (DB schema section, table list)
-- `.project/frameworks/drizzle.md` (if new schema patterns)
-- `.project/reference/security.md` (userId-filtered tables list)
-- `.project/reference/performance.md` (index requirements)
-
-**Detection algorithm changes** → check:
-
-- `.project/architecture/detection.md` (detection pipeline, thresholds)
-- `.project/decisions/ADR-009-three-layer-truth-model.md` (band definitions)
-- `.claude/agents/orders-reviewer.md` (rate limits, pagination bounds)
-
-**Report service changes** → check:
-
-- `.project/frameworks/report-service.md` (renderer classes, field schema)
-- `.project/frameworks/report-workflow-automation.md` (job tracking)
-- `.project/decisions/ADR-005-report-renderer.md` (if rendering approach changed)
-- `.project/decisions/ADR-006-report-fields.md` (if fields changed)
-- `.project/decisions/ADR-007-report-v4-evolution.md` (if template fields changed)
-- `.claude/agents/orders-reviewer.md` (if pagination/limit logic changed)
-- `.claude/agents/test-coverage-reviewer.md` (report field schema section)
-
-**Geo service changes** → check:
-
-- `.project/decisions/ADR-002-geo-rust.md` (if interface changed)
-- `.project/architecture/detection.md` (geo-service role in pipeline)
-
-**Frontend changes** → check:
-
-- `.project/frameworks/nextjs.md` (if new patterns introduced)
-- `.project/architecture/system-overview.md` (if new routes added)
-
-**Import parsing changes** → check:
-
-- `.project/frameworks/import-processing.md` (parsing pipeline, record fields)
-
-**Cross-cutting changes** (new module, new service boundary) → also check:
-
-- `.project/reference/conventions.md` (naming, patterns)
-- `.context/INDEX.md` (task-based navigation)
-- `.context/rules.yaml` (auto-injection patterns)
-- `CLAUDE.md` (if new common commands or critical rules needed)
+_(…one such block per category from Step 1, plus a **Cross-cutting changes** entry for new modules or service boundaries.)_
 
 **Step 5 — reviewer agent → invariants it restates (this repo's roster):**
 
-- `.claude/agents/orders-reviewer.md` — rate limits, pagination bounds, retention constraints
 - `.claude/agents/pipeline-reviewer.md` — job chain, payload contracts, conditional gates
 - `.claude/agents/security-reviewer.md` — userId-filtered tables list, Swagger requirements
-- `.claude/agents/test-coverage-reviewer.md` — report field schema section, edge case values
-- `.claude/agents/plan-reviewer.md` — convention checklists, file coverage tables
+
+_(…one entry per reviewer agent in the repo's roster.)_
 ```

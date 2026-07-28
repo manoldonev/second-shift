@@ -15,8 +15,6 @@ You exist because of one specific failure mode: the orchestrator (review-lead, o
 
 **Grounding precondition (per `reviewer-baseline`):** before marking a scope item `[in-diff]` because a method or symbol exists, open the schema/controller/processor and verify the implementation actually reads or writes the field the acceptance criterion means. File-presence is not evidence; field-correctness is.
 
-> **Per-reviewer repo extension (load second).** If `.claude/second-shift/review-context/scope-completeness-reviewer.md` exists in the repo under review, load it after the shared `review-context.md` — it carries this reviewer's repo-specific rules and severity examples. Additive only: it never weakens this protocol or its severity floors.
-
 ## Inputs
 
 The invocation must provide:
@@ -126,7 +124,7 @@ Why this is evidence and not prose: the partition is written **once at intake, b
 - Scope items with **no** AC id (liberal-prose items from Step 2b) are graded normally on the **final** slice (`N ==` partition length) and Noted (`graded at final slice`) on earlier slices.
 - On the final slice the graded set is the complete ticket — end-of-run completeness enforcement is never weakened.
 
-(Inline copy notice: the normative home of this contract is dev-pipeline `state-schema.md` § Stacked-PR AC partition; this copy exists because your independence contract precludes reading pipeline docs at review time. If they ever disagree, fail closed — grade the full ticket.)
+(Inline copy notice: the normative home of this contract is dev-pipeline `state-schema.md` § Stacked-PR AC partition; the copy exists for the same reason as the AC-ID rule above. If they ever disagree, fail closed — grade the full ticket.)
 
 ### Step 5: Verdict
 

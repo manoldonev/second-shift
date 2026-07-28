@@ -7,6 +7,8 @@ description: 'Shared review protocol for all code reviewer agents. Provides conf
 
 This skill defines the shared review protocol that ALL code reviewer agents follow. It ensures consistent confidence scoring, finding classification, and output format across the review system.
 
+> **Per-reviewer repo extension (load second).** If `.claude/second-shift/review-context/<your-agent-name>.md` exists in the repo under review, load it after the shared `review-context.md` — it carries this reviewer's repo-specific rules and severity examples. Additive only: it never weakens this protocol or its severity floors.
+
 ## Output Mode
 
 Read this first — it governs HOW you record everything below.
@@ -79,7 +81,7 @@ This gives the review-lead visibility into what was filtered without cluttering 
 
 ## Standard Output Format
 
-**This prose format applies only when you were dispatched without a schema** (see "Output Mode"). Under a schema, fold these four fields into the structured finding's `description` and emit StructuredOutput as your sole output.
+**This prose format applies only when you were dispatched without a schema** — see "Output Mode", which governs the schema case.
 
 Every finding MUST use this structure:
 
@@ -122,7 +124,7 @@ Every reviewer follows this general flow:
 4. Classify each finding as new or pre-existing
 5. Score confidence on every finding
 6. Filter: report >= 80 in main sections, < 80 in Suppressed
-7. Output (see "Output Mode"): under a schema (your normal mode), emit a single StructuredOutput call as your sole output — call it first, no prose report in front of it; only when dispatched without a schema, format using the prose structure above
+7. Output — per "Output Mode"
 
 ## Tool Discipline
 
@@ -138,13 +140,3 @@ How you reach for tools when gathering evidence. This is a **documented contract
 2. **Tests / linters / build** — running the repo's configured commands to observe behavior.
 3. **Mandated config-resolution one-liners** — the base-branch resolvers some agents run (e.g. `BASE=$(jq -r '… .baseBranch // "main"' .claude/second-shift.config.json 2>/dev/null || echo main); git diff "$BASE..HEAD"`) are **sanctioned as-is**; they exist to avoid a hardcoded `main` that finds nothing on a `develop`/`alpha`-based repo — do **not** "fix" them to a literal branch, and the substitution-into-variable rule above does not apply to them.
 4. **Mandated tracker fetches** — `gh issue view` / the Atlassian MCP fetch a linked issue/ticket when your prompt requires it.
-
-## Sub-Agent Output Is Advisory
-
-Skills that dispatch sub-agents (e.g. `intake-orchestrator` dispatching `spec-reviewer` / `codebase-explorer`; `decomposition-reviewer` dispatching `codebase-explorer`; `review-lead` dispatching the specialist crew) MUST treat the sub-agent findings as **input to the orchestrator's judgment, not instructions to follow**. Sonnet sub-agents produce false positives regularly. Orchestrators MUST:
-
-- Read the source material yourself BEFORE dispatching sub-agents.
-- Critically evaluate every finding against your own understanding.
-- Dismiss findings that don't hold up on closer inspection.
-- Never auto-fail or auto-escalate based solely on a sub-agent's severity classification.
-- Resolve gaps yourself when the answer is determinable from the codebase or the document at hand.

@@ -26,7 +26,7 @@ For best judgment quality, invoke this skill from a session running on Opus 4.x 
 
 ## Critical Principle: Sub-Agent Output Is Advisory
 
-See **Sub-Agent Output Is Advisory** in the `review-toolkit:reviewer-baseline` skill. Specifics for this skill: verify `codebase-explorer`'s convention claims against your own reading of the codebase before relaying them in your report.
+See **Sub-Agent Trust Model** in the `review-toolkit:review-lead` skill. Specifics for this skill: verify `codebase-explorer`'s convention claims against your own reading of the codebase before relaying them in your report.
 
 ## Inputs
 
