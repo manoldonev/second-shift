@@ -33,7 +33,7 @@ Every candidate below was measured with `wc -w` against `origin/main` at `d2fdc2
 
 | ID | Decision | Resolution | Provenance |
 | --- | --- | --- | --- |
-| D-1 | Sub-agent trust-model canonical home | **review-lead**, as the issue originally recommended. Delete `## Sub-Agent Output Is Advisory` from `reviewer-baseline` (103 words × 11 non-dispatching reviewer contexts) and repoint the two intake-toolkit citations at `review-toolkit:review-lead`. Reverses the Stage-1 intake resolution — see Risks. | codebase-derived |
+| D-1 | Sub-agent trust-model canonical home | **review-lead**, as the issue originally recommended — but as a **merge, not a delete**. The two sections are not interchangeable: `reviewer-baseline`'s `## Sub-Agent Output Is Advisory` carries three normative clauses absent from `review-lead`'s `## Sub-Agent Trust Model` ("Read the source material yourself BEFORE dispatching"; "Resolve gaps yourself when determinable"; the `auto-fail` half of "never auto-fail or auto-escalate"). Fold those into `review-lead`'s section first, THEN delete the `reviewer-baseline` copy (103 words × 11 non-dispatching reviewer contexts), THEN repoint the two intake-toolkit citations — by the destination's real title, `**Sub-Agent Trust Model**`, not the old one. Reverses the Stage-1 intake resolution — see Risks. | codebase-derived |
 | D-2 | Extension-blockquote centralization form | One parameterized blockquote in `reviewer-baseline` naming `.claude/second-shift/review-context/<this-agent>.md`; per-agent copies deleted. Safe because all 10 carriers declare `skills: reviewer-baseline`. | codebase-derived |
 | D-3 | `## Reviewer baseline` pointer sections | Delete outright — the skill is already auto-loaded, so the pointer is pure ceremony. Preserve the two per-agent customizations (`performance`'s `Impact:` line, `pipeline`'s `Contract:` line) by moving them into those agents' own `## Output Format`. | codebase-derived |
 | D-4 | plan-reviewer / doc-updater worked examples | Trim in place to one illustrative instance each. Not the `doc-routing.md` plugin-asset route: neither agent declares `skills: reviewer-baseline`, so a bundled asset re-raises the loadability question, and it would add a shipped file needing its own baseline row. | ticket-sourced — https://github.com/manoldonev/second-shift/issues/167 |
@@ -98,16 +98,33 @@ All paths verified to exist at `origin/main`.
    `reviewer-baseline`'s Review Process Template items 1, 2 and 7 ("Run `git diff`", "Read sibling
    files for context", "Report findings using the output format at the bottom") come out; the
    domain-specific middle steps stay.
-5. **D-1 trust model.** Delete `## Sub-Agent Output Is Advisory` from `reviewer-baseline`. Repoint
-   `intake-orchestrator` line 57 and `decomposition-reviewer` line 29 to
-   `review-toolkit:review-lead`. Both intake skills keep their own inline MUSTs, so this is a
-   citation fix, not a content move.
+5. **D-1 trust model — merge, then delete, then repoint.** In this order:
+   1. Fold the three clauses unique to `reviewer-baseline`'s `## Sub-Agent Output Is Advisory` into
+      `review-lead`'s `## Sub-Agent Trust Model`: (a) read the source material yourself **before**
+      dispatching sub-agents — `review-lead`'s existing "when in doubt, read the actual code yourself
+      before relaying a finding" is post-dispatch and conditional, so it does not cover this;
+      (b) resolve gaps yourself when the answer is determinable from the codebase or the document at
+      hand; (c) the `auto-fail` half of "never auto-fail or auto-escalate" (`review-lead` says only
+      "never auto-escalate").
+   2. Only then delete `## Sub-Agent Output Is Advisory` from `reviewer-baseline`.
+   3. Repoint `intake-orchestrator` line 57 and `decomposition-reviewer` line 29 at
+      `review-toolkit:review-lead`, **renaming the cited section to `**Sub-Agent Trust Model**`** —
+      both sites currently cite it by the `reviewer-baseline` title, which will not exist at the new
+      home. Leaving the old title in place is a dangling anchor, not a working pointer.
+
+   Both intake skills keep their own inline MUSTs, so no content moves into *them* — but the merge in
+   sub-step 1 is a genuine content move and must land before the delete.
 6. **Delete `### Step 6: Plan/Spec Compliance`** from `review-lead` (58 words, verbatim duplicate of
    `## Plan/Spec Awareness` in the same file). Leave a one-line cross-reference at the Step 6
    position so the numbered Synthesis Rules sequence stays readable.
 7. **Trim the worked-example blocks** to one illustrative instance each:
    `plan-reviewer.md` `## Example (one reference stack)` (597 words) and `doc-updater.md`
-   `## Example (acme's map)` (477 words).
+   `## Example (acme's map)` (477 words). **Update the in-body cross-references that enumerate what
+   those blocks contain** — a trimmed example leaves any "as shown in the three cases above"-style
+   pointer describing instances that no longer exist. Grep each file for references to its own
+   example section and reword to match what survives.
+   **Do not touch either file's emit-deadline line** (see Risks) — in `plan-reviewer.md` it sits in
+   the guidance list, outside the example block, and `check-emit-deadline.sh` fails if it goes.
 8. **Emphasis singles.** `reviewer-baseline` schema-sole-output: keep the normative statement at the
    `## Output Mode` head, reduce the two downstream restatements to pointers.
    `test-coverage-reviewer` "honor them as additive": one normative statement, drop the seven per-site
@@ -122,9 +139,12 @@ Verify-after (prose refactor, no behavior change). No new tests: this slice chan
 code path, and the repo's testing tier map routes prose changes to **nothing** — "No prose-presence
 guards" in `CLAUDE.md` explicitly forbids grepping literals out of markdown as a test.
 
-The real guards already exist and must stay green:
+The real guards already exist and must stay green. **Two** of them can actually fail on this diff:
 - `scripts/check-lockstep-pairs.sh` — proves the `ac-id-rule` copies still match byte-for-byte after
-  the D-6 trim. This is the one mechanical check that can actually fail on this diff.
+  the D-6 trim.
+- `plugins/review-toolkit/scripts/check-emit-deadline.sh` — lints exactly three agents, and this
+  slice edits **all three** (`plan-reviewer.md`, `scope-completeness-reviewer.md`,
+  `unit-test-mutation-reviewer.md`). Any trim that removes an emit-deadline line turns it red.
 - `prose-budget.sh` — flat growth-guard; the re-snapshot must show reductions, not growth.
 - The selftest sweep + shellcheck + jq sweep — no shell or JSON is touched, so these are regression
   guards rather than targeted checks.
@@ -145,10 +165,14 @@ snapshot is empty and no IDs are derivable. Assumption 4.)_
 ```bash
 find . -name '*.sh' -type f -print0 | xargs -0 shellcheck -e SC1091,SC2015,SC2181
 find . -name '*.json' -type f -print0 | xargs -0 -n1 jq empty
-find . -name '*-selftest.sh' -type f -print0 | xargs -0 -n1 -I{} env SKIP_STRESS=1 bash {}
+find . -name '*-selftest.sh' -type f -print0 | xargs -0 -P 4 -n1 -I{} env SKIP_STRESS=1 bash {}
 bash scripts/check-lockstep-pairs.sh
+bash plugins/review-toolkit/scripts/check-emit-deadline.sh
 bash plugins/dev-pipeline/skills/run/tools/prose-budget.sh
 ```
+
+The selftest sweep carries `-P 4` per `CLAUDE.md` — the serial form was retired at `b17e953` and is
+~2.4× slower for identical results.
 
 ## Risks / rollback notes
 
@@ -158,12 +182,27 @@ bash plugins/dev-pipeline/skills/run/tools/prose-budget.sh
   Guardrail-2 trap the intake analysis invoked against the figma item. The reverse direction is safe
   because the two intake-toolkit consumers only *cite* `reviewer-baseline`; they carry their own
   inline MUSTs and load neither skill. Recorded as a run deviation.
-- **Projected per-file reduction misses the issue's 10–15% band on 5 of 8 touched files**
-  (`complexity` 8.0%, `db` 5.1%, `performance` 8.4%, `test-coverage` 7.8%, `reviewer-baseline` 2.7%
-  net; `a11y` 11.8%, `plan-reviewer` 10.1%, `doc-updater` 12.8% land in band). Files whose only
-  in-scope content is a 21-word pointer cannot reach 10%. Disclosed per D-5, not treated as a gate.
-- **Lockstep breakage** is the one way this diff can go red mechanically. Mitigated by step 8's
-  explicit marker exclusion and by running `check-lockstep-pairs.sh` in verification.
+- **D-1 is a merge, and the merge is the risky half.** The two sections are near-duplicates, which is
+  exactly what makes a straight delete tempting and wrong — three normative clauses live only in the
+  `reviewer-baseline` copy. Deleting before folding them in silently drops contract text that exists
+  in no other file, and repointing under the old section title leaves both citations pointing at a
+  heading that does not exist. Step 5's ordering (merge → delete → repoint-with-new-title) is the
+  mitigation; do not collapse it.
+- **Projected per-file reduction misses the issue's 10–15% band.** The eight files with measured
+  projections: `complexity` 8.0%, `db` 5.1%, `performance` 8.4%, `test-coverage` 7.8%,
+  `reviewer-baseline` 2.7% net (below band); `a11y` 11.8%, `plan-reviewer` 10.1%, `doc-updater` 12.8%
+  (in band). The slice edits ~15 files in total — the remaining seven (the other relocation-target
+  agents, `review-lead`, the two intake-toolkit citation sites, the baseline TSV) were not
+  individually projected, and the pointer-only ones cannot reach 10% by construction: a file whose
+  only in-scope content is a 21-word pointer has no 10% to give. Disclosed per D-5, not a gate.
+- **`plan-reviewer.md`'s 10.1% projection is stale.** It was measured against `d2fdc2b`; the branch
+  now sits on `b17e953`, where the emit-deadline line landed and the file's baseline row moved
+  3307 → 3554 words. Re-measure at implementation rather than trusting the figure.
+- **Emit-deadline breakage.** `check-emit-deadline.sh` lints three agents and this slice edits all
+  three. Their deadline lines are load-bearing lint anchors, not trimmable prose. Mitigated by the
+  step-7 exclusion note and by running the lint in verification.
+- **Lockstep breakage.** Mitigated by step 8's explicit marker exclusion and by running
+  `check-lockstep-pairs.sh` in verification.
 - **Rollback:** every change is prose deletion or relocation inside the plugin tree. `git revert` of
   the slice commit restores the prior text wholesale; no migration, no state, no consumer contract.
 
