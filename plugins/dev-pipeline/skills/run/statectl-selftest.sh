@@ -986,22 +986,20 @@ fi
 # No scenario covers this: usage comments are read by humans, never executed.
 _UD_SRC="$STATECTL"
 _ud_fail=""
-# Pass (a): the file-header `Usage:` block. Every listed command that the parser
-# accepts --repo for must show it here too.
-for _c in worktree-set pr-add verify-attempts verify-summary-set; do
-  _line=$(grep -E "^#   statectl\.sh ${_c} " "$_UD_SRC" | head -1)
-  if [[ -z "$_line" ]]; then
-    _ud_fail="${_ud_fail} header:${_c}:absent"
-  elif [[ "$_line" != *"--repo"* ]]; then
-    _ud_fail="${_ud_fail} header:${_c}"
-  fi
-done
-# Pass (b): every cmd_* whose parser has a --repo) arm AND carries a usage line —
-# that line must name --repo. Function names may contain digits; usage comments come
-# in two styles (`#   statectl <cmd>` and `# Usage: <cmd>`). A command with NO usage
-# line is not covered (that is a different, lesser gap — see the plan's D-5).
+# The --repo-accepting command set is DERIVED from the parser, never hand-listed: a
+# hand-maintained list would be the very drift this case exists to catch, one level
+# up. Both CLI surfaces are checked for each such command — (a) the file-header
+# `Usage:` block, keyed by the derived subcommand name, and (b) the command's own
+# usage comment. A surface carrying NO line for a command is not covered; that is a
+# different, lesser gap (see the plan's D-5 — build-checkpoint-7-perrepo has no usage
+# comment, and its --repo requiredness lives in its error message instead).
+# Function names may contain digits; usage comments come in two styles
+# (`#   statectl <cmd>` and `# Usage: <cmd>`).
 while IFS=$'\t' read -r _fn _hasrepo _usage; do
   [[ "$_hasrepo" == "1" ]] || continue
+  _sub="${_fn#cmd_}"; _sub="${_sub//_/-}"
+  _hdr=$(grep -E "^#   statectl\.sh ${_sub} " "$_UD_SRC" | head -1)
+  [[ -z "$_hdr" || "$_hdr" == *"--repo"* ]] || _ud_fail="${_ud_fail} header:${_sub}"
   [[ -n "$_usage" ]] || continue
   [[ "$_usage" == *"--repo"* ]] || _ud_fail="${_ud_fail} body:${_fn}"
 done < <(awk '
