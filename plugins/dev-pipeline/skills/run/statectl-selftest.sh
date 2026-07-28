@@ -937,6 +937,118 @@ else
 fi
 if [[ -n "$_PA8_SAVED_CFG" ]]; then export SECOND_SHIFT_CONFIG="$_PA8_SAVED_CFG"; else unset SECOND_SHIFT_CONFIG; fi
 
+# (pa9) cross-keying SELF-HEAL: a mis-keyed branch-keyed write on a pair topology
+# recorded the PR under the wrong key. Re-running with the correct --repo must
+# REPLACE it, not accumulate — one PR must leave exactly one .prs entry, because
+# every consumer iterates `.prs | values[]?` and reads .url, so a duplicate
+# double-counts (the Stage-9 cost block bills the PR twice). No scenario in
+# scenario-liveness-selftest.sh can catch this: a composed run reaching Stage 9's
+# terminal write passes identically with one entry or two, which is exactly how the
+# original duplicate survived a clean mark-completed.
+reset_state
+sct init 9999 --run-id "selftest-run-$$" >/dev/null
+sct pr-add 9999 --branch "team/gh-891" --url "https://github.com/o/r/pull/22" >/dev/null
+sct pr-add 9999 --branch "unrelated" --url "https://github.com/o/r/pull/23" >/dev/null
+sct pr-add 9999 --repo fe --branch "team/gh-891" --url "https://github.com/o/r/pull/22" >/dev/null
+count=$(sct get 9999 '.prs | length')
+stale=$(sct get 9999 '.prs | has("team/gh-891")')
+healed=$(sct get 9999 '.prs.fe.repo')
+other=$(sct get 9999 '.prs.unrelated.url')
+if [[ "$count" == "2" && "$stale" == "false" && "$healed" == "fe" && "$other" == "https://github.com/o/r/pull/23" ]]; then
+  pass "(pa9) pr-add --repo → drops the same-url entry under the old key; distinct-url entries untouched"
+else
+  fail "(pa9) pr-add self-heal — count=$count staleKey=$stale fe.repo='$healed' unrelated='$other'"
+fi
+
+# (pa10) the heal is ONE-DIRECTIONAL, by design. A branch-keyed write must NOT
+# delete a correct repo-keyed record carrying the same url — otherwise an incorrect
+# call (the exact mistake pa9 repairs) could clobber a correct one, turning a
+# self-repair into a self-inflicted regression. Pins the asymmetry so a later
+# "make it symmetric for consistency" edit fails loudly.
+reset_state
+sct init 9999 --run-id "selftest-run-$$" >/dev/null
+sct pr-add 9999 --repo fe --branch "team/gh-891" --url "https://github.com/o/r/pull/22" >/dev/null
+sct pr-add 9999 --branch "team/gh-891" --url "https://github.com/o/r/pull/22" >/dev/null
+count=$(sct get 9999 '.prs | length')
+kept=$(sct get 9999 '.prs.fe.repo')
+if [[ "$count" == "2" && "$kept" == "fe" ]]; then
+  pass "(pa10) branch-keyed pr-add does NOT delete a repo-keyed entry (heal is one-directional)"
+else
+  fail "(pa10) heal asymmetry — count=$count fe.repo='$kept' (a wrong call must never clobber a right record)"
+fi
+
+# (pa11) USAGE-DRIFT guard. --repo is load-bearing on a be-fe-pair topology, and the
+# incident that motivated it was a caller reading statectl's own CLI surface (which
+# omitted the flag) rather than the stage file (which documents it). This asserts the
+# two CLI surfaces INSIDE this script stay honest, derived from the script itself —
+# not a prose grep of a markdown file (banned by CLAUDE.md). The SKILL.md leg cannot
+# be reached this way and is reviewer-guarded (see scripts/lockstep-manifest.tsv).
+# No scenario covers this: usage comments are read by humans, never executed.
+_UD_SRC="$STATECTL"
+_ud_fail=""
+# The --repo-accepting command set is DERIVED from the parser, never hand-listed: a
+# hand-maintained list would be the very drift this case exists to catch, one level
+# up. Both CLI surfaces are checked for each such command — (a) the file-header
+# `Usage:` block, keyed by the derived subcommand name, and (b) the command's own
+# usage comment. A surface carrying NO line for a command is not covered; that is a
+# different, lesser gap (see the plan's D-5 — build-checkpoint-7-perrepo has no usage
+# comment, and its --repo requiredness lives in its error message instead).
+# Function names may contain digits; usage comments come in two styles
+# (`#   statectl <cmd>` and `# Usage: <cmd>`).
+while IFS=$'\t' read -r _fn _hasrepo _usage; do
+  [[ "$_hasrepo" == "1" ]] || continue
+  _sub="${_fn#cmd_}"; _sub="${_sub//_/-}"
+  _hdr=$(grep -E "^#   statectl\.sh ${_sub} " "$_UD_SRC" | head -1)
+  [[ -z "$_hdr" || "$_hdr" == *"--repo"* ]] || _ud_fail="${_ud_fail} header:${_sub}"
+  [[ -n "$_usage" ]] || continue
+  [[ "$_usage" == *"--repo"* ]] || _ud_fail="${_ud_fail} body:${_fn}"
+done < <(awk '
+  /^cmd_[a-z0-9_]+\(\) \{/ { if (fn != "") flush(); fn=$1; sub(/\(\).*/,"",fn); hasrepo=0; usage=""; next }
+  fn != "" && /^[ \t]+--repo\)/ { hasrepo=1 }
+  fn != "" && usage == "" && /^[ \t]*#[ \t]*(Usage:)?[ \t]*statectl[ \t]/ { usage=$0 }
+  fn != "" && usage == "" && /^[ \t]*#[ \t]*Usage:[ \t]*[a-z][a-z0-9-]*[ \t]+</ { usage=$0 }
+  END { if (fn != "") flush() }
+  function flush() { printf "%s\t%d\t%s\n", fn, hasrepo, usage }
+' "$_UD_SRC")
+if [[ -z "$_ud_fail" ]]; then
+  pass "(pa11) every --repo-accepting command names --repo in its usage text (header + per-command)"
+else
+  fail "(pa11) usage drift — undocumented --repo at:${_ud_fail}"
+fi
+
+# (pa12) be-fe-pair PRECONDITION: the branch-keyed form is refused outright on a pair
+# topology. The self-heal in (pa9) repairs a mis-keyed write only once a later CORRECT
+# --repo call arrives — but the caller this guards against never makes one, and on a
+# DUAL-target run the two PRs share a branch name, so both land on one branch key and
+# last-write-wins silently destroys a PR record. That loss is unrecoverable from state,
+# so the write must fail closed rather than be healed after the fact.
+# Three legs: pair+no-repo → refused; pair+--repo → accepted; standalone+no-repo →
+# still accepted (the precondition must not leak onto single-repo consumers).
+_PA12_SAVED_CFG="${SECOND_SHIFT_CONFIG:-}"
+PA12_PAIR_CFG="$TMPDIR_ST/pa12-pair-config.json"
+PA12_SOLO_CFG="$TMPDIR_ST/pa12-solo-config.json"
+printf '{"configVersion":1,"tracker":{"type":"github"},"topology":{"type":"be-fe-pair","repos":{"be":{"path":".","baseBranch":"alpha"},"fe":{"path":"../fe","baseBranch":"main"}}},"commands":{"be":{},"fe":{}}}\n' > "$PA12_PAIR_CFG"
+printf '{"configVersion":1,"tracker":{"type":"github"},"topology":{"type":"standalone","repos":{"hostrepo":{"path":".","baseBranch":"main"}}},"commands":{"hostrepo":{}}}\n' > "$PA12_SOLO_CFG"
+reset_state
+export SECOND_SHIFT_CONFIG="$PA12_PAIR_CFG"
+sct init 9999 --run-id "selftest-run-$$" >/dev/null
+err=$(sct_err pr-add 9999 --branch "team/gh-900" --url "https://github.com/o/r/pull/10")
+rc=$(sct_rc pr-add 9999 --branch "team/gh-900" --url "https://github.com/o/r/pull/10")
+sct pr-add 9999 --repo fe --branch "team/gh-900" --url "https://github.com/o/r/pull/11" >/dev/null
+pair_ok=$(sct get 9999 '.prs.fe.repo')
+export SECOND_SHIFT_CONFIG="$PA12_SOLO_CFG"
+reset_state
+sct init 9999 --run-id "selftest-run-$$" >/dev/null
+sct pr-add 9999 --branch "team/gh-900" --url "https://github.com/o/r/pull/12" >/dev/null
+solo_ok=$(sct get 9999 '.prs."team/gh-900".url')
+if [[ "$rc" != "0" && "$err" == *"--repo"* && "$err" == *"be-fe-pair"* \
+      && "$pair_ok" == "fe" && "$solo_ok" == "https://github.com/o/r/pull/12" ]]; then
+  pass "(pa12) pr-add refuses the branch-keyed form on be-fe-pair; --repo accepted; standalone unaffected"
+else
+  fail "(pa12) be-fe-pair precondition — rc=$rc pairRepo='$pair_ok' solo='$solo_ok' err='$err'"
+fi
+if [[ -n "$_PA12_SAVED_CFG" ]]; then export SECOND_SHIFT_CONFIG="$_PA12_SAVED_CFG"; else unset SECOND_SHIFT_CONFIG; fi
+
 # (pause1) pause-add → appends ONE closed span; from = prior .lastUpdatedAt
 # (self-anchor), to = now, from < to. now_iso is second-resolution, so sleep 1
 # to guarantee a measurable gap. ISO-8601 fixed-width Z timestamps sort
