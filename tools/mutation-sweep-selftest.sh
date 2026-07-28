@@ -269,6 +269,48 @@ else
   bad "(l3) expected a deferred-to-nightly row; got rc=$RC"; printf '%s\n' "$OUT" | tail -4
 fi
 
+echo "(m) exclusions preempt pairing — a guard in BOTH files is a lint error, via the harness"
+# Driven THROUGH mutation-sweep.sh, not re-checked in this file. Case (k) lints the
+# committed TSVs directly, which is a data lint; asserting the harness's own red branch
+# by re-implementing its condition here would be the mirror shape CLAUDE.md warns about —
+# it could not fail on a harness edit. The real tree has no such guard, so without this
+# fixture the branch has zero end-to-end coverage.
+FX="$(new_fixture strong)"
+baseline_with "$FX"
+printf '# fixture exclusions\nguard.sh\tdeliberately excluded\n' > "$FX/tools/mutation-exclusions.tsv"
+printf '# fixture pair map\nguard.sh\t./guard-selftest.sh\tconflicting row\n' > "$FX/tools/mutation-pair-map.tsv"
+OUT="$( cd "$FX" && enf bash "$SWEEP" --mode full 2>&1 )"; RC=$?
+if [[ $RC -eq 1 ]] && printf '%s' "$OUT" | grep -q 'excluded AND carries pair-map rows'; then
+  ok "conflicting exclusion + pair-map rows is red"
+else
+  bad "(m) expected rc=1 + the conflict red; got rc=$RC"; printf '%s\n' "$OUT" | tail -4
+fi
+
+echo "(n) argument contract — bad invocations die loudly rather than sweeping something wrong"
+FX="$(new_fixture strong)"
+for args in "--mode bogus" "--mode pr" "--frobnicate" ""; do
+  # shellcheck disable=SC2086 # args is a deliberate space-separated argv fragment
+  OUT="$( cd "$FX" && adv bash "$SWEEP" $args 2>&1 )"; RC=$?
+  if [[ $RC -eq 2 ]] && printf '%s' "$OUT" | grep -q 'FATAL'; then
+    ok "rejects [${args:-<no args>}]"
+  else
+    bad "(n) [${args:-<no args>}] expected rc=2 + FATAL; got rc=$RC"
+  fi
+done
+
+echo "(o) --report writes the TSV to the named path instead of stdout"
+FX="$(new_fixture strong)"
+baseline_with "$FX"
+OUT="$( cd "$FX" && enf bash "$SWEEP" --mode full --report "$FX/report.tsv" 2>&1 )"; RC=$?
+if [[ $RC -eq 0 ]] && [[ -s "$FX/report.tsv" ]] \
+  && head -1 "$FX/report.tsv" | grep -q '^guard	status	paired_selftest' \
+  && grep -q '^guard\.sh	swept' "$FX/report.tsv" \
+  && ! printf '%s' "$OUT" | grep -q '^guard	status'; then
+  ok "report lands at the path and is kept off stdout"
+else
+  bad "(o) --report did not write the expected TSV; rc=$RC"; printf '%s\n' "$OUT" | tail -4
+fi
+
 # ======================================================== live-tree lint cases
 # (j) and (k) run against the REAL tree, not a fixture. They are pure resolution/parse
 # lints — no mutation, no sandbox, no suite execution — so they are cheap enough for both
