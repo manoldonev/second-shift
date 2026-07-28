@@ -118,3 +118,11 @@ stage8-secondary-review	verbatim	plugins/dev-pipeline/skills/run/stages/8-code-r
 # block and the per-command comments. Only the SKILL.md leg is reviewer-guarded, because
 # pinning it would mean grepping a literal out of a markdown file — the technique this
 # repo bans outright.
+#
+# Same-pair addendum (#243): the pre-dispatch --force-reason argv scan in statectl.sh
+# main() carries a skip-list of value-taking flags that mirrors the usage header's flag
+# vocabulary. Considered for a row and DROPPED for the same reasons as above — no
+# byte-anchorable literal spans the scan's space-delimited skip-list string and the
+# header's per-line usage forms. The behavioral guard is statectl-selftest.sh (fr1)'s
+# decoy probe: a value payload containing the literal "--force-reason" must pass through
+# unharmed, which fails if a value-taking flag is missing from the skip-list.
