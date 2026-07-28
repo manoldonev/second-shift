@@ -62,7 +62,10 @@ the intake comment, and in the PR body because the Stage-8 scope gate reads the 
 - `plugins/dev-pipeline/skills/run/verifyctl-selftest.sh` — the composed AC-1′ proof
 - `plugins/dev-pipeline/skills/run/tools/config-lint.sh` — accept and validate the key
 - `plugins/dev-pipeline/skills/run/tools/config-lint-selftest.sh` — accept/reject assertions
-- `plugins/dev-pipeline/skills/run/tools/config-lint-fixtures/invalid-bad-inertpattern.json` — `[NEW]`
+- `plugins/dev-pipeline/skills/run/tools/config-lint-fixtures/invalid-bad-inertpattern.json` — `[NEW]` uncompilable pattern
+- `plugins/dev-pipeline/skills/run/tools/config-lint-fixtures/invalid-empty-inertpattern.json` — `[NEW]` explicit empty value
+- `plugins/dev-pipeline/skills/run/tools/config-lint-fixtures/valid-schema-key-standalone.json` — the accept path, via the selftest's `valid-*.json` auto-discovery loop
+- `plugins/dev-pipeline/skills/run/tools/check-config-shadowing.sh` — register the new key's reader
 - `schema/second-shift.config.schema.json` — the documented contract config-lint mirrors
 - `plugins/dev-pipeline/skills/run/tools/preflight.sh` — the AC-4 unreachable-lane WARN
 - `plugins/dev-pipeline/skills/run/tools/preflight-selftest.sh` — WARN fires / does not fire
@@ -110,10 +113,12 @@ No new helpers introduced.
 7. Edit `config-lint.sh`: add `inertPattern` to the `stageParams` key allowlist, plus a string type check
    and a non-empty check. Add a bash-side compile check after the jq pass (`grep -E` against empty input;
    rc ≥ 2 ⇒ violation) so an uncompilable pattern is rejected at config time, not discovered at Stage 6.
-8. Add `config-lint-fixtures/invalid-bad-inertpattern.json` `[NEW]` (empty string + a second fixture case
-   for the uncompilable pattern), and the matching `expect_violation` lines in `config-lint-selftest.sh`.
-   Add `inertPattern` to an existing `valid-*.json` fixture so the accept path is covered by the
-   auto-discovery loop.
+8. Add **two** invalid fixtures — `invalid-empty-inertpattern.json` and
+   `invalid-bad-inertpattern.json` — plus the matching `expect_violation` lines in
+   `config-lint-selftest.sh`. Two files, not one: a fixture may carry several violations, but a
+   single `stageParams.inertPattern` cannot be both empty and uncompilable, so the two rejection
+   classes cannot share a file. Add `inertPattern` to `valid-schema-key-standalone.json` so the
+   accept path is covered by the auto-discovery loop.
 9. Add `stageParams.inertPattern` to `schema/second-shift.config.schema.json` (`type: string`,
    `minLength: 1`, description). Additive and optional — no `configVersion` bump, no migration doc
    (`check-configversion-migration-doc.sh` only fires on a `configVersion.const` change).
@@ -171,7 +176,16 @@ SKIP_STRESS=1 bash plugins/dev-pipeline/skills/run/verifyctl-selftest.sh
 # repo gates (CLAUDE.md)
 find . -name '*.sh' -type f -print0 | xargs -0 shellcheck -e SC1091,SC2015,SC2181
 find . -name '*.json' -type f -print0 | xargs -0 -n1 jq empty
-find . -name '*-selftest.sh' -type f -print0 | xargs -0 -n1 -I{} env SKIP_STRESS=1 bash {}
+find . -name '*-selftest.sh' -type f -print0 | xargs -0 -P 4 -n1 -I{} env SKIP_STRESS=1 bash {}
+
+# commit-time gates — these run on the branch, not just in CI, so a violation blocks
+# the commit rather than surfacing at review. The shadowing check is load-bearing for
+# this change specifically: it is what fails if the new config key is published
+# without a reader.
+bash plugins/dev-pipeline/skills/run/tools/check-config-shadowing.sh
+bash plugins/dev-pipeline/skills/run/tools/check-config-shadowing-selftest.sh
+bash scripts/check-frozen-files.sh
+bash scripts/check-changelog-trailer.sh
 
 # the config-lint contract against this repo's own config
 bash plugins/dev-pipeline/skills/run/tools/config-lint.sh .claude/second-shift.config.json
@@ -187,6 +201,18 @@ bash plugins/dev-pipeline/skills/run/tools/config-lint.sh .claude/second-shift.c
   `6-verify.md` edit; not otherwise changed (D-7).
 - **Replace-semantics drift.** A consumer's override is a hand-copy of the default and will not inherit
   future additions to it. Accepted under D-3; the `6-verify.md` edit says so.
+- **`stageParams` is global; the classifier runs per-repo.** Raised by plan review. `verifyctl --repo <id>`
+  verifies one target at a time in a `be-fe-pair` topology, but resolves this single global value for
+  every one of them, so a pair whose repos have genuinely different product surfaces (a TS front end
+  beside a shell back end) cannot express that. The workable answer is the union pattern that leaves
+  BOTH surfaces non-inert — which errs toward SUITE, the safe direction. Documented in the `6-verify.md`
+  edit rather than fixed: a per-repo override belongs under `topology.repos.<id>`, and D-1 excludes
+  schema expansion. Deferred until a real pair consumer needs it.
+- **Selftest fixture reality.** `preflight-selftest.sh`'s shared fixture repo tracked only `*.md`, so its
+  whole tree classified inert — meaning its configured typecheck lane could never run, and the new AC-4
+  check fired across cases about other things. The fixture gains one tracked `.ts` source. This is a
+  correction to the fixture's realism, not a weakening of the check: the AC-3 assertion "a repo that
+  verifies something still reports pipeline-ready" was resting on a repo that in fact verified nothing.
 - **Lockstep with the pre-commit hook.** `INERT_RE` keeps its name and literal precisely so
   `pre-commit-typecheck-selftest.sh`'s substring assertions keep passing; that suite is in the
   verification list and its failure is the intended tripwire if step 3 restructures too aggressively.
