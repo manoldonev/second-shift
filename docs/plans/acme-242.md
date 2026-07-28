@@ -52,7 +52,7 @@ Defect B was added to the issue mid-run and is the reason this run is not docs-o
 | D-3 | Should the branch-keyed path heal symmetrically? | No. Asymmetric by design (assumption 3) — a wrong call must not clobber a right record. Pinned by a dedicated selftest case. | `codebase-derived` |
 | D-4 | How is the doc contract kept from re-drifting, given a lockstep row cannot express it? | A `statectl-selftest.sh` case derived from the script itself: any command whose parser accepts `--repo` **and** carries a usage line must name `--repo` in it. Plus a DROPPED manifest entry for the `statectl.sh` ↔ `SKILL.md` leg. | `codebase-derived` |
 | D-5 | Cover commands that have no usage line at all? | No. `cmd_build_checkpoint_7_perrepo` accepts `--repo` and has no usage comment; its requiredness is stated in its error message. "Has no usage text" is a different, lesser gap than "has usage text that drifted". Guard covers drift only; recorded in Out-of-scope. | `codebase-derived` |
-| D-6 | Sweep the unrelated `--force` documentation inconsistency? | No. Several commands omit `[--force]` from their usage lines; cosmetic, unrelated to be-fe-pair keying, and would bloat the diff. | `codebase-derived` |
+| D-6 | Sweep the unrelated `--force` documentation inconsistency? | No. Several commands omit `[--force]` from their usage lines; cosmetic, unrelated to be-fe-pair keying, and would bloat the diff. `worktree-set`'s `--base` **is** included, and that is not an inconsistency: `--base` is part of the be-fe-pair per-repo contract (Stage 2 passes it in the same per-repo loop as `--repo` — `stages/2-worktree.md:108`), whereas `--force` is a universal crash-recovery escape hatch orthogonal to keying. The line is drawn at "part of the pair contract", not at "happens to be undocumented". | `codebase-derived` |
 
 ## Affected files/modules
 
@@ -70,8 +70,9 @@ Defect B was added to the issue mid-run and is the reason this run is not docs-o
 - `sct` / `sct_err` / `sct_rc` / `pass` / `fail` / `reset_state` (`statectl-selftest.sh`) — the
   existing case harness; the new cases use it as-is.
 - `scripts/lockstep-manifest.tsv` DROPPED-entry prose convention — followed, not re-invented.
-- No new helper functions are introduced in `statectl.sh`. The selftest adds one local
-  extractor, `usage_repo_drift` `[NEW]`, scoped to that suite.
+- No new helper functions are introduced in `statectl.sh`, and none in the selftest either —
+  `(pa11)`'s extractor is an inline `awk` block scoped to that one case, matching how the
+  suite's other structural probes (e.g. the `(mg)` verdict-block extraction) are written.
 
 ## Implementation steps
 
@@ -102,32 +103,50 @@ Verify-after (infra/docs + one narrow behavior change). No mutation-gate work: c
 
 Three `[NEW]` cases in `statectl-selftest.sh`:
 
-- **`(pa6)` cross-keying self-heal.** Seed a branch-keyed entry, then `pr-add --repo fe`
+- **`(pa9)` cross-keying self-heal.** Seed a branch-keyed entry, then `pr-add --repo fe`
   with the *same* url. Assert `.prs | length == 1`, the surviving key is `fe`, and its
   `repo` is `fe`. Red before step 3, green after.
-- **`(pa7)` asymmetry.** Seed a repo-keyed entry, then `pr-add` **without** `--repo` at the
+- **`(pa10)` asymmetry.** Seed a repo-keyed entry, then `pr-add` **without** `--repo` at the
   same url. Assert both entries survive (`length == 2`) — the branch-keyed path must not
   delete a correct repo-keyed record. Pins D-3 so a later "make it symmetric" edit fails.
-- **`(pa8)` usage-drift guard.** Parse `statectl.sh`: for every `cmd_*` whose parser has a
-  `--repo)` arm **and** which carries a usage line, assert that line names `--repo`.
-  Mechanical, derived from the script — not a prose grep. Red before steps 1–2, green after.
+- **`(pa11)` usage-drift guard.** Parse `statectl.sh` in two passes: (a) the file-header
+  `Usage:` block — every listed command that accepts `--repo` must name it; (b) every `cmd_*`
+  whose parser has a `--repo)` arm **and** which carries a usage line — that line must name
+  `--repo`. Both passes are derived from the script itself, not a prose grep. Red before
+  steps 1–2, green after. Pass (a) is what makes AC-1 genuinely covered rather than
+  nominally covered.
 
-`(pa6)` also covers a distinct-url case implicitly: the `with_entries` predicate keys on url
-equality, so unrelated entries are untouched — asserted inside `(pa6)` rather than as a
+`(pa9)` also covers a distinct-url case implicitly: the `with_entries` predicate keys on url
+equality, so unrelated entries are untouched — asserted inside `(pa9)` rather than as a
 fourth case.
+
+**Scenario-first justification** (required for a new per-tool fixture case). No scenario in
+`scenario-liveness-selftest.sh` covers any of the three: that suite composes *verdict paths*
+to a terminal write, and all three of these guard invariants that sit off every verdict path.
+`(pa9)`/`(pa10)` guard the shape of a `.prs` record **after** a successful write — a scenario
+reaching Stage 9's terminal write passes identically whether one entry or two were left
+behind, which is exactly how the original duplicate survived a clean `mark-completed`.
+`(pa11)` guards *comment text inside the tool*, which no composed run reads at all. These are
+per-tool fixture cases because the invariant is per-tool; a scenario extension would add
+runtime without adding a failure mode.
+
+**What `(pa11)` deliberately does not cover:** the *requiredness* sentence added in step 2 is
+prose, so the guard checks only that the `--repo` token is present, not that the surrounding
+sentence still says "required under be-fe-pair". Pinning prose is the banned technique; that
+half of AC-2 is reviewer-guarded.
 
 ## Acceptance-criteria traceability
 
 | AC ID | Criterion (short) | Step(s) | Test(s) |
 | --- | --- | --- | --- |
-| AC-1 | Header `Usage:` block names `--repo` | 1 | `(pa8)` |
-| AC-2 | Each command's own usage comment names `--repo` + requiredness | 2 | `(pa8)` |
+| AC-1 | Header `Usage:` block names `--repo` | 1 | `(pa11)` pass (a) |
+| AC-2 | Each command's own usage comment names `--repo` (+ requiredness prose, reviewer-guarded) | 2 | `(pa11)` pass (b) |
 | AC-3 | `SKILL.md` listing names `--repo` + requiredness note | 4 | — no test (non-functional) |
-| AC-4 | A `--repo`-accepting command omitting `--repo` from its usage text fails a test | 6 | `(pa8)` |
-| AC-5 | (negative) parser surface unchanged — no new flags, preconditions, or key choice | 3 | `(pa7)` |
-| AC-6 | `pr-add --repo` drops a same-url entry under a different key | 3 | `(pa6)` |
+| AC-4 | A `--repo`-accepting command omitting `--repo` from its usage text fails a test | 6 | `(pa11)` |
+| AC-5 | (negative) parser surface unchanged — no new flags, preconditions, or key choice | 3 | `(pa1)`–`(pa8)`, `(pa10)` |
+| AC-6 | `pr-add --repo` drops a same-url entry under a different key | 3 | `(pa9)` |
 | AC-7 | `state-schema.md` records one PR ⇒ exactly one `.prs` entry | 5 | — no test (non-functional) |
-| AC-8 | Asymmetry pinned; branch-keyed path does not delete a repo-keyed entry | 3, 6 | `(pa7)` |
+| AC-8 | Asymmetry pinned; branch-keyed path does not delete a repo-keyed entry | 3, 6 | `(pa10)` |
 
 ## Verification commands
 
@@ -136,7 +155,11 @@ find . -name '*.sh' -type f -print0 | xargs -0 shellcheck -e SC1091,SC2015,SC218
 find . -name '*.json' -type f -print0 | xargs -0 -n1 jq empty
 find . -name '*-selftest.sh' -type f -print0 | xargs -0 -n1 -I{} env SKIP_STRESS=1 bash {}
 bash scripts/check-lockstep-pairs.sh
+bash scripts/check-changelog-trailer.sh   # plugins/** PR — trailer required
 ```
+
+This touches `plugins/**`, so the branch needs a **consumer-visible `Changelog:` trailer**,
+not `Changelog: none` — `pr-add`'s write behavior changes.
 
 ## Risks / rollback notes
 
@@ -145,9 +168,9 @@ bash scripts/check-lockstep-pairs.sh
   (`(.value.url // "")`) and never assumes shape. A legacy entry with a *different* url is
   preserved; one with the *same* url is a genuine duplicate and is correctly dropped.
 - **Silent deletion.** The heal removes a record. It is bounded to same-url-different-key,
-  which is exactly the duplicate case, and `(pa6)`/`(pa7)` pin both directions. Rollback is
+  which is exactly the duplicate case, and `(pa9)`/`(pa10)` pin both directions. Rollback is
   reverting step 3 alone — steps 1–2 and 4–7 are inert docs/tests.
-- **`(pa8)` breadth.** It asserts against every `cmd_*`, so a future `--repo` command with a
+- **`(pa11)` breadth.** It asserts against every `cmd_*`, so a future `--repo` command with a
   drifted usage line fails the suite. That is the intent, not a regression.
 - Rollback for the whole change is a branch revert; nothing is migrated and no state file
   shape changes.
@@ -156,7 +179,14 @@ bash scripts/check-lockstep-pairs.sh
 
 - The rung-1 fail-closed precondition (refuse branch-keyed writes on a pair topology) —
   retracted by the filer, subsumed by #243.
-- `pr-remove` (option 2) — superseded by the self-heal (D-2).
+- `pr-remove` (option 2) — superseded by the self-heal (D-2) for the duplicate case.
+  **Residual gap, recorded rather than closed:** the self-heal keys on url equality, so it
+  repairs a same-url duplicate only. A `.prs` entry that is stale for any other reason — a
+  wrong url recorded, or an entry for a branch that never became a PR — still has no
+  supported removal path, and the only route back remains a raw `jq del` on the state file.
+  Declining option 2 narrows that gap to the one case that actually occurred; it does not
+  eliminate it. If a non-same-url stale entry is ever observed in the wild, `pr-remove`
+  becomes the right answer and this decision should be revisited.
 - The `--force` usage-line inconsistency across unrelated commands (D-6).
 - `cmd_build_checkpoint_7_perrepo`'s missing usage comment (D-5).
 - Any change to which key each `pr-add` form writes (AC-5).

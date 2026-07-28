@@ -33,18 +33,18 @@
 #   statectl.sh get <issue-number> <jq-path>
 #   statectl.sh set-stage <issue-number> <N> --status started|completed [--force]
 #   statectl.sh checkpoint <issue-number> <N> --json <payload> [--force]
-#   statectl.sh worktree-set <issue-number> --path <worktreePath> --branch <branch> [--force]
-#   statectl.sh pr-add <issue-number> --branch <branch> --url <pr-url> [--force]
+#   statectl.sh worktree-set <issue-number> --path <worktreePath> --branch <branch> [--repo <id>] [--base <ref>] [--force]
+#   statectl.sh pr-add <issue-number> --branch <branch> --url <pr-url> [--repo <id>] [--force]
 #   statectl.sh review-rounds <issue-number> --set <1-3> [--exhausted] [--force]
 #   statectl.sh deviations-add <issue-number> --kind <enum> --note <s> [--plan-section <s>] [--file <f>] [--line <n>] [--stage <N>] [--force]
-#   statectl.sh verify-attempts <issue-number> --incr <FAILURE_CLASS> [--force]
+#   statectl.sh verify-attempts <issue-number> --incr <FAILURE_CLASS> [--repo <id>] [--force]
 #   statectl.sh skill-load-add <issue-number> --stage <N> --skill <plugin:skill> [--force]
 #   statectl.sh comment-add <issue-number> --marker <stage-marker> --url <comment-url> [--force]
 #   statectl.sh reclaim <issue-number> [--release] [--threshold-min <N>] [--force]
 #   statectl.sh intake-brief <issue-number> --brief-path <path|null> --acceptance-criteria '<json-array>'
 #   statectl.sh slice-partition-set <issue-number> --json '[{"slice":1,"acIds":["AC-1"]}, ...]' [--force]
 #   statectl.sh plan-review-set <issue-number> --overall <pass|fix-and-go> [--force]
-#   statectl.sh verify-summary-set <issue-number> --json <verifySummary> [--force]
+#   statectl.sh verify-summary-set <issue-number> --json <verifySummary> [--repo <id>] [--force]
 #   statectl.sh quality-pass-set <issue-number> --json <payload> [--force]
 #   statectl.sh mark-failed <issue-number> --reason <reason> [--stage <N>] [--json <details>] [--force]
 #   statectl.sh mark-completed <issue-number> [--force]
@@ -53,6 +53,11 @@
 #     [--plan <P>] [--changed-files <json>] [--verify-summary <json>] [--deviations <json>] \
 #     [--free-note <s>] [--plan-risks <json>] [--doc-updater-findings <md>] \
 #     [--quality-pass-summary <json>]
+#
+# --repo <id> is REQUIRED on a `topology.type: be-fe-pair` run for every per-repo
+# boundary write above — including a single-target ([FE]-only / [BE]-only) one.
+# Omitting it takes the single-repo path, which keys and stamps the record wrong.
+# See stages/9-open-pr.md and stages/2-worktree.md for the worked per-repo loops.
 #
 # Env contract:
 #   STATECTL_WRITER  = skill (default)
@@ -1096,7 +1101,9 @@ cmd_verify_attempts() {
   # the retry budget.
   #
   # Usage:
-  #   statectl verify-attempts <issue-number> --incr <FAILURE_CLASS>
+  #   statectl verify-attempts <issue-number> --incr <FAILURE_CLASS> [--repo <id>]
+  # --repo is REQUIRED under topology.type: be-fe-pair (including a single-target
+  # pair run) — Stage 6 verifies each target worktree separately.
   # where FAILURE_CLASS ∈ {FORMAT, LINT_AUTOFIX, TYPE_ERROR, TEST_FAILURE,
   # PLAN_CMD_FAILURE, INFRA} (the Stage-6 failure-classification table). The
   # four suite classes are charged EXCLUSIVELY by verifyctl.sh (its sidecar
@@ -1279,7 +1286,10 @@ cmd_worktree_set() {
   # Stacked-PR mode overwrites both fields per slice by design.
   #
   # Usage:
-  #   statectl worktree-set <issue-number> --path <worktreePath> --branch <branch>
+  #   statectl worktree-set <issue-number> --path <worktreePath> --branch <branch> [--repo <id>] [--base <ref>]
+  # --repo (and --base, that repo's own baseBranch) are REQUIRED under
+  # topology.type: be-fe-pair (including a single-target pair run) — the per-repo
+  # loop in stages/2-worktree.md shows the worked call.
   local key="${1:-}"; shift || true
   local path="" branch="" force=0 repo="" base=""
   while [[ $# -gt 0 ]]; do
@@ -1343,7 +1353,9 @@ cmd_pr_add() {
   # pipeline-cost-block.sh to know which PRs to amend.
   #
   # Usage:
-  #   statectl pr-add <issue-number> --branch <branch> --url <pr-url>
+  #   statectl pr-add <issue-number> --branch <branch> --url <pr-url> [--repo <id>]
+  # --repo is REQUIRED under topology.type: be-fe-pair (including a single-target
+  # pair run) — see the keying comment below and stages/9-open-pr.md.
   local key="${1:-}"; shift || true
   local branch="" url="" force=0 repo=""
   while [[ $# -gt 0 ]]; do
@@ -1392,8 +1404,18 @@ cmd_pr_add() {
   # --repo the branch-keyed form (single-repo / one entry per stacked slice), now
   # also stamped with branch + the resolved repo alias (null when unresolvable).
   if [[ "$repo_keyed" -eq 1 ]]; then
+    # Cross-keying self-heal: a mis-keyed earlier write (branch-keyed on a pair
+    # topology) recorded the SAME PR under a different key. The two keyings are
+    # separate branches here, so without this the correct call would ADD a second
+    # entry rather than replace the first — one PR, two records, and every
+    # consumer iterates `.prs | values[]?` and reads `.url`, so it double-counts.
+    # Drop any entry carrying this url under a different key, then write ours.
+    # Deliberately ASYMMETRIC — the branch-keyed branch below does NOT heal, so a
+    # wrong call can never clobber a correct repo-keyed record. Reads url
+    # defensively: legacy entries may predate the { url, branch, repo } shape.
     new_state=$(jq --arg r "$repo" --arg b "$branch" --arg u "$url" --arg now "$now" '
       .prs = (.prs // {})
+      | .prs |= with_entries(select(.key == $r or (.value.url // "") != $u))
       | .prs[$r] = { url: $u, branch: $b, repo: $r }
       | .lastUpdatedAt = $now
     ' <<< "$current") || { EXIT_CODE=2 die "pr-add: jq mutation failed"; }
@@ -1765,7 +1787,9 @@ cmd_verify_summary_set() {
   # ORDERING CONTRACT: call BEFORE `set-stage 6 --status completed`.
   #
   # Usage:
-  #   statectl verify-summary-set <issue-number> --json <verifySummary>
+  #   statectl verify-summary-set <issue-number> --json <verifySummary> [--repo <id>]
+  # --repo is REQUIRED under topology.type: be-fe-pair (including a single-target
+  # pair run) — it writes worktrees.<id>.verifySummary instead of the flat field.
   local key="${1:-}"; shift || true
   local payload="" force=0 repo=""
   while [[ $# -gt 0 ]]; do
