@@ -104,3 +104,20 @@ stage8-secondary-review	verbatim	plugins/dev-pipeline/skills/run/stages/8-code-r
 # router and a status board into one table that serves neither reader. Reviewer-guarded: both
 # tables are short, sit in the two files every contributor reads first, and a new tier lands
 # with its own suite in the same PR.
+#
+# statectl `--repo` CLI surface (statectl.sh's header `Usage:` block + per-command usage
+# comments ↔ SKILL.md's CLI-surface listing). One contract — which flags each statectl
+# subcommand takes — stated in two places, and they drifted: `--repo` is load-bearing on a
+# be-fe-pair topology (it decides whether `.prs` is keyed by branch or repo id) and both
+# copies omitted it on four commands while the stage files documented it correctly.
+# Considered for a row and DROPPED: neither relation can express this pair. `verbatim`
+# needs a whitespace-collapsed byte match, but statectl.sh writes `<issue-number>` where
+# SKILL.md writes `<issue>`, and statectl.sh carries `[--force]` where SKILL.md does not —
+# forcing a shared literal means rewriting one file's placeholder convention purely for its
+# own guard. `subset-of` compares each block's first single-quoted pipe-enum, and no usage
+# line carries one. The statectl.sh HALF is not reviewer-guarded: statectl-selftest.sh
+# (pa11) derives the expectation from the parser itself — any command whose parser has a
+# `--repo)` arm and carries a usage line must name `--repo` in it, covering both the header
+# block and the per-command comments. Only the SKILL.md leg is reviewer-guarded, because
+# pinning it would mean grepping a literal out of a markdown file — the technique this
+# repo bans outright.

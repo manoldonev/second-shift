@@ -408,12 +408,12 @@ statectl.sh init <issue> --run-id <id>
 statectl.sh get <issue> <jq-path>
 statectl.sh set-stage <issue> <N> --status started|completed [--force]
 statectl.sh checkpoint <issue> <N> --json <payload>
-statectl.sh worktree-set <issue> --path <worktreePath> --branch <branch>
-statectl.sh pr-add <issue> --branch <branch> --url <pr-url>
+statectl.sh worktree-set <issue> --path <worktreePath> --branch <branch> [--repo <id>] [--base <ref>]
+statectl.sh pr-add <issue> --branch <branch> --url <pr-url> [--repo <id>]
 statectl.sh review-rounds <issue> --set <1-3> [--exhausted]
 statectl.sh intake-brief <issue> --brief-path <path|null> --acceptance-criteria '<json-array>'
 statectl.sh plan-review-set <issue> --overall <pass|fix-and-go>
-statectl.sh verify-summary-set <issue> --json <verifySummary>
+statectl.sh verify-summary-set <issue> --json <verifySummary> [--repo <id>]
 statectl.sh quality-pass-set <issue> --json <payload>
 statectl.sh pause-add <issue> --reason <r> [--force]
 statectl.sh deviations-add <issue> --kind <enum> --note <s> [--plan-section <s>] [--file <f>] [--line <n>] [--stage <N>]
@@ -422,6 +422,8 @@ statectl.sh mark-completed <issue> [--force]
 statectl.sh build-failure-context --reason <enum> [--stage <N>] [--kv k=v]... [--kv-num k=v]... [--kv-lines k=v]...
 statectl.sh build-checkpoint-7 --issue <N> --branch <B> --head <H> --worktree <W> [--plan <P>] [--changed-files <json>] [--verify-summary <json>] [--deviations <json>] [--free-note <s>] [--plan-risks <json>] [--doc-updater-findings <md>] [--quality-pass-summary <json>]
 ```
+
+**`--repo <id>` is REQUIRED on a `topology.type: be-fe-pair` run** for every per-repo boundary write above (`worktree-set`, `pr-add`, `verify-summary-set`, and `verify-attempts`) — **including a single-target `[FE]`-only / `[BE]`-only pair run**. Omitting it silently takes the single-repo path, which keys the record by branch (colliding across repos on a shared branch name) and stamps it with the host repo alias rather than the target. The worked per-repo loops are in [`stages/2-worktree.md`](./stages/2-worktree.md) and [`stages/9-open-pr.md`](./stages/9-open-pr.md).
 
 The two `build-*` subcommands are pure stdout builders (no state-file IO) used to construct validated state-payload JSON. Callers compose them: `mark-failed --json "$(build-failure-context ...)"` and `checkpoint 7 --json "$(build-checkpoint-7 ...)"`. The builders validate eagerly at construction; the consumers re-validate at write (defense in depth).
 
