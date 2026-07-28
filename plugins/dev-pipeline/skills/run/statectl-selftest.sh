@@ -219,7 +219,7 @@ reset_state
 sct init 9999 --run-id "selftest-run-$$" >/dev/null
 complete_stage 9999 1
 sct set-stage 9999 2 --status started >/dev/null
-rc=$(sct_rc set-stage 9999 3 --status started --force)
+rc=$(sct_rc set-stage 9999 3 --status started --force --force-reason "selftest crash-recovery simulation of an operator waiver")
 cur=$(sct get 9999 .currentStage)
 if [[ "$rc" == "0" && "$cur" == "3" ]]; then
   pass "(mono3) --force overrides monotonic guard → allowed"
@@ -249,8 +249,8 @@ sct init 9999 --run-id "selftest-run-$$" >/dev/null
 sct set-stage 9999 1 --status started >/dev/null
 jq '.status = "completed"' .claude/pipeline-state/9999.json > .claude/pipeline-state/9999.json.tmp \
   && mv .claude/pipeline-state/9999.json.tmp .claude/pipeline-state/9999.json
-err=$(sct_err set-stage 9999 2 --status started --force)
-rc=$(sct_rc set-stage 9999 2 --status started --force)
+err=$(sct_err set-stage 9999 2 --status started --force --force-reason "selftest crash-recovery simulation of an operator waiver")
+rc=$(sct_rc set-stage 9999 2 --status started --force --force-reason "selftest crash-recovery simulation of an operator waiver")
 status_after=$(jq -r '.status' .claude/pipeline-state/9999.json)
 if [[ "$rc" == "1" && "$err" == *"cannot mutate"* && "$status_after" == "completed" ]]; then
   pass "(mono5) --force does NOT escape terminal guard → rejected (cannot mutate)"
@@ -653,7 +653,7 @@ fi
 # (sps2) write-once: second write without --force → rejected; --force overwrites
 err=$(sct_err slice-partition-set 9999 --json '[{"slice":1,"acIds":["AC-1","AC-2","AC-3"]}]')
 rc=$(sct_rc slice-partition-set 9999 --json '[{"slice":1,"acIds":["AC-1","AC-2","AC-3"]}]')
-rc2=$(sct_rc slice-partition-set 9999 --force --json '[{"slice":1,"acIds":["AC-1","AC-2","AC-3"]}]')
+rc2=$(sct_rc slice-partition-set 9999 --force --force-reason "selftest crash-recovery simulation of an operator waiver" --json '[{"slice":1,"acIds":["AC-1","AC-2","AC-3"]}]')
 if [[ "$rc" != "0" && "$err" == *"write-once"* && "$rc2" == "0" ]]; then
   pass "(sps2) slice-partition-set overwrite → rejected without --force, allowed with"
 else
@@ -661,8 +661,8 @@ else
 fi
 
 # (sps3) acId not in the snapshot → rejected (partition OF the snapshot)
-err=$(sct_err slice-partition-set 9999 --force --json '[{"slice":1,"acIds":["AC-9"]}]')
-rc=$(sct_rc slice-partition-set 9999 --force --json '[{"slice":1,"acIds":["AC-9"]}]')
+err=$(sct_err slice-partition-set 9999 --force --force-reason "selftest crash-recovery simulation of an operator waiver" --json '[{"slice":1,"acIds":["AC-9"]}]')
+rc=$(sct_rc slice-partition-set 9999 --force --force-reason "selftest crash-recovery simulation of an operator waiver" --json '[{"slice":1,"acIds":["AC-9"]}]')
 if [[ "$rc" != "0" && "$err" == *"acceptanceCriteria"* ]]; then
   pass "(sps3) slice-partition-set unknown acId → rejected"
 else
@@ -670,8 +670,8 @@ else
 fi
 
 # (sps4) non-contiguous slice indices → rejected
-err=$(sct_err slice-partition-set 9999 --force --json '[{"slice":1,"acIds":["AC-1"]},{"slice":3,"acIds":["AC-2"]}]')
-rc=$(sct_rc slice-partition-set 9999 --force --json '[{"slice":1,"acIds":["AC-1"]},{"slice":3,"acIds":["AC-2"]}]')
+err=$(sct_err slice-partition-set 9999 --force --force-reason "selftest crash-recovery simulation of an operator waiver" --json '[{"slice":1,"acIds":["AC-1"]},{"slice":3,"acIds":["AC-2"]}]')
+rc=$(sct_rc slice-partition-set 9999 --force --force-reason "selftest crash-recovery simulation of an operator waiver" --json '[{"slice":1,"acIds":["AC-1"]},{"slice":3,"acIds":["AC-2"]}]')
 if [[ "$rc" != "0" && "$err" == *"contiguous"* ]]; then
   pass "(sps4) slice-partition-set non-contiguous slices → rejected"
 else
@@ -679,8 +679,8 @@ else
 fi
 
 # (sps5) overlapping acIds across slices → rejected (disjoint partition)
-err=$(sct_err slice-partition-set 9999 --force --json '[{"slice":1,"acIds":["AC-1"]},{"slice":2,"acIds":["AC-1","AC-2"]}]')
-rc=$(sct_rc slice-partition-set 9999 --force --json '[{"slice":1,"acIds":["AC-1"]},{"slice":2,"acIds":["AC-1","AC-2"]}]')
+err=$(sct_err slice-partition-set 9999 --force --force-reason "selftest crash-recovery simulation of an operator waiver" --json '[{"slice":1,"acIds":["AC-1"]},{"slice":2,"acIds":["AC-1","AC-2"]}]')
+rc=$(sct_rc slice-partition-set 9999 --force --force-reason "selftest crash-recovery simulation of an operator waiver" --json '[{"slice":1,"acIds":["AC-1"]},{"slice":2,"acIds":["AC-1","AC-2"]}]')
 if [[ "$rc" != "0" && "$err" == *"disjoint"* ]]; then
   pass "(sps5) slice-partition-set overlapping acIds → rejected"
 else
@@ -1076,7 +1076,7 @@ sct init 9999 --run-id "selftest-run-$$" >/dev/null
 sct mark-failed 9999 --reason plan-reviewer-block >/dev/null
 err=$(sct_err pause-add 9999 --reason session-resume)
 rc=$(sct_rc pause-add 9999 --reason session-resume)
-rcforce=$(sct_rc pause-add 9999 --reason session-resume --force)
+rcforce=$(sct_rc pause-add 9999 --reason session-resume --force --force-reason "selftest crash-recovery simulation of an operator waiver")
 if [[ "$rc" != "0" && "$err" == *"terminal"* && "$rcforce" == "0" ]]; then
   pass "(pause2) pause-add on terminal run → rejected without --force, succeeds with --force"
 else
@@ -1220,7 +1220,7 @@ fi
 # (mc2) mark-completed on terminal state → rejected without --force, allowed with
 err=$(sct_err mark-completed 9999)
 rc=$(sct_rc mark-completed 9999)
-rc_force=$(sct_rc mark-completed 9999 --force)
+rc_force=$(sct_rc mark-completed 9999 --force --force-reason "selftest crash-recovery simulation of an operator waiver")
 if [[ "$rc" == "1" && "$err" == *"terminal"* && "$rc_force" == "0" ]]; then
   pass "(mc2) mark-completed on terminal → rejected; --force overrides"
 else
@@ -1393,7 +1393,7 @@ done
 # it neighbors below the same early return (crash-recovery escape).
 complete_run_vs 9999 '{"format":"clean","test":"passed"}'
 write_eval_ir 9999
-sct mark-completed 9999 --force >/dev/null
+sct mark-completed 9999 --force --force-reason "selftest crash-recovery simulation of an operator waiver" >/dev/null
 status=$(sct get 9999 '.status')
 if [[ "$status" == "completed" ]]; then
   pass "(mc-ir9) suite lane, nothing charged, PASS + --force → accepted (bypass)"
@@ -1423,7 +1423,7 @@ else
 fi
 
 # (rpt2) --force does NOT bypass the report gate (same posture as the eval gate)
-rc_force=$(sct_rc mark-completed 9999 --force)
+rc_force=$(sct_rc mark-completed 9999 --force --force-reason "selftest crash-recovery simulation of an operator waiver")
 status=$(sct get 9999 '.status')
 if [[ "$rc_force" == "1" && "$status" == "in_progress" ]]; then
   pass "(rpt2) --force does not bypass the report gate"
@@ -1501,7 +1501,7 @@ if [[ "$rc" == "1" && "$err" == *"terminal"* && "$status_after" == "completed" ]
 else
   fail "(rm1) worktree-set terminal guard — rc=$rc err='$err' status='$status_after'"
 fi
-rc_force=$(sct_rc worktree-set 9999 --path .claude/worktrees/acme-9999 --branch claude/acme-9999 --force)
+rc_force=$(sct_rc worktree-set 9999 --path .claude/worktrees/acme-9999 --branch claude/acme-9999 --force --force-reason "selftest crash-recovery simulation of an operator waiver")
 branch_set=$(sct get 9999 '.branch')
 if [[ "$rc_force" == "0" && "$branch_set" == "claude/acme-9999" ]]; then
   pass "(rm1f) worktree-set --force on terminal → applied (branch written)"
@@ -1521,7 +1521,7 @@ if [[ "$rc" == "1" && "$err" == *"terminal"* && "$status_after" == "completed" ]
 else
   fail "(rm2) pr-add terminal guard — rc=$rc err='$err' status='$status_after'"
 fi
-rc_force=$(sct_rc pr-add 9999 --branch b --url https://example.com/pr/1 --force)
+rc_force=$(sct_rc pr-add 9999 --branch b --url https://example.com/pr/1 --force --force-reason "selftest crash-recovery simulation of an operator waiver")
 url_set=$(sct get 9999 '.prs.b.url')
 if [[ "$rc_force" == "0" && "$url_set" == "https://example.com/pr/1" ]]; then
   pass "(rm2f) pr-add --force on terminal → applied (url written)"
@@ -1540,7 +1540,7 @@ if [[ "$rc" == "1" && "$status_after" == "completed" ]]; then
 else
   fail "(rm3) review-rounds terminal guard — rc=$rc status='$status_after'"
 fi
-rc_force=$(sct_rc review-rounds 9999 --set 2 --force)
+rc_force=$(sct_rc review-rounds 9999 --set 2 --force --force-reason "selftest crash-recovery simulation of an operator waiver")
 rounds_set=$(sct get 9999 '.codeReviewRounds')
 if [[ "$rc_force" == "0" && "$rounds_set" == "2" ]]; then
   pass "(rm3f) review-rounds --force on terminal → applied (count written)"
@@ -1559,7 +1559,7 @@ if [[ "$rc" == "1" && "$status_after" == "completed" ]]; then
 else
   fail "(rm4) verify-attempts terminal guard — rc=$rc status='$status_after'"
 fi
-out_force=$(sct verify-attempts 9999 --incr FORMAT --force)
+out_force=$(sct verify-attempts 9999 --incr FORMAT --force --force-reason "selftest crash-recovery simulation of an operator waiver")
 rc_force=$?
 if [[ "$rc_force" == "0" && "$out_force" == "1" ]]; then
   pass "(rm4f) verify-attempts --force on terminal → applied (count=1 echoed)"
@@ -1578,7 +1578,7 @@ if [[ "$rc" == "1" && "$status_after" == "completed" ]]; then
 else
   fail "(rm5) slice-set terminal guard — rc=$rc status='$status_after'"
 fi
-rc_force=$(sct_rc slice-set 9999 --current 1 --branch claude/acme-9999 --worktree-base main --pr-base main --force)
+rc_force=$(sct_rc slice-set 9999 --current 1 --branch claude/acme-9999 --worktree-base main --pr-base main --force --force-reason "selftest crash-recovery simulation of an operator waiver")
 slice_set=$(sct get 9999 '.currentSlice')
 if [[ "$rc_force" == "0" && "$slice_set" == "1" ]]; then
   pass "(rm5f) slice-set --force on terminal → applied (currentSlice written)"
@@ -1597,7 +1597,7 @@ if [[ "$rc" == "1" && "$status_after" == "completed" ]]; then
 else
   fail "(rm6) checkpoint terminal guard — rc=$rc status='$status_after'"
 fi
-rc_force=$(sct_rc checkpoint 9999 5 --json '{"x":1}' --force)
+rc_force=$(sct_rc checkpoint 9999 5 --json '{"x":1}' --force --force-reason "selftest crash-recovery simulation of an operator waiver")
 ckpt_set=$(sct get 9999 '.stageCheckpoint["5"].x')
 if [[ "$rc_force" == "0" && "$ckpt_set" == "1" ]]; then
   pass "(rm6f) checkpoint --force on terminal → applied (payload written)"
@@ -1633,7 +1633,7 @@ if [[ "$rc" == "1" && "$status_after" == "completed" ]]; then
 else
   fail "(rm8) deviations-add terminal guard — rc=$rc status='$status_after'"
 fi
-rc_force=$(sct_rc deviations-add 9999 --kind scope-creep --note "post-terminal" --force)
+rc_force=$(sct_rc deviations-add 9999 --kind scope-creep --note "post-terminal" --force --force-reason "selftest crash-recovery simulation of an operator waiver")
 len_set=$(sct get 9999 '.stageCheckpoint."7".deviations | length')
 if [[ "$rc_force" == "0" && "$len_set" == "1" ]]; then
   pass "(rm8f) deviations-add --force on terminal → applied (deviation appended)"
@@ -1904,7 +1904,7 @@ sct init 9995 --run-id "r$$" >/dev/null
 sct set-stage 9995 5 --status started >/dev/null
 sct mark-failed 9995 --reason unit-test-mutation-reviewer-block --stage 5 >/dev/null
 rc=$(sct_rc stage-substatus 9995 --stage 5 --key unitTestMutationReview --value completed)
-rcf=$(sct_rc stage-substatus 9995 --stage 5 --key unitTestMutationReview --value completed --force)
+rcf=$(sct_rc stage-substatus 9995 --stage 5 --key unitTestMutationReview --value completed --force --force-reason "selftest crash-recovery simulation of an operator waiver")
 if [[ "$rc" == "1" && "$rcf" == "0" ]]; then
   pass "(ut9) stage-substatus terminal guard (reject w/o --force, apply with --force)"
 else
@@ -1954,7 +1954,7 @@ sct init 9992 --run-id "r$$" >/dev/null
 sct set-stage 9992 5 --status started >/dev/null
 sct mark-failed 9992 --reason design-source-unreachable --stage 1 >/dev/null
 rc=$(sct_rc stage-substatus 9992 --stage 5 --key designPlanReview --value implemented)
-rcf=$(sct_rc stage-substatus 9992 --stage 5 --key designPlanReview --value implemented --force)
+rcf=$(sct_rc stage-substatus 9992 --stage 5 --key designPlanReview --value implemented --force --force-reason "selftest crash-recovery simulation of an operator waiver")
 if [[ "$rc" == "1" && "$rcf" == "0" ]]; then
   pass "(df4) stage-substatus designPlanReview terminal guard (reject w/o --force, apply with --force)"
 else
@@ -2154,10 +2154,10 @@ SIDECAR_9896="${STATECTL_STATE_DIR}/9896-verify.json"
 printf '{"runId":"a-previous-run","headSha":"deadbeef","chargedHead":"","at":"1970-01-01T00:00:00Z","failedClasses":[],"status":"pass"}\n' > "$SIDECAR_9896"
 rc_stale=$(sct_rc set-stage 9896 6 --status completed)
 err_stale=$(sct_err set-stage 9896 6 --status completed)
-rc_forced=$(sct_rc set-stage 9896 6 --status completed --force)
+rc_forced=$(sct_rc set-stage 9896 6 --status completed --force --force-reason "selftest crash-recovery simulation of an operator waiver")
 # --force wrote `completed`; re-open the stage so the un-forced pass path is a
 # real test of the gate rather than a no-op on an already-completed stage.
-sct set-stage 9896 6 --status started --force >/dev/null 2>&1
+sct set-stage 9896 6 --status started --force --force-reason "selftest crash-recovery simulation of an operator waiver" >/dev/null 2>&1
 write_verify_sidecar 9896
 rc_match=$(sct_rc set-stage 9896 6 --status completed)
 if [[ "$rc_absent" == "1" && "$err_absent" == *"verifyctl.sh"* && "$err_absent" == *"does not exist"* \
@@ -2174,8 +2174,8 @@ fi
 # that is the hole a single-filename reading of the AC would have left.
 sct init 9895 --run-id "selftest-run-$$" >/dev/null
 sct target-repos-set 9895 --repos "be fe" >/dev/null
-for _n in 1 2 3 4 5; do sct set-stage 9895 "$_n" --status started --force >/dev/null 2>&1; sct set-stage 9895 "$_n" --status completed --force >/dev/null 2>&1; done
-sct set-stage 9895 6 --status started --force >/dev/null 2>&1
+for _n in 1 2 3 4 5; do sct set-stage 9895 "$_n" --status started --force --force-reason "selftest crash-recovery simulation of an operator waiver" >/dev/null 2>&1; sct set-stage 9895 "$_n" --status completed --force --force-reason "selftest crash-recovery simulation of an operator waiver" >/dev/null 2>&1; done
+sct set-stage 9895 6 --status started --force --force-reason "selftest crash-recovery simulation of an operator waiver" >/dev/null 2>&1
 sct verify-summary-set 9895 --repo be --json '{"test":"passed"}' >/dev/null
 sct verify-summary-set 9895 --repo fe --json '{"test":"passed"}' >/dev/null
 write_verify_sidecar 9895            # flat only — wrong shape for a pair run
@@ -2210,7 +2210,7 @@ fi
 reset_state
 sct init 9999 --run-id "selftest-run-$$" >/dev/null
 sct set-stage 9999 1 --status started >/dev/null
-rc=$(sct_rc set-stage 9999 1 --status completed --force)
+rc=$(sct_rc set-stage 9999 1 --status completed --force --force-reason "selftest crash-recovery simulation of an operator waiver")
 if [[ "$rc" == "0" ]]; then
   pass "(sc7) --force bypasses completion precondition"
 else
@@ -2272,7 +2272,7 @@ sct init 9998 --run-id "selftest-run-$$" >/dev/null
 for n in 1 2 3 4 5 6 7; do complete_stage 9998 "$n"; done
 sct set-stage 9998 8 --status started >/dev/null
 sct review-rounds 9998 --set 1 >/dev/null
-rc_forced=$(sct_rc set-stage 9998 8 --status completed --force)
+rc_forced=$(sct_rc set-stage 9998 8 --status completed --force --force-reason "selftest crash-recovery simulation of an operator waiver")
 if [[ "$rc_norl" == "1" && "$err_norl" == *"review-toolkit:review-lead is not in stages.8.skillsLoaded"* && "$rc_rl" == "0" && "$rc_forced" == "0" ]]; then
   pass "(sl2) stage-8 skill-load gate — unrecorded refused, recorded allowed, --force bypasses"
 else
@@ -2383,7 +2383,7 @@ rc_other=$(sct_rc comment-add 9999 --marker plan --url "https://github.example/c
 # The refusal is real, not cosmetic: with no receipt the stage still cannot close.
 rc_stage_pre=$(sct_rc set-stage 9999 8 --status completed)
 # --force is the documented crash-recovery escape, as for every other precondition.
-rc_forced=$(sct_rc comment-add 9999 --marker code-review --url "https://github.example/c/forced" --force)
+rc_forced=$(sct_rc comment-add 9999 --marker code-review --url "https://github.example/c/forced" --force --force-reason "selftest crash-recovery simulation of an operator waiver")
 # AC-2: recording the load first lets the same call through.
 reset_state
 sct init 9999 --run-id "selftest-run-$$" >/dev/null
@@ -2424,7 +2424,7 @@ reset_state
 sct init 9999 --run-id "selftest-run-$$" >/dev/null
 err_fresh=$(sct_err reclaim 9999)
 rc_fresh=$(sct_rc reclaim 9999)
-forced_verdict=$("$STATECTL" reclaim 9999 --force 2>/dev/null)
+forced_verdict=$("$STATECTL" reclaim 9999 --force --force-reason "selftest crash-recovery simulation of an operator waiver" 2>/dev/null)
 rc_forced=$?
 forced_stale=$(jq -r '.stale' <<< "$forced_verdict")
 forced_flag=$(jq -r '.forced' <<< "$forced_verdict")
@@ -2443,7 +2443,7 @@ jq '.lastUpdatedAt = "not-a-timestamp"' .claude/pipeline-state/9999.json > .clau
   && mv .claude/pipeline-state/9999.json.tmp .claude/pipeline-state/9999.json
 err_bad=$(sct_err reclaim 9999)
 rc_bad=$(sct_rc reclaim 9999)
-bad_verdict=$("$STATECTL" reclaim 9999 --force 2>/dev/null)
+bad_verdict=$("$STATECTL" reclaim 9999 --force --force-reason "selftest crash-recovery simulation of an operator waiver" 2>/dev/null)
 rc_badf=$?
 bad_age=$(jq -r '.ageMin' <<< "$bad_verdict" 2>/dev/null)
 if [[ "$rc_bad" == "1" && "$err_bad" == *"undeterminable"* && "$rc_badf" == "0" && "$bad_age" == "unknown" ]]; then
@@ -2483,15 +2483,15 @@ reset_state
 sct init 9999 --run-id "selftest-run-$$" >/dev/null
 sct set-stage 9999 1 --status started >/dev/null
 sct mark-failed 9999 --reason plan-reviewer-block >/dev/null
-err_failed=$(sct_err reclaim 9999 --force --threshold-min 0)
-rc_failed=$(sct_rc reclaim 9999 --force --threshold-min 0)
+err_failed=$(sct_err reclaim 9999 --force --force-reason "selftest crash-recovery simulation of an operator waiver" --threshold-min 0)
+rc_failed=$(sct_rc reclaim 9999 --force --force-reason "selftest crash-recovery simulation of an operator waiver" --threshold-min 0)
 reset_state
 sct init 9998 --run-id "selftest-run-$$" >/dev/null
 for n in 1 2 3 4 5 6 7 8 9; do complete_stage 9998 "$n"; done
 write_eval 9998
 write_report 9998
 sct mark-completed 9998 >/dev/null
-rc_completed=$(sct_rc reclaim 9998 --force --threshold-min 0)
+rc_completed=$(sct_rc reclaim 9998 --force --force-reason "selftest crash-recovery simulation of an operator waiver" --threshold-min 0)
 if [[ "$rc_failed" == "1" && "$err_failed" == *"NOT stale-reclaimable"* && "$rc_completed" == "1" ]]; then
   pass "(rec4) reclaim terminal exclusion — failed and completed both refused"
 else
@@ -2569,9 +2569,9 @@ fi
 # (mcg6) --force bypasses the shape check alone: a mis-shaped eval terminalizes
 # under --force, but a MISSING eval is still refused even with --force.
 printf '%s\n' "$renamed" > .claude/pipeline-state/9999-eval.json
-rc_forced=$(sct_rc mark-completed 9999 --force)
+rc_forced=$(sct_rc mark-completed 9999 --force --force-reason "selftest crash-recovery simulation of an operator waiver")
 rm -f .claude/pipeline-state/9999-eval.json
-rc_forced_missing=$(sct_rc mark-completed 9999 --force)
+rc_forced_missing=$(sct_rc mark-completed 9999 --force --force-reason "selftest crash-recovery simulation of an operator waiver")
 if [[ "$rc_forced" == "0" && "$rc_forced_missing" == "1" ]]; then
   pass "(mcg6) --force bypasses shape only — mis-shaped allowed, absent eval still refused"
 else
@@ -2582,7 +2582,7 @@ fi
 reset_state
 sct init 9999 --run-id "selftest-run-$$" >/dev/null
 complete_stage 9999 1
-rc=$(sct_rc mark-completed 9999 --force)
+rc=$(sct_rc mark-completed 9999 --force --force-reason "selftest crash-recovery simulation of an operator waiver")
 if [[ "$rc" == "1" ]]; then
   pass "(mcg4) mark-completed --force does NOT bypass the completeness gate"
 else
@@ -2632,8 +2632,8 @@ fi
 reset_state
 sct init 9999 --run-id "selftest-run-$$" >/dev/null
 sct target-repos-set 9999 --repos "be fe" >/dev/null
-for n in 1 2 3 4 5; do sct set-stage 9999 $n --status started --force >/dev/null 2>&1; sct set-stage 9999 $n --status completed --force >/dev/null 2>&1; done
-sct set-stage 9999 6 --status started --force >/dev/null 2>&1
+for n in 1 2 3 4 5; do sct set-stage 9999 $n --status started --force --force-reason "selftest crash-recovery simulation of an operator waiver" >/dev/null 2>&1; sct set-stage 9999 $n --status completed --force --force-reason "selftest crash-recovery simulation of an operator waiver" >/dev/null 2>&1; done
+sct set-stage 9999 6 --status started --force --force-reason "selftest crash-recovery simulation of an operator waiver" >/dev/null 2>&1
 rc_none=$(sct_rc set-stage 9999 6 --status completed)                 # no summaries → blocked
 sct verify-summary-set 9999 --repo be --json '{"test":"passed"}' >/dev/null
 write_verify_sidecar 9999 be                                          # per-target attestation (#212)
@@ -2655,8 +2655,8 @@ fi
 # (fresh key, NO reset_state — va4 below still reads key 9999)
 sct init 9799 --run-id "selftest-run-$$" >/dev/null
 sct target-repos-set 9799 --repos "be fe" >/dev/null
-for n in 1 2 3 4 5; do sct set-stage 9799 $n --status started --force >/dev/null 2>&1; sct set-stage 9799 $n --status completed --force >/dev/null 2>&1; done
-sct set-stage 9799 6 --status started --force >/dev/null 2>&1
+for n in 1 2 3 4 5; do sct set-stage 9799 $n --status started --force --force-reason "selftest crash-recovery simulation of an operator waiver" >/dev/null 2>&1; sct set-stage 9799 $n --status completed --force --force-reason "selftest crash-recovery simulation of an operator waiver" >/dev/null 2>&1; done
+sct set-stage 9799 6 --status started --force --force-reason "selftest crash-recovery simulation of an operator waiver" >/dev/null 2>&1
 write_verify_sidecar 9799 be                                          # per-target attestation (#212)
 write_verify_sidecar 9799 fe                                          # — isolates the content gate under test
 sct verify-summary-set 9799 --repo be --json '{"test":"passed"}' >/dev/null
@@ -3097,6 +3097,143 @@ sct set-stage 9999 8 --status started >/dev/null
 sct cross-boundary-review-add 9999 --repo fe --status completed-in-session >/dev/null
 [[ "$(sct_rc set-stage 9999 8 --status completed)" == "0" ]] \
   && pass "(cbr5) Stage-8 completes via cross-boundary-review-add writer (no raw jq)" || fail "(cbr5) rejected"
+
+reset_state
+
+# ==================== operator-authorized --force (#243): reason, mode, waivers ===
+# Scenario-first justification (CLAUDE.md): the composed acceptance path (a
+# waived run cannot reach `completed` without --accept-waivers) lives in
+# scenario-liveness-selftest.sh. The cases below pin the per-invocation
+# refusal/append INVARIANTS that no composed scenario can isolate — parse-time
+# refusal before any state read (fr1/fr2), the mode-resolution ladder
+# (am1/am2/am3), per-guard waiver multiplicity and the no-op non-append
+# (wv1/wv2/wv3), and mark-completed's refusal/accept/self-waiver triad
+# (mc1/mc2/mc3) — each a single-writer behavior, not a verdict-path composition.
+
+# (fr1) bare --force refused at parse time (no state read, no state write); a
+# "--force-reason" literal inside a value payload is NOT mis-parsed (decoy probe).
+reset_state
+sct init 9901 --run-id "selftest-run-$$" >/dev/null
+err=$(sct_err pause-add 9901 --reason session-resume --force)
+rc=$(sct_rc pause-add 9901 --reason session-resume --force)
+sct checkpoint 9901 1 --json '{"note":"--force-reason decoy inside a value token"}' >/dev/null 2>&1
+decoy_rc=$?
+if [[ "$rc" == "1" && "$err" == *"--force requires --force-reason"* && "$decoy_rc" == "0" ]]; then
+  pass "(fr1) bare --force refused pre-dispatch; --force-reason decoy inside --json value unharmed"
+else
+  fail "(fr1) rc=$rc decoy_rc=$decoy_rc err='$err'"
+fi
+
+# (fr2) a reason under 20 chars is refused identically.
+err=$(sct_err pause-add 9901 --reason session-resume --force --force-reason "too short")
+rc=$(sct_rc pause-add 9901 --reason session-resume --force --force-reason "too short")
+[[ "$rc" == "1" && "$err" == *"min 20 chars"* ]] \
+  && pass "(fr2) --force-reason under 20 chars → refused" || fail "(fr2) rc=$rc err='$err'"
+
+# (am1) state .mode=auto + env unset → --force refused outright, stderr names the
+# env-override recovery. (AC-11/AC-13: init --mode persists; refusal observable
+# with no env set.)
+reset_state
+sct init 9902 --run-id "selftest-run-$$" --mode auto >/dev/null
+mode_rec=$(sct get 9902 '.mode')
+err=$(sct_err pause-add 9902 --reason session-resume --force --force-reason "selftest crash-recovery simulation of an operator waiver")
+rc=$(sct_rc pause-add 9902 --reason session-resume --force --force-reason "selftest crash-recovery simulation of an operator waiver")
+if [[ "$mode_rec" == "auto" && "$rc" == "1" && "$err" == *"refused in autonomous mode"* && "$err" == *"DEV_PIPELINE_MODE=interactive"* ]]; then
+  pass "(am1) init --mode auto persists; --force refused with recovery-naming stderr, env unset"
+else
+  fail "(am1) mode=$mode_rec rc=$rc err='$err'"
+fi
+
+# (am2) env DEV_PIPELINE_MODE=interactive overrides state .mode=auto (the
+# attended-recovery path on a pipeline-owned state file — AC-12).
+rc=$(DEV_PIPELINE_MODE=interactive sct_rc pause-add 9902 --reason session-resume --force --force-reason "selftest crash-recovery simulation of an operator waiver")
+[[ "$rc" == "0" ]] \
+  && pass "(am2) env interactive overrides state auto → force accepted" || fail "(am2) rc=$rc"
+
+# (am3) re-stamp carve-out (AC-25): init --mode on an existing state updates
+# .mode ONLY — lastUpdatedAt (reclaim staleness anchor) untouched.
+lu_before=$(sct get 9902 '.lastUpdatedAt')
+sct init 9902 --run-id ignored --mode interactive >/dev/null
+lu_after=$(sct get 9902 '.lastUpdatedAt')
+mode_after=$(sct get 9902 '.mode')
+[[ "$mode_after" == "interactive" && "$lu_before" == "$lu_after" ]] \
+  && pass "(am3) init --mode re-stamps .mode only; lastUpdatedAt untouched" \
+  || fail "(am3) mode=$mode_after lu_before=$lu_before lu_after=$lu_after"
+
+# (wv1) a forced terminal-state bypass appends ONE waiver carrying all five
+# fields, folded into the same write as the mutation (AC-9).
+reset_state
+sct init 9903 --run-id "selftest-run-$$" >/dev/null
+sct mark-failed 9903 --reason worktree-creation-failed --stage 2 >/dev/null
+sct pause-add 9903 --reason session-resume --force --force-reason "selftest crash-recovery simulation of an operator waiver" >/dev/null
+wv=$(sct get 9903 '.waivers')
+wv_ok=$(jq -r 'length == 1 and (.[0] | (.precondition == "terminal-state") and (.stage == null) and (.subcommand == "pause-add") and ((.reason | length) >= 20) and (.at | length > 0))' <<< "$wv")
+[[ "$wv_ok" == "true" ]] \
+  && pass "(wv1) forced terminal-state bypass → one five-field waiver in the same write" || fail "(wv1) waivers=$wv"
+
+# (wv2) a forced multi-leg completion bypass appends one waiver PER fired leg
+# and the stage write itself lands in the same file (AC-9 multiplicity).
+reset_state
+sct init 9904 --run-id "selftest-run-$$" >/dev/null
+complete_stage 9904 1
+sct set-stage 9904 2 --status started >/dev/null
+# stage 2 completion with NO worktree-set: worktree leg fires; force past it.
+sct set-stage 9904 2 --status completed --force --force-reason "selftest crash-recovery simulation of an operator waiver" >/dev/null
+w2=$(sct get 9904 '.waivers')
+st2=$(sct get 9904 '.stages."2".status')
+w2_ok=$(jq -r '(length >= 1) and (map(.precondition) | index("completion-evidence:2.worktree") != null) and all(.[]; .stage == 2)' <<< "$w2")
+[[ "$w2_ok" == "true" && "$st2" == "completed" ]] \
+  && pass "(wv2) forced completion bypass → per-leg waiver(s) AND the stage write in one file" || fail "(wv2) st=$st2 waivers=$w2"
+
+# (wv3) a defensive --force under which NO guard fires appends nothing (AC-10).
+reset_state
+sct init 9905 --run-id "selftest-run-$$" >/dev/null
+sct pause-add 9905 --reason session-resume --force --force-reason "selftest crash-recovery simulation of an operator waiver" >/dev/null
+wv3=$(sct get 9905 '.waivers // "ABSENT"')
+[[ "$wv3" == "ABSENT" ]] \
+  && pass "(wv3) no-op force appends nothing — guards evaluated, none fired" || fail "(wv3) waivers=$wv3"
+
+# (wfr1) mark-completed refuses while waivers[] is non-empty; plain --force does
+# NOT bypass (AC-14). Walk stages 1-8 green, then force stage 9 closed WITHOUT
+# its pr receipt — the completion-evidence:9.commentReceipt.pr leg fires and its
+# waiver is the seed.
+reset_state
+sct init 9906 --run-id "selftest-run-$$" >/dev/null
+for s in 1 2 3 4 5 6 7 8; do complete_stage 9906 "$s"; done
+sct set-stage 9906 9 --status started >/dev/null
+sct set-stage 9906 9 --status completed --force --force-reason "selftest crash-recovery simulation of an operator waiver" >/dev/null
+seed_n=$(sct get 9906 '.waivers // [] | length')
+write_eval 9906; write_report 9906
+err=$(sct_err mark-completed 9906 --force --force-reason "selftest crash-recovery simulation of an operator waiver")
+rc=$(sct_rc mark-completed 9906 --force --force-reason "selftest crash-recovery simulation of an operator waiver")
+if [[ "$seed_n" -ge 1 && "$rc" == "1" && "$err" == *"waivers[] carries"* && "$err" == *"plain --force does not bypass"* ]]; then
+  pass "(wfr1) mark-completed refuses on non-empty waivers; --force no bypass"
+else
+  fail "(wfr1) seed=$seed_n rc=$rc err='$err'"
+fi
+
+# (wfr2) --accept-waivers completes and records waiversAccepted {at, count} (AC-15).
+rc=$(sct_rc mark-completed 9906 --accept-waivers)
+acc=$(sct get 9906 '.waiversAccepted')
+acc_ok=$(jq -r '(.at | length > 0) and (.count >= 1)' <<< "$acc" 2>/dev/null)
+[[ "$rc" == "0" && "$acc_ok" == "true" ]] \
+  && pass "(wfr2) --accept-waivers completes + records waiversAccepted" || fail "(wfr2) rc=$rc acc=$acc"
+
+# (wfr3) AC-23: forced re-terminalization of an already-terminal state (pre-
+# invocation waivers[] empty) succeeds, appending its own terminal-state waiver
+# — the refusal reads the PRE-invocation set, so a self-created waiver never
+# deadlocks its own invocation.
+reset_state
+sct init 9907 --run-id "selftest-run-$$" >/dev/null
+for s in 1 2 3 4 5 6 7 8 9; do complete_stage 9907 "$s"; done
+write_eval 9907; write_report 9907
+sct mark-completed 9907 >/dev/null
+rc=$(sct_rc mark-completed 9907 --force --force-reason "selftest crash-recovery simulation of an operator waiver")
+w7=$(sct get 9907 '.waivers')
+w7_ok=$(jq -r 'length == 1 and .[0].precondition == "terminal-state" and .[0].subcommand == "mark-completed"' <<< "$w7" 2>/dev/null)
+[[ "$rc" == "0" && "$w7_ok" == "true" ]] \
+  && pass "(wfr3) forced re-terminalization succeeds via pre-invocation read + self terminal-state waiver" \
+  || fail "(wfr3) rc=$rc waivers=$w7"
 
 reset_state
 

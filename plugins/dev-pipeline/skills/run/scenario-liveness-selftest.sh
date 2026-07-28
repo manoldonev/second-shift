@@ -754,6 +754,56 @@ bash "$START_SLICE_SH" "$SS_STATE" 3 --max-pushed x >/dev/null 2>&1; rc_badmax=$
   && pass "(ss7) usage/IO errors (missing state, non-integer total, non-integer --max-pushed) -> exit 2" \
   || fail "(ss7) usage errors — missing=$rc_missing total=$rc_badtotal max=$rc_badmax"
 
+# ---------------------------------------------------------------------------
+# Scenario: waived-run (#243) — a run that forced past a gate cannot reach the
+# terminal `completed` write without explicit operator acceptance, and an
+# autonomous-mode run cannot force at all. Composed-path, not per-tool: the
+# per-invocation refusal/append invariants live in statectl-selftest.sh
+# (fr*/am*/wv*/wfr*); what THIS scenario proves is that the waiver machinery and
+# the terminal gates COMPOSE — a forced mid-walk bypass survives seven later
+# stage transitions and still blocks the terminal write until --accept-waivers.
+
+echo "[scenario-liveness] waived-run: a forced gate bypass blocks the terminal write until accepted"
+KEY=9006
+reset_state
+sct init "$KEY" --run-id "scenario-liveness-$$" --mode auto >/dev/null
+
+# (wv-auto) The autonomous arm: with state .mode=auto (exactly what the pipeline
+# pre-flight records) and no env override, --force is refused outright — the
+# executor cannot self-waive inside its own run.
+err=$(sct_err set-stage "$KEY" 2 --status started --force --force-reason "scenario waived-run attempted autonomous self-waiver")
+rc=$(sct_rc set-stage "$KEY" 2 --status started --force --force-reason "scenario waived-run attempted autonomous self-waiver")
+[[ "$rc" -eq 1 && "$err" == *"refused in autonomous mode"* ]] \
+  && pass "(wv-auto) autonomous run cannot force: state .mode=auto refuses the waiver outright" \
+  || fail "(wv-auto) rc=$rc err='$err'"
+
+# Attended path: the operator re-stamps interactive (the documented recovery),
+# walks 1-8 green, then forces stage 9 closed without its pr receipt — the
+# completion-evidence:9.commentReceipt.pr leg fires and is waived on record.
+sct init "$KEY" --run-id ignored --mode interactive >/dev/null
+for n in 1 2 3 4 5 6 7 8; do complete_stage "$KEY" "$n"; done
+sct set-stage "$KEY" 9 --status started >/dev/null
+sct set-stage "$KEY" 9 --status completed --force --force-reason "scenario waived-run operator skips the pr receipt" >/dev/null
+waiver_n=$(sct get "$KEY" '.waivers // [] | length')
+write_report "$KEY"
+write_eval "$KEY"
+
+# The terminal write refuses — including under --force — while the waiver stands.
+rc_plain=$(sct_rc mark-completed "$KEY")
+rc_forced=$(sct_rc mark-completed "$KEY" --force --force-reason "scenario waived-run attempts to bypass the waiver refusal")
+[[ "$waiver_n" -ge 1 && "$rc_plain" -eq 1 && "$rc_forced" -eq 1 ]] \
+  && pass "(wv-block) waived run cannot reach terminal completed: plain and forced mark-completed both refused" \
+  || fail "(wv-block) waivers=$waiver_n rc_plain=$rc_plain rc_forced=$rc_forced"
+
+# Explicit acceptance is the ONLY exit: --accept-waivers completes the run and
+# the acceptance itself is durable state.
+rc=$(sct_rc mark-completed "$KEY" --accept-waivers)
+status=$(sct get "$KEY" '.status')
+acc_count=$(sct get "$KEY" '.waiversAccepted.count // 0')
+[[ "$rc" -eq 0 && "$status" == "completed" && "$acc_count" -ge 1 ]] \
+  && pass "(wv-accept) --accept-waivers is the only exit: terminal completed with waiversAccepted recorded" \
+  || fail "(wv-accept) rc=$rc status='$status' acc_count=$acc_count"
+
 echo
 echo "[scenario-liveness] summary: $PASS passed, $FAIL failed"
 exit $FAIL
