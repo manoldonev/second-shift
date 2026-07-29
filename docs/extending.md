@@ -57,6 +57,12 @@ Every `stageParams` key defaults to the plugin's current literal, so an empty co
     "planFilePattern": "{plansDir}/plan-{issueKey}{slice}.md",   // drop the shipped "acme-" prefix
     "requiredLabels": ["ready", "in-progress"],                   // your tracker's label vocabulary
     "formatGlob": "*.{ts,tsx,css,md}",
+    // Stage-6 INERT-lane override. The default inert set is JS/TS-centric and treats
+    // *.md and *.sh as zero-coverage — true for a TS app, false when shell IS the
+    // product: there, every diff classifies inert and your lint/test lanes never run.
+    // REPLACES the default outright (only replacement can remove `\.sh$`), so it is a
+    // hand-copy that won't inherit later additions. Omit the key to keep the default.
+    "inertPattern": "(\\.md$|^\\.github/workflows/.*\\.yml$)",
     "webComponentGlobs": ["src/**/*.vue"],                        // Stage-8 a11y + design-fidelity trigger — set when the FE isn't React under apps/web
     "visualCapture": {
       "baseUrl": "http://localhost:5173/",

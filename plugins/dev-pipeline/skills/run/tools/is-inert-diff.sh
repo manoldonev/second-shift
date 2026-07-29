@@ -7,15 +7,29 @@
 # pattern set below; ANY non-matching path ⇒ SUITE — the conservative default, so a path
 # that could feed the JS/TS suite always selects SUITE.
 #
-# Inert iff every path matches one of:
+# Inert iff every path matches one of (the DEFAULT set — see argv[1] below):
 #   *.md (any path) · *.sh (any path) · .github/workflows/*.yml ·
 #   .claude/**/*.{mjs,cjs,py,tsv,json,jsonl} ·
 #   .claude/second-shift/.known-extensions (exact path — extensionless) ·
 #   .prettierignore (any depth) · .gitignore (any depth)
 #
+# Input contract: argv[1] is an OPTIONAL ERE that REPLACES that default set outright.
+# Absent or empty ⇒ the shipped default, byte-for-byte today's behavior. It exists for
+# consumers whose product surface IS one of the defaulted-inert extensions: this default
+# is JS/TS-centric, so on (say) a shell-and-Markdown repo every real diff classifies inert
+# and the configured lint/test lanes never run — a false green. Such a repo sets
+# `stageParams.inertPattern` to a narrowed copy; verifyctl.sh resolves that key and passes
+# it here (the ONLY runtime caller). Replace, not merge, is deliberate: only replacement
+# can REMOVE an alternative such as `\.sh$`, which is the whole point.
+#
 # Output contract: the EXIT CODE is the contract (0 = inert, 1 = suite); the lane token
 # (`inert`/`suite`) is also echoed to stdout for callers that want the string. Callers
 # that branch on the exit code suppress the token with `>/dev/null`.
+#
+# FAIL CLOSED on an uncompilable pattern: `grep -E` exits 2, which the classifier maps to
+# SUITE plus a stderr diagnostic. Widening the inert set is the only dangerous direction
+# (it SKIPS verification), so every fallback here resolves toward SUITE — over-running the
+# suite is waste, never a false green.
 #
 # This script never computes a diff itself — each caller feeds its OWN already-correct
 # diff on stdin, so the wrong ref can never reach the classifier:
@@ -102,16 +116,41 @@
 # .gitignore / .prettierignore matches at any depth.
 INERT_RE='(\.md$|\.sh$|^\.github/workflows/.*\.yml$|^\.claude/.*\.mjs$|^\.claude/.*\.cjs$|^\.claude/.*\.py$|^\.claude/.*\.tsv$|^\.claude/.*\.jsonl?$|^\.claude/second-shift/\.known-extensions$|(^|/)\.prettierignore$|(^|/)\.gitignore$)'
 
+# The effective pattern: the caller's override when non-empty, else the shipped default.
+# `${1:-…}` folds "absent" and "empty" into the same fallback deliberately — a config key
+# resolved to "" (jq `// ""` on an absent key) must behave exactly like no key at all. An
+# empty ERE matches EVERY line, so treating it literally would classify every diff inert:
+# the whole repo silently unverified, the exact failure this override exists to prevent.
+PATTERN="${1:-$INERT_RE}"
+
 # inert iff there is NO line that fails to match. `grep -vE` selects the non-inert paths;
 # if it selects any (exit 0) the diff is SUITE, otherwise (exit 1) it is INERT. Output is
 # discarded — only the exit code matters. This reuses the exact grep evaluation the
 # Stage-6 inline idiom used (`grep -vE … && LANE=suite || LANE=inert`), so classification
 # is byte-identical. `grep -vE` (not `grep -qvE`) is deliberate: `-q` short-circuits and
 # trips a BSD-grep early-exit quirk, whereas plain `-vE` reproduces the original exit code.
-if grep -vE "$INERT_RE" >/dev/null; then
-  echo suite
-  exit 1
-else
-  echo inert
-  exit 0
-fi
+#
+# The rc is captured rather than branched on directly, because grep has THREE outcomes and
+# the old `if/else` collapsed two of them: rc 2 (uncompilable pattern) took the else arm
+# and reported INERT — a typo'd override would have silently skipped verification
+# repo-wide. Each rc now maps explicitly.
+grep -vE "$PATTERN" >/dev/null
+rc=$?
+
+case "$rc" in
+  0)
+    echo suite
+    exit 1
+    ;;
+  1)
+    echo inert
+    exit 0
+    ;;
+  *)
+    echo "is-inert-diff: uncompilable inert pattern (grep -E rc=$rc) — failing closed to SUITE." >&2
+    echo "is-inert-diff:   pattern: $PATTERN" >&2
+    echo "is-inert-diff:   fix the stageParams.inertPattern value in your second-shift config." >&2
+    echo suite
+    exit 1
+    ;;
+esac

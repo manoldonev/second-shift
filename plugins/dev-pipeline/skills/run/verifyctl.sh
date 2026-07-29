@@ -212,6 +212,19 @@ load_config() {
   set -f
   eval "FORMAT_GLOB_ALTS=( $FORMAT_GLOB )"
   [[ "$_had_noglob" == off ]] && set +f
+
+  # resolve stageParams.inertPattern — the INERT-lane classifier override, passed
+  # through to tools/is-inert-diff.sh at the single call site below. Absent key =>
+  # "" => the classifier keeps its shipped JS/TS default, so an empty config is
+  # byte-for-byte today's behavior. Same shape as formatGlob above: one global
+  # string a consumer overrides wholesale.
+  #
+  # Resolution lives HERE rather than in the classifier because verifyctl already
+  # anchors $cfg through --git-common-dir, so it resolves the MAIN checkout's
+  # config from inside a worktree. A self-resolving classifier would have to pick a
+  # root, and picking the worktree would make a gitignored override silently vanish
+  # -- reintroducing the false green this key exists to remove.
+  INERT_PATTERN=$(jq -r '.stageParams.inertPattern // ""' "$cfg")
 }
 
 sget() { # $1 = issue, $2 = jq path — statectl get with error passthrough
@@ -328,10 +341,12 @@ cmd_run() {
   # ---- changed files + lane (via the canonical classifier) ----
   local changed
   changed=$(git -C "$wt" diff --name-only "${merge_base}..HEAD")
+  # INERT_PATTERN is the resolved stageParams.inertPattern ("" when unset); the
+  # classifier folds absent and empty into its shipped default.
   local lane="SUITE"
   if [[ -z "$changed" ]]; then
     lane="INERT"
-  elif bash "$IS_INERT" <<< "$changed" >/dev/null; then
+  elif bash "$IS_INERT" "$INERT_PATTERN" <<< "$changed" >/dev/null; then
     lane="INERT"
   fi
 
