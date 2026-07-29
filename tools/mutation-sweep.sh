@@ -344,7 +344,12 @@ fi
 # pairing survives the copy.
 SANDBOX="$(mktemp -d -t mutation-sweep-sandbox.XXXXXX)" || die "mktemp -d failed"
 rmdir "$SANDBOX" 2>/dev/null
-# shellcheck disable=SC2329 # invoked indirectly by the EXIT/INT/TERM trap below
+# Both codes, deliberately: shellcheck renamed this diagnostic mid-version and the two
+# releases disagree on where they hang it. >=0.10 reports SC2329 on the FUNCTION; 0.9,
+# which is what `apt-get install shellcheck` still yields on the ubuntu runner, reports
+# SC2317 on each command in the BODY. Suppressing only the newer code is clean locally
+# and red in CI. A directive on the function line scopes to the whole body for both.
+# shellcheck disable=SC2317,SC2329 # invoked indirectly by the EXIT/INT/TERM trap below
 cleanup() {
   git worktree remove --force "$SANDBOX" >/dev/null 2>&1
   rm -rf "$SANDBOX" 2>/dev/null
