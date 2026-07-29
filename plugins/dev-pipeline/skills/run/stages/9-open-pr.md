@@ -346,7 +346,13 @@ After every PR in `prs` has its URL recorded, invoke the cost-block sub-step to 
 # worktree top, not the control root. Operators of a truly foreign cwd (no git link
 # back to control) set STATECTL_STATE_DIR themselves; see cost-tracking-setup.md.
 export SECOND_SHIFT_REPO_ROOT="$(dirname "$(cd "$(git rev-parse --git-common-dir)" && pwd)")"
-bash pipeline-cost-block.sh "$ISSUE_NUMBER"
+# Anchor the helper to the PLUGIN checkout, exactly as Stage 6 resolves verifyctl.sh:
+# it ships at skills/run/ (a sibling of statectl.sh), NOT under skills/run/tools/, and
+# never in the de-vendored consumer repo — so a bare `bash pipeline-cost-block.sh` only
+# resolves when cwd happens to be that dir, and a tools/ guess fails ENOENT.
+COST_BLOCK="${CLAUDE_PLUGIN_ROOT:-}/skills/run/pipeline-cost-block.sh"
+[[ -x "$COST_BLOCK" ]] || COST_BLOCK="$(dirname "$(command -v statectl.sh)")/pipeline-cost-block.sh"
+bash "$COST_BLOCK" "$ISSUE_NUMBER"
 ```
 
 What it does: reads `pipelineSessions[]`, queries the OTel metrics for those sessions clamped to the run's wall-clock fence, buckets the in-fence datapoints into the `stages.{N}` windows, and appends a cost block to each PR body — idempotent on the `<!-- pipeline-cost-block -->` marker. The mechanism, the write identity (bot wrapper vs operator `gh`), and the full `costBlockApplied` string catalog are specified in [`cost-tracking-setup.md`](../cost-tracking-setup.md).
