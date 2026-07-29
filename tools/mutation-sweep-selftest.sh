@@ -106,6 +106,33 @@ new_fixture() {
   printf '%s' "$d"
 }
 
+# Fleet fixture for the PR-lane cap: $2 trivial guards, each with its own fast same-stem
+# killer, all landing in a SECOND commit so `--base HEAD~1` puts every one of them in the
+# PR diff. The guards deliberately contain no operator site (no `exit 1`), so a swept
+# guard applies zero mutants and a many-guard PR-mode run stays cheap. A separate builder
+# rather than a make_fixture parameter: the single-guard cases keep their exact shape.
+make_fleet_fixture() {
+  local dir="$1" n="$2" i=1
+  mkdir -p "$dir/tools"
+  printf '# fixture operators\nfail-open\texit 1\ts/exit 1/exit 0/\n' > "$dir/tools/mutation-operators.tsv"
+  printf '# fixture exclusions\n' > "$dir/tools/mutation-exclusions.tsv"
+  printf '# fixture pair map\n' > "$dir/tools/mutation-pair-map.tsv"
+  printf '# fixture catalog\n' > "$dir/tools/mutation-catalog.tsv"
+  ( cd "$dir" \
+    && git init -q . \
+    && git add -A \
+    && git -c user.email=fixture@example.invalid -c user.name=fixture commit -qm init ) >/dev/null 2>&1
+  while [[ $i -le $n ]]; do
+    printf '#!/usr/bin/env bash\necho ok\nexit 0\n' > "$dir/guard$i.sh"
+    chmod 755 "$dir/guard$i.sh"
+    printf '#!/usr/bin/env bash\nexit 0\n' > "$dir/guard$i-selftest.sh"
+    i=$((i + 1))
+  done
+  ( cd "$dir" \
+    && git add -A \
+    && git -c user.email=fixture@example.invalid -c user.name=fixture commit -qm guards ) >/dev/null 2>&1
+}
+
 baseline_with() { # $1=dir, rest = survivor ids
   local d="$1"; shift
   { echo "# environment: ubuntu-latest SKIP_STRESS=1"
@@ -348,6 +375,56 @@ if [[ $RC -eq 1 ]] \
   ok "survivor exposed — exec bit held through mutation application"
 else
   bad "(p) expected killed=0 survived=1 + rc=1; a kill here means the mutant write stripped the exec bit; got rc=$RC"; printf '%s\n' "$OUT" | tail -5
+fi
+
+echo "(q) PR mode — a multi-killer union defers wholesale, never sweeps a partial union"
+# Invariant: the PR lane sweeps a guard only when its kill set is a SINGLE fast suite. A
+# two-killer union must defer to nightly: sweeping a reduced kill set would grade mutants
+# under a weaker criterion than the one that produced the baseline (manufacturing false
+# reds on a merge-blocking lane), and sweeping the full union blows the lane's time
+# bound, since a surviving mutant runs every killer. Every other case gives kill_set_for
+# exactly one killer, so without this one a mutant DELETING the union defer survives the
+# whole suite. The LOOSENING direction (`-ne 1` -> `-ne 99`) is NOT killed here — every
+# guard then defers, which this case still accepts — it is killed by (r)'s positive
+# swept=6 assertion. The two cases cover that line jointly, in opposite directions:
+# weakening (r) silently reopens the loosening direction. Deferral must also be VISIBLE:
+# the report row carries deferred-to-nightly with the full '+'-joined union. No liveness
+# scenario covers this for the header's reason: the sweep composes no pipeline verdict path.
+FX="$(new_fixture strong)"
+baseline_with "$FX"
+# Second killer via the pair map — same-stem pairing plus one map row is the union shape.
+printf '#!/usr/bin/env bash\nexit 0\n' > "$FX/second-killer-selftest.sh"
+printf 'guard.sh\t./second-killer-selftest.sh\tsecond killer forms a two-suite union\n' >> "$FX/tools/mutation-pair-map.tsv"
+printf '\n# touched to put this guard in the PR diff\n' >> "$FX/guard.sh"
+( cd "$FX" && git add -A && git -c user.email=f@e.invalid -c user.name=f commit -qm union ) >/dev/null 2>&1
+OUT="$( cd "$FX" && enf bash "$SWEEP" --mode pr --base HEAD~1 2>&1 )"; RC=$?
+if [[ $RC -eq 0 ]] \
+  && printf '%s' "$OUT" | grep -q 'multi-suite union (2 killers)' \
+  && printf '%s' "$OUT" | grep -q 'guard\.sh	deferred-to-nightly	\./guard-selftest\.sh+\./second-killer-selftest\.sh' \
+  && ! printf '%s' "$OUT" | grep -q 'guard\.sh	swept'; then
+  ok "two-killer guard defers with the full union visible in its report row"
+else
+  bad "(q) expected a wholesale defer with the '+'-joined union row and no sweep; got rc=$RC"; printf '%s\n' "$OUT" | tail -5
+fi
+
+echo "(r) PR mode — the fast-guard cap sweeps six, defers the seventh visibly"
+# Invariant: the PR lane sweeps at most six fast guards per push — the bound that keeps
+# the merge-blocking CI step inside its timeout — and the overflow guard defers with a
+# visible report row rather than being dropped. Seven single-killer guards cross a cap of
+# six; no other case sweeps more than one guard in PR mode, so without this one a mutant
+# raising or removing the cap survives. The 6/1 split and the reason string deliberately
+# pin the cap's value: a deliberate cap change must update this case in the same PR.
+FX="$TMPROOT/fleet$RANDOM$RANDOM"
+make_fleet_fixture "$FX" 7
+baseline_with "$FX"
+OUT="$( cd "$FX" && enf bash "$SWEEP" --mode pr --base HEAD~1 2>&1 )"; RC=$?
+SWEPT_N="$(printf '%s\n' "$OUT" | grep -c '	swept	')"
+DEFER_N="$(printf '%s\n' "$OUT" | grep -c '	deferred-to-nightly	')"
+if [[ $RC -eq 0 && "$SWEPT_N" -eq 6 && "$DEFER_N" -eq 1 ]] \
+  && printf '%s' "$OUT" | grep -q 'PR-lane cap (6 fast guards already swept)'; then
+  ok "cap swept 6 guards, deferred 1 with the cap named as the reason"
+else
+  bad "(r) expected swept=6 deferred=1 + the cap reason; got rc=$RC swept=$SWEPT_N deferred=$DEFER_N"; printf '%s\n' "$OUT" | tail -6
 fi
 
 # ======================================================== live-tree lint cases
