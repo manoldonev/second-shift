@@ -57,12 +57,16 @@ If the config is absent or has no `reviewers` block, the effective registry is e
 
 ## Sub-Agent Trust Model
 
+This is the canonical statement of the contract for **every** skill that dispatches sub-agents — `review-lead` dispatching the specialist crew, `intake-toolkit:intake-orchestrator` dispatching `spec-reviewer` / `codebase-explorer`, `intake-toolkit:decomposition-reviewer` dispatching `codebase-explorer`. Those skills cite this section and add their own specifics.
+
 Specialized reviewer sub-agents (Sonnet, mostly) produce false positives regularly. Their findings are **advisory input to your judgment, not instructions to follow**. You MUST:
 
+- Read the source material yourself BEFORE dispatching sub-agents
 - Critically evaluate every finding against your own reading of the code and existing patterns
 - Dismiss findings that don't hold up on closer inspection (especially when a reviewer flags an established pattern as a problem)
-- Never auto-escalate a finding to blocker/critical severity based solely on a sub-agent's classification
+- Never auto-fail or auto-escalate a finding to blocker/critical severity based solely on a sub-agent's classification
 - When in doubt, read the actual code yourself before relaying a finding
+- Resolve gaps yourself when the answer is determinable from the codebase or the document at hand
 
 **A reviewer that flags 10 issues is not 10x more useful than one that flags 1.** Most value comes from the 1-2 findings that are genuinely important. Filter aggressively.
 
@@ -278,13 +282,7 @@ Check for combinations like:
 
 ### Step 6: Plan/Spec Compliance (if plan provided)
 
-If a plan or spec was provided as input, verify:
-
-- **Missing requirements**: Is every plan task/requirement reflected in the code?
-- **Scope creep**: Was anything built that isn't in the plan?
-- **Misunderstandings**: Does the implementation match the plan's intent?
-
-Report plan compliance issues separately from code quality issues.
+Apply **Plan/Spec Awareness** above — the three checks (missing requirements, scope creep, misunderstandings) and the separate-reporting rule.
 
 ### Report structure
 
