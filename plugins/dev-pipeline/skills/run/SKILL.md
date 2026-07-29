@@ -200,6 +200,8 @@ Routing-gate sites read `DEV_PIPELINE_MODE` directly:
 - `DEV_PIPELINE_MODE` set + invalid → exit 3 with stderr error.
 - `DEV_PIPELINE_MODE` unset or empty → default to `auto`.
 
+**Mode transport + `--force` asymmetry (#243).** The session's resolved mode reaches `statectl` through STATE, not env — a one-shot `export` cannot reach later harness Bash calls (each is a fresh shell), so Stage 1.A's `statectl init` passes `--mode <resolved>` and every resume entry re-asserts it (`stages/1-intake.md`). statectl's `--force` gate resolves env-literal-if-set → state `.mode` → not-auto, and **never mirrors this section's unset→`auto` default**: an unset var with no state `.mode` is an operator shell, not an auto run. A resolved `auto` refuses `--force` outright — the autonomous path cannot self-waive; the sanctioned recovery is the env override on the command itself (`DEV_PIPELINE_MODE=interactive statectl … --force --force-reason "…"`). Every accepted `--force` requires a `--force-reason` and records one `waivers[]` entry per bypassed guard; `mark-completed` refuses a waived run without `--accept-waivers` (state-schema.md "Operator-authorized `--force`").
+
 ## Skill-body failure contract
 
 **Universal invariant — no input-requesting prompts on any code path** (happy or failure) under the default `auto` mode. The pipeline runs in a Claude Code session but the skill body never blocks on user input. Input-requesting prompts are an explicit opt-in via `DEV_PIPELINE_MODE=interactive`.
@@ -402,9 +404,9 @@ Every stage transition writes state to `.claude/pipeline-state/{issue-number}.js
 **Load-bearing state mutations are owned by [`statectl.sh`](./statectl.sh)** — a sibling Bash helper that enforces atomic field bundles, closed-enum validation, and server-clock timestamps. CLI surface:
 
 ```
-statectl.sh init <issue> --run-id <id>
+statectl.sh init <issue> --run-id <id> [--mode auto|interactive]
 statectl.sh get <issue> <jq-path>
-statectl.sh set-stage <issue> <N> --status started|completed [--force]
+statectl.sh set-stage <issue> <N> --status started|completed [--force --force-reason <text>]
 statectl.sh checkpoint <issue> <N> --json <payload>
 statectl.sh worktree-set <issue> --path <worktreePath> --branch <branch> [--repo <id>] [--base <ref>]
 statectl.sh pr-add <issue> --branch <branch> --url <pr-url> [--repo <id>]
@@ -415,8 +417,8 @@ statectl.sh verify-summary-set <issue> --json <verifySummary> [--repo <id>]
 statectl.sh quality-pass-set <issue> --json <payload>
 statectl.sh pause-add <issue> --reason <r> [--force]
 statectl.sh deviations-add <issue> --kind <enum> --note <s> [--plan-section <s>] [--file <f>] [--line <n>] [--stage <N>]
-statectl.sh mark-failed <issue> --reason <enum> [--stage <N>] [--json <details>] [--force]
-statectl.sh mark-completed <issue> [--force]
+statectl.sh mark-failed <issue> --reason <enum> [--stage <N>] [--json <details>] [--force --force-reason <text>]
+statectl.sh mark-completed <issue> [--force --force-reason <text>] [--accept-waivers]
 statectl.sh build-failure-context --reason <enum> [--stage <N>] [--kv k=v]... [--kv-num k=v]... [--kv-lines k=v]...
 statectl.sh build-checkpoint-7 --issue <N> --branch <B> --head <H> --worktree <W> [--plan <P>] [--changed-files <json>] [--verify-summary <json>] [--deviations <json>] [--free-note <s>] [--plan-risks <json>] [--doc-updater-findings <md>] [--quality-pass-summary <json>]
 ```
@@ -471,6 +473,12 @@ Stages that write additional stage-specific fields carry an inline **State:** li
 2. If `status: "in_progress"` — resume from the `currentStage`. Print a one-line summary of what was already completed. **Then record this session for cost attribution**, before doing any stage work:
 
    ```bash
+   # Re-assert the resumed session's mode FIRST (#243) — init --mode re-stamps .mode
+   # even on the existing state (the documented idempotency carve-out), so a run
+   # resumed under a different mode cannot keep the stale one. Substitute the mode
+   # THIS session resolved at Invocation Routing as a literal.
+   MODE="${DEV_PIPELINE_MODE:-auto}"
+   bash statectl.sh init "$ISSUE_NUMBER" --run-id "$(bash statectl.sh get "$ISSUE_NUMBER" '.runId')" --mode "$MODE"
    if [[ -n "${CLAUDE_CODE_SESSION_ID:-}" ]]; then
      bash statectl.sh pipeline-session-add "$ISSUE_NUMBER" \
        --session-id "$CLAUDE_CODE_SESSION_ID" --source interactive

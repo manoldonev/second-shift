@@ -359,7 +359,7 @@ A missing prerequisite records a descriptive `costBlockApplied` string and exits
 
 **Setup:** see [`cost-tracking-setup.md`](../cost-tracking-setup.md) for OTel collector install + telemetry env vars. There is no per-engineer hook-wiring step.
 
-**State:** After the sub-step returns, write the terminal top-level status via `statectl`: `statectl.sh mark-completed "$ISSUE_NUMBER"` (atomic `status: "completed"` + `lastUpdatedAt` bundle; refuses to overwrite an already-terminal state without `--force`). Order it AFTER `set-stage 9 --status completed` — `set-stage` rejects mutations once the top-level status is terminal.
+**State:** After the sub-step returns, write the terminal top-level status via `statectl`: `statectl.sh mark-completed "$ISSUE_NUMBER"` (atomic `status: "completed"` + `lastUpdatedAt` bundle; refuses to overwrite an already-terminal state without a reason-carrying `--force` from an attended shell — `DEV_PIPELINE_MODE=interactive`, #243 — and refuses a waived run outright without `--accept-waivers`). Order it AFTER `set-stage 9 --status completed` — `set-stage` rejects mutations once the top-level status is terminal.
 
 `mark-completed` additionally enforces three terminal gates, **not** bypassed by `--force`: every stage 1–9 must be `completed`; the Post-Run Eval file (`.claude/pipeline-state/{issue}-eval.json`, SKILL.md "Post-Run Eval") must exist with a plausible score — **so the eval write must precede `mark-completed`**; and the run report (`.claude/pipeline-state/{issue}-report.md`, the "Run report" sub-step above) must exist and carry its marker plus real content.
 
