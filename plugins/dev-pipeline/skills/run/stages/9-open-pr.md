@@ -329,7 +329,7 @@ dev-pipeline run: ${RUN_ID}
 - For single-PR runs: `$GH_BOT issue edit $ISSUE_NUMBER --remove-label in-progress` (use regular `gh` for `--remove-assignee @me` separately)
 - For stacked-PR runs: do NOT remove `in-progress` until all slices are done (handled by the outer loop completion step).
 
-**State:** `prs[BRANCH] = { url: "<PR URL>" }` is recorded for every PR opened in this stage via `statectl pr-add` (see the create block above) — ordered BEFORE the Stage 9 completion write.
+**State:** a `{ url, branch, repo }` record is written for every PR opened in this stage via `statectl pr-add` (see the create block above) — ordered BEFORE the Stage 9 completion write. The KEY is run-shape-specific: branch-keyed on the single-repo / stacked path, repo-keyed under `--repo` on a be-fe-pair run (`:109` above). One PR always yields exactly one `.prs` entry — `pr-add --repo` drops any same-URL entry left under a different key, so re-running the correct call repairs a mis-keyed write instead of adding a duplicate. See `state-schema.md` `.prs`.
 
 ## Cost-block sub-step (in-band, opt-in)
 
@@ -359,7 +359,7 @@ A missing prerequisite records a descriptive `costBlockApplied` string and exits
 
 **Setup:** see [`cost-tracking-setup.md`](../cost-tracking-setup.md) for OTel collector install + telemetry env vars. There is no per-engineer hook-wiring step.
 
-**State:** After the sub-step returns, write the terminal top-level status via `statectl`: `statectl.sh mark-completed "$ISSUE_NUMBER"` (atomic `status: "completed"` + `lastUpdatedAt` bundle; refuses to overwrite an already-terminal state without `--force`). Order it AFTER `set-stage 9 --status completed` — `set-stage` rejects mutations once the top-level status is terminal.
+**State:** After the sub-step returns, write the terminal top-level status via `statectl`: `statectl.sh mark-completed "$ISSUE_NUMBER"` (atomic `status: "completed"` + `lastUpdatedAt` bundle; refuses to overwrite an already-terminal state without a reason-carrying `--force` from an attended shell — `DEV_PIPELINE_MODE=interactive`, #243 — and refuses a waived run outright without `--accept-waivers`). Order it AFTER `set-stage 9 --status completed` — `set-stage` rejects mutations once the top-level status is terminal.
 
 `mark-completed` additionally enforces three terminal gates, **not** bypassed by `--force`: every stage 1–9 must be `completed`; the Post-Run Eval file (`.claude/pipeline-state/{issue}-eval.json`, SKILL.md "Post-Run Eval") must exist with a plausible score — **so the eval write must precede `mark-completed`**; and the run report (`.claude/pipeline-state/{issue}-report.md`, the "Run report" sub-step above) must exist and carry its marker plus real content.
 

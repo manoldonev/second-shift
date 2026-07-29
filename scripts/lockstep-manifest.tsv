@@ -9,7 +9,10 @@
 # copies together is a prose instruction. What does NOT: pairs already mechanically
 # enforced elsewhere — model tiers (check-model-tiers.sh), the reviewer registry, the
 # section catalog, statectl's codegen byte-match (statectl-selftest drift-check), the
-# text-contract carriers, config-lint vs schema. Duplicate machinery is worse than none.
+# text-contract carriers, config-lint vs schema (the modelOverrides tier enum is driven
+# from both sides in config-lint-selftest.sh — every schema-declared tier must be accepted,
+# and config-lint's rejection message must name exactly the schema's enum). Duplicate
+# machinery is worse than none.
 #
 # Decision-Ledger provenance enum. ledger-lint.sh holds the canonical literal; plan-lint's
 # HUMAN_PROVENANCE is a deliberate narrowing to the human-attributed values, so this is
@@ -88,3 +91,41 @@ stage8-secondary-review	verbatim	plugins/dev-pipeline/skills/run/stages/8-code-r
 # BEHAVIOR is not reviewer-guarded: statectl-selftest.sh's (mc-ir1)-(mc-ir9) pin every
 # branch of the predicate, and (mc-ir2) asserts the refusal message's wording. Only the doc
 # WORDING is, and per the repo's no-prose-presence rule that is the correct tier for it.
+#
+# Test-tier map (CLAUDE.md "Where a new test goes" table ↔ docs/testing.md "Why a tier map at
+# all" table). Two representations of one routing contract: a tier added to one and not the
+# other sends the next author to the wrong file, which is how a tier accretes per-tool
+# fixtures instead of a scenario. Considered for a row and DROPPED: the two are deliberately
+# NOT parallel — CLAUDE.md's is a three-column router keyed by what you are guarding
+# ("If you are guarding… | Write it as | Lives in"), docs/testing.md's is a three-column
+# STATUS table keyed by the classic pyramid tier ("Classic tier | Here | Status"), and they
+# carry different row sets on purpose (the status table lists Adversarial and Mutation, which
+# are not places a new test goes). Forcing a shared anchorable literal would mean collapsing a
+# router and a status board into one table that serves neither reader. Reviewer-guarded: both
+# tables are short, sit in the two files every contributor reads first, and a new tier lands
+# with its own suite in the same PR.
+#
+# statectl `--repo` CLI surface (statectl.sh's header `Usage:` block + per-command usage
+# comments ↔ SKILL.md's CLI-surface listing). One contract — which flags each statectl
+# subcommand takes — stated in two places, and they drifted: `--repo` is load-bearing on a
+# be-fe-pair topology (it decides whether `.prs` is keyed by branch or repo id) and both
+# copies omitted it on four commands while the stage files documented it correctly.
+# Considered for a row and DROPPED: neither relation can express this pair. `verbatim`
+# needs a whitespace-collapsed byte match, but statectl.sh writes `<issue-number>` where
+# SKILL.md writes `<issue>`, and statectl.sh carries `[--force]` where SKILL.md does not —
+# forcing a shared literal means rewriting one file's placeholder convention purely for its
+# own guard. `subset-of` compares each block's first single-quoted pipe-enum, and no usage
+# line carries one. The statectl.sh HALF is not reviewer-guarded: statectl-selftest.sh
+# (pa11) derives the expectation from the parser itself — any command whose parser has a
+# `--repo)` arm and carries a usage line must name `--repo` in it, covering both the header
+# block and the per-command comments. Only the SKILL.md leg is reviewer-guarded, because
+# pinning it would mean grepping a literal out of a markdown file — the technique this
+# repo bans outright.
+#
+# Same-pair addendum (#243): the pre-dispatch --force-reason argv scan in statectl.sh
+# main() carries a skip-list of value-taking flags that mirrors the usage header's flag
+# vocabulary. Considered for a row and DROPPED for the same reasons as above — no
+# byte-anchorable literal spans the scan's space-delimited skip-list string and the
+# header's per-line usage forms. The behavioral guard is statectl-selftest.sh (fr1)'s
+# decoy probe: a value payload containing the literal "--force-reason" must pass through
+# unharmed, which fails if a value-taking flag is missing from the skip-list.

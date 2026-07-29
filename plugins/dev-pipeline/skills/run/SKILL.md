@@ -200,6 +200,8 @@ Routing-gate sites read `DEV_PIPELINE_MODE` directly:
 - `DEV_PIPELINE_MODE` set + invalid → exit 3 with stderr error.
 - `DEV_PIPELINE_MODE` unset or empty → default to `auto`.
 
+**Mode transport + `--force` asymmetry (#243).** The session's resolved mode reaches `statectl` through STATE, not env — a one-shot `export` cannot reach later harness Bash calls (each is a fresh shell), so Stage 1.A's `statectl init` passes `--mode <resolved>` and every resume entry re-asserts it (`stages/1-intake.md`). statectl's `--force` gate resolves env-literal-if-set → state `.mode` → not-auto, and **never mirrors this section's unset→`auto` default**: an unset var with no state `.mode` is an operator shell, not an auto run. A resolved `auto` refuses `--force` outright — the autonomous path cannot self-waive; the sanctioned recovery is the env override on the command itself (`DEV_PIPELINE_MODE=interactive statectl … --force --force-reason "…"`). Every accepted `--force` requires a `--force-reason` and records one `waivers[]` entry per bypassed guard; `mark-completed` refuses a waived run without `--accept-waivers` (state-schema.md "Operator-authorized `--force`").
+
 ## Skill-body failure contract
 
 **Universal invariant — no input-requesting prompts on any code path** (happy or failure) under the default `auto` mode. The pipeline runs in a Claude Code session but the skill body never blocks on user input. Input-requesting prompts are an explicit opt-in via `DEV_PIPELINE_MODE=interactive`.
@@ -376,6 +378,8 @@ Each LLM-dispatching stage uses a capability tier; this table maps tiers to conc
 | reasoning | claude-opus-4-8   | Architectural reasoning, multi-domain synthesis |
 | code      | claude-sonnet-4-6 | Fast, capable code generation                   |
 
+**Elevating a tier per repo (`fable`).** The shipped reasoning default stays `opus` for every dispatched agent — that is exactly what a consumer without Fable access keeps. A repo whose subscription includes Fable-class models may elevate individual judgment-dense agents through config `reviewers.modelOverrides` (e.g. `"plan-reviewer": "fable"`); the override wins over the shipped table at every dispatch site, so neither the tables nor any agent frontmatter changes. Two consequences to know before setting one. A tier the subscription cannot actually dispatch produces a dead reviewer and the gate **fails closed** on it rather than quietly proceeding — loud, but yours to undo. And `fable` is **override-only**: in a shipped dispatch table or inline literal it is a `check-model-tiers.sh` `UNKNOWN-MODEL` error by design, which is what keeps the plugin defaults portable across consumers who do not have it.
+
 ## Model Tiering
 
 Each stage has a recommended tier. Follow these unless overridden by the user:
@@ -402,24 +406,26 @@ Every stage transition writes state to `.claude/pipeline-state/{issue-number}.js
 **Load-bearing state mutations are owned by [`statectl.sh`](./statectl.sh)** — a sibling Bash helper that enforces atomic field bundles, closed-enum validation, and server-clock timestamps. CLI surface:
 
 ```
-statectl.sh init <issue> --run-id <id>
+statectl.sh init <issue> --run-id <id> [--mode auto|interactive]
 statectl.sh get <issue> <jq-path>
-statectl.sh set-stage <issue> <N> --status started|completed [--force]
+statectl.sh set-stage <issue> <N> --status started|completed [--force --force-reason <text>]
 statectl.sh checkpoint <issue> <N> --json <payload>
-statectl.sh worktree-set <issue> --path <worktreePath> --branch <branch>
-statectl.sh pr-add <issue> --branch <branch> --url <pr-url>
+statectl.sh worktree-set <issue> --path <worktreePath> --branch <branch> [--repo <id>] [--base <ref>]
+statectl.sh pr-add <issue> --branch <branch> --url <pr-url> [--repo <id>]
 statectl.sh review-rounds <issue> --set <1-3> [--exhausted]
 statectl.sh intake-brief <issue> --brief-path <path|null> --acceptance-criteria '<json-array>'
 statectl.sh plan-review-set <issue> --overall <pass|fix-and-go>
-statectl.sh verify-summary-set <issue> --json <verifySummary>
+statectl.sh verify-summary-set <issue> --json <verifySummary> [--repo <id>]
 statectl.sh quality-pass-set <issue> --json <payload>
 statectl.sh pause-add <issue> --reason <r> [--force]
 statectl.sh deviations-add <issue> --kind <enum> --note <s> [--plan-section <s>] [--file <f>] [--line <n>] [--stage <N>]
-statectl.sh mark-failed <issue> --reason <enum> [--stage <N>] [--json <details>] [--force]
-statectl.sh mark-completed <issue> [--force]
+statectl.sh mark-failed <issue> --reason <enum> [--stage <N>] [--json <details>] [--force --force-reason <text>]
+statectl.sh mark-completed <issue> [--force --force-reason <text>] [--accept-waivers]
 statectl.sh build-failure-context --reason <enum> [--stage <N>] [--kv k=v]... [--kv-num k=v]... [--kv-lines k=v]...
 statectl.sh build-checkpoint-7 --issue <N> --branch <B> --head <H> --worktree <W> [--plan <P>] [--changed-files <json>] [--verify-summary <json>] [--deviations <json>] [--free-note <s>] [--plan-risks <json>] [--doc-updater-findings <md>] [--quality-pass-summary <json>]
 ```
+
+**`--repo <id>` is REQUIRED on a `topology.type: be-fe-pair` run** for every per-repo boundary write above (`worktree-set`, `pr-add`, `verify-summary-set`, and `verify-attempts`) — **including a single-target `[FE]`-only / `[BE]`-only pair run**. Omitting it silently takes the single-repo path, which keys the record by branch (colliding across repos on a shared branch name) and stamps it with the host repo alias rather than the target. The worked per-repo loops are in [`stages/2-worktree.md`](./stages/2-worktree.md) and [`stages/9-open-pr.md`](./stages/9-open-pr.md).
 
 The two `build-*` subcommands are pure stdout builders (no state-file IO) used to construct validated state-payload JSON. Callers compose them: `mark-failed --json "$(build-failure-context ...)"` and `checkpoint 7 --json "$(build-checkpoint-7 ...)"`. The builders validate eagerly at construction; the consumers re-validate at write (defense in depth).
 
@@ -469,6 +475,12 @@ Stages that write additional stage-specific fields carry an inline **State:** li
 2. If `status: "in_progress"` — resume from the `currentStage`. Print a one-line summary of what was already completed. **Then record this session for cost attribution**, before doing any stage work:
 
    ```bash
+   # Re-assert the resumed session's mode FIRST (#243) — init --mode re-stamps .mode
+   # even on the existing state (the documented idempotency carve-out), so a run
+   # resumed under a different mode cannot keep the stale one. Substitute the mode
+   # THIS session resolved at Invocation Routing as a literal.
+   MODE="${DEV_PIPELINE_MODE:-auto}"
+   bash statectl.sh init "$ISSUE_NUMBER" --run-id "$(bash statectl.sh get "$ISSUE_NUMBER" '.runId')" --mode "$MODE"
    if [[ -n "${CLAUDE_CODE_SESSION_ID:-}" ]]; then
      bash statectl.sh pipeline-session-add "$ISSUE_NUMBER" \
        --session-id "$CLAUDE_CODE_SESSION_ID" --source interactive

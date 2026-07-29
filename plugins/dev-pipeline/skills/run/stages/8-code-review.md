@@ -44,6 +44,12 @@
    ```
 6. _(crash-recovery only)_ **Record this resume session for cost attribution:** a crash-recovery Stage 8 session is a distinct Claude session from the Stage 1–7 one, so it records its own native session UUID:
    ```bash
+   # Re-assert the resumed session's mode first (#243): init --mode re-stamps .mode on
+   # the existing state (documented carve-out) so a crash-recovery session resumed
+   # under a different mode cannot inherit the dead session's. Substitute the mode
+   # THIS session resolved at Invocation Routing as a literal.
+   MODE="${DEV_PIPELINE_MODE:-auto}"
+   bash statectl.sh init "$ISSUE_NUMBER" --run-id "$RUN_ID" --mode "$MODE"
    if [[ -n "${CLAUDE_CODE_SESSION_ID:-}" ]]; then
      bash statectl.sh pipeline-session-add "$ISSUE_NUMBER" \
        --session-id "$CLAUDE_CODE_SESSION_ID" \
@@ -183,8 +189,10 @@ for round in 1..3:
   # plan — e.g. a new helper script added to satisfy a blocker), record it in the
   # single deviations ledger so the retro/eval sees it. Record it NOW — in the same
   # round, before moving on — NOT at run end. The ledger write must precede
-  # mark-completed; once the run is terminal, deviations-add refuses without --force,
-  # and a deviation backfilled post-completion (via --force, or at /dev-pipeline:pipeline-retro
+  # mark-completed; once the run is terminal, deviations-add refuses without --force —
+  # and a pipeline-owned state carries .mode: auto, so the post-terminal backfill is the
+  # attended form: DEV_PIPELINE_MODE=interactive statectl deviations-add … --force
+  # --force-reason "<why>" (#243). A deviation backfilled post-completion (via that form, or at /dev-pipeline:pipeline-retro
   # time) is itself a silent deviation — exactly the class the retro counts.
   #   statectl.sh deviations-add "$ISSUE_NUMBER" \
   #     --kind <scope-creep|alternate-approach|deferred|surprise> \

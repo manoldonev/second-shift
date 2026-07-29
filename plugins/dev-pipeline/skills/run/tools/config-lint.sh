@@ -130,7 +130,7 @@ ERRORS=$(jq -r '
           err((.value.name? // "") == ""; "reviewers.add[" + (.key|tostring) + "].name: required")
         ) | add // [])
       + ((.modelOverrides // {}) | to_entries | map(
-          err(.value | IN("haiku","sonnet","opus") | not; "reviewers.modelOverrides." + .key + ": must be haiku|sonnet|opus")
+          err(.value | IN("haiku","sonnet","opus","fable") | not; "reviewers.modelOverrides." + .key + ": must be haiku|sonnet|opus|fable")
         ) | add // [])
     )
 

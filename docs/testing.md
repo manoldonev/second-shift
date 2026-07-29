@@ -19,7 +19,7 @@ pyramid, plus one tier that is honest about being outside CI.
 | Contract | `scripts/lockstep-manifest.tsv` + registry and schema lints (config-lint ↔ schema, model tiers, text-contract carriers) | Established |
 | Integration | `scenario-liveness-selftest.sh` — composed verdict paths through real scripts to a terminal write | Established, extending |
 | Runtime | `workflows/runtime-shim-selftest.mjs` — executes real Workflow `.mjs` bodies with injected fakes | Established (#214) |
-| E2E | Null-model full-run replay | Planned |
+| E2E | `e2e-replay-selftest.sh` — full-run replay; every receipt minted by an executed tool | Established (#217) |
 | Mutation | Repo-level sweep: canned mutants applied to guarded scripts, paired selftest must go red | Planned |
 | Adversarial | Model-tier audit workflows — **operator-run, never CI** | This document |
 
@@ -43,6 +43,15 @@ it, and say so in the commit body. This is a repo idiom, not a suggestion.
 selftests because every one of them checked a component against itself. If a new gate has a
 verdict path, extend `scenario-liveness-selftest.sh`.
 
+**Never plant what a tool could produce.** A composed scenario can still be hollow if the values
+it composes over are typed in by the harness. `scenario-lib.sh` planted every comment receipt as
+`https://github.example/c/<marker>`, so the post-a-comment → read `html_url` → record-the-receipt
+chain was never executed by anything. Worse, planting hides its own failures: the stage-7
+checkpoint plant was passing a payload keyed to another ticket, `checkpoint` rejected it, `sct`
+discarded the stderr, and both consumers walked stage 7 with no `stageCheckpoint["7"]` at all —
+green the whole time. Prefer a shim you execute over a literal you write; where no production tool
+owns the call, say so at the assertion instead of implying the literal proves something.
+
 **Characterization is allowed; silent characterization is not.** Covering a gate often means
 reaching a branch that is wrong but out of scope to fix. Pinning it is correct — an unpinned
 wrong branch is free to get quietly worse. But a case asserting broken behavior reads exactly
@@ -60,20 +69,31 @@ runtime-injected globals. That made them look untestable, and the repo settled f
 They are testable. Strip the meta block and wrap the rest:
 
 ```js
-(async (agent, parallel, pipeline, args, log, phase, budget) => { …body… })
+(async (agent, parallel, pipeline, args, log, phase, budget, workflow) => { …body… })
 ```
 
 The top-level `return` becomes a legal return from the arrow, and every injected global arrives
 as a parameter the test controls. Drive it with a behavior queue of canned agent outputs and
 assert on what the workflow actually returns.
 
-Two notes from building it:
+The mechanics live in `workflows/runtime-shim-lib.mjs` — import them. Two suites consume it:
+`runtime-shim-selftest.mjs` for per-workflow dispatch-ladder cases, and `e2e-workflow-leg.mjs`
+for the E2E replay's stage-4/5/8 legs.
+
+Notes from building it:
 
 - Model the runtime faithfully. A schema-free dispatch resolves to **text** the workflow parses
   itself; a schema-carrying dispatch resolves to an already-validated **object**. Getting this
   backwards makes cases fail for the wrong reason.
 - The meta-strip is a balanced-brace scan, not a parser. That is safe only because
   `design-sync-selftest.mjs` Case I lints every workflow for meta-literal purity.
+- `workflow` is **last** in the parameter list, and adding a global must stay an append —
+  inserting one shifts every existing positional call site, and cases then fail for reasons that
+  look like production bugs. `plan-review.mjs` and `mutation-gate.mjs` need it for their nested
+  dispatches; a workflow that never calls it is driven by omitting the argument.
+- A script that drives a workflow must `process.exit()` explicitly. The dispatch ceiling timers
+  keep node's event loop alive, so merely reaching the end of the file hangs for fifteen minutes
+  rather than returning.
 
 ## Adversarial tier (operator-run, never CI)
 
