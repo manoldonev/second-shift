@@ -378,6 +378,8 @@ Each LLM-dispatching stage uses a capability tier; this table maps tiers to conc
 | reasoning | claude-opus-4-8   | Architectural reasoning, multi-domain synthesis |
 | code      | claude-sonnet-4-6 | Fast, capable code generation                   |
 
+**Elevating a tier per repo (`fable`).** The shipped reasoning default stays `opus` for every dispatched agent — that is exactly what a consumer without Fable access keeps. A repo whose subscription includes Fable-class models may elevate individual judgment-dense agents through config `reviewers.modelOverrides` (e.g. `"plan-reviewer": "fable"`); the override wins over the shipped table at every dispatch site, so neither the tables nor any agent frontmatter changes. Two consequences to know before setting one. A tier the subscription cannot actually dispatch produces a dead reviewer and the gate **fails closed** on it rather than quietly proceeding — loud, but yours to undo. And `fable` is **override-only**: in a shipped dispatch table or inline literal it is a `check-model-tiers.sh` `UNKNOWN-MODEL` error by design, which is what keeps the plugin defaults portable across consumers who do not have it.
+
 ## Model Tiering
 
 Each stage has a recommended tier. Follow these unless overridden by the user:

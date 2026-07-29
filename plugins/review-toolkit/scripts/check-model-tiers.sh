@@ -49,6 +49,28 @@
 #   - scalar EXECUTOR_MODEL      in workflows/mutation-gate.mjs (anonymous executors —
 #     asserted against dev-pipeline SKILL.md's Model Tiering note instead)
 #
+# Error classes:
+#   MISMATCH / DANGLING / NO-FRONTMATTER  the lockstep failures above.
+#   PARSE / MISSING-TABLE / UNLOCATABLE   the script could not read what it validates.
+#   UNKNOWN-MODEL                         a model token outside opus|sonnet|haiku in a
+#                                         shipped MAP entry (the three map files) or in an
+#                                         inline `model: '<tier>'` literal (ALL FIVE parsed
+#                                         workflow files — the three map files plus
+#                                         unit-tests.mjs and plan-review.mjs). Both used to
+#                                         be SILENT: the enum lived inside the extraction
+#                                         regexes, so an unknown token was skipped entirely
+#                                         (map) or attributed to the file's scalar (inline).
+#                                         `fable` and any other non-shipped tier are
+#                                         override-only (config reviewers.modelOverrides,
+#                                         where values are never enum-checked); in shipped
+#                                         code they are an error by design.
+#
+# NOT validated: agent frontmatter tokens. `frontmatter_model` reads the value without
+# enum-checking it, deliberately — frontmatter is read from the CONSUMER root too, so a
+# repo-local reviewers.add agent may legitimately declare an override-only tier of its own.
+# A shipped agent drifting to an unknown tier while named in a table still fails, as
+# MISMATCH rather than UNKNOWN-MODEL.
+#
 # Modes:
 #   - Standalone CLI: errors -> stderr, exit 1 on drift, exit 0 if clean.
 #   - PreToolUse hook (invoked from settings.json with JSON stdin):
@@ -241,10 +263,72 @@ check_pair() {
     fi
 }
 
+# --- UNKNOWN-MODEL: tokens outside the known tier set ------------------------
+# The enum below is baked into the EXTRACTION regexes of the two scans that follow
+# this block, which is what made an out-of-enum token invisible rather than wrong:
+# the MAP grep never matched the entry (so check_pair never saw it), and the inline
+# grep's miss fell through to the file's scalar (so the dispatch was attributed to a
+# model it does not use). Both were silent — a 'gpt-4' or 'fable' entry left the
+# script green. These two scans re-read the same text with the model alternation
+# UNRESTRICTED and error on anything outside the set, so the enum-anchored parse
+# sites above/below can keep their tri-value strictness without a blind spot.
+#
+# The tier set stays opus|sonnet|haiku for SHIPPED code on purpose. `fable` is an
+# override-only tier (config reviewers.modelOverrides) — a consumer may name it
+# there, where values are never enum-checked, but a shipped table or inline literal
+# declaring it is a lint error BY DESIGN. That is the mechanical half of the
+# override-only posture. If the policy is ever lifted, extend this one constant.
+#
+# NOT guarded: agent frontmatter (`frontmatter_model` above). It is read from the
+# consumer root as well as the plugin root, so a repo-local reviewers.add agent may
+# legitimately declare an override-only tier in its own frontmatter — enum-guarding
+# it would reject exactly the per-repo expressibility modelOverrides exists to give.
+# A SHIPPED agent that drifts to an unknown tier while named in a table still fails,
+# as MISMATCH rather than UNKNOWN-MODEL, so the failure direction stays safe.
+KNOWN_TIERS_RE='opus|sonnet|haiku'
+
+# MAP entries, whole-file — the same shape the enum-anchored grep uses, minus the
+# enum. Deliberately unrestricted rather than region-extracted: it matches only
+# genuine table entries across all three MAP files today (18/18), and a future
+# non-tier `'key': 'value'` string map tripping it fails LOUD, which is the safe
+# direction for this script.
+scan_unknown_map_entries() {
+    local file="$1" tbl="$2" pair m a
+    while IFS= read -r pair; do
+        [ -z "$pair" ] && continue
+        m=$(printf '%s' "$pair" | sed -E "s/^'([^']+)': '([^']+)'$/\2/")
+        printf '%s' "$m" | grep -qE "^($KNOWN_TIERS_RE)\$" && continue
+        a=$(printf '%s' "$pair" | sed -E "s/^'([^']+)': '([^']+)'$/\1/")
+        errors+=("UNKNOWN-MODEL: $tbl declares '$a' => '$m', which is not a known tier ($KNOWN_TIERS_RE). Shipped tables carry plugin defaults only; per-repo tiers (including 'fable') belong in config reviewers.modelOverrides.")
+    done <<< "$(grep -oE "'[a-z0-9:-]+': '[^']+'" "$file")"
+}
+
+# Inline `model:` literals on agentType-bearing lines. Runs over ALL FIVE parsed
+# workflow files, not just the two scalar ones: the inline handling in the scalar
+# loop below is scoped to its own `for spec in` list, and the MAP grep above cannot
+# see an inline literal at all (`model:` is an unquoted key), so the inline
+# dispatches in the three MAP files are reached by neither. Scoping this scan to the
+# scalar pair would leave the hole open in the majority of files.
+# A `model:` that is an EXPRESSION (`modelOverrides[...] || SCALAR`) carries no
+# literal, does not match, and keeps falling through to the scalar as before.
+scan_unknown_inline_literals() {
+    local file="$1" tbl="$2" line m a
+    while IFS= read -r line; do
+        [ -z "$line" ] && continue
+        printf '%s' "$line" | grep -qE "model: '[^']+'" || continue
+        m=$(printf '%s' "$line" | sed -E "s/.*model: '([^']+)'.*/\1/")
+        printf '%s' "$m" | grep -qE "^($KNOWN_TIERS_RE)\$" && continue
+        a=$(printf '%s' "$line" | sed -E "s/.*agentType: '([^']+)'.*/\1/")
+        errors+=("UNKNOWN-MODEL: $tbl dispatches '$a' with inline model '$m', which is not a known tier ($KNOWN_TIERS_RE). Shipped dispatches carry plugin defaults only; per-repo tiers (including 'fable') belong in config reviewers.modelOverrides.")
+    done <<< "$(grep -E "agentType: '[a-z0-9:-]+'" "$file")"
+}
+
 # --- Map tables: 'agent': 'model' entries (agent may be plugin:-qualified). ---
 for tbl in code-review.mjs intake-review.mjs design-sync.mjs; do
     file="$WF/$tbl"
     [ -f "$file" ] || { errors+=("MISSING-TABLE: $file not found"); continue; }
+    scan_unknown_map_entries "$file" "$tbl"
+    scan_unknown_inline_literals "$file" "$tbl"
     while IFS= read -r pair; do
         [ -z "$pair" ] && continue
         agent=$(printf '%s' "$pair" | sed -E "s/^'([^']+)': '([^']+)'$/\1/")
@@ -263,6 +347,7 @@ for spec in "unit-tests.mjs:UNIT_TEST_MODEL" "plan-review.mjs:PLAN_REVIEWER_MODE
         errors+=("MISSING-TABLE: $file not found")
         continue
     fi
+    scan_unknown_inline_literals "$file" "$tbl"
     scalar_model=$(grep -oE "const $var = '(opus|sonnet|haiku)'" "$file" \
         | sed -E "s/.*'([^']+)'.*/\1/")
     if [ -z "$scalar_model" ]; then

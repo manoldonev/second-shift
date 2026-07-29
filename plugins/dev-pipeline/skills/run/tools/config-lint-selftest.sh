@@ -32,7 +32,7 @@ expect_violation() { # $1 = fixture, $2 = expected substring in error output
 expect_violation invalid-bad-tracker.json           "tracker.type must be github|jira"
 expect_violation invalid-pair-missing-fe.json       "be-fe-pair requires repos.be and repos.fe"
 expect_violation invalid-unknown-repo-and-tier.json "commands keyed by unknown repo ids: ghost"
-expect_violation invalid-unknown-repo-and-tier.json "reviewers.modelOverrides.security-reviewer: must be haiku|sonnet|opus"
+expect_violation invalid-unknown-repo-and-tier.json "reviewers.modelOverrides.security-reviewer: must be haiku|sonnet|opus|fable"
 expect_violation invalid-tracker-unknown-key.json   "tracker: unknown keys"
 expect_violation invalid-bot-app-unknown-key.json   "tracker.bot.app: unknown keys"
 expect_violation invalid-bad-design-provider.json   "design.provider must be figma|claude-design"
@@ -81,6 +81,58 @@ expect_violation invalid-bad-lane-shape.json        "commands.host.extraLanes[0]
 # --- #15: the two removed dead keys must be rejected with a migration note.
 expect_violation invalid-removed-commands-tiers.json "integrationTest/apiTest were removed in v2.1.6"
 expect_violation invalid-removed-gates-costtracking.json "gates.costTracking was removed in v2.1.6"
+
+# --- the modelOverrides tier enum is mirrored in schema/second-shift.config.schema.json
+# (config-lint.sh's header declares the two must stay in lockstep). Nothing enforced that
+# mirror mechanically, so a one-sided edit was silent — and the enum is exactly the kind of
+# thing that gets widened on one side only. Drive BOTH artifacts instead of grepping either:
+#   forward  — every tier the SCHEMA declares must be ACCEPTED by config-lint;
+#   backward — config-lint's rejection message must name exactly the schema's enum, in order.
+# A tier added to config-lint alone fails backward; one added to the schema alone fails forward.
+SCHEMA="$HERE/../../../../../schema/second-shift.config.schema.json"
+SCHEMA_Q='.properties.reviewers.properties.modelOverrides.additionalProperties.enum'
+if [[ ! -f "$SCHEMA" ]]; then
+  check "modelOverrides enum mirror: schema readable at $SCHEMA" 1
+else
+  TIER_TMP="$(mktemp -d)"
+  trap 'rm -rf "$TIER_TMP"' EXIT
+  while IFS= read -r tier; do
+    [[ -n "$tier" ]] || continue
+    jq -n --arg t "$tier" '{
+      configVersion: 1,
+      tracker: { type: "github" },
+      topology: { type: "standalone", repos: { app: { path: ".", baseBranch: "main" } } },
+      commands: { app: {} },
+      reviewers: { modelOverrides: { "plan-reviewer": $t } }
+    }' > "$TIER_TMP/tier.json"
+    if "$LINT" "$TIER_TMP/tier.json" > /dev/null 2>&1; then
+      check "schema tier '$tier' accepted by config-lint" 0
+    else
+      check "schema tier '$tier' accepted by config-lint" 1
+    fi
+  done < <(jq -r "${SCHEMA_Q}[]" "$SCHEMA")
+
+  # Backward: config-lint's rejection message must enumerate the schema's enum EXACTLY.
+  # Compared with `=`, not a grep — the substring form is the same false-green this repo
+  # already hit once (the assertion above used to pin a strict PREFIX of the real message,
+  # and so pinned nothing). A prefix match here is worse than useless: dropping a tier from the
+  # schema alone leaves the schema's shorter list a substring of config-lint's longer one,
+  # and the whole mirror check goes silently green in the exact direction it exists to catch.
+  EXPECTED_ENUM="$(jq -r "$SCHEMA_Q | join(\"|\")" "$SCHEMA")"
+  # `|| true`: the fixture is INVALID by construction, so $LINT exits 1 — and under the
+  # file's `set -e` a failing command substitution aborts the whole suite silently (it did,
+  # swallowing this check and every line after it until the demo exposed it).
+  ACTUAL_ENUM="$(
+    { "$LINT" "$FIX/invalid-unknown-repo-and-tier.json" 2>&1 || true; } \
+      | sed -n 's/.*reviewers\.modelOverrides\.security-reviewer: must be //p' \
+      | head -1 | tr -d '[:space:]'
+  )"
+  if [[ -n "$ACTUAL_ENUM" && "$ACTUAL_ENUM" == "$EXPECTED_ENUM" ]]; then
+    check "modelOverrides enum mirror: config-lint reports exactly the schema's '$EXPECTED_ENUM'" 0
+  else
+    check "modelOverrides enum mirror: schema says '$EXPECTED_ENUM' but config-lint reports '$ACTUAL_ENUM'" 1
+  fi
+fi
 
 # missing file → usage error (3), not a lint failure
 if "$LINT" "$FIX/does-not-exist.json" > /dev/null 2>&1; then rc=0; else rc=$?; fi

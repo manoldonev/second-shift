@@ -37,7 +37,7 @@ Do **not** attempt to inline reviewer logic in either mode. Inlining produces a 
 
 ## Caller model guidance
 
-For best synthesis quality, invoke this skill from a session running on Opus 4.x. Each specialist reviewer runs at the model tier declared in its own agent frontmatter; only the orchestration and synthesis pass uses the caller's model. Synthesis is where deduplication, triage, the Scope Completeness Gate, and the cross-reviewer self-check happen — the work that benefits most from a strong model.
+For best synthesis quality, invoke this skill from a session running on Opus 4.x — or on a Fable-class model where the subscription includes one. Each specialist reviewer runs at the model tier declared in its own agent frontmatter (or the repo's `reviewers.modelOverrides` entry, which may name `fable`); only the orchestration and synthesis pass uses the caller's model. Synthesis is where deduplication, triage, the Scope Completeness Gate, and the cross-reviewer self-check happen — the work that benefits most from a strong model.
 
 ## Maturity calibration
 

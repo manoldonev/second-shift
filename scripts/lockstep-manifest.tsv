@@ -9,7 +9,10 @@
 # copies together is a prose instruction. What does NOT: pairs already mechanically
 # enforced elsewhere — model tiers (check-model-tiers.sh), the reviewer registry, the
 # section catalog, statectl's codegen byte-match (statectl-selftest drift-check), the
-# text-contract carriers, config-lint vs schema. Duplicate machinery is worse than none.
+# text-contract carriers, config-lint vs schema (the modelOverrides tier enum is driven
+# from both sides in config-lint-selftest.sh — every schema-declared tier must be accepted,
+# and config-lint's rejection message must name exactly the schema's enum). Duplicate
+# machinery is worse than none.
 #
 # Decision-Ledger provenance enum. ledger-lint.sh holds the canonical literal; plan-lint's
 # HUMAN_PROVENANCE is a deliberate narrowing to the human-attributed values, so this is

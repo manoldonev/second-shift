@@ -172,8 +172,8 @@
         },
         "modelOverrides": {
           "type": "object",
-          "description": "Per-agent model-tier override, keyed by any agent the .mjs dispatch tables model — panel reviewers AND named workflow agents like mutation-executor (EP-4). Observed need: security-reviewer opus in one repo, sonnet in another. check-model-tiers validates .mjs tables against frontmatter + these overrides.",
-          "additionalProperties": { "enum": ["haiku", "sonnet", "opus"] }
+          "description": "Per-agent model-tier override, keyed by any agent the .mjs dispatch tables model — panel reviewers AND named workflow agents like mutation-executor (EP-4). Observed need: security-reviewer opus in one repo, sonnet in another. check-model-tiers validates .mjs tables against frontmatter + these overrides. Values must be tiers this consumer's subscription can actually dispatch — an inaccessible tier surfaces as a dead reviewer and the gate fails closed. `fable` is override-only: never a shipped default, and a check-model-tiers error if it appears in a shipped dispatch table.",
+          "additionalProperties": { "enum": ["haiku", "sonnet", "opus", "fable"] }
         }
       }
     },
