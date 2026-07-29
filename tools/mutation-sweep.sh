@@ -359,11 +359,17 @@ restore() { git -C "$SANDBOX" checkout -- "$1" 2>/dev/null; }
 
 # Splice ONE mutated line back into the file. awk-with-a-file rather than `awk -v`,
 # because -v mangles backslashes and these lines are dense with them.
+# Mutants are applied by writing THROUGH the guard's existing inode (`cat >`), never by
+# mv-ing a fresh file over it. A fresh inode is 0644, and with core.fileMode=true losing
+# the exec bit is itself a git diff: the `git diff --quiet` byte-identity gates (no-op
+# flip, catalog anchor drift) go dark, and any killer that precondition-gates on `-x`
+# fails on EVERY mutant — false kills that report a weak suite as strong. The catalog
+# tier below applies its mutants the same way for the same reason.
 splice_line() {
   local file="$1" lineno="$2" replfile="$3" out
   out="$file.mut"
   awk -v n="$lineno" 'NR==FNR{repl=$0; next} FNR==n{print repl; next} {print}' \
-    "$replfile" "$file" > "$out" && mv "$out" "$file"
+    "$replfile" "$file" > "$out" && cat "$out" > "$file" && rm -f "$out"
 }
 
 # Run one killer inside the sandbox. Kill = ANY nonzero exit; crash-kills count as kills
@@ -463,7 +469,7 @@ for guard in "${SWEEP_GUARDS[@]}"; do
       red "catalog sed program is invalid: catalog::$cid on $guard — $SED_ERR"
       restore "$guard"; continue
     fi
-    mv "$GFILE.mut" "$GFILE"
+    cat "$GFILE.mut" > "$GFILE" && rm -f "$GFILE.mut"   # write-through, not mv: see splice_line
     # LOUD anchor-drift, the check-lockstep-pairs-selftest convention: a hand-authored sed
     # that no longer applies is a BUG IN THIS FILE, not a passing mutant.
     if git -C "$SANDBOX" diff --quiet -- "$guard"; then

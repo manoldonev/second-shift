@@ -61,6 +61,12 @@ fi
 echo ok
 exit 0
 EOF
+  # 755 like the real tree (107 of 110 tracked guards). The mode is load-bearing fixture
+  # state: mutation application that replaces the guard's inode drops the exec bit, and
+  # with core.fileMode=true that mode change alone defeats every `git diff --quiet`
+  # byte-identity gate. At 644 there is no bit to lose, so (e) and (p) would pass here
+  # while dark on every real guard.
+  chmod 755 "$dir/guard.sh"
   if [[ "$killer" == "strong" ]]; then
     # Exercises the violation path, so a fail-open mutant (exit 1 -> exit 0) is caught.
     cat > "$dir/guard-selftest.sh" <<'EOF'
@@ -309,6 +315,39 @@ if [[ $RC -eq 0 ]] && [[ -s "$FX/report.tsv" ]] \
   ok "report lands at the path and is kept off stdout"
 else
   bad "(o) --report did not write the expected TSV; rc=$RC"; printf '%s\n' "$OUT" | tail -4
+fi
+
+echo "(p) mode preservation — an -x-gated weak killer must not score false kills"
+# Invariant: applying a mutant preserves the guard's file mode. Several real killers
+# precondition-gate on `-x` before exercising anything (is-inert-diff-selftest.sh,
+# audit-selftest.sh); if mutation application replaced the guard's inode, the lost exec
+# bit would fail that gate for EVERY mutant and the sweep would report this deliberately
+# weak (happy-path-only) suite as 100% killing — the exact inversion the harness exists
+# to prevent. Correct behavior: the fail-open mutant SURVIVES. No liveness scenario
+# covers this for the same reason as the header: the sweep composes no pipeline verdict
+# path. Case (e) pins the catalog tier's byte-identity gate at real-tree mode; this one
+# pins the generic tier's application site.
+FX="$(new_fixture weak)"
+cat > "$FX/guard-selftest.sh" <<'EOF'
+#!/usr/bin/env bash
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+if [ ! -x "$HERE/guard.sh" ]; then
+  echo "[self-test] FATAL: guard not executable" >&2
+  exit 1
+fi
+out="$(bash "$HERE/guard.sh" good)"
+[[ "$out" == "ok" ]] || exit 1
+exit 0
+EOF
+( cd "$FX" && git add -A && git -c user.email=f@e.invalid -c user.name=f commit -qm xgate ) >/dev/null 2>&1
+baseline_with "$FX"
+OUT="$( cd "$FX" && enf bash "$SWEEP" --mode full 2>&1 )"; RC=$?
+if [[ $RC -eq 1 ]] \
+  && printf '%s' "$OUT" | grep -q 'killed=0 survived=1' \
+  && printf '%s' "$OUT" | grep -q 'baseline-absent survivor'; then
+  ok "survivor exposed — exec bit held through mutation application"
+else
+  bad "(p) expected killed=0 survived=1 + rc=1; a kill here means the mutant write stripped the exec bit; got rc=$RC"; printf '%s\n' "$OUT" | tail -5
 fi
 
 # ======================================================== live-tree lint cases
