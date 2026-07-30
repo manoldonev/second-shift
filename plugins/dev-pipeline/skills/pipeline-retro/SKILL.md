@@ -141,4 +141,4 @@ Discrepancies: {n} — {each explained}
 {2-4 sentences: was the run's self-assessment honest? what single change most improves the next run?}
 ```
 
-Finish by giving the user the score-comparison table, the silent-deviation count (the headline number — target is always 0), and the routed-improvements list inline in the conversation.
+Finish by giving the user the score-comparison table, the silent-deviation count AND the waiver count side by side (the headline numbers — both target 0; a `waivers[]` entry is an operator-authorized bypass audited at the same altitude as a silent deviation, #243), and the routed-improvements list inline in the conversation. For a waived run, additionally verify each PR body carries the `<!-- pipeline-waivers -->` block — a waived run whose PR body lacks it is a finding (the acceptance flow requires the amend before `--accept-waivers`).

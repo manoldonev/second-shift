@@ -1,6 +1,6 @@
 # Stage 6. Verify (with Failure Classification)
 
-**First, mark the stage started** — per the global Stage write convention (SKILL.md), Stage 6 begins with `statectl set-stage "$ISSUE_NUMBER" 6 --status started` BEFORE the verify runner below. Stage 6 leads with real work, so deferring the started-write collapses `stages.6` to a 0:00 window, and `set-stage ... --status completed` then errors with "cannot complete stage 6 with no startedAt". Write `started` first.
+**First, mark the stage started** — per the global Stage write convention (SKILL.md), Stage 6 begins with `statectl set-stage "$ISSUE_NUMBER" 6 --status started` BEFORE the verify runner below. Stage 6 leads with real work, so deferring the started-write collapses `stages.6` to a 0:00 window, and `set-stage ... --status completed` then errors with "cannot complete stage 6 with no startedAt". Write `started` first. **And record the stage-file receipt in the same breath** — `statectl stage-file-read "$ISSUE_NUMBER" --stage 6 --file 6-verify.md` (#243 §3): `set-stage 6 --status completed` refuses unless stage 6's own file is recorded as read.
 
 ## Deterministic verify runner (verifyctl)
 

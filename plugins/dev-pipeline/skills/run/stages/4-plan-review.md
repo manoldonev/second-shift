@@ -1,6 +1,6 @@
 # Stage 4. Plan Review (single pass, sequenced Workflow)
 
-**First, mark the stage started** — per the global Stage write convention (SKILL.md), Stage 4 begins with `statectl set-stage "$ISSUE_NUMBER" 4 --status started` BEFORE the pre-dispatch steps below.
+**First, mark the stage started** — per the global Stage write convention (SKILL.md), Stage 4 begins with `statectl set-stage "$ISSUE_NUMBER" 4 --status started` BEFORE the pre-dispatch steps below. **And record the stage-file receipt in the same breath** — `statectl stage-file-read "$ISSUE_NUMBER" --stage 4 --file 4-plan-review.md` (#243 §3): `set-stage 4 --status completed` refuses unless stage 4's own file is recorded as read.
 
 The plan gates — `plan-reviewer`, design FE-spec review (designDriven runs), unit-test plan review (strengthen surface) — run as ONE deterministically-sequenced Workflow dispatch (`workflows/plan-review.mjs`). The script chains them strictly serially with first-block short-circuit, enforces the trinary→action mapping in JS, and returns a single consolidated verdict — the mandated dispatches cannot be individually skipped or paraphrased. The plan-reviewer emits a single trinary verdict — no revise-and-re-review loop.
 
