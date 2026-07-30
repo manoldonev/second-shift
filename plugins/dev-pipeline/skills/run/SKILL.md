@@ -414,6 +414,7 @@ statectl.sh worktree-set <issue> --path <worktreePath> --branch <branch> [--repo
 statectl.sh pr-add <issue> --branch <branch> --url <pr-url> [--repo <id>]
 statectl.sh review-rounds <issue> --set <1-3> [--exhausted]
 statectl.sh intake-brief <issue> --brief-path <path|null> --acceptance-criteria '<json-array>'
+statectl.sh successor-key-set <issue> --key <successorKey> | --none
 statectl.sh plan-review-set <issue> --overall <pass|fix-and-go>
 statectl.sh verify-summary-set <issue> --json <verifySummary> [--repo <id>]
 statectl.sh quality-pass-set <issue> --json <payload>

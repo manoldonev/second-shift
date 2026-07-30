@@ -555,8 +555,53 @@ else
   fail "(trs1) target-repos-set — out='$out' stored='$stored'"
 fi
 
+# ---------------------------------------------------------------------------
+# (sks*) successor-key-set — the sub-issues-sequential forward trailer. Stage 9
+# renders the operator-promotion line IFF this field is non-null, so what these
+# cases pin is the null being written EXPLICITLY: an absent key and a null key must
+# stay distinguishable (pre-schema state file vs "looked, found no trailer").
+reset_state
+sct init 9999 --run-id "selftest-run-$$" >/dev/null
+
+has_before=$(sct get 9999 'has("successorKey")')
+[[ "$has_before" == "false" ]] \
+  && pass "(sks1) successorKey is absent on a fresh init — not defaulted" \
+  || fail "(sks1) fresh init has successorKey — got '$has_before'"
+
+out=$(sct successor-key-set 9999 --key 265)
+stored=$(sct get 9999 '.successorKey')
+[[ "$out" == '"265"' && "$stored" == "265" ]] \
+  && pass "(sks2) successor-key-set --key: echoed and stored" \
+  || fail "(sks2) successor-key-set --key — out='$out' stored='$stored'"
+
+out=$(sct successor-key-set 9999 --none)
+has_after=$(sct get 9999 'has("successorKey")')
+isnull=$(sct get 9999 '.successorKey == null')
+[[ "$out" == "null" && "$has_after" == "true" && "$isnull" == "true" ]] \
+  && pass "(sks3) --none writes an EXPLICIT null — key present, value null (Stage 9's iff-non-null read stays total)" \
+  || fail "(sks3) --none — out='$out' has='$has_after' isnull='$isnull'"
+
+rc=$(sct_rc successor-key-set 9999 --key 1 --none)
+[[ "$rc" -eq 3 ]] \
+  && pass "(sks4) --key and --none are mutually exclusive -> rc=3" \
+  || fail "(sks4) mutual exclusion — rc=$rc (want 3)"
+
+rc=$(sct_rc successor-key-set 9999)
+[[ "$rc" -eq 3 ]] \
+  && pass "(sks5) neither --key nor --none -> usage error rc=3" \
+  || fail "(sks5) no flag — rc=$rc (want 3)"
+
+# A trailing valueless --key leaves $# at 1; an unguarded `shift 2` would fail to
+# shift and spin the arg loop forever. This case is the hang guard.
+rc=$(sct_rc successor-key-set 9999 --key)
+[[ "$rc" -eq 3 ]] \
+  && pass "(sks6) valueless --key -> rc=3, not an infinite arg loop" \
+  || fail "(sks6) valueless --key — rc=$rc (want 3)"
+
 # (psa6) pipeline-session-add: a synthetic RUN_ID-derived id (the old, never-matching
 # format) is rejected — regression guard for the cost-tracking session-id mismatch bug.
+reset_state
+sct init 9999 --run-id "selftest-run-$$" >/dev/null
 err=$(sct_err pipeline-session-add 9999 --session-id "2026-06-08T214945Z-Mac-edf895c0-slice1-stage2")
 rc=$(sct_rc pipeline-session-add 9999 --session-id "2026-06-08T214945Z-Mac-edf895c0-slice1-stage2")
 if [[ "$rc" != "0" && "$err" == *"not a native session UUID"* ]]; then
