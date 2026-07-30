@@ -372,7 +372,7 @@ fi
 
 # ────────────────────────────────────────────────────────────────────────────
 # PR cost split: divide total cost evenly across all PRs in this run.
-# Stacked-PR runs split evenly across slices; single-PR runs use factor 1.
+# A single-PR run uses factor 1; a be-fe-pair run splits across its per-repo PRs.
 # ────────────────────────────────────────────────────────────────────────────
 PR_COUNT=$(jq -r '[.prs | values[]? | select(. != null)] | length' "$STATE_FILE")
 # State exists but carries no PRs → record the skip reason (never a bare null /
@@ -467,7 +467,7 @@ render_block() {
           + " · Pipeline run: " + $dur + " min"
           + " · Sessions: " + (.totals.session_count | tostring)
           + ( if $fenceLoHm != "" then " (time-fenced " + $fenceLoHm + "–" + $fenceHiHm + ")" else "" end )
-          + ( if ($factor|tonumber) < 1 then " · Split " + (1/($factor|tonumber) | tostring) + "-way across stacked-PR slices" else "" end )
+          + ( if ($factor|tonumber) < 1 then " · Split " + (1/($factor|tonumber) | tostring) + "-way across the PRs in this run" else "" end )
           + " · Source: OTel `claude_code.cost.usage`"
       ]
     ) | .[]

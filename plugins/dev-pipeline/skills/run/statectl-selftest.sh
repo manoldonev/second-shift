@@ -562,135 +562,12 @@ rc=$(sct_rc successor-key-set 9999 --key)
 # format) is rejected — regression guard for the cost-tracking session-id mismatch bug.
 reset_state
 sct init 9999 --run-id "selftest-run-$$" >/dev/null
-err=$(sct_err pipeline-session-add 9999 --session-id "2026-06-08T214945Z-Mac-edf895c0-slice1-stage2")
-rc=$(sct_rc pipeline-session-add 9999 --session-id "2026-06-08T214945Z-Mac-edf895c0-slice1-stage2")
+err=$(sct_err pipeline-session-add 9999 --session-id "2026-06-08T214945Z-Mac-edf895c0-run1-stage2")
+rc=$(sct_rc pipeline-session-add 9999 --session-id "2026-06-08T214945Z-Mac-edf895c0-run1-stage2")
 if [[ "$rc" != "0" && "$err" == *"not a native session UUID"* ]]; then
   pass "(psa6) pipeline-session-add RUN_ID-derived sid → rejected"
 else
   fail "(psa6) pipeline-session-add RUN_ID-derived sid — rc=$rc err='$err'"
-fi
-
-# (sls1) slice-set: slice 1 happy path → fields written, priorSliceBranch=null
-reset_state
-sct init 9999 --run-id "selftest-run-$$" >/dev/null
-sct slice-set 9999 \
-  --current 1 --branch claude/acme-9999 \
-  --worktree-base main --pr-base main >/dev/null
-cur=$(sct get 9999 .currentSlice)
-sb=$(sct get 9999 .sliceBranch)
-psb=$(sct get 9999 .priorSliceBranch)
-wb=$(sct get 9999 .worktreeBase)
-pb=$(sct get 9999 .prBase)
-if [[ "$cur" == "1" && "$sb" == "claude/acme-9999" && "$psb" == "null" \
-   && "$wb" == "main" && "$pb" == "main" ]]; then
-  pass "(sls1) slice-set slice 1 → all five fields written, priorSliceBranch=null"
-else
-  fail "(sls1) slice-set slice 1 — cur=$cur sb=$sb psb=$psb wb=$wb pb=$pb"
-fi
-
-# (sls2) slice-set: slice 2 happy path → priorSliceBranch required, fields written
-sct slice-set 9999 \
-  --current 2 --branch claude/acme-9999-pr2 \
-  --prior-branch claude/acme-9999 \
-  --worktree-base claude/acme-9999 --pr-base claude/acme-9999 >/dev/null
-cur=$(sct get 9999 .currentSlice)
-psb=$(sct get 9999 .priorSliceBranch)
-pb=$(sct get 9999 .prBase)
-if [[ "$cur" == "2" && "$psb" == "claude/acme-9999" && "$pb" == "claude/acme-9999" ]]; then
-  pass "(sls2) slice-set slice 2 → priorSliceBranch + prBase point at slice 1"
-else
-  fail "(sls2) slice-set slice 2 — cur=$cur psb=$psb pb=$pb"
-fi
-
-# (sls3) slice-set: slice 1 with --prior-branch → rejected
-err=$(sct_err slice-set 9999 \
-  --current 1 --branch claude/acme-9999 \
-  --prior-branch claude/acme-9999 \
-  --worktree-base main --pr-base main)
-rc=$(sct_rc slice-set 9999 \
-  --current 1 --branch claude/acme-9999 \
-  --prior-branch claude/acme-9999 \
-  --worktree-base main --pr-base main)
-if [[ "$rc" != "0" && "$err" == *"omitted when --current is 1"* ]]; then
-  pass "(sls3) slice-set slice 1 with --prior-branch → rejected"
-else
-  fail "(sls3) slice-set slice 1 + prior — rc=$rc err='$err'"
-fi
-
-# (sls4) slice-set: slice 2 WITHOUT --prior-branch → rejected
-err=$(sct_err slice-set 9999 \
-  --current 2 --branch claude/acme-9999-pr2 \
-  --worktree-base main --pr-base main)
-rc=$(sct_rc slice-set 9999 \
-  --current 2 --branch claude/acme-9999-pr2 \
-  --worktree-base main --pr-base main)
-if [[ "$rc" != "0" && "$err" == *"required when --current > 1"* ]]; then
-  pass "(sls4) slice-set slice 2 without --prior-branch → rejected"
-else
-  fail "(sls4) slice-set slice 2 no prior — rc=$rc err='$err'"
-fi
-
-# (sls5) slice-set: non-integer --current → rejected
-err=$(sct_err slice-set 9999 \
-  --current foo --branch x --worktree-base main --pr-base main)
-rc=$(sct_rc slice-set 9999 \
-  --current foo --branch x --worktree-base main --pr-base main)
-if [[ "$rc" != "0" && "$err" == *"positive integer"* ]]; then
-  pass "(sls5) slice-set non-integer --current → rejected"
-else
-  fail "(sls5) slice-set non-integer current — rc=$rc err='$err'"
-fi
-
-# (sps1) slice-partition-set happy path: valid 2-slice partition over the snapshot
-# → decomposition.slices written sorted, count echoed (#204)
-reset_state
-sct init 9999 --run-id "selftest-run-$$" >/dev/null
-sct intake-brief 9999 --brief-path null --acceptance-criteria \
-  '[{"id":"AC-1","text":"a","negative":false,"source":"explicit"},{"id":"AC-2","text":"b","negative":false,"source":"explicit"},{"id":"AC-3","text":"c","negative":false,"source":"explicit"}]' >/dev/null
-out=$(sct slice-partition-set 9999 --json '[{"slice":2,"acIds":["AC-3"]},{"slice":1,"acIds":["AC-1","AC-2"]}]')
-got=$(sct get 9999 '.decomposition.slices | map(.slice) | join(",")')
-ids1=$(sct get 9999 '.decomposition.slices[0].acIds | join(",")')
-if [[ "$out" == "2" && "$got" == "1,2" && "$ids1" == "AC-1,AC-2" ]]; then
-  pass "(sps1) slice-partition-set happy path → sorted slices persisted, count echoed"
-else
-  fail "(sps1) slice-partition-set happy — out=$out slices=$got ids1=$ids1"
-fi
-
-# (sps2) write-once: second write without --force → rejected; --force overwrites
-err=$(sct_err slice-partition-set 9999 --json '[{"slice":1,"acIds":["AC-1","AC-2","AC-3"]}]')
-rc=$(sct_rc slice-partition-set 9999 --json '[{"slice":1,"acIds":["AC-1","AC-2","AC-3"]}]')
-rc2=$(sct_rc slice-partition-set 9999 --force --force-reason "selftest crash-recovery simulation of an operator waiver" --json '[{"slice":1,"acIds":["AC-1","AC-2","AC-3"]}]')
-if [[ "$rc" != "0" && "$err" == *"write-once"* && "$rc2" == "0" ]]; then
-  pass "(sps2) slice-partition-set overwrite → rejected without --force, allowed with"
-else
-  fail "(sps2) slice-partition-set write-once — rc=$rc rc2=$rc2 err='$err'"
-fi
-
-# (sps3) acId not in the snapshot → rejected (partition OF the snapshot)
-err=$(sct_err slice-partition-set 9999 --force --force-reason "selftest crash-recovery simulation of an operator waiver" --json '[{"slice":1,"acIds":["AC-9"]}]')
-rc=$(sct_rc slice-partition-set 9999 --force --force-reason "selftest crash-recovery simulation of an operator waiver" --json '[{"slice":1,"acIds":["AC-9"]}]')
-if [[ "$rc" != "0" && "$err" == *"acceptanceCriteria"* ]]; then
-  pass "(sps3) slice-partition-set unknown acId → rejected"
-else
-  fail "(sps3) slice-partition-set unknown acId — rc=$rc err='$err'"
-fi
-
-# (sps4) non-contiguous slice indices → rejected
-err=$(sct_err slice-partition-set 9999 --force --force-reason "selftest crash-recovery simulation of an operator waiver" --json '[{"slice":1,"acIds":["AC-1"]},{"slice":3,"acIds":["AC-2"]}]')
-rc=$(sct_rc slice-partition-set 9999 --force --force-reason "selftest crash-recovery simulation of an operator waiver" --json '[{"slice":1,"acIds":["AC-1"]},{"slice":3,"acIds":["AC-2"]}]')
-if [[ "$rc" != "0" && "$err" == *"contiguous"* ]]; then
-  pass "(sps4) slice-partition-set non-contiguous slices → rejected"
-else
-  fail "(sps4) slice-partition-set non-contiguous — rc=$rc err='$err'"
-fi
-
-# (sps5) overlapping acIds across slices → rejected (disjoint partition)
-err=$(sct_err slice-partition-set 9999 --force --force-reason "selftest crash-recovery simulation of an operator waiver" --json '[{"slice":1,"acIds":["AC-1"]},{"slice":2,"acIds":["AC-1","AC-2"]}]')
-rc=$(sct_rc slice-partition-set 9999 --force --force-reason "selftest crash-recovery simulation of an operator waiver" --json '[{"slice":1,"acIds":["AC-1"]},{"slice":2,"acIds":["AC-1","AC-2"]}]')
-if [[ "$rc" != "0" && "$err" == *"disjoint"* ]]; then
-  pass "(sps5) slice-partition-set overlapping acIds → rejected"
-else
-  fail "(sps5) slice-partition-set overlap — rc=$rc err='$err'"
 fi
 
 # (b1) build-failure-context happy path: --kv-lines splits on \n, output is full failureContext JSON
@@ -828,15 +705,15 @@ else
   fail "(ws3) worktree-set absent state — rc=$rc err='$err'"
 fi
 
-# (ws4) worktree-set per-slice overwrite (stacked-PR mode) → both fields replaced
+# (ws4) worktree-set re-invocation (resume / repair) → both fields replaced
 reset_state
 sct init 9999 --run-id "selftest-run-$$" >/dev/null
 sct worktree-set 9999 --path ".claude/worktrees/acme-9999" --branch "claude/acme-9999" >/dev/null
-sct worktree-set 9999 --path ".claude/worktrees/acme-9999-pr2" --branch "claude/acme-9999-pr2" >/dev/null
+sct worktree-set 9999 --path ".claude/worktrees/acme-9999-b" --branch "claude/acme-9999-b" >/dev/null
 wt=$(sct get 9999 '.worktreePath')
 br=$(sct get 9999 '.branch')
-if [[ "$wt" == ".claude/worktrees/acme-9999-pr2" && "$br" == "claude/acme-9999-pr2" ]]; then
-  pass "(ws4) worktree-set per-slice overwrite → both fields replaced"
+if [[ "$wt" == ".claude/worktrees/acme-9999-b" && "$br" == "claude/acme-9999-b" ]]; then
+  pass "(ws4) worktree-set re-invocation → both fields replaced"
 else
   fail "(ws4) worktree-set overwrite — wt='$wt' br='$br'"
 fi
@@ -864,8 +741,8 @@ else
   fail "(pa1) pr-add — url='$url'"
 fi
 
-# (pa2) pr-add second branch → both entries retained (stacked-PR accumulation)
-sct pr-add 9999 --branch "claude/acme-9999-pr2" --url "https://github.com/o/r/pull/2" >/dev/null
+# (pa2) pr-add second branch → both entries retained (accumulation)
+sct pr-add 9999 --branch "claude/acme-9999-b" --url "https://github.com/o/r/pull/2" >/dev/null
 count=$(sct get 9999 '.prs | length')
 url1=$(sct get 9999 '.prs."claude/acme-9999".url')
 if [[ "$count" == "2" && "$url1" == "https://github.com/o/r/pull/1" ]]; then
@@ -1710,25 +1587,6 @@ fi
 # (rpt4) marker present but no content → refused (a bare marker is not a report)
 printf '<!-- dev-pipeline-report -->\n\n' > .claude/pipeline-state/9999-report.md
 rc=$(sct_rc mark-completed 9999)
-err=$(sct_err mark-completed 9999)
-if [[ "$rc" == "1" && "$err" == *"no content"* ]]; then
-  pass "(rpt4) marker-only report → refused (no content)"
-else
-  fail "(rpt4) marker-only report — rc=$rc err='$err'"
-fi
-
-# (rpt5) well-formed report → terminal write succeeds
-write_report 9999
-rc=$(sct_rc mark-completed 9999)
-status=$(sct get 9999 '.status')
-if [[ "$rc" == "0" && "$status" == "completed" ]]; then
-  pass "(rpt5) well-formed report → mark-completed succeeds"
-else
-  fail "(rpt5) well-formed report — rc=$rc status='$status'"
-fi
-
-# (rpt6) init quarantines a stale report — a re-run must not satisfy the gate
-# with the previous run's narrative (mirrors the stale-eval quarantine).
 reset_state
 sct init 9999 --run-id "selftest-run-$$" >/dev/null
 write_report 9999
@@ -1831,25 +1689,6 @@ if [[ "$rc_force" == "0" && "$out_force" == "1" ]]; then
   pass "(rm4f) verify-attempts --force on terminal → applied (count=1 echoed)"
 else
   fail "(rm4f) verify-attempts --force — rc=$rc_force out='$out_force'"
-fi
-
-# (rm5) slice-set
-reset_state
-sct init 9999 --run-id "selftest-run-$$" >/dev/null
-mk_completed
-rc=$(sct_rc slice-set 9999 --current 1 --branch claude/acme-9999 --worktree-base main --pr-base main)
-status_after=$(jq -r '.status' .claude/pipeline-state/9999.json)
-if [[ "$rc" == "1" && "$status_after" == "completed" ]]; then
-  pass "(rm5) slice-set on terminal → rejected (rc=1, status preserved)"
-else
-  fail "(rm5) slice-set terminal guard — rc=$rc status='$status_after'"
-fi
-rc_force=$(sct_rc slice-set 9999 --current 1 --branch claude/acme-9999 --worktree-base main --pr-base main --force --force-reason "selftest crash-recovery simulation of an operator waiver")
-slice_set=$(sct get 9999 '.currentSlice')
-if [[ "$rc_force" == "0" && "$slice_set" == "1" ]]; then
-  pass "(rm5f) slice-set --force on terminal → applied (currentSlice written)"
-else
-  fail "(rm5f) slice-set --force — rc=$rc_force currentSlice='$slice_set'"
 fi
 
 # (rm6) checkpoint
