@@ -143,7 +143,7 @@ mirrored in the PR body:
 
 | Baseline row | Before | After | Δ words | This branch's doing? |
 | --- | --- | --- | --- | --- |
-| `plugins/intake-toolkit/skills/intake-orchestrator/SKILL.md` | 5361 / 37032 | 5055 / 34892 | −306 | **Yes** — the intended change |
+| `plugins/intake-toolkit/skills/intake-orchestrator/SKILL.md` | 5361 / 37032 | 5056 / 34900 | −305 | **Yes** — the intended change |
 | `plugins/dev-pipeline/skills/run/state-schema.md` | 10948 / 87798 | 11340 / 90409 | +392 | No |
 | `plugins/dev-pipeline/skills/run/stages/8-code-review.md` | 3970 / 29079 | 3909 / 28596 | −61 | No |
 | `plugins/dev-pipeline/skills/run/SKILL.md` | 8813 / 72466 | 8821 / 72486 | +8 | No |
