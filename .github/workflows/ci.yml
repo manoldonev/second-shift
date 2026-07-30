@@ -83,6 +83,23 @@ jobs:
       !(github.head_ref == 'release/next' &&
         github.event.pull_request.head.repo.full_name == github.repository)
     runs-on: ubuntu-latest
+    # A `permissions:` key REPLACES the defaults wholesale, so `contents: read` must be
+    # restated or actions/checkout breaks. issues/pull-requests are for the chain check's
+    # comment read.
+    permissions:
+      contents: read
+      issues: read
+      pull-requests: read
+    # CI-visible copies of two runtime-config values. The runtime config
+    # (.claude/second-shift.config.json) is gitignored and absent in CI, so these constants
+    # are the only source available here — and NOTHING reconciles them against it. A stale
+    # prefix matches zero branches and silently exempts every PR, which is why the check
+    # treats an unset/empty constant as fatal rather than not-applicable, and why it echoes
+    # the resolved prefix on every not-applicable verdict. Residual risk is recorded in
+    # docs/pipeline-manifesto.md's T0 note.
+    env:
+      PIPELINE_BRANCH_PREFIX: claude/second-shift-
+      PIPELINE_PLAN_PATTERN: docs/plans/acme-{issueKey}{slice}.md
     steps:
       - uses: actions/checkout@v5
         with:
@@ -99,6 +116,18 @@ jobs:
         env:
           BASE_REF: ${{ github.base_ref }}
         run: bash scripts/check-changelog-trailer.sh "origin/$BASE_REF"
+
+      # T2 rung 1: a pipeline-authored PR must carry a complete, single-family, key-consistent
+      # stage trail as of PR open. Same env-not-interpolation discipline as BASE_REF above,
+      # and it matters more here: a PR body is far more attacker-controllable than a ref name.
+      - name: pipeline chain reconciliation (pipeline-authored PRs carry a complete stage trail)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          PR_HEAD_REF: ${{ github.event.pull_request.head.ref }}
+          PR_BODY: ${{ github.event.pull_request.body }}
+          PR_CREATED_AT: ${{ github.event.pull_request.created_at }}
+        run: bash scripts/check-pipeline-chain.sh
 
   # Gates that run ONLY on the release PR: the old version-bump discipline (every
   # content-changed plugin carries its derived bump — same script, new call site) and the

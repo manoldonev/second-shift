@@ -48,6 +48,11 @@ for P1–P7, which #268 requires before the rest of the program can cite it.
 
 ## Decision Ledger
 
+D-1..D-8 carry the ticket's own IDs verbatim so the two ledgers line up. The sequence has no `D-6`
+by design: the ticket numbered that row `D-6b` to avoid colliding with the epic's separate D-6
+(CI-visibility of run artifacts), and this plan mirrors it rather than renumbering. D-9 onward are
+this plan's own additions.
+
 | ID | Decision | Resolution | Provenance |
 | --- | --- | --- | --- |
 | D-1 | Workflow-freeze mechanism | Push ruleset (probe-first), no bypass actors, operator-toggled for sanctioned changes; CODEOWNERS rejected — it requires an approving review a solo-maintainer repo cannot self-provide. Sourced from the ticket body: https://github.com/manoldonev/second-shift/issues/273 | ticket-sourced |
@@ -59,7 +64,7 @@ for P1–P7, which #268 requires before the rest of the program can cite it.
 | D-7 | Push-ruleset availability | Probe at `enforcement: disabled` before activating; if rejected on this owner type, record the gap on #268 and ship without a fake freeze. Ticket: https://github.com/manoldonev/second-shift/issues/273 | ticket-sourced |
 | D-8 | Freeze fast-feedback posture | `check-frozen-files.sh` row is advisory (warn-only): the ruleset is the enforcer. Ticket: https://github.com/manoldonev/second-shift/issues/273 | ticket-sourced |
 | D-9 | Family-selection tiebreak (resolves the D-5 internal conflict) | "As of PR open" wins over bare recency: filter the comment trail to `created_at <= pull_request.created_at`, then take the newest `claimed` **in that window**. `pr-gates` is an unrestricted `pull_request` job, so it re-executes on every synchronize and manual re-run; bare recency would let a later re-claim retroactively red-line an already-green PR, with no remedy available under D-3's no-waiver rule. A PR's `created_at` is immutable, so the window makes the gate idempotent. | codebase-derived |
-| D-10 | AC-1 evidence artifact and activation ordering | The run performs the probe itself. The evidence artifact is the manifesto's T0 note, recording the probe result verbatim on **both** branches (ruleset id + enforcement on success; the API rejection body on failure), so AC-1 is checkable from the diff either way. Activation is the run's **last** mutation, after the final branch push — this PR edits `.github/workflows/**`, and an active no-bypass push ruleset would otherwise block its own push. | codebase-derived |
+| D-10 | AC-1 evidence artifact and activation ordering | The run performs the probe itself. The evidence artifact is the manifesto's T0 note, recording the probe result verbatim on **both** branches (ruleset id + enforcement on success; the API rejection body on failure), so AC-1 is checkable from the diff either way. **Outcome: the probe was REJECTED** — `POST /repos/{owner}/{repo}/rulesets` returned HTTP 422 (`"Source public repos cannot have push rules"` / `"Source only org-owned repos can have push rules"`). Push rulesets are org-owned-repos-only, so no server-side freeze exists here, nothing was created, and D-7's fallback branch governs. The activation-ordering half of this decision is therefore moot: there is nothing to activate. | codebase-derived |
 | D-11 | Undefined fail-open holes | An applicable PR whose body carries neither `Closes #N` nor `Part of #N` **fails (exit 1)** — a pipeline branch with no traceable source issue is exactly the class this check exists to catch. A failed comment fetch **exits 2** (usage/environment error), never a silent pass. Mirrors `check-frozen-files.sh`'s existing exit convention (`0` clean / `1` violation / `2` environment). | codebase-derived |
 | D-12 | Multiple issue references in one PR body | `Closes #N` wins over `Part of #N` when both appear; first occurrence within the winning form. This repo's PR bodies routinely carry both (`Closes #273` for the worked ticket plus `Part of #268` for the epic), so bare first-match would resolve to the epic and fail the branch-suffix comparison on every program PR. | codebase-derived |
 | D-13 | `run_id` disclosure in public CI logs | Failure output prints only the `run_id`'s trailing random hex segment, never the full `{timestamp}-{hostname}-{hex}` form. Sufficient to distinguish families; no machine identifier reaches a world-readable Actions log. | codebase-derived |
@@ -75,6 +80,7 @@ for P1–P7, which #268 requires before the rest of the program can cite it.
 | `scripts/check-pipeline-chain-selftest.sh` | `[NEW]` — per-tool behavioral suite, zero network |
 | `scripts/check-frozen-files.sh` | modify — advisory `.github/workflows/**` row + amended header + summary line |
 | `scripts/derive-release-selftest.sh` | modify — advisory-row cases |
+| `scripts/lockstep-manifest.tsv` | modify — a **DROPPED** entry for the `REQUIRED_MARKERS` ↔ marker-enum coupling (added while dispositioning Stage-4 warning 3; not in the original file list) |
 | `.github/workflows/ci.yml` | modify — `permissions:` block, job `env:` constants, new `pr-gates` step |
 
 Server-side, not a file: one push ruleset on `manoldonev/second-shift` (probe → activate).
@@ -119,6 +125,8 @@ Server-side, not a file: one push ruleset on `manoldonev/second-shift` (probe �
    verbatim into the manifesto's T0 note. On rejection: record the rejection body instead, plus the
    open-risk statement (rung 1 is then self-neutralizable — the `env:` constants live in the same
    agent-editable workflow file the gate runs from), and post that risk to #268. **No fake freeze.**
+   **Executed: rejected (HTTP 422, org-owned-repos-only).** The rejection branch is what shipped —
+   the verbatim body is in the T0 note, the gap is posted to #268, and no freeze was faked.
 8. **`.github/workflows/ci.yml`** — add to `pr-gates`: a `permissions:` block
    (`contents: read`, `issues: read`, `pull-requests: read` — `contents: read` must be restated or
    checkout breaks, since a `permissions:` key replaces the defaults wholesale), job-level `env:`
@@ -126,6 +134,9 @@ Server-side, not a file: one push ruleset on `manoldonev/second-shift` (probe �
    `GH_TOKEN` + the dynamic PR inputs, all via `env:` per D-14.
 9. **Activation (last mutation, D-10)** — after the final branch push, flip the ruleset to `active`
    if the probe succeeded, and re-record the resulting enforcement in the T0 note.
+   **Not executed — the probe failed, so there is nothing to activate.** This also retires the
+   Stage-4 warning that activation would reject this PR's own merge: no freeze is installed, so the
+   merge is unobstructed.
 
 ### `check-pipeline-chain.sh` contract
 
@@ -147,7 +158,10 @@ Exit codes, mirroring `check-frozen-files.sh`: `0` pass or not-applicable, `1` c
 5. Three-way key consistency, each with its own message so each failure mode is independently
    testable: (a) `KEY_BODY` vs `KEY_BRANCH`; (b) the plan file exists at the pattern-derived path
    for `KEY_BRANCH` + slice; (c) the plan file exists at the pattern-derived path for `KEY_BODY` +
-   slice, and is the same path as (b).
+   slice, and is the same path as (b). Rules (b)/(c) depend on the plan being present in the CI
+   checkout; that is guaranteed by `pr-gates`' `actions/checkout@v5` with `fetch-depth: 0`
+   (`.github/workflows/ci.yml`), which checks out the PR ref — and Stage 3 commits the plan onto the
+   branch as its first commit, before any implementation.
 6. Fetch the comment trail — `--comments-file` when given, else
    `${GH:-gh} api "repos/$GH_REPO/issues/$KEY/comments" --paginate`. Non-zero fetch → **exit 2**
    (D-11).
@@ -229,17 +243,18 @@ local run that skips them is not the green this repo's gate means.
 
 ## Risks / rollback notes
 
-- **The ruleset can lock out the pipeline itself.** Once active, any future run that edits
-  `.github/workflows/**` fails to push. Mitigation: the T0 note documents the toggle procedure with
-  literal commands. Rollback: delete the ruleset (`gh api -X DELETE
-  repos/{owner}/{repo}/rulesets/<id>`).
+- **~~The ruleset can lock out the pipeline itself.~~** Retired: the probe was rejected, so no
+  ruleset exists and there is nothing to toggle or roll back.
 - **This gate binds this PR.** `claude/second-shift-273` matches the prefix, so this PR's own chain
   must be complete and its body must carry `Closes #273` before `Part of #268` matters (D-12 makes
   the ordering safe). If the gate is wrong, the PR cannot merge — which is the intended failure
   direction, but it means the selftest must be right before the wiring lands.
-- **Push rulesets may be unavailable for user-owned repos.** Handled by D-7's probe; the fallback
-  path ships an honestly-recorded gap rather than a fake freeze. If it fires, rung 1 is
-  self-neutralizable and that limitation is recorded on #268.
+- **Push rulesets are unavailable for user-owned public repos — confirmed, not hypothetical.** D-7's
+  fallback shipped: an honestly-recorded gap rather than a fake freeze. The standing consequence is
+  that **rung 1 is self-neutralizable** — the `env:` constants live in `.github/workflows/ci.yml`,
+  the same agent-editable file the gate runs from, with no server-side control preventing a run from
+  editing it. Recorded in the T0 note and posted to #268. The only bound that holds is visibility:
+  the check echoes its resolved prefix on every not-applicable verdict.
 - **Window selection depends on `created_at` ordering.** If GitHub ever returned comments without
   `created_at`, the window would empty and every applicable PR would fail. Acceptable: fail-closed is
   the intended direction, and the field is guaranteed by the REST schema.
