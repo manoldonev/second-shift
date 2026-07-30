@@ -135,6 +135,30 @@ bash plugins/dev-pipeline/skills/run/tools/prose-budget.sh --report
 bash plugins/dev-pipeline/skills/run/tools/prose-budget.sh --update-baseline
 ```
 
+## Absorbed baseline drift (AC-5 guardrail)
+
+`prose-budget.sh --update-baseline` is whole-repo, so the re-snapshot rewrote rows for files
+this branch never touched. Enumerated here per the ticket guardrail — the committed record,
+mirrored in the PR body:
+
+| Baseline row | Before | After | Δ words | This branch's doing? |
+| --- | --- | --- | --- | --- |
+| `plugins/intake-toolkit/skills/intake-orchestrator/SKILL.md` | 5361 / 37032 | 5055 / 34892 | −306 | **Yes** — the intended change |
+| `plugins/dev-pipeline/skills/run/state-schema.md` | 10948 / 87798 | 11340 / 90409 | +392 | No |
+| `plugins/dev-pipeline/skills/run/stages/8-code-review.md` | 3970 / 29079 | 3909 / 28596 | −61 | No |
+| `plugins/dev-pipeline/skills/run/SKILL.md` | 8813 / 72466 | 8821 / 72486 | +8 | No |
+
+The three non-target rows are **untouched base-branch content** — each was verified
+byte-identical to `origin/main` (`git diff --quiet origin/main -- <path>` clean, and
+`wc -w` equal to `git show origin/main:<path> | wc -w`). Their baseline rows were stale
+because intervening merged PRs did not re-snapshot. All three sit inside the +5% tolerance,
+so the gate reports them as warnings with zero fails.
+
+They are **not** restored to their old figures, which is a deliberate departure from step 6's
+first draft: the old figures describe content that no longer exists on the base branch, so
+committing them would produce a baseline that `origin/main` itself violates. Recorded as a
+deviation in the run's Stage-7 ledger.
+
 ## Risks / rollback notes
 
 - **Highest risk: clipping a rule that sits mid-paragraph with its rationale.** Step 0.5 and
