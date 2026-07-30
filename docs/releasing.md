@@ -76,7 +76,7 @@ bash plugins/second-shift/skills/onboard/tools/pin-resolve.sh manoldonev/second-
 
 | Gate | Where | What it enforces |
 | --- | --- | --- |
-| `check-frozen-files.sh` | every PR except `release/next` | no `plugin.json` version or `CHANGELOG.md` edits |
+| `check-frozen-files.sh` | every PR except `release/next` | **hard:** no `plugin.json` version or `CHANGELOG.md` edits. **advisory (warn-only, never fails):** announces a `.github/workflows/**` edit — the enforcer there is meant to be a server-side ruleset, not this script, which runs inside the very workflow it would freeze ([`pipeline-manifesto.md`](pipeline-manifesto.md) T0 note) |
 | `check-changelog-trailer.sh` | every PR except `release/next` | a `plugins/**` PR carries `Changelog:` or `Changelog: none` |
 | `check-plugin-version-bumps.sh` | the release PR only | every content-changed plugin carries its derived bump (the version string is the update **cache key** — an unbumped plugin updates NOBODY) |
 | configVersion migration-doc gate | the release PR only | a `configVersion` change ships `docs/migrations/vN-to-vN+1.md` (the contract in [`migrations/README.md`](migrations/README.md)) |

@@ -160,3 +160,5 @@ nothing composes against is a gate the next `#204` walks straight through.
 Testing: [`docs/testing.md`](docs/testing.md) — the tier map, the runtime shim, and the operator-run adversarial recipe.
 
 Release process: [`docs/releasing.md`](docs/releasing.md) — the checklist of record.
+
+Enforcement principles: [`docs/pipeline-manifesto.md`](docs/pipeline-manifesto.md) — P1–P7, the trust boundary, and the T0 note. A judgment aid, not a gate.

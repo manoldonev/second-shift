@@ -191,3 +191,19 @@ decomposition-economy	verbatim	plugins/intake-toolkit/skills/intake-orchestrator
 # resolve to nothing at the moment the override is needed -- the same reasoning as
 # decomposition-economy above. A one-sided edit re-opens the drift #258 closed.
 artifact-reviewer-baseline-deltas	verbatim	plugins/design-toolkit/agents/figma-faithful-spec-reviewer.md	artifact-reviewer-baseline-deltas	plugins/design-toolkit/agents/figma-faithful-plan-reviewer.md	artifact-reviewer-baseline-deltas
+#
+# check-pipeline-chain.sh REQUIRED_MARKERS <-> the stage-comment marker enum. The rung-1 chain
+# check hard-codes five of the eight markers as required, which is a genuine second checked-in
+# copy of part of that enum. Considered for a row and DROPPED: neither relation can reach it.
+# The canonical side is a GENERATED bash `case` region inside statectl.sh (built from
+# state-schema.md's table by gen-statectl-validators.sh, with a byte-match drift check), so it
+# carries no single-quoted 'a|b|c' literal for `subset-of` to split, and hand-adding one would
+# create a THIRD copy inside a region marked do-not-hand-edit. Anchoring against the markdown
+# table instead would mean `verbatim` against a five-of-eight narrowing, which is wrong by
+# construction.
+# Guarded behaviorally instead, which is stronger than a presence check: check-pipeline-chain-
+# selftest.sh parses state-schema.md's `#### Stage-comment markers` table with the SAME awk the
+# generator uses and asserts every REQUIRED_MARKERS entry appears in it -- plus a non-vacuity
+# assertion that the parsed enum is non-empty, so a table rename fails loudly instead of
+# passing on an empty set. The LOCKSTEP-BEGIN/END markers around REQUIRED_MARKERS are left in
+# place so a future row is cheap if the canonical side ever grows an anchorable literal.
