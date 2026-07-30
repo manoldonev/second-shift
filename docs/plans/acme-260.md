@@ -36,8 +36,8 @@ opt-in call site to the shared write seam so no resume path can forget it.
 | --- | --- | --- | --- |
 | D-1 | Where the seam logic lives | A new helper `apply_session_seam()` **[NEW]** in `statectl.sh`, called from `atomic_write` (`:318-340`) after the existing waiver fold and before the tmp write. Not inlined into `atomic_write`'s body — it mirrors the existing `apply_waivers` factoring (`:389`), which is already the "mutate the document inside the seam" idiom. | codebase-derived |
 | D-2 | How the seam reads the on-disk predecessor | Raw `cat` + a `jq empty` parse probe — **never** `read_state` (`:343-353`), which `die`s on a missing (`:347`) or unparseable (`:351`) file. The seam must never fail the host write; that would break every subcommand on exactly the truncated-state-file crash-recovery path this issue serves. | codebase-derived |
-| D-3 | Which surviving subcommand hosts the `--force`/waiver cases that used `pause-add` | `checkpoint` — `require_mutable`-guarded (`statectl.sh:1241`), takes `--force`, and its payload is free-shape so a case needs no schema ceremony. Applies to `(pause2)`, `(fr1)`, `(fr2)`, `(am1)`, `(am2)`, `(wv1)`, `(wv3)` (`statectl-selftest.sh:1117-1129`, `:3196-3280`), including `(wv1)`'s `.subcommand` assertion. | codebase-derived |
-| D-4 | How the suites control session identity | Each of the three named suites exports a **fixed synthetic** `CLAUDE_CODE_SESSION_ID` at the top, overriding whatever the harness supplies; a resume case overrides per call (`CLAUDE_CODE_SESSION_ID=<other> sct …`, which bash propagates through the `sct` function at `scenario-lib.sh:29-39`); an anonymous case runs in a subshell that unsets it. `scenario-lib.sh` is left untouched. | codebase-derived |
+| D-3 | Which surviving subcommand hosts the `--force`/waiver cases that used `pause-add` | `checkpoint` — `require_mutable`-guarded (`statectl.sh:1241`), takes `--force`, and its payload is free-shape so a case needs no schema ceremony. `(fr1)`, `(fr2)`, `(am1)`, `(am2)`, `(wv1)`, `(wv3)` move onto it (`statectl-selftest.sh:3196-3280`), including `(wv1)`'s `.subcommand` assertion. **`(pause2)` is dropped, not re-anchored** — its assertion (terminal-guard reject without `--force`, accept with) is already carried verbatim by `(rm6)`/`(rm6f)` on `checkpoint` at `:1642-1651`, so re-anchoring it would duplicate rather than preserve coverage. AC-7's "no loss of assertion" is satisfied by the existing pair. | codebase-derived |
+| D-4 | How the suites control session identity | Each of the three named suites exports a **fixed synthetic** `CLAUDE_CODE_SESSION_ID` at the top, overriding whatever the harness supplies (`sct` at `scenario-lib.sh:29-39` passes the ambient environment straight through, so an inherited harness id would make every write same-session). A resume is modelled by **reassigning that suite-level variable** so the new identity persists for the remainder of the leg — **not** by a single-call `VAR=x sct …` prefix, which would revert the very next write to the previous id and record a *second* span (that is what would turn `e2e-replay-selftest.sh:420`'s `(r8)` single-span assertion red, since many writes follow the resume before the terminal one). The anonymous case is the one deliberate single-call form: a subshell that unsets the variable. `scenario-lib.sh` is left untouched. | codebase-derived |
 | D-5 | Which write carries the span in `e2e-replay-selftest.sh` scenario 3 | The **second** `pipeline-session-add` (the one recording session `2222…`) — it becomes the resuming session's first mutating write once `pause-add` is deleted. The ticket's "`pipeline-session-add` … never writes spans itself" means the subcommand holds no span-writing code; it inherits the seam like every other subcommand. Settled at intake gap 1: https://github.com/manoldonev/second-shift/issues/260#issuecomment-5130385303 | ticket-sourced |
 | D-6 | The qualified stamp/span predicate | **Stamp** iff the writer's `$CLAUDE_CODE_SESSION_ID` is non-empty AND **not** (the predecessor parses AND its `.status != "in_progress"`) — i.e. a missing or unparseable predecessor **does** stamp (the `init` creation path and the migrate-by-absence path both depend on it); only a predecessor that parses and is already terminal is skipped. Otherwise leave the stored value untouched (never write `null`). **Span** additionally requires that the predecessor parses, is `in_progress`, carries a stored `lastWriteSessionId` that is non-empty and differs from the writer's, and has a `.lastUpdatedAt` to anchor on. Settled at intake gap 4: https://github.com/manoldonev/second-shift/issues/260#issuecomment-5130385303 | ticket-sourced |
 | D-7 | The #243 pure-refusal fallback gets its own named test case | It is the one `atomic_write` call site whose `content` is byte-identical to the on-disk predecessor (`statectl.sh:3016` passes `read_state` output straight through), so both the stamp and the D-2 clock advance must be injected wholly by the seam. Covered as an explicit first-resume-write case. Settled at intake gap 2: https://github.com/manoldonev/second-shift/issues/260#issuecomment-5130385303 | ticket-sourced |
@@ -105,13 +105,20 @@ and stay untouched.
    recorded automatically by whichever write comes first.
 6. **`SKILL.md`** — drop `pause-add` from the CLI-surface list; update Resume-logic rule 2
    and the `currentStage == 7` resume-table row so neither claims a manual span call.
-7. **`state-schema.md`** — rewrite the `pauseSpans` entry's writer prose at `:326` (the
-   seam, not `pause-add`); **drop `pause-add` from the `require_mutable` enumeration at
-   `:57`** (a second reference the ticket's doc list omits — without it the AC-7 removal
-   sweep stays red); add the `lastWriteSessionId` entry per D-8.
+7. **`state-schema.md`** — four edits, not one:
+   - rewrite the `pauseSpans` entry's writer prose at `:326` (the seam, not `pause-add`);
+   - **drop `pause-add` from the `require_mutable` enumeration at `:57`** — a second
+     reference the ticket's doc list omits; without it the AC-7 removal sweep stays red;
+   - add `lastWriteSessionId` to the **canonical example state document** (`:12-24`) and as
+     its own field entry per D-8;
+   - update the effective-duration-math note at `:328`, whose non-overlap guarantee is
+     currently justified by `pause-add`'s self-anchoring. The guarantee still holds — the
+     seam self-anchors identically and advances `.lastUpdatedAt` to `span.to` — but the
+     prose must name the seam as the mechanism.
 8. **`statectl-selftest.sh`** — export the fixed synthetic session id at the top (D-4);
-   re-anchor the six `--force`/mode cases onto `checkpoint` (D-3), including `(wv1)`'s
-   `.subcommand` assertion; replace `(pause1)`/`(pause2)` with the new seam cases below.
+   move the six `--force`/mode cases onto `checkpoint` (D-3), including `(wv1)`'s
+   `.subcommand` assertion; delete `(pause1)` (superseded by the `(sr*)` set) and `(pause2)`
+   (already covered by `(rm6)`/`(rm6f)`); add the new seam cases below.
 9. **`e2e-replay-selftest.sh`** — scenario 3 per D-5; update the header comment at `:46`.
 10. **`scenario-liveness-selftest.sh`** — update the resume-leg comment at `:65` and its
     coverage to the new contract.
@@ -202,9 +209,12 @@ The three headline suites are also worth running alone while iterating:
   `stage7-perrepo-checkpoint-selftest.sh`) stay same-session for all their writes, so they
   record no spans and their assertions are unaffected. Verified there are no whole-document
   or top-level key-set assertions that a new field would break.
-- **The seam advances `reclaim`'s staleness anchor** on a resume write. This is intended
-  (a resumed run is not stale) but it inverts the invariant `cmd_init:1046` currently
-  asserts, so it is pinned by `(sr12)` rather than left to the comment edit alone.
+- **The seam advances the staleness anchor** on a resume write, and it has **two**
+  consumers, not one: `cmd_reclaim` (threshold 30 min) and `tools/pipeline-doctor.sh`'s
+  stale-claim scan (`:440-445`), which ages the same `lastUpdatedAt`. The effect is
+  intended and identical in both — a resumed run is not stale — but it inverts the
+  invariant `cmd_init:1046` currently asserts, so it is pinned by `(sr12)` rather than left
+  to the comment edit alone. `pipeline-doctor.sh` itself needs no change.
 - **Step-number churn in `stages/8-code-review.md`** is contained: the only cross-reference
   to the deleted step 2 lives inside step 2 itself (`:17`), and the file's
   `LOCKSTEP-BEGIN stage8-secondary-review` block (`:272-289`, paired with
