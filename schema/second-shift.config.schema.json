@@ -28,7 +28,7 @@
         },
         "branchPrefix": {
           "type": "string",
-          "description": "Branch-name namespace prepended to the ticket key. The work branch is \"<branchPrefix><ticketKey>\" for slice 1 and \"<branchPrefix><ticketKey>-pr<N>\" for stacked slice N. github example: \"claude/acme-\" (→ claude/acme-42). JIRA example: a per-user identifier plus a slash, e.g. \"jdoe/\" (→ jdoe/gh-540). Gives the previously-hardcoded prefix in max-pushed-slice.sh a config home."
+          "description": "Branch-name namespace prepended to the ticket key. The work branch is \"<branchPrefix><ticketKey>\". github example: \"claude/acme-\" (→ claude/acme-42). JIRA example: a per-user identifier plus a slash, e.g. \"jdoe/\" (→ jdoe/gh-540)."
         },
         "bot": {
           "type": "object",

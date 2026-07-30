@@ -96,7 +96,6 @@ Tools consuming state (audit-only, no edits expected):
 - `plugins/dev-pipeline/skills/run/tools/is-inert-diff-selftest.sh`
 - `plugins/dev-pipeline/skills/run/tools/diff-range-selftest.sh`
 - `plugins/dev-pipeline/skills/run/tools/intake-readroot-selftest.sh`
-- `plugins/dev-pipeline/skills/run/tools/max-pushed-slice.sh`
 - `plugins/dev-pipeline/skills/run/tools/gen-statectl-validators.sh`
 - `plugins/dev-pipeline/skills/run/tools/stage-times.sh`
 - `plugins/dev-pipeline/skills/run/tools/cost-block-selftest.sh`

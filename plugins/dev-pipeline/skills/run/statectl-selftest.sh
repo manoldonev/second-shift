@@ -25,12 +25,10 @@ unset SECOND_SHIFT_CONFIG SECOND_SHIFT_REPO_ROOT SECOND_SHIFT_EXTENSION_MANIFEST
 SKILL_DIR="$(cd "$(dirname "$0")" && pwd)"
 STATECTL="${SKILL_DIR}/statectl.sh"
 STATE_SCHEMA="${SKILL_DIR}/state-schema.md"
-MAXSLICE="${SKILL_DIR}/tools/max-pushed-slice.sh"
 FIXTURES_DIR="${SKILL_DIR}/statectl-selftest-fixtures"
 
 [[ -x "$STATECTL" ]] || { echo "[self-test] FATAL: $STATECTL not executable"; exit 99; }
 [[ -f "$STATE_SCHEMA" ]] || { echo "[self-test] FATAL: $STATE_SCHEMA missing"; exit 99; }
-[[ -f "$MAXSLICE" ]] || { echo "[self-test] FATAL: $MAXSLICE missing"; exit 99; }
 [[ -d "$FIXTURES_DIR" ]] || { echo "[self-test] FATAL: $FIXTURES_DIR missing"; exit 99; }
 
 TMPDIR_ST=$(mktemp -d -t statectl-selftest.XXXXXX)
@@ -387,58 +385,6 @@ if [[ "$reason" == "worktree-creation-failed" && "$stage" == "2" \
 else
   fail "(q3) mark-failed worktree-creation-failed — reason='$reason' stage='$stage' gitError='$giterr' status=$status_now"
 fi
-
-# (mps) max-pushed-slice.sh — the shared slice-derivation helper used by Stage 1
-#       seeding and the Stage 2 resume sanity guard (#147). Guards against the
-#       ref-prefix-strip bug that made the old inline loops always return 0.
-mps() { printf '%s\n' "$1" | bash "$MAXSLICE" "$2" 2>/dev/null; }
-# Full refs/heads/ form (as `git ls-remote | awk '{print $2}'` emits):
-mps_full=$'refs/heads/claude/acme-42\nrefs/heads/claude/acme-42-pr2\nrefs/heads/claude/acme-42-pr3'
-got=$(mps "$mps_full" 42)
-[[ "$got" == "3" ]] && pass "(mps1) full refs/heads form, slices 1-3 → 3" \
-  || fail "(mps1) full refs/heads form → got '$got' (want 3)"
-# Unsuffixed branch only → slice 1 (the prefix-strip bug returned 0 here):
-got=$(mps $'refs/heads/claude/acme-42' 42)
-[[ "$got" == "1" ]] && pass "(mps2) unsuffixed branch only → 1" \
-  || fail "(mps2) unsuffixed branch → got '$got' (want 1)"
-# Short-name form (no refs/heads/ prefix):
-got=$(mps $'claude/acme-42-pr2' 42)
-[[ "$got" == "2" ]] && pass "(mps3) short-name form → 2" \
-  || fail "(mps3) short-name form → got '$got' (want 2)"
-# No matching ref (fresh run) → 0:
-got=$(mps "" 42)
-[[ "$got" == "0" ]] && pass "(mps4) no refs → 0" \
-  || fail "(mps4) no refs → got '$got' (want 0)"
-# Sibling-issue noise must NOT inflate the count (420, 7 are not issue 42):
-got=$(mps $'refs/heads/claude/acme-420\nrefs/heads/claude/acme-420-pr5\nrefs/heads/claude/acme-7' 42)
-[[ "$got" == "0" ]] && pass "(mps5) sibling-issue refs filtered → 0" \
-  || fail "(mps5) sibling-issue refs → got '$got' (want 0)"
-# Missing issue-number arg → usage error (rc=2):
-rc=0; printf '' | bash "$MAXSLICE" >/dev/null 2>&1 || rc=$?
-[[ "$rc" == "2" ]] && pass "(mps6) missing issue arg → usage error rc=2" \
-  || fail "(mps6) missing issue arg → rc=$rc (want 2)"
-
-# (mps7-9) BRANCH_PREFIX parameterization — salvaged from the deleted
-#          slice-derivation-selftest.sh (#214). One helper serves both trackers
-#          (github "claude/acme-", jira e.g. "jdoe/"); unset stays the github default.
-got=$(mps $'refs/heads/claude/acme-149\nrefs/heads/claude/acme-149-pr2' 149)
-[[ "$got" == "2" ]] && pass "(mps7) default prefix (claude/acme-) → 2" \
-  || fail "(mps7) default prefix → got '$got' (want 2)"
-got=$(printf 'refs/heads/jdoe/gh-540\nrefs/heads/jdoe/gh-540-pr3\n' | BRANCH_PREFIX="jdoe/" bash "$MAXSLICE" gh-540 2>/dev/null)
-[[ "$got" == "3" ]] && pass "(mps8) custom prefix (jdoe/, key gh-540) → 3" \
-  || fail "(mps8) custom prefix → got '$got' (want 3)"
-got=$(printf 'refs/heads/jdoe/gh-5400\nrefs/heads/jdoe/gh-540\n' | BRANCH_PREFIX="jdoe/" bash "$MAXSLICE" gh-540 2>/dev/null)
-[[ "$got" == "1" ]] && pass "(mps9) custom prefix cross-key isolation (gh-5400 ≠ gh-540) → 1" \
-  || fail "(mps9) custom prefix cross-key isolation → got '$got' (want 1)"
-
-# (mps10) OUT-OF-ORDER refs — the mutant killer this suite was missing (#214).
-#         `git ls-remote` emits refs LEXICOGRAPHICALLY, so at >=10 slices `pr10`
-#         sorts BEFORE `pr2`. A last-wins implementation (MAX=$n unconditional)
-#         passes every other case here, because in all of them the highest slice
-#         happens to be last. This fixture is the only one that fails it.
-got=$(mps $'refs/heads/claude/acme-42-pr10\nrefs/heads/claude/acme-42-pr9\nrefs/heads/claude/acme-42-pr2' 42)
-[[ "$got" == "10" ]] && pass "(mps10) out-of-order refs → max (10), not last (2)" \
-  || fail "(mps10) out-of-order refs → got '$got' (want 10 — last-wins regression?)"
 
 # (psa1) pipeline-session-add: first call appends; second call same sid is idempotent
 reset_state

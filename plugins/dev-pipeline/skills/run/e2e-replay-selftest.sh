@@ -45,13 +45,6 @@
 #                        accepted once minted (scenario 1's green is not vacuous)
 #   3  crash-recovery    session-id switch (the seam self-anchors the span on the
 #                        resuming session's first write) -> stage-8 re-entry -> terminal write
-#   4  slice derivation  a real bare remote driven through the documented
-#                        `ls-remote | awk | max-pushed-slice.sh` composition
-#
-# A full stacked-PR replay is NOT here: the terminal leg is blocked on #211 (per-slice
-# stage-machine semantics are single-PR-scoped, so slice 2 has no defined re-entry), the
-# same boundary scenario-liveness-selftest.sh records. Scenario 4 covers only the
-# derivation.
 #
 # macOS ships bash 3.2 as /bin/bash and the macos CI lane forces it; this script stays 3.2
 # compatible (no associative arrays, no mapfile, no ${var^^}).
@@ -65,14 +58,12 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 STATECTL="$HERE/statectl.sh"
 SCENARIO_LIB="$HERE/scenario-lib.sh"
 CLAIM="$HERE/tools/claim-issue.sh"
-MAXSLICE="$HERE/tools/max-pushed-slice.sh"
 LEG="$HERE/workflows/e2e-workflow-leg.mjs"
 FIXTURES="$HERE/e2e-replay-fixtures"
 
 [[ -x "$STATECTL" ]] || { echo "[e2e-replay] FATAL: $STATECTL not executable"; exit 99; }
 [[ -f "$SCENARIO_LIB" ]] || { echo "[e2e-replay] FATAL: $SCENARIO_LIB missing"; exit 99; }
 [[ -f "$CLAIM" ]] || { echo "[e2e-replay] FATAL: $CLAIM missing"; exit 99; }
-[[ -f "$MAXSLICE" ]] || { echo "[e2e-replay] FATAL: $MAXSLICE missing"; exit 99; }
 [[ -f "$LEG" ]] || { echo "[e2e-replay] FATAL: $LEG missing"; exit 99; }
 [[ -d "$FIXTURES" ]] || { echo "[e2e-replay] FATAL: $FIXTURES missing"; exit 99; }
 # node absent is a FAIL, never a silent green — the repo convention (see
@@ -446,70 +437,6 @@ rc=$(sct_rc mark-completed "$RKEY")
   && pass "(r8) the pause span survives to the terminal state (retro evidence)" \
   || fail "(r8) pause span lost before the terminal write"
 
-# ================================================================ scenario 4 ===
-# Slice derivation against a REAL bare remote.
-#
-# max-pushed-slice.sh's stdin parse is exhaustively covered by statectl-selftest's (mps)
-# cases, including the lexicographic pr10-before-pr2 trap. What was never covered is the
-# COMPOSITION the stage docs actually run: the `ls-remote --heads origin "<prefix><key>*"`
-# glob plus the `awk '{print $2}'` field extraction feeding that parse. A wrong glob or a
-# wrong awk field yields 0 and the derivation silently restarts at slice 1.
-
-echo "[e2e-replay] scenario 4: slice derivation through a real bare remote"
-SKEY=77
-SPREFIX="claude/acme-"
-REMOTE="$TMP/remote.git"
-WORK="$TMP/slicework"
-git init --bare -q "$REMOTE"
-mkdir -p "$WORK"
-git -C "$WORK" init -q 2>/dev/null
-git -C "$WORK" checkout -qb main 2>/dev/null || git -C "$WORK" branch -m main 2>/dev/null
-git -C "$WORK" config user.email t@t
-git -C "$WORK" config user.name t
-echo seed > "$WORK/seed.txt"
-git -C "$WORK" add seed.txt
-git -C "$WORK" commit -qm seed
-git -C "$WORK" remote add origin "$REMOTE"
-# Slice 1 is the UNSUFFIXED branch; pr10 alongside pr9 is the ordering trap.
-for b in "${SPREFIX}${SKEY}" "${SPREFIX}${SKEY}-pr2" "${SPREFIX}${SKEY}-pr9" "${SPREFIX}${SKEY}-pr10"; do
-  git -C "$WORK" branch -q "$b" 2>/dev/null
-  git -C "$WORK" push -q origin "$b" 2>/dev/null
-done
-# A sibling issue whose key merely starts with the same digits must not leak in.
-git -C "$WORK" branch -q "${SPREFIX}770-pr5" 2>/dev/null
-git -C "$WORK" push -q origin "${SPREFIX}770-pr5" 2>/dev/null
-
-PUSHED=$(git -C "$WORK" ls-remote --heads origin "${SPREFIX}${SKEY}*" 2>/dev/null | wc -l | tr -d ' ')
-[[ "$PUSHED" == "5" ]] && pass "(sl1) the fixture remote carries 5 matching refs (4 slices + 1 sibling)" \
-  || fail "(sl1) fixture remote ref count is $PUSHED (want 5)"
-
-DERIVED=$(git -C "$WORK" ls-remote --heads origin "${SPREFIX}${SKEY}*" 2>/dev/null \
-  | awk '{print $2}' \
-  | BRANCH_PREFIX="$SPREFIX" bash "$MAXSLICE" "$SKEY")
-[[ "$DERIVED" == "10" ]] \
-  && pass "(sl2) the ls-remote|awk|max-pushed-slice composition derives 10, not 2" \
-  || fail "(sl2) derived slice is '$DERIVED' (want 10) — glob or awk field is wrong"
-
-# Non-vacuity: the same composition on a key with nothing pushed must derive 0, or (sl2)
-# could be passing on a hardcoded answer.
-EMPTY=$(git -C "$WORK" ls-remote --heads origin "${SPREFIX}999*" 2>/dev/null \
-  | awk '{print $2}' \
-  | BRANCH_PREFIX="$SPREFIX" bash "$MAXSLICE" 999)
-[[ "$EMPTY" == "0" ]] && pass "(sl3) an unpushed key derives 0 through the same composition" \
-  || fail "(sl3) unpushed key derived '$EMPTY' (want 0)"
-
-# The stacked fixture's partition is the other half of stacked intent state.
-SP=$(jq -c '.slicePartition' "$FIXTURES/stacked-prs.json")
-PKEY=9103
-reset_state
-sct init "$PKEY" --run-id "e2e-replay-slice-$$" >/dev/null
-sct intake-brief "$PKEY" --brief-path null \
-  --acceptance-criteria "$(jq -c '.acceptanceCriteria' "$FIXTURES/stacked-prs.json")" >/dev/null
-sct slice-partition-set "$PKEY" --json "$SP" >/dev/null
-rc=$?
-[[ "$rc" == "0" && "$(sct get "$PKEY" '.decomposition.slices | length')" == "3" ]] \
-  && pass "(sl4) the stacked fixture's AC->slice partition persists (3 slices)" \
-  || fail "(sl4) slice-partition-set rc=$rc, slices=$(sct get "$PKEY" '.decomposition.slices | length')"
 
 echo
 echo "[e2e-replay] $PASS passed, $FAIL failed"
