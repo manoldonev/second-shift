@@ -10,14 +10,9 @@
      exit 1
    fi
    ```
-2. _(crash-recovery only)_ **Record the pause span — this MUST be the FIRST state mutation on resume.** A crash-recovery resume means a session died and a fresh one re-entered; the idle gap between them is a pause that would otherwise inflate the straddling stage's window and the run total. Record one closed span:
-   ```bash
-   bash statectl.sh pause-add "$ISSUE_NUMBER" --reason session-resume
-   ```
-   `pause-add` self-anchors `from = current .lastUpdatedAt` (the dying session's final write, still intact) and stamps `to = now`. It MUST run **before step 3 (`set-stage`) and step 6 (`pipeline-session-add`)** — both bump `.lastUpdatedAt`, which would zero the anchor. There is **no shared resume preamble** elsewhere; this Stage 8 entry is the sole fresh-session resume site, so this is the only place `pause-add` is called. On the in-process path there is no pause; skip this step. Consumed by `tools/stage-times.sh` to report effective (compute) time.
-3. **Advance `currentStage` to 8** via `statectl set-stage "$ISSUE_NUMBER" 8 --status started`. **And record the stage-file receipt in the same breath** — `statectl stage-file-read "$ISSUE_NUMBER" --stage 8 --file 8-code-review.md` (#243 §3): `set-stage 8 --status completed` refuses unless stage 8's own file is recorded as read.
-4. Read `stageCheckpoint["7"]` via `statectl get "$ISSUE_NUMBER" '.stageCheckpoint."7"'`. Print one-line bootstrap: `Entering Stage 8. Branch: X. Head: Y. Deviations: N. Free note: "..."`.
-5. **Verify worktree validity:** `git -C "$worktreePath" rev-parse --is-inside-work-tree` must succeed. If missing or invalid, mark failed and exit:
+2. **Advance `currentStage` to 8** via `statectl set-stage "$ISSUE_NUMBER" 8 --status started`. **And record the stage-file receipt in the same breath** — `statectl stage-file-read "$ISSUE_NUMBER" --stage 8 --file 8-code-review.md` (#243 §3): `set-stage 8 --status completed` refuses unless stage 8's own file is recorded as read.
+3. Read `stageCheckpoint["7"]` via `statectl get "$ISSUE_NUMBER" '.stageCheckpoint."7"'`. Print one-line bootstrap: `Entering Stage 8. Branch: X. Head: Y. Deviations: N. Free note: "..."`.
+4. **Verify worktree validity:** `git -C "$worktreePath" rev-parse --is-inside-work-tree` must succeed. If missing or invalid, mark failed and exit:
    ```bash
    statectl.sh mark-failed "$ISSUE_NUMBER" \
      --reason worktree-missing --stage 8 \
@@ -42,7 +37,7 @@
    rm -f "$BODY"
    # Exit cleanly (rc=0). Do NOT auto-recreate the worktree (could mask user intent).
    ```
-6. _(crash-recovery only)_ **Record this resume session for cost attribution:** a crash-recovery Stage 8 session is a distinct Claude session from the Stage 1–7 one, so it records its own native session UUID:
+5. _(crash-recovery only)_ **Record this resume session for cost attribution:** a crash-recovery Stage 8 session is a distinct Claude session from the Stage 1–7 one, so it records its own native session UUID:
    ```bash
    # Re-assert the resumed session's mode first (#243): init --mode re-stamps .mode on
    # the existing state (documented carve-out) so a crash-recovery session resumed
@@ -59,9 +54,11 @@
    fi
    ```
    `$CLAUDE_CODE_SESSION_ID` is the native Claude Code session UUID the OTel exporter tags as `session.id`. On the normal in-process path the whole run is one session, already recorded at Stage 2 — do NOT add a second session id (and the resume session's UUID would differ anyway). Stage 9's cost-block sub-step unions all recorded sessions when querying OTel.
-7. `cd` to `worktreePath`. Begin the Stage 8 review (Workflow dispatch — below).
+6. `cd` to `worktreePath`. Begin the Stage 8 review (Workflow dispatch — below).
 
-Steps 3–5 (advance `currentStage`, hydrate from `stageCheckpoint["7"]`, validate the worktree) run on **both** paths; steps 1, 2, and 6 are crash-recovery only. On the in-process path Stage 8 simply continues with the context it already holds.
+Steps 2–4 (advance `currentStage`, hydrate from `stageCheckpoint["7"]`, validate the worktree) run on **both** paths; steps 1 and 5 are crash-recovery only. On the in-process path Stage 8 simply continues with the context it already holds.
+
+**The pause span needs no step here.** It used to be one — an explicit call that had to be the resume's first state write — which meant every resume below Stage 8 recorded nothing and its idle gap was billed as compute (#260). It is now recorded by `statectl`'s shared write seam, on whichever subcommand this session happens to write first (step 2's `set-stage` on this path), anchored on the dying session's final `lastUpdatedAt`. Nothing to call, and no ordering to get right.
 
 **DO NOT push to remote until this step completes.** All work stays local until step 9. Pushing before code review is finalized exposes unreviewed code on the remote.
 
