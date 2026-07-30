@@ -4,7 +4,8 @@
 # Owns: state file lifecycle (init/read), stage lifecycle writes (atomic
 # start/end field bundles), Stage 7 checkpoint write (with payload schema validation),
 # failure writes (atomic failureContext + status=failed bundle with closed-enum
-# reason), and writer-suffix isolation via $STATECTL_WRITER.
+# reason), writer-suffix isolation via $STATECTL_WRITER, and the shared-seam
+# session stamp + automatic pause span (apply_session_seam — #260).
 #
 # Terminal-state guard (require_mutable): every mutating subcommand refuses to
 # overwrite a completed/failed run unless --force is passed — EXCEPT set-stage
@@ -313,6 +314,86 @@ cmd_successor_key_set() {
   jq -c '.successorKey' <<< "$new_state"
 }
 
+# Session-identity stamp + automatic pause span (#260).
+#
+# Every state mutation routes through atomic_write, so this is the ONE place that
+# can see a resume without each resume site remembering to declare one. A pause is
+# the idle gap between a dying session's last state write and the resuming
+# session's first write; it used to be recorded by an explicit subcommand invoked
+# at a single site (the Stage-8 crash-recovery entry), which meant every resume
+# below Stage 8 recorded nothing and its idle gap was billed as compute.
+#
+# THE PREDECESSOR IS RE-READ FROM DISK, deliberately. The `content` handed to this
+# function already carries the bumped .lastUpdatedAt at all but two call sites, so
+# the pre-write value — the anchor — is only observable from the file.
+#
+#   STAMP iff the writer's session id is non-empty AND NOT (the predecessor parses
+#   AND is already terminal). A missing/unparseable predecessor DOES stamp: that
+#   is the init creation path, and the migrate-by-absence path for state files
+#   written before this field existed.
+#
+#   SPAN additionally requires that the predecessor parses, is in_progress, carries
+#   a stored lastWriteSessionId that is non-empty and differs from the writer's,
+#   and has a .lastUpdatedAt to anchor on.
+#
+# A span-recording write also advances .lastUpdatedAt to span.to, so consecutive
+# resumes can never emit overlapping spans and stage-times.sh's per-span
+# subtraction stays sound. That advance also resets the reclaim / pipeline-doctor
+# staleness anchor, which is correct: a resumed run is not stale.
+#
+# ANONYMOUS WRITES (CLAUDE_CODE_SESSION_ID unset — an operator running statectl
+# from a plain terminal) neither stamp nor span, and never overwrite the stored id
+# with null. A mid-run operator repair therefore does not suppress the following
+# resume's span; that span simply anchors at the repair write's timestamp, which is
+# the honest idle boundary.
+#
+# NEVER FAILS THE HOST WRITE. Every branch falls back to echoing the input
+# document. A seam that died on a degraded predecessor would break every
+# subcommand on exactly the truncated-state-file crash-recovery path this exists
+# to serve — which is how the removed subcommand failed: it hard-errored on a
+# predecessor carrying no .lastUpdatedAt.
+#
+# $1 = issue number, $2 = state JSON about to be written → stdout
+apply_session_seam() {
+  local key="$1" content="$2"
+  local writer_sid="${CLAUDE_CODE_SESSION_ID:-}"
+  [[ -n "$writer_sid" ]] || { printf '%s\n' "$content"; return 0; }
+
+  # Raw read — NOT read_state, which dies on a missing/unparseable file.
+  local prev_raw prev_status prev_sid prev_lu out now
+  prev_raw=$(cat "$(state_path "$key")" 2>/dev/null || true)
+
+  if [[ -z "$prev_raw" ]] || ! jq empty <<< "$prev_raw" 2>/dev/null; then
+    # Degraded or absent predecessor: stamp, no span, never fail.
+    out=$(jq --arg s "$writer_sid" '.lastWriteSessionId = $s' <<< "$content" 2>/dev/null) \
+      || out="$content"
+    printf '%s\n' "$out"
+    return 0
+  fi
+
+  prev_status=$(jq -r '.status // ""' <<< "$prev_raw" 2>/dev/null || echo "")
+  if [[ "$prev_status" != "in_progress" ]]; then
+    # Predecessor parses and is already terminal: neither stamp nor span, so a
+    # post-terminal backfill cannot seed a stale stamp for a later reset.
+    printf '%s\n' "$content"
+    return 0
+  fi
+
+  out=$(jq --arg s "$writer_sid" '.lastWriteSessionId = $s' <<< "$content" 2>/dev/null) \
+    || out="$content"
+
+  prev_sid=$(jq -r '.lastWriteSessionId // ""' <<< "$prev_raw" 2>/dev/null || echo "")
+  prev_lu=$(jq -r '.lastUpdatedAt // ""' <<< "$prev_raw" 2>/dev/null || echo "")
+  if [[ -n "$prev_sid" && "$prev_sid" != "$writer_sid" && -n "$prev_lu" ]]; then
+    now=$(now_iso)
+    out=$(jq --arg from "$prev_lu" --arg to "$now" '
+      .pauseSpans = ((.pauseSpans // []) + [ { from: $from, to: $to, reason: "session-resume" } ])
+      | .lastUpdatedAt = $to
+    ' <<< "$out" 2>/dev/null) || out="$content"
+  fi
+  printf '%s\n' "$out"
+}
+
 # Write atomically via writer-suffixed tmp file.
 # $1 = issue number, $2 = new JSON content
 atomic_write() {
@@ -325,6 +406,9 @@ atomic_write() {
     content=$(apply_waivers "$content")
     WAIVERS_FOLDED=1
   fi
+  # #260: stamp the writing session and, on a cross-session write mid-run, record
+  # the pause span — observed here so no resume site has to declare one.
+  content=$(apply_session_seam "$key" "$content")
   local writer
   writer=$(resolve_writer)
   local state
@@ -1046,6 +1130,13 @@ cmd_init() {
     # lastUpdatedAt bump (reclaim staleness anchors stay untouched), no status
     # change, and no terminal-state guard (the pipeline-session-add precedent:
     # a legitimate post-terminal metadata write).
+    #
+    # #260 carve-out to the no-bump rule: this is the FIRST write on every
+    # SKILL.md rule-2 resume, so when it is a resuming session's first write the
+    # shared seam (apply_session_seam) records the pause span here and advances
+    # .lastUpdatedAt to span.to. That is deliberate — it is also the correct
+    # staleness signal, since a resumed run is not stale. On a same-session write
+    # the no-bump behavior above is unchanged.
     local existing
     existing=$(read_state "$key") || exit $?
     local status
@@ -1794,56 +1885,6 @@ cmd_review_rounds() {
     | (if $exhausted then .codeReviewExhausted = true else . end)
     | .lastUpdatedAt = $now
   ' <<< "$current") || { EXIT_CODE=2 die "review-rounds: jq mutation failed"; }
-  atomic_write "$key" "$new_state"
-}
-
-cmd_pause_add() {
-  # Append one CLOSED pause span to .pauseSpans[] at a crash-recovery resume.
-  # A pause is the idle gap between a dying session's last state write and the
-  # resuming session's first write (e.g. session-quota exhaustion → resume hours
-  # later). There is no explicit pause event in the autonomous flow; instead one
-  # closed span is recorded at each resume.
-  #
-  # SELF-ANCHORING: reads `from` = current .lastUpdatedAt (the dying session's
-  # final write, still intact), stamps `to` = now. There is deliberately NO
-  # --from arg — the subcommand IS the capture, so the "read `from` before it is
-  # overwritten" footgun cannot occur. This is why pause-add MUST be the FIRST
-  # state write on resume, before set-stage / pipeline-session-add (both bump
-  # .lastUpdatedAt and would zero the anchor).
-  #
-  # `--reason` is a FREE STRING (sole value today: session-resume) — informational
-  # only, NOT a generated closed enum (like pipelineSessions[].source), so it
-  # stays off the gen-statectl-validators.sh drift contract.
-  #
-  # GUARDED via require_mutable (a pause is always mid-run); --force escape for
-  # #154 consistency. NOT exempt like pipeline-session-add.
-  #
-  # Usage:
-  #   statectl pause-add <issue-number> --reason <r> [--force]
-  local key="${1:-}"; shift || true
-  local reason="" force=0
-  while [[ $# -gt 0 ]]; do
-    case "$1" in
-      --reason) reason="${2:-}"; shift 2 ;;
-      --force)  force=1; shift ;;
-      *) EXIT_CODE=3 die "pause-add: unknown arg '$1'" ;;
-    esac
-  done
-  [[ -n "$key" && -n "$reason" ]] \
-    || { EXIT_CODE=3 die "pause-add: missing <issue-number> or --reason"; }
-  local current
-  current=$(read_state "$key") || exit $?
-  require_mutable "$current" "$force" "pause-add"
-  local from now
-  from=$(jq -r '.lastUpdatedAt // empty' <<< "$current")
-  [[ -n "$from" ]] \
-    || { EXIT_CODE=1 die "pause-add: state has no .lastUpdatedAt to anchor the pause span"; }
-  now=$(now_iso)
-  local new_state
-  new_state=$(jq --arg from "$from" --arg to "$now" --arg reason "$reason" '
-    .pauseSpans = ((.pauseSpans // []) + [ { from: $from, to: $to, reason: $reason } ])
-    | .lastUpdatedAt = $to
-  ' <<< "$current") || { EXIT_CODE=2 die "pause-add: jq mutation failed"; }
   atomic_write "$key" "$new_state"
 }
 
@@ -2981,7 +3022,6 @@ main() {
     worktree-set)           cmd_worktree_set "$@" ;;
     pr-add)                 cmd_pr_add "$@" ;;
     review-rounds)          cmd_review_rounds "$@" ;;
-    pause-add)              cmd_pause_add "$@" ;;
     deviations-add)         cmd_deviations_add "$@" ;;
     verify-attempts)        cmd_verify_attempts "$@" ;;
     pipeline-session-add)   cmd_pipeline_session_add "$@" ;;
