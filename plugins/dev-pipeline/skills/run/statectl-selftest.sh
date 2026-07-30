@@ -3585,6 +3585,7 @@ if [[ "${SKIP_STRESS:-0}" != "1" ]]; then
   complete_stage 9999 1
   sct set-stage 9999 2 --status started >/dev/null
   sct worktree-set 9999 --path ".claude/worktrees/acme-9999" --branch "claude/acme-9999" >/dev/null
+  stage_evidence 9999 2   # stage-file receipt, else both writers refuse and nothing races
   ( sct set-stage 9999 2 --status completed >/dev/null ) &
   ( sct set-stage 9999 2 --status completed >/dev/null ) &
   wait
@@ -3603,6 +3604,7 @@ if [[ "${SKIP_STRESS:-0}" != "1" ]]; then
   sct skill-load-add 9999 --stage 1 --skill intake-toolkit:intake-orchestrator >/dev/null
   sct comment-add 9999 --marker claimed --url "https://github.example/c/claimed" >/dev/null
   sct comment-add 9999 --marker intake --url "https://github.example/c/intake" >/dev/null
+  stage_evidence 9999 1   # ditto: without the receipt the write refuses before the pause, and the case passes vacuously
   before_hash=$(shasum .claude/pipeline-state/9999.json | awk '{print $1}')
   STATECTL_TEST_PAUSE_BEFORE_MV=1 \
     "$STATECTL" set-stage 9999 1 --status completed >/dev/null 2>&1 &
