@@ -160,3 +160,12 @@ stage8-secondary-review	verbatim	plugins/dev-pipeline/skills/run/stages/8-code-r
 # documented field list exactly, so a field added, renamed, or reordered in the hook
 # without the docs following fails the suite. Mechanical on both legs, by two mechanisms.
 audit-row-fields	verbatim	plugins/audit-toolkit/skills/audit/QUERIES.md	audit-row-fields	plugins/audit-toolkit/skills/audit/SETUP.md	audit-row-fields
+#
+# Decomposition-economy rule (the run-cost bias). One canonical author — the
+# intake-orchestrator, which owns the verdict — mirrored into decomposition-reviewer,
+# which reviews splits against the same standard and must not drift into a softer one.
+# Two live copies rather than a cross-reference: each skill is loaded on its own, into
+# a session that has not read the other, so a pointer would resolve to nothing at the
+# moment the rule is needed. That is exactly the "only a prose instruction keeps them
+# together" case this manifest exists for.
+decomposition-economy	verbatim	plugins/intake-toolkit/skills/intake-orchestrator/SKILL.md	decomposition-economy	plugins/intake-toolkit/skills/decomposition-reviewer/SKILL.md	decomposition-economy

@@ -43,8 +43,8 @@ EVAL CONSTRAINTS (important):
 Respond with your final intake comment in the machine-readable format your instructions specify. Include:
 - The `<!-- dev-pipeline -->` / `<!-- stage: intake -->` / `<!-- status: ... -->` markers
 - Your type classification
-- Your decomposition verdict (no-split / sub-issues / stacked-prs / escalate / skip-already-decomposed)
-- If sub-issues or stacked-prs: an explicit list of the slices you would create (titles + one-line scope each)
+- Your decomposition verdict (no-split / sub-issues / sub-issues-sequential / escalate / skip-already-decomposed)
+- If sub-issues or sub-issues-sequential: an explicit list of the slices you would create (titles + one-line scope each); for the sequential flavor, in dependency order
 - Any label/assignee edits you would apply to the parent issue
 - If escalating: the escalation reason (needs-intake-review / needs-spec-work) and the question for the human
 PROMPT_EOF

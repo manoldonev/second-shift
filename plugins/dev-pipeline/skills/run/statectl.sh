@@ -174,8 +174,12 @@ config_file() {
 # non-empty key (backward-compatible with the pre-config selftests). The key is
 # matched case-insensitively against the pattern so a lowercased JIRA key
 # (proj-123) still satisfies an upper-case pattern.
+# $2 = the caller label used in the rejection message (default "init"). The
+# `successor-key-set` writer reuses this validator so a trailer key persisted into
+# state is held to the same tracker shape as the ticket key itself.
 validate_ticket_key() {
   local key="$1"
+  local who="${2:-init}"
   local cfg pattern
   cfg=$(config_file)
   [[ -n "$cfg" && -f "$cfg" ]] || return 0
@@ -186,7 +190,7 @@ validate_ticket_key() {
   lower_key=$(printf '%s' "$key" | tr '[:upper:]' '[:lower:]')
   lower_pat=$(printf '%s' "$pattern" | tr '[:upper:]' '[:lower:]')
   [[ "$lower_key" =~ ^(${lower_pat})$ ]] \
-    || { EXIT_CODE=3 die "init: ticket key '$key' does not match config tracker.keyPattern '$pattern'"; }
+    || { EXIT_CODE=3 die "$who: ticket key '$key' does not match config tracker.keyPattern '$pattern'"; }
 }
 
 # Tracker comment mandates apply only when the tracker is written at all
@@ -251,6 +255,62 @@ cmd_target_repos_set() {
   ' <<< "$current") || { EXIT_CODE=2 die "target-repos-set: jq mutation failed"; }
   atomic_write "$key" "$new_state"
   jq -c '.targetRepos' <<< "$new_state"
+}
+
+# successor-key-set <issue> --key <k> | --none
+#
+# Persists the claimed issue's OWN forward `Successor:` trailer, extracted pre-claim
+# by tools/predecessor-gate.sh. Stage 9 reads it to render the operator-promotion
+# reminder ("label #N ready-for-dev when merging this PR") on the predecessor's PR,
+# so a forgotten promotion is a visible omission at merge time rather than a silent
+# chain stall.
+#
+# The field is written EXPLICITLY as JSON null by --none rather than left absent:
+# Stage 9's "iff non-null" read is then total, and key-absence still distinguishes a
+# pre-schema state file (consumers skip) from a run that looked and found no trailer.
+cmd_successor_key_set() {
+  local key="${1:-}"; shift || true
+  local succ="" none=0 force=0
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      # Guard the arity BEFORE `shift 2`: a trailing valueless `--key` leaves $# at 1,
+      # `shift 2` then fails without shifting, and the while-loop spins forever.
+      --key)   [[ $# -ge 2 ]] \
+                 || { EXIT_CODE=3 die "successor-key-set: --key requires a value (use --none for no trailer)"; }
+               succ="$2"; shift 2 ;;
+      --none)  none=1; shift ;;
+      --force) force=1; shift ;;
+      *) EXIT_CODE=3 die "successor-key-set: unknown arg '$1'" ;;
+    esac
+  done
+  [[ -n "$key" ]] \
+    || { EXIT_CODE=3 die "successor-key-set: usage: successor-key-set <issue> --key <successorKey> | --none"; }
+  if [[ "$none" -eq 1 ]]; then
+    [[ -z "$succ" ]] || { EXIT_CODE=3 die "successor-key-set: --key and --none are mutually exclusive"; }
+  else
+    [[ -n "$succ" ]] \
+      || { EXIT_CODE=3 die "successor-key-set: --key requires a value (use --none for no trailer)"; }
+    # Same tracker-shaped validation the ticket key gets — a trailer that survived
+    # extraction under one KEY_PATTERN must still match the repo's configured shape.
+    validate_ticket_key "$succ" "successor-key-set"
+  fi
+  local current now new_state
+  current=$(read_state "$key") || exit $?
+  require_mutable "$current" "$force" "successor-key-set"
+  now=$(now_iso)
+  if [[ "$none" -eq 1 ]]; then
+    new_state=$(jq --arg now "$now" '
+      .successorKey = null
+      | .lastUpdatedAt = $now
+    ' <<< "$current") || { EXIT_CODE=2 die "successor-key-set: jq mutation failed"; }
+  else
+    new_state=$(jq --arg now "$now" --arg s "$succ" '
+      .successorKey = $s
+      | .lastUpdatedAt = $now
+    ' <<< "$current") || { EXIT_CODE=2 die "successor-key-set: jq mutation failed"; }
+  fi
+  atomic_write "$key" "$new_state"
+  jq -c '.successorKey' <<< "$new_state"
 }
 
 # Write atomically via writer-suffixed tmp file.
@@ -2915,6 +2975,7 @@ main() {
     get)                    cmd_get "$@" ;;
     state-path)             cmd_state_path "$@" ;;
     target-repos-set)       cmd_target_repos_set "$@" ;;
+    successor-key-set)      cmd_successor_key_set "$@" ;;
     set-stage)              cmd_set_stage "$@" ;;
     checkpoint)             cmd_checkpoint "$@" ;;
     worktree-set)           cmd_worktree_set "$@" ;;

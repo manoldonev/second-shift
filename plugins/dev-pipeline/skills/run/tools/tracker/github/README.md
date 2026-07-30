@@ -17,6 +17,7 @@ files. It has no scripts of its own in this directory — see
 | Bot wrapper bootstrap (GitHub App key → installation token → `gh-as-bot.sh`) | [`../../install-gh-bot.sh`](../../install-gh-bot.sh) |
 | Bot-identity contract (which writes use `$GH_BOT`; REST-canonical forms) | SKILL.md → **Bot Identity** |
 | Queue pickup + do-not-pick-up guard | [`../../../stages/1-intake.md`](../../../stages/1-intake.md) → Step 1.A |
+| Pre-claim predecessor ordering for `sub-issues-sequential` (trailer extraction + verdict; the two tracker reads live in the stage doc, the tool is pure logic) | [`../../predecessor-gate.sh`](../../predecessor-gate.sh) — selftest `../../predecessor-gate-selftest.sh`; call site in [`../../../stages/1-intake.md`](../../../stages/1-intake.md) → Step 1.A |
 | PR creation + `Closes #<issue>` | [`../../../stages/9-open-pr.md`](../../../stages/9-open-pr.md) |
 
 ## Config

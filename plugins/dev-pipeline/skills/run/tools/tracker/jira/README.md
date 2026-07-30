@@ -28,6 +28,7 @@ is a fetch-time prerequisite failure, surfaced by the intake stage.
 | --- | --- |
 | **pickup** | Operator supplies the JIRA key on invocation (`/dev-pipeline:run GH-540`). No queue, no claim, no label mutation. |
 | **fetch-ticket** | `getJiraIssue` for the body; `getJiraIssueRemoteIssueLinks` → `getConfluencePage` for linked design/spec pages — under whichever namespace the session exposes (see **Prerequisite**). |
+| **predecessor-read** (`sub-issues-sequential` ordering) | ***SKIP-with-note.*** Both reads the github adapter pays — the candidate's body and the predecessor's state — are session-side MCP here, unreachable from a shell tool, so `../../predecessor-gate.sh` is never invoked (the **preflight-read** precedent). **Ordering is operator-enforced with no machine gate:** the ordered sub-ticket specs presented at decomposition carry the `Predecessor:` / `Successor:` trailers and the "start this only once `<predecessor>` is done" note, and the operator honors that sequence when supplying the next key. The trailer-rendering rule exists here solely for that presented spec text. |
 | **post-status-comment** | *no-op.* Progress is written to the state file only. |
 | **set-status** | *no-op.* The ticket stays in its current JIRA status for the whole run. |
 | **create-sub-tickets** (`sub-issues` verdict) | Present ≤5 recommended sub-ticket specs to the operator; make **no** JIRA writes. The operator creates and re-queues them. |

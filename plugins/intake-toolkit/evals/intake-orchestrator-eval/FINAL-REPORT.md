@@ -1,5 +1,15 @@
 # Intake-Orchestrator Autoresearch Campaign — Final Report
 
+> **Vocabulary re-baseline (#263).** The `stacked-prs` verdict was retired; sequential
+> decompositions now emit `sub-issues-sequential`, and `expected.stacked_pr_count` was
+> replaced by `expected.sub_issue_count` covering both sub-issue flavors under one cap of 5.
+> **The scores, verdicts and fixture names recorded below predate that change and are left
+> exactly as they were measured** — they are a landed record of a specific past run, not a
+> live specification, and rewriting a recorded verdict would falsify it. Fixture names
+> containing "stacked" are historical identifiers. Any figure here keyed to the old verdict
+> vocabulary is stale by construction until an operator re-runs the (API-billed) eval; the
+> rubric and runner prompts are already on the new vocabulary.
+
 **Branch:** `autoresearch/intake-orchestrator-20260418`
 **Target:** `.claude/agents/intake-orchestrator.md`
 **Dates:** 2026-04-18 → 2026-04-19

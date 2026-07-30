@@ -223,9 +223,17 @@ REPORT_PATH="$MAIN_ROOT/.claude/pipeline-state/${ISSUE_NUMBER}-report.md"
 ## Still outstanding at report time
 
 Written right after the PR was opened, so these had not yet run: cost block, post-run eval, terminal completion write. If the log ends here, the run reached at least this point — the PR above is real.
+
+{If state `.successorKey` is non-null, add — otherwise render NOTHING:}
+
+Successor: #{successorKey} is blocked on this PR and is deliberately unqueued. Label it `ready-for-dev` when merging.
+
+{End conditional.}
 ```
 
-That last section is deliberate: it makes a truncated run self-describing from **inside** the pipeline. The operator's terminal log is not something the plugin owns — a session killed mid-response has no execution point left to annotate it — but the report can state what had and had not run at the moment it was written.
+**Successor-promotion line (`sub-issues-sequential` chains).** Read `statectl get "$ISSUE_NUMBER" '.successorKey'`. When it is non-null, render the line in **both** the PR body and the run report, as shown above; when it is null or absent, render nothing at all — no empty heading, no "n/a". The field is written at Stage 1 from this issue's own `Successor:` trailer (state-schema.md `successorKey`). Ordering enforcement keeps a blocked successor out of the queue, so promotion is an operator action at merge time; surfacing it on the predecessor's PR is what makes a forgotten label a visible omission rather than a silently stalled chain.
+
+That last report section is deliberate: it makes a truncated run self-describing from **inside** the pipeline. The operator's terminal log is not something the plugin owns — a session killed mid-response has no execution point left to annotate it — but the report can state what had and had not run at the moment it was written.
 
 **PR body template** (single, always-draft):
 
@@ -233,6 +241,12 @@ That last section is deliberate: it makes a truncated run self-describing from *
 Closes #{ISSUE_NUMBER}
 
 > Opened as draft. Flip to ready-for-review after human eyes confirm.
+
+{If state `.successorKey` is non-null, include — otherwise render NOTHING, not an empty section:}
+
+> **On merge:** label #{successorKey} `ready-for-dev` — it is the next issue in this sequential chain and is deliberately unqueued until this PR lands.
+
+{End conditional.}
 
 ## Summary
 
