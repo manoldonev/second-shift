@@ -5,7 +5,7 @@
 # component's own contract; this one asserts that a COMPOSED pipeline path still
 # reaches its terminal state. The bug class it guards is contracts contradicting
 # each other ACROSS components while every per-tool selftest stays green — how the
-# stacked-prs path died in #204 with a fully green suite.
+# (since-retired) stacked-PR path died in #204 with a fully green suite.
 #
 # Scenarios:
 #
@@ -14,7 +14,6 @@
 #   sub-issues   the declared carve-out: success-shaped, no mark-failed, status
 #                stays in_progress, and mark-completed correctly REFUSES
 #   failure      intake-spec-blocked via build-failure-context -> terminal `failed`
-#   stacked-prs  the 11 checks migrated from tools/verdict-path-liveness-selftest.sh
 #   breaker      real verifyctl charges TEST_FAILURE to exhaustion (twice, no clean
 #                run between) -> mark-failed approach-failure-circuit-breaker ->
 #                terminal `failed`
@@ -22,7 +21,6 @@
 #   be-fe-pair   per-repo worktrees + per-repo stage-6 attestation + per-repo
 #                checkpoint 7 + the stage-8 cross-boundary escape hatch
 #                -> mark-completed ACCEPTED (top-level `completed`)
-#   start-slice  the extracted persisted-currentSlice precedence tool, all verdicts
 #   predecessor  the sub-issues-sequential pre-claim ordering backstop: an open
 #                predecessor skips WITHOUT claiming (no claim receipt, no state
 #                file), a closed one claims, and the pair is proven non-vacuous
@@ -47,12 +45,6 @@
 #     "Design Mode"); design-sync-selftest.mjs covers the engine enum drift.
 #   - Stage 10 (cleanup). It has no stage status, so there is no state shadow to
 #     assert against.
-#   - The stacked-prs TERMINAL leg (mark-completed after the LAST slice, plus the
-#     all-prs-opened comment). BLOCKED ON #211: per-slice stage-machine semantics are
-#     single-PR-scoped today (stages/9-open-pr.md concedes this), so statectl's
-#     re-start/forward-skip guards give slice 2 no defined re-entry and the harness
-#     cannot drive it without --force. Faking it would assert the harness against
-#     itself. EXTEND THE stacked-prs SCENARIO WHEN #211 LANDS.
 #
 # (B) Uncovered, TRACKED — reachable today; absence here is debt, not a decision:
 #   - failureContext.reason paths with no composed driver: worktree-missing (stage-8
@@ -70,9 +62,9 @@
 #     $CLAUDE_CODE_SESSION_ID and asserts the single span and its anchor — there is
 #     no longer a first-write ordering contract for a composed test to get wrong. STILL
 #     UNCOVERED, here and there: reclaim --release quarantine -> fresh init; init's
-#     stale-artifact quarantine; the Stage-2 currentSlice > M+1 sanity stop. Those three
-#     remain per-command statectl-selftest cases with no composed driver. Do NOT collapse
-#     this entry to "covered" — most of it is still debt.
+#     stale-artifact quarantine. Those two remain per-command statectl-selftest cases
+#     with no composed driver. Do NOT collapse this entry to "covered" — most of it is
+#     still debt.
 #   - Production Workflow .mjs dispatch ladders. Those belong on the runtime shim
 #     (workflows/runtime-shim-selftest.mjs), not here.
 # ---------------------------------------------------------------------------
@@ -93,8 +85,6 @@ STATECTL="$HERE/statectl.sh"
 SCENARIO_LIB="$HERE/scenario-lib.sh"
 VERIFYCTL="$HERE/verifyctl.sh"
 LINT="$HERE/tools/plan-lint.sh"
-SCOPE="$HERE/tools/slice-scope.sh"
-START_SLICE_SH="$HERE/tools/start-slice.sh"
 PRED_GATE="$HERE/tools/predecessor-gate.sh"
 FIX="$HERE/tools/plan-lint-fixtures"
 
@@ -102,8 +92,6 @@ FIX="$HERE/tools/plan-lint-fixtures"
 [[ -f "$SCENARIO_LIB" ]] || { echo "[scenario-liveness] FATAL: $SCENARIO_LIB missing"; exit 99; }
 [[ -x "$VERIFYCTL" ]] || { echo "[scenario-liveness] FATAL: $VERIFYCTL not executable"; exit 99; }
 [[ -f "$LINT" ]] || { echo "[scenario-liveness] FATAL: $LINT missing"; exit 99; }
-[[ -f "$SCOPE" ]] || { echo "[scenario-liveness] FATAL: $SCOPE missing"; exit 99; }
-[[ -f "$START_SLICE_SH" ]] || { echo "[scenario-liveness] FATAL: $START_SLICE_SH missing"; exit 99; }
 [[ -x "$PRED_GATE" ]] || { echo "[scenario-liveness] FATAL: $PRED_GATE not executable"; exit 99; }
 [[ -d "$FIX" ]] || { echo "[scenario-liveness] FATAL: $FIX missing"; exit 99; }
 
@@ -293,117 +281,6 @@ blockers=$(sct get "$KEY" '.failureContext.blockers | type')
   && pass "(fp2) build-failure-context --kv-lines composed into a JSON array in the terminal write" \
   || fail "(fp2) blockers field type='$blockers' (expected array)"
 
-# ============================================================== stacked-prs ===
-# Migrated verbatim (labels preserved) from tools/verdict-path-liveness-selftest.sh,
-# which this harness replaces. Chain exercised:
-#   init -> intake-brief -> slice-partition-set -> slice-set (slice 1)
-#     -> plan-lint Check 3 slice mode -> slice-scope.sh graded-union assembly
-#     -> stop-condition evaluation -> slice 2 -> final-slice completeness
-
-echo "[scenario-liveness] stacked-prs: intake writes"
-ISSUE=4242
-STATE="$STATECTL_STATE_DIR/$ISSUE.json"
-reset_state
-sct init "$ISSUE" --run-id liveness-test >/dev/null
-sct intake-brief "$ISSUE" --brief-path null --acceptance-criteria '[
-  {"id":"AC-1","text":"schema field lands","negative":false,"source":"explicit"},
-  {"id":"AC-2","text":"service consumes field","negative":false,"source":"explicit"},
-  {"id":"AC-3","text":"endpoint exposes field","negative":false,"source":"explicit"},
-  {"id":"AC-4","text":"worker backfills field","negative":false,"source":"explicit"}
-]' >/dev/null
-sct slice-partition-set "$ISSUE" --json \
-  '[{"slice":1,"acIds":["AC-1","AC-2"]},{"slice":2,"acIds":["AC-3","AC-4"]}]' >/dev/null
-[[ -f "$STATE" ]] \
-  && pass "(vp1) intake writes: snapshot + partition persisted" \
-  || fail "(vp1) state file missing at $STATE"
-
-echo "[scenario-liveness] stacked-prs: slice 1 plan gate"
-sct slice-set "$ISSUE" --current 1 --branch claude/acme-4242 \
-  --worktree-base main --pr-base main >/dev/null
-
-mkplan "$TMP/slice1.md" \
-  '| AC-1 | schema field lands | 1 | selftest (AC-1) |' \
-  '| AC-2 | service consumes field | 2 | selftest (AC-2) |'
-rc=$(lint_rc "$TMP/slice1.md" "$STATE")
-[[ "$rc" -eq 0 ]] \
-  && pass "(vp2) slice-1 plan (this slice's ACs only) passes plan-lint slice mode" \
-  || fail "(vp2) slice-1 plan — rc=$rc"
-
-mkplan "$TMP/fullticket.md" \
-  '| AC-1 | schema field lands | 1 | selftest (AC-1) |' \
-  '| AC-2 | service consumes field | 2 | selftest (AC-2) |' \
-  '| AC-3 | endpoint exposes field | 3 | selftest (AC-3) |' \
-  '| AC-4 | worker backfills field | 4 | selftest (AC-4) |'
-rc=$(lint_rc "$TMP/fullticket.md" "$STATE")
-[[ "$rc" -eq 1 ]] \
-  && pass "(vp3) full-ticket table on slice 1 rejected (fabricated coverage)" \
-  || fail "(vp3) full-ticket table — rc=$rc (expected 1)"
-
-echo "[scenario-liveness] stacked-prs: slice 1 scope-dispatch assembly"
-out=$(bash "$SCOPE" "$STATE" --slice 1)
-verdict=$(head -n1 <<< "$out")
-graded=$(tail -n +2 <<< "$out" | paste -sd, -)
-[[ "$verdict" == "ok" && "$graded" == "AC-1,AC-2" ]] \
-  && pass "(vp4) slice-1 graded union = AC-1,AC-2 (integrity ok)" \
-  || fail "(vp4) slice-1 union — verdict=$verdict graded=$graded"
-
-# Tampered partition (an AC vanishes from the union) → union-mismatch, void.
-jq '.decomposition.slices[1].acIds = ["AC-3"]' "$STATE" > "$TMP/tampered.json"
-verdict=$(bash "$SCOPE" "$TMP/tampered.json" --slice 1 | head -n1)
-[[ "$verdict" == "union-mismatch" ]] \
-  && pass "(vp5) tampered partition → union-mismatch (slice-scoping void, fail-closed)" \
-  || fail "(vp5) tampered partition — verdict=$verdict"
-
-# No partition at all (every non-stacked run — the tool's most common invocation)
-# → no-partition, and consumers keep full-ticket behavior.
-jq 'del(.decomposition)' "$STATE" > "$TMP/nopart.json"
-verdict=$(bash "$SCOPE" "$TMP/nopart.json" | head -n1)
-[[ "$verdict" == "no-partition" ]] \
-  && pass "(vp5b) state without decomposition.slices → no-partition" \
-  || fail "(vp5b) no partition — verdict=$verdict"
-
-# Usage/IO errors → exit 2 with a message (missing state file; non-integer --slice).
-bash "$SCOPE" "$TMP/does-not-exist.json" >/dev/null 2>&1; rc_missing=$?
-bash "$SCOPE" "$STATE" --slice foo >/dev/null 2>&1; rc_badslice=$?
-[[ "$rc_missing" -eq 2 && "$rc_badslice" -eq 2 ]] \
-  && pass "(vp5c) usage/IO errors (missing state, non-integer --slice) → exit 2" \
-  || fail "(vp5c) usage errors — rc_missing=$rc_missing rc_badslice=$rc_badslice"
-
-echo "[scenario-liveness] stacked-prs: stop-condition evaluation"
-# Clean slice-1 review: one round, NOT exhausted → loop must proceed.
-sct review-rounds "$ISSUE" --set 1 >/dev/null
-exhausted=$(sct get "$ISSUE" '.codeReviewExhausted // false')
-[[ "$exhausted" == "false" ]] \
-  && pass "(vp6) clean review (round 1, no --exhausted) → loop proceeds to slice 2" \
-  || fail "(vp6) clean review — codeReviewExhausted=$exhausted"
-
-echo "[scenario-liveness] stacked-prs: slice 2 final-slice completeness"
-sct slice-set "$ISSUE" --current 2 --branch claude/acme-4242-pr2 \
-  --prior-branch claude/acme-4242 --worktree-base claude/acme-4242 \
-  --pr-base claude/acme-4242 >/dev/null
-out=$(bash "$SCOPE" "$STATE")   # default slice = currentSlice = 2
-verdict=$(head -n1 <<< "$out")
-graded=$(tail -n +2 <<< "$out" | sort | paste -sd, -)
-snap=$(sct get "$ISSUE" '.acceptanceCriteria | map(.id) | sort | join(",")')
-[[ "$verdict" == "ok" && "$graded" == "$snap" ]] \
-  && pass "(vp7) final slice grades the COMPLETE ticket (union == snapshot)" \
-  || fail "(vp7) final slice — graded=$graded snap=$snap"
-
-mkplan "$TMP/slice2.md" \
-  '| AC-3 | endpoint exposes field | 1 | selftest (AC-3) |' \
-  '| AC-4 | worker backfills field | 2 | selftest (AC-4) |'
-rc=$(lint_rc "$TMP/slice2.md" "$STATE")
-[[ "$rc" -eq 0 ]] \
-  && pass "(vp8) slice-2 plan (its own ACs) passes plan-lint slice mode" \
-  || fail "(vp8) slice-2 plan — rc=$rc"
-
-# Exhaustion on the final slice still stops the loop (the stop predicate is intact).
-sct review-rounds "$ISSUE" --set 3 --exhausted >/dev/null
-exhausted=$(sct get "$ISSUE" '.codeReviewExhausted // false')
-[[ "$exhausted" == "true" ]] \
-  && pass "(vp9) --exhausted still trips the stop predicate (guard not weakened)" \
-  || fail "(vp9) exhausted predicate — codeReviewExhausted=$exhausted"
-
 # ======================================================= exhausted-review ===
 # A review-exhausted run is opened as a draft and STILL terminates (the marker
 # table's "exhausted-after-3-rounds" case). Before this scenario the exhaustion
@@ -458,7 +335,7 @@ rc=$(sct_rc mark-completed "$KEY")
 # ==================================================== be-fe-pair to terminal ===
 # The pair topology's per-repo pieces each have a per-tool suite; what none of
 # them proves is that a pair run REACHES a terminal write. That is the same
-# all-green-units/unproven-composition posture stacked-prs had before #204.
+# all-green-units/unproven-composition posture the stacked-PR path had before #204.
 # Terminal here means the TOP-LEVEL status, not a per-repo write — a per-repo
 # stage-8 write is exactly the coverage that already existed.
 
@@ -713,73 +590,6 @@ n_clean=$(sct get "$KEY" '.verifyAttempts.TEST_FAILURE // 0')
   && pass "(cb4) non-vacuity: a passing suite exits 0 and charges nothing (exit 4 tracked the failure)" \
   || fail "(cb4) clean run — rc=$BRK_RC TEST_FAILURE=$n_clean"
 
-# ============================================ start-slice precedence (AC-5) ===
-# The persisted-currentSlice precedence rule used to live only in the stage doc's
-# prose, where nothing could drive it. tools/start-slice.sh is that rule extracted
-# into an executable; this scenario drives the TOOL, not a copy of it — a
-# harness-side re-implementation would assert the harness against itself.
-
-echo "[scenario-liveness] start-slice: persisted currentSlice wins over the derived seed"
-KEY=9008
-reset_state
-sct init "$KEY" --run-id "scenario-liveness-$$" >/dev/null
-SS_STATE="$STATECTL_STATE_DIR/$KEY.json"
-
-ss_run() {  # echoes "<verdict>,<value>"; the tool prints verdict then value
-  bash "$START_SLICE_SH" "$@" | paste -sd, -
-}
-
-# No currentSlice yet -> the tool asks for the derived value rather than guessing.
-out=$(ss_run "$SS_STATE" 3)
-[[ "$out" == "need-max-pushed" ]] \
-  && pass "(ss1) absent currentSlice -> need-max-pushed (the seed leg stays with the caller)" \
-  || fail "(ss1) need-max-pushed — got '$out'"
-
-out=$(ss_run "$SS_STATE" 3 --max-pushed 1)
-[[ "$out" == "seed,2" ]] \
-  && pass "(ss2) seed path: max-pushed 1 of 3 -> start at slice 2" \
-  || fail "(ss2) seed — got '$out'"
-
-out=$(ss_run "$SS_STATE" 3 --max-pushed 3)
-[[ "$out" == "all-pushed" ]] \
-  && pass "(ss3) all slices pushed -> all-pushed short-circuit (no start slice)" \
-  || fail "(ss3) all-pushed — got '$out'"
-
-# The precedence assertion proper: a persisted currentSlice must win even when the
-# derived value CONTRADICTS it. Written through slice-set, the real writer.
-sct slice-set "$KEY" --current 2 --branch "claude/acme-$KEY-pr2" \
-  --prior-branch "claude/acme-$KEY" --worktree-base "claude/acme-$KEY" \
-  --pr-base "claude/acme-$KEY" >/dev/null
-out=$(ss_run "$SS_STATE" 3 --max-pushed 0)
-[[ "$out" == "persisted,2" ]] \
-  && pass "(ss4) persisted currentSlice=2 WINS over a contradicting --max-pushed=0 (AC-5)" \
-  || fail "(ss4) precedence — got '$out'"
-
-# ...and the persisted branch is not subject to the all-pushed short-circuit,
-# which lived inside the seed branch in the extracted block.
-out=$(ss_run "$SS_STATE" 2 --max-pushed 5)
-[[ "$out" == "persisted,2" ]] \
-  && pass "(ss5) the persisted branch bypasses the all-pushed short-circuit, as the original block did" \
-  || fail "(ss5) persisted vs all-pushed — got '$out'"
-
-# Non-vacuity: (ss4)/(ss5) must reflect the PERSISTED value, not a constant. With
-# currentSlice removed the same call falls back to the seed path.
-jq 'del(.currentSlice)' "$SS_STATE" > "$SS_STATE.tmp"
-mv "$SS_STATE.tmp" "$SS_STATE"
-out=$(ss_run "$SS_STATE" 3 --max-pushed 0)
-[[ "$out" == "seed,1" ]] \
-  && pass "(ss6) non-vacuity: with currentSlice deleted the same call seeds instead of reporting persisted" \
-  || fail "(ss6) non-vacuity — got '$out'"
-
-# Declared usage/IO contract: exit 2, not a verdict (a caller must be able to tell
-# a broken invocation from a legitimate verdict).
-bash "$START_SLICE_SH" "$TMP/no-such-state.json" 3 >/dev/null 2>&1; rc_missing=$?
-bash "$START_SLICE_SH" "$SS_STATE" notanumber >/dev/null 2>&1; rc_badtotal=$?
-bash "$START_SLICE_SH" "$SS_STATE" 3 --max-pushed x >/dev/null 2>&1; rc_badmax=$?
-[[ "$rc_missing" -eq 2 && "$rc_badtotal" -eq 2 && "$rc_badmax" -eq 2 ]] \
-  && pass "(ss7) usage/IO errors (missing state, non-integer total, non-integer --max-pushed) -> exit 2" \
-  || fail "(ss7) usage errors — missing=$rc_missing total=$rc_badtotal max=$rc_badmax"
-
 # ---------------------------------------------------------------------------
 # Scenario: waived-run (#243) — a run that forced past a gate cannot reach the
 # terminal `completed` write without explicit operator acceptance, and an
@@ -901,7 +711,7 @@ reset_state
 
 # The successor's body, exactly the shape create-sub-tickets writes for a sequential
 # sub-issue N>1 (Part-of anchor + both trailers).
-PG_BODY=$'Part of #9030\n\nWork for the second slice.\n\nPredecessor: #9031\nSuccessor: #9033'
+PG_BODY=$'Part of #9030\n\nWork for the second sub-issue.\n\nPredecessor: #9031\nSuccessor: #9033'
 
 # --- candidate A: predecessor OPEN -> skip-blocked, claim nothing ----------------
 PG_A=9032

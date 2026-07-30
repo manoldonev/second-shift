@@ -19,8 +19,8 @@
 #   worktreePath   <- statectl get .worktreePath (repo-relative; resolved against
 #                     the main checkout root via the git-common-dir idiom; an
 #                     absolute value — e.g. a selftest fixture — passes through)
-#   base ref       <- statectl get .worktreeBase (persisted by slice-set; covers
-#                     stacked slices) // the config's host-repo baseBranch.
+#   base ref       <- statectl get .worktreeBase (persisted by worktree-set on the
+#                     be-fe-pair path) // the config's host-repo baseBranch.
 #                     Diffed via `git merge-base` so an advancing origin base
 #                     cannot skew the lane.
 #   INERT/SUITE    <- tools/is-inert-diff.sh over the merge-base diff (the
@@ -46,7 +46,7 @@
 #   Sidecar {state-dir}/{issue}-verify.json, owned EXCLUSIVELY by verifyctl:
 #   { runId, headSha, chargedHead, at, failedClasses[], status }.
 #   - Sidecar with runId != state .runId is discarded (self-cleans across
-#     stacked slices and operator state clears).
+#     runs and operator state clears).
 #   - Prior status "fail" => this invocation is a fix-attempt re-run: each class
 #     in failedClasses is charged via `statectl verify-attempts` — idempotently
 #     per HEAD (charge only when HEAD != chargedHead; chargedHead is written
@@ -313,8 +313,8 @@ cmd_run() {
   [[ -d "$wt" ]] || { EXIT_CODE=2 die "run: worktreePath does not resolve to a directory ('$wt')"; }
   run_id=$(sget "$key" '.runId // ""')
   [[ -n "$run_id" ]] || { EXIT_CODE=2 die "run: state has no .runId (statectl init not run?)"; }
-  # Persisted by slice-set on stacked runs (priorSliceBranch for slice N>1);
-  # absent on single-PR runs => the config's host-repo baseBranch. No
+  # Persisted by worktree-set --base on the be-fe-pair path; absent on
+  # standalone/monorepo runs => the config's host-repo baseBranch. No
   # branch-name arithmetic — the persisted field is the source of truth.
   if [[ -n "$REPO_ID" ]]; then
     base_ref=$(sget "$key" ".worktrees[\"$REPO_ID\"].base // \"\"")
@@ -365,7 +365,7 @@ cmd_run() {
     local sc_run_id
     sc_run_id=$(jq -r '.runId // ""' "$sidecar" 2>/dev/null) || sc_run_id=""
     if [[ "$sc_run_id" != "$run_id" ]]; then
-      rm -f "$sidecar"   # stale sidecar from a previous run/slice — discard
+      rm -f "$sidecar"   # stale sidecar from a previous run — discard
     else
       local sc_status sc_charged
       sc_status=$(jq -r '.status // ""' "$sidecar")

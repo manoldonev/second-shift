@@ -34,7 +34,7 @@
 
 Runs **after** all implementation commits land (including the co-located unit tests, per the repo's configured test-file convention), before `set-stage 5 --status completed`. The worktree is clean, so the gate uses an explicit commit range. Propose + execute + verdict all run inside ONE `mutation-gate.mjs` dispatch — no in-session apply/run/revert (the executions are machine-attested by the workflow journal, not self-reported). See the `review-toolkit:mutation-review` skill for the assertion-strength conventions and blocker taxonomy.
 
-**Worktree + range (resolve once).** The state `worktreePath` is repo-relative; resolve it to an absolute path against repo root, and derive the range against the persisted `worktreeBase` (stacked slices never diff the bare base branch):
+**Worktree + range (resolve once).** The state `worktreePath` is repo-relative; resolve it to an absolute path against repo root, and derive the range against the persisted `worktreeBase` when present:
 
 ```bash
 WT="$(git rev-parse --show-toplevel)/$(statectl.sh get "$ISSUE_NUMBER" '.worktreePath')"
@@ -42,7 +42,7 @@ WT="$(git rev-parse --show-toplevel)/$(statectl.sh get "$ISSUE_NUMBER" '.worktre
 # unitTestScope (acme: apps/api/src/**) bounds the backend diff; testFile ({file}
 # placeholder) is the mutation gate's per-spec runner.
 HOST_Q='(.topology.repos | to_entries[] | select(.value.path==".") | .key)'
-# Base: persisted worktreeBase (stacked slices) else the host repo's configured
+# Base: persisted worktreeBase (be-fe-pair) else the host repo's configured
 # baseBranch — NOT a hardcoded "main" (an alpha/develop-based consumer's diff range,
 # and thus the mutation-gate changed-file set, would otherwise be empty/garbage and
 # the blocking gate would silently waive itself). Mirror of verifyctl's base_ref.

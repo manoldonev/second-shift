@@ -39,9 +39,9 @@ function into a test, stop and use the runtime shim.
 is indistinguishable from one that cannot fail. Break the thing, watch the guard go red, restore
 it, and say so in the commit body. This is a repo idiom, not a suggestion.
 
-**Prefer one composed scenario to N component checks.** The stacked-PR path died with 42 green
-selftests because every one of them checked a component against itself. If a new gate has a
-verdict path, extend `scenario-liveness-selftest.sh`.
+**Prefer one composed scenario to N component checks.** The since-retired stacked-PR path died
+with 42 green selftests because every one of them checked a component against itself. If a new
+gate has a verdict path, extend `scenario-liveness-selftest.sh`.
 
 **Never plant what a tool could produce.** A composed scenario can still be hollow if the values
 it composes over are typed in by the harness. `scenario-lib.sh` planted every comment receipt as

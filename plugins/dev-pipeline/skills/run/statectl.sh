@@ -44,7 +44,6 @@
 #   statectl.sh comment-add <issue-number> --marker <stage-marker> --url <comment-url> [--force --force-reason <text>]
 #   statectl.sh reclaim <issue-number> [--release] [--threshold-min <N>] [--force --force-reason <text>]
 #   statectl.sh intake-brief <issue-number> --brief-path <path|null> --acceptance-criteria '<json-array>'
-#   statectl.sh slice-partition-set <issue-number> --json '[{"slice":1,"acIds":["AC-1"]}, ...]' [--force --force-reason <text>]
 #   statectl.sh plan-review-set <issue-number> --overall <pass|fix-and-go> [--force --force-reason <text>]
 #   statectl.sh verify-summary-set <issue-number> --json <verifySummary> [--repo <id>] [--force --force-reason <text>]
 #   statectl.sh quality-pass-set <issue-number> --json <payload> [--force --force-reason <text>]
@@ -209,7 +208,7 @@ tracker_writes() {
 }
 
 # State-file path for a given ticket key. The key is lowercased defensively in case
-# a future caller passes a non-numeric slice suffix (`123-pr2`) or a JIRA key
+# a future caller passes a non-numeric key shape or a JIRA key
 # (`PROJ-123`); pure-numeric keys pass through unchanged.
 state_path() {
   local raw="$1"
@@ -491,7 +490,7 @@ apply_waivers() {  # apply_waivers <state-json> → stdout
 # --force was passed; only `in_progress` (or an absent/empty status, defensively)
 # is freely mutable. Centralizes the check that mark-failed/mark-completed
 # carried inline, and that the stage-boundary / mid-stage mutators
-# (worktree-set, pr-add, review-rounds, verify-attempts, slice-set, checkpoint)
+# (worktree-set, pr-add, review-rounds, verify-attempts, checkpoint)
 # previously lacked entirely — the corruption gap #154 closes. set-stage is
 # intentionally NOT routed through this helper (its terminal guard is stricter:
 # inline, with no --force escape, because re-entering a stage on a terminal run is
@@ -671,12 +670,6 @@ sidecar_attests() {
 # once at init and never overwritten, which is what makes "carries the current
 # runId" mean "written by THIS run"; it is the same comparison verifyctl itself
 # uses to self-clean a stale sidecar.
-#
-# Stacked runs: one sidecar per run, overwritten by each slice's own verifyctl
-# run. Because runId is constant across slices, this gate cannot distinguish
-# slice N's sidecar from slice N-1's. That residual weakness is declared rather
-# than implied — per-slice attestation belongs with the per-slice stage
-# accounting, not here.
 require_verify_sidecar() {
   local key="$1" current="$2"
   local run_id stem targets sidecar scope rc r
@@ -1461,138 +1454,11 @@ cmd_verify_attempts() {
   fi
 }
 
-cmd_slice_set() {
-  # Persist the five stacked-PR slice fields atomically. Called at Stage 1
-  # (initial seed from derivation) and at the start of each slice iteration.
-  # currentSlice is authoritative on resume (see state-schema.md precedence
-  # rule); this subcommand is the only writer.
-  #
-  # Usage:
-  #   statectl slice-set <issue-number> --current N --branch <sliceBranch> \
-  #     [--prior-branch <priorSliceBranch>] --worktree-base <ref> --pr-base <ref>
-  local key="${1:-}"; shift || true
-  local current="" branch="" prior="" wbase="" pbase=""
-  local prior_set=0 force=0
-  while [[ $# -gt 0 ]]; do
-    case "$1" in
-      --current)        current="${2:-}"; shift 2 ;;
-      --branch)         branch="${2:-}"; shift 2 ;;
-      --prior-branch)   prior="${2:-}"; prior_set=1; shift 2 ;;
-      --worktree-base)  wbase="${2:-}"; shift 2 ;;
-      --pr-base)        pbase="${2:-}"; shift 2 ;;
-      --force)          force=1; shift ;;
-      *) EXIT_CODE=3 die "slice-set: unknown arg '$1'" ;;
-    esac
-  done
-  [[ -n "$key" && -n "$current" && -n "$branch" && -n "$wbase" && -n "$pbase" ]] \
-    || { EXIT_CODE=3 die "slice-set: missing <issue-number> or required flag (--current --branch --worktree-base --pr-base)"; }
-  [[ "$current" =~ ^[1-9][0-9]*$ ]] \
-    || { EXIT_CODE=1 die "slice-set: --current must be a positive integer, got '$current'"; }
-  # Slice 1 ⇒ prior-branch must be unset/empty; slice N>1 ⇒ prior-branch must be set.
-  if [[ "$current" -eq 1 ]]; then
-    [[ "$prior_set" -eq 0 || -z "$prior" ]] \
-      || { EXIT_CODE=1 die "slice-set: --prior-branch must be omitted when --current is 1 (got '$prior')"; }
-  else
-    [[ -n "$prior" ]] \
-      || { EXIT_CODE=1 die "slice-set: --prior-branch required when --current > 1 (got slice $current)"; }
-  fi
-  local current_state
-  current_state=$(read_state "$key") || exit $?
-  require_mutable "$current_state" "$force" "slice-set"
-  local now
-  now=$(now_iso)
-  local prior_json
-  if [[ -n "$prior" ]]; then
-    prior_json=$(jq -nc --arg p "$prior" '$p')
-  else
-    prior_json='null'
-  fi
-  local new_state
-  new_state=$(jq --argjson c "$current" --arg b "$branch" --argjson pb "$prior_json" \
-                 --arg wbase "$wbase" --arg pbase "$pbase" --arg now "$now" '
-    .currentSlice     = $c
-    | .sliceBranch    = $b
-    | .priorSliceBranch = $pb
-    | .worktreeBase   = $wbase
-    | .prBase         = $pbase
-    | .lastUpdatedAt  = $now
-  ' <<< "$current_state") || { EXIT_CODE=2 die "slice-set: jq mutation failed"; }
-  atomic_write "$key" "$new_state"
-}
-
-cmd_slice_partition_set() {
-  # Persist the Stage-1 AC→slice partition (`decomposition.slices[].acIds`) —
-  # the intake orchestrator's coverage back-check result, written ONCE at intake
-  # before any code exists. Part of the intent-snapshot family alongside
-  # acceptanceCriteria[] (same trust model: write-once, run-authoritative,
-  # immune to mid-run authoring). Consumers: plan-lint Check 3 slice mode,
-  # the Stage-8 scope-gate slice mode, pipeline-retro's AC-coverage audit.
-  # See state-schema.md "Stacked-PR AC partition".
-  #
-  # Usage:
-  #   statectl slice-partition-set <issue-number> --json '[{"slice":1,"acIds":["AC-1",...]}, ...]' [--force]
-  local key="${1:-}"; shift || true
-  local partition_json="" force=0
-  while [[ $# -gt 0 ]]; do
-    case "$1" in
-      --json)  partition_json="${2:-}"; shift 2 ;;
-      --force) force=1; shift ;;
-      *) EXIT_CODE=3 die "slice-partition-set: unknown arg '$1'" ;;
-    esac
-  done
-  [[ -n "$key" && -n "$partition_json" ]] \
-    || { EXIT_CODE=3 die "slice-partition-set: usage: slice-partition-set <issue-number> --json '<json-array>' [--force]"; }
-  jq -e 'type == "array" and length > 0' <<< "$partition_json" >/dev/null 2>&1 \
-    || { EXIT_CODE=3 die "slice-partition-set: --json must be a non-empty JSON array"; }
-  local bad
-  bad=$(jq -r '[.[] | select(((.slice | type) != "number") or (.slice | floor != .) or (.slice < 1))] | length' <<< "$partition_json")
-  [[ "$bad" == "0" ]] || { EXIT_CODE=3 die "slice-partition-set: every entry's .slice must be a positive integer"; }
-  # Slice indices must be exactly 1..N (contiguous, no duplicates) — the same
-  # 1-based index space as currentSlice/slice-set.
-  bad=$(jq -r '(map(.slice) | sort) == [range(1; length + 1)] | if . then "0" else "1" end' <<< "$partition_json")
-  [[ "$bad" == "0" ]] || { EXIT_CODE=3 die "slice-partition-set: .slice values must be exactly 1..N (contiguous, unique)"; }
-  bad=$(jq -r '[.[] | select((.acIds | type) != "array" or (.acIds | length) == 0)] | length' <<< "$partition_json")
-  [[ "$bad" == "0" ]] || { EXIT_CODE=3 die "slice-partition-set: every entry's .acIds must be a non-empty array"; }
-  bad=$(jq -r '[.[].acIds[] | select((type != "string") or (test("^AC-[0-9]+$") | not))] | length' <<< "$partition_json")
-  [[ "$bad" == "0" ]] || { EXIT_CODE=3 die "slice-partition-set: every acId must be a string matching ^AC-[0-9]+\$"; }
-  # Disjoint: an AC id may appear in exactly one slice.
-  bad=$(jq -r '([.[].acIds[]] | length) - ([.[].acIds[]] | unique | length)' <<< "$partition_json")
-  [[ "$bad" == "0" ]] || { EXIT_CODE=3 die "slice-partition-set: acIds must be disjoint across slices (an AC belongs to exactly one slice)"; }
-  local current_state
-  current_state=$(read_state "$key") || exit $?
-  require_mutable "$current_state" "$force" "slice-partition-set"
-  # Every acId must exist in the acceptanceCriteria[] snapshot (the partition is
-  # a partition OF the snapshot — never a parallel AC universe).
-  bad=$(jq --argjson p "$partition_json" -r '
-    (.acceptanceCriteria // [] | map(.id)) as $snap
-    | [$p[].acIds[] | select(. as $a | $snap | index($a) | not)] | length
-  ' <<< "$current_state")
-  [[ "$bad" == "0" ]] || { EXIT_CODE=1 die "slice-partition-set: every acId must exist in the acceptanceCriteria[] snapshot (write intake-brief first)"; }
-  # Write-once: the partition is intent-snapshot data. Overwriting an existing
-  # partition mid-run is the scope-narrowing move the write-once posture blocks.
-  local existing
-  existing=$(jq -r '.decomposition.slices // [] | length' <<< "$current_state")
-  if [[ "$existing" != "0" ]]; then
-    guard_fire "slice-partition-write-once" "" "slice-partition-set: decomposition.slices already present (write-once); pass --force to overwrite"
-    guards_settle "$force"
-  fi
-  local now
-  now=$(now_iso)
-  local new_state
-  new_state=$(jq --argjson p "$partition_json" --arg now "$now" '
-    .decomposition.slices = ($p | sort_by(.slice) | map({slice, acIds}))
-    | .lastUpdatedAt = $now
-  ' <<< "$current_state") || { EXIT_CODE=2 die "slice-partition-set: jq mutation failed"; }
-  atomic_write "$key" "$new_state"
-  jq -r '.decomposition.slices | length' <<< "$new_state"
-}
-
 cmd_worktree_set() {
   # Persist the Stage 2 boundary fields atomically. ORDERING CONTRACT: this
   # call MUST precede `set-stage 2 --status completed`, so a completed Stage 2
   # always implies worktreePath/branch are present — closing the crash window
   # the Stage 8 resume entry asserts on (see state-schema.md "Worktree").
-  # Stacked-PR mode overwrites both fields per slice by design.
   #
   # Usage:
   #   statectl worktree-set <issue-number> --path <worktreePath> --branch <branch> [--repo <id>] [--base <ref>]
@@ -1658,7 +1524,7 @@ cmd_pr_add() {
   # Record a PR URL under .prs[branch] atomically. Same ordering contract as
   # worktree-set: MUST precede `set-stage 9 --status completed`. Re-running
   # for the same branch overwrites the URL (idempotent for retries); distinct
-  # branches accumulate (one entry per slice in stacked-PR runs). Consumed by
+  # branches accumulate. Consumed by
   # pipeline-cost-block.sh to know which PRs to amend.
   #
   # Usage:
@@ -1716,8 +1582,8 @@ cmd_pr_add() {
   [[ -n "$repo" ]] && repo_keyed=1
   # #188: normalize the VALUE shape to { url, branch, repo } across BOTH keyings so
   # no reader hits url-only drift. The KEYS stay run-shape-specific (branch-keyed
-  # single-repo/stacked, repo-keyed be-fe-pair — stacked slices collide on a repo
-  # key, pair runs collide on a branch key). Without --repo, derive `repo` from the
+  # single-repo, repo-keyed be-fe-pair — pair runs collide on a branch key).
+  # Without --repo, derive `repo` from the
   # config host-repo alias (the topology.repos entry with path ".") so single-repo
   # entries still carry it; unresolvable config (e.g. the config-less selftest
   # harness / CI, where the gitignored config is absent) → repo: null.
@@ -1732,7 +1598,7 @@ cmd_pr_add() {
   # --repo <id> (be-fe-pair): a pair run opens one PR per target repo, all on the
   # SAME branch name — so key `.prs` by REPO ID (not branch, which would collide)
   # and stamp repo + branch. Consumers iterate `.prs[].url` either way. Without
-  # --repo the branch-keyed form (single-repo / one entry per stacked slice), now
+  # --repo the branch-keyed form (single-repo), now
   # also stamped with branch + the resolved repo alias (null when unresolvable).
   if [[ "$repo_keyed" -eq 1 ]]; then
     # Cross-keying self-heal: a mis-keyed earlier write (branch-keyed on a pair
@@ -1870,7 +1736,7 @@ cmd_review_rounds() {
   done
   [[ -n "$key" && -n "$rounds" ]] \
     || { EXIT_CODE=3 die "review-rounds: missing <issue-number> or --set"; }
-  # Inline numeric range guard (like slice-set's positive-integer check) —
+  # Inline numeric range guard —
   # NOT a generated closed-enum validator; the round budget lives in Stage 8.
   [[ "$rounds" =~ ^[1-3]$ ]] \
     || { EXIT_CODE=1 die "review-rounds: --set must be 1, 2, or 3 (got '$rounds')"; }
@@ -2262,8 +2128,7 @@ cmd_mark_completed() {
   # Completeness backstop (imperative stage machine): a run cannot reach terminal
   # `completed` unless every stage 1-9 was opened and closed. Order is guaranteed
   # by set-stage's per-transition guards; this closes the "terminated without
-  # executing all stages" hole. NOT bypassed by --force. Stacked-PR runs call
-  # mark-completed once, after the LAST slice (stages/9-open-pr.md).
+  # executing all stages" hole. NOT bypassed by --force.
   local incomplete
   incomplete=$(jq -r '(.stages // {}) as $s
     | [range(1; 10) | tostring | select((($s[.] // {}).status // "") != "completed")]
@@ -2516,7 +2381,7 @@ cmd_build_checkpoint_7() {
   printf '%s\n' "$payload"
 }
 
-# build-checkpoint-7-perrepo — one repo's slice of a be-fe-pair DUAL-target Stage-7
+# build-checkpoint-7-perrepo — one repo's part of a be-fe-pair DUAL-target Stage-7
 # checkpoint (#48). Called once per repo in `.targetRepos`; each emits
 # `{perRepo: {<repo>: {branch, headSha, worktreePath, changedFiles, verifySummary}}}`
 # so the Stage-7 caller merges them with `jq -s 'reduce .[] as $x ({}; .perRepo +=
@@ -3025,8 +2890,6 @@ main() {
     deviations-add)         cmd_deviations_add "$@" ;;
     verify-attempts)        cmd_verify_attempts "$@" ;;
     pipeline-session-add)   cmd_pipeline_session_add "$@" ;;
-    slice-set)              cmd_slice_set "$@" ;;
-    slice-partition-set)    cmd_slice_partition_set "$@" ;;
     unit-test-surface-set)  cmd_unit_test_surface_set "$@" ;;
     mutation-audit-set)     cmd_mutation_audit_set "$@" ;;
     skill-load-add)         cmd_skill_load_add "$@" ;;

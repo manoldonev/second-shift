@@ -13,18 +13,15 @@
 
 **All PRs open as draft.** The human reviewer flips to ready-for-review after a manual eyes-on pass. Clean drafts and exhausted-review drafts are distinguished by the `needs-deep-review` label and the `codeReviewExhausted` state field — not by draft status.
 
-**Stale-branch freshness check (autonomous default):** Before pushing, check whether opening the PR risks a **real** merge conflict — whether the branch and its PR base (`origin/<baseBranch>`, or the prior slice for a stacked run) changed an **overlapping set of files** since their merge base. Raw distance does not matter: a branch far "behind" a fast-moving base branch still merges cleanly when the two changed-file sets are disjoint (disjoint sets cannot produce a merge conflict). Only a genuine file overlap is worth stopping for:
+**Stale-branch freshness check (autonomous default):** Before pushing, check whether opening the PR risks a **real** merge conflict — whether the branch and its PR base (`origin/<baseBranch>`) changed an **overlapping set of files** since their merge base. Raw distance does not matter: a branch far "behind" a fast-moving base branch still merges cleanly when the two changed-file sets are disjoint (disjoint sets cannot produce a merge conflict). Only a genuine file overlap is worth stopping for:
 
 ```bash
-# Effective PR base: persisted prBase (a stacked slice targets its prior slice) else the
-# host repo's configured baseBranch — never a hardcoded "main" (a develop/alpha-based
-# consumer's freshness check and PR target would otherwise both point at the wrong ref).
-# Single source of truth with the `--base` target at PR creation below.
+# Effective PR base: the host repo's configured baseBranch — never a hardcoded "main"
+# (a develop/alpha-based consumer's freshness check and PR target would otherwise both
+# point at the wrong ref). Single source of truth with the `--base` target at PR
+# creation below.
 CFG="${SECOND_SHIFT_CONFIG:-.claude/second-shift.config.json}"
-PR_BASE_EFF=$(statectl.sh get "$ISSUE_NUMBER" '.prBase // empty')
-if [[ -z "$PR_BASE_EFF" || "$PR_BASE_EFF" == "null" ]]; then
-  PR_BASE_EFF=$(jq -r '(.topology.repos | to_entries[] | select(.value.path==".") | .key) as $h | .topology.repos[$h].baseBranch // "main"' "$CFG" 2>/dev/null || echo main)
-fi
+PR_BASE_EFF=$(jq -r '(.topology.repos | to_entries[] | select(.value.path==".") | .key) as $h | .topology.repos[$h].baseBranch // "main"' "$CFG" 2>/dev/null || echo main)
 git fetch origin "$PR_BASE_EFF" --quiet
 # Conflict gate keyed on overlapping changed files since the merge base. Uses only
 # deny-safe plumbing — `git merge*` (which covers both the in-place `git merge` freshen
@@ -120,40 +117,19 @@ EXISTING_PR=$(gh pr list --head "$BRANCH" --json number --jq '.[0].number')
 ```bash
 git push -u origin "$BRANCH"
 
-# Read PR base + priorSliceBranch from state (written by Stage 1 outer-loop
-# preamble for stacked-PR runs; absent for single-PR runs). Persisted prBase
-# is the source of truth — do not recompute from SLICE_NUMBER here.
-PR_BASE=$(statectl.sh get "$ISSUE_NUMBER" '.prBase // empty')
-PRIOR_BRANCH=$(statectl.sh get "$ISSUE_NUMBER" '.priorSliceBranch // empty')
-
-# Single-PR fallback: no slice fields → the host repo's configured baseBranch (not a
-# hardcoded "main"). CFG resolved in the freshness gate above; re-resolve defensively
-# in case this block runs in a separate shell.
+# The PR targets the host repo's configured baseBranch (not a hardcoded "main").
+# CFG resolved in the freshness gate above; re-resolve defensively in case this
+# block runs in a separate shell.
 CFG="${SECOND_SHIFT_CONFIG:-.claude/second-shift.config.json}"
-if [[ -z "$PR_BASE" || "$PR_BASE" == "null" ]]; then
-  TARGET=$(jq -r '(.topology.repos | to_entries[] | select(.value.path==".") | .key) as $h | .topology.repos[$h].baseBranch // "main"' "$CFG" 2>/dev/null || echo main)
-else
-  TARGET="$PR_BASE"
-fi
-
-# For stacked-PR slice N>1, resolve the prior slice's PR number for the
-# "Stacked on PR #XYZ" prose. Best-effort: if the prior PR isn't open yet,
-# the prose section is omitted.
-STACKED_ON_LINE=""
-if [[ -n "$PRIOR_BRANCH" && "$PRIOR_BRANCH" != "null" ]]; then
-  PRIOR_PR_NUM=$(gh pr list --head "$PRIOR_BRANCH" --json number --jq '.[0].number' 2>/dev/null)
-  [[ -n "$PRIOR_PR_NUM" ]] && STACKED_ON_LINE="Stacked on #${PRIOR_PR_NUM} (\`${PRIOR_BRANCH}\`)."
-fi
+TARGET=$(jq -r '(.topology.repos | to_entries[] | select(.value.path==".") | .key) as $h | .topology.repos[$h].baseBranch // "main"' "$CFG" 2>/dev/null || echo main)
 
 # Always --draft. The Outstanding Review Blockers section is included
-# only when codeReviewExhausted == true. The Stacked-PR body template
-# (below) inserts $STACKED_ON_LINE at the top of the body when set.
+# only when codeReviewExhausted == true.
 #
 # Pass --head "$BRANCH" EXPLICITLY: through the $GH_BOT wrapper, `gh pr create`
 # cannot infer the head branch from the worktree and aborts with "could not
 # determine the current branch: not on any branch". The explicit --head is also
-# correct for stacked-PR slices, where the current branch and the slice branch
-# can differ. (--base is already explicit.)
+# (--base is already explicit.)
 # --title defaults to "$ISSUE_TITLE", but use a conventional-commit title scoped to
 # the ACTUAL deliverable when the raw issue title would mislead — e.g. a `.claude/`-only
 # change uses `chore(<scope>): …` (never `feat:`), and a single-item delivery off a
@@ -182,7 +158,7 @@ The report is the only artifact the operator reads per run. Until it was persist
 Two properties of the placement are load-bearing:
 
 - **Here, not just before `mark-completed`.** The observed loss came in two shapes: a run that died after `mark-completed` (state `completed`, report gone) and one that died before the eval write (state stuck at `stages.9.status: in_progress`, report gone). Only a write anchored at the earliest point where the PR URL exists covers both.
-- **Once per Stage-9 pass, after every `pr-add` of that pass.** Under be-fe-pair the per-repo loop calls `pr-add` N times — write the report once, after the loop, so it names all PRs. Under stacked-PRs each slice refreshes the same `{issue}-report.md`, and the last slice's version is the durable one (`mark-completed` runs once, after the final slice).
+- **Once per Stage-9 pass, after every `pr-add` of that pass.** Under be-fe-pair the per-repo loop calls `pr-add` N times — write the report once, after the loop, so it names all PRs.
 
 Write it to the **main checkout** — never the worktree, which Stage 10 removes:
 
@@ -201,7 +177,7 @@ REPORT_PATH="$MAIN_ROOT/.claude/pipeline-state/${ISSUE_NUMBER}-report.md"
 
 # Run report — #{ISSUE_NUMBER}: {issue title}
 
-**PR:** {PR_URL} (draft) {plus one line per additional PR under be-fe-pair / stacked-PR}
+**PR:** {PR_URL} (draft) {plus one line per additional PR under be-fe-pair}
 **Branch:** {BRANCH} → {TARGET}
 
 ## What shipped
@@ -301,49 +277,11 @@ Screenshots: `.claude/pipeline-state/{ISSUE_NUMBER}-screenshots/` ({N} files)
 dev-pipeline run: ${RUN_ID}
 ```
 
-**Stacked-PR body template** (use when `currentSlice` is set in state; same always-draft + conditional Outstanding Blockers structure). When `$STACKED_ON_LINE` is non-empty (slice N>1), insert it as the second prose line — under the "Part of" line and above the "Opened as draft" notice.
-
-```markdown
-Part of #{ISSUE_NUMBER} — PR {SLICE_NUMBER} of {TOTAL_SLICES}
-
-{STACKED_ON_LINE if set: e.g. "Stacked on #123 (`claude/acme-42`)."}
-
-> Opened as draft. Flip to ready-for-review after human eyes confirm.
-
-## Summary
-
-{what this slice delivers}
-
-## Decomposition Context
-
-{link to intake comment with full decomposition plan}
-
-## Verification
-
-- [x] format
-- [x] lint
-- [x] type-check
-- [x] test
-
-{If Stage 7 visual capture ran (render-surface trigger matched and no skip), include the same `## Visual Verification` section as the single-PR template above, scoped to this slice's screenshots.}
-
-## Code Review
-
-{N} rounds, all blockers resolved.
-
-{If codeReviewExhausted == true, include the Outstanding Review Blockers / Review History / Suggested Next Actions sections from the single-PR template above.}
-
----
-
-dev-pipeline run: ${RUN_ID}
-```
-
 - **If `codeReviewExhausted == true`:** after `gh pr create` returns, add the `needs-deep-review` label: `$GH_BOT pr edit "$PR_URL" --add-label needs-deep-review`.
 - Comment on issue via `$GH_BOT issue comment`: `stage: pr`, `status: opened-as-draft` for clean runs and `status: opened-as-draft (review exhausted)` for the unhappy path. The exhausted comment also includes the marker `<!-- review-exhausted -->` for resume disambiguation. Record the receipt (completion-gated): `"$STATECTL" comment-add "$ISSUE_NUMBER" --marker pr --url <html_url>`.
-- For single-PR runs: `$GH_BOT issue edit $ISSUE_NUMBER --remove-label in-progress` (use regular `gh` for `--remove-assignee @me` separately)
-- For stacked-PR runs: do NOT remove `in-progress` until all slices are done (handled by the outer loop completion step).
+- `$GH_BOT issue edit $ISSUE_NUMBER --remove-label in-progress` (use regular `gh` for `--remove-assignee @me` separately)
 
-**State:** a `{ url, branch, repo }` record is written for every PR opened in this stage via `statectl pr-add` (see the create block above) — ordered BEFORE the Stage 9 completion write. The KEY is run-shape-specific: branch-keyed on the single-repo / stacked path, repo-keyed under `--repo` on a be-fe-pair run (`:109` above). One PR always yields exactly one `.prs` entry — `pr-add --repo` drops any same-URL entry left under a different key, so re-running the correct call repairs a mis-keyed write instead of adding a duplicate. See `state-schema.md` `.prs`.
+**State:** a `{ url, branch, repo }` record is written for every PR opened in this stage via `statectl pr-add` (see the create block above) — ordered BEFORE the Stage 9 completion write. The KEY is run-shape-specific: branch-keyed on the single-repo path, repo-keyed under `--repo` on a be-fe-pair run (`:109` above). One PR always yields exactly one `.prs` entry — `pr-add --repo` drops any same-URL entry left under a different key, so re-running the correct call repairs a mis-keyed write instead of adding a duplicate. See `state-schema.md` `.prs`.
 
 ## Cost-block sub-step (in-band, opt-in)
 
@@ -371,7 +309,7 @@ bash "$COST_BLOCK" "$ISSUE_NUMBER"
 
 What it does: reads `pipelineSessions[]`, queries the OTel metrics for those sessions clamped to the run's wall-clock fence, buckets the in-fence datapoints into the `stages.{N}` windows, and appends a cost block to each PR body — idempotent on the `<!-- pipeline-cost-block -->` marker. The mechanism, the write identity (bot wrapper vs operator `gh`), and the full `costBlockApplied` string catalog are specified in [`cost-tracking-setup.md`](../cost-tracking-setup.md).
 
-Two behaviors this stage owns: in-fence datapoints matching no stage window land in an explicit "Other" bucket, and a stacked-PR run (`len(prs) > 1`) splits total cost evenly across slices.
+One behavior this stage owns: in-fence datapoints matching no stage window land in an explicit "Other" bucket.
 
 A missing prerequisite records a descriptive `costBlockApplied` string and exits 0. The one non-zero exit is **state-unresolvable** (no state file at the resolved path — nothing to record into): it logs loudly and exits non-zero (rc 2), which is why the anchor export above matters. Either way the pipeline continues regardless — Stage 9 never checks the sub-step's rc (#188).
 
@@ -392,8 +330,6 @@ A waiver appended by the terminalizing invocation itself (the forced re-terminal
 **State:** After the sub-step returns, write the terminal top-level status via `statectl`: `statectl.sh mark-completed "$ISSUE_NUMBER"` (atomic `status: "completed"` + `lastUpdatedAt` bundle; refuses to overwrite an already-terminal state without a reason-carrying `--force` from an attended shell — `DEV_PIPELINE_MODE=interactive`, #243 — and refuses a waived run outright without `--accept-waivers`). Order it AFTER `set-stage 9 --status completed` — `set-stage` rejects mutations once the top-level status is terminal.
 
 `mark-completed` additionally enforces three terminal gates, **not** bypassed by `--force`: every stage 1–9 must be `completed`; the Post-Run Eval file (`.claude/pipeline-state/{issue}-eval.json`, SKILL.md "Post-Run Eval") must exist with a plausible score — **so the eval write must precede `mark-completed`**; and the run report (`.claude/pipeline-state/{issue}-report.md`, the "Run report" sub-step above) must exist and carry its marker plus real content.
-
-**Stacked-PR runs:** call `mark-completed` **once, after the LAST slice** (as part of the outer loop's completion step in `stages/1-intake.md`, alongside the `all-prs-opened` comment) — never per slice; a mid-run terminal write would make every later slice's state mutation refuse. (Stacked-slice stage-machine semantics — how per-slice stage re-entries interact with the completion preconditions and re-start guards — are single-PR-scoped for now; a follow-up issue tracks the full model.)
 
 ---
 

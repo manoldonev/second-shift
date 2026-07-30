@@ -31,7 +31,7 @@ Before dispatching LLM reasoning in Step 7.D, narrow the candidate-doc set with 
 # Base ref: the host repo's configured base branch (topology.repos.<host>.baseBranch),
 # NOT a hardcoded "main" — on a develop/alpha-based repo `main...HEAD` is empty and this
 # step silently reports "0 candidates". (Advisory step; a mainline base over-reports
-# harmlessly on stacked slices, whereas a wrong literal under-reports to nothing.)
+# harmlessly, whereas a wrong literal under-reports to nothing.)
 CFG="${SECOND_SHIFT_CONFIG:-.claude/second-shift.config.json}"
 BASE_REF="$(jq -r '(.topology.repos | to_entries[] | select(.value.path==".") | .key) as $h | .topology.repos[$h].baseBranch // "main"' "$CFG" 2>/dev/null || echo main)"
 

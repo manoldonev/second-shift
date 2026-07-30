@@ -33,7 +33,7 @@ is a fetch-time prerequisite failure, surfaced by the intake stage.
 | **set-status** | *no-op.* The ticket stays in its current JIRA status for the whole run. |
 | **create-sub-tickets** (`sub-issues` verdict) | Present ≤5 recommended sub-ticket specs to the operator; make **no** JIRA writes. The operator creates and re-queues them. |
 | **close-out** | *no-op.* |
-| **branch name** | `<branchPrefix><key-lowercased>`; `branchPrefix` is a per-user identifier + `/` (e.g. `jdoe/` → `jdoe/gh-540`). Stacked slice N: `…-pr<N>`. |
+| **branch name** | `<branchPrefix><key-lowercased>`; `branchPrefix` is a per-user identifier + `/` (e.g. `jdoe/` → `jdoe/gh-540`). |
 | **PR ticket reference** | Fill the repo’s `pull_request_template.md` `### Jira Items` with `Closes [<KEY>]`; the branch/PR are still on GitHub (`gh pr create --draft`). |
 
 ## Deriving `branchPrefix` (the user identifier)
