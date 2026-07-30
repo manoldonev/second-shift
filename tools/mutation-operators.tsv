@@ -6,7 +6,9 @@
 # id     A stable token. It is BYTE-COMPARED inside generic survivor ids
 #        (`<guard relpath>::<id>::<ordinal>`), so renaming an id re-keys every survivor
 #        it produced. One id per textual mutation — never a prose "family".
-# match  The site-enumerating ERE, applied with `grep -nE`. A SITE IS A MATCHED LINE:
+# match  The site-enumerating ERE, applied with `grep -nE --` (the option terminator is
+#        load-bearing: a match may begin with a hyphen, and a match grep cannot run as a
+#        pattern is a named red, never a silent zero-site pass). A SITE IS A MATCHED LINE:
 #        at most one mutation per line per operator. Ordinals index this operator's FULL
 #        matched-line list in file order (1-based), so raising the per-guard budget K
 #        re-keys nothing; editing a guard's applicable-site set DOES re-key its ordinals,

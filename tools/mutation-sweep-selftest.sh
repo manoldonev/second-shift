@@ -133,6 +133,31 @@ make_fleet_fixture() {
     && git -c user.email=fixture@example.invalid -c user.name=fixture commit -qm guards ) >/dev/null 2>&1
 }
 
+# Weak fleet for the shard/merge cases: $2 guards, each carrying exactly one fail-open
+# site behind a happy-path-only killer, so every guard contributes exactly one SURVIVOR —
+# which is what makes a merged seed baseline's completeness assertable per guard.
+# shellcheck disable=SC2016 # the single-quoted $-expressions are the FIXTURES' code, not ours
+make_weak_fleet() {
+  local dir="$1" n="$2" i=1
+  mkdir -p "$dir/tools"
+  printf '# fixture operators\nfail-open\texit 1\ts/exit 1/exit 0/\n' > "$dir/tools/mutation-operators.tsv"
+  printf '# fixture exclusions\n' > "$dir/tools/mutation-exclusions.tsv"
+  printf '# fixture pair map\n' > "$dir/tools/mutation-pair-map.tsv"
+  printf '# fixture catalog\n' > "$dir/tools/mutation-catalog.tsv"
+  while [[ $i -le $n ]]; do
+    printf '#!/usr/bin/env bash\nif [[ "${1:-}" == "bad" ]]; then\n  exit 1\nfi\necho ok\n' > "$dir/guard$i.sh"
+    chmod 755 "$dir/guard$i.sh"
+    { printf '#!/usr/bin/env bash\nH="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"\n'
+      printf 'out="$(bash "$H/guard%s.sh" good)"\n[[ "$out" == ok ]] || exit 1\nexit 0\n' "$i"
+    } > "$dir/guard$i-selftest.sh"
+    i=$((i + 1))
+  done
+  ( cd "$dir" \
+    && git init -q . \
+    && git add -A \
+    && git -c user.email=fixture@example.invalid -c user.name=fixture commit -qm init ) >/dev/null 2>&1
+}
+
 baseline_with() { # $1=dir, rest = survivor ids
   local d="$1"; shift
   { echo "# environment: ubuntu-latest SKIP_STRESS=1"
@@ -427,6 +452,244 @@ else
   bad "(r) expected swept=6 deferred=1 + the cap reason; got rc=$RC swept=$SWEPT_N deferred=$DEFER_N"; printf '%s\n' "$OUT" | tail -6
 fi
 
+echo "(s) leading-hyphen operator matches — the committed cmp rows enumerate real sites"
+# The committed comparison operators' match strings BEGIN WITH A HYPHEN, so site
+# enumeration must terminate option parsing before the pattern. Without that, grep reads
+# the match as OPTIONS: one row becomes the pattern 'q|-ne' (matching every line
+# containing 'q', all discarded as no-op flips), the other errors and enumerates zero
+# sites — silently, in both directions. This case drives the REAL committed rows through
+# the real harness against a guard holding exactly one genuine site per operator, plus a
+# decoy comment that matches only under the mis-parse. Correct behavior: two mutants,
+# both killed, zero no-op skips. The mis-parse instead yields one mutant and a no-op
+# skip on the decoy line (or an enumeration red), failing both assertions.
+FX="$(new_fixture strong)"
+grep '^cmp-' "$REPO_ROOT/tools/mutation-operators.tsv" > "$FX/tools/mutation-operators.tsv"
+if [[ "$(grep -c . "$FX/tools/mutation-operators.tsv")" -eq 2 ]]; then
+  ok "committed operators file still carries both cmp-* rows"
+else
+  bad "(s) expected exactly two cmp-* rows in the committed operators file"
+fi
+cat > "$FX/guard.sh" <<'EOF'
+#!/usr/bin/env bash
+# quick decoy: this comment line matches only a mis-parsed comparison pattern.
+if [ "$#" -eq 0 ]; then
+  echo "missing argument"
+  exit 3
+fi
+if [ -z "$1" ]; then
+  echo "empty argument"
+  exit 3
+fi
+echo ok
+EOF
+cat > "$FX/guard-selftest.sh" <<'EOF'
+#!/usr/bin/env bash
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+f=0
+bash "$HERE/guard.sh" >/dev/null 2>&1; [[ $? -eq 3 ]] || f=$((f+1))
+bash "$HERE/guard.sh" "" >/dev/null 2>&1; [[ $? -eq 3 ]] || f=$((f+1))
+out="$(bash "$HERE/guard.sh" good)"; [[ "$out" == "ok" ]] || f=$((f+1))
+exit $f
+EOF
+( cd "$FX" && git add -A && git -c user.email=f@e.invalid -c user.name=f commit -qm cmp ) >/dev/null 2>&1
+OUT="$( cd "$FX" && adv bash "$SWEEP" --mode full 2>&1 )"; RC=$?
+if [[ $RC -eq 0 ]] \
+  && printf '%s' "$OUT" | grep -q 'applied=2 killed=2 survived=0' \
+  && ! printf '%s' "$OUT" | grep -q 'skip (no-op flip)'; then
+  ok "cmp-eq and cmp-z each enumerated their one real site and mutated it"
+else
+  bad "(s) expected applied=2 killed=2 survived=0 and no no-op skips; got rc=$RC"; printf '%s\n' "$OUT" | tail -6
+fi
+
+echo "(t) a match grep cannot compile is a named red, never a silent zero-site pass"
+# The other half of the enumeration contract: when grep exits >= 2 the match never ran
+# as a pattern, and treating that as 'no sites' reports every guard clean against a
+# mutation class that was never applied. The red must name the operator.
+FX="$(new_fixture strong)"
+printf '# fixture operators\nbadre\t(\ts/x/y/\n' > "$FX/tools/mutation-operators.tsv"
+OUT="$( cd "$FX" && adv bash "$SWEEP" --mode full 2>&1 )"; RC=$?
+if [[ $RC -eq 1 ]] && printf '%s' "$OUT" | grep -q 'operator match does not enumerate.*badre'; then
+  ok "non-compilable match reds loudly and names the operator"
+else
+  bad "(t) expected rc=1 + the named enumeration red; got rc=$RC"; printf '%s\n' "$OUT" | tail -5
+fi
+
+echo "(u) shard argument contract — malformed specs die loudly; 1/1 is exactly unsharded"
+FX="$(new_fixture strong)"
+for args in \
+  "--mode full --shard 0/3" "--mode full --shard 4/3" "--mode full --shard x/3" \
+  "--mode full --shard 3" "--mode full --shard 2/" "--mode full --shard 08/10" \
+  "--mode pr --base HEAD --shard 1/2" "--mode merge" "--mode full --shards-dir ." \
+  "--mode pr --base HEAD --seed" "--mode merge --shards-dir /nonexistent-dir-xyz"; do
+  # shellcheck disable=SC2086 # args is a deliberate space-separated argv fragment
+  OUT="$( cd "$FX" && adv bash "$SWEEP" $args 2>&1 )"; RC=$?
+  if [[ $RC -eq 2 ]] && printf '%s' "$OUT" | grep -q 'FATAL'; then
+    ok "rejects [$args]"
+  else
+    bad "(u) [$args] expected rc=2 + FATAL; got rc=$RC"
+  fi
+done
+OUT="$( cd "$FX" && adv bash "$SWEEP" --mode full --shard 1/1 2>&1 )"; RC=$?
+if [[ $RC -eq 0 ]] && printf '%s' "$OUT" | grep -q 'killed=1 survived=0'; then
+  ok "--shard 1/1 sweeps the whole (one-guard) universe like an unsharded run"
+else
+  bad "(u) --shard 1/1 expected killed=1 survived=0 rc=0; got rc=$RC"; printf '%s\n' "$OUT" | tail -4
+fi
+
+echo "(v) shard partition — disjoint, complete, deterministic; excluded rows on shard 1 only"
+# Invariant: --shard i/N partitions the non-excluded universe — every guard lands in
+# EXACTLY one shard, no shard is empty at 7 guards / 3 shards, and the same spec always
+# yields the same set. A partition that returns everything to every shard (duplicated
+# work AND duplicated merge rows) or nothing to some shard (silently unswept guards)
+# must fail here. The excluded guard's zero-count row is universe bookkeeping and must
+# come from shard 1 exactly once, or the merged report carries duplicates.
+FX="$TMPROOT/shardfleet$RANDOM$RANDOM"
+make_fleet_fixture "$FX" 7
+printf '#!/usr/bin/env bash\nexit 0\n' > "$FX/excluded-guard.sh"
+chmod 755 "$FX/excluded-guard.sh"
+printf 'excluded-guard.sh\tfixture exclusion\n' >> "$FX/tools/mutation-exclusions.tsv"
+( cd "$FX" && git add -A && git -c user.email=f@e.invalid -c user.name=f commit -qm excl ) >/dev/null 2>&1
+SHARD_OK=1
+for i in 1 2 3; do
+  OUT="$( cd "$FX" && adv bash "$SWEEP" --mode full --shard "$i/3" --report "$FX/rep$i.tsv" 2>&1 )"; RC=$?
+  [[ $RC -eq 0 && -s "$FX/rep$i.tsv" ]] || { SHARD_OK=0; bad "(v) shard $i/3 run failed rc=$RC"; }
+done
+if [[ $SHARD_OK -eq 1 ]]; then
+  TOTAL="$(awk -F'\t' '$2=="swept"{print $1}' "$FX"/rep[123].tsv | grep -c .)"
+  UNIQ="$(awk -F'\t' '$2=="swept"{print $1}' "$FX"/rep[123].tsv | sort -u | grep -c .)"
+  MIN=7; MAX=0
+  for i in 1 2 3; do
+    n="$(awk -F'\t' '$2=="swept"' "$FX/rep$i.tsv" | grep -c .)"
+    [[ "$n" -lt "$MIN" ]] && MIN=$n
+    [[ "$n" -gt "$MAX" ]] && MAX=$n
+  done
+  if [[ "$TOTAL" -eq 7 && "$UNIQ" -eq 7 && "$MIN" -ge 1 && "$MAX" -le 6 ]]; then
+    ok "3 shards cover all 7 guards exactly once (min=$MIN max=$MAX per shard)"
+  else
+    bad "(v) partition broken: total=$TOTAL uniq=$UNIQ min=$MIN max=$MAX (want 7/7, every shard nonempty and partial)"
+  fi
+  ( cd "$FX" && adv bash "$SWEEP" --mode full --shard 2/3 --report "$FX/rep2again.tsv" ) >/dev/null 2>&1
+  if cmp -s <(awk -F'\t' '$2=="swept"{print $1}' "$FX/rep2.tsv") \
+            <(awk -F'\t' '$2=="swept"{print $1}' "$FX/rep2again.tsv"); then
+    ok "the same shard spec re-selects the same guard set"
+  else
+    bad "(v) shard 2/3 selected a different set on a second run — partition is unstable"
+  fi
+  E1="$(grep -c "^excluded-guard\.sh	excluded" "$FX/rep1.tsv")"
+  E23="$(grep -c "^excluded-guard\.sh	excluded" "$FX/rep2.tsv" "$FX/rep3.tsv" | awk -F: '{s+=$2} END{print s}')"
+  if [[ "$E1" -eq 1 && "$E23" -eq 0 ]]; then
+    ok "excluded zero-count row emits from shard 1 only"
+  else
+    bad "(v) excluded row emission: shard1=$E1 shards2+3=$E23 (want 1 and 0)"
+  fi
+fi
+
+echo "(w) sharded seed + merge — one header block, all survivors, whole-universe coverage"
+# Invariant chain: (1) each seed shard publishes report+baseline+slow for ITS guards;
+# (2) merge concatenates into ONE report with ONE header line and one row per guard,
+# ONE baseline carrying exactly one '# environment:' / '# k=' block with every shard's
+# survivors, and ONE slow list deduplicated per suite at the max measurement; (3) a
+# missing shard report is the named 'merge incomplete' red carrying the dead shard's
+# guard names — the datapoint the monolithic job's destroyed logs never produced; a
+# duplicated one is the named 'merge overlap' red.
+FX="$TMPROOT/mergefx$RANDOM$RANDOM"
+make_weak_fleet "$FX" 4
+mkdir -p "$FX/shards/s1" "$FX/shards/s2"
+MERGE_OK=1
+for i in 1 2; do
+  OUT="$( cd "$FX" && enf bash "$SWEEP" --mode full --seed --shard "$i/2" \
+          --report "$FX/shards/s$i/mutation-report.tsv" \
+          --baseline-out "$FX/shards/s$i/mutation-baseline.tsv" \
+          --slow-out "$FX/shards/s$i/mutation-slow-suites.tsv" 2>&1 )"; RC=$?
+  [[ $RC -eq 0 && -s "$FX/shards/s$i/mutation-baseline.tsv" ]] \
+    || { MERGE_OK=0; bad "(w) seed shard $i/2 failed rc=$RC"; printf '%s\n' "$OUT" | tail -4; }
+done
+if [[ $MERGE_OK -eq 1 ]]; then
+  # Crafted slow files exercise the per-suite dedup: real sub-second fixture suites never
+  # cross the slow threshold, so the seeded lists are empty. These are merge INPUTS —
+  # the merge itself still runs in production code.
+  printf '# fixture slow header\nshared-selftest.sh\t7\t2026-07-30\nonly1-selftest.sh\t6\t2026-07-30\n' \
+    > "$FX/shards/s1/mutation-slow-suites.tsv"
+  printf '# fixture slow header\nshared-selftest.sh\t9\t2026-07-30\nonly2-selftest.sh\t8\t2026-07-30\n' \
+    > "$FX/shards/s2/mutation-slow-suites.tsv"
+  OUT="$( cd "$FX" && adv bash "$SWEEP" --mode merge --shards-dir "$FX/shards" \
+          --report "$FX/merged-report.tsv" --baseline-out "$FX/merged-baseline.tsv" \
+          --slow-out "$FX/merged-slow.tsv" 2>&1 )"; RC=$?
+  ROWS_OK=1
+  for g in 1 2 3 4; do
+    [[ "$(grep -c "^guard$g\.sh	swept" "$FX/merged-report.tsv")" -eq 1 ]] || ROWS_OK=0
+    grep -q "^guard$g\.sh::fail-open::1	" "$FX/merged-baseline.tsv" || ROWS_OK=0
+  done
+  if [[ $RC -eq 0 && $ROWS_OK -eq 1 ]] \
+    && [[ "$(grep -c '^guard	status	paired_selftest' "$FX/merged-report.tsv")" -eq 1 ]] \
+    && [[ "$(grep -c '^# environment:' "$FX/merged-baseline.tsv")" -eq 1 ]] \
+    && [[ "$(grep -c '^# k=' "$FX/merged-baseline.tsv")" -eq 1 ]]; then
+    ok "merged report has one header + one row per guard; baseline has one header block + all survivors"
+  else
+    bad "(w) merge output malformed; rc=$RC rows_ok=$ROWS_OK"; printf '%s\n' "$OUT" | tail -6
+  fi
+  if [[ "$(grep -c '^# fixture slow header' "$FX/merged-slow.tsv")" -eq 1 ]] \
+    && [[ "$(grep -c '^shared-selftest\.sh	' "$FX/merged-slow.tsv")" -eq 1 ]] \
+    && grep -q '^shared-selftest\.sh	9	' "$FX/merged-slow.tsv" \
+    && grep -q '^only1-selftest\.sh	6	' "$FX/merged-slow.tsv" \
+    && grep -q '^only2-selftest\.sh	8	' "$FX/merged-slow.tsv"; then
+    ok "merged slow list dedups the shared suite at its max measurement"
+  else
+    bad "(w) merged slow list wrong"; cat "$FX/merged-slow.tsv"
+  fi
+  cp -R "$FX/shards" "$FX/shards-missing"
+  rm -f "$FX/shards-missing/s2/mutation-report.tsv"
+  OUT="$( cd "$FX" && adv bash "$SWEEP" --mode merge --shards-dir "$FX/shards-missing" \
+          --report "$FX/m2.tsv" --baseline-out "$FX/b2.tsv" --slow-out "$FX/sl2.tsv" 2>&1 )"; RC=$?
+  if [[ $RC -eq 1 ]] && printf '%s' "$OUT" | grep -q 'merge incomplete: no shard reported guard guard2\.sh'; then
+    ok "a dead shard's guards are NAMED by the merge red"
+  else
+    bad "(w) expected rc=1 + 'merge incomplete' naming guard2.sh; got rc=$RC"; printf '%s\n' "$OUT" | tail -5
+  fi
+  cp -R "$FX/shards" "$FX/shards-dup"
+  cp "$FX/shards-dup/s1/mutation-report.tsv" "$FX/shards-dup/s2/mutation-report.tsv"
+  OUT="$( cd "$FX" && adv bash "$SWEEP" --mode merge --shards-dir "$FX/shards-dup" \
+          --report "$FX/m3.tsv" --baseline-out "$FX/b3.tsv" --slow-out "$FX/sl3.tsv" 2>&1 )"; RC=$?
+  if [[ $RC -eq 1 ]] && printf '%s' "$OUT" | grep -q 'merge overlap'; then
+    ok "duplicated shard rows are the named partition-broken red"
+  else
+    bad "(w) expected rc=1 + 'merge overlap'; got rc=$RC"; printf '%s\n' "$OUT" | tail -5
+  fi
+fi
+# An EMPTY seed shard (N exceeds the guard count) must still publish its headed artifacts,
+# or the merge reds every such run on a missing shard baseline.
+FX="$(new_fixture weak)"
+OUT="$( cd "$FX" && enf bash "$SWEEP" --mode full --seed --shard 2/2 \
+        --report "$FX/r.tsv" --baseline-out "$FX/b.tsv" --slow-out "$FX/s.tsv" 2>&1 )"; RC=$?
+if [[ $RC -eq 0 && -s "$FX/b.tsv" && -s "$FX/r.tsv" ]] \
+  && grep -q '^# environment: ' "$FX/b.tsv" \
+  && [[ "$(grep -vc '^#' "$FX/b.tsv")" -eq 0 ]]; then
+  ok "an empty seed shard still writes a headed, survivor-free baseline"
+else
+  bad "(w) empty seed shard did not publish artifacts; rc=$RC"; printf '%s\n' "$OUT" | tail -4
+fi
+
+echo "(x) sharded enforcing run — another shard's baseline rows are out of scope, not 'now KILLED'"
+# The shrink warn is only decidable for guards THIS shard swept: under sharding, every
+# shard seeing every other shard's rows as 'now KILLED' would tell the operator to drop
+# ~ (N-1)/N of a healthy baseline. Unsharded behavior (warn on every row) is asserted by
+# case (d) and re-pinned here on the same fixture.
+FX="$TMPROOT/scopefx$RANDOM$RANDOM"
+make_fleet_fixture "$FX" 2
+baseline_with "$FX" 'guard2.sh::fail-open::1'
+OUT="$( cd "$FX" && enf bash "$SWEEP" --mode full 2>&1 )"; RC=$?
+if [[ $RC -eq 0 ]] && printf '%s' "$OUT" | grep -q 'now KILLED: guard2\.sh::fail-open::1'; then
+  ok "unsharded full run still warns on the stale row"
+else
+  bad "(x) unsharded run should warn 'now KILLED'; rc=$RC"; printf '%s\n' "$OUT" | tail -4
+fi
+OUT="$( cd "$FX" && enf bash "$SWEEP" --mode full --shard 1/2 2>&1 )"; RC=$?
+if [[ $RC -eq 0 ]] && ! printf '%s' "$OUT" | grep -q 'now KILLED'; then
+  ok "shard 1/2 (which does not sweep guard2.sh) stays silent about its row"
+else
+  bad "(x) shard 1/2 warned about another shard's row (or reded); rc=$RC"; printf '%s\n' "$OUT" | tail -4
+fi
+
 # ======================================================== live-tree lint cases
 # (j) and (k) run against the REAL tree, not a fixture. They are pure resolution/parse
 # lints — no mutation, no sandbox, no suite execution — so they are cheap enough for both
@@ -478,13 +741,19 @@ while IFS=$'\t' read -r g s note; do
   [[ -f "$REPO_ROOT/$s" ]] || lint_fail "pair-map selftest does not exist: $s"
   [[ -n "$note" ]] || lint_fail "pair-map row has no note: $g -> $s"
 done < "$REPO_ROOT/tools/mutation-pair-map.tsv"
-# Operators: unique non-empty ids, non-empty match/flip.
+# Operators: unique non-empty ids, non-empty match/flip, and every match must COMPILE as
+# an ERE when passed after grep's option terminator — a match grep cannot compile
+# enumerates zero sites, and the PR lane's diff scoping means the PR that commits such a
+# row may never itself sweep a guard, so this per-push lint is the row's first executable
+# check.
 SEEN_OPS=""
 while IFS=$'\t' read -r id m f; do
   case "$id" in ''|'#'*) continue ;; esac
   [[ -n "$m" && -n "$f" ]] || lint_fail "operator '$id' has an empty match or flip"
   case " $SEEN_OPS " in *" $id "*) lint_fail "duplicate operator id: $id" ;; esac
   SEEN_OPS="$SEEN_OPS $id"
+  printf '' | grep -qE -- "$m" 2>/dev/null
+  [[ $? -le 1 ]] || lint_fail "operator '$id' match is not a grep -E-compilable pattern: $m"
 done < "$REPO_ROOT/tools/mutation-operators.tsv"
 [[ -n "$SEEN_OPS" ]] || lint_fail "no operators defined"
 # Catalog: unique ids, guard in-universe and not excluded, sed non-empty, PATTERN-addressed

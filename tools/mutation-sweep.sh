@@ -8,8 +8,16 @@
 # tools/mutation-sweep-selftest.sh.
 #
 # USAGE
-#   mutation-sweep.sh --mode full [--seed] [--report F] [--baseline-out F] [--slow-out F]
+#   mutation-sweep.sh --mode full [--seed] [--shard i/N] [--report F] [--baseline-out F] [--slow-out F]
 #   mutation-sweep.sh --mode pr --base <ref> [--report F]
+#   mutation-sweep.sh --mode merge --shards-dir <dir> [--report F] [--baseline-out F] [--slow-out F]
+#
+# SHARDING — `--shard i/N` (full mode only) sweeps the i-th residue class of the sorted
+# non-excluded guard list (round-robin: guard at sorted index j belongs to shard j%N+1).
+# Deterministic for a given tree, and round-robin rather than contiguous ranges so
+# directory-clustered slow suites spread across shards instead of stacking in one. Merge
+# mode recombines the per-shard artifacts (each shard's report/baseline/slow files laid
+# out as <dir>/<shard>/mutation-*.tsv) into the single operator-facing set.
 #
 # GUARD UNIVERSE is a rule, not a list: every git-tracked `*.sh` that is not a
 # `*-selftest.sh` and is not under `*/evals/*` or `tests/hooks-smoke/`. Every guard in it
@@ -19,8 +27,12 @@
 # EXIT CONTRACT — survivors are DATA, not automatically a red build.
 #   Red only for: a baseline-absent survivor, a missing baseline in an enforcing non-seed
 #   run (`baseline-missing`), catalog anchor drift, a bash -n-invalid CATALOG mutant, an
+#   operator match grep cannot run as a pattern, an
 #   unaccounted guard, an unrunnable pair, a baseline environment mismatch
-#   (`baseline-environment-mismatch`), or sandbox failure.
+#   (`baseline-environment-mismatch`), a sandbox failure, or — in merge mode — a guard
+#   with no shard row (`merge incomplete`, a shard died before publishing), a guard with
+#   several (`merge overlap`, the partition is broken), or shard artifacts whose headers
+#   disagree.
 #   Warn (never red): a killed mutant still listed in the baseline, and a baseline row
 #   whose guard no longer resolves — both say "shrink the baseline".
 #
@@ -43,6 +55,12 @@ SEED=0
 REPORT_OUT=""
 BASELINE_OUT=""
 SLOW_OUT=""
+SHARD_SPEC=""
+SHARDS_DIR=""
+# Unsharded is literally shard 1/1: every guard is in residue class 0, and the
+# shard-1-only report rows (excluded guards) emit exactly once.
+SHARD_I=1
+SHARD_N=1
 
 die() { echo "[mutation-sweep] FATAL: $*" >&2; exit 2; }
 
@@ -54,13 +72,39 @@ while [[ $# -gt 0 ]]; do
     --report)       REPORT_OUT="${2:-}"; shift 2 ;;
     --baseline-out) BASELINE_OUT="${2:-}"; shift 2 ;;
     --slow-out)     SLOW_OUT="${2:-}"; shift 2 ;;
-    -h|--help)      sed -n '2,30p' "$0"; exit 0 ;;
+    --shard)        SHARD_SPEC="${2:-}"; shift 2 ;;
+    --shards-dir)   SHARDS_DIR="${2:-}"; shift 2 ;;
+    -h|--help)      sed -n '2,45p' "$0"; exit 0 ;;
     *)              die "unknown argument: $1" ;;
   esac
 done
 
-[[ "$MODE" == "full" || "$MODE" == "pr" ]] || die "--mode must be 'full' or 'pr'"
+[[ "$MODE" == "full" || "$MODE" == "pr" || "$MODE" == "merge" ]] || die "--mode must be 'full', 'pr', or 'merge'"
 [[ "$MODE" == "pr" && -z "$BASE_REF" ]] && die "--mode pr requires --base <ref>"
+[[ "$MODE" == "pr" && $SEED -eq 1 ]] && die "--seed does not apply to PR mode (a diff-scoped baseline would be partial)"
+if [[ -n "$SHARD_SPEC" ]]; then
+  [[ "$MODE" == "full" ]] || die "--shard applies only to --mode full"
+  # Shape gate rejects zero, leading zeros (octal traps), and anything non-numeric; the
+  # range gate rejects i > N. Both die like every other argv error.
+  case "$SHARD_SPEC" in
+    [1-9]*/[1-9]*) : ;;
+    *) die "--shard must be i/N with 1 <= i <= N: '$SHARD_SPEC'" ;;
+  esac
+  SHARD_I="${SHARD_SPEC%%/*}"; SHARD_N="${SHARD_SPEC#*/}"
+  case "$SHARD_I$SHARD_N" in
+    *[!0-9]*) die "--shard must be i/N with 1 <= i <= N: '$SHARD_SPEC'" ;;
+  esac
+  [[ "$SHARD_I" -le "$SHARD_N" ]] || die "--shard index exceeds shard count: '$SHARD_SPEC'"
+fi
+if [[ "$MODE" == "merge" ]]; then
+  [[ -n "$SHARDS_DIR" ]] || die "--mode merge requires --shards-dir <dir>"
+  [[ -d "$SHARDS_DIR" ]] || die "--shards-dir is not a directory: $SHARDS_DIR"
+  SHARDS_DIR="$(cd "$SHARDS_DIR" && pwd)" || die "cannot resolve --shards-dir"
+  [[ $SEED -eq 0 ]] || die "--seed does not apply to merge mode (seed-ness is read from the shard artifacts)"
+  [[ -z "$BASE_REF" ]] || die "--base does not apply to merge mode"
+else
+  [[ -z "$SHARDS_DIR" ]] || die "--shards-dir requires --mode merge"
+fi
 
 REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null)" || die "not inside a git repository"
 cd "$REPO_ROOT" || die "cannot cd to repo root"
@@ -193,6 +237,29 @@ in_baseline() {
   return 1
 }
 
+sid_guard() { # survivor id -> owning guard relpath (empty if unresolvable)
+  local sid="$1" cid i=0
+  case "$sid" in
+    catalog::*)
+      cid="${sid#catalog::}"
+      while [[ $i -lt ${#CAT_ID[@]} ]]; do
+        if [[ "${CAT_ID[$i]}" == "$cid" ]]; then printf '%s' "${CAT_GUARD[$i]}"; return 0; fi
+        i=$((i + 1))
+      done
+      ;;
+    *) printf '%s' "${sid%%::*}" ;;
+  esac
+}
+
+swept_this_run() {
+  local g="$1" x
+  [[ -n "$g" ]] || return 1
+  for x in ${SWEEP_GUARDS[@]+"${SWEEP_GUARDS[@]}"}; do
+    [[ "$x" == "$g" ]] && return 0
+  done
+  return 1
+}
+
 # ------------------------------------------------------------- guard universe
 universe() {
   git ls-files '*.sh' \
@@ -223,10 +290,17 @@ done
 # ------------------------------------------------------------------ mode scope
 SWEEP_GUARDS=()
 if [[ "$MODE" == "full" ]]; then
+  # Round-robin shard partition over the sorted non-excluded list (see the header). With
+  # the default 1/1 every guard is in residue class 0, so the unsharded path is unchanged.
+  shard_idx=0
   for g in "${ALL_GUARDS[@]}"; do
-    is_excluded "$g" || SWEEP_GUARDS[${#SWEEP_GUARDS[@]}]="$g"
+    is_excluded "$g" && continue
+    if [[ $((shard_idx % SHARD_N)) -eq $((SHARD_I - 1)) ]]; then
+      SWEEP_GUARDS[${#SWEEP_GUARDS[@]}]="$g"
+    fi
+    shard_idx=$((shard_idx + 1))
   done
-else
+elif [[ "$MODE" == "pr" ]]; then
   TOUCHED=""
   TOUCHED="$(git diff --name-only "$BASE_REF"...HEAD 2>/dev/null)" || die "cannot diff $BASE_REF...HEAD"
   for g in "${ALL_GUARDS[@]}"; do
@@ -256,6 +330,84 @@ finish() {
   [[ $WARNINGS -gt 0 ]] && info "$WARNINGS warning(s) — shrink the baseline."
   exit "$RC"
 }
+
+# ------------------------------------------------------------------ shard merge
+# Merge mode combines per-shard artifacts into the single operator-facing set. It never
+# sweeps, never sandboxes, and never reads the committed baseline: shard files in, one
+# report (plus, when the shards ran as seed, one baseline and one slow list) out.
+#
+# The whole-universe accounting survives sharding HERE, not per shard: every in-universe
+# guard must appear in EXACTLY ONE shard report. A shard that died before publishing
+# therefore NAMES its guards (`merge incomplete`) — the datapoint a monolithic run's
+# destroyed logs never yielded — and a broken partition is equally loud (`merge overlap`).
+if [[ "$MODE" == "merge" ]]; then
+  SHARD_REPORTS=()
+  for f in "$SHARDS_DIR"/*/mutation-report.tsv; do
+    [[ -f "$f" ]] && SHARD_REPORTS[${#SHARD_REPORTS[@]}]="$f"
+  done
+  [[ ${#SHARD_REPORTS[@]} -gt 0 ]] \
+    || die "no shard reports under $SHARDS_DIR (expected <shard>/mutation-report.tsv) — every shard died before publishing"
+
+  MERGE_HDR="$(head -1 "$REPORT_TMP")"
+  for f in "${SHARD_REPORTS[@]}"; do
+    [[ "$(head -1 "$f")" == "$MERGE_HDR" ]] \
+      || red "shard report header mismatch (shards ran a different harness?): $f"
+  done
+  for f in "${SHARD_REPORTS[@]}"; do tail -n +2 "$f"; done | grep -v '^$' | sort >> "$REPORT_TMP"
+
+  for g in "${ALL_GUARDS[@]}"; do
+    n="$(awk -F'\t' -v g="$g" 'NR>1 && $1==g {c++} END {print c+0}' "$REPORT_TMP")"
+    if [[ "$n" -eq 0 ]]; then
+      red "merge incomplete: no shard reported guard $g — its shard died before publishing"
+    elif [[ "$n" -gt 1 ]]; then
+      red "merge overlap: guard $g appears in $n shard reports — the shard partition is broken"
+    fi
+  done
+
+  SHARD_BASELINES=()
+  for f in "$SHARDS_DIR"/*/mutation-baseline.tsv; do
+    [[ -f "$f" ]] && SHARD_BASELINES[${#SHARD_BASELINES[@]}]="$f"
+  done
+  if [[ ${#SHARD_BASELINES[@]} -gt 0 ]]; then
+    [[ -n "$BASELINE_OUT" ]] || die "seed shard baselines present but no --baseline-out (refusing to default to the committed path)"
+    [[ ${#SHARD_BASELINES[@]} -eq ${#SHARD_REPORTS[@]} ]] \
+      || red "seed merge: ${#SHARD_REPORTS[@]} shard report(s) but ${#SHARD_BASELINES[@]} baseline(s) — mixed seed and enforcing shards"
+    # One header block in, one header block out: the merged baseline carries the FIRST
+    # shard's comment header verbatim (survivor rows never start with '#'), which the
+    # equality reds below pin to every other shard's. The enforcing lane parses these
+    # lines, so a duplicated or dropped header is a broken baseline, not a cosmetic one.
+    BL_ENV0="$(grep -m1 '^# environment:' "${SHARD_BASELINES[0]}" || true)"
+    BL_K0="$(grep -m1 '^# k=' "${SHARD_BASELINES[0]}" || true)"
+    [[ -n "$BL_ENV0" && -n "$BL_K0" ]] || red "seed merge: shard baseline lacks the environment/k header: ${SHARD_BASELINES[0]}"
+    for f in "${SHARD_BASELINES[@]}"; do
+      [[ "$(grep -m1 '^# environment:' "$f" || true)" == "$BL_ENV0" && "$(grep -m1 '^# k=' "$f" || true)" == "$BL_K0" ]] \
+        || red "seed merge: baseline header mismatch across shards ($f) — shards ran in different environments"
+    done
+    {
+      grep '^#' "${SHARD_BASELINES[0]}"
+      for f in "${SHARD_BASELINES[@]}"; do grep -v '^#' "$f"; done | grep -v '^$' | sort
+    } > "$BASELINE_OUT"
+    info "merge: baseline -> $BASELINE_OUT (one header block, survivor rows from all shards)"
+
+    SHARD_SLOWS=()
+    for f in "$SHARDS_DIR"/*/mutation-slow-suites.tsv; do
+      [[ -f "$f" ]] && SHARD_SLOWS[${#SHARD_SLOWS[@]}]="$f"
+    done
+    if [[ ${#SHARD_SLOWS[@]} -gt 0 ]]; then
+      [[ -n "$SLOW_OUT" ]] || die "seed shard slow lists present but no --slow-out (refusing to default to the committed path)"
+      # A suite shared across shards via pair-map unions is timed once per shard; keep
+      # ONE row per suite, at the largest measurement (the conservative classification).
+      TAB="$(printf '\t')"
+      {
+        grep '^#' "${SHARD_SLOWS[0]}"
+        for f in "${SHARD_SLOWS[@]}"; do grep -v '^#' "$f"; done | grep -v '^$' \
+          | sort -t "$TAB" -k1,1 -k2,2rn | awk -F'\t' '!seen[$1]++'
+      } > "$SLOW_OUT"
+      info "merge: slow-suites -> $SLOW_OUT (per-suite max across shards)"
+    fi
+  fi
+  finish
+fi
 
 # PR mode with nothing to do exits BEFORE any baseline resolution. The ordering is
 # load-bearing: it is what keeps a doc-only or workflow-only PR from reding on
@@ -331,7 +483,20 @@ if [[ "$MODE" == "pr" ]]; then
   for g in ${PR_SWEPT[@]+"${PR_SWEPT[@]}"}; do SWEEP_GUARDS[${#SWEEP_GUARDS[@]}]="$g"; done
 fi
 
-if [[ ${#SWEEP_GUARDS[@]} -eq 0 ]]; then
+# The full-sweep report accounts for the ENTIRE universe, excluded rows included (zero
+# counts), so the merged report alone is the standing ranking. The rows are universe
+# bookkeeping, not per-shard measurements, so ONE shard (the first) emits them — that is
+# what keeps the merge a pure concatenation with no dedup of data rows. PR mode stays
+# diff-scoped by design.
+if [[ "$MODE" == "full" && "$SHARD_I" -eq 1 ]]; then
+  for g in "${ALL_GUARDS[@]}"; do
+    is_excluded "$g" && emit_row "$g" "excluded" "" 0 0 0 ""
+  done
+fi
+
+# A SEED run with nothing to sweep still falls through: an empty shard must publish its
+# headed (empty) baseline and slow list, or the merge reds on a missing shard artifact.
+if [[ ${#SWEEP_GUARDS[@]} -eq 0 && $SEED -eq 0 ]]; then
   info "nothing left to sweep after deferral."
   finish
 fi
@@ -422,13 +587,25 @@ for guard in "${SWEEP_GUARDS[@]}"; do
   while [[ $op_i -lt ${#OP_ID[@]} ]]; do
     opid="${OP_ID[$op_i]}"; opmatch="${OP_MATCH[$op_i]}"; opflip="${OP_FLIP[$op_i]}"
     op_i=$((op_i + 1))
+    # Sites are enumerated ONCE, up front, with `--` terminating option parsing: a match
+    # may begin with a hyphen (two committed operators do), and without the terminator
+    # grep reads it as OPTIONS — one such match enumerated every line containing 'q', the
+    # other errored outright, and a stderr redirect made both failure modes silent. grep
+    # exit >= 2 (as opposed to 1, the normal no-match exit) means the match did not run
+    # as a pattern at all, which must be LOUD: a silently dead operator reports every
+    # guard as clean against a mutation class that was never applied.
+    SITES="$(grep -nE -- "$opmatch" "$GFILE" 2>&1)"; GREP_RC=$?
+    if [[ $GREP_RC -ge 2 ]]; then
+      red "operator match does not enumerate (grep exit $GREP_RC): $opid on $guard — $SITES"
+      continue
+    fi
     ordinal=0; used=0
     while IFS= read -r lineno; do
       [[ -n "$lineno" ]] || continue
       ordinal=$((ordinal + 1))
       [[ $used -ge $K_BUDGET ]] && continue   # keep counting ordinals; stop mutating
       REPL="$(mktemp -t mutation-sweep-line.XXXXXX)"
-      awk -v n="$lineno" 'NR==n' "$GFILE" | sed -E "$opflip" > "$REPL"
+      awk -v n="$lineno" 'NR==n' "$GFILE" | sed -E -e "$opflip" > "$REPL"
       splice_line "$GFILE" "$lineno" "$REPL"
       rm -f "$REPL"
       if ! bash -n "$GFILE" 2>/dev/null; then
@@ -456,7 +633,7 @@ for guard in "${SWEEP_GUARDS[@]}"; do
         add_survivor "$sid"
       fi
       restore "$guard"
-    done < <(grep -nE "$opmatch" "$GFILE" 2>/dev/null | cut -d: -f1)
+    done <<< "$(printf '%s\n' "$SITES" | cut -d: -f1)"
   done
 
   # ---- catalog tier
@@ -468,7 +645,7 @@ for guard in "${SWEEP_GUARDS[@]}"; do
     # A sed that ERRORS and a sed that simply does not match are different bugs and must
     # not be conflated: swallowing the exit code made an invalid program look like anchor
     # drift, which sent the reader hunting for a moved anchor that had never moved.
-    SED_ERR="$(sed -E "$csed" "$GFILE" 2>&1 > "$GFILE.mut")"; SED_RC=$?
+    SED_ERR="$(sed -E -e "$csed" "$GFILE" 2>&1 > "$GFILE.mut")"; SED_RC=$?
     if [[ $SED_RC -ne 0 ]]; then
       rm -f "$GFILE.mut"
       red "catalog sed program is invalid: catalog::$cid on $guard — $SED_ERR"
@@ -503,14 +680,6 @@ for guard in "${SWEEP_GUARDS[@]}"; do
   emit_row "$guard" "swept" "${KS// /+}" "$applied" "$killed" "$survived" "$survivors"
   info "swept $guard — applied=$applied killed=$killed survived=$survived"
 done
-
-# The full-sweep report accounts for the ENTIRE universe, excluded rows included (zero
-# counts), so it alone is the standing ranking. PR mode stays diff-scoped by design.
-if [[ "$MODE" == "full" ]]; then
-  for g in "${ALL_GUARDS[@]}"; do
-    is_excluded "$g" && emit_row "$g" "excluded" "" 0 0 0 ""
-  done
-fi
 
 # --------------------------------------------------------------- seed artifacts
 if [[ $SEED -eq 1 ]]; then
@@ -562,7 +731,12 @@ while [[ $i -lt ${#BL_ID[@]} ]]; do
   if [[ "$bg" != "catalog" && ! -f "$REPO_ROOT/$bg" ]]; then
     warn "baseline row's guard no longer resolves (renamed or deleted): $sid — drop the row."
   elif [[ "$MODE" == "full" ]]; then
-    warn "baseline row is now KILLED: $sid — drop the row."
+    # Under sharding, "now KILLED" is only decidable for guards THIS shard swept — a row
+    # belonging to another shard's guard is out of scope, not stale. Unsharded (no
+    # --shard) keeps the historical behavior for every row.
+    if [[ -z "$SHARD_SPEC" ]] || swept_this_run "$(sid_guard "$sid")"; then
+      warn "baseline row is now KILLED: $sid — drop the row."
+    fi
   fi
 done
 
