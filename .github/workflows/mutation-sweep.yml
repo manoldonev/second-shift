@@ -73,22 +73,32 @@ jobs:
         env:
           SKIP_STRESS: '1' # canonical sweep environment; asserted against the baseline header
         run: |
-          mkdir -p .sweep-out
+          mkdir -p sweep-out
           if [[ "${{ steps.mode.outputs.seed }}" == "1" ]]; then
             bash tools/mutation-sweep.sh --mode full --seed \
-              --report .sweep-out/mutation-report.tsv \
-              --baseline-out .sweep-out/mutation-baseline.tsv \
-              --slow-out .sweep-out/mutation-slow-suites.tsv
+              --report sweep-out/mutation-report.tsv \
+              --baseline-out sweep-out/mutation-baseline.tsv \
+              --slow-out sweep-out/mutation-slow-suites.tsv
           else
             bash tools/mutation-sweep.sh --mode full \
-              --report .sweep-out/mutation-report.tsv
+              --report sweep-out/mutation-report.tsv
           fi
 
       # always(): a RED run is exactly the run whose evidence matters most.
+      #
+      # The output dir is deliberately NOT dotted. upload-artifact@v4 excludes hidden
+      # paths unless include-hidden-files is set, so a `.sweep-out` upload silently
+      # matched nothing — and `warn` reported that as success. A whole sweep's evidence
+      # was discarded by a green step.
+      #
+      # error, not warn: by the time this step runs the sweep has either reached finish()
+      # (which always writes the report) or already failed the job, so an empty dir means
+      # the evidence was lost — which is worth reding on its own rather than being
+      # summarized as a warning nobody reads.
       - name: publish sweep artifacts
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: mutation-sweep
-          path: .sweep-out/
-          if-no-files-found: warn
+          path: sweep-out/
+          if-no-files-found: error
