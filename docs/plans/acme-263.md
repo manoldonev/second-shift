@@ -52,6 +52,7 @@ No pre-flight `/plan-interview` ledger exists for this issue (`.claude/pipeline-
 - `plugins/dev-pipeline/skills/run/state-schema.md` — `successorKey` field, `intake` marker Statuses cell
 - `plugins/dev-pipeline/skills/run/statectl.sh` — `cmd_successor_key_set()` **[NEW]** + dispatch entry
 - `plugins/dev-pipeline/skills/run/statectl-selftest.sh` — `successor-key-set` cases
+- `plugins/dev-pipeline/skills/run/SKILL.md` — one line added to the statectl CLI-surface listing (that listing enumerates every subcommand, so a new one is incomplete without it)
 - `plugins/dev-pipeline/skills/run/stages/1-intake.md` — pre-claim gate on both pickup paths, body read moved pre-claim, verdict table, Step 1.D removal, cap line
 - `plugins/dev-pipeline/skills/run/stages/9-open-pr.md` — successor-promotion line
 - `plugins/intake-toolkit/evals/intake-orchestrator-eval/rubric.py` — verdict tokens, `expected.sub_issue_count`
@@ -89,21 +90,21 @@ No new shared helpers are introduced beyond `predecessor-gate.sh` itself.
 4. `tracker/README.md`: add a **predecessor-read** row to the operation table — github: "successor body read (folded into the queue query's `--json`, paid per candidate examined) feeding `predecessor-gate.sh extract`; conditional `gh api repos/{o}/{r}/issues/<predecessorKey>` state read, paid only when `extract` prints a predecessor key"; jira: *SKIP-with-note*, ordering operator-enforced (session-side MCP precedent). Also note `KEY_PATTERN` under the config list as `tracker.keyPattern`'s consumer.
 5. `github/README.md`: concern row pointing at the new `plugins/dev-pipeline/skills/run/tools/predecessor-gate.sh` **[NEW]** + its selftest, written as a `../../`-relative link to match the sibling rows. `jira/README.md`: operation row stating the SKIP and that the trailer-rendering rule exists there only for the presented spec text.
 
-**Commit 4 — `feat(intake-toolkit): sub-issues-sequential verdict replaces stacked-prs`**
+**Commit 4 — `feat(intake-toolkit,dev-pipeline): sub-issues-sequential verdict + Stage-1 sequential reader`**
+
+> Steps 6–13 land in **one** commit, not two. The Stage-4 plan review flagged that splitting the verdict swap from the reader contradicts this plan's own binding "land together" ordering claim; merging them removes the ambiguity instead of leaning on the PR boundary to satisfy it.
 
 6. Orchestrator: frontmatter `description` and the intro's third question lose "stacked PRs" and gain "sequential sub-issues"; Step-4 verdict set becomes `no-split` | `sub-issues` (parallel) | `sub-issues-sequential`, the sequential bullet list inheriting the old stacked criteria (dependency chain, shared module, independently reviewable).
 7. Step 6: replace the `stacked-prs` branch with `sub-issues-sequential` — creates ≤5 ordered sub-issues; **N>1 without the queue label**, each body carrying `Part of #<parent>`, verbatim ACs, the parent Brief's full reconciled QUARANTINE table + settled guardrails, `Predecessor:`/`Successor:` trailers rendered per `tracker.keyPattern`, and the line "queue when #<predecessor> is closed". Drop the `slicePartition` emission step. The parallel `sub-issues` branch keeps unconditional `ready-for-dev`.
 8. Cap unification at 5: Thresholds table drops the stacked row; the counterfactual clause and the cap-gaming bullets each merge into one flavor-agnostic form. Brief persistence extends to the sequential verdict. The already-decomposed dedup becomes the `Part of #<parent>` search alone, label-agnostic; the `stacked-prs-planned` resume guard is removed. Status list in Issue Comment Format swaps the token.
 9. D-15: replace the "Don't split for the sake of splitting" bullet in **What NOT to Do** with the run-cost-bias rule, wrapped in `<!-- LOCKSTEP-BEGIN decomposition-economy -->` / `END`. Mirror it verbatim over `decomposition-reviewer/SKILL.md`'s near-verbatim twin with the same markers, and add the `decomposition-economy` `verbatim` row to `scripts/lockstep-manifest.tsv`.
 
-**Commit 5 — `feat(dev-pipeline): Stage-1 sequential reader + successorKey state`**
-
 10. `state-schema.md`: document `successorKey` (nullable string, written at Stage 1 from the claimed issue's own `Successor:` trailer, read by Stage 9) and swap `stacked-prs-planned` → `split-into-sub-issues-sequential` in the `intake` marker's Statuses cell. No validator regeneration (D-6).
 11. `statectl.sh`: add `cmd_successor_key_set()` **[NEW]** + its dispatch entry; accepts `--key <k>` or an explicit empty value writing `null`.
 12. `stages/1-intake.md`: move the body read pre-claim and reuse it for the intake fan-out and the AC snapshot; insert the predecessor-gate call after `ISSUE_NUMBER` resolves and before the claim sequence's step 1, on **both** pickup paths. Queue path adds `body` to the query's `--json` and advances through the retained sorted candidates (bounded by the existing `--limit`, no re-query) to the first eligible, stopping with "no eligible issues in queue" when all are blocked; argument path rejects-and-stops. Add the `successor-key-set` call after `init`. Update the verdict table (`sub-issues` row's label becomes flavor-conditional, `sub-issues-sequential` row added, stacked row removed), the receipt/Brief/AC-snapshot verdict lists, the flavor-agnostic cap line, and delete Step 1.D's `slice-partition-set` persistence.
 13. `stages/9-open-pr.md`: render "label #<successorKey> `ready-for-dev` when merging this PR" in the PR body and the run report when `successorKey` is non-null; render nothing when null.
 
-**Commit 6 — `test(intake-toolkit): re-baseline the eval for the two sub-issue flavors`**
+**Commit 5 — `test(intake-toolkit): re-baseline the eval for the two sub-issue flavors`**
 
 14. `rubric.py`: `expected.verdict` tokens become `no-split` / `sub-issues` / `sub-issues-sequential` / `escalate` / `skip-already-decomposed`; `expected.stacked_pr_count` retires in favor of `expected.sub_issue_count` covering both flavors; d2 scoring discriminates the two — a parallel verdict where sequential is expected is a wrong verdict (0), not a direction-right miss. The single ≤5 cap replaces the "not more than 3 stacked PRs" clause.
 15. Update `run.sh` / `run-structured.sh` prompt vocabulary, the gate-2 smoke's verdict regex, and the three baseline docs' recorded token names.
