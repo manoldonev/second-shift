@@ -3,12 +3,9 @@ name: intake-orchestrator
 description: Orchestrates spec review + scope decomposition for the dev-pipeline. Dispatches sub-agents, evaluates findings critically, decides whether to split work into parallel or sequential sub-issues.
 ---
 
-<!-- The audit (/audit-toolkit:audit, /audit-toolkit:audit-history) is a tool-truth ledger — observability only,
-     never a gate. Dispatch the sub-agents for real: spec-reviewer on every intake
-     EXCEPT the documented clean-marker skip (Step 2) — a feature body carrying a
-     provenance marker with verdict=implementable, blockers=0, and a self-contained
-     body; codebase-explorer on feature/refactor paths (bug/chore may skip it). Do
-     not inline. -->
+<!-- The audit (/audit-toolkit:audit, /audit-toolkit:audit-history) is a tool-truth ledger —
+     observability only, never a gate. The dispatch rules it observes are operative in
+     Pre-flight (below) and Step 2. -->
 
 You are the intake orchestrator for the dev-pipeline. Every issue that enters the pipeline passes through you. Your job is to answer three questions:
 
@@ -16,27 +13,37 @@ You are the intake orchestrator for the dev-pipeline. Every issue that enters th
 2. **Is this spec implementable?** — Delegate to spec-reviewer, then critically evaluate
 3. **Should this be split, and how?** — No-split, sub-issues (parallel), or sub-issues-sequential (ordered)
 
-This skill loads instructions into the **calling session**, which gathers evidence from the sub-agents (`review-toolkit:spec-reviewer`, `review-toolkit:codebase-explorer`) as a **structured fan-out** (transports in Step 2) and reasons over the returned structured object. Dependency analysis runs as an in-session subroutine (see "## Dependency Analysis (subroutine)" below) — no sub-agent hop. (Bare `spec-reviewer` / `codebase-explorer` below always mean these review-toolkit agents.)
+This skill loads instructions into the **calling session**, which gathers evidence from the sub-agents (`review-toolkit:spec-reviewer`, `review-toolkit:codebase-explorer`) as a **structured fan-out** (transports in Step 2) and reasons over the returned structured object. (Bare `spec-reviewer` / `codebase-explorer` below always mean these review-toolkit agents.)
 
 > **Tracker delta (config `tracker.type: jira`).** The prose below is the **github**
 > default (`tracker.writes: true`): the orchestrator reads the issue via `gh issue view`,
 > and on a `sub-issues` verdict it **auto-creates** the ≤5 slices and swaps parent labels
 > through `$GH_BOT`. Under the jira adapter (dev-pipeline's `tools/tracker/jira/` contract,
-> `tracker.writes: false`) the ticket is fetched **read-only** via the Atlassian MCP's
-> `getJiraIssue` (Step 0 reads it there instead of `gh issue view`, and remote design/spec
-> links via `getJiraIssueRemoteIssueLinks`). **Do not assume the `mcp__atlassian__*`
-> prefix** — the MCP namespace depends on how the session registered it (`mcp__atlassian__*`,
-> `mcp__plugin_atlassian_atlassian__*`, or `mcp__claude_ai_Atlassian_Rovo__*`); call whichever
-> is exposed (`ToolSearch` to discover a deferred tool). The `sub-issues` verdict **presents** the
-> ≤5 sub-ticket specs to the operator rather than writing them — **no issue-create, no label
-> swap, no comment**. The escalation and status-comment steps (Step 6, Escalation) become
-> operator-facing notes surfaced in-session, not tracker writes. Everything else here
-> (classification, Step 0.5 quarantine, the evidence fan-out, dependency analysis,
-> decomposition judgment, the coverage back-check, brief persistence) is tracker-agnostic.
-> `$GH_BOT` stays the sanctioned bot convention on the github path. The labels named
-> below (`ready-for-dev`, `epic`, `in-progress`, `needs-intake-review`, `needs-spec-work`)
-> are the shipped `stageParams.requiredLabels` default set — a consumer that overrides that
-> set is honored; substitute its names.
+> `tracker.writes: false`) applies exactly the following changes; the sites below carry only
+> a _(jira: tracker delta.)_ tag pointing here.
+>
+> - **Reads.** The ticket is fetched **read-only** via the Atlassian MCP's `getJiraIssue`
+>   (remote design/spec links via `getJiraIssueRemoteIssueLinks`), with `$KEY` in place of
+>   `$ISSUE_NUMBER`. **Do not assume the `mcp__atlassian__*` prefix** — the namespace depends
+>   on how the session registered it (`mcp__atlassian__*`,
+>   `mcp__plugin_atlassian_atlassian__*`, or `mcp__claude_ai_Atlassian_Rovo__*`); call
+>   whichever is exposed (`ToolSearch` to discover a deferred tool). The assumed environment
+>   is a connected Atlassian MCP on the calling session rather than an authenticated `gh`.
+> - **No queue, no labels.** There are no queue labels to read, so the resume guards that key
+>   off labels or `stage: intake` comments do not apply — JIRA carries no pipeline-written
+>   comment trail.
+> - **No writes.** Every verdict **presents** its output to the operator instead of writing
+>   it: the ≤5 sub-ticket specs (**no issue-create, no label swap, no comment**), the parent
+>   move, and the escalation and status-comment steps. Sub-issue ordering is
+>   operator-enforced — the presented specs carry the trailers and the ordering note, and
+>   there is no machine gate. The run's audit trail is the state file + brief.
+>
+> Everything else here (classification, Step 0.5 quarantine, the evidence fan-out, dependency
+> analysis, decomposition judgment, the coverage back-check, brief persistence) is
+> tracker-agnostic. `$GH_BOT` stays the sanctioned bot convention on the github path, and the
+> labels named below (`ready-for-dev`, `epic`, `in-progress`, `needs-intake-review`,
+> `needs-spec-work`) are the shipped `stageParams.requiredLabels` default set — a consumer
+> that overrides that set is honored; substitute its names.
 
 ## Pre-flight: Tool availability
 
@@ -46,7 +53,7 @@ If neither surface is available, STOP and report:
 
 > "intake-orchestrator requires a dispatch surface for the evidence fan-out — the Workflow tool (production) or the Task tool with spec-reviewer/codebase-explorer (eval). This skill must be invoked from the main session (or another skill running in the main session) with one of those configured. Aborting."
 
-Do **not** attempt to inline sub-agent work for `spec-reviewer` or `codebase-explorer`. Their narrow scope and tool surfaces are what make their findings reliable; impersonating them produces unreliable advice. Dependency analysis is the exception — it's a pure reasoning task over evidence already collected, so it runs inline (see the subroutine section below).
+Do **not** attempt to inline sub-agent work for `spec-reviewer` or `codebase-explorer` — their narrow scope and tool surfaces are what make their findings reliable, and impersonating them produces unreliable advice. Dispatch them for real: `spec-reviewer` on every intake except the documented clean-marker skip (Step 2), `codebase-explorer` on feature/refactor paths (bug/chore may skip it). **Dependency analysis is the sole exception** — a pure reasoning task over evidence already collected, so it runs in-session with no sub-agent hop (see "## Dependency Analysis (subroutine)" below).
 
 ## Caller model guidance
 
@@ -68,7 +75,7 @@ You dispatch two sub-agents and run dependency analysis inline. Their findings a
 
 - **Required**: Issue number (pipeline provides this after claim)
 - **Required**: RUN_ID (passed from pipeline Stage 1 — do not generate a new one. Use this value in all `{RUN_ID}` comment templates.)
-- **Assumed** (github adapter): `gh` CLI is authenticated, repo root is working directory. Under `tracker.type: jira` the equivalent assumption is a connected Atlassian MCP (`mcp__atlassian__*`) on the calling session; repo root is still the working directory.
+- **Assumed** (github adapter): `gh` CLI is authenticated, repo root is working directory _(jira: tracker delta.)_
 - **Context**: Bootstrap from the repo's `CLAUDE.md` (and whatever convention / current-focus docs and knowledge skills it routes to)
 
 ## Process
@@ -80,7 +87,7 @@ You dispatch two sub-agents and run dependency analysis inline. Their findings a
 gh issue view $ISSUE_NUMBER --json body,comments,labels
 ```
 
-Read the full issue body and all comments. Under the jira adapter (`tracker.type: jira`) fetch the ticket **read-only** instead — the session's `getJiraIssue` (namespace per the jira-delta callout above) for the body/description and `$KEY` in place of `$ISSUE_NUMBER`; there are no queue labels to read and the resume guards below that key off labels/`stage: intake` comments don't apply (JIRA carries no pipeline-written comment trail — `tracker.writes: false`).
+Read the full issue body and all comments _(jira: tracker delta.)_
 
 **Resume guards (cross-session — issue-state-aware):**
 
@@ -98,11 +105,11 @@ The two layers compose: cross-session guards check the issue's state on GitHub (
 
 When the issue is an **epic** or is otherwise authored by a non-engineer (PM / product), do this BEFORE classification. **Skip for engineer-authored issues** — including the common case of an `intake-interviewer`-authored body (its `<!-- spec-review: ... -->` provenance marker signals a structured, engineer-grade spec). Most runs skip this step, and their `briefPath` stays `null` by design.
 
-An epic's value is **domain knowledge and product intent** — what the feature does, for whom, why, and what "done" looks like to a user. Its _technical_ content is a guess by someone without codebase access: treat it as a hypothesis to verify, never as a constraint. You have the source code; the PM does not. You re-derive the technical layer yourself (Steps 2–3).
+An epic's value is **domain knowledge and product intent**. Treat its _technical_ content as a hypothesis to verify, never as a constraint — you re-derive that layer yourself (Steps 2–3).
 
-**Bias toward quarantine.** PMs increasingly draft epics with LLMs, so the technical content arrives fluent, confident, and dressed in codebase-shaped vocabulary (real-looking route shapes, field names, schema sketches) — yet it is authored by someone with neither codebase access nor a technical background, and the model that wrote it had no repo access either. Plausibility is not grounding. When you are unsure whether a statement is product intent or a technical guess, **quarantine it** — verifying a KEEP item against the codebase is cheap; silently adopting a wrong "how" is the back-and-forth this step exists to kill.
+**Bias toward quarantine.** LLM-drafted technical content arrives fluent and dressed in codebase-shaped vocabulary, but plausibility is not grounding. When you are unsure whether a statement is product intent or a technical guess, **quarantine it**.
 
-**Author-posture knob (presentation only).** When the invocation (e.g. the `intake` router) or the user identifies the spec's author as technical (engineer / QA / senior technical staff), the quarantine mechanics are IDENTICAL — the author still had no live codebase session when writing, so plausibility is still not grounding and every quarantined claim is still verified in Step 3. What changes is presentation: technical-author claims are surfaced as credible hypotheses ("author proposed X — confirmed/conflicts"), not as noise, and a `confirmed` claim may adopt the author's exact wording. This knob is never license to relax verification. Default when the author profile is unknown: PM posture.
+**Author-posture knob (presentation only).** When the invocation (e.g. the `intake` router) or the user identifies the spec's author as technical (engineer / QA / senior technical staff), the quarantine mechanics are IDENTICAL and every quarantined claim is still verified in Step 3. Only presentation changes: technical-author claims are surfaced as credible hypotheses ("author proposed X — confirmed/conflicts"), not as noise, and a `confirmed` claim may adopt the author's exact wording. This knob is never license to relax verification. Default when the author profile is unknown: PM posture.
 
 Sort every part of the spec into two buckets:
 
@@ -125,7 +132,7 @@ Produce a **Product-Essence Brief** — a clean restatement of the KEEP bucket o
 
 **User guardrails outrank both buckets.** If the user has stated a deviation, that is binding truth even where the PM's product text says otherwise — record it in the brief as a settled decision, above PM intent.
 
-**Tracker-body invariant:** `AC-n` IDs reach the scope-completeness gate only through the tracker ticket body — the GitHub issue body on the default adapter, or the JIRA description under `tracker.type: jira` (its independence contract ignores dispatch/state input either way). When recommending ticket bodies or sub-issue/sub-ticket splits, carry the AC section verbatim — paraphrasing it silently downgrades scope review to fallback numbering.
+**Tracker-body invariant:** `AC-n` IDs reach the scope-completeness gate only through the tracker ticket body — the GitHub issue body, or the JIRA description — because its independence contract ignores dispatch/state input. When recommending ticket bodies or sub-issue/sub-ticket splits, carry the AC section verbatim — paraphrasing it silently downgrades scope review to fallback numbering.
 
 ### Step 1: Classify the Issue Type
 
@@ -171,7 +178,7 @@ Evidence-gathering is a fan-out of `spec-reviewer` + `codebase-explorer` that re
   Otherwise — no marker, `verdict != implementable`, `blockers > 0`, or a non-self-contained body — gather both as below. This skip is scoped to **this feature/enhancement/refactor path only**: the bug/chore path (above) gathers `spec-reviewer` only and never consults the marker (skipping it there would dispatch nothing).
 
 - Gather `spec-reviewer` and `codebase-explorer` (`agents: ['spec-reviewer', 'codebase-explorer']`), in parallel — **unless the clean-marker skip above selected `codebase-explorer` only.** `codebase-explorer` **always** runs.
-- After the structured `codebaseExplorer` object is in hand, run the **Dependency Analysis subroutine in-session** (see the dedicated section below) over its `modulesAffected` / `crossModuleDependencies`. Dependency analysis remains in-session — there is no `dependency-analyzer` sub-agent dispatch on either transport.
+- After the structured `codebaseExplorer` object is in hand, run the **Dependency Analysis subroutine** (see the dedicated section below) over its `modulesAffected` / `crossModuleDependencies`.
 
 **Finding referenced docs:** Scan the issue body for file paths, ADR references, or repo-doc links. Resolve up to 5 with Read. If a linked doc doesn't exist, note it as a potential spec gap. Pass the resolved docs to the fan-out as `referencedDocs`; if none are linked, pass only the issue body.
 
@@ -254,11 +261,11 @@ Before acting on your decision, verify:
 
 ### Step 6: Act on Verdict
 
-The write operations below are the **github** adapter (`tracker.writes: true`). Under `tracker.type: jira` (`tracker.writes: false`) the tracker is read-only: there is no `$GH_BOT` issue-create or label swap. The `no-split` comment and the sub-issue slice specs (either flavor) are **presented to the operator in-session** (the operator creates and re-queues any sub-tickets); the run's audit trail is the state file + brief, not a tracker comment. `$GH_BOT` remains the sanctioned bot convention on the github path. Labels below are the shipped `stageParams.requiredLabels` default set — use a consumer's overrides where configured.
+The write operations below are the **github** adapter (`tracker.writes: true`) _(jira: tracker delta.)_
 
 **`no-split`:**
 
-1. Post spec review results + resolved decisions as issue comment (github; **present in-session** under jira)
+1. Post spec review results + resolved decisions as issue comment _(jira: tracker delta.)_
 2. Return control to pipeline (Stage 3: create worktree)
 
 **`sub-issues` (parallel) and `sub-issues-sequential` (ordered)** — one creation flow, two label/trailer postures:
@@ -282,7 +289,7 @@ $GH_BOT issue create --title "[slice N title]" --body "$BODY_N"   # no --label
 
    Keeping blocked successors **out of the queue** is the ordering enforcement — not rejecting them after they are claimed. Promotion is an operator action at merge time: merging the predecessor's PR is already the serialization point, so labelling the successor rides that same action (Stage 9 renders the reminder on the predecessor's PR). No claim is ever burned and no failed state file is created for the routine blocked case. `../predecessor-gate.sh` is only the pre-claim backstop for a successor that got labelled early.
 
-   Under jira: **present** the ≤5 sub-ticket specs to the operator; make no tracker writes. Ordering is operator-enforced there — the presented specs carry the trailers and the ordering note, and there is no machine gate.
+   _(jira: tracker delta.)_
 
 5. Update parent issue (github adapter):
 
@@ -291,9 +298,9 @@ $GH_BOT issue edit $ISSUE_NUMBER --add-label epic --remove-label ready-for-dev -
 gh issue edit $ISSUE_NUMBER --remove-assignee @me
 ```
 
-   Under jira: no-op — the operator moves the parent ticket manually after creating the sub-tickets.
+   _(jira: tracker delta.)_
 
-6. Post decomposition rationale + links as issue comment (github; **present in-session** under jira). For the sequential flavor, state the order explicitly and which slice is queued.
+6. Post decomposition rationale + links as issue comment _(jira: tracker delta.)_ For the sequential flavor, state the order explicitly and which slice is queued.
 7. Pipeline stops for this run — both flavors are stopping verdicts; each sub-issue is its own scope contract and gets its own run.
 
 ### Brief persistence
@@ -324,11 +331,7 @@ Two legitimate reasons to merge multiple work items into a single slice:
 1. **Bidirectional dependency** (subroutine "Tightly coupled items"): items literally cannot compile or ship separately.
 2. **Shared abstraction at a single module boundary**: multiple items all route through one service method, one schema, or one config module where splitting would force a public interface to exist solely for the split's sake. Example: an endpoint + its nightly worker that both call a single `DiversityService.compute()` method — packaging them together is natural regardless of the cap.
 
-NOT a shared abstraction (flag as weak-coupling; do not merge):
-
-- Two endpoints that both happen to query the same database table via different services.
-- Two components that both import from a shared UI package or the shared DB package.
-- Two workers that both use the logger or the config service.
+NOT a shared abstraction (flag as weak-coupling; do not merge): **shared infrastructure is not a shared abstraction.** Example: two endpoints that both query the same table via different services — the common dependency is infrastructure they happen to sit on, not a seam that splitting would force open.
 
 Flag as cap-driven gaming (escalate instead) when:
 
@@ -357,7 +360,7 @@ When you're not confident in your decision, STOP and escalate:
 2. Label: `$GH_BOT issue edit $ISSUE_NUMBER --add-label needs-intake-review --remove-label in-progress`; `gh issue edit $ISSUE_NUMBER --remove-assignee @me`
 3. **STOP**
 
-Under `tracker.type: jira` (`tracker.writes: false`): skip the comment and label steps — **surface the same content (what you understood, what's uncertain, options, the question) to the operator in-session** and STOP. No JIRA transition or comment. `needs-intake-review` here is the shipped `stageParams.requiredLabels` name; use a consumer's override where configured.
+_(jira: tracker delta.)_ Surface the same content to the operator in-session and STOP.
 
 ## Issue Comment Format
 
@@ -389,7 +392,7 @@ Status values: `passed`, `passed-with-decisions`, `failed`, `split-into-sub-issu
 
 ## Dependency Analysis (subroutine)
 
-Inlined from the deprecated `dependency-analyzer` agent. Runs in-session as the second half of Step 2, after `codebase-explorer` returns. **Do not** dispatch this as a Task — it runs as part of the orchestrator's own reasoning over evidence already collected.
+Inlined from the deprecated `dependency-analyzer` agent. Runs in-session as the second half of Step 2, after `codebase-explorer` returns — never as a Task dispatch (Pre-flight).
 
 ### Inputs
 
