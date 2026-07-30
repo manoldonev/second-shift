@@ -14,12 +14,25 @@
 # and config-lint's rejection message must name exactly the schema's enum). Duplicate
 # machinery is worse than none.
 #
-# Decision-Ledger provenance enum. ledger-lint.sh holds the canonical literal; plan-lint's
-# HUMAN_PROVENANCE is a deliberate narrowing to the human-attributed values, so this is
-# subset-of and NOT verbatim. The prose canonical (interviewing-baseline) and the agent-md
-# mirrors are a fourth and fifth representation in bullet/prose form — not byte-anchorable
-# without authoring new canonical literals, so they stay reviewer-guarded.
-provenance-enum	subset-of	plugins/intake-toolkit/skills/plan-interview/tools/ledger-lint.sh	provenance-enum	plugins/dev-pipeline/skills/run/tools/plan-lint.sh	provenance-enum
+# Decision-Ledger provenance enum — TWO rows, because plan-lint.sh now holds two literals.
+# ledger-lint.sh is the canonical side of both.
+#   provenance-enum        verbatim   — plan-lint's PROVENANCE_ENUM enum-validates the whole
+#                                       provenance cell, so it is a full copy, not a narrowing.
+#                                       verbatim compares the ENTIRE marker block, which is why
+#                                       both sides declare the literal under the same variable
+#                                       name with no comments between the markers.
+#   human-provenance-enum  subset-of  — plan-lint's HUMAN_PROVENANCE stays a deliberate
+#                                       narrowing to the human-attributed values (the
+#                                       fabrication guard). It lives in its OWN anchor: this
+#                                       relation reads the FIRST quoted literal in a block, so
+#                                       sharing an anchor with the full enum would make the
+#                                       outcome depend on declaration order — invisibly, since
+#                                       both literals are subsets of the canonical.
+# The prose canonical (interviewing-baseline) and the agent-md mirrors are further
+# representations in bullet/prose form — not byte-anchorable without authoring new canonical
+# literals, so they stay reviewer-guarded.
+provenance-enum	verbatim	plugins/intake-toolkit/skills/plan-interview/tools/ledger-lint.sh	provenance-enum	plugins/dev-pipeline/skills/run/tools/plan-lint.sh	provenance-enum
+human-provenance-enum	subset-of	plugins/intake-toolkit/skills/plan-interview/tools/ledger-lint.sh	provenance-enum	plugins/dev-pipeline/skills/run/tools/plan-lint.sh	human-provenance-enum
 #
 # AC-ID positional fallback rule. Both docs already SAY they must match byte-for-byte;
 # nothing checked it until now. The markers sit after each site's differing parenthetical
