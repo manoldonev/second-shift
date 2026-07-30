@@ -43,6 +43,20 @@ mkdir -p .claude/pipeline-state
 # working because cwd == TMPDIR_ST.
 export STATECTL_STATE_DIR="$TMPDIR_ST/.claude/pipeline-state"
 
+# Pin the writing session identity (#260). statectl's shared write seam stamps
+# .lastWriteSessionId from $CLAUDE_CODE_SESSION_ID and records a pause span when a
+# write's session id differs from the stored one. `sct` passes the ambient
+# environment straight through, so INHERITING the harness's own session id would
+# make every write in this suite same-session — the mechanism would test green
+# while guarding nothing. Export a fixed synthetic id instead; the cases that model
+# a resume reassign this variable (so the new identity persists for the rest of the
+# case), and the anonymous case unsets it in a subshell.
+export CLAUDE_CODE_SESSION_ID="5e1f7e57-0000-4000-8000-000000000001"
+SESSION_A="5e1f7e57-0000-4000-8000-000000000001"
+SESSION_B="5e1f7e57-0000-4000-8000-000000000002"
+SESSION_C="5e1f7e57-0000-4000-8000-000000000003"
+SESSION_D="5e1f7e57-0000-4000-8000-000000000004"
+
 PASS=0
 FAIL=0
 pass() { echo "  PASS: $1"; PASS=$((PASS+1)); }
@@ -1095,39 +1109,260 @@ else
 fi
 if [[ -n "$_PA12_SAVED_CFG" ]]; then export SECOND_SHIFT_CONFIG="$_PA12_SAVED_CFG"; else unset SECOND_SHIFT_CONFIG; fi
 
-# (pause1) pause-add → appends ONE closed span; from = prior .lastUpdatedAt
-# (self-anchor), to = now, from < to. now_iso is second-resolution, so sleep 1
-# to guarantee a measurable gap. ISO-8601 fixed-width Z timestamps sort
-# lexicographically == chronologically, so `<` in [[ ]] is a valid time compare.
+# ---------------------------------------------------------------- #260 seam ---
+# Automatic session-resume pause spans, written by statectl's shared write seam
+# (apply_session_seam, called from atomic_write) rather than by an explicit
+# per-site subcommand. These are PER-TOOL cases because each drives one branch of
+# the seam's internal matrix that no composed scenario can reach — a real pipeline
+# run never produces a truncated predecessor, an operator-shell write with the env
+# unset, a post-terminal backfill, or a --force pure-refusal. The composed
+# verdict-path coverage lives in scenario-liveness-selftest.sh's resume leg and
+# e2e-replay-selftest.sh scenario 3. (sr2)/(sr3) are the deliberate exception:
+# same contract from two different first-writers, which IS the order-independence
+# claim and cannot be one scenario.
+#
+# now_iso is second-resolution, so every case that compares from<to sleeps 1 first.
+# ISO-8601 fixed-width Z timestamps sort lexicographically == chronologically, so
+# `<` in [[ ]] is a valid time compare.
+
+# (sr1) same-session writes → the stamp is recorded, but NO span. This is the
+# common case (a whole run in one session) and the one that must stay silent.
 reset_state
 sct init 9999 --run-id "selftest-run-$$" >/dev/null
-prev=$(sct get 9999 '.lastUpdatedAt')
+sct set-stage 9999 1 --status started >/dev/null
+sct checkpoint 9999 1 --json '{"note":"same session"}' >/dev/null
+stamp=$(sct get 9999 '.lastWriteSessionId')
+spans=$(sct get 9999 '.pauseSpans // "ABSENT"')
+[[ "$stamp" == "$SESSION_A" && "$spans" == "ABSENT" ]] \
+  && pass "(sr1) same-session run → stamp recorded, no pauseSpans key" \
+  || fail "(sr1) stamp='$stamp' spans='$spans'"
+
+# (sr2) cross-session with `init --mode` as the first write — the PRIMARY case,
+# because it is the actual first write on every SKILL.md rule-2 resume AND one of
+# the two writes that does not bump lastUpdatedAt on its own. The seam must supply
+# both the span and the clock advance here.
+reset_state
+sct init 9999 --run-id "selftest-run-$$" --mode auto >/dev/null
+sct set-stage 9999 1 --status started >/dev/null
+dying=$(sct get 9999 '.lastUpdatedAt')
 sleep 1
-sct pause-add 9999 --reason session-resume >/dev/null
+CLAUDE_CODE_SESSION_ID="$SESSION_B"
+sct init 9999 --run-id ignored --mode interactive >/dev/null
 count=$(sct get 9999 '.pauseSpans | length')
 pfrom=$(sct get 9999 '.pauseSpans[0].from')
 pto=$(sct get 9999 '.pauseSpans[0].to')
 preason=$(sct get 9999 '.pauseSpans[0].reason')
-if [[ "$count" == "1" && "$preason" == "session-resume" && "$pfrom" == "$prev" ]] && [[ "$pfrom" < "$pto" ]]; then
-  pass "(pause1) pause-add → one closed span, from=prior lastUpdatedAt, from<to"
+lu=$(sct get 9999 '.lastUpdatedAt')
+stamp=$(sct get 9999 '.lastWriteSessionId')
+if [[ "$count" == "1" && "$preason" == "session-resume" && "$pfrom" == "$dying" \
+      && "$lu" == "$pto" && "$stamp" == "$SESSION_B" ]] && [[ "$pfrom" < "$pto" ]]; then
+  pass "(sr2) resume via 'init --mode' → one span anchored on the dying write, clock advanced to span.to"
 else
-  fail "(pause1) pause-add — count=$count reason=$preason from=$pfrom prev=$prev to=$pto"
+  fail "(sr2) count=$count reason=$preason from=$pfrom dying=$dying to=$pto lu=$lu stamp=$stamp"
 fi
 
-# (pause2) pause-add is require_mutable-guarded: rejected on a terminal run
-# without --force, succeeds with --force (#154 consistency; NOT exempt like
-# pipeline-session-add).
+# (sr11) subsequent writes by the SAME resuming session append nothing. Folded in
+# here because it needs (sr2)'s state: the stamp now equals the writer, so the
+# differ-check must go quiet.
+sct checkpoint 9999 1 --json '{"note":"second write, same resuming session"}' >/dev/null
+[[ "$(sct get 9999 '.pauseSpans | length')" == "1" ]] \
+  && pass "(sr11) further writes by the resuming session append no further spans" \
+  || fail "(sr11) spans=$(sct get 9999 '.pauseSpans | length') after a same-session follow-up write"
+CLAUDE_CODE_SESSION_ID="$SESSION_A"
+
+# (sr3) cross-session with `set-stage` as the first write — the order-independence
+# half of AC-1. A different subcommand carries the span; the contract is identical.
 reset_state
 sct init 9999 --run-id "selftest-run-$$" >/dev/null
-sct mark-failed 9999 --reason plan-reviewer-block >/dev/null
-err=$(sct_err pause-add 9999 --reason session-resume)
-rc=$(sct_rc pause-add 9999 --reason session-resume)
-rcforce=$(sct_rc pause-add 9999 --reason session-resume --force --force-reason "selftest crash-recovery simulation of an operator waiver")
-if [[ "$rc" != "0" && "$err" == *"terminal"* && "$rcforce" == "0" ]]; then
-  pass "(pause2) pause-add on terminal run → rejected without --force, succeeds with --force"
+dying=$(sct get 9999 '.lastUpdatedAt')
+sleep 1
+CLAUDE_CODE_SESSION_ID="$SESSION_B"
+sct set-stage 9999 1 --status started >/dev/null
+count=$(sct get 9999 '.pauseSpans | length')
+pfrom=$(sct get 9999 '.pauseSpans[0].from')
+[[ "$count" == "1" && "$pfrom" == "$dying" ]] \
+  && pass "(sr3) resume via 'set-stage' → same contract from a different first-writer" \
+  || fail "(sr3) count=$count from=$pfrom dying=$dying"
+CLAUDE_CODE_SESSION_ID="$SESSION_A"
+
+# (sr4) K sequential resumes → exactly K spans, pairwise NON-OVERLAPPING. The
+# non-overlap is what the clock advance buys: without it, span N+1 would anchor on
+# a stale lastUpdatedAt and stage-times.sh would double-subtract the same interval.
+# K=3, and the middle resume's ONLY write is the init --mode restamp (the
+# non-bumping path), which is where an unadvanced clock would show up.
+reset_state
+sct init 9999 --run-id "selftest-run-$$" --mode auto >/dev/null
+for s in "$SESSION_B" "$SESSION_C" "$SESSION_D"; do
+  sleep 1
+  CLAUDE_CODE_SESSION_ID="$s"
+  sct init 9999 --run-id ignored --mode interactive >/dev/null
+done
+CLAUDE_CODE_SESSION_ID="$SESSION_A"
+count=$(sct get 9999 '.pauseSpans | length')
+# Non-overlap: every span's `from` is >= the previous span's `to`. ISO-8601
+# fixed-width Z timestamps compare correctly as strings.
+# shellcheck disable=SC2016 # $i is a jq variable, not a shell one — single quotes are required
+ordered=$(sct get 9999 '[ .pauseSpans as $s | range(1; ($s|length)) | ($s[.].from >= $s[.-1].to) ] | all')
+[[ "$count" == "3" && "$ordered" == "true" ]] \
+  && pass "(sr4) K=3 sequential resumes → exactly 3 non-overlapping spans (incl. the non-bumping restamp)" \
+  || fail "(sr4) count=$count ordered=$ordered spans=$(sct get 9999 '.pauseSpans')"
+
+# (sr12) a span-recording write advances the staleness anchor, so `reclaim` does
+# NOT report a just-resumed run as stale. D-2 asserts this consequence in prose;
+# this pins it. Two consumers read that anchor (reclaim and pipeline-doctor's
+# stale-claim scan) — reclaim is the one that reports a verdict.
+#
+# Shape: park a run whose last write is months old, confirm reclaim calls it stale,
+# perform ONE cross-session write, confirm reclaim now refuses it as not-stale. The
+# before/after pair is what makes this non-vacuous — asserting only "not stale"
+# would also pass on a run that was never stale to begin with.
+reset_state
+printf '{"ticketKey":"9999","runId":"selftest-run","status":"in_progress","currentStage":4,"startedAt":"2026-01-01T00:00:00Z","lastUpdatedAt":"2026-01-01T00:00:00Z","lastWriteSessionId":"%s","stages":{}}\n' \
+  "$SESSION_C" > "$STATECTL_STATE_DIR/9999.json"
+stale_before=$(sct reclaim 9999 --threshold-min 30 | jq -r '.stale // "ERR"')
+CLAUDE_CODE_SESSION_ID="$SESSION_B"
+sct checkpoint 9999 1 --json '{"note":"the resuming session first write"}' >/dev/null
+CLAUDE_CODE_SESSION_ID="$SESSION_A"
+rc_after=$(sct_rc reclaim 9999 --threshold-min 30)
+err_after=$(sct_err reclaim 9999 --threshold-min 30)
+if [[ "$stale_before" == "true" && "$rc_after" == "1" && "$err_after" == *"not stale"* \
+      && "$(sct get 9999 '.pauseSpans | length')" == "1" ]]; then
+  pass "(sr12) the span write advances the staleness anchor — stale before the resume, not stale after"
 else
-  fail "(pause2) pause-add terminal guard — rc=$rc rcforce=$rcforce err='$err'"
+  fail "(sr12) staleBefore=$stale_before rcAfter=$rc_after spans=$(sct get 9999 '.pauseSpans // "ABSENT"') err='${err_after:0:80}'"
 fi
+
+# (sr5) ANONYMOUS write (env unset — an operator running statectl from a plain
+# terminal): no span, and the stored stamp is LEFT ALONE rather than overwritten
+# with null. The second half is the load-bearing one: it is what stops a mid-run
+# operator repair from swallowing the next resume's span.
+reset_state
+sct init 9999 --run-id "selftest-run-$$" >/dev/null
+( unset CLAUDE_CODE_SESSION_ID; sct checkpoint 9999 1 --json '{"note":"operator shell"}' >/dev/null )
+stamp_after_anon=$(sct get 9999 '.lastWriteSessionId')
+spans_after_anon=$(sct get 9999 '.pauseSpans // "ABSENT"')
+anon_ts=$(sct get 9999 '.lastUpdatedAt')
+sleep 1
+CLAUDE_CODE_SESSION_ID="$SESSION_B"
+sct checkpoint 9999 1 --json '{"note":"resume after the operator repair"}' >/dev/null
+CLAUDE_CODE_SESSION_ID="$SESSION_A"
+resume_from=$(sct get 9999 '.pauseSpans[0].from')
+if [[ "$stamp_after_anon" == "$SESSION_A" && "$spans_after_anon" == "ABSENT" \
+      && "$(sct get 9999 '.pauseSpans | length')" == "1" && "$resume_from" == "$anon_ts" ]]; then
+  pass "(sr5) anonymous write → no span, stamp untouched; the following resume still spans, anchored at the repair write"
+else
+  fail "(sr5) stamp='$stamp_after_anon' spans='$spans_after_anon' resumeFrom='$resume_from' anonTs='$anon_ts'"
+fi
+
+# (sr6) post-terminal pipeline-session-add backfill (the documented
+# skipped-no-sessions cost recovery): appends its session record, NO span, NO
+# stamp change, and still needs no --force. The predecessor is already terminal,
+# so the seam is structurally unable to fire — which is what makes a backfill
+# distinguishable from a resume at all.
+reset_state
+sct init 9999 --run-id "selftest-run-$$" >/dev/null
+for s in 1 2 3 4 5 6 7 8 9; do complete_stage 9999 "$s"; done
+write_eval 9999; write_report 9999
+sct mark-completed 9999 >/dev/null
+stamp_before=$(sct get 9999 '.lastWriteSessionId')
+sleep 1
+CLAUDE_CODE_SESSION_ID="$SESSION_B"
+rc=$(sct_rc pipeline-session-add 9999 --session-id "$SESSION_B" --source interactive)
+CLAUDE_CODE_SESSION_ID="$SESSION_A"
+if [[ "$rc" == "0" && "$(sct get 9999 '.pauseSpans // "ABSENT"')" == "ABSENT" \
+      && "$(sct get 9999 '.lastWriteSessionId')" == "$stamp_before" \
+      && "$(sct get 9999 '.status')" == "completed" ]]; then
+  pass "(sr6) post-terminal backfill → session appended, no span, no stamp change, exemption intact"
+else
+  fail "(sr6) rc=$rc spans=$(sct get 9999 '.pauseSpans // "ABSENT"') stampBefore=$stamp_before stampAfter=$(sct get 9999 '.lastWriteSessionId')"
+fi
+
+# (sr7) mark-completed as the resuming session's FIRST write. Its predecessor is
+# still in_progress, so it BOTH stamps and spans — the gate reads the on-disk
+# predecessor, not the document being written. A run resumed only to be marked
+# done still had a real idle gap, so recording it is the correct outcome; reading
+# the post-write content instead would silently drop it.
+reset_state
+sct init 9999 --run-id "selftest-run-$$" >/dev/null
+for s in 1 2 3 4 5 6 7 8 9; do complete_stage 9999 "$s"; done
+write_eval 9999; write_report 9999
+dying=$(sct get 9999 '.lastUpdatedAt')
+sleep 1
+CLAUDE_CODE_SESSION_ID="$SESSION_B"
+sct mark-completed 9999 >/dev/null
+CLAUDE_CODE_SESSION_ID="$SESSION_A"
+if [[ "$(sct get 9999 '.status')" == "completed" \
+      && "$(sct get 9999 '.pauseSpans | length')" == "1" \
+      && "$(sct get 9999 '.pauseSpans[0].from')" == "$dying" \
+      && "$(sct get 9999 '.lastWriteSessionId')" == "$SESSION_B" ]]; then
+  pass "(sr7) mark-completed as the first resume write → stamps AND spans (predecessor-read gate)"
+else
+  fail "(sr7) status=$(sct get 9999 '.status') spans=$(sct get 9999 '.pauseSpans // "ABSENT"') stamp=$(sct get 9999 '.lastWriteSessionId')"
+fi
+
+# (sr8) DEGRADED PREDECESSOR — unparseable file. Characterization, and the letter
+# of the contract deserves stating: the seam tolerates an unparseable predecessor
+# (stamp, no span, never fail), but no CLI path can actually deliver one to it,
+# because every subcommand reads through read_state first and read_state refuses
+# a corrupt file (rc=2) before atomic_write is ever reached. So what is asserted
+# here is the REACHABLE behavior: the subcommand refuses, and — the part that
+# matters for crash recovery — the corrupt file is left byte-for-byte intact
+# rather than half-overwritten. The seam's own branch is defense in depth for a
+# future writer that does not read first; (sr9) is the degradation case that IS
+# reachable today.
+reset_state
+printf 'not json{' > "$STATECTL_STATE_DIR/9999.json"
+before_bytes=$(cat "$STATECTL_STATE_DIR/9999.json")
+rc=$(sct_rc checkpoint 9999 1 --json '{"x":1}')
+err=$(sct_err checkpoint 9999 1 --json '{"x":1}')
+after_bytes=$(cat "$STATECTL_STATE_DIR/9999.json")
+[[ "$rc" != "0" && "$err" == *"could not parse state file"* && "$before_bytes" == "$after_bytes" ]] \
+  && pass "(sr8) unparseable predecessor → subcommand refuses at read_state, file left intact (seam never reached)" \
+  || fail "(sr8) rc=$rc err='$err' fileChanged=$([[ "$before_bytes" == "$after_bytes" ]] && echo no || echo yes)"
+
+# (sr9) DEGRADED PREDECESSOR — parses, but carries no .lastUpdatedAt to anchor on.
+# Documented as real (pipeline-doctor's (d5a) characterization case; raw fixtures).
+# The seam must stamp, append NO span, and above all NOT fail the host write.
+# This is exactly where the removed subcommand died — it hard-errored — which would
+# have broken the crash-recovery path this mechanism exists to serve.
+reset_state
+printf '{"ticketKey":"9999","status":"in_progress","lastWriteSessionId":"%s","stages":{}}\n' \
+  "$SESSION_C" > "$STATECTL_STATE_DIR/9999.json"
+rc=$(sct_rc checkpoint 9999 1 --json '{"x":1}')
+[[ "$rc" == "0" && "$(sct get 9999 '.lastWriteSessionId')" == "$SESSION_A" \
+   && "$(sct get 9999 '.pauseSpans // "ABSENT"')" == "ABSENT" ]] \
+  && pass "(sr9) predecessor with no lastUpdatedAt → stamps, no span, host write still succeeds" \
+  || fail "(sr9) rc=$rc stamp=$(sct get 9999 '.lastWriteSessionId') spans=$(sct get 9999 '.pauseSpans // "ABSENT"')"
+
+# (sr10) the #243 PURE-REFUSAL FALLBACK as a resuming session's first write. This
+# is the single atomic_write call site whose `content` is byte-identical to the
+# on-disk predecessor (it passes read_state output straight through), so BOTH the
+# stamp and the clock advance must be injected wholly by the seam — unlike the
+# other call sites, whose content already carries a bumped lastUpdatedAt. It is
+# also the one path where a read-only subcommand becomes a span-recording write.
+# Driver: a forced reclaim on a fresh (non-stale) in_progress run — the staleness
+# guard fires, the verdict is read-only, so the waiver append IS the write.
+reset_state
+sct init 9999 --run-id "selftest-run-$$" --mode interactive >/dev/null
+dying=$(sct get 9999 '.lastUpdatedAt')
+sleep 1
+CLAUDE_CODE_SESSION_ID="$SESSION_B"
+sct reclaim 9999 --force --force-reason "selftest crash-recovery simulation of an operator waiver" >/dev/null
+CLAUDE_CODE_SESSION_ID="$SESSION_A"
+if [[ "$(sct get 9999 '.pauseSpans | length')" == "1" \
+      && "$(sct get 9999 '.pauseSpans[0].from')" == "$dying" \
+      && "$(sct get 9999 '.lastUpdatedAt')" == "$(sct get 9999 '.pauseSpans[0].to')" \
+      && "$(sct get 9999 '.lastWriteSessionId')" == "$SESSION_B" \
+      && "$(sct get 9999 '.waivers | length')" == "1" ]]; then
+  pass "(sr10) pure-refusal fallback as first resume write → stamp + span + clock advance, waiver intact"
+else
+  fail "(sr10) spans=$(sct get 9999 '.pauseSpans // "ABSENT"') lu=$(sct get 9999 '.lastUpdatedAt') stamp=$(sct get 9999 '.lastWriteSessionId') waivers=$(sct get 9999 '.waivers // [] | length')"
+fi
+
+# (pause2) is deliberately GONE, not re-anchored: its assertion (a require_mutable
+# subcommand rejected on a terminal run without --force, applied with it) is
+# already carried verbatim by (rm6)/(rm6f) on `checkpoint`. Re-pointing it at
+# `checkpoint` would have duplicated that pair while looking like preservation.
 
 # (pause3) stage-times.sh is pause-aware: against the committed pause/resume
 # fixture, the effective total is < wall by ~the pause, and the straddling
@@ -3193,8 +3428,8 @@ reset_state
 # "--force-reason" literal inside a value payload is NOT mis-parsed (decoy probe).
 reset_state
 sct init 9901 --run-id "selftest-run-$$" >/dev/null
-err=$(sct_err pause-add 9901 --reason session-resume --force)
-rc=$(sct_rc pause-add 9901 --reason session-resume --force)
+err=$(sct_err checkpoint 9901 1 --json '{"x":1}' --force)
+rc=$(sct_rc checkpoint 9901 1 --json '{"x":1}' --force)
 sct checkpoint 9901 1 --json '{"note":"--force-reason decoy inside a value token"}' >/dev/null 2>&1
 decoy_rc=$?
 if [[ "$rc" == "1" && "$err" == *"--force requires --force-reason"* && "$decoy_rc" == "0" ]]; then
@@ -3204,8 +3439,8 @@ else
 fi
 
 # (fr2) a reason under 20 chars is refused identically.
-err=$(sct_err pause-add 9901 --reason session-resume --force --force-reason "too short")
-rc=$(sct_rc pause-add 9901 --reason session-resume --force --force-reason "too short")
+err=$(sct_err checkpoint 9901 1 --json '{"x":1}' --force --force-reason "too short")
+rc=$(sct_rc checkpoint 9901 1 --json '{"x":1}' --force --force-reason "too short")
 [[ "$rc" == "1" && "$err" == *"min 20 chars"* ]] \
   && pass "(fr2) --force-reason under 20 chars → refused" || fail "(fr2) rc=$rc err='$err'"
 
@@ -3215,12 +3450,12 @@ rc=$(sct_rc pause-add 9901 --reason session-resume --force --force-reason "too s
 reset_state
 sct init 9902 --run-id "selftest-run-$$" --mode auto >/dev/null
 mode_rec=$(sct get 9902 '.mode')
-err=$(sct_err pause-add 9902 --reason session-resume --force --force-reason "selftest crash-recovery simulation of an operator waiver")
-rc=$(sct_rc pause-add 9902 --reason session-resume --force --force-reason "selftest crash-recovery simulation of an operator waiver")
+err=$(sct_err checkpoint 9902 1 --json '{"x":1}' --force --force-reason "selftest crash-recovery simulation of an operator waiver")
+rc=$(sct_rc checkpoint 9902 1 --json '{"x":1}' --force --force-reason "selftest crash-recovery simulation of an operator waiver")
 # AC-11 letter: refused outright WITH OR WITHOUT a reason, recovery named both
 # ways — the auto gate precedes the reason gate, so the no-reason case still
 # surfaces the env-override recovery, not the reason refusal.
-err_noreason=$(sct_err pause-add 9902 --reason session-resume --force)
+err_noreason=$(sct_err checkpoint 9902 1 --json '{"x":1}' --force)
 if [[ "$mode_rec" == "auto" && "$rc" == "1" && "$err" == *"refused in autonomous mode"* && "$err" == *"DEV_PIPELINE_MODE=interactive"*       && "$err_noreason" == *"refused in autonomous mode"* ]]; then
   pass "(am1) init --mode auto persists; --force refused with recovery-naming stderr, with and without a reason"
 else
@@ -3229,7 +3464,7 @@ fi
 
 # (am2) env DEV_PIPELINE_MODE=interactive overrides state .mode=auto (the
 # attended-recovery path on a pipeline-owned state file — AC-12).
-rc=$(DEV_PIPELINE_MODE=interactive sct_rc pause-add 9902 --reason session-resume --force --force-reason "selftest crash-recovery simulation of an operator waiver")
+rc=$(DEV_PIPELINE_MODE=interactive sct_rc checkpoint 9902 1 --json '{"x":1}' --force --force-reason "selftest crash-recovery simulation of an operator waiver")
 [[ "$rc" == "0" ]] \
   && pass "(am2) env interactive overrides state auto → force accepted" || fail "(am2) rc=$rc"
 
@@ -3248,9 +3483,9 @@ mode_after=$(sct get 9902 '.mode')
 reset_state
 sct init 9903 --run-id "selftest-run-$$" >/dev/null
 sct mark-failed 9903 --reason worktree-creation-failed --stage 2 >/dev/null
-sct pause-add 9903 --reason session-resume --force --force-reason "selftest crash-recovery simulation of an operator waiver" >/dev/null
+sct checkpoint 9903 1 --json '{"x":1}' --force --force-reason "selftest crash-recovery simulation of an operator waiver" >/dev/null
 wv=$(sct get 9903 '.waivers')
-wv_ok=$(jq -r 'length == 1 and (.[0] | (.precondition == "terminal-state") and (.stage == null) and (.subcommand == "pause-add") and ((.reason | length) >= 20) and (.at | length > 0))' <<< "$wv")
+wv_ok=$(jq -r 'length == 1 and (.[0] | (.precondition == "terminal-state") and (.stage == null) and (.subcommand == "checkpoint") and ((.reason | length) >= 20) and (.at | length > 0))' <<< "$wv")
 [[ "$wv_ok" == "true" ]] \
   && pass "(wv1) forced terminal-state bypass → one five-field waiver in the same write" || fail "(wv1) waivers=$wv"
 
@@ -3271,7 +3506,7 @@ w2_ok=$(jq -r '(length >= 1) and (map(.precondition) | index("completion-evidenc
 # (wv3) a defensive --force under which NO guard fires appends nothing (AC-10).
 reset_state
 sct init 9905 --run-id "selftest-run-$$" >/dev/null
-sct pause-add 9905 --reason session-resume --force --force-reason "selftest crash-recovery simulation of an operator waiver" >/dev/null
+sct checkpoint 9905 1 --json '{"x":1}' --force --force-reason "selftest crash-recovery simulation of an operator waiver" >/dev/null
 wv3=$(sct get 9905 '.waivers // "ABSENT"')
 [[ "$wv3" == "ABSENT" ]] \
   && pass "(wv3) no-op force appends nothing — guards evaluated, none fired" || fail "(wv3) waivers=$wv3"

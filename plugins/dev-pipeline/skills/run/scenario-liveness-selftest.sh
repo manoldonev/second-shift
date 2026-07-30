@@ -62,9 +62,13 @@
 #     which is not the same as driving them from the triggering component.
 #   - scope-blocker-no-code-remedy (the stage-8 short-circuit marker).
 #   - Crash-recovery composition — PARTIALLY DISCHARGED (#217), one clause of four.
-#     The resume leg (pause-add as the first resume write -> pipeline-session-add ->
-#     stage-8 re-entry -> terminal write) is now a scenario in e2e-replay-selftest.sh,
-#     which owns it because it needs that file's minted-receipt machinery. STILL
+#     The resume leg (a session-identity switch -> pipeline-session-add -> stage-8
+#     re-entry -> terminal write) is now a scenario in e2e-replay-selftest.sh, which
+#     owns it because it needs that file's minted-receipt machinery. Since #260 the
+#     pause span on that leg is recorded by statectl's shared write seam rather than
+#     by an explicit first-write subcommand, so the scenario drives it by switching
+#     $CLAUDE_CODE_SESSION_ID and asserts the single span and its anchor — there is
+#     no longer a first-write ordering contract for a composed test to get wrong. STILL
 #     UNCOVERED, here and there: reclaim --release quarantine -> fresh init; init's
 #     stale-artifact quarantine; the Stage-2 currentSlice > M+1 sanity stop. Those three
 #     remain per-command statectl-selftest cases with no composed driver. Do NOT collapse
@@ -114,6 +118,11 @@ mkdir -p "$TMP/.claude/pipeline-state"
 # Pin the state dir BEFORE sourcing the lib — its helpers key their file writes and
 # resets on this value rather than a relative path, so the harness need not cd.
 export STATECTL_STATE_DIR="$TMP/.claude/pipeline-state"
+# Pin the writing session identity (#260) — see statectl-selftest.sh's note. Every
+# scenario here composes a single-session run, so a fixed id keeps them same-session
+# and no scenario should ever grow a pauseSpans entry. Inheriting the harness's id
+# would work today by accident; pinning it makes that a decision.
+export CLAUDE_CODE_SESSION_ID="1ffe6e55-0000-4000-8000-000000000001"
 cd "$TMP" || exit 99
 
 # Absolute path, resolved above from BASH_SOURCE, so the cd cannot break it.

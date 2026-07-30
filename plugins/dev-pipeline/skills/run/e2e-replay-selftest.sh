@@ -43,8 +43,8 @@
 #   1  no-split replay   init -> stages 1..9, every receipt minted -> mark-completed ACCEPTED
 #   2  negative          stage-9 completion REFUSED while the pr receipt is absent, then
 #                        accepted once minted (scenario 1's green is not vacuous)
-#   3  crash-recovery    pause-add (first write, self-anchoring) -> pipeline-session-add ->
-#                        stage-8 re-entry -> terminal write
+#   3  crash-recovery    session-id switch (the seam self-anchors the span on the
+#                        resuming session's first write) -> stage-8 re-entry -> terminal write
 #   4  slice derivation  a real bare remote driven through the documented
 #                        `ls-remote | awk | max-pushed-slice.sh` composition
 #
@@ -88,6 +88,13 @@ TMP=$(mktemp -d -t e2e-replay.XXXXXX)
 trap 'rm -rf "$TMP"' EXIT INT TERM
 mkdir -p "$TMP/.claude/pipeline-state"
 export STATECTL_STATE_DIR="$TMP/.claude/pipeline-state"
+
+# Pin the writing session identity (#260) — see statectl-selftest.sh's note. `sct`
+# passes the ambient environment through, so inheriting the harness's own session id
+# would make every write same-session and scenario 3's resume would record nothing.
+# Scenario 3 reassigns this to $E2E_SESSION_RESUMED at the resume point.
+export CLAUDE_CODE_SESSION_ID="e2e5e551-0000-4000-8000-000000000001"
+E2E_SESSION_RESUMED="e2e5e551-0000-4000-8000-000000000002"
 
 # Absolute path, resolved from BASH_SOURCE above, so the cd below cannot break it.
 # shellcheck source=/dev/null
@@ -348,9 +355,12 @@ grep -q 'pr create --draft' "$GH_LOG" \
 # Crash-recovery resume. scenario-liveness-selftest.sh records this composition as
 # uncovered debt; it lands here because it needs the minted-receipt machinery above.
 #
-# pause-add is SELF-ANCHORING: it reads `from` = the current .lastUpdatedAt (the dying
-# session's final write) and stamps `to` = now. That is why it MUST be the first write on
-# resume — set-stage or pipeline-session-add would bump .lastUpdatedAt and zero the anchor.
+# The pause span is SELF-ANCHORING at statectl's shared write seam (#260): the seam
+# re-reads the on-disk predecessor, takes `from` = that pre-write .lastUpdatedAt (the
+# dying session's final write) and stamps `to` = now. There is no first-write ordering
+# requirement any more — whichever subcommand the resuming session calls first carries
+# the span, and its anchor cannot be the resuming session's own write, because the
+# stored session id only changes after the span is recorded.
 # Asserting the anchor, not merely that a span exists, is what makes this a real guard.
 
 echo "[e2e-replay] scenario 3: crash-recovery resume through stage-8 re-entry"
@@ -368,10 +378,24 @@ sct pipeline-session-add "$RKEY" --session-id "11111111-1111-4111-8111-111111111
   || fail "(r1) could not park the run at stage 7"
 
 DYING_WRITE=$(sct get "$RKEY" '.lastUpdatedAt')
-sct pause-add "$RKEY" --reason session-resume >/dev/null
+# THE RESUME. There is no pause call to make: statectl's shared write seam records
+# the span on whichever subcommand this fresh session writes first, so the resume is
+# driven purely by switching the session identity (#260).
+#
+# The switch REASSIGNS the suite variable rather than prefixing one call. That is
+# load-bearing: a single-call override would revert the very next write to the
+# original id, which the seam would read as a SECOND cross-session transition and
+# record a second span — turning (r8)'s single-span assertion red at the terminal
+# write, several subcommands later. A resume changes the owning session for the rest
+# of the leg, and the test has to model it that way.
+#
+# now_iso is second-resolution; sleep so the span has a measurable width.
+sleep 1
+CLAUDE_CODE_SESSION_ID="$E2E_SESSION_RESUMED"
+sct pipeline-session-add "$RKEY" --session-id "22222222-2222-4222-8222-222222222222" --source interactive >/dev/null
 SPAN_FROM=$(sct get "$RKEY" '.pauseSpans[-1].from')
 [[ "$SPAN_FROM" == "$DYING_WRITE" ]] \
-  && pass "(r2) pause-add anchors the span on the dying session's last write" \
+  && pass "(r2) the resuming session's FIRST write anchors the span on the dying session's last write" \
   || fail "(r2) pause span from='$SPAN_FROM' want='$DYING_WRITE'"
 [[ "$(sct get "$RKEY" '.pauseSpans | length')" == "1" ]] \
   && pass "(r3) exactly one closed pause span is recorded" \
@@ -379,7 +403,8 @@ SPAN_FROM=$(sct get "$RKEY" '.pauseSpans[-1].from')
 
 # A resume runs in a DIFFERENT Claude session; Stage 9 attributes cost per session.id, so
 # a resume that records nothing contributes zero rows and its cost silently vanishes.
-sct pipeline-session-add "$RKEY" --session-id "22222222-2222-4222-8222-222222222222" --source interactive >/dev/null
+# (That same write is the one that carried the span above — the seam has no ordering
+# requirement, so the session record and the span ride together.)
 [[ "$(sct get "$RKEY" '.pipelineSessions | length')" == "2" ]] \
   && pass "(r4) the resuming session is recorded alongside the original" \
   || fail "(r4) pipelineSessions length is $(sct get "$RKEY" '.pipelineSessions | length')"
