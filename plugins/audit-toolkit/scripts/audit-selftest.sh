@@ -25,8 +25,12 @@ cd "$(git rev-parse --show-toplevel)" || { echo "not in a git repo"; exit 1; }
 PASS=0; FAIL=0
 SID="audit-smoke-$$"
 CSID="audit-smoke-concurrent-$$"
+TSID="audit-smoke-target-$$"
 
-cleanup() { rm -f ".claude/audit/${SID}.jsonl" ".claude/audit/${CSID}.jsonl" 2>/dev/null; }
+cleanup() {
+    rm -f ".claude/audit/${SID}.jsonl" ".claude/audit/${CSID}.jsonl" \
+          ".claude/audit/${TSID}.jsonl" 2>/dev/null
+}
 trap cleanup EXIT
 
 ok()   { PASS=$((PASS+1)); echo "  OK $1"; }
@@ -102,9 +106,6 @@ fi
 # The honest scope here is "the mapping we implemented behaves as specified", not
 # "the mapping still matches the live harness".
 
-TSID="audit-smoke-target-$$"
-cleanup_target() { rm -f ".claude/audit/${TSID}.jsonl" 2>/dev/null; }
-trap 'cleanup; cleanup_target' EXIT
 feed() { echo "$1" | "$HOOK"; }
 last_target() { jq -r --arg t "$1" 'select(.tool == $t) | .target' ".claude/audit/$TSID.jsonl" | tail -1; }
 
