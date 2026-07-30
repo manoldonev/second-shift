@@ -25,7 +25,7 @@ The two halves ship in one PR because #262 Step 4 binds them: "state-schema/stat
 
 | ID | Decision | Resolution | Provenance |
 | --- | --- | --- | --- |
-| D-a | Three files reference the retired tools but are absent from the ticket's Scope list | All three are in scope. #262's own Scope already assigns two (`tools/tracker/README.md` "drop the `max-pushed-slice.sh` consumer note and stacked branch-shape prose"; `schema/second-shift.config.schema.json` "`branchPrefix` description drops the `-pr<N>` shape and the `max-pushed-slice.sh` mention"). The third, `tools/predecessor-gate.sh`'s two design-precedent comments, is rewritten to describe the stdin/args seam without the dead filename. AC-1 is satisfied by editing them, not by narrowing the AC | ticket-sourced (#262 Scope; https://github.com/manoldonev/second-shift/issues/265#issuecomment-5131986620) |
+| D-a | Four files reference the retired tools but are absent from the ticket's Scope list | All four are in scope. #262's own Scope already assigns two (`tools/tracker/README.md` "drop the `max-pushed-slice.sh` consumer note and stacked branch-shape prose"; `schema/second-shift.config.schema.json` "`branchPrefix` description drops the `-pr<N>` shape and the `max-pushed-slice.sh` mention"). The third, `tools/predecessor-gate.sh`'s two design-precedent comments, is rewritten to describe the stdin/args seam without the dead filename. The fourth is the **parallel adapter path** `tools/tracker/jira/README.md:36`, which carries the same "Stacked slice N: `…-pr<N>`" branch-shape prose as its github sibling — a one-repo-path edit that skips its mirror leaves the retired shape documented under the other adapter. AC-1 is satisfied by editing all four, not by narrowing the AC | ticket-sourced (#262 Scope) + codebase-derived (the jira mirror; https://github.com/manoldonev/second-shift/issues/265#issuecomment-5131986620) |
 | D-b | AC-4/AC-5/AC-6 lack the historical carve-out AC-1 carries | The carve-out applies to every AC in this ticket. `docs/plans/**` and `CHANGELOG.md` are excluded from all grep-clean bars — restating #262's Migration clause so the Stage-8 scope gate reads it in-band rather than inferring it | ticket-sourced (#262 Migration; https://github.com/manoldonev/second-shift/issues/265#issuecomment-5131986620) |
 | D-c | Is the `branchPrefix` schema description this PR's work or #267's? | This PR's. #262 splits `schema/second-shift.config.schema.json` into two independent items: the `branchPrefix` description (stacked-execution prose) and `planFilePattern`'s `{slice}` token (D-12 → #267). A description-only edit is not a `configVersion` change; schema lines 237–238 are untouched | ticket-sourced (#262 Scope + D-12; https://github.com/manoldonev/second-shift/issues/265#issuecomment-5131986620) |
 | D-d | `worktreeBase` is preserved, but its normative definition is written in slice terms and cites `priorSliceBranch`, which this PR deletes | Rewrite the stanza to its post-retirement definition. After `slice-set` is deleted the sole remaining writer is `worktree-set --base`, which Stage 2 passes only on the be-fe-pair path — so the field is a be-fe-pair flat mirror, absent on single-repo runs, with consumers falling back to the configured base branch. The `status` bullet's `require_mutable` enumeration also drops `slice-set` | codebase-derived |
@@ -49,11 +49,12 @@ All paths verified present in the worktree. Unverified references: none. No file
 - `plugins/dev-pipeline/skills/run/stages/1-intake.md` — `## Stacked-PR Outer Loop` through end of file (lines 314–426), plus the slice-touch threshold line (240) and the slice mention in the jira delta (16)
 - `plugins/dev-pipeline/skills/run/stages/2-worktree.md` — slice-branch/suffix derivation (24–49), the `currentSlice > M+1` sanity stop (51–74), prior-slice worktree base (88–92), prior-slice fetch (133–141), stacked notes (192, 207)
 - `plugins/dev-pipeline/skills/run/stages/9-open-pr.md` — stacked PR-base targeting (16–24, 123–155), the Stacked-PR body template (304–328), the stacked report/label/terminal notes (185, 204, 344, 346, 374, 396)
-- `plugins/dev-pipeline/skills/run/scenario-liveness-selftest.sh` — the stacked-prs scenario block (296–~390), the `$SCOPE` / `$START_SLICE_SH` exit-99 preflight lines (105–106), the `BLOCKED ON #211` block (50–55), and the block-(B) `currentSlice > M+1` debt item (72–73, per D-e)
-- `plugins/dev-pipeline/skills/run/statectl-selftest.sh` — the `(mps)` section
+- `plugins/dev-pipeline/skills/run/scenario-liveness-selftest.sh` — **two independent executor regions, both required**: the stacked-prs scenario block (296–~390, which drives `$SCOPE`) and the separate `start-slice precedence (AC-5)` section (716–780, which drives `$START_SLICE_SH`). Plus the `$SCOPE`/`$START_SLICE_SH` variable resolutions (96–97) and their exit-99 preflight lines (105–106), the header's `start-slice` scenario-map entry (25), the `BLOCKED ON #211` block (50–55), and the block-(B) `currentSlice > M+1` debt item (72–73, per D-e)
+- `plugins/dev-pipeline/skills/run/statectl-selftest.sh` — the `$MAXSLICE` resolution (28) + its exit-99 preflight (33), and the `(mps)` section including the `mps()` helper (391–~440)
 - `plugins/dev-pipeline/skills/run/e2e-replay-selftest.sh` — the `$MAXSLICE` resolution + exit-99 preflight (68, 75) and scenario-4 legs `(sl1)`–`(sl3)` (450–499); the header's scenario-4 description (48–52)
 - `plugins/dev-pipeline/skills/run/tools/review-harness-fixtures/harness-plan-alpha.md` — the retired-tool path reference (99)
 - `plugins/dev-pipeline/skills/run/tools/tracker/README.md` — the `max-pushed-slice.sh` consumer note + stacked branch shape (54) — per D-a
+- `plugins/dev-pipeline/skills/run/tools/tracker/jira/README.md` — the parallel adapter's stacked branch-shape prose (36) — per D-a
 - `plugins/dev-pipeline/skills/run/tools/predecessor-gate.sh` — two design-precedent comments naming the dead file (17, 38) — per D-a
 - `schema/second-shift.config.schema.json` — the `branchPrefix` description (31) — per D-a/D-c
 - `CLAUDE.md` — coverage-register lines for the three deleted tools (77–78); the run-#204 anecdote (118) rephrased as historical
@@ -81,7 +82,10 @@ All paths verified present in the worktree. Unverified references: none. No file
 - `plugins/dev-pipeline/skills/run/stages/10-cleanup.md` — the per-slice cleanup clause (5)
 - `plugins/dev-pipeline/skills/run/e2e-replay-selftest.sh` — leg `(sl4)` (501–512) and the fixture deletion
 
-**Confirmed false positives — no edit:** `plugins/review-toolkit/agents/a11y-reviewer.md` and `plugins/design-toolkit/agents/figma-faithful-plan-reviewer.md` match "stacked" in the CSS/layout sense. `plugins/intake-toolkit/evals/intake-orchestrator-eval/**` holds landed baseline records and fixture *names*; #262 assigns the eval rubric to PR 1's scope, and no fixture is deleted here.
+**Confirmed false positives — no edit:**
+
+- `plugins/review-toolkit/agents/a11y-reviewer.md` and `plugins/design-toolkit/agents/figma-faithful-plan-reviewer.md` — "stacked" in the CSS/layout sense.
+- `plugins/intake-toolkit/evals/intake-orchestrator-eval/smokes/gate-1-shim-loader.sh:100,102` — the strings `05-large-feature-stacked` / `09-resume-guard-stacked` are **fixture directory names**, not machinery references. The fixtures are not deleted by this PR, so renaming them would break the smoke; #262 assigns the eval rubric to PR 1's scope. The sibling baseline docs (`FIXTURE-AUDIT.md`, `CLOSEOUT-BASELINE.md`, `FINAL-REPORT.md`) are landed records, same class as `docs/plans/`.
 
 ## Reuse inventory
 
@@ -97,10 +101,10 @@ One reuse decision worth naming: `tools/plan-lint.sh` Check 3 does **not** need 
 2. `stages/1-intake.md`: delete `## Stacked-PR Outer Loop` and everything below it up to the trailing footer; restore the footer. Drop the >10-files-per-slice threshold line and the slice mention in the jira delta.
 3. `stages/2-worktree.md`: collapse the slice-branch derivation to the unconditional single-PR form (`BRANCH="${BRANCH_PREFIX}${ISSUE_NUMBER}"`, `BASE_BRANCH="$BASE_BRANCH_CFG"`); delete the `currentSlice > M+1` guard, the prior-slice `REPO_BASE="$WORKTREE_BASE"` branch, and the prior-slice fetch. Keep the be-fe-pair per-repo loop and the `origin/<base>` remap.
 4. `stages/9-open-pr.md`: the PR base is unconditionally the host's configured `baseBranch`; delete the `prBase`/`priorSliceBranch` reads, `$STACKED_ON_LINE`, the Stacked-PR body template, and the stacked report/label/terminal notes.
-5. `scenario-liveness-selftest.sh`: delete the stacked-prs scenario block, the two retired-tool exit-99 preflight lines and their variable resolutions, the `BLOCKED ON #211` block, and the block-(B) `currentSlice > M+1` debt item (re-count that list from three to two).
-6. `statectl-selftest.sh`: delete the `(mps)` section.
+5. `scenario-liveness-selftest.sh`: delete **both** executor regions — the stacked-prs scenario block *and* the separate `start-slice precedence (AC-5)` section (716–780). A grep for `$START_SLICE_SH` must return zero hits before committing; the two regions are ~400 lines apart and the second is easy to miss. Also delete the two variable resolutions + exit-99 preflight lines, the header's `start-slice` scenario-map entry, the `BLOCKED ON #211` block, and the block-(B) `currentSlice > M+1` debt item (re-count that list from three to two).
+6. `statectl-selftest.sh`: delete the `$MAXSLICE` resolution, its exit-99 preflight, and the whole `(mps)` section including the `mps()` helper.
 7. `e2e-replay-selftest.sh`: delete the `$MAXSLICE` resolution + preflight and scenario-4 legs `(sl1)`–`(sl3)`; update the header's scenario map.
-8. Rewrite the three D-a prose sites (`tools/tracker/README.md`, `tools/predecessor-gate.sh`, `schema/second-shift.config.schema.json`) and `tools/review-harness-fixtures/harness-plan-alpha.md`.
+8. Rewrite the four D-a prose sites (`tools/tracker/README.md`, `tools/tracker/jira/README.md`, `tools/predecessor-gate.sh`, `schema/second-shift.config.schema.json`) and `tools/review-harness-fixtures/harness-plan-alpha.md`.
 9. `CLAUDE.md` + `docs/testing.md`: remove the register lines for all three retired tools (`slice-scope.sh` goes in commit 2, but its register line sits in the same sentence as `start-slice.sh` — remove the whole clause here and confirm commit 2 leaves no claim); rephrase the run-#204 anecdote as historical, keeping the scenario-first rationale.
 10. Run the full sweep. Commit with a `Changelog:` trailer.
 
@@ -156,9 +160,16 @@ find . -name '*.sh' -type f -print0 | xargs -0 shellcheck -e SC1091,SC2015,SC218
 find . -name '*.json' -type f -print0 | xargs -0 -n1 jq empty
 find . -name '*-selftest.sh' -type f -print0 | xargs -0 -P 4 -n1 -I{} env SKIP_STRESS=1 bash {}
 node plugins/dev-pipeline/skills/run/workflows/runtime-shim-selftest.mjs
-bash scripts/check-lockstep.sh
+bash scripts/check-lockstep-pairs.sh
 bash scripts/check-frozen-files.sh
 bash scripts/check-changelog-trailer.sh
+```
+
+The zero-executor check that makes step 5's two-region deletion verifiable:
+
+```bash
+grep -rn 'MAXSLICE\|START_SLICE_SH\|\$SCOPE"\|max-pushed-slice\|start-slice\|slice-scope' \
+  --include='*.sh' --include='*.mjs' . | grep -v '^\./docs/plans/'   # must be empty
 ```
 
 Plus, after step 13:
@@ -171,18 +182,21 @@ diff /tmp/statectl.new plugins/dev-pipeline/skills/run/statectl.sh   # must be e
 And the AC-1/AC-4 grep bars, with the D-b carve-out applied:
 
 ```bash
-grep -rEn 'max-pushed-slice|start-slice|slice-scope|slicePartition|slice-partition-set|slice-set|currentSlice|sliceBranch|priorSliceBranch|prBase|scopeBase' . \
+grep -rEni 'stacked|max-pushed-slice|start-slice|slice-scope|slicePartition|slice-partition-set|slice-set|currentSlice|sliceBranch|priorSliceBranch|prBase|scopeBase|decomposition\.slices' . \
   --exclude-dir=.git --exclude-dir=node_modules \
   | grep -v '^\./docs/plans/' | grep -v '^\./CHANGELOG.md'
 ```
 
-Expected residue: only `docs/plans/acme-265.md` (this plan) and the surviving `{slice}` token sites deferred to #267.
+The `stacked` and `decomposition.slices` tokens are in the bar deliberately: the residue class this PR polices is mostly *prose* (a comment or table cell describing the retired mode), which the identifier-only tokens cannot see — that narrowness is exactly what let the jira-README mirror in D-a survive the first pass.
+
+Expected residue after both commits: the surviving `{slice}` token sites deferred to #267, and the two confirmed CSS/layout false positives.
 
 ## Risks / rollback notes
 
 | Risk | Mitigation |
 | --- | --- |
 | A deletion and its exit-99 preflight land in different commits → whole sweep red | The commit boundaries are drawn around this (D-g); step 10 and step 22 each run the full sweep before committing |
+| A second, distant executor region for the same tool is missed | Realized once already in review: `scenario-liveness-selftest.sh` drives `start-slice.sh` from a section ~400 lines below the stacked-prs block. Step 5 names both regions and the zero-executor grep above is the mechanical check |
 | `state-schema.md` edit desyncs the generated statectl validators | Step 14 regenerates and diffs explicitly, before the sweep |
 | Deleting Step 4c disturbs the `ac-id-rule` LOCKSTEP anchors | The anchors sit above the deleted region; step 18 verifies rather than assumes, and `check-lockstep.sh` is a hard gate |
 | Over-deletion: removing `worktreeBase` or `{slice}` mechanics that must survive | Explicit in assumptions 2 and 4; the grep bar above deliberately excludes `worktreeBase`, and `verifyctl.sh`/Stage-5/Stage-6 behavior is comment-only |
