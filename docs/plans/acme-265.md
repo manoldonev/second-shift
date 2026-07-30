@@ -115,7 +115,14 @@ One reuse decision worth naming: `tools/plan-lint.sh` Check 3 does **not** need 
 11. Delete `tools/slice-scope.sh` and `e2e-replay-fixtures/stacked-prs.json`.
 12. `statectl.sh`: delete `cmd_slice_set`, `cmd_slice_partition_set`, both dispatch rows, the usage-banner line, and the two comment references. Confirm no `failureContext.reason` enum value is slice-scoped before touching the enum tables.
 13. `state-schema.md`: delete § Stacked-PR AC partition, § Stacked-PR slice state, the `decomposition` stanza, the four flat slice fields, and the Worktree "Stacked-PR note". Rewrite `worktreeBase` per D-d and drop `slice-set` from the `require_mutable` enumeration.
-14. **Regenerate and diff the statectl validators** — `bash tools/gen-statectl-validators.sh > /tmp/statectl.new && diff /tmp/statectl.new statectl.sh`. The `(r1+r5)` drift check requires a byte match after any `state-schema.md` edit; fix statectl to match the regeneration if they diverge.
+14. **Regenerate and diff the statectl validators** (paths worktree-root-relative, matching the Verification section):
+
+    ```bash
+    bash plugins/dev-pipeline/skills/run/tools/gen-statectl-validators.sh > /tmp/statectl.new
+    diff /tmp/statectl.new plugins/dev-pipeline/skills/run/statectl.sh
+    ```
+
+    The `(r1+r5)` drift check requires a byte match after any `state-schema.md` edit; fix `statectl.sh` to match the regeneration if they diverge.
 15. `statectl-selftest.sh`: delete the slice-set / slice-partition-set sections.
 16. `tools/plan-lint.sh` + `tools/plan-lint-selftest.sh`: delete Check-3 slice mode and its cases; the universe reverts to the full snapshot.
 17. `stages/8-code-review.md` + `workflows/code-review.mjs`: delete the slice-mode block, `SCOPE_BASE`/`STATE_PATH`, the `scopeBase`/`statePath` params, `scopeRange`/`scopeBaseRef` (the scope reviewer uses `range`/`base` like every other reviewer), and the stacked-slice prompt injection.
@@ -184,8 +191,12 @@ And the AC-1/AC-4 grep bars, with the D-b carve-out applied:
 ```bash
 grep -rEni 'stacked|max-pushed-slice|start-slice|slice-scope|slicePartition|slice-partition-set|slice-set|currentSlice|sliceBranch|priorSliceBranch|prBase|scopeBase|decomposition\.slices' . \
   --exclude-dir=.git --exclude-dir=node_modules \
-  | grep -v '^\./docs/plans/' | grep -v '^\./CHANGELOG.md'
+  | grep -v '^\./docs/plans/' \
+  | grep -v '^\./CHANGELOG.md' \
+  | grep -v '^\./plugins/intake-toolkit/evals/'
 ```
+
+The three exclusions are exactly the three declared out-of-scope trees (Out-of-scope section), so the bar and the expected residue below agree by construction rather than by coincidence.
 
 The `stacked` and `decomposition.slices` tokens are in the bar deliberately: the residue class this PR polices is mostly *prose* (a comment or table cell describing the retired mode), which the identifier-only tokens cannot see — that narrowness is exactly what let the jira-README mirror in D-a survive the first pass.
 
@@ -211,3 +222,4 @@ Expected residue after both commits: the surviving `{slice}` token sites deferre
 - `plugins/intake-toolkit/evals/intake-orchestrator-eval/**` — landed baseline records; the eval rubric belongs to #262's PR-1 scope.
 - `docs/plans/**` and `CHANGELOG.md` — historical landed-record artifacts (#262 Migration); `CHANGELOG.md` is additionally CI-frozen.
 - Plugin `version` fields and `.claude-plugin/marketplace.json` — CI-frozen; versions are derived at release time.
+- **Ratcheting `.claude/prose-budget.baseline.tsv` down after this deletion** — raised as a plan-review warning and deliberately deferred. `prose-budget.sh` is a *ceiling* ratchet (it fails only when a file grows past baseline) and is wired into `pipeline-doctor.sh`, not CI, so a large deletion cannot turn this PR red; ratcheting the ceiling down is a separate decision about what *future* PRs are held to, on a file neither #262 nor #265 lists in scope. Disclosed here rather than done silently — it is a clean one-command follow-up (`prose-budget.sh --update-baseline`).
