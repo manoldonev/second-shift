@@ -67,7 +67,7 @@ if not re.search(type_pattern, txt):
     failures.append("reviewer output missing a type/classification line")
 
 # (d) verdict / decomposition language present
-if not re.search(r"(?i)(no-split|sub-issues|stacked-prs|skip|escalate)", txt):
+if not re.search(r"(?i)(no-split|sub-issues|sub-issues-sequential|skip|escalate)", txt):
     failures.append("reviewer output missing decomposition verdict language")
 
 # (e) cost envelope — sub-agent mocks should keep total in a reasonable band
