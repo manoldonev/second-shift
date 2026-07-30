@@ -1,6 +1,8 @@
 # Audit ledger — setup
 
-The audit system gives you on-demand and after-the-fact visibility into what tools Claude actually invoked during a session, vs. what Claude's chat output claims it invoked. **It is observability only — a visibility signal for manual review.** Nothing here blocks pushes, commits, or PRs. Drift is surfaced in `/audit` and `/audit-history` reports; follow-up is by team convention, not by an automatic block.
+The audit system gives you on-demand and after-the-fact visibility into what tools Claude actually invoked during a session, vs. what Claude's chat output claims it invoked.
+
+**The ledger has two roles.** For `/audit` and `/audit-history` it is **advisory**: drift is surfaced in the reports, and follow-up is by team convention, not by an automatic block. Nothing in this plugin blocks pushes, commits, or PRs. Separately, the rows are **admissible as evidence** for tooling that chooses to gate on them — a pipeline can assert that a particular file was read inside a stage's window, which is a claim no self-report can fabricate. The plugin supplies the record; it never enforces against it.
 
 ## How the hooks get wired
 
@@ -22,7 +24,13 @@ The hook adds a small per-tool-call cost (~1–2 ms). In plugin mode it's on for
 
 ## What you get
 
-- **Ledger** at `.claude/audit/{session_id}.jsonl` (gitignored, in the consumer repo). One JSON row per tool call: `ts, event, tool, subagent, command_name, outcome`.
+- **Ledger** at `.claude/audit/{session_id}.jsonl` (gitignored, in the consumer repo). One JSON row per tool call, with these fields (kept in lockstep with `QUERIES.md`; pair `audit-row-fields`):
+
+  <!-- LOCKSTEP-BEGIN audit-row-fields -->
+  `ts`, `session_id`, `event`, `tool`, `subagent`, `command_name`, `target`, `outcome`
+  <!-- LOCKSTEP-END audit-row-fields -->
+
+  `target` is what the call ran **on** — the file path for `Read`/`Edit`/`Write`, the first line of a `Bash` command (capped at 200 chars), the skill name for `Skill`, the script path for `Workflow`, and `""` for everything else. Per-tool table and query recipes: `QUERIES.md`.
 - **`/audit`** slash command — read-only summary of the current session's tool calls, with subagent dispatch counts.
 - **`/audit-history N`** slash command — aggregator across the last N days. Surfaces top dispatched subagents and top loaded orchestrators.
 

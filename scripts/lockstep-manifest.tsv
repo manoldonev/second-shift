@@ -129,3 +129,21 @@ stage8-secondary-review	verbatim	plugins/dev-pipeline/skills/run/stages/8-code-r
 # header's per-line usage forms. The behavioral guard is statectl-selftest.sh (fr1)'s
 # decoy probe: a value payload containing the literal "--force-reason" must pass through
 # unharmed, which fails if a value-taking flag is missing from the skip-list.
+
+# Audit ledger row schema — the field list a consumer keys off (audit QUERIES.md schema
+# section ↔ audit SETUP.md "What you get"). This pair is the reason the ledger drifted:
+# for months QUERIES.md documented queries against `.args_excerpt.command` /
+# `.args_excerpt.file_path`, a shape the hook never emitted, and told readers to "re-add
+# tool_input capture" — a reader following the card got empty output and no signal that
+# the card was wrong. Both sites now carry an identical one-line field list, which reads
+# naturally in each (a schema note in the query card, a field list in the setup bullet),
+# so `verbatim` holds without contorting either document.
+#
+# The THIRD copy — the hook jq object literal in audit-tool-calls.sh — is deliberately
+# NOT in a row. A jq construction expression and a prose field list share no anchorable
+# bytes, and forcing one would mean writing a line that serves neither the maintainer
+# reading the emit nor the engineer reading the card. It is not reviewer-guarded either:
+# audit-selftest.sh Test 9 asserts that a real emitted row's keys_unsorted equals the
+# documented field list exactly, so a field added, renamed, or reordered in the hook
+# without the docs following fails the suite. Mechanical on both legs, by two mechanisms.
+audit-row-fields	verbatim	plugins/audit-toolkit/skills/audit/QUERIES.md	audit-row-fields	plugins/audit-toolkit/skills/audit/SETUP.md	audit-row-fields

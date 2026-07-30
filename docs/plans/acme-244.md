@@ -42,7 +42,7 @@ The `Skill` branch is therefore live, and correcting the two stale claims is par
 | D-n | Decision | Resolution | Provenance |
 | --- | --- | --- | --- |
 | D-1 | Field name: the issue's flat `target`, or the `args_excerpt.{command,file_path}` shape already documented in `QUERIES.md`? | `target`. A single identifying scalar matches the existing flat schema (`subagent`, `command_name`); `args_excerpt` was a nested remnant of a stripped experimental design whose queries have never returned anything. `QUERIES.md:12,68,74,89` and `SETUP.md:25` are reconciled to `target` in this PR. | codebase-derived |
-| D-2 | `Bash` capture: first line truncated to 200 chars (the issue's stated preference and the form its Selftest section pins), or `argv[0]` + first subcommand? | First line, 200 chars, as specified. The narrower form is genuinely safer but discards `/audit`'s Bash visibility, and narrowing requested scope is not this run's call. The spec's justification — "bounded and non-secret **by construction**" — is *not* true of a prefix slice, since flags and env assignments precede payloads (`gh api -H "Authorization: Bearer …"`); the code comment states honest bounded exposure instead of repeating the false claim. Flagged for the reviewer. | deferred |
+| D-2 | `Bash` capture: first line truncated to 200 chars (the issue's stated preference and the form its Selftest section pins), or `argv[0]` + first subcommand? | First line, 200 chars, as specified. The narrower form is genuinely safer but discards `/audit`'s Bash visibility, and narrowing requested scope is not this run's call. The spec's justification — "bounded and non-secret **by construction**" — is *not* true of a prefix slice, since flags and env assignments precede payloads (`gh api -H "Authorization: Bearer …"`); the code comment states honest bounded exposure instead of repeating the false claim. Flagged for the reviewer. | ticket-sourced — https://github.com/manoldonev/second-shift/issues/244 (Secret-safety §: the truncate-first-line form is listed first in preference order and is the form the Selftest § pins) |
 | D-3 | Absent case: omit `target`, or always emit it as `""`? | Always present, `""` when unmapped. Consistent with `subagent`/`command_name`, which are always present and frequently empty, and it spares every `jq` consumer a `// empty` guard. | codebase-derived |
 | D-4 | Path normalization: raw as received, or repo-relative? | Raw. It is the only lossless form; normalization needs a repo root the hook cannot assume, and the consumer (`statectl`) has one. | codebase-derived |
 | D-5 | Framing: does the ledger stay "observability only, never a gate"? | Split the roles as the issue directs — advisory for `/audit` and `/audit-history`, admissible as evidence for pipeline gates. The second-sink alternative is rejected: it would duplicate a hook that already receives everything needed. | ticket-sourced — https://github.com/manoldonev/second-shift/issues/244 ("the ledger stays advisory for `/audit` and `/audit-history`, but becomes admissible evidence for `statectl` preconditions") |
@@ -51,7 +51,8 @@ The `Skill` branch is therefore live, and correcting the two stale claims is par
 
 - `plugins/audit-toolkit/hooks/audit-tool-calls.sh` — extract `$TARGET` `[NEW]`; add the `target` row field `[NEW]` to the emitted object; correct the header's framing comment.
 - `plugins/audit-toolkit/scripts/audit-selftest.sh` — cases `Test 5` `[NEW]`, `Test 6` `[NEW]`, `Test 7` `[NEW]`, `Test 8` `[NEW]`, `Test 9` `[NEW]` covering the per-tool mapping, truncation, and the empty case.
-- `plugins/audit-toolkit/skills/audit/QUERIES.md` — row-schema block (`:3-15`), the two dead `args_excerpt` queries (`:68`, `:74`), the stale Tips note (`:89-91`).
+- `plugins/audit-toolkit/skills/audit/QUERIES.md` — row-schema block (`:3-15`), the two dead `args_excerpt` queries (`:68`, `:74`), the stale Tips note (`:89-90`), plus the `audit-row-fields` lockstep anchor.
+- `scripts/lockstep-manifest.tsv` — the `audit-row-fields` pair `[NEW]` and the DROPPED reasoning for the hook leg.
 - `plugins/audit-toolkit/skills/audit/SETUP.md` — the row field list (`:25`).
 - `plugins/audit-toolkit/skills/audit/SKILL.md` — the false `Skill()`-invisibility bullet (`:19`); the observability framing (`:10`).
 - `plugins/audit-toolkit/skills/audit-history/SKILL.md` — the false `Skill()`-invisibility limitation (`:37`).
@@ -72,7 +73,8 @@ The `Skill` branch is therefore live, and correcting the two stale claims is par
 5. **Selftest — state the fixture limitation.** A comment block above Test 5 recording that these payloads are synthesized from the documented tool schemas and therefore cannot fail on harness-shape drift — the honest scope of the guard, per repo convention against tests that read as coverage they do not provide.
 6. **Docs — `QUERIES.md`.** Add `target` to the schema block with its per-tool semantics; rewrite the two `args_excerpt` queries against `.target`; replace the "There's no `args_excerpt`… re-add `tool_input` capture" tip with the current state.
 7. **Docs — `SETUP.md`.** Add `target` to the row field list at `:25`.
-8. **Docs — the two stale `Skill()` claims.** Rewrite `audit/SKILL.md:19` and `audit-history/SKILL.md:37` to state that `Skill` invocations *are* recorded and now carry the skill name. Adjust `audit/SKILL.md:10`'s framing per D-5.
+8. **Docs — the two stale `Skill()` claims.** Rewrite `audit/SKILL.md:19` and `audit-history/SKILL.md:37` to state that `Skill` invocations *are* recorded and now carry the skill name. Adjust `audit/SKILL.md:10`'s framing per D-5, and add `target` to `/audit`'s Step-2 walk and rendered report so the advisory consumer surfaces the new field rather than ignoring it.
+9. **Lockstep anchor for the row schema** `[NEW]`. Add a `verbatim` pair `audit-row-fields` `[NEW]` to `scripts/lockstep-manifest.tsv`, anchoring an identical field-list line in `QUERIES.md` ↔ `SETUP.md`. Record the hook's `jq` literal as a reasoned **DROPPED** third leg in the same manifest: a construction expression and a prose list share no anchorable bytes, and it is instead pinned mechanically by Test 9's exact-key-set assertion. Both legs mechanical; neither reviewer-guarded.
 
 ## Test strategy
 
@@ -103,7 +105,13 @@ find . -name '*.json' -type f -print0 | xargs -0 -n1 jq empty
 find . -name '*-selftest.sh' -type f -print0 | xargs -0 -P 4 -n1 -I{} env SKIP_STRESS=1 bash {}
 ```
 
+```bash
+bash scripts/check-lockstep-pairs.sh
+```
+
 Targeted while iterating: `env SKIP_STRESS=1 bash plugins/audit-toolkit/scripts/audit-selftest.sh` (baseline before this change: 3 passed, 0 failed).
+
+Commits touching `plugins/**` carry a `Changelog:` trailer — CI enforces it via `scripts/check-changelog-trailer.sh`.
 
 ## Risks / rollback notes
 

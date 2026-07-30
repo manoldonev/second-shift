@@ -7,16 +7,17 @@ You are the audit query skill. When invoked, you produce a concise summary of ev
 
 The ledger is written by the audit-toolkit hook (`audit-tool-calls.sh`) on `PostToolUse` / `PostToolUseFailure` / `SubagentStop` / `UserPromptExpansion`. The hook fires automatically once the `audit-toolkit` plugin is enabled (plugin `hooks/hooks.json`); a legacy manual mode wires it via `.claude/settings.local.json`. It is the harness's record of what tools fired AND which slash commands the user invoked, independent of Claude's chat output. **When the two streams disagree, the harness wins.**
 
-This skill is **observability only**. It surfaces signals for manual review and team-convention checks; nothing here blocks pushes, commits, or any other action.
+**This skill is observability only** — it surfaces signals for manual review and team-convention checks, and nothing here blocks pushes, commits, or any other action. The underlying ledger is separately admissible as evidence for tooling that gates on it (the `target` field exists for that), but `/audit` itself only reports.
 
 ## Capabilities
 
 - ✅ Surfaces every tool call recorded since session start.
 - ✅ Distinguishes successful (`outcome=ok`) from failed (`outcome=fail`) calls.
 - ✅ Surfaces user-typed slash-command loads (`UserPromptExpansion` events).
+- ✅ Records what each call ran **on** in `target` — file path, skill name, workflow script, or a `Bash` command's first line. See `QUERIES.md`.
+- ✅ Sees `Skill()` tool invocations, including programmatic ones: they arrive as `PostToolUse` rows with `tool: "Skill"`, and `target` carries the skill name.
 - ❌ No hash chain or tamper detection (lean version has none).
 - ❌ Does NOT block pushes / PR creation. This is a visibility signal, not a gate.
-- ❌ Does NOT see `Skill()` tool invocations (Claude Code does not fire `PostToolUse` for them — `/dev-pipeline` nested loads are invisible to the audit by design).
 
 ## Inputs
 
@@ -63,6 +64,8 @@ Walk the ledger:
 - Total rows; rows per `tool` (PostToolUse breakdown); failure count.
 - `Agent` dispatches: list with counts per `subagent`.
 - `UserPromptExpansion` events: list with `command_name`s.
+- `Skill` loads: list with counts per `target` (the skill name).
+- Files touched: unique `target` values for `Edit` / `Write` rows.
 
 ### Step 3: Render report
 
@@ -80,6 +83,14 @@ Walk the ledger:
 
 ### Subagent dispatches
   security-reviewer×<n>  performance-reviewer×<n>  ...
+  (or: "(none)")
+
+### Skills loaded
+  review-toolkit:review-lead×<n>  intake-toolkit:intake-orchestrator×<n>  ...
+  (or: "(none)")
+
+### Files touched (Edit/Write)
+  <path>  <path>  ...
   (or: "(none)")
 
 ### Time range
