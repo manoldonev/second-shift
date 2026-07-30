@@ -7,11 +7,12 @@ session on **every** Stage-1 intake, so its prose is a per-run context cost. At 
 branch it is 468 lines / 5361 words, and four clusters within it say the same thing more
 than once:
 
-- the jira tracker delta, stated as a canonical blockquote and then re-explained at eight
+- the jira tracker delta, stated as a canonical blockquote and then re-explained at nine
   further sites;
 - Step 0.5's quarantine rules, each wrapped in a rationale essay;
-- the dispatch-for-real mandate, stated in the top-of-file HTML preamble and again
-  operatively in Pre-flight and Step 2;
+- the dispatch-for-real mandate — in particular its dependency-analysis-runs-inline half —
+  stated four times: the top-of-file HTML preamble, the intro paragraph, Pre-flight, and
+  the subroutine header;
 - the merge-vs-split illustrations under Thresholds, which carry one positive example and
   five negative bullets across two lists.
 
@@ -38,6 +39,7 @@ operative rule keeps a home.
 | D-4 | Which lockstep pair binds this edit? | `decomposition-economy`, anchored **inside** the target file at the `LOCKSTEP-BEGIN/END` markers and mirrored in `decomposition-reviewer`. The AC-ID mirror the ticket's Guardrails name is anchored outside this plugin and is untouched here. The `decomposition-economy` block is not edited. | codebase-derived |
 | D-5 | Is AC-2's protected set limited to "bucket, tag and posture"? | No — Step 0.5 also carries the user-guardrails-outrank-both-buckets precedence rule and the Tracker-body invariant, neither of which uses that vocabulary. Working rule: Step 0.5 loses only explanatory rationale; every imperative sentence survives. | codebase-derived |
 | D-6 | D-1 was recorded at intake with the preamble as the canonical home; this plan inverts it. | Refinement in the same direction, disclosed rather than silent. Keeping mandates in operative prose (where a reader acts) and trimming the HTML comment is strictly safer than pointing operative sections at a comment. Same AC-3 outcome: the mandate is stated once. | codebase-derived |
+| D-7 | AC-4 mandates exactly one negative instance, but the three "NOT a shared abstraction" bullets are distinct illustrations, so a bare count reduction is content loss. | AC-4 governs the count. The loss is neutralized rather than accepted: the surviving bullet states the discriminating principle (shared infrastructure ≠ shared abstraction) that the three instances jointly taught, so the rule survives at one instance instead of three. | codebase-derived |
 
 ## Affected files/modules
 
@@ -73,17 +75,27 @@ No new helpers introduced.
    bias-toward-quarantine essay, and the author-posture justification down to their
    imperatives. Every bucket, tag, posture, precedence and tracker-body rule survives,
    including the `AC-n` positional-fallback cross-reference to the pipeline state-schema.
-4. **AC-3 — single-home the dispatch mandate.** Reduce the top-of-file HTML preamble to its
-   audit-is-observability-only sentence. The Pre-flight section keeps the do-not-inline
-   mandate and the dependency-analysis exception; the subroutine header keeps its
+4. **AC-3 — single-home the dispatch mandate.** The mandate has two halves and four homes.
+   Reduce the top-of-file HTML preamble to its audit-is-observability-only sentence. The
+   Pre-flight section becomes the single canonical home for both halves — do-not-inline for
+   the two sub-agents, and dependency-analysis-runs-inline as its exception. The intro
+   paragraph and the Step-2 bullet drop their duplicate restatements of the inline rule,
+   keeping only what is unique to their position; the subroutine header keeps a bare
    runs-inline statement without re-deriving the rationale.
 5. **AC-4 — reduce the merge-vs-split illustrations.** Keep one positive worked example and
-   one "NOT a shared abstraction" bullet. The `decomposition-economy` LOCKSTEP block sits
-   just above this section and is not touched.
+   one "NOT a shared abstraction" bullet. The three negative bullets are distinct
+   illustrations rather than repetitions, so the surviving bullet **carries the
+   discriminating principle explicitly** (shared infrastructure is not a shared
+   abstraction) instead of standing as a bare instance — AC-4's count is met without
+   losing the rule the three instances jointly taught.
 6. **AC-5 — re-snapshot and verify.** Run the full verification matrix below, then
    `prose-budget.sh --update-baseline` from the repo root, and diff the resulting
-   `.claude/prose-budget.baseline.tsv` against the base branch to enumerate any row change
-   beyond the intake-orchestrator row for the PR body.
+   `.claude/prose-budget.baseline.tsv` against the base branch. The flag is whole-repo, so
+   the diff is inspected before it is committed: a row that **shrank** is a legitimate
+   re-snapshot, but a row that **grew** is another file's bloat being laundered past the
+   growth guard by this PR. Any grown non-target row is called out by name in the PR body
+   as absorbed drift; if a grown row is unrelated to this change, its baseline value is
+   restored to the base-branch figure so the guard keeps biting on it.
 
 ## Test strategy
 
@@ -131,8 +143,11 @@ bash plugins/dev-pipeline/skills/run/tools/prose-budget.sh --update-baseline
   commit.
 - **Second risk: a jira rule silently losing its only home.** Mitigation: the same ordering
   — no site is reduced until its unique content is in the blockquote.
-- The `decomposition-economy` block is adjacent to AC-4's edit region; touching it breaks a
-  verbatim lockstep pair. Mitigation: D-4, plus `check-lockstep-pairs.sh` in the matrix.
+- The `decomposition-economy` block is a verbatim lockstep pair; editing it breaks the
+  mirror. It sits at the run-cost-bias subsection, roughly 85 lines above AC-4's edit
+  region rather than adjacent to it, so the collision risk is lower than a first read of
+  the file suggests — but the constraint is unchanged. Mitigation: D-4, plus
+  `check-lockstep-pairs.sh` in the matrix.
 - Rollback is a single-file revert plus a baseline re-snapshot.
 
 ## Out-of-scope
