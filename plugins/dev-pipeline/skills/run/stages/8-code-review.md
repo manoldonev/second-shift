@@ -15,7 +15,7 @@
    bash statectl.sh pause-add "$ISSUE_NUMBER" --reason session-resume
    ```
    `pause-add` self-anchors `from = current .lastUpdatedAt` (the dying session's final write, still intact) and stamps `to = now`. It MUST run **before step 3 (`set-stage`) and step 6 (`pipeline-session-add`)** — both bump `.lastUpdatedAt`, which would zero the anchor. There is **no shared resume preamble** elsewhere; this Stage 8 entry is the sole fresh-session resume site, so this is the only place `pause-add` is called. On the in-process path there is no pause; skip this step. Consumed by `tools/stage-times.sh` to report effective (compute) time.
-3. **Advance `currentStage` to 8** via `statectl set-stage "$ISSUE_NUMBER" 8 --status started`.
+3. **Advance `currentStage` to 8** via `statectl set-stage "$ISSUE_NUMBER" 8 --status started`. **And record the stage-file receipt in the same breath** — `statectl stage-file-read "$ISSUE_NUMBER" --stage 8 --file 8-code-review.md` (#243 §3): `set-stage 8 --status completed` refuses unless stage 8's own file is recorded as read.
 4. Read `stageCheckpoint["7"]` via `statectl get "$ISSUE_NUMBER" '.stageCheckpoint."7"'`. Print one-line bootstrap: `Entering Stage 8. Branch: X. Head: Y. Deviations: N. Free note: "..."`.
 5. **Verify worktree validity:** `git -C "$worktreePath" rev-parse --is-inside-work-tree` must succeed. If missing or invalid, mark failed and exit:
    ```bash

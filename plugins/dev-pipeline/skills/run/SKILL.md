@@ -418,6 +418,7 @@ statectl.sh plan-review-set <issue> --overall <pass|fix-and-go>
 statectl.sh verify-summary-set <issue> --json <verifySummary> [--repo <id>]
 statectl.sh quality-pass-set <issue> --json <payload>
 statectl.sh pause-add <issue> --reason <r> [--force]
+statectl.sh stage-file-read <issue> --stage <N> --file <basename>
 statectl.sh deviations-add <issue> --kind <enum> --note <s> [--plan-section <s>] [--file <f>] [--line <n>] [--stage <N>]
 statectl.sh mark-failed <issue> --reason <enum> [--stage <N>] [--json <details>] [--force --force-reason <text>]
 statectl.sh mark-completed <issue> [--force --force-reason <text>] [--accept-waivers]

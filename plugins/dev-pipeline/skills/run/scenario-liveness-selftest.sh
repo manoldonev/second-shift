@@ -409,6 +409,7 @@ sct set-stage "$KEY" 8 --status started >/dev/null
 sct review-rounds "$KEY" --set 3 --exhausted >/dev/null
 sct skill-load-add "$KEY" --stage 8 --skill review-toolkit:review-lead >/dev/null
 sct comment-add "$KEY" --marker code-review --url "https://github.example/c/code-review" >/dev/null
+stage_evidence "$KEY" 8
 sct set-stage "$KEY" 8 --status completed >/dev/null
 
 complete_stage "$KEY" 9
@@ -431,6 +432,7 @@ sct set-stage "$KEY" 8 --status started >/dev/null
 sct review-rounds "$KEY" --set 3 --exhausted >/dev/null
 sct skill-load-add "$KEY" --stage 8 --skill review-toolkit:review-lead >/dev/null
 sct comment-add "$KEY" --marker code-review --url "https://github.example/c/code-review" >/dev/null
+stage_evidence "$KEY" 8
 sct set-stage "$KEY" 8 --status completed >/dev/null
 write_report "$KEY"
 write_eval "$KEY"
@@ -458,6 +460,7 @@ sct worktree-set "$KEY" --repo fe --path ".claude/worktrees/fe-$KEY" --branch "c
 # Flat mirror of the primary target — what Stage 2 writes so the middle stages,
 # which still read the flat fields, operate on the primary repo.
 sct worktree-set "$KEY" --path ".claude/worktrees/be-$KEY" --branch "claude/acme-$KEY" --base main >/dev/null
+stage_evidence "$KEY" 2
 sct set-stage "$KEY" 2 --status completed >/dev/null
 for n in 3 4 5; do complete_stage "$KEY" "$n"; done
 
@@ -470,6 +473,7 @@ befe_stage6() {  # $1 = key; plants both targets' summary + sidecar
     sct verify-summary-set "$k" --repo "$r" --json '{"format":"clean","test":"passed"}' >/dev/null
     write_verify_sidecar "$k" "$r"
   done
+  stage_evidence "$k" 6
   sct set-stage "$k" 6 --status completed >/dev/null
 }
 befe_stage6 "$KEY"
@@ -491,6 +495,7 @@ PERREPO=$(
 CP7=$(jq --arg k "$KEY" '. + {ticketKey:$k, targetRepos:["be","fe"], planPath:"docs/plans/acme-9006.md", deviations:[]}' <<< "$PERREPO")
 sct checkpoint "$KEY" 7 --json "$CP7" >/dev/null
 sct comment-add "$KEY" --marker doc-update --url "https://github.example/c/doc-update" >/dev/null
+stage_evidence "$KEY" 7
 sct set-stage "$KEY" 7 --status completed >/dev/null
 perrepo_keys=$(sct get "$KEY" '.stageCheckpoint."7".perRepo | keys | join(",")')
 [[ "$perrepo_keys" == "be,fe" ]] \
@@ -505,8 +510,13 @@ sct skill-load-add "$KEY" --stage 8 --skill review-toolkit:review-lead >/dev/nul
 sct cross-boundary-review-add "$KEY" --repo fe --status completed-in-session \
   --worktree ".claude/worktrees/fe-$KEY" --note "secondary reviewed in session" >/dev/null
 sct comment-add "$KEY" --marker code-review --url "https://github.example/c/code-review" >/dev/null
+stage_evidence "$KEY" 8
 sct set-stage "$KEY" 8 --status completed >/dev/null
 
+# #243: a pair run's stage 9 requires .prs keyed by repo id for EVERY target
+# (the 9.prsRepoKeyed leg) — record both PRs as Stage 9's per-repo loop does.
+sct pr-add "$KEY" --repo be --branch "claude/acme-$KEY" --url "https://github.example/pr/be" >/dev/null
+sct pr-add "$KEY" --repo fe --branch "claude/acme-$KEY" --url "https://github.example/pr/fe" >/dev/null
 complete_stage "$KEY" 9
 write_report "$KEY"
 write_eval "$KEY"
@@ -529,6 +539,7 @@ sct set-stage "$KEY" 2 --status started >/dev/null
 sct worktree-set "$KEY" --repo be --path ".claude/worktrees/be-$KEY" --branch "claude/acme-$KEY" --base main >/dev/null
 sct worktree-set "$KEY" --repo fe --path ".claude/worktrees/fe-$KEY" --branch "claude/acme-$KEY" --base main >/dev/null
 sct worktree-set "$KEY" --path ".claude/worktrees/be-$KEY" --branch "claude/acme-$KEY" --base main >/dev/null
+stage_evidence "$KEY" 2
 sct set-stage "$KEY" 2 --status completed >/dev/null
 for n in 3 4 5; do complete_stage "$KEY" "$n"; done
 sct set-stage "$KEY" 6 --status started >/dev/null
@@ -536,6 +547,7 @@ for r in be fe; do
   sct verify-summary-set "$KEY" --repo "$r" --json '{"format":"clean","test":"passed"}' >/dev/null
 done
 write_verify_sidecar "$KEY" be     # fe's attestation deliberately absent
+stage_evidence "$KEY" 6
 sct set-stage "$KEY" 6 --status completed >/dev/null
 s6=$(sct get "$KEY" '.stages."6".status')
 [[ "$s6" != "completed" ]] \
@@ -785,7 +797,7 @@ for n in 1 2 3 4 5 6 7 8; do complete_stage "$KEY" "$n"; done
 sct set-stage "$KEY" 9 --status started >/dev/null
 sct set-stage "$KEY" 9 --status completed --force --force-reason "scenario waived-run operator skips the pr receipt" >/dev/null
 waiver_n=$(sct get "$KEY" '.waivers // [] | length')
-write_report "$KEY"
+write_report_waived "$KEY"
 write_eval "$KEY"
 
 # The terminal write refuses — including under --force — while the waiver stands.
@@ -803,6 +815,51 @@ acc_count=$(sct get "$KEY" '.waiversAccepted.count // 0')
 [[ "$rc" -eq 0 && "$status" == "completed" && "$acc_count" -ge 1 ]] \
   && pass "(wv-accept) --accept-waivers is the only exit: terminal completed with waiversAccepted recorded" \
   || fail "(wv-accept) rc=$rc status='$status' acc_count=$acc_count"
+
+# ---------------------------------------------------------------------------
+# Scenario: jira zero-evidence guard (#243 AC-7) — the regression this issue
+# exists to close: under tracker.writes:false the comment-receipt legs are
+# exempt BY CONTRACT, and before #243 stages 3/7/9 carried no other evidence,
+# so a read-only-tracker run closed a third of the pipeline on nothing but the
+# executor's word. Composed: one walk, all three stages, each refused on zero
+# evidence and completed on the tracker-independent state evidence — with not
+# one comment posted.
+
+echo "[scenario-liveness] jira-zero-evidence: stages 3/7/9 cannot close on nothing under a read-only tracker"
+KEY=9007
+reset_state
+printf '%s' '{"configVersion":1,"tracker":{"type":"jira","writes":false}}' > "$TMP/jira-zero-config.json"
+export SECOND_SHIFT_CONFIG="$TMP/jira-zero-config.json"
+sct init "$KEY" --run-id "scenario-liveness-$$" >/dev/null
+for n in 1 2; do complete_stage "$KEY" "$n"; done
+sct set-stage "$KEY" 3 --status started >/dev/null
+rc3_no=$(sct_rc set-stage "$KEY" 3 --status completed)
+stage_evidence "$KEY" 3
+rc3_ev=$(sct_rc set-stage "$KEY" 3 --status completed)
+for n in 4 5 6; do complete_stage "$KEY" "$n"; done
+sct set-stage "$KEY" 7 --status started >/dev/null
+rc7_no=$(sct_rc set-stage "$KEY" 7 --status completed)
+sct checkpoint "$KEY" 7 --json "$(jq -c --arg k "$KEY" '.ticketKey = $k' <<< "$VALID_PAYLOAD")" >/dev/null
+stage_evidence "$KEY" 7
+rc7_ev=$(sct_rc set-stage "$KEY" 7 --status completed)
+complete_stage "$KEY" 8
+sct set-stage "$KEY" 9 --status started >/dev/null
+rc9_no=$(sct_rc set-stage "$KEY" 9 --status completed)
+stage_evidence "$KEY" 9
+rc9_ev=$(sct_rc set-stage "$KEY" 9 --status completed)
+gated_receipts=$(sct get "$KEY" '.comments // {} | (has("plan") or has("doc-update") or has("pr"))')
+unset SECOND_SHIFT_CONFIG
+[[ "$rc3_no" -eq 1 && "$rc3_ev" -eq 0 && "$rc7_no" -eq 1 && "$rc7_ev" -eq 0 && "$rc9_no" -eq 1 && "$rc9_ev" -eq 0 ]] \
+  && pass "(jz1) jira zero-evidence guard: stages 3/7/9 each refused empty and completed on state evidence (AC-7)" \
+  || fail "(jz1) jira guard — 3:$rc3_no/$rc3_ev 7:$rc7_no/$rc7_ev 9:$rc9_no/$rc9_ev"
+
+# Non-vacuity: none of the three gated stages carries a comment receipt — the
+# evidence that closed them was tracker-independent state, not a laundered
+# receipt. (complete_stage plants receipts for stages 1/8 regardless of the
+# tracker; those are fixture artifacts outside the stages under test.)
+[[ "$gated_receipts" == "false" ]] \
+  && pass "(jz2) non-vacuity: no plan/doc-update/pr receipt exists on the jira walk" \
+  || fail "(jz2) a gated-stage receipt exists on a writes:false walk"
 
 echo
 echo "[scenario-liveness] summary: $PASS passed, $FAIL failed"
