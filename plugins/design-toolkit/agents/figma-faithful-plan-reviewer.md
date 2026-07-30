@@ -4,6 +4,7 @@ description: Reviews a figma-faithful translation plan (the token table + layout
 tools: Read, Grep, Glob, Bash
 model: opus
 effort: high
+skills: reviewer-baseline
 ---
 
 <!-- review-lead-skip: invoked directly on the translation-plan artifact (pre-implementation), not as a review-lead diff-time specialist. -->
@@ -53,7 +54,7 @@ You are static and have no Figma/MCP access. You check that `Repo output` is the
 ### Token-table arithmetic (the unique, highest-value check)
 
 - **[Blocker]** a **fixed-theme** row where `Repo output` is not the reference's translation of `Figma value` for a spacing-aware prop — e.g. on a 4px base `8px → gap={1}` (should be `{2}`), `16px → 2` (should be `4`). This is the eyeballed-spacing failure mode, caught one row before it spreads. **Applies equally to the step-3b inter-block/sibling-gap rows** — a `16px` section→banner gap is `rowGap={4}`, not `{2}`.
-- **[Blocker]** a **branded / host-relative** row that translates a sizing `px` to a raw `px`/`rem` instead of the repo's sizing abstraction, or a color to a hardcoded hex instead of a palette path (breaks per-tenant branding). A branded **spacing/inter-block-gap** row must be a theme-unit number (`gap`/`rowGap`), never the sizing helper (that's for sizing) or a raw `px`/`rem`.
+- **[Blocker]** a **branded / host-relative** row that violates the branded rules — canonical in `design-toolkit:figma-faithful-reviewer`'s "Branded / host-relative surface rules" section, not restated here. The plan-specific one: a branded **spacing/inter-block-gap** row must be a theme-unit number (`gap`/`rowGap`), never the sizing helper or a raw `px`/`rem`.
 - **[Warning]** an off-scale value (not a clean scale step, a hex not in the palette) that is **not** flagged as a named-constant-with-comment in the plan.
 - **[Warning]** a type row mapped to a raw `fontSize`/`fontWeight` instead of a type-ramp variant.
 
@@ -97,9 +98,14 @@ The plan now carries the node's gaps to its **siblings** (from the parent frame)
 
 If every token row checks out, the analog fits, every transition is wired, and files are covered, return `pass` with zero findings. Do not invent findings to look thorough.
 
-## Evidence Requirement
+## Reviewer baseline
 
-Each finding: **Evidence** (the table row / plan line), **Impact** (which failure it causes downstream), **Plan fix** (which row/section to correct).
+<!-- LOCKSTEP-BEGIN artifact-reviewer-baseline-deltas -->
+`review-toolkit:reviewer-baseline` loads automatically via the `skills:` frontmatter (by name, not path — no relative path resolves in both the repo and installed-cache layouts). Take its **Grounding Verdicts**, **Confidence Scoring**, **Tool Discipline**, and per-finding evidence discipline. Two deltas apply, because this agent grades an **artifact before implementation**, not a diff before merge:
+
+- **Severity.** The baseline's Critical/Warning/Pre-existing ladder answers "Blocks merge?" — nothing merges at this stage. The local Blocker/Warning/Note ladder governs, mapping into the emitted `severity` as **Blocker → `blocker`**, **Warning → `major`** (high-impact) or **`minor`**, **Note → `nit`**.
+- **Output.** `figma.mjs` (`kind: 'gate'`) dispatches this agent **schema-free**, so the baseline's Output Mode `StructuredOutput` instruction does not apply: write the prose review below, then end with the `REVIEW_RESULT` sentinel and one fenced JSON block (`verdict`, `findings[]`, `summary`) and nothing after it.
+<!-- LOCKSTEP-END artifact-reviewer-baseline-deltas -->
 
 ## Final Verdict (single-pass output)
 

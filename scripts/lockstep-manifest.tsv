@@ -169,3 +169,25 @@ audit-row-fields	verbatim	plugins/audit-toolkit/skills/audit/QUERIES.md	audit-ro
 # moment the rule is needed. That is exactly the "only a prose instruction keeps them
 # together" case this manifest exists for.
 decomposition-economy	verbatim	plugins/intake-toolkit/skills/intake-orchestrator/SKILL.md	decomposition-economy	plugins/intake-toolkit/skills/decomposition-reviewer/SKILL.md	decomposition-economy
+#
+# figma node-resolution discipline (figma-faithful/SKILL.md steps 1-2 + "Figma capability"
+# section <-> figma-faithful-spec/SKILL.md). The spec skill used to restate both, under an
+# explicit prose sync liability ("Keep the two in sync if either changes") -- the exact
+# only-a-prose-instruction case this manifest exists for. Considered for a row and DROPPED:
+# the coupling was removed rather than guarded. figma-faithful is now the canonical home and
+# the spec skill carries the operative one-liner plus a by-name pointer (the shape
+# figma-iterate/SKILL.md already used), so there is no second copy left to byte-anchor. The
+# deltas that remain in the spec skill are genuine divergences, not copies: it also uses
+# get_code_connect_map, its terminal sentence forbids transcribing from a static image, and
+# it deliberately omits figma-faithful's parent-frame capture (an implementation concern).
+# A verbatim row here would fail on the first legitimate edit to either side.
+#
+# Artifact-reviewer baseline deltas (figma-faithful-spec-reviewer <-> figma-faithful-plan-reviewer).
+# Both adopt review-toolkit:reviewer-baseline but must override the same two things the same way:
+# the merge-gating Critical/Warning/Pre-existing ladder does not apply to an artifact graded
+# before implementation, and figma.mjs dispatches them schema-free so the baseline's Output Mode
+# StructuredOutput instruction is wrong for them. Two live copies rather than a cross-reference:
+# each agent is loaded alone, into a context that has not read the other, so a pointer would
+# resolve to nothing at the moment the override is needed -- the same reasoning as
+# decomposition-economy above. A one-sided edit re-opens the drift #258 closed.
+artifact-reviewer-baseline-deltas	verbatim	plugins/design-toolkit/agents/figma-faithful-spec-reviewer.md	artifact-reviewer-baseline-deltas	plugins/design-toolkit/agents/figma-faithful-plan-reviewer.md	artifact-reviewer-baseline-deltas
