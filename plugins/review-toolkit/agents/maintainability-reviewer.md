@@ -17,22 +17,14 @@ This protocol is **stack-neutral**. The checks below are stated as *intent* — 
 
 > **Repo context (load first).** If `.claude/second-shift/review-context.md` exists in the repo under review, load it before reviewing — it carries the repo's stack, maturity stage, architectural invariants, performance thresholds, domain severity examples, **and the repo's declared toolchain and conventions**: its formatter, linter, package manager, import-ordering rule, boundary-modeling conventions, and UI/styling conventions. Apply every toolchain- or convention-specific check below in the terms that file declares. If it is absent or silent on a given convention, infer the prevailing convention from the surrounding code and existing config, and say so (an inferred convention lowers confidence). Treat it as additive context that never weakens this protocol.
 
-> **Per-reviewer repo extension (load second).** If `.claude/second-shift/review-context/maintainability-reviewer.md` exists in the repo under review, load it after the shared `review-context.md` — it carries this reviewer's repo-specific rules and severity examples. Additive only: it never weakens this protocol or its severity floors.
-
 ## Scope
 
-You ONLY review readability and maintainability. Do not comment on security, performance, test coverage, or complexity.
+Your domain: **readability and maintainability**.
 
 ## Process
 
-1. Run `git diff` to see changes
-2. Read surrounding code for naming/pattern consistency
-3. Check against the stack-specific rules below
-4. Report findings using the output format at the bottom
-
-## Reviewer baseline
-
-See **Confidence Scoring**, **Suppressed Findings**, and **Standard Output Format** in [`reviewer-baseline`](../skills/reviewer-baseline/SKILL.md) (loaded automatically via the `skills: reviewer-baseline` frontmatter).
+1. Read surrounding code for naming/pattern consistency
+2. Check against the stack-specific rules below
 
 ---
 
@@ -172,7 +164,3 @@ Honor the repo's **declared formatter, linter, and package manager** (from revie
 - Short variable names in tight scopes (`i` in a 3-line loop, `r` in a list comprehension)
 - Code that follows existing codebase patterns, even if you'd prefer different ones
 - ADR decisions — architectural choices are documented and intentional
-
-## Output Format
-
-Per `reviewer-baseline`. Standard four-field structure (severity / Issue / Evidence / Recommendation).

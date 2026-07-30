@@ -9,18 +9,19 @@
 #
 # Coverage: every inert pattern (each in isolation, including nested-path ignore files,
 # the .json/.jsonl fold, and the exact-path .known-extensions carve-out), the SUITE
-# defaults (any path that could feed the JS/TS suite), and mixed diffs. Plus a
-# GOLDEN-MASTER tail that re-derives the expected lane from the CANONICAL_RE mirror
-# embedded here and asserts the script agrees over the whole case list.
+# defaults (any path that could feed the JS/TS suite), mixed diffs, and the optional
+# argv[1] pattern override in all three of its states — absent, present, malformed.
 #
-# DRIFT MODEL: CANONICAL_RE is a LOCKSTEP MIRROR of the script's INERT_RE, not a frozen
-# historical baseline — a deliberate change to the inert set updates BOTH copies in the
-# same commit. What the tail buys is transcription-drift detection: an edit that lands in
-# only one copy fails it. Because the mirror moves with the regex, the tail alone cannot
-# prove a NEW alternative is correct — the per-pattern check() cases above are what assert
-# intended behavior, and every new alternative needs one. If a future edit re-inlines the
-# grep into 6-verify.md (so the script stops being the single definition),
-# pre-commit-typecheck-selftest.sh's delegation assertion catches that — not this test.
+# DRIFT MODEL: there is NO mirror of INERT_RE in this file. An earlier revision carried a
+# CANONICAL_RE copy plus a golden-master tail that re-derived the expected lane from it;
+# both were deleted once it was clear the tail's only failure mode was stale transcription
+# of a regex the check table already pins behaviorally. The per-pattern check() cases below
+# are what assert intended behavior, and every new alternative needs one. The dangerous
+# direction is inert-set WIDENING (it skips the suite), covered by the hard suite rows; a
+# mis-narrowed regex only misroutes an inert diff to the conservative SUITE lane — wasted
+# CI, never a skipped verification. If a future edit re-inlines the grep into 6-verify.md
+# (so the script stops being the single definition), pre-commit-typecheck-selftest.sh's
+# delegation assertion catches that — not this test.
 
 set -uo pipefail
 
@@ -37,13 +38,22 @@ if [ ! -x "$SCRIPT" ]; then
   exit 1
 fi
 
-# run <newline-delimited-paths> -> echoes the lane token and sets $? from the script.
-run() { printf '%s' "$1" | bash "$SCRIPT" >/dev/null 2>&1; }
+# run <newline-delimited-paths> [pattern] -> sets $? from the script. An ABSENT 4th
+# argument and an EMPTY one are distinct inputs to the caller but must behave
+# identically (both fall back to the shipped default) — check() below exercises both.
+run() {
+  if [ "$#" -ge 2 ]; then
+    printf '%s' "$1" | bash "$SCRIPT" "$2" >/dev/null 2>&1
+  else
+    printf '%s' "$1" | bash "$SCRIPT" >/dev/null 2>&1
+  fi
+}
 
-# check <desc> <expected-lane: inert|suite> <newline-delimited-paths>
+# check <desc> <expected-lane: inert|suite> <newline-delimited-paths> [override-pattern]
 check() {
   local desc="$1" exp="$2" input="$3" rc lane
-  run "$input"; rc=$?
+  if [ "$#" -ge 4 ]; then run "$input" "$4"; else run "$input"; fi
+  rc=$?
   if [ "$rc" -eq 0 ]; then lane=inert; else lane=suite; fi
   if [ "$lane" = "$exp" ]; then
     ok "$desc -> $lane"
@@ -108,6 +118,44 @@ check ".known-extensions + .md"        inert $'.claude/second-shift/.known-exten
 # SUITE lane — wasted CI, never a skipped verification.
 check ".claude subtree .py"            inert $'.claude/x/y.py'
 check ".claude subtree .tsv"           inert $'.claude/x/y.tsv'
+
+# --- OVERRIDE (argv[1]): the config-supplied pattern REPLACES the default outright ---
+# This is the non-JS/TS consumer's escape hatch: a repo whose product surface IS *.sh
+# must be able to remove `\.sh$` from the inert set so its configured lint/test lanes
+# actually run. The override value below is the shipped default minus that one
+# alternative — the exact hand-copy a consumer writes into stageParams.inertPattern.
+OVERRIDE_NO_SH='(\.md$|^\.github/workflows/.*\.yml$|^\.claude/.*\.mjs$|^\.claude/.*\.cjs$|^\.claude/.*\.py$|^\.claude/.*\.tsv$|^\.claude/.*\.jsonl?$|^\.claude/second-shift/\.known-extensions$|(^|/)\.prettierignore$|(^|/)\.gitignore$)'
+
+echo "[self-test] argv[1] pattern override"
+# Absent override — the regression guard: today's behavior must be byte-identical.
+check "override absent: *.sh"          inert "scripts/build.sh"
+# Empty override — an unset/empty config key must fall back to the default, NOT match
+# everything (an empty ERE matches every line, which would classify the whole repo inert).
+check "override empty: *.sh"           inert "scripts/build.sh"          ""
+check "override empty: .ts"            suite "apps/api/x.ts"             ""
+# Present override — the AC-1' unit half: *.sh now selects SUITE.
+check "override present: *.sh"         suite "scripts/build.sh"          "$OVERRIDE_NO_SH"
+check "override present: *.sh nested"  suite "plugins/x/tools/y.sh"      "$OVERRIDE_NO_SH"
+# Present override — AC-2's discriminator: the rest of the set still classifies inert,
+# so the override narrows exactly what it says and nothing else.
+check "override present: *.md"         inert "README.md"                 "$OVERRIDE_NO_SH"
+check "override present: .gitignore"   inert ".gitignore"                "$OVERRIDE_NO_SH"
+check "override present: mixed sh+md"  suite $'README.md\nscripts/b.sh'  "$OVERRIDE_NO_SH"
+
+# --- MALFORMED OVERRIDE: fail CLOSED to suite, and say so on stderr ---
+# `grep -E` exits 2 on an uncompilable pattern. The pre-override code read any non-zero
+# as "no non-inert path found" and reported INERT — i.e. a typo'd override would have
+# become a silent repo-wide verification skip. This is the one case where getting it
+# wrong is dangerous rather than merely wasteful, so it asserts BOTH the lane and the
+# diagnostic.
+echo "[self-test] malformed override fails closed"
+check "malformed override -> suite"    suite "README.md"                 "("
+MALFORMED_ERR="$(printf '%s' "README.md" | bash "$SCRIPT" "(" 2>&1 >/dev/null)"
+if [ -n "$MALFORMED_ERR" ]; then
+  ok "malformed override -> non-empty stderr diagnostic"
+else
+  bad "malformed override: expected a stderr diagnostic, got none"
+fi
 
 echo "[self-test] $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]

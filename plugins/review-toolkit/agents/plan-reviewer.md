@@ -286,7 +286,7 @@ Plan is complete, consistent with codebase patterns, and accounts for downstream
 
 ## Example (one reference stack)
 
-> **Illustration only — not the contract.** These are the fully worked Plan Omissions and Convention Compliance checklists for one repo (a TS monorepo: NestJS API + BullMQ workers + Drizzle DB + Next.js frontend + a Python report service + a Rust geo service). A different repo declares different conventions in its `CLAUDE.md` / `.claude/second-shift/review-context.md`, and this agent checks against those. Read this as the *shape* of a filled-in convention map, never as rules to apply verbatim.
+> **Illustration only — not the contract.** This is one worked surface — the API/workers domain of a TS monorepo (NestJS API + BullMQ workers + Drizzle DB) — showing the *shape* of a filled-in convention map. A real repo has one such block per surface it owns (frontend, data/report, native services, …); those are elided here. A different repo declares different conventions in its `CLAUDE.md` / `.claude/second-shift/review-context.md`, and this agent checks against those. Never apply these rows verbatim.
 
 ### Plan Omissions — `proposes → also requires` (this repo)
 
@@ -300,30 +300,7 @@ Plan is complete, consistent with codebase patterns, and accounts for downstream
 | Cross-service call | Type parity on both sides (TS↔Rust, TS↔Python, API↔Frontend)                                                                                                    |
 | Any source change  | Corresponding test file (`*.spec.ts`, `test_*.py`, `#[test]`)                                                                                                   |
 
-**Frontend domain** (`web`):
-
-| Plan proposes         | Also requires                                                                               |
-| --------------------- | ------------------------------------------------------------------------------------------- |
-| New page/route        | `app/` directory entry, `page.tsx`, layout considerations, metadata/SEO                     |
-| Data fetching         | Server Component wrapper or client query hook, loading/error states, type matching API DTOs |
-| Interactive component | `'use client'` directive, event handlers, accessible keyboard/focus handling                |
-| List rendering        | Pagination or virtualization strategy for large datasets (100s of activities)               |
-| Chart/visualization   | Performance strategy for 3600+ data points, responsive behavior, touch interaction          |
-
-**Report domain** (`report`):
-
-| Plan proposes             | Also requires                                                                                |
-| ------------------------- | -------------------------------------------------------------------------------------------- |
-| New field in a template   | Matching field in the renderer (`_fields_to_array()`), schema test update, template version bump |
-| New endpoint              | Pydantic model, matching TypeScript interface on caller side                                 |
-| Renderer change           | Version string update in health endpoint, re-render if field order changed                   |
-
-**Rust domain** (`rust`):
-
-| Plan proposes            | Also requires                                       |
-| ------------------------ | --------------------------------------------------- |
-| New geo-service parameter | Matching TypeScript request type, validation bounds |
-| Algorithm change   | `#[test]` blocks with known signals                 |
+_(The repo's frontend, report and native-service domains carry their own tables in the same shape; elided.)_
 
 ### Convention Compliance — per-surface checklists (this repo)
 
@@ -336,22 +313,4 @@ Plan is complete, consistent with codebase patterns, and accounts for downstream
 - [ ] Logging uses the repo's logger with context IDs
 - [ ] Package management uses the repo's declared package manager
 
-**Frontend conventions:**
-
-- [ ] Server Components by default, `'use client'` only where interactivity requires it
-- [ ] API calls from Server Components use absolute URLs with `NEXT_PUBLIC_API_URL`
-- [ ] Types match API DTOs exactly (no `any`, no manual re-typing)
-- [ ] Accessible: keyboard navigable, focus management, `aria-` attributes where needed
-- [ ] Responsive: works at 1200px desktop and degrades to 375px mobile
-- [ ] Performance: no N+1 fetches (waterfall), memoize expensive renders, virtualize long lists
-
-**Python conventions:**
-
-- [ ] All endpoints use Pydantic models with field constraints
-- [ ] Code formatted with `ruff format` and `ruff check --fix`
-- [ ] Feature order matches between training and inference
-
-**Rust conventions:**
-
-- [ ] Error handling uses `Result<T, E>` (no `unwrap()` in production paths)
-- [ ] Request validation matches TypeScript caller expectations
+_(Each other surface the repo owns carries its own checklist in the same shape; elided.)_

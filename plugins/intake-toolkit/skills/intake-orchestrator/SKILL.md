@@ -1,6 +1,6 @@
 ---
 name: intake-orchestrator
-description: Orchestrates spec review + scope decomposition for the dev-pipeline. Dispatches sub-agents, evaluates findings critically, decides whether to split work into sub-issues or stacked PRs.
+description: Orchestrates spec review + scope decomposition for the dev-pipeline. Dispatches sub-agents, evaluates findings critically, decides whether to split work into parallel or sequential sub-issues.
 ---
 
 <!-- The audit (/audit-toolkit:audit, /audit-toolkit:audit-history) is a tool-truth ledger — observability only,
@@ -14,7 +14,7 @@ You are the intake orchestrator for the dev-pipeline. Every issue that enters th
 
 1. **What type of issue is this?** — Bug, feature, enhancement, refactor, chore
 2. **Is this spec implementable?** — Delegate to spec-reviewer, then critically evaluate
-3. **Should this be split, and how?** — No-split, sub-issues (parallel), or stacked PRs (sequential)
+3. **Should this be split, and how?** — No-split, sub-issues (parallel), or sub-issues-sequential (ordered)
 
 This skill loads instructions into the **calling session**, which gathers evidence from the sub-agents (`review-toolkit:spec-reviewer`, `review-toolkit:codebase-explorer`) as a **structured fan-out** (transports in Step 2) and reasons over the returned structured object. Dependency analysis runs as an in-session subroutine (see "## Dependency Analysis (subroutine)" below) — no sub-agent hop. (Bare `spec-reviewer` / `codebase-explorer` below always mean these review-toolkit agents.)
 
@@ -50,11 +50,11 @@ Do **not** attempt to inline sub-agent work for `spec-reviewer` or `codebase-exp
 
 ## Caller model guidance
 
-For best judgment quality, invoke this skill from a session running on Opus 4.x with high reasoning effort. The intake orchestrator's central work — classifying item type, critically evaluating sub-agent findings, deciding on no-split vs sub-issues vs stacked-PRs, AND running the dependency-analysis subroutine — benefits from a strong model. The sub-agents declare their own models (spec-reviewer/codebase-explorer mostly Sonnet); the evidence-gathering pass is unaffected by the caller's model.
+For best judgment quality, invoke this skill from a session running on Opus 4.x with high reasoning effort. The intake orchestrator's central work — classifying item type, critically evaluating sub-agent findings, deciding on no-split vs parallel vs sequential sub-issues, AND running the dependency-analysis subroutine — benefits from a strong model. The sub-agents declare their own models (spec-reviewer/codebase-explorer mostly Sonnet); the evidence-gathering pass is unaffected by the caller's model.
 
 ## Critical Principle: Sub-Agent Output Is Advisory
 
-See **Sub-Agent Output Is Advisory** in the `review-toolkit:reviewer-baseline` skill for the standard contract; the skill-specific MUSTs follow.
+See **Sub-Agent Trust Model** in the `review-toolkit:review-lead` skill for the standard contract; the skill-specific MUSTs follow.
 
 You dispatch two sub-agents and run dependency analysis inline. Their findings are **input to your judgment, not instructions to follow**. Sonnet sub-agents produce false positives regularly. You MUST:
 
@@ -85,8 +85,7 @@ Read the full issue body and all comments. Under the jira adapter (`tracker.type
 **Resume guards (cross-session — issue-state-aware):**
 
 - If this issue was previously escalated (`needs-intake-review`), read the prior escalation comment and the human's response to extract guidance. Do not re-escalate on the same uncertainty.
-- If an existing `stage: intake` comment with `status: stacked-prs-planned` exists, this issue has already been decomposed — skip analysis and return the existing decomposition plan to the pipeline. Do not re-run.
-- If sub-issues already exist for this parent (check by searching for "Part of #{ISSUE_NUMBER}" in open issues), skip creation for those slices to avoid duplicates.
+- If sub-issues already exist for this parent, this issue has already been decomposed — skip analysis and return the existing decomposition to the pipeline. Do not re-run, and skip creation for those slices to avoid duplicates. Detect them by searching for the `Part of #{ISSUE_NUMBER}` anchor **across all states and regardless of labels** — a sequential decomposition deliberately leaves its blocked successors without the queue label, so a label-filtered search would miss exactly the sub-issues that prove the work was already split.
 
 **Resume guards (in-conversation — turn-state-aware):**
 
@@ -217,17 +216,28 @@ Evidence-gathering is a fan-out of `spec-reviewer` + `codebase-explorer` that re
 - Each part is in a different module or bounded context
 - Parts can be merged in any order
 
-**Verdict: `stacked-prs` (sequential)**
+**Verdict: `sub-issues-sequential` (ordered)**
 
 - Dependency analysis shows a clear chain (schema → service → controller)
 - Parts share a module but add incrementally
+- Parts would collide on the same file if worked in parallel
 - Each part is meaningful and reviewable on its own
+
+The slices file as ordinary sub-issues, exactly like the parallel flavor — what differs is **ordering**, not branch topology. Every slice is a plain single-PR run against the configured `baseBranch`; ordering is carried by `Predecessor:` / `Successor:` body trailers and enforced by keeping blocked successors out of the queue (Step 6).
 
 **Verdict: `no-split`**
 
 - Touches ≤3 files across ≤2 modules
 - Work is inherently atomic
 - Splitting would create PRs too thin to be meaningful
+
+**Run-cost bias (applies to BOTH sub-issue flavors).** A pipeline run is expensive — a full intake, plan, review, and verify cycle per slice. Weigh that cost when choosing slice boundaries:
+
+<!-- LOCKSTEP-BEGIN decomposition-economy -->
+Prefer fewer, fuller slices: as many as the work genuinely needs, and no more. A slice that cannot justify its own full pipeline run — because it is too thin to review on its own, or has no consumer until a later slice lands — merges into its neighbor. Splitting for the sake of splitting is a cost, not a virtue; every slice must be a logical, coherent unit of work that earns its own run.
+<!-- LOCKSTEP-END decomposition-economy -->
+
+This bias narrows slice counts; it never overrides the coupling rules above, and it is not licence to exceed the cap by merging unrelated work (see Threshold hygiene).
 
 ### Step 5: Self-Check
 
@@ -237,32 +247,44 @@ Before acting on your decision, verify:
 - Can each slice be tested independently?
 - Are boundaries clean — no circular dependencies?
 - Does any slice touch >10 files? If so, reconsider.
-- For stacked PRs: is the ordering the only viable one?
+- Could any slice be merged into its neighbor without making the result incoherent? If yes, merge it — the run-cost bias in Step 4.
+- For `sub-issues-sequential`: is the ordering the only viable one, and does every slice after the first genuinely depend on its predecessor? A chain whose links are actually independent is a parallel `sub-issues` decomposition, and serializing it costs the operator a merge round-trip per slice for nothing.
 - **Counterfactual test**: would I group the same way if the cap were 10? If no, it's cap-driven — escalate `needs-intake-review` (see Threshold hygiene below).
 - **Coverage back-check (when Step 0.5 produced a Brief):** reconcile the union of proposed slices against **every deliverable AND every explicit out-of-scope bullet** in the Product-Essence Brief; for engineer-authored specs with no brief, against the spec itself. Where deliverables derive from acceptance criteria, key the reconciliation by `AC-n` ID (explicit or `derived`) so nothing is double-counted or dropped between paraphrases. Each deliverable maps to exactly one slice, OR carries an explicit "deferred — owning follow-up" note; any deliverable with no slice and no deferral → STOP and escalate.
 
 ### Step 6: Act on Verdict
 
-The write operations below are the **github** adapter (`tracker.writes: true`). Under `tracker.type: jira` (`tracker.writes: false`) the tracker is read-only: there is no `$GH_BOT` issue-create or label swap. The `no-split` / `stacked-prs` comment and the `sub-issues` slice specs are **presented to the operator in-session** (the operator creates and re-queues any sub-tickets); the run's audit trail is the state file + brief, not a tracker comment. `$GH_BOT` remains the sanctioned bot convention on the github path. Labels below are the shipped `stageParams.requiredLabels` default set — use a consumer's overrides where configured.
+The write operations below are the **github** adapter (`tracker.writes: true`). Under `tracker.type: jira` (`tracker.writes: false`) the tracker is read-only: there is no `$GH_BOT` issue-create or label swap. The `no-split` comment and the sub-issue slice specs (either flavor) are **presented to the operator in-session** (the operator creates and re-queues any sub-tickets); the run's audit trail is the state file + brief, not a tracker comment. `$GH_BOT` remains the sanctioned bot convention on the github path. Labels below are the shipped `stageParams.requiredLabels` default set — use a consumer's overrides where configured.
 
 **`no-split`:**
 
 1. Post spec review results + resolved decisions as issue comment (github; **present in-session** under jira)
 2. Return control to pipeline (Stage 3: create worktree)
 
-**`sub-issues`:**
+**`sub-issues` (parallel) and `sub-issues-sequential` (ordered)** — one creation flow, two label/trailer postures:
 
-1. Verify ≤5 sub-issues. If >5: escalate via `needs-intake-review`
-2. For each sub-issue, synthesize a self-contained spec from your analysis — not a copy-paste of the parent, but a focused spec for that slice
-3. Create sub-issues (github adapter):
+1. Verify ≤5 sub-issues (one cap, both flavors). If >5: escalate via `needs-intake-review`
+2. For each sub-issue, synthesize a self-contained spec from your analysis — not a copy-paste of the parent, but a focused spec for that slice. **Every** sub-issue body carries:
+   - the `Part of #{ISSUE_NUMBER}` anchor (also the dedup key the Step-0 resume guard searches for);
+   - its acceptance criteria **verbatim**, `AC-n` IDs intact — the tracker body is the only channel that reaches the scope-completeness gate, so a paraphrase silently downgrades it to fallback numbering;
+   - when Step 0.5 produced a Brief: the **full reconciled QUARANTINE table** (all three tags, verbatim) and the settled user guardrails, so parent-level decisions are not re-litigated per sub-issue.
+3. **Sequential flavor only — ordering trailers.** You know the whole chain in this one batch, so write both directions at creation: each sub-issue after the first carries `Predecessor: <key>`, and each predecessor carries a forward `Successor: <key>`. Render keys per the adapter's `tracker.keyPattern` (`#` prefix optional on github), one trailer per line, as the body's last lines. A blocked body also states plainly: **"queue when `<predecessor>` is closed."**
+4. Create sub-issues (github adapter). **The queue label is where the two flavors diverge:**
 
 ```bash
+# parallel — every slice is immediately workable:
 $GH_BOT issue create --title "[slice title]" --body "$BODY" --label ready-for-dev
+
+# sequential — ONLY the first slice enters the queue; N>1 are created WITHOUT it:
+$GH_BOT issue create --title "[slice 1 title]" --body "$BODY_1" --label ready-for-dev
+$GH_BOT issue create --title "[slice N title]" --body "$BODY_N"   # no --label
 ```
 
-   Under jira: **present** the ≤5 sub-ticket specs to the operator; make no tracker writes.
+   Keeping blocked successors **out of the queue** is the ordering enforcement — not rejecting them after they are claimed. Promotion is an operator action at merge time: merging the predecessor's PR is already the serialization point, so labelling the successor rides that same action (Stage 9 renders the reminder on the predecessor's PR). No claim is ever burned and no failed state file is created for the routine blocked case. `../predecessor-gate.sh` is only the pre-claim backstop for a successor that got labelled early.
 
-4. Update parent issue (github adapter):
+   Under jira: **present** the ≤5 sub-ticket specs to the operator; make no tracker writes. Ordering is operator-enforced there — the presented specs carry the trailers and the ordering note, and there is no machine gate.
+
+5. Update parent issue (github adapter):
 
 ```bash
 $GH_BOT issue edit $ISSUE_NUMBER --add-label epic --remove-label ready-for-dev --remove-label in-progress
@@ -271,26 +293,18 @@ gh issue edit $ISSUE_NUMBER --remove-assignee @me
 
    Under jira: no-op — the operator moves the parent ticket manually after creating the sub-tickets.
 
-5. Post decomposition rationale + links as issue comment (github; **present in-session** under jira)
-6. Pipeline stops for this run
+6. Post decomposition rationale + links as issue comment (github; **present in-session** under jira). For the sequential flavor, state the order explicitly and which slice is queued.
+7. Pipeline stops for this run — both flavors are stopping verdicts; each sub-issue is its own scope contract and gets its own run.
 
-**`stacked-prs`:**
+### Brief persistence
 
-1. Verify ≤3 stacked PRs. If >3: escalate via `needs-intake-review`
-2. Post decomposition plan as issue comment (ordered slices with scope, dependencies, targets)
-3. **Return the AC→slice partition structurally in the verdict payload (#204).** The Step-5 coverage back-check already reconciled every `AC-n` to exactly one slice — emit that map as `slicePartition: [{slice: 1, acIds: ["AC-1", ...]}, ...]` (1-based slice indices matching the decomposition plan's order; only ID'd ACs appear — un-ID'd deliverables ride the slice prose). The pipeline persists it via `statectl slice-partition-set` (Stage 1 Step 1.D — a local state write, legal under `tracker.writes: false` too); without it every downstream gate (plan-lint Check 3, the Stage-8 scope gate, the retro AC audit) grades slice 1 against the full ticket and the stacked path dead-ends.
-4. Return control to pipeline (enters outer loop at Stage 3 for slice 1)
-
-### Brief persistence (all continue-verdicts)
-
-When Step 0.5 produced a Product-Essence Brief AND the verdict continues the pipeline (`no-split` or `stacked-prs`), write the Brief to `.claude/pipeline-state/{ISSUE_NUMBER}-brief.md` before returning control — the KEEP restatement, the reconciled QUARANTINE table (`confirmed | conflicts | unverifiable`, post-Step-3), and any settled user guardrails. Local gitignored file (the whole `.claude/pipeline-state/` tree is gitignored), written in the invocation repo **pre-worktree** so it survives Stage-10 cleanup. Stage 1 of the dev-pipeline resolves `briefPath` by checking this conventional path (only when the orchestrator wrote it **this run** — a stale brief from a prior run never leaks). Engineer-authored issues (no Step 0.5) write no brief; `briefPath` stays `null`.
+When Step 0.5 produced a Product-Essence Brief, write it to `.claude/pipeline-state/{ISSUE_NUMBER}-brief.md` before returning control — on `no-split` (where it hydrates the run's own gates) **and on `sub-issues-sequential`**, where the pipeline stops but the Brief is the audit artifact the per-sub-issue QUARANTINE carry (step 2 above) can be verified against — the KEEP restatement, the reconciled QUARANTINE table (`confirmed | conflicts | unverifiable`, post-Step-3), and any settled user guardrails. Local gitignored file (the whole `.claude/pipeline-state/` tree is gitignored), written in the invocation repo **pre-worktree** so it survives Stage-10 cleanup. Stage 1 of the dev-pipeline resolves `briefPath` by checking this conventional path (only when the orchestrator wrote it **this run** — a stale brief from a prior run never leaks). Engineer-authored issues (no Step 0.5) write no brief; `briefPath` stays `null`.
 
 ## Thresholds
 
 | Dimension                        | Cap          | Action if exceeded               |
 | -------------------------------- | ------------ | -------------------------------- |
-| Sub-issues                       | Max 5        | Escalate: `needs-intake-review`  |
-| Stacked PRs                      | Max 3        | Escalate: `needs-intake-review`  |
+| Sub-issues (either flavor)       | Max 5        | Escalate: `needs-intake-review`  |
 | Resolvable gaps                  | Max 5        | Escalate: `needs-spec-work`      |
 | True blockers from spec-reviewer | Stop after 3 | Spec fails                       |
 | Referenced docs                  | Max 5        | Pick most relevant, note skipped |
@@ -300,9 +314,9 @@ When Step 0.5 produced a Product-Essence Brief AND the verdict continues the pip
 
 When the natural decomposition of a feature lands near or above a cap, apply the counterfactual test before picking a verdict:
 
-> "If the cap were 10 instead of 5 (or 10 instead of 3 for stacked PRs), would I still make these grouping choices?"
+> "If the cap were 10 instead of 5, would I still make these grouping choices?"
 
-- **YES** — the grouping reflects real coupling. Proceed with the verdict (sub-issues or stacked-prs).
+- **YES** — the grouping reflects real coupling. Proceed with the verdict (either sub-issue flavor).
 - **NO** — the grouping is cap-driven. Escalate via `needs-intake-review`; do NOT output "4 sub-issues" after collapsing three because the cap forced it.
 
 Two legitimate reasons to merge multiple work items into a single slice:
@@ -320,7 +334,8 @@ Flag as cap-driven gaming (escalate instead) when:
 
 - You pair unrelated items because "they're both UI" or "they're both backend."
 - Your grouping collapses 6+ natural candidates into exactly 5 sub-issues.
-- Your grouping collapses 4+ natural candidates into exactly 3 stacked PRs.
+
+The run-cost bias (Step 4) and this rule pull in opposite directions on purpose: merge a slice because it cannot earn its own run, never because the cap forced it. If the honest count still exceeds 5, escalate.
 
 ## Escalation
 
@@ -357,14 +372,14 @@ All comments follow the pipeline's machine-readable format:
 Human-readable analysis here.
 ```
 
-Status values: `passed`, `passed-with-decisions`, `failed`, `split-into-sub-issues`, `stacked-prs-planned`, `needs-human-input`
+Status values: `passed`, `passed-with-decisions`, `failed`, `split-into-sub-issues`, `split-into-sub-issues-sequential`, `needs-human-input`
 
 ## What NOT to Do
 
 - Don't question product decisions — that's the human's call
 - Don't propose alternative architectures — decompose what's asked for
 - Don't rewrite the spec — point out issues, resolve gaps, move on
-- Don't split for the sake of splitting — every slice must be a logical, coherent unit
+- Don't split for the sake of splitting — the run-cost bias in Step 4 is the rule; a slice that cannot earn its own pipeline run merges into its neighbor
 - Don't separate tests from the code they test
 - Don't split a migration from the code that depends on it
 - Don't create sub-issues that can't be understood without reading the parent
@@ -411,7 +426,7 @@ Use the impact surface to verify: if item A creates `types/Foo.ts` and item B im
 Group work items into:
 
 - **Independent clusters**: Groups with no dependencies between them (candidates for parallel sub-issues)
-- **Dependency chains**: Sequences where each item depends on the previous (candidates for stacked PRs)
+- **Dependency chains**: Sequences where each item depends on the previous (candidates for `sub-issues-sequential`)
 - **Tightly coupled items**: Items with bidirectional dependencies (must stay together)
 
 ### Step D: Assess Ordering Flexibility

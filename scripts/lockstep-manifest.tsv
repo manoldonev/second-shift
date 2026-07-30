@@ -9,14 +9,30 @@
 # copies together is a prose instruction. What does NOT: pairs already mechanically
 # enforced elsewhere — model tiers (check-model-tiers.sh), the reviewer registry, the
 # section catalog, statectl's codegen byte-match (statectl-selftest drift-check), the
-# text-contract carriers, config-lint vs schema. Duplicate machinery is worse than none.
+# text-contract carriers, config-lint vs schema (the modelOverrides tier enum is driven
+# from both sides in config-lint-selftest.sh — every schema-declared tier must be accepted,
+# and config-lint's rejection message must name exactly the schema's enum). Duplicate
+# machinery is worse than none.
 #
-# Decision-Ledger provenance enum. ledger-lint.sh holds the canonical literal; plan-lint's
-# HUMAN_PROVENANCE is a deliberate narrowing to the human-attributed values, so this is
-# subset-of and NOT verbatim. The prose canonical (interviewing-baseline) and the agent-md
-# mirrors are a fourth and fifth representation in bullet/prose form — not byte-anchorable
-# without authoring new canonical literals, so they stay reviewer-guarded.
-provenance-enum	subset-of	plugins/intake-toolkit/skills/plan-interview/tools/ledger-lint.sh	provenance-enum	plugins/dev-pipeline/skills/run/tools/plan-lint.sh	provenance-enum
+# Decision-Ledger provenance enum — TWO rows, because plan-lint.sh now holds two literals.
+# ledger-lint.sh is the canonical side of both.
+#   provenance-enum        verbatim   — plan-lint's PROVENANCE_ENUM enum-validates the whole
+#                                       provenance cell, so it is a full copy, not a narrowing.
+#                                       verbatim compares the ENTIRE marker block, which is why
+#                                       both sides declare the literal under the same variable
+#                                       name with no comments between the markers.
+#   human-provenance-enum  subset-of  — plan-lint's HUMAN_PROVENANCE stays a deliberate
+#                                       narrowing to the human-attributed values (the
+#                                       fabrication guard). It lives in its OWN anchor: this
+#                                       relation reads the FIRST quoted literal in a block, so
+#                                       sharing an anchor with the full enum would make the
+#                                       outcome depend on declaration order — invisibly, since
+#                                       both literals are subsets of the canonical.
+# The prose canonical (interviewing-baseline) and the agent-md mirrors are further
+# representations in bullet/prose form — not byte-anchorable without authoring new canonical
+# literals, so they stay reviewer-guarded.
+provenance-enum	verbatim	plugins/intake-toolkit/skills/plan-interview/tools/ledger-lint.sh	provenance-enum	plugins/dev-pipeline/skills/run/tools/plan-lint.sh	provenance-enum
+human-provenance-enum	subset-of	plugins/intake-toolkit/skills/plan-interview/tools/ledger-lint.sh	provenance-enum	plugins/dev-pipeline/skills/run/tools/plan-lint.sh	human-provenance-enum
 #
 # AC-ID positional fallback rule. Both docs already SAY they must match byte-for-byte;
 # nothing checked it until now. The markers sit after each site's differing parenthetical
@@ -118,3 +134,38 @@ stage8-secondary-review	verbatim	plugins/dev-pipeline/skills/run/stages/8-code-r
 # block and the per-command comments. Only the SKILL.md leg is reviewer-guarded, because
 # pinning it would mean grepping a literal out of a markdown file — the technique this
 # repo bans outright.
+#
+# Same-pair addendum (#243): the pre-dispatch --force-reason argv scan in statectl.sh
+# main() carries a skip-list of value-taking flags that mirrors the usage header's flag
+# vocabulary. Considered for a row and DROPPED for the same reasons as above — no
+# byte-anchorable literal spans the scan's space-delimited skip-list string and the
+# header's per-line usage forms. The behavioral guard is statectl-selftest.sh (fr1)'s
+# decoy probe: a value payload containing the literal "--force-reason" must pass through
+# unharmed, which fails if a value-taking flag is missing from the skip-list.
+
+# Audit ledger row schema — the field list a consumer keys off (audit QUERIES.md schema
+# section ↔ audit SETUP.md "What you get"). This pair is the reason the ledger drifted:
+# for months QUERIES.md documented queries against `.args_excerpt.command` /
+# `.args_excerpt.file_path`, a shape the hook never emitted, and told readers to "re-add
+# tool_input capture" — a reader following the card got empty output and no signal that
+# the card was wrong. Both sites now carry an identical one-line field list, which reads
+# naturally in each (a schema note in the query card, a field list in the setup bullet),
+# so `verbatim` holds without contorting either document.
+#
+# The THIRD copy — the hook jq object literal in audit-tool-calls.sh — is deliberately
+# NOT in a row. A jq construction expression and a prose field list share no anchorable
+# bytes, and forcing one would mean writing a line that serves neither the maintainer
+# reading the emit nor the engineer reading the card. It is not reviewer-guarded either:
+# audit-selftest.sh Test 9 asserts that a real emitted row's keys_unsorted equals the
+# documented field list exactly, so a field added, renamed, or reordered in the hook
+# without the docs following fails the suite. Mechanical on both legs, by two mechanisms.
+audit-row-fields	verbatim	plugins/audit-toolkit/skills/audit/QUERIES.md	audit-row-fields	plugins/audit-toolkit/skills/audit/SETUP.md	audit-row-fields
+#
+# Decomposition-economy rule (the run-cost bias). One canonical author — the
+# intake-orchestrator, which owns the verdict — mirrored into decomposition-reviewer,
+# which reviews splits against the same standard and must not drift into a softer one.
+# Two live copies rather than a cross-reference: each skill is loaded on its own, into
+# a session that has not read the other, so a pointer would resolve to nothing at the
+# moment the rule is needed. That is exactly the "only a prose instruction keeps them
+# together" case this manifest exists for.
+decomposition-economy	verbatim	plugins/intake-toolkit/skills/intake-orchestrator/SKILL.md	decomposition-economy	plugins/intake-toolkit/skills/decomposition-reviewer/SKILL.md	decomposition-economy

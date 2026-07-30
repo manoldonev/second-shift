@@ -23,6 +23,9 @@
 #                checkpoint 7 + the stage-8 cross-boundary escape hatch
 #                -> mark-completed ACCEPTED (top-level `completed`)
 #   start-slice  the extracted persisted-currentSlice precedence tool, all verdicts
+#   predecessor  the sub-issues-sequential pre-claim ordering backstop: an open
+#                predecessor skips WITHOUT claiming (no claim receipt, no state
+#                file), a closed one claims, and the pair is proven non-vacuous
 #
 # Scope boundary: scenarios exercise the MECHANICAL chain. Agent-prose gates (the
 # scope reviewer, review-lead synthesis) appear only as their mechanical shadows —
@@ -88,6 +91,7 @@ VERIFYCTL="$HERE/verifyctl.sh"
 LINT="$HERE/tools/plan-lint.sh"
 SCOPE="$HERE/tools/slice-scope.sh"
 START_SLICE_SH="$HERE/tools/start-slice.sh"
+PRED_GATE="$HERE/tools/predecessor-gate.sh"
 FIX="$HERE/tools/plan-lint-fixtures"
 
 [[ -x "$STATECTL" ]] || { echo "[scenario-liveness] FATAL: $STATECTL not executable"; exit 99; }
@@ -96,6 +100,7 @@ FIX="$HERE/tools/plan-lint-fixtures"
 [[ -f "$LINT" ]] || { echo "[scenario-liveness] FATAL: $LINT missing"; exit 99; }
 [[ -f "$SCOPE" ]] || { echo "[scenario-liveness] FATAL: $SCOPE missing"; exit 99; }
 [[ -f "$START_SLICE_SH" ]] || { echo "[scenario-liveness] FATAL: $START_SLICE_SH missing"; exit 99; }
+[[ -x "$PRED_GATE" ]] || { echo "[scenario-liveness] FATAL: $PRED_GATE not executable"; exit 99; }
 [[ -d "$FIX" ]] || { echo "[scenario-liveness] FATAL: $FIX missing"; exit 99; }
 
 PASS=0
@@ -409,6 +414,7 @@ sct set-stage "$KEY" 8 --status started >/dev/null
 sct review-rounds "$KEY" --set 3 --exhausted >/dev/null
 sct skill-load-add "$KEY" --stage 8 --skill review-toolkit:review-lead >/dev/null
 sct comment-add "$KEY" --marker code-review --url "https://github.example/c/code-review" >/dev/null
+stage_evidence "$KEY" 8
 sct set-stage "$KEY" 8 --status completed >/dev/null
 
 complete_stage "$KEY" 9
@@ -431,6 +437,7 @@ sct set-stage "$KEY" 8 --status started >/dev/null
 sct review-rounds "$KEY" --set 3 --exhausted >/dev/null
 sct skill-load-add "$KEY" --stage 8 --skill review-toolkit:review-lead >/dev/null
 sct comment-add "$KEY" --marker code-review --url "https://github.example/c/code-review" >/dev/null
+stage_evidence "$KEY" 8
 sct set-stage "$KEY" 8 --status completed >/dev/null
 write_report "$KEY"
 write_eval "$KEY"
@@ -458,6 +465,7 @@ sct worktree-set "$KEY" --repo fe --path ".claude/worktrees/fe-$KEY" --branch "c
 # Flat mirror of the primary target — what Stage 2 writes so the middle stages,
 # which still read the flat fields, operate on the primary repo.
 sct worktree-set "$KEY" --path ".claude/worktrees/be-$KEY" --branch "claude/acme-$KEY" --base main >/dev/null
+stage_evidence "$KEY" 2
 sct set-stage "$KEY" 2 --status completed >/dev/null
 for n in 3 4 5; do complete_stage "$KEY" "$n"; done
 
@@ -470,6 +478,7 @@ befe_stage6() {  # $1 = key; plants both targets' summary + sidecar
     sct verify-summary-set "$k" --repo "$r" --json '{"format":"clean","test":"passed"}' >/dev/null
     write_verify_sidecar "$k" "$r"
   done
+  stage_evidence "$k" 6
   sct set-stage "$k" 6 --status completed >/dev/null
 }
 befe_stage6 "$KEY"
@@ -491,6 +500,7 @@ PERREPO=$(
 CP7=$(jq --arg k "$KEY" '. + {ticketKey:$k, targetRepos:["be","fe"], planPath:"docs/plans/acme-9006.md", deviations:[]}' <<< "$PERREPO")
 sct checkpoint "$KEY" 7 --json "$CP7" >/dev/null
 sct comment-add "$KEY" --marker doc-update --url "https://github.example/c/doc-update" >/dev/null
+stage_evidence "$KEY" 7
 sct set-stage "$KEY" 7 --status completed >/dev/null
 perrepo_keys=$(sct get "$KEY" '.stageCheckpoint."7".perRepo | keys | join(",")')
 [[ "$perrepo_keys" == "be,fe" ]] \
@@ -505,8 +515,13 @@ sct skill-load-add "$KEY" --stage 8 --skill review-toolkit:review-lead >/dev/nul
 sct cross-boundary-review-add "$KEY" --repo fe --status completed-in-session \
   --worktree ".claude/worktrees/fe-$KEY" --note "secondary reviewed in session" >/dev/null
 sct comment-add "$KEY" --marker code-review --url "https://github.example/c/code-review" >/dev/null
+stage_evidence "$KEY" 8
 sct set-stage "$KEY" 8 --status completed >/dev/null
 
+# #243: a pair run's stage 9 requires .prs keyed by repo id for EVERY target
+# (the 9.prsRepoKeyed leg) — record both PRs as Stage 9's per-repo loop does.
+sct pr-add "$KEY" --repo be --branch "claude/acme-$KEY" --url "https://github.example/pr/be" >/dev/null
+sct pr-add "$KEY" --repo fe --branch "claude/acme-$KEY" --url "https://github.example/pr/fe" >/dev/null
 complete_stage "$KEY" 9
 write_report "$KEY"
 write_eval "$KEY"
@@ -529,6 +544,7 @@ sct set-stage "$KEY" 2 --status started >/dev/null
 sct worktree-set "$KEY" --repo be --path ".claude/worktrees/be-$KEY" --branch "claude/acme-$KEY" --base main >/dev/null
 sct worktree-set "$KEY" --repo fe --path ".claude/worktrees/fe-$KEY" --branch "claude/acme-$KEY" --base main >/dev/null
 sct worktree-set "$KEY" --path ".claude/worktrees/be-$KEY" --branch "claude/acme-$KEY" --base main >/dev/null
+stage_evidence "$KEY" 2
 sct set-stage "$KEY" 2 --status completed >/dev/null
 for n in 3 4 5; do complete_stage "$KEY" "$n"; done
 sct set-stage "$KEY" 6 --status started >/dev/null
@@ -536,6 +552,7 @@ for r in be fe; do
   sct verify-summary-set "$KEY" --repo "$r" --json '{"format":"clean","test":"passed"}' >/dev/null
 done
 write_verify_sidecar "$KEY" be     # fe's attestation deliberately absent
+stage_evidence "$KEY" 6
 sct set-stage "$KEY" 6 --status completed >/dev/null
 s6=$(sct get "$KEY" '.stages."6".status')
 [[ "$s6" != "completed" ]] \
@@ -753,6 +770,188 @@ bash "$START_SLICE_SH" "$SS_STATE" 3 --max-pushed x >/dev/null 2>&1; rc_badmax=$
 [[ "$rc_missing" -eq 2 && "$rc_badtotal" -eq 2 && "$rc_badmax" -eq 2 ]] \
   && pass "(ss7) usage/IO errors (missing state, non-integer total, non-integer --max-pushed) -> exit 2" \
   || fail "(ss7) usage errors — missing=$rc_missing total=$rc_badtotal max=$rc_badmax"
+
+# ---------------------------------------------------------------------------
+# Scenario: waived-run (#243) — a run that forced past a gate cannot reach the
+# terminal `completed` write without explicit operator acceptance, and an
+# autonomous-mode run cannot force at all. Composed-path, not per-tool: the
+# per-invocation refusal/append invariants live in statectl-selftest.sh
+# (fr*/am*/wv*/wfr*); what THIS scenario proves is that the waiver machinery and
+# the terminal gates COMPOSE — a forced mid-walk bypass survives seven later
+# stage transitions and still blocks the terminal write until --accept-waivers.
+
+echo "[scenario-liveness] waived-run: a forced gate bypass blocks the terminal write until accepted"
+KEY=9006
+reset_state
+sct init "$KEY" --run-id "scenario-liveness-$$" --mode auto >/dev/null
+
+# (wv-auto) The autonomous arm: with state .mode=auto (exactly what the pipeline
+# pre-flight records) and no env override, --force is refused outright — the
+# executor cannot self-waive inside its own run.
+err=$(sct_err set-stage "$KEY" 2 --status started --force --force-reason "scenario waived-run attempted autonomous self-waiver")
+rc=$(sct_rc set-stage "$KEY" 2 --status started --force --force-reason "scenario waived-run attempted autonomous self-waiver")
+[[ "$rc" -eq 1 && "$err" == *"refused in autonomous mode"* ]] \
+  && pass "(wv-auto) autonomous run cannot force: state .mode=auto refuses the waiver outright" \
+  || fail "(wv-auto) rc=$rc err='$err'"
+
+# Attended path: the operator re-stamps interactive (the documented recovery),
+# walks 1-8 green, then forces stage 9 closed without its pr receipt — the
+# completion-evidence:9.commentReceipt.pr leg fires and is waived on record.
+sct init "$KEY" --run-id ignored --mode interactive >/dev/null
+for n in 1 2 3 4 5 6 7 8; do complete_stage "$KEY" "$n"; done
+sct set-stage "$KEY" 9 --status started >/dev/null
+sct set-stage "$KEY" 9 --status completed --force --force-reason "scenario waived-run operator skips the pr receipt" >/dev/null
+waiver_n=$(sct get "$KEY" '.waivers // [] | length')
+write_report_waived "$KEY"
+write_eval "$KEY"
+
+# The terminal write refuses — including under --force — while the waiver stands.
+rc_plain=$(sct_rc mark-completed "$KEY")
+rc_forced=$(sct_rc mark-completed "$KEY" --force --force-reason "scenario waived-run attempts to bypass the waiver refusal")
+[[ "$waiver_n" -ge 1 && "$rc_plain" -eq 1 && "$rc_forced" -eq 1 ]] \
+  && pass "(wv-block) waived run cannot reach terminal completed: plain and forced mark-completed both refused" \
+  || fail "(wv-block) waivers=$waiver_n rc_plain=$rc_plain rc_forced=$rc_forced"
+
+# Explicit acceptance is the ONLY exit: --accept-waivers completes the run and
+# the acceptance itself is durable state.
+rc=$(sct_rc mark-completed "$KEY" --accept-waivers)
+status=$(sct get "$KEY" '.status')
+acc_count=$(sct get "$KEY" '.waiversAccepted.count // 0')
+[[ "$rc" -eq 0 && "$status" == "completed" && "$acc_count" -ge 1 ]] \
+  && pass "(wv-accept) --accept-waivers is the only exit: terminal completed with waiversAccepted recorded" \
+  || fail "(wv-accept) rc=$rc status='$status' acc_count=$acc_count"
+
+# ---------------------------------------------------------------------------
+# Scenario: jira zero-evidence guard (#243 AC-7) — the regression this issue
+# exists to close: under tracker.writes:false the comment-receipt legs are
+# exempt BY CONTRACT, and before #243 stages 3/7/9 carried no other evidence,
+# so a read-only-tracker run closed a third of the pipeline on nothing but the
+# executor's word. Composed: one walk, all three stages, each refused on zero
+# evidence and completed on the tracker-independent state evidence — with not
+# one comment posted.
+
+echo "[scenario-liveness] jira-zero-evidence: stages 3/7/9 cannot close on nothing under a read-only tracker"
+KEY=9007
+reset_state
+printf '%s' '{"configVersion":1,"tracker":{"type":"jira","writes":false}}' > "$TMP/jira-zero-config.json"
+export SECOND_SHIFT_CONFIG="$TMP/jira-zero-config.json"
+sct init "$KEY" --run-id "scenario-liveness-$$" >/dev/null
+for n in 1 2; do complete_stage "$KEY" "$n"; done
+sct set-stage "$KEY" 3 --status started >/dev/null
+rc3_no=$(sct_rc set-stage "$KEY" 3 --status completed)
+stage_evidence "$KEY" 3
+rc3_ev=$(sct_rc set-stage "$KEY" 3 --status completed)
+for n in 4 5 6; do complete_stage "$KEY" "$n"; done
+sct set-stage "$KEY" 7 --status started >/dev/null
+rc7_no=$(sct_rc set-stage "$KEY" 7 --status completed)
+sct checkpoint "$KEY" 7 --json "$(jq -c --arg k "$KEY" '.ticketKey = $k' <<< "$VALID_PAYLOAD")" >/dev/null
+stage_evidence "$KEY" 7
+rc7_ev=$(sct_rc set-stage "$KEY" 7 --status completed)
+complete_stage "$KEY" 8
+sct set-stage "$KEY" 9 --status started >/dev/null
+rc9_no=$(sct_rc set-stage "$KEY" 9 --status completed)
+stage_evidence "$KEY" 9
+rc9_ev=$(sct_rc set-stage "$KEY" 9 --status completed)
+gated_receipts=$(sct get "$KEY" '.comments // {} | (has("plan") or has("doc-update") or has("pr"))')
+unset SECOND_SHIFT_CONFIG
+[[ "$rc3_no" -eq 1 && "$rc3_ev" -eq 0 && "$rc7_no" -eq 1 && "$rc7_ev" -eq 0 && "$rc9_no" -eq 1 && "$rc9_ev" -eq 0 ]] \
+  && pass "(jz1) jira zero-evidence guard: stages 3/7/9 each refused empty and completed on state evidence (AC-7)" \
+  || fail "(jz1) jira guard — 3:$rc3_no/$rc3_ev 7:$rc7_no/$rc7_ev 9:$rc9_no/$rc9_ev"
+
+# Non-vacuity: none of the three gated stages carries a comment receipt — the
+# evidence that closed them was tracker-independent state, not a laundered
+# receipt. (complete_stage plants receipts for stages 1/8 regardless of the
+# tracker; those are fixture artifacts outside the stages under test.)
+[[ "$gated_receipts" == "false" ]] \
+  && pass "(jz2) non-vacuity: no plan/doc-update/pr receipt exists on the jira walk" \
+  || fail "(jz2) a gated-stage receipt exists on a writes:false walk"
+
+# =================================== predecessor gate: pre-claim ordering (AC-6) ===
+# The sub-issues-sequential backstop. Ordering normally works by keeping blocked
+# successors OUT of the queue (sequential sub-issues N>1 are created without the
+# queue label); this gate catches the EARLY-LABELED successor that reaches the queue
+# anyway. What must compose: the gate's verdict and the CLAIM WRITES, so that a
+# blocked candidate leaves behind none of the claim's durable traces.
+#
+# The assertion target is the "not picked up" shape — no claim receipt and NO state
+# file at all. That is deliberately distinct from the two other non-completing
+# shapes this suite already covers: the `failed` terminal (a state file exists,
+# status=failed) and the sub-issues carve-out (a state file exists, status stays
+# in_progress). A blocked successor must look like neither: nothing was claimed, so
+# nothing was written.
+#
+# Scope boundary (see the header): Stage 1's queue loop is PROSE executed via `gh`,
+# so it is not drivable here and is deliberately NOT re-implemented — a harness-side
+# copy of the loop could never fail on a Stage-1 edit. What IS drivable is the
+# mechanical shadow: the real tool's verdict per candidate, and the state each
+# verdict does or does not produce. The two candidates below are therefore driven
+# straight-line, not in a loop.
+
+echo "[scenario-liveness] predecessor: open predecessor skips pre-claim; closed one claims"
+reset_state
+
+# The successor's body, exactly the shape create-sub-tickets writes for a sequential
+# sub-issue N>1 (Part-of anchor + both trailers).
+PG_BODY=$'Part of #9030\n\nWork for the second slice.\n\nPredecessor: #9031\nSuccessor: #9033'
+
+# --- candidate A: predecessor OPEN -> skip-blocked, claim nothing ----------------
+PG_A=9032
+pg_extract=$(printf '%s\n' "$PG_BODY" | bash "$PRED_GATE" extract 2>/dev/null)
+pg_pred=$(printf '%s\n' "$pg_extract" | sed -n 's/^predecessor=//p')
+[[ "$pg_pred" == "9031" ]] \
+  && pass "(pg-x1) extract lifts the predecessor key off a real sequential sub-issue body (AC-6)" \
+  || fail "(pg-x1) extract — got '$pg_pred' (want 9031)"
+
+# The stage doc pays the predecessor-state read only because a key was printed; the
+# state itself is fixture input here (the tool is pure logic — nothing to mock).
+bash "$PRED_GATE" verdict open >/dev/null 2>&1; pg_rc_open=$?
+if [[ "$pg_rc_open" -eq 0 ]]; then
+  # Would-be claim writes. Guarded by the verdict, exactly as Stage 1 guards them.
+  sct init "$PG_A" --run-id "scenario-liveness-$$" >/dev/null
+  sct comment-add "$PG_A" --marker claimed --url "https://example.invalid/c/$PG_A" >/dev/null
+fi
+[[ "$pg_rc_open" -eq 3 ]] \
+  && pass "(pg-skip1) open predecessor -> verdict exit 3 (skip-blocked, do not claim) (AC-6)" \
+  || fail "(pg-skip1) open predecessor — rc=$pg_rc_open (want 3)"
+
+[[ ! -f "$STATECTL_STATE_DIR/$PG_A.json" ]] \
+  && pass "(pg-skip2) blocked successor leaves NO state file — the not-picked-up shape, not \`failed\` and not the carve-out (AC-6)" \
+  || fail "(pg-skip2) a state file exists for the blocked successor $PG_A"
+
+# --- candidate B: the next queue candidate, unblocked -> claims -----------------
+# Its own body carries no Predecessor trailer, so the conditional predecessor-state
+# read is never paid and the run proceeds. This is the mechanical shadow of "advance
+# to the next candidate": A produced nothing, B produced the claim.
+PG_B=9034
+PG_B_BODY=$'An ordinary queued issue with no ordering trailers.'
+pg_b_extract=$(printf '%s\n' "$PG_B_BODY" | bash "$PRED_GATE" extract 2>/dev/null)
+[[ -z "$pg_b_extract" ]] \
+  && pass "(pg-go1) a candidate with no trailers prints nothing — the predecessor-state read is never paid (AC-6)" \
+  || fail "(pg-go1) unblocked candidate — got '$pg_b_extract' (want empty)"
+
+sct init "$PG_B" --run-id "scenario-liveness-$$" >/dev/null
+sct comment-add "$PG_B" --marker claimed --url "https://example.invalid/c/$PG_B" >/dev/null
+pg_b_receipt=$(sct get "$PG_B" '.comments.claimed // empty')
+[[ -f "$STATECTL_STATE_DIR/$PG_B.json" && -n "$pg_b_receipt" ]] \
+  && pass "(pg-go2) the next candidate claims: state file + claim receipt both exist (AC-6)" \
+  || fail "(pg-go2) next candidate — file=$([[ -f "$STATECTL_STATE_DIR/$PG_B.json" ]] && echo y || echo n) receipt='$pg_b_receipt'"
+
+# --- non-vacuity ---------------------------------------------------------------
+# (pg-skip2) asserts an ABSENCE, which would pass trivially if this harness simply
+# never wrote a state file for $PG_A. Drive the IDENTICAL path with only the
+# predecessor's state flipped to `closed`: the same guarded writes must now produce
+# the file. If this case cannot flip, (pg-skip2) proves nothing and must not be
+# counted toward AC-6. Precondition-variation, per (ss6)/(ns3) — the suite never
+# deletes or mutates production code on disk to make a point.
+bash "$PRED_GATE" verdict closed >/dev/null 2>&1; pg_rc_closed=$?
+if [[ "$pg_rc_closed" -eq 0 ]]; then
+  sct init "$PG_A" --run-id "scenario-liveness-$$" >/dev/null
+  sct comment-add "$PG_A" --marker claimed --url "https://example.invalid/c/$PG_A" >/dev/null
+fi
+pg_a_receipt=$(sct get "$PG_A" '.comments.claimed // empty')
+[[ "$pg_rc_closed" -eq 0 && -f "$STATECTL_STATE_DIR/$PG_A.json" && -n "$pg_a_receipt" ]] \
+  && pass "(pg-nv) non-vacuity: the same path with the predecessor CLOSED does write the state file + receipt — the skip came from the gate (AC-6)" \
+  || fail "(pg-nv) non-vacuity — rc=$pg_rc_closed file=$([[ -f "$STATECTL_STATE_DIR/$PG_A.json" ]] && echo y || echo n) receipt='$pg_a_receipt'"
 
 echo
 echo "[scenario-liveness] summary: $PASS passed, $FAIL failed"

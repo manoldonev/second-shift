@@ -37,8 +37,10 @@ VIOLATIONS=0
 violate() { echo "ledger-lint: VIOLATION: $1" >&2; VIOLATIONS=$((VIOLATIONS + 1)); }
 
 # mirror of interviewing-baseline provenance enum — keep verbatim.
-# Mechanical canonical of the lockstep pair: plan-lint.sh's HUMAN_PROVENANCE must be a
-# subset of this literal (scripts/lockstep-manifest.tsv).
+# Mechanical canonical of TWO lockstep pairs (scripts/lockstep-manifest.tsv):
+# plan-lint.sh's PROVENANCE_ENUM copies this literal verbatim, and its HUMAN_PROVENANCE
+# is a subset of it. Nothing may sit between the markers below — verbatim compares the
+# whole block.
 # LOCKSTEP-BEGIN provenance-enum
 PROVENANCE_ENUM='user-answered|user-delegated|codebase-derived|deferred|ticket-sourced'
 # LOCKSTEP-END provenance-enum

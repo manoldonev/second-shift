@@ -230,6 +230,83 @@ rc=$(lint_rc "$TMP/prose.md" "$LEDGER_STATE")
   && pass "(pl-u) enum in prose cell, provenance codebase-derived → 0 (no false positive)" \
   || fail "(pl-u) prose false-positive — rc=$rc"
 
+# ---- Check 4b: full-cell provenance enum assertion (#239) --------------------
+# INVARIANT GUARDED: the provenance CELL is a bare value from the full five-value
+# enum. Before #239 nothing enforced this anywhere in-pipeline — Check 4 tested only
+# the human-attributed subset and ledger-lint.sh never runs without a backing
+# pre-flight ledger, so `assumed`, free prose, and annotated values all passed the
+# Stage-4 hard gate. Run #217 shipped three annotated rows through it.
+#
+# WHY NOT A SCENARIO: scenario-liveness-selftest.sh composes verdict paths through to
+# a terminal state write; it drives plan-lint via `mkplan`, which builds from
+# valid-plan.md and varies only the AC traceability rows — it has no Decision Ledger
+# at all. Adding these as scenarios would test the composition (already covered by the
+# existing plan-structure-invalid path), not the cell-level predicate, which is a
+# per-tool input/verdict contract with no cross-stage surface. The composed leg these
+# feed — plan-lint FAIL → Stage-4 mark-failed(plan-structure-invalid) — is already a
+# live scenario; only the new inputs that reach it are per-tool.
+#
+# Fixtures reuse make_ledger_plan (canonical `ID | Decision | Resolution | Provenance`
+# header) and clear the sibling ledger, so 4a never fires and each case isolates 4b.
+
+# (pl-u1) AC-1: an out-of-enum provenance value → 1, names the row. `assumed` is the
+# specific value ledger-lint singles out as illegal, and the value Check 4's own header
+# said the ledger contract exists to prevent.
+make_ledger_plan "$TMP/prov-assumed.md" "| D-1 | Retention window | keep 30d | assumed |"
+rm -f "$TMP/156-ledger.md"
+rc=$(lint_rc "$TMP/prov-assumed.md" "$LEDGER_STATE")
+err=$(bash "$LINT" "$TMP/prov-assumed.md" "$LEDGER_STATE" 2>&1 >/dev/null || true)
+[[ "$rc" -eq 1 ]] && grep -q "D-1" <<< "$err" && grep -q "assumed" <<< "$err" \
+  && pass "(pl-u1) provenance 'assumed' → 1, names D-1 (AC-1)" \
+  || fail "(pl-u1) assumed provenance — rc=$rc err=$err"
+
+# (pl-u2) AC-1: free prose in the provenance cell → 1, names the row. Distinct from
+# (pl-u1) because prose shares no prefix with any enum value, so it must take the
+# not-in-enum branch rather than the annotation branch.
+make_ledger_plan "$TMP/prov-prose.md" "| D-1 | Retention window | keep 30d | decided during implementation |"
+rm -f "$TMP/156-ledger.md"
+rc=$(lint_rc "$TMP/prov-prose.md" "$LEDGER_STATE")
+err=$(bash "$LINT" "$TMP/prov-prose.md" "$LEDGER_STATE" 2>&1 >/dev/null || true)
+[[ "$rc" -eq 1 ]] && grep -q "D-1" <<< "$err" && grep -q "not in {" <<< "$err" \
+  && pass "(pl-u2) free-prose provenance → 1, not-in-enum branch (AC-1)" \
+  || fail "(pl-u2) prose provenance — rc=$rc err=$err"
+
+# (pl-u3) AC-2: a LEGAL enum value carrying a trailing annotation → 1, with a message
+# saying the cell must be the bare value. This is the exact #217 shape, and the reason
+# the failure splits into two messages: naming the enum would be unhelpful here — the
+# author already had the right value and appended to it.
+make_ledger_plan "$TMP/prov-annotated.md" "| D-1 | Retention window | keep 30d | codebase-derived (discovered at Stage 5) |"
+rm -f "$TMP/156-ledger.md"
+rc=$(lint_rc "$TMP/prov-annotated.md" "$LEDGER_STATE")
+err=$(bash "$LINT" "$TMP/prov-annotated.md" "$LEDGER_STATE" 2>&1 >/dev/null || true)
+[[ "$rc" -eq 1 ]] && grep -q "D-1" <<< "$err" && grep -qi "bare enum value" <<< "$err" \
+  && pass "(pl-u3) annotated legal value → 1, 'bare enum value' message (AC-2)" \
+  || fail "(pl-u3) annotated provenance — rc=$rc err=$err"
+
+# (pl-u4) AC-3 (no-regression half): ticket-sourced is a legal autonomous provenance and
+# must still pass. (pl-p) already covers codebase-derived + deferred; this completes the
+# three legal in-pipeline values so a widened check cannot over-reject.
+make_ledger_plan "$TMP/prov-ticket.md" "| D-1 | Max import size | 50 MB, per the operator https://example.invalid/issues/1#issuecomment-1 | ticket-sourced |"
+rm -f "$TMP/156-ledger.md"
+rc=$(lint_rc "$TMP/prov-ticket.md" "$LEDGER_STATE")
+[[ "$rc" -eq 0 ]] \
+  && pass "(pl-u4) ticket-sourced row → 0 (AC-3 no-regression)" \
+  || fail "(pl-u4) ticket-sourced — rc=$rc"
+
+# (pl-u5) the fall-through the issue's Scope named: a malformed row carrying NO human
+# token. (pl-t) covers malformed-WITH-a-human-token, which 4a already caught — this is
+# the class that passed silently, since 4a only ever accumulated human rows. Guards
+# against an implementer copying Check 6's `continue` (correct there, because
+# ledger-lint validated the backing file at pre-flight; wrong here, because nothing
+# validated an in-pipeline plan).
+make_ledger_plan "$TMP/prov-malformed.md" "| D-1 | Retention window | codebase-derived |"
+rm -f "$TMP/156-ledger.md"
+rc=$(lint_rc "$TMP/prov-malformed.md" "$LEDGER_STATE")
+err=$(bash "$LINT" "$TMP/prov-malformed.md" "$LEDGER_STATE" 2>&1 >/dev/null || true)
+[[ "$rc" -eq 1 ]] && grep -q "D-1" <<< "$err" && grep -qi "malformed Decision Ledger row" <<< "$err" \
+  && pass "(pl-u5) malformed row, no human token → 1, named (Scope: no fall-through)" \
+  || fail "(pl-u5) malformed no-human — rc=$rc err=$err"
+
 # (pl-n1) Check 5b: 2+ creation-verb steps with zero [NEW] tags → 1, named (the run-#175 shape).
 # Fixture must live INSIDE a git repo for Check 5a's PLAN_ROOT resolution; use a
 # harness-local scratch dir under the repo tree, cleaned on exit.

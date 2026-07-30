@@ -15,7 +15,7 @@
    bash statectl.sh pause-add "$ISSUE_NUMBER" --reason session-resume
    ```
    `pause-add` self-anchors `from = current .lastUpdatedAt` (the dying session's final write, still intact) and stamps `to = now`. It MUST run **before step 3 (`set-stage`) and step 6 (`pipeline-session-add`)** — both bump `.lastUpdatedAt`, which would zero the anchor. There is **no shared resume preamble** elsewhere; this Stage 8 entry is the sole fresh-session resume site, so this is the only place `pause-add` is called. On the in-process path there is no pause; skip this step. Consumed by `tools/stage-times.sh` to report effective (compute) time.
-3. **Advance `currentStage` to 8** via `statectl set-stage "$ISSUE_NUMBER" 8 --status started`.
+3. **Advance `currentStage` to 8** via `statectl set-stage "$ISSUE_NUMBER" 8 --status started`. **And record the stage-file receipt in the same breath** — `statectl stage-file-read "$ISSUE_NUMBER" --stage 8 --file 8-code-review.md` (#243 §3): `set-stage 8 --status completed` refuses unless stage 8's own file is recorded as read.
 4. Read `stageCheckpoint["7"]` via `statectl get "$ISSUE_NUMBER" '.stageCheckpoint."7"'`. Print one-line bootstrap: `Entering Stage 8. Branch: X. Head: Y. Deviations: N. Free note: "..."`.
 5. **Verify worktree validity:** `git -C "$worktreePath" rev-parse --is-inside-work-tree` must succeed. If missing or invalid, mark failed and exit:
    ```bash
@@ -44,6 +44,12 @@
    ```
 6. _(crash-recovery only)_ **Record this resume session for cost attribution:** a crash-recovery Stage 8 session is a distinct Claude session from the Stage 1–7 one, so it records its own native session UUID:
    ```bash
+   # Re-assert the resumed session's mode first (#243): init --mode re-stamps .mode on
+   # the existing state (documented carve-out) so a crash-recovery session resumed
+   # under a different mode cannot inherit the dead session's. Substitute the mode
+   # THIS session resolved at Invocation Routing as a literal.
+   MODE="${DEV_PIPELINE_MODE:-auto}"
+   bash statectl.sh init "$ISSUE_NUMBER" --run-id "$RUN_ID" --mode "$MODE"
    if [[ -n "${CLAUDE_CODE_SESSION_ID:-}" ]]; then
      bash statectl.sh pipeline-session-add "$ISSUE_NUMBER" \
        --session-id "$CLAUDE_CODE_SESSION_ID" \
@@ -183,8 +189,10 @@ for round in 1..3:
   # plan — e.g. a new helper script added to satisfy a blocker), record it in the
   # single deviations ledger so the retro/eval sees it. Record it NOW — in the same
   # round, before moving on — NOT at run end. The ledger write must precede
-  # mark-completed; once the run is terminal, deviations-add refuses without --force,
-  # and a deviation backfilled post-completion (via --force, or at /dev-pipeline:pipeline-retro
+  # mark-completed; once the run is terminal, deviations-add refuses without --force —
+  # and a pipeline-owned state carries .mode: auto, so the post-terminal backfill is the
+  # attended form: DEV_PIPELINE_MODE=interactive statectl deviations-add … --force
+  # --force-reason "<why>" (#243). A deviation backfilled post-completion (via that form, or at /dev-pipeline:pipeline-retro
   # time) is itself a silent deviation — exactly the class the retro counts.
   #   statectl.sh deviations-add "$ISSUE_NUMBER" \
   #     --kind <scope-creep|alternate-approach|deferred|surprise> \

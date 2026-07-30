@@ -26,7 +26,7 @@ For best judgment quality, invoke this skill from a session running on Opus 4.x 
 
 ## Critical Principle: Sub-Agent Output Is Advisory
 
-See **Sub-Agent Output Is Advisory** in the `review-toolkit:reviewer-baseline` skill. Specifics for this skill: verify `codebase-explorer`'s convention claims against your own reading of the codebase before relaying them in your report.
+See **Sub-Agent Trust Model** in the `review-toolkit:review-lead` skill. Specifics for this skill: verify `codebase-explorer`'s convention claims against your own reading of the codebase before relaying them in your report.
 
 ## Inputs
 
@@ -159,5 +159,11 @@ If no issues are found for a section, omit it entirely. Do not pad with "no issu
 - Don't question product decisions
 - Don't review code — review the ticket specs
 - Don't flag issues you can't verify against the codebase or the tickets themselves
-- Don't split for the sake of splitting — every slice must be a logical, coherent unit of work (never separate tests from code, or migrations from dependent code)
+- Don't separate tests from the code they test, or a migration from the code that depends on it
 - Don't pad output — if a ticket is clean, say nothing about it
+
+**Run-cost bias.** Judge the split against the same economy rule the orchestrator applies — it is the standard a too-thin slice is over-decomposed *against*, so review it here rather than only at decomposition time:
+
+<!-- LOCKSTEP-BEGIN decomposition-economy -->
+Prefer fewer, fuller slices: as many as the work genuinely needs, and no more. A slice that cannot justify its own full pipeline run — because it is too thin to review on its own, or has no consumer until a later slice lands — merges into its neighbor. Splitting for the sake of splitting is a cost, not a virtue; every slice must be a logical, coherent unit of work that earns its own run.
+<!-- LOCKSTEP-END decomposition-economy -->

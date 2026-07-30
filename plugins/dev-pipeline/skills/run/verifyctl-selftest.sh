@@ -595,6 +595,98 @@ else
   fail "(v28) absent fallback — rc=$VRC ran-be=$([[ -f "$MARKERS/ran-test-be" ]] && echo y || echo n) ran-fe=$([[ -f "$MARKERS/ran-test-fe" ]] && echo y || echo n)"
 fi
 
+# ---- stageParams.inertPattern override (AC-1'/AC-2 composed proof) --------------
+# The composed claim these two cases exist for: config -> verifyctl -> classifier ->
+# lane -> REAL command execution. A classifier-only unit case cannot prove AC-1',
+# because AC-1' is a claim about what Stage 6 actually EXECUTES; the marker files
+# below are that proof.
+#
+# The override fixture is derived from CONFIG_FIXTURE via jq rather than hand-written,
+# so a future edit to the base command table cannot leave these two cases testing a
+# stale shape. The pattern is the shipped default minus `\.sh$` — the exact hand-copy
+# a shell-surfaced consumer writes into their config.
+INERT_CFG="$TMPDIR_VT/second-shift.inert-override.json"
+jq '.stageParams.inertPattern = "(\\.md$|^\\.github/workflows/.*\\.yml$|^\\.claude/.*\\.mjs$|^\\.claude/.*\\.cjs$|^\\.claude/.*\\.py$|^\\.claude/.*\\.tsv$|^\\.claude/.*\\.jsonl?$|^\\.claude/second-shift/\\.known-extensions$|(^|/)\\.prettierignore$|(^|/)\\.gitignore$)"' \
+  "$CONFIG_FIXTURE" > "$INERT_CFG"
+
+override_run() { # $1 = branch name, $2 = file to add, $3 = content
+  reset_all
+  rm -f "$MARKERS"/ran-*
+  # Cut fresh off main: by this point the `feature` branch carries .ts commits from
+  # earlier cases, and the lane is derived from the whole merge-base..HEAD branch
+  # diff — so reusing it would make every diff SUITE for the wrong reason.
+  git -C "$WORK" checkout -q main
+  git -C "$WORK" branch -qD "$1" 2>/dev/null || true
+  git -C "$WORK" checkout -qb "$1"
+  mkdir -p "$(dirname "$WORK/$2")"
+  echo "$3" > "$WORK/$2"
+  git -C "$WORK" add -A && git -C "$WORK" commit -qm "override-case $2"
+  VERDICT=$(SECOND_SHIFT_CONFIG="$INERT_CFG" "$VERIFYCTL" run 8888 2>/dev/null); VRC=$?
+}
+
+# (v29) AC-1': with the override set, a *.sh-only diff selects SUITE and the
+#       configured lint/type-check/test lanes REALLY RUN. verifySummary must be the
+#       real per-command object, not the "skipped (inert diff)" string — the false
+#       green this whole change exists to remove.
+override_run inert-override-sh "scripts/deploy.sh" "#!/usr/bin/env bash"
+lane=$(jq -r '.lane' <<< "$VERDICT" 2>/dev/null)
+vstype=$(jq -r '.verifySummary | type' <<< "$VERDICT" 2>/dev/null)
+lint=$(jq -r '.verifySummary.lint' <<< "$VERDICT" 2>/dev/null)
+if [[ "$VRC" == "0" && "$lane" == "SUITE" && "$vstype" == "object" && "$lint" == "clean" \
+      && -f "$MARKERS/ran-lint" && -f "$MARKERS/ran-test" && -f "$MARKERS/ran-type-check" ]]; then
+  pass "(v29) inertPattern override — *.sh diff runs the configured lanes, verifySummary is real (AC-1')"
+else
+  fail "(v29) override — rc=$VRC lane=$lane vsType=$vstype lint=$lint ran-lint=$([[ -f "$MARKERS/ran-lint" ]] && echo y || echo n) ran-test=$([[ -f "$MARKERS/ran-test" ]] && echo y || echo n)"
+fi
+
+# (v30) AC-2: the SAME override fixture still skips the suite for a docs-only diff.
+#       The override narrows exactly what it names and nothing else — without this
+#       case, (v29) alone is also satisfied by an override that broke INERT entirely.
+override_run inert-override-md "docs/notes.md" "# notes"
+lane=$(jq -r '.lane' <<< "$VERDICT" 2>/dev/null)
+vs=$(jq -r '.verifySummary' <<< "$VERDICT" 2>/dev/null)
+if [[ "$VRC" == "0" && "$lane" == "INERT" && "$vs" == *"inert diff"* && ! -f "$MARKERS/ran-test" ]]; then
+  pass "(v30) inertPattern override — *.md diff still INERT, suite not run (AC-2)"
+else
+  fail "(v30) override md — rc=$VRC lane=$lane vs='$vs' ran-test=$([[ -f "$MARKERS/ran-test" ]] && echo y || echo n)"
+fi
+
+# (v31) AC-3's third case: a repo with ALL lanes null, under an override.
+#       The override cannot manufacture a false green. It flips a *.sh-only diff to
+#       SUITE (so the lane decision is genuinely re-derived), but with nothing
+#       configured to run, the summary must be the honest all-skipped OBJECT that the
+#       statectl Stage-6 content gate refuses -- NOT the "skipped (inert diff)" string,
+#       which would read as a pass.
+#
+#       This case lives here rather than in is-inert-diff-selftest.sh because the
+#       classifier takes no lane input at all: under the override design the lane set
+#       and the pattern are independent, so "all lanes null" is only expressible once
+#       config, verifyctl and the classifier are composed. AC-3's other two cases
+#       (shell-only-with-lanes, docs-only-in-a-JS/TS-repo) ARE classifier-level and
+#       live there.
+INERT_ZERO_CFG="$TMPDIR_VT/second-shift.inert-zero-lane.json"
+jq '.commands.mono |= (.lint = null | .typecheck = null | .test = null | .format = null | .lanes = [] | .extraLanes = [])' \
+  "$INERT_CFG" > "$INERT_ZERO_CFG"
+
+reset_all
+rm -f "$MARKERS"/ran-*
+git -C "$WORK" checkout -q main
+git -C "$WORK" branch -qD inert-override-zerolane 2>/dev/null || true
+git -C "$WORK" checkout -qb inert-override-zerolane
+mkdir -p "$WORK/scripts"
+echo '#!/usr/bin/env bash' > "$WORK/scripts/tool.sh"
+git -C "$WORK" add -A && git -C "$WORK" commit -qm "override-case zero-lane"
+VERDICT=$(SECOND_SHIFT_CONFIG="$INERT_ZERO_CFG" "$VERIFYCTL" run 8888 2>/dev/null); VRC=$?
+lane=$(jq -r '.lane' <<< "$VERDICT" 2>/dev/null)
+vstype=$(jq -r '.verifySummary | type' <<< "$VERDICT" 2>/dev/null)
+vsvals=$(jq -r '.verifySummary | [.lint, .typeCheck, .test] | unique | join(",")' <<< "$VERDICT" 2>/dev/null)
+if [[ "$lane" == "SUITE" && "$vstype" == "object" && "$vsvals" == "skipped" \
+      && ! -f "$MARKERS/ran-test" ]]; then
+  pass "(v31) override + all lanes null — SUITE lane, honest all-skipped object, no false green (AC-3)"
+else
+  fail "(v31) override zero-lane — rc=$VRC lane=$lane vsType=$vstype vals=$vsvals"
+fi
+
 echo
 echo "[self-test] summary: $PASS passed, $FAIL failed"
 exit "$FAIL"

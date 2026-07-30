@@ -180,6 +180,13 @@ mutation gate's executor tier), not only `<name>-reviewer` entries. The schema d
 says "per-reviewer" as the common case, not as a constraint; `check-model-tiers.sh`
 validates whatever key you override against the actual tables.
 
+**Accepted values are `haiku | sonnet | opus | fable`, and `fable` is override-only** — the
+shipped tables and agent frontmatter stay tri-value, so a consumer without Fable access sees
+no change; the same script raises `UNKNOWN-MODEL` on any token outside `opus|sonnet|haiku`
+appearing in a shipped MAP entry or an inline `model:` literal, which is what mechanically
+keeps `fable` in config and out of plugin code. A tier your subscription cannot dispatch
+surfaces as a dead reviewer and the gate fails closed.
+
 ### `check-extensions.sh` (manifest lint — EP-3)
 
 The plugin ships a versioned **manifest** of known extension-file names/globs ([`tools/extension-manifest.txt`](../plugins/dev-pipeline/skills/run/tools/extension-manifest.txt)); `check-extensions.sh` runs at pre-flight and **fails closed** on any file under a consumer's `.claude/second-shift/` that matches no manifest entry. This converts "missing extension = generic behavior" from silent degradation into a checked contract — a typo'd `blocker-mutants.md.md` is loud, not silently ignored. A new well-known file in a future plugin version is discoverable via a manifest entry; an unrecognized file today is a config-lint failure.

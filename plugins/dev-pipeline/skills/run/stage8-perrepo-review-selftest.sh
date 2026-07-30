@@ -62,7 +62,8 @@ for s in 1 2 3 4 5 6 7; do
        "$SC" skill-load-add "$ISSUE_NUMBER" --stage 1 --skill intake-toolkit:intake-orchestrator >/dev/null
        "$SC" comment-add "$ISSUE_NUMBER" --marker claimed --url "https://github.example/c/claimed" >/dev/null
        "$SC" comment-add "$ISSUE_NUMBER" --marker intake --url "https://github.example/c/intake" >/dev/null ;;
-    3) "$SC" comment-add "$ISSUE_NUMBER" --marker plan --url "https://github.example/c/plan" >/dev/null ;;
+    3) "$SC" comment-add "$ISSUE_NUMBER" --marker plan --url "https://github.example/c/plan" >/dev/null
+       "$SC" unit-test-surface-set "$ISSUE_NUMBER" --json '{"applicable":false,"action":"skip","skipReason":"fixture: no mutation surface"}' >/dev/null ;;
     4) "$SC" plan-review-set "$ISSUE_NUMBER" --overall pass >/dev/null ;;
     5) "$SC" checkpoint "$ISSUE_NUMBER" 5 --json '{"changedFiles":[]}' >/dev/null ;;
     # Two Stage-6 completion legs, both per-target on a pair run: the #98 content
@@ -80,6 +81,9 @@ for s in 1 2 3 4 5 6 7; do
     7) "$SC" checkpoint "$ISSUE_NUMBER" 7 --json "{\"ticketKey\":\"$ISSUE_NUMBER\",\"branch\":\"claude/x-be\",\"headSha\":\"$(git -C "$ROOT/wt/be" rev-parse HEAD)\",\"worktreePath\":\"wt/be\",\"deviations\":[]}" >/dev/null
        "$SC" comment-add "$ISSUE_NUMBER" --marker doc-update --url "https://github.example/c/doc-update" >/dev/null ;;
   esac
+  # #243 §3: every stage carries its stage-file read receipt.
+  _SFILES=(_ 1-intake.md 2-worktree.md 3-write-plan.md 4-plan-review.md 5-implement.md 6-verify.md 7-doc-update.md 8-code-review.md 9-open-pr.md)
+  "$SC" stage-file-read "$ISSUE_NUMBER" --stage "$s" --file "${_SFILES[$s]}" >/dev/null
   "$SC" set-stage "$ISSUE_NUMBER" "$s" --status completed >/dev/null
 done
 "$SC" set-stage "$ISSUE_NUMBER" 8 --status started >/dev/null
@@ -129,6 +133,7 @@ skr=$(statectl.sh get "$ISSUE_NUMBER" '.skippedReviews // [] | map(.repo) | join
 [[ "$skr" == "ml" ]] && ok "(a2) ml (secondary, no diff) → skippedReviews" || no "(a2) skippedReviews repos = '$skr' (want ml)"
 [[ "$(statectl.sh get "$ISSUE_NUMBER" '.crossBoundaryReviews | map(select(.repo=="be")) | length')" == "0" ]] \
   && ok "(a3) primary (be) NOT double-reviewed by the secondary loop" || no "(a3) be leaked into crossBoundaryReviews"
+"$SC" stage-file-read "$ISSUE_NUMBER" --stage 8 --file 8-code-review.md >/dev/null   # #243 §3 receipt
 if "$SC" set-stage "$ISSUE_NUMBER" 8 --status completed >/dev/null 2>&1; then
   ok "(a4) Stage 8 completes with primary review + fe cross-boundary + ml skip"
 else

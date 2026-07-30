@@ -19,14 +19,23 @@
 #      row for another slice's AC violates (fabricated coverage). A partition
 #      failing the union-integrity check voids slice mode (full-snapshot
 #      universe, fail-closed).
-#   4. Decision Ledger provenance legality: a `| D-n |` row carrying a
-#      human-attributed provenance (`user-answered` / `user-delegated`) is a
-#      hard FAIL unless the backing `{issue}-ledger.md` — the sibling of the
-#      passed <state-path> — exists. `codebase-derived` / `deferred` rows pass
-#      unconditionally, and an absent ledger section (or the explicit empty
-#      form) is untouched by this check (the section stays advisory, below).
-#      Fail-closed when human-attributed rows are present but no <state-path>
-#      was given to resolve the ledger context.
+#   4. Decision Ledger provenance legality — two independent violation classes
+#      over the same `| D-n |` row scan.
+#      4a. Fabrication guard: a row carrying a human-attributed provenance
+#          (`user-answered` / `user-delegated`) in ANY cell is a hard FAIL unless
+#          the backing `{issue}-ledger.md` — the sibling of the passed
+#          <state-path> — exists. Fail-closed when such rows are present but no
+#          <state-path> was given to resolve the ledger context.
+#      4b. Full-cell enum assertion (#239): the provenance cell, parsed
+#          positionally as cells[4] per the canonical
+#          `ID | Decision | Resolution | Provenance` schema, must be a BARE value
+#          from the full enum. `assumed`, free prose, and a legal value carrying a
+#          trailing annotation each FAIL — in-pipeline nothing else enum-validates
+#          this cell, since ledger-lint.sh runs only against a backing ledger.
+#          A row whose field count is outside the canonical schema is a named
+#          violation, NOT a skip.
+#      An absent ledger section (or the explicit empty form) is untouched by both
+#      classes — the section stays advisory (below).
 #   5. [NEW] grounding-tag presence (#175 retro): eval criterion 2 is grep-scored,
 #      so a reference the plan CREATES must carry the literal [NEW] tag — prose
 #      conventions score FAIL at retro time regardless of grounding quality.
@@ -233,23 +242,49 @@ if [[ -n "$STATE" ]]; then
 fi
 
 # ---- Check 4: Decision Ledger provenance legality ---------------------------
-# Human-attributed provenance (user-answered / user-delegated) asserts a human
-# made the call. In-pipeline that is legitimate ONLY when a pre-flight
-# /plan-interview wrote the backing {issue}-ledger.md; the autonomous contract
-# forbids prompting mid-run, so a run authoring such a row with no backing file is
-# the fabrication class this check closes (a run negotiating its provenance to
-# satisfy a gate). codebase-derived / deferred rows pass unconditionally, and a
-# plan that omits the ledger (or uses the explicit empty form) is untouched here —
-# the section stays advisory (below), NOT a mandated hard-gated section.
+# TWO violation classes over the same row scan. They are independent — a row can
+# trip either, both, or neither.
 #
-# mirror of interviewing-baseline provenance enum — the HUMAN-ATTRIBUTED SUBSET;
-# keep in lockstep with plan-interview/tools/ledger-lint.sh's PROVENANCE_ENUM. If
-# #147 adds an operator-attributed value, it joins this subset here too.
-# Enforced as a `subset-of` pair by scripts/check-lockstep-pairs.sh — deliberately NOT
-# verbatim: this literal is a proper narrowing of the canonical enum.
+# (4a) FABRICATION GUARD (the original check, unchanged). Human-attributed
+# provenance (user-answered / user-delegated) asserts a human made the call.
+# In-pipeline that is legitimate ONLY when a pre-flight /plan-interview wrote the
+# backing {issue}-ledger.md; the autonomous contract forbids prompting mid-run, so
+# a run authoring such a row with no backing file is a run negotiating its own
+# provenance to satisfy a gate. Deliberately scans EVERY cell, not just the
+# provenance column, so a malformed row cannot smuggle a human token past it.
+#
+# (4b) FULL-CELL ENUM ASSERTION (#239). Everything 4a does not match used to pass
+# unexamined: the whole point of 4a is the human subset, so `assumed`, free prose,
+# and `codebase-derived (discovered at Stage 5)` all sailed through. ledger-lint.sh
+# holds the full enum but only ever runs against a backing pre-flight ledger, which
+# an in-pipeline-authored ledger does not have — so for the common case NO gate
+# enum-validated provenance at all. 4b closes that: the provenance CELL must be a
+# bare enum value, parsed POSITIONALLY as cells[4] per the canonical
+# `ID | Decision | Resolution | Provenance` schema.
+#
+# Why positional is safe here even though 4a deliberately is not: 4a asks "does any
+# cell claim human provenance", a question with no correct column; 4b asks "is the
+# provenance cell legal", which presupposes knowing which cell that is. The canonical
+# order is normative — interviewing-baseline's canonical table, ledger-lint.sh's
+# parse, and Check 6's parse all agree on it — so the messages below name the schema,
+# letting a drifted table read as a column-order problem rather than an illegal value.
+#
+# A plan that omits the ledger (or uses the explicit empty form) is untouched by
+# both classes — the section stays advisory (below), NOT a mandated hard-gated one.
+#
+# Two lockstep anchors, because check-lockstep-pairs.sh's subset-of relation reads
+# only the FIRST quoted literal in a block: co-locating these would make the subset
+# row's outcome depend on declaration order, and invisibly, since both literals are
+# subsets of the canonical enum. `provenance-enum` is a `verbatim` pair with
+# ledger-lint.sh's block (whole-block compare — hence the identical variable name and
+# no comments between the markers); `human-provenance-enum` stays `subset-of`. If
+# #147 adds an operator-attributed value it joins BOTH literals.
 # LOCKSTEP-BEGIN provenance-enum
-HUMAN_PROVENANCE='user-answered|user-delegated'
+PROVENANCE_ENUM='user-answered|user-delegated|codebase-derived|deferred|ticket-sourced'
 # LOCKSTEP-END provenance-enum
+# LOCKSTEP-BEGIN human-provenance-enum
+HUMAN_PROVENANCE='user-answered|user-delegated'
+# LOCKSTEP-END human-provenance-enum
 # The backing ledger is the SIBLING of the state file: both live in the main-repo
 # .claude/pipeline-state/, keyed by the same issue number ({issue}.json /
 # {issue}-ledger.md). Derived from <state-path> — no extra argument, no call-site
@@ -273,6 +308,32 @@ while IFS= read -r line; do
     [[ "$(trim "${cells[ci]}")" =~ ^(${HUMAN_PROVENANCE})$ ]] && { human=1; break; }
   done
   (( human == 1 )) && HUMAN_ROWS+=("$did")
+
+  # ---- (4b) full-cell enum assertion --------------------------------------
+  # Runs AFTER the 4a scan and its accumulation, so a malformed row is still
+  # fabrication-checked before this class short-circuits it below.
+  #
+  # Field count: 5 or 6 raw fields — leading empty + 4 cells + optional trailing
+  # empty — the same tolerance Check 6 applies. Unlike Check 6 this is a VIOLATION
+  # rather than a `continue`: Check 6 skips because ledger-lint.sh already validated
+  # the backing file's shape at pre-flight, and no such validation happened for an
+  # in-pipeline plan. Skipping here would reinstate exactly the fall-through 4b exists
+  # to close.
+  if (( ${#cells[@]} < 5 || ${#cells[@]} > 6 )); then
+    violate "$did row: malformed Decision Ledger row — expected the canonical 4-column \`ID | Decision | Resolution | Provenance\` schema: $line"
+    continue
+  fi
+  prov="$(trim "${cells[4]}")"
+  if [[ ! "$prov" =~ ^(${PROVENANCE_ENUM})$ ]]; then
+    # Split the message: a cell that STARTS with a legal value and then carries more
+    # is the annotated-provenance shape (the #217 rows), where naming the enum would
+    # be unhelpful — the author already knows the value, they appended to it.
+    if [[ "$prov" =~ ^(${PROVENANCE_ENUM})[^a-z-] ]]; then
+      violate "$did row: provenance '$prov' annotates a legal enum value — the cell must be the BARE enum value with no trailing annotation (move the annotation into the Resolution cell)"
+    else
+      violate "$did row: provenance '$prov' not in {${PROVENANCE_ENUM//|/ | }} — the cell must be the bare enum value ('assumed' is not legal — ask, ground, or defer). If the value looks right, check the column order: the canonical schema is \`ID | Decision | Resolution | Provenance\`"
+    fi
+  fi
 done < <(grep -E '^\|[[:space:]]*D-[0-9]+[[:space:]]*\|' "$PLAN" || true)
 
 if (( ${#HUMAN_ROWS[@]} > 0 )); then

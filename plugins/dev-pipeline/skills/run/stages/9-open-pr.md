@@ -9,7 +9,7 @@
 > use regular `gh` (no `$GH_BOT`). A **be-fe-pair** run opens one draft PR per target
 > repo with cross-repo companion links. See [`tools/tracker/jira/`](../tools/tracker/jira/README.md).
 
-**First, mark the stage started** — per the global Stage write convention (SKILL.md), Stage 9 begins with `statectl set-stage "$ISSUE_NUMBER" 9 --status started` BEFORE the stale-branch freshness check below. This is load-bearing for Stage 9 specifically: the file leads with a fail-fast path (the stale-branch check can `mark-failed --stage 9`), so if the started-write is deferred, an abort lands with `stages.9.startedAt` unwritten — and on the success path the later `set-stage 9 --status completed` then errors with "cannot complete stage 9 with no startedAt", leaving `currentStage` stuck at 8 with no recoverable backfill (the terminal guard blocks it). Marking `started` first closes both branches: on a stale-branch abort, `mark-failed --stage 9` overwrites `stages.9` to a terminal `failed` lifecycle with `completedAt` set (same convergence as the Stage 2 worktree-failure precedent), so there is never a dangling `in_progress`. Write `started` first.
+**First, mark the stage started** — per the global Stage write convention (SKILL.md), Stage 9 begins with `statectl set-stage "$ISSUE_NUMBER" 9 --status started` BEFORE the stale-branch freshness check below. This is load-bearing for Stage 9 specifically: the file leads with a fail-fast path (the stale-branch check can `mark-failed --stage 9`), so if the started-write is deferred, an abort lands with `stages.9.startedAt` unwritten — and on the success path the later `set-stage 9 --status completed` then errors with "cannot complete stage 9 with no startedAt", leaving `currentStage` stuck at 8 with no recoverable backfill (the terminal guard blocks it). Marking `started` first closes both branches: on a stale-branch abort, `mark-failed --stage 9` overwrites `stages.9` to a terminal `failed` lifecycle with `completedAt` set (same convergence as the Stage 2 worktree-failure precedent), so there is never a dangling `in_progress`. Write `started` first. **And record the stage-file receipt in the same breath** — `statectl stage-file-read "$ISSUE_NUMBER" --stage 9 --file 9-open-pr.md` (#243 §3): `set-stage 9 --status completed` refuses unless stage 9's own file is recorded as read.
 
 **All PRs open as draft.** The human reviewer flips to ready-for-review after a manual eyes-on pass. Clean drafts and exhausted-review drafts are distinguished by the `needs-deep-review` label and the `codeReviewExhausted` state field — not by draft status.
 
@@ -223,9 +223,17 @@ REPORT_PATH="$MAIN_ROOT/.claude/pipeline-state/${ISSUE_NUMBER}-report.md"
 ## Still outstanding at report time
 
 Written right after the PR was opened, so these had not yet run: cost block, post-run eval, terminal completion write. If the log ends here, the run reached at least this point — the PR above is real.
+
+{If state `.successorKey` is non-null, add — otherwise render NOTHING:}
+
+Successor: #{successorKey} is blocked on this PR and is deliberately unqueued. Label it `ready-for-dev` when merging.
+
+{End conditional.}
 ```
 
-That last section is deliberate: it makes a truncated run self-describing from **inside** the pipeline. The operator's terminal log is not something the plugin owns — a session killed mid-response has no execution point left to annotate it — but the report can state what had and had not run at the moment it was written.
+**Successor-promotion line (`sub-issues-sequential` chains).** Read `statectl get "$ISSUE_NUMBER" '.successorKey'`. When it is non-null, render the line in **both** the PR body and the run report, as shown above; when it is null or absent, render nothing at all — no empty heading, no "n/a". The field is written at Stage 1 from this issue's own `Successor:` trailer (state-schema.md `successorKey`). Ordering enforcement keeps a blocked successor out of the queue, so promotion is an operator action at merge time; surfacing it on the predecessor's PR is what makes a forgotten label a visible omission rather than a silently stalled chain.
+
+That last report section is deliberate: it makes a truncated run self-describing from **inside** the pipeline. The operator's terminal log is not something the plugin owns — a session killed mid-response has no execution point left to annotate it — but the report can state what had and had not run at the moment it was written.
 
 **PR body template** (single, always-draft):
 
@@ -233,6 +241,12 @@ That last section is deliberate: it makes a truncated run self-describing from *
 Closes #{ISSUE_NUMBER}
 
 > Opened as draft. Flip to ready-for-review after human eyes confirm.
+
+{If state `.successorKey` is non-null, include — otherwise render NOTHING, not an empty section:}
+
+> **On merge:** label #{successorKey} `ready-for-dev` — it is the next issue in this sequential chain and is deliberately unqueued until this PR lands.
+
+{End conditional.}
 
 ## Summary
 
@@ -333,7 +347,7 @@ dev-pipeline run: ${RUN_ID}
 
 ## Cost-block sub-step (in-band, opt-in)
 
-After every PR in `prs` has its URL recorded, invoke the cost-block sub-step to amend each PR body with the cost block. It is idempotent on the `<!-- pipeline-cost-block -->` marker. It records its own outcome to `costBlockApplied` in the state file and **never blocks Stage 9 completion** — the caller below invokes it without checking rc.
+After every PR in `prs` has its URL recorded, invoke the cost-block sub-step to amend each PR body with the cost block. It is idempotent on the `<!-- pipeline-cost-block -->` marker. It records its own outcome to `costBlockApplied` in the state file. **Ordering contract (#243): the cost-block sub-step MUST precede `set-stage 9 --status completed`** — mirroring `pr-add`'s contract above — because `costBlockApplied` is now completion evidence: the Stage-9 precondition refuses while it is null/absent (recorded-non-null is the gate; boolean `true` and every documented `skipped-*` string satisfy it, so a degraded environment still completes). The caller still never checks the sub-step's rc — the one path that leaves the field null is the rc-2 state-unresolvable exit, and an auto run halting there is the intended draconian outcome (the #188 mis-anchor class must not ship silently).
 
 **Anchor the sub-step at the CONTROL repo's state (#188).** `pipeline-cost-block.sh` resolves its state file from `$PWD`'s git-common-dir. A cross-repo run whose cwd at this point is not the control repo (e.g. a bespoke setup that drives a foreign FE checkout via `--add-dir`) would anchor to the wrong repo, find no state, and — before this fix — exit silently leaving `costBlockApplied: null`. Export the control-repo root so `resolve_state()` (which already honors `SECOND_SHIFT_REPO_ROOT`) always finds the real state, for **all topologies** — a no-op for `standalone`/`monorepo` (the export equals what `resolve_state()` would derive anyway) and the fix for the be-fe-pair path (whose cwd here is the control main checkout):
 
@@ -346,7 +360,13 @@ After every PR in `prs` has its URL recorded, invoke the cost-block sub-step to 
 # worktree top, not the control root. Operators of a truly foreign cwd (no git link
 # back to control) set STATECTL_STATE_DIR themselves; see cost-tracking-setup.md.
 export SECOND_SHIFT_REPO_ROOT="$(dirname "$(cd "$(git rev-parse --git-common-dir)" && pwd)")"
-bash pipeline-cost-block.sh "$ISSUE_NUMBER"
+# Anchor the helper to the PLUGIN checkout, exactly as Stage 6 resolves verifyctl.sh:
+# it ships at skills/run/ (a sibling of statectl.sh), NOT under skills/run/tools/, and
+# never in the de-vendored consumer repo — so a bare `bash pipeline-cost-block.sh` only
+# resolves when cwd happens to be that dir, and a tools/ guess fails ENOENT.
+COST_BLOCK="${CLAUDE_PLUGIN_ROOT:-}/skills/run/pipeline-cost-block.sh"
+[[ -x "$COST_BLOCK" ]] || COST_BLOCK="$(dirname "$(command -v statectl.sh)")/pipeline-cost-block.sh"
+bash "$COST_BLOCK" "$ISSUE_NUMBER"
 ```
 
 What it does: reads `pipelineSessions[]`, queries the OTel metrics for those sessions clamped to the run's wall-clock fence, buckets the in-fence datapoints into the `stages.{N}` windows, and appends a cost block to each PR body — idempotent on the `<!-- pipeline-cost-block -->` marker. The mechanism, the write identity (bot wrapper vs operator `gh`), and the full `costBlockApplied` string catalog are specified in [`cost-tracking-setup.md`](../cost-tracking-setup.md).
@@ -359,7 +379,17 @@ A missing prerequisite records a descriptive `costBlockApplied` string and exits
 
 **Setup:** see [`cost-tracking-setup.md`](../cost-tracking-setup.md) for OTel collector install + telemetry env vars. There is no per-engineer hook-wiring step.
 
-**State:** After the sub-step returns, write the terminal top-level status via `statectl`: `statectl.sh mark-completed "$ISSUE_NUMBER"` (atomic `status: "completed"` + `lastUpdatedAt` bundle; refuses to overwrite an already-terminal state without `--force`). Order it AFTER `set-stage 9 --status completed` — `set-stage` rejects mutations once the top-level status is terminal.
+## Waiver acceptance flow (#243 — waived runs only)
+
+When `waivers[]` is non-empty (the run forced past at least one gate), the terminal write is operator-gated: `mark-completed` refuses — plain `--force` does not bypass — until `mark-completed --accept-waivers`. Before accepting, the operator makes the waivers visible where humans read:
+
+1. The run report MUST carry a `## Waivers` section (one line per waiver) — `require_report_file` refuses the acceptance without it.
+2. Amend each PR body with an idempotent `<!-- pipeline-waivers -->` block listing the waivers (same marker pattern and write identity as the cost block: build a fresh per-post body file, `$GH_BOT api -X PATCH` the PR). A forced run must LOOK forced to every human who sees its output.
+3. Then `statectl mark-completed "$ISSUE_NUMBER" --accept-waivers` — the acceptance itself is recorded (`waiversAccepted: {at, count}`).
+
+A waiver appended by the terminalizing invocation itself (the forced re-terminalization crash-recovery path) surfaces via state + the retro only — declared accepted residue (state-schema.md "Operator-authorized `--force`").
+
+**State:** After the sub-step returns, write the terminal top-level status via `statectl`: `statectl.sh mark-completed "$ISSUE_NUMBER"` (atomic `status: "completed"` + `lastUpdatedAt` bundle; refuses to overwrite an already-terminal state without a reason-carrying `--force` from an attended shell — `DEV_PIPELINE_MODE=interactive`, #243 — and refuses a waived run outright without `--accept-waivers`). Order it AFTER `set-stage 9 --status completed` — `set-stage` rejects mutations once the top-level status is terminal.
 
 `mark-completed` additionally enforces three terminal gates, **not** bypassed by `--force`: every stage 1–9 must be `completed`; the Post-Run Eval file (`.claude/pipeline-state/{issue}-eval.json`, SKILL.md "Post-Run Eval") must exist with a plausible score — **so the eval write must precede `mark-completed`**; and the run report (`.claude/pipeline-state/{issue}-report.md`, the "Run report" sub-step above) must exist and carry its marker plus real content.
 

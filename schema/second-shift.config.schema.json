@@ -172,8 +172,8 @@
         },
         "modelOverrides": {
           "type": "object",
-          "description": "Per-agent model-tier override, keyed by any agent the .mjs dispatch tables model — panel reviewers AND named workflow agents like mutation-executor (EP-4). Observed need: security-reviewer opus in one repo, sonnet in another. check-model-tiers validates .mjs tables against frontmatter + these overrides.",
-          "additionalProperties": { "enum": ["haiku", "sonnet", "opus"] }
+          "description": "Per-agent model-tier override, keyed by any agent the .mjs dispatch tables model — panel reviewers AND named workflow agents like mutation-executor (EP-4). Observed need: security-reviewer opus in one repo, sonnet in another. check-model-tiers validates .mjs tables against frontmatter + these overrides. Values must be tiers this consumer's subscription can actually dispatch — an inaccessible tier surfaces as a dead reviewer and the gate fails closed. `fable` is override-only: never a shipped default, and a check-model-tiers error if it appears in a shipped dispatch table.",
+          "additionalProperties": { "enum": ["haiku", "sonnet", "opus", "fable"] }
         }
       }
     },
@@ -269,7 +269,12 @@
           "default": ["apps/web/**/*.{tsx,jsx}"],
           "description": "Stage-8 web-component surface: the globs whose presence in the diff route the a11y reviewer and the design-fidelity reviewer. Set this when the FE is not React-under-apps/web — e.g. [\"src/app/**/*.{html,ts}\"] (Angular), [\"src/**/*.vue\"] (Vue), [\"app/**/*.tsx\"] (React Router v7). Distinct from stageParams.visualCapture.triggerGlobs, which gates screenshot capture and includes CSS/tailwind config."
         },
-        "formatGlob": { "type": "string", "default": "*.{ts,tsx,js,json,md}" }
+        "formatGlob": { "type": "string", "default": "*.{ts,tsx,js,json,md}" },
+        "inertPattern": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Stage-6 INERT-lane classifier override: an extended regular expression that REPLACES the shipped inert set outright. Omit to keep the default, which is JS/TS-centric — it treats *.md, *.sh, .github/workflows/*.yml and .claude/** data files as inert because a JS/TS lint/type-check/test suite gives them zero coverage. Set this when your product surface IS one of those extensions: on a shell-and-Markdown repo the default classifies every real diff inert, so the configured lint/test lanes never run and Stage 6 reports a false green. Replace-not-merge is deliberate — only replacement can REMOVE an alternative such as \\.sh$; the value is a hand-copy and will not inherit future additions to the default. An uncompilable pattern is rejected by config-lint, and fails closed to the full suite at runtime."
+        }
       }
     },
     "stageWorkflows": {

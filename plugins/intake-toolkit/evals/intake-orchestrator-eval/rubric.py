@@ -63,10 +63,11 @@ You will be given:
       reclassifications for the same input (e.g., a rewrite that the prompt
       says "reclassify as feature/refactor"). If absent, only expected.type
       earns d1=2.
-    - expected.verdict: one of no-split / sub-issues / stacked-prs / escalate / skip-already-decomposed
+    - expected.verdict: one of no-split / sub-issues / sub-issues-sequential / escalate / skip-already-decomposed
     - expected.pass: true if the spec passes review, false if it should fail/escalate
-    - expected.sub_issue_count (if verdict=sub-issues): how many slices should be created
-    - expected.stacked_pr_count (if verdict=stacked-prs): how many stacked PRs
+    - expected.sub_issue_count (if verdict=sub-issues or sub-issues-sequential): how many
+      slices should be created. One key covers BOTH flavors — they differ in ordering
+      and queue labelling, not in slice count, and share one cap of 5.
     - expected.escalation_reason (if applicable): e.g. "needs-intake-review", "needs-spec-work"
     - expected.planted_false_positives: array of strings describing false-positive findings
       that were planted in the mocked spec-reviewer output; the orchestrator MUST dismiss each
@@ -114,13 +115,22 @@ d1_type_classification (0, 1, or 2) — Issue type classification correctness.
 
 d2_decomposition_verdict (0, 1, or 2) — Decomposition decision correctness.
   2 if the orchestrator's verdict matches expected.verdict, and if verdict is
-    sub-issues or stacked-prs, the count is within ±1 of expected.sub_issue_count /
-    expected.stacked_pr_count.
-  1 if the verdict direction is right (sub-issues vs stacked-prs vs no-split) but
-    the count is off by more than 1, OR the verdict is defensible given the spec
-    but not the expected one.
-  0 if the verdict is wrong (e.g. no-split when expected was stacked-prs, or
+    sub-issues or sub-issues-sequential, the count is within ±1 of
+    expected.sub_issue_count.
+  1 if the verdict direction is right (splitting vs not splitting) but the count is
+    off by more than 1, OR the verdict is defensible given the spec but not the
+    expected one.
+  0 if the verdict is wrong (e.g. no-split when expected was a split, or
     sub-issues when expected was escalate).
+
+  The two sub-issue flavors are DISCRIMINATED, not interchangeable: emitting
+  `sub-issues` where `sub-issues-sequential` was expected (or the reverse) scores 0
+  on this dimension, not 1. They are not two spellings of one decision — the
+  parallel flavor queues every slice at once, the sequential flavor holds all but
+  the first out of the queue behind Predecessor:/Successor: trailers. Getting it
+  wrong either ships work in an order its dependencies cannot support, or serializes
+  independent work and costs the operator a merge round-trip per slice for nothing.
+  The defensibility test below may still apply on its own terms.
 
   Defensibility test (apply BEFORE awarding 0): the intake-orchestrator's Step 4
   rubric (see `.claude/agents/intake-orchestrator.md`) lists explicit criteria
@@ -130,9 +140,10 @@ d2_decomposition_verdict (0, 1, or 2) — Decomposition decision correctness.
     - sub-issues: (a) distinct capabilities that don't share state;
       (b) dependency analysis shows independent groups; (c) each part in a
       different module or bounded context; (d) parts can be merged in any order.
-    - stacked-prs: (a) clear chain in dependency analysis; (b) parts share a
-      module but add incrementally; (c) each part is meaningful and reviewable
-      on its own.
+    - sub-issues-sequential: (a) clear chain in dependency analysis; (b) parts
+      share a module but add incrementally; (c) parts would collide on the same
+      file if worked in parallel; (d) each part is meaningful and reviewable on
+      its own.
   Score the orchestrator's reasoning against the criteria of the verdict it
   chose. Award d2=1 (not 0) when BOTH:
     - The chosen verdict is justified by 2+ criteria from its own bullet list
@@ -161,10 +172,9 @@ d3_subagent_skepticism (0, 1, or 2) — Dismisses planted false positives from m
 
 d4_threshold_respect (0 or 1) — Thresholds from the agent spec are honored.
   1 if: (a) if expected.sub_issue_count > 5 the orchestrator escalates rather than
-  creates; (b) if expected.stacked_pr_count > 3 the orchestrator escalates; (c) it
-  does not create more than 5 sub-issues or plan more than 3 stacked PRs; (d) if
-  mocked spec-review contains >3 true blockers the orchestrator stops evaluating
-  further blockers.
+  creates; (b) it does not create more than 5 sub-issues in EITHER flavor (one cap,
+  both flavors); (c) if mocked spec-review contains >3 true blockers the
+  orchestrator stops evaluating further blockers.
   0 if any of the above caps is violated.
 
 d5_escalation_appropriateness (0 or 1) — Escalates when expected to; doesn't when not.

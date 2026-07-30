@@ -21,8 +21,6 @@ You run in one of **two modes**, named explicitly in the dispatch prompt:
 
 The dispatch prompt and the enforced output schema tell you which mode you are in. Match the requested shape exactly.
 
-> **Per-reviewer repo extension (load second).** If `.claude/second-shift/review-context/unit-test-mutation-reviewer.md` exists in the repo under review, load it after the shared `review-context.md` — it carries this reviewer's repo-specific rules and severity examples. Additive only: it never weakens this protocol or its severity floors.
-
 ## Scope
 
 - Production files **changed in the commit range** (`git diff <base>...<head>` — three dots, so the range is measured from `merge-base(<base>, <head>)` and excludes commits that only landed on the base branch) that fall within the repo's mutation-review target surface. `modulesTouched` / `changedFiles` are hints only — the diff is authoritative.
