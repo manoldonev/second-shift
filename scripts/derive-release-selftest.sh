@@ -261,6 +261,39 @@ git add -A
 git commit -qm "docs: no plugin surface (#19)"
 if bash "$TRAILER" v2.0.0 > /dev/null 2>&1; then ok "trailer gate skips non-plugins PR (AC-5)"; else bad "trailer gate demanded a trailer on a non-plugins PR"; fi
 
+# --- frozen-files ADVISORY tier: .github/workflows/** warns, never fails (#273 AC-6) ---
+# The advisory row exists because this script runs as a step inside the very workflow it would
+# freeze; the intended enforcer is a server-side push ruleset. A hard row would red-line every
+# sanctioned workflow change with no escape. These two cases pin BOTH halves of that contract:
+# the row is loud, and it is powerless to fail a run on its own.
+git checkout -q v2.0.0
+git checkout -qb workflow-pr
+mkdir -p .github/workflows
+printf 'name: fixture\non: push\n' > .github/workflows/fixture.yml
+git add -A
+git commit -qm "chore: touch a workflow file (#20)"
+FROZEN_OUT="$WORK/frozen-advisory.log"
+bash "$FROZEN" v2.0.0 > "$FROZEN_OUT" 2>&1
+rc=$?
+if [[ $rc -eq 0 ]]; then ok "frozen-files: a workflow-only PR still exits 0 — the row is advisory (AC-6)"
+else bad "frozen-files: workflow edit failed the gate (rc=$rc) — the row must be warn-only"; fi
+assert_contains "frozen-files: the workflow edit is announced as an advisory (AC-6)" "advisory: this PR edits .github/workflows/**" "$FROZEN_OUT"
+assert_contains "frozen-files: the workflow file is named in the advisory (AC-6)" ".github/workflows/fixture.yml" "$FROZEN_OUT"
+assert_contains "frozen-files: the summary distinguishes clean-with-advisories from clean (AC-6)" "advisory notice(s) above" "$FROZEN_OUT"
+
+# The advisory row must not MASK a real violation: a workflow edit plus a frozen-file edit
+# still exits 1. Without this case, "warn-only" could silently have been implemented as
+# "short-circuit before the hard rows".
+git checkout -q v2.0.0
+git checkout -qb workflow-plus-violation
+mkdir -p .github/workflows
+printf 'name: fixture2\non: push\n' > .github/workflows/fixture2.yml
+echo "manual entry" >> CHANGELOG.md
+git add -A
+git commit -qm "chore: workflow edit alongside a frozen-file edit (#21)"
+if bash "$FROZEN" v2.0.0 > /dev/null 2>&1; then bad "frozen-files: advisory row masked a real CHANGELOG violation"
+else ok "frozen-files: the advisory row does not mask a hard violation (AC-6)"; fi
+
 echo "== configVersion migration-doc gate =="
 CFGGATE="$HERE/check-configversion-migration-doc.sh"
 git checkout -q v2.0.0
