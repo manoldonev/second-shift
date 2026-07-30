@@ -690,6 +690,34 @@ else
   bad "(x) shard 1/2 warned about another shard's row (or reded); rc=$RC"; printf '%s\n' "$OUT" | tail -4
 fi
 
+echo "(y) killer stdin isolation — a killer cannot consume the harness's stdin"
+# Invariant: run_killer gives each killer its own /dev/null stdin. 30 of the 48 swept
+# guards contain a read loop; a mutant that breaks one's input redirection leaves it
+# reading whatever stdin the harness inherited, which on a CI runner never reaches EOF.
+# The sweep then blocks with no further output until the job times out or the runner is
+# lost — the failure mode that destroyed four runs and their logs before it was found.
+# Asserted by consumption rather than by hanging: the case would otherwise have to BLOCK
+# to fail, which is untestable in CI. A killer that eats the sentinel here is one that
+# would block on a real guard's read.
+FX="$(new_fixture strong)"
+baseline_with "$FX"
+cat > "$FX/guard-selftest.sh" <<'EOF'
+#!/usr/bin/env bash
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# Isolated stdin makes this EOF at once; leaked stdin makes it eat the caller's sentinel.
+IFS= read -r _ 2>/dev/null || true
+out="$(bash "$HERE/guard.sh" bad)"; rc=$?
+[[ $rc -eq 1 && "$out" == "violation" ]] || exit 1
+exit 0
+EOF
+( cd "$FX" && git add -A && git -c user.email=f@e.invalid -c user.name=f commit -qm stdin ) >/dev/null 2>&1
+LEFTOVER="$( printf 'SENTINEL\n' | { ( cd "$FX" && enf bash "$SWEEP" --mode full ) >/dev/null 2>&1; IFS= read -r l || true; printf '%s' "$l"; } )"
+if [[ "$LEFTOVER" == "SENTINEL" ]]; then
+  ok "harness stdin survived the killer runs"
+else
+  bad "(y) a killer consumed the harness's stdin (leftover='$LEFTOVER'); a guard's read loop would block here instead"
+fi
+
 # ======================================================== live-tree lint cases
 # (j) and (k) run against the REAL tree, not a fixture. They are pure resolution/parse
 # lints — no mutation, no sandbox, no suite execution — so they are cheap enough for both

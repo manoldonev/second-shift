@@ -544,8 +544,17 @@ splice_line() {
 
 # Run one killer inside the sandbox. Kill = ANY nonzero exit; crash-kills count as kills
 # (nonzero is nonzero — the assertion-vs-crash diagnostic is deferred to #248).
+# `</dev/null` is the difference between a sweep that finishes and one that hangs until the
+# runner is killed. stdout and stderr were always redirected; stdin was not, so a killer
+# inherited the harness's. 30 of the 48 swept guards contain a `read` loop, and a mutant
+# that breaks one's input redirection leaves it reading the INHERITED stdin — which on a
+# CI runner never reaches EOF. The suite then blocks forever: the shard emits no further
+# `swept` line and dies to the job timeout or to the runner losing communication, with the
+# log blob unfinalized and no artifact, which is why four separate runs produced no
+# diagnosis. With stdin isolated the stray read hits EOF at once, the suite exits nonzero,
+# and the mutant simply scores as killed.
 run_killer() {
-  ( cd "$SANDBOX" && bash "$1" ) >/dev/null 2>&1
+  ( cd "$SANDBOX" && bash "$1" ) >/dev/null 2>&1 </dev/null
 }
 
 # Cheapest-first is a pure cost optimization: it short-circuits on a KILL, so the
@@ -558,7 +567,12 @@ order_killers() {
 TOTAL_SURVIVORS=""
 add_survivor() { TOTAL_SURVIVORS="${TOTAL_SURVIVORS:+$TOTAL_SURVIVORS }$1"; }
 
-for guard in "${SWEEP_GUARDS[@]}"; do
+# `${a[@]+"${a[@]}"}`, not `"${a[@]}"`: an empty shard is a NORMAL seed outcome (it still
+# publishes a headed empty baseline so the merge does not red on a missing artifact), and
+# bash 3.2 treats expanding an empty array under `set -u` as an unbound variable. bash 4.4
+# fixed that, so the plain form passes every ubuntu lane and fails only on the macOS lane
+# this repo keeps for exactly this class. Same idiom as the PR_SWEPT expansion above.
+for guard in ${SWEEP_GUARDS[@]+"${SWEEP_GUARDS[@]}"}; do
   KS="$(kill_set_for "$guard")"
   KS_ORDERED="$(order_killers "$KS" | tr '\n' ' ')"
   GFILE="$SANDBOX/$guard"
