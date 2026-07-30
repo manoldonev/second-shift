@@ -36,10 +36,14 @@ reading the codebase supports; this plan implements that reading.
 
 - `review-toolkit` is a guaranteed co-install. Verified: `onboard`'s baseline set installs it
   unconditionally, and two agents in this same plugin already adopt it cross-plugin.
-- Both target agents are dispatched under a JSON schema by
-  `plugins/dev-pipeline/skills/run/workflows/figma.mjs` (`kind: 'gate'`, `severity` enum
-  `blocker|major|minor|nit`, `verdict` enum `block|fix-and-go|pass|unreachable`). The reconciliation
-  paragraph AC-4 requires exists because of this dispatch, not as decoration.
+- Both target agents are dispatched by `plugins/dev-pipeline/skills/run/workflows/figma.mjs`
+  (`kind: 'gate'`). That dispatch is **schema-free** since `#169`: the agent writes its review and
+  ends with a `REVIEW_RESULT` sentinel followed by one fenced JSON block
+  (`verdict: block|fix-and-go|pass|unreachable`, `findings[].severity: blocker|major|minor|nit`),
+  which the script parses; `GATE_SCHEMA` is an in-script validator, and only the transcription-only
+  `structured-emitter` fallback ever carries it. The reconciliation paragraph AC-4 requires exists
+  because of this dispatch, not as decoration — and it must describe the **sentinel** contract, not
+  a StructuredOutput call.
 - No relative markdown path from `plugins/design-toolkit/agents/` to the baseline survives both the
   repo layout and the installed-cache layout, so the reference is by name.
 - Line numbers in the issue body are hints against the base commit, not anchors.
@@ -53,6 +57,8 @@ reading the codebase supports; this plan implements that reading.
 | D-3 | How the adopting agents reference the baseline in-body | By name (`review-toolkit:reviewer-baseline`), not a relative link. The two existing adopters use a parent-relative markdown link that resolves into `plugins/design-toolkit/skills/`, where the skill does not live (it is under `plugins/review-toolkit/skills/reviewer-baseline/`); and no relative path is correct in both the repo and the installed-cache layouts. Fixed in the same PR. | codebase-derived |
 | D-4 | Whether AC-1's removed sync note becomes a lockstep row or a DROPPED entry | DROPPED entry. Single-homing removes the second copy, so there is no two-copy contract left to anchor — a lockstep row needs a byte-identical block in both files. `scripts/lockstep-manifest.tsv` already carries DROPPED entries with exactly this reasoning shape. | codebase-derived |
 | D-5 | Whether the dropped-banner lesson is deleted everywhere | No. Three sites embed it in operative rule text (a `[Warning]` capture rule, a spec step, a template instruction); only standalone narrative retellings are deleted. Deleting the rules would remove the guard the anecdote exists to teach. | ticket-sourced — the AC-3 inventory in the rev-3 body |
+| D-6 | What the new reconciliation paragraphs say about the output transport | The **sentinel** contract (`REVIEW_RESULT` + one fenced JSON block), not "StructuredOutput is your sole output". Verified in `figma.mjs`: the gate `agent()` is dispatched schema-free with a sentinel epilogue and the result is parsed in-script. The existing `figma-faithful-reviewer.md` paragraph this plan otherwise reuses as its shape carries the pre-`#169` StructuredOutput claim; copying it verbatim would propagate a falsehood into two more files. | codebase-derived |
+| D-7 | Whether to correct that stale clause in `figma-faithful-reviewer.md` | Yes — one clause, on the same sentence AC-4 already sends this PR to edit for the broken link. Shipping a correct transport paragraph in two new files while knowingly leaving the wrong one in the third re-creates the drift this ticket exists to remove. Out-of-AC by the letter, so it is recorded as a disclosed deviation rather than folded in silently. | codebase-derived |
 
 ## Affected files/modules
 
@@ -101,26 +107,44 @@ No new helpers introduced.
    spec-only deltas that have no figma-faithful counterpart: the fifth MCP tool
    (`get_code_connect_map`) and the spec-side terminal sentence ("do not transcribe from a static
    image alone"). Confirm `figma-iterate`'s pointer still names a section that exists.
-3. **AC-2 branded-surface pointers.** In `figma-faithful/SKILL.md`, reduce the branded passages to
-   their operative one-liner plus a by-name pointer to `figma-faithful-reviewer`'s
+3. **AC-2 branded-surface pointers.** `figma-faithful/SKILL.md` has seven "branded / host-relative"
+   mentions; only **four are branded-surface rules** and in scope — the step-4 token-mapping bullets
+   (the color bullet and the sizing bullet, one passage), the step-8 write-the-code paragraph, the
+   hard-rule "No raw literals when an abstraction exists" bullet, and the worked
+   **Branded-surface contrast** example. The other three are out of scope and stay untouched: the
+   two design-system-reference load notes (they say *where to find* the rules, not what they are)
+   and the second half of the step-4 sizing bullet. Reduce each in-scope passage to its operative
+   one-liner plus a by-name pointer to `figma-faithful-reviewer`'s
    `## Branded / host-relative surface rules` section. Same for
-   `figma-faithful-plan-reviewer.md`'s branded rule. `design-faithful-reviewer.md` is untouched.
+   `figma-faithful-plan-reviewer.md`'s branded token-row rule. `design-faithful-reviewer.md` is
+   untouched.
 4. **AC-4 adoption.** Add `skills: reviewer-baseline` to both agents' frontmatter (neither has a
    `skills:` key today — this is a net-new line). Drop each agent's `## Evidence Requirement`
    block. Add a `## Reviewer baseline` section `[NEW]` to each, modeled on `figma-faithful-reviewer.md`'s,
    stating that Output Mode governs (StructuredOutput is the sole output under the schema dispatch)
-   and carrying the local→schema severity mapping (Blocker → `blocker`, Warning → `major` for a
-   contract gap that forces a guess / `minor` otherwise, Note → `nit`) as superseding the baseline's
-   Critical/Warning/Pre-existing table. Retain: the ladder, the fenced `## Final Verdict
-   (single-pass output)` template, the trinary rule table, the empty-review rule, the `N/A` rule.
-   Diff-check that `### Verdict: block | fix-and-go | pass` is byte-identical in both files.
-5. **AC-4 link fix.** Replace the broken `[reviewer-baseline](../skills/reviewer-baseline/SKILL.md)`
-   links in `figma-faithful-reviewer.md` and `design-faithful-reviewer.md` with the by-name form.
+   and carrying the local→emitted-JSON severity mapping (Blocker → `blocker`, Warning → `major` for
+   a contract gap that forces a guess / `minor` otherwise, Note → `nit`) as superseding the
+   baseline's Critical/Warning/Pre-existing table. State the transport as it actually is (D-6): the
+   `figma.mjs` gate dispatch is schema-free and the review ends with the `REVIEW_RESULT` sentinel +
+   one fenced JSON block — the mapping governs that block's `severity` field. Retain: the ladder,
+   the fenced `## Final Verdict (single-pass output)` template, the trinary rule table, the
+   empty-review rule, the `N/A` rule. Diff-check that `### Verdict: block | fix-and-go | pass` is
+   byte-identical in both files.
+5. **AC-4 link fix.** Replace the broken parent-relative baseline links in
+   `figma-faithful-reviewer.md` and `design-faithful-reviewer.md` with the by-name form. On the same
+   `figma-faithful-reviewer.md` sentence, correct the stale pre-`#169` "StructuredOutput is your
+   sole output" clause to the sentinel contract (D-7) and record it via
+   `statectl deviations-add` — it is a disclosed out-of-AC correction, not a silent one.
 6. **AC-1 register entry.** Add a DROPPED entry `[NEW]` to `scripts/lockstep-manifest.tsv` recording that
    single-homing removed the two-copy contract, in the file's existing comment-block style.
 7. **AC-5 verification + re-snapshot.** Run the full verification suite, then
    `prose-budget.sh --update-baseline`, and commit the re-snapshot. Diff the baseline to enumerate
    any unrelated drift the whole-repo flag absorbed.
+8. **`Changelog:` trailer.** Six of the eight affected files are under `plugins/**`, so
+   `scripts/check-changelog-trailer.sh` requires a `Changelog:` trailer in the commit body — the
+   implementation commit carries one describing the consumer-visible change (the two agents now
+   inherit the shared reviewer baseline; the figma skills single-home their capability block).
+   Trailers are extracted grep-anywhere, so one commit on the branch satisfies the squash.
 
 ## Test strategy
 
@@ -131,8 +155,10 @@ real are recorded in `scripts/lockstep-manifest.tsv` (step 6), which is the sanc
 
 The guards that actually exercise this change:
 
-- `scripts/check-lockstep-pairs.sh` via the selftest sweep — validates the manifest edit parses and
-  every live row still matches.
+- `scripts/check-lockstep-pairs.sh` via the selftest sweep — validates the manifest still parses and
+  every **live row** still matches. Note the honest limit: a DROPPED entry is a comment block, not a
+  parsed row, so the sweep does not validate AC-1's entry — it is a recorded decision, and the whole
+  point of DROPPED is that single-homing leaves nothing byte-anchorable to guard.
 - The full `*-selftest.sh` sweep — proves no consumer of these files broke (the frontmatter edit is
   the only machine-read change; `check-model-tiers.sh` reads these agents' `model:` lines).
 - `shellcheck` + `jq empty` — unchanged surfaces, run because AC-5 names them.
@@ -148,11 +174,11 @@ docs/config-only with no behavior change.
 
 | AC ID | Criterion (short) | Step(s) | Test(s) |
 | --- | --- | --- | --- |
-| AC-1 | Capability block + node-resolve single-homed in figma-faithful; sync note gone; figma-iterate pointer survives; lockstep DROPPED entry | 2, 6 | `check-lockstep-pairs.sh` via selftest sweep; manual pointer-resolution check — no test (covered-by-selftest) |
+| AC-1 | Capability block + node-resolve single-homed in figma-faithful; sync note gone; figma-iterate pointer survives; lockstep DROPPED entry | 2, 6 | — no test (infra-only) |
 | AC-2 | Branded rules canonical in figma-faithful-reviewer; other copies are pointers with the operative line inline | 3 | — no test (covered-by-selftest) |
 | AC-3 | Three standalone retellings deleted; three operative rules keep their rule text | 1 | — no test (covered-by-selftest) |
 | AC-4 | Both agents declare `skills: reviewer-baseline`, drop Evidence Requirement, keep ladder/template/trinary/empty-review/`N/A`, carry the reconciliation + schema mapping, enum byte-identical, baseline referenced by name, two broken links fixed | 4, 5 | `check-model-tiers.sh` + selftest sweep (frontmatter parse); byte-diff of the enum line — no test (covered-by-selftest) |
-| AC-5 | Baseline re-snapshot committed; selftests + shellcheck + jq green; PR body labels drift-prevention and enumerates absorbed drift | 7 | the verification commands below |
+| AC-5 | Baseline re-snapshot committed; selftests + shellcheck + jq green; PR body labels drift-prevention and enumerates absorbed drift | 7, 8 | the verification commands below; `check-changelog-trailer.sh` + `check-frozen-files.sh` in CI |
 
 ## Verification commands
 
