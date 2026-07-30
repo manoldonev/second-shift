@@ -53,6 +53,7 @@ The `Skill` branch is therefore live, and correcting the two stale claims is par
 - `plugins/audit-toolkit/scripts/audit-selftest.sh` — cases `Test 5` `[NEW]`, `Test 6` `[NEW]`, `Test 7` `[NEW]`, `Test 8` `[NEW]`, `Test 9` `[NEW]` covering the per-tool mapping, truncation, and the empty case.
 - `plugins/audit-toolkit/skills/audit/QUERIES.md` — row-schema block (`:3-15`), the two dead `args_excerpt` queries (`:68`, `:74`), the stale Tips note (`:89-90`), plus the `audit-row-fields` lockstep anchor.
 - `scripts/lockstep-manifest.tsv` — the `audit-row-fields` pair `[NEW]` and the DROPPED reasoning for the hook leg.
+- `plugins/dev-pipeline/skills/pipeline-retro/SKILL.md` and `plugins/dev-pipeline/skills/run/state-schema.md` — added at Stage 7 (doc update), one clause each. Both described the `skillsLoaded[]` cross-check in its old count-only form; with `target` present it is an identity diff. Disclosed as a `deferred`-kind deviation rather than silently widening the plan.
 - `plugins/audit-toolkit/skills/audit/SETUP.md` — the row field list (`:25`).
 - `plugins/audit-toolkit/skills/audit/SKILL.md` — the false `Skill()`-invisibility bullet (`:19`); the observability framing (`:10`).
 - `plugins/audit-toolkit/skills/audit-history/SKILL.md` — the false `Skill()`-invisibility limitation (`:37`).
