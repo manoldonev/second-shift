@@ -3057,4 +3057,13 @@ main() {
   fi
 }
 
-main "$@"
+# Dispatch only when EXECUTED, not when SOURCED. Every production caller runs this
+# file (`bash statectl.sh …` / `"$STATECTL" …`), where $0 and BASH_SOURCE[0] are the
+# same path, so the guard is a no-op for them. Sourcing exists for one reason: some
+# branches of apply_session_seam are not reachable through any subcommand, because
+# every subcommand reads through read_state first and read_state refuses a degraded
+# state file before atomic_write is ever called. Without this guard those branches
+# could only be asserted by prose. See statectl-selftest.sh (sr8b).
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+  main "$@"
+fi

@@ -1320,6 +1320,45 @@ after_bytes=$(cat "$STATECTL_STATE_DIR/9999.json")
   && pass "(sr8) unparseable predecessor → subcommand refuses at read_state, file left intact (seam never reached)" \
   || fail "(sr8) rc=$rc err='$err' fileChanged=$([[ "$before_bytes" == "$after_bytes" ]] && echo no || echo yes)"
 
+# (sr8b) …and the seam's OWN unparseable branch, asserted directly. (sr8) proves no
+# subcommand can deliver a corrupt predecessor to the seam; that makes the branch
+# unreachable through the CLI, not absent — and an unreachable branch asserted only
+# in prose is exactly the dark-gate shape this repo's testing rules exist to stop.
+# statectl.sh's main() is guarded by a BASH_SOURCE/$0 check, so sourcing defines the
+# helpers without dispatching, and the seam can be called on its own. Contract: stamp,
+# NO span, and — the part that matters — return successfully rather than failing the
+# host write, which is where the removed subcommand died.
+reset_state
+printf 'not json{' > "$STATECTL_STATE_DIR/9999.json"
+seam_rc=0
+seam_out=$(
+  # shellcheck source=/dev/null
+  . "$STATECTL" >/dev/null 2>&1
+  CLAUDE_CODE_SESSION_ID="$SESSION_B" apply_session_seam 9999 \
+    '{"ticketKey":"9999","status":"in_progress","lastUpdatedAt":"2026-01-01T00:00:00Z"}'
+) || seam_rc=$?
+seam_stamp=$(jq -r '.lastWriteSessionId // "NONE"' <<< "$seam_out" 2>/dev/null || echo "UNPARSEABLE")
+seam_spans=$(jq -r '.pauseSpans // "ABSENT"' <<< "$seam_out" 2>/dev/null || echo "UNPARSEABLE")
+if [[ "$seam_rc" == "0" && "$seam_stamp" == "$SESSION_B" && "$seam_spans" == "ABSENT" ]]; then
+  pass "(sr8b) seam on an unparseable predecessor → stamps, no span, does NOT fail the host write"
+else
+  fail "(sr8b) rc=$seam_rc stamp=$seam_stamp spans=$seam_spans out='${seam_out:0:120}'"
+fi
+
+# (sr13) in_progress predecessor that parses and HAS a .lastUpdatedAt but carries NO
+# stored lastWriteSessionId — a run that was mid-flight when this feature shipped.
+# D-6's migrate-by-absence path, and reachable through the CLI unlike (sr8b). There is
+# no stored id to differ from, so the write must stamp and append NO span: emitting one
+# here would invent an idle gap on every pre-existing run's first post-upgrade write.
+reset_state
+printf '{"ticketKey":"9999","runId":"selftest-run","status":"in_progress","currentStage":3,"startedAt":"2026-01-01T00:00:00Z","lastUpdatedAt":"2026-01-01T00:00:00Z","stages":{}}\n' \
+  > "$STATECTL_STATE_DIR/9999.json"
+rc=$(sct_rc checkpoint 9999 1 --json '{"note":"first write after the upgrade"}')
+[[ "$rc" == "0" && "$(sct get 9999 '.lastWriteSessionId')" == "$SESSION_A" \
+   && "$(sct get 9999 '.pauseSpans // "ABSENT"')" == "ABSENT" ]] \
+  && pass "(sr13) pre-upgrade in_progress run → first write stamps, appends no span (migrate by absence)" \
+  || fail "(sr13) rc=$rc stamp=$(sct get 9999 '.lastWriteSessionId') spans=$(sct get 9999 '.pauseSpans // "ABSENT"')"
+
 # (sr9) DEGRADED PREDECESSOR — parses, but carries no .lastUpdatedAt to anchor on.
 # Documented as real (pipeline-doctor's (d5a) characterization case; raw fixtures).
 # The seam must stamp, append NO span, and above all NOT fail the host write.
