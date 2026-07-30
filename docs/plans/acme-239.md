@@ -63,7 +63,7 @@ describes a narrowing which will no longer exist.
 - `trim()` (`plan-lint.sh`:75) — the quoting-safe whitespace trim already used by Checks 2/4/6.
 - `violate()` (`plan-lint.sh`:72) — the violation accumulator; new messages follow its existing
   `"$id row: …"` shape.
-- The masked-split row-parse idiom (`plan-lint.sh`:347-352) — mask `\|` to `${PIPE_SENTINEL:-…}`,
+- The masked-split row-parse idiom (`plan-lint.sh`:348-356, Check 6) — mask `\|` to `${PIPE_SENTINEL:-…}`,
   `IFS='|' read -r -a cells`, validate the field count, `trim()` each cell. Check 4's widened parse
   mirrors it rather than inventing a second convention.
 - `PROVENANCE_ENUM` (`ledger-lint.sh`:43) — the canonical literal; plan-lint's new copy carries the
