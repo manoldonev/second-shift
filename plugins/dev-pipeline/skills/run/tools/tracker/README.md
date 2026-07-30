@@ -25,7 +25,7 @@ draft-PR metadata, not the ticket.
 | **pickup** — select the next unit of work | queue query (`gh issue list --label ready-for-dev`) then atomic claim ([`../claim-issue.sh`](../claim-issue.sh), label swap `ready-for-dev`→`in-progress`) | operator supplies the JIRA key; no queue, no claim |
 | **fetch-ticket** — load body + comments | `gh api repos/{o}/{r}/issues/$KEY` (+ `/comments`) | `getJiraIssue` (+ remote links → `getConfluencePage`), under whichever Atlassian namespace the session exposes — see the note below |
 | **preflight-read** — the read-only onboarding finish line's single tracker READ ([`../preflight.sh`](../preflight.sh), no claim) | `gh api repos/{o}/{r}/issues/$KEY` with a key; queue head via `gh issue list --label <queue>` without one | *SKIP-with-note* — the jira fetch is session-side MCP, unreachable from a shell tool |
-| **post-status-comment** — surface stage progress | REST comment via `$GH_BOT` (see SKILL.md Bot Identity) | *no-op* (`tracker.writes: false` — no JIRA comment mirror) |
+| **predecessor-read** — the pre-claim ordering check for a `sub-issues-sequential` chain ([`../predecessor-gate.sh`](../predecessor-gate.sh), before any claim) | **two reads.** (1) the candidate's own body, folded into the pickup query (`--json` gains `body`) and piped to `predecessor-gate.sh extract` — paid **per candidate examined**, and reused downstream by the intake fan-out and the AC snapshot rather than re-fetched. (2) `gh api repos/{o}/{r}/issues/<predecessorKey> --jq .state`, fed to `predecessor-gate.sh verdict` — paid **only** when read (1) printed a `predecessor=` line | *SKIP-with-note* — the jira fetch is session-side MCP, unreachable from a shell tool (the *preflight-read* precedent). Sequential ordering is **operator-enforced** here, with no machine gate; the trailers exist only in the ordered specs presented to the operator |
 | **set-status** — advance the tracker’s own status | label swaps via `$GH_BOT` | *no-op* — operator moves the ticket manually after promoting the PR |
 | **create-sub-tickets** — decomposition into `sub-issues` | auto-create ≤5 sub-issues with `ready-for-dev`; parent → `epic` | present ≤5 sub-ticket specs to the operator; no JIRA writes |
 | **close-out** — release the work item | remove `in-progress` label via `$GH_BOT` | *no-op* |
@@ -47,6 +47,9 @@ draft-PR metadata, not the ticket.
   turns *post-status-comment* / *set-status* / *close-out* into no-ops.
 - `tracker.keyPattern` — anchored regex the ticket key must match at `statectl init`
   (`[0-9]+` github, `[A-Z]+-[0-9]+` jira). One statectl, tracker-shaped validation.
+  Also consumed by `../predecessor-gate.sh` (`$KEY_PATTERN`) to extract and render
+  `Predecessor:` / `Successor:` trailer keys in the adapter's own key shape, and by
+  `statectl successor-key-set` to validate the key it persists.
 - `tracker.branchPrefix` — the branch namespace prepended to the key (`claude/acme-`
   github, a per-user `jdoe/` jira). Consumed by `../max-pushed-slice.sh` (`$BRANCH_PREFIX`)
   and the Stage-1/2/9 branch derivation.
