@@ -51,10 +51,15 @@ PATTERN="docs/plans/acme-{issueKey}{slice}.md"
 OPEN_AT="2026-07-30T12:00:00Z"
 
 # ---- trail builders -----------------------------------------------------------------------
-# A comment record: <stage> <run_id> <created_at>
+BOT="pipeline-bot[bot]"
+
+# A comment record: <stage> <run_id> <created_at> [login] [user-type]
+# Defaults model the real trail: the pipeline bot posts with user.type == "Bot" (measured —
+# its author_association is only CONTRIBUTOR, which is why the trust filter keys on type).
 comment() {
-  jq -n --arg s "$1" --arg r "$2" --arg t "$3" \
-    '{body: ("<!-- dev-pipeline -->\n<!-- run_id: " + $r + " -->\n<!-- stage: " + $s + " -->\n\nbody text"), created_at: $t}'
+  jq -n --arg s "$1" --arg r "$2" --arg t "$3" --arg l "${4:-$BOT}" --arg ty "${5:-Bot}" \
+    '{body: ("<!-- dev-pipeline -->\n<!-- run_id: " + $r + " -->\n<!-- stage: " + $s + " -->\n\nbody text"),
+      created_at: $t, user: {login: $l, type: $ty}}'
 }
 # trail <file> <spec>...  where each spec is "stage:run:time"
 trail() {
@@ -195,7 +200,6 @@ if [[ $rc -eq 0 ]] && grep -q "aaaa1111" "$WORK/out.log"; then
 else bad "window selection: rc=$rc, log: $(cat "$WORK/out.log")"; fi
 
 # And the whole chain being newer than PR-open is a genuine failure: nothing was visible at open.
-run_chain "${PREFIX}42" "Closes #42" "$FULL" PR_CREATED_AT_OVERRIDE=1
 env PIPELINE_BRANCH_PREFIX="$PREFIX" PIPELINE_PLAN_PATTERN="$PATTERN" \
     PR_HEAD_REF="${PREFIX}42" PR_BODY="Closes #42" PR_CREATED_AT="2026-07-30T08:00:00Z" \
     bash "$CHAIN" --comments-file "$FULL" > "$WORK/out.log" 2>&1
@@ -279,6 +283,60 @@ env PIPELINE_BRANCH_PREFIX="$PREFIX" PIPELINE_PLAN_PATTERN="$PATTERN" \
 rc=$?
 if [[ $rc -eq 0 ]]; then ok "the \${GH:-gh} seam drives the live path (zero network)"
 else bad "live path via mock gh: rc=$rc, log: $(cat "$WORK/out.log")"; fi
+
+echo "== untrusted-comment defenses (public repo: anyone can comment) =="
+
+# (i) An outsider posts a NEWER `claimed` before PR open. Without the trust filter this becomes
+# the active family, none of the real markers match it, and a valid PR is red-lined on a gate
+# that has no waiver — a denial-of-merge reachable with zero repo permissions.
+OUTSIDER="$WORK/outsider-claim.json"
+{
+  comment claimed "$RUN_A" "2026-07-30T09:00:00Z"
+  comment intake "$RUN_A" "2026-07-30T09:10:00Z"
+  comment plan "$RUN_A" "2026-07-30T09:20:00Z"
+  comment doc-update "$RUN_A" "2026-07-30T09:30:00Z"
+  comment code-review "$RUN_A" "2026-07-30T09:40:00Z"
+  comment claimed "2026-07-30T113000Z-Mac-dddd4444" "2026-07-30T11:30:00Z" "drive-by" "User"
+} | jq -s '.' > "$OUTSIDER"
+run_chain "${PREFIX}42" "Closes #42" "$OUTSIDER"
+rc=$?
+if [[ $rc -eq 0 ]] && grep -q "aaaa1111" "$WORK/out.log"; then
+  ok "an outsider's newer 'claimed' cannot hijack family selection (user.type != Bot)"
+else bad "outsider hijack: rc=$rc, log: $(cat "$WORK/out.log")"; fi
+
+# (ii) A run_id of `.*` must not turn the family predicate into a wildcard. This is the sharper
+# half: run_ids are AGENT-written, so a regex-interpolated family match would let the pipeline
+# neutralize the very check that polices it, with one token. Here the chain carries a `.*`
+# claimed as the newest, and NO real markers under it — a wildcard match would report all five
+# present and pass vacuously.
+WILDCARD="$WORK/wildcard-family.json"
+{
+  comment claimed "$RUN_A" "2026-07-30T09:00:00Z"
+  comment intake "$RUN_A" "2026-07-30T09:10:00Z"
+  comment plan "$RUN_A" "2026-07-30T09:20:00Z"
+  comment doc-update "$RUN_A" "2026-07-30T09:30:00Z"
+  comment code-review "$RUN_A" "2026-07-30T09:40:00Z"
+  comment claimed '.*' "2026-07-30T09:50:00Z"
+} | jq -s '.' > "$WILDCARD"
+run_chain "${PREFIX}42" "Closes #42" "$WILDCARD"
+rc=$?
+# The `.*` run_id fails the charset filter, so it can never be selected as the family; the real
+# RUN_A family stays active and the chain passes on its own merits.
+if [[ $rc -eq 0 ]] && grep -q "aaaa1111" "$WORK/out.log"; then
+  ok "a regex-metacharacter run_id cannot become the family or match wildcard-style"
+else bad "wildcard family: rc=$rc, log: $(cat "$WORK/out.log")"; fi
+
+# (iii) PIPELINE_COMMENT_AUTHOR narrows the trust filter to an exact login.
+run_chain "${PREFIX}42" "Closes #42" "$FULL" PIPELINE_COMMENT_AUTHOR="$BOT"
+rc=$?
+if [[ $rc -eq 0 ]]; then ok "PIPELINE_COMMENT_AUTHOR matching the trail's bot passes"
+else bad "author pin (match): rc=$rc, log: $(cat "$WORK/out.log")"; fi
+
+run_chain "${PREFIX}42" "Closes #42" "$FULL" PIPELINE_COMMENT_AUTHOR="some-other-bot[bot]"
+rc=$?
+if [[ $rc -eq 1 ]] && grep -q "chain does not start" "$WORK/out.log"; then
+  ok "PIPELINE_COMMENT_AUTHOR pinned to a different login rejects the whole trail"
+else bad "author pin (mismatch): rc=$rc, log: $(cat "$WORK/out.log")"; fi
 
 echo "== required markers are a subset of the canonical enum =="
 

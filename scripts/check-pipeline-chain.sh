@@ -24,6 +24,8 @@
 #   PR_CREATED_AT           required  ISO-8601; the PR-open observation point
 #   GH_REPO                 required for the live path  "<owner>/<repo>"
 #   GH_TOKEN                required for the live path
+#   PIPELINE_COMMENT_AUTHOR optional  exact bot login the stage trail must come from; absent
+#                                     degrades to "any Bot author" (see the trust filter below)
 #
 # Seams (zero-network selftest, following preflight-selftest.sh's PATH-mock precedent):
 #   ${GH:-gh}               the CLI used for the comment fetch
@@ -162,21 +164,50 @@ fi
 printf '%s' "$COMMENTS" | jq -e 'type == "array"' >/dev/null 2>&1 \
   || envfail "comment trail is not a JSON array — cannot reconcile."
 
-# ---- (7) window to PR-open, then select the active run family ---------------------------
+# ---- (7) trust-filter, window to PR-open, then select the active run family -------------
+# TRUST FILTER (load-bearing on a PUBLIC repo). Issue comments are writable by any GitHub
+# account, so the raw trail is NOT the agent-written record the rest of this check reasons
+# about — an outsider could post a `claimed` marker and hijack family selection, red-lining a
+# valid PR on a gate that has no waiver by design.
+#
+# The filter is `.user.type == "Bot"`, optionally narrowed to an exact login via
+# PIPELINE_COMMENT_AUTHOR. Measured, not assumed: the pipeline bot posts with
+# `author_association: CONTRIBUTOR`, so the intuitive OWNER/MEMBER/COLLABORATOR allowlist
+# would filter out the pipeline itself and break the check on every run.
+#
+# PIPELINE_COMMENT_AUTHOR absent is NOT fail-closed, unlike the two constants above: it only
+# NARROWS an already-safe filter, so its absence degrades to Bot-only rather than to a
+# vacuous pass. The two required constants are different — absence there would exempt every
+# PR, which is why they are fatal.
+TRUSTED="$(printf '%s' "$COMMENTS" | jq --arg author "${PIPELINE_COMMENT_AUTHOR:-}" '
+  [ .[] | select((.user.type // "") == "Bot")
+        | select($author == "" or (.user.login // "") == $author) ]')"
+
 # D-5 fixes the observation point at "the chain as of PR open". Windowing is what makes that
 # real AND makes the gate idempotent: pr-gates is an unrestricted `pull_request` job, so it
 # re-executes on every synchronize and manual re-run. Selecting the newest `claimed` outright
 # would let a LATER re-claim of the same issue retroactively red-line an already-green PR, with
 # no remedy available under the no-waiver rule. A PR's created_at is immutable, so the window is
 # stable across re-runs.
-IN_WINDOW="$(printf '%s' "$COMMENTS" \
+IN_WINDOW="$(printf '%s' "$TRUSTED" \
   | jq --arg at "$PR_CREATED_AT" '[ .[] | select((.created_at // "") != "" and .created_at <= $at) ]')"
 
-FAMILY="$(printf '%s' "$IN_WINDOW" | jq -r '
+# Each comment's run_id is captured ONCE, here, and compared by EXACT STRING equality below —
+# never re-matched as a regex. A run_id is agent-written, and a family value of `.*` spliced
+# into a regex would make every comment match, silently turning this whole check vacuous: the
+# single-family property is precisely the tamper-evidence this rung contributes, so it must not
+# be defeatable by one token in a comment the agent writes. The charset filter is the second
+# layer — a malformed run_id can never be SELECTED as the family, so it cannot be exploited
+# even if the comparison were ever loosened again.
+WITH_RUN="$(printf '%s' "$IN_WINDOW" | jq '
+  [ .[] | . + { run: ((.body // "")
+      | capture("<!--[[:space:]]*run_id:[[:space:]]*(?<r>[^[:space:]]+)[[:space:]]*-->").r? // "")}
+        | select(.run == "" or (.run | test("^[A-Za-z0-9._-]+$"))) ]')"
+
+FAMILY="$(printf '%s' "$WITH_RUN" | jq -r '
   [ .[] | select(.body // "" | test("<!--[[:space:]]*stage:[[:space:]]*claimed[[:space:]]*-->"))
-        | { at: .created_at,
-            run: ((.body // "") | capture("<!--[[:space:]]*run_id:[[:space:]]*(?<r>[^[:space:]]+)[[:space:]]*-->").r? // "") } ]
-  | map(select(.run != "")) | sort_by(.at) | last | .run // ""')"
+        | select(.run != "") ]
+  | sort_by(.created_at) | last | .run // ""')"
 
 if [[ -z "$FAMILY" || "$FAMILY" == "null" ]]; then
   fail "no 'claimed' marker with a run_id found in the trail of #$KEY_BRANCH at or before PR-open ($PR_CREATED_AT). The chain does not start."
@@ -196,14 +227,15 @@ MARKERS=($REQUIRED_MARKERS)
 IFS="$OLD_IFS"
 
 for m in "${MARKERS[@]}"; do
-  in_family="$(printf '%s' "$IN_WINDOW" | jq -r --arg m "$m" --arg f "$FAMILY" '
+  # `.run == $f` — exact equality, never test($f). See the WITH_RUN note above.
+  in_family="$(printf '%s' "$WITH_RUN" | jq -r --arg m "$m" --arg f "$FAMILY" '
     [ .[] | select((.body // "") | test("<!--[[:space:]]*stage:[[:space:]]*" + $m + "[[:space:]]*-->"))
-          | select((.body // "") | test("<!--[[:space:]]*run_id:[[:space:]]*" + $f + "[[:space:]]*-->")) ] | length')"
+          | select(.run == $f) ] | length')"
   if [[ "$in_family" -gt 0 ]]; then
     echo "[pipeline-chain]   ✓ $m"
     continue
   fi
-  any="$(printf '%s' "$IN_WINDOW" | jq -r --arg m "$m" '
+  any="$(printf '%s' "$WITH_RUN" | jq -r --arg m "$m" '
     [ .[] | select((.body // "") | test("<!--[[:space:]]*stage:[[:space:]]*" + $m + "[[:space:]]*-->")) ] | length')"
   if [[ "$any" -gt 0 ]]; then
     echo "[pipeline-chain]   ✗ $m — found $any marker(s), none in the active family (…$FAMILY_SHORT). A stage from an earlier run does not evidence this one." >&2

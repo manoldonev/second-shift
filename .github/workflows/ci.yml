@@ -120,6 +120,12 @@ jobs:
       # T2 rung 1: a pipeline-authored PR must carry a complete, single-family, key-consistent
       # stage trail as of PR open. Same env-not-interpolation discipline as BASE_REF above,
       # and it matters more here: a PR body is far more attacker-controllable than a ref name.
+      #
+      # PIPELINE_COMMENT_AUTHOR is deliberately NOT set. The check already restricts the trail
+      # to `user.type == "Bot"`, which is what closes the drive-by-comment attack (this repo is
+      # public, so anyone can comment on an issue). Pinning the exact bot login would only
+      # additionally exclude *other* GitHub Apps, and it would write an app identity into a
+      # committed file plus add a third constant that can go stale. Set it if that trade flips.
       - name: pipeline chain reconciliation (pipeline-authored PRs carry a complete stage trail)
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
