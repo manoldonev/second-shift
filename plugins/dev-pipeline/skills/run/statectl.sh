@@ -39,6 +39,7 @@
 #   statectl.sh deviations-add <issue-number> --kind <enum> --note <s> [--plan-section <s>] [--file <f>] [--line <n>] [--stage <N>] [--force --force-reason <text>]
 #   statectl.sh verify-attempts <issue-number> --incr <FAILURE_CLASS> [--repo <id>] [--force --force-reason <text>]
 #   statectl.sh skill-load-add <issue-number> --stage <N> --skill <plugin:skill> [--force --force-reason <text>]
+#   statectl.sh stage-file-read <issue-number> --stage <N> --file <basename> [--force --force-reason <text>]
 #   statectl.sh comment-add <issue-number> --marker <stage-marker> --url <comment-url> [--force --force-reason <text>]
 #   statectl.sh reclaim <issue-number> [--release] [--threshold-min <N>] [--force --force-reason <text>]
 #   statectl.sh intake-brief <issue-number> --brief-path <path|null> --acceptance-criteria '<json-array>'
@@ -454,7 +455,7 @@ require_eval_file() {
 # --force and is NOT called from mark-failed (an aborting run has no PR to
 # report on; the abort-path narrative stays a prose contract).
 require_report_file() {
-  local key="$1"
+  local key="$1" current="${2:-}"
   local lower state report_file
   lower=$(echo "$key" | tr '[:upper:]' '[:lower:]')
   state=$(state_path "$key")
@@ -465,6 +466,15 @@ require_report_file() {
     || { EXIT_CODE=1 die "mark-completed: $report_file exists but carries no <!-- dev-pipeline-report --> marker — write the real report, not a placeholder."; }
   grep -v '<!-- dev-pipeline-report -->' "$report_file" | grep -q '[^[:space:]]' \
     || { EXIT_CODE=1 die "mark-completed: $report_file has the marker but no content — the report must carry the run's narrative."; }
+  # #243 §2.5(a): a waived run's report must surface its waivers where the
+  # operator reads. Same shallow-grep plausibility posture as the marker check;
+  # reads the PRE-invocation waivers[] handed in by the caller (per the §2.2
+  # ordering rule, a waiver appended by this same invocation is invisible here
+  # by design — declared accepted residue).
+  if [[ -n "$current" ]] && jq -e '(.waivers // []) | length > 0' <<< "$current" >/dev/null 2>&1; then
+    grep -qE '^##[[:space:]]+Waivers' "$report_file" \
+      || { EXIT_CODE=1 die "mark-completed: waivers[] is non-empty but $report_file has no '## Waivers' section — a forced run must LOOK forced in the one artifact the operator reads. Add the section (one line per waiver) and retry."; }
+  fi
 }
 
 # preflight_wellformed <json> — 0 iff <json> is a well-formed Stage-1 pre-flight
@@ -562,11 +572,26 @@ require_verify_sidecar() {
 # evidence that stage N's mandated work actually happened. Deterministic state
 # reads only; conditional applicability comes from the flags the run itself
 # recorded (unitTestSurface, stageCheckpoint["1"].designDriven). --force
-# bypasses these the same way it bypasses the monotonic guard (crash-recovery
-# escape). Stages 3, 7, and 9 carry only the comment-receipt leg
-# (require_comment_receipts): Stage 3's plan content is enforced by Stage 4's
-# lint gate + reviewer, Stage 7's checkpoint is validated at write by
-# validate_stage7_payload, Stage 9's terminal integrity by mark-completed.
+# waives these the same way it waives the monotonic guard (crash-recovery
+# escape, reason-carrying, recorded per fired leg). Every stage 1-9 carries at
+# least its stage-file receipt leg plus stage-specific evidence — including
+# stages 3/7/9, which once carried only the tracker-gated comment-receipt leg
+# and therefore closed on ZERO evidence under a read-only tracker (#243). The
+# division of labor that stays: Stage 3's plan CONTENT is enforced by Stage 4's
+# lint gate + reviewer (the plan-path and designDriven FE-spec artifactPath legs
+# were deliberately cut — Stage 4 cannot dispatch without either), and Stage 9's
+# terminal integrity by mark-completed.
+# Stage-file read receipt leg (#243 §3): stage N cannot complete unless
+# stages.N.stageFilesRead[] contains stage N's OWN file (basename ^N-…). The
+# receipt is written by `stage-file-read` at the moment the executor reads the
+# stage file; a receipt for a different stage's file satisfies nothing. Fired
+# LAST in every case arm so existing refusal messages stay first (byte-stable).
+require_stage_file_receipt() {
+  local n="$1" current="$2"
+  jq -e --arg n "$n" '((.stages[$n].stageFilesRead // []) | map(select(startswith($n + "-"))) | length) > 0' <<< "$current" >/dev/null \
+    || guard_fire "completion-evidence:$n.stageFileRead" "$n" "set-stage: cannot complete stage $n — stages/$n-*.md was not recorded as read (read the stage file and record it via stage-file-read); --force for crash-recovery"
+}
+
 stage_completion_preconditions() {
   local n="$1"
   local current="$2"
@@ -591,17 +616,26 @@ stage_completion_preconditions() {
              or ((.stageCheckpoint // {})["1"].intakeMode == "inline-approved")' <<< "$current" >/dev/null \
         || guard_fire "completion-evidence:1.skillLoad" "1" "set-stage: cannot complete stage 1 — intake-toolkit:intake-orchestrator is not in stages.1.skillsLoaded[] and intakeMode is not \"inline-approved\" (load the skill and record it via skill-load-add, or record the operator-approved inline path in the checkpoint); --force for crash-recovery"
       require_comment_receipts 1 "$current" claimed intake
+      require_stage_file_receipt 1 "$current"
       ;;
     3)
       require_comment_receipts 3 "$current" plan
+      # #243 §1: the unit-test surface classification is mandated before Stage-3
+      # close (stages/3-write-plan.md) and previously carried no gate at all on
+      # a read-only tracker.
+      jq -e '.unitTestSurface | type == "object"' <<< "$current" >/dev/null \
+        || guard_fire "completion-evidence:3.unitTestSurface" "3" "set-stage: cannot complete stage 3 — unitTestSurface is not recorded (classify the surface and persist it via unit-test-surface-set first); --force for crash-recovery"
+      require_stage_file_receipt 3 "$current"
       ;;
     2)
       jq -e '(.worktreePath | type == "string" and length > 0) and (.branch | type == "string" and length > 0)' <<< "$current" >/dev/null \
         || guard_fire "completion-evidence:2.worktree" "2" "set-stage: cannot complete stage 2 — worktreePath/branch missing (call worktree-set first, per its ordering contract); --force for crash-recovery"
+      require_stage_file_receipt 2 "$current"
       ;;
     4)
       jq -e '.stages["4"].planReview.overall | type == "string" and length > 0' <<< "$current" >/dev/null \
         || guard_fire "completion-evidence:4.planReview" "4" "set-stage: cannot complete stage 4 — stages.4.planReview.overall is not recorded (dispatch the plan-review workflow and record its consolidated verdict via plan-review-set first); --force for crash-recovery"
+      require_stage_file_receipt 4 "$current"
       ;;
     5)
       jq -e '(.stageCheckpoint // {})["5"] | type == "object"' <<< "$current" >/dev/null \
@@ -612,6 +646,14 @@ stage_completion_preconditions() {
       jq -e '(((.stageCheckpoint // {})["1"].designDriven // false) | not)
              or (.stages["5"].designPlanReview == "implemented")' <<< "$current" >/dev/null \
         || guard_fire "completion-evidence:5.designPlanReview" "5" "set-stage: cannot complete stage 5 — designDriven run with stages.5.designPlanReview not at terminal \"implemented\"; --force for crash-recovery"
+      # #243 §1: on a designDriven run the live-render outcome must be RECORDED
+      # (stages.5.renderVerify via stage-substatus, written at the render gate —
+      # degraded is a valid outcome; silence is not). Sub-status transport keeps
+      # a crash-recovery resume satisfiable from the original session's write.
+      jq -e '(((.stageCheckpoint // {})["1"].designDriven // false) | not)
+             or (.stages["5"].renderVerify == "verified" or .stages["5"].renderVerify == "degraded")' <<< "$current" >/dev/null \
+        || guard_fire "completion-evidence:5.renderVerify" "5" "set-stage: cannot complete stage 5 — designDriven run with no stages.5.renderVerify outcome (record verified|degraded via stage-substatus at the live-render gate); --force for crash-recovery"
+      require_stage_file_receipt 5 "$current"
       ;;
     6)
       # be-fe-pair (targetRepos present) requires a per-repo verifySummary for
@@ -653,6 +695,7 @@ stage_completion_preconditions() {
       # summary, no verifying lane, setup-failed) still fire first: they name a
       # more specific defect than "verifyctl never ran".
       require_verify_sidecar "$key" "$current"
+      require_stage_file_receipt 6 "$current"
       ;;
     8)
       jq -e '((.codeReviewRounds // 0) >= 1)
@@ -674,12 +717,31 @@ stage_completion_preconditions() {
       if jq -e '(.codeReviewRounds // 0) >= 1' <<< "$current" >/dev/null; then
         require_comment_receipts 8 "$current" code-review
       fi
+      require_stage_file_receipt 8 "$current"
       ;;
     7)
       require_comment_receipts 7 "$current" doc-update
+      # #243 §1: the Stage-7 checkpoint hydrates Stage 8 and crash recovery; it
+      # was schema-validated only IF written — now its existence is completion
+      # evidence (validate_stage7_payload still validates the shape at write).
+      jq -e '(.stageCheckpoint // {})["7"] | type == "object"' <<< "$current" >/dev/null \
+        || guard_fire "completion-evidence:7.checkpoint" "7" "set-stage: cannot complete stage 7 — stageCheckpoint[\"7\"] is missing (compose it via build-checkpoint-7 and write it via checkpoint first); --force for crash-recovery"
+      require_stage_file_receipt 7 "$current"
       ;;
     9)
       require_comment_receipts 9 "$current" pr
+      # #243 §1: the cost-block sub-step records a descriptive outcome on every
+      # documented path (boolean true on success, a skipped-* string otherwise);
+      # only never-invoked / state-unresolvable leaves it null. Recorded-non-null
+      # is the gate — the outcome value is not judged here.
+      jq -e '(.costBlockApplied // null) != null' <<< "$current" >/dev/null \
+        || guard_fire "completion-evidence:9.costBlockApplied" "9" "set-stage: cannot complete stage 9 — costBlockApplied is not recorded (invoke the cost-block sub-step, pipeline-cost-block.sh, before closing the stage; every documented path records an outcome); --force for crash-recovery"
+      # #243 §1 (be-fe-pair): every target repo's PR must be recorded under its
+      # repo-id key (pr-add --repo). Standalone/monorepo runs are exempt.
+      jq -e '((.targetRepos // []) | length == 0)
+             or (. as $s | ($s.targetRepos // []) | all(.[]; ($s.prs[.] // null) != null))' <<< "$current" >/dev/null \
+        || guard_fire "completion-evidence:9.prsRepoKeyed" "9" "set-stage: cannot complete stage 9 — a be-fe-pair run needs .prs keyed by repo id for every targetRepos entry (pr-add --repo <id> per target); --force for crash-recovery"
+      require_stage_file_receipt 9 "$current"
       ;;
   esac
   return 0
@@ -2113,9 +2175,10 @@ cmd_mark_completed() {
   # the shape sub-check honors it.
   require_eval_file "$key" "$force"
 
-  # Run-report fail-closed gate: the durable operator-facing report must exist.
-  # NOT bypassed by --force.
-  require_report_file "$key"
+  # Run-report fail-closed gate: the durable operator-facing report must exist
+  # (and carry a ## Waivers section when the pre-invocation waivers[] is
+  # non-empty). NOT bypassed by --force.
+  require_report_file "$key" "$current"
 
   local now
   now=$(now_iso)
@@ -2671,6 +2734,46 @@ cmd_comment_add() {
   jq -c '.comments' <<< "$new_state"
 }
 
+cmd_stage_file_read() {
+  # Stage-file read receipt (#243 §3): dedup-append the stage file's basename to
+  # stages.N.stageFilesRead[]. Written at the moment the executor reads
+  # stages/N-*.md (beside the mark-started instruction); the stage-N completion
+  # precondition requires stage N's OWN file in the array. Self-reported by
+  # design — the audit ledger stays the independent cross-check (#244 lands the
+  # harness-attested upgrade).
+  #
+  # Usage:
+  #   statectl stage-file-read <issue-number> --stage <N> --file <basename>
+  local key_arg="${1:-}"; shift || true
+  local n="" file="" force=0
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --stage) n="${2:-}"; shift 2 ;;
+      --file)  file="${2:-}"; shift 2 ;;
+      --force) force=1; shift ;;
+      *) EXIT_CODE=3 die "stage-file-read: unknown arg '$1'" ;;
+    esac
+  done
+  [[ -n "$key_arg" && -n "$n" && -n "$file" ]] \
+    || { EXIT_CODE=3 die "stage-file-read: missing <issue-number> --stage <N> --file <basename>"; }
+  [[ "$n" =~ ^[1-9]$ ]] || { EXIT_CODE=1 die "stage-file-read: --stage must be in {1..9}, got '$n'"; }
+  [[ "$file" =~ ^[1-9]-[a-z-]+\.md$ ]] \
+    || { EXIT_CODE=1 die "stage-file-read: --file must be a stage-file basename matching ^[1-9]-[a-z-]+\\.md$ (e.g. 7-doc-update.md), got '$file'"; }
+  local current
+  current=$(read_state "$key_arg") || exit $?
+  require_mutable "$current" "$force" "stage-file-read"
+  local now
+  now=$(now_iso)
+  local new_state
+  new_state=$(jq --arg n "$n" --arg f "$file" --arg now "$now" '
+    .stages[$n] = (.stages[$n] // {})
+    | .stages[$n].stageFilesRead = (((.stages[$n].stageFilesRead // []) + [$f]) | unique)
+    | .lastUpdatedAt = $now
+  ' <<< "$current") || { EXIT_CODE=2 die "stage-file-read: jq mutation failed"; }
+  atomic_write "$key_arg" "$new_state"
+  jq -c --arg n "$n" '.stages[$n].stageFilesRead' <<< "$new_state"
+}
+
 cmd_stage_substatus() {
   # Write a mid-stage sub-status into `.stages.N.<key>`. the pipeline's FIRST stages.N.*
   # sub-status mechanism (no figmaPlanReview/apiTestImplement precedent here).
@@ -2703,6 +2806,12 @@ cmd_stage_substatus() {
       case "$sval" in
         reviewing|executing|completed) ;;
         *) EXIT_CODE=1 die "stage-substatus: stages.5.unitTestMutationReview value must be reviewing|executing|completed, got '$sval'" ;;
+      esac
+      ;;
+    5.renderVerify)
+      case "$sval" in
+        verified|degraded) : ;;
+        *) EXIT_CODE=1 die "stage-substatus: stages.5.renderVerify value must be verified|degraded, got '$sval'" ;;
       esac
       ;;
     5.designPlanReview)
@@ -2820,6 +2929,7 @@ main() {
     unit-test-surface-set)  cmd_unit_test_surface_set "$@" ;;
     mutation-audit-set)     cmd_mutation_audit_set "$@" ;;
     skill-load-add)         cmd_skill_load_add "$@" ;;
+    stage-file-read)        cmd_stage_file_read "$@" ;;
     comment-add)            cmd_comment_add "$@" ;;
     reclaim)                cmd_reclaim "$@" ;;
     stage-substatus)        cmd_stage_substatus "$@" ;;

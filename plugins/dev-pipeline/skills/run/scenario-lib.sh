@@ -78,11 +78,34 @@ write_verify_sidecar() {
     "$run_id" > "${stem}${repo:+-$repo}-verify.json"
 }
 
+# Helper: write stage N's #243 evidence — the stage-file read receipt (every
+# stage 1-9), stage 3's unitTestSurface (skip shape) when absent, and stage 9's
+# costBlockApplied seed. The seed uses a direct jq+mv state-file edit — the
+# suite's existing state-tamper idiom (see the lastUpdatedAt cases) — because
+# the production writer is pipeline-cost-block.sh (external by design) and the
+# fixture must not invoke it; TEST-ONLY, never a production write path.
+# `complete_stage` calls this internally; suites completing stages directly
+# call it themselves before their `set-stage … --status completed`.
+stage_evidence() {
+  local key="$1" n="$2"
+  local files=(_ 1-intake.md 2-worktree.md 3-write-plan.md 4-plan-review.md 5-implement.md 6-verify.md 7-doc-update.md 8-code-review.md 9-open-pr.md)
+  sct stage-file-read "$key" --stage "$n" --file "${files[$n]}" >/dev/null
+  if [[ "$n" == "3" ]]; then
+    if ! sct get "$key" '.unitTestSurface' 2>/dev/null | jq -e 'type == "object"' >/dev/null 2>&1; then
+      sct unit-test-surface-set "$key" --json '{"applicable":false,"action":"skip","skipReason":"fixture: no mutation surface"}' >/dev/null
+    fi
+  fi
+  if [[ "$n" == "9" ]]; then
+    local sf
+    sf="$STATECTL_STATE_DIR/$(echo "$key" | tr '[:upper:]' '[:lower:]').json"
+    jq '.costBlockApplied = "skipped-no-sessions"' "$sf" > "$sf.tmp" && mv "$sf.tmp" "$sf"
+  fi
+}
+
 # Helper: start + complete one stage with the minimal evidence its completion
 # precondition requires (the imperative stage machine refuses a bare
-# `--status completed`). Stages 3/7/9 carry only the comment-receipt leg;
-# stage 7's checkpoint is written where a case needs it (validate_stage7_payload
-# applies there).
+# `--status completed`). Every stage additionally carries its stage-file read
+# receipt (+ stage-specific #243 evidence) via stage_evidence above.
 #
 # $3 (optional) — the stage-1 checkpoint verdict, default `no-split`. A scenario
 # driving a non-no-split verdict MUST pass its own, otherwise it asserts liveness
@@ -116,6 +139,7 @@ complete_stage() {
        sct comment-add "$key" --marker code-review --url "https://github.example/c/code-review" >/dev/null ;;
     9) sct comment-add "$key" --marker pr --url "https://github.example/c/pr" >/dev/null ;;
   esac
+  stage_evidence "$key" "$n"
   sct set-stage "$key" "$n" --status completed >/dev/null
 }
 
@@ -132,6 +156,15 @@ write_eval() {
 write_report() {
   local key="$1"
   printf '<!-- dev-pipeline-report -->\n\n# Run report — #%s\n\nPR: https://example.com/pr/1\n' "$key" \
+    > "$STATECTL_STATE_DIR/${key}-report.md"
+}
+
+# Helper: a waived run's report — same shape plus the ## Waivers section the
+# require_report_file gate demands when the pre-invocation waivers[] is
+# non-empty (#243).
+write_report_waived() {
+  local key="$1"
+  printf '<!-- dev-pipeline-report -->\n\n# Run report — #%s\n\nPR: https://example.com/pr/1\n\n## Waivers\n\n- fixture waiver disclosure line\n' "$key" \
     > "$STATECTL_STATE_DIR/${key}-report.md"
 }
 
@@ -157,6 +190,7 @@ complete_run_vs() {
   sct verify-summary-set "$key" --json "$vs" >/dev/null
   write_verify_sidecar "$key"
   [[ "$tf" == "tf" ]] && sct verify-attempts "$key" --incr TEST_FAILURE >/dev/null
+  stage_evidence "$key" 6
   sct set-stage "$key" 6 --status completed >/dev/null
   for n in 7 8 9; do complete_stage "$key" "$n"; done
   write_report "$key"

@@ -184,6 +184,7 @@ sct intake-brief "$KEY" --brief-path null --acceptance-criteria "$AC" >/dev/null
 sct skill-load-add "$KEY" --stage 1 --skill intake-toolkit:intake-orchestrator >/dev/null
 sct comment-add "$KEY" --marker claimed --url "$(mint_comment "$KEY")" >/dev/null
 sct comment-add "$KEY" --marker intake --url "$(mint_comment "$KEY")" >/dev/null
+stage_evidence "$KEY" 1
 sct set-stage "$KEY" 1 --status completed >/dev/null
 [[ "$(sct get "$KEY" '.stages["1"].status')" == "completed" ]] \
   && pass "(s1c) stage 1 completes on fixture verdict + minted receipts" \
@@ -196,11 +197,13 @@ sct set-stage "$KEY" 1 --status completed >/dev/null
 sct set-stage "$KEY" 2 --status started >/dev/null
 sct worktree-set "$KEY" --path ".claude/worktrees/acme-$KEY" --branch "$BRANCH" >/dev/null
 sct pipeline-session-add "$KEY" --session-id "11111111-1111-4111-8111-111111111111" --source interactive >/dev/null
+stage_evidence "$KEY" 2
 sct set-stage "$KEY" 2 --status completed >/dev/null
 
 # ---- stage 3 ----
 sct set-stage "$KEY" 3 --status started >/dev/null
 sct comment-add "$KEY" --marker plan --url "$(mint_comment "$KEY")" >/dev/null
+stage_evidence "$KEY" 3
 sct set-stage "$KEY" 3 --status completed >/dev/null
 
 # ---- stage 4: the verdict comes from EXECUTING plan-review.mjs ----
@@ -219,6 +222,7 @@ fi
   && pass "(s4b) all three built-in plan gates appear in the returned ledger" \
   || fail "(s4b) plan-review gate ledger is not 3 entries"
 sct plan-review-set "$KEY" --overall "$LEG4_OVERALL" >/dev/null
+stage_evidence "$KEY" 4
 sct set-stage "$KEY" 4 --status completed >/dev/null
 [[ "$(sct get "$KEY" '.stages["4"].planReview.overall')" == "pass" ]] \
   && pass "(s4c) the executed verdict is what reached state (not a typed-in literal)" \
@@ -240,12 +244,14 @@ fi
   || fail "(s5b) mutation-gate did not dispatch its nested propose"
 sct stage-substatus "$KEY" --stage 5 --key unitTestMutationReview --value completed >/dev/null
 sct checkpoint "$KEY" 5 --json '{"changedFiles":["a.sh"],"commits":["deadbeef"]}' >/dev/null
+stage_evidence "$KEY" 5
 sct set-stage "$KEY" 5 --status completed >/dev/null
 
 # ---- stage 6 ----
 sct set-stage "$KEY" 6 --status started >/dev/null
 sct verify-summary-set "$KEY" --json '{"format":"clean","test":"passed"}' >/dev/null
 write_verify_sidecar "$KEY"
+stage_evidence "$KEY" 6
 sct set-stage "$KEY" 6 --status completed >/dev/null
 
 # ---- stage 7: the payload is BUILT by statectl, not an inline literal ----
@@ -271,6 +277,7 @@ sct checkpoint "$KEY" 7 --json "$CP7" >/dev/null
   && pass "(s7b) the built payload round-trips into state (docUpdaterFindings carried)" \
   || fail "(s7b) built checkpoint-7 fields did not reach state"
 sct comment-add "$KEY" --marker doc-update --url "$(mint_comment "$KEY")" >/dev/null
+stage_evidence "$KEY" 7
 sct set-stage "$KEY" 7 --status completed >/dev/null
 
 # ---- stage 8 ----
@@ -290,6 +297,7 @@ fi
 sct review-rounds "$KEY" --set 1 >/dev/null
 sct skill-load-add "$KEY" --stage 8 --skill review-toolkit:review-lead >/dev/null
 sct comment-add "$KEY" --marker code-review --url "$(mint_comment "$KEY")" >/dev/null
+stage_evidence "$KEY" 8
 sct set-stage "$KEY" 8 --status completed >/dev/null
 
 # ---- stage 9 + scenario 2 (the negative case) ----
@@ -303,6 +311,7 @@ rc=$(sct_rc set-stage "$KEY" 9 --status completed)
 [[ "$rc" != "0" ]] && pass "(s9a) stage 9 completion is REFUSED while the pr receipt is absent (rc=$rc)" \
   || fail "(s9a) stage 9 completed with no pr receipt — the completion gate is not firing"
 sct comment-add "$KEY" --marker pr --url "$(mint_comment "$KEY")" >/dev/null
+stage_evidence "$KEY" 9
 rc=$(sct_rc set-stage "$KEY" 9 --status completed)
 [[ "$rc" == "0" ]] && pass "(s9b) the same write is ACCEPTED once the receipt is minted" \
   || fail "(s9b) stage 9 still refused after the receipt landed (rc=$rc)"
@@ -395,11 +404,13 @@ LEG8R=$(node "$LEG" code-review 2>/dev/null)
 sct review-rounds "$RKEY" --set 1 >/dev/null
 sct skill-load-add "$RKEY" --stage 8 --skill review-toolkit:review-lead >/dev/null
 sct comment-add "$RKEY" --marker code-review --url "$(mint_comment "$RKEY")" >/dev/null
+stage_evidence "$RKEY" 8
 sct set-stage "$RKEY" 8 --status completed >/dev/null
 
 sct set-stage "$RKEY" 9 --status started >/dev/null
 sct pr-add "$RKEY" --branch "$RBRANCH" --url "$(mint_pr "$RBRANCH")" >/dev/null
 sct comment-add "$RKEY" --marker pr --url "$(mint_comment "$RKEY")" >/dev/null
+stage_evidence "$RKEY" 9
 sct set-stage "$RKEY" 9 --status completed >/dev/null
 write_eval "$RKEY"
 write_report "$RKEY"
