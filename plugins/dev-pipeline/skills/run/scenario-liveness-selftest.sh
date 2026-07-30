@@ -23,6 +23,9 @@
 #                checkpoint 7 + the stage-8 cross-boundary escape hatch
 #                -> mark-completed ACCEPTED (top-level `completed`)
 #   start-slice  the extracted persisted-currentSlice precedence tool, all verdicts
+#   predecessor  the sub-issues-sequential pre-claim ordering backstop: an open
+#                predecessor skips WITHOUT claiming (no claim receipt, no state
+#                file), a closed one claims, and the pair is proven non-vacuous
 #
 # Scope boundary: scenarios exercise the MECHANICAL chain. Agent-prose gates (the
 # scope reviewer, review-lead synthesis) appear only as their mechanical shadows —
@@ -88,6 +91,7 @@ VERIFYCTL="$HERE/verifyctl.sh"
 LINT="$HERE/tools/plan-lint.sh"
 SCOPE="$HERE/tools/slice-scope.sh"
 START_SLICE_SH="$HERE/tools/start-slice.sh"
+PRED_GATE="$HERE/tools/predecessor-gate.sh"
 FIX="$HERE/tools/plan-lint-fixtures"
 
 [[ -x "$STATECTL" ]] || { echo "[scenario-liveness] FATAL: $STATECTL not executable"; exit 99; }
@@ -96,6 +100,7 @@ FIX="$HERE/tools/plan-lint-fixtures"
 [[ -f "$LINT" ]] || { echo "[scenario-liveness] FATAL: $LINT missing"; exit 99; }
 [[ -f "$SCOPE" ]] || { echo "[scenario-liveness] FATAL: $SCOPE missing"; exit 99; }
 [[ -f "$START_SLICE_SH" ]] || { echo "[scenario-liveness] FATAL: $START_SLICE_SH missing"; exit 99; }
+[[ -x "$PRED_GATE" ]] || { echo "[scenario-liveness] FATAL: $PRED_GATE not executable"; exit 99; }
 [[ -d "$FIX" ]] || { echo "[scenario-liveness] FATAL: $FIX missing"; exit 99; }
 
 PASS=0
@@ -860,6 +865,93 @@ unset SECOND_SHIFT_CONFIG
 [[ "$gated_receipts" == "false" ]] \
   && pass "(jz2) non-vacuity: no plan/doc-update/pr receipt exists on the jira walk" \
   || fail "(jz2) a gated-stage receipt exists on a writes:false walk"
+
+# =================================== predecessor gate: pre-claim ordering (AC-6) ===
+# The sub-issues-sequential backstop. Ordering normally works by keeping blocked
+# successors OUT of the queue (sequential sub-issues N>1 are created without the
+# queue label); this gate catches the EARLY-LABELED successor that reaches the queue
+# anyway. What must compose: the gate's verdict and the CLAIM WRITES, so that a
+# blocked candidate leaves behind none of the claim's durable traces.
+#
+# The assertion target is the "not picked up" shape — no claim receipt and NO state
+# file at all. That is deliberately distinct from the two other non-completing
+# shapes this suite already covers: the `failed` terminal (a state file exists,
+# status=failed) and the sub-issues carve-out (a state file exists, status stays
+# in_progress). A blocked successor must look like neither: nothing was claimed, so
+# nothing was written.
+#
+# Scope boundary (see the header): Stage 1's queue loop is PROSE executed via `gh`,
+# so it is not drivable here and is deliberately NOT re-implemented — a harness-side
+# copy of the loop could never fail on a Stage-1 edit. What IS drivable is the
+# mechanical shadow: the real tool's verdict per candidate, and the state each
+# verdict does or does not produce. The two candidates below are therefore driven
+# straight-line, not in a loop.
+
+echo "[scenario-liveness] predecessor: open predecessor skips pre-claim; closed one claims"
+reset_state
+
+# The successor's body, exactly the shape create-sub-tickets writes for a sequential
+# sub-issue N>1 (Part-of anchor + both trailers).
+PG_BODY=$'Part of #9030\n\nWork for the second slice.\n\nPredecessor: #9031\nSuccessor: #9033'
+
+# --- candidate A: predecessor OPEN -> skip-blocked, claim nothing ----------------
+PG_A=9032
+pg_extract=$(printf '%s\n' "$PG_BODY" | bash "$PRED_GATE" extract 2>/dev/null)
+pg_pred=$(printf '%s\n' "$pg_extract" | sed -n 's/^predecessor=//p')
+[[ "$pg_pred" == "9031" ]] \
+  && pass "(pg-x1) extract lifts the predecessor key off a real sequential sub-issue body (AC-6)" \
+  || fail "(pg-x1) extract — got '$pg_pred' (want 9031)"
+
+# The stage doc pays the predecessor-state read only because a key was printed; the
+# state itself is fixture input here (the tool is pure logic — nothing to mock).
+bash "$PRED_GATE" verdict open >/dev/null 2>&1; pg_rc_open=$?
+if [[ "$pg_rc_open" -eq 0 ]]; then
+  # Would-be claim writes. Guarded by the verdict, exactly as Stage 1 guards them.
+  sct init "$PG_A" --run-id "scenario-liveness-$$" >/dev/null
+  sct comment-add "$PG_A" --marker claimed --url "https://example.invalid/c/$PG_A" >/dev/null
+fi
+[[ "$pg_rc_open" -eq 3 ]] \
+  && pass "(pg-skip1) open predecessor -> verdict exit 3 (skip-blocked, do not claim) (AC-6)" \
+  || fail "(pg-skip1) open predecessor — rc=$pg_rc_open (want 3)"
+
+[[ ! -f "$STATECTL_STATE_DIR/$PG_A.json" ]] \
+  && pass "(pg-skip2) blocked successor leaves NO state file — the not-picked-up shape, not \`failed\` and not the carve-out (AC-6)" \
+  || fail "(pg-skip2) a state file exists for the blocked successor $PG_A"
+
+# --- candidate B: the next queue candidate, unblocked -> claims -----------------
+# Its own body carries no Predecessor trailer, so the conditional predecessor-state
+# read is never paid and the run proceeds. This is the mechanical shadow of "advance
+# to the next candidate": A produced nothing, B produced the claim.
+PG_B=9034
+PG_B_BODY=$'An ordinary queued issue with no ordering trailers.'
+pg_b_extract=$(printf '%s\n' "$PG_B_BODY" | bash "$PRED_GATE" extract 2>/dev/null)
+[[ -z "$pg_b_extract" ]] \
+  && pass "(pg-go1) a candidate with no trailers prints nothing — the predecessor-state read is never paid (AC-6)" \
+  || fail "(pg-go1) unblocked candidate — got '$pg_b_extract' (want empty)"
+
+sct init "$PG_B" --run-id "scenario-liveness-$$" >/dev/null
+sct comment-add "$PG_B" --marker claimed --url "https://example.invalid/c/$PG_B" >/dev/null
+pg_b_receipt=$(sct get "$PG_B" '.comments.claimed // empty')
+[[ -f "$STATECTL_STATE_DIR/$PG_B.json" && -n "$pg_b_receipt" ]] \
+  && pass "(pg-go2) the next candidate claims: state file + claim receipt both exist (AC-6)" \
+  || fail "(pg-go2) next candidate — file=$([[ -f "$STATECTL_STATE_DIR/$PG_B.json" ]] && echo y || echo n) receipt='$pg_b_receipt'"
+
+# --- non-vacuity ---------------------------------------------------------------
+# (pg-skip2) asserts an ABSENCE, which would pass trivially if this harness simply
+# never wrote a state file for $PG_A. Drive the IDENTICAL path with only the
+# predecessor's state flipped to `closed`: the same guarded writes must now produce
+# the file. If this case cannot flip, (pg-skip2) proves nothing and must not be
+# counted toward AC-6. Precondition-variation, per (ss6)/(ns3) — the suite never
+# deletes or mutates production code on disk to make a point.
+bash "$PRED_GATE" verdict closed >/dev/null 2>&1; pg_rc_closed=$?
+if [[ "$pg_rc_closed" -eq 0 ]]; then
+  sct init "$PG_A" --run-id "scenario-liveness-$$" >/dev/null
+  sct comment-add "$PG_A" --marker claimed --url "https://example.invalid/c/$PG_A" >/dev/null
+fi
+pg_a_receipt=$(sct get "$PG_A" '.comments.claimed // empty')
+[[ "$pg_rc_closed" -eq 0 && -f "$STATECTL_STATE_DIR/$PG_A.json" && -n "$pg_a_receipt" ]] \
+  && pass "(pg-nv) non-vacuity: the same path with the predecessor CLOSED does write the state file + receipt — the skip came from the gate (AC-6)" \
+  || fail "(pg-nv) non-vacuity — rc=$pg_rc_closed file=$([[ -f "$STATECTL_STATE_DIR/$PG_A.json" ]] && echo y || echo n) receipt='$pg_a_receipt'"
 
 echo
 echo "[scenario-liveness] summary: $PASS passed, $FAIL failed"
