@@ -19,8 +19,8 @@ This skill loads instructions into the **calling session**, which gathers eviden
 > default (`tracker.writes: true`): the orchestrator reads the issue via `gh issue view`,
 > and on a `sub-issues` verdict it **auto-creates** the ≤5 slices and swaps parent labels
 > through `$GH_BOT`. Under the jira adapter (dev-pipeline's `tools/tracker/jira/` contract,
-> `tracker.writes: false`) exactly the following changes; the sites below carry only a
-> _(jira: tracker delta.)_ tag pointing here.
+> `tracker.writes: false`) applies exactly the following changes; the sites below carry only
+> a _(jira: tracker delta.)_ tag pointing here.
 >
 > - **Reads.** The ticket is fetched **read-only** via the Atlassian MCP's `getJiraIssue`
 >   (remote design/spec links via `getJiraIssueRemoteIssueLinks`), with `$KEY` in place of
