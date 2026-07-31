@@ -791,6 +791,65 @@ else
   fi
 fi
 
+echo "(aa) killer bound SCALES per suite — a fast suite is not held to the slow ceiling"
+# The bound in (z) is flat only because that fixture pins the ceiling low. A flat bound
+# bounds one killer but NOT a shard: a guard whose mutants all spin costs k x the bound,
+# and the first bounded seed run still lost a 60-min shard to that accumulation on a
+# ~15-min cost model. So the contract is `4 x the suite's measured unmutated time`,
+# floored and capped — and this case pins that the FLOOR is what a ~0s fixture suite gets,
+# not the ceiling. Asserted through the logged bound, which is the operator-visible number.
+# Floor is overridden to 3s so the case proves scaling in seconds rather than in a minute.
+FX="$TMPROOT/fxscale$RANDOM$RANDOM"
+mkdir -p "$FX/tools"
+cat > "$FX/guard.sh" <<'EOF'
+#!/usr/bin/env bash
+while IFS= read -r line || [[ -n "$line" ]]; do
+  :
+done
+echo ok
+exit 0
+EOF
+chmod 755 "$FX/guard.sh"
+cat > "$FX/guard-selftest.sh" <<'EOF'
+#!/usr/bin/env bash
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+out="$(bash "$HERE/guard.sh" </dev/null)"
+[[ "$out" == "ok" ]] || exit 1
+exit 0
+EOF
+printf '# fixture operators\ncmp-z\t-z |-n \ts/-z /__MUT__/g; s/-n /-z /g; s/__MUT__/-n /g\n' \
+  > "$FX/tools/mutation-operators.tsv"
+printf '# fixture exclusions\n' > "$FX/tools/mutation-exclusions.tsv"
+printf '# fixture pair map\n'   > "$FX/tools/mutation-pair-map.tsv"
+printf '# fixture catalog\n'    > "$FX/tools/mutation-catalog.tsv"
+( cd "$FX" && git init -q . && git add -A \
+  && git -c user.email=fixture@example.invalid -c user.name=fixture commit -qm scale ) >/dev/null 2>&1
+
+SCALE_LOG="$FX/sweep.log"
+( cd "$FX" && adv env MUTATION_SWEEP_KILLER_TIMEOUT_S=300 MUTATION_SWEEP_KILLER_MIN_S=3 \
+    bash "$SWEEP" --mode full ) >"$SCALE_LOG" 2>&1 </dev/null &
+SCALE_PID=$!
+SCALE_DEADLINE=$(( $(date +%s) + 90 ))
+SCALE_HUNG=0
+while kill -0 "$SCALE_PID" 2>/dev/null; do
+  if [[ "$(date +%s)" -ge "$SCALE_DEADLINE" ]]; then SCALE_HUNG=1; break; fi
+  sleep 0.2
+done
+if [[ $SCALE_HUNG -eq 1 ]]; then
+  kill -9 "$SCALE_PID" 2>/dev/null; pkill -9 -f "$FX/guard.sh" 2>/dev/null
+  wait "$SCALE_PID" 2>/dev/null
+  bad "(aa) sweep did not finish — a ~0s suite was held to the 300s ceiling, not the floor"
+else
+  wait "$SCALE_PID" 2>/dev/null
+  SCALE_OUT="$(cat "$SCALE_LOG")"
+  if printf '%s' "$SCALE_OUT" | grep -q 'killer timeout (3s exceeded'; then
+    ok "fast suite bounded at the 3s floor, not the 300s ceiling"
+  else
+    bad "(aa) expected the floor in the logged bound; got:"
+    printf '%s\n' "$SCALE_OUT" | grep 'killer timeout' | head -2
+  fi
+fi
+
 # ======================================================== live-tree lint cases
 # (j) and (k) run against the REAL tree, not a fixture. They are pure resolution/parse
 # lints — no mutation, no sandbox, no suite execution — so they are cheap enough for both

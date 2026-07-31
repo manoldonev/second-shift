@@ -36,12 +36,19 @@
 #   Warn (never red): a killed mutant still listed in the baseline, and a baseline row
 #   whose guard no longer resolves — both say "shrink the baseline".
 #
-# KILLER TIME BOUND — every killer runs under a wall-clock bound (300s;
-# MUTATION_SWEEP_KILLER_TIMEOUT_S). A mutant that makes its guard spin would otherwise
-# block the shard until the job timeout destroys the log, which is how two successive
-# 10-shard nightlies lost the same three shards (4, 5 and 9) with no diagnosis. A
-# timed-out killer counts as a KILL and is logged by name; a killer that blows the bound
-# on the UNMUTATED sandbox is the existing `unrunnable pair` red, now saying which it was.
+# KILLER TIME BOUND — every killer runs under a wall-clock bound. A mutant that makes its
+# guard spin would otherwise block the shard until the job timeout destroys BOTH the log
+# and the artifact, which is how two successive 10-shard nightlies lost the same three
+# shards with no diagnosis. A timed-out killer counts as a KILL and is logged by name; a
+# killer that blows the bound on the UNMUTATED sandbox is the existing `unrunnable pair`
+# red, now saying which it was.
+#
+# The bound is PER SUITE, not flat: `4 x the suite's measured unmutated time`, floored at
+# 60s and capped at MUTATION_SWEEP_KILLER_TIMEOUT_S (300s). A flat bound bounds one killer
+# but not a SHARD — a guard whose mutants all spin costs k x the bound, and the first
+# bounded seed run still lost a 60-min shard to that accumulation on a ~15-min cost model.
+# Scaling to the suite puts the saving where the mutants are (the fast suites) and leaves
+# the slow end's margin untouched.
 #
 # ENFORCING vs ADVISORY: enforcing iff GITHUB_ACTIONS is set. Local runs are advisory and
 # say so — kill verdicts are only comparable inside the canonical environment
@@ -55,9 +62,14 @@ set -uo pipefail
 K_BUDGET="${MUTATION_SWEEP_K:-2}"   # generic mutants per operator per guard
 SLOW_THRESHOLD_S=5                  # a paired suite at or above this is "slow"
 PR_FAST_GUARD_CAP=6                 # PR lane: sweep at most this many fast guards
-# Wall-clock bound on ONE killer invocation. Must clear the slowest paired suite by a wide
-# margin under runner load — the slowest measured here is statectl-selftest at 95s.
+# Ceiling on ONE killer invocation, and the bound used for the unmutated precheck (which
+# has no measurement yet — it IS the measurement). Clears the slowest paired suite by a
+# wide margin under runner load: statectl-selftest measured 107-120s on the CI lane.
 KILLER_TIMEOUT_S="${MUTATION_SWEEP_KILLER_TIMEOUT_S:-300}"
+KILLER_TIMEOUT_FACTOR=4             # mutant-run bound = this x the suite's measured time
+# ...floored here, so a fast suite still gets real slack. Overridable so the companion
+# selftest can prove the bound SCALES without burning the real floor in wall clock.
+KILLER_TIMEOUT_MIN_S="${MUTATION_SWEEP_KILLER_MIN_S:-60}"
 
 MODE=""
 BASE_REF=""
@@ -231,6 +243,36 @@ suite_seconds() {
     i=$((i + 1))
   done
   printf '0'
+}
+
+# Seconds this RUN measured for a suite on the unmutated sandbox (the precheck timings).
+# Largest wins: the same suite is timed once per guard whose kill set contains it, and the
+# conservative reading is the slowest observation.
+measured_seconds() {
+  local s="$1" best=0 name secs
+  while IFS=$'\t' read -r name secs; do
+    [[ "$name" == "$s" ]] || continue
+    [[ "${secs:-0}" -gt "$best" ]] 2>/dev/null && best="$secs"
+  done <<< "${MEASURED:-}"
+  printf '%s' "$best"
+}
+
+# Per-suite killer bound. A flat 300s bounds one killer but NOT a shard: a guard whose
+# mutants all spin costs k * 300s, and shard 2 of the first bounded seed run blew a 60-min
+# job on a ~15-min cost model doing exactly that. Scaling to what the suite actually takes
+# fixes the accumulation where the mutants are — 38 of shard 2's mutants pair with ~2s
+# suites and only 6 with statectl — without touching the slow end's safety margin:
+#   ~2s suite   -> the 60s floor      (5x cheaper than the flat bound)
+#   statectl     -> 300s ceiling       (measured 107-120s on CI; margin unchanged)
+# Floor first, ceiling last, so KILLER_TIMEOUT_S stays a hard cap the floor cannot raise.
+killer_bound_for() {
+  local s="$1" secs b
+  secs="$(measured_seconds "$s")"
+  [[ "$secs" -gt 0 ]] 2>/dev/null || secs="$(suite_seconds "$s")"
+  b=$(( ${secs%%.*} * KILLER_TIMEOUT_FACTOR ))
+  [[ $b -lt $KILLER_TIMEOUT_MIN_S ]] && b=$KILLER_TIMEOUT_MIN_S
+  [[ $b -gt $KILLER_TIMEOUT_S ]] && b=$KILLER_TIMEOUT_S
+  printf '%s' "$b"
 }
 
 is_slow() {
@@ -597,10 +639,12 @@ splice_line() {
 # job-control noise for a background job in a non-interactive shell. `timeout(1)` is NOT
 # used: it is absent from macOS, which is one of this repo's two CI lanes.
 KILLER_TIMED_OUT=0
+KILLER_BOUND_USED=0
 CURRENT_KILLER_PGID=""
 run_killer() {
-  local pid rc deadline
+  local pid rc deadline bound="${2:-$KILLER_TIMEOUT_S}"
   KILLER_TIMED_OUT=0
+  KILLER_BOUND_USED="$bound"
   set -m
   ( cd "$SANDBOX" && bash "$1" ) >/dev/null 2>&1 </dev/null &
   pid=$!
@@ -608,7 +652,7 @@ run_killer() {
   # The job is its own process-group leader, so pgid == pid. Published for the EXIT/INT
   # trap, which is the only thing that can reap it if the operator interrupts mid-killer.
   CURRENT_KILLER_PGID="$pid"
-  deadline=$(( $(date +%s) + KILLER_TIMEOUT_S ))
+  deadline=$(( $(date +%s) + bound ))
   while kill -0 "$pid" 2>/dev/null; do
     if [[ "$(date +%s)" -ge "$deadline" ]]; then
       # Re-check rather than kill blind: the suite may have exited inside the poll
@@ -713,15 +757,15 @@ for guard in ${SWEEP_GUARDS[@]+"${SWEEP_GUARDS[@]}"}; do
       fi
       used=$((used + 1)); applied=$((applied + 1))
       sid="$guard::$opid::$ordinal"
-      got_kill=0; timed_out=""
+      got_kill=0; timed_out=""; timed_out_bound=""
       for s in $KS_ORDERED; do
-        if ! run_killer "$s"; then
+        if ! run_killer "$s" "$(killer_bound_for "$s")"; then
           got_kill=1
-          [[ $KILLER_TIMED_OUT -eq 1 ]] && timed_out="$s"
+          [[ $KILLER_TIMED_OUT -eq 1 ]] && { timed_out="$s"; timed_out_bound="$KILLER_BOUND_USED"; }
           break
         fi
       done
-      [[ -n "$timed_out" ]] && info "killer timeout (${KILLER_TIMEOUT_S}s exceeded, scored as KILLED): $sid via $timed_out — the mutant most likely made the guard spin."
+      [[ -n "$timed_out" ]] && info "killer timeout (${timed_out_bound}s exceeded, scored as KILLED): $sid via $timed_out — the mutant most likely made the guard spin."
       if [[ $got_kill -eq 1 ]]; then
         killed=$((killed + 1))
       else
@@ -760,15 +804,15 @@ for guard in ${SWEEP_GUARDS[@]+"${SWEEP_GUARDS[@]}"}; do
       restore "$guard"; continue
     fi
     applied=$((applied + 1))
-    got_kill=0; timed_out=""
+    got_kill=0; timed_out=""; timed_out_bound=""
     for s in $KS_ORDERED; do
-      if ! run_killer "$s"; then
+      if ! run_killer "$s" "$(killer_bound_for "$s")"; then
         got_kill=1
-        [[ $KILLER_TIMED_OUT -eq 1 ]] && timed_out="$s"
+        [[ $KILLER_TIMED_OUT -eq 1 ]] && { timed_out="$s"; timed_out_bound="$KILLER_BOUND_USED"; }
         break
       fi
     done
-    [[ -n "$timed_out" ]] && info "killer timeout (${KILLER_TIMEOUT_S}s exceeded, scored as KILLED): catalog::$cid via $timed_out — the mutant most likely made the guard spin."
+    [[ -n "$timed_out" ]] && info "killer timeout (${timed_out_bound}s exceeded, scored as KILLED): catalog::$cid via $timed_out — the mutant most likely made the guard spin."
     if [[ $got_kill -eq 1 ]]; then
       killed=$((killed + 1))
     else

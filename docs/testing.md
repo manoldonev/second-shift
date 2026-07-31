@@ -127,8 +127,14 @@ baselined survivor that is now killed is a warn to shrink the baseline.
 any of its guard's mutants are scored, so a broken or environment-starved suite can never report
 its guard as fully killed.
 
-**Every killer runs under a wall-clock bound** (300s; `MUTATION_SWEEP_KILLER_TIMEOUT_S`), and a
-timed-out killer counts as a **kill**, logged by name. This is not a tuning knob — it is what makes
+**Every killer runs under a wall-clock bound**, and a timed-out killer counts as a **kill**,
+logged by name. The bound is per suite — `4 x the suite's measured unmutated time`, floored at 60s
+and capped at `MUTATION_SWEEP_KILLER_TIMEOUT_S` (300s) — because a *flat* bound bounds one killer
+but not a *shard*: a guard whose mutants all spin costs `k` x the bound. The first bounded seed run
+showed exactly that gap. Nine shards went green, including the two that had been fatal, each naming
+its own culprit; one shard still burned a 60-minute budget against a ~15-minute cost model, and its
+job timeout destroyed both the log and the artifact, so it yielded nothing. Scaling to the suite
+puts the saving where the mutants are (the fast suites) and leaves the slow end's margin alone. This is not a tuning knob — it is what makes
 the sweep diagnosable at all. A mutant can make its guard *spin*: `cmp-z` inverts the EOF-tolerance
 clause of the standard read idiom (`while IFS= read -r line || [[ -n "$line" ]]` becomes
 `|| [[ -z "$line" ]]`), which at EOF is permanently true. An unbounded killer then blocks its shard
