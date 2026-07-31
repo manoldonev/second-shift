@@ -5,7 +5,8 @@
 # start/end field bundles), Stage 7 checkpoint write (with payload schema validation),
 # failure writes (atomic failureContext + status=failed bundle with closed-enum
 # reason), writer-suffix isolation via $STATECTL_WRITER, and the shared-seam
-# session stamp + automatic pause span (apply_session_seam — #260).
+# session stamp + automatic pause span (apply_session_seam — #260) + automatic
+# pipelineSessions registration on that same seam (#123).
 #
 # Terminal-state guard (require_mutable): every mutating subcommand refuses to
 # overwrite a completed/failed run unless --force is passed — EXCEPT set-stage
