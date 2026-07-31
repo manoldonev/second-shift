@@ -267,10 +267,21 @@ Run `review-toolkit:review-lead` on only the files changed by this revision. rev
 
 ```
 Workflow({ scriptPath: "../dev-pipeline/workflows/code-review.mjs",
-           // The caller also passes args.config = the parsed second-shift.config.json
-           // (plugin reviewers qualified `review-toolkit:`; repo-local reviewers bare).
+           // args.config carries ONLY the config keys THIS script reads — never the whole
+           // parsed config. code-review.mjs reads `reviewers` (per-agent model overrides)
+           // and `tracker` (`tracker.type` branches scope-completeness-reviewer's fetch).
+           // The subset is keyed to the SCRIPT, not to this call path: no `issue` arg is
+           // passed here, so that reviewer never spawns and `tracker` goes unread today —
+           // sending it anyway means a later revision that starts passing `issue` cannot
+           // silently lose tracker routing. CONFIG below = the parsed
+           // second-shift.config.json. Passing CONFIG whole sends `commands.<host>`
+           // shell-command strings and a top-level `$schema` through Workflow arg
+           // serialization — the payload that killed a dispatch outright; passing
+           // `{ reviewers: {} }` is the opposite trap, serializing cleanly while silently
+           // disabling every model override.
+           // Plugin reviewers qualified `review-toolkit:`; repo-local reviewers bare.
            args: { worktree: "$WORKTREE_PATH", base: "$PRE_REVISION_SHA", head: "HEAD",
-                   config: CONFIG,
+                   config: { reviewers: CONFIG.reviewers, tracker: CONFIG.tracker },
                    reviewers: [<selected per review-toolkit:review-lead Routing>],
                    changedFiles: [<files changed by this revision>] } })
 ```
