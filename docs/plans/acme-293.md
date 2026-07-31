@@ -90,11 +90,11 @@ New helpers introduced: none beyond the two new scripts themselves.
    apply D-4 (basename==`ticketKey` supersedes; else every snapshot is a distinct run); sort
    by `startedAt` descending; take the window (`--window N`, default 15).
 3. **Time axis.** For each selected run call `stage-times.sh --json <stem>` and collect its
-   per-stage windows. Apply fidelity triage at **window** granularity, mechanizing the four
-   signals that are decidable from state: multi-session with no pause spans; effective==wall
-   spanning calendar days; a near-zero window preceded by a large inter-stage gap; a stage
-   present in `stages` but absent from the timing table. Signal 4 keys on `.mode` per D-8.
-   Each degraded window records which signal fired.
+   per-stage windows. Apply fidelity triage at **window** granularity, mechanizing **all five**
+   of perf-retro's signals: (1) multi-session with no pause spans; (2) effective==wall spanning
+   calendar days; (3) a near-zero window preceded by a large inter-stage gap; (4) human-paced
+   run, keyed on `.mode` per D-8; (5) a stage present in `stages` but absent from the timing
+   table. Each degraded window records which signal fired.
 4. **Percentiles.** Nearest-rank p50/p90 per stage over trusted windows, computed
    leave-one-out with respect to the run under test, with the min-n floor of 8 evaluated on
    the post-exclusion set (D-7). Below the floor, emit a known-unknown row instead of an
@@ -182,7 +182,7 @@ reported explicitly rather than assumed.
   from identical arithmetic), by `(pause3)` staying green unmodified, and by the new agreement
   case. Rollback is a clean revert of that file — the `--json` mode is purely additive, so no
   caller regresses.
-- **Fidelity triage is a judgment layer.** Mechanizing four of perf-retro's five signals means
+- **Fidelity triage is a judgment layer.** Mechanizing all five of perf-retro's signals means
   the tool's trusted set can disagree with a human reading the same corpus. Contained by
   reporting the corpus declaration and per-window degradation reasons, so the reader can see
   what was excluded and why.

@@ -1241,6 +1241,40 @@ else
   fail "(pause3) stage-times pause-aware — total='$total_line' stage5='$stage5_line'"
 fi
 
+# (pause4) The two stage-times.sh renderers agree on the same fixture. --json is an
+# ADDITIVE emit mode over the SAME computed model, so the numbers the text table shows
+# and the numbers a programmatic consumer (tools/stage-envelopes.sh) reads must be the
+# same numbers — not merely similar ones. This case is what keeps that true: it parses
+# the text output back out and compares it field-by-field against the JSON.
+#
+# Why this matters beyond tidiness: the whole point of routing stage-envelopes.sh
+# through this seam is that the pause/window-overlap arithmetic has ONE owner. A second
+# copy of that math would be free to drift, and drift in a percentile input is invisible
+# — it produces plausible numbers that are simply wrong. (pause3) pins the text; this
+# pins that JSON says the same thing.
+st_json=$(STATECTL_STATE_DIR="$PAUSE_FIXTURE_DIR" bash "$STAGE_TIMES" --json acme-89-pause 2>&1)
+if ! jq -e . >/dev/null 2>&1 <<< "$st_json"; then
+  fail "(pause4) stage-times.sh --json did not emit parseable JSON — got '${st_json:0:120}'"
+else
+  # Pull the same three quantities (pause3) asserts out of BOTH renderers.
+  txt_total=$(sed -n 's/^total: \([0-9.]*\) min effective.*/\1/p' <<< "$st_out")
+  txt_wall=$(sed -n 's/^total:.*(wall \([0-9.]*\) min.*/\1/p' <<< "$st_out")
+  txt_stage5=$(sed -n 's/^  5 *\([0-9.]*\) min.*/\1/p' <<< "$st_out")
+  json_total=$(jq -r '.effectiveTotalMin' <<< "$st_json")
+  json_wall=$(jq -r '.wallMin' <<< "$st_json")
+  json_stage5=$(jq -r '.stages[] | select(.stage == "5") | .effectiveMin' <<< "$st_json")
+  # Every stage row in the text must have a JSON counterpart and vice versa — an emit
+  # mode that silently dropped a stage would otherwise agree on the three sampled numbers.
+  txt_rows=$(grep -c '^  [0-9]* *[0-9.]* min ' <<< "$st_out")
+  json_rows=$(jq -r '.stages | length' <<< "$st_json")
+  if [[ "$txt_total" == "$json_total" && "$txt_wall" == "$json_wall" \
+        && "$txt_stage5" == "$json_stage5" && "$txt_rows" == "$json_rows" ]]; then
+    pass "(pause4) stage-times.sh text and --json renderers agree (total/wall/stage5/${json_rows} rows)"
+  else
+    fail "(pause4) renderer disagreement — text(total=$txt_total wall=$txt_wall s5=$txt_stage5 rows=$txt_rows) json(total=$json_total wall=$json_wall s5=$json_stage5 rows=$json_rows)"
+  fi
+fi
+
 # (rr1) review-rounds happy path → codeReviewRounds written, exhausted untouched.
 # init does not seed codeReviewExhausted — the schema default is by-absence
 # (consumers check `== true`), so a plain --set must leave it absent/false.
