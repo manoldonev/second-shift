@@ -1,0 +1,2 @@
+{"ts":"2026-07-31T16:05:00Z","session_id":"s1","event":"SubagentStop","tool":"","subagent":"review-toolkit:security-reviewer","command_name":"","target":"","outcome":"ok"}
+{"ts":"2026-07-31T16:06:00Z","session_id":"s1","event":"SubagentStop","tool":"","subagent":"review-toolkit:complexity-reviewer","command_name":"","target":"","outcome":"ok"}
