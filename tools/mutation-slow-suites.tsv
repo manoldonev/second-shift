@@ -1,0 +1,13 @@
+# mutation-slow-suites.tsv — paired suites measured at or above 5s in the canonical
+# environment. The PR lane defers any guard whose killer appears here.
+# Membership drift is a report warn, never red; this committed copy updates by ordinary PR.
+# A paired suite ABSENT from this file is treated as fast.
+#
+# selftest<TAB>seconds<TAB>measured_at   (seconds from the seed run's unmutated precheck; ISO-8601 date)
+plugins/dev-pipeline/skills/run/e2e-replay-selftest.sh	9	2026-07-31
+plugins/dev-pipeline/skills/run/scenario-liveness-selftest.sh	31	2026-07-31
+plugins/dev-pipeline/skills/run/statectl-selftest.sh	149	2026-07-31
+plugins/dev-pipeline/skills/run/tools/cost-block-selftest.sh	30	2026-07-31
+plugins/dev-pipeline/skills/run/tools/preflight-selftest.sh	8	2026-07-31
+plugins/dev-pipeline/skills/run/verifyctl-selftest.sh	11	2026-07-31
+plugins/intake-toolkit/hooks/exitplan-ledger-gate-selftest.sh	5	2026-07-31
