@@ -111,7 +111,9 @@ No new selftest suite: every changed script already has a suite, and the change 
 | AC-2 | config-lint rejects a prior-version config with the migration-doc pointer; migration doc present at the gate-derived name | 5, 6, 8 | `config-lint-selftest.sh` (new `invalid-configversion-1.json` case); `derive-release-selftest.sh` |
 | AC-3 | A formerly-`{slice}` override resolves to a valid path after migration, and degrades safely if unmigrated | 2, 8 | — no test (covered-by-selftest) |
 
-AC-3's covering suites: `preflight-selftest.sh` exercises the substitution path, and the tokenless resolution of `valid-monorepo-github.json` is asserted by `config-lint-selftest.sh`.
+AC-3's covering suite: `preflight-selftest.sh` **run 18** (added at Stage 8 in response to a test-coverage reviewer finding). It asserts on preflight's resolved plan-file line in two directions — an unmigrated override carrying the retired token degrades to a clean path, and a migrated pattern is left untouched (the over-match negative). Mutation-checked: deleting the residual-token strip from `preflight.sh` fails both positives while the negative still passes.
+
+An earlier revision of this plan cited `preflight-selftest.sh` as already covering this. That was wrong — the suite printed the resolved path but asserted nothing about it, so the strip shipped untested at all five call sites until run 18 was added.
 
 ## Verification commands
 

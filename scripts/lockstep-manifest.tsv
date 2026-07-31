@@ -214,7 +214,9 @@ artifact-reviewer-baseline-deltas	verbatim	plugins/design-toolkit/agents/figma-f
 # stage resolving a path the schema no longer publishes. Considered for a row and DROPPED: the
 # canonical side is schema/second-shift.config.schema.json, and JSON has no comment syntax, so
 # a LOCKSTEP-BEGIN/END marker cannot be placed there at all -- the pair is unanchorable by
-# construction, not merely awkward. Guarded instead by preflight.sh, which resolves the pattern
-# through the same substitution the stages use and prints the result, and by config-lint-
-# selftest.sh's fixtures, which carry the pattern through a real lint. Revisit only if the
-# schema default is ever mirrored into a comment-bearing file.
+# construction, not merely awkward. Guarded behaviorally instead: preflight.sh resolves the
+# pattern through the same substitution the stages use and PRINTS the result, and preflight-
+# selftest.sh run 18 ASSERTS on that printed line -- both that an unmigrated override has its
+# retired token stripped and that a migrated pattern is left untouched (the over-match
+# negative). Printing alone would not have been coverage; the assertions are. Revisit only if
+# the schema default is ever mirrored into a comment-bearing file.
