@@ -167,7 +167,7 @@ fi
 hdr "Target Confirmation (resolved targets)"
 TRACKER_TYPE=github; TRACKER_WRITES=true; BRANCH_PREFIX="claude/acme-"; KEY_PATTERN=""
 TOPO=standalone; QUEUE_LABEL="ready-for-dev"; CLAIMED_LABEL="in-progress"
-PLAN_DIR="docs/plans"; PLAN_PAT="{plansDir}/acme-{issueKey}{slice}.md"; STATE_DIR=".claude/pipeline-state"
+PLAN_DIR="docs/plans"; PLAN_PAT="{plansDir}/acme-{issueKey}.md"; STATE_DIR=".claude/pipeline-state"
 if [[ -f "$CFG" ]] && command -v jq >/dev/null 2>&1; then
   TRACKER_TYPE=$(jq -r '.tracker.type // "github"' "$CFG" 2>/dev/null || echo github)
   TRACKER_WRITES=$(jq -r 'if .tracker.writes != null then .tracker.writes else (.tracker.type // "github") == "github" end' "$CFG" 2>/dev/null || echo true)
@@ -177,12 +177,12 @@ if [[ -f "$CFG" ]] && command -v jq >/dev/null 2>&1; then
   QUEUE_LABEL=$(jq -r '.tracker.labels.queue // "ready-for-dev"' "$CFG" 2>/dev/null || echo "ready-for-dev")
   CLAIMED_LABEL=$(jq -r '.tracker.labels.claimed // "in-progress"' "$CFG" 2>/dev/null || echo "in-progress")
   PLAN_DIR=$(jq -r '.paths.plansDir // "docs/plans"' "$CFG" 2>/dev/null || echo "docs/plans")
-  PLAN_PAT=$(jq -r '.stageParams.planFilePattern // "{plansDir}/acme-{issueKey}{slice}.md"' "$CFG" 2>/dev/null || echo "{plansDir}/acme-{issueKey}{slice}.md")
+  PLAN_PAT=$(jq -r '.stageParams.planFilePattern // "{plansDir}/acme-{issueKey}.md"' "$CFG" 2>/dev/null || echo "{plansDir}/acme-{issueKey}.md")
   STATE_DIR=$(jq -r '.paths.pipelineStateDir // ".claude/pipeline-state"' "$CFG" 2>/dev/null || echo ".claude/pipeline-state")
 fi
 EXAMPLE_KEY="${KEY:-EXAMPLE-KEY}"
 BRANCH="${BRANCH_PREFIX}${EXAMPLE_KEY}"
-PLAN_REL="$(printf '%s' "$PLAN_PAT" | sed -e "s|{plansDir}|$PLAN_DIR|" -e "s|{issueKey}|$EXAMPLE_KEY|" -e "s|{slice}||")"
+PLAN_REL="$(printf '%s' "$PLAN_PAT" | sed -e "s|{plansDir}|$PLAN_DIR|" -e "s|{issueKey}|$EXAMPLE_KEY|" -e "s|{[a-zA-Z][a-zA-Z0-9]*}||g")"
 ok "tracker: type=$TRACKER_TYPE writes=$TRACKER_WRITES queue='$QUEUE_LABEL' claimed='$CLAIMED_LABEL'${KEY_PATTERN:+ keyPattern=$KEY_PATTERN}"
 ok "branch namespace: prefix='$BRANCH_PREFIX' -> work branch '$BRANCH'"
 ok "plan file: '$PLAN_REL' | pipeline state dir: '$STATE_DIR'"

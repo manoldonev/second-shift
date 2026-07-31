@@ -1,5 +1,5 @@
 {
-  "configVersion": 1,
+  "configVersion": 2,
   "tracker": { "type": "jira" },
   "topology": { "type": "be-fe-pair", "repos": { "be": { "path": ".", "baseBranch": "alpha" } } },
   "commands": { "be": { "test": "yarn test" } }

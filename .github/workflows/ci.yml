@@ -99,7 +99,7 @@ jobs:
     # docs/pipeline-manifesto.md's T0 note.
     env:
       PIPELINE_BRANCH_PREFIX: claude/second-shift-
-      PIPELINE_PLAN_PATTERN: docs/plans/acme-{issueKey}{slice}.md
+      PIPELINE_PLAN_PATTERN: docs/plans/acme-{issueKey}.md
     steps:
       - uses: actions/checkout@v5
         with:

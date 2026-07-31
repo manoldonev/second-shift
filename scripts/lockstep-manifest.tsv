@@ -207,3 +207,16 @@ artifact-reviewer-baseline-deltas	verbatim	plugins/design-toolkit/agents/figma-f
 # assertion that the parsed enum is non-empty, so a table rename fails loudly instead of
 # passing on an empty set. The LOCKSTEP-BEGIN/END markers around REQUIRED_MARKERS are left in
 # place so a future row is cheap if the canonical side ever grows an anchorable literal.
+#
+# schema planFilePattern default <-> the five hardcoded copies of that literal (preflight.sh,
+# stages/3-write-plan.md x2, 4-plan-review.md, 5-implement.md). A real coupling: each copy is
+# the fallback the stage uses when a consumer sets no override, so a one-sided edit ships a
+# stage resolving a path the schema no longer publishes. Considered for a row and DROPPED: the
+# canonical side is schema/second-shift.config.schema.json, and JSON has no comment syntax, so
+# a LOCKSTEP-BEGIN/END marker cannot be placed there at all -- the pair is unanchorable by
+# construction, not merely awkward. Guarded behaviorally instead: preflight.sh resolves the
+# pattern through the same substitution the stages use and PRINTS the result, and preflight-
+# selftest.sh run 18 ASSERTS on that printed line -- both that an unmigrated override has its
+# retired token stripped and that a migrated pattern is left untouched (the over-match
+# negative). Printing alone would not have been coverage; the assertions are. Revisit only if
+# the schema default is ever mirrored into a comment-bearing file.

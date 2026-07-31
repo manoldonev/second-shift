@@ -12,8 +12,8 @@ The plan gates — `plan-reviewer`, design FE-spec review (designDriven runs), u
    MAIN_ROOT="$(dirname "$(cd "$(git -C "$WORKTREE" rev-parse --git-common-dir)" && pwd)")"
    # Resolve the plan path from config (paths.plansDir + stageParams.planFilePattern; defaults preserve the literal)
    PLAN_DIR="$(jq -r '.paths.plansDir // "docs/plans"' "$SECOND_SHIFT_CONFIG" 2>/dev/null || echo "docs/plans")"
-   PLAN_PAT="$(jq -r '.stageParams.planFilePattern // "{plansDir}/acme-{issueKey}{slice}.md"' "$SECOND_SHIFT_CONFIG" 2>/dev/null || echo "{plansDir}/acme-{issueKey}{slice}.md")"
-   PLAN_REL="$(printf '%s' "$PLAN_PAT" | sed -e "s|{plansDir}|$PLAN_DIR|" -e "s|{issueKey}|$ISSUE_NUMBER|" -e "s|{slice}|${SLICE_SUFFIX:-}|")"
+   PLAN_PAT="$(jq -r '.stageParams.planFilePattern // "{plansDir}/acme-{issueKey}.md"' "$SECOND_SHIFT_CONFIG" 2>/dev/null || echo "{plansDir}/acme-{issueKey}.md")"
+   PLAN_REL="$(printf '%s' "$PLAN_PAT" | sed -e "s|{plansDir}|$PLAN_DIR|" -e "s|{issueKey}|$ISSUE_NUMBER|" -e "s|{[a-zA-Z][a-zA-Z0-9]*}||g")"
    LINT_STDERR="$(bash "${CLAUDE_PLUGIN_ROOT}/skills/run/tools/plan-lint.sh" \
      "$WORKTREE/$PLAN_REL" \
      "$(statectl.sh state-path "$ISSUE_NUMBER")" 2>&1 1>/dev/null)" || {

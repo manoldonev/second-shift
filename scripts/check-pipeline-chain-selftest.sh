@@ -42,12 +42,11 @@ git config user.name selftest
 git config user.email selftest@example.invalid
 git config commit.gpgsign false
 echo "plan for 42" > docs/plans/acme-42.md
-echo "plan for 42 slice 2" > docs/plans/acme-42-pr2.md
 git add -A
 git commit -qm "fixture: committed plans"
 
 PREFIX="claude/acme-"
-PATTERN="docs/plans/acme-{issueKey}{slice}.md"
+PATTERN="docs/plans/acme-{issueKey}.md"
 OPEN_AT="2026-07-30T12:00:00Z"
 
 # ---- trail builders -----------------------------------------------------------------------
@@ -246,18 +245,21 @@ if [[ $rc -eq 1 ]] && grep -q "no committed plan at 'docs/plans/acme-77.md'" "$W
   ok "pair (b): no committed plan at the branch-derived path fails (AC-2)"
 else bad "pair (b): rc=$rc, log: $(cat "$WORK/out.log")"; fi
 
-# (c) slice suffix must select the slice's OWN plan, not the parent's.
+# (c) the retired stacked-PR shape: a `-pr<N>` suffix no longer parses as a key.
+# Stacked PRs were retired along with the plan-pattern slice token, so such a branch carries no
+# resolvable issue key and takes the same exempt-with-notice path as any other
+# non-key suffix -- visibly skipped, never silently passed as if it were checked.
 run_chain "${PREFIX}42-pr2" "Closes #42" "$FULL"
 rc=$?
-if [[ $rc -eq 0 ]] && grep -q "acme-42-pr2.md" "$WORK/out.log"; then
-  ok "pair (c): a slice branch is checked against its own plan file (D-6b)"
-else bad "pair (c) slice plan: rc=$rc, log: $(cat "$WORK/out.log")"; fi
+if [[ $rc -eq 0 ]] && grep -q "non-key suffix" "$WORK/out.log"; then
+  ok "pair (c): a retired -pr<N> branch is exempt with notice, not plan-checked"
+else bad "pair (c) retired slice shape: rc=$rc, log: $(cat "$WORK/out.log")"; fi
 
-run_chain "${PREFIX}42-pr9" "Closes #42" "$FULL"
-rc=$?
-if [[ $rc -eq 1 ]] && grep -q "acme-42-pr9.md" "$WORK/out.log"; then
-  ok "pair (c): a slice with no committed plan of its own fails (AC-2)"
-else bad "pair (c) missing slice plan: rc=$rc, log: $(cat "$WORK/out.log")"; fi
+# And the notice is the ONLY outcome -- it must not fall through to a plan lookup
+# under either the parent's path or a slice-suffixed one.
+if ! grep -q "acme-42-pr2.md" "$WORK/out.log" && ! grep -q "no committed plan" "$WORK/out.log"; then
+  ok "pair (c): no plan lookup is attempted for a retired slice branch"
+else bad "pair (c) unexpected plan lookup: $(cat "$WORK/out.log")"; fi
 
 echo "== live fetch failure is an environment error, not a pass (D-11) =="
 

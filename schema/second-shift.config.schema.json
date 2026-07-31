@@ -12,7 +12,7 @@
       "description": "Optional editor-validation pointer; onboard writes the schema URL at the pinned marketplace ref."
     },
     "configVersion": {
-      "const": 1,
+      "const": 2,
       "description": "Schema version of this config file; bumped only on breaking schema changes."
     },
     "tracker": {
@@ -234,8 +234,8 @@
       "properties": {
         "planFilePattern": {
           "type": "string",
-          "default": "{plansDir}/acme-{issueKey}{slice}.md",
-          "description": "Plan file path pattern. Tokens: {plansDir} (from paths.plansDir), {issueKey}, {slice} (e.g. -pr2, empty for single-PR)."
+          "default": "{plansDir}/acme-{issueKey}.md",
+          "description": "Plan file path pattern. Tokens: {plansDir} (from paths.plansDir), {issueKey}. Unknown tokens are stripped defensively at substitution time."
         },
         "requiredLabels": {
           "type": "array",
