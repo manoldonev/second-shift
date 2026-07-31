@@ -1,5 +1,5 @@
 {
-  "configVersion": 1,
+  "configVersion": 2,
   "tracker": {
     "type": "github",
     "writes": true,
@@ -86,7 +86,7 @@
     "provider": "claude-design"
   },
   "stageParams": {
-    "planFilePattern": "{plansDir}/acme-{issueKey}{slice}.md",
+    "planFilePattern": "{plansDir}/acme-{issueKey}.md",
     "requiredLabels": [
       "ready-for-dev",
       "in-progress",

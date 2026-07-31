@@ -4,6 +4,230 @@ All notable changes to the second-shift marketplace. Versions are per-plugin (`p
 this file tracks the marketplace release. `configVersion` stays `const 1` — v2 is fully backward-compatible for a
 consumer with an empty config; the migration notes below are only for consumers using the changed features.
 
+## v3.0.0
+
+### `audit-toolkit` 2.0.1 → 2.1.0
+
+- **feat(audit-toolkit): record what each tool call ran on in the ledger `target` field (#270)** (#270)
+  audit ledger rows now carry a `target` field naming what each tool
+  call ran on, making the ledger usable as gate evidence rather than only as a
+  count. Additive — existing readers are unaffected.
+  Migration: none.
+
+### `design-toolkit` 2.2.0 → 2.2.1
+
+- **refactor(design-toolkit): single-home the figma duplication and adopt reviewer-baseline (slice 2 of 3 for #167) (#278)** (#278)
+  the two figma artifact reviewers now inherit the shared reviewer
+  baseline (grounding, confidence scoring, tool discipline) while keeping their
+  artifact-grading severity ladder and verdict contract unchanged; the figma
+  skills single-home their capability and node-resolution sections.
+  Migration: none.
+
+### `dev-pipeline` 2.9.0 → 3.0.0
+
+- **fix(dev-pipeline): document statectl --repo on its CLI surface; make pr-add fail closed and self-heal on be-fe-pair (#246)** (#246)
+  statectl's CLI surface now documents `--repo` on `worktree-set`,
+  `pr-add`, `verify-attempts` and `verify-summary-set`, and `pr-add --repo` now
+  replaces a same-URL entry recorded under a different key instead of adding a
+  duplicate — so a be-fe-pair run that recorded a PR with the wrong keying is
+  repaired by re-running the correct call. Migration: none.
+  `statectl pr-add` now fails with a clear error instead of writing a
+  mis-keyed record when `--repo` is omitted on a `be-fe-pair` topology, where the
+  branch-keyed form silently loses a PR on a dual-target run. Single-repo and
+  monorepo consumers are unaffected. Migration: none — pair-topology callers
+  following the Stage-9 per-repo loop already pass `--repo`.
+- **feat(dev-pipeline): operator-authorized --force — reason-carrying waivers, auto-mode refusal, terminal blocking (PR 1 of 2 for #243) (#255)** (#255)
+  statectl --force is now operator-authorized: it requires
+  --force-reason, is refused outright in autonomous mode (state-transported
+  .mode from init --mode), records one waivers[] entry per bypassed guard, and
+  mark-completed refuses a waived run until an explicit --accept-waivers.
+  Migration: scripted statectl callers that pass --force must add
+  --force-reason "<why>" (>=20 chars); pipeline init call sites should pass
+  --mode <resolved>.
+- **feat: accept `fable` as an override-only model tier; close the unknown-token hole in check-model-tiers (#252)** (#252)
+  reviewers.modelOverrides accepts `fable` as an override-only model tier
+  (subscription-gated; shipped defaults unchanged; an inaccessible tier surfaces as a
+  dead reviewer and the gate fails closed). check-model-tiers.sh now errors
+  (UNKNOWN-MODEL) on unrecognized model tokens in shipped dispatch tables and inline
+  literals instead of silently skipping them.
+  Migration: none.
+- **feat(dev-pipeline): make the Stage-6 INERT classifier overridable for non-JS/TS consumers (#256)** (#256)
+  the Stage-6 INERT classifier accepts an optional pattern override, so
+  repos whose surface is shell/Markdown can stop being classified inert; an
+  uncompilable pattern now fails closed to the full suite instead of silently
+  reporting inert.
+  Migration: none -- absent config reproduces today's behavior exactly.
+  verifyctl reads stageParams.inertPattern and applies it to Stage-6 lane
+  classification.
+  Migration: none.
+  stageParams.inertPattern is validated by config-lint and documented in
+  the config schema; an empty or uncompilable value is rejected before a run.
+  Migration: none.
+  preflight warns when a repo's configured verify lanes can never run
+  because its whole tracked tree classifies inert, and stops reporting such a repo
+  as pipeline-ready.
+  Migration: none.
+- **fix(dev-pipeline): anchor the Stage-9 cost-block helper to the plugin checkout (#261)** (#261)
+- **feat(dev-pipeline): per-stage evidence legs + stage-file read receipts (PR 2 of 2 for #243) (#269)** (#269)
+  stages 3/5/7/9 now carry machine-checked completion evidence on
+  both tracker adapters (unitTestSurface, renderVerify, the Stage-7
+  checkpoint, costBlockApplied + per-repo PR keys), and every stage 1-9
+  requires its stage-file read receipt (statectl stage-file-read). A waived
+  run's report must carry a ## Waivers section.
+  Migration: fixture walks that complete stages directly must write the new
+  evidence (see scenario-lib.sh stage_evidence); the cost-block sub-step must
+  run before set-stage 9 --status completed.
+- **feat(audit-toolkit): record what each tool call ran on in the ledger `target` field (#270)** (#270)
+  audit ledger rows now carry a `target` field naming what each tool
+  call ran on, making the ledger usable as gate evidence rather than only as a
+  count. Additive — existing readers are unaffected.
+  Migration: none.
+- **feat(dev-pipeline): enum-validate the whole Decision Ledger provenance cell at plan-lint Check 4 (#239) (#274)** (#274)
+  `plan-lint.sh` Check 4 now enum-validates the entire Decision Ledger
+  provenance cell, not just the human-attributed subset. A plan whose provenance
+  cell carries `assumed`, free prose, or a legal value with a trailing annotation
+  (`codebase-derived (discovered at Stage 5)`) now fails the Stage-4 hard gate, as
+  does a ledger row whose column count is outside the canonical
+  `ID | Decision | Resolution | Provenance` schema.
+  Migration: author each provenance cell as the bare enum value and move any
+  annotation into the Resolution cell; keep the ledger table in the canonical
+  column order. Committed plans are never re-linted, so no historical plan needs
+  changing.
+- **feat(intake-toolkit,dev-pipeline): sequential sub-issues verdict + predecessor gate (PR 1 of 3 for #262) (#275)** (#275)
+  new `predecessor-gate.sh` backstop that keeps a sequential sub-issue from
+  being claimed while its predecessor is still open. Migration: none.
+  sequential decompositions now produce ordered sub-issues instead of
+  stacked PRs. Each sub-issue is a plain single-PR run against the base branch and
+  carries its own scope contract; ordering rides Predecessor:/Successor: trailers,
+  with successors held out of the queue until the operator promotes them at merge.
+  Migration: none — the stacked execution path still exists and is removed
+  separately.
+- **feat(dev-pipeline): record the session-resume pause span at statectl's write seam (#279)** (#279)
+  a dev-pipeline run resumed by a fresh session now records its idle gap
+  automatically at every stage, not just at the Stage-8 crash-recovery entry, so
+  effective (compute) time in stage-times.sh and perf-retro stops counting the
+  time a dead session was not running. The `statectl pause-add` subcommand is
+  removed — nothing needs to call it.
+  Migration: none. State files written before this change have no
+  lastWriteSessionId; the first write stamps it and records no span.
+- **refactor(dev-pipeline,review-toolkit): delete the stacked-PR machinery — execution path + state/scope contracts (#282)** (#282)
+  the stacked-PR execution path is removed from the dev-pipeline
+  skill. Runs branch from and target the configured baseBranch only; sequential
+  decompositions are ordered sub-issues. tools/max-pushed-slice.sh and
+  tools/start-slice.sh are deleted.
+  Migration: none — intake stopped emitting the stacked verdict in the prior
+  release, so no live run reaches the deleted path.
+  the stacked AC-partition state and every slice-scoped grading path
+  are removed. `decomposition`, `currentSlice`, `sliceBranch`,
+  `priorSliceBranch` and `prBase` no longer exist; `statectl slice-set` and
+  `slice-partition-set` are gone; plan-lint and the Stage-8 scope gate grade
+  against the full AC snapshot, which for a sub-issue is already its own scope
+  contract. `worktreeBase` is retained and re-documented as the be-fe-pair
+  flat mirror.
+  Migration: none — no live run wrote the removed fields.
+- **refactor(dev-pipeline)!: retire the plan-pattern slice token — configVersion 1 to 2 (#285)** (#285)
+  the planFilePattern {slice} token is retired and configVersion moves
+  to 2. Pattern substitution now strips unknown tokens defensively, so an
+  unmigrated override degrades to a valid plan path rather than embedding a
+  literal token.
+  Migration: set "configVersion": 2; if you override stageParams.planFilePattern,
+  delete {slice} from it. See docs/migrations/v1-to-v2.md part 2.
+  **BREAKING:** stageParams.planFilePattern no longer accepts the {slice} token and configVersion is now 2. Configs at configVersion 1 are rejected with a pointer to docs/migrations/v1-to-v2.md. Consumers who override planFilePattern delete the token; everyone else sets configVersion to 2 and is done.
+
+### `intake-toolkit` 2.1.0 → 2.2.0
+
+- **refactor(review-toolkit): centralize cross-agent boilerplate into reviewer-baseline (slice 1 of 3 for #167) (#254)** (#254)
+  reviewer agents now inherit the extension-file contract and review-process
+  boilerplate from the auto-loaded reviewer-baseline skill instead of restating it; the
+  sub-agent trust model is now canonical in review-lead.
+  Migration: none.
+  reviewer agents no longer restate the shared scope and output-format
+  boilerplate; both now come from the auto-loaded reviewer-baseline skill.
+  Migration: none.
+- **feat(dev-pipeline): enum-validate the whole Decision Ledger provenance cell at plan-lint Check 4 (#239) (#274)** (#274)
+  `plan-lint.sh` Check 4 now enum-validates the entire Decision Ledger
+  provenance cell, not just the human-attributed subset. A plan whose provenance
+  cell carries `assumed`, free prose, or a legal value with a trailing annotation
+  (`codebase-derived (discovered at Stage 5)`) now fails the Stage-4 hard gate, as
+  does a ledger row whose column count is outside the canonical
+  `ID | Decision | Resolution | Provenance` schema.
+  Migration: author each provenance cell as the bare enum value and move any
+  annotation into the Resolution cell; keep the ledger table in the canonical
+  column order. Committed plans are never re-linted, so no historical plan needs
+  changing.
+- **feat(intake-toolkit,dev-pipeline): sequential sub-issues verdict + predecessor gate (PR 1 of 3 for #262) (#275)** (#275)
+  new `predecessor-gate.sh` backstop that keeps a sequential sub-issue from
+  being claimed while its predecessor is still open. Migration: none.
+  sequential decompositions now produce ordered sub-issues instead of
+  stacked PRs. Each sub-issue is a plain single-PR run against the base branch and
+  carries its own scope contract; ordering rides Predecessor:/Successor: trailers,
+  with successors held out of the queue until the operator promotes them at merge.
+  Migration: none — the stacked execution path still exists and is removed
+  separately.
+- **refactor(intake-toolkit): single-home the jira delta and trim rationale prose (slice 3 of 3 for #167) (#280)** (#280)
+  intake-orchestrator's jira delta, Step 0.5 rationale, dispatch mandate
+  and threshold examples are de-duplicated — every rule keeps a home, and the
+  jira delta is now stated once with short pointer tags at its former restatement
+  sites. Migration: none.
+
+### `review-toolkit` 2.4.0 → 3.0.0
+
+- **feat(review-toolkit): bring plan-reviewer under the emit-deadline lint (#249)** (#249)
+  plan-reviewer now carries an emit deadline at turn 10 of 15 and is
+  covered by check-emit-deadline.sh, which grew a DEADLINE_AT_DEFAULT enrollment
+  list so a named agent at the default turn cap can be held to the deadline
+  contract. Agents above the default cap are unaffected.
+  Migration: none.
+- **feat: accept `fable` as an override-only model tier; close the unknown-token hole in check-model-tiers (#252)** (#252)
+  reviewers.modelOverrides accepts `fable` as an override-only model tier
+  (subscription-gated; shipped defaults unchanged; an inaccessible tier surfaces as a
+  dead reviewer and the gate fails closed). check-model-tiers.sh now errors
+  (UNKNOWN-MODEL) on unrecognized model tokens in shipped dispatch tables and inline
+  literals instead of silently skipping them.
+  Migration: none.
+- **refactor(review-toolkit): centralize cross-agent boilerplate into reviewer-baseline (slice 1 of 3 for #167) (#254)** (#254)
+  reviewer agents now inherit the extension-file contract and review-process
+  boilerplate from the auto-loaded reviewer-baseline skill instead of restating it; the
+  sub-agent trust model is now canonical in review-lead.
+  Migration: none.
+  reviewer agents no longer restate the shared scope and output-format
+  boilerplate; both now come from the auto-loaded reviewer-baseline skill.
+  Migration: none.
+- **refactor(dev-pipeline,review-toolkit): delete the stacked-PR machinery — execution path + state/scope contracts (#282)** (#282)
+  the stacked-PR execution path is removed from the dev-pipeline
+  skill. Runs branch from and target the configured baseBranch only; sequential
+  decompositions are ordered sub-issues. tools/max-pushed-slice.sh and
+  tools/start-slice.sh are deleted.
+  Migration: none — intake stopped emitting the stacked verdict in the prior
+  release, so no live run reaches the deleted path.
+  the stacked AC-partition state and every slice-scoped grading path
+  are removed. `decomposition`, `currentSlice`, `sliceBranch`,
+  `priorSliceBranch` and `prBase` no longer exist; `statectl slice-set` and
+  `slice-partition-set` are gone; plan-lint and the Stage-8 scope gate grade
+  against the full AC snapshot, which for a sub-issue is already its own scope
+  contract. `worktreeBase` is retained and re-documented as the be-fe-pair
+  flat mirror.
+  Migration: none — no live run wrote the removed fields.
+- **refactor(dev-pipeline)!: retire the plan-pattern slice token — configVersion 1 to 2 (#285)** (#285)
+  the planFilePattern {slice} token is retired and configVersion moves
+  to 2. Pattern substitution now strips unknown tokens defensively, so an
+  unmigrated override degrades to a valid plan path rather than embedding a
+  literal token.
+  Migration: set "configVersion": 2; if you override stageParams.planFilePattern,
+  delete {slice} from it. See docs/migrations/v1-to-v2.md part 2.
+  **BREAKING:** stageParams.planFilePattern no longer accepts the {slice} token and configVersion is now 2. Configs at configVersion 1 are rejected with a pointer to docs/migrations/v1-to-v2.md. Consumers who override planFilePattern delete the token; everyone else sets configVersion to 2 and is done.
+
+### `second-shift` 1.7.0 → 2.0.0
+
+- **refactor(dev-pipeline)!: retire the plan-pattern slice token — configVersion 1 to 2 (#285)** (#285)
+  the planFilePattern {slice} token is retired and configVersion moves
+  to 2. Pattern substitution now strips unknown tokens defensively, so an
+  unmigrated override degrades to a valid plan path rather than embedding a
+  literal token.
+  Migration: set "configVersion": 2; if you override stageParams.planFilePattern,
+  delete {slice} from it. See docs/migrations/v1-to-v2.md part 2.
+  **BREAKING:** stageParams.planFilePattern no longer accepts the {slice} token and configVersion is now 2. Configs at configVersion 1 are rejected with a pointer to docs/migrations/v1-to-v2.md. Consumers who override planFilePattern delete the token; everyone else sets configVersion to 2 and is done.
+
 ## v2.11.0
 
 ### `audit-toolkit` 2.0.0 → 2.0.1

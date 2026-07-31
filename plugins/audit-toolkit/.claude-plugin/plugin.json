@@ -1,7 +1,7 @@
 {
   "name": "audit-toolkit",
   "description": "Session tool-call audit ledger: PostToolUse audit hook, /audit and /audit-history query skills, audit self-test, settings template for consumer repos.",
-  "version": "2.0.1",
+  "version": "2.1.0",
   "author": {
     "name": "Manol Donev"
   }

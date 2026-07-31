@@ -388,5 +388,60 @@ console.log('── Case G: the injected workflow() global')
   eq('G5 no executor is dispatched when there are no blocker mutants', f.calls.length, 0)
 }
 
+// ---------------------------------------------------------------------------
+// Case H — args.config delivery path: the SUBSET the dispatch prose passes must carry
+// everything code-review.mjs actually reads (#77).
+//
+// The stage files tell the caller what to put in args.config. That prose cannot be
+// guarded by grepping it (CLAUDE.md bans prose-presence guards, and a markdown grep
+// cannot fail for a reason a diff reader would not already see). What IS guardable is
+// the receiving end: given ONLY the documented subset, does production still resolve a
+// model override, and does it still route the tracker branch? Both are silent-failure
+// paths — modelOverrides falls back to the shipped table, trackerType defaults to
+// 'github' — so neither errors when its key is missing. That is precisely why they need
+// a behavioral guard rather than a reviewer's attention.
+//
+// H2/H3 are the pair that makes this a killer. H2 alone would stay green if `tracker`
+// were dropped from the Stage-8 subset and the default happened to match the fixture, so
+// H3 pins the opposite branch: the two must DIFFER. Each case also asserts it reached the
+// scope-completeness prompt at all — without that, a mis-wired reviewers override would
+// assert against runCodeReview's default complexity-reviewer prompt and pass vacuously
+// (the failure mode plan review flagged on this very case).
+// ---------------------------------------------------------------------------
+console.log('── Case H: args.config subset delivery (#77)')
+{
+  // H1 — a modelOverrides entry survives the subset and reaches the dispatched model.
+  // Bare-keyed by agent name, per every consumer's `modelOverrides[bare(agentType)]`.
+  const { calls } = await runCodeReview([findingsBlock()], {
+    reviewers: ['review-toolkit:complexity-reviewer'],
+    config: { reviewers: { modelOverrides: { 'complexity-reviewer': 'fable' } } },
+  })
+  ok('H1 modelOverrides reaches the dispatched opts.model', calls[0]?.opts?.model === 'fable')
+}
+{
+  // H2 — tracker.type: jira survives the subset and routes the scope reviewer to the MCP.
+  const { calls } = await runCodeReview([findingsBlock()], {
+    reviewers: ['review-toolkit:scope-completeness-reviewer'],
+    issue: 'GH-540',
+    config: { reviewers: {}, tracker: { type: 'jira' } },
+  })
+  const p = String(calls[0]?.prompt ?? '')
+  ok('H2a the scope-completeness prompt was actually dispatched (anti-vacuity)', /Verify scope completeness/.test(p))
+  ok('H2b tracker.type jira routes the fetch to the Atlassian MCP', /Atlassian MCP/.test(p))
+}
+{
+  // H3 — the same dispatch with `tracker` ABSENT falls back to gh. This is the mutant
+  // detector: drop `tracker` from the Stage-8 subset and H2b goes red while this stays
+  // green, so the two together prove the key is load-bearing rather than decorative.
+  const { calls } = await runCodeReview([findingsBlock()], {
+    reviewers: ['review-toolkit:scope-completeness-reviewer'],
+    issue: '77',
+    config: { reviewers: {} },
+  })
+  const p = String(calls[0]?.prompt ?? '')
+  ok('H3a the scope-completeness prompt was actually dispatched (anti-vacuity)', /Verify scope completeness/.test(p))
+  ok('H3b no tracker key falls back to the gh issue view fetch', /gh issue view/.test(p) && !/Atlassian MCP/.test(p))
+}
+
 console.log(`\n[runtime-shim-selftest] ${PASS} passed, ${FAIL} failed`)
 process.exit(FAIL)

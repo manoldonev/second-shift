@@ -54,7 +54,7 @@ Every `stageParams` key defaults to the plugin's current literal, so an empty co
 ```jsonc
 {
   "stageParams": {
-    "planFilePattern": "{plansDir}/plan-{issueKey}{slice}.md",   // drop the shipped "acme-" prefix
+    "planFilePattern": "{plansDir}/plan-{issueKey}.md",   // drop the shipped "acme-" prefix
     "requiredLabels": ["ready", "in-progress"],                   // your tracker's label vocabulary
     "formatGlob": "*.{ts,tsx,css,md}",
     // Stage-6 INERT-lane override. The default inert set is JS/TS-centric and treats

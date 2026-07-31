@@ -34,7 +34,7 @@ claude
 ```jsonc
 // What onboard writes (the config is still yours to edit) — .claude/second-shift.config.json
 {
-  "configVersion": 1,
+  "configVersion": 2,
   "tracker": { "type": "github" },
   "topology": { "type": "standalone", "repos": { "app": { "path": ".", "baseBranch": "main" } } },
   "commands": { "app": { "lint": "yarn lint", "typecheck": "yarn tsc --noEmit", "test": "yarn test" } }

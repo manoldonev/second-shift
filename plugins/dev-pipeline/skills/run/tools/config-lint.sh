@@ -19,11 +19,11 @@ ERRORS=$(jq -r '
   def err(cond; msg): if cond then [msg] else [] end;
 
   # ---- top level ----------------------------------------------------------
-  err((.configVersion? | type) != "number"; "configVersion: required number (current: 1)")
-  + err(((.configVersion? | type) == "number") and .configVersion > 1;
+  err((.configVersion? | type) != "number"; "configVersion: required number (current: 2)")
+  + err(((.configVersion? | type) == "number") and .configVersion > 2;
         "configVersion \(.configVersion) is newer than this plugin understands — upgrade the marketplace pin (docs/releasing.md)")
-  + err(((.configVersion? | type) == "number") and .configVersion < 1;
-        "configVersion \(.configVersion) predates this plugin — see docs/migrations/ for the upgrade path")
+  + err(((.configVersion? | type) == "number") and .configVersion < 2;
+        "configVersion \(.configVersion) predates this plugin (current: 2) — see docs/migrations/v1-to-v2.md for the upgrade path")
   + err((.tracker | type) != "object"; "tracker: required object")
   + err((.topology | type) != "object"; "topology: required object")
   + err((.commands | type) != "object"; "commands: required object")

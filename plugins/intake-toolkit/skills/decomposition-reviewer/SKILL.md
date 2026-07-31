@@ -50,10 +50,13 @@ Dispatch `codebase-explorer` by invoking the `intake-review.mjs` Workflow with t
 
 ```
 Workflow({ scriptPath: "intake-review.mjs",
-           args: { issue, issueBody, agents: ["codebase-explorer"] } })
+           // config carries ONLY the keys this script reads — `reviewers` alone.
+           args: { issue, issueBody, agents: ["codebase-explorer"],
+                   config: { reviewers: CONFIG.reviewers } } })
 ```
 
 - `issue` — the parent epic's number (for a standalone ticket set, any representative number; it only labels the prompt).
+- `config` — `{ reviewers: CONFIG.reviewers }`, where `CONFIG` is the parsed `second-shift.config.json`. This is what makes `reviewers.modelOverrides` reachable for `codebase-explorer`; omitting it pins the agent to its shipped table tier regardless of consumer config. Never pass `CONFIG` whole (its `commands.<host>` shell-command strings and top-level `$schema` go through Workflow arg serialization — the payload that killed a dispatch outright), and never `{ reviewers: {} }` (serializes cleanly, silently disables every override).
 - `issueBody` — the combined ticket specs concatenated into one body, so the single `codebase-explorer` pass sees the full cross-ticket scope. Prefix it with a line such as `Combined scope across sub-issues of epic #<N>:` so the agent reads it as a ticket set rather than one issue.
 
 The script returns a structured object; reason over its `codebaseExplorer.result` in-session, focusing the evidence on:

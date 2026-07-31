@@ -71,7 +71,7 @@ CANARY_DIR="$BASE/canaries"; mkdir -p "$CANARY_DIR"
 write_config() { # $1 = tracker type
   cat > "$FIX/.claude/second-shift.config.json" <<EOF
 {
-  "configVersion": 1,
+  "configVersion": 2,
   "tracker": { "type": "$1", "branchPrefix": "claude/fix-" },
   "topology": { "type": "standalone", "repos": { "fix": { "path": ".", "baseBranch": "main" } } },
   "commands": {
@@ -345,7 +345,7 @@ git -C "$SHFIX" add -A && git -C "$SHFIX" commit -qm init
 write_shell_config() { # $1 = inertPattern JSON value ("null" = omit the key)
   cat > "$SHFIX/.claude/second-shift.config.json" <<EOF
 {
-  "configVersion": 1,
+  "configVersion": 2,
   "tracker": { "type": "github", "branchPrefix": "claude/sh-" },
   "topology": { "type": "standalone", "repos": { "sh": { "path": ".", "baseBranch": "main" } } },
   "commands": { "sh": { "lint": "echo lint-green", "typecheck": null, "test": "echo test-green", "build": null, "format": null } },
@@ -381,6 +381,43 @@ write_shell_config '"(\\.md$)"'
 run_shell_preflight; rc=$?
 ! grep -q "can never run" "$BASE/out.log"
 assert "an override that frees the product surface suppresses the WARN (AC-4)" "$?"
+
+# ---- run 18: plan-path resolution strips retired/unknown tokens (#267 D-3) ----------
+# The substitution enumerates {plansDir} and {issueKey} and then strips ANY residual
+# {token}. That trailing strip is what lets a consumer whose override still carries the
+# retired slice token resolve to a valid plan path instead of embedding the literal in
+# the filename. preflight resolves the pattern through the same substitution the stages
+# use and PRINTS the result -- so this is the one place the behavior is assertable, and
+# without these two cases the strip ships untested at all five of its call sites.
+write_plan_pattern_config() { # $1 = the stageParams.planFilePattern value
+  cat > "$FIX/.claude/second-shift.config.json" <<EOF
+{
+  "configVersion": 2,
+  "tracker": { "type": "github", "branchPrefix": "claude/fix-" },
+  "topology": { "type": "standalone", "repos": { "fix": { "path": ".", "baseBranch": "main" } } },
+  "commands": { "fix": { "lint": "echo lint-green", "test": "echo test-green" } },
+  "stageParams": { "planFilePattern": "$1" }
+}
+EOF
+}
+
+# 18a: an UNMIGRATED override still carrying the retired token must degrade to a clean
+# path -- the token stripped, not left literally in the filename.
+write_plan_pattern_config '{plansDir}/plan-{issueKey}{slice}.md'
+run_preflight 42; rc=$?
+grep -q "plan file: 'docs/plans/plan-42.md'" "$BASE/out.log"
+assert "an unmigrated override degrades to a valid plan path, token stripped (#267 AC-3)" "$?"
+! grep -q 'plan-42{slice}' "$BASE/out.log"
+assert "the retired token is not left embedded in the resolved path (#267 AC-3)" "$?"
+
+# 18b: the negative -- a pattern using only known tokens must be untouched. Without
+# this, 18a could pass while the strip over-matched and ate legitimate path content.
+write_plan_pattern_config '{plansDir}/acme-{issueKey}.md'
+run_preflight 42; rc=$?
+grep -q "plan file: 'docs/plans/acme-42.md'" "$BASE/out.log"
+assert "a fully-migrated pattern resolves unchanged -- the strip does not over-match" "$?"
+
+write_config github   # restore the shared fixture for any later case
 
 echo "[self-test] $PASS passed, $FAIL failed"
 [[ "$FAIL" -eq 0 ]] || exit 1

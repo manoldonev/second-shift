@@ -100,7 +100,7 @@ git -C "$WORK" checkout -qb feature
 CONFIG_FIXTURE="$TMPDIR_VT/second-shift.config.json"
 cat > "$CONFIG_FIXTURE" <<'CFG'
 {
-  "configVersion": 1,
+  "configVersion": 2,
   "tracker": { "type": "github" },
   "topology": { "type": "monorepo", "repos": { "mono": { "path": ".", "baseBranch": "main" } } },
   "commands": {
@@ -545,7 +545,7 @@ fi
 BEFE_CFG="$TMPDIR_VT/cfg-befe.json"
 cat > "$BEFE_CFG" <<'CFG'
 {
-  "configVersion": 1,
+  "configVersion": 2,
   "tracker": { "type": "github" },
   "topology": { "type": "be-fe-pair", "repos": {
     "be": { "path": ".",      "baseBranch": "main", "ticketTag": "[BE]" },

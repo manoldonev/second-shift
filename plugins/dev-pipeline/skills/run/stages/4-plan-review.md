@@ -12,8 +12,8 @@ The plan gates — `plan-reviewer`, design FE-spec review (designDriven runs), u
    MAIN_ROOT="$(dirname "$(cd "$(git -C "$WORKTREE" rev-parse --git-common-dir)" && pwd)")"
    # Resolve the plan path from config (paths.plansDir + stageParams.planFilePattern; defaults preserve the literal)
    PLAN_DIR="$(jq -r '.paths.plansDir // "docs/plans"' "$SECOND_SHIFT_CONFIG" 2>/dev/null || echo "docs/plans")"
-   PLAN_PAT="$(jq -r '.stageParams.planFilePattern // "{plansDir}/acme-{issueKey}{slice}.md"' "$SECOND_SHIFT_CONFIG" 2>/dev/null || echo "{plansDir}/acme-{issueKey}{slice}.md")"
-   PLAN_REL="$(printf '%s' "$PLAN_PAT" | sed -e "s|{plansDir}|$PLAN_DIR|" -e "s|{issueKey}|$ISSUE_NUMBER|" -e "s|{slice}|${SLICE_SUFFIX:-}|")"
+   PLAN_PAT="$(jq -r '.stageParams.planFilePattern // "{plansDir}/acme-{issueKey}.md"' "$SECOND_SHIFT_CONFIG" 2>/dev/null || echo "{plansDir}/acme-{issueKey}.md")"
+   PLAN_REL="$(printf '%s' "$PLAN_PAT" | sed -e "s|{plansDir}|$PLAN_DIR|" -e "s|{issueKey}|$ISSUE_NUMBER|" -e "s|{[a-zA-Z][a-zA-Z0-9]*}||g")"
    LINT_STDERR="$(bash "${CLAUDE_PLUGIN_ROOT}/skills/run/tools/plan-lint.sh" \
      "$WORKTREE/$PLAN_REL" \
      "$(statectl.sh state-path "$ISSUE_NUMBER")" 2>&1 1>/dev/null)" || {
@@ -38,13 +38,20 @@ The plan gates — `plan-reviewer`, design FE-spec review (designDriven runs), u
 ```
 Workflow({
   scriptPath: "workflows/plan-review.mjs",
-  // The caller also passes args.config = the parsed second-shift.config.json (repo-local
-  // reviewers from config `reviewers.add` are referenced bare; plugin reviewers qualified).
+  // args.config carries ONLY the config keys THIS script reads — never the whole parsed
+  // config. plan-review.mjs reads `reviewers` (per-agent model overrides), and the rule is
+  // TRANSITIVE: it forwards `config` verbatim into its nested unit-tests.mjs dispatch, so
+  // this subset must also cover every key that child reads (today: `reviewers` only).
+  // CONFIG below = the parsed second-shift.config.json. Passing CONFIG whole sends
+  // `commands.<host>` shell-command strings and a top-level `$schema` through Workflow arg
+  // serialization — the payload that killed a dispatch outright; passing `{ reviewers: {} }`
+  // is the opposite trap, serializing cleanly while silently disabling every model override.
+  // Repo-local reviewers from config `reviewers.add` are referenced bare; plugin reviewers qualified.
   args: {
     worktree: "$WT",
     planPath: "$PLAN_REL",
     issue: "$ISSUE_NUMBER",
-    config: CONFIG,
+    config: { reviewers: CONFIG.reviewers },
     workflowsDir: "workflows",
     design:    { enabled: <bool>, provider: "<claude-design|figma>", specPath: "docs/design-specs/<screen>-spec.md" },
     unitTests: { enabled: <bool>, planPath: "<unitTestSurface.planPath or the plan file>",

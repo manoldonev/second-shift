@@ -483,7 +483,7 @@ chmod +x "$BRK/bin/yarn"
 
 cat > "$BRK/cfg.json" <<'CFG'
 {
-  "configVersion": 1,
+  "configVersion": 2,
   "tracker": { "type": "github" },
   "topology": { "type": "monorepo", "repos": { "mono": { "path": ".", "baseBranch": "main" } } },
   "commands": {
@@ -652,7 +652,7 @@ acc_count=$(sct get "$KEY" '.waiversAccepted.count // 0')
 echo "[scenario-liveness] jira-zero-evidence: stages 3/7/9 cannot close on nothing under a read-only tracker"
 KEY=9007
 reset_state
-printf '%s' '{"configVersion":1,"tracker":{"type":"jira","writes":false}}' > "$TMP/jira-zero-config.json"
+printf '%s' '{"configVersion": 2,"tracker":{"type":"jira","writes":false}}' > "$TMP/jira-zero-config.json"
 export SECOND_SHIFT_CONFIG="$TMP/jira-zero-config.json"
 sct init "$KEY" --run-id "scenario-liveness-$$" >/dev/null
 for n in 1 2; do complete_stage "$KEY" "$n"; done

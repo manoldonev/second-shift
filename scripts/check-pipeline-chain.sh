@@ -18,7 +18,7 @@
 # Inputs (all via the environment — never spliced into a `run:` line; a PR body is
 # attacker-controllable, and ci.yml already documents this convention for BASE_REF):
 #   PIPELINE_BRANCH_PREFIX  required  e.g. "claude/second-shift-"
-#   PIPELINE_PLAN_PATTERN   required  e.g. "docs/plans/acme-{issueKey}{slice}.md"
+#   PIPELINE_PLAN_PATTERN   required  e.g. "docs/plans/acme-{issueKey}.md"
 #   PR_HEAD_REF             required  the PR's head branch name
 #   PR_BODY                 required-ish  the PR body (empty is legal; it just fails to resolve)
 #   PR_CREATED_AT           required  ISO-8601; the PR-open observation point
@@ -91,7 +91,7 @@ fi
 
 # ---- (3) applicability: the suffix must parse as an issue key ---------------------------
 SUFFIX="${PR_HEAD_REF#"$PIPELINE_BRANCH_PREFIX"}"
-if [[ ! "$SUFFIX" =~ ^([0-9]+)(-pr([0-9]+))?$ ]]; then
+if [[ ! "$SUFFIX" =~ ^([0-9]+)$ ]]; then
   # A hand-made branch that happens to share the namespace. Exempt WITH NOTICE, not failed —
   # the branch carries no issue key, so there is no trail to reconcile against.
   echo "[pipeline-chain] prefix-matched branch with a non-key suffix ('$SUFFIX') — exempt with notice."
@@ -99,9 +99,8 @@ if [[ ! "$SUFFIX" =~ ^([0-9]+)(-pr([0-9]+))?$ ]]; then
   exit 0
 fi
 KEY_BRANCH="${BASH_REMATCH[1]}"
-SLICE="${BASH_REMATCH[2]:-}"    # "" or "-pr<N>"
 
-echo "[pipeline-chain] applicable: branch=$PR_HEAD_REF key=$KEY_BRANCH slice='${SLICE:-<none>}'"
+echo "[pipeline-chain] applicable: branch=$PR_HEAD_REF key=$KEY_BRANCH"
 
 # ---- (4) resolve the source issue from the PR body --------------------------------------
 # `Closes #N` wins over `Part of #N` when both appear: a program PR routinely carries both
@@ -128,7 +127,7 @@ fi
 # (fetch-depth: 0) on the PR ref — so the branch's plan file is present in the CI checkout.
 plan_path_for() { # plan_path_for <key> -> the pattern-derived path
   printf '%s' "$PIPELINE_PLAN_PATTERN" \
-    | sed -e "s|{issueKey}|$1|g" -e "s|{slice}|$SLICE|g"
+    | sed -e "s|{issueKey}|$1|g" -e "s|{[a-zA-Z][a-zA-Z0-9]*}||g"
 }
 REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null)" \
   || envfail "not in a git repo — cannot resolve the committed plan file."

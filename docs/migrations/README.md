@@ -17,3 +17,10 @@ version. The contract:
 documents that migration retroactively, and config-lint special-cases both removed keys
 with pointers to it. From the release that ships this contract on, the rule binds:
 breaking ⇒ major tag + configVersion bump + migration doc, before the tag.
+
+**One filename, two namespaces.** The marketplace version and `configVersion` are numbered
+independently, and both crossed their 1 → 2 boundary — while the gate derives the migration
+filename from `configVersion` alone. So [`v1-to-v2.md`](v1-to-v2.md) carries **both**
+migrations under explicit part headings: part 1 the retroactive marketplace-v2.0.0 key
+removals, part 2 the `configVersion` 1 → 2 retirement of the `planFilePattern` slice token.
+Later `vN-to-vN+1.md` docs are configVersion-only; this collision is not expected to recur.

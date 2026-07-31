@@ -105,6 +105,25 @@ stage8-secondary-review	verbatim	plugins/dev-pipeline/skills/run/stages/8-code-r
 # branch of the predicate, and (mc-ir2) asserts the refusal message's wording. Only the doc
 # WORDING is, and per the repo's no-prose-presence rule that is the correct tier for it.
 #
+# args.config subset (the six Workflow dispatch sites' `config:` args + their explaining
+# comments ↔ the `config.` reads inside the dispatched .mjs scripts). One contract — which
+# config keys each script needs — split across a caller that states it in prose and a callee
+# that consumes it in code. It has already failed in both directions: passing the whole parsed
+# config killed a dispatch outright, and the practiced `{ reviewers: {} }` recovery serialized
+# cleanly while silently disabling every model override, defeating a model-tier feature shipped
+# long afterwards. Considered for a row and DROPPED: no byte-anchorable literal exists on either
+# side — the caller side is six differently-worded prose comments inside six differently-shaped
+# args objects across four files and two plugins, and the callee side is an expression
+# (`(config && config.tracker && config.tracker.type) || 'github'`) whose shape varies per key.
+# Forcing a shared literal would mean writing dispatch prose to satisfy a grep rather than the
+# model that reads it. The BEHAVIOR is not reviewer-guarded: runtime-shim-selftest.mjs Case H
+# executes the real code-review.mjs body under the documented subset alone and asserts both
+# reads survive it — H1 that a modelOverrides value reaches the dispatched model, H2b/H3b that
+# tracker.type still branches the scope-completeness fetch and that its absence flips the
+# branch. Both halves are mutation-verified: hardcoding trackerType reds H2b, dropping the
+# modelOverrides lookup reds H1. Only the prose WORDING is reviewer-guarded, which is the
+# correct tier for it per the no-prose-presence rule.
+#
 # Test-tier map (CLAUDE.md "Where a new test goes" table ↔ docs/testing.md "Why a tier map at
 # all" table). Two representations of one routing contract: a tier added to one and not the
 # other sends the next author to the wrong file, which is how a tier accretes per-tool
@@ -207,3 +226,16 @@ artifact-reviewer-baseline-deltas	verbatim	plugins/design-toolkit/agents/figma-f
 # assertion that the parsed enum is non-empty, so a table rename fails loudly instead of
 # passing on an empty set. The LOCKSTEP-BEGIN/END markers around REQUIRED_MARKERS are left in
 # place so a future row is cheap if the canonical side ever grows an anchorable literal.
+#
+# schema planFilePattern default <-> the five hardcoded copies of that literal (preflight.sh,
+# stages/3-write-plan.md x2, 4-plan-review.md, 5-implement.md). A real coupling: each copy is
+# the fallback the stage uses when a consumer sets no override, so a one-sided edit ships a
+# stage resolving a path the schema no longer publishes. Considered for a row and DROPPED: the
+# canonical side is schema/second-shift.config.schema.json, and JSON has no comment syntax, so
+# a LOCKSTEP-BEGIN/END marker cannot be placed there at all -- the pair is unanchorable by
+# construction, not merely awkward. Guarded behaviorally instead: preflight.sh resolves the
+# pattern through the same substitution the stages use and PRINTS the result, and preflight-
+# selftest.sh run 18 ASSERTS on that printed line -- both that an unmigrated override has its
+# retired token stripped and that a migrated pattern is left untouched (the over-match
+# negative). Printing alone would not have been coverage; the assertions are. Revisit only if
+# the schema default is ever mirrored into a comment-bearing file.

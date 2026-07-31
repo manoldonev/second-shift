@@ -51,7 +51,7 @@ state the canary exception explicitly.
 
 ## Step 3 — Draft + one-batch elicitation
 Build the draft config from detection:
-- `configVersion: 1`
+- `configVersion: 2`
 - `tracker.type` from detection (or the elicited answer). JIRA → also set
   `"writes": false` in the draft (the documented JIRA default) — reviewable on the screen.
 - `topology.type` + `topology.repos`: standalone/monorepo → single repo id (use the

@@ -4,12 +4,13 @@
 
 - Read the full issue body + referenced files from the codebase.
 - Bootstrap context: read the repo's `CLAUDE.md` and any repo-local session-state conventions it defines (see its CLAUDE.md).
-- **Plan file naming (resolved from config).** The plan directory is `paths.plansDir` (default `docs/plans`) and the file pattern is `stageParams.planFilePattern` (default `{plansDir}/acme-{issueKey}{slice}.md`). Resolve once into `$PLAN_REL` (worktree-relative); every plan-path reference below — and in Stage 4/5 — resolves the same way:
+- **Plan file naming (resolved from config).** The plan directory is `paths.plansDir` (default `docs/plans`) and the file pattern is `stageParams.planFilePattern` (default `{plansDir}/acme-{issueKey}.md`). Resolve once into `$PLAN_REL` (worktree-relative); every plan-path reference below — and in Stage 4/5 — resolves the same way:
   ```bash
   PLAN_DIR="$(jq -r '.paths.plansDir // "docs/plans"' "$SECOND_SHIFT_CONFIG" 2>/dev/null || echo "docs/plans")"
-  PLAN_PAT="$(jq -r '.stageParams.planFilePattern // "{plansDir}/acme-{issueKey}{slice}.md"' "$SECOND_SHIFT_CONFIG" 2>/dev/null || echo "{plansDir}/acme-{issueKey}{slice}.md")"
-  # {slice} substitutes empty (SLICE_SUFFIX is unset); the token itself is retired separately
-  PLAN_REL="$(printf '%s' "$PLAN_PAT" | sed -e "s|{plansDir}|$PLAN_DIR|" -e "s|{issueKey}|$ISSUE_NUMBER|" -e "s|{slice}|${SLICE_SUFFIX:-}|")"
+  PLAN_PAT="$(jq -r '.stageParams.planFilePattern // "{plansDir}/acme-{issueKey}.md"' "$SECOND_SHIFT_CONFIG" 2>/dev/null || echo "{plansDir}/acme-{issueKey}.md")"
+  # The trailing strip is defensive: any token this resolver does not know — including a
+  # retired one left in a consumer's override — is removed rather than left in the path.
+  PLAN_REL="$(printf '%s' "$PLAN_PAT" | sed -e "s|{plansDir}|$PLAN_DIR|" -e "s|{issueKey}|$ISSUE_NUMBER|" -e "s|{[a-zA-Z][a-zA-Z0-9]*}||g")"
   ```
   - `$PLAN_REL` resolves to e.g. `docs/plans/acme-228.md`.
 - **Resume:** if `$WORKTREE/$PLAN_REL` already exists, skip to Stage 4 (Plan Review).
@@ -96,9 +97,15 @@ PROJECT_ID=$(statectl get "$ISSUE_NUMBER" '.stageCheckpoint."1".designSource.pro
 SCREEN=$(statectl get "$ISSUE_NUMBER" '.stageCheckpoint."1".designSource.screen')
 Workflow({
   scriptPath: "workflows/design-sync.mjs",
-  // The caller also passes args.config = the parsed second-shift.config.json.
+  // args.config carries ONLY the config keys THIS script reads — never the whole parsed
+  // config. design-sync.mjs reads `reviewers` (per-agent model overrides). CONFIG below =
+  // the parsed second-shift.config.json. Passing CONFIG whole sends `commands.<host>`
+  // shell-command strings and a top-level `$schema` through Workflow arg serialization —
+  // the payload that killed a dispatch outright; passing `{ reviewers: {} }` is the
+  // opposite trap, serializing cleanly while silently disabling every model override.
   args: { kind: "produce", implement: false, projectId: "$PROJECT_ID", screen: "$SCREEN",
-          specPath: "docs/design-specs/$SCREEN-spec.md", issue: "$ISSUE_NUMBER", config: CONFIG }
+          specPath: "docs/design-specs/$SCREEN-spec.md", issue: "$ISSUE_NUMBER",
+          config: { reviewers: CONFIG.reviewers } }
 })
 # Returns { kind, implement, result } | { kind, implement, failClosed } | { kind, budgetExhausted: true }.
 ```

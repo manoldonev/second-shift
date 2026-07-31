@@ -31,7 +31,7 @@ EOF
 { "lockfileVersion": 1, "marketplace": { "name": "second-shift", "repo": "$lock_repo", "ref": "$lock_ref" }, "plugins": { "dev-pipeline": "2.2.4" }, "generatedBy": "second-shift:onboard@1.5.0" }
 EOF
   cat > "$dir/.claude/second-shift.config.json" <<'EOF'
-{ "configVersion": 1, "tracker": { "type": "github" }, "topology": { "type": "standalone", "repos": { "r": { "path": ".", "baseBranch": "main" } } }, "commands": { "r": {} } }
+{ "configVersion": 2, "tracker": { "type": "github" }, "topology": { "type": "standalone", "repos": { "r": { "path": ".", "baseBranch": "main" } } }, "commands": { "r": {} } }
 EOF
 }
 
