@@ -4,6 +4,50 @@ All notable changes to the second-shift marketplace. Versions are per-plugin (`p
 this file tracks the marketplace release. `configVersion` stays `const 1` — v2 is fully backward-compatible for a
 consumer with an empty config; the migration notes below are only for consumers using the changed features.
 
+## v3.2.0
+
+### `dev-pipeline` 3.1.0 → 3.2.0
+
+- **feat(dev-pipeline): per-stage time + per-bucket cost envelopes from the run corpus (#302)** (#302)
+  dev-pipeline gains `stage-envelopes.sh`, which derives per-stage time and
+  per-cost-bucket USD envelopes from the recorded run corpus and flags over-envelope
+  values. perf-retro's report gains a p90 column, a cost-envelope table and an
+  over-envelope section that declares its corpus; pipeline-doctor gains a WARN-only
+  section 9 on the most recent run. `stage-times.sh` gains an additive `--json` emit
+  mode; its default text output is unchanged.
+  Migration: none — advisory only, nothing gates on the output.
+
+## v3.1.0
+
+### `dev-pipeline` 3.0.0 → 3.1.0
+
+- **fix(dev-pipeline,intake-toolkit): pass each Workflow script only the config keys it reads (#294)** (#294)
+  Workflow dispatch sites now pass only the config keys each script reads,
+  so `reviewers.modelOverrides` reaches dispatches instead of silently resolving to
+  empty, and a config carrying shell-command strings can no longer break dispatch
+  serialization. Migration: none.
+- **feat(dev-pipeline): register pipeline sessions in the statectl write seam (#123) (#295)** (#295)
+  session registration for cost attribution is now automatic — statectl's
+  write seam records each contributing Claude session on its first state write, so a
+  resume at any stage is attributed instead of silently dropped. pipeline-session-add
+  remains for post-terminal manual backfill.
+  Migration: none. Existing state files are not rewritten.
+
+### `intake-toolkit` 2.2.0 → 2.2.1
+
+- **fix(dev-pipeline,intake-toolkit): pass each Workflow script only the config keys it reads (#294)** (#294)
+  Workflow dispatch sites now pass only the config keys each script reads,
+  so `reviewers.modelOverrides` reaches dispatches instead of silently resolving to
+  empty, and a config carrying shell-command strings can no longer break dispatch
+  serialization. Migration: none.
+
+### `review-toolkit` 3.0.0 → 3.0.1
+
+- **fix(review-toolkit): a11y-reviewer states rules in HTML/ARIA/CSS, not JSX/Tailwind (#143)** (#143)
+  a11y-reviewer now states its rules in framework-neutral HTML/ARIA/CSS
+  terms, so it applies on Angular, Vue, and plain-CSS front ends instead of
+  reading as React/Tailwind-only. Migration: none.
+
 ## v3.0.0
 
 ### `audit-toolkit` 2.0.1 → 2.1.0
