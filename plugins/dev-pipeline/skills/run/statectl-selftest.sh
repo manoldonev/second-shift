@@ -809,7 +809,7 @@ fi
 # branch-keyed value's `repo` resolves to that alias (not just key presence).
 _PA8_SAVED_CFG="${SECOND_SHIFT_CONFIG:-}"
 PA8_CFG="$TMPDIR_ST/pa8-config.json"
-printf '{"configVersion":1,"tracker":{"type":"github"},"topology":{"type":"standalone","repos":{"hostrepo":{"path":".","baseBranch":"main"}}},"commands":{"hostrepo":{}}}\n' > "$PA8_CFG"
+printf '{"configVersion": 2,"tracker":{"type":"github"},"topology":{"type":"standalone","repos":{"hostrepo":{"path":".","baseBranch":"main"}}},"commands":{"hostrepo":{}}}\n' > "$PA8_CFG"
 export SECOND_SHIFT_CONFIG="$PA8_CFG"
 sct pr-add 9999 --branch "claude/acme-9999-alias" --url "https://github.com/o/r/pull/8" >/dev/null
 alias_repo=$(sct get 9999 '.prs."claude/acme-9999-alias".repo')
@@ -910,8 +910,8 @@ fi
 _PA12_SAVED_CFG="${SECOND_SHIFT_CONFIG:-}"
 PA12_PAIR_CFG="$TMPDIR_ST/pa12-pair-config.json"
 PA12_SOLO_CFG="$TMPDIR_ST/pa12-solo-config.json"
-printf '{"configVersion":1,"tracker":{"type":"github"},"topology":{"type":"be-fe-pair","repos":{"be":{"path":".","baseBranch":"alpha"},"fe":{"path":"../fe","baseBranch":"main"}}},"commands":{"be":{},"fe":{}}}\n' > "$PA12_PAIR_CFG"
-printf '{"configVersion":1,"tracker":{"type":"github"},"topology":{"type":"standalone","repos":{"hostrepo":{"path":".","baseBranch":"main"}}},"commands":{"hostrepo":{}}}\n' > "$PA12_SOLO_CFG"
+printf '{"configVersion": 2,"tracker":{"type":"github"},"topology":{"type":"be-fe-pair","repos":{"be":{"path":".","baseBranch":"alpha"},"fe":{"path":"../fe","baseBranch":"main"}}},"commands":{"be":{},"fe":{}}}\n' > "$PA12_PAIR_CFG"
+printf '{"configVersion": 2,"tracker":{"type":"github"},"topology":{"type":"standalone","repos":{"hostrepo":{"path":".","baseBranch":"main"}}},"commands":{"hostrepo":{}}}\n' > "$PA12_SOLO_CFG"
 reset_state
 export SECOND_SHIFT_CONFIG="$PA12_PAIR_CFG"
 sct init 9999 --run-id "selftest-run-$$" >/dev/null
@@ -1783,7 +1783,7 @@ if [[ "$sp_out" == "$sp_root/.claude/pipeline-state/42.json" ]]; then
 else
   fail "(sp1) state-path default — out='$sp_out'"
 fi
-printf '%s' '{"configVersion":1,"paths":{"pipelineStateDir":".pipeline/state"}}' > "$sp_root/ss.config.json"
+printf '%s' '{"configVersion": 2,"paths":{"pipelineStateDir":".pipeline/state"}}' > "$sp_root/ss.config.json"
 sp_out2=$(STATECTL_STATE_DIR="" SECOND_SHIFT_REPO_ROOT="$sp_root" SECOND_SHIFT_CONFIG="$sp_root/ss.config.json" "$STATECTL" state-path AB-123)
 if [[ "$sp_out2" == "$sp_root/.pipeline/state/ab-123.json" ]]; then
   pass "(sp1) state-path custom pipelineStateDir + lowercased JIRA key"
@@ -2461,7 +2461,7 @@ fi
 # and stage-file-read legs are tracker-independent, so a read-only tracker run
 # is refused until the state evidence exists, then completes with no comment.
 reset_state
-printf '%s' '{"configVersion":1,"tracker":{"type":"jira","writes":false}}' > "$TMPDIR_ST/cr3-config.json"
+printf '%s' '{"configVersion": 2,"tracker":{"type":"jira","writes":false}}' > "$TMPDIR_ST/cr3-config.json"
 export SECOND_SHIFT_CONFIG="$TMPDIR_ST/cr3-config.json"
 sct init 9999 --run-id "selftest-run-$$" >/dev/null
 for n in 1 2; do complete_stage 9999 "$n"; done
@@ -3021,7 +3021,7 @@ echo "[self-test] tracker keyPattern — one statectl, tracker-shaped init valid
 KP_CFG="$TMPDIR_ST/kp-config.json"
 
 # --- JIRA adapter: keyPattern "[A-Z]+-[0-9]+" ---
-printf '{"configVersion":1,"tracker":{"type":"jira","keyPattern":"[A-Z]+-[0-9]+"},"topology":{"type":"standalone","repos":{"be":{"path":".","baseBranch":"main"}}},"commands":{"be":{}}}\n' > "$KP_CFG"
+printf '{"configVersion": 2,"tracker":{"type":"jira","keyPattern":"[A-Z]+-[0-9]+"},"topology":{"type":"standalone","repos":{"be":{"path":".","baseBranch":"main"}}},"commands":{"be":{}}}\n' > "$KP_CFG"
 export SECOND_SHIFT_CONFIG="$KP_CFG"
 
 reset_state
@@ -3039,7 +3039,7 @@ else
 fi
 
 # --- GitHub adapter: keyPattern "[0-9]+" ---
-printf '{"configVersion":1,"tracker":{"type":"github","keyPattern":"[0-9]+"},"topology":{"type":"standalone","repos":{"be":{"path":".","baseBranch":"main"}}},"commands":{"be":{}}}\n' > "$KP_CFG"
+printf '{"configVersion": 2,"tracker":{"type":"github","keyPattern":"[0-9]+"},"topology":{"type":"standalone","repos":{"be":{"path":".","baseBranch":"main"}}},"commands":{"be":{}}}\n' > "$KP_CFG"
 reset_state
 rc_gh_ok=$(sct_rc init 9999 --run-id "selftest-run-$$")
 reset_state
@@ -3051,7 +3051,7 @@ else
 fi
 
 # --- No keyPattern → accept any non-empty key (backward-compatible) ---
-printf '{"configVersion":1,"tracker":{"type":"github"},"topology":{"type":"standalone","repos":{"be":{"path":".","baseBranch":"main"}}},"commands":{"be":{}}}\n' > "$KP_CFG"
+printf '{"configVersion": 2,"tracker":{"type":"github"},"topology":{"type":"standalone","repos":{"be":{"path":".","baseBranch":"main"}}},"commands":{"be":{}}}\n' > "$KP_CFG"
 reset_state
 rc_nopat_num=$(sct_rc init 9999 --run-id "selftest-run-$$")
 reset_state
@@ -3087,7 +3087,7 @@ fi
 # comment-receipt preconditions correctly do NOT fire on a tracker that posts
 # no comments by contract.
 reset_state
-printf '%s' '{"configVersion":1,"tracker":{"type":"jira","writes":false}}' > "$TMPDIR_ST/jira-config.json"
+printf '%s' '{"configVersion": 2,"tracker":{"type":"jira","writes":false}}' > "$TMPDIR_ST/jira-config.json"
 export SECOND_SHIFT_CONFIG="$TMPDIR_ST/jira-config.json"
 cp "$FIXTURES_DIR/jira-in-progress-mid-pipeline.json" .claude/pipeline-state/gh-540.json
 complete_stage gh-540 6

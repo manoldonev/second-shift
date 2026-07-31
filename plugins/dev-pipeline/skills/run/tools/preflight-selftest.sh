@@ -71,7 +71,7 @@ CANARY_DIR="$BASE/canaries"; mkdir -p "$CANARY_DIR"
 write_config() { # $1 = tracker type
   cat > "$FIX/.claude/second-shift.config.json" <<EOF
 {
-  "configVersion": 1,
+  "configVersion": 2,
   "tracker": { "type": "$1", "branchPrefix": "claude/fix-" },
   "topology": { "type": "standalone", "repos": { "fix": { "path": ".", "baseBranch": "main" } } },
   "commands": {
@@ -345,7 +345,7 @@ git -C "$SHFIX" add -A && git -C "$SHFIX" commit -qm init
 write_shell_config() { # $1 = inertPattern JSON value ("null" = omit the key)
   cat > "$SHFIX/.claude/second-shift.config.json" <<EOF
 {
-  "configVersion": 1,
+  "configVersion": 2,
   "tracker": { "type": "github", "branchPrefix": "claude/sh-" },
   "topology": { "type": "standalone", "repos": { "sh": { "path": ".", "baseBranch": "main" } } },
   "commands": { "sh": { "lint": "echo lint-green", "typecheck": null, "test": "echo test-green", "build": null, "format": null } },

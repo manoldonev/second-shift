@@ -115,7 +115,7 @@ Create `.claude/second-shift.config.json` (the schema: [`schema/second-shift.con
 
 ```json
 {
-  "configVersion": 1,
+  "configVersion": 2,
   "tracker": { "type": "github" },
   "topology": { "type": "standalone", "repos": { "app": { "path": ".", "baseBranch": "main" } } },
   "commands": { "app": { "lint": "yarn lint", "typecheck": "yarn tsc --noEmit", "test": "yarn test" } }
@@ -128,7 +128,7 @@ which switches the format lane off entirely, no prettier, no node):
 
 ```json
 {
-  "configVersion": 1,
+  "configVersion": 2,
   "tracker": { "type": "jira", "writes": false, "branchPrefix": "acme-dev/" },
   "topology": { "type": "standalone", "repos": { "app": { "path": ".", "baseBranch": "develop" } } },
   "commands": {

@@ -59,6 +59,8 @@ configVersion literal sweep (D-6):
 Docs:
 - `docs/extending.md` — override example loses `{slice}`
 - `docs/migrations/v1-to-v2.md` — configVersion 1→2 section (D-4)
+- `docs/migrations/README.md` — its description of what `v1-to-v2.md` covers
+- `scripts/lockstep-manifest.tsv` — `DROPPED` entry for the schema↔literals coupling
 
 ## Reuse inventory
 
@@ -71,13 +73,24 @@ Docs:
 
 1. **Schema.** `planFilePattern.default` → `{plansDir}/acme-{issueKey}.md`; description token list drops `{slice}`. `configVersion.const` → `2`.
 2. **Five literal sites + generic strip.** In `preflight.sh`, `3-write-plan.md`, `4-plan-review.md`, `5-implement.md`: update every hardcoded default to the tokenless form; drop the `s|{slice}|…|` clause and the `SLICE_SUFFIX` reference; append the generic residual-token strip (D-3). Remove the `{slice}` semantics comment in `3-write-plan.md`.
-3. **Release chain (D-1, D-2).** `ci.yml`'s `PIPELINE_PLAN_PATTERN` → tokenless. In `check-pipeline-chain.sh`: drop the `(-pr([0-9]+))?` regex group, the `SLICE` capture, the slice mention in the applicability echo, and the `{slice}` sed clause.
+3. **Release chain (D-1, D-2).** `ci.yml`'s `PIPELINE_PLAN_PATTERN` → tokenless. In `check-pipeline-chain.sh`: drop the `(-pr([0-9]+))?` regex group, the `SLICE` capture, the slice mention in the applicability echo, and the `{slice}` sed clause — and append the same generic residual-token strip as D-3, since `plan_path_for()` is a fifth substitution site.
 4. **`check-pipeline-chain-selftest.sh`.** Update `PATTERN` to the tokenless form. Rewrite the two `pair (c)` slice cases to pin the **new** contract: a `-pr<N>` branch is exempt-with-notice (rc=0, no plan lookup), because stacked PRs are retired. Drop the now-unused slice plan fixture the suite writes into its temp repo (the `acme-42-pr2` plan at line 45).
 5. **config-lint bounds + pointer.** Bounds move from `> 1` / `< 1` to `> 2` / `< 2`; the "predates" message names `docs/migrations/v1-to-v2.md` so AC-2's pointer requirement is met.
-6. **Fixture premise flips (D-7).** `git mv invalid-configversion-2.json invalid-configversion-3.json` with content `3`; add `invalid-configversion-1.json` at `1`; update the three `config-lint-selftest.sh` expectations.
+6. **Fixture premise flips (D-7).** `git mv invalid-configversion-2.json invalid-configversion-3.json` with content `3`; add `invalid-configversion-1.json` at `1`; update the three `config-lint-selftest.sh` expectations. Also drop `{slice}` from `valid-monorepo-github.json`'s `planFilePattern`.
 7. **configVersion sweep (D-6).** Bump every remaining `configVersion: 1` literal to `2` across fixtures, selftests, and docs.
-8. **Docs.** `docs/extending.md` override example loses `{slice}`. Add the delimited configVersion 1→2 section to `docs/migrations/v1-to-v2.md` (what to delete, before/after, and the defensive-strip note from D-3), and retitle the doc to cover both boundaries.
+8. **Docs.** `docs/extending.md` override example loses `{slice}`. Add the delimited configVersion 1→2 section to `docs/migrations/v1-to-v2.md` (what to delete, before/after, and the defensive-strip note from D-3), retitle the doc to cover both boundaries, and update `docs/migrations/README.md`'s description of what that link covers.
 9. **Local dogfood config** (outside the diff — gitignored): bump `.claude/second-shift.config.json` to `configVersion: 2` so this repo's own pre-flight keeps passing. Disclosed in the run report.
+10. **Lockstep manifest.** Add a `DROPPED` comment entry recording the schema-default ↔ five-literals coupling and why it is not byte-anchorable (JSON carries no comment syntax).
+
+## Plan-review warning dispositions (Stage 4, `fix-and-go`)
+
+All five accepted; folded into the steps and file lists above.
+
+1. `valid-monorepo-github.json`'s `{slice}` pattern is now explicit in step 6 (it was already in Affected files).
+2. The D-3 generic strip also applies to `check-pipeline-chain.sh`'s `plan_path_for()` — a fifth substitution site (step 3).
+3. `docs/migrations/README.md` added to the docs list — D-4's retitle changes what its link describes (step 8).
+4. Release obligations: the implementation commit carries `refactor(dev-pipeline)!:` plus a `Changelog:` trailer. Versions and `CHANGELOG.md` stay release-derived — a feature PR that writes them is rejected by `check-frozen-files.sh`.
+5. A lockstep row for the schema default ↔ the five literals is **not expressible**: `check-lockstep-pairs.sh` needs `LOCKSTEP-BEGIN/END` marker comments in both files, and the schema is JSON, which has no comment syntax. Recorded as a **DROPPED** manifest entry with that reasoning, per CLAUDE.md's instruction for real-but-not-byte-anchorable couplings (step 10).
 
 ## Test strategy
 
