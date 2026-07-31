@@ -207,6 +207,31 @@ bash "$TOOL" --class skill --claims 'not-json' </dev/null >/dev/null 2>&1
 [[ $? -ne 0 ]] && pass "(lc36) malformed --claims exits non-zero (AC-8)" \
   || fail "(lc36) malformed --claims did not exit non-zero"
 
+# --min-count is the third validated input and was the only one with no case at
+# all — the mutation sweep found its rejection path untested (cmp-eq survivor).
+# Assert the MESSAGE, not just the exit code: a rejection that does not tell the
+# operator what shape was wanted is the failure mode worth pinning, and the exit
+# code alone cannot distinguish it from any other usage error.
+mc_err=$(bash "$TOOL" --class workflow --min-count -3 </dev/null 2>&1 >/dev/null)
+mc_rc=$?
+case "$mc_rc:$mc_err" in
+  0:*) fail "(lc37) a negative --min-count was accepted (rc=0)" ;;
+  *non-negative\ integer*) pass "(lc37) a negative --min-count is refused, naming the wanted shape (AC-8)" ;;
+  *) fail "(lc37) --min-count rejection did not name the wanted shape — rc=$mc_rc err='$mc_err'" ;;
+esac
+
+# --help is a real user-facing path and was entirely untested, so nothing noticed
+# when the sweep rewrote its `sed -n` extractor into `sed -z` (cmp-z survivor):
+# the arm still exited 0 while printing nothing usable. Assert it emits the usage
+# block, not merely that it succeeds.
+help_out=$(bash "$TOOL" --help 2>/dev/null)
+help_rc=$?
+if [[ "$help_rc" -eq 0 && "$help_out" == *"--class skill|stage-file|workflow|subagent-stop"* ]]; then
+  pass "(lc38) --help exits 0 and prints the usage block (AC-8)"
+else
+  fail "(lc38) --help — rc=$help_rc, $(printf '%s' "$help_out" | wc -l | tr -d ' ') line(s) emitted"
+fi
+
 echo
 echo "[ledger-corroborate-selftest] $PASS passed, $FAIL failed"
 exit "$FAIL"
