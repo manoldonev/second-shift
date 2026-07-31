@@ -27,7 +27,6 @@
 # SCOPE. Bash guards only. The .mjs / .md / .yml / multi-file corpus entries are deferred
 # to #240, and the struck diff-range entry (a future-refactor prediction with nothing to
 # sed) stays struck. No corpus line is silently dropped.
-plan-lint-partition-union	plugins/dev-pipeline/skills/run/tools/plan-lint.sh	s#> 0 and #> 0 or #	Check 3: drops the union-integrity conjunct from PARTITION_OK, so a tampered AC->slice partition silently keeps slice mode instead of failing closed to the full snapshot.
 bot-commit-jq-default	plugins/dev-pipeline/skills/run/tools/bot-commit.sh	s#\.tracker\.bot\.enabled // false#.tracker.bot.enabled // true#	Bot silently ENABLED for configs that omit the key — the inverse of the fail-loud posture the helper exists for.
 bounded-exploration-lookback	plugins/dev-pipeline/skills/run/tools/check-bounded-exploration.sh	s#^LOOKBACK=40$#LOOKBACK=400#	Loosened marker window. No fixture places a marker 40-400 lines above a site and the floor is window-independent, so the clean live tree passes either way.
 config-shadowing-drop-row	plugins/dev-pipeline/skills/run/tools/check-config-shadowing.sh	s#^  "stages/9-open-pr\.md.*$##	Deletes an unexercised CHECKS row: coverage silently narrows while every existing injection fixture still passes.
