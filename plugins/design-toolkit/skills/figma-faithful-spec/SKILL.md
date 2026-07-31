@@ -14,10 +14,8 @@ to explore — the design is already decided in Figma.
 [`design-toolkit:figma-faithful-reviewer`](../../agents/figma-faithful-reviewer.md)) is blind to
 the design — they can only check the spec against itself, never against Figma. So **completeness
 here is load-bearing**: anything you omit from the scene is invisible from this point on and
-silently never gets built. Be EXTRA careful at step 2b (Describe the Scene) — the most common
-and most glaring failure is not a wrong value, it's a **dropped element**: a persistent banner /
-footer / helper line that appears in a populated state was simply never listed, because the spec
-captured "the primary component + the empty state" and skipped a full walk of the frame tree.
+silently never gets built. Be EXTRA careful at step 2b (Describe the Scene) — the failure that
+matters most is not a wrong value, it's a **dropped element**.
 
 **Load the repo's design-system reference from `.claude/second-shift/design-tokens/*.md`** — its
 **component catalog** (Figma node name → the repo's real component + import) is what step 4
@@ -28,12 +26,11 @@ absent, resolve components conservatively from the FE app's component library an
 
 ## Figma capability
 
-This skill reads the design via the **figma design provider** (config `design.provider: "figma"`). The MCP
-is exposed under one of two tool namespaces depending on how it is installed — tolerate **both**
-`mcp__figma__*` and `mcp__plugin_figma_figma__*` (`get_metadata`, `get_design_context`,
-`get_variable_defs`, `get_screenshot`, `get_code_connect_map`). If neither namespace is
-reachable, the capability is not enabled — say so and stop; do not transcribe from a static
-image alone.
+Same as figma-faithful: this skill reads the design via the **figma design provider** (config
+`design.provider: "figma"`). Tolerate **both** `mcp__figma__*` and `mcp__plugin_figma_figma__*`
+namespaces; this skill also uses `get_code_connect_map` (step 4). If neither namespace is reachable
+the capability is not enabled — say so and stop; do not transcribe from a static image alone. (See
+figma-faithful's "Figma capability" section — not restated.)
 
 ## When to use this (vs an interview skill)
 
@@ -64,25 +61,20 @@ These do **not** stack:
 
 ## Mandated sequence
 
-> Steps 1–2 are the same node-resolution discipline as `figma-faithful` steps 1–2. Keep the two
-> in sync if either changes.
-
 ### 1. Resolve nodes
 
-A section / "DEV-READY" link is a fine **input** — it's usually what you're handed — but never
-`get_design_context`/`get_screenshot` the section node directly: it's too big to screenshot and
-returns sparse placeholder text. Instead, `get_metadata` on the section first (structure only —
-node IDs, names, positions), name-match the target child frames, and pull `get_design_context` +
-`get_screenshot` on each **specific screen/element** node individually. (A per-screen "Copy link
-to selection" URL from the user is even better, but resolving a section link this way is
-expected.)
+Never `get_design_context`/`get_screenshot` a section / "DEV-READY" node directly — `get_metadata`
+the section first, name-match the target child frames, and pull each **specific screen/element**
+node individually. (See figma-faithful's step 1 for the full discipline — not restated. A section
+link is a fine **input** here; it's usually what a spec author is handed. This skill does not need
+figma-faithful's parent-frame capture: gaps are an implementation concern.)
 
 ### 2. Sparse-dump drill → verbatim copy
 
-If a dump shows `{Label}` / `"Text"` / "Option 1" placeholders, the real strings live in instance
-nodes one level deeper. Drill into the instance node IDs and pull them individually. **Never
-paraphrase or invent copy** — capture it verbatim, or mark it `TBD` for the designer. This is the
-core spec job.
+If a dump shows `{Label}` / `"Text"` / "Option 1" placeholders, the real strings live one level
+deeper in instance nodes — drill into those node IDs and pull them individually. (See
+figma-faithful's step 2 — not restated.) **Never paraphrase or invent copy**: capture it verbatim,
+or mark it `TBD` for the designer. This is the core spec job.
 
 ### 2b. Describe the Scene — the exhaustive element inventory (be EXTRA careful here)
 

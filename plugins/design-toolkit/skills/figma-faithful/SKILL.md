@@ -8,16 +8,12 @@ implementation **measured, not improvised** — every spacing/color/type value t
 token, every component to the repo's catalog, and copy is pulled verbatim from Figma rather
 than invented.
 
-It exists because the first FE ticket through the autonomous flow shipped with fidelity
-failures: spacing eyeballed off screenshots, `px`/hex hardcoded against the theme-unit
-convention, and measurement delegated to a subagent that hallucinated a value that was then
-trusted. A second pass surfaced three more, all the same defect — **reading the node in
-isolation and never its parent context**: an inter-block gap left to the surrounding code (a
-16px block gap shipped at 8px, and a stale 24px gap matched instead of fixed), a component
-nested inside a neighbour instead of mounted as the sibling the Figma frame tree showed, and
-a shared component swapped for a raw `<img>` to dodge a styling quirk. The steps and hard
-rules below close all of these gaps — step 3b (layout context), the component-reuse and
-hierarchy hard rules, and a parent-frame self-verify.
+The defect class it closes is **reading the node in isolation and never its parent context**:
+inter-block gaps left to the surrounding code, a component nested inside a neighbour instead of
+mounted as the sibling the frame tree shows, a shared component swapped for a raw element to dodge
+a styling quirk, and values eyeballed off a screenshot or delegated to a subagent that hallucinates
+them. Step 3b (layout context), the component-reuse and hierarchy hard rules, and the parent-frame
+self-verify are what close it.
 
 **Load the repo's design-system reference from `.claude/second-shift/design-tokens/*.md`** —
 it declares the FE app dir(s), the primitives package(s) and their component catalog, the
@@ -147,15 +143,17 @@ Map each row of the token table via the repo's design-system reference **for the
 are building**:
 
 - **spacing** → the repo's spacing-scale value (e.g. `px ÷ base` → a theme-unit number),
-- **color** → a palette path / token role — **never a raw hex where a token exists**; on a
-  branded / theme-driven surface a literal color defeats the theme, so a hex is always a
-  finding,
+- **color** → a palette path / token role — **never a raw hex where a token exists**,
 - **sizing** (`width`/`height`/`fontSize`) → the repo's sizing abstraction (e.g. a
-  `pxToRem`-style helper) where the reference mandates one — never a raw `px`/`rem` on a
-  host-relative surface,
+  `pxToRem`-style helper) where the reference mandates one,
 - **type** → the repo's type-ramp variant; never a raw `fontFamily`/`fontSize`/`fontWeight`
   where a variant exists,
 - **icon weight** → the icon-set prefix the node renders.
+
+On a **branded / host-relative** surface the rule is always "use the abstraction" — a hex, a raw
+`px`/`rem` size, or a literal `fontFamily` is always a finding. (Canonical rules and their
+rationale: `figma-faithful-reviewer`'s "Branded / host-relative surface rules" section — not
+restated.)
 
 An off-scale value (not on the spacing scale, a hex not in the palette, a size not in the ramp)
 gets a **named module-level constant with a one-line comment** explaining why — only then.
@@ -196,9 +194,8 @@ continuing.
 Write the code against the token table (step 3/4) and the resolved components (step 5). Use
 logical / direction-aware layout props (block/inline start & end) and full property names,
 theme-unit spacing values, and palette paths. No raw `px`/hex where a token exists. On a
-branded / host-relative surface: no hardcoded hex (palette paths — branding), the repo's
-sizing abstraction for sizing, the repo's type-ramp variant for type; logical props are
-mandatory where the surface renders RTL.
+branded / host-relative surface the branded rules apply in full (see step 4), and logical props
+are mandatory where the surface renders RTL.
 
 ### 9. Self-verify
 
@@ -243,9 +240,8 @@ the wrong column, or an input loads empty — only a live render against the des
   step-7 plan gate. Spacing/color/type values come from the MCP token data, never from
   estimating a screenshot.
 - **No raw literals when an abstraction exists.** No raw `px`/hex where a token exists — logical
-  layout props + theme units + palette paths. On a branded / host-relative surface: no hardcoded
-  hex (breaks the theme), the repo's sizing abstraction for sizing, the type-ramp variant for
-  type, logical props for RTL. Off-scale values get a named constant + comment.
+  layout props + theme units + palette paths; on a branded / host-relative surface the branded
+  rules apply in full (step 4). Off-scale values get a named constant + comment.
 - **Never delegate fidelity-critical measurement to a subagent.** Spacing, tokens, and copy are
   pulled by the main agent from the MCP. Subagents may parallelize independent instance-node copy
   pulls (deterministic), but never _measure_ from screenshots — a subagent's visual estimate is
@@ -302,6 +298,5 @@ rules allow. And the `16px` inter-block gap (step 3b) is captured as the parent'
 measured from the parent frame rather than left to whatever the existing file happened to use.
 
 **Branded-surface contrast.** On a branded / host-relative surface the same group keeps
-`gap={2}` (spacing units scale with the host font), but a literal color like `#383d47` becomes a
-palette path (`text.primary` — branded, never a hex), and a fixed `width: 220px` becomes the
-repo's sizing abstraction (e.g. `pxToRem(220)`) — never a raw `px`/`rem`.
+`gap={2}` (spacing units scale with the host font), but `#383d47` becomes `text.primary` and
+`width: 220px` becomes `pxToRem(220)` — the abstraction, per step 4's branded rules.

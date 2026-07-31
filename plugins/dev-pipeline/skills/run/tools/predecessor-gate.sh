@@ -14,9 +14,9 @@
 #   2. <fetch predecessor state>   (paid ONLY when `extract` printed a predecessor key)
 #   3. verdict <state> — proceed / skip-blocked
 #
-# Splitting it this way is the `max-pushed-slice.sh` seam: network reads live in the
-# stage doc, the tool is pure logic fed via stdin/args, so its selftest and the
-# liveness scenarios run with zero network and nothing to mock.
+# Splitting it this way keeps network reads in the stage doc and the tool pure logic
+# fed via stdin/args, so its selftest and the liveness scenarios run with zero network
+# and nothing to mock.
 #
 # Usage:
 #   printf '%s' "$ISSUE_BODY" | predecessor-gate.sh extract
@@ -34,9 +34,9 @@
 #   KEY_PATTERN — anchored regex fragment the trailer's key must match. Default
 #                 `[0-9]+` (github issue numbers); a jira consumer passes
 #                 `[A-Z]+-[0-9]+`. Mirrors config `tracker.keyPattern`, supplied by
-#                 the caller rather than read here (the BRANCH_PREFIX env-seam
-#                 precedent from max-pushed-slice.sh). A leading `#` on the value is
-#                 optional and stripped.
+#                 the caller rather than read here (the env-seam convention for a
+#                 config value a pure-logic tool must not read). A leading `#` on the
+#                 value is optional and stripped.
 #
 # Trailer form (strict, full-line):  `Predecessor: #263`  /  `Successor: GH-540`
 #   - Leading whitespace is tolerated; trailing whitespace and a `\r` (CRLF bodies

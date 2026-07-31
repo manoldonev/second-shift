@@ -10,14 +10,9 @@
      exit 1
    fi
    ```
-2. _(crash-recovery only)_ **Record the pause span — this MUST be the FIRST state mutation on resume.** A crash-recovery resume means a session died and a fresh one re-entered; the idle gap between them is a pause that would otherwise inflate the straddling stage's window and the run total. Record one closed span:
-   ```bash
-   bash statectl.sh pause-add "$ISSUE_NUMBER" --reason session-resume
-   ```
-   `pause-add` self-anchors `from = current .lastUpdatedAt` (the dying session's final write, still intact) and stamps `to = now`. It MUST run **before step 3 (`set-stage`) and step 6 (`pipeline-session-add`)** — both bump `.lastUpdatedAt`, which would zero the anchor. There is **no shared resume preamble** elsewhere; this Stage 8 entry is the sole fresh-session resume site, so this is the only place `pause-add` is called. On the in-process path there is no pause; skip this step. Consumed by `tools/stage-times.sh` to report effective (compute) time.
-3. **Advance `currentStage` to 8** via `statectl set-stage "$ISSUE_NUMBER" 8 --status started`. **And record the stage-file receipt in the same breath** — `statectl stage-file-read "$ISSUE_NUMBER" --stage 8 --file 8-code-review.md` (#243 §3): `set-stage 8 --status completed` refuses unless stage 8's own file is recorded as read.
-4. Read `stageCheckpoint["7"]` via `statectl get "$ISSUE_NUMBER" '.stageCheckpoint."7"'`. Print one-line bootstrap: `Entering Stage 8. Branch: X. Head: Y. Deviations: N. Free note: "..."`.
-5. **Verify worktree validity:** `git -C "$worktreePath" rev-parse --is-inside-work-tree` must succeed. If missing or invalid, mark failed and exit:
+2. **Advance `currentStage` to 8** via `statectl set-stage "$ISSUE_NUMBER" 8 --status started`. **And record the stage-file receipt in the same breath** — `statectl stage-file-read "$ISSUE_NUMBER" --stage 8 --file 8-code-review.md` (#243 §3): `set-stage 8 --status completed` refuses unless stage 8's own file is recorded as read.
+3. Read `stageCheckpoint["7"]` via `statectl get "$ISSUE_NUMBER" '.stageCheckpoint."7"'`. Print one-line bootstrap: `Entering Stage 8. Branch: X. Head: Y. Deviations: N. Free note: "..."`.
+4. **Verify worktree validity:** `git -C "$worktreePath" rev-parse --is-inside-work-tree` must succeed. If missing or invalid, mark failed and exit:
    ```bash
    statectl.sh mark-failed "$ISSUE_NUMBER" \
      --reason worktree-missing --stage 8 \
@@ -42,7 +37,7 @@
    rm -f "$BODY"
    # Exit cleanly (rc=0). Do NOT auto-recreate the worktree (could mask user intent).
    ```
-6. _(crash-recovery only)_ **Record this resume session for cost attribution:** a crash-recovery Stage 8 session is a distinct Claude session from the Stage 1–7 one, so it records its own native session UUID:
+5. _(crash-recovery only)_ **Record this resume session for cost attribution:** a crash-recovery Stage 8 session is a distinct Claude session from the Stage 1–7 one, so it records its own native session UUID:
    ```bash
    # Re-assert the resumed session's mode first (#243): init --mode re-stamps .mode on
    # the existing state (documented carve-out) so a crash-recovery session resumed
@@ -59,9 +54,11 @@
    fi
    ```
    `$CLAUDE_CODE_SESSION_ID` is the native Claude Code session UUID the OTel exporter tags as `session.id`. On the normal in-process path the whole run is one session, already recorded at Stage 2 — do NOT add a second session id (and the resume session's UUID would differ anyway). Stage 9's cost-block sub-step unions all recorded sessions when querying OTel.
-7. `cd` to `worktreePath`. Begin the Stage 8 review (Workflow dispatch — below).
+6. `cd` to `worktreePath`. Begin the Stage 8 review (Workflow dispatch — below).
 
-Steps 3–5 (advance `currentStage`, hydrate from `stageCheckpoint["7"]`, validate the worktree) run on **both** paths; steps 1, 2, and 6 are crash-recovery only. On the in-process path Stage 8 simply continues with the context it already holds.
+Steps 2–4 (advance `currentStage`, hydrate from `stageCheckpoint["7"]`, validate the worktree) run on **both** paths; steps 1 and 5 are crash-recovery only. On the in-process path Stage 8 simply continues with the context it already holds.
+
+**The pause span needs no step here.** It used to be one — an explicit call that had to be the resume's first state write — which meant every resume below Stage 8 recorded nothing and its idle gap was billed as compute (#260). It is now recorded by `statectl`'s shared write seam, on whichever subcommand this session happens to write first (step 2's `set-stage` on this path), anchored on the dying session's final `lastUpdatedAt`. Nothing to call, and no ordering to get right.
 
 **DO NOT push to remote until this step completes.** All work stays local until step 9. Pushing before code review is finalized exposes unreviewed code on the remote.
 
@@ -101,25 +98,6 @@ HEAD="$(git -C "$WORKTREE" rev-parse HEAD)"
 BASE="$(git -C "$WORKTREE" merge-base HEAD "origin/${WORKTREE_BASE}" 2>/dev/null \
         || git -C "$WORKTREE" merge-base HEAD "$WORKTREE_BASE")"
 
-# Scope-gate slice mode (#204): on a stacked run (non-null currentSlice + a
-# persisted decomposition.slices partition) the scope reviewer grades the union
-# of ACs for slices 1..N against the CUMULATIVE diff, so its range is anchored
-# at SLICE 1's base — the CONFIGURED base branch ($BASE_BRANCH_CFG), NOT the
-# per-slice $WORKTREE_BASE (the prior slice's branch for N>1). All other
-# reviewers keep $BASE (this slice's own diff). Single-PR runs leave SCOPE_BASE
-# empty — the dispatch below then behaves byte-identically to before.
-SCOPE_BASE=""
-STATE_PATH="$(statectl.sh state-path "$ISSUE_NUMBER")"
-CUR_SLICE="$(statectl.sh get "$ISSUE_NUMBER" '.currentSlice // empty')"
-PARTITION_LEN="$(statectl.sh get "$ISSUE_NUMBER" '.decomposition.slices // [] | length')"
-if [[ -n "$CUR_SLICE" && "$CUR_SLICE" != "null" && "$PARTITION_LEN" != "0" ]]; then
-  SCOPE_BASE="$(git -C "$WORKTREE" merge-base HEAD "origin/${BASE_BRANCH_CFG}" 2>/dev/null \
-                || git -C "$WORKTREE" merge-base HEAD "$BASE_BRANCH_CFG")"
-  # Advisory visibility only — the reviewer re-derives the graded set itself
-  # from the state file (integrity checks included; fail-closed to full ticket).
-  bash "${CLAUDE_PLUGIN_ROOT}/skills/run/tools/slice-scope.sh" "$STATE_PATH" --slice "$CUR_SLICE" || true
-fi
-
 for round in 1..3:
   # (a) In-session (has Bash): size + route per review-toolkit:review-lead's Reviewer Routing.
   # THREE-DOT (#130): changedFiles rides in the SAME reviewer prompt as the diff range, so a
@@ -148,9 +126,6 @@ for round in 1..3:
     // from config `reviewers.add` are passed bare).
     args: { worktree: "$WORKTREE", base: "$BASE", head: "$HEAD", issue: "$ISSUE_NUMBER",
             config: CONFIG,
-            # Stacked runs only (#204) — omit both on single-PR runs:
-            #   scopeBase: "$SCOPE_BASE"  (slice 1's base; scope reviewer diffs scopeBase...head)
-            #   statePath: "$STATE_PATH"  (path-only pointer to the partition state file)
             reviewers: [<selected agentType strings>],
             changedFiles: [<from --stat>], prContext: "<branch/PR context; include unitTestSurface.mutationTargets when unit-test-mutation-reviewer is selected; include stageCheckpoint[\"7\"].qualityPassSummary so reviewers VERIFY the applied Stage-6 cleanups instead of re-proposing them — unapplied quality-pass suggestions[] cap at minor/nit (they were already judged out of apply scope); when .briefPath is non-null, include it for the NON-scope reviewers so they can flag plan/impl drift from the Brief's binding intent — but NEVER forward briefPath to scope-completeness-reviewer (its independence contract fetches the issue itself; feeding it derived intent would corrupt the anti-gaslighting property)>" }
   })

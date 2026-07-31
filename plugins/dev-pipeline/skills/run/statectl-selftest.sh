@@ -25,12 +25,10 @@ unset SECOND_SHIFT_CONFIG SECOND_SHIFT_REPO_ROOT SECOND_SHIFT_EXTENSION_MANIFEST
 SKILL_DIR="$(cd "$(dirname "$0")" && pwd)"
 STATECTL="${SKILL_DIR}/statectl.sh"
 STATE_SCHEMA="${SKILL_DIR}/state-schema.md"
-MAXSLICE="${SKILL_DIR}/tools/max-pushed-slice.sh"
 FIXTURES_DIR="${SKILL_DIR}/statectl-selftest-fixtures"
 
 [[ -x "$STATECTL" ]] || { echo "[self-test] FATAL: $STATECTL not executable"; exit 99; }
 [[ -f "$STATE_SCHEMA" ]] || { echo "[self-test] FATAL: $STATE_SCHEMA missing"; exit 99; }
-[[ -f "$MAXSLICE" ]] || { echo "[self-test] FATAL: $MAXSLICE missing"; exit 99; }
 [[ -d "$FIXTURES_DIR" ]] || { echo "[self-test] FATAL: $FIXTURES_DIR missing"; exit 99; }
 
 TMPDIR_ST=$(mktemp -d -t statectl-selftest.XXXXXX)
@@ -42,6 +40,20 @@ mkdir -p .claude/pipeline-state
 # fixtures would hit real pipeline state. Relative-path assertions below keep
 # working because cwd == TMPDIR_ST.
 export STATECTL_STATE_DIR="$TMPDIR_ST/.claude/pipeline-state"
+
+# Pin the writing session identity (#260). statectl's shared write seam stamps
+# .lastWriteSessionId from $CLAUDE_CODE_SESSION_ID and records a pause span when a
+# write's session id differs from the stored one. `sct` passes the ambient
+# environment straight through, so INHERITING the harness's own session id would
+# make every write in this suite same-session — the mechanism would test green
+# while guarding nothing. Export a fixed synthetic id instead; the cases that model
+# a resume reassign this variable (so the new identity persists for the rest of the
+# case), and the anonymous case unsets it in a subshell.
+export CLAUDE_CODE_SESSION_ID="5e1f7e57-0000-4000-8000-000000000001"
+SESSION_A="5e1f7e57-0000-4000-8000-000000000001"
+SESSION_B="5e1f7e57-0000-4000-8000-000000000002"
+SESSION_C="5e1f7e57-0000-4000-8000-000000000003"
+SESSION_D="5e1f7e57-0000-4000-8000-000000000004"
 
 PASS=0
 FAIL=0
@@ -374,58 +386,6 @@ else
   fail "(q3) mark-failed worktree-creation-failed — reason='$reason' stage='$stage' gitError='$giterr' status=$status_now"
 fi
 
-# (mps) max-pushed-slice.sh — the shared slice-derivation helper used by Stage 1
-#       seeding and the Stage 2 resume sanity guard (#147). Guards against the
-#       ref-prefix-strip bug that made the old inline loops always return 0.
-mps() { printf '%s\n' "$1" | bash "$MAXSLICE" "$2" 2>/dev/null; }
-# Full refs/heads/ form (as `git ls-remote | awk '{print $2}'` emits):
-mps_full=$'refs/heads/claude/acme-42\nrefs/heads/claude/acme-42-pr2\nrefs/heads/claude/acme-42-pr3'
-got=$(mps "$mps_full" 42)
-[[ "$got" == "3" ]] && pass "(mps1) full refs/heads form, slices 1-3 → 3" \
-  || fail "(mps1) full refs/heads form → got '$got' (want 3)"
-# Unsuffixed branch only → slice 1 (the prefix-strip bug returned 0 here):
-got=$(mps $'refs/heads/claude/acme-42' 42)
-[[ "$got" == "1" ]] && pass "(mps2) unsuffixed branch only → 1" \
-  || fail "(mps2) unsuffixed branch → got '$got' (want 1)"
-# Short-name form (no refs/heads/ prefix):
-got=$(mps $'claude/acme-42-pr2' 42)
-[[ "$got" == "2" ]] && pass "(mps3) short-name form → 2" \
-  || fail "(mps3) short-name form → got '$got' (want 2)"
-# No matching ref (fresh run) → 0:
-got=$(mps "" 42)
-[[ "$got" == "0" ]] && pass "(mps4) no refs → 0" \
-  || fail "(mps4) no refs → got '$got' (want 0)"
-# Sibling-issue noise must NOT inflate the count (420, 7 are not issue 42):
-got=$(mps $'refs/heads/claude/acme-420\nrefs/heads/claude/acme-420-pr5\nrefs/heads/claude/acme-7' 42)
-[[ "$got" == "0" ]] && pass "(mps5) sibling-issue refs filtered → 0" \
-  || fail "(mps5) sibling-issue refs → got '$got' (want 0)"
-# Missing issue-number arg → usage error (rc=2):
-rc=0; printf '' | bash "$MAXSLICE" >/dev/null 2>&1 || rc=$?
-[[ "$rc" == "2" ]] && pass "(mps6) missing issue arg → usage error rc=2" \
-  || fail "(mps6) missing issue arg → rc=$rc (want 2)"
-
-# (mps7-9) BRANCH_PREFIX parameterization — salvaged from the deleted
-#          slice-derivation-selftest.sh (#214). One helper serves both trackers
-#          (github "claude/acme-", jira e.g. "jdoe/"); unset stays the github default.
-got=$(mps $'refs/heads/claude/acme-149\nrefs/heads/claude/acme-149-pr2' 149)
-[[ "$got" == "2" ]] && pass "(mps7) default prefix (claude/acme-) → 2" \
-  || fail "(mps7) default prefix → got '$got' (want 2)"
-got=$(printf 'refs/heads/jdoe/gh-540\nrefs/heads/jdoe/gh-540-pr3\n' | BRANCH_PREFIX="jdoe/" bash "$MAXSLICE" gh-540 2>/dev/null)
-[[ "$got" == "3" ]] && pass "(mps8) custom prefix (jdoe/, key gh-540) → 3" \
-  || fail "(mps8) custom prefix → got '$got' (want 3)"
-got=$(printf 'refs/heads/jdoe/gh-5400\nrefs/heads/jdoe/gh-540\n' | BRANCH_PREFIX="jdoe/" bash "$MAXSLICE" gh-540 2>/dev/null)
-[[ "$got" == "1" ]] && pass "(mps9) custom prefix cross-key isolation (gh-5400 ≠ gh-540) → 1" \
-  || fail "(mps9) custom prefix cross-key isolation → got '$got' (want 1)"
-
-# (mps10) OUT-OF-ORDER refs — the mutant killer this suite was missing (#214).
-#         `git ls-remote` emits refs LEXICOGRAPHICALLY, so at >=10 slices `pr10`
-#         sorts BEFORE `pr2`. A last-wins implementation (MAX=$n unconditional)
-#         passes every other case here, because in all of them the highest slice
-#         happens to be last. This fixture is the only one that fails it.
-got=$(mps $'refs/heads/claude/acme-42-pr10\nrefs/heads/claude/acme-42-pr9\nrefs/heads/claude/acme-42-pr2' 42)
-[[ "$got" == "10" ]] && pass "(mps10) out-of-order refs → max (10), not last (2)" \
-  || fail "(mps10) out-of-order refs → got '$got' (want 10 — last-wins regression?)"
-
 # (psa1) pipeline-session-add: first call appends; second call same sid is idempotent
 reset_state
 sct init 9999 --run-id "selftest-run-$$" >/dev/null
@@ -602,135 +562,12 @@ rc=$(sct_rc successor-key-set 9999 --key)
 # format) is rejected — regression guard for the cost-tracking session-id mismatch bug.
 reset_state
 sct init 9999 --run-id "selftest-run-$$" >/dev/null
-err=$(sct_err pipeline-session-add 9999 --session-id "2026-06-08T214945Z-Mac-edf895c0-slice1-stage2")
-rc=$(sct_rc pipeline-session-add 9999 --session-id "2026-06-08T214945Z-Mac-edf895c0-slice1-stage2")
+err=$(sct_err pipeline-session-add 9999 --session-id "2026-06-08T214945Z-Mac-edf895c0-run1-stage2")
+rc=$(sct_rc pipeline-session-add 9999 --session-id "2026-06-08T214945Z-Mac-edf895c0-run1-stage2")
 if [[ "$rc" != "0" && "$err" == *"not a native session UUID"* ]]; then
   pass "(psa6) pipeline-session-add RUN_ID-derived sid → rejected"
 else
   fail "(psa6) pipeline-session-add RUN_ID-derived sid — rc=$rc err='$err'"
-fi
-
-# (sls1) slice-set: slice 1 happy path → fields written, priorSliceBranch=null
-reset_state
-sct init 9999 --run-id "selftest-run-$$" >/dev/null
-sct slice-set 9999 \
-  --current 1 --branch claude/acme-9999 \
-  --worktree-base main --pr-base main >/dev/null
-cur=$(sct get 9999 .currentSlice)
-sb=$(sct get 9999 .sliceBranch)
-psb=$(sct get 9999 .priorSliceBranch)
-wb=$(sct get 9999 .worktreeBase)
-pb=$(sct get 9999 .prBase)
-if [[ "$cur" == "1" && "$sb" == "claude/acme-9999" && "$psb" == "null" \
-   && "$wb" == "main" && "$pb" == "main" ]]; then
-  pass "(sls1) slice-set slice 1 → all five fields written, priorSliceBranch=null"
-else
-  fail "(sls1) slice-set slice 1 — cur=$cur sb=$sb psb=$psb wb=$wb pb=$pb"
-fi
-
-# (sls2) slice-set: slice 2 happy path → priorSliceBranch required, fields written
-sct slice-set 9999 \
-  --current 2 --branch claude/acme-9999-pr2 \
-  --prior-branch claude/acme-9999 \
-  --worktree-base claude/acme-9999 --pr-base claude/acme-9999 >/dev/null
-cur=$(sct get 9999 .currentSlice)
-psb=$(sct get 9999 .priorSliceBranch)
-pb=$(sct get 9999 .prBase)
-if [[ "$cur" == "2" && "$psb" == "claude/acme-9999" && "$pb" == "claude/acme-9999" ]]; then
-  pass "(sls2) slice-set slice 2 → priorSliceBranch + prBase point at slice 1"
-else
-  fail "(sls2) slice-set slice 2 — cur=$cur psb=$psb pb=$pb"
-fi
-
-# (sls3) slice-set: slice 1 with --prior-branch → rejected
-err=$(sct_err slice-set 9999 \
-  --current 1 --branch claude/acme-9999 \
-  --prior-branch claude/acme-9999 \
-  --worktree-base main --pr-base main)
-rc=$(sct_rc slice-set 9999 \
-  --current 1 --branch claude/acme-9999 \
-  --prior-branch claude/acme-9999 \
-  --worktree-base main --pr-base main)
-if [[ "$rc" != "0" && "$err" == *"omitted when --current is 1"* ]]; then
-  pass "(sls3) slice-set slice 1 with --prior-branch → rejected"
-else
-  fail "(sls3) slice-set slice 1 + prior — rc=$rc err='$err'"
-fi
-
-# (sls4) slice-set: slice 2 WITHOUT --prior-branch → rejected
-err=$(sct_err slice-set 9999 \
-  --current 2 --branch claude/acme-9999-pr2 \
-  --worktree-base main --pr-base main)
-rc=$(sct_rc slice-set 9999 \
-  --current 2 --branch claude/acme-9999-pr2 \
-  --worktree-base main --pr-base main)
-if [[ "$rc" != "0" && "$err" == *"required when --current > 1"* ]]; then
-  pass "(sls4) slice-set slice 2 without --prior-branch → rejected"
-else
-  fail "(sls4) slice-set slice 2 no prior — rc=$rc err='$err'"
-fi
-
-# (sls5) slice-set: non-integer --current → rejected
-err=$(sct_err slice-set 9999 \
-  --current foo --branch x --worktree-base main --pr-base main)
-rc=$(sct_rc slice-set 9999 \
-  --current foo --branch x --worktree-base main --pr-base main)
-if [[ "$rc" != "0" && "$err" == *"positive integer"* ]]; then
-  pass "(sls5) slice-set non-integer --current → rejected"
-else
-  fail "(sls5) slice-set non-integer current — rc=$rc err='$err'"
-fi
-
-# (sps1) slice-partition-set happy path: valid 2-slice partition over the snapshot
-# → decomposition.slices written sorted, count echoed (#204)
-reset_state
-sct init 9999 --run-id "selftest-run-$$" >/dev/null
-sct intake-brief 9999 --brief-path null --acceptance-criteria \
-  '[{"id":"AC-1","text":"a","negative":false,"source":"explicit"},{"id":"AC-2","text":"b","negative":false,"source":"explicit"},{"id":"AC-3","text":"c","negative":false,"source":"explicit"}]' >/dev/null
-out=$(sct slice-partition-set 9999 --json '[{"slice":2,"acIds":["AC-3"]},{"slice":1,"acIds":["AC-1","AC-2"]}]')
-got=$(sct get 9999 '.decomposition.slices | map(.slice) | join(",")')
-ids1=$(sct get 9999 '.decomposition.slices[0].acIds | join(",")')
-if [[ "$out" == "2" && "$got" == "1,2" && "$ids1" == "AC-1,AC-2" ]]; then
-  pass "(sps1) slice-partition-set happy path → sorted slices persisted, count echoed"
-else
-  fail "(sps1) slice-partition-set happy — out=$out slices=$got ids1=$ids1"
-fi
-
-# (sps2) write-once: second write without --force → rejected; --force overwrites
-err=$(sct_err slice-partition-set 9999 --json '[{"slice":1,"acIds":["AC-1","AC-2","AC-3"]}]')
-rc=$(sct_rc slice-partition-set 9999 --json '[{"slice":1,"acIds":["AC-1","AC-2","AC-3"]}]')
-rc2=$(sct_rc slice-partition-set 9999 --force --force-reason "selftest crash-recovery simulation of an operator waiver" --json '[{"slice":1,"acIds":["AC-1","AC-2","AC-3"]}]')
-if [[ "$rc" != "0" && "$err" == *"write-once"* && "$rc2" == "0" ]]; then
-  pass "(sps2) slice-partition-set overwrite → rejected without --force, allowed with"
-else
-  fail "(sps2) slice-partition-set write-once — rc=$rc rc2=$rc2 err='$err'"
-fi
-
-# (sps3) acId not in the snapshot → rejected (partition OF the snapshot)
-err=$(sct_err slice-partition-set 9999 --force --force-reason "selftest crash-recovery simulation of an operator waiver" --json '[{"slice":1,"acIds":["AC-9"]}]')
-rc=$(sct_rc slice-partition-set 9999 --force --force-reason "selftest crash-recovery simulation of an operator waiver" --json '[{"slice":1,"acIds":["AC-9"]}]')
-if [[ "$rc" != "0" && "$err" == *"acceptanceCriteria"* ]]; then
-  pass "(sps3) slice-partition-set unknown acId → rejected"
-else
-  fail "(sps3) slice-partition-set unknown acId — rc=$rc err='$err'"
-fi
-
-# (sps4) non-contiguous slice indices → rejected
-err=$(sct_err slice-partition-set 9999 --force --force-reason "selftest crash-recovery simulation of an operator waiver" --json '[{"slice":1,"acIds":["AC-1"]},{"slice":3,"acIds":["AC-2"]}]')
-rc=$(sct_rc slice-partition-set 9999 --force --force-reason "selftest crash-recovery simulation of an operator waiver" --json '[{"slice":1,"acIds":["AC-1"]},{"slice":3,"acIds":["AC-2"]}]')
-if [[ "$rc" != "0" && "$err" == *"contiguous"* ]]; then
-  pass "(sps4) slice-partition-set non-contiguous slices → rejected"
-else
-  fail "(sps4) slice-partition-set non-contiguous — rc=$rc err='$err'"
-fi
-
-# (sps5) overlapping acIds across slices → rejected (disjoint partition)
-err=$(sct_err slice-partition-set 9999 --force --force-reason "selftest crash-recovery simulation of an operator waiver" --json '[{"slice":1,"acIds":["AC-1"]},{"slice":2,"acIds":["AC-1","AC-2"]}]')
-rc=$(sct_rc slice-partition-set 9999 --force --force-reason "selftest crash-recovery simulation of an operator waiver" --json '[{"slice":1,"acIds":["AC-1"]},{"slice":2,"acIds":["AC-1","AC-2"]}]')
-if [[ "$rc" != "0" && "$err" == *"disjoint"* ]]; then
-  pass "(sps5) slice-partition-set overlapping acIds → rejected"
-else
-  fail "(sps5) slice-partition-set overlap — rc=$rc err='$err'"
 fi
 
 # (b1) build-failure-context happy path: --kv-lines splits on \n, output is full failureContext JSON
@@ -868,15 +705,15 @@ else
   fail "(ws3) worktree-set absent state — rc=$rc err='$err'"
 fi
 
-# (ws4) worktree-set per-slice overwrite (stacked-PR mode) → both fields replaced
+# (ws4) worktree-set re-invocation (resume / repair) → both fields replaced
 reset_state
 sct init 9999 --run-id "selftest-run-$$" >/dev/null
 sct worktree-set 9999 --path ".claude/worktrees/acme-9999" --branch "claude/acme-9999" >/dev/null
-sct worktree-set 9999 --path ".claude/worktrees/acme-9999-pr2" --branch "claude/acme-9999-pr2" >/dev/null
+sct worktree-set 9999 --path ".claude/worktrees/acme-9999-b" --branch "claude/acme-9999-b" >/dev/null
 wt=$(sct get 9999 '.worktreePath')
 br=$(sct get 9999 '.branch')
-if [[ "$wt" == ".claude/worktrees/acme-9999-pr2" && "$br" == "claude/acme-9999-pr2" ]]; then
-  pass "(ws4) worktree-set per-slice overwrite → both fields replaced"
+if [[ "$wt" == ".claude/worktrees/acme-9999-b" && "$br" == "claude/acme-9999-b" ]]; then
+  pass "(ws4) worktree-set re-invocation → both fields replaced"
 else
   fail "(ws4) worktree-set overwrite — wt='$wt' br='$br'"
 fi
@@ -904,8 +741,8 @@ else
   fail "(pa1) pr-add — url='$url'"
 fi
 
-# (pa2) pr-add second branch → both entries retained (stacked-PR accumulation)
-sct pr-add 9999 --branch "claude/acme-9999-pr2" --url "https://github.com/o/r/pull/2" >/dev/null
+# (pa2) pr-add second branch → both entries retained (accumulation)
+sct pr-add 9999 --branch "claude/acme-9999-b" --url "https://github.com/o/r/pull/2" >/dev/null
 count=$(sct get 9999 '.prs | length')
 url1=$(sct get 9999 '.prs."claude/acme-9999".url')
 if [[ "$count" == "2" && "$url1" == "https://github.com/o/r/pull/1" ]]; then
@@ -1095,39 +932,299 @@ else
 fi
 if [[ -n "$_PA12_SAVED_CFG" ]]; then export SECOND_SHIFT_CONFIG="$_PA12_SAVED_CFG"; else unset SECOND_SHIFT_CONFIG; fi
 
-# (pause1) pause-add → appends ONE closed span; from = prior .lastUpdatedAt
-# (self-anchor), to = now, from < to. now_iso is second-resolution, so sleep 1
-# to guarantee a measurable gap. ISO-8601 fixed-width Z timestamps sort
-# lexicographically == chronologically, so `<` in [[ ]] is a valid time compare.
+# ---------------------------------------------------------------- #260 seam ---
+# Automatic session-resume pause spans, written by statectl's shared write seam
+# (apply_session_seam, called from atomic_write) rather than by an explicit
+# per-site subcommand. These are PER-TOOL cases because each drives one branch of
+# the seam's internal matrix that no composed scenario can reach — a real pipeline
+# run never produces a truncated predecessor, an operator-shell write with the env
+# unset, a post-terminal backfill, or a --force pure-refusal. The composed
+# verdict-path coverage lives in scenario-liveness-selftest.sh's resume leg and
+# e2e-replay-selftest.sh scenario 3. (sr2)/(sr3) are the deliberate exception:
+# same contract from two different first-writers, which IS the order-independence
+# claim and cannot be one scenario.
+#
+# now_iso is second-resolution, so every case that compares from<to sleeps 1 first.
+# ISO-8601 fixed-width Z timestamps sort lexicographically == chronologically, so
+# `<` in [[ ]] is a valid time compare.
+
+# (sr1) same-session writes → the stamp is recorded, but NO span. This is the
+# common case (a whole run in one session) and the one that must stay silent.
 reset_state
 sct init 9999 --run-id "selftest-run-$$" >/dev/null
-prev=$(sct get 9999 '.lastUpdatedAt')
+sct set-stage 9999 1 --status started >/dev/null
+sct checkpoint 9999 1 --json '{"note":"same session"}' >/dev/null
+stamp=$(sct get 9999 '.lastWriteSessionId')
+spans=$(sct get 9999 '.pauseSpans // "ABSENT"')
+[[ "$stamp" == "$SESSION_A" && "$spans" == "ABSENT" ]] \
+  && pass "(sr1) same-session run → stamp recorded, no pauseSpans key" \
+  || fail "(sr1) stamp='$stamp' spans='$spans'"
+
+# (sr2) cross-session with `init --mode` as the first write — the PRIMARY case,
+# because it is the actual first write on every SKILL.md rule-2 resume AND one of
+# the two writes that does not bump lastUpdatedAt on its own. The seam must supply
+# both the span and the clock advance here.
+reset_state
+sct init 9999 --run-id "selftest-run-$$" --mode auto >/dev/null
+sct set-stage 9999 1 --status started >/dev/null
+dying=$(sct get 9999 '.lastUpdatedAt')
 sleep 1
-sct pause-add 9999 --reason session-resume >/dev/null
+CLAUDE_CODE_SESSION_ID="$SESSION_B"
+sct init 9999 --run-id ignored --mode interactive >/dev/null
 count=$(sct get 9999 '.pauseSpans | length')
 pfrom=$(sct get 9999 '.pauseSpans[0].from')
 pto=$(sct get 9999 '.pauseSpans[0].to')
 preason=$(sct get 9999 '.pauseSpans[0].reason')
-if [[ "$count" == "1" && "$preason" == "session-resume" && "$pfrom" == "$prev" ]] && [[ "$pfrom" < "$pto" ]]; then
-  pass "(pause1) pause-add → one closed span, from=prior lastUpdatedAt, from<to"
+lu=$(sct get 9999 '.lastUpdatedAt')
+stamp=$(sct get 9999 '.lastWriteSessionId')
+if [[ "$count" == "1" && "$preason" == "session-resume" && "$pfrom" == "$dying" \
+      && "$lu" == "$pto" && "$stamp" == "$SESSION_B" ]] && [[ "$pfrom" < "$pto" ]]; then
+  pass "(sr2) resume via 'init --mode' → one span anchored on the dying write, clock advanced to span.to"
 else
-  fail "(pause1) pause-add — count=$count reason=$preason from=$pfrom prev=$prev to=$pto"
+  fail "(sr2) count=$count reason=$preason from=$pfrom dying=$dying to=$pto lu=$lu stamp=$stamp"
 fi
 
-# (pause2) pause-add is require_mutable-guarded: rejected on a terminal run
-# without --force, succeeds with --force (#154 consistency; NOT exempt like
-# pipeline-session-add).
+# (sr11) subsequent writes by the SAME resuming session append nothing. Folded in
+# here because it needs (sr2)'s state: the stamp now equals the writer, so the
+# differ-check must go quiet.
+sct checkpoint 9999 1 --json '{"note":"second write, same resuming session"}' >/dev/null
+[[ "$(sct get 9999 '.pauseSpans | length')" == "1" ]] \
+  && pass "(sr11) further writes by the resuming session append no further spans" \
+  || fail "(sr11) spans=$(sct get 9999 '.pauseSpans | length') after a same-session follow-up write"
+CLAUDE_CODE_SESSION_ID="$SESSION_A"
+
+# (sr3) cross-session with `set-stage` as the first write — the order-independence
+# half of AC-1. A different subcommand carries the span; the contract is identical.
 reset_state
 sct init 9999 --run-id "selftest-run-$$" >/dev/null
-sct mark-failed 9999 --reason plan-reviewer-block >/dev/null
-err=$(sct_err pause-add 9999 --reason session-resume)
-rc=$(sct_rc pause-add 9999 --reason session-resume)
-rcforce=$(sct_rc pause-add 9999 --reason session-resume --force --force-reason "selftest crash-recovery simulation of an operator waiver")
-if [[ "$rc" != "0" && "$err" == *"terminal"* && "$rcforce" == "0" ]]; then
-  pass "(pause2) pause-add on terminal run → rejected without --force, succeeds with --force"
+dying=$(sct get 9999 '.lastUpdatedAt')
+sleep 1
+CLAUDE_CODE_SESSION_ID="$SESSION_B"
+sct set-stage 9999 1 --status started >/dev/null
+count=$(sct get 9999 '.pauseSpans | length')
+pfrom=$(sct get 9999 '.pauseSpans[0].from')
+[[ "$count" == "1" && "$pfrom" == "$dying" ]] \
+  && pass "(sr3) resume via 'set-stage' → same contract from a different first-writer" \
+  || fail "(sr3) count=$count from=$pfrom dying=$dying"
+CLAUDE_CODE_SESSION_ID="$SESSION_A"
+
+# (sr4) K sequential resumes → exactly K spans, pairwise NON-OVERLAPPING. The
+# non-overlap is what the clock advance buys: without it, span N+1 would anchor on
+# a stale lastUpdatedAt and stage-times.sh would double-subtract the same interval.
+# K=3, and the middle resume's ONLY write is the init --mode restamp (the
+# non-bumping path), which is where an unadvanced clock would show up.
+reset_state
+sct init 9999 --run-id "selftest-run-$$" --mode auto >/dev/null
+for s in "$SESSION_B" "$SESSION_C" "$SESSION_D"; do
+  sleep 1
+  CLAUDE_CODE_SESSION_ID="$s"
+  sct init 9999 --run-id ignored --mode interactive >/dev/null
+done
+CLAUDE_CODE_SESSION_ID="$SESSION_A"
+count=$(sct get 9999 '.pauseSpans | length')
+# Non-overlap: every span's `from` is >= the previous span's `to`. ISO-8601
+# fixed-width Z timestamps compare correctly as strings.
+# shellcheck disable=SC2016 # $i is a jq variable, not a shell one — single quotes are required
+ordered=$(sct get 9999 '[ .pauseSpans as $s | range(1; ($s|length)) | ($s[.].from >= $s[.-1].to) ] | all')
+[[ "$count" == "3" && "$ordered" == "true" ]] \
+  && pass "(sr4) K=3 sequential resumes → exactly 3 non-overlapping spans (incl. the non-bumping restamp)" \
+  || fail "(sr4) count=$count ordered=$ordered spans=$(sct get 9999 '.pauseSpans')"
+
+# (sr12) a span-recording write advances the staleness anchor, so `reclaim` does
+# NOT report a just-resumed run as stale. D-2 asserts this consequence in prose;
+# this pins it. Two consumers read that anchor (reclaim and pipeline-doctor's
+# stale-claim scan) — reclaim is the one that reports a verdict.
+#
+# Shape: park a run whose last write is months old, confirm reclaim calls it stale,
+# perform ONE cross-session write, confirm reclaim now refuses it as not-stale. The
+# before/after pair is what makes this non-vacuous — asserting only "not stale"
+# would also pass on a run that was never stale to begin with.
+reset_state
+printf '{"ticketKey":"9999","runId":"selftest-run","status":"in_progress","currentStage":4,"startedAt":"2026-01-01T00:00:00Z","lastUpdatedAt":"2026-01-01T00:00:00Z","lastWriteSessionId":"%s","stages":{}}\n' \
+  "$SESSION_C" > "$STATECTL_STATE_DIR/9999.json"
+stale_before=$(sct reclaim 9999 --threshold-min 30 | jq -r '.stale // "ERR"')
+CLAUDE_CODE_SESSION_ID="$SESSION_B"
+sct checkpoint 9999 1 --json '{"note":"the resuming session first write"}' >/dev/null
+CLAUDE_CODE_SESSION_ID="$SESSION_A"
+rc_after=$(sct_rc reclaim 9999 --threshold-min 30)
+err_after=$(sct_err reclaim 9999 --threshold-min 30)
+if [[ "$stale_before" == "true" && "$rc_after" == "1" && "$err_after" == *"not stale"* \
+      && "$(sct get 9999 '.pauseSpans | length')" == "1" ]]; then
+  pass "(sr12) the span write advances the staleness anchor — stale before the resume, not stale after"
 else
-  fail "(pause2) pause-add terminal guard — rc=$rc rcforce=$rcforce err='$err'"
+  fail "(sr12) staleBefore=$stale_before rcAfter=$rc_after spans=$(sct get 9999 '.pauseSpans // "ABSENT"') err='${err_after:0:80}'"
 fi
+
+# (sr5) ANONYMOUS write (env unset — an operator running statectl from a plain
+# terminal): no span, and the stored stamp is LEFT ALONE rather than overwritten
+# with null. The second half is the load-bearing one: it is what stops a mid-run
+# operator repair from swallowing the next resume's span.
+reset_state
+sct init 9999 --run-id "selftest-run-$$" >/dev/null
+( unset CLAUDE_CODE_SESSION_ID; sct checkpoint 9999 1 --json '{"note":"operator shell"}' >/dev/null )
+stamp_after_anon=$(sct get 9999 '.lastWriteSessionId')
+spans_after_anon=$(sct get 9999 '.pauseSpans // "ABSENT"')
+anon_ts=$(sct get 9999 '.lastUpdatedAt')
+sleep 1
+CLAUDE_CODE_SESSION_ID="$SESSION_B"
+sct checkpoint 9999 1 --json '{"note":"resume after the operator repair"}' >/dev/null
+CLAUDE_CODE_SESSION_ID="$SESSION_A"
+resume_from=$(sct get 9999 '.pauseSpans[0].from')
+if [[ "$stamp_after_anon" == "$SESSION_A" && "$spans_after_anon" == "ABSENT" \
+      && "$(sct get 9999 '.pauseSpans | length')" == "1" && "$resume_from" == "$anon_ts" ]]; then
+  pass "(sr5) anonymous write → no span, stamp untouched; the following resume still spans, anchored at the repair write"
+else
+  fail "(sr5) stamp='$stamp_after_anon' spans='$spans_after_anon' resumeFrom='$resume_from' anonTs='$anon_ts'"
+fi
+
+# (sr6) post-terminal pipeline-session-add backfill (the documented
+# skipped-no-sessions cost recovery): appends its session record, NO span, NO
+# stamp change, and still needs no --force. The predecessor is already terminal,
+# so the seam is structurally unable to fire — which is what makes a backfill
+# distinguishable from a resume at all.
+reset_state
+sct init 9999 --run-id "selftest-run-$$" >/dev/null
+for s in 1 2 3 4 5 6 7 8 9; do complete_stage 9999 "$s"; done
+write_eval 9999; write_report 9999
+sct mark-completed 9999 >/dev/null
+stamp_before=$(sct get 9999 '.lastWriteSessionId')
+sleep 1
+CLAUDE_CODE_SESSION_ID="$SESSION_B"
+rc=$(sct_rc pipeline-session-add 9999 --session-id "$SESSION_B" --source interactive)
+CLAUDE_CODE_SESSION_ID="$SESSION_A"
+if [[ "$rc" == "0" && "$(sct get 9999 '.pauseSpans // "ABSENT"')" == "ABSENT" \
+      && "$(sct get 9999 '.lastWriteSessionId')" == "$stamp_before" \
+      && "$(sct get 9999 '.status')" == "completed" ]]; then
+  pass "(sr6) post-terminal backfill → session appended, no span, no stamp change, exemption intact"
+else
+  fail "(sr6) rc=$rc spans=$(sct get 9999 '.pauseSpans // "ABSENT"') stampBefore=$stamp_before stampAfter=$(sct get 9999 '.lastWriteSessionId')"
+fi
+
+# (sr7) mark-completed as the resuming session's FIRST write. Its predecessor is
+# still in_progress, so it BOTH stamps and spans — the gate reads the on-disk
+# predecessor, not the document being written. A run resumed only to be marked
+# done still had a real idle gap, so recording it is the correct outcome; reading
+# the post-write content instead would silently drop it.
+reset_state
+sct init 9999 --run-id "selftest-run-$$" >/dev/null
+for s in 1 2 3 4 5 6 7 8 9; do complete_stage 9999 "$s"; done
+write_eval 9999; write_report 9999
+dying=$(sct get 9999 '.lastUpdatedAt')
+sleep 1
+CLAUDE_CODE_SESSION_ID="$SESSION_B"
+sct mark-completed 9999 >/dev/null
+CLAUDE_CODE_SESSION_ID="$SESSION_A"
+if [[ "$(sct get 9999 '.status')" == "completed" \
+      && "$(sct get 9999 '.pauseSpans | length')" == "1" \
+      && "$(sct get 9999 '.pauseSpans[0].from')" == "$dying" \
+      && "$(sct get 9999 '.lastWriteSessionId')" == "$SESSION_B" ]]; then
+  pass "(sr7) mark-completed as the first resume write → stamps AND spans (predecessor-read gate)"
+else
+  fail "(sr7) status=$(sct get 9999 '.status') spans=$(sct get 9999 '.pauseSpans // "ABSENT"') stamp=$(sct get 9999 '.lastWriteSessionId')"
+fi
+
+# (sr8) DEGRADED PREDECESSOR — unparseable file. Characterization, and the letter
+# of the contract deserves stating: the seam tolerates an unparseable predecessor
+# (stamp, no span, never fail), but no CLI path can actually deliver one to it,
+# because every subcommand reads through read_state first and read_state refuses
+# a corrupt file (rc=2) before atomic_write is ever reached. So what is asserted
+# here is the REACHABLE behavior: the subcommand refuses, and — the part that
+# matters for crash recovery — the corrupt file is left byte-for-byte intact
+# rather than half-overwritten. The seam's own branch is defense in depth for a
+# future writer that does not read first; (sr9) is the degradation case that IS
+# reachable today.
+reset_state
+printf 'not json{' > "$STATECTL_STATE_DIR/9999.json"
+before_bytes=$(cat "$STATECTL_STATE_DIR/9999.json")
+rc=$(sct_rc checkpoint 9999 1 --json '{"x":1}')
+err=$(sct_err checkpoint 9999 1 --json '{"x":1}')
+after_bytes=$(cat "$STATECTL_STATE_DIR/9999.json")
+[[ "$rc" != "0" && "$err" == *"could not parse state file"* && "$before_bytes" == "$after_bytes" ]] \
+  && pass "(sr8) unparseable predecessor → subcommand refuses at read_state, file left intact (seam never reached)" \
+  || fail "(sr8) rc=$rc err='$err' fileChanged=$([[ "$before_bytes" == "$after_bytes" ]] && echo no || echo yes)"
+
+# (sr8b) …and the seam's OWN unparseable branch, asserted directly. (sr8) proves no
+# subcommand can deliver a corrupt predecessor to the seam; that makes the branch
+# unreachable through the CLI, not absent — and an unreachable branch asserted only
+# in prose is exactly the dark-gate shape this repo's testing rules exist to stop.
+# statectl.sh's main() is guarded by a BASH_SOURCE/$0 check, so sourcing defines the
+# helpers without dispatching, and the seam can be called on its own. Contract: stamp,
+# NO span, and — the part that matters — return successfully rather than failing the
+# host write, which is where the removed subcommand died.
+reset_state
+printf 'not json{' > "$STATECTL_STATE_DIR/9999.json"
+seam_rc=0
+seam_out=$(
+  # shellcheck source=/dev/null
+  . "$STATECTL" >/dev/null 2>&1
+  CLAUDE_CODE_SESSION_ID="$SESSION_B" apply_session_seam 9999 \
+    '{"ticketKey":"9999","status":"in_progress","lastUpdatedAt":"2026-01-01T00:00:00Z"}'
+) || seam_rc=$?
+seam_stamp=$(jq -r '.lastWriteSessionId // "NONE"' <<< "$seam_out" 2>/dev/null || echo "UNPARSEABLE")
+seam_spans=$(jq -r '.pauseSpans // "ABSENT"' <<< "$seam_out" 2>/dev/null || echo "UNPARSEABLE")
+if [[ "$seam_rc" == "0" && "$seam_stamp" == "$SESSION_B" && "$seam_spans" == "ABSENT" ]]; then
+  pass "(sr8b) seam on an unparseable predecessor → stamps, no span, does NOT fail the host write"
+else
+  fail "(sr8b) rc=$seam_rc stamp=$seam_stamp spans=$seam_spans out='${seam_out:0:120}'"
+fi
+
+# (sr13) in_progress predecessor that parses and HAS a .lastUpdatedAt but carries NO
+# stored lastWriteSessionId — a run that was mid-flight when this feature shipped.
+# D-6's migrate-by-absence path, and reachable through the CLI unlike (sr8b). There is
+# no stored id to differ from, so the write must stamp and append NO span: emitting one
+# here would invent an idle gap on every pre-existing run's first post-upgrade write.
+reset_state
+printf '{"ticketKey":"9999","runId":"selftest-run","status":"in_progress","currentStage":3,"startedAt":"2026-01-01T00:00:00Z","lastUpdatedAt":"2026-01-01T00:00:00Z","stages":{}}\n' \
+  > "$STATECTL_STATE_DIR/9999.json"
+rc=$(sct_rc checkpoint 9999 1 --json '{"note":"first write after the upgrade"}')
+[[ "$rc" == "0" && "$(sct get 9999 '.lastWriteSessionId')" == "$SESSION_A" \
+   && "$(sct get 9999 '.pauseSpans // "ABSENT"')" == "ABSENT" ]] \
+  && pass "(sr13) pre-upgrade in_progress run → first write stamps, appends no span (migrate by absence)" \
+  || fail "(sr13) rc=$rc stamp=$(sct get 9999 '.lastWriteSessionId') spans=$(sct get 9999 '.pauseSpans // "ABSENT"')"
+
+# (sr9) DEGRADED PREDECESSOR — parses, but carries no .lastUpdatedAt to anchor on.
+# Documented as real (pipeline-doctor's (d5a) characterization case; raw fixtures).
+# The seam must stamp, append NO span, and above all NOT fail the host write.
+# This is exactly where the removed subcommand died — it hard-errored — which would
+# have broken the crash-recovery path this mechanism exists to serve.
+reset_state
+printf '{"ticketKey":"9999","status":"in_progress","lastWriteSessionId":"%s","stages":{}}\n' \
+  "$SESSION_C" > "$STATECTL_STATE_DIR/9999.json"
+rc=$(sct_rc checkpoint 9999 1 --json '{"x":1}')
+[[ "$rc" == "0" && "$(sct get 9999 '.lastWriteSessionId')" == "$SESSION_A" \
+   && "$(sct get 9999 '.pauseSpans // "ABSENT"')" == "ABSENT" ]] \
+  && pass "(sr9) predecessor with no lastUpdatedAt → stamps, no span, host write still succeeds" \
+  || fail "(sr9) rc=$rc stamp=$(sct get 9999 '.lastWriteSessionId') spans=$(sct get 9999 '.pauseSpans // "ABSENT"')"
+
+# (sr10) the #243 PURE-REFUSAL FALLBACK as a resuming session's first write. This
+# is the single atomic_write call site whose `content` is byte-identical to the
+# on-disk predecessor (it passes read_state output straight through), so BOTH the
+# stamp and the clock advance must be injected wholly by the seam — unlike the
+# other call sites, whose content already carries a bumped lastUpdatedAt. It is
+# also the one path where a read-only subcommand becomes a span-recording write.
+# Driver: a forced reclaim on a fresh (non-stale) in_progress run — the staleness
+# guard fires, the verdict is read-only, so the waiver append IS the write.
+reset_state
+sct init 9999 --run-id "selftest-run-$$" --mode interactive >/dev/null
+dying=$(sct get 9999 '.lastUpdatedAt')
+sleep 1
+CLAUDE_CODE_SESSION_ID="$SESSION_B"
+sct reclaim 9999 --force --force-reason "selftest crash-recovery simulation of an operator waiver" >/dev/null
+CLAUDE_CODE_SESSION_ID="$SESSION_A"
+if [[ "$(sct get 9999 '.pauseSpans | length')" == "1" \
+      && "$(sct get 9999 '.pauseSpans[0].from')" == "$dying" \
+      && "$(sct get 9999 '.lastUpdatedAt')" == "$(sct get 9999 '.pauseSpans[0].to')" \
+      && "$(sct get 9999 '.lastWriteSessionId')" == "$SESSION_B" \
+      && "$(sct get 9999 '.waivers | length')" == "1" ]]; then
+  pass "(sr10) pure-refusal fallback as first resume write → stamp + span + clock advance, waiver intact"
+else
+  fail "(sr10) spans=$(sct get 9999 '.pauseSpans // "ABSENT"') lu=$(sct get 9999 '.lastUpdatedAt') stamp=$(sct get 9999 '.lastWriteSessionId') waivers=$(sct get 9999 '.waivers // [] | length')"
+fi
+
+# (pause2) is deliberately GONE, not re-anchored: its assertion (a require_mutable
+# subcommand rejected on a terminal run without --force, applied with it) is
+# already carried verbatim by (rm6)/(rm6f) on `checkpoint`. Re-pointing it at
+# `checkpoint` would have duplicated that pair while looking like preservation.
 
 # (pause3) stage-times.sh is pause-aware: against the committed pause/resume
 # fixture, the effective total is < wall by ~the pause, and the straddling
@@ -1490,25 +1587,6 @@ fi
 # (rpt4) marker present but no content → refused (a bare marker is not a report)
 printf '<!-- dev-pipeline-report -->\n\n' > .claude/pipeline-state/9999-report.md
 rc=$(sct_rc mark-completed 9999)
-err=$(sct_err mark-completed 9999)
-if [[ "$rc" == "1" && "$err" == *"no content"* ]]; then
-  pass "(rpt4) marker-only report → refused (no content)"
-else
-  fail "(rpt4) marker-only report — rc=$rc err='$err'"
-fi
-
-# (rpt5) well-formed report → terminal write succeeds
-write_report 9999
-rc=$(sct_rc mark-completed 9999)
-status=$(sct get 9999 '.status')
-if [[ "$rc" == "0" && "$status" == "completed" ]]; then
-  pass "(rpt5) well-formed report → mark-completed succeeds"
-else
-  fail "(rpt5) well-formed report — rc=$rc status='$status'"
-fi
-
-# (rpt6) init quarantines a stale report — a re-run must not satisfy the gate
-# with the previous run's narrative (mirrors the stale-eval quarantine).
 reset_state
 sct init 9999 --run-id "selftest-run-$$" >/dev/null
 write_report 9999
@@ -1611,25 +1689,6 @@ if [[ "$rc_force" == "0" && "$out_force" == "1" ]]; then
   pass "(rm4f) verify-attempts --force on terminal → applied (count=1 echoed)"
 else
   fail "(rm4f) verify-attempts --force — rc=$rc_force out='$out_force'"
-fi
-
-# (rm5) slice-set
-reset_state
-sct init 9999 --run-id "selftest-run-$$" >/dev/null
-mk_completed
-rc=$(sct_rc slice-set 9999 --current 1 --branch claude/acme-9999 --worktree-base main --pr-base main)
-status_after=$(jq -r '.status' .claude/pipeline-state/9999.json)
-if [[ "$rc" == "1" && "$status_after" == "completed" ]]; then
-  pass "(rm5) slice-set on terminal → rejected (rc=1, status preserved)"
-else
-  fail "(rm5) slice-set terminal guard — rc=$rc status='$status_after'"
-fi
-rc_force=$(sct_rc slice-set 9999 --current 1 --branch claude/acme-9999 --worktree-base main --pr-base main --force --force-reason "selftest crash-recovery simulation of an operator waiver")
-slice_set=$(sct get 9999 '.currentSlice')
-if [[ "$rc_force" == "0" && "$slice_set" == "1" ]]; then
-  pass "(rm5f) slice-set --force on terminal → applied (currentSlice written)"
-else
-  fail "(rm5f) slice-set --force — rc=$rc_force currentSlice='$slice_set'"
 fi
 
 # (rm6) checkpoint
@@ -3193,8 +3252,8 @@ reset_state
 # "--force-reason" literal inside a value payload is NOT mis-parsed (decoy probe).
 reset_state
 sct init 9901 --run-id "selftest-run-$$" >/dev/null
-err=$(sct_err pause-add 9901 --reason session-resume --force)
-rc=$(sct_rc pause-add 9901 --reason session-resume --force)
+err=$(sct_err checkpoint 9901 1 --json '{"x":1}' --force)
+rc=$(sct_rc checkpoint 9901 1 --json '{"x":1}' --force)
 sct checkpoint 9901 1 --json '{"note":"--force-reason decoy inside a value token"}' >/dev/null 2>&1
 decoy_rc=$?
 if [[ "$rc" == "1" && "$err" == *"--force requires --force-reason"* && "$decoy_rc" == "0" ]]; then
@@ -3204,8 +3263,8 @@ else
 fi
 
 # (fr2) a reason under 20 chars is refused identically.
-err=$(sct_err pause-add 9901 --reason session-resume --force --force-reason "too short")
-rc=$(sct_rc pause-add 9901 --reason session-resume --force --force-reason "too short")
+err=$(sct_err checkpoint 9901 1 --json '{"x":1}' --force --force-reason "too short")
+rc=$(sct_rc checkpoint 9901 1 --json '{"x":1}' --force --force-reason "too short")
 [[ "$rc" == "1" && "$err" == *"min 20 chars"* ]] \
   && pass "(fr2) --force-reason under 20 chars → refused" || fail "(fr2) rc=$rc err='$err'"
 
@@ -3215,12 +3274,12 @@ rc=$(sct_rc pause-add 9901 --reason session-resume --force --force-reason "too s
 reset_state
 sct init 9902 --run-id "selftest-run-$$" --mode auto >/dev/null
 mode_rec=$(sct get 9902 '.mode')
-err=$(sct_err pause-add 9902 --reason session-resume --force --force-reason "selftest crash-recovery simulation of an operator waiver")
-rc=$(sct_rc pause-add 9902 --reason session-resume --force --force-reason "selftest crash-recovery simulation of an operator waiver")
+err=$(sct_err checkpoint 9902 1 --json '{"x":1}' --force --force-reason "selftest crash-recovery simulation of an operator waiver")
+rc=$(sct_rc checkpoint 9902 1 --json '{"x":1}' --force --force-reason "selftest crash-recovery simulation of an operator waiver")
 # AC-11 letter: refused outright WITH OR WITHOUT a reason, recovery named both
 # ways — the auto gate precedes the reason gate, so the no-reason case still
 # surfaces the env-override recovery, not the reason refusal.
-err_noreason=$(sct_err pause-add 9902 --reason session-resume --force)
+err_noreason=$(sct_err checkpoint 9902 1 --json '{"x":1}' --force)
 if [[ "$mode_rec" == "auto" && "$rc" == "1" && "$err" == *"refused in autonomous mode"* && "$err" == *"DEV_PIPELINE_MODE=interactive"*       && "$err_noreason" == *"refused in autonomous mode"* ]]; then
   pass "(am1) init --mode auto persists; --force refused with recovery-naming stderr, with and without a reason"
 else
@@ -3229,7 +3288,7 @@ fi
 
 # (am2) env DEV_PIPELINE_MODE=interactive overrides state .mode=auto (the
 # attended-recovery path on a pipeline-owned state file — AC-12).
-rc=$(DEV_PIPELINE_MODE=interactive sct_rc pause-add 9902 --reason session-resume --force --force-reason "selftest crash-recovery simulation of an operator waiver")
+rc=$(DEV_PIPELINE_MODE=interactive sct_rc checkpoint 9902 1 --json '{"x":1}' --force --force-reason "selftest crash-recovery simulation of an operator waiver")
 [[ "$rc" == "0" ]] \
   && pass "(am2) env interactive overrides state auto → force accepted" || fail "(am2) rc=$rc"
 
@@ -3248,9 +3307,9 @@ mode_after=$(sct get 9902 '.mode')
 reset_state
 sct init 9903 --run-id "selftest-run-$$" >/dev/null
 sct mark-failed 9903 --reason worktree-creation-failed --stage 2 >/dev/null
-sct pause-add 9903 --reason session-resume --force --force-reason "selftest crash-recovery simulation of an operator waiver" >/dev/null
+sct checkpoint 9903 1 --json '{"x":1}' --force --force-reason "selftest crash-recovery simulation of an operator waiver" >/dev/null
 wv=$(sct get 9903 '.waivers')
-wv_ok=$(jq -r 'length == 1 and (.[0] | (.precondition == "terminal-state") and (.stage == null) and (.subcommand == "pause-add") and ((.reason | length) >= 20) and (.at | length > 0))' <<< "$wv")
+wv_ok=$(jq -r 'length == 1 and (.[0] | (.precondition == "terminal-state") and (.stage == null) and (.subcommand == "checkpoint") and ((.reason | length) >= 20) and (.at | length > 0))' <<< "$wv")
 [[ "$wv_ok" == "true" ]] \
   && pass "(wv1) forced terminal-state bypass → one five-field waiver in the same write" || fail "(wv1) waivers=$wv"
 
@@ -3271,7 +3330,7 @@ w2_ok=$(jq -r '(length >= 1) and (map(.precondition) | index("completion-evidenc
 # (wv3) a defensive --force under which NO guard fires appends nothing (AC-10).
 reset_state
 sct init 9905 --run-id "selftest-run-$$" >/dev/null
-sct pause-add 9905 --reason session-resume --force --force-reason "selftest crash-recovery simulation of an operator waiver" >/dev/null
+sct checkpoint 9905 1 --json '{"x":1}' --force --force-reason "selftest crash-recovery simulation of an operator waiver" >/dev/null
 wv3=$(sct get 9905 '.waivers // "ABSENT"')
 [[ "$wv3" == "ABSENT" ]] \
   && pass "(wv3) no-op force appends nothing — guards evaluated, none fired" || fail "(wv3) waivers=$wv3"

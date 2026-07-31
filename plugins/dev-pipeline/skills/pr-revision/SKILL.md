@@ -188,7 +188,7 @@ PRE_REVISION_SHA=$(git rev-parse HEAD)
 - All file paths in steps 5-8 are relative to the worktree root.
 - Read the existing plan file from the worktree (if any) to understand original implementation context.
 
-**Stacked-PR base check:** If the PR's base branch is not the host's configured base branch (config `topology.repos.<host>.baseBranch`), verify the base branch tip matches `origin/<base>`:
+**Non-default base check:** If the PR's base branch is not the host's configured base branch (config `topology.repos.<host>.baseBranch`), verify the base branch tip matches `origin/<base>`:
 
 ```bash
 BASE_BRANCH=$(gh pr view $PR_NUMBER --json baseRefName --jq '.baseRefName')
@@ -317,7 +317,7 @@ git push origin "$BRANCH"
 ```
 
 If scoped review had known issues, append: `**Known issues:** {list}`
-If stacked-PR base was stale, append: `**Warning:** Base branch X has been updated — consider rebasing.`
+If the PR base was stale, append: `**Warning:** Base branch X has been updated — consider rebasing.`
 
 **Thread resolution:**
 
@@ -368,7 +368,7 @@ When the skill is re-invoked on the same PR:
 | Issue number not extractable from PR body | Warn (post to PR only, skip issue comments), continue | Created     | No label change (no issue to label) |
 | Verify fails after 2 fix attempts         | Post error on PR + issue, stop                        | Kept        | `in-progress` stays                 |
 | Scoped review blockers after fix attempt  | Include as known issues in summary, push anyway       | Removed     | `in-progress` removed               |
-| Stacked-PR base branch stale              | Warn in summary, continue                             | Created     | Normal flow                         |
+| PR base branch stale                      | Warn in summary, continue                             | Created     | Normal flow                         |
 | `git push` fails                          | Post error on PR + issue, stop                        | Kept        | `in-progress` stays                 |
 
 All failures post a comment with `run_id`. No silent failures.

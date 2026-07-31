@@ -30,7 +30,7 @@ You ONLY review design fidelity and abstraction correctness (logical utilities, 
 
 ## Reviewer baseline
 
-See **Confidence Scoring**, **Suppressed Findings**, and **Standard Output Format** in [`reviewer-baseline`](../skills/reviewer-baseline/SKILL.md) (loaded automatically via the `skills: reviewer-baseline` frontmatter).
+See **Confidence Scoring**, **Suppressed Findings**, and **Standard Output Format** in `review-toolkit:reviewer-baseline` (loaded automatically via the `skills: reviewer-baseline` frontmatter).
 
 ---
 

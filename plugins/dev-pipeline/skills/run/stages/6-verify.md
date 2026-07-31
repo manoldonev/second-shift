@@ -19,7 +19,7 @@ Then run:
 {verifyctl} run {issue-number}
 ```
 
-Everything else (worktree path, base ref incl. stacked-slice stacking via the persisted `worktreeBase`, lane classification) is derived from state/git by the helper — there are no override flags. Read the verdict JSON from stdout and act on its exit code:
+Everything else (worktree path, base ref via the persisted `worktreeBase`, lane classification) is derived from state/git by the helper — there are no override flags. Read the verdict JSON from stdout and act on its exit code:
 
 | Exit | Meaning          | Action                                                                                                                                                                                                  |
 | ---- | ---------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -122,7 +122,7 @@ statectl.sh quality-pass-set "$ISSUE_NUMBER" \
   --json "{\"runId\": \"$RUN_ID\", \"status\": \"running\"}"
 ```
 
-**Scope.** SUITE lane only — on the INERT lane record `{runId, status: "completed", outcome: "skipped-inert"}` and move on. The cleanup surface is the same merge-base diff verifyctl derives — read `base`/`mergeBase` from the verdict JSON rather than re-deriving; on stacked slices this is the persisted `worktreeBase`, never the bare base branch (prior slices' code is out of scope).
+**Scope.** SUITE lane only — on the INERT lane record `{runId, status: "completed", outcome: "skipped-inert"}` and move on. The cleanup surface is the same merge-base diff verifyctl derives — read `base`/`mergeBase` from the verdict JSON rather than re-deriving.
 
 Apply-scope rules:
 
@@ -133,7 +133,7 @@ Apply-scope rules:
 **Checklist (quality only — reuse / simplification / altitude):**
 
 - Reuse over reinvention: check every helper/method this diff introduced against the plan's **Reuse inventory** and a grep of the codebase — replace near-duplicates with the existing utility.
-- Dead code / unused exports introduced by this diff. On stacked slices, consult the decomposition plan first — an export provisioned for a later slice is NOT dead.
+- Dead code / unused exports introduced by this diff.
 - Collapse over-abstraction this diff introduced (single-use wrappers, needless indirection, speculative generality).
 - Altitude: logic sitting at the wrong layer within the changed files.
 - Skip style-only churn the formatter/linter owns.

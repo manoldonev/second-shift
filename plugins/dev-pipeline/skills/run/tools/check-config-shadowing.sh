@@ -23,7 +23,6 @@ CHECKS=(
   "verifyctl.sh|stageParams.inertPattern|INERT-lane classifier override"
   "stages/3-write-plan.md|stageParams.planFilePattern|plan-file pattern"
   "stages/3-write-plan.md|paths.plansDir|plans dir"
-  "stages/1-intake.md|tracker.branchPrefix|Stage-1 branch prefix"
   "stages/1-intake.md|baseBranch|Stage-1 base branch"
   "stages/2-worktree.md|tracker.branchPrefix|Stage-2 branch prefix"
   "stages/2-worktree.md|baseBranch|Stage-2 base branch"

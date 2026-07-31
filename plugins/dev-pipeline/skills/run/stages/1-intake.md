@@ -13,7 +13,7 @@
 > auto-creating them, and the design-detection below is the
 > design-provider path (see `tracker/jira/README.md` and the `design.provider` axis —
 > `figma` | `claude-design`). Everything else in this stage (intake orchestration, AC snapshot,
-> `statectl` writes keyed off `ticketKey`, slice derivation) is tracker-agnostic.
+> `statectl` writes keyed off `ticketKey`) is tracker-agnostic.
 
 #### Step 1.T: Target routing (config `topology.type: be-fe-pair` only)
 
@@ -237,7 +237,7 @@ The skill loads orchestration instructions into the current session — the call
 - Max 5 sub-issues (one cap, both flavors), max 5 resolvable gaps
 - Stop after 3 true blockers from intake-toolkit:spec-reviewer
 - Max 5 referenced docs read
-- Flag if any slice touches >10 files
+- Flag if any sub-issue touches >10 files
 
 **State (terminal verdicts).** When the orchestrator returns a **failure-shaped, pipeline-stopping** verdict, the pipeline — not the orchestrator — writes the state file AFTER the orchestrator's tracker actions (comment + label) complete, mirroring the `design-source-unreachable` call shape in Step 1.C. The `--reason`/`--stage` pair is passed to BOTH `mark-failed` (its `--reason` is what lands in `failureContext.reason`) AND `build-failure-context`. The state file already exists (Step 1.A `statectl init`); `mark-failed` has no worktree precondition and `--stage 1` is legal.
 
@@ -307,119 +307,9 @@ Runs when the verdict continues the pipeline (`no-split`), before the Stage-1 ch
      --brief-path "$BRIEF_PATH" --acceptance-criteria "$AC_JSON"
    ```
 
-   No AC→slice partition is written. A decomposition now produces sub-issues, each of which carries its own ACs verbatim in its own body — so every slice's scope contract is its own ticket, and the downstream gates read the ordinary full-ticket AC snapshot rather than a slice subset.
+   A decomposition now produces sub-issues, each of which carries its own ACs verbatim in its own body — so every sub-issue's scope contract is its own ticket, and the downstream gates read the ordinary full-ticket AC snapshot.
 
 The Stage-1 checkpoint payload additionally carries `briefPath` + the AC count alongside the `verdict` / decomposition / design fields, **plus the `preflight` attestation captured in Step 1.P** — the `checkpoint 1` write folds in `preflight: { baseBranch: "$BASE_BRANCH_CFG", workingTreeClean: $WORKING_TREE_CLEAN, guardOutcome: "$GUARD_OUTCOME" }`. This is **required**: `set-stage 1 --status completed` refuses unless `stageCheckpoint["1"].preflight` is present and well-formed (state-schema.md **Completion-evidence preconditions**, row 1), and `checkpoint 1` rejects a present-but-malformed `preflight` at write time. `workingTreeClean:false` is valid (the dirty-tree WARN-and-proceed outcome).
-
-## Stacked-PR Outer Loop
-
-If the intake orchestrator verdict is `stacked-prs`, Stages 2–10 run inside an outer loop.
-
-### Slice-derivation pre-check (resume-safe)
-
-Before entering the loop, derive the starting slice. The persisted `currentSlice` field in `.claude/pipeline-state/{ISSUE_NUMBER}.json` is **authoritative** when present and non-null (see state-schema.md "Stacked-PR slice state" precedence rule). Remote-branch derivation is the seed used only when `currentSlice` is absent — typically on the first entry into the loop or when the state file predates this field.
-
-The precedence rule itself and the all-pushed short-circuit live in [`tools/start-slice.sh`](../tools/start-slice.sh), so they are executable and driven by a scenario rather than re-implemented per caller (the same markdown-calls-tool shape as `max-pushed-slice.sh`). The remote derivation stays here: the tool asks for `--max-pushed` only on the seed path, so a resume whose persisted value wins does no network work.
-
-```bash
-TOTAL_SLICES=$(jq -r '. | length' "$DECOMP_PLAN_FILE")
-STATE_PATH=$(statectl.sh state-path "$ISSUE_NUMBER")
-START_SLICE_SH="${CLAUDE_PLUGIN_ROOT}/skills/run/tools/start-slice.sh"
-
-OUT=$(bash "$START_SLICE_SH" "$STATE_PATH" "$TOTAL_SLICES")
-VERDICT=$(printf '%s\n' "$OUT" | head -n1)
-
-if [[ "$VERDICT" == "need-max-pushed" ]]; then
-  # Seed from remote branches matching the slice naming scheme.
-  # Slice 1's branch is unsuffixed (claude/acme-N); slice K>1 is claude/acme-N-prK.
-  # Derivation is the shared tested helper (single source of truth with the Stage 2
-  # resume sanity guard — see tools/max-pushed-slice.sh).
-  git fetch origin --quiet
-  # Branch namespace is config-driven (tracker.branchPrefix); default is the github
-  # e.g. "claude/acme-". max-pushed-slice.sh honors it via $BRANCH_PREFIX.
-  BRANCH_PREFIX=$(jq -r '.tracker.branchPrefix // "claude/acme-"' "$SECOND_SHIFT_CONFIG" 2>/dev/null || echo "claude/acme-")
-  MAX_N=$(git ls-remote --heads origin "${BRANCH_PREFIX}${ISSUE_NUMBER}*" 2>/dev/null \
-    | awk '{print $2}' \
-    | BRANCH_PREFIX="$BRANCH_PREFIX" bash "${CLAUDE_PLUGIN_ROOT}/skills/run/tools/max-pushed-slice.sh" "$ISSUE_NUMBER")
-
-  OUT=$(bash "$START_SLICE_SH" "$STATE_PATH" "$TOTAL_SLICES" --max-pushed "$MAX_N")
-  VERDICT=$(printf '%s\n' "$OUT" | head -n1)
-fi
-
-if [[ "$VERDICT" == "all-pushed" ]]; then
-  echo "[stage-1] all slices already pushed (TOTAL_SLICES=$TOTAL_SLICES); nothing to do"
-  exit 0
-fi
-
-START_SLICE=$(printf '%s\n' "$OUT" | sed -n '2p')
-echo "[stage-1] entering outer loop at slice $START_SLICE of $TOTAL_SLICES (derivation: $VERDICT)"
-```
-
-### Outer loop
-
-```
-SLICES = [ordered slices from decomposition plan]
-
-for SLICE_NUMBER in START_SLICE..TOTAL_SLICES:
-  SLICE = SLICES[SLICE_NUMBER]
-
-  # Persist slice-derived fields BEFORE Stage 2 runs.
-  # Branch namespace + base are config-driven (single source of truth with Stage 2):
-  #   PREFIX = tracker.branchPrefix          // "claude/acme-"
-  #   BASE_BRANCH_CFG = host repo (path ".") baseBranch // "main"
-  BRANCH_PREFIX=$(jq -r '.tracker.branchPrefix // "claude/acme-"' "$SECOND_SHIFT_CONFIG" 2>/dev/null || echo "claude/acme-")
-  BASE_BRANCH_CFG=$(jq -r '(.topology.repos | to_entries[] | select(.value.path==".") | .key) as $h | .topology.repos[$h].baseBranch // "main"' "$SECOND_SHIFT_CONFIG" 2>/dev/null || echo "main")
-  # priorSliceBranch is null for slice 1, else ${BRANCH_PREFIX}{ISSUE_NUMBER}-pr{N-1}
-  # (or unsuffixed for slice 2 referring to slice 1).
-  if [[ "$SLICE_NUMBER" -eq 1 ]]; then
-    SLICE_BRANCH="${BRANCH_PREFIX}${ISSUE_NUMBER}"
-    PRIOR_BRANCH=""
-    BASE="$BASE_BRANCH_CFG"
-  else
-    SLICE_BRANCH="${BRANCH_PREFIX}${ISSUE_NUMBER}-pr${SLICE_NUMBER}"
-    if [[ "$SLICE_NUMBER" -eq 2 ]]; then
-      PRIOR_BRANCH="${BRANCH_PREFIX}${ISSUE_NUMBER}"
-    else
-      PRIOR_BRANCH="${BRANCH_PREFIX}${ISSUE_NUMBER}-pr$((SLICE_NUMBER-1))"
-    fi
-    BASE="$PRIOR_BRANCH"
-  fi
-  statectl.sh slice-set "$ISSUE_NUMBER" \
-    --current "$SLICE_NUMBER" --branch "$SLICE_BRANCH" \
-    ${PRIOR_BRANCH:+--prior-branch "$PRIOR_BRANCH"} \
-    --worktree-base "$BASE" --pr-base "$BASE"
-
-  Stage 2: Create worktree + branch for this slice
-  Stage 3: Write plan scoped to this slice
-  Stage 4: Plan review (max one re-dispatch on `block`)
-  Stage 5: Implement this slice
-  Stage 6: Verify
-  Stage 7: Doc Update
-  Stage 8: Code review (max 3 iterations)
-  Stage 9: Open PR (always --draft)
-    - PR 1 targets main
-    - PR N>1 targets previous slice's branch (stacked)
-    - Body includes: "PR {N} of {M} for #{ISSUE_NUMBER}"
-    - After gh pr create returns, persist URL to prs[BRANCH].url so cost tracking sees all PRs from this run
-  Stage 10: Cleanup this slice's worktree
-
-  # STOP CONDITIONS (do not proceed to next slice):
-  # - Verify failure after 2 fix attempts
-  # - Code review exhaustion (codeReviewExhausted == true; PR carries needs-deep-review label)
-  # An exhausted code review counts as a failure — unresolved blockers in the base code.
-  # All clean PRs are draft by default; only the codeReviewExhausted marker stops the loop.
-  # A non-final slice passes the Stage-8 scope gate via the persisted AC->slice
-  # partition (slice-scoped grading, #204) — later-slice ACs are partition-deferred
-  # Notes, NOT scope blockers, so a clean slice exits cleanly and the loop proceeds.
-
-# After all slices succeed:
-$GH_BOT issue comment: stage: pr, status: all-prs-opened (with links to all PRs)
-#   (`stage: pr` is Stage 9's marker — "all PRs opened" is a Stage 9-class terminal
-#    event. Closed marker enum: state-schema.md "Stage-comment markers".)
-$GH_BOT issue edit: remove in-progress label (use regular gh for --remove-assignee @me)
-```
-
-For single-PR runs (`no-split` verdict), Stages 2–10 run once as today — no loop.
 
 ---
 

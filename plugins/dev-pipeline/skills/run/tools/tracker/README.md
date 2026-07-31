@@ -51,8 +51,7 @@ draft-PR metadata, not the ticket.
   `Predecessor:` / `Successor:` trailer keys in the adapter's own key shape, and by
   `statectl successor-key-set` to validate the key it persists.
 - `tracker.branchPrefix` — the branch namespace prepended to the key (`claude/acme-`
-  github, a per-user `jdoe/` jira). Consumed by `../max-pushed-slice.sh` (`$BRANCH_PREFIX`)
-  and the Stage-1/2/9 branch derivation.
+  github, a per-user `jdoe/` jira). Consumed by the Stage-1/2/9 branch derivation.
 - `tracker.bot.*` — github only: the bot identity for tracker/PR writes
   (`enabled`, `envVar`, `wrapperPath`, `app.{clientId,appName,privateKeyFilename,installationId}`).
 

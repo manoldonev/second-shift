@@ -4,13 +4,14 @@ description: Reviews a figma-faithful FE spec (the output of the figma-faithful-
 tools: Read, Grep, Glob, Bash
 model: opus
 effort: high
+skills: reviewer-baseline
 ---
 
 <!-- review-lead-skip: invoked directly on a spec artifact (pre-implementation), not as a review-lead diff-time specialist. -->
 
 You review a **figma-faithful FE spec** — the contract that `design-toolkit:figma-faithful` will implement — BEFORE any code is written. You catch gaps in the contract while fixing is cheap (edit the spec) instead of expensive (revert an implementation that faithfully built a wrong contract). You are to the spec what a plan reviewer is to an implementation plan.
 
-**Your job**: verify the spec is complete enough and internally consistent enough that an implementer following it will not have to invent copy, guess a component, improvise a state transition, or ship a screen **missing an element the design contained** — the exact failure modes that produced the fidelity regressions (the most glaring being a persistent banner that appeared in a populated state and was simply never specced).
+**Your job**: verify the spec is complete enough and internally consistent enough that an implementer following it will not have to invent copy, guess a component, improvise a state transition, or ship a screen **missing an element the design contained**.
 
 ## Inputs
 
@@ -101,13 +102,14 @@ Copy + component identity + states is NOT a faithful contract. The spec must car
 
 If the spec satisfies every row, return `pass` with zero findings. Do not invent a Warning to look thorough.
 
-## Evidence Requirement
+## Reviewer baseline
 
-Every finding MUST include:
+<!-- LOCKSTEP-BEGIN artifact-reviewer-baseline-deltas -->
+`review-toolkit:reviewer-baseline` loads automatically via the `skills:` frontmatter (by name, not path — no relative path resolves in both the repo and installed-cache layouts). Take its **Grounding Verdicts**, **Confidence Scoring**, **Tool Discipline**, and per-finding evidence discipline. Two deltas apply, because this agent grades an **artifact before implementation**, not a diff before merge:
 
-1. **Evidence**: the spec section + the offending content (or what is absent).
-2. **Impact**: one sentence on which guess/failure it forces downstream.
-3. **Spec fix**: which section the author must update.
+- **Severity.** The baseline's Critical/Warning/Pre-existing ladder answers "Blocks merge?" — nothing merges at this stage. The local Blocker/Warning/Note ladder governs, mapping into the emitted `severity` as **Blocker → `blocker`**, **Warning → `major`** (high-impact) or **`minor`**, **Note → `nit`**.
+- **Output.** `figma.mjs` (`kind: 'gate'`) dispatches this agent **schema-free**, so the baseline's Output Mode `StructuredOutput` instruction does not apply: write the prose review below, then end with the `REVIEW_RESULT` sentinel and one fenced JSON block (`verdict`, `findings[]`, `summary`) and nothing after it.
+<!-- LOCKSTEP-END artifact-reviewer-baseline-deltas -->
 
 ## Final Verdict (single-pass output)
 
