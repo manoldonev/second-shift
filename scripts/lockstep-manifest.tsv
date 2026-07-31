@@ -239,3 +239,19 @@ artifact-reviewer-baseline-deltas	verbatim	plugins/design-toolkit/agents/figma-f
 # retired token stripped and that a migrated pattern is left untouched (the over-match
 # negative). Printing alone would not have been coverage; the assertions are. Revisit only if
 # the schema default is ever mirrored into a comment-bearing file.
+
+# lean branch prefix (ci.yml's LEAN_BRANCH_PREFIX env constant ↔ lean-gate.sh's runtime
+# derivation from tracker.branchPrefix). One value — the lean harness's branch namespace —
+# resolved two ways, because the runtime config is gitignored and absent in CI. Considered for
+# a row and DROPPED: this is the SAME non-byte-anchorable class as PIPELINE_BRANCH_PREFIX,
+# which is a documented T0 residual rather than a lockstep pair. One side is a YAML scalar in
+# a job `env:` block; the other is a shell transform (`lean/${prefix#*/}`) that never spells
+# the resolved value as a literal anywhere. There is nothing to compare.
+# The compensating control is what makes this safe to drop, and it is stronger than the
+# pipeline constant's: check-lean-chain.sh does not classify on the prefix ALONE. It also
+# applies on lean-artifact presence, so a stale or wrong constant cannot silently exempt a
+# lean PR — the self-neutralization mode the manifesto's T0 note records. That arm is pinned
+# by check-lean-chain-selftest.sh case (C), which drives the gate with a deliberately
+# zero-matching prefix and asserts it still applies. The mutual non-prefix-match property is
+# separately asserted on both sides: lean-gate-selftest.sh (e2)/(e3) at the derivation, and
+# check-lean-chain-selftest.sh (L) at the CI constants, which exits 2 rather than guessing.
