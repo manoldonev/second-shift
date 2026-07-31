@@ -17,7 +17,10 @@
 # visible. Do not add an integrity check here and call it enforcement.
 #
 # Usage:
-#   lean-gate.sh entry  <issue>          entry precondition (audit ledger live + queue label)
+#   lean-gate.sh entry  <issue>          entry precondition: the session's audit ledger is live.
+#                                        The queue-label reject is the SESSION's step (SKILL.md
+#                                        step 1) — it needs a tracker read, so it is not gated
+#                                        here. Stated because the two are easy to conflate.
 #   lean-gate.sh claim  <issue>          the two bot-wrapper claim writes (AC-15/D-49)
 #   lean-gate.sh <1..5> <issue>          evaluate one milestone
 #   lean-gate.sh all    <issue>          evaluate 1..5 in order, stop at the first failure
