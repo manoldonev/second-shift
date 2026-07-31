@@ -693,12 +693,11 @@ fi
 echo "(y) killer stdin isolation — a killer cannot consume the harness's stdin"
 # Invariant: run_killer gives each killer its own /dev/null stdin. 30 of the 48 swept
 # guards contain a read loop; a mutant that breaks one's input redirection leaves it
-# reading whatever stdin the harness inherited, which on a CI runner never reaches EOF.
-# The sweep then blocks with no further output until the job times out or the runner is
-# lost — the failure mode that destroyed four runs and their logs before it was found.
-# Asserted by consumption rather than by hanging: the case would otherwise have to BLOCK
-# to fail, which is untestable in CI. A killer that eats the sentinel here is one that
-# would block on a real guard's read.
+# reading whatever stdin the harness inherited rather than its own.
+# Asserted by consumption rather than by hanging: this case would otherwise have to BLOCK
+# to fail. A killer that eats the sentinel here is one that would misread on a real guard.
+# NOT the cause of the dead nightly shards, though it was first blamed for them — those
+# survived this fix unchanged and belong to (z) below.
 FX="$(new_fixture strong)"
 baseline_with "$FX"
 cat > "$FX/guard-selftest.sh" <<'EOF'
@@ -716,6 +715,80 @@ if [[ "$LEFTOVER" == "SENTINEL" ]]; then
   ok "harness stdin survived the killer runs"
 else
   bad "(y) a killer consumed the harness's stdin (leftover='$LEFTOVER'); a guard's read loop would block here instead"
+fi
+
+echo "(z) killer time bound — a mutant that makes its guard SPIN cannot hang the sweep"
+# The failure this pins killed three shards of every 10-shard nightly, deterministically,
+# and destroyed their logs each time. `cmp-z` inverts the EOF-tolerance clause of the
+# repo's standard read idiom — `while IFS= read -r line || [[ -n "$line" ]]` becomes
+# `|| [[ -z "$line" ]]` — and at EOF that clause is permanently TRUE, so the guard spins
+# forever at 100% CPU. Its killer never returns, and `run_killer` had no time bound, so
+# the shard emitted no further line until the job timed out with the log unfinalized.
+# Three live guards carry that idiom; the k budget decides which are armed, which is why
+# shard 8 (scaffold-review-context.sh, ordinal 5 > k=2) survived while shards 4 and 9
+# (ordinal 1) did not. This fixture reproduces the armed shape at ordinal 1.
+#
+# Unlike (y), this case CAN assert by hanging, because it brings its own outer watchdog:
+# the harness runs under a wall-clock bound here, and blowing it is the failure. That is
+# the only honest way to pin "does not hang" — asserting by proxy is what let this pass
+# unnoticed while three shards died.
+FX="$TMPROOT/fxspin$RANDOM$RANDOM"
+mkdir -p "$FX/tools"
+cat > "$FX/guard.sh" <<'EOF'
+#!/usr/bin/env bash
+# Carries the repo's EOF-tolerant read idiom verbatim — the real mutation site.
+while IFS= read -r line || [[ -n "$line" ]]; do
+  :
+done
+echo ok
+exit 0
+EOF
+chmod 755 "$FX/guard.sh"
+cat > "$FX/guard-selftest.sh" <<'EOF'
+#!/usr/bin/env bash
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+out="$(bash "$HERE/guard.sh" </dev/null)"
+[[ "$out" == "ok" ]] || exit 1
+exit 0
+EOF
+printf '# fixture operators\ncmp-z\t-z |-n \ts/-z /__MUT__/g; s/-n /-z /g; s/__MUT__/-n /g\n' \
+  > "$FX/tools/mutation-operators.tsv"
+printf '# fixture exclusions\n' > "$FX/tools/mutation-exclusions.tsv"
+printf '# fixture pair map\n'   > "$FX/tools/mutation-pair-map.tsv"
+printf '# fixture catalog\n'    > "$FX/tools/mutation-catalog.tsv"
+( cd "$FX" && git init -q . && git add -A \
+  && git -c user.email=fixture@example.invalid -c user.name=fixture commit -qm spin ) >/dev/null 2>&1
+
+SPIN_LOG="$FX/sweep.log"
+( cd "$FX" && adv env MUTATION_SWEEP_KILLER_TIMEOUT_S=5 bash "$SWEEP" --mode full ) \
+  >"$SPIN_LOG" 2>&1 </dev/null &
+SPIN_PID=$!
+# Outer bound: 5s killer timeout + sandbox/precheck slack. Generous enough that a healthy
+# harness never trips it, tight enough that a hung one fails fast instead of stalling CI.
+SPIN_DEADLINE=$(( $(date +%s) + 90 ))
+SPIN_HUNG=0
+while kill -0 "$SPIN_PID" 2>/dev/null; do
+  if [[ "$(date +%s)" -ge "$SPIN_DEADLINE" ]]; then SPIN_HUNG=1; break; fi
+  sleep 0.2
+done
+if [[ $SPIN_HUNG -eq 1 ]]; then
+  kill -9 "$SPIN_PID" 2>/dev/null
+  pkill -9 -f "$FX/guard.sh" 2>/dev/null
+  wait "$SPIN_PID" 2>/dev/null
+  bad "(z) the sweep HUNG on a spinning mutant — run_killer has no time bound"
+else
+  wait "$SPIN_PID" 2>/dev/null; SPIN_RC=$?
+  SPIN_OUT="$(cat "$SPIN_LOG")"
+  if [[ $SPIN_RC -ne 0 ]]; then
+    bad "(z) sweep completed but exited $SPIN_RC"; printf '%s\n' "$SPIN_OUT" | tail -5
+  elif ! printf '%s' "$SPIN_OUT" | grep -q 'killer timeout'; then
+    bad "(z) the timed-out killer was not named in the log — a silent kill hides a spin"
+    printf '%s\n' "$SPIN_OUT" | tail -5
+  elif ! printf '%s' "$SPIN_OUT" | grep -qE 'swept guard\.sh — applied=1 killed=1 survived=0'; then
+    bad "(z) spun mutant not scored as killed-by-timeout"; printf '%s\n' "$SPIN_OUT" | tail -5
+  else
+    ok "spinning mutant is bounded, scored as killed, and NAMED in the log"
+  fi
 fi
 
 # ======================================================== live-tree lint cases

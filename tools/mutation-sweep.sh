@@ -36,6 +36,13 @@
 #   Warn (never red): a killed mutant still listed in the baseline, and a baseline row
 #   whose guard no longer resolves — both say "shrink the baseline".
 #
+# KILLER TIME BOUND — every killer runs under a wall-clock bound (300s;
+# MUTATION_SWEEP_KILLER_TIMEOUT_S). A mutant that makes its guard spin would otherwise
+# block the shard until the job timeout destroys the log, which is how two successive
+# 10-shard nightlies lost the same three shards (4, 5 and 9) with no diagnosis. A
+# timed-out killer counts as a KILL and is logged by name; a killer that blows the bound
+# on the UNMUTATED sandbox is the existing `unrunnable pair` red, now saying which it was.
+#
 # ENFORCING vs ADVISORY: enforcing iff GITHUB_ACTIONS is set. Local runs are advisory and
 # say so — kill verdicts are only comparable inside the canonical environment
 # (ubuntu-latest + SKIP_STRESS=1), and this repo documents at least one platform-divergent
@@ -48,6 +55,9 @@ set -uo pipefail
 K_BUDGET="${MUTATION_SWEEP_K:-2}"   # generic mutants per operator per guard
 SLOW_THRESHOLD_S=5                  # a paired suite at or above this is "slow"
 PR_FAST_GUARD_CAP=6                 # PR lane: sweep at most this many fast guards
+# Wall-clock bound on ONE killer invocation. Must clear the slowest paired suite by a wide
+# margin under runner load — the slowest measured here is statectl-selftest at 95s.
+KILLER_TIMEOUT_S="${MUTATION_SWEEP_KILLER_TIMEOUT_S:-300}"
 
 MODE=""
 BASE_REF=""
@@ -516,6 +526,10 @@ rmdir "$SANDBOX" 2>/dev/null
 # and red in CI. A directive on the function line scopes to the whole body for both.
 # shellcheck disable=SC2317,SC2329 # invoked indirectly by the EXIT/INT/TERM trap below
 cleanup() {
+  # The in-flight killer runs in its OWN process group (see run_killer), so a Ctrl-C or a
+  # SIGTERM aimed at this harness never reaches it. Without this the operator's interrupt
+  # leaves a spinning guard burning a core and pinning the worktree the next line removes.
+  [[ -n "${CURRENT_KILLER_PGID:-}" ]] && kill -9 -"$CURRENT_KILLER_PGID" 2>/dev/null
   git worktree remove --force "$SANDBOX" >/dev/null 2>&1
   rm -rf "$SANDBOX" 2>/dev/null
 }
@@ -544,17 +558,73 @@ splice_line() {
 
 # Run one killer inside the sandbox. Kill = ANY nonzero exit; crash-kills count as kills
 # (nonzero is nonzero — the assertion-vs-crash diagnostic is deferred to #248).
-# `</dev/null` is the difference between a sweep that finishes and one that hangs until the
-# runner is killed. stdout and stderr were always redirected; stdin was not, so a killer
-# inherited the harness's. 30 of the 48 swept guards contain a `read` loop, and a mutant
-# that breaks one's input redirection leaves it reading the INHERITED stdin — which on a
-# CI runner never reaches EOF. The suite then blocks forever: the shard emits no further
-# `swept` line and dies to the job timeout or to the runner losing communication, with the
-# log blob unfinalized and no artifact, which is why four separate runs produced no
-# diagnosis. With stdin isolated the stray read hits EOF at once, the suite exits nonzero,
-# and the mutant simply scores as killed.
+# `</dev/null` isolates each killer's stdin. stdout and stderr were always redirected;
+# stdin was not, so a killer inherited the harness's. 30 of the 48 swept guards contain a
+# `read` loop, and a mutant that breaks one's input redirection leaves it reading the
+# INHERITED stdin rather than its own. With stdin isolated the stray read hits EOF at
+# once, the suite exits nonzero, and the mutant simply scores as killed.
+#
+# This was a real bug and is NOT the cause of the shard deaths it was first blamed for:
+# the same three shards hung identically after it landed. The cause was an unbounded
+# killer against a SPINNING guard — see the time bound below. Isolated stdin is in fact
+# what makes that spin reachable at EOF, so the two are neighbors, not the same defect.
+#
+# TIME BOUND. A mutant can make its guard SPIN, and an unbounded killer then blocks the
+# whole shard forever: no further `swept` line, death by job timeout with the log blob
+# unfinalized and no artifact — undiagnosable by construction, which is how the same three
+# shards died on two successive nightlies without yielding a single datapoint. The class is
+# not exotic: `cmp-z` inverts the EOF-tolerance clause of this repo's standard read idiom
+# (`while IFS= read -r line || [[ -n "$line" ]]` -> `|| [[ -z "$line" ]]`), which at EOF is
+# permanently true, so the guard spins at 100% CPU.
+#
+# THREE live guards carry that idiom, and K_BUDGET predicts exactly which shards died:
+#   gen-statectl-validators.sh L213  cmp-z ordinal 1  mutated      shard 4  -> died
+#   predecessor-gate.sh        L85   cmp-z ordinal 1  mutated      shard 9  -> died (reproduced)
+#   scaffold-review-context.sh L69   cmp-z ordinal 5  beyond k=2   shard 8  -> survived
+# The third is not safe, only out of budget: raising MUTATION_SWEEP_K to 5 arms it.
+# Shard 5 carries none of them and completes locally; its CI death is NOT explained by
+# this defect, and the bound is what lets that run NAME whatever it hit instead.
+#
+# A timed-out killer scores as a KILL, the mutation-testing convention (Stryker and PIT
+# both count a timeout as detected): the suite did surface the defect, and the alternative
+# — scoring it a survivor — would red the build on a mutant nothing can ever kill. It is
+# logged by name at every call site, so a timeout is visible DATA rather than a silent kill.
+#
+# `set -m` is what makes the watchdog able to reap the tree. It puts the backgrounded
+# killer in its OWN process group, so `kill -9 -PID` takes the spinning GUARD — a
+# grandchild — with it; killing the suite's pid alone leaves the guard burning a core and
+# holding the sandbox. Verified on bash 5 and on stock bash 3.2, neither of which prints
+# job-control noise for a background job in a non-interactive shell. `timeout(1)` is NOT
+# used: it is absent from macOS, which is one of this repo's two CI lanes.
+KILLER_TIMED_OUT=0
+CURRENT_KILLER_PGID=""
 run_killer() {
-  ( cd "$SANDBOX" && bash "$1" ) >/dev/null 2>&1 </dev/null
+  local pid rc deadline
+  KILLER_TIMED_OUT=0
+  set -m
+  ( cd "$SANDBOX" && bash "$1" ) >/dev/null 2>&1 </dev/null &
+  pid=$!
+  set +m
+  # The job is its own process-group leader, so pgid == pid. Published for the EXIT/INT
+  # trap, which is the only thing that can reap it if the operator interrupts mid-killer.
+  CURRENT_KILLER_PGID="$pid"
+  deadline=$(( $(date +%s) + KILLER_TIMEOUT_S ))
+  while kill -0 "$pid" 2>/dev/null; do
+    if [[ "$(date +%s)" -ge "$deadline" ]]; then
+      # Re-check rather than kill blind: the suite may have exited inside the poll
+      # interval, and reporting a finished run as timed out would fabricate a kill.
+      kill -0 "$pid" 2>/dev/null || break
+      kill -9 -"$pid" 2>/dev/null || kill -9 "$pid" 2>/dev/null
+      wait "$pid" 2>/dev/null
+      CURRENT_KILLER_PGID=""
+      KILLER_TIMED_OUT=1
+      return 124
+    fi
+    sleep 0.2
+  done
+  wait "$pid"; rc=$?
+  CURRENT_KILLER_PGID=""
+  return "$rc"
 }
 
 # Cheapest-first is a pure cost optimization: it short-circuits on a KILL, so the
@@ -581,15 +651,23 @@ for guard in ${SWEEP_GUARDS[@]+"${SWEEP_GUARDS[@]}"}; do
   # before any of this guard's mutants can be scored. A broken or environment-starved
   # suite must never be able to report its guard as fully killed. The timings taken here
   # are also the `seconds` source for the slow list.
-  unrunnable=""
+  unrunnable=""; unrunnable_why=""
   for s in $KS_ORDERED; do
     t0="$(date +%s)"
-    if ! run_killer "$s"; then unrunnable="$s"; break; fi
+    if ! run_killer "$s"; then
+      unrunnable="$s"
+      # A killer that blows the bound on the UNMUTATED tree is a different bug from one
+      # that merely exits nonzero, and the operator needs to be told which they have.
+      [[ $KILLER_TIMED_OUT -eq 1 ]] \
+        && unrunnable_why="exceeded the ${KILLER_TIMEOUT_S}s killer bound" \
+        || unrunnable_why="does not exit 0"
+      break
+    fi
     t1="$(date +%s)"
     MEASURED="${MEASURED:-}"$'\n'"$s	$((t1 - t0))"
   done
   if [[ -n "$unrunnable" ]]; then
-    red "unrunnable pair: $unrunnable does not exit 0 against the unmutated sandbox (guard $guard). Its mutants are NOT scored."
+    red "unrunnable pair: $unrunnable $unrunnable_why against the unmutated sandbox (guard $guard). Its mutants are NOT scored."
     emit_row "$guard" "swept" "${KS// /+}" 0 0 0 ""
     continue
   fi
@@ -634,15 +712,20 @@ for guard in ${SWEEP_GUARDS[@]+"${SWEEP_GUARDS[@]}"}; do
         restore "$guard"; continue
       fi
       used=$((used + 1)); applied=$((applied + 1))
-      got_kill=0
+      sid="$guard::$opid::$ordinal"
+      got_kill=0; timed_out=""
       for s in $KS_ORDERED; do
-        if ! run_killer "$s"; then got_kill=1; break; fi
+        if ! run_killer "$s"; then
+          got_kill=1
+          [[ $KILLER_TIMED_OUT -eq 1 ]] && timed_out="$s"
+          break
+        fi
       done
+      [[ -n "$timed_out" ]] && info "killer timeout (${KILLER_TIMEOUT_S}s exceeded, scored as KILLED): $sid via $timed_out — the mutant most likely made the guard spin."
       if [[ $got_kill -eq 1 ]]; then
         killed=$((killed + 1))
       else
         survived=$((survived + 1))
-        sid="$guard::$opid::$ordinal"
         survivors="${survivors:+$survivors,}$sid"
         add_survivor "$sid"
       fi
@@ -677,10 +760,15 @@ for guard in ${SWEEP_GUARDS[@]+"${SWEEP_GUARDS[@]}"}; do
       restore "$guard"; continue
     fi
     applied=$((applied + 1))
-    got_kill=0
+    got_kill=0; timed_out=""
     for s in $KS_ORDERED; do
-      if ! run_killer "$s"; then got_kill=1; break; fi
+      if ! run_killer "$s"; then
+        got_kill=1
+        [[ $KILLER_TIMED_OUT -eq 1 ]] && timed_out="$s"
+        break
+      fi
     done
+    [[ -n "$timed_out" ]] && info "killer timeout (${KILLER_TIMEOUT_S}s exceeded, scored as KILLED): catalog::$cid via $timed_out — the mutant most likely made the guard spin."
     if [[ $got_kill -eq 1 ]]; then
       killed=$((killed + 1))
     else

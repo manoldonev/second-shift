@@ -127,6 +127,21 @@ baselined survivor that is now killed is a warn to shrink the baseline.
 any of its guard's mutants are scored, so a broken or environment-starved suite can never report
 its guard as fully killed.
 
+**Every killer runs under a wall-clock bound** (300s; `MUTATION_SWEEP_KILLER_TIMEOUT_S`), and a
+timed-out killer counts as a **kill**, logged by name. This is not a tuning knob — it is what makes
+the sweep diagnosable at all. A mutant can make its guard *spin*: `cmp-z` inverts the EOF-tolerance
+clause of the standard read idiom (`while IFS= read -r line || [[ -n "$line" ]]` becomes
+`|| [[ -z "$line" ]]`), which at EOF is permanently true. An unbounded killer then blocks its shard
+forever — no further `swept` line, death by job timeout, log blob unfinalized, no artifact — which
+is how two successive 10-shard nightlies lost the same three shards without yielding one datapoint.
+Counting the timeout as a kill follows Stryker and PIT: the suite did surface the defect, and
+scoring it a survivor would red the build on a mutant nothing can kill.
+
+Three tracked guards carry that idiom, and the `k` budget — not any property of the guards — is
+what decides which are armed: `gen-statectl-validators.sh` and `predecessor-gate.sh` hold it at
+`cmp-z` ordinal 1 and killed their shards, while `scaffold-review-context.sh` holds it at ordinal 5
+and was simply never mutated at `k=2`. Raising `MUTATION_SWEEP_K` arms it. Budget is not safety.
+
 **Two obligations land on ordinary PRs.** Editing a guard re-keys its generic survivor ordinals,
 so that PR re-baselines those rows in its own diff; and it re-anchors any catalog row addressing
 it. Catalog rows are pattern-addressed for exactly that reason — a bare line address is rejected,
