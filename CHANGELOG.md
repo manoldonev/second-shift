@@ -4,6 +4,17 @@ All notable changes to the second-shift marketplace. Versions are per-plugin (`p
 this file tracks the marketplace release. `configVersion` stays `const 1` — v2 is fully backward-compatible for a
 consumer with an empty config; the migration notes below are only for consumers using the changed features.
 
+## v3.3.0
+
+### `dev-pipeline` 3.2.0 → 3.3.0
+
+- **feat(dev-pipeline): harness-corroborated stage preconditions (#305)** (#305)
+  statectl now verifies each stage's claimed skill loads, stage-file
+  reads and stage-8 dispatch against the audit ledger before accepting the
+  completion write, recording the outcome in stages.N.ledgerCorroboration.
+  Repos without the audit hook are unaffected — corroboration fails open.
+  Migration: none.
+
 ## v3.2.0
 
 ### `dev-pipeline` 3.1.0 → 3.2.0
