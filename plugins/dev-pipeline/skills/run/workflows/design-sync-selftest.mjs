@@ -139,11 +139,21 @@ async function main() {
   // offline guard: heuristic literal-purity check (strip string literals, then forbid the
   // non-literal construct tokens) over every sibling workflow script that carries a meta.
   {
-    const { readdirSync } = await import('node:fs')
-    const metaFiles = readdirSync(HERE)
-      .filter((f) => f.endsWith('.mjs'))
-      .sort()
-      .map((f) => [f, readFileSync(join(HERE, f), 'utf8')])
+    const { readdirSync, existsSync } = await import('node:fs')
+    // The scanned set is a LIST of workflow directories, not just this one. Workflow scripts
+    // now live under more than one skill (run-lean ships its own), and this check's coverage
+    // is load-bearing beyond itself: runtime-shim-lib.mjs's meta-strip is a balanced-brace
+    // scan whose soundness rests on meta blocks being pure literals, so a workflow outside
+    // the scanned set is both unlinted AND unsafe to drive through the shim.
+    // Adding a third directory later means one entry here — and the matching one in
+    // tools/check-bounded-exploration.sh, which is anchored the same way.
+    const WORKFLOW_DIRS = [HERE, join(HERE, '..', '..', 'run-lean', 'workflows')].filter((d) => existsSync(d))
+    const metaFiles = WORKFLOW_DIRS.flatMap((dir) =>
+      readdirSync(dir)
+        .filter((f) => f.endsWith('.mjs'))
+        .sort()
+        .map((f) => [dir === HERE ? f : `run-lean/workflows/${f}`, readFileSync(join(dir, f), 'utf8')]),
+    )
       // Line-start anchor: `export const meta` may legitimately appear INSIDE a string
       // elsewhere (e.g. this file's own Case-G token list) — only a top-level declaration counts.
       .filter(([, src]) => /^export const meta = \{/m.test(src))

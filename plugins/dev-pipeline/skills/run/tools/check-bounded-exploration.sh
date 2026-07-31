@@ -72,11 +72,24 @@ set -uo pipefail
 LOOKBACK=40
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-RUN_DIR="$(dirname "$SCRIPT_DIR")" # skills/run
-WORKFLOWS="${1:-$RUN_DIR/workflows}"
+RUN_DIR="$(dirname "$SCRIPT_DIR")"  # skills/run
+SKILLS_DIR="$(dirname "$RUN_DIR")"  # skills/
 
-if [[ ! -d "$WORKFLOWS" ]]; then
-  echo "check-bounded-exploration: FAIL — no workflows dir at $WORKFLOWS" >&2
+# The scanned set is a LIST, not one hardcoded path. Workflow scripts now live under more
+# than one skill (run-lean ships its own), and a lint anchored to a single directory
+# silently skips every file outside it. That is a real hole, not a theoretical one:
+# lean-review.mjs's structured-emitter fallback IS a schema-carrying dispatch and would
+# otherwise never be checked. Adding a third workflow directory later means one new entry
+# here — and the matching one in design-sync-selftest.mjs Case I, which is anchored the
+# same way and carries the same note.
+WORKFLOW_DIRS=("$RUN_DIR/workflows" "$SKILLS_DIR/run-lean/workflows")
+[[ $# -gt 0 ]] && WORKFLOW_DIRS=("$1")   # explicit override (the selftest drives this)
+
+# The PRIMARY directory must exist — its absence means the layout assumption is wrong and
+# the lint would silently scan nothing. A missing optional sibling is not a failure (a
+# consumer install need not carry every skill).
+if [[ ! -d "${WORKFLOW_DIRS[0]}" ]]; then
+  echo "check-bounded-exploration: FAIL — no workflows dir at ${WORKFLOW_DIRS[0]}" >&2
   exit 1
 fi
 
@@ -84,7 +97,15 @@ FAILS=0
 SITES=0
 FILES=0
 
-for f in "$WORKFLOWS"/*.mjs; do
+SCAN_FILES=()
+for d in "${WORKFLOW_DIRS[@]}"; do
+  [[ -d "$d" ]] || continue
+  for wf in "$d"/*.mjs; do
+    [[ -f "$wf" ]] && SCAN_FILES+=("$wf")
+  done
+done
+
+for f in ${SCAN_FILES+"${SCAN_FILES[@]}"}; do
   [[ -f "$f" ]] || continue
   case "$f" in
     *-selftest.mjs) continue ;; # offline test harnesses carry no live dispatches
@@ -202,7 +223,7 @@ done
 # referenced outside its definition (wired into a prompt or a table) or declared dormant
 # via the bounded-exploration-dormant marker. Probe files keep their own grammar and are
 # exempt; selftest harnesses are excluded as above.
-for f in "$WORKFLOWS"/*.mjs; do
+for f in ${SCAN_FILES+"${SCAN_FILES[@]}"}; do
   [[ -f "$f" ]] || continue
   case "$f" in
     *-selftest.mjs) continue ;;
@@ -224,7 +245,7 @@ done
 if [[ "$SITES" -eq 0 ]]; then
   # A regex that matches nothing must never read as green — that is the failure mode this
   # lint exists to prevent, applied to the lint itself.
-  echo "check-bounded-exploration: FAIL — no dispatch sites found in $WORKFLOWS (detection is broken)" >&2
+  echo "check-bounded-exploration: FAIL — no dispatch sites found in ${WORKFLOW_DIRS[*]} (detection is broken)" >&2
   exit 1
 fi
 
