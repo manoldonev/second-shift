@@ -163,6 +163,10 @@ Derivation properties, all selftest-asserted:
 - `plugins/dev-pipeline/skills/run/workflows/runtime-shim-selftest.mjs` — lean-review case.
 - `plugins/dev-pipeline/skills/run/workflows/design-sync-selftest.mjs` — Case I glob widened
   to the sibling `run-lean/workflows/` directory (see step 9).
+- `plugins/dev-pipeline/skills/run/tools/check-bounded-exploration.sh` — same widening, for
+  the schema-carrying-dispatch lint (see step 9).
+- `plugins/dev-pipeline/skills/run/tools/check-bounded-exploration-selftest.sh` — a case
+  covering the widened directory list.
 - `plugins/dev-pipeline/skills/run/scenario-liveness-selftest.sh` — three additive lean legs.
 - `tools/mutation-baseline.tsv` — re-key the four `pipeline-cost-block.sh` survivor rows.
 - `tools/mutation-catalog.tsv` — re-anchor `cost-block-cache-numerator`.
@@ -207,6 +211,17 @@ scripts listed as created above, each of which is a top-level artifact required 
    Directory existence is explicitly not the test. Also asserts the strict `ready-for-dev`
    posture (D-16). *Deliberate reading of AC-2: `entry` is additive to `1..5|all`, not a
    replacement — AC-14 requires a mechanical gate and D-35 requires one script.*
+2a. **Claim contract (AC-15 / D-49).** The two bot-wrapper writes, implemented as the
+   `SKILL.md` checklist's claim step plus a `lean-gate.sh claim <issue>` helper so the
+   write pair is mechanical rather than prose: (i) the label swap via the existing
+   `claim-issue.sh` with queue/claimed names from `tracker.labels`, then (ii) the claim
+   comment carrying `<!-- stage: lean-claimed -->` and `<!-- run_id: ... -->`. The marker is
+   **lean-distinct** — never `stage: claimed` — so it cannot pollute the pipeline chain
+   gate's family selection if the same issue is later run through full `run`. RUN_ID is a
+   neutral token matching the chain gate's `^[A-Za-z0-9._-]+$` charset. *This step was
+   missing from the first draft; `check-lean-chain.sh` requires exactly this comment as one
+   of its three evidence artifacts, so without it the CI gate would fail every lean PR.*
+
 3. **Milestones 1–3.** M1: spec existence at the pinned path + ≥ 1 `AC-n` (G-1). M2:
    frozen-files + changelog-trailer diff-scoped against the configured `baseBranch`, with
    advisory output appended to the progress file and a printed skip notice when the scripts
@@ -234,11 +249,25 @@ scripts listed as created above, each of which is a top-level artifact required 
    `lean-claimed` comment windowed at PR-open. Unresolvable `LEAN_BRANCH_PREFIX` is fatal,
    never exempt.
 8. **`ci.yml` wiring.** One step in `pr-gates`, all inputs via `env:` (never interpolated
-   into the `run:` body), adding `PR_BASE_REF` alongside the existing `PR_*` values.
-9. **Meta-purity coverage.** Widen `design-sync-selftest.mjs` Case I from
-   `readdirSync(HERE)` to also scan the sibling `run-lean/workflows/` directory, so
-   `lean-review.mjs`'s meta literal-purity is enforced by the existing owner rather than a
-   second copy of the check.
+   into the `run:` body): `LEAN_BRANCH_PREFIX`, plus `GH_TOKEN` (`secrets.GITHUB_TOKEN`)
+   and `GH_REPO` (`github.repository`) for the gate's bot-comment read, plus
+   `PR_HEAD_REF` / `PR_BODY` / `PR_CREATED_AT` / `PR_BASE_REF`. The job already sets
+   `PIPELINE_BRANCH_PREFIX` at job level, so the exclusion arm needs no second constant,
+   and its existing `permissions:` block already grants `issues: read`.
+9. **Lint coverage for the new workflow directory.** Two existing lints are anchored to
+   `skills/run/workflows/` and would silently miss a workflow in a sibling directory —
+   verified, not assumed:
+   - `design-sync-selftest.mjs` Case I (Workflow meta literal-purity) globs
+     `readdirSync(HERE)`. Its coverage is load-bearing: the shim's meta-strip is a
+     balanced-brace scan whose soundness rests on this lint.
+   - `check-bounded-exploration.sh` globs `"$WORKFLOWS"/*.mjs` derived from `skills/run`,
+     and `lean-review.mjs`'s `structured-emitter` fallback **is** a schema-carrying
+     dispatch, so it needs a declared disposition marker like every other one.
+
+   Widen both to scan a small **list** of workflow directories rather than one hardcoded
+   path, so a future third directory is one list entry in each file rather than another
+   silent hole. Keeping each check with its existing owner avoids a second copy of the
+   rule (the mirror-harness pattern this repo forbids).
 10. **`pipeline-cost-block.sh` state-less mode (AC-8).** Flag parsing moves **ahead of** the
     required `$1` positional so existing invocations stay byte-identical in behavior;
     `--stateless --sessions <ids> --start <iso> --end <iso> [--out <file>]` emits
@@ -284,7 +313,10 @@ repo declares no `unitTestScope`, so there is no co-located unit-test mutation s
   progress-file line chain and gate exit codes end to end: all-green → exit artifacts;
   budget-exhaust → abort record (worktree kept, issue left `in-progress`); needs-work →
   fix-loop re-entry. These legs are where the prose-only failure economics (fix budget 3,
-  4th-red hard stop, abort comment) become mechanically asserted.
+  4th-red hard stop, abort comment) become mechanically asserted. **The all-green leg is
+  also AC-15's assertion site**: the claim is executed by the session following `SKILL.md`
+  rather than by a gate, so the leg asserts both bot-wrapper writes land — the label swap
+  and a `lean-claimed`-markered comment carrying the run id.
 - **`cost-block-selftest.sh`** — new-mode cases plus an explicit assertion that the
   state-file path is behavior-unchanged and that the state-less mode writes no
   `cost-log.jsonl` row.
@@ -307,7 +339,7 @@ repo declares no `unitTestScope`, so there is no co-located unit-test mutation s
 | AC-12 | No behavioral change to `run`/statectl/verifyctl | 10 | `cost-block-selftest.sh` unchanged-path case; full selftest sweep green |
 | AC-13 | `check-lean-chain.sh` + CI wiring, non-vacuous | 7, 8 | `check-lean-chain-selftest.sh` (AC-13) incl. both mandated cases |
 | AC-14 | Entry gate refuses without a live audit ledger | 2 | `lean-gate-selftest.sh` (AC-14) empty/missing-ledger refusals |
-| AC-15 | Claim is two bot-wrapper writes | 2 | `scenario-liveness-selftest.sh` lean claim leg |
+| AC-15 | Claim is two bot-wrapper writes | 2a | `scenario-liveness-selftest.sh` all-green leg (claim assertions) |
 | AC-16 | `lean-reconcile.sh` + behavioral selftest | 11 | `lean-reconcile-selftest.sh` (AC-16) all four arms |
 
 ## Verification commands
@@ -317,7 +349,9 @@ find . -name '*.sh' -type f -print0 | xargs -0 shellcheck -e SC1091,SC2015,SC218
 find . -name '*.json' -type f -print0 | xargs -0 -n1 jq empty
 find . -name '*-selftest.sh' -type f -print0 | xargs -0 -P 4 -n1 -I{} bash {}
 bash scripts/check-lockstep-pairs.sh
-bash tools/mutation-sweep.sh --mode pr --base origin/main
+BASE="$(jq -r '(.topology.repos | to_entries[] | select(.value.path==".") | .key) as $h
+                | .topology.repos[$h].baseBranch // "main"' .claude/second-shift.config.json)"
+bash tools/mutation-sweep.sh --mode pr --base "origin/$BASE"
 ```
 
 The selftest sweep runs **without** `SKIP_STRESS=1` locally so the stress legs are actually
@@ -337,6 +371,11 @@ exercised — CI's ubuntu lane is the only other place they run.
 3. **Three new checked-in `.sh` guards.** Each needs its same-stem selftest or the sweep reds
    on an unaccounted guard — that check is repo-wide, not diff-scoped, so it cannot be
    deferred.
+3a. **Two lints are directory-anchored to `skills/run/workflows/`** (step 9). Widening them
+   to a list is the fix here, but the coupling is worth naming: adding a *third* workflow
+   directory later without updating both lists reintroduces the same silent hole. The two
+   lists are not byte-anchorable against each other (bash array vs JS array), so this is a
+   documented coupling rather than a lockstep pair.
 4. **Milestone gates that shell out to repo scripts are second-shift-only.** Outside this
    repo they detect-and-skip with a printed notice (D-44); consumer-side merge-boundary
    enforcement is a named promotion prerequisite, not delivered here.
