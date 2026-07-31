@@ -113,3 +113,26 @@ PR's log rather than passing silently.
 Rung 1 is therefore **tamper-evidence, not proof**, and on this repo it is weaker than the design
 assumed: every record it reads — tracker comments, the PR body, the committed plan — is agent-written,
 and so is the gate's own configuration. Harness attestation is rung 2's job.
+
+### A third constant, carrying a control the other two lack
+
+`pr-gates` now also carries `LEAN_BRANCH_PREFIX`, for the lean harness's merge-boundary gate
+(`scripts/check-lean-chain.sh`). It is unreconciled against the gitignored runtime config in exactly
+the same way as the two above — but it is **not** self-neutralizable in the same way, and the
+difference is structural rather than procedural.
+
+That gate does not classify on the prefix alone. Applicability triggers on branch-prefix match **OR**
+on a lean-marked spec file appearing in the PR diff. So a stale or emptied prefix matches zero
+branches and the artifact arm still fires: editing the constant cannot silently exempt a lean PR, it
+can only make the gate classify by artifact instead. The arm is pinned rather than asserted —
+`check-lean-chain-selftest.sh` case (C) drives the gate with a deliberately zero-matching prefix and
+requires it to still apply.
+
+Two residuals remain, both ordinary. The constant is still a copy that nothing compares to the config
+(recorded as a DROPPED entry in `scripts/lockstep-manifest.tsv`, with the reasoning). And the two
+prefixes must stay mutually non-prefix-matching or both gates would classify the same PRs — where
+they collide the gate exits 2 rather than guessing.
+
+The generalizable rule, and the reason this is worth recording next to the limitation it escapes: a
+CI constant is self-neutralizable when it is the **sole** applicability input. Give the check a
+second, artifact-derived trigger and the constant stops being a kill switch.
