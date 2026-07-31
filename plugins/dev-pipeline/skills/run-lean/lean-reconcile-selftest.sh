@@ -22,7 +22,9 @@ pass() { echo "  PASS: $1"; }
 fail() { echo "  FAIL: $1" >&2; FAILS=$((FAILS + 1)); }
 
 WORK="$(mktemp -d -t leanrec.XXXXXX)"
-# shellcheck disable=SC2329  # invoked indirectly by the EXIT trap below
+# shellcheck disable=SC2317,SC2329  # invoked indirectly by the EXIT trap below.
+# BOTH codes: shellcheck >=0.10 reports SC2329 on the function, 0.9 (CI) reports SC2317 on
+# each command in the body — suppressing only the newer one is clean locally and reds CI.
 cleanup() { [ -n "${WORK:-}" ] && rm -rf "$WORK"; }
 trap cleanup EXIT
 

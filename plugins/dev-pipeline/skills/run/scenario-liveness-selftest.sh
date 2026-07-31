@@ -915,6 +915,87 @@ LEANC
   mv "$TMP/held-lean-spec.md" "$LEAN_SPEC"
 fi
 
+
+# ================================ ledger corroboration composes to terminal (#272) ===
+# The corroboration legs are the newest thing standing between a stage and its
+# completion write, and they fire on EVERY stage 1-9. A per-tool selftest proves
+# the verdicts; only a composed run proves the nine gates still compose to a
+# terminal `completed` with corroboration active — the exact failure mode the
+# stacked-PR path died of, where every component was green against itself.
+
+echo "[scenario-liveness] ledger corroboration: a fully-corroborated run still reaches terminal"
+
+LC_LEDGER="$TMP/audit"
+mkdir -p "$LC_LEDGER"
+LC_SESSION="5e1f7e57-0000-4000-8000-0000000000c0"
+
+# One ledger backing every claim a full green run makes: a main-loop Read per
+# stage file, the two mandated skill loads, and the stage-8 dispatch pair. The
+# Read timestamps deliberately PRECEDE every startedAt this suite writes — that is
+# the real ordering (the executor reads the stage file before it can run the
+# mark-started), and it is why the stage-file leg is windowless.
+{
+  for f in 1-intake 2-worktree 3-write-plan 4-plan-review 5-implement 6-verify 7-doc-update 8-code-review 9-open-pr; do
+    printf '{"ts":"2026-01-01T00:00:00Z","session_id":"s","event":"PostToolUse","tool":"Read","subagent":"","target":"/cache/skills/run/stages/%s.md","outcome":"ok"}\n' "$f"
+  done
+  printf '%s\n' '{"ts":"2036-01-01T00:00:00Z","session_id":"s","event":"PostToolUse","tool":"Skill","subagent":"","target":"intake-toolkit:intake-orchestrator","outcome":"ok"}'
+  printf '%s\n' '{"ts":"2036-01-01T00:00:00Z","session_id":"s","event":"PostToolUse","tool":"Skill","subagent":"","target":"review-toolkit:review-lead","outcome":"ok"}'
+  printf '%s\n' '{"ts":"2036-01-01T00:00:00Z","session_id":"s","event":"PostToolUse","tool":"Workflow","subagent":"","target":"/cache/skills/run/workflows/code-review.mjs","outcome":"ok"}'
+  printf '%s\n' '{"ts":"2036-01-01T00:00:00Z","session_id":"s","event":"SubagentStop","tool":"","subagent":"review-toolkit:security-reviewer","target":"","outcome":"ok"}'
+} > "$LC_LEDGER/$LC_SESSION.jsonl"
+
+LC_KEY=9010
+reset_state
+export STATECTL_LEDGER_DIR="$LC_LEDGER"
+sct init "$LC_KEY" --run-id "scenario-liveness-$$" >/dev/null
+sct pipeline-session-add "$LC_KEY" --session-id "$LC_SESSION" --source interactive >/dev/null
+for n in 1 2 3 4 5 6 7 8 9; do complete_stage "$LC_KEY" "$n"; done
+write_report "$LC_KEY"
+write_eval "$LC_KEY"
+rc=$(sct_rc mark-completed "$LC_KEY")
+status=$(sct get "$LC_KEY" '.status')
+lc_all=$(sct get "$LC_KEY" '[.stages[] | .ledgerCorroboration] | unique | join(",")')
+[[ "$rc" -eq 0 && "$status" == "completed" && "$lc_all" == "corroborated" ]] \
+  && pass "(lcs1) corroboration TERMINAL: all nine stages corroborated, mark-completed accepted (AC-1, AC-8)" \
+  || fail "(lcs1) corroborated run to terminal — rc=$rc status='$status' values='$lc_all'"
+
+# Non-vacuity. (lcs1) would stay green if the legs never actually ran, so drive the
+# IDENTICAL path with one row removed: the stage-8 Skill row. The same composed run
+# must now be REFUSED at stage 8 and never reach terminal. Precondition-variation,
+# per (ns3)/(pg-nv) — nothing on disk in production code is mutated to make a point.
+grep -v 'review-toolkit:review-lead' "$LC_LEDGER/$LC_SESSION.jsonl" > "$LC_LEDGER/$LC_SESSION.trimmed"
+mv "$LC_LEDGER/$LC_SESSION.trimmed" "$LC_LEDGER/$LC_SESSION.jsonl"
+reset_state
+sct init "$LC_KEY" --run-id "scenario-liveness-$$" >/dev/null
+sct pipeline-session-add "$LC_KEY" --session-id "$LC_SESSION" --source interactive >/dev/null
+for n in 1 2 3 4 5 6 7; do complete_stage "$LC_KEY" "$n"; done
+complete_stage "$LC_KEY" 8
+s8=$(sct get "$LC_KEY" '.stages."8".status')
+write_report "$LC_KEY"
+write_eval "$LC_KEY"
+rc_nv=$(sct_rc mark-completed "$LC_KEY")
+[[ "$s8" != "completed" && "$rc_nv" -ne 0 ]] \
+  && pass "(lcs2) non-vacuity: removing the review-lead ledger row refuses stage 8 and blocks terminal (AC-1)" \
+  || fail "(lcs2) non-vacuity — stage8='$s8' mark-completed rc=$rc_nv"
+
+# The fail-open must ALSO compose: a consumer with no audit hook has no ledger at
+# all, and the whole pipeline must still reach terminal — visibly uncorroborated,
+# never silently "corroborated". This is the arm that keeps corroboration additive.
+reset_state
+export STATECTL_LEDGER_DIR="$TMP/audit-absent"
+LC_KEY2=9011
+sct init "$LC_KEY2" --run-id "scenario-liveness-$$" >/dev/null
+for n in 1 2 3 4 5 6 7 8 9; do complete_stage "$LC_KEY2" "$n"; done
+write_report "$LC_KEY2"
+write_eval "$LC_KEY2"
+rc=$(sct_rc mark-completed "$LC_KEY2")
+status=$(sct get "$LC_KEY2" '.status')
+lc_all=$(sct get "$LC_KEY2" '[.stages[] | .ledgerCorroboration] | unique | join(",")')
+[[ "$rc" -eq 0 && "$status" == "completed" && "$lc_all" == "uncorroborated" ]] \
+  && pass "(lcs3) fail-open composes: no ledger → terminal completed, every stage visibly uncorroborated (AC-2)" \
+  || fail "(lcs3) fail-open to terminal — rc=$rc status='$status' values='$lc_all'"
+
+unset STATECTL_LEDGER_DIR
 echo
 echo "[scenario-liveness] summary: $PASS passed, $FAIL failed"
 exit $FAIL

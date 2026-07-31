@@ -196,6 +196,14 @@ REPORT_PATH="$MAIN_ROOT/.claude/pipeline-state/${ISSUE_NUMBER}-report.md"
 
 {the structured deviations[] recorded during the run, or "none"}
 
+## Ledger corroboration
+
+{One line per stage whose `stages.N.ledgerCorroboration` is NOT `corroborated`, naming the stage and the
+value — e.g. `Stage 8: degraded`. Render the WHOLE section only when at least one such stage exists; omit it
+entirely when every stage is clean. A fail-open that nobody can see is the failure the corroboration
+mechanism exists to prevent, so this is the one place it becomes visible to the operator. `waived` values
+additionally appear with their reasons under `## Waivers`.}
+
 ## Still outstanding at report time
 
 Written right after the PR was opened, so these had not yet run: cost block, post-run eval, terminal completion write. If the log ends here, the run reached at least this point — the PR above is real.
