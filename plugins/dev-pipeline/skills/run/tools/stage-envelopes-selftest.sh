@@ -323,6 +323,104 @@ else
   fail "(env11) pre-filter changed the corpus — unfiltered=$A prefiltered=$B"
 fi
 
+# ─────────────────────────────────────────────────────────────────────────────────
+# (env12) The state-dir precedence ladder. Every case above addresses its corpus with
+# --state-dir, which short-circuits the resolver on its first branch — so the tool's
+# advertised precedence (STATECTL_STATE_DIR, then the repo root, then cwd) went
+# entirely unexercised. The mutation sweep found this: mutants in the ladder's
+# `${VAR:-}` defaults and its `-n` guards all survived, because no case could reach
+# them. STATECTL_STATE_DIR is also the documented way a fixture is addressed through
+# this family of tools ((pause3) uses it), so it is contract, not an internal.
+# ─────────────────────────────────────────────────────────────────────────────────
+D="$WORK/env12"; mkdir -p "$D"
+for i in $(seq 1 3); do mkrun "$D" "e$i" "e$i" $((i * 1000)) "1:0:3"; done
+# No --state-dir here: the corpus is reachable ONLY if the env-var branch resolves.
+ENV_OUT="$(STATECTL_STATE_DIR="$D" bash "$TOOL" --run e1 --window 50 --min-n 1 --json 2>&1)"
+if jq -e '.corpus.runsInWindow == 3' >/dev/null 2>&1 <<<"$ENV_OUT"; then
+  pass "(env12) STATECTL_STATE_DIR resolves the corpus when --state-dir is absent"
+else
+  fail "(env12) STATECTL_STATE_DIR ladder — got ${ENV_OUT:0:160}"
+fi
+
+# --state-dir must WIN over the env var, not merely work alongside it: the flag is the
+# explicit operator override, and a resolver that silently preferred the environment
+# would derive over a different corpus than the caller named.
+D2="$WORK/env12b"; mkdir -p "$D2"
+for i in $(seq 1 5); do mkrun "$D2" "f$i" "f$i" $((i * 1000)) "1:0:3"; done
+PREC="$(STATECTL_STATE_DIR="$D" bash "$TOOL" --state-dir "$D2" --run f1 --window 50 --min-n 1 --json 2>&1)"
+if jq -e '.corpus.runsInWindow == 5' >/dev/null 2>&1 <<<"$PREC"; then
+  pass "(env12b) --state-dir takes precedence over STATECTL_STATE_DIR"
+else
+  fail "(env12b) precedence — got ${PREC:0:160}"
+fi
+
+# ─────────────────────────────────────────────────────────────────────────────────
+# (env13) Argument validation rejects a non-numeric window / floor rather than
+# silently deriving over a garbage corpus. A tool whose whole output is a statistic
+# must not accept a non-number for the two knobs that size its sample.
+# ─────────────────────────────────────────────────────────────────────────────────
+if ! bash "$TOOL" --state-dir "$D" --window abc >/dev/null 2>&1 \
+   && ! bash "$TOOL" --state-dir "$D" --min-n abc >/dev/null 2>&1 \
+   && ! bash "$TOOL" --state-dir "$D" --bogus-flag >/dev/null 2>&1; then
+  pass "(env13) non-numeric --window / --min-n and an unknown flag are all rejected"
+else
+  fail "(env13) argument validation accepted a bad value"
+fi
+
+# ─────────────────────────────────────────────────────────────────────────────────
+# (env14) A state dir that does not exist, and one holding no run-state files, both
+# exit nonzero with a diagnostic rather than emitting an empty-but-plausible report.
+# An envelope tool that prints a clean table over nothing is the worst failure mode
+# it has: the reader cannot tell "measured nothing" from "measured and found nothing".
+# ─────────────────────────────────────────────────────────────────────────────────
+EMPTY="$WORK/env14-empty"; mkdir -p "$EMPTY"
+if ! bash "$TOOL" --state-dir "$WORK/env14-missing" >/dev/null 2>&1 \
+   && ! bash "$TOOL" --state-dir "$EMPTY" >/dev/null 2>&1; then
+  pass "(env14) a missing state dir and an empty one both fail loudly, never a blank report"
+else
+  fail "(env14) an absent/empty corpus produced a report instead of an error"
+fi
+
+# ─────────────────────────────────────────────────────────────────────────────────
+# (env15) The repo-root fall-through: no --state-dir, no STATECTL_STATE_DIR, no
+# SECOND_SHIFT_REPO_ROOT — the resolver must anchor on `git rev-parse --git-common-dir`
+# and find the corpus under the MAIN checkout. This is the branch production actually
+# takes (the tool is invoked from pipeline worktrees, where a cwd-relative path is
+# empty and would read as "no runs recorded" rather than as the wrong directory).
+#
+# Every earlier case short-circuits the ladder on an earlier branch, so this is the
+# only case that reaches the tail of state_dir(). The mutation sweep is what proved
+# that mattered: `cd "$common_dir" && pwd` -> `|| pwd` survived, and that flip is not
+# cosmetic — with `||`, cd succeeds so pwd never runs, common_dir collapses to empty,
+# and the root resolves to "." — i.e. exactly the cwd-relative failure the anchoring
+# exists to prevent.
+# ─────────────────────────────────────────────────────────────────────────────────
+REPO="$WORK/env15-repo"
+mkdir -p "$REPO/.claude/pipeline-state"
+# The git env is cleared for `init` as well as for the tool run below: with GIT_DIR set,
+# `git init` initializes THAT repo rather than $REPO, and the fixture never exists.
+if env -u GIT_DIR -u GIT_WORK_TREE -u GIT_INDEX_FILE git -C "$REPO" init --quiet 2>/dev/null; then
+  D="$REPO/.claude/pipeline-state"
+  for i in $(seq 1 4); do mkrun "$D" "g$i" "g$i" $((i * 1000)) "1:0:6"; done
+  # Run from a SUBDIRECTORY, so a resolver that quietly used cwd instead of the
+  # common-dir anchor would look in the wrong place and find nothing.
+  mkdir -p "$REPO/sub/dir"
+  # GIT_DIR / GIT_WORK_TREE are cleared too, not just the second-shift vars: an inherited
+  # git env re-points `git rev-parse --git-common-dir` at the CALLER's repo, so this case
+  # would resolve someone else's state dir and fail for a reason that has nothing to do
+  # with the resolver. Verified: with GIT_DIR set and no unset, this case fails.
+  ROOT_OUT="$(cd "$REPO/sub/dir" && env -u STATECTL_STATE_DIR -u SECOND_SHIFT_REPO_ROOT \
+    -u SECOND_SHIFT_CONFIG -u GIT_DIR -u GIT_WORK_TREE -u GIT_INDEX_FILE \
+    bash "$TOOL" --run g1 --window 50 --min-n 1 --json 2>&1)"
+  if jq -e '.corpus.runsInWindow == 4' >/dev/null 2>&1 <<<"$ROOT_OUT"; then
+    pass "(env15) with no overrides the corpus resolves via the git-common-dir repo root, from a subdir"
+  else
+    fail "(env15) repo-root fall-through — got ${ROOT_OUT:0:200}"
+  fi
+else
+  echo "  skip (env15) — git init unavailable in this environment"
+fi
+
 echo
 echo "stage-envelopes-selftest: $PASS passed, $FAIL failed"
 [[ "$FAIL" -eq 0 ]]
