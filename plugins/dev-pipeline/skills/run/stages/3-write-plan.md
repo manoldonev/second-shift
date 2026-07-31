@@ -97,9 +97,15 @@ PROJECT_ID=$(statectl get "$ISSUE_NUMBER" '.stageCheckpoint."1".designSource.pro
 SCREEN=$(statectl get "$ISSUE_NUMBER" '.stageCheckpoint."1".designSource.screen')
 Workflow({
   scriptPath: "workflows/design-sync.mjs",
-  // The caller also passes args.config = the parsed second-shift.config.json.
+  // args.config carries ONLY the config keys THIS script reads — never the whole parsed
+  // config. design-sync.mjs reads `reviewers` (per-agent model overrides). CONFIG below =
+  // the parsed second-shift.config.json. Passing CONFIG whole sends `commands.<host>`
+  // shell-command strings and a top-level `$schema` through Workflow arg serialization —
+  // the payload that killed a dispatch outright; passing `{ reviewers: {} }` is the
+  // opposite trap, serializing cleanly while silently disabling every model override.
   args: { kind: "produce", implement: false, projectId: "$PROJECT_ID", screen: "$SCREEN",
-          specPath: "docs/design-specs/$SCREEN-spec.md", issue: "$ISSUE_NUMBER", config: CONFIG }
+          specPath: "docs/design-specs/$SCREEN-spec.md", issue: "$ISSUE_NUMBER",
+          config: { reviewers: CONFIG.reviewers } }
 })
 # Returns { kind, implement, result } | { kind, implement, failClosed } | { kind, budgetExhausted: true }.
 ```

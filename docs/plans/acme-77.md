@@ -41,6 +41,7 @@ The fix is to send each script only the config keys it actually reads.
 - `plugins/dev-pipeline/skills/run/stages/4-plan-review.md` — `plan-review.mjs` dispatch (1 site)
 - `plugins/dev-pipeline/skills/run/stages/5-implement.md` — `mutation-gate.mjs` + `design-sync.mjs` dispatches (2 sites)
 - `plugins/dev-pipeline/skills/run/stages/8-code-review.md` — `code-review.mjs` dispatch (1 site, the `{ reviewers, tracker }` case)
+- `plugins/dev-pipeline/skills/pr-revision/SKILL.md` — a **sixth** `code-review.mjs` dispatch, surfaced by plan review
 - `plugins/intake-toolkit/skills/intake-orchestrator/SKILL.md` — documented intake arg contract
 - `plugins/intake-toolkit/skills/decomposition-reviewer/SKILL.md` — documented intake arg contract
 - `plugins/dev-pipeline/skills/run/workflows/runtime-shim-selftest.mjs` — new delivery-path cases
@@ -60,9 +61,11 @@ No new helpers introduced.
 2. **`4-plan-review.md`** — same comment rewrite; args literal becomes `config: { reviewers: CONFIG.reviewers }`. Keep the existing second comment line about bare vs qualified reviewer names.
 3. **`5-implement.md`** — both sites (`mutation-gate.mjs`, `design-sync.mjs`): same rewrite, `config: { reviewers: CONFIG.reviewers }`. Preserve the existing `worktree`-anchoring comment at the `design-sync.mjs` site.
 4. **`3-write-plan.md`** — `design-sync.mjs` site: same rewrite, `config: { reviewers: CONFIG.reviewers }`.
+4b. **`pr-revision/SKILL.md`** — the sixth site, dispatching `code-review.mjs`. Same rewrite; gets `{ reviewers, tracker }` for **per-script** uniformity, not per-path. This dispatch passes no `issue` arg, so `scope-completeness-reviewer` never spawns and `tracker` is not read *today* — but keying the subset to the script rather than to one call path means a later revision that starts passing `issue` cannot silently lose tracker routing.
 5. **`intake-orchestrator/SKILL.md`** — extend the documented production arg list to `{ issue, issueBody, referencedDocs, agents, readRoot, config }` and note that `config` carries the `reviewers` subset only, so `intake-review.mjs`'s per-agent overrides are reachable.
 6. **`decomposition-reviewer/SKILL.md`** — add `config: { reviewers: CONFIG.reviewers }` to the shown `Workflow({...})` args and a one-line note.
 7. **`runtime-shim-selftest.mjs`** — add a `[NEW]` delivery-path case block driving `code-review.mjs` through the existing `runCodeReview` helper: (a) a `modelOverrides` entry reaches the dispatched `opts.model`; (b) with the documented subset only, `tracker: { type: 'jira' }` still routes the `scope-completeness-reviewer` prompt to the Atlassian MCP; (c) with `tracker` absent, the prompt falls back to `gh issue view` — pinning that the key is load-bearing, so a future subset that drops it fails here.
+   **Anti-vacuity (plan-review warning 2):** `runCodeReview`'s defaults carry their own `reviewers` and `config`, so cases (b)/(c) must each override `reviewers` explicitly **and** positively assert the dispatched prompt is the scope-completeness one (a `Verify scope completeness` match) before asserting the fetch branch. Without that assertion a mis-wired override would assert against the default complexity-reviewer prompt and pass vacuously.
 8. **`scripts/lockstep-manifest.tsv`** — append a `[NEW]` DROPPED comment block: the five stage-file dispatch comments and the scripts' config reads are one contract, but neither side carries a byte-anchorable identical block; the delivery path is guarded behaviorally by step 7 instead.
 
 ## Test strategy
@@ -87,8 +90,11 @@ Stage-5 mutation gate does not apply.
 | AC-2 | A config carrying shell-command strings under `commands.<host>` dispatches plan-review/code-review without a serialization failure | 1–4 | — no test (infra-only) |
 
 AC-2 needs a live Workflow dispatch and CI is model-free by design, hence the escape hatch.
-Its evidence is this run's own Stage-4 and Stage-8 dispatches, which exercise the new subset
-shape end to end.
+Its observable evidence is narrow and stated precisely: this repo's own config carries
+shell-command strings under `commands.second-shift.{lint,test}`, and this run's Stage-4 and
+Stage-8 dispatches succeed **because** those keys are never sent — the subset shape is what
+is exercised, not the full-config shape that failed on #33. That is a demonstration of the
+fix, not a reproduction of the original failure; nothing here re-tests the whole-config path.
 
 ## Verification commands
 
@@ -106,6 +112,12 @@ find . -name '*-selftest.sh' -type f -print0 | xargs -0 -P 4 -n1 -I{} env SKIP_S
   script that later starts reading a new config key would silently get `undefined`. Step 7's
   case (c) makes the failure mode visible for `tracker`; the comments state the rule
   ("only the keys this script reads") so the obligation travels with the next edit.
+- **The rule is transitive, and must say so** (plan-review warning 4). `mutation-gate.mjs`
+  and `plan-review.mjs` forward `config` verbatim into nested `unit-tests.mjs` dispatches, so
+  a parent's subset must cover every key its nested children read — not just its own. Today
+  `unit-tests.mjs` reads only `reviewers`, so `{ reviewers }` suffices at both parents; the
+  comments at those two sites state the transitive obligation so a future child read does not
+  silently receive `undefined`.
 - **Cross-plugin blast radius.** Steps 5–6 touch `intake-toolkit`, outside the issue's
   Affected-files list. Recorded as D-2 and surfaced at intake; dropping those two steps is a
   clean partial rollback that still satisfies both ACs.
