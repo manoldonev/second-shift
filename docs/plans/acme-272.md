@@ -33,6 +33,9 @@ failure this issue exists to prevent.
 
 ## Decision Ledger
 
+Decisions taken **by this plan**. Ticket-ledger decisions are cited as `#272 D-n` throughout to keep the two
+namespaces distinct — the ids overlap and mean different things.
+
 | ID | Decision | Resolution | Provenance |
 | --- | --- | --- | --- |
 | D-1 | Precedence when several non-`corroborated` conditions hold in one write | Total order `waived` > `degraded` > `uncorroborated` > `corroborated`. The field must name the strongest departure from clean corroboration, and a fired-and-force-waived guard is a human bypass — the single most important thing for the report to surface. Resolves the intake spec review's only warning. | codebase-derived |
@@ -41,7 +44,7 @@ failure this issue exists to prevent.
 | D-4 | Tool interface shape | Verdict token on **stdout** (`vacuous`/`corroborated`/`degraded`/`refused`), detail on stderr, exit 0 for every verdict. Exit-code-encoded verdicts would collide with the `set -e` posture in `statectl` and make the four-way outcome awkward to test. | codebase-derived |
 | D-5 | Ordering inside the tool | Count admissible rows **before** evaluating targets. `[] \| all(.target == "")` is `true` in jq, so an all-empty test evaluated first would report `degraded` on zero rows — failing open in exactly the fabricated-evidence case. | codebase-derived |
 | D-6 | `stages/9-open-pr.md` in scope | The Scope list omitted it, but AC-10 requires non-`corroborated` values to reach the run report and the template carries no surface to write into. Added. | codebase-derived |
-| D-7 | `AC-2b` absent from the traceability table | `statectl intake-brief` validates AC ids against `^AC-[0-9]+$` and `plan-lint.sh` keys rows on `AC-[0-9]+`; a sub-lettered id is unrepresentable in both. Its two D-14 arms are carried as named scope items under AC-1 and AC-2's rows, and covered by dedicated fixtures. | codebase-derived |
+| D-7 | `AC-2b` absent from the traceability table | `statectl intake-brief` validates AC ids against `^AC-[0-9]+$` and `plan-lint.sh` keys rows on `AC-[0-9]+`; a sub-lettered id is unrepresentable in both. Its two #272 D-14 arms are carried as named scope items under AC-1 and AC-2's rows, and covered by dedicated fixtures. | codebase-derived |
 | D-8 | Per-reviewer identity in the Stage-8 legs | Deferred — the harness emits no per-agent dispatch row and anonymizes `subagent` on ~18% of rows. v1 corroborates at cardinality only. | deferred |
 
 ## Affected files/modules
@@ -61,6 +64,7 @@ failure this issue exists to prevent.
 - [`plugins/dev-pipeline/skills/run/stages/1-intake.md`](../../plugins/dev-pipeline/skills/run/stages/1-intake.md) — `pipeline-session-add` call site
 - [`plugins/dev-pipeline/skills/run/stages/9-open-pr.md`](../../plugins/dev-pipeline/skills/run/stages/9-open-pr.md) — report corroboration surface
 - [`plugins/dev-pipeline/skills/run/cost-tracking-setup.md`](../../plugins/dev-pipeline/skills/run/cost-tracking-setup.md) — session-record reconciliation
+- [`plugins/dev-pipeline/skills/run/SKILL.md`](../../plugins/dev-pipeline/skills/run/SKILL.md) — session-record reconciliation (resume rule 2's prose at `SKILL.md:491` still says the record happens at "Stage 2 and the Stage-8 crash-recovery entry")
 - [`plugins/dev-pipeline/skills/run/scenario-liveness-selftest.sh`](../../plugins/dev-pipeline/skills/run/scenario-liveness-selftest.sh) — affected verdict paths
 
 ## Reuse inventory
@@ -72,9 +76,9 @@ Every entry grep-verified in the worktree:
   unchanged. No new bypass mechanism.
 - `state_dir()` (`statectl.sh:126`) — its three-tier resolution (`STATECTL_STATE_DIR` → `SECOND_SHIFT_REPO_ROOT`
   → `git rev-parse --git-common-dir`) is the template the new ledger root mirrors.
-- `require_stage_file_receipt()` (`statectl.sh:727`) — the stage-file corroboration leg reuses its applicability
+- `require_stage_file_receipt()` (`statectl.sh:726`) — the stage-file corroboration leg reuses its applicability
   rule (`^N-` basename, "extra entries satisfy nothing") rather than inventing a second one.
-- `atomic_write()` (`statectl.sh:401`) — the carrier rides the existing single write; no second write is added.
+- `atomic_write()` (`statectl.sh:398`) — the carrier rides the existing single write; no second write is added.
 - `pipeline-session-add` (`statectl.sh:1338`) — already idempotent on session id, UUID-validating, and exempt
   from the terminal-state guard. The Stage-1 call site is a new *invocation*, not new code.
 - Fixture-harness idiom from `predecessor-gate-selftest.sh` and `is-inert-diff-selftest.sh` — the new selftest
@@ -91,9 +95,9 @@ Unverified references: none.
    takes `--class skill|stage-file|workflow|subagent-stop`, `--claims <json-array>`, `--since <ISO>` (omitted =
    windowless), `--min-count <n>`. Emits one verdict token on stdout.
    - Admissibility, per class: `skill` → `tool=="Skill"` and `(.subagent // "")==""`, windowed;
-     `stage-file` → `tool=="Read"` and `(.subagent // "")==""`, **windowless** (D-18);
+     `stage-file` → `tool=="Read"` and `(.subagent // "")==""`, **windowless** (#272 D-18);
      `workflow` → `tool=="Workflow"` and `(.subagent // "")==""`, windowed;
-     `subagent-stop` → `event=="SubagentStop"`, **no subagent constraint** (D-19), windowed.
+     `subagent-stop` → `event=="SubagentStop"`, **no subagent constraint** (#272 D-19), windowed.
    - Verdict order (D-5): claims empty → `vacuous`; else zero admissible rows → `refused`; else every admissible
      row's `(.target // "")` empty → `degraded`; else every claim matched → `corroborated`, otherwise `refused`.
    - Matching: `skill` exact equality on the qualified name; `stage-file` **basename equality** (not suffix —
@@ -106,7 +110,7 @@ Unverified references: none.
    worktrees carry no `.claude/audit/`.
 4. **`ledger_excerpt()`** `[NEW]` in `statectl.sh` — concatenates `<ledgerDir>/<sessionId>.jsonl` for each id in
    `.pipelineSessions[]`. Join is **only** through recorded session ids; no window-scan fallback. Unresolvable
-   ledger dir, empty `pipelineSessions[]`, or no readable file → the D-2 fail-open.
+   ledger dir, empty `pipelineSessions[]`, or no readable file → the #272 D-2 fail-open.
 5. **Corroboration legs** in `stage_completion_preconditions()` — fired **after** each stage's existing legs so
    current refusal messages stay byte-stable:
    - `completion-evidence:<N>.ledgerStageFile` (stages 1–9), claims = the `^N-` members of `stageFilesRead[]`
@@ -128,7 +132,10 @@ Unverified references: none.
    constraint in the Stage-file read receipts stanza (prose only, no grep-guard); correct the existing claim that
    `Skill` rows carry the skill name in `target` to hold only for `audit-toolkit` >= 2.1.0; reconcile the stale
    "Stage 2 and the Stage-8 crash re-entry" session-record prose.
-9. **`cost-tracking-setup.md`** — same session-record reconciliation, plus the new Stage-1 call site.
+9. **`cost-tracking-setup.md`** and **`SKILL.md`** — same session-record reconciliation, plus the new Stage-1
+   call site. `SKILL.md:491` carries the identical stale claim ("Recording only at Stage 2 and at the Stage-8
+   crash-recovery entry") and is reconciled in the same pass; leaving it would contradict the two files this
+   plan does fix. Verified stale at `e0d2590`.
 10. **`stages/9-open-pr.md`** — the run-report template gains a corroboration line listing every stage whose
     `ledgerCorroboration` is not `corroborated`; omitted entirely when all stages are clean.
 11. **`statectl-selftest.sh`** — precondition cases per leg and carrier cases per arm, driven through
@@ -173,7 +180,7 @@ extends the affected verdict paths per the tier map in [`docs/testing.md`](../te
 | AC-9 | A pre-`startedAt` stage-file `Read` row corroborates | 1 | `ledger-corroborate-selftest` windowless-leg case `(AC-9)` |
 | AC-10 | Every terminal outcome writes the carrier; non-`corroborated` reaches the run report | 6, 10 | `statectl-selftest` carrier-per-arm `(AC-10)` |
 
-`AC-2b` carries no numeric id and so cannot key a row (D-7). Its two D-14 arms are covered by the zero-rows and
+`AC-2b` carries no numeric id and so cannot key a row (D-7). its two #272 D-14 arms are covered by the zero-rows and
 all-empty-target cases listed under AC-1 and AC-2 above, and its be-fe-pair vacuity clause by the vacuity case
 listed under AC-7's leg.
 
