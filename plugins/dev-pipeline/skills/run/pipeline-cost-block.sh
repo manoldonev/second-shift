@@ -174,11 +174,12 @@ else
 fi
 
 # ────────────────────────────────────────────────────────────────────────────
-# Session set: read explicit pipelineSessions[] recorded by Stage 2 / Stage 8.
-# Each id is the native Claude Code session UUID ($CLAUDE_CODE_SESSION_ID), the
-# same value the collector tags datapoints with as session.id; a crash-recovery
-# Stage 8 resume records its own (distinct) UUID. Runs with no recorded sessions
-# skip cleanly.
+# Session set: read pipelineSessions[], registered by statectl's shared write seam
+# (apply_session_seam) on each contributing session's first state write. Each id is
+# the native Claude Code session UUID ($CLAUDE_CODE_SESSION_ID), the same value the
+# collector tags datapoints with as session.id; every session that wrote state
+# appears, including a crash-recovery resume at any stage. Runs with no recorded
+# sessions skip cleanly.
 # ────────────────────────────────────────────────────────────────────────────
 SESSIONS=$(jq -r '
   (.pipelineSessions // [])
@@ -189,7 +190,7 @@ SESSIONS=$(jq -r '
 ' "$STATE_FILE")
 
 if [ -z "$SESSIONS" ]; then
-  log "no pipelineSessions recorded — skipping (Stage 2 session derivation did not run?)"
+  log "no pipelineSessions recorded — skipping (no state write carried a UUID-shaped CLAUDE_CODE_SESSION_ID)"
   record '"skipped-no-sessions"'
   exit 0
 fi

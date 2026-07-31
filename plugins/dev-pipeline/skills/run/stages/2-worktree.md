@@ -146,19 +146,7 @@ fi
 
 **Ordering contract:** this call MUST precede `set-stage 2 --status completed` — a completed Stage 2 then always implies the boundary fields are present, so a crash between the two writes leaves Stage 2 merely in-progress (resumable), never "complete but unresumable" (Stage 8's crash-recovery entry asserts `worktreePath` is valid).
 
-**Record pipeline session (for cost attribution at Stage 9):**
-
-```bash
-if [[ -n "${CLAUDE_CODE_SESSION_ID:-}" ]]; then
-  bash statectl.sh pipeline-session-add "$ISSUE_NUMBER" \
-    --session-id "$CLAUDE_CODE_SESSION_ID" \
-    --source interactive
-else
-  echo "[stage-2] CLAUDE_CODE_SESSION_ID unset — skipping cost-attribution session record (Stage 9 will degrade to skipped-no-sessions)"
-fi
-```
-
-The session id is the **native Claude Code session UUID** (`$CLAUDE_CODE_SESSION_ID`) — the exact value the OTel exporter tags datapoints with as `session.id`, so Stage 9's cost block can match it. The subcommand is idempotent on `sessionId`, so it records **one record per Claude session**: a normal run records one id; a crash-recovery Stage 8 resume runs in a fresh session and records its own (distinct) UUID. If `CLAUDE_CODE_SESSION_ID` is unset (e.g. a non-interactive environment), recording is skipped and cost tracking degrades gracefully to `skipped-no-sessions`.
+**Cost-attribution session record — nothing to do at this stage.** Registration is owned by the shared write seam (`apply_session_seam`, called from every `atomic_write`), so this session was already recorded in `pipelineSessions[]` by its first state write — the Stage-1 `init`, well before Stage 2. There is no per-stage call to remember, and therefore no call to miss. Contract: `state-schema.md` § `pipelineSessions`.
 
 ---
 
