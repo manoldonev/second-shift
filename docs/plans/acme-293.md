@@ -53,6 +53,8 @@ from a small ticket.
 - `plugins/dev-pipeline/skills/run/tools/pipeline-doctor.sh` — section 9, WARN-only
 - `plugins/dev-pipeline/skills/run/tools/pipeline-doctor-selftest.sh` — extraction case for section 9
 - `plugins/dev-pipeline/skills/perf-retro/SKILL.md` — report template columns + over-envelope section
+- `plugins/dev-pipeline/skills/run/state-schema.md` — one clause on the pause-math
+  single-consumer note (added at Stage 7; see the deviation recorded in state)
 
 Read-only dependencies (not modified): `plugins/dev-pipeline/skills/run/pipeline-cost-block.sh`
 (owns the `cost-log.jsonl` schema and the stage→bucket label map).
