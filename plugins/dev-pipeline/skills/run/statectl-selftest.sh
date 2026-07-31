@@ -3775,7 +3775,7 @@ fi
 # STATECTL_STATE_DIR); it is exported for this section and unset at the end so the
 # stress section keeps resolving normally.
 echo
-echo "[self-test] ledger corroboration — 12 cases"
+echo "[self-test] ledger corroboration — 13 cases"
 
 LEDGER_DIR="$TMPDIR_ST/.claude/audit"
 mkdir -p "$LEDGER_DIR"
@@ -3953,6 +3953,31 @@ if [[ "$rc" == "1" && "$err" == *"stages/1-*.md read is not corroborated"* ]]; t
   pass "(lcg9) a subagent-attributed Read does not corroborate a main-loop claim (AC-7)"
 else
   fail "(lcg9) subagent exclusion at the gate — rc=$rc err='$err'"
+fi
+
+# (lcg9b) The intakeMode="inline-approved" carve-out, proven UNDER AN ACTIVE LEDGER.
+# (sl1b) already covers the carve-out for the self-reported skill-load gate, but it
+# runs before STATECTL_LEDGER_DIR is exported, so it would pass via the unrelated
+# D-2 fail-open whatever this conditional did — it cannot prove the LEDGER leg's skip
+# fires. Here the ledger is live and deliberately holds the stage-file Read but NO
+# intake-orchestrator Skill row: without the carve-out the ledgerSkill leg would
+# refuse. The paired refusal is (lcg4), so the two together show the skip is doing
+# real work rather than being accidentally vacuous.
+reset_state
+lcg_write "$SESSION_A" "$ROW_READ1"
+sct init 9941 --run-id "selftest-run-$$" >/dev/null
+sct pipeline-session-add 9941 --session-id "$SESSION_A" --source interactive >/dev/null
+sct set-stage 9941 1 --status started >/dev/null
+sct checkpoint 9941 1 --json '{"verdict":"no-split","intakeMode":"inline-approved","preflight":{"baseBranch":"main","workingTreeClean":true,"guardOutcome":"proceed-clean"}}' >/dev/null
+sct comment-add 9941 --marker claimed --url "https://github.example/c/claimed" >/dev/null
+sct comment-add 9941 --marker intake --url "https://github.example/c/intake" >/dev/null
+stage_evidence 9941 1
+rc=$(sct_rc set-stage 9941 1 --status completed)
+lc=$(sct get 9941 '.stages."1".ledgerCorroboration')
+if [[ "$rc" == "0" && "$lc" == "corroborated" ]]; then
+  pass "(lcg9b) intakeMode inline-approved skips the ledgerSkill leg under a live ledger (AC-1)"
+else
+  fail "(lcg9b) inline-approved ledger carve-out — rc=$rc lc='$lc'"
 fi
 
 # (lcg10) AC-3: Stage-6 completion is UNCHANGED. Its verifyctl attestation sidecar
