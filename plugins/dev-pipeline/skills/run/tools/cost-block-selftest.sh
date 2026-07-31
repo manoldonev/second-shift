@@ -396,5 +396,70 @@ R9_RC=$?
   || bad "(AC-1) no-state run exited $R9_RC, expected 2"
 
 echo
+echo "=== AC-8: state-less mode (run-lean) is ADDITIVE ==="
+# The mode's whole safety claim is that it changes nothing for state-file callers — every
+# case above already exercised those paths. These assert the new one, and critically that
+# it writes NO cost-log row and needs no state.
+MINI_METRICS="$FIX/single-session-mini.jsonl"
+MINI_SESSION="aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee"
+SL_OUT="$TMP/stateless-block.md"
+SL_LOG="$TMP/stateless-cost-log.jsonl"
+
+OTEL_METRICS_FILE="$MINI_METRICS" COST_LOG_FILE="$SL_LOG" \
+  bash "$SCRIPT" --stateless --sessions "$MINI_SESSION" \
+    --start "2026-05-01T00:00:00Z" --end "2026-06-01T00:00:00Z" --out "$SL_OUT" >/dev/null 2>&1
+SL_RC=$?
+[[ "$SL_RC" -eq 0 ]] \
+  && ok "(AC-8) state-less mode exits 0 with no state file present" \
+  || bad "(AC-8) state-less mode exited $SL_RC, expected 0"
+
+{ [[ -s "$SL_OUT" ]] && grep -q 'Pipeline Cost' "$SL_OUT"; } \
+  && ok "(AC-8) --out receives the rendered cost block" \
+  || bad "(AC-8) --out did not receive a rendered block"
+
+# The session total must carry the real fixture cost — the same collector query and pricing
+# math as the state-file path. One instrument, not a second implementation.
+grep -q '0\.50' "$SL_OUT" 2>/dev/null \
+  && ok "(AC-8) state-less totals use the same collector query and pricing math" \
+  || bad "(AC-8) expected the fixture's 0.50 session total in the emitted block"
+
+# Session-window totals ONLY: lean has no stage windows, so a per-stage table would be a
+# fabrication rather than a degraded view.
+{ grep -q 'Session total' "$SL_OUT" 2>/dev/null \
+  && ! grep -qE '^\| (Intake|Plan|Implementation|Verify) ' "$SL_OUT" 2>/dev/null; } \
+  && ok "(AC-8) emits session-window totals only (no per-stage table)" \
+  || bad "(AC-8) state-less block should carry no per-stage rows"
+
+# D-36: lean runs are out of the perf corpus, so a row here would silently contaminate
+# cross-run analytics with a harness that has no stages.
+[[ ! -s "$SL_LOG" ]] \
+  && ok "(AC-8) state-less mode writes NO cost-log.jsonl row (D-36 corpus hygiene)" \
+  || bad "(AC-8) state-less mode wrote a cost-log row: $(cat "$SL_LOG")"
+
+# Both inputs are REQUIRED, not optional: without a fence, session-only attribution inhales
+# every co-resident datapoint from a long-lived interactive session.
+OTEL_METRICS_FILE="$MINI_METRICS" \
+  bash "$SCRIPT" --stateless --sessions "$MINI_SESSION" >/dev/null 2>&1
+[[ $? -eq 2 ]] \
+  && ok "(AC-8) --stateless without a time fence is a usage error" \
+  || bad "(AC-8) --stateless without --start/--end should exit 2"
+
+OTEL_METRICS_FILE="$MINI_METRICS" \
+  bash "$SCRIPT" --stateless --start "2026-05-01T00:00:00Z" --end "2026-06-01T00:00:00Z" >/dev/null 2>&1
+[[ $? -eq 2 ]] \
+  && ok "(AC-8) --stateless without --sessions is a usage error" \
+  || bad "(AC-8) --stateless without --sessions should exit 2"
+
+# The flag must be parsed AHEAD of the required positional: `${1:?usage}` is evaluated
+# before any flag handling, so a state-less call with no issue number would otherwise die
+# on a usage error before ever reaching its own mode.
+OTEL_METRICS_FILE="$MINI_METRICS" \
+  bash "$SCRIPT" --stateless --sessions "$MINI_SESSION" \
+    --start "2026-05-01T00:00:00Z" --end "2026-06-01T00:00:00Z" >/dev/null 2>&1
+[[ $? -eq 0 ]] \
+  && ok "(AC-8) --stateless needs no issue positional (flags parsed before the required \$1)" \
+  || bad "(AC-8) state-less mode still requires the issue positional"
+
+echo
 echo "Result: $PASS passed, $FAIL failed"
 [[ "$FAIL" -eq 0 ]] && exit 0 || exit 1

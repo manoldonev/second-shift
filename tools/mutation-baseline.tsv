@@ -45,9 +45,19 @@ plugins/audit-toolkit/scripts/audit-history.sh::detector::2	seeded by the canoni
 plugins/audit-toolkit/scripts/audit-history.sh::fail-open::1	seeded by the canonical seed run
 plugins/audit-toolkit/scripts/audit-history.sh::fail-open::2	seeded by the canonical seed run
 plugins/audit-toolkit/scripts/audit-history.sh::logic::2	seeded by the canonical seed run
+plugins/dev-pipeline/skills/run-lean/lean-gate.sh::cmp-eq::1	seeded for #303 from a local advisory sweep (macOS); confirm at the first nightly
+plugins/dev-pipeline/skills/run-lean/lean-gate.sh::cmp-z::1	seeded for #303 from a local advisory sweep (macOS); confirm at the first nightly
+plugins/dev-pipeline/skills/run-lean/lean-gate.sh::default::1	seeded for #303 from a local advisory sweep (macOS); confirm at the first nightly
+plugins/dev-pipeline/skills/run-lean/lean-gate.sh::default::2	seeded for #303 from a local advisory sweep (macOS); confirm at the first nightly
+plugins/dev-pipeline/skills/run-lean/lean-gate.sh::detector::1	seeded for #303 from a local advisory sweep (macOS); confirm at the first nightly
+plugins/dev-pipeline/skills/run-lean/lean-reconcile.sh::cmp-eq::1	seeded for #303 from a local advisory sweep (macOS); confirm at the first nightly
+plugins/dev-pipeline/skills/run-lean/lean-reconcile.sh::cmp-z::1	seeded for #303 from a local advisory sweep (macOS); confirm at the first nightly
+plugins/dev-pipeline/skills/run-lean/lean-reconcile.sh::default::1	seeded for #303 from a local advisory sweep (macOS); confirm at the first nightly
+plugins/dev-pipeline/skills/run-lean/lean-reconcile.sh::default::2	seeded for #303 from a local advisory sweep (macOS); confirm at the first nightly
+plugins/dev-pipeline/skills/run-lean/lean-reconcile.sh::fail-open::2	seeded for #303 from a local advisory sweep (macOS); confirm at the first nightly
+plugins/dev-pipeline/skills/run/pipeline-cost-block.sh::cmp-z::1	re-keyed for #303: the --stateless block shifted the generic ordinals
 plugins/dev-pipeline/skills/run/pipeline-cost-block.sh::default::2	seeded by the canonical seed run
 plugins/dev-pipeline/skills/run/pipeline-cost-block.sh::detector::1	seeded by the canonical seed run
-plugins/dev-pipeline/skills/run/pipeline-cost-block.sh::logic::1	seeded by the canonical seed run
 plugins/dev-pipeline/skills/run/pipeline-cost-block.sh::logic::2	seeded by the canonical seed run
 plugins/dev-pipeline/skills/run/scenario-lib.sh::default::1	seeded by the canonical seed run
 plugins/dev-pipeline/skills/run/statectl.sh::detector::2	seeded by the canonical seed run
@@ -169,6 +179,13 @@ scripts/check-configversion-migration-doc.sh::logic::2	seeded by the canonical s
 scripts/check-frozen-files.sh::cmp-z::2	seeded by the canonical seed run
 scripts/check-frozen-files.sh::fail-open::1	seeded by the canonical seed run
 scripts/check-frozen-files.sh::fail-open::2	seeded by the canonical seed run
+scripts/check-lean-chain.sh::cmp-eq::1	seeded for #303 from a local advisory sweep (macOS); confirm at the first nightly
+scripts/check-lean-chain.sh::cmp-eq::2	seeded for #303 from a local advisory sweep (macOS); confirm at the first nightly
+scripts/check-lean-chain.sh::cmp-z::1	seeded for #303 from a local advisory sweep (macOS); confirm at the first nightly
+scripts/check-lean-chain.sh::cmp-z::2	seeded for #303 from a local advisory sweep (macOS); confirm at the first nightly
+scripts/check-lean-chain.sh::default::1	seeded for #303 from a local advisory sweep (macOS); confirm at the first nightly
+scripts/check-lean-chain.sh::default::2	seeded for #303 from a local advisory sweep (macOS); confirm at the first nightly
+scripts/check-lean-chain.sh::detector::2	seeded for #303 from a local advisory sweep (macOS); confirm at the first nightly
 scripts/check-lockstep-pairs.sh::default::2	seeded by the canonical seed run
 scripts/check-lockstep-pairs.sh::fail-open::1	seeded by the canonical seed run
 scripts/check-lockstep-pairs.sh::logic::1	seeded by the canonical seed run

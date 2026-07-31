@@ -443,5 +443,125 @@ console.log('── Case H: args.config subset delivery (#77)')
   ok('H3b no tracker key falls back to the gh issue view fetch', /gh issue view/.test(p) && !/Atlassian MCP/.test(p))
 }
 
+// ---------------------------------------------------------------------------
+// Case L — run-lean's reviewer workflow, driven through its REAL dispatch ladder.
+//
+// lean-review.mjs restates the measured transport rather than importing it (Workflow
+// scripts cannot import), so it is exactly the kind of file that rots into a divergent
+// copy. Executing the production body is what keeps that honest.
+//
+// Its sentinel is LEAN_REVIEW_RESULT, deliberately NOT the shared REVIEW_RESULT: a
+// distinct token means a stray code-review-shaped block can never be read as a lean
+// verdict. L2 pins exactly that.
+// ---------------------------------------------------------------------------
+console.log('── Case L: lean-review.mjs dispatch ladder')
+{
+  const { existsSync } = await import('node:fs')
+  const LEAN_REVIEW_MJS = join(HERE, '..', '..', 'run-lean', 'workflows', 'lean-review.mjs')
+  if (!existsSync(LEAN_REVIEW_MJS)) {
+    pass('L skipped — no run-lean workflow in this checkout')
+  } else {
+    const leanBlock = (verdict = 'approve', findings = []) =>
+      'LEAN_REVIEW_RESULT\n```json\n' + JSON.stringify({ verdict, summary: 's', findings }) + '\n```'
+    const blocker = [{ severity: 'blocker', claim: 'c', rationale: 'r', confidence: 90 }]
+
+    const runLean = (behaviors, argsOverride = {}) => {
+      const f = makeFakeAgent(behaviors)
+      const args = {
+        worktree: '/tmp/wt',
+        base: 'aaa',
+        head: 'bbb',
+        issue: '303',
+        specPath: 'docs/plans/acme-303-lean.md',
+        round: 1,
+        config: { reviewers: null },
+        ...argsOverride,
+      }
+      return makeRunner(LEAN_REVIEW_MJS)(f.agent, parallel, pipeline, args, noop, noop, undefined).then((r) => ({
+        result: r,
+        calls: f.calls,
+      }))
+    }
+
+    try {
+      makeRunner(LEAN_REVIEW_MJS)
+      pass('L0 lean-review.mjs strips its meta block and compiles under the runtime wrapper')
+    } catch (e) {
+      fail(`L0 lean-review.mjs failed to compile under the runtime wrapper: ${e.message}`)
+    }
+
+    {
+      const { result, calls } = await runLean([leanBlock('approve')])
+      eq('L1a a well-formed LEAN_REVIEW_RESULT block parses to an approve verdict', result.verdict, 'approve')
+      // D-2: with no override configured, NO model key is passed at all — the runtime
+      // default applies and the skill makes no model claim.
+      ok('L1b no model is pinned when reviewers.modelOverrides is absent', !('model' in (calls[0]?.opts || {})))
+    }
+
+    {
+      const { result } = await runLean([
+        reviewBlock({ verdict: 'approve', findings: [] }),
+        reviewBlock({ verdict: 'approve', findings: [] }),
+      ])
+      ok(
+        'L2 a bare REVIEW_RESULT block is not accepted as a lean verdict (distinct sentinel)',
+        result.verdict === null && result.failed === true,
+      )
+    }
+
+    {
+      const { result, calls } = await runLean(['no sentinel here', leanBlock('needs-work', blocker)])
+      eq('L3a a contract miss retries once and the retry is accepted', result.verdict, 'needs-work')
+      ok('L3b the retry really dispatched (two prompts)', calls.length === 2)
+    }
+
+    {
+      // Sentinel present but unparseable on both attempts ⇒ the transcription-only emitter
+      // fires, and its output is validated exactly like a parsed one.
+      const bad = 'LEAN_REVIEW_RESULT\n```json\n{ not json\n```'
+      const { result, calls } = await runLean([bad, bad, { verdict: 'approve', summary: 's', findings: [] }])
+      eq('L4a a sentinel-bearing unparseable block falls back to the structured emitter', result.verdict, 'approve')
+      ok(
+        'L4b only the emitter carries a schema (the explorer dispatches schema-free)',
+        !calls[0].opts.schema && !calls[1].opts.schema && !!calls[2].opts.schema,
+      )
+    }
+
+    {
+      // Darkness must never read as "no findings": a dark reviewer scored as an approval
+      // would waive milestone 4 outright.
+      const { result } = await runLean(['nothing', 'still nothing'])
+      ok(
+        'L5 two sentinel-less attempts are declared dark, not approved',
+        result.verdict === null && result.failed === true && result.retried === true,
+      )
+    }
+
+    {
+      const { calls } = await runLean([leanBlock()], {
+        config: { reviewers: { modelOverrides: { 'lean-reviewer': 'opus' } } },
+      })
+      eq('L6 a reviewers.modelOverrides entry pins the reviewer tier', calls[0].opts.model, 'opus')
+    }
+
+    {
+      const f = makeFakeAgent([leanBlock()])
+      const result = await makeRunner(LEAN_REVIEW_MJS)(
+        f.agent,
+        parallel,
+        pipeline,
+        { worktree: '/tmp/wt', base: 'a', head: 'b', issue: '303', config: {} },
+        noop,
+        noop,
+        makeBudget(100000, 0),
+      )
+      ok(
+        'L7 an exhausted budget skips the dispatch and returns no verdict',
+        result.budgetExhausted === true && result.verdict === null && f.calls.length === 0,
+      )
+    }
+  }
+}
+
 console.log(`\n[runtime-shim-selftest] ${PASS} passed, ${FAIL} failed`)
 process.exit(FAIL)

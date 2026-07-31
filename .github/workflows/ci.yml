@@ -120,6 +120,14 @@ jobs:
     env:
       PIPELINE_BRANCH_PREFIX: claude/second-shift-
       PIPELINE_PLAN_PATTERN: docs/plans/acme-{issueKey}.md
+      # The lean harness's branch namespace. lean-gate.sh derives this at runtime from
+      # tracker.branchPrefix (first path segment replaced with `lean`); it is restated here
+      # for the same reason as the two constants above — the runtime config is gitignored and
+      # absent in CI. It must stay MUTUALLY non-prefix-matching with PIPELINE_BRANCH_PREFIX,
+      # or the two chain gates classify the same PRs; check-lean-chain.sh asserts exactly that
+      # and exits 2 rather than guessing. Unlike the pipeline prefix, a STALE value here
+      # cannot silently exempt a lean PR: that gate also applies on lean-artifact presence.
+      LEAN_BRANCH_PREFIX: lean/second-shift-
     steps:
       - uses: actions/checkout@v5
         with:
@@ -154,6 +162,24 @@ jobs:
           PR_BODY: ${{ github.event.pull_request.body }}
           PR_CREATED_AT: ${{ github.event.pull_request.created_at }}
         run: bash scripts/check-pipeline-chain.sh
+
+      # The lean harness's own merge-boundary gate. A SIBLING of the check above, not a mode
+      # of it: the two cover disjoint branch namespaces and different evidence sets, and
+      # editing check-pipeline-chain.sh would have re-keyed its four mutation-baseline rows
+      # for zero benefit.
+      #
+      # PR_BASE_REF is additional to the PR_* set above — this gate reads the PR's changed
+      # files (for the lean-artifact applicability arm), which needs the base to diff against.
+      # Same env-not-interpolation discipline throughout.
+      - name: lean chain reconciliation (lean PRs carry their evidence set)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          PR_HEAD_REF: ${{ github.event.pull_request.head.ref }}
+          PR_BODY: ${{ github.event.pull_request.body }}
+          PR_CREATED_AT: ${{ github.event.pull_request.created_at }}
+          PR_BASE_REF: ${{ github.base_ref }}
+        run: bash scripts/check-lean-chain.sh
 
   # Gates that run ONLY on the release PR: the old version-bump discipline (every
   # content-changed plugin carries its derived bump — same script, new call site) and the

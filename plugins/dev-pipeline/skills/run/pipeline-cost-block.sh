@@ -3,18 +3,61 @@
 # run's PR(s). Invoked explicitly by Stage 9 (this is NOT a Stop hook).
 #
 # Usage:  pipeline-cost-block.sh <issue-number>
+#         pipeline-cost-block.sh --stateless --sessions <id[,id…]> \
+#                                --start <iso> --end <iso> [--out <file>]
 # Exit:   0 = ran, or recorded a documented skip (no metrics, no bot wrapper, no
 #         collector, no PRs, …) into the state file's costBlockApplied field.
 #         non-zero = the state file could not be resolved (nothing to record
 #         into) — a loud, state-unresolvable failure. Either way the sub-step is
 #         non-fatal to Stage 9: the caller invokes it without checking rc, so a
 #         non-zero exit surfaces in the run summary but never blocks completion.
+#
+# STATE-LESS MODE (additive; run-lean, D-28). One instrument across both harnesses —
+# the same collector query and the same cache-tier pricing math — with an honest
+# layout difference. run-lean has no state file and no stage windows, so the mode
+# takes its two required inputs as ARGUMENTS (the session-id set and a [start, end]
+# time fence, both carried by the lean progress file), emits session-window totals
+# only to stdout or --out, amends no PR body, and writes NO cost-log.jsonl row (lean
+# is out of the perf corpus by declaration).
+#
+# The flags are parsed AHEAD of the required `$1` positional, which is load-bearing:
+# `${1:?usage}` is evaluated before any flag handling, so a state-less invocation with
+# no issue number would otherwise abort on a usage error before reaching its own mode.
+# Every state-file path below is guarded on $STATELESS, so existing invocations keep
+# their exact behavior.
 
 set -uo pipefail
 log() { echo "[pipeline-cost-block] $*" >&2; }
 
-ISSUE_RAW="${1:?usage: pipeline-cost-block.sh <issue-number>}"
-ISSUE=$(echo "$ISSUE_RAW" | tr '[:upper:]' '[:lower:]')
+STATELESS=0
+ARG_SESSIONS=""
+ARG_START=""
+ARG_END=""
+ARG_OUT=""
+POSITIONAL_ARGS=()
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --stateless) STATELESS=1; shift ;;
+    --sessions)  ARG_SESSIONS="${2:-}"; shift 2 ;;
+    --start)     ARG_START="${2:-}"; shift 2 ;;
+    --end)       ARG_END="${2:-}"; shift 2 ;;
+    --out)       ARG_OUT="${2:-}"; shift 2 ;;
+    -h|--help)   sed -n '2,26p' "$0"; exit 0 ;;
+    -*)          log "unknown option: $1"; exit 2 ;;
+    *)           POSITIONAL_ARGS+=("$1"); shift ;;
+  esac
+done
+set -- ${POSITIONAL_ARGS+"${POSITIONAL_ARGS[@]}"}
+
+if [ "$STATELESS" -eq 1 ]; then
+  [ -n "$ARG_SESSIONS" ] || { log "--stateless requires --sessions <id[,id…]>"; exit 2; }
+  [ -n "$ARG_START" ] && [ -n "$ARG_END" ] \
+    || { log "--stateless requires both --start <iso> and --end <iso> (the time fence)"; exit 2; }
+  ISSUE="stateless"
+else
+  ISSUE_RAW="${1:?usage: pipeline-cost-block.sh <issue-number>}"
+  ISSUE=$(echo "$ISSUE_RAW" | tr '[:upper:]' '[:lower:]')
+fi
 
 # ────────────────────────────────────────────────────────────────────────────
 # Resolve state-file path in the CONSUMER repo, git-common-dir anchored from
@@ -73,6 +116,12 @@ resolve_state() {
     echo ".claude/pipeline-state/${ISSUE}.json"
   fi
 }
+if [ "$STATELESS" -eq 1 ]; then
+  # No state file exists, by definition. Everything downstream that reads it is guarded
+  # on $STATELESS; the empty value here makes an unguarded read fail loudly rather than
+  # silently resolving to some other run's state.
+  STATE_FILE=""
+else
 STATE_FILE=$(resolve_state)
 # No state file at the resolved path is UNRECORDABLE: record() writes into
 # $STATE_FILE, which by definition does not exist here, so we cannot leave a
@@ -82,6 +131,7 @@ STATE_FILE=$(resolve_state)
 # on the invocation; operators of a bespoke cwd set STATECTL_STATE_DIR). Stage 9
 # invokes this without checking rc, so the non-zero never blocks completion.
 [ -f "$STATE_FILE" ] || { log "no state file at $STATE_FILE — state unresolvable, cannot record costBlockApplied (see #188: export SECOND_SHIFT_REPO_ROOT/STATECTL_STATE_DIR to the control repo)"; exit 2; }
+fi
 
 # ────────────────────────────────────────────────────────────────────────────
 # Record outcome into costBlockApplied (raw jq — statectl does not own this).
@@ -89,6 +139,9 @@ STATE_FILE=$(resolve_state)
 record() {
   local val="$1"  # JSON scalar: `true` or a quoted string
   local tmp
+  # State-less mode has nothing to record into. A no-op here (rather than a guard at
+  # each of the ~8 call sites) keeps every documented skip path working unchanged.
+  [ "$STATELESS" -eq 1 ] && return 0
   tmp=$(mktemp) || return
   if jq --argjson v "$val" '.costBlockApplied = $v' "$STATE_FILE" > "$tmp"; then
     mv "$tmp" "$STATE_FILE"
@@ -181,6 +234,12 @@ fi
 # appears, including a crash-recovery resume at any stage. Runs with no recorded
 # sessions skip cleanly.
 # ────────────────────────────────────────────────────────────────────────────
+if [ "$STATELESS" -eq 1 ]; then
+  # The caller supplies the set (comma- or whitespace-separated); the lean progress file
+  # is its carrier, which is why AC-14's reconciliation keys are load-bearing here rather
+  # than forward-looking.
+  SESSIONS=$(printf '%s' "$ARG_SESSIONS" | tr ',' '\n' | tr ' ' '\n' | awk 'NF' | sort -u)
+else
 SESSIONS=$(jq -r '
   (.pipelineSessions // [])
   | map(.sessionId // empty)
@@ -188,6 +247,7 @@ SESSIONS=$(jq -r '
   | unique
   | .[]
 ' "$STATE_FILE")
+fi
 
 if [ -z "$SESSIONS" ]; then
   log "no pipelineSessions recorded — skipping (no state write carried a UUID-shaped CLAUDE_CODE_SESSION_ID)"
@@ -235,11 +295,19 @@ SIDS_JSON=$(jq -R -s 'split("\n") | map(select(length > 0))' <<<"$SESSIONS")
 # lexicographic compare is chronological. If .startedAt is somehow absent, the
 # fence disables itself (empty bounds) and we degrade to session-only behavior.
 # ────────────────────────────────────────────────────────────────────────────
+if [ "$STATELESS" -eq 1 ]; then
+  # The fence is an ARGUMENT here, not derived from stage timestamps — lean has none.
+  # It is required (not optional) precisely because session-only attribution would
+  # inhale every co-resident datapoint from a long-lived interactive session.
+  FENCE_LO="$ARG_START"
+  FENCE_HI="$ARG_END"
+else
 FENCE_LO=$(jq -r '.startedAt // empty' "$STATE_FILE")
 FENCE_HI=$(jq -r '
   ([.stages[]?.completedAt // empty] | map(select(. != null and . != "")) | max) //
   (.lastUpdatedAt // empty) // empty
 ' "$STATE_FILE")
+fi
 if [ -z "$FENCE_LO" ] || [ -z "$FENCE_HI" ]; then
   log "no usable time fence (startedAt/completedAt/lastUpdatedAt missing) — degrading to session-only attribution"
   FENCE_LO=""
@@ -250,7 +318,7 @@ compute_bucket_rollup() {
   jq -s --argjson sids "$SIDS_JSON" \
         --arg fenceLo "$FENCE_LO" \
         --arg fenceHi "$FENCE_HI" \
-        --argjson stages "$(jq -c '.stages' "$STATE_FILE")" '
+        --argjson stages "$([ "$STATELESS" -eq 1 ] && echo '{}' || jq -c '.stages' "$STATE_FILE")" '
     def nanos_to_iso: tonumber / 1e9 | todate;
     def stage_label(n):
       {"1":"Intake","2":"Intake",
@@ -340,6 +408,10 @@ compute_bucket_rollup() {
 # timestamps across ALL stages, so a single missing final-stage window still
 # passes (prior stages satisfy it) and never crashes the cost block.
 stage_windows_ok() {
+  # Lean has no stage windows by construction, so the state-less mode always renders the
+  # single-row session total. That is the honest layout difference D-28 asks for — not a
+  # degraded per-stage table with empty rows.
+  [ "$STATELESS" -eq 1 ] && { echo "no"; return 0; }
   jq -r '
     (.stages // {}) as $s
     | ( [$s | to_entries[] | .value.startedAt] | map(select(. != null)) | length ) as $starts
@@ -375,18 +447,28 @@ fi
 # PR cost split: divide total cost evenly across all PRs in this run.
 # A single-PR run uses factor 1; a be-fe-pair run splits across its per-repo PRs.
 # ────────────────────────────────────────────────────────────────────────────
+if [ "$STATELESS" -eq 1 ]; then
+  # No PR set to split across — the lean session posts one block in one comment. The
+  # duration comes from the supplied fence, which is the only span this mode knows.
+  PR_COUNT=1
+  STARTED_AT="$ARG_START"
+  COMPLETED_AT="$ARG_END"
+else
 PR_COUNT=$(jq -r '[.prs | values[]? | select(. != null)] | length' "$STATE_FILE")
 # State exists but carries no PRs → record the skip reason (never a bare null /
 # silent exit — #188). Sibling of the skipped-* paths above.
 [ "$PR_COUNT" -eq 0 ] && { log "no PRs in state — skipping"; record '"skipped-no-prs"'; exit 0; }
+fi
 
 SPLIT_FACTOR="1"
 if [ "$PR_COUNT" -gt 1 ]; then
   SPLIT_FACTOR=$(awk "BEGIN { printf \"%.6f\", 1/$PR_COUNT }")
 fi
 
+if [ "$STATELESS" -eq 0 ]; then
 STARTED_AT=$(jq -r '.startedAt // empty' "$STATE_FILE")
 COMPLETED_AT=$(jq -r '.lastUpdatedAt // empty' "$STATE_FILE")
+fi
 DURATION_MIN="?"
 if [ -n "$STARTED_AT" ] && [ -n "$COMPLETED_AT" ]; then
   S=$(date -j -f "%Y-%m-%dT%H:%M:%SZ" "$STARTED_AT" +%s 2>/dev/null || date -d "$STARTED_AT" +%s 2>/dev/null)
@@ -428,7 +510,13 @@ render_block() {
     fence_lo_hm="${FENCE_LO:11:5}"
     fence_hi_hm="${FENCE_HI:11:5}"
   fi
+  # The session-total row's parenthetical. In state-less mode the absence of a per-stage
+  # breakdown is not a defect to apologize for — lean has no stages by construction — so
+  # the honest label says that instead of implying the run failed to record timestamps.
+  local total_note="per-stage breakdown unavailable — pipeline did not record stage timestamps"
+  [ "$STATELESS" -eq 1 ] && total_note="lean run — no stage windows by design"
   jq -r --arg factor "$factor" --arg dur "$DURATION_MIN" --arg windows_ok "$windows_ok" \
+        --arg totalNote "$total_note" \
         --arg fenceLoHm "$fence_lo_hm" --arg fenceHiHm "$fence_hi_hm" '
     def usd(x): x * ($factor|tonumber);
     def fmt(x):
@@ -457,7 +545,7 @@ render_block() {
         else
           [ "| Scope | Models | Cost (USD) |",
             "|-------|--------|-----------:|",
-            "| Session total (per-stage breakdown unavailable — pipeline did not record stage timestamps) | " + ($all_models | join(", ")) + " | " + fmt(usd(.totals.cost_usd)) + " |"
+            "| Session total (" + $totalNote + ") | " + ($all_models | join(", ")) + " | " + fmt(usd(.totals.cost_usd)) + " |"
           ]
         end
       )
@@ -476,8 +564,24 @@ render_block() {
 }
 
 COST_BLOCK=$(render_block "$SPLIT_FACTOR" "$STAGE_WINDOWS_OK")
-if [ "$STAGE_WINDOWS_OK" != "yes" ]; then
+if [ "$STAGE_WINDOWS_OK" != "yes" ] && [ "$STATELESS" -eq 0 ]; then
   log "state file lacks valid per-stage timestamps — emitting single-row session total"
+fi
+
+# ────────────────────────────────────────────────────────────────────────────
+# State-less mode ends here: emit and stop. No PR body is amended (the lean session
+# posts the block itself, in its one closing comment) and NO cost-log.jsonl row is
+# written — lean runs are out of the perf corpus by declaration (D-36), so a row here
+# would quietly contaminate cross-run analytics with a harness that has no stages.
+# ────────────────────────────────────────────────────────────────────────────
+if [ "$STATELESS" -eq 1 ]; then
+  if [ -n "$ARG_OUT" ]; then
+    printf '%s\n' "$COST_BLOCK" > "$ARG_OUT" || { log "could not write --out '$ARG_OUT'"; exit 2; }
+    log "state-less cost block written to $ARG_OUT"
+  else
+    printf '%s\n' "$COST_BLOCK"
+  fi
+  exit 0
 fi
 
 # ────────────────────────────────────────────────────────────────────────────

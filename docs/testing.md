@@ -86,7 +86,12 @@ Notes from building it:
   itself; a schema-carrying dispatch resolves to an already-validated **object**. Getting this
   backwards makes cases fail for the wrong reason.
 - The meta-strip is a balanced-brace scan, not a parser. That is safe only because
-  `design-sync-selftest.mjs` Case I lints every workflow for meta-literal purity.
+  `design-sync-selftest.mjs` Case I lints every workflow for meta-literal purity — and "every"
+  is a **list** of workflow directories, not one. Workflow scripts live under more than one
+  skill (`skills/run/workflows/` and `skills/run-lean/workflows/`), so adding a third directory
+  means adding it to Case I's list: a workflow outside that list is unlinted, which makes the
+  meta-strip unsound for exactly the files it is used on. `tools/check-bounded-exploration.sh`
+  is anchored the same way and takes the same edit.
 - `workflow` is **last** in the parameter list, and adding a global must stay an append —
   inserting one shifts every existing positional call site, and cases then fail for reasons that
   look like production bugs. `plan-review.mjs` and `mutation-gate.mjs` need it for their nested

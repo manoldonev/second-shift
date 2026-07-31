@@ -341,6 +341,26 @@ if [ -n "$t_line" ] && [ -n "$u_line" ]; then
   fi
 fi
 
+# --- C1: the scanned set spans EVERY workflow directory, not just skills/run --------------
+# Workflow scripts live under more than one skill now (run-lean ships its own). A lint
+# anchored to a single directory reports a confident green while never having opened the
+# files outside it — the self-neutralization class this lint exists to prevent, turned on
+# the lint itself. lean-review.mjs carries a schema-bearing structured-emitter dispatch, so
+# if it is outside the scanned set its declaration marker is never checked at all.
+LEAN_WF_DIR="$(dirname "$RUN_DIR")/run-lean/workflows"
+if [ -d "$LEAN_WF_DIR" ]; then
+  C1_OUT="$(bash "$LINT" 2>&1)"
+  C1_FILES="$(printf '%s' "$C1_OUT" | sed -nE 's/.*across ([0-9]+) file\(s\).*/\1/p')"
+  RUN_ONLY="$(bash "$LINT" "$WORKFLOWS" 2>&1 | sed -nE 's/.*across ([0-9]+) file\(s\).*/\1/p')"
+  if [ -n "$C1_FILES" ] && [ -n "$RUN_ONLY" ] && [ "$C1_FILES" -gt "$RUN_ONLY" ]; then
+    ok "C1 default scan spans multiple workflow dirs ($C1_FILES files vs $RUN_ONLY for skills/run/workflows alone)"
+  else
+    bad "C1 default scan covered $C1_FILES file(s), not more than skills/run/workflows' $RUN_ONLY — the run-lean workflow dir is outside the scanned set, so its schema-carrying dispatches are unchecked"
+  fi
+else
+  ok "C1 skipped — no run-lean workflows directory in this checkout"
+fi
+
 echo "check-bounded-exploration-selftest: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ] || exit 1
 exit 0
