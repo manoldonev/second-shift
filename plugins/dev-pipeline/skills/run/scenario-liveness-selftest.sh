@@ -778,6 +778,143 @@ pg_a_receipt=$(sct get "$PG_A" '.comments.claimed // empty')
   && pass "(pg-nv) non-vacuity: the same path with the predecessor CLOSED does write the state file + receipt — the skip came from the gate (AC-6)" \
   || fail "(pg-nv) non-vacuity — rc=$pg_rc_closed file=$([[ -f "$STATECTL_STATE_DIR/$PG_A.json" ]] && echo y || echo n) receipt='$pg_a_receipt'"
 
+# ─────────────────────────────────────────────────────────────────────────────
+# LEAN LEGS (run-lean) — the composed progress-file line chain and gate exit codes
+# across the three verdict paths.
+#
+# These are the assertion site for the failure economics the issue pins in PROSE but
+# no AC-n carries: the fix budget of 3, the 4th-red hard stop, the abort record, and
+# counters surviving re-entry. A per-tool fixture proves one gate in isolation; only a
+# composed leg proves the CHAIN a real run walks.
+#
+# The all-green leg is also AC-15's assertion site: the claim is executed by the session
+# following SKILL.md rather than by a gate, so this is where the second bot-wrapper write
+# is checked (the label swap itself is claim-issue.sh's contract, proven by claim-selftest.sh).
+# ─────────────────────────────────────────────────────────────────────────────
+echo
+echo "── lean legs (run-lean)"
+
+# $HERE, not BASH_SOURCE: this suite cd's to $TMP above, so BASH_SOURCE is relative by the
+# time we get here and would resolve against the temp dir. $HERE was captured absolutely
+# before that cd for exactly this reason.
+#
+# Absence is a FAILURE, not a skip. run-lean ships in this repo, so a missing gate means the
+# legs below never ran — and a skipped leg reporting PASS is the vacuous green this whole
+# suite exists to prevent. (It bit these very legs once: a bad path resolved to a skip and
+# the suite reported 32/32 having asserted nothing about lean.)
+LEAN_GATE="$HERE/../run-lean/lean-gate.sh"
+if [[ ! -x "$LEAN_GATE" ]]; then
+  fail "(lean) lean-gate.sh not found or not executable at $LEAN_GATE — the lean legs did not run"
+else
+  LEAN_TREE="$TMP/lean-tree"
+  mkdir -p "$LEAN_TREE/docs/plans" "$LEAN_TREE/.claude/audit"
+  git -C "$LEAN_TREE" init -q
+  LEAN_CFG="$TMP/lean-config.json"
+  cat > "$LEAN_CFG" <<'LEANCFG'
+{
+  "tracker": { "branchPrefix": "claude/acme-", "labels": { "queue": "ready-for-dev", "claimed": "in-progress" } },
+  "topology": { "repos": { "acme": { "path": ".", "baseBranch": "main" } } },
+  "paths": { "plansDir": "docs/plans", "pipelineStateDir": ".claude/pipeline-state" },
+  "commands": { "acme": { "lint": null, "typecheck": null, "test": null, "build": null } }
+}
+LEANCFG
+  LEAN_PROG="$TMP/lean-progress.md"
+  lean_gate() { ( cd "$LEAN_TREE" && SECOND_SHIFT_CONFIG="$LEAN_CFG" LEAN_PROGRESS_FILE="$LEAN_PROG" \
+                  bash "$LEAN_GATE" "$@" 2>&1 ); }
+  lean_count() { if [[ -f "$LEAN_PROG" ]]; then local n; n=$(grep -cF "$1" "$LEAN_PROG" 2>/dev/null) || n=0; echo "$n"; else echo 0; fi; }
+
+  LEAN_SPEC="$LEAN_TREE/docs/plans/acme-77-lean.md"
+  LEAN_VERDICT="$LEAN_TREE/docs/plans/acme-77-lean-verdict.md"
+
+  # ---- leg 1: all-green -> exit artifacts ----------------------------------
+  rm -f "$LEAN_PROG"
+  printf '# spec\n\n- AC-1: a thing\n' > "$LEAN_SPEC"
+  printf 'verdict=approve\nrun_id: r-lean-1\n' > "$LEAN_VERDICT"
+  cat > "$TMP/lean-pr.json" <<'LEANPR'
+[{ "number": 5, "url": "https://example.invalid/pr/5", "isDraft": false,
+   "body": "Closes #77\n\nSpec: docs/plans/acme-77-lean.md" }]
+LEANPR
+  cat > "$TMP/lean-comments.json" <<'LEANC'
+[{ "user": { "type": "Bot" }, "created_at": "2026-01-01T00:00:00Z",
+   "body": "<!-- run_id: r-lean-1 -->\n<!-- stage: lean-claimed -->" },
+ { "user": { "type": "Bot" }, "created_at": "2026-01-02T00:00:00Z",
+   "body": "Done. Verdict record: docs/plans/acme-77-lean-verdict.md" }]
+LEANC
+  lean_gate 1 77 >/dev/null 2>&1; g1=$?
+  lean_gate 2 77 >/dev/null 2>&1; g2=$?
+  lean_gate 3 77 >/dev/null 2>&1; g3=$?
+  lean_gate 4 77 >/dev/null 2>&1; g4=$?
+  lean_gate 5 77 --pr-file "$TMP/lean-pr.json" --comments-file "$TMP/lean-comments.json" >/dev/null 2>&1; g5=$?
+  [[ "$g1$g2$g3$g4$g5" == "00000" ]] \
+    && pass "(lean-green) milestones 1-5 all exit 0 on a complete run" \
+    || fail "(lean-green) exit codes were $g1$g2$g3$g4$g5, expected 00000"
+
+  lean_sat=0
+  for m in 1 2 3 4 5; do
+    [[ "$(lean_count "| milestone-$m | satisfied")" -eq 1 ]] && lean_sat=$((lean_sat + 1))
+  done
+  [[ "$lean_sat" -eq 5 ]] \
+    && pass "(lean-green) the progress-file chain carries exactly one satisfied line per milestone" \
+    || fail "(lean-green) expected 5 single satisfied lines, got $lean_sat"
+
+  # AC-15's second write. What is pinned is not "a comment exists" but that it is
+  # BOT-authored and carries the run id — an operator-posted comment is invisible to the
+  # merge-boundary gate's trust filter, so it would not be evidence at all.
+  claim_ok=$(jq -r '[ .[] | select(.user.type == "Bot")
+                          | select((.body // "") | test("stage:[[:space:]]*lean-claimed"))
+                          | select((.body // "") | test("run_id:[[:space:]]*[A-Za-z0-9._-]+")) ] | length' \
+             "$TMP/lean-comments.json")
+  [[ "$claim_ok" -ge 1 ]] \
+    && pass "(lean-claim) the claim trail carries a bot-authored lean-claimed marker with a run id (AC-15)" \
+    || fail "(lean-claim) no bot-authored lean-claimed comment with a run id"
+
+  # The marker must be lean-DISTINCT: a bare `stage: claimed` would pollute the pipeline
+  # chain gate's run-family selection if this issue later runs through full `run`.
+  polluting=$(jq -r '[ .[] | select((.body // "") | test("stage:[[:space:]]*claimed[[:space:]]*-->")) ] | length' \
+              "$TMP/lean-comments.json")
+  [[ "$polluting" -eq 0 ]] \
+    && pass "(lean-claim) the marker is lean-distinct — no bare 'stage: claimed' to pollute pipeline family selection" \
+    || fail "(lean-claim) a bare 'stage: claimed' marker would pollute pipeline family selection"
+
+  # ---- leg 2: budget exhaustion -> abort record ----------------------------
+  rm -f "$LEAN_PROG"
+  mv "$LEAN_VERDICT" "$TMP/held-lean-verdict.md"
+  lean_rcs=""
+  for _ in 1 2 3 4; do lean_gate 4 77 >/dev/null 2>&1; lean_rcs="$lean_rcs$?"; done
+  [[ "$lean_rcs" == "1114" ]] \
+    && pass "(lean-budget) 3 fix attempts then a 4th-red hard stop (rc=4) — the prose-only fix budget, asserted" \
+    || fail "(lean-budget) exit sequence was $lean_rcs, expected 1114"
+  [[ "$(lean_count 'budget-exhausted')" -ge 1 ]] \
+    && pass "(lean-budget) the abort record lands in the progress file" \
+    || fail "(lean-budget) no budget-exhausted record written"
+  [[ "$(lean_count '| milestone-4 | satisfied')" -eq 0 ]] \
+    && pass "(lean-budget) an exhausted milestone records no satisfied line — an abort is not a pass" \
+    || fail "(lean-budget) an exhausted milestone was also recorded satisfied"
+
+  # ---- leg 3: needs-work -> fix-loop re-entry ------------------------------
+  rm -f "$LEAN_PROG"
+  printf 'verdict=needs-work\nrun_id: r-lean-1\n' > "$LEAN_VERDICT"
+  lean_gate 4 77 >/dev/null 2>&1; nw1=$?
+  printf 'verdict=approve\nrun_id: r-lean-1\n' > "$LEAN_VERDICT"
+  lean_gate 4 77 >/dev/null 2>&1; nw2=$?
+  [[ "$nw1" -eq 1 && "$nw2" -eq 0 ]] \
+    && pass "(lean-fixloop) a needs-work verdict blocks (rc=1) and re-entry after the fix passes (rc=0)" \
+    || fail "(lean-fixloop) expected rc 1 then 0, got $nw1 then $nw2"
+  [[ "$(lean_count '| milestone-4 | attempt |')" -eq 1 ]] \
+    && pass "(lean-fixloop) the failed round is still counted after re-entry (counters survive resume)" \
+    || fail "(lean-fixloop) the surviving attempt counter was lost across re-entry"
+
+  # ---- non-vacuity ---------------------------------------------------------
+  # An all-green leg that stays green over a broken tree proves nothing.
+  rm -f "$LEAN_PROG"
+  mv "$LEAN_SPEC" "$TMP/held-lean-spec.md"
+  lean_gate 1 77 >/dev/null 2>&1; lean_nv=$?
+  [[ "$lean_nv" -ne 0 ]] \
+    && pass "(lean-nv) non-vacuity: the same leg reds when the spec is absent" \
+    || fail "(lean-nv) milestone-1 passed with no spec — the lean legs are vacuous"
+  mv "$TMP/held-lean-spec.md" "$LEAN_SPEC"
+fi
+
 echo
 echo "[scenario-liveness] summary: $PASS passed, $FAIL failed"
 exit $FAIL
