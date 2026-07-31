@@ -22,13 +22,6 @@
 name: mutation-sweep
 
 on:
-  # TEMPORARY — DELETE BEFORE MERGE. Drives the one canonical seed run that produces
-  # tools/mutation-baseline.tsv and tools/mutation-slow-suites.tsv. workflow_dispatch
-  # cannot do it: this workflow does not exist on the base branch yet, and GitHub only
-  # offers dispatch for workflows present there. Baseline absent + event != schedule =
-  # seed mode, which never enforces.
-  push:
-    branches: [claude/second-shift-218]
   schedule:
     # 03:17 UTC — off the hour to avoid GitHub's scheduler pileup.
     - cron: '17 3 * * *'
