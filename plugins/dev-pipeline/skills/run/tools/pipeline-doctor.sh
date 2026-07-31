@@ -455,5 +455,61 @@ if [[ -d "$STATE_DIR_D" ]]; then
   [[ "$stale_found" == "0" ]] && ok "no stale in_progress claims (>=30 min since last state write)"
 fi
 
+# --- 9. Over-envelope stages on the most recent run (advisory) -------------------
+# The waste half of manifesto P4. Derives per-stage time envelopes from the recorded
+# corpus (tools/stage-envelopes.sh — the single derivation owner; nothing is stored)
+# and surfaces the most recent run's over-envelope stages.
+#
+# WARN, NEVER FAIL — joining sections 7 and 8 as a quality signal. This check must not
+# touch $FAILS: an environment is pipeline-ready whether or not the last run was slow,
+# and a pre-flight that blocked on a *previous* run's latency would be actively wrong.
+#
+# TIME AXIS ONLY. Cost is a post-run artifact (the Stage-9 cost block writes it after
+# the work is done), so a pre-flight surface has nothing to say about it.
+if [[ -d "$STATE_DIR_D" ]] && command -v jq >/dev/null 2>&1; then
+  # --mtime-prefilter caps enumeration at the newest ~3N files so this stays fast on a
+  # several-hundred-file state dir; final selection and ordering are still by startedAt
+  # inside the tool. It is a declared best-effort superset, not a proven one (a run
+  # touched recently can have started long ago) — acceptable precisely because a miss
+  # here costs a missed hint and can never produce a wrong flag.
+  env_out="$(bash "$SCRIPT_DIR/stage-envelopes.sh" --state-dir "$STATE_DIR_D" --mtime-prefilter --json 2>/dev/null)"
+  if [[ -z "$env_out" ]] || ! jq -e . >/dev/null 2>&1 <<<"$env_out"; then
+    ok "stage envelopes: n/a — corpus not derivable yet (no readable runs)"
+  else
+    # >>> envelope-classify (pure — extracted and executed by tools/pipeline-doctor-selftest.sh) >>>
+    # Reads only $env_out. Emits through ok()/warn() and NEVER through fail(), so this
+    # check cannot move the exit code — AC-4's "no gate consumes the envelope output".
+    #
+    # The SENTINEL DELIBERATELY SPANS THE DISPATCH, not just the jq. The never-blocking
+    # property lives in which reporter each arm calls; a sentinel that stopped at the
+    # jq would leave an added `fail` here unguarded, and a mutation demo proved exactly
+    # that gap before this boundary was widened.
+    env_lines=$(jq -r '
+      .flags[] | select(.axis == "time")
+      | "\(.key): \(.measured) min exceeds corpus p90 \(.p90) min (n=\(.n))"
+        + (if .record then " — a new record; at this n the p90 IS the observed maximum" else "" end)
+    ' <<<"$env_out" 2>/dev/null)
+    # A corpus under the min-n floor is reported as a known-unknown, never as a clean
+    # bill of health — the same VACUOUS distinction section 7 draws between "measured
+    # nothing" and "measured, and found nothing".
+    env_summary=$(jq -r '
+      ([ .timeEnvelopes[] | select(.floorMet) ] | length) as $withEnv
+      | if $withEnv == 0
+        then "VACUOUS: no stage reached the min-n floor of \(.corpus.minN) trusted windows after leave-one-out — no envelope derived (corpus: \(.corpus.runsInWindow) run(s))"
+        else "measured \($withEnv) stage envelope(s) over \(.corpus.runsInWindow) run(s), \(.trustedWindows) trusted window(s)"
+        end
+    ' <<<"$env_out" 2>/dev/null)
+    if [[ "$env_summary" == VACUOUS:* ]]; then
+      warn "stage envelopes: ${env_summary#VACUOUS: }"
+    elif [[ -n "$env_lines" ]]; then
+      warn "stage envelopes: the most recent run ($(jq -r '.runUnderTest.stem' <<<"$env_out")) exceeded its corpus envelope — advisory only, nothing is blocked"
+      while IFS= read -r l; do [[ -n "$l" ]] && echo "[doctor]        $l"; done <<<"$env_lines"
+    else
+      ok "stage envelopes: $env_summary; most recent run within envelope"
+    fi
+    # <<< envelope-classify <<<
+  fi
+fi
+
 echo "[doctor] summary: $FAILS failed check(s)"
 exit "$FAILS"

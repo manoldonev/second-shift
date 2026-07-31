@@ -46,6 +46,10 @@ The gate also drops the co-resident `-eval` / `-verify` artifacts for free — n
 
 Per selected run, gather: `bash "${CLAUDE_PLUGIN_ROOT}/skills/run/tools/stage-times.sh" <key>`; the cost log at `<STATE_DIR>/cost-log.jsonl` when present; the timing paragraphs of any existing `<key>-retro.md`; and, for each session id in that run's `pipelineSessions[]`, the audit ledger at `.claude/audit/<session>.jsonl` when it exists on disk.
 
+**Envelopes come from one shared tool, not from this enumeration.** Steps 3 and 6 derive theirs from `bash "${CLAUDE_PLUGIN_ROOT}/skills/run/tools/stage-envelopes.sh" --json`, which recomputes from the corpus every invocation and stores nothing. Report the corpus it declares (file count + dedup rule) next to this step's count: **this step does not dedup per ticket and the tool does**, so a ticket with a live file plus surviving snapshots counts once there and several times here. Declaring both stops one report disagreeing with itself.
+
+**Scope line: when #289 lands, this step adopts the tool's dedup rule** (basename equal to `ticketKey` supersedes that ticket's snapshots; with no live file every snapshot is a distinct run) rather than growing a parallel one.
+
 ## Step 2: Fidelity triage
 
 **Classify every window trusted or degraded BEFORE aggregating anything.** Some recorded numbers are known-bad, and averaging them in produces a profile that is confidently wrong — worse than no profile, because it survives scrutiny.
@@ -65,7 +69,8 @@ Degraded windows are **excluded from every aggregate**. They are not discarded: 
 
 Across trusted runs only, build the table every candidate must cite:
 
-- **Per-stage effective time** — median, worst, and share of run. Compute shares over the **sum of the listed stage times**, not the tool's independently computed run total; the two differ whenever a stage was dropped, and dividing by the larger number silently understates every stage's share.
+- **Per-stage effective time** — median, worst, **p90**, and share of run. Compute shares over the **sum of the listed stage times**, not the tool's independently computed run total; the two differ whenever a stage was dropped, and dividing by the larger number silently understates every stage's share. The p90 comes from `stage-envelopes.sh` (nearest-rank, so always a value some run produced) — do not recompute it.
+- **Over-envelope flags** — stages and cost buckets exceeding the corpus p90, computed leave-one-out so the run under test never inflates the envelope judging it. Below the min-n floor the tool reports a known-unknown row instead of a flag; carry those through rather than dropping them. At small n an over-flag often means only "set a new record" — the tool says which, and so must the report.
 - **Lifecycle-dropped stages as explicit known-unknown rows.** A stage omitted from the table is invisible; a stage listed as unknown is a question. Never let a dropped stage read as a fast one.
 - **Inter-stage gap totals** — transition overhead, where synchronous non-gating writes accumulate.
 - **Review-round count against review time** — one round is the common case, so a round count above one is the first thing to check before attributing the cost to the stage itself.
@@ -105,10 +110,30 @@ Write `.claude/pipeline-state/perf-retro-{YYYY-MM-DD}.md`. A second pass on the 
 
 ## Profile (trusted runs only)
 
-| Stage | Median | Worst | Share | Notes |
-| ----- | ------ | ----- | ----- | ----- |
+| Stage | Median | p90 | Worst | Share | Notes |
+| ----- | ------ | --- | ----- | ----- | ----- |
 
 Inter-stage gap total: {m} min. Runs profiled: {n} trusted, {d} degraded.
+
+Corpus: {file count} state file(s) → {n} run(s) after `stage-envelopes.sh`'s dedup
+({its declared rule}); Step 1's own enumeration counted {n'} before dedup.
+
+## Cost envelopes (per bucket)
+
+| Bucket | n | p50 | p90 | Notes |
+| ------ | - | --- | --- | ----- |
+
+Over the cost log's own window, independent of the run window above.
+
+## Over-envelope
+
+| Axis | Stage / bucket | Run | Measured | Corpus p90 | n | Join flag |
+| ---- | -------------- | --- | -------- | ---------- | - | --------- |
+
+{known-unknown rows — below the min-n floor, or lifecycle-dropped. An absent envelope is
+a question, not a pass.}
+
+Advisory: nothing here gates, and no run is failed for appearing in this table.
 
 ## Fidelity debt
 

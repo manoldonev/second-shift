@@ -215,6 +215,124 @@ out="$(run_classifier "$D")"
   || bad "(d7) empty state dir → expected silence, got: [$out]"
 
 # ---------------------------------------------------------------------------
+# (d8) block 9 — the over-envelope classifier. Same extract-and-execute technique
+# as the stale-claim block above: the REAL production block is re-hosted here and
+# fed canned stage-envelopes.sh output, so these cases cannot pass against a
+# classifier that no longer exists.
+# ---------------------------------------------------------------------------
+ENV_BLOCK="$(sed -n '/# >>> envelope-classify/,/# <<< envelope-classify/p' "$DOCTOR")"
+if [[ -z "$ENV_BLOCK" ]]; then
+  bad "(d8) envelope-classify sentinels not found in $DOCTOR (block 9 refactored without updating this suite)"
+else
+  # Run the REAL extracted block over a canned model and report everything the cases
+  # need: "<summary>|<lines>|<fail-count>|<emitted>".
+  #
+  # ALWAYS invoked through command substitution, so the reporter stubs below live in a
+  # subshell. That isolation is load-bearing: the production block calls `ok`, and so
+  # does THIS suite — defining the stub in the parent shell silently replaced the
+  # suite's own reporter and made a case disappear instead of run. (Observed during
+  # development: the run went "15 passed, 0 failed" with (d8e) never recorded.)
+  #
+  # `fail` increments a counter exactly as the production reporter does, which is what
+  # makes (d8e)'s never-blocking assertion real rather than assumed.
+  run_env_classifier() { # run_env_classifier <json>
+    local env_out env_lines env_summary df="0" emitted=""
+    # shellcheck disable=SC2034  # $env_out is the eval'd production block's only input
+    env_out="$1"
+    # shellcheck disable=SC2317,SC2329  # invoked from inside the eval'd production block
+    ok()   { emitted+="OK:$1;"; }
+    # shellcheck disable=SC2317,SC2329
+    warn() { emitted+="WARN:$1;"; }
+    # shellcheck disable=SC2317,SC2329
+    fail() { df=$((df + 1)); emitted+="FAIL:$1;"; }
+    eval "$ENV_BLOCK" >/dev/null
+    # printf, not a herestring: `tr <<< ""` would emit a spurious ';' for the
+    # herestring's own trailing newline, making "no lines" indistinguishable from
+    # "one empty line" — exactly the distinction (d8d) turns on.
+    printf '%s|%s|%s|%s\n' "$env_summary" "$(printf '%s' "$env_lines" | tr '\n' ';')" "$df" "$emitted"
+  }
+
+  # (d8a) an over-envelope time flag is surfaced, with the record wording.
+  out="$(run_env_classifier '{
+    "corpus": {"minN": 8, "runsInWindow": 12},
+    "trustedWindows": 40,
+    "runUnderTest": {"stem": "4242"},
+    "timeEnvelopes": [{"stage":"5","floorMet":true}],
+    "flags": [{"axis":"time","key":"stage 5","measured":99,"p90":12,"n":10,"record":true}]
+  }')"
+  if [[ "$out" == *"stage 5: 99 min exceeds corpus p90 12 min (n=10)"* && "$out" == *"a new record"* ]]; then
+    ok "(d8a) an over-envelope time flag is surfaced with its measured value and record wording"
+  else
+    bad "(d8a) over-envelope flag not surfaced — got [$out]"
+  fi
+
+  # (d8b) cost flags are NOT surfaced here — block 9 is time-axis only, because cost
+  # is written after the run and a pre-flight has nothing to say about it.
+  out="$(run_env_classifier '{
+    "corpus": {"minN": 8, "runsInWindow": 12},
+    "trustedWindows": 40,
+    "runUnderTest": {"stem": "4242"},
+    "timeEnvelopes": [{"stage":"5","floorMet":true}],
+    "flags": [{"axis":"cost","key":"Implementation","measured":50,"p90":20,"n":9,"record":false}]
+  }')"
+  if [[ "$out" != *"Implementation"* ]]; then
+    ok "(d8b) cost-axis flags are not surfaced by the pre-flight block (time axis only)"
+  else
+    bad "(d8b) cost flag leaked into the pre-flight check — got [$out]"
+  fi
+
+  # (d8c) a corpus under the min-n floor reports VACUOUS rather than a clean bill of
+  # health — "measured nothing" must never read like "measured and found nothing".
+  out="$(run_env_classifier '{
+    "corpus": {"minN": 8, "runsInWindow": 3},
+    "trustedWindows": 6,
+    "runUnderTest": {"stem": "4242"},
+    "timeEnvelopes": [{"stage":"5","floorMet":false}],
+    "flags": []
+  }')"
+  if [[ "$out" == VACUOUS:* ]]; then
+    ok "(d8c) a below-floor corpus reports VACUOUS, not a pass"
+  else
+    bad "(d8c) below-floor corpus — expected VACUOUS, got [$out]"
+  fi
+
+  # (d8d) a within-envelope run emits no lines at all.
+  out="$(run_env_classifier '{
+    "corpus": {"minN": 8, "runsInWindow": 12},
+    "trustedWindows": 40,
+    "runUnderTest": {"stem": "4242"},
+    "timeEnvelopes": [{"stage":"5","floorMet":true}],
+    "flags": []
+  }')"
+  if [[ "$out" == "measured 1 stage envelope(s) over 12 run(s), 40 trusted window(s)||0|OK:"* ]]; then
+    ok "(d8d) a run inside its envelope produces a measured summary and no flag lines"
+  else
+    bad "(d8d) within-envelope run — got [$out]"
+  fi
+
+  # (d8e) THE never-blocking posture (AC-4), asserted behaviorally over the WHOLE block
+  # including its dispatch: run it against a corpus that DOES flag, and confirm nothing
+  # reached the failure reporter. The stubs above make `fail` observable, so an arm that
+  # started calling it — the one realistic way this advisory check could become a gate —
+  # turns this case red. An earlier, narrower sentinel that stopped at the jq left this
+  # unguarded, and a mutation demo caught the gap.
+  out="$(run_env_classifier '{
+    "corpus": {"minN": 8, "runsInWindow": 12},
+    "trustedWindows": 40,
+    "runUnderTest": {"stem": "4242"},
+    "timeEnvelopes": [{"stage":"5","floorMet":true}],
+    "flags": [{"axis":"time","key":"stage 5","measured":99,"p90":12,"n":10,"record":false}]
+  }')"
+  env_fails="$(cut -d'|' -f3 <<< "$out")"
+  env_emitted="$(cut -d'|' -f4- <<< "$out")"
+  if [[ "$env_fails" == "0" && "$env_emitted" == *"WARN:stage envelopes"* && "$env_emitted" != *"FAIL:"* ]]; then
+    ok "(d8e) a flagging run reaches warn() and never fail() — the check cannot move the exit code (AC-4)"
+  else
+    bad "(d8e) never-blocking violated — fail-count=$env_fails emitted=[$env_emitted]"
+  fi
+fi
+
+# ---------------------------------------------------------------------------
 # summary
 # ---------------------------------------------------------------------------
 echo "[pipeline-doctor-selftest] $PASS passed, $FAIL failed"

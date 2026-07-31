@@ -95,6 +95,8 @@ plugins/dev-pipeline/skills/run/tools/prose-budget.sh::logic::1	seeded by the ca
 plugins/dev-pipeline/skills/run/tools/score-review.sh::cmp-z::2	seeded by the canonical seed run
 plugins/dev-pipeline/skills/run/tools/score-review.sh::logic::1	seeded by the canonical seed run
 plugins/dev-pipeline/skills/run/tools/score-review.sh::logic::2	seeded by the canonical seed run
+plugins/dev-pipeline/skills/run/tools/stage-envelopes.sh::cmp-z::1	unkillable by construction: the cmp-z operator's first two sites in this guard are COMMENT text (the usage header's `--min-n N`), so the flip changes bytes with no reachable behavior. Verified by reproducing the operator's site enumeration. The three genuinely reachable survivors this guard started with — the state_dir() fall-through's `cd && pwd` and its two `${VAR:-}` defaults — were fixed by adding a killer case rather than baselined; see (env15).
+plugins/dev-pipeline/skills/run/tools/stage-envelopes.sh::cmp-z::2	unkillable by construction: same as ::1, the usage header's `--min-n N` option line.
 plugins/dev-pipeline/skills/run/tools/stage-times.sh::default::1	seeded by the canonical seed run
 plugins/dev-pipeline/skills/run/tools/stage-times.sh::default::2	seeded by the canonical seed run
 plugins/dev-pipeline/skills/run/tools/stage-times.sh::logic::2	seeded by the canonical seed run
