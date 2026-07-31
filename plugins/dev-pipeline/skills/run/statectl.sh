@@ -149,6 +149,66 @@ state_dir() {
   printf '%s\n' ".claude/pipeline-state"
 }
 
+# Resolve the audit-ledger dir the corroboration legs read. Same three tiers as
+# state_dir(), and anchored on the same MAIN-CHECKOUT root deliberately: the
+# audit hook writes to $CLAUDE_PROJECT_DIR, so a sibling worktree carries no
+# .claude/audit/ at all and a worktree-relative anchor would resolve every run to
+# "no ledger" — a silent, universal fail-open. STATECTL_LEDGER_DIR is the
+# fixture-only override (mirrors STATECTL_STATE_DIR).
+#
+# Unlike state_dir() there is NO cwd-relative fallback: a wrong ledger dir does
+# not merely mislocate a file, it invites corroborating a run against another
+# repo's rows. Returns non-zero when no root resolves, which the caller maps to
+# the fail-open.
+ledger_dir() {
+  if [[ -n "${STATECTL_LEDGER_DIR:-}" ]]; then
+    printf '%s\n' "$STATECTL_LEDGER_DIR"
+    return 0
+  fi
+  local root="" common_dir
+  if [[ -n "${SECOND_SHIFT_REPO_ROOT:-}" ]]; then
+    root="$SECOND_SHIFT_REPO_ROOT"
+  elif common_dir="$(git rev-parse --git-common-dir 2>/dev/null)"; then
+    common_dir="$(cd "$common_dir" && pwd)"
+    root="$(dirname "$common_dir")"
+  fi
+  [[ -n "$root" ]] || return 1
+  printf '%s\n' "$root/.claude/audit"
+}
+
+# Concatenate the ledger files of every session this run recorded. The join is
+# ONLY through .pipelineSessions[].sessionId — there is deliberately no
+# window-scan fallback, because a row carries no run key: this repo runs
+# pipelines in parallel, so a co-resident run's identical row would corroborate
+# by coincidence and the gate would attest to work another run did.
+#
+# Returns non-zero (with no output) when nothing is joinable — no resolvable
+# ledger dir, no recorded session, or no readable file. Every such case is the
+# D-2 fail-open, recorded visibly as ledgerCorroboration: "uncorroborated".
+ledger_excerpt() {  # ledger_excerpt <state-json> → JSONL on stdout
+  local current="$1" dir sid found=0
+  dir="$(ledger_dir 2>/dev/null)" || return 1
+  [[ -d "$dir" ]] || return 1
+  while IFS= read -r sid; do
+    [[ -n "$sid" ]] || continue
+    [[ -f "$dir/$sid.jsonl" ]] || continue
+    cat "$dir/$sid.jsonl"
+    found=1
+  done < <(jq -r '(.pipelineSessions // [])[] | .sessionId // empty' <<< "$current" 2>/dev/null)
+  [[ "$found" -eq 1 ]] || return 1
+  return 0
+}
+
+# Resolve the ledger-corroborate tool beside this script. Non-zero when absent
+# (a partial install) — the caller maps that to the fail-open too, so a missing
+# tool degrades visibly instead of refusing every completion.
+ledger_tool() {
+  local here
+  here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)" || return 1
+  [[ -x "$here/tools/ledger-corroborate.sh" ]] || return 1
+  printf '%s\n' "$here/tools/ledger-corroborate.sh"
+}
+
 # Resolve the consumer-repo config file path (or empty if unresolvable/absent).
 # Mirrors state_dir's root derivation: explicit $SECOND_SHIFT_CONFIG wins, else
 # <repo-root>/.claude/second-shift.config.json via the git-common-dir anchor.
@@ -767,6 +827,126 @@ require_stage_file_receipt() {
     || guard_fire "completion-evidence:$n.stageFileRead" "$n" "set-stage: cannot complete stage $n — stages/$n-*.md was not recorded as read (read the stage file and record it via stage-file-read); --force for crash-recovery"
 }
 
+# --- harness corroboration (#272) -------------------------------------------
+#
+# The legs above are SELF-REPORTED: they read fields the executing agent itself
+# wrote. These legs read rows the audit hook wrote, which the agent cannot mint.
+# The self-reports stay as the fast local layer; corroboration is additive.
+#
+# Outcome carrier. Seeded per invocation and folded into the completion write's
+# existing atomic bundle, so a fail-open is VISIBLE rather than silent — the
+# failure this whole mechanism exists to prevent.
+LEDGER_CORROBORATION="corroborated"
+
+# Precedence, worst-wins: waived > degraded > uncorroborated > corroborated.
+# The field is single-valued but a stage evaluates several independent legs, so
+# co-occurrence is real (Stage 8's Workflow leg can degrade while its
+# SubagentStop leg is force-waived). The value must name the STRONGEST departure
+# from clean corroboration: a fired-and-waived guard is a human bypass, the one
+# thing the run report must not bury. No associative arrays — macOS ships bash 3.2.
+ledger_rank() {
+  case "$1" in
+    corroborated)   printf '0\n' ;;
+    uncorroborated) printf '1\n' ;;
+    degraded)       printf '2\n' ;;
+    waived)         printf '3\n' ;;
+    *)              printf '0\n' ;;
+  esac
+}
+
+ledger_downgrade() {  # ledger_downgrade <value>
+  local cur new
+  cur="$(ledger_rank "$LEDGER_CORROBORATION")"
+  new="$(ledger_rank "$1")"
+  [[ "$new" -gt "$cur" ]] && LEDGER_CORROBORATION="$1"
+  return 0
+}
+
+# Run one corroboration leg and apply its verdict.
+#   vacuous / corroborated → nothing to do (a vacuous leg counts as matched)
+#   degraded               → downgrade the carrier, never refuse
+#   refused                → guard_fire (so --force waives it with a recorded reason)
+#
+# A leg that cannot RUN (tool missing from a partial install, or exiting non-zero
+# on a usage error) downgrades to `uncorroborated` rather than returning quietly.
+# Returning quietly would read as `corroborated` — a broken leg would look
+# identical to a satisfied one, which is the precise failure mode this mechanism
+# exists to prevent. It still must not refuse: a tool problem is ours, not the
+# run's.
+ledger_leg() {  # ledger_leg <guard-id> <stage> <excerpt> <label> <tool-args...>
+  local gid="$1" stage="$2" excerpt="$3" label="$4"; shift 4
+  local tool line verdict detail
+  tool="$(ledger_tool)" || { ledger_downgrade uncorroborated; return 0; }
+  line="$(printf '%s\n' "$excerpt" | "$tool" "$@" 2>/dev/null)" \
+    || { ledger_downgrade uncorroborated; return 0; }
+  verdict="${line%%$'\t'*}"
+  detail="${line#*$'\t'}"
+  case "$verdict" in
+    refused)
+      guard_fire "$gid" "$stage" "set-stage: cannot complete stage $stage — $label is not corroborated by the audit ledger ($detail). The receipt says the work happened but the harness recorded no matching row; --force for crash-recovery"
+      ;;
+    degraded)     ledger_downgrade degraded ;;
+    corroborated|vacuous) ;;
+    # An unrecognized token means the tool's contract moved under us — same
+    # posture as a failed run: visible, never silently green.
+    *)            ledger_downgrade uncorroborated ;;
+  esac
+  return 0
+}
+
+# The corroborable set is bound to the members the existing receipt guards
+# already score — stage N's OWN `^N-` stage file, the MANDATED skill — mirroring
+# their "extra entries satisfy nothing" rule. A skill genuinely loaded inside a
+# subagent and recorded as an extra therefore can never turn into a main-loop
+# refusal.
+require_ledger_corroboration() {  # <n> <current>
+  local n="$1" current="$2" excerpt since claims rounds exempt
+
+  # D-2 fail-open: no resolvable ledger, no recorded session, no readable file.
+  # Completion SUCCEEDS; the carrier records why.
+  excerpt="$(ledger_excerpt "$current")" || { ledger_downgrade uncorroborated; return 0; }
+
+  since="$(jq -r --arg n "$n" '.stages[$n].startedAt // ""' <<< "$current" 2>/dev/null)"
+
+  # Stage-file leg — WINDOWLESS by construction. The executor must read
+  # stages/N-*.md before it can run the mark-started that writes startedAt, so
+  # readTs < startedAt always; at Stage 1 the read precedes `statectl init`
+  # itself. Any state-anchored lower bound refuses runs that did the work.
+  claims="$(jq -c --arg n "$n" '(.stages[$n].stageFilesRead // []) | map(select(startswith($n + "-")))' <<< "$current" 2>/dev/null)"
+  ledger_leg "completion-evidence:$n.ledgerStageFile" "$n" "$excerpt" "the stages/$n-*.md read" \
+    --class stage-file --claims "${claims:-[]}"
+
+  # Skill-load leg — only where a skill is MANDATED (stages 1 and 8). Elsewhere
+  # nothing is required, so there is nothing to corroborate.
+  case "$n" in
+    1)
+      # The interactive-only inline path attests its own skip in the checkpoint;
+      # corroborating a load that legitimately never happened would refuse it.
+      if jq -e '((.stageCheckpoint // {})["1"].intakeMode // "") != "inline-approved"' <<< "$current" >/dev/null 2>&1; then
+        ledger_leg "completion-evidence:1.ledgerSkill" 1 "$excerpt" "the intake-toolkit:intake-orchestrator load" \
+          --class skill --claims '["intake-toolkit:intake-orchestrator"]' --since "$since"
+      fi
+      ;;
+    8)
+      # Mirrors row 8's own escape hatches: a handoff-only or skip-only
+      # completion carries its own evidence and mandates no review-lead load.
+      exempt="$(jq -r '(((.crossBoundaryReviews // []) | length) + ((.skippedReviews // []) | length)) > 0' <<< "$current" 2>/dev/null)"
+      rounds="$(jq -r '.codeReviewRounds // 0' <<< "$current" 2>/dev/null)"
+      if [[ "$exempt" != "true" ]]; then
+        ledger_leg "completion-evidence:8.ledgerSkill" 8 "$excerpt" "the review-toolkit:review-lead load" \
+          --class skill --claims '["review-toolkit:review-lead"]' --since "$since"
+        # Stage-8 dispatch, at cardinality. Per-reviewer identity is deferred:
+        # the harness emits no per-agent dispatch row.
+        ledger_leg "completion-evidence:8.ledgerWorkflow" 8 "$excerpt" "the code-review Workflow dispatch" \
+          --class workflow --min-count "${rounds:-0}" --since "$since"
+        ledger_leg "completion-evidence:8.ledgerSubagentStop" 8 "$excerpt" "the reviewer fan-out" \
+          --class subagent-stop --min-count "$([[ "${rounds:-0}" -ge 1 ]] && echo 1 || echo 0)" --since "$since"
+      fi
+      ;;
+  esac
+  return 0
+}
+
 stage_completion_preconditions() {
   local n="$1"
   local current="$2"
@@ -919,6 +1099,9 @@ stage_completion_preconditions() {
       require_stage_file_receipt 9 "$current"
       ;;
   esac
+  # Harness corroboration runs LAST, after every self-reported leg above, so the
+  # existing refusal messages stay first and byte-unchanged.
+  require_ledger_corroboration "$n" "$current"
   return 0
 }
 
@@ -1324,11 +1507,24 @@ cmd_set_stage() {
     # recorded waiver each) instead of skipping their evaluation.
     stage_completion_preconditions "$n" "$current" "$key"
     guards_settle "$force"
+    # #272: a corroboration leg that FIRED and was --force-waived reaches this
+    # very same write (guards settle, waivers fold in, the write proceeds), and
+    # none of the other three values is true of it — `corroborated` states the
+    # opposite of what happened, and the other two are defined as different
+    # conditions. Detected after guards_settle so only an actually-waived run
+    # takes it; on the non-force path guards_settle already died.
+    local g
+    for g in "${GUARD_FIRED[@]:-}"; do
+      case "${g%%$'\t'*}" in
+        completion-evidence:*.ledger*) ledger_downgrade waived ;;
+      esac
+    done
     # Atomic field bundle (completed): does NOT advance currentStage
     local new_state
-    new_state=$(jq --arg n "$n" --arg now "$now" '
+    new_state=$(jq --arg n "$n" --arg now "$now" --arg lc "$LEDGER_CORROBORATION" '
       .stages[$n].status = "completed"
       | .stages[$n].completedAt = $now
+      | .stages[$n].ledgerCorroboration = $lc
       | .lastUpdatedAt = $now
     ' <<< "$current") || { EXIT_CODE=2 die "set-stage: jq mutation failed"; }
     atomic_write "$key" "$new_state"
