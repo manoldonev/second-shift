@@ -221,15 +221,29 @@ case "$mc_rc:$mc_err" in
 esac
 
 # --help is a real user-facing path and was entirely untested, so nothing noticed
-# when the sweep rewrote its `sed -n` extractor into `sed -z` (cmp-z survivor):
-# the arm still exited 0 while printing nothing usable. Assert it emits the usage
-# block, not merely that it succeeds.
+# when the sweep rewrote its `sed -n '2,60p'` extractor into `sed -z` (the cmp-z
+# survivor). The assertion has to be BOUNDED, not a substring probe, because that
+# mutant reads differently per platform:
+#   BSD sed (macOS)  — `-z` is not an option: rc=1, nothing printed.
+#   GNU sed (Linux)  — `-z` is valid AND drops `-n`'s no-autoprint, so the arm
+#                      dumps the ENTIRE script and still exits 0. Any token from
+#                      the usage block is present in that dump too, so a
+#                      contains-check alone passes and the mutant survives — which
+#                      is exactly what it did on CI after the first attempt here.
+# So: require the usage block AND require the output to stop at the excerpt.
+# `set -euo pipefail` (line 63) is the first line past the `2,60p` range, so its
+# presence means the whole file leaked; the line bound catches the same thing
+# arithmetically if that anchor ever moves.
 help_out=$(bash "$TOOL" --help 2>/dev/null)
 help_rc=$?
-if [[ "$help_rc" -eq 0 && "$help_out" == *"--class skill|stage-file|workflow|subagent-stop"* ]]; then
-  pass "(lc38) --help exits 0 and prints the usage block (AC-8)"
+help_lines=$(printf '%s\n' "$help_out" | wc -l | tr -d ' ')
+if [[ "$help_rc" -eq 0 ]] \
+   && [[ "$help_out" == *"--class skill|stage-file|workflow|subagent-stop"* ]] \
+   && [[ "$help_out" != *"set -euo pipefail"* ]] \
+   && [[ "$help_lines" -le 60 ]]; then
+  pass "(lc38) --help prints the usage excerpt and stops there — not the whole script (AC-8)"
 else
-  fail "(lc38) --help — rc=$help_rc, $(printf '%s' "$help_out" | wc -l | tr -d ' ') line(s) emitted"
+  fail "(lc38) --help — rc=$help_rc, $help_lines line(s), body-leak=$([[ "$help_out" == *"set -euo pipefail"* ]] && echo yes || echo no)"
 fi
 
 echo
