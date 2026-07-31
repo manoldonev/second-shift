@@ -1119,11 +1119,17 @@ CLAUDE_CODE_SESSION_ID="not-a-uuid"
 rc=$(sct_rc checkpoint 9999 1 --json '{"note":"malformed writer id"}')
 after_bad=$(sct get 9999 '.pipelineSessions | length')
 stamp_bad=$(sct get 9999 '.lastWriteSessionId')
+# AC-9's second clause: the span half must be unaffected too. The malformed id is a
+# cross-session transition (predecessor stamped SESSION_A, writer 'not-a-uuid'), so a
+# span IS legitimately due here — what must NOT happen is the registration-only UUID
+# gate leaking into the span path and suppressing it.
+spans_bad=$(sct get 9999 '.pauseSpans | length')
 CLAUDE_CODE_SESSION_ID="$SESSION_A"
-if [[ "$rc" == "0" && "$before_bad" == "1" && "$after_bad" == "1" && "$stamp_bad" == "not-a-uuid" ]]; then
-  pass "(sr15) non-UUID writer id → no registration, host write succeeds, stamp still applied"
+if [[ "$rc" == "0" && "$before_bad" == "1" && "$after_bad" == "1" \
+      && "$stamp_bad" == "not-a-uuid" && "$spans_bad" == "1" ]]; then
+  pass "(sr15) non-UUID writer id → no registration, host write succeeds, stamp AND span still applied (gate is registration-only)"
 else
-  fail "(sr15) rc=$rc before=$before_bad after=$after_bad stamp='$stamp_bad'"
+  fail "(sr15) rc=$rc before=$before_bad after=$after_bad stamp='$stamp_bad' spans=$spans_bad"
 fi
 
 # (sr16) #123 — THE INVARIANT. Within one run, seam writes alone cannot produce a
