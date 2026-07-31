@@ -3677,6 +3677,251 @@ else
   fail "(r) drift-check — divergence (see above)"
 fi
 
+
+# ================================================ ledger corroboration (#272) ===
+#
+# The legs above are self-reported. These prove the harness-corroborated half:
+# statectl re-checks each claim against rows the audit hook wrote, joined ONLY
+# through pipelineSessions[]. STATECTL_LEDGER_DIR is the fixture seam (mirrors
+# STATECTL_STATE_DIR); it is exported for this section and unset at the end so the
+# stress section keeps resolving normally.
+echo
+echo "[self-test] ledger corroboration — 12 cases"
+
+LEDGER_DIR="$TMPDIR_ST/.claude/audit"
+mkdir -p "$LEDGER_DIR"
+export STATECTL_LEDGER_DIR="$LEDGER_DIR"
+
+# lcg_write <session-id> <jsonl...> — lay down one session's ledger file.
+lcg_write() {
+  local sid="$1"; shift
+  : > "$LEDGER_DIR/$sid.jsonl"
+  local row
+  for row in "$@"; do printf '%s\n' "$row" >> "$LEDGER_DIR/$sid.jsonl"; done
+}
+
+ROW_READ1='{"ts":"2026-07-31T10:00:00Z","session_id":"s","event":"PostToolUse","tool":"Read","subagent":"","target":"/cache/skills/run/stages/1-intake.md","outcome":"ok"}'
+ROW_SKILL1='{"ts":"2026-07-31T23:59:59Z","session_id":"s","event":"PostToolUse","tool":"Skill","subagent":"","target":"intake-toolkit:intake-orchestrator","outcome":"ok"}'
+ROW_READ6='{"ts":"2026-07-31T10:00:00Z","session_id":"s","event":"PostToolUse","tool":"Read","subagent":"","target":"/cache/skills/run/stages/6-verify.md","outcome":"ok"}'
+ROW_READ8='{"ts":"2026-07-31T10:00:00Z","session_id":"s","event":"PostToolUse","tool":"Read","subagent":"","target":"/cache/skills/run/stages/8-code-review.md","outcome":"ok"}'
+ROW_EMPTY_SKILL='{"ts":"2026-07-31T23:59:59Z","session_id":"s","event":"PostToolUse","tool":"Skill","subagent":"","target":"","outcome":"ok"}'
+
+# lcg_stage1 <key> — a stage-1 run carrying every SELF-REPORTED evidence item, so
+# any refusal below is attributable to corroboration alone.
+lcg_stage1() {
+  local key="$1"
+  sct init "$key" --run-id "selftest-run-$$" >/dev/null
+  sct pipeline-session-add "$key" --session-id "$SESSION_A" --source interactive >/dev/null
+  sct set-stage "$key" 1 --status started >/dev/null
+  sct checkpoint "$key" 1 --json '{"verdict":"no-split","preflight":{"baseBranch":"main","workingTreeClean":true,"guardOutcome":"proceed-clean"}}' >/dev/null
+  sct skill-load-add "$key" --stage 1 --skill intake-toolkit:intake-orchestrator >/dev/null
+  sct comment-add "$key" --marker claimed --url "https://github.example/c/claimed" >/dev/null
+  sct comment-add "$key" --marker intake --url "https://github.example/c/intake" >/dev/null
+  stage_evidence "$key" 1
+}
+
+# (lcg1) No resolvable ledger dir at all → the D-2 fail-open. Completion SUCCEEDS
+# (a consumer with no audit hook must not be blocked) and the carrier records why.
+reset_state
+rm -rf "$LEDGER_DIR"
+lcg_stage1 9930
+rc=$(sct_rc set-stage 9930 1 --status completed)
+lc=$(sct get 9930 '.stages."1".ledgerCorroboration')
+if [[ "$rc" == "0" && "$lc" == "uncorroborated" ]]; then
+  pass "(lcg1) absent ledger dir → completes, ledgerCorroboration=uncorroborated (AC-2)"
+else
+  fail "(lcg1) absent ledger dir — rc=$rc lc='$lc'"
+fi
+mkdir -p "$LEDGER_DIR"
+
+# (lcg2) Ledger dir exists and holds rows, but the run recorded NO session — the
+# join key is missing, so nothing is attributable to this run. Fail-open, not a
+# refusal, and NOT silently "corroborated".
+reset_state
+lcg_write "$SESSION_A" "$ROW_READ1" "$ROW_SKILL1"
+sct init 9931 --run-id "selftest-run-$$" >/dev/null
+sct set-stage 9931 1 --status started >/dev/null
+sct checkpoint 9931 1 --json '{"verdict":"no-split","preflight":{"baseBranch":"main","workingTreeClean":true,"guardOutcome":"proceed-clean"}}' >/dev/null
+sct skill-load-add 9931 --stage 1 --skill intake-toolkit:intake-orchestrator >/dev/null
+sct comment-add 9931 --marker claimed --url "https://github.example/c/claimed" >/dev/null
+sct comment-add 9931 --marker intake --url "https://github.example/c/intake" >/dev/null
+stage_evidence 9931 1
+rc=$(sct_rc set-stage 9931 1 --status completed)
+lc=$(sct get 9931 '.stages."1".ledgerCorroboration')
+if [[ "$rc" == "0" && "$lc" == "uncorroborated" ]]; then
+  pass "(lcg2) empty pipelineSessions[] → completes, uncorroborated (AC-2)"
+else
+  fail "(lcg2) empty pipelineSessions[] — rc=$rc lc='$lc'"
+fi
+
+# (lcg3) The happy path, and the point of AC-5: because Stage 1 now records its
+# session id, a normal Stage-1 completion evaluates against a NON-empty join set
+# instead of degrading by construction.
+reset_state
+lcg_write "$SESSION_A" "$ROW_READ1" "$ROW_SKILL1"
+lcg_stage1 9932
+rc=$(sct_rc set-stage 9932 1 --status completed)
+lc=$(sct get 9932 '.stages."1".ledgerCorroboration')
+if [[ "$rc" == "0" && "$lc" == "corroborated" ]]; then
+  pass "(lcg3) recorded session + matching rows → corroborated (AC-1, AC-5)"
+else
+  fail "(lcg3) happy path — rc=$rc lc='$lc'"
+fi
+
+# (lcg4) The fabricated-receipt case this whole mechanism exists for: the state
+# CLAIMS the intake-orchestrator load, the harness recorded no such row.
+reset_state
+lcg_write "$SESSION_A" "$ROW_READ1"
+lcg_stage1 9933
+err=$(sct_err set-stage 9933 1 --status completed)
+rc=$(sct_rc set-stage 9933 1 --status completed)
+if [[ "$rc" == "1" && "$err" == *"not corroborated by the audit ledger"* && "$err" == *"intake-toolkit:intake-orchestrator"* ]]; then
+  pass "(lcg4) claimed skill load with no ledger row → refused, naming the gap (AC-1)"
+else
+  fail "(lcg4) uncorroborated skill load — rc=$rc err='$err'"
+fi
+
+# (lcg5) --force is the ONLY bypass, and a waived run must LOOK waived: a recorded
+# waiver under the documented guard id, plus the carrier value.
+rc=$(sct_rc set-stage 9933 1 --status completed --force --force-reason "selftest crash-recovery simulation of an operator waiver")
+lc=$(sct get 9933 '.stages."1".ledgerCorroboration')
+wv=$(sct get 9933 '[.waivers[]?.precondition] | index("completion-evidence:1.ledgerSkill")')
+if [[ "$rc" == "0" && "$lc" == "waived" && "$wv" != "null" ]]; then
+  pass "(lcg5) --force waives the leg → completes, ledgerCorroboration=waived + waivers[] entry (AC-1, AC-10)"
+else
+  fail "(lcg5) forced waiver — rc=$rc lc='$lc' waiver_index='$wv'"
+fi
+
+# (lcg6) D-14 arm 2: rows exist but every target is empty (a pre-2.1.0 ledger).
+# Not a refusal — the ledger cannot identify what the calls ran on — but not a
+# clean pass either.
+reset_state
+lcg_write "$SESSION_A" \
+  '{"ts":"2026-07-31T10:00:00Z","session_id":"s","event":"PostToolUse","tool":"Read","subagent":"","target":"","outcome":"ok"}' \
+  "$ROW_EMPTY_SKILL"
+lcg_stage1 9934
+rc=$(sct_rc set-stage 9934 1 --status completed)
+lc=$(sct get 9934 '.stages."1".ledgerCorroboration')
+if [[ "$rc" == "0" && "$lc" == "degraded" ]]; then
+  pass "(lcg6) all-empty-target rows → completes, ledgerCorroboration=degraded (AC-2b arm 2)"
+else
+  fail "(lcg6) degrade arm — rc=$rc lc='$lc'"
+fi
+
+# (lcg7) Precedence. Both conditions hold in ONE write: the stage-file leg has
+# rows with empty targets (degrade), the skill leg has none at all (refuse →
+# waived). The field is single-valued and must name the STRONGEST departure.
+reset_state
+lcg_write "$SESSION_A" \
+  '{"ts":"2026-07-31T10:00:00Z","session_id":"s","event":"PostToolUse","tool":"Read","subagent":"","target":"","outcome":"ok"}'
+lcg_stage1 9935
+rc=$(sct_rc set-stage 9935 1 --status completed --force --force-reason "selftest crash-recovery simulation of an operator waiver")
+lc=$(sct get 9935 '.stages."1".ledgerCorroboration')
+if [[ "$rc" == "0" && "$lc" == "waived" ]]; then
+  pass "(lcg7) degraded + waived in one write → waived wins (worst-wins precedence, AC-10)"
+else
+  fail "(lcg7) precedence — rc=$rc lc='$lc'"
+fi
+
+# (lcg8) AC-9, at the gate rather than in the tool: the measured Stage-1 trap. The
+# main-loop Read lands BEFORE stages.1.startedAt (which the harness writes now, in
+# 2026), so a windowed stage-file leg would refuse a run that genuinely did the
+# work. ROW_READ1's 10:00:00Z timestamp is in the past relative to every startedAt
+# this suite writes.
+reset_state
+lcg_write "$SESSION_A" "$ROW_READ1" "$ROW_SKILL1"
+lcg_stage1 9936
+started=$(sct get 9936 '.stages."1".startedAt')
+rc=$(sct_rc set-stage 9936 1 --status completed)
+lc=$(sct get 9936 '.stages."1".ledgerCorroboration')
+if [[ "$rc" == "0" && "$lc" == "corroborated" && "$started" > "2026-07-31T10:00:00Z" ]]; then
+  pass "(lcg8) a Read row predating stages.1.startedAt still corroborates — windowless leg (AC-9)"
+else
+  fail "(lcg8) windowless stage-file leg — rc=$rc lc='$lc' startedAt='$started'"
+fi
+
+# (lcg9) Subagent rows do not corroborate a main-loop claim, at the gate. The only
+# 1-intake.md Read in this ledger is subagent-attributed — exactly the shape a real
+# intake fan-out produces, where a reviewer reads the same stage file.
+reset_state
+lcg_write "$SESSION_A" \
+  '{"ts":"2026-07-31T10:00:00Z","session_id":"s","event":"PostToolUse","tool":"Read","subagent":"review-toolkit:spec-reviewer","target":"/cache/skills/run/stages/1-intake.md","outcome":"ok"}' \
+  "$ROW_SKILL1"
+lcg_stage1 9937
+err=$(sct_err set-stage 9937 1 --status completed)
+rc=$(sct_rc set-stage 9937 1 --status completed)
+if [[ "$rc" == "1" && "$err" == *"stages/1-*.md read is not corroborated"* ]]; then
+  pass "(lcg9) a subagent-attributed Read does not corroborate a main-loop claim (AC-7)"
+else
+  fail "(lcg9) subagent exclusion at the gate — rc=$rc err='$err'"
+fi
+
+# (lcg10) AC-3: Stage-6 completion is UNCHANGED. Its verifyctl attestation sidecar
+# stays the sole verify instrument — corroboration adds only the generic stage-file
+# leg, never a second verify gate. With the sidecar and verifySummary present and a
+# 6-verify.md Read row in the ledger, the stage completes cleanly.
+reset_state
+lcg_write "$SESSION_A" "$ROW_READ6"
+sct init 9938 --run-id "selftest-run-$$" >/dev/null
+sct pipeline-session-add 9938 --session-id "$SESSION_A" --source interactive >/dev/null
+# Jump straight to stage 6 the way the other stage-6 cases do. The monotonic guard
+# is not what is under test, and its waiver rides a SEPARATE invocation from the
+# completion write whose carrier this case asserts — so it cannot colour the value.
+sct set-stage 9938 6 --status started --force --force-reason "selftest crash-recovery simulation of an operator waiver" >/dev/null 2>&1
+write_verify_sidecar 9938
+# A lane must actually have RUN — stage 6's pre-existing content gate refuses a
+# summary whose every verifying lane is "skipped". Keeping that gate live is half
+# of what this case asserts.
+sct verify-summary-set 9938 --json '{"format":"clean","test":"passed"}' >/dev/null
+stage_evidence 9938 6
+rc=$(sct_rc set-stage 9938 6 --status completed)
+lc=$(sct get 9938 '.stages."6".ledgerCorroboration')
+if [[ "$rc" == "0" && "$lc" == "corroborated" ]]; then
+  pass "(lcg10) stage-6 completion unchanged — no second verify gate (AC-3)"
+else
+  fail "(lcg10) stage-6 unchanged — rc=$rc lc='$lc'"
+fi
+
+# (lcg11) The stage-8 escape hatches are mirrored: a cross-boundary-only completion
+# carries its own evidence and mandates no review-lead load, so the three stage-8
+# corroboration legs are vacuous rather than refusing.
+reset_state
+lcg_write "$SESSION_A" "$ROW_READ8"
+sct init 9939 --run-id "selftest-run-$$" >/dev/null
+sct pipeline-session-add 9939 --session-id "$SESSION_A" --source interactive >/dev/null
+sct set-stage 9939 8 --status started >/dev/null
+sct cross-boundary-review-add 9939 --repo fe --status completed-in-session >/dev/null
+stage_evidence 9939 8
+rc=$(sct_rc set-stage 9939 8 --status completed)
+lc=$(sct get 9939 '.stages."8".ledgerCorroboration')
+if [[ "$rc" == "0" && "$lc" == "corroborated" ]]; then
+  pass "(lcg11) crossBoundaryReviews[] makes the stage-8 legs vacuous (AC-2b)"
+else
+  fail "(lcg11) stage-8 exemption — rc=$rc lc='$lc'"
+fi
+
+# (lcg12) A claimed review round with no code-review Workflow row and no
+# SubagentStop row refuses — the Stage-8 dispatch cardinality leg. This is the
+# "review-lead was loaded but no reviewers ever ran" shape.
+reset_state
+lcg_write "$SESSION_A" "$ROW_READ8" \
+  '{"ts":"2026-07-31T23:59:59Z","session_id":"s","event":"PostToolUse","tool":"Skill","subagent":"","target":"review-toolkit:review-lead","outcome":"ok"}'
+sct init 9940 --run-id "selftest-run-$$" >/dev/null
+sct pipeline-session-add 9940 --session-id "$SESSION_A" --source interactive >/dev/null
+sct set-stage 9940 8 --status started >/dev/null
+sct review-rounds 9940 --set 1 >/dev/null
+sct skill-load-add 9940 --stage 8 --skill review-toolkit:review-lead >/dev/null
+sct comment-add 9940 --marker code-review --url "https://github.example/c/code-review" >/dev/null
+stage_evidence 9940 8
+err=$(sct_err set-stage 9940 8 --status completed)
+rc=$(sct_rc set-stage 9940 8 --status completed)
+if [[ "$rc" == "1" && "$err" == *"code-review Workflow dispatch is not corroborated"* ]]; then
+  pass "(lcg12) a claimed review round with no dispatch row refuses (AC-1)"
+else
+  fail "(lcg12) stage-8 cardinality leg — rc=$rc err='$err'"
+fi
+
+unset STATECTL_LEDGER_DIR
 # ============================================================ optional stress ===
 
 if [[ "${SKIP_STRESS:-0}" != "1" ]]; then
