@@ -5,7 +5,8 @@
 # start/end field bundles), Stage 7 checkpoint write (with payload schema validation),
 # failure writes (atomic failureContext + status=failed bundle with closed-enum
 # reason), writer-suffix isolation via $STATECTL_WRITER, and the shared-seam
-# session stamp + automatic pause span (apply_session_seam — #260).
+# session stamp + automatic pause span (apply_session_seam — #260) + automatic
+# pipelineSessions registration on that same seam (#123).
 #
 # Terminal-state guard (require_mutable): every mutating subcommand refuses to
 # overwrite a completed/failed run unless --force is passed — EXCEPT set-stage
@@ -373,7 +374,40 @@ cmd_successor_key_set() {
   jq -c '.successorKey' <<< "$new_state"
 }
 
-# Session-identity stamp + automatic pause span (#260).
+# Native Claude Code session UUID (8-4-4-4-12 hex) — exactly the form the OTel
+# exporter tags datapoints with as session.id. Single source of truth for the shape
+# test, shared by cmd_pipeline_session_add's record-time refusal and the write
+# seam's registration gate; two copies of one regex is drift waiting to happen.
+is_session_uuid() {
+  [[ "$1" =~ ^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$ ]]
+}
+
+# Append a pipelineSessions[] record for the writing session when it is not already
+# recorded. Idempotent on sessionId, exactly as cmd_pipeline_session_add is.
+#
+# The UUID gate here is REGISTRATION-ONLY (#123): the lastWriteSessionId stamp and
+# the pauseSpans span accept any non-empty string, as #260 shipped them, but an id
+# that can never match a collector datapoint must not enter the cost-attribution
+# set — that is the invariant cmd_pipeline_session_add enforces by refusing, and
+# the seam cannot refuse, so it declines to register instead.
+#
+# NEVER FAILS: a jq error falls back to the input document, per the seam contract.
+# $1 = writer session id, $2 = state JSON → stdout
+register_writer_session() {
+  local sid="$1" doc="$2" out
+  is_session_uuid "$sid" || { printf '%s\n' "$doc"; return 0; }
+  out=$(jq --arg sid "$sid" --arg now "$(now_iso)" '
+    (.pipelineSessions // []) as $existing
+    | if any($existing[]; .sessionId == $sid)
+      then .   # idempotent — this session is already recorded
+      else .pipelineSessions = ($existing + [
+             { sessionId: $sid, launchedAt: $now, source: null } ])
+      end
+  ' <<< "$doc" 2>/dev/null) || out="$doc"
+  printf '%s\n' "$out"
+}
+
+# Session-identity stamp + automatic pause span (#260) + session registration (#123).
 #
 # Every state mutation routes through atomic_write, so this is the ONE place that
 # can see a resume without each resume site remembering to declare one. A pause is
@@ -423,23 +457,27 @@ apply_session_seam() {
   prev_raw=$(cat "$(state_path "$key")" 2>/dev/null || true)
 
   if [[ -z "$prev_raw" ]] || ! jq empty <<< "$prev_raw" 2>/dev/null; then
-    # Degraded or absent predecessor: stamp, no span, never fail.
+    # Degraded or absent predecessor: stamp + register, no span, never fail. This
+    # is the init creation path, so the launching session registers at Stage 1.
     out=$(jq --arg s "$writer_sid" '.lastWriteSessionId = $s' <<< "$content" 2>/dev/null) \
       || out="$content"
+    out=$(register_writer_session "$writer_sid" "$out")
     printf '%s\n' "$out"
     return 0
   fi
 
   prev_status=$(jq -r '.status // ""' <<< "$prev_raw" 2>/dev/null || echo "")
   if [[ "$prev_status" != "in_progress" ]]; then
-    # Predecessor parses and is already terminal: neither stamp nor span, so a
-    # post-terminal backfill cannot seed a stale stamp for a later reset.
+    # Predecessor parses and is already terminal: neither stamp, span, nor
+    # register, so a post-terminal backfill cannot seed a stale stamp for a later
+    # reset — and stays the exclusive business of pipeline-session-add.
     printf '%s\n' "$content"
     return 0
   fi
 
   out=$(jq --arg s "$writer_sid" '.lastWriteSessionId = $s' <<< "$content" 2>/dev/null) \
     || out="$content"
+  out=$(register_writer_session "$writer_sid" "$out")
 
   prev_sid=$(jq -r '.lastWriteSessionId // ""' <<< "$prev_raw" 2>/dev/null || echo "")
   prev_lu=$(jq -r '.lastUpdatedAt // ""' <<< "$prev_raw" 2>/dev/null || echo "")
@@ -1562,8 +1600,8 @@ cmd_pipeline_session_add() {
   # which is exactly the form the OTel exporter emits as `session.id`. Anything else
   # (an unexpanded "$VAR", an empty string, or a synthetic non-UUID string) can never
   # match a collector datapoint, so the cost block would silently skip — reject it here
-  # at record time instead.
-  [[ "$sid" =~ ^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$ ]] \
+  # at record time instead. Predicate shared with the write seam (is_session_uuid).
+  is_session_uuid "$sid" \
     || { EXIT_CODE=1 die "pipeline-session-add: --session-id '$sid' is not a native session UUID (8-4-4-4-12 hex, as emitted by the OTel collector as session.id)"; }
   case "$source" in
     ""|interactive) ;;

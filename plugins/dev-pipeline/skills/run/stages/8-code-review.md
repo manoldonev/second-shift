@@ -37,23 +37,15 @@
    rm -f "$BODY"
    # Exit cleanly (rc=0). Do NOT auto-recreate the worktree (could mask user intent).
    ```
-5. _(crash-recovery only)_ **Record this resume session for cost attribution:** a crash-recovery Stage 8 session is a distinct Claude session from the Stage 1–7 one, so it records its own native session UUID:
+5. _(crash-recovery only)_ **Re-assert the resumed session's mode:**
    ```bash
-   # Re-assert the resumed session's mode first (#243): init --mode re-stamps .mode on
-   # the existing state (documented carve-out) so a crash-recovery session resumed
-   # under a different mode cannot inherit the dead session's. Substitute the mode
-   # THIS session resolved at Invocation Routing as a literal.
+   # init --mode re-stamps .mode on the existing state (documented carve-out) so a
+   # crash-recovery session resumed under a different mode cannot inherit the dead
+   # session's. Substitute the mode THIS session resolved at Invocation Routing.
    MODE="${DEV_PIPELINE_MODE:-auto}"
    bash statectl.sh init "$ISSUE_NUMBER" --run-id "$RUN_ID" --mode "$MODE"
-   if [[ -n "${CLAUDE_CODE_SESSION_ID:-}" ]]; then
-     bash statectl.sh pipeline-session-add "$ISSUE_NUMBER" \
-       --session-id "$CLAUDE_CODE_SESSION_ID" \
-       --source interactive
-   else
-     echo "[stage-8] CLAUDE_CODE_SESSION_ID unset — skipping resume-session cost-attribution record"
-   fi
    ```
-   `$CLAUDE_CODE_SESSION_ID` is the native Claude Code session UUID the OTel exporter tags as `session.id`. On the normal in-process path the whole run is one session, already recorded at Stage 2 — do NOT add a second session id (and the resume session's UUID would differ anyway). Stage 9's cost-block sub-step unions all recorded sessions when querying OTel.
+   **Cost attribution needs no action here.** A crash-recovery Stage 8 session is a distinct Claude session from the Stage 1–7 one, but the shared write seam (`apply_session_seam`) registers it on its own first state write — the `init` above — so `pipelineSessions[]` gains its UUID without this stage asking. Stage 9's cost-block sub-step unions all recorded sessions when querying OTel.
 6. `cd` to `worktreePath`. Begin the Stage 8 review (Workflow dispatch — below).
 
 Steps 2–4 (advance `currentStage`, hydrate from `stageCheckpoint["7"]`, validate the worktree) run on **both** paths; steps 1 and 5 are crash-recovery only. On the in-process path Stage 8 simply continues with the context it already holds.

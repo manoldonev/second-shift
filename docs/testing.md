@@ -95,6 +95,107 @@ Notes from building it:
   keep node's event loop alive, so merely reaching the end of the file hangs for fifteen minutes
   rather than returning.
 
+## Test-the-tests: the mutation sweep
+
+Every tier above answers "is this behavior guarded?". None answers "does the guard actually fail
+when the behavior breaks?" — and that is what "every new guard ships a red-on-mutation demo" asks
+each author to do by hand, once, at authoring time. `tools/mutation-sweep.sh` makes it a standing
+measurement instead: it mutates the repo's shell guards, runs their paired selftests, and reports
+which mutants **survive**. A survivor is a regression the suite would not have caught.
+
+**Pairing is a rule, not a list.** Every git-tracked `*.sh` that is not a `*-selftest.sh` and is
+not under `*/evals/*` or `tests/hooks-smoke/` must resolve to its killer(s) via directory-scoped
+same-stem pairing, a `tools/mutation-pair-map.tsv` row, or a reasoned
+`tools/mutation-exclusions.tsv` row. An unaccounted guard is red — that is what keeps the data
+files honest as the tree grows, and why adding a guard with a cross-named suite means adding a
+map row. Same-stem is directory-scoped, never basename-anywhere: two `second-shift-doctor.sh`
+files exist at different paths, and only one of them is swept.
+
+**Two mutant tiers, deliberately asymmetric on validity.** Generic operators
+(`tools/mutation-operators.tsv`) are machine-enumerated over every paired guard, so a mutant that
+will not parse is a harness artifact — skipped and logged, never red. Catalog mutants
+(`tools/mutation-catalog.tsv`) are hand-authored against named sites, so a sed that no longer
+applies, or yields invalid output, is **anchor drift = red** — the
+`check-lockstep-pairs-selftest.sh` convention.
+
+**Survivors are data, not a red build.** Only a survivor absent from `tools/mutation-baseline.tsv`,
+or a named infra failure (`baseline-missing`, `baseline-environment-mismatch`, an unrunnable pair,
+an unaccounted guard, sandbox failure), reds a lane. A baselined survivor is report-only; a
+baselined survivor that is now killed is a warn to shrink the baseline.
+
+**An unrunnable pair is infra red.** Every killer must exit 0 against the unmutated sandbox before
+any of its guard's mutants are scored, so a broken or environment-starved suite can never report
+its guard as fully killed.
+
+**Every killer runs under a wall-clock bound**, and a timed-out killer counts as a **kill**,
+logged by name. The bound is per suite — `4 x the suite's measured unmutated time`, floored at 60s
+and capped at `MUTATION_SWEEP_KILLER_TIMEOUT_S` (300s) — because a *flat* bound bounds one killer
+but not a *shard*: a guard whose mutants all spin costs `k` x the bound. The first bounded seed run
+showed exactly that gap. Nine shards went green, including the two that had been fatal, each naming
+its own culprit; one shard still burned a 60-minute budget against a ~15-minute cost model, and its
+job timeout destroyed both the log and the artifact, so it yielded nothing. Scaling to the suite
+puts the saving where the mutants are (the fast suites) and leaves the slow end's margin alone. This is not a tuning knob — it is what makes
+the sweep diagnosable at all. A mutant can make its guard *spin*: `cmp-z` inverts the EOF-tolerance
+clause of the standard read idiom (`while IFS= read -r line || [[ -n "$line" ]]` becomes
+`|| [[ -z "$line" ]]`), which at EOF is permanently true. An unbounded killer then blocks its shard
+forever — no further `swept` line, death by job timeout, log blob unfinalized, no artifact — which
+is how two successive 10-shard nightlies lost the same three shards without yielding one datapoint.
+Counting the timeout as a kill follows Stryker and PIT: the suite did surface the defect, and
+scoring it a survivor would red the build on a mutant nothing can kill.
+
+Three tracked guards carry that idiom, and the `k` budget — not any property of the guards — is
+what decides which are armed: `gen-statectl-validators.sh` and `predecessor-gate.sh` hold it at
+`cmp-z` ordinal 1 and killed their shards, while `scaffold-review-context.sh` holds it at ordinal 5
+and was simply never mutated at `k=2`. Raising `MUTATION_SWEEP_K` arms it. Budget is not safety.
+
+**Two obligations land on ordinary PRs.** Editing a guard re-keys its generic survivor ordinals,
+so that PR re-baselines those rows in its own diff; and it re-anchors any catalog row addressing
+it. Catalog rows are pattern-addressed for exactly that reason — a bare line address is rejected,
+because during this harness's own intake the `check-emit-deadline` site moved by 68 lines between
+two runs a day apart, and only the expression-addressed entry survived.
+
+**Where it runs.** Diff-scoped on every PR — guards whose kill set is not a single fast suite defer
+to nightly rather than being graded against a weaker criterion than the one that produced the
+baseline — and wholesale in the nightly `mutation-sweep.yml`. Kill verdicts are only comparable
+inside the canonical environment (ubuntu-latest, `SKIP_STRESS=1`), so local runs are advisory and
+say so.
+
+### Runbook: the sweep just reded
+
+**`baseline-absent survivor: <guard>::<operator>::<ordinal>`** — the usual one, and usually your
+own doing: you edited a guard, which re-keyed its ordinals. The red line *is* the answer. Copy each
+named id into `tools/mutation-baseline.tsv` as `<survivor_id><TAB><note>` and commit it **in the PR
+that moved the guard**. No dispatch needed — the failing log already names every id. Before pasting,
+read the mutant: an ordinal that shifted is bookkeeping, but a *new* survivor at a site you just
+wrote is the harness telling you the test you added does not test anything.
+
+**`catalog anchor drift: catalog::<id> left <guard> byte-identical`** — a hand-authored
+`tools/mutation-catalog.tsv` sed no longer matches. Either the anchor moved (re-anchor the row
+against the new text) or the branch it guarded is gone (strike the row). Do not invent a site to
+re-anchor onto; if the behavior left, the row leaves with it.
+
+**`unaccounted guard`** — a new `*.sh` with no killer. Give it a same-stem `*-selftest.sh`, a
+`tools/mutation-pair-map.tsv` row, or a reasoned `tools/mutation-exclusions.tsv` row.
+
+**`pair-map guard does not exist`** — you deleted a guard and left its rows behind. Delete them too,
+catalog rows included.
+
+**Re-seeding the whole baseline** is a `workflow_dispatch` of `mutation-sweep.yml` with
+`seed=true` — the explicit re-baseline override, which never enforces. That is the *only* entry
+point: seed mode otherwise triggers on an absent baseline, and a `schedule` run never seeds. Reach
+for it when the baseline is wholesale stale (a mass rename, a `MUTATION_SWEEP_K` change), not for
+a handful of shifted rows.
+
+**Seed runs force `RC=0`.** A green seed is not a clean seed — `grep 'RED:'` the shard logs
+regardless. A run has shipped a reding baseline on exactly this mistake.
+
+**A green PR does not mean a green nightly.** The PR lane sweeps only guards whose kill set is a
+single fast suite; everything paired to a slow or multi-suite killer (`statectl-selftest`,
+`scenario-liveness-selftest`, `scenario-lib.sh`'s three killers, anything in
+`tools/mutation-slow-suites.tsv`) reports `deferred-to-nightly` and is **not graded on your PR**.
+Edit one of those and the ordinal re-key surfaces at 03:17 UTC, on someone else's morning. If your
+diff touches a deferred guard, expect to re-baseline from the nightly rather than from your PR.
+
 ## Adversarial tier (operator-run, never CI)
 
 The model tier cannot live in CI without API-billed calls. It runs on demand, by an operator, in
