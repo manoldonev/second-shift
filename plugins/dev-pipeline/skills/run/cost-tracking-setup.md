@@ -4,7 +4,7 @@
 
 The goal: at Stage 9 (after the PR is opened), the pipeline invokes `pipeline-cost-block.sh` in-band. The script reads OTel metrics emitted under the sessions recorded in `pipelineSessions[]`, clamps them to the run's own wall-clock fence (`[startedAt, terminal-stage completedAt]`) so a co-resident sequential run or `/pipeline-retro` sharing the same `session.id` doesn't leak in, buckets the in-fence datapoints per stage, and appends a single cost block to each PR's body (idempotently — re-runs detect the marker and no-op).
 
-Opting in is just steps 1–3 below (collector + telemetry env + bot wrapper) — no per-engineer hook wiring. The skill records the native Claude Code session UUID (`$CLAUDE_CODE_SESSION_ID`) at Stage 1 (immediately after `statectl init`), again at Stage 2, on any resume of an `in_progress` run (SKILL.md resume rule 2), and on a crash-recovery Stage 8 resume, via `statectl pipeline-session-add`, and Stage 9 reads the resulting `pipelineSessions[]` to attribute cost. That UUID is the same value the OTel exporter tags datapoints with as `session.id`, which is what lets the cost block match them.
+Opting in is just steps 1–3 below (collector + telemetry env + bot wrapper) — no per-engineer hook wiring. The skill records the native Claude Code session UUID (`$CLAUDE_CODE_SESSION_ID`) at Stage 2, on any resume of an `in_progress` run (SKILL.md resume rule 2), and on a crash-recovery Stage 8 resume, via `statectl pipeline-session-add`, and Stage 9 reads the resulting `pipelineSessions[]` to attribute cost. That UUID is the same value the OTel exporter tags datapoints with as `session.id`, which is what lets the cost block match them.
 
 ## Prerequisites
 
@@ -14,7 +14,7 @@ Opting in is just steps 1–3 below (collector + telemetry env + bot wrapper) �
 
   On a **bot-disabled** repo no wrapper is needed: the script amends the PR with plain `gh` under **operator identity**. An absent, unreadable, or malformed config counts as disabled (`.tracker.bot.enabled // false`, the same default `tools/bot-commit.sh` applies), so a repo with no config still gets its cost block. Note the two resolve "absent" differently: this script reads one path, whereas `bot-commit.sh` searches `$SECOND_SHIFT_CONFIG` → its `-C` dir → the main checkout (via `--git-common-dir`), so a gitignored config that is absent from a worktree is still found there.
 - **`jq` ≥ 1.6** (ships with macOS).
-- **Native session UUID recorded.** The in-band sub-step relies on `pipelineSessions[]` being populated by the skill at Stage 1 and Stage 2 (and on every resume of an `in_progress` run, including a crash-recovery Stage 8 re-entry in a fresh session), which reads `$CLAUDE_CODE_SESSION_ID` and records it via `statectl pipeline-session-add` (the subcommand enforces the UUID shape). A run that never recorded a session id — e.g. `$CLAUDE_CODE_SESSION_ID` was unset — leaves `pipelineSessions[]` empty and skips cost tracking gracefully (`costBlockApplied = "skipped-no-sessions"`).
+- **Native session UUID recorded.** The in-band sub-step relies on `pipelineSessions[]` being populated by the skill at Stage 2 (and on a crash-recovery Stage 8 resume in a fresh session), which reads `$CLAUDE_CODE_SESSION_ID` and records it via `statectl pipeline-session-add` (the subcommand enforces the UUID shape). A run whose Stage 2 never recorded a session id — e.g. `$CLAUDE_CODE_SESSION_ID` was unset — leaves `pipelineSessions[]` empty and skips cost tracking gracefully (`costBlockApplied = "skipped-no-sessions"`).
 - **Pipeline state with timestamps + PR URL.** The script reads `stages.{N}.startedAt`/`completedAt` (for stage windows) and `prs.{branch}.url` (to know which PRs to amend) from `.claude/pipeline-state/{issue}.json`. The dev-pipeline writes both at every stage boundary.
 
 ## 1. Install the OTel collector
@@ -91,7 +91,7 @@ In-band cost tracking does not need a Stop hook. Stage 9 of the dev-pipeline ski
 
 ## 5. Verify end-to-end
 
-1. Launch the dev-pipeline interactively (`/dev-pipeline <issue>`). The skill at Stage 1 reads `$CLAUDE_CODE_SESSION_ID` (the native session UUID) and records it via `statectl pipeline-session-add`.
+1. Launch the dev-pipeline interactively (`/dev-pipeline <issue>`). The skill at Stage 2 reads `$CLAUDE_CODE_SESSION_ID` (the native session UUID) and records it via `statectl pipeline-session-add`.
 2. Tail the collector output: `tail -f ~/.claude/otel-metrics/metrics.jsonl` — you should see JSON lines within a few seconds of the session emitting.
 3. When Stage 9 completes (PR opened), the in-band sub-step queries the metrics file for all sessions in `pipelineSessions[]`, renders a per-stage cost block, and amends every PR in `prs`. The state file's `costBlockApplied` flips to `true` on success.
 
@@ -108,7 +108,7 @@ jq '.costBlockApplied' .claude/pipeline-state/<issue-number>.json
 
 **Cost block doesn't appear in PR.** Check `.claude/pipeline-state/{issue}.json` `costBlockApplied`:
 
-- `"skipped-no-sessions"` — `pipelineSessions[]` is empty. Did Stage 1/Stage 2 run with `$CLAUDE_CODE_SESSION_ID` set? You can backfill manually with the real session UUID (find it as a `session.id` in `~/.claude/otel-metrics/metrics.jsonl`): `bash statectl.sh pipeline-session-add <issue> --session-id <session-uuid> --source interactive`.
+- `"skipped-no-sessions"` — `pipelineSessions[]` is empty. Did Stage 2 run with `$CLAUDE_CODE_SESSION_ID` set? You can backfill manually with the real session UUID (find it as a `session.id` in `~/.claude/otel-metrics/metrics.jsonl`): `bash statectl.sh pipeline-session-add <issue> --session-id <session-uuid> --source interactive`.
 - `"skipped-telemetry-off"` — `~/.claude/otel-metrics/metrics.jsonl` is empty or absent. Was the collector running? Is your `.envrc` loaded (`direnv status` should show "Found RC")?
 - `"skipped-otel-error"` — the jq query against the metrics file failed. Re-run from a terminal to see stderr, then follow **Manual re-run after an OTel query failure** below.
 - `"skipped-zero-datapoints"` — the recorded session UUID returned `$0.00` from the collector. The likely cause: the session was launched WITHOUT the OTEL\_\* env vars exported (your `.envrc` was not loaded when the session started — see step 3 above), so the collector never received datapoints for it. (A malformed, non-UUID session id can no longer reach this state — `statectl pipeline-session-add` rejects it at record time.)
