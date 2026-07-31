@@ -3823,11 +3823,19 @@ else
 fi
 mkdir -p "$LEDGER_DIR"
 
-# (lcg2) Ledger dir exists and holds rows, but the run recorded NO session — the
-# join key is missing, so nothing is attributable to this run. Fail-open, not a
-# refusal, and NOT silently "corroborated".
+# (lcg2) The run recorded NO session, so the join key is missing and nothing in the
+# ledger is attributable to this run. Fail-open, not a refusal, and NOT silently
+# "corroborated" — the ledger below holds rows that WOULD match if joined.
+#
+# Reaching this state takes an unset CLAUDE_CODE_SESSION_ID. Since #123/#295 the
+# write seam registers the writing session automatically, so a run that writes
+# state under a valid session id can no longer HAVE an empty pipelineSessions[];
+# the unset-env path is the only remaining way in, and it is exactly the one D-21
+# names. Restore the id afterwards — later cases depend on it.
 reset_state
 lcg_write "$SESSION_A" "$ROW_READ1" "$ROW_SKILL1"
+LCG_SAVED_SID="$CLAUDE_CODE_SESSION_ID"
+unset CLAUDE_CODE_SESSION_ID
 sct init 9931 --run-id "selftest-run-$$" >/dev/null
 sct set-stage 9931 1 --status started >/dev/null
 sct checkpoint 9931 1 --json '{"verdict":"no-split","preflight":{"baseBranch":"main","workingTreeClean":true,"guardOutcome":"proceed-clean"}}' >/dev/null
@@ -3837,10 +3845,12 @@ sct comment-add 9931 --marker intake --url "https://github.example/c/intake" >/d
 stage_evidence 9931 1
 rc=$(sct_rc set-stage 9931 1 --status completed)
 lc=$(sct get 9931 '.stages."1".ledgerCorroboration')
-if [[ "$rc" == "0" && "$lc" == "uncorroborated" ]]; then
-  pass "(lcg2) empty pipelineSessions[] → completes, uncorroborated (AC-2)"
+sessions=$(sct get 9931 '(.pipelineSessions // []) | length')
+export CLAUDE_CODE_SESSION_ID="$LCG_SAVED_SID"
+if [[ "$rc" == "0" && "$lc" == "uncorroborated" && "$sessions" == "0" ]]; then
+  pass "(lcg2) no recorded session id → completes, uncorroborated (AC-2, D-21)"
 else
-  fail "(lcg2) empty pipelineSessions[] — rc=$rc lc='$lc'"
+  fail "(lcg2) no recorded session — rc=$rc lc='$lc' sessions=$sessions"
 fi
 
 # (lcg3) The happy path, and the point of AC-5: because Stage 1 now records its
