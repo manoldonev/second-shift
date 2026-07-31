@@ -4,6 +4,21 @@ All notable changes to the second-shift marketplace. Versions are per-plugin (`p
 this file tracks the marketplace release. `configVersion` stays `const 1` — v2 is fully backward-compatible for a
 consumer with an empty config; the migration notes below are only for consumers using the changed features.
 
+## v3.4.0
+
+### `dev-pipeline` 3.3.0 → 3.4.0
+
+- **feat(dev-pipeline): /dev-pipeline:run-lean — outcome-gated lean harness (experimental) (#307)** (#307)
+  new experimental `/dev-pipeline:run-lean` skill — an outcome-gated lean
+  alternative to `run`, gated by five artifact milestones and a CI merge-boundary
+  evidence check. Off by default; `run` is unchanged.
+  Migration: none.
+  pipeline-cost-block.sh gains an additive --stateless mode (session ids +
+  a time fence as arguments, session-window totals to stdout or a file, no
+  cost-log.jsonl row) for harnesses with no state file. Existing invocations are
+  behavior-unchanged.
+  Migration: none.
+
 ## v3.3.0
 
 ### `dev-pipeline` 3.2.0 → 3.3.0
