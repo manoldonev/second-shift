@@ -255,6 +255,7 @@ const BOUNDED_EXPLORATION =
 // This does NOT weaken the dark path (#175's stated non-fix): nothing transcribes partial text
 // and no parser changes — the AGENT emits a well-formed block, and a missing sentinel is still
 // dark. parseReviewResult() is already last-match-wins, which is what makes re-emission free.
+// LOCKSTEP-BEGIN progressive-emit
 const PROGRESSIVE_EMIT =
   ' EMIT AS YOU GO — do NOT save your result for the end. As soon as you have enumerated your' +
   ' items (before classifying them), write a COMPLETE REVIEW_RESULT block reflecting what you' +
@@ -265,6 +266,7 @@ const PROGRESSIVE_EMIT =
   ' you cover. Budget your turns so the final block is written well before your limit: a review' +
   ' you never emit is scored exactly like a review that never ran, and your entire domain is' +
   ' then recorded as unverified.'
+// LOCKSTEP-END progressive-emit
 
 // Per-reviewer wall-clock ceiling (#219). The Workflow runtime's own agent-stall loop
 // (multiple attempts × a no-progress window) can let a genuinely wedged reviewer burn

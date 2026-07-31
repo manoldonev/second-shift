@@ -64,6 +64,7 @@ import {
 const HERE = dirname(fileURLToPath(import.meta.url))
 const CODE_REVIEW_MJS = join(HERE, 'code-review.mjs')
 const DESIGN_SYNC_MJS = join(HERE, 'design-sync.mjs')
+const INTAKE_REVIEW_MJS = join(HERE, 'intake-review.mjs')
 
 let PASS = 0
 let FAIL = 0
@@ -561,6 +562,78 @@ console.log('── Case L: lean-review.mjs dispatch ladder')
       )
     }
   }
+}
+
+// ---------------------------------------------------------------------------
+// Case M — intake-review.mjs's per-agent wall-clock ceiling (#283).
+//
+// AC-5: a leg that never emits must be declared dark by the CEILING'S TIMER, not by
+// exhausting its turn cap. The fake agent behavior below is a function returning a
+// promise that never resolves — the turn-cap-exhaustion path (Case B4's analogue: two
+// '' attempts, calls.length === 2) cannot even be reached, since dispatchIntake's
+// `await agent(...)` never returns and the retry loop never gets a second iteration.
+// The ONLY way this test terminates is the ceiling's setTimeout firing, which is
+// patched to fire on the next tick so the assertion runs in milliseconds instead of the
+// real REVIEWER_CEILING_MS (15 minutes). Patching global setTimeout is safe here: `new
+// Function` bodies resolve free variables against the global scope at CALL time (they do
+// not close over this file's lexical scope), and clearTimeout still works normally on the
+// real timer id the patched setTimeout returns.
+// ---------------------------------------------------------------------------
+console.log('── Case M: intake-review.mjs per-agent wall-clock ceiling')
+
+const specBlock = (verdict = 'implementable') => reviewBlock({ verdict, findings: [] })
+const explorerBlock = () =>
+  reviewBlock({
+    modulesAffected: [{ module: 'm' }],
+    estimatedScope: { filesToCreate: 1, filesToModify: 2, modulesTouched: 1 },
+  })
+
+const runIntake = (behaviors, argsOverride = {}) => {
+  const f = makeFakeAgent(behaviors)
+  const args = {
+    issue: '283',
+    issueBody: 'Issue body text.',
+    config: { reviewers: {} },
+    ...argsOverride,
+  }
+  return makeRunner(INTAKE_REVIEW_MJS)(f.agent, parallel, pipeline, args, noop, noop, undefined).then((r) => ({
+    result: r,
+    calls: f.calls,
+  }))
+}
+
+{
+  const origSetTimeout = globalThis.setTimeout
+  globalThis.setTimeout = (fn, _ms, ...rest) => origSetTimeout(fn, 0, ...rest)
+  try {
+    // spec-reviewer's dispatch hangs forever; codebase-explorer resolves normally in the
+    // same fan-out. "Per-agent" means the hang must not block the other leg.
+    const { result, calls } = await runIntake([() => new Promise(() => {}), explorerBlock()])
+    const spec = result.specReview
+    const explorer = result.codebaseExplorer
+    ok('M1 the hung leg is declared dark via the ceiling, not a parsed result', spec.result === null)
+    ok('M2 the hung leg carries the ceiling dark-marker shape', spec.retried === true && spec.failed === true && spec.ceiling === true)
+    ok('M3 the ceiling error names the wall-clock ceiling, not the turn cap', /wall-clock ceiling/.test(String(spec.error)))
+    ok(
+      'M4 the OTHER leg is unaffected by its sibling hanging (per-agent, not fan-out-wide)',
+      !!explorer.result && explorer.result.modulesAffected.length === 1,
+    )
+    ok(
+      'M5 only one dispatch was ever attempted for the hung leg (proves darkness came from the timer, not a turn-cap retry loop)',
+      calls.filter((c) => c.opts.agentType === 'review-toolkit:spec-reviewer').length === 1,
+    )
+  } finally {
+    globalThis.setTimeout = origSetTimeout
+  }
+}
+{
+  // M6: sanity — a normal, microtask-fast fan-out is not falsely marked dark. Runs under
+  // the REAL (unpatched) 15-minute ceiling; a normal resolution always wins that race.
+  const { result } = await runIntake([specBlock('implementable'), explorerBlock()])
+  ok(
+    'M6 a normal fan-out completes via the real dispatch, unaffected by the ceiling',
+    result.specReview.result.verdict === 'implementable' && !result.specReview.ceiling,
+  )
 }
 
 console.log(`\n[runtime-shim-selftest] ${PASS} passed, ${FAIL} failed`)

@@ -235,25 +235,33 @@ const emitStructured = (text, opts) =>
   )
 
 
-// PROPHYLACTIC, not a measured fix — and the distinction is load-bearing. Both agents in this file
-// emitted cleanly in the run that motivated the wider change (spec-reviewer 18 tool calls,
-// codebase-explorer 12, against the 24-28 range where dispatches die), so there is no stall here to
-// cure and no before/after rate to cite. It ships for uniform coverage, so the lint's rule has no
-// silent hole, and it is exempt from the "a nudge lands with its measurement" guardrail precisely
-// because it is not claimed as a fix. If it ever needs defending, the probe's avgFindings
-// comparison — not a stall rate — is the instrument.
-const BOUNDED_SPEC_GROUNDING =
-  ' GROUND PROPORTIONATELY: the issue body is your primary artifact. Consult the codebase to check' +
-  ' a specific claim you intend to raise as a finding — not to build general familiarity, and not' +
-  ' to prove the absence of findings across the repo. Stop exploring and emit your final result' +
-  ' before your budget runs low.'
+// #283: spec-reviewer is an EXHAUSTIVE-class reviewer (same treatment as code-review.mjs's
+// scope-completeness-reviewer / unit-test-mutation-reviewer), not a boundable one — run #273
+// measured it dying at the turn cap having emitted nothing, the same failure class
+// BOUNDED_EXPLORATION-style "explore less" nudges do not cure (that framing REPLACED a
+// BOUNDED_SPEC_GROUNDING nudge here, which was already in place during #273's death and did not
+// prevent it). Verbatim-shared with code-review.mjs/plan-review.mjs (workflows cannot `import`)
+// — kept honest by scripts/lockstep-manifest.tsv. Belt-and-suspenders half of the same pair as
+// spec-reviewer.md's own turn-numbered emit deadline (see check-emit-deadline.sh enrollment).
+// LOCKSTEP-BEGIN progressive-emit
+const PROGRESSIVE_EMIT =
+  ' EMIT AS YOU GO — do NOT save your result for the end. As soon as you have enumerated your' +
+  ' items (before classifying them), write a COMPLETE REVIEW_RESULT block reflecting what you' +
+  ' know so far, then keep working and re-emit the whole block each time you learn something.' +
+  ' Emitting more than one block is expected here and overrides the single-block instruction' +
+  ' below: the LAST complete block wins, so an early one costs you nothing and refinement is' +
+  ' free. Your enumeration must stay exhaustive — this governs when you write, never how much' +
+  ' you cover. Budget your turns so the final block is written well before your limit: a review' +
+  ' you never emit is scored exactly like a review that never ran, and your entire domain is' +
+  ' then recorded as unverified.'
+// LOCKSTEP-END progressive-emit
 
 // Per-entry dispositions. These two descriptors take OPPOSITE treatment yet share one agent() call
 // downstream — the shape that forced the lint grammar's `delegated` verb (see dispatchIntake).
 const DISPATCH = [
   {
     // bounded-exploration-optout: validator-reference -- consumed as d.schema by validateShape and
-    //   the emitter; the explorer dispatch is schema-free. Its bounding text (BOUNDED_SPEC_GROUNDING)
+    //   the emitter; the explorer dispatch is schema-free. Its bounding text (PROGRESSIVE_EMIT)
     //   rides in the prompt below.
     agentType: 'review-toolkit:spec-reviewer',
     schema: SPEC_REVIEW_SCHEMA,
@@ -265,7 +273,7 @@ const DISPATCH = [
       `mandatory and must carry your actual reasoning / how you verified it (file:line where ` +
       `relevant) — the orchestrator uses it to accept or dismiss the finding, so a bare ` +
       `conclusion without rationale is unusable.` +
-      BOUNDED_SPEC_GROUNDING,
+      PROGRESSIVE_EMIT,
     epilogue:
       '\n\nWrite your review. Your FINAL output MUST end with this sentinel line followed by one' +
       ' fenced json block and NOTHING after it:\n\n' +
@@ -367,7 +375,38 @@ const dispatchIntake = async (d) => {
   }
 }
 
-const results = await parallel(selected.map((d) => () => dispatchIntake(d)))
+// Per-agent wall-clock ceiling (#283, mirrors code-review.mjs's #219 mechanism). The Workflow
+// runtime's own agent-stall loop can let a genuinely wedged sub-agent run far longer than any
+// turn-cap death would suggest, and that loop is a RUNTIME property this script cannot reach
+// (agent() exposes no timeout/abort option). Race the full dispatch (both attempts) against this
+// ceiling and, on timeout, resolve — NEVER reject — to the SAME died-after-retry dark-marker
+// shape dispatchIntake's own turn-cap-exhaustion path already returns: a ceiling timeout is a
+// SUB-CAUSE of that path, not a new dark case, so the orchestrator's existing
+// { result: null } + { retried: true, failed: true } handling covers it unchanged.
+const REVIEWER_CEILING_MS = 15 * 60 * 1000
+const withCeiling = (agentType, dispatchPromise) => {
+  let timer
+  const ceiling = new Promise((resolve) => {
+    timer = setTimeout(
+      () =>
+        resolve({
+          agentType,
+          result: null,
+          error: `dispatch exceeded the per-agent wall-clock ceiling (${REVIEWER_CEILING_MS}ms) — declared dark`,
+          retried: true,
+          failed: true,
+          ceiling: true,
+        }),
+      REVIEWER_CEILING_MS,
+    )
+  })
+  return Promise.race([dispatchPromise, ceiling]).then((r) => {
+    clearTimeout(timer)
+    return r
+  })
+}
+
+const results = await parallel(selected.map((d) => () => withCeiling(d.agentType, dispatchIntake(d))))
 
 const byType = (t) => results.find((r) => r && bare(r.agentType) === bare(t)) || { result: null }
 return {

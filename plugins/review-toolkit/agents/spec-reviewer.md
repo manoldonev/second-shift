@@ -174,7 +174,7 @@ If no issues found, respond with: "Spec is clear, complete, and internally consi
 
 ## Structured Output (intake Workflow)
 
-When you are dispatched through the dev-pipeline intake Workflow (`intake-review.mjs`) with a JSON schema, return the **structured object** instead of the prose format above — the orchestrator reasons over the object, not the firehose. The fields map directly onto the prose sections:
+When you are dispatched through the dev-pipeline intake Workflow (`intake-review.mjs`), return the **structured object** below instead of the prose format above — the orchestrator reasons over the object, not the firehose. Your dispatch prompt tells you the exact wire format (a sentinel line followed by one fenced json block); the fields map directly onto the prose sections:
 
 ```json
 {
@@ -197,4 +197,6 @@ When you are dispatched through the dev-pipeline intake Workflow (`intake-review
 
 - `verdict`: `blocked` if any blocker survives your own grounding pass; `needs-revision` if only warnings/notes that materially risk implementation; `implementable` otherwise.
 - The **`rationale` field is load-bearing** and required for every finding — the grounding precondition above still applies: if you assert a spec claim is wrong, the rationale must say what you read to know that. Dropping rationale to save tokens defeats the purpose of the structured hand-off.
-- The structured object **is** your review — there is no separate prose pass to serialize from. Call StructuredOutput first, as your sole output; the same review at the same fidelity, recorded in the schema fields rather than narrated. See `reviewer-baseline` "Output Mode".
+- The structured object **is** your review — there is no separate prose pass to serialize from. Emit it in the exact wire format your dispatch prompt specifies, as your sole output; the same review at the same fidelity, recorded in the schema fields rather than narrated. See `reviewer-baseline` "Output Mode".
+
+By **turn 10** (of your 15 maximum) you MUST be writing your verdict. No further tool use after turn 10 except producing it. If a finding you intended to verify is still unresolved at turn 10, emit your verdict anyway and use the reviewer-baseline `"unable to verify — pointer needed: <specific file or fact>"` line for that finding rather than dropping it silently — an honest partial review beats none at all.

@@ -67,6 +67,28 @@ const BOUNDED_PLAN_GROUNDING =
   ' never licenses skipping a completeness inventory this prompt asks for, nor asserting a claim' +
   ' you did not check. Stop exploring and emit the REVIEW_RESULT block before your budget runs low.'
 
+// #283: plan-reviewer is an EXHAUSTIVE-class reviewer (same treatment as code-review.mjs's
+// scope-completeness-reviewer / unit-test-mutation-reviewer) — its job is checking plan claims
+// against the codebase, so BOUNDED_PLAN_GROUNDING's "explore less" framing is deliberately
+// dormant here (see above) and cannot substitute for this. plan-reviewer.md already carries its
+// own turn-numbered emit deadline (and is enrolled in check-emit-deadline.sh's
+// DEADLINE_AT_DEFAULT) — this dispatch-time nudge is the belt-and-suspenders half of the same
+// pair code-review.mjs ships for its two exhaustive reviewers, both of which ALSO carry an
+// agent-doc deadline. Verbatim-shared with code-review.mjs/intake-review.mjs (workflows cannot
+// `import`) — kept honest by scripts/lockstep-manifest.tsv.
+// LOCKSTEP-BEGIN progressive-emit
+const PROGRESSIVE_EMIT =
+  ' EMIT AS YOU GO — do NOT save your result for the end. As soon as you have enumerated your' +
+  ' items (before classifying them), write a COMPLETE REVIEW_RESULT block reflecting what you' +
+  ' know so far, then keep working and re-emit the whole block each time you learn something.' +
+  ' Emitting more than one block is expected here and overrides the single-block instruction' +
+  ' below: the LAST complete block wins, so an early one costs you nothing and refinement is' +
+  ' free. Your enumeration must stay exhaustive — this governs when you write, never how much' +
+  ' you cover. Budget your turns so the final block is written well before your limit: a review' +
+  ' you never emit is scored exactly like a review that never ran, and your entire domain is' +
+  ' then recorded as unverified.'
+// LOCKSTEP-END progressive-emit
+
 // Appended ONLY to a retry. Repeating an attempt verbatim is a foregone conclusion when the death
 // was a turn-budget wall rather than a stochastic drop, and the two are indistinguishable from here
 // (the runtime surfaces no turn count; the error string is identical). Rather than invent a
@@ -343,7 +365,8 @@ await planReviewerGate(
     (briefPath
       ? `A Product-Essence Brief exists at the absolute path \`${briefPath}\` (main repo, outside the worktree) — read it and verify the plan honors its binding intent: a plan step contradicting a resolved QUARANTINE decision or a settled user guardrail is a Blocker. `
       : '') +
-    `Return trinary verdict (block | fix-and-go | pass) and findings.`,
+    `Return trinary verdict (block | fix-and-go | pass) and findings.` +
+    PROGRESSIVE_EMIT,
 )
 
 // ---- Gate 2: design FE-spec review (designDriven runs only) ----
@@ -366,7 +389,8 @@ if (design.enabled) {
       `nearest apps/web analog / uplot / Server-Component fetch, acme token roles — never the ` +
       `handoff's raw token values), a behavioral/state contract with every inference flagged ` +
       `\`inferred\`, and any handoff-README stack-claim mismatch flagged. ` +
-      `Return trinary verdict (block | fix-and-go | pass) and findings.`,
+      `Return trinary verdict (block | fix-and-go | pass) and findings.` +
+      PROGRESSIVE_EMIT,
   )
 } else {
   recordSkip('design-fe-spec', 'not-applicable')

@@ -227,6 +227,12 @@ grep -q "plan-reviewer" "$TMP/.live" \
   && ok "B4 plan-reviewer is covered by the lint under the shipped enrollment" \
   || bad "B4 expected plan-reviewer in the live lint output ($(cat "$TMP/.live"))"
 
+# B5: spec-reviewer (#283's demonstrated death, run #273) must likewise stay covered
+# under the shipped enrollment — same regression shape as B4, second name.
+grep -q "spec-reviewer" "$TMP/.live" \
+  && ok "B5 spec-reviewer is covered by the lint under the shipped enrollment" \
+  || bad "B5 expected spec-reviewer in the live lint output ($(cat "$TMP/.live"))"
+
 echo
 echo "[check-emit-deadline-selftest] $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]

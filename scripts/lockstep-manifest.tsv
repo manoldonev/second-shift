@@ -47,6 +47,14 @@ ac-id-rule	verbatim	plugins/dev-pipeline/skills/run/state-schema.md	ac-id-rule	p
 findings-schema-stall	verbatim	plugins/dev-pipeline/skills/run/workflows/code-review.mjs	findings-schema	plugins/dev-pipeline/skills/run/workflows/stall-probe.mjs	findings-schema
 findings-schema-tdp	verbatim	plugins/dev-pipeline/skills/run/workflows/code-review.mjs	findings-schema	plugins/dev-pipeline/skills/run/workflows/tool-discipline-probe.mjs	findings-schema
 #
+# PROGRESSIVE_EMIT preamble triple (#283). Same Workflow-cannot-import class as the
+# FINDINGS_SCHEMA triple above: code-review.mjs, plan-review.mjs and intake-review.mjs each
+# declare their own copy of the "emit as you go" nudge for their exhaustive-class reviewer(s),
+# and a copy that drifts silently re-opens the #175/#183 turn-cap-death class one file at a
+# time. Expressed as two pairs against the same canonical leg (code-review.mjs).
+progressive-emit-plan	verbatim	plugins/dev-pipeline/skills/run/workflows/code-review.mjs	progressive-emit	plugins/dev-pipeline/skills/run/workflows/plan-review.mjs	progressive-emit
+progressive-emit-intake	verbatim	plugins/dev-pipeline/skills/run/workflows/code-review.mjs	progressive-emit	plugins/dev-pipeline/skills/run/workflows/intake-review.mjs	progressive-emit
+#
 # Stage-7/8 dual-target branches: the selftests embed a mirror of the stage doc's bash and
 # test THAT, so a doc-side edit the mirror does not track means the selftest is green about
 # a behavior production no longer has. These replace the deleted (B) prose-presence halves.
