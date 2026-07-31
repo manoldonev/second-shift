@@ -38,13 +38,20 @@ The plan gates — `plan-reviewer`, design FE-spec review (designDriven runs), u
 ```
 Workflow({
   scriptPath: "workflows/plan-review.mjs",
-  // The caller also passes args.config = the parsed second-shift.config.json (repo-local
-  // reviewers from config `reviewers.add` are referenced bare; plugin reviewers qualified).
+  // args.config carries ONLY the config keys THIS script reads — never the whole parsed
+  // config. plan-review.mjs reads `reviewers` (per-agent model overrides), and the rule is
+  // TRANSITIVE: it forwards `config` verbatim into its nested unit-tests.mjs dispatch, so
+  // this subset must also cover every key that child reads (today: `reviewers` only).
+  // CONFIG below = the parsed second-shift.config.json. Passing CONFIG whole sends
+  // `commands.<host>` shell-command strings and a top-level `$schema` through Workflow arg
+  // serialization — the payload that killed a dispatch outright; passing `{ reviewers: {} }`
+  // is the opposite trap, serializing cleanly while silently disabling every model override.
+  // Repo-local reviewers from config `reviewers.add` are referenced bare; plugin reviewers qualified.
   args: {
     worktree: "$WT",
     planPath: "$PLAN_REL",
     issue: "$ISSUE_NUMBER",
-    config: CONFIG,
+    config: { reviewers: CONFIG.reviewers },
     workflowsDir: "workflows",
     design:    { enabled: <bool>, provider: "<claude-design|figma>", specPath: "docs/design-specs/<screen>-spec.md" },
     unitTests: { enabled: <bool>, planPath: "<unitTestSurface.planPath or the plan file>",

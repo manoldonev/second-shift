@@ -121,11 +121,19 @@ for round in 1..3:
   #     opt-in). Pass the selected reviewer agentTypes + diff context as args:
   Workflow({
     scriptPath: "workflows/code-review.mjs",
-    // The caller also passes args.config = the parsed second-shift.config.json (plugin
-    // reviewers are qualified `review-toolkit:`/`design-toolkit:`; repo-local reviewers
-    // from config `reviewers.add` are passed bare).
+    // args.config carries ONLY the config keys THIS script reads — never the whole parsed
+    // config. code-review.mjs reads two: `reviewers` (per-agent model overrides) and
+    // `tracker` (`tracker.type` branches scope-completeness-reviewer between the Atlassian
+    // MCP fetch and `gh issue view`, and defaults to "github" SILENTLY — so dropping the
+    // key mis-routes a JIRA repo with no error). CONFIG below = the parsed
+    // second-shift.config.json. Passing CONFIG whole sends `commands.<host>` shell-command
+    // strings and a top-level `$schema` through Workflow arg serialization — the payload
+    // that killed a dispatch outright; passing `{ reviewers: {} }` is the opposite trap,
+    // serializing cleanly while silently disabling every model override.
+    // Plugin reviewers are qualified `review-toolkit:`/`design-toolkit:`; repo-local
+    // reviewers from config `reviewers.add` are passed bare.
     args: { worktree: "$WORKTREE", base: "$BASE", head: "$HEAD", issue: "$ISSUE_NUMBER",
-            config: CONFIG,
+            config: { reviewers: CONFIG.reviewers, tracker: CONFIG.tracker },
             reviewers: [<selected agentType strings>],
             changedFiles: [<from --stat>], prContext: "<branch/PR context; include unitTestSurface.mutationTargets when unit-test-mutation-reviewer is selected; include stageCheckpoint[\"7\"].qualityPassSummary so reviewers VERIFY the applied Stage-6 cleanups instead of re-proposing them — unapplied quality-pass suggestions[] cap at minor/nit (they were already judged out of apply scope); when .briefPath is non-null, include it for the NON-scope reviewers so they can flag plan/impl drift from the Brief's binding intent — but NEVER forward briefPath to scope-completeness-reviewer (its independence contract fetches the issue itself; feeding it derived intent would corrupt the anti-gaslighting property)>" }
   })

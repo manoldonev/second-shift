@@ -89,9 +89,17 @@ Recompute `HEAD` (and `CHANGED_BACKEND_FILES`) before any re-dispatch after test
    ```
    Workflow({
      scriptPath: "workflows/mutation-gate.mjs",
-     // The caller also passes args.config = the parsed second-shift.config.json.
+     // args.config carries ONLY the config keys THIS script reads — never the whole parsed
+     // config. mutation-gate.mjs reads `reviewers` (the `mutation-executor` model override),
+     // and the rule is TRANSITIVE: it forwards `config` verbatim into its nested
+     // unit-tests.mjs dispatch, so this subset must also cover every key that child reads
+     // (today: `reviewers` only). CONFIG below = the parsed second-shift.config.json.
+     // Passing CONFIG whole sends `commands.<host>` shell-command strings and a top-level
+     // `$schema` through Workflow arg serialization — the payload that killed a dispatch
+     // outright; passing `{ reviewers: {} }` is the opposite trap, serializing cleanly while
+     // silently disabling every model override.
      args: { worktree: "$WT", base: "$BASE", head: "$HEAD", issue: "$ISSUE_NUMBER",
-             config: CONFIG,
+             config: { reviewers: CONFIG.reviewers },
              testFileCommand: "$TEST_FILE_CMD",   // resolved from commands.<host>.testFile
              workflowsDir: "workflows",
              round: 1,
@@ -141,13 +149,18 @@ On a design-driven run the screen is implemented **by the engine**, not hand-cod
    ```
    Workflow({
      scriptPath: "workflows/design-sync.mjs",
-     // The caller also passes args.config = the parsed second-shift.config.json.
+     // args.config carries ONLY the config keys THIS script reads — never the whole parsed
+     // config. design-sync.mjs reads `reviewers` (per-agent model overrides). CONFIG below =
+     // the parsed second-shift.config.json. Passing CONFIG whole sends `commands.<host>`
+     // shell-command strings and a top-level `$schema` through Workflow arg serialization —
+     // the payload that killed a dispatch outright; passing `{ reviewers: {} }` is the
+     // opposite trap, serializing cleanly while silently disabling every model override.
      // worktree anchors ALL engine reads/writes/commits to THIS ticket's worktree —
      // without it implement:true commits land on the session's default checkout, i.e.
      // the wrong branch (F26). Mirrors the figma twin's feWorktree below. $WT is the
      // absolute worktree path resolved above.
      args: { kind: "produce", implement: true, worktree: "$WT", projectId: "$PROJECT_ID", screen: "$SCREEN",
-             issue: "$ISSUE_NUMBER", config: CONFIG }
+             issue: "$ISSUE_NUMBER", config: { reviewers: CONFIG.reviewers } }
    })
    # implement:true → dispatches the design-toolkit:design-faithful skill, which writes the repo's FE code + commits IN $WT.
    # Returns { kind, implement, result } | { kind, implement, failClosed } | { kind, budgetExhausted: true }.
