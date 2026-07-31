@@ -160,6 +160,42 @@ baseline — and wholesale in the nightly `mutation-sweep.yml`. Kill verdicts ar
 inside the canonical environment (ubuntu-latest, `SKIP_STRESS=1`), so local runs are advisory and
 say so.
 
+### Runbook: the sweep just reded
+
+**`baseline-absent survivor: <guard>::<operator>::<ordinal>`** — the usual one, and usually your
+own doing: you edited a guard, which re-keyed its ordinals. The red line *is* the answer. Copy each
+named id into `tools/mutation-baseline.tsv` as `<survivor_id><TAB><note>` and commit it **in the PR
+that moved the guard**. No dispatch needed — the failing log already names every id. Before pasting,
+read the mutant: an ordinal that shifted is bookkeeping, but a *new* survivor at a site you just
+wrote is the harness telling you the test you added does not test anything.
+
+**`catalog anchor drift: catalog::<id> left <guard> byte-identical`** — a hand-authored
+`tools/mutation-catalog.tsv` sed no longer matches. Either the anchor moved (re-anchor the row
+against the new text) or the branch it guarded is gone (strike the row). Do not invent a site to
+re-anchor onto; if the behavior left, the row leaves with it.
+
+**`unaccounted guard`** — a new `*.sh` with no killer. Give it a same-stem `*-selftest.sh`, a
+`tools/mutation-pair-map.tsv` row, or a reasoned `tools/mutation-exclusions.tsv` row.
+
+**`pair-map guard does not exist`** — you deleted a guard and left its rows behind. Delete them too,
+catalog rows included.
+
+**Re-seeding the whole baseline** is a `workflow_dispatch` of `mutation-sweep.yml` with
+`seed=true` — the explicit re-baseline override, which never enforces. That is the *only* entry
+point: seed mode otherwise triggers on an absent baseline, and a `schedule` run never seeds. Reach
+for it when the baseline is wholesale stale (a mass rename, a `MUTATION_SWEEP_K` change), not for
+a handful of shifted rows.
+
+**Seed runs force `RC=0`.** A green seed is not a clean seed — `grep 'RED:'` the shard logs
+regardless. A run has shipped a reding baseline on exactly this mistake.
+
+**A green PR does not mean a green nightly.** The PR lane sweeps only guards whose kill set is a
+single fast suite; everything paired to a slow or multi-suite killer (`statectl-selftest`,
+`scenario-liveness-selftest`, `scenario-lib.sh`'s three killers, anything in
+`tools/mutation-slow-suites.tsv`) reports `deferred-to-nightly` and is **not graded on your PR**.
+Edit one of those and the ordinal re-key surfaces at 03:17 UTC, on someone else's morning. If your
+diff touches a deferred guard, expect to re-baseline from the nightly rather than from your PR.
+
 ## Adversarial tier (operator-run, never CI)
 
 The model tier cannot live in CI without API-billed calls. It runs on demand, by an operator, in
