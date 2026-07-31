@@ -386,6 +386,13 @@ else
   fail "(q3) mark-failed worktree-creation-failed — reason='$reason' stage='$stage' gitError='$giterr' status=$status_now"
 fi
 
+# NOTE for every (psa*) count below: since #123 the write seam registers the WRITING
+# session, and this harness pins CLAUDE_CODE_SESSION_ID at the top of the file. So
+# `init` already appends one record (the harness id) before any explicit add runs —
+# every expected count here is "harness record + the records this case authored".
+# Records are addressed by sessionId rather than by position so a future change to
+# what else registers cannot silently re-point these assertions at the wrong record.
+
 # (psa1) pipeline-session-add: first call appends; second call same sid is idempotent
 reset_state
 sct init 9999 --run-id "selftest-run-$$" >/dev/null
@@ -393,20 +400,20 @@ SID1="11111111-2222-4333-8444-555555555555"
 sct pipeline-session-add 9999 --session-id "$SID1" --source interactive >/dev/null
 sct pipeline-session-add 9999 --session-id "$SID1" --source interactive >/dev/null
 count=$(sct get 9999 '.pipelineSessions | length')
-first_src=$(sct get 9999 '.pipelineSessions[0].source')
-first_sid=$(sct get 9999 '.pipelineSessions[0].sessionId')
-if [[ "$count" == "1" && "$first_sid" == "$SID1" && "$first_src" == "interactive" ]]; then
+first_src=$(sct get 9999 '.pipelineSessions[] | select(.sessionId=="'"$SID1"'") | .source')
+first_n=$(sct get 9999 '[.pipelineSessions[] | select(.sessionId=="'"$SID1"'")] | length')
+if [[ "$count" == "2" && "$first_n" == "1" && "$first_src" == "interactive" ]]; then
   pass "(psa1) pipeline-session-add → first appends, second same-sid is idempotent"
 else
-  fail "(psa1) pipeline-session-add idempotency — count=$count sid=$first_sid src=$first_src"
+  fail "(psa1) pipeline-session-add idempotency — count=$count sid1Records=$first_n src=$first_src"
 fi
 
 # (psa2) pipeline-session-add: second different sid appends a new record
 SID2="66666666-7777-4888-8999-aaaaaaaaaaaa"
 sct pipeline-session-add 9999 --session-id "$SID2" --source interactive >/dev/null
 count=$(sct get 9999 '.pipelineSessions | length')
-second_src=$(sct get 9999 '.pipelineSessions[1].source')
-if [[ "$count" == "2" && "$second_src" == "interactive" ]]; then
+second_src=$(sct get 9999 '.pipelineSessions[] | select(.sessionId=="'"$SID2"'") | .source')
+if [[ "$count" == "3" && "$second_src" == "interactive" ]]; then
   pass "(psa2) pipeline-session-add → second distinct sid appends"
 else
   fail "(psa2) pipeline-session-add second distinct sid — count=$count src=$second_src"
@@ -434,7 +441,7 @@ fi
 reset_state
 sct init 9999 --run-id "selftest-run-$$" >/dev/null
 sct pipeline-session-add 9999 --session-id "$SID1" >/dev/null
-src=$(sct get 9999 '.pipelineSessions[0].source')
+src=$(sct get 9999 '.pipelineSessions[] | select(.sessionId=="'"$SID1"'") | .source')
 if [[ "$src" == "null" ]]; then
   pass "(psa5) pipeline-session-add omitted source → record source=null"
 else
@@ -1065,16 +1072,81 @@ sct init 9999 --run-id "selftest-run-$$" >/dev/null
 stamp_after_anon=$(sct get 9999 '.lastWriteSessionId')
 spans_after_anon=$(sct get 9999 '.pauseSpans // "ABSENT"')
 anon_ts=$(sct get 9999 '.lastUpdatedAt')
+# #123: an anonymous write must also REGISTER nothing — the seam's empty-writer-id
+# early return covers stamp, span and registration alike.
+sessions_after_anon=$(sct get 9999 '.pipelineSessions | length')
 sleep 1
 CLAUDE_CODE_SESSION_ID="$SESSION_B"
 sct checkpoint 9999 1 --json '{"note":"resume after the operator repair"}' >/dev/null
 CLAUDE_CODE_SESSION_ID="$SESSION_A"
 resume_from=$(sct get 9999 '.pauseSpans[0].from')
 if [[ "$stamp_after_anon" == "$SESSION_A" && "$spans_after_anon" == "ABSENT" \
+      && "$sessions_after_anon" == "1" \
       && "$(sct get 9999 '.pauseSpans | length')" == "1" && "$resume_from" == "$anon_ts" ]]; then
-  pass "(sr5) anonymous write → no span, stamp untouched; the following resume still spans, anchored at the repair write"
+  pass "(sr5) anonymous write → no span, no registration, stamp untouched; the following resume still spans, anchored at the repair write"
 else
-  fail "(sr5) stamp='$stamp_after_anon' spans='$spans_after_anon' resumeFrom='$resume_from' anonTs='$anon_ts'"
+  fail "(sr5) stamp='$stamp_after_anon' spans='$spans_after_anon' sessionsAfterAnon='$sessions_after_anon' resumeFrom='$resume_from' anonTs='$anon_ts'"
+fi
+
+# (sr14) #123 — the seam REGISTERS the writing session on the init write, with
+# source:null, and repeated writes by that same session stay idempotent. This is the
+# case that makes registration observed rather than declared: no explicit
+# pipeline-session-add is called anywhere in it.
+reset_state
+sct init 9999 --run-id "selftest-run-$$" >/dev/null
+sct set-stage 9999 1 --status started >/dev/null
+sct checkpoint 9999 1 --json '{"note":"same session, third write"}' >/dev/null
+reg_count=$(sct get 9999 '.pipelineSessions | length')
+reg_sid=$(sct get 9999 '.pipelineSessions[0].sessionId')
+reg_src=$(sct get 9999 '.pipelineSessions[0].source')
+reg_launched=$(sct get 9999 '.pipelineSessions[0].launchedAt')
+if [[ "$reg_count" == "1" && "$reg_sid" == "$SESSION_A" && "$reg_src" == "null" \
+      && -n "$reg_launched" && "$reg_launched" != "null" ]]; then
+  pass "(sr14) seam registers the writing session at init (source=null), idempotent across further writes"
+else
+  fail "(sr14) count=$reg_count sid='$reg_sid' src='$reg_src' launchedAt='$reg_launched'"
+fi
+
+# (sr15) #123 — a writer id that is NOT a session UUID registers nothing, yet the
+# host write still succeeds and the stamp still lands. The UUID gate is
+# registration-only: lastWriteSessionId keeps accepting any non-empty string, as
+# the pause-span seam shipped it. Guards the invariant cost-tracking-setup.md
+# asserts as closed ("a malformed id can no longer reach this state").
+reset_state
+sct init 9999 --run-id "selftest-run-$$" >/dev/null
+before_bad=$(sct get 9999 '.pipelineSessions | length')
+CLAUDE_CODE_SESSION_ID="not-a-uuid"
+rc=$(sct_rc checkpoint 9999 1 --json '{"note":"malformed writer id"}')
+after_bad=$(sct get 9999 '.pipelineSessions | length')
+stamp_bad=$(sct get 9999 '.lastWriteSessionId')
+CLAUDE_CODE_SESSION_ID="$SESSION_A"
+if [[ "$rc" == "0" && "$before_bad" == "1" && "$after_bad" == "1" && "$stamp_bad" == "not-a-uuid" ]]; then
+  pass "(sr15) non-UUID writer id → no registration, host write succeeds, stamp still applied"
+else
+  fail "(sr15) rc=$rc before=$before_bad after=$after_bad stamp='$stamp_bad'"
+fi
+
+# (sr16) #123 — THE INVARIANT. Within one run, seam writes alone cannot produce a
+# non-empty pauseSpans[] alongside fewer than two pipelineSessions[] records: a span
+# exists only because a second session wrote, and the same pass registers it. This
+# is the case that would fail if a future edit re-separated the two fields — which
+# is exactly the #232 shape (a 55h pause with one session record) this closes.
+# Drives two real sessions through ordinary writes; no pipeline-session-add anywhere.
+reset_state
+sct init 9999 --run-id "selftest-run-$$" >/dev/null
+sct set-stage 9999 1 --status started >/dev/null
+sleep 1
+CLAUDE_CODE_SESSION_ID="$SESSION_B"
+sct checkpoint 9999 1 --json '{"note":"a fresh session resumes mid-run"}' >/dev/null
+CLAUDE_CODE_SESSION_ID="$SESSION_A"
+inv_spans=$(sct get 9999 '.pauseSpans | length')
+inv_sessions=$(sct get 9999 '.pipelineSessions | length')
+inv_distinct=$(sct get 9999 '[.pipelineSessions[].sessionId] | unique | length')
+inv_holds=$(sct get 9999 'if ((.pauseSpans // []) | length) > 0 then ((.pipelineSessions // []) | length) >= 2 else true end')
+if [[ "$inv_spans" == "1" && "$inv_sessions" == "2" && "$inv_distinct" == "2" && "$inv_holds" == "true" ]]; then
+  pass "(sr16) a resume yields BOTH a pause span and a second session record, from seam writes alone"
+else
+  fail "(sr16) spans=$inv_spans sessions=$inv_sessions distinct=$inv_distinct invariant=$inv_holds"
 fi
 
 # (sr6) post-terminal pipeline-session-add backfill (the documented
@@ -1712,15 +1784,26 @@ fi
 
 # (rm7) pipeline-session-add is EXEMPT (#154 D3): a post-terminal cost backfill is
 # legitimate (cost-tracking-setup.md). It must mutate a completed run WITHOUT --force.
+#
+# #123 added a second half to this case: the SEAM must stay inert on a terminal
+# predecessor, so the backfill is the only thing that can register there. That is
+# what keeps the subcommand load-bearing rather than vestigial — the seam
+# structurally cannot serve this path. The backfilled record is addressed by
+# sessionId, not by position: `init` above registers the harness session first.
 reset_state
 sct init 9999 --run-id "selftest-run-$$" >/dev/null
 mk_completed
+before_terminal=$(sct get 9999 '.pipelineSessions | length')
+# An ordinary write by a DIFFERENT session on the terminal run must register nothing.
+CLAUDE_CODE_SESSION_ID="$SESSION_B" sct_rc checkpoint 9999 1 --json '{"x":1}' >/dev/null
+after_seam_terminal=$(sct get 9999 '.pipelineSessions | length')
 rc=$(sct_rc pipeline-session-add 9999 --session-id aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee --source interactive)
-sid_set=$(sct get 9999 '.pipelineSessions[0].sessionId')
-if [[ "$rc" == "0" && "$sid_set" == "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee" ]]; then
-  pass "(rm7) pipeline-session-add on terminal → applied WITHOUT --force (exempt)"
+sid_set=$(sct get 9999 '.pipelineSessions[] | select(.sessionId=="aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee") | .sessionId')
+if [[ "$rc" == "0" && "$sid_set" == "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee" \
+      && "$after_seam_terminal" == "$before_terminal" ]]; then
+  pass "(rm7) terminal run → seam registers nothing, pipeline-session-add still applies WITHOUT --force (exempt)"
 else
-  fail "(rm7) pipeline-session-add exemption — rc=$rc sessionId='$sid_set'"
+  fail "(rm7) pipeline-session-add exemption — rc=$rc sessionId='$sid_set' seamBefore=$before_terminal seamAfter=$after_seam_terminal"
 fi
 
 # (rm8) deviations-add — a stage-mutator (Stage-8 review-fix write), so it is

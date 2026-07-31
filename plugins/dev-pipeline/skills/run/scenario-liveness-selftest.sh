@@ -110,6 +110,12 @@ export STATECTL_STATE_DIR="$TMP/.claude/pipeline-state"
 # scenario here composes a single-session run, so a fixed id keeps them same-session
 # and no scenario should ever grow a pauseSpans entry. Inheriting the harness's id
 # would work today by accident; pinning it makes that a decision.
+#
+# Since #123 the pin also fixes SESSION REGISTRATION: the seam records this id into
+# pipelineSessions[] on each scenario's first state write, so every scenario carries
+# exactly one session record. No scenario asserts on that field — these are
+# verdict-path tests, not cost-accounting ones — but the pin is what holds the count
+# at one instead of letting it vary with whichever session ran the suite.
 export CLAUDE_CODE_SESSION_ID="1ffe6e55-0000-4000-8000-000000000001"
 cd "$TMP" || exit 99
 

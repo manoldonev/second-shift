@@ -360,10 +360,13 @@ RBRANCH="claude/acme-$RKEY"
 reset_state
 sct init "$RKEY" --run-id "e2e-replay-resume-$$" >/dev/null
 for n in 1 2 3 4 5 6 7; do complete_stage "$RKEY" "$n"; done
-# The ORIGINAL session, as Stage 2 records it. complete_stage does not write one (it
-# plants only completion evidence), and without it the resume below would be comparing
-# against an empty set — (r4) would read 1 and look like a pass-by-accident.
-sct pipeline-session-add "$RKEY" --session-id "11111111-1111-4111-8111-111111111111" --source interactive >/dev/null
+# The ORIGINAL session needs no explicit record since #123: the write seam registered
+# the harness-pinned id at the `init` above, exactly as a real Stage-1 init does. That
+# is the point of the change — no stage declares a session, so this replay must not
+# declare one either, or it would be testing a call the pipeline no longer makes.
+[[ "$(sct get "$RKEY" '.pipelineSessions | length')" == "1" ]] \
+  && pass "(r0) the original session is registered by the init write, with no explicit call" \
+  || fail "(r0) pipelineSessions after init is $(sct get "$RKEY" '.pipelineSessions | length'), want 1"
 [[ "$(sct get "$RKEY" '.stages["7"].status')" == "completed" ]] \
   && pass "(r1) the interrupted run is parked at stage 7 completed" \
   || fail "(r1) could not park the run at stage 7"
@@ -383,7 +386,9 @@ DYING_WRITE=$(sct get "$RKEY" '.lastUpdatedAt')
 # now_iso is second-resolution; sleep so the span has a measurable width.
 sleep 1
 CLAUDE_CODE_SESSION_ID="$E2E_SESSION_RESUMED"
-sct pipeline-session-add "$RKEY" --session-id "22222222-2222-4222-8222-222222222222" --source interactive >/dev/null
+# An ORDINARY write — not a session-add. The resuming session announces itself by
+# writing at all; the seam turns that into both the span and the registration.
+sct checkpoint "$RKEY" 8 --json '{"note":"stage-8 re-entry"}' >/dev/null
 SPAN_FROM=$(sct get "$RKEY" '.pauseSpans[-1].from')
 [[ "$SPAN_FROM" == "$DYING_WRITE" ]] \
   && pass "(r2) the resuming session's FIRST write anchors the span on the dying session's last write" \
@@ -394,10 +399,11 @@ SPAN_FROM=$(sct get "$RKEY" '.pauseSpans[-1].from')
 
 # A resume runs in a DIFFERENT Claude session; Stage 9 attributes cost per session.id, so
 # a resume that records nothing contributes zero rows and its cost silently vanishes.
-# (That same write is the one that carried the span above — the seam has no ordering
-# requirement, so the session record and the span ride together.)
+# That same ordinary write carried the span above — the seam has no ordering
+# requirement, so the session record and the span ride together, which is precisely
+# why a span can no longer outnumber the sessions that produced it (#123).
 [[ "$(sct get "$RKEY" '.pipelineSessions | length')" == "2" ]] \
-  && pass "(r4) the resuming session is recorded alongside the original" \
+  && pass "(r4) the resuming session is recorded alongside the original, with no explicit call" \
   || fail "(r4) pipelineSessions length is $(sct get "$RKEY" '.pipelineSessions | length')"
 
 # Stage-8 re-entry hydrates from stageCheckpoint["7"] — the entire context contract for a
