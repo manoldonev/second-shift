@@ -205,11 +205,15 @@ ok "branch namespace: prefix='$BRANCH_PREFIX' -> work branch '$BRANCH'"
 ok "plan file: '$PLAN_REL' | pipeline state dir: '$STATE_DIR'"
 ok "topology: type=$TOPO"
 if [[ -f "$CFG" ]] && command -v jq >/dev/null 2>&1; then
-  while IFS=$'\t' read -r rid rpath rbase rwt; do
+  while IFS=$'\t' read -r rid rpath rbase; do
     [[ -z "$rid" ]] && continue
-    [[ "$rwt" == "null" || -z "$rwt" ]] && rwt=".claude/worktrees"
+    # rwt resolves via tools/resolve-worktrees-dir.sh (issue #237) — the same single
+    # source of truth the run stages call, so this advisory report can never show a
+    # default that diverges from what a real run would actually do.
+    rwt="$(bash "$SCRIPT_DIR/resolve-worktrees-dir.sh" "$CFG" "$rid" 2>/dev/null)"
+    [[ -n "$rwt" ]] || rwt="<unresolvable>"
     ok "repo '$rid': path='$rpath' baseBranch='$rbase' -> worktree path (string-only) '$rwt/${BRANCH##*/}'"
-  done < <(jq -r '(.topology.repos // {}) | to_entries[] | [.key, .value.path, (.value.baseBranch // "main"), (.value.worktreesDir // "null")] | @tsv' "$CFG" 2>/dev/null)
+  done < <(jq -r '(.topology.repos // {}) | to_entries[] | [.key, .value.path, (.value.baseBranch // "main")] | @tsv' "$CFG" 2>/dev/null)
 fi
 
 # --- Section 3: environment doctor (#17 config-aware layer — invoked, not copied) --

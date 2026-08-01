@@ -55,7 +55,7 @@ Uses the same marker contract as the main pipeline:
 Human-readable message here.
 ```
 
-Generate `RUN_ID` at the start of the run: `{ISO timestamp}-{hostname}-{random 8 hex chars}`.
+Generate `RUN_ID` at the start of the run: `{ISO timestamp}-{random 8 hex chars}`.
 Include `run_id` in every comment for traceability.
 
 ---

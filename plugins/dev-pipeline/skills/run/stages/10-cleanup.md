@@ -12,7 +12,20 @@
     [[ -n "$WT" ]] && git -C "$(cd "$MAIN_ROOT/$RP" && pwd)" worktree remove "$MAIN_ROOT/$WT" 2>/dev/null || true
   done
   ```
-- **Intake pin worktree (all topologies):** remove the Stage-1 read-pin worktree if it survived (Step 1.P already removes it best-effort after Stage 1; this is the crash backstop): `git worktree remove --force "${WORKTREES_DIR}/intake-pin-${ISSUE_NUMBER}" 2>/dev/null || true`. Runs on success AND on the recoverable-failure path below — the pin holds no work product, so it is always safe to drop.
+- **Intake pin worktree (all topologies):** remove the Stage-1 read-pin worktree if it survived (Step 1.P already removes it best-effort after Stage 1; this is the crash backstop). Runs on success AND on the recoverable-failure path below — the pin holds no work product, so it is always safe to drop:
+  ```bash
+  # WORKTREES_DIR resolves via tools/resolve-worktrees-dir.sh (issue #237) — the single
+  # source of truth shared with Stage 1's pin and Stage 2. A resolution failure here is
+  # REPORTED, never silently absorbed — the pre-#237 bug was routing an unset/empty
+  # WORKTREES_DIR straight into `2>/dev/null || true`, which swallowed the resulting
+  # root-path failure and left completed runs (e.g. #230) with a leaked
+  # `intake-pin-<n>` worktree and zero signal.
+  if WORKTREES_DIR=$(bash "${CLAUDE_PLUGIN_ROOT}/skills/run/tools/resolve-worktrees-dir.sh" "$SECOND_SHIFT_CONFIG" 2>&1); then
+    git worktree remove --force "${WORKTREES_DIR}/intake-pin-${ISSUE_NUMBER}" 2>/dev/null || true
+  else
+    echo "[stage-10] could not resolve topology.repos.<host>.worktreesDir ($WORKTREES_DIR) — intake-pin-${ISSUE_NUMBER} cleanup skipped; note this in the run's completion report for manual follow-up." >&2
+  fi
+  ```
 - **On recoverable failure (spec/plan/verify stopped):** keep worktree, include worktree path in the failure comment for manual rescue.
 - **On CI:** workspace dies with the runner — no explicit cleanup needed.
 
