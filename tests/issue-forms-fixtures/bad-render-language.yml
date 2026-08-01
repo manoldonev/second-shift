@@ -1,0 +1,13 @@
+# Bogus `render:` language — not a value in GitHub's recognized language list. Confirmed
+# rejected by check-jsonschema 0.37.4 ("'not-a-real-language' is not one of [...]"). Kept
+# out of .github/ISSUE_TEMPLATE/ so GitHub never renders it (#299).
+name: Bad render fixture
+description: render language is not a recognized value.
+body:
+  - type: textarea
+    id: field-a
+    attributes:
+      label: A field
+      render: not-a-real-language
+    validations:
+      required: true

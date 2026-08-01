@@ -1,0 +1,13 @@
+# Illegal `type:` value. Confirmed rejected by check-jsonschema 0.37.4 against
+# vendor.github-issue-forms: "'bogus' is not one of ['checkboxes', 'dropdown', 'input',
+# 'markdown', 'textarea', 'upload']". Kept out of .github/ISSUE_TEMPLATE/ so GitHub never
+# renders it (#299).
+name: Bad type fixture
+description: Uses an illegal body-item type.
+body:
+  - type: bogus
+    id: field-a
+    attributes:
+      label: A field
+    validations:
+      required: true
