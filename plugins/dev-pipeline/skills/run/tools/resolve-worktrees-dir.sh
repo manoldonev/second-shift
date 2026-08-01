@@ -12,9 +12,9 @@
 # (schema/second-shift.config.schema.json) — but before this script existed, three call
 # sites (Stage 1, Stage 2's single-repo path, Stage 10) never derived `WORKTREES_DIR` at
 # all; the doc's `${WORKTREES_DIR}` interpolation just expanded empty, composing an
-# absolute-root path (`/intake-pin-<n>`). Stage 10 swallowed the resulting failure
-# behind `2>/dev/null || true` — a completed run (#230) left `intake-pin-230` behind
-# with zero signal (issue #237).
+# absolute-root path (`/intake-pin-<n>`). Stage 10 swallowed the resulting failure via an
+# unconditional discard-and-continue — a completed run (#230) left `intake-pin-230`
+# behind with zero signal (issue #237).
 #
 # Usage: resolve-worktrees-dir.sh <config-path> [repo-id]
 #   repo-id omitted: auto-detect the HOST repo — the topology.repos entry whose `path`
@@ -22,10 +22,11 @@
 #   by preflight.sh, both of which iterate every configured repo, not just the host).
 #
 # Output contract: on success, the resolved worktrees dir (repo-root-relative, no
-# trailing slash) on stdout, exit 0. On failure — config unreadable, jq missing, or the
-# requested/host repo entry does not exist — nothing on stdout, a named reason on
-# stderr, exit 1. FAIL CLOSED: every caller MUST check the exit code before composing a
-# path from the output; none may fall back to an empty variable.
+# trailing slash) on stdout, exit status zero. On failure — config unreadable, jq
+# missing, or the requested/host repo entry does not exist — nothing on stdout, a named
+# reason on stderr, a non-zero exit status. FAIL CLOSED: every caller MUST check the
+# exit code before composing a path from the output; none may fall back to an empty
+# variable.
 
 set -u
 
