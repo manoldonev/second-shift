@@ -6,8 +6,8 @@
 # --------------------------------
 # scenario-liveness-selftest.sh already proves a composed verdict path reaches a terminal
 # write, but it gets there on HAND-PLANTED evidence: scenario-lib.sh's complete_stage
-# writes each comment receipt as the literal `https://github.example/c/<marker>`. Nothing
-# in the repo ever produced a receipt the way a run produces one, so the whole
+# writes each comment receipt as a literal `https://github.example/issues/<key>#issuecomment-
+# <n>`. Nothing in the repo ever produced a receipt the way a run produces one, so the whole
 # post-a-comment -> read html_url -> record-the-receipt chain was untested.
 #
 # Here every receipt is MINTED by executing a tool: production `claim-issue.sh` under a
@@ -118,7 +118,13 @@ case "\$ALL" in *"--input -"*) cat >/dev/null ;; esac
 case "\$ALL" in
   *"-X POST"*"/labels"*)   printf '["in-progress"]\n' ;;
   *"-X DELETE"*"/labels"*) printf '[]\n' ;;
-  *"-X POST"*"/comments"*) printf 'https://github.test/o/r/issues/9101#issuecomment-%s\n' "\$n" ;;
+  *"-X POST"*"/comments"*)
+    # #277: the receipt-shape gate now anchors on the state file's own ticketKey,
+    # so a canned "9101" regardless of which issue posted would make every
+    # non-9101 comment-add (e.g. \$RKEY's) a genuine shape mismatch, not a
+    # hand-planted stand-in. Extract the real issue number from the POST path.
+    iss=\$(printf '%s' "\$ALL" | grep -oE '/issues/[0-9]+/comments' | grep -oE '[0-9]+' | head -1)
+    printf 'https://github.test/o/r/issues/%s#issuecomment-%s\n' "\$iss" "\$n" ;;
   *"pr create"*)           printf 'https://github.test/o/r/pull/%s\n' "\$n" ;;
   *"-X PATCH"*"/pulls/"*)  printf 'https://github.test/o/r/pull/%s\n' "\$n" ;;
   *)                       printf '\n' ;;

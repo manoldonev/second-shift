@@ -45,8 +45,8 @@ gate has a verdict path, extend `scenario-liveness-selftest.sh`.
 
 **Never plant what a tool could produce.** A composed scenario can still be hollow if the values
 it composes over are typed in by the harness. `scenario-lib.sh` planted every comment receipt as
-`https://github.example/c/<marker>`, so the post-a-comment → read `html_url` → record-the-receipt
-chain was never executed by anything. Worse, planting hides its own failures: the stage-7
+`https://github.example/issues/<key>#issuecomment-<n>`, so the post-a-comment → read `html_url` →
+record-the-receipt chain was never executed by anything. Worse, planting hides its own failures: the stage-7
 checkpoint plant was passing a payload keyed to another ticket, `checkpoint` rejected it, `sct`
 discarded the stderr, and both consumers walked stage 7 with no `stageCheckpoint["7"]` at all —
 green the whole time. Prefer a shim you execute over a literal you write; where no production tool

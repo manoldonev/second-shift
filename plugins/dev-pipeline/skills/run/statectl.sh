@@ -2904,6 +2904,20 @@ cmd_comment_add() {
   local current
   current=$(read_state "$key_arg") || exit $?
   require_mutable "$current" "$force" "comment-add"
+  # Evidence-shape precondition (#277): an http(s) URL alone proves nothing — a PR
+  # URL, a PR review URL, a PR conversation comment, or an issue-comment URL for a
+  # DIFFERENT issue all pass the check above while proving the mandated stage
+  # comment does not exist (or exists on the wrong thread). Require the URL to be
+  # an issue-comment permalink for THIS state file's own ticketKey. Anchoring on
+  # ticketKey rather than just the `#issuecomment-` fragment is load-bearing: a PR
+  # conversation comment (`/pull/<n>#issuecomment-<id>`) shares that fragment
+  # shape, so only the `/issues/<ticketKey>` path segment discriminates — and the
+  # same predicate closes the wrong-thread case at no extra cost. Host-agnostic:
+  # match the path tail, not `github.com`, so a GHES consumer is unaffected.
+  local ticket_key
+  ticket_key=$(jq -r '.ticketKey // ""' <<< "$current")
+  [[ -n "$ticket_key" && "$url" =~ /issues/${ticket_key}#issuecomment-[0-9]+$ ]] \
+    || guard_fire "comment-receipt-shape" "" "comment-add: --url must be an issue-comment permalink for this ticket (.../issues/$ticket_key#issuecomment-<digits>), got '$url'; --force for crash-recovery"
   # Ordering precondition (code-review marker only): the synthesis comment cannot
   # get its receipt before `review-toolkit:review-lead` is recorded as loaded. The
   # stage-8 completion gate already refuses without this receipt, so the two gates
@@ -2920,8 +2934,8 @@ cmd_comment_add() {
   if [[ "$marker" == "code-review" ]]; then
     jq -e '(.stages["8"].skillsLoaded // []) | index("review-toolkit:review-lead") != null' <<< "$current" >/dev/null \
       || guard_fire "comment-receipt-ordering" "8" "comment-add: cannot record the 'code-review' receipt — review-toolkit:review-lead is not in stages.8.skillsLoaded[]. The skill must be loaded BEFORE the synthesis it governs is authored, not afterwards to satisfy a gate: load it, record it via skill-load-add, then re-run the synthesis and post that. Recording this receipt after the fact does not satisfy the ordering requirement; --force for crash-recovery"
-    guards_settle "$force"
   fi
+  guards_settle "$force"
   local now
   now=$(now_iso)
   local new_state

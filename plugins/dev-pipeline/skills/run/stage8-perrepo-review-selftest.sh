@@ -60,9 +60,9 @@ for s in 1 2 3 4 5 6 7; do
   case "$s" in
     1) "$SC" checkpoint "$ISSUE_NUMBER" 1 --json '{"verdict":"no-split","preflight":{"baseBranch":"main","workingTreeClean":true,"guardOutcome":"proceed-clean"}}' >/dev/null
        "$SC" skill-load-add "$ISSUE_NUMBER" --stage 1 --skill intake-toolkit:intake-orchestrator >/dev/null
-       "$SC" comment-add "$ISSUE_NUMBER" --marker claimed --url "https://github.example/c/claimed" >/dev/null
-       "$SC" comment-add "$ISSUE_NUMBER" --marker intake --url "https://github.example/c/intake" >/dev/null ;;
-    3) "$SC" comment-add "$ISSUE_NUMBER" --marker plan --url "https://github.example/c/plan" >/dev/null
+       "$SC" comment-add "$ISSUE_NUMBER" --marker claimed --url "https://github.example/issues/$ISSUE_NUMBER#issuecomment-101" >/dev/null
+       "$SC" comment-add "$ISSUE_NUMBER" --marker intake --url "https://github.example/issues/$ISSUE_NUMBER#issuecomment-102" >/dev/null ;;
+    3) "$SC" comment-add "$ISSUE_NUMBER" --marker plan --url "https://github.example/issues/$ISSUE_NUMBER#issuecomment-103" >/dev/null
        "$SC" unit-test-surface-set "$ISSUE_NUMBER" --json '{"applicable":false,"action":"skip","skipReason":"fixture: no mutation surface"}' >/dev/null ;;
     4) "$SC" plan-review-set "$ISSUE_NUMBER" --overall pass >/dev/null ;;
     5) "$SC" checkpoint "$ISSUE_NUMBER" 5 --json '{"changedFiles":[]}' >/dev/null ;;
@@ -79,7 +79,7 @@ for s in 1 2 3 4 5 6 7; do
            > "${SIDECAR_STEM}-${rr}-verify.json"
        done ;;
     7) "$SC" checkpoint "$ISSUE_NUMBER" 7 --json "{\"ticketKey\":\"$ISSUE_NUMBER\",\"branch\":\"claude/x-be\",\"headSha\":\"$(git -C "$ROOT/wt/be" rev-parse HEAD)\",\"worktreePath\":\"wt/be\",\"deviations\":[]}" >/dev/null
-       "$SC" comment-add "$ISSUE_NUMBER" --marker doc-update --url "https://github.example/c/doc-update" >/dev/null ;;
+       "$SC" comment-add "$ISSUE_NUMBER" --marker doc-update --url "https://github.example/issues/$ISSUE_NUMBER#issuecomment-104" >/dev/null ;;
   esac
   # #243 §3: every stage carries its stage-file read receipt.
   _SFILES=(_ 1-intake.md 2-worktree.md 3-write-plan.md 4-plan-review.md 5-implement.md 6-verify.md 7-doc-update.md 8-code-review.md 9-open-pr.md)
@@ -92,7 +92,7 @@ done
 # ordering for the code-review marker — so the load is recorded before the receipt,
 # matching the real Stage-8 sequence rather than working around the precondition.
 "$SC" skill-load-add "$ISSUE_NUMBER" --stage 8 --skill review-toolkit:review-lead >/dev/null
-"$SC" comment-add "$ISSUE_NUMBER" --marker code-review --url "https://github.example/c/code-review" >/dev/null   # its mandated terminating comment
+"$SC" comment-add "$ISSUE_NUMBER" --marker code-review --url "https://github.example/issues/$ISSUE_NUMBER#issuecomment-105" >/dev/null   # its mandated terminating comment
 
 statectl.sh() { "$SC" "$@"; }
 # >>> BEGIN verbatim mirror of the secondary-review loop in stages/8-code-review.md >>>

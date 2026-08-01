@@ -224,7 +224,7 @@ sct init "$KEY" --run-id "scenario-liveness-$$" >/dev/null
 for n in 1 2 3 4 5 6 7; do complete_stage "$KEY" "$n"; done
 sct set-stage "$KEY" 8 --status started >/dev/null
 sct review-rounds "$KEY" --set 1 >/dev/null
-rc_receipt=$(sct_rc comment-add "$KEY" --marker code-review --url "https://github.example/c/code-review")
+rc_receipt=$(sct_rc comment-add "$KEY" --marker code-review --url "https://github.example/issues/$KEY#issuecomment-105")
 sct set-stage "$KEY" 8 --status completed >/dev/null
 s8=$(sct get "$KEY" '.stages."8".status')
 write_report "$KEY"
@@ -305,7 +305,7 @@ for n in 1 2 3 4 5 6 7; do complete_stage "$KEY" "$n"; done
 sct set-stage "$KEY" 8 --status started >/dev/null
 sct review-rounds "$KEY" --set 3 --exhausted >/dev/null
 sct skill-load-add "$KEY" --stage 8 --skill review-toolkit:review-lead >/dev/null
-sct comment-add "$KEY" --marker code-review --url "https://github.example/c/code-review" >/dev/null
+sct comment-add "$KEY" --marker code-review --url "https://github.example/issues/$KEY#issuecomment-105" >/dev/null
 stage_evidence "$KEY" 8
 sct set-stage "$KEY" 8 --status completed >/dev/null
 
@@ -328,7 +328,7 @@ for n in 1 2 3 4 5 6 7; do complete_stage "$KEY" "$n"; done
 sct set-stage "$KEY" 8 --status started >/dev/null
 sct review-rounds "$KEY" --set 3 --exhausted >/dev/null
 sct skill-load-add "$KEY" --stage 8 --skill review-toolkit:review-lead >/dev/null
-sct comment-add "$KEY" --marker code-review --url "https://github.example/c/code-review" >/dev/null
+sct comment-add "$KEY" --marker code-review --url "https://github.example/issues/$KEY#issuecomment-105" >/dev/null
 stage_evidence "$KEY" 8
 sct set-stage "$KEY" 8 --status completed >/dev/null
 write_report "$KEY"
@@ -391,7 +391,7 @@ PERREPO=$(
 )
 CP7=$(jq --arg k "$KEY" '. + {ticketKey:$k, targetRepos:["be","fe"], planPath:"docs/plans/acme-9006.md", deviations:[]}' <<< "$PERREPO")
 sct checkpoint "$KEY" 7 --json "$CP7" >/dev/null
-sct comment-add "$KEY" --marker doc-update --url "https://github.example/c/doc-update" >/dev/null
+sct comment-add "$KEY" --marker doc-update --url "https://github.example/issues/$KEY#issuecomment-104" >/dev/null
 stage_evidence "$KEY" 7
 sct set-stage "$KEY" 7 --status completed >/dev/null
 perrepo_keys=$(sct get "$KEY" '.stageCheckpoint."7".perRepo | keys | join(",")')
@@ -406,7 +406,7 @@ sct review-rounds "$KEY" --set 1 >/dev/null
 sct skill-load-add "$KEY" --stage 8 --skill review-toolkit:review-lead >/dev/null
 sct cross-boundary-review-add "$KEY" --repo fe --status completed-in-session \
   --worktree ".claude/worktrees/fe-$KEY" --note "secondary reviewed in session" >/dev/null
-sct comment-add "$KEY" --marker code-review --url "https://github.example/c/code-review" >/dev/null
+sct comment-add "$KEY" --marker code-review --url "https://github.example/issues/$KEY#issuecomment-105" >/dev/null
 stage_evidence "$KEY" 8
 sct set-stage "$KEY" 8 --status completed >/dev/null
 
@@ -733,7 +733,7 @@ bash "$PRED_GATE" verdict open >/dev/null 2>&1; pg_rc_open=$?
 if [[ "$pg_rc_open" -eq 0 ]]; then
   # Would-be claim writes. Guarded by the verdict, exactly as Stage 1 guards them.
   sct init "$PG_A" --run-id "scenario-liveness-$$" >/dev/null
-  sct comment-add "$PG_A" --marker claimed --url "https://example.invalid/c/$PG_A" >/dev/null
+  sct comment-add "$PG_A" --marker claimed --url "https://example.invalid/issues/$PG_A#issuecomment-1" >/dev/null
 fi
 [[ "$pg_rc_open" -eq 3 ]] \
   && pass "(pg-skip1) open predecessor -> verdict exit 3 (skip-blocked, do not claim) (AC-6)" \
@@ -755,7 +755,7 @@ pg_b_extract=$(printf '%s\n' "$PG_B_BODY" | bash "$PRED_GATE" extract 2>/dev/nul
   || fail "(pg-go1) unblocked candidate — got '$pg_b_extract' (want empty)"
 
 sct init "$PG_B" --run-id "scenario-liveness-$$" >/dev/null
-sct comment-add "$PG_B" --marker claimed --url "https://example.invalid/c/$PG_B" >/dev/null
+sct comment-add "$PG_B" --marker claimed --url "https://example.invalid/issues/$PG_B#issuecomment-1" >/dev/null
 pg_b_receipt=$(sct get "$PG_B" '.comments.claimed // empty')
 [[ -f "$STATECTL_STATE_DIR/$PG_B.json" && -n "$pg_b_receipt" ]] \
   && pass "(pg-go2) the next candidate claims: state file + claim receipt both exist (AC-6)" \
@@ -771,7 +771,7 @@ pg_b_receipt=$(sct get "$PG_B" '.comments.claimed // empty')
 bash "$PRED_GATE" verdict closed >/dev/null 2>&1; pg_rc_closed=$?
 if [[ "$pg_rc_closed" -eq 0 ]]; then
   sct init "$PG_A" --run-id "scenario-liveness-$$" >/dev/null
-  sct comment-add "$PG_A" --marker claimed --url "https://example.invalid/c/$PG_A" >/dev/null
+  sct comment-add "$PG_A" --marker claimed --url "https://example.invalid/issues/$PG_A#issuecomment-1" >/dev/null
 fi
 pg_a_receipt=$(sct get "$PG_A" '.comments.claimed // empty')
 [[ "$pg_rc_closed" -eq 0 && -f "$STATECTL_STATE_DIR/$PG_A.json" && -n "$pg_a_receipt" ]] \
