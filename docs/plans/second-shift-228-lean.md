@@ -31,6 +31,11 @@ plan there. Landed under #215 as characterization, not a fix; pinned by `(t3h)` 
   false — `(t3h)` now asserts fixed behavior — and a repo-wide grep turns up no other live
   characterization case to cite instead. Drop the dangling example sentence, keep the
   principle.
+- AC-6 (doc, from review round 1): `tools/mutation-sweep.sh`'s ENFORCING-vs-ADVISORY comment
+  cites the same now-fixed GNU-find divergence as its example of why local kill verdicts
+  aren't canonical. A repo grep turns up no replacement example, so the parenthetical is
+  dropped in favor of the still-true general point (local runs don't exactly reproduce CI's
+  GNU userland).
 
 ## Out of scope
 
