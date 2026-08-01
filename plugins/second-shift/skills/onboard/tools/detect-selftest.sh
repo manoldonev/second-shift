@@ -52,6 +52,27 @@ R3="$TMP/shop-api"; mkdir -p "$R3" "$TMP/shop-ui/.git"; mkrepo "$R3" "git@github
 OUT3="$("$DETECT" "$R3")"
 expect "sibling candidate" "$OUT3" '.topology.siblingCandidates[0]' "../shop-ui"
 
+# Case 3b: name-unrelated be/fe sibling pair (#107) — the same-base-name loop above
+# cannot find this (fastapi-be shares no base name with vue-fe), so this proves the
+# broadened suffix-counterpart scan independently. Nested under its own PAIR107 dir so its
+# adjacency scan doesn't pick up the OTHER cases' fixtures sharing $TMP (e.g. Case 3's
+# shop-ui, which also carries an FE suffix). Case 3's convention match is left untouched
+# above to prove the addition doesn't regress it.
+PAIR107="$TMP/pair107"; mkdir -p "$PAIR107"
+R3B="$PAIR107/fastapi-be"; mkdir -p "$R3B"; mkrepo "$R3B" "git@github.com:acme/fastapi-be.git" main
+mkdir -p "$PAIR107/vue-fe/.git"
+OUT3B="$("$DETECT" "$R3B")"
+expect "name-unrelated sibling candidate" "$OUT3B" '.topology.siblingCandidates[0]' "../vue-fe"
+expect "name-unrelated topology candidate" "$OUT3B" '.topology.value' "be-fe-pair-candidate"
+
+# Case 3c: repo basename carries no recognized BE/FE suffix ⇒ the broadened scan never
+# runs, even with a suffix-shaped sibling next door (isolated for the same reason as 3b).
+PLAIN="$TMP/plain107"; mkdir -p "$PLAIN"
+R3C="$PLAIN/plainrepo"; mkdir -p "$R3C"; mkrepo "$R3C" "git@github.com:acme/plainrepo.git" main
+mkdir -p "$PLAIN/vue-fe/.git"
+OUT3C="$("$DETECT" "$R3C")"
+expect "no suffix ⇒ no sibling candidates" "$OUT3C" '.topology.siblingCandidates | length' "0"
+
 # Case 4: not a git repo ⇒ exit 3
 if "$DETECT" "$TMP" >/dev/null 2>&1; then rc=0; else rc=$?; fi
 check "non-repo exits 3" "$([[ "$rc" -eq 3 ]] && echo 0 || echo 1)"

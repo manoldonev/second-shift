@@ -17,6 +17,13 @@ jq empty "$CONFIG" 2>/dev/null || { echo "config-lint: not valid JSON: $CONFIG" 
 
 ERRORS=$(jq -r '
   def err(cond; msg): if cond then [msg] else [] end;
+  # verifyctl autofix loop appends a bare ` --fix` to the configured lint command
+  # ($CMD_LINT --fix). Plain `npm run <script>` swallows a trailing flag instead of
+  # forwarding it to the underlying tool unless the command already ends in a `--`
+  # separator — so `lintAutofixes: true` paired with e.g. "npm run lint" silently no-ops
+  # the fix loop with no signal (#107). yarn/pnpm/direct-tool invocations forward
+  # unrecognized flags on their own and are not flagged.
+  def npm_no_fix_forward: (. // "") as $c | ($c | test("^npm run ")) and (($c | rtrimstr(" ")) | endswith("--") | not);
 
   # ---- top level ----------------------------------------------------------
   err((.configVersion? | type) != "number"; "configVersion: required number (current: 2)")
@@ -85,6 +92,10 @@ ERRORS=$(jq -r '
             err((.value | type) | IN("string","null") | not; "commands." + $repo + "." + .key + ": must be string or null")
           ] | add // [])
         + err((.lintAutofixes? != null) and ((.lintAutofixes | type) != "boolean"); "commands." + $repo + ".lintAutofixes: must be boolean")
+        + err(
+            (.lintAutofixes? == true) and ((.lint? // "") | npm_no_fix_forward);
+            "commands." + $repo + ".lintAutofixes is true but lint (\"" + (.lint? // "") + "\") is a plain `npm run` invocation — npm swallows the `--fix` suffix verifyctl appends instead of forwarding it to the underlying tool; add a trailing `--` separator (e.g. \"" + ((.lint? // "") | rtrimstr(" ")) + " --\") or invoke the tool directly (e.g. \"npx eslint .\")"
+          )
         + err((.allowUnverified? != null) and ((.allowUnverified | type) != "boolean"); "commands." + $repo + ".allowUnverified: must be boolean")
         + ((.lanes // []) | if type != "array" then ["commands." + $repo + ".lanes: must be array"] else (to_entries | map(
             (.key as $li | .value |
