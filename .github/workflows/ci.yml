@@ -36,6 +36,10 @@ jobs:
       - name: issue-forms schema validation (check-jsonschema, pinned)
         run: |
           pipx install --quiet check-jsonschema==0.37.4
+          # pipx's shim dir is not guaranteed on PATH for a non-login `run:` shell — state it
+          # explicitly rather than relying on the runner image's default PATH.
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+          export PATH="$HOME/.local/bin:$PATH"
           # Confirm the pin still exposes both builtin ids the step below depends on, ahead
           # of using them — the whole point of pinning is that this can't silently drift.
           for schema_id in vendor.github-issue-forms vendor.github-issue-config; do
