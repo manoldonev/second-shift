@@ -4,6 +4,60 @@ All notable changes to the second-shift marketplace. Versions are per-plugin (`p
 this file tracks the marketplace release. `configVersion` stays `const 1` — v2 is fully backward-compatible for a
 consumer with an empty config; the migration notes below are only for consumers using the changed features.
 
+## v3.5.0
+
+### `dev-pipeline` 3.4.3 → 3.5.0
+
+- **feat(dev-pipeline): reconcile a non-terminal state file against the tracker on resume (#325)** (#325)
+  none — spec only, no plugin behavior yet.
+  /dev-pipeline:run's resume logic now detects when the tracker
+  already shows an in_progress issue closed via a merged PR and quarantines
+  the stale state file via the existing statectl reclaim --release mechanism
+  instead of blindly resuming stage work — see issue #149. No schema change;
+  no new state fields. Migration: none.
+  none — internal mutation-sweep hardening for #149's tool, no
+  behavior change (verified via the pr-mode scoped sweep and the full selftest).
+  none — verdict record only.
+- **feat(dev-pipeline): harden statectl deviations[] ledger validation (#109) (#330)** (#330)
+  statectl.sh now enum-validates Stage-5 checkpoint deviations[].kind,
+  and (opt-in, via build-checkpoint-7 --affected-files/--out-of-scope-files)
+  refuses a Stage-7 checkpoint whose changedFiles diverges from the plan's
+  Affected-files/Out-of-scope sections without a matching deviations[] entry.
+  Migration: none — both checks are additive and the scope-drift gate is inert
+  until a caller passes the new flags.
+  none — plan-scope-paths.sh has not shipped in a release yet
+  (introduced earlier in this same #109 branch).
+- **fix(dev-pipeline): config-lint rejects undriveable two-id monorepo configs (#329)** (#329)
+  config-lint now rejects a topology.type=="monorepo" config with
+  more than one topology.repos entry, or no entry with path==".", pointing
+  at commands.<id>.lanes/extraLanes for a second independently-verified
+  workspace. Migration: none — a two-id monorepo config was already
+  undriveable at verify time; this surfaces the failure at lint time instead.
+- **fix(dev-pipeline): verifyctl fails closed with CONFIG when a run verifies nothing (#331)** (#331)
+  verifyctl.sh now emits status:"fail" with a CONFIG failure entry,
+  instead of status:"pass", when a run has zero verify lanes configured and no
+  allowUnverified opt-out set. Migration: none — this only affects a repo whose
+  commands.<host> has lint/typeCheck/test/extraLanes all unset without also
+  setting allowUnverified: true, which previously silently green-lit.
+- **fix(dev-pipeline): lean-gate-selftest's gate() helper no longer leaks ambient RUN_ID (#332)** (#332)
+  none — a selftest-only isolation fix, no consumer-visible behavior
+  change. Migration: none.
+- **fix(dev-pipeline): verifyctl scrubs pipeline seam vars from configured lane children (#333)** (#333)
+  verifyctl.sh (dev-pipeline) no longer leaks SECOND_SHIFT_CONFIG,
+  SECOND_SHIFT_REPO_ROOT, STATECTL_STATE_DIR, and related pipeline seam vars into a
+  consumer's configured lane commands (setup/format/lint/type-check/test/extraLanes).
+  preflight.sh's existing scrub is widened to match. No config or CLI surface change.
+  Migration: none.
+
+### `second-shift` 2.0.0 → 2.0.1
+
+- **fix(dev-pipeline): config-lint rejects undriveable two-id monorepo configs (#329)** (#329)
+  config-lint now rejects a topology.type=="monorepo" config with
+  more than one topology.repos entry, or no entry with path==".", pointing
+  at commands.<id>.lanes/extraLanes for a second independently-verified
+  workspace. Migration: none — a two-id monorepo config was already
+  undriveable at verify time; this surfaces the failure at lint time instead.
+
 ## v3.4.3
 
 ### `dev-pipeline` 3.4.2 → 3.4.3
