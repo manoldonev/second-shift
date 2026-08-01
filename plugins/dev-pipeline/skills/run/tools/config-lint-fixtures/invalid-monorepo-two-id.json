@@ -1,0 +1,15 @@
+{
+  "configVersion": 2,
+  "tracker": { "type": "jira" },
+  "topology": {
+    "type": "monorepo",
+    "repos": {
+      "api": { "path": "apps/api", "baseBranch": "main" },
+      "web": { "path": "apps/web", "baseBranch": "main" }
+    }
+  },
+  "commands": {
+    "api": { "test": "yarn --cwd apps/api test" },
+    "web": { "test": "yarn --cwd apps/web test" }
+  }
+}
