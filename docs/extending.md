@@ -100,6 +100,8 @@ You have a check the built-in lanes don't cover (a custom lint, a contract test,
 
 Extra lanes run **sequentially after** the built-in SUITE lanes, never interleaving or replacing them; results land under a namespaced `ext:openapi-drift` key so canonical lane keys stay unreachable. There is no advisory mode: a lane blocks Stage-6 completion or it doesn't exist. `failureClass` must be one of the closed taxonomy values (`FORMAT`, `LINT_AUTOFIX`, `TYPE_ERROR`, `TEST_FAILURE`, `PLAN_CMD_FAILURE`, `INFRA`) — extensions borrow the taxonomy, they never extend it — and the lane gets the standard 2-attempt fix budget.
 
+A build/compile step (`ng build`, `tsc --noEmit --project ...`) is a common `extraLanes` use: it's blocking, runs after the trio, and — unlike a lint or unit-test lane — catches breaks a spec doesn't happen to exercise (e.g. an Angular AOT template referencing a nonexistent property, invisible to `typecheck`/`test` unless some spec transitively imports the broken component). `failureClass: "TYPE_ERROR"` fits: the class already covers compile-time breaks the type-check lane didn't catch. `/second-shift:onboard` drafts this automatically when it detects a build command.
+
 ### 3.3 `reviewers.add` — a repo-local reviewer
 
 A whole review dimension the shipped panel doesn't cover. Write the agent where agents live, register it in config:

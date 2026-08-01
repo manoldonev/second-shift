@@ -80,7 +80,6 @@ write_config() { # $1 = tracker type
       "lintAutofixes": true,
       "typecheck": "echo typecheck-green",
       "test": "echo test-green",
-      "build": null,
       "format": "touch $CANARY_DIR/format-ran",
       "lanes": [ { "name": "setup", "commands": ["echo setup-green", "test -z \\"\${SECOND_SHIFT_REPO_ROOT:-}\${SECOND_SHIFT_CONFIG:-}\${PREFLIGHT_DOCTOR_CMD:-}\\""] } ]
     }
@@ -130,7 +129,6 @@ grep -q "lane 'test': green" "$BASE/out.log";      assert "test lane ran" "$?"
 grep -q "lane 'setup\[1\]': green" "$BASE/out.log"; assert "setup lane ran" "$?"
 grep -q "lane 'setup\[2\]': green" "$BASE/out.log"
 assert "env hygiene: preflight seams (SECOND_SHIFT_REPO_ROOT et al.) do not leak into lanes" "$?"
-grep -q "lane 'build': null/absent" "$BASE/out.log"; assert "null lane skipped" "$?"
 
 grep -q "^issue list" "$GH_LOG"; assert "no-key run reads the queue head (gh issue list)" "$?"
 
@@ -258,7 +256,7 @@ assert "well-formed sibling lane still runs — one bad entry does not drop ever
 # "pipeline-ready" while verifying nothing. Setup lanes[] stay configured here on purpose —
 # they are SETUP-only and must NOT count as verification.
 write_config github
-jq '.commands.fix |= (.lint = null | .typecheck = null | .test = null | .build = null | .format = null | .extraLanes = [])' \
+jq '.commands.fix |= (.lint = null | .typecheck = null | .test = null | .format = null | .extraLanes = [])' \
   "$FIX/.claude/second-shift.config.json" > "$BASE/cfg.tmp" \
   && mv "$BASE/cfg.tmp" "$FIX/.claude/second-shift.config.json"
 run_preflight; rc=$?
@@ -292,7 +290,7 @@ assert "an explicit opt-out still reports pipeline-ready (AC-2)" "$?"
 # ---- run 14: one verifying lane is enough — no warning (#102, AC-3) ----
 # The negative case that keeps the check from firing on every ordinary repo.
 write_config github
-jq '.commands.fix |= (.lint = null | .test = null | .build = null | .extraLanes = [])' \
+jq '.commands.fix |= (.lint = null | .test = null | .extraLanes = [])' \
   "$FIX/.claude/second-shift.config.json" > "$BASE/cfg.tmp" \
   && mv "$BASE/cfg.tmp" "$FIX/.claude/second-shift.config.json"
 run_preflight; rc=$?
@@ -348,7 +346,7 @@ write_shell_config() { # $1 = inertPattern JSON value ("null" = omit the key)
   "configVersion": 2,
   "tracker": { "type": "github", "branchPrefix": "claude/sh-" },
   "topology": { "type": "standalone", "repos": { "sh": { "path": ".", "baseBranch": "main" } } },
-  "commands": { "sh": { "lint": "echo lint-green", "typecheck": null, "test": "echo test-green", "build": null, "format": null } },
+  "commands": { "sh": { "lint": "echo lint-green", "typecheck": null, "test": "echo test-green", "format": null } },
   "stageParams": { "inertPattern": $1 }
 }
 EOF

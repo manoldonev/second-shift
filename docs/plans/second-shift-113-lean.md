@@ -56,10 +56,19 @@ onboarding (detect + draft an `ext:build` extraLane) and retiring the now-formal
   - A new `invalid-removed-commands-build.json` fixture sets
     `commands.host.build` and is asserted to fail config-lint naming the removal, via
     a new `expect_violation` line in `config-lint-selftest.sh`.
-- AC-5: The three other fixtures carrying a now-invalid `"build"` key in a
-  `commands.<repo>` block (`plugins/dev-pipeline/skills/run/tools/preflight-selftest.sh`
-  ×2, `plugins/dev-pipeline/skills/run/scenario-liveness-selftest.sh` ×1) drop that key
-  so they stay representative of a real (lint-clean) config.
+- AC-5: The other fixtures carrying a now-invalid `"build"` key in a `commands.<repo>`
+  block (`plugins/dev-pipeline/skills/run/tools/preflight-selftest.sh` ×2,
+  `plugins/dev-pipeline/skills/run/scenario-liveness-selftest.sh` ×1,
+  `plugins/dev-pipeline/skills/run-lean/lean-gate-selftest.sh` ×1) drop that key so they
+  stay representative of a real (lint-clean) config.
+- AC-5b (discovered during implementation): `preflight.sh` itself probed a `build` lane
+  as a fifth entry in its Section-5 trio loop (`for lane in lint typecheck test build`)
+  — dead code once the key no longer exists in any valid config. Removed, along with the
+  matching comments ("+build", "build/format never verify"). Its selftest's
+  `lane 'build': null/absent` assertion (the only coverage of that dead probe) is
+  dropped rather than reassigned — nothing else in that fixture has a null lane to
+  exercise the generic message against, and the message is exercised structurally by
+  the AC-1/AC-3 zero/single-verifying-lane cases already in the file.
 - AC-6: `docs/migrations/v1-to-v2.md`'s "Dead-key removals" section gets a new entry for
   `commands.<repo>.build`, phrased like the existing `integrationTest`/`apiTest` entry:
   never executed by any verify lane, ship a build tier via `extraLanes`.

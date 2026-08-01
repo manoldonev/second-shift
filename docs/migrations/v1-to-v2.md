@@ -54,6 +54,17 @@ removed; config-lint now rejects them with a migration pointer (fail closed).
   direction. Removed. Local OTel cost attribution is now simply always-on (passive, never
   blocks). Delete the key from your config.
 
+### Dead-key removal — `commands.<repo>.build` (#113)
+
+`commands.<repo>.build` was detected by onboarding and accepted by config-lint, but
+**never executed by any verify lane** — the same dead-key shape as `integrationTest`/`apiTest`
+above. Removed; config-lint rejects it with a migration pointer.
+
+- **`commands.<repo>.build`** — ship a build/compile tier via **`commands.<repo>.extraLanes`**
+  (e.g. `{"name": "build", "commands": ["yarn build"], "failureClass": "TYPE_ERROR"}`) instead.
+  `/second-shift:onboard` drafts this automatically when it detects a build command. See
+  [`extending.md`](../extending.md) §3.2.
+
 `gates.mutation` is now **wired as a real off-switch**: `false` disables the Stage-5 unit-test
 mutation gate even when `commands.<host>.unitTestScope` is set (previously ignored).
 

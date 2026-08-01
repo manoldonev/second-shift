@@ -63,21 +63,32 @@ Build the draft config from detection:
   surfaces (e.g. an npm-workspaces repo with `apps/api` + `apps/web`) is NOT
   `be-fe-pair` unless it actually is a backend/frontend pair — model it as a
   single monorepo id with root fan-out scripts (`yarn workspaces foreach ...`)
-  in `commands.<id>.lint`/`test`/`build`, or, if the two surfaces need distinct
+  in `commands.<id>.lint`/`test`, or, if the two surfaces need distinct
   verify commands, via `commands.<id>.lanes` (parallel setup/verify lanes) and
   `commands.<id>.extraLanes` (path-triggered extra tiers, e.g. contract tests
   scoped to one workspace).
 - `commands.<repo>` from detection: the emitted block contains EXACTLY these keys —
-  `lint`, `lintAutofixes`, `typecheck`, `test`, `build`, `format` from detect.sh, PLUS
+  `lint`, `lintAutofixes`, `typecheck`, `test`, `format` from detect.sh, PLUS
   `testFile`, `unitTestScope` always as explicit `null`
   (undetectable — their provenance comment reads "set when adopting the mutation
   gate"). **Undetected lanes are explicit `null`** — never omit, never invent.
-  (Integration/API test tiers are NOT config command keys — removed in v2.1.6;
-  ship them via `extraLanes` / extension points EP-6/EP-7. Never emit
-  `integrationTest`/`apiTest` under `commands.<repo>`.)
+  (Integration/API test tiers, and `build`, are NOT config command keys — removed in
+  v2.1.6 / #113 respectively; ship them via `extraLanes` / extension points EP-6/EP-7.
+  Never emit `integrationTest`/`apiTest`/`build` under `commands.<repo>`.)
   `lanes` (setup steps) is deliberately NOT in that key list — detection cannot prove a
   repo's install command, so onboard never writes one. It is raised on the review screen
   instead (below), where the human can supply it.
+- **Build tier → drafted `extraLanes` entry, not a `commands.<repo>.build` key (#113).**
+  When detection's `commands.build.value` is non-null, draft one `extraLanes` entry —
+  `{"name": "build", "commands": [<detected build command>], "failureClass": "TYPE_ERROR"}`
+  — on the review screen with the same provenance comment style as every other drafted
+  field, appended to (or starting) `commands.<repo>.extraLanes`. This is a DRAFT like
+  lint/test/format: the human can remove it on the accept-or-edit screen, satisfying the
+  "opt-in" framing without a separate elicitation question. `commands.build.value` being
+  null (undetected) means no `extraLanes` entry is drafted — never fabricate a build
+  command. A RE-onboard (Step 0 diff mode) whose existing config still carries a dead
+  `commands.<repo>.build` key flags it for removal on the same review screen, pointing at
+  this replacement (`docs/migrations/v1-to-v2.md`).
 - **When detection returned no command lanes at all** (every one `null` — the normal
   outcome for a stack `detect.sh` does not cover: Python/pip/poetry/uv, bun, cargo, go),
   say so plainly on the review screen rather than presenting the empty table as done:

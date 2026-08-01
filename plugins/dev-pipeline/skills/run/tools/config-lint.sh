@@ -80,8 +80,8 @@ ERRORS=$(jq -r '
     )
   + ((.commands // {}) | to_entries | map(
       (.key as $repo | .value |
-        err(((keys) - ["lint","lintAutofixes","typecheck","test","testFile","unitTestScope","build","format","lanes","extraLanes","allowUnverified"]) != []; "commands." + $repo + ": unknown keys (note: integrationTest/apiTest were removed in v2.1.6 — ship those tiers via extraLanes / extension points EP-6/EP-7; see docs/migrations)")
-        + ([to_entries[] | select(.key | IN("lint","typecheck","test","testFile","unitTestScope","build","format")) |
+        err(((keys) - ["lint","lintAutofixes","typecheck","test","testFile","unitTestScope","format","lanes","extraLanes","allowUnverified"]) != []; "commands." + $repo + ": unknown keys (note: integrationTest/apiTest were removed in v2.1.6, commands.<repo>.build was removed (#113: never executed by any verify lane) — ship those tiers via extraLanes / extension points EP-6/EP-7; see docs/migrations)")
+        + ([to_entries[] | select(.key | IN("lint","typecheck","test","testFile","unitTestScope","format")) |
             err((.value | type) | IN("string","null") | not; "commands." + $repo + "." + .key + ": must be string or null")
           ] | add // [])
         + err((.lintAutofixes? != null) and ((.lintAutofixes | type) != "boolean"); "commands." + $repo + ".lintAutofixes: must be boolean")

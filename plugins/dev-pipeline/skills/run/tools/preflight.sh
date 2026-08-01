@@ -262,7 +262,7 @@ else
 fi
 
 # --- Section 5: command lanes, once each, in the current checkout ------------------
-# Order mirrors verifyctl: setup lanes[] first, then the trio (+build), then extraLanes.
+# Order mirrors verifyctl: setup lanes[] first, then the trio, then extraLanes.
 hdr "Command lanes (one pass, current checkout)"
 run_lane() { # $1 = lane label, $2 = command string
   local label="$1" cmd="$2" out rc
@@ -297,8 +297,8 @@ if [[ -f "$CFG" ]] && command -v jq >/dev/null 2>&1; then
     # config, but bad() only counts the failure and preflight continues into this
     # section on the same run, so the read itself must be safe.
     done < <(jq -r --arg h "$HOST_ID" '(.commands[$h].lanes // []) | .[] | select(type == "object") | (.commands // [])[]' "$CFG" 2>/dev/null)
-    # the trio + build
-    for lane in lint typecheck test build; do
+    # the trio
+    for lane in lint typecheck test; do
       cmd=$(jq -r --arg h "$HOST_ID" --arg l "$lane" '.commands[$h][$l] // empty' "$CFG" 2>/dev/null)
       if [[ -z "$cmd" || "$cmd" == "null" ]]; then
         skipn "lane '$lane': null/absent — lane not configured"
@@ -329,8 +329,8 @@ if [[ -f "$CFG" ]] && command -v jq >/dev/null 2>&1; then
     # SKIPs, so the adopter is never told the table is unfinished. The predicate mirrors
     # verifyctl.sh's zero-verifying-lane check (which feeds the verifySummary that
     # statectl.sh's Stage-6 gate then refuses): VERIFYING lanes are lint/typecheck/test
-    # and extraLanes[]. lanes[] is SETUP-only, and build/format never verify — so none
-    # of the three count here. Keep this set in lockstep with verifyctl.sh; an early
+    # and extraLanes[]. lanes[] is SETUP-only, and format never verifies — so neither
+    # counts here. Keep this set in lockstep with verifyctl.sh; an early
     # warning that disagrees with the late gate is worse than no warning.
     VERIFYING=$(jq -r --arg h "$HOST_ID" '
       ([.commands[$h] | .lint, .typecheck, .test | select(. != null and . != "")] | length)
