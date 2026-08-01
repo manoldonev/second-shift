@@ -61,6 +61,14 @@ progressive-emit-intake	verbatim	plugins/dev-pipeline/skills/run/workflows/code-
 stage7-dual-target	verbatim	plugins/dev-pipeline/skills/run/stages/7-doc-update.md	stage7-dual-target	plugins/dev-pipeline/skills/run/stage7-perrepo-checkpoint-selftest.sh	stage7-dual-target
 stage8-secondary-review	verbatim	plugins/dev-pipeline/skills/run/stages/8-code-review.md	stage8-secondary-review	plugins/dev-pipeline/skills/run/stage8-perrepo-review-selftest.sh	stage8-secondary-review
 #
+# Pipeline-seam env denylist (#83). verifyctl.sh and preflight.sh both spawn a consumer's
+# configured lane commands as a child process and must scrub the same pipeline seam vars out
+# of that child's env (a leaked SECOND_SHIFT_CONFIG / STATECTL_STATE_DIR / etc. re-roots or
+# re-states a lane that is itself second-shift tooling — #34's ~20 spurious failures).
+# preflight.sh is the superset (it also scrubs its own PREFLIGHT_DOCTOR_CMD), so this is
+# subset-of with preflight.sh as fileA.
+seam-scrub	subset-of	plugins/dev-pipeline/skills/run/tools/preflight.sh	seam-scrub	plugins/dev-pipeline/skills/run/verifyctl.sh	seam-scrub
+#
 # ---------------------------------------------------------------------------------------
 # DROPPED to reviewer-guarded — recorded here rather than forgotten. Each was considered
 # for the mechanical manifest and rejected for a stated reason.
