@@ -473,7 +473,47 @@ Stages that write additional stage-specific fields carry an inline **State:** li
 **Resume logic:** On pipeline start, check for an existing state file:
 
 1. If `status: "completed"` — inform user this issue was already delivered. Ask: re-run from scratch or skip?
-2. If `status: "in_progress"` — resume from the `currentStage`. Print a one-line summary of what was already completed, then re-assert the mode before doing any stage work:
+2. If `status: "in_progress"` — **first, the tracker reconcile check (#149)** before touching `currentStage` at all:
+
+   ```bash
+   read -r CLOSED PRN PRU <<<"$(gh issue view "$ISSUE_NUMBER" \
+     --json closed,closedByPullRequestsReferences \
+     --jq '[(.closed|tostring), (.closedByPullRequestsReferences[0].number // ""|tostring), (.closedByPullRequestsReferences[0].url // "")] | @tsv')"
+   bash tools/tracker-reconcile-check.sh verdict in_progress "$CLOSED" "$PRN" "$PRU"
+   ```
+
+   - `reconcile-recommended` (rc=4) — the tracker already shows this issue closed via a
+     merged PR, but the pipeline session died before Stage 9's terminal writes. Do **not**
+     resume stage work on shipped-but-unrecorded work, regardless of which branch below fires:
+     1. Attempt `bash statectl.sh reclaim "$ISSUE_NUMBER" --release` (no `--force`) —
+        quarantines the state file to `{issue}-released-{ts}.json` (existing mechanism).
+        - rc=0 — quarantined. Note the quarantine filename for the comment below.
+        - rc≠0 — the local write is still inside `reclaim`'s staleness grace window (default
+          30 min), which refuses without `--force`, and `--force` is itself refused outright
+          in autonomous mode (crash-recovery/reclaim overrides are an attended activity, same
+          rule as every other guarded write — see `reclaim`'s own `--force` contract). Do
+          **not** force it here. Leave the state file as-is; it will quarantine on a later
+          resume once it ages past the threshold, or an operator may run
+          `statectl reclaim "$ISSUE_NUMBER" --release --force --force-reason "<why>"` by hand
+          under `DEV_PIPELINE_MODE=interactive`.
+     2. One `$GH_BOT` comment naming the closing PR, stating the session died before Stage 9,
+        that **no eval or report was synthesized** — the run stays explicitly un-scored for
+        `pipeline-retro`/`perf-retro` purposes — and either the quarantine filename (rc=0
+        above) or that quarantine is deferred until the state ages past the reclaim threshold
+        (rc≠0 above).
+     3. Remove the `in-progress` label via `$GH_BOT` if still present (the issue is already
+        closed on the tracker, so the label is stale either way, independent of whether the
+        state file itself could be quarantined yet).
+     4. STOP — do not proceed to resume, in either branch of step 1.
+
+     This runs without prompting in every mode: the tracker is already the source of truth,
+     so recognizing a run that already shipped is not an operator decision to relitigate —
+     only the state-file quarantine itself stays subject to `reclaim`'s existing attended-only
+     `--force` gate.
+   - `resume-normal` (or any other outcome, including a `gh`/tool error) — proceed exactly as
+     below; nothing here changes the happy-path resume.
+
+   Resume from the `currentStage`. Print a one-line summary of what was already completed, then re-assert the mode before doing any stage work:
 
    ```bash
    # Re-assert the resumed session's mode FIRST (#243) — init --mode re-stamps .mode
@@ -487,7 +527,7 @@ Stages that write additional stage-specific fields carry an inline **State:** li
    **Cost attribution needs no action on resume.** A resumed run is a different Claude session from the one that started it, and Stage 9's cost block attributes by `session.id` against `pipelineSessions[]` — but registration is owned by the shared write seam (`apply_session_seam`), so the resuming session records itself on its own first state write, at **whatever** stage it re-enters. That is what closed the old gap: when registration was declared at Stage 2 and the Stage-8 crash-recovery entry only, a resume re-entering at any other stage (7, 6, 5, …) contributed zero rows and its entire cost silently vanished. `statectl pipeline-session-add` survives for the post-terminal manual backfill (`cost-tracking-setup.md`), which the seam deliberately does not serve.
 3. If `status: "failed"` — reads state and exits (no-prompt, per the failure contract above); print the failure context. Re-running requires the operator to first clear the local state file (`rm .claude/pipeline-state/{issue}.json`, or reset `status: "in_progress"` + `currentStage` + clear `failureContext`) — `statectl init` is idempotent and will NOT reset a `failed` file. This covers the Stage-1 intake stops (no worktree to keep), where the fix-spec → relabel `ready-for-dev` → re-run flow needs the originating machine's state file cleared.
 
-**Orphaned claims (infra drops).** A run killed mid-stage (API drop, token expiry, dead session) strands its tracker claim and `status: in_progress` state — invisible to the queue, which skips claimed issues. `statectl reclaim <issue>` emits a read-only verdict for a stale claim (`in_progress` + last state write older than 30 min; statectl has no process-liveness signal, so confirm no live session owns the run first) naming the resumable stage — resume via rule 2 above. When the state is too early or corrupt to resume, `statectl reclaim <issue> --release` quarantines the state file (`{key}-released-{ts}.json`, evidence preserved for retro) and the caller swaps the labels (`in-progress` → queue) via the bot wrapper. A `status: failed` run is NOT stale-reclaimable — it exited by contract (rule 3). `pipeline-doctor.sh` lists stale claims with these commands; a batch runner treats an orphaned claim as resumable, skipping only live ones.
+**Orphaned claims (infra drops).** A run killed mid-stage (API drop, token expiry, dead session) strands its tracker claim and `status: in_progress` state — invisible to the queue, which skips claimed issues. `statectl reclaim <issue>` emits a read-only verdict for a stale claim (`in_progress` + last state write older than 30 min; statectl has no process-liveness signal, so confirm no live session owns the run first) naming the resumable stage — resume via rule 2 above, whose tracker reconcile check (#149) now runs automatically rather than requiring the operator to notice the issue already shipped. When the state is too early or corrupt to resume, or the reconcile check doesn't apply (the tracker check errors, or the issue closed without a linked PR), `statectl reclaim <issue> --release` quarantines the state file (`{key}-released-{ts}.json`, evidence preserved for retro) and the caller swaps the labels (`in-progress` → queue) via the bot wrapper. A `status: failed` run is NOT stale-reclaimable — it exited by contract (rule 3). `pipeline-doctor.sh` lists stale claims with these commands; a batch runner treats an orphaned claim as resumable, skipping only live ones.
 
 **Location:** the pipeline-state dir (config `paths.pipelineStateDir`, default `.claude/pipeline-state`) is gitignored. It is local-only crash-recovery data, not a version-controlled artifact.
 
