@@ -60,17 +60,14 @@ else
 fi
 
 yaml_parses() { # $1 = path
-  local err
+  local err status
   case "$PARSER" in
-    ruby)
-      if err="$(ruby -ryaml -e "YAML.load_file(ARGV[0])" "$1" 2>&1)"; then ok "$(basename "$1"): YAML parses"
-      else bad "$(basename "$1"): YAML parse error"; fi
-      ;;
-    python)
-      if err="$(python3 -c 'import sys,yaml; yaml.safe_load(open(sys.argv[1]))' "$1" 2>&1)"; then ok "$(basename "$1"): YAML parses"
-      else bad "$(basename "$1"): YAML parse error"; fi
-      ;;
+    ruby)   err="$(ruby -ryaml -e "YAML.load_file(ARGV[0])" "$1" 2>&1)" ;;
+    python) err="$(python3 -c 'import sys,yaml; yaml.safe_load(open(sys.argv[1]))' "$1" 2>&1)" ;;
   esac
+  status=$?
+  if [[ "$status" -eq 0 ]]; then ok "$(basename "$1"): YAML parses"
+  else bad "$(basename "$1"): YAML parse error: $(echo "$err" | head -1)"; fi
 }
 
 # Scan one form's body items in order and emit "<id>\t<has_render>\t<required>" per
