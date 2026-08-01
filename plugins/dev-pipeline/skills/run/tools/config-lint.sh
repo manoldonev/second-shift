@@ -66,6 +66,12 @@ ERRORS=$(jq -r '
       (.topology.type? == "be-fe-pair") and ((((.topology.repos? // {}) | keys) | contains(["be","fe"])) | not);
       "topology.type be-fe-pair requires repos.be and repos.fe"
     )
+  + err(
+      (.topology.type? == "monorepo") and
+      ((((.topology.repos? // {}) | length) > 1) or
+       (((.topology.repos? // {}) | to_entries | map(select(.value.path? == ".")) | length) < 1));
+      "topology.type monorepo requires exactly one topology.repos entry with path \".\" — a second independent verify surface is not a second repos entry, ship it via commands.<id>.lanes / extraLanes instead"
+    )
 
   # ---- commands ------------------------------------------------------------
   + err(

@@ -31,6 +31,7 @@ expect_violation() { # $1 = fixture, $2 = expected substring in error output
 
 expect_violation invalid-bad-tracker.json           "tracker.type must be github|jira"
 expect_violation invalid-pair-missing-fe.json       "be-fe-pair requires repos.be and repos.fe"
+expect_violation invalid-monorepo-two-id.json       "commands.<id>.lanes / extraLanes"
 expect_violation invalid-unknown-repo-and-tier.json "commands keyed by unknown repo ids: ghost"
 expect_violation invalid-unknown-repo-and-tier.json "reviewers.modelOverrides.security-reviewer: must be haiku|sonnet|opus|fable"
 expect_violation invalid-tracker-unknown-key.json   "tracker: unknown keys"
