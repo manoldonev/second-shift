@@ -178,10 +178,10 @@ echo "[pre-flight] OK: bot wrapper present, all required labels exist."
 Generate `RUN_ID` once for the entire run, BEFORE any other action — `statectl init` requires `--run-id`, so the value must already be set when Stage 1.A's claim sequence calls it:
 
 ```bash
-RUN_ID="$(date -u +%Y-%m-%dT%H%M%SZ)-$(hostname -s)-$(openssl rand -hex 4)"
+RUN_ID="$(date -u +%Y-%m-%dT%H%M%SZ)-$(openssl rand -hex 4)"
 ```
 
-Format: `{ISO timestamp}-{hostname}-{random 8 hex chars}`. `RUN_ID` is persisted to top-level `.runId` in the state file by the first `statectl init --run-id "$RUN_ID"` call (Stage 1.A's claim sequence). On the normal path it stays in memory for the whole single-session run; if a **crash-recovery resume** re-enters mid-pipeline in a fresh session, the same `RUN_ID` is read back from state via `statectl get "$ISSUE" '.runId'` so comments from the original session and the resumed one share the same `<!-- run_id: ... -->` marker.
+Format: `{ISO timestamp}-{random 8 hex chars}`. Deliberately no host component: it would carry no diagnostic value beyond what the timestamp and random suffix already provide, and it risks leaking whatever a contributor's machine reports (e.g. `hostname -s`'s macOS default embeds the machine owner's name) into every `<!-- run_id: ... -->` marker the run posts to a public tracker. `RUN_ID` is persisted to top-level `.runId` in the state file by the first `statectl init --run-id "$RUN_ID"` call (Stage 1.A's claim sequence). On the normal path it stays in memory for the whole single-session run; if a **crash-recovery resume** re-enters mid-pipeline in a fresh session, the same `RUN_ID` is read back from state via `statectl get "$ISSUE" '.runId'` so comments from the original session and the resumed one share the same `<!-- run_id: ... -->` marker.
 
 ## Invocation Routing
 

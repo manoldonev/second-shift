@@ -50,7 +50,7 @@ Reference for the state file at `.claude/pipeline-state/{issue-number}.json` wri
 ### Identity
 
 - `ticketKey` — GitHub issue number (integer). Primary key for the state file name and branch name.
-- `runId` — RUN_ID for this session (format: `{ISO timestamp}-{hostname}-{random 8 hex chars}`). Set once at init via `statectl init --run-id`; never overwritten. Resumes (e.g. a fresh session re-invoked to run Stage 8) read this field via `statectl get "$ISSUE" '.runId'` and reuse the value so all `<!-- run_id: ... -->` comment markers from the original session and any later resume match. Field is mandatory; Stage 8 resume fails fast if absent.
+- `runId` — RUN_ID for this session (format: `{ISO timestamp}-{random 8 hex chars}`). Set once at init via `statectl init --run-id`; never overwritten. Resumes (e.g. a fresh session re-invoked to run Stage 8) read this field via `statectl get "$ISSUE" '.runId'` and reuse the value so all `<!-- run_id: ... -->` comment markers from the original session and any later resume match. Field is mandatory; Stage 8 resume fails fast if absent.
 
 ### Run Status
 
