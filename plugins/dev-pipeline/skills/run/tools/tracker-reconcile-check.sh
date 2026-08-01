@@ -26,7 +26,7 @@
 # <run-status>:      exactly one of  in_progress | completed | failed  (case-sensitive)
 # <tracker-closed>:  exactly one of  true | false                      (case-sensitive)
 # <pr-number> <pr-url>: the tracker's `closedByPullRequestsReferences[0]`, if any.
-#                        Both-or-neither; supplying exactly one is a usage error.
+#                        Both required together; supplying exactly one is a usage error.
 #
 # Verdicts (all print `verdict=<value>` on stdout; reconcile-recommended additionally
 # prints `closingPrNumber=<n>` and `closingPrUrl=<u>`):
@@ -102,7 +102,15 @@ case "$MODE" in
         ;;
     esac
 
-    if [[ -n "$PR_NUMBER" && -z "$PR_URL" ]] || [[ -z "$PR_NUMBER" && -n "$PR_URL" ]]; then
+    # Two independent presence checks, not a single line pairing both directions: a
+    # paired one-line OR of the two negated tests mutates into its own logical converse
+    # under a whole-line flag swap (OR is commutative across the two symmetric clauses)
+    # — a semantic no-op that no selftest could ever kill.
+    pr_number_set=false
+    [[ -n "$PR_NUMBER" ]] && pr_number_set=true
+    pr_url_set=false
+    [[ -n "$PR_URL" ]] && pr_url_set=true
+    if [[ "$pr_number_set" != "$pr_url_set" ]]; then
       echo "[tracker-reconcile-check] pr-number and pr-url must be given together (got number='$PR_NUMBER' url='$PR_URL')" >&2
       exit 2
     fi
