@@ -143,8 +143,17 @@ if (!Array.isArray(agents) || agents.length === 0) {
 
 // Workflow runtime globals used below — injected by the runtime, not imported:
 // log(), phase(), parallel(), agent(). See the Workflow tool API.
+//
+// #306: docsNote used to tell sub-agents these docs were "already read — do not
+// re-fetch" while never placing `d.content` anywhere in the prompt — worse than a
+// no-op, since it forbade the read it never provided. docsBlock now renders the
+// content the caller already resolved (intake-orchestrator SKILL.md's "Finding
+// referenced docs" step), so docsNote's claim is true whenever it fires.
 const docsNote = referencedDocs.length
-  ? ` Referenced docs already read (do not re-fetch): ${referencedDocs.map((d) => d.path).join(', ')}.`
+  ? ` Referenced docs are included below (do not re-fetch): ${referencedDocs.map((d) => d.path).join(', ')}.`
+  : ''
+const docsBlock = referencedDocs.length
+  ? '\n\n' + referencedDocs.map((d) => `--- REFERENCED DOC: ${d.path} ---\n${d.content}`).join('\n\n') + '\n'
   : ''
 
 // Stage-1 read-surface pin (issue #59): prefixed to EVERY dispatch prompt so the
@@ -268,8 +277,9 @@ const DISPATCH = [
     prompt:
       readRootNote +
       `Review the spec for GitHub issue #${issue} for implementability.${docsNote} ` +
-      `Issue body:\n\n${issueBody}\n\n` +
-      `Return your verdict and a list of findings. For EACH finding the \`rationale\` field is ` +
+      `Issue body:\n\n${issueBody}\n` +
+      docsBlock +
+      `\nReturn your verdict and a list of findings. For EACH finding the \`rationale\` field is ` +
       `mandatory and must carry your actual reasoning / how you verified it (file:line where ` +
       `relevant) — the orchestrator uses it to accept or dismiss the finding, so a bare ` +
       `conclusion without rationale is unusable.` +
@@ -290,8 +300,9 @@ const DISPATCH = [
     prompt:
       readRootNote +
       `Map the impact surface for GitHub issue #${issue}.${docsNote} ` +
-      `Issue body:\n\n${issueBody}\n\n` +
-      `Return modulesAffected (files to create/modify), crossModuleDependencies, existingPatterns, ` +
+      `Issue body:\n\n${issueBody}\n` +
+      docsBlock +
+      `\nReturn modulesAffected (files to create/modify), crossModuleDependencies, existingPatterns, ` +
       `and estimatedScope. For any non-obvious claim, include it in \`findings\` with concrete ` +
       `\`evidence\` (file:line) so the orchestrator can verify rather than trust it.`,
     epilogue:
