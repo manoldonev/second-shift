@@ -4,6 +4,33 @@ All notable changes to the second-shift marketplace. Versions are per-plugin (`p
 this file tracks the marketplace release. `configVersion` stays `const 1` — v2 is fully backward-compatible for a
 consumer with an empty config; the migration notes below are only for consumers using the changed features.
 
+## v3.4.1
+
+### `dev-pipeline` 3.4.0 → 3.4.1
+
+- **fix(dev-pipeline): statectl-selftest ledger-corroboration fixtures date-rolled (#312)** (#312)
+  none (test-only fix; no consumer-visible behavior change).
+- **dev-pipeline: emit-deadline stack for intake-review.mjs + plan-review.mjs (#283) (#310)** (#310)
+  none (spec-only commit; no consumer-visible change yet).
+  intake-review.mjs and plan-review.mjs no longer risk a full
+  Stage-1/4 abort on a spec-reviewer or plan-reviewer turn-cap stall — a
+  hung leg is now declared dark on a 15-minute wall-clock ceiling instead.
+  Migration: none.
+  none (verdict record only).
+- **fix(dev-pipeline): lean-gate.sh claim helper resolves the wrong path (#311)** (#311)
+  `/dev-pipeline:run-lean claim` no longer fails to locate
+  claim-issue.sh. Migration: none.
+
+### `review-toolkit` 3.0.1 → 3.0.2
+
+- **dev-pipeline: emit-deadline stack for intake-review.mjs + plan-review.mjs (#283) (#310)** (#310)
+  none (spec-only commit; no consumer-visible change yet).
+  intake-review.mjs and plan-review.mjs no longer risk a full
+  Stage-1/4 abort on a spec-reviewer or plan-reviewer turn-cap stall — a
+  hung leg is now declared dark on a 15-minute wall-clock ceiling instead.
+  Migration: none.
+  none (verdict record only).
+
 ## v3.4.0
 
 ### `dev-pipeline` 3.3.0 → 3.4.0
