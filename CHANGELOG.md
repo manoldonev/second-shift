@@ -4,6 +4,25 @@ All notable changes to the second-shift marketplace. Versions are per-plugin (`p
 this file tracks the marketplace release. `configVersion` stays `const 1` — v2 is fully backward-compatible for a
 consumer with an empty config; the migration notes below are only for consumers using the changed features.
 
+## v3.4.2
+
+### `dev-pipeline` 3.4.1 → 3.4.2
+
+- **fix(dev-pipeline): intake-review.mjs injects referencedDocs content instead of disclaiming it (#314)** (#314)
+  intake-review.mjs's referencedDocs[].content now reaches the
+  spec-reviewer and codebase-explorer dispatch prompts instead of being
+  silently discarded while the prompt claimed the docs were already read.
+  Migration: none.
+- **fix(dev-pipeline): run-lean cost-block visibility + RUN_ID persistence (#315)** (#315)
+  run-lean's step 8 now appends the pipeline cost block to the
+  opened PR's description, not only the closing issue comment.
+  Migration: none.
+  lean-gate.sh no longer loses RUN_ID between separate `bash G ...`
+  invocations — it caches the id to `<issue>-run-id` on first sight and
+  reuses it, so the progress-file header stays consistent with the claim
+  comment and verdict record instead of silently falling back to "unset".
+  Migration: none.
+
 ## v3.4.1
 
 ### `dev-pipeline` 3.4.0 → 3.4.1
