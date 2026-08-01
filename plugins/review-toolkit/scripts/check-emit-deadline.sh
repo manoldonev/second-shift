@@ -67,6 +67,16 @@
 # a one-line silent edit in somebody's prose — the same reason the exemption above must
 # state a reason.
 #
+# spec-reviewer (#283) is a SECOND demonstrated case, of a different shape: its dispatch
+# site (intake-review.mjs) does append a dispatch-time nudge (PROGRESSIVE_EMIT), so it is
+# not held by neither lint the way plan-reviewer was — but the nudge alone did not prevent
+# the observed death (run #273: two dark attempts, both at the turn cap with zero output,
+# while a WEAKER nudge, BOUNDED_SPEC_GROUNDING, was already in place). The belt-and-
+# suspenders lesson from security-reviewer/scope-completeness-reviewer/unit-test-mutation-
+# reviewer holds here too: the dispatch-time nudge and the agent-doc deadline are
+# independent mitigations, and a demonstrated death earns both, not either.
+#
+
 # Usage: check-emit-deadline.sh [agents-dir ...]   (default: every plugins/*/agents dir)
 # Env:   DEADLINE_AT_DEFAULT   space-separated agent names (basename, no .md) to lint even
 #                              at the default cap. Overridable so fixtures can exercise the
@@ -87,7 +97,7 @@ DEFAULT_CAP=15
 # Add a name only on a DEMONSTRATED death — an agent observed hitting its cap without
 # emitting — never prophylactically. Enrolling the whole default-cap panel is a different
 # (and much larger) decision than fixing an agent known to be falling through the gap.
-DEADLINE_AT_DEFAULT="${DEADLINE_AT_DEFAULT:-plan-reviewer}"
+DEADLINE_AT_DEFAULT="${DEADLINE_AT_DEFAULT:-plan-reviewer spec-reviewer}"
 
 FAIL=0
 CHECKED=0
