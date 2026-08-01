@@ -32,10 +32,12 @@ Read this whole file, then work the checklist. `G` = `lean-gate.sh` in this dire
    verdict record — path from `bash G 4 <issue>` — carrying verdict, rounds, finding summary,
    and `run_id`. Append `milestone-4 | verdict=<v> | round=<n>` to the progress file. Fix
    every blocker and re-review; only a committed `verdict=approve` passes.
-8. Open a **ready** (non-draft) PR: summary, spec link, one-line verdict, `Closes #<issue>`.
-   No stage sections. Post one closing comment: PR link, verdict-record reference, and the
-   cost block (`pipeline-cost-block.sh --stateless`, session ids + time fence from the
-   progress-file header).
+8. Compute the cost block once (`pipeline-cost-block.sh --stateless`, session ids + time
+   fence from the progress-file header). Open a **ready** (non-draft) PR: summary, spec
+   link, one-line verdict, `Closes #<issue>`, **and the same cost block appended to the PR
+   description** — reviewers read the PR, not the issue thread, so cost visibility belongs
+   there too, not only in the closing comment. No stage sections. Post one closing comment:
+   PR link, verdict-record reference, and the same cost block.
 9. `bash G 5 <issue>` — exit artifacts. Then drop the claimed label and remove the worktree.
 
 ## Rules that are not negotiable
