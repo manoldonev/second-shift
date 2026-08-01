@@ -74,28 +74,41 @@ no tracker read at all.
        --jq '[(.closed|tostring), (.closedByPullRequestsReferences[0].number // ""|tostring), (.closedByPullRequestsReferences[0].url // "")] | @tsv')"
      bash tools/tracker-reconcile-check.sh verdict in_progress "$CLOSED" "$PRN" "$PRU"
      ```
-     - `reconcile-recommended` (rc=4) → **do not resume stage work.** Instead:
-       `statectl reclaim <issue> --release` (quarantines the state file); one `$GH_BOT`
-       comment stating the tracker already shows the issue closed via the merged PR, that
-       the pipeline session died before Stage 9, that the state file was quarantined to
-       `{issue}-released-{ts}.json`, and that **no eval or report was synthesized** — the
-       run stays un-scored for retro purposes; remove the `in-progress` label via
-       `$GH_BOT` if still present; stop.
-       In autonomous mode this happens without prompting (no operator decision is being
-       made — the tracker is already the source of truth); interactive mode may still
-       narrate it, but does not ask permission to quarantine an already-shipped run.
+     - `reconcile-recommended` (rc=4) → **do not resume stage work**, regardless of the
+       sub-branch below. Attempt `statectl reclaim <issue> --release` (no `--force`):
+       - rc=0 → quarantined to `{issue}-released-{ts}.json`.
+       - rc≠0 → still inside `reclaim`'s staleness grace window (default 30 min); `--force`
+         is refused outright in autonomous mode by `reclaim`'s own existing contract
+         (attended-only, same as every other guarded write), so this path does **not** force
+         it — the file quarantines on a later resume once stale, or an operator forces it by
+         hand under `DEV_PIPELINE_MODE=interactive`.
+       Either way: one `$GH_BOT` comment naming the closing PR, stating the pipeline session
+       died before Stage 9, that **no eval or report was synthesized** (un-scored for retro
+       purposes), and the quarantine outcome (filename, or "deferred until stale"); remove
+       the `in-progress` label via `$GH_BOT` if still present; stop.
+       This runs without prompting in every mode — recognizing an already-shipped run is not
+       an operator decision to relitigate; only the state-file quarantine itself stays
+       subject to `reclaim`'s existing attended-only `--force` gate.
      - `resume-normal` / any other rc → continue exactly as today (no behavior change).
    - Update the "Orphaned claims" paragraph to reflect that this check is now automatic
      on every `in_progress` resume, not something the operator triggers by hand; keep the
      manual `statectl reclaim` guidance for the case the tracker check can't apply (e.g.
      the tool errors, or the issue was closed without a linked PR).
 
-4. **AC-4 — composed scenario coverage.** Add a case to `scenario-liveness-selftest.sh`
-   exercising the full composed path: a stale `in_progress` state fixture +
-   `tracker-reconcile-check.sh verdict in_progress true <n> <u>` → `reconcile-recommended`
-   → `statectl reclaim <issue> --release` → assert the file is quarantined to
-   `{key}-released-{ts}.json` and that it now fails the perf-retro corpus filter's
-   `*-released-*` exclusion (i.e. `case "$f" in *-released-*) ;; esac` would skip it).
+4. **AC-4 — composed scenario coverage.** Add cases to `scenario-liveness-selftest.sh`
+   exercising the full composed path in both shapes:
+   - Stale case: an `in_progress` state fixture with `lastUpdatedAt` beyond the reclaim
+     threshold + `tracker-reconcile-check.sh verdict in_progress true <n> <u>` →
+     `reconcile-recommended` → `statectl reclaim <issue> --release` succeeds (rc=0) →
+     assert the file is quarantined to `{key}-released-{ts}.json` and that it now fails the
+     perf-retro corpus filter's `*-released-*` exclusion (i.e.
+     `case "$f" in *-released-*) ;; esac` would skip it).
+   - Fresh case (non-vacuity for the force-refusal branch): an `in_progress` state fixture
+     with a recent `lastUpdatedAt` + the same reconcile-recommended verdict → plain
+     `statectl reclaim <issue> --release` (no `--force`) refuses (rc≠0) → assert the
+     original state file is untouched (still present, still `in_progress`) — proving the
+     reconcile logic does not silently force a quarantine on a run that might still be
+     live, matching `reclaim`'s existing attended-only `--force` posture.
    This is a new composed path, distinct from — and does not claim to close — the
    pre-existing "reclaim --release quarantine -> fresh init" debt line already on record
    in that suite's header comment.

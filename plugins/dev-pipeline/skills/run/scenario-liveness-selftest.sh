@@ -86,6 +86,7 @@ SCENARIO_LIB="$HERE/scenario-lib.sh"
 VERIFYCTL="$HERE/verifyctl.sh"
 LINT="$HERE/tools/plan-lint.sh"
 PRED_GATE="$HERE/tools/predecessor-gate.sh"
+TRACKER_CHECK="$HERE/tools/tracker-reconcile-check.sh"
 FIX="$HERE/tools/plan-lint-fixtures"
 
 [[ -x "$STATECTL" ]] || { echo "[scenario-liveness] FATAL: $STATECTL not executable"; exit 99; }
@@ -93,6 +94,7 @@ FIX="$HERE/tools/plan-lint-fixtures"
 [[ -x "$VERIFYCTL" ]] || { echo "[scenario-liveness] FATAL: $VERIFYCTL not executable"; exit 99; }
 [[ -f "$LINT" ]] || { echo "[scenario-liveness] FATAL: $LINT missing"; exit 99; }
 [[ -x "$PRED_GATE" ]] || { echo "[scenario-liveness] FATAL: $PRED_GATE not executable"; exit 99; }
+[[ -x "$TRACKER_CHECK" ]] || { echo "[scenario-liveness] FATAL: $TRACKER_CHECK not executable"; exit 99; }
 [[ -d "$FIX" ]] || { echo "[scenario-liveness] FATAL: $FIX missing"; exit 99; }
 
 PASS=0
@@ -777,6 +779,72 @@ pg_a_receipt=$(sct get "$PG_A" '.comments.claimed // empty')
 [[ "$pg_rc_closed" -eq 0 && -f "$STATECTL_STATE_DIR/$PG_A.json" && -n "$pg_a_receipt" ]] \
   && pass "(pg-nv) non-vacuity: the same path with the predecessor CLOSED does write the state file + receipt — the skip came from the gate (AC-6)" \
   || fail "(pg-nv) non-vacuity — rc=$pg_rc_closed file=$([[ -f "$STATECTL_STATE_DIR/$PG_A.json" ]] && echo y || echo n) receipt='$pg_a_receipt'"
+
+# =================================== tracker reconcile check: resume (#149) ========
+# A run whose session died in the Stage-9 tail (after `gh pr create`, before `pr-add`
+# / `mark-completed`) leaves `status: in_progress` even though the tracker already
+# shows the issue closed via a merged PR. What must compose: the pure-logic verdict
+# tool's decision, feeding `statectl reclaim --release` (the pre-existing quarantine
+# mechanism, unmodified here) — and reclaim's own attended-only `--force` gate must
+# still hold, so an autonomous reconcile never force-quarantines a run that might
+# still be within the staleness grace window.
+#
+# Two shapes, mirroring statectl-selftest.sh's (rec3)/(rec5): a stale run quarantines
+# cleanly; a fresh run's plain (non-forced) reclaim attempt is refused and the state
+# file is left untouched — proving the reconcile logic does not silently bypass
+# reclaim's existing safety gate to force a quarantine.
+
+echo "[scenario-liveness] tracker-reconcile: stale in_progress + tracker-closed-via-PR quarantines; fresh does not"
+TRK=9040
+
+# --- stale case: reconcile-recommended -> reclaim --release succeeds -----------
+reset_state
+sct init "$TRK" --run-id "scenario-liveness-$$" >/dev/null
+
+trk_verdict=$(bash "$TRACKER_CHECK" verdict in_progress true 155 https://example.invalid/pull/155 2>/dev/null)
+trk_rc=$?
+[[ "$trk_rc" -eq 4 && "$trk_verdict" == $'verdict=reconcile-recommended\nclosingPrNumber=155\nclosingPrUrl=https://example.invalid/pull/155' ]] \
+  && pass "(trk1) tracker-closed-via-PR on an in_progress run -> reconcile-recommended, rc=4, PR fields carried (#149)" \
+  || fail "(trk1) tracker check — rc=$trk_rc verdict='$trk_verdict'"
+
+# --threshold-min 0 makes a fresh run immediately stale, same idiom as (rec3) —
+# the composed path never depends on real wall-clock time.
+rel=$("$STATECTL" reclaim "$TRK" --release --threshold-min 0 2>/dev/null)
+rel_rc=$?
+released_to=$(jq -r '.quarantinedTo // ""' <<< "$rel" 2>/dev/null)
+rel_count=$(find "$STATECTL_STATE_DIR" -maxdepth 1 -name "${TRK}-released-*.json" | wc -l | tr -d ' ')
+[[ "$rel_rc" -eq 0 && ! -f "$STATECTL_STATE_DIR/$TRK.json" && "$rel_count" == "1" && "$released_to" == "$TRK-released-"*".json" ]] \
+  && pass "(trk2) reconcile-recommended -> reclaim --release quarantines: original gone, one {key}-released-*.json exists (#149)" \
+  || fail "(trk2) reclaim --release after reconcile — rc=$rel_rc released_to='$released_to' count=$rel_count"
+
+# perf-retro's corpus filter excludes `*-released-*` by name alone (SKILL.md
+# "Step 1: Gather the corpus") — assert the quarantined name actually matches the
+# same glob the corpus loop tests, so this scenario proves the corpus-corruption
+# angle is closed, not merely that reclaim renamed something.
+case "$released_to" in
+  *-released-*) pass "(trk3) quarantined filename matches perf-retro's \`*-released-*\` corpus exclusion (#149)" ;;
+  *)            fail "(trk3) quarantined filename '$released_to' does NOT match \`*-released-*\`" ;;
+esac
+find "$STATECTL_STATE_DIR" -maxdepth 1 -name "${TRK}-released-*.json" -delete
+
+# --- fresh case: reconcile-recommended -> plain reclaim --release is refused ----
+# Non-vacuity for (trk2): drive the identical reconcile-recommended verdict against
+# a run reclaim does NOT consider stale (default 30-min threshold, no backdating),
+# and the state file must survive untouched — the reconcile path must not force
+# past reclaim's own attended-only gate just because the tracker says so.
+TRK2=9041
+reset_state
+sct init "$TRK2" --run-id "scenario-liveness-$$" >/dev/null
+
+trk2_rc=$(bash "$TRACKER_CHECK" verdict in_progress true 200 https://example.invalid/pull/200 >/dev/null 2>&1; echo $?)
+[[ "$trk2_rc" -eq 4 ]] \
+  && pass "(trk4) same reconcile-recommended verdict on a run reclaim does NOT consider stale" \
+  || fail "(trk4) tracker check on the fresh fixture — rc=$trk2_rc (want 4)"
+
+rc_rel_fresh=$(sct_rc reclaim "$TRK2" --release)
+[[ "$rc_rel_fresh" -ne 0 && -f "$STATECTL_STATE_DIR/$TRK2.json" ]] \
+  && pass "(trk5) non-vacuity: plain (non-forced) reclaim --release on a fresh run is refused, state file untouched — reconcile never bypasses reclaim's own gate (#149)" \
+  || fail "(trk5) fresh reclaim --release — rc=$rc_rel_fresh file-present=$([[ -f "$STATECTL_STATE_DIR/$TRK2.json" ]] && echo y || echo n)"
 
 # ─────────────────────────────────────────────────────────────────────────────
 # LEAN LEGS (run-lean) — the composed progress-file line chain and gate exit codes
