@@ -668,6 +668,118 @@ else
   fail "(b8) build-failure-context --kv-lines trailing newline — arr='$arr'"
 fi
 
+# ---- #109 AC-1: Stage-5 checkpoint deviations[].kind enum validation --------
+
+# (s5-1) checkpoint 5 with an out-of-enum deviations[].kind → rejected, same
+# message shape as the Stage-7 check (both reuse validate_deviations_kinds).
+reset_state
+sct init 9999 --run-id "selftest-run-$$" >/dev/null
+bad5='{"note":"free-shape stage-5 record","deviations":[{"kind":"bogus","note":"x"}]}'
+err=$(sct_err checkpoint 9999 5 --json "$bad5")
+rc=$(sct_rc checkpoint 9999 5 --json "$bad5")
+if [[ "$rc" != "0" && "$err" == *"invalid kind 'bogus'"* ]]; then
+  pass "(s5-1) checkpoint 5 invalid deviations[].kind → rejected"
+else
+  fail "(s5-1) checkpoint 5 invalid deviations[].kind — rc=$rc err='$err'"
+fi
+
+# (s5-2) checkpoint 5 with a valid deviations[].kind → accepted
+good5='{"note":"free-shape stage-5 record","deviations":[{"kind":"scope-creep","note":"x"}]}'
+rc=$(sct_rc checkpoint 9999 5 --json "$good5")
+kind=$(sct get 9999 '.stageCheckpoint."5".deviations[0].kind')
+if [[ "$rc" == "0" && "$kind" == "scope-creep" ]]; then
+  pass "(s5-2) checkpoint 5 valid deviations[].kind → accepted"
+else
+  fail "(s5-2) checkpoint 5 valid deviations[].kind — rc=$rc kind='$kind'"
+fi
+
+# (s5-3) checkpoint 5 with NO deviations key at all (Stage 5's checkpoint is
+# otherwise free-shape) → accepted; the check is opt-in on key presence, not
+# mandatory
+nodev5='{"note":"no deviations field yet"}'
+rc=$(sct_rc checkpoint 9999 5 --json "$nodev5")
+[[ "$rc" == "0" ]] \
+  && pass "(s5-3) checkpoint 5 with no deviations key → accepted (free-shape)" \
+  || fail "(s5-3) checkpoint 5 with no deviations key — rc=$rc"
+
+# ---- #109 AC-2a/AC-2b: build-checkpoint-7 scope-drift gate -------------------
+# Opt-in on `has("affectedFiles")` — armed only when --affected-files is passed.
+
+# (sd1) affectedFiles present, a changedFiles entry absent from both
+# affectedFiles and deviations[].file → rejected (AC-2a, omission)
+err=$(sct_err build-checkpoint-7 \
+  --issue 9999 --branch claude/acme-9999 --head abc --worktree /tmp/x \
+  --changed-files '["src/a.ts","src/b.ts"]' \
+  --affected-files '["src/a.ts"]')
+rc=$(sct_rc build-checkpoint-7 \
+  --issue 9999 --branch claude/acme-9999 --head abc --worktree /tmp/x \
+  --changed-files '["src/a.ts","src/b.ts"]' \
+  --affected-files '["src/a.ts"]')
+if [[ "$rc" != "0" && "$err" == *"src/b.ts"* && "$err" == *"Affected-files section"* ]]; then
+  pass "(sd1) changedFiles entry absent from affectedFiles + deviations → rejected (AC-2a)"
+else
+  fail "(sd1) AC-2a omission — rc=$rc err='$err'"
+fi
+
+# (sd2) same changedFiles set, but src/b.ts IS in affectedFiles → accepted
+rc=$(sct_rc build-checkpoint-7 \
+  --issue 9999 --branch claude/acme-9999 --head abc --worktree /tmp/x \
+  --changed-files '["src/a.ts","src/b.ts"]' \
+  --affected-files '["src/a.ts","src/b.ts"]')
+[[ "$rc" == "0" ]] \
+  && pass "(sd2) changedFiles entry present in affectedFiles → accepted" \
+  || fail "(sd2) AC-2a present-in-affected — rc=$rc"
+
+# (sd3) src/b.ts absent from affectedFiles but disclosed via deviations[].file
+# → accepted (disclosure always wins, regardless of the other two lists)
+rc=$(sct_rc build-checkpoint-7 \
+  --issue 9999 --branch claude/acme-9999 --head abc --worktree /tmp/x \
+  --changed-files '["src/a.ts","src/b.ts"]' \
+  --affected-files '["src/a.ts"]' \
+  --deviations '[{"kind":"scope-creep","note":"y","file":"src/b.ts"}]')
+[[ "$rc" == "0" ]] \
+  && pass "(sd3) changedFiles entry disclosed via deviations[].file → accepted" \
+  || fail "(sd3) AC-2a deviations-disclosure — rc=$rc"
+
+# (sd4) outOfScopeFiles contains a changedFiles entry with no disclosure →
+# rejected with the DISTINCT AC-2b message (contradiction, not omission)
+err=$(sct_err build-checkpoint-7 \
+  --issue 9999 --branch claude/acme-9999 --head abc --worktree /tmp/x \
+  --changed-files '["src/a.ts","src/c.ts"]' \
+  --affected-files '["src/a.ts"]' \
+  --out-of-scope-files '["src/c.ts"]')
+rc=$(sct_rc build-checkpoint-7 \
+  --issue 9999 --branch claude/acme-9999 --head abc --worktree /tmp/x \
+  --changed-files '["src/a.ts","src/c.ts"]' \
+  --affected-files '["src/a.ts"]' \
+  --out-of-scope-files '["src/c.ts"]')
+if [[ "$rc" != "0" && "$err" == *"src/c.ts"* && "$err" == *"Out-of-scope section"* ]]; then
+  pass "(sd4) changedFiles entry matches outOfScopeFiles, undisclosed → rejected (AC-2b)"
+else
+  fail "(sd4) AC-2b contradiction — rc=$rc err='$err'"
+fi
+
+# (sd5) same shape as sd4, but disclosed via deviations[].file → accepted
+rc=$(sct_rc build-checkpoint-7 \
+  --issue 9999 --branch claude/acme-9999 --head abc --worktree /tmp/x \
+  --changed-files '["src/a.ts","src/c.ts"]' \
+  --affected-files '["src/a.ts"]' \
+  --out-of-scope-files '["src/c.ts"]' \
+  --deviations '[{"kind":"surprise","note":"y","file":"src/c.ts"}]')
+[[ "$rc" == "0" ]] \
+  && pass "(sd5) outOfScopeFiles entry disclosed via deviations[].file → accepted" \
+  || fail "(sd5) AC-2b disclosed — rc=$rc"
+
+# (sd6) NO --affected-files at all (legacy/be-fe-pair-per-repo shape, e.g. the
+# suite's own VALID_PAYLOAD) → gate stays entirely inert regardless of
+# changedFiles content — the regression guard for every pre-#109 caller
+rc=$(sct_rc build-checkpoint-7 \
+  --issue 9999 --branch claude/acme-9999 --head abc --worktree /tmp/x \
+  --changed-files '["src/totally-unrelated.ts"]')
+[[ "$rc" == "0" ]] \
+  && pass "(sd6) no --affected-files flag → gate inert regardless of changedFiles (regression guard)" \
+  || fail "(sd6) opt-in inertness — rc=$rc"
+
 # (ws1) worktree-set happy path → both fields + lastUpdatedAt in one atomic bundle
 reset_state
 sct init 9999 --run-id "selftest-run-$$" >/dev/null

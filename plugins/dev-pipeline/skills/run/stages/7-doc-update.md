@@ -61,6 +61,14 @@ if [[ "$(echo "$TARGET_REPOS_JSON" | jq 'length')" -gt 1 ]]; then
   )
 # LOCKSTEP-END stage7-dual-target
 else
+  # AC-2a/AC-2b (#109): the plan's Affected-files / Out-of-scope path lists,
+  # extracted by the new tool and handed to build-checkpoint-7 so
+  # validate_stage7_payload can gate changedFiles against them (opt-in — see
+  # tools/plan-scope-paths.sh and validate_stage7_payload). Single-target /
+  # non-pair path only — the be-fe-pair perRepo branch above is unchanged.
+  PLAN_ABS="$(git rev-parse --show-toplevel)/$PLAN_PATH"
+  AFFECTED_FILES_JSON="$(bash "${CLAUDE_PLUGIN_ROOT}/skills/run/tools/plan-scope-paths.sh" "$PLAN_ABS" 'affected files')"
+  OUT_OF_SCOPE_JSON="$(bash "${CLAUDE_PLUGIN_ROOT}/skills/run/tools/plan-scope-paths.sh" "$PLAN_ABS" 'out.of.scope')"
   CHECKPOINT_JSON=$(statectl.sh build-checkpoint-7 \
     --issue "$ISSUE_NUMBER" \
     --branch "$BRANCH" \
@@ -73,13 +81,17 @@ else
     --free-note "$FREE_NOTE" \
     --plan-risks "$PLAN_RISKS_JSON" \
     --doc-updater-findings "$DOC_UPDATER_FINDINGS" \
-    --quality-pass-summary "$QUALITY_PASS_JSON")
+    --quality-pass-summary "$QUALITY_PASS_JSON" \
+    --affected-files "$AFFECTED_FILES_JSON" \
+    --out-of-scope-files "$OUT_OF_SCOPE_JSON")
 fi
 
 statectl.sh checkpoint "$ISSUE_NUMBER" 7 --json "$CHECKPOINT_JSON"
 ```
 
 The builder validates the payload's flat schema eagerly (ticketKey matches; `branch`/`headSha`/`worktreePath` are non-empty strings; `deviations[].kind` values are in the closed enum) before emitting to stdout — schema errors surface at construction, not at write. `cmd_checkpoint` re-validates as defense in depth, then writes atomically with the writer-suffixed tmp file. `docUpdaterFindings` is free-form markdown — `""` for the no-findings case.
+
+**Scope-drift gate (#109 AC-2a/AC-2b).** Because `--affected-files` was passed above, the builder additionally refuses when a `changedFiles` entry is neither in `affectedFiles` nor disclosed by a `deviations[].file` entry (AC-2a — an omission), and refuses with a distinct message when a `changedFiles` entry matches `outOfScopeFiles` and isn't disclosed (AC-2b — a contradiction with the plan's own stated boundary). Both are refused at THIS build step, before `stageCheckpoint["7"]` exists, so remediation is local: either amend the plan's `## Affected files/modules` section (when the change genuinely belongs there) or add an entry to the in-session `DEVIATIONS_JSON` you are about to pass — **not** `statectl deviations-add`, which requires `stageCheckpoint["7"]` to already exist and is reserved for Stage-8 review-fix appends.
 
 Mark Stage 7 completed (`statectl set-stage "$ISSUE_NUMBER" 7 --status completed`), then proceed in-process to Stage 8. (The `currentStage == 7` + `stages.7.status == "completed"` state is also what a crash-recovery resume detects to re-enter at Stage 8 in a fresh session after an interruption.)
 

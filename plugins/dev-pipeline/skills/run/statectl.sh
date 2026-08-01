@@ -1231,6 +1231,29 @@ eval_criteria_keys() {
 }
 # <<< generated: eval_criteria_keys <<<
 
+# Validate every deviations[].kind value against the closed enum (#109). Takes
+# the JSON value found at a payload's `.deviations` key (may be the literal
+# `null` when the key is absent — that is reported as "must be an array", same
+# as an empty string or object would be). Shared verbatim between the Stage-7
+# write-time check (below) and the Stage-5 opt-in check
+# (validate_stage5_payload) so the two checkpoints' deviations vocabularies
+# cannot silently drift onto different enums — the exact failure mode #109
+# sub-problem 1 exists to close.
+validate_deviations_kinds() {
+  local devs="$1"
+  local dev_count
+  dev_count=$(jq 'if type == "array" then length else -1 end' <<< "$devs" 2>/dev/null) || dev_count=-1
+  [[ "$dev_count" -ge 0 ]] || die "checkpoint payload deviations must be an array"
+  if [[ "$dev_count" -gt 0 ]]; then
+    local kinds
+    kinds=$(jq -r '.[].kind // ""' <<< "$devs")
+    while IFS= read -r kind; do
+      valid_deviation_kind "$kind" \
+        || die "checkpoint payload has deviation with invalid kind '$kind' (allowed: scope-creep, alternate-approach, deferred, surprise)"
+    done <<< "$kinds"
+  fi
+}
+
 # Validate a Stage 7 checkpoint payload (JSON on stdin). Other stages get JSON-parse-only.
 # Flat single-repo schema: branch, headSha, worktreePath as top-level string fields.
 validate_stage7_payload() {
@@ -1274,16 +1297,37 @@ validate_stage7_payload() {
     done
   fi
   # deviations validation (if non-empty)
-  local dev_count
-  dev_count=$(jq '.deviations | if type == "array" then length else -1 end' <<< "$parsed")
-  [[ "$dev_count" -ge 0 ]] || die "checkpoint payload deviations must be an array"
-  if [[ "$dev_count" -gt 0 ]]; then
-    local kinds
-    kinds=$(jq -r '.deviations[].kind // ""' <<< "$parsed")
-    while IFS= read -r kind; do
-      valid_deviation_kind "$kind" \
-        || die "checkpoint payload has deviation with invalid kind '$kind' (allowed: scope-creep, alternate-approach, deferred, surprise)"
-    done <<< "$kinds"
+  validate_deviations_kinds "$(jq -c '.deviations' <<< "$parsed")"
+
+  # AC-2a/AC-2b (#109): scope-drift gate over changedFiles vs affectedFiles /
+  # outOfScopeFiles. OPT-IN on `has("affectedFiles")` — build-checkpoint-7 only
+  # emits that key when its caller passed --affected-files, so a payload
+  # assembled before this flag existed (or the be-fe-pair per-repo path, which
+  # never passes it — out of scope for #109) is untouched. Evaluated per
+  # changedFiles entry, one violation reported (die on first): a path
+  # disclosed via deviations[].file is always fine regardless of the other two
+  # lists; otherwise a path matching outOfScopeFiles is the sharper defect
+  # (AC-2b, contradiction — the plan explicitly excluded it) and is checked
+  # before the AC-2a omission case, so a path that is both "not in
+  # affectedFiles" and "in outOfScopeFiles" (the expected shape — the two
+  # sections are not meant to overlap) reports the more specific message.
+  if jq -e 'has("affectedFiles")' <<< "$parsed" >/dev/null 2>&1; then
+    jq -e '.affectedFiles | type == "array"' <<< "$parsed" >/dev/null \
+      || die "checkpoint payload .affectedFiles must be an array"
+    jq -e '(.outOfScopeFiles // []) | type == "array"' <<< "$parsed" >/dev/null \
+      || die "checkpoint payload .outOfScopeFiles must be an array"
+    local changed_paths
+    changed_paths=$(jq -r '(.changedFiles // [])[]' <<< "$parsed")
+    while IFS= read -r cf; do
+      [[ -n "$cf" ]] || continue
+      jq -e --arg f "$cf" '(.deviations // []) | any(.file? == $f)' <<< "$parsed" >/dev/null \
+        && continue
+      if jq -e --arg f "$cf" '(.outOfScopeFiles // []) | any(. == $f)' <<< "$parsed" >/dev/null; then
+        die "checkpoint payload changedFiles entry '$cf' matches the plan's Out-of-scope section and is not disclosed in deviations[] (file field) — a path the plan explicitly excluded was committed anyway; add a deviations[] entry naming it or revert the change"
+      fi
+      jq -e --arg f "$cf" '.affectedFiles | any(. == $f)' <<< "$parsed" >/dev/null \
+        || die "checkpoint payload changedFiles entry '$cf' is absent from both the plan's Affected-files section and deviations[] (file field) — add it to the plan's Affected files/modules section or record it via deviations[]"
+    done <<< "$changed_paths"
   fi
 }
 
@@ -1298,6 +1342,22 @@ validate_stage1_payload() {
   if jq -e '(type == "object") and has("preflight")' <<< "$payload" >/dev/null 2>&1; then
     preflight_wellformed "$(jq -c '.preflight' <<< "$payload")" \
       || die "checkpoint payload .preflight is present but malformed (needs {baseBranch: non-empty string, workingTreeClean: boolean, guardOutcome: non-empty string} — workingTreeClean:false is valid)"
+  fi
+}
+
+# Write-time defense for the Stage-5 checkpoint payload's deviations[].kind (#109
+# AC-1). Stage 5's checkpoint is otherwise free-shape (a crash-recovery record —
+# see stageCheckpoint's description in state-schema.md), so deviations is
+# OPTIONAL here, unlike Stage 7 where build-checkpoint-7 always emits it
+# (defaulting to `[]`). Only validate when the key is present — same "present but
+# malformed" posture as validate_stage1_payload's preflight check, never forcing
+# every Stage-5 checkpoint to carry a deviations array. Reuses
+# valid_deviation_kind (via validate_deviations_kinds) so the Stage-5 and Stage-7
+# vocabularies cannot drift onto different enums.
+validate_stage5_payload() {
+  local payload="$1"
+  if jq -e 'has("deviations")' <<< "$payload" >/dev/null 2>&1; then
+    validate_deviations_kinds "$(jq -c '.deviations' <<< "$payload")"
   fi
 }
 
@@ -1544,10 +1604,14 @@ cmd_checkpoint() {
   done
   [[ -n "$key" && -n "$n" && -n "$payload" ]] || { EXIT_CODE=3 die "checkpoint: missing <issue-number> <N> --json <payload>"; }
   [[ "$n" =~ ^[1-9]$ ]] || { EXIT_CODE=1 die "checkpoint: N must be in {1..9}"; }
-  # JSON parse + per-stage schema validation (Stage 1 preflight, Stage 7 payload)
+  # JSON parse + per-stage schema validation (Stage 1 preflight, Stage 5 deviations
+  # kind (#109 AC-1), Stage 7 payload)
   jq '.' <<< "$payload" >/dev/null 2>&1 || die "checkpoint: --json payload is not valid JSON"
   if [[ "$n" == "1" ]]; then
     validate_stage1_payload "$payload"
+  fi
+  if [[ "$n" == "5" ]]; then
+    validate_stage5_payload "$payload"
   fi
   if [[ "$n" == "7" ]]; then
     local lower
@@ -2510,7 +2574,9 @@ cmd_build_checkpoint_7() {
   local issue="" branch="" head="" worktree=""
   local plan="" free_note="" docu=""
   local changed="" verify="" devs="" risks="" qps=""
+  local affected="" oos=""
   local plan_set=0 changed_set=0 verify_set=0 devs_set=0 risks_set=0 note_set=0 docu_set=0 qps_set=0
+  local affected_set=0 oos_set=0
   while [[ $# -gt 0 ]]; do
     case "$1" in
       --issue)                 issue="${2:-}";    shift 2 ;;
@@ -2525,6 +2591,8 @@ cmd_build_checkpoint_7() {
       --plan-risks)            risks="${2:-}";    risks_set=1;   shift 2 ;;
       --doc-updater-findings)  docu="${2:-}";     docu_set=1;    shift 2 ;;
       --quality-pass-summary)  qps="${2:-}";      qps_set=1;     shift 2 ;;
+      --affected-files)        affected="${2:-}"; affected_set=1; shift 2 ;;
+      --out-of-scope-files)    oos="${2:-}";      oos_set=1;     shift 2 ;;
       *) EXIT_CODE=3 die "build-checkpoint-7: unrecognized argument: $1" ;;
     esac
   done
@@ -2606,6 +2674,29 @@ cmd_build_checkpoint_7() {
   if [[ "$docu_set" -eq 1 ]]; then
     payload=$(jq --arg d "$docu" '. + {docUpdaterFindings: $d}' <<< "$payload") \
       || { EXIT_CODE=2 die "build-checkpoint-7: jq docUpdaterFindings merge failed"; }
+  fi
+  # AC-2a/AC-2b (#109) scope-drift gate inputs — OPT-IN by flag presence, not by
+  # array emptiness. The key `affectedFiles` is what arms
+  # validate_stage7_payload's scope-drift check below; a caller that never
+  # passes --affected-files gets a payload with no such key, so the check stays
+  # inert for it (see docs/plans/second-shift-109-lean.md "Assumptions" — an
+  # `affectedFiles: []` default here would fail-closed every legacy/unmigrated
+  # caller, including the be-fe-pair per-repo path, which does not pass these
+  # flags). `outOfScopeFiles` only makes sense paired with `affectedFiles`; it
+  # defaults to `[]` (nothing declared out-of-scope) when --affected-files was
+  # given but --out-of-scope-files was not.
+  if [[ "$affected_set" -eq 1 ]]; then
+    jq -e 'type == "array"' <<< "$affected" >/dev/null 2>&1 \
+      || die "build-checkpoint-7: --affected-files must be a JSON array"
+    local oos_json="[]"
+    if [[ "$oos_set" -eq 1 ]]; then
+      jq -e 'type == "array"' <<< "$oos" >/dev/null 2>&1 \
+        || die "build-checkpoint-7: --out-of-scope-files must be a JSON array"
+      oos_json="$oos"
+    fi
+    payload=$(jq --argjson af "$affected" --argjson oos "$oos_json" \
+        '. + {affectedFiles: $af, outOfScopeFiles: $oos}' <<< "$payload") \
+      || { EXIT_CODE=2 die "build-checkpoint-7: jq affectedFiles/outOfScopeFiles merge failed"; }
   fi
 
   # Eager schema validation against the same function cmd_checkpoint uses on write.
