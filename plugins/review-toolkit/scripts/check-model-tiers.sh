@@ -44,6 +44,11 @@
 #   - map  REVIEWER_MODEL  in workflows/code-review.mjs
 #   - map  INTAKE_MODEL    in workflows/intake-review.mjs
 #   - map  DESIGN_MODEL    in workflows/design-sync.mjs
+#     Each MAP file's dispatch lines may ALSO carry an inline `model: '<tier>'` literal
+#     (the three files' shared `structured-emitter` dispatch does); that literal is a
+#     STANDALONE declaration — MAP files have no scalar to fall through to — and is
+#     lockstep-checked against frontmatter/override directly, same as the scalar loop's
+#     inline handling below.
 #   - scalar UNIT_TEST_MODEL     in workflows/unit-tests.mjs   (per dispatched agentType)
 #   - scalar PLAN_REVIEWER_MODEL in workflows/plan-review.mjs  (same shape)
 #   - scalar EXECUTOR_MODEL      in workflows/mutation-gate.mjs (anonymous executors —
@@ -306,9 +311,11 @@ scan_unknown_map_entries() {
 # Inline `model:` literals on agentType-bearing lines. Runs over ALL FIVE parsed
 # workflow files, not just the two scalar ones: the inline handling in the scalar
 # loop below is scoped to its own `for spec in` list, and the MAP grep above cannot
-# see an inline literal at all (`model:` is an unquoted key), so the inline
-# dispatches in the three MAP files are reached by neither. Scoping this scan to the
-# scalar pair would leave the hole open in the majority of files.
+# see an inline literal at all (`model:` is an unquoted key). This scan catches an
+# OUT-OF-ENUM inline literal in any of the five; the MAP loop's own inline pass
+# (below, in the `code-review.mjs`/`intake-review.mjs`/`design-sync.mjs` for-loop)
+# separately lockstep-checks an IN-ENUM inline literal there against frontmatter, so
+# the two together cover both failure modes in the MAP files.
 # A `model:` that is an EXPRESSION (`modelOverrides[...] || SCALAR`) carries no
 # literal, does not match, and keeps falling through to the scalar as before.
 scan_unknown_inline_literals() {
@@ -335,6 +342,25 @@ for tbl in code-review.mjs intake-review.mjs design-sync.mjs; do
         model=$(printf '%s' "$pair" | sed -E "s/^'([^']+)': '([^']+)'$/\2/")
         check_pair "$agent" "$model" "$tbl"
     done <<< "$(grep -oE "'[a-z0-9:-]+': '(opus|sonnet|haiku)'" "$file")"
+
+    # Inline `model:` literals on agentType-bearing dispatch lines. Unlike the scalar
+    # loop below, a MAP file has no file-level scalar to fall through to — the inline
+    # literal IS the declaration, checked directly against frontmatter/override. This
+    # is what closes the gap scan_unknown_inline_literals only enum-checked: an
+    # IN-ENUM inline literal here (e.g. structured-emitter's 'haiku') used to reach
+    # neither loop's MISMATCH check.
+    inline_pairs=$(
+        grep -E "agentType: '[a-z0-9:-]+'" "$file" | while IFS= read -r line; do
+            printf '%s' "$line" | grep -qE "model: '(opus|sonnet|haiku)'" || continue
+            a=$(printf '%s' "$line" | sed -E "s/.*agentType: '([^']+)'.*/\1/")
+            m=$(printf '%s' "$line" | sed -E "s/.*model: '(opus|sonnet|haiku)'.*/\1/")
+            printf '%s\t%s\n' "$a" "$m"
+        done | sort -u
+    )
+    while IFS=$'\t' read -r agent model; do
+        [ -z "$agent" ] && continue
+        check_pair "$agent" "$model" "$tbl (inline)"
+    done <<< "$inline_pairs"
 done
 
 # --- Scalar tables: const <VAR> = '<model>' applied to each agentType the file
