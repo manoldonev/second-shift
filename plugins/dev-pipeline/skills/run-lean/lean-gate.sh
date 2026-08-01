@@ -258,7 +258,7 @@ cmd_entry() {
 # and the merge-boundary gate would fail a legitimately-claimed PR.
 cmd_claim() {
   local helper body url
-  helper="$(dirname "$(dirname "$(cd "$(dirname "$0")" && pwd)")")/run/tools/claim-issue.sh"
+  helper="$(dirname "$(cd "$(dirname "$0")" && pwd)")/run/tools/claim-issue.sh"
   [ -f "$helper" ] || envfail "claim-issue.sh not found at '$helper'."
 
   # (i) the label swap — reuses the pipeline's add-before-remove + confirm-before-DELETE
