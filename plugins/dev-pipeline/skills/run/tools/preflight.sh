@@ -111,6 +111,12 @@ else
     bad "check-extensions rejected the repo:"
     while IFS= read -r l; do say "[preflight]        $l"; done < <(tail -10 <<< "$out")
   fi
+  if out=$(bash "$SCRIPT_DIR/check-doc-routing.sh" "$REPO_ROOT" 2>&1); then
+    ok "check-doc-routing: $(tail -1 <<< "$out")"
+  else
+    bad "check-doc-routing rejected the repo (a doc-routing.md entry points at a moved or deleted doc):"
+    while IFS= read -r l; do say "[preflight]        $l"; done < <(tail -10 <<< "$out")
+  fi
   # review-context SECTION lint (review-toolkit) — the in-file counterpart to
   # check-extensions. review-toolkit is a SEPARATE plugin, so resolve its install path:
   # env override (hermetic selftests) -> installed plugin path -> skip-note. A missing

@@ -1,0 +1,78 @@
+#!/usr/bin/env bash
+# Selftest for check-doc-routing.sh: a valid routing map (literal + dir + glob entries)
+# passes; a renamed/moved doc and a deleted doc each fail closed naming the entry; no
+# doc-routing.md is a clean no-op.
+set -euo pipefail
+# Hermetic hygiene: honor the same unset convention as check-extensions-selftest.sh (#34) so
+# a caller's leaked pipeline seam vars cannot clobber this selftest's own fixtures.
+unset SECOND_SHIFT_CONFIG SECOND_SHIFT_REPO_ROOT SECOND_SHIFT_DOC_ROUTING BRANCH_PREFIX
+HERE="$(cd "$(dirname "$0")" && pwd)"
+CHECK="$HERE/check-doc-routing.sh"
+FAILS=0
+ok()  { echo "  ✓ $1"; }
+bad() { echo "  ✗ $1"; FAILS=$((FAILS+1)); }
+
+TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
+
+# (1) no doc-routing.md at all -> clean no-op (this repo's own tree has none today)
+mkdir -p "$TMP/empty"
+bash "$CHECK" "$TMP/empty" >/dev/null 2>&1 && ok "no doc-routing.md -> clean" || bad "missing doc-routing.md should pass but failed"
+
+# (2) a valid map: a repo-root-relative file, a repo-root-relative dir, and a glob entry
+#     resolved relative to doc-routing.md's own directory -> clean
+mkdir -p "$TMP/valid/.claude/second-shift/subdir" "$TMP/valid/docs"
+: > "$TMP/valid/docs/real.md"
+: > "$TMP/valid/.claude/second-shift/subdir/a.md"
+cat > "$TMP/valid/.claude/second-shift/doc-routing.md" << 'ROUTING'
+| Change category | Doc(s) to check |
+| --- | --- |
+| Foo changes | `docs/real.md` |
+| Bar changes | `docs/` |
+
+- `subdir/*.md` — stale-risk hotspot
+ROUTING
+bash "$CHECK" "$TMP/valid" >/dev/null 2>&1 && ok "literal file + dir + glob entries -> clean" \
+  || bad "valid routing map should pass but failed"
+
+# (3) a table entry pointing at a renamed/moved doc -> fail closed, naming the entry
+mkdir -p "$TMP/moved/.claude/second-shift" "$TMP/moved/docs"
+: > "$TMP/moved/docs/renamed-target.md"
+cat > "$TMP/moved/.claude/second-shift/doc-routing.md" << 'ROUTING'
+| Change category | Doc(s) to check |
+| --- | --- |
+| Foo changes | `docs/old-name.md` |
+ROUTING
+if bash "$CHECK" "$TMP/moved" > /tmp/docroute-moved.out 2>&1; then
+  bad "renamed-doc entry should FAIL but passed"
+else
+  grep -q "DANGLING-DOC-ROUTE:.*docs/old-name.md" /tmp/docroute-moved.out \
+    && ok "renamed doc -> DANGLING-DOC-ROUTE fail closed, naming the entry" \
+    || bad "renamed doc failed but without the expected message"
+fi
+
+# (4) a list entry pointing at a deleted doc -> fail closed
+mkdir -p "$TMP/deleted/.claude/second-shift"
+cat > "$TMP/deleted/.claude/second-shift/doc-routing.md" << 'ROUTING'
+## Docs that restate code constants
+
+- `.project/reference/domain-constants.md` — thresholds mirrored by tests
+ROUTING
+if bash "$CHECK" "$TMP/deleted" > /tmp/docroute-deleted.out 2>&1; then
+  bad "deleted-doc entry should FAIL but passed"
+else
+  grep -q "DANGLING-DOC-ROUTE:.*domain-constants.md" /tmp/docroute-deleted.out \
+    && ok "deleted doc -> DANGLING-DOC-ROUTE fail closed" \
+    || bad "deleted doc failed but without the expected message"
+fi
+
+# (5) prose/blockquote backtick mentions outside table/list rows are never scanned
+mkdir -p "$TMP/prose/.claude/second-shift"
+cat > "$TMP/prose/.claude/second-shift/doc-routing.md" << 'ROUTING'
+> Read by `dev-pipeline`'s Stage-7 doc-update protocol and `review-toolkit:doc-updater`.
+> `.project/` is the authoritative knowledge tree.
+ROUTING
+bash "$CHECK" "$TMP/prose" >/dev/null 2>&1 && ok "prose/blockquote backtick mentions -> not scanned, clean" \
+  || bad "prose-only file should pass but failed"
+
+if [[ "$FAILS" -gt 0 ]]; then echo "check-doc-routing selftest: $FAILS FAILURE(S)"; exit 1; fi
+echo "check-doc-routing selftest: all green"
