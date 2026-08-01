@@ -61,6 +61,23 @@ to flip when it is. A characterization case that only asserts an exit code is in
 from an author who did not notice. An example lives in `exitplan-ledger-gate-selftest.sh`
 `(t3h)`.
 
+**A consumer's configured lane runs in a scrubbed child env.** `verifyctl.sh` and
+`preflight.sh` both spawn a `commands.<host>` command (`lint`/`typecheck`/`test`/`format`/
+`lanes`/`extraLanes`) as a `bash -c` child of the pipeline session. When this repo dogfoods
+itself, that child IS second-shift tooling — the configured `test` command is the selftest
+sweep — so it must not see the caller's own `SECOND_SHIFT_CONFIG` / `STATECTL_STATE_DIR` /
+etc.: an ambient value silently re-roots or re-states the child, producing spurious failures
+unrelated to the code under review (#34's ~20 of them). Both files carry the scrub
+independently — one `SEAM_SCRUB` denylist, `env -u`'d at every child-invocation site — because
+they reach that lane shape via two different code paths (verifyctl's Stage-6 run vs
+preflight's one-pass doctor sweep), kept honest by a `scripts/lockstep-manifest.tsv`
+`subset-of` row rather than a shared import (neither is importable by the other). This is a
+different concern from the eight `unset SECOND_SHIFT_CONFIG …` lines already present at the
+top of several *direct-invocation* selftests (`statectl-selftest.sh`, `preflight-selftest.sh`,
+etc.): those defend against a seam var poisoning the selftest's OWN process when the operator
+sweep or CI's `find *-selftest.sh` glob runs it directly — a path the configured-lane scrub
+above never touches — so both defenses stay, in depth, rather than either replacing the other.
+
 ## The runtime shim
 
 Workflow `.mjs` scripts are not node-importable: they carry a top-level `return` and reference
