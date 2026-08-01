@@ -55,7 +55,14 @@ SPEC="$TREE/docs/plans/acme-7-lean.md"
 VERDICT="$TREE/docs/plans/acme-7-lean-verdict.md"
 
 gate() { # gate <args...>  — always from inside the fixture tree
-  ( cd "$TREE" && SECOND_SHIFT_CONFIG="$CFG" LEAN_PROGRESS_FILE="$PROG" bash "$GATE" "$@" 2>&1 )
+  # unset RUN_ID: this helper backs nearly every case in the file, including (m1)'s
+  # "no RUN_ID, no cache" baseline. Without this, a RUN_ID exported in the CALLING shell
+  # (SKILL.md step 2 tells operators/agents to export it for a real run) leaks through —
+  # bash subshells inherit the parent's exported environment by default — and (m1)/(m3)
+  # spuriously fail asserting the real run's id where the fixture expects `unset` or its
+  # own cached value. SECOND_SHIFT_CONFIG/LEAN_PROGRESS_FILE are already pinned per-call
+  # for the same reason; RUN_ID was the one seam left open to ambient leakage.
+  ( unset RUN_ID; cd "$TREE" && SECOND_SHIFT_CONFIG="$CFG" LEAN_PROGRESS_FILE="$PROG" bash "$GATE" "$@" 2>&1 )
 }
 count_in_progress() { [ -f "$PROG" ] && grep -cF "$1" "$PROG" 2>/dev/null || echo 0; }
 reset_progress() { rm -f "$PROG"; }
