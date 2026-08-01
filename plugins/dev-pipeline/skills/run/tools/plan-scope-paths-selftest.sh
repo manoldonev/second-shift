@@ -81,5 +81,22 @@ out=$(bash "$TOOL" "$LINT_FIX/valid-plan.md" "affected files" | jq -c .)
   && pass "(pp-g) plan-lint's shared valid-plan.md fixture → single path" \
   || fail "(pp-g) shared fixture — out=$out"
 
+# (pp-h) #109 round-2 review regression guard: a bold-LEAD prose line INSIDE a
+# section body (e.g. "**Note:** ...", this repo's own **D-n.**/**Changed:**
+# style) must not be mistaken for a section boundary — both path tokens either
+# side of it must survive.
+out=$(bash "$TOOL" "$FIX/bold-lead-prose-plan.md" "affected files" | jq -c .)
+[[ "$out" == '["foo/bar.ts","foo/baz.ts"]' ]] \
+  && pass "(pp-h) bold-lead prose mid-section does NOT truncate the path list (regression guard)" \
+  || fail "(pp-h) bold-lead prose — out=$out"
+
+# (pp-i) counterpart: a STANDALONE bold-line header (the whole trimmed line is
+# exactly **...**) still correctly terminates the section — the fix narrows
+# the terminator, it does not remove it.
+out=$(bash "$TOOL" "$FIX/standalone-bold-header-plan.md" "affected files" | jq -c .)
+[[ "$out" == '["foo/bar.ts"]' ]] \
+  && pass "(pp-i) standalone bold-line header still terminates the section" \
+  || fail "(pp-i) standalone bold header — out=$out"
+
 echo "[plan-scope-paths-selftest] $PASS passed, $FAIL failed"
 exit "$FAIL"

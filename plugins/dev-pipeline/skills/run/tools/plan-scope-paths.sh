@@ -43,9 +43,20 @@ if [[ -z "$START_LINE" ]]; then
 fi
 
 BT="$(printf '\140')"   # literal backtick, built via octal (avoids SC2016 noise)
+# Terminator (#109 round-2 review finding): NOT the same pattern HEADING_RE uses
+# to find the START line. That pattern intentionally matches ANY line beginning
+# with `**` — fine for a document-wide "does this heading exist" grep (mirrors
+# plan-lint.sh's section_present(), which only ever uses it that way). Reused
+# unchanged here as a BODY terminator it over-matched: this repo's own plans
+# routinely put bold-LEAD prose inside a section body (e.g. "**Note:** ..." or
+# "**D-1.** ..."), which is not a section boundary, so the terminator wrongly
+# ended the slice there and silently dropped every path token after it. The
+# terminator below only ends the section on a REAL markdown heading
+# (`#{1,6} ...`) or a STANDALONE bold-line header — the whole trimmed line is
+# exactly `**...**`, not prose that merely starts with `**`.
 SECTION_BODY="$(awk -v start="$START_LINE" '
   NR == start { in_section=1; next }
-  in_section && /^(#{1,6}[[:space:]]|\*\*)/ { exit }
+  in_section && (/^#{1,6}[[:space:]]/ || /^\*\*[^*]+\*\*[[:space:]]*$/) { exit }
   in_section { print }
 ' "$PLAN")"
 
