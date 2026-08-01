@@ -636,5 +636,34 @@ const runIntake = (behaviors, argsOverride = {}) => {
   )
 }
 
+// ---------------------------------------------------------------------------
+// Case N — intake-review.mjs's referencedDocs content injection (#306).
+//
+// AC-1/AC-2/AC-3: `referencedDocs[].content` (documented in the args header, line 113)
+// used to reach neither dispatch prompt — only `.path` did, via `docsNote`'s "already
+// read — do not re-fetch" claim. That told sub-agents not to read files they were
+// never given. This case pins that the content now rides in BOTH prompts, and that an
+// empty `referencedDocs` (the pre-#306 default, every existing call site) is unaffected.
+// ---------------------------------------------------------------------------
+console.log('── Case N: intake-review.mjs referencedDocs content injection')
+
+{
+  const referencedDocs = [{ path: 'docs/adr/foo.md', content: 'ADR CONTENT XYZ 306' }]
+  const { calls } = await runIntake([specBlock('implementable'), explorerBlock()], { referencedDocs })
+  const specPrompt = calls.find((c) => c.opts.agentType === 'review-toolkit:spec-reviewer').prompt
+  const explorerPrompt = calls.find((c) => c.opts.agentType === 'review-toolkit:codebase-explorer').prompt
+  ok('N1 spec-reviewer prompt carries the referenced doc path', specPrompt.includes('docs/adr/foo.md'))
+  ok('N2 spec-reviewer prompt carries the referenced doc CONTENT, not just the path', specPrompt.includes('ADR CONTENT XYZ 306'))
+  ok('N3 codebase-explorer prompt also carries the referenced doc content', explorerPrompt.includes('ADR CONTENT XYZ 306'))
+}
+
+{
+  // N4: the default (no referencedDocs passed) must carry no doc note/block at all —
+  // proves the fix is additive and does not alter the pre-#306 no-docs prompt shape.
+  const { calls } = await runIntake([specBlock('implementable'), explorerBlock()])
+  const noNote = calls.every((c) => !/Referenced docs|REFERENCED DOC/.test(c.prompt))
+  ok('N4 an empty referencedDocs emits no docs note or block on either prompt', noNote)
+}
+
 console.log(`\n[runtime-shim-selftest] ${PASS} passed, ${FAIL} failed`)
 process.exit(FAIL)
