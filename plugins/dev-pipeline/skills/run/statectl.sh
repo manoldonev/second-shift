@@ -1640,10 +1640,11 @@ cmd_verify_attempts() {
   # --repo is REQUIRED under topology.type: be-fe-pair (including a single-target
   # pair run) — Stage 6 verifies each target worktree separately.
   # where FAILURE_CLASS ∈ {FORMAT, LINT_AUTOFIX, TYPE_ERROR, TEST_FAILURE,
-  # PLAN_CMD_FAILURE, INFRA} (the Stage-6 failure-classification table). The
+  # PLAN_CMD_FAILURE, INFRA, CONFIG} (the Stage-6 failure-classification table). The
   # four suite classes are charged EXCLUSIVELY by verifyctl.sh (its sidecar
   # owns fix-attempt detection); PLAN_CMD_FAILURE (plan-specific verification
-  # commands) is the in-session carve-out. Hand-authored enum, deliberately NOT
+  # commands) is the in-session carve-out. INFRA and CONFIG (#115: a run that
+  # verified nothing) are never charged. Hand-authored enum, deliberately NOT
   # in the gen-statectl-validators generated set (it is a command-classification
   # vocabulary, not a state-schema closed enum).
   local key="${1:-}"; shift || true
@@ -1658,8 +1659,8 @@ cmd_verify_attempts() {
   done
   [[ -n "$key" && -n "$cls" ]] || { EXIT_CODE=3 die "verify-attempts: missing <issue-number> or --incr <FAILURE_CLASS>"; }
   case "$cls" in
-    FORMAT|LINT_AUTOFIX|TYPE_ERROR|TEST_FAILURE|PLAN_CMD_FAILURE|INFRA) ;;
-    *) EXIT_CODE=1 die "verify-attempts: --incr must be one of {FORMAT, LINT_AUTOFIX, TYPE_ERROR, TEST_FAILURE, PLAN_CMD_FAILURE, INFRA}, got '$cls'" ;;
+    FORMAT|LINT_AUTOFIX|TYPE_ERROR|TEST_FAILURE|PLAN_CMD_FAILURE|INFRA|CONFIG) ;;
+    *) EXIT_CODE=1 die "verify-attempts: --incr must be one of {FORMAT, LINT_AUTOFIX, TYPE_ERROR, TEST_FAILURE, PLAN_CMD_FAILURE, INFRA, CONFIG}, got '$cls'" ;;
   esac
   local current
   current=$(read_state "$key") || exit $?

@@ -342,9 +342,10 @@ else
   fail "(v15) format-lane failure — rc=$VRC fmt=$fmt trio=$trio"
 fi
 
-# (v16) #98 AC-4 + D2b fallthrough: zero verifying lanes + allowUnverified=true →
-#       STRING summary naming the opt-out; without the flag → honest all-skipped
-#       OBJECT (which the statectl Stage-6 content gate then refuses — AC-3's shape).
+# (v16) #98 AC-4 + #115 D2b fallthrough: zero verifying lanes + allowUnverified=true →
+#       STRING summary naming the opt-out (status pass); without the flag → fails closed
+#       (status fail, CONFIG failure class, never charged — #115), not an optimistic
+#       all-skipped OBJECT with status pass.
 reset_all
 ZERO_OPTOUT="$TMPDIR_VT/cfg-zero-optout.json"
 jq '.commands.mono |= (.lint = null | .typecheck = null | .test = null | .format = null | .lanes = [] | .extraLanes = [] | .allowUnverified = true)' "$CONFIG_FIXTURE" > "$ZERO_OPTOUT"
@@ -353,14 +354,17 @@ vs_type=$(jq -r '.verifySummary | type' <<< "$VERDICT")
 vs_str=$(jq -r '.verifySummary' <<< "$VERDICT")
 ZERO_PLAIN="$TMPDIR_VT/cfg-zero-plain.json"
 jq 'del(.commands.mono.allowUnverified)' "$ZERO_OPTOUT" > "$ZERO_PLAIN"
-VERDICT2=$(SECOND_SHIFT_CONFIG="$ZERO_PLAIN" "$VERIFYCTL" run 8888 2>/dev/null)
+VERDICT2=$(SECOND_SHIFT_CONFIG="$ZERO_PLAIN" "$VERIFYCTL" run 8888 2>/dev/null); VRC2=$?
 vs2_type=$(jq -r '.verifySummary | type' <<< "$VERDICT2")
 vs2_vals=$(jq -r '.verifySummary | [.lint, .typeCheck, .test] | unique | join(",")' <<< "$VERDICT2")
+vs2_status=$(jq -r '.status' <<< "$VERDICT2")
+vs2_classes=$(jq -r '[.failures[].class] | join(",")' <<< "$VERDICT2")
 if [[ "$VRC" == "0" && "$vs_type" == "string" && "$vs_str" == *"allowUnverified"* \
-      && "$vs2_type" == "object" && "$vs2_vals" == "skipped" ]]; then
-  pass "(v16) zero-lane opt-out — string summary with flag (AC-4), honest all-skipped object without"
+      && "$VRC2" == "1" && "$vs2_type" == "object" && "$vs2_vals" == "skipped" \
+      && "$vs2_status" == "fail" && "$vs2_classes" == "CONFIG" ]]; then
+  pass "(v16) zero-lane opt-out — string summary with flag (AC-4); without it, fails closed with CONFIG (#115)"
 else
-  fail "(v16) zero-lane opt-out — rc=$VRC type=$vs_type str='$vs_str' type2=$vs2_type vals2=$vs2_vals"
+  fail "(v16) zero-lane opt-out — rc=$VRC type=$vs_type str='$vs_str' rc2=$VRC2 type2=$vs2_type vals2=$vs2_vals status2=$vs2_status classes2=$vs2_classes"
 fi
 
 # (v17) #98 AC-7: only verification is when-gated extraLanes and the diff matches

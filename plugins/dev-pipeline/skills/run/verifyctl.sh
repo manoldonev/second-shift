@@ -373,8 +373,9 @@ cmd_run() {
       if [[ "$sc_status" == "fail" && "$sc_charged" != "$head_sha" ]]; then
         # This invocation is a fix-attempt re-run. Budget-check every failed
         # class FIRST (refuse before charging), then charge idempotently.
+        # INFRA and CONFIG (#115: a run that verified nothing) are never charged.
         local classes
-        classes=$(jq -r '.failedClasses[]? // empty' "$sidecar" | grep -v '^INFRA$' || true)
+        classes=$(jq -r '.failedClasses[]? // empty' "$sidecar" | grep -vE '^(INFRA|CONFIG)$' || true)
         local c count
         while IFS= read -r c; do
           [[ -z "$c" ]] && continue
@@ -750,8 +751,14 @@ cmd_run() {
     if [[ "$overall" == "pass" && -z "$CMD_LINT" && -z "$CMD_TYPECHECK" && -z "$CMD_TEST" ]]; then
       if [[ "$el_count" -eq 0 ]]; then
         # D2b: zero verifying lanes configured — string path only via explicit opt-in.
-        [[ "$ALLOW_UNVERIFIED" == "true" ]] \
-          && unverified_string="skipped (no verify lanes configured — allowUnverified opt-out)"
+        # #115: without the opt-in this is a config gap, not a legitimate skip — fail
+        # closed (CONFIG, never charged like INFRA) instead of falling through to an
+        # optimistic all-skipped object. record_failure sets overall="fail" for us.
+        if [[ "$ALLOW_UNVERIFIED" == "true" ]]; then
+          unverified_string="skipped (no verify lanes configured — allowUnverified opt-out)"
+        else
+          record_failure "CONFIG" "no verify lanes configured (lint/typeCheck/test/extraLanes all absent) and allowUnverified is not set" 1 ""
+        fi
       elif jq -e '[.[]] | length > 0 and all(. == "skipped")' <<< "$ext_json" >/dev/null 2>&1; then
         # D2c: verification IS configured (when-gated extraLanes) but the config
         # scoped it away from this diff — the INERT posture, not a gate failure.
