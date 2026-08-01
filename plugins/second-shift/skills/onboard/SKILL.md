@@ -58,6 +58,15 @@ Build the draft config from detection:
   package.json `name` short form or directory basename), `path: "."`,
   `baseBranch` from detection. Confirmed pair → `be` + `fe` entries; the sibling's own
   baseBranch is detected by running detect.sh again with the sibling path as argument.
+  **`monorepo` always takes exactly one `repos` entry with `path: "."`** —
+  `config-lint` rejects a second entry. A repo with two independently-verified
+  surfaces (e.g. an npm-workspaces repo with `apps/api` + `apps/web`) is NOT
+  `be-fe-pair` unless it actually is a backend/frontend pair — model it as a
+  single monorepo id with root fan-out scripts (`yarn workspaces foreach ...`)
+  in `commands.<id>.lint`/`test`/`build`, or, if the two surfaces need distinct
+  verify commands, via `commands.<id>.lanes` (parallel setup/verify lanes) and
+  `commands.<id>.extraLanes` (path-triggered extra tiers, e.g. contract tests
+  scoped to one workspace).
 - `commands.<repo>` from detection: the emitted block contains EXACTLY these keys —
   `lint`, `lintAutofixes`, `typecheck`, `test`, `build`, `format` from detect.sh, PLUS
   `testFile`, `unitTestScope` always as explicit `null`

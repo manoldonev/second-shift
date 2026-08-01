@@ -342,9 +342,10 @@ else
   fail "(v15) format-lane failure — rc=$VRC fmt=$fmt trio=$trio"
 fi
 
-# (v16) #98 AC-4 + D2b fallthrough: zero verifying lanes + allowUnverified=true →
-#       STRING summary naming the opt-out; without the flag → honest all-skipped
-#       OBJECT (which the statectl Stage-6 content gate then refuses — AC-3's shape).
+# (v16) #98 AC-4 + #115 D2b fallthrough: zero verifying lanes + allowUnverified=true →
+#       STRING summary naming the opt-out (status pass); without the flag → fails closed
+#       (status fail, CONFIG failure class, never charged — #115), not an optimistic
+#       all-skipped OBJECT with status pass.
 reset_all
 ZERO_OPTOUT="$TMPDIR_VT/cfg-zero-optout.json"
 jq '.commands.mono |= (.lint = null | .typecheck = null | .test = null | .format = null | .lanes = [] | .extraLanes = [] | .allowUnverified = true)' "$CONFIG_FIXTURE" > "$ZERO_OPTOUT"
@@ -353,14 +354,17 @@ vs_type=$(jq -r '.verifySummary | type' <<< "$VERDICT")
 vs_str=$(jq -r '.verifySummary' <<< "$VERDICT")
 ZERO_PLAIN="$TMPDIR_VT/cfg-zero-plain.json"
 jq 'del(.commands.mono.allowUnverified)' "$ZERO_OPTOUT" > "$ZERO_PLAIN"
-VERDICT2=$(SECOND_SHIFT_CONFIG="$ZERO_PLAIN" "$VERIFYCTL" run 8888 2>/dev/null)
+VERDICT2=$(SECOND_SHIFT_CONFIG="$ZERO_PLAIN" "$VERIFYCTL" run 8888 2>/dev/null); VRC2=$?
 vs2_type=$(jq -r '.verifySummary | type' <<< "$VERDICT2")
 vs2_vals=$(jq -r '.verifySummary | [.lint, .typeCheck, .test] | unique | join(",")' <<< "$VERDICT2")
+vs2_status=$(jq -r '.status' <<< "$VERDICT2")
+vs2_classes=$(jq -r '[.failures[].class] | join(",")' <<< "$VERDICT2")
 if [[ "$VRC" == "0" && "$vs_type" == "string" && "$vs_str" == *"allowUnverified"* \
-      && "$vs2_type" == "object" && "$vs2_vals" == "skipped" ]]; then
-  pass "(v16) zero-lane opt-out — string summary with flag (AC-4), honest all-skipped object without"
+      && "$VRC2" == "1" && "$vs2_type" == "object" && "$vs2_vals" == "skipped" \
+      && "$vs2_status" == "fail" && "$vs2_classes" == "CONFIG" ]]; then
+  pass "(v16) zero-lane opt-out — string summary with flag (AC-4); without it, fails closed with CONFIG (#115)"
 else
-  fail "(v16) zero-lane opt-out — rc=$VRC type=$vs_type str='$vs_str' type2=$vs2_type vals2=$vs2_vals"
+  fail "(v16) zero-lane opt-out — rc=$VRC type=$vs_type str='$vs_str' rc2=$VRC2 type2=$vs2_type vals2=$vs2_vals status2=$vs2_status classes2=$vs2_classes"
 fi
 
 # (v17) #98 AC-7: only verification is when-gated extraLanes and the diff matches
@@ -685,6 +689,62 @@ if [[ "$lane" == "SUITE" && "$vstype" == "object" && "$vsvals" == "skipped" \
   pass "(v31) override + all lanes null — SUITE lane, honest all-skipped object, no false green (AC-3)"
 else
   fail "(v31) override zero-lane — rc=$VRC lane=$lane vsType=$vstype vals=$vsvals"
+fi
+
+# ---- #83: pipeline-seam env scrub -----------------------------------------------
+# verifyctl must not leak pipeline seam vars into a CONFIGURED LANE's child process
+# (env -u SEAM_SCRUB at each of the ten call sites). A one-line assertion script run
+# AS the configured command fails loudly (rc=1) if any poisoned seam var leaked into
+# its own env, or if PATH/VERIFYCTL_TEST_MARKERS (which MUST still reach the child)
+# are missing — the same script doubles as the over-scrub guard.
+SEAM_ASSERT="$TMPDIR_VT/assert-seam-scrub.sh"
+cat > "$SEAM_ASSERT" <<'EOF'
+#!/usr/bin/env bash
+set -u
+label="${1:?label required}"
+for v in SECOND_SHIFT_CONFIG SECOND_SHIFT_REPO_ROOT STATECTL_STATE_DIR; do
+  if [[ -n "${!v:-}" ]]; then
+    echo "SEAM LEAK: $v=${!v}" >&2
+    exit 1
+  fi
+done
+for v in PATH VERIFYCTL_TEST_MARKERS; do
+  if [[ -z "${!v:-}" ]]; then
+    echo "OVER-SCRUB: $v missing" >&2
+    exit 1
+  fi
+done
+touch "$VERIFYCTL_TEST_MARKERS/seam-ok-$label"
+exit 0
+EOF
+chmod +x "$SEAM_ASSERT"
+
+SEAM_CFG="$TMPDIR_VT/second-shift.seam-scrub.json"
+jq --arg assert "$SEAM_ASSERT" '.commands.mono = {
+    "lint": null, "typecheck": null, "format": null,
+    "test": ("bash \"" + $assert + "\" test"),
+    "lanes": [ { "name": "seamcheck-setup", "commands": [("bash \"" + $assert + "\" setup")] } ],
+    "extraLanes": [ { "name": "seamcheck-ext", "commands": [("bash \"" + $assert + "\" ext")], "failureClass": "TEST_FAILURE" } ]
+  }' "$CONFIG_FIXTURE" > "$SEAM_CFG"
+
+# (v32) positive: SECOND_SHIFT_CONFIG and STATECTL_STATE_DIR are already poisoned with
+#       real values globally for this whole selftest (lines 30/121); SECOND_SHIFT_REPO_ROOT
+#       is added here. None of the three reach the test / setup / extraLanes children —
+#       all three seamcheck markers land and the run verdicts pass — while PATH and
+#       VERIFYCTL_TEST_MARKERS still do (over-scrub guard, asserted inside the same script).
+reset_all
+rm -f "$MARKERS"/seam-ok-* "$MARKERS"/ran-*
+git -C "$WORK" checkout -q main
+git -C "$WORK" branch -qD seam-scrub-case 2>/dev/null || true
+git -C "$WORK" checkout -qb seam-scrub-case
+echo "export const seamCheck = true" >> "$WORK/src/thing.ts"
+git -C "$WORK" add -A && git -C "$WORK" commit -qm "seam-scrub case"
+VERDICT=$(SECOND_SHIFT_CONFIG="$SEAM_CFG" SECOND_SHIFT_REPO_ROOT="$WORK" "$VERIFYCTL" run 8888 2>/dev/null); VRC=$?
+if [[ "$VRC" == "0" && -f "$MARKERS/seam-ok-test" && -f "$MARKERS/seam-ok-setup" \
+      && -f "$MARKERS/seam-ok-ext" ]]; then
+  pass "(v32) seam scrub: test + setup + extraLanes children see none of SECOND_SHIFT_CONFIG/SECOND_SHIFT_REPO_ROOT/STATECTL_STATE_DIR, still see PATH/VERIFYCTL_TEST_MARKERS"
+else
+  fail "(v32) seam scrub — rc=$VRC test=$([[ -f "$MARKERS/seam-ok-test" ]] && echo y || echo n) setup=$([[ -f "$MARKERS/seam-ok-setup" ]] && echo y || echo n) ext=$([[ -f "$MARKERS/seam-ok-ext" ]] && echo y || echo n) verdict=$(head -c 300 <<< "$VERDICT")"
 fi
 
 echo
