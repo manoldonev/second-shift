@@ -3823,11 +3823,30 @@ lcg_write() {
   for row in "$@"; do printf '%s\n' "$row" >> "$LEDGER_DIR/$sid.jsonl"; done
 }
 
+# Stage-file-leg rows are WINDOWLESS by construction (require_ledger_corroboration
+# passes no `--since` for them, ever) — a fixed PAST calendar literal is exactly the
+# point (AC-9 exercises a row older than any startedAt this suite writes) and stays
+# valid indefinitely, so these three keep their hardcoded date.
 ROW_READ1='{"ts":"2026-07-31T10:00:00Z","session_id":"s","event":"PostToolUse","tool":"Read","subagent":"","target":"/cache/skills/run/stages/1-intake.md","outcome":"ok"}'
-ROW_SKILL1='{"ts":"2026-07-31T23:59:59Z","session_id":"s","event":"PostToolUse","tool":"Skill","subagent":"","target":"intake-toolkit:intake-orchestrator","outcome":"ok"}'
 ROW_READ6='{"ts":"2026-07-31T10:00:00Z","session_id":"s","event":"PostToolUse","tool":"Read","subagent":"","target":"/cache/skills/run/stages/6-verify.md","outcome":"ok"}'
 ROW_READ8='{"ts":"2026-07-31T10:00:00Z","session_id":"s","event":"PostToolUse","tool":"Read","subagent":"","target":"/cache/skills/run/stages/8-code-review.md","outcome":"ok"}'
-ROW_EMPTY_SKILL='{"ts":"2026-07-31T23:59:59Z","session_id":"s","event":"PostToolUse","tool":"Skill","subagent":"","target":"","outcome":"ok"}'
+
+# Skill-leg rows, by contrast, ARE `--since`-gated (require_ledger_corroboration passes
+# `--since "$since"`, `$since` = the stage's real startedAt, written by now_iso() the
+# moment this suite runs). A fixed calendar literal here is a ticking bomb: it must
+# stay >= "now" for as long as this suite exists, which a hardcoded date cannot do.
+# The ORIGINAL "2026-07-31T23:59:59Z" literal (end of the day it was authored) broke
+# outright on the very next calendar day — 2026-08-01's real startedAt is later than
+# that literal for every second of the day, so the skill/workflow legs below found
+# ZERO admissible rows and REFUSED runs that did the work (see the failing PRs #310
+# and #311, unrelated to either diff — both hit this same date-rollover break).
+# Computed relative to actual now instead, offset a full day into the future so it
+# outlives any clock skew between this line and the startedAt captured moments later.
+# Portable BSD/GNU date: macOS ships BSD date (`-v+1d`), CI's Linux lane ships GNU
+# date (`-d '+1 day'`) — mirrors the fallback idiom in pipeline-cost-block.sh.
+SINCE_SAFE_TS="$(date -u -v+1d +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -u -d '+1 day' +%Y-%m-%dT%H:%M:%SZ)"
+ROW_SKILL1="{\"ts\":\"$SINCE_SAFE_TS\",\"session_id\":\"s\",\"event\":\"PostToolUse\",\"tool\":\"Skill\",\"subagent\":\"\",\"target\":\"intake-toolkit:intake-orchestrator\",\"outcome\":\"ok\"}"
+ROW_EMPTY_SKILL="{\"ts\":\"$SINCE_SAFE_TS\",\"session_id\":\"s\",\"event\":\"PostToolUse\",\"tool\":\"Skill\",\"subagent\":\"\",\"target\":\"\",\"outcome\":\"ok\"}"
 
 # lcg_stage1 <key> — a stage-1 run carrying every SELF-REPORTED evidence item, so
 # any refusal below is attributable to corroboration alone.
@@ -4063,7 +4082,7 @@ fi
 # "review-lead was loaded but no reviewers ever ran" shape.
 reset_state
 lcg_write "$SESSION_A" "$ROW_READ8" \
-  '{"ts":"2026-07-31T23:59:59Z","session_id":"s","event":"PostToolUse","tool":"Skill","subagent":"","target":"review-toolkit:review-lead","outcome":"ok"}'
+  "{\"ts\":\"$SINCE_SAFE_TS\",\"session_id\":\"s\",\"event\":\"PostToolUse\",\"tool\":\"Skill\",\"subagent\":\"\",\"target\":\"review-toolkit:review-lead\",\"outcome\":\"ok\"}"
 sct init 9940 --run-id "selftest-run-$$" >/dev/null
 sct pipeline-session-add 9940 --session-id "$SESSION_A" --source interactive >/dev/null
 sct set-stage 9940 8 --status started >/dev/null
