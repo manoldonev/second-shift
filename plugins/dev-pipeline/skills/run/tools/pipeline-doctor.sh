@@ -442,7 +442,7 @@ if [[ -d "$STATE_DIR_D" ]]; then
     # invisible).
     stale_line=$(jq -r '
       select((.runId? | type == "string") and (.stages? | type == "object") and (.status == "in_progress"))
-      | ((now - ((.lastUpdatedAt // empty) | fromdateiso8601? // 0)) / 60 | floor) as $age
+      | ((now - ((.lastUpdatedAt // "") | fromdateiso8601? // 0)) / 60 | floor) as $age
       | select($age >= 30)
       | "\(.ticketKey) stage=\(.currentStage // 1) last-write=\($age)min-ago"
     ' "$sf" 2>/dev/null)
