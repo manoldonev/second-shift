@@ -45,7 +45,11 @@ If there is no state file, stop: nothing to retro.
 
 Dispatch ONE `retro-scorer` agent (Task tool) whose prompt contains: the five criteria definitions copied verbatim from [`../dev-pipeline/eval-criteria.md`](../dev-pipeline/eval-criteria.md) and the artifact contents from Step 1. The agent ([`../../agents/retro-scorer.md`](../../agents/retro-scorer.md)) carries the standing re-score rubric — score each criterion PASS/FAIL/N/A strictly by the letter, quote artifact evidence, "absence of evidence is not a PASS", and the ctx-wire-legitimacy rule — and runs on **Sonnet** via its frontmatter, so the harness binds the tier (a prose "use Sonnet" against `general-purpose` would not — it has no frontmatter and inherits the session Opus default).
 
-Then compare against the self-score from `{issue}-eval.json`. **Every discrepancy is a finding** — either the run self-scored generously (process problem) or the criterion is ambiguous (criteria-proposal material).
+**Empty-return failure mode.** This dispatch carries no emit deadline, retry, or darkness detection — unlike the Workflow fan-out's `check-emit-deadline.sh` stack, which does not cover a Task-tool dispatch. A `retro-scorer` call that completes with no text (a silent dark return, or a `maxTurns` cutoff) is a named failure, not a run with nothing to score: before doing anything else, resume the *same* agent (its transcript, not a fresh dispatch) and instruct it to emit its verdict from the evidence already gathered, with no further tool calls. This recovered two independently observed dark returns at a fraction of the original dispatch's cost (#271: the #244 run, 78k tokens / 26 tool calls / no output, resumed in 14s / 0 tool calls; the #243 run, 20 tool calls / no output, resumed successfully) — the analysis was sitting in the transcript, only its emission was lost. This resume is scoped to this dispatch: it is not a general Agent-tool-dispatch policy, and `retro-scorer` is deliberately staying off the Workflow substrate — that would buy the emit-deadline stack but adds StructuredOutput-staller surface for what is structurally a single dispatch, not worth it for the resume fix already closing the gap.
+
+If the resumed dispatch **also** returns empty, do not fall back to the self-score and do not silently proceed as if scored. Record it in Step 4 as its own environment-friction item, and carry `DARK — no output after resume` into Step 6's score-comparison table for every criterion (never a blank cell, never the self-score standing in for it).
+
+Then compare against the self-score from `{issue}-eval.json`. **Every discrepancy is a finding** — either the run self-scored generously (process problem) or the criterion is ambiguous (criteria-proposal material). A `DARK` independent score is itself a discrepancy: it means no comparison was possible, not that the self-score is uncontested.
 
 ## Step 3: Contract-deviation audit (in-session, checklist)
 
@@ -121,6 +125,9 @@ Write `.claude/pipeline-state/{issue}-retro.md`:
 
 | Criterion | Self | Independent | Evidence (independent) |
 | --------- | ---- | ----------- | ---------------------- |
+
+`Independent` is `DARK — no output after resume` (never a blank cell, never the self-score)
+for every criterion when Step 2's resumed dispatch also returned empty.
 
 Discrepancies: {n} — {each explained}
 
