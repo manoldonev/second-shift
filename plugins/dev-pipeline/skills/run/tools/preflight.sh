@@ -47,6 +47,23 @@
 
 set -uo pipefail
 
+# Denylist of pipeline seam vars that must NOT leak into a configured command-lane
+# child process (run_lane() below) — see verifyctl.sh's matching SEAM_SCRUB for the
+# full rationale (#34). Superset of verifyctl.sh's list: this file also carries its
+# own PREFLIGHT_DOCTOR_CMD seam. scripts/lockstep-manifest.tsv keeps the two in sync
+# (subset-of, this file as fileA). No comments inside the marker block itself (breaks
+# check-lockstep-pairs.sh's first_enum).
+# LOCKSTEP-BEGIN seam-scrub
+SEAM_SCRUB='SECOND_SHIFT_CONFIG|SECOND_SHIFT_REPO_ROOT|SECOND_SHIFT_EXTENSION_MANIFEST|SECOND_SHIFT_PLUGIN_ROOT|SECOND_SHIFT_REVIEW_TOOLKIT_ROOT|SECOND_SHIFT_DEV_PIPELINE_ROOT|SECOND_SHIFT_DESIGN_TOOLKIT_ROOT|SECOND_SHIFT_SECTION_CATALOG|STATECTL_STATE_DIR|STATECTL_WRITER|DEV_PIPELINE_MODE|BRANCH_PREFIX|KEY_PATTERN|PREFLIGHT_DOCTOR_CMD'
+# LOCKSTEP-END seam-scrub
+
+declare -a SEAM_SCRUB_ENV=()
+IFS='|' read -r -a _seam_scrub_toks <<< "$SEAM_SCRUB"
+for _seam_tok in "${_seam_scrub_toks[@]}"; do
+  SEAM_SCRUB_ENV+=(-u "$_seam_tok")
+done
+unset _seam_tok _seam_scrub_toks
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 KEY="${1:-}"
@@ -242,7 +259,7 @@ run_lane() { # $1 = lane label, $2 = command string
   # Lanes run in the environment a normal shell would see — preflight's own env
   # seams must not leak in (a consumer lane may itself be second-shift tooling;
   # a leaked SECOND_SHIFT_REPO_ROOT re-roots it and fails it spuriously).
-  out=$(cd "$REPO_ROOT" && env -u SECOND_SHIFT_REPO_ROOT -u SECOND_SHIFT_CONFIG -u PREFLIGHT_DOCTOR_CMD bash -c "$cmd" 2>&1); rc=$?
+  out=$(cd "$REPO_ROOT" && env ${SEAM_SCRUB_ENV[@]+"${SEAM_SCRUB_ENV[@]}"} bash -c "$cmd" 2>&1); rc=$?
   if [[ $rc -eq 0 ]]; then
     ok "lane '$label': green ($cmd)"
   else

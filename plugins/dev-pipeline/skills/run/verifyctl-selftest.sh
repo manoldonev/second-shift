@@ -687,6 +687,62 @@ else
   fail "(v31) override zero-lane — rc=$VRC lane=$lane vsType=$vstype vals=$vsvals"
 fi
 
+# ---- #83: pipeline-seam env scrub -----------------------------------------------
+# verifyctl must not leak pipeline seam vars into a CONFIGURED LANE's child process
+# (env -u SEAM_SCRUB at each of the ten call sites). A one-line assertion script run
+# AS the configured command fails loudly (rc=1) if any poisoned seam var leaked into
+# its own env, or if PATH/VERIFYCTL_TEST_MARKERS (which MUST still reach the child)
+# are missing — the same script doubles as the over-scrub guard.
+SEAM_ASSERT="$TMPDIR_VT/assert-seam-scrub.sh"
+cat > "$SEAM_ASSERT" <<'EOF'
+#!/usr/bin/env bash
+set -u
+label="${1:?label required}"
+for v in SECOND_SHIFT_CONFIG SECOND_SHIFT_REPO_ROOT STATECTL_STATE_DIR; do
+  if [[ -n "${!v:-}" ]]; then
+    echo "SEAM LEAK: $v=${!v}" >&2
+    exit 1
+  fi
+done
+for v in PATH VERIFYCTL_TEST_MARKERS; do
+  if [[ -z "${!v:-}" ]]; then
+    echo "OVER-SCRUB: $v missing" >&2
+    exit 1
+  fi
+done
+touch "$VERIFYCTL_TEST_MARKERS/seam-ok-$label"
+exit 0
+EOF
+chmod +x "$SEAM_ASSERT"
+
+SEAM_CFG="$TMPDIR_VT/second-shift.seam-scrub.json"
+jq --arg assert "$SEAM_ASSERT" '.commands.mono = {
+    "lint": null, "typecheck": null, "format": null,
+    "test": ("bash \"" + $assert + "\" test"),
+    "lanes": [ { "name": "seamcheck-setup", "commands": [("bash \"" + $assert + "\" setup")] } ],
+    "extraLanes": [ { "name": "seamcheck-ext", "commands": [("bash \"" + $assert + "\" ext")], "failureClass": "TEST_FAILURE" } ]
+  }' "$CONFIG_FIXTURE" > "$SEAM_CFG"
+
+# (v32) positive: SECOND_SHIFT_CONFIG and STATECTL_STATE_DIR are already poisoned with
+#       real values globally for this whole selftest (lines 30/121); SECOND_SHIFT_REPO_ROOT
+#       is added here. None of the three reach the test / setup / extraLanes children —
+#       all three seamcheck markers land and the run verdicts pass — while PATH and
+#       VERIFYCTL_TEST_MARKERS still do (over-scrub guard, asserted inside the same script).
+reset_all
+rm -f "$MARKERS"/seam-ok-* "$MARKERS"/ran-*
+git -C "$WORK" checkout -q main
+git -C "$WORK" branch -qD seam-scrub-case 2>/dev/null || true
+git -C "$WORK" checkout -qb seam-scrub-case
+echo "export const seamCheck = true" >> "$WORK/src/thing.ts"
+git -C "$WORK" add -A && git -C "$WORK" commit -qm "seam-scrub case"
+VERDICT=$(SECOND_SHIFT_CONFIG="$SEAM_CFG" SECOND_SHIFT_REPO_ROOT="$WORK" "$VERIFYCTL" run 8888 2>/dev/null); VRC=$?
+if [[ "$VRC" == "0" && -f "$MARKERS/seam-ok-test" && -f "$MARKERS/seam-ok-setup" \
+      && -f "$MARKERS/seam-ok-ext" ]]; then
+  pass "(v32) seam scrub: test + setup + extraLanes children see none of SECOND_SHIFT_CONFIG/SECOND_SHIFT_REPO_ROOT/STATECTL_STATE_DIR, still see PATH/VERIFYCTL_TEST_MARKERS"
+else
+  fail "(v32) seam scrub — rc=$VRC test=$([[ -f "$MARKERS/seam-ok-test" ]] && echo y || echo n) setup=$([[ -f "$MARKERS/seam-ok-setup" ]] && echo y || echo n) ext=$([[ -f "$MARKERS/seam-ok-ext" ]] && echo y || echo n) verdict=$(head -c 300 <<< "$VERDICT")"
+fi
+
 echo
 echo "[self-test] summary: $PASS passed, $FAIL failed"
 exit "$FAIL"

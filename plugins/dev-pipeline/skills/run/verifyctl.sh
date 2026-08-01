@@ -77,6 +77,33 @@
 
 set -uo pipefail
 
+# Denylist of pipeline seam vars that must NOT leak into a configured lane's child
+# process — a consumer `test`/`lint`/`setup`/extraLanes command run against this repo
+# is itself second-shift tooling (dogfooding), and an ambient SECOND_SHIFT_CONFIG /
+# STATECTL_STATE_DIR / etc. silently re-roots or re-states it, producing spurious
+# failures (#34: ~20 of them, while `main` was green in a clean env). Single-quoted
+# pipe literal so scripts/check-lockstep-pairs.sh's subset-of check (preflight.sh is
+# the superset) has a literal to compare — see the lockstep-manifest.tsv row. Order is
+# load-bearing for tools/mutation-catalog.tsv's anchored sed; keep SECOND_SHIFT_CONFIG
+# first. No comments inside the marker block itself (breaks check-lockstep-pairs.sh's
+# first_enum, which takes the FIRST single-quoted '...|...' literal in the block).
+# LOCKSTEP-BEGIN seam-scrub
+SEAM_SCRUB='SECOND_SHIFT_CONFIG|SECOND_SHIFT_REPO_ROOT|SECOND_SHIFT_EXTENSION_MANIFEST|SECOND_SHIFT_PLUGIN_ROOT|SECOND_SHIFT_REVIEW_TOOLKIT_ROOT|SECOND_SHIFT_DEV_PIPELINE_ROOT|SECOND_SHIFT_DESIGN_TOOLKIT_ROOT|SECOND_SHIFT_SECTION_CATALOG|STATECTL_STATE_DIR|STATECTL_WRITER|DEV_PIPELINE_MODE|BRANCH_PREFIX|KEY_PATTERN'
+# LOCKSTEP-END seam-scrub
+
+# Expanded bash-3.2-safe at each child-invocation call site:
+# ${SEAM_SCRUB_ENV[@]+"${SEAM_SCRUB_ENV[@]}"} — mirrors the VA_REPO idiom below. Never
+# scrubbed (deliberately): GH_BOT, CLAUDE_CODE_SESSION_ID (operator/harness identity,
+# not a second-shift override), SKIP_STRESS, CI (this repo's own configured `test`
+# command sets/asserts them), PATH, VERIFYCTL_TEST_MARKERS (load-bearing for the
+# selftest shim — never `env -i`).
+declare -a SEAM_SCRUB_ENV=()
+IFS='|' read -r -a _seam_scrub_toks <<< "$SEAM_SCRUB"
+for _seam_tok in "${_seam_scrub_toks[@]}"; do
+  SEAM_SCRUB_ENV+=(-u "$_seam_tok")
+done
+unset _seam_tok _seam_scrub_toks
+
 die() {
   echo "[verifyctl-error] $*" >&2
   exit "${EXIT_CODE:-2}"
@@ -426,6 +453,9 @@ cmd_run() {
   }
 
   # Run one command, spooling output. Echoes rc. $1=label $2...=command
+  # Every run_cmd caller here is a configured-lane command (setup lane, lint --fix,
+  # lint recheck, extraLanes) — env ${SEAM_SCRUB_ENV[@]+"${SEAM_SCRUB_ENV[@]}"} keeps the seam denylist
+  # out of the child's environment for all of them from this one call site.
   run_cmd() {
     local label="$1"; shift
     local outf
@@ -433,7 +463,7 @@ cmd_run() {
     {
       echo "===== [$label] $* ($(now_iso)) ====="
     } >> "$logfile"
-    "$@" > "$outf" 2>&1
+    env ${SEAM_SCRUB_ENV[@]+"${SEAM_SCRUB_ENV[@]}"} "$@" > "$outf" 2>&1
     local rc=$?
     cat "$outf" >> "$logfile"
     echo "===== [$label] exit=$rc =====" >> "$logfile"
@@ -476,7 +506,7 @@ cmd_run() {
         local prettier rc=0
         prettier=$(resolve_prettier "$wt")
         # shellcheck disable=SC2086 # resolve_prettier may echo an npx prefix
-        ( cd "$wt" && $prettier --check "${CHECK_FILES[@]}" ) > "$logfile" 2>&1
+        ( cd "$wt" && env ${SEAM_SCRUB_ENV[@]+"${SEAM_SCRUB_ENV[@]}"} $prettier --check "${CHECK_FILES[@]}" ) > "$logfile" 2>&1
         rc=$?
         if [[ "$rc" -ne 0 ]]; then
           if is_infra_rc "$rc"; then
@@ -555,7 +585,7 @@ cmd_run() {
       if [[ "$FORMAT_MODE" == "config" ]]; then
         fmt_label="format: $CMD_FORMAT"
         pre_format=$(git -C "$wt" status --porcelain | awk '{print $2}' | sort)
-        ( cd "$wt" && bash -c "$CMD_FORMAT" ) > "$fmt_out" 2>&1
+        ( cd "$wt" && env ${SEAM_SCRUB_ENV[@]+"${SEAM_SCRUB_ENV[@]}"} bash -c "$CMD_FORMAT" ) > "$fmt_out" 2>&1
         rc=$?
       else
         # prettier default (scoped over the changed format-glob files)
@@ -566,7 +596,7 @@ cmd_run() {
           fmt_label="prettier --write (scoped)"
           prettier=$(resolve_prettier "$wt")
           # shellcheck disable=SC2086
-          ( cd "$wt" && $prettier --write "${CHECK_FILES[@]}" ) > "$fmt_out" 2>&1
+          ( cd "$wt" && env ${SEAM_SCRUB_ENV[@]+"${SEAM_SCRUB_ENV[@]}"} $prettier --write "${CHECK_FILES[@]}" ) > "$fmt_out" 2>&1
           rc=$?
         else
           rc=0   # nothing to format on this diff
@@ -598,17 +628,17 @@ cmd_run() {
       local lint_out tsc_out test_out lint_rc=0 tsc_rc=0 test_rc=0 lint_pid="" tsc_pid="" test_pid=""
       lint_out=$(mktemp); tsc_out=$(mktemp); test_out=$(mktemp)
       if [[ -n "$CMD_LINT" ]]; then
-        ( cd "$wt" && bash -c "$CMD_LINT" ) > "$lint_out" 2>&1 & lint_pid=$!
+        ( cd "$wt" && env ${SEAM_SCRUB_ENV[@]+"${SEAM_SCRUB_ENV[@]}"} bash -c "$CMD_LINT" ) > "$lint_out" 2>&1 & lint_pid=$!
       else
         vs_lint="skipped"
       fi
       if [[ -n "$CMD_TYPECHECK" ]]; then
-        ( cd "$wt" && bash -c "$CMD_TYPECHECK" ) > "$tsc_out" 2>&1 & tsc_pid=$!
+        ( cd "$wt" && env ${SEAM_SCRUB_ENV[@]+"${SEAM_SCRUB_ENV[@]}"} bash -c "$CMD_TYPECHECK" ) > "$tsc_out" 2>&1 & tsc_pid=$!
       else
         vs_tsc="skipped"
       fi
       if [[ -n "$CMD_TEST" ]]; then
-        ( cd "$wt" && bash -c "$CMD_TEST" ) > "$test_out" 2>&1 & test_pid=$!
+        ( cd "$wt" && env ${SEAM_SCRUB_ENV[@]+"${SEAM_SCRUB_ENV[@]}"} bash -c "$CMD_TEST" ) > "$test_out" 2>&1 & test_pid=$!
       else
         vs_test="skipped"
       fi
