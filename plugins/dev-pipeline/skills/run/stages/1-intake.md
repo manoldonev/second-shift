@@ -177,8 +177,19 @@ Runs after the claim (Step 1.A) and BEFORE the intake fan-out (Step 1.B). Stage-
 
 ```bash
 # Pin: fetch the configured base, then a throwaway detached worktree (reuses Stage 2's
-# fetch-then-pin idiom). WORKTREES_DIR = config topology.repos.<host>.worktreesDir.
+# fetch-then-pin idiom). WORKTREES_DIR resolves via tools/resolve-worktrees-dir.sh
+# (issue #237) — the single source of truth shared with Stage 2 and Stage 10; no other
+# derivation of this value is permitted here.
 BASE_BRANCH_CFG=$(jq -r '(.topology.repos | to_entries[] | select(.value.path==".") | .key) as $h | .topology.repos[$h].baseBranch // "main"' "$SECOND_SHIFT_CONFIG" 2>/dev/null || echo "main")
+WORKTREES_DIR=$(bash "${CLAUDE_PLUGIN_ROOT}/skills/run/tools/resolve-worktrees-dir.sh" "$SECOND_SHIFT_CONFIG" 2>&1)
+WTDIR_RC=$?
+if [[ $WTDIR_RC -ne 0 ]]; then
+  statectl.sh mark-failed "$ISSUE_NUMBER" \
+    --reason non-main-base-autonomous \
+    --json "$(statectl.sh build-failure-context --reason non-main-base-autonomous \
+        --kv pinError="$WORKTREES_DIR" --kv baseBranch="$BASE_BRANCH_CFG")"
+  exit 0   # autonomous abort (rc=0); interactive mode presents the pin failure and asks
+fi
 PIN_WT="${WORKTREES_DIR}/intake-pin-${ISSUE_NUMBER}"
 PIN_ERR=$(git fetch origin "$BASE_BRANCH_CFG" --quiet 2>&1 \
   && git worktree add --detach "$PIN_WT" "origin/$BASE_BRANCH_CFG" 2>&1) || {
