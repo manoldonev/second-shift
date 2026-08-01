@@ -74,5 +74,30 @@ ROUTING
 bash "$CHECK" "$TMP/prose" >/dev/null 2>&1 && ok "prose/blockquote backtick mentions -> not scanned, clean" \
   || bad "prose-only file should pass but failed"
 
+# (6) a table HEADER row containing a backtick-quoted path that does not exist -> not
+# scanned (AC-3's header exclusion), only the body row below it is checked
+mkdir -p "$TMP/header/.claude/second-shift/docs"
+: > "$TMP/header/.claude/second-shift/docs/real.md"
+cat > "$TMP/header/.claude/second-shift/doc-routing.md" << 'ROUTING'
+| Change category (see `docs/does-not-exist.md`) | Doc(s) to check |
+| --- | --- |
+| Foo changes | `docs/real.md` |
+ROUTING
+bash "$CHECK" "$TMP/header" >/dev/null 2>&1 && ok "header-row backtick span -> not scanned, clean" \
+  || bad "header row should be excluded from scanning but its dangling span failed the check"
+
+# (7) exit code equals the number of distinct dangling entries (AC-5), not a fixed 1
+mkdir -p "$TMP/count/.claude/second-shift"
+cat > "$TMP/count/.claude/second-shift/doc-routing.md" << 'ROUTING'
+| Change category | Doc(s) to check |
+| --- | --- |
+| Foo changes | `docs/missing-a.md` |
+| Bar changes | `docs/missing-b.md` |
+ROUTING
+rc=0
+bash "$CHECK" "$TMP/count" >/dev/null 2>&1 || rc=$?
+[[ "$rc" -eq 2 ]] && ok "exit code equals the dangling-entry count (2)" \
+  || bad "exit code should be 2 (one per dangling entry) but was $rc"
+
 if [[ "$FAILS" -gt 0 ]]; then echo "check-doc-routing selftest: $FAILS FAILURE(S)"; exit 1; fi
 echo "check-doc-routing selftest: all green"

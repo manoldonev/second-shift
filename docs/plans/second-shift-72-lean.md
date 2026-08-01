@@ -28,18 +28,29 @@ entry pointing at a moved or deleted doc silently misroutes future doc updates t
   em-dash (` — `) description separator (if one is present) count; text after it is prose,
   not a path.
 
-- **AC-4.** Each candidate path is resolved relative to the consumer repo root:
+- **AC-4.** Each candidate path is tried at two bases, in order: the consumer repo root,
+  then — if that misses — the directory containing `doc-routing.md` itself (ordinary
+  markdown relative-link semantics; a candidate written relative to the file that names it).
+  The second base is load-bearing, not a fallback for typos: cadenza's real routing map (see
+  AC-9) mixes both styles in the same table — some entries spell the full repo-root path
+  (e.g. `.claude/second-shift/review-context/db-reviewer.md`), others write a bare
+  `review-context/*.md` meant relative to `.claude/second-shift/`, the directory
+  `doc-routing.md` itself lives in — so a single-base resolver would reject a real,
+  unmodified fixture that AC-9 requires to pass.
   - a `#`-suffixed anchor is stripped and the remaining path is checked to file level only
     (the anchor itself is never verified);
-  - a candidate containing `*` is resolved via shell glob and passes if it matches at least
-    one path (matches how `extension-manifest.txt` glob entries already work) — needed
-    because real routing maps reference sibling groups this way (see AC-9);
-  - any other candidate must exist as a file or directory.
+  - a candidate containing `*` is resolved via shell glob at whichever base it matches under,
+    and passes if it matches at least one path there (matches how `extension-manifest.txt`
+    glob entries already work);
+  - any other candidate must exist as a file or directory at one of the two bases.
 
 - **AC-5.** A dangling entry fails closed: one line per failure to stderr, tagged
   `DANGLING-DOC-ROUTE:`, naming both the source row/list-item text the path came from and the
   unresolved path itself, plus a one-line summary count. Exit code = number of distinct
-  dangling paths found (0 = clean, matching the `check-extensions.sh` doctor convention).
+  dangling paths found (0 = clean). Note: this is the "doctor convention" a caller can fold
+  into its own aggregate count — `check-extensions.sh` itself does not follow it (it hard-codes
+  `exit 1` on any failure count), so this is a deliberate choice for this script, not a mirror
+  of that sibling.
 
 - **AC-6.** Wired at the same two venues `check-extensions.sh` already runs at, immediately
   alongside its existing call at each: dev-pipeline's own pre-flight

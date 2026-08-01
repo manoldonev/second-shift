@@ -7,11 +7,13 @@
 # signal. This is the same class of gap check-extensions.sh closes for EP-6/EP-7 references,
 # applied to doc-routing.md's rows.
 #
-# Scan scope: only markdown table body rows (lines starting with "|", header/separator rows
-# excluded) and top-level list items (lines starting with "-" or "*"). Backtick-quoted spans
-# in those lines are candidate paths; for a list item, only spans before an em-dash (" — ")
-# description separator count. Prose and blockquotes are never scanned, so directory-name
-# fragments or "plugin:skill" mentions in narrative text are not misread as paths.
+# Scan scope: only markdown table body rows (lines starting with "|"; the header row — the
+# first "|"-line of each table — and its "---" separator row are explicitly skipped, tracked
+# by a small per-table state machine) and top-level list items (lines starting with "-" or
+# "*"). Backtick-quoted spans in those lines are candidate paths; for a list item, only spans
+# before an em-dash (" — ") description separator count. Prose and blockquotes are never
+# scanned, so directory-name fragments or "plugin:skill" mentions in narrative text are not
+# misread as paths.
 #
 # Resolution: a "#"-suffixed anchor is stripped and checked to file level only; a candidate
 # is tried relative to the repo root first, then — if that misses — relative to
@@ -62,18 +64,29 @@ check_candidate() {
   fails=$((fails+1))
 }
 
+# Table state machine: "none" (not in a table) -> "header-seen" (the header row was just
+# skipped, expecting the --- separator next) -> "body" (scan every row for paths). A
+# non-"|" line always resets to "none", so each new table gets its own header skipped.
+table_state="none"
 while IFS= read -r line; do
   case "$line" in
     '|'*)
-      # skip header/separator rows: a separator row contains only |, -, :, and whitespace
+      if [[ "$table_state" == "none" ]]; then
+        table_state="header-seen"; continue   # the header row itself — never scanned
+      fi
+      # a separator row contains only |, -, :, and whitespace
       stripped="$(printf '%s' "$line" | tr -d ' \t|:-')"
-      [[ -z "$stripped" ]] && continue
+      if [[ -z "$stripped" ]]; then
+        table_state="body"; continue
+      fi
+      table_state="body"
       while IFS= read -r span; do
         [[ -z "$span" ]] && continue
         check_candidate "$span" "$line"
       done < <(extract_backticked "$line")
       ;;
     '-'*|'*'*)
+      table_state="none"
       body="${line%% — *}"
       [[ "$body" == "$line" ]] && body="$line"
       while IFS= read -r span; do
@@ -81,12 +94,12 @@ while IFS= read -r line; do
         check_candidate "$span" "$line"
       done < <(extract_backticked "$body")
       ;;
-    *) : ;;
+    *) table_state="none" ;;
   esac
 done < "$DOC_ROUTING"
 
 if [[ "$fails" -gt 0 ]]; then
   echo "check-doc-routing: $fails failure(s) — fail closed" >&2
-  exit 1
+  exit "$fails"
 fi
 echo "check-doc-routing: clean"
