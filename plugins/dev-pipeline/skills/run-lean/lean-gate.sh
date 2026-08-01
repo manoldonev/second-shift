@@ -149,6 +149,30 @@ SPEC_REL="$PLANS_DIR/$REPO_SLUG-$ISSUE-lean.md"
 VERDICT_REL="$PLANS_DIR/$REPO_SLUG-$ISSUE-lean-verdict.md"
 PROGRESS_FILE="${LEAN_PROGRESS_FILE:-$MAIN_ROOT/$STATE_DIR/$ISSUE-lean-progress.md}"
 
+# ---------------------------------------------------------------- RUN_ID persistence
+# SKILL.md step 2 says "export RUN_ID first ... it keys every record" — true only if the
+# operator's shell survives from `claim` through every later `bash G <n> <issue>` call.
+# It does not: this tool is routinely invoked as ONE-SHOT subprocesses (a fresh shell per
+# call, only cwd inherited), so an export in the claim call is gone by the next one, and
+# every record after it silently stamps `run_id: unset` — exactly the mismatch
+# lean-reconcile.sh exists to catch (observed live on #306: claim/verdict carried the real
+# id, the progress-file header did not). Fix at the ROOT rather than leaning harder on the
+# operator to keep re-exporting it: cache the id to a file the FIRST time it is seen (any
+# call made with $RUN_ID set — claim is typically first), and every call without $RUN_ID
+# in its own environment reads the cache instead of falling back to "unset".
+RUN_ID_CACHE="$MAIN_ROOT/$STATE_DIR/$ISSUE-run-id"
+resolve_run_id() {
+  if [ -n "${RUN_ID:-}" ]; then
+    mkdir -p "$(dirname "$RUN_ID_CACHE")" 2>/dev/null && printf '%s' "$RUN_ID" > "$RUN_ID_CACHE"
+    printf '%s' "$RUN_ID"
+  elif [ -s "$RUN_ID_CACHE" ]; then
+    cat "$RUN_ID_CACHE"
+  else
+    printf 'unset'
+  fi
+}
+RESOLVED_RUN_ID="$(resolve_run_id)"
+
 # ---------------------------------------------------------------- progress-file primitives
 # Append-only markdown. Line shapes are PINNED — check-lean-chain.sh does not read this
 # file (it is gitignored and never reaches CI), but lean-reconcile.sh does, and the
@@ -170,7 +194,7 @@ ensure_progress_file() {
     {
       echo "# lean run — issue $ISSUE"
       echo ""
-      echo "run_id: ${RUN_ID:-unset}"
+      echo "run_id: $RESOLVED_RUN_ID"
       echo "session_id: ${CLAUDE_CODE_SESSION_ID:-unset}"
       echo "issue: $ISSUE"
       echo "branch_prefix: $LEAN_BRANCH_PREFIX"
@@ -272,7 +296,7 @@ cmd_claim() {
   body="$(mktemp -t lean-claim.XXXXXX)" || envfail "mktemp failed."
   {
     echo "<!-- dev-pipeline -->"
-    echo "<!-- run_id: ${RUN_ID:-unset} -->"
+    echo "<!-- run_id: $RESOLVED_RUN_ID -->"
     echo "<!-- stage: lean-claimed -->"
     echo ""
     echo "🤖 Claimed by \`/dev-pipeline:run-lean\` (experimental)."

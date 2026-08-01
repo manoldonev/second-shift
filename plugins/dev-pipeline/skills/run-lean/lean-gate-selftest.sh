@@ -290,5 +290,39 @@ out="$( cd "$TREE" && SECOND_SHIFT_CONFIG="$CFG" bash "$GATE" 1 2>&1 )"; rc=$?
 if [ "$rc" -eq 2 ]; then pass "(l2) a missing issue argument is a usage error"
 else fail "(l2) expected rc=2 with no issue, got $rc"; fi
 
+# ---- (m) RUN_ID survives a fresh subprocess with no RUN_ID in its own env ------------------
+# Observed live on #306: `RUN_ID` was exported for the `claim` call only. Every later
+# `bash G <n> <issue>` runs as its own one-shot subprocess (only cwd persists across tool
+# calls, not shell state), so the export was gone by milestone 1 and the progress-file header
+# stamped `run_id: unset` — a mismatch against the claim comment / verdict record that
+# lean-reconcile.sh exists to catch. The fix caches the id to `<issue>-run-id` on the first
+# call that sees it in its own env, and resolves later calls from that cache.
+RUN_ID_CACHE="$TREE/.claude/pipeline-state/7-run-id"
+rm -f "$RUN_ID_CACHE"
+reset_progress
+gate 3 7 >/dev/null 2>&1  # RUN_ID unset here too — establishes the "no cache yet" baseline
+out="$(cat "$PROG" 2>/dev/null)"
+if printf '%s' "$out" | grep -q '^run_id: unset$'; then
+  pass "(m1) with no RUN_ID and no cache, the header stamps run_id: unset (unchanged default)"
+else fail "(m1) expected 'run_id: unset' in the header, got: $out"; fi
+
+reset_progress
+rm -f "$RUN_ID_CACHE"
+out="$( cd "$TREE" && SECOND_SHIFT_CONFIG="$CFG" LEAN_PROGRESS_FILE="$PROG" RUN_ID="selftest-run-306" bash "$GATE" 3 7 2>&1 )"; rc=$?
+if [ "$rc" -eq 0 ] && [ "$(cat "$RUN_ID_CACHE" 2>/dev/null)" = "selftest-run-306" ]; then
+  pass "(m2) a call made WITH RUN_ID in its env caches it to <issue>-run-id"
+else fail "(m2) expected the cache file to hold 'selftest-run-306', rc=$rc, cache=$(cat "$RUN_ID_CACHE" 2>/dev/null)"; fi
+
+reset_progress
+# No RUN_ID in THIS call's env — simulates the fresh-subprocess loss. The cache from (m2)
+# must be what the header resolves against, not "unset".
+gate 3 7 >/dev/null 2>&1
+out="$(cat "$PROG" 2>/dev/null)"
+if printf '%s' "$out" | grep -q '^run_id: selftest-run-306$'; then
+  pass "(m3) a later call with NO RUN_ID in its env still resolves the cached id, not unset"
+else fail "(m3) expected 'run_id: selftest-run-306' from the cache, got: $out"; fi
+
+rm -f "$RUN_ID_CACHE"
+
 echo "[lean-gate-selftest] $([ "$FAILS" -eq 0 ] && echo 'all green' || echo "$FAILS FAILURE(S)")"
 exit "$FAILS"
