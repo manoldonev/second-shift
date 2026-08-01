@@ -33,6 +33,12 @@
 #                        dispatched agent's frontmatter tier            -> exit 1 + UNKNOWN-MODEL
 #   unknown inline/MAP   map file, inline 'gpt-4' on an agentType line  -> exit 1 + UNKNOWN-MODEL
 #
+# MAP-file inline literal MISMATCH case (#247 — the in-enum counterpart to the
+# unknown-inline/MAP case above; both fixtures are written so the PRE-FIX script
+# exits 0, since this class was invisible rather than merely wrong):
+#   map inline mismatch  map file, inline 'opus' vs structured-emitter's 'haiku'
+#                        frontmatter, otherwise-clean table              -> exit 1 + MISMATCH
+#
 # Convention mirrors check-reviewer-references-selftest.sh. Bash 3.2 compatible.
 
 set -uo pipefail
@@ -271,6 +277,35 @@ if [ $? -eq 0 ]; then fail "unknown inline literal (MAP file) expected exit 1"; 
   grep -q "UNKNOWN-MODEL: code-review.mjs dispatches 'review-toolkit:structured-emitter' with inline model 'gpt-4'" "$TMP/.stderr" \
     && ok "unknown inline literal in a MAP file -> exit 1 + UNKNOWN-MODEL" \
     || fail "map inline unknown: exit 1 but no UNKNOWN-MODEL line (stderr: $(cat "$TMP/.stderr"))"
+fi
+
+# --- MAP-file inline literal MISMATCH (in-enum drift) --------------------------
+# The gap #247 closes: an IN-ENUM inline literal in a MAP file used to reach neither
+# loop's lockstep check (the MAP grep can't see it; the scalar loop's inline handling
+# never iterates the MAP files) — only OUT-OF-ENUM tokens were caught, by
+# scan_unknown_inline_literals. This fixture uses 'opus', a KNOWN tier, against
+# structured-emitter's 'haiku' frontmatter, with an otherwise-clean map entry, so
+# UNKNOWN-MODEL cannot fire and the pre-fix script is genuinely silent (exit 0) —
+# reverting the guard turns this case green again.
+# Args: <dest_name> <inline-model> -> prints the root path
+make_dp_map_inline_mismatch_variant() {
+  local dst="$TMP/$1" inline="$2"
+  cp -R "$DP" "$dst"
+  cat > "$dst/skills/run/workflows/code-review.mjs" <<MJS
+const REVIEWER_MODEL = {
+  'security-reviewer': 'opus',
+}
+const emit = { agentType: 'review-toolkit:structured-emitter', model: '$inline', label: 'x' }
+MJS
+  printf '%s' "$dst"
+}
+
+MAP_INLINE_MISMATCH=$(make_dp_map_inline_mismatch_variant map-inline-mismatch "opus")
+run_cli "$MAP_INLINE_MISMATCH"
+if [ $? -eq 0 ]; then fail "MAP-file inline literal mismatch expected exit 1"; else
+  grep -q "MISMATCH: 'structured-emitter'" "$TMP/.stderr" \
+    && ok "MAP-file inline literal locksteped against frontmatter -> exit 1 + MISMATCH" \
+    || fail "map inline mismatch: exit 1 but no MISMATCH for structured-emitter (stderr: $(cat "$TMP/.stderr"))"
 fi
 
 # cache layout — installed marketplace cache is cache/<mkt>/<plugin>/<version>/;
