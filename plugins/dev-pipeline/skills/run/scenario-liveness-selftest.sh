@@ -883,7 +883,7 @@ else
   "tracker": { "branchPrefix": "claude/acme-", "labels": { "queue": "ready-for-dev", "claimed": "in-progress" } },
   "topology": { "repos": { "acme": { "path": ".", "baseBranch": "main" } } },
   "paths": { "plansDir": "docs/plans", "pipelineStateDir": ".claude/pipeline-state" },
-  "commands": { "acme": { "lint": null, "typecheck": null, "test": null, "build": null } }
+  "commands": { "acme": { "lint": null, "typecheck": null, "test": null } }
 }
 LEANCFG
   LEAN_PROG="$TMP/lean-progress.md"

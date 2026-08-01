@@ -34,7 +34,6 @@
       "test": "yarn test",
       "testFile": "yarn --cwd apps/api test {file}",
       "unitTestScope": "apps/api/src/**",
-      "build": "yarn build",
       "format": "yarn format",
       "lanes": [
         {

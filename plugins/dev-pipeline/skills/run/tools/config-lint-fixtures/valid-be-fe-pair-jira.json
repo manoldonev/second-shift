@@ -29,14 +29,12 @@
       "lintAutofixes": true,
       "typecheck": "yarn lint:tsc",
       "test": "yarn test",
-      "build": "yarn build",
       "format": "yarn format"
     },
     "fe": {
       "lint": "yarn lint",
       "typecheck": "yarn type-check",
       "test": "yarn test:ci",
-      "build": "yarn build",
       "format": "yarn format:check"
     }
   },

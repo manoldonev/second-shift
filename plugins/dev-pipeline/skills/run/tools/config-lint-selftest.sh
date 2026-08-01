@@ -98,6 +98,10 @@ expect_violation invalid-bad-lane-shape.json        "commands.host.extraLanes[0]
 expect_violation invalid-removed-commands-tiers.json "integrationTest/apiTest were removed in v2.1.6"
 expect_violation invalid-removed-gates-costtracking.json "gates.costTracking was removed in v2.1.6"
 
+# --- #113: commands.<repo>.build was dead (never executed by any verify lane) and is
+# now formally retired; ship a build tier via extraLanes instead (see the migration doc).
+expect_violation invalid-removed-commands-build.json "commands.<repo>.build was removed"
+
 # --- the modelOverrides tier enum is mirrored in schema/second-shift.config.schema.json
 # (config-lint.sh's header declares the two must stay in lockstep). Nothing enforced that
 # mirror mechanically, so a one-sided edit was silent — and the enum is exactly the kind of
