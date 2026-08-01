@@ -17,7 +17,9 @@ Read this whole file, then work the checklist. `G` = `lean-gate.sh` in this dire
    makes the run reconcilable later. Then confirm the issue carries the queue label; a
    missing one is a reject, no prompting.
 2. `bash G claim <issue>` — the two bot-wrapper writes (label swap + `lean-claimed` marker).
-   Export `RUN_ID` first (neutral token, `[A-Za-z0-9._-]+`); it keys every record.
+   Export `RUN_ID` first (neutral token, `[A-Za-z0-9._-]+`); it keys every record. The gate
+   caches it to `<issue>-run-id` so later `bash G ...` calls (each a fresh shell) resolve
+   the same id without re-exporting; a mismatch is exactly what `lean-reconcile.sh` catches.
 3. Cut a worktree on `<lean prefix><issue>` from the configured base. Never work in the
    shared checkout. `bash G 1 <issue>` prints the exact spec path it wants.
 4. **Write the spec/AC file** at that path, ≥ 1 numbered `AC-n`. It is the living definition
@@ -32,10 +34,10 @@ Read this whole file, then work the checklist. `G` = `lean-gate.sh` in this dire
    verdict record — path from `bash G 4 <issue>` — carrying verdict, rounds, finding summary,
    and `run_id`. Append `milestone-4 | verdict=<v> | round=<n>` to the progress file. Fix
    every blocker and re-review; only a committed `verdict=approve` passes.
-8. Open a **ready** (non-draft) PR: summary, spec link, one-line verdict, `Closes #<issue>`.
-   No stage sections. Post one closing comment: PR link, verdict-record reference, and the
-   cost block (`pipeline-cost-block.sh --stateless`, session ids + time fence from the
-   progress-file header).
+8. Compute the cost block once (`pipeline-cost-block.sh --stateless`). Open a **ready**
+   (non-draft) PR: summary, spec link, one-line verdict, `Closes #<issue>`, and the cost
+   block appended to the description too — reviewers read the PR, not the issue thread. No
+   stage sections. Post one closing comment: PR link, verdict-record reference, same block.
 9. `bash G 5 <issue>` — exit artifacts. Then drop the claimed label and remove the worktree.
 
 ## Rules that are not negotiable
