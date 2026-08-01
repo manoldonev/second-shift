@@ -109,6 +109,14 @@ fi
 bash "${CLAUDE_PLUGIN_ROOT}/skills/run/tools/check-extensions.sh" . \
   || { echo "[pre-flight] FAIL: check-extensions rejected the repo (a typo'd .claude/second-shift/ extension file or an unresolvable EP-6/EP-7 reference — see errors above)" >&2; exit 1; }
 
+# (0b2) Doc-routing integrity (check-doc-routing.sh) — doc-routing.md is checked by
+# basename only above; its CONTENT (the change-category -> doc-path routing map Stage 7
+# reads) is not. A routing entry pointing at a moved or deleted doc silently misroutes
+# every future doc update to a fallback with no signal — fail closed here, same as (0b).
+# No-op (exit 0) when the consumer has no doc-routing.md (it is an optional extension).
+bash "${CLAUDE_PLUGIN_ROOT}/skills/run/tools/check-doc-routing.sh" . \
+  || { echo "[pre-flight] FAIL: check-doc-routing rejected the repo (a doc-routing.md entry points at a moved or deleted doc — see errors above)" >&2; exit 1; }
+
 # (0c) Verified calibration claims (claims-lint.sh) — severity-downgrading claims in
 # `second-shift-claims` fences under .claude/second-shift/ carry a mandatory
 # reverify-by expiry; an EXPIRED or malformed claim is a standing severity waiver

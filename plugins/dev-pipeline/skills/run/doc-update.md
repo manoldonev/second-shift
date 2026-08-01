@@ -9,6 +9,16 @@ Structured in-session pass — no Task hop. Scans the repo's declared documentat
 
 If neither supplies a category→doc map, fall back to grepping the repo's declared doc roots for the literal basenames of changed files (Step 7.C) and reason over the hits — and say so in your output, since you routed conservatively rather than from a declared map. Everything acme-specific in this protocol is consolidated into the **"Example (acme's map)"** block below; it is an illustrative instance of the generic mechanism, not the contract.
 
+## Step 7.0: Doc-routing integrity gate (entry check)
+
+`doc-routing.md`'s content — the category → doc-path rows Step 7.B treats as authoritative — is not otherwise verified: a stale entry (pointing at a moved or deleted doc) would silently degrade Step 7.B to the Step 7.C fallback with no signal. Before Step 7.A, run:
+
+```bash
+bash "${CLAUDE_PLUGIN_ROOT}/skills/run/tools/check-doc-routing.sh" .
+```
+
+No-op (exit 0) when the repo has no `.claude/second-shift/doc-routing.md` (it is optional). On failure, stop Stage 7 here and surface the reported `DANGLING-DOC-ROUTE:` entries rather than proceeding into a routing table you know is partly stale.
+
 ## Step 7.A: Identify changed code areas
 
 Run `git diff "$BASE_REF...HEAD" --stat` (or `git diff --stat` for uncommitted), where `$BASE_REF` is the **configured base branch** resolved as in Step 7.C (the host repo's `topology.repos.<host>.baseBranch`, default `main`) — a hardcoded `main` silently yields an empty candidate set on a develop/alpha-based repo. Classify each changed path into a **conceptual code-area category** — API endpoints / DTOs, business logic, database schema, background workers, ML / algorithm services, frontend, shared types, decision / domain-constant docs, and so on. Derive the path → category mapping from the repo's own layout as declared in its `CLAUDE.md` (its stack / module / directory sections); do not assume a fixed directory tree. The **"Example (acme's map)"** block below shows one repo's concrete path → category table.
