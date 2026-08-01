@@ -116,10 +116,10 @@ complete_stage() {
   case "$n" in
     1) sct checkpoint "$key" 1 --json "{\"verdict\":\"$verdict\",\"preflight\":{\"baseBranch\":\"main\",\"workingTreeClean\":true,\"guardOutcome\":\"proceed-clean\"}}" >/dev/null
        sct skill-load-add "$key" --stage 1 --skill intake-toolkit:intake-orchestrator >/dev/null
-       sct comment-add "$key" --marker claimed --url "https://github.example/c/claimed" >/dev/null
-       sct comment-add "$key" --marker intake --url "https://github.example/c/intake" >/dev/null ;;
+       sct comment-add "$key" --marker claimed --url "https://github.example/issues/$key#issuecomment-101" >/dev/null
+       sct comment-add "$key" --marker intake --url "https://github.example/issues/$key#issuecomment-102" >/dev/null ;;
     2) sct worktree-set "$key" --path ".claude/worktrees/acme-$key" --branch "claude/acme-$key" >/dev/null ;;
-    3) sct comment-add "$key" --marker plan --url "https://github.example/c/plan" >/dev/null ;;
+    3) sct comment-add "$key" --marker plan --url "https://github.example/issues/$key#issuecomment-103" >/dev/null ;;
     4) sct plan-review-set "$key" --overall pass >/dev/null ;;
     5) sct checkpoint "$key" 5 --json '{"changedFiles":[]}' >/dev/null ;;
     6) sct verify-summary-set "$key" --json '{"format":"clean","test":"passed"}' >/dev/null
@@ -133,11 +133,11 @@ complete_stage() {
        # which is exactly the object a crash-recovery resume hydrates from. Found by
        # e2e-replay-selftest.sh, the first suite to assert on that object's contents.
        sct checkpoint "$key" 7 --json "$(jq -c --arg k "$key" '.ticketKey = $k' <<< "$VALID_PAYLOAD")" >/dev/null
-       sct comment-add "$key" --marker doc-update --url "https://github.example/c/doc-update" >/dev/null ;;
+       sct comment-add "$key" --marker doc-update --url "https://github.example/issues/$key#issuecomment-104" >/dev/null ;;
     8) sct review-rounds "$key" --set 1 >/dev/null
        sct skill-load-add "$key" --stage 8 --skill review-toolkit:review-lead >/dev/null
-       sct comment-add "$key" --marker code-review --url "https://github.example/c/code-review" >/dev/null ;;
-    9) sct comment-add "$key" --marker pr --url "https://github.example/c/pr" >/dev/null ;;
+       sct comment-add "$key" --marker code-review --url "https://github.example/issues/$key#issuecomment-105" >/dev/null ;;
+    9) sct comment-add "$key" --marker pr --url "https://github.example/issues/$key#issuecomment-106" >/dev/null ;;
   esac
   stage_evidence "$key" "$n"
   sct set-stage "$key" "$n" --status completed >/dev/null
