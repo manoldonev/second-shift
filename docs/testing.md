@@ -58,8 +58,8 @@ wrong branch is free to get quietly worse. But a case asserting broken behavior 
 like a case blessing it, so it must say, at the assertion: what the real behavior is, what the
 documented or intended behavior was, why it was not fixed here, and that the case is expected
 to flip when it is. A characterization case that only asserts an exit code is indistinguishable
-from an author who did not notice. Examples live in `exitplan-ledger-gate-selftest.sh` `(t3h)`
-and `pipeline-doctor-selftest.sh` `(d5a)`.
+from an author who did not notice. An example lives in `exitplan-ledger-gate-selftest.sh`
+`(t3h)`.
 
 ## The runtime shim
 
