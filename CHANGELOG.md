@@ -4,6 +4,64 @@ All notable changes to the second-shift marketplace. Versions are per-plugin (`p
 this file tracks the marketplace release. `configVersion` stays `const 1` — v2 is fully backward-compatible for a
 consumer with an empty config; the migration notes below are only for consumers using the changed features.
 
+## v3.6.0
+
+### `dev-pipeline` 3.5.0 → 3.6.0
+
+- **feat(dev-pipeline): lint that doc-routing.md's routed paths resolve (#334)** (#334)
+  `check-doc-routing.sh` (dev-pipeline tools) is a new fail-closed
+  lint for `doc-routing.md` content, run at pre-flight and Stage-7 entry.
+  Migration: none — the check is a no-op for repos with no doc-routing.md.
+  none — fixes to an unreleased change on this branch.
+- **fix(dev-pipeline): pipeline-retro resumes a dark retro-scorer before falling back (#336)** (#336)
+  none — spec doc, no behavior change yet.
+  pipeline-retro Step 2 now treats an empty retro-scorer return (no
+  emit deadline covers this Task-tool dispatch) as a named failure mode:
+  resume the same agent from its transcript before anything else, and if the
+  resume also returns empty, the report records DARK — no output after
+  resume instead of a blank cell or the self-score standing in unchallenged.
+  Migration: none.
+  none — verdict record, no behavior change.
+- **fix(second-shift): broaden be/fe sibling detection; flag npm-run lintAutofixes no-op (#337)** (#337)
+  onboard's pair-sibling detection now recognizes adjacent BE/FE
+  checkouts whose names do not share a common prefix (e.g. fastapi-be +
+  vue-fe), and config-lint rejects lintAutofixes:true combined with a plain
+  `npm run` lint command that cannot forward the appended --fix flag.
+  Migration: none.
+- **fix(dev-pipeline): retire dead commands.<repo>.build, route onboarding through ext:build extraLane (#339)** (#339)
+  none (spec only, no plugin behavior yet).
+  `commands.<repo>.build` is removed (it was never executed by any
+  verify lane); `/second-shift:onboard` now drafts a build/compile check as a
+  `commands.<repo>.extraLanes` entry instead, which actually runs.
+  Migration: docs/migrations/v1-to-v2.md — replace a committed
+  `commands.<repo>.build` with an `extraLanes` entry.
+  none (verdict record only).
+
+### `intake-toolkit` 2.2.1 → 2.2.2
+
+- **fix(intake-toolkit): exitplan-ledger-gate tier 3 works on GNU find (#338)** (#338)
+  the ExitPlanMode ledger gate's session-fresh-plan fallback (tier 3)
+  now works under GNU find instead of silently allowing every plan. A scan
+  that errors for any reason now blocks instead of allowing.
+  Migration: none.
+
+### `second-shift` 2.0.1 → 2.0.2
+
+- **fix(second-shift): broaden be/fe sibling detection; flag npm-run lintAutofixes no-op (#337)** (#337)
+  onboard's pair-sibling detection now recognizes adjacent BE/FE
+  checkouts whose names do not share a common prefix (e.g. fastapi-be +
+  vue-fe), and config-lint rejects lintAutofixes:true combined with a plain
+  `npm run` lint command that cannot forward the appended --fix flag.
+  Migration: none.
+- **fix(dev-pipeline): retire dead commands.<repo>.build, route onboarding through ext:build extraLane (#339)** (#339)
+  none (spec only, no plugin behavior yet).
+  `commands.<repo>.build` is removed (it was never executed by any
+  verify lane); `/second-shift:onboard` now drafts a build/compile check as a
+  `commands.<repo>.extraLanes` entry instead, which actually runs.
+  Migration: docs/migrations/v1-to-v2.md — replace a committed
+  `commands.<repo>.build` with an `extraLanes` entry.
+  none (verdict record only).
+
 ## v3.5.0
 
 ### `dev-pipeline` 3.4.3 → 3.5.0
