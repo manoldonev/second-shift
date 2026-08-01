@@ -25,6 +25,52 @@ jobs:
       - name: validate JSON (manifests, schema, fixtures)
         run: find . -name '*.json' -type f -print0 | xargs -0 -n1 jq empty
 
+      # GitHub renders .github/ISSUE_TEMPLATE/*.yml against its own issue-forms/issue-config
+      # JSON Schemas at PR-merge time — tests/issue-forms-selftest.sh proves well-formedness
+      # plus a hand-written required-field table, but neither catches an illegal `type:`, a
+      # misplaced key, a bad `render:` language, or a malformed `id`; those only ever surfaced
+      # after merge (#299). check-jsonschema ships both schemas as builtin ids, pinned via
+      # pipx (preinstalled on the runner image) rather than `pip install --user` — PEP 668
+      # marks ubuntu-24.04's system Python externally-managed. Same posture as the pinned
+      # actionlint image below: pinned, no curl|bash.
+      - name: issue-forms schema validation (check-jsonschema, pinned)
+        run: |
+          pipx install --quiet check-jsonschema==0.37.4
+          # pipx's shim dir is not guaranteed on PATH for a non-login `run:` shell — state it
+          # explicitly rather than relying on the runner image's default PATH.
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+          export PATH="$HOME/.local/bin:$PATH"
+          # Confirm the pin still exposes both builtin ids the step below depends on, ahead
+          # of using them — the whole point of pinning is that this can't silently drift.
+          for schema_id in vendor.github-issue-forms vendor.github-issue-config; do
+            if ! check-jsonschema --help | grep -q "$schema_id"; then
+              echo "::error::check-jsonschema 0.37.4 no longer exposes builtin schema '$schema_id' — pin a version that does."
+              exit 1
+            fi
+          done
+
+          check-jsonschema --builtin-schema vendor.github-issue-config .github/ISSUE_TEMPLATE/config.yml
+
+          # Glob, not a named list: a new form is validated on arrival with no workflow edit.
+          shopt -s nullglob
+          forms=(.github/ISSUE_TEMPLATE/*.yml)
+          for f in "${forms[@]}"; do
+            [[ "$(basename "$f")" == "config.yml" ]] && continue
+            check-jsonschema --builtin-schema vendor.github-issue-forms "$f"
+          done
+
+          # Rejection assertion: this step must FAIL if the validator ACCEPTS a checked-in
+          # bad fixture — proof the gate can actually go red, not just green on real forms.
+          fixture_fails=0
+          fixtures=(tests/issue-forms-fixtures/*.yml)
+          for f in "${fixtures[@]}"; do
+            if check-jsonschema --builtin-schema vendor.github-issue-forms "$f" >/dev/null 2>&1; then
+              echo "::error::fixture $f was ACCEPTED by the schema — it must be rejected"
+              fixture_fails=$((fixture_fails+1))
+            fi
+          done
+          exit "$fixture_fails"
+
       # Static analysis of the workflow files themselves: invalid `if:` expressions, unknown
       # contexts, bad `uses:` refs, plus shellcheck over `run:` blocks. Pinned image, no
       # curl|bash. NOTE the chicken-and-egg: a YAML *syntax* error in this very file means

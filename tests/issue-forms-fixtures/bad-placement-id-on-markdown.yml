@@ -1,0 +1,11 @@
+# Misplaced key: `id:` is not a valid property of a `markdown` body item (markdown blocks
+# are display-only and carry no field id). Confirmed rejected by check-jsonschema 0.37.4:
+# "Additional properties are not allowed ('id' was unexpected)". Kept out of
+# .github/ISSUE_TEMPLATE/ so GitHub never renders it (#299).
+name: Bad placement fixture
+description: id is not allowed on a markdown block.
+body:
+  - type: markdown
+    id: not-allowed-here
+    attributes:
+      value: "Some markdown content."

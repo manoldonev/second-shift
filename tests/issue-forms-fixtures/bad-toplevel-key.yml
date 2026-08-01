@@ -1,0 +1,12 @@
+# Top-level key typo (`nam:` instead of `name:`). Confirmed rejected by check-jsonschema
+# 0.37.4: "Additional properties are not allowed ('nam' was unexpected)" plus "'name' is a
+# required property". Kept out of .github/ISSUE_TEMPLATE/ so GitHub never renders it (#299).
+nam: Bad top-level key fixture
+description: Top-level key is misspelled.
+body:
+  - type: textarea
+    id: field-a
+    attributes:
+      label: A field
+    validations:
+      required: true
