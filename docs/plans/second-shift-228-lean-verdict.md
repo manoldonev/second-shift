@@ -1,8 +1,8 @@
 # #228 — lean review verdict
 
+verdict=approve
 run_id: lean-228-1785606409
-round: 1
-verdict: approve
+rounds: 1
 
 ## Summary
 
