@@ -4,6 +4,55 @@ All notable changes to the second-shift marketplace. Versions are per-plugin (`p
 this file tracks the marketplace release. `configVersion` stays `const 1` — v2 is fully backward-compatible for a
 consumer with an empty config; the migration notes below are only for consumers using the changed features.
 
+## v3.4.3
+
+### `dev-pipeline` 3.4.2 → 3.4.3
+
+- **fix(dev-pipeline): comment-add validates the receipt is an issue-comment permalink for its own ticket (#318)** (#318)
+  `statectl comment-add` now rejects a --url that is not an
+  issue-comment permalink for the ticket's own issue number (a PR URL, a PR
+  review URL, a PR conversation comment, or a comment on a different issue
+  are all refused); --force remains the crash-recovery escape and records a
+  waiver. Migration: none.
+- **fix(dev-pipeline): pipeline-doctor block 8 now flags missing lastUpdatedAt as stale (#321)** (#321)
+  pipeline-doctor.sh's stale-claim check (block 8) now surfaces an
+  in_progress state file with a missing lastUpdatedAt as a stale claim,
+  instead of silently skipping it. Migration: none.
+- **fix(dev-pipeline): lean-gate.sh entry no longer freezes run_id: unset into the progress header (#322)** (#322)
+  run-lean's `entry` step no longer creates the progress file —
+  milestone 1 does, after `claim` has cached RUN_ID, so the header's
+  run_id field no longer freezes at "unset" on a normal run.
+  Migration: none.
+- **fix(dev-pipeline): resolve worktreesDir instead of interpolating it undefined (#323)** (#323)
+  dev-pipeline's Stage-10 intake-pin cleanup and Stage-2 worktree
+  creation now resolve topology.repos.<host>.worktreesDir's documented
+  default instead of silently operating against an undefined variable;
+  a resolution failure is now surfaced instead of swallowed.
+  Migration: none.
+- **fix(dev-pipeline): drop hostname from the RUN_ID recipe (#324)** (#324)
+  the Pre-flight RUN_ID recipe no longer reads `hostname` — it
+  frequently resolved to a personally identifying value (e.g. macOS's
+  `<FirstName>-<LastName>s-<Model>` default) and landed verbatim in every
+  `<!-- run_id: ... -->` marker posted to public tracker comments. The
+  timestamp and random hex suffix already disambiguate concurrent runs, and
+  a run stays correlatable via `pipelineSessions[].sessionId`, so the host
+  component is dropped rather than hashed. Migration: none.
+  none — same-PR follow-up to the RUN_ID hostname fix; the
+  Public-repo-hygiene comment above FAMILY_SHORT described the old 3-part
+  format and its hostname-redaction rationale, both now stale.
+
+### `review-toolkit` 3.0.2 → 3.0.3
+
+- **fix(review-toolkit): lockstep-validate MAP-file inline model: literals (#320)** (#320)
+  check-model-tiers.sh now lockstep-checks an in-enum inline
+  `model: '<tier>'` literal in the three MAP workflow files (code-review.mjs,
+  intake-review.mjs, design-sync.mjs) against the dispatched agent's
+  frontmatter, closing a gap where such a literal reached neither the MAP
+  loop (which can't parse an unquoted `model:` key) nor the scalar loop
+  (scoped to unit-tests.mjs/plan-review.mjs only) — so in-enum drift on one
+  of these dispatches (e.g. structured-emitter) went undetected.
+  Migration: none.
+
 ## v3.4.2
 
 ### `dev-pipeline` 3.4.1 → 3.4.2
