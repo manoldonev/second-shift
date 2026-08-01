@@ -272,7 +272,6 @@ cmd_entry() {
     return 1
   fi
   say "✓ entry: audit ledger live ($(wc -l < "$ledger" | tr -d ' ') lines)."
-  ensure_progress_file
   return 0
 }
 

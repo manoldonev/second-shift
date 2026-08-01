@@ -2212,8 +2212,8 @@ rc_nopf=$(sct_rc set-stage 9999 1 --status completed)
 # (sl*)/(cr*) cases)
 sct checkpoint 9999 1 --json '{"verdict":"no-split","preflight":{"baseBranch":"main","workingTreeClean":false,"guardOutcome":"proceed-dirty-warn"}}' >/dev/null
 sct skill-load-add 9999 --stage 1 --skill intake-toolkit:intake-orchestrator >/dev/null
-sct comment-add 9999 --marker claimed --url "https://github.example/c/claimed" >/dev/null
-sct comment-add 9999 --marker intake --url "https://github.example/c/intake" >/dev/null
+sct comment-add 9999 --marker claimed --url "https://github.example/issues/9999#issuecomment-101" >/dev/null
+sct comment-add 9999 --marker intake --url "https://github.example/issues/9999#issuecomment-102" >/dev/null
 stage_evidence 9999 1
 rc_ok=$(sct_rc set-stage 9999 1 --status completed)
 if [[ "$rc_nockpt" == "1" && "$err_nockpt" == *'stageCheckpoint["1"] is missing'* \
@@ -2304,8 +2304,8 @@ sct init 9999 --run-id "selftest-run-$$" >/dev/null
 sct set-stage 9999 1 --status started >/dev/null
 sct checkpoint 9999 1 --json '{"verdict":"no-split","designDriven":true,"preflight":{"baseBranch":"main","workingTreeClean":true,"guardOutcome":"proceed-clean"}}' >/dev/null
 sct skill-load-add 9999 --stage 1 --skill intake-toolkit:intake-orchestrator >/dev/null
-sct comment-add 9999 --marker claimed --url "https://github.example/c/claimed" >/dev/null
-sct comment-add 9999 --marker intake --url "https://github.example/c/intake" >/dev/null
+sct comment-add 9999 --marker claimed --url "https://github.example/issues/9999#issuecomment-101" >/dev/null
+sct comment-add 9999 --marker intake --url "https://github.example/issues/9999#issuecomment-102" >/dev/null
 stage_evidence 9999 1
 sct set-stage 9999 1 --status completed >/dev/null
 for n in 2 3 4; do complete_stage 9999 "$n"; done
@@ -2439,7 +2439,7 @@ rc=$(sct_rc set-stage 9999 8 --status completed)
 err=$(sct_err set-stage 9999 8 --status completed)
 sct review-rounds 9999 --set 1 >/dev/null
 sct skill-load-add 9999 --stage 8 --skill review-toolkit:review-lead >/dev/null
-sct comment-add 9999 --marker code-review --url "https://github.example/c/code-review" >/dev/null
+sct comment-add 9999 --marker code-review --url "https://github.example/issues/9999#issuecomment-105" >/dev/null
 stage_evidence 9999 8
 rc2=$(sct_rc set-stage 9999 8 --status completed)
 if [[ "$rc" == "1" && "$err" == *"no codeReviewRounds recorded"* && "$rc2" == "0" ]]; then
@@ -2466,8 +2466,8 @@ reset_state
 sct init 9999 --run-id "selftest-run-$$" >/dev/null
 sct set-stage 9999 1 --status started >/dev/null
 sct checkpoint 9999 1 --json '{"verdict":"no-split","preflight":{"baseBranch":"main","workingTreeClean":true,"guardOutcome":"proceed-clean"}}' >/dev/null
-sct comment-add 9999 --marker claimed --url "https://github.example/c/claimed" >/dev/null
-sct comment-add 9999 --marker intake --url "https://github.example/c/intake" >/dev/null
+sct comment-add 9999 --marker claimed --url "https://github.example/issues/9999#issuecomment-101" >/dev/null
+sct comment-add 9999 --marker intake --url "https://github.example/issues/9999#issuecomment-102" >/dev/null
 err_noload=$(sct_err set-stage 9999 1 --status completed)
 rc_noload=$(sct_rc set-stage 9999 1 --status completed)
 sct skill-load-add 9999 --stage 1 --skill intake-toolkit:intake-orchestrator >/dev/null
@@ -2485,8 +2485,8 @@ reset_state
 sct init 9999 --run-id "selftest-run-$$" >/dev/null
 sct set-stage 9999 1 --status started >/dev/null
 sct checkpoint 9999 1 --json '{"verdict":"no-split","intakeMode":"inline-approved","preflight":{"baseBranch":"main","workingTreeClean":true,"guardOutcome":"proceed-clean"}}' >/dev/null
-sct comment-add 9999 --marker claimed --url "https://github.example/c/claimed" >/dev/null
-sct comment-add 9999 --marker intake --url "https://github.example/c/intake" >/dev/null
+sct comment-add 9999 --marker claimed --url "https://github.example/issues/9999#issuecomment-101" >/dev/null
+sct comment-add 9999 --marker intake --url "https://github.example/issues/9999#issuecomment-102" >/dev/null
 stage_evidence 9999 1
 rc_inline=$(sct_rc set-stage 9999 1 --status completed)
 if [[ "$rc_inline" == "0" ]]; then
@@ -2509,7 +2509,7 @@ sct review-rounds 9999 --set 1 >/dev/null
 err_norl=$(sct_err set-stage 9999 8 --status completed)
 rc_norl=$(sct_rc set-stage 9999 8 --status completed)
 sct skill-load-add 9999 --stage 8 --skill review-toolkit:review-lead >/dev/null
-sct comment-add 9999 --marker code-review --url "https://github.example/c/code-review" >/dev/null
+sct comment-add 9999 --marker code-review --url "https://github.example/issues/9999#issuecomment-105" >/dev/null
 stage_evidence 9999 8
 rc_rl=$(sct_rc set-stage 9999 8 --status completed)
 reset_state
@@ -2547,7 +2547,7 @@ for n in 1 2; do complete_stage 9999 "$n"; done
 sct set-stage 9999 3 --status started >/dev/null
 err_nocm=$(sct_err set-stage 9999 3 --status completed)
 rc_nocm=$(sct_rc set-stage 9999 3 --status completed)
-sct comment-add 9999 --marker plan --url "https://github.example/c/plan" >/dev/null
+sct comment-add 9999 --marker plan --url "https://github.example/issues/9999#issuecomment-103" >/dev/null
 stage_evidence 9999 3
 rc_cm=$(sct_rc set-stage 9999 3 --status completed)
 if [[ "$rc_nocm" == "1" && "$err_nocm" == *"receipt(s) missing for marker(s) [plan]"* && "$rc_cm" == "0" ]]; then
@@ -2563,14 +2563,14 @@ sct set-stage 9999 1 --status started >/dev/null
 sct checkpoint 9999 1 --json '{"verdict":"no-split","preflight":{"baseBranch":"main","workingTreeClean":true,"guardOutcome":"proceed-clean"}}' >/dev/null
 sct skill-load-add 9999 --stage 1 --skill intake-toolkit:intake-orchestrator >/dev/null
 err_two=$(sct_err set-stage 9999 1 --status completed)
-sct comment-add 9999 --marker claimed --url "https://github.example/c/claimed" >/dev/null
-sct comment-add 9999 --marker intake --url "https://github.example/c/intake" >/dev/null
+sct comment-add 9999 --marker claimed --url "https://github.example/issues/9999#issuecomment-101" >/dev/null
+sct comment-add 9999 --marker intake --url "https://github.example/issues/9999#issuecomment-102" >/dev/null
 stage_evidence 9999 1
 sct set-stage 9999 1 --status completed >/dev/null
 for n in 2 3 4 5 6 7 8; do complete_stage 9999 "$n"; done
 sct set-stage 9999 9 --status started >/dev/null
 rc_nopr=$(sct_rc set-stage 9999 9 --status completed)
-sct comment-add 9999 --marker pr --url "https://github.example/c/pr" >/dev/null
+sct comment-add 9999 --marker pr --url "https://github.example/issues/9999#issuecomment-106" >/dev/null
 stage_evidence 9999 9
 rc_pr=$(sct_rc set-stage 9999 9 --status completed)
 if [[ "$err_two" == *"[claimed,intake]"* && "$rc_nopr" == "1" && "$rc_pr" == "0" ]]; then
@@ -2606,9 +2606,9 @@ reset_state
 sct init 9999 --run-id "selftest-run-$$" >/dev/null
 rc_badm=$(sct_rc comment-add 9999 --marker implementation --url "https://github.example/c/x")
 rc_badu=$(sct_rc comment-add 9999 --marker plan --url "not-a-url")
-sct comment-add 9999 --marker plan --url "https://github.example/c/first" >/dev/null
-over=$("$STATECTL" comment-add 9999 --marker plan --url "https://github.example/c/second" 2>/dev/null)
-if [[ "$rc_badm" == "1" && "$rc_badu" == "1" && "$over" == '{"plan":"https://github.example/c/second"}' ]]; then
+sct comment-add 9999 --marker plan --url "https://github.example/issues/9999#issuecomment-301" >/dev/null
+over=$("$STATECTL" comment-add 9999 --marker plan --url "https://github.example/issues/9999#issuecomment-302" 2>/dev/null)
+if [[ "$rc_badm" == "1" && "$rc_badu" == "1" && "$over" == '{"plan":"https://github.example/issues/9999#issuecomment-302"}' ]]; then
   pass "(cr4) comment-add — bad marker/url rejected, repeat overwrites"
 else
   fail "(cr4) comment-add validation — rc_badm=$rc_badm rc_badu=$rc_badu over='$over'"
@@ -2628,14 +2628,20 @@ sct init 9999 --run-id "selftest-run-$$" >/dev/null
 for n in 1 2 3 4 5 6 7; do complete_stage 9999 "$n"; done
 sct set-stage 9999 8 --status started >/dev/null
 sct review-rounds 9999 --set 1 >/dev/null
-# AC-1: no recorded load -> refused, and the message names the ordering.
-rc_pre=$(sct_rc comment-add 9999 --marker code-review --url "https://github.example/c/cr")
-err_pre=$(sct_err comment-add 9999 --marker code-review --url "https://github.example/c/cr")
+# AC-1: no recorded load -> refused, and the message names the ordering. Both
+# calls use a well-formed issue-9999 permalink so the #277 shape guard stays
+# silent here and the ordering guard is the only one exercised — its own
+# shape coverage lives in the dedicated (cr6) case below.
+rc_pre=$(sct_rc comment-add 9999 --marker code-review --url "https://github.example/issues/9999#issuecomment-201")
+err_pre=$(sct_err comment-add 9999 --marker code-review --url "https://github.example/issues/9999#issuecomment-201")
 # AC-4: a different marker is unaffected by the same empty state.
-rc_other=$(sct_rc comment-add 9999 --marker plan --url "https://github.example/c/plan")
+rc_other=$(sct_rc comment-add 9999 --marker plan --url "https://github.example/issues/9999#issuecomment-202")
 # The refusal is real, not cosmetic: with no receipt the stage still cannot close.
 rc_stage_pre=$(sct_rc set-stage 9999 8 --status completed)
 # --force is the documented crash-recovery escape, as for every other precondition.
+# Deliberately malformed shape (no ticketKey permalink) too: proves --force bypasses
+# BOTH guards fired on this one call (ordering AND #277's receipt-shape), each folded
+# as its own waivers[] entry — see (cr6) for the shape guard's own dedicated coverage.
 rc_forced=$(sct_rc comment-add 9999 --marker code-review --url "https://github.example/c/forced" --force --force-reason "selftest crash-recovery simulation of an operator waiver")
 # AC-2: recording the load first lets the same call through.
 reset_state
@@ -2644,7 +2650,7 @@ for n in 1 2 3 4 5 6 7; do complete_stage 9999 "$n"; done
 sct set-stage 9999 8 --status started >/dev/null
 sct review-rounds 9999 --set 1 >/dev/null
 sct skill-load-add 9999 --stage 8 --skill review-toolkit:review-lead >/dev/null
-rc_post=$(sct_rc comment-add 9999 --marker code-review --url "https://github.example/c/cr")
+rc_post=$(sct_rc comment-add 9999 --marker code-review --url "https://github.example/issues/9999#issuecomment-201")
 stage_evidence 9999 8
 rc_stage_post=$(sct_rc set-stage 9999 8 --status completed)
 if [[ "$rc_pre" == "1" && "$err_pre" == *"BEFORE the synthesis it governs is authored"* \
@@ -2653,6 +2659,41 @@ if [[ "$rc_pre" == "1" && "$err_pre" == *"BEFORE the synthesis it governs is aut
   pass "(cr5) comment-add ordering — code-review receipt refused before the review-lead load, allowed after; other markers unaffected; --force bypasses"
 else
   fail "(cr5) comment-add ordering — rc_pre=$rc_pre rc_other=$rc_other rc_stage_pre=$rc_stage_pre rc_forced=$rc_forced rc_post=$rc_post rc_stage_post=$rc_stage_post err_pre='$err_pre'"
+fi
+
+# (cr6) comment-add RECEIPT-SHAPE precondition (#277): an http(s) URL alone is not
+# proof the mandated stage comment exists — it must be an issue-comment permalink
+# for THIS state file's own ticketKey (`.../issues/<ticketKey>#issuecomment-<n>`).
+#
+# AC-1: every shape that satisfies the plain `^https?://` check but is NOT a valid
+# receipt is refused — a PR URL, a PR review URL, a PR CONVERSATION comment (which
+# shares the `#issuecomment-<id>` fragment with a real receipt — only the
+# `/issues/<key>` path segment discriminates it), an issue-comment URL for a
+# DIFFERENT issue, and a bare issue URL with no `#issuecomment-` fragment.
+reset_state
+sct init 9999 --run-id "selftest-run-$$" >/dev/null
+rc_pr=$(sct_rc comment-add 9999 --marker plan --url "https://github.example/pull/9999")
+rc_review=$(sct_rc comment-add 9999 --marker plan --url "https://github.example/pull/9999#pullrequestreview-555")
+rc_prconv=$(sct_rc comment-add 9999 --marker plan --url "https://github.example/pull/9999#issuecomment-777")
+rc_wrongissue=$(sct_rc comment-add 9999 --marker plan --url "https://github.example/issues/8888#issuecomment-1")
+rc_nofrag=$(sct_rc comment-add 9999 --marker plan --url "https://github.example/issues/9999")
+err_shape=$(sct_err comment-add 9999 --marker plan --url "https://github.example/issues/8888#issuecomment-1")
+# AC-2: a well-formed permalink for THIS ticket is accepted, including on a GHES
+# host — the gate matches the path tail, never `github.com`.
+rc_ok=$(sct_rc comment-add 9999 --marker plan --url "https://github.example/issues/9999#issuecomment-42")
+rc_ghes=$(sct_rc comment-add 9999 --marker plan --url "https://ghes.example.com/issues/9999#issuecomment-43")
+# AC-3: --force permits a malformed receipt for crash-recovery and records it as a
+# waivers[] entry, rather than accepting it silently.
+rc_forced_shape=$(sct_rc comment-add 9999 --marker plan --url "https://github.example/pull/9999" --force --force-reason "selftest crash-recovery simulation of an operator waiver")
+waiver_id=$(sct get 9999 '.waivers[-1].precondition')
+if [[ "$rc_pr" == "1" && "$rc_review" == "1" && "$rc_prconv" == "1" \
+      && "$rc_wrongissue" == "1" && "$rc_nofrag" == "1" \
+      && "$err_shape" == *"issue-comment permalink for this ticket"* \
+      && "$rc_ok" == "0" && "$rc_ghes" == "0" \
+      && "$rc_forced_shape" == "0" && "$waiver_id" == "comment-receipt-shape" ]]; then
+  pass "(cr6) comment-add receipt-shape — PR/review/PR-conversation/wrong-issue/no-fragment URLs refused, well-formed (incl. GHES host) accepted, --force waives"
+else
+  fail "(cr6) comment-add receipt-shape — rc_pr=$rc_pr rc_review=$rc_review rc_prconv=$rc_prconv rc_wrongissue=$rc_wrongissue rc_nofrag=$rc_nofrag rc_ok=$rc_ok rc_ghes=$rc_ghes rc_forced_shape=$rc_forced_shape waiver_id=$waiver_id err_shape='$err_shape'"
 fi
 
 # (rec1) reclaim verdict: a stale in_progress run (backdated lastUpdatedAt) is
@@ -3518,8 +3559,8 @@ sct init 9910 --run-id "selftest-run-$$" >/dev/null
 sct set-stage 9910 1 --status started >/dev/null
 sct checkpoint 9910 1 --json '{"verdict":"no-split","designDriven":true,"preflight":{"baseBranch":"main","workingTreeClean":true,"guardOutcome":"proceed-clean"}}' >/dev/null
 sct skill-load-add 9910 --stage 1 --skill intake-toolkit:intake-orchestrator >/dev/null
-sct comment-add 9910 --marker claimed --url "https://github.example/c/claimed" >/dev/null
-sct comment-add 9910 --marker intake --url "https://github.example/c/intake" >/dev/null
+sct comment-add 9910 --marker claimed --url "https://github.example/issues/9910#issuecomment-101" >/dev/null
+sct comment-add 9910 --marker intake --url "https://github.example/issues/9910#issuecomment-102" >/dev/null
 stage_evidence 9910 1
 sct set-stage 9910 1 --status completed >/dev/null
 for n in 2 3 4; do complete_stage 9910 "$n"; done
@@ -3544,7 +3585,7 @@ reset_state
 sct init 9911 --run-id "selftest-run-$$" >/dev/null
 for n in 1 2 3 4 5 6; do complete_stage 9911 "$n"; done
 sct set-stage 9911 7 --status started >/dev/null
-sct comment-add 9911 --marker doc-update --url "https://github.example/c/doc-update" >/dev/null
+sct comment-add 9911 --marker doc-update --url "https://github.example/issues/9911#issuecomment-104" >/dev/null
 stage_evidence 9911 7
 err=$(sct_err set-stage 9911 7 --status completed)
 rc=$(sct_rc set-stage 9911 7 --status completed)
@@ -3562,7 +3603,7 @@ reset_state
 sct init 9912 --run-id "selftest-run-$$" >/dev/null
 for n in 1 2 3 4 5 6 7 8; do complete_stage 9912 "$n"; done
 sct set-stage 9912 9 --status started >/dev/null
-sct comment-add 9912 --marker pr --url "https://github.example/c/pr" >/dev/null
+sct comment-add 9912 --marker pr --url "https://github.example/issues/9912#issuecomment-106" >/dev/null
 sct stage-file-read 9912 --stage 9 --file 9-open-pr.md >/dev/null
 err=$(sct_err set-stage 9912 9 --status completed)
 rc=$(sct_rc set-stage 9912 9 --status completed)
@@ -3582,7 +3623,7 @@ sct init 9913 --run-id "selftest-run-$$" >/dev/null
 sct target-repos-set 9913 --repos "be fe" >/dev/null
 for n in 1 2 3 4 5 6 7 8; do sct set-stage 9913 "$n" --status started >/dev/null 2>&1; stage_evidence 9913 "$n"; sct set-stage 9913 "$n" --status completed --force --force-reason "selftest crash-recovery simulation of an operator waiver" >/dev/null 2>&1; done
 sct set-stage 9913 9 --status started >/dev/null
-sct comment-add 9913 --marker pr --url "https://github.example/c/pr" >/dev/null
+sct comment-add 9913 --marker pr --url "https://github.example/issues/9913#issuecomment-106" >/dev/null
 stage_evidence 9913 9
 sct pr-add 9913 --repo be --branch "claude/acme-9913" --url "https://github.example/pr/be" >/dev/null
 err=$(sct_err set-stage 9913 9 --status completed)
@@ -3615,8 +3656,8 @@ fi
 sct set-stage 9914 1 --status started >/dev/null
 sct checkpoint 9914 1 --json '{"verdict":"no-split","preflight":{"baseBranch":"main","workingTreeClean":true,"guardOutcome":"proceed-clean"}}' >/dev/null
 sct skill-load-add 9914 --stage 1 --skill intake-toolkit:intake-orchestrator >/dev/null
-sct comment-add 9914 --marker claimed --url "https://github.example/c/claimed" >/dev/null
-sct comment-add 9914 --marker intake --url "https://github.example/c/intake" >/dev/null
+sct comment-add 9914 --marker claimed --url "https://github.example/issues/9914#issuecomment-101" >/dev/null
+sct comment-add 9914 --marker intake --url "https://github.example/issues/9914#issuecomment-102" >/dev/null
 sct stage-file-read 9914 --stage 1 --file 2-worktree.md >/dev/null   # wrong file, recorded under stage 1
 err=$(sct_err set-stage 9914 1 --status completed)
 rc=$(sct_rc set-stage 9914 1 --status completed)
@@ -3782,8 +3823,8 @@ stage_evidence 9999 1
 got_inprogress=$(sct get 9999 '.stages."1".status')
 sct checkpoint 9999 1 --json '{"verdict":"no-split","preflight":{"baseBranch":"main","workingTreeClean":true,"guardOutcome":"proceed-clean"}}' >/dev/null   # stage-1 completion evidence (well-formed preflight)
 sct skill-load-add 9999 --stage 1 --skill intake-toolkit:intake-orchestrator >/dev/null
-sct comment-add 9999 --marker claimed --url "https://github.example/c/claimed" >/dev/null
-sct comment-add 9999 --marker intake --url "https://github.example/c/intake" >/dev/null
+sct comment-add 9999 --marker claimed --url "https://github.example/issues/9999#issuecomment-101" >/dev/null
+sct comment-add 9999 --marker intake --url "https://github.example/issues/9999#issuecomment-102" >/dev/null
 sct set-stage 9999 1 --status completed >/dev/null
 got_completed=$(sct get 9999 '.stages."1".status')
 sct set-stage 9999 2 --status started >/dev/null
@@ -3857,8 +3898,8 @@ lcg_stage1() {
   sct set-stage "$key" 1 --status started >/dev/null
   sct checkpoint "$key" 1 --json '{"verdict":"no-split","preflight":{"baseBranch":"main","workingTreeClean":true,"guardOutcome":"proceed-clean"}}' >/dev/null
   sct skill-load-add "$key" --stage 1 --skill intake-toolkit:intake-orchestrator >/dev/null
-  sct comment-add "$key" --marker claimed --url "https://github.example/c/claimed" >/dev/null
-  sct comment-add "$key" --marker intake --url "https://github.example/c/intake" >/dev/null
+  sct comment-add "$key" --marker claimed --url "https://github.example/issues/$key#issuecomment-101" >/dev/null
+  sct comment-add "$key" --marker intake --url "https://github.example/issues/$key#issuecomment-102" >/dev/null
   stage_evidence "$key" 1
 }
 
@@ -3893,8 +3934,8 @@ sct init 9931 --run-id "selftest-run-$$" >/dev/null
 sct set-stage 9931 1 --status started >/dev/null
 sct checkpoint 9931 1 --json '{"verdict":"no-split","preflight":{"baseBranch":"main","workingTreeClean":true,"guardOutcome":"proceed-clean"}}' >/dev/null
 sct skill-load-add 9931 --stage 1 --skill intake-toolkit:intake-orchestrator >/dev/null
-sct comment-add 9931 --marker claimed --url "https://github.example/c/claimed" >/dev/null
-sct comment-add 9931 --marker intake --url "https://github.example/c/intake" >/dev/null
+sct comment-add 9931 --marker claimed --url "https://github.example/issues/9931#issuecomment-101" >/dev/null
+sct comment-add 9931 --marker intake --url "https://github.example/issues/9931#issuecomment-102" >/dev/null
 stage_evidence 9931 1
 rc=$(sct_rc set-stage 9931 1 --status completed)
 lc=$(sct get 9931 '.stages."1".ledgerCorroboration')
@@ -4022,8 +4063,8 @@ sct init 9941 --run-id "selftest-run-$$" >/dev/null
 sct pipeline-session-add 9941 --session-id "$SESSION_A" --source interactive >/dev/null
 sct set-stage 9941 1 --status started >/dev/null
 sct checkpoint 9941 1 --json '{"verdict":"no-split","intakeMode":"inline-approved","preflight":{"baseBranch":"main","workingTreeClean":true,"guardOutcome":"proceed-clean"}}' >/dev/null
-sct comment-add 9941 --marker claimed --url "https://github.example/c/claimed" >/dev/null
-sct comment-add 9941 --marker intake --url "https://github.example/c/intake" >/dev/null
+sct comment-add 9941 --marker claimed --url "https://github.example/issues/9941#issuecomment-101" >/dev/null
+sct comment-add 9941 --marker intake --url "https://github.example/issues/9941#issuecomment-102" >/dev/null
 stage_evidence 9941 1
 rc=$(sct_rc set-stage 9941 1 --status completed)
 lc=$(sct get 9941 '.stages."1".ledgerCorroboration')
@@ -4088,7 +4129,7 @@ sct pipeline-session-add 9940 --session-id "$SESSION_A" --source interactive >/d
 sct set-stage 9940 8 --status started >/dev/null
 sct review-rounds 9940 --set 1 >/dev/null
 sct skill-load-add 9940 --stage 8 --skill review-toolkit:review-lead >/dev/null
-sct comment-add 9940 --marker code-review --url "https://github.example/c/code-review" >/dev/null
+sct comment-add 9940 --marker code-review --url "https://github.example/issues/9940#issuecomment-105" >/dev/null
 stage_evidence 9940 8
 err=$(sct_err set-stage 9940 8 --status completed)
 rc=$(sct_rc set-stage 9940 8 --status completed)
@@ -4128,8 +4169,8 @@ if [[ "${SKIP_STRESS:-0}" != "1" ]]; then
   sct set-stage 9999 1 --status started >/dev/null
   sct checkpoint 9999 1 --json '{"verdict":"no-split","preflight":{"baseBranch":"main","workingTreeClean":true,"guardOutcome":"proceed-clean"}}' >/dev/null   # evidence (well-formed preflight), so the write path actually runs
   sct skill-load-add 9999 --stage 1 --skill intake-toolkit:intake-orchestrator >/dev/null
-  sct comment-add 9999 --marker claimed --url "https://github.example/c/claimed" >/dev/null
-  sct comment-add 9999 --marker intake --url "https://github.example/c/intake" >/dev/null
+  sct comment-add 9999 --marker claimed --url "https://github.example/issues/9999#issuecomment-101" >/dev/null
+  sct comment-add 9999 --marker intake --url "https://github.example/issues/9999#issuecomment-102" >/dev/null
   stage_evidence 9999 1   # ditto: without the receipt the write refuses before the pause, and the case passes vacuously
   before_hash=$(shasum .claude/pipeline-state/9999.json | awk '{print $1}')
   STATECTL_TEST_PAUSE_BEFORE_MV=1 \
