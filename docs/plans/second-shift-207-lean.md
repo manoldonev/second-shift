@@ -45,6 +45,10 @@ the documented format stays consistent everywhere it is stated.
 - AC-4: shellcheck, jq, and the full `*-selftest.sh` sweep stay green (no selftest asserts the
   old format, so none require updating; this AC guards against a regression introduced
   elsewhere).
+- AC-5: `scripts/check-pipeline-chain.sh`'s comment above `FAMILY_SHORT="${FAMILY##*-}"` — which
+  described the pre-fix 3-part format and its hostname-redaction rationale — is updated to match
+  the new 2-part format. Found by milestone-4 review (round 1); in scope because this change is
+  what made the comment stale, even though the file sits outside `plugins/`.
 
 ## Out of scope
 

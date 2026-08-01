@@ -212,9 +212,9 @@ if [[ -z "$FAMILY" || "$FAMILY" == "null" ]]; then
   fail "no 'claimed' marker with a run_id found in the trail of #$KEY_BRANCH at or before PR-open ($PR_CREATED_AT). The chain does not start."
 fi
 
-# Public-repo hygiene: RUN_ID is {timestamp}-{hostname}-{hex}. Actions logs on a public repo are
-# world-readable, so only the trailing random segment is ever printed — enough to tell families
-# apart, no machine identifier disclosed.
+# Public-repo hygiene: RUN_ID is {timestamp}-{hex} — no host component. Actions logs on a
+# public repo are world-readable, so only the trailing random segment is ever printed — enough
+# to tell families apart.
 FAMILY_SHORT="${FAMILY##*-}"
 echo "[pipeline-chain] active run family (truncated): …$FAMILY_SHORT  (${PR_CREATED_AT} window)"
 
