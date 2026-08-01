@@ -58,8 +58,7 @@ wrong branch is free to get quietly worse. But a case asserting broken behavior 
 like a case blessing it, so it must say, at the assertion: what the real behavior is, what the
 documented or intended behavior was, why it was not fixed here, and that the case is expected
 to flip when it is. A characterization case that only asserts an exit code is indistinguishable
-from an author who did not notice. An example lives in `exitplan-ledger-gate-selftest.sh`
-`(t3h)`.
+from an author who did not notice.
 
 **A consumer's configured lane runs in a scrubbed child env.** `verifyctl.sh` and
 `preflight.sh` both spawn a `commands.<host>` command (`lint`/`typecheck`/`test`/`format`/

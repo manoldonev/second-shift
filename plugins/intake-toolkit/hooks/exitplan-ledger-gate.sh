@@ -18,10 +18,16 @@
 #      plan_file_path / file_path)
 #   3. fallback: files in the consumer repo's plans dir (git toplevel +
 #      config paths.plansDir, default .claude/plans; $HOME/.claude/plans when
-#      not in a git repo) with mtime newer than the session transcript's
-#      CREATION time (BSD find -newermB). Exactly one candidate → lint it;
-#      zero or multiple → warn-and-allow. Never lint a stale file silently:
-#      a single old plan with an old ledger must not false-PASS.
+#      not in a git repo) with a timestamp newer than the session transcript's
+#      creation. Prefers birth time (`find -newermB`, BSD); GNU find has no
+#      -newermB, so the hook probes once and falls back to mtime (`-newer`) —
+#      a weaker signal, but a working tier instead of a permanently vacuous
+#      one (#228). Exactly one candidate → lint it; zero → warn-and-allow;
+#      multiple → ambiguous, warn-and-allow. A scan that ERRORS is distinct
+#      from a scan that finds zero candidates: it fails CLOSED (block),
+#      because treating a broken scan as "found nothing" is what made #228
+#      invisible. Never lint a stale file silently: a single old plan with an
+#      old ledger must not false-PASS.
 #
 # Escape hatch: PLAN_INTERVIEW_SKIP=1 allows without linting.
 # Exit: 0 allow, 2 block (stderr shown to the model). Never exit 1.
@@ -52,6 +58,16 @@ block() {
   echo "ledger-gate: BLOCKED — the plan has no valid Decision Ledger." >&2
   echo "$1" >&2
   echo "Fix: run the plan-interview skill (interviewing-baseline contract); trivial work adds the explicit empty form: 'No material decisions — all choices codebase-derived.'" >&2
+  echo "Escape hatch (deliberate override only): PLAN_INTERVIEW_SKIP=1." >&2
+  exit 2
+}
+
+# Distinct from block(): this is not a ledger-content verdict, it's "freshness could
+# not be determined at all". Fails closed for the same reason block() does (never
+# silently allow), but with wording that does not claim anything about the ledger.
+block_scan_error() {
+  echo "ledger-gate: BLOCKED — tier-3 candidate scan failed, freshness cannot be trusted." >&2
+  echo "$1" >&2
   echo "Escape hatch (deliberate override only): PLAN_INTERVIEW_SKIP=1." >&2
   exit 2
 }
@@ -113,10 +129,31 @@ PLANS_DIR="$(resolve_plans_dir)"
 [[ -d "$PLANS_DIR" ]] || allow_warn "no plans dir at $PLANS_DIR"
 [[ -n "$TRANSCRIPT" && -f "$TRANSCRIPT" ]] || allow_warn "no transcript_path in payload to anchor freshness"
 
+# Probe once: does this platform's find support birth-time comparison? GNU find
+# rejects -newermB outright, so a self-referential probe (a dir compared to itself)
+# is enough to detect it without touching real candidates.
+NEWER_FLAG=-newermB
+if ! find "$PLANS_DIR" -maxdepth 0 -newermB "$PLANS_DIR" >/dev/null 2>&1; then
+  NEWER_FLAG=-newer
+fi
+
+# A plain redirect, not `< <(find ...)`: with process substitution, `$?` after the
+# while loop reflects the last `read`'s EOF status, not find's — that would fail
+# closed on every scan, including successful ones.
+FIND_OUT="$(mktemp "${TMPDIR:-/tmp}/ledger-gate-find-out.XXXXXX")"
+FIND_ERR="$(mktemp "${TMPDIR:-/tmp}/ledger-gate-find-err.XXXXXX")"
+find "$PLANS_DIR" -maxdepth 1 -type f -name '*.md' "$NEWER_FLAG" "$TRANSCRIPT" >"$FIND_OUT" 2>"$FIND_ERR"
+FIND_RC=$?
 CANDIDATES=()
 while IFS= read -r f; do
   [[ -n "$f" ]] && CANDIDATES+=("$f")
-done < <(find "$PLANS_DIR" -maxdepth 1 -type f -name '*.md' -newermB "$TRANSCRIPT" 2>/dev/null || true)
+done < "$FIND_OUT"
+FIND_STDERR="$(cat "$FIND_ERR" 2>/dev/null)"
+rm -f "$FIND_OUT" "$FIND_ERR"
+
+if (( FIND_RC != 0 )); then
+  block_scan_error "tier-3 candidate scan failed (find exit $FIND_RC, flag $NEWER_FLAG): ${FIND_STDERR:-no stderr}"
+fi
 
 if (( ${#CANDIDATES[@]} == 1 )); then
   run_lint "${CANDIDATES[0]}" "session-fresh plan ${CANDIDATES[0]}"

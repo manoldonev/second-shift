@@ -154,17 +154,14 @@ assert_rc "(t2e) tier 1 precedence — inline wins over a path field" 0 "payload
 # ---------------------------------------------------------------------------
 # Tier 3 — session-fresh plan files under the consumer repo's plans dir.
 #
-# The tier-3 candidate scan uses BSD `find -newermB` (birth time). GNU find has no
-# -newermB, so on Linux the find errors, `|| true` yields zero candidates, and the
-# hook warn-and-allows: tier 3 is PERMANENTLY VACUOUS there and can never lint a
-# session-fresh plan. That is a real gap (#215 plan Decision Ledger D-6, deferred —
-# a behavior change, not coverage). Rather than skip on Linux — which would report
-# success for cases that never ran — the suite probes support and asserts the
-# platform-correct contract on each. Both platforms get live assertions.
+# The tier-3 candidate scan prefers BSD `find -newermB` (birth time) and falls back
+# to `-newer` (mtime) when the platform's find rejects it (GNU find has no
+# -newermB) — probed once per hook invocation (#228 fix). Both platforms therefore
+# get the SAME live behavior below; there is no per-platform degrade branch left.
 # ---------------------------------------------------------------------------
 NEWERMB=0
 if find "$WORK" -maxdepth 0 -newermB "$WORK" >/dev/null 2>&1; then NEWERMB=1; fi
-echo "  info: find -newermB supported: $NEWERMB (0 = GNU find, tier-3 candidate scan is vacuous)"
+echo "  info: find -newermB supported: $NEWERMB (0 = GNU find; hook falls back to -newer mtime)"
 
 TRANSCRIPT="$WORK/transcript.jsonl"
 payload_t3() { jq -n --arg t "$TRANSCRIPT" '{transcript_path: $t, tool_input: {}}'; }
@@ -203,11 +200,7 @@ assert_rc "(t3c) no plan newer than the transcript → allow without linting" 0 
 sleep 1
 new_plan fresh.md "$INVALID_LEDGER"
 run_hook "$(payload_t3)"
-if [[ "$NEWERMB" == "1" ]]; then
-  assert_rc "(t3d) one session-fresh plan, invalid ledger → BLOCK" 2 "BLOCKED"
-else
-  assert_rc "(t3d) GNU find — tier 3 degrades to allow (D-6: vacuous, cannot lint)" 0 "no plan file newer"
-fi
+assert_rc "(t3d) one session-fresh plan, invalid ledger → BLOCK" 2 "BLOCKED"
 
 # Exactly one session-fresh candidate, valid → allow, and say which file.
 reset_plans
@@ -215,26 +208,17 @@ new_transcript
 sleep 1
 new_plan fresh-ok.md "$VALID_LEDGER"
 run_hook "$(payload_t3)"
-if [[ "$NEWERMB" == "1" ]]; then
-  assert_rc "(t3e) one session-fresh plan, valid ledger → allow, names the file" 0 "session-fresh plan"
-else
-  assert_rc "(t3e) GNU find — tier 3 degrades to allow (D-6)" 0 "no plan file newer"
-fi
+assert_rc "(t3e) one session-fresh plan, valid ledger → allow, names the file" 0 "session-fresh plan"
 
 # Ambiguous: two session-fresh candidates → warn-and-allow, never lint one at random.
 new_plan fresh-2.md "$INVALID_LEDGER"
 run_hook "$(payload_t3)"
-if [[ "$NEWERMB" == "1" ]]; then
-  assert_rc "(t3f) two session-fresh plans → ambiguous, allow without linting" 0 "ambiguous"
-else
-  assert_rc "(t3f) GNU find — tier 3 degrades to allow (D-6)" 0 "no plan file newer"
-fi
+assert_rc "(t3f) two session-fresh plans → ambiguous, allow without linting" 0 "ambiguous"
 
-# (t3h) D-6, proven on EVERY platform rather than only where GNU find happens to be
-# the userland: with a `find` that rejects -newermB, the candidate scan errors, the
-# `|| true` swallows it, and the hook allows — even though a session-fresh plan with
-# an INVALID ledger is sitting right there. This is the vacuous-gate failure mode in
-# a single case. Deferred as a behavior change (#215 D-6), pinned here as a fact.
+# (t3h) proves the #228 fix on EVERY platform rather than only where GNU find
+# happens to be the userland: with a `find` that rejects -newermB, the hook probes
+# once, falls back to `-newer` (mtime), and correctly BLOCKS a session-fresh plan
+# with an INVALID ledger — instead of the old silent allow.
 FIND_SHIM="$WORK/find-shim"
 mkdir -p "$FIND_SHIM"
 for c in bash cat dirname jq mktemp basename; do
@@ -262,7 +246,40 @@ new_plan fresh-invalid.md "$INVALID_LEDGER"
 OUT="$(printf '%s' "$(payload_t3)" \
   | env -u SECOND_SHIFT_CONFIG -u PLAN_INTERVIEW_SKIP SECOND_SHIFT_REPO_ROOT="$REPO" \
     PATH="$FIND_SHIM:$PATH" bash "$HOOK" 2>&1)"; RC=$?
-assert_rc "(t3h) no -newermB support → tier 3 allows an invalid fresh plan (D-6 vacuity)" 0 "no plan file newer"
+assert_rc "(t3h) no -newermB support → falls back to mtime, blocks an invalid fresh plan (#228 fix)" 2 "BLOCKED"
+
+# ---------------------------------------------------------------------------
+# AC-2 (#228): a scan that genuinely ERRORS — not just "predicate unsupported,
+# retry with -newer" — must be distinguishable from "legitimately found nothing"
+# and must fail CLOSED (block), not warn-and-allow. Simulated with a find shim
+# that fails unconditionally, regardless of which newer-flag the hook tries.
+# ---------------------------------------------------------------------------
+BROKEN_FIND_SHIM="$WORK/broken-find-shim"
+mkdir -p "$BROKEN_FIND_SHIM"
+for c in bash cat dirname jq mktemp basename; do
+  src="$(command -v "$c")"
+  [[ -n "$src" ]] && ln -sf "$src" "$BROKEN_FIND_SHIM/$c"
+done
+cat > "$BROKEN_FIND_SHIM/find" <<'BROKENFIND'
+#!/usr/bin/env bash
+echo "find: Permission denied" >&2
+exit 1
+BROKENFIND
+chmod +x "$BROKEN_FIND_SHIM/find"
+
+reset_plans
+new_transcript
+sleep 1
+new_plan fresh-invalid2.md "$INVALID_LEDGER"
+OUT="$(printf '%s' "$(payload_t3)" \
+  | env -u SECOND_SHIFT_CONFIG -u PLAN_INTERVIEW_SKIP SECOND_SHIFT_REPO_ROOT="$REPO" \
+    PATH="$BROKEN_FIND_SHIM:$PATH" bash "$HOOK" 2>&1)"; RC=$?
+assert_rc "(t3i) find scan genuinely fails → BLOCK, distinguishable from zero-candidates (AC-2)" 2 "candidate scan failed"
+if [[ "$OUT" == *"no plan file newer"* ]]; then
+  bad "(t3j) scan-error message must not read like the legitimate zero-candidates allow message"
+else
+  ok "(t3j) scan-error message is distinct from the zero-candidates allow message"
+fi
 
 # resolve_plans_dir honors config paths.plansDir over the .claude/plans default.
 # Asserted via the absent-dir message, which is the only branch that echoes the
