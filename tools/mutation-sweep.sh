@@ -52,8 +52,8 @@
 #
 # ENFORCING vs ADVISORY: enforcing iff GITHUB_ACTIONS is set. Local runs are advisory and
 # say so — kill verdicts are only comparable inside the canonical environment
-# (ubuntu-latest + SKIP_STRESS=1), and this repo documents at least one platform-divergent
-# guard (exitplan-ledger-gate's tier-3 `find -newermB` scan is dead code under GNU find).
+# (ubuntu-latest + SKIP_STRESS=1), whose GNU userland (coreutils, bash, find) a local
+# macOS/BSD run does not exactly reproduce.
 #
 # bash 3.2 clean: the companion selftest is in-glob, so it runs on the macOS lane's stock
 # bash. No associative arrays, no mapfile, no ${var^^}.
@@ -378,7 +378,7 @@ finish() {
     cat "$REPORT_TMP"
   fi
   rm -f "$REPORT_TMP"
-  [[ $ENFORCING -eq 1 ]] || info "ADVISORY RUN (GITHUB_ACTIONS unset) — kill verdicts are not comparable to the committed baseline; this repo documents platform-divergent guards."
+  [[ $ENFORCING -eq 1 ]] || info "ADVISORY RUN (GITHUB_ACTIONS unset) — kill verdicts are not comparable to the committed baseline; a local run's userland does not exactly reproduce CI's."
   [[ $WARNINGS -gt 0 ]] && info "$WARNINGS warning(s) — shrink the baseline."
   exit "$RC"
 }

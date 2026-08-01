@@ -98,21 +98,6 @@ The debt register that used to sit here — `check-plugin-version-bumps.sh` and
 `exitplan-ledger-gate.sh`, both listed as genuinely uncovered — is closed: each now has a
 same-named behavioral suite, as does `pipeline-doctor.sh`.
 
-**Characterization is not endorsement.** One of those suites pins fail-open behavior it did
-not fix, and says so at the assertion:
-
-- `exitplan-ledger-gate.sh` tier 3 resolves session-fresh plans with BSD `find -newermB`. Under
-  GNU find that predicate does not exist, the scan errors into `|| true`, and the hook allows —
-  so on Linux the tier can never lint a plan. `(t3h)` proves it on any platform.
-
-That is a behavior change rather than coverage, so it is tracked rather than fixed here — the
-ledger gate as #228. Do not drop this entry without landing its fix; #228 requires its
-register line removed in the same PR. When it is fixed, its case flips — and that flip is the
-intended signal, not a broken test.
-
-A previous version of this section claimed every script pairs with a *same-named* suite. That was
-false in both directions, and the false claim is part of how the dark gates above stayed invisible.
-
 ### What to write when you add a test
 
 **Scenario-first.** A new per-tool fixture case must name the invariant it guards and why no
