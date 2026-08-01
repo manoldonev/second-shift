@@ -164,24 +164,18 @@ out="$(run_classifier "$D")"
 # ---------------------------------------------------------------------------
 # (d5) undeterminable freshness.
 #
-# (d5a) CHARACTERIZES A KNOWN DIVERGENCE, it does not bless it. The block's own
-# comment claims "Missing/unparseable lastUpdatedAt anchors at epoch -> flagged as
-# ancient", and that is true for UNPARSEABLE (d5b) but FALSE for MISSING. In
-#   (.lastUpdatedAt // empty) | fromdateiso8601? // 0
-# `|` binds looser than `//`, so an absent field makes the left side yield `empty`
-# and the entire pipeline short-circuits: `$age` never binds and the file is
-# skipped. A truncated or corrupt state file with no lastUpdatedAt is therefore
-# invisible to the stale-claim check forever — a fail-open in the same class this
-# ticket was filed about, found by writing this case.
-#
-# Pinned as-is deliberately: #215 is a coverage ticket and this run characterizes
-# rather than changes gate behavior (plan Decision Ledger D-7). When the one-token
-# fix lands, this case flips to the (d5b) expectation and that flip is the signal.
+# (d5a) missing lastUpdatedAt anchors at epoch, matching the block's own comment
+# ("Missing/unparseable lastUpdatedAt anchors at epoch -> flagged as ancient") and
+# the (d5b) unparseable case below. Fixed under #229: `(.lastUpdatedAt // empty)`
+# short-circuited the whole `|` pipeline on an absent field (jq binds `|` looser
+# than `//`), so a truncated state file with no lastUpdatedAt was silently skipped
+# instead of anchored. `(.lastUpdatedAt // "")` always yields a value, so
+# `fromdateiso8601? // 0` anchors both the missing and unparseable cases at epoch.
 D="$WORK/d5"; mkdir -p "$D"
 mkstate 4010.json in_progress 60 'del(.lastUpdatedAt)'
 out="$(run_classifier "$D")"
-[[ -z "$out" ]] && ok "(d5a) missing lastUpdatedAt → silently skipped (known fail-open, D-7 — NOT the documented behavior)" \
-  || bad "(d5a) missing lastUpdatedAt → expected silence per current behavior, got: [$out]"
+[[ "$out" == *"4010"* ]] && ok "(d5a) missing lastUpdatedAt → flagged ancient, not skipped" \
+  || bad "(d5a) missing lastUpdatedAt → expected a stale line, got: [$out]"
 
 D="$WORK/d5b"; mkdir -p "$D"
 mkstate 4011.json in_progress 60 '.lastUpdatedAt = "not-a-timestamp"'
