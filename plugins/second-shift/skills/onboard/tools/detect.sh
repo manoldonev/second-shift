@@ -99,6 +99,37 @@ for suffix in ui web frontend client app; do
   cand="../${BASENAME%-api}-$suffix"; cand="${cand/--/-}"
   if [[ -d "$ROOT/$cand/.git" ]]; then SIBLINGS="$(jq -c --arg c "$cand" '. + [$c]' <<< "$SIBLINGS")"; fi
 done
+# Same-base-name convention match above requires the sibling to share this repo's base
+# name (e.g. shop-api / shop-ui). That misses pairs whose names carry no shared prefix at
+# all (fastapi-be / vue-fe, express-api / angular-fe) — both physically-adjacent checkouts,
+# neither detectable by the loop above. Broaden: if THIS repo's own basename carries a
+# recognized BE- or FE-side suffix, scan every adjacent git-repo directory for the
+# counterpart suffix, regardless of shared base name. Still detection, not a guess: a
+# match only adds a candidate for onboard's existing pair-confirm elicitation to ask about.
+FE_SUFFIXES=(ui web frontend client app fe)
+BE_SUFFIXES=(api be backend server service)
+has_suffix() { # $1 name, $2..  suffixes
+  local name="$1"; shift
+  local suf
+  for suf in "$@"; do case "$name" in *-"$suf") return 0 ;; esac; done
+  return 1
+}
+COUNTERPART_SUFFIXES=()
+if has_suffix "$BASENAME" "${BE_SUFFIXES[@]}"; then
+  COUNTERPART_SUFFIXES=("${FE_SUFFIXES[@]}")
+elif has_suffix "$BASENAME" "${FE_SUFFIXES[@]}"; then
+  COUNTERPART_SUFFIXES=("${BE_SUFFIXES[@]}")
+fi
+if [[ "${#COUNTERPART_SUFFIXES[@]}" -gt 0 && -d "$ROOT/.." ]]; then
+  for d in "$ROOT"/../*/; do
+    [[ -d "$d/.git" ]] || continue
+    dname="$(basename "$d")"
+    [[ "$dname" == "$BASENAME" ]] && continue
+    if has_suffix "$dname" "${COUNTERPART_SUFFIXES[@]}"; then
+      SIBLINGS="$(jq -c --arg c "../$dname" 'if index($c) then . else . + [$c] end' <<< "$SIBLINGS")"
+    fi
+  done
+fi
 TOPOLOGY=standalone; TOPO_SRC="no workspaces manifest; no sibling candidates"
 if [[ "$WORKSPACES" != "[]" ]]; then TOPOLOGY=monorepo; TOPO_SRC="package.json workspaces"
 elif [[ "$SIBLINGS" != "[]" ]]; then TOPOLOGY="be-fe-pair-candidate"; TOPO_SRC="sibling checkout(s) detected — needs confirmation"; fi

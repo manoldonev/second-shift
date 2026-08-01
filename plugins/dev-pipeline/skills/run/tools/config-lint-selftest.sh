@@ -44,6 +44,10 @@ expect_violation invalid-bad-viewport.json          "stageParams.visualCapture.v
 expect_violation invalid-bad-extralane.json         "extraLanes[0].failureClass: must be a closed failure-taxonomy value"
 expect_violation invalid-bad-stageworkflow.json     "stageWorkflows[0].stage: must be an integer 1-10"
 expect_violation invalid-bad-plangate.json          "planGates[0].agent: required"
+# #107: lintAutofixes:true + a plain `npm run` lint command silently no-ops verifyctl's
+# `--fix` suffix (npm swallows it without a `--` separator). valid-lintautofix-npm-withfix.json
+# (picked up by the valid-*.json loop above) proves the trailing-`--` escape hatch is accepted.
+expect_violation invalid-lintautofix-npm-nofix.json "commands.app.lintAutofixes is true but lint (\"npm run lint\") is a plain \`npm run\` invocation"
 expect_violation invalid-configversion-3.json       "configVersion 3 is newer than this plugin understands — upgrade the marketplace pin (docs/releasing.md)"
 expect_violation invalid-configversion-0.json       "configVersion 0 predates this plugin (current: 2) — see docs/migrations/v1-to-v2.md for the upgrade path"
 # AC-2: the PRIOR version is the case a real consumer hits at the bump; it must be
