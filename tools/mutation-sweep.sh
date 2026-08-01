@@ -378,7 +378,7 @@ finish() {
     cat "$REPORT_TMP"
   fi
   rm -f "$REPORT_TMP"
-  [[ $ENFORCING -eq 1 ]] || info "ADVISORY RUN (GITHUB_ACTIONS unset) — kill verdicts are not comparable to the committed baseline; this repo documents platform-divergent guards."
+  [[ $ENFORCING -eq 1 ]] || info "ADVISORY RUN (GITHUB_ACTIONS unset) — kill verdicts are not comparable to the committed baseline; a local run's userland does not exactly reproduce CI's."
   [[ $WARNINGS -gt 0 ]] && info "$WARNINGS warning(s) — shrink the baseline."
   exit "$RC"
 }
