@@ -44,8 +44,16 @@ if [[ "$TOPO" == "be-fe-pair" ]]; then
     RP=$(jq -r --arg r "$r" '.topology.repos[$r].path' "$SECOND_SHIFT_CONFIG")
     REPO_ABS="$(cd "$MAIN_ROOT/$RP" && pwd)"
     REPO_BASE=$(jq -r --arg r "$r" '.topology.repos[$r].baseBranch // "main"' "$SECOND_SHIFT_CONFIG")
-    WTDIR=$(jq -r --arg r "$r" '.topology.repos[$r].worktreesDir // empty' "$SECOND_SHIFT_CONFIG")
-    [[ -n "$WTDIR" ]] || WTDIR="../${r}-worktrees"
+    # WTDIR resolves via tools/resolve-worktrees-dir.sh — the single source of truth
+    # shared with Stage 1's intake-pin and Stage 10's cleanup backstop (issue #237).
+    WTDIR=$(bash "${CLAUDE_PLUGIN_ROOT}/skills/run/tools/resolve-worktrees-dir.sh" "$SECOND_SHIFT_CONFIG" "$r")
+    WTDIR_RC=$?
+    if [[ $WTDIR_RC -ne 0 ]]; then
+      echo "[stage-2] git worktree add failed for repo '$r' (rc=$WTDIR_RC): could not resolve topology.repos.\"$r\".worktreesDir" >&2
+      statectl.sh mark-failed "$ISSUE_NUMBER" --reason worktree-creation-failed --stage 2 \
+        --json "$(statectl.sh build-failure-context --reason worktree-creation-failed --stage 2 --kv repo="$r" --kv gitError="could not resolve worktreesDir")"
+      exit 0
+    fi
     WT_REL="${WTDIR}/${BRANCH##*/}"              # host-root-relative — the state canonical form
     git -C "$REPO_ABS" fetch origin "$REPO_BASE" --quiet 2>/dev/null || true
     if git -C "$REPO_ABS" branch --list "$BRANCH" | grep -q .; then
@@ -93,11 +101,23 @@ BASE_BRANCH="origin/$BASE_BRANCH_CFG"
 
 # Resume support: reuse existing branch if it exists.
 # Capture stderr so a failure can be recorded in failureContext.gitError.
-# WORKTREES_DIR = the host repo's configured worktrees dir
-# (config `topology.repos.<host>.worktreesDir`). The worktree dir name is the
-# branch basename (`${BRANCH##*/}` — strips the `tracker.branchPrefix` namespace,
-# e.g. `claude/acme-42` -> `acme-42`, `team/gh-42` -> `gh-42`), so it is
-# config-derived, never a hardcoded `acme-` literal.
+# WORKTREES_DIR resolves via tools/resolve-worktrees-dir.sh (issue #237) — the single
+# source of truth shared with Stage 1's intake-pin and Stage 10's cleanup backstop; no
+# other derivation of this value is permitted in this stage. The worktree dir name is
+# the branch basename (`${BRANCH##*/}` — strips the `tracker.branchPrefix` namespace,
+# e.g. `claude/acme-42` -> `acme-42`, `team/gh-42` -> `gh-42`), so it is config-derived,
+# never a hardcoded `acme-` literal.
+WORKTREES_DIR=$(bash "${CLAUDE_PLUGIN_ROOT}/skills/run/tools/resolve-worktrees-dir.sh" "$SECOND_SHIFT_CONFIG")
+WTDIR_RC=$?
+if [[ $WTDIR_RC -ne 0 ]]; then
+  echo "[stage-2] git worktree add failed (rc=$WTDIR_RC): could not resolve topology.repos.<host>.worktreesDir" >&2
+  statectl.sh mark-failed "$ISSUE_NUMBER" \
+    --reason worktree-creation-failed --stage 2 \
+    --json "$(statectl.sh build-failure-context \
+      --reason worktree-creation-failed --stage 2 \
+      --kv gitError="could not resolve worktreesDir")"
+  exit 0
+fi
 WT_PATH="${WORKTREES_DIR}/${BRANCH##*/}"
 if git branch --list "$BRANCH" | grep -q .; then
   WT_ERR=$(git worktree add "$WT_PATH" "$BRANCH" 2>&1)
@@ -136,6 +156,25 @@ fi   # end single-repo (TOPO != be-fe-pair) worktree creation
 
 ```bash
 if [[ "$(jq -r '.topology.type // "standalone"' "$SECOND_SHIFT_CONFIG" 2>/dev/null || echo standalone)" != "be-fe-pair" ]]; then
+  # Separate bash fence from the worktree-add block above — re-derive WORKTREES_DIR via
+  # the same single source of truth (tools/resolve-worktrees-dir.sh) rather than relying
+  # on a variable carrying over across tool calls (it does not). The worktree already
+  # exists at this point (this block runs after the worktree-add block succeeded), so a
+  # resolution failure here would be a config change mid-stage — vanishingly unlikely,
+  # but still handled the same way as every other call site: mark-failed, never a
+  # silent skip (an unmarked failure here would leave Stage 2 permanently unresumable —
+  # the worktree exists but its boundary fields never get persisted).
+  WORKTREES_DIR=$(bash "${CLAUDE_PLUGIN_ROOT}/skills/run/tools/resolve-worktrees-dir.sh" "$SECOND_SHIFT_CONFIG")
+  WTDIR_RC=$?
+  if [[ $WTDIR_RC -ne 0 ]]; then
+    echo "[stage-2] could not re-resolve topology.repos.<host>.worktreesDir for the state-persist call (rc=$WTDIR_RC)" >&2
+    statectl.sh mark-failed "$ISSUE_NUMBER" \
+      --reason worktree-creation-failed --stage 2 \
+      --json "$(statectl.sh build-failure-context \
+        --reason worktree-creation-failed --stage 2 \
+        --kv gitError="could not re-resolve worktreesDir for state persist")"
+    exit 0
+  fi
   statectl.sh worktree-set "$ISSUE_NUMBER" \
     --path "${WORKTREES_DIR}/${BRANCH##*/}" \
     --branch "$BRANCH"
