@@ -47,12 +47,15 @@ This skill loads instructions into the **calling session**, which gathers eviden
 >
 > **Bot writes.** This skill runs from the intake-toolkit plugin, so `${CLAUDE_PLUGIN_ROOT}`
 > here resolves to intake-toolkit, not dev-pipeline — the write sites below cannot use
-> dev-pipeline's own `${CLAUDE_PLUGIN_ROOT}/skills/run/tools/gh-bot.sh` shorthand verbatim.
-> Resolve dev-pipeline's install path once (never a cached path from memory — the onboarding
-> skill's own convention):
+> dev-pipeline's own passthrough shorthand verbatim, and per this repo's namespace direction
+> rule (toolkits never hard-path into dev-pipeline's internal layout — `docs/namespaces.md`
+> rule 3), this note deliberately does not spell that layout out either. Resolve dev-pipeline's
+> install path once (never a cached path from memory — the onboarding skill's own convention):
 > `claude plugin list --json | jq -r '.[] | select(.id == "dev-pipeline@second-shift") | .installPath'`,
-> then invoke `bash "$DEV_PIPELINE_ROOT/skills/run/tools/gh-bot.sh" <gh-args…>` — shown below
-> as `$GH_BOT_SH` for brevity. Every `$GH_BOT_SH` site below is this same resolved passthrough.
+> then locate its bot-wrapper resolver **by name** under that install path — e.g.
+> `find "$DEV_PIPELINE_ROOT" -name gh-bot.sh | head -1` — and invoke
+> `bash "<resolved path>" <gh-args…>`, shown below as `$GH_BOT_SH` for brevity. Every
+> `$GH_BOT_SH` site below is this same resolved passthrough.
 
 ## Pre-flight: Tool availability
 
