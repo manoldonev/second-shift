@@ -1,21 +1,16 @@
 #!/usr/bin/env bash
 # install-gh-bot.sh — provision the dev-pipeline gh bot wrapper on a new machine.
 #
-# The dev-pipeline / pr-revision skills require
-# $HOME/.config/<consumer-repo-dir-basename>/gh-as-bot.sh for all GitHub write
-# operations (Bot Identity section in SKILL.md) — the SAME path claim-issue.sh
-# derives as its GH_BOT default, so creator and consumer stay consistent. The
-# basename comes from the consumer repo root (SECOND_SHIFT_REPO_ROOT, else the
-# main checkout via `git rev-parse --git-common-dir`). This script is the one-shot
-# machine bootstrap: it installs the GitHub App private key, discovers the
-# installation ID, writes the wrapper, and smoke-tests it.
+# The dev-pipeline / pr-revision skills require a bot wrapper for all GitHub write
+# operations (Bot Identity section in SKILL.md). The destination path is the same
+# one tools/gh-bot.sh resolves (#92) — creator and consumer share one ladder.
+# This script is the one-shot machine bootstrap: it installs the GitHub App
+# private key, discovers the installation ID, writes the wrapper, and smoke-tests it.
 #
-# GitHub App identity + wrapper path resolve from second-shift.config.json when
-# present (tracker.bot.app.{clientId,appName,privateKeyFilename,installationId}
-# and tracker.bot.wrapperPath), falling back to the acme defaults below so a
-# config-less checkout is unchanged. --client-id / --installation-id still win over
-# both (explicit-flag precedence). Onboarding a different repo's bot app is now a
-# config edit, not a script edit.
+# GitHub App identity resolves from second-shift.config.json when present
+# (tracker.bot.app.{clientId,appName,privateKeyFilename,installationId});
+# wrapper path comes from gh-bot.sh --path. --client-id / --installation-id still
+# win over config (explicit-flag precedence).
 #
 # Usage:
 #   bash install-gh-bot.sh <path-to-private-key.pem>   # first install on a machine
@@ -43,45 +38,39 @@ INSTALLATION_ID=""
 APP_NAME="acme-dev-pipeline"
 KEY_FILENAME="acme-dev-pipeline.private-key.pem"
 
-# Consumer-repo config dir basename — kept in lockstep with claim-issue.sh's GH_BOT
-# default so the wrapper this script WRITES is the one the pipeline READS.
 _root="${SECOND_SHIFT_REPO_ROOT:-}"
 if [[ -z "$_root" ]]; then
   _common="$(git rev-parse --git-common-dir 2>/dev/null || true)"
-  [[ -n "$_common" ]] && _root="$(dirname "$(cd "$_common" && pwd)")"
+  if [[ -n "$_common" ]]; then
+    case "$_common" in /*) : ;; *) _common="$(pwd)/$_common" ;; esac
+    _root="$(cd "$_common/.." 2>/dev/null && pwd)" || _root=""
+  fi
 fi
 if [[ -z "$_root" ]]; then
   echo "[install-gh-bot] cannot resolve the consumer repo root — run from inside the repo, or set SECOND_SHIFT_REPO_ROOT" >&2
   exit 2
 fi
-REPO_BASENAME="$(basename "$_root")"
 
-# Config overlay: read the bot app identity + wrapper path from the consumer config
-# when it exists ($SECOND_SHIFT_CONFIG wins, else <root>/.claude/second-shift.config.json).
-# jq '// empty' leaves each default untouched when the key is absent.
+# Config overlay: bot app identity only. Wrapper destination is gh-bot.sh --path
+# (single ladder with claim-issue / cost-block / doctor — #92).
 _cfg="${SECOND_SHIFT_CONFIG:-$_root/.claude/second-shift.config.json}"
-WRAPPER_OVERRIDE=""
 if [[ -f "$_cfg" ]] && command -v jq >/dev/null; then
   _v() { jq -r "$1 // empty" "$_cfg" 2>/dev/null; }
   _t="$(_v '.tracker.bot.app.clientId')";           [[ -n "$_t" ]] && CLIENT_ID="$_t"
   _t="$(_v '.tracker.bot.app.installationId')";      [[ -n "$_t" ]] && INSTALLATION_ID="$_t"
   _t="$(_v '.tracker.bot.app.appName')";             [[ -n "$_t" ]] && APP_NAME="$_t"
   _t="$(_v '.tracker.bot.app.privateKeyFilename')";  [[ -n "$_t" ]] && KEY_FILENAME="$_t"
-  _t="$(_v '.tracker.bot.wrapperPath')";             [[ -n "$_t" ]] && WRAPPER_OVERRIDE="${_t/#\~/$HOME}"
 fi
 
-CONFIG_DIR="$HOME/.config/$REPO_BASENAME"
-KEY_DEST="$CONFIG_DIR/$KEY_FILENAME"
-# tracker.bot.wrapperPath, when set, relocates the wrapper AND its config dir so
-# install (writer) and claim-issue.sh (reader) agree on the same explicit path —
-# the derivation that was wrong once (canary catch). KEY_DEST stays beside the wrapper.
-if [[ -n "$WRAPPER_OVERRIDE" ]]; then
-  WRAPPER="$WRAPPER_OVERRIDE"
-  CONFIG_DIR="$(dirname "$WRAPPER")"
-  KEY_DEST="$CONFIG_DIR/$KEY_FILENAME"
-else
-  WRAPPER="$CONFIG_DIR/gh-as-bot.sh"
+_RESOLVER="$(cd "$(dirname "$0")" && pwd)/gh-bot.sh"
+# --path prints the destination even when the file is not yet present (exit non-zero).
+WRAPPER="$(bash "$_RESOLVER" --path 2>/dev/null || true)"
+if [[ -z "$WRAPPER" ]]; then
+  echo "[install-gh-bot] gh-bot.sh could not resolve a wrapper destination (is the repo root set?)" >&2
+  exit 2
 fi
+CONFIG_DIR="$(dirname "$WRAPPER")"
+KEY_DEST="$CONFIG_DIR/$KEY_FILENAME"
 
 KEY_SRC=""
 while [[ $# -gt 0 ]]; do

@@ -136,6 +136,11 @@ cp "$MOCKBIN/gh" "$MOCKBIN/gh-as-bot.sh"
 chmod +x "$MOCKBIN/gh-as-bot.sh"
 export PATH="$MOCKBIN:$PATH"
 export GH_BOT="$MOCKBIN/gh-as-bot.sh"
+# claim-issue.sh resolves the wrapper via tools/gh-bot.sh (#92), which short-circuits
+# to disabled unless tracker.bot.enabled is true. Provide a bot-enabled config so the
+# exported GH_BOT mock remains the injection seam claim-selftest / this harness use.
+printf '%s\n' '{"tracker":{"bot":{"enabled":true}}}' > "$TMP/e2e-bot-cfg.json"
+export SECOND_SHIFT_CONFIG="$TMP/e2e-bot-cfg.json"
 
 # mint_comment <issue> — POST a comment through the bot wrapper and echo the html_url.
 # This is the harness-owned invocation shape flagged in the scope boundary above.

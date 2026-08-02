@@ -91,13 +91,18 @@ run_claim() {
   if [[ $# -gt 3 ]]; then shift 3; else shift $#; fi
   rm -f "$DELETE_SENTINEL"
   : > "$CALL_LOG"
+  # Bot-enabled config so gh-bot.sh honors GH_BOT (disabled short-circuits otherwise).
+  printf '%s\n' '{"tracker":{"bot":{"enabled":true}}}' > "$TMP/claim-cfg.json"
   # shellcheck disable=SC2086 # issue_arg deliberately unquoted: empty for the no-arg case
-  GH_BOT="$MOCK" \
-  MOCK_ADD_STDOUT="$add_stdout" \
-  MOCK_ADD_RC="$add_rc" \
-  MOCK_QUEUE_LABEL="${MOCK_QUEUE_LABEL:-ready-for-dev}" \
-  CALL_LOG="$CALL_LOG" \
-  DELETE_SENTINEL="$DELETE_SENTINEL" \
+  env \
+    GH_BOT="$MOCK" \
+    SECOND_SHIFT_CONFIG="$TMP/claim-cfg.json" \
+    SECOND_SHIFT_REPO_ROOT="$TMP" \
+    MOCK_ADD_STDOUT="$add_stdout" \
+    MOCK_ADD_RC="$add_rc" \
+    MOCK_QUEUE_LABEL="${MOCK_QUEUE_LABEL:-ready-for-dev}" \
+    CALL_LOG="$CALL_LOG" \
+    DELETE_SENTINEL="$DELETE_SENTINEL" \
     bash "$HELPER" $issue_arg "$@" >/dev/null 2>&1
   echo "$?"
 }
@@ -134,6 +139,34 @@ if [[ "$rc" == "1" ]] && ! deleted; then ok "failed-add (422/jq-error body, rc=5
 #     branch still fires under `set -o pipefail` rather than the script dying).
 rc=$(run_claim '' 1)
 if [[ "$rc" == "1" ]] && ! deleted; then ok "failed-add (empty body + rc=1) -> exit 1, no DELETE"; else bad "failed-add (empty+rc1): rc=$rc deleted=$(deleted && echo y || echo n)"; fi
+
+# (h) DISABLED/UNCONFIGURED RESOLVER (#92) — every case above runs with a
+# bot-enabled config, so the new `GH_BOT="$(bash "$_RESOLVER" --path)" || exit 1`
+# guard (added when the resolver replaced the private ladder) was never
+# exercised: a disabled or misconfigured resolver must abort BEFORE the mock
+# wrapper is ever invoked — no POST, no DELETE.
+# shellcheck disable=SC2120 # issue_arg has a default (183); no caller needs the override
+run_claim_disabled() {
+  local issue_arg="${1-183}"
+  rm -f "$DELETE_SENTINEL"
+  : > "$CALL_LOG"
+  printf '%s\n' '{"tracker":{"bot":{"enabled":false}}}' > "$TMP/claim-cfg-disabled.json"
+  env \
+    GH_BOT="$MOCK" \
+    SECOND_SHIFT_CONFIG="$TMP/claim-cfg-disabled.json" \
+    SECOND_SHIFT_REPO_ROOT="$TMP" \
+    CALL_LOG="$CALL_LOG" \
+    DELETE_SENTINEL="$DELETE_SENTINEL" \
+    bash "$HELPER" "$issue_arg" >/dev/null 2>&1
+  echo "$?"
+}
+# shellcheck disable=SC2119 # the default from SC2120's disable applies here too
+rc=$(run_claim_disabled)
+if [[ "$rc" == "1" ]] && ! deleted && [[ ! -s "$CALL_LOG" ]]; then
+  ok "disabled resolver -> exit 1, no POST/DELETE (mock never invoked)"
+else
+  bad "disabled resolver: rc=$rc deleted=$(deleted && echo y || echo n) calls=$(cat "$CALL_LOG" 2>/dev/null)"
+fi
 
 echo "=== claim-issue.sh: usage contract ==="
 
@@ -187,7 +220,12 @@ else
   # over SKILL.md / 1-intake.md were the banned prose-presence class: they assert only
   # that prose contains words, and the anti-inline pattern could not even match a
   # re-inline of the helper's current form.
-  parity "bot wrapper under \$HOME/.config/<repo>/" '\.config/.*gh-as-bot\.sh'   "$HELPER"
+  # Anchored on the INVOCATION, not a bare `gh-bot\.sh` substring: that pattern also
+  # matches this file's own header comments (#92's "delegates ... resolve to gh-bot.sh"
+  # sentence), so deleting the actual delegation at the `bash "$_RESOLVER" --path` call
+  # site would leave a comment-only match and this guard green regardless.
+  # shellcheck disable=SC2016 # single-quoted grep -E pattern, not meant to expand
+  parity "delegates wrapper resolve to gh-bot.sh" 'bash "\$_RESOLVER" --path'   "$HELPER"
 fi
 
 echo

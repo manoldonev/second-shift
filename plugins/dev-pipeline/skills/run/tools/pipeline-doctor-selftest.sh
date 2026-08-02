@@ -327,6 +327,84 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+# (d7-bot) block 3 — bot-resolve classification (#92). Same extract-and-execute
+# technique as stale-claim / envelope: the REAL production block is re-hosted
+# here against a mock gh-bot.sh. No scenario-liveness path — like doctor block 8,
+# this reaches no terminal write (stated per the scenario-first rule).
+# ---------------------------------------------------------------------------
+BOT_BLOCK="$(sed -n '/# >>> bot-resolve/,/# <<< bot-resolve/p' "$DOCTOR")"
+if [[ -z "$BOT_BLOCK" ]]; then
+  bad "(d7-bot) bot-resolve sentinels not found in $DOCTOR"
+else
+  run_bot_resolve() { # status token the mock --status prints; optional path
+    local mock_status="$1" mock_path="${2:-}"
+    local mock="$WORK/mock-gh-bot-$$.sh"
+    cat > "$mock" <<MOCK
+#!/usr/bin/env bash
+case "\${1:-}" in
+  --status) echo "$mock_status"; exit 0 ;;
+  --path)
+    if [[ -n "$mock_path" ]]; then echo "$mock_path"; fi
+    [[ "$mock_status" == "ok" ]] && exit 0 || exit 1
+    ;;
+  *) exit 99 ;;
+esac
+MOCK
+    chmod +x "$mock"
+    local emitted="" fails=0
+    # shellcheck disable=SC2317,SC2329
+    ok()  { emitted+="OK:$1;"; }
+    # shellcheck disable=SC2317,SC2329
+    bad() { emitted+="FAIL:$1;"; fails=$((fails+1)); }
+    # shellcheck disable=SC2034
+    CFG=""
+    # Exported so the eval'd production block (and shellcheck) see them as used.
+    export DOCTOR_BOT_RESOLVER="$mock"
+    export DOCTOR_BOT_SKIP_PROBE=1
+    export GH_BOT=""
+    eval "$BOT_BLOCK"
+    printf '%s|%s\n' "$fails" "$emitted"
+  }
+
+  # disabled → no FAIL
+  out="$(run_bot_resolve disabled)"
+  fails="${out%%|*}"; emitted="${out#*|}"
+  if [[ "$fails" == "0" && "$emitted" == *"OK:bot check skipped"* && "$emitted" != *"FAIL:"* ]]; then
+    ok "(d7-bot) disabled → skip, no FAIL"
+  else
+    bad "(d7-bot) disabled → fails=$fails emitted=[$emitted]"
+  fi
+
+  # unset-var vs missing-file produce DIFFERENT messages
+  out_u="$(run_bot_resolve unset-var)"
+  out_m="$(run_bot_resolve missing-file /tmp/missing-wrapper-92.sh)"
+  em_u="${out_u#*|}"; em_m="${out_m#*|}"
+  if [[ "$em_u" == *"FAIL:bot env var"* && "$em_m" == *"FAIL:bot wrapper missing"* && "$em_u" != "$em_m" ]]; then
+    ok "(d7-bot) unset-var vs missing-file produce distinct FAIL messages"
+  else
+    bad "(d7-bot) message pairing failed — unset=[$em_u] missing=[$em_m]"
+  fi
+
+  # not-executable distinct too
+  out_n="$(run_bot_resolve not-executable /tmp/not-exec-92.sh)"
+  em_n="${out_n#*|}"
+  if [[ "$em_n" == *"FAIL:bot wrapper at"* && "$em_n" == *"not executable"* ]]; then
+    ok "(d7-bot) not-executable has its own remediation"
+  else
+    bad "(d7-bot) not-executable emitted=[$em_n]"
+  fi
+
+  # ok → binds GH_BOT and reports resolved, no FAIL (all five AC-8 tokens now covered)
+  out_ok="$(run_bot_resolve ok /tmp/mock-wrapper-92.sh)"
+  fails_ok="${out_ok%%|*}"; em_ok="${out_ok#*|}"
+  if [[ "$fails_ok" == "0" && "$em_ok" == *"OK:bot wrapper resolved at /tmp/mock-wrapper-92.sh"* ]]; then
+    ok "(d7-bot) ok → binds GH_BOT and reports resolved, no FAIL"
+  else
+    bad "(d7-bot) ok → fails=$fails_ok emitted=[$em_ok]"
+  fi
+fi
+
+# ---------------------------------------------------------------------------
 # summary
 # ---------------------------------------------------------------------------
 echo "[pipeline-doctor-selftest] $PASS passed, $FAIL failed"
