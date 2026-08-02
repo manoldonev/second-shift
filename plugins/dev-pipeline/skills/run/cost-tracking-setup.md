@@ -33,20 +33,31 @@ echo 'export PATH="$HOME/bin:$PATH"' >> ~/.zshrc   # or ~/.bashrc
 
 Verify: `otelcol-contrib --version`.
 
-## 2. Start the collector
+## 2. Start the collector (once, globally)
 
-The repo ships the collector config at `otel-collector-config.yaml` — it listens on `127.0.0.1:4317`, batches every 1s, and appends JSONL to `~/.claude/otel-metrics/metrics.jsonl` (50 MB rotation, 30-day retention).
+The collector is a **single global daemon** — one instance serves every repo's telemetry, keyed by `session.id`, not by which repo you launched it from. It listens on `127.0.0.1:4317`, batches every 1s, and appends JSONL to `~/.claude/otel-metrics/metrics.jsonl` (50 MB rotation, 30-day retention). It does not need a tmux/iTerm pane and it does not need to be started from any particular `cwd`.
 
-In a tmux/iTerm pane you keep around:
+The config ships at `plugins/dev-pipeline/skills/run/otel-collector-config.yaml` inside dev-pipeline. **Don't reference that path directly** — if you installed the plugin from the marketplace it resolves to a version-pinned cache path (`~/.claude/plugins/cache/second-shift/dev-pipeline/<version>/skills/run/...`) that moves out from under you on the next upgrade. Copy it to a stable location once instead:
 
 ```bash
 mkdir -p ~/.claude/otel-metrics
-otelcol-contrib --config="$(pwd)/otel-collector-config.yaml"
+SRC=$(find ~/.claude/plugins/cache/second-shift/dev-pipeline -name otel-collector-config.yaml 2>/dev/null | sort -V | tail -1)
+cp "$SRC" ~/.claude/otel-metrics/otel-collector-config.yaml
 ```
 
-Verify it's live: `lsof -iTCP:4317 -sTCP:LISTEN` should show the process.
+(If you're working directly in a clone of second-shift itself, `SRC` is `plugins/dev-pipeline/skills/run/otel-collector-config.yaml` relative to the repo root instead.)
 
-**Stopping it:** `Ctrl+C` in the pane where it's running, or from any terminal:
+Then launch it backgrounded with `nohup` — no dedicated pane to babysit:
+
+```bash
+nohup otelcol-contrib --config="$HOME/.claude/otel-metrics/otel-collector-config.yaml" \
+  > ~/.claude/otel-metrics/otelcol.log 2>&1 &
+disown
+```
+
+Verify it's live: `lsof -iTCP:4317 -sTCP:LISTEN` should show the process. It'll stay up across shell sessions until you kill it or reboot; check `~/.claude/otel-metrics/otelcol.log` if it doesn't start.
+
+**Stopping it:**
 
 ```bash
 pkill -f otelcol-contrib
@@ -56,7 +67,7 @@ lsof -ti:4317 | xargs kill
 
 (If you set up the optional launchd appendix below, `pkill` alone won't stick — use `launchctl bootout` as shown there.)
 
-Want it always-on instead? See the launchd appendix at the bottom of this file.
+Want it to survive reboots too? See the launchd appendix at the bottom of this file — it also uses the stable `~/.claude/otel-metrics/otel-collector-config.yaml` copy, so it never breaks on a dev-pipeline upgrade.
 
 ## 3. Tell Claude Code to export telemetry
 
@@ -136,13 +147,15 @@ The cost block is a **best-effort, in-band sub-step** — Stage 9 (and the whole
 
 3. It is **idempotent on the `<!-- pipeline-cost-block -->` marker**: if a prior partial run already amended some PRs, those are detected and skipped; only the un-amended PRs in `prs[]` get the block. A clean re-run flips `costBlockApplied` to `true`. Repeat as needed — re-running after success is a safe no-op.
 
-**Collector won't start.** Port 4317 in use? `lsof -iTCP:4317` to see what's holding it. Kill the old process or change the port in `otel-collector-config.yaml` AND in your `.envrc` `OTEL_EXPORTER_OTLP_ENDPOINT`.
+**Collector won't start.** Port 4317 in use? `lsof -iTCP:4317` to see what's holding it. Kill the old process or change the port in `~/.claude/otel-metrics/otel-collector-config.yaml` AND in your `.envrc` `OTEL_EXPORTER_OTLP_ENDPOINT`.
 
 **Wrong cost numbers.** The block is the OTel-reported estimate. The authoritative billing number lives in the Anthropic Console. Expect ±10% drift versus Console (acceptable for v1; reconciliation is deferred).
 
 ## Appendix: always-on via launchd (optional)
 
-Only worth it if you run pipelines several times a week. For occasional use the tmux pane is simpler.
+Only worth it if you run pipelines several times a week. For occasional use, the `nohup` launch in step 2 is simpler and survives just fine until you reboot.
+
+Point it at the stable `~/.claude/otel-metrics/otel-collector-config.yaml` copy from step 2, not the plugin-cache path — the cache path is version-pinned and goes stale on the next dev-pipeline upgrade.
 
 ```xml
 <!-- ~/Library/LaunchAgents/com.yourname.otelcol-contrib.plist -->
@@ -154,7 +167,7 @@ Only worth it if you run pipelines several times a week. For occasional use the 
     <key>ProgramArguments</key>
     <array>
         <string>/Users/YOU/bin/otelcol-contrib</string>
-        <string>--config=<abs-path-to>/otel-collector-config.yaml</string>
+        <string>--config=/Users/YOU/.claude/otel-metrics/otel-collector-config.yaml</string>
     </array>
     <key>RunAtLoad</key><true/>
     <key>KeepAlive</key><true/>
