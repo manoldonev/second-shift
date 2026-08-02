@@ -158,4 +158,4 @@ Testing: [`docs/testing.md`](docs/testing.md) — the tier map, the runtime shim
 
 Release process: [`docs/releasing.md`](docs/releasing.md) — the checklist of record.
 
-Enforcement principles: [`docs/pipeline-manifesto.md`](docs/pipeline-manifesto.md) — P1–P7, the trust boundary, and the T0 note. A judgment aid, not a gate.
+Enforcement principles: [`docs/pipeline-manifesto.md`](docs/pipeline-manifesto.md) — P1–P10, the trust boundary, and the T0 note. A judgment aid, not a gate.

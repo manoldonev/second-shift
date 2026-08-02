@@ -1,26 +1,30 @@
 # The Pipeline Manifesto
 
 Operator-stated, non-negotiable. Every enforcement decision in this repo is judged against these
-seven principles.
+ten principles.
 
 This document is a **judgment aid for humans and reviews — it is not itself a gate**, and no lint
 polices it. P5 forbids prose-presence guards, and a lint that checked for this file's wording would
 be the first thing it forbids.
 
-## The seven principles
+## The ten principles
 
-- **P1 — The pipeline is the unit of work.** Every change travels the full path — intake, plan,
-  implement, verify, review, PR. No partial runs, no shortcuts, no "just this once."
-- **P2 — The agent has no discretion over the path.** Stages are contracts, not suggestions.
-  Skipping, reordering, thinning, or reinterpreting a stage must be *impossible*, not discouraged.
+- **P1 — The artifact chain is the unit of work.** Every change travels receipt to receipt — intake
+  receipt, build artifacts (PR, green verification, progress record), independent review verdict,
+  merge boundary. Blocks are coupled only by committed artifacts, never by one block invoking
+  another's internals. No partial chains, no shortcuts, no "just this once."
+- **P2 — The agent has no discretion over outcomes and boundaries.** Receipts and gates are
+  contracts, not suggestions. Skipping, thinning, forging, or reinterpreting an outcome gate must be
+  *impossible*, not discouraged. The path between receipts is the model's own — prescribing it is
+  scaffolding the next model generation deletes (P6).
 - **P3 — Proof, not honesty.** The agent's account of its own compliance — comments, reports,
   self-scores — is not evidence. Compliance is established by records the agent does not control,
   reconciled mechanically.
 - **P4 — As much as it takes, and none more.** Time, tokens, compute: the pipeline spends what the
   work needs. Overspend is waste; *underspend is a divergence signal* — both are anomalies against
   the measured corpus.
-- **P5 — Every word earns its place.** Scripts, skills, and stage docs say what is necessary and
-  nothing more. A rule enforced by a gate does not also live as prose; a reminder is not a control.
+- **P5 — Every word earns its place.** Scripts, skills, and docs say what is necessary and nothing
+  more. A rule enforced by a gate does not also live as prose; a reminder is not a control.
 - **P6 — Ride the current model, don't fight the last one.** Workarounds for model pathologies carry
   their measured basis; when the model generation changes, the basis is re-measured and dead
   workarounds are deleted (with a canary). Model upgrades are harvested — context management, effort
@@ -28,10 +32,34 @@ be the first thing it forbids.
 - **P7 — Split only what must be split.** Every sub-issue is a full pipeline run, and runs are
   expensive. Decomposition produces as many issues as necessary and no more: a slice that cannot
   justify its own run merges into its neighbor. Thin slices are waste, not rigor.
+- **P8 — Human intent is discovered, not transmitted.** Nobody holds a complete picture of what they want
+  until something concrete pushes back. A spec produced in one pass can satisfy every stated
+  requirement and still build the wrong thing, because the requirements that mattered only surface
+  through reaction. Intake never leads with a finished draft: decisions go to the human one at a
+  time, and the receipt names what remains open instead of claiming it knows everything.
+- **P9 — Requirements are underspecified.** One line of request carries dozens of unstated choices —
+  ask for search and you have implicitly asked about ranking, index staleness, typo tolerance, and
+  who may see which results — most of which the requester holds no opinion on until a working
+  version forces one. Resolving the whole tree in a single pass locks wrong guesses in where they
+  compound; resolving each decision as it surfaces keeps every correction cheap. A gap found
+  mid-build is normal operation: it routes back as an intent-gap record under its declared
+  disposition, never as a silent choice.
+- **P10 — Verification requires a different mode than generation.** The session that produced a piece of work is
+  structurally the wrong one to evaluate it: judging your own output means confirming the choices
+  that shaped it, and a stronger model inherits the same conflict, because the bias lives in the
+  arrangement, not in the intelligence. Generation and evaluation run in separate contexts, and
+  neither writes the other's record.
+
+**P1/P2 posture:** stated in block form — receipts and outcome gates. Until the stage-machinery
+deletion lands, the staged path remains in-tree solely as rollback and ablation control (the pin is
+the last stage-carrying release, recorded on the deletion PR when it merges); new work runs the lean
+lane. P10's mechanical enforcement — verdicts authored outside the build session — lands with the
+review-separation work; until then the current lane's dispatch-failure fallback is a named debt, not
+a sanctioned practice.
 
 **P7 posture:** prospective — it binds decompositions from its statement onward. It lands
 *substitutively*: the existing prose copies of the don't-split-for-splitting rule are replaced by
-this single anchor plus a lockstep row, rather than a new copy being added beside them.
+this single anchor, rather than a new copy being added beside them.
 
 ## The trust boundary
 
@@ -41,9 +69,11 @@ tamper-*proof* line is the merge boundary: CI checks plus branch protection, whi
 edit from a run.
 
 P3 is satisfied by **three-record reconciliation**: (a) the hook-written tool ledger
-(harness-recorded, outside model control), (b) statectl receipts and state, (c) the tracker trail and
-PR artifacts — reconciled mechanically, with CI as the terminal verifier. Forging any one record is
-possible; forging all three consistently is what reconciliation makes detectable.
+(harness-recorded, outside model control); (b) the harness-written run records (progress and
+verdict records in the lean lane; statectl receipts and state in the staged lane); (c) the
+tracker trail and PR artifacts. The three are reconciled mechanically, with CI as the terminal
+verifier. Forging any one record is possible; forging all three consistently is what
+reconciliation makes detectable.
 
 ## T0 note — trust-boundary preconditions
 
