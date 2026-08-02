@@ -2,7 +2,7 @@
 
 verdict=approve
 run_id: 2026-08-02T133308Z-lean-92
-rounds: 2
+rounds: 2 (+ post-approval AC-7 completion commit `90fcbe3`, no re-review needed — mechanical, non-blocking)
 
 ## Summary
 
@@ -26,12 +26,13 @@ pass; commits carry the correct `feat(dev-pipeline):` verb and `Changelog:` trai
 
 ## Findings
 
-- **warning** (confidence 70, carried from round 1): AC-7 is not fully satisfied repo-wide —
-  `plugins/dev-pipeline/skills/pipeline-retro/SKILL.md` and
-  `plugins/dev-pipeline/skills/run/tools/tracker/README.md` still instruct writes via bare
-  `$GH_BOT` rather than the passthrough form. Neither file is in this PR's changed-file list, so
-  the mechanical conversion missed them. Not a regression; flagged as a follow-up rather than
-  fixed in this PR, since both files sit outside the plan's named scope.
+- **warning, RESOLVED** (confidence 70, carried from round 1): AC-7 was not fully satisfied
+  repo-wide — `plugins/dev-pipeline/skills/pipeline-retro/SKILL.md` and
+  `plugins/dev-pipeline/skills/run/tools/tracker/README.md` still instructed writes via bare
+  `$GH_BOT` rather than the passthrough form (neither file was in the original changed-file
+  list). Fixed in commit `90fcbe3`: both sites now read
+  `bash "${CLAUDE_PLUGIN_ROOT}/skills/run/tools/gh-bot.sh"`; `grep -rn '\$GH_BOT'` over both
+  files now returns nothing. Mechanical, no behavior change — no re-review round needed.
 - **note** (confidence 55): `claim-issue.sh` still hard-aborts on any non-`ok` gh-bot.sh status.
   A bot-disabled repo now passes pre-flight/doctor cleanly per AC-4 but still fails later at
   claim time — pre-existing behavior, unchanged by this PR, out of its stated scope.
