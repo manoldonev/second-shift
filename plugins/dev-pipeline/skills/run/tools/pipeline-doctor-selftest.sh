@@ -358,9 +358,10 @@ MOCK
     bad() { emitted+="FAIL:$1;"; fails=$((fails+1)); }
     # shellcheck disable=SC2034
     CFG=""
-    DOCTOR_BOT_RESOLVER="$mock"
-    DOCTOR_BOT_SKIP_PROBE=1
-    GH_BOT=""
+    # Exported so the eval'd production block (and shellcheck) see them as used.
+    export DOCTOR_BOT_RESOLVER="$mock"
+    export DOCTOR_BOT_SKIP_PROBE=1
+    export GH_BOT=""
     eval "$BOT_BLOCK"
     printf '%s|%s\n' "$fails" "$emitted"
   }

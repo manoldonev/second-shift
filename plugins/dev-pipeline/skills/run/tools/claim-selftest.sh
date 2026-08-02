@@ -91,17 +91,18 @@ run_claim() {
   if [[ $# -gt 3 ]]; then shift 3; else shift $#; fi
   rm -f "$DELETE_SENTINEL"
   : > "$CALL_LOG"
-  # shellcheck disable=SC2086 # issue_arg deliberately unquoted: empty for the no-arg case
   # Bot-enabled config so gh-bot.sh honors GH_BOT (disabled short-circuits otherwise).
   printf '%s\n' '{"tracker":{"bot":{"enabled":true}}}' > "$TMP/claim-cfg.json"
-  GH_BOT="$MOCK" \
-  SECOND_SHIFT_CONFIG="$TMP/claim-cfg.json" \
-  SECOND_SHIFT_REPO_ROOT="$TMP" \
-  MOCK_ADD_STDOUT="$add_stdout" \
-  MOCK_ADD_RC="$add_rc" \
-  MOCK_QUEUE_LABEL="${MOCK_QUEUE_LABEL:-ready-for-dev}" \
-  CALL_LOG="$CALL_LOG" \
-  DELETE_SENTINEL="$DELETE_SENTINEL" \
+  # shellcheck disable=SC2086 # issue_arg deliberately unquoted: empty for the no-arg case
+  env \
+    GH_BOT="$MOCK" \
+    SECOND_SHIFT_CONFIG="$TMP/claim-cfg.json" \
+    SECOND_SHIFT_REPO_ROOT="$TMP" \
+    MOCK_ADD_STDOUT="$add_stdout" \
+    MOCK_ADD_RC="$add_rc" \
+    MOCK_QUEUE_LABEL="${MOCK_QUEUE_LABEL:-ready-for-dev}" \
+    CALL_LOG="$CALL_LOG" \
+    DELETE_SENTINEL="$DELETE_SENTINEL" \
     bash "$HELPER" $issue_arg "$@" >/dev/null 2>&1
   echo "$?"
 }
