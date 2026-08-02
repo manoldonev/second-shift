@@ -84,7 +84,7 @@ statectl.sh unit-test-surface-set "$ISSUE_NUMBER" --json '{
 # skip case: --json '{"applicable":false,"action":"skip","skipReason":"FE-only / no behavior change in the configured unitTestScope surface"}'
 ```
 
-- Comment via `$GH_BOT issue comment $ISSUE_NUMBER --body "..."`: `stage: plan`, `status: written`. Record the receipt (completion-gated): `"$STATECTL" comment-add "$ISSUE_NUMBER" --marker plan --url <html_url>` — a backgrounded post reconciles here, not at end of run.
+- Comment via `bash "${CLAUDE_PLUGIN_ROOT}/skills/run/tools/gh-bot.sh" issue comment $ISSUE_NUMBER --body "..."`: `stage: plan`, `status: written`. Record the receipt (completion-gated): `"$STATECTL" comment-add "$ISSUE_NUMBER" --marker plan --url <html_url>` — a backgrounded post reconciles here, not at end of run.
 
 ### Design-faithful FE spec (designDriven runs)
 

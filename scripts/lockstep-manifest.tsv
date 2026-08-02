@@ -85,8 +85,8 @@ seam-scrub	subset-of	plugins/dev-pipeline/skills/run/tools/preflight.sh	seam-scr
 # so no single contiguous block spans the rest of the loop. The pinned span above covers
 # the preamble and the clean-worktree assertion; the remainder is reviewer-guarded.
 #
-# GH_BOT config-dir basename (install-gh-bot.sh ↔ claim-issue.sh). Semantically parallel,
-# not byte-parallel — forcing parity means refactoring working code for its own guard.
+# GH_BOT config-dir basename (install-gh-bot.sh ↔ claim-issue.sh): RETIRED by #92 —
+# both call tools/gh-bot.sh; one ladder remains, so no pair to lockstep.
 #
 # Check-6 hydration-compare contract (plan-lint.sh Check-6 header ↔ stages/3-write-plan.md
 # Decision Ledger bullet). Both state what hydration requires of a plan author, and #219

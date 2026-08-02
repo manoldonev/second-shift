@@ -59,12 +59,10 @@ CFG="${SECOND_SHIFT_CONFIG:-$REPO_ROOT/.claude/second-shift.config.json}"
 TRACKER_TYPE=github
 [[ -f "$CFG" ]] && TRACKER_TYPE=$(jq -r '.tracker.type // "github"' "$CFG" 2>/dev/null || echo github)
 
-# Bot wrapper: config tracker.bot.wrapperPath overrides the default location
-# ($HOME/.config/<consumer-repo-dir-basename>/gh-as-bot.sh) — reader/prober parity
-# with claim-issue.sh / install-gh-bot.sh; the GH_BOT env var overrides all.
-_wp=""
-[[ -f "$CFG" ]] && _wp=$(jq -r '.tracker.bot.wrapperPath // empty' "$CFG" 2>/dev/null)
-GH_BOT="${GH_BOT:-${_wp:-$HOME/.config/$(basename "$REPO_ROOT")/gh-as-bot.sh}}"
+# Bot wrapper resolution is deferred to block 3 (via tools/gh-bot.sh — #92).
+# GH_BOT is bound there after classification so disabled/unset-var/missing-file
+# each get a distinct remediation instead of a single empty-path FAIL.
+GH_BOT=""
 
 FAILS=0
 ok()   { echo "[doctor] OK    $1"; }
@@ -187,16 +185,54 @@ else
 fi
 
 # --- 3. Bot wrapper -------------------------------------------------------------
-if [[ -x "$GH_BOT" ]]; then
-  repos=$("$GH_BOT" api /installation/repositories --jq '[.repositories[].full_name] | join(", ")' 2>/dev/null)
-  if [[ -n "$repos" ]]; then
-    ok "bot wrapper mints tokens (access: $repos)"
-  else
-    bad "bot wrapper exists but failed to mint an installation token — key revoked/expired? Re-run tools/install-gh-bot.sh with a fresh key"
-  fi
-else
-  bad "bot wrapper missing at $GH_BOT — bootstrap with tools/install-gh-bot.sh <private-key.pem>"
+# >>> bot-resolve (classification + bind — extracted by pipeline-doctor-selftest.sh) >>>
+# DOCTOR_BOT_RESOLVER is the selftest seam; production leaves it unset.
+_BOT_RESOLVER="${DOCTOR_BOT_RESOLVER:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/gh-bot.sh}"
+_bot_status="unset-var"
+_bot_path=""
+if [[ -f "$_BOT_RESOLVER" ]]; then
+  _bot_status="$(bash "$_BOT_RESOLVER" --status 2>/dev/null || echo unset-var)"
+  _bot_path="$(bash "$_BOT_RESOLVER" --path 2>/dev/null || true)"
 fi
+case "$_bot_status" in
+  disabled)
+    ok "bot check skipped (tracker.bot.enabled is not true)"
+    GH_BOT=""
+    ;;
+  ok)
+    GH_BOT="$_bot_path"
+    # Selftest sets DOCTOR_BOT_SKIP_PROBE=1 to exercise classification without a mint.
+    if [[ "${DOCTOR_BOT_SKIP_PROBE:-}" == "1" ]]; then
+      ok "bot wrapper resolved at $GH_BOT"
+    else
+      repos=$("$GH_BOT" api /installation/repositories --jq '[.repositories[].full_name] | join(", ")' 2>/dev/null)
+      if [[ -n "$repos" ]]; then
+        ok "bot wrapper mints tokens (access: $repos)"
+      else
+        bad "bot wrapper exists but failed to mint an installation token — key revoked/expired? Re-run tools/install-gh-bot.sh with a fresh key"
+      fi
+    fi
+    ;;
+  unset-var)
+    _env_name="GH_BOT"
+    [[ -f "${CFG:-}" ]] && _env_name="$(jq -r '.tracker.bot.envVar // "GH_BOT"' "$CFG" 2>/dev/null || echo GH_BOT)"
+    bad "bot env var '${_env_name}' is unset and no wrapper resolved from config/default — export ${_env_name} (e.g. .claude/settings.local.json env block), set tracker.bot.wrapperPath, or run tools/install-gh-bot.sh"
+    GH_BOT=""
+    ;;
+  missing-file)
+    bad "bot wrapper missing at ${_bot_path:-?} — bootstrap with tools/install-gh-bot.sh <private-key.pem>"
+    GH_BOT=""
+    ;;
+  not-executable)
+    bad "bot wrapper at ${_bot_path:-?} is not executable — chmod +x it, or re-run tools/install-gh-bot.sh"
+    GH_BOT=""
+    ;;
+  *)
+    bad "bot wrapper unresolved (status=${_bot_status})"
+    GH_BOT=""
+    ;;
+esac
+# <<< bot-resolve <<<
 
 # Commit identity: a GITIGNORED consumer config is absent from every pipeline worktree, so
 # bot-commit.sh resolves it from the main checkout (--git-common-dir). That works unattended,

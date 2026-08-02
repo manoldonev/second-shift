@@ -92,7 +92,11 @@ run_claim() {
   rm -f "$DELETE_SENTINEL"
   : > "$CALL_LOG"
   # shellcheck disable=SC2086 # issue_arg deliberately unquoted: empty for the no-arg case
+  # Bot-enabled config so gh-bot.sh honors GH_BOT (disabled short-circuits otherwise).
+  printf '%s\n' '{"tracker":{"bot":{"enabled":true}}}' > "$TMP/claim-cfg.json"
   GH_BOT="$MOCK" \
+  SECOND_SHIFT_CONFIG="$TMP/claim-cfg.json" \
+  SECOND_SHIFT_REPO_ROOT="$TMP" \
   MOCK_ADD_STDOUT="$add_stdout" \
   MOCK_ADD_RC="$add_rc" \
   MOCK_QUEUE_LABEL="${MOCK_QUEUE_LABEL:-ready-for-dev}" \
@@ -187,7 +191,7 @@ else
   # over SKILL.md / 1-intake.md were the banned prose-presence class: they assert only
   # that prose contains words, and the anti-inline pattern could not even match a
   # re-inline of the helper's current form.
-  parity "bot wrapper under \$HOME/.config/<repo>/" '\.config/.*gh-as-bot\.sh'   "$HELPER"
+  parity "delegates wrapper resolve to gh-bot.sh" 'gh-bot\.sh'   "$HELPER"
 fi
 
 echo

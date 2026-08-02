@@ -90,8 +90,8 @@ Blocking-gate → reason mapping (the sequencer short-circuits, so exactly one g
 
 **On `block` (autonomous default; example — plan-reviewer):**
 
-- Comment on issue via `$GH_BOT issue comment` with remaining Blockers (`stage: plan-review`, `status: blocked`).
-- Label: `$GH_BOT issue edit $ISSUE_NUMBER --add-label needs-plan-review --remove-label in-progress` (use regular `gh` for `--remove-assignee @me` separately).
+- Comment on issue via `bash "${CLAUDE_PLUGIN_ROOT}/skills/run/tools/gh-bot.sh" issue comment` with remaining Blockers (`stage: plan-review`, `status: blocked`).
+- Label: `bash "${CLAUDE_PLUGIN_ROOT}/skills/run/tools/gh-bot.sh" issue edit $ISSUE_NUMBER --add-label needs-plan-review --remove-label in-progress` (use regular `gh` for `--remove-assignee @me` separately).
 - Write the failureContext atomically:
   ```bash
   statectl.sh mark-failed "$ISSUE_NUMBER" \

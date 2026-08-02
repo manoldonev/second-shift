@@ -28,7 +28,7 @@ All GitHub **write** operations (comments, labels, thread resolution) MUST use t
 # When config `tracker.bot.enabled`, use the bot wrapper installed by
 # `../dev-pipeline/tools/install-gh-bot.sh`, exported as the env var named by
 # `tracker.bot.envVar` (default GH_BOT).
-# Use $GH_BOT instead of gh for: api POST/PATCH/PUT, pr comment, issue comment, issue edit
+# Use bash "${CLAUDE_PLUGIN_ROOT}/skills/run/tools/gh-bot.sh" instead of gh for: api POST/PATCH/PUT, pr comment, issue comment, issue edit
 # Use regular gh for: reads (pr view, api GET)
 ```
 
@@ -62,7 +62,7 @@ Include `run_id` in every comment for traceability.
 
 ## Pipeline Checklist
 
-**Reminder:** ALL GitHub write operations (comments, label changes, thread replies, thread resolution) MUST use `$GH_BOT` instead of bare `gh`. Only reads (`gh pr view`, `gh api GET`, `gh issue view`) use regular `gh`. The only exception is `--add-assignee @me` / `--remove-assignee @me` which must use regular `gh` (bot can't manage assignees).
+**Reminder:** ALL GitHub write operations (comments, label changes, thread replies, thread resolution) MUST use `bash "${CLAUDE_PLUGIN_ROOT}/skills/run/tools/gh-bot.sh"` instead of bare `gh`. Only reads (`gh pr view`, `gh api GET`, `gh issue view`) use regular `gh`. The only exception is `--add-assignee @me` / `--remove-assignee @me` which must use regular `gh` (bot can't manage assignees).
 
 ### 1. Validate & Fetch PR
 
@@ -80,7 +80,7 @@ fi
 - Extract `BRANCH` from `headRefName`.
 - Extract `ISSUE_NUMBER` from PR body (match `Closes #N`, `Part of #N`, or `Fixes #N`).
   - If not found: warn — post to PR only, skip issue comments for the rest of the run.
-- Add `in-progress` label to issue (if issue found): `$GH_BOT issue edit $ISSUE_NUMBER --add-label in-progress`
+- Add `in-progress` label to issue (if issue found): `bash "${CLAUDE_PLUGIN_ROOT}/skills/run/tools/gh-bot.sh" issue edit $ISSUE_NUMBER --add-label in-progress`
 
 ### 2. Fetch All Comments
 

@@ -90,7 +90,7 @@ A changed file is INERT iff it matches the effective pattern set, which resolves
 **Approach-failure circuit breaker:** If `TEST_FAILURE` exhausts its budget (verifyctl exit 4, class `TEST_FAILURE`) AND was preceded by another `TEST_FAILURE` exhaustion in the same Stage 5→6 implement-verify cycle (two consecutive exhaustions with no clean run in between), treat this as a fundamental approach mismatch rather than a fixable bug. The fix-attempt loop will not converge by churning; stop.
 
 - **If a failure class exhausts its budget — verifyctl exit 4 (autonomous default):**
-  - Comment on issue via `$GH_BOT issue comment` with the verdict JSON's failure detail (`stage: verify`, `status: failed`).
+  - Comment on issue via `bash "${CLAUDE_PLUGIN_ROOT}/skills/run/tools/gh-bot.sh" issue comment` with the verdict JSON's failure detail (`stage: verify`, `status: failed`).
   - Write the failureContext atomically:
 
     ```bash

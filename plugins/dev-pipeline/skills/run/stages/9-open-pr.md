@@ -6,7 +6,7 @@
 > the operator moves it after promoting the PR). The PR ties back to the ticket by
 > filling the repo's `pull_request_template.md` `### Jira Items` with `Closes [<KEY>]`
 > (github default: `Closes #<issue>`). JIRA repos have no bot claim, so the push/PR
-> use regular `gh` (no `$GH_BOT`). A **be-fe-pair** run opens one draft PR per target
+> use regular `gh` (no `bash "${CLAUDE_PLUGIN_ROOT}/skills/run/tools/gh-bot.sh"`). A **be-fe-pair** run opens one draft PR per target
 > repo with cross-repo companion links. See [`tools/tracker/jira/`](../tools/tracker/jira/README.md).
 
 **First, mark the stage started** — per the global Stage write convention (SKILL.md), Stage 9 begins with `statectl set-stage "$ISSUE_NUMBER" 9 --status started` BEFORE the stale-branch freshness check below. This is load-bearing for Stage 9 specifically: the file leads with a fail-fast path (the stale-branch check can `mark-failed --stage 9`), so if the started-write is deferred, an abort lands with `stages.9.startedAt` unwritten — and on the success path the later `set-stage 9 --status completed` then errors with "cannot complete stage 9 with no startedAt", leaving `currentStage` stuck at 8 with no recoverable backfill (the terminal guard blocks it). Marking `started` first closes both branches: on a stale-branch abort, `mark-failed --stage 9` overwrites `stages.9` to a terminal `failed` lifecycle with `completedAt` set (same convergence as the Stage 2 worktree-failure precedent), so there is never a dangling `in_progress`. Write `started` first. **And record the stage-file receipt in the same breath** — `statectl stage-file-read "$ISSUE_NUMBER" --stage 9 --file 9-open-pr.md` (#243 §3): `set-stage 9 --status completed` refuses unless stage 9's own file is recorded as read.
@@ -54,7 +54,7 @@ if [[ "$OVERLAP_COUNT" -gt 0 ]]; then
     "Stage 9 stopped: branch \`$BRANCH\` and \`origin/$PR_BASE_EFF\` both changed $OVERLAP_COUNT file(s) since their merge base, so opening the PR risks a real merge conflict. \`git merge\`/\`rebase\`/\`reset\` are denied, so the autonomous path cannot freshen the branch in place — a human must resolve (merge \`origin/$PR_BASE_EFF\` or re-cut from it), then re-run. Overlapping files:" \
     "$OVERLAP_FILES" \
     > "$BODY"
-  $GH_BOT issue comment "$ISSUE_NUMBER" --body-file "$BODY"
+  bash "${CLAUDE_PLUGIN_ROOT}/skills/run/tools/gh-bot.sh" issue comment "$ISSUE_NUMBER" --body-file "$BODY"
   rm -f "$BODY"
   # Exit cleanly (rc=0). A human resolves the overlap; there is no deny-safe in-place freshen.
 fi
@@ -91,7 +91,7 @@ if [[ "$(jq -r '.topology.type // "standalone"' "$SECOND_SHIFT_CONFIG" 2>/dev/nu
     else
       # Cross-repo title carries the repo prefix (feat(be)/feat(fe)); body from the
       # repo's own .github/pull_request_template.md when present, Closes/link filled.
-      URL=$($GH_BOT pr create --draft --repo "$OWNER" --head "$BR" --base "$BASE" \
+      URL=$(bash "${CLAUDE_PLUGIN_ROOT}/skills/run/tools/gh-bot.sh" pr create --draft --repo "$OWNER" --head "$BR" --base "$BASE" \
         --title "<type>(${r}): <summary> (${ISSUE_NUMBER})" --body-file "$BODY_FILE")  # $BODY_FILE = a fresh mktemp built per repo from its PR template
     fi
     statectl.sh pr-add "$ISSUE_NUMBER" --repo "$r" --branch "$BR" --url "$URL"
@@ -111,7 +111,7 @@ fi
 EXISTING_PR=$(gh pr list --head "$BRANCH" --json number --jq '.[0].number')
 ```
 
-- **If PR already exists:** push updates, comment on existing PR via `$GH_BOT pr comment` with `run_id`, skip creation.
+- **If PR already exists:** push updates, comment on existing PR via `bash "${CLAUDE_PLUGIN_ROOT}/skills/run/tools/gh-bot.sh" pr comment` with `run_id`, skip creation.
 - **If no existing PR:**
 
 ```bash
@@ -126,7 +126,7 @@ TARGET=$(jq -r '(.topology.repos | to_entries[] | select(.value.path==".") | .ke
 # Always --draft. The Outstanding Review Blockers section is included
 # only when codeReviewExhausted == true.
 #
-# Pass --head "$BRANCH" EXPLICITLY: through the $GH_BOT wrapper, `gh pr create`
+# Pass --head "$BRANCH" EXPLICITLY: through the bash "${CLAUDE_PLUGIN_ROOT}/skills/run/tools/gh-bot.sh" wrapper, `gh pr create`
 # cannot infer the head branch from the worktree and aborts with "could not
 # determine the current branch: not on any branch". The explicit --head is also
 # (--base is already explicit.)
@@ -135,7 +135,7 @@ TARGET=$(jq -r '(.topology.repos | to_entries[] | select(.value.path==".") | .ke
 # change uses `chore(<scope>): …` (never `feat:`), and a single-item delivery off a
 # multi-item issue names just that item, not the issue's broad heading. The PR title
 # becomes the squash-merge title, so it follows the same convention as the commit.
-PR_URL=$($GH_BOT pr create \
+PR_URL=$(bash "${CLAUDE_PLUGIN_ROOT}/skills/run/tools/gh-bot.sh" pr create \
   --draft \
   --base "$TARGET" \
   --head "$BRANCH" \
@@ -285,9 +285,9 @@ Screenshots: `.claude/pipeline-state/{ISSUE_NUMBER}-screenshots/` ({N} files)
 dev-pipeline run: ${RUN_ID}
 ```
 
-- **If `codeReviewExhausted == true`:** after `gh pr create` returns, add the `needs-deep-review` label: `$GH_BOT pr edit "$PR_URL" --add-label needs-deep-review`.
-- Comment on issue via `$GH_BOT issue comment`: `stage: pr`, `status: opened-as-draft` for clean runs and `status: opened-as-draft (review exhausted)` for the unhappy path. The exhausted comment also includes the marker `<!-- review-exhausted -->` for resume disambiguation. Record the receipt (completion-gated): `"$STATECTL" comment-add "$ISSUE_NUMBER" --marker pr --url <html_url>`.
-- `$GH_BOT issue edit $ISSUE_NUMBER --remove-label in-progress` (use regular `gh` for `--remove-assignee @me` separately)
+- **If `codeReviewExhausted == true`:** after `gh pr create` returns, add the `needs-deep-review` label: `bash "${CLAUDE_PLUGIN_ROOT}/skills/run/tools/gh-bot.sh" pr edit "$PR_URL" --add-label needs-deep-review`.
+- Comment on issue via `bash "${CLAUDE_PLUGIN_ROOT}/skills/run/tools/gh-bot.sh" issue comment`: `stage: pr`, `status: opened-as-draft` for clean runs and `status: opened-as-draft (review exhausted)` for the unhappy path. The exhausted comment also includes the marker `<!-- review-exhausted -->` for resume disambiguation. Record the receipt (completion-gated): `"$STATECTL" comment-add "$ISSUE_NUMBER" --marker pr --url <html_url>`.
+- `bash "${CLAUDE_PLUGIN_ROOT}/skills/run/tools/gh-bot.sh" issue edit $ISSUE_NUMBER --remove-label in-progress` (use regular `gh` for `--remove-assignee @me` separately)
 
 **State:** a `{ url, branch, repo }` record is written for every PR opened in this stage via `statectl pr-add` (see the create block above) — ordered BEFORE the Stage 9 completion write. The KEY is run-shape-specific: branch-keyed on the single-repo path, repo-keyed under `--repo` on a be-fe-pair run (`:109` above). One PR always yields exactly one `.prs` entry — `pr-add --repo` drops any same-URL entry left under a different key, so re-running the correct call repairs a mis-keyed write instead of adding a duplicate. See `state-schema.md` `.prs`.
 
@@ -330,7 +330,7 @@ A missing prerequisite records a descriptive `costBlockApplied` string and exits
 When `waivers[]` is non-empty (the run forced past at least one gate), the terminal write is operator-gated: `mark-completed` refuses — plain `--force` does not bypass — until `mark-completed --accept-waivers`. Before accepting, the operator makes the waivers visible where humans read:
 
 1. The run report MUST carry a `## Waivers` section (one line per waiver) — `require_report_file` refuses the acceptance without it.
-2. Amend each PR body with an idempotent `<!-- pipeline-waivers -->` block listing the waivers (same marker pattern and write identity as the cost block: build a fresh per-post body file, `$GH_BOT api -X PATCH` the PR). A forced run must LOOK forced to every human who sees its output.
+2. Amend each PR body with an idempotent `<!-- pipeline-waivers -->` block listing the waivers (same marker pattern and write identity as the cost block: build a fresh per-post body file, `bash "${CLAUDE_PLUGIN_ROOT}/skills/run/tools/gh-bot.sh" api -X PATCH` the PR). A forced run must LOOK forced to every human who sees its output.
 3. Then `statectl mark-completed "$ISSUE_NUMBER" --accept-waivers` — the acceptance itself is recorded (`waiversAccepted: {at, count}`).
 
 A waiver appended by the terminalizing invocation itself (the forced re-terminalization crash-recovery path) surfaces via state + the retro only — declared accepted residue (state-schema.md "Operator-authorized `--force`").

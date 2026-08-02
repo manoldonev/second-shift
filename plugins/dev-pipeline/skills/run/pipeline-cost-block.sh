@@ -186,19 +186,9 @@ write_cost_log_row() {
 # -C dir, then the main checkout, so a gitignored config absent from a worktree
 # still resolves there. This script's _repo_root() is already common-dir anchored.
 # ────────────────────────────────────────────────────────────────────────────
-# Bot wrapper: env contract first; then config tracker.bot.wrapperPath (parity
-# with claim-issue.sh / pipeline-doctor.sh); then a default derived from the
-# consumer repo's directory name (install-gh-bot.sh creates it at this path).
-_default_bot() {
-  local cd root
-  if cd=$(git rev-parse --git-common-dir 2>/dev/null) && cd=$(cd "$cd" 2>/dev/null && pwd); then
-    root=$(dirname "$cd")
-    echo "$HOME/.config/$(basename "$root")/gh-as-bot.sh"
-  else
-    echo "$HOME/.config/gh-as-bot/gh-as-bot.sh"
-  fi
-}
-
+# Bot wrapper: single resolver (tools/gh-bot.sh, #92). Config tracker.bot.enabled
+# decides bot-vs-operator; when disabled we never call the resolver (so a stray
+# env var cannot take the write — cost-block-selftest AC-4).
 CFG_FILE=$(_config_path)
 BOT_ENABLED=false
 if [ -n "$CFG_FILE" ] && [ -f "$CFG_FILE" ]; then
@@ -207,16 +197,14 @@ if [ -n "$CFG_FILE" ] && [ -f "$CFG_FILE" ]; then
 fi
 
 if [ "$BOT_ENABLED" = "true" ]; then
-  if [ -z "${GH_BOT:-}" ]; then
-    WRAPPER=$(jq -r '.tracker.bot.wrapperPath // empty' "$CFG_FILE" 2>/dev/null) || WRAPPER=""
-    if [ -n "$WRAPPER" ]; then
-      GH_BOT="${WRAPPER/#\~/$HOME}"
-    else
-      GH_BOT=$(_default_bot)
-    fi
+  _RESOLVER="$(cd "$(dirname "$0")" && pwd)/tools/gh-bot.sh"
+  if [ ! -f "$_RESOLVER" ]; then
+    log "gh-bot.sh missing at $_RESOLVER — skipping PR amend"
+    record '"skipped-no-bot-wrapper"'
+    exit 0
   fi
-  if [ ! -x "$GH_BOT" ]; then
-    log "GH_BOT wrapper not found at $GH_BOT — skipping PR amend (see cost-tracking-setup.md prerequisites)"
+  if ! GH_BOT="$(bash "$_RESOLVER" --path 2>/dev/null)"; then
+    log "bot wrapper unresolved (gh-bot --status=$(bash "$_RESOLVER" --status 2>/dev/null || echo '?')) — skipping PR amend (see cost-tracking-setup.md prerequisites)"
     record '"skipped-no-bot-wrapper"'
     exit 0
   fi

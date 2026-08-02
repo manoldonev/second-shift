@@ -129,17 +129,44 @@ bash "${CLAUDE_PLUGIN_ROOT}/skills/run/tools/claims-lint.sh" . \
 
 # The remaining github-adapter checks below apply only when config `tracker.type: github`
 # (a jira repo has no bot wrapper / label queue — skip 1 and 2).
-# When config `tracker.bot.enabled`, the bot wrapper is installed by
-# `tools/install-gh-bot.sh` and exported as the env var named by
-# `tracker.bot.envVar` (default GH_BOT). Reference it via $GH_BOT below.
+# Bot wrapper resolves via tools/gh-bot.sh (#92) — never from an ambient shell var alone.
+# When tracker.bot.enabled is false/absent the check is skipped (jira / bot-disabled).
 
-# (1) Bot wrapper must exist and be executable.
-if [[ ! -x "$GH_BOT" ]]; then
-  echo "[pre-flight] FAIL: bot wrapper missing or non-executable at $GH_BOT" >&2
-  echo "[pre-flight]   Bootstrap it with a freshly downloaded App private key:" >&2
-  echo "[pre-flight]   bash \"${CLAUDE_PLUGIN_ROOT}/skills/run/tools/install-gh-bot.sh\" <private-key.pem>" >&2
-  exit 1
-fi
+# (1) Bot wrapper — classify, then bind. Distinct remediations; never an empty path.
+_BOT_SH="${CLAUDE_PLUGIN_ROOT}/skills/run/tools/gh-bot.sh"
+_bot_status="$(bash "$_BOT_SH" --status 2>/dev/null || echo unset-var)"
+case "$_bot_status" in
+  disabled)
+    : # bot-disabled or no config — skip; label check still runs for github trackers
+    ;;
+  ok)
+    GH_BOT="$(bash "$_BOT_SH" --path)" || exit 1
+    ;;
+  unset-var)
+    _env_name="$(jq -r '.tracker.bot.envVar // "GH_BOT"' "$CFG" 2>/dev/null || echo GH_BOT)"
+    echo "[pre-flight] FAIL: bot env var '${_env_name}' is unset and no wrapper resolved from config/default" >&2
+    echo "[pre-flight]   Export ${_env_name} (e.g. .claude/settings.local.json env block), set tracker.bot.wrapperPath, or:" >&2
+    echo "[pre-flight]   bash \"${CLAUDE_PLUGIN_ROOT}/skills/run/tools/install-gh-bot.sh\" <private-key.pem>" >&2
+    exit 1
+    ;;
+  missing-file)
+    _bot_path="$(bash "$_BOT_SH" --path 2>/dev/null || true)"
+    echo "[pre-flight] FAIL: bot wrapper missing at ${_bot_path:-?}" >&2
+    echo "[pre-flight]   Bootstrap it with a freshly downloaded App private key:" >&2
+    echo "[pre-flight]   bash \"${CLAUDE_PLUGIN_ROOT}/skills/run/tools/install-gh-bot.sh\" <private-key.pem>" >&2
+    exit 1
+    ;;
+  not-executable)
+    _bot_path="$(bash "$_BOT_SH" --path 2>/dev/null || true)"
+    echo "[pre-flight] FAIL: bot wrapper at ${_bot_path:-?} is not executable" >&2
+    echo "[pre-flight]   chmod +x it, or re-run tools/install-gh-bot.sh." >&2
+    exit 1
+    ;;
+  *)
+    echo "[pre-flight] FAIL: bot wrapper unresolved (status=${_bot_status})" >&2
+    exit 1
+    ;;
+esac
 
 # (2) Required label set must exist in the repo (one read, then assert each).
 # Precedence (#11): the tracker.labels role vocabulary (union of queue + claimed +
@@ -178,7 +205,7 @@ if (( ${#MISSING[@]} > 0 )); then
   echo "[pre-flight]   Create them (gh label create <name>) or run \"${CLAUDE_PLUGIN_ROOT}/skills/run/tools/pipeline-doctor.sh\" for the full check." >&2
   exit 1
 fi
-echo "[pre-flight] OK: bot wrapper present, all required labels exist."
+echo "[pre-flight] OK: bot check passed (status=${_bot_status}), all required labels exist."
 ```
 
 ## Pre-flight: Generate RUN_ID
@@ -239,33 +266,36 @@ The pipeline has **no** one-way handoff points: every stage flows in-process int
 
 ## Bot Identity
 
-All GitHub **write** operations (comments, labels, PRs) MUST use the bot wrapper:
+All GitHub **write** operations (comments, labels, PRs) MUST go through the passthrough resolver — never bare `gh`, and never an ambient env var the operator must re-export every Bash call (#92):
 
 ```bash
-# When config `tracker.bot.enabled`, use the bot wrapper installed by
-# `tools/install-gh-bot.sh`, exported as the env var named by `tracker.bot.envVar`
-# (default GH_BOT).
-# Use $GH_BOT instead of gh for: api POST/PATCH/PUT, pr comment, pr create, issue comment, issue edit
+# Sanctioned write form (self-resolves via tracker.bot.envVar → wrapperPath → default):
+bash "${CLAUDE_PLUGIN_ROOT}/skills/run/tools/gh-bot.sh" <gh-args…>
+# e.g. api POST/PATCH/PUT, pr comment, pr create, issue comment, issue edit
 # Use regular gh for: reads (pr view, issue view, api GET)
+#
+# Optional: GH_BOT="$(bash "${CLAUDE_PLUGIN_ROOT}/skills/run/tools/gh-bot.sh" --path)"
+# binds the path once inside a multi-step shell script; prefer the passthrough form
+# in stage prose so each write survives a fresh shell.
 ```
 
-If the wrapper is missing (fresh machine), bootstrap it with [`tools/install-gh-bot.sh`](./tools/install-gh-bot.sh) — it takes a freshly downloaded App private key, installs it to the bot config dir, and generates the wrapper. The pipeline itself never creates the wrapper; a missing wrapper is an abort-with-instructions prerequisite failure.
+`tracker.bot.envVar` (default `GH_BOT`) names the optional env override; `tracker.bot.wrapperPath` and the install default cover the case where the env var is unset. If the wrapper is missing (fresh machine), bootstrap with [`tools/install-gh-bot.sh`](./tools/install-gh-bot.sh). The pipeline itself never creates the wrapper; a missing wrapper is an abort-with-instructions prerequisite failure.
 
 ### Canonical REST forms for issue writes
 
-`gh issue edit`, `gh issue comment`, and `gh issue view --json` hit the Projects-classic GraphQL deprecation on some gh-version + repo combinations (`pipeline-doctor.sh` detects this; it is currently the case in this repo) — the command prints a GraphQL error and **the mutation silently does not apply**. The REST forms below are canonical for all issue writes; use them everywhere the stage files say `$GH_BOT issue comment` / `$GH_BOT issue edit`:
+`gh issue edit`, `gh issue comment`, and `gh issue view --json` hit the Projects-classic GraphQL deprecation on some gh-version + repo combinations (`pipeline-doctor.sh` detects this; it is currently the case in this repo) — the command prints a GraphQL error and **the mutation silently does not apply**. The REST forms below are canonical for all issue writes; use them everywhere the stage files say `bash "${CLAUDE_PLUGIN_ROOT}/skills/run/tools/gh-bot.sh" issue comment` / `bash "${CLAUDE_PLUGIN_ROOT}/skills/run/tools/gh-bot.sh" issue edit`:
 
 ```bash
 # Comment ($BODY = a fresh per-post file — see "Multi-line comments" below):
-$GH_BOT api -X POST "repos/{owner}/{repo}/issues/$ISSUE/comments" -F body=@"$BODY"
+bash "${CLAUDE_PLUGIN_ROOT}/skills/run/tools/gh-bot.sh" api -X POST "repos/{owner}/{repo}/issues/$ISSUE/comments" -F body=@"$BODY"
 
 # Claim swap (ready-for-dev → in-progress): ADD in-progress, confirm the add applied
 # from the response body, THEN DELETE ready-for-dev — aborting (exit 1) with
 # ready-for-dev intact if the add did not apply (the silent-failed-add guard). Why
 # both the order and the confirm are load-bearing: see the Label-swap ordering rule
-# below. The helper takes the bot wrapper via $GH_BOT (so it is mockable — see
-# tools/claim-selftest.sh). The helper ships in the plugin checkout, NOT the
-# de-vendored consumer repo — resolve it via ${CLAUDE_PLUGIN_ROOT}, never CWD-relative:
+# below. The helper resolves the wrapper via tools/gh-bot.sh (mockable — see
+# tools/claim-selftest.sh). Ships in the plugin checkout, NOT the de-vendored
+# consumer repo — resolve via ${CLAUDE_PLUGIN_ROOT}, never CWD-relative:
 bash "${CLAUDE_PLUGIN_ROOT}/skills/run/tools/claim-issue.sh" "$ISSUE"
 
 # Label/assignee verification (read) — REST, since `gh issue view --json` may be broken:
@@ -276,7 +306,7 @@ gh api "repos/{owner}/{repo}/issues/$ISSUE" --jq '{labels: [.labels[].name], ass
 
 ```bash
 # PR body update ($BODY = a fresh per-post file — see "Multi-line comments"):
-$GH_BOT api -X PATCH "repos/{owner}/{repo}/pulls/$PR_NUMBER" -F body=@"$BODY"
+bash "${CLAUDE_PLUGIN_ROOT}/skills/run/tools/gh-bot.sh" api -X PATCH "repos/{owner}/{repo}/pulls/$PR_NUMBER" -F body=@"$BODY"
 
 # PR labels — PRs are issues for labeling purposes; use the issues endpoints above with the PR number.
 ```
@@ -315,25 +345,25 @@ sed "s|__RUN_ID__|$RUN_ID|" <<'EOF' > "$BODY"
 EOF
 
 # Then post, and clean up.
-$GH_BOT issue comment "$ISSUE" --body-file "$BODY"
+bash "${CLAUDE_PLUGIN_ROOT}/skills/run/tools/gh-bot.sh" issue comment "$ISSUE" --body-file "$BODY"
 rm -f "$BODY"
 ```
 
 **Use a fresh `mktemp` file per post — never a fixed name, a file reused per run, or a `$RUN_ID`-embedded name.** Concurrent runs share a fixed name, and backgrounded stage-progress comments collide *within* one run (`$RUN_ID` is constant across them), so a shared name is last-writer-wins: one post clobbers another's body and publishes the wrong content — observed when a concurrent run's code-review summary landed on the wrong thread. `--jq .html_url` confirms a post **landed**, never its **content**, so the per-post file is the only real guard.
 
-**Permission-classifier fallback (same contract, different writer).** Some `auto`-mode permission classifiers deny the compound `mktemp` + heredoc + post command as a single Bash call (observed on a canary run). When that happens, keep the two-step contract but swap the writer: build the body with the harness file-write tool (Write/Edit) at a **unique per-post path** in the session scratchpad, then post it as its own small command — `$GH_BOT api -X POST "repos/{owner}/{repo}/issues/$ISSUE/comments" -F body=@"$FILE"`. The fresh-file-per-post rule is unchanged; only the file author moves from the shell to the harness.
+**Permission-classifier fallback (same contract, different writer).** Some `auto`-mode permission classifiers deny the compound `mktemp` + heredoc + post command as a single Bash call (observed on a canary run). When that happens, keep the two-step contract but swap the writer: build the body with the harness file-write tool (Write/Edit) at a **unique per-post path** in the session scratchpad, then post it as its own small command — `bash "${CLAUDE_PLUGIN_ROOT}/skills/run/tools/gh-bot.sh" api -X POST "repos/{owner}/{repo}/issues/$ISSUE/comments" -F body=@"$FILE"`. The fresh-file-per-post rule is unchanged; only the file author moves from the shell to the harness.
 
 **Never** combine the heredoc and the post in one inline construct like:
 
 ```bash
 # WRONG — posts immediately, then sed processes the bot's stdout (the URL), not the body.
-$GH_BOT issue comment "$ISSUE" --body "$(cat <<EOF
+bash "${CLAUDE_PLUGIN_ROOT}/skills/run/tools/gh-bot.sh" issue comment "$ISSUE" --body "$(cat <<EOF
 ...
 EOF
 )" | sed "s|__RUN_ID__|$RUN_ID|" > /tmp/comment-body.md
 ```
 
-Combining them is how duplicate-post bugs happen: the inline `--body "$(...)"` posts the comment first, the downstream `sed | tee` only captures the bot's stdout (the comment URL) into a junk file, and the operator — thinking they were "preparing a body" — re-runs the post a second time. If you find yourself piping `$GH_BOT ... | sed`, you've already posted; cancel and redo as two steps.
+Combining them is how duplicate-post bugs happen: the inline `--body "$(...)"` posts the comment first, the downstream `sed | tee` only captures the bot's stdout (the comment URL) into a junk file, and the operator — thinking they were "preparing a body" — re-runs the post a second time. If you find yourself piping `bash "${CLAUDE_PLUGIN_ROOT}/skills/run/tools/gh-bot.sh" ... | sed`, you've already posted; cancel and redo as two steps.
 
 Git commits use the bot identity via [`tools/bot-commit.sh`](./tools/bot-commit.sh) — the gh wrapper covers API writes only and does NOT set git `user.name`/`user.email`, so a bare `git commit` silently commits as the operator (observed in a retro — 4 of 5 PR commits carried the user identity). The helper resolves `<appName>[bot]` + the bot's noreply email from config `tracker.bot` (caching the bot user id in the git common dir) and falls through to the repo default when the bot is disabled — **loudly**, with a stderr WARN naming the cause, since a silent fallback is how those 4-of-5 commits went unnoticed. It looks for the config at `$SECOND_SHIFT_CONFIG`, then the `-C` dir, then the **main checkout** (anchored via `--git-common-dir`), so a gitignored config — absent from every worktree by construction — still resolves:
 
@@ -504,12 +534,12 @@ Stages that write additional stage-specific fields carry an inline **State:** li
           resume once it ages past the threshold, or an operator may run
           `statectl reclaim "$ISSUE_NUMBER" --release --force --force-reason "<why>"` by hand
           under `DEV_PIPELINE_MODE=interactive`.
-     2. One `$GH_BOT` comment naming the closing PR, stating the session died before Stage 9,
+     2. One `bash "${CLAUDE_PLUGIN_ROOT}/skills/run/tools/gh-bot.sh"` comment naming the closing PR, stating the session died before Stage 9,
         that **no eval or report was synthesized** — the run stays explicitly un-scored for
         `pipeline-retro`/`perf-retro` purposes — and either the quarantine filename (rc=0
         above) or that quarantine is deferred until the state ages past the reclaim threshold
         (rc≠0 above).
-     3. Remove the `in-progress` label via `$GH_BOT` if still present (the issue is already
+     3. Remove the `in-progress` label via `bash "${CLAUDE_PLUGIN_ROOT}/skills/run/tools/gh-bot.sh"` if still present (the issue is already
         closed on the tracker, so the label is stale either way, independent of whether the
         state file itself could be quarantined yet).
      4. STOP — do not proceed to resume, in either branch of step 1.
@@ -559,7 +589,7 @@ Checkpoints are persisted under `stageCheckpoint["{N}"]` in `.claude/pipeline-st
 
 ## Pipeline Checklist
 
-**Reminder:** ALL GitHub write operations (comments, label changes, PR creation, issue edits) MUST use `$GH_BOT` instead of bare `gh`. Only reads (`gh issue view`, `gh pr view`, `gh issue list`, `gh api GET`) use regular `gh`. The only exception is `--add-assignee @me` / `--remove-assignee @me` which must use regular `gh` (bot can't manage assignees).
+**Reminder:** ALL GitHub write operations (comments, label changes, PR creation, issue edits) MUST use `bash "${CLAUDE_PLUGIN_ROOT}/skills/run/tools/gh-bot.sh"` instead of bare `gh`. Only reads (`gh issue view`, `gh pr view`, `gh issue list`, `gh api GET`) use regular `gh`. The only exception is `--add-assignee @me` / `--remove-assignee @me` which must use regular `gh` (bot can't manage assignees).
 
 Per-stage instructions live in `stages/{N}-{name}.md`. Read only the file for the stage you are executing.
 
@@ -653,4 +683,4 @@ After Stage 9 (or any pipeline abort), score the run against [`eval-criteria.md`
 - **Eval criteria 3 (implementation_resilience) and 5 (review_precision) can only be scored on real pipeline runs** — dry-run optimization loops cannot exercise these paths. Scores accumulate organically with actual issue runs.
 - **Single-repo only.** Unlike some sibling forks of this skill, the acme pipeline has no cross-repo orchestration (no `targetRepos`, no per-repo `worktrees` map). All work happens in this repo.
 - **Single-session, in-process flow.** All stages (1–10) run in one session, end to end; the Stage 8 review loop iterates in place (up to 3 rounds).
-- **Stage 8 skill loadout.** Stage 8 does NOT load `intake-toolkit:intake-orchestrator` (Stage 2 is past). It dispatches the reviewer fan-out via the `Workflow` script (`workflows/code-review.mjs`) and loads `review-toolkit:review-lead` for **synthesis only**, plus the `$GH_BOT` wrapper. On a crash-recovery resume in a fresh session, the state file plus `stageCheckpoint["7"]` is the entire context contract.
+- **Stage 8 skill loadout.** Stage 8 does NOT load `intake-toolkit:intake-orchestrator` (Stage 2 is past). It dispatches the reviewer fan-out via the `Workflow` script (`workflows/code-review.mjs`) and loads `review-toolkit:review-lead` for **synthesis only**, plus the `bash "${CLAUDE_PLUGIN_ROOT}/skills/run/tools/gh-bot.sh"` wrapper. On a crash-recovery resume in a fresh session, the state file plus `stageCheckpoint["7"]` is the entire context contract.

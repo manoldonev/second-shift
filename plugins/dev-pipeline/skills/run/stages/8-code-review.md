@@ -33,7 +33,7 @@
      '' \
      "Stage 8 could not start: the recorded worktree \`$WORKTREE_PATH\` no longer exists (manual deletion, or a fresh session resumed without it). Re-add it (\`git worktree add\`) and re-run." \
      > "$BODY"
-   $GH_BOT issue comment "$ISSUE_NUMBER" --body-file "$BODY"
+   bash "${CLAUDE_PLUGIN_ROOT}/skills/run/tools/gh-bot.sh" issue comment "$ISSUE_NUMBER" --body-file "$BODY"
    rm -f "$BODY"
    # Exit cleanly (rc=0). Do NOT auto-recreate the worktree (could mask user intent).
    ```
@@ -218,22 +218,22 @@ So when the **only** surviving blocker(s) are scope-gate items with no code reme
 - **`auto` mode (default):** do **NOT** prompt, and do **NOT** burn the remaining rounds (re-running reviewers cannot clear an issue-scope blocker). Short-circuit straight to the exhaustion-style fallback below — this is the autonomous-faithful path; reaching for `AskUserQuestion` here would break the no-input-prompts invariant and hang a headless / `ralph-loop` run.
   - Record exhaustion at the current round: `statectl.sh review-rounds "$ISSUE" --set "$ROUND" --exhausted`.
   - Continue to step 9: draft PR (always) + `needs-deep-review` label + an **Outstanding Review Blockers** section that names each unsatisfied scope item and the recommended human remediation — cover it in a follow-up, or record the deferral in the issue body (with rationale + a linked follow-up issue) and re-run the gate.
-  - Comment via `$GH_BOT issue comment`: `stage: code-review`, `status: scope-blocker-no-code-remedy` (a distinct status under the unchanged `code-review` marker — the comment status column is documentation-only, not enum-constrained, so this needs no validator regeneration; the `--set` round count carries the actual round, so this short-circuit is not misreported as three rounds of churn).
+  - Comment via `bash "${CLAUDE_PLUGIN_ROOT}/skills/run/tools/gh-bot.sh" issue comment`: `stage: code-review`, `status: scope-blocker-no-code-remedy` (a distinct status under the unchanged `code-review` marker — the comment status column is documentation-only, not enum-constrained, so this needs no validator regeneration; the `--set` round count carries the actual round, so this short-circuit is not misreported as three rounds of churn).
 - **`interactive` mode:** the gate **may** prompt to record the deferral (consistent with the other interactive-mode gates), then re-run the gate; on decline, take the same fallback as `auto`.
 
 A code-remediable blocker (the diff can be fixed) is unaffected — it stays in the normal fix-and-re-run loop below.
 
 - Minor/nit fixes are best-effort within each round.
-- **On the clean path (loop broke with no blockers/majors):** comment via `$GH_BOT issue comment`: `stage: code-review`, `status: passed` if the break happened in round 1, or `status: passed-after-N-rounds` (substitute the actual round count) if fixes were applied across N>1 rounds before the clean round. This is the normal terminating comment for a passing review; the `code-review` marker is identical to the exhaustion path's, so the marker-emission parity selftest is unaffected (it greps only `stage:` tokens). Then continue to step 9.
+- **On the clean path (loop broke with no blockers/majors):** comment via `bash "${CLAUDE_PLUGIN_ROOT}/skills/run/tools/gh-bot.sh" issue comment`: `stage: code-review`, `status: passed` if the break happened in round 1, or `status: passed-after-N-rounds` (substitute the actual round count) if fixes were applied across N>1 rounds before the clean round. This is the normal terminating comment for a passing review; the `code-review` marker is identical to the exhaustion path's, so the marker-emission parity selftest is unaffected (it greps only `stage:` tokens). Then continue to step 9.
 - **If still blockers after 3 rounds:**
   - Record exhaustion via `statectl`: `statectl.sh review-rounds "$ISSUE" --set 3 --exhausted` (writes `codeReviewRounds` + `codeReviewExhausted: true` in one atomic bundle).
   - Continue to step 9. The PR is already going to be draft (all PRs are draft) — additionally, on PR creation, apply the `needs-deep-review` label and include the Outstanding Review Blockers section in the body.
-  - Comment via `$GH_BOT issue comment`: `stage: code-review`, `status: exhausted-after-3-rounds`.
+  - Comment via `bash "${CLAUDE_PLUGIN_ROOT}/skills/run/tools/gh-bot.sh" issue comment`: `stage: code-review`, `status: exhausted-after-3-rounds`.
 
 **Receipt + PR review (every terminating path — clean, exhausted, scope-blocker):**
 
 1. Record the terminating `code-review` comment's URL: `statectl.sh comment-add "$ISSUE" --marker code-review --url <html_url>` — completion-gated whenever a primary round ran (`codeReviewRounds >= 1`; the be-fe-pair cross-boundary/skip-only paths post none and are exempt). **This call refuses until the step-(c) `skill-load-add` has been recorded**, so the load genuinely precedes the synthesis it governs rather than being added afterwards to clear the completion gate. If you hit that refusal, the fix is to load `review-toolkit:review-lead` and **re-run the synthesis** — recording the receipt afterwards does not satisfy it.
-2. File the consolidated report as an actual **PR review** — `$GH_BOT pr review "$PR_NUMBER" --comment --body-file <report>` — not only as prose folded into the PR description by the session being scored. The PR review is the GitHub-native artifact an independent re-scorer and a human reviewer inspect; six reviewers leaving zero PR-side trace is the failure this exists to stop. (Skip only when no PR exists yet on this path — Stage 9 then carries the report into the PR body as before.)
+2. File the consolidated report as an actual **PR review** — `bash "${CLAUDE_PLUGIN_ROOT}/skills/run/tools/gh-bot.sh" pr review "$PR_NUMBER" --comment --body-file <report>` — not only as prose folded into the PR description by the session being scored. The PR review is the GitHub-native artifact an independent re-scorer and a human reviewer inspect; six reviewers leaving zero PR-side trace is the failure this exists to stop. (Skip only when no PR exists yet on this path — Stage 9 then carries the report into the PR body as before.)
 
 **State:** Write the review counters via `statectl` — clean path: `statectl.sh review-rounds "$ISSUE" --set "$ROUND"` (round count 1–3); exhaustion: `--set 3 --exhausted`. The `--exhausted` flag is additive-only — the subcommand never writes `codeReviewExhausted: false`, so a later plain `--set` cannot reset a recorded exhaustion.
 

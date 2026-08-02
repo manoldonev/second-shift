@@ -26,11 +26,10 @@
 #   claim-issue.sh <ISSUE_NUMBER>
 #
 # Env:
-#   GH_BOT  — the bot wrapper invoked for the writes. When unset, defaults to
-#             $HOME/.config/<consumer-repo-dir-basename>/gh-as-bot.sh (the path
-#             install-gh-bot.sh provisions; SECOND_SHIFT_REPO_ROOT overrides the
-#             root the basename derives from). Injectable so the selftest can
-#             substitute a mock wrapper (claim-selftest.sh).
+#   GH_BOT / tracker.bot.envVar — optional override for the wrapper path; resolved
+#             by tools/gh-bot.sh (the single ladder). Injectable so the selftest can
+#             substitute a mock wrapper (claim-selftest.sh) under a bot-enabled config.
+#   SECOND_SHIFT_CONFIG / SECOND_SHIFT_REPO_ROOT — forwarded to gh-bot.sh.
 #
 # Exit codes (the contract claim-selftest.sh and the prose call-sites pin):
 #   0  claimed       — `in-progress` added AND `ready-for-dev` removed.
@@ -56,38 +55,22 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-# Resolve the bot wrapper path. An explicit GH_BOT always wins (the selftest's
-# mock seam). Otherwise, config tracker.bot.wrapperPath wins (the explicit path
-# install-gh-bot.sh also writes to — reader/writer agree, closing the "derived
-# wrong once" gap). Else derive $HOME/.config/<consumer-repo-dir-basename>/gh-as-bot.sh
-# — the path install-gh-bot.sh provisions by default. The basename comes from the
-# consumer repo root: SECOND_SHIFT_REPO_ROOT if set, else the main checkout derived
-# from `git rev-parse --git-common-dir` (worktree-safe). Falls back to $HOME/.config
-# if no root can be resolved (never in normal Stage-1 use, which runs in-repo).
-if [[ -z "${GH_BOT:-}" ]]; then
-  _root="${SECOND_SHIFT_REPO_ROOT:-}"
-  if [[ -z "$_root" ]]; then
-    _common="$(git rev-parse --git-common-dir 2>/dev/null || true)"
-    [[ -n "$_common" ]] && _root="$(dirname "$(cd "$_common" && pwd)")"
-  fi
-  _cfg="${SECOND_SHIFT_CONFIG:-${_root:+$_root/.claude/second-shift.config.json}}"
-  _wrap=""
-  if [[ -n "$_cfg" && -f "$_cfg" ]] && command -v jq >/dev/null; then
-    _wrap="$(jq -r '.tracker.bot.wrapperPath // empty' "$_cfg" 2>/dev/null)"
-  fi
-  if [[ -n "$_wrap" ]]; then
-    GH_BOT="${_wrap/#\~/$HOME}"
-  elif [[ -n "$_root" ]]; then
-    GH_BOT="$HOME/.config/$(basename "$_root")/gh-as-bot.sh"
-  else
-    GH_BOT="$HOME/.config/gh-as-bot.sh"
-  fi
-fi
-
 if [[ -z "$ISSUE" ]]; then
   echo "[claim-issue] usage: claim-issue.sh <issue-number>" >&2
   exit 2
 fi
+
+# Single resolver (#92) — no private ladder. Mock seam: set the env var named by
+# tracker.bot.envVar (default GH_BOT) under a bot-enabled SECOND_SHIFT_CONFIG.
+_RESOLVER="$(cd "$(dirname "$0")" && pwd)/gh-bot.sh"
+if [[ ! -f "$_RESOLVER" ]]; then
+  echo "[claim-issue] gh-bot.sh not found at $_RESOLVER" >&2
+  exit 1
+fi
+GH_BOT="$(bash "$_RESOLVER" --path)" || {
+  echo "[claim-issue] bot wrapper unresolved (see gh-bot --status)" >&2
+  exit 1
+}
 
 # 1. ADD the claimed label; capture the resulting label-name array (the add-labels
 #    POST returns the issue's full label set; `--jq '[.[].name]'` reduces it to names).
