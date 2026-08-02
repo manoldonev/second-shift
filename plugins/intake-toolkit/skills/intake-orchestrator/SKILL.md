@@ -44,6 +44,15 @@ This skill loads instructions into the **calling session**, which gathers eviden
 > labels named below (`ready-for-dev`, `epic`, `in-progress`, `needs-intake-review`,
 > `needs-spec-work`) are the shipped `stageParams.requiredLabels` default set — a consumer
 > that overrides that set is honored; substitute its names.
+>
+> **Bot writes.** This skill runs from the intake-toolkit plugin, so `${CLAUDE_PLUGIN_ROOT}`
+> here resolves to intake-toolkit, not dev-pipeline — the write sites below cannot use
+> dev-pipeline's own `${CLAUDE_PLUGIN_ROOT}/skills/run/tools/gh-bot.sh` shorthand verbatim.
+> Resolve dev-pipeline's install path once (never a cached path from memory — the onboarding
+> skill's own convention):
+> `claude plugin list --json | jq -r '.[] | select(.id == "dev-pipeline@second-shift") | .installPath'`,
+> then invoke `bash "$DEV_PIPELINE_ROOT/skills/run/tools/gh-bot.sh" <gh-args…>` — shown below
+> as `$GH_BOT_SH` for brevity. Every `$GH_BOT_SH` site below is this same resolved passthrough.
 
 ## Pre-flight: Tool availability
 
@@ -280,11 +289,11 @@ The write operations below are the **github** adapter (`tracker.writes: true`) _
 
 ```bash
 # parallel — every slice is immediately workable:
-$GH_BOT issue create --title "[slice title]" --body "$BODY" --label ready-for-dev
+$GH_BOT_SH issue create --title "[slice title]" --body "$BODY" --label ready-for-dev
 
 # sequential — ONLY the first slice enters the queue; N>1 are created WITHOUT it:
-$GH_BOT issue create --title "[slice 1 title]" --body "$BODY_1" --label ready-for-dev
-$GH_BOT issue create --title "[slice N title]" --body "$BODY_N"   # no --label
+$GH_BOT_SH issue create --title "[slice 1 title]" --body "$BODY_1" --label ready-for-dev
+$GH_BOT_SH issue create --title "[slice N title]" --body "$BODY_N"   # no --label
 ```
 
    Keeping blocked successors **out of the queue** is the ordering enforcement — not rejecting them after they are claimed. Promotion is an operator action at merge time: merging the predecessor's PR is already the serialization point, so labelling the successor rides that same action (Stage 9 renders the reminder on the predecessor's PR). No claim is ever burned and no failed state file is created for the routine blocked case. `../predecessor-gate.sh` is only the pre-claim backstop for a successor that got labelled early.
@@ -294,7 +303,7 @@ $GH_BOT issue create --title "[slice N title]" --body "$BODY_N"   # no --label
 5. Update parent issue (github adapter):
 
 ```bash
-$GH_BOT issue edit $ISSUE_NUMBER --add-label epic --remove-label ready-for-dev --remove-label in-progress
+$GH_BOT_SH issue edit $ISSUE_NUMBER --add-label epic --remove-label ready-for-dev --remove-label in-progress
 gh issue edit $ISSUE_NUMBER --remove-assignee @me
 ```
 
@@ -357,7 +366,7 @@ When you're not confident in your decision, STOP and escalate:
 
 1. Comment on issue: `stage: intake`, `status: needs-human-input`
    Include: what you understood, what's uncertain, the options you're considering, a clear question
-2. Label: `$GH_BOT issue edit $ISSUE_NUMBER --add-label needs-intake-review --remove-label in-progress`; `gh issue edit $ISSUE_NUMBER --remove-assignee @me`
+2. Label: `$GH_BOT_SH issue edit $ISSUE_NUMBER --add-label needs-intake-review --remove-label in-progress`; `gh issue edit $ISSUE_NUMBER --remove-assignee @me`
 3. **STOP**
 
 _(jira: tracker delta.)_ Surface the same content to the operator in-session and STOP.

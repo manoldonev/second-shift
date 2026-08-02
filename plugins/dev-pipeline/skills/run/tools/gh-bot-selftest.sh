@@ -141,17 +141,17 @@ pm="$(env -i PATH="$PATH" HOME="$home_m" SECOND_SHIFT_REPO_ROOT="$root_m" \
 out="$(run_case disabled \
   "{\"tracker\":{\"bot\":{\"enabled\":false,\"wrapperPath\":\"$W2\"}}}" \
   "GH_BOT=$W1" -- )"
-status="${out%%|*}"
-[[ "$status" == "disabled" ]] \
+status="${out%%|*}"; rest="${out#*|}"; rc="${rest##*|}"
+[[ "$status" == "disabled" && "$rc" != "0" ]] \
   && ok "(disabled) enabled:false → disabled even with wrapper + env" \
-  || bad "(disabled) status=$status"
+  || bad "(disabled) status=$status rc=$rc"
 
 # ABSENT config → disabled
 out="$(run_case absent ABSENT "GH_BOT=$W1" -- )"
-status="${out%%|*}"
-[[ "$status" == "disabled" ]] \
+status="${out%%|*}"; rest="${out#*|}"; rc="${rest##*|}"
+[[ "$status" == "disabled" && "$rc" != "0" ]] \
   && ok "(disabled) absent config → disabled" \
-  || bad "(disabled) absent status=$status"
+  || bad "(disabled) absent status=$status rc=$rc"
 
 # --- unset var + resolvable wrapper → ok (exact repro) -----------------------
 out="$(run_case unset-ok \
@@ -166,29 +166,29 @@ status="${out%%|*}"; rest="${out#*|}"; path="${rest%%|*}"; rc="${rest##*|}"
 out="$(run_case unset-var \
   '{"tracker":{"bot":{"enabled":true}}}' \
   -- )"
-status="${out%%|*}"
-[[ "$status" == "unset-var" ]] \
+status="${out%%|*}"; rest="${out#*|}"; rc="${rest##*|}"
+[[ "$status" == "unset-var" && "$rc" != "0" ]] \
   && ok "(unset-var) enabled, no env, no wrapperPath, default missing → unset-var" \
-  || bad "(unset-var) status=$status"
+  || bad "(unset-var) status=$status rc=$rc"
 
 # --- wrapperPath set but absent → missing-file -------------------------------
 out="$(run_case missing \
   '{"tracker":{"bot":{"enabled":true,"wrapperPath":"/no/such/wrapper-92.sh"}}}' \
   -- )"
-status="${out%%|*}"
-[[ "$status" == "missing-file" ]] \
+status="${out%%|*}"; rest="${out#*|}"; rc="${rest##*|}"
+[[ "$status" == "missing-file" && "$rc" != "0" ]] \
   && ok "(missing-file) configured path absent → missing-file" \
-  || bad "(missing-file) status=$status"
+  || bad "(missing-file) status=$status rc=$rc"
 
 # --- present but non-executable → not-executable -----------------------------
 Wn="$TMP/not-exec.sh"; printf '#!/bin/sh\necho x\n' > "$Wn"; chmod a-x "$Wn" || true
 out="$(run_case notexec \
   "{\"tracker\":{\"bot\":{\"enabled\":true,\"wrapperPath\":\"$Wn\"}}}" \
   -- )"
-status="${out%%|*}"
-[[ "$status" == "not-executable" ]] \
+status="${out%%|*}"; rest="${out#*|}"; rc="${rest##*|}"
+[[ "$status" == "not-executable" && "$rc" != "0" ]] \
   && ok "(not-executable) present but non-executable" \
-  || bad "(not-executable) status=$status"
+  || bad "(not-executable) status=$status rc=$rc"
 
 # --- passthrough forwards argv -----------------------------------------------
 Wm="$TMP/mock-pass.sh"
@@ -214,6 +214,54 @@ env -i PATH="$PATH" HOME="$TMP" SECOND_SHIFT_REPO_ROOT="$TMP" \
 [[ "$rc_s" == "0" ]] \
   && ok "(--status) always exits 0" \
   || bad "(--status) exited $rc_s"
+
+# --- real git-derived root: no SECOND_SHIFT_REPO_ROOT/SECOND_SHIFT_CONFIG ----
+# Every case above overrides both env vars, so the actual `git rev-parse
+# --git-common-dir` ladder (the worktree-safe derivation lifted from
+# claim-issue.sh) never runs under test — this is the branch real invocations
+# always take, since nobody exports SECOND_SHIFT_REPO_ROOT in practice.
+
+# (a) main checkout: git-common-dir reports a RELATIVE ".git" — the
+# absolute-ize branch that handles that case.
+home_g="$TMP/hg"; repo_g="$TMP/realrepo-$$"; mkdir -p "$home_g" "$repo_g"
+git init -q "$repo_g"
+git -C "$repo_g" -c user.email=t@t -c user.name=t commit -q --allow-empty -m init
+mkdir -p "$repo_g/.claude"
+printf '%s\n' '{"tracker":{"bot":{"enabled":true}}}' > "$repo_g/.claude/second-shift.config.json"
+def_g="$home_g/.config/$(basename "$repo_g")/gh-as-bot.sh"
+mkdir -p "$(dirname "$def_g")"
+printf '#!/bin/sh\necho realrepo\n' > "$def_g"; chmod +x "$def_g"
+st_g="$(cd "$repo_g" && env -i PATH="$PATH" HOME="$home_g" bash "$HELPER" --status)"
+p_g="$(cd "$repo_g" && env -i PATH="$PATH" HOME="$home_g" bash "$HELPER" --path)"
+[[ "$st_g" == "ok" && "$p_g" == "$def_g" ]] \
+  && ok "(real-root) main checkout: git-common-dir derives root with no override" \
+  || bad "(real-root) main checkout: status=$st_g path=$p_g expected=$def_g"
+
+# Same real derivation from a SUBDIRECTORY (git rev-parse --git-common-dir
+# resolves identically regardless of cwd within the repo).
+mkdir -p "$repo_g/sub/dir"
+st_gs="$(cd "$repo_g/sub/dir" && env -i PATH="$PATH" HOME="$home_g" bash "$HELPER" --status)"
+p_gs="$(cd "$repo_g/sub/dir" && env -i PATH="$PATH" HOME="$home_g" bash "$HELPER" --path)"
+[[ "$st_gs" == "ok" && "$p_gs" == "$def_g" ]] \
+  && ok "(real-root) subdirectory: git-common-dir derives the same root" \
+  || bad "(real-root) subdirectory: status=$st_gs path=$p_gs expected=$def_g"
+
+# (b) linked worktree: git-common-dir reports an ABSOLUTE path — the branch
+# that skips the absolute-ize step. `--git-common-dir` from a linked worktree
+# points at the MAIN repo's .git (shared object database, by git's own
+# design — confirmed empirically), so root — and the default path's basename
+# — resolves to the MAIN repo, not the worktree's own directory. This is the
+# intended "worktree-safe root ... the main checkout" behavior the header
+# comment describes, not a bug: a lean worktree must resolve the SAME config
+# and bot wrapper as its main checkout.
+wt_g="$TMP/realwt-$$"
+git -C "$repo_g" worktree add -q -b "gh-bot-selftest-wt-$$" "$wt_g" >/dev/null 2>&1
+st_wg="$(cd "$wt_g" && env -i PATH="$PATH" HOME="$home_g" bash "$HELPER" --status)"
+p_wg="$(cd "$wt_g" && env -i PATH="$PATH" HOME="$home_g" bash "$HELPER" --path)"
+[[ "$st_wg" == "ok" && "$p_wg" == "$def_g" ]] \
+  && ok "(real-root) linked worktree: absolute git-common-dir resolves to the MAIN repo's basename" \
+  || bad "(real-root) linked worktree: status=$st_wg path=$p_wg expected=$def_g"
+git -C "$repo_g" worktree remove "$wt_g" --force >/dev/null 2>&1 || true
 
 echo
 echo "Result: $PASS passed, $FAIL failed"

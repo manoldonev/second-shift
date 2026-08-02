@@ -61,6 +61,9 @@ _wrap_cfg=""
 if [[ -n "$_cfg" && -f "$_cfg" ]] && command -v jq >/dev/null 2>&1; then
   _enabled="$(jq -r '.tracker.bot.enabled // false' "$_cfg" 2>/dev/null || echo false)"
   _t="$(jq -r '.tracker.bot.envVar // empty' "$_cfg" 2>/dev/null || true)"
+  # Reject anything that isn't a bare shell identifier — envVar feeds an indirect
+  # expansion below, and a non-identifier value must never reach it.
+  [[ "$_t" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || _t=""
   [[ -n "$_t" && "$_t" != "null" ]] && _env_var_name="$_t"
   _wrap_cfg="$(jq -r '.tracker.bot.wrapperPath // empty' "$_cfg" 2>/dev/null || true)"
   [[ "$_wrap_cfg" == "null" ]] && _wrap_cfg=""
@@ -78,7 +81,9 @@ _env_val=""
 
 if [[ "$_enabled" == "true" ]]; then
   # Rung 1: indirect read of the configured env var name (not a hardcoded GH_BOT).
-  eval "_env_val=\"\${${_env_var_name}:-}\""
+  # bash 3.2's `${!name}` indirect expansion does the read with no eval — envVar is
+  # config-supplied, and eval on an unvalidated value is a shell-injection sink.
+  _env_val="${!_env_var_name:-}"
 fi
 
 if [[ -n "$_env_val" ]]; then

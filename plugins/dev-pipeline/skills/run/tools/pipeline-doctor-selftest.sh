@@ -393,6 +393,15 @@ MOCK
   else
     bad "(d7-bot) not-executable emitted=[$em_n]"
   fi
+
+  # ok → binds GH_BOT and reports resolved, no FAIL (all five AC-8 tokens now covered)
+  out_ok="$(run_bot_resolve ok /tmp/mock-wrapper-92.sh)"
+  fails_ok="${out_ok%%|*}"; em_ok="${out_ok#*|}"
+  if [[ "$fails_ok" == "0" && "$em_ok" == *"OK:bot wrapper resolved at /tmp/mock-wrapper-92.sh"* ]]; then
+    ok "(d7-bot) ok → binds GH_BOT and reports resolved, no FAIL"
+  else
+    bad "(d7-bot) ok → fails=$fails_ok emitted=[$em_ok]"
+  fi
 fi
 
 # ---------------------------------------------------------------------------
