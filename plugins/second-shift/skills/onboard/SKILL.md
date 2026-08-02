@@ -281,7 +281,7 @@ entire block otherwise; it is opt-in, not part of the default emitted set):
    instructions: pick a small ticket with no external-infrastructure ACs;
    `tracker.branchPrefix` is already set (skips branch-identity derivation); the
    bot/labels wall was already handled in Step 3 for the github tracker; run
-   `/dev-pipeline:run <ticket>`.
+   `/dev-pipeline:run-lean <ticket>`.
 6. Remind: commit `.claude/settings.json`, `.claude/second-shift.config.json`,
    `.claude/second-shift.lock.json`, `.claude/tools/second-shift-doctor.sh`, and
    `.claude/SECOND-SHIFT.md` in one PR — **plus**, only if the CI evidence workflow was
