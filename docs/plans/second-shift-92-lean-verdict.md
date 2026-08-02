@@ -48,7 +48,19 @@ CI also caught a shellcheck-version gap (SC2119/SC2120 on `run_claim_disabled`'s
 `$1`, flagged by CI's older shellcheck but silent on the local 0.11.0) — fixed with standard
 disable comments in commit `c047b9f`, included in round 3's re-verification.
 
+After round 3's approval, CI's `lint-and-selftests` job caught one more real defect the local
+sweep couldn't: the namespace-direction check (`docs/namespaces.md` rule 3(b)) rejected the
+`Bot writes` note added to `intake-orchestrator/SKILL.md` for containing a literal `skills/run/`
+substring — toolkit content may never hard-path into dev-pipeline's internal layout, even inside
+a runtime-resolved path description. Fixed in commit `1035af0`: the note now locates `gh-bot.sh`
+**by name** under the resolved dev-pipeline install path (`find "$DEV_PIPELINE_ROOT" -name
+gh-bot.sh`) instead of spelling out the path — more robust to a dev-pipeline internal layout
+change than the original hardcoded form, and verified against CI's exact grep commands locally
+before pushing. All CI checks (`lint-and-selftests`, `pr-gates`, `selftests (macos, bash 3.2)`)
+are green on the final commit; `bash lean-gate.sh all 92` re-confirms milestones 1–5 satisfied.
+
 ## Findings
 
 None outstanding. Round 2's three residual findings are all resolved (see above); round 3
-returned zero new findings.
+returned zero new findings; the two post-round-3 CI failures (shellcheck version gap,
+namespace-direction) are both fixed and CI is green.
