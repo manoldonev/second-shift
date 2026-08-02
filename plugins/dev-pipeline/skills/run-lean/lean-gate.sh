@@ -298,7 +298,7 @@ cmd_claim() {
     echo "<!-- run_id: $RESOLVED_RUN_ID -->"
     echo "<!-- stage: lean-claimed -->"
     echo ""
-    echo "🤖 Claimed by \`/dev-pipeline:run-lean\` (experimental)."
+    echo "🤖 Claimed by \`/dev-pipeline:run-lean\`."
   } > "$body"
   url="$("${GH_BOT:?GH_BOT must point at the bot wrapper}" api -X POST \
         "repos/{owner}/{repo}/issues/$ISSUE/comments" -F body=@"$body" --jq .html_url 2>&1)"

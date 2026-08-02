@@ -12,7 +12,7 @@
     {
       "name": "dev-pipeline",
       "source": "./plugins/dev-pipeline",
-      "description": "Autonomous ticket → intake → plan → implement → verify → review → PR pipeline with crash-recoverable state, deterministic verify runner, and tracker adapters (github|jira)."
+      "description": "Autonomous ticket → intake → build → review → merge-boundary pipeline, gated by lean's five artifact milestones by default (crash-recoverable state, deterministic verify runner, tracker adapters github|jira); the ten-stage statectl lane is kept as an ablation/rollback path."
     },
     {
       "name": "review-toolkit",

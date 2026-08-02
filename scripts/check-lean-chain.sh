@@ -33,9 +33,9 @@
 # reason: fixtures are lean-shaped on purpose.
 #
 # CONSUMER UNPORTABILITY: second-shift-only, same as its sibling. It reconciles against
-# tracker COMMENTS, which a read-only tracker (`tracker.writes: false`) posts none of. During
-# the experimental phase lean's integrity contract is dogfood-scoped; consumer-side
-# enforcement is a named promotion prerequisite. Do not ship this to the consumer CI template.
+# tracker COMMENTS, which a read-only tracker (`tracker.writes: false`) posts none of. lean's
+# integrity contract is dogfood-scoped for now; consumer-side enforcement is a named
+# promotion prerequisite. Do not ship this to the consumer CI template.
 #
 # Inputs (ALL via the environment — never spliced into a `run:` line; a PR body is
 # attacker-controllable, and ci.yml documents this convention):

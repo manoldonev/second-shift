@@ -18,7 +18,7 @@ CONTRIBUTING snippet).
    accepted the CI evidence workflow, `.github/workflows/second-shift-ci.yml` and
    `.claude/tools/second-shift-ci-check.sh`.
 4. Dry-run: pick a small ticket with no external-infrastructure acceptance criteria and
-   run `/dev-pipeline:run <ticket>` end to end before inviting the team.
+   run `/dev-pipeline:run-lean <ticket>` end to end before inviting the team.
 
 **Champion's-machine caveat:** the machine that develops or first registers the
 marketplace often carries a **ref-less user-scope registration**, which shadows the

@@ -1,9 +1,9 @@
 ---
 name: run-lean
-description: EXPERIMENTAL lean alternative to /dev-pipeline:run — GitHub issue to ready PR, gated by five artifact milestones instead of ten prescribed stages. Outcome-gated: it asserts what exists, never how you got there. Use when per-run cost matters and the issue already carries paid-off intake (ready-for-dev, optionally a pre-flight ledger).
+description: The default dev-pipeline lane — GitHub issue to ready PR, gated by five artifact milestones. Outcome-gated: it asserts what exists, never how you got there. Expects an issue with paid-off intake (ready-for-dev, optionally a pre-flight ledger).
 ---
 
-# run-lean (experimental)
+# run-lean
 
 Outcome-gated harness. `lean-gate.sh` asserts artifacts; **how** you produce them is yours.
 Any skill surface (intake, review-lead, plan-interview) is an available pool — none is

@@ -155,7 +155,9 @@ bash "${CLAUDE_PLUGIN_ROOT:-<dev-pipeline-plugin-root>}/skills/run/tools/config-
 ## 2b. Prerequisites the first run enforces (GitHub tracker)
 
 `/second-shift:onboard` walks you through both of these; if you onboarded manually, the
-first `/dev-pipeline:run` pre-flight enforces them, so handle them now rather than mid-run:
+first pipeline run enforces them (either lane — the bot wrapper and the claim's queue
+label are load-bearing for both `/dev-pipeline:run-lean` and `/dev-pipeline:run`), so
+handle them now rather than mid-run:
 
 - **The six queue labels.** Pre-flight requires `ready-for-dev`, `needs-spec-work`,
   `needs-plan-review`, `needs-intake-review`, `in-progress`, `epic` to exist on the repo
@@ -275,12 +277,22 @@ Three layers, in order:
 
 Then the read-only preflight — the onboarding finish line. `/second-shift:onboard` runs it as its final step; manually, resolve the dev-pipeline install path (`claude plugin list --json` → `.installPath`) and run `bash "<installPath>/skills/run/tools/preflight.sh"`. It echoes the resolved targets, runs the config gates and the environment doctor, performs one tracker READ (no claim), executes every non-null command lane once (source-mutating lanes are skipped with a note), and writes `.claude/pipeline-state/preflight-report.md` — zero tracker/git/remote mutations, so the first mutating contact happens only after everything else is proven green.
 
-Then a first run on a small, self-contained ticket:
+Then a first run on a small, self-contained ticket. The default lane routes
+intake → build → review → merge boundary, gated by five artifact milestones:
 
 ```text
-/dev-pipeline:run <ticket>
+/dev-pipeline:run-lean <ticket>
 ```
 
-Autonomous mode is safe to trust on day one because it never guesses: the Target Confirmation Gate echoes the resolved config (tracker, repos, base branches) at the top of the run, and every gate **fail-fasts with a written reason** instead of asking — a mis-declared repo aborts before anything is mutated, and `.claude/pipeline-state/<key>.json` tells you exactly why. Two tips for a clean first run: set `tracker.branchPrefix` in config (skips runtime branch-identity derivation, which has nothing to match in a repo with no prior pipeline branches), and pick a ticket with no external-infrastructure ACs. An interactive step-through mode exists for debugging aborted runs — see the `dev-pipeline` SKILL — but onboarding doesn't need it.
+Autonomous mode is safe to trust on day one because it never guesses: `run-lean`'s entry
+gate rejects a missing audit ledger or queue label before any work begins, and every
+milestone gate **fail-fasts with a written reason** instead of asking — `.claude/pipeline-state/<issue>-lean-progress.md` tells you exactly why. (The rollback lane,
+`/dev-pipeline:run`, has its own equivalent: a Target Confirmation Gate that echoes the
+resolved config at the top of the run, and `.claude/pipeline-state/<key>.json` as its
+failure record.) Two tips for a clean first run: set `tracker.branchPrefix` in config
+(skips runtime branch-identity derivation, which has nothing to match in a repo with no
+prior pipeline branches), and pick a ticket with no external-infrastructure ACs. An
+interactive step-through mode exists for debugging aborted `/dev-pipeline:run` runs — see
+the `dev-pipeline` SKILL — but onboarding doesn't need it.
 
 **Sequencing note (migrating repos with vendored copies):** delete the repo-local files that shadow plugin-shipped names, commit, and **start a fresh session** before the dry-run — deleting same-named skills mid-session invalidates that session's skill registry and every `Skill(<plugin>:<name>)` call returns "Unknown skill" until restart ([`namespaces.md`](namespaces.md) rule 6).
