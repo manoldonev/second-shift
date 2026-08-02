@@ -145,6 +145,7 @@ if [[ "$rc" == "1" ]] && ! deleted; then ok "failed-add (empty body + rc=1) -> e
 # guard (added when the resolver replaced the private ladder) was never
 # exercised: a disabled or misconfigured resolver must abort BEFORE the mock
 # wrapper is ever invoked — no POST, no DELETE.
+# shellcheck disable=SC2120 # issue_arg has a default (183); no caller needs the override
 run_claim_disabled() {
   local issue_arg="${1-183}"
   rm -f "$DELETE_SENTINEL"
@@ -159,6 +160,7 @@ run_claim_disabled() {
     bash "$HELPER" "$issue_arg" >/dev/null 2>&1
   echo "$?"
 }
+# shellcheck disable=SC2119 # the default from SC2120's disable applies here too
 rc=$(run_claim_disabled)
 if [[ "$rc" == "1" ]] && ! deleted && [[ ! -s "$CALL_LOG" ]]; then
   ok "disabled resolver -> exit 1, no POST/DELETE (mock never invoked)"
