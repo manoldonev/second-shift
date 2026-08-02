@@ -41,10 +41,10 @@ claude
 }
 ```
 
-Then pick a small, self-contained ticket and let the pipeline run it end to end — autonomous is the only mode you need:
+Then pick a small, self-contained ticket and let the pipeline run it end to end — autonomous is the only mode you need. The default lane routes intake → build → review → merge boundary, gated by five artifact milestones:
 
 ```text
-/dev-pipeline:run <ticket>
+/dev-pipeline:run-lean <ticket>
 ```
 
 Full onboarding — topologies (monorepo, BE+FE pair), reviewer tuning, extension files — is in [`docs/onboarding.md`](docs/onboarding.md); the JIRA tracker's setup and behavioral delta live in [the JIRA tracker README](plugins/dev-pipeline/skills/run/tools/tracker/jira/README.md). To keep collaborators on the same toolset, commit the settings pin `onboard` writes (`extraKnownMarketplaces` + `enabledPlugins` in `.claude/settings.json`); track latest only in a canary.
@@ -57,7 +57,7 @@ Agent-assisted development gets dramatically better when the *process* is engine
 
 | Plugin | What you get |
 | --- | --- |
-| **dev-pipeline** | Ticket → PR in 10 gated stages. Resumable state machine (`statectl`), deterministic verify runner (`verifyctl`), plan lint with acceptance-criteria traceability, tracker adapters (GitHub Issues with bot-identity claiming, or read-only JIRA), cost tracking, post-run retrospective. |
+| **dev-pipeline** | Ticket → PR across intake → build → review → merge-boundary blocks, gated by lean's five artifact milestones by default (`/dev-pipeline:run-lean`); the ten-stage resumable state machine (`statectl`, `/dev-pipeline:run`) is kept as an ablation/rollback lane. Deterministic verify runner (`verifyctl`), plan lint with acceptance-criteria traceability, tracker adapters (GitHub Issues with bot-identity claiming, or read-only JIRA), cost tracking, post-run retrospective. |
 | **review-toolkit** | `review-lead` parallel multi-agent review: security, performance, maintainability, complexity, db, scope-completeness, test-coverage reviewers under a shared confidence protocol; mutation-review of unit tests; commit-time consistency gates. |
 | **intake-toolkit** | The elicitation surface: `/intake-toolkit:intake` front door, requirement and decomposition interviews, `plan-interview` that turns design decisions into a machine-lintable Decision Ledger, `grill-me` plan stress-testing. |
 | **design-toolkit** | Design-fidelity translation and review (`design-faithful`), with an optional Figma-MCP-backed mode (`figma-faithful`) and `figma-iterate` — an interactive fast-path for quick Figma iteration that swaps pipeline ceremony for one batched discrepancy checkpoint — plus a Playwright CLI helper. |

@@ -1,9 +1,14 @@
 ---
 name: run
-description: 'Fully autonomous pipeline: GitHub issue → branch → implement → review → PR'
+description: 'DEPRECATED — kept as an ablation control and rollback lane; new work routes /dev-pipeline:run-lean. Fully autonomous pipeline: GitHub issue → branch → implement → review → PR'
 ---
 
-# Dev Pipeline
+# Dev Pipeline (deprecated)
+
+**Deprecated.** Kept solely as an ablation control and rollback lane until the deletion
+child of the block-decomposition epic (#343) lands; new work routes
+`/dev-pipeline:run-lean`. If you need to pin to this lane, pin to the last stage-carrying
+release, recorded on the deletion PR at merge — not a version literal here.
 
 Fully autonomous pipeline: GitHub issue → branch → implement → review → PR.
 
