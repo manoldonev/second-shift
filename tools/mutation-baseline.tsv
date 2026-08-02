@@ -203,10 +203,6 @@ scripts/derive-release.sh::logic::2	seeded by the canonical seed run
 scripts/stack-generality-lint.sh::cmp-eq::1	seeded by the canonical seed run
 scripts/stack-generality-lint.sh::cmp-z::1	seeded by the canonical seed run
 scripts/stack-generality-lint.sh::logic::1	seeded by the canonical seed run
-plugins/dev-pipeline/skills/run/tools/gh-bot.sh::fail-open::1	#92: new resolver; fail-open mutants not killable by status-token suite
-plugins/dev-pipeline/skills/run/tools/gh-bot.sh::fail-open::2	#92: new resolver; fail-open mutants not killable by status-token suite
+plugins/dev-pipeline/skills/run/tools/gh-bot.sh::fail-open::2	#92: new resolver; fail-open mutant not killable by status-token suite
 plugins/dev-pipeline/skills/run/tools/gh-bot.sh::cmp-z::1	#92: new resolver; empty-path cmp not exercised by selftest cases
 plugins/dev-pipeline/skills/run/tools/gh-bot.sh::logic::1	#92: new resolver; generic logic survivor accepted at land
-plugins/dev-pipeline/skills/run/tools/gh-bot.sh::logic::2	#92: new resolver; generic logic survivor accepted at land
-plugins/dev-pipeline/skills/run/tools/gh-bot.sh::default::1	#92: new resolver; default-path ordinal accepted at land
-plugins/dev-pipeline/skills/run/tools/gh-bot.sh::default::2	#92: new resolver; default-path ordinal accepted at land
