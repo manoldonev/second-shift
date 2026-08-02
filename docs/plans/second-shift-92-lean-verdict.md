@@ -1,32 +1,43 @@
 # Lean verdict — #92
 
-verdict=needs-work
+verdict=approve
 run_id: 2026-08-02T133308Z-lean-92
-rounds: 1
+rounds: 2
 
 ## Summary
 
-The gh-bot.sh resolver itself is well-built and satisfies AC-1/2/3/4/5/6/8: shellcheck-clean,
-and gh-bot-selftest.sh, claim-selftest.sh, pipeline-doctor-selftest.sh, cost-block-selftest.sh
-all pass with 0 failures locally. But the branch was cut before `origin/main`'s tip (missing
-commit 1686280, PR #349 "promote the lean lane to default; deprecate the staged run"), and its
-diff against current `origin/main` reverts that already-merged work: un-deprecates
-`plugins/dev-pipeline/skills/run/SKILL.md`, and reverts `README.md`/`docs/onboarding.md`/
-`docs/team-rollout.md`/`plugins/second-shift/skills/onboard/SKILL.md` from `/dev-pipeline:run-lean`
-back to `/dev-pipeline:run` as the recommended default. Must rebase onto current `origin/main`
-before landing. AC-7 also has residual gaps (warning): `pipeline-retro/SKILL.md` and
-`tools/tracker/README.md` still instruct writes via bare `$GH_BOT` rather than the passthrough
-form. A pre-existing note (not this PR's regression): a bot-disabled github+writes-true repo now
-passes pre-flight/doctor cleanly per AC-4, but `claim-issue.sh` still hard-aborts on any non-`ok`
-gh-bot.sh status, so the failure just moves later in the run.
+Round 1 flagged one blocker (confidence 95): the branch was cut before `origin/main`'s tip
+(missing commit 1686280, PR #349 "promote the lean lane to default; deprecate the staged run"),
+and its diff reverted that already-merged work across `SKILL.md`/`README.md`/onboarding docs.
+Fixed by merging `origin/main` into the branch (merge commit `01c2845`, pushed) — the diff
+against those four files is now empty and 1686280 is an ancestor of HEAD. Round 2 re-verified
+independently: gh-bot.sh's three-rung ladder and five-token `--status` contract (AC-1);
+unset-env + resolvable wrapper → `ok`, no empty-path message in any branch (AC-2); distinct
+remediation per status in both the pre-flight gate and `pipeline-doctor.sh` (AC-3); `enabled`
+false/absent skips both checks without failing (AC-4); every resolution site honors
+`tracker.bot.envVar` (AC-5); `claim-issue.sh`/`pipeline-cost-block.sh`/`install-gh-bot.sh`
+delegate to `gh-bot.sh` with no private ladder and the lockstep row is retired (AC-6); SKILL.md,
+pr-revision/SKILL.md, and stages 1/3/4/6/7/8/9 convert their prose write sites to the passthrough
+(AC-7, with a residual gap noted below); `gh-bot-selftest.sh` covers every case in scope and
+`pipeline-doctor-selftest.sh` carries the `(d7)` group (AC-8). shellcheck, `jq empty`, and the
+full `*-selftest.sh` sweep (269 passed/0 failed) are clean; `tools/mutation-sweep.sh --mode pr`
+shows no baseline-absent survivor; `check-lockstep-pairs.sh` and `check-frozen-files.sh` both
+pass; commits carry the correct `feat(dev-pipeline):` verb and `Changelog:` trailers.
 
 ## Findings
 
-- **blocker** (confidence 95): branch based on stale main, diff reverts merged PR #349's
-  lean-lane-default promotion across SKILL.md/README.md/onboarding docs. Must rebase before
-  merge.
-- **warning** (confidence 55): AC-7 not fully satisfied — `pipeline-retro/SKILL.md` and
-  `tools/tracker/README.md` still reference bare `$GH_BOT`.
-- **note** (confidence 55): `claim-issue.sh` unconditionally requires gh-bot.sh status=ok; a
-  bot-disabled repo now passes pre-flight/doctor per AC-4 but still hard-aborts at claim time.
-  Pre-existing behavior, out of this PR's stated scope.
+- **warning** (confidence 70, carried from round 1): AC-7 is not fully satisfied repo-wide —
+  `plugins/dev-pipeline/skills/pipeline-retro/SKILL.md` and
+  `plugins/dev-pipeline/skills/run/tools/tracker/README.md` still instruct writes via bare
+  `$GH_BOT` rather than the passthrough form. Neither file is in this PR's changed-file list, so
+  the mechanical conversion missed them. Not a regression; flagged as a follow-up rather than
+  fixed in this PR, since both files sit outside the plan's named scope.
+- **note** (confidence 55): `claim-issue.sh` still hard-aborts on any non-`ok` gh-bot.sh status.
+  A bot-disabled repo now passes pre-flight/doctor cleanly per AC-4 but still fails later at
+  claim time — pre-existing behavior, unchanged by this PR, out of its stated scope.
+- **note** (confidence 45): `pipeline-doctor-selftest.sh`'s `(d7)` group has no explicit case for
+  the `status=ok` branch (all five tokens named in AC-8 are covered elsewhere by
+  `gh-bot-selftest.sh`'s own repro case). Low risk; not blocking.
+- **note** (confidence 40): a couple of mechanically-converted prose sites (e.g.
+  `stages/9-open-pr.md:9`) read awkwardly after the `$GH_BOT` → passthrough substitution.
+  Cosmetic only.
