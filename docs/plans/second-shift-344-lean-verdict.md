@@ -14,8 +14,8 @@ run/SKILL.md's deprecation notice states the pin policy with no version literal.
 check-frozen-files.sh runs clean (versions and CHANGELOG.md untouched, both still 3.6.0).
 AC-3: both lean-gate-selftest.sh and check-lean-chain-selftest.sh pass all-green after the
 claim-string edit. AC-4: commit carries a substantive Changelog trailer; grepped the diff
-for consumer/operator-identity tokens (cadenza, acme, e-commerce, sales, jdoe, mdonev) —
-none introduced. AC-5: ran tools/mutation-sweep.sh --mode pr --base <merge-base> myself;
+against the identity-token scrub list — none introduced. AC-5: ran
+tools/mutation-sweep.sh --mode pr --base <merge-base> myself;
 lean-gate.sh's survivor set (cmp-eq::1, cmp-z::1, detector::1, default::1, default::2) and
 check-lean-chain.sh's survivor set (cmp-eq::1/2, cmp-z::1/2, detector::2, default::1/2)
 match tools/mutation-baseline.tsv byte-for-byte — no new/removed mutation sites.
