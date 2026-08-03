@@ -271,3 +271,18 @@ artifact-reviewer-baseline-deltas	verbatim	plugins/design-toolkit/agents/figma-f
 # zero-matching prefix and asserts it still applies. The mutual non-prefix-match property is
 # separately asserted on both sides: lean-gate-selftest.sh (e2)/(e3) at the derivation, and
 # check-lean-chain-selftest.sh (L) at the CI constants, which exits 2 rather than guessing.
+
+# lean verdict-record key schema (`verdict=`, `run_id:`, `session_id:`) — ONE writer
+# (lean-gate.sh's `verdict` subcommand) and THREE readers: lean-gate.sh milestone 4,
+# scripts/check-lean-chain.sh, and lean-reconcile.sh. A real coupling: dropping a key on the
+# writer silently un-satisfies all three readers, and a reader-side requirement the writer
+# never emits reds every lean PR. Considered for a row and DROPPED — the writer spells the
+# keys as `echo` lines and the readers as grep/jq patterns, so there is no literal both sides
+# could share without inventing a canonical constant purely to be compared, which is the
+# "duplicate machinery is worse than none" case this file's header names.
+# Guarded behaviorally instead, and the guard COMPOSES across the sites rather than pinning
+# bytes: lean-gate-selftest.sh (p5)/(p7) drive the writer and then feed its output to the
+# milestone-4 reader in the same run, so a writer that drops a key fails at the reader;
+# (j3)/(j3b) pin each key's absence as its own refusal; check-lean-chain-selftest.sh (N2)/(N3)
+# and lean-reconcile-selftest.sh (C)/(J1)/(J2) do the same at the other two readers. Revisit
+# if a fourth reader lands, or if any site starts parsing the record as structured data.

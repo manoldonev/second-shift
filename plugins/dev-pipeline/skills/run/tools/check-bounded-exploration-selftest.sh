@@ -341,24 +341,45 @@ if [ -n "$t_line" ] && [ -n "$u_line" ]; then
   fi
 fi
 
-# --- C1: the scanned set spans EVERY workflow directory, not just skills/run --------------
-# Workflow scripts live under more than one skill now (run-lean ships its own). A lint
-# anchored to a single directory reports a confident green while never having opened the
-# files outside it — the self-neutralization class this lint exists to prevent, turned on
-# the lint itself. lean-review.mjs carries a schema-bearing structured-emitter dispatch, so
-# if it is outside the scanned set its declaration marker is never checked at all.
-LEAN_WF_DIR="$(dirname "$RUN_DIR")/run-lean/workflows"
-if [ -d "$LEAN_WF_DIR" ]; then
-  C1_OUT="$(bash "$LINT" 2>&1)"
-  C1_FILES="$(printf '%s' "$C1_OUT" | sed -nE 's/.*across ([0-9]+) file\(s\).*/\1/p')"
-  RUN_ONLY="$(bash "$LINT" "$WORKFLOWS" 2>&1 | sed -nE 's/.*across ([0-9]+) file\(s\).*/\1/p')"
-  if [ -n "$C1_FILES" ] && [ -n "$RUN_ONLY" ] && [ "$C1_FILES" -gt "$RUN_ONLY" ]; then
-    ok "C1 default scan spans multiple workflow dirs ($C1_FILES files vs $RUN_ONLY for skills/run/workflows alone)"
-  else
-    bad "C1 default scan covered $C1_FILES file(s), not more than skills/run/workflows' $RUN_ONLY — the run-lean workflow dir is outside the scanned set, so its schema-carrying dispatches are unchecked"
-  fi
+# --- C1: the scanned set spans EVERY workflow directory that exists ------------------------
+# A lint anchored to a directory list reports a confident green while never having opened the
+# files outside it — the self-neutralization class this lint exists to prevent, turned on the
+# lint itself. Until run-lean's in-build reviewer became a separate review session, the shape
+# of this case was "the default scan covers MORE files than skills/run alone". With one
+# directory left that comparison is unsatisfiable, and re-anchoring it to "the counts are
+# equal" would assert nothing about a directory added later.
+#
+# The invariant that survives the removal is the one worth pinning: the lint refuses to run
+# against a stale list. C1a drives the real tree (every discovered dir is listed); C1b PLANTS
+# an unlisted workflows/ directory under skills/ and asserts the lint fails rather than
+# silently skipping it. C1b is what makes this non-vacuous — without it, the case would pass
+# on a lint that had no self-check at all.
+C1_OUT="$(bash "$LINT" 2>&1)"; c1_rc=$?
+C1_FILES="$(printf '%s' "$C1_OUT" | sed -nE 's/.*across ([0-9]+) file\(s\).*/\1/p')"
+if [ "$c1_rc" -eq 0 ] && [ -n "$C1_FILES" ] && [ "$C1_FILES" -ge 1 ]; then
+  ok "C1a the default scan runs clean over the real tree and opened $C1_FILES file(s)"
 else
-  ok "C1 skipped — no run-lean workflows directory in this checkout"
+  bad "C1a default scan rc=$c1_rc files='$C1_FILES': $C1_OUT"
+fi
+
+# The planted directory goes in a MIRROR of the skills/ layout under $TMP, never in the real
+# tree: the lint resolves its roots from BASH_SOURCE, so copying it into the mirror is all it
+# takes, and an interrupted run then cannot leave a stray directory in the repo.
+MIRROR="$TMP/skills"
+mkdir -p "$MIRROR/run/tools" "$MIRROR/run/workflows"
+cp "$LINT" "$MIRROR/run/tools/"
+cp "$WORKFLOWS"/*.mjs "$MIRROR/run/workflows/"   # the real, known-clean corpus
+MIRROR_LINT="$MIRROR/run/tools/$(basename "$LINT")"
+
+# Control first: the mirror itself must be clean, or C1b would "pass" for the wrong reason.
+bash "$MIRROR_LINT" >/dev/null 2>&1; c1ctl_rc=$?
+mkdir -p "$MIRROR/other-skill/workflows"
+cp "$MIRROR/run/workflows/"*.mjs "$MIRROR/other-skill/workflows/"
+C1B_OUT="$(bash "$MIRROR_LINT" 2>&1)"; c1b_rc=$?
+if [ "$c1ctl_rc" -eq 0 ] && [ "$c1b_rc" -ne 0 ] && printf '%s' "$C1B_OUT" | grep -q 'absent from WORKFLOW_DIRS'; then
+  ok "C1b a workflows/ directory outside WORKFLOW_DIRS fails the lint instead of being silently skipped"
+else
+  bad "C1b control rc=$c1ctl_rc (want 0), planted rc=$c1b_rc (want non-zero): $C1B_OUT"
 fi
 
 echo "check-bounded-exploration-selftest: $PASS passed, $FAIL failed"

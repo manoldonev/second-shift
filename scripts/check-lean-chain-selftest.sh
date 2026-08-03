@@ -69,7 +69,13 @@ TREE="$WORK/tree"
 mkdir -p "$TREE/docs/plans" "$TREE/scripts/fixtures"
 git -C "$TREE" init -q 2>/dev/null
 printf '# lean spec\n\n- AC-1: does a thing\n- AC-2: does another\n' > "$TREE/docs/plans/acme-42-lean.md"
-printf 'verdict=approve\nrun_id: r-abc123\nrounds: 1\n' > "$TREE/docs/plans/acme-42-lean-verdict.md"
+# The build claim carries r-abc123; the verdict is REVIEW-authored, so it carries its own
+# identity and names its own session. A verdict reusing r-abc123 is case (N).
+write_verdict() { # write_verdict [verdict] [run-id] [session-id]
+  printf 'verdict=%s\nrun_id: %s\nsession_id: %s\nrounds: 1\n' \
+    "${1:-approve}" "${2:-r-review-1}" "${3:-sess-review-1}" > "$TREE/docs/plans/acme-42-lean-verdict.md"
+}
+write_verdict
 # A lean-SHAPED fixture that must never count as a real artifact.
 printf '# fixture\n- AC-9: fixture only\n' > "$TREE/scripts/fixtures/acme-99-lean.md"
 
@@ -146,12 +152,12 @@ else fail "(H) expected rc=1 on a missing verdict record, got rc=$rc: $out"; fi
 mv "$WORK/held-verdict.md" "$TREE/docs/plans/acme-42-lean-verdict.md"
 
 # ---- (I) a needs-work verdict is not an approval -----------------------------------------
-printf 'verdict=needs-work\nrun_id: r-abc123\n' > "$TREE/docs/plans/acme-42-lean-verdict.md"
+write_verdict needs-work
 out="$(run_gate "lean/acme-42" "$WORK/comments-good.json" "$WORK/diff-lean.txt")"; rc=$?
 if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q "does not read 'verdict=approve'"; then
   pass "(I) a committed verdict=needs-work record blocks the merge boundary"
 else fail "(I) expected rc=1 on verdict=needs-work, got rc=$rc: $out"; fi
-printf 'verdict=approve\nrun_id: r-abc123\n' > "$TREE/docs/plans/acme-42-lean-verdict.md"
+write_verdict
 
 # ---- (J) a spec with no AC-n fails -------------------------------------------------------
 printf '# lean spec\n\nNo criteria here.\n' > "$TREE/docs/plans/acme-42-lean.md"
@@ -185,6 +191,41 @@ out="$( cd "$TREE" && LEAN_BRANCH_PREFIX="lean/acme-" PIPELINE_BRANCH_PREFIX="cl
 if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q 'no resolvable issue reference'; then
   pass "(M) a lean PR with no 'Closes #N' fails rather than being exempted"
 else fail "(M) expected rc=1 on an unresolvable issue reference, got $rc: $out"; fi
+
+# ---- (N) MANDATED: the verdict must not carry the BUILD run's identity (P10) --------------
+# The build run's identity at this boundary is the one in the bot claim comment — the only
+# build-side record CI can see. A verdict reusing it means the session that wrote the code
+# also wrote its own review, which is the whole thing the separation removes. Note this fails
+# with every OTHER artifact present and correct: the authorship arm is load-bearing on its own,
+# not a by-product of some other violation.
+write_verdict approve r-abc123 sess-review-1
+out="$(run_gate "lean/acme-42" "$WORK/comments-good.json" "$WORK/diff-lean.txt")"; rc=$?
+if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q "BUILD run's identity"; then
+  pass "(N1) a verdict carrying the build claim's run_id is refused at the merge boundary"
+else fail "(N1) expected rc=1 on a build-authored verdict, got rc=$rc: $out"; fi
+
+# Missing reconciliation keys are refused for the same reason a missing verdict is: nothing is
+# checkable, and an uncheckable claim must not read as a satisfied one.
+printf 'verdict=approve\nrounds: 1\n' > "$TREE/docs/plans/acme-42-lean-verdict.md"
+out="$(run_gate "lean/acme-42" "$WORK/comments-good.json" "$WORK/diff-lean.txt")"; rc=$?
+if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q 'no run_id reconciliation key'; then
+  pass "(N2) a verdict record with no run_id is refused"
+else fail "(N2) expected rc=1 on a run_id-less verdict, got rc=$rc: $out"; fi
+
+printf 'verdict=approve\nrun_id: r-review-1\nrounds: 1\n' > "$TREE/docs/plans/acme-42-lean-verdict.md"
+out="$(run_gate "lean/acme-42" "$WORK/comments-good.json" "$WORK/diff-lean.txt")"; rc=$?
+if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q 'no session_id reconciliation key'; then
+  pass "(N3) a verdict record that names no review session is refused"
+else fail "(N3) expected rc=1 on a session_id-less verdict, got rc=$rc: $out"; fi
+
+# ...and the same PR passes once the verdict is review-authored and carries both keys. (A)
+# already asserts the happy path, but re-asserting it HERE is what makes N1-N3 non-vacuous:
+# without it they could all be failing for some unrelated reason introduced above.
+write_verdict
+out="$(run_gate "lean/acme-42" "$WORK/comments-good.json" "$WORK/diff-lean.txt")"; rc=$?
+if [ "$rc" -eq 0 ] && printf '%s' "$out" | grep -q 'authorship'; then
+  pass "(N4) distinct identities carrying both keys pass, and the gate says so"
+else fail "(N4) expected rc=0 with an authorship line, got rc=$rc: $out"; fi
 
 echo "[check-lean-chain-selftest] $([ "$FAILS" -eq 0 ] && echo 'all green' || echo "$FAILS FAILURE(S)")"
 exit "$FAILS"

@@ -16,6 +16,14 @@
 # cost-control, NOT integrity: gaming it means spending more, which the cost block makes
 # visible. Do not add an integrity check here and call it enforcement.
 #
+# AUTHORSHIP (P10) — the one property here that is a check rather than a record. Generation
+# must not author evaluation's record. The BUILD role (`entry`, `claim`, `1..5`, `all`) can
+# only READ the verdict record; the REVIEW role (`verdict`) can only WRITE it, and refuses to
+# run inside the build session at all. Identity is role-keyed on both sides, so a review
+# session that provisioned no identity is refused rather than silently inheriting the build's
+# — see the RUN_ID persistence section. This one is not merely tamper-evident: the session id
+# is harness-assigned, not agent-chosen.
+#
 # Usage:
 #   lean-gate.sh entry  <issue>          entry precondition: the session's audit ledger is live.
 #                                        The queue-label reject is the SESSION's step (SKILL.md
@@ -24,9 +32,12 @@
 #   lean-gate.sh claim  <issue>          the two bot-wrapper claim writes (AC-15/D-49)
 #   lean-gate.sh <1..5> <issue>          evaluate one milestone
 #   lean-gate.sh all    <issue>          evaluate 1..5 in order, stop at the first failure
+#   lean-gate.sh verdict <issue> --pr <n> --verdict <approve|needs-work> [--rounds <n>]
+#                                        [--summary-file <path>]
+#                                        REVIEW role: write the committed verdict record.
 #
 # Exit: 0 = satisfied / ok
-#       1 = milestone failed (fix and retry — budget remains)
+#       1 = milestone failed, or a `verdict` authorship refusal (fix and retry — budget remains)
 #       2 = usage or environment error
 #       4 = fix budget exhausted for that milestone (hard stop; D-19)
 #
@@ -43,6 +54,10 @@ set -uo pipefail
 GH_CLI="${GH:-gh}"
 PR_FILE=""
 COMMENTS_FILE=""
+VERDICT_VALUE=""
+VERDICT_PR=""
+VERDICT_ROUNDS=""
+SUMMARY_FILE=""
 
 # The fix budget: 3 attempts per milestone, the 4th red hard-stops (D-19). Counted from
 # the progress file's `attempt` lines per D-41 — only FAILED evaluations append one.
@@ -60,7 +75,11 @@ while [ $# -gt 0 ]; do
   case "$1" in
     --pr-file)       PR_FILE="${2:-}"; shift 2 ;;
     --comments-file) COMMENTS_FILE="${2:-}"; shift 2 ;;
-    -h|--help)       sed -n '2,32p' "$0"; exit 0 ;;
+    --pr)            VERDICT_PR="${2:-}"; shift 2 ;;
+    --verdict)       VERDICT_VALUE="${2:-}"; shift 2 ;;
+    --rounds)        VERDICT_ROUNDS="${2:-}"; shift 2 ;;
+    --summary-file)  SUMMARY_FILE="${2:-}"; shift 2 ;;
+    -h|--help)       sed -n '2,51p' "$0"; exit 0 ;;
     -*)              envfail "unknown option: $1" ;;
     *)
       if [ "$POSITIONAL" -eq 0 ]; then SUB="$1"; POSITIONAL=1
@@ -71,12 +90,12 @@ while [ $# -gt 0 ]; do
   esac
 done
 
-[ -n "$SUB" ]   || envfail "usage: lean-gate.sh <entry|claim|1..5|all> <issue>"
-[ -n "$ISSUE" ] || envfail "usage: lean-gate.sh <entry|claim|1..5|all> <issue>"
+[ -n "$SUB" ]   || envfail "usage: lean-gate.sh <entry|claim|1..5|all|verdict> <issue>"
+[ -n "$ISSUE" ] || envfail "usage: lean-gate.sh <entry|claim|1..5|all|verdict> <issue>"
 
 case "$SUB" in
-  entry|claim|1|2|3|4|5|all) : ;;
-  *) envfail "unknown subcommand '$SUB' (expected entry|claim|1..5|all)" ;;
+  entry|claim|1|2|3|4|5|all|verdict) : ;;
+  *) envfail "unknown subcommand '$SUB' (expected entry|claim|1..5|all|verdict)" ;;
 esac
 
 # ---------------------------------------------------------------- roots + config
@@ -160,18 +179,45 @@ PROGRESS_FILE="${LEAN_PROGRESS_FILE:-$MAIN_ROOT/$STATE_DIR/$ISSUE-lean-progress.
 # operator to keep re-exporting it: cache the id to a file the FIRST time it is seen (any
 # call made with $RUN_ID set — claim is typically first), and every call without $RUN_ID
 # in its own environment reads the cache instead of falling back to "unset".
+#
+# ROLE-KEYED (P10). There are two caches, not one, and neither role may read the other's.
+# Before this split, ANY invocation without an exported RUN_ID resolved the issue's single
+# cached id — so a review session working the same issue would stamp the BUILD run's identity
+# into the verdict record and the authorship check would compare a value against itself. The
+# review role therefore resolves `<issue>-review-run-id` and, finding nothing, resolves
+# NOTHING: `verdict` refuses rather than falling through to the build cache. Silent inheritance
+# is the exact failure this separation exists to make impossible.
 RUN_ID_CACHE="$MAIN_ROOT/$STATE_DIR/$ISSUE-run-id"
-resolve_run_id() {
+REVIEW_RUN_ID_CACHE="$MAIN_ROOT/$STATE_DIR/$ISSUE-review-run-id"
+resolve_cached_id() { # resolve_cached_id <cache-path> <persist:0|1>
   if [ -n "${RUN_ID:-}" ]; then
-    mkdir -p "$(dirname "$RUN_ID_CACHE")" 2>/dev/null && printf '%s' "$RUN_ID" > "$RUN_ID_CACHE"
+    if [ "$2" = "1" ]; then
+      mkdir -p "$(dirname "$1")" 2>/dev/null && printf '%s' "$RUN_ID" > "$1"
+    fi
     printf '%s' "$RUN_ID"
-  elif [ -s "$RUN_ID_CACHE" ]; then
-    cat "$RUN_ID_CACHE"
+  elif [ -s "$1" ]; then
+    cat "$1"
   else
     printf 'unset'
   fi
 }
-RESOLVED_RUN_ID="$(resolve_run_id)"
+if [ "$SUB" = "verdict" ]; then
+  # Resolve WITHOUT persisting. The review identity is cached only once the record is actually
+  # written (see cmd_verdict), so a REFUSED call cannot seed the cache — otherwise one rejected
+  # attempt would make the next call's "no review identity provisioned" refusal vanish, which is
+  # the same silent-inheritance failure in a slower form.
+  RESOLVED_RUN_ID="$(resolve_cached_id "$REVIEW_RUN_ID_CACHE" 0)"
+else
+  RESOLVED_RUN_ID="$(resolve_cached_id "$RUN_ID_CACHE" 1)"
+fi
+
+# First `<key>: <token>` in a file, HTML-comment or bare form. Deliberately the SAME extraction
+# shape lean-reconcile.sh uses on the same records — two readers of one schema that disagreed
+# about what a key looks like would be a silent divergence, not a loud one.
+record_key() { # record_key <key> <file>
+  [ -f "$2" ] || return 0
+  grep -oE "$1:[[:space:]]*[A-Za-z0-9._-]+" "$2" 2>/dev/null | head -n1 | sed -E "s/^$1:[[:space:]]*//"
+}
 
 # ---------------------------------------------------------------- progress-file primitives
 # Append-only markdown. Line shapes are PINNED — check-lean-chain.sh does not read this
@@ -413,17 +459,138 @@ cmd_3() {
 # D-22/D-46: the COMMITTED verdict record is the record of record. The progress-file line
 # is a local counter only — the lean chain gate re-asserts the committed record at the
 # merge boundary, so a hand-typed local line cannot reach a merge.
+#
+# READ-ONLY BY CONSTRUCTION. This milestone never writes to the verdict record — not to
+# create it, not to stamp it, not to "normalize" it. The build session's only relationship
+# to that file is reading one somebody else wrote; the moment this function can write it,
+# the P10 separation below is decorative. The suite asserts the file is byte- and
+# mtime-identical across a full `all` sweep.
 cmd_4() {
-  local rec="$REPO_ROOT/$VERDICT_REL"
+  local rec="$REPO_ROOT/$VERDICT_REL" v_run v_sess b_prog_run b_prog_sess b_cached cand
   [ -f "$rec" ] || { fail_milestone 4 "no committed verdict record at $VERDICT_REL"; return $?; }
   if [ "$(count_matches 'verdict=approve' "$rec" -F)" -eq 0 ]; then
     fail_milestone 4 "verdict record $VERDICT_REL does not read verdict=approve"; return $?
   fi
   # The reconciliation keys are what make the record checkable against the audit ledger.
-  if [ "$(count_matches 'run_id:' "$rec" -F)" -eq 0 ]; then
+  v_run="$(record_key run_id "$rec")"
+  v_sess="$(record_key session_id "$rec")"
+  if [ -z "$v_run" ]; then
     fail_milestone 4 "verdict record $VERDICT_REL carries no run_id reconciliation key"; return $?
   fi
-  pass_milestone 4 "$VERDICT_REL reads verdict=approve"
+  if [ -z "$v_sess" ]; then
+    fail_milestone 4 "verdict record $VERDICT_REL carries no session_id reconciliation key — the review session's audit ledger cannot be located, so the verdict is unreconcilable"; return $?
+  fi
+
+  # AUTHORSHIP (P10). THREE build identities are compared, not one:
+  #   - the id resolved for THIS invocation (env or build cache),
+  #   - the id sitting in the build run-id cache file,
+  #   - the id the build run stamped into the progress-file header.
+  # The cache arm is the load-bearing one. A review session that never provisioned its own
+  # RUN_ID used to resolve the BUILD cache, and the record it wrote then looked "distinct"
+  # only in the sense that nobody had checked. Comparing against the cache file directly
+  # catches that whether or not this invocation happens to have RUN_ID in its environment.
+  b_cached=""; [ -s "$RUN_ID_CACHE" ] && b_cached="$(cat "$RUN_ID_CACHE")"
+  b_prog_run="$(record_key run_id "$PROGRESS_FILE")"
+  b_prog_sess="$(record_key session_id "$PROGRESS_FILE")"
+  for cand in "$RESOLVED_RUN_ID" "$b_cached" "$b_prog_run"; do
+    [ -n "$cand" ] || continue
+    if [ "$v_run" = "$cand" ]; then
+      fail_milestone 4 "verdict record $VERDICT_REL carries the BUILD run's identity ('$v_run') — the session that wrote the code may not author its own review verdict (P10). Produce the record from a separate review session: 'lean-gate.sh verdict $ISSUE --pr <n> --verdict approve'."
+      return $?
+    fi
+  done
+  if [ -n "$b_prog_sess" ] && [ "$v_sess" = "$b_prog_sess" ]; then
+    fail_milestone 4 "verdict record $VERDICT_REL names the BUILD session ('$v_sess') as its author — the review must run in a separate context (P10)."
+    return $?
+  fi
+
+  pass_milestone 4 "$VERDICT_REL reads verdict=approve, authored by review run $v_run"
+}
+
+# ---------------------------------------------------------------- verdict (REVIEW role)
+# The ONLY write path to the verdict record, and it lives in this script rather than a second
+# one for a single reason: the pinned name table above is the sole derivation of VERDICT_REL,
+# and a name invented at a second site is exactly the drift the merge-boundary gate turns red.
+#
+# It never evaluates a milestone, never appends to the progress file (that file belongs to the
+# build run), and never touches the build run-id cache. Those omissions are what let milestone
+# 4 stay a pure read while the record still comes from here.
+#
+# The refusals are ordered cheapest-first and every one of them fails CLOSED. In particular a
+# build run whose progress header records no session id is refused outright: without it there
+# is nothing to separate the review from, and "unverifiable" must never resolve to "fine".
+cmd_verdict() {
+  local sess b_prog_sess b_prog_run b_cached rec body c
+  sess="${CLAUDE_CODE_SESSION_ID:-}"
+  [ -n "$sess" ] \
+    || envfail "verdict: CLAUDE_CODE_SESSION_ID is unset — the review session cannot be identified, so its authorship cannot be separated from the build's."
+  [ -f "$PROGRESS_FILE" ] \
+    || envfail "verdict: no build progress file at $PROGRESS_FILE — there is no build run on #$ISSUE to review."
+
+  b_prog_sess="$(record_key session_id "$PROGRESS_FILE")"
+  b_prog_run="$(record_key run_id "$PROGRESS_FILE")"
+  b_cached=""; [ -s "$RUN_ID_CACHE" ] && b_cached="$(cat "$RUN_ID_CACHE")"
+
+  if [ -z "$b_prog_sess" ] || [ "$b_prog_sess" = "unset" ]; then
+    warn "✗ verdict: the build progress file records no session id, so authorship separation is unverifiable. Refusing."
+    return 1
+  fi
+  if [ "$sess" = "$b_prog_sess" ]; then
+    warn "✗ verdict: this IS the build session ($sess) — the build session may not author its own review verdict (P10)."
+    warn "  Run the review from a fresh top-level session: /dev-pipeline:review-lean <pr>."
+    return 1
+  fi
+
+  if [ "$RESOLVED_RUN_ID" = "unset" ]; then
+    warn "✗ verdict: no review identity provisioned. Export RUN_ID (e.g. review-$ISSUE-1) before the first verdict call; it is cached at $REVIEW_RUN_ID_CACHE for later ones."
+    warn "  The build cache at $RUN_ID_CACHE is deliberately NOT consulted — inheriting the build's id would defeat the separation this refusal exists for."
+    return 1
+  fi
+  for c in "$b_prog_run" "$b_cached"; do
+    [ -n "$c" ] || continue
+    if [ "$RESOLVED_RUN_ID" = "$c" ]; then
+      warn "✗ verdict: the review identity '$RESOLVED_RUN_ID' IS the build run's. Provision a distinct RUN_ID for the review session."
+      return 1
+    fi
+  done
+
+  case "$VERDICT_VALUE" in
+    approve|needs-work) : ;;
+    *) envfail "verdict: --verdict must be 'approve' or 'needs-work' (got '$VERDICT_VALUE')." ;;
+  esac
+  [ -n "$VERDICT_PR" ] || envfail "verdict: --pr <number> is required — the record names the PR it reviewed."
+  [ -n "$VERDICT_ROUNDS" ] || VERDICT_ROUNDS=1
+  case "$VERDICT_ROUNDS" in
+    ''|*[!0-9]*) envfail "verdict: --rounds must be a positive integer (got '$VERDICT_ROUNDS')." ;;
+  esac
+
+  body=""
+  if [ -n "$SUMMARY_FILE" ]; then
+    [ -f "$SUMMARY_FILE" ] || envfail "verdict: --summary-file '$SUMMARY_FILE' does not exist."
+    body="$(cat "$SUMMARY_FILE")"
+  fi
+
+  rec="$REPO_ROOT/$VERDICT_REL"
+  mkdir -p "$(dirname "$rec")" || envfail "verdict: cannot create '$(dirname "$rec")'."
+  # Cache the review identity only now — every refusal above has passed, so this is a real
+  # review round and later calls in the same round may resolve it from a fresh shell.
+  mkdir -p "$(dirname "$REVIEW_RUN_ID_CACHE")" 2>/dev/null \
+    && printf '%s' "$RESOLVED_RUN_ID" > "$REVIEW_RUN_ID_CACHE"
+  {
+    echo "# lean review verdict — #$ISSUE"
+    echo ""
+    echo "verdict=$VERDICT_VALUE"
+    echo "run_id: $RESOLVED_RUN_ID"
+    echo "session_id: $sess"
+    echo "rounds: $VERDICT_ROUNDS"
+    echo "pr: #$VERDICT_PR"
+    echo ""
+    if [ -n "$body" ]; then printf '%s\n' "$body"; fi
+  } > "$rec"
+
+  say "✓ verdict: $VERDICT_REL written (verdict=$VERDICT_VALUE, run_id=$RESOLVED_RUN_ID, round $VERDICT_ROUNDS)"
+  say "  It is evidence only once COMMITTED to the PR's head branch — commit and push it."
+  return 0
 }
 
 # ---------------------------------------------------------------- milestone 5: exit
@@ -524,9 +691,10 @@ cmd_all() {
 
 # ---------------------------------------------------------------- dispatch
 case "$SUB" in
-  entry) cmd_entry ;;
-  claim) cmd_claim ;;
-  all)   cmd_all ;;
-  *)     run_milestone "$SUB" ;;
+  entry)   cmd_entry ;;
+  claim)   cmd_claim ;;
+  verdict) cmd_verdict ;;
+  all)     cmd_all ;;
+  *)       run_milestone "$SUB" ;;
 esac
 exit $?
