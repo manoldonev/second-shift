@@ -1,143 +1,170 @@
 # lean review verdict — #347
 
-verdict=needs-work
-run_id: review-347-1
-session_id: 1b9373b2-7bd3-433e-927d-d1f33176e240
-rounds: 1
+verdict=approve
+run_id: review-347-2
+session_id: 2e80eb6e-b847-4cab-8536-eed734d627b2
+rounds: 2
 pr: #369
+reviewed_head: 7c6f89e58c11ac69149f9ec80d09313a279914f7
 model: unknown
 
 ## Review summary
 
-Round 1 on PR #369 (issue #347). The enumerator itself — `retro-corpus.sh` — is well built:
-structural era detection rather than a `-lean-` filename literal, both quarantine families
-carried over from the prior enumeration, a real behavioral selftest that executes the script
-against generated corpora, and an honest mid-run correction (c0b39b3 found and fixed
-`record_key()`'s character class truncating the `verdict_record:` path at its first slash).
-Six reviewers ran; none went dark.
+Round 2 on PR #369 (issue #347), reviewing commit `7c6f89e` on top of the round-1 tree. Both
+round-1 blockers are fixed, and fixed the way round 1 asked rather than the way that would have
+been cheaper — B1 by strengthening the assertion instead of baselining the survivor, B2 by
+guarding the call site instead of catching the tool's failure after the fact. Two round-1
+warnings (W1, W2) were also closed in the same commit. Four reviewers ran (scope-completeness,
+test-coverage, maintainability, security); none went dark, all returned approve.
 
-**Verdict: needs-work.** All seven of the committed spec's ACs are satisfied by their letter,
-but two blockers stand independently of AC scoring: CI is red on a baseline-absent mutation
-survivor, and the era-awareness stops at the enumerator — `perf-retro`'s own steps still hard-
-error on the all-lean corpus this change exists to make readable.
+**Verdict: approve.** All eight ACs of the committed spec are satisfied. Three warnings and two
+suggestions below; none is an unmet AC, and none is a new risk this diff introduces. W1 is the
+one that needs its own issue — it is a pre-existing windowing defect that this diff's guard
+converts from a quiet degradation into a silent total loss.
+
+The spec grew an AC-8 in this commit. That is the legitimate direction and worth stating
+explicitly, because the opposite direction is a blocker by rule: the diff `33c9d0b..HEAD` on
+`docs/plans/second-shift-347-lean.md` is **append-only** (zero deleted lines), so AC-1's narrow
+text — the narrowing round 1 named as its finding — was not rewritten to match the code. AC-8
+records a new obligation the review discovered, and the code meets it.
+
+## Verification run for this round
+
+- Full local selftest sweep, **without** `SKIP_STRESS`: exit 0. `retro-corpus-selftest.sh` 9/9,
+  `statectl-selftest.sh` 274/274.
+- `shellcheck -e SC1091,SC2015,SC2181` over every `*.sh`: zero findings.
+- CI on `7c6f89e`: `lint-and-selftests` **pass** (7m45s) and `selftests (macos, bash 3.2)`
+  **pass** (11m1s). That first lane carries the PR-scoped mutation sweep on the **GNU** runner
+  that produced B1's survivor, which is the only place B1's remedy could be proven.
+- `pr-gates` **fail**, correctly and expectedly: `check-lean-chain.sh` reads round 1's committed
+  `verdict=needs-work`, and separately reports that record approves `33c9d0b` while 5 files
+  changed after it, and that it carries no `reviewed_head` key. All three clear when this
+  round's record lands — round 1's record predates `#367` in this branch's history, so it was
+  written by a `lean-gate.sh` that did not yet emit that key.
 
 ## Per-AC scoring (against `docs/plans/second-shift-347-lean.md`)
 
 | AC | Verdict | Evidence |
 | --- | --- | --- |
-| AC-1 | satisfied | `retro-corpus-selftest.sh` case (AC-1) green; verified locally, 7/7 pass. See Blocker 2 — the spec's AC-1 is narrower than the issue's. |
-| AC-2 | satisfied | mixed-era fixture yields `eras=artifact,stage`. |
-| AC-3 | satisfied | ticketKey 345 present in corpus output. |
-| AC-4 | satisfied | field present, pass-through and `unknown` default both asserted. See Warning 3 — inert in production. |
+| AC-1 | satisfied | `(AC-1)` green, and now asserts two things, not one: the artifact-only fixture yields zero `era: "stage"` rows (the signal the guard reads), and `stage-envelopes.sh` still hard-exits on that same fixture. Confirmed the second assertion reaches the intended arm — the message is `no run-state files under <dir>`, the stage-empty one. |
+| AC-2 | satisfied | mixed-era fixture aggregates to both eras in one array. |
+| AC-3 | satisfied | ticketKey 345 present in the corpus output. |
+| AC-4 | satisfied | pass-through and the `unknown` default both asserted; the producer side is now asserted too — see AC-8/W1 closure below. See Suggestion 1 for a prose imprecision that does not affect the field. |
 | AC-5 | satisfied | `open-prs` flags 701, clears 702, ignores the non-lean 703. |
-| AC-6 | satisfied | verified both diffs: `pipeline-retro` Step 1 branches per era, Step 2 routes a Criteria proposal, Step 3 items 1/2/3/5/6 read N/A; `perf-retro` Step 1 sources `retro-corpus.sh corpus --json`, Step 6 template labels both eras. |
-| AC-7 | satisfied | `Changelog:` trailer on all three commits. |
+| AC-6 | satisfied | unchanged since round 1's verification of both SKILL.md diffs; this commit only adds to `perf-retro`. |
+| AC-7 | satisfied | `Changelog:` trailer on all five commits. |
+| AC-8 | satisfied | Guard present at `perf-retro/SKILL.md` Step 1; Step 3 (`:90-91`) and Step 6 (`:141-147`, `:159-162`) each state `0 stage-era run(s) in window` and omit their table rather than emitting it empty. The selftest half is the extended `(AC-1)` case. See Warning 2 for a third report surface the AC's letter does not reach. |
 
-## Blockers
+## Blocker closure, verified by applying the mutants
 
-**B1 — CI is red: baseline-absent mutation survivor.**
-`plugins/dev-pipeline/skills/run/tools/retro-corpus.sh::cmp-z::1`. Per CLAUDE.md, a survivor
-absent from `tools/mutation-baseline.tsv` reds the lane; ab714d7 baselined four, CI found five.
+Not taken on the commit message's word — each fix was re-broken locally to confirm the new
+assertion is what catches it, then restored (`git diff` clean afterward).
 
-Root cause is a platform split, not flake. `cmp-z` ordinal 1 is `retro-corpus.sh:66`,
-`sed -n '2,40p' "$0"`; the mutant is `sed -z '2,40p' "$0"`. BSD sed rejects `-z`, so stdout is
-empty and the mutant dies — which is what the local macOS advisory sweep saw. GNU sed accepts
-`-z`, and with `-n` gone auto-print dumps the whole file, which trivially contains `Usage:` —
-so the `(help)` case's `grep -qF 'Usage:'` passes and the mutant survives on CI's ubuntu lane.
+**B1 (help-window survivor) — closed, on both platform arms.** The point of B1 was that the
+`(help)` case's `grep -qF 'Usage:'` could not kill `sed -n` → `sed -z`, because GNU sed's
+auto-print dumps a whole file that also contains `Usage:`. Both arms now die:
 
-The honest remedy is to strengthen the assertion rather than baseline the row: that `(help)`
-case was added by c0b39b3 specifically to close a mutation gap, and a presence-only check
-cannot. Bounding the window (assert the output does *not* contain a line from below line 40,
-or assert a line count) kills it on both platforms and guards the real regression already seen
-on #363 — growing a header silently truncates `--help`.
+| Mutant | Result |
+| --- | --- |
+| `sed -z '2,40p' "$0"` (BSD arm, verbatim mutant) | **killed** — `rc=0, 1 line(s)`, empty output fails the `Usage:` presence check |
+| `cat "$0"` (the GNU arm's observable effect — whole-file dump) | **killed** — `241 line(s)`, fails both the `set -uo pipefail` absence check and `-le 39` |
 
-**B2 — era-awareness stops at the enumerator; `perf-retro` still errors on an all-lean corpus.**
-`stage-envelopes.sh` hard-exits 2 in two places on a corpus with no stage rows — `:132`
-`no run-state files under $STATE_DIR` and `:160` `no readable runs in the window`. It is
-unchanged by this PR, and `perf-retro` Steps 3 and 6 still call it unconditionally; the revised
-SKILL.md adds no zero-stage-row guard and does not say what those sections emit in that case.
+Correctly, no `retro-corpus.sh::cmp-z` row was added to `tools/mutation-baseline.tsv` — the four
+rows it does add are the genuinely-unkillable ones, each with a per-row rationale rather than a
+shared "seeded by the canonical seed run". The `-le 39` bound is exact: `--help` emits exactly
+39 lines today, so one added usage line reds the case.
 
-This contradicts the issue's own Scope bullet, "neither era errors on the other", and the
-issue's AC-1, "retro tooling produces a complete report from a fixture run containing only
-artifact-schema records". The committed spec narrowed that AC to `retro-corpus.sh corpus
---json` exiting 0 — precisely the dimension the diff does cover — so the spec's AC-1 passes
-while the issue's does not. The narrowing is the finding, not a technicality.
+**B2 (era-awareness stopped at the enumerator) — closed.** Verified every `stage-envelopes.sh`
+reference in `perf-retro/SKILL.md` is now downstream of the Step 1 count: `:50-52` (the guard),
+`:91` (Step 3), `:95` (the p90 sentence, inside Step 3's guarded block), `:141` and `:159`
+(Step 6's two templates). `stage-times.sh` was already guarded by "Per selected `era: "stage"`
+run". `pipeline-retro/SKILL.md` never calls `stage-envelopes.sh` at all.
 
-It is also not hypothetical. The last stage run in the real corpus is dated 2026-07-24; every
-run since is artifact-era, and #348 deletes the stage choreography outright. An all-stage-free
-corpus is the near-term steady state this change was written for.
+**W1 (`model:` untested at the producer) — closed.** `lean-gate-selftest.sh` now asserts the key
+at both writers: `(m1b)` for `ensure_progress_file()`, and `(p5)` extended for `cmd_verdict()`.
+That was the mirror-harness gap — the fixture helper hand-authors the header, so without these
+the producers had no coverage for the key at all.
 
-Fix: guard the `stage-envelopes.sh` call on the presence of `era: "stage"` rows, state what the
-envelope sections read when there are none, and extend the AC-1 selftest to the report path
-rather than corpus enumeration alone.
+**W2 (`REPO_ROOT`/`MAIN_ROOT` anchor drift) — closed, and guarded.** `retro-corpus.sh:151` now
+resolves the verdict record from `MAIN_ROOT`. The new `(verdict-detect-worktree)` case is
+non-vacuous — I reverted the line to `REPO_ROOT` and the case failed with
+`expected true from a worktree caller, got hv901=false`, which is the exact cross-checkout
+disagreement round 1 reproduced on the live corpus. The pre-existing `(verdict-detect)` case
+could not catch this because `$TREE` stood in for both anchors; the new case adds a real
+worktree so they differ.
 
 ## Warnings
 
-**W1 — the `model:` key is untested at the producer, and its fixture is a mirror.**
-`lean-gate.sh` writes `model:` in `ensure_progress_file()` and `cmd_verdict()`, but
-`lean-gate-selftest.sh` contains no assertion for it (grepped: the only `model` match is an
-unrelated comment on line 223). `retro-corpus-selftest.sh`'s `mkprogress` helper hand-authors
-the header shape instead of driving the real writer, and its header comment justifies that by
-asserting "the two WRITERS already have their own coverage (statectl-selftest.sh,
-lean-gate-selftest.sh)" — which is true for the pre-existing keys and false for `model:`. That
-is the shape CLAUDE.md's "No mirror harnesses" rule names: a copy cannot fail on a production
-edit. One assertion in `lean-gate-selftest.sh` closes it.
+**W1 — the era-mixing window now silently deletes the stage profile instead of shrinking it.**
+Carried over from round 1's W3, **not addressed**, and materially worse in combination with this
+commit's guard. `retro-corpus.sh:159` applies `--window` *after* merging and date-sorting both
+eras, and artifact rows are always the most recent. Re-measured on the live corpus, unchanged
+from round 1: at the SKILL's `--window 15`, **5 artifact + 10 stage**, against **16 stage rows
+available** — six already displaced. Ten more lean runs fill the window with artifact rows, the
+`era: "stage"` count reaches zero, and the new guard then skips `stage-envelopes.sh` entirely and
+prints `0 stage-era run(s) in window` — while 16 stage runs sit in the state dir unread.
 
-**W2 — `hasApprovedVerdict` is cwd-dependent.**
-`retro-corpus.sh:148` resolves the verdict record as `"$REPO_ROOT/$vrel"` while the state dir
-resolves from `MAIN_ROOT` (lines 72–78, deliberately worktree-safe). Mixing the two anchors in
-one reader makes a corpus field vary with the caller's checkout. Reproduced on the real corpus,
-same tool and same state dir: issues 362 and 363 read `hasApprovedVerdict: true` from the main
-checkout and `false` from the lean worktree, because their verdict records merged after this
-branch was cut. Currently latent — nothing consumes the field yet — but the fix is
-`MAIN_ROOT` in place of `REPO_ROOT`.
+This is not a reason to hold the PR: it is a pre-existing defect, no AC covers windowing, round 1
+filed the same finding as a warning, and the guard is precisely the remedy round 1 prescribed for
+B2. But the failure mode changed shape. Before this commit, full displacement produced a loud
+hard exit; after it, it produces a confident, wrong, quiet report line. Per-era window budgets
+(or a stage-row floor) is the fix, and it wants its own issue rather than a late edit here.
 
-**W3 — `--window` now mixes eras, silently shrinking `perf-retro`'s stage profile.**
-The window is applied after both eras are merged and date-sorted, so artifact rows displace
-stage rows in the same budget. Measured on the real corpus at the SKILL's `--window 15`: 5
-artifact + 10 stage, against 16 stage rows available. Because artifact rows are always the most
-recent, this degrades monotonically — at 15 lean runs the per-stage profile feeding Steps 2–4
-is empty. The SKILL.md says only stage rows feed that table but does not account for the two
-eras competing for one window.
+**W2 — Step 6's Cost-envelopes table is the one surface the zero-stage guard does not name.**
+`stage-envelopes.sh` emits three things, and Step 1's guard skips the whole call. Step 6 states
+replacement text for two of them (the Profile corpus line, the Over-envelope table) and says
+nothing about `## Cost envelopes (per bucket)` — so a retro following the SKILL literally emits
+that table empty, which is the exact reading the fix's own env14 citation condemns two paragraphs
+later ("'measured nothing' must not read as 'measured and found nothing'").
 
-**W4 — model identity ships inert.**
-Nothing in the repo exports `LEAN_RUN_MODEL` — the only references are this PR's own comments
-and spec. All five real artifact rows read `model: unknown`, including #347's own build run.
-AC-4 passes by its letter, but the ratified directive it implements ("cross-model deltas are
-queryable") is unmet in production. `run-lean/SKILL.md` is at its hard 60-line cap, so wiring
-it needs a decision rather than a line; worth naming explicitly rather than leaving the key to
-read `unknown` forever.
+Outside AC-8's letter, which names the guard and the `0 stage-era run(s) in window` text and both
+of which are present — hence not a blocker. Also confirmed no data is *stranded*: the hard exit
+at `stage-envelopes.sh:132` precedes the `COST_LOG` read at `:169`, so cost envelopes are
+unobtainable on a stage-empty corpus either way, and nothing in `run-lean/` writes
+`cost-log.jsonl` (the live log holds 3 rows, newest 2026-07-23 — all stage-era). One line in the
+template closes it.
+
+**W3 — model identity still ships inert.** Round 1's W4, unaddressed and correctly so — it needs
+a decision, not a line. Nothing exports `LEAN_RUN_MODEL`; all five live artifact rows read
+`model: unknown`, including this run's. AC-4 passes by its letter and the key is now genuinely
+tested at both producers, but the ratified directive it implements ("cross-model deltas are
+queryable") stays unmet in production until something sets the variable. `run-lean/SKILL.md` is at
+its 60-line cap, so this is a routing decision.
+
+## Suggestions
+
+1. **`perf-retro/SKILL.md:60-61` says an artifact row "reads it from the progress/verdict
+   record's `model:` key"; the code reads only the progress record.** (scope-completeness, conf
+   92 — verified: `retro-corpus.sh:141` reads `$f`, the progress record; the verdict record is
+   opened only for `hasApprovedVerdict` at `:146-153`.) Reading the progress record alone is the
+   right design — it is the artifact that always exists, including mid-run — so the fix is to
+   drop `/verdict` from the sentence, not to add a fallback. No scope impact; AC-4's oracle
+   asserts the progress-record path.
+2. **The strengthened `(help)` case catches over-emission but only partly catches truncation.**
+   Header growth *above* `Usage:` is caught (it pushes `Usage:` past line 40, failing the
+   presence check), but growth *between* `Usage:` and line 40 silently drops the tail seam docs —
+   the `#363` regression shape. Asserting the last line of the block, not just `Usage:`, would
+   close it.
 
 ## Dismissed
 
-- *Selftest labels (AC-4)/(AC-5) don't map to the issue's ACs* (scope-completeness, conf 90).
-  They map exactly to the committed spec's AC-1..AC-7, which is the definition of done here;
-  `check-lean-chain.sh` confirms 7 AC-n references. Not a finding.
-- *`gh api --paginate` may emit concatenated page arrays* (my own check). Verified against a
-  real issue: `gh` merges into a single array. The pattern is also copied verbatim from
-  `lean-gate.sh`'s shipped milestone-5 predicate.
-
-## Suppressed (below confidence threshold)
-
-- `retro-corpus.sh:171` (conf 50) — `verdict_record:` path joined to `$REPO_ROOT` without
-  prefix-containment; record is operator-written and only a boolean is observed.
-- `lean-gate.sh:295,700` (conf 45) — `${LEAN_RUN_MODEL:-unknown}` interpolated unescaped; a
-  newline-bearing value could forge header keys. Operator-controlled, no privilege boundary.
-- `retro-corpus.sh:56` (conf 40) — `GH_CLI="${GH:-gh}"` env-selected binary; established
-  zero-network seam matching `stage-envelopes.sh` / `lean-gate.sh`.
-- `retro-corpus.sh:193` (conf 35) — `gh pr list` stderr echoed into the error message.
-- `retro-corpus.sh:~140` (conf 60) — O(n²) jq re-serialization of the growing `rows` array;
-  bounded internal tooling, no user-facing path.
+- *The new `(verdict-detect-worktree)` case leaks git worktree metadata* (maintainability, conf
+  55 — suppressed at source). `$TREE` lives inside `$WORK`, and the `EXIT` trap removes `$WORK`
+  whole, so both the repo and its worktree registration go with it. No state escapes the fixture.
+- *`record_key`'s `[A-Za-z0-9._/-]+` class admits `..`, so `verdict_record:` could resolve
+  outside `$MAIN_ROOT`* (security, conf 45 — suppressed at source). Pre-existing: the class
+  predates this commit, which only re-anchored the prefix; the value is pipeline-authored, and
+  only a boolean is observed. Agreed, not a finding.
 
 ## Verdicts
 
 | Reviewer | Verdict | Findings | Confidence |
 | --- | --- | --- | --- |
-| Scope Completeness | Fail | 1 blocker, 1 nit (nit dismissed) | 88–90 |
-| Security | Pass | 0 (4 suppressed) | — |
-| Performance | Pass | 0 (1 suppressed) | — |
-| Complexity | Pass | 0 | — |
-| Maintainability | Pass | 0 | — |
-| Test Coverage | Fail | 1 major | 85 |
+| Scope Completeness | Pass | 1 nit | 92 |
+| Test Coverage | Pass | 0 | — |
+| Maintainability | Pass | 0 (1 suppressed) | — |
+| Security | Pass | 0 (2 suppressed) | — |
 
-Head reviewed: ab714d72a395b6ecd8efb714714365760d465d88.
+Coverage note: performance and complexity were not re-dispatched this round — both returned zero
+findings in round 1 and `7c6f89e` touches neither surface (one guard line, one selftest, one
+Markdown template, one spec append).
