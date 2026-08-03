@@ -1046,6 +1046,81 @@ LEANC
     && pass "(lean-nv) non-vacuity: the same leg reds when the spec is absent" \
     || fail "(lean-nv) milestone-1 passed with no spec — the lean legs are vacuous"
   mv "$TMP/held-lean-spec.md" "$LEAN_SPEC"
+
+  # ---- leg 4: the jira adapter, composed end to end ------------------------
+  # The three adapter branch sites are proven in ISOLATION by lean-gate-selftest.sh's (n*)
+  # cases. What only a composed leg can show is that they CHAIN: that the progress file
+  # cmd_claim creates while making zero tracker writes is the same file milestones 1-5 later
+  # satisfy, and that the milestones documented as adapter-INSENSITIVE really are — under an
+  # alphanumeric ticket key, where every derived path (docs/plans/acme-ACME-7-lean.md) has a
+  # different shape than the numeric case the other legs walk. Those are prose claims at
+  # three surfaces with no oracle behind them until here.
+  LEAN_CFG_J="$TMP/lean-config-jira.json"
+  cat > "$LEAN_CFG_J" <<'LEANCFGJ'
+{
+  "tracker": { "type": "jira", "writes": false, "branchPrefix": "abc/", "keyPattern": "[A-Z]+-[0-9]+" },
+  "topology": { "repos": { "acme": { "path": ".", "baseBranch": "main" } } },
+  "paths": { "plansDir": "docs/plans", "pipelineStateDir": ".claude/pipeline-state" },
+  "commands": { "acme": { "lint": null, "typecheck": null, "test": null } }
+}
+LEANCFGJ
+  LEAN_PROG_J="$TMP/lean-progress-jira.md"
+  LEAN_JKEY="ACME-7"
+  # env -u GH_BOT is load-bearing, not hygiene: the github arm dies on `${GH_BOT:?}`, so a leg
+  # that completes without it in the environment is evidence the jira arm never reached there.
+  lean_gate_j() { ( cd "$LEAN_TREE" && env -u GH_BOT SECOND_SHIFT_CONFIG="$LEAN_CFG_J" \
+                    LEAN_PROGRESS_FILE="$LEAN_PROG_J" RUN_ID="r-lean-j" bash "$LEAN_GATE" "$@" 2>&1 ); }
+  lean_count_j() { if [[ -f "$LEAN_PROG_J" ]]; then local n; n=$(grep -cF "$1" "$LEAN_PROG_J" 2>/dev/null) || n=0; echo "$n"; else echo 0; fi; }
+
+  rm -f "$LEAN_PROG_J" "$LEAN_TREE/.claude/pipeline-state/$LEAN_JKEY-run-id"
+  printf '# spec\n\n- AC-1: a thing\n' > "$LEAN_TREE/docs/plans/acme-$LEAN_JKEY-lean.md"
+  printf 'verdict=approve\nrun_id: r-lean-j\n' > "$LEAN_TREE/docs/plans/acme-$LEAN_JKEY-lean-verdict.md"
+  cat > "$TMP/lean-pr-jira.json" <<LEANPRJ
+[{ "number": 6, "url": "https://example.invalid/pr/6", "isDraft": false,
+   "body": "Summary.\n\nSpec: docs/plans/acme-$LEAN_JKEY-lean.md\nVerdict: docs/plans/acme-$LEAN_JKEY-lean-verdict.md\n\n### Jira Items\n\nCloses [$LEAN_JKEY]\n" }]
+LEANPRJ
+  # EMPTY, not merely comment-less: under tracker.writes: false there is no trail to read, and
+  # the same empty trail is a hard failure on the github legs above. That contrast IS the leg.
+  echo '[]' > "$TMP/lean-comments-none.json"
+
+  lean_gate_j claim "$LEAN_JKEY" >/dev/null 2>&1; jc=$?
+  lean_gate_j 1 "$LEAN_JKEY" >/dev/null 2>&1; j1=$?
+  lean_gate_j 2 "$LEAN_JKEY" >/dev/null 2>&1; j2=$?
+  lean_gate_j 3 "$LEAN_JKEY" >/dev/null 2>&1; j3=$?
+  lean_gate_j 4 "$LEAN_JKEY" >/dev/null 2>&1; j4=$?
+  lean_gate_j 5 "$LEAN_JKEY" --pr-file "$TMP/lean-pr-jira.json" \
+              --comments-file "$TMP/lean-comments-none.json" >/dev/null 2>&1; j5=$?
+  [[ "$jc$j1$j2$j3$j4$j5" == "000000" ]] \
+    && pass "(lean-jira) claim + milestones 1-5 all exit 0 under tracker.type: jira, with no GH_BOT and an empty comment trail" \
+    || fail "(lean-jira) exit codes were $jc$j1$j2$j3$j4$j5, expected 000000"
+
+  lean_sat_j=0
+  for m in 1 2 3 4 5; do
+    [[ "$(lean_count_j "| milestone-$m | satisfied")" -eq 1 ]] && lean_sat_j=$((lean_sat_j + 1))
+  done
+  [[ "$lean_sat_j" -eq 5 ]] \
+    && pass "(lean-jira) the chain lands in the SAME progress file cmd_claim created — one satisfied line per milestone" \
+    || fail "(lean-jira) expected 5 single satisfied lines in the claim-created file, got $lean_sat_j"
+
+  # The claim writes nothing to the tracker, so the run-id anchor in this file is the only
+  # thing left tying the run together. If it is absent the jira arm has no record at all.
+  [[ "$(lean_count_j '| claim | tracker=jira |')" -eq 1 && "$(lean_count_j 'run_id: r-lean-j')" -ge 1 ]] \
+    && pass "(lean-jira) the write-free claim still records the claim line and the run-id anchor" \
+    || fail "(lean-jira) the jira claim left no claim line or no run-id anchor"
+
+  # ---- non-vacuity for the jira leg ---------------------------------------
+  # Under jira the verdict-record reference moved from the closing comment INTO the PR body.
+  # Strip it and the leg must red — otherwise this leg would pass on a PR carrying no link to
+  # the artifact the whole gate exists to surface.
+  cat > "$TMP/lean-pr-jira-nv.json" <<LEANPRJNV
+[{ "number": 6, "url": "https://example.invalid/pr/6", "isDraft": false,
+   "body": "Summary.\n\nSpec: docs/plans/acme-$LEAN_JKEY-lean.md\n\n### Jira Items\n\nCloses [$LEAN_JKEY]\n" }]
+LEANPRJNV
+  lean_gate_j 5 "$LEAN_JKEY" --pr-file "$TMP/lean-pr-jira-nv.json" \
+              --comments-file "$TMP/lean-comments-none.json" >/dev/null 2>&1; jnv=$?
+  [[ "$jnv" -ne 0 ]] \
+    && pass "(lean-jira-nv) non-vacuity: the same leg reds when the PR body drops the verdict-record path" \
+    || fail "(lean-jira-nv) milestone-5 passed under jira with no verdict reference anywhere — the leg is vacuous"
 fi
 
 

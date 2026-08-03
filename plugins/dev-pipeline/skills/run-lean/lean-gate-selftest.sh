@@ -652,5 +652,212 @@ if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q 'was never committed'; then
 else fail "(t5) expected rc=1 on an untracked record, got $rc: $out"; fi
 rm -f "$TREE/docs/plans/acme-8-lean-verdict.md"
 
+# ---- (n) the tracker adapter: github default + the jira arm --------------------------------
+# The lane shipped github-only while being the DEFAULT lane, so a `tracker.type: jira` /
+# `tracker.writes: false` consumer had three unreachable checklist items — the queue-label
+# confirm, the two claim writes, and a milestone 5 gated on `Closes #<n>` plus a closing
+# tracker comment that adapter posts none of. These cases pin the three branch sites.
+CFG_JIRA="$WORK/config-jira.json"
+cat > "$CFG_JIRA" <<'EOF'
+{
+  "tracker": { "type": "jira", "writes": false, "branchPrefix": "abc/", "keyPattern": "[A-Z]+-[0-9]+" },
+  "topology": { "repos": { "acme": { "path": ".", "baseBranch": "main" } } },
+  "paths": { "plansDir": "docs/plans", "pipelineStateDir": ".claude/pipeline-state" },
+  "commands": { "acme": { "lint": null, "typecheck": null, "test": null } }
+}
+EOF
+# jq, not sed: a textual substitution exits 0 whether or not it fired, so a reformatted
+# fixture would silently produce a config IDENTICAL to $CFG — and (n8) would then compare the
+# default against itself and pass forever while asserting nothing. The injection is asserted
+# below for the same reason; a fixture builder that can no-op is the mirror-harness bug class.
+CFG_GITHUB="$WORK/config-github.json"
+jq '.tracker.type = "github"' "$CFG" > "$CFG_GITHUB"
+CFG_BOGUS="$WORK/config-bogus.json"
+jq '.tracker.type = "gitlab"' "$CFG" > "$CFG_BOGUS"
+if [ "$(jq -r '.tracker.type' "$CFG_GITHUB" 2>/dev/null)" = "github" ] \
+   && [ "$(jq -r '.tracker.type' "$CFG_BOGUS" 2>/dev/null)" = "gitlab" ] \
+   && [ "$(jq -r '.tracker.type // "absent"' "$CFG" 2>/dev/null)" = "absent" ]; then
+  pass "(n0) the adapter fixtures were actually built (github/gitlab injected, base still absent)"
+else fail "(n0) fixture build did not apply — the (n7)/(n8) comparison would be vacuous"; fi
+
+JKEY="ACME-7"
+PROG_J="$WORK/progress-jira.md"
+JSPEC_REL="docs/plans/acme-$JKEY-lean.md"
+JVERDICT_REL="docs/plans/acme-$JKEY-lean-verdict.md"
+
+gate_cfg() { # gate_cfg <config> <progress-file> <args...>
+  local cfg="$1" prog="$2"; shift 2
+  ( unset RUN_ID; cd "$TREE" && SECOND_SHIFT_CONFIG="$cfg" LEAN_PROGRESS_FILE="$prog" bash "$GATE" "$@" 2>&1 )
+}
+seed_progress_1_to_4_at() {
+  rm -f "$1"
+  { echo "# lean run — issue $JKEY"; echo "run_id: r-j"; } > "$1"
+  local m
+  for m in 1 2 3 4; do echo "2026-01-01T00:00:00Z | milestone-$m | satisfied" >> "$1"; done
+}
+
+# An unrecognized tracker.type must be LOUD. Falling through to github would run the
+# write-happy arm against whatever tracker the typo meant — the exact failure this closes.
+out="$(gate_cfg "$CFG_BOGUS" "$WORK/p-bogus.md" 1 7)"; rc=$?
+if [ "$rc" -eq 2 ] && printf '%s' "$out" | grep -q "unknown tracker.type"; then
+  pass "(n1) an unrecognized tracker.type is an environment error, not a silent github fall-through"
+else fail "(n1) expected rc=2 on tracker.type 'gitlab', got $rc: $out"; fi
+
+# ---- jira PR-body fixtures (milestone 5) ----
+cat > "$WORK/pr-jira-ok.json" <<EOF
+[{ "number": 11, "url": "https://example.invalid/pr/11", "isDraft": false,
+   "body": "Summary line.\n\nSpec: $JSPEC_REL\nVerdict: $JVERDICT_REL\n\n### Jira Items\n\nCloses [$JKEY]\n" }]
+EOF
+cat > "$WORK/pr-jira-nokey.json" <<EOF
+[{ "number": 11, "url": "https://example.invalid/pr/11", "isDraft": false,
+   "body": "Summary line.\n\nSpec: $JSPEC_REL\nVerdict: $JVERDICT_REL\n" }]
+EOF
+cat > "$WORK/pr-jira-noverdict.json" <<EOF
+[{ "number": 11, "url": "https://example.invalid/pr/11", "isDraft": false,
+   "body": "Summary line.\n\nSpec: $JSPEC_REL\n\n### Jira Items\n\nCloses [$JKEY]\n" }]
+EOF
+# The SECTION is the contract, not the token: a key mentioned elsewhere with an empty Jira
+# Items section is what a half-filled template actually looks like.
+cat > "$WORK/pr-jira-unsectioned.json" <<EOF
+[{ "number": 11, "url": "https://example.invalid/pr/11", "isDraft": false,
+   "body": "Closes [$JKEY] eventually.\n\nSpec: $JSPEC_REL\nVerdict: $JVERDICT_REL\n\n### Jira Items\n\n_none yet_\n\n### Notes\n\nCloses [$JKEY]\n" }]
+EOF
+
+# AC-1's headline: a ready PR + sectioned key + verdict path passes against an EMPTY comment
+# trail. Under github that same trail is a hard failure — which is the whole point.
+seed_progress_1_to_4_at "$PROG_J"
+out="$(gate_cfg "$CFG_JIRA" "$PROG_J" 5 "$JKEY" --pr-file "$WORK/pr-jira-ok.json" --comments-file "$WORK/comments-none.json")"; rc=$?
+if [ "$rc" -eq 0 ]; then pass "(n2) jira milestone-5 passes on a ready PR carrying 'Closes [$JKEY]' + the verdict path, against an EMPTY comment trail"
+else fail "(n2) expected rc=0 under jira, got $rc: $out"; fi
+
+seed_progress_1_to_4_at "$PROG_J"
+out="$(gate_cfg "$CFG_JIRA" "$PROG_J" 5 "$JKEY" --pr-file "$WORK/pr-jira-nokey.json" --comments-file "$WORK/comments-none.json")"; rc=$?
+if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -qF "no 'Closes [$JKEY]'"; then
+  pass "(n3) jira milestone-5 fails a body with no sectioned ticket reference"
+else fail "(n3) expected rc=1 on a key-less body, got $rc: $out"; fi
+
+seed_progress_1_to_4_at "$PROG_J"
+out="$(gate_cfg "$CFG_JIRA" "$PROG_J" 5 "$JKEY" --pr-file "$WORK/pr-jira-noverdict.json" --comments-file "$WORK/comments-none.json")"; rc=$?
+if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q 'does not reference the verdict record'; then
+  pass "(n4) jira milestone-5 fails a body that does not reference the verdict record"
+else fail "(n4) expected rc=1 on a verdict-less body, got $rc: $out"; fi
+
+seed_progress_1_to_4_at "$PROG_J"
+out="$(gate_cfg "$CFG_JIRA" "$PROG_J" 5 "$JKEY" --pr-file "$WORK/pr-jira-unsectioned.json" --comments-file "$WORK/comments-none.json")"; rc=$?
+if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -qF "no 'Closes [$JKEY]'"; then
+  pass "(n5) jira milestone-5 fails when the key appears only OUTSIDE the Jira Items section"
+else fail "(n5) expected rc=1 on an unsectioned key, got $rc: $out"; fi
+
+# The draft rejection (D-27) holds for BOTH adapters — jira's draft-PR rationale belongs to
+# the `run` lane's manual promotion step, which lean has no counterpart for.
+cat > "$WORK/pr-jira-draft.json" <<EOF
+[{ "number": 11, "url": "https://example.invalid/pr/11", "isDraft": true,
+   "body": "Summary line.\n\nSpec: $JSPEC_REL\nVerdict: $JVERDICT_REL\n\n### Jira Items\n\nCloses [$JKEY]\n" }]
+EOF
+seed_progress_1_to_4_at "$PROG_J"
+out="$(gate_cfg "$CFG_JIRA" "$PROG_J" 5 "$JKEY" --pr-file "$WORK/pr-jira-draft.json" --comments-file "$WORK/comments-none.json")"; rc=$?
+if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q 'still a draft'; then
+  pass "(n6) jira milestone-5 still rejects a draft PR (D-27 holds for both adapters)"
+else fail "(n6) expected rc=1 on a jira draft PR, got $rc: $out"; fi
+
+# AC-3: the github default is ASSERTED, not assumed. Same jira-shaped body, under a config
+# with tracker.type ABSENT and under one that spells it out — both must take the github arm,
+# which this body cannot satisfy.
+seed_progress_1_to_4_at "$WORK/p-default.md"
+out="$(gate_cfg "$CFG" "$WORK/p-default.md" 5 "$JKEY" --pr-file "$WORK/pr-jira-ok.json" --comments-file "$WORK/comments-none.json")"; rc=$?
+if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -qF "no 'Closes #$JKEY'"; then
+  pass "(n7) with tracker.type ABSENT the github arm runs — a jira-shaped body is rejected"
+else fail "(n7) expected the github Closes-# failure with tracker.type absent, got $rc: $out"; fi
+
+seed_progress_1_to_4_at "$WORK/p-explicit.md"
+out2="$(gate_cfg "$CFG_GITHUB" "$WORK/p-explicit.md" 5 "$JKEY" --pr-file "$WORK/pr-jira-ok.json" --comments-file "$WORK/comments-none.json")"; rc2=$?
+if [ "$rc2" -eq "$rc" ] && printf '%s' "$out2" | grep -qF "no 'Closes #$JKEY'"; then
+  pass "(n8) an explicit tracker.type: github behaves identically to the absent default"
+else fail "(n8) explicit github diverged from the default — rc=$rc2: $out2"; fi
+
+# ---- jira claim: zero tracker calls, and no GH_BOT required --------------------------------
+# The proof has two halves, because either alone is weak. `env -u GH_BOT` closes the
+# `${GH_BOT:?}` path (the github arm dies there, so surviving it is evidence). The PATH spy
+# closes everything else: any `gh` the arm reached for lands in the log and exits 1.
+mkdir -p "$WORK/bin"
+SPY_LOG="$WORK/tracker-calls.log"
+cat > "$WORK/bin/gh" <<EOF
+#!/bin/sh
+echo "gh \$*" >> "$SPY_LOG"
+exit 1
+EOF
+chmod +x "$WORK/bin/gh"
+rm -f "$SPY_LOG" "$PROG_J" "$TREE/.claude/pipeline-state/$JKEY-run-id"
+
+out="$( cd "$TREE" && env -u GH_BOT PATH="$WORK/bin:$PATH" SECOND_SHIFT_CONFIG="$CFG_JIRA" \
+        LEAN_PROGRESS_FILE="$PROG_J" RUN_ID="jira-run-1" bash "$GATE" claim "$JKEY" 2>&1 )"; rc=$?
+if [ "$rc" -eq 0 ] && [ ! -s "$SPY_LOG" ]; then
+  pass "(n9) jira claim exits 0 with NO GH_BOT in the environment and makes zero tracker calls"
+else fail "(n9) expected rc=0 and an empty spy log, got rc=$rc, log='$(cat "$SPY_LOG" 2>/dev/null)': $out"; fi
+
+# The record is the point: no write happens, but lean-reconcile.sh's run-id anchor must
+# still land or the run stops being reconcilable.
+if grep -q '^run_id: jira-run-1$' "$PROG_J" 2>/dev/null && grep -qF '| claim | tracker=jira |' "$PROG_J" 2>/dev/null; then
+  pass "(n10) jira claim still records the run id and a claim line in the progress file"
+else fail "(n10) progress file missing the jira claim record: $(cat "$PROG_J" 2>/dev/null)"; fi
+
+# ---- the entry note ------------------------------------------------------------------------
+printf '{"tool":"Bash"}\n' > "$TREE/.claude/audit/sess-jira.jsonl"
+out="$( cd "$TREE" && SECOND_SHIFT_CONFIG="$CFG_JIRA" LEAN_PROGRESS_FILE="$PROG_J" \
+        CLAUDE_CODE_SESSION_ID=sess-jira bash "$GATE" entry "$JKEY" 2>&1 )"; rc=$?
+if [ "$rc" -eq 0 ] && printf '%s' "$out" | grep -q 'no queue label to confirm'; then
+  pass "(n11) entry prints the jira adapter note — step 1's label reject has no jira meaning"
+else fail "(n11) expected the jira entry note, got rc=$rc: $out"; fi
+
+out="$( cd "$TREE" && SECOND_SHIFT_CONFIG="$CFG" LEAN_PROGRESS_FILE="$PROG" \
+        CLAUDE_CODE_SESSION_ID=sess-jira bash "$GATE" entry 7 2>&1 )"; rc=$?
+if [ "$rc" -eq 0 ] && ! printf '%s' "$out" | grep -q 'no queue label to confirm'; then
+  pass "(n12) the github arm prints no adapter note"
+else fail "(n12) the adapter note leaked into the github arm: $out"; fi
+
+rm -f "$TREE/.claude/pipeline-state/$JKEY-run-id"
+
+# ---- the section boundary: both regexes must mean the same thing by "heading" -------------
+# An asymmetric pair is a false-ACCEPT, and false accepts are the direction that matters in a
+# gate. The two cases pin the two halves against each other: a space-less `###Jira Items` must
+# not OPEN (it is literal text, not an ATX heading), and — the same rule read the other way —
+# a space-less `###Notes` must not CLOSE, because content under it still renders inside the
+# section a real heading opened. Only one of these can be got wrong at a time; together they
+# make the symmetry non-optional.
+cat > "$WORK/pr-jira-openless.json" <<EOF
+[{ "number": 11, "url": "https://example.invalid/pr/11", "isDraft": false,
+   "body": "Summary line.\n\nSpec: $JSPEC_REL\nVerdict: $JVERDICT_REL\n\n###Jira Items\n\nCloses [$JKEY]\n" }]
+EOF
+seed_progress_1_to_4_at "$PROG_J"
+out="$(gate_cfg "$CFG_JIRA" "$PROG_J" 5 "$JKEY" --pr-file "$WORK/pr-jira-openless.json" --comments-file "$WORK/comments-none.json")"; rc=$?
+if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -qF "no 'Closes [$JKEY]'"; then
+  pass "(n13) a space-less '###Jira Items' does not open a section — it is not an ATX heading"
+else fail "(n13) expected rc=1 on a space-less opening heading, got $rc: $out"; fi
+
+cat > "$WORK/pr-jira-closeless.json" <<EOF
+[{ "number": 11, "url": "https://example.invalid/pr/11", "isDraft": false,
+   "body": "Summary line.\n\nSpec: $JSPEC_REL\nVerdict: $JVERDICT_REL\n\n### Jira Items\n\n###Notes\n\nCloses [$JKEY]\n" }]
+EOF
+seed_progress_1_to_4_at "$PROG_J"
+out="$(gate_cfg "$CFG_JIRA" "$PROG_J" 5 "$JKEY" --pr-file "$WORK/pr-jira-closeless.json" --comments-file "$WORK/comments-none.json")"; rc=$?
+if [ "$rc" -eq 0 ]; then
+  pass "(n14) a space-less '###Notes' does not close the section — the boundary rule is symmetric"
+else fail "(n14) expected rc=0 (the key still renders inside the section), got $rc: $out"; fi
+
+# The heading match folds case, like the `-i` on the ticket-reference grep. `### JIRA Items`
+# is the likelier consumer template — the repo's own jira prose caps the acronym throughout —
+# and a case-sensitive match would make it a false-REJECT that burns milestone 5 to rc=4.
+cat > "$WORK/pr-jira-caps.json" <<EOF
+[{ "number": 11, "url": "https://example.invalid/pr/11", "isDraft": false,
+   "body": "Summary line.\n\nSpec: $JSPEC_REL\nVerdict: $JVERDICT_REL\n\n### JIRA Items\n\nCloses [$JKEY]\n" }]
+EOF
+seed_progress_1_to_4_at "$PROG_J"
+out="$(gate_cfg "$CFG_JIRA" "$PROG_J" 5 "$JKEY" --pr-file "$WORK/pr-jira-caps.json" --comments-file "$WORK/comments-none.json")"; rc=$?
+if [ "$rc" -eq 0 ]; then
+  pass "(n15) '### JIRA Items' is accepted — the heading match folds case, like the Closes grep"
+else fail "(n15) expected rc=0 on an all-caps heading, got $rc: $out"; fi
+
+rm -f "$TREE/.claude/pipeline-state/$JKEY-run-id"
+
 echo "[lean-gate-selftest] $([ "$FAILS" -eq 0 ] && echo 'all green' || echo "$FAILS FAILURE(S)")"
 exit "$FAILS"

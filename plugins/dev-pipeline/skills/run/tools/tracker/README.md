@@ -17,8 +17,12 @@ Two adapters ship:
 Every stage that touches the tracker calls one of these abstract operations. The
 adapter column tells the operator/agent what each resolves to under the active
 `tracker.type`. Operations marked *no-op* under a tracker are deliberately absent
-there — a `tracker.writes: false` adapter’s audit trail is the state file plus the
-draft-PR metadata, not the ticket.
+there — a `tracker.writes: false` adapter’s audit trail is the run’s own record (the
+`run` lane’s state file, the lean lane’s progress file) plus the PR metadata, not the
+ticket.
+
+The table below is the **`run` lane’s** operation contract; the lean lane’s three
+adapter-sensitive operations follow it.
 
 | Operation | github (`tracker.type: github`) | jira (`tracker.type: jira`) |
 | --- | --- | --- |
@@ -31,6 +35,31 @@ draft-PR metadata, not the ticket.
 | **close-out** — release the work item | remove `in-progress` label via `bash "${CLAUDE_PLUGIN_ROOT}/skills/run/tools/gh-bot.sh"` | *no-op* |
 | **branch name** — the work branch | `<branchPrefix><key>` (`claude/acme-42`) | `<branchPrefix><key>` (`jdoe/gh-540`) |
 | **PR ticket reference** — link the PR back | `Closes #<key>` | `Closes [<KEY>]` in the template’s `### Jira Items` section |
+
+### The lean lane (`/dev-pipeline:run-lean`)
+
+`run-lean` is the default lane and has no stages and no state file: its records are the
+progress file plus three committed artifacts. [`lean-gate.sh`](../../../run-lean/lean-gate.sh)
+resolves the same `tracker.type` (absent ⇒ `github`) and branches at exactly **three**
+sites. Milestones 1–4 are adapter-insensitive — a committed spec, two repo policy scripts,
+the config command table, a committed verdict record — and stay that way.
+
+| Operation | github | jira |
+| --- | --- | --- |
+| **entry** — SKILL.md step 1’s queue-label confirm | confirm the queue label; a missing one is a reject, no prompting | *not applicable* — no queue, no label; the gate prints the adapter note and the operator supplies the key |
+| **claim** (`lean-gate.sh claim`) | two bot-wrapper writes: the label swap plus a `lean-claimed` marker comment | *no tracker write.* The run-id/claim record still lands in the progress file — the anchor a jira-aware reconcile would use — and `GH_BOT` is not required |
+| **exit** (`lean-gate.sh 5`) | ready PR carrying `Closes #<key>` + the spec link, plus a closing comment referencing the verdict record | ready PR carrying `Closes [<KEY>]` under a `Jira Items` heading, the spec link, and the verdict-record path **in the body**; the comment trail is never read |
+
+The **ready-PR** requirement is adapter-independent. lean has no promotion step for a draft
+to advance out of, so the `run` lane’s draft-PR rationale (below) does not carry over.
+
+> **No reconciliation backstop under jira yet.** lean’s two integrity checks — the CI gate
+> `scripts/check-lean-chain.sh` and the operator’s `lean-reconcile.sh` — both key off the
+> bot-authored `lean-claimed` **comment**, which this adapter posts none of; `lean-reconcile.sh`
+> additionally fetches the comment trail by GitHub issue number, so a jira key hard-fails it.
+> Both are github-only today. A jira run’s evidence is therefore the committed spec, the
+> committed verdict record, and the progress-file run-id anchor — no machine check ties them
+> together. Adapting them is deliberately out of this lane’s scope and tracked separately.
 
 > **Atlassian MCP namespace (jira fetch).** Do not hardcode a single prefix: the MCP's
 > tool namespace depends on how the session registered the server — `mcp__atlassian__*`
