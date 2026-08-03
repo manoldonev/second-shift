@@ -21,8 +21,14 @@
 # only READ the verdict record; the REVIEW role (`verdict`) can only WRITE it, and refuses to
 # run inside the build session at all. Identity is role-keyed on both sides, so a review
 # session that provisioned no identity is refused rather than silently inheriting the build's
-# — see the RUN_ID persistence section. This one is not merely tamper-evident: the session id
-# is harness-assigned, not agent-chosen.
+# — see the RUN_ID persistence section.
+#
+# HONEST ALTITUDE, same as the siblings: this is tamper-EVIDENCE, not proof. RUN_ID is
+# agent-CHOSEN, whereas the session id is merely agent-OVERRIDABLE — $CLAUDE_CODE_SESSION_ID
+# is an ordinary environment variable, so a determined agent can spoof it here. That is worth
+# something (the honest value is assigned by the harness, and a spoof must then be sustained
+# across the audit ledger lean-reconcile.sh reads) but it is not a guarantee. Do not describe
+# this check as stronger than lean-reconcile.sh and check-lean-chain.sh describe theirs.
 #
 # Usage:
 #   lean-gate.sh entry  <issue>          entry precondition: the session's audit ledger is live.
@@ -79,7 +85,7 @@ while [ $# -gt 0 ]; do
     --verdict)       VERDICT_VALUE="${2:-}"; shift 2 ;;
     --rounds)        VERDICT_ROUNDS="${2:-}"; shift 2 ;;
     --summary-file)  SUMMARY_FILE="${2:-}"; shift 2 ;;
-    -h|--help)       sed -n '2,51p' "$0"; exit 0 ;;
+    -h|--help)       sed -n '2,57p' "$0"; exit 0 ;;
     -*)              envfail "unknown option: $1" ;;
     *)
       if [ "$POSITIONAL" -eq 0 ]; then SUB="$1"; POSITIONAL=1
@@ -191,7 +197,15 @@ RUN_ID_CACHE="$MAIN_ROOT/$STATE_DIR/$ISSUE-run-id"
 REVIEW_RUN_ID_CACHE="$MAIN_ROOT/$STATE_DIR/$ISSUE-review-run-id"
 resolve_cached_id() { # resolve_cached_id <cache-path> <persist:0|1>
   if [ -n "${RUN_ID:-}" ]; then
-    if [ "$2" = "1" ]; then
+    # SEED-ONCE, as the comment above has always said ("the FIRST time it is seen"). The
+    # pre-existing form re-wrote on every call, which is a different thing and a harmful one
+    # now that a second role exists: review-lean SKILL.md step 1 REQUIRES the review session to
+    # export its own RUN_ID, and nothing forbids it from running `bash G 4 <issue>` to check
+    # the record it just wrote. Under overwrite semantics that call replaced the BUILD identity
+    # with the review one, and milestone 4 — which compares the verdict against this very file
+    # — then refused a valid, review-authored record permanently. Seeding once cannot clobber
+    # an established build identity.
+    if [ "$2" = "1" ] && [ ! -s "$1" ]; then
       mkdir -p "$(dirname "$1")" 2>/dev/null && printf '%s' "$RUN_ID" > "$1"
     fi
     printf '%s' "$RUN_ID"
@@ -481,18 +495,25 @@ cmd_4() {
     fail_milestone 4 "verdict record $VERDICT_REL carries no session_id reconciliation key — the review session's audit ledger cannot be located, so the verdict is unreconcilable"; return $?
   fi
 
-  # AUTHORSHIP (P10). THREE build identities are compared, not one:
-  #   - the id resolved for THIS invocation (env or build cache),
+  # AUTHORSHIP (P10). TWO build identities are compared, and both are FILE-BACKED:
   #   - the id sitting in the build run-id cache file,
   #   - the id the build run stamped into the progress-file header.
   # The cache arm is the load-bearing one. A review session that never provisioned its own
   # RUN_ID used to resolve the BUILD cache, and the record it wrote then looked "distinct"
   # only in the sense that nobody had checked. Comparing against the cache file directly
   # catches that whether or not this invocation happens to have RUN_ID in its environment.
+  #
+  # $RESOLVED_RUN_ID is deliberately NOT a candidate. It is "whoever is running this command",
+  # which is a build identity only when a build session is the caller. A REVIEW session running
+  # `bash G 4 <issue>` to check the record it just wrote resolves its own review id there, and
+  # comparing the record against it matched by construction — refusing a correct record for the
+  # crime of being checked by its author's counterpart. It was also redundant: a build session
+  # invoking with RUN_ID set seeds that same value into the cache file on this very call, so
+  # the b_cached arm already covers the case the third arm was added for.
   b_cached=""; [ -s "$RUN_ID_CACHE" ] && b_cached="$(cat "$RUN_ID_CACHE")"
   b_prog_run="$(record_key run_id "$PROGRESS_FILE")"
   b_prog_sess="$(record_key session_id "$PROGRESS_FILE")"
-  for cand in "$RESOLVED_RUN_ID" "$b_cached" "$b_prog_run"; do
+  for cand in "$b_cached" "$b_prog_run"; do
     [ -n "$cand" ] || continue
     if [ "$v_run" = "$cand" ]; then
       fail_milestone 4 "verdict record $VERDICT_REL carries the BUILD run's identity ('$v_run') — the session that wrote the code may not author its own review verdict (P10). Produce the record from a separate review session: 'lean-gate.sh verdict $ISSUE --pr <n> --verdict approve'."
@@ -558,10 +579,22 @@ cmd_verdict() {
     approve|needs-work) : ;;
     *) envfail "verdict: --verdict must be 'approve' or 'needs-work' (got '$VERDICT_VALUE')." ;;
   esac
+  # --pr is validated like the other two value-args, not merely checked for emptiness. It is
+  # echoed into the committed record, so an unvalidated value puts arbitrary text — newlines
+  # included — into an evidence artifact. Nothing escalates today (all three readers take the
+  # FIRST match of each key, so an injected `run_id:` loses to the authentic one written
+  # above it), but "harmless because of where it lands in the file" is a property of the
+  # current readers, not of this argument.
   [ -n "$VERDICT_PR" ] || envfail "verdict: --pr <number> is required — the record names the PR it reviewed."
+  VERDICT_PR="${VERDICT_PR#\#}"   # tolerate `--pr #361`
+  case "$VERDICT_PR" in
+    ''|*[!0-9]*|0) envfail "verdict: --pr must be a positive integer (got '$VERDICT_PR')." ;;
+  esac
   [ -n "$VERDICT_ROUNDS" ] || VERDICT_ROUNDS=1
+  # `0` matches neither '' nor *[!0-9]*, so the pre-#345 form accepted --rounds 0 while its own
+  # message said "positive integer". Round 0 is not a round.
   case "$VERDICT_ROUNDS" in
-    ''|*[!0-9]*) envfail "verdict: --rounds must be a positive integer (got '$VERDICT_ROUNDS')." ;;
+    ''|*[!0-9]*|0) envfail "verdict: --rounds must be a positive integer (got '$VERDICT_ROUNDS')." ;;
   esac
 
   body=""

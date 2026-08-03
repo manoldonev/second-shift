@@ -385,6 +385,34 @@ if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q "BUILD run's identity"; then
 else fail "(n3) expected rc=1 on a cache-resolved identity, got $rc: $out"; fi
 rm -f "$RUN_ID_CACHE"
 
+# ---- (q) a REVIEW session checking the record it wrote must not red it ---------------------
+# Milestone 4 compared the verdict's run_id against $RESOLVED_RUN_ID — "whoever is running this
+# command" — which is a BUILD identity only when a build session is the caller. review-lean
+# SKILL.md step 1 requires the review session to export its own RUN_ID, and nothing forbids it
+# from running `bash G 4 <issue>` to check the record it just wrote; that call resolved the
+# review id, matched the record by construction, and refused it. Under overwrite-caching the
+# same call ALSO replaced the build cache with the review id, so every later clean-env call
+# stayed red. All three halves are asserted — the pass, the intact cache, and the re-check.
+seed_build_progress r-build-1 sess-build-1
+mkdir -p "$(dirname "$RUN_ID_CACHE")"; printf 'r-build-1' > "$RUN_ID_CACHE"
+write_review_verdict
+out="$( cd "$TREE" && SECOND_SHIFT_CONFIG="$CFG" LEAN_PROGRESS_FILE="$PROG" \
+        RUN_ID=r-review-1 bash "$GATE" 4 7 2>&1 )"; rc=$?
+if [ "$rc" -eq 0 ]; then
+  pass "(q1) milestone-4 passes when the REVIEW session runs it with its own RUN_ID exported"
+else fail "(q1) expected rc=0 from a review-run milestone-4, got $rc: $out"; fi
+
+if [ "$(cat "$RUN_ID_CACHE" 2>/dev/null)" = "r-build-1" ]; then
+  pass "(q2) that call left the BUILD run-id cache intact (seed-once, not overwrite)"
+else fail "(q2) build cache clobbered to '$(cat "$RUN_ID_CACHE" 2>/dev/null)', want r-build-1"; fi
+
+seed_build_progress r-build-1 sess-build-1
+out="$(gate 4 7)"; rc=$?
+if [ "$rc" -eq 0 ]; then
+  pass "(q3) a later clean-env milestone-4 on the SAME record still passes"
+else fail "(q3) expected rc=0 from the clean-env re-check, got $rc: $out"; fi
+rm -f "$RUN_ID_CACHE"
+
 # ---- (o) AC-3: milestone-4 EVALUATION never writes the verdict record ----------------------
 # The build session's only relationship to that file is reading one somebody else wrote. A
 # gate that could rewrite it — even to "normalize" it — makes every check in (n) decorative.
@@ -465,6 +493,32 @@ else fail "(p6) review-cache='$(cat "$REVIEW_CACHE" 2>/dev/null)' build-cache-ex
 out="$(gate 4 7)"; rc=$?
 if [ "$rc" -eq 0 ]; then pass "(p7) milestone-4 accepts the record written by the review role"
 else fail "(p7) expected rc=0 from milestone-4 on a review-written record, got $rc: $out"; fi
+
+# ---- (r) the verdict role validates its value-args -----------------------------------------
+# --pr lands verbatim in a COMMITTED evidence artifact, so it is validated like the other two
+# value-args rather than merely checked for emptiness. Nothing escalates today (every reader
+# takes the FIRST match of each key, so an injected `run_id:` loses to the authentic one), but
+# that is a property of the current readers, not of this argument.
+seed_build_progress r-build-1 sess-build-1
+rm -f "$VERDICT" "$REVIEW_CACHE"
+
+out="$(verdict_cmd sess-review-9 r-review-9 --pr not-a-number --verdict approve)"; rc=$?
+if [ "$rc" -eq 2 ] && printf '%s' "$out" | grep -q 'pr must be a positive integer'; then
+  pass "(r1) verdict rejects a non-numeric --pr instead of echoing it into the record"
+else fail "(r1) expected rc=2 on a non-numeric --pr, got $rc: $out"; fi
+[ -f "$VERDICT" ] && fail "(r1b) a rejected --pr still wrote the record" \
+  || pass "(r1b) a rejected --pr writes nothing"
+
+out="$(verdict_cmd sess-review-9 r-review-9 --pr 12 --verdict approve --rounds 0)"; rc=$?
+if [ "$rc" -eq 2 ] && printf '%s' "$out" | grep -q 'rounds must be a positive integer'; then
+  pass "(r2) verdict rejects --rounds 0, which its own message always called positive"
+else fail "(r2) expected rc=2 on --rounds 0, got $rc: $out"; fi
+
+out="$(verdict_cmd sess-review-9 r-review-9 --pr '#12' --verdict approve)"; rc=$?
+if [ "$rc" -eq 0 ] && grep -qF 'pr: #12' "$VERDICT" 2>/dev/null; then
+  pass "(r3) a '#'-prefixed --pr is tolerated and normalized to a single '#'"
+else fail "(r3) expected rc=0 and 'pr: #12', got $rc: $out
+$(cat "$VERDICT" 2>/dev/null)"; fi
 
 rm -f "$REVIEW_CACHE"
 
