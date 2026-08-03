@@ -50,7 +50,7 @@ outside this session (`/dev-pipeline:review-lean`). Read this file, then work th
 - **Two tracker writes per clean run**, github only: the claim comment and the closing comment (an abort adds one). A `writes: false` tracker makes none.
 - Doc updates are AC-scoped — a change that makes docs stale needs an explicit doc `AC-n`.
 - **A decision the receipt never covered is not yours to make (P9).** Write the intent-gap
-  record (schema: `interviewing-baseline`) and follow its region's declared disposition.
+  record (schema: `interviewing-baseline`), follow its region's disposition, and ratify before the handoff — the merge boundary refuses `ratified: no`.
 
 ## Resume
 
