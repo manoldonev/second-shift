@@ -19,6 +19,15 @@ three sites — the entry note, `cmd_claim`, and `cmd_5`. Milestones 1–4 are
 adapter-insensitive and stay untouched. SKILL.md and the two tracker READMEs state the
 delta. No new config keys; no `configVersion` change.
 
+**Rebased mid-run onto the P10 authorship separation.** `main` gained the `verdict`
+subcommand and out-of-session verdict authorship while this was in review. `cmd_verdict`
+makes **no tracker call** — verified, not assumed — so it is not a fourth adapter-sensitive
+site and the three-site claim stands. P10 is deliberately *not* adapter-scoped: the adapter
+moves the tracker write, never the authorship check, and `(lean-jira-p10)` asserts a
+build-authored verdict is refused on the jira arm exactly as on github. Consequence for this
+run: the delivering session cannot author its own verdict, so it ends at a milestone-4
+handoff for `/dev-pipeline:review-lean`.
+
 ## Acceptance criteria
 
 - **AC-1** (oracle — `lean-gate-selftest.sh`): under a jira fixture config, `claim` exits
@@ -39,8 +48,10 @@ delta. No new config keys; no `configVersion` change.
 - **AC-5** (oracle — CI): frozen-files and changelog-trailer gates green; the PR carries a
   `Changelog:` trailer.
 - **AC-6** (oracle — diff-scoped mutation sweep): the baseline is re-keyed from the sweep's
-  own output rather than by hand, if the ordinals move. They do not: the sweep runs green
-  with survivor ids byte-identical to the five committed rows, so nothing is owed.
+  own output rather than by hand, if the ordinals move. Measured on the **rebased** tree
+  (`applied=10 killed=6 survived=4`), the survivor ids are byte-identical to the four
+  `lean-gate.sh` rows now in `tools/mutation-baseline.tsv` — #361 retired the fifth
+  (`detector::1`) — so nothing is owed and the file is untouched.
   **Read that green honestly.** `K_BUDGET=2` means only ordinals 1–2 per operator are
   mutated, and every one of those sites sits *above* every insertion point in this diff — so
   the sweep structurally cannot reach the new branch points, and its green is not evidence
@@ -51,18 +62,19 @@ delta. No new config keys; no `configVersion` change.
   sweeping the branch sites would need `mutation-catalog.tsv` rows, not a raised `K`.
 - **AC-7** (critic): no consumer-identity or operator-identity tokens in code, fixtures, or
   docs.
+- **AC-8** (critic — doc, added during implementation per the lane's AC-scoped doc rule):
+  `docs/onboarding.md`'s "the entry gate rejects a missing audit ledger or queue label"
+  claim is scoped to the GitHub tracker. Making the lane runnable under jira is exactly
+  what turns that sentence stale, so it is fixed in the same diff rather than left behind.
 - **AC-9** (oracle — `scenario-liveness-selftest.sh`, added during implementation per
   CLAUDE.md's "a new gate contract extends the liveness scenario for every verdict path it
   touches"): a composed jira leg drives `claim → 1 → 2 → 3 → 4 → 5` with no `GH_BOT` and an
   empty comment trail, asserting that the progress file `cmd_claim` creates write-free is the
   same one milestones 1–5 satisfy, and that the adapter-insensitive milestones hold under an
-  alphanumeric ticket key. Carries its own non-vacuity red (strip the verdict path from the
-  PR body ⇒ `rc≠0`). The per-tool `(n*)` cases prove the branch sites in isolation; only this
-  proves they chain.
-- **AC-8** (critic — doc, added during implementation per the lane's AC-scoped doc rule):
-  `docs/onboarding.md`'s "the entry gate rejects a missing audit ledger or queue label"
-  claim is scoped to the GitHub tracker. Making the lane runnable under jira is exactly
-  what turns that sentence stale, so it is fixed in the same diff rather than left behind.
+  alphanumeric ticket key. Two reds keep it honest: `(lean-jira-nv)` strips the verdict path
+  from the PR body, and `(lean-jira-p10)` re-authors the verdict with the **build** session id
+  and requires milestone 4 to refuse it — the adapter must not become an authorship loophole.
+  The per-tool `(n*)` cases prove the branch sites in isolation; only this proves they chain.
 
 ## Decisions taken during implementation
 

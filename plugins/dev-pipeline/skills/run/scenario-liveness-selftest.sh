@@ -1068,13 +1068,22 @@ LEANCFGJ
   LEAN_JKEY="ACME-7"
   # env -u GH_BOT is load-bearing, not hygiene: the github arm dies on `${GH_BOT:?}`, so a leg
   # that completes without it in the environment is evidence the jira arm never reached there.
+  # CLAUDE_CODE_SESSION_ID is the BUILD identity — `claim` stamps it into the progress file, and
+  # milestone 4 compares it against the review session id in the committed record.
   lean_gate_j() { ( cd "$LEAN_TREE" && env -u GH_BOT SECOND_SHIFT_CONFIG="$LEAN_CFG_J" \
-                    LEAN_PROGRESS_FILE="$LEAN_PROG_J" RUN_ID="r-lean-j" bash "$LEAN_GATE" "$@" 2>&1 ); }
+                    LEAN_PROGRESS_FILE="$LEAN_PROG_J" RUN_ID="r-lean-j" \
+                    CLAUDE_CODE_SESSION_ID="sess-lean-jira-build" bash "$LEAN_GATE" "$@" 2>&1 ); }
   lean_count_j() { if [[ -f "$LEAN_PROG_J" ]]; then local n; n=$(grep -cF "$1" "$LEAN_PROG_J" 2>/dev/null) || n=0; echo "$n"; else echo 0; fi; }
 
   rm -f "$LEAN_PROG_J" "$LEAN_TREE/.claude/pipeline-state/$LEAN_JKEY-run-id"
   printf '# spec\n\n- AC-1: a thing\n' > "$LEAN_TREE/docs/plans/acme-$LEAN_JKEY-lean.md"
-  printf 'verdict=approve\nrun_id: r-lean-j\n' > "$LEAN_TREE/docs/plans/acme-$LEAN_JKEY-lean-verdict.md"
+  # P10 applies to the jira arm unchanged — the adapter moves the tracker WRITE, never the
+  # authorship separation. So the record is REVIEW-authored (a session id distinct from the
+  # build one `claim` stamps into the progress file below) and COMMITTED, or milestone 4
+  # refuses it on authorship/freshness before the adapter is ever reached.
+  printf 'verdict=approve\nrun_id: r-lean-jreview\nsession_id: sess-lean-jira-review\nrounds: 1\n' \
+    > "$LEAN_TREE/docs/plans/acme-$LEAN_JKEY-lean-verdict.md"
+  lean_commit "jira leg: spec + review verdict"
   cat > "$TMP/lean-pr-jira.json" <<LEANPRJ
 [{ "number": 6, "url": "https://example.invalid/pr/6", "isDraft": false,
    "body": "Summary.\n\nSpec: docs/plans/acme-$LEAN_JKEY-lean.md\nVerdict: docs/plans/acme-$LEAN_JKEY-lean-verdict.md\n\n### Jira Items\n\nCloses [$LEAN_JKEY]\n" }]
@@ -1121,6 +1130,18 @@ LEANPRJNV
   [[ "$jnv" -ne 0 ]] \
     && pass "(lean-jira-nv) non-vacuity: the same leg reds when the PR body drops the verdict-record path" \
     || fail "(lean-jira-nv) milestone-5 passed under jira with no verdict reference anywhere — the leg is vacuous"
+
+  # P10 is NOT adapter-scoped, and this is where that is asserted rather than assumed. The
+  # adapter moves the tracker WRITE; it must not become a second way to author your own
+  # verdict. Re-write the record carrying the BUILD session id and milestone 4 must refuse on
+  # the jira arm exactly as it does on github.
+  printf 'verdict=approve\nrun_id: r-lean-j\nsession_id: sess-lean-jira-build\nrounds: 2\n' \
+    > "$LEAN_TREE/docs/plans/acme-$LEAN_JKEY-lean-verdict.md"
+  lean_commit "jira leg: build-authored verdict (must be refused)"
+  lean_gate_j 4 "$LEAN_JKEY" >/dev/null 2>&1; jp10=$?
+  [[ "$jp10" -ne 0 ]] \
+    && pass "(lean-jira-p10) a build-authored verdict is refused on the jira arm too — the adapter is no authorship loophole" \
+    || fail "(lean-jira-p10) milestone-4 accepted a verdict carrying the build session id under jira"
 fi
 
 
