@@ -45,6 +45,15 @@ List `era: "artifact"` rows in their own corpus line in the Step-6 report (count
 `model` values) rather than folding them into the per-stage table or silently dropping them —
 labeled-but-out-of-scope-for-this-table is the honest reading, not invisible.
 
+**Zero `era: "stage"` rows is not an error — it is the near-term steady state once lean/block
+runs dominate the corpus.** Count this step's `era: "stage"` rows before Steps 3 and 6 touch
+`stage-envelopes.sh`. That tool hard-exits by design on a stage-empty state dir rather than
+print a blank report over nothing (`stage-envelopes-selftest.sh` env14) — it is not a soft
+degradation to catch after the call. When the count is zero, **skip the `stage-envelopes.sh`
+call entirely** and have Steps 3 and 6 state `0 stage-era run(s) in window — per-stage profile
+and over-envelope flags not applicable (every run in window is era: "artifact")` in place of
+those tables, rather than erroring or silently emitting empty ones.
+
 **Completed and aborted runs are both in scope.** An abort is a real cost, often the most expensive shape of run, and excluding it flatters the profile.
 
 Per selected `era: "stage"` run, gather: `bash "${CLAUDE_PLUGIN_ROOT}/skills/run/tools/stage-times.sh" <key>`; the cost log at `<STATE_DIR>/cost-log.jsonl` when present; the timing paragraphs of any existing `<key>-retro.md`; and, for each session id in that run's `pipelineSessions[]`, the audit ledger at `.claude/audit/<session>.jsonl` when it exists on disk.
@@ -77,6 +86,9 @@ Degraded signals:
 Degraded windows are **excluded from every aggregate**. They are not discarded: each distinct fidelity defect is a routable instrumentation finding for Step 5, deduped against already-scoped work **by mechanism** — describe what is unrecorded and where, never by ticket number, which rots as fast as it is written.
 
 ## Step 3: Profile
+
+**Zero `era: "stage"` rows in window** (Step 1's guard): skip straight to the report text given
+there and move on to Step 4 with an empty per-stage table — do not call `stage-envelopes.sh`.
 
 Across trusted runs only, build the table every candidate must cite:
 
@@ -129,7 +141,10 @@ Inter-stage gap total: {m} min. Runs profiled: {n} trusted, {d} degraded.
 Corpus: {file count} state file(s) → {n} run(s) after `stage-envelopes.sh`'s dedup
 ({its declared rule}); Step 1's own enumeration counted {n'} before dedup. {a} `era:
 "artifact"` run(s) also in the corpus, out of scope for this table (models: {list}) —
-see `retro-corpus.sh corpus`.
+see `retro-corpus.sh corpus`. **When Step 1 counted zero `era: "stage"` rows**, this line
+instead reads: `0 stage-era run(s) in window — per-stage profile not applicable; {a} era:
+"artifact" run(s) (models: {list}) — see retro-corpus.sh corpus`, and the Profile table above
+is omitted rather than left empty.
 
 ## Cost envelopes (per bucket)
 
@@ -144,7 +159,9 @@ Over the cost log's own window, independent of the run window above.
 | ---- | -------------- | --- | -------- | ---------- | - | --------- |
 
 {known-unknown rows — below the min-n floor, or lifecycle-dropped. An absent envelope is
-a question, not a pass.}
+a question, not a pass.} **Zero `era: "stage"` rows in window**: the table is replaced with
+one line, `0 stage-era run(s) in window — over-envelope flags not applicable`, never an empty
+table (env14's distinction — "measured nothing" must not read as "measured and found nothing").
 
 Advisory: nothing here gates, and no run is failed for appearing in this table.
 

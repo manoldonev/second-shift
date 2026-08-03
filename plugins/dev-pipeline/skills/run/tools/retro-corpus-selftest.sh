@@ -73,20 +73,32 @@ mkprogress() {
 }
 
 # ═══════════════════════════════════════════════════════════════════════════════════
-# AC-1: artifact-schema-only corpus (no stage .json files) — must not error.
+# AC-1: artifact-schema-only corpus (no stage .json files) — must not error. Extended
+# (round-1 review B2) past corpus enumeration to the REPORT path: perf-retro's Step 1
+# guard decides whether to call stage-envelopes.sh by counting this corpus's era:"stage"
+# rows, so that count is asserted here too, and the tool the guard exists to route
+# around is proven to still hard-exit on the identical fixture — never a blank report.
 # ═══════════════════════════════════════════════════════════════════════════════════
 D="$WORK/ac1"; mkdir -p "$D"
 mkprogress "$D" 501 "2026-08-01T10:00:00Z" "claude-sonnet-5"
 if OUT="$(run_corpus "$D")"; then
   N="$(jq 'length' <<<"$OUT")"
   ERA="$(jq -r '.[0].era' <<<"$OUT")"
-  if [ "$N" = "1" ] && [ "$ERA" = "artifact" ]; then
-    pass "(AC-1) artifact-only corpus: exit 0, one artifact-era row, no stage files present"
+  STAGE_ROWS="$(jq '[.[] | select(.era == "stage")] | length' <<<"$OUT")"
+  if [ "$N" = "1" ] && [ "$ERA" = "artifact" ] && [ "$STAGE_ROWS" = "0" ]; then
+    pass "(AC-1) artifact-only corpus: exit 0, one artifact-era row, zero stage-era rows — the signal perf-retro's report path reads to skip stage-envelopes.sh"
   else
-    fail "(AC-1) unexpected output — got $OUT"
+    fail "(AC-1) unexpected output — got $OUT (stage-era rows: $STAGE_ROWS)"
   fi
 else
   fail "(AC-1) corpus mode exited non-zero on an artifact-only state dir"
+fi
+
+STAGE_ENV_TOOL="$SCRIPT_DIR/stage-envelopes.sh"
+if [ -f "$STAGE_ENV_TOOL" ] && ! bash "$STAGE_ENV_TOOL" --state-dir "$D" >/dev/null 2>&1; then
+  pass "(AC-1) stage-envelopes.sh still hard-exits on the same artifact-only state dir — the report path must route around it via the era count, not by catching its failure"
+else
+  fail "(AC-1) stage-envelopes.sh did not hard-exit on an artifact-only state dir — the report-path guard's premise no longer holds"
 fi
 
 # ═══════════════════════════════════════════════════════════════════════════════════
@@ -162,12 +174,25 @@ fi
 
 # ═══════════════════════════════════════════════════════════════════════════════════
 # help: -h/--help prints the usage doc block via `sed -n`, not a live gh/network call.
+# The assertion has to be BOUNDED, not a substring probe — ledger-corroborate-selftest.sh's
+# (lc38) case found this the hard way: `sed -n '2,40p' "$0"` mutated to `sed -z '2,40p' "$0"`
+# reads differently per platform. BSD sed (macOS) rejects `-z` — rc=1, nothing printed, mutant
+# dies locally. GNU sed (CI's ubuntu lane) accepts `-z`, which also drops `-n`'s no-autoprint,
+# so the arm dumps the ENTIRE script and still exits 0 — and the dump trivially contains
+# "Usage:" too, so a contains-only check passes and the mutant survives. Require the usage
+# block AND require the output to stop at the excerpt: `set -uo pipefail` (line 44) is the
+# first line past the `2,40p` range, so its presence means the whole file leaked.
 # ═══════════════════════════════════════════════════════════════════════════════════
 HELP_OUT="$(run_open_prs --help)"
-if printf '%s' "$HELP_OUT" | grep -qF 'Usage:'; then
-  pass "(help) '--help' prints the usage doc block"
+HELP_RC=$?
+HELP_LINES="$(printf '%s\n' "$HELP_OUT" | wc -l | tr -d ' ')"
+if [ "$HELP_RC" -eq 0 ] \
+   && printf '%s' "$HELP_OUT" | grep -qF 'Usage:' \
+   && ! printf '%s' "$HELP_OUT" | grep -qF 'set -uo pipefail' \
+   && [ "$HELP_LINES" -le 39 ]; then
+  pass "(help) '--help' prints the usage doc block and stops there — not the whole script"
 else
-  fail "(help) usage doc block missing from --help output — got: $HELP_OUT"
+  fail "(help) rc=$HELP_RC, $HELP_LINES line(s) — got: $HELP_OUT"
 fi
 
 # ═══════════════════════════════════════════════════════════════════════════════════
@@ -188,6 +213,27 @@ if [ "$HV801" = "true" ] && [ "$HV802" = "false" ]; then
   pass "(verdict-detect) hasApprovedVerdict is true only for a record reading verdict=approve"
 else
   fail "(verdict-detect) hv801=$HV801 hv802=$HV802 — got $OUT"
+fi
+
+# ═══════════════════════════════════════════════════════════════════════════════════
+# verdict-detect-worktree (W2, round-1 review): the case above never distinguishes
+# REPO_ROOT from MAIN_ROOT because $TREE stands in for both. Run corpus mode from a REAL
+# worktree of $TREE instead — the verdict record lives in $TREE/docs/plans (the main
+# checkout), never copied into the worktree, so hasApprovedVerdict is only correct when
+# the reader resolves it via MAIN_ROOT (--git-common-dir anchored, same as state_dir()),
+# not the caller's own --show-toplevel.
+# ═══════════════════════════════════════════════════════════════════════════════════
+WT="$WORK/verdict-detect-wt"
+git -C "$TREE" worktree add -q -b wt-verdict-detect "$WT" >/dev/null 2>&1
+D="$WORK/verdict-detect-wt-state"; mkdir -p "$D"
+mkprogress "$D" 901 "2026-08-01T12:00:00Z" "claude-sonnet-5"
+printf 'verdict=approve\nrun_id: r3\nsession_id: s3\n' > "$TREE/docs/plans/second-shift-901-lean-verdict.md"
+OUT="$(cd "$WT" && bash "$TOOL" corpus --state-dir "$D" --json)"
+HV901="$(jq -r '.[] | select(.ticketKey == "901") | .hasApprovedVerdict' <<<"$OUT")"
+if [ "$HV901" = "true" ]; then
+  pass "(verdict-detect-worktree) hasApprovedVerdict resolves from the main checkout, not the worktree the tool runs in"
+else
+  fail "(verdict-detect-worktree) expected true from a worktree caller, got hv901=$HV901 — got $OUT"
 fi
 
 echo ""

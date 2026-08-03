@@ -92,3 +92,13 @@ than silently skipping.
   for one. `perf-retro/SKILL.md` Step 1 sources its corpus from `retro-corpus.sh corpus
   --json`; its Step-6 report template labels both eras.
 - **AC-7** (critic): the PR carries a `Changelog:` trailer.
+- **AC-8** (oracle — selftest + critic — docs; added in round-1 review fix, closing the gap
+  between this committed AC-1 and the issue's own AC-1): `perf-retro/SKILL.md` guards its
+  `stage-envelopes.sh` call on Step 1's `era: "stage"` row count rather than calling it
+  unconditionally — that tool hard-exits by design on a stage-empty corpus rather than emit a
+  blank report (`stage-envelopes-selftest.sh` env14), so a corpus that is entirely `era:
+  "artifact"` runs (the near-term steady state once #348 lands) must never reach the call.
+  Steps 3 and 6 state `0 stage-era run(s) in window` explicitly instead. `retro-corpus-selftest.sh`'s
+  (AC-1) case is extended to assert its artifact-only fixture also yields zero `era: "stage"`
+  rows — the exact signal the guard reads — and that `stage-envelopes.sh` still hard-exits on
+  that same fixture, proving the guard's premise rather than assuming it.

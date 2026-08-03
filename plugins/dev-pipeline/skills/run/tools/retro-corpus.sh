@@ -145,7 +145,10 @@ cmd_corpus() {
     local vrel vpath hasverdict=false
     vrel="$(record_key verdict_record "$f")"
     if [ -n "$vrel" ]; then
-      vpath="$REPO_ROOT/$vrel"
+      # MAIN_ROOT, not REPO_ROOT (W2, round-1 review): the state dir this loop reads
+      # already anchors there deliberately (state_dir(), worktree-safe); mixing anchors
+      # made hasApprovedVerdict vary with the caller's checkout for the same state dir.
+      vpath="$MAIN_ROOT/$vrel"
       [ "$(record_verdict "$vpath")" = "approve" ] && hasverdict=true
     fi
     row="$(jq -n -c --arg stem "$stem" --arg tk "$tk" --arg sa "$sa" --arg model "$model" --argjson hv "$hasverdict" \
