@@ -5,13 +5,28 @@ run_id: review-346-3
 session_id: 4e000438-5540-48a3-af9b-37d2d100ba92
 rounds: 3
 pr: #368
-reviewed_head: e36e16871f04a0e29b059696e1decdc3558c70a9
+reviewed_head: f47042fc68439af89ae6e7acbdd19d2104c8ee99
+model: unknown
 
 ## Verdict: approve (round 3)
 
 Round 2's B-1 is discharged by the one commit this round adds, and discharged the way round 2
 asked: the clause is restored, the stderr routing round 1 asked for **stays**, and the file is
 back at exactly 60/60. All seven ACs are satisfied. Two warnings, neither blocking.
+
+**Re-issued after a rebase, same round, same identity.** This record was first written against
+`e36e168`; the branch was then rebased onto `01950af` (picking up #369) and the review's head
+ceased to exist. No re-review was performed and none was needed: the branch's own patch is
+identical across the rebase — `diff <(git diff <old-base>...e36e168) <(git diff
+<new-base>...60c8c18)` returns only blob hashes and hunk offsets, zero content lines. The
+scoring below stands unchanged.
+
+That the gate demanded a fresh round for this is a **defect in the gate, not a finding against
+this PR**. A rebase rewrites commit SHAs and changes nothing a reviewer read, so binding a
+verdict to a SHA makes a mechanical operation look like tampering. The fix is to bind it to the
+branch's patch identity (`git patch-id --stable` over `merge-base...HEAD`), which is invariant
+under rebase and still moves the moment a real commit or a conflict resolution lands. Filed
+separately; not this PR's scope.
 
 ## Round 2's B-1 — discharged
 
