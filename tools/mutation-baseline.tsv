@@ -69,11 +69,7 @@ plugins/dev-pipeline/skills/run/tools/check-bounded-exploration.sh::logic::1	see
 plugins/dev-pipeline/skills/run/tools/check-config-shadowing.sh::fail-open::1	seeded by the canonical seed run
 plugins/dev-pipeline/skills/run/tools/check-config-shadowing.sh::logic::1	seeded by the canonical seed run
 plugins/dev-pipeline/skills/run/tools/check-extensions.sh::logic::2	seeded by the canonical seed run
-plugins/dev-pipeline/skills/run/tools/claim-issue.sh::cmp-z::2	seeded by the canonical seed run
-plugins/dev-pipeline/skills/run/tools/claim-issue.sh::default::1	seeded by the canonical seed run
-plugins/dev-pipeline/skills/run/tools/claim-issue.sh::default::2	seeded by the canonical seed run
-plugins/dev-pipeline/skills/run/tools/claim-issue.sh::logic::1	seeded by the canonical seed run
-plugins/dev-pipeline/skills/run/tools/claim-issue.sh::logic::2	seeded by the canonical seed run
+plugins/dev-pipeline/skills/run/tools/claim-issue.sh::logic::1	re-keyed after the private wrapper ladder became a gh-bot.sh delegation; the four sibling rows that ordinal shift orphaned are dropped
 plugins/dev-pipeline/skills/run/tools/claims-lint.sh::default::2	seeded by the canonical seed run
 plugins/dev-pipeline/skills/run/tools/claims-lint.sh::detector::2	seeded by the canonical seed run
 plugins/dev-pipeline/skills/run/tools/claims-lint.sh::logic::2	seeded by the canonical seed run
