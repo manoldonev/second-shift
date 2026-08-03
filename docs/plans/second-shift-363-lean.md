@@ -56,8 +56,10 @@ either re-opens a column above.
   remedy exists and is cheap — re-run the review round on a refreshed plugin — which is why
   this is a hard fail rather than the transitional note `check-lean-chain.sh` carries for
   pre-session-id claim comments (that one has *no* available remedy, because the claim comment
-  must fall inside the immutable PR-open window). The one open lean PR at the time of writing
-  (#365) carries no verdict record yet, so nothing in flight is stranded.
+  must fall inside the immutable PR-open window). Nothing in flight is stranded: this is the
+  only open lean PR. Key-less records already merged — #365's among them, committed during its
+  own review while this branch was being built — are historical. The chain gate resolves the
+  record by the PR's own issue key, and a merged PR is never re-gated.
 - **D-6 — out of scope, as the issue directs:** the author/reviewer double-role hole (one
   session authoring a verdict and then implementing its fixes) is a distinct contract and
   wants its own issue.

@@ -1116,13 +1116,19 @@ LEANCFGJ
 
   rm -f "$LEAN_PROG_J" "$LEAN_TREE/.claude/pipeline-state/$LEAN_JKEY-run-id"
   printf '# spec\n\n- AC-1: a thing\n' > "$LEAN_TREE/docs/plans/acme-$LEAN_JKEY-lean.md"
+  # The spec commits FIRST and on its own. `lean_commit` stages everything, so one combined
+  # commit would put a code change inside the verdict's commit — a shape review-lean step 6
+  # forbids, and one both freshness arms refuse.
+  lean_commit "jira leg: build session pushes the spec"
   # P10 applies to the jira arm unchanged — the adapter moves the tracker WRITE, never the
   # authorship separation. So the record is REVIEW-authored (a session id distinct from the
   # build one `claim` stamps into the progress file below) and COMMITTED, or milestone 4
-  # refuses it on authorship/freshness before the adapter is ever reached.
-  printf 'verdict=approve\nrun_id: r-lean-jreview\nsession_id: sess-lean-jira-review\nrounds: 1\n' \
+  # refuses it on authorship/freshness before the adapter is ever reached. `reviewed_head` is
+  # the head as of the review, resolved before the record's own commit.
+  printf 'verdict=approve\nrun_id: r-lean-jreview\nsession_id: sess-lean-jira-review\nrounds: 1\nreviewed_head: %s\n' \
+    "$(git -C "$LEAN_TREE" rev-parse HEAD)" \
     > "$LEAN_TREE/docs/plans/acme-$LEAN_JKEY-lean-verdict.md"
-  lean_commit "jira leg: spec + review verdict"
+  lean_commit "jira leg: review verdict"
   cat > "$TMP/lean-pr-jira.json" <<LEANPRJ
 [{ "number": 6, "url": "https://example.invalid/pr/6", "isDraft": false,
    "body": "Summary.\n\nSpec: docs/plans/acme-$LEAN_JKEY-lean.md\nVerdict: docs/plans/acme-$LEAN_JKEY-lean-verdict.md\n\n### Jira Items\n\nCloses [$LEAN_JKEY]\n" }]
