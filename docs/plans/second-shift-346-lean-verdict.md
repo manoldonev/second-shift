@@ -8,28 +8,57 @@ pr: #368
 
 ## Verdict: needs-work (round 1)
 
-The work itself is strong and all seven ACs are satisfied on the diff as it stands. The
-blocker is not an AC miss: **this head cannot be the merged head**, so a verdict naming it
-would be void on arrival.
+The work itself is strong and **all seven ACs are satisfied**. The blocker is not an AC miss:
+five new refusals ship with no oracle, one of them on a merge-boundary correctness predicate.
+
+> **Correction, same round.** An earlier draft of this record led with the merge conflict and
+> claimed the rebase would void any approve. That is wrong, and the correction is recorded
+> rather than quietly swapped. Both freshness checks — `lean-gate.sh:593` and
+> `check-lean-chain.sh:373` — diff the record's *commit* against the head and tolerate the
+> record's own path. A rebase rewrites that commit too and the record stays the tip, so the
+> diff is empty and both pass. An unrelated base merge has no effect at all; this conflicting
+> one has no *mechanical* effect on the verdict either. See O-1 for what actually follows.
 
 ## Blocker
 
-**B-1 — the PR does not merge, and the rebase is a judgment call, not a conflict-marker
-cleanup.** `git merge-tree --write-tree origin/main HEAD` conflicts in
-`plugins/dev-pipeline/skills/run-lean/SKILL.md`. `312a0b4` (#365, jira tracker adapter)
-landed on main after this branch was cut and rewrote the *same* paragraphs this branch
-compressed — the opening block, checklist item 8, and the "Anything pushed after an approve"
-rule. Both sides are additive against a file already at exactly 60/60, which
-`lean-gate-selftest.sh` case (f) asserts:
+**B-1 — five new `violate()` branches have no oracle.** Confirmed by grep against the
+selftests, all counts zero; and by AC-5's own evidence they are out of the mutation sweep's
+reach too, since every edit landed below each operator's first two sites and `K=2` never
+arrives. A green sweep is not coverage of them — the PR body says exactly this, then leaves it
+standing.
 
-- main (post-#365): 60 lines, including a new tracker-delta block
-- this branch: 60 lines, including the new 3-line P9 bullet
+| # | Site | Untested refusal | Surviving mutant |
+| --- | --- | --- | --- |
+| C-1 | `scripts/check-lean-chain.sh:401` | `*-$KEY$LEAN_INTENT_GAP_SUFFIX` issue-scoping | drop `-$KEY` → any issue's record satisfies this PR. Every fixture is `acme-42`, so the whole suite passes. This is the predicate binding a ratification to the issue being merged — **the one that makes this `needs-work`.** |
+| C-2 | `ledger-lint.sh:190` | `open` kind requires provenance `deferred` | delete the check — every `open` row in the suite is already `deferred`, so it is never driven to violate |
+| C-3 | `ledger-lint.sh:202` | Kind-enum default arm | delete it — no fixture carries an out-of-enum Kind |
+| C-4 | `ledger-lint.sh:239,247,260` | Check B: malformed OR-row arity, empty Region cell, duplicate `OR-n` | delete any one — no malformed, blank, or duplicated open-region row exists in any fixture |
+| C-5 | `ledger-lint.sh:27` | `-h\|--help` | header growth silently shifts `sed -n '2,51p'` out from under it. Both ranges are correct today (verified: header ends at 51, `set -euo pipefail` at 52; the chain gate's `2,80` likewise) — untested, and this repo has already been burned by exactly this |
+
+C-2 through C-5 are cheap and mechanical. C-1 is the one I would not ship without.
+
+## O-1 — the rebase, and a gate blind spot it exposes
+
+`git merge-tree --write-tree origin/main HEAD` conflicts in
+`plugins/dev-pipeline/skills/run-lean/SKILL.md`. `312a0b4` (#365) landed on main after this
+branch was cut and rewrote the *same* paragraphs this branch compressed — the opening block,
+checklist item 8, and the "Anything pushed after an approve" rule. Both sides are additive
+against a file already at exactly 60/60, asserted by `lean-gate-selftest.sh` case (f):
+
+- main (post-#365): 60 lines, incl. a new tracker-delta block
+- this branch: 60 lines, incl. the new 3-line P9 bullet
 - union: ~63 lines, from prose already compressed twice
 
-So the rebase has to find three more lines. It cannot be resolved by taking either side.
+So the resolution is fresh authoring — find three more lines — not a pick-a-side.
 
-Since milestone 4 binds a verdict to the tree it covered, the rebase reopens it regardless —
-which is why this is `needs-work` rather than an approve with a rebase note attached.
+**And no gate will read it.** Evidence 5 catches commits landing *after* the record; it cannot
+see history rewritten *beneath* it. A rebase carries the record along as the tip, so a verdict
+written today certifies a tree containing tomorrow's conflict resolution, with the chain gate
+fully green. That is worth an issue in its own right — the freshness check is blind to rebases
+by construction, and this PR happens to be the case that makes it visible.
+
+Consequence for this PR: the SKILL.md resolution needs a human read, and nothing enforces that.
+Flagged here because a note is the only mechanism available.
 
 **Where the three lines should come from.** The cap is an anti-process-accretion forcing
 function, not a token budget, so the triage question is *does a script already refuse this?*
@@ -43,23 +72,6 @@ Applied to the new bullet:
 
 The third clause is the one to spend. Routing it into gate stderr rather than SKILL.md lines
 is the release valve; the first two genuinely cannot be gated and should survive the pass.
-
-## Coverage cluster (land in the same push — the branch is moving anyway)
-
-Five new refusals have no oracle. Confirmed by grep against the selftests, all counts zero —
-and by AC-5's own evidence these are also out of the mutation sweep's reach, since every edit
-landed below each operator's first two sites and `K=2` never arrives. A green sweep is not
-coverage of them, which the PR body says plainly and then leaves standing.
-
-| # | Site | Untested refusal | Surviving mutant |
-| --- | --- | --- | --- |
-| C-1 | `scripts/check-lean-chain.sh:401` | `*-$KEY$LEAN_INTENT_GAP_SUFFIX` issue-scoping | drop `-$KEY` → any issue's record satisfies this PR. Every fixture is `acme-42`, so the whole suite passes. Strongest of the five: it is the predicate binding a ratification to the issue being merged. |
-| C-2 | `ledger-lint.sh:190` | `open` kind requires provenance `deferred` | delete the check — every `open` row in the suite is already `deferred`, so it is never driven to violate |
-| C-3 | `ledger-lint.sh:202` | Kind-enum default arm | delete it — no fixture carries an out-of-enum Kind |
-| C-4 | `ledger-lint.sh:239,247,260` | Check B: malformed OR-row arity, empty Region cell, duplicate `OR-n` | delete any one — no malformed, blank, or duplicated open-region row exists in any fixture |
-| C-5 | `ledger-lint.sh:27` | `-h\|--help` | header growth silently shifts `sed -n '2,51p'` out from under it. Both ranges are correct today (verified: header ends at 51, `set -euo pipefail` at 52; chain gate's `2,80` likewise) — untested, and this repo has already been burned by exactly this |
-
-C-1 is the one I would not ship without; C-2 through C-5 are cheap and mechanical.
 
 ## Per-AC scoring
 
