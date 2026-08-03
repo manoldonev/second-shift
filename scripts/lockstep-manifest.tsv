@@ -272,8 +272,8 @@ artifact-reviewer-baseline-deltas	verbatim	plugins/design-toolkit/agents/figma-f
 # separately asserted on both sides: lean-gate-selftest.sh (e2)/(e3) at the derivation, and
 # check-lean-chain-selftest.sh (L) at the CI constants, which exits 2 rather than guessing.
 
-# lean verdict-record key schema (`verdict=`, `run_id:`, `session_id:`) — ONE writer
-# (lean-gate.sh's `verdict` subcommand) and THREE readers: lean-gate.sh milestone 4,
+# lean verdict-record key schema (`verdict=`, `run_id:`, `session_id:`, `reviewed_head:`) — ONE
+# writer (lean-gate.sh's `verdict` subcommand) and THREE readers: lean-gate.sh milestone 4,
 # scripts/check-lean-chain.sh, and lean-reconcile.sh. A real coupling: dropping a key on the
 # writer silently un-satisfies all three readers, and a reader-side requirement the writer
 # never emits reds every lean PR. Considered for a row and DROPPED — the writer spells the
@@ -283,8 +283,17 @@ artifact-reviewer-baseline-deltas	verbatim	plugins/design-toolkit/agents/figma-f
 # Guarded behaviorally instead, and the guard COMPOSES across the sites rather than pinning
 # bytes: lean-gate-selftest.sh (p5)/(p7) drive the writer and then feed its output to the
 # milestone-4 reader in the same run, so a writer that drops a key fails at the reader;
-# (j3)/(j3b) pin each key's absence as its own refusal, and check-lean-chain-selftest.sh
-# (N2)/(N3) and lean-reconcile-selftest.sh (J3) do the same at the other two readers.
+# (j3)/(j3b)/(u1) pin each key's absence as its own refusal, and check-lean-chain-selftest.sh
+# (N2)/(N3)/(R1) and lean-reconcile-selftest.sh (J3)/(K1) do the same at the other two readers.
+#
+# `reviewed_head:` is the newest key and the only one carrying a git object rather than an
+# opaque token, so its readers do more than extract it: each resolves the named commit and
+# compares trees. That makes the writer/reader coupling TIGHTER than for the other three — a
+# writer that stamped, say, a short sha would still extract cleanly everywhere and then fail
+# every comparison. lean-gate-selftest.sh (u3) drives writer-to-reader end to end for exactly
+# that reason, and scenario-liveness-selftest.sh's (lean-declared) leg composes it against a
+# record whose INFERRED freshness is green, which is the only shape where the declared arm is
+# the sole thing that can red.
 #
 # `verdict=` is read FIRST-MATCH at every reader, never counted across the file: the writer
 # appends the reviewer's prose below the keys and review prose quotes verdict values, so a

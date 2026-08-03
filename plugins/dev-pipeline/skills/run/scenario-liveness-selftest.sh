@@ -914,18 +914,26 @@ LEANCFG
   lean_commit() { git -C "$LEAN_TREE" add -A >/dev/null 2>&1
                   git -C "$LEAN_TREE" commit -q --allow-empty -m "${1:-lean fixture}" >/dev/null 2>&1; }
   lean_commit "lean fixture tree"
+  # `reviewed_head` is resolved BEFORE the commit, which is the shape a real round has: the
+  # reviewer reads the current head, names it, and commits the record on top of it. Resolving it
+  # after would name the record's own commit and leave the declared arm asserting nothing.
   LEAN_ROUND=0
-  lean_write_verdict() { # lean_write_verdict <verdict> <run-id> <session-id>
+  lean_write_verdict() { # lean_write_verdict <verdict> <run-id> <session-id> [reviewed-head]
     LEAN_ROUND=$((LEAN_ROUND + 1))
-    printf 'verdict=%s\nrun_id: %s\nsession_id: %s\nrounds: %s\n' "$1" "$2" "$3" "$LEAN_ROUND" > "$LEAN_VERDICT"
+    printf 'verdict=%s\nrun_id: %s\nsession_id: %s\nrounds: %s\nreviewed_head: %s\n' \
+      "$1" "$2" "$3" "$LEAN_ROUND" "${4:-$(git -C "$LEAN_TREE" rev-parse HEAD)}" > "$LEAN_VERDICT"
     lean_commit "review verdict $1 (round $LEAN_ROUND)"
   }
 
   # ---- leg 1: all-green -> exit artifacts ----------------------------------
   lean_seed_progress r-lean-1 sess-lean-build
   printf '# spec\n\n- AC-1: a thing\n' > "$LEAN_SPEC"
-  # The verdict write commits both, so the record's commit IS the head — the state a real
-  # branch is in the moment the review session has pushed.
+  # The spec is committed on its OWN, before the review reads it. `lean_commit` stages
+  # everything, so folding it into the verdict commit would put a code change inside the record's
+  # commit — a shape review-lean step 6 forbids and both freshness arms refuse. What is left is
+  # the state a real branch is in the moment the review session has pushed: the record's commit
+  # is the head, and the head it names is the commit right below it.
+  lean_commit "build session pushes the spec"
   lean_write_verdict approve r-lean-review-1 sess-lean-review
   cat > "$TMP/lean-pr.json" <<'LEANPR'
 [{ "number": 5, "url": "https://example.invalid/pr/5", "isDraft": false,
@@ -1036,6 +1044,37 @@ LEANC
   [[ "$fresh1" -eq 0 && "$fresh2" -eq 1 && "$fresh3" -eq 0 ]] \
     && pass "(lean-freshness) a verdict covering the head passes, one predating a later commit reds, a new round clears it" \
     || fail "(lean-freshness) expected rc 0/1/0, got $fresh1 then $fresh2 then $fresh3"
+
+  # ---- leg 6: the chain reds on a verdict that DECLARES an earlier head -----
+  # Leg 5 composes the INFERRED freshness arm — git decides which commit carries the record.
+  # This leg composes the DECLARED one, and it is constructed so leg 5's arm is GREEN over it:
+  # the record is committed LAST, so its commit IS the head and nothing but the record differs
+  # from it. Only the head the record NAMES is stale. That is not a contrived shape — it is what
+  # a review round produces whenever a fix lands while the review is still running, and it is
+  # the residual the inferred arm cannot see. Everything else is left as leg 1 had it.
+  lean_seed_progress r-lean-1 sess-lean-build
+  lean_stale_head="$(git -C "$LEAN_TREE" rev-parse HEAD)"
+  printf '# spec\n\n- AC-1: a thing\n- AC-3: landed while the review was running\n' > "$LEAN_SPEC"
+  lean_commit "code lands between the review and the record"
+  lean_write_verdict approve r-lean-review-5 sess-lean-review-5 "$lean_stale_head"
+  lean_gate 4 77 >/dev/null 2>&1; decl1=$?
+  lean_seed_progress r-lean-1 sess-lean-build
+  lean_write_verdict approve r-lean-review-6 sess-lean-review-6
+  lean_gate 4 77 >/dev/null 2>&1; decl2=$?
+  [[ "$decl1" -eq 1 && "$decl2" -eq 0 ]] \
+    && pass "(lean-declared) a record whose own commit IS the head still reds when it names an earlier reviewed_head, and a re-declared round clears it" \
+    || fail "(lean-declared) expected rc 1 then 0, got $decl1 then $decl2"
+
+  # ...and the migration arm: a record with no reviewed_head at all is refused, not grandfathered.
+  lean_seed_progress r-lean-1 sess-lean-build
+  printf 'verdict=approve\nrun_id: r-lean-review-7\nsession_id: sess-lean-review-7\nrounds: 7\n' > "$LEAN_VERDICT"
+  lean_commit "a key-less record, as written before reviewed_head existed"
+  lean_gate 4 77 >/dev/null 2>&1; decl3=$?
+  [[ "$decl3" -eq 1 ]] \
+    && pass "(lean-declared) a verdict record predating the reviewed_head key is refused, not grandfathered" \
+    || fail "(lean-declared) expected rc=1 on a key-less record, got $decl3"
+  lean_seed_progress r-lean-1 sess-lean-build
+  lean_write_verdict approve r-lean-review-8 sess-lean-review-8
 
   # ---- non-vacuity ---------------------------------------------------------
   # An all-green leg that stays green over a broken tree proves nothing.

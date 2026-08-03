@@ -34,7 +34,7 @@ outside this session (`/dev-pipeline:review-lean`). Read this file, then work th
 8. **Milestone 4 arrives from OUTSIDE.** Dispatch no reviewer — the record is written by a
    separate top-level session (`/dev-pipeline:review-lean <pr>`) with its own identity, and this
    gate refuses one carrying yours. Hand off; `bash G 4 <issue>` passes only on a committed
-   `verdict=approve` **covering the current head**. On `needs-work`, fix every blocker, push, and ask for a **new** review context — never a resumed one.
+   `verdict=approve` whose `reviewed_head` **is** the current head. On `needs-work`, fix every blocker, push, and ask for a **new** review context — never a resumed one.
 9. Post one closing comment: PR link, verdict-record reference, same cost block. Then
    `bash G 5 <issue>` — exit artifacts. Drop the claimed label and remove the worktree.
 
@@ -42,7 +42,7 @@ outside this session (`/dev-pipeline:review-lean`). Read this file, then work th
 
 - **You never author the verdict.** Not on a dark reviewer, not to unblock a run, not "to be
   replaced later" — the gate and the merge boundary both refuse it.
-- **Anything pushed after an approve costs another round.** The verdict is bound to the tree it covered, so any later commit reopens milestone 4. Land every fix before the handoff.
+- **Anything pushed after an approve costs another round.** The record names the head it reviewed, so any later commit — rebase and force-push included — reopens milestone 4. Land every fix before the handoff.
 - **3 fix attempts per milestone.** The 4th red (`rc=4`) hard-stops: append the reason, post
   one abort comment (github) naming the milestone, keep the worktree, leave the ticket
   claimed for manual rescue. Do not re-run past a hard stop.

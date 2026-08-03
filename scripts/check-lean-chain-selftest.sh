@@ -111,9 +111,14 @@ printf '# lean spec\n\n- AC-1: does a thing\n- AC-2: does another\n' > "$TREE/do
 # Every writer here COMMITS, because the record's commit is what evidence 5 reads. A helper
 # that only wrote the file would leave the record uncommitted and every case downstream would
 # collect a spurious second violation.
-write_verdict() { # write_verdict [verdict] [run-id] [session-id]
-  printf 'verdict=%s\nrun_id: %s\nsession_id: %s\nrounds: 1\n' \
-    "${1:-approve}" "${2:-r-review-1}" "${3:-sess-review-1}" > "$VREC"
+#
+# `reviewed_head` is resolved BEFORE the commit, which is the real shape: the reviewer reads the
+# current head, names it, and commits the record on top. Resolving it afterwards would name the
+# record's own commit and leave every declared-freshness case asserting nothing.
+write_verdict() { # write_verdict [verdict] [run-id] [session-id] [reviewed-head]
+  printf 'verdict=%s\nrun_id: %s\nsession_id: %s\nrounds: 1\nreviewed_head: %s\n' \
+    "${1:-approve}" "${2:-r-review-1}" "${3:-sess-review-1}" \
+    "${4:-$(git -C "$TREE" rev-parse HEAD)}" > "$VREC"
   commit_tree "verdict ${1:-approve}"
 }
 write_verdict_literal() { # write_verdict_literal <full-record-body>
@@ -377,6 +382,55 @@ out="$( cd "$TREE" && LEAN_BRANCH_PREFIX="lean/acme-" PIPELINE_BRANCH_PREFIX="cl
 if [ "$rc" -eq 2 ] && printf '%s' "$out" | grep -q 'is not a commit in this checkout'; then
   pass "(Q2) a PR_HEAD_SHA naming no object is an environment error, not a silent pass"
 else fail "(Q2) expected rc=2 on an unresolvable PR_HEAD_SHA, got $rc: $out"; fi
+
+# ---- (R) evidence 5, DECLARED: the record must name the head it reviewed ------------------
+# The arm above infers the anchor from git — which commit carries the record. This one reads the
+# anchor the reviewer DECLARED. They differ in exactly one situation, and it is an ordinary one:
+# code lands while the review is running, and the reviewer then commits an honest record on top
+# of a head it never read. Inference sees a record whose commit is the head and says fresh.
+
+# The MIGRATION case. Records written before the key existed land here and are refused, unlike
+# the claim comment's missing session_id in (N7) — that one has no available remedy, this one
+# does (re-run the review round), so grandfathering it would be a waiver rather than a kindness.
+write_verdict_literal 'verdict=approve
+run_id: r-review-1
+session_id: sess-review-1
+rounds: 1
+'
+out="$(run_gate "lean/acme-42" "$WORK/comments-good.json" "$WORK/diff-lean.txt")"; rc=$?
+if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q 'no reviewed_head key'; then
+  pass "(R1) a verdict record carrying no reviewed_head key is refused (the pre-key migration case)"
+else fail "(R1) expected rc=1 on a head-less verdict, got rc=$rc: $out"; fi
+
+# The gap inference cannot see. `stale_head` is captured, a code commit lands, and only THEN is
+# the record written — so the record's own commit IS the PR head and the inferred arm is green.
+# Only the declared arm can red this, which is what makes the case non-vacuous.
+stale_head="$(git -C "$TREE" rev-parse HEAD)"
+printf 'landed while the review was running\n' > "$TREE/docs/plans/interleaved.md"
+commit_tree "code lands between the review and the record"
+write_verdict approve r-review-3 sess-review-3 "$stale_head"
+out="$(run_gate "lean/acme-42" "$WORK/comments-good.json" "$WORK/diff-lean.txt")"; rc=$?
+if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q 'states it reviewed'; then
+  pass "(R2) a record naming an earlier head is refused even though its own commit IS the PR head"
+else fail "(R2) expected rc=1 on a declared-stale verdict, got rc=$rc: $out"; fi
+
+# ...and that same red must not be reachable by the inferred arm alone, or (R2) proves nothing
+# about the new one. Re-committing the record with the CORRECT declared head clears it, with the
+# interleaved commit still in history.
+write_verdict approve r-review-4 sess-review-4
+out="$(run_gate "lean/acme-42" "$WORK/comments-good.json" "$WORK/diff-lean.txt")"; rc=$?
+if [ "$rc" -eq 0 ] && printf '%s' "$out" | grep -q 'freshness (declared)'; then
+  pass "(R3) a record naming the head it was written on top of passes, and the gate names the arm"
+else fail "(R3) expected rc=0 with a declared-freshness line, got rc=$rc: $out"; fi
+
+# The rebase/force-push-after-approval shape: the declared commit is simply gone. A gate that
+# shrugged at an unresolvable anchor would print its ✓ having compared nothing — the same
+# fail-open (Q2) closes one level up.
+write_verdict approve r-review-5 sess-review-5 0000000000000000000000000000000000000000
+out="$(run_gate "lean/acme-42" "$WORK/comments-good.json" "$WORK/diff-lean.txt")"; rc=$?
+if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q 'this checkout holds no commit'; then
+  pass "(R4) a reviewed_head naming no object in this checkout is refused, not compared against nothing"
+else fail "(R4) expected rc=1 on an unresolvable reviewed_head, got rc=$rc: $out"; fi
 
 echo "[check-lean-chain-selftest] $([ "$FAILS" -eq 0 ] && echo 'all green' || echo "$FAILS FAILURE(S)")"
 exit "$FAILS"
