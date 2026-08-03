@@ -894,10 +894,39 @@ LEANCFG
   LEAN_SPEC="$LEAN_TREE/docs/plans/acme-77-lean.md"
   LEAN_VERDICT="$LEAN_TREE/docs/plans/acme-77-lean-verdict.md"
 
+  # The verdict record is REVIEW-authored throughout these legs. run-lean's build session
+  # cannot produce it, so a leg composing a build-authored record would compose a state no
+  # real run can reach — and the chain would prove nothing about the run it claims to model.
+  # The build identities are seeded explicitly rather than left to the gate's stamping, so
+  # the authorship comparison has two known sides in every leg.
+  lean_seed_progress() { # lean_seed_progress <build-run-id> <build-session-id>
+    rm -f "$LEAN_PROG"
+    { echo "# lean run — issue 77"; echo ""; echo "run_id: $1"; echo "session_id: $2"; } > "$LEAN_PROG"
+  }
+  # Milestone 4 binds the record to a tree: it must be COMMITTED and nothing but the record
+  # itself may have changed since. So the legs commit, and each verdict write advances a round
+  # counter — an identical re-write stages nothing, which would leave the record holding an
+  # earlier round's commit while the tree moved on and red the leg on freshness instead of on
+  # what it composes.
+  git -C "$LEAN_TREE" config user.email lean@example.invalid
+  git -C "$LEAN_TREE" config user.name lean-scenario
+  printf '.claude/\n' > "$LEAN_TREE/.gitignore"
+  lean_commit() { git -C "$LEAN_TREE" add -A >/dev/null 2>&1
+                  git -C "$LEAN_TREE" commit -q --allow-empty -m "${1:-lean fixture}" >/dev/null 2>&1; }
+  lean_commit "lean fixture tree"
+  LEAN_ROUND=0
+  lean_write_verdict() { # lean_write_verdict <verdict> <run-id> <session-id>
+    LEAN_ROUND=$((LEAN_ROUND + 1))
+    printf 'verdict=%s\nrun_id: %s\nsession_id: %s\nrounds: %s\n' "$1" "$2" "$3" "$LEAN_ROUND" > "$LEAN_VERDICT"
+    lean_commit "review verdict $1 (round $LEAN_ROUND)"
+  }
+
   # ---- leg 1: all-green -> exit artifacts ----------------------------------
-  rm -f "$LEAN_PROG"
+  lean_seed_progress r-lean-1 sess-lean-build
   printf '# spec\n\n- AC-1: a thing\n' > "$LEAN_SPEC"
-  printf 'verdict=approve\nrun_id: r-lean-1\n' > "$LEAN_VERDICT"
+  # The verdict write commits both, so the record's commit IS the head — the state a real
+  # branch is in the moment the review session has pushed.
+  lean_write_verdict approve r-lean-review-1 sess-lean-review
   cat > "$TMP/lean-pr.json" <<'LEANPR'
 [{ "number": 5, "url": "https://example.invalid/pr/5", "isDraft": false,
    "body": "Closes #77\n\nSpec: docs/plans/acme-77-lean.md" }]
@@ -945,7 +974,7 @@ LEANC
     || fail "(lean-claim) a bare 'stage: claimed' marker would pollute pipeline family selection"
 
   # ---- leg 2: budget exhaustion -> abort record ----------------------------
-  rm -f "$LEAN_PROG"
+  lean_seed_progress r-lean-1 sess-lean-build
   mv "$LEAN_VERDICT" "$TMP/held-lean-verdict.md"
   lean_rcs=""
   for _ in 1 2 3 4; do lean_gate 4 77 >/dev/null 2>&1; lean_rcs="$lean_rcs$?"; done
@@ -960,10 +989,12 @@ LEANC
     || fail "(lean-budget) an exhausted milestone was also recorded satisfied"
 
   # ---- leg 3: needs-work -> fix-loop re-entry ------------------------------
-  rm -f "$LEAN_PROG"
-  printf 'verdict=needs-work\nrun_id: r-lean-1\n' > "$LEAN_VERDICT"
+  # Round 2 arrives from a NEW review context, so it carries a new review identity — that is
+  # what "a new review context produces the next verdict" means in artifact terms.
+  lean_seed_progress r-lean-1 sess-lean-build
+  lean_write_verdict needs-work r-lean-review-1 sess-lean-review
   lean_gate 4 77 >/dev/null 2>&1; nw1=$?
-  printf 'verdict=approve\nrun_id: r-lean-1\n' > "$LEAN_VERDICT"
+  lean_write_verdict approve r-lean-review-2 sess-lean-review-2
   lean_gate 4 77 >/dev/null 2>&1; nw2=$?
   [[ "$nw1" -eq 1 && "$nw2" -eq 0 ]] \
     && pass "(lean-fixloop) a needs-work verdict blocks (rc=1) and re-entry after the fix passes (rc=0)" \
@@ -972,9 +1003,43 @@ LEANC
     && pass "(lean-fixloop) the failed round is still counted after re-entry (counters survive resume)" \
     || fail "(lean-fixloop) the surviving attempt counter was lost across re-entry"
 
+  # ---- leg 4: P10 — the same chain reds on a build-authored verdict ---------
+  # The composed counterpart to lean-gate-selftest's (n) cases. Everything else in leg 1 is
+  # left exactly as it was; ONLY the verdict's authorship changes, so a green here would mean
+  # the milestone-4 link in the chain is not carrying the check at all.
+  lean_seed_progress r-lean-1 sess-lean-build
+  lean_write_verdict approve r-lean-1 sess-lean-review
+  lean_gate 4 77 >/dev/null 2>&1; auth1=$?
+  lean_seed_progress r-lean-1 sess-lean-build
+  lean_write_verdict approve r-lean-review-1 sess-lean-build
+  lean_gate 4 77 >/dev/null 2>&1; auth2=$?
+  [[ "$auth1" -eq 1 && "$auth2" -eq 1 ]] \
+    && pass "(lean-authorship) the chain reds when the verdict carries the build run's id or names its session" \
+    || fail "(lean-authorship) expected rc 1 and 1, got $auth1 then $auth2"
+
+  # ---- leg 5: the chain reds on a STALE verdict, and a new round clears it --
+  # The composed counterpart to lean-gate-selftest's (t) cases, and the one failure this
+  # separation created rather than removed: with review in its own session, "verdict, then
+  # more commits" is the ordinary shape of the needs-work loop, so an approve for an earlier
+  # head reaching a green chain is the default outcome unless something binds the two.
+  # Everything else in leg 1 is left as it was; ONLY a later commit is added.
+  lean_seed_progress r-lean-1 sess-lean-build
+  lean_write_verdict approve r-lean-review-3 sess-lean-review-3
+  lean_gate 4 77 >/dev/null 2>&1; fresh1=$?
+  printf '# spec\n\n- AC-1: a thing\n- AC-2: added after the review\n' > "$LEAN_SPEC"
+  lean_commit "code lands after the verdict"
+  lean_seed_progress r-lean-1 sess-lean-build
+  lean_gate 4 77 >/dev/null 2>&1; fresh2=$?
+  lean_seed_progress r-lean-1 sess-lean-build
+  lean_write_verdict approve r-lean-review-4 sess-lean-review-4
+  lean_gate 4 77 >/dev/null 2>&1; fresh3=$?
+  [[ "$fresh1" -eq 0 && "$fresh2" -eq 1 && "$fresh3" -eq 0 ]] \
+    && pass "(lean-freshness) a verdict covering the head passes, one predating a later commit reds, a new round clears it" \
+    || fail "(lean-freshness) expected rc 0/1/0, got $fresh1 then $fresh2 then $fresh3"
+
   # ---- non-vacuity ---------------------------------------------------------
   # An all-green leg that stays green over a broken tree proves nothing.
-  rm -f "$LEAN_PROG"
+  lean_seed_progress r-lean-1 sess-lean-build
   mv "$LEAN_SPEC" "$TMP/held-lean-spec.md"
   lean_gate 1 77 >/dev/null 2>&1; lean_nv=$?
   [[ "$lean_nv" -ne 0 ]] \

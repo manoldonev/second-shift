@@ -53,9 +53,11 @@ be the first thing it forbids.
 **P1/P2 posture:** stated in block form — receipts and outcome gates. Until the stage-machinery
 deletion lands, the staged path remains in-tree solely as rollback and ablation control (the pin is
 the last stage-carrying release, recorded on the deletion PR when it merges); new work runs the lean
-lane. P10's mechanical enforcement — verdicts authored outside the build session — lands with the
-review-separation work; until then the current lane's dispatch-failure fallback is a named debt, not
-a sanctioned practice.
+lane. P10 is mechanically enforced rather than owed: the lean lane's verdict record is written by a
+separate top-level review session carrying its own identity, and a record carrying the build run's
+identity — or naming the build session as its author — is refused both in-gate and at the merge
+boundary. The in-build reviewer is deleted, and with it the dispatch-failure fallback that let a
+build session write its own verdict; that debt is closed, not tolerated.
 
 **P7 posture:** prospective — it binds decompositions from its statement onward. It lands
 *substitutively*: the existing prose copies of the don't-split-for-splitting rule are replaced by

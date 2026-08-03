@@ -217,11 +217,17 @@ jobs:
       # PR_BASE_REF is additional to the PR_* set above — this gate reads the PR's changed
       # files (for the lean-artifact applicability arm), which needs the base to diff against.
       # Same env-not-interpolation discipline throughout.
+      #
+      # PR_HEAD_SHA is the freshness check's measuring point and must be the HEAD COMMIT, not
+      # `HEAD`: on a pull_request event actions/checkout resolves refs/pull/N/merge, so HEAD is
+      # merge(base, head) and every base-side commit merged since the branch point would read
+      # as "changed after the verdict". fetch-depth: 0 above is what makes the object reachable.
       - name: lean chain reconciliation (lean PRs carry their evidence set)
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_REPO: ${{ github.repository }}
           PR_HEAD_REF: ${{ github.event.pull_request.head.ref }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           PR_BODY: ${{ github.event.pull_request.body }}
           PR_CREATED_AT: ${{ github.event.pull_request.created_at }}
           PR_BASE_REF: ${{ github.base_ref }}

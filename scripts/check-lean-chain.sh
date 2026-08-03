@@ -9,11 +9,25 @@
 # every in-run record is written by the agent being checked. That is fine — as long as the
 # binding evidence contract lives somewhere the agent cannot reach. This is that somewhere:
 # a model-free check at the merge boundary, costing zero run tokens (D-47). It fails an
-# applicable PR unless all three artifacts exist:
+# applicable PR unless all of this evidence exists:
 #   1. a committed lean spec carrying >= 1 numbered AC-n (the definition of done),
 #   2. a committed verdict record reading `verdict=approve` (so a hand-typed local progress
 #      line cannot reach a merge — only a committed, diffable artifact can),
-#   3. a bot-authored `lean-claimed` comment on the linked issue, windowed at PR-open.
+#   3. a bot-authored `lean-claimed` comment on the linked issue, windowed at PR-open,
+#   4. AUTHORSHIP (P10): the verdict record's run identity is NOT the build run's, and the
+#      record names its own review session. The build run's identity AT THIS BOUNDARY is the
+#      one carried in that bot claim comment — the only build-side record CI can see, because
+#      the progress file is gitignored and never reaches a checkout. A verdict carrying the
+#      same id means the session that wrote the code also wrote its own review, which is the
+#      structural bias the separation exists to remove. A missing reconciliation key is
+#      refused for the same reason a missing verdict is: nothing is checkable, and an
+#      uncheckable claim must not read as a satisfied one.
+#   5. FRESHNESS: the verdict covers the head being merged. The record is a static file, so
+#      "an approve record exists" and "this code was approved" are different claims — a
+#      review session commits its record and the branch then moves on, which is the ordinary
+#      shape of the needs-work loop. Nothing but the record itself may have changed between
+#      the commit carrying it and the PR head. Derived from git rather than from a key in the
+#      record: git decides which commit carries the file, its prose cannot.
 #
 # HONEST ALTITUDE: like its sibling, this is tamper-EVIDENCE, not proof. The agent writes
 # artifacts 1 and 2. Forging one is easy; forging all three consistently, across a committed
@@ -44,6 +58,11 @@
 #   PR_HEAD_REF             required  the PR's head branch name
 #   PR_BODY                 required-ish  the PR body (empty is legal; it just fails to resolve)
 #   PR_CREATED_AT           required  ISO-8601; the PR-open observation point
+#   PR_HEAD_SHA             required  the PR head commit the freshness check measures against.
+#                                     NOT `HEAD`: on a pull_request event actions/checkout
+#                                     resolves refs/pull/N/merge, so HEAD is merge(base, head)
+#                                     and every base-side commit since the branch point would
+#                                     read as "changed after the verdict".
 #   PR_BASE_REF             required for the live diff  the PR's base branch
 #   GH_REPO                 required for the live path  "<owner>/<repo>"
 #   GH_TOKEN                required for the live path
@@ -65,7 +84,7 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --comments-file)   COMMENTS_FILE="${2:-}"; shift 2 ;;
     --diff-files-file) DIFF_FILES_FILE="${2:-}"; shift 2 ;;
-    -h|--help) sed -n '2,60p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,76p' "$0"; exit 0 ;;
     *) echo "[lean-chain] unknown argument: $1" >&2; exit 2 ;;
   esac
 done
@@ -102,6 +121,8 @@ is_fixture_path() {
   || envfail "PR_HEAD_REF is unset or empty — nothing to classify."
 [[ -n "${PR_CREATED_AT:-}" ]] \
   || envfail "PR_CREATED_AT is unset or empty — the PR-open observation point is unresolvable."
+[[ -n "${PR_HEAD_SHA:-}" ]] \
+  || envfail "PR_HEAD_SHA is unset or empty — the freshness check has nothing to measure the verdict against, and 'a verdict exists' is not 'this head was approved'. Set it on the pr-gates job."
 
 # The two prefixes must be mutually non-prefix-matching, or the two gates double-classify.
 # lean-gate.sh asserts this at derivation time; assert it again here, because CI's copies are
@@ -217,15 +238,30 @@ while IFS= read -r f; do
   case "$(basename "$f")" in *"-$KEY$LEAN_VERDICT_SUFFIX") VERDICT="${f#"$REPO_ROOT/"}"; break ;; esac
 done < <(find "$REPO_ROOT" -name "*$LEAN_VERDICT_SUFFIX" -type f 2>/dev/null)
 
+VERDICT_RUN_ID=""
+VERDICT_SESSION_ID=""
 if [[ -z "$VERDICT" ]]; then
   note_violation "no committed verdict record (a file named *-$KEY$LEAN_VERDICT_SUFFIX). The independent review's verdict must be a committed, diffable artifact — a local progress-file line is not evidence."
 else
-  approve_count="$(grep -cF 'verdict=approve' "$REPO_ROOT/$VERDICT" 2>/dev/null)" || approve_count=0
-  if [[ "${approve_count:-0}" -lt 1 ]]; then
-    note_violation "verdict record '$VERDICT' does not read 'verdict=approve'."
+  # FIRST-MATCH, never a count over the whole file. `lean-gate.sh verdict --summary-file`
+  # appends the reviewer's own prose below these keys, and review prose discusses verdicts:
+  # the committed record for #237 carries `verdict=approve` on line 3 and again on line 9
+  # inside a sentence about the previous round. A count-anywhere reader passes a record whose
+  # authoritative first line says `needs-work`. Line-anchoring was rejected instead of this
+  # because the earliest records write the key as a bullet or table cell, and an anchor would
+  # reclassify already-merged evidence as unreadable. lean-gate.sh's record_verdict() is the
+  # same read on the same file.
+  verdict_value="$(grep -oE 'verdict=[A-Za-z-]+' "$REPO_ROOT/$VERDICT" 2>/dev/null | head -n1 | sed -E 's/^verdict=//')"
+  if [[ "$verdict_value" != "approve" ]]; then
+    note_violation "verdict record '$VERDICT' reads 'verdict=${verdict_value:-<none>}', not 'verdict=approve'."
   else
     echo "[lean-chain]   ✓ verdict record: $VERDICT (verdict=approve)"
   fi
+  # `session_id:` does not contain the substring `run_id:`, so the two extractions cannot
+  # capture each other; head -n1 keeps the first occurrence of each, matching the shape
+  # lean-gate.sh and lean-reconcile.sh read the same record with.
+  VERDICT_RUN_ID="$(grep -oE 'run_id:[[:space:]]*[A-Za-z0-9._-]+' "$REPO_ROOT/$VERDICT" 2>/dev/null | head -n1 | sed -E 's/run_id:[[:space:]]*//')"
+  VERDICT_SESSION_ID="$(grep -oE 'session_id:[[:space:]]*[A-Za-z0-9._-]+' "$REPO_ROOT/$VERDICT" 2>/dev/null | head -n1 | sed -E 's/session_id:[[:space:]]*//')"
 fi
 
 # ---- (7) evidence 3: a bot-authored lean-claimed comment, windowed at PR-open ------------
@@ -254,13 +290,28 @@ printf '%s' "$COMMENTS" | jq -e 'type == "array"' >/dev/null 2>&1 \
 # Windowing to PR-open makes the gate idempotent: pr-gates re-runs on every synchronize, and a
 # LATER re-claim of the same issue must not retroactively red-line an already-green PR. A PR's
 # created_at is immutable, so the window is stable across re-runs.
-CLAIMED="$(printf '%s' "$COMMENTS" | jq -r --arg author "${LEAN_COMMENT_AUTHOR:-}" --arg at "$PR_CREATED_AT" '
+# shellcheck disable=SC2016  # $author/$at are jq variables, bound with --arg; shell must not expand them.
+CLAIM_FILTER='
   [ .[]
     | select((.user.type // "") == "Bot")
     | select($author == "" or (.user.login // "") == $author)
     | select((.created_at // "") != "" and .created_at <= $at)
     | select((.body // "") | test("<!--[[:space:]]*stage:[[:space:]]*lean-claimed[[:space:]]*-->"))
-  ] | length')"
+  ]'
+
+CLAIMED="$(printf '%s' "$COMMENTS" | jq -r --arg author "${LEAN_COMMENT_AUTHOR:-}" --arg at "$PR_CREATED_AT" \
+  "$CLAIM_FILTER | length")"
+
+# The build run's identity as CI can see it. Same filter as the count above — reading the id
+# off a comment that did not pass the trust/window filter would let an outsider's marker (or a
+# later re-claim) define what "the build run" means for this PR.
+CLAIM_RUN_ID="$(printf '%s' "$COMMENTS" | jq -r --arg author "${LEAN_COMMENT_AUTHOR:-}" --arg at "$PR_CREATED_AT" \
+  "$CLAIM_FILTER | map((.body // \"\") | capture(\"run_id:[[:space:]]*(?<r>[A-Za-z0-9._-]+)\").r? // \"\") | map(select(. != \"\")) | first // \"\"")"
+
+# The build SESSION as CI can see it, when the claim carries one. `session_id:` does not
+# contain the substring `run_id:`, so the capture above cannot have consumed it.
+CLAIM_SESSION_ID="$(printf '%s' "$COMMENTS" | jq -r --arg author "${LEAN_COMMENT_AUTHOR:-}" --arg at "$PR_CREATED_AT" \
+  "$CLAIM_FILTER | map((.body // \"\") | capture(\"session_id:[[:space:]]*(?<r>[A-Za-z0-9._-]+)\").r? // \"\") | map(select(. != \"\" and . != \"unset\")) | first // \"\"")"
 
 if [[ "${CLAIMED:-0}" -lt 1 ]]; then
   any="$(printf '%s' "$COMMENTS" | jq -r '[ .[] | select((.body // "") | test("<!--[[:space:]]*stage:[[:space:]]*lean-claimed[[:space:]]*-->")) ] | length')"
@@ -273,11 +324,62 @@ else
   echo "[lean-chain]   ✓ claim: bot-authored lean-claimed comment on #$KEY within the PR-open window"
 fi
 
-# ---- (8) verdict ------------------------------------------------------------------------
+# ---- (8) evidence 4: the verdict was authored OUTSIDE the build session (P10) ------------
+# Skipped only when there is no verdict record at all — that is already a violation, and
+# reporting "authorship unverifiable" on top of "no verdict" is noise, not information.
+if [[ -n "$VERDICT" ]]; then
+  if [[ -z "$VERDICT_RUN_ID" ]]; then
+    note_violation "verdict record '$VERDICT' carries no run_id reconciliation key, so its authorship cannot be separated from the build run's."
+  elif [[ -z "$VERDICT_SESSION_ID" ]]; then
+    note_violation "verdict record '$VERDICT' carries no session_id reconciliation key — the review session that produced it cannot be located, so nothing outside the record itself attests the review ran."
+  elif [[ -z "$CLAIM_RUN_ID" ]]; then
+    note_violation "the bot-authored lean-claimed comment on #$KEY carries no run_id, so the build run's identity is unknown and the verdict's independence is uncheckable."
+  elif [[ "$VERDICT_RUN_ID" == "$CLAIM_RUN_ID" ]]; then
+    note_violation "verdict record '$VERDICT' carries the BUILD run's identity ('$VERDICT_RUN_ID') — the session that wrote the code also wrote its own review verdict. The verdict must come from a separate review session carrying its own identity."
+  elif [[ -n "$CLAIM_SESSION_ID" && "$VERDICT_SESSION_ID" == "$CLAIM_SESSION_ID" ]]; then
+    # The STRONGER of the two comparisons, and the reason cmd_claim carries a session id at
+    # all: run_id is agent-CHOSEN, so a build session determined to review itself need only
+    # pick a second string, whereas the session id is harness-assigned.
+    note_violation "verdict record '$VERDICT' names the BUILD session ('$VERDICT_SESSION_ID') as its author — a distinct run_id does not make it an independent review (P10)."
+  else
+    echo "[lean-chain]   ✓ authorship: verdict run_id ($VERDICT_RUN_ID) is distinct from the build claim's ($CLAIM_RUN_ID), and the record names its review session"
+    # TRANSITIONAL, and deliberately not a violation. Claim comments posted before the claim
+    # writer carried a session id have none, and there is no remedy available: the comment
+    # must fall inside the immutable PR-open window, so it cannot be re-posted for an open PR.
+    # Refusing here would strand those PRs with no action that clears the gate. The run_id arm
+    # above still applies to them, and lean-reconcile.sh makes the session comparison
+    # out-of-band against the progress file, which is not window-bound.
+    [[ -n "$CLAIM_SESSION_ID" ]] \
+      || echo "[lean-chain]   note: the claim comment carries no session_id (claimed before the writer emitted one) — only the run-id half of the authorship comparison was available."
+  fi
+fi
+
+# ---- (9) evidence 5: the verdict covers the head being merged ----------------------------
+# Skipped when there is no verdict record — already a violation, and "unverifiable freshness"
+# on top of "no verdict" is noise. The tolerance is exactly one path, the record itself,
+# because the review session commits nothing else (review-lean step 6).
+if [[ -n "$VERDICT" ]]; then
+  git -C "$REPO_ROOT" cat-file -e "$PR_HEAD_SHA^{commit}" 2>/dev/null \
+    || envfail "PR_HEAD_SHA '$PR_HEAD_SHA' is not a commit in this checkout — the freshness check cannot run, and a check that cannot run must not report a pass."
+  VERDICT_COMMIT="$(git -C "$REPO_ROOT" log -1 --format=%H -- "$VERDICT" 2>/dev/null)"
+  if [[ -z "$VERDICT_COMMIT" ]]; then
+    note_violation "verdict record '$VERDICT' is present in the tree but carries no commit — it was never committed to the branch, so nothing dates it against the code."
+  else
+    STALE="$(git -C "$REPO_ROOT" diff --name-only "$VERDICT_COMMIT" "$PR_HEAD_SHA" 2>/dev/null | grep -vxF "$VERDICT" || true)"
+    if [[ -n "$STALE" ]]; then
+      n_stale="$(printf '%s\n' "$STALE" | wc -l | tr -d ' ')"
+      note_violation "verdict record '$VERDICT' approves $(git -C "$REPO_ROOT" rev-parse --short "$VERDICT_COMMIT"), but $n_stale file(s) changed between that commit and the PR head (e.g. $(printf '%s' "$STALE" | head -n1)). An approve for an earlier head is not an approve for this one — run another review round."
+    else
+      echo "[lean-chain]   ✓ freshness: nothing but the verdict record itself changed between its commit and the PR head"
+    fi
+  fi
+fi
+
+# ---- (10) verdict -----------------------------------------------------------------------
 if [[ "$violations" -gt 0 ]]; then
   echo "[lean-chain] ✗ $violations evidence artifact(s) missing for lean PR on #$KEY." >&2
   echo "[lean-chain]   The remedy is producing the missing artifact — there is no waiver." >&2
   exit 1
 fi
 
-echo "[lean-chain] lean evidence complete for #$KEY (spec + approve-verdict + claim)."
+echo "[lean-chain] lean evidence complete for #$KEY (spec + approve-verdict covering the head + claim)."

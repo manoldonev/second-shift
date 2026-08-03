@@ -11,21 +11,35 @@
 # also produce. The whole value here is that a human invokes it, out-of-band, against records
 # the run has already finished writing.
 #
-# WHAT IT CLOSES. check-lean-chain.sh (CI) proves the three committed/tracker artifacts EXIST
-# and are internally consistent. It cannot prove the review actually RAN — a sufficiently
-# determined agent could write a verdict record having dispatched nothing. This script closes
-# that path against the one record the agent does not author: the harness-written hook ledger.
-#   1. the reviewer Workflow dispatch APPEARS in the session's audit .jsonl,
-#   2. its timestamp PRECEDES the verdict commit (a record written before the review ran is
-#      not a record of that review),
-#   3. RUN_ID is CONSISTENT across the claim comment, the verdict record, and the progress file.
+# WHAT IT CLOSES. check-lean-chain.sh (CI) proves the committed/tracker artifacts EXIST and
+# are internally consistent. It cannot prove the review actually RAN IN ITS OWN SESSION — a
+# sufficiently determined agent could write a verdict record having dispatched nothing. This
+# script closes that path against the one record the agent does not author: the harness-written
+# hook ledger.
+#   1. the verdict record names a REVIEW SESSION, and that session has a live audit ledger,
+#   2. that session is NOT the build session (P10 — generation must not author evaluation),
+#   3. the review session's first recorded tool call PRECEDES the verdict commit (a record
+#      written before its review ran is not a record of that review),
+#   4. RUN_ID is consistent across the claim comment and the progress file (both build-side),
+#      and the verdict's run identity DIFFERS from them.
+#
+# RE-ANCHORED WITH THE SEPARATION. This check used to require a `lean-review` Workflow dispatch
+# row in the BUILD session's ledger. That row can never exist once review is a separate
+# top-level session — the build host owes a review trace no longer, which is also what makes
+# milestone 4 host-portable: on a foreign harness the committed verdict file was reproducible
+# but the build-side dispatch trace was not, so the old requirement was unsatisfiable honestly.
+# The trace it looks for now is the review session's own ledger.
 #
 # Honest ceiling: the ledger is written by a hook on the same machine, so this is strong
 # tamper-evidence, not cryptographic proof. It raises forgery from "write one file" to
-# "forge a hook ledger with coherent timestamps" — see docs/pipeline-manifesto.md.
+# "forge a second session's hook ledger with coherent timestamps" — see docs/pipeline-manifesto.md.
 #
 # Usage:
 #   lean-reconcile.sh <issue> [--session-id <id>] [--comments-file <path>]
+#     --session-id  the BUILD session, when the progress file records none.
+#                   The REVIEW session is never passed in: it comes from the verdict record,
+#                   because letting the operator name it would let a wrong guess reconcile a
+#                   record against a session that did not produce it.
 #
 # Seams (zero-network selftest):
 #   ${GH:-gh}                the CLI used for the claim-comment read
@@ -49,7 +63,7 @@ while [ $# -gt 0 ]; do
   case "$1" in
     --session-id)    SESSION_ID="${2:-}"; shift 2 ;;
     --comments-file) COMMENTS_FILE="${2:-}"; shift 2 ;;
-    -h|--help)       sed -n '2,40p' "$0"; exit 0 ;;
+    -h|--help)       sed -n '2,51p' "$0"; exit 0 ;;
     -*)              envfail "unknown option: $1" ;;
     *)               [ -z "$ISSUE" ] && ISSUE="$1" || envfail "unexpected argument: $1"; shift ;;
   esac
@@ -94,12 +108,15 @@ say "reconciling #$ISSUE"
 say "  verdict record: $VERDICT_REL"
 say "  progress file:  $PROGRESS_FILE"
 
-extract_run_id() { # first `run_id: <token>` in a file, HTML-comment or bare form
-  grep -oE 'run_id:[[:space:]]*[A-Za-z0-9._-]+' "$1" 2>/dev/null | head -n1 | sed -E 's/run_id:[[:space:]]*//'
+# First `<key>: <token>`, HTML-comment or bare form. `session_id:` does not contain the
+# substring `run_id:`, so the two keys cannot capture each other.
+extract_key() { # extract_key <key> <file>
+  grep -oE "$1:[[:space:]]*[A-Za-z0-9._-]+" "$2" 2>/dev/null | head -n1 | sed -E "s/^$1:[[:space:]]*//"
 }
 
-RUN_VERDICT="$(extract_run_id "$REPO_ROOT/$VERDICT_REL")"
-RUN_PROGRESS="$(extract_run_id "$PROGRESS_FILE")"
+RUN_VERDICT="$(extract_key run_id "$REPO_ROOT/$VERDICT_REL")"
+RUN_PROGRESS="$(extract_key run_id "$PROGRESS_FILE")"
+REVIEW_SESSION="$(extract_key session_id "$REPO_ROOT/$VERDICT_REL")"
 [ -n "$RUN_VERDICT" ]  || bad "verdict record carries no run_id reconciliation key"
 [ -n "$RUN_PROGRESS" ] || bad "progress file carries no run_id reconciliation key"
 
@@ -125,61 +142,74 @@ RUN_CLAIM="$(printf '%s' "$COMMENTS" | jq -r '
         | ((.body // "") | capture("run_id:[[:space:]]*(?<r>[A-Za-z0-9._-]+)").r? // "") ]
   | map(select(. != "")) | first // ""')"
 
+# The claim comment and the progress file are BOTH build-side records; they must agree. The
+# verdict record must NOT agree with them — that is the whole separation. Asserting the two
+# properties in one comparison (the pre-#345 "all three are one run") is what made the old
+# check enforce the opposite of what P10 requires.
 if [ -z "$RUN_CLAIM" ]; then
   bad "no bot-authored 'lean-claimed' comment with a run_id on #$ISSUE"
-elif [ "$RUN_CLAIM" = "$RUN_VERDICT" ] && [ "$RUN_CLAIM" = "$RUN_PROGRESS" ]; then
-  ok "run_id consistent across claim comment, verdict record and progress file ($RUN_CLAIM)"
+elif [ "$RUN_CLAIM" = "$RUN_PROGRESS" ]; then
+  ok "build run_id consistent across the claim comment and the progress file ($RUN_CLAIM)"
 else
-  bad "run_id mismatch — claim='$RUN_CLAIM' verdict='$RUN_VERDICT' progress='$RUN_PROGRESS'. These must be one run."
+  bad "build run_id mismatch — claim='$RUN_CLAIM' progress='$RUN_PROGRESS'. These must be one run."
 fi
 
-# ---- (2) the reviewer dispatch appears in the session's audit ledger -----------------------
-# Resolve the session from --session-id, else the progress file's recorded session_id. NOT
-# "the newest ledger by mtime": that fallback would silently reconcile against a DIFFERENT
-# session, which is precisely the fabrication path this check exists to close.
-[ -n "$SESSION_ID" ] || SESSION_ID="$(grep -oE '^session_id:[[:space:]]*[A-Za-z0-9._-]+' "$PROGRESS_FILE" 2>/dev/null | head -n1 | sed -E 's/^session_id:[[:space:]]*//')"
+if [ -n "$RUN_VERDICT" ] && [ -n "$RUN_PROGRESS" ] && [ "$RUN_VERDICT" = "$RUN_PROGRESS" ]; then
+  bad "the verdict record carries the BUILD run's identity ('$RUN_VERDICT') — generation authored its own evaluation (P10). The verdict must come from a separate review session."
+elif [ -n "$RUN_VERDICT" ]; then
+  ok "verdict run_id ($RUN_VERDICT) is distinct from the build run's ($RUN_PROGRESS)"
+fi
+
+# ---- (2) the REVIEW session exists, is separate, and left a harness trace ------------------
+# The build session is resolved from --session-id, else the progress file's recorded
+# session_id. NOT "the newest ledger by mtime": that fallback would silently reconcile against
+# a DIFFERENT session, which is precisely the fabrication path this check exists to close.
+[ -n "$SESSION_ID" ] || SESSION_ID="$(extract_key session_id "$PROGRESS_FILE")"
 if [ -z "$SESSION_ID" ] || [ "$SESSION_ID" = "unset" ]; then
-  bad "no session id (progress file records none and --session-id was not given) — the audit ledger cannot be located, so the dispatch is unverifiable"
-  LEDGER=""
+  bad "no build session id (progress file records none and --session-id was not given) — there is nothing to separate the review's authorship from"
+  SESSION_ID=""
+fi
+
+# The review session's ledger is the trace. It is located by the id the VERDICT RECORD names,
+# never by one supplied on the command line — see the usage note above.
+LEDGER=""
+if [ -z "$REVIEW_SESSION" ] || [ "$REVIEW_SESSION" = "unset" ]; then
+  bad "verdict record carries no session_id — the review session that produced it cannot be located, so nothing outside the record itself attests the review ran"
+elif [ -n "$SESSION_ID" ] && [ "$REVIEW_SESSION" = "$SESSION_ID" ]; then
+  bad "the verdict record names the BUILD session ('$REVIEW_SESSION') as its author — a review dispatched and written inside the session under review is not an independent review (P10)"
 else
-  LEDGER="$AUDIT_DIR/$SESSION_ID.jsonl"
+  LEDGER="$AUDIT_DIR/$REVIEW_SESSION.jsonl"
   if [ ! -s "$LEDGER" ]; then
-    bad "audit ledger '$LEDGER' is missing or empty — no harness record of this session's tool calls"
+    bad "no review-session audit ledger at '$LEDGER' — the verdict record names a session the harness has no record of"
     LEDGER=""
-  fi
-fi
-
-DISPATCH_TS=""
-if [ -n "$LEDGER" ]; then
-  # The reviewer runs as a Workflow dispatch; the ledger records the tool call. Match on the
-  # lean-review workflow name OR a Workflow/Task tool row naming it.
-  n="$(count_in -E 'lean-review' "$LEDGER")"
-  if [ "$n" -ge 1 ]; then
-    ok "reviewer dispatch present in the audit ledger ($n row(s) naming lean-review)"
-    DISPATCH_TS="$(grep -E 'lean-review' "$LEDGER" 2>/dev/null | head -n1 \
-      | jq -r '.ts // empty' 2>/dev/null || true)"
   else
-    bad "no lean-review dispatch in the audit ledger '$LEDGER' — the verdict record claims a review that left no harness trace"
+    ok "review session $REVIEW_SESSION is distinct from the build session and has a live ledger ($(count_in '' "$LEDGER") rows)"
   fi
 fi
 
-# ---- (3) the dispatch precedes the verdict commit ------------------------------------------
-# A verdict record committed BEFORE the review dispatched cannot be a record of that review.
-if [ -n "$DISPATCH_TS" ]; then
+# ---- (3) the review session's work precedes the verdict commit -----------------------------
+# A verdict record committed BEFORE its review session did anything cannot be a record of that
+# review. The FIRST ledger row is the anchor: it is the earliest moment the review context
+# demonstrably existed.
+REVIEW_TS=""
+if [ -n "$LEDGER" ]; then
+  REVIEW_TS="$(head -n1 "$LEDGER" 2>/dev/null | jq -r '.ts // empty' 2>/dev/null || true)"
+fi
+if [ -n "$REVIEW_TS" ]; then
   COMMIT_TS="$(git -C "$REPO_ROOT" log -1 --format=%cI -- "$VERDICT_REL" 2>/dev/null)"
   if [ -z "$COMMIT_TS" ]; then
     say "  note: verdict record is not committed yet — timestamp ordering not checkable."
-  elif [ "$DISPATCH_TS" \< "$COMMIT_TS" ] || [ "$DISPATCH_TS" = "$COMMIT_TS" ]; then
-    ok "reviewer dispatch ($DISPATCH_TS) precedes the verdict commit ($COMMIT_TS)"
+  elif [ "$REVIEW_TS" \< "$COMMIT_TS" ] || [ "$REVIEW_TS" = "$COMMIT_TS" ]; then
+    ok "the review session opened ($REVIEW_TS) before the verdict commit ($COMMIT_TS)"
   else
-    bad "timestamp inversion — the reviewer dispatched at $DISPATCH_TS but the verdict record was committed at $COMMIT_TS. A verdict written before its review is not evidence of that review."
+    bad "timestamp inversion — the review session's first recorded tool call is $REVIEW_TS but the verdict record was committed at $COMMIT_TS. A verdict written before its review is not evidence of that review."
   fi
 elif [ -n "$LEDGER" ]; then
-  say "  note: dispatch row carries no timestamp — ordering not checkable."
+  say "  note: the review ledger's first row carries no timestamp — ordering not checkable."
 fi
 
 if [ "$failures" -gt 0 ]; then
   echo "[lean-reconcile] ✗ $failures reconciliation failure(s) for #$ISSUE — do NOT merge until resolved." >&2
   exit 1
 fi
-say "reconciled: #$ISSUE — the committed verdict is backed by a harness-recorded review."
+say "reconciled: #$ISSUE — the committed verdict is backed by a harness-recorded review session, separate from the build's."

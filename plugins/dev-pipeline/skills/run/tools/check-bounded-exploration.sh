@@ -75,14 +75,34 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 RUN_DIR="$(dirname "$SCRIPT_DIR")"  # skills/run
 SKILLS_DIR="$(dirname "$RUN_DIR")"  # skills/
 
-# The scanned set is a LIST, not one hardcoded path. Workflow scripts now live under more
-# than one skill (run-lean ships its own), and a lint anchored to a single directory
-# silently skips every file outside it. That is a real hole, not a theoretical one:
-# lean-review.mjs's structured-emitter fallback IS a schema-carrying dispatch and would
-# otherwise never be checked. Adding a third workflow directory later means one new entry
-# here — and the matching one in design-sync-selftest.mjs Case I, which is anchored the
-# same way and carries the same note.
-WORKFLOW_DIRS=("$RUN_DIR/workflows" "$SKILLS_DIR/run-lean/workflows")
+# The scanned set is a LIST, not one hardcoded path, even though exactly one entry is in it
+# today. A lint anchored to a single directory silently skips every file outside it, and that
+# was a real hole rather than a theoretical one while run-lean shipped its own workflow: its
+# structured-emitter fallback IS a schema-carrying dispatch. run-lean's reviewer moved to a
+# separate top-level review session and its workflows/ directory went with it (an empty-but-
+# present directory would have made the meta-purity lint silently vacuous), so skills/run is
+# the whole set again. Adding a second workflow directory means one new entry here — and the
+# matching one in design-sync-selftest.mjs Case I, which is anchored the same way. Both
+# suites DISCOVER the real set and fail if a directory is missing from the list, so neither
+# edit can be silently forgotten.
+WORKFLOW_DIRS=("$RUN_DIR/workflows")
+
+# SELF-CHECK on the hand-maintained list. Discover every workflows/ directory under skills/
+# and refuse to run against a stale list, rather than reporting a confident green over files
+# never opened. Only on the default path — the explicit override scans one directory on
+# purpose.
+if [[ $# -eq 0 ]]; then
+  while IFS= read -r _d; do
+    [[ -n "$_d" ]] || continue
+    _listed=0
+    for _w in "${WORKFLOW_DIRS[@]}"; do [[ "$_w" == "$_d" ]] && _listed=1; done
+    if [[ "$_listed" -eq 0 ]]; then
+      echo "check-bounded-exploration: FAIL — workflow directory '$_d' exists but is absent from WORKFLOW_DIRS, so its dispatch sites are never scanned. Add it to the list." >&2
+      exit 1
+    fi
+  done < <(find "$SKILLS_DIR" -type d -name workflows 2>/dev/null | sort)
+fi
+
 [[ $# -gt 0 ]] && WORKFLOW_DIRS=("$1")   # explicit override (the selftest drives this)
 
 # The PRIMARY directory must exist — its absence means the layout assumption is wrong and

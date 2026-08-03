@@ -284,6 +284,20 @@ intake → build → review → merge boundary, gated by five artifact milestone
 /dev-pipeline:run-lean <ticket>
 ```
 
+**It takes two sessions, and that is the design.** The build session stops at milestone 4 and
+hands off: the verdict is authored by a separate top-level session, because a session grading
+its own work is not an independent review. Run the second half against the PR the build opened —
+
+```text
+/dev-pipeline:review-lean <pr>
+```
+
+— which produces findings on the PR and commits the verdict record that milestone 4 and the
+merge boundary both read. Until it runs, the PR's `lean chain` check is red on purpose, and the
+build session cannot shortcut it: `lean-gate.sh verdict` refuses to run inside the build
+session at all. A verdict also has to cover the head it is read against, so pushing more
+commits after an approve costs another review round.
+
 Autonomous mode is safe to trust on day one because it never guesses: `run-lean`'s entry
 gate rejects a missing audit ledger or queue label before any work begins, and every
 milestone gate **fail-fasts with a written reason** instead of asking — `.claude/pipeline-state/<issue>-lean-progress.md` tells you exactly why. (The rollback lane,

@@ -139,20 +139,48 @@ async function main() {
   // offline guard: heuristic literal-purity check (strip string literals, then forbid the
   // non-literal construct tokens) over every sibling workflow script that carries a meta.
   {
-    const { readdirSync, existsSync } = await import('node:fs')
-    // The scanned set is a LIST of workflow directories, not just this one. Workflow scripts
-    // now live under more than one skill (run-lean ships its own), and this check's coverage
-    // is load-bearing beyond itself: runtime-shim-lib.mjs's meta-strip is a balanced-brace
-    // scan whose soundness rests on meta blocks being pure literals, so a workflow outside
-    // the scanned set is both unlinted AND unsafe to drive through the shim.
-    // Adding a third directory later means one entry here — and the matching one in
-    // tools/check-bounded-exploration.sh, which is anchored the same way.
-    const WORKFLOW_DIRS = [HERE, join(HERE, '..', '..', 'run-lean', 'workflows')].filter((d) => existsSync(d))
+    const { readdirSync, existsSync, statSync } = await import('node:fs')
+    // The scanned set is a LIST of workflow directories, and this check's coverage is
+    // load-bearing beyond itself: runtime-shim-lib.mjs's meta-strip is a balanced-brace scan
+    // whose soundness rests on meta blocks being pure literals, so a workflow outside the
+    // scanned set is both unlinted AND unsafe to drive through the shim.
+    //
+    // Exactly one directory is in the list today. run-lean used to ship a second (its
+    // in-build reviewer workflow); that reviewer became a separate top-level review session
+    // and the directory was REMOVED rather than left empty — an empty-but-present directory
+    // contributes zero meta files and would make this case silently narrower than it reads.
+    // Adding a directory back means one entry here plus the matching one in
+    // tools/check-bounded-exploration.sh, and neither can be silently forgotten: the
+    // discovery assertion below walks skills/ and fails on any workflows/ dir not in the list.
+    const SKILLS_DIR = join(HERE, '..', '..')
+    const WORKFLOW_DIRS = [HERE].filter((d) => existsSync(d))
+    const discovered = readdirSync(SKILLS_DIR)
+      .map((s) => join(SKILLS_DIR, s, 'workflows'))
+      .filter((d) => existsSync(d) && statSync(d).isDirectory())
+    // Extracted rather than inlined so its FAIL branch can be driven with a synthetic tree. A
+    // discovery check that only ever sees the real, currently-clean layout asserts nothing
+    // about what it does when a directory IS missing from the list — it reports the same green
+    // a lint with no self-check at all would. The shell counterpart plants a real directory in
+    // a $TMP mirror (check-bounded-exploration-selftest.sh C1b); here the discovered set is an
+    // argument, so the planting is a literal.
+    const unlistedDirs = (found, listed) => found.filter((d) => !listed.includes(d))
+    const unlisted = unlistedDirs(discovered, WORKFLOW_DIRS)
+    unlisted.length === 0
+      ? pass(`I-discovery every workflows/ dir under skills/ is in the scanned set (${discovered.length})`)
+      : fail(
+          `I-discovery ${unlisted.join(', ')} exist(s) but is not linted for meta purity — add it to WORKFLOW_DIRS here and in tools/check-bounded-exploration.sh`,
+        )
+    const planted = join(SKILLS_DIR, 'planted-skill', 'workflows')
+    eq(
+      'I-discovery-nv a workflows/ dir outside the scanned set is reported, not silently skipped',
+      unlistedDirs([...discovered, planted], WORKFLOW_DIRS),
+      [planted],
+    )
     const metaFiles = WORKFLOW_DIRS.flatMap((dir) =>
       readdirSync(dir)
         .filter((f) => f.endsWith('.mjs'))
         .sort()
-        .map((f) => [dir === HERE ? f : `run-lean/workflows/${f}`, readFileSync(join(dir, f), 'utf8')]),
+        .map((f) => [dir === HERE ? f : `${dir}/${f}`, readFileSync(join(dir, f), 'utf8')]),
     )
       // Line-start anchor: `export const meta` may legitimately appear INSIDE a string
       // elsewhere (e.g. this file's own Case-G token list) — only a top-level declaration counts.

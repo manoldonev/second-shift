@@ -103,11 +103,14 @@ Notes from building it:
   backwards makes cases fail for the wrong reason.
 - The meta-strip is a balanced-brace scan, not a parser. That is safe only because
   `design-sync-selftest.mjs` Case I lints every workflow for meta-literal purity — and "every"
-  is a **list** of workflow directories, not one. Workflow scripts live under more than one
-  skill (`skills/run/workflows/` and `skills/run-lean/workflows/`), so adding a third directory
-  means adding it to Case I's list: a workflow outside that list is unlinted, which makes the
-  meta-strip unsound for exactly the files it is used on. `tools/check-bounded-exploration.sh`
-  is anchored the same way and takes the same edit.
+  is a **list** of workflow directories. One directory is in it today (`skills/run/workflows/`);
+  `skills/run-lean/workflows/` was removed with run-lean's in-build reviewer rather than left
+  empty, because an empty directory contributes no meta files and would make the case read
+  broader than it is. Adding a directory means adding it to Case I's list **and** to
+  `tools/check-bounded-exploration.sh`, which is anchored the same way — a workflow outside
+  the list is unlinted, which makes the meta-strip unsound for exactly the files it is used
+  on. Neither edit can be silently skipped: both sites discover every `workflows/` directory
+  under `skills/` and fail on one that is missing from the list.
 - `workflow` is **last** in the parameter list, and adding a global must stay an append —
   inserting one shifts every existing positional call site, and cases then fail for reasons that
   look like production bugs. `plan-review.mjs` and `mutation-gate.mjs` need it for their nested
