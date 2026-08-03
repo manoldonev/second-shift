@@ -23,28 +23,39 @@ The data to argue with already exists and has had no systematic consumer. Per-st
 
 The corpus lives in the **main checkout**, resolved the way the state helper resolves it — anchored via `--git-common-dir`. A glob relative to the session's working directory is empty inside a pipeline worktree, which reads as "no runs recorded" rather than as the wrong directory.
 
-```bash
-MAIN_ROOT="$(dirname "$(cd "$(git rev-parse --git-common-dir)" && pwd)")"
-CFG="$MAIN_ROOT/.claude/second-shift.config.json"
-STATE_DIR="$MAIN_ROOT/$(jq -r '.paths.pipelineStateDir // ".claude/pipeline-state"' "$CFG" 2>/dev/null || echo .claude/pipeline-state)"
+**Era-aware (#347).** The corpus is not one schema. Full-pipeline runs are stage-schema
+(`{issue}.json`, a top-level `stages` key); lean/block runs are artifact-schema
+(`{issue}-lean-progress.md` plus a committed verdict record) — a lean run has no `stages`
+object at all, so it never enters the corpus through the old `*.json`-only enumeration.
+`retro-corpus.sh corpus` enumerates BOTH eras side by side, labeled, and does not error when
+one era has zero rows (a corpus that is entirely lean runs is a normal input, not a failure):
 
-# Run-state files ONLY: a top-level `stages` key, minus both quarantine families.
-# The key gate alone is not enough. `*-stale-*` and `*-released-*` are prior-run
-# snapshots the state helper quarantines rather than deletes (run artifacts are retro
-# evidence); a released file is a complete state file with `stages` intact, so it would
-# otherwise aggregate as if it were a live run and double-count its ticket.
-for f in "$STATE_DIR"/*.json; do
-  case "$f" in *-stale-*|*-released-*) continue ;; esac
-  [ "$(jq -r 'has("stages")' "$f" 2>/dev/null)" = true ] || continue
-  printf '%s\t%s\n' "$(jq -r '.startedAt // ""' "$f")" "$(basename "$f" .json)"
-done | sort -r | head -15   # 15 = the default window; --last N replaces it
+```bash
+bash "${CLAUDE_PLUGIN_ROOT}/skills/run/tools/retro-corpus.sh" corpus --window 15 --json
+# --last N (below) replaces --window 15; a bare integer ticket key bypasses corpus gathering.
 ```
 
-The gate also drops the co-resident `-eval` / `-verify` artifacts for free — neither carries a `stages` key. The second column is the **ticket key**, which is what the timing tool takes; it reads one run per invocation, so the enumeration produces the key list and the loop below does the join.
+Each row carries `era: "stage" | "artifact"`, `ticketKey`, `startedAt`, and `model` (the
+run's model identity — see the note at the end of this step). The second column that mattered
+before (the ticket key) is still what the per-run timing tool takes.
+
+**Only `era: "stage"` rows feed Steps 2–4's per-stage timing profile** — `stage-times.sh` and
+`stage-envelopes.sh` compute against a `stages` object that artifact-schema rows do not have.
+List `era: "artifact"` rows in their own corpus line in the Step-6 report (count, ticket keys,
+`model` values) rather than folding them into the per-stage table or silently dropping them —
+labeled-but-out-of-scope-for-this-table is the honest reading, not invisible.
 
 **Completed and aborted runs are both in scope.** An abort is a real cost, often the most expensive shape of run, and excluding it flatters the profile.
 
-Per selected run, gather: `bash "${CLAUDE_PLUGIN_ROOT}/skills/run/tools/stage-times.sh" <key>`; the cost log at `<STATE_DIR>/cost-log.jsonl` when present; the timing paragraphs of any existing `<key>-retro.md`; and, for each session id in that run's `pipelineSessions[]`, the audit ledger at `.claude/audit/<session>.jsonl` when it exists on disk.
+Per selected `era: "stage"` run, gather: `bash "${CLAUDE_PLUGIN_ROOT}/skills/run/tools/stage-times.sh" <key>`; the cost log at `<STATE_DIR>/cost-log.jsonl` when present; the timing paragraphs of any existing `<key>-retro.md`; and, for each session id in that run's `pipelineSessions[]`, the audit ledger at `.claude/audit/<session>.jsonl` when it exists on disk.
+
+**Model identity (#347 comment, ratified 2026-08-03).** Corpus rows carry `model` so
+cross-model deltas are queryable — an `era: "artifact"` row reads it from the progress/verdict
+record's `model:` key (`lean-gate.sh`, when `LEAN_RUN_MODEL` was exported at record-creation
+time); `era: "stage"` rows have no such field yet and read `"unknown"`. Report it as a corpus
+dimension (group candidates or fidelity notes by `model` where the profile shows a difference)
+— never bucket by, or hardcode, a specific vendor model string here; that neutrality is owned
+by #356/#357, not this step.
 
 **Envelopes come from one shared tool, not from this enumeration.** Steps 3 and 6 derive theirs from `bash "${CLAUDE_PLUGIN_ROOT}/skills/run/tools/stage-envelopes.sh" --json`, which recomputes from the corpus every invocation and stores nothing. Report the corpus it declares (file count + dedup rule) next to this step's count: **this step does not dedup per ticket and the tool does**, so a ticket with a live file plus surviving snapshots counts once there and several times here. Declaring both stops one report disagreeing with itself.
 
@@ -116,7 +127,9 @@ Write `.claude/pipeline-state/perf-retro-{YYYY-MM-DD}.md`. A second pass on the 
 Inter-stage gap total: {m} min. Runs profiled: {n} trusted, {d} degraded.
 
 Corpus: {file count} state file(s) → {n} run(s) after `stage-envelopes.sh`'s dedup
-({its declared rule}); Step 1's own enumeration counted {n'} before dedup.
+({its declared rule}); Step 1's own enumeration counted {n'} before dedup. {a} `era:
+"artifact"` run(s) also in the corpus, out of scope for this table (models: {list}) —
+see `retro-corpus.sh corpus`.
 
 ## Cost envelopes (per bucket)
 

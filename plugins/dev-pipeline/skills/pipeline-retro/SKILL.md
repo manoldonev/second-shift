@@ -7,7 +7,7 @@ description: 'Post-run retrospective for a dev-pipeline run: independent eval re
 
 Independent retrospective for a completed (or aborted) dev-pipeline run. The dev-pipeline scores its own eval at Stage 9+ — this skill exists because **the executor grading its own homework is structurally generous**. Everything here is scored from on-disk and on-GitHub artifacts by fresh context, never from the executing session's memory of itself.
 
-**Usage:** `/pipeline-retro <issue-number>` — or no argument to use the most recently updated file in `.claude/pipeline-state/*.json`.
+**Usage:** `/pipeline-retro <issue-number>` — or no argument to use the most recently updated run across both schema eras (`retro-corpus.sh corpus --window 1 --json`, #347).
 
 **Hard rules:**
 
@@ -17,8 +17,23 @@ Independent retrospective for a completed (or aborted) dev-pipeline run. The dev
 
 ## Step 1: Gather run artifacts
 
+**Era-aware (#347).** The two schemas' artifacts do not overlap — determine which one this
+run left behind before gathering anything, rather than assuming stage files:
+
 ```bash
 ISSUE=<n>
+if [ -f ".claude/pipeline-state/${ISSUE}-lean-progress.md" ]; then
+  ERA=artifact
+elif [ -f ".claude/pipeline-state/${ISSUE}.json" ]; then
+  ERA=stage
+else
+  echo "no run artifacts for #${ISSUE} — nothing to retro"; exit 0
+fi
+```
+
+### era: stage (full-pipeline run)
+
+```bash
 S=../dev-pipeline/statectl.sh
 cat .claude/pipeline-state/${ISSUE}.json          # state: stages, checkpoints, deviations, failureContext
 cat .claude/pipeline-state/${ISSUE}-eval.json     # the run's SELF-score
@@ -39,11 +54,37 @@ jq -c '.acceptanceCriteria // []' .claude/pipeline-state/${ISSUE}.json     # Sta
 # Absent .acceptanceCriteria = pre-schema run → skip the AC-coverage audit item (7) in Step 3.
 ```
 
-If there is no state file, stop: nothing to retro.
+### era: artifact (lean/block run — #347)
+
+The artifact schema: progress record, committed verdict record, hook ledger, PR/tracker
+trail (`docs/pipeline-manifesto.md` P3's three-record reconciliation). No `{issue}.json`,
+no `{issue}-eval.json` self-score, no stage checkpoints — `lean-gate.sh`'s five milestone
+gates ARE this run's completion evidence.
+
+```bash
+cat .claude/pipeline-state/${ISSUE}-lean-progress.md   # milestone satisfied/attempt lines, run_id:, session_id:, model:
+VREL=$(grep -oE 'verdict_record:[[:space:]]*\S+' .claude/pipeline-state/${ISSUE}-lean-progress.md | awk '{print $2}')
+cat "$VREL"                                             # committed verdict record: verdict=, run_id:, session_id:, rounds:, model:
+gh api "repos/{owner}/{repo}/issues/${ISSUE}/comments" --jq '[.[] | {user: .user.login, body}]'   # claim + closing comment trail
+PR_URL=$(gh pr list --head "lean/{repo-slug}-${ISSUE}" --state all --json url --jq '.[0].url // empty')
+# PR diff + commits (if a PR exists): gh pr diff / gh api .../pulls/N/commits
+# Hook ledger: .claude/audit/<session-id>.jsonl for each session_id named in the progress
+# record (build) and the verdict record (review) — two ledgers, not one, per P10.
+# Spec/AC set: the committed docs/plans/{repo-slug}-${ISSUE}-lean.md, its numbered AC-n
+# entries stand in for state .acceptanceCriteria[] in Step 3 item 7.
+```
 
 ## Step 2: Independent eval re-score (fresh context)
 
-Dispatch ONE `retro-scorer` agent (Task tool) whose prompt contains: the five criteria definitions copied verbatim from [`../dev-pipeline/eval-criteria.md`](../dev-pipeline/eval-criteria.md) and the artifact contents from Step 1. The agent ([`../../agents/retro-scorer.md`](../../agents/retro-scorer.md)) carries the standing re-score rubric — score each criterion PASS/FAIL/N/A strictly by the letter, quote artifact evidence, "absence of evidence is not a PASS", and the ctx-wire-legitimacy rule — and runs on **Sonnet** via its frontmatter, so the harness binds the tier (a prose "use Sonnet" against `general-purpose` would not — it has no frontmatter and inherits the session Opus default).
+**era: artifact — skip this step.** The five `eval-criteria.md` criteria assume a staged run
+(`stages.N`, `stageCheckpoint`); this issue does not invent a milestones→criteria mapping
+(disposition: pause-and-ask — the operator owns the eval frame, #347's own open region). No
+self-score exists to compare against and no independent score is produced. Route a single
+`Criteria proposal` in Step 5 ("eval-criteria.md has no block/lean-run mapping yet") the
+first time an artifact-era retro reaches this step in a given window — check Step 5's
+dedup-against-open-issues search first so repeat retros don't re-propose it.
+
+**era: stage** — dispatch ONE `retro-scorer` agent (Task tool) whose prompt contains: the five criteria definitions copied verbatim from [`../dev-pipeline/eval-criteria.md`](../dev-pipeline/eval-criteria.md) and the artifact contents from Step 1. The agent ([`../../agents/retro-scorer.md`](../../agents/retro-scorer.md)) carries the standing re-score rubric — score each criterion PASS/FAIL/N/A strictly by the letter, quote artifact evidence, "absence of evidence is not a PASS", and the ctx-wire-legitimacy rule — and runs on **Sonnet** via its frontmatter, so the harness binds the tier (a prose "use Sonnet" against `general-purpose` would not — it has no frontmatter and inherits the session Opus default).
 
 **Empty-return failure mode.** This dispatch carries no emit deadline, retry, or darkness detection — unlike the Workflow fan-out's `check-emit-deadline.sh` stack, which does not cover a Task-tool dispatch. A `retro-scorer` call that completes with no text (a silent dark return, or a `maxTurns` cutoff) is a named failure, not a run with nothing to score: before doing anything else, resume the *same* agent (its transcript, not a fresh dispatch) and instruct it to emit its verdict from the evidence already gathered, with no further tool calls. This recovered two independently observed dark returns at a fraction of the original dispatch's cost (#271: the #244 run, 78k tokens / 26 tool calls / no output, resumed in 14s / 0 tool calls; the #243 run, 20 tool calls / no output, resumed successfully) — the analysis was sitting in the transcript, only its emission was lost. This resume is scoped to this dispatch: it is not a general Agent-tool-dispatch policy, and `retro-scorer` is deliberately staying off the Workflow substrate — that would buy the emit-deadline stack but adds StructuredOutput-staller surface for what is structurally a single dispatch, not worth it for the resume fix already closing the gap.
 
@@ -54,6 +95,19 @@ Then compare against the self-score from `{issue}-eval.json`. **Every discrepanc
 ## Step 3: Contract-deviation audit (in-session, checklist)
 
 Walk the run's trail against the skill contracts. For each item answer: complied / deviated-and-surfaced / **deviated-silently** (the worst class — see the Stage 8 review-toolkit:review-lead incident that motivated this skill):
+
+**era: artifact — items 1, 2, 5, 6 read N/A**, not skipped-silently: they audit stage
+mechanics (`stages.N.skillsLoaded[]`, stage checkpoints, `stageCheckpoint["7"].deviations[]`,
+`stages.5.unitTestMutationReview`) that `lean-gate.sh`'s outcome-gated milestones do not
+produce by design (run-lean is "OUTCOME-gated, not process-prescribed" — its own header).
+Re-auditing milestone satisfaction here would test lean-gate.sh's own gate against itself;
+its selftest already owns that. **Item 3 also reads N/A for `artifact`**, superseded by
+`lean-reconcile.sh`, the operator-run pre-merge check that already does this reconciliation
+for lean records (run-identity consistency across claim comment, progress record, and
+verdict record) — this retro does not duplicate it. Items 4, 7, 8 apply to both eras; for
+`artifact`, item 7 reads AC-n from the committed lean spec (`docs/plans/{repo-slug}-{issue}
+-lean.md`) instead of state `.acceptanceCriteria[]`, and item 8 reads the Decision Ledger
+(if any) from that same spec instead of "the committed plan".
 
 1. **Mandated loads & dispatches** — was every skill the stage files say to load actually loaded (`intake-toolkit:intake-orchestrator`, `review-toolkit:review-lead` for synthesis)? Diff `stages.N.skillsLoaded[]` (the self-reported load evidence the completion gates read) against the session audit ledger (`.claude/audit/<session>.jsonl` — `Skill` tool invocations, whose `target` field carries the skill name, making this an identity diff rather than only a count): a skill recorded in state but absent from the ledger is a **fabricated evidence write**, strictly worse than the silent skip the gate exists to stop. For Stage 8 the *ordering* is now gate-enforced — `comment-add --marker code-review` refuses until the `review-lead` load is recorded — so what still needs eyes is the residual that gate cannot see: compare the ledger's `Skill` timestamp against the synthesis comment's `created_at`, and treat a load that post-dates the published synthesis as a deviation even though the receipt was accepted afterwards. Were sub-agents dispatched for real (never inlined)? Check `/audit` if available.
 2. **State discipline** — every stage has `startedAt`/`completedAt`; checkpoints written at 1/5/7; boundary writes (`worktree-set`, `pr-add`) ordered before stage completion; `verifyAttempts` incremented for every fix loop (including plan-specific verification commands — see Stage 6). A Stage-6 `refactor:` commit recorded in `stages.6.qualityPass` is the advisory quality pass — an expected, disclosed, non-`verifyAttempts` event (its one-shot `--no-attempt` safety-net re-verify is not a fix loop).
@@ -68,7 +122,7 @@ Walk the run's trail against the skill contracts. For each item answer: complied
 
 List every mid-run improvisation the trail reveals (REST fallbacks, version workarounds, missing tools, degraded sub-steps like `costBlockApplied: skipped-*`). For each: is it covered by a [`pipeline-doctor.sh`](../dev-pipeline/tools/pipeline-doctor.sh) check or canonical-form doc yet? If not, it becomes a routed improvement below.
 
-Also read the `stage-times.sh` output against expectations: an inert-diff run that still paid the configured verify suite (Stage 6 ≳ 4 min on a docs/shell-only diff), large inter-stage gaps (synchronous posting of non-gating comments), or a stage whose recorded window is implausibly short (work done before `set-stage N --status started` — a state-discipline deviation for Step 3) are all findings.
+**era: stage** — also read the `stage-times.sh` output against expectations: an inert-diff run that still paid the configured verify suite (Stage 6 ≳ 4 min on a docs/shell-only diff), large inter-stage gaps (synchronous posting of non-gating comments), or a stage whose recorded window is implausibly short (work done before `set-stage N --status started` — a state-discipline deviation for Step 3) are all findings. **era: artifact** has no per-stage timing table to check against — `retro-corpus.sh`/`stage-envelopes.sh` are `perf-retro`'s territory (cross-run), and this per-run step has nothing stage-shaped to read.
 
 Scope boundary: this step reads **this run's** timing for anomalies. Cross-run trend analysis — the aggregated per-stage profile and the ranked optimization candidates it supports — is `/dev-pipeline:perf-retro`, not this step.
 
@@ -104,6 +158,14 @@ Drift-class findings pick their ladder rung first, then land in `Record only`, `
 
 **Approval gate (no-auto-commit):** routing decides _what_ each finding needs; it does **not** authorize the write. Before any git commit, branch push, or GitHub issue/PR creation, **present the proposed routes and get explicit user approval** — then apply only the approved ones. Writing the retro report itself (Step 6, a gitignored `.claude/pipeline-state/` file) and read-only dedup queries need no approval. If running fully unattended (no user to ask), record each actionable route as **proposed** in the report and stop short of the write.
 
+**Unattended addition — verdict-less open PRs (#347).** A fully-unattended pass also runs
+`bash "${CLAUDE_PLUGIN_ROOT}/skills/run/tools/retro-corpus.sh" open-prs` and folds its
+`verdictLess: true` rows into the report as the operator-visible backlog signal: open lean
+PRs whose linked issue carries no comment yet referencing the expected verdict-record path —
+a review that never landed, not (necessarily) a broken run. Read-only, so it needs no
+approval either; still proposed-only if it were ever to route further (it does not on its
+own — it is a report line, not a finding that gets routed).
+
 | Route             | When                                                                                        | Action                                                                                                                                   |
 | ----------------- | ------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
 | Record only       | **Default.** Single occurrence, un-root-caused, or speculative — fails any meaningful-issue bar | Finding stays in the retro report (Step 6). No further artifact. Recurrence at a later retro re-tests the bar with the prior report as evidence. |
@@ -116,10 +178,12 @@ Drift-class findings pick their ladder rung first, then land in `Record only`, `
 
 ## Step 6: Write the report
 
-Write `.claude/pipeline-state/{issue}-retro.md`:
+Write `.claude/pipeline-state/{issue}-retro.md`. **era: artifact** — the header names the era
+and the Score-comparison section states plainly that Step 2 was skipped (no mapping, no
+self-score) rather than leaving the table empty with no explanation:
 
 ```markdown
-# Retro: #{issue} ({run_id})
+# Retro: #{issue} ({run_id}, era: {stage|artifact})
 
 ## Score comparison
 
