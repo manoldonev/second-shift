@@ -41,6 +41,12 @@ mkdir -p "$TREE/docs/plans" "$AUDIT"
 git -C "$TREE" init -q
 git -C "$TREE" config user.email t@example.invalid
 git -C "$TREE" config user.name t
+# A base commit, so the verdict record has something to be written ON TOP OF. Without it the
+# record's own commit is the root and `reviewed_head` would have to name that commit itself —
+# a shape no review round produces, which would make the descent check assert nothing.
+printf '# base\n' > "$TREE/docs/plans/base.md"
+git -C "$TREE" add docs/plans/base.md >/dev/null 2>&1
+git -C "$TREE" commit -q -m "base tree" >/dev/null 2>&1
 
 CFG="$WORK/config.json"
 cat > "$CFG" <<'EOF'
@@ -68,7 +74,9 @@ EOF
   echo "2026-01-01T00:00:00Z | milestone-4 | satisfied" >> "$PROG"
 }
 
-write_verdict() { # write_verdict <run-id> <session-id>
+# `reviewed_head` defaults to the head at WRITE time, which is the commit the record is about to
+# be committed on top of — the real shape, and the one the descent check is written against.
+write_verdict() { # write_verdict <run-id> <session-id> [reviewed-head]
   cat > "$VERDICT" <<EOF
 # lean review verdict — #7
 
@@ -76,6 +84,7 @@ verdict=approve
 run_id: $1
 session_id: $2
 rounds: 1
+reviewed_head: ${3:-$(git -C "$TREE" rev-parse HEAD)}
 
 No blockers.
 EOF
@@ -232,6 +241,45 @@ if [ "$rc" -eq 0 ]; then
   pass "(K) the trace anchors on the REVIEW ledger — a run with no build ledger still reconciles"
 else fail "(K) expected rc=0 with the build ledger removed, got $rc: $out"; fi
 write_ledger "$SESSION" "2026-01-01T05:00:00Z"
+
+# ---- (L) the record must declare, coherently, the head it reviewed --------------------------
+# The third reader of `reviewed_head`. What this one adds over milestone 4 and the CI gate is
+# COHERENCE rather than currency: they compare the declared head against a head that keeps
+# moving, whereas a record whose own commit does not descend from the commit it names is
+# self-contradictory wherever the branch has since gone.
+cat > "$VERDICT" <<EOF
+# lean review verdict — #7
+
+verdict=approve
+run_id: $REVIEW_RUN_ID
+session_id: $REVIEW_SESSION
+rounds: 1
+EOF
+out="$(reconcile "$WORK/comments-good.json")"; rc=$?
+if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q 'no reviewed_head key'; then
+  pass "(L1) a verdict record declaring no reviewed head fails (the pre-key migration case)"
+else fail "(L1) expected rc=1 on a head-less verdict, got $rc: $out"; fi
+
+# A head the record CANNOT have been written on top of: a commit that lands after the one
+# carrying the record. Distinct from a merely stale declaration, which the two currency readers
+# own — this one is incoherent on its own terms and stays incoherent forever.
+printf 'later\n' > "$TREE/docs/plans/later.md"
+git -C "$TREE" add docs/plans/later.md >/dev/null 2>&1
+git -C "$TREE" commit -q -m "a commit landing after the verdict" >/dev/null 2>&1
+write_verdict "$REVIEW_RUN_ID" "$REVIEW_SESSION" "$(git -C "$TREE" rev-parse HEAD)"
+out="$(reconcile "$WORK/comments-good.json")"; rc=$?
+if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q 'does not descend from it'; then
+  pass "(L2) a record whose commit does not descend from the head it names fails"
+else fail "(L2) expected rc=1 on an incoherent reviewed_head, got $rc: $out"; fi
+
+# ...and the same record reconciles once it names a head its commit actually descends from, so
+# (L1)/(L2) are checks with a remedy rather than a wall.
+write_verdict "$REVIEW_RUN_ID" "$REVIEW_SESSION"
+commit_verdict "2026-01-01T10:00:00Z"
+out="$(reconcile "$WORK/comments-good.json")"; rc=$?
+if [ "$rc" -eq 0 ] && printf '%s' "$out" | grep -q 'declares reviewed_head'; then
+  pass "(L3) a coherently-declared reviewed head reconciles, and the tool says so"
+else fail "(L3) expected rc=0 on a coherent record, got $rc: $out"; fi
 
 # ---- (I) header states the #292 deferral ----------------------------------------------------
 if grep -q 'DEFERS TO #292' "$TOOL"; then

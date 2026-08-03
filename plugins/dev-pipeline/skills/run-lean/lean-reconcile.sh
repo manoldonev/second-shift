@@ -21,7 +21,12 @@
 #   3. the review session's first recorded tool call PRECEDES the verdict commit (a record
 #      written before its review ran is not a record of that review),
 #   4. RUN_ID is consistent across the claim comment and the progress file (both build-side),
-#      and the verdict's run identity DIFFERS from them.
+#      and the verdict's run identity DIFFERS from them,
+#   5. the record DECLARES the head it reviewed, and its own commit descends from that head.
+#      This is the third reader of that key, alongside milestone 4 and check-lean-chain.sh.
+#      What it adds over those two is COHERENCE rather than currency: they compare the declared
+#      head against a moving head, whereas a record whose own commit does not descend from the
+#      commit it names is internally incoherent wherever the branch has since gone.
 #
 # RE-ANCHORED WITH THE SEPARATION. This check used to require a `lean-review` Workflow dispatch
 # row in the BUILD session's ledger. That row can never exist once review is a separate
@@ -63,7 +68,7 @@ while [ $# -gt 0 ]; do
   case "$1" in
     --session-id)    SESSION_ID="${2:-}"; shift 2 ;;
     --comments-file) COMMENTS_FILE="${2:-}"; shift 2 ;;
-    -h|--help)       sed -n '2,51p' "$0"; exit 0 ;;
+    -h|--help)       sed -n '2,56p' "$0"; exit 0 ;;
     -*)              envfail "unknown option: $1" ;;
     *)               [ -z "$ISSUE" ] && ISSUE="$1" || envfail "unexpected argument: $1"; shift ;;
   esac
@@ -206,6 +211,25 @@ if [ -n "$REVIEW_TS" ]; then
   fi
 elif [ -n "$LEDGER" ]; then
   say "  note: the review ledger's first row carries no timestamp — ordering not checkable."
+fi
+
+# ---- (4) the record declares the head it reviewed, and its own commit descends from it ------
+# Read with the SAME extractor as run_id/session_id — one schema, three readers, and a reader
+# that invented its own parse for one key would diverge silently rather than loudly.
+REVIEWED_HEAD="$(extract_key reviewed_head "$REPO_ROOT/$VERDICT_REL")"
+if [ -z "$REVIEWED_HEAD" ]; then
+  bad "verdict record carries no reviewed_head key — nothing states which commit the review actually read, so 'a verdict exists' cannot be distinguished from 'this code was reviewed'. Re-run the review round on a dev-pipeline that writes it."
+else
+  VERDICT_COMMIT="$(git -C "$REPO_ROOT" log -1 --format=%H -- "$VERDICT_REL" 2>/dev/null)"
+  if ! git -C "$REPO_ROOT" cat-file -e "$REVIEWED_HEAD^{commit}" 2>/dev/null; then
+    bad "the verdict record names reviewed_head $REVIEWED_HEAD, which is not a commit in this repository — the branch was rebased or force-pushed after the review, so the reviewed code no longer exists here"
+  elif [ -z "$VERDICT_COMMIT" ]; then
+    say "  note: verdict record is not committed yet — its descent from $REVIEWED_HEAD is not checkable."
+  elif git -C "$REPO_ROOT" merge-base --is-ancestor "$REVIEWED_HEAD" "$VERDICT_COMMIT" 2>/dev/null; then
+    ok "the verdict record declares reviewed_head $(git -C "$REPO_ROOT" rev-parse --short "$REVIEWED_HEAD" 2>/dev/null), and its own commit descends from it"
+  else
+    bad "the verdict record declares reviewed_head $REVIEWED_HEAD, but the commit carrying the record does not descend from it — the record cannot have been written on top of the tree it claims to have reviewed"
+  fi
 fi
 
 if [ "$failures" -gt 0 ]; then

@@ -26,8 +26,15 @@
 #      "an approve record exists" and "this code was approved" are different claims — a
 #      review session commits its record and the branch then moves on, which is the ordinary
 #      shape of the needs-work loop. Nothing but the record itself may have changed between
-#      the commit carrying it and the PR head. Derived from git rather than from a key in the
-#      record: git decides which commit carries the file, its prose cannot.
+#      the commit carrying it and the PR head. TWO ARMS, because neither subsumes the other:
+#      the INFERRED one derives its anchor from git (which commit carries the file — the
+#      record's prose cannot argue with that), and the DECLARED one reads the `reviewed_head`
+#      key the reviewer wrote. Inference binds the record to where it was COMMITTED; the
+#      declaration binds it to what was REVIEWED. They come apart whenever code lands between
+#      the review and the record's commit — the reviewer then commits an honest record on top
+#      of a head it never read, and inference alone calls that fresh — and again on a rebase
+#      after approval, which carries the record forward onto a base nobody reviewed while
+#      inference stays green.
 #
 # HONEST ALTITUDE: like its sibling, this is tamper-EVIDENCE, not proof. The agent writes
 # artifacts 1 and 2. Forging one is easy; forging all three consistently, across a committed
@@ -84,7 +91,7 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --comments-file)   COMMENTS_FILE="${2:-}"; shift 2 ;;
     --diff-files-file) DIFF_FILES_FILE="${2:-}"; shift 2 ;;
-    -h|--help) sed -n '2,76p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,83p' "$0"; exit 0 ;;
     *) echo "[lean-chain] unknown argument: $1" >&2; exit 2 ;;
   esac
 done
@@ -240,6 +247,7 @@ done < <(find "$REPO_ROOT" -name "*$LEAN_VERDICT_SUFFIX" -type f 2>/dev/null)
 
 VERDICT_RUN_ID=""
 VERDICT_SESSION_ID=""
+VERDICT_REVIEWED_HEAD=""
 if [[ -z "$VERDICT" ]]; then
   note_violation "no committed verdict record (a file named *-$KEY$LEAN_VERDICT_SUFFIX). The independent review's verdict must be a committed, diffable artifact — a local progress-file line is not evidence."
 else
@@ -262,6 +270,9 @@ else
   # lean-gate.sh and lean-reconcile.sh read the same record with.
   VERDICT_RUN_ID="$(grep -oE 'run_id:[[:space:]]*[A-Za-z0-9._-]+' "$REPO_ROOT/$VERDICT" 2>/dev/null | head -n1 | sed -E 's/run_id:[[:space:]]*//')"
   VERDICT_SESSION_ID="$(grep -oE 'session_id:[[:space:]]*[A-Za-z0-9._-]+' "$REPO_ROOT/$VERDICT" 2>/dev/null | head -n1 | sed -E 's/session_id:[[:space:]]*//')"
+  # Same first-match shape, same charset. No other key in the record contains the substring
+  # `reviewed_head:`, so this extraction cannot capture one of theirs or be captured by it.
+  VERDICT_REVIEWED_HEAD="$(grep -oE 'reviewed_head:[[:space:]]*[A-Za-z0-9._-]+' "$REPO_ROOT/$VERDICT" 2>/dev/null | head -n1 | sed -E 's/reviewed_head:[[:space:]]*//')"
 fi
 
 # ---- (7) evidence 3: a bot-authored lean-claimed comment, windowed at PR-open ------------
@@ -370,7 +381,25 @@ if [[ -n "$VERDICT" ]]; then
       n_stale="$(printf '%s\n' "$STALE" | wc -l | tr -d ' ')"
       note_violation "verdict record '$VERDICT' approves $(git -C "$REPO_ROOT" rev-parse --short "$VERDICT_COMMIT"), but $n_stale file(s) changed between that commit and the PR head (e.g. $(printf '%s' "$STALE" | head -n1)). An approve for an earlier head is not an approve for this one — run another review round."
     else
-      echo "[lean-chain]   ✓ freshness: nothing but the verdict record itself changed between its commit and the PR head"
+      echo "[lean-chain]   ✓ freshness (inferred): nothing but the verdict record itself changed between its commit and the PR head"
+    fi
+  fi
+
+  # The DECLARED arm. Refused when absent for the same reason a missing verdict is: nothing is
+  # checkable. Records written before this key existed are refused too — unlike the claim
+  # comment's missing session_id above, a remedy IS available here (re-run the review round),
+  # so a transitional pass would be a waiver rather than a kindness.
+  if [[ -z "$VERDICT_REVIEWED_HEAD" ]]; then
+    note_violation "verdict record '$VERDICT' carries no reviewed_head key, so nothing states which commit the review actually read. Re-run the review round on a dev-pipeline that writes it: '/dev-pipeline:review-lean <pr>'."
+  elif ! git -C "$REPO_ROOT" cat-file -e "$VERDICT_REVIEWED_HEAD^{commit}" 2>/dev/null; then
+    note_violation "verdict record '$VERDICT' names reviewed_head $VERDICT_REVIEWED_HEAD, for which this checkout holds no commit — the branch was rebased or force-pushed after the review, so the reviewed code is not what is being merged. Re-run the review round."
+  else
+    DECLARED_STALE="$(git -C "$REPO_ROOT" diff --name-only "$VERDICT_REVIEWED_HEAD" "$PR_HEAD_SHA" 2>/dev/null | grep -vxF "$VERDICT" || true)"
+    if [[ -n "$DECLARED_STALE" ]]; then
+      n_declared="$(printf '%s\n' "$DECLARED_STALE" | wc -l | tr -d ' ')"
+      note_violation "verdict record '$VERDICT' states it reviewed $(git -C "$REPO_ROOT" rev-parse --short "$VERDICT_REVIEWED_HEAD" 2>/dev/null), but $n_declared file(s) differ between that commit and the PR head (e.g. $(printf '%s' "$DECLARED_STALE" | head -n1)). The review read a different tree than the one being merged — run another review round."
+    else
+      echo "[lean-chain]   ✓ freshness (declared): the record names $(git -C "$REPO_ROOT" rev-parse --short "$VERDICT_REVIEWED_HEAD" 2>/dev/null) as the head it reviewed, and only the record itself differs from the PR head"
     fi
   fi
 fi

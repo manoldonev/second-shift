@@ -224,11 +224,16 @@ else fail "(i) expected a mutation-sweep skip notice, got rc=$rc: $out"; fi
 # That is not cosmetic: milestone 4 reads the record's COMMIT, and an identical re-write stages
 # nothing, so the record would keep the commit of an earlier round while the tree moved on —
 # the case would then red on freshness rather than on what it is about.
+#
+# `reviewed_head` is resolved BEFORE the commit, which is the honest shape: the reviewer reads
+# the current head, names it, and then commits the record on top of it. Resolving it after the
+# commit would name the record's own commit and make every declared-freshness case vacuous.
 VROUND=0
-write_review_verdict() { # write_review_verdict [verdict]
+write_review_verdict() { # write_review_verdict [verdict] [reviewed-head]
   VROUND=$((VROUND + 1))
-  printf 'verdict=%s\nrun_id: r-review-1\nsession_id: sess-review-1\nrounds: %s\n' \
-    "${1:-approve}" "$VROUND" > "$VERDICT"
+  local head="${2:-$(git -C "$TREE" rev-parse HEAD)}"
+  printf 'verdict=%s\nrun_id: r-review-1\nsession_id: sess-review-1\nrounds: %s\nreviewed_head: %s\n' \
+    "${1:-approve}" "$VROUND" "$head" > "$VERDICT"
   commit_tree "review verdict ${1:-approve} (round $VROUND)"
 }
 
@@ -267,6 +272,48 @@ write_review_verdict
 out="$(gate 4 7)"; rc=$?
 if [ "$rc" -eq 0 ]; then pass "(j4) milestone-4 passes on a committed verdict=approve with distinct review identities"
 else fail "(j4) expected rc=0, got $rc: $out"; fi
+
+# ---- (u) DECLARED freshness: the record must name the head it reviewed ---------------------
+# The MIGRATION arm. Every verdict record written before this key existed lands here, and it is
+# refused rather than grandfathered: a remedy is always available (re-run the review round),
+# so a transitional pass would be a waiver. Note this is a record that is otherwise complete —
+# both reconciliation keys present, committed, and its commit IS the head — so the ONLY thing
+# that can red it is the missing key.
+reset_progress
+printf 'verdict=approve\nrun_id: r-review-1\nsession_id: sess-review-1\n' > "$VERDICT"; commit_tree
+out="$(gate 4 7)"; rc=$?
+if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q 'no reviewed_head key'; then
+  pass "(u1) milestone-4 fails an approve record carrying no reviewed_head key (the pre-key migration case)"
+else fail "(u1) expected rc=1 on a head-less approve, got $rc: $out"; fi
+
+# The gap the INFERRED arm cannot see, and the reason this key exists. The record is committed
+# LAST — so `git log -1 -- <record>` finds the head, nothing but the record differs from it, and
+# the inferred arm is green — but the head it NAMES is one commit older, which is exactly what
+# happens when a fix lands between the review and the record's commit.
+reset_progress
+stale_head="$(git -C "$TREE" rev-parse HEAD)"
+printf '# spec\n\n- AC-1: a thing\n- AC-2: landed while the review was running\n' > "$SPEC"
+commit_tree "code lands between the review and the record"
+write_review_verdict approve "$stale_head"
+out="$(gate 4 7)"; rc=$?
+if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q 'states it reviewed'; then
+  pass "(u2) milestone-4 refuses a record naming an earlier head even though its own commit IS the head (inferred arm green, declared arm reds)"
+else fail "(u2) expected rc=1 on a declared-stale record, got $rc: $out"; fi
+
+# ...and a head that is not a commit here at all — the rebase/force-push-after-approval shape.
+reset_progress
+write_review_verdict approve 0000000000000000000000000000000000000000
+out="$(gate 4 7)"; rc=$?
+if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q 'not a commit in this branch'; then
+  pass "(u3) milestone-4 refuses a reviewed_head absent from the branch's history"
+else fail "(u3) expected rc=1 on an unknown reviewed_head, got $rc: $out"; fi
+
+reset_progress
+write_review_verdict approve
+out="$(gate 4 7)"; rc=$?
+if [ "$rc" -eq 0 ] && printf '%s' "$out" | grep -q 'declaring reviewed_head'; then
+  pass "(u4) milestone-4 passes a record naming the head it was written on top of"
+else fail "(u4) expected rc=0 on a matching reviewed_head, got $rc: $out"; fi
 
 # ---- (k) AC-7: milestone 5 exit artifacts, via the fixture seams --------------------------
 cat > "$WORK/pr-draft.json" <<'EOF'
@@ -401,14 +448,16 @@ seed_build_progress() { # seed_build_progress <run-id> <session-id>
 }
 
 seed_build_progress r-build-1 sess-build-1
-printf 'verdict=approve\nrun_id: r-build-1\nsession_id: sess-review-1\n' > "$VERDICT"; commit_tree
+printf 'verdict=approve\nrun_id: r-build-1\nsession_id: sess-review-1\nreviewed_head: %s\n' \
+  "$(git -C "$TREE" rev-parse HEAD)" > "$VERDICT"; commit_tree
 out="$(gate 4 7)"; rc=$?
 if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q "BUILD run's identity"; then
   pass "(n1) milestone-4 refuses a verdict carrying the build run's run_id"
 else fail "(n1) expected rc=1 on a build-authored verdict, got $rc: $out"; fi
 
 seed_build_progress r-build-1 sess-build-1
-printf 'verdict=approve\nrun_id: r-review-1\nsession_id: sess-build-1\n' > "$VERDICT"; commit_tree
+printf 'verdict=approve\nrun_id: r-review-1\nsession_id: sess-build-1\nreviewed_head: %s\n' \
+  "$(git -C "$TREE" rev-parse HEAD)" > "$VERDICT"; commit_tree
 out="$(gate 4 7)"; rc=$?
 if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q 'names the BUILD session'; then
   pass "(n2) milestone-4 refuses a verdict whose session_id is the build session's"
@@ -418,7 +467,8 @@ else fail "(n2) expected rc=1 on a build-session verdict, got $rc: $out"; fi
 # can supply it — which is exactly the state a review session that re-exported nothing is in.
 seed_build_progress unset sess-build-1
 mkdir -p "$(dirname "$RUN_ID_CACHE")"; printf 'r-cached-1' > "$RUN_ID_CACHE"
-printf 'verdict=approve\nrun_id: r-cached-1\nsession_id: sess-review-1\n' > "$VERDICT"; commit_tree
+printf 'verdict=approve\nrun_id: r-cached-1\nsession_id: sess-review-1\nreviewed_head: %s\n' \
+  "$(git -C "$TREE" rev-parse HEAD)" > "$VERDICT"; commit_tree
 out="$(gate 4 7)"; rc=$?
 if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q "BUILD run's identity"; then
   pass "(n3) milestone-4 refuses an identity that resolves from the build run-id CACHE file"
@@ -460,6 +510,10 @@ rm -f "$RUN_ID_CACHE"
 mtime_of() { stat -f '%m' "$1" 2>/dev/null || stat -c '%Y' "$1" 2>/dev/null; }
 seed_build_progress r-build-1 sess-build-1
 printf '# spec\n\n- AC-1: a thing\n' > "$SPEC"
+# Committed on its OWN, before the record is written. `commit_tree` stages everything, so
+# folding this into the verdict commit would put a code change inside it — a shape review-lean
+# step 6 forbids ("commit nothing else in this session") and which both freshness arms refuse.
+commit_tree "spec settles before the review"
 write_review_verdict
 touch -t 202601010000 "$VERDICT"
 o_sum_before="$(cksum < "$VERDICT")"; o_mt_before="$(mtime_of "$VERDICT")"
@@ -513,11 +567,15 @@ else fail "(p4) expected rc=1 on an unverifiable build session, got $rc: $out"; 
 
 seed_build_progress r-build-1 sess-build-1
 printf 'No blockers. AC-1 satisfied.\n' > "$WORK/verdict-summary.md"
+# The head the writer must name is the one it is invoked ON. Resolved here, before the call, so
+# the assertion compares against a value this suite derived independently of the writer.
+p5_head="$(git -C "$TREE" rev-parse HEAD)"
 out="$(verdict_cmd sess-review-9 r-review-9 --pr 12 --verdict approve --rounds 2 --summary-file "$WORK/verdict-summary.md")"; rc=$?
 if [ "$rc" -eq 0 ] && grep -qF 'verdict=approve' "$VERDICT" 2>/dev/null \
    && grep -qF 'run_id: r-review-9' "$VERDICT" && grep -qF 'session_id: sess-review-9' "$VERDICT" \
-   && grep -qF 'rounds: 2' "$VERDICT" && grep -qF 'No blockers.' "$VERDICT"; then
-  pass "(p5) verdict writes the record with both reconciliation keys and the summary body"
+   && grep -qF 'rounds: 2' "$VERDICT" && grep -qF 'No blockers.' "$VERDICT" \
+   && grep -qF "reviewed_head: $p5_head" "$VERDICT"; then
+  pass "(p5) verdict writes the record with all three reconciliation keys, a git-resolved reviewed_head, and the summary body"
 else fail "(p5) expected a well-formed record, rc=$rc: $out
 $(cat "$VERDICT" 2>/dev/null)"; fi
 
@@ -632,7 +690,8 @@ else fail "(t3) expected rc=0 after a fresh round, got $rc: $out"; fi
 # actually produces — hand-editing an already-committed record — and it reads as green unless
 # the working tree is compared too.
 seed_build_progress r-build-1 sess-build-1
-printf 'verdict=approve\nrun_id: r-review-9\nsession_id: sess-review-9\nrounds: 99\n' > "$VERDICT"
+printf 'verdict=approve\nrun_id: r-review-9\nsession_id: sess-review-9\nrounds: 99\nreviewed_head: %s\n' \
+  "$(git -C "$TREE" rev-parse HEAD)" > "$VERDICT"
 out="$(gate 4 7)"; rc=$?
 if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q 'has uncommitted changes'; then
   pass "(t4) milestone-4 refuses a committed record that was then edited locally"
@@ -644,8 +703,8 @@ git -C "$TREE" checkout -- "$VERDICT" >/dev/null 2>&1
 # commit behind and still resolve. #8's record has no history, which is the state a real first
 # review round is in before it commits.
 seed_build_progress r-build-1 sess-build-1
-printf 'verdict=approve\nrun_id: r-review-9\nsession_id: sess-review-9\nrounds: 1\n' \
-  > "$TREE/docs/plans/acme-8-lean-verdict.md"
+printf 'verdict=approve\nrun_id: r-review-9\nsession_id: sess-review-9\nrounds: 1\nreviewed_head: %s\n' \
+  "$(git -C "$TREE" rev-parse HEAD)" > "$TREE/docs/plans/acme-8-lean-verdict.md"
 out="$(gate 4 8)"; rc=$?
 if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q 'was never committed'; then
   pass "(t5) milestone-4 refuses a verdict record that was never committed at all"

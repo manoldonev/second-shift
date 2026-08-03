@@ -36,6 +36,16 @@
 # the record must be COMMITTED, and nothing but the record itself may have changed since. A
 # verdict for an earlier head is not a verdict for this one.
 #
+# TWO ARMS, and neither subsumes the other. The check just described is INFERRED freshness: git
+# says which commit carries the record, and the record's prose cannot argue with it. The
+# `reviewed_head` key is DECLARED freshness: the reviewer states which commit it read. Inference
+# binds the record to where it was COMMITTED; the declaration binds it to what was REVIEWED, and
+# the two come apart in the ordinary case where code lands between the review and the record's
+# commit — the reviewer then commits an honest record on top of a head it never read, and
+# inference alone calls that fresh. The declaration also survives a rebase after approval, which
+# inference does not: the record moves with the rebase and keeps reading fresh over a base
+# nobody reviewed. Running both is what makes the pair non-vacuous in either direction.
+#
 # Usage:
 #   lean-gate.sh entry  <issue>          entry precondition: the session's audit ledger is live.
 #                                        The queue-label reject is the SESSION's step (SKILL.md
@@ -93,7 +103,7 @@ while [ $# -gt 0 ]; do
     --verdict)       VERDICT_VALUE="${2:-}"; shift 2 ;;
     --rounds)        VERDICT_ROUNDS="${2:-}"; shift 2 ;;
     --summary-file)  SUMMARY_FILE="${2:-}"; shift 2 ;;
-    -h|--help)       sed -n '2,65p' "$0"; exit 0 ;;
+    -h|--help)       sed -n '2,75p' "$0"; exit 0 ;;
     -*)              envfail "unknown option: $1" ;;
     *)
       if [ "$POSITIONAL" -eq 0 ]; then SUB="$1"; POSITIONAL=1
@@ -561,7 +571,7 @@ cmd_3() {
 # mtime-identical across a full `all` sweep.
 cmd_4() {
   local rec="$REPO_ROOT/$VERDICT_REL" v_val v_run v_sess b_prog_run b_prog_sess b_cached cand
-  local v_commit v_short stale n_stale
+  local v_commit v_short stale n_stale v_head v_head_short declared n_declared
   [ -f "$rec" ] || { fail_milestone 4 "no committed verdict record at $VERDICT_REL"; return $?; }
   v_val="$(record_verdict "$rec")"
   if [ "$v_val" != "approve" ]; then
@@ -575,6 +585,14 @@ cmd_4() {
   fi
   if [ -z "$v_sess" ]; then
     fail_milestone 4 "verdict record $VERDICT_REL carries no session_id reconciliation key — the review session's audit ledger cannot be located, so the verdict is unreconcilable"; return $?
+  fi
+  # The DECLARED reviewed head. Absent is refused for the same reason a missing verdict is:
+  # nothing is checkable, and an uncheckable claim must not read as a satisfied one. Records
+  # written before this key existed are refused too — the remedy is a review round on a
+  # refreshed plugin, which is always available, so no transitional pass is warranted.
+  v_head="$(record_key reviewed_head "$rec")"
+  if [ -z "$v_head" ]; then
+    fail_milestone 4 "verdict record $VERDICT_REL carries no reviewed_head key, so nothing states which commit the review actually read. Re-run the review round on a dev-pipeline that writes it: '/dev-pipeline:review-lean <pr>'."; return $?
   fi
 
   # AUTHORSHIP (P10). TWO build identities are compared, and both are FILE-BACKED:
@@ -643,7 +661,23 @@ cmd_4() {
     return $?
   fi
 
-  pass_milestone 4 "$VERDICT_REL reads verdict=approve, authored by review run $v_run, covering the current head"
+  # The DECLARED arm. Same predicate against the head the record NAMES rather than the head it
+  # SITS ON, which is the one case the arm above cannot see: a reviewer who reads head A, waits
+  # while a fix lands at B, and then commits an honest record on top of B leaves inference with
+  # nothing to complain about.
+  if ! git -C "$REPO_ROOT" cat-file -e "$v_head^{commit}" 2>/dev/null; then
+    fail_milestone 4 "verdict record $VERDICT_REL names reviewed_head $v_head, which is not a commit in this branch's history — the branch was rebased or force-pushed after the review, so the reviewed code no longer exists here. Get a new review round: '/dev-pipeline:review-lean <pr>'."
+    return $?
+  fi
+  declared="$(git -C "$REPO_ROOT" diff --name-only "$v_head" HEAD 2>/dev/null | grep -vxF "$VERDICT_REL")"
+  if [ -n "$declared" ]; then
+    v_head_short="$(git -C "$REPO_ROOT" rev-parse --short "$v_head" 2>/dev/null)"
+    n_declared="$(printf '%s\n' "$declared" | wc -l | tr -d ' ')"
+    fail_milestone 4 "verdict record $VERDICT_REL states it reviewed $v_head_short, but $n_declared file(s) differ between that commit and the current head (e.g. $(printf '%s' "$declared" | head -n1)) — the review read a different tree than the one being gated. Get a new review round: '/dev-pipeline:review-lean <pr>'."
+    return $?
+  fi
+
+  pass_milestone 4 "$VERDICT_REL reads verdict=approve, authored by review run $v_run, declaring reviewed_head $(git -C "$REPO_ROOT" rev-parse --short "$v_head" 2>/dev/null) and covering the current head"
 }
 
 # ---------------------------------------------------------------- verdict (REVIEW role)
@@ -659,7 +693,7 @@ cmd_4() {
 # build run whose progress header records no session id is refused outright: without it there
 # is nothing to separate the review from, and "unverifiable" must never resolve to "fine".
 cmd_verdict() {
-  local sess b_prog_sess b_prog_run b_cached rec body c
+  local sess b_prog_sess b_prog_run b_cached rec body c reviewed_head
   sess="${CLAUDE_CODE_SESSION_ID:-}"
   [ -n "$sess" ] \
     || envfail "verdict: CLAUDE_CODE_SESSION_ID is unset — the review session cannot be identified, so its authorship cannot be separated from the build's."
@@ -715,6 +749,16 @@ cmd_verdict() {
     ''|*[!0-9]*|0) envfail "verdict: --rounds must be a positive integer (got '$VERDICT_ROUNDS')." ;;
   esac
 
+  # The reviewed head, DERIVED from the checkout this call runs in — never an argument. The
+  # review session works from a checkout of the PR head (review-lean step 3), so HEAD here IS
+  # the commit under review; a flag would let the caller name a head it did not read, which is
+  # the exact failure the key exists to catch. Running `verdict` from the wrong checkout writes
+  # a head that does not match, and every reader refuses it. That is fail-closed, and visible.
+  reviewed_head="$(git -C "$REPO_ROOT" rev-parse HEAD 2>/dev/null)" \
+    || envfail "verdict: cannot resolve HEAD in '$REPO_ROOT' — there is no commit to name as the reviewed head. Run this from a checkout of the PR's head branch."
+  [ -n "$reviewed_head" ] \
+    || envfail "verdict: HEAD resolved to nothing in '$REPO_ROOT'. Run this from a checkout of the PR's head branch."
+
   body=""
   if [ -n "$SUMMARY_FILE" ]; then
     [ -f "$SUMMARY_FILE" ] || envfail "verdict: --summary-file '$SUMMARY_FILE' does not exist."
@@ -735,11 +779,12 @@ cmd_verdict() {
     echo "session_id: $sess"
     echo "rounds: $VERDICT_ROUNDS"
     echo "pr: #$VERDICT_PR"
+    echo "reviewed_head: $reviewed_head"
     echo ""
     if [ -n "$body" ]; then printf '%s\n' "$body"; fi
   } > "$rec"
 
-  say "✓ verdict: $VERDICT_REL written (verdict=$VERDICT_VALUE, run_id=$RESOLVED_RUN_ID, round $VERDICT_ROUNDS)"
+  say "✓ verdict: $VERDICT_REL written (verdict=$VERDICT_VALUE, run_id=$RESOLVED_RUN_ID, round $VERDICT_ROUNDS, reviewed_head=$reviewed_head)"
   say "  It is evidence only once COMMITTED to the PR's head branch — commit and push it."
   return 0
 }
