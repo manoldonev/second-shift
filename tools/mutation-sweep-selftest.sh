@@ -856,6 +856,110 @@ else
   fi
 fi
 
+echo "(ab) killer PROCESS bound — a mutant that makes its guard FORK cannot kill the host"
+# The sibling of (z), and NOT covered by it: a wall clock decides when to stop WAITING, it
+# does nothing about what the guard does to the machine while we wait. A recursively
+# forking guard exhausts the runner long before any deadline is reached, which is how the
+# nightly lost shard 1 twice — once as "the runner has received a shutdown signal", once
+# as "the hosted runner lost communication with the server", both with the log blob
+# unfinalized and no artifact. (z) would pass the entire time: the harness never hung.
+#
+# The fixture mirrors doctor.sh's real shape rather than inventing one, because that shape
+# is what made the bug invisible: a nested self-invocation (`bash "$0"`, no args) that
+# terminates ONLY because the nested run does not re-enter the branch that makes it.
+# Flipping the `-eq` that gates the branch is a single ordinary cmp-eq mutant, and every
+# ancestor stays live while its child runs, so the group grows one level at a time.
+#
+# The fixture's own depth cap is the TEST's safety net, not the harness's: if the bound
+# under test ever regresses this case must fail, not fork-bomb a shared runner. It sits
+# far above the process bound pinned here, so it can never be what stops the growth.
+FX="$TMPROOT/fxfork$RANDOM$RANDOM"
+mkdir -p "$FX/tools"
+# THE FIXTURE CARRIES NO PROSE. Operator sites are enumerated by grepping the guard's
+# TEXT, comments included, so a comment mentioning the operator's match string becomes a
+# mutation site — and flipping a comment is a guaranteed survivor, which reds the run on a
+# mutant that cannot mean anything. An earlier draft of this case explained itself inside
+# the heredoc and enumerated two bogus cmp-eq sites for its trouble. Everything the
+# fixture would have said is said here instead:
+#
+#   - the flag is `--wrap`, not `--nest`, because the match string `-ne` is a SUBSTRING of
+#     `--nest`, which would enumerate a second, meaningless site;
+#   - the depth cap holds the tree up for a beat rather than merely capping it. Sixty
+#     levels of a do-nothing guard unwind well inside the harness's ~1s population sample,
+#     so a burst that never overlaps a sample would prove nothing. The shape being modelled
+#     (doctor.sh runs git and jq at every level) persists for minutes; sleeping at the
+#     floor restores that property without making the fixture slow.
+cat > "$FX/guard.sh" <<'EOF'
+#!/usr/bin/env bash
+D="${FIXTURE_DEPTH:-0}"
+if [[ "$D" -ge 60 ]]; then sleep 3; echo ok; exit 0; fi
+WRAP=0
+[[ "${1:-}" == "--wrap" ]] && WRAP=1
+if [[ "$WRAP" -eq 1 ]]; then echo "wrapped:$(FIXTURE_DEPTH=$((D + 1)) bash "$0")"; exit 0; fi
+echo ok
+exit 0
+EOF
+chmod 755 "$FX/guard.sh"
+cat > "$FX/guard-selftest.sh" <<'EOF'
+#!/usr/bin/env bash
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+out="$(bash "$HERE/guard.sh" </dev/null)"
+[[ "$out" == "ok" ]] || exit 1
+wrapped="$(bash "$HERE/guard.sh" --wrap </dev/null)"
+[[ "$wrapped" == "wrapped:ok" ]] || exit 1
+exit 0
+EOF
+printf '# fixture operators\ncmp-eq\t-eq|-ne\ts/-eq/__MUT__/g; s/-ne/-eq/g; s/__MUT__/-ne/g\n' \
+  > "$FX/tools/mutation-operators.tsv"
+printf '# fixture exclusions\n' > "$FX/tools/mutation-exclusions.tsv"
+printf '# fixture pair map\n'   > "$FX/tools/mutation-pair-map.tsv"
+printf '# fixture catalog\n'    > "$FX/tools/mutation-catalog.tsv"
+( cd "$FX" && git init -q . && git add -A \
+  && git -c user.email=fixture@example.invalid -c user.name=fixture commit -qm fork ) >/dev/null 2>&1
+
+# A LOW process bound so the case trips in about a second on a handful of processes
+# instead of on a real bomb, and a short time bound so a regression fails fast rather
+# than forking for the default ceiling. The time bound is deliberately reachable: if the
+# process bound never fires, the time bound eventually does, and the log then says
+# `killer timeout` where this case demands `killer process bound` — so a dead population
+# check fails LOUDLY instead of being absorbed by its sibling.
+FORK_LOG="$FX/sweep.log"
+( cd "$FX" && adv env MUTATION_SWEEP_KILLER_MAX_PROCS=12 MUTATION_SWEEP_KILLER_TIMEOUT_S=20 \
+    bash "$SWEEP" --mode full ) >"$FORK_LOG" 2>&1 </dev/null &
+FORK_PID=$!
+FORK_DEADLINE=$(( $(date +%s) + 90 ))
+FORK_HUNG=0
+while kill -0 "$FORK_PID" 2>/dev/null; do
+  if [[ "$(date +%s)" -ge "$FORK_DEADLINE" ]]; then FORK_HUNG=1; break; fi
+  sleep 0.2
+done
+if [[ $FORK_HUNG -eq 1 ]]; then
+  kill -9 "$FORK_PID" 2>/dev/null
+  pkill -9 -f "$FX/guard.sh" 2>/dev/null
+  wait "$FORK_PID" 2>/dev/null
+  bad "(ab) the sweep HUNG on a forking mutant — run_killer has no process bound"
+else
+  wait "$FORK_PID" 2>/dev/null; FORK_RC=$?
+  FORK_OUT="$(cat "$FORK_LOG")"
+  # Orphan check, the reason reap_group freezes the group before killing it: a single
+  # SIGKILL sweep races a tree that is still forking, and whatever it misses keeps
+  # forking for the rest of the shard — on a guard the harness has already moved past.
+  FORK_ORPHANS="$(pgrep -f "$FX/guard.sh" 2>/dev/null | wc -l | tr -d ' ')"
+  pkill -9 -f "$FX/guard.sh" 2>/dev/null
+  if [[ $FORK_RC -ne 0 ]]; then
+    bad "(ab) sweep completed but exited $FORK_RC"; printf '%s\n' "$FORK_OUT" | tail -5
+  elif ! printf '%s' "$FORK_OUT" | grep -q 'killer process bound'; then
+    bad "(ab) the forking killer was not named in the log — a silent kill hides a fork bomb"
+    printf '%s\n' "$FORK_OUT" | tail -5
+  elif ! printf '%s' "$FORK_OUT" | grep -qE 'swept guard\.sh — applied=1 killed=1 survived=0'; then
+    bad "(ab) forking mutant not scored as killed-by-process-bound"; printf '%s\n' "$FORK_OUT" | tail -5
+  elif [[ "${FORK_ORPHANS:-0}" -ne 0 ]]; then
+    bad "(ab) $FORK_ORPHANS guard process(es) outlived the reap — the group kill lost the fork race"
+  else
+    ok "forking mutant is bounded, reaped whole, scored as killed, and NAMED in the log"
+  fi
+fi
+
 # ======================================================== live-tree lint cases
 # (j) and (k) run against the REAL tree, not a fixture. They are pure resolution/parse
 # lints — no mutation, no sandbox, no suite execution — so they are cheap enough for both
