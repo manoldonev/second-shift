@@ -510,7 +510,21 @@ rm -f "$RUN_ID_CACHE"
 # The build session's only relationship to that file is reading one somebody else wrote. A
 # gate that could rewrite it — even to "normalize" it — makes every check in (n) decorative.
 # mtime is backdated first so that a rewrite producing identical bytes still shows up.
-mtime_of() { stat -f '%m' "$1" 2>/dev/null || stat -c '%Y' "$1" 2>/dev/null; }
+# `-f` is the one stat flag whose two dialects both SUCCEED at printing something. On BSD it is
+# the format string; on GNU it is --file-system, so a BSD-first probe there dumps a whole
+# filesystem block to stdout and *then* exits non-zero — the `||` appends the real mtime after
+# it, and the captured value carries the runner's free-block count. Two calls milliseconds apart
+# disagree whenever that count moves, so the comparison below was reading free disk space, not
+# mtime: red at random on GNU, green every time on BSD. Probe GNU first (BSD `stat -c` fails with
+# an empty stdout, so that direction cannot leak), then require digits, so neither dialect's
+# error output can reach the comparison. Empty is a FAILURE below, never a vacuous match.
+mtime_of() { # mtime_of <file> -> epoch seconds, or "" when neither dialect resolves
+  local m
+  m="$(stat -c '%Y' "$1" 2>/dev/null)"
+  case "$m" in ''|*[!0-9]*) m="$(stat -f '%m' "$1" 2>/dev/null)" ;; esac
+  case "$m" in ''|*[!0-9]*) m="" ;; esac
+  printf '%s' "$m"
+}
 seed_build_progress r-build-1 sess-build-1
 printf '# spec\n\n- AC-1: a thing\n' > "$SPEC"
 # Committed on its OWN, before the record is written. `commit_tree` stages everything, so
@@ -522,9 +536,9 @@ touch -t 202601010000 "$VERDICT"
 o_sum_before="$(cksum < "$VERDICT")"; o_mt_before="$(mtime_of "$VERDICT")"
 out="$(gate all 7 --pr-file "$WORK/pr-ready.json" --comments-file "$WORK/comments-closing.json")"; rc=$?
 o_sum_after="$(cksum < "$VERDICT")"; o_mt_after="$(mtime_of "$VERDICT")"
-if [ "$rc" -eq 0 ] && [ "$o_sum_before" = "$o_sum_after" ] && [ "$o_mt_before" = "$o_mt_after" ]; then
+if [ "$rc" -eq 0 ] && [ -n "$o_mt_before" ] && [ "$o_sum_before" = "$o_sum_after" ] && [ "$o_mt_before" = "$o_mt_after" ]; then
   pass "(o) a full 'all' sweep leaves the verdict record byte- and mtime-identical"
-else fail "(o) sweep rc=$rc; cksum $o_sum_before -> $o_sum_after; mtime $o_mt_before -> $o_mt_after: $out"; fi
+else fail "(o) sweep rc=$rc; cksum $o_sum_before -> $o_sum_after; mtime '$o_mt_before' -> '$o_mt_after': $out"; fi
 
 # ---- (p) the REVIEW role: lean-gate.sh verdict ---------------------------------------------
 # Every arm here is a refusal that fails CLOSED. The subcommand is the only write path to the
