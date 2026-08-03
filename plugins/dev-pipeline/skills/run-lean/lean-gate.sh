@@ -71,6 +71,9 @@
 #   SECOND_SHIFT_CONFIG      override the resolved config path
 #   --pr-file <path>         milestone 5: read the PR record from a JSON fixture
 #   --comments-file <path>   milestone 5: read the issue comments from a JSON fixture
+#   LEAN_RUN_MODEL           #347: the `model:` key stamped into the progress/verdict record
+#                            at creation time (retro-corpus.sh's corpus-aggregation key).
+#                            Read once, not cached; absent reads "unknown", never an error.
 #
 # bash 3.2 compatible (macOS ships it, and CI has a bash-3.2 lane).
 set -uo pipefail
@@ -322,6 +325,10 @@ ensure_progress_file() {
       echo "branch_prefix: $LEAN_BRANCH_PREFIX"
       echo "spec: $SPEC_REL"
       echo "verdict_record: $VERDICT_REL"
+      # #347: a corpus-aggregation key, not a new artifact — read once, here, at record
+      # creation. No env var carries the session's own model identity today, so this is
+      # opt-in: absent, retro-corpus.sh reads it as "unknown", a label, not an error.
+      echo "model: ${LEAN_RUN_MODEL:-unknown}"
       echo ""
     } > "$PROGRESS_FILE"
   fi
@@ -780,6 +787,7 @@ cmd_verdict() {
     echo "rounds: $VERDICT_ROUNDS"
     echo "pr: #$VERDICT_PR"
     echo "reviewed_head: $reviewed_head"
+    echo "model: ${LEAN_RUN_MODEL:-unknown}"
     echo ""
     if [ -n "$body" ]; then printf '%s\n' "$body"; fi
   } > "$rec"

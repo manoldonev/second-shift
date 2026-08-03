@@ -395,6 +395,9 @@ out="$(cat "$PROG" 2>/dev/null)"
 if printf '%s' "$out" | grep -q '^run_id: unset$'; then
   pass "(m1) with no RUN_ID and no cache, the header stamps run_id: unset (unchanged default)"
 else fail "(m1) expected 'run_id: unset' in the header, got: $out"; fi
+if printf '%s' "$out" | grep -q '^model: unknown$'; then
+  pass "(m1b) ensure_progress_file() stamps model: unknown when LEAN_RUN_MODEL is unset (#347)"
+else fail "(m1b) expected 'model: unknown' in the header, got: $out"; fi
 
 reset_progress
 rm -f "$RUN_ID_CACHE"
@@ -574,8 +577,8 @@ out="$(verdict_cmd sess-review-9 r-review-9 --pr 12 --verdict approve --rounds 2
 if [ "$rc" -eq 0 ] && grep -qF 'verdict=approve' "$VERDICT" 2>/dev/null \
    && grep -qF 'run_id: r-review-9' "$VERDICT" && grep -qF 'session_id: sess-review-9' "$VERDICT" \
    && grep -qF 'rounds: 2' "$VERDICT" && grep -qF 'No blockers.' "$VERDICT" \
-   && grep -qF "reviewed_head: $p5_head" "$VERDICT"; then
-  pass "(p5) verdict writes the record with all three reconciliation keys, a git-resolved reviewed_head, and the summary body"
+   && grep -qF "reviewed_head: $p5_head" "$VERDICT" && grep -qF 'model: unknown' "$VERDICT"; then
+  pass "(p5) verdict writes the record with all three reconciliation keys, a git-resolved reviewed_head, the model key (#347), and the summary body"
 else fail "(p5) expected a well-formed record, rc=$rc: $out
 $(cat "$VERDICT" 2>/dev/null)"; fi
 
