@@ -354,5 +354,29 @@ if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q "reads 'verdict=needs-work'";
 else fail "(P) expected rc=1 on a needs-work record with the token in its body, got rc=$rc: $out"; fi
 write_verdict
 
+# ---- (Q) the freshness check's own inputs fail CLOSED ------------------------------------
+# Both guards anchor evidence 5, and dropping either one does not make the check fail — it
+# makes it PASS. `git diff --name-only <commit> ""` errors out, `STALE` comes back empty, and
+# the gate prints its ✓ freshness line having compared nothing. That is the same shape as the
+# `verdict=` substring hole (P): a check that cannot run must not report a pass. Neither guard
+# had a case; every other run_gate call resolves a live sha, so the failure paths were unreachable.
+out="$( cd "$TREE" && LEAN_BRANCH_PREFIX="lean/acme-" PIPELINE_BRANCH_PREFIX="claude/acme-" \
+        PR_HEAD_REF="lean/acme-42" PR_BODY="$BODY_GOOD" PR_CREATED_AT="$PR_OPEN_AT" \
+        PR_HEAD_SHA="" \
+        bash "$GATE" --comments-file "$WORK/comments-good.json" --diff-files-file "$WORK/diff-lean.txt" 2>&1 )"; rc=$?
+if [ "$rc" -eq 2 ] && printf '%s' "$out" | grep -q 'PR_HEAD_SHA is unset or empty'; then
+  pass "(Q1) an empty PR_HEAD_SHA is an environment error, not an unmeasured freshness pass"
+else fail "(Q1) expected rc=2 on an empty PR_HEAD_SHA, got $rc: $out"; fi
+
+# A sha-shaped value that names no object in this checkout. Distinct from (Q1): the emptiness
+# guard is satisfied, and only the object lookup stands between a bogus ref and a silent ✓.
+out="$( cd "$TREE" && LEAN_BRANCH_PREFIX="lean/acme-" PIPELINE_BRANCH_PREFIX="claude/acme-" \
+        PR_HEAD_REF="lean/acme-42" PR_BODY="$BODY_GOOD" PR_CREATED_AT="$PR_OPEN_AT" \
+        PR_HEAD_SHA="0000000000000000000000000000000000000000" \
+        bash "$GATE" --comments-file "$WORK/comments-good.json" --diff-files-file "$WORK/diff-lean.txt" 2>&1 )"; rc=$?
+if [ "$rc" -eq 2 ] && printf '%s' "$out" | grep -q 'is not a commit in this checkout'; then
+  pass "(Q2) a PR_HEAD_SHA naming no object is an environment error, not a silent pass"
+else fail "(Q2) expected rc=2 on an unresolvable PR_HEAD_SHA, got $rc: $out"; fi
+
 echo "[check-lean-chain-selftest] $([ "$FAILS" -eq 0 ] && echo 'all green' || echo "$FAILS FAILURE(S)")"
 exit "$FAILS"
