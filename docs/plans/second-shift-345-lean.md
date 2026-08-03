@@ -96,3 +96,26 @@ Needs-work loops round-trip through artifacts only: findings on the PR, a build 
   posture note no longer records the enforcement as owed-and-pending.
 - **AC-12** (oracle — CI): `plugins/dev-pipeline/skills/run-lean/workflows/` is absent from
   the tree and from both lints' directory enumeration.
+
+## ACs added by review round 1
+
+Round 1 found the separation sound but four of its supporting properties incomplete. These
+extend the definition of done rather than restate it.
+
+- **AC-13** (oracle — selftest): the `verdict=` value is read FIRST-MATCH at all three readers,
+  never counted across the file. A `verdict=needs-work` record whose summary body contains the
+  literal `verdict=approve` — the shape `--summary-file` makes ordinary, and which two merged
+  records already carry — is refused by milestone 4 and by the merge boundary.
+- **AC-14** (oracle — selftest + scenario): the verdict record is bound to the tree it covered.
+  Milestone 4 and `check-lean-chain.sh` each refuse a record that is uncommitted (never
+  committed, or committed and then edited) and one with any non-record commit between its
+  commit and the head; a new review round clears both. The merge boundary measures against the
+  PR head commit, not the checkout's `HEAD`, which on a `pull_request` event is the merge ref.
+- **AC-15** (oracle — selftest): a milestone EVALUATION never establishes the build run
+  identity. Only `entry` and `claim` may write `<issue>-run-id`, so a review session running
+  `bash G 4 <issue>` against an absent cache cannot seed it with its own id and permanently red
+  a valid record.
+- **AC-16** (oracle — selftest): the claim comment carries the build `session_id` as well as its
+  `run_id`, and the merge boundary refuses a verdict naming that session even when the run ids
+  differ. A claim predating this carries none; that case passes with a printed note, because
+  the PR-open window makes re-posting impossible and an unfixable red is not a gate.

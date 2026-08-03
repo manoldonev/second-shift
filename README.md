@@ -41,10 +41,16 @@ claude
 }
 ```
 
-Then pick a small, self-contained ticket and let the pipeline run it end to end — autonomous is the only mode you need. The default lane routes intake → build → review → merge boundary, gated by five artifact milestones:
+Then pick a small, self-contained ticket and let the pipeline run it — autonomous is the only mode you need. The default lane routes intake → build → review → merge boundary, gated by five artifact milestones:
 
 ```text
 /dev-pipeline:run-lean <ticket>
+```
+
+The build half stops at the review milestone and hands off, because a session that grades its own work is not an independent review. The second half runs against the PR it opened and commits the verdict the merge boundary reads:
+
+```text
+/dev-pipeline:review-lean <pr>
 ```
 
 Full onboarding — topologies (monorepo, BE+FE pair), reviewer tuning, extension files — is in [`docs/onboarding.md`](docs/onboarding.md); the JIRA tracker's setup and behavioral delta live in [the JIRA tracker README](plugins/dev-pipeline/skills/run/tools/tracker/jira/README.md). To keep collaborators on the same toolset, commit the settings pin `onboard` writes (`extraKnownMarketplaces` + `enabledPlugins` in `.claude/settings.json`); track latest only in a canary.

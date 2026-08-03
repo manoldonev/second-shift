@@ -157,12 +157,25 @@ async function main() {
     const discovered = readdirSync(SKILLS_DIR)
       .map((s) => join(SKILLS_DIR, s, 'workflows'))
       .filter((d) => existsSync(d) && statSync(d).isDirectory())
-    const unlisted = discovered.filter((d) => !WORKFLOW_DIRS.includes(d))
+    // Extracted rather than inlined so its FAIL branch can be driven with a synthetic tree. A
+    // discovery check that only ever sees the real, currently-clean layout asserts nothing
+    // about what it does when a directory IS missing from the list — it reports the same green
+    // a lint with no self-check at all would. The shell counterpart plants a real directory in
+    // a $TMP mirror (check-bounded-exploration-selftest.sh C1b); here the discovered set is an
+    // argument, so the planting is a literal.
+    const unlistedDirs = (found, listed) => found.filter((d) => !listed.includes(d))
+    const unlisted = unlistedDirs(discovered, WORKFLOW_DIRS)
     unlisted.length === 0
       ? pass(`I-discovery every workflows/ dir under skills/ is in the scanned set (${discovered.length})`)
       : fail(
           `I-discovery ${unlisted.join(', ')} exist(s) but is not linted for meta purity — add it to WORKFLOW_DIRS here and in tools/check-bounded-exploration.sh`,
         )
+    const planted = join(SKILLS_DIR, 'planted-skill', 'workflows')
+    eq(
+      'I-discovery-nv a workflows/ dir outside the scanned set is reported, not silently skipped',
+      unlistedDirs([...discovered, planted], WORKFLOW_DIRS),
+      [planted],
+    )
     const metaFiles = WORKFLOW_DIRS.flatMap((dir) =>
       readdirSync(dir)
         .filter((f) => f.endsWith('.mjs'))

@@ -7,9 +7,9 @@ description: The default dev-pipeline lane — GitHub issue to ready PR, gated b
 
 Outcome-gated harness. `lean-gate.sh` asserts artifacts; **how** you produce them is yours.
 Any skill surface (intake, plan-interview) is an available pool — none is mandated. Spend the
-tokens on the work, not on narrating it. The one thing that is NOT yours is the review verdict:
-it is authored outside this session (`/dev-pipeline:review-lean`). Read this whole file, then
-work the checklist. `G` = `lean-gate.sh` in this directory.
+tokens on the work, not on narrating it. The one thing NOT yours is the review verdict: it is
+authored outside this session (`/dev-pipeline:review-lean`). Read this file, then work the
+checklist. `G` = `lean-gate.sh` in this directory.
 
 ## Checklist
 
@@ -17,9 +17,8 @@ work the checklist. `G` = `lean-gate.sh` in this directory.
    makes the run reconcilable later. Then confirm the issue carries the queue label; a
    missing one is a reject, no prompting.
 2. `bash G claim <issue>` — the two bot-wrapper writes (label swap + `lean-claimed` marker).
-   Export `RUN_ID` first (neutral token, `[A-Za-z0-9._-]+`); it keys every record. The gate
-   caches it to `<issue>-run-id` so later `bash G ...` calls (each a fresh shell) resolve
-   the same id without re-exporting; a mismatch is exactly what `lean-reconcile.sh` catches.
+   Export `RUN_ID` first (neutral token, `[A-Za-z0-9._-]+`); it keys every record, and only
+   `entry`/`claim` cache it to `<issue>-run-id` for the later fresh-shell calls to resolve.
 3. Cut a worktree on `<lean prefix><issue>` from the configured base. Never work in the
    shared checkout. `bash G 1 <issue>` prints the exact spec path it wants.
 4. **Write the spec/AC file** at that path, ≥ 1 numbered `AC-n`. It is the living definition
@@ -31,11 +30,11 @@ work the checklist. `G` = `lean-gate.sh` in this directory.
 7. Compute the cost block once (`pipeline-cost-block.sh --stateless`). Open a **ready**
    (non-draft) PR: summary, spec link, `Closes #<issue>`, and the cost block appended to the
    description too — reviewers read the PR, not the issue thread. No stage sections.
-8. **Milestone 4 arrives from OUTSIDE.** Dispatch no reviewer — the verdict record is written
-   by a separate top-level session (`/dev-pipeline:review-lean <pr>`) with its own identity,
-   and this gate refuses one carrying yours. Hand off, resume when the record is on the
-   branch; `bash G 4 <issue>` passes only on a committed `verdict=approve`. On `needs-work`,
-   fix every blocker, push, and ask for a **new** review context — never a resumed one.
+8. **Milestone 4 arrives from OUTSIDE.** Dispatch no reviewer — the record is written by a
+   separate top-level session (`/dev-pipeline:review-lean <pr>`) with its own identity, and
+   this gate refuses one carrying yours. Hand off; `bash G 4 <issue>` passes only on a
+   committed `verdict=approve` **covering the current head**. On `needs-work`, fix every
+   blocker, push, and ask for a **new** review context — never a resumed one.
 9. Post one closing comment: PR link, verdict-record reference, same cost block. Then
    `bash G 5 <issue>` — exit artifacts. Drop the claimed label and remove the worktree.
 
@@ -43,6 +42,8 @@ work the checklist. `G` = `lean-gate.sh` in this directory.
 
 - **You never author the verdict.** Not on a dark reviewer, not to unblock a run, not "to be
   replaced later" — the gate and the merge boundary both refuse it.
+- **Anything pushed after an approve costs another round.** The verdict is bound to the tree
+  it covered, so any later commit reopens milestone 4. Land every fix before the handoff.
 - **3 fix attempts per milestone.** The 4th red (`rc=4`) hard-stops: append the reason, post
   one abort comment naming the milestone, keep the worktree, leave the issue claimed for
   manual rescue. Do not re-run past a hard stop.

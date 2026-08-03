@@ -30,6 +30,12 @@
 # across the audit ledger lean-reconcile.sh reads) but it is not a guarantee. Do not describe
 # this check as stronger than lean-reconcile.sh and check-lean-chain.sh describe theirs.
 #
+# FRESHNESS (milestone 4). Four of the five milestones re-derive their answer from the current
+# tree on every sweep, which is what makes `satisfied` a record rather than a cache. Milestone
+# 4 cannot: its evaluation is reading a file. So it additionally binds that file to a tree —
+# the record must be COMMITTED, and nothing but the record itself may have changed since. A
+# verdict for an earlier head is not a verdict for this one.
+#
 # Usage:
 #   lean-gate.sh entry  <issue>          entry precondition: the session's audit ledger is live.
 #                                        The queue-label reject is the SESSION's step (SKILL.md
@@ -85,7 +91,7 @@ while [ $# -gt 0 ]; do
     --verdict)       VERDICT_VALUE="${2:-}"; shift 2 ;;
     --rounds)        VERDICT_ROUNDS="${2:-}"; shift 2 ;;
     --summary-file)  SUMMARY_FILE="${2:-}"; shift 2 ;;
-    -h|--help)       sed -n '2,57p' "$0"; exit 0 ;;
+    -h|--help)       sed -n '2,63p' "$0"; exit 0 ;;
     -*)              envfail "unknown option: $1" ;;
     *)
       if [ "$POSITIONAL" -eq 0 ]; then SUB="$1"; POSITIONAL=1
@@ -215,15 +221,25 @@ resolve_cached_id() { # resolve_cached_id <cache-path> <persist:0|1>
     printf 'unset'
   fi
 }
-if [ "$SUB" = "verdict" ]; then
-  # Resolve WITHOUT persisting. The review identity is cached only once the record is actually
-  # written (see cmd_verdict), so a REFUSED call cannot seed the cache — otherwise one rejected
-  # attempt would make the next call's "no review identity provisioned" refusal vanish, which is
-  # the same silent-inheritance failure in a slower form.
-  RESOLVED_RUN_ID="$(resolve_cached_id "$REVIEW_RUN_ID_CACHE" 0)"
-else
-  RESOLVED_RUN_ID="$(resolve_cached_id "$RUN_ID_CACHE" 1)"
-fi
+case "$SUB" in
+  verdict)
+    # Resolve WITHOUT persisting. The review identity is cached only once the record is actually
+    # written (see cmd_verdict), so a REFUSED call cannot seed the cache — otherwise one rejected
+    # attempt would make the next call's "no review identity provisioned" refusal vanish, which is
+    # the same silent-inheritance failure in a slower form.
+    RESOLVED_RUN_ID="$(resolve_cached_id "$REVIEW_RUN_ID_CACHE" 0)" ;;
+  entry|claim)
+    # ONLY the two build-role subcommands may ESTABLISH the build identity. Seed-once above is
+    # necessary but not sufficient: with no cache on disk yet — a run that never exported
+    # RUN_ID, a state dir cleaned after a retro — a REVIEW session running `bash G 4 <issue>`
+    # to check the record it just wrote would CREATE the cache holding its own id, and
+    # milestone 4 (which compares the record against that very file) would then refuse a valid,
+    # review-authored record permanently, burning a fix attempt on every retry. An EVALUATION
+    # must be able to read an identity, never to establish one.
+    RESOLVED_RUN_ID="$(resolve_cached_id "$RUN_ID_CACHE" 1)" ;;
+  *)
+    RESOLVED_RUN_ID="$(resolve_cached_id "$RUN_ID_CACHE" 0)" ;;
+esac
 
 # First `<key>: <token>` in a file, HTML-comment or bare form. Deliberately the SAME extraction
 # shape lean-reconcile.sh uses on the same records — two readers of one schema that disagreed
@@ -231,6 +247,19 @@ fi
 record_key() { # record_key <key> <file>
   [ -f "$2" ] || return 0
   grep -oE "$1:[[:space:]]*[A-Za-z0-9._-]+" "$2" 2>/dev/null | head -n1 | sed -E "s/^$1:[[:space:]]*//"
+}
+
+# The verdict VALUE, read FIRST-MATCH like every other key in the record. Never a substring
+# count over the whole file: `--summary-file` puts the reviewer's own prose below these keys,
+# and review prose discusses verdicts. That is not hypothetical — the committed record for
+# #237 reads `verdict=approve` on line 3 and again on line 9 inside a sentence about round 1.
+# Had line 3 said `needs-work`, a count-anywhere reader would have certified it. Line-anchoring
+# (`^verdict=approve$`) was the other candidate and was rejected: the earliest records write
+# the key as a bullet or a table cell (`- verdict=approve`, `milestone-4 | verdict=approve |`),
+# so an anchor would silently reclassify already-merged evidence as unreadable.
+record_verdict() { # record_verdict <file>
+  [ -f "$1" ] || return 0
+  grep -oE 'verdict=[A-Za-z-]+' "$1" 2>/dev/null | head -n1 | sed -E 's/^verdict=//'
 }
 
 # ---------------------------------------------------------------- progress-file primitives
@@ -352,10 +381,16 @@ cmd_claim() {
   # (ii) the marker comment. `lean-claimed`, NEVER `stage: claimed` — a lean-distinct
   # marker so this comment can never pollute check-pipeline-chain.sh's run-family
   # selection if the same issue is later run through full `run`.
+  # The claim comment is the ONLY build-side record CI can see (the progress file is
+  # gitignored and never reaches a checkout), so it carries BOTH build identities, not just
+  # the run id. run_id is agent-CHOSEN — a build session that wanted to review itself needs
+  # only pick a second string — whereas the session id is harness-assigned. Carrying it here
+  # is what lets check-lean-chain.sh compare the stronger of the two at the merge boundary.
   body="$(mktemp -t lean-claim.XXXXXX)" || envfail "mktemp failed."
   {
     echo "<!-- dev-pipeline -->"
     echo "<!-- run_id: $RESOLVED_RUN_ID -->"
+    echo "<!-- session_id: ${CLAUDE_CODE_SESSION_ID:-unset} -->"
     echo "<!-- stage: lean-claimed -->"
     echo ""
     echo "🤖 Claimed by \`/dev-pipeline:run-lean\`."
@@ -480,10 +515,12 @@ cmd_3() {
 # the P10 separation below is decorative. The suite asserts the file is byte- and
 # mtime-identical across a full `all` sweep.
 cmd_4() {
-  local rec="$REPO_ROOT/$VERDICT_REL" v_run v_sess b_prog_run b_prog_sess b_cached cand
+  local rec="$REPO_ROOT/$VERDICT_REL" v_val v_run v_sess b_prog_run b_prog_sess b_cached cand
+  local v_commit v_short stale n_stale
   [ -f "$rec" ] || { fail_milestone 4 "no committed verdict record at $VERDICT_REL"; return $?; }
-  if [ "$(count_matches 'verdict=approve' "$rec" -F)" -eq 0 ]; then
-    fail_milestone 4 "verdict record $VERDICT_REL does not read verdict=approve"; return $?
+  v_val="$(record_verdict "$rec")"
+  if [ "$v_val" != "approve" ]; then
+    fail_milestone 4 "verdict record $VERDICT_REL reads verdict=${v_val:-<none>}, not verdict=approve"; return $?
   fi
   # The reconciliation keys are what make the record checkable against the audit ledger.
   v_run="$(record_key run_id "$rec")"
@@ -525,7 +562,43 @@ cmd_4() {
     return $?
   fi
 
-  pass_milestone 4 "$VERDICT_REL reads verdict=approve, authored by review run $v_run"
+  # FRESHNESS — the verdict must cover the tree it is being read against.
+  #
+  # cmd_all states the invariant the other four milestones live by: `satisfied` is a RECORD,
+  # not a CACHE, so every milestone is re-evaluated against the CURRENT tree on every sweep.
+  # Milestone 4 is the one that cannot honor it by re-evaluating, because its evaluation is
+  # reading a file somebody else wrote. Something else has to bind that file to a tree.
+  #
+  # That gap was harmless while the build session wrote the record at review time — the record
+  # and the tree were coupled by the ordering. Once review moved to a separate session it stops
+  # being harmless: "verdict, then more commits" is the ORDINARY shape of the needs-work loop,
+  # and the PR that introduced this separation demonstrated it on itself (verdict committed,
+  # then a follow-up commit rewrote the authorship arms above, and this gate stayed green).
+  #
+  # Derived from git, never from a key in the record: git decides which commit carries the
+  # record, and the record's own prose cannot argue with it. The tolerance is exactly one path
+  # — the record itself — because the review session commits nothing else (review-lean step 6).
+  v_commit="$(git -C "$REPO_ROOT" log -1 --format=%H -- "$VERDICT_REL" 2>/dev/null)"
+  if [ -z "$v_commit" ]; then
+    fail_milestone 4 "verdict record $VERDICT_REL exists but was never committed — a local file is not evidence, and nothing downstream can see it. Commit and push it to the PR's head branch."
+    return $?
+  fi
+  # Tracked-but-dirty is its own case, and the one a bare `git log` lookup misses: the path has
+  # a commit, so the lookup above is satisfied, while the bytes being READ are not the bytes
+  # anyone committed. Both readings of "not committed" have to fail.
+  if ! git -C "$REPO_ROOT" diff --quiet HEAD -- "$VERDICT_REL" 2>/dev/null; then
+    fail_milestone 4 "verdict record $VERDICT_REL has uncommitted changes — the record being read is not the record on the branch, so the one downstream sees is a different file. Commit and push it."
+    return $?
+  fi
+  stale="$(git -C "$REPO_ROOT" diff --name-only "$v_commit" HEAD 2>/dev/null | grep -vxF "$VERDICT_REL")"
+  if [ -n "$stale" ]; then
+    v_short="$(git -C "$REPO_ROOT" rev-parse --short "$v_commit" 2>/dev/null)"
+    n_stale="$(printf '%s\n' "$stale" | wc -l | tr -d ' ')"
+    fail_milestone 4 "verdict record $VERDICT_REL approves $v_short, but $n_stale file(s) changed after it (e.g. $(printf '%s' "$stale" | head -n1)) — a verdict does not cover code it never saw. Get a new review round on the current head: '/dev-pipeline:review-lean <pr>'."
+    return $?
+  fi
+
+  pass_milestone 4 "$VERDICT_REL reads verdict=approve, authored by review run $v_run, covering the current head"
 }
 
 # ---------------------------------------------------------------- verdict (REVIEW role)

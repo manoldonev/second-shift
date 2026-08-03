@@ -39,6 +39,17 @@ mkdir -p "$TREE/docs/plans" "$TREE/.claude/audit"
 git -C "$TREE" init -q
 git -C "$TREE" config user.email t@example.invalid
 git -C "$TREE" config user.name t
+# Milestone 4's freshness arm reads the verdict record's COMMIT, so the fixture carries real
+# commits rather than loose files — a commit-less tree would make every freshness assertion
+# vacuous and red the cases that are about something else. `.claude/` is ignored exactly as the
+# real repo ignores it, so a cache file appearing or being removed between cases cannot read as
+# "code changed after the verdict". `add -A` is safe here and nowhere else: throwaway repo.
+printf '.claude/\n' > "$TREE/.gitignore"
+commit_tree() { # commit_tree [message]
+  git -C "$TREE" add -A >/dev/null 2>&1
+  git -C "$TREE" commit -q --allow-empty -m "${1:-fixture}" >/dev/null 2>&1
+}
+commit_tree "fixture tree"
 
 CFG="$WORK/config.json"
 cat > "$CFG" <<'EOF'
@@ -209,8 +220,16 @@ else fail "(i) expected a mutation-sweep skip notice, got rc=$rc: $out"; fi
 # ---- (j) AC-6: milestone 4 blocks on anything but a committed verdict=approve -------------
 # The fixture verdict is REVIEW-authored throughout: `r-review-1` / `sess-review-1` are the
 # separate review session's identities. A build-authored one is case (n).
+# Each call models a fresh review ROUND, so the round counter advances and the bytes differ.
+# That is not cosmetic: milestone 4 reads the record's COMMIT, and an identical re-write stages
+# nothing, so the record would keep the commit of an earlier round while the tree moved on —
+# the case would then red on freshness rather than on what it is about.
+VROUND=0
 write_review_verdict() { # write_review_verdict [verdict]
-  printf 'verdict=%s\nrun_id: r-review-1\nsession_id: sess-review-1\nrounds: 1\n' "${1:-approve}" > "$VERDICT"
+  VROUND=$((VROUND + 1))
+  printf 'verdict=%s\nrun_id: r-review-1\nsession_id: sess-review-1\nrounds: %s\n' \
+    "${1:-approve}" "$VROUND" > "$VERDICT"
+  commit_tree "review verdict ${1:-approve} (round $VROUND)"
 }
 
 reset_progress
@@ -221,12 +240,12 @@ else fail "(j1) expected rc=1, got $rc: $out"; fi
 
 write_review_verdict needs-work
 out="$(gate 4 7)"; rc=$?
-if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q 'does not read verdict=approve'; then
+if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q 'reads verdict=needs-work, not verdict=approve'; then
   pass "(j2) milestone-4 fails on verdict=needs-work"
 else fail "(j2) expected rc=1 on needs-work, got $rc: $out"; fi
 
 # An approve record with no reconciliation key is unverifiable at the merge boundary.
-printf 'verdict=approve\n' > "$VERDICT"
+printf 'verdict=approve\n' > "$VERDICT"; commit_tree
 out="$(gate 4 7)"; rc=$?
 if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q 'no run_id reconciliation key'; then
   pass "(j3) milestone-4 fails an approve record carrying no run_id reconciliation key"
@@ -237,7 +256,7 @@ else fail "(j3) expected rc=1 on a key-less approve, got $rc: $out"; fi
 # reset_progress first — j1..j3 have already spent the 3-attempt budget, and a 4th red would
 # hard-stop at rc=4 and prove nothing about the check under test.
 reset_progress
-printf 'verdict=approve\nrun_id: r-review-1\n' > "$VERDICT"
+printf 'verdict=approve\nrun_id: r-review-1\n' > "$VERDICT"; commit_tree
 out="$(gate 4 7)"; rc=$?
 if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q 'no session_id reconciliation key'; then
   pass "(j3b) milestone-4 fails an approve record carrying no session_id reconciliation key"
@@ -332,9 +351,14 @@ else fail "(m1) expected 'run_id: unset' in the header, got: $out"; fi
 
 reset_progress
 rm -f "$RUN_ID_CACHE"
-out="$( cd "$TREE" && SECOND_SHIFT_CONFIG="$CFG" LEAN_PROGRESS_FILE="$PROG" RUN_ID="selftest-run-306" bash "$GATE" 3 7 2>&1 )"; rc=$?
+# Through `entry`, a BUILD-ROLE subcommand — only `entry` and `claim` may ESTABLISH the build
+# identity, for the reason (m4) pins. `entry` is the cheaper of the two to drive here (a
+# session id and a non-empty ledger, both already fixtured above; `claim` needs the bot
+# wrapper), and it is also the first call of a real run, which is what (m3) then continues.
+out="$( cd "$TREE" && SECOND_SHIFT_CONFIG="$CFG" LEAN_PROGRESS_FILE="$PROG" \
+        CLAUDE_CODE_SESSION_ID=sess-live RUN_ID="selftest-run-306" bash "$GATE" entry 7 2>&1 )"; rc=$?
 if [ "$rc" -eq 0 ] && [ "$(cat "$RUN_ID_CACHE" 2>/dev/null)" = "selftest-run-306" ]; then
-  pass "(m2) a call made WITH RUN_ID in its env caches it to <issue>-run-id"
+  pass "(m2) a build-role call made WITH RUN_ID in its env caches it to <issue>-run-id"
 else fail "(m2) expected the cache file to hold 'selftest-run-306', rc=$rc, cache=$(cat "$RUN_ID_CACHE" 2>/dev/null)"; fi
 
 reset_progress
@@ -346,7 +370,23 @@ if printf '%s' "$out" | grep -q '^run_id: selftest-run-306$'; then
   pass "(m3) a later call with NO RUN_ID in its env still resolves the cached id, not unset"
 else fail "(m3) expected 'run_id: selftest-run-306' from the cache, got: $out"; fi
 
+# An EVALUATION may READ the build identity, never ESTABLISH one. With no cache on disk yet —
+# a run that never exported RUN_ID, a state dir cleaned after a retro — a REVIEW session doing
+# the natural thing (`bash G 4 <issue>` to check the record it just wrote, which review-lean
+# forbids nowhere) would otherwise CREATE the cache holding its own id. Milestone 4 compares
+# the record against that very file, so it would then refuse a valid, review-authored record
+# on every subsequent call, burning a fix attempt each time until the budget hard-stops.
+# Seed-once alone does not cover this: there is nothing to lose the race to.
+reset_progress
 rm -f "$RUN_ID_CACHE"
+out="$( cd "$TREE" && SECOND_SHIFT_CONFIG="$CFG" LEAN_PROGRESS_FILE="$PROG" \
+        RUN_ID="r-review-poison" bash "$GATE" 4 7 2>&1 )"
+if [ ! -e "$RUN_ID_CACHE" ]; then
+  pass "(m4) a milestone EVALUATION with RUN_ID set does not create the build run-id cache"
+else fail "(m4) an evaluation seeded the build cache with '$(cat "$RUN_ID_CACHE" 2>/dev/null)'"; fi
+
+rm -f "$RUN_ID_CACHE"
+reset_progress
 
 # ---- (n) P10 authorship: the build session may not author its own verdict ------------------
 # Three build identities are compared, and each arm has its own way of being the one that
@@ -361,14 +401,14 @@ seed_build_progress() { # seed_build_progress <run-id> <session-id>
 }
 
 seed_build_progress r-build-1 sess-build-1
-printf 'verdict=approve\nrun_id: r-build-1\nsession_id: sess-review-1\n' > "$VERDICT"
+printf 'verdict=approve\nrun_id: r-build-1\nsession_id: sess-review-1\n' > "$VERDICT"; commit_tree
 out="$(gate 4 7)"; rc=$?
 if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q "BUILD run's identity"; then
   pass "(n1) milestone-4 refuses a verdict carrying the build run's run_id"
 else fail "(n1) expected rc=1 on a build-authored verdict, got $rc: $out"; fi
 
 seed_build_progress r-build-1 sess-build-1
-printf 'verdict=approve\nrun_id: r-review-1\nsession_id: sess-build-1\n' > "$VERDICT"
+printf 'verdict=approve\nrun_id: r-review-1\nsession_id: sess-build-1\n' > "$VERDICT"; commit_tree
 out="$(gate 4 7)"; rc=$?
 if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q 'names the BUILD session'; then
   pass "(n2) milestone-4 refuses a verdict whose session_id is the build session's"
@@ -378,7 +418,7 @@ else fail "(n2) expected rc=1 on a build-session verdict, got $rc: $out"; fi
 # can supply it — which is exactly the state a review session that re-exported nothing is in.
 seed_build_progress unset sess-build-1
 mkdir -p "$(dirname "$RUN_ID_CACHE")"; printf 'r-cached-1' > "$RUN_ID_CACHE"
-printf 'verdict=approve\nrun_id: r-cached-1\nsession_id: sess-review-1\n' > "$VERDICT"
+printf 'verdict=approve\nrun_id: r-cached-1\nsession_id: sess-review-1\n' > "$VERDICT"; commit_tree
 out="$(gate 4 7)"; rc=$?
 if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q "BUILD run's identity"; then
   pass "(n3) milestone-4 refuses an identity that resolves from the build run-id CACHE file"
@@ -490,6 +530,9 @@ else fail "(p6) review-cache='$(cat "$REVIEW_CACHE" 2>/dev/null)' build-cache-ex
 
 # ...and the record the REVIEW role just wrote is exactly what the BUILD role's milestone 4
 # accepts. Asserting the two halves compose is the point; each half passing alone is not.
+# The commit is the review session's own next step (review-lean step 6) and milestone 4 now
+# requires it: an uncommitted record is invisible to everything downstream.
+commit_tree "review session commits its record"
 out="$(gate 4 7)"; rc=$?
 if [ "$rc" -eq 0 ]; then pass "(p7) milestone-4 accepts the record written by the review role"
 else fail "(p7) expected rc=0 from milestone-4 on a review-written record, got $rc: $out"; fi
@@ -520,7 +563,94 @@ if [ "$rc" -eq 0 ] && grep -qF 'pr: #12' "$VERDICT" 2>/dev/null; then
 else fail "(r3) expected rc=0 and 'pr: #12', got $rc: $out
 $(cat "$VERDICT" 2>/dev/null)"; fi
 
+# `0` matches neither '' nor *[!0-9]*, so it is the alternative a mutant drops first — and it
+# is dropped per-argument, so --rounds 0 passing at (r2) says nothing about --pr.
+rm -f "$VERDICT"
+out="$(verdict_cmd sess-review-9 r-review-9 --pr 0 --verdict approve)"; rc=$?
+if [ "$rc" -eq 2 ] && printf '%s' "$out" | grep -q 'pr must be a positive integer'; then
+  pass "(r4) verdict rejects --pr 0, the same way it rejects --rounds 0"
+else fail "(r4) expected rc=2 on --pr 0, got $rc: $out"; fi
+
 rm -f "$REVIEW_CACHE"
+
+# ---- (s) the verdict VALUE is read first-match, never counted across the file ---------------
+# `--summary-file` puts the reviewer's own prose below the keys, and review prose discusses
+# verdicts — the committed record for #237 carries the token twice for exactly that reason. A
+# count-anywhere reader passes a record whose authoritative first line says needs-work: a
+# fail-OPEN on the single predicate the whole lean chain rests on. Driven through the REAL
+# writer, so the case also pins that a summary body cannot forge the value.
+seed_build_progress r-build-1 sess-build-1
+rm -f "$VERDICT" "$REVIEW_CACHE"
+printf 'Round 1 returned verdict=approve; this round found a blocker and does not.\n' \
+  > "$WORK/summary-quoting-approve.md"
+out="$(verdict_cmd sess-review-9 r-review-9 --pr 12 --verdict needs-work \
+       --summary-file "$WORK/summary-quoting-approve.md")"; rc=$?
+if [ "$rc" -ne 0 ]; then fail "(s0) the fixture verdict write failed: $out"; else
+  commit_tree "needs-work record whose body quotes the token"
+  out="$(gate 4 7)"; rc=$?
+  if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q 'reads verdict=needs-work'; then
+    pass "(s) a needs-work record whose summary quotes verdict=approve is still refused"
+  else fail "(s) expected rc=1 on a needs-work record quoting the token, got $rc: $out"; fi
+fi
+rm -f "$REVIEW_CACHE"
+
+# ---- (t) FRESHNESS: the verdict must cover the tree it is read against ----------------------
+# Four of the five milestones re-derive their answer from the current tree on every sweep,
+# which is what makes `satisfied` a record rather than a cache. Milestone 4 cannot — its
+# evaluation is reading a file — so the file is bound to a tree instead. Without this the
+# needs-work loop's ordinary shape ("verdict, then more commits") certifies code no reviewer
+# saw, and the PR that introduced the separation demonstrated it on itself.
+seed_build_progress r-build-1 sess-build-1
+write_review_verdict
+out="$(gate 4 7)"; rc=$?
+if [ "$rc" -eq 0 ]; then pass "(t1) milestone-4 passes when the verdict's commit IS the head"
+else fail "(t1) expected rc=0 on a fresh verdict, got $rc: $out"; fi
+
+# ONLY a later commit is added — everything the other arms check is left exactly as it was, so
+# a green here would mean the freshness link is not carrying the check at all.
+printf '# spec\n\n- AC-1: a thing\n- AC-2: added after the review\n' > "$SPEC"
+commit_tree "code lands after the verdict"
+seed_build_progress r-build-1 sess-build-1
+out="$(gate 4 7)"; rc=$?
+if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q 'a verdict does not cover code it never saw'; then
+  pass "(t2) milestone-4 refuses a verdict that predates a later code commit"
+else fail "(t2) expected rc=1 on a stale verdict, got $rc: $out"; fi
+
+# ...and a new review round clears it, so (t2) is a check with a remedy rather than a wall.
+seed_build_progress r-build-1 sess-build-1
+write_review_verdict
+out="$(gate 4 7)"; rc=$?
+if [ "$rc" -eq 0 ]; then pass "(t3) a new review round over the current head clears it"
+else fail "(t3) expected rc=0 after a fresh round, got $rc: $out"; fi
+
+# An UNCOMMITTED record is not evidence: nothing downstream can see it, and nothing dates it
+# against the code. A bare `[ -f ]` existence check accepted it. TWO readings of "uncommitted"
+# have to fail, and only one of them is what a `git log -- <path>` lookup notices.
+#
+# (t4) is tracked-but-DIRTY, the one that lookup misses: the path has a commit, so it resolves,
+# while the bytes being read are not the bytes on the branch. This is the shape an operator
+# actually produces — hand-editing an already-committed record — and it reads as green unless
+# the working tree is compared too.
+seed_build_progress r-build-1 sess-build-1
+printf 'verdict=approve\nrun_id: r-review-9\nsession_id: sess-review-9\nrounds: 99\n' > "$VERDICT"
+out="$(gate 4 7)"; rc=$?
+if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q 'has uncommitted changes'; then
+  pass "(t4) milestone-4 refuses a committed record that was then edited locally"
+else fail "(t4) expected rc=1 on a dirty record, got $rc: $out"; fi
+git -C "$TREE" checkout -- "$VERDICT" >/dev/null 2>&1
+
+# (t5) never committed at all. Driven on a DIFFERENT issue key, because `git log -- <path>`
+# answers "has this path ever been committed" — deleting #7's record would leave the deletion
+# commit behind and still resolve. #8's record has no history, which is the state a real first
+# review round is in before it commits.
+seed_build_progress r-build-1 sess-build-1
+printf 'verdict=approve\nrun_id: r-review-9\nsession_id: sess-review-9\nrounds: 1\n' \
+  > "$TREE/docs/plans/acme-8-lean-verdict.md"
+out="$(gate 4 8)"; rc=$?
+if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q 'was never committed'; then
+  pass "(t5) milestone-4 refuses a verdict record that was never committed at all"
+else fail "(t5) expected rc=1 on an untracked record, got $rc: $out"; fi
+rm -f "$TREE/docs/plans/acme-8-lean-verdict.md"
 
 echo "[lean-gate-selftest] $([ "$FAILS" -eq 0 ] && echo 'all green' || echo "$FAILS FAILURE(S)")"
 exit "$FAILS"

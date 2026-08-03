@@ -33,8 +33,11 @@ build session, so this cannot be folded back into the build lane by convenience.
    `bash G verdict <issue> --pr <n> --verdict <approve|needs-work> --rounds <n> --summary-file <path>`
    The summary file carries the finding table and the per-AC scoring. The gate writes the
    reconciliation keys itself — do not hand-edit them in.
-6. Commit and push the record to the PR's head branch through `bot-commit.sh`. It is evidence
-   only once committed: nothing local reaches CI.
+6. Commit and push the record to the PR's head branch through `bot-commit.sh`, and let it be
+   the **last** commit on the branch. It is evidence only once committed — nothing local
+   reaches CI — and it is bound to the tree it covered: milestone 4 and the merge boundary
+   both refuse a record with any non-record commit after it. Commit nothing else in this
+   session.
 7. Post the findings as one PR comment (the build session reads the PR, not this transcript),
    then stop. On `needs-work` the loop round-trips through artifacts only: a build session
    addresses the findings, and a **new** review context produces the next verdict — never this
@@ -48,3 +51,6 @@ build session, so this cannot be folded back into the build lane by convenience.
   after a fix gets a new one, so the rounds stay distinguishable in the ledger.
 - **Approve on the diff, not on the spec's promises.** An unmet `AC-n` is a blocker, and a
   spec amended after the fact to match the diff is itself a blocker.
+- **Review the head you will name.** Re-check the PR head immediately before writing the
+  record; if the branch moved while you were reviewing, review the new commits or start over.
+  A record for a head you did not read is refused downstream, and rightly.

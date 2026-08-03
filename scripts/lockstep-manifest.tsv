@@ -283,6 +283,17 @@ artifact-reviewer-baseline-deltas	verbatim	plugins/design-toolkit/agents/figma-f
 # Guarded behaviorally instead, and the guard COMPOSES across the sites rather than pinning
 # bytes: lean-gate-selftest.sh (p5)/(p7) drive the writer and then feed its output to the
 # milestone-4 reader in the same run, so a writer that drops a key fails at the reader;
-# (j3)/(j3b) pin each key's absence as its own refusal; check-lean-chain-selftest.sh (N2)/(N3)
-# and lean-reconcile-selftest.sh (C)/(J1)/(J2) do the same at the other two readers. Revisit
-# if a fourth reader lands, or if any site starts parsing the record as structured data.
+# (j3)/(j3b) pin each key's absence as its own refusal, and check-lean-chain-selftest.sh
+# (N2)/(N3) and lean-reconcile-selftest.sh (J3) do the same at the other two readers.
+#
+# `verdict=` is read FIRST-MATCH at every reader, never counted across the file: the writer
+# appends the reviewer's prose below the keys and review prose quotes verdict values, so a
+# count-anywhere reader passes a record whose authoritative first line says needs-work.
+# lean-gate-selftest.sh (s) and check-lean-chain-selftest.sh (P) drive exactly that record
+# through both readers.
+#
+# Revisit if a fourth reader lands, or if any site starts parsing the record as structured
+# data. (An earlier revision of this note credited lean-reconcile-selftest.sh (C)/(J1)/(J2)
+# with the missing-key guard at that reader. They do not carry it — (C) removes the LEDGER for
+# a session the record names, and (J1)/(J2) collide two supplied identities — so (J3) was
+# added to make the claim true rather than the claim softened to match the coverage.)

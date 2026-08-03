@@ -198,6 +198,25 @@ if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q 'names the BUILD session'; th
   pass "(J2) a verdict naming the build session as its author fails"
 else fail "(J2) expected rc=1 on a build-session verdict, got $rc: $out"; fi
 
+# (J3) the MISSING key, which is a different guard from the two collisions above. `-z
+# "$REVIEW_SESSION"` is what makes "the review session cannot be located" a refusal rather than
+# a fall-through, and nothing else here reaches it: (C) supplies a session id and removes its
+# LEDGER, (J1)/(J2) supply two identities that collide. A mutant deleting this arm would send a
+# key-less record into the ledger lookup with an empty path and survive every other case in
+# this file. The two sibling readers pin the same absence — lean-gate.sh (j3b),
+# check-lean-chain.sh (N3) — and scripts/lockstep-manifest.tsv's DROPPED row cites all three.
+cat > "$VERDICT" <<'EOF'
+# lean review verdict — #7
+
+verdict=approve
+run_id: r-review-1
+rounds: 1
+EOF
+out="$(reconcile "$WORK/comments-good.json")"; rc=$?
+if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q 'carries no session_id'; then
+  pass "(J3) a verdict record naming no review session at all fails"
+else fail "(J3) expected rc=1 on a session_id-less verdict, got $rc: $out"; fi
+
 write_verdict "$REVIEW_RUN_ID" "$REVIEW_SESSION"
 
 # ---- (K) the retired anchor is gone: the BUILD ledger is not the review trace ---------------
