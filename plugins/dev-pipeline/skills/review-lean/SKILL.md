@@ -53,7 +53,8 @@ build session, so this cannot be folded back into the build lane by convenience.
   after a fix gets a new one, so the rounds stay distinguishable in the ledger.
 - **Approve on the diff, not on the spec's promises.** An unmet `AC-n` is a blocker, and a
   spec amended after the fact to match the diff is itself a blocker.
-- **Review the head you will name — the record names it literally.** Re-check the PR head
+- **Review the patch you will name — the record hashes it literally.** Re-check the PR head
   immediately before writing the record; if the branch moved while you were reviewing, review
-  the new commits or start over. And once the record is pushed, ANY further push to that branch
-  — a fix, a rebase, a force-push, a docs-only commit — voids it and costs a new round.
+  the new commits or start over. Once the record is pushed, any further push that CHANGES A
+  LINE — a fix, a docs-only commit, a rebase that resolved a conflict — voids it and costs a
+  new round. A rebase that replays the branch unchanged does not: the patch is the same.

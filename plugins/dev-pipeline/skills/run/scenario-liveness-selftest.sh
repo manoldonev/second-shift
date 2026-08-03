@@ -914,6 +914,10 @@ LEANCFG
   lean_commit() { git -C "$LEAN_TREE" add -A >/dev/null 2>&1
                   git -C "$LEAN_TREE" commit -q --allow-empty -m "${1:-lean fixture}" >/dev/null 2>&1; }
   lean_commit "lean fixture tree"
+  # The patch-id freshness arm measures the branch's diff from merge-base(origin/<base>, HEAD),
+  # so the fixture carries the remote-tracking ref a real checkout would have. Leg 7 composes
+  # that arm; every other leg writes records without the key and takes the SHA fallback.
+  git -C "$LEAN_TREE" update-ref refs/remotes/origin/main HEAD
   # `reviewed_head` is resolved BEFORE the commit, which is the shape a real round has: the
   # reviewer reads the current head, names it, and commits the record on top of it. Resolving it
   # after would name the record's own commit and leave the declared arm asserting nothing.
@@ -1075,6 +1079,56 @@ LEANC
     || fail "(lean-declared) expected rc=1 on a key-less record, got $decl3"
   lean_seed_progress r-lean-1 sess-lean-build
   lean_write_verdict approve r-lean-review-8 sess-lean-review-8
+
+  # ---- leg 7: the PATCH-ID declared arm, composed across a real rebase ------
+  # Legs 5 and 6 compose the two freshness arms over records that carry no `reviewed_patch_id`,
+  # so both take the SHA fallback. This leg composes the arm records written by the current
+  # writer actually take — and it composes it across the operation that arm exists for.
+  #
+  # The record comes from the REAL `verdict` subcommand rather than a printf: the id it stamps is
+  # the thing milestone 4 recomputes, so a leg that hand-wrote one would compose a record no
+  # review session produces. The write is refused unless the review identity is distinct from the
+  # build's on both axes, which is why the two are seeded explicitly here as everywhere else.
+  lean_seed_progress r-lean-1 sess-lean-build
+  rm -f "$LEAN_TREE/.claude/pipeline-state/77-review-run-id"
+  ( cd "$LEAN_TREE" && SECOND_SHIFT_CONFIG="$LEAN_CFG" LEAN_PROGRESS_FILE="$LEAN_PROG" \
+    CLAUDE_CODE_SESSION_ID=sess-lean-review-9 RUN_ID=r-lean-review-9 \
+    bash "$LEAN_GATE" verdict 77 --pr 5 --verdict approve >/dev/null 2>&1 ); pid_write=$?
+  lean_commit "review session commits its patch-id-keyed record"
+  lean_gate 4 77 >/dev/null 2>&1; pid1=$?
+
+  # A REAL rebase onto a base that moved with content. A same-tree base would leave the pre- and
+  # post-rebase trees identical, so the SHA arm would pass too and the leg would compose nothing.
+  lean_branch="$(git -C "$LEAN_TREE" symbolic-ref --short HEAD 2>/dev/null)"
+  lean_pre_rebase="$(git -C "$LEAN_TREE" rev-parse HEAD)"
+  git -C "$LEAN_TREE" branch -f lean-base refs/remotes/origin/main >/dev/null 2>&1
+  git -C "$LEAN_TREE" checkout -q lean-base 2>/dev/null
+  printf 'the base moved while the review was in flight\n' > "$LEAN_TREE/base-moved.txt"
+  git -C "$LEAN_TREE" add base-moved.txt >/dev/null 2>&1
+  git -C "$LEAN_TREE" commit -q -m 'base advances' >/dev/null 2>&1
+  git -C "$LEAN_TREE" update-ref refs/remotes/origin/main lean-base
+  git -C "$LEAN_TREE" checkout -q "$lean_branch" 2>/dev/null
+  git -C "$LEAN_TREE" rebase -q lean-base >/dev/null 2>&1; lean_rebased=$?
+  # The SHA arm would red here: the pre-rebase commit is still an object in this repo, but its
+  # tree now differs from the head by the base's commit. If that diff is empty the leg is vacuous.
+  lean_sha_would_red="$(git -C "$LEAN_TREE" diff --name-only "$lean_pre_rebase" HEAD 2>/dev/null)"
+  lean_seed_progress r-lean-1 sess-lean-build
+  lean_gate 4 77 >/dev/null 2>&1; pid2=$?
+
+  # ...and the arm is still a gate: a commit after the approve moves the patch and reds it.
+  lean_seed_progress r-lean-1 sess-lean-build
+  printf '# spec\n\n- AC-1: a thing\n- AC-4: landed after the approve\n' > "$LEAN_SPEC"
+  lean_commit "code lands after the approve"
+  lean_gate 4 77 >/dev/null 2>&1; pid3=$?
+
+  [[ "$pid_write" -eq 0 && "$lean_rebased" -eq 0 && -n "$lean_sha_would_red" \
+     && "$pid1" -eq 0 && "$pid2" -eq 0 && "$pid3" -eq 1 ]] \
+    && pass "(lean-patch-id) a review-written record passes, survives a rebase the SHA arm would have redded, and still reds once a commit changes the branch" \
+    || fail "(lean-patch-id) write=$pid_write rebase=$lean_rebased sha-arm-diff='$lean_sha_would_red' rcs=$pid1/$pid2/$pid3, expected 0/0/nonempty/0/0/1"
+
+  # Restore the SHA-fallback shape the remaining legs were written against.
+  lean_seed_progress r-lean-1 sess-lean-build
+  lean_write_verdict approve r-lean-review-10 sess-lean-review-10
 
   # ---- non-vacuity ---------------------------------------------------------
   # An all-green leg that stays green over a broken tree proves nothing.

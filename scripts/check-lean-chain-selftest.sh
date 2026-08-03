@@ -104,6 +104,15 @@ commit_tree() { # commit_tree <message>
   git -C "$TREE" commit -q --allow-empty -m "$1" >/dev/null 2>&1
 }
 
+# A base commit, and a remote-tracking ref pointing at it. Evidence 5's patch-id arm measures
+# the branch's diff from merge-base(origin/<PR_BASE_REF>, head), so the fixture needs both — and
+# the base must sit BELOW the spec, or the branch's only content would be the verdict record,
+# which the arm excludes. An empty measured range is a refusal (U6), not a pass, so getting this
+# wrong reds loudly.
+printf 'seed\n' > "$TREE/README.md"
+commit_tree "base"
+git -C "$TREE" update-ref refs/remotes/origin/main HEAD
+
 printf '# lean spec\n\n- AC-1: does a thing\n- AC-2: does another\n' > "$TREE/docs/plans/acme-42-lean.md"
 # The build claim carries r-abc123; the verdict is REVIEW-authored, so it carries its own
 # identity and names its own session. A verdict reusing r-abc123 is case (N).
@@ -115,11 +124,27 @@ printf '# lean spec\n\n- AC-1: does a thing\n- AC-2: does another\n' > "$TREE/do
 # `reviewed_head` is resolved BEFORE the commit, which is the real shape: the reviewer reads the
 # current head, names it, and commits the record on top. Resolving it afterwards would name the
 # record's own commit and leave every declared-freshness case asserting nothing.
-write_verdict() { # write_verdict [verdict] [run-id] [session-id] [reviewed-head]
+write_verdict() { # write_verdict [verdict] [run-id] [session-id] [reviewed-head] [patch-id]
   printf 'verdict=%s\nrun_id: %s\nsession_id: %s\nrounds: 1\nreviewed_head: %s\n' \
     "${1:-approve}" "${2:-r-review-1}" "${3:-sess-review-1}" \
     "${4:-$(git -C "$TREE" rev-parse HEAD)}" > "$VREC"
+  # Absent by default: every case above this line gates on the SHA path records predating the
+  # patch-id key still take, and (R5) asserts that rather than assuming it.
+  [ -n "${5:-}" ] && printf 'reviewed_patch_id: %s\n' "$5" >> "$VREC"
   commit_tree "verdict ${1:-approve}"
+}
+
+# The EXPECTED patch identity, derived here rather than read back from the gate. This is an
+# ORACLE, not the mirror-harness pattern the repo bans: a copy is dangerous when production
+# drifting away from it leaves the suite GREEN, and this one does the opposite — any change to
+# how the gate resolves the base, ranges the diff, or excludes the record makes the two values
+# disagree and reds every (U) case. The one property it cannot pin by copying is the exclusion,
+# so that is pinned behaviorally instead, at (U2).
+tree_patch_id() { # tree_patch_id <head-ish>
+  local base
+  base="$(git -C "$TREE" merge-base refs/remotes/origin/main "$1" 2>/dev/null)" || return 0
+  git -C "$TREE" diff "$base" "$1" -- . ":(exclude)docs/plans/acme-42-lean-verdict.md" 2>/dev/null \
+    | git -C "$TREE" patch-id --stable 2>/dev/null | cut -d' ' -f1
 }
 write_verdict_literal() { # write_verdict_literal <full-record-body>
   printf '%s' "$1" > "$VREC"
@@ -432,6 +457,14 @@ if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q 'this checkout holds no commi
   pass "(R4) a reviewed_head naming no object in this checkout is refused, not compared against nothing"
 else fail "(R4) expected rc=1 on an unresolvable reviewed_head, got rc=$rc: $out"; fi
 
+# The (R) block's own premise. Its records carry no `reviewed_patch_id`, so they route to the SHA
+# path — which is what makes them coverage of the pre-key fallback rather than of the (S) arm.
+# Asserted, because a fixture writer that quietly grew the key would migrate the whole block and
+# leave the fallback uncovered while every case still passed.
+if ! grep -q 'reviewed_patch_id' "$VREC" 2>/dev/null; then
+  pass "(R5) the (R) records carry no reviewed_patch_id, so that block does gate on the SHA fallback"
+else fail "(R5) the (R) block is no longer exercising the SHA fallback: $(cat "$VREC" 2>/dev/null)"; fi
+
 # ---- (S) evidence 6: an unratified intent-gap record blocks the merge (P9) ----------------
 # A decision that surfaced during BUILD and was not in the receipt routes back through this
 # record instead of becoming a silent choice. Every arm below leaves the rest of (A) intact —
@@ -528,6 +561,108 @@ if [ "$rc" -eq 0 ] \
    && ! printf '%s' "$out" | grep -q '^set -uo pipefail'; then
   pass "(T) --help prints through the last header line and stops before the code"
 else fail "(T) --help did not print exactly the header, rc=$rc: $out"; fi
+# ---- (U) evidence 5, DECLARED and PATCH-ID keyed: a rebase must not void a verdict ---------
+# SHA keying refused a rebase — and refused it unavoidably here, since this checkout would hold
+# no pre-rebase object at all — so it charged a full review round for an operation that changes
+# no reviewed line. Patch identity is invariant across a clean replay and still moves on any
+# real change, including the conflict resolution the SHA arm could not distinguish from one.
+#
+# Evidence 6 is cleared first, and deliberately: (S4) leaves an unratified intent-gap record
+# behind, which reds every case here for a reason none of them is about. Absence is the ordinary
+# state for that evidence — the gate prints it rather than refusing — so removing the record
+# isolates this block on evidence 5 without weakening anything the (S) block asserts.
+rm -f "$GAPREC"
+git -C "$TREE" add -A >/dev/null 2>&1
+git -C "$TREE" commit -q -m "no intent gap on this run" >/dev/null 2>&1
+
+run_gate_base() { # run_gate_base <head-ref> <comments-file> <diff-file> <base-ref>
+  ( cd "$TREE" && \
+    LEAN_BRANCH_PREFIX="lean/acme-" \
+    PIPELINE_BRANCH_PREFIX="claude/acme-" \
+    PR_HEAD_REF="$1" \
+    PR_HEAD_SHA="$(git -C "$TREE" rev-parse HEAD)" \
+    PR_BODY="$BODY_GOOD" \
+    PR_CREATED_AT="$PR_OPEN_AT" \
+    PR_BASE_REF="$4" \
+    bash "$GATE" --comments-file "$2" --diff-files-file "$3" 2>&1 )
+}
+
+# The id is resolved BEFORE the record is written, which is the real shape: the reviewer reads
+# the head it is on, hashes that patch, and commits the record on top.
+u_pid="$(tree_patch_id HEAD)"
+[ -n "$u_pid" ] || fail "(U0) the fixture's patch identity is empty — every (U) case would compare nothing"
+write_verdict approve r-review-6 sess-review-6 "$(git -C "$TREE" rev-parse HEAD)" "$u_pid"
+out="$(run_gate_base "lean/acme-42" "$WORK/comments-good.json" "$WORK/diff-lean.txt" "main")"; rc=$?
+if [ "$rc" -eq 0 ] && printf '%s' "$out" | grep -q 'freshness (declared, patch-id'; then
+  pass "(U1) a record whose reviewed_patch_id matches the head passes, and the gate names the patch-id arm"
+else fail "(U1) expected rc=0 on a matching patch id, got rc=$rc: $out"; fi
+
+# AC-4, the EXCLUSION, driven behaviorally so no copy of the formula can satisfy it. The writer
+# hashes a head that does not yet carry the record; this reader hashes one that does. Excluding
+# the record path on both sides is what makes those agree — with the path inside the measured
+# range, editing the record alone would move the id and red this.
+printf '\nReviewer prose appended after the record was committed.\n' >> "$VREC"
+commit_tree "the record's own bytes change"
+out="$(run_gate_base "lean/acme-42" "$WORK/comments-good.json" "$WORK/diff-lean.txt" "main")"; rc=$?
+if [ "$rc" -eq 0 ] && printf '%s' "$out" | grep -q 'freshness (declared, patch-id'; then
+  pass "(U2) editing the verdict record itself does not move the patch identity — the exclusion holds on the read side"
+else fail "(U2) expected rc=0 after editing the record, got rc=$rc: $out"; fi
+
+# THE headline case. A REAL rebase: the base advances by a commit carrying actual content, and
+# the branch is replayed onto it. Same-tree bases were rejected as a fixture — they leave the
+# pre- and post-rebase trees identical, so the old SHA arm would pass too and the case would be
+# a vacuous guard. Non-vacuity is asserted at (U3a), not argued.
+u_branch="$(git -C "$TREE" symbolic-ref --short HEAD 2>/dev/null)"
+u_orphaned_head="$(git -C "$TREE" rev-parse HEAD)"
+git -C "$TREE" branch -f u-base refs/remotes/origin/main >/dev/null 2>&1
+git -C "$TREE" checkout -q u-base 2>/dev/null
+printf 'the base moved while the review was in flight\n' > "$TREE/base-moved.txt"
+git -C "$TREE" add base-moved.txt >/dev/null 2>&1
+git -C "$TREE" commit -q -m 'base advances' >/dev/null 2>&1
+git -C "$TREE" update-ref refs/remotes/origin/main u-base
+git -C "$TREE" checkout -q "$u_branch" 2>/dev/null
+if git -C "$TREE" rebase -q u-base >/dev/null 2>&1; then u_rebase_ok=1
+else u_rebase_ok=0; git -C "$TREE" rebase --abort >/dev/null 2>&1; fi
+# The pre-rebase commit is still an object in THIS repo (a local rebase does not gc it), so the
+# `cat-file -e` arm would not fire — but its tree now differs from the head by the base's commit,
+# so the SHA arm's `git diff` would. If that diff is empty, (U3) measures nothing.
+u_sha_arm_would_red="$(git -C "$TREE" diff --name-only "$u_orphaned_head" HEAD 2>/dev/null)"
+if [ "$u_rebase_ok" -eq 1 ] && [ "$(git -C "$TREE" rev-parse HEAD)" != "$u_orphaned_head" ] \
+   && [ -n "$u_sha_arm_would_red" ]; then
+  pass "(U3a) the fixture really was rebased onto a moved base, and the SHA arm would red on it"
+else fail "(U3a) the rebase did not take (ok=$u_rebase_ok, sha-arm-diff='$u_sha_arm_would_red') — (U3) would assert nothing"; fi
+
+out="$(run_gate_base "lean/acme-42" "$WORK/comments-good.json" "$WORK/diff-lean.txt" "main")"; rc=$?
+if [ "$rc" -eq 0 ] && printf '%s' "$out" | grep -q 'freshness (declared, patch-id'; then
+  pass "(U3) a rebase that replays the branch unchanged does not void the verdict at the merge boundary"
+else fail "(U3) expected rc=0 after a clean replay, got rc=$rc: $out"; fi
+
+# ...and the case SHA keying could not express at all: a rebase whose conflict resolution altered
+# a line. It is refused, and by the DECLARED arm alone — the changed line and the record land in
+# one commit, so `git log -1 -- <record>` finds the head and the INFERRED arm is green. Without
+# that shape the case would red on inference and prove nothing about this arm.
+u_pid_pre="$(tree_patch_id HEAD)"
+printf '# lean spec\n\n- AC-1: does a thing, resolved differently by the rebase\n' > "$TREE/docs/plans/acme-42-lean.md"
+printf 'verdict=approve\nrun_id: r-review-7\nsession_id: sess-review-7\nrounds: 1\nreviewed_head: %s\nreviewed_patch_id: %s\n' \
+  "$(git -C "$TREE" rev-parse HEAD)" "$u_pid_pre" > "$VREC"
+commit_tree "a conflict resolution changes a line, committed with the record"
+out="$(run_gate_base "lean/acme-42" "$WORK/comments-good.json" "$WORK/diff-lean.txt" "main")"; rc=$?
+if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q 'reviewed patch'; then
+  pass "(U4) a rebase whose resolution changed a line is refused, with the inferred arm green"
+else fail "(U4) expected rc=1 on a moved patch identity, got rc=$rc: $out"; fi
+
+# D-5 vacuity. `git patch-id` prints NOTHING for an empty diff, so two failed computations
+# compare EQUAL and an unguarded reader prints its ✓ having hashed nothing. A missing base is an
+# ENVIRONMENT error, not a violation: the evidence is present, the check simply cannot run.
+out="$(run_gate "lean/acme-42" "$WORK/comments-good.json" "$WORK/diff-lean.txt")"; rc=$?
+if [ "$rc" -eq 2 ] && printf '%s' "$out" | grep -q 'PR_BASE_REF is unset'; then
+  pass "(U5) a declared patch id with no PR_BASE_REF is an environment error, not an unmeasured pass"
+else fail "(U5) expected rc=2 with no base ref, got rc=$rc: $out"; fi
+
+out="$(run_gate_base "lean/acme-42" "$WORK/comments-good.json" "$WORK/diff-lean.txt" "no-such-base")"; rc=$?
+if [ "$rc" -eq 2 ] && printf '%s' "$out" | grep -q 'cannot compute this branch'; then
+  pass "(U6) a base ref naming no branch is an environment error, not a comparison against nothing"
+else fail "(U6) expected rc=2 on an unresolvable base, got rc=$rc: $out"; fi
 
 echo "[check-lean-chain-selftest] $([ "$FAILS" -eq 0 ] && echo 'all green' || echo "$FAILS FAILURE(S)")"
 exit "$FAILS"

@@ -272,7 +272,8 @@ artifact-reviewer-baseline-deltas	verbatim	plugins/design-toolkit/agents/figma-f
 # separately asserted on both sides: lean-gate-selftest.sh (e2)/(e3) at the derivation, and
 # check-lean-chain-selftest.sh (L) at the CI constants, which exits 2 rather than guessing.
 
-# lean verdict-record key schema (`verdict=`, `run_id:`, `session_id:`, `reviewed_head:`) — ONE
+# lean verdict-record key schema (`verdict=`, `run_id:`, `session_id:`, `reviewed_head:`,
+# `reviewed_patch_id:`) — ONE
 # writer (lean-gate.sh's `verdict` subcommand) and THREE readers: lean-gate.sh milestone 4,
 # scripts/check-lean-chain.sh, and lean-reconcile.sh. A real coupling: dropping a key on the
 # writer silently un-satisfies all three readers, and a reader-side requirement the writer
@@ -286,14 +287,16 @@ artifact-reviewer-baseline-deltas	verbatim	plugins/design-toolkit/agents/figma-f
 # (j3)/(j3b)/(u1) pin each key's absence as its own refusal, and check-lean-chain-selftest.sh
 # (N2)/(N3)/(R1) and lean-reconcile-selftest.sh (J3)/(K1) do the same at the other two readers.
 #
-# `reviewed_head:` is the newest key and the only one carrying a git object rather than an
-# opaque token, so its readers do more than extract it: each resolves the named commit and
-# compares trees. That makes the writer/reader coupling TIGHTER than for the other three — a
-# writer that stamped, say, a short sha would still extract cleanly everywhere and then fail
-# every comparison. lean-gate-selftest.sh (u3) drives writer-to-reader end to end for exactly
-# that reason, and scenario-liveness-selftest.sh's (lean-declared) leg composes it against a
-# record whose INFERRED freshness is green, which is the only shape where the declared arm is
-# the sole thing that can red.
+# `reviewed_head:` and `reviewed_patch_id:` are the two derived keys — they carry a value the
+# readers RECOMPUTE rather than merely extract, so their writer/reader coupling is tighter than
+# the other three's: a writer that stamped, say, a short sha would still extract cleanly
+# everywhere and then fail every comparison. `reviewed_patch_id:` is the tighter of the two,
+# because both sides must agree on the base, the diff range AND the excluded path; a divergence
+# in any of the three yields two well-formed values that never match. Neither side can pin that
+# with a shared literal, so it is composed instead: lean-gate-selftest.sh (u3) and the (v) block
+# drive writer-to-reader end to end, and scenario-liveness-selftest.sh's (lean-declared) and
+# (lean-patch-id) legs compose each arm against a record whose INFERRED freshness is green —
+# the only shape where the declared arm is the sole thing that can red.
 #
 # `verdict=` is read FIRST-MATCH at every reader, never counted across the file: the writer
 # appends the reviewer's prose below the keys and review prose quotes verdict values, so a

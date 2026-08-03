@@ -69,10 +69,21 @@ the SHA arm over-strict in the first place.
   must never mis-stamp a record, and a recorded `reviewed_base_ref` key buys a diagnostic at
   the cost of another schema key and another refusal arm. The residual cost is a misleading
   message, so the CI refusal **names the base it resolved against**.
-- **D-7 — the pass lines name their arm.** `patch-id <short>` on the new path, the existing
+- **D-7 — every reader keeps its own question.** The three do not ask the same thing, and
+  re-keying must not quietly merge them: `lean-gate.sh` and `check-lean-chain.sh` ask
+  *currency* (does the review cover the tree being gated/merged), so they recompute at HEAD /
+  `PR_HEAD_SHA`; `lean-reconcile.sh` asks *coherence* (was the record written on top of the
+  tree it names), so it recomputes at the commit carrying the record. Same key, same formula,
+  different measurement point.
+- **D-8 — the pass lines name their arm.** `patch-id <short>` on the new path, the existing
   `declaring reviewed_head <short>` wording on the fallback. Without this, AC-3's case cannot
   distinguish "the fallback ran" from "the new arm ran and happened to pass", and a change that
   silently dropped the fallback would stay green.
+- **D-9 — one guard per computation, not one per step.** In `check-lean-chain.sh` the
+  merge-base and empty-id checks started as two refusals; only the first was ever reachable,
+  since reaching the second required the first to have succeeded. A hand-applied mutant
+  confirmed the second survived every case, so they are collapsed into one guard naming both
+  causes. `PR_BASE_REF` stays separate — different remedy, and it is killed on its own.
 
 ## Acceptance criteria
 
@@ -102,9 +113,23 @@ the SHA arm over-strict in the first place.
   are checked against `tools/mutation-baseline.tsv` and re-baselined if they moved, with the
   site-level evidence recorded in the PR body either way.
 - **AC-7** (critic): the PR carries a `Changelog:` trailer.
-- **AC-8** (oracle — vacuity, D-5): an unresolvable or empty patch-id on either read side is a
-  refusal, not an unmeasured pass. Covered on both readers, because the two compute it from
-  different inputs and neither guard implies the other.
+- **AC-8** (oracle — vacuity, D-5): an unresolvable or empty patch-id on any read side is a
+  refusal, not an unmeasured pass. Covered on each reader, because they compute it from
+  different inputs and no guard implies another.
+- **AC-9** (oracle — `lean-reconcile-selftest.sh`): the THIRD reader is re-keyed too. Added
+  after implementation began, on evidence: `lean-reconcile.sh` check (4) asserts the record's
+  commit *descends from* `reviewed_head`, which a rebase breaks for the same reason and with
+  the same wrong premise — it prints "the branch was rebased or force-pushed after the review"
+  and exits 1 with *do NOT merge until resolved*. Leaving it would deliver the issue's position
+  ("a rebase cannot invalidate a review verdict") on two readers of three, so a rebased branch
+  would still be hard-stopped, just by a different tool. The claim that reader makes is
+  coherence, not currency — *the record was written on top of the tree it reviewed* — so it is
+  re-keyed in place: with `reviewed_patch_id` present, the id is recomputed at the commit
+  carrying the record and compared; absent, today's ancestry path stands.
+- **AC-10** (oracle — composition): `scenario-liveness-selftest.sh` gains a leg composing the
+  patch-id arm across a real rebase, per the repo's rule that a new gate contract extends the
+  liveness scenario for every verdict path it touches. The existing lean legs write records
+  without the key and so pin the fallback; that split is asserted, not assumed.
 
 ## Out of scope
 

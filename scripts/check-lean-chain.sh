@@ -28,13 +28,22 @@
 #      shape of the needs-work loop. Nothing but the record itself may have changed between
 #      the commit carrying it and the PR head. TWO ARMS, because neither subsumes the other:
 #      the INFERRED one derives its anchor from git (which commit carries the file — the
-#      record's prose cannot argue with that), and the DECLARED one reads the `reviewed_head`
-#      key the reviewer wrote. Inference binds the record to where it was COMMITTED; the
-#      declaration binds it to what was REVIEWED. They come apart whenever code lands between
-#      the review and the record's commit — the reviewer then commits an honest record on top
-#      of a head it never read, and inference alone calls that fresh — and again on a rebase
-#      after approval, which carries the record forward onto a base nobody reviewed while
-#      inference stays green.
+#      record's prose cannot argue with that), and the DECLARED one reads what the reviewer
+#      wrote. Inference binds the record to where it was COMMITTED; the declaration binds it to
+#      what was REVIEWED. They come apart whenever code lands between the review and the
+#      record's commit — the reviewer then commits an honest record on top of a head it never
+#      read, and inference alone calls that fresh.
+#
+#      The declaration is keyed on `reviewed_patch_id`: the patch identity of the branch's own
+#      diff against its base, excluding the record. WHAT IT COVERS — any commit landing after
+#      the review, and any conflict resolution that altered a line during a rebase, both of
+#      which move the id. WHAT IT DOES NOT — a rebase that replays the branch unchanged (the id
+#      is invariant, and that is the point: SHA keying refused it, and in this fresh checkout
+#      the pre-rebase object does not exist at all, so the refusal was unavoidable rather than
+#      merely wrong), and a base change that reds the suite with no textual conflict. That last
+#      one is CI's job: the reviewed content did not move, so the verdict stands, and the merged
+#      result failing is a different claim. Conflating the two is what made SHA keying
+#      over-strict. Records predating the key still gate on the `reviewed_head` SHA path.
 #   6. RATIFICATION (P9): if the run wrote an intent-gap record — a decision implementation
 #      surfaced that the receipt did not cover — that record reads `ratified: yes` and cites
 #      the operator comment that ratified it. Absence of a record is the ordinary case and is
@@ -74,7 +83,13 @@
 #                                     resolves refs/pull/N/merge, so HEAD is merge(base, head)
 #                                     and every base-side commit since the branch point would
 #                                     read as "changed after the verdict".
-#   PR_BASE_REF             required for the live diff  the PR's base branch
+#   PR_BASE_REF             required for the live diff, and for evidence 5's patch-id arm  the
+#                                     PR's base branch. This is the base the patch identity is
+#                                     measured from, and it is deliberately NOT reconciled
+#                                     against the runtime config's baseBranch — CI cannot see
+#                                     that file. The two agree whenever the PR targets the
+#                                     configured base, which is the lane's contract; a PR
+#                                     retargeted elsewhere reds here, which is fail-closed.
 #   GH_REPO                 required for the live path  "<owner>/<repo>"
 #   GH_TOKEN                required for the live path
 #   LEAN_COMMENT_AUTHOR     optional  exact bot login; absent degrades to "any Bot author"
@@ -95,7 +110,7 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --comments-file)   COMMENTS_FILE="${2:-}"; shift 2 ;;
     --diff-files-file) DIFF_FILES_FILE="${2:-}"; shift 2 ;;
-    -h|--help) sed -n '2,87p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,102p' "$0"; exit 0 ;;
     *) echo "[lean-chain] unknown argument: $1" >&2; exit 2 ;;
   esac
 done
@@ -253,6 +268,7 @@ done < <(find "$REPO_ROOT" -name "*$LEAN_VERDICT_SUFFIX" -type f 2>/dev/null)
 VERDICT_RUN_ID=""
 VERDICT_SESSION_ID=""
 VERDICT_REVIEWED_HEAD=""
+VERDICT_REVIEWED_PATCH_ID=""
 if [[ -z "$VERDICT" ]]; then
   note_violation "no committed verdict record (a file named *-$KEY$LEAN_VERDICT_SUFFIX). The independent review's verdict must be a committed, diffable artifact — a local progress-file line is not evidence."
 else
@@ -276,8 +292,10 @@ else
   VERDICT_RUN_ID="$(grep -oE 'run_id:[[:space:]]*[A-Za-z0-9._-]+' "$REPO_ROOT/$VERDICT" 2>/dev/null | head -n1 | sed -E 's/run_id:[[:space:]]*//')"
   VERDICT_SESSION_ID="$(grep -oE 'session_id:[[:space:]]*[A-Za-z0-9._-]+' "$REPO_ROOT/$VERDICT" 2>/dev/null | head -n1 | sed -E 's/session_id:[[:space:]]*//')"
   # Same first-match shape, same charset. No other key in the record contains the substring
-  # `reviewed_head:`, so this extraction cannot capture one of theirs or be captured by it.
+  # `reviewed_head:`, so this extraction cannot capture one of theirs or be captured by it —
+  # `reviewed_patch_id:` in particular is a different string, not an extension of this one.
   VERDICT_REVIEWED_HEAD="$(grep -oE 'reviewed_head:[[:space:]]*[A-Za-z0-9._-]+' "$REPO_ROOT/$VERDICT" 2>/dev/null | head -n1 | sed -E 's/reviewed_head:[[:space:]]*//')"
+  VERDICT_REVIEWED_PATCH_ID="$(grep -oE 'reviewed_patch_id:[[:space:]]*[A-Za-z0-9._-]+' "$REPO_ROOT/$VERDICT" 2>/dev/null | head -n1 | sed -E 's/reviewed_patch_id:[[:space:]]*//')"
 fi
 
 # ---- (7) evidence 3: a bot-authored lean-claimed comment, windowed at PR-open ------------
@@ -394,8 +412,38 @@ if [[ -n "$VERDICT" ]]; then
   # checkable. Records written before this key existed are refused too — unlike the claim
   # comment's missing session_id above, a remedy IS available here (re-run the review round),
   # so a transitional pass would be a waiver rather than a kindness.
+  #
+  # `reviewed_patch_id` takes precedence over the `reviewed_head` SHA when present; the SHA path
+  # below is what records predating that key gate on. The precedence is one-way and never
+  # AND-ed: running both would re-impose the rebase refusal the patch-id exists to remove, since
+  # this checkout holds no pre-rebase object to resolve the SHA against.
   if [[ -z "$VERDICT_REVIEWED_HEAD" ]]; then
     note_violation "verdict record '$VERDICT' carries no reviewed_head key, so nothing states which commit the review actually read. Re-run the review round on a dev-pipeline that writes it: '/dev-pipeline:review-lean <pr>'."
+  elif [[ -n "$VERDICT_REVIEWED_PATCH_ID" ]]; then
+    # Both failures below are ENVIRONMENT errors, not violations, and for the (Q1)/(Q2) reason:
+    # `git patch-id` prints NOTHING for an empty diff, so two failed computations compare EQUAL
+    # and an unguarded reader prints its ✓ having hashed nothing. A check that cannot run must
+    # not report a pass — and must not report a violation either, since the evidence is not what
+    # is missing.
+    #
+    # ONE guard over the whole computation, not one per step. An unresolvable merge-base and an
+    # empty measured range both surface as an empty id, and splitting them produced an arm no
+    # case could kill: whichever fired second was unreachable, because reaching it required the
+    # first to have succeeded. An unkillable guard reads as coverage while asserting nothing.
+    # PR_BASE_REF stays separate because its remedy is different — a job-level env fix, not a
+    # checkout-depth one — and (U5) kills it on its own.
+    [[ -n "${PR_BASE_REF:-}" ]] \
+      || envfail "verdict record '$VERDICT' declares a reviewed_patch_id, but PR_BASE_REF is unset or empty — the branch's patch identity cannot be recomputed without a base to measure from. Set it on the pr-gates job."
+    CUR_PATCH_ID="$(git -C "$REPO_ROOT" diff "$(git -C "$REPO_ROOT" merge-base "origin/$PR_BASE_REF" "$PR_HEAD_SHA" 2>/dev/null)" \
+      "$PR_HEAD_SHA" -- . ":(exclude)$VERDICT" 2>/dev/null \
+      | git -C "$REPO_ROOT" patch-id --stable 2>/dev/null | cut -d' ' -f1)"
+    if [[ -z "$CUR_PATCH_ID" ]]; then
+      envfail "cannot compute this branch's patch identity against origin/$PR_BASE_REF — the merge-base is unresolvable (a full-history checkout of the base is required: fetch-depth: 0), or the branch's diff excluding '$VERDICT' is empty. Either way there is nothing to compare the verdict's reviewed_patch_id against."
+    elif [[ "$CUR_PATCH_ID" != "$VERDICT_REVIEWED_PATCH_ID" ]]; then
+      note_violation "verdict record '$VERDICT' reviewed patch ${VERDICT_REVIEWED_PATCH_ID:0:12}, but this branch's diff against origin/$PR_BASE_REF now hashes to ${CUR_PATCH_ID:0:12}. Content changed after the review — a commit landed, or a rebase resolved a conflict by altering a line — so the review read a different tree than the one being merged. Run another review round."
+    else
+      echo "[lean-chain]   ✓ freshness (declared, patch-id ${CUR_PATCH_ID:0:12}): the branch's diff against origin/$PR_BASE_REF is the one the review read"
+    fi
   elif ! git -C "$REPO_ROOT" cat-file -e "$VERDICT_REVIEWED_HEAD^{commit}" 2>/dev/null; then
     note_violation "verdict record '$VERDICT' names reviewed_head $VERDICT_REVIEWED_HEAD, for which this checkout holds no commit — the branch was rebased or force-pushed after the review, so the reviewed code is not what is being merged. Re-run the review round."
   else

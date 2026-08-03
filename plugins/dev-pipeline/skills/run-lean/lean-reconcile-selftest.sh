@@ -47,6 +47,10 @@ git -C "$TREE" config user.name t
 printf '# base\n' > "$TREE/docs/plans/base.md"
 git -C "$TREE" add docs/plans/base.md >/dev/null 2>&1
 git -C "$TREE" commit -q -m "base tree" >/dev/null 2>&1
+# The patch-id arm measures the branch's diff from merge-base(origin/<baseBranch>, …), so the
+# fixture carries the remote-tracking ref a real checkout would have. Block (M) composes that
+# arm; every case above it writes records without the key and takes the ancestry fallback.
+git -C "$TREE" update-ref refs/remotes/origin/main HEAD
 
 CFG="$WORK/config.json"
 cat > "$CFG" <<'EOF'
@@ -280,6 +284,83 @@ out="$(reconcile "$WORK/comments-good.json")"; rc=$?
 if [ "$rc" -eq 0 ] && printf '%s' "$out" | grep -q 'declares reviewed_head'; then
   pass "(L3) a coherently-declared reviewed head reconciles, and the tool says so"
 else fail "(L3) expected rc=0 on a coherent record, got $rc: $out"; fi
+
+# The (L) block's own premise: its records carry no `reviewed_patch_id`, so they route to the
+# ancestry fallback. Asserted rather than assumed — a fixture writer that quietly grew the key
+# would migrate the whole block to the (M) arm and leave the fallback uncovered, all green.
+if ! grep -q 'reviewed_patch_id' "$VERDICT" 2>/dev/null; then
+  pass "(L4) the (L) records carry no reviewed_patch_id, so that block does gate on the ancestry fallback"
+else fail "(L4) the (L) block is no longer exercising the ancestry fallback: $(cat "$VERDICT" 2>/dev/null)"; fi
+
+# ---- (M) the record declares the PATCH it reviewed, and its commit hashes to the same --------
+# The ancestry check above is what turned a rebase into a "do NOT merge": after one, the record's
+# replayed commit descends from no pre-rebase head, so a coherent record became incoherent
+# through an operation that changed no reviewed line. Patch identity states the same claim —
+# the record was written on top of the tree it reviewed — without keying it on a commit SHA.
+#
+# The expected value is derived here rather than read back from the tool. That is an ORACLE, not
+# the banned mirror-harness shape: a copy is dangerous when production drifting away from it
+# leaves the suite green, and this one does the opposite — any change to the base, the range or
+# the exclusion makes the two disagree and reds every (M) case.
+tree_patch_id() { # tree_patch_id <head-ish>
+  git -C "$TREE" diff "$(git -C "$TREE" merge-base refs/remotes/origin/main "$1" 2>/dev/null)" "$1" \
+    -- . ":(exclude)docs/plans/acme-7-lean-verdict.md" 2>/dev/null \
+    | git -C "$TREE" patch-id --stable 2>/dev/null | cut -d' ' -f1
+}
+write_verdict_pid() { # write_verdict_pid <patch-id> [reviewed-head]
+  cat > "$VERDICT" <<EOF
+# lean review verdict — #7
+
+verdict=approve
+run_id: $REVIEW_RUN_ID
+session_id: $REVIEW_SESSION
+rounds: 1
+reviewed_head: ${2:-$(git -C "$TREE" rev-parse HEAD)}
+reviewed_patch_id: $1
+
+No blockers.
+EOF
+}
+
+m_pid="$(tree_patch_id HEAD)"
+[ -n "$m_pid" ] || fail "(M0) the fixture's patch identity is empty — every (M) case would compare nothing"
+write_verdict_pid "$m_pid"
+commit_verdict "2026-01-01T10:30:00Z"
+out="$(reconcile "$WORK/comments-good.json")"; rc=$?
+if [ "$rc" -eq 0 ] && printf '%s' "$out" | grep -q 'declares reviewed_patch_id'; then
+  pass "(M1) a record declaring the patch it reviewed reconciles, and the tool names the patch-id arm"
+else fail "(M1) expected rc=0 on a coherent patch id, got $rc: $out"; fi
+
+# THE case the ancestry arm gets wrong. A REAL rebase onto a base that moved with content: the
+# base advancing by an empty commit would leave the trees identical and prove nothing.
+m_pre_rebase="$(git -C "$TREE" rev-parse HEAD)"
+m_branch="$(git -C "$TREE" symbolic-ref --short HEAD 2>/dev/null)"
+git -C "$TREE" branch -f m-base refs/remotes/origin/main >/dev/null 2>&1
+git -C "$TREE" checkout -q m-base 2>/dev/null
+printf 'the base moved while the review was in flight\n' > "$TREE/base-moved.txt"
+git -C "$TREE" add base-moved.txt >/dev/null 2>&1
+git -C "$TREE" commit -q -m 'base advances' >/dev/null 2>&1
+git -C "$TREE" update-ref refs/remotes/origin/main m-base
+git -C "$TREE" checkout -q "$m_branch" 2>/dev/null
+git -C "$TREE" rebase -q m-base >/dev/null 2>&1; m_rebased=$?
+# Non-vacuity: the ancestry arm would red here. The pre-rebase commit is still an object in this
+# repo, so its `cat-file -e` would pass — but the record's replayed commit no longer descends
+# from it, which is the predicate (L2) fails on.
+git -C "$TREE" merge-base --is-ancestor "$m_pre_rebase" HEAD 2>/dev/null && m_ancestry_ok=1 || m_ancestry_ok=0
+out="$(reconcile "$WORK/comments-good.json")"; rc=$?
+if [ "$m_rebased" -eq 0 ] && [ "$m_ancestry_ok" -eq 0 ] && [ "$rc" -eq 0 ] \
+   && printf '%s' "$out" | grep -q 'declares reviewed_patch_id'; then
+  pass "(M2) a rebase that replays the branch unchanged still reconciles, though the ancestry arm would have failed it"
+else fail "(M2) rebase=$m_rebased ancestry-still-holds=$m_ancestry_ok rc=$rc: $out"; fi
+
+# ...and the arm is still a check. A record whose commit hashes to a different patch is
+# incoherent on its own terms, exactly as (L2) is for the ancestry keying.
+write_verdict_pid "0000000000000000000000000000000000000000"
+commit_verdict "2026-01-01T11:00:00Z"
+out="$(reconcile "$WORK/comments-good.json")"; rc=$?
+if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q 'was not written on top of the tree'; then
+  pass "(M3) a record whose declared patch is not the one its commit carries fails"
+else fail "(M3) expected rc=1 on an incoherent patch id, got $rc: $out"; fi
 
 # ---- (I) header states the #292 deferral ----------------------------------------------------
 if grep -q 'DEFERS TO #292' "$TOOL"; then
