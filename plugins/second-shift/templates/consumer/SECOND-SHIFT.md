@@ -12,7 +12,7 @@ repo enables {{PLUGIN_LIST}}) — `/second-shift:doctor` verifies the install ag
 ## What each plugin installs and when its code runs
 
 ### dev-pipeline
-- Skills: `run-lean` (the default ticket→PR lane, invoked as `/dev-pipeline:run-lean`, gated by five artifact milestones), `run` (the 10-stage ticket→PR state machine, invoked as `/dev-pipeline:run`, deprecated — kept as an ablation/rollback lane), `pipeline-retro`, `perf-retro`, `pr-revision` — loaded only when invoked.
+- Skills: `run-lean` (the default ticket→PR lane, invoked as `/dev-pipeline:run-lean`, gated by five artifact milestones), `review-lean` (the review half of that lane, invoked as `/dev-pipeline:review-lean <pr>` from its own session — a build run cannot author its own verdict), `run` (the 10-stage ticket→PR state machine, invoked as `/dev-pipeline:run`, deprecated — kept as an ablation/rollback lane), `pipeline-retro`, `perf-retro`, `pr-revision` — loaded only when invoked.
 - Hook: a PreToolUse gate on `git commit` commands (normal and bot-identity forms) that runs the repo's type-check on staged changes during pipeline commits.
 - Shell tools (statectl, verifyctl, config-lint, pipeline-doctor…) run only inside pipeline stages; run state lives in `.claude/pipeline-state/`.
 
