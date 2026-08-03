@@ -168,6 +168,40 @@ else
   bad "disabled resolver: rc=$rc deleted=$(deleted && echo y || echo n) calls=$(cat "$CALL_LOG" 2>/dev/null)"
 fi
 
+# (i) MISSING RESOLVER (#92) — case (h) proves the resolver ABORTS when it resolves
+# nothing, but it runs against the real tools/ directory where gh-bot.sh is always a
+# sibling, so the `[[ ! -f "$_RESOLVER" ]]` arm ABOVE it stayed unexercised: flipping
+# its `exit 1` to `exit 0` left every case here green while claim-issue.sh reported a
+# successful claim having called nothing. That is the fail-open the nightly sweep
+# surfaced as a surviving claim-issue.sh::fail-open::1 mutant. $_RESOLVER derives from
+# `dirname "$0"`, so the only way to drive the arm is to invoke a COPY of the helper
+# from a directory with no gh-bot.sh beside it.
+run_claim_no_resolver() {
+  local iso="$TMP/no-resolver"
+  rm -rf "$iso"
+  mkdir -p "$iso"
+  cp "$HELPER" "$iso/claim-issue.sh"
+  rm -f "$DELETE_SENTINEL"
+  : > "$CALL_LOG"
+  # Bot ENABLED and GH_BOT pointing at a working mock: the only thing that may abort
+  # this run is the missing-resolver arm itself, so a pass cannot be borrowed from (h).
+  printf '%s\n' '{"tracker":{"bot":{"enabled":true}}}' > "$TMP/claim-cfg.json"
+  env \
+    GH_BOT="$MOCK" \
+    SECOND_SHIFT_CONFIG="$TMP/claim-cfg.json" \
+    SECOND_SHIFT_REPO_ROOT="$TMP" \
+    CALL_LOG="$CALL_LOG" \
+    DELETE_SENTINEL="$DELETE_SENTINEL" \
+    bash "$iso/claim-issue.sh" 183 >/dev/null 2>&1
+  echo "$?"
+}
+rc=$(run_claim_no_resolver)
+if [[ "$rc" == "1" ]] && ! deleted && [[ ! -s "$CALL_LOG" ]]; then
+  ok "missing resolver -> exit 1, no POST/DELETE (mock never invoked)"
+else
+  bad "missing resolver: rc=$rc deleted=$(deleted && echo y || echo n) calls=$(cat "$CALL_LOG" 2>/dev/null)"
+fi
+
 echo "=== claim-issue.sh: usage contract ==="
 
 # (f) No issue number -> usage error, exit 2, no POST/DELETE.
