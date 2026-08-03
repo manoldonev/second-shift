@@ -579,7 +579,12 @@ cmd_3() {
 cmd_4() {
   local rec="$REPO_ROOT/$VERDICT_REL" v_val v_run v_sess b_prog_run b_prog_sess b_cached cand
   local v_commit v_short stale n_stale v_head v_head_short declared n_declared
-  [ -f "$rec" ] || { fail_milestone 4 "no committed verdict record at $VERDICT_REL"; return $?; }
+  # The handoff moment, and so the one place the P9 reminder is contextual rather than noise.
+  # It lives here rather than as another SKILL.md line for the reason the cap exists: stderr is
+  # read exactly when it applies, prose is read on every run. NO DETECTION happens here — the
+  # refusal is the merge boundary's alone (check-lean-chain.sh evidence 6), and a second in-run
+  # copy would be the duplicate machinery D-47 rules out, not defense in depth.
+  [ -f "$rec" ] || { fail_milestone 4 "no committed verdict record at $VERDICT_REL — hand off to '/dev-pipeline:review-lean <pr>'. If this run wrote an intent-gap record, ratify it before that handoff: the merge boundary refuses one still reading 'ratified: no'."; return $?; }
   v_val="$(record_verdict "$rec")"
   if [ "$v_val" != "approve" ]; then
     fail_milestone 4 "verdict record $VERDICT_REL reads verdict=${v_val:-<none>}, not verdict=approve"; return $?
