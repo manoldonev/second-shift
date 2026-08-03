@@ -91,11 +91,14 @@ BRANCH_PREFIX="$(cfg '.tracker.branchPrefix' 'claude/acme-')"
 HOST_Q='(.topology.repos | to_entries[] | select(.value.path==".") | .key)'
 REPO_SLUG="$(cfg "$HOST_Q" 'acme')"
 
-# Same extraction shape lean-gate.sh / lean-reconcile.sh use on these records — a third
-# reader disagreeing about what a key looks like would be a silent divergence.
+# Same first-match key:value idiom lean-gate.sh / lean-reconcile.sh use on these records,
+# widened to allow `/` — unlike their run_id/session_id/verdict= keys, `verdict_record:`
+# and `spec:` carry repo-relative PATHS, and lean-gate.sh's own character class truncates
+# at the first slash (never triggered there, since it re-derives those paths from config
+# instead of reading them back — this reader intentionally does read them back).
 record_key() { # record_key <key> <file>
   [ -f "$2" ] || return 0
-  grep -oE "$1:[[:space:]]*[A-Za-z0-9._-]+" "$2" 2>/dev/null | head -n1 | sed -E "s/^$1:[[:space:]]*//"
+  grep -oE "$1:[[:space:]]*[A-Za-z0-9._/-]+" "$2" 2>/dev/null | head -n1 | sed -E "s/^$1:[[:space:]]*//"
 }
 record_verdict() {
   [ -f "$1" ] || return 0
