@@ -1,172 +1,150 @@
 # lean review verdict — #346
 
-verdict=needs-work
-run_id: review-346-2
-session_id: 8f05884c-ef64-4173-a6e1-e1da47841dd2
-rounds: 2
+verdict=approve
+run_id: review-346-3
+session_id: 4e000438-5540-48a3-af9b-37d2d100ba92
+rounds: 3
 pr: #368
-reviewed_head: af5661cb23a4a68ef3ce763382bb1f230016fae2
+reviewed_head: e36e16871f04a0e29b059696e1decdc3558c70a9
 
-## Verdict: needs-work (round 2)
+## Verdict: approve (round 3)
 
-Round 1's blocker is **fully discharged** — every refusal it named now has a kill criterion, and
-I re-verified each one by applying the mutant myself rather than taking the PR body's word. The
-rebase onto `origin/main` is clean authoring, and `SKILL.md` is back at exactly 60/60.
+Round 2's B-1 is discharged by the one commit this round adds, and discharged the way round 2
+asked: the clause is restored, the stderr routing round 1 asked for **stays**, and the file is
+back at exactly 60/60. All seven ACs are satisfied. Two warnings, neither blocking.
 
-The new blocker is a **regression introduced by round 2's own compression**, and round 1 asked
-for it. AC-7 names two things `run-lean`'s SKILL.md must say; the pass that freed the lines
-deleted one of them.
+## Round 2's B-1 — discharged
 
-## Blocker
-
-**B-1 — AC-7's second clause is no longer met at `run-lean/SKILL.md`.**
-
-AC-7 reads: "… `run-lean`'s SKILL.md names **when BUILD writes one** and **what the merge
-boundary does with it**."
-
-Head state, `plugins/dev-pipeline/skills/run-lean/SKILL.md:52-53`:
+AC-7 names two things `run-lean/SKILL.md` must say. Head state, `SKILL.md:52-53`:
 
 > **A decision the receipt never covered is not yours to make (P9).** Write the intent-gap
-> record (schema: `interviewing-baseline`) and follow its region's declared disposition.
+> record (schema: `interviewing-baseline`), follow its region's disposition, and ratify before
+> the handoff — the merge boundary refuses `ratified: no`.
 
-That names *when*. It does not name what the merge boundary does with it — the clause carrying
-that ("ratify before the handoff — the merge boundary refuses a record still reading
-`ratified: no`") was the one round 2 cut. Nothing else in the file supplies it: `:43`'s "the
-gate and the merge boundary both refuse it" is about the **verdict** record, and `:58-59` names
-`check-lean-chain.sh` generically without the ratification consequence.
+*When BUILD writes one*: "a decision the receipt never covered". *What the merge boundary does
+with it*: "refuses `ratified: no`". Both clauses present in one bullet.
 
-**This is round 1's error, not the build session's.** Round 1's O-1 triaged that clause as
-"courtesy; this is the compressible clause" and recommended routing it to gate stderr. The build
-session did exactly that. But a reviewer's triage is not a spec amendment, and round 1 scored
-AC-7 satisfied **while the clause was still present** — so the advice contradicted the AC it had
-just scored. Recording that here so round 3 does not oscillate.
+`wc -l` is 60, so the cap oracle (`lean-gate-selftest.sh` case `(f)`) is green — confirmed by
+the sweep below, not by reading. The `lean-gate.sh` milestone-4 stderr line survives the fix
+intact, so this is the addition round 2 specified rather than a revert of round 1's remedy.
 
-**AC-7 is doc-scope, so there is no substance to appeal to over the letter.** It specifies what
-a named file must say. Operationally the information is reachable — `interviewing-baseline`
-carries the full consequence, and `lean-gate.sh`'s milestone-4 stderr now fires at the handoff
-moment — but AC-7 assigns this sentence to *this file*, which is the one document a build
-session is told to read start-to-finish (`SKILL.md:11`, "Read this file, then work the
-checklist"). An unmet `AC-n` is a blocker regardless of size.
-
-**Remedy, and what NOT to do.** Restore the clause *inside the existing two-line budget* — do
-**not** revert the stderr routing, which is a genuine improvement and not an alternative to the
-doc line. Lines 44 and 50 are already long unwrapped lines, so this fits at 60/60:
-
-```
-- **A decision the receipt never covered is not yours to make (P9).** Write the intent-gap
-  record (schema: `interviewing-baseline`), follow its region's disposition, and ratify before the handoff — the merge boundary refuses `ratified: no`.
-```
-
-## Round 1's B-1 — discharged, re-verified by execution
-
-Every kill claim in the PR body was checked by applying the exact mutant and confirming the case
-count, not by reading the table:
-
-| Round-1 finding | New case | Mutant applied here | Result |
-| --- | --- | --- | --- |
-| C-1 `-$KEY` issue-scoping | `(S0b)` | dropped `-$KEY` from the `case` pattern | **exactly 1 case reds**, `(S0b)` |
-| C-2 `open` requires `deferred` | `(ll-aa)` | condition → `if false` | **exactly 1 case reds**, `(ll-aa)` |
-| C-3 Kind-enum default arm | `(ll-ab)` | `violate` line deleted | **exactly 1 case reds**, `(ll-ab)` |
-| C-4 open-region arity | `(ll-ac)` | `violate` line deleted | **exactly 1 case reds**, `(ll-ac)` |
-| C-4 empty Region cell | `(ll-ad)` | `violate` line deleted | **exactly 1 case reds**, `(ll-ad)` |
-| C-4 duplicate `OR-n` | `(ll-ae)` | `violate` line deleted | **exactly 1 case reds**, `(ll-ae)` |
-| C-5 `ledger-lint --help` | `(ll-af)` | `2,51p` → `2,45p` | **exactly 1 case reds**, `(ll-af)` |
-| C-5 `check-lean-chain --help` | `(T)` | `sed -n` → `sed -z` | **exactly 1 case reds**, `(T)` |
-
-`(S0b)` is the one that mattered, and it is the right shape: it declares a real, non-fixture
-record for issue **99** and asserts the gate still reports absence for 42 — so it separates the
-`-$KEY` predicate from the fixture-path exclusion `(S0)` already covers. Ordered before every
-`acme-42` record, so nothing else can be what satisfies the scan.
-
-**`(T)`'s two-directional assertion is load-bearing and I checked why.** The `cmp-z` operator is
-`s/-n /-z /`, so the mutant is `sed -z '2,87p'`. On BSD sed that is `illegal option -- z` and the
-output is empty — verified locally, the case reds on the *presence* assertion. On GNU sed `-z`
-is legal, `-n` is gone so auto-print is on, and the file has no NUL bytes, so the whole file
-including `set -uo pipefail` is emitted — which is why the second, *absence* assertion is the
-one that kills it there. A presence-only case would have survived on the ubuntu lane. That
-matters directly: retiring `scripts/check-lean-chain.sh::cmp-z::2` from the baseline is only
-safe because both directions are pinned.
-
-**The retired baseline row is correctly identified.** I enumerated the operator's sites at both
-ends: ordinal 1 is the comment at `:13` (`AC-n ` matches `-n `) at both base and head, ordinal 2
-is the `--help` line — `2,83p` on `origin/main`, `2,87p` at head. Site set unmoved, ordinal 2's
-content changed, and `(T)` now kills it. Removing the row rather than re-keying it is right; a
-stale row would let the mutant resurrect without redding a lane.
+The only compression paid for it was dropping "declared" from "its region's declared
+disposition". AC-7 asks for the disposition to be named, not for that adjective — nothing the
+AC mandates was traded away this time.
 
 ## Warnings — verified, not blocking
 
-All three come from `unit-test-mutation-reviewer` and I confirmed each survives by applying it.
-They are **not** round-1 B-1's class, and the distinction is the reason they are not blockers:
-C-1–C-5 were `violate()` **refusals** — a deleted refusal is a contract rule that silently stops
-being enforced. None of these three is.
+**W-1 — `scripts/lockstep-manifest.tsv:323` cites the wrong selftest cases.**
 
-| # | Site | Surviving mutant | Why not a blocker |
-| --- | --- | --- | --- |
-| W-1 | `ledger-lint.sh:136` `normalize_arity` | drop-branch → `if false` (35/35 still green) | a **tolerance**, not a refusal. Its absence never admits a bad receipt — it degrades one message ("malformed row" instead of the specific empty-cell violation). The guard `$1 == $3+1 && last cell blank` is what stops it normalizing a legitimate 6-cell row |
-| W-2 | `ledger-lint.sh:62` two-positional-args | guard deleted (35/35 still green) | a usage error, not a contract surface. Removing it lints the *second* path instead of exiting 2; no caller passes two |
-| W-3 | `check-lean-chain.sh:430` `break` | `break` removed (suite still green) | tie-break among **off-contract** states. The schema is explicit — "One record per issue" — so first-wins vs last-wins only differs on input the contract forbids |
+The new DROPPED entry justifies declining a lockstep row for the receipt vocabulary by naming
+where the coupling is guarded behaviorally instead:
 
-W-1 is the one worth a case if any: `normalize_arity` is new logic in this diff and its comment
-claims a specific behavior nothing drives. One fixture row with a trailing space after the
-closing pipe would pin it. Cheap, but it does not gate the merge.
+> Guarded behaviorally instead: ledger-lint-selftest.sh drives all three Kind values and both
+> dispositions against real receipts (ll-o through ll-y2) … `check-lean-chain-selftest.sh
+> (R0)-(R4)` does the same for the record's two keys at the merge boundary.
+
+The `ll-o … ll-y2` half checks out. The other half does not, in two ways: `(R0)` has never
+existed, and at head `(R1)`-`(R4)` are **#367's `reviewed_head` cases** — a different contract
+entirely. The real guards for `ratified:` / `ratified_by:` are `(S0)`-`(S4)` plus `(S0b)`.
+
+Provenance: at `bb10475` evidence 6's block was `(R)` with cases `(R1)`-`(R4)`, so the citation
+was off by an id from the start. Round 2's rebase then renamed the block to `(S)` — the PR body
+documents that rename ("both sides had claimed the letter `(R)`") — and the manifest comment did
+not move with it. The citation now resolves to real, green cases that assert something else,
+which is worse than a dangling reference: a reader who follows it sees passing tests and stops.
+
+Not blocking. The DROPPED decision's *substance* is sound — I confirmed `(S1)`-`(S4)` do drive
+both keys, so the row genuinely is unnecessary, and only the pointer is wrong. It stops no
+contract from being enforced, which is the same test round 2 used to keep its three surviving
+mutants as warnings. But no gate can ever catch this — the repo bans prose-presence guards, so
+the manifest's own comments are unexecutable by policy — and the fix is one token
+(`(R0)-(R4)` → `(S0)-(S4)`, or `(S0)`/`(S0b)`-`(S4)` to be exact). Worth a follow-up.
+
+**W-2 — the `https://` predicate in the `ratified_by:` citation check has no kill criterion.**
+
+`check-lean-chain.sh:440` requires a literal `https://` before `ratified_by:` counts as a
+citation; anything else falls into the self-ratification refusal. Raised by
+`unit-test-mutation-reviewer` (confidence 83) and **verified here by execution**, not by reading
+the claim: widening the pattern to `ratified_by:[[:space:]]*[^[:space:]]+` leaves
+`check-lean-chain-selftest.sh` **all green**. `write_gap` is called three ways — empty (`S1`,
+`S2`) and a full URL (`S3`, `S4`) — so the empty-vs-URL boundary is pinned and the
+URL-shape-vs-any-string boundary is not. Under the mutant, `ratified_by: confirmed-verbally`
+certifies a merge.
+
+Not blocking, and it is a weaker finding than round 1's B-1 despite touching a refusal. That
+cluster was five `violate()` branches with *no case driving them at all* — each deletable with
+the suite green. This branch **is** driven: deleting the `elif [[ -z "$GAP_BY" ]]` arm reds
+`(S2)`. Only the predicate's strictness is unpinned, the code at head is correct, and the file's
+own honest-altitude note already scopes this arm to tamper-evidence rather than proof — a
+`https://`-shaped string is forgeable anyway. One fixture with a non-URL truthy `ratified_by:`
+would close it.
+
+## Warnings carried forward from round 2 — re-confirmed unchanged
+
+`unit-test-mutation-reviewer` re-raised all three and confirmed each region is byte-identical to
+round 2's `reviewed_head`. Round 2's adjudication stands and I am not re-litigating it: none is
+a `violate()` refusal — `normalize_arity`'s drop-branch is a tolerance, the two-positional-args
+check is a usage guard, and `check-lean-chain.sh`'s `break` is a tie-break among states the
+one-record-per-issue schema forbids.
+
+| # | Site | Status |
+| --- | --- | --- |
+| W-3 | `ledger-lint.sh:136` `normalize_arity` drop-branch | unchanged since round 2; still a warning |
+| W-4 | `ledger-lint.sh:62` two-positional-args guard | unchanged since round 2; still a warning |
+| W-5 | `check-lean-chain.sh:430` intent-gap scan `break` | unchanged since round 2; still a warning |
 
 ## Per-AC scoring
 
 | AC | Rung | Score | Evidence |
 | --- | --- | --- | --- |
-| AC-1 | oracle | **satisfied** | `ledger-lint-selftest.sh` 35/35. `(ll-q)` drives all three illegal `intent` backings, `(ll-r)` discriminates, `(ll-s)` the mirror error, `(ll-t)`/`(ll-u)` uncited vs dangling, `(ll-aa)` the third leg. Mode isolation pinned both directions by `(ll-y1)`/`(ll-y2)`. Default mode unchanged with no fixture edits — `exitplan-ledger-gate-selftest.sh` 25/0 still green |
-| AC-2 | oracle | **satisfied** | `check-lean-chain-selftest.sh` all green. `(S0)`–`(S4)` cover fixture exclusion, the unratified refusal, the uncited-`yes` refusal, the clearing case, and the first-match read; `(S0b)` adds the cross-issue arm |
-| AC-3 | proxy | **satisfied** | `BASELINE.md`: 5/5 seeded, 4/5 class agreement, 4 grounded extras. The S-4 disagreement resolved in the probe's favor per the README's own rule; the two extra hand-verified facts and the dispatch-by-body caveat are both disclosed. Unchanged since round 1 |
-| AC-4 | critic | **satisfied** | loop rule 8 in `interviewing-baseline`, applied at both the interviewer and the orchestrator; `spec-reviewer`'s Discovery Coverage carries all four named sub-items. Unchanged since round 1 |
-| AC-5 | oracle | **satisfied** | `check-lockstep-pairs.sh` — 13 pairs, 0 failed, both `provenance-enum` rows green. Ordinals independently enumerated at base and head for the operator whose row moved; the one retired row is the `--help` line and `(T)` kills it in both sed dialects. `catalog::ledger-lint-empty-decision` still anchors |
-| AC-6 | critic | **satisfied** | `check-changelog-trailer.sh origin/main` — OK. `bb10475` and `f8cc8ae` carry substantive trailers |
-| AC-7 | critic | **unsatisfied** | `interviewing-baseline` carries all four required items in full (Kind axis, ratification bar, Open Regions, intent-gap schema incl. the merge-boundary consequence). `run-lean`'s SKILL.md names *when* BUILD writes one but **not what the merge boundary does with it** — see B-1 |
+| AC-1 | oracle | **satisfied** | `ledger-lint-selftest.sh` green in the full sweep. `(ll-o)` drives all three Kind values and both dispositions against a real receipt; `(ll-q)`-`(ll-u)` and `(ll-aa)` the ratification bar and the `OR-n` citation arms; `(ll-y1)`/`(ll-y2)` pin mode isolation both directions. Default mode unchanged with no fixture edits — `exitplan-ledger-gate-selftest.sh` green |
+| AC-2 | oracle | **satisfied** | `check-lean-chain-selftest.sh` all green. `(S0)` fixture exclusion, `(S0b)` cross-issue scoping, `(S1)` the unratified refusal, `(S2)` the uncited-`yes` refusal, `(S3)` the clearing case, `(S4)` first-match. Absence is printed, not silent — asserted by `(S0)`/`(S0b)` |
+| AC-3 | proxy | **satisfied** | `BASELINE.md`: 5/5 seeded gaps, class agreement 4/5, 4 grounded extras, and the S-4 disagreement resolved in the probe's favor per the README's own rule. Recorded in the PR body as the AC requires. The dispatch-by-body caveat is disclosed. Unchanged since round 1 |
+| AC-4 | critic | **satisfied** | Loop rule 8 in `interviewing-baseline`, applied at the interviewer (§Step 1 exit criterion, ledger-seed section) and the orchestrator (its own "No draft-first (P8)" section + Step 5.5 receipt exit gate). `spec-reviewer`'s Discovery Coverage carries all four named sub-items — rung per AC, ratified-provenance share, dispositions on open regions, zero-open-regions-on-non-trivial-scope as a finding |
+| AC-5 | oracle | **satisfied** | `check-lockstep-pairs.sh` — 13 pairs, 0 failed, both `provenance-enum` rows green. All three edited guards enumerated base-vs-head in the PR body; the one retired baseline row is the `--help` line, and `(T)` kills it in both sed dialects. `catalog::ledger-lint-empty-decision` still anchors. Read as "check and record the evidence, re-baseline if the sites moved" — the alternative reading makes the AC unsatisfiable whenever ordinals legitimately hold, which is the defect the mid-run restatement fixed |
+| AC-6 | critic | **satisfied** | `check-changelog-trailer.sh origin/main` — OK |
+| AC-7 | critic | **satisfied** | `interviewing-baseline` carries all four required items in full — Kind axis, ratification bar, Open Regions contract, and the intent-gap record schema including the merge-boundary consequence. `run-lean/SKILL.md:52-53` now names both mandated clauses, at 60/60. See above |
 
-The spec is byte-identical to the tree round 1 scored (`git diff 181a805..HEAD -- docs/plans/second-shift-346-lean.md` is empty), so nothing was amended after the fact to match the diff.
+The spec is byte-identical to the tree round 1 scored (`git diff 181a805..HEAD --
+docs/plans/second-shift-346-lean.md` is empty), so nothing was amended after the fact to match
+the diff.
 
 ## Strengths
 
-- **The kill claims are real and independently reproducible.** Eight mutants applied by hand,
-  eight single-case reds. The PR body's "verified by applying the exact mutant" is not a
-  formality here — `(S0b)` and `(T)` in particular could each have been written in a shape that
-  looks like coverage and is not, and neither was.
-- **`(T)` is the rare help-text case that is not theater.** Asserting both the last header line's
-  presence *and* the first code line's absence is what makes it portable across BSD and GNU sed —
-  and it is the direct reason a baseline row could be retired rather than re-keyed.
-- **The `(S)` block's ordering rationale is correct and non-obvious.** Committing the gap record
-  first and the verdict on top is both the real shape and the only order `#367`'s one-differing-
-  path tolerance permits; committing them together would have redded every case on staleness
-  instead of on what it asserts.
-- **The rebase resolved by authoring, not by picking a side.** Main's post-`#365` tracker-delta
-  block and `#367`'s `reviewed_head` wording both survive intact, and the two lines were paid for
-  by compressing prose whose dropped clauses a script already enforces.
+- **The fix took the narrow reading of its own remedy.** Round 2 said "restore the clause, do
+  not revert the stderr routing" — and both hold at head. The tempting cheap discharge (drop the
+  gate line, reclaim the budget) was available and not taken.
+- **Round 1's B-1 remains genuinely discharged.** I spot-checked the surviving refusals rather
+  than assuming: the `elif [[ -z "$GAP_BY" ]]` arm cannot be deleted with the suite green, which
+  is exactly the property round 1 was buying.
+- **The eval baseline is honest about what it is.** Dispatch-by-body is disclosed as a real
+  difference from production dispatch, with the `maxTurns` consequence named and a re-check
+  scheduled after release — rather than presented as an equivalent run.
+- **`(S0b)` and `(T)` are the two cases that could each have been written as theater and were
+  not** — a cross-issue record for #99, and a help-range assertion pinned in both directions so
+  it kills on BSD and GNU sed alike.
 
 ## Reviewers
 
 | Reviewer | Verdict | Findings | Confidence |
 | --- | --- | --- | --- |
-| Scope Completeness | Pass | 0 | — |
-| Security | Pass | 0 (2 suppressed) | — |
-| Performance | Pass | 0 | — |
+| Scope Completeness | Pass | 0 (1 suppressed) | — |
 | Maintainability | Pass | 0 | — |
-| Complexity | Pass | 0 | — |
-| Test Coverage | Pass | 0 | — |
-| Unit Test Mutation | Pass (nits) | 3 | 80–82 |
+| Unit Test Mutation | Pass (nits) | 4 | 83–90 |
 
-No reviewer went dark. Every relayed finding was re-verified by executing the mutant; none was
-taken on the reviewer's word. B-1 is the orchestrator's own finding — no reviewer raised it,
-because no reviewer was given the spec.
+Round-3 lineup reduced per review-lead's prior-round rule: the reviewer holding round 2's
+findings, the one whose domain the fix commit touches, and the unconditional scope gate. No
+reviewer went dark. W-1 is the orchestrator's own finding — no reviewer raised it, and none was
+given the spec.
 
 ## Verification run
 
-Worktree `second-shift-346` at `af5661c`, clean, in sync with `origin/lean/second-shift-346`,
-rebased onto `origin/main` at `8f9174c`.
+Run in the PR head worktree at `e36e168`, tree clean:
 
-- Full `*-selftest.sh` sweep, `-P 4`, **without** `SKIP_STRESS` — `rc=0`, 62 suites, zero failures
-- `shellcheck -e SC1091,SC2015,SC2181` over all `*.sh` — clean
-- `jq empty` over all `*.json` — clean
+- `shellcheck -e SC1091,SC2015,SC2181` over every `*.sh` — clean
+- `jq empty` over every `*.json` — clean
+- Full selftest sweep, `-P 4`, **without `SKIP_STRESS`** — exit 0, no failing suite
 - `check-lockstep-pairs.sh` — 13 pairs, 0 failed
-- `check-frozen-files.sh origin/main` — clean; `check-changelog-trailer.sh origin/main` — OK
-- CI: `lint-and-selftests` pass, `selftests (macos, bash 3.2)` pass. `pr-gates` fails on the
-  round-1 `verdict=needs-work` record and its stale `181a805` head with no `reviewed_head` — the
-  designed state for a lean PR awaiting its review, and what this record replaces
+- `check-changelog-trailer.sh origin/main` — OK
+- W-2's mutant applied by hand and reverted; the tree was confirmed clean afterwards and the
+  suite re-run green against the restored file
