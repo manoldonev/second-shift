@@ -40,8 +40,10 @@
 #   lean-gate.sh entry  <issue>          entry precondition: the session's audit ledger is live.
 #                                        The queue-label reject is the SESSION's step (SKILL.md
 #                                        step 1) — it needs a tracker read, so it is not gated
-#                                        here. Stated because the two are easy to conflate.
-#   lean-gate.sh claim  <issue>          the two bot-wrapper claim writes (AC-15/D-49)
+#                                        here. Under tracker.type: jira there is no queue at all.
+#   lean-gate.sh claim  <issue>          the two bot-wrapper claim writes (AC-15/D-49).
+#                                        Under tracker.type: jira it makes NO tracker write and
+#                                        needs no GH_BOT — it records the run id and returns.
 #   lean-gate.sh <1..5> <issue>          evaluate one milestone
 #   lean-gate.sh all    <issue>          evaluate 1..5 in order, stop at the first failure
 #   lean-gate.sh verdict <issue> --pr <n> --verdict <approve|needs-work> [--rounds <n>]
@@ -91,7 +93,7 @@ while [ $# -gt 0 ]; do
     --verdict)       VERDICT_VALUE="${2:-}"; shift 2 ;;
     --rounds)        VERDICT_ROUNDS="${2:-}"; shift 2 ;;
     --summary-file)  SUMMARY_FILE="${2:-}"; shift 2 ;;
-    -h|--help)       sed -n '2,63p' "$0"; exit 0 ;;
+    -h|--help)       sed -n '2,65p' "$0"; exit 0 ;;
     -*)              envfail "unknown option: $1" ;;
     *)
       if [ "$POSITIONAL" -eq 0 ]; then SUB="$1"; POSITIONAL=1
@@ -144,6 +146,27 @@ CLAIMED_LABEL="$(cfg '.tracker.labels.claimed' 'in-progress')"
 HOST_Q='(.topology.repos | to_entries[] | select(.value.path==".") | .key)'
 REPO_SLUG="$(cfg "$HOST_Q" 'acme')"
 BASE_BRANCH="$(cfg "$HOST_Q as \$h | .topology.repos[\$h].baseBranch" 'main')"
+
+# ---------------------------------------------------------------- the tracker adapter
+# ONE resolution, THREE branch sites: the entry note, cmd_claim, and cmd_5. Milestones 1-4
+# are adapter-INSENSITIVE (a committed file, two repo scripts, a config command table, a
+# committed verdict record) and must stay that way — an adapter branch inside them would be
+# a second tracker authority.
+#
+# Absent ⇒ github is a FAIL-SAFE, not a back-compat allowance: config-lint.sh already requires
+# `tracker.type` to be github|jira (an absent key reads as "" and errors), so no lint-clean
+# config omits it. The default is for the config that never reached the lint — hand-edited, or
+# read before it runs — and github is the safe side of that: the arm whose exit gate demands a
+# closing comment fails loudly, where the jira arm would quietly accept a PR body.
+#
+# An UNRECOGNIZED value is a loud environment error rather than a fall-through — a typo'd
+# `tracker.type` silently running the write-happy arm on a read-only tracker is exactly the
+# failure this whole change removes. The enum matches config-lint.sh's.
+TRACKER_TYPE="$(cfg '.tracker.type' 'github')"
+case "$TRACKER_TYPE" in
+  github|jira) : ;;
+  *) envfail "unknown tracker.type '$TRACKER_TYPE' — expected 'github' or 'jira'." ;;
+esac
 
 # ---------------------------------------------------------------- the pinned name table
 # ONE derivation, three consumers: this script, scripts/check-lean-chain.sh (running in CI
@@ -361,6 +384,14 @@ cmd_entry() {
     return 1
   fi
   say "✓ entry: audit ledger live ($(wc -l < "$ledger" | tr -d ' ') lines)."
+  # SKILL.md step 1 pairs this gate with a SESSION-side queue-label confirm. That confirm
+  # has no jira meaning — jira pickup is "the operator supplies the key; no queue, no claim,
+  # no label" — so the documented reject-and-stop has no defined outcome there. Say so here
+  # rather than leaving the session to infer it: the note is the only place the two halves
+  # of step 1 meet.
+  if [ "$TRACKER_TYPE" = "jira" ]; then
+    say "  tracker delta (jira): no queue label to confirm — the operator supplies the ticket key (tracker.writes: false). Step 1's label reject does not apply."
+  fi
   return 0
 }
 
@@ -368,8 +399,22 @@ cmd_entry() {
 # TWO bot-wrapper writes. Both must be the bot: check-lean-chain.sh filters the comment
 # trail on `.user.type == "Bot"`, so an operator-posted claim comment is INVISIBLE to it
 # and the merge-boundary gate would fail a legitimately-claimed PR.
+#
+# Under jira (`tracker.writes: false`) there is NO claim: no queue to race for, no label to
+# swap, and no comment to post. What survives is the RECORD — the progress-file header
+# carries the run id and session id, which is lean-reconcile.sh's anchor and the only thing
+# a later call can resolve `RUN_ID` from. So this path still runs, still writes that header,
+# and never touches `$GH_BOT` (documented github-only, and a hard `:?` failure below).
 cmd_claim() {
   local helper body url
+
+  if [ "$TRACKER_TYPE" = "jira" ]; then
+    ensure_progress_file
+    append_line "$(now_iso) | claim | tracker=jira | no tracker write (read-only tracker)"
+    say "✓ claim: jira adapter — no tracker write; run_id '$RESOLVED_RUN_ID' recorded in $PROGRESS_FILE"
+    return 0
+  fi
+
   helper="$(dirname "$(cd "$(dirname "$0")" && pwd)")/run/tools/claim-issue.sh"
   [ -f "$helper" ] || envfail "claim-issue.sh not found at '$helper'."
 
@@ -701,6 +746,41 @@ cmd_verdict() {
 
 # ---------------------------------------------------------------- milestone 5: exit
 # D-42: the most externally-visible artifacts are GATED, not prose-mandated.
+
+# jira's ticket reference is `Closes [<KEY>]` inside the PR template's `### Jira Items`
+# section — the SECTION is the contract, so an unsectioned `Closes [KEY]` elsewhere in the
+# body does not count. Heading DEPTH is not: `###` is one repo template's choice, so any
+# level is accepted. `#+[[:space:]]` (not `#{1,6}`) because interval expressions are not
+# portable across the awks this ships on.
+#
+# BOTH patterns require the space after the hashes, and that symmetry is the point: they are
+# two halves of ONE definition of "heading", so they must agree. CommonMark (and GitHub's
+# renderer) needs the space — `###Notes` is literal text, not a heading. An asymmetric pair
+# is a false-ACCEPT: an optional-space OPEN starts a pseudo-section on a body that merely
+# mentions `###Jira Items`, and a required-space CLOSE then never ends it, so a `Closes [KEY]`
+# far outside any real section passes the gate.
+#
+# The heading match is case-FOLDED, matching the `-i` on the ticket-reference grep below. The
+# repo's own jira prose writes the acronym in caps throughout, so `### JIRA Items` is a
+# likelier consumer template than the canonical spelling — and a case-sensitive match would
+# turn it into a false-REJECT that burns milestone 5's whole fix budget to rc=4 AFTER the
+# implementation and review are paid for, which is the failure mode this adapter exists to
+# remove. Widening acceptance here costs nothing: the section still has to exist.
+#
+# A NESTED heading (`#### Tickets` inside `### Jira Items`) also closes the section, even
+# though markdown renders it within. Deliberate, and stated so the code and the "depth is not
+# the contract" decision do not read as contradictory: depth is ignored when OPENING because
+# the template's level is the repo's choice, and any heading CLOSES because a flat "runs to
+# the next heading" rule is the one a reader can predict. The repo's own template has no
+# sub-headings under Jira Items.
+jira_items_section() { # stdin: the PR body — prints the section's lines, nothing else
+  awk '
+    tolower($0) ~ /^#+[[:space:]]+jira items[[:space:]]*$/ { insec = 1; next }
+    insec && /^#+[[:space:]]/                              { insec = 0 }
+    insec                                                   { print }
+  '
+}
+
 cmd_5() {
   local pr comments url draft body
 
@@ -738,12 +818,32 @@ cmd_5() {
   [ "$draft" = "false" ] || { fail_milestone 5 "PR $url is still a draft (D-27 requires a ready PR)"; return $?; }
   # Same capture-first discipline as count_matches — these read a string, not a file.
   local n_closes n_spec
-  n_closes="$(printf '%s' "$body" | grep -c -i -E "closes[[:space:]]+#$ISSUE")" || n_closes=0
-  [ "$n_closes" -ge 1 ] \
-    || { fail_milestone 5 "PR body carries no 'Closes #$ISSUE'"; return $?; }
+  if [ "$TRACKER_TYPE" = "jira" ]; then
+    n_closes="$(printf '%s' "$body" | jira_items_section | grep -c -i -E "closes[[:space:]]+\[$ISSUE\]")" || n_closes=0
+    [ "$n_closes" -ge 1 ] \
+      || { fail_milestone 5 "PR body carries no 'Closes [$ISSUE]' under a 'Jira Items' heading"; return $?; }
+  else
+    n_closes="$(printf '%s' "$body" | grep -c -i -E "closes[[:space:]]+#$ISSUE")" || n_closes=0
+    [ "$n_closes" -ge 1 ] \
+      || { fail_milestone 5 "PR body carries no 'Closes #$ISSUE'"; return $?; }
+  fi
+  # Adapter-INSENSITIVE: the spec is a committed repo path at the same pinned location under
+  # both trackers, so the link assertion is shared rather than duplicated per arm.
   n_spec="$(printf '%s' "$body" | grep -c -F -- "$SPEC_REL")" || n_spec=0
   [ "$n_spec" -ge 1 ] \
     || { fail_milestone 5 "PR body does not link the committed spec ($SPEC_REL)"; return $?; }
+
+  # Under jira the verdict reference has nowhere else to live: `tracker.writes: false` means
+  # there is no closing comment, so the PR body carries it and the comment trail is never
+  # read. Reviewers read the PR either way — this only changes WHICH surface is gated.
+  if [ "$TRACKER_TYPE" = "jira" ]; then
+    local n_verdict
+    n_verdict="$(printf '%s' "$body" | grep -c -F -- "$VERDICT_REL")" || n_verdict=0
+    [ "$n_verdict" -ge 1 ] \
+      || { fail_milestone 5 "PR body does not reference the verdict record ($VERDICT_REL) — under a read-only tracker the body is the only surface that can carry it"; return $?; }
+    pass_milestone 5 "exit artifacts present, jira adapter, no tracker write ($url)"
+    return 0
+  fi
 
   if [ -n "$COMMENTS_FILE" ]; then
     [ -f "$COMMENTS_FILE" ] || envfail "--comments-file '$COMMENTS_FILE' does not exist."

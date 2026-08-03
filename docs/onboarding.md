@@ -299,8 +299,9 @@ session at all. A verdict also has to cover the head it is read against, so push
 commits after an approve costs another review round.
 
 Autonomous mode is safe to trust on day one because it never guesses: `run-lean`'s entry
-gate rejects a missing audit ledger or queue label before any work begins, and every
-milestone gate **fail-fasts with a written reason** instead of asking — `.claude/pipeline-state/<issue>-lean-progress.md` tells you exactly why. (The rollback lane,
+gate refuses without a live audit ledger, and on a GitHub tracker the session also refuses
+without the queue label (a read-only tracker has no queue). Both fire before any work begins,
+and every milestone gate **fail-fasts with a written reason** instead of asking — `.claude/pipeline-state/<issue>-lean-progress.md` tells you exactly why. (The rollback lane,
 `/dev-pipeline:run`, has its own equivalent: a Target Confirmation Gate that echoes the
 resolved config at the top of the run, and `.claude/pipeline-state/<key>.json` as its
 failure record.) Two tips for a clean first run: set `tracker.branchPrefix` in config

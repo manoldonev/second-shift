@@ -3,14 +3,22 @@
 Active when config `tracker.type: jira`. The read-only model: the
 operator supplies a JIRA key, and the pipeline treats the tracker as **read-only**
 (`tracker.writes: false`). It fetches the ticket via the Atlassian MCP and never
-transitions or comments — the run’s audit trail is the state file
-(`.claude/pipeline-state/<key>.json`) plus the draft-PR metadata.
+transitions or comments — the run’s audit trail is the run’s own record (the `run`
+lane’s state file `.claude/pipeline-state/<key>.json`, the lean lane’s progress file)
+plus the PR metadata.
 
 > **The "No JIRA writes" principle.** No stage calls an Atlassian write tool
-> (`transitionJiraIssue`, `addCommentToJiraIssue`, `editJiraIssue`, …). A draft PR
-> is not "In Review" and must not advance the ticket; the operator moves it manually
-> after promoting the PR out of draft. This keeps the pipeline to a single
-> outward-facing write (the draft PR) and avoids a redundant approval gate.
+> (`transitionJiraIssue`, `addCommentToJiraIssue`, `editJiraIssue`, …). This keeps a run
+> to a single outward-facing write — the PR — and avoids a redundant approval gate.
+
+The tables below describe the **`run`** lane. The lean lane’s three adapter-sensitive
+operations are tabulated in [`../README.md`](../README.md#the-lean-lane-dev-pipelinerun-lean).
+
+> **Draft vs ready is a `run`-lane rule, not an adapter rule.** `run` opens a **draft** PR
+> here because a draft is not "In Review" and must not advance the ticket: the operator
+> promotes it manually at the lane's own promotion step. `run-lean` has no promotion step,
+> so that rationale does not apply and D-27's **ready** (non-draft) PR contract holds under
+> both trackers — `lean-gate.sh` milestone 5 rejects a draft on either adapter.
 
 ## Prerequisite
 
