@@ -87,3 +87,19 @@ either re-opens a column above.
 - **AC-7** (critic): the `scripts/lockstep-manifest.tsv` DROPPED entry for the verdict-record
   key schema names `reviewed_head` and its readers, and the `Changelog:` trailer carries a
   real `Migration:` line for in-flight key-less records.
+
+## AC-5 evidence
+
+The diff-scoped sweep swept all three edited guards and produced survivor sets **identical**
+to the committed baseline — 17 ids across `lean-gate.sh` (4), `lean-reconcile.sh` (6) and
+`check-lean-chain.sh` (7), diffed id-for-id. Nothing shifted, so there is nothing to
+re-baseline; `tools/mutation-catalog.tsv` carries no row anchored to any of the three, so
+there is nothing to re-anchor either.
+
+Stated plainly rather than as a coverage claim: at `K_BUDGET=2` the generic operators are
+spent on the first two sites per operator per guard, all of which sit above the code this
+change adds, so the sweep did **not** grade the new arms. What grades them is behavioral —
+`lean-gate-selftest.sh` (u1)–(u4), `check-lean-chain-selftest.sh` (R1)–(R4),
+`lean-reconcile-selftest.sh` (L1)–(L3), and the composed `(lean-declared)` leg. The local run
+is advisory (macOS, `GITHUB_ACTIONS` unset); the PR lane re-runs it in the canonical
+environment.
