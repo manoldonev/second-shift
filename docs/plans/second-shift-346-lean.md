@@ -93,9 +93,12 @@ design.
   dispose per decision), and `spec-reviewer`'s checklist tests discovery coverage —
   ratified-provenance share, a verification rung named per AC, open regions declared with
   dispositions, zero-open-regions-on-non-trivial-scope as a finding.
-- **AC-5** (oracle — CI): both `provenance-enum` lockstep rows stay green; the
-  `ledger-lint.sh` mutation survivor ordinals are re-baselined in this same diff; the
-  `ledger-lint-empty-decision` catalog row stays anchored to a pattern that still matches.
+- **AC-5** (oracle — CI): both `provenance-enum` lockstep rows stay green; the generic
+  mutation survivor ordinals of every guard this diff edits are checked against
+  `tools/mutation-baseline.tsv` and re-baselined **if they moved**, with the site-level
+  evidence recorded in the PR body either way — "no re-key needed" is a finding to
+  demonstrate, not to assume; the `ledger-lint-empty-decision` catalog row stays anchored to
+  a pattern that still matches.
 - **AC-6** (critic): the PR carries a `Changelog:` trailer.
 - **AC-7** (critic — doc scope): `interviewing-baseline` — the canonical source for the
   Decision Ledger schema — carries the Kind axis, the ratification bar, the Open Regions

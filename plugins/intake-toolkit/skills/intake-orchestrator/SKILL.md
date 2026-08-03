@@ -296,8 +296,12 @@ in the receipt shape (`interviewing-baseline` → "The intake receipt": five col
 `## Open Regions` section) and run:
 
 ```bash
-bash <plan-interview tools>/ledger-lint.sh --receipt .claude/pipeline-state/{ISSUE_NUMBER}-ledger.md
+bash "${CLAUDE_PLUGIN_ROOT}/skills/plan-interview/tools/ledger-lint.sh" \
+  --receipt .claude/pipeline-state/{ISSUE_NUMBER}-ledger.md
 ```
+
+`${CLAUDE_PLUGIN_ROOT}` is intake-toolkit here, and the lint ships in this same plugin — this
+is a sibling-skill path, not the cross-plugin resolution the bot-writes note above describes.
 
 A red lint is not a formatting complaint. An `intent` row backed by `codebase-derived` /
 `ticket-sourced` / `deferred` means you recorded a decision *you* made as one the human made —
