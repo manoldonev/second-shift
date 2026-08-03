@@ -35,6 +35,10 @@
 #      of a head it never read, and inference alone calls that fresh — and again on a rebase
 #      after approval, which carries the record forward onto a base nobody reviewed while
 #      inference stays green.
+#   6. RATIFICATION (P9): if the run wrote an intent-gap record — a decision implementation
+#      surfaced that the receipt did not cover — that record reads `ratified: yes` and cites
+#      the operator comment that ratified it. Absence of a record is the ordinary case and is
+#      printed, not silently skipped.
 #
 # HONEST ALTITUDE: like its sibling, this is tamper-EVIDENCE, not proof. The agent writes
 # artifacts 1 and 2. Forging one is easy; forging all three consistently, across a committed
@@ -91,7 +95,7 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --comments-file)   COMMENTS_FILE="${2:-}"; shift 2 ;;
     --diff-files-file) DIFF_FILES_FILE="${2:-}"; shift 2 ;;
-    -h|--help) sed -n '2,83p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,87p' "$0"; exit 0 ;;
     *) echo "[lean-chain] unknown argument: $1" >&2; exit 2 ;;
   esac
 done
@@ -106,6 +110,7 @@ envfail() { echo "[lean-chain] $1" >&2; exit 2; }
 # here they are patterns, because CI has no access to the gitignored runtime config.
 LEAN_SPEC_SUFFIX='-lean.md'
 LEAN_VERDICT_SUFFIX='-lean-verdict.md'
+LEAN_INTENT_GAP_SUFFIX='-lean-intent-gap.md'
 # LOCKSTEP-END lean-chain-artifact-patterns
 
 # Fixture paths are lean-shaped ON PURPOSE (the selftests below need lean-looking files), so
@@ -404,7 +409,45 @@ if [[ -n "$VERDICT" ]]; then
   fi
 fi
 
-# ---- (10) verdict -----------------------------------------------------------------------
+# ---- (10) evidence 6: no unratified intent-gap record (P9) -------------------------------
+# A decision that surfaces during BUILD and is not in the receipt is not a failure — it is
+# ordinary operation, and the intent-gap record is the channel it routes back through instead
+# of becoming a silent choice. What must not happen is the merge landing while that decision
+# is still the build run's own call. The record is a committed artifact for the same reason
+# the verdict is: a local note nobody can diff is not evidence.
+#
+# The gate checks RATIFICATION and nothing else. It deliberately does not re-validate the
+# record's disposition against the receipt's enum — that enum is single-sited in
+# ledger-lint.sh, and a second copy here would be the duplicate machinery the lockstep
+# manifest calls worse than none.
+#
+# ABSENCE IS LEGAL, and PRINTED. Most runs surface no gap, so "no record" is the common case
+# rather than a missing artifact — but it is announced, so a reader of the log can tell
+# "nothing surfaced" from "the arm never ran".
+INTENT_GAP=""
+while IFS= read -r f; do
+  is_fixture_path "${f#"$REPO_ROOT/"}" && continue
+  case "$(basename "$f")" in *"-$KEY$LEAN_INTENT_GAP_SUFFIX") INTENT_GAP="${f#"$REPO_ROOT/"}"; break ;; esac
+done < <(find "$REPO_ROOT" -name "*$LEAN_INTENT_GAP_SUFFIX" -type f 2>/dev/null)
+
+if [[ -z "$INTENT_GAP" ]]; then
+  echo "[lean-chain]   · no intent-gap record for #$KEY — nothing surfaced during BUILD that the receipt did not already cover."
+else
+  # FIRST-MATCH, same discipline as the verdict read above: the record's prose discusses
+  # ratification, and a count-anywhere reader would certify a record whose header says `no`.
+  # `ratified_by:` cannot be captured here — the character after `ratified` is `_`, not `:`.
+  GAP_RATIFIED="$(grep -oE 'ratified:[[:space:]]*[A-Za-z]+' "$REPO_ROOT/$INTENT_GAP" 2>/dev/null | head -n1 | sed -E 's/ratified:[[:space:]]*//')"
+  GAP_BY="$(grep -oE 'ratified_by:[[:space:]]*https://[^[:space:]]+' "$REPO_ROOT/$INTENT_GAP" 2>/dev/null | head -n1 | sed -E 's/ratified_by:[[:space:]]*//')"
+  if [[ "$GAP_RATIFIED" != "yes" ]]; then
+    note_violation "intent-gap record '$INTENT_GAP' reads 'ratified: ${GAP_RATIFIED:-<none>}' — a decision the receipt never covered is still the build run's own call, and P9 routes it back to the human before it merges. Ratify it on #$KEY and record the comment URL as 'ratified_by:'."
+  elif [[ -z "$GAP_BY" ]]; then
+    note_violation "intent-gap record '$INTENT_GAP' claims 'ratified: yes' but cites no 'ratified_by:' URL — a ratification the run wrote about itself is a self-ratification. Cite the operator's comment."
+  else
+    echo "[lean-chain]   ✓ intent gap: $INTENT_GAP ratified ($GAP_BY)"
+  fi
+fi
+
+# ---- (11) verdict -----------------------------------------------------------------------
 if [[ "$violations" -gt 0 ]]; then
   echo "[lean-chain] ✗ $violations evidence artifact(s) missing for lean PR on #$KEY." >&2
   echo "[lean-chain]   The remedy is producing the missing artifact — there is no waiver." >&2

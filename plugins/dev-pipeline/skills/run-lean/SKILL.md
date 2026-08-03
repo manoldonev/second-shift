@@ -14,9 +14,8 @@ outside this session (`/dev-pipeline:review-lean`). Read this file, then work th
 
 ## Checklist
 
-1. `bash G entry <issue>` — refuses without a live audit ledger. Non-negotiable: it is what
-   makes the run reconcilable later. Then confirm the issue carries the queue label; a
-   missing one is a reject, no prompting.
+1. `bash G entry <issue>` — refuses without a live audit ledger, which is what makes the run
+   reconcilable later. Then confirm the queue label; a missing one is a reject, no prompting.
 2. `bash G claim <issue>` — the two bot-wrapper writes (label swap + `lean-claimed` marker).
    Export `RUN_ID` first (neutral token, `[A-Za-z0-9._-]+`); it keys every record, and only
    `entry`/`claim` cache it to `<issue>-run-id` for the later fresh-shell calls to resolve.
@@ -43,14 +42,15 @@ outside this session (`/dev-pipeline:review-lean`). Read this file, then work th
 - **You never author the verdict.** Not on a dark reviewer, not to unblock a run, not "to be
   replaced later" — the gate and the merge boundary both refuse it.
 - **Anything pushed after an approve costs another round.** The record names the head it reviewed, so any later commit — rebase and force-push included — reopens milestone 4. Land every fix before the handoff.
-- **3 fix attempts per milestone.** The 4th red (`rc=4`) hard-stops: append the reason, post
-  one abort comment (github) naming the milestone, keep the worktree, leave the ticket
-  claimed for manual rescue. Do not re-run past a hard stop.
+- **3 fix attempts per milestone.** The 4th red (`rc=4`) hard-stops: append the reason, post one
+  abort comment (github) naming the milestone, keep the worktree and the claim for manual rescue.
 - **`rc=0` from a gate is the only evidence it passed.** Never record a milestone as done
   because it looked done; `bash G all <issue>` re-evaluates everything against the current
   tree, so run it before step 9 — a milestone satisfied before a fix round is stale.
 - **Two tracker writes per clean run**, github only: the claim comment and the closing comment (an abort adds one). A `writes: false` tracker makes none.
 - Doc updates are AC-scoped — a change that makes docs stale needs an explicit doc `AC-n`.
+- **A decision the receipt never covered is not yours to make (P9).** Write the intent-gap
+  record (schema: `interviewing-baseline`) and follow its region's declared disposition.
 
 ## Resume
 

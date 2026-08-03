@@ -110,6 +110,32 @@ Work through each section. Flag issues using severity levels below.
 - **AC IDs:** does each criterion carry a stable `AC-n` ID? Missing IDs → **Warning**, uniform for every spec (non-blocking by design — there is no new-vs-legacy discriminator, and a Warning cannot trap the interviewer's 2-loop exit). Duplicated or ambiguous IDs → **Blocker**. EARS-lite phrasing (`WHEN <trigger> THEN <outcome>`, plain negatives) is guidance; deviations are at most a Note.
 - Do the ACs cover the edge cases mentioned in the spec body, or only happy paths?
 
+### Discovery Coverage
+
+Prose quality and discovery coverage are different properties, and a spec routinely has one
+without the other: stated goal, clean scope boundary, ID'd testable ACs — and twelve decisions
+left to whoever picks it up. The rest of this checklist reads the document; this section reads
+what the document **did not discover**.
+
+- **Does every AC name its verification rung** — oracle (a test or gate that fails), proxy (a
+  measured stand-in), or critic (a judgment)? An AC with no rung named is an AC nobody has
+  decided how to check.
+- **Ratified provenance share.** Where a Decision Ledger or receipt accompanies the spec: what
+  fraction of the rows that resolve *intent* carry `user-answered` / `user-delegated`? Rows
+  resolving intent under `codebase-derived` / `ticket-sourced` / `deferred` are the author's own
+  calls wearing a label — **Warning**, one per row, naming the row.
+- **Are open regions declared, each with a disposition** (`pause-and-ask` or
+  `reversible-default-and-flag`)? A region named without a disposition is an unowned gap.
+- **Zero open regions on non-trivial scope is a finding, not a merit** — **Warning**,
+  over-claimed completeness. One line of request carries dozens of unstated choices; a spec of
+  any size claiming it resolved all of them has usually resolved them silently. Calibrate to
+  scope: a one-file mechanical change legitimately has none.
+- **Where would an implementer have to guess?** Walk the spec as if you were about to write the
+  code and mark each fork it does not settle. Report them as Warnings with the fork stated —
+  "either X or Y, and they differ in Z" — not as "unclear". (A dedicated
+  `intake-toolkit:implementability-probe` runs this same question from a context that never saw
+  the interview; you are the critic rung, not a substitute for it.)
+
 ### Design Decisions
 
 - Is each stated design decision **justified** (why this approach, not another)?

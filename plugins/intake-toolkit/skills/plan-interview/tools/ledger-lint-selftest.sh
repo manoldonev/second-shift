@@ -154,6 +154,144 @@ rc=$(lint_rc "$TMP/quoting-bad.md")
   && pass "(ll-n) same quote-laden row, illegal provenance → still rejected, 1" \
   || fail "(ll-n) quote-laden discrimination — got rc=$rc"
 
+echo "[ledger-lint-selftest] receipt mode (--receipt): the ratification bar"
+
+# The receipt fixture, reduced to the one row each case mutates, so a case's
+# failure names a single cause. Built from the fixture rather than hand-written
+# so a schema drift in the fixture surfaces here too.
+receipt_with() { # receipt_with <ledger-rows-file> <open-rows-block>
+  printf '%s\n' '# R' '## Decision Ledger' \
+    '| ID  | Decision | Resolution | Provenance | Kind |' \
+    '| --- | -------- | ---------- | ---------- | ---- |'
+  cat "$1"
+  printf '\n%s\n' '## Open Regions'
+  printf '%s\n' "$2"
+}
+
+# The explicit empty form, spelled once. Cases that are not ABOUT open regions
+# use it so their failure cannot be an open-region failure in disguise.
+OPEN_EMPTY='No open regions — every decision in scope is ratified.'
+
+# (ll-o) the fixture receipt — every Kind value, every legal pairing → 0
+rc=$(lint_rc --receipt "$FIX/valid-receipt.md")
+[[ "$rc" -eq 0 ]] \
+  && pass "(ll-o) valid receipt (5 rows, 3 kinds, 2 open regions) → 0" \
+  || fail "(ll-o) valid receipt — got rc=$rc"
+
+# (ll-p) open-region count reported on stdout
+out=$(bash "$LINT" --receipt "$FIX/valid-receipt.md" 2>/dev/null)
+grep -q "2 open region(s)" <<< "$out" \
+  && pass "(ll-p) open-region count reported" \
+  || fail "(ll-p) open-region count — got: $out"
+
+# (ll-q) THE BAR. An intent-resolving row backed by a derived or parked
+# provenance is the exact comprehension debt receipt mode exists to count, so
+# all three illegal backings are driven, not just one — a bar that rejected
+# `deferred` while accepting `codebase-derived` would pass a single-case test
+# and let the commonest evasion straight through.
+for prov in codebase-derived ticket-sourced deferred; do
+  printf '%s\n' "| D-1 | Rate limit for the import endpoint | 100/min | $prov | intent |" > "$TMP/row.md"
+  receipt_with "$TMP/row.md" "$OPEN_EMPTY" > "$TMP/unratified-$prov.md"
+  rc=$(lint_rc --receipt "$TMP/unratified-$prov.md")
+  err=$(bash "$LINT" --receipt "$TMP/unratified-$prov.md" 2>&1 >/dev/null || true)
+  [[ "$rc" -eq 1 ]] && grep -q "kind 'intent' requires provenance" <<< "$err" \
+    && pass "(ll-q) intent row backed by '$prov' → 1, named" \
+    || fail "(ll-q) intent row backed by '$prov' — rc=$rc err=$err"
+done
+
+# (ll-r) the bar DISCRIMINATES: the same row, ratified, passes. Without this the
+# case above is satisfied by a mode that rejects everything.
+printf '%s\n' '| D-1 | Rate limit for the import endpoint | 100/min | user-answered | intent |' > "$TMP/row.md"
+receipt_with "$TMP/row.md" "$OPEN_EMPTY" > "$TMP/ratified.md"
+rc=$(lint_rc --receipt "$TMP/ratified.md")
+[[ "$rc" -eq 0 ]] \
+  && pass "(ll-r) same row, user-answered → 0" \
+  || fail "(ll-r) ratified intent row — got rc=$rc"
+
+# (ll-s) a `fact` row backed by a human-attributed provenance is the mirror
+# error — a decision relabeled as a derived fact.
+printf '%s\n' '| D-1 | Rate limit for the import endpoint | 100/min | user-answered | fact |' > "$TMP/row.md"
+receipt_with "$TMP/row.md" "$OPEN_EMPTY" > "$TMP/mislabeled.md"
+rc=$(lint_rc --receipt "$TMP/mislabeled.md")
+err=$(bash "$LINT" --receipt "$TMP/mislabeled.md" 2>&1 >/dev/null || true)
+[[ "$rc" -eq 1 ]] && grep -q "kind 'fact' requires provenance" <<< "$err" \
+  && pass "(ll-s) fact row backed by user-answered → 1, named" \
+  || fail "(ll-s) mislabeled fact row — rc=$rc err=$err"
+
+# (ll-t) an `open` row citing no OR-n at all → 1
+printf '%s\n' '| D-1 | Rate limit for the import endpoint | parked, owner reporter | deferred | open |' > "$TMP/row.md"
+receipt_with "$TMP/row.md" '| OR-1 | Rate limiting policy | pause-and-ask |' > "$TMP/uncited-open.md"
+rc=$(lint_rc --receipt "$TMP/uncited-open.md")
+err=$(bash "$LINT" --receipt "$TMP/uncited-open.md" 2>&1 >/dev/null || true)
+[[ "$rc" -eq 1 ]] && grep -q "must cite the declared open region" <<< "$err" \
+  && pass "(ll-t) open row citing no OR-n → 1, named" \
+  || fail "(ll-t) uncited open row — rc=$rc err=$err"
+
+# (ll-u) an `open` row citing an UNDECLARED region → 1. Distinct from (ll-t):
+# a citation that resolves to nothing reads as an owned gap in every downstream
+# artifact, which is worse than an obviously missing one.
+printf '%s\n' '| D-1 | Rate limit for the import endpoint | parked under OR-7 | deferred | open |' > "$TMP/row.md"
+receipt_with "$TMP/row.md" '| OR-1 | Rate limiting policy | pause-and-ask |' > "$TMP/dangling-open.md"
+rc=$(lint_rc --receipt "$TMP/dangling-open.md")
+err=$(bash "$LINT" --receipt "$TMP/dangling-open.md" 2>&1 >/dev/null || true)
+[[ "$rc" -eq 1 ]] && grep -q "cites open region 'OR-7', which the Open Regions section does not declare" <<< "$err" \
+  && pass "(ll-u) open row citing an undeclared OR-n → 1, named" \
+  || fail "(ll-u) dangling open citation — rc=$rc err=$err"
+
+# (ll-v) an open region with a disposition outside the enum → 1. An open region
+# with no disposition is an unowned gap, not a declared one.
+printf '%s\n' '| D-1 | Rate limit for the import endpoint | parked under OR-1 | deferred | open |' > "$TMP/row.md"
+receipt_with "$TMP/row.md" '| OR-1 | Rate limiting policy | figure-it-out-later |' > "$TMP/bad-disp.md"
+rc=$(lint_rc --receipt "$TMP/bad-disp.md")
+err=$(bash "$LINT" --receipt "$TMP/bad-disp.md" 2>&1 >/dev/null || true)
+[[ "$rc" -eq 1 ]] && grep -q "disposition 'figure-it-out-later' not in" <<< "$err" \
+  && pass "(ll-v) open region with an illegal disposition → 1, named" \
+  || fail "(ll-v) illegal disposition — rc=$rc err=$err"
+
+# (ll-w) a receipt with no Open Regions section at all → 1
+printf '%s\n' '# R' '## Decision Ledger' \
+  '| ID  | Decision | Resolution | Provenance | Kind |' \
+  '| --- | -------- | ---------- | ---------- | ---- |' \
+  '| D-1 | Rate limit for the import endpoint | 100/min | user-answered | intent |' \
+  > "$TMP/no-open-section.md"
+rc=$(lint_rc --receipt "$TMP/no-open-section.md")
+err=$(bash "$LINT" --receipt "$TMP/no-open-section.md" 2>&1 >/dev/null || true)
+[[ "$rc" -eq 1 ]] && grep -q "missing mandated receipt section: Open Regions" <<< "$err" \
+  && pass "(ll-w) receipt with no Open Regions section → 1, named" \
+  || fail "(ll-w) missing Open Regions — rc=$rc err=$err"
+
+# (ll-x) the section present but empty of rows AND of the explicit empty form → 1
+receipt_with <(printf '%s\n' '| D-1 | Rate limit | 100/min | user-answered | intent |') \
+  'some prose, no table, no empty form.' > "$TMP/open-no-rows.md"
+rc=$(lint_rc --receipt "$TMP/open-no-rows.md")
+err=$(bash "$LINT" --receipt "$TMP/open-no-rows.md" 2>&1 >/dev/null || true)
+[[ "$rc" -eq 1 ]] && grep -q "Open Regions has no rows and no explicit empty form" <<< "$err" \
+  && pass "(ll-x) Open Regions with neither rows nor empty form → 1, named" \
+  || fail "(ll-x) empty Open Regions — rc=$rc err=$err"
+
+# (ll-y) MODE ISOLATION, both directions. The Kind cell is receipt-mode only, so
+# a 4-column plan ledger must still lint clean by default (it does — every case
+# above this block proves it) AND must be REJECTED under --receipt, while the
+# 5-column receipt must be rejected WITHOUT it. Without this pair the two modes
+# could silently collapse into one permissive parser that accepts both arities.
+rc=$(lint_rc --receipt "$FIX/valid-ledger.md")
+err=$(bash "$LINT" --receipt "$FIX/valid-ledger.md" 2>&1 >/dev/null || true)
+[[ "$rc" -eq 1 ]] && grep -q "expected 5 columns" <<< "$err" \
+  && pass "(ll-y1) 4-column plan ledger under --receipt → 1, named" \
+  || fail "(ll-y1) plan ledger under receipt mode — rc=$rc err=$err"
+
+rc=$(lint_rc "$FIX/valid-receipt.md")
+err=$(bash "$LINT" "$FIX/valid-receipt.md" 2>&1 >/dev/null || true)
+[[ "$rc" -eq 1 ]] && grep -q "expected 4 columns" <<< "$err" \
+  && pass "(ll-y2) 5-column receipt without --receipt → 1, named" \
+  || fail "(ll-y2) receipt in default mode — rc=$rc err=$err"
+
+# (ll-z) an unknown option exits 2 rather than being swallowed as a path
+rc=$(lint_rc --recipe "$FIX/valid-receipt.md")
+[[ "$rc" -eq 2 ]] \
+  && pass "(ll-z) unknown option → 2" \
+  || fail "(ll-z) unknown option — got rc=$rc"
+
 echo
 echo "[ledger-lint-selftest] summary: $PASS passed, $FAIL failed"
 exit $FAIL

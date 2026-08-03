@@ -432,5 +432,102 @@ if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q 'this checkout holds no commi
   pass "(R4) a reviewed_head naming no object in this checkout is refused, not compared against nothing"
 else fail "(R4) expected rc=1 on an unresolvable reviewed_head, got rc=$rc: $out"; fi
 
+# ---- (S) evidence 6: an unratified intent-gap record blocks the merge (P9) ----------------
+# A decision that surfaced during BUILD and was not in the receipt routes back through this
+# record instead of becoming a silent choice. Every arm below leaves the rest of (A) intact —
+# spec, approve verdict, bot claim, both freshness arms — so a failure here can only be the
+# new arm.
+#
+# ORDERING IS LOAD-BEARING: the gap record is committed FIRST, the verdict on top of it. That
+# is the real shape (BUILD commits the record, REVIEW reads that head and names it), and it is
+# also the only order evidence 5 tolerates — both freshness arms allow exactly one path to
+# differ from the head, the verdict record itself, so a gap record riding in the verdict's own
+# commit would red every case below on staleness rather than on what it asserts.
+GAPREC="$TREE/docs/plans/acme-42-lean-intent-gap.md"
+
+# The verdict identity is keyed on a COUNTER, not on the arm's arguments. Two calls whose
+# verdict bytes are identical leave the record's last-touching commit behind the gap file's,
+# and evidence 5 then fails the arm for staleness rather than for what it asserts.
+GAP_ROUND=0
+write_gap() { # write_gap <ratified> [ratified_by]
+  GAP_ROUND=$((GAP_ROUND + 1))
+  printf 'issue: 42\nrun_id: r-abc123\nsession_id: sess-build-1\nregion: OR-1\ndisposition: pause-and-ask\nratified: %s\nratified_by: %s\n\n## Gap\n\nThe receipt never covered the retry ceiling.\n' \
+    "$1" "${2:-}" > "$GAPREC"
+  commit_tree "intent-gap record (round $GAP_ROUND)"
+  write_verdict approve "r-review-gap-$GAP_ROUND" "sess-review-gap-$GAP_ROUND"
+}
+
+# (S0) a lean-SHAPED intent-gap record under fixtures/ must not count as one — the same
+# exclusion every other artifact scan applies, and without it this suite's own fixtures would
+# block the PR that ships them.
+printf 'ratified: no\n' > "$TREE/scripts/fixtures/acme-42-lean-intent-gap.md"
+commit_tree "fixture-path intent-gap record"
+write_verdict approve r-review-fx sess-review-fx
+out="$(run_gate "lean/acme-42" "$WORK/comments-good.json" "$WORK/diff-lean.txt")"; rc=$?
+if [ "$rc" -eq 0 ] && printf '%s' "$out" | grep -q 'no intent-gap record for #42'; then
+  pass "(S0) a fixture-path intent-gap record is excluded, and absence is printed rather than silent"
+else fail "(S0) expected rc=0 with the absence notice, got rc=$rc: $out"; fi
+
+# (S0b) ...and neither does a real, non-fixture record belonging to a DIFFERENT issue. This is
+# the arm (S0) cannot reach: the fixture exclusion and the `-$KEY` scoping are separate
+# predicates, and a scan that dropped the key would let any open issue's unratified gap block
+# this PR — or, worse, let a neighbouring issue's ratified one certify it. Ordered before every
+# acme-42 record below so nothing else can be the thing that satisfies the scan.
+printf 'issue: 99\nratified: no\n\n## Gap\n\nA different issue, still unratified.\n' \
+  > "$TREE/docs/plans/acme-99-lean-intent-gap.md"
+commit_tree "another issue's intent-gap record"
+write_verdict approve r-review-xkey sess-review-xkey
+out="$(run_gate "lean/acme-42" "$WORK/comments-good.json" "$WORK/diff-lean.txt")"; rc=$?
+if [ "$rc" -eq 0 ] && printf '%s' "$out" | grep -q 'no intent-gap record for #42'; then
+  pass "(S0b) an unratified intent-gap record for another issue does not bind this PR"
+else fail "(S0b) expected rc=0 with the absence notice, got rc=$rc: $out"; fi
+
+# (S1) the refusal itself.
+write_gap no
+out="$(run_gate "lean/acme-42" "$WORK/comments-good.json" "$WORK/diff-lean.txt")"; rc=$?
+if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q "reads 'ratified: no'"; then
+  pass "(S1) an unratified intent-gap record blocks the merge boundary"
+else fail "(S1) expected rc=1 on an unratified intent gap, got rc=$rc: $out"; fi
+
+# (S2) `ratified: yes` with nothing cited is a self-ratification — the build run asserting the
+# human agreed. Distinct from (S1): the header reads exactly what the gate wants to see, and
+# only the citation stands between a run and ratifying its own gap.
+write_gap yes
+out="$(run_gate "lean/acme-42" "$WORK/comments-good.json" "$WORK/diff-lean.txt")"; rc=$?
+if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q 'cites no'; then
+  pass "(S2) 'ratified: yes' with no cited operator comment is refused"
+else fail "(S2) expected rc=1 on an uncited ratification, got rc=$rc: $out"; fi
+
+# (S3) ...and ratifying it clears the gate. Without this arm S1/S2 could be permanent
+# breakage rather than a check with a remedy.
+write_gap yes 'https://example.invalid/tracker/42#issuecomment-7'
+out="$(run_gate "lean/acme-42" "$WORK/comments-good.json" "$WORK/diff-lean.txt")"; rc=$?
+if [ "$rc" -eq 0 ] && printf '%s' "$out" | grep -q 'intent gap: .* ratified'; then
+  pass "(S3) a ratified intent-gap record citing the operator comment passes"
+else fail "(S3) expected rc=0 on a ratified intent gap, got rc=$rc: $out"; fi
+
+# (S4) the ratified value is read FIRST-MATCH, like every other key on these records: the
+# record's own prose describes the gap, and gap prose says the word. A count-anywhere reader
+# would certify a record whose header says `no`.
+printf 'issue: 42\nratified: no\nratified_by: https://example.invalid/tracker/42#issuecomment-7\n\n## Gap\n\nThe earlier round recorded ratified: yes; this one reopened it.\n' > "$GAPREC"
+commit_tree "intent-gap record whose prose quotes the other value"
+write_verdict approve r-review-gap-4 sess-review-gap-4
+out="$(run_gate "lean/acme-42" "$WORK/comments-good.json" "$WORK/diff-lean.txt")"; rc=$?
+if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q "reads 'ratified: no'"; then
+  pass "(S4) a 'ratified: no' record whose body quotes 'ratified: yes' is still refused"
+else fail "(S4) expected rc=1 on a reopened intent gap, got rc=$rc: $out"; fi
+
+# ---- (T) --help prints the header, and only the header -----------------------------------
+# `sed -n '2,Np'` is a hand-maintained line number: growing the header silently truncates the
+# help text, and this repo has been burned by exactly that. Two assertions, because either
+# direction is a real failure — the LAST header line must be present (the range did not fall
+# short) and the first line of code must not be (it did not over-reach).
+out="$(bash "$GATE" --help 2>&1)"; rc=$?
+if [ "$rc" -eq 0 ] \
+   && printf '%s' "$out" | grep -q 'Exit 0 = pass or not-applicable' \
+   && ! printf '%s' "$out" | grep -q '^set -uo pipefail'; then
+  pass "(T) --help prints through the last header line and stops before the code"
+else fail "(T) --help did not print exactly the header, rc=$rc: $out"; fi
+
 echo "[check-lean-chain-selftest] $([ "$FAILS" -eq 0 ] && echo 'all green' || echo "$FAILS FAILURE(S)")"
 exit "$FAILS"
