@@ -4,6 +4,113 @@ All notable changes to the second-shift marketplace. Versions are per-plugin (`p
 this file tracks the marketplace release. `configVersion` stays `const 1` — v2 is fully backward-compatible for a
 consumer with an empty config; the migration notes below are only for consumers using the changed features.
 
+## v3.7.0
+
+### `dev-pipeline` 3.6.0 → 3.7.0
+
+- **fix(dev-pipeline): make otel collector a stable global daemon, not a per-repo pane (#340)** (#340)
+  none — docs-only fix to the cost-tracking-setup skill guide.
+- **feat(dev-pipeline): promote the lean lane to default; deprecate the staged run (#349)** (#349)
+  run-lean is no longer EXPERIMENTAL and is now the default
+  dev-pipeline lane; /dev-pipeline:run is deprecated as an ablation/rollback
+  lane. Descriptions and docs updated accordingly; no behavioral change to
+  either lane's gates. Migration: none — new work should route
+  /dev-pipeline:run-lean; /dev-pipeline:run keeps working unchanged.
+  none — corrects the review-evidence trail for #344's PR, no consumer-visible
+  change.
+  none — corrects onboarding routing text and a review-record
+  wording issue on #344; no behavioral change.
+- **feat(dev-pipeline): resolve bot wrapper from config via gh-bot.sh (#358)** (#358)
+  the bot wrapper now self-resolves from tracker.bot.envVar,
+  wrapperPath, or the install default — operators no longer re-export
+  GH_BOT on every harness Bash call, and pre-flight/doctor no longer
+  abort with an empty path.
+  Migration: none (tracker.bot.envVar default remains GH_BOT).
+  gh-bot.sh's config-supplied envVar no longer reaches an eval — indirect
+  expansion (${!name}) plus identifier validation replaces the shell-injection sink a
+  review flagged. intake-orchestrator/SKILL.md's five write sites now resolve
+  dev-pipeline's gh-bot.sh via the plugin-install-path convention instead of a bare
+  $GH_BOT, closing AC-7 repo-wide. Adds real (non-overridden) git-common-dir coverage
+  for gh-bot.sh's root-derivation branch (main checkout, subdirectory, and linked
+  worktree), a doctor (d7-bot) case for the ok status, a claim-issue.sh
+  disabled-resolver case, rc assertions on all five gh-bot.sh --path statuses, and
+  anchors the claim-issue.sh parity guard on the actual invocation instead of a
+  comment-matchable substring. Migration: none.
+- **test(dev-pipeline): kill claim-issue's missing-resolver fail-open, re-key its baseline (#360)** (#360)
+- **feat(dev-pipeline): author lean review verdicts outside the build session (#361)** (#361)
+  lean review verdicts are now authored by a separate top-level review
+  session (/dev-pipeline:review-lean <pr>) instead of by the build run. The build
+  gate and the merge boundary both refuse a verdict record carrying the build
+  run's identity, and the in-build reviewer workflow is removed.
+  Migration: none for existing runs — milestone numbering and progress-file shape
+  are unchanged; new runs hand off at milestone 4 instead of dispatching.
+  milestone 4 no longer refuses a valid verdict record when the review
+  session evaluates it, and evaluating the gate no longer overwrites the build
+  run's cached identity. `lean-gate.sh verdict` now rejects a non-numeric --pr
+  and --rounds 0.
+  Migration: none.
+  a lean verdict record must now be committed and must cover the head it
+  is read against — milestone 4 and the merge boundary both refuse an approve with
+  later code commits, so anything pushed after an approve costs another review
+  round. The `verdict=` value is read first-match rather than counted, so a
+  needs-work record whose summary quotes `verdict=approve` no longer passes. The
+  claim comment now carries the build session id; claims posted before this pass
+  with a note.
+  Migration: none.
+
+### `intake-toolkit` 2.2.2 → 2.3.0
+
+- **feat(dev-pipeline): resolve bot wrapper from config via gh-bot.sh (#358)** (#358)
+  the bot wrapper now self-resolves from tracker.bot.envVar,
+  wrapperPath, or the install default — operators no longer re-export
+  GH_BOT on every harness Bash call, and pre-flight/doctor no longer
+  abort with an empty path.
+  Migration: none (tracker.bot.envVar default remains GH_BOT).
+  gh-bot.sh's config-supplied envVar no longer reaches an eval — indirect
+  expansion (${!name}) plus identifier validation replaces the shell-injection sink a
+  review flagged. intake-orchestrator/SKILL.md's five write sites now resolve
+  dev-pipeline's gh-bot.sh via the plugin-install-path convention instead of a bare
+  $GH_BOT, closing AC-7 repo-wide. Adds real (non-overridden) git-common-dir coverage
+  for gh-bot.sh's root-derivation branch (main checkout, subdirectory, and linked
+  worktree), a doctor (d7-bot) case for the ok status, a claim-issue.sh
+  disabled-resolver case, rc assertions on all five gh-bot.sh --path statuses, and
+  anchors the claim-issue.sh parity guard on the actual invocation instead of a
+  comment-matchable substring. Migration: none.
+
+### `second-shift` 2.0.2 → 2.1.0
+
+- **feat(dev-pipeline): promote the lean lane to default; deprecate the staged run (#349)** (#349)
+  run-lean is no longer EXPERIMENTAL and is now the default
+  dev-pipeline lane; /dev-pipeline:run is deprecated as an ablation/rollback
+  lane. Descriptions and docs updated accordingly; no behavioral change to
+  either lane's gates. Migration: none — new work should route
+  /dev-pipeline:run-lean; /dev-pipeline:run keeps working unchanged.
+  none — corrects the review-evidence trail for #344's PR, no consumer-visible
+  change.
+  none — corrects onboarding routing text and a review-record
+  wording issue on #344; no behavioral change.
+- **fix(tools): bound the killer's process population; pin doctor.sh's report re-entry (#364)** (#364)
+- **feat(dev-pipeline): author lean review verdicts outside the build session (#361)** (#361)
+  lean review verdicts are now authored by a separate top-level review
+  session (/dev-pipeline:review-lean <pr>) instead of by the build run. The build
+  gate and the merge boundary both refuse a verdict record carrying the build
+  run's identity, and the in-build reviewer workflow is removed.
+  Migration: none for existing runs — milestone numbering and progress-file shape
+  are unchanged; new runs hand off at milestone 4 instead of dispatching.
+  milestone 4 no longer refuses a valid verdict record when the review
+  session evaluates it, and evaluating the gate no longer overwrites the build
+  run's cached identity. `lean-gate.sh verdict` now rejects a non-numeric --pr
+  and --rounds 0.
+  Migration: none.
+  a lean verdict record must now be committed and must cover the head it
+  is read against — milestone 4 and the merge boundary both refuse an approve with
+  later code commits, so anything pushed after an approve costs another review
+  round. The `verdict=` value is read first-match rather than counted, so a
+  needs-work record whose summary quotes `verdict=approve` no longer passes. The
+  claim comment now carries the build session id; claims posted before this pass
+  with a note.
+  Migration: none.
+
 ## v3.6.0
 
 ### `dev-pipeline` 3.5.0 → 3.6.0
