@@ -50,6 +50,22 @@
 # Scaling to the suite puts the saving where the mutants are (the fast suites) and leaves
 # the slow end's margin untouched.
 #
+# KILLER PROCESS BOUND — the time bound cannot save the host from a mutant that makes its
+# guard FORK rather than spin. A wall clock only decides WHEN to stop waiting; it does
+# nothing about what the guard does to the machine in the meantime, and a recursively
+# forking guard exhausts the runner long before any deadline is reached. That is not
+# hypothetical: `doctor.sh --report` re-invokes itself (`bash "$0"`) for its nested
+# check run, so flipping the `-eq` that gates report mode makes the nested run re-enter
+# report mode and fork again, without bound. The mutant is the FIRST cmp-eq ordinal on
+# that guard, which is why shard 1 reached it on every nightly and died there twice —
+# once as "the runner has received a shutdown signal", once as "the hosted runner lost
+# communication with the server", the two faces of a starved host. Neither run left a
+# log blob or an artifact, so the shard's whole verdict was lost both times.
+#
+# So the group's POPULATION is bounded too, at MUTATION_SWEEP_KILLER_MAX_PROCS (100).
+# Like a timeout it scores as a KILL and is logged by name, which turns a runner death
+# with no diagnostics into one named mutant on one named guard.
+#
 # ENFORCING vs ADVISORY: enforcing iff GITHUB_ACTIONS is set. Local runs are advisory and
 # say so — kill verdicts are only comparable inside the canonical environment
 # (ubuntu-latest + SKIP_STRESS=1), whose GNU userland (coreutils, bash, find) a local
@@ -70,6 +86,15 @@ KILLER_TIMEOUT_FACTOR=4             # mutant-run bound = this x the suite's meas
 # ...floored here, so a fast suite still gets real slack. Overridable so the companion
 # selftest can prove the bound SCALES without burning the real floor in wall clock.
 KILLER_TIMEOUT_MIN_S="${MUTATION_SWEEP_KILLER_MIN_S:-60}"
+# Live processes allowed in ONE killer's process group. Sized off measurement, not taste:
+# the seven heaviest paired suites were sampled in this exact shape (own process group,
+# `ps -A -o pgid=`) and peak between 6 and 9 — statectl 8, scenario-liveness 9, cost-block
+# 8, verifyctl 9, e2e-replay 7, doctor 6, check-lean-chain 7. 100 therefore clears the
+# measured ceiling by more than 10x, with room for suites that fan out harder than
+# anything here does today, while still catching a forking guard within seconds of it
+# starting. Overridable so the companion selftest can trip it on a handful of processes
+# rather than on a real bomb.
+KILLER_MAX_PROCS="${MUTATION_SWEEP_KILLER_MAX_PROCS:-100}"
 
 MODE=""
 BASE_REF=""
@@ -571,7 +596,9 @@ cleanup() {
   # The in-flight killer runs in its OWN process group (see run_killer), so a Ctrl-C or a
   # SIGTERM aimed at this harness never reaches it. Without this the operator's interrupt
   # leaves a spinning guard burning a core and pinning the worktree the next line removes.
-  [[ -n "${CURRENT_KILLER_PGID:-}" ]] && kill -9 -"$CURRENT_KILLER_PGID" 2>/dev/null
+  # reap_group, not a bare kill: an interrupt can land while a FORKING mutant is in
+  # flight, and that is exactly the case a single SIGKILL sweep loses to.
+  [[ -n "${CURRENT_KILLER_PGID:-}" ]] && reap_group "$CURRENT_KILLER_PGID" >/dev/null 2>&1
   git worktree remove --force "$SANDBOX" >/dev/null 2>&1
   rm -rf "$SANDBOX" 2>/dev/null
 }
@@ -640,10 +667,49 @@ splice_line() {
 # used: it is absent from macOS, which is one of this repo's two CI lanes.
 KILLER_TIMED_OUT=0
 KILLER_BOUND_USED=0
+KILLER_BOUND_KIND=""      # "time" | "procs" — which bound fired; "" when none did
+KILLER_BOUND_PROCS=0      # group population observed when the process bound fired
 CURRENT_KILLER_PGID=""
+
+# Live process count in process group $1. `ps -A -o pgid=` is the portable intersection of
+# BSD (macOS) and procps (ubuntu): both print one bare pgid per process, one per line.
+# `grep -c` exits 1 on no match, so the count is read from stdout and the status ignored —
+# an empty group is 0, not an error.
+group_size() {
+  ps -A -o pgid= 2>/dev/null | tr -d ' ' | grep -c "^$1\$"
+}
+
+# Reap a killer's whole process group. SIGSTOP FIRST is load-bearing against a FORKING
+# mutant, not defensive habit: a single SIGKILL sweep races a tree that is still forking,
+# and whatever is created between the signal and its delivery survives as an orphan that
+# keeps forking for the rest of the shard — which is how a bounded killer can still leave
+# a runner to die minutes later, on a guard the harness has already moved past. A stopped
+# process cannot fork, so freeze the group, kill it, then CONFIRM it is gone, re-freezing
+# each round for whatever was mid-fork when the last round landed.
+#
+# The pgid is our own child's pid, so `wait` first: until it is reaped the leader lingers
+# as a zombie and `ps` still counts it, which would keep the confirm loop from ever
+# converging. The attempt cap bounds this at ~5s so a race on a reused pid cannot turn
+# into an unbounded signal loop against a group we no longer own.
+reap_group() {
+  local pgid="$1" i=0 n
+  while [[ $i -lt 50 ]]; do
+    kill -STOP -"$pgid" 2>/dev/null
+    kill -9 -"$pgid" 2>/dev/null || kill -9 "$pgid" 2>/dev/null
+    wait "$pgid" 2>/dev/null
+    n="$(group_size "$pgid")"
+    [[ "${n:-0}" -eq 0 ]] && return 0
+    i=$((i + 1))
+    sleep 0.1
+  done
+  return 1
+}
+
 run_killer() {
-  local pid rc deadline bound="${2:-$KILLER_TIMEOUT_S}"
+  local pid rc deadline poll=0 n bound="${2:-$KILLER_TIMEOUT_S}"
   KILLER_TIMED_OUT=0
+  KILLER_BOUND_KIND=""
+  KILLER_BOUND_PROCS=0
   KILLER_BOUND_USED="$bound"
   set -m
   ( cd "$SANDBOX" && bash "$1" ) >/dev/null 2>&1 </dev/null &
@@ -658,17 +724,44 @@ run_killer() {
       # Re-check rather than kill blind: the suite may have exited inside the poll
       # interval, and reporting a finished run as timed out would fabricate a kill.
       kill -0 "$pid" 2>/dev/null || break
-      kill -9 -"$pid" 2>/dev/null || kill -9 "$pid" 2>/dev/null
-      wait "$pid" 2>/dev/null
+      reap_group "$pid"
       CURRENT_KILLER_PGID=""
       KILLER_TIMED_OUT=1
+      KILLER_BOUND_KIND="time"
       return 124
+    fi
+    # Population is sampled every ~1s rather than every poll: `ps -A` costs far more than
+    # `date`, and a forking tree needs seconds, not milliseconds, to reach the bound.
+    poll=$((poll + 1))
+    if [[ $((poll % 5)) -eq 0 ]]; then
+      n="$(group_size "$pid")"
+      if [[ "${n:-0}" -gt "$KILLER_MAX_PROCS" ]] 2>/dev/null; then
+        reap_group "$pid"
+        CURRENT_KILLER_PGID=""
+        KILLER_TIMED_OUT=1
+        KILLER_BOUND_KIND="procs"
+        KILLER_BOUND_PROCS="$n"
+        return 124
+      fi
     fi
     sleep 0.2
   done
   wait "$pid"; rc=$?
   CURRENT_KILLER_PGID=""
   return "$rc"
+}
+
+# Both mutant tiers report a bound hit identically and must not drift apart, so the
+# wording lives here once. $1 = mutant id, $2 = suite, $3 = bound kind, $4 = the wall-clock
+# bound in force, $5 = the population observed. The time-bound line keeps its exact
+# historical shape — the companion selftest parses `killer timeout (Ns exceeded` out of it
+# to prove the bound scales per suite.
+report_bound_hit() {
+  if [[ "$3" == "procs" ]]; then
+    info "killer process bound ($5 processes exceeded $KILLER_MAX_PROCS, scored as KILLED): $1 via $2 — the mutant most likely made the guard FORK without bound."
+  else
+    info "killer timeout (${4}s exceeded, scored as KILLED): $1 via $2 — the mutant most likely made the guard spin."
+  fi
 }
 
 # Cheapest-first is a pure cost optimization: it short-circuits on a KILL, so the
@@ -700,11 +793,17 @@ for guard in ${SWEEP_GUARDS[@]+"${SWEEP_GUARDS[@]}"}; do
     t0="$(date +%s)"
     if ! run_killer "$s"; then
       unrunnable="$s"
-      # A killer that blows the bound on the UNMUTATED tree is a different bug from one
-      # that merely exits nonzero, and the operator needs to be told which they have.
-      [[ $KILLER_TIMED_OUT -eq 1 ]] \
-        && unrunnable_why="exceeded the ${KILLER_TIMEOUT_S}s killer bound" \
-        || unrunnable_why="does not exit 0"
+      # A killer that blows a bound on the UNMUTATED tree is a different bug from one
+      # that merely exits nonzero, and the operator needs to be told which they have —
+      # including WHICH bound, since a suite that forks past the population bound with no
+      # mutant applied is a defect in the suite, not a slow machine.
+      if [[ $KILLER_TIMED_OUT -eq 1 && "$KILLER_BOUND_KIND" == "procs" ]]; then
+        unrunnable_why="exceeded the ${KILLER_MAX_PROCS}-process killer bound at $KILLER_BOUND_PROCS processes"
+      elif [[ $KILLER_TIMED_OUT -eq 1 ]]; then
+        unrunnable_why="exceeded the ${KILLER_TIMEOUT_S}s killer bound"
+      else
+        unrunnable_why="does not exit 0"
+      fi
       break
     fi
     t1="$(date +%s)"
@@ -757,15 +856,15 @@ for guard in ${SWEEP_GUARDS[@]+"${SWEEP_GUARDS[@]}"}; do
       fi
       used=$((used + 1)); applied=$((applied + 1))
       sid="$guard::$opid::$ordinal"
-      got_kill=0; timed_out=""; timed_out_bound=""
+      got_kill=0; timed_out=""; timed_out_bound=""; timed_out_kind=""; timed_out_procs=0
       for s in $KS_ORDERED; do
         if ! run_killer "$s" "$(killer_bound_for "$s")"; then
           got_kill=1
-          [[ $KILLER_TIMED_OUT -eq 1 ]] && { timed_out="$s"; timed_out_bound="$KILLER_BOUND_USED"; }
+          [[ $KILLER_TIMED_OUT -eq 1 ]] && { timed_out="$s"; timed_out_bound="$KILLER_BOUND_USED"; timed_out_kind="$KILLER_BOUND_KIND"; timed_out_procs="$KILLER_BOUND_PROCS"; }
           break
         fi
       done
-      [[ -n "$timed_out" ]] && info "killer timeout (${timed_out_bound}s exceeded, scored as KILLED): $sid via $timed_out — the mutant most likely made the guard spin."
+      [[ -n "$timed_out" ]] && report_bound_hit "$sid" "$timed_out" "$timed_out_kind" "$timed_out_bound" "$timed_out_procs"
       if [[ $got_kill -eq 1 ]]; then
         killed=$((killed + 1))
       else
@@ -804,15 +903,15 @@ for guard in ${SWEEP_GUARDS[@]+"${SWEEP_GUARDS[@]}"}; do
       restore "$guard"; continue
     fi
     applied=$((applied + 1))
-    got_kill=0; timed_out=""; timed_out_bound=""
+    got_kill=0; timed_out=""; timed_out_bound=""; timed_out_kind=""; timed_out_procs=0
     for s in $KS_ORDERED; do
       if ! run_killer "$s" "$(killer_bound_for "$s")"; then
         got_kill=1
-        [[ $KILLER_TIMED_OUT -eq 1 ]] && { timed_out="$s"; timed_out_bound="$KILLER_BOUND_USED"; }
+        [[ $KILLER_TIMED_OUT -eq 1 ]] && { timed_out="$s"; timed_out_bound="$KILLER_BOUND_USED"; timed_out_kind="$KILLER_BOUND_KIND"; timed_out_procs="$KILLER_BOUND_PROCS"; }
         break
       fi
     done
-    [[ -n "$timed_out" ]] && info "killer timeout (${timed_out_bound}s exceeded, scored as KILLED): catalog::$cid via $timed_out — the mutant most likely made the guard spin."
+    [[ -n "$timed_out" ]] && report_bound_hit "catalog::$cid" "$timed_out" "$timed_out_kind" "$timed_out_bound" "$timed_out_procs"
     if [[ $got_kill -eq 1 ]]; then
       killed=$((killed + 1))
     else

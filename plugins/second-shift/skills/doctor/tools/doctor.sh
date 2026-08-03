@@ -78,6 +78,17 @@ state_excerpt() {
 }
 
 emit_report() {
+  # Re-entry guard. This function re-invokes THIS script below for its nested check run,
+  # so reaching it from that nested run is not a wrong report — it is unbounded recursion,
+  # forking until the machine dies. Guarded HERE, at the dangerous operation itself,
+  # rather than at the dispatch that calls it: the dispatch is a comparison, and a
+  # comparison is one operator flip away from being satisfied by the nested run, which is
+  # exactly how the nightly mutation sweep took a CI runner down twice. A guard on the
+  # operation holds no matter how control arrived at it.
+  if [[ -n "${DOCTOR_REPORT_NESTED:-}" ]]; then
+    echo "[doctor] refusing a nested report run (re-entry guard)" >&2
+    return 0
+  fi
   local conf="$ROOT/.claude/second-shift.config.json" pluglist
   if [[ -n "${DOCTOR_PLUGIN_LIST_FILE:-}" ]]; then pluglist="$(cat "$DOCTOR_PLUGIN_LIST_FILE")"
   else pluglist="$(claude plugin list --json 2>/dev/null)" || pluglist="[]"; fi
@@ -88,7 +99,9 @@ emit_report() {
   echo
   echo "### doctor output"
   echo '```'
-  bash "$0" 2>&1 || true          # nested no-arg run: the normal checks (inherits DOCTOR_* injections)
+  # Nested no-arg run: the normal checks (inherits DOCTOR_* injections). The marker is
+  # load-bearing — it is what the re-entry guard at the top of this function reads.
+  DOCTOR_REPORT_NESTED=1 bash "$0" 2>&1 || true
   echo '```'
   echo
   echo "### claude plugin list --json"
