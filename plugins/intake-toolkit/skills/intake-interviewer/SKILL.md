@@ -74,7 +74,7 @@ If the input is too short to classify (one line with no signal), ask for more de
 
 ## Step 1: Interview loop
 
-Run the loop. The turn rules live in `interviewing-baseline` (load it via the Skill tool): explore-first / codebase-answerable questions forbidden, at most 2 questions per turn, grounded recommendations only, never re-ask, domain-noun disambiguation before drafting. This skill adds one interviewer-specific rule:
+Run the loop. The turn rules live in `interviewing-baseline` (load it via the Skill tool): explore-first / codebase-answerable questions forbidden, at most 2 questions per turn, grounded recommendations only, never re-ask, domain-noun disambiguation before drafting, **no draft-first**. This skill adds one interviewer-specific rule:
 
 - For **reporter-owned facts** (environment, frequency, scope of impact, last-known-good, business intent, rollout context), prefer `Unknown` / `TBD` or a short list of clearly labeled options over an inferred answer. These are facts only the reporter can confirm — they are rarely groundable, so most questions here carry no recommendation.
 
@@ -111,7 +111,9 @@ Walk the checklist as **live questions**, not as a post-hoc critique. Suggest an
 9. **Dependencies** — new packages, services, permissions, feature flags, ordering for multi-PR delivery.
 10. **Deferred** — what's explicitly not in this issue, and where does the next PR pick up?
 
-**Exit criterion (feature):** Draft the body, then dispatch `spec-reviewer` (via the calling session's `Task` tool) on the draft as a self-check.
+**No draft-first, applied here (P8).** Walk the ten items as questions and record each answer as a ledger row *as it lands*. Do not compose the body until the rows exist, and never show a whole-spec draft mid-interview so the user can "react to something" — that inverts propose-per-decision into correct-my-draft, and the requirements that mattered arrive as edits nobody argues with. A partial restatement of what is settled so far is fine and often useful; a finished spec ahead of the decisions in it is not. The emitted body is assembled from the rows, and every `AC-n` in it traces to one.
+
+**Exit criterion (feature):** Assemble the body from the ledger rows, then dispatch `spec-reviewer` (via the calling session's `Task` tool) on it as a self-check.
 
 - If `spec-reviewer` returns "ready for implementation" → emit.
 - If it returns blockers → loop back on just those sections, re-interview, redraft, re-check. Max 2 loops.
@@ -220,7 +222,9 @@ The marker is the final line **inside** the emitted block — below the last sec
 
 ### Decision Ledger seed (after the issue block)
 
-After the emitted issue block (outside the closing `---`), emit a **Decision Ledger seed** per the `interviewing-baseline` contract: every requirement-level decision the user made during the interview (`user-answered`), every "your call" (`user-delegated`), every TBD (`deferred`). Trivial interviews emit the explicit empty form. This block is a planning artifact, **NOT** part of the GitHub issue body — the engineer carries it into `plan-interview` (or saves it as `.claude/pipeline-state/{issue}-ledger.md` once an issue number exists).
+After the emitted issue block (outside the closing `---`), emit the **Decision Ledger** the body was assembled from, per the `interviewing-baseline` contract: every requirement-level decision the user made during the interview (`user-answered`), every "your call" (`user-delegated`), every TBD (`deferred`). Trivial interviews emit the explicit empty form. This block is a planning artifact, **NOT** part of the GitHub issue body — the engineer carries it into `plan-interview` (or saves it as `.claude/pipeline-state/{issue}-ledger.md` once an issue number exists).
+
+Emit it in the **receipt shape** (five columns plus `## Open Regions`, per `interviewing-baseline` "The intake receipt") whenever the interview is heading for a pipeline ticket rather than a paste — that is the artifact `ledger-lint.sh --receipt` checks, and re-shaping it later loses the Kind attributions only you were present for. Every TBD becomes an `open` row citing a declared `OR-n` with a disposition; a TBD that maps to nothing is the silent assumption this whole contract exists to prevent.
 
 End with:
 

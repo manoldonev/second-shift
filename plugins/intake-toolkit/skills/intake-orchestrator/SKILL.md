@@ -65,6 +65,11 @@ If neither surface is available, STOP and report:
 
 > "intake-orchestrator requires a dispatch surface for the evidence fan-out — the Workflow tool (production) or the Task tool with spec-reviewer/codebase-explorer (eval). This skill must be invoked from the main session (or another skill running in the main session) with one of those configured. Aborting."
 
+The **implementability probe** (Step 5.5) is dispatched separately, via `Task` with
+`intake-toolkit:implementability-probe`, and never through the fan-out: its whole value is a
+context that has never seen the interview, which a shared Workflow call cannot give it. If
+`Task` is unavailable, print the skip and say why — do not inline it.
+
 Do **not** attempt to inline sub-agent work for `spec-reviewer` or `codebase-explorer` — their narrow scope and tool surfaces are what make their findings reliable, and impersonating them produces unreliable advice. Dispatch them for real: `spec-reviewer` on every intake except the documented clean-marker skip (Step 2), `codebase-explorer` on feature/refactor paths (bug/chore may skip it). **Dependency analysis is the sole exception** — a pure reasoning task over evidence already collected, so it runs in-session with no sub-agent hop (see "## Dependency Analysis (subroutine)" below).
 
 ## Caller model guidance
@@ -82,6 +87,16 @@ You dispatch two sub-agents and run dependency analysis inline. Their findings a
 - Dismiss findings that don't hold up on closer inspection
 - Never auto-fail or auto-escalate based solely on a sub-agent's severity classification
 - Resolve gaps yourself when the answer is determinable from the codebase
+
+## No draft-first (P8)
+
+`interviewing-baseline` loop rule 8 binds you too, and it bites hardest at decomposition: a
+finished slice list is the most seductive draft there is, because it looks like analysis rather
+than a set of decisions. Where you escalate (thresholds, ambiguous boundaries, contested
+coupling), take the answers **one decision at a time** and assemble the slices from them —
+never present the whole decomposition and invite corrections. Every sub-issue body is assembled
+from ratified ledger rows plus declared open regions; a slice boundary nobody disposed of is a
+decision you made wearing the costume of a finding.
 
 ## Inputs
 
@@ -270,6 +285,45 @@ Before acting on your decision, verify:
 - For `sub-issues-sequential`: is the ordering the only viable one, and does every slice after the first genuinely depend on its predecessor? A chain whose links are actually independent is a parallel `sub-issues` decomposition, and serializing it costs the operator a merge round-trip per slice for nothing.
 - **Counterfactual test**: would I group the same way if the cap were 10? If no, it's cap-driven — escalate `needs-intake-review` (see Threshold hygiene below).
 - **Coverage back-check (when Step 0.5 produced a Brief):** reconcile the union of proposed slices against **every deliverable AND every explicit out-of-scope bullet** in the Product-Essence Brief; for engineer-authored specs with no brief, against the spec itself. Where deliverables derive from acceptance criteria, key the reconciliation by `AC-n` ID (explicit or `derived`) so nothing is double-counted or dropped between paraphrases. Each deliverable maps to exactly one slice, OR carries an explicit "deferred — owning follow-up" note; any deliverable with no slice and no deferral → STOP and escalate.
+
+### Step 5.5: Receipt Exit Gate
+
+Whatever the verdict, INTAKE's output is a **receipt** — the artifact BUILD is handed as the
+definition of settled intent. Two things happen before it leaves your hands.
+
+**1. Lint it.** Write the ledger you assembled to `.claude/pipeline-state/{ISSUE_NUMBER}-ledger.md`
+in the receipt shape (`interviewing-baseline` → "The intake receipt": five columns, plus a
+`## Open Regions` section) and run:
+
+```bash
+bash "${CLAUDE_PLUGIN_ROOT}/skills/plan-interview/tools/ledger-lint.sh" \
+  --receipt .claude/pipeline-state/{ISSUE_NUMBER}-ledger.md
+```
+
+`${CLAUDE_PLUGIN_ROOT}` is intake-toolkit here, and the lint ships in this same plugin — this
+is a sibling-skill path, not the cross-plugin resolution the bot-writes note above describes.
+
+A red lint is not a formatting complaint. An `intent` row backed by `codebase-derived` /
+`ticket-sourced` / `deferred` means you recorded a decision *you* made as one the human made —
+either ask them, or reclassify it honestly (a derived fact, or an `open` row under a declared
+region). Do not edit the Kind cell to clear the lint.
+
+**2. Probe it.** Dispatch `intake-toolkit:implementability-probe` via `Task`, handing it the
+**spec text alone** — no interview transcript, no ledger, no findings from this session. It is
+the proxy rung, and it only works blind: residue from the elicitation is exactly the context the
+cold implementer will not have. It returns guess-points, not fixes. For each one:
+
+- the answer is the human's → an interview question, and a new ledger row;
+- the answer is knowable from code → resolve it and record a `fact` row;
+- the answer is genuinely undecided → a declared `OR-n` with a disposition.
+
+Feed the resolutions back and re-lint. Two probe rounds maximum — after that, emit with the
+remaining guess-points as declared open regions rather than looping.
+
+Skip the probe on bug/chore and on genuinely small scope; when you skip it, **say so and why**
+in the Step 6 comment. A silent skip is the failure mode this rung exists to catch, because the
+critic rung above it has already been observed approving a spec that then broke in
+implementation.
 
 ### Step 6: Act on Verdict
 
