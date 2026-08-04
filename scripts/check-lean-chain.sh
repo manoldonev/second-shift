@@ -156,6 +156,49 @@ record_key_at() { # record_key_at <key> <commit> <path>
     | grep -oE "$1:[[:space:]]*[A-Za-z0-9._-]+" 2>/dev/null | head -n1 | sed -E "s/^$1:[[:space:]]*//"
 }
 
+# LOCKSTEP-BEGIN lean-inherited-key
+# `inherited_patch_id`, read from the record's HEADER BLOCK only, with the `none` sentinel
+# normalized to empty. Record on stdin; prints nothing when the round inherits nothing.
+#
+# HEADER-ANCHORED, unlike every other key in this schema, and the asymmetry is the whole point.
+# First-match-anywhere is safe for the other keys because the writer ALWAYS emits them above the
+# body, so the authentic value wins the race against any prose below it. This key is the first
+# one that could be ABSENT — a chain root wrote no inheritance, and records predating the key
+# carry none — and a race has no winner when one side never entered it: the first match in the
+# file is then whatever the reviewer's own findings contain. Review prose about this feature
+# quotes these keys, so the triggering round is every review of a PR that touches inheritance,
+# not a crafted one. The value lands where a CLAIM OF INHERITED COVERAGE is read, which is the
+# inverse of the property the chain exists to prove.
+#
+# The writer's half of the same fix emits the key unconditionally and makes absence a written
+# fact; this half covers the records that writer did not produce — a pre-#375 root record still
+# sitting on an in-flight branch, which every chain walk on that branch reads through.
+#
+# The header block is the first run of `key: value` / `verdict=` lines, ending at the blank line
+# the writer emits before the body. A record whose keys are NOT in that shape (the earliest
+# records wrote `verdict=` as a bullet or a table cell) never opens the block, so nothing is
+# extracted and the round reads as a root — fail-closed, and correct: those records predate
+# inheritance entirely.
+inherited_key() { # inherited_key   (record on stdin)
+  awk '
+    /^[A-Za-z_][A-Za-z0-9_]*[:=]/ { hdr = 1 }
+    hdr && /^[[:space:]]*$/ { exit }
+    hdr && /^inherited_patch_id:[[:space:]]*[A-Za-z0-9._-]+/ {
+      sub(/^inherited_patch_id:[[:space:]]*/, "")
+      sub(/[^A-Za-z0-9._-].*$/, "")
+      if ($0 != "none") printf "%s", $0
+      exit
+    }
+  '
+}
+# LOCKSTEP-END lean-inherited-key
+
+# The header-anchored read against a COMMITTED version of the record — what a chain walk needs,
+# since every round but the newest exists solely in that path's git history.
+inherited_key_at() { # inherited_key_at <commit> <path>
+  git -C "$REPO_ROOT" show "$1:$2" 2>/dev/null | inherited_key
+}
+
 # ---- (1) env constants: fail closed, never "exempt" -------------------------------------
 # An unresolvable prefix must never degrade into "not applicable". Same posture as the
 # sibling gate, for the same reason: a vacuous green is the worst outcome available here.
@@ -317,9 +360,12 @@ else
   # `reviewed_patch_id:` in particular is a different string, not an extension of this one.
   VERDICT_REVIEWED_HEAD="$(grep -oE 'reviewed_head:[[:space:]]*[A-Za-z0-9._-]+' "$REPO_ROOT/$VERDICT" 2>/dev/null | head -n1 | sed -E 's/reviewed_head:[[:space:]]*//')"
   VERDICT_REVIEWED_PATCH_ID="$(grep -oE 'reviewed_patch_id:[[:space:]]*[A-Za-z0-9._-]+' "$REPO_ROOT/$VERDICT" 2>/dev/null | head -n1 | sed -E 's/reviewed_patch_id:[[:space:]]*//')"
-  # `inherited_patch_id:` and `reviewed_patch_id:` are different strings — neither contains the
-  # other — so these two extractions cannot capture each other's value.
-  VERDICT_INHERITED_PATCH_ID="$(grep -oE 'inherited_patch_id:[[:space:]]*[A-Za-z0-9._-]+' "$REPO_ROOT/$VERDICT" 2>/dev/null | head -n1 | sed -E 's/inherited_patch_id:[[:space:]]*//')"
+  # HEADER-ANCHORED, alone among the keys read here, because it is the only one the writer may
+  # legitimately have nothing to say about. See `inherited_key` for why first-match cannot be
+  # used on an optional key. (`inherited_patch_id:` and `reviewed_patch_id:` are also different
+  # strings — neither contains the other — so the two extractions cannot capture each other's
+  # value either way.)
+  VERDICT_INHERITED_PATCH_ID="$(inherited_key < "$REPO_ROOT/$VERDICT")"
   VERDICT_ROUNDS="$(grep -oE 'rounds:[[:space:]]*[A-Za-z0-9._-]+' "$REPO_ROOT/$VERDICT" 2>/dev/null | head -n1 | sed -E 's/rounds:[[:space:]]*//')"
 fi
 
@@ -537,7 +583,7 @@ if [[ -n "$VERDICT" ]]; then
       CHAIN_VERSIONS="$CHAIN_REST"
       CHAIN_LINKS=$((CHAIN_LINKS + 1))
       CHAIN_ROUND="$(record_key_at rounds "$CHAIN_HIT" "$VERDICT")"; [[ -n "$CHAIN_ROUND" ]] || CHAIN_ROUND="?"
-      CHAIN_WANT="$(record_key_at inherited_patch_id "$CHAIN_HIT" "$VERDICT")"
+      CHAIN_WANT="$(inherited_key_at "$CHAIN_HIT" "$VERDICT")"
     done
     if [[ -n "$CHAIN_BROKEN" ]]; then
       note_violation "$CHAIN_BROKEN The remedy is a review round that reads the full diff."

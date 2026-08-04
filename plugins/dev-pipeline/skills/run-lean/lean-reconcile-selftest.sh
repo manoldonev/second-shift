@@ -367,12 +367,13 @@ else fail "(M3) expected rc=1 on an incoherent patch id, got $rc: $out"; fi
 # that disagreed about it would diverge silently. The AUTHOR arm is this reader's alone, and it
 # is the one inheritance makes consequential: a chain whose rounds share a review session
 # resolves perfectly while being a single review that credited itself with the whole tree.
-write_verdict_chain() { # write_verdict_chain <run-id> <session-id> <rounds> <patch-id> [inherited-id]
+write_verdict_chain() { # write_verdict_chain <run-id> <session-id> <rounds> <patch-id> [inherited-id] [body]
   {
     printf '# lean review verdict — #7\n\nverdict=approve\nrun_id: %s\nsession_id: %s\nrounds: %s\nreviewed_head: %s\nreviewed_patch_id: %s\n' \
       "$1" "$2" "$3" "$(git -C "$TREE" rev-parse HEAD)" "$4"
     [ -n "${5:-}" ] && printf 'inherited_patch_id: %s\ninherited_from_verdict: %s\n' "$5" "$(git -C "$TREE" rev-parse HEAD)"
-    printf '\nNo blockers.\n'
+    # The blank line here is what separates header from body, and (N7) turns on it.
+    printf '\n%s\n' "${6:-No blockers.}"
   } > "$VERDICT"
 }
 n_code_commit() { # n_code_commit <content>
@@ -455,6 +456,45 @@ if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q 'matches no earlier verdict r
    && ! printf '%s' "$out" | grep -q 'already authored another round in this chain'; then
   pass "(N6) a record inheriting its OWN reviewed patch is refused on the link — the search window never includes the record being read"
 else fail "(N6) expected the link refusal on a self-inheriting record, got $rc: $out"; fi
+
+# The record's own FINDINGS cannot supply the key this arm gates on. It is the schema's one
+# conditionally-emitted key, so on a chain ROOT nothing authentic is written and the documented
+# "the header wins first-match" mitigation has no entrant — the first match in the file is the
+# reviewer's prose. Reached in production: a root record written by the real writer took the
+# merge boundary red on a value quoted inside its own repro block, and this reader shares the
+# extraction, so it read the same wrong value.
+#
+# The quoted value RESOLVES (it is round 1's real reviewed patch), which makes the guarded
+# failure the SILENT one: both readings exit 0 and print a checkmark, and only the phrase
+# separates a root from a round credited with coverage no review performed.
+n_code_commit "a tree for the injection cases"
+n_pid_root="$(tree_patch_id HEAD)"
+write_verdict_chain review-7-4 sess-review-round2 4 "$n_pid_root" "" "## a finding about the chain
+
+\`\`\`
+inherited_patch_id: $n_pid1
+\`\`\`"
+commit_verdict "2026-01-01T13:00:00Z"
+out="$(reconcile "$WORK/comments-good.json")"; rc=$?
+if [ "$rc" -eq 0 ] && printf '%s' "$out" | grep -q 'declares no inherited coverage' \
+   && ! printf '%s' "$out" | grep -q 'the inheritance chain resolves over'; then
+  pass "(N7) a root record whose findings quote a RESOLVING inheritance value still reconciles as a root"
+else fail "(N7) expected the no-inheritance note and no resolved chain, got $rc: $out"; fi
+
+# The same door one level down: a chain walk reads PRIOR records through the same extraction, and
+# a prior record may predate the sentinel — every branch in flight when this ships carries one.
+# Round 5's own link is honest and resolves to the root above; that root's BODY quotes round 1.
+# A first-match walk follows it into a second link, reports a chain one round longer than the
+# branch has, and exits 0 — so the assertion pins the COUNT, which is why the count is printed.
+write_ledger sess-review-round5 "2026-01-01T13:10:00Z"
+n_code_commit "the round-4 fix"
+n_pid5="$(tree_patch_id HEAD)"
+write_verdict_chain review-7-5 sess-review-round5 5 "$n_pid5" "$n_pid_root"
+commit_verdict "2026-01-01T13:20:00Z"
+out="$(reconcile "$WORK/comments-good.json")"; rc=$?
+if [ "$rc" -eq 0 ] && printf '%s' "$out" | grep -q 'resolves over 1 earlier record'; then
+  pass "(N7b) the walk terminates at a root whose body quotes the key — one link, not the two a first-match walk would count"
+else fail "(N7b) expected exactly 1 earlier record in the chain, got $rc: $out"; fi
 
 # ---- (O) --help prints the header, and only the header --------------------------------------
 # `sed -n '2,Np'` is a hand-maintained line number, and this file had no guard for it — which is

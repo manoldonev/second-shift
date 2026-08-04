@@ -710,11 +710,14 @@ else fail "(U6) expected rc=2 on an unresolvable base, got rc=$rc: $out"; fi
 #
 # Every record below carries a reviewed_patch_id matching the head it is written on, so the
 # freshness arms stay green and the chain arm is the only thing any case can red on.
-write_chain_record() { # write_chain_record <run-id> <session-id> <rounds> <patch-id> [inherited-id] [inherited-from]
+write_chain_record() { # write_chain_record <run-id> <session-id> <rounds> <patch-id> [inherited-id] [inherited-from] [body]
   {
     printf 'verdict=approve\nrun_id: %s\nsession_id: %s\nrounds: %s\nreviewed_head: %s\nreviewed_patch_id: %s\n' \
       "$1" "$2" "$3" "$(git -C "$TREE" rev-parse HEAD)" "$4"
     [ -n "${5:-}" ] && printf 'inherited_patch_id: %s\ninherited_from_verdict: %s\n' "$5" "${6:-unknown}"
+    # The BODY, below the blank line the production writer emits — which is what makes it a body
+    # rather than more header. (V6) needs a record whose own findings mention the key.
+    [ -n "${7:-}" ] && printf '\n%s\n' "$7"
   } > "$VREC"
   commit_tree "verdict round $3"
 }
@@ -795,6 +798,43 @@ if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q 'round 3 declares' \
    && ! printf '%s' "$out" | grep -q 'round 4 declares'; then
   pass "(V5) AC-3: a broken MIDDLE link is attributed to round 3, the round that declared it"
 else fail "(V5) expected the violation to name round 3, got rc=$rc: $out"; fi
+
+# A record's own FINDINGS cannot supply the key this arm gates on. The key is the schema's one
+# conditionally-emitted one, so on a chain ROOT there is no authentic occurrence for the
+# documented "the header wins first-match" mitigation to win with, and the first match in the
+# file is whatever the reviewer wrote. Reached in production, not in principle: a root record
+# written by the real writer took this gate red on a value quoted inside its own repro block.
+#
+# The quoted value here RESOLVES — it is round 1's real reviewed patch — so the failure being
+# guarded is the SILENT one. A first-match reader credits this root with a link, exits 0, and
+# prints a checkmark; only the coverage phrase separates the two readings.
+v_pid_root="$(tree_patch_id HEAD)"
+write_chain_record r-review-v5 sess-review-v5 5 "$v_pid_root" "" "" \
+  "## a finding about the chain
+
+\`\`\`
+inherited_patch_id: $v_pid1
+\`\`\`"
+out="$(run_gate_base "lean/acme-42" "$WORK/comments-good.json" "$WORK/diff-lean.txt" "main")"; rc=$?
+if [ "$rc" -eq 0 ] && printf '%s' "$out" | grep -q 'declares no inherited coverage' \
+   && ! printf '%s' "$out" | grep -q 'inherited link'; then
+  pass "(V6) a root record whose findings quote a RESOLVING inheritance value is still read as a root"
+else fail "(V6) expected the no-inheritance note and no credited link, got rc=$rc: $out"; fi
+
+# The same door one level down: the walk reads PRIOR records through the same extraction, and a
+# prior record may predate the sentinel — every branch in flight when this ships carries one.
+# Round 6's own link is honest and resolves to round 5; round 5 is the root above, whose body
+# quotes round 1's patch. A first-match walk follows that into a SECOND link and reports a chain
+# one round longer than the branch has. Both readings exit 0, so the assertion pins the COUNT —
+# the same technique (V3b) uses, and the reason the count is printed at all.
+printf '# lean spec\n\n- AC-1: does a thing\n- AC-2: and a sixth-round fix\n' > "$TREE/docs/plans/acme-42-lean.md"
+commit_tree "the round-5 fix"
+v_pid6="$(tree_patch_id HEAD)"
+write_chain_record r-review-v6 sess-review-v6 6 "$v_pid6" "$v_pid_root" "$v_r1_commit"
+out="$(run_gate_base "lean/acme-42" "$WORK/comments-good.json" "$WORK/diff-lean.txt" "main")"; rc=$?
+if [ "$rc" -eq 0 ] && printf '%s' "$out" | grep -q 'inheritance chain: 1 inherited link'; then
+  pass "(V6b) the walk terminates at a root whose body quotes the key — one link, not the two a first-match walk would count"
+else fail "(V6b) expected exactly 1 inherited link, got rc=$rc: $out"; fi
 
 echo "[check-lean-chain-selftest] $([ "$FAILS" -eq 0 ] && echo 'all green' || echo "$FAILS FAILURE(S)")"
 exit "$FAILS"

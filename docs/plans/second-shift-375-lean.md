@@ -48,18 +48,33 @@ on it.
 **No new state.** The verdict record is overwritten at one path each round, so the round history is
 already `git log -- <verdict path>`. A prior round's record is `git show <commit>:<path>`.
 
-**Two new keys**, written only when a prior round exists:
+**Two new keys**, written on EVERY round — `none` when there is nothing to inherit:
 
 ```
-inherited_patch_id: <the reviewed_patch_id of the round this one inherits coverage from>
-inherited_from_verdict: <commit carrying that record — pointer, not a gate key>
+inherited_patch_id: <the reviewed_patch_id of the round this one inherits coverage from, or `none`>
+inherited_from_verdict: <commit carrying that record — pointer, not a gate key — or `none`>
 ```
+
+**Unconditional, and read header-anchored.** Round 1 of review found the reason, on this PR's own
+record: this is the schema's first key a round may legitimately have nothing to say about, and the
+mitigation every other key rests on — the writer puts the authentic value above the body, so it
+wins first-match — has no entrant when the writer emitted nothing. The first match is then
+whatever the reviewer's findings contain, and a review of *this* feature quotes these keys as a
+matter of course. Both halves are needed and neither is redundant: the sentinel makes absence a
+written fact for records this writer produces, and the header anchoring covers the ones it did
+not — a pre-sentinel root still sitting on an in-flight branch, which every chain walk on that
+branch reads through. The extraction is one awk program held identically by the three readers,
+pinned by two `verbatim` rows in `scripts/lockstep-manifest.tsv`.
 
 **Which round is inherited from:** the most recent committed version of the record whose
-`reviewed_patch_id` differs from the one this round is about to write. The "differs" clause makes a
-same-round re-run idempotent (`review-lean` allows re-running a round on the cached identity)
-rather than self-inheriting. A prior record carrying no `reviewed_patch_id` (written before #372)
-cannot be inherited from; the round degrades to a root record, which is AC-4's shape.
+`reviewed_patch_id` differs from the one this round is about to write, **and which this round did
+not itself author**. The "differs" clause makes a same-round re-run idempotent (`review-lean`
+allows re-running a round on the cached identity) rather than self-inheriting. The authorship
+clause covers the case content alone cannot see — a re-run after the branch moved, where this
+round's own committed record differs on content while being the same review; the search then
+continues to the last independent round rather than linking a review to itself. A prior record
+carrying no `reviewed_patch_id` (written before #372) cannot be inherited from; the round degrades
+to a root record, which is AC-4's shape.
 
 **The delta range** is anchored by patch identity, not by a commit name: `bash G delta <issue>`
 walks the branch's own commits and selects the one whose branch patch identity equals
@@ -115,6 +130,13 @@ predicate holds by construction, and an arm no fixture can red is coverage in ap
   checked against `tools/mutation-baseline.tsv` and re-baselined if they moved, with the
   site-level evidence recorded in the PR body either way.
 - **AC-10** (critic): the PR carries a `Changelog:` trailer.
+- **AC-11** (oracle): a record's own body cannot supply the inheritance key any reader gates on.
+  The key is written on every round (`none` on a root) and read header-anchored, so a record whose
+  findings quote `inherited_patch_id` — resolving or dangling — is read exactly as its header
+  declares, at all three readers. Added in the round-1 fix round: the defect was reached in
+  production by this PR's own verdict record, and no AC above names it.
+- **AC-12** (oracle): a round never inherits from a record it authored itself, and milestone 4
+  asks whether the record is committed before it asks whether the record's chain resolves.
 
 ## Out of scope
 

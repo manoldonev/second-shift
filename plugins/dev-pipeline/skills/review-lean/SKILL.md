@@ -41,9 +41,9 @@ build session, so this cannot be folded back into the build lane by convenience.
    `bash G verdict <issue> --pr <n> --verdict <approve|needs-work> --rounds <n> --summary-file <path>`
    The summary file carries the finding table and the per-AC scoring. The gate writes the
    reconciliation keys itself — including `reviewed_patch_id`, hashed from that checkout's own
-   diff against the base, and the `inherited_patch_id` link when this round inherited one. Do
-   not hand-edit any of them in, and do not run this from the main checkout: the record would
-   name a patch you never reviewed, and every reader refuses that.
+   diff against the base, and `inherited_patch_id`, written every round and `none` on a root.
+   Hand-edit none of them (quoting a key in the summary is safe — readers take the header), and
+   do not run this from the main checkout: the record would name a patch you never reviewed.
 7. Commit and push the record to the PR's head branch through `bot-commit.sh`, and let it be
    the **last** commit on the branch. It is evidence only once committed — nothing local
    reaches CI — and it is PATCH-BOUND: milestone 4, the merge boundary and `lean-reconcile.sh`
