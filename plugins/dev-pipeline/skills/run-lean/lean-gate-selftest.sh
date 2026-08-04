@@ -1290,5 +1290,426 @@ if [ "$rc" -eq 0 ] \
   pass "(w) --help prints through the last header line and stops before the code"
 else fail "(w) --help did not print exactly the header, rc=$rc: $out"; fi
 
+# ---- (x) the INHERITANCE CHAIN: a fix round reads the delta, not the whole diff (#375) ------
+# ITS OWN FIXTURE TREE, and that is an assertion rather than tidiness. Every block above commits
+# verdict records into $TREE, and inherit_candidate walks that path's ENTIRE history — so an
+# "a round-1 record inherits nothing" case run in $TREE would silently inherit whatever an
+# earlier block last wrote, and pass for a reason unrelated to the property it names.
+#
+# The records are produced by the REAL writer throughout. Where a case needs a corrupt record
+# (there is no honest way to write one), it corrupts a production-written record's ONE key and
+# leaves every other key production-derived.
+XTREE="$WORK/xtree"
+mkdir -p "$XTREE/docs/plans" "$XTREE/.claude"
+git -C "$XTREE" init -q
+git -C "$XTREE" config user.email t@example.invalid
+git -C "$XTREE" config user.name t
+printf '.claude/\n' > "$XTREE/.gitignore"
+XSPEC="$XTREE/docs/plans/acme-9-lean.md"
+XVERDICT="$XTREE/docs/plans/acme-9-lean-verdict.md"
+XVERDICT_REL="docs/plans/acme-9-lean-verdict.md"
+XPROG="$WORK/xprogress.md"
+
+xcommit() {
+  git -C "$XTREE" add -A >/dev/null 2>&1
+  git -C "$XTREE" commit -q --allow-empty -m "${1:-fixture}" >/dev/null 2>&1
+}
+xgate() { ( unset RUN_ID CLAUDE_CODE_SESSION_ID; cd "$XTREE" && SECOND_SHIFT_CONFIG="$CFG" LEAN_PROGRESS_FILE="$XPROG" bash "$GATE" "$@" 2>&1 ); }
+xverdict() { # xverdict <session-id> <run-id> [args...]
+  local sid="$1" rid="$2"; shift 2
+  rm -f "$XTREE/.claude/pipeline-state/9-review-run-id"
+  ( unset RUN_ID; cd "$XTREE" && SECOND_SHIFT_CONFIG="$CFG" LEAN_PROGRESS_FILE="$XPROG" \
+    CLAUDE_CODE_SESSION_ID="$sid" RUN_ID="$rid" bash "$GATE" verdict 9 "$@" 2>&1 )
+}
+xseed_build() { rm -f "$XPROG"; { echo "# lean run — issue 9"; echo ""; echo "run_id: r-build-x"; echo "session_id: sess-build-x"; } > "$XPROG"; }
+xkey() { grep -oE "$1:[[:space:]]*[A-Za-z0-9._-]+" "$XVERDICT" 2>/dev/null | head -n1 | sed -E "s/^$1:[[:space:]]*//"; }
+
+xcommit "base"
+git -C "$XTREE" update-ref refs/remotes/origin/main HEAD
+printf '# spec\n\n- AC-1: the thing\n' > "$XSPEC"
+printf 'reviewed in round 1, never touched again\n' > "$XTREE/untouched.txt"
+printf 'reviewed in round 1, and the fix will touch it\n' > "$XTREE/refixed.txt"
+xcommit "the branch's work"
+
+# (x0) nothing committed to review yet: the FULL range, said so out loud. The degrade message is
+# the same one a BROKEN chain produces, which is why (x6) asserts the diagnostic beside it.
+out="$(xgate delta 9)"; rc=$?
+if [ "$rc" -eq 0 ] && printf '%s' "$out" | grep -q 'FULL range' \
+   && printf '%s' "$out" | grep -q 'untouched.txt' && printf '%s' "$out" | grep -q 'refixed.txt'; then
+  pass "(x0) with no prior record, delta prints the whole branch diff"
+else fail "(x0) expected a full-range delta, rc=$rc: $out"; fi
+
+# (x1) ROUND 1 is a chain ROOT, and declares that in as many words: the key is WRITTEN with a
+# `none` sentinel, not omitted. AC-4's write side — additive at every READER, where a root is
+# read as inheriting nothing exactly as a pre-#375 record is, while the WRITER is deliberately
+# no longer byte-identical to the pre-#375 shape. A key emitted only sometimes is a key whose
+# first occurrence in the file can be the reviewer's own prose; (z1)/(z2) drive that, and the
+# always-emitted form is what lets the authentic value win.
+#
+# `needs-work` deliberately: OR-2 resolved that COVERAGE and VERDICT are separate properties, and
+# the issue's whole motivating case is a needs-work round-1 whose coverage round 2 inherits. Were
+# that reversed, this record would be uninheritable and every case below would degrade to full.
+xseed_build
+out="$(xverdict sess-review-x1 r-review-x1 --pr 90 --verdict needs-work --rounds 1)"; rc=$?
+if [ "$rc" -eq 0 ] && [ "$(xkey inherited_patch_id)" = "none" ] \
+   && [ "$(xkey inherited_from_verdict)" = "none" ] && [ -n "$(xkey reviewed_patch_id)" ] \
+   && printf '%s' "$out" | grep -q 'chain ROOT'; then
+  pass "(x1) a round-1 record carries reviewed_patch_id and writes both inheritance keys as 'none', and says it is a chain root"
+else fail "(x1) expected a root record, rc=$rc: $out
+$(cat "$XVERDICT" 2>/dev/null)"; fi
+X_R1_PID="$(xkey reviewed_patch_id)"
+xcommit "round 1's record"
+X_R1_COMMIT="$(git -C "$XTREE" rev-parse HEAD)"
+
+# (x2) AC-2, and the headline claim: the fix touches code round 1 already read, so it is IN the
+# delta — while the file the fix did not touch is NOT, which is the half that makes the range a
+# narrowing rather than a rename of "the whole diff".
+printf 'reviewed in round 1, and the fix touched it\n' > "$XTREE/refixed.txt"
+xcommit "the fix the round-1 blockers asked for"
+out="$(xgate delta 9)"; rc=$?
+if [ "$rc" -eq 0 ] && printf '%s' "$out" | grep -q 'inheriting the coverage of patch' \
+   && printf '%s' "$out" | grep -q 'refixed.txt' \
+   && ! printf '%s' "$out" | grep -q 'untouched.txt'; then
+  pass "(x2) the delta range is anchored at the inherited patch: the re-touched file is in it, the untouched one is not"
+else fail "(x2) expected a narrowed delta naming refixed.txt only, rc=$rc: $out"; fi
+
+# (x3) AC-1, positive: round 2's inheritance is DERIVED — no flag was passed — and it names round
+# 1's reviewed patch. Milestone 4 then accepts the record with the chain arm satisfied.
+xseed_build
+out="$(xverdict sess-review-x2 r-review-x2 --pr 90 --verdict approve --rounds 2)"; rc=$?
+if [ "$rc" -eq 0 ] && [ "$(xkey inherited_patch_id)" = "$X_R1_PID" ] \
+   && [ "$(xkey inherited_from_verdict)" = "$X_R1_COMMIT" ]; then
+  pass "(x3) round 2 derives inherited_patch_id from round 1's record, with no flag and no argument"
+else fail "(x3) expected the derived inheritance keys, rc=$rc: $out
+$(cat "$XVERDICT" 2>/dev/null)"; fi
+xcommit "round 2's record"
+out="$(xgate 4 9)"; rc=$?
+if [ "$rc" -eq 0 ]; then
+  pass "(x3b) milestone-4 accepts an inheriting round whose link resolves"
+else fail "(x3b) expected rc=0 on a resolvable chain, got $rc: $out"; fi
+
+# (x3c) AC-6: inheritance opens no path around P10. Run against the record (x3b) just accepted,
+# so the chain resolves perfectly and the authorship arm is the only thing that can red — a case
+# built on an already-broken chain would pass on the wrong refusal.
+sed -e "s/^run_id: .*/run_id: r-build-x/" "$XVERDICT" > "$XVERDICT.tmp" && mv "$XVERDICT.tmp" "$XVERDICT"
+xcommit "the record claims the build run's identity"
+out="$(xgate 4 9)"; rc=$?
+if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q "BUILD run's identity"; then
+  pass "(x3c) a round-n record carrying the build run's identity is refused exactly as before, chain or no chain"
+else fail "(x3c) expected the P10 refusal on an inheriting round, got $rc: $out"; fi
+
+# (x4) SELF-INHERITANCE, the failure the "differs from this round's patch" clause exists for.
+# review-lean re-runs a round on its cached identity, and at that moment the newest committed
+# record IS this round's own. Without the clause the re-run would inherit itself, which every
+# reader then refuses as a loop — a correct round made permanently unmergeable by being checked.
+xseed_build
+out="$(xverdict sess-review-x2 r-review-x2 --pr 90 --verdict approve --rounds 2)"; rc=$?
+if [ "$rc" -eq 0 ] && [ "$(xkey inherited_patch_id)" = "$X_R1_PID" ]; then
+  pass "(x4) re-running a round is idempotent — it inherits round 1 again, never itself"
+else fail "(x4) expected the same inherited link on a re-run, rc=$rc: $(xkey inherited_patch_id)"; fi
+xcommit "round 2's record, re-run"
+
+# (x5) REBASE INVARIANCE, the reason the chain is matched by content and not by SHA. A rebase
+# rewrites every commit SHA on the branch — including the ones carrying the earlier records — and
+# changes not one reviewed line. A SHA-linked chain would resolve to nothing here.
+#
+# Non-vacuity is asserted, not argued: the base advances by a commit carrying real content, and
+# the pre-rebase head must actually be gone from the branch.
+x_pre_rebase_head="$(git -C "$XTREE" rev-parse HEAD)"
+x_branch="$(git -C "$XTREE" symbolic-ref --short HEAD 2>/dev/null)"
+git -C "$XTREE" branch -f x-base refs/remotes/origin/main >/dev/null 2>&1
+git -C "$XTREE" checkout -q x-base 2>/dev/null
+printf 'the base moved while the rounds were in flight\n' > "$XTREE/base-moved.txt"
+git -C "$XTREE" add base-moved.txt >/dev/null 2>&1
+git -C "$XTREE" commit -q -m 'base advances' >/dev/null 2>&1
+git -C "$XTREE" update-ref refs/remotes/origin/main x-base
+git -C "$XTREE" checkout -q "$x_branch" 2>/dev/null
+x_rebased=0
+git -C "$XTREE" rebase -q x-base >/dev/null 2>&1 && x_rebased=1 || git -C "$XTREE" rebase --abort >/dev/null 2>&1
+if [ "$x_rebased" -eq 1 ] && [ "$(git -C "$XTREE" rev-parse HEAD)" != "$x_pre_rebase_head" ] \
+   && ! git -C "$XTREE" merge-base --is-ancestor "$X_R1_COMMIT" HEAD 2>/dev/null; then
+  pass "(x5a) the fixture really was rebased, and round 1's original record commit is no longer on the branch"
+else fail "(x5a) the rebase did not take (ok=$x_rebased) — (x5) would assert nothing"; fi
+out="$(xgate 4 9)"; rc=$?
+if [ "$rc" -eq 0 ]; then
+  pass "(x5) the inheritance chain survives a rebase — it is keyed on patch identity, not on the commit SHAs the rebase replaced"
+else fail "(x5) expected rc=0 after a clean rebase, got $rc: $out"; fi
+
+# (x6) AC-5: a declared link matching no committed record is REFUSED, never quietly downgraded to
+# "treat it as a root record" — that downgrade would turn an unverifiable claim into a satisfied
+# one, which is the whole failure mode the chain exists to prevent.
+#
+# Shaped so the chain arm is the ONLY one that can red: the record's own bytes are excluded from
+# the patch identity and tolerated by the inferred-freshness arm, so corrupting one of its keys
+# and committing leaves every other milestone-4 check green.
+sed -e "s/^inherited_patch_id:.*/inherited_patch_id: deadbeefdeadbeefdeadbeefdeadbeefdeadbeef/" "$XVERDICT" > "$XVERDICT.tmp" \
+  && mv "$XVERDICT.tmp" "$XVERDICT"
+xcommit "the record's declared link is corrupted"
+out="$(xgate 4 9)"; rc=$?
+if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q 'matches no earlier verdict record committed on this branch' \
+   && printf '%s' "$out" | grep -q 'round 2 declares'; then
+  pass "(x6) milestone-4 refuses an unresolvable inheritance link, naming the round that declared it"
+else fail "(x6) expected rc=1 naming round 2, got $rc: $out"; fi
+
+# (x7) AC-3: the round NAMED is the round that BROKE the chain, not the round that declared the
+# link being walked. Round 3's own link resolves fine; it is round 2's that dangles, and a
+# message naming round 3 would send the operator to the wrong record.
+#
+# Round 3's record is written by the real writer (so reviewed_patch_id stays production-derived)
+# and then has its link appended by hand — the writer, correctly, degrades to a root record here
+# BECAUSE the chain below it is broken, which is (x8)'s assertion.
+printf 'a third round of fixes\n' > "$XTREE/refixed.txt"
+xcommit "the round-2 blockers get fixed too"
+X_R2_PID="$(git -C "$XTREE" show "HEAD~1:$XVERDICT_REL" 2>/dev/null | grep -oE 'reviewed_patch_id:[[:space:]]*[A-Za-z0-9._-]+' | head -n1 | sed -E 's/^reviewed_patch_id:[[:space:]]*//')"
+xseed_build
+out="$(xverdict sess-review-x3 r-review-x3 --pr 90 --verdict approve --rounds 3)"; rc=$?
+if [ "$rc" -eq 0 ] && [ "$(xkey inherited_patch_id)" = "none" ] \
+   && printf '%s' "$out" | grep -q 'inherits nothing'; then
+  pass "(x8) the writer degrades to a ROOT record when the chain beneath it is broken, and says so"
+else fail "(x8) expected a loud degrade to root, rc=$rc: $out
+$(cat "$XVERDICT" 2>/dev/null)"; fi
+# The hand-declared link REPLACES the sentinel in the header. Appending it to the end of the
+# file — which is what this line did while the key was read first-match-anywhere — now declares
+# nothing at all, because the readers are header-anchored. That is the guard working: a value
+# below the body is exactly what a reviewer's prose is.
+sed -e "s/^inherited_patch_id:.*/inherited_patch_id: $X_R2_PID/" "$XVERDICT" > "$XVERDICT.tmp" \
+  && mv "$XVERDICT.tmp" "$XVERDICT"
+xcommit "round 3 declares the link by hand"
+out="$(xgate 4 9)"; rc=$?
+if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q 'round 2 declares' \
+   && ! printf '%s' "$out" | grep -q 'round 3 declares'; then
+  pass "(x7) the refusal names round 2 — the round whose link dangles — not round 3, which declared a link that resolves"
+else fail "(x7) expected the break to be attributed to round 2, got $rc: $out"; fi
+
+# ---- (y) the search window never includes the record being read (#375) ----------------------
+# ITS OWN TREE: this needs a clean three-round chain, and the (x) block ends with two records
+# deliberately corrupted.
+#
+# The only shape that distinguishes a window bounded below the record from an unbounded one is
+# SELF-INHERITANCE — a record whose inherited_patch_id is its own reviewed_patch_id — over a
+# branch reverted to a tree an earlier round reviewed. Unbounded, the walk resolves that round to
+# ITSELF, counts the record under test as a link in its own chain, and still PASSES: one link
+# longer, every link after it shifted, exit code unchanged. The count in milestone 4's pass line
+# is what makes that visible from outside; without it the two behaviors are indistinguishable and
+# the window is a comment rather than a guard.
+#
+# The writer never produces such a record (inherit_candidate requires a DIFFERING patch), so the
+# link is set by hand — on a record whose every other key the production writer derived.
+YTREE="$WORK/ytree"
+mkdir -p "$YTREE/docs/plans" "$YTREE/.claude"
+git -C "$YTREE" init -q
+git -C "$YTREE" config user.email t@example.invalid
+git -C "$YTREE" config user.name t
+printf '.claude/\n' > "$YTREE/.gitignore"
+YVERDICT="$YTREE/docs/plans/acme-11-lean-verdict.md"
+YPROG="$WORK/yprogress.md"
+ycommit() {
+  git -C "$YTREE" add -A >/dev/null 2>&1
+  git -C "$YTREE" commit -q --allow-empty -m "${1:-fixture}" >/dev/null 2>&1
+}
+ygate() { ( unset RUN_ID CLAUDE_CODE_SESSION_ID; cd "$YTREE" && SECOND_SHIFT_CONFIG="$CFG" LEAN_PROGRESS_FILE="$YPROG" bash "$GATE" "$@" 2>&1 ); }
+yverdict() { # yverdict <session-id> <run-id> [args...]
+  local sid="$1" rid="$2"; shift 2
+  rm -f "$YPROG"; { echo "# lean run — issue 11"; echo ""; echo "run_id: r-build-y"; echo "session_id: sess-build-y"; } > "$YPROG"
+  rm -f "$YTREE/.claude/pipeline-state/11-review-run-id"
+  ( unset RUN_ID; cd "$YTREE" && SECOND_SHIFT_CONFIG="$CFG" LEAN_PROGRESS_FILE="$YPROG" \
+    CLAUDE_CODE_SESSION_ID="$sid" RUN_ID="$rid" bash "$GATE" verdict 11 "$@" 2>&1 )
+}
+ykey() { grep -oE "$1:[[:space:]]*[A-Za-z0-9._-]+" "$YVERDICT" 2>/dev/null | head -n1 | sed -E "s/^$1:[[:space:]]*//"; }
+
+ycommit "base"
+git -C "$YTREE" update-ref refs/remotes/origin/main HEAD
+printf '# spec\n\n- AC-1: the thing\n' > "$YTREE/docs/plans/acme-11-lean.md"
+printf 'round 1 reviewed this\n' > "$YTREE/subject.txt"
+ycommit "the branch's work"
+out="$(yverdict sess-review-y1 r-review-y1 --pr 91 --verdict needs-work --rounds 1)"; rc=$?
+[ "$rc" -eq 0 ] || fail "(y0) the round-1 writer refused, so (y) has no chain to walk: $out"
+Y_PID_A="$(ykey reviewed_patch_id)"
+ycommit "round 1's record"
+
+printf 'the fix round 1 asked for\n' > "$YTREE/subject.txt"
+ycommit "the fix"
+out="$(yverdict sess-review-y2 r-review-y2 --pr 91 --verdict approve --rounds 2)"; rc=$?
+[ "$rc" -eq 0 ] || fail "(y0) the round-2 writer refused: $out"
+ycommit "round 2's record"
+
+# The revert: round 3's tree IS round 1's, so its reviewed patch is an identity an ancestor
+# record also carries. That is the precondition — without an ancestor to resolve to, the walk has
+# nothing but the record itself and both behaviors refuse identically.
+printf 'round 1 reviewed this\n' > "$YTREE/subject.txt"
+ycommit "the round-2 fix is reverted"
+out="$(yverdict sess-review-y3 r-review-y3 --pr 91 --verdict approve --rounds 3)"; rc=$?
+[ "$rc" -eq 0 ] || fail "(y0) the round-3 writer refused: $out"
+Y_PID_REV="$(ykey reviewed_patch_id)"
+if [ "$Y_PID_REV" = "$Y_PID_A" ]; then
+  pass "(y1) the revert restored round 1's patch identity — the self-inheritance case has an ancestor to resolve to"
+else fail "(y1) the reverted tree hashes to $Y_PID_REV, not round 1's $Y_PID_A — (y2) would assert nothing"; fi
+sed -e "s/^inherited_patch_id:.*/inherited_patch_id: $Y_PID_REV/" "$YVERDICT" > "$YVERDICT.tmp" && mv "$YVERDICT.tmp" "$YVERDICT"
+ycommit "round 3 declares its own reviewed patch as the one it inherited"
+out="$(ygate 4 11)"; rc=$?
+if [ "$rc" -eq 0 ] && printf '%s' "$out" | grep -q 'inheriting 1 verified earlier round'; then
+  pass "(y2) a self-inheriting record resolves to the ANCESTOR carrying that patch, counted once — the window never includes the record being read"
+else fail "(y2) expected rc=0 with exactly 1 inherited link, got $rc: $out"; fi
+
+# ---- (z) the record's own BODY cannot supply the inheritance key it is read on (#375) -------
+# The key is the schema's first CONDITIONALLY-emitted one, and the mitigation the rest of the
+# schema rests on — "the authentic value is written above the body, so it wins first-match" —
+# has no winner when the writer emitted nothing. The first match is then whatever the reviewer's
+# findings contain, and a review of a PR about inheritance quotes these keys as a matter of
+# course. Reached in production before it was reached here: a round-1 `approve` written by the
+# real writer with no hand-editing took the merge boundary red on a value from line 71 of its
+# own body.
+#
+# Both halves of the fix are driven: the writer's `none` sentinel (asserted in (x1)) and the
+# header-anchored read (here). The body values below are placed by `--summary-file`, which is
+# the production path a reviewer's findings actually arrive through — not by appending to the
+# record afterwards, which no role does.
+#
+# ITS OWN TREE, for the reason the (x) block states: inherit_candidate walks the whole history
+# of the record path, and (x)/(y) end with records deliberately corrupted.
+ZTREE="$WORK/ztree"
+mkdir -p "$ZTREE/docs/plans" "$ZTREE/.claude"
+git -C "$ZTREE" init -q
+git -C "$ZTREE" config user.email t@example.invalid
+git -C "$ZTREE" config user.name t
+printf '.claude/\n' > "$ZTREE/.gitignore"
+ZVERDICT="$ZTREE/docs/plans/acme-12-lean-verdict.md"
+ZVERDICT_REL="docs/plans/acme-12-lean-verdict.md"
+ZPROG="$WORK/zprogress.md"
+zcommit() {
+  git -C "$ZTREE" add -A >/dev/null 2>&1
+  git -C "$ZTREE" commit -q --allow-empty -m "${1:-fixture}" >/dev/null 2>&1
+}
+zgate() { ( unset RUN_ID CLAUDE_CODE_SESSION_ID; cd "$ZTREE" && SECOND_SHIFT_CONFIG="$CFG" LEAN_PROGRESS_FILE="$ZPROG" bash "$GATE" "$@" 2>&1 ); }
+zverdict() { # zverdict <session-id> <run-id> [args...]
+  local sid="$1" rid="$2"; shift 2
+  rm -f "$ZPROG"; { echo "# lean run — issue 12"; echo ""; echo "run_id: r-build-z"; echo "session_id: sess-build-z"; } > "$ZPROG"
+  rm -f "$ZTREE/.claude/pipeline-state/12-review-run-id"
+  ( unset RUN_ID; cd "$ZTREE" && SECOND_SHIFT_CONFIG="$CFG" LEAN_PROGRESS_FILE="$ZPROG" \
+    CLAUDE_CODE_SESSION_ID="$sid" RUN_ID="$rid" bash "$GATE" verdict 12 "$@" 2>&1 )
+}
+zkey() { grep -oE "$1:[[:space:]]*[A-Za-z0-9._-]+" "$ZVERDICT" 2>/dev/null | head -n1 | sed -E "s/^$1:[[:space:]]*//"; }
+
+zcommit "base"
+git -C "$ZTREE" update-ref refs/remotes/origin/main HEAD
+printf '# spec\n\n- AC-1: the thing\n' > "$ZTREE/docs/plans/acme-12-lean.md"
+printf 'round 1 reviewed this\n' > "$ZTREE/subject.txt"
+zcommit "the branch's work"
+
+# (z1) THE PRODUCTION SHAPE, and the one that was reached: a chain ROOT whose findings quote an
+# inheritance key resolving to nothing. Read first-match, the record declares a dangling link and
+# every reader refuses it — with a remedy ("get a round that reads the full diff") that is
+# unreachable, since a fresh round writing the same finding reproduces the same refusal.
+ZBODY="$WORK/zbody-1.md"
+{
+  echo "## B1 — the reader takes the first match"
+  echo ""
+  echo '```'
+  echo "inherited_patch_id: deadbeefdeadbeefdeadbeefdeadbeefdeadbeef"
+  echo "inherited_from_verdict: 1111111111111111111111111111111111111111"
+  echo '```'
+} > "$ZBODY"
+out="$(zverdict sess-review-z1 r-review-z1 --pr 92 --verdict approve --rounds 1 --summary-file "$ZBODY")"; rc=$?
+if [ "$rc" -eq 0 ] && [ "$(zkey inherited_patch_id)" = "none" ]; then
+  pass "(z1a) the writer records a root as 'none' even when the body it was handed quotes the key"
+else fail "(z1a) expected the sentinel in the header, rc=$rc: $out
+$(cat "$ZVERDICT" 2>/dev/null)"; fi
+Z_PID1="$(zkey reviewed_patch_id)"
+zcommit "round 1's record, whose findings quote the key"
+out="$(zgate 4 12)"; rc=$?
+if [ "$rc" -eq 0 ] && printf '%s' "$out" | grep -q 'covering the whole branch diff on its own' \
+   && ! printf '%s' "$out" | grep -q 'matches no earlier verdict record'; then
+  pass "(z1b) milestone 4 reads that record as the ROOT it is — the value in its findings is not a claim"
+else fail "(z1b) expected a root read, got rc=$rc: $out"; fi
+
+# (z2) THE DANGEROUS HALF. (z1) fails LOUDLY, which is survivable; this one fails SILENTLY. The
+# quoted value here RESOLVES — it is round 1's real reviewed patch — so a first-match reader
+# credits this round with coverage no round performed, which is the exact inverse of the property
+# the chain exists to prove. rc is 0 in both readings, so only the coverage phrase separates them.
+#
+# The round is a root for a cause established independently of this fix: the branch is reverted to
+# round 1's tree, so the sole candidate fails the "differs from this round's patch" clause that
+# (x4) pins. Nothing here depends on the round being a root for the reason under test.
+printf 'the fix\n' > "$ZTREE/subject.txt"
+zcommit "a fix lands"
+printf 'round 1 reviewed this\n' > "$ZTREE/subject.txt"
+zcommit "and is reverted, restoring round 1's tree"
+ZBODY2="$WORK/zbody-2.md"
+{
+  echo "## the finding, quoting round 1's own record"
+  echo ""
+  echo '```'
+  echo "inherited_patch_id: $Z_PID1"
+  echo '```'
+} > "$ZBODY2"
+out="$(zverdict sess-review-z2 r-review-z2 --pr 92 --verdict approve --rounds 2 --summary-file "$ZBODY2")"; rc=$?
+zcommit "round 2's record, quoting a link that would resolve"
+out="$(zgate 4 12)"; rc=$?
+if [ "$rc" -eq 0 ] && printf '%s' "$out" | grep -q 'covering the whole branch diff on its own' \
+   && ! printf '%s' "$out" | grep -q 'inheriting 1 verified earlier round'; then
+  pass "(z2) a quoted value that WOULD resolve credits no coverage — the silent half, where both readings exit 0"
+else fail "(z2) expected the root coverage phrase and no inherited credit, got rc=$rc: $out"; fi
+
+# (z3) THE SAME DOOR ONE LEVEL DOWN. A chain walk reads PRIOR records the same way, and those may
+# predate the sentinel entirely — every branch in flight when this ships carries one. Round 1's
+# record is reshaped to exactly that: header keys stripped, the value left in the body where a
+# pre-#375 reviewer's findings would have put it. A first-match walk follows it off the branch.
+git -C "$ZTREE" checkout -q -- "$ZVERDICT_REL" 2>/dev/null
+git -C "$ZTREE" show "$(git -C "$ZTREE" log --format=%H -- "$ZVERDICT_REL" | tail -n1):$ZVERDICT_REL" \
+  | grep -v '^inherited_' > "$ZVERDICT.tmp"
+{
+  cat "$ZVERDICT.tmp"
+  echo ""
+  echo "a pre-sentinel round's findings: inherited_patch_id: deadbeefdeadbeefdeadbeefdeadbeefdeadbeef"
+} > "$ZVERDICT"
+rm -f "$ZVERDICT.tmp"
+if ! grep -q '^inherited_patch_id:' "$ZVERDICT" && grep -q 'inherited_patch_id: deadbeef' "$ZVERDICT"; then
+  pass "(z3a) the fixture really is a pre-sentinel record — no header key, and the value only in the body"
+else fail "(z3a) the legacy-shape rewrite did not take, so (z3b) would assert nothing: $(cat "$ZVERDICT")"; fi
+zcommit "round 1's record, rewritten in the pre-sentinel shape"
+printf 'the fix round 1 asked for\n' > "$ZTREE/subject.txt"
+zcommit "the fix"
+out="$(zverdict sess-review-z3 r-review-z3 --pr 92 --verdict approve --rounds 2)"; rc=$?
+Z_PID2="$(zkey reviewed_patch_id)"
+if [ "$rc" -eq 0 ]; then
+  pass "(z3b) the writer's own chain walk terminates at a pre-sentinel root instead of following its body"
+else fail "(z3b) the writer refused over a value in a prior record's body: $out"; fi
+
+# (z4) ORDER: "is this record on the branch at all" is asked BEFORE "does its chain resolve". The
+# walk's window is anchored at the commit carrying the record, so an UNCOMMITTED round-2 record
+# anchors on round 1's commit, the window trims round 1 away, and the legitimate link the record
+# declares matches nothing left. Fail-closed either way — but one message says "commit it" and the
+# other sends the reviewer to redo a round over a record whose only defect is an unrun git commit.
+out="$(zgate 4 12)"; rc=$?
+if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q 'uncommitted changes' \
+   && ! printf '%s' "$out" | grep -q 'matches no earlier verdict record'; then
+  pass "(z4) an uncommitted round-2 record is refused for being uncommitted, not for a chain its own state broke"
+else fail "(z4) expected the uncommitted refusal without a chain diagnostic, got rc=$rc: $out"; fi
+zcommit "round 2's record"
+out="$(zgate 4 12)"; rc=$?
+if [ "$rc" -eq 0 ] && printf '%s' "$out" | grep -q 'inheriting 1 verified earlier round'; then
+  pass "(z4b) committed, the same record passes with its one link — so (z4) turned on the commit and nothing else"
+else fail "(z4b) expected a 1-link pass once committed, got rc=$rc: $out"; fi
+
+# (z5) A ROUND MAY NOT LINK TO ITS OWN EARLIER VERSION. review-lean permits re-running a round on
+# its cached identity; if the branch moved in between, that round's own committed record differs
+# from the current tree on CONTENT and so passes the "differs" clause while being the same review.
+# The link it produces resolves for two readers — milestone 4 and the merge boundary each count a
+# round that never happened — and lean-reconcile.sh refuses it, so three readers disagree about a
+# record the production writer emitted. Fixed at the writer: the candidate is skipped and the
+# search continues to the last INDEPENDENT round, which is round 1 here.
+printf 'the branch moves between two runs of round 2\n' > "$ZTREE/subject.txt"
+zcommit "the branch moves"
+out="$(zverdict sess-review-z3 r-review-z3 --pr 92 --verdict approve --rounds 2)"; rc=$?
+if [ "$rc" -eq 0 ] && [ "$(zkey inherited_patch_id)" = "$Z_PID1" ] \
+   && [ "$(zkey inherited_patch_id)" != "$Z_PID2" ]; then
+  pass "(z5) a re-run round inherits the last INDEPENDENT round, never the earlier version of itself"
+else fail "(z5) expected the link to be round 1's $Z_PID1, got $(zkey inherited_patch_id) (its own prior version is $Z_PID2), rc=$rc: $out"; fi
+zcommit "round 2's record, re-run after the branch moved"
+out="$(zgate 4 12)"; rc=$?
+if [ "$rc" -eq 0 ] && printf '%s' "$out" | grep -q 'inheriting 1 verified earlier round'; then
+  pass "(z5b) and the chain it writes is one link, not the two a self-link would have counted"
+else fail "(z5b) expected a 1-link chain after the re-run, got rc=$rc: $out"; fi
+
 echo "[lean-gate-selftest] $([ "$FAILS" -eq 0 ] && echo 'all green' || echo "$FAILS FAILURE(S)")"
 exit "$FAILS"

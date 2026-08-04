@@ -298,6 +298,24 @@ if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q 'no resolvable issue referenc
   pass "(M) a lean PR with no 'Closes #N' fails rather than being exempted"
 else fail "(M) expected rc=1 on an unresolvable issue reference, got $rc: $out"; fi
 
+# ...and the FALLBACK resolves: `Part of #N` is the shape a sub-issue of a program epic carries,
+# and a PR body with no `Closes` must still reach a key rather than failing as unreferenced.
+# (M) alone cannot see this arm — it passes whether the fallback works or is dead code, which is
+# exactly how the fallback's own mutant sat surviving in the baseline.
+out="$( cd "$TREE" && LEAN_BRANCH_PREFIX="lean/acme-" PIPELINE_BRANCH_PREFIX="claude/acme-" \
+        PR_HEAD_REF="lean/acme-42" PR_BODY="Delivers a slice.
+
+Part of #42" PR_CREATED_AT="$PR_OPEN_AT" \
+        PR_HEAD_SHA="$(git -C "$TREE" rev-parse HEAD)" \
+        bash "$GATE" --comments-file "$WORK/comments-good.json" --diff-files-file "$WORK/diff-lean.txt" 2>&1 )"; rc=$?
+# Asserted on the RESOLUTION line, not on the exit code: the fixture at this point in the file
+# carries whatever record the cases above left behind, so rc is about the evidence set rather
+# than about key resolution. `source issue: #42` is printed before any evidence is weighed, and
+# it is exactly what disappears when the fallback stops matching.
+if printf '%s' "$out" | grep -q 'source issue: #42'; then
+  pass "(M2) a body carrying only 'Part of #N' resolves through the fallback"
+else fail "(M2) expected the Part-of fallback to resolve #42, got $rc: $out"; fi
+
 # ---- (N) MANDATED: the verdict must not carry the BUILD run's identity (P10) --------------
 # The build run's identity at this boundary is the one in the bot claim comment — the only
 # build-side record CI can see. A verdict reusing it means the session that wrote the code
@@ -683,6 +701,140 @@ out="$(run_gate_base "lean/acme-42" "$WORK/comments-good.json" "$WORK/diff-lean.
 if [ "$rc" -eq 2 ] && printf '%s' "$out" | grep -q 'cannot compute this branch'; then
   pass "(U6) a base ref naming no branch is an environment error, not a comparison against nothing"
 else fail "(U6) expected rc=2 on an unresolvable base, got rc=$rc: $out"; fi
+
+# ---- (V) evidence 6: the INHERITANCE chain at the merge boundary (#375) --------------------
+# A round-n record may declare `inherited_patch_id` and read only the delta since the tree that
+# round covered. What the boundary then guarantees is not "one review read this tree" but "a
+# CHAIN of reviews covered it" — so an unverified link is a strictly weaker boundary reached
+# silently, and every link is walked here.
+#
+# Every record below carries a reviewed_patch_id matching the head it is written on, so the
+# freshness arms stay green and the chain arm is the only thing any case can red on.
+write_chain_record() { # write_chain_record <run-id> <session-id> <rounds> <patch-id> [inherited-id] [inherited-from] [body]
+  {
+    printf 'verdict=approve\nrun_id: %s\nsession_id: %s\nrounds: %s\nreviewed_head: %s\nreviewed_patch_id: %s\n' \
+      "$1" "$2" "$3" "$(git -C "$TREE" rev-parse HEAD)" "$4"
+    [ -n "${5:-}" ] && printf 'inherited_patch_id: %s\ninherited_from_verdict: %s\n' "$5" "${6:-unknown}"
+    # The BODY, below the blank line the production writer emits — which is what makes it a body
+    # rather than more header. (V6) needs a record whose own findings mention the key.
+    [ -n "${7:-}" ] && printf '\n%s\n' "$7"
+  } > "$VREC"
+  commit_tree "verdict round $3"
+}
+
+# ROUND 1: a chain root. AC-4 — the absence of the key is the ordinary case, and it is PRINTED,
+# so a reader of the CI log can tell "this round covered everything itself" from "the arm never
+# ran". A silent skip and a satisfied check look identical in a log; that is the whole reason.
+v_pid1="$(tree_patch_id HEAD)"
+[ -n "$v_pid1" ] || fail "(V0) the fixture's patch identity is empty — every (V) case would compare nothing"
+# The exact spec bytes round 1 reviewed. (V3) restores THESE, not a plausible-looking rewrite:
+# the patch identity is a hash of content, so "close enough" is a different tree.
+v_spec_r1="$(cat "$TREE/docs/plans/acme-42-lean.md")"
+write_chain_record r-review-v1 sess-review-v1 1 "$v_pid1"
+v_r1_commit="$(git -C "$TREE" rev-parse HEAD)"
+out="$(run_gate_base "lean/acme-42" "$WORK/comments-good.json" "$WORK/diff-lean.txt" "main")"; rc=$?
+if [ "$rc" -eq 0 ] && printf '%s' "$out" | grep -q 'declares no inherited coverage'; then
+  pass "(V1) a round-1 record passes unchanged, and the gate prints that it inherited nothing"
+else fail "(V1) expected rc=0 with the no-inheritance note, got rc=$rc: $out"; fi
+
+# ROUND 2, inheriting round 1: the ordinary fix round. The fix touches the spec, which round 1
+# already read — so the delta is non-empty and the head's patch identity has genuinely moved.
+printf '# lean spec\n\n- AC-1: does a thing\n- AC-2: does another, fixed after round 1\n' > "$TREE/docs/plans/acme-42-lean.md"
+commit_tree "the fix round 1 asked for"
+v_pid2="$(tree_patch_id HEAD)"
+[ "$v_pid2" != "$v_pid1" ] || fail "(V2-fixture) the fix did not move the patch identity — (V2) would assert nothing"
+write_chain_record r-review-v2 sess-review-v2 2 "$v_pid2" "$v_pid1" "$v_r1_commit"
+out="$(run_gate_base "lean/acme-42" "$WORK/comments-good.json" "$WORK/diff-lean.txt" "main")"; rc=$?
+if [ "$rc" -eq 0 ] && printf '%s' "$out" | grep -q 'inheritance chain: 1 inherited link'; then
+  pass "(V2) AC-1: a round-2 record inheriting round 1's reviewed patch passes the merge boundary"
+else fail "(V2) expected rc=0 with one resolved link, got rc=$rc: $out"; fi
+
+# THE case that forces the search to run strictly BACKWARDS. A fix round can revert the branch
+# to exactly the tree an earlier round reviewed — "the blocker says the change was wrong" — and
+# the head record's reviewed patch is then an identity an ancestor record also carries. An
+# unbounded search resolves that round to ITSELF, and every honest chain through it reads as a
+# loop: a correct branch made unmergeable by a legal fix.
+printf '%s\n' "$v_spec_r1" > "$TREE/docs/plans/acme-42-lean.md"
+commit_tree "the round-2 fix is reverted — round 1's tree is back"
+v_pid_rev="$(tree_patch_id HEAD)"
+[ "$v_pid_rev" = "$v_pid1" ] \
+  || fail "(V3-fixture) the revert did not restore round 1's patch identity — (V3) would assert nothing"
+write_chain_record r-review-v3 sess-review-v3 3 "$v_pid_rev" "$v_pid2" "$v_r1_commit"
+out="$(run_gate_base "lean/acme-42" "$WORK/comments-good.json" "$WORK/diff-lean.txt" "main")"; rc=$?
+if [ "$rc" -eq 0 ] && printf '%s' "$out" | grep -q 'inheritance chain: 2 inherited link'; then
+  pass "(V3) a round whose reviewed patch an ancestor record also carries still resolves its chain — the search runs strictly backwards"
+else fail "(V3) expected a 2-link chain after a revert, got rc=$rc: $out"; fi
+
+# SELF-INHERITANCE, the one shape that distinguishes a window bounded below the record being read
+# from an unbounded one: a record whose inherited_patch_id is its own reviewed_patch_id, over the
+# reverted tree above. Unbounded, the walk resolves this round to ITSELF, counts the record under
+# test as a link in its own chain, and still PASSES — one link longer, exit code unchanged. The
+# printed count is what makes that visible, so the assertion pins the NUMBER, not merely the pass.
+write_chain_record r-review-v3 sess-review-v3 3 "$v_pid_rev" "$v_pid_rev" "$v_r1_commit"
+out="$(run_gate_base "lean/acme-42" "$WORK/comments-good.json" "$WORK/diff-lean.txt" "main")"; rc=$?
+if [ "$rc" -eq 0 ] && printf '%s' "$out" | grep -q 'inheritance chain: 3 inherited link'; then
+  pass "(V3b) a self-inheriting record resolves to the ancestor carrying that patch — the record under test is never a link in its own chain"
+else fail "(V3b) expected rc=0 with exactly 3 links, got rc=$rc: $out"; fi
+
+# AC-1 negative / AC-5: a declared identity matching no record on the branch is REFUSED — never
+# downgraded to "then treat it as a root record", which would convert an unverifiable claim into
+# a satisfied one. Only the inherited key changes from (V3), so nothing else can be the cause.
+write_chain_record r-review-v3 sess-review-v3 3 "$v_pid_rev" "deadbeefdeadbeefdeadbeefdeadbeefdeadbeef" "$v_r1_commit"
+out="$(run_gate_base "lean/acme-42" "$WORK/comments-good.json" "$WORK/diff-lean.txt" "main")"; rc=$?
+if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q 'matches no earlier verdict record committed on this branch'; then
+  pass "(V4) AC-5: an inheritance link resolving to nothing on this branch is a violation, not a downgrade"
+else fail "(V4) expected rc=1 on a dangling link, got rc=$rc: $out"; fi
+
+# AC-3: the round NAMED is the one whose link DANGLES, not the one whose link is being walked.
+# Round 4's own link resolves; round 3's — left dangling by the case above — does not. A message
+# naming round 4 would send the operator to the wrong record, and a generic "chain is stale"
+# would name neither.
+printf '# lean spec\n\n- AC-1: does a thing\n- AC-2: does another, fixed again\n' > "$TREE/docs/plans/acme-42-lean.md"
+commit_tree "a further fix round"
+v_pid4="$(tree_patch_id HEAD)"
+write_chain_record r-review-v4 sess-review-v4 4 "$v_pid4" "$v_pid_rev" "$v_r1_commit"
+out="$(run_gate_base "lean/acme-42" "$WORK/comments-good.json" "$WORK/diff-lean.txt" "main")"; rc=$?
+if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q 'round 3 declares' \
+   && ! printf '%s' "$out" | grep -q 'round 4 declares'; then
+  pass "(V5) AC-3: a broken MIDDLE link is attributed to round 3, the round that declared it"
+else fail "(V5) expected the violation to name round 3, got rc=$rc: $out"; fi
+
+# A record's own FINDINGS cannot supply the key this arm gates on. The key is the schema's one
+# conditionally-emitted one, so on a chain ROOT there is no authentic occurrence for the
+# documented "the header wins first-match" mitigation to win with, and the first match in the
+# file is whatever the reviewer wrote. Reached in production, not in principle: a root record
+# written by the real writer took this gate red on a value quoted inside its own repro block.
+#
+# The quoted value here RESOLVES — it is round 1's real reviewed patch — so the failure being
+# guarded is the SILENT one. A first-match reader credits this root with a link, exits 0, and
+# prints a checkmark; only the coverage phrase separates the two readings.
+v_pid_root="$(tree_patch_id HEAD)"
+write_chain_record r-review-v5 sess-review-v5 5 "$v_pid_root" "" "" \
+  "## a finding about the chain
+
+\`\`\`
+inherited_patch_id: $v_pid1
+\`\`\`"
+out="$(run_gate_base "lean/acme-42" "$WORK/comments-good.json" "$WORK/diff-lean.txt" "main")"; rc=$?
+if [ "$rc" -eq 0 ] && printf '%s' "$out" | grep -q 'declares no inherited coverage' \
+   && ! printf '%s' "$out" | grep -q 'inherited link'; then
+  pass "(V6) a root record whose findings quote a RESOLVING inheritance value is still read as a root"
+else fail "(V6) expected the no-inheritance note and no credited link, got rc=$rc: $out"; fi
+
+# The same door one level down: the walk reads PRIOR records through the same extraction, and a
+# prior record may predate the sentinel — every branch in flight when this ships carries one.
+# Round 6's own link is honest and resolves to round 5; round 5 is the root above, whose body
+# quotes round 1's patch. A first-match walk follows that into a SECOND link and reports a chain
+# one round longer than the branch has. Both readings exit 0, so the assertion pins the COUNT —
+# the same technique (V3b) uses, and the reason the count is printed at all.
+printf '# lean spec\n\n- AC-1: does a thing\n- AC-2: and a sixth-round fix\n' > "$TREE/docs/plans/acme-42-lean.md"
+commit_tree "the round-5 fix"
+v_pid6="$(tree_patch_id HEAD)"
+write_chain_record r-review-v6 sess-review-v6 6 "$v_pid6" "$v_pid_root" "$v_r1_commit"
+out="$(run_gate_base "lean/acme-42" "$WORK/comments-good.json" "$WORK/diff-lean.txt" "main")"; rc=$?
+if [ "$rc" -eq 0 ] && printf '%s' "$out" | grep -q 'inheritance chain: 1 inherited link'; then
+  pass "(V6b) the walk terminates at a root whose body quotes the key — one link, not the two a first-match walk would count"
+else fail "(V6b) expected exactly 1 inherited link, got rc=$rc: $out"; fi
 
 echo "[check-lean-chain-selftest] $([ "$FAILS" -eq 0 ] && echo 'all green' || echo "$FAILS FAILURE(S)")"
 exit "$FAILS"

@@ -27,6 +27,17 @@
 #      What it adds over those two is COHERENCE rather than currency: they compare the declared
 #      head against a moving head, whereas a record whose own commit does not descend from the
 #      commit it names is internally incoherent wherever the branch has since gone.
+#   6. every INHERITANCE link the record declares (#375) resolves to an earlier record, AND every
+#      round in the resulting chain was authored by a DIFFERENT review session. That second half
+#      is this reader's alone, and it is what the merge boundary's new guarantee rests on: with
+#      inheritance, "this tree was reviewed" means "a chain of INDEPENDENT reviews covered it".
+#      One session writing round 1 and then inheriting its own coverage in round 2 produces a
+#      chain that resolves perfectly while being a single review — and review-lean's own rule
+#      ("a NEW review context produces the next verdict — never this one resumed") is what makes
+#      that a contract rather than a preference. Absence of a chain is the ordinary case and is
+#      printed. Deliberately NOT checked here: that each link's commit is an ancestor of the one
+#      inheriting it. On a lean branch the record path is linear and HEAD-anchored, so that
+#      predicate holds by construction — an arm no fixture can red is coverage in appearance only.
 #
 # RE-ANCHORED WITH THE SEPARATION. This check used to require a `lean-review` Workflow dispatch
 # row in the BUILD session's ledger. That row can never exist once review is a separate
@@ -68,7 +79,7 @@ while [ $# -gt 0 ]; do
   case "$1" in
     --session-id)    SESSION_ID="${2:-}"; shift 2 ;;
     --comments-file) COMMENTS_FILE="${2:-}"; shift 2 ;;
-    -h|--help)       sed -n '2,56p' "$0"; exit 0 ;;
+    -h|--help)       sed -n '2,67p' "$0"; exit 0 ;;
     -*)              envfail "unknown option: $1" ;;
     *)               [ -z "$ISSUE" ] && ISSUE="$1" || envfail "unexpected argument: $1"; shift ;;
   esac
@@ -118,6 +129,59 @@ say "  progress file:  $PROGRESS_FILE"
 extract_key() { # extract_key <key> <file>
   grep -oE "$1:[[:space:]]*[A-Za-z0-9._-]+" "$2" 2>/dev/null | head -n1 | sed -E "s/^$1:[[:space:]]*//"
 }
+
+# The same extraction against a COMMITTED version of the record. It is the only way to reach a
+# PRIOR round: the record path holds one round at a time, so every round but the newest exists
+# solely in that path's git history.
+extract_key_at() { # extract_key_at <key> <commit>
+  git -C "$REPO_ROOT" show "$2:$VERDICT_REL" 2>/dev/null \
+    | grep -oE "$1:[[:space:]]*[A-Za-z0-9._-]+" 2>/dev/null | head -n1 | sed -E "s/^$1:[[:space:]]*//"
+}
+
+# LOCKSTEP-BEGIN lean-inherited-key
+# `inherited_patch_id`, read from the record's HEADER BLOCK only, with the `none` sentinel
+# normalized to empty. Record on stdin; prints nothing when the round inherits nothing.
+#
+# HEADER-ANCHORED, unlike every other key in this schema, and the asymmetry is the whole point.
+# First-match-anywhere is safe for the other keys because the writer ALWAYS emits them above the
+# body, so the authentic value wins the race against any prose below it. This key is the first
+# one that could be ABSENT — a chain root wrote no inheritance, and records predating the key
+# carry none — and a race has no winner when one side never entered it: the first match in the
+# file is then whatever the reviewer's own findings contain. Review prose about this feature
+# quotes these keys, so the triggering round is every review of a PR that touches inheritance,
+# not a crafted one. The value lands where a CLAIM OF INHERITED COVERAGE is read, which is the
+# inverse of the property the chain exists to prove.
+#
+# The writer's half of the same fix emits the key unconditionally and makes absence a written
+# fact; this half covers the records that writer did not produce — a pre-#375 root record still
+# sitting on an in-flight branch, which every chain walk on that branch reads through.
+#
+# The header block is the first run of `key: value` / `verdict=` lines, ending at the blank line
+# the writer emits before the body. A record whose keys are NOT in that shape (the earliest
+# records wrote `verdict=` as a bullet or a table cell) never opens the block, so nothing is
+# extracted and the round reads as a root — fail-closed, and correct: those records predate
+# inheritance entirely.
+inherited_key() { # inherited_key   (record on stdin)
+  awk '
+    /^[A-Za-z_][A-Za-z0-9_]*[:=]/ { hdr = 1 }
+    hdr && /^[[:space:]]*$/ { exit }
+    hdr && /^inherited_patch_id:[[:space:]]*[A-Za-z0-9._-]+/ {
+      sub(/^inherited_patch_id:[[:space:]]*/, "")
+      sub(/[^A-Za-z0-9._-].*$/, "")
+      if ($0 != "none") printf "%s", $0
+      exit
+    }
+  '
+}
+# LOCKSTEP-END lean-inherited-key
+
+# The header-anchored read against a COMMITTED version of the record — what a chain walk needs,
+# since every round but the newest exists solely in that path's git history.
+inherited_key_at() { # inherited_key_at <commit>
+  git -C "$REPO_ROOT" show "$1:$VERDICT_REL" 2>/dev/null | inherited_key
+}
+
+short() { git -C "$REPO_ROOT" rev-parse --short "$1" 2>/dev/null || printf '%s' "$1"; }
 
 RUN_VERDICT="$(extract_key run_id "$REPO_ROOT/$VERDICT_REL")"
 RUN_PROGRESS="$(extract_key run_id "$PROGRESS_FILE")"
@@ -261,6 +325,75 @@ else
     ok "the verdict record declares reviewed_head $(git -C "$REPO_ROOT" rev-parse --short "$REVIEWED_HEAD" 2>/dev/null), and its own commit descends from it"
   else
     bad "the verdict record declares reviewed_head $REVIEWED_HEAD, but the commit carrying the record does not descend from it — the record cannot have been written on top of the tree it claims to have reviewed"
+  fi
+fi
+
+# ---- (5) the inheritance chain is a sequence of INDEPENDENT reviews (#375) ------------------
+# Two properties, and only the second is this reader's own. Every link must RESOLVE — the merge
+# boundary and milestone 4 check that too, and a third reader disagreeing about it would be a
+# silent divergence rather than a loud one. What only this reader asks is whether the chain is a
+# sequence of independent reviews at all: one session that writes round 1 and then inherits its
+# OWN coverage in round 2 produces a chain that resolves perfectly while being a single review,
+# and inheritance is exactly what makes that consequential — round 2 then reads the delta and is
+# credited with a tree only round 1 ever saw, by the same session.
+INHERITED_PATCH_ID="$(inherited_key < "$REPO_ROOT/$VERDICT_REL")"
+if [ -z "$INHERITED_PATCH_ID" ]; then
+  say "  · the verdict record declares no inherited coverage — it covers the whole branch diff on its own."
+elif [ -z "$(git -C "$REPO_ROOT" log -1 --format=%H -- "$VERDICT_REL" 2>/dev/null)" ]; then
+  say "  note: verdict record is not committed yet — its inheritance chain is not checkable."
+else
+  # The search window starts strictly BELOW the commit carrying the record being read and
+  # shrinks past every hit, so the chain runs backwards through the record's history: a branch
+  # reverted to a previously-reviewed tree would otherwise resolve its round to itself, and
+  # termination is structural rather than a cycle counter. An unanchorable window collapses to
+  # empty, which refuses — never to the full list, which would widen the search.
+  CHAIN_VERSIONS=""
+  CHAIN_PAST=0
+  CHAIN_HEAD_COMMIT="$(git -C "$REPO_ROOT" log -1 --format=%H -- "$VERDICT_REL" 2>/dev/null)"
+  for c in $(git -C "$REPO_ROOT" log --format=%H -- "$VERDICT_REL" 2>/dev/null); do
+    if [ "$CHAIN_PAST" -eq 1 ]; then CHAIN_VERSIONS="$CHAIN_VERSIONS $c"; continue; fi
+    [ "$c" = "$CHAIN_HEAD_COMMIT" ] && CHAIN_PAST=1
+  done
+  CHAIN_WANT="$INHERITED_PATCH_ID"
+  CHAIN_ROUND="$(extract_key rounds "$REPO_ROOT/$VERDICT_REL")"; [ -n "$CHAIN_ROUND" ] || CHAIN_ROUND='?'
+  CHAIN_LINKS=0; CHAIN_BROKEN=""
+  # The head round's author seeds the set, so a second round reusing it is caught on the first
+  # link rather than only between two inherited rounds.
+  CHAIN_SESSIONS="$REVIEW_SESSION"
+  while [ -n "$CHAIN_WANT" ]; do
+    CHAIN_HIT=""; CHAIN_REST=""
+    for c in $CHAIN_VERSIONS; do
+      if [ -n "$CHAIN_HIT" ]; then CHAIN_REST="$CHAIN_REST $c"; continue; fi
+      if [ "$(extract_key_at reviewed_patch_id "$c")" = "$CHAIN_WANT" ]; then CHAIN_HIT="$c"; fi
+    done
+    if [ -z "$CHAIN_HIT" ]; then
+      CHAIN_BROKEN="round $CHAIN_ROUND declares inherited_patch_id $(printf '%.12s' "$CHAIN_WANT"), which matches no earlier verdict record committed on this branch — that round's inherited coverage is unverifiable"
+      break
+    fi
+    CHAIN_VERSIONS="$CHAIN_REST"
+    CHAIN_LINKS=$((CHAIN_LINKS + 1))
+    CHAIN_ROUND="$(extract_key_at rounds "$CHAIN_HIT")"; [ -n "$CHAIN_ROUND" ] || CHAIN_ROUND='?'
+    CHAIN_SESS="$(extract_key_at session_id "$CHAIN_HIT")"
+    if [ -z "$CHAIN_SESS" ]; then
+      CHAIN_BROKEN="the inherited round $CHAIN_ROUND (record $(short "$CHAIN_HIT")) names no review session — nothing attests it was a review separate from the round inheriting it"
+      break
+    fi
+    if [ -n "$SESSION_ID" ] && [ "$CHAIN_SESS" = "$SESSION_ID" ]; then
+      CHAIN_BROKEN="the inherited round $CHAIN_ROUND names the BUILD session ('$CHAIN_SESS') as its author — coverage inherited from generation's own evaluation is not independent coverage (P10)"
+      break
+    fi
+    case " $CHAIN_SESSIONS " in
+      *" $CHAIN_SESS "*)
+        CHAIN_BROKEN="round $CHAIN_ROUND was authored by session '$CHAIN_SESS', which already authored another round in this chain — a chain of inherited coverage must be a sequence of INDEPENDENT reviews, and review-lean requires a new review context per round"
+        break ;;
+    esac
+    CHAIN_SESSIONS="$CHAIN_SESSIONS $CHAIN_SESS"
+    CHAIN_WANT="$(inherited_key_at "$CHAIN_HIT")"
+  done
+  if [ -n "$CHAIN_BROKEN" ]; then
+    bad "$CHAIN_BROKEN"
+  else
+    ok "the inheritance chain resolves over $CHAIN_LINKS earlier record(s), each authored by its own review session"
   fi
 fi
 

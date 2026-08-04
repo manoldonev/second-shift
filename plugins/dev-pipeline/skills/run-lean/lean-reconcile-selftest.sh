@@ -362,6 +362,153 @@ if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q 'was not written on top of th
   pass "(M3) a record whose declared patch is not the one its commit carries fails"
 else fail "(M3) expected rc=1 on an incoherent patch id, got $rc: $out"; fi
 
+# ---- (N) the INHERITANCE chain: resolvable links AND independent authors (#375) -------------
+# Link resolution is checked by all three readers, so it is asserted here too — a third reader
+# that disagreed about it would diverge silently. The AUTHOR arm is this reader's alone, and it
+# is the one inheritance makes consequential: a chain whose rounds share a review session
+# resolves perfectly while being a single review that credited itself with the whole tree.
+write_verdict_chain() { # write_verdict_chain <run-id> <session-id> <rounds> <patch-id> [inherited-id] [body]
+  {
+    printf '# lean review verdict — #7\n\nverdict=approve\nrun_id: %s\nsession_id: %s\nrounds: %s\nreviewed_head: %s\nreviewed_patch_id: %s\n' \
+      "$1" "$2" "$3" "$(git -C "$TREE" rev-parse HEAD)" "$4"
+    [ -n "${5:-}" ] && printf 'inherited_patch_id: %s\ninherited_from_verdict: %s\n' "$5" "$(git -C "$TREE" rev-parse HEAD)"
+    # The blank line here is what separates header from body, and (N7) turns on it.
+    printf '\n%s\n' "${6:-No blockers.}"
+  } > "$VERDICT"
+}
+n_code_commit() { # n_code_commit <content>
+  printf '%s\n' "$1" > "$TREE/docs/plans/base.md"
+  git -C "$TREE" add docs/plans/base.md >/dev/null 2>&1
+  git -C "$TREE" commit -q -m "code moves between rounds" >/dev/null 2>&1
+}
+# A ledger for the SECOND review session, so (N)'s round-2 records reconcile on every arm but
+# the one each case is about.
+write_ledger sess-review-round2 "2026-01-01T09:00:00Z"
+
+# ROUND 1, a chain root. Absence of the key is the ordinary case and is PRINTED, not skipped:
+# in a log, a silent skip and a satisfied check are indistinguishable.
+n_pid1="$(tree_patch_id HEAD)"
+write_verdict_chain "$REVIEW_RUN_ID" "$REVIEW_SESSION" 1 "$n_pid1"
+commit_verdict "2026-01-01T10:00:00Z"
+n_pid1="$(tree_patch_id HEAD)"
+write_verdict_chain "$REVIEW_RUN_ID" "$REVIEW_SESSION" 1 "$n_pid1"
+commit_verdict "2026-01-01T10:05:00Z"
+out="$(reconcile "$WORK/comments-good.json")"; rc=$?
+if [ "$rc" -eq 0 ] && printf '%s' "$out" | grep -q 'declares no inherited coverage'; then
+  pass "(N1) a round-1 record reconciles unchanged, and the tool prints that it inherited nothing"
+else fail "(N1) expected rc=0 with the no-inheritance note, got $rc: $out"; fi
+
+# ROUND 2, inheriting round 1 from its OWN review session — the shape a correct fix round has.
+n_code_commit "the fix round 1 asked for"
+n_pid2="$(tree_patch_id HEAD)"
+[ "$n_pid2" != "$n_pid1" ] || fail "(N2-fixture) the fix did not move the patch identity — (N2) would assert nothing"
+write_verdict_chain review-7-2 sess-review-round2 2 "$n_pid2" "$n_pid1"
+commit_verdict "2026-01-01T11:30:00Z"
+out="$(reconcile "$WORK/comments-good.json")"; rc=$?
+if [ "$rc" -eq 0 ] && printf '%s' "$out" | grep -q 'resolves over 1 earlier record'; then
+  pass "(N2) AC-8: a two-round chain with distinct review sessions reconciles"
+else fail "(N2) expected rc=0 on a clean chain, got $rc: $out"; fi
+
+# ...and the link is still checked here, not merely at the other two readers.
+write_verdict_chain review-7-2 sess-review-round2 2 "$n_pid2" "deadbeefdeadbeefdeadbeefdeadbeefdeadbeef"
+commit_verdict "2026-01-01T11:40:00Z"
+out="$(reconcile "$WORK/comments-good.json")"; rc=$?
+if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q 'matches no earlier verdict record committed on this branch'; then
+  pass "(N3) a dangling inheritance link fails reconciliation"
+else fail "(N3) expected rc=1 on a dangling link, got $rc: $out"; fi
+
+# THE arm only this reader has. Everything resolves; the two rounds are one session. The other
+# two readers pass this record — that is the point, and why the check lives here.
+write_verdict_chain review-7-2 "$REVIEW_SESSION" 2 "$n_pid2" "$n_pid1"
+commit_verdict "2026-01-01T11:50:00Z"
+out="$(reconcile "$WORK/comments-good.json")"; rc=$?
+if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q 'already authored another round in this chain'; then
+  pass "(N4) a chain whose rounds share one review session is refused — inherited coverage must come from an independent review"
+else fail "(N4) expected rc=1 on a single-session chain, got $rc: $out"; fi
+
+# And the P10 half: coverage inherited from a round the BUILD session authored is not
+# independent coverage, however well the link resolves.
+write_verdict_chain "$REVIEW_RUN_ID" "$SESSION" 1 "$n_pid1"
+commit_verdict "2026-01-01T12:10:00Z"
+n_pid_build="$(tree_patch_id HEAD)"
+write_verdict_chain review-7-2 sess-review-round2 2 "$n_pid_build" "$n_pid1"
+commit_verdict "2026-01-01T12:20:00Z"
+out="$(reconcile "$WORK/comments-good.json")"; rc=$?
+if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q 'names the BUILD session'; then
+  pass "(N5) inheriting from a round the build session authored is refused (P10)"
+else fail "(N5) expected rc=1 inheriting a build-authored round, got $rc: $out"; fi
+
+# SELF-INHERITANCE, and the case that makes the backwards window a guard rather than a comment.
+# A record whose inherited_patch_id IS its own reviewed_patch_id claims to have inherited the
+# coverage of the very tree it is reviewing. The window starts strictly BELOW the record's own
+# commit, so the search finds no earlier record and refuses on the link.
+#
+# The assertion pins WHICH refusal, not merely that one happened. Widen the window to include
+# the record itself and the walk resolves the round to ITSELF, then trips the shared-session arm
+# instead — same exit code, a diagnosis pointing at the wrong thing, and a "link" that is the
+# record under test. A bare rc check cannot tell those apart.
+n_code_commit "a tree no earlier round reviewed"
+n_pid_self="$(tree_patch_id HEAD)"
+write_verdict_chain review-7-3 sess-review-round2 3 "$n_pid_self" "$n_pid_self"
+commit_verdict "2026-01-01T12:40:00Z"
+out="$(reconcile "$WORK/comments-good.json")"; rc=$?
+if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q 'matches no earlier verdict record committed on this branch' \
+   && ! printf '%s' "$out" | grep -q 'already authored another round in this chain'; then
+  pass "(N6) a record inheriting its OWN reviewed patch is refused on the link — the search window never includes the record being read"
+else fail "(N6) expected the link refusal on a self-inheriting record, got $rc: $out"; fi
+
+# The record's own FINDINGS cannot supply the key this arm gates on. It is the schema's one
+# conditionally-emitted key, so on a chain ROOT nothing authentic is written and the documented
+# "the header wins first-match" mitigation has no entrant — the first match in the file is the
+# reviewer's prose. Reached in production: a root record written by the real writer took the
+# merge boundary red on a value quoted inside its own repro block, and this reader shares the
+# extraction, so it read the same wrong value.
+#
+# The quoted value RESOLVES (it is round 1's real reviewed patch), which makes the guarded
+# failure the SILENT one: both readings exit 0 and print a checkmark, and only the phrase
+# separates a root from a round credited with coverage no review performed.
+n_code_commit "a tree for the injection cases"
+n_pid_root="$(tree_patch_id HEAD)"
+write_verdict_chain review-7-4 sess-review-round2 4 "$n_pid_root" "" "## a finding about the chain
+
+\`\`\`
+inherited_patch_id: $n_pid1
+\`\`\`"
+commit_verdict "2026-01-01T13:00:00Z"
+out="$(reconcile "$WORK/comments-good.json")"; rc=$?
+if [ "$rc" -eq 0 ] && printf '%s' "$out" | grep -q 'declares no inherited coverage' \
+   && ! printf '%s' "$out" | grep -q 'the inheritance chain resolves over'; then
+  pass "(N7) a root record whose findings quote a RESOLVING inheritance value still reconciles as a root"
+else fail "(N7) expected the no-inheritance note and no resolved chain, got $rc: $out"; fi
+
+# The same door one level down: a chain walk reads PRIOR records through the same extraction, and
+# a prior record may predate the sentinel — every branch in flight when this ships carries one.
+# Round 5's own link is honest and resolves to the root above; that root's BODY quotes round 1.
+# A first-match walk follows it into a second link, reports a chain one round longer than the
+# branch has, and exits 0 — so the assertion pins the COUNT, which is why the count is printed.
+write_ledger sess-review-round5 "2026-01-01T13:10:00Z"
+n_code_commit "the round-4 fix"
+n_pid5="$(tree_patch_id HEAD)"
+write_verdict_chain review-7-5 sess-review-round5 5 "$n_pid5" "$n_pid_root"
+commit_verdict "2026-01-01T13:20:00Z"
+out="$(reconcile "$WORK/comments-good.json")"; rc=$?
+if [ "$rc" -eq 0 ] && printf '%s' "$out" | grep -q 'resolves over 1 earlier record'; then
+  pass "(N7b) the walk terminates at a root whose body quotes the key — one link, not the two a first-match walk would count"
+else fail "(N7b) expected exactly 1 earlier record in the chain, got $rc: $out"; fi
+
+# ---- (O) --help prints the header, and only the header --------------------------------------
+# `sed -n '2,Np'` is a hand-maintained line number, and this file had no guard for it — which is
+# exactly how its siblings silently truncated their own help text after a header grew. Two
+# assertions, because either direction is a real failure AND because the repo's two lanes kill
+# the `cmp-z` mutant of this line by opposite halves: on BSD sed `-z` dies and only the presence
+# assertion fires, on GNU sed `-z` dumps the whole file and only the absence one does.
+out="$(bash "$TOOL" --help 2>&1)"; rc=$?
+if [ "$rc" -eq 0 ] \
+   && printf '%s' "$out" | grep -q 'Exit 0 = reconciled' \
+   && ! printf '%s' "$out" | grep -q '^set -uo pipefail'; then
+  pass "(O) --help prints through the last header line and stops before the code"
+else fail "(O) --help did not print exactly the header, rc=$rc: $out"; fi
+
 # ---- (I) header states the #292 deferral ----------------------------------------------------
 if grep -q 'DEFERS TO #292' "$TOOL"; then
   pass "(I) the script records that it defers to the general verifier (#292) on arrival"

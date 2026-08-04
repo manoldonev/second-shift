@@ -44,7 +44,17 @@
 #      one is CI's job: the reviewed content did not move, so the verdict stands, and the merged
 #      result failing is a different claim. Conflating the two is what made SHA keying
 #      over-strict. Records predating the key still gate on the `reviewed_head` SHA path.
-#   6. RATIFICATION (P9): if the run wrote an intent-gap record — a decision implementation
+#   6. THE INHERITANCE CHAIN (#375): if the verdict record declares `inherited_patch_id` — the
+#      reviewed patch of the round whose coverage it inherits, so a fix round reads the delta
+#      instead of the whole diff again — every LINK in that chain resolves to an earlier record
+#      committed on this branch. What this boundary guarantees is then not "one review read this
+#      tree" but "a CHAIN of independent reviews covered it", and an unverified link credits a
+#      round with a tree it never read: a strictly weaker boundary, arrived at silently. Matched
+#      by CONTENT (each declared identity against an earlier record's `reviewed_patch_id`),
+#      never by commit SHA — a SHA link dies on a rebase, and this fresh checkout is exactly
+#      where that is unrecoverable. Absence is the ordinary case: a round-1 record inherits
+#      nothing, and neither does any record written before the key existed.
+#   7. RATIFICATION (P9): if the run wrote an intent-gap record — a decision implementation
 #      surfaced that the receipt did not cover — that record reads `ratified: yes` and cites
 #      the operator comment that ratified it. Absence of a record is the ordinary case and is
 #      printed, not silently skipped.
@@ -110,7 +120,7 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --comments-file)   COMMENTS_FILE="${2:-}"; shift 2 ;;
     --diff-files-file) DIFF_FILES_FILE="${2:-}"; shift 2 ;;
-    -h|--help) sed -n '2,102p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,112p' "$0"; exit 0 ;;
     *) echo "[lean-chain] unknown argument: $1" >&2; exit 2 ;;
   esac
 done
@@ -135,6 +145,58 @@ is_fixture_path() {
     */fixtures/*|*-fixtures/*|fixtures/*) return 0 ;;
     *) return 1 ;;
   esac
+}
+
+# First `<key>: <token>` in a COMMITTED version of a file — the same first-match shape every
+# other read of these records uses, against a blob instead of a working-tree path. It is the
+# only way to reach a PRIOR round: the record path holds one round at a time, so every round
+# but the newest exists solely in that path's git history.
+record_key_at() { # record_key_at <key> <commit> <path>
+  git -C "$REPO_ROOT" show "$2:$3" 2>/dev/null \
+    | grep -oE "$1:[[:space:]]*[A-Za-z0-9._-]+" 2>/dev/null | head -n1 | sed -E "s/^$1:[[:space:]]*//"
+}
+
+# LOCKSTEP-BEGIN lean-inherited-key
+# `inherited_patch_id`, read from the record's HEADER BLOCK only, with the `none` sentinel
+# normalized to empty. Record on stdin; prints nothing when the round inherits nothing.
+#
+# HEADER-ANCHORED, unlike every other key in this schema, and the asymmetry is the whole point.
+# First-match-anywhere is safe for the other keys because the writer ALWAYS emits them above the
+# body, so the authentic value wins the race against any prose below it. This key is the first
+# one that could be ABSENT — a chain root wrote no inheritance, and records predating the key
+# carry none — and a race has no winner when one side never entered it: the first match in the
+# file is then whatever the reviewer's own findings contain. Review prose about this feature
+# quotes these keys, so the triggering round is every review of a PR that touches inheritance,
+# not a crafted one. The value lands where a CLAIM OF INHERITED COVERAGE is read, which is the
+# inverse of the property the chain exists to prove.
+#
+# The writer's half of the same fix emits the key unconditionally and makes absence a written
+# fact; this half covers the records that writer did not produce — a pre-#375 root record still
+# sitting on an in-flight branch, which every chain walk on that branch reads through.
+#
+# The header block is the first run of `key: value` / `verdict=` lines, ending at the blank line
+# the writer emits before the body. A record whose keys are NOT in that shape (the earliest
+# records wrote `verdict=` as a bullet or a table cell) never opens the block, so nothing is
+# extracted and the round reads as a root — fail-closed, and correct: those records predate
+# inheritance entirely.
+inherited_key() { # inherited_key   (record on stdin)
+  awk '
+    /^[A-Za-z_][A-Za-z0-9_]*[:=]/ { hdr = 1 }
+    hdr && /^[[:space:]]*$/ { exit }
+    hdr && /^inherited_patch_id:[[:space:]]*[A-Za-z0-9._-]+/ {
+      sub(/^inherited_patch_id:[[:space:]]*/, "")
+      sub(/[^A-Za-z0-9._-].*$/, "")
+      if ($0 != "none") printf "%s", $0
+      exit
+    }
+  '
+}
+# LOCKSTEP-END lean-inherited-key
+
+# The header-anchored read against a COMMITTED version of the record — what a chain walk needs,
+# since every round but the newest exists solely in that path's git history.
+inherited_key_at() { # inherited_key_at <commit> <path>
+  git -C "$REPO_ROOT" show "$1:$2" 2>/dev/null | inherited_key
 }
 
 # ---- (1) env constants: fail closed, never "exempt" -------------------------------------
@@ -269,6 +331,8 @@ VERDICT_RUN_ID=""
 VERDICT_SESSION_ID=""
 VERDICT_REVIEWED_HEAD=""
 VERDICT_REVIEWED_PATCH_ID=""
+VERDICT_INHERITED_PATCH_ID=""
+VERDICT_ROUNDS=""
 if [[ -z "$VERDICT" ]]; then
   note_violation "no committed verdict record (a file named *-$KEY$LEAN_VERDICT_SUFFIX). The independent review's verdict must be a committed, diffable artifact — a local progress-file line is not evidence."
 else
@@ -296,6 +360,13 @@ else
   # `reviewed_patch_id:` in particular is a different string, not an extension of this one.
   VERDICT_REVIEWED_HEAD="$(grep -oE 'reviewed_head:[[:space:]]*[A-Za-z0-9._-]+' "$REPO_ROOT/$VERDICT" 2>/dev/null | head -n1 | sed -E 's/reviewed_head:[[:space:]]*//')"
   VERDICT_REVIEWED_PATCH_ID="$(grep -oE 'reviewed_patch_id:[[:space:]]*[A-Za-z0-9._-]+' "$REPO_ROOT/$VERDICT" 2>/dev/null | head -n1 | sed -E 's/reviewed_patch_id:[[:space:]]*//')"
+  # HEADER-ANCHORED, alone among the keys read here, because it is the only one the writer may
+  # legitimately have nothing to say about. See `inherited_key` for why first-match cannot be
+  # used on an optional key. (`inherited_patch_id:` and `reviewed_patch_id:` are also different
+  # strings — neither contains the other — so the two extractions cannot capture each other's
+  # value either way.)
+  VERDICT_INHERITED_PATCH_ID="$(inherited_key < "$REPO_ROOT/$VERDICT")"
+  VERDICT_ROUNDS="$(grep -oE 'rounds:[[:space:]]*[A-Za-z0-9._-]+' "$REPO_ROOT/$VERDICT" 2>/dev/null | head -n1 | sed -E 's/rounds:[[:space:]]*//')"
 fi
 
 # ---- (7) evidence 3: a bot-authored lean-claimed comment, windowed at PR-open ------------
@@ -468,7 +539,61 @@ elif [[ -n "$VERDICT" ]]; then
   fi
 fi
 
-# ---- (10) evidence 6: no unratified intent-gap record (P9) -------------------------------
+# ---- (10) evidence 6: every declared inheritance link resolves (#375) ---------------------
+# Skipped when there is no verdict record — already a violation, and "unverifiable chain" on
+# top of "no verdict" is noise. Absence of the key is the ordinary case and is PRINTED, so a
+# reader of the log can tell "this round covered everything itself" from "the arm never ran".
+if [[ -n "$VERDICT" ]]; then
+  if [[ -z "$VERDICT_INHERITED_PATCH_ID" ]]; then
+    echo "[lean-chain]   · verdict record declares no inherited coverage — it covers the whole branch diff on its own."
+  else
+    # The record versions this branch committed, newest-first. Anchored at PR_HEAD_SHA for the
+    # same reason evidence 5 is: on a pull_request event the checkout's HEAD is the MERGE ref,
+    # so a bare `git log` would walk base-side history the PR never authored.
+    CHAIN_VERSIONS="$(git -C "$REPO_ROOT" log --format=%H "$PR_HEAD_SHA" -- "$VERDICT" 2>/dev/null)"
+    # The search starts strictly BELOW the commit carrying the record being read, and shrinks
+    # past every hit, so the chain must run backwards through the record's history. Two things
+    # ride on that: a branch reverted to a previously-reviewed tree carries an identity an
+    # ancestor also carries, and an unbounded search would resolve that round to ITSELF; and
+    # termination becomes structural, with no cycle counter to get wrong. A window that cannot
+    # be anchored collapses to empty, which refuses — never to the full list, which would widen.
+    CHAIN_HEAD_COMMIT="$(git -C "$REPO_ROOT" log -1 --format=%H "$PR_HEAD_SHA" -- "$VERDICT" 2>/dev/null)"
+    CHAIN_REST=""
+    CHAIN_PAST=0
+    for c in $CHAIN_VERSIONS; do
+      if [[ "$CHAIN_PAST" -eq 1 ]]; then CHAIN_REST="$CHAIN_REST $c"; continue; fi
+      [[ "$c" == "$CHAIN_HEAD_COMMIT" ]] && CHAIN_PAST=1
+    done
+    CHAIN_VERSIONS="$CHAIN_REST"
+    CHAIN_WANT="$VERDICT_INHERITED_PATCH_ID"
+    CHAIN_ROUND="${VERDICT_ROUNDS:-?}"
+    CHAIN_LINKS=0
+    CHAIN_BROKEN=""
+    while [[ -n "$CHAIN_WANT" ]]; do
+      CHAIN_HIT=""
+      CHAIN_REST=""
+      for c in $CHAIN_VERSIONS; do
+        if [[ -n "$CHAIN_HIT" ]]; then CHAIN_REST="$CHAIN_REST $c"; continue; fi
+        if [[ "$(record_key_at reviewed_patch_id "$c" "$VERDICT")" == "$CHAIN_WANT" ]]; then CHAIN_HIT="$c"; fi
+      done
+      if [[ -z "$CHAIN_HIT" ]]; then
+        CHAIN_BROKEN="round $CHAIN_ROUND declares inherited_patch_id ${CHAIN_WANT:0:12}, which matches no earlier verdict record committed on this branch — that round's inherited coverage is unverifiable, so nothing attests the part of the diff it did not read."
+        break
+      fi
+      CHAIN_VERSIONS="$CHAIN_REST"
+      CHAIN_LINKS=$((CHAIN_LINKS + 1))
+      CHAIN_ROUND="$(record_key_at rounds "$CHAIN_HIT" "$VERDICT")"; [[ -n "$CHAIN_ROUND" ]] || CHAIN_ROUND="?"
+      CHAIN_WANT="$(inherited_key_at "$CHAIN_HIT" "$VERDICT")"
+    done
+    if [[ -n "$CHAIN_BROKEN" ]]; then
+      note_violation "$CHAIN_BROKEN The remedy is a review round that reads the full diff."
+    else
+      echo "[lean-chain]   ✓ inheritance chain: $CHAIN_LINKS inherited link(s), each resolving to an earlier verdict record on this branch"
+    fi
+  fi
+fi
+
+# ---- (11) evidence 7: no unratified intent-gap record (P9) -------------------------------
 # A decision that surfaces during BUILD and is not in the receipt is not a failure — it is
 # ordinary operation, and the intent-gap record is the channel it routes back through instead
 # of becoming a silent choice. What must not happen is the merge landing while that decision
@@ -506,7 +631,7 @@ else
   fi
 fi
 
-# ---- (11) verdict -----------------------------------------------------------------------
+# ---- (12) verdict -----------------------------------------------------------------------
 if [[ "$violations" -gt 0 ]]; then
   echo "[lean-chain] ✗ $violations evidence artifact(s) missing for lean PR on #$KEY." >&2
   echo "[lean-chain]   The remedy is producing the missing artifact — there is no waiver." >&2
