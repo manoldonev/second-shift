@@ -50,10 +50,13 @@ session itself when nothing stops it before code is written.
 - **AC-6** (oracle): the evidence count in the merge-boundary summary line
   (`N evidence artifact(s) missing`) matches the number of `✗`-prefixed violation lines printed,
   so the collapse in AC-4 does not leave a stale count over fewer printed lines.
-- **AC-7** (critic): the pre-pass added in AC-1 performs no network call and no subprocess
-  beyond `git`/`grep`/`jq` over committed files — milestone 1's new pause-and-ask check (AC-8)
-  is explicitly NOT part of the pre-pass for this reason, and runs only in milestone 1's real,
-  non-`PRECHECK` body.
+- **AC-7** (critic): the pre-pass added in AC-1 performs **no network call**, and no subprocess
+  beyond local text utilities over committed files — milestone 1's new pause-and-ask check
+  (AC-8) is explicitly NOT part of the pre-pass for this reason, and runs only in milestone 1's
+  real, non-`PRECHECK` body. The network clause is the binding one; the utility set is
+  `git`/`grep`/`jq` plus the `sed`/`head`/`wc`/`tr`/`cat` that `cmd_4` already spawns, since
+  "What changes" mandates reusing that body verbatim under `PRECHECK=1` — the earlier three-name
+  enumeration was narrower than any implementation this spec permits.
 - **AC-8** (oracle): `bash G 1 <issue>` refuses when the issue's `## Open Regions` table
   declares a region dispositioned `pause-and-ask` for which neither a non-bot issue comment
   naming the region's ID nor a ratified intent-gap record naming it exists; the refusal names
@@ -71,6 +74,33 @@ session itself when nothing stops it before code is written.
   way. Adding a selftest case can also kill a previously-baselined mutant and shrink the
   survivor set — checked after adding coverage, not only after editing a guard.
 - **AC-13** (critic): the PR carries a `Changelog:` trailer.
+
+### Amended at round 2
+
+Round 1 returned `needs-work` on a lane rule no `AC-n` named, plus two coverage gaps and two
+notes. Scope changed, so the `AC-n` set is amended here before the re-handoff, per the lane's
+"amend the `AC-n` set before milestone 5".
+
+- **AC-14** (doc — the round-1 blocker): `SKILL.md`'s Resume section describes what `all`
+  actually reports while the verdict is outstanding — that the pre-pass names milestone 4 and
+  stops without evaluating 2 or 3, and that those are run directly until an `approve` record is
+  committed. Still within the 60-line cap (`wc -l`). The old text ("continue at the first
+  unsatisfied milestone") was made untrue by AC-1's pre-pass and shipped uncovered.
+- **AC-15** (oracle — `lean-gate-selftest.sh`): a `pause-and-ask` row in an `## Open Regions`
+  table written **without** a trailing pipe still refuses milestone 1. The disposition is the
+  last non-empty cell, not `$(NF-1)`; GFM does not require the trailing pipe, and the `$(NF-1)`
+  form fails **open** on markup a renderer accepts.
+- **AC-16** (oracle): an issue declaring **two** unresolved `pause-and-ask` regions names both
+  in exactly one refusal — the AC-3 ergonomic applied to this check. The refusal count is
+  asserted, not just the presence of both ids.
+- **AC-17** (oracle): milestone 1 under `tracker.type: jira` passes on an issue carrying an
+  unresolved `pause-and-ask` region — pinning that `check_pause_and_ask`'s jira short-circuit is
+  reached. Without it the jira lane has no readable tracker, and the function's failure branch
+  prints a reason, which *is* the refusal; the entire jira lane's milestone 1 would break.
+- **AC-18** (oracle): an intent-gap record naming the region but reading `ratified: no` does
+  **not** clear it. `ratified: no` and file-absent are indistinguishable to every pre-existing
+  case, so the `ratified` conjunct was droppable with the suite green — the inverse of the merge
+  boundary's own `ratified: no` refusal (P9).
 
 ## Open regions
 
