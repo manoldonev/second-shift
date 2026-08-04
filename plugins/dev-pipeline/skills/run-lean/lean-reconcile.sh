@@ -213,12 +213,44 @@ elif [ -n "$LEDGER" ]; then
   say "  note: the review ledger's first row carries no timestamp — ordering not checkable."
 fi
 
-# ---- (4) the record declares the head it reviewed, and its own commit descends from it ------
+# ---- (4) the record declares what it reviewed, and its own commit sits on top of that -------
 # Read with the SAME extractor as run_id/session_id — one schema, three readers, and a reader
 # that invented its own parse for one key would diverge silently rather than loudly.
+#
+# TWO KEYINGS, same precedence the other two readers use. `reviewed_patch_id` is the patch
+# identity of the branch's own diff excluding this record, so it is invariant under a rebase
+# (which rewrites commit SHAs and changes no reviewed line) and still moves when a commit or a
+# conflict resolution alters one. The `reviewed_head` ancestry path below is what records
+# predating that key are read on — and it is exactly the path that turned a rebase into a
+# "do NOT merge": after one, the record's replayed commit descends from no pre-rebase head.
 REVIEWED_HEAD="$(extract_key reviewed_head "$REPO_ROOT/$VERDICT_REL")"
+REVIEWED_PATCH_ID="$(extract_key reviewed_patch_id "$REPO_ROOT/$VERDICT_REL")"
 if [ -z "$REVIEWED_HEAD" ]; then
   bad "verdict record carries no reviewed_head key — nothing states which commit the review actually read, so 'a verdict exists' cannot be distinguished from 'this code was reviewed'. Re-run the review round on a dev-pipeline that writes it."
+elif [ -n "$REVIEWED_PATCH_ID" ]; then
+  VERDICT_COMMIT="$(git -C "$REPO_ROOT" log -1 --format=%H -- "$VERDICT_REL" 2>/dev/null)"
+  if [ -z "$VERDICT_COMMIT" ]; then
+    say "  note: verdict record is not committed yet — its patch identity is not checkable."
+  else
+    # Measured at the commit CARRYING the record, not at HEAD: this reader's question is whether
+    # the record was written on top of the tree it claims to have reviewed, which is a statement
+    # about that commit. Freshness against the merge target is the other two readers' job.
+    RECONCILE_BASE="$(cfg "(.topology.repos | to_entries[] | select(.value.path==\".\") | .value.baseBranch)" 'main')"
+    CUR_PATCH_ID="$(git -C "$REPO_ROOT" diff "$(git -C "$REPO_ROOT" merge-base "origin/$RECONCILE_BASE" "$VERDICT_COMMIT" 2>/dev/null)" \
+      "$VERDICT_COMMIT" -- . ":(exclude)$VERDICT_REL" 2>/dev/null \
+      | git -C "$REPO_ROOT" patch-id --stable 2>/dev/null | cut -d' ' -f1)"
+    # An empty recompute is UNCHECKABLE, never a match: `git patch-id` prints nothing for an
+    # empty diff, so two failed computations compare equal and an unguarded reader would emit
+    # its ✓ having hashed nothing. Reported as a note rather than a failure — unlike a missing
+    # key, nothing here says the evidence is absent, only that this checkout cannot measure it.
+    if [ -z "$CUR_PATCH_ID" ]; then
+      say "  note: cannot compute the branch's patch identity against origin/$RECONCILE_BASE — the declared reviewed_patch_id is not checkable in this checkout."
+    elif [ "$CUR_PATCH_ID" = "$REVIEWED_PATCH_ID" ]; then
+      ok "the verdict record declares reviewed_patch_id $(printf '%.12s' "$REVIEWED_PATCH_ID"), and the commit carrying it hashes to the same patch"
+    else
+      bad "the verdict record declares reviewed_patch_id $(printf '%.12s' "$REVIEWED_PATCH_ID"), but the commit carrying it hashes to $(printf '%.12s' "$CUR_PATCH_ID") — the record was not written on top of the tree it claims to have reviewed"
+    fi
+  fi
 else
   VERDICT_COMMIT="$(git -C "$REPO_ROOT" log -1 --format=%H -- "$VERDICT_REL" 2>/dev/null)"
   if ! git -C "$REPO_ROOT" cat-file -e "$REVIEWED_HEAD^{commit}" 2>/dev/null; then

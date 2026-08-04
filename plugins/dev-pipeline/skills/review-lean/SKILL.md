@@ -32,14 +32,14 @@ build session, so this cannot be folded back into the build lane by convenience.
 5. Write the record **from the checkout of the PR head**:
    `bash G verdict <issue> --pr <n> --verdict <approve|needs-work> --rounds <n> --summary-file <path>`
    The summary file carries the finding table and the per-AC scoring. The gate writes the
-   reconciliation keys itself — including `reviewed_head`, resolved from that checkout's
-   `HEAD`. Do not hand-edit any of them in, and do not run this from the main checkout: the
-   record would name a commit you never reviewed, and every reader refuses that.
+   reconciliation keys itself — including `reviewed_patch_id`, hashed from that checkout's own
+   diff against the base. Do not hand-edit any of them in, and do not run this from the main
+   checkout: the record would name a patch you never reviewed, and every reader refuses that.
 6. Commit and push the record to the PR's head branch through `bot-commit.sh`, and let it be
    the **last** commit on the branch. It is evidence only once committed — nothing local
-   reaches CI — and it is HEAD-BOUND: it names the commit it reviewed, and milestone 4, the
-   merge boundary and `lean-reconcile.sh` all refuse it once anything but the record itself
-   differs between that commit and the head. Commit nothing else in this session.
+   reaches CI — and it is PATCH-BOUND: milestone 4, the merge boundary and `lean-reconcile.sh`
+   all recompute that hash and refuse the record once any line outside it has changed. Commit
+   nothing else in this session.
 7. Post the findings as one PR comment (the build session reads the PR, not this transcript),
    then stop. On `needs-work` the loop round-trips through artifacts only: a build session
    addresses the findings, and a **new** review context produces the next verdict — never this
@@ -53,7 +53,8 @@ build session, so this cannot be folded back into the build lane by convenience.
   after a fix gets a new one, so the rounds stay distinguishable in the ledger.
 - **Approve on the diff, not on the spec's promises.** An unmet `AC-n` is a blocker, and a
   spec amended after the fact to match the diff is itself a blocker.
-- **Review the head you will name — the record names it literally.** Re-check the PR head
+- **Review the patch you will name — the record hashes it literally.** Re-check the PR head
   immediately before writing the record; if the branch moved while you were reviewing, review
-  the new commits or start over. And once the record is pushed, ANY further push to that branch
-  — a fix, a rebase, a force-push, a docs-only commit — voids it and costs a new round.
+  the new commits or start over. Once the record is pushed, any further push that CHANGES A
+  LINE — a fix, a docs-only commit, a rebase that resolved a conflict — voids it and costs a
+  new round. A rebase that replays the branch unchanged does not: the patch is the same.

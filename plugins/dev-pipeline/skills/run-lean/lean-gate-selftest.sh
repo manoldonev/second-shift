@@ -50,6 +50,12 @@ commit_tree() { # commit_tree [message]
   git -C "$TREE" commit -q --allow-empty -m "${1:-fixture}" >/dev/null 2>&1
 }
 commit_tree "fixture tree"
+# The patch-id freshness arm measures the branch's diff from merge-base(origin/<baseBranch>,
+# HEAD), so the fixture needs a real remote-tracking ref. A throwaway repo has no remote;
+# update-ref creates exactly what a fetch would leave behind, without one. Both the `verdict`
+# writer and milestone 4 refuse when this is unresolvable — see (v6)/(v5) — so its absence
+# would red the suite loudly rather than quietly skipping the arm.
+git -C "$TREE" update-ref refs/remotes/origin/main HEAD
 
 CFG="$WORK/config.json"
 cat > "$CFG" <<'EOF'
@@ -73,7 +79,15 @@ gate() { # gate <args...>  — always from inside the fixture tree
   # spuriously fail asserting the real run's id where the fixture expects `unset` or its
   # own cached value. SECOND_SHIFT_CONFIG/LEAN_PROGRESS_FILE are already pinned per-call
   # for the same reason; RUN_ID was the one seam left open to ambient leakage.
-  ( unset RUN_ID; cd "$TREE" && SECOND_SHIFT_CONFIG="$CFG" LEAN_PROGRESS_FILE="$PROG" bash "$GATE" "$@" 2>&1 )
+  #
+  # unset CLAUDE_CODE_SESSION_ID, for the same reason and a sharper consequence. When the
+  # gate recreates a deleted progress file, ensure_progress_file() stamps
+  # `session_id: ${CLAUDE_CODE_SESSION_ID:-unset}` — so the OPERATOR's ambient session id
+  # lands in the fixture. Every Claude Code session exports it and CI does not, which makes
+  # any case reading that key green locally and red in CI. It cost a full review round: (v6)
+  # reached the arm it names only because the leaked id skipped an earlier authorship
+  # refusal. Pinning it here means the fixture's session identity is always the fixture's.
+  ( unset RUN_ID CLAUDE_CODE_SESSION_ID; cd "$TREE" && SECOND_SHIFT_CONFIG="$CFG" LEAN_PROGRESS_FILE="$PROG" bash "$GATE" "$@" 2>&1 )
 }
 count_in_progress() { [ -f "$PROG" ] && grep -cF "$1" "$PROG" 2>/dev/null || echo 0; }
 reset_progress() { rm -f "$PROG"; }
@@ -273,7 +287,13 @@ out="$(gate 4 7)"; rc=$?
 if [ "$rc" -eq 0 ]; then pass "(j4) milestone-4 passes on a committed verdict=approve with distinct review identities"
 else fail "(j4) expected rc=0, got $rc: $out"; fi
 
-# ---- (u) DECLARED freshness: the record must name the head it reviewed ---------------------
+# ---- (u) DECLARED freshness, SHA-keyed: the pre-patch-id fallback --------------------------
+# `write_review_verdict` deliberately emits NO `reviewed_patch_id`, so every case in this block
+# exercises the fallback path records written before that key still gate on — the (v) block
+# covers the patch-id-keyed one. The distinction is asserted at (u5) rather than assumed: if the
+# writer ever grew the key, these cases would silently migrate to the other arm and this block
+# would assert nothing about the path it is named for.
+#
 # The MIGRATION arm. Every verdict record written before this key existed lands here, and it is
 # refused rather than grandfathered: a remedy is always available (re-run the review round),
 # so a transitional pass would be a waiver. Note this is a record that is otherwise complete —
@@ -314,6 +334,15 @@ out="$(gate 4 7)"; rc=$?
 if [ "$rc" -eq 0 ] && printf '%s' "$out" | grep -q 'declaring reviewed_head'; then
   pass "(u4) milestone-4 passes a record naming the head it was written on top of"
 else fail "(u4) expected rc=0 on a matching reviewed_head, got $rc: $out"; fi
+
+# The block's own premise, asserted rather than assumed. The pass line above names the SHA arm;
+# the patch-id arm prints `patch-id` instead — (v1). Without this, a writer that grew the key
+# would move (u1)-(u4) onto the other arm and leave the fallback with no coverage at all, green
+# the whole time.
+if ! grep -q 'reviewed_patch_id' "$VERDICT" 2>/dev/null \
+   && ! printf '%s' "$out" | grep -q 'patch-id'; then
+  pass "(u5) the (u) records carry no reviewed_patch_id, so this block does gate on the SHA fallback"
+else fail "(u5) the (u) block is no longer exercising the SHA fallback: $(cat "$VERDICT" 2>/dev/null)"; fi
 
 # ---- (k) AC-7: milestone 5 exit artifacts, via the fixture seams --------------------------
 cat > "$WORK/pr-draft.json" <<'EOF'
@@ -762,8 +791,9 @@ JSPEC_REL="docs/plans/acme-$JKEY-lean.md"
 JVERDICT_REL="docs/plans/acme-$JKEY-lean-verdict.md"
 
 gate_cfg() { # gate_cfg <config> <progress-file> <args...>
+  # unset RUN_ID CLAUDE_CODE_SESSION_ID: same ambient-leak pinning as gate(); see its comment.
   local cfg="$1" prog="$2"; shift 2
-  ( unset RUN_ID; cd "$TREE" && SECOND_SHIFT_CONFIG="$cfg" LEAN_PROGRESS_FILE="$prog" bash "$GATE" "$@" 2>&1 )
+  ( unset RUN_ID CLAUDE_CODE_SESSION_ID; cd "$TREE" && SECOND_SHIFT_CONFIG="$cfg" LEAN_PROGRESS_FILE="$prog" bash "$GATE" "$@" 2>&1 )
 }
 seed_progress_1_to_4_at() {
   rm -f "$1"
@@ -934,6 +964,147 @@ if [ "$rc" -eq 0 ]; then
 else fail "(n15) expected rc=0 on an all-caps heading, got $rc: $out"; fi
 
 rm -f "$TREE/.claude/pipeline-state/$JKEY-run-id"
+
+# ---- (v) DECLARED freshness, PATCH-ID keyed: a rebase must not void a verdict ---------------
+# LAST in the file on purpose: (v3) rewrites the fixture branch's history with a real rebase, and
+# every case above reasons about commits it made itself.
+#
+# The record is produced by the REAL `verdict` writer rather than a printf, so the id these cases
+# compare against is derived by the production code under test. A hand-written expectation could
+# only pin whatever formula the suite author copied.
+seed_build_progress r-build-1 sess-build-1
+rm -f "$VERDICT" "$REVIEW_CACHE" "$RUN_ID_CACHE"
+printf 'reviewer prose, round 1\n' > "$WORK/v-summary.md"
+out="$(verdict_cmd sess-review-9 r-review-9 --pr 12 --verdict approve --summary-file "$WORK/v-summary.md")"; rc=$?
+[ "$rc" -eq 0 ] || fail "(v0) the verdict writer refused, so the (v) block has no record to gate: $out"
+commit_tree "review session commits its patch-id-keyed record"
+
+out="$(gate 4 7)"; rc=$?
+if [ "$rc" -eq 0 ] && grep -qE 'reviewed_patch_id: [0-9a-f]{6}' "$VERDICT" 2>/dev/null \
+   && printf '%s' "$out" | grep -q 'patch-id'; then
+  pass "(v1) the review role stamps reviewed_patch_id and milestone-4's pass line names the patch-id arm it gated on"
+else fail "(v1) expected a patch-id-keyed record and pass line, rc=$rc: $out
+$(cat "$VERDICT" 2>/dev/null)"; fi
+
+# AC-4: the EXCLUSION. The writer resolves the id at a head that does not yet carry the record;
+# every reader recomputes it at a head that does. Excluding the record path on both sides is what
+# makes those two agree — drop it on either and the arm reds on every correct record.
+#
+# Driven behaviorally, so it cannot be satisfied by a copy of the formula: the record's own bytes
+# change and are committed, and milestone 4 must still pass. If the path were in the measured
+# range, this edit alone would move the id.
+reset_progress
+printf 'reviewer prose, amended after the fact\n' >> "$VERDICT"
+commit_tree "the record's own bytes change"
+out="$(gate 4 7)"; rc=$?
+if [ "$rc" -eq 0 ] && printf '%s' "$out" | grep -q 'patch-id'; then
+  pass "(v2) editing the verdict record itself does not move the patch identity — the exclusion holds on both sides"
+else fail "(v2) expected rc=0 after editing the record, got $rc: $out"; fi
+
+# THE headline case. A rebase rewrites every commit SHA on the branch and changes not one
+# reviewed line, and the SHA keying refused it — in a fresh checkout the pre-rebase object does
+# not exist at all, so the refusal was unavoidable rather than merely wrong.
+#
+# The rebase is REAL. Simulating one would prove nothing about the property being claimed, which
+# is a property of git's replay. The base advances by a commit carrying actual content, because a
+# same-tree base would leave the pre- and post-rebase trees identical and the old SHA arm would
+# pass too — a vacuous case dressed as a regression guard. Non-vacuity is asserted, not argued.
+reset_progress
+v_branch="$(git -C "$TREE" symbolic-ref --short HEAD 2>/dev/null)"
+v_orphaned_head="$(git -C "$TREE" rev-parse HEAD)"
+git -C "$TREE" branch -f v-base refs/remotes/origin/main >/dev/null 2>&1
+git -C "$TREE" checkout -q v-base 2>/dev/null
+printf 'the base moved while the review was in flight\n' > "$TREE/base-moved.txt"
+git -C "$TREE" add base-moved.txt >/dev/null 2>&1
+git -C "$TREE" commit -q -m 'base advances' >/dev/null 2>&1
+git -C "$TREE" update-ref refs/remotes/origin/main v-base
+git -C "$TREE" checkout -q "$v_branch" 2>/dev/null
+if git -C "$TREE" rebase -q v-base >/dev/null 2>&1; then
+  v_rebase_ok=1
+else
+  v_rebase_ok=0
+  git -C "$TREE" rebase --abort >/dev/null 2>&1
+fi
+# Non-vacuity: under SHA keying this exact state reds. The pre-rebase commit is still an object
+# here (a local rebase does not gc it), so the `cat-file -e` arm would not fire — but its TREE
+# now differs from the head by the commit the base advanced with, so the `git diff <reviewed_head>
+# HEAD` arm would. If that diff is empty the case is measuring nothing.
+v_sha_arm_would_red="$(git -C "$TREE" diff --name-only "$v_orphaned_head" HEAD 2>/dev/null)"
+if [ "$v_rebase_ok" -eq 1 ] && [ "$(git -C "$TREE" rev-parse HEAD)" != "$v_orphaned_head" ] \
+   && [ -n "$v_sha_arm_would_red" ]; then
+  pass "(v3a) the fixture really was rebased onto a moved base, and the SHA arm would red on it"
+else fail "(v3a) the rebase did not take (ok=$v_rebase_ok, sha-arm-diff='$v_sha_arm_would_red') — (v3) would assert nothing"; fi
+
+out="$(gate 4 7)"; rc=$?
+if [ "$rc" -eq 0 ] && printf '%s' "$out" | grep -q 'patch-id'; then
+  pass "(v3) milestone-4 passes after a rebase that replays the branch unchanged, though the declared head is no longer this branch's"
+else fail "(v3) expected rc=0 after a clean rebase, got $rc: $out"; fi
+
+# D-5 vacuity, READ side. `git patch-id` prints NOTHING for an empty diff, so two failed
+# computations compare EQUAL — an unguarded reader prints its ✓ having hashed nothing. This
+# config names a base branch with no remote-tracking ref, so the merge-base is unresolvable.
+reset_progress
+CFG_NOBASE="$WORK/config-nobase.json"
+jq '.topology.repos.acme.baseBranch = "no-such-base"' "$CFG" > "$CFG_NOBASE"
+[ "$(jq -r '.topology.repos.acme.baseBranch' "$CFG_NOBASE" 2>/dev/null)" = "no-such-base" ] \
+  || fail "(v5-fixture) the no-base config was not built — (v5)/(v6) would run against the real base"
+out="$(gate_cfg "$CFG_NOBASE" "$PROG" 4 7)"; rc=$?
+if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q 'cannot compute this branch'; then
+  pass "(v5) an unresolvable base is a milestone-4 refusal, not a pass over two empty patch ids"
+else fail "(v5) expected rc=1 on an unresolvable base, got $rc: $out"; fi
+
+# D-5 vacuity, WRITE side, and the sharper half. A record written with the key silently OMITTED
+# reads downstream as "written before the key existed" and falls through to the SHA path — so a
+# missing base here would quietly re-introduce the rebase refusal, at review time, invisibly.
+#
+# seed_build_progress is load-bearing, not tidy-up: (v5) above ran after reset_progress, so the
+# gate RE-created the progress file and stamped `session_id: unset` into it. cmd_verdict's FIRST
+# authorship refusal fires on exactly that, two checks before the patch-id arm this case names —
+# so without the seed (v6) passes for the wrong reason where an ambient session id happens to
+# leak in, and fails outright where it does not. Seeding a real build identity makes the writer
+# reach its own arm on every machine.
+seed_build_progress r-build-1 sess-build-1
+rm -f "$REVIEW_CACHE"
+out="$( unset RUN_ID; cd "$TREE" && SECOND_SHIFT_CONFIG="$CFG_NOBASE" LEAN_PROGRESS_FILE="$PROG" \
+        CLAUDE_CODE_SESSION_ID=sess-review-9 RUN_ID=r-review-9 \
+        bash "$GATE" verdict 7 --pr 12 --verdict approve 2>&1 )"; rc=$?
+if [ "$rc" -eq 2 ] && printf '%s' "$out" | grep -q 'cannot compute the branch'; then
+  pass "(v6) the verdict writer refuses an unresolvable base rather than omitting the key and degrading to the SHA path"
+else fail "(v6) expected rc=2 from the writer on an unresolvable base, got $rc: $out"; fi
+
+# ...and the arm is still a GATE. A commit changing the branch after the review moves the patch
+# identity. Without this, (v3) reads as "the arm was disabled" rather than "the arm was re-keyed".
+#
+# Built in the shape where the patch-id arm is the ONLY one that can red: the record is written
+# at head A and lands in the SAME commit as the code change, so `git log -1 -- <record>` finds
+# the head, nothing differs from it, and the INFERRED arm is green. A code commit made after the
+# record's own commit would red on inference first and prove nothing about this arm.
+seed_build_progress r-build-1 sess-build-1
+rm -f "$REVIEW_CACHE"
+out="$(verdict_cmd sess-review-9 r-review-9 --pr 12 --verdict approve)"; rc=$?
+[ "$rc" -eq 0 ] || fail "(v4-fixture) the writer refused, so (v4) has no stale record to gate: $out"
+printf '# spec\n\n- AC-1: a thing\n- AC-2: landed while the review was running\n' > "$SPEC"
+commit_tree "code and the record land together"
+out="$(gate 4 7)"; rc=$?
+if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q 'reviewed patch'; then
+  pass "(v4) milestone-4 refuses once a commit changes the branch's patch after the review, with the inferred arm green"
+else fail "(v4) expected rc=1 on a moved patch identity, got $rc: $out"; fi
+
+# ---- (w) --help prints the header, and only the header ------------------------------------
+# `sed -n '2,Np'` is a hand-maintained line number: growing the header silently truncates the
+# help text. check-lean-chain-selftest.sh case (T) has guarded its sibling for exactly this;
+# this file had no such case, which is why a green sweep said nothing when the header here grew
+# by 8 lines and the range stayed at 2,75p — dropping the whole Seams block from --help.
+#
+# Two assertions, because either direction is a real failure AND because the repo's two lanes
+# kill the `cmp-z` mutant of this line by opposite halves: on BSD sed `-z` dies and only the
+# presence assertion fires; on GNU sed `-z` dumps the whole file and only the absence one does.
+out="$(bash "$GATE" --help 2>&1)"; rc=$?
+if [ "$rc" -eq 0 ] \
+   && printf '%s' "$out" | grep -q 'bash 3.2 compatible' \
+   && ! printf '%s' "$out" | grep -q '^set -uo pipefail'; then
+  pass "(w) --help prints through the last header line and stops before the code"
+else fail "(w) --help did not print exactly the header, rc=$rc: $out"; fi
 
 echo "[lean-gate-selftest] $([ "$FAILS" -eq 0 ] && echo 'all green' || echo "$FAILS FAILURE(S)")"
 exit "$FAILS"
