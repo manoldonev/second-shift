@@ -79,7 +79,15 @@ gate() { # gate <args...>  — always from inside the fixture tree
   # spuriously fail asserting the real run's id where the fixture expects `unset` or its
   # own cached value. SECOND_SHIFT_CONFIG/LEAN_PROGRESS_FILE are already pinned per-call
   # for the same reason; RUN_ID was the one seam left open to ambient leakage.
-  ( unset RUN_ID; cd "$TREE" && SECOND_SHIFT_CONFIG="$CFG" LEAN_PROGRESS_FILE="$PROG" bash "$GATE" "$@" 2>&1 )
+  #
+  # unset CLAUDE_CODE_SESSION_ID, for the same reason and a sharper consequence. When the
+  # gate recreates a deleted progress file, ensure_progress_file() stamps
+  # `session_id: ${CLAUDE_CODE_SESSION_ID:-unset}` — so the OPERATOR's ambient session id
+  # lands in the fixture. Every Claude Code session exports it and CI does not, which makes
+  # any case reading that key green locally and red in CI. It cost a full review round: (v6)
+  # reached the arm it names only because the leaked id skipped an earlier authorship
+  # refusal. Pinning it here means the fixture's session identity is always the fixture's.
+  ( unset RUN_ID CLAUDE_CODE_SESSION_ID; cd "$TREE" && SECOND_SHIFT_CONFIG="$CFG" LEAN_PROGRESS_FILE="$PROG" bash "$GATE" "$@" 2>&1 )
 }
 count_in_progress() { [ -f "$PROG" ] && grep -cF "$1" "$PROG" 2>/dev/null || echo 0; }
 reset_progress() { rm -f "$PROG"; }
@@ -783,8 +791,9 @@ JSPEC_REL="docs/plans/acme-$JKEY-lean.md"
 JVERDICT_REL="docs/plans/acme-$JKEY-lean-verdict.md"
 
 gate_cfg() { # gate_cfg <config> <progress-file> <args...>
+  # unset RUN_ID CLAUDE_CODE_SESSION_ID: same ambient-leak pinning as gate(); see its comment.
   local cfg="$1" prog="$2"; shift 2
-  ( unset RUN_ID; cd "$TREE" && SECOND_SHIFT_CONFIG="$cfg" LEAN_PROGRESS_FILE="$prog" bash "$GATE" "$@" 2>&1 )
+  ( unset RUN_ID CLAUDE_CODE_SESSION_ID; cd "$TREE" && SECOND_SHIFT_CONFIG="$cfg" LEAN_PROGRESS_FILE="$prog" bash "$GATE" "$@" 2>&1 )
 }
 seed_progress_1_to_4_at() {
   rm -f "$1"
@@ -1047,6 +1056,14 @@ else fail "(v5) expected rc=1 on an unresolvable base, got $rc: $out"; fi
 # D-5 vacuity, WRITE side, and the sharper half. A record written with the key silently OMITTED
 # reads downstream as "written before the key existed" and falls through to the SHA path — so a
 # missing base here would quietly re-introduce the rebase refusal, at review time, invisibly.
+#
+# seed_build_progress is load-bearing, not tidy-up: (v5) above ran after reset_progress, so the
+# gate RE-created the progress file and stamped `session_id: unset` into it. cmd_verdict's FIRST
+# authorship refusal fires on exactly that, two checks before the patch-id arm this case names —
+# so without the seed (v6) passes for the wrong reason where an ambient session id happens to
+# leak in, and fails outright where it does not. Seeding a real build identity makes the writer
+# reach its own arm on every machine.
+seed_build_progress r-build-1 sess-build-1
 rm -f "$REVIEW_CACHE"
 out="$( unset RUN_ID; cd "$TREE" && SECOND_SHIFT_CONFIG="$CFG_NOBASE" LEAN_PROGRESS_FILE="$PROG" \
         CLAUDE_CODE_SESSION_ID=sess-review-9 RUN_ID=r-review-9 \
@@ -1072,6 +1089,22 @@ out="$(gate 4 7)"; rc=$?
 if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q 'reviewed patch'; then
   pass "(v4) milestone-4 refuses once a commit changes the branch's patch after the review, with the inferred arm green"
 else fail "(v4) expected rc=1 on a moved patch identity, got $rc: $out"; fi
+
+# ---- (w) --help prints the header, and only the header ------------------------------------
+# `sed -n '2,Np'` is a hand-maintained line number: growing the header silently truncates the
+# help text. check-lean-chain-selftest.sh case (T) has guarded its sibling for exactly this;
+# this file had no such case, which is why a green sweep said nothing when the header here grew
+# by 8 lines and the range stayed at 2,75p — dropping the whole Seams block from --help.
+#
+# Two assertions, because either direction is a real failure AND because the repo's two lanes
+# kill the `cmp-z` mutant of this line by opposite halves: on BSD sed `-z` dies and only the
+# presence assertion fires; on GNU sed `-z` dumps the whole file and only the absence one does.
+out="$(bash "$GATE" --help 2>&1)"; rc=$?
+if [ "$rc" -eq 0 ] \
+   && printf '%s' "$out" | grep -q 'bash 3.2 compatible' \
+   && ! printf '%s' "$out" | grep -q '^set -uo pipefail'; then
+  pass "(w) --help prints through the last header line and stops before the code"
+else fail "(w) --help did not print exactly the header, rc=$rc: $out"; fi
 
 echo "[lean-gate-selftest] $([ "$FAILS" -eq 0 ] && echo 'all green' || echo "$FAILS FAILURE(S)")"
 exit "$FAILS"
