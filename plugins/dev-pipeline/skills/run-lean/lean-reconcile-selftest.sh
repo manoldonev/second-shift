@@ -362,6 +362,94 @@ if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q 'was not written on top of th
   pass "(M3) a record whose declared patch is not the one its commit carries fails"
 else fail "(M3) expected rc=1 on an incoherent patch id, got $rc: $out"; fi
 
+# ---- (N) the INHERITANCE chain: resolvable links AND independent authors (#375) -------------
+# Link resolution is checked by all three readers, so it is asserted here too — a third reader
+# that disagreed about it would diverge silently. The AUTHOR arm is this reader's alone, and it
+# is the one inheritance makes consequential: a chain whose rounds share a review session
+# resolves perfectly while being a single review that credited itself with the whole tree.
+write_verdict_chain() { # write_verdict_chain <run-id> <session-id> <rounds> <patch-id> [inherited-id]
+  {
+    printf '# lean review verdict — #7\n\nverdict=approve\nrun_id: %s\nsession_id: %s\nrounds: %s\nreviewed_head: %s\nreviewed_patch_id: %s\n' \
+      "$1" "$2" "$3" "$(git -C "$TREE" rev-parse HEAD)" "$4"
+    [ -n "${5:-}" ] && printf 'inherited_patch_id: %s\ninherited_from_verdict: %s\n' "$5" "$(git -C "$TREE" rev-parse HEAD)"
+    printf '\nNo blockers.\n'
+  } > "$VERDICT"
+}
+n_code_commit() { # n_code_commit <content>
+  printf '%s\n' "$1" > "$TREE/docs/plans/base.md"
+  git -C "$TREE" add docs/plans/base.md >/dev/null 2>&1
+  git -C "$TREE" commit -q -m "code moves between rounds" >/dev/null 2>&1
+}
+# A ledger for the SECOND review session, so (N)'s round-2 records reconcile on every arm but
+# the one each case is about.
+write_ledger sess-review-round2 "2026-01-01T09:00:00Z"
+
+# ROUND 1, a chain root. Absence of the key is the ordinary case and is PRINTED, not skipped:
+# in a log, a silent skip and a satisfied check are indistinguishable.
+n_pid1="$(tree_patch_id HEAD)"
+write_verdict_chain "$REVIEW_RUN_ID" "$REVIEW_SESSION" 1 "$n_pid1"
+commit_verdict "2026-01-01T10:00:00Z"
+n_pid1="$(tree_patch_id HEAD)"
+write_verdict_chain "$REVIEW_RUN_ID" "$REVIEW_SESSION" 1 "$n_pid1"
+commit_verdict "2026-01-01T10:05:00Z"
+out="$(reconcile "$WORK/comments-good.json")"; rc=$?
+if [ "$rc" -eq 0 ] && printf '%s' "$out" | grep -q 'declares no inherited coverage'; then
+  pass "(N1) a round-1 record reconciles unchanged, and the tool prints that it inherited nothing"
+else fail "(N1) expected rc=0 with the no-inheritance note, got $rc: $out"; fi
+
+# ROUND 2, inheriting round 1 from its OWN review session — the shape a correct fix round has.
+n_code_commit "the fix round 1 asked for"
+n_pid2="$(tree_patch_id HEAD)"
+[ "$n_pid2" != "$n_pid1" ] || fail "(N2-fixture) the fix did not move the patch identity — (N2) would assert nothing"
+write_verdict_chain review-7-2 sess-review-round2 2 "$n_pid2" "$n_pid1"
+commit_verdict "2026-01-01T11:30:00Z"
+out="$(reconcile "$WORK/comments-good.json")"; rc=$?
+if [ "$rc" -eq 0 ] && printf '%s' "$out" | grep -q 'resolves over 1 earlier record'; then
+  pass "(N2) AC-8: a two-round chain with distinct review sessions reconciles"
+else fail "(N2) expected rc=0 on a clean chain, got $rc: $out"; fi
+
+# ...and the link is still checked here, not merely at the other two readers.
+write_verdict_chain review-7-2 sess-review-round2 2 "$n_pid2" "deadbeefdeadbeefdeadbeefdeadbeefdeadbeef"
+commit_verdict "2026-01-01T11:40:00Z"
+out="$(reconcile "$WORK/comments-good.json")"; rc=$?
+if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q 'matches no verdict record committed on this branch'; then
+  pass "(N3) a dangling inheritance link fails reconciliation"
+else fail "(N3) expected rc=1 on a dangling link, got $rc: $out"; fi
+
+# THE arm only this reader has. Everything resolves; the two rounds are one session. The other
+# two readers pass this record — that is the point, and why the check lives here.
+write_verdict_chain review-7-2 "$REVIEW_SESSION" 2 "$n_pid2" "$n_pid1"
+commit_verdict "2026-01-01T11:50:00Z"
+out="$(reconcile "$WORK/comments-good.json")"; rc=$?
+if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q 'already authored another round in this chain'; then
+  pass "(N4) a chain whose rounds share one review session is refused — inherited coverage must come from an independent review"
+else fail "(N4) expected rc=1 on a single-session chain, got $rc: $out"; fi
+
+# And the P10 half: coverage inherited from a round the BUILD session authored is not
+# independent coverage, however well the link resolves.
+write_verdict_chain "$REVIEW_RUN_ID" "$SESSION" 1 "$n_pid1"
+commit_verdict "2026-01-01T12:10:00Z"
+n_pid_build="$(tree_patch_id HEAD)"
+write_verdict_chain review-7-2 sess-review-round2 2 "$n_pid_build" "$n_pid1"
+commit_verdict "2026-01-01T12:20:00Z"
+out="$(reconcile "$WORK/comments-good.json")"; rc=$?
+if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q 'names the BUILD session'; then
+  pass "(N5) inheriting from a round the build session authored is refused (P10)"
+else fail "(N5) expected rc=1 inheriting a build-authored round, got $rc: $out"; fi
+
+# ---- (O) --help prints the header, and only the header --------------------------------------
+# `sed -n '2,Np'` is a hand-maintained line number, and this file had no guard for it — which is
+# exactly how its siblings silently truncated their own help text after a header grew. Two
+# assertions, because either direction is a real failure AND because the repo's two lanes kill
+# the `cmp-z` mutant of this line by opposite halves: on BSD sed `-z` dies and only the presence
+# assertion fires, on GNU sed `-z` dumps the whole file and only the absence one does.
+out="$(bash "$TOOL" --help 2>&1)"; rc=$?
+if [ "$rc" -eq 0 ] \
+   && printf '%s' "$out" | grep -q 'Exit 0 = reconciled' \
+   && ! printf '%s' "$out" | grep -q '^set -uo pipefail'; then
+  pass "(O) --help prints through the last header line and stops before the code"
+else fail "(O) --help did not print exactly the header, rc=$rc: $out"; fi
+
 # ---- (I) header states the #292 deferral ----------------------------------------------------
 if grep -q 'DEFERS TO #292' "$TOOL"; then
   pass "(I) the script records that it defers to the general verifier (#292) on arrival"

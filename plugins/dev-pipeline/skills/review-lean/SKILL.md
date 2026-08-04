@@ -24,23 +24,32 @@ build session, so this cannot be folded back into the build lane by convenience.
    the issue key (`Closes #N` in the body) and the lean spec path.
 3. Check out the PR head. The lean worktree the build run left behind is the usual place; any
    checkout of that branch works.
-4. **Review.** `review-lead` over `<base>..<head>` is the implementation — no reviewer is
-   defined here. The committed lean spec is the definition of done: score each numbered `AC-n`
-   as satisfied / unsatisfied / undeterminable, and say which. `approve` iff there are no
-   blockers; any blocker is `needs-work`. Do not soften a blocker to keep a run moving, and do
-   not invent one to look thorough.
-5. Write the record **from the checkout of the PR head**:
+4. `bash G delta <issue>` — the range this round must READ. Round 1 gets the whole branch diff.
+   A later round gets the delta since the tree the previous round covered and inherits the rest
+   by reference to that record; when there is nothing verifiable to inherit it prints the full
+   range and says so. There is no flag: the range is derived from the committed records, so a
+   round cannot claim a narrower reading than the branch supports, nor forget to declare one.
+5. **Review** over the range step 4 printed. `review-lead` is the implementation — no reviewer
+   is defined here. On an inheriting round, read the **prior record's findings** first: a round
+   that inherits coverage without seeing what was previously found cannot tell a fixed blocker
+   from a re-introduced one, and a blocker the build simply ignored leaves no trace in the delta
+   at all. The committed lean spec is the definition of done: score each numbered `AC-n` as
+   satisfied / unsatisfied / undeterminable, and say which. `approve` iff there are no blockers;
+   any blocker is `needs-work`. Do not soften a blocker to keep a run moving, and do not invent
+   one to look thorough.
+6. Write the record **from the checkout of the PR head**:
    `bash G verdict <issue> --pr <n> --verdict <approve|needs-work> --rounds <n> --summary-file <path>`
    The summary file carries the finding table and the per-AC scoring. The gate writes the
    reconciliation keys itself — including `reviewed_patch_id`, hashed from that checkout's own
-   diff against the base. Do not hand-edit any of them in, and do not run this from the main
-   checkout: the record would name a patch you never reviewed, and every reader refuses that.
-6. Commit and push the record to the PR's head branch through `bot-commit.sh`, and let it be
+   diff against the base, and the `inherited_patch_id` link when this round inherited one. Do
+   not hand-edit any of them in, and do not run this from the main checkout: the record would
+   name a patch you never reviewed, and every reader refuses that.
+7. Commit and push the record to the PR's head branch through `bot-commit.sh`, and let it be
    the **last** commit on the branch. It is evidence only once committed — nothing local
    reaches CI — and it is PATCH-BOUND: milestone 4, the merge boundary and `lean-reconcile.sh`
    all recompute that hash and refuse the record once any line outside it has changed. Commit
    nothing else in this session.
-7. Post the findings as one PR comment (the build session reads the PR, not this transcript),
+8. Post the findings as one PR comment (the build session reads the PR, not this transcript),
    then stop. On `needs-work` the loop round-trips through artifacts only: a build session
    addresses the findings, and a **new** review context produces the next verdict — never this
    one resumed.
@@ -51,6 +60,11 @@ build session, so this cannot be folded back into the build lane by convenience.
   record bypasses all of them and reds at `scripts/check-lean-chain.sh` anyway.
 - **One identity per review round.** Re-running a round reuses the cached id; a new round
   after a fix gets a new one, so the rounds stay distinguishable in the ledger.
+- **Inheritance narrows what you READ, never what you must find.** Every `AC-n` is scored every
+  round against the whole spec — the delta bounds the reading, not the verdict. Code an earlier
+  round approved that the fix then touched IS in the delta, so it is read again; only what did
+  not change is inherited. Read wider than the range whenever the delta looks misleading: more
+  reading is always allowed, and a round that read everything is a strictly stronger record.
 - **Approve on the diff, not on the spec's promises.** An unmet `AC-n` is a blocker, and a
   spec amended after the fact to match the diff is itself a blocker.
 - **Review the patch you will name — the record hashes it literally.** Re-check the PR head

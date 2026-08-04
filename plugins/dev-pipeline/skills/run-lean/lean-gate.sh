@@ -54,6 +54,21 @@
 # CI's business. `reviewed_head` remains a diagnostic pointer, and the path records written
 # before the patch-id key still gate on.
 #
+# INHERITANCE (#375). A round-n record (n >= 2) additionally declares `inherited_patch_id`: the
+# reviewed patch of the round whose coverage it inherits, so a fix round reads the delta since
+# that tree instead of the whole diff again. The merge boundary's guarantee then reads "a CHAIN
+# of independent reviews collectively covered this tree", and it holds only while every LINK is
+# verified — an unverified link would let a round read forty lines and be credited with a
+# thousand. So every reader walks the chain, and a link matching no committed record is refused.
+#
+# The keys are DERIVED here, never passed in, for the reason `reviewed_head`/`reviewed_patch_id`
+# refuse an argument: a flag lets a round name coverage it did not inherit, and a round could
+# silently OMIT the key, which every reader would then read as a full-coverage claim it never
+# performed. The chain is walked by matching patch identities, never commit SHAs — the same
+# reasoning one level up: a SHA link dies on a rebase, and the refusal would charge a review
+# round for a mechanical operation. `inherited_from_verdict` is a human pointer only, exactly
+# the role `reviewed_head` now holds; no reader gates on it.
+#
 # Usage:
 #   lean-gate.sh entry  <issue>          entry precondition: the session's audit ledger is live.
 #                                        The queue-label reject is the SESSION's step (SKILL.md
@@ -70,6 +85,10 @@
 #                                        every already-unsatisfiable one before running the real
 #                                        1..5 progression, so a stale verdict record is reported
 #                                        without paying milestone 3's green gate first.
+#   lean-gate.sh delta  <issue>          REVIEW role: print the range this round must READ —
+#                                        the delta since the tree the last round covered, or the
+#                                        full branch diff when there is nothing verifiable to
+#                                        inherit. Reads only; writes nothing.
 #   lean-gate.sh verdict <issue> --pr <n> --verdict <approve|needs-work> [--rounds <n>]
 #                                        [--summary-file <path>]
 #                                        REVIEW role: write the committed verdict record.
@@ -126,7 +145,7 @@ while [ $# -gt 0 ]; do
     --verdict)       VERDICT_VALUE="${2:-}"; shift 2 ;;
     --rounds)        VERDICT_ROUNDS="${2:-}"; shift 2 ;;
     --summary-file)  SUMMARY_FILE="${2:-}"; shift 2 ;;
-    -h|--help)       sed -n '2,96p' "$0"; exit 0 ;;
+    -h|--help)       sed -n '2,115p' "$0"; exit 0 ;;
     -*)              envfail "unknown option: $1" ;;
     *)
       if [ "$POSITIONAL" -eq 0 ]; then SUB="$1"; POSITIONAL=1
@@ -137,12 +156,12 @@ while [ $# -gt 0 ]; do
   esac
 done
 
-[ -n "$SUB" ]   || envfail "usage: lean-gate.sh <entry|claim|1..5|all|verdict> <issue>"
-[ -n "$ISSUE" ] || envfail "usage: lean-gate.sh <entry|claim|1..5|all|verdict> <issue>"
+[ -n "$SUB" ]   || envfail "usage: lean-gate.sh <entry|claim|1..5|all|delta|verdict> <issue>"
+[ -n "$ISSUE" ] || envfail "usage: lean-gate.sh <entry|claim|1..5|all|delta|verdict> <issue>"
 
 case "$SUB" in
-  entry|claim|1|2|3|4|5|all|verdict) : ;;
-  *) envfail "unknown subcommand '$SUB' (expected entry|claim|1..5|all|verdict)" ;;
+  entry|claim|1|2|3|4|5|all|delta|verdict) : ;;
+  *) envfail "unknown subcommand '$SUB' (expected entry|claim|1..5|all|delta|verdict)" ;;
 esac
 
 # ---------------------------------------------------------------- roots + config
@@ -350,6 +369,67 @@ branch_patch_id() { # branch_patch_id <head-ish>
   id="$(git -C "$REPO_ROOT" diff "$base" "$1" -- . ":(exclude)$VERDICT_REL" 2>/dev/null \
     | git -C "$REPO_ROOT" patch-id --stable 2>/dev/null | cut -d' ' -f1)"
   printf '%s' "$id"
+}
+
+# ---------------------------------------------------------------- the inheritance chain (#375)
+# The same extraction record_key does, against a COMMITTED version of the record instead of the
+# working-tree file. It is the only way to read a PRIOR round: the path holds one round at a
+# time, so every round but the newest exists solely in `git log` on that path.
+record_key_at() { # record_key_at <key> <commit>
+  git -C "$REPO_ROOT" show "$2:$VERDICT_REL" 2>/dev/null \
+    | grep -oE "$1:[[:space:]]*[A-Za-z0-9._-]+" 2>/dev/null | head -n1 | sed -E "s/^$1:[[:space:]]*//"
+}
+
+# The round this one inherits coverage FROM: the most recent COMMITTED version of the record
+# whose reviewed patch DIFFERS from the tree being reviewed now.
+#
+# "Differs" is not a tidy-up — it is what makes a same-round re-run idempotent. review-lean
+# re-runs a round on its cached identity, and at that point the newest committed record IS this
+# round's own; without the clause it would inherit from itself, which every reader then refuses
+# as a loop. A prior record predating `reviewed_patch_id` cannot be inherited from either: the
+# round becomes a chain ROOT, which is the pre-#375 shape and stays readable everywhere.
+#
+# Prints "<patch-id> <commit>", or NOTHING when there is nothing to inherit.
+inherit_candidate() { # inherit_candidate <this-round-patch-id>
+  local cur="$1" c p
+  for c in $(git -C "$REPO_ROOT" log --format=%H -- "$VERDICT_REL" 2>/dev/null); do
+    p="$(record_key_at reviewed_patch_id "$c")"
+    [ -n "$p" ] || continue
+    [ "$p" != "$cur" ] || continue
+    printf '%s %s' "$p" "$c"
+    return 0
+  done
+}
+
+# Walks the declared chain, matching each `inherited_patch_id` against an earlier record's
+# `reviewed_patch_id`. Prints NOTHING when the chain verifies — INCLUDING the ordinary case of
+# no inheritance at all — and one diagnostic naming the round that broke it otherwise. Never
+# exits: each caller phrases its own refusal, and the writer degrades rather than refusing.
+chain_break() { # chain_break <inherited-patch-id> <declaring-round>
+  local want="$1" round="${2:-?}" versions c seen="" hit
+  [ -n "$want" ] || return 0
+  versions="$(git -C "$REPO_ROOT" log --format=%H -- "$VERDICT_REL" 2>/dev/null)"
+  while [ -n "$want" ]; do
+    # A patch identity already walked means the chain loops, which no honest sequence of rounds
+    # produces — each round reviews a tree the previous one did not. Refuse rather than spin.
+    case " $seen " in
+      *" $want "*)
+        echo "round $round inherits patch $(printf '%.12s' "$want"), which the chain has already visited — the inheritance chain loops back on itself, so no round in it independently covers the tree."
+        return 0 ;;
+    esac
+    seen="$seen $want"
+    hit=""
+    for c in $versions; do
+      if [ "$(record_key_at reviewed_patch_id "$c")" = "$want" ]; then hit="$c"; break; fi
+    done
+    if [ -z "$hit" ]; then
+      echo "round $round declares inherited_patch_id $(printf '%.12s' "$want"), which matches no verdict record committed on this branch — that round's inherited coverage is unverifiable, so nothing attests the part of the diff it did not read."
+      return 0
+    fi
+    round="$(record_key_at rounds "$hit")"; [ -n "$round" ] || round='?'
+    want="$(record_key_at inherited_patch_id "$hit")"
+  done
+  return 0
 }
 
 # ---------------------------------------------------------------- progress-file primitives
@@ -747,6 +827,7 @@ cmd_3() {
 cmd_4() {
   local rec="$REPO_ROOT/$VERDICT_REL" v_val v_run v_sess b_prog_run b_prog_sess b_cached cand
   local v_commit v_short stale n_stale v_head v_head_short declared n_declared v_pid cur_pid
+  local v_inh v_chain
   # The handoff moment, and so the one place the P9 reminder is contextual rather than noise.
   # It lives here rather than as another SKILL.md line for the reason the cap exists: stderr is
   # read exactly when it applies, prose is read on every run. NO DETECTION happens here — the
@@ -803,6 +884,21 @@ cmd_4() {
   if [ -n "$b_prog_sess" ] && [ "$v_sess" = "$b_prog_sess" ]; then
     fail_milestone 4 "verdict record $VERDICT_REL names the BUILD session ('$v_sess') as its author — the review must run in a separate context (P10)."
     return $?
+  fi
+
+  # THE INHERITANCE CHAIN (#375). A record that claims inherited coverage is worth exactly what
+  # its link is worth: an unverifiable one credits a round with a tree it never read. Checked
+  # AFTER authorship and BEFORE freshness, which is the order the three questions actually
+  # stack: who wrote this record, then what does it claim to cover, then does that cover the
+  # tree in front of us. Absence is the ordinary case and passes silently — round-1 records, and
+  # every record predating the key, carry no claim to check. That is what makes this additive.
+  v_inh="$(record_key inherited_patch_id "$rec")"
+  if [ -n "$v_inh" ]; then
+    v_chain="$(chain_break "$v_inh" "$(record_key rounds "$rec")")"
+    if [ -n "$v_chain" ]; then
+      fail_milestone 4 "verdict record $VERDICT_REL: $v_chain Get a review round that reads the full diff: '/dev-pipeline:review-lean <pr>'."
+      return $?
+    fi
   fi
 
   # FRESHNESS — the verdict must cover the tree it is being read against.
@@ -899,6 +995,7 @@ cmd_4() {
 # is nothing to separate the review from, and "unverifiable" must never resolve to "fine".
 cmd_verdict() {
   local sess b_prog_sess b_prog_run b_cached rec body c reviewed_head reviewed_patch_id
+  local cand inherited_patch_id inherited_from chain
   sess="${CLAUDE_CODE_SESSION_ID:-}"
   [ -n "$sess" ] \
     || envfail "verdict: CLAUDE_CODE_SESSION_ID is unset — the review session cannot be identified, so its authorship cannot be separated from the build's."
@@ -976,6 +1073,25 @@ cmd_verdict() {
   [ -n "$reviewed_patch_id" ] \
     || envfail "verdict: cannot compute the branch's patch identity against origin/$BASE_BRANCH (merge-base unresolvable, or the branch's diff excluding $VERDICT_REL is empty). Fetch origin/$BASE_BRANCH in this checkout and re-run — a record written without it would silently degrade to the pre-patch-id path."
 
+  # INHERITANCE (#375), DERIVED from the branch exactly as the two keys above are derived from
+  # the checkout. See the header for why this is not a flag.
+  cand="$(inherit_candidate "$reviewed_patch_id")"
+  inherited_patch_id="${cand%% *}"
+  inherited_from=""
+  [ -n "$cand" ] && inherited_from="${cand##* }"
+  # A chain is worth declaring only while every link verifies. A break DEEPER in the chain means
+  # this round has nothing verifiable to inherit, so it writes a ROOT record and says so loudly.
+  # Degrading toward MORE reading is the safe direction; declaring an inheritance no reader can
+  # verify is not — all three readers refuse that, which would strand the round instead.
+  if [ -n "$inherited_patch_id" ]; then
+    chain="$(chain_break "$inherited_patch_id" "$(record_key_at rounds "$inherited_from")")"
+    if [ -n "$chain" ]; then
+      warn "verdict: $chain"
+      warn "  This round therefore inherits nothing and is recorded as covering the FULL diff. Read it in full before trusting the record."
+      inherited_patch_id=""; inherited_from=""
+    fi
+  fi
+
   body=""
   if [ -n "$SUMMARY_FILE" ]; then
     [ -f "$SUMMARY_FILE" ] || envfail "verdict: --summary-file '$SUMMARY_FILE' does not exist."
@@ -998,13 +1114,73 @@ cmd_verdict() {
     echo "pr: #$VERDICT_PR"
     echo "reviewed_head: $reviewed_head"
     echo "reviewed_patch_id: $reviewed_patch_id"
+    if [ -n "$inherited_patch_id" ]; then
+      echo "inherited_patch_id: $inherited_patch_id"
+      echo "inherited_from_verdict: $inherited_from"
+    fi
     echo "model: ${LEAN_RUN_MODEL:-unknown}"
     echo ""
     if [ -n "$body" ]; then printf '%s\n' "$body"; fi
   } > "$rec"
 
   say "✓ verdict: $VERDICT_REL written (verdict=$VERDICT_VALUE, run_id=$RESOLVED_RUN_ID, round $VERDICT_ROUNDS, reviewed_head=$reviewed_head, reviewed_patch_id=$reviewed_patch_id)"
+  if [ -n "$inherited_patch_id" ]; then
+    say "  inheriting the coverage of patch $(printf '%.12s' "$inherited_patch_id") — this round's own reading is the delta since that tree."
+  else
+    say "  chain ROOT — this round claims coverage of the whole branch diff."
+  fi
   say "  It is evidence only once COMMITTED to the PR's head branch — commit and push it."
+  return 0
+}
+
+# ---------------------------------------------------------------- delta (REVIEW role)
+# The range this round must READ. A round that inherits coverage reads the delta since the tree
+# the inherited round covered; a round with nothing to inherit reads the whole branch diff.
+#
+# The anchor is resolved by PATCH IDENTITY, never by the SHA `inherited_from_verdict` names: a
+# rebase replays every commit under a new SHA while leaving each replayed commit's BRANCH patch
+# identity unchanged, so identity resolution survives exactly what SHA resolution does not. The
+# NEWEST matching commit is taken, which is the commit carrying the prior round's record — its
+# branch patch id equals the reviewed tree's because the record path is excluded from the
+# measurement — so the printed delta never re-presents the prior record itself.
+#
+# READ-ONLY. It writes no record, appends no progress line and touches no identity cache: a
+# reviewer must be able to ask what to read without that question becoming evidence of anything.
+cmd_delta() {
+  local base cur cand prior_pid anchor c broken
+  base="$(git -C "$REPO_ROOT" merge-base "origin/$BASE_BRANCH" HEAD 2>/dev/null)"
+  [ -n "$base" ] \
+    || envfail "delta: cannot resolve merge-base(origin/$BASE_BRANCH, HEAD) — there is no range to measure. Fetch origin/$BASE_BRANCH in this checkout and re-run."
+
+  cur="$(branch_patch_id HEAD)"
+  cand="$(inherit_candidate "$cur")"
+  prior_pid="${cand%% *}"
+  anchor=""
+
+  if [ -n "$prior_pid" ]; then
+    broken="$(chain_break "$prior_pid" "$(record_key_at rounds "${cand##* }")")"
+    if [ -n "$broken" ]; then
+      warn "delta: $broken"
+      prior_pid=""
+    fi
+  fi
+
+  if [ -n "$prior_pid" ]; then
+    for c in $(git -C "$REPO_ROOT" rev-list "$base..HEAD" 2>/dev/null); do
+      if [ "$(branch_patch_id "$c")" = "$prior_pid" ]; then anchor="$c"; break; fi
+    done
+  fi
+
+  if [ -z "$anchor" ]; then
+    say "delta: FULL range — nothing verifiable to inherit, so this round covers the whole branch diff."
+    say "  range: $(git -C "$REPO_ROOT" rev-parse --short "$base")..HEAD"
+    git -C "$REPO_ROOT" diff --name-only "$base" HEAD
+    return 0
+  fi
+
+  say "delta: inheriting the coverage of patch $(printf '%.12s' "$prior_pid"). Read the range below AND the prior round's findings in $VERDICT_REL — a round that inherits coverage without seeing what was found cannot tell a fixed blocker from a re-introduced one."
+  say "  range: $(git -C "$REPO_ROOT" rev-parse --short "$anchor")..HEAD"
+  git -C "$REPO_ROOT" diff --name-only "$anchor" HEAD
   return 0
 }
 
@@ -1183,6 +1359,7 @@ cmd_all() {
 case "$SUB" in
   entry)   cmd_entry ;;
   claim)   cmd_claim ;;
+  delta)   cmd_delta ;;
   verdict) cmd_verdict ;;
   all)     cmd_all ;;
   *)       run_milestone "$SUB" ;;
