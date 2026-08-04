@@ -126,10 +126,15 @@ manufacture a kill.
 
 Two hazards are real in this tree and both are addressed rather than discovered as flake:
 
-- **Fixed temp paths.** `check-doc-routing-selftest.sh` writes `/tmp/docroute-moved.out` and
-  `/tmp/docroute-deleted.out` by literal name; two concurrent instances race. Its guard is pinned
-  serial in a new `tools/mutation-serial-suites.tsv` with the reason recorded, because the fix
-  itself is out of scope (AC-11).
+- **Fixed temp paths — one defect in three suites.** `check-doc-routing-selftest.sh`,
+  `check-extensions-selftest.sh` and `check-config-shadowing-selftest.sh` each redirect a check's
+  output to a literal `/tmp/<fixed>.out` and then grep it back. Absolute paths, so the per-item
+  `TMPDIR` does not move them; two concurrent instances interleave a write and a read and the grep
+  answers about the wrong mutant. All three are pinned serial in a new
+  `tools/mutation-serial-suites.tsv` with the reason, because the fixes are out of scope (AC-11).
+  The rest of the audit found nothing else: no fixed ports, every `git worktree add` in a suite is
+  inside that suite's own mktemp repo with per-repo names, and the only `pgrep` user is this
+  harness's companion suite, which is never a killer.
 - **Temp-dir leakage from a reaped suite.** An early-exit or bound reap SIGKILLs the suite, so its
   own `trap … EXIT` cleanup never runs. Killers therefore run with `TMPDIR` pointed at a
   per-item scratch directory the harness removes unconditionally — which is also what makes AC-9's
@@ -151,13 +156,29 @@ edits `lean-gate.sh` (collides with in-flight lean PRs) and "does the default be
 
 AC-6's figures are recorded here on completion and repeated in the PR body.
 
-| Run | Wall time |
-| --- | --- |
-| cold, serial (`MUTATION_SWEEP_JOBS=1`, cache off) | not yet measured |
-| cold, parallel (default pool, cache off) | not yet measured |
-| partial hit (one guard's suite edited) | not yet measured |
-| full hit (unchanged tree, zero suite executions) | not yet measured |
+Scope: `--mode pr --base 57b3314`, which is exactly the three lean guards — `lean-gate.sh` (10
+mutants), `lean-reconcile.sh` (11), `check-lean-chain.sh` (12) — plus their three prechecks, so 36
+verdicts. 10-core machine, `getconf _NPROCESSORS_ONLN` = 10, so the default pool is 8.
 
-Baseline of record before this change: **~500s + setup ≈ 8–10 min** for the three lean guards.
-Every cell is filled from a run on this branch before the handoff; a design-derived estimate is
-not an entry.
+| Run | Verdicts computed / served | Wall |
+| --- | --- | --- |
+| **A** — the OLD harness, unchanged, from `7e8d868` | 36 / — | **256s** |
+| **B** — new harness, `JOBS=1`, cache off, early exit off | 36 / 0 | **237s** |
+| **C** — new harness, default pool, cache off | 36 / 0 | **79s** |
+| **D** — new harness, default pool, cache on, fresh cache | 36 / 0 | **78s** |
+| **E** — new harness, unchanged tree, warm cache | **0** / 36 | **8s** |
+| **F** — new harness, one guard's *suite* edited, warm cache | 11 / 25 | **53s** |
+
+**A, B, C, D and E produce byte-identical report TSVs.** That is AC-4 against the real corpus and
+against the *old* harness, not only across two configurations of the new one.
+
+Reading the rows: **B ≈ A** says the four-phase refactor costs nothing on its own. **C** is the pool
+and early exit stacked, 3.2× on eight workers. **E** is AC-1 exactly — zero paired-suite executions,
+same survivor set. **F** is the loop the issue is about: editing `lean-gate-selftest.sh` re-keys that
+guard's 10 mutants and its precheck (11 recomputed), and the other 25 verdicts are served.
+
+Two honesty notes. The issue's cited baseline was ~500s / 8–10 min, from a table of remembered suite
+timings; the measured "before" on this machine today is **256s** for 33 mutants, not 34. The figure
+to compare against is A, which was measured here, in this scope, with the old script. And a single
+timing run on this machine is normally worth little — but the gaps here (256 → 79 → 8) are an order
+of magnitude wider than the ±2.5x run-to-run swing that caveat exists for.

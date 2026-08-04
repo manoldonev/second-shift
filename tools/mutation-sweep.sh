@@ -450,6 +450,14 @@ if [[ "$CACHE_ENABLED" == "1" && -z "$SHA_KIND" ]]; then
   CACHE_ENABLED=0
   info "cache disabled: neither shasum nor sha256sum is available, so no key can be computed."
 fi
+# A SEED run publishes mutation-slow-suites.tsv from the timings its own unmutated precheck
+# takes, and its header says so. Serving those timings from an earlier run's cache would make
+# the file a record of when the cache was populated rather than of this run — so seed mode
+# measures everything itself, at the cost of one uncached pass it takes once.
+if [[ "$CACHE_ENABLED" == "1" && $SEED -eq 1 ]]; then
+  CACHE_ENABLED=0
+  info "cache disabled for the seed run: the slow list must record THIS run's measurements."
+fi
 
 # The environment axis of the key. Same axis the baseline header already records, plus the
 # killer-bound knobs — those decide whether a spinning mutant scores as a timeout KILL, so a
@@ -493,7 +501,12 @@ cache_put() {
   [[ -n "$1" ]] || return 0
   d="$CACHE_DIR/${1:0:2}"
   mkdir -p "$d" 2>/dev/null || return 0
-  t="$d/.tmp.$$.$RANDOM"
+  # $WORKER_TOKEN, not $$ alone, and not $RANDOM alone. In a bash-3.2 subshell `$$` is still
+  # the PARENT's pid and $RANDOM continues the parent's inherited sequence, so two workers
+  # reaching this line together can generate the SAME name — and then one `mv`s the other's
+  # half-written file into place. The token is the only component that is distinct per worker
+  # by construction.
+  t="$d/.tmp.$$.$WORKER_TOKEN.$RANDOM"
   printf '%s\n' "$2" > "$t" 2>/dev/null || { rm -f "$t" 2>/dev/null; return 0; }
   mv -f "$t" "$d/$1" 2>/dev/null || rm -f "$t" 2>/dev/null
   return 0
@@ -890,6 +903,7 @@ WORKDIR="$(mktemp -d -t mutation-sweep-work.XXXXXX)" || die "mktemp -d failed"
 SANDBOXES=""
 SANDBOX_N=0
 POOL_PIDS=""
+WORKER_TOKEN="main"
 WORKER_PGID_FILE="$WORKDIR/pgid.0"
 KILLER_LOG="$WORKDIR/killer.0.log"
 KILLER_TMPDIR="$WORKDIR/tmp.0"
@@ -1103,6 +1117,7 @@ worker_trap() {
 pool_worker() {
   local w="$1" n="$2" manifest="$3" kind="$4" pos=0 line
   SB_CUR="$(sandbox_at "$w")"
+  WORKER_TOKEN="$w"
   WORKER_PGID_FILE="$WORKDIR/pgid.$w"
   KILLER_LOG="$WORKDIR/killer.$w.log"
   KILLER_TMPDIR="$WORKDIR/tmp.$w"

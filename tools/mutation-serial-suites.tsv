@@ -19,4 +19,20 @@
 #
 # ABSENT means parallel-safe. This file is a deny-list, not a registry: adding a suite is a
 # claim about a hazard someone identified, and the reason column is where that claim lives.
-plugins/dev-pipeline/skills/run/tools/check-doc-routing-selftest.sh	Writes /tmp/docroute-moved.out and /tmp/docroute-deleted.out by LITERAL name rather than through mktemp, so two concurrent instances overwrite each other's output between the write and the grep that reads it — a false kill or a false survivor depending on which lands last. The fix is four lines in that suite, but it is outside the tools/ + docs/ editing scope of the change that introduced the pool; pinned here with that reason rather than left to surface as flake.
+#
+# THE THREE ROWS BELOW ARE ONE DEFECT IN THREE PLACES: `bash "$CHECK" ... >/tmp/<fixed>.out`
+# followed by `grep -q ... /tmp/<fixed>.out`. Pointing TMPDIR at a per-item scratch directory
+# (which the sweep does) does NOT move them, because the paths are absolute literals. Two
+# concurrent instances therefore interleave a write and a read of the same file, and the
+# grep answers about the WRONG mutant — a false kill or a false survivor depending on which
+# write landed last. All three fixes are a handful of lines in suites outside the tools/ +
+# docs/ editing scope of the change that introduced the pool, so they are pinned with the
+# reason rather than left to surface as flake.
+#
+# The rest of the audit that produced this list found no other hazard: no suite binds a
+# fixed port; the four suites that call `git worktree add` all do so inside their own mktemp
+# repo with per-repo names; and the only `pgrep` user is this harness's own companion suite,
+# which is never a killer (its guard is excluded).
+plugins/dev-pipeline/skills/run/tools/check-doc-routing-selftest.sh	Literal /tmp/docroute-moved.out and /tmp/docroute-deleted.out — written, then grepped.
+plugins/dev-pipeline/skills/run/tools/check-extensions-selftest.sh	Literal /tmp/ext-selftest.out and /tmp/ext-ref.out — written, then grepped; ext-ref.out is reused across two cases within one run, so it races itself twice over.
+plugins/dev-pipeline/skills/run/tools/check-config-shadowing-selftest.sh	Literal /tmp/shadow-selftest.out and /tmp/shadow-selftest2.out — written, then grepped.

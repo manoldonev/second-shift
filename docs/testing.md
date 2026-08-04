@@ -246,6 +246,15 @@ own `mktemp` tree — is pinned in `tools/mutation-serial-suites.tsv` with the r
 whose kill set contains it runs in the serial pass. A pin is a real bill (that guard's mutants lose
 the pool), so the better fix is almost always to repair the suite and delete the row.
 
+**The pool interacts with the killer time bound, and the direction matters.** Contention makes a
+suite slower, and a timeout scores as a **kill** — so in principle a loaded runner could turn a
+survivor into a false kill, which is the direction that *hides* a weak test rather than inventing a
+finding. Two things bound that. The per-suite bound is `4 ×` a time **measured by the precheck pool
+itself**, so it already absorbs the contention the run generates; and every timeout is logged by
+name (`killer timeout (Ns exceeded, scored as KILLED)`), so a bound hit is visible data rather than
+a silent verdict. If a nightly shard starts naming timeouts it did not name before, read that as the
+pool pressing on the bound, not as the suite getting stronger.
+
 **3. A killed mutant stops at the first `FAIL:`.** The verdict is settled there, so the killer's
 process group is reaped rather than run to completion, and the line is logged so an early kill is
 never silent. Eligibility is **derived, not assumed**: the precheck already runs each suite unmutated
