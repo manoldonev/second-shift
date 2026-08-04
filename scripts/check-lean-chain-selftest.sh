@@ -744,6 +744,17 @@ if [ "$rc" -eq 0 ] && printf '%s' "$out" | grep -q 'inheritance chain: 2 inherit
   pass "(V3) a round whose reviewed patch an ancestor record also carries still resolves its chain — the search runs strictly backwards"
 else fail "(V3) expected a 2-link chain after a revert, got rc=$rc: $out"; fi
 
+# SELF-INHERITANCE, the one shape that distinguishes a window bounded below the record being read
+# from an unbounded one: a record whose inherited_patch_id is its own reviewed_patch_id, over the
+# reverted tree above. Unbounded, the walk resolves this round to ITSELF, counts the record under
+# test as a link in its own chain, and still PASSES — one link longer, exit code unchanged. The
+# printed count is what makes that visible, so the assertion pins the NUMBER, not merely the pass.
+write_chain_record r-review-v3 sess-review-v3 3 "$v_pid_rev" "$v_pid_rev" "$v_r1_commit"
+out="$(run_gate_base "lean/acme-42" "$WORK/comments-good.json" "$WORK/diff-lean.txt" "main")"; rc=$?
+if [ "$rc" -eq 0 ] && printf '%s' "$out" | grep -q 'inheritance chain: 3 inherited link'; then
+  pass "(V3b) a self-inheriting record resolves to the ancestor carrying that patch — the record under test is never a link in its own chain"
+else fail "(V3b) expected rc=0 with exactly 3 links, got rc=$rc: $out"; fi
+
 # AC-1 negative / AC-5: a declared identity matching no record on the branch is REFUSED — never
 # downgraded to "then treat it as a root record", which would convert an unverifiable claim into
 # a satisfied one. Only the inherited key changes from (V3), so nothing else can be the cause.

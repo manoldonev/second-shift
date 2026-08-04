@@ -437,6 +437,25 @@ if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q 'names the BUILD session'; th
   pass "(N5) inheriting from a round the build session authored is refused (P10)"
 else fail "(N5) expected rc=1 inheriting a build-authored round, got $rc: $out"; fi
 
+# SELF-INHERITANCE, and the case that makes the backwards window a guard rather than a comment.
+# A record whose inherited_patch_id IS its own reviewed_patch_id claims to have inherited the
+# coverage of the very tree it is reviewing. The window starts strictly BELOW the record's own
+# commit, so the search finds no earlier record and refuses on the link.
+#
+# The assertion pins WHICH refusal, not merely that one happened. Widen the window to include
+# the record itself and the walk resolves the round to ITSELF, then trips the shared-session arm
+# instead — same exit code, a diagnosis pointing at the wrong thing, and a "link" that is the
+# record under test. A bare rc check cannot tell those apart.
+n_code_commit "a tree no earlier round reviewed"
+n_pid_self="$(tree_patch_id HEAD)"
+write_verdict_chain review-7-3 sess-review-round2 3 "$n_pid_self" "$n_pid_self"
+commit_verdict "2026-01-01T12:40:00Z"
+out="$(reconcile "$WORK/comments-good.json")"; rc=$?
+if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q 'matches no earlier verdict record committed on this branch' \
+   && ! printf '%s' "$out" | grep -q 'already authored another round in this chain'; then
+  pass "(N6) a record inheriting its OWN reviewed patch is refused on the link — the search window never includes the record being read"
+else fail "(N6) expected the link refusal on a self-inheriting record, got $rc: $out"; fi
+
 # ---- (O) --help prints the header, and only the header --------------------------------------
 # `sed -n '2,Np'` is a hand-maintained line number, and this file had no guard for it — which is
 # exactly how its siblings silently truncated their own help text after a header grew. Two

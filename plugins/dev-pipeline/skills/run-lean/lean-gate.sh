@@ -414,21 +414,28 @@ versions_after() { # versions_after <newline-separated-commits> <marker>
 }
 
 # Walks the declared chain, matching each `inherited_patch_id` against an earlier record's
-# `reviewed_patch_id`. Prints NOTHING when the chain verifies — INCLUDING the ordinary case of
-# no inheritance at all — and one diagnostic naming the round that broke it otherwise. Never
-# exits: each caller phrases its own refusal, and the writer degrades rather than refusing.
+# `reviewed_patch_id`. Prints exactly one line: `ok <links>` when the chain verifies — INCLUDING
+# the ordinary case of no inheritance at all, which is `ok 0` — or `break <diagnostic>` naming
+# the round that broke it. Never exits: each caller phrases its own refusal, and the writer
+# degrades rather than refusing.
 #
-# The search window shrinks past each hit, so the chain must run STRICTLY BACKWARDS through the
-# record's history. That is not only the honest shape of a round sequence, it is what keeps a
-# branch reverted to a previously-reviewed tree readable: the current round's own record then
-# carries an identity an ancestor also carries, and an unbounded search resolves the round to
-# itself. Shrinking also makes termination structural — there is no cycle counter to get wrong.
+# The COUNT is reported rather than merely tallied, and milestone 4 puts it in its pass line, for
+# the same reason that line already names the freshness arm it gated on: with inheritance, "this
+# head was reviewed" means "a chain of N verified rounds covered it", and an operator reading a
+# checkmark should be able to see which claim was checked. It is also what makes the window below
+# MEASURABLE from outside — see the next paragraph.
 #
-# <declaring-commit> is the commit carrying the record that declares the link, and is EMPTY at
-# write time because the record being written is not committed yet. Read-side callers pass it.
-chain_break() { # chain_break <inherited-patch-id> <declaring-round> [declaring-commit]
-  local want="$1" round="${2:-?}" from="${3:-}" versions c hit rest
-  [ -n "$want" ] || return 0
+# The search window starts strictly BELOW <declaring-commit> and shrinks past each hit, so the
+# chain must run STRICTLY BACKWARDS through the record's history. That keeps a branch reverted to
+# a previously-reviewed tree readable: the current round's record then carries an identity an
+# ancestor also carries, and an unbounded search resolves that round to ITSELF, counting the
+# record under test as a link in its own chain. Shrinking also makes termination structural, so
+# there is no cycle counter to get wrong (and none sitting in the code that no fixture can red).
+#
+# <declaring-commit> is EMPTY at write time, because the record being written is not committed
+# yet and so cannot appear in the history being searched. Read-side callers pass it.
+chain_walk() { # chain_walk <inherited-patch-id> <declaring-round> [declaring-commit]
+  local want="$1" round="${2:-?}" from="${3:-}" versions c hit rest links=0
   versions="$(git -C "$REPO_ROOT" log --format=%H -- "$VERDICT_REL" 2>/dev/null)"
   [ -z "$from" ] || versions="$(versions_after "$versions" "$from")"
   while [ -n "$want" ]; do
@@ -438,13 +445,15 @@ chain_break() { # chain_break <inherited-patch-id> <declaring-round> [declaring-
       if [ "$(record_key_at reviewed_patch_id "$c")" = "$want" ]; then hit="$c"; fi
     done
     if [ -z "$hit" ]; then
-      echo "round $round declares inherited_patch_id $(printf '%.12s' "$want"), which matches no earlier verdict record committed on this branch — that round's inherited coverage is unverifiable, so nothing attests the part of the diff it did not read."
+      echo "break round $round declares inherited_patch_id $(printf '%.12s' "$want"), which matches no earlier verdict record committed on this branch — that round's inherited coverage is unverifiable, so nothing attests the part of the diff it did not read."
       return 0
     fi
     versions="$rest"
+    links=$((links + 1))
     round="$(record_key_at rounds "$hit")"; [ -n "$round" ] || round='?'
     want="$(record_key_at inherited_patch_id "$hit")"
   done
+  echo "ok $links"
   return 0
 }
 
@@ -843,7 +852,7 @@ cmd_3() {
 cmd_4() {
   local rec="$REPO_ROOT/$VERDICT_REL" v_val v_run v_sess b_prog_run b_prog_sess b_cached cand
   local v_commit v_short stale n_stale v_head v_head_short declared n_declared v_pid cur_pid
-  local v_inh v_chain
+  local v_inh v_chain v_coverage
   # The handoff moment, and so the one place the P9 reminder is contextual rather than noise.
   # It lives here rather than as another SKILL.md line for the reason the cap exists: stderr is
   # read exactly when it applies, prose is read on every run. NO DETECTION happens here — the
@@ -909,13 +918,15 @@ cmd_4() {
   # tree in front of us. Absence is the ordinary case and passes silently — round-1 records, and
   # every record predating the key, carry no claim to check. That is what makes this additive.
   v_inh="$(record_key inherited_patch_id "$rec")"
+  v_coverage="covering the whole branch diff on its own"
   if [ -n "$v_inh" ]; then
-    v_chain="$(chain_break "$v_inh" "$(record_key rounds "$rec")" \
+    v_chain="$(chain_walk "$v_inh" "$(record_key rounds "$rec")" \
       "$(git -C "$REPO_ROOT" log -1 --format=%H -- "$VERDICT_REL" 2>/dev/null)")"
-    if [ -n "$v_chain" ]; then
-      fail_milestone 4 "verdict record $VERDICT_REL: $v_chain Get a review round that reads the full diff: '/dev-pipeline:review-lean <pr>'."
-      return $?
-    fi
+    case "$v_chain" in
+      "ok "*) v_coverage="inheriting ${v_chain#ok } verified earlier round(s)" ;;
+      *)      fail_milestone 4 "verdict record $VERDICT_REL: ${v_chain#break } Get a review round that reads the full diff: '/dev-pipeline:review-lean <pr>'."
+              return $? ;;
+    esac
   fi
 
   # FRESHNESS — the verdict must cover the tree it is being read against.
@@ -979,7 +990,7 @@ cmd_4() {
       fail_milestone 4 "verdict record $VERDICT_REL reviewed patch $(printf '%.12s' "$v_pid"), but this branch's diff against origin/$BASE_BRANCH now hashes to $(printf '%.12s' "$cur_pid") — content changed after the review, so the verdict does not cover it. Get a new review round: '/dev-pipeline:review-lean <pr>'."
       return $?
     fi
-    pass_milestone 4 "$VERDICT_REL reads verdict=approve, authored by review run $v_run, covering the current head (patch-id $(printf '%.12s' "$v_pid"))"
+    pass_milestone 4 "$VERDICT_REL reads verdict=approve, authored by review run $v_run, covering the current head (patch-id $(printf '%.12s' "$v_pid")), $v_coverage"
     return $?
   fi
 
@@ -995,7 +1006,7 @@ cmd_4() {
     return $?
   fi
 
-  pass_milestone 4 "$VERDICT_REL reads verdict=approve, authored by review run $v_run, declaring reviewed_head $(git -C "$REPO_ROOT" rev-parse --short "$v_head" 2>/dev/null) and covering the current head"
+  pass_milestone 4 "$VERDICT_REL reads verdict=approve, authored by review run $v_run, declaring reviewed_head $(git -C "$REPO_ROOT" rev-parse --short "$v_head" 2>/dev/null) and covering the current head, $v_coverage"
 }
 
 # ---------------------------------------------------------------- verdict (REVIEW role)
@@ -1101,7 +1112,8 @@ cmd_verdict() {
   # Degrading toward MORE reading is the safe direction; declaring an inheritance no reader can
   # verify is not — all three readers refuse that, which would strand the round instead.
   if [ -n "$inherited_patch_id" ]; then
-    chain="$(chain_break "$inherited_patch_id" "$(record_key_at rounds "$inherited_from")")"
+    chain="$(chain_walk "$inherited_patch_id" "$(record_key_at rounds "$inherited_from")")"
+    case "$chain" in "ok "*) chain="" ;; *) chain="${chain#break }" ;; esac
     if [ -n "$chain" ]; then
       warn "verdict: $chain"
       warn "  This round therefore inherits nothing and is recorded as covering the FULL diff. Read it in full before trusting the record."
@@ -1175,7 +1187,8 @@ cmd_delta() {
   anchor=""
 
   if [ -n "$prior_pid" ]; then
-    broken="$(chain_break "$prior_pid" "$(record_key_at rounds "${cand##* }")")"
+    broken="$(chain_walk "$prior_pid" "$(record_key_at rounds "${cand##* }")")"
+    case "$broken" in "ok "*) broken="" ;; *) broken="${broken#break }" ;; esac
     if [ -n "$broken" ]; then
       warn "delta: $broken"
       prior_pid=""

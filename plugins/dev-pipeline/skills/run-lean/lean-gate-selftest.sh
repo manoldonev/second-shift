@@ -1471,5 +1471,75 @@ if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q 'round 2 declares' \
   pass "(x7) the refusal names round 2 — the round whose link dangles — not round 3, which declared a link that resolves"
 else fail "(x7) expected the break to be attributed to round 2, got $rc: $out"; fi
 
+# ---- (y) the search window never includes the record being read (#375) ----------------------
+# ITS OWN TREE: this needs a clean three-round chain, and the (x) block ends with two records
+# deliberately corrupted.
+#
+# The only shape that distinguishes a window bounded below the record from an unbounded one is
+# SELF-INHERITANCE — a record whose inherited_patch_id is its own reviewed_patch_id — over a
+# branch reverted to a tree an earlier round reviewed. Unbounded, the walk resolves that round to
+# ITSELF, counts the record under test as a link in its own chain, and still PASSES: one link
+# longer, every link after it shifted, exit code unchanged. The count in milestone 4's pass line
+# is what makes that visible from outside; without it the two behaviors are indistinguishable and
+# the window is a comment rather than a guard.
+#
+# The writer never produces such a record (inherit_candidate requires a DIFFERING patch), so the
+# link is set by hand — on a record whose every other key the production writer derived.
+YTREE="$WORK/ytree"
+mkdir -p "$YTREE/docs/plans" "$YTREE/.claude"
+git -C "$YTREE" init -q
+git -C "$YTREE" config user.email t@example.invalid
+git -C "$YTREE" config user.name t
+printf '.claude/\n' > "$YTREE/.gitignore"
+YVERDICT="$YTREE/docs/plans/acme-11-lean-verdict.md"
+YPROG="$WORK/yprogress.md"
+ycommit() {
+  git -C "$YTREE" add -A >/dev/null 2>&1
+  git -C "$YTREE" commit -q --allow-empty -m "${1:-fixture}" >/dev/null 2>&1
+}
+ygate() { ( unset RUN_ID CLAUDE_CODE_SESSION_ID; cd "$YTREE" && SECOND_SHIFT_CONFIG="$CFG" LEAN_PROGRESS_FILE="$YPROG" bash "$GATE" "$@" 2>&1 ); }
+yverdict() { # yverdict <session-id> <run-id> [args...]
+  local sid="$1" rid="$2"; shift 2
+  rm -f "$YPROG"; { echo "# lean run — issue 11"; echo ""; echo "run_id: r-build-y"; echo "session_id: sess-build-y"; } > "$YPROG"
+  rm -f "$YTREE/.claude/pipeline-state/11-review-run-id"
+  ( unset RUN_ID; cd "$YTREE" && SECOND_SHIFT_CONFIG="$CFG" LEAN_PROGRESS_FILE="$YPROG" \
+    CLAUDE_CODE_SESSION_ID="$sid" RUN_ID="$rid" bash "$GATE" verdict 11 "$@" 2>&1 )
+}
+ykey() { grep -oE "$1:[[:space:]]*[A-Za-z0-9._-]+" "$YVERDICT" 2>/dev/null | head -n1 | sed -E "s/^$1:[[:space:]]*//"; }
+
+ycommit "base"
+git -C "$YTREE" update-ref refs/remotes/origin/main HEAD
+printf '# spec\n\n- AC-1: the thing\n' > "$YTREE/docs/plans/acme-11-lean.md"
+printf 'round 1 reviewed this\n' > "$YTREE/subject.txt"
+ycommit "the branch's work"
+out="$(yverdict sess-review-y1 r-review-y1 --pr 91 --verdict needs-work --rounds 1)"; rc=$?
+[ "$rc" -eq 0 ] || fail "(y0) the round-1 writer refused, so (y) has no chain to walk: $out"
+Y_PID_A="$(ykey reviewed_patch_id)"
+ycommit "round 1's record"
+
+printf 'the fix round 1 asked for\n' > "$YTREE/subject.txt"
+ycommit "the fix"
+out="$(yverdict sess-review-y2 r-review-y2 --pr 91 --verdict approve --rounds 2)"; rc=$?
+[ "$rc" -eq 0 ] || fail "(y0) the round-2 writer refused: $out"
+ycommit "round 2's record"
+
+# The revert: round 3's tree IS round 1's, so its reviewed patch is an identity an ancestor
+# record also carries. That is the precondition — without an ancestor to resolve to, the walk has
+# nothing but the record itself and both behaviors refuse identically.
+printf 'round 1 reviewed this\n' > "$YTREE/subject.txt"
+ycommit "the round-2 fix is reverted"
+out="$(yverdict sess-review-y3 r-review-y3 --pr 91 --verdict approve --rounds 3)"; rc=$?
+[ "$rc" -eq 0 ] || fail "(y0) the round-3 writer refused: $out"
+Y_PID_REV="$(ykey reviewed_patch_id)"
+if [ "$Y_PID_REV" = "$Y_PID_A" ]; then
+  pass "(y1) the revert restored round 1's patch identity — the self-inheritance case has an ancestor to resolve to"
+else fail "(y1) the reverted tree hashes to $Y_PID_REV, not round 1's $Y_PID_A — (y2) would assert nothing"; fi
+sed -e "s/^inherited_patch_id:.*/inherited_patch_id: $Y_PID_REV/" "$YVERDICT" > "$YVERDICT.tmp" && mv "$YVERDICT.tmp" "$YVERDICT"
+ycommit "round 3 declares its own reviewed patch as the one it inherited"
+out="$(ygate 4 11)"; rc=$?
+if [ "$rc" -eq 0 ] && printf '%s' "$out" | grep -q 'inheriting 1 verified earlier round'; then
+  pass "(y2) a self-inheriting record resolves to the ANCESTOR carrying that patch, counted once — the window never includes the record being read"
+else fail "(y2) expected rc=0 with exactly 1 inherited link, got $rc: $out"; fi
+
 echo "[lean-gate-selftest] $([ "$FAILS" -eq 0 ] && echo 'all green' || echo "$FAILS FAILURE(S)")"
 exit "$FAILS"
