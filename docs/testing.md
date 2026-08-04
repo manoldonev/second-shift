@@ -184,6 +184,79 @@ baseline — and wholesale in the nightly `mutation-sweep.yml`. Kill verdicts ar
 inside the canonical environment (ubuntu-latest, `SKIP_STRESS=1`), so local runs are advisory and
 say so.
 
+### What it costs, and the three things that stopped it costing that
+
+The sweep's wall time is `Σ over guards (mutants × paired-suite seconds)`, and for a long time
+every one of those seconds was serial on one core: ~8–10 min for a three-guard diff, paid once per
+**fix round** rather than once per PR. Three levers removed it, and each is visible in the run's own
+output rather than asserted here.
+
+**Every run prints what it cost.** The closing `timing:` line reports wall seconds, how many
+verdicts were computed by actually running a paired suite, how many came from the cache, and the
+pool size. A claim about the speedup is checkable against that line; a remembered figure is not a
+measurement.
+
+**1. Verdicts are memoized.** A mutant's verdict is a pure function of the mutated guard's bytes and
+its paired suite's bytes, so the cache keys on exactly:
+
+```
+schema version + sha256(mutated guard) + sha256(each paired suite, in kill order)
+              + MUTATION_SWEEP_K + environment (RUNNER_OS, SKIP_STRESS, the killer-bound knobs)
+```
+
+The **precheck** is keyed the same way, as the identity mutant (`pre-<sha of the unmutated guard>`
+against one suite) — without that, "re-running on an unchanged tree" would still pay the full
+unmutated pass, which is 45s on the three lean guards alone. Only the *green* precheck is cached: an
+unrunnable pair re-runs every time, because the cheap direction to be wrong in is paying for a check
+that would have passed, never skipping one that would now fail.
+
+**Invalidation, exhaustively.** Editing the guard, editing *any* paired suite, changing `k`,
+changing `RUNNER_OS`/`SKIP_STRESS`, changing a killer-bound knob, or bumping the harness's cache
+schema. Editing the **suite** is the one worth naming: adding a test case can kill a
+previously-surviving mutant, so a cache keyed on the guard alone would serve a stale `SURVIVED`
+forever — green, wrong, and invisible in the report. That is why the suite's bytes are in the key.
+
+**What does NOT invalidate it**, stated plainly: a file the suite *sources* but which is neither
+the guard nor the suite — a shared library like `scenario-lib.sh`. Edit one of those and the cached
+verdicts of every guard whose suite reads it are stale. `MUTATION_SWEEP_CACHE=0` is the escape
+hatch; so is deleting the cache directory.
+
+**Authoritative vs advisory, and where the cache sits in that.** Unchanged: **CI is
+authoritative, local runs are advisory**, because kill verdicts are only comparable inside the
+canonical environment. The cache does not move that line. It is **per machine**, lives outside every
+checkout (`${XDG_CACHE_HOME:-~/.cache}/second-shift/mutation-sweep`, overridable with
+`MUTATION_SWEEP_CACHE_DIR`), is never committed, and a CI runner is fresh — so the authoritative run
+is always cold and the shared-library residual above can only ever mislead a local run. A corrupt or
+unreadable entry is a **miss**, never a pass: the reader requires exactly one well-formed record
+line and falls back to a real run otherwise. The store is bounded (`MUTATION_SWEEP_CACHE_MAX`,
+default 20000 entries) and clears wholesale when it exceeds that, which costs one cold run.
+
+**2. Mutants run in a pool.** One sandbox per worker, created lazily, reused across the run and
+restored between items — so no two concurrently-running mutants share a tree, and disk stays at
+`pool × ~7MB` rather than growing with the mutant count. Size defaults to `min(cores-2, 8)` and is
+set by `MUTATION_SWEEP_JOBS`; `MUTATION_SWEEP_JOBS=1` is the serial harness exactly.
+
+The report is a function of the work list and nothing else: every verdict is written to its own file
+and read back in item order, so a parallel run's survivor set, counts and report TSV are
+**byte-identical** to the serial run's. `mutation-sweep-selftest.sh` case (ac) proves it — and
+proves the parallel run really overlapped first, since two serial runs would also agree.
+
+A suite that cannot tolerate a concurrent sibling — a fixed port, a literal temp path outside its
+own `mktemp` tree — is pinned in `tools/mutation-serial-suites.tsv` with the reason, and every guard
+whose kill set contains it runs in the serial pass. A pin is a real bill (that guard's mutants lose
+the pool), so the better fix is almost always to repair the suite and delete the row.
+
+**3. A killed mutant stops at the first `FAIL:`.** The verdict is settled there, so the killer's
+process group is reaped rather than run to completion, and the line is logged so an early kill is
+never silent. Eligibility is **derived, not assumed**: the precheck already runs each suite unmutated
+and green, so a suite whose *passing* output contains the pattern is disarmed for the rest of the
+run — which is the only way early exit could turn a survivor into a false kill.
+`MUTATION_SWEEP_EARLY_EXIT=0` disables it; `MUTATION_SWEEP_FAIL_PATTERN` changes what it looks for.
+
+A reaped suite never runs its own `trap … EXIT`, so killers run with `TMPDIR` pointed at a
+per-item scratch directory the harness removes unconditionally — early exit and both killer bounds
+included.
+
 ### Runbook: the sweep just reded
 
 **`baseline-absent survivor: <guard>::<operator>::<ordinal>`** — the usual one, and usually your

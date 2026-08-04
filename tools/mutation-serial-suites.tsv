@@ -1,0 +1,22 @@
+# mutation-serial-suites.tsv — paired suites that cannot tolerate a concurrent SIBLING.
+#
+# TAB-separated. Columns:
+#   selftest <TAB> reason
+#
+# The sweep scores mutants in a worker pool, and two mutants of the same guard run the same
+# paired suite AT THE SAME TIME. A suite that owns a fixed resource — a literal path outside
+# its own mktemp tree, a fixed port, a well-known lock — corrupts its sibling when that
+# happens, and the corruption reads as a mutation verdict rather than as a harness fault.
+#
+# A row here pins every guard whose kill set contains the suite into the sweep's SERIAL pass:
+# those mutants run one at a time, after the pool has drained. The cost is that guard's
+# mutants x that suite's seconds, unshared — so a row is a real bill, not a free safety net.
+#
+# THE ALTERNATIVE IS ALWAYS BETTER WHEN IT IS AVAILABLE: fix the suite to use `mktemp` and
+# delete its row. A row is for the case where the fix is out of the editing scope of the
+# change that discovered the hazard, and it must say so rather than reading as a verdict that
+# the suite is unfixable.
+#
+# ABSENT means parallel-safe. This file is a deny-list, not a registry: adding a suite is a
+# claim about a hazard someone identified, and the reason column is where that claim lives.
+plugins/dev-pipeline/skills/run/tools/check-doc-routing-selftest.sh	Writes /tmp/docroute-moved.out and /tmp/docroute-deleted.out by LITERAL name rather than through mktemp, so two concurrent instances overwrite each other's output between the write and the grep that reads it — a false kill or a false survivor depending on which lands last. The fix is four lines in that suite, but it is outside the tools/ + docs/ editing scope of the change that introduced the pool; pinned here with that reason rather than left to surface as flake.

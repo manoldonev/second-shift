@@ -39,10 +39,25 @@ bad() { echo "  FAIL $*"; FAILS=$((FAILS + 1)); }
 TMPROOT="$(mktemp -d -t mutation-sweep-selftest.XXXXXX)" || exit 99
 trap 'rm -rf "$TMPROOT"' EXIT
 
-# Advisory: harness sees no GITHUB_ACTIONS, so it never enforces the environment header.
-adv() { env -u GITHUB_ACTIONS -u RUNNER_OS -u SKIP_STRESS "$@"; }
+# THE VERDICT CACHE IS OFF BY DEFAULT HERE, and that is load-bearing rather than tidy. The
+# cache is per-MACHINE and lives outside any checkout, so an inheriting run would (a) write
+# the operator's real cache from fixture verdicts and (b) — much worse — READ it. Fixture
+# guards are byte-identical across cases by construction (`make_fixture` emits one guard
+# text), so a case that ran earlier under a different killer would serve its verdict to a
+# later case and the later case would assert nothing. Cases that exercise the cache turn it
+# on explicitly, in a directory under TMPROOT, via cch().
+adv() { env -u GITHUB_ACTIONS -u RUNNER_OS -u SKIP_STRESS MUTATION_SWEEP_CACHE=0 "$@"; }
 # Enforcing: the canonical environment, stated explicitly rather than inherited.
-enf() { env GITHUB_ACTIONS=1 RUNNER_OS=Linux SKIP_STRESS=1 "$@"; }
+enf() { env GITHUB_ACTIONS=1 RUNNER_OS=Linux SKIP_STRESS=1 MUTATION_SWEEP_CACHE=0 "$@"; }
+# Advisory WITH the cache live, in a named directory. $1 = cache dir, rest = command.
+cch() {
+  local d="$1"; shift
+  env -u GITHUB_ACTIONS -u RUNNER_OS -u SKIP_STRESS \
+    MUTATION_SWEEP_CACHE=1 MUTATION_SWEEP_CACHE_DIR="$d" "$@"
+}
+# The two counters every cache and early-exit case reads out of the run's own timing line.
+computed() { printf '%s' "$1" | sed -n 's/.*— \([0-9][0-9]*\) verdict(s) computed.*/\1/p' | tail -1; }
+served()   { printf '%s' "$1" | sed -n 's/.*computed by running a paired suite, \([0-9][0-9]*\) served.*/\1/p' | tail -1; }
 
 # ---------------------------------------------------------------- fixture repo
 # A git-initialized temp repo is required, not optional: the harness sandboxes with
@@ -158,6 +173,134 @@ make_weak_fleet() {
     && git -c user.email=fixture@example.invalid -c user.name=fixture commit -qm init ) >/dev/null 2>&1
 }
 
+
+# ------------------------------------------------- observation fixtures (pool cases)
+# What the pool DID, recorded by the killers themselves. A fixture that only compares two
+# reports cannot tell a working pool from one that silently degraded to a single worker, so
+# these suites write down how many siblings were live while they ran and which sandbox they
+# ran in — and the pool cases assert those BEFORE they assert any equivalence.
+obs_reset() {
+  rm -rf "$1" 2>/dev/null
+  mkdir -p "$1"
+}
+obs_max() { # highest concurrent-killer count observed, 0 if nothing ran
+  local m; m="$(sort -n "$1/observed" 2>/dev/null | tail -1 | tr -d ' ')"
+  printf '%s' "${m:-0}"
+}
+obs_sandboxes() { sort -u "$1/sandboxes" 2>/dev/null | grep -c ''; }
+obs_count() { # lines in a named marker file, 0 when it was never created
+  [[ -f "$1/$2" ]] || { printf '0'; return 0; }
+  grep -c '' "$1/$2"
+}
+
+# $2 guards, each with a WEAK same-stem killer (happy path only), so every guard yields
+# exactly one SURVIVING fail-open mutant and the survivor set is fully determined.
+# shellcheck disable=SC2016 # the single-quoted $-expressions are the FIXTURES' code, not ours
+make_obs_fleet() {
+  local dir="$1" n="$2" obs="$3" i=1
+  mkdir -p "$dir/tools" "$obs"
+  printf '# fixture operators\nfail-open\texit 1\ts/exit 1/exit 0/\n' > "$dir/tools/mutation-operators.tsv"
+  printf '# fixture exclusions\n' > "$dir/tools/mutation-exclusions.tsv"
+  printf '# fixture pair map\n' > "$dir/tools/mutation-pair-map.tsv"
+  printf '# fixture catalog\n' > "$dir/tools/mutation-catalog.tsv"
+  while [[ $i -le $n ]]; do
+    printf '#!/usr/bin/env bash\nif [[ "${1:-}" == "bad" ]]; then\n  exit 1\nfi\necho ok\n' > "$dir/guard$i.sh"
+    chmod 755 "$dir/guard$i.sh"
+    { printf '#!/usr/bin/env bash\nH="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"\n'
+      printf 'OBS=%s\n' "$obs"
+      printf 'mkdir -p "$OBS"\n: > "$OBS/live.$$"\nsleep 1\n'
+      printf 'ls "$OBS" | grep -c "^live\\." >> "$OBS/observed"\n'
+      printf 'rm -f "$OBS/live.$$"\n'
+      printf 'echo "$H" >> "$OBS/sandboxes"\n'
+      printf 'out="$(bash "$H/guard%s.sh" good)"\n[[ "$out" == ok ]] || exit 1\nexit 0\n' "$i"
+    } > "$dir/guard$i-selftest.sh"
+    i=$((i + 1))
+  done
+  ( cd "$dir" \
+    && git init -q . \
+    && git add -A \
+    && git -c user.email=fixture@example.invalid -c user.name=fixture commit -qm init ) >/dev/null 2>&1
+}
+
+# One guard, one fail-open site, and a killer shaped to exercise ONE early-exit question.
+#   first — the FAIL: lands on the first case, then the suite would run for seconds more
+#   last  — the FAIL: lands after every other case, so early exit only cuts the tail
+#   noisy — the suite prints the pattern while PASSING, which is the shape that would make
+#           early exit fabricate a kill if eligibility were assumed rather than derived
+# Every variant appends to marker files under $3, so "did the killer run to completion?" is
+# a count rather than a stopwatch reading.
+# shellcheck disable=SC2016 # the single-quoted $-expressions are the FIXTURES' code, not ours
+make_early_fixture() {
+  local dir="$1" mode="$2" obs="$3"
+  mkdir -p "$dir/tools" "$obs"
+  printf '#!/usr/bin/env bash\nif [[ "${1:-}" == "bad" ]]; then\n  exit 1\nfi\necho ok\n' > "$dir/guard.sh"
+  chmod 755 "$dir/guard.sh"
+  {
+    printf '#!/usr/bin/env bash\nH="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"\n'
+    printf 'OBS=%s\nmkdir -p "$OBS"\n' "$obs"
+    case "$mode" in
+      first)
+        printf 'rc=0; bash "$H/guard.sh" bad >/dev/null 2>&1 || rc=$?\n'
+        printf '[[ $rc -eq 1 ]] || echo "  FAIL: guard no longer rejects bad" >&2\n'
+        printf 'sleep 2\n'
+        printf 'echo x >> "$OBS/completed"\n'
+        printf '[[ $rc -eq 1 ]] || exit 1\nexit 0\n' ;;
+      last)
+        printf 'rc=0; bash "$H/guard.sh" bad >/dev/null 2>&1 || rc=$?\n'
+        printf 'out="$(bash "$H/guard.sh" good)"\n[[ "$out" == ok ]] || exit 1\n'
+        printf 'sleep 1\n'
+        printf 'echo x >> "$OBS/reached"\n'
+        printf '[[ $rc -eq 1 ]] || echo "  FAIL: guard no longer rejects bad" >&2\n'
+        printf 'sleep 2\n'
+        printf 'echo x >> "$OBS/completed"\n'
+        printf '[[ $rc -eq 1 ]] || exit 1\nexit 0\n' ;;
+      *)
+        printf 'echo "  FAIL: (fixture prose, not a verdict)"\n'
+        printf 'sleep 3\n'
+        printf 'out="$(bash "$H/guard.sh" good)"\n[[ "$out" == ok ]] || exit 1\nexit 0\n' ;;
+    esac
+  } > "$dir/guard-selftest.sh"
+  printf '# fixture operators\nfail-open\texit 1\ts/exit 1/exit 0/\n' > "$dir/tools/mutation-operators.tsv"
+  printf '# fixture exclusions\n' > "$dir/tools/mutation-exclusions.tsv"
+  printf '# fixture pair map\n' > "$dir/tools/mutation-pair-map.tsv"
+  printf '# fixture catalog\n' > "$dir/tools/mutation-catalog.tsv"
+  ( cd "$dir" \
+    && git init -q . \
+    && git add -A \
+    && git -c user.email=fixture@example.invalid -c user.name=fixture commit -qm init ) >/dev/null 2>&1
+}
+
+# A guard carrying the repo's EOF-tolerant read idiom VERBATIM, so `cmp-z` at ordinal 1
+# produces the mutant that spins at 100% CPU. Shared by (z), which asserts the sweep does
+# not hang on it, and (ah), which asserts the reap path still reclaims its disk.
+make_spin_fixture() {
+  local dir="$1"
+  mkdir -p "$dir/tools"
+  cat > "$dir/guard.sh" <<'EOF'
+#!/usr/bin/env bash
+# Carries the repo's EOF-tolerant read idiom verbatim — the real mutation site.
+while IFS= read -r line || [[ -n "$line" ]]; do
+  :
+done
+echo ok
+exit 0
+EOF
+  chmod 755 "$dir/guard.sh"
+  cat > "$dir/guard-selftest.sh" <<'EOF'
+#!/usr/bin/env bash
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+out="$(bash "$HERE/guard.sh" </dev/null)"
+[[ "$out" == "ok" ]] || exit 1
+exit 0
+EOF
+  printf '# fixture operators\ncmp-z\t-z |-n \ts/-z /__MUT__/g; s/-n /-z /g; s/__MUT__/-n /g\n' \
+    > "$dir/tools/mutation-operators.tsv"
+  printf '# fixture exclusions\n' > "$dir/tools/mutation-exclusions.tsv"
+  printf '# fixture pair map\n'   > "$dir/tools/mutation-pair-map.tsv"
+  printf '# fixture catalog\n'    > "$dir/tools/mutation-catalog.tsv"
+  ( cd "$dir" && git init -q . && git add -A \
+    && git -c user.email=fixture@example.invalid -c user.name=fixture commit -qm spin ) >/dev/null 2>&1
+}
 baseline_with() { # $1=dir, rest = survivor ids
   local d="$1"; shift
   { echo "# environment: ubuntu-latest SKIP_STRESS=1"
@@ -733,32 +876,7 @@ echo "(z) killer time bound — a mutant that makes its guard SPIN cannot hang t
 # the only honest way to pin "does not hang" — asserting by proxy is what let this pass
 # unnoticed while three shards died.
 FX="$TMPROOT/fxspin$RANDOM$RANDOM"
-mkdir -p "$FX/tools"
-cat > "$FX/guard.sh" <<'EOF'
-#!/usr/bin/env bash
-# Carries the repo's EOF-tolerant read idiom verbatim — the real mutation site.
-while IFS= read -r line || [[ -n "$line" ]]; do
-  :
-done
-echo ok
-exit 0
-EOF
-chmod 755 "$FX/guard.sh"
-cat > "$FX/guard-selftest.sh" <<'EOF'
-#!/usr/bin/env bash
-HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-out="$(bash "$HERE/guard.sh" </dev/null)"
-[[ "$out" == "ok" ]] || exit 1
-exit 0
-EOF
-printf '# fixture operators\ncmp-z\t-z |-n \ts/-z /__MUT__/g; s/-n /-z /g; s/__MUT__/-n /g\n' \
-  > "$FX/tools/mutation-operators.tsv"
-printf '# fixture exclusions\n' > "$FX/tools/mutation-exclusions.tsv"
-printf '# fixture pair map\n'   > "$FX/tools/mutation-pair-map.tsv"
-printf '# fixture catalog\n'    > "$FX/tools/mutation-catalog.tsv"
-( cd "$FX" && git init -q . && git add -A \
-  && git -c user.email=fixture@example.invalid -c user.name=fixture commit -qm spin ) >/dev/null 2>&1
-
+make_spin_fixture "$FX"
 SPIN_LOG="$FX/sweep.log"
 ( cd "$FX" && adv env MUTATION_SWEEP_KILLER_TIMEOUT_S=5 bash "$SWEEP" --mode full ) \
   >"$SPIN_LOG" 2>&1 </dev/null &
@@ -966,6 +1084,251 @@ fi
 # per-push lanes, and they are what stops this harness from converging on green while the
 # tree drifts underneath it.
 
+echo "(ac) pool equivalence — a parallel run IS the serial run, and it really was parallel"
+# The equivalence half of this case is worthless on its own: two serial runs also produce
+# identical reports. So the fixture's killers record what the pool was doing while they ran
+# — how many siblings were live, and which sandbox each ran in — and the case asserts the
+# parallel run actually overlapped BEFORE it asserts the reports match. Without that, a pool
+# that silently degraded to one worker would read as a passing equivalence proof.
+OBS_AC="$TMPROOT/obs-ac"
+FX="$TMPROOT/fxac$RANDOM$RANDOM"
+make_obs_fleet "$FX" 4 "$OBS_AC"
+obs_reset "$OBS_AC"
+OUT="$( cd "$FX" && adv env MUTATION_SWEEP_JOBS=1 bash "$SWEEP" --mode full --report "$TMPROOT/ac-1.tsv" 2>&1 )"; RC=$?
+MAX1="$(obs_max "$OBS_AC")"; SB1="$(obs_sandboxes "$OBS_AC")"
+obs_reset "$OBS_AC"
+OUT4="$( cd "$FX" && adv env MUTATION_SWEEP_JOBS=4 bash "$SWEEP" --mode full --report "$TMPROOT/ac-4.tsv" 2>&1 )"; RC4=$?
+MAX4="$(obs_max "$OBS_AC")"; SB4="$(obs_sandboxes "$OBS_AC")"
+if [[ "$MAX1" -eq 1 && "$SB1" -eq 1 ]]; then
+  ok "MUTATION_SWEEP_JOBS=1 never overlaps: max 1 killer live, 1 sandbox"
+else
+  bad "(ac) serial run observed max=$MAX1 sandboxes=$SB1 (want 1 and 1)"
+fi
+if [[ "$MAX4" -gt 1 && "$SB4" -gt 1 ]]; then
+  ok "MUTATION_SWEEP_JOBS=4 overlapped: $MAX4 killers live at once across $SB4 sandboxes"
+else
+  bad "(ac) parallel run observed max=$MAX4 sandboxes=$SB4 (want >1 and >1) — the pool never overlapped, so the equivalence assertion below would prove nothing"
+fi
+if [[ $RC -eq $RC4 ]] && diff -q "$TMPROOT/ac-1.tsv" "$TMPROOT/ac-4.tsv" >/dev/null 2>&1; then
+  ok "identical report and exit status from the serial and the parallel run"
+else
+  bad "(ac) serial rc=$RC parallel rc=$RC4, reports differ"
+  diff "$TMPROOT/ac-1.tsv" "$TMPROOT/ac-4.tsv" 2>&1 | head -8
+fi
+
+echo "(ad) verdict cache — a re-run over an unchanged tree executes no paired suite at all"
+FX="$(new_fixture weak)"
+CD="$TMPROOT/cache-ad"
+OUT="$( cd "$FX" && cch "$CD" bash "$SWEEP" --mode full --report "$TMPROOT/ad-cold.tsv" 2>&1 )"
+C1="$(computed "$OUT")"; S1="$(served "$OUT")"
+OUT2="$( cd "$FX" && cch "$CD" bash "$SWEEP" --mode full --report "$TMPROOT/ad-warm.tsv" 2>&1 )"
+C2="$(computed "$OUT2")"; S2="$(served "$OUT2")"
+if [[ "${C1:-0}" -gt 0 && "${S1:-9}" -eq 0 ]]; then
+  ok "cold run computed $C1 verdict(s) and served none"
+else
+  bad "(ad) cold run computed=${C1:-?} served=${S1:-?} (want >0 and 0)"; printf '%s\n' "$OUT" | tail -3
+fi
+if [[ "${C2:-9}" -eq 0 && "${S2:-0}" -eq "${C1:-0}" ]]; then
+  ok "warm run computed 0 and served $S2 — zero paired-suite executions"
+else
+  bad "(ad) warm run computed=${C2:-?} served=${S2:-?} (want 0 and ${C1:-?})"; printf '%s\n' "$OUT2" | tail -3
+fi
+if diff -q "$TMPROOT/ad-cold.tsv" "$TMPROOT/ad-warm.tsv" >/dev/null 2>&1; then
+  ok "the cached run reports the identical survivor set"
+else
+  bad "(ad) warm report differs from cold"; diff "$TMPROOT/ad-cold.tsv" "$TMPROOT/ad-warm.tsv" 2>&1 | head -8
+fi
+
+echo "(ae) the key includes the SUITE's bytes — an added test case turns a cached SURVIVED into KILLED"
+# THE failure a guard-only key would produce, driven directly. guard.sh is byte-identical
+# across both runs; only the killer grows a case. A cache keyed on the guard alone hits, and
+# serves a SURVIVED verdict for a mutant the tree now kills — green, stale, and undetectable
+# from the report.
+FX="$(new_fixture weak)"
+CD="$TMPROOT/cache-ae"
+OUT="$( cd "$FX" && cch "$CD" bash "$SWEEP" --mode full 2>&1 )"
+GSHA_BEFORE="$(shasum -a 256 "$FX/guard.sh" 2>/dev/null | cut -d' ' -f1)"
+if printf '%s' "$OUT" | grep -q 'killed=0 survived=1'; then
+  ok "cold: the happy-path-only killer lets the fail-open mutant survive"
+else
+  bad "(ae) expected killed=0 survived=1 on the weak killer"; printf '%s\n' "$OUT" | tail -3
+fi
+cat > "$FX/guard-selftest.sh" <<'EOF'
+#!/usr/bin/env bash
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+out="$(bash "$HERE/guard.sh" good)"
+[[ "$out" == "ok" ]] || exit 1
+# The ADDED case: exercises the violation path the weak version never touched.
+rc=0; bash "$HERE/guard.sh" bad >/dev/null 2>&1 || rc=$?
+[[ $rc -eq 1 ]] || exit 1
+exit 0
+EOF
+( cd "$FX" && git add -A \
+  && git -c user.email=fixture@example.invalid -c user.name=fixture commit -qm "add the missing case" ) >/dev/null 2>&1
+GSHA_AFTER="$(shasum -a 256 "$FX/guard.sh" 2>/dev/null | cut -d' ' -f1)"
+OUT2="$( cd "$FX" && cch "$CD" bash "$SWEEP" --mode full 2>&1 )"
+if [[ "$GSHA_BEFORE" == "$GSHA_AFTER" ]]; then
+  ok "guard.sh is byte-identical across the two runs — only the suite changed"
+else
+  bad "(ae) the fixture changed guard.sh, so this case no longer isolates the suite key"
+fi
+if printf '%s' "$OUT2" | grep -q 'killed=1 survived=0'; then
+  ok "the added case kills the mutant — no stale SURVIVED was served"
+else
+  bad "(ae) expected killed=1 survived=0 after the case was added; a guard-only cache key serves the stale SURVIVED here"
+  printf '%s\n' "$OUT2" | tail -3
+fi
+
+echo "(af) cache fail-safe — corruption and an environment change are MISSES, never passes"
+FX="$(new_fixture weak)"
+CD="$TMPROOT/cache-af"
+OUT="$( cd "$FX" && cch "$CD" bash "$SWEEP" --mode full 2>&1 )"
+find "$CD" -type f 2>/dev/null | while IFS= read -r f; do printf 'not a record at all\n' > "$f"; done
+OUT2="$( cd "$FX" && cch "$CD" bash "$SWEEP" --mode full 2>&1 )"
+C2="$(computed "$OUT2")"
+if [[ "${C2:-0}" -gt 0 ]] && printf '%s' "$OUT2" | grep -q 'killed=0 survived=1'; then
+  ok "a malformed entry falls back to a real run and reproduces the verdict"
+else
+  bad "(af) corrupt-cache run computed=${C2:-?} — a malformed entry must never be served"
+  printf '%s\n' "$OUT2" | tail -3
+fi
+# A VALID first line with a second line after it is still corrupt: the shape check is on the
+# whole file, not on the line the reader happens to look at.
+find "$CD" -type f 2>/dev/null | while IFS= read -r f; do printf 'appended junk\n' >> "$f"; done
+OUT3="$( cd "$FX" && cch "$CD" bash "$SWEEP" --mode full 2>&1 )"
+C3="$(computed "$OUT3")"
+if [[ "${C3:-0}" -gt 0 ]]; then
+  ok "a well-formed first line with trailing junk is a miss too"
+else
+  bad "(af) a two-line entry was served as a hit (computed=${C3:-?})"
+fi
+OUT4="$( cd "$FX" && cch "$CD" env MUTATION_SWEEP_KILLER_MAX_PROCS=97 bash "$SWEEP" --mode full 2>&1 )"
+C4="$(computed "$OUT4")"
+if [[ "${C4:-0}" -gt 0 ]]; then
+  ok "an environment change re-keys every entry — the cache survives no environment change"
+else
+  bad "(af) an environment change hit the cache (computed=${C4:-?})"
+fi
+if [[ -z "$( cd "$FX" && git status --porcelain 2>/dev/null )" ]]; then
+  ok "the cache lives outside the checkout — the fixture repo has nothing to commit"
+else
+  bad "(af) the run left files in the checkout:"; ( cd "$FX" && git status --porcelain ) | head -5
+fi
+
+echo "(ag) early exit — a killed mutant stops at the first FAIL:, and scores what a full run scores"
+OBS_AG="$TMPROOT/obs-ag"
+FX="$TMPROOT/fxagf$RANDOM$RANDOM"
+make_early_fixture "$FX" first "$OBS_AG"
+obs_reset "$OBS_AG"
+OUT="$( cd "$FX" && adv bash "$SWEEP" --mode full 2>&1 )"
+EARLY_DONE="$(obs_count "$OBS_AG" completed)"
+obs_reset "$OBS_AG"
+OUT2="$( cd "$FX" && adv env MUTATION_SWEEP_EARLY_EXIT=0 bash "$SWEEP" --mode full 2>&1 )"
+FULL_DONE="$(obs_count "$OBS_AG" completed)"
+if printf '%s' "$OUT" | grep -q 'killed=1 survived=0' && printf '%s' "$OUT2" | grep -q 'killed=1 survived=0'; then
+  ok "first-case kill scores killed=1 with early exit on AND off"
+else
+  bad "(ag/first) verdicts differ between the early-exit and the full run"
+  printf '%s\n' "$OUT" | tail -3; printf '%s\n' "$OUT2" | tail -3
+fi
+if [[ "$EARLY_DONE" -eq 1 && "$FULL_DONE" -eq 2 ]]; then
+  ok "the early-exit run did NOT run the killer to completion ($EARLY_DONE vs $FULL_DONE completions)"
+else
+  bad "(ag/first) completions: early=$EARLY_DONE full=$FULL_DONE (want 1 and 2 — the precheck completes either way)"
+fi
+if printf '%s' "$OUT" | grep -q 'early exit (first'; then
+  ok "the early exit is NAMED in the log, not a silent kill"
+else
+  bad "(ag/first) no 'early exit' line — an unlogged early kill is indistinguishable from a real one"
+fi
+
+FX="$TMPROOT/fxagl$RANDOM$RANDOM"
+make_early_fixture "$FX" last "$OBS_AG"
+obs_reset "$OBS_AG"
+OUT="$( cd "$FX" && adv bash "$SWEEP" --mode full 2>&1 )"
+L_REACH="$(obs_count "$OBS_AG" reached)"; L_DONE="$(obs_count "$OBS_AG" completed)"
+obs_reset "$OBS_AG"
+OUT2="$( cd "$FX" && adv env MUTATION_SWEEP_EARLY_EXIT=0 bash "$SWEEP" --mode full 2>&1 )"
+LF_DONE="$(obs_count "$OBS_AG" completed)"
+if printf '%s' "$OUT" | grep -q 'killed=1 survived=0' && printf '%s' "$OUT2" | grep -q 'killed=1 survived=0'; then
+  ok "last-case kill scores killed=1 with early exit on AND off"
+else
+  bad "(ag/last) verdicts differ between the early-exit and the full run"
+  printf '%s\n' "$OUT" | tail -3; printf '%s\n' "$OUT2" | tail -3
+fi
+if [[ "$L_REACH" -eq 2 && "$L_DONE" -eq 1 && "$LF_DONE" -eq 2 ]]; then
+  ok "a kill announced at the LAST case still cuts the tail (reached=$L_REACH, completed=$L_DONE vs $LF_DONE)"
+else
+  bad "(ag/last) reached=$L_REACH completed=$L_DONE full-completed=$LF_DONE (want 2, 1, 2)"
+fi
+
+FX="$TMPROOT/fxagn$RANDOM$RANDOM"
+make_early_fixture "$FX" noisy "$OBS_AG"
+OUT="$( cd "$FX" && adv bash "$SWEEP" --mode full 2>&1 )"
+if printf '%s' "$OUT" | grep -q 'early exit disarmed for'; then
+  ok "a suite whose GREEN output carries the pattern is disarmed, and says so"
+else
+  bad "(ag/noisy) the disarm was not derived from the precheck — every run of this suite now scores a false kill"
+fi
+if printf '%s' "$OUT" | grep -q 'killed=0 survived=1'; then
+  ok "the mutant is correctly SURVIVED, not falsely killed by fixture prose"
+else
+  bad "(ag/noisy) expected killed=0 survived=1; early exit read fixture prose as a verdict"
+  printf '%s\n' "$OUT" | tail -3
+fi
+
+echo "(ah) sandbox disk is reclaimed on every exit path, the killer's own reaps included"
+# Runs the (z) spin shape — the path where the killer is SIGKILLed rather than reaped
+# politely — under a TMPDIR this case owns, so "nothing left behind" is an assertion about
+# an empty directory rather than about a grep of `df`.
+FX="$TMPROOT/fxah$RANDOM$RANDOM"
+make_spin_fixture "$FX"
+SCRATCH="$TMPROOT/scratch-ah"
+mkdir -p "$SCRATCH"
+( cd "$FX" && adv env TMPDIR="$SCRATCH" MUTATION_SWEEP_KILLER_TIMEOUT_S=5 \
+    bash "$SWEEP" --mode full ) >/dev/null 2>&1 </dev/null
+LEFT="$(find "$SCRATCH" -mindepth 1 2>/dev/null | grep -c '')"
+WT="$( cd "$FX" && git worktree list 2>/dev/null | grep -c '' )"
+if [[ "$LEFT" -eq 0 ]]; then
+  ok "no sandbox, workdir or killer scratch survived the run"
+else
+  bad "(ah) $LEFT path(s) left under TMPDIR after the run:"; find "$SCRATCH" -mindepth 1 | head -5
+fi
+if [[ "$WT" -eq 1 ]]; then
+  ok "the fixture repo is back to one worktree"
+else
+  bad "(ah) $WT worktrees registered after the run (want 1)"; ( cd "$FX" && git worktree list ) | head -5
+fi
+
+echo "(ai) a serial-pinned killer never runs beside a sibling, even at JOBS=4"
+OBS_AI="$TMPROOT/obs-ai"
+FX="$TMPROOT/fxai$RANDOM$RANDOM"
+make_obs_fleet "$FX" 4 "$OBS_AI"
+# `./`-prefixed on purpose: these fixture guards sit at the repo ROOT, so `dirname` yields
+# `.` and the kill set the harness computes is `./guardN-selftest.sh`. Rows are matched
+# against that string verbatim, exactly as mutation-slow-suites.tsv rows are. No real guard
+# lives at the root, which is why the committed file carries plain relpaths — and why (k)
+# reds on a `./` there rather than letting a stray prefix make a pin silently inert.
+{ printf '# fixture serial suites\n'
+  for i in 1 2 3 4; do printf './guard%s-selftest.sh\tfixture pin\n' "$i"; done
+} > "$FX/tools/mutation-serial-suites.tsv"
+( cd "$FX" && git add -A \
+  && git -c user.email=fixture@example.invalid -c user.name=fixture commit -qm pin ) >/dev/null 2>&1
+obs_reset "$OBS_AI"
+OUT="$( cd "$FX" && adv env MUTATION_SWEEP_JOBS=4 bash "$SWEEP" --mode full --report "$TMPROOT/ai-pinned.tsv" 2>&1 )"
+MAXP="$(obs_max "$OBS_AI")"
+if [[ "$MAXP" -eq 1 ]]; then
+  ok "pinned suites ran one at a time despite a pool of 4"
+else
+  bad "(ai) a pinned suite ran beside $((MAXP - 1)) sibling(s) — the pin is not honored"
+fi
+if diff -q "$TMPROOT/ac-4.tsv" "$TMPROOT/ai-pinned.tsv" >/dev/null 2>&1; then
+  ok "pinning changes the schedule and nothing else — same report as the unpinned pool"
+else
+  bad "(ai) the pinned run's report differs from the unpinned parallel run"
+  diff "$TMPROOT/ac-4.tsv" "$TMPROOT/ai-pinned.tsv" 2>&1 | head -8
+fi
+
 echo "(j) universe rule — every in-universe guard in the REAL tree is accounted"
 UNIV="$( cd "$REPO_ROOT" && git ls-files '*.sh' \
         | grep -v -- '-selftest\.sh$' | grep -v '/evals/' | grep -v '^tests/hooks-smoke/' | sort )"
@@ -1057,6 +1420,20 @@ if [[ -f "$REPO_ROOT/tools/mutation-slow-suites.tsv" ]]; then
       *) lint_fail "slow-suites measured_at is not ISO-8601: $s -> '$when'" ;;
     esac
   done < "$REPO_ROOT/tools/mutation-slow-suites.tsv"
+fi
+# Serial pins: the suite resolves, and the row STATES WHY. A pin costs that guard's mutants
+# their share of the pool, so a reasonless row is a silent bill — and the reason is also the
+# only place a reader learns whether the suite is unfixable or merely was not fixed here.
+if [[ -f "$REPO_ROOT/tools/mutation-serial-suites.tsv" ]]; then
+  while IFS=$'\t' read -r s reason; do
+    case "$s" in ''|'#'*) continue ;; esac
+    [[ -f "$REPO_ROOT/$s" ]] || lint_fail "serial-suites selftest does not exist: $s"
+    case "$s" in *-selftest.sh) : ;; *) lint_fail "serial-suites row is not a selftest: $s" ;; esac
+    # Rows are matched against the kill set VERBATIM, and `-f` passes on both spellings, so
+    # a `./` prefix is a row that exists, lints clean, and pins nothing.
+    case "$s" in ./*) lint_fail "serial-suites path is './'-prefixed, which never matches a kill set: $s" ;; esac
+    [[ ${#reason} -ge 20 ]] || lint_fail "serial-suites row has no reason (a pin is a real cost): $s"
+  done < "$REPO_ROOT/tools/mutation-serial-suites.tsv"
 fi
 # Baseline: header present, survivor ids well-formed.
 if [[ -f "$REPO_ROOT/tools/mutation-baseline.tsv" ]]; then
