@@ -1,250 +1,195 @@
 # lean review verdict — #375
 
-verdict=needs-work
-run_id: review-375-1
-session_id: abe4301f-39be-48e9-be38-982a13dce4df
-rounds: 1
-pr: #377
-reviewed_head: 30d99ec61569f5aeacfa4a43d3b10f9429186870
-reviewed_patch_id: 0443c97122104c5ff7603e3020fb2b492a3ad374
-model: unknown
-
-## Round 1 — `needs-work`, one blocker
-
-Reviewed at `d833c42` (`main..HEAD`, the full branch diff — `bash G delta 375` printed the FULL
-range, this round being a chain root). The committed spec
-[`docs/plans/second-shift-375-lean.md`](docs/plans/second-shift-375-lean.md) is the definition of
-done.
-
-**All ten `AC-n` are satisfied.** The blocker is not an unmet AC — it is a defect the diff
-introduces that no AC names, and it was found by the act of recording this verdict: the first
-version of this round's record was written `approve`, committed and pushed, and reduced its own
-PR's `pr-gates` to red. That record is the reproduction.
-
-### B1 (blocker) — a chain-ROOT record's own summary prose injects the key all three readers gate on
-
-`inherited_patch_id` is the first key in the verdict-record schema that is **conditionally
-emitted**: the writer omits it entirely on a root record. Every other key the readers gate on is
-always in the header, which is what makes the documented mitigation work — `cmd_verdict` states it
-in as many words, that "all three readers take the FIRST match of each key, so an injected
-`run_id` loses to the authentic one written above it". For a key that is **absent** there is no
-authentic occurrence to win the race, so the first match in the file is whatever the reviewer's
-prose happens to contain.
-
-Reproduction — the record this session pushed at `30d99ec`, written by the production writer, no
-hand-editing:
-
-```
-$ sed -n '1,11p' docs/plans/second-shift-375-lean-verdict.md     # the header the writer emitted
 verdict=approve
-run_id: review-375-1
-session_id: abe4301f-39be-48e9-be38-982a13dce4df
-rounds: 1
+run_id: review-375-2
+session_id: ee0785ca-d5d3-45b7-b52d-dcdf2b01ae5a
+rounds: 2
 pr: #377
-reviewed_head: d833c427936d24a2feb0bed38bc37490347c8b1f
-reviewed_patch_id: 0443c97122104c5ff7603e3020fb2b492a3ad374
+reviewed_head: 7363651be9ec64a07409341d69c1639e91c436aa
+reviewed_patch_id: f522526b08b3106370923017aa962e83cfdb8359
+inherited_patch_id: 0443c97122104c5ff7603e3020fb2b492a3ad374
+inherited_from_verdict: 565b6c34a468028dcc6a7f77f0e460dcbcc38a76
 model: unknown
-                                                    <-- NO inheritance key. Correct: it is a root.
 
-$ grep -n 'inherited_patch_id' <the record>
-71: ... a line inside the round's own findings, quoting a fixture's keys ...
+## Round 2 — `approve`
 
-$ bash G 4 375
-[lean-gate] ✗ milestone-4: ... round 1 declares an inherited patch of 20cd8549f053, which matches
-no earlier verdict record committed on this branch ... Get a review round that reads the full
-diff: '/dev-pipeline:review-lean <pr>'.
+Reviewed at `7363651`. `bash G delta 375` (the branch's own gate) printed the **FULL** range
+`d5b3fa5..HEAD`, and correctly: the rebase onto #376 resolved two conflict hunks, so round 1's
+reviewed patch anchors no commit on this branch and its coverage cannot extend over a resolution
+it never saw. **This round therefore read the whole branch diff** — see note 7, since the derived
+key in this record's own header will nevertheless name round 1.
 
-$ gh pr checks 377
-pr-gates   fail
-```
+Round 1's findings (`review-375-1`, `needs-work`: B1 blocker + W1/W2/W3) were read first, per the
+skill's step 5. The committed spec `docs/plans/second-shift-375-lean.md` is the definition of done;
+it now carries **twelve** `AC-n`, two of them added in the fix round (see note 1).
 
-Line 71 is prose. The record declares nothing. All three readers use the identical
-`grep -oE '<key>:[[:space:]]*[A-Za-z0-9._-]+' | head -n1` extraction
-(`lean-gate.sh` `record_key`, `lean-reconcile.sh` `extract_key`, `check-lean-chain.sh` line 322),
-so milestone 4, the merge boundary and reconcile all reach the same wrong value.
+**No blockers.** B1 is fixed at both halves and the fix is confirmed in production on this very
+branch. W1 and W3 are fully addressed. W2 is addressed at the writer — the half that was
+production-reachable — and its reader-side half survives; it is carried forward below as the one
+warning, deliberately not escalated.
 
-**Why this is a blocker and not a warning.** It is not reachable-in-principle, it is the state
-this PR is in right now. The trigger is a round whose findings *discuss the feature* — which is
-every review of this PR and every future round that reports on inheritance at all — and the
-remedy the refusal prints is unreachable: a fresh round that writes the same finding reproduces
-the same refusal. A correct `approve` on a correct branch cannot be recorded.
+### B1 — fixed, and confirmed outside the fixtures
 
-**And the refusal is the benign half.** The injected value is read as a *claim of inherited
-coverage*, so where the refusal happens to be avoided — a token in prose that matches an earlier
-record's reviewed patch — a root record is credited with coverage no round performed. That is the
-inverse of the property the chain exists to guarantee.
+The writer now emits the inheritance key on **every** round (sentinel `none` on a root), and all
+three readers extract it **header-anchored** via one shared awk program. Both halves verified
+independently of the suites:
 
-Fix directions, for the build round to choose between:
+- **The extraction, driven directly** on four hand-built records (the production reader's awk,
+  lifted out of `check-lean-chain.sh`): a header sentinel beats a body value that would resolve;
+  a **pre-sentinel** header (key absent entirely) yields nothing rather than the body's value; a
+  legitimate header value is read; and a header run with no blank line still stops at the first
+  header match. Only the legitimate case returned a value.
+- **In production, on this branch.** CI's `pr-gates` at `7363651` prints
+  `· verdict record declares no inherited coverage — it covers the whole branch diff on its own`
+  for round 1's record — which is a genuine pre-sentinel root, exactly the population the
+  header-anchoring half exists for. Round 1's own repro is that this same reader went red here.
+  (Honest scope: the corrected round-1 record no longer contains a first-matchable occurrence in
+  its body, so this run confirms the *pre-sentinel-root* half, not the *injection* half. The
+  injection half is fixture-covered at all three readers — `(z1)`/`(z2)`/`(z3)`, `(V6)`/`(V6b)`,
+  `(N7)`/`(N7b)` — each driving both the dangling variant (loud, rc flips) and the resolving one
+  (silent, both readings exit 0, only the link **count** separates them).
 
-- **Emit the key unconditionally**, with an explicit sentinel on a root record (`none`), so the
-  authentic header value always wins first-match. This is the shape the schema's other derived
-  keys already have, and it makes absence a written fact rather than an inference. Readers map the
-  sentinel to "no inheritance".
-- **Or anchor the extraction to the header**, e.g. line-anchored `^inherited_patch_id:` or reading
-  keys only above the first blank line. Note that `record_verdict`'s comment rejects anchoring for
-  `verdict=` specifically because the earliest committed records wrote it as a bullet or a table
-  cell — that reasoning is about a legacy corpus, and `inherited_patch_id` has none, so anchoring
-  is available for this key even though it was not for that one.
+The two doc consequences round 1 asked for are in: `cmd_verdict`'s note now states the rule as a
+property of *unconditional* emission, and `record_key`'s comment says which keys it is correct for.
 
-Either way the guard has to be a fixture whose `--summary-file` body **contains the key** — a case
-in `lean-gate-selftest.sh` driving the real writer that way, with counterparts at the other two
-readers, since all three share the extraction. Without that the fix is unkillable in exactly the
-sense this PR's own `(y2)`/`(N6)`/`(V3b)` cases were written to avoid.
+### W1, W3 — fixed
 
-Two documentation consequences ride along: `cmd_verdict`'s "nothing escalates today" paragraph is
-now false as a statement about the schema, and `record_key`'s comment ("the SAME extraction
-`lean-reconcile.sh` uses ... two readers of one schema that disagreed would be a silent
-divergence") is right about agreement and silent about the shared blind spot — three readers
-agreeing on a wrong value is not the divergence it guards against.
+- **W1 (arm order).** The committed / tracked-but-dirty arms now precede the chain arm in
+  `cmd_4`; verified by reading, and `(z4)`/`(z4b)` turn on the `git commit` and nothing else.
+- **W3 (three hand-maintained copies).** The extraction became one dialect-neutral awk program
+  pinned by two `verbatim` rows; `check-lockstep-pairs.sh` reports 15 pairs, 0 failed, with both
+  new rows named. The chain-**walk** loop stays a DROPPED entry with the reasoning recorded —
+  correct, and the recorded reason (each reader phrases its own diagnostic; the boundary must
+  scope `git log` to the PR head) is verifiable in the diff. The key-schema entry is extended to
+  name both new keys.
+
+### Warning — W2's reader-side half is still open
+
+**The merge boundary credits an inheritance link without checking who authored it.**
+`check-lean-chain.sh`'s chain walk reads only the reviewed-patch and inherited-patch identities per
+link. It never reads a link's session key, though it already has the build identity in hand
+(`CLAIM_SESSION_ID`, extracted from the claim comment and compared against the **head** record
+about 130 lines above). `lean-reconcile.sh` breaks the chain on three conditions the boundary
+ignores: a link naming no review session, a link naming the **build** session, and a link whose
+session already authored another round. So the authoritative, model-free gate is strictly weaker
+than the advisory operator-side one, on exactly the property inheritance introduced.
+
+What the fix round did address is real and is the half that mattered most: `inherit_candidate` now
+skips a candidate this round authored and continues to the last independent round, so the
+production writer no longer emits the shape the three readers disagreed about (`(z5)`/`(z5b)`).
+That closes the non-adversarial path. The residual is the adversarial one: a hand-written round-1
+record naming the build session (or none), inherited by a genuine round 2 that then reads only the
+delta.
+
+Two things the spec should not keep saying while that is true:
+
+1. `docs/plans/second-shift-375-lean.md` justifies the split as "the arm only the operator-side
+   reader can meaningfully make". That is not so for two of the three sub-arms — the boundary
+   already extracts the build session id and already uses it, and the duplicate-session-in-chain
+   arm needs no identity at all, only each link's own session key read through the `git show` the
+   walk already performs.
+2. `check-lean-chain.sh`'s evidence-6 header says the boundary now guarantees "a CHAIN of
+   independent reviews covered it". Its **printed** line is precisely honest ("each resolving to
+   an earlier verdict record on this branch"); the header comment is the part that overstates.
+
+**Why this is a warning and not a blocker, stated rather than assumed.** Round 1 raised this same
+defect as W2 with its reasoning on the record, and the lane's rule is that a round-1 warning is not
+re-scored upward in round 2 without new information — there is none here. No `AC-n` is unmet on its
+letter: AC-8 assigns the independence arm to the third reader and the spec's Design section states
+the split deliberately. And the residual buys an adversary nothing they lacked: the boundary
+already passes a hand-written **head** record carrying invented run/session ids, so a forged link
+is the same capability applied to an older file version, at the tamper-**evidence** altitude
+`lean-gate.sh`'s own header and D-47 already declare. Cheapest close, if taken later: extract the
+session key per link inside the existing walk and mirror `lean-reconcile.sh`'s three arms —
+otherwise narrow the two prose claims above to "links resolve".
 
 ### Per-`AC-n` scoring
 
 | AC | Verdict | Evidence |
 | --- | --- | --- |
-| AC-1 | satisfied | `check-lean-chain-selftest.sh` (V2) positive / (V4) negative. Reproduced independently: a fixture drives the real writer through two rounds and the boundary prints `✓ inheritance chain: 2 inherited link(s)`, rc=0. |
-| AC-2 | satisfied | `lean-gate-selftest.sh` (x2) pins BOTH halves — the re-touched file is in the range, the untouched one is not. (x5a)/(x5) pin rebase survival with an explicit non-vacuity assertion that the pre-rebase head really left the branch. Exercised live: `bash G delta 375` on this branch. |
-| AC-3 | satisfied | (x7) and (V5) each assert the round that BROKE the chain is named AND that the round whose link resolves is not — a bare presence check would pass on the wrong attribution. |
-| AC-4 | satisfied | (x1) the writer emits neither key on a round 1; (V1)/(N1) both readers print the absence rather than skipping it silently. B1 is a consequence of how that absence is *read back*, not of the write side. |
-| AC-5 | satisfied | (x6) / (V4) / (N3) — refused at all three readers, never downgraded. See note 1 on the wording change from the issue's own AC-5. |
-| AC-6 | satisfied | (x3c) drives the P10 arm on a record whose chain resolves cleanly, so authorship is the only thing that can red. The second clause is the subject of W2. |
-| AC-7 | satisfied | `review-lean/SKILL.md` step 4 (delta; full range when nothing is verifiable to inherit), step 5 (prior record's findings first, with the fixed-vs-re-introduced reasoning), plus the new "narrows what you READ, never what you must find" rule. Verified by executing step 4 for this review. |
-| AC-8 | satisfied | (N2) a two-round chain reconciles; (N4)/(N5)/(N6) the three refusals. Reproduced live on a production-written record. |
-| AC-9 | satisfied | Reproduced, not read off the PR body — see Verification. |
-| AC-10 | satisfied | `Changelog:` trailers on 5/5 commits; `check-changelog-trailer.sh main` → OK. |
-
-### Warnings
-
-**W1 — milestone 4 asks "does the chain resolve?" before it asks "is this record committed at
-all?", so an uncommitted round-≥2 record gets the wrong refusal and the wrong remedy.**
-`cmd_4` reads the inheritance key from the working-tree file and walks the chain at line 790, but
-the "was never committed" and "tracked-but-dirty" arms are at 818–829. With a round-2 record
-written and not yet committed, `git log -1 -- $VERDICT_REL` resolves to *round 1's* commit, the
-window trims it away, and the round-1 identity the record legitimately declares matches nothing
-left in the window. Reproduced:
-
-```
-### round-2 record WRITTEN but NOT committed, then 'bash G 4'
-[lean-gate] ✗ milestone-4: ... round 2 declares an inherited patch of 65d8c022ab75, which matches
-no earlier verdict record committed on this branch ... Get a review round that reads the full diff.
-### same record, now COMMITTED (control)
-[lean-gate] ✓ milestone-4: ... inheriting 1 verified earlier round(s)
-```
-
-The correct message is the one at line 820 ("exists but was never committed — commit and push
-it"); the message actually printed sends the reviewer to redo an entire round. Fail-closed, no
-false pass, round-1 records unaffected. Fix is the arm order: move the chain block below the
-`v_commit` / dirty checks — also where the block's own comment ("who wrote this record, then what
-does it claim to cover") implies it belongs, since "is there a committed record at all" precedes
-both questions.
-
-**W2 — the writer emits, with no hand-editing, a chain link that `lean-reconcile.sh` refuses and
-that the CI merge boundary credits as an independent round.**
-`review-lean` permits re-running a round on its cached identity. If the branch moved in between,
-`inherit_candidate` finds the newest committed record whose patch differs from the current tree —
-which is *this round's own earlier version*. Driven entirely through the production writer:
-
-```
-run_id: review-9-2      session_id: sess-r2      rounds: 2
-reviewed patch  58e60116fd8a...     inherited  20cd8549f053...   <- its own prior version
-
-lean-gate.sh milestone 4      ✓ ... inheriting 2 verified earlier round(s)
-check-lean-chain.sh (CI)      ✓ inheritance chain: 2 inherited link(s), each resolving to an
-                                earlier verdict record on this branch      → rc=0
-lean-reconcile.sh (operator)  ✗ round 2 was authored by session 'sess-r2', which already authored
-                                another round in this chain                 → rc=1
-```
-
-Two things fall out. The three readers disagree about a record the writer produced — and the count
-both other readers print ("2 verified earlier rounds") overstates what happened by one. And the arm
-that catches it is the operator-run reader, not CI: the spec places the independence check there on
-the grounds that it is "the arm only the operator-side reader can meaningfully make", but CI already
-extracts the build run's identity from the claim comment and already compares it against the *head*
-record — extending that comparison to every link is mechanical, and it is what would put AC-6's
-second clause ("inheritance opens no path around P10") behind the boundary that actually gates
-merges.
-
-Not scored a blocker, and the reasoning rather than the conclusion: no `AC-n` is unsatisfied on its
-letter; the same-session path only arises once the reviewer has already broken this skill's own rule
-that a push changing a line costs a new round, which makes `lean-reconcile`'s refusal *correct* and
-the defect "the writer does not warn"; and the P10 face needs a hand-forged record that milestone 4
-and CI would each refuse while it was the head record — the tamper-evidence altitude this lane
-already declares, not below it.
-
-Cheapest fix at the source: have `inherit_candidate` skip a candidate whose `run_id` or session id
-equals this round's. Both values are in hand at write time, and the round then degrades to a chain
-ROOT — more reading, the direction the writer already degrades in when the chain beneath it breaks.
-
-**W3 — the chain walk is hand-maintained in three copies, with neither a shared definition nor a
-`scripts/lockstep-manifest.tsv` entry recording that decision.**
-`chain_walk` / `versions_after` in `lean-gate.sh`, inline in `lean-reconcile.sh` (+ the session
-arm), inline again in `check-lean-chain.sh` (`[[ ]]`, `CHAIN_*` naming). Each copy re-derives the
-same three engineered edge cases — same-round idempotency, the strictly-backwards window, content
-matching for rebase survival — and each re-explains them in its own prose. `CLAUDE.md` routes
-exactly this shape either to a shared lib (the `scenario-lib.sh` / `runtime-shim-lib.mjs`
-precedent) or, when the coupling is real but not byte-anchorable, to a **DROPPED** manifest entry
-carrying the reasoning. Neither was done. The adjacent precedent is already in that file: the
-verdict-record key schema has a DROPPED entry naming its one writer and three readers — and this
-diff adds two keys to exactly that schema without extending it. B1 is what that entry would have
-been for: a schema change whose *reader-side* consequence was not re-derived across all three.
-
-Behaviorally the walk *is* guarded from three sides ((y2) / (N6) / (V3b) each pin the window
-independently), which is why this is a warning and not a blocker on its own.
+| AC-1 | satisfied | `(V2)` positive / `(V4)` negative at the boundary; `(x3)`/`(x6)` at milestone 4. |
+| AC-2 | satisfied | `(x2)` pins both halves (re-touched file in range, untouched file out); `(x5a)`/`(x5)` pin rebase survival with an explicit non-vacuity assertion. Exercised live: `bash G delta 375` on this head. |
+| AC-3 | satisfied | `(x7)` and `(V5)` each assert the round that BROKE the chain is named **and** that the round whose link resolves is not. |
+| AC-4 | satisfied | Pre-#375 records read as roots at all three readers — `(z3)`, `(V6)`, `(N1)`. Confirmed in production: CI reads round 1's own pre-sentinel record as a root. See note 2 on the AC's now-stale wording. |
+| AC-5 | satisfied | `(x6)` / `(V4)` / `(N3)` — refused at all three readers, never downgraded to a root. |
+| AC-6 | satisfied | `(x3c)` drives the P10 arm on a record whose chain resolves cleanly, so authorship is the only thing that can red; the boundary's head-record arm is unchanged and green on this PR. The clause's per-link reach at the boundary is the warning above, scored as round 1 scored it. |
+| AC-7 | satisfied | `review-lean/SKILL.md` steps 4–5 (delta first; full range when nothing is verifiable to inherit; prior record's findings read first, with the fixed-vs-re-introduced reasoning) plus the new "narrows what you READ, never what you must find" rule. Verified by executing steps 4–5 for this review. |
+| AC-8 | satisfied | `(N2)` a two-round chain with distinct sessions reconciles; `(N4)`/`(N5)`/`(N6)`/`(N7)` the four refusals. |
+| AC-9 | satisfied | Reproduced independently — see Verification. Survivor set matches the committed baseline member-for-member (13 = 13, no baselined row unenumerated, no unbaselined survivor). The riskier row removal was hand-checked. |
+| AC-10 | satisfied | 8/8 commits carry a `Changelog:` trailer; `check-changelog-trailer.sh` on the base → OK. |
+| AC-11 | satisfied | Writer emits unconditionally; three readers share one header-anchored extraction (two `verbatim` rows, both PASS). Both the dangling and the resolving variants driven at each reader via `--summary-file`, the path a reviewer's findings actually arrive through. Probed directly besides. |
+| AC-12 | satisfied | `inherit_candidate` skips a candidate matching this round's run **or** session id and continues rather than degrading (`(z5)`/`(z5b)`); the committed / dirty arms precede the chain arm in `cmd_4` (`(z4)`/`(z4b)`, verified by reading the ordering too). |
 
 ### Notes
 
-1. The spec's AC-5 restates the issue's ("degrades to uninherited and is refused unless it covers
-   the full diff") as a flat refusal. The issue's phrasing is unimplementable as written — no
-   record asserts "I covered the full diff" — and the restatement is strictly the fail-closed
-   reading. The spec is commit 1 of 5, so this is not a spec amended to match the diff. Scored on
-   the spec's letter with the deviation stated.
-2. OR-2 deviates from the issue's stated reversible default, under a `reversible-default-and-flag`
-   disposition, with the rationale in both the spec and the PR body and the operator's answer as
-   provenance. Correct handling — and case (x1) writes round 1 as `needs-work` deliberately so the
-   resolution is pinned rather than assumed.
-3. `review-lean/SKILL.md` went 60 → 74 lines. Its sibling `run-lean/SKILL.md` carries a hard
-   60-line cap guarded by `(f)`; this file has no counterpart guard. Flagging the asymmetry only.
-4. Schema bootstrap, for the next round: it must invoke the **branch's own** `lean-gate.sh`. The
-   installed plugin (3.8.0) has no `delta` subcommand and would write a record without the
-   inheritance keys. This review did so. The PR body does not say it.
-5. This round's record was first written `approve` and pushed at `30d99ec`; B1 surfaced there and
-   the record was corrected in place on the same round and the same review identity. No fix has
-   happened yet, so this is still round 1 — not a round 2.
+1. **Two `AC-n` were added mid-run.** AC-11 and AC-12 were written in the fix round to name the
+   defect round 1 found. The skill's rule about a spec amended to match the diff is aimed at a bar
+   being *lowered*; this raises it, the build round disclosed it in the PR body rather than folding
+   it in silently, and round 1 found the defect without either AC existing. Scored as satisfied,
+   with the amendment stated — rejecting it remains the operator's call, not the reviewer's.
+2. **AC-4's wording is now stale**, disclosed but not fixed. Its subject is "a round-1 record — no
+   inheritance key". After the fix the writer emits the key on every round, so that phrase now
+   describes only pre-#375 records. The property still holds for both shapes and `(x1)`'s comment
+   says exactly this; the fix round amended the spec anyway, so AC-4 could have been re-worded in
+   the same edit.
+3. **Round 1's note 3 stands.** `review-lean/SKILL.md` is 60 → 74 lines on this PR, against a
+   sibling that carries a hard 60-line cap guarded by `(f)`. The PR body's "the skill edit is
+   net-zero on line count" is true of the **fix round** only; it does not address the note. Not an
+   action — round 1 flagged the asymmetry only — but the phrasing reads as a resolution.
+4. **`cmd_delta` takes the round's identity from the environment**, which is correct and its
+   comment explains why the review run-id cache would be wrong (it holds the *previous* round's id
+   at that moment). Residual, documented in the code: invoked with neither identity set — an
+   operator poking at the range outside a session — a re-run round would anchor on its own earlier
+   record and print a narrower range than the record it later writes will declare. In a real review
+   session the session id is always set, so the own-record skip still fires.
+5. **The help-range trap did not recur.** All three `sed -n '2,Np'` ranges match their file's last
+   header line exactly (121 / 67 / 112, checked by re-deriving each), and `(w)` and the new `(O)`
+   each assert presence of that last line **and** absence of `set -uo pipefail`, which is what
+   makes the `cmp-z` mutant killable on both sed dialects.
+6. **This round used the branch's own `lean-gate.sh`**, per round 1's note 4 — the installed plugin
+   has neither the `delta` subcommand nor the inheritance keys, so a schema change can only be
+   reviewed against itself.
+7. **`delta` and `verdict` can disagree, and did on this very record — safely, but say it out
+   loud.** `verdict` derives its link from a *committed record whose patch differs*; `delta`
+   additionally needs that patch to **anchor a commit** on the branch, so it can print the FULL
+   range while `verdict` still names a link. That is what happened here: the rebase's conflict
+   resolution means round 1's tree is no state this branch ever passed through, `delta` printed
+   FULL and this round read everything, yet the header of this record names round 1 anyway. The
+   direction is always the safe one — `delta`'s range is a superset of what the record declares,
+   never a subset, because `verdict`'s candidate set is a superset of `delta`'s — so the union
+   claim downstream readers compute stays true. The exposure is a reviewer who computes the delta
+   themselves from the pointer key instead of running `bash G delta`: they would read less than
+   this record implies was read. Worth a line in `cmd_delta`'s comment, or a `delta`-side note that
+   an unanchorable link is still recorded.
 
-### Verification (independent, from the PR-head checkout at `d833c42`)
+### Verification (independent, from the PR-head checkout at `7363651`)
 
 | Check | Result |
 | --- | --- |
-| `shellcheck` repo sweep | clean |
+| `shellcheck` repo sweep (`-e SC1091,SC2015,SC2181`) | clean, 0 lines of output |
 | `jq empty` over every `*.json` | clean |
-| 63 discovered selftest suites, **no** `SKIP_STRESS`, `env -u CLAUDE_CODE_SESSION_ID` | rc=0, zero `FAIL` lines |
-| `bash G delta 375` | FULL range, `7e8d868..HEAD`, 9 files — correct for a chain root |
-| `check-changelog-trailer.sh main` / `check-frozen-files.sh main` | OK / clean |
-
-AC-9 reproduced rather than accepted — a local diff-scoped `mutation-sweep.sh --mode pr --base
-main`:
-
-```
-lean-gate.sh         applied=10 killed=7 survived=3   cmp-eq::1, default::1, default::2
-lean-reconcile.sh    applied=12 killed=7 survived=5   fail-open::2, cmp-eq::1, detector::1, default::1, default::2
-check-lean-chain.sh  applied=12 killed=7 survived=5   cmp-eq::1, cmp-eq::2, cmp-z::1, default::1, default::2
-```
-
-Matches the PR body's table and `tools/mutation-baseline.tsv` member-for-member after the two
-removals. The claim behind the riskier removal was checked by hand rather than inferred: neutering
-the `Part of #N` fallback grep reds `check-lean-chain-selftest.sh` on case `(M2)`, so
-`detector::2`'s removal reflects coverage and not a re-key hiding a survivor.
+| 63 selftest suites, **no** `SKIP_STRESS`, `env -u CLAUDE_CODE_SESSION_ID` | rc=0, zero failure lines |
+| `scripts/check-lockstep-pairs.sh` | 15 pairs checked, 0 failed — both new `verbatim` rows PASS |
+| `bash G delta 375` (branch's own gate) | FULL range, `d5b3fa5..HEAD` — the honest outcome after a conflict resolution |
+| `tools/mutation-sweep.sh --mode pr --base <base>` | `10/7/3`, `12/7/5`, `12/7/5` — reproduces the PR body's counts, and the survivor ids match the baseline member-for-member in both directions |
+| `(M2)` kill claim, hand-applied | neutering the `Part of #N` fallback grep reds `(M2)` and **only** `(M2)` — the `detector::2` row removal reflects coverage, not a re-key hiding a survivor |
+| header-anchored extraction, driven directly on 4 adversarial records | only the legitimate header value is returned |
+| CI at `7363651` | `lint-and-selftests` pass, `selftests (macos, bash 3.2)` pass; `pr-gates` red on exactly one fact — round 1's record reads a non-approve verdict — reported twice by design |
 
 ### What the diff does well
 
-The two defects the build found on itself are the load-bearing ones, and both are recorded honestly
-in the PR body rather than quietly fixed. Making the window **observable** (`chain_walk` returning
-`ok <links>`, milestone 4 printing the count) is what converted an unkillable guard into three
-independently-pinned cases — the right move, and the general lesson. Dropping the "each link's
-commit is an ancestor" arm from `lean-reconcile.sh` *with the reasoning recorded* is the same
-judgment applied in reverse. And `(x)`/`(y)` each get their own fixture tree, with the reason
-stated: `inherit_candidate` walks the whole path history, so a round-1 case run in the shared tree
-would inherit whatever an earlier block left behind and pass for the wrong reason.
-
-B1 sits squarely inside that strength rather than against it: the diff's own discipline is to ask
-what a guard would fail on, and the one question not asked was what the *reader* does when the key
-it gates on is legitimately absent.
+- **The observability lesson is applied, not just recorded.** The chain's backwards-search window
+  was unkillable in all three readers until its effect was printed; `chain_walk` now returns a link
+  **count** and milestone 4 puts it in the pass line, which is what makes `(y2)`/`(V3b)`/`(N6)`
+  able to red. The converse is handled with the same discipline: the ancestry arm that would have
+  held by construction was DROPPED with the reasoning recorded rather than baselined.
+- **The B1 fix is two halves that cover disjoint populations**, and the diff says so rather than
+  presenting belt-and-braces: the sentinel protects records this writer produces, the header
+  anchoring protects the ones it did not — including a record sitting on this very branch.
+- **The fixtures are built by the real writer**, with hand-corruption confined to a single key on
+  an otherwise production-derived record, and each block gets its own tree so an earlier block's
+  committed records cannot make a later case pass for an unrelated reason. `(x5a)`, `(y1)`,
+  `(V0)`, `(V2-fixture)`, `(N2-fixture)` each assert their own non-vacuity.
+- **The mutation accounting distrusts the right claim.** "No ordinal moved" was checked at the
+  **site** level rather than by matching id strings, which is the only method that can tell "same
+  ordinal, same line" from "same ordinal, different line" — and it reproduces exactly.
