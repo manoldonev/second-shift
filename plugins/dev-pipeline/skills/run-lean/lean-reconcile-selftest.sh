@@ -412,7 +412,7 @@ else fail "(N2) expected rc=0 on a clean chain, got $rc: $out"; fi
 write_verdict_chain review-7-2 sess-review-round2 2 "$n_pid2" "deadbeefdeadbeefdeadbeefdeadbeefdeadbeef"
 commit_verdict "2026-01-01T11:40:00Z"
 out="$(reconcile "$WORK/comments-good.json")"; rc=$?
-if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q 'matches no verdict record committed on this branch'; then
+if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q 'matches no earlier verdict record committed on this branch'; then
   pass "(N3) a dangling inheritance link fails reconciliation"
 else fail "(N3) expected rc=1 on a dangling link, got $rc: $out"; fi
 

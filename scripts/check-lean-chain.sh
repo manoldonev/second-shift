@@ -505,29 +505,36 @@ if [[ -n "$VERDICT" ]]; then
     # same reason evidence 5 is: on a pull_request event the checkout's HEAD is the MERGE ref,
     # so a bare `git log` would walk base-side history the PR never authored.
     CHAIN_VERSIONS="$(git -C "$REPO_ROOT" log --format=%H "$PR_HEAD_SHA" -- "$VERDICT" 2>/dev/null)"
+    # The search starts strictly BELOW the commit carrying the record being read, and shrinks
+    # past every hit, so the chain must run backwards through the record's history. Two things
+    # ride on that: a branch reverted to a previously-reviewed tree carries an identity an
+    # ancestor also carries, and an unbounded search would resolve that round to ITSELF; and
+    # termination becomes structural, with no cycle counter to get wrong. A window that cannot
+    # be anchored collapses to empty, which refuses — never to the full list, which would widen.
+    CHAIN_HEAD_COMMIT="$(git -C "$REPO_ROOT" log -1 --format=%H "$PR_HEAD_SHA" -- "$VERDICT" 2>/dev/null)"
+    CHAIN_REST=""
+    CHAIN_PAST=0
+    for c in $CHAIN_VERSIONS; do
+      if [[ "$CHAIN_PAST" -eq 1 ]]; then CHAIN_REST="$CHAIN_REST $c"; continue; fi
+      [[ "$c" == "$CHAIN_HEAD_COMMIT" ]] && CHAIN_PAST=1
+    done
+    CHAIN_VERSIONS="$CHAIN_REST"
     CHAIN_WANT="$VERDICT_INHERITED_PATCH_ID"
     CHAIN_ROUND="${VERDICT_ROUNDS:-?}"
-    CHAIN_SEEN=""
     CHAIN_LINKS=0
     CHAIN_BROKEN=""
     while [[ -n "$CHAIN_WANT" ]]; do
-      # An identity already walked means the chain loops back on itself, which no honest
-      # sequence of rounds produces — each round reviews a tree the previous one did not.
-      if [[ " $CHAIN_SEEN " == *" $CHAIN_WANT "* ]]; then
-        CHAIN_BROKEN="round $CHAIN_ROUND inherits patch ${CHAIN_WANT:0:12}, which the chain has already visited — the inheritance chain loops back on itself, so no round in it independently covers the tree being merged."
-        break
-      fi
-      CHAIN_SEEN="$CHAIN_SEEN $CHAIN_WANT"
       CHAIN_HIT=""
+      CHAIN_REST=""
       for c in $CHAIN_VERSIONS; do
-        if [[ "$(record_key_at reviewed_patch_id "$c" "$VERDICT")" == "$CHAIN_WANT" ]]; then
-          CHAIN_HIT="$c"; break
-        fi
+        if [[ -n "$CHAIN_HIT" ]]; then CHAIN_REST="$CHAIN_REST $c"; continue; fi
+        if [[ "$(record_key_at reviewed_patch_id "$c" "$VERDICT")" == "$CHAIN_WANT" ]]; then CHAIN_HIT="$c"; fi
       done
       if [[ -z "$CHAIN_HIT" ]]; then
-        CHAIN_BROKEN="round $CHAIN_ROUND declares inherited_patch_id ${CHAIN_WANT:0:12}, which matches no verdict record committed on this branch — that round's inherited coverage is unverifiable, so nothing attests the part of the diff it did not read."
+        CHAIN_BROKEN="round $CHAIN_ROUND declares inherited_patch_id ${CHAIN_WANT:0:12}, which matches no earlier verdict record committed on this branch — that round's inherited coverage is unverifiable, so nothing attests the part of the diff it did not read."
         break
       fi
+      CHAIN_VERSIONS="$CHAIN_REST"
       CHAIN_LINKS=$((CHAIN_LINKS + 1))
       CHAIN_ROUND="$(record_key_at rounds "$CHAIN_HIT" "$VERDICT")"; [[ -n "$CHAIN_ROUND" ]] || CHAIN_ROUND="?"
       CHAIN_WANT="$(record_key_at inherited_patch_id "$CHAIN_HIT" "$VERDICT")"

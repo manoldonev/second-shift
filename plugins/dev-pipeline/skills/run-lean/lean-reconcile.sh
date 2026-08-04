@@ -299,28 +299,35 @@ if [ -z "$INHERITED_PATCH_ID" ]; then
 elif [ -z "$(git -C "$REPO_ROOT" log -1 --format=%H -- "$VERDICT_REL" 2>/dev/null)" ]; then
   say "  note: verdict record is not committed yet — its inheritance chain is not checkable."
 else
-  CHAIN_VERSIONS="$(git -C "$REPO_ROOT" log --format=%H -- "$VERDICT_REL" 2>/dev/null)"
+  # The search window starts strictly BELOW the commit carrying the record being read and
+  # shrinks past every hit, so the chain runs backwards through the record's history: a branch
+  # reverted to a previously-reviewed tree would otherwise resolve its round to itself, and
+  # termination is structural rather than a cycle counter. An unanchorable window collapses to
+  # empty, which refuses — never to the full list, which would widen the search.
+  CHAIN_VERSIONS=""
+  CHAIN_PAST=0
+  CHAIN_HEAD_COMMIT="$(git -C "$REPO_ROOT" log -1 --format=%H -- "$VERDICT_REL" 2>/dev/null)"
+  for c in $(git -C "$REPO_ROOT" log --format=%H -- "$VERDICT_REL" 2>/dev/null); do
+    if [ "$CHAIN_PAST" -eq 1 ]; then CHAIN_VERSIONS="$CHAIN_VERSIONS $c"; continue; fi
+    [ "$c" = "$CHAIN_HEAD_COMMIT" ] && CHAIN_PAST=1
+  done
   CHAIN_WANT="$INHERITED_PATCH_ID"
   CHAIN_ROUND="$(extract_key rounds "$REPO_ROOT/$VERDICT_REL")"; [ -n "$CHAIN_ROUND" ] || CHAIN_ROUND='?'
-  CHAIN_SEEN=""; CHAIN_LINKS=0; CHAIN_BROKEN=""
+  CHAIN_LINKS=0; CHAIN_BROKEN=""
   # The head round's author seeds the set, so a second round reusing it is caught on the first
   # link rather than only between two inherited rounds.
   CHAIN_SESSIONS="$REVIEW_SESSION"
   while [ -n "$CHAIN_WANT" ]; do
-    case " $CHAIN_SEEN " in
-      *" $CHAIN_WANT "*)
-        CHAIN_BROKEN="round $CHAIN_ROUND inherits patch $(printf '%.12s' "$CHAIN_WANT"), which the chain has already visited — the inheritance chain loops back on itself"
-        break ;;
-    esac
-    CHAIN_SEEN="$CHAIN_SEEN $CHAIN_WANT"
-    CHAIN_HIT=""
+    CHAIN_HIT=""; CHAIN_REST=""
     for c in $CHAIN_VERSIONS; do
-      if [ "$(extract_key_at reviewed_patch_id "$c")" = "$CHAIN_WANT" ]; then CHAIN_HIT="$c"; break; fi
+      if [ -n "$CHAIN_HIT" ]; then CHAIN_REST="$CHAIN_REST $c"; continue; fi
+      if [ "$(extract_key_at reviewed_patch_id "$c")" = "$CHAIN_WANT" ]; then CHAIN_HIT="$c"; fi
     done
     if [ -z "$CHAIN_HIT" ]; then
-      CHAIN_BROKEN="round $CHAIN_ROUND declares inherited_patch_id $(printf '%.12s' "$CHAIN_WANT"), which matches no verdict record committed on this branch — that round's inherited coverage is unverifiable"
+      CHAIN_BROKEN="round $CHAIN_ROUND declares inherited_patch_id $(printf '%.12s' "$CHAIN_WANT"), which matches no earlier verdict record committed on this branch — that round's inherited coverage is unverifiable"
       break
     fi
+    CHAIN_VERSIONS="$CHAIN_REST"
     CHAIN_LINKS=$((CHAIN_LINKS + 1))
     CHAIN_ROUND="$(extract_key_at rounds "$CHAIN_HIT")"; [ -n "$CHAIN_ROUND" ] || CHAIN_ROUND='?'
     CHAIN_SESS="$(extract_key_at session_id "$CHAIN_HIT")"

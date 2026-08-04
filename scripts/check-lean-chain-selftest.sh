@@ -706,6 +706,9 @@ write_chain_record() { # write_chain_record <run-id> <session-id> <rounds> <patc
 # ran". A silent skip and a satisfied check look identical in a log; that is the whole reason.
 v_pid1="$(tree_patch_id HEAD)"
 [ -n "$v_pid1" ] || fail "(V0) the fixture's patch identity is empty — every (V) case would compare nothing"
+# The exact spec bytes round 1 reviewed. (V3) restores THESE, not a plausible-looking rewrite:
+# the patch identity is a hash of content, so "close enough" is a different tree.
+v_spec_r1="$(cat "$TREE/docs/plans/acme-42-lean.md")"
 write_chain_record r-review-v1 sess-review-v1 1 "$v_pid1"
 v_r1_commit="$(git -C "$TREE" rev-parse HEAD)"
 out="$(run_gate_base "lean/acme-42" "$WORK/comments-good.json" "$WORK/diff-lean.txt" "main")"; rc=$?
@@ -725,27 +728,44 @@ if [ "$rc" -eq 0 ] && printf '%s' "$out" | grep -q 'inheritance chain: 1 inherit
   pass "(V2) AC-1: a round-2 record inheriting round 1's reviewed patch passes the merge boundary"
 else fail "(V2) expected rc=0 with one resolved link, got rc=$rc: $out"; fi
 
+# THE case that forces the search to run strictly BACKWARDS. A fix round can revert the branch
+# to exactly the tree an earlier round reviewed — "the blocker says the change was wrong" — and
+# the head record's reviewed patch is then an identity an ancestor record also carries. An
+# unbounded search resolves that round to ITSELF, and every honest chain through it reads as a
+# loop: a correct branch made unmergeable by a legal fix.
+printf '%s\n' "$v_spec_r1" > "$TREE/docs/plans/acme-42-lean.md"
+commit_tree "the round-2 fix is reverted — round 1's tree is back"
+v_pid_rev="$(tree_patch_id HEAD)"
+[ "$v_pid_rev" = "$v_pid1" ] \
+  || fail "(V3-fixture) the revert did not restore round 1's patch identity — (V3) would assert nothing"
+write_chain_record r-review-v3 sess-review-v3 3 "$v_pid_rev" "$v_pid2" "$v_r1_commit"
+out="$(run_gate_base "lean/acme-42" "$WORK/comments-good.json" "$WORK/diff-lean.txt" "main")"; rc=$?
+if [ "$rc" -eq 0 ] && printf '%s' "$out" | grep -q 'inheritance chain: 2 inherited link'; then
+  pass "(V3) a round whose reviewed patch an ancestor record also carries still resolves its chain — the search runs strictly backwards"
+else fail "(V3) expected a 2-link chain after a revert, got rc=$rc: $out"; fi
+
 # AC-1 negative / AC-5: a declared identity matching no record on the branch is REFUSED — never
 # downgraded to "then treat it as a root record", which would convert an unverifiable claim into
-# a satisfied one. Only the inherited key changes from (V2), so nothing else can be the cause.
-write_chain_record r-review-v2 sess-review-v2 2 "$v_pid2" "deadbeefdeadbeefdeadbeefdeadbeefdeadbeef" "$v_r1_commit"
+# a satisfied one. Only the inherited key changes from (V3), so nothing else can be the cause.
+write_chain_record r-review-v3 sess-review-v3 3 "$v_pid_rev" "deadbeefdeadbeefdeadbeefdeadbeefdeadbeef" "$v_r1_commit"
 out="$(run_gate_base "lean/acme-42" "$WORK/comments-good.json" "$WORK/diff-lean.txt" "main")"; rc=$?
-if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q 'matches no verdict record committed on this branch'; then
-  pass "(V3) AC-5: an inheritance link resolving to nothing on this branch is a violation, not a downgrade"
-else fail "(V3) expected rc=1 on a dangling link, got rc=$rc: $out"; fi
+if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q 'matches no earlier verdict record committed on this branch'; then
+  pass "(V4) AC-5: an inheritance link resolving to nothing on this branch is a violation, not a downgrade"
+else fail "(V4) expected rc=1 on a dangling link, got rc=$rc: $out"; fi
 
 # AC-3: the round NAMED is the one whose link DANGLES, not the one whose link is being walked.
-# Round 3's own link resolves; round 2's does not. A message naming round 3 would send the
-# operator to the wrong record, and a generic "chain is stale" would name neither.
-printf '# lean spec\n\n- AC-1: does a thing\n- AC-2: does another, fixed twice\n' > "$TREE/docs/plans/acme-42-lean.md"
-commit_tree "a second fix round"
-v_pid3="$(tree_patch_id HEAD)"
-write_chain_record r-review-v3 sess-review-v3 3 "$v_pid3" "$v_pid2" "$v_r1_commit"
+# Round 4's own link resolves; round 3's — left dangling by the case above — does not. A message
+# naming round 4 would send the operator to the wrong record, and a generic "chain is stale"
+# would name neither.
+printf '# lean spec\n\n- AC-1: does a thing\n- AC-2: does another, fixed again\n' > "$TREE/docs/plans/acme-42-lean.md"
+commit_tree "a further fix round"
+v_pid4="$(tree_patch_id HEAD)"
+write_chain_record r-review-v4 sess-review-v4 4 "$v_pid4" "$v_pid_rev" "$v_r1_commit"
 out="$(run_gate_base "lean/acme-42" "$WORK/comments-good.json" "$WORK/diff-lean.txt" "main")"; rc=$?
-if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q 'round 2 declares' \
-   && ! printf '%s' "$out" | grep -q 'round 3 declares'; then
-  pass "(V4) AC-3: a broken MIDDLE link is attributed to round 2, the round that declared it"
-else fail "(V4) expected the violation to name round 2, got rc=$rc: $out"; fi
+if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q 'round 3 declares' \
+   && ! printf '%s' "$out" | grep -q 'round 4 declares'; then
+  pass "(V5) AC-3: a broken MIDDLE link is attributed to round 3, the round that declared it"
+else fail "(V5) expected the violation to name round 3, got rc=$rc: $out"; fi
 
 echo "[check-lean-chain-selftest] $([ "$FAILS" -eq 0 ] && echo 'all green' || echo "$FAILS FAILURE(S)")"
 exit "$FAILS"

@@ -1441,7 +1441,7 @@ sed -e "s/^inherited_patch_id:.*/inherited_patch_id: deadbeefdeadbeefdeadbeefdea
   && mv "$XVERDICT.tmp" "$XVERDICT"
 xcommit "the record's declared link is corrupted"
 out="$(xgate 4 9)"; rc=$?
-if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q 'matches no verdict record committed on this branch' \
+if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q 'matches no earlier verdict record committed on this branch' \
    && printf '%s' "$out" | grep -q 'round 2 declares'; then
   pass "(x6) milestone-4 refuses an unresolvable inheritance link, naming the round that declared it"
 else fail "(x6) expected rc=1 naming round 2, got $rc: $out"; fi

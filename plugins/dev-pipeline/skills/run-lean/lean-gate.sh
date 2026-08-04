@@ -401,31 +401,47 @@ inherit_candidate() { # inherit_candidate <this-round-patch-id>
   done
 }
 
+# The tail of a newest-first commit list, strictly after <marker>. An absent marker yields the
+# EMPTY list, never the whole one: the callers use this to bound a search, and a marker they
+# could not find must narrow the search to nothing rather than silently widen it to everything.
+versions_after() { # versions_after <newline-separated-commits> <marker>
+  local out="" c past=0
+  for c in $1; do
+    if [ "$past" -eq 1 ]; then out="$out $c"; continue; fi
+    [ "$c" = "$2" ] && past=1
+  done
+  printf '%s' "$out"
+}
+
 # Walks the declared chain, matching each `inherited_patch_id` against an earlier record's
 # `reviewed_patch_id`. Prints NOTHING when the chain verifies — INCLUDING the ordinary case of
 # no inheritance at all — and one diagnostic naming the round that broke it otherwise. Never
 # exits: each caller phrases its own refusal, and the writer degrades rather than refusing.
-chain_break() { # chain_break <inherited-patch-id> <declaring-round>
-  local want="$1" round="${2:-?}" versions c seen="" hit
+#
+# The search window shrinks past each hit, so the chain must run STRICTLY BACKWARDS through the
+# record's history. That is not only the honest shape of a round sequence, it is what keeps a
+# branch reverted to a previously-reviewed tree readable: the current round's own record then
+# carries an identity an ancestor also carries, and an unbounded search resolves the round to
+# itself. Shrinking also makes termination structural — there is no cycle counter to get wrong.
+#
+# <declaring-commit> is the commit carrying the record that declares the link, and is EMPTY at
+# write time because the record being written is not committed yet. Read-side callers pass it.
+chain_break() { # chain_break <inherited-patch-id> <declaring-round> [declaring-commit]
+  local want="$1" round="${2:-?}" from="${3:-}" versions c hit rest
   [ -n "$want" ] || return 0
   versions="$(git -C "$REPO_ROOT" log --format=%H -- "$VERDICT_REL" 2>/dev/null)"
+  [ -z "$from" ] || versions="$(versions_after "$versions" "$from")"
   while [ -n "$want" ]; do
-    # A patch identity already walked means the chain loops, which no honest sequence of rounds
-    # produces — each round reviews a tree the previous one did not. Refuse rather than spin.
-    case " $seen " in
-      *" $want "*)
-        echo "round $round inherits patch $(printf '%.12s' "$want"), which the chain has already visited — the inheritance chain loops back on itself, so no round in it independently covers the tree."
-        return 0 ;;
-    esac
-    seen="$seen $want"
-    hit=""
+    hit=""; rest=""
     for c in $versions; do
-      if [ "$(record_key_at reviewed_patch_id "$c")" = "$want" ]; then hit="$c"; break; fi
+      if [ -n "$hit" ]; then rest="$rest $c"; continue; fi
+      if [ "$(record_key_at reviewed_patch_id "$c")" = "$want" ]; then hit="$c"; fi
     done
     if [ -z "$hit" ]; then
-      echo "round $round declares inherited_patch_id $(printf '%.12s' "$want"), which matches no verdict record committed on this branch — that round's inherited coverage is unverifiable, so nothing attests the part of the diff it did not read."
+      echo "round $round declares inherited_patch_id $(printf '%.12s' "$want"), which matches no earlier verdict record committed on this branch — that round's inherited coverage is unverifiable, so nothing attests the part of the diff it did not read."
       return 0
     fi
+    versions="$rest"
     round="$(record_key_at rounds "$hit")"; [ -n "$round" ] || round='?'
     want="$(record_key_at inherited_patch_id "$hit")"
   done
@@ -894,7 +910,8 @@ cmd_4() {
   # every record predating the key, carry no claim to check. That is what makes this additive.
   v_inh="$(record_key inherited_patch_id "$rec")"
   if [ -n "$v_inh" ]; then
-    v_chain="$(chain_break "$v_inh" "$(record_key rounds "$rec")")"
+    v_chain="$(chain_break "$v_inh" "$(record_key rounds "$rec")" \
+      "$(git -C "$REPO_ROOT" log -1 --format=%H -- "$VERDICT_REL" 2>/dev/null)")"
     if [ -n "$v_chain" ]; then
       fail_milestone 4 "verdict record $VERDICT_REL: $v_chain Get a review round that reads the full diff: '/dev-pipeline:review-lean <pr>'."
       return $?

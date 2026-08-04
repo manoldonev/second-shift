@@ -67,9 +67,27 @@ walks the branch's own commits and selects the one whose branch patch identity e
 rebase, when the SHA the prior record was committed at no longer exists. Unresolvable ⇒ it prints
 the full range and says so.
 
+**The search runs strictly backwards.** Each reader's search window starts below the commit
+carrying the record it is reading and shrinks past every hit. Two things ride on that. A fix
+round can revert the branch to exactly the tree an earlier round reviewed — "the blocker says
+the change was wrong" — and the head record's reviewed patch is then an identity an ancestor
+record also carries; an unbounded search resolves that round to *itself*, and every honest chain
+through it reads as a cycle, making a correct branch unmergeable by a legal fix. A shrinking
+window also makes termination structural, so there is no cycle counter to get wrong (and none to
+sit unkillable in the code).
+
 **Fail-closed everywhere.** A declared `inherited_patch_id` matching no earlier record on the
 branch is refused, by all three readers — never downgraded to "treat it as a root record", which
 would convert an unverifiable claim into a satisfied one.
+
+**Each reader keeps its own distinctive arm.** Milestone 4 and the merge boundary ask whether the
+links resolve. `lean-reconcile.sh` asks, additionally, whether the chain is a sequence of
+*independent* reviews: one session that writes round 1 and then inherits its own coverage in
+round 2 produces a chain that resolves perfectly while being a single review. That is the arm
+only the operator-side reader can meaningfully make, and inheritance is what makes it
+consequential. Considered and dropped: an "each link's commit is an ancestor of the one
+inheriting it" arm — on a lean branch the record path is linear and HEAD-anchored, so the
+predicate holds by construction, and an arm no fixture can red is coverage in appearance only.
 
 ## Acceptance criteria
 
