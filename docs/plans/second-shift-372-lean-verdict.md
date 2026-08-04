@@ -5,7 +5,7 @@ run_id: review-372-1
 session_id: 28a2d373-8e8f-4778-88fe-23fc1f83b021
 rounds: 1
 pr: #373
-reviewed_head: 2ff7700ea307aba3fe389451e5ff38e14ef63ba6
+reviewed_head: 118d63ed7213e5e769058f9f4a76580ee7d011da
 reviewed_patch_id: 61237d544a125a394331ce314fca66a8b8d8ad2d
 model: unknown
 
@@ -21,9 +21,18 @@ returned request-changes.
 
 **Verdict: needs-work.** Nine of the committed spec's ten ACs are satisfied; **AC-6 is not** —
 the mutation evidence recorded in the PR body is wrong for one of the three guards, and I
-reproduced the sweep to confirm it. Two further blockers are outside the AC set: a `--help`
-regression this diff introduces in `lean-gate.sh`, and an issue-declared `pause-and-ask` region
-resolved without an operator record.
+reproduced the sweep to confirm it. Three further blockers are outside the AC set: the suite is
+**red on CI** (`lean-gate-selftest.sh` `(v6)`, on both lanes, at `2ff7700` — before this record
+existed), a `--help` regression this diff introduces in `lean-gate.sh`, and an issue-declared
+`pause-and-ask` region resolved without an operator record.
+
+**Correction to this record's own first draft.** The initial version of this section reported a
+green local sweep. That was a **false green**: `(v6)` passes only on a machine that exports
+`CLAUDE_CODE_SESSION_ID`, which every Claude Code session does and CI does not. See B0 — the
+mechanism is now understood and reproduced in both directions. The verification list below is
+corrected accordingly; nothing else in this record changed. This is a re-stamp of round 1, not a
+new round: the verdict was `needs-work` before and after, and editing this record cannot move
+`reviewed_patch_id` (the record path is excluded on both sides — that is AC-4).
 
 The engineering itself is right, and worth saying plainly: patch identity is the correct
 detector for the property being claimed, the exclusion is pinned **behaviorally** on both
@@ -36,7 +45,9 @@ blockers touches the mechanism.
 
 All from a clean checkout of `2ff7700` at `second-shift-worktrees/second-shift-372`:
 
-- Full `*-selftest.sh` sweep, **without** `SKIP_STRESS`: exit 0.
+- Full `*-selftest.sh` sweep, **without** `SKIP_STRESS`: exit 0 **on this machine, and that
+  result is not trustworthy** — `env -u CLAUDE_CODE_SESSION_ID bash …/lean-gate-selftest.sh`
+  reproduces CI's `1 FAILURE(S)`. See B0.
 - `shellcheck -e SC1091,SC2015,SC2181` over every `*.sh`: exit 0. `jq empty` over every
   `*.json`: exit 0.
 - `check-lockstep-pairs.sh`: 13 pairs, 0 failed.
@@ -48,6 +59,62 @@ All from a clean checkout of `2ff7700` at `second-shift-worktrees/second-shift-3
   `origin/$BASE_REF` in `check-frozen-files.sh`, so this is confirmed rather than assumed.
 
 ## Blockers
+
+### B0 — the branch is red on CI: `(v6)` is green only when the operator's session id leaks in
+
+`plugins/dev-pipeline/skills/run-lean/lean-gate-selftest.sh` (v5)/(v6)
+
+Both selftest lanes fail on `2ff7700` — *before* this verdict record existed, so it is the
+build's red, not the review's:
+
+```
+FAIL: (v6) expected rc=2 from the writer on an unresolvable base, got 1:
+  [lean-gate] ✗ verdict: the build progress file records no session id, so authorship
+  separation is unverifiable. Refusing.
+[lean-gate-selftest] 1 FAILURE(S)
+```
+
+Identical on `lint-and-selftests` (ubuntu) and `selftests (macos, bash 3.2)`. Reproduced in both
+directions on one machine, which is what identifies the cause rather than the symptom:
+
+```
+$ bash …/lean-gate-selftest.sh                              → all green
+$ env -u CLAUDE_CODE_SESSION_ID bash …/lean-gate-selftest.sh → 1 FAILURE(S)   ← CI's exact failure
+```
+
+The chain:
+
+1. `(v5)` calls `reset_progress`, which is `rm -f "$PROG"` — the progress file is **gone**.
+2. `gate_cfg` (`lean-gate-selftest.sh:787`) then runs the gate. It unsets `RUN_ID` and **not**
+   `CLAUDE_CODE_SESSION_ID`.
+3. `ensure_progress_file()` (`lean-gate.sh:361`) recreates the header with
+   `session_id: ${CLAUDE_CODE_SESSION_ID:-unset}` — so the *operator's ambient session id* is
+   stamped into the fixture.
+4. `(v6)` runs the `verdict` writer, whose **first** authorship refusal
+   (`lean-gate.sh:781`) fires when that key is empty **or the literal `unset`**.
+
+On any Claude Code session the env var is exported, step 3 writes a real id, the refusal is
+skipped, and the writer reaches the patch-id arm `(v6)` is actually testing → rc=2, green.
+In CI it is absent, step 3 writes `unset`, and the writer refuses two checks earlier → rc=1.
+
+Two things follow, and the second is the one that matters:
+
+- `(v6)` is **not testing what it names**. It asserts the write-side vacuity guard (D-5/AC-8),
+  but it only ever reaches that guard by accident of the operator's environment.
+- Because the *unmutated* `lean-gate-selftest.sh` fails in CI, `mutation-sweep.sh` scores that
+  guard as an **unrunnable pair** and scores none of its mutants there. So the AC-6 row for
+  `lean-gate.sh` is reproducible only under the same leak. (The `check-lean-chain.sh` row in
+  **B2** is unaffected — that suite is green in CI, and `(v6)` is the only failure across the
+  whole sweep.)
+
+This is the exact class this file already warns about one env var over: `lean-gate-selftest.sh:75`
+documents `unset RUN_ID` because "this helper backs nearly every case in the file … leaks
+through". `CLAUDE_CODE_SESSION_ID` is the one the helpers do not unset.
+
+Fix: `seed_build_progress` before `(v6)` so the case reaches its own arm deliberately, **and**
+add `unset CLAUDE_CODE_SESSION_ID` to `gate_cfg`/`gate` alongside the existing `unset RUN_ID`,
+so no future case can be green for this reason. The second half is the load-bearing one — the
+first alone fixes one case and leaves the leak.
 
 ### B1 — `lean-gate.sh --help` now drops its entire Seams section
 
@@ -221,7 +288,7 @@ narrowing AC-8's wording on this reader to "never an unmeasured pass" — the sp
 | AC-5 — doc scope | satisfied | `run-lean/SKILL.md:44` and `review-lean/SKILL.md:57-60` rewritten; `check-lean-chain.sh:36-47` states covers / does-not-cover. The `interviewing-baseline` re-point is evidence-backed and I re-verified it: `grep -ciE 'rebase\|reviewed_head\|verdict'` over that SKILL.md returns **0**, so the issue's AC-5 named a file that cannot carry the prose. `run-lean/SKILL.md` is still exactly 60 lines — `(f)`'s cap holds |
 | AC-6 — survivor ordinals checked against the baseline, site-level evidence in the PR body | **unsatisfied** | See **B2**. The conclusion (no ordinal moved) is correct and reproduced; the recorded evidence is not |
 | AC-7 — `Changelog:` trailer | satisfied | `621b205` carries a substantive trailer with `Migration: none`; `2cc81f5` and `2ff7700` carry `Changelog: none`. Verb is `feat:`, which is the honest one here |
-| AC-8 — an empty/unresolvable patch-id is a refusal on every read side | satisfied | `(v5)`/`(v6)` and `(U5)`/`(U6)`. The third reader is a note rather than a refusal and the arm is undriven — see **W2** for why that is a letter gap and not a vacuity hole |
+| AC-8 — an empty/unresolvable patch-id is a refusal on every read side | satisfied, on a **red** oracle | `(v5)`, `(U5)`, `(U6)` are green in CI and cover both read sides, which is what AC-8 asks for. `(v6)` — the **write** side — is red in CI and only reaches its arm under B0's leak, so it is currently evidence of nothing. The third reader is a note rather than a refusal and the arm is undriven — see **W2**. Scored satisfied because the read sides carry the AC; the write-side case still has to go green (**B0**) |
 | AC-9 — the third reader is re-keyed | satisfied | `(M1)` coherent record, `(M2)` a real rebase reconciles with `merge-base --is-ancestor` asserting the ancestry arm **would** have failed, `(M3)` an incoherent id still fails |
 | AC-10 — `scenario-liveness-selftest.sh` gains a composing leg | satisfied | leg 7 `(lean-patch-id)`: writes through the **real** `verdict` subcommand, composes across a real rebase, asserts `lean_sha_would_red` is non-empty, and re-reds on a later commit. Suite 59/59 |
 
@@ -229,6 +296,9 @@ narrowing AC-8's wording on this reader to "never an unmeasured pass" — the sp
 
 ## Round-2 checklist
 
+0. Green the suite: `seed_build_progress` before `(v6)`, **and** `unset CLAUDE_CODE_SESSION_ID`
+   in `gate_cfg`/`gate` next to the existing `unset RUN_ID` (B0). Verify with
+   `env -u CLAUDE_CODE_SESSION_ID`, not a bare local run — a bare run is what missed this.
 1. `lean-gate.sh` help range `2,75p` → `2,86p`, plus a two-sided `--help` case in
    `lean-gate-selftest.sh` (B1).
 2. Correct the AC-6 row to `12 / 6 / 6` with the six survivor ids, and the "7 committed rows"
