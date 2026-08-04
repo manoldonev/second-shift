@@ -887,8 +887,14 @@ else
 }
 LEANCFG
   LEAN_PROG="$TMP/lean-progress.md"
+  # No Open Regions section, so milestone 1's pause-and-ask check (#374) no-ops before it would
+  # ever need a live `gh issue view` or comment-trail fetch — these legs are zero-network by
+  # construction, same reasoning as lean-gate-selftest.sh's own default. --issue-file is FIRST,
+  # so a leg's own --issue-file in "$@" is a later occurrence and overrides it.
+  LEAN_ISSUE_NOREGIONS="$TMP/lean-issue-noregions.json"
+  printf '{"body": "# issue\\n\\nNo Open Regions section here.\\n"}' > "$LEAN_ISSUE_NOREGIONS"
   lean_gate() { ( cd "$LEAN_TREE" && SECOND_SHIFT_CONFIG="$LEAN_CFG" LEAN_PROGRESS_FILE="$LEAN_PROG" \
-                  bash "$LEAN_GATE" "$@" 2>&1 ); }
+                  bash "$LEAN_GATE" --issue-file "$LEAN_ISSUE_NOREGIONS" "$@" 2>&1 ); }
   lean_count() { if [[ -f "$LEAN_PROG" ]]; then local n; n=$(grep -cF "$1" "$LEAN_PROG" 2>/dev/null) || n=0; echo "$n"; else echo 0; fi; }
 
   LEAN_SPEC="$LEAN_TREE/docs/plans/acme-77-lean.md"

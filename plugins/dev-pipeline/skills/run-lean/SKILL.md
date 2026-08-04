@@ -20,7 +20,7 @@ outside this session (`/dev-pipeline:review-lean`). Read this file, then work th
    Export `RUN_ID` first (neutral token, `[A-Za-z0-9._-]+`); it keys every record, and only
    `entry`/`claim` cache it to `<issue>-run-id` for the later fresh-shell calls to resolve.
 3. Cut a worktree on `<lean prefix><issue>` from the configured base. Never work in the
-   shared checkout. `bash G 1 <issue>` prints the exact spec path it wants.
+   shared checkout. `bash G 1 <issue>` prints the exact spec path it wants — and refuses if the issue declares an unresolved `pause-and-ask` Open Region (get an operator comment first).
 4. **Write the spec/AC file** at that path, ≥ 1 numbered `AC-n`. It is the living definition
    of done: if scope changes, amend the `AC-n` set *before* milestone 5. A pre-flight
    `<issue>-ledger.md` is binding input when present. `bash G 1 <issue>`.
@@ -47,14 +47,14 @@ outside this session (`/dev-pipeline:review-lean`). Read this file, then work th
 - **`rc=0` from a gate is the only evidence it passed.** Never record a milestone as done
   because it looked done; `bash G all <issue>` re-evaluates everything against the current
   tree, so run it before step 9 — a milestone satisfied before a fix round is stale.
-- **Two tracker writes per clean run**, github only: the claim comment and the closing comment (an abort adds one). A `writes: false` tracker makes none.
+- **Two tracker writes per clean run**, github only: the claim comment and the closing comment (an abort adds one). A `writes: false` tracker makes none. A `pause-and-ask` region open at milestone 1 needs a third: the operator's resolving comment.
 - Doc updates are AC-scoped — a change that makes docs stale needs an explicit doc `AC-n`.
 - **A decision the receipt never covered is not yours to make (P9).** Write the intent-gap
   record (schema: `interviewing-baseline`), follow its region's disposition, and ratify before the handoff — the merge boundary refuses `ratified: no`.
 
 ## Resume
 
-Re-read the progress file, `bash G all <issue>`, continue at the first unsatisfied milestone.
+Re-read the progress file, `bash G all <issue>`, continue at the first unsatisfied milestone — with one caveat until the verdict lands: `all` pre-checks the cheap assertions first, so while milestone 4 is outstanding (all of BUILD, and every fix round) it reports that and stops without evaluating 2 or 3. Run those directly then; once a `verdict=approve` record is committed the pre-pass is clean and `all` walks the whole progression — the state the mandated before-step-9 call runs in.
 Counters survive; rebase first if the base moved. Integrity lives at the merge boundary
 (`check-lean-chain.sh`) and in `lean-reconcile.sh` — **both github-only**, since each reads the
 bot claim comment; under jira there is no backstop yet. Gaming a local counter buys only a red PR.

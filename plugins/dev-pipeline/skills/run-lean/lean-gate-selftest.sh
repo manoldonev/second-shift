@@ -71,6 +71,14 @@ PROG="$WORK/progress.md"
 SPEC="$TREE/docs/plans/acme-7-lean.md"
 VERDICT="$TREE/docs/plans/acme-7-lean-verdict.md"
 
+# The default issue body every case gets unless it overrides `--issue-file` itself: no Open
+# Regions section at all, so milestone 1's pause-and-ask check (AC-10) no-ops before it would
+# ever need a live `gh issue view` or a comment trail. Without this EVERY existing milestone-1
+# case in this file would attempt a real network call the moment cmd_1 grew that check — the
+# file's own masthead promises "Zero network".
+ISSUE_NOREGIONS="$WORK/issue-noregions.json"
+printf '{"body": "# issue\\n\\nNo Open Regions section here.\\n"}' > "$ISSUE_NOREGIONS"
+
 gate() { # gate <args...>  — always from inside the fixture tree
   # unset RUN_ID: this helper backs nearly every case in the file, including (m1)'s
   # "no RUN_ID, no cache" baseline. Without this, a RUN_ID exported in the CALLING shell
@@ -87,7 +95,11 @@ gate() { # gate <args...>  — always from inside the fixture tree
   # any case reading that key green locally and red in CI. It cost a full review round: (v6)
   # reached the arm it names only because the leaked id skipped an earlier authorship
   # refusal. Pinning it here means the fixture's session identity is always the fixture's.
-  ( unset RUN_ID CLAUDE_CODE_SESSION_ID; cd "$TREE" && SECOND_SHIFT_CONFIG="$CFG" LEAN_PROGRESS_FILE="$PROG" bash "$GATE" "$@" 2>&1 )
+  # --issue-file defaults to the no-regions fixture and is FIRST, so a caller's own
+  # --issue-file (in "$@") is a later occurrence and wins — the parser overwrites left to
+  # right, never appends.
+  ( unset RUN_ID CLAUDE_CODE_SESSION_ID; cd "$TREE" && SECOND_SHIFT_CONFIG="$CFG" LEAN_PROGRESS_FILE="$PROG" \
+    bash "$GATE" --issue-file "$ISSUE_NOREGIONS" "$@" 2>&1 )
 }
 count_in_progress() { [ -f "$PROG" ] && grep -cF "$1" "$PROG" 2>/dev/null || echo 0; }
 reset_progress() { rm -f "$PROG"; }
@@ -569,6 +581,161 @@ if [ "$rc" -eq 0 ] && [ -n "$o_mt_before" ] && [ "$o_sum_before" = "$o_sum_after
   pass "(o) a full 'all' sweep leaves the verdict record byte- and mtime-identical"
 else fail "(o) sweep rc=$rc; cksum $o_sum_before -> $o_sum_after; mtime '$o_mt_before' -> '$o_mt_after': $out"; fi
 
+# ---- (x) #374 AC-1/2/3: cmd_all's cheap pre-pass -------------------------------------------
+# The pre-pass evaluates milestones 1 and 4 BEFORE milestone 3's green gate (~15 minutes in
+# production). The fixture's own milestone-3 body is free (test/lint/typecheck are null), so
+# the seam AC-1 asks for is a marker file: `commands.acme.test` is repointed to `touch` one,
+# and the marker's ABSENCE after a dirty pre-pass is proof milestone 3's body never ran — proof
+# by effect, not by timing.
+MARKER="$WORK/m3-marker"
+CFG_M3="$WORK/config-m3.json"
+jq --arg m "$MARKER" '.commands.acme.test = ("touch " + ($m | @sh))' "$CFG" > "$CFG_M3"
+gate_m3() {
+  ( unset RUN_ID CLAUDE_CODE_SESSION_ID; cd "$TREE" && SECOND_SHIFT_CONFIG="$CFG_M3" LEAN_PROGRESS_FILE="$PROG" \
+    bash "$GATE" --issue-file "$ISSUE_NOREGIONS" "$@" 2>&1 )
+}
+
+reset_progress
+rm -f "$MARKER"
+write_review_verdict needs-work
+out="$(gate_m3 all 7)"; rc=$?
+if [ "$rc" -ne 0 ] && [ ! -e "$MARKER" ] && printf '%s' "$out" | grep -q 'reads verdict=needs-work'; then
+  pass "(x1) AC-1: 'all' reports the milestone-4 refusal without running milestone-3's body"
+else fail "(x1) expected rc!=0, no marker, needs-work message — rc=$rc marker=$([ -e "$MARKER" ] && echo present || echo absent): $out"; fi
+
+# AC-3: BOTH cheap assertions broken (spec AC-less AND verdict needs-work) are reported
+# together in ONE pre-pass, not just the first a naive sequential loop would reach.
+cp "$SPEC" "$WORK/held-spec-x.md"
+printf '# spec\n\nno AC token here\n' > "$SPEC"
+out="$(gate_m3 all 7)"; rc=$?
+if [ "$rc" -ne 0 ] \
+   && printf '%s' "$out" | grep -q 'no numbered AC-n' \
+   && printf '%s' "$out" | grep -q 'reads verdict=needs-work'; then
+  pass "(x2) AC-3: the pre-pass reports BOTH cheap failures from one 'all' run"
+else fail "(x2) expected both milestone-1 and milestone-4 pre-pass failures, got rc=$rc: $out"; fi
+cp "$WORK/held-spec-x.md" "$SPEC"
+
+# AC-2: a clean pre-pass (spec ok, verdict approve+fresh) still runs milestone 3 for real — the
+# marker now appears, proving the pre-pass is not a way to skip the green gate.
+reset_progress
+rm -f "$MARKER"
+write_review_verdict
+out="$(gate_m3 all 7 --pr-file "$WORK/pr-ready.json" --comments-file "$WORK/comments-closing.json")"; rc=$?
+if [ "$rc" -eq 0 ] && [ -e "$MARKER" ]; then
+  pass "(x3) AC-2: a clean pre-pass still runs milestone-3's real body (green gate not skipped)"
+else fail "(x3) expected rc=0 and the marker present, got rc=$rc marker=$([ -e "$MARKER" ] && echo present || echo absent): $out"; fi
+rm -f "$MARKER"
+reset_progress
+
+# ---- (y) #374 AC-8/9/10: milestone 1 refuses an unresolved pause-and-ask Open Region -------
+cat > "$WORK/issue-or1-paa.json" <<'EOF'
+{"body": "# issue\n\n## Open Regions\n\n| ID | Region | Disposition |\n| --- | --- | --- |\n| OR-1 | Ordering guarantee | pause-and-ask |\n| OR-2 | Retention window | reversible-default-and-flag |\n"}
+EOF
+cat > "$WORK/issue-or-flag-only.json" <<'EOF'
+{"body": "# issue\n\n## Open Regions\n\n| ID | Region | Disposition |\n| --- | --- | --- |\n| OR-2 | Retention window | reversible-default-and-flag |\n"}
+EOF
+cat > "$WORK/comments-or1-resolved.json" <<'EOF'
+[{ "user": { "type": "User", "login": "operator" }, "body": "Go with append-only for OR-1, ship it." }]
+EOF
+cat > "$WORK/comments-or1-bot.json" <<'EOF'
+[{ "user": { "type": "Bot", "login": "acme-bot" }, "body": "auto-note mentioning OR-1, but not from an operator" }]
+EOF
+cat > "$WORK/comments-or10-boundary.json" <<'EOF'
+[{ "user": { "type": "User", "login": "operator" }, "body": "OR-10 is fine as scoped, no change needed" }]
+EOF
+
+# (y1) AC-10: no Open Regions section at all — additive, milestone 1 unaffected.
+out="$(gate 1 7 --issue-file "$ISSUE_NOREGIONS" --comments-file "$WORK/comments-none.json")"; rc=$?
+if [ "$rc" -eq 0 ]; then pass "(y1) AC-10: an issue with no Open Regions section passes milestone 1 unchanged"
+else fail "(y1) expected rc=0 with no Open Regions section, got $rc: $out"; fi
+
+# (y2) AC-8: a pause-and-ask region with no resolution artifact refuses, naming the region.
+reset_progress
+out="$(gate 1 7 --issue-file "$WORK/issue-or1-paa.json" --comments-file "$WORK/comments-none.json")"; rc=$?
+if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q 'region OR-1' && printf '%s' "$out" | grep -q 'pause-and-ask'; then
+  pass "(y2) AC-8: an unresolved pause-and-ask region refuses milestone 1, naming the region"
+else fail "(y2) expected rc=1 naming OR-1, got $rc: $out"; fi
+
+# (y3) AC-8: a non-bot comment naming the region IS a resolution artifact.
+reset_progress
+out="$(gate 1 7 --issue-file "$WORK/issue-or1-paa.json" --comments-file "$WORK/comments-or1-resolved.json")"; rc=$?
+if [ "$rc" -eq 0 ]; then pass "(y3) AC-8: a non-bot operator comment naming the region clears the refusal"
+else fail "(y3) expected rc=0 with an operator comment naming OR-1, got $rc: $out"; fi
+
+# ...and a BOT comment mentioning the same id does NOT count — only an operator write does.
+reset_progress
+out="$(gate 1 7 --issue-file "$WORK/issue-or1-paa.json" --comments-file "$WORK/comments-or1-bot.json")"; rc=$?
+if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q 'region OR-1'; then
+  pass "(y3b) a BOT-authored comment naming the region does not resolve it"
+else fail "(y3b) expected rc=1 despite a bot comment mentioning OR-1, got $rc: $out"; fi
+
+# ...and a comment naming a DIFFERENT, merely similar id (OR-10) must not resolve OR-1 — the
+# word-boundary the id match is built on.
+reset_progress
+out="$(gate 1 7 --issue-file "$WORK/issue-or1-paa.json" --comments-file "$WORK/comments-or10-boundary.json")"; rc=$?
+if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q 'region OR-1'; then
+  pass "(y3c) a comment naming OR-10 does not resolve OR-1 (word-boundary match, not substring)"
+else fail "(y3c) expected rc=1 — OR-10 must not satisfy OR-1, got $rc: $out"; fi
+
+# (y4) AC-8: a ratified intent-gap record naming the region IS a resolution artifact, even
+# with an empty comment trail.
+reset_progress
+GAP="$TREE/docs/plans/acme-7-lean-intent-gap.md"
+printf 'region: OR-1\nratified: yes\nratified_by: https://example.invalid/issues/7#issuecomment-1\n' > "$GAP"
+commit_tree "ratified intent-gap for OR-1"
+out="$(gate 1 7 --issue-file "$WORK/issue-or1-paa.json" --comments-file "$WORK/comments-none.json")"; rc=$?
+if [ "$rc" -eq 0 ]; then pass "(y4) AC-8: a ratified intent-gap record naming the region clears the refusal"
+else fail "(y4) expected rc=0 with a ratified intent-gap record for OR-1, got $rc: $out"; fi
+rm -f "$GAP"; commit_tree "remove intent-gap fixture"
+
+# (y5) AC-9: reversible-default-and-flag alone never refuses.
+reset_progress
+out="$(gate 1 7 --issue-file "$WORK/issue-or-flag-only.json" --comments-file "$WORK/comments-none.json")"; rc=$?
+if [ "$rc" -eq 0 ]; then pass "(y5) AC-9: a reversible-default-and-flag region does not refuse milestone 1"
+else fail "(y5) expected rc=0 with only a reversible-default-and-flag region, got $rc: $out"; fi
+
+# (y6) AC-15: the disposition is the last NON-EMPTY cell, not $(NF-1). GFM does not require a
+# trailing pipe; under $(NF-1) this table's disposition cell is the Region text, so the row is
+# silently skipped and the gate fails OPEN — the unsafe direction, on markup a renderer
+# accepts. The header/separator rows drop the trailing pipe here too, as a real one would.
+cat > "$WORK/issue-or1-nopipe.json" <<'EOF'
+{"body": "# issue\n\n## Open Regions\n\n| ID | Region | Disposition\n| --- | --- | ---\n| OR-1 | Ordering guarantee | pause-and-ask\n"}
+EOF
+reset_progress
+out="$(gate 1 7 --issue-file "$WORK/issue-or1-nopipe.json" --comments-file "$WORK/comments-none.json")"; rc=$?
+if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q 'region OR-1'; then
+  pass "(y6) AC-15: a pause-and-ask row in a trailing-pipe-less table still refuses (no fail-open)"
+else fail "(y6) expected rc=1 naming OR-1 on a trailing-pipe-less table, got $rc: $out"; fi
+
+# (y7) AC-16: two unresolved regions are named in ONE refusal — the AC-3 ergonomic applied to
+# this check. Asserting the refusal COUNT is the load-bearing half: reporting them as two
+# successive lines would satisfy a both-ids-present grep while still costing two round-trips.
+cat > "$WORK/issue-or-two-paa.json" <<'EOF'
+{"body": "# issue\n\n## Open Regions\n\n| ID | Region | Disposition |\n| --- | --- | --- |\n| OR-1 | Ordering guarantee | pause-and-ask |\n| OR-3 | Backfill window | pause-and-ask |\n"}
+EOF
+reset_progress
+out="$(gate 1 7 --issue-file "$WORK/issue-or-two-paa.json" --comments-file "$WORK/comments-none.json")"; rc=$?
+n="$(printf '%s\n' "$out" | grep -c 'dispositioned pause-and-ask with no resolution artifact')"
+if [ "$rc" -eq 1 ] && [ "$n" -eq 1 ] && printf '%s' "$out" | grep -q 'regions OR-1, OR-3'; then
+  pass "(y7) AC-16: two unresolved regions are reported together, in a single refusal"
+else fail "(y7) expected rc=1 with 1 refusal naming both OR-1 and OR-3, got rc=$rc refusals=$n: $out"; fi
+
+# (y8) AC-18: the `ratified: yes` conjunct on the intent-gap resolution arm. (y4) covers a
+# ratified record and (y2) covers the file being absent — but `ratified: no` is indistinguishable
+# from absence to both, so dropping the conjunct would let an UNRATIFIED record clear a
+# pause-and-ask region with the whole suite green. That is the inverse of the merge boundary's
+# own `ratified: no` refusal (P9).
+reset_progress
+GAP="$TREE/docs/plans/acme-7-lean-intent-gap.md"
+printf 'region: OR-1\nratified: no\n' > "$GAP"
+commit_tree "unratified intent-gap for OR-1"
+out="$(gate 1 7 --issue-file "$WORK/issue-or1-paa.json" --comments-file "$WORK/comments-none.json")"; rc=$?
+if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q 'region OR-1'; then
+  pass "(y8) AC-18: an intent-gap record reading 'ratified: no' does not clear the region"
+else fail "(y8) expected rc=1 — an unratified intent-gap record must not resolve OR-1, got $rc: $out"; fi
+rm -f "$GAP"; commit_tree "remove unratified intent-gap fixture"
+reset_progress
+
 # ---- (p) the REVIEW role: lean-gate.sh verdict ---------------------------------------------
 # Every arm here is a refusal that fails CLOSED. The subcommand is the only write path to the
 # verdict record, and it lives in this script solely so the pinned name table has one
@@ -962,6 +1129,23 @@ out="$(gate_cfg "$CFG_JIRA" "$PROG_J" 5 "$JKEY" --pr-file "$WORK/pr-jira-caps.js
 if [ "$rc" -eq 0 ]; then
   pass "(n15) '### JIRA Items' is accepted — the heading match folds case, like the Closes grep"
 else fail "(n15) expected rc=0 on an all-caps heading, got $rc: $out"; fi
+
+# (n16) AC-17: milestone 1 — the one milestone the jira arm reaches outside milestone 5, and the
+# only case in this file that drives it. `check_pause_and_ask` opens with a jira short-circuit
+# that is load-bearing, not defensive: the function's tracker read is `gh issue view <JIRA-KEY>`,
+# which cannot succeed, and its failure branch PRINTS a reason — a printed reason IS the refusal.
+# So deleting the short-circuit refuses milestone 1 for the entire jira lane. The issue fixture
+# below carries an unresolved pause-and-ask region precisely so rc=0 proves the check was
+# SKIPPED rather than merely having found nothing to fire on.
+mkdir -p "$TREE/docs/plans"
+printf '# lean spec — %s\n\n- **AC-1**: the jira arm reaches milestone 1.\n' "$JKEY" > "$TREE/$JSPEC_REL"
+commit_tree "jira spec fixture"
+rm -f "$PROG_J"
+out="$(gate_cfg "$CFG_JIRA" "$PROG_J" 1 "$JKEY" --issue-file "$WORK/issue-or1-paa.json" --comments-file "$WORK/comments-none.json")"; rc=$?
+if [ "$rc" -eq 0 ]; then
+  pass "(n16) AC-17: jira milestone 1 skips the pause-and-ask check — an unresolved region does not refuse"
+else fail "(n16) expected rc=0 under tracker.type: jira despite an unresolved OR-1, got $rc: $out"; fi
+rm -f "$TREE/$JSPEC_REL"; commit_tree "remove jira spec fixture"
 
 rm -f "$TREE/.claude/pipeline-state/$JKEY-run-id"
 
