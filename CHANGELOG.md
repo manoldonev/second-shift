@@ -4,6 +4,103 @@ All notable changes to the second-shift marketplace. Versions are per-plugin (`p
 this file tracks the marketplace release. `configVersion` stays `const 1` — v2 is fully backward-compatible for a
 consumer with an empty config; the migration notes below are only for consumers using the changed features.
 
+## v3.8.0
+
+### `dev-pipeline` 3.7.0 → 3.8.0
+
+- **feat(dev-pipeline): give run-lean a jira tracker adapter (#365)** (#365)
+  /dev-pipeline:run-lean now runs on a read-only jira tracker. The
+  claim step makes no tracker write and no longer requires GH_BOT, and the
+  exit gate reads the PR body for `Closes [<KEY>]` plus the verdict-record
+  path instead of a closing comment. GitHub behavior is unchanged; a config
+  without `tracker.type` still takes the github arm.
+  Migration: none.
+- **feat(dev-pipeline): bind the lean verdict record to the head it reviewed (#367)** (#367)
+  the lean verdict record now names the commit it reviewed (`reviewed_head`),
+  and the build gate, the merge boundary and lean-reconcile.sh all refuse a record whose
+  declared head is not the head being gated. Any push after an approve — a rebase, a
+  force-push or a docs-only commit included — reopens the review round.
+  Migration: verdict records written before this key carry none, and are refused at all
+  three readers rather than grandfathered, because a remedy exists — one more review
+  round on a dev-pipeline that writes the key (`/dev-pipeline:review-lean <pr>`). There
+  is no waiver. No in-flight lean PR currently carries an approve verdict record, so
+  nothing open is stranded by this.
+- **Re-key retros to the artifact schema; lean runs enter the retro corpus (#369)** (#369)
+  pipeline-retro and perf-retro now read lean/block runs (previously
+  invisible to both). lean-gate.sh's progress and verdict records gain an optional
+  `model:` field. New tool: `retro-corpus.sh`. Migration: none.
+  none — dev-pipeline internal tooling.
+  none — review record.
+- **The receipt discovers intent — ratification bar, open regions, intent-gap channel, implementability probe (#368)** (#368)
+  intake receipts carry a ratification bar. `ledger-lint.sh --receipt`
+  adds a Kind axis (intent | fact | open) checked against provenance, plus a
+  mandated Open Regions section with a per-region disposition (pause-and-ask |
+  reversible-default-and-flag). A decision surfacing mid-build routes back through
+  a committed intent-gap record, and scripts/check-lean-chain.sh refuses a merge
+  while it is unratified. New intake-toolkit:implementability-probe agent reads a
+  spec cold and enumerates what an implementer would have to guess; spec-reviewer's
+  checklist gains a Discovery Coverage section (ratified-provenance share, a
+  verification rung per AC, open regions with dispositions, zero-open-regions as a
+  finding rather than a merit).
+  Migration: none. The Kind cell is receipt-mode only, so in-plan Decision Ledgers
+  and every existing lint path are unchanged.
+  the receipt lint's Kind/open-region refusals and both `--help` ranges now have
+  behavioral coverage, and run-lean's milestone-4 handoff message names the intent-gap
+  ratification the merge boundary will refuse without.
+  Migration: none.
+- **fix(dev-pipeline): stop lean-gate-selftest's (o) case from comparing free disk space (#370)** (#370)
+  none — selftest harness only.
+- **Bind the lean verdict to the branch's patch identity, not a commit SHA (#373)** (#373)
+  a rebase no longer voids a lean review verdict. The record now
+  carries the patch identity of the branch's own diff, which is invariant
+  under a replay and still moves when a commit — or a conflict resolution —
+  changes a line. It does not cover a base change that breaks the branch
+  with no textual conflict; that stays CI's job.
+  Migration: none. Verdict records lacking the key keep their old behavior.
+  `lean-gate.sh --help` again prints its full header, including the Seams
+  block documenting the selftest override variables, which a header edit had truncated.
+  Migration: none.
+
+### `intake-toolkit` 2.3.0 → 2.3.1
+
+- **The receipt discovers intent — ratification bar, open regions, intent-gap channel, implementability probe (#368)** (#368)
+  intake receipts carry a ratification bar. `ledger-lint.sh --receipt`
+  adds a Kind axis (intent | fact | open) checked against provenance, plus a
+  mandated Open Regions section with a per-region disposition (pause-and-ask |
+  reversible-default-and-flag). A decision surfacing mid-build routes back through
+  a committed intent-gap record, and scripts/check-lean-chain.sh refuses a merge
+  while it is unratified. New intake-toolkit:implementability-probe agent reads a
+  spec cold and enumerates what an implementer would have to guess; spec-reviewer's
+  checklist gains a Discovery Coverage section (ratified-provenance share, a
+  verification rung per AC, open regions with dispositions, zero-open-regions as a
+  finding rather than a merit).
+  Migration: none. The Kind cell is receipt-mode only, so in-plan Decision Ledgers
+  and every existing lint path are unchanged.
+  the receipt lint's Kind/open-region refusals and both `--help` ranges now have
+  behavioral coverage, and run-lean's milestone-4 handoff message names the intent-gap
+  ratification the merge boundary will refuse without.
+  Migration: none.
+
+### `review-toolkit` 3.0.3 → 3.0.4
+
+- **The receipt discovers intent — ratification bar, open regions, intent-gap channel, implementability probe (#368)** (#368)
+  intake receipts carry a ratification bar. `ledger-lint.sh --receipt`
+  adds a Kind axis (intent | fact | open) checked against provenance, plus a
+  mandated Open Regions section with a per-region disposition (pause-and-ask |
+  reversible-default-and-flag). A decision surfacing mid-build routes back through
+  a committed intent-gap record, and scripts/check-lean-chain.sh refuses a merge
+  while it is unratified. New intake-toolkit:implementability-probe agent reads a
+  spec cold and enumerates what an implementer would have to guess; spec-reviewer's
+  checklist gains a Discovery Coverage section (ratified-provenance share, a
+  verification rung per AC, open regions with dispositions, zero-open-regions as a
+  finding rather than a merit).
+  Migration: none. The Kind cell is receipt-mode only, so in-plan Decision Ledgers
+  and every existing lint path are unchanged.
+  the receipt lint's Kind/open-region refusals and both `--help` ranges now have
+  behavioral coverage, and run-lean's milestone-4 handoff message names the intent-gap
+  ratification the merge boundary will refuse without.
+  Migration: none.
+
 ## v3.7.0
 
 ### `dev-pipeline` 3.6.0 → 3.7.0
