@@ -4,6 +4,45 @@ All notable changes to the second-shift marketplace. Versions are per-plugin (`p
 this file tracks the marketplace release. `configVersion` stays `const 1` — v2 is fully backward-compatible for a
 consumer with an empty config; the migration notes below are only for consumers using the changed features.
 
+## v3.8.1
+
+### `dev-pipeline` 3.8.0 → 3.8.1
+
+- **The lean gate pays its most expensive milestone before a cheap one that already failed, and reports one fact three times (#376)** (#376)
+  lean-gate.sh all now runs a cheap, read-only pre-pass over milestones
+  1 and 4 before milestone 3's green gate, so a stale verdict record is reported
+  before the ~15-minute sweep runs instead of after. check-lean-chain.sh's
+  evidence-5 freshness check collapses to one refusal (naming the verdict value)
+  for a non-approve record instead of three independent findings restating the
+  same fact. lean-gate.sh milestone 1 now refuses when the issue declares an
+  Open Region dispositioned pause-and-ask with no resolution artifact.
+  Migration: none.
+  none — the lean-green scenario leg was hitting a live gh issue view
+  the moment milestone 1 grew a network-touching check; it now passes the same
+  no-Open-Regions --issue-file default lean-gate-selftest.sh uses, restoring
+  the zero-network property.
+  `lean-gate.sh` milestone 1 now reads an Open Regions disposition
+  from the row's last non-empty cell, so a table written without a trailing
+  pipe no longer passes an unresolved pause-and-ask region; and it names every
+  unresolved region in one refusal instead of one per run. The run-lean skill's
+  Resume guidance now describes what `all` reports while the verdict is
+  outstanding. Migration: none.
+- **A lean fix round reviews the delta since the reviewed patch (#377)** (#377)
+  a lean review round after a fix now reads only the delta since the
+  patch the previous round covered, inheriting the rest by reference to that
+  round's committed record. The verdict record gains `inherited_patch_id` and
+  `inherited_from_verdict`, both derived — there is no flag — and every reader
+  refuses a link that resolves to no record on the branch. `lean-gate.sh delta
+  <issue>` prints the range a round must read. Migration: none; round-1 records
+  and every record predating the key are unchanged and still accepted.
+  milestone 4's pass line now states whether the verdict covers the whole
+  branch diff itself or inherits N verified earlier rounds. Migration: none.
+  a lean verdict record's own findings can no longer supply the inheritance key its
+  three readers gate on — the key is written on every round (`none` on a chain root) and read
+  from the record's header block. A round never inherits coverage from its own earlier version,
+  and an uncommitted verdict record is reported as uncommitted rather than as a broken chain.
+  Migration: none — records written before the sentinel are read as chain roots, as they were.
+
 ## v3.8.0
 
 ### `dev-pipeline` 3.7.0 → 3.8.0
