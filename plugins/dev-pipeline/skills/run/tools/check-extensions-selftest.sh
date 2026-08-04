@@ -28,10 +28,10 @@ bash "$CHECK" "$TMP/good" >/dev/null 2>&1 && ok "known extension files -> clean"
 # (2) a typo'd filename -> fail closed with UNKNOWN-EXTENSION
 mkdir -p "$TMP/bad/.claude/second-shift"
 : > "$TMP/bad/.claude/second-shift/blocker-mutants.md.md"     # typo
-if bash "$CHECK" "$TMP/bad" >/tmp/ext-selftest.out 2>&1; then
+if bash "$CHECK" "$TMP/bad" >"$TMP/ext-selftest.out" 2>&1; then
   bad "typo'd file should FAIL but passed"
 else
-  grep -q "UNKNOWN-EXTENSION:.*blocker-mutants.md.md" /tmp/ext-selftest.out && ok "typo'd file -> UNKNOWN-EXTENSION fail closed" \
+  grep -q "UNKNOWN-EXTENSION:.*blocker-mutants.md.md" "$TMP/ext-selftest.out" && ok "typo'd file -> UNKNOWN-EXTENSION fail closed" \
     || bad "typo failed but without the expected message"
 fi
 
@@ -64,14 +64,14 @@ bash "$CHECK" "$TMP/refs" >/dev/null 2>&1 && ok "plugin-namespaced refs (runtime
 cat > "$TMP/refs/.claude/second-shift.config.json" <<'JSON'
 { "stageWorkflows": [ { "stage": 6, "name": "v", "workflow": "scripts/does-not-exist.mjs" } ] }
 JSON
-if bash "$CHECK" "$TMP/refs" >/tmp/ext-ref.out 2>&1; then bad "unresolved repo-relative workflow should FAIL"
-else grep -q "UNRESOLVED-WORKFLOW" /tmp/ext-ref.out && ok "unresolved repo-relative workflow -> fail closed" || bad "workflow failed w/o expected message"; fi
+if bash "$CHECK" "$TMP/refs" >"$TMP/ext-ref.out" 2>&1; then bad "unresolved repo-relative workflow should FAIL"
+else grep -q "UNRESOLVED-WORKFLOW" "$TMP/ext-ref.out" && ok "unresolved repo-relative workflow -> fail closed" || bad "workflow failed w/o expected message"; fi
 
 cat > "$TMP/refs/.claude/second-shift.config.json" <<'JSON'
 { "implementDelegates": [ { "surface": "unit", "agent": "ghost-reviewer" } ] }
 JSON
-if bash "$CHECK" "$TMP/refs" >/tmp/ext-ref.out 2>&1; then bad "unresolved bare agent should FAIL"
-else grep -q "UNRESOLVED-AGENT" /tmp/ext-ref.out && ok "unresolved bare agent -> fail closed" || bad "agent failed w/o expected message"; fi
+if bash "$CHECK" "$TMP/refs" >"$TMP/ext-ref.out" 2>&1; then bad "unresolved bare agent should FAIL"
+else grep -q "UNRESOLVED-AGENT" "$TMP/ext-ref.out" && ok "unresolved bare agent -> fail closed" || bad "agent failed w/o expected message"; fi
 
 if [[ "$FAILS" -gt 0 ]]; then echo "check-extensions selftest: $FAILS FAILURE(S)"; exit 1; fi
 echo "check-extensions selftest: all green"

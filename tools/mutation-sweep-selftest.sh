@@ -1128,10 +1128,14 @@ if [[ "${C1:-0}" -gt 0 && "${S1:-9}" -eq 0 ]]; then
 else
   bad "(ad) cold run computed=${C1:-?} served=${S1:-?} (want >0 and 0)"; printf '%s\n' "$OUT" | tail -3
 fi
-if [[ "${C2:-9}" -eq 0 && "${S2:-0}" -eq "${C1:-0}" ]]; then
-  ok "warm run computed 0 and served $S2 — zero paired-suite executions"
+# ZERO is the whole assertion, and it covers the PRECHECK as well as the mutants — a
+# precheck is a paired-suite execution too, so a warm run that still ran one would not have
+# executed none. The cold run's 2 is 1 precheck + 1 mutant; the warm run's 1 served is the
+# mutant, and the precheck is skipped outright rather than cached.
+if [[ "${C2:-9}" -eq 0 && "${S2:-0}" -gt 0 ]]; then
+  ok "warm run computed 0 and served $S2 — zero paired-suite executions, precheck included"
 else
-  bad "(ad) warm run computed=${C2:-?} served=${S2:-?} (want 0 and ${C1:-?})"; printf '%s\n' "$OUT2" | tail -3
+  bad "(ad) warm run computed=${C2:-?} served=${S2:-?} (want 0 and >0)"; printf '%s\n' "$OUT2" | tail -3
 fi
 if diff -q "$TMPROOT/ad-cold.tsv" "$TMPROOT/ad-warm.tsv" >/dev/null 2>&1; then
   ok "the cached run reports the identical survivor set"
@@ -1214,6 +1218,29 @@ if [[ -z "$( cd "$FX" && git status --porcelain 2>/dev/null )" ]]; then
 else
   bad "(af) the run left files in the checkout:"; ( cd "$FX" && git status --porcelain ) | head -5
 fi
+# D-7: THIS HARNESS's own bytes are in the key. A hand-maintained schema constant would have
+# to be bumped by whoever next edits the kill criterion, the early-exit trigger or a killer
+# bound — and a discipline like that fails silently, leaving entries that outlive the meaning
+# they were recorded under. A trailing comment cannot change behavior, which is the point:
+# invalidation is conservative and automatic rather than judged.
+SWEEP_VARIANT="$TMPROOT/sweep-variant.sh"
+{ cat "$SWEEP"; printf '\n# an edit to this harness, which must re-key every entry\n'; } > "$SWEEP_VARIANT"
+OUT5="$( cd "$FX" && cch "$CD" bash "$SWEEP_VARIANT" --mode full 2>&1 )"
+C5="$(computed "$OUT5")"
+if [[ "${C5:-0}" -gt 0 ]]; then
+  ok "editing the harness re-keys every entry — no verdict outlives a change to how it was scored"
+else
+  bad "(af) a modified harness HIT the cache (computed=${C5:-?}); the key does not include its own bytes"
+fi
+# D-6: one subtree per repo, because two checkouts can hold byte-identical guards and suites
+# while differing in a file one of those suites merely SOURCES — which is exactly the residual
+# the narrow key carries.
+if [[ -d "$CD/$(basename "$FX")" ]]; then
+  ok "entries live under <cache dir>/<repo basename>/ — two checkouts cannot share a key"
+else
+  bad "(af) no per-repo subdirectory under $CD; two checkouts would share entries"
+  find "$CD" -maxdepth 1 -mindepth 1 2>/dev/null | head -3
+fi
 
 echo "(ag) early exit — a killed mutant stops at the first FAIL:, and scores what a full run scores"
 OBS_AG="$TMPROOT/obs-ag"
@@ -1262,18 +1289,23 @@ else
   bad "(ag/last) reached=$L_REACH completed=$L_DONE full-completed=$LF_DONE (want 2, 1, 2)"
 fi
 
+# The invariant the whole trigger rests on, asserted per run rather than measured once. A
+# suite that PASSES while printing the trigger would have every mutant of its guard scored
+# KILLED on prose, so it is an unrunnable pair — the same class as a suite that cannot run at
+# all, and for the same reason: neither can be allowed to report its guard as fully killed.
 FX="$TMPROOT/fxagn$RANDOM$RANDOM"
 make_early_fixture "$FX" noisy "$OBS_AG"
-OUT="$( cd "$FX" && adv bash "$SWEEP" --mode full 2>&1 )"
-if printf '%s' "$OUT" | grep -q 'early exit disarmed for'; then
-  ok "a suite whose GREEN output carries the pattern is disarmed, and says so"
+OUT="$( cd "$FX" && adv bash "$SWEEP" --mode full 2>&1 )"; RC=$?
+if [[ $RC -ne 0 ]] && printf '%s' "$OUT" | grep -q "unrunnable pair.*while PASSING"; then
+  ok "a green suite that prints the trigger is a named unrunnable pair, and reds"
 else
-  bad "(ag/noisy) the disarm was not derived from the precheck — every run of this suite now scores a false kill"
+  bad "(ag/noisy) rc=$RC — a green suite printing the trigger must red as an unrunnable pair"
+  printf '%s\n' "$OUT" | tail -3
 fi
-if printf '%s' "$OUT" | grep -q 'killed=0 survived=1'; then
-  ok "the mutant is correctly SURVIVED, not falsely killed by fixture prose"
+if printf '%s' "$OUT" | grep -qE 'guard\.sh	swept	\./guard-selftest\.sh	0	0	0'; then
+  ok "its mutants are NOT scored — no verdict is derived from prose"
 else
-  bad "(ag/noisy) expected killed=0 survived=1; early exit read fixture prose as a verdict"
+  bad "(ag/noisy) the guard's mutants were scored anyway; early exit read fixture prose as a verdict"
   printf '%s\n' "$OUT" | tail -3
 fi
 
@@ -1300,33 +1332,39 @@ else
   bad "(ah) $WT worktrees registered after the run (want 1)"; ( cd "$FX" && git worktree list ) | head -5
 fi
 
-echo "(ai) a serial-pinned killer never runs beside a sibling, even at JOBS=4"
-OBS_AI="$TMPROOT/obs-ai"
-FX="$TMPROOT/fxai$RANDOM$RANDOM"
-make_obs_fleet "$FX" 4 "$OBS_AI"
-# `./`-prefixed on purpose: these fixture guards sit at the repo ROOT, so `dirname` yields
-# `.` and the kill set the harness computes is `./guardN-selftest.sh`. Rows are matched
-# against that string verbatim, exactly as mutation-slow-suites.tsv rows are. No real guard
-# lives at the root, which is why the committed file carries plain relpaths — and why (k)
-# reds on a `./` there rather than letting a stray prefix make a pin silently inert.
-{ printf '# fixture serial suites\n'
-  for i in 1 2 3 4; do printf './guard%s-selftest.sh\tfixture pin\n' "$i"; done
-} > "$FX/tools/mutation-serial-suites.tsv"
-( cd "$FX" && git add -A \
-  && git -c user.email=fixture@example.invalid -c user.name=fixture commit -qm pin ) >/dev/null 2>&1
-obs_reset "$OBS_AI"
-OUT="$( cd "$FX" && adv env MUTATION_SWEEP_JOBS=4 bash "$SWEEP" --mode full --report "$TMPROOT/ai-pinned.tsv" 2>&1 )"
-MAXP="$(obs_max "$OBS_AI")"
-if [[ "$MAXP" -eq 1 ]]; then
-  ok "pinned suites ran one at a time despite a pool of 4"
+echo "(ai) the cache is INERT in the enforcing lane — neither read nor written"
+# A user-answered decision (D-2), and the only thing keeping the deliberately narrow key
+# honest: a third file the suite merely SOURCES can flip a verdict with the guard and its
+# suites byte-identical, so a stale entry must never be able to reach the authoritative lane.
+FX="$(new_fixture weak)"
+baseline_with "$FX" "guard.sh::fail-open::1"
+CD="$TMPROOT/cache-ai"
+rm -rf "$CD"
+OUT="$( cd "$FX" && cch "$CD" bash "$SWEEP" --mode full 2>&1 )"
+N_ADV="$(find "$CD" -type f 2>/dev/null | grep -c '')"
+OUT2="$( cd "$FX" && env GITHUB_ACTIONS=1 RUNNER_OS=Linux SKIP_STRESS=1 \
+          MUTATION_SWEEP_CACHE=1 MUTATION_SWEEP_CACHE_DIR="$CD" bash "$SWEEP" --mode full 2>&1 )"
+C2="$(computed "$OUT2")"
+N_ENF="$(find "$CD" -type f 2>/dev/null | grep -c '')"
+if [[ "${N_ADV:-0}" -gt 0 ]]; then
+  ok "the advisory run populated the cache ($N_ADV entr(y|ies))"
 else
-  bad "(ai) a pinned suite ran beside $((MAXP - 1)) sibling(s) — the pin is not honored"
+  bad "(ai) the advisory run wrote nothing, so the enforcing assertions below prove nothing"
 fi
-if diff -q "$TMPROOT/ac-4.tsv" "$TMPROOT/ai-pinned.tsv" >/dev/null 2>&1; then
-  ok "pinning changes the schedule and nothing else — same report as the unpinned pool"
+if printf '%s' "$OUT2" | grep -q 'cache disabled in the enforcing lane'; then
+  ok "the enforcing run says the cache is off"
 else
-  bad "(ai) the pinned run's report differs from the unpinned parallel run"
-  diff "$TMPROOT/ac-4.tsv" "$TMPROOT/ai-pinned.tsv" 2>&1 | head -8
+  bad "(ai) the enforcing run did not disarm the cache"
+fi
+if [[ "${C2:-0}" -gt 0 ]]; then
+  ok "the enforcing run recomputed every verdict — it read nothing"
+else
+  bad "(ai) the enforcing run served ${C2:-?} computed verdicts, so it READ the advisory cache"
+fi
+if [[ "$N_ENF" -eq "$N_ADV" ]]; then
+  ok "the enforcing run wrote nothing — entry count unchanged at $N_ENF"
+else
+  bad "(ai) entry count moved $N_ADV -> $N_ENF, so the enforcing run WROTE to the cache"
 fi
 
 echo "(j) universe rule — every in-universe guard in the REAL tree is accounted"
@@ -1421,20 +1459,18 @@ if [[ -f "$REPO_ROOT/tools/mutation-slow-suites.tsv" ]]; then
     esac
   done < "$REPO_ROOT/tools/mutation-slow-suites.tsv"
 fi
-# Serial pins: the suite resolves, and the row STATES WHY. A pin costs that guard's mutants
-# their share of the pool, so a reasonless row is a silent bill — and the reason is also the
-# only place a reader learns whether the suite is unfixable or merely was not fixed here.
-if [[ -f "$REPO_ROOT/tools/mutation-serial-suites.tsv" ]]; then
-  while IFS=$'\t' read -r s reason; do
-    case "$s" in ''|'#'*) continue ;; esac
-    [[ -f "$REPO_ROOT/$s" ]] || lint_fail "serial-suites selftest does not exist: $s"
-    case "$s" in *-selftest.sh) : ;; *) lint_fail "serial-suites row is not a selftest: $s" ;; esac
-    # Rows are matched against the kill set VERBATIM, and `-f` passes on both spellings, so
-    # a `./` prefix is a row that exists, lints clean, and pins nothing.
-    case "$s" in ./*) lint_fail "serial-suites path is './'-prefixed, which never matches a kill set: $s" ;; esac
-    [[ ${#reason} -ge 20 ]] || lint_fail "serial-suites row has no reason (a pin is a real cost): $s"
-  done < "$REPO_ROOT/tools/mutation-serial-suites.tsv"
-fi
+# No suite in the REAL corpus may redirect to a literal path outside its own mktemp tree.
+# That is the concurrency hazard the pool made reachable: two mutants of one guard run the
+# same suite AT THE SAME TIME, and a fixed path turns their interleaved write-then-read into
+# a mutation verdict about the wrong mutant. Three suites carried exactly this shape and were
+# fixed to write under their own $TMP; this lint is what stops a fourth arriving, because the
+# symptom would otherwise be flake in somebody's nightly rather than a failure here.
+while IFS= read -r f; do
+  [[ -n "$f" ]] || continue
+  hits="$(grep -cE '(>|>>)[[:space:]]*"?/(var/)?tmp/' "$REPO_ROOT/$f" 2>/dev/null)"
+  [[ "${hits:-0}" -eq 0 ]] \
+    || lint_fail "selftest redirects to a literal /tmp path, which races a concurrent sibling under the mutant pool: $f"
+done <<< "$(cd "$REPO_ROOT" && git ls-files '*-selftest.sh')"
 # Baseline: header present, survivor ids well-formed.
 if [[ -f "$REPO_ROOT/tools/mutation-baseline.tsv" ]]; then
   grep -q '^# environment: ' "$REPO_ROOT/tools/mutation-baseline.tsv" || lint_fail "baseline has no '# environment:' header"

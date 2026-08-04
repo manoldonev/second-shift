@@ -20,10 +20,10 @@ if grep -q "stageParams.visualCapture" "$TMP/stages/6-verify.md"; then
   grep -v "stageParams.visualCapture" "$TMP/stages/6-verify.md" > "$TMP/stages/6-verify.md.tmp"
   mv "$TMP/stages/6-verify.md.tmp" "$TMP/stages/6-verify.md"
 fi
-if bash "$CHECK" "$TMP" >/tmp/shadow-selftest.out 2>&1; then
+if bash "$CHECK" "$TMP" >"$TMP/shadow.out" 2>&1; then
   bad "stripped-reader tree should FAIL but passed"
 else
-  grep -q "SHADOW: 'stageParams.visualCapture'" /tmp/shadow-selftest.out && ok "stripped reader -> SHADOW failure + message" \
+  grep -q "SHADOW: 'stageParams.visualCapture'" "$TMP/shadow.out" && ok "stripped reader -> SHADOW failure + message" \
     || bad "stripped reader failed but without the expected SHADOW message"
 fi
 
@@ -35,10 +35,10 @@ if grep -q "tracker.branchPrefix" "$TMP2/stages/2-worktree.md"; then
   grep -v "tracker.branchPrefix" "$TMP2/stages/2-worktree.md" > "$TMP2/stages/2-worktree.md.tmp"
   mv "$TMP2/stages/2-worktree.md.tmp" "$TMP2/stages/2-worktree.md"
 fi
-if bash "$CHECK" "$TMP2" >/tmp/shadow-selftest2.out 2>&1; then
+if bash "$CHECK" "$TMP2" >"$TMP/shadow2.out" 2>&1; then
   bad "stripped Stage-2 branchPrefix reader should FAIL but passed"
 else
-  grep -q "SHADOW: 'tracker.branchPrefix'" /tmp/shadow-selftest2.out && ok "stripped branchPrefix reader -> SHADOW failure + message" \
+  grep -q "SHADOW: 'tracker.branchPrefix'" "$TMP/shadow2.out" && ok "stripped branchPrefix reader -> SHADOW failure + message" \
     || bad "stripped branchPrefix reader failed but without the expected SHADOW message"
 fi
 
