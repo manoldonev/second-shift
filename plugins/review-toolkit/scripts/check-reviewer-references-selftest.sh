@@ -14,6 +14,16 @@
 #   (c) REMOVE-UNKNOWN   plugin + consumer-remove-unknown (removes a non-plugin)-> exit 1
 #   (d) SHADOW           plugin + consumer-shadow (shadows plugin agent name)   -> exit 1
 #   add+override         plugin + consumer-add-override (add + modelOverride)   -> exit 0
+#   design-present       plugin-design + design-toolkit sibling root supplied   -> exit 0, no notice
+#   design-absent        plugin-design + design-toolkit root unresolvable       -> exit 0 + notice
+#   design-absent-scope  plugin-dangling + design-toolkit root unresolvable     -> exit 1
+#
+# The design-* cases are what make the THREE-root contract falsifiable, and they only
+# work as a pair-plus-scope: design-present asserts the sibling root RESOLVED (exit 0
+# AND no exemption notice) rather than merely being exempted; design-absent asserts the
+# exemption fired (notice, no DANGLING); design-absent-scope asserts the exemption is
+# scoped to the declared design-toolkit names — an unrelated dangling entry still denies
+# while design-toolkit is absent, so "exempt everything when the root is empty" fails.
 #
 # Convention mirrors check-model-tiers-selftest.sh: ok()/fail() counters, temp dirs
 # cleaned via trap. Bash 3.2 compatible (macOS).
@@ -38,13 +48,16 @@ cleanup() { rm -rf "$TMP" 2>/dev/null; }
 trap cleanup EXIT
 
 # Run the gate in CLI mode against explicit roots. Prints exit code; captures
-# stderr into $TMP/.stderr. Args: <plugin_root> <repo_root> [config_path]
+# stderr into $TMP/.stderr. Args: <plugin_root> <repo_root> [config_path] [design_root]
+# design_root unset => the script auto-resolves the sibling design-toolkit plugin
+# (what a real install does); pass a non-existent path to model "not installed".
 run_cli() {
-  local plugin="$1" repo="$2" config="${3:-}"
+  local plugin="$1" repo="$2" config="${3:-}" design="${4:-}"
   (
     export SECOND_SHIFT_PLUGIN_ROOT="$plugin"
     export SECOND_SHIFT_REPO_ROOT="$repo"
     [ -n "$config" ] && export SECOND_SHIFT_CONFIG="$config"
+    [ -n "$design" ] && export SECOND_SHIFT_DESIGN_TOOLKIT_ROOT="$design"
     bash "$CHECK" </dev/null 2>"$TMP/.stderr"
   )
 }
@@ -92,6 +105,46 @@ fi
 run_cli "$PLUGIN" "$FX/consumer-add-override" "$FX/consumer-add-override/.claude/second-shift.config.json"
 [ $? -eq 0 ] && ok "add+override: add resolves, modelOverride ignored -> exit 0" \
   || fail "add+override expected exit 0 (stderr: $(cat "$TMP/.stderr"))"
+
+# design-present — the panel names a design-toolkit-shipped reviewer and the sibling
+# root supplies its agent file. Exit 0 is necessary but NOT sufficient: the exemption
+# path also exits 0, so assert the exemption notice is ABSENT — that is what pins the
+# pass to sibling-root resolution rather than to the design-toolkit-absent degrade.
+PLUGIN_DESIGN="$FX/plugin-design"
+run_cli "$PLUGIN_DESIGN" "$EMPTY_CONSUMER" "" "$FX/design-toolkit"
+if [ $? -ne 0 ]; then
+  fail "design-present expected exit 0 (stderr: $(cat "$TMP/.stderr"))"
+elif grep -q "design-toolkit is not installed" "$TMP/.stderr"; then
+  fail "design-present: exit 0 but via the absent-toolkit exemption, not sibling-root resolution (stderr: $(cat "$TMP/.stderr"))"
+else
+  ok "design-present: sibling root resolves the design-toolkit agent -> exit 0, no exemption"
+fi
+
+# design-absent — same panel, design-toolkit NOT installed (the override points at a
+# path that does not exist). The panel entry must degrade to a printed notice, never a
+# DANGLING denial: otherwise every consumer without design-toolkit is commit-blocked.
+NO_DESIGN="$TMP/no-design-toolkit"
+run_cli "$PLUGIN_DESIGN" "$EMPTY_CONSUMER" "" "$NO_DESIGN"
+if [ $? -ne 0 ]; then
+  fail "design-absent expected exit 0 — an absent design-toolkit must not deny (stderr: $(cat "$TMP/.stderr"))"
+elif grep -q "DANGLING:" "$TMP/.stderr"; then
+  # `DANGLING:` with the colon — the error-line prefix. A bare `DANGLING` also matches
+  # the notice's own "exempt from DANGLING" wording and would fail the case spuriously.
+  fail "design-absent: exit 0 but a DANGLING line was still emitted (stderr: $(cat "$TMP/.stderr"))"
+elif ! grep -q "design-toolkit is not installed.*design-faithful-reviewer" "$TMP/.stderr"; then
+  fail "design-absent: exit 0 and no DANGLING, but the degrade was SILENT — no notice naming the exempt entry (stderr: $(cat "$TMP/.stderr"))"
+else
+  ok "design-absent: absent design-toolkit -> exit 0 + notice, no DANGLING"
+fi
+
+# design-absent-scope — the exemption is scoped to the declared design-toolkit names.
+# plugin-dangling's db-reviewer has no agent file in ANY root; with design-toolkit
+# equally absent it must STILL deny. Guards "empty design root => exempt everything".
+run_cli "$PLUGIN_DANGLING" "$EMPTY_CONSUMER" "" "$NO_DESIGN"
+if [ $? -eq 0 ]; then fail "design-absent-scope expected exit 1 — the exemption must not cover a non-design-toolkit name"; else
+  grep -q "DANGLING:.*db-reviewer" "$TMP/.stderr" && ok "design-absent-scope: unrelated dangling entry still denies -> exit 1" \
+    || fail "design-absent-scope: exit 1 but no DANGLING db-reviewer line (stderr: $(cat "$TMP/.stderr"))"
+fi
 
 # shipped-SKILL lockstep — the REAL plugin root must parse clean against an empty
 # consumer. Fixtures alone cannot catch a rewording of the shipped SKILL.md that
