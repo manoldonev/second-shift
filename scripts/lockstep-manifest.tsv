@@ -69,6 +69,10 @@ stage8-secondary-review	verbatim	plugins/dev-pipeline/skills/run/stages/8-code-r
 # subset-of with preflight.sh as fileA.
 seam-scrub	subset-of	plugins/dev-pipeline/skills/run/tools/preflight.sh	seam-scrub	plugins/dev-pipeline/skills/run/verifyctl.sh	seam-scrub
 #
+# lean-gate.sh (#379) needs nothing narrower or wider than verifyctl.sh's own denylist — no
+# PREFLIGHT_DOCTOR_CMD-shaped extra, so verbatim rather than subset-of.
+seam-scrub-lean	verbatim	plugins/dev-pipeline/skills/run-lean/lean-gate.sh	seam-scrub	plugins/dev-pipeline/skills/run/verifyctl.sh	seam-scrub
+#
 # ---------------------------------------------------------------------------------------
 # DROPPED to reviewer-guarded — recorded here rather than forgotten. Each was considered
 # for the mechanical manifest and rejected for a stated reason.

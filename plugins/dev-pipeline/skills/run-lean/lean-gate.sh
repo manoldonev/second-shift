@@ -877,6 +877,53 @@ cmd_2() {
 # D-17: the config commands table DIRECTLY — no verifyctl, and deliberately NO inert-diff
 # lane. In a repo whose diffs are mostly shell and markdown, the inert lane would skip the
 # suite on exactly the changes that need it most.
+#
+# SEAM-SCRUBBED (#379/AC-9). Every lane child spawned below — lanes[] setup, the fixed
+# lint/typecheck/test keys, and extraLanes — is itself second-shift tooling reach on this
+# repo (dogfooding), so it must not inherit the gate's own pipeline-seam env: an ambient
+# SECOND_SHIFT_CONFIG/STATECTL_STATE_DIR silently re-roots or re-states it, the same class
+# #34 found in verifyctl.sh. Verbatim copy of that denylist (scripts/lockstep-manifest.tsv
+# pins it) — lean-gate needs nothing narrower or wider. `eval "$cmd"` becomes
+# `env <scrub> bash -c "$cmd"`: functionally identical for a shell command string (verifyctl.sh
+# already runs this repo's own configured lane commands that way), and the only shape `env`
+# can scrub ahead of.
+# LOCKSTEP-BEGIN seam-scrub
+SEAM_SCRUB='SECOND_SHIFT_CONFIG|SECOND_SHIFT_REPO_ROOT|SECOND_SHIFT_EXTENSION_MANIFEST|SECOND_SHIFT_PLUGIN_ROOT|SECOND_SHIFT_REVIEW_TOOLKIT_ROOT|SECOND_SHIFT_DEV_PIPELINE_ROOT|SECOND_SHIFT_DESIGN_TOOLKIT_ROOT|SECOND_SHIFT_SECTION_CATALOG|STATECTL_STATE_DIR|STATECTL_WRITER|DEV_PIPELINE_MODE|BRANCH_PREFIX|KEY_PATTERN'
+# LOCKSTEP-END seam-scrub
+declare -a SEAM_SCRUB_ENV=()
+IFS='|' read -r -a _seam_scrub_toks <<< "$SEAM_SCRUB"
+for _seam_tok in "${_seam_scrub_toks[@]}"; do
+  SEAM_SCRUB_ENV+=(-u "$_seam_tok")
+done
+unset _seam_tok _seam_scrub_toks
+
+# extraLanes `when` glob match — bash pattern matching (NOT globstar, NOT git pathspec),
+# verifyctl.sh's pinned dialect (AC-4, verifyctl.sh:742-748): `*` crosses `/`, so `**` buys
+# nothing extra and a bare directory literal never matches a file beneath it. Its own
+# function so the selftest can pin the dialect directly instead of through cmd_3's plumbing.
+lean_when_matches() { # lean_when_matches <glob> <changed-files, newline-separated>
+  local glob="$1" changed="$2" f
+  while IFS= read -r f; do
+    [ -n "$f" ] || continue
+    # shellcheck disable=SC2053
+    if [[ "$f" == $glob ]]; then return 0; fi
+  done <<<"$changed"
+  return 1
+}
+
+# The `when` diff base — FAIL-CLOSED (AC-8), the opposite of branch_patch_id's fail-open
+# above it in this file: an unresolvable origin/$BASE_BRANCH must not silently read as an
+# empty diff, which would skip every when-scoped lane and report milestone 3 green having
+# verified nothing. Prints the changed-file list on success (possibly empty — a real inert
+# diff); prints nothing and returns 1 when the base cannot be resolved. Callers must gate on
+# the return code, never on empty output alone.
+lean_extra_lanes_diff() {
+  local base
+  base="$(git -C "$REPO_ROOT" merge-base "origin/$BASE_BRANCH" HEAD 2>/dev/null)" || return 1
+  [ -n "$base" ] || return 1
+  git -C "$REPO_ROOT" diff --name-only "$base..HEAD" 2>/dev/null
+}
+
 cmd_3() {
   local cmd rc sweep
   # lanes[] setup steps first, when present.
@@ -884,19 +931,82 @@ cmd_3() {
     while IFS= read -r cmd; do
       [ -n "$cmd" ] || continue
       say "milestone-3: lane » $cmd"
-      ( cd "$REPO_ROOT" && eval "$cmd" ); rc=$?
+      ( cd "$REPO_ROOT" && env ${SEAM_SCRUB_ENV[@]+"${SEAM_SCRUB_ENV[@]}"} bash -c "$cmd" ); rc=$?
       [ "$rc" -eq 0 ] || { fail_milestone 3 "lane failed (rc=$rc): $cmd"; return $?; }
     done < <(jq -r --arg s "$REPO_SLUG" '(.commands[$s].lanes // []) | .[] | (.command // .)' "$CONFIG" 2>/dev/null)
   fi
 
   local key
-  for key in lint typecheck test build; do
+  for key in lint typecheck test; do
     cmd="$(cfg ".commands[\"$REPO_SLUG\"].$key" '')"
     [ -n "$cmd" ] || { say "milestone-3: $key is null — skipped."; continue; }
     say "milestone-3: $key » $cmd"
-    ( cd "$REPO_ROOT" && eval "$cmd" ); rc=$?
+    ( cd "$REPO_ROOT" && env ${SEAM_SCRUB_ENV[@]+"${SEAM_SCRUB_ENV[@]}"} bash -c "$cmd" ); rc=$?
     [ "$rc" -eq 0 ] || { fail_milestone 3 "$key failed (rc=$rc)"; return $?; }
   done
+
+  # ---- extraLanes (EP-2) ---------------------------------------------------------
+  # Additive verify lanes: the schema's slot for everything config-lint forces out of the
+  # fixed keys (build lanes, path-scoped suites, a design-driven live-render lane). Run
+  # sequentially AFTER the fixed keys and BEFORE the mutation sweep (AC-6), in declaration
+  # order, fail-fast — the same placement verifyctl.sh gives them.
+  local el_lanes="[]" el_count=0
+  if [ -f "$CONFIG" ]; then
+    el_lanes="$(jq -c --arg s "$REPO_SLUG" '(.commands[$s].extraLanes // [])' "$CONFIG" 2>/dev/null)"
+    [ -n "$el_lanes" ] && [ "$el_lanes" != "null" ] || el_lanes="[]"
+  fi
+  el_count="$(jq 'length' <<<"$el_lanes" 2>/dev/null)"
+  [ -n "$el_count" ] || el_count=0
+
+  if [ "$el_count" -gt 0 ]; then
+    local el_i el_diff="" el_diff_rc="" el_diff_done=0
+    for (( el_i=0; el_i<el_count; el_i++ )); do
+      local el_type el_name el_cmd_count el_when_count el_run
+      # Shape backstop (AC-7): nothing in this lane ever runs config-lint, so this is the
+      # only shape guard extraLanes gets here. A non-object entry, or one missing `name` or
+      # a non-empty `commands`, reds milestone 3 naming the entry INDEX — mirroring the hole
+      # verifyctl.sh grew this same guard for (#100).
+      el_type="$(jq -r --argjson i "$el_i" '.[$i] | type' <<<"$el_lanes")"
+      if [ "$el_type" != "object" ]; then
+        fail_milestone 3 "extraLanes[$el_i]: must be an object {name, when?, commands[], failureClass}, got $el_type"; return $?
+      fi
+      el_name="$(jq -r --argjson i "$el_i" '.[$i].name // empty' <<<"$el_lanes")"
+      [ -n "$el_name" ] || { fail_milestone 3 "extraLanes[$el_i]: missing 'name'"; return $?; }
+      el_cmd_count="$(jq -r --argjson i "$el_i" '(.[$i].commands // []) | length' <<<"$el_lanes")"
+      [ "$el_cmd_count" -gt 0 ] || { fail_milestone 3 "extraLanes[$el_i] ('$el_name'): 'commands' must be a non-empty array"; return $?; }
+
+      el_when_count="$(jq -r --argjson i "$el_i" '(.[$i].when // []) | length' <<<"$el_lanes")"
+      el_run=1
+      if [ "$el_when_count" -gt 0 ]; then
+        if [ "$el_diff_done" -eq 0 ]; then
+          el_diff="$(lean_extra_lanes_diff)"; el_diff_rc=$?; el_diff_done=1
+        fi
+        if [ "$el_diff_rc" -ne 0 ]; then
+          fail_milestone 3 "extraLanes[$el_i] ('$el_name'): cannot resolve origin/$BASE_BRANCH to evaluate 'when' — fetch it and re-run"; return $?
+        fi
+        el_run=0
+        local wi wglob
+        for (( wi=0; wi<el_when_count; wi++ )); do
+          wglob="$(jq -r --argjson i "$el_i" --argjson j "$wi" '.[$i].when[$j]' <<<"$el_lanes")"
+          if lean_when_matches "$wglob" "$el_diff"; then el_run=1; break; fi
+        done
+      fi
+
+      if [ "$el_run" -ne 1 ]; then
+        say "milestone-3: extra lane '$el_name' — skipped (no changed path matches when[])"
+        append_line "$(now_iso) | milestone-3 | skipped | extra lane '$el_name' — no changed path matches when[]"
+        continue
+      fi
+
+      local el_ci el_cmd
+      for (( el_ci=0; el_ci<el_cmd_count; el_ci++ )); do
+        el_cmd="$(jq -r --argjson i "$el_i" --argjson j "$el_ci" '.[$i].commands[$j]' <<<"$el_lanes")"
+        say "milestone-3: extra lane '$el_name' » $el_cmd"
+        ( cd "$REPO_ROOT" && env ${SEAM_SCRUB_ENV[@]+"${SEAM_SCRUB_ENV[@]}"} bash -c "$el_cmd" ); rc=$?
+        [ "$rc" -eq 0 ] || { fail_milestone 3 "extra lane '$el_name' failed (rc=$rc): $el_cmd"; return $?; }
+      done
+    done
+  fi
 
   # D-18: the diff-scoped mutation sweep when the target repo carries one. Absent is a
   # PRINTED skip, never silent — a missing test-the-tests lane must be visible.

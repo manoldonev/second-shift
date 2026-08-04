@@ -133,12 +133,12 @@
               "required": ["name", "commands", "failureClass"],
               "properties": {
                 "name": { "type": "string", "description": "kebab-case, unique; results recorded under ext:<name>." },
-                "when": { "type": "array", "items": { "type": "string" }, "description": "Changed-file globs gating execution; empty/absent = always run. An inert diff skips extra lanes too." },
+                "when": { "type": "array", "items": { "type": "string" }, "description": "Changed-file globs gating execution; empty/absent = always run. Skip/inert-diff behavior is the consuming lane's own." },
                 "commands": { "type": "array", "items": { "type": "string" }, "minItems": 1 },
                 "failureClass": {
                   "type": "string",
                   "enum": ["FORMAT", "LINT_AUTOFIX", "TYPE_ERROR", "TEST_FAILURE", "PLAN_CMD_FAILURE", "INFRA"],
-                  "description": "MUST be an existing closed failure-taxonomy value — extensions borrow the taxonomy, never extend it; gets the standard 2-attempt budget."
+                  "description": "MUST be an existing closed failure-taxonomy value — extensions borrow the taxonomy, never extend it. Blocking; the attempt-budget behavior belongs to the consuming lane (e.g. verifyctl's 2-attempt budget; lean-gate's 3-attempt milestone budget)."
                 }
               }
             }

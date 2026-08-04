@@ -11,6 +11,9 @@ Not to be confused with `stageParams.visualCapture` — that is Stage-6's **advi
 (observation only, never gates); `design.liveRender` is the Stage-5 design-fidelity check with an
 in-session fix loop behind it.
 
+Under `/dev-pipeline:run-lean` there is no Stage-5 and no `design.liveRender` key — see
+[Lean-lane wiring](#lean-lane-wiring) below for the config-side equivalent.
+
 ## Config
 
 ```jsonc
@@ -69,3 +72,31 @@ A worked example: a Vite MIFE mounted in a platform admin shell, backed by a sib
 2. **Gitignored state does not exist in fresh worktrees.** Accept an absolute-path env override
    for the auth-state file (e.g. `E2E_AUTH_STATE`) so a worktree run can point at the operator's
    maintained state — or set the credential env vars and let the setup project mint a fresh one.
+
+## Lean-lane wiring
+
+`/dev-pipeline:run-lean`'s `lean-gate.sh` has no design/ticket awareness and no `design.liveRender`
+key (#379) — no Stage-5, no degraded `render-verify-unavailable` state, no in-session fix loop. Arm
+the same render harness as a `commands.<repo>.extraLanes` entry instead, scoped to the FE surface
+via `when` so it only runs on a diff that touches it:
+
+```jsonc
+"commands": {
+  "fe": {
+    "extraLanes": [
+      {
+        "name": "live-render",
+        "when": ["apps/fe/**/*.tsx"],
+        "commands": ["yarn render:verify --route prospects --out /tmp/render.png"],
+        "failureClass": "TEST_FAILURE"
+      }
+    ]
+  }
+}
+```
+
+Milestone 3 runs this after the fixed `lint`/`typecheck`/`test` keys, blocking, exactly like any
+other extraLane — there is no comparison-against-a-cached-frame machinery here, the command is
+opaque to the gate. Your `render:verify` script owns the whole check, including whatever
+pass/fail semantics you want its exit code to carry; the reference harness above (boot, auth,
+screenshot) is a starting point, not the Stage-5 gate's comparison step.

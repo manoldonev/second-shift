@@ -1247,6 +1247,87 @@ LEANPRJNV
   [[ "$jp10" -ne 0 ]] \
     && pass "(lean-jira-p10) a build-authored verdict is refused on the jira arm too — the adapter is no authorship loophole" \
     || fail "(lean-jira-p10) milestone-4 accepted a verdict carrying the build session id under jira"
+
+  # ---- extraLanes composition (#379) — the skip and red verdict paths, end to end --------
+  # NOT a duplicate of lean-gate-selftest.sh's per-tool AC coverage (that suite drives
+  # milestone 3 alone against dozens of shapes): this is the composed-verdict-path
+  # obligation the repo's own testing rule names — a fresh, isolated tree because legs 1-7
+  # and the jira sub-section above leave $LEAN_TREE mid-rebase/branch-switched, unrelated to
+  # this composition.
+  EL_TREE="$TMP/lean-el-tree"
+  mkdir -p "$EL_TREE/docs/plans" "$EL_TREE/.claude/audit"
+  git -C "$EL_TREE" init -q
+  git -C "$EL_TREE" config user.email lean-el@example.invalid
+  git -C "$EL_TREE" config user.name lean-el-scenario
+  printf '.claude/\n' > "$EL_TREE/.gitignore"
+  git -C "$EL_TREE" add -A >/dev/null 2>&1 && git -C "$EL_TREE" commit -q -m "el fixture base" >/dev/null 2>&1
+  git -C "$EL_TREE" update-ref refs/remotes/origin/main HEAD
+  mkdir -p "$EL_TREE/src"
+  printf 'x\n' > "$EL_TREE/src/App.tsx"
+  git -C "$EL_TREE" add -A >/dev/null 2>&1 && git -C "$EL_TREE" commit -q -m "el fixture change" >/dev/null 2>&1
+
+  EL_ISSUE="$TMP/lean-el-issue.json"
+  printf '{"body": "# issue\\n\\nNo Open Regions section here.\\n"}' > "$EL_ISSUE"
+  el_cfg() { # el_cfg <label> <extraLanes-json>
+    local out="$TMP/lean-el-cfg-$1.json"
+    jq --argjson el "$2" '.commands.acme.extraLanes = $el' "$LEAN_CFG" > "$out" 2>/dev/null
+    printf '%s' "$out"
+  }
+  el_gate() { # el_gate <config-file> <progress-file> <args...>
+    local cfg="$1" prog="$2"; shift 2
+    ( cd "$EL_TREE" && SECOND_SHIFT_CONFIG="$cfg" LEAN_PROGRESS_FILE="$prog" \
+      bash "$LEAN_GATE" --issue-file "$EL_ISSUE" "$@" 2>&1 )
+  }
+
+  # skip: a non-matching `when` composes into a fully green run, exactly like (lean-green)
+  # above — extraLanes must not silently block a run it has nothing to say about.
+  EL_SPEC="$EL_TREE/docs/plans/acme-777-lean.md"
+  EL_VERDICT="$EL_TREE/docs/plans/acme-777-lean-verdict.md"
+  printf '# spec\n\n- AC-1: a thing\n' > "$EL_SPEC"
+  git -C "$EL_TREE" add -A >/dev/null 2>&1 && git -C "$EL_TREE" commit -q -m "el: spec" >/dev/null 2>&1
+  printf 'verdict=approve\nrun_id: r-el-review\nsession_id: sess-el-review\nrounds: 1\nreviewed_head: %s\n' \
+    "$(git -C "$EL_TREE" rev-parse HEAD)" > "$EL_VERDICT"
+  git -C "$EL_TREE" add -A >/dev/null 2>&1 && git -C "$EL_TREE" commit -q -m "el: verdict" >/dev/null 2>&1
+  cat > "$TMP/lean-el-pr.json" <<LEANELPR
+[{ "number": 9, "url": "https://example.invalid/pr/9", "isDraft": false,
+   "body": "Closes #777\n\nSpec: docs/plans/acme-777-lean.md" }]
+LEANELPR
+  cat > "$TMP/lean-el-comments.json" <<LEANELC
+[{ "user": { "type": "Bot" }, "created_at": "2026-01-01T00:00:00Z",
+   "body": "<!-- run_id: r-el-1 -->\n<!-- stage: lean-claimed -->" },
+ { "user": { "type": "Bot" }, "created_at": "2026-01-02T00:00:00Z",
+   "body": "Done. Verdict record: docs/plans/acme-777-lean-verdict.md" }]
+LEANELC
+  EL_CFG_SKIP="$(el_cfg skip '[{"name":"scoped","when":["docs/nomatch/**/*.md"],"commands":["echo should-not-run"],"failureClass":"TEST_FAILURE"}]')"
+  EL_PROG_SKIP="$TMP/lean-el-prog-skip.md"
+  el_gate "$EL_CFG_SKIP" "$EL_PROG_SKIP" 1 777 >/dev/null 2>&1; els1=$?
+  el_gate "$EL_CFG_SKIP" "$EL_PROG_SKIP" 2 777 >/dev/null 2>&1; els2=$?
+  el_gate "$EL_CFG_SKIP" "$EL_PROG_SKIP" 3 777 >/dev/null 2>&1; els3=$?
+  el_gate "$EL_CFG_SKIP" "$EL_PROG_SKIP" 4 777 >/dev/null 2>&1; els4=$?
+  el_gate "$EL_CFG_SKIP" "$EL_PROG_SKIP" 5 777 --pr-file "$TMP/lean-el-pr.json" \
+          --comments-file "$TMP/lean-el-comments.json" >/dev/null 2>&1; els5=$?
+  [[ "$els1$els2$els3$els4$els5" == "00000" ]] \
+    && pass "(lean-el-skip) a non-matching extraLanes 'when' composes into a fully green run (milestones 1-5)" \
+    || fail "(lean-el-skip) exit codes were $els1$els2$els3$els4$els5, expected 00000"
+  el_skip_n=$(grep -cF "milestone-3 | skipped | extra lane 'scoped'" "$EL_PROG_SKIP" 2>/dev/null) || el_skip_n=0
+  [[ "$el_skip_n" -ge 1 ]] \
+    && pass "(lean-el-skip) the skip composes with a recorded progress-file line, not a silent pass" \
+    || fail "(lean-el-skip) no skip line recorded in the composed run"
+
+  # red: a failing extraLane composes the same way a fixed-key failure already does — 'all'
+  # stops at milestone 3 and never reaches 4/5, the composition obligation the fixed-key
+  # legs above never exercise for extraLanes specifically. A fresh progress file: the point
+  # is what THIS run records, not what the skip leg above already left behind.
+  EL_CFG_RED="$(el_cfg red '[{"name":"boom","commands":["exit 3"],"failureClass":"TEST_FAILURE"}]')"
+  EL_PROG_RED="$TMP/lean-el-prog-red.md"
+  out="$(el_gate "$EL_CFG_RED" "$EL_PROG_RED" all 777)"; elr=$?
+  if [[ "$elr" -ne 0 ]] && printf '%s' "$out" | grep -q 'stopped at milestone-3'; then
+    pass "(lean-el-red) a failing extraLane composes into 'all' stopping at milestone-3"
+  else fail "(lean-el-red) expected 'all' to stop at milestone-3, got rc=$elr: $out"; fi
+  el_red_n=$(grep -cF '| milestone-4 | satisfied' "$EL_PROG_RED" 2>/dev/null) || el_red_n=0
+  [[ "$el_red_n" -eq 0 ]] \
+    && pass "(lean-el-red) milestone-4 is never recorded satisfied when extraLanes reds milestone-3 first" \
+    || fail "(lean-el-red) milestone-4 was recorded satisfied despite milestone-3 failing"
 fi
 
 

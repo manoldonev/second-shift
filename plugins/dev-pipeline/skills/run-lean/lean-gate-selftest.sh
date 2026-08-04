@@ -243,6 +243,215 @@ if [ "$rc" -eq 0 ] && printf '%s' "$out" | grep -q 'mutation-sweep.sh absent'; t
   pass "(i) milestone-3 prints a skip notice when tools/mutation-sweep.sh is absent"
 else fail "(i) expected a mutation-sweep skip notice, got rc=$rc: $out"; fi
 
+# AC-10: `build` is gone from the fixed-key loop — the shared $CFG never declares it (same
+# as before this change), so the ONLY thing that moved is whether the dead key still prints.
+if ! printf '%s' "$out" | grep -q 'build is null'; then
+  pass "(i-AC10) the dead 'build' key no longer appears in milestone-3 output"
+else fail "(i-AC10) 'build is null' still printed — the dead key was not removed"; fi
+
+# AC-5: no extraLanes key in $CFG — the same run must carry no 'extra lane' token, and the
+# rest of this suite's shared-$TREE milestone-3 cases (this one included) stay green
+# unmodified, proving the change is additive.
+if ! printf '%s' "$out" | grep -q 'extra lane'; then
+  pass "(i-AC5) no extraLanes key -> no 'extra lane' token in milestone-3 output"
+else fail "(i-AC5) an 'extra lane' token appeared with no extraLanes configured"; fi
+
+# ---- (i2) extraLanes (#379) ---------------------------------------------------------------
+# A dedicated fixture tree, config, and issue file per case group — NOT the shared $TREE/$CFG
+# above. Two reasons: (1) several cases here need a REAL, non-empty diff from origin/main
+# (AC-3's own testing note: the shared $TREE pins origin/main to HEAD by construction, making
+# its diff empty — a broken `when` implementation would pass both the match and the skip case
+# against it), and (2) isolation keeps every later milestone-4/5 case in this file — which
+# reads $TREE's patch identity — untouched by a commit this section adds for its own purposes.
+EL_CFG_N=0
+el_cfg() { # el_cfg <extraLanes-json> — writes a config.json with that extraLanes array spliced
+           # into the shared $CFG's commands.acme, returns its path.
+  EL_CFG_N=$((EL_CFG_N + 1))
+  local out="$WORK/el-cfg-$EL_CFG_N.json"
+  jq --argjson el "$1" '.commands.acme.extraLanes = $el' "$CFG" > "$out" 2>/dev/null
+  printf '%s' "$out"
+}
+EL_ISSUE="$WORK/el-issue.json"
+printf '{"body": "# issue\\n\\nNo Open Regions section here.\\n"}' > "$EL_ISSUE"
+el_count_in() { # el_count_in <token> <progress-file> — the safe count idiom (never `grep -c
+                # ... || echo 0`: on zero matches grep prints "0" AND exits 1, doubling up).
+  local n
+  n="$(grep -cF "$1" "$2" 2>/dev/null)" || n=0
+  [ -n "$n" ] || n=0
+  echo "$n"
+}
+
+EL_TREE="$WORK/el-tree"
+mkdir -p "$EL_TREE"
+git -C "$EL_TREE" init -q
+git -C "$EL_TREE" config user.email t@example.invalid
+git -C "$EL_TREE" config user.name t
+printf '.claude/\n' > "$EL_TREE/.gitignore"
+printf 'seed\n' > "$EL_TREE/README.md"
+git -C "$EL_TREE" add -A >/dev/null 2>&1 && git -C "$EL_TREE" commit -q -m "el fixture base" >/dev/null 2>&1
+git -C "$EL_TREE" update-ref refs/remotes/origin/main HEAD
+# Advance past origin/main with a REAL, non-empty diff that matches nothing a `docs/**/*.md`
+# `when` would select — AC-3's negative case, proven against non-empty rather than inert.
+mkdir -p "$EL_TREE/src" "$EL_TREE/nomatch"
+printf 'x\n' > "$EL_TREE/src/App.tsx"
+printf 'y\n' > "$EL_TREE/nomatch/file.txt"
+git -C "$EL_TREE" add -A >/dev/null 2>&1 && git -C "$EL_TREE" commit -q -m "el fixture change" >/dev/null 2>&1
+
+gate_el() { # gate_el <config-file> <progress-file> <args...>
+  local cfg="$1" prog="$2"; shift 2
+  ( unset RUN_ID CLAUDE_CODE_SESSION_ID; cd "$EL_TREE" && SECOND_SHIFT_CONFIG="$cfg" LEAN_PROGRESS_FILE="$prog" \
+    bash "$GATE" --issue-file "$EL_ISSUE" "$@" 2>&1 )
+}
+
+# AC-1: no `when` = always run; a passing lane's command is printed and milestone-3 passes.
+cfg="$(el_cfg '[{"name":"ok-lane","commands":["echo hi"],"failureClass":"TEST_FAILURE"}]')"
+prog="$WORK/el-prog-ok.md"
+out="$(gate_el "$cfg" "$prog" 3 7)"; rc=$?
+if [ "$rc" -eq 0 ] && printf '%s' "$out" | grep -qF "extra lane 'ok-lane' » echo hi"; then
+  pass "(i2) AC-1: an extraLane with no 'when' always runs"
+else fail "(i2) expected rc=0 and the lane's command printed, got rc=$rc: $out"; fi
+
+# AC-1: a failing lane reds milestone 3, naming BOTH the lane and the failing command.
+cfg="$(el_cfg '[{"name":"boom","commands":["exit 7"],"failureClass":"TEST_FAILURE"}]')"
+prog="$WORK/el-prog-boom.md"
+out="$(gate_el "$cfg" "$prog" 3 7)"; rc=$?
+if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -qF "extra lane 'boom' failed (rc=7): exit 7"; then
+  pass "(i3) AC-1: a failing extraLane reds milestone 3, naming the lane and the command"
+else fail "(i3) expected rc=1 naming lane+command, got rc=$rc: $out"; fi
+
+# AC-2: commands[] run sequentially and stop at the FIRST non-zero — "echo three" must never
+# run, and the failure names the second command, not the third.
+cfg="$(el_cfg '[{"name":"multi","commands":["echo one","exit 5","echo three"],"failureClass":"TEST_FAILURE"}]')"
+prog="$WORK/el-prog-multi.md"
+out="$(gate_el "$cfg" "$prog" 3 7)"; rc=$?
+if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -qF "» echo one" \
+   && ! printf '%s' "$out" | grep -qF "» echo three" \
+   && printf '%s' "$out" | grep -qF "failed (rc=5): exit 5"; then
+  pass "(i4) AC-2: a multi-command lane stops at the first non-zero command"
+else fail "(i4) expected sequential run stopping at 'exit 5', got rc=$rc: $out"; fi
+
+# AC-3: a non-matching `when`, against the REAL non-empty diff above (src/App.tsx,
+# nomatch/file.txt — neither is under docs/), skips with the pinned progress-file line.
+cfg="$(el_cfg '[{"name":"scoped","when":["docs/**/*.md"],"commands":["echo should-not-run"],"failureClass":"TEST_FAILURE"}]')"
+prog="$WORK/el-prog-scoped.md"
+out="$(gate_el "$cfg" "$prog" 3 7)"; rc=$?
+if [ "$rc" -eq 0 ] && printf '%s' "$out" | grep -qF "extra lane 'scoped' — skipped" \
+   && ! printf '%s' "$out" | grep -q 'should-not-run'; then
+  pass "(i5) AC-3: a non-matching 'when' against a non-empty diff prints a skip"
+else fail "(i5) expected a printed skip and no command run, got rc=$rc: $out"; fi
+if [ "$(el_count_in "milestone-3 | skipped | extra lane 'scoped' — no changed path matches when[]" "$prog")" -ge 1 ]; then
+  pass "(i6) AC-3: the pinned skip progress-file line is written"
+else fail "(i6) expected the pinned skip line in $prog, got: $(cat "$prog" 2>/dev/null)"; fi
+
+# AC-6: ordering is fixed keys -> extraLanes (declaration order) -> mutation sweep, fail-fast.
+cfg="$(el_cfg '[{"name":"ord-lane","commands":["echo mid"],"failureClass":"TEST_FAILURE"}]')"
+prog="$WORK/el-prog-ord.md"
+out="$(gate_el "$cfg" "$prog" 3 7)"
+lint_at="$(printf '%s\n' "$out" | grep -n 'lint is null' | head -1 | cut -d: -f1)"
+lane_at="$(printf '%s\n' "$out" | grep -n "extra lane 'ord-lane'" | head -1 | cut -d: -f1)"
+sweep_at="$(printf '%s\n' "$out" | grep -n 'mutation-sweep.sh absent' | head -1 | cut -d: -f1)"
+if [ -n "${lint_at:-}" ] && [ -n "${lane_at:-}" ] && [ -n "${sweep_at:-}" ] \
+   && [ "$lint_at" -lt "$lane_at" ] && [ "$lane_at" -lt "$sweep_at" ]; then
+  pass "(i7) AC-6: observable ordering is fixed keys -> extraLanes -> mutation sweep"
+else fail "(i7) expected lint < extraLane < sweep ordering, got lint=$lint_at lane=$lane_at sweep=$sweep_at"; fi
+
+# AC-7: malformed entries red milestone 3 naming the entry INDEX — three shapes.
+cfg="$(el_cfg '["oops"]')"
+out="$(gate_el "$cfg" "$WORK/el-prog-bad1.md" 3 7)"; rc=$?
+if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -qF "extraLanes[0]: must be an object"; then
+  pass "(i8) AC-7: a non-object extraLanes entry reds milestone 3 naming the index"
+else fail "(i8) expected the non-object shape error, got rc=$rc: $out"; fi
+
+cfg="$(el_cfg '[{"commands":["echo hi"],"failureClass":"TEST_FAILURE"}]')"
+out="$(gate_el "$cfg" "$WORK/el-prog-bad2.md" 3 7)"; rc=$?
+if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -qF "extraLanes[0]: missing 'name'"; then
+  pass "(i9) AC-7: an entry missing 'name' reds milestone 3 naming the index"
+else fail "(i9) expected the missing-name error, got rc=$rc: $out"; fi
+
+cfg="$(el_cfg '[{"name":"x","commands":[],"failureClass":"TEST_FAILURE"}]')"
+out="$(gate_el "$cfg" "$WORK/el-prog-bad3.md" 3 7)"; rc=$?
+if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -qF "extraLanes[0] ('x'): 'commands' must be a non-empty array"; then
+  pass "(i10) AC-7: an entry with empty 'commands' reds milestone 3 naming the index"
+else fail "(i10) expected the empty-commands error, got rc=$rc: $out"; fi
+
+# AC-8: an unresolvable origin/<baseBranch> reds milestone 3 FAIL-CLOSED when a when-scoped
+# lane exists, rather than reading the unresolvable base as an empty (and thus matchless) diff.
+EL_TREE_NB="$WORK/el-tree-noorigin"
+mkdir -p "$EL_TREE_NB"
+git -C "$EL_TREE_NB" init -q
+git -C "$EL_TREE_NB" config user.email t@example.invalid
+git -C "$EL_TREE_NB" config user.name t
+printf '.claude/\n' > "$EL_TREE_NB/.gitignore"
+printf 'seed\n' > "$EL_TREE_NB/README.md"
+git -C "$EL_TREE_NB" add -A >/dev/null 2>&1 && git -C "$EL_TREE_NB" commit -q -m base >/dev/null 2>&1
+# Deliberately NO `update-ref refs/remotes/origin/main` — the base is unresolvable.
+cfg="$(el_cfg '[{"name":"scoped","when":["src/**/*.tsx"],"commands":["echo hi"],"failureClass":"TEST_FAILURE"}]')"
+out="$( unset RUN_ID CLAUDE_CODE_SESSION_ID; cd "$EL_TREE_NB" && SECOND_SHIFT_CONFIG="$cfg" LEAN_PROGRESS_FILE="$WORK/el-prog-nb.md" \
+        bash "$GATE" --issue-file "$EL_ISSUE" 3 7 2>&1 )"; rc=$?
+if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q "cannot resolve origin/main to evaluate 'when'"; then
+  pass "(i11) AC-8: an unresolvable base reds milestone 3 fail-closed (not a silent skip)"
+else fail "(i11) expected a fail-closed refusal, got rc=$rc: $out"; fi
+
+# AC-9: milestone-3 lane children run with the pipeline's seam vars stripped — proven on a
+# FIXED key and on an extraLane, the two independent call sites this diff touches. Assertions
+# are LINE-ANCHORED (^SCRUBBED$ / ^LEAKED$): the lane command's own text is echoed as an
+# announcement ("» ... || echo LEAKED") before it runs, so an unanchored grep for LEAKED would
+# false-positive on the announcement line itself even when the executed result is clean.
+cfg="$WORK/el-cfg-scrub-fixed.json"
+jq '.commands.acme.lint = "[ -z \"${SECOND_SHIFT_CONFIG:-}\" ] && echo SCRUBBED || echo LEAKED"' "$CFG" > "$cfg" 2>/dev/null
+out="$(gate_el "$cfg" "$WORK/el-prog-scrub-fixed.md" 3 7)"; rc=$?
+if [ "$rc" -eq 0 ] && printf '%s\n' "$out" | grep -qx 'SCRUBBED' && ! printf '%s\n' "$out" | grep -qx 'LEAKED'; then
+  pass "(i12) AC-9: the fixed-key lane child runs with SECOND_SHIFT_CONFIG stripped"
+else fail "(i12) expected SCRUBBED with no LEAKED, got rc=$rc: $out"; fi
+
+# shellcheck disable=SC2016  # deliberate: the ${SECOND_SHIFT_CONFIG:-} must reach the child
+# bash -c unexpanded, to be evaluated THERE (inside the scrubbed env), not by this shell.
+cfg="$(el_cfg '[{"name":"scrub-check","commands":["[ -z \"${SECOND_SHIFT_CONFIG:-}\" ] && echo SCRUBBED || echo LEAKED"],"failureClass":"TEST_FAILURE"}]')"
+out="$(gate_el "$cfg" "$WORK/el-prog-scrub-extra.md" 3 7)"; rc=$?
+if [ "$rc" -eq 0 ] && printf '%s\n' "$out" | grep -qx 'SCRUBBED' && ! printf '%s\n' "$out" | grep -qx 'LEAKED'; then
+  pass "(i13) AC-9: an extraLanes child runs with SECOND_SHIFT_CONFIG stripped"
+else fail "(i13) expected SCRUBBED with no LEAKED, got rc=$rc: $out"; fi
+
+# AC-4: the bash-pattern dialect — `src/**/*.tsx` does NOT match a top-level `src/App.tsx`
+# (no `when` in this diff DOES match, so the lane is expected to SKIP).
+EL_TREE_TOP="$WORK/el-tree-top"
+mkdir -p "$EL_TREE_TOP/src"
+git -C "$EL_TREE_TOP" init -q
+git -C "$EL_TREE_TOP" config user.email t@example.invalid
+git -C "$EL_TREE_TOP" config user.name t
+printf '.claude/\n' > "$EL_TREE_TOP/.gitignore"
+printf 'seed\n' > "$EL_TREE_TOP/README.md"
+git -C "$EL_TREE_TOP" add -A >/dev/null 2>&1 && git -C "$EL_TREE_TOP" commit -q -m base >/dev/null 2>&1
+git -C "$EL_TREE_TOP" update-ref refs/remotes/origin/main HEAD
+printf 'x\n' > "$EL_TREE_TOP/src/App.tsx"
+git -C "$EL_TREE_TOP" add -A >/dev/null 2>&1 && git -C "$EL_TREE_TOP" commit -q -m "top-level tsx" >/dev/null 2>&1
+cfg="$(el_cfg '[{"name":"tsx-lane","when":["src/**/*.tsx"],"commands":["echo should-not-run"],"failureClass":"TEST_FAILURE"}]')"
+out="$( unset RUN_ID CLAUDE_CODE_SESSION_ID; cd "$EL_TREE_TOP" && SECOND_SHIFT_CONFIG="$cfg" LEAN_PROGRESS_FILE="$WORK/el-prog-top.md" \
+        bash "$GATE" --issue-file "$EL_ISSUE" 3 7 2>&1 )"; rc=$?
+if [ "$rc" -eq 0 ] && printf '%s' "$out" | grep -qF "extra lane 'tsx-lane' — skipped" \
+   && ! printf '%s' "$out" | grep -q 'should-not-run'; then
+  pass "(i14) AC-4: 'src/**/*.tsx' does NOT match a top-level 'src/App.tsx'"
+else fail "(i14) expected a skip against a top-level-only tsx change, got rc=$rc: $out"; fi
+
+# AC-4 / AC-1: the same dialect DOES match a nested 'src/a/App.tsx' — the lane runs.
+EL_TREE_NEST="$WORK/el-tree-nest"
+mkdir -p "$EL_TREE_NEST/src/a"
+git -C "$EL_TREE_NEST" init -q
+git -C "$EL_TREE_NEST" config user.email t@example.invalid
+git -C "$EL_TREE_NEST" config user.name t
+printf '.claude/\n' > "$EL_TREE_NEST/.gitignore"
+printf 'seed\n' > "$EL_TREE_NEST/README.md"
+git -C "$EL_TREE_NEST" add -A >/dev/null 2>&1 && git -C "$EL_TREE_NEST" commit -q -m base >/dev/null 2>&1
+git -C "$EL_TREE_NEST" update-ref refs/remotes/origin/main HEAD
+printf 'y\n' > "$EL_TREE_NEST/src/a/App.tsx"
+git -C "$EL_TREE_NEST" add -A >/dev/null 2>&1 && git -C "$EL_TREE_NEST" commit -q -m "nested tsx" >/dev/null 2>&1
+cfg="$(el_cfg '[{"name":"tsx-lane","when":["src/**/*.tsx"],"commands":["echo did-run"],"failureClass":"TEST_FAILURE"}]')"
+out="$( unset RUN_ID CLAUDE_CODE_SESSION_ID; cd "$EL_TREE_NEST" && SECOND_SHIFT_CONFIG="$cfg" LEAN_PROGRESS_FILE="$WORK/el-prog-nest.md" \
+        bash "$GATE" --issue-file "$EL_ISSUE" 3 7 2>&1 )"; rc=$?
+if [ "$rc" -eq 0 ] && printf '%s' "$out" | grep -qF "extra lane 'tsx-lane' » echo did-run"; then
+  pass "(i15) AC-4: 'src/**/*.tsx' DOES match a nested 'src/a/App.tsx'"
+else fail "(i15) expected the lane to run against a nested tsx change, got rc=$rc: $out"; fi
+
 # ---- (j) AC-6: milestone 4 blocks on anything but a committed verdict=approve -------------
 # The fixture verdict is REVIEW-authored throughout: `r-review-1` / `sess-review-1` are the
 # separate review session's identities. A build-authored one is case (n).
