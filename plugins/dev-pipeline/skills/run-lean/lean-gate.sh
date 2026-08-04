@@ -557,11 +557,21 @@ open_regions_section() { # stdin: the issue body — prints the section's lines,
 # Table rows `| <id> | ... | pause-and-ask |` inside the section — the closed 2-value
 # disposition enum interviewing-baseline defines. The header/separator rows never match:
 # neither carries the literal disposition token in its last cell.
+#
+# The disposition is the LAST NON-EMPTY cell, not $(NF-1). GFM does not require the trailing
+# pipe interviewing-baseline's canonical form happens to write, and `| OR-1 | R | pause-and-ask`
+# puts the disposition at $NF — under $(NF-1) that row scans the Region text, matches nothing,
+# and the gate fails OPEN on a table a renderer accepts. Scanning back from NF over trimmed
+# cells reads both shapes, since the trailing pipe's own field is empty.
 pause_and_ask_ids() { # stdin: the issue body
   open_regions_section | awk -F'|' '
     /pause-and-ask/ {
       id = $2; gsub(/^[[:space:]]+|[[:space:]]+$/, "", id)
-      disp = $(NF-1); gsub(/^[[:space:]]+|[[:space:]]+$/, "", disp)
+      disp = ""
+      for (i = NF; i >= 1; i--) {
+        cell = $i; gsub(/^[[:space:]]+|[[:space:]]+$/, "", cell)
+        if (cell != "") { disp = cell; break }
+      }
       if (disp == "pause-and-ask" && id != "" && id != "ID") print id
     }
   '
@@ -605,11 +615,17 @@ check_pause_and_ask() { # prints a fail_milestone reason on stdout, nothing when
       || { echo "could not read #$ISSUE's comment trail to check for an unresolved pause-and-ask region: $comments"; return 0; }
   fi
 
+  # Every unresolved region, not just the first — the same ergonomic the `all` pre-pass owes
+  # (AC-3): an operator clearing two regions must not pay two round-trips to discover the
+  # second. The label stays singular for one so the refusal reads as prose either way.
+  local unresolved="" label="region"
   while IFS= read -r id; do
     [ -n "$id" ] || continue
-    region_resolved "$id" "$comments" \
-      || { echo "issue #$ISSUE declares region $id dispositioned pause-and-ask with no resolution artifact — neither a non-bot comment naming $id nor a ratified intent-gap record ($INTENT_GAP_REL) exists. Get an operator comment on #$ISSUE resolving it, or ratify an intent-gap record, before continuing."; return 0; }
+    region_resolved "$id" "$comments" || unresolved="${unresolved:+$unresolved, }$id"
   done <<< "$ids"
+  [ -n "$unresolved" ] || return 0
+  case "$unresolved" in *,*) label="regions" ;; esac
+  echo "issue #$ISSUE declares $label $unresolved dispositioned pause-and-ask with no resolution artifact — neither a non-bot comment naming each nor a ratified intent-gap record ($INTENT_GAP_REL) exists. Get an operator comment on #$ISSUE resolving them, or ratify an intent-gap record, before continuing."
 }
 
 # ---------------------------------------------------------------- milestone 1: spec/AC

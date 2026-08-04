@@ -693,6 +693,47 @@ reset_progress
 out="$(gate 1 7 --issue-file "$WORK/issue-or-flag-only.json" --comments-file "$WORK/comments-none.json")"; rc=$?
 if [ "$rc" -eq 0 ]; then pass "(y5) AC-9: a reversible-default-and-flag region does not refuse milestone 1"
 else fail "(y5) expected rc=0 with only a reversible-default-and-flag region, got $rc: $out"; fi
+
+# (y6) AC-15: the disposition is the last NON-EMPTY cell, not $(NF-1). GFM does not require a
+# trailing pipe; under $(NF-1) this table's disposition cell is the Region text, so the row is
+# silently skipped and the gate fails OPEN — the unsafe direction, on markup a renderer
+# accepts. The header/separator rows drop the trailing pipe here too, as a real one would.
+cat > "$WORK/issue-or1-nopipe.json" <<'EOF'
+{"body": "# issue\n\n## Open Regions\n\n| ID | Region | Disposition\n| --- | --- | ---\n| OR-1 | Ordering guarantee | pause-and-ask\n"}
+EOF
+reset_progress
+out="$(gate 1 7 --issue-file "$WORK/issue-or1-nopipe.json" --comments-file "$WORK/comments-none.json")"; rc=$?
+if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q 'region OR-1'; then
+  pass "(y6) AC-15: a pause-and-ask row in a trailing-pipe-less table still refuses (no fail-open)"
+else fail "(y6) expected rc=1 naming OR-1 on a trailing-pipe-less table, got $rc: $out"; fi
+
+# (y7) AC-16: two unresolved regions are named in ONE refusal — the AC-3 ergonomic applied to
+# this check. Asserting the refusal COUNT is the load-bearing half: reporting them as two
+# successive lines would satisfy a both-ids-present grep while still costing two round-trips.
+cat > "$WORK/issue-or-two-paa.json" <<'EOF'
+{"body": "# issue\n\n## Open Regions\n\n| ID | Region | Disposition |\n| --- | --- | --- |\n| OR-1 | Ordering guarantee | pause-and-ask |\n| OR-3 | Backfill window | pause-and-ask |\n"}
+EOF
+reset_progress
+out="$(gate 1 7 --issue-file "$WORK/issue-or-two-paa.json" --comments-file "$WORK/comments-none.json")"; rc=$?
+n="$(printf '%s\n' "$out" | grep -c 'dispositioned pause-and-ask with no resolution artifact')"
+if [ "$rc" -eq 1 ] && [ "$n" -eq 1 ] && printf '%s' "$out" | grep -q 'regions OR-1, OR-3'; then
+  pass "(y7) AC-16: two unresolved regions are reported together, in a single refusal"
+else fail "(y7) expected rc=1 with 1 refusal naming both OR-1 and OR-3, got rc=$rc refusals=$n: $out"; fi
+
+# (y8) AC-18: the `ratified: yes` conjunct on the intent-gap resolution arm. (y4) covers a
+# ratified record and (y2) covers the file being absent — but `ratified: no` is indistinguishable
+# from absence to both, so dropping the conjunct would let an UNRATIFIED record clear a
+# pause-and-ask region with the whole suite green. That is the inverse of the merge boundary's
+# own `ratified: no` refusal (P9).
+reset_progress
+GAP="$TREE/docs/plans/acme-7-lean-intent-gap.md"
+printf 'region: OR-1\nratified: no\n' > "$GAP"
+commit_tree "unratified intent-gap for OR-1"
+out="$(gate 1 7 --issue-file "$WORK/issue-or1-paa.json" --comments-file "$WORK/comments-none.json")"; rc=$?
+if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q 'region OR-1'; then
+  pass "(y8) AC-18: an intent-gap record reading 'ratified: no' does not clear the region"
+else fail "(y8) expected rc=1 — an unratified intent-gap record must not resolve OR-1, got $rc: $out"; fi
+rm -f "$GAP"; commit_tree "remove unratified intent-gap fixture"
 reset_progress
 
 # ---- (p) the REVIEW role: lean-gate.sh verdict ---------------------------------------------
@@ -1088,6 +1129,23 @@ out="$(gate_cfg "$CFG_JIRA" "$PROG_J" 5 "$JKEY" --pr-file "$WORK/pr-jira-caps.js
 if [ "$rc" -eq 0 ]; then
   pass "(n15) '### JIRA Items' is accepted — the heading match folds case, like the Closes grep"
 else fail "(n15) expected rc=0 on an all-caps heading, got $rc: $out"; fi
+
+# (n16) AC-17: milestone 1 — the one milestone the jira arm reaches outside milestone 5, and the
+# only case in this file that drives it. `check_pause_and_ask` opens with a jira short-circuit
+# that is load-bearing, not defensive: the function's tracker read is `gh issue view <JIRA-KEY>`,
+# which cannot succeed, and its failure branch PRINTS a reason — a printed reason IS the refusal.
+# So deleting the short-circuit refuses milestone 1 for the entire jira lane. The issue fixture
+# below carries an unresolved pause-and-ask region precisely so rc=0 proves the check was
+# SKIPPED rather than merely having found nothing to fire on.
+mkdir -p "$TREE/docs/plans"
+printf '# lean spec — %s\n\n- **AC-1**: the jira arm reaches milestone 1.\n' "$JKEY" > "$TREE/$JSPEC_REL"
+commit_tree "jira spec fixture"
+rm -f "$PROG_J"
+out="$(gate_cfg "$CFG_JIRA" "$PROG_J" 1 "$JKEY" --issue-file "$WORK/issue-or1-paa.json" --comments-file "$WORK/comments-none.json")"; rc=$?
+if [ "$rc" -eq 0 ]; then
+  pass "(n16) AC-17: jira milestone 1 skips the pause-and-ask check — an unresolved region does not refuse"
+else fail "(n16) expected rc=0 under tracker.type: jira despite an unresolved OR-1, got $rc: $out"; fi
+rm -f "$TREE/$JSPEC_REL"; commit_tree "remove jira spec fixture"
 
 rm -f "$TREE/.claude/pipeline-state/$JKEY-run-id"
 
