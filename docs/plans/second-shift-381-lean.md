@@ -193,31 +193,43 @@ edits `lean-gate.sh` (collides with in-flight lean PRs) and "does the default be
 
 ## Measurements
 
-AC-6's figures are recorded here on completion and repeated in the PR body.
-
 Scope: `--mode pr --base 57b3314`, which is exactly the three lean guards — `lean-gate.sh` (10
 mutants), `lean-reconcile.sh` (11), `check-lean-chain.sh` (12) — plus their three prechecks, so 36
-verdicts. 10-core machine, `getconf _NPROCESSORS_ONLN` = 10, so the default pool is 8.
+verdicts. 10-core machine, `getconf _NPROCESSORS_ONLN` = 10, so the default pool is 8. Every run
+below was taken with the machine otherwise idle; each row's counts are read off the run's own
+closing `timing:` line, not inferred.
 
 | Run | Verdicts computed / served | Wall |
 | --- | --- | --- |
 | **A** — the OLD harness, unchanged, from `7e8d868` | 36 / — | **256s** |
-| **B** — new harness, `JOBS=1`, cache off, early exit off | 36 / 0 | **237s** |
-| **C** — new harness, default pool, cache off | 36 / 0 | **79s** |
-| **D** — new harness, default pool, cache on, fresh cache | 36 / 0 | **78s** |
-| **E** — new harness, unchanged tree, warm cache | **0** / 36 | **8s** |
-| **F** — new harness, one guard's *suite* edited, warm cache | 11 / 25 | **53s** |
+| **B** — `JOBS=1`, cache off, early exit off (serial control) | 36 / 0 | **237s** |
+| **C** — default pool, cache off | 36 / 0 | **82s** |
+| **D** — default pool, cache on, fresh cache | 36 / 0 | **84s** |
+| **E** — unchanged tree, warm cache | **0** / 33 | **5s** |
+| **F** — one guard's *suite* edited, warm cache | 11 / 23 | **47s** |
 
-**A, B, C, D and E produce byte-identical report TSVs.** That is AC-4 against the real corpus and
-against the *old* harness, not only across two configurations of the new one.
+**A, B, C, D and E produce byte-identical report TSVs.** That is AC-4 against the real corpus *and*
+against the old harness, not merely across two configurations of the new one.
 
-Reading the rows: **B ≈ A** says the four-phase refactor costs nothing on its own. **C** is the pool
-and early exit stacked, 3.2× on eight workers. **E** is AC-1 exactly — zero paired-suite executions,
-same survivor set. **F** is the loop the issue is about: editing `lean-gate-selftest.sh` re-keys that
-guard's 10 mutants and its precheck (11 recomputed), and the other 25 verdicts are served.
+Reading the rows. **B ≈ A** says the five-phase refactor costs nothing on its own — 237s against
+256s, which is inside this machine's run-to-run noise. **C** is the pool and early exit stacked, 3.1x
+on eight workers. **D − C ≈ 2s** is what writing the cache costs. **E is AC-1 exactly**: zero
+paired-suite executions and the identical survivor set — 33 mutant verdicts served and all three
+prechecks *skipped*, which is the half D-4 adds. **F** is the loop the issue exists for: editing
+`lean-gate-selftest.sh` re-keys that guard's 10 mutants and its precheck (11 recomputed), and the
+other 23 verdicts are served.
 
-Two honesty notes. The issue's cited baseline was ~500s / 8–10 min, from a table of remembered suite
-timings; the measured "before" on this machine today is **256s** for 33 mutants, not 34. The figure
-to compare against is A, which was measured here, in this scope, with the old script. And a single
-timing run on this machine is normally worth little — but the gaps here (256 → 79 → 8) are an order
-of magnitude wider than the ±2.5x run-to-run swing that caveat exists for.
+Three honesty notes.
+
+The issue's cited baseline was ~500s / 8–10 min, from a table of remembered suite timings. The
+measured "before" here is **256s** for 33 mutants, not 34. The figure this change is answerable to
+is A — measured on this machine, in this scope, with the old script.
+
+**F's first attempt was invalid and is not the row above.** It ran the edited tree from a worktree
+named `wt2`, and D-6 partitions the cache by repo basename, so *every* verdict missed (36 computed,
+0 served, 85s) — a number that would have read as "the cache does not work". The valid run uses a
+worktree whose basename matches the checkout that populated the cache, which is what "the same
+checkout, one commit later" actually looks like to the key.
+
+A single timing run on this machine is normally worth little; the ±2.5x run-to-run swing that
+caveat exists for is wider than most effects. It is not wider than these: 256 → 82 → 5.
