@@ -161,7 +161,7 @@ TAB="$(printf '\t')"
 
 # ------------------------------------------------------------------ worker pool
 # `cores - 2` leaves the machine usable and matches the repo's existing `-P 4` habit at the
-# low end; the cap keeps a 64-core runner from opening 62 worktrees for a 34-mutant diff.
+# low end; the cap keeps a 64-core runner from opening 62 worktrees for a 33-mutant diff.
 # Sandboxes are created LAZILY up to min(pool, items), so a two-mutant run still makes one.
 JOBS_CAP=8
 CORES="$(getconf _NPROCESSORS_ONLN 2>/dev/null)" || CORES=""
