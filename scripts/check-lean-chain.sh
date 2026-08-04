@@ -392,7 +392,18 @@ fi
 # Skipped when there is no verdict record — already a violation, and "unverifiable freshness"
 # on top of "no verdict" is noise. The tolerance is exactly one path, the record itself,
 # because the review session commits nothing else (review-lean step 6).
-if [[ -n "$VERDICT" ]]; then
+#
+# #374 AC-4/5/6: VACUITY. "Fresh" is a claim about an approve — a needs-work record is not
+# stale or fresh, because there is nothing for either arm to be measured against: the record
+# does not certify this code either way, regardless of what changed after it. Evaluating both
+# arms anyway restates evidence 2's "not approve" finding twice more, in slightly different
+# words, which is exactly the "one fact printed as three violations" defect this fix removes —
+# observed live on a #372 round-2 build. So a non-approve value short-circuits here to ONE
+# refusal naming it, before either arm's git/patch-id computation runs at all. An approve
+# record is unaffected: both arms below evaluate exactly as they did before this change (AC-5).
+if [[ -n "$VERDICT" && "$verdict_value" != "approve" ]]; then
+  note_violation "verdict record '$VERDICT' reads 'verdict=${verdict_value:-<none>}', not 'verdict=approve' — freshness is undefined for a non-approve record, so the changed-files and patch-id/reviewed-head arms are not evaluated."
+elif [[ -n "$VERDICT" ]]; then
   git -C "$REPO_ROOT" cat-file -e "$PR_HEAD_SHA^{commit}" 2>/dev/null \
     || envfail "PR_HEAD_SHA '$PR_HEAD_SHA' is not a commit in this checkout — the freshness check cannot run, and a check that cannot run must not report a pass."
   VERDICT_COMMIT="$(git -C "$REPO_ROOT" log -1 --format=%H -- "$VERDICT" 2>/dev/null)"

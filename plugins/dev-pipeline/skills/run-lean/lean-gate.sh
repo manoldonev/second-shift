@@ -62,8 +62,14 @@
 #   lean-gate.sh claim  <issue>          the two bot-wrapper claim writes (AC-15/D-49).
 #                                        Under tracker.type: jira it makes NO tracker write and
 #                                        needs no GH_BOT — it records the run id and returns.
-#   lean-gate.sh <1..5> <issue>          evaluate one milestone
-#   lean-gate.sh all    <issue>          evaluate 1..5 in order, stop at the first failure
+#   lean-gate.sh <1..5> <issue>          evaluate one milestone. Milestone 1 also refuses when
+#                                        the issue declares an Open Region dispositioned
+#                                        `pause-and-ask` with no resolution artifact (AC-8).
+#   lean-gate.sh all    <issue>          a cheap, read-only pre-pass evaluates milestones 1 and
+#                                        4 first (no network, no fix-budget attempt) and reports
+#                                        every already-unsatisfiable one before running the real
+#                                        1..5 progression, so a stale verdict record is reported
+#                                        without paying milestone 3's green gate first.
 #   lean-gate.sh verdict <issue> --pr <n> --verdict <approve|needs-work> [--rounds <n>]
 #                                        [--summary-file <path>]
 #                                        REVIEW role: write the committed verdict record.
@@ -78,7 +84,11 @@
 #   LEAN_PROGRESS_FILE       override the resolved progress-file path
 #   SECOND_SHIFT_CONFIG      override the resolved config path
 #   --pr-file <path>         milestone 5: read the PR record from a JSON fixture
-#   --comments-file <path>   milestone 5: read the issue comments from a JSON fixture
+#   --comments-file <path>   milestone 5 and milestone 1's pause-and-ask check: read the issue
+#                            comments from a JSON fixture (same trail either way — a live run
+#                            fetches it once from the same endpoint)
+#   --issue-file <path>      milestone 1's pause-and-ask check: read the issue body ({"body":
+#                            "..."}) from a JSON fixture instead of `gh issue view`
 #   LEAN_RUN_MODEL           #347: the `model:` key stamped into the progress/verdict record
 #                            at creation time (retro-corpus.sh's corpus-aggregation key).
 #                            Read once, not cached; absent reads "unknown", never an error.
@@ -89,6 +99,7 @@ set -uo pipefail
 GH_CLI="${GH:-gh}"
 PR_FILE=""
 COMMENTS_FILE=""
+ISSUE_FILE=""
 VERDICT_VALUE=""
 VERDICT_PR=""
 VERDICT_ROUNDS=""
@@ -110,11 +121,12 @@ while [ $# -gt 0 ]; do
   case "$1" in
     --pr-file)       PR_FILE="${2:-}"; shift 2 ;;
     --comments-file) COMMENTS_FILE="${2:-}"; shift 2 ;;
+    --issue-file)    ISSUE_FILE="${2:-}"; shift 2 ;;
     --pr)            VERDICT_PR="${2:-}"; shift 2 ;;
     --verdict)       VERDICT_VALUE="${2:-}"; shift 2 ;;
     --rounds)        VERDICT_ROUNDS="${2:-}"; shift 2 ;;
     --summary-file)  SUMMARY_FILE="${2:-}"; shift 2 ;;
-    -h|--help)       sed -n '2,86p' "$0"; exit 0 ;;
+    -h|--help)       sed -n '2,96p' "$0"; exit 0 ;;
     -*)              envfail "unknown option: $1" ;;
     *)
       if [ "$POSITIONAL" -eq 0 ]; then SUB="$1"; POSITIONAL=1
@@ -222,6 +234,10 @@ lean_branch_prefix() {
 LEAN_BRANCH_PREFIX="$(lean_branch_prefix "$BRANCH_PREFIX")" || exit 2
 SPEC_REL="$PLANS_DIR/$REPO_SLUG-$ISSUE-lean.md"
 VERDICT_REL="$PLANS_DIR/$REPO_SLUG-$ISSUE-lean-verdict.md"
+# Same suffix check-lean-chain.sh's LEAN_INTENT_GAP_SUFFIX pins independently (it has no
+# access to this derivation from CI) — milestone 1's pause-and-ask check (AC-8) is the first
+# BUILD-side reader of this record.
+INTENT_GAP_REL="$PLANS_DIR/$REPO_SLUG-$ISSUE-lean-intent-gap.md"
 PROGRESS_FILE="${LEAN_PROGRESS_FILE:-$MAIN_ROOT/$STATE_DIR/$ISSUE-lean-progress.md}"
 
 # ---------------------------------------------------------------- RUN_ID persistence
@@ -405,8 +421,17 @@ append_satisfied() {
 attempt_count() { count_matches "| milestone-$1 | attempt |" "$PROGRESS_FILE" -F; }
 
 # A failed milestone: record the attempt, then decide retry-vs-hard-stop.
+#
+# PRECHECK (AC-1..3): cmd_all's cheap pre-pass calls milestone bodies with PRECHECK=1 to learn
+# whether they would fail WITHOUT recording anything — no attempt line, no budget consumed, no
+# `satisfied` line. Recording stays the real 1..5 loop's job; a pre-pass that recorded would
+# double-count every attempt it shares with the real call further down the same `all` sweep.
 fail_milestone() {
   local n="$1" reason="$2" count
+  if [ "${PRECHECK:-0}" = "1" ]; then
+    warn "✗ milestone-$n (pre-pass): $reason"
+    return 1
+  fi
   append_attempt "$n" "$reason"
   count="$(attempt_count "$n")"
   warn "✗ milestone-$n: $reason (attempt $count/$FIX_BUDGET)"
@@ -418,7 +443,13 @@ fail_milestone() {
   return 1
 }
 
-pass_milestone() { append_satisfied "$1"; say "✓ milestone-$1${2:+: $2}"; return 0; }
+pass_milestone() {
+  if [ "${PRECHECK:-0}" = "1" ]; then
+    say "✓ milestone-$1 (pre-pass)${2:+: $2}"
+    return 0
+  fi
+  append_satisfied "$1"; say "✓ milestone-$1${2:+: $2}"; return 0
+}
 
 # ---------------------------------------------------------------- entry precondition
 # AC-14. The predicate is a NON-EMPTY ledger file for THIS session, anchored at the main
@@ -504,15 +535,98 @@ cmd_claim() {
   return 0
 }
 
+# ---------------------------------------------------------------- milestone 1: open regions
+# #374 AC-8/9/10. A declared `pause-and-ask` Open Region (interviewing-baseline's Decision
+# Ledger contract) is not the build session's to close — refuse here, before any code is
+# written, rather than let it surface as a review blocker hours later (observed on #372's
+# OR-2: resolved in-session, caught only at round-1 review, cost an operator comment AND a
+# round-2 review to clear). `reversible-default-and-flag` regions carry their own default and
+# are never refused (AC-9); an issue with no `## Open Regions` section is unaffected (AC-10).
+#
+# NETWORK, and deliberately NOT part of cmd_all's cheap pre-pass (AC-7 bounds the pre-pass,
+# not milestone 1's real body) — the issue and its comment trail are read live unless the
+# fixture seams below are set. cmd_1 skips this entirely under PRECHECK=1.
+open_regions_section() { # stdin: the issue body — prints the section's lines, nothing else
+  awk '
+    tolower($0) ~ /^#+[[:space:]]+open regions[[:space:]]*$/ { insec = 1; next }
+    insec && /^#+[[:space:]]/                                 { insec = 0 }
+    insec                                                     { print }
+  '
+}
+
+# Table rows `| <id> | ... | pause-and-ask |` inside the section — the closed 2-value
+# disposition enum interviewing-baseline defines. The header/separator rows never match:
+# neither carries the literal disposition token in its last cell.
+pause_and_ask_ids() { # stdin: the issue body
+  open_regions_section | awk -F'|' '
+    /pause-and-ask/ {
+      id = $2; gsub(/^[[:space:]]+|[[:space:]]+$/, "", id)
+      disp = $(NF-1); gsub(/^[[:space:]]+|[[:space:]]+$/, "", disp)
+      if (disp == "pause-and-ask" && id != "" && id != "ID") print id
+    }
+  '
+}
+
+# A pause-and-ask region's resolution artifact: a non-bot issue comment naming the region id
+# (word-bounded, so "OR-1" cannot match inside "OR-10"), or a committed intent-gap record whose
+# OWN `region:` key names THIS id and whose `ratified:` key reads `yes` — a record ratified for
+# a different region cannot clear this one.
+region_resolved() { # region_resolved <id> <comments-json>
+  local id="$1" comments="$2" n gap
+  gap="$REPO_ROOT/$INTENT_GAP_REL"
+  if [ -f "$gap" ] && [ "$(record_key region "$gap")" = "$id" ] && [ "$(record_key ratified "$gap")" = "yes" ]; then
+    return 0
+  fi
+  n="$(printf '%s' "$comments" | jq -r --arg pat "(^|[^A-Za-z0-9-])${id}([^A-Za-z0-9-]|\$)" \
+    '[ .[] | select((.user.type // "") != "Bot") | select((.body // "") | test($pat)) ] | length' 2>/dev/null)"
+  [ "${n:-0}" -ge 1 ]
+}
+
+check_pause_and_ask() { # prints a fail_milestone reason on stdout, nothing when clear
+  [ "$TRACKER_TYPE" = "jira" ] && return 0   # no gh issue to read under a read-only tracker
+  local body ids comments id
+
+  if [ -n "$ISSUE_FILE" ]; then
+    [ -f "$ISSUE_FILE" ] || envfail "--issue-file '$ISSUE_FILE' does not exist."
+    body="$(jq -r '.body // ""' "$ISSUE_FILE" 2>/dev/null)"
+  else
+    body="$("$GH_CLI" issue view "$ISSUE" --json body --jq .body 2>&1)" \
+      || { echo "could not read issue #$ISSUE to check for an unresolved pause-and-ask region: $body"; return 0; }
+  fi
+
+  ids="$(printf '%s' "$body" | pause_and_ask_ids)"
+  [ -n "$ids" ] || return 0
+
+  if [ -n "$COMMENTS_FILE" ]; then
+    [ -f "$COMMENTS_FILE" ] || envfail "--comments-file '$COMMENTS_FILE' does not exist."
+    comments="$(cat "$COMMENTS_FILE")"
+  else
+    comments="$("$GH_CLI" api "repos/{owner}/{repo}/issues/$ISSUE/comments" --paginate 2>&1)" \
+      || { echo "could not read #$ISSUE's comment trail to check for an unresolved pause-and-ask region: $comments"; return 0; }
+  fi
+
+  while IFS= read -r id; do
+    [ -n "$id" ] || continue
+    region_resolved "$id" "$comments" \
+      || { echo "issue #$ISSUE declares region $id dispositioned pause-and-ask with no resolution artifact — neither a non-bot comment naming $id nor a ratified intent-gap record ($INTENT_GAP_REL) exists. Get an operator comment on #$ISSUE resolving it, or ratify an intent-gap record, before continuing."; return 0; }
+  done <<< "$ids"
+}
+
 # ---------------------------------------------------------------- milestone 1: spec/AC
 # AC-3, as resolved at intake (G-1): existence AT THE PINNED PATH plus >= 1 numbered AC-n,
 # and NO further content assertion. The path predicate is not an extra check — it is which
 # file "exists" means, and check-lean-chain.sh keys its artifact scan off the same shape.
 cmd_1() {
-  local spec="$REPO_ROOT/$SPEC_REL" n
+  local spec="$REPO_ROOT/$SPEC_REL" n reason
   [ -f "$spec" ] || { fail_milestone 1 "no committed spec at $SPEC_REL"; return $?; }
   n="$(count_matches '(^|[^A-Za-z])AC-[0-9]+' "$spec" -E)"
   [ "$n" -ge 1 ] || { fail_milestone 1 "spec $SPEC_REL carries no numbered AC-n criterion"; return $?; }
+
+  if [ "${PRECHECK:-0}" != "1" ]; then
+    reason="$(check_pause_and_ask)"
+    [ -z "$reason" ] || { fail_milestone 1 "$reason"; return $?; }
+  fi
+
   pass_milestone 1 "$SPEC_REL ($n AC-n reference(s))"
 }
 
@@ -1016,8 +1130,28 @@ run_milestone() { # explicit dispatch, not "cmd_$1": an indirect call hides ever
   esac
 }
 
+# #374 AC-1..3: a cheap, READ-ONLY pre-pass. Milestones 1 and 4 read only committed artifacts
+# and git state (AC-7 — no network, no subprocess beyond git/grep/jq via cmd_1's spec check and
+# cmd_4 in full — milestone 1's pause-and-ask check is excluded, see PRECHECK's guard there), so
+# evaluating them ahead of milestone 3's ~15-minute green gate costs nothing and can only report
+# sooner what a later milestone would report anyway. `all` on a tree whose committed verdict
+# record already reads `needs-work` used to pay the whole green gate before learning that,
+# knowable, fact — the pre-pass reports it first instead.
+#
+# PRECHECK=1 makes cmd_1/cmd_4 report-only (see fail_milestone/pass_milestone): neither consumes
+# a fix-budget attempt nor writes a `satisfied` record here, so nothing is double-counted against
+# the real calls in the loop below. Both are evaluated even when the first already failed
+# (AC-3) — an operator fixing two cheap assertions should not need two runs to learn about both.
 cmd_all() {
-  local n rc
+  local n rc rc1 rc4
+
+  PRECHECK=1 cmd_1; rc1=$?
+  PRECHECK=1 cmd_4; rc4=$?
+  if [ "$rc1" -ne 0 ] || [ "$rc4" -ne 0 ]; then
+    say "all: pre-pass found an already-unsatisfiable cheap assertion — stopping before milestone-3."
+    return 1
+  fi
+
   for n in 1 2 3 4 5; do
     run_milestone "$n"; rc=$?
     if [ "$rc" -ne 0 ]; then

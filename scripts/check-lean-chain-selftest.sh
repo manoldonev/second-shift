@@ -240,6 +240,26 @@ out="$(run_gate "lean/acme-42" "$WORK/comments-good.json" "$WORK/diff-lean.txt")
 if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q "reads 'verdict=needs-work', not 'verdict=approve'"; then
   pass "(I) a committed verdict=needs-work record blocks the merge boundary"
 else fail "(I) expected rc=1 on verdict=needs-work, got rc=$rc: $out"; fi
+
+# ---- (I2) #374 AC-4/6: a needs-work verdict at a STALE head collapses to ONE evidence-5
+# refusal, not three. Before the fix a needs-work record with code landing after it produced
+# evidence-2's "not approve" PLUS both freshness arms independently — three ✗ lines restating
+# one fact (observed live on a #372 round-2 build). Code lands AFTER the needs-work record
+# (still the SAME record (I) just wrote), so both freshness arms would find staleness if they
+# ran; AC-4 requires that they never evaluate a non-approve record at all.
+printf 'late change after a needs-work verdict\n' > "$TREE/docs/plans/notes-374.md"
+commit_tree "code lands after a needs-work verdict"
+out="$(run_gate "lean/acme-42" "$WORK/comments-good.json" "$WORK/diff-lean.txt")"; rc=$?
+n_violations="$(printf '%s' "$out" | grep -c '\[lean-chain\]   ✗')"
+if [ "$rc" -eq 1 ] \
+   && printf '%s' "$out" | grep -q '2 evidence artifact(s) missing' \
+   && [ "$n_violations" -eq 2 ] \
+   && printf '%s' "$out" | grep -q 'freshness is undefined for a non-approve record' \
+   && ! printf '%s' "$out" | grep -q 'changed between that commit and the PR head' \
+   && ! printf '%s' "$out" | grep -q 'differ between that commit and the PR head' \
+   && ! printf '%s' "$out" | grep -q 'now hashes to'; then
+  pass "(I2) AC-4: a needs-work verdict at a stale head collapses to ONE evidence-5 refusal (2 total, not 4)"
+else fail "(I2) expected exactly 2 violations with the freshness arms silent, got rc=$rc violations=$n_violations: $out"; fi
 write_verdict
 
 # ---- (J) a spec with no AC-n fails -------------------------------------------------------
