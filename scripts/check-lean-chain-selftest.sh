@@ -298,6 +298,24 @@ if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q 'no resolvable issue referenc
   pass "(M) a lean PR with no 'Closes #N' fails rather than being exempted"
 else fail "(M) expected rc=1 on an unresolvable issue reference, got $rc: $out"; fi
 
+# ...and the FALLBACK resolves: `Part of #N` is the shape a sub-issue of a program epic carries,
+# and a PR body with no `Closes` must still reach a key rather than failing as unreferenced.
+# (M) alone cannot see this arm — it passes whether the fallback works or is dead code, which is
+# exactly how the fallback's own mutant sat surviving in the baseline.
+out="$( cd "$TREE" && LEAN_BRANCH_PREFIX="lean/acme-" PIPELINE_BRANCH_PREFIX="claude/acme-" \
+        PR_HEAD_REF="lean/acme-42" PR_BODY="Delivers a slice.
+
+Part of #42" PR_CREATED_AT="$PR_OPEN_AT" \
+        PR_HEAD_SHA="$(git -C "$TREE" rev-parse HEAD)" \
+        bash "$GATE" --comments-file "$WORK/comments-good.json" --diff-files-file "$WORK/diff-lean.txt" 2>&1 )"; rc=$?
+# Asserted on the RESOLUTION line, not on the exit code: the fixture at this point in the file
+# carries whatever record the cases above left behind, so rc is about the evidence set rather
+# than about key resolution. `source issue: #42` is printed before any evidence is weighed, and
+# it is exactly what disappears when the fallback stops matching.
+if printf '%s' "$out" | grep -q 'source issue: #42'; then
+  pass "(M2) a body carrying only 'Part of #N' resolves through the fallback"
+else fail "(M2) expected the Part-of fallback to resolve #42, got $rc: $out"; fi
+
 # ---- (N) MANDATED: the verdict must not carry the BUILD run's identity (P10) --------------
 # The build run's identity at this boundary is the one in the bot claim comment — the only
 # build-side record CI can see. A verdict reusing it means the session that wrote the code

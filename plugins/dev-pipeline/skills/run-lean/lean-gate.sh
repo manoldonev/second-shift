@@ -54,7 +54,7 @@
 # CI's business. `reviewed_head` remains a diagnostic pointer, and the path records written
 # before the patch-id key still gate on.
 #
-# INHERITANCE (#375). A round-n record (n >= 2) additionally declares `inherited_patch_id`: the
+# INHERITANCE (#375). Every round after the first additionally declares `inherited_patch_id`: the
 # reviewed patch of the round whose coverage it inherits, so a fix round reads the delta since
 # that tree instead of the whole diff again. The merge boundary's guarantee then reads "a CHAIN
 # of independent reviews collectively covered this tree", and it holds only while every LINK is
