@@ -405,15 +405,27 @@ if [ "$rc" -eq 0 ] && printf '%s\n' "$out" | grep -qx 'SCRUBBED' && ! printf '%s
   pass "(i12) AC-9: the fixed-key lane child runs with SECOND_SHIFT_CONFIG stripped"
 else fail "(i12) expected SCRUBBED with no LEAKED, got rc=$rc: $out"; fi
 
-# lanes[] entries are {command} objects (cmd_3 reads `.command // .`) — the review-flagged
-# gap: neither this file nor scenario-liveness-selftest.sh populated commands.acme.lanes
-# before this case, so this call site's scrub conversion was entirely unexercised.
+# lanes[] entries are {name, cwd?, commands[]} objects — the shape config-lint.sh enforces
+# (its lanes[] arm: `name` required, unknown keys rejected) and the one verifyctl.sh reads.
+# This fixture previously wrote `{command: "..."}`, a shape no lint-clean config can hold, and
+# so pinned the reader bug rather than the contract: `.command // .` fed the whole lane object
+# to `bash -c`, which is a syntax error on every real config that declares a lane.
 cfg="$WORK/el-cfg-scrub-lanes.json"
-jq '.commands.acme.lanes = [{"command": "[ -z \"${SECOND_SHIFT_CONFIG:-}\" ] && echo SCRUBBED || echo LEAKED"}]' "$CFG" > "$cfg" 2>/dev/null
+jq '.commands.acme.lanes = [{"name": "scrub", "commands": ["[ -z \"${SECOND_SHIFT_CONFIG:-}\" ] && echo SCRUBBED || echo LEAKED"]}]' "$CFG" > "$cfg" 2>/dev/null
 out="$(gate_el "$cfg" "$WORK/el-prog-scrub-lanes.md" 3 7)"; rc=$?
 if [ "$rc" -eq 0 ] && printf '%s\n' "$out" | grep -qx 'SCRUBBED' && ! printf '%s\n' "$out" | grep -qx 'LEAKED'; then
   pass "(i12b) AC-9: a lanes[] lane child runs with SECOND_SHIFT_CONFIG stripped"
 else fail "(i12b) expected SCRUBBED with no LEAKED, got rc=$rc: $out"; fi
+
+# A lane carrying no commands is lint-CLEAN (config-lint requires non-empty only when the key is
+# present), so nothing upstream stops it — and a zero-iteration inner loop would skip it in
+# silence on the way to a green milestone 3. It must fail loudly instead.
+cfg="$WORK/el-cfg-lane-nocmds.json"
+jq '.commands.acme.lanes = [{"name": "empty"}]' "$CFG" > "$cfg" 2>/dev/null
+out="$(gate_el "$cfg" "$WORK/el-prog-lane-nocmds.md" 3 7)"; rc=$?
+if [ "$rc" -ne 0 ] && printf '%s\n' "$out" | grep -q "non-empty array"; then
+  pass "(i12c) a commands-less lanes[] entry reds milestone 3 instead of being silently skipped"
+else fail "(i12c) expected a loud failure, got rc=$rc: $out"; fi
 
 # shellcheck disable=SC2016  # deliberate: the ${SECOND_SHIFT_CONFIG:-} must reach the child
 # bash -c unexpanded, to be evaluated THERE (inside the scrubbed env), not by this shell.

@@ -926,14 +926,38 @@ lean_extra_lanes_diff() {
 
 cmd_3() {
   local cmd rc sweep
-  # lanes[] setup steps first, when present.
+  # lanes[] setup steps first, when present. Shape is {name, cwd?, commands[]} — the SAME
+  # reader verifyctl.sh uses (its step 1), including the non-object backstop (#100): a lane
+  # that is not an object must fail loudly, never be silently skipped on the way to green.
+  # Reading `.command // .` instead emits the whole lane object as the command, which is a
+  # bash syntax error on every schema-valid config that declares a lane.
   if [ -f "$CONFIG" ]; then
-    while IFS= read -r cmd; do
-      [ -n "$cmd" ] || continue
-      say "milestone-3: lane » $cmd"
-      ( cd "$REPO_ROOT" && env ${SEAM_SCRUB_ENV[@]+"${SEAM_SCRUB_ENV[@]}"} bash -c "$cmd" ); rc=$?
-      [ "$rc" -eq 0 ] || { fail_milestone 3 "lane failed (rc=$rc): $cmd"; return $?; }
-    done < <(jq -r --arg s "$REPO_SLUG" '(.commands[$s].lanes // []) | .[] | (.command // .)' "$CONFIG" 2>/dev/null)
+    local lane_count li lane_type lane_name lane_cwd lane_dir lane_cmds lc_i
+    lane_count="$(jq --arg s "$REPO_SLUG" '(.commands[$s].lanes // []) | length' "$CONFIG" 2>/dev/null)"
+    [ -n "$lane_count" ] || lane_count=0
+    for (( li=0; li<lane_count; li++ )); do
+      lane_type="$(jq -r --arg s "$REPO_SLUG" --argjson i "$li" '(.commands[$s].lanes)[$i] | type' "$CONFIG" 2>/dev/null)"
+      [ "$lane_type" = "object" ] \
+        || { fail_milestone 3 "setup lane [$li]: must be an object {name, cwd?, commands[]}, got $lane_type"; return $?; }
+      lane_name="$(jq -r --arg s "$REPO_SLUG" --argjson i "$li" '(.commands[$s].lanes)[$i].name // empty' "$CONFIG" 2>/dev/null)"
+      [ -n "$lane_name" ] || { fail_milestone 3 "setup lane [$li]: missing 'name'"; return $?; }
+      lane_cwd="$(jq -r --arg s "$REPO_SLUG" --argjson i "$li" '(.commands[$s].lanes)[$i].cwd // ""' "$CONFIG" 2>/dev/null)"
+      lane_dir="$REPO_ROOT${lane_cwd:+/$lane_cwd}"
+      lane_cmds="$(jq -r --arg s "$REPO_SLUG" --argjson i "$li" '((.commands[$s].lanes)[$i].commands // []) | length' "$CONFIG" 2>/dev/null)"
+      # The same non-empty guard extraLanes carries. config-lint only requires `commands` to be
+      # non-empty WHEN PRESENT, so `{name: "x"}` is lint-clean — and a zero-iteration inner loop
+      # would skip it in silence, which is the shape of "green having verified nothing" this
+      # whole block was rewritten to stop.
+      [ "$lane_cmds" -gt 0 ] \
+        || { fail_milestone 3 "setup lane [$li] ('$lane_name'): 'commands' must be a non-empty array"; return $?; }
+      for (( lc_i=0; lc_i<lane_cmds; lc_i++ )); do
+        cmd="$(jq -r --arg s "$REPO_SLUG" --argjson i "$li" --argjson j "$lc_i" '(.commands[$s].lanes)[$i].commands[$j]' "$CONFIG" 2>/dev/null)"
+        [ -n "$cmd" ] || continue
+        say "milestone-3: lane:$lane_name » $cmd"
+        ( cd "$lane_dir" && env ${SEAM_SCRUB_ENV[@]+"${SEAM_SCRUB_ENV[@]}"} bash -c "$cmd" ); rc=$?
+        [ "$rc" -eq 0 ] || { fail_milestone 3 "lane '$lane_name' failed (rc=$rc): $cmd"; return $?; }
+      done
+    done
   fi
 
   local key
