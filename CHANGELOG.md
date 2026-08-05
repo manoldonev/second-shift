@@ -4,6 +4,46 @@ All notable changes to the second-shift marketplace. Versions are per-plugin (`p
 this file tracks the marketplace release. `configVersion` stays `const 1` — v2 is fully backward-compatible for a
 consumer with an empty config; the migration notes below are only for consumers using the changed features.
 
+## v3.8.2
+
+### `dev-pipeline` 3.8.1 → 3.8.2
+
+- **The mutation sweep re-derives every verdict on one core, including the ones that cannot have changed (#384)** (#384)
+  the mutation sweep memoizes mutant verdicts, scores mutants in a
+  worker pool, and stops a killed mutant at the first FAIL: line. New knobs:
+  MUTATION_SWEEP_JOBS, MUTATION_SWEEP_CACHE, MUTATION_SWEEP_CACHE_DIR,
+  MUTATION_SWEEP_CACHE_MAX, MUTATION_SWEEP_EARLY_EXIT, MUTATION_SWEEP_FAIL_PATTERN.
+  The cache is advisory-lane only — never read or written under GITHUB_ACTIONS.
+  Three selftests that wrote to a fixed /tmp path now write under their own mktemp
+  tree, since two mutants of one guard run the same suite concurrently.
+  Migration: none.
+- **lean-gate milestone 3 runs the config's extra verify lanes (#383)** (#383)
+  /dev-pipeline:run-lean's milestone 3 now runs commands.<repo>.extraLanes
+  (when-scoped, sequential, fail-fast) and strips the pipeline's own seam vars from
+  every milestone-3 lane child's environment. The dead `build` fixed key is gone.
+  Migration: none — extraLanes is additive and was previously silently ignored
+  under lean; a consumer with a `build`-only fixed-key command should move it to
+  extraLanes (config-lint.sh has rejected `build` there since #113).
+  none -- test-only, closes a coverage gap on already-shipped
+  behavior (lanes[] seam-scrub was already correct, per the reviewer's own
+  hand-verified fixture).
+
+### `review-toolkit` 3.0.4 → 3.0.5
+
+- **Relocate the design-fidelity reviewer routing into review-lead, and teach the registry lint a third root (#382)** (#382)
+  review-lead now routes a design-fidelity reviewer on the repo's web-component
+  surface, alongside a11y-reviewer — figma-faithful-reviewer under `design.provider:
+  figma`, design-faithful-reviewer under `claude-design` or with no provider configured.
+  The trigger is `stageParams.webComponentGlobs` (default `apps/web/**/*.{tsx,jsx}`).
+  Repos without the design-toolkit plugin are unaffected: the dimension is skipped with a
+  note and commits are never denied for it.
+  Migration: none.
+  the SHADOW drift tripwire covers the design-toolkit-shipped reviewer names,
+  installed or not, so a repo-local file carrying one is still rejected. Consumers with no
+  `design.provider` configured now get the same toolkit-absent note as those that declare
+  one, instead of the dimension going silently unrun.
+  Migration: none.
+
 ## v3.8.1
 
 ### `dev-pipeline` 3.8.0 → 3.8.1
