@@ -50,6 +50,15 @@
 # tamper-evidence, not cryptographic proof. It raises forgery from "write one file" to
 # "forge a second session's hook ledger with coherent timestamps" — see docs/pipeline-manifesto.md.
 #
+# TRACKER ADAPTERS. Check (1)'s claim arm is the only thing here that reads a tracker, and under
+# `tracker.type: jira` the record it reads cannot exist: that adapter's claim writes nothing, so
+# no bot-authored `lean-claimed` comment is ever posted. The arm is therefore SKIPPED there
+# rather than fetched — the fetch 404s on a ticket key, and its `exit 2` used to take checks (1b)
+# through (6) down with it, including the P10 authorship check, which needs no tracker at all.
+# The reduced evidence set is DISCLOSED in the output, at the check site and on the closing line,
+# and the exit code is NOT the disclosure: an operator scripting on it reads any non-zero as
+# "failed", which "this adapter has one arm fewer" is not.
+#
 # Usage:
 #   lean-reconcile.sh <issue> [--session-id <id>] [--comments-file <path>]
 #     --session-id  the BUILD session, when the progress file records none.
@@ -58,8 +67,9 @@
 #                   record against a session that did not produce it.
 #
 # Seams (zero-network selftest):
-#   ${GH:-gh}                the CLI used for the claim-comment read
-#   --comments-file <path>   read the comment trail from a JSON fixture
+#   ${GH:-gh}                the CLI used for the claim-comment read (github arm only)
+#   --comments-file <path>   read the comment trail from a JSON fixture (github arm only;
+#                            refused under jira, where no comment trail is read at all)
 #   LEAN_PROGRESS_FILE       override the resolved progress-file path
 #   LEAN_AUDIT_DIR           override the resolved audit-ledger directory
 #   SECOND_SHIFT_CONFIG      override the resolved config path
@@ -79,7 +89,7 @@ while [ $# -gt 0 ]; do
   case "$1" in
     --session-id)    SESSION_ID="${2:-}"; shift 2 ;;
     --comments-file) COMMENTS_FILE="${2:-}"; shift 2 ;;
-    -h|--help)       sed -n '2,67p' "$0"; exit 0 ;;
+    -h|--help)       sed -n '2,77p' "$0"; exit 0 ;;
     -*)              envfail "unknown option: $1" ;;
     *)               [ -z "$ISSUE" ] && ISSUE="$1" || envfail "unexpected argument: $1"; shift ;;
   esac
@@ -104,6 +114,30 @@ PLANS_DIR="$(cfg '.paths.plansDir' 'docs/plans')"
 STATE_DIR="$(cfg '.paths.pipelineStateDir' '.claude/pipeline-state')"
 HOST_Q='(.topology.repos | to_entries[] | select(.value.path==".") | .key)'
 REPO_SLUG="$(cfg "$HOST_Q" 'acme')"
+
+# ---- the tracker adapter -------------------------------------------------------------------
+# ONE resolution, ONE branch site: check (1)'s comment fetch. Checks (1b) and (2)-(6) read git,
+# the progress file, the verdict record and the audit ledger, and must stay adapter-insensitive
+# — a second branch here would make this script a second tracker authority beside lean-gate.sh.
+#
+# Absent ⇒ github is a FAIL-SAFE, not back-compat: config-lint.sh already requires the key to be
+# github|jira, so no lint-clean config omits it, and github is the safe side for a config that
+# never reached the lint — the arm that DEMANDS a claim comment fails loudly, where the jira arm
+# would quietly attest less than the operator thinks. An UNRECOGNIZED value is a loud error and
+# not a fall-through, so a typo cannot silently pick an arm. lean-gate.sh's enum, verbatim.
+TRACKER_TYPE="$(cfg '.tracker.type' 'github')"
+case "$TRACKER_TYPE" in
+  github|jira) : ;;
+  *) envfail "unknown tracker.type '$TRACKER_TYPE' — expected 'github' or 'jira'." ;;
+esac
+
+# The github arm's zero-network seam has no meaning on an adapter that reads no comment trail.
+# REFUSED rather than ignored: a jira case that hands over a fixture and still goes green asserts
+# nothing about that fixture while reading as coverage, and nothing would red if a later edit
+# re-enabled the fetch.
+if [ "$TRACKER_TYPE" = "jira" ] && [ -n "$COMMENTS_FILE" ]; then
+  envfail "--comments-file is not meaningful under tracker.type: jira — this adapter posts no claim comment, so no comment trail is read."
+fi
 
 VERDICT_REL="$PLANS_DIR/$REPO_SLUG-$ISSUE-lean-verdict.md"
 PROGRESS_FILE="${LEAN_PROGRESS_FILE:-$MAIN_ROOT/$STATE_DIR/$ISSUE-lean-progress.md}"
@@ -190,37 +224,45 @@ REVIEW_SESSION="$(extract_key session_id "$REPO_ROOT/$VERDICT_REL")"
 [ -n "$RUN_PROGRESS" ] || bad "progress file carries no run_id reconciliation key"
 
 # ---- (1) RUN_ID consistency across the three records --------------------------------------
-if [ -n "$COMMENTS_FILE" ]; then
-  [ -f "$COMMENTS_FILE" ] || envfail "--comments-file '$COMMENTS_FILE' does not exist."
-  COMMENTS="$(cat "$COMMENTS_FILE")"
+# The ONE adapter-sensitive check. Under jira the claim comment it compares against does not
+# exist — that adapter's claim makes no tracker write — so the arm is skipped and DISCLOSED,
+# never faked from a build-side substitute: the progress file's own claim line is written by the
+# same run whose honesty is in question, and self-reconciliation is not evidence (see the header).
+if [ "$TRACKER_TYPE" = "jira" ]; then
+  say "  · claim-comment arm NOT RUN (jira adapter): this tracker posts no bot-authored 'lean-claimed' comment, so build-side run_id agreement across two independent records is unattestable here. Every check below reads only git, the progress file, the verdict record and the audit ledger."
 else
-  COMMENTS="$("$GH_CLI" api "repos/{owner}/{repo}/issues/$ISSUE/comments" --paginate 2>&1)" || {
-    echo "[lean-reconcile] comment fetch failed for #$ISSUE:" >&2
-    printf '%s\n' "$COMMENTS" >&2
-    exit 2
-  }
-fi
-printf '%s' "$COMMENTS" | jq -e 'type == "array"' >/dev/null 2>&1 || envfail "comment trail is not a JSON array."
+  if [ -n "$COMMENTS_FILE" ]; then
+    [ -f "$COMMENTS_FILE" ] || envfail "--comments-file '$COMMENTS_FILE' does not exist."
+    COMMENTS="$(cat "$COMMENTS_FILE")"
+  else
+    COMMENTS="$("$GH_CLI" api "repos/{owner}/{repo}/issues/$ISSUE/comments" --paginate 2>&1)" || {
+      echo "[lean-reconcile] comment fetch failed for #$ISSUE:" >&2
+      printf '%s\n' "$COMMENTS" >&2
+      exit 2
+    }
+  fi
+  printf '%s' "$COMMENTS" | jq -e 'type == "array"' >/dev/null 2>&1 || envfail "comment trail is not a JSON array."
 
-# Only a BOT-authored lean-claimed comment counts, for the same reason the CI gate filters:
-# on a public repo anyone can post a marker, and an operator-posted claim is not evidence the
-# harness ran.
-RUN_CLAIM="$(printf '%s' "$COMMENTS" | jq -r '
-  [ .[] | select((.user.type // "") == "Bot")
-        | select((.body // "") | test("<!--[[:space:]]*stage:[[:space:]]*lean-claimed[[:space:]]*-->"))
-        | ((.body // "") | capture("run_id:[[:space:]]*(?<r>[A-Za-z0-9._-]+)").r? // "") ]
-  | map(select(. != "")) | first // ""')"
+  # Only a BOT-authored lean-claimed comment counts, for the same reason the CI gate filters:
+  # on a public repo anyone can post a marker, and an operator-posted claim is not evidence the
+  # harness ran.
+  RUN_CLAIM="$(printf '%s' "$COMMENTS" | jq -r '
+    [ .[] | select((.user.type // "") == "Bot")
+          | select((.body // "") | test("<!--[[:space:]]*stage:[[:space:]]*lean-claimed[[:space:]]*-->"))
+          | ((.body // "") | capture("run_id:[[:space:]]*(?<r>[A-Za-z0-9._-]+)").r? // "") ]
+    | map(select(. != "")) | first // ""')"
 
-# The claim comment and the progress file are BOTH build-side records; they must agree. The
-# verdict record must NOT agree with them — that is the whole separation. Asserting the two
-# properties in one comparison (the pre-#345 "all three are one run") is what made the old
-# check enforce the opposite of what P10 requires.
-if [ -z "$RUN_CLAIM" ]; then
-  bad "no bot-authored 'lean-claimed' comment with a run_id on #$ISSUE"
-elif [ "$RUN_CLAIM" = "$RUN_PROGRESS" ]; then
-  ok "build run_id consistent across the claim comment and the progress file ($RUN_CLAIM)"
-else
-  bad "build run_id mismatch — claim='$RUN_CLAIM' progress='$RUN_PROGRESS'. These must be one run."
+  # The claim comment and the progress file are BOTH build-side records; they must agree. The
+  # verdict record must NOT agree with them — that is the whole separation. Asserting the two
+  # properties in one comparison (the pre-#345 "all three are one run") is what made the old
+  # check enforce the opposite of what P10 requires.
+  if [ -z "$RUN_CLAIM" ]; then
+    bad "no bot-authored 'lean-claimed' comment with a run_id on #$ISSUE"
+  elif [ "$RUN_CLAIM" = "$RUN_PROGRESS" ]; then
+    ok "build run_id consistent across the claim comment and the progress file ($RUN_CLAIM)"
+  else
+    bad "build run_id mismatch — claim='$RUN_CLAIM' progress='$RUN_PROGRESS'. These must be one run."
+  fi
 fi
 
 if [ -n "$RUN_VERDICT" ] && [ -n "$RUN_PROGRESS" ] && [ "$RUN_VERDICT" = "$RUN_PROGRESS" ]; then
@@ -401,4 +443,12 @@ if [ "$failures" -gt 0 ]; then
   echo "[lean-reconcile] ✗ $failures reconciliation failure(s) for #$ISSUE — do NOT merge until resolved." >&2
   exit 1
 fi
-say "reconciled: #$ISSUE — the committed verdict is backed by a harness-recorded review session, separate from the build's."
+# The closing line carries the reduced-evidence qualifier too, not only the check site: an
+# operator who reads the last line alone must not mistake a jira reconcile for the github-strength
+# attestation. The FAILURE line above is deliberately unqualified — a red reconcile's evidence
+# strength is moot.
+RECONCILED_NOTE=""
+if [ "$TRACKER_TYPE" = "jira" ]; then
+  RECONCILED_NOTE=" (jira adapter — REDUCED evidence: the build-side claim-comment arm did not run)"
+fi
+say "reconciled: #$ISSUE$RECONCILED_NOTE — the committed verdict is backed by a harness-recorded review session, separate from the build's."
