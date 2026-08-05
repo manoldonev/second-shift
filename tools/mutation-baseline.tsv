@@ -49,6 +49,7 @@ plugins/dev-pipeline/skills/run-lean/lean-gate.sh::cmp-eq::1	seeded for #303 fro
 plugins/dev-pipeline/skills/run-lean/lean-gate.sh::default::1	seeded for #303 from a local advisory sweep (macOS); confirm at the first nightly
 plugins/dev-pipeline/skills/run-lean/lean-gate.sh::default::2	seeded for #303 from a local advisory sweep (macOS); confirm at the first nightly
 plugins/dev-pipeline/skills/run-lean/lean-reconcile.sh::cmp-eq::1	seeded for #303 from a local advisory sweep (macOS); confirm at the first nightly
+plugins/dev-pipeline/skills/run-lean/lean-reconcile.sh::cmp-eq::2	added for #388: a PROSE site, like ordinal 1 — the adapter comment contains "zero-network", whose "-ne" the operator matches, so no test can kill it. Its arrival pushed the one real -eq comparison from ordinal 2 to 3, where it is still killed; ordinals for default/detector/fail-open were diffed against origin/main and are unmoved (local advisory sweep, macOS; confirm at the first nightly)
 plugins/dev-pipeline/skills/run-lean/lean-reconcile.sh::default::1	seeded for #303 from a local advisory sweep (macOS); confirm at the first nightly
 plugins/dev-pipeline/skills/run-lean/lean-reconcile.sh::default::2	seeded for #303 from a local advisory sweep (macOS); confirm at the first nightly
 plugins/dev-pipeline/skills/run-lean/lean-reconcile.sh::detector::1	re-keyed for #345: the verdict-authorship checks shifted the generic ordinals (local advisory sweep, macOS; confirm at the first nightly)
