@@ -200,7 +200,8 @@ claim about the speedup is checkable against that line; a remembered figure is n
 
 ```
 sha256(mutation-sweep.sh) + sha256(mutated guard) + sha256(each paired suite, in kill order)
-                          + MUTATION_SWEEP_K + environment (RUNNER_OS, SKIP_STRESS, killer-bound knobs)
+                          + MUTATION_SWEEP_K + environment (RUNNER_OS, SKIP_STRESS,
+                            killer-bound knobs, MUTATION_SWEEP_EARLY_EXIT, MUTATION_SWEEP_FAIL_PATTERN)
 ```
 
 **The key is narrow, and it is not sound.** A third file can flip a verdict with the guard and all
@@ -215,13 +216,24 @@ cycle later. **CI is the authority and always runs cold.** `MUTATION_SWEEP_CACHE
 locally too.
 
 **Invalidation, exhaustively.** Editing the guard; editing *any* paired suite; editing
-`mutation-sweep.sh` itself; changing `k`, `RUNNER_OS`, `SKIP_STRESS`, or a killer-bound knob. Two are
-worth naming. Editing the **suite** matters because adding a test case can kill a previously-surviving
+`mutation-sweep.sh` itself; changing `k`, `RUNNER_OS`, `SKIP_STRESS`, a killer-bound knob, or the
+early-exit trigger (`MUTATION_SWEEP_EARLY_EXIT`, `MUTATION_SWEEP_FAIL_PATTERN`). Three are worth
+naming. Editing the **suite** matters because adding a test case can kill a previously-surviving
 mutant, so a cache keyed on the guard alone would serve a stale `SURVIVED` forever — green, wrong,
 and invisible in the report. Editing **this harness** matters because a change to the kill criterion,
 the early-exit trigger or the killer bounds changes what a verdict *means*; hashing the file itself
 removes the human discipline a hand-bumped schema constant would need. The stated cost of that:
-a PR editing the harness runs fully cold.
+a PR editing the harness runs fully cold. And the **kill criterion knobs** are in the key for the
+same reason the killer bounds are — a run under a custom `MUTATION_SWEEP_FAIL_PATTERN` scores
+against a different definition of "killed", which the precheck's every-run assertion does not
+close: that assertion covers the *unmutated* suite only.
+
+**`MUTATION_SWEEP_JOBS` is deliberately NOT in the key, and that residual persists.** Pool
+contention can turn a would-be survivor into a timeout `KILL`, and once cached that verdict is
+served back at any pool size — including `JOBS=1`. Keying on it would cost most of the hit rate,
+since the loop this cache exists for re-runs at one pool size. The residual leans the safe way
+(it hides a weak test rather than inventing a finding), CI never reads the cache, and
+`MUTATION_SWEEP_CACHE=0` is the escape hatch when a survivor set is in doubt.
 
 **Storage.** `${XDG_CACHE_HOME:-~/.cache}/second-shift/mutation-sweep/<repo-basename>/`, overridable
 with `MUTATION_SWEEP_CACHE_DIR`. Outside every checkout and never committed — an in-repo untracked

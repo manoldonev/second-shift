@@ -473,10 +473,22 @@ if [[ "$CACHE_ENABLED" == "1" && -z "$SELF_SHA" ]]; then
   info "cache disabled: this script's own bytes could not be hashed, so no key can be pinned to them."
 fi
 
-# The environment axis of the key. Same axis the baseline header already records, plus the
-# killer-bound knobs — those decide whether a spinning mutant scores as a timeout KILL, so a
-# run with a different bound is not answering the same question.
-CACHE_ENV_TAG="${RUNNER_OS:-$(uname -s 2>/dev/null || echo unknown)}|${SKIP_STRESS:-}|$KILLER_TIMEOUT_S|$KILLER_TIMEOUT_FACTOR|$KILLER_TIMEOUT_MIN_S|$KILLER_MAX_PROCS"
+# The environment axis of the key: every knob that changes WHAT A VERDICT MEANS, so that a run
+# under a different one is never served an answer to a different question. Same axis the
+# baseline header already records, plus two families of knob.
+#
+# The killer bounds decide whether a spinning mutant scores as a timeout KILL. The early-exit
+# trigger decides it by the identical argument — a run with a custom FAIL_PATTERN scores under a
+# different kill criterion, and D-3's standing assertion does not close the gap: the precheck
+# only establishes that the UNMUTATED suite is silent, so a mutated guard whose suite prints
+# that pattern while exiting 0 would cache a KILLED a default-pattern run then serves.
+#
+# MUTATION_SWEEP_JOBS is deliberately NOT here, and the omission is not free: pool contention
+# can turn a would-be survivor into a timeout KILL, and that verdict then persists across pool
+# sizes. Keying on it would cost most of the hit rate — the loop this cache exists for re-runs
+# at one pool size — and the residual leans the safe way, hiding a weak test rather than
+# inventing a finding. `MUTATION_SWEEP_CACHE=0` is the escape hatch when a survivor is in doubt.
+CACHE_ENV_TAG="${RUNNER_OS:-$(uname -s 2>/dev/null || echo unknown)}|${SKIP_STRESS:-}|$KILLER_TIMEOUT_S|$KILLER_TIMEOUT_FACTOR|$KILLER_TIMEOUT_MIN_S|$KILLER_MAX_PROCS|$EARLY_EXIT|$FAIL_PATTERN"
 
 # $1 = sha of the MUTATED guard bytes, $2 = sha of the kill set's suite bytes (in order).
 #

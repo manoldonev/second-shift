@@ -1213,6 +1213,25 @@ if [[ "${C4:-0}" -gt 0 ]]; then
 else
   bad "(af) an environment change hit the cache (computed=${C4:-?})"
 fi
+# The KILL CRITERION is part of the environment by the same argument the killer bounds are:
+# a run that scores under a different one is not answering the same question. Two separate
+# assertions, because each kills its own field of CACHE_ENV_TAG — dropping FAIL_PATTERN from
+# the key reds only the first, dropping EARLY_EXIT reds only the second. The pattern below is
+# one no green fixture suite emits, so this exercises the key and not D-3's unrunnable pair.
+OUT4B="$( cd "$FX" && cch "$CD" env MUTATION_SWEEP_FAIL_PATTERN='NEVER-EMITTED-BY-A-GREEN-SUITE:' bash "$SWEEP" --mode full 2>&1 )"
+C4B="$(computed "$OUT4B")"
+if [[ "${C4B:-0}" -gt 0 ]]; then
+  ok "a custom fail pattern re-keys every entry — a verdict scored under one kill criterion is never served to another"
+else
+  bad "(af) a MUTATION_SWEEP_FAIL_PATTERN change hit the cache (computed=${C4B:-?}); the kill criterion is outside the key"
+fi
+OUT4C="$( cd "$FX" && cch "$CD" env MUTATION_SWEEP_EARLY_EXIT=0 bash "$SWEEP" --mode full 2>&1 )"
+C4C="$(computed "$OUT4C")"
+if [[ "${C4C:-0}" -gt 0 ]]; then
+  ok "disabling early exit re-keys every entry"
+else
+  bad "(af) a MUTATION_SWEEP_EARLY_EXIT change hit the cache (computed=${C4C:-?}); the trigger is outside the key"
+fi
 if [[ -z "$( cd "$FX" && git status --porcelain 2>/dev/null )" ]]; then
   ok "the cache lives outside the checkout — the fixture repo has nothing to commit"
 else

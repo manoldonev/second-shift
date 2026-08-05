@@ -111,8 +111,14 @@ what bounds disk at `pool × ~7 MB` (AC-9) instead of `mutants × ~7 MB`. **D-8*
 
 Key = `sha256(mutation-sweep.sh) + sha256(mutated guard bytes) + sha256(each paired suite's bytes,
 in kill-set order) + K + environment`, where environment is the axis the baseline header already
-records (`RUNNER_OS`/`uname -s`, `SKIP_STRESS`) plus the killer-bound knobs, since those change what
-a timeout verdict is.
+records (`RUNNER_OS`/`uname -s`, `SKIP_STRESS`) plus every knob that changes what a verdict *means*:
+the killer-bound knobs, since those change what a timeout verdict is, and the early-exit trigger
+(`MUTATION_SWEEP_EARLY_EXIT`, `MUTATION_SWEEP_FAIL_PATTERN`), since a custom pattern scores against a
+different definition of "killed" — D-3's every-run assertion covers the *unmutated* suite only, so a
+mutated guard whose suite prints that pattern while exiting 0 would cache a KILLED that a
+default-pattern run then serves. `MUTATION_SWEEP_JOBS` is deliberately excluded and the residual is
+recorded in `docs/testing.md`: pool contention can promote a survivor to a timeout KILL that then
+persists, which leans safe and is escapable with `MUTATION_SWEEP_CACHE=0`.
 
 **D-1 — the key is narrow, and it is not sound.** Intake established the issue's premise is false
 here: `lean-gate.sh` shells out to four sibling scripts and `statectl-selftest.sh` sources
