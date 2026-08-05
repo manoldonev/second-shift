@@ -4,6 +4,18 @@ All notable changes to the second-shift marketplace. Versions are per-plugin (`p
 this file tracks the marketplace release. `configVersion` stays `const 1` — v2 is fully backward-compatible for a
 consumer with an empty config; the migration notes below are only for consumers using the changed features.
 
+## v3.8.4
+
+### `dev-pipeline` 3.8.3 → 3.8.4
+
+- **lean-reconcile runs its five tracker-independent checks under jira (#389)** (#389)
+  `lean-reconcile.sh` no longer exits 2 before any check on a
+  `tracker.type: jira` consumer. It skips the claim-comment arm — that adapter
+  posts no claim comment — and runs its other five, including the P10 authorship
+  check, naming the dropped arm in its output and on its closing line. An
+  unrecognized `tracker.type`, and `--comments-file` under jira, are now loud
+  environment errors. Migration: none.
+
 ## v3.8.3
 
 ### `dev-pipeline` 3.8.2 → 3.8.3
