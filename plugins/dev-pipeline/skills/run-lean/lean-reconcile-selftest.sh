@@ -496,6 +496,123 @@ if [ "$rc" -eq 0 ] && printf '%s' "$out" | grep -q 'resolves over 1 earlier reco
   pass "(N7b) the walk terminates at a root whose body quotes the key — one link, not the two a first-match walk would count"
 else fail "(N7b) expected exactly 1 earlier record in the chain, got $rc: $out"; fi
 
+# ---- (P) the tracker adapter: jira drops ONE arm, not six (#388) ----------------------------
+# Before this, the comment fetch ran unconditionally and its `exit 2` killed the script before
+# checks (1b)-(6) — five arms that read only git, the progress file, the verdict record and the
+# audit ledger, including the P10 authorship check, which needs no tracker at all. The suite
+# entered (P) with a green round-5 chain, so every case below starts from evidence that is
+# COMPLETE on the five tracker-independent arms; only the case's own fixture is broken.
+#
+# "Zero gh calls" is asserted through a recording stub reachable BOTH ways — the `${GH:-gh}` seam
+# and a `gh` earlier on PATH — so a jira arm that still shelled out to a reachable CLI is caught
+# rather than passing an rc-only check that a fixture happened to satisfy.
+GH_CALLS="$WORK/gh-calls"
+GHSTUB="$WORK/gh-stub.sh"
+cat > "$GHSTUB" <<EOF
+#!/usr/bin/env bash
+echo "called" >> "$GH_CALLS"
+cat "$WORK/comments-good.json"
+EOF
+chmod +x "$GHSTUB"
+mkdir -p "$WORK/bin" && cp "$GHSTUB" "$WORK/bin/gh"
+
+jq '. + {tracker: {type: "jira"}}'   "$CFG" > "$WORK/config-jira.json"
+jq '. + {tracker: {type: "github"}}' "$CFG" > "$WORK/config-github.json"
+jq '. + {tracker: {type: "gitlab"}}' "$CFG" > "$WORK/config-bogus.json"
+
+reconcile_as() { # reconcile_as <config> [extra args...]
+  local c="$1"; shift
+  ( cd "$TREE" && SECOND_SHIFT_CONFIG="$c" LEAN_PROGRESS_FILE="$PROG" LEAN_AUDIT_DIR="$AUDIT" \
+    GH="$GHSTUB" PATH="$WORK/bin:$PATH" bash "$TOOL" 7 "$@" 2>&1 )
+}
+p_restore() { # p_restore <committer-date> — put the good round-5 record back
+  write_verdict_chain review-7-5 sess-review-round5 5 "$n_pid5" "$n_pid_root"
+  commit_verdict "$1"
+}
+
+# (P1) the whole point: a complete evidence set reconciles under jira, having read no tracker.
+# The chain assertion is the non-vacuity half — it proves checks (2)-(6) RAN, where a script that
+# skipped them alongside the fetch would also exit 0.
+: > "$GH_CALLS"
+out="$(reconcile_as "$WORK/config-jira.json")"; rc=$?
+if [ "$rc" -eq 0 ] && [ ! -s "$GH_CALLS" ] \
+   && printf '%s' "$out" | grep -q 'claim-comment arm NOT RUN' \
+   && printf '%s' "$out" | grep -q 'REDUCED evidence' \
+   && printf '%s' "$out" | grep -q 'resolves over 1 earlier record'; then
+  pass "(P1) a jira consumer reconciles with zero gh calls, names the arm it skipped, and still runs the other five"
+else fail "(P1) expected rc=0, no gh call, the disclosure and the chain arm, got rc=$rc calls='$(cat "$GH_CALLS" 2>/dev/null)': $out"; fi
+
+# (P2) the default is ASSERTED, not assumed: an absent `tracker.type` takes the github arm — it
+# FETCHES — and is byte-identical to an explicit `github`. A default that silently became jira
+# would downgrade every existing consumer's evidence set with nothing red.
+: > "$GH_CALLS"
+out_absent="$(reconcile_as "$CFG")"; rc=$?
+p_calls="$(wc -l < "$GH_CALLS" | tr -d ' ')"
+out_github="$(reconcile_as "$WORK/config-github.json")"; rc_github=$?
+if [ "$rc" -eq 0 ] && [ "$p_calls" -ge 1 ] && [ "$rc_github" -eq 0 ] \
+   && [ "$out_absent" = "$out_github" ] \
+   && ! printf '%s' "$out_absent" | grep -q 'NOT RUN'; then
+  pass "(P2) an absent tracker.type fetches the comment trail and reads identically to an explicit github"
+else fail "(P2) absent-key rc=$rc calls=$p_calls github rc=$rc_github, outputs differ? got: $out_absent"; fi
+
+# (P3) an UNRECOGNIZED value is a loud environment error, not a fall-through to either arm. The
+# second assertion pins that it refuses BEFORE any check runs — a typo must not quietly pick the
+# arm that attests less.
+out="$(reconcile_as "$WORK/config-bogus.json")"; rc=$?
+if [ "$rc" -eq 2 ] && printf '%s' "$out" | grep -q "unknown tracker.type 'gitlab'" \
+   && ! printf '%s' "$out" | grep -q 'reconciling #'; then
+  pass "(P3) an unrecognized tracker.type is rc=2 before any check runs"
+else fail "(P3) expected rc=2 on an unknown tracker.type, got $rc: $out"; fi
+
+# (P4) the github arm's fixture seam is REFUSED under jira rather than ignored. Ignoring it would
+# let a jira case hand over a comment trail, go green, and assert nothing about it — and nothing
+# would red if a later edit re-enabled the fetch.
+out="$(reconcile_as "$WORK/config-jira.json" --comments-file "$WORK/comments-good.json")"; rc=$?
+if [ "$rc" -eq 2 ] && printf '%s' "$out" | grep -q 'not meaningful under tracker.type: jira'; then
+  pass "(P4) --comments-file under jira is refused, not silently ignored"
+else fail "(P4) expected rc=2 refusing the seam under jira, got $rc: $out"; fi
+
+# (P5)-(P9) each of the five surviving arms still FAILS on its own broken evidence under jira.
+# Without these, (P1) alone cannot distinguish "the checks run" from "the checks were skipped
+# along with the fetch" — both exit 0 on a healthy fixture.
+write_verdict_chain "$RUN_ID" sess-review-round5 5 "$n_pid5" "$n_pid_root"
+commit_verdict "2026-01-01T14:00:00Z"
+out="$(reconcile_as "$WORK/config-jira.json")"; rc=$?
+if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q "BUILD run's identity"; then
+  pass "(P5) (1b) P10 still fails under jira — the arm the early exit_2 was costing most"
+else fail "(P5) expected rc=1 on a build-authored verdict under jira, got $rc: $out"; fi
+p_restore "2026-01-01T14:05:00Z"
+
+mv "$AUDIT/sess-review-round5.jsonl" "$WORK/held-r5.jsonl"
+out="$(reconcile_as "$WORK/config-jira.json")"; rc=$?
+if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q 'no review-session audit ledger'; then
+  pass "(P6) (2) a verdict naming a session the harness never saw still fails under jira"
+else fail "(P6) expected rc=1 on an absent review ledger under jira, got $rc: $out"; fi
+mv "$WORK/held-r5.jsonl" "$AUDIT/sess-review-round5.jsonl"
+
+write_ledger sess-review-round5 "2026-06-01T00:00:00Z"
+out="$(reconcile_as "$WORK/config-jira.json")"; rc=$?
+if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q 'timestamp inversion'; then
+  pass "(P7) (3) a verdict committed before its review ran still fails under jira"
+else fail "(P7) expected rc=1 on timestamp inversion under jira, got $rc: $out"; fi
+write_ledger sess-review-round5 "2026-01-01T13:10:00Z"
+
+write_verdict_chain review-7-5 sess-review-round5 5 "0000000000000000000000000000000000000000" "$n_pid_root"
+commit_verdict "2026-01-01T14:10:00Z"
+out="$(reconcile_as "$WORK/config-jira.json")"; rc=$?
+if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q 'was not written on top of the tree'; then
+  pass "(P8) (4/5) a record declaring a patch its commit does not carry still fails under jira"
+else fail "(P8) expected rc=1 on an incoherent patch id under jira, got $rc: $out"; fi
+p_restore "2026-01-01T14:15:00Z"
+
+write_verdict_chain review-7-5 sess-review-round5 5 "$n_pid5" "deadbeefdeadbeefdeadbeefdeadbeefdeadbeef"
+commit_verdict "2026-01-01T14:20:00Z"
+out="$(reconcile_as "$WORK/config-jira.json")"; rc=$?
+if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q 'matches no earlier verdict record committed on this branch'; then
+  pass "(P9) (6) a dangling inheritance link still fails under jira"
+else fail "(P9) expected rc=1 on a dangling link under jira, got $rc: $out"; fi
+p_restore "2026-01-01T14:25:00Z"
+
 # ---- (O) --help prints the header, and only the header --------------------------------------
 # `sed -n '2,Np'` is a hand-maintained line number, and this file had no guard for it — which is
 # exactly how its siblings silently truncated their own help text after a header grew. Two

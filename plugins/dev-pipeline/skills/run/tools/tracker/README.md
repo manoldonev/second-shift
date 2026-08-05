@@ -43,23 +43,31 @@ progress file plus three committed artifacts. [`lean-gate.sh`](../../../run-lean
 resolves the same `tracker.type` (absent ⇒ `github`) and branches at exactly **three**
 sites. Milestones 1–4 are adapter-insensitive — a committed spec, two repo policy scripts,
 the config command table, a committed verdict record — and stay that way.
+[`lean-reconcile.sh`](../../../run-lean/lean-reconcile.sh) resolves the same key on the same
+terms, and branches at exactly **one**. Both reject an unrecognized value rather than
+falling through to an arm.
 
 | Operation | github | jira |
 | --- | --- | --- |
 | **entry** — SKILL.md step 1’s queue-label confirm | confirm the queue label; a missing one is a reject, no prompting | *not applicable* — no queue, no label; the gate prints the adapter note and the operator supplies the key |
-| **claim** (`lean-gate.sh claim`) | two bot-wrapper writes: the label swap plus a `lean-claimed` marker comment | *no tracker write.* The run-id/claim record still lands in the progress file — the anchor a jira-aware reconcile would use — and `GH_BOT` is not required |
+| **claim** (`lean-gate.sh claim`) | two bot-wrapper writes: the label swap plus a `lean-claimed` marker comment | *no tracker write.* The run-id/claim record still lands in the progress file — the anchor the reconcile row below reads — and `GH_BOT` is not required |
 | **exit** (`lean-gate.sh 5`) | ready PR carrying `Closes #<key>` + the spec link, plus a closing comment referencing the verdict record | ready PR carrying `Closes [<KEY>]` under a `Jira Items` heading, the spec link, and the verdict-record path **in the body**; the comment trail is never read |
+| **reconcile** — the operator’s pre-merge check ([`lean-reconcile.sh`](../../../run-lean/lean-reconcile.sh)) | six arms; check (1) compares the bot claim comment’s `run_id` against the progress file’s | **five of six.** Check (1)’s claim arm is skipped and the fetch is never attempted, so the run makes no `gh` call; (1b) and (2)–(6) run unchanged. The dropped arm is named in the output and on the closing line. `--comments-file` is refused here |
 
 The **ready-PR** requirement is adapter-independent. lean has no promotion step for a draft
 to advance out of, so the `run` lane’s draft-PR rationale (below) does not carry over.
 
-> **No reconciliation backstop under jira yet.** lean’s two integrity checks — the CI gate
-> `scripts/check-lean-chain.sh` and the operator’s `lean-reconcile.sh` — both key off the
-> bot-authored `lean-claimed` **comment**, which this adapter posts none of; `lean-reconcile.sh`
-> additionally fetches the comment trail by GitHub issue number, so a jira key hard-fails it.
-> Both are github-only today. A jira run’s evidence is therefore the committed spec, the
-> committed verdict record, and the progress-file run-id anchor — no machine check ties them
-> together. Adapting them is deliberately out of this lane’s scope and tracked separately.
+> **Partial integrity backstop under jira.** lean has two integrity checks, and they diverge
+> here. `lean-reconcile.sh` (operator-run) keeps five of its six arms: only the claim-comment
+> comparison needs a tracker, and the rest read git, the progress file, the verdict record and
+> the audit ledger — including the P10 authorship check, which is what the
+> generation-must-not-author-evaluation separation rests on. It states which arm did not run, so
+> a green jira reconcile cannot be read as the full github-strength attestation.
+>
+> The merge boundary `scripts/check-lean-chain.sh` (CI) remains **github-only**: it keys off the
+> bot-authored `lean-claimed` comment, which this adapter posts none of. A jira run therefore has
+> an operator-run backstop and no automated one; adapting the CI gate is out of this lane’s scope
+> and tracked separately.
 
 > **Atlassian MCP namespace (jira fetch).** Do not hardcode a single prefix: the MCP's
 > tool namespace depends on how the session registered the server — `mcp__atlassian__*`
