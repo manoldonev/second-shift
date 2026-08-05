@@ -4,6 +4,16 @@ All notable changes to the second-shift marketplace. Versions are per-plugin (`p
 this file tracks the marketplace release. `configVersion` stays `const 1` — v2 is fully backward-compatible for a
 consumer with an empty config; the migration notes below are only for consumers using the changed features.
 
+## v3.8.3
+
+### `dev-pipeline` 3.8.2 → 3.8.3
+
+- **fix(dev-pipeline): lean-gate runs setup lanes in the schema's shape (#386)** (#386)
+  the lean lane's milestone 3 now runs `commands.<host>.lanes[]`
+  setup steps instead of dying on them; a lane declaring no commands fails
+  the milestone rather than being skipped silently.
+  Migration: none.
+
 ## v3.8.2
 
 ### `dev-pipeline` 3.8.1 → 3.8.2
