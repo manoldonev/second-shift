@@ -42,10 +42,10 @@ cat > "$TMP/moved/.claude/second-shift/doc-routing.md" << 'ROUTING'
 | --- | --- |
 | Foo changes | `docs/old-name.md` |
 ROUTING
-if bash "$CHECK" "$TMP/moved" > /tmp/docroute-moved.out 2>&1; then
+if bash "$CHECK" "$TMP/moved" > "$TMP/docroute-moved.out" 2>&1; then
   bad "renamed-doc entry should FAIL but passed"
 else
-  grep -q "DANGLING-DOC-ROUTE:.*docs/old-name.md" /tmp/docroute-moved.out \
+  grep -q "DANGLING-DOC-ROUTE:.*docs/old-name.md" "$TMP/docroute-moved.out" \
     && ok "renamed doc -> DANGLING-DOC-ROUTE fail closed, naming the entry" \
     || bad "renamed doc failed but without the expected message"
 fi
@@ -57,10 +57,10 @@ cat > "$TMP/deleted/.claude/second-shift/doc-routing.md" << 'ROUTING'
 
 - `.project/reference/domain-constants.md` — thresholds mirrored by tests
 ROUTING
-if bash "$CHECK" "$TMP/deleted" > /tmp/docroute-deleted.out 2>&1; then
+if bash "$CHECK" "$TMP/deleted" > "$TMP/docroute-deleted.out" 2>&1; then
   bad "deleted-doc entry should FAIL but passed"
 else
-  grep -q "DANGLING-DOC-ROUTE:.*domain-constants.md" /tmp/docroute-deleted.out \
+  grep -q "DANGLING-DOC-ROUTE:.*domain-constants.md" "$TMP/docroute-deleted.out" \
     && ok "deleted doc -> DANGLING-DOC-ROUTE fail closed" \
     || bad "deleted doc failed but without the expected message"
 fi

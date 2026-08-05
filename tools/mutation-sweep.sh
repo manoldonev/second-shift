@@ -71,6 +71,67 @@
 # (ubuntu-latest + SKIP_STRESS=1), whose GNU userland (coreutils, bash, find) a local
 # macOS/BSD run does not exactly reproduce.
 #
+# ---------------------------------------------------------------------------------------
+# COST. The sweep's wall time is Sigma over guards of (mutants x paired-suite seconds), and
+# for a long time every one of those seconds was serial on one core. Three levers removed
+# it, and the ORDER OF PHASES below is what makes them provably free of coverage cost.
+#
+# The run is five ordered phases. Only the mutant scoring is parallel; everything that
+# EMITS runs serially, in item order. That is not stylistic — it is what makes the survivor
+# set, the counts and the report TSV independent of the pool size by construction rather
+# than by hope.
+#   1. ENUMERATE     — serial, in sandbox 0: apply each generic/catalog mutant, run the
+#                      `bash -n` and `git diff --quiet` gates, and write the MUTATED GUARD
+#                      BYTES to a work-item blob. Skips, anchor drift and invalid-sed reds
+#                      are all decided here, in the historical order.
+#   2. CACHE PROBE   — serial: a hit writes its verdict file directly; a miss goes to the
+#                      pool manifest. This is also what decides which guards still need a
+#                      precheck, which is why it must run BEFORE one.
+#   3. PRECHECK      — serial, once per DISTINCT suite, and only for guards carrying at
+#                      least one uncached mutant. Produces the `unrunnable pair` verdict and
+#                      the MEASURED timings the per-suite killer bound reads.
+#   4. VERDICT POOL  — workers take work items by residue class, each in its OWN sandbox:
+#                      install the blob through the guard's inode, run the ordered kill set.
+#   5. AGGREGATE     — serial: read verdicts in item order, emit the bound-hit lines, the
+#                      per-guard counts, the report rows and the exit contract.
+#
+# WHY THE PRECHECK IS SERIAL AND HOISTED, not folded into the pool. Its timings set every
+# killer bound and feed mutation-slow-suites.tsv's deferral semantics, so measuring them
+# under the pool's own contention would measure the pool rather than the suite. And why it
+# comes after the probe: a precheck IS a paired-suite execution, so a guard whose every
+# mutant is already cached must skip it entirely or the run cannot honestly claim to have
+# executed none.
+#
+# MEMOIZATION is the lever that reaches "instant", and the only one that can be wrong in a
+# way a green run would hide. The key is the mutated guard's bytes, every paired suite's
+# bytes, k, the environment, and THIS FILE's bytes. Keying on the GUARD ALONE is the one way
+# to get the middle part wrong: adding a test case can kill a previously-surviving mutant,
+# and a guard-only key would serve the stale SURVIVED forever.
+#
+# The key is narrow, and NOT sound: a THIRD file can flip a verdict with the guard and its
+# suites byte-identical — `lean-gate.sh` shells out to four sibling scripts, and
+# `statectl-selftest.sh` sources `scenario-lib.sh`. A whole-tree key would be sound and would
+# also drop the hit rate to zero, since the sweep sandboxes HEAD and every fix round is a new
+# commit. What bounds the unsoundness is the lane: the cache is neither read nor written when
+# GITHUB_ACTIONS is set, so a stale verdict can only make a LOCAL advisory run optimistic,
+# never the authoritative one.
+#
+# PARALLELISM was blocked by a single shared sandbox — one worktree, one mutated file, so
+# mutants had to serialize. Now one sandbox per WORKER: a worker owns its sandbox for the
+# whole run and restores the guard between items, so no two concurrently-running mutants ever
+# share one. Disk is therefore bounded at pool x ~7MB rather than mutants x ~7MB.
+#
+# EARLY EXIT reads the repo-wide selftest convention (`fail() { echo "  FAIL: $1" >&2; }`):
+# a killed mutant's verdict is settled at the FIRST such line, so the group is reaped there
+# instead of running the remaining cases. Its soundness is an INVARIANT THE PRECHECK ASSERTS
+# on every run — a green suite emits no such line — rather than a one-off corpus measurement.
+# Breaking it is an unrunnable pair, loudly, because a suite that prints the trigger while
+# passing would have every one of its guard's mutants scored KILLED on prose.
+#
+# A suite reaped mid-run (early exit, or either killer bound) never runs its own
+# `trap ... EXIT` cleanup, so killers run with TMPDIR pointed at a per-item scratch directory
+# this harness removes unconditionally.
+#
 # bash 3.2 clean: the companion selftest is in-glob, so it runs on the macOS lane's stock
 # bash. No associative arrays, no mapfile, no ${var^^}.
 set -uo pipefail
@@ -95,6 +156,48 @@ KILLER_TIMEOUT_MIN_S="${MUTATION_SWEEP_KILLER_MIN_S:-60}"
 # starting. Overridable so the companion selftest can trip it on a handful of processes
 # rather than on a real bomb.
 KILLER_MAX_PROCS="${MUTATION_SWEEP_KILLER_MAX_PROCS:-100}"
+
+TAB="$(printf '\t')"
+
+# ------------------------------------------------------------------ worker pool
+# `cores - 2` leaves the machine usable and matches the repo's existing `-P 4` habit at the
+# low end; the cap keeps a 64-core runner from opening 62 worktrees for a 33-mutant diff.
+# Sandboxes are created LAZILY up to min(pool, items), so a two-mutant run still makes one.
+JOBS_CAP=8
+CORES="$(getconf _NPROCESSORS_ONLN 2>/dev/null)" || CORES=""
+case "${CORES:-}" in ''|*[!0-9]*) CORES=2 ;; esac
+JOBS="${MUTATION_SWEEP_JOBS:-}"
+if [[ -z "$JOBS" ]]; then
+  JOBS=$((CORES - 2))
+  [[ $JOBS -lt 1 ]] && JOBS=1
+  [[ $JOBS -gt $JOBS_CAP ]] && JOBS=$JOBS_CAP
+fi
+
+# ----------------------------------------------------------------------- cache
+# ADVISORY LANE ONLY. The cache is neither read nor written when GITHUB_ACTIONS is set (see
+# below, once ENFORCING is known). The key is deliberately NARROW — the mutated guard and its
+# suites — and that key is not quite sound in this tree: `lean-gate.sh` shells out to four
+# sibling scripts and `statectl-selftest.sh` sources `scenario-lib.sh`, so a THIRD file can
+# flip a verdict with both keyed files byte-identical. A whole-tree key would be sound and
+# would also drop the hit rate to zero, since the sweep sandboxes HEAD and every fix round is
+# a new commit. Confining the cache to the advisory lane is what makes the narrow key an
+# acceptable trade instead of an unsound one: a stale verdict can then only make a LOCAL run
+# optimistic, and the authoritative run always starts cold.
+CACHE_ENABLED="${MUTATION_SWEEP_CACHE:-1}"
+# Per repo, not per machine: two checkouts can hold byte-identical guards and suites while
+# differing in one of those third files, and the sourced-file residual is the whole reason
+# not to let them share entries.
+CACHE_DIR="${MUTATION_SWEEP_CACHE_DIR:-${XDG_CACHE_HOME:-$HOME/.cache}/second-shift/mutation-sweep}"
+# AC-8's bound. Eviction is WHOLESALE rather than LRU on purpose: entries are one line each,
+# so the cap is only ever reached after tens of thousands of distinct mutants, and the two
+# portable ways to sort by mtime (`stat -f` vs `stat -c`) are exactly the kind of
+# dialect-split this repo's macOS lane exists to catch. Wiping costs one cold run and cannot
+# be subtly wrong.
+CACHE_MAX="${MUTATION_SWEEP_CACHE_MAX:-20000}"
+
+# ------------------------------------------------------------------ early exit
+EARLY_EXIT="${MUTATION_SWEEP_EARLY_EXIT:-1}"
+FAIL_PATTERN="${MUTATION_SWEEP_FAIL_PATTERN:-FAIL:}"
 
 MODE=""
 BASE_REF=""
@@ -126,6 +229,10 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
+case "$JOBS" in ''|*[!0-9]*) die "MUTATION_SWEEP_JOBS must be a positive integer: '$JOBS'" ;; esac
+[[ "$JOBS" -ge 1 ]] || die "MUTATION_SWEEP_JOBS must be at least 1: '$JOBS'"
+case "$CACHE_MAX" in ''|*[!0-9]*) die "MUTATION_SWEEP_CACHE_MAX must be a non-negative integer: '$CACHE_MAX'" ;; esac
+
 [[ "$MODE" == "full" || "$MODE" == "pr" || "$MODE" == "merge" ]] || die "--mode must be 'full', 'pr', or 'merge'"
 [[ "$MODE" == "pr" && -z "$BASE_REF" ]] && die "--mode pr requires --base <ref>"
 [[ "$MODE" == "pr" && $SEED -eq 1 ]] && die "--seed does not apply to PR mode (a diff-scoped baseline would be partial)"
@@ -153,8 +260,19 @@ else
   [[ -z "$SHARDS_DIR" ]] || die "--shards-dir requires --mode merge"
 fi
 
+RUN_T0="$(date +%s)"
+SUITE_RUNS=0
+CACHE_HITS=0
+
+# Resolved BEFORE the cd below, so a relative invocation from a subdirectory still finds it.
+# The cache keys on this file's own bytes (see cache_key), which is what makes a change to
+# the kill criterion, the early-exit trigger or the killer bounds invalidate every entry with
+# no human discipline in the loop.
+SELF_PATH="$(cd "$(dirname "$0")" 2>/dev/null && pwd)/$(basename "$0")"
+
 REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null)" || die "not inside a git repository"
 cd "$REPO_ROOT" || die "cannot cd to repo root"
+CACHE_DIR="$CACHE_DIR/$(basename "$REPO_ROOT")"
 
 TOOLS_DIR="$REPO_ROOT/tools"
 PAIR_MAP="$TOOLS_DIR/mutation-pair-map.tsv"
@@ -305,6 +423,135 @@ is_slow() {
   [[ "${secs%%.*}" -ge "$SLOW_THRESHOLD_S" ]] 2>/dev/null
 }
 
+# ------------------------------------------------------------------- hashing
+# shasum ships with macOS and with the ubuntu runner's perl; sha256sum is coreutils. If
+# NEITHER resolves the cache disables itself rather than keying on something weaker — a
+# cache that cannot compute its own key must serve no entries at all.
+SHA_KIND=""
+if command -v shasum >/dev/null 2>&1; then
+  SHA_KIND="shasum"
+elif command -v sha256sum >/dev/null 2>&1; then
+  SHA_KIND="sha256sum"
+fi
+
+sha_stdin() {
+  case "$SHA_KIND" in
+    shasum)    shasum -a 256 2>/dev/null | cut -d' ' -f1 ;;
+    sha256sum) sha256sum     2>/dev/null | cut -d' ' -f1 ;;
+    *)         return 1 ;;
+  esac
+}
+sha_file() {
+  [[ -f "$1" ]] || return 1
+  sha_stdin < "$1"
+}
+
+if [[ "$CACHE_ENABLED" == "1" && -z "$SHA_KIND" ]]; then
+  CACHE_ENABLED=0
+  info "cache disabled: neither shasum nor sha256sum is available, so no key can be computed."
+fi
+# A SEED run publishes mutation-slow-suites.tsv from the timings its own unmutated precheck
+# takes, and its header says so. Serving those timings from an earlier run's cache would make
+# the file a record of when the cache was populated rather than of this run — so seed mode
+# measures everything itself, at the cost of one uncached pass it takes once.
+if [[ "$CACHE_ENABLED" == "1" && $SEED -eq 1 ]]; then
+  CACHE_ENABLED=0
+  info "cache disabled for the seed run: the slow list must record THIS run's measurements."
+fi
+# The trade the narrow key rests on. Neither read nor written in the enforcing lane, so a
+# stale verdict can only ever make a LOCAL advisory run optimistic — and the cost of that is
+# learning about a baseline-absent survivor one CI cycle later, which is the same cost the
+# issue's own follow-up already accepts for skipping the local run outright.
+if [[ "$CACHE_ENABLED" == "1" && $ENFORCING -eq 1 ]]; then
+  CACHE_ENABLED=0
+  info "cache disabled in the enforcing lane: CI is the authority and always runs cold."
+fi
+SELF_SHA=""
+[[ "$CACHE_ENABLED" == "1" ]] && SELF_SHA="$(sha_file "$SELF_PATH")"
+if [[ "$CACHE_ENABLED" == "1" && -z "$SELF_SHA" ]]; then
+  CACHE_ENABLED=0
+  info "cache disabled: this script's own bytes could not be hashed, so no key can be pinned to them."
+fi
+
+# The environment axis of the key: every knob that changes WHAT A VERDICT MEANS, so that a run
+# under a different one is never served an answer to a different question. Same axis the
+# baseline header already records, plus two families of knob.
+#
+# The killer bounds decide whether a spinning mutant scores as a timeout KILL. The early-exit
+# trigger decides it by the identical argument — a run with a custom FAIL_PATTERN scores under a
+# different kill criterion, and D-3's standing assertion does not close the gap: the precheck
+# only establishes that the UNMUTATED suite is silent, so a mutated guard whose suite prints
+# that pattern while exiting 0 would cache a KILLED a default-pattern run then serves.
+#
+# MUTATION_SWEEP_JOBS is deliberately NOT here, and the omission is not free: pool contention
+# can turn a would-be survivor into a timeout KILL, and that verdict then persists across pool
+# sizes. Keying on it would cost most of the hit rate — the loop this cache exists for re-runs
+# at one pool size — and the residual leans the safe way, hiding a weak test rather than
+# inventing a finding. `MUTATION_SWEEP_CACHE=0` is the escape hatch when a survivor is in doubt.
+CACHE_ENV_TAG="${RUNNER_OS:-$(uname -s 2>/dev/null || echo unknown)}|${SKIP_STRESS:-}|$KILLER_TIMEOUT_S|$KILLER_TIMEOUT_FACTOR|$KILLER_TIMEOUT_MIN_S|$KILLER_MAX_PROCS|$EARLY_EXIT|$FAIL_PATTERN"
+
+# $1 = sha of the MUTATED guard bytes, $2 = sha of the kill set's suite bytes (in order).
+#
+# SELF_SHA is in the key, and it is the component that needs the argument. A hand-maintained
+# schema constant would have to be bumped by whoever next edits the kill criterion, the
+# early-exit trigger or the killer bounds — and the one thing certain about that discipline is
+# that it eventually fails silently, leaving entries that outlive the meaning they were
+# recorded under. Keying on this file's own bytes makes the invalidation automatic. The stated
+# cost: a change that edits this harness runs fully cold, which is exactly what this ticket's
+# own fix rounds do.
+cache_key() {
+  printf 'mutation-sweep|%s|%s|%s|k%s|%s' "$SELF_SHA" "$1" "$2" "$K_BUDGET" "$CACHE_ENV_TAG" | sha_stdin
+}
+
+# FAIL SAFE (AC-8): anything that is not exactly one well-formed record line is a MISS, and
+# a miss costs a real run. There is deliberately no path here that turns an unreadable or
+# malformed entry into a pass.
+cache_get() {
+  local f n line
+  [[ "$CACHE_ENABLED" == "1" ]] || return 1
+  [[ -n "$1" ]] || return 1
+  f="$CACHE_DIR/${1:0:2}/$1"
+  [[ -f "$f" && -r "$f" ]] || return 1
+  n="$(wc -l < "$f" 2>/dev/null | tr -d ' ')" || return 1
+  [[ "$n" == "1" ]] || return 1
+  line="$(head -1 "$f" 2>/dev/null)" || return 1
+  case "$line" in
+    "v1${TAB}killed${TAB}"*|"v1${TAB}survived${TAB}"*) : ;;
+    *) return 1 ;;
+  esac
+  printf '%s' "$line"
+}
+
+# mv-atomic, so a sibling worker reading the same key never sees a torn file. Every failure
+# path here is silent and non-fatal: an unwritable cache must slow the sweep down, never
+# break it.
+cache_put() {
+  local d t
+  [[ "$CACHE_ENABLED" == "1" ]] || return 0
+  [[ -n "$1" ]] || return 0
+  d="$CACHE_DIR/${1:0:2}"
+  mkdir -p "$d" 2>/dev/null || return 0
+  # $WORKER_TOKEN, not $$ alone, and not $RANDOM alone. In a bash-3.2 subshell `$$` is still
+  # the PARENT's pid and $RANDOM continues the parent's inherited sequence, so two workers
+  # reaching this line together can generate the SAME name — and then one `mv`s the other's
+  # half-written file into place. The token is the only component that is distinct per worker
+  # by construction.
+  t="$d/.tmp.$$.$WORKER_TOKEN.$RANDOM"
+  printf '%s\n' "$2" > "$t" 2>/dev/null || { rm -f "$t" 2>/dev/null; return 0; }
+  mv -f "$t" "$d/$1" 2>/dev/null || rm -f "$t" 2>/dev/null
+  return 0
+}
+
+cache_prune() {
+  local n
+  [[ "$CACHE_ENABLED" == "1" ]] || return 0
+  [[ -d "$CACHE_DIR" ]] || return 0
+  n="$(find "$CACHE_DIR" -type f 2>/dev/null | grep -c '' )"
+  [[ "${n:-0}" -gt "$CACHE_MAX" ]] || return 0
+  rm -rf "${CACHE_DIR:?}"/* 2>/dev/null
+  info "cache: $n entries exceeded the $CACHE_MAX bound — cleared (the next run is cold)."
+}
+
 in_baseline() {
   local id="$1" i=0
   while [[ $i -lt ${#BL_ID[@]} ]]; do
@@ -403,6 +650,10 @@ finish() {
     cat "$REPORT_TMP"
   fi
   rm -f "$REPORT_TMP"
+  # AC-6: the improvement is MEASURED, never asserted from the design. Every run states what
+  # it actually cost and how much of that the cache paid for, so a claim about the speedup
+  # can be checked against a line the run printed rather than against a remembered figure.
+  info "timing: $(( $(date +%s) - RUN_T0 ))s wall — ${SUITE_RUNS:-0} verdict(s) computed by running a paired suite, ${CACHE_HITS:-0} served from cache (pool $JOBS, cache=$CACHE_ENABLED)."
   [[ $ENFORCING -eq 1 ]] || info "ADVISORY RUN (GITHUB_ACTIONS unset) — kill verdicts are not comparable to the committed baseline; a local run's userland does not exactly reproduce CI's."
   [[ $WARNINGS -gt 0 ]] && info "$WARNINGS warning(s) — shrink the baseline."
   exit "$RC"
@@ -578,55 +829,10 @@ if [[ ${#SWEEP_GUARDS[@]} -eq 0 && $SEED -eq 0 ]]; then
   finish
 fi
 
-# --------------------------------------------------------------------- sandbox
-# `git worktree add --detach`, not `cp -R`: two suites need real git state
-# (check-workflows-selftest cd's to the toplevel, derive-release-selftest diffs against
-# the latest release tag). The working tree is small and the object store is shared, so
-# this is near-free. Selftests resolve their guard relative to their own location, so
-# pairing survives the copy.
-SANDBOX="$(mktemp -d -t mutation-sweep-sandbox.XXXXXX)" || die "mktemp -d failed"
-rmdir "$SANDBOX" 2>/dev/null
-# Both codes, deliberately: shellcheck renamed this diagnostic mid-version and the two
-# releases disagree on where they hang it. >=0.10 reports SC2329 on the FUNCTION; 0.9,
-# which is what `apt-get install shellcheck` still yields on the ubuntu runner, reports
-# SC2317 on each command in the BODY. Suppressing only the newer code is clean locally
-# and red in CI. A directive on the function line scopes to the whole body for both.
-# shellcheck disable=SC2317,SC2329 # invoked indirectly by the EXIT/INT/TERM trap below
-cleanup() {
-  # The in-flight killer runs in its OWN process group (see run_killer), so a Ctrl-C or a
-  # SIGTERM aimed at this harness never reaches it. Without this the operator's interrupt
-  # leaves a spinning guard burning a core and pinning the worktree the next line removes.
-  # reap_group, not a bare kill: an interrupt can land while a FORKING mutant is in
-  # flight, and that is exactly the case a single SIGKILL sweep loses to.
-  [[ -n "${CURRENT_KILLER_PGID:-}" ]] && reap_group "$CURRENT_KILLER_PGID" >/dev/null 2>&1
-  git worktree remove --force "$SANDBOX" >/dev/null 2>&1
-  rm -rf "$SANDBOX" 2>/dev/null
-}
-trap cleanup EXIT INT TERM
-git worktree add --detach "$SANDBOX" HEAD >/dev/null 2>&1 || {
-  red "sandbox failure: git worktree add --detach failed"
-  finish
-}
-
-restore() { git -C "$SANDBOX" checkout -- "$1" 2>/dev/null; }
-
-# Splice ONE mutated line back into the file. awk-with-a-file rather than `awk -v`,
-# because -v mangles backslashes and these lines are dense with them.
-# Mutants are applied by writing THROUGH the guard's existing inode (`cat >`), never by
-# mv-ing a fresh file over it. A fresh inode is 0644, and with core.fileMode=true losing
-# the exec bit is itself a git diff: the `git diff --quiet` byte-identity gates (no-op
-# flip, catalog anchor drift) go dark, and any killer that precondition-gates on `-x`
-# fails on EVERY mutant — false kills that report a weak suite as strong. The catalog
-# tier below applies its mutants the same way for the same reason.
-splice_line() {
-  local file="$1" lineno="$2" replfile="$3" out
-  out="$file.mut"
-  awk -v n="$lineno" 'NR==FNR{repl=$0; next} FNR==n{print repl; next} {print}' \
-    "$replfile" "$file" > "$out" && cat "$out" > "$file" && rm -f "$out"
-}
-
-# Run one killer inside the sandbox. Kill = ANY nonzero exit; crash-kills count as kills
-# (nonzero is nonzero — the assertion-vs-crash diagnostic is deferred to #248).
+# ------------------------------------------------------------- killer machinery
+# Kill = ANY nonzero exit; crash-kills count as kills (nonzero is nonzero — the
+# assertion-vs-crash diagnostic is deferred to #248).
+#
 # `</dev/null` isolates each killer's stdin. stdout and stderr were always redirected;
 # stdin was not, so a killer inherited the harness's. 30 of the 48 swept guards contain a
 # `read` loop, and a mutant that breaks one's input redirection leaves it reading the
@@ -659,6 +865,15 @@ splice_line() {
 # — scoring it a survivor — would red the build on a mutant nothing can ever kill. It is
 # logged by name at every call site, so a timeout is visible DATA rather than a silent kill.
 #
+# EARLY EXIT is the third exit path and the only one that is a pure cost optimization: the
+# verdict of a KILLED mutant is settled at the paired suite's first `FAIL:` line, so the
+# group is reaped there rather than after every remaining case. Its soundness rests on an
+# invariant the precheck ASSERTS on every run — a green suite emits no `FAIL:` line — rather
+# than on the one-off corpus measurement that established it (63/63 suites, zero such lines).
+# A suite that breaks the invariant is an unrunnable pair, loudly, because a suite that
+# prints the trigger while passing would have every one of its guard's mutants scored KILLED
+# on prose.
+#
 # `set -m` is what makes the watchdog able to reap the tree. It puts the backgrounded
 # killer in its OWN process group, so `kill -9 -PID` takes the spinning GUARD — a
 # grandchild — with it; killing the suite's pid alone leaves the guard burning a core and
@@ -666,6 +881,7 @@ splice_line() {
 # job-control noise for a background job in a non-interactive shell. `timeout(1)` is NOT
 # used: it is absent from macOS, which is one of this repo's two CI lanes.
 KILLER_TIMED_OUT=0
+KILLER_EARLY=0            # 1 = this killer was reaped at its first FAIL: line
 KILLER_BOUND_USED=0
 KILLER_BOUND_KIND=""      # "time" | "procs" — which bound fired; "" when none did
 KILLER_BOUND_PROCS=0      # group population observed when the process bound fired
@@ -705,19 +921,137 @@ reap_group() {
   return 1
 }
 
+# ------------------------------------------------------------------- sandbox pool
+# `git worktree add --detach`, not `cp -R`: two suites need real git state
+# (check-workflows-selftest cd's to the toplevel, derive-release-selftest diffs against
+# the latest release tag), and a copied worktree's `.git` FILE would point two sandboxes at
+# one metadata directory. The working tree is small and the object store is shared, so this
+# is near-free. Selftests resolve their guard relative to their own location, so pairing
+# survives the copy.
+#
+# ONE SANDBOX PER WORKER, created lazily. A worker restores its guard between items, so no
+# two concurrently-running mutants share a tree — which is the whole of "no mutant observes
+# another's mutation" — and disk stays bounded at pool x ~7MB rather than growing with the
+# mutant count.
+WORKDIR="$(mktemp -d -t mutation-sweep-work.XXXXXX)" || die "mktemp -d failed"
+SANDBOXES=""
+SANDBOX_N=0
+POOL_PIDS=""
+WORKER_TOKEN="main"
+WORKER_PGID_FILE="$WORKDIR/pgid.0"
+KILLER_LOG="$WORKDIR/killer.0.log"
+KILLER_TMPDIR="$WORKDIR/tmp.0"
+SB_CUR=""
+
+# Both codes, deliberately: shellcheck renamed this diagnostic mid-version and the two
+# releases disagree on where they hang it. >=0.10 reports SC2329 on the FUNCTION; 0.9,
+# which is what `apt-get install shellcheck` still yields on the ubuntu runner, reports
+# SC2317 on each command in the BODY. Suppressing only the newer code is clean locally
+# and red in CI. A directive on the function line scopes to the whole body for both.
+# shellcheck disable=SC2317,SC2329 # invoked indirectly by the EXIT/INT/TERM trap below
+cleanup() {
+  local p f
+  # The in-flight killer runs in its OWN process group (see run_killer), so a Ctrl-C or a
+  # SIGTERM aimed at this harness never reaches it. Without this the operator's interrupt
+  # leaves a spinning guard burning a core and pinning the worktrees the loop below removes.
+  # reap_group, not a bare kill: an interrupt can land while a FORKING mutant is in
+  # flight, and that is exactly the case a single SIGKILL sweep loses to.
+  [[ -n "${CURRENT_KILLER_PGID:-}" ]] && reap_group "$CURRENT_KILLER_PGID" >/dev/null 2>&1
+  # Workers first, then whatever killer each one had in flight. The pgid FILES are what make
+  # this survive a worker that was SIGKILLed before its own trap could run — without them an
+  # interrupt during the pool would orphan one spinning guard per worker.
+  for p in ${POOL_PIDS:-}; do kill -TERM "$p" 2>/dev/null; done
+  if [[ -n "${POOL_PIDS:-}" ]]; then
+    sleep 0.3
+    for p in ${POOL_PIDS:-}; do kill -9 "$p" 2>/dev/null; done
+    wait 2>/dev/null
+  fi
+  for f in "$WORKDIR"/pgid.*; do
+    [[ -f "$f" ]] || continue
+    p="$(cat "$f" 2>/dev/null)"
+    [[ -n "${p:-}" ]] && reap_group "$p" >/dev/null 2>&1
+  done
+  for p in ${SANDBOXES:-}; do
+    git worktree remove --force "$p" >/dev/null 2>&1
+    rm -rf "$p" 2>/dev/null
+  done
+  rm -rf "$WORKDIR" 2>/dev/null
+}
+trap cleanup EXIT INT TERM
+
+# Grow the pool to $1 sandboxes. Serial by construction — `git worktree add` writes
+# .git/worktrees, so concurrent adds would race the very metadata they register in.
+sandbox_ensure() {
+  local want="$1" p
+  while [[ $SANDBOX_N -lt $want ]]; do
+    p="$(mktemp -d -t mutation-sweep-sandbox.XXXXXX)" || { red "sandbox failure: mktemp -d failed"; return 1; }
+    rmdir "$p" 2>/dev/null
+    if ! git worktree add --detach "$p" HEAD >/dev/null 2>&1; then
+      red "sandbox failure: git worktree add --detach failed"
+      return 1
+    fi
+    SANDBOXES="${SANDBOXES:+$SANDBOXES }$p"
+    SANDBOX_N=$((SANDBOX_N + 1))
+  done
+  return 0
+}
+
+sandbox_at() {
+  local i=0 p
+  for p in ${SANDBOXES:-}; do
+    [[ $i -eq $1 ]] && { printf '%s' "$p"; return 0; }
+    i=$((i + 1))
+  done
+  return 1
+}
+
+sandbox_ensure 1 || finish
+SB0="$(sandbox_at 0)"
+
+restore() { git -C "${2:-$SB0}" checkout -- "$1" 2>/dev/null; }
+
+# Splice ONE mutated line back into the file. awk-with-a-file rather than `awk -v`,
+# because -v mangles backslashes and these lines are dense with them.
+# Mutants are applied by writing THROUGH the guard's existing inode (`cat >`), never by
+# mv-ing a fresh file over it. A fresh inode is 0644, and with core.fileMode=true losing
+# the exec bit is itself a git diff: the `git diff --quiet` byte-identity gates (no-op
+# flip, catalog anchor drift) go dark, and any killer that precondition-gates on `-x`
+# fails on EVERY mutant — false kills that report a weak suite as strong. The catalog
+# tier below applies its mutants the same way for the same reason, and so does the pool
+# worker when it installs an enumerated blob.
+splice_line() {
+  local file="$1" lineno="$2" replfile="$3" out
+  out="$file.mut"
+  awk -v n="$lineno" 'NR==FNR{repl=$0; next} FNR==n{print repl; next} {print}' \
+    "$replfile" "$file" > "$out" && cat "$out" > "$file" && rm -f "$out"
+}
+
+# Run one killer inside this shell's sandbox.
+#   $1 = suite relpath, $2 = wall-clock bound, $3 = 1 to allow early exit (default 1)
+# Returns the suite's exit status, 124 on either bound, 125 on early exit.
 run_killer() {
-  local pid rc deadline poll=0 n bound="${2:-$KILLER_TIMEOUT_S}"
+  local pid rc deadline poll=0 n bound="${2:-$KILLER_TIMEOUT_S}" early="${3:-1}"
   KILLER_TIMED_OUT=0
+  KILLER_EARLY=0
   KILLER_BOUND_KIND=""
   KILLER_BOUND_PROCS=0
   KILLER_BOUND_USED="$bound"
+  [[ "$EARLY_EXIT" == "1" ]] || early=0
+  : > "$KILLER_LOG"
+  # A reaped suite never runs its own `trap ... EXIT` cleanup, so its mktemp dirs would leak
+  # once per kill. Pointing TMPDIR at a directory this harness owns turns that into one
+  # unconditional rm — which is also what keeps sandbox disk reclaimed on the reap paths.
+  rm -rf "$KILLER_TMPDIR" 2>/dev/null
+  mkdir -p "$KILLER_TMPDIR" 2>/dev/null
   set -m
-  ( cd "$SANDBOX" && bash "$1" ) >/dev/null 2>&1 </dev/null &
+  ( cd "$SB_CUR" && TMPDIR="$KILLER_TMPDIR" bash "$1" ) > "$KILLER_LOG" 2>&1 </dev/null &
   pid=$!
   set +m
-  # The job is its own process-group leader, so pgid == pid. Published for the EXIT/INT
-  # trap, which is the only thing that can reap it if the operator interrupts mid-killer.
+  # The job is its own process-group leader, so pgid == pid. Published both in-process (for
+  # this shell's own trap) and to a file (for the PARENT's cleanup, which is the only thing
+  # left if a worker is SIGKILLed).
   CURRENT_KILLER_PGID="$pid"
+  printf '%s' "$pid" > "$WORKER_PGID_FILE" 2>/dev/null
   deadline=$(( $(date +%s) + bound ))
   while kill -0 "$pid" 2>/dev/null; do
     if [[ "$(date +%s)" -ge "$deadline" ]]; then
@@ -725,19 +1059,27 @@ run_killer() {
       # interval, and reporting a finished run as timed out would fabricate a kill.
       kill -0 "$pid" 2>/dev/null || break
       reap_group "$pid"
-      CURRENT_KILLER_PGID=""
+      CURRENT_KILLER_PGID=""; : > "$WORKER_PGID_FILE" 2>/dev/null
       KILLER_TIMED_OUT=1
       KILLER_BOUND_KIND="time"
       return 124
     fi
-    # Population is sampled every ~1s rather than every poll: `ps -A` costs far more than
-    # `date`, and a forking tree needs seconds, not milliseconds, to reach the bound.
+    # Sampled every ~1s rather than every poll: `ps -A` and a `grep` over a growing log both
+    # cost far more than `date`, and neither a forking tree nor a failing case needs
+    # millisecond granularity to be caught.
     poll=$((poll + 1))
     if [[ $((poll % 5)) -eq 0 ]]; then
+      if [[ $early -eq 1 ]] && grep -q -- "$FAIL_PATTERN" "$KILLER_LOG" 2>/dev/null; then
+        kill -0 "$pid" 2>/dev/null || break
+        reap_group "$pid"
+        CURRENT_KILLER_PGID=""; : > "$WORKER_PGID_FILE" 2>/dev/null
+        KILLER_EARLY=1
+        return 125
+      fi
       n="$(group_size "$pid")"
       if [[ "${n:-0}" -gt "$KILLER_MAX_PROCS" ]] 2>/dev/null; then
         reap_group "$pid"
-        CURRENT_KILLER_PGID=""
+        CURRENT_KILLER_PGID=""; : > "$WORKER_PGID_FILE" 2>/dev/null
         KILLER_TIMED_OUT=1
         KILLER_BOUND_KIND="procs"
         KILLER_BOUND_PROCS="$n"
@@ -747,18 +1089,22 @@ run_killer() {
     sleep 0.2
   done
   wait "$pid"; rc=$?
-  CURRENT_KILLER_PGID=""
+  CURRENT_KILLER_PGID=""; : > "$WORKER_PGID_FILE" 2>/dev/null
+  # A suite that finished on its own can still have printed the pattern before exiting; the
+  # exit status is what decides, exactly as before. Early exit only ever removes waiting.
   return "$rc"
 }
 
-# Both mutant tiers report a bound hit identically and must not drift apart, so the
-# wording lives here once. $1 = mutant id, $2 = suite, $3 = bound kind, $4 = the wall-clock
-# bound in force, $5 = the population observed. The time-bound line keeps its exact
-# historical shape — the companion selftest parses `killer timeout (Ns exceeded` out of it
-# to prove the bound scales per suite.
+# Every non-plain kill reports itself identically across both mutant tiers, so the wording
+# lives here once. $1 = mutant id, $2 = suite, $3 = kind, $4 = the wall-clock bound in
+# force, $5 = the population observed. The time-bound line keeps its exact historical shape
+# — the companion selftest parses `killer timeout (Ns exceeded` out of it to prove the bound
+# scales per suite.
 report_bound_hit() {
   if [[ "$3" == "procs" ]]; then
     info "killer process bound ($5 processes exceeded $KILLER_MAX_PROCS, scored as KILLED): $1 via $2 — the mutant most likely made the guard FORK without bound."
+  elif [[ "$3" == "early" ]]; then
+    info "early exit (first '$FAIL_PATTERN' line, scored as KILLED): $1 via $2 — the remaining cases were not run."
   else
     info "killer timeout (${4}s exceeded, scored as KILLED): $1 via $2 — the mutant most likely made the guard spin."
   fi
@@ -774,48 +1120,134 @@ order_killers() {
 TOTAL_SURVIVORS=""
 add_survivor() { TOTAL_SURVIVORS="${TOTAL_SURVIVORS:+$TOTAL_SURVIVORS }$1"; }
 
-# `${a[@]+"${a[@]}"}`, not `"${a[@]}"`: an empty shard is a NORMAL seed outcome (it still
-# publishes a headed empty baseline so the merge does not red on a missing artifact), and
-# bash 3.2 treats expanding an empty array under `set -u` as an unbound variable. bash 4.4
-# fixed that, so the plain form passes every ubuntu lane and fails only on the macOS lane
-# this repo keeps for exactly this class. Same idiom as the PR_SWEPT expansion above.
-for guard in ${SWEEP_GUARDS[@]+"${SWEEP_GUARDS[@]}"}; do
-  KS="$(kill_set_for "$guard")"
-  KS_ORDERED="$(order_killers "$KS" | tr '\n' ' ')"
-  GFILE="$SANDBOX/$guard"
+# ---------------------------------------------------------------- pool mechanics
+# Static round-robin over a manifest rather than a claimed queue: bash 3.2 has no `wait -n`
+# and no lock primitive worth the machinery here, and the items interleave across guards so
+# the imbalance a contiguous split would cause does not arise. Determinism of the RESULT does
+# not depend on any of this — every worker writes one result file per item and the
+# aggregation reads them back in item order.
 
-  # ---- unrunnable-pair precheck: every killer must be green on the UNMUTATED sandbox
-  # before any of this guard's mutants can be scored. A broken or environment-starved
-  # suite must never be able to report its guard as fully killed. The timings taken here
-  # are also the `seconds` source for the slow list.
-  unrunnable=""; unrunnable_why=""
-  for s in $KS_ORDERED; do
-    t0="$(date +%s)"
-    if ! run_killer "$s"; then
-      unrunnable="$s"
-      # A killer that blows a bound on the UNMUTATED tree is a different bug from one
-      # that merely exits nonzero, and the operator needs to be told which they have —
-      # including WHICH bound, since a suite that forks past the population bound with no
-      # mutant applied is a defect in the suite, not a slow machine.
-      if [[ $KILLER_TIMED_OUT -eq 1 && "$KILLER_BOUND_KIND" == "procs" ]]; then
-        unrunnable_why="exceeded the ${KILLER_MAX_PROCS}-process killer bound at $KILLER_BOUND_PROCS processes"
+# shellcheck disable=SC2317,SC2329 # invoked indirectly by the worker's own trap
+worker_trap() {
+  local p
+  [[ -s "$WORKER_PGID_FILE" ]] || return 0
+  p="$(cat "$WORKER_PGID_FILE" 2>/dev/null)"
+  [[ -n "${p:-}" ]] && reap_group "$p" >/dev/null 2>&1
+  return 0
+}
+
+# $1 = worker index (0-based), $2 = pool size, $3 = manifest
+pool_worker() {
+  local w="$1" n="$2" manifest="$3" pos=0 line
+  SB_CUR="$(sandbox_at "$w")"
+  WORKER_TOKEN="$w"
+  WORKER_PGID_FILE="$WORKDIR/pgid.$w"
+  KILLER_LOG="$WORKDIR/killer.$w.log"
+  KILLER_TMPDIR="$WORKDIR/tmp.$w"
+  : > "$WORKER_PGID_FILE"
+  trap worker_trap EXIT INT TERM
+  while IFS= read -r line; do
+    [[ $((pos % n)) -eq $w ]] && do_mutant_item "$line"
+    pos=$((pos + 1))
+  done < "$manifest"
+  rm -rf "$KILLER_TMPDIR" 2>/dev/null
+  return 0
+}
+
+# $1 = pool size, $2 = manifest. Returns 1 only when the pool could not be built.
+run_pool() {
+  local n="$1" manifest="$2" total w
+  total="$(grep -c '' "$manifest" 2>/dev/null)" || total=0
+  [[ "${total:-0}" -gt 0 ]] || return 0
+  [[ $n -gt $total ]] && n=$total
+  sandbox_ensure "$n" || return 1
+  POOL_PIDS=""
+  w=0
+  while [[ $w -lt $n ]]; do
+    pool_worker "$w" "$n" "$manifest" &
+    POOL_PIDS="${POOL_PIDS:+$POOL_PIDS }$!"
+    w=$((w + 1))
+  done
+  wait
+  POOL_PIDS=""
+  return 0
+}
+
+# --------------------------------------------------------------- pool work item
+# Line: idx <TAB> sid <TAB> guard <TAB> ordered kill set <TAB> blob <TAB> key.
+# Writes $WORKDIR/verdict.<idx> as one record line. Cache hits never reach here — they are
+# resolved in the serial probe below, because knowing them is what decides whether a guard
+# needs its precheck run at all.
+do_mutant_item() {
+  local line="$1" idx sid guard ks blob key rec s got_kill rc
+  local hit_suite hit_kind hit_bound hit_procs
+  IFS="$TAB" read -r idx sid guard ks blob key <<EOF
+$line
+EOF
+  cat "$blob" > "$SB_CUR/$guard"
+  got_kill=0; hit_suite="-"; hit_kind="plain"; hit_bound=0; hit_procs=0
+  for s in $ks; do
+    run_killer "$s" "$(killer_bound_for "$s")"; rc=$?
+    if [[ $rc -ne 0 ]]; then
+      got_kill=1
+      hit_suite="$s"
+      hit_bound="$KILLER_BOUND_USED"
+      hit_procs="$KILLER_BOUND_PROCS"
+      if [[ $KILLER_EARLY -eq 1 ]]; then
+        hit_kind="early"
       elif [[ $KILLER_TIMED_OUT -eq 1 ]]; then
-        unrunnable_why="exceeded the ${KILLER_TIMEOUT_S}s killer bound"
-      else
-        unrunnable_why="does not exit 0"
+        hit_kind="$KILLER_BOUND_KIND"
       fi
       break
     fi
-    t1="$(date +%s)"
-    MEASURED="${MEASURED:-}"$'\n'"$s	$((t1 - t0))"
   done
-  if [[ -n "$unrunnable" ]]; then
-    red "unrunnable pair: $unrunnable $unrunnable_why against the unmutated sandbox (guard $guard). Its mutants are NOT scored."
-    emit_row "$guard" "swept" "${KS// /+}" 0 0 0 ""
-    continue
+  restore "$guard" "$SB_CUR"
+  if [[ $got_kill -eq 1 ]]; then
+    rec="v1${TAB}killed${TAB}$hit_kind${TAB}$hit_suite${TAB}$hit_bound${TAB}$hit_procs"
+  else
+    rec="v1${TAB}survived${TAB}plain${TAB}-${TAB}0${TAB}0"
   fi
+  cache_put "$key" "$rec"
+  printf '%s\n' "$rec" > "$WORKDIR/verdict.$idx"
+  return 0
+}
 
-  applied=0; killed=0; survived=0; survivors=""
+# ===================================================================== PHASE 1
+# ENUMERATE, serially, in sandbox 0. Cheap — sed, awk, `bash -n`, `git diff --quiet` — and
+# it is where every skip and every catalog red is decided, in the historical order. What it
+# produces is a work item carrying the MUTATED GUARD BYTES, so the pool never re-derives a
+# mutant and two workers can hold different mutants of the same guard at once.
+#
+# Enumeration runs BEFORE the precheck, which is a reordering with a reason: a guard whose
+# every mutant is already cached must skip its precheck entirely, and "every mutant" is not
+# knowable until the mutants exist. A precheck IS a paired-suite execution, so a run that
+# still paid for one could not honestly claim to have executed none.
+GL_GUARD=(); GL_KS=(); GL_KSORD=(); GL_UNRUN=(); GL_APPLIED=(); GL_FIRST=(); GL_COUNT=()
+MUT_SID=()
+: > "$WORKDIR/mut.todo"
+IDX=0
+gi=0
+for guard in ${SWEEP_GUARDS[@]+"${SWEEP_GUARDS[@]}"}; do
+  KS="$(kill_set_for "$guard")"
+  KSORD="$(order_killers "$KS" | tr '\n' ' ')"
+  GL_GUARD[${#GL_GUARD[@]}]="$guard"
+  GL_KS[${#GL_KS[@]}]="$KS"
+  GL_KSORD[${#GL_KSORD[@]}]="$KSORD"
+  GL_UNRUN[${#GL_UNRUN[@]}]=""
+  GL_APPLIED[${#GL_APPLIED[@]}]=0
+  GL_FIRST[${#GL_FIRST[@]}]="$IDX"
+  GL_COUNT[${#GL_COUNT[@]}]=0
+  GFILE="$SB0/$guard"
+
+  # One suites-sha per guard: the kill set's suite bytes, hashed in kill order. This is the
+  # half of the key that makes the memo sound across test changes — a new case in ANY paired
+  # suite changes it, so every cached verdict for the guard is a miss rather than a stale
+  # SURVIVED.
+  SSHA=""
+  if [[ "$CACHE_ENABLED" == "1" ]]; then
+    for s in $KSORD; do SSHA="$SSHA$(sha_file "$SB0/$s")"; done
+    SSHA="$(printf '%s' "$SSHA" | sha_stdin)"
+  fi
 
   # ---- generic tier
   op_i=0
@@ -850,28 +1282,20 @@ for guard in ${SWEEP_GUARDS[@]+"${SWEEP_GUARDS[@]}"}; do
         info "skip (bash -n invalid, harness artifact): $guard::$opid::$ordinal"
         restore "$guard"; continue
       fi
-      if git -C "$SANDBOX" diff --quiet -- "$guard"; then
+      if git -C "$SB0" diff --quiet -- "$guard"; then
         info "skip (no-op flip): $guard::$opid::$ordinal"
         restore "$guard"; continue
       fi
-      used=$((used + 1)); applied=$((applied + 1))
+      used=$((used + 1))
+      GL_APPLIED[gi]=$(( GL_APPLIED[gi] + 1 ))
       sid="$guard::$opid::$ordinal"
-      got_kill=0; timed_out=""; timed_out_bound=""; timed_out_kind=""; timed_out_procs=0
-      for s in $KS_ORDERED; do
-        if ! run_killer "$s" "$(killer_bound_for "$s")"; then
-          got_kill=1
-          [[ $KILLER_TIMED_OUT -eq 1 ]] && { timed_out="$s"; timed_out_bound="$KILLER_BOUND_USED"; timed_out_kind="$KILLER_BOUND_KIND"; timed_out_procs="$KILLER_BOUND_PROCS"; }
-          break
-        fi
-      done
-      [[ -n "$timed_out" ]] && report_bound_hit "$sid" "$timed_out" "$timed_out_kind" "$timed_out_bound" "$timed_out_procs"
-      if [[ $got_kill -eq 1 ]]; then
-        killed=$((killed + 1))
-      else
-        survived=$((survived + 1))
-        survivors="${survivors:+$survivors,}$sid"
-        add_survivor "$sid"
-      fi
+      cp "$GFILE" "$WORKDIR/blob.$IDX"
+      MKEY=""
+      [[ "$CACHE_ENABLED" == "1" ]] && MKEY="$(cache_key "$(sha_file "$GFILE")" "$SSHA")"
+      printf '%s\t%s\t%s\t%s\t%s\t%s\n' \
+        "$IDX" "$sid" "$guard" "$KSORD" "$WORKDIR/blob.$IDX" "$MKEY" >> "$WORKDIR/mut.todo"
+      MUT_SID[IDX]="$sid"
+      IDX=$((IDX + 1))
       restore "$guard"
     done <<< "$(printf '%s\n' "$SITES" | cut -d: -f1)"
   done
@@ -894,7 +1318,7 @@ for guard in ${SWEEP_GUARDS[@]+"${SWEEP_GUARDS[@]}"}; do
     cat "$GFILE.mut" > "$GFILE" && rm -f "$GFILE.mut"   # write-through, not mv: see splice_line
     # LOUD anchor-drift, the check-lockstep-pairs-selftest convention: a hand-authored sed
     # that no longer applies is a BUG IN THIS FILE, not a passing mutant.
-    if git -C "$SANDBOX" diff --quiet -- "$guard"; then
+    if git -C "$SB0" diff --quiet -- "$guard"; then
       red "catalog anchor drift: catalog::$cid left $guard byte-identical — the sed anchor has moved; re-anchor the row in the PR that moved it."
       restore "$guard"; continue
     fi
@@ -902,29 +1326,178 @@ for guard in ${SWEEP_GUARDS[@]+"${SWEEP_GUARDS[@]}"}; do
       red "catalog mutant is bash -n invalid: catalog::$cid on $guard"
       restore "$guard"; continue
     fi
-    applied=$((applied + 1))
-    got_kill=0; timed_out=""; timed_out_bound=""; timed_out_kind=""; timed_out_procs=0
-    for s in $KS_ORDERED; do
-      if ! run_killer "$s" "$(killer_bound_for "$s")"; then
-        got_kill=1
-        [[ $KILLER_TIMED_OUT -eq 1 ]] && { timed_out="$s"; timed_out_bound="$KILLER_BOUND_USED"; timed_out_kind="$KILLER_BOUND_KIND"; timed_out_procs="$KILLER_BOUND_PROCS"; }
-        break
-      fi
-    done
-    [[ -n "$timed_out" ]] && report_bound_hit "catalog::$cid" "$timed_out" "$timed_out_kind" "$timed_out_bound" "$timed_out_procs"
-    if [[ $got_kill -eq 1 ]]; then
-      killed=$((killed + 1))
-    else
-      survived=$((survived + 1))
-      survivors="${survivors:+$survivors,}catalog::$cid"
-      add_survivor "catalog::$cid"
-    fi
+    GL_APPLIED[gi]=$(( GL_APPLIED[gi] + 1 ))
+    cp "$GFILE" "$WORKDIR/blob.$IDX"
+    MKEY=""
+    [[ "$CACHE_ENABLED" == "1" ]] && MKEY="$(cache_key "$(sha_file "$GFILE")" "$SSHA")"
+    printf '%s\t%s\t%s\t%s\t%s\t%s\n' \
+      "$IDX" "catalog::$cid" "$guard" "$KSORD" "$WORKDIR/blob.$IDX" "$MKEY" >> "$WORKDIR/mut.todo"
+    MUT_SID[IDX]="catalog::$cid"
+    IDX=$((IDX + 1))
     restore "$guard"
   done
 
+  GL_COUNT[gi]=$(( IDX - GL_FIRST[gi] ))
+  gi=$((gi + 1))
+done
+
+# ===================================================================== PHASE 2
+# CACHE PROBE, serially. A hit is written straight to its verdict file; a miss goes to the
+# pool manifest. This is also what decides which guards still need a precheck.
+: > "$WORKDIR/mut.run"
+GL_MISSES=()
+i=0
+while [[ $i -lt ${#GL_GUARD[@]} ]]; do GL_MISSES[${#GL_MISSES[@]}]=0; i=$((i + 1)); done
+while IFS="$TAB" read -r idx sid guard ks blob key; do
+  if [[ -n "$key" ]] && rec="$(cache_get "$key")"; then
+    printf '%s\n' "$rec" > "$WORKDIR/verdict.$idx"
+    CACHE_HITS=$((CACHE_HITS + 1))
+    continue
+  fi
+  printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$idx" "$sid" "$guard" "$ks" "$blob" "$key" >> "$WORKDIR/mut.run"
+  i=0
+  while [[ $i -lt ${#GL_GUARD[@]} ]]; do
+    [[ "${GL_GUARD[$i]}" == "$guard" ]] && { GL_MISSES[i]=$(( GL_MISSES[i] + 1 )); break; }
+    i=$((i + 1))
+  done
+done < "$WORKDIR/mut.todo"
+
+# ===================================================================== PHASE 3
+# PRECHECK, serially, once per DISTINCT suite, and only for suites a guard with at least one
+# uncached mutant needs. Serial and hoisted on purpose: these timings set every killer bound
+# and feed mutation-slow-suites.tsv, so taking them under the mutant pool's contention would
+# measure the pool rather than the suite.
+#
+# Every killer must be green on the UNMUTATED sandbox before any of its guard's mutants can
+# be scored: a broken or environment-starved suite must never be able to report its guard as
+# fully killed. A green suite that PRINTS the early-exit trigger is the same class of fault,
+# because every mutant of its guard would then be scored KILLED on prose.
+SB_CUR="$SB0"
+PRE_OK=""      # suites that passed
+PRE_BAD=""     # suites that failed; their reasons live one-per-line in $WORKDIR/pre.why,
+               # in a FILE rather than a packed string, because a reason is a sentence and a
+               # space-separated list would split it on its first word.
+: > "$WORKDIR/pre.why"
+# A guard with NO uncached mutant is not prechecked, and a guard with no mutants at all is
+# the vacuous case of that. Two consequences, both deliberate: a mutant-less guard no longer
+# yields an `unrunnable pair` red (nothing was going to be scored from it either), and its
+# suite contributes no timing — which is why SEED mode, the canonical measurement that
+# publishes mutation-slow-suites.tsv, prechecks everything regardless.
+i=0
+while [[ $i -lt ${#GL_GUARD[@]} ]]; do
+  gi="$i"; i=$((i + 1))
+  [[ $SEED -eq 1 || "${GL_MISSES[$gi]}" -gt 0 ]] || continue
+  for s in ${GL_KSORD[$gi]}; do
+    case " $PRE_OK $PRE_BAD " in *" $s "*) continue ;; esac
+    t0="$(date +%s)"
+    SUITE_RUNS=$((SUITE_RUNS + 1))
+    # Early exit is DISARMED here: this run is what decides whether the trigger can be
+    # trusted for this suite at all, so reading it would beg the question.
+    if run_killer "$s" "$KILLER_TIMEOUT_S" 0; then
+      if grep -q -- "$FAIL_PATTERN" "$KILLER_LOG" 2>/dev/null; then
+        PRE_BAD="${PRE_BAD:+$PRE_BAD }$s"
+        printf '%s\t%s\n' "$s" "prints '$FAIL_PATTERN' while PASSING, which would score every mutant of its guard as an early-exit KILL on prose" >> "$WORKDIR/pre.why"
+        continue
+      fi
+      t1="$(date +%s)"
+      MEASURED="${MEASURED:-}"$'\n'"$s	$((t1 - t0))"
+      PRE_OK="${PRE_OK:+$PRE_OK }$s"
+      continue
+    fi
+    # A killer that blows a bound on the UNMUTATED tree is a different bug from one that
+    # merely exits nonzero, and the operator needs to be told which they have — including
+    # WHICH bound, since a suite that forks past the population bound with no mutant applied
+    # is a defect in the suite, not a slow machine.
+    if [[ $KILLER_TIMED_OUT -eq 1 && "$KILLER_BOUND_KIND" == "procs" ]]; then
+      why="exceeded the ${KILLER_MAX_PROCS}-process killer bound at $KILLER_BOUND_PROCS processes against the unmutated sandbox"
+    elif [[ $KILLER_TIMED_OUT -eq 1 ]]; then
+      why="exceeded the ${KILLER_TIMEOUT_S}s killer bound against the unmutated sandbox"
+    else
+      why="does not exit 0 against the unmutated sandbox"
+    fi
+    PRE_BAD="${PRE_BAD:+$PRE_BAD }$s"
+    printf '%s\t%s\n' "$s" "$why" >> "$WORKDIR/pre.why"
+  done
+done
+
+# Map suite verdicts back onto guards, in guard order.
+i=0
+while [[ $i -lt ${#GL_GUARD[@]} ]]; do
+  gi="$i"; i=$((i + 1))
+  [[ $SEED -eq 1 || "${GL_MISSES[$gi]}" -gt 0 ]] || continue
+  for s in ${GL_KSORD[$gi]}; do
+    case " $PRE_BAD " in
+      *" $s "*)
+        GL_UNRUN[gi]="$s"
+        why="$(awk -F'\t' -v s="$s" '$1==s {print $2; exit}' "$WORKDIR/pre.why")"
+        red "unrunnable pair: $s $why (guard ${GL_GUARD[$gi]}). Its mutants are NOT scored."
+        break
+        ;;
+    esac
+  done
+done
+
+# Drop every mutant belonging to an unrunnable guard before the pool sees it.
+: > "$WORKDIR/mut.final"
+while IFS="$TAB" read -r idx sid guard ks blob key; do
+  skip=0
+  i=0
+  while [[ $i -lt ${#GL_GUARD[@]} ]]; do
+    if [[ "${GL_GUARD[$i]}" == "$guard" ]]; then
+      [[ -n "${GL_UNRUN[$i]}" ]] && skip=1
+      break
+    fi
+    i=$((i + 1))
+  done
+  [[ $skip -eq 1 ]] && continue
+  printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$idx" "$sid" "$guard" "$ks" "$blob" "$key" >> "$WORKDIR/mut.final"
+done < "$WORKDIR/mut.run"
+
+# ===================================================================== PHASE 4
+POOL_TOTAL="$(grep -c '' "$WORKDIR/mut.final" 2>/dev/null)" || POOL_TOTAL=0
+SUITE_RUNS=$(( SUITE_RUNS + POOL_TOTAL ))
+info "pool: $JOBS worker(s), $POOL_TOTAL mutant(s) to score, $CACHE_HITS served from cache."
+run_pool "$JOBS" "$WORKDIR/mut.final" || finish
+
+# ===================================================================== PHASE 5
+# AGGREGATE, serially, in item order, so the report is a function of the work list and
+# nothing else — which is exactly what makes a parallel run's survivor set provably the
+# serial one.
+i=0
+while [[ $i -lt ${#GL_GUARD[@]} ]]; do
+  guard="${GL_GUARD[$i]}"
+  KS="${GL_KS[$i]}"
+  gi="$i"
+  i=$((i + 1))
+  if [[ -n "${GL_UNRUN[$gi]}" ]]; then
+    emit_row "$guard" "swept" "${KS// /+}" 0 0 0 ""
+    continue
+  fi
+  applied="${GL_APPLIED[$gi]}"; killed=0; survived=0; survivors=""
+  j="${GL_FIRST[$gi]}"; jend=$(( GL_FIRST[gi] + GL_COUNT[gi] ))
+  while [[ $j -lt $jend ]]; do
+    sid="${MUT_SID[$j]}"
+    vf="$WORKDIR/verdict.$j"
+    if [[ ! -f "$vf" ]]; then
+      red "verdict lost: no result for $sid — a pool worker died before publishing."
+      j=$((j + 1)); continue
+    fi
+    IFS="$TAB" read -r _ verdict vkind vsuite vbound vprocs < "$vf"
+    [[ "$vkind" != "plain" ]] && report_bound_hit "$sid" "$vsuite" "$vkind" "$vbound" "$vprocs"
+    if [[ "$verdict" == "killed" ]]; then
+      killed=$((killed + 1))
+    else
+      survived=$((survived + 1))
+      survivors="${survivors:+$survivors,}$sid"
+      add_survivor "$sid"
+    fi
+    j=$((j + 1))
+  done
   emit_row "$guard" "swept" "${KS// /+}" "$applied" "$killed" "$survived" "$survivors"
   info "swept $guard — applied=$applied killed=$killed survived=$survived"
 done
+
+cache_prune
 
 # --------------------------------------------------------------- seed artifacts
 if [[ $SEED -eq 1 ]]; then

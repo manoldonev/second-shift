@@ -184,6 +184,114 @@ baseline — and wholesale in the nightly `mutation-sweep.yml`. Kill verdicts ar
 inside the canonical environment (ubuntu-latest, `SKIP_STRESS=1`), so local runs are advisory and
 say so.
 
+
+### What it costs, and the three things that stopped it costing that
+
+The sweep's wall time is `Σ over guards (mutants × paired-suite seconds)`, and for a long time every
+one of those seconds was serial on one core — 256s for a three-guard diff, paid once per **fix
+round** rather than once per PR. Three levers removed it, and each is visible in the run's own output
+rather than asserted here.
+
+**Every run prints what it cost.** The closing `timing:` line reports wall seconds, how many verdicts
+were computed by actually running a paired suite, how many came from the cache, and the pool size. A
+claim about the speedup is checkable against that line; a remembered figure is not a measurement.
+
+**1. Verdicts are memoized — in the advisory lane only.** The key is:
+
+```
+sha256(mutation-sweep.sh) + sha256(mutated guard) + sha256(each paired suite, in kill order)
+                          + MUTATION_SWEEP_K + environment (RUNNER_OS, SKIP_STRESS,
+                            killer-bound knobs, MUTATION_SWEEP_EARLY_EXIT, MUTATION_SWEEP_FAIL_PATTERN)
+```
+
+**The key is narrow, and it is not sound.** A third file can flip a verdict with the guard and all
+its suites byte-identical: `lean-gate.sh` shells out to four sibling scripts, and
+`statectl-selftest.sh` sources `scenario-lib.sh`. A whole-tree key would be sound — and would also
+drop the hit rate to zero, since the sweep sandboxes HEAD and every fix round is a new commit.
+
+What makes that an acceptable trade rather than an unsound one is **the lane**: the cache is neither
+read nor written when `GITHUB_ACTIONS` is set. A stale verdict can therefore only make a *local,
+advisory* run optimistic, and the cost of that is learning about a baseline-absent survivor one CI
+cycle later. **CI is the authority and always runs cold.** `MUTATION_SWEEP_CACHE=0` disables it
+locally too.
+
+**Invalidation, exhaustively.** Editing the guard; editing *any* paired suite; editing
+`mutation-sweep.sh` itself; changing `k`, `RUNNER_OS`, `SKIP_STRESS`, a killer-bound knob, or the
+early-exit trigger (`MUTATION_SWEEP_EARLY_EXIT`, `MUTATION_SWEEP_FAIL_PATTERN`). Three are worth
+naming. Editing the **suite** matters because adding a test case can kill a previously-surviving
+mutant, so a cache keyed on the guard alone would serve a stale `SURVIVED` forever — green, wrong,
+and invisible in the report. Editing **this harness** matters because a change to the kill criterion,
+the early-exit trigger or the killer bounds changes what a verdict *means*; hashing the file itself
+removes the human discipline a hand-bumped schema constant would need. The stated cost of that:
+a PR editing the harness runs fully cold. And the **kill criterion knobs** are in the key for the
+same reason the killer bounds are — a run under a custom `MUTATION_SWEEP_FAIL_PATTERN` scores
+against a different definition of "killed", which the precheck's every-run assertion does not
+close: that assertion covers the *unmutated* suite only.
+
+**`MUTATION_SWEEP_JOBS` is deliberately NOT in the key, and that residual persists.** Pool
+contention can turn a would-be survivor into a timeout `KILL`, and once cached that verdict is
+served back at any pool size — including `JOBS=1`. Keying on it would cost most of the hit rate,
+since the loop this cache exists for re-runs at one pool size. The residual leans the safe way
+(it hides a weak test rather than inventing a finding), CI never reads the cache, and
+`MUTATION_SWEEP_CACHE=0` is the escape hatch when a survivor set is in doubt.
+
+**Storage.** `${XDG_CACHE_HOME:-~/.cache}/second-shift/mutation-sweep/<repo-basename>/`, overridable
+with `MUTATION_SWEEP_CACHE_DIR`. Outside every checkout and never committed — an in-repo untracked
+directory would also make `git status --porcelain` non-empty, which has broken a working-tree
+attestation before. Per repo rather than per machine, because two checkouts can hold identical guards
+and suites while differing in one of those third files. A corrupt or unreadable entry is a **miss**,
+never a pass: the reader requires exactly one well-formed record line and falls back to a real run
+otherwise. The store is bounded (`MUTATION_SWEEP_CACHE_MAX`, default 20000) and clears wholesale when
+it exceeds that, which costs one cold run.
+
+**The precheck is skipped, not cached.** Every killer must be green on the unmutated sandbox before
+any of its guard's mutants are scored — and that precheck is itself a paired-suite execution, so a
+run claiming "zero executions" has to skip it. A guard whose every mutant hits the cache skips its
+precheck entirely; a guard with even one miss pays it. The precheck also runs **serially, once per
+distinct suite, before the pool**: its timings set every killer bound and feed
+`tools/mutation-slow-suites.tsv`, so taking them under the pool's own contention would measure the
+pool rather than the suite.
+
+**2. Mutants run in a pool.** One sandbox per worker, created lazily and restored between items — so
+no two concurrently-running mutants share a tree, and disk stays at `pool × ~7MB` rather than growing
+with the mutant count. Size defaults to `min(cores-2, 8)` and is set by `MUTATION_SWEEP_JOBS`;
+`MUTATION_SWEEP_JOBS=1` is the serial harness exactly.
+
+The report is a function of the work list and nothing else: every verdict is written to its own file
+and read back in item order, so a parallel run's survivor set, counts and report TSV are
+**byte-identical** to a serial run's. Case (ac) of `mutation-sweep-selftest.sh` proves it — and
+proves the parallel run really overlapped *first*, since two serial runs would also agree.
+
+**A suite may not write a literal path outside its own `mktemp` tree.** Two mutants of one guard run
+the same suite at the same time, so a fixed `/tmp/<name>.out` turns an interleaved write-then-read
+into a verdict about the wrong mutant. Three suites carried exactly that and were fixed; case (k)
+lints the whole corpus for it, because the alternative symptom is flake in somebody's nightly.
+
+**The pool presses on the killer time bound, and the direction matters.** Contention makes a suite
+slower and a timeout scores as a **kill** — the direction that *hides* a weak test rather than
+inventing a finding. The bound is `4 ×` the suite's own serially-measured time, floored at 60s, which
+is wide for a single-threaded suite given one worker per core; and every timeout is logged by name
+(`killer timeout (Ns exceeded, scored as KILLED)`), so a bound hit is visible data rather than a
+silent verdict. If a nightly shard starts naming timeouts it did not name before, read that as the
+pool pressing on the bound, not as the suite getting stronger.
+
+**3. A killed mutant stops at the first `FAIL:`.** The verdict is settled there, so the killer's
+process group is reaped rather than run to completion, and the line is logged so an early kill is
+never silent.
+
+The trigger rests on an invariant — **a green suite emits no `FAIL:` line** — and the harness
+**asserts it every run** rather than trusting the one-off corpus measurement that established it
+(63/63 suites, zero such lines). The unmutated precheck checks its own output, and a suite that
+passes *while printing the trigger* is an **unrunnable pair**, named and red. That is the same class
+as a suite that cannot run at all, and for the same reason: neither may be allowed to report its
+guard as fully killed, since every mutant of that guard would otherwise be scored KILLED on prose.
+`MUTATION_SWEEP_EARLY_EXIT=0` disables early exit; `MUTATION_SWEEP_FAIL_PATTERN` changes what it
+looks for.
+
+A reaped suite never runs its own `trap … EXIT`, so killers run with `TMPDIR` pointed at a
+per-item scratch directory the harness removes unconditionally — early exit and both killer bounds
+included.
+
 ### Runbook: the sweep just reded
 
 **`baseline-absent survivor: <guard>::<operator>::<ordinal>`** — the usual one, and usually your
