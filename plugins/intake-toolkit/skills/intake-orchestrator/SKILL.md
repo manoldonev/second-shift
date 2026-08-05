@@ -175,6 +175,37 @@ Based on the issue body and labels, classify as:
 
 **Edge case**: If a "bug" is actually a rewrite (e.g., "auth flow is fundamentally broken — rebuild it"), reclassify as feature/refactor and proceed with full analysis. Comment the reclassification on the issue.
 
+### Step 1.5: Pair-Repo Title Check (only when this repo declares its own `ticketTag`)
+
+**Applicability.** This step runs only when the repo's own config carries a `ticketTag` on
+its own `topology.repos.<id>` entry (the advisory routing hint the onboarding skill drafts
+when a pair is confirmed — see `second-shift:onboard`). An ordinary repo with no
+`ticketTag` has nothing to check here — skip straight to Step 2. This is a lean-lane
+convention: `ticketTag` is never a gate anywhere in the lean lane, this check included —
+it is intake policy, not `lean-gate.sh` mechanics.
+
+**The check.** Scan the issue title for bracket-shaped tags (`\[[A-Za-z0-9_-]+\]`).
+
+- **Exactly one tag, and it matches this repo's own `ticketTag`** — this ticket belongs
+  here. Proceed to Step 2 normally.
+- **Two or more distinct tags** (e.g. both the BE and FE tags in one title) — the ticket
+  declares cross-repo scope but was filed as a single ticket. **Reject at intake exit**:
+  do not dispatch spec-reviewer, do not attempt to guess a split from the title alone.
+  Comment explaining that a pair ticket is never worked as one artifact — same principle
+  as the stacked-PR retirement — and that it needs to be re-filed as two single-tagged
+  tickets (or, if the scope genuinely spans both repos, handed to this step's decomposition
+  path — see Step 4's cross-repo split). Label `needs-spec-work`, not
+  `needs-intake-review`: this is a filing-convention defect, not a judgment call.
+- **No recognizable tag at all** — same terminal reject, different reason: nothing tells a
+  human, or the future thin orchestrator, which side of the pair this ticket targets.
+  Comment asking for the single correct tag in the title, label `needs-spec-work`, and
+  stop.
+
+This is a structural improvement on the staged lane's `targetRepos-ambiguous` failure,
+which surfaces at pipeline runtime (Stage 1.T) and lets interactive mode ask its way past
+the ambiguity. Here the same ambiguity is caught before a single agent dispatches, and it
+is terminal rather than negotiable — the ticket does not proceed in this session at all.
+
 ### Step 2: Gather Evidence (structured intake fan-out)
 
 Evidence-gathering is a fan-out of `spec-reviewer` + `codebase-explorer` that returns **rationale-carrying structured findings**, not prose. The orchestrator reasons over the structured object (Step 3) — `{ verdict, findings[] }` for spec-reviewer (each finding carries `severity`/`claim`/`rationale`/`confidence`) and `{ modulesAffected, crossModuleDependencies, estimatedScope, findings[] }` for codebase-explorer.
@@ -258,6 +289,26 @@ Evidence-gathering is a fan-out of `spec-reviewer` + `codebase-explorer` that re
 - Each part is meaningful and reviewable on its own
 
 The slices file as ordinary sub-issues, exactly like the parallel flavor — what differs is **ordering**, not branch topology. Every slice is a plain single-PR run against the configured `baseBranch`; ordering is carried by `Predecessor:` / `Successor:` body trailers and enforced by keeping blocked successors out of the queue (Step 6).
+
+**Verdict: `sub-issues-sequential`, cross-repo (pair topology only)**
+
+Same mechanic as the ordered flavor above, with one difference: the two slices are not both
+filed here. When Step 1.5 applies (this repo declares its own `ticketTag`) and the spec's
+scope genuinely crosses into the sibling repo — codebase-explorer's impact surface, or the
+spec text itself, names behavior that lives on the other side of the pair — decompose into
+exactly two slices, one per repo:
+
+- The slice for THIS repo files exactly like any other sub-issue (Step 6).
+- The slice for the sibling repo is filed in **the sibling's own tracker**, not this one —
+  resolve the sibling's repo identity (operator-confirmed at onboarding time; a standalone
+  config carries no cross-repo pointer to derive it from). **Cannot resolve it → escalate
+  `needs-intake-review` and ask the operator for the sibling's repo; never guess a slug.**
+- Default ordering is BE before FE — the FE slice's spec pins the BE slice's landed API
+  contract and stays unqueued (no `ready-for-dev`) until the BE PR merges, exactly like any
+  other blocked successor (Step 6). Title each slice with its own single `ticketTag`, so a
+  human or the thin orchestrator can route it correctly without re-reading the spec.
+- This is the **only** path that produces a ticket in the sibling's tracker — a routine
+  same-repo decomposition never does.
 
 **Verdict: `no-split`**
 
@@ -356,6 +407,11 @@ $GH_BOT_SH issue create --title "[slice N title]" --body "$BODY_N"   # no --labe
    Keeping blocked successors **out of the queue** is the ordering enforcement — not rejecting them after they are claimed. Promotion is an operator action at merge time: merging the predecessor's PR is already the serialization point, so labelling the successor rides that same action (Stage 9 renders the reminder on the predecessor's PR). No claim is ever burned and no failed state file is created for the routine blocked case. `../predecessor-gate.sh` is only the pre-claim backstop for a successor that got labelled early.
 
    _(jira: tracker delta.)_
+
+   **Cross-repo split only (Step 4's pair verdict):** the sibling's slice is created with
+   `--repo <resolved-sibling>` instead of the implicit current repo, everything else about
+   its trailers/labelling identical to the ordered flavor above. This is the one case in
+   this skill where a sub-issue is filed anywhere other than the current repo's tracker.
 
 5. Update parent issue (github adapter):
 

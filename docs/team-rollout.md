@@ -20,6 +20,13 @@ CONTRIBUTING snippet).
 4. Dry-run: pick a small ticket with no external-infrastructure acceptance criteria and
    run `/dev-pipeline:run-lean <ticket>` end to end before inviting the team.
 
+**A BE/FE pair repeats Day 0 twice, once per repo.** The lean lane has no per-repo
+worktree map — each repo needs its own onboard (own config, own bot identity, own
+worktrees dir), so there is no single combined Day 0 for a pair. Confirming the pair
+during either run only draws an optional `ticketTag` onto that repo's own config entry, a
+routing hint (see [onboarding.md § Pair repos](onboarding.md#pair-repos-befe-under-the-lean-lane)) —
+never a shared config. **FE-tagged tickets run from the FE repo's own champion setup.**
+
 **Champion's-machine caveat:** the machine that develops or first registers the
 marketplace often carries a **ref-less user-scope registration**, which shadows the
 project pin *on that machine only*. `/second-shift:doctor` flags it (WARN, not FAIL);
