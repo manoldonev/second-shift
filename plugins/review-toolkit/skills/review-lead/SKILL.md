@@ -29,7 +29,7 @@ The reviewer fan-out runs as `agent()` calls inside `workflows/code-review.mjs` 
 
   > "review-lead requires the Workflow tool to dispatch the reviewer fan-out (via code-review.mjs) in the current session. This skill must be invoked from the main session (or from another skill running in the main session, e.g., dev-pipeline). It cannot run inside a subagent context. Aborting."
 
-  The script returns structured findings; this session then runs the Synthesis Rules over them. Reviewer **selection** (Routing, below) happens in-session first, since it needs the diff: choose from the effective reviewer registry — the plugin-shipped panel (security-reviewer, performance-reviewer, complexity-reviewer, maintainability-reviewer, test-coverage-reviewer, unit-test-mutation-reviewer, db-reviewer, pipeline-reviewer, scope-completeness-reviewer, a11y-reviewer) plus/minus the consumer repo's config deltas (see "Consumer config: reviewer registry" below) — and pass the selected `agentType[]` as `args.reviewers`. `worktree` is the absolute path the reviewers run git against — for pure standalone `/review-lead` in the repo checkout, derive it with `git rev-parse --show-toplevel`; `base`/`head` come from the diff range (default `origin/<base>..HEAD`, where `<base>` is the configured base branch resolved in Process step 1, after a `git fetch origin <base>` — see Process step 1's stale-base rationale), and `changedFiles` from the `git diff --stat` run for Routing.
+  The script returns structured findings; this session then runs the Synthesis Rules over them. Reviewer **selection** (Routing, below) happens in-session first, since it needs the diff: choose from the effective reviewer registry — the plugin-shipped panel (security-reviewer, performance-reviewer, complexity-reviewer, maintainability-reviewer, test-coverage-reviewer, unit-test-mutation-reviewer, db-reviewer, pipeline-reviewer, scope-completeness-reviewer, a11y-reviewer, design-toolkit:design-faithful-reviewer, design-toolkit:figma-faithful-reviewer) plus/minus the consumer repo's config deltas (see "Consumer config: reviewer registry" below) — and pass the selected `agentType[]` as `args.reviewers`. `worktree` is the absolute path the reviewers run git against — for pure standalone `/review-lead` in the repo checkout, derive it with `git rev-parse --show-toplevel`; `base`/`head` come from the diff range (default `origin/<base>..HEAD`, where `<base>` is the configured base branch resolved in Process step 1, after a `git fetch origin <base>` — see Process step 1's stale-base rationale), and `changedFiles` from the `git diff --stat` run for Routing.
 
 - **Synthesis-only mode (driven by dev-pipeline Stage 8):** the dev-pipeline Stage 8 `Workflow` script (`workflows/code-review.mjs`) has **already dispatched** the reviewers via `agent()` and hands you their structured findings directly. In this mode you are loaded for the Synthesis Rules / Routing / Scope Completeness Gate / verdict format only — the Workflow-availability gate above does **not** apply (the fan-out already ran). Proceed straight to synthesis over the supplied findings.
 
@@ -54,6 +54,19 @@ The panel named throughout this skill is the **plugin-shipped generic registry**
 - `reviewers.modelOverrides{}` — per-reviewer model-tier override applied when dispatching (e.g. `security-reviewer: opus` in one repo, `sonnet` in another). The `code-review.mjs` fan-out reads these; pass the overridden tier, not the agent-frontmatter default.
 
 If the config is absent or has no `reviewers` block, the effective registry is exactly the plugin panel. Repo-local `add` reviewers are referenced bare (that bareness is the disambiguation from plugin-shipped names); plugin reviewers are referenced bare too within this same-plugin content.
+
+Two further keys are read from the same file at the start of Routing, both feeding the design-fidelity dimension (see Reviewer Routing):
+
+- `design.provider` — `figma` | `claude-design`. Selects which fidelity reviewer the web-component trigger routes to. **Key absent is a supported state**, not a misconfiguration.
+- `stageParams.webComponentGlobs` — the repo's web-component surface, e.g. `["src/app/**/*.{html,ts}"]` (Angular), `["src/**/*.vue"]` (Vue), `["app/**/*.tsx"]` (React Router v7). Absent resolves to `["apps/web/**/*.{tsx,jsx}"]`. It gates both `a11y-reviewer` and the design-fidelity dimension.
+
+Resolve the path **once**, from the same file and the same override the `reviewers` read above uses, anchored on `worktree` (the absolute repo-under-review path from Pre-flight) — never a cwd-relative literal. This session's cwd is not reliably the reviewed repo's root, and both keys fail *open* on an unreadable path: an unread `design.provider` silently takes the _key absent_ row (the wrong reviewer, with no not-selected note, because absence is a legitimate state), and an unread `stageParams.webComponentGlobs` silently reverts to the shipped default.
+
+```bash
+CONFIG="${SECOND_SHIFT_CONFIG:-$WORKTREE/.claude/second-shift.config.json}"
+DESIGN_PROVIDER=$(jq -r '.design.provider // empty' "$CONFIG" 2>/dev/null)
+WEB_COMPONENT_GLOBS=$(jq -r '(.stageParams.webComponentGlobs // ["apps/web/**/*.{tsx,jsx}"]) | .[]' "$CONFIG" 2>/dev/null || echo 'apps/web/**/*.{tsx,jsx}')
+```
 
 ## Sub-Agent Trust Model
 
@@ -118,7 +131,7 @@ Boundary rule: if change size is exactly at a boundary (e.g., 50 lines in 3 file
 
 When in doubt, review deeper rather than shallower.
 
-**Conditional reviewers are never suppressed by depth routing** — they follow their own trigger rules regardless of change size: `db-reviewer`, `pipeline-reviewer`, `scope-completeness-reviewer`, and any repo-local domain reviewers registered via config `reviewers.add`.
+**Conditional reviewers are never suppressed by depth routing** — they follow their own trigger rules regardless of change size: `db-reviewer`, `pipeline-reviewer`, `scope-completeness-reviewer`, `a11y-reviewer`, the design-fidelity dimension (`design-faithful-reviewer` / `figma-faithful-reviewer`), and any repo-local domain reviewers registered via config `reviewers.add`.
 
 ## Plan/Spec Awareness
 
@@ -152,10 +165,33 @@ Analyze the `git diff --stat` output and spawn reviewers accordingly.
 | **pipeline-reviewer**           | Async worker / queue-processor / job-producer files changed (e.g. `*processor*`, `*queue*`, a workers dir).                                                                                                                                                                 |
 | **unit-test-mutation-reviewer** | A production file within the repo's mutation-review target surface changed AND a co-located spec is in the diff; OR the pipeline ran with `unitTestSurface.action == strengthen`. Advisory mode (LLM-predicted, no execution — Stage 5 owns execution-verified blocking).    |
 | **scope-completeness-reviewer** | Invocation references a tracker issue number (e.g., `Closes #758`, `Part of #758`, an explicit `--issue 758` flag, or PR body contains `#<number>`). Spawn unconditionally — depth routing does not apply. If no issue is referenced, do not spawn.                          |
-| **a11y-reviewer**               | Diff touches a web component (the repo's web UI file globs, e.g. `**/*.tsx` / `**/*.jsx`). WCAG/ARIA/keyboard/contrast/reduced-motion, primitives-library-aware. Static path trigger.                                                                              |
-| **repo-local domain reviewers** | Registered via config `reviewers.add`; spawn per the `dimensions[]` each declares (e.g. an `orders-reviewer` on orders-domain paths, a design-fidelity reviewer on web components). Never suppressed by depth routing.                                                   |
+| **a11y-reviewer**               | Diff touches the repo's web-component surface — `$WEB_COMPONENT_GLOBS` (config `stageParams.webComponentGlobs`, default `apps/web/**/*.{tsx,jsx}`). WCAG/ARIA/keyboard/contrast/reduced-motion, primitives-library-aware.                                                    |
+| **design-fidelity dimension**   | Same `$WEB_COMPONENT_GLOBS` trigger as `a11y-reviewer`, spawned alongside it. Exactly one of **design-faithful-reviewer** / **figma-faithful-reviewer**, selected by config `design.provider` — see "Design-fidelity dimension" below.                                        |
+| **repo-local domain reviewers** | Registered via config `reviewers.add`; spawn per the `dimensions[]` each declares (e.g. an `orders-reviewer` on orders-domain paths). Never suppressed by depth routing.                                                                                                     |
 
 When in doubt about whether a domain reviewer is relevant, spawn it — a "no issues found" response is cheap.
+
+### Design-fidelity dimension
+
+**Trigger.** The same web-component surface that routes `a11y-reviewer`: the globs resolved into `$WEB_COMPONENT_GLOBS` from config `stageParams.webComponentGlobs` (default `apps/web/**/*.{tsx,jsx}`), **never a hardcoded path** — a consumer whose FE is not React-under-`apps/web` still gets this reviewer class. Never depth-suppressed.
+
+**Matching is model judgment over the configured patterns**, not a mechanical pathspec match: read the `git diff --stat` path list from Process step 1, read `$WEB_COMPONENT_GLOBS` as the intended surface, and decide whether a changed path belongs to it. A brace/`**` pattern that no shell expanded is still a clear statement of intent.
+
+**Provider map** — read `design.provider` from the repo under review's config, and spawn exactly one:
+
+| `design.provider` | Reviewer |
+| --- | --- |
+| `figma` | **figma-faithful-reviewer** |
+| `claude-design` | **design-faithful-reviewer** |
+| _key absent_ | **design-faithful-reviewer** — the generic web-component fidelity reviewer |
+
+The no-provider row is a **default, not a fallback to nothing**: a repo with no design axis configured still gets design-system-discipline review on its web components.
+
+**What this dimension asserts.** Both reviewers are design-blind by contract — they verify *the abstraction is right*, not that it matches an unseen design. This dimension covers design-token discipline, logical-vs-physical style props, real-component reuse over hand-rolled primitives, and copy drift against a discoverable spec. **It is not a pixel check** — the pixel loop belongs to the implementing session's self-verify artifact and to the human reviewer.
+
+**Toolkit-absent degrade.** These two agents ship in the `design-toolkit` plugin, not review-toolkit. The condition is that **the dimension was selected** — by *any* row of the map above, the no-provider default included — and the design-toolkit agent type is not available to dispatch in this session. When it holds, **do not select it**; detection is in-session and pre-dispatch, here at Routing. Note it once in the round summary (see "Not-selected ≠ dark" under the Synthesis Rules). Because nothing was ever dispatched, this never reaches `code-review.mjs` and cannot be confused with a dark reviewer.
+
+Keying this on the *dimension being selected* rather than on `design.provider` being declared is load-bearing, not phrasing: the default row selects a reviewer with no provider key at all, and "no provider declared, design-toolkit not installed" is the ordinary shape of a consumer running review-toolkit alone. A degrade keyed on the key's presence would leave exactly that consumer's dimension silently unrun. The lint's matching exemption (`check-reviewer-references.sh`) is unconditional for the same reason — the two halves of one degrade must agree.
 
 ## Spawning Reviewers
 
@@ -267,6 +303,15 @@ For each dark reviewer:
 
 A dark reviewer does not by itself force "Ready to merge? = No" (unlike the Scope Completeness Gate) — it forces **visibility**: the human deciding to merge must be told which domains went unreviewed.
 
+### Step 4c: Not-selected ≠ dark
+
+A reviewer that was **never selected** is a different case from a dark reviewer: nothing failed, the trigger simply did not fire, so it is **not** a `[Coverage gap]` and its Verdicts row is omitted, not `Dark (no output)`. Reserve that rendering for reviewers that were selected and produced no usable result. Two not-selected cases still must not be invisible, because in each one a whole dimension is silently absent while the round looks green:
+
+- **Unmatched web-component surface.** No changed path matched `$WEB_COMPONENT_GLOBS`, so neither `a11y-reviewer` nor the design-fidelity dimension was routed. Note once in the Review Summary, **including the resolved globs** so a mis-scoped config is diagnosable from the line itself — e.g. "a11y + design-fidelity not routed: no changed path matched `stageParams.webComponentGlobs` (`apps/web/**/*.{tsx,jsx}`)". A genuinely non-FE diff is the overwhelmingly common case; escalating it would make every backend PR noisy.
+- **Design-toolkit not installed.** A changed path *did* match and the provider map selected a fidelity reviewer — by any row, **the no-provider default included** — but the design-toolkit agent type is not available to dispatch (Routing detected this pre-dispatch). Note once: "design-fidelity dimension not run — design-toolkit not installed". `a11y-reviewer` is unaffected and still spawns. The trigger is selection, not a declared `design.provider`: on the default row no provider is declared and the dimension is still selected, so a provider-keyed condition would make this note unreachable for the commonest consumer.
+
+Both are **a note, never a blocker, and never silent** — and neither is a red.
+
 ### Step 5: Cross-Reviewer Self-Check
 
 After triage but before writing the report, scan the full diff for cross-cutting concerns that no individual reviewer would catch alone. Each reviewer has a narrow scope — gaps between scopes are real.
@@ -336,6 +381,8 @@ One-line bullets from all reviewers for findings with confidence < 80, so they a
 | Pipeline        | Pass / Fail   | N        | N-N              |
 | Unit Test Mutation | Pass / Fail | N      | N-N              |
 | Accessibility   | Pass / Fail   | N        | N-N              |
+| Design Faithful | Pass / Fail   | N        | N-N              |
+| Figma Faithful  | Pass / Fail   | N        | N-N              |
 | \<repo-local domain reviewer(s)\> | Pass / Fail | N | N-N          |
 
 **Ready to merge?** Yes / No / With fixes
@@ -347,6 +394,7 @@ One-line bullets from all reviewers for findings with confidence < 80, so they a
 
 - A reviewer's verdict should be ✅ PASS if its only findings are pre-existing gaps. ❌ FAIL only if the PR introduces new issues with confidence ≥ 80.
 - Only include rows for reviewers that were spawned. If a domain reviewer wasn't triggered, omit it from the table. **A reviewer that was spawned but went dark (Step 4b) is NOT omitted — its row reads `Dark (no output)`.**
+- The two design-fidelity rows are **mutually exclusive at runtime** — the provider map selects exactly one, so a real report carries at most one of them. Both are listed above because the table is the registry template, not a claim about any single round.
 - **Confidence Range column**: Scan each reviewer's findings for `(confidence: N)` values; report `min–max`. If a reviewer had no findings, write `—`.
 - **Scope Completeness gate**: if it FAILed or BLOCKED, "Ready to merge?" is **No** regardless of every other row.
 

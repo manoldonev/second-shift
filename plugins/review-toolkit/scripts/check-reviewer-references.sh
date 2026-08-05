@@ -1,14 +1,26 @@
 #!/usr/bin/env bash
 # Verify the review-lead reviewer registry stays in lockstep with the agent files
-# that back it — now across TWO ROOTS after pluginization.
+# that back it — now across THREE ROOTS after pluginization.
 #
-# Two-root contract
-# -----------------
+# Three-root contract
+# -------------------
 # The registry text lives in review-lead's SKILL.md, shipped by the review-toolkit
-# PLUGIN. The agent files that back registered reviewers live in two places:
+# PLUGIN. The agent files that back registered reviewers live in three places:
 #   - PLUGIN root:   generic reviewers shipped with review-toolkit (<plugin>/agents/)
+#   - DESIGN root:   the design-fidelity reviewers, shipped by the SIBLING
+#                    design-toolkit plugin (<design-toolkit>/agents/). The panel
+#                    names them because review-lead routes the design-fidelity
+#                    dimension, but review-toolkit does not ship them.
 #   - CONSUMER root: repo-local domain reviewers the repo registers via config
 #                    (<consumer>/.claude/agents/), declared in reviewers.add
+#
+# design-toolkit is OPTIONAL. When it is not installed the sibling root resolves
+# empty, and the panel names it ships are EXEMPT from DANGLING — a printed notice,
+# never a commit denial. Without that exemption every consumer that runs
+# review-toolkit without design-toolkit would be commit-blocked by a panel entry it
+# never asked for. Which names are design-toolkit-shipped is DECLARED below rather
+# than derived from disk: when the root resolves empty there is nothing to derive
+# from, and that is exactly the case the exemption has to serve.
 #
 # The effective registry a repo actually runs is:
 #
@@ -18,7 +30,7 @@
 #                                                   <consumer>/.claude/agents/<name>.md)
 #
 # Failure classes (each a distinct message, non-zero exit):
-#   (a) DANGLING     — a registry entry has no agent file in EITHER root
+#   (a) DANGLING     — a registry entry has no agent file in ANY of the three roots
 #   (b) ORPHAN       — a consumer reviewer-shaped .claude/agents/*.md is registered
 #                      nowhere (not in the effective registry; not skip-tagged)
 #   (c) REMOVE-UNKNOWN — reviewers.remove names a reviewer the plugin registry never
@@ -29,6 +41,8 @@
 #
 # Root resolution (env overrides win, for hermetic selftests):
 #   PLUGIN root    = $SECOND_SHIFT_PLUGIN_ROOT   or  $SCRIPT_DIR/..
+#   DESIGN root    = $SECOND_SHIFT_DESIGN_TOOLKIT_ROOT  or the sibling design-toolkit
+#                                                    plugin dir (repo or cache layout)
 #   CONSUMER root  = $SECOND_SHIFT_REPO_ROOT     or  dirname of `git rev-parse
 #                                                    --git-common-dir` from $PWD
 #   config file    = $SECOND_SHIFT_CONFIG        or  <consumer>/.claude/second-shift.config.json
@@ -79,6 +93,39 @@ PLUGIN_ROOT="${SECOND_SHIFT_PLUGIN_ROOT:-$SCRIPT_DIR/..}"
 PLUGIN_ROOT=$(cd "$PLUGIN_ROOT" 2>/dev/null && pwd) || PLUGIN_ROOT=""
 SKILL="$PLUGIN_ROOT/skills/review-lead/SKILL.md"
 PLUGIN_AGENTS="$PLUGIN_ROOT/agents"
+
+# Sibling design-toolkit root. Two on-disk layouts exist — mirrors
+# check-model-tiers.sh's resolve_sibling_plugin_root verbatim:
+#   marketplace repo:  plugins/review-toolkit/scripts -> ../../design-toolkit
+#   installed cache:   cache/<mkt>/review-toolkit/<ver>/scripts
+#                        -> ../../../design-toolkit/<ver>  (versioned siblings)
+# Env override wins; otherwise repo layout, then the newest cache sibling that
+# actually carries an agents/ dir. Resolves EMPTY when design-toolkit is absent.
+resolve_design_toolkit_root() {
+    local override="${SECOND_SHIFT_DESIGN_TOOLKIT_ROOT:-}"
+    if [ -n "$override" ]; then
+        (cd "$override" 2>/dev/null && pwd)
+        return
+    fi
+    local cand
+    cand=$(cd "$SCRIPT_DIR/../../design-toolkit" 2>/dev/null && pwd) || cand=""
+    if [ -n "$cand" ] && [ -d "$cand/agents" ]; then
+        echo "$cand"
+        return
+    fi
+    for cand in "$SCRIPT_DIR"/../../../design-toolkit/*/; do
+        [ -d "$cand/agents" ] || continue
+        (cd "$cand" && pwd)
+    done | tail -1
+}
+DESIGN_TOOLKIT_ROOT=$(resolve_design_toolkit_root)
+DESIGN_AGENTS="${DESIGN_TOOLKIT_ROOT:+$DESIGN_TOOLKIT_ROOT/agents}"
+[ -n "$DESIGN_AGENTS" ] && [ -d "$DESIGN_AGENTS" ] || DESIGN_AGENTS=""
+
+# Panel names shipped by design-toolkit, not review-toolkit. See the three-root
+# contract above for why this is declared rather than derived.
+DESIGN_TOOLKIT_PANEL='design-faithful-reviewer
+figma-faithful-reviewer'
 
 # Consumer root: env override, else the git repo containing $PWD.
 if [ -n "${SECOND_SHIFT_REPO_ROOT:-}" ]; then
@@ -161,6 +208,7 @@ verdict=$(
             s/^Pipeline$/pipeline-reviewer/;
             s/^Unit Test Mutation$/unit-test-mutation-reviewer/;
             s/^Design Faithful$/design-faithful-reviewer/;
+            s/^Figma Faithful$/figma-faithful-reviewer/;
             s/^Accessibility$/a11y-reviewer/;
         ' \
         | grep -E '^[a-z][a-z0-9-]+-reviewer$' \
@@ -201,29 +249,47 @@ while IFS= read -r r; do
 done <<< "$removes"
 
 # --- (a) DANGLING: every effective entry must resolve to an agent file ------
-#     plugin-origin names resolve in EITHER root; reviewers.add names must
-#     resolve in the CONSUMER root specifically.
+#     plugin-origin names resolve in ANY of the three roots; reviewers.add names
+#     must resolve in the CONSUMER root specifically. A design-toolkit-shipped
+#     panel name with design-toolkit NOT installed is exempt and noticed instead.
+exempt_design=()
 while IFS= read -r name; do
     [ -z "$name" ] && continue
     if grep -qx "$name" <<< "$adds"; then
         if [ -z "$CONSUMER_AGENTS" ] || [ ! -f "$CONSUMER_AGENTS/$name.md" ]; then
             errors+=("DANGLING: reviewers.add registers '$name' but <consumer>/.claude/agents/$name.md does not exist")
         fi
-    else
-        if { [ -z "$PLUGIN_ROOT" ] || [ ! -f "$PLUGIN_AGENTS/$name.md" ]; } \
-           && { [ -z "$CONSUMER_AGENTS" ] || [ ! -f "$CONSUMER_AGENTS/$name.md" ]; }; then
-            errors+=("DANGLING: review-lead registry references '$name' but no agent file exists in the plugin root ($PLUGIN_AGENTS) or the consumer root")
-        fi
+        continue
     fi
+    if { [ -n "$PLUGIN_ROOT" ] && [ -f "$PLUGIN_AGENTS/$name.md" ]; } \
+       || { [ -n "$DESIGN_AGENTS" ] && [ -f "$DESIGN_AGENTS/$name.md" ]; } \
+       || { [ -n "$CONSUMER_AGENTS" ] && [ -f "$CONSUMER_AGENTS/$name.md" ]; }; then
+        continue
+    fi
+    if [ -z "$DESIGN_AGENTS" ] && grep -qx "$name" <<< "$DESIGN_TOOLKIT_PANEL"; then
+        exempt_design+=("$name")
+        continue
+    fi
+    errors+=("DANGLING: review-lead registry references '$name' but no agent file exists in the review-toolkit root ($PLUGIN_AGENTS), the design-toolkit root (${DESIGN_AGENTS:-<not installed>}), or the consumer root")
 done <<< "$effective"
+
+if [ ${#exempt_design[@]} -gt 0 ]; then
+    echo "[check-reviewer-references] notice: design-toolkit is not installed — the design-fidelity dimension will not run, and its panel entries (${exempt_design[*]}) are exempt from DANGLING." >&2
+fi
 
 shopt -s nullglob
 
 # --- (d) SHADOW: consumer files must not shadow a plugin-shipped agent name -
+#     Design-toolkit-shipped names are tested by DESIGN_TOOLKIT_PANEL membership,
+#     NOT by file presence in $DESIGN_AGENTS: the tripwire must still fire when
+#     design-toolkit is absent. Otherwise registering those names in the panel
+#     would silently retire the tripwire for exactly them — the consumer copy
+#     resolves DANGLING through the consumer-root clause and escapes ORPHAN by
+#     being in $effective, so it would be accepted with no error and no notice.
 if [ -n "$CONSUMER_AGENTS" ] && [ -d "$CONSUMER_AGENTS" ] && [ -n "$PLUGIN_ROOT" ] && [ -d "$PLUGIN_AGENTS" ]; then
     for f in "$CONSUMER_AGENTS"/*.md; do
         name=$(basename "$f" .md)
-        if [ -f "$PLUGIN_AGENTS/$name.md" ]; then
+        if [ -f "$PLUGIN_AGENTS/$name.md" ] || grep -qx "$name" <<< "$DESIGN_TOOLKIT_PANEL"; then
             errors+=("SHADOW: consumer $CONSUMER_AGENTS/$name.md shadows plugin-shipped agent '$name' — remove or rename the consumer copy (drift tripwire; see docs/namespaces.md rule 5)")
         fi
     done
