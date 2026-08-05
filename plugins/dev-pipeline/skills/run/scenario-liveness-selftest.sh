@@ -883,7 +883,7 @@ else
   "tracker": { "branchPrefix": "claude/acme-", "labels": { "queue": "ready-for-dev", "claimed": "in-progress" } },
   "topology": { "repos": { "acme": { "path": ".", "baseBranch": "main" } } },
   "paths": { "plansDir": "docs/plans", "pipelineStateDir": ".claude/pipeline-state" },
-  "commands": { "acme": { "lint": null, "typecheck": null, "test": null } }
+  "commands": { "acme": { "lint": null, "typecheck": null, "test": null, "allowUnverified": true } }
 }
 LEANCFG
   LEAN_PROG="$TMP/lean-progress.md"
@@ -1160,7 +1160,7 @@ LEANC
   "tracker": { "type": "jira", "writes": false, "branchPrefix": "abc/", "keyPattern": "[A-Z]+-[0-9]+" },
   "topology": { "repos": { "acme": { "path": ".", "baseBranch": "main" } } },
   "paths": { "plansDir": "docs/plans", "pipelineStateDir": ".claude/pipeline-state" },
-  "commands": { "acme": { "lint": null, "typecheck": null, "test": null } }
+  "commands": { "acme": { "lint": null, "typecheck": null, "test": null, "allowUnverified": true } }
 }
 LEANCFGJ
   LEAN_PROG_J="$TMP/lean-progress-jira.md"

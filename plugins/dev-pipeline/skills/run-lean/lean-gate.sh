@@ -925,7 +925,7 @@ lean_extra_lanes_diff() {
 }
 
 cmd_3() {
-  local cmd rc sweep
+  local cmd rc sweep any_verifying=0
   # lanes[] setup steps first, when present. Shape is {name, cwd?, commands[]} — the SAME
   # reader verifyctl.sh uses (its step 1), including the non-object backstop (#100): a lane
   # that is not an object must fail loudly, never be silently skipped on the way to green.
@@ -964,6 +964,7 @@ cmd_3() {
   for key in lint typecheck test; do
     cmd="$(cfg ".commands[\"$REPO_SLUG\"].$key" '')"
     [ -n "$cmd" ] || { say "milestone-3: $key is null — skipped."; continue; }
+    any_verifying=1
     say "milestone-3: $key » $cmd"
     ( cd "$REPO_ROOT" && env ${SEAM_SCRUB_ENV[@]+"${SEAM_SCRUB_ENV[@]}"} bash -c "$cmd" ); rc=$?
     [ "$rc" -eq 0 ] || { fail_milestone 3 "$key failed (rc=$rc)"; return $?; }
@@ -981,6 +982,26 @@ cmd_3() {
   fi
   el_count="$(jq 'length' <<<"$el_lanes" 2>/dev/null)"
   [ -n "$el_count" ] || el_count=0
+
+  # #392: milestone 3 must not report green having verified nothing. "Configured" is a
+  # config-TIME predicate — the fixed keys above and extraLanes' array LENGTH, not whether a
+  # when-scoped lane happened to run on this diff (AC-3: configured-but-skipped is not
+  # unverified, so this check runs before extraLanes execution and reads $el_count, never the
+  # diff). Setup `lanes[]` are INFRA-classed and the mutation sweep is repo-carried, not
+  # config — neither counts, matching the staged lane's `allowUnverified` valve, which is
+  # inert as soon as any verifying lane is configured (#98). Checked here, before the
+  # mutation sweep, so a red never pays for a sweep run it was always going to discard.
+  if [ "$any_verifying" -eq 0 ] && [ "$el_count" -eq 0 ]; then
+    local allow_unverified
+    allow_unverified="$(cfg ".commands[\"$REPO_SLUG\"].allowUnverified" 'false')"
+    if [ "$allow_unverified" = "true" ]; then
+      say "milestone-3: no verifying lane configured for '$REPO_SLUG' (lint/typecheck/test all null, extraLanes empty) — allowUnverified opt-out is set (config: $CONFIG)."
+      append_line "$(now_iso) | milestone-3 | skipped | no verifying lane configured — allowUnverified opt-out"
+    else
+      fail_milestone 3 "no verifying lane configured for '$REPO_SLUG' (lint/typecheck/test all null, extraLanes empty) — config read from $CONFIG. Configure a verify lane, or set commands.$REPO_SLUG.allowUnverified=true to declare the opt-out."
+      return $?
+    fi
+  fi
 
   if [ "$el_count" -gt 0 ]; then
     local el_i el_diff="" el_diff_rc="" el_diff_done=0
