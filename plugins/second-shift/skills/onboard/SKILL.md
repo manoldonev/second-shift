@@ -30,16 +30,7 @@ Run: `bash "${CLAUDE_PLUGIN_ROOT}/skills/onboard/tools/detect.sh"` and parse the
   origin/HEAD is unset and ls-remote failed. Run `git remote set-head origin --auto`
   and re-invoke. I do not guess base branches." (fail-fast; never default to main.)
 - `topology.value == "be-fe-pair-candidate"` → the sibling candidates go into the
-  elicitation batch as a confirm question (pair vs standalone). **Confirming a pair does
-  NOT draft a combined `be-fe-pair` config here.** Under the lean lane (the default —
-  `/dev-pipeline:run-lean`), each repo of a pair gets its own standalone onboard: its own
-  config (itself at `path: "."`), its own bot identity, its own worktrees dir. This run
-  onboards THIS repo as `standalone`, exactly like a repo with no sibling, and Step 8 hands
-  off to the sibling's own onboard run. (The combined `be`+`fe` config shape under
-  `topology.type: be-fe-pair` still exists and is still valid — it belongs to the
-  deprecated staged lane, `/dev-pipeline:run`, which routes and worktrees per-repo across
-  Stage 1/2 and has no lean successor. This skill never drafts it from a pair confirmation;
-  a team still running the staged lane writes that config by hand.)
+  elicitation batch as a confirm question (pair vs standalone).
 - `tracker.value == "ambiguous"` → tracker choice goes into the elicitation batch,
   presenting the evidence (origin host, MCP presence) for each option.
 
@@ -65,12 +56,8 @@ Build the draft config from detection:
   `"writes": false` in the draft (the documented JIRA default) — reviewable on the screen.
 - `topology.type` + `topology.repos`: standalone/monorepo → single repo id (use the
   package.json `name` short form or directory basename), `path: "."`,
-  `baseBranch` from detection. **Confirmed pair → `topology.type: standalone` too** — one
-  entry for THIS repo at `path: "."`, same as any standalone repo; the sibling is never
-  drafted into this repo's config (see Step 1). Draft an optional `ticketTag` on that entry
-  (e.g. `"[BE]"` / `"[FE]"`, from the elicitation below) — **advisory only**: the lean lane
-  never reads it, it exists so a human (or the future thin orchestrator) can match a ticket
-  title to the right repo before launching `/dev-pipeline:run-lean`.
+  `baseBranch` from detection. Confirmed pair → `be` + `fe` entries; the sibling's own
+  baseBranch is detected by running detect.sh again with the sibling path as argument.
   **`monorepo` always takes exactly one `repos` entry with `path: "."`** —
   `config-lint` rejects a second entry. A repo with two independently-verified
   surfaces (e.g. an npm-workspaces repo with `apps/api` + `apps/web`) is NOT
@@ -111,9 +98,7 @@ Build the draft config from detection:
   zero-lane opt-out deliberately.
 Ask AT MOST one AskUserQuestion batch, containing ONLY (skip any that detection settled):
   1. tracker (only if ambiguous — show evidence per option)
-  2. topology pair confirm (only if be-fe-pair-candidate) — confirm pair vs standalone;
-     on pair, also ask which side THIS repo is (BE/FE) and the optional `ticketTag` to
-     draft on its own entry (advisory routing hint — see Step 3)
+  2. topology pair confirm (only if be-fe-pair-candidate)
   3. `tracker.branchPrefix` (recommended: `claude/<repo-basename>-` for github; `<user>/` for jira)
   4. gates to enable (**mutation** — defaults false; `gates.mutation:false` is an explicit
      off-switch for the Stage-5 unit-test mutation gate even when `unitTestScope` is set.
@@ -302,11 +287,14 @@ entire block otherwise; it is opt-in, not part of the default emitted set):
    `.claude/SECOND-SHIFT.md` in one PR — **plus**, only if the CI evidence workflow was
    accepted (Step 3 item 9), `.github/workflows/second-shift-ci.yml` and
    `.claude/tools/second-shift-ci-check.sh` in the same PR.
-7. **Confirmed pair → offer the sibling onboard, and say the FE rule out loud.** Print:
-   "This repo onboarded as the `<BE|FE>` side of a pair — a standalone config, not a
-   combined one. The sibling still needs its own onboard: `cd <sibling path>` (from the
-   detected sibling candidates), then run `/second-shift:onboard` there — its own config,
-   its own bot identity, its own worktrees dir. **FE-tagged tickets run
-   `/dev-pipeline:run-lean` from the FE repo** — a ticket tagged for the other side is not
-   worked from here." Offer to `cd` and re-invoke onboard on the sibling now if the session
-   can reach that path; otherwise leave it as the next step.
+7. **Confirmed pair → offer the sibling's own onboard, and say the FE rule out loud.** This
+   run's `be-fe-pair` config (drafted at Step 3) is unchanged and still covers both sides for the
+   deprecated staged lane. The lean lane needs more: `/dev-pipeline:run-lean` routes by
+   invocation cwd and has no per-repo worktree map, so the sibling ALSO needs its own
+   standalone onboard to be worked from its own checkout. Print: "The sibling repo needs
+   its own onboard too, for `/dev-pipeline:run-lean`: `cd <sibling path>` (from the
+   detected sibling candidates), then run `/second-shift:onboard` there. Detection reports
+   `standalone` from that side, so it drafts its own independent config, bot identity, and
+   worktrees dir with no further prompts. **FE-tagged tickets run `/dev-pipeline:run-lean`
+   from the FE repo**, not from here." Offer to `cd` and re-invoke onboard on the sibling
+   now if the session can reach that path; otherwise leave it as the next step.

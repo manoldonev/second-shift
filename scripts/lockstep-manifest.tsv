@@ -372,4 +372,23 @@ lean-inherited-key-reconcile	verbatim	plugins/dev-pipeline/skills/run-lean/lean-
 # NOTE the deliberate NON-coupling: the lean chain gate checks ratification ONLY and does not
 # re-validate `disposition:` against the enum. That is what keeps the enum single-sited — a
 # second copy in CI would create exactly the pair this entry declines to create.
+
+# ticketTag semantics (staged-lane gate input vs lean-lane advisory hint) — three sites state
+# it: `docs/config-schema.md`'s topology row/principles, the schema's own `ticketTag`
+# `description` (renders live in every consumer's editor via the config's `$schema` key), and
+# `plugins/dev-pipeline/skills/run/stages/1-intake.md`'s Stage 1.T, which is the staged lane's
+# actual reader. A real coupling: a doc claiming a reading the staged lane's Stage 1.T logic
+# doesn't (or vice versa) ships the exact wrong-but-plausible surface the re-scope exists to
+# kill.
+# Considered for a row and DROPPED: neither relation can express this pair. The doc side is
+# markdown prose across two files, the schema side is a JSON string, and the Stage 1.T side is
+# the shell logic itself — no single quoted literal is common to all three, so `verbatim`
+# would compare unlike shapes and `subset-of` has nothing to anchor the FIRST quoted literal
+# against. Inventing a canonical constant purely to be compared is the "duplicate machinery is
+# worse than none" case this file's header names.
+# Guarded behaviorally instead: `stages/1-intake.md`'s own Stage 1.T logic is what
+# `check-config-shadowing.sh:34` already pins to `ticketTag` — an edit that stops reading the
+# field there fails that check, so the staged-lane reading can't silently drift out from under
+# the docs describing it.
+# Revisit if a fourth site starts parsing or restating `ticketTag`'s semantics.
 # Revisit if a third site starts parsing either enum.

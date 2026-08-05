@@ -50,26 +50,27 @@ variant — is its own playbook: [`team-rollout.md`](team-rollout.md).
 
 ### Pair repos (BE/FE) under the lean lane
 
-`/dev-pipeline:run-lean` routes by invocation cwd — it has no per-repo worktree map and no
-`ticketTag` routing, so a BE/FE pair does **not** onboard as one combined config. Each repo
-gets its own standalone onboard: its own `.claude/second-shift.config.json` (itself at
-`path: "."`), its own bot identity, its own worktrees dir. Run `/second-shift:onboard`
-twice — once in each repo — not once with both repos folded into one. Confirming the pair
-in either run only draws an optional `ticketTag` onto that repo's own entry (e.g. `"[BE]"`
-or `"[FE]"`); it never produces a combined `be`+`fe` config.
+`/dev-pipeline:run-lean` routes by invocation cwd — it has no per-repo worktree map, so a
+confirmed pair's existing `topology.type: be-fe-pair` config (unchanged, `be`+`fe` entries)
+covers only the deprecated staged lane's `/dev-pipeline:run`, which resolves both repos
+from that one host config and worktrees them per-repo across its own stages. Working the
+pair from the lean lane needs one more thing: **the sibling repo onboards separately, on
+its own.** `cd` into it and run `/second-shift:onboard` there too — detection reports plain
+`standalone` from that side (the sibling-candidate probe is directional), so it drafts its
+own independent config (itself at `path: "."`), its own bot identity, its own worktrees
+dir, with no further prompts. Two onboard runs, two configs, each serving a different lane
+from the same pair.
 
-`ticketTag` here is **advisory, not a gate** — a human, or the future thin orchestrator,
-reads a ticket's title to decide which repo's checkout to launch `/dev-pipeline:run-lean`
-from. **FE-tagged tickets run from the FE repo.** The `intake-orchestrator` skill enforces
-the corresponding discipline at ticket-filing time: a title carrying both pair tags, or
-neither, is rejected before spec review even starts, and genuine cross-repo scope splits
-into one BE ticket and one FE ticket (BE first by default) rather than entering the queue
-as one artifact.
-
-This is unrelated to the `topology.type: be-fe-pair` config shape, which still exists for
-the deprecated staged lane (`/dev-pipeline:run`) — that lane resolves both repos from one
-host config and worktrees them per-repo across its own stages. A repo only needs that shape
-if it still runs the staged lane; the lean lane never reads it.
+`topology.repos.<id>.ticketTag` on the host's `be`/`fe` entries (e.g. `"[BE]"` / `"[FE]"`)
+reads two ways depending on which lane is running it: the staged lane's Stage 1.T resolves
+`TARGET_REPOS` from it as a gate input, but the lean lane never reads it as a gate — it is
+**advisory only**, for a human (or the future thin orchestrator) deciding which repo's
+checkout to launch `/dev-pipeline:run-lean` from. **FE-tagged tickets run from the FE
+repo.** The `intake-orchestrator` skill enforces the corresponding discipline at
+ticket-filing time: a title carrying both pair tags, or neither, is rejected before spec
+review even starts, and genuine cross-repo scope splits into one BE ticket and one FE
+ticket (BE first by default), the FE one filed in the FE repo's own tracker, rather than
+entering the queue as one artifact.
 
 Sections 1–2 below are the manual/reference path — what the skill automates.
 
