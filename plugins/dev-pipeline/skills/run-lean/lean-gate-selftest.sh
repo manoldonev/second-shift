@@ -393,16 +393,27 @@ if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q "cannot resolve origin/main t
 else fail "(i11) expected a fail-closed refusal, got rc=$rc: $out"; fi
 
 # AC-9: milestone-3 lane children run with the pipeline's seam vars stripped — proven on a
-# FIXED key and on an extraLane, the two independent call sites this diff touches. Assertions
-# are LINE-ANCHORED (^SCRUBBED$ / ^LEAKED$): the lane command's own text is echoed as an
-# announcement ("» ... || echo LEAKED") before it runs, so an unanchored grep for LEAKED would
-# false-positive on the announcement line itself even when the executed result is clean.
+# FIXED key, a lanes[] entry, and an extraLane, the three independent call sites this diff
+# touches. Assertions are LINE-ANCHORED (^SCRUBBED$ / ^LEAKED$): the lane command's own text
+# is echoed as an announcement ("» ... || echo LEAKED") before it runs, so an unanchored grep
+# for LEAKED would false-positive on the announcement line itself even when the executed
+# result is clean.
 cfg="$WORK/el-cfg-scrub-fixed.json"
 jq '.commands.acme.lint = "[ -z \"${SECOND_SHIFT_CONFIG:-}\" ] && echo SCRUBBED || echo LEAKED"' "$CFG" > "$cfg" 2>/dev/null
 out="$(gate_el "$cfg" "$WORK/el-prog-scrub-fixed.md" 3 7)"; rc=$?
 if [ "$rc" -eq 0 ] && printf '%s\n' "$out" | grep -qx 'SCRUBBED' && ! printf '%s\n' "$out" | grep -qx 'LEAKED'; then
   pass "(i12) AC-9: the fixed-key lane child runs with SECOND_SHIFT_CONFIG stripped"
 else fail "(i12) expected SCRUBBED with no LEAKED, got rc=$rc: $out"; fi
+
+# lanes[] entries are {command} objects (cmd_3 reads `.command // .`) — the review-flagged
+# gap: neither this file nor scenario-liveness-selftest.sh populated commands.acme.lanes
+# before this case, so this call site's scrub conversion was entirely unexercised.
+cfg="$WORK/el-cfg-scrub-lanes.json"
+jq '.commands.acme.lanes = [{"command": "[ -z \"${SECOND_SHIFT_CONFIG:-}\" ] && echo SCRUBBED || echo LEAKED"}]' "$CFG" > "$cfg" 2>/dev/null
+out="$(gate_el "$cfg" "$WORK/el-prog-scrub-lanes.md" 3 7)"; rc=$?
+if [ "$rc" -eq 0 ] && printf '%s\n' "$out" | grep -qx 'SCRUBBED' && ! printf '%s\n' "$out" | grep -qx 'LEAKED'; then
+  pass "(i12b) AC-9: a lanes[] lane child runs with SECOND_SHIFT_CONFIG stripped"
+else fail "(i12b) expected SCRUBBED with no LEAKED, got rc=$rc: $out"; fi
 
 # shellcheck disable=SC2016  # deliberate: the ${SECOND_SHIFT_CONFIG:-} must reach the child
 # bash -c unexpanded, to be evaluated THERE (inside the scrubbed env), not by this shell.
