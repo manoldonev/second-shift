@@ -30,7 +30,7 @@
 #                                                   <consumer>/.claude/agents/<name>.md)
 #
 # Failure classes (each a distinct message, non-zero exit):
-#   (a) DANGLING     — a registry entry has no agent file in EITHER root
+#   (a) DANGLING     — a registry entry has no agent file in ANY of the three roots
 #   (b) ORPHAN       — a consumer reviewer-shaped .claude/agents/*.md is registered
 #                      nowhere (not in the effective registry; not skip-tagged)
 #   (c) REMOVE-UNKNOWN — reviewers.remove names a reviewer the plugin registry never
@@ -280,10 +280,16 @@ fi
 shopt -s nullglob
 
 # --- (d) SHADOW: consumer files must not shadow a plugin-shipped agent name -
+#     Design-toolkit-shipped names are tested by DESIGN_TOOLKIT_PANEL membership,
+#     NOT by file presence in $DESIGN_AGENTS: the tripwire must still fire when
+#     design-toolkit is absent. Otherwise registering those names in the panel
+#     would silently retire the tripwire for exactly them — the consumer copy
+#     resolves DANGLING through the consumer-root clause and escapes ORPHAN by
+#     being in $effective, so it would be accepted with no error and no notice.
 if [ -n "$CONSUMER_AGENTS" ] && [ -d "$CONSUMER_AGENTS" ] && [ -n "$PLUGIN_ROOT" ] && [ -d "$PLUGIN_AGENTS" ]; then
     for f in "$CONSUMER_AGENTS"/*.md; do
         name=$(basename "$f" .md)
-        if [ -f "$PLUGIN_AGENTS/$name.md" ]; then
+        if [ -f "$PLUGIN_AGENTS/$name.md" ] || grep -qx "$name" <<< "$DESIGN_TOOLKIT_PANEL"; then
             errors+=("SHADOW: consumer $CONSUMER_AGENTS/$name.md shadows plugin-shipped agent '$name' — remove or rename the consumer copy (drift tripwire; see docs/namespaces.md rule 5)")
         fi
     done

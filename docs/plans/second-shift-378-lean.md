@@ -49,7 +49,17 @@ never ported.
   and **no** DANGLING denial — otherwise every consumer without design-toolkit is commit-blocked by
   this change. The selftest gains a case for each (present-toolkit resolution, absent-toolkit
   degrade), and the existing real-root case (`check-reviewer-references-selftest.sh:102-105`) stays
-  green.
+  green. Because the exemption set is *declared*, every name in it is guarded: a case drives the
+  **real shipped panel** against an absent design-toolkit and asserts the notice names **all**
+  declared entries — the (real artifact × degrade condition) cell no fixture panel reaches. The
+  versioned-sibling cache glob is exercised with no root override, so it is not dead code.
+
+- **AC-9** — the SHADOW drift tripwire (`docs/namespaces.md` rule 5) still fires for the
+  design-toolkit-shipped panel names this change registers, **whether or not design-toolkit is
+  installed** — tested by membership in the declared set, not by file presence. Without this,
+  registering the names silently retires the tripwire for exactly them: a consumer copy resolves
+  DANGLING through the consumer-root clause and is in the effective registry, so it escapes ORPHAN
+  too. Guarded by a selftest case run in the design-toolkit-absent configuration.
 
 - **AC-4** — extension-file basenames for both reviewers are accepted
   (`.claude/second-shift/review-context/figma-faithful-reviewer.md` lints clean under
@@ -60,7 +70,12 @@ never ported.
   dead-reviewer contract and are distinct from `Dark (no output)`: note once in the round summary,
   never silent, never a red. Toolkit-absent detection is **in-session, pre-dispatch, at Routing** —
   it never reaches `code-review.mjs`, so it cannot collide with the `{result: null}` →
-  `Dark (no output)` rule.
+  `Dark (no output)` rule. The toolkit-absent disposition is keyed on **the dimension having been
+  selected — by any row of the provider map, the no-provider default included** — never on
+  `design.provider` being declared. The default row selects a reviewer with no provider key at all,
+  so a presence-keyed condition would leave the commonest consumer (no provider, no design-toolkit)
+  falling through every disposition — silently, which this AC forbids. The skill's clause and the
+  lint's exemption are two halves of one degrade and must agree; the lint's is unconditional.
 
 - **AC-6** — `plugins/dev-pipeline/skills/run-lean/SKILL.md` is unchanged.
 
@@ -84,6 +99,23 @@ The sed map already has `Design Faithful` → `design-faithful-reviewer` and gai
 **Which names are design-toolkit-shipped is a declared set in the lint**, not derived: when the
 sibling root resolves empty there is nothing on disk to derive it from, and the exemption is exactly
 the case that has to work without it.
+
+**The config read is resolved once, not written cwd-relative.** Stage 8 read `"$SECOND_SHIFT_CONFIG"`;
+the relocated copy keeps that override and anchors the default on `worktree` (the repo-under-review
+path Pre-flight already supplies), matching what this same file documents for the `reviewers` read.
+Both new keys fail *open* on an unreadable path — an unread `design.provider` takes the *key absent*
+row, which is a legitimate state and therefore produces no not-selected note — so a cwd-relative
+literal would route the wrong reviewer silently, and the Step 4c diagnostic would print default globs
+for a config that was never opened.
+
+**`a11y-reviewer`'s standalone trigger narrows, deliberately.** It moves from "the repo's web UI file
+globs, e.g. `**/*.tsx` / `**/*.jsx`" (any depth) to `$WEB_COMPONENT_GLOBS` (default
+`apps/web/**/*.{tsx,jsx}`) — the key and default Stage 8 already used. Sharing one trigger is the
+point: the design-fidelity dimension is specified as spawning *alongside* `a11y-reviewer` on the same
+surface, and two triggers that disagree would make "alongside" false. The cost, stated rather than
+discovered: a consumer with FE at `src/**/*.tsx` and no `webComponentGlobs` key loses a11y routing it
+had under standalone `/review-lead`, and fixes it by setting the key it would need for design-fidelity
+anyway.
 
 **`check-review-context.sh` needs no parallel change.** Its registry comes from
 `_effective-registry.sh`, which extracts bare names from the same panel parenthetical by regex and

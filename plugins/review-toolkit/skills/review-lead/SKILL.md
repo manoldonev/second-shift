@@ -60,9 +60,12 @@ Two further keys are read from the same file at the start of Routing, both feedi
 - `design.provider` — `figma` | `claude-design`. Selects which fidelity reviewer the web-component trigger routes to. **Key absent is a supported state**, not a misconfiguration.
 - `stageParams.webComponentGlobs` — the repo's web-component surface, e.g. `["src/app/**/*.{html,ts}"]` (Angular), `["src/**/*.vue"]` (Vue), `["app/**/*.tsx"]` (React Router v7). Absent resolves to `["apps/web/**/*.{tsx,jsx}"]`. It gates both `a11y-reviewer` and the design-fidelity dimension.
 
+Resolve the path **once**, from the same file and the same override the `reviewers` read above uses, anchored on `worktree` (the absolute repo-under-review path from Pre-flight) — never a cwd-relative literal. This session's cwd is not reliably the reviewed repo's root, and both keys fail *open* on an unreadable path: an unread `design.provider` silently takes the _key absent_ row (the wrong reviewer, with no not-selected note, because absence is a legitimate state), and an unread `stageParams.webComponentGlobs` silently reverts to the shipped default.
+
 ```bash
-DESIGN_PROVIDER=$(jq -r '.design.provider // empty' .claude/second-shift.config.json 2>/dev/null)
-WEB_COMPONENT_GLOBS=$(jq -r '(.stageParams.webComponentGlobs // ["apps/web/**/*.{tsx,jsx}"]) | .[]' .claude/second-shift.config.json 2>/dev/null || echo 'apps/web/**/*.{tsx,jsx}')
+CONFIG="${SECOND_SHIFT_CONFIG:-$WORKTREE/.claude/second-shift.config.json}"
+DESIGN_PROVIDER=$(jq -r '.design.provider // empty' "$CONFIG" 2>/dev/null)
+WEB_COMPONENT_GLOBS=$(jq -r '(.stageParams.webComponentGlobs // ["apps/web/**/*.{tsx,jsx}"]) | .[]' "$CONFIG" 2>/dev/null || echo 'apps/web/**/*.{tsx,jsx}')
 ```
 
 ## Sub-Agent Trust Model
@@ -186,7 +189,9 @@ The no-provider row is a **default, not a fallback to nothing**: a repo with no 
 
 **What this dimension asserts.** Both reviewers are design-blind by contract — they verify *the abstraction is right*, not that it matches an unseen design. This dimension covers design-token discipline, logical-vs-physical style props, real-component reuse over hand-rolled primitives, and copy drift against a discoverable spec. **It is not a pixel check** — the pixel loop belongs to the implementing session's self-verify artifact and to the human reviewer.
 
-**Toolkit-absent degrade.** These two agents ship in the `design-toolkit` plugin, not review-toolkit. If config declares `design.provider` but the design-toolkit agent type is not available to dispatch in this session, **do not select it** — detection is in-session and pre-dispatch, here at Routing. Note it once in the round summary (see "Not-selected ≠ dark" under the Synthesis Rules). Because nothing was ever dispatched, this never reaches `code-review.mjs` and cannot be confused with a dark reviewer.
+**Toolkit-absent degrade.** These two agents ship in the `design-toolkit` plugin, not review-toolkit. The condition is that **the dimension was selected** — by *any* row of the map above, the no-provider default included — and the design-toolkit agent type is not available to dispatch in this session. When it holds, **do not select it**; detection is in-session and pre-dispatch, here at Routing. Note it once in the round summary (see "Not-selected ≠ dark" under the Synthesis Rules). Because nothing was ever dispatched, this never reaches `code-review.mjs` and cannot be confused with a dark reviewer.
+
+Keying this on the *dimension being selected* rather than on `design.provider` being declared is load-bearing, not phrasing: the default row selects a reviewer with no provider key at all, and "no provider declared, design-toolkit not installed" is the ordinary shape of a consumer running review-toolkit alone. A degrade keyed on the key's presence would leave exactly that consumer's dimension silently unrun. The lint's matching exemption (`check-reviewer-references.sh`) is unconditional for the same reason — the two halves of one degrade must agree.
 
 ## Spawning Reviewers
 
@@ -303,7 +308,7 @@ A dark reviewer does not by itself force "Ready to merge? = No" (unlike the Scop
 A reviewer that was **never selected** is a different case from a dark reviewer: nothing failed, the trigger simply did not fire, so it is **not** a `[Coverage gap]` and its Verdicts row is omitted, not `Dark (no output)`. Reserve that rendering for reviewers that were selected and produced no usable result. Two not-selected cases still must not be invisible, because in each one a whole dimension is silently absent while the round looks green:
 
 - **Unmatched web-component surface.** No changed path matched `$WEB_COMPONENT_GLOBS`, so neither `a11y-reviewer` nor the design-fidelity dimension was routed. Note once in the Review Summary, **including the resolved globs** so a mis-scoped config is diagnosable from the line itself — e.g. "a11y + design-fidelity not routed: no changed path matched `stageParams.webComponentGlobs` (`apps/web/**/*.{tsx,jsx}`)". A genuinely non-FE diff is the overwhelmingly common case; escalating it would make every backend PR noisy.
-- **Design-toolkit not installed.** Config declares `design.provider`, a changed path *did* match, but the design-toolkit agent type is not available to dispatch (Routing detected this pre-dispatch). Note once: "design-fidelity dimension not run — design-toolkit not installed". `a11y-reviewer` is unaffected and still spawns.
+- **Design-toolkit not installed.** A changed path *did* match and the provider map selected a fidelity reviewer — by any row, **the no-provider default included** — but the design-toolkit agent type is not available to dispatch (Routing detected this pre-dispatch). Note once: "design-fidelity dimension not run — design-toolkit not installed". `a11y-reviewer` is unaffected and still spawns. The trigger is selection, not a declared `design.provider`: on the default row no provider is declared and the dimension is still selected, so a provider-keyed condition would make this note unreachable for the commonest consumer.
 
 Both are **a note, never a blocker, and never silent** — and neither is a red.
 
