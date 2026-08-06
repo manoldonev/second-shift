@@ -200,6 +200,25 @@ seam-scrub-lean	verbatim	plugins/dev-pipeline/skills/run-lean/lean-gate.sh	seam-
 # without the docs following fails the suite. Mechanical on both legs, by two mechanisms.
 audit-row-fields	verbatim	plugins/audit-toolkit/skills/audit/QUERIES.md	audit-row-fields	plugins/audit-toolkit/skills/audit/SETUP.md	audit-row-fields
 #
+# Audit ledger DIRECTORY resolution — the hook (writer) ↔ audit-history.sh (sweeper). Both
+# must land on `--git-common-dir/..`, because the lean readers (lean-gate.sh's `entry`,
+# lean-reconcile.sh, statectl.sh's ledger_dir()) all do, and the writer disagreeing with
+# them produced two opposite failures: an honest worktree run refused at `entry` for a
+# ledger it had just written, and a verdict record naming a session reconcile could not
+# resolve — which reads as forgery.
+#
+# TWO COPIES rather than one sourced helper on purpose: the hook fires on every tool call
+# and stays dependency-free (no `source`, no PATH assumption, nothing to resolve at hook
+# time), and audit-history.sh is a standalone slash-command script. Prose was the only
+# thing that would otherwise hold them together, which is exactly this file's remit. The
+# THIRD and FOURTH sites are deliberately NOT rows: lean-gate.sh derives `MAIN_ROOT` for
+# many purposes beyond the ledger and statectl.sh's `ledger_dir()` carries its own
+# three-tier override ladder, so neither shares anchorable bytes with this block. Those
+# two are held by fixtures instead — lean-gate-selftest.sh and lean-reconcile-selftest.sh
+# each drive the REAL hook from a linked worktree and assert their reader finds the result,
+# so a writer-side drift reds a reader's suite.
+audit-ledger-dir	verbatim	plugins/audit-toolkit/hooks/audit-tool-calls.sh	audit-ledger-dir	plugins/audit-toolkit/scripts/audit-history.sh	audit-ledger-dir
+#
 # Decomposition-economy rule (the run-cost bias). One canonical author — the
 # intake-orchestrator, which owns the verdict — mirrored into decomposition-reviewer,
 # which reviews splits against the same standard and must not drift into a softer one.

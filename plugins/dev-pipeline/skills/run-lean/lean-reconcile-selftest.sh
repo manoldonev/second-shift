@@ -613,6 +613,48 @@ if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q 'matches no earlier verdict r
 else fail "(P9) expected rc=1 on a dangling link under jira, got $rc: $out"; fi
 p_restore "2026-01-01T14:25:00Z"
 
+# ---- (Q) the SHIPPED ledger path, with the REAL hook as its writer ---------------------------
+# Every case above sets LEAN_AUDIT_DIR, so the default resolution — `--git-common-dir/..`, the
+# only one a real operator run takes — is exercised by nothing here, and the ledger it points at
+# is synthesized by write_ledger(), which agrees with the reader by construction.
+#
+# That pair of gaps hid a live defect: the audit hook wrote beside the WORKTREE while this
+# script reads the main checkout, so a review session that ran in a worktree produced a verdict
+# naming a session with no ledger anywhere — reported as "the verdict record names a session the
+# harness has no record of", a forgery signal fired on an honest review.
+#
+# So this case drops the seam and drives the REAL hook from a linked worktree. The cross-plugin
+# reach is the point: a local copy of the writer's path logic could not fail on a writer edit.
+#
+# Asserted on the ledger ARM, not on the exit code. The other arms have their own fixtures
+# above, and binding this case to a fully-green run would make it fail for reasons that are not
+# about where the ledger lives — the failure mode this suite exists to keep attributable.
+HOOK="$HERE/../../../audit-toolkit/hooks/audit-tool-calls.sh"
+if [ ! -x "$HOOK" ]; then
+  fail "(Q) audit hook not found at $HOOK — the writer half of the ledger contract is unreachable"
+else
+  WT_REC="$WORK/wt-rec"
+  REVIEW_SESSION_WT="sess-review-worktree"
+  write_progress "$RUN_ID" "$SESSION"
+  write_verdict "$REVIEW_RUN_ID" "$REVIEW_SESSION_WT"
+  commit_verdict "2026-01-01T15:00:00Z"
+  git -C "$TREE" worktree add -q -b wt-rec "$WT_REC" >/dev/null 2>&1
+  if [ ! -d "$WT_REC" ]; then
+    fail "(Q) could not create a linked worktree on the fixture repo"
+  else
+    printf '%s' "{\"session_id\":\"$REVIEW_SESSION_WT\",\"cwd\":\"$WT_REC\",\"hook_event_name\":\"PostToolUse\",\"tool_name\":\"Read\",\"tool_input\":{\"file_path\":\"$WT_REC/x\"}}" \
+      | CLAUDE_PROJECT_DIR="$WT_REC" "$HOOK"
+    out="$( cd "$WT_REC" && SECOND_SHIFT_CONFIG="$CFG" LEAN_PROGRESS_FILE="$PROG" \
+            bash "$TOOL" 7 --comments-file "$WORK/comments-good.json" 2>&1 )"
+    if printf '%s' "$out" | grep -q "review session $REVIEW_SESSION_WT is distinct from the build session and has a live ledger" \
+       && ! printf '%s' "$out" | grep -q 'no review-session audit ledger'; then
+      pass "(Q) the default ledger path resolves a worktree-run review session's REAL hook ledger"
+    else
+      fail "(Q) the shipped ledger path did not find the hook's own output: $out"
+    fi
+  fi
+fi
+
 # ---- (O) --help prints the header, and only the header --------------------------------------
 # `sed -n '2,Np'` is a hand-maintained line number, and this file had no guard for it — which is
 # exactly how its siblings silently truncated their own help text after a header grew. Two
