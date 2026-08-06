@@ -2026,5 +2026,537 @@ if [ "$rc" -eq 0 ] && printf '%s' "$out" | grep -q 'inheriting 1 verified earlie
   pass "(z5b) and the chain it writes is one link, not the two a self-link would have counted"
 else fail "(z5b) expected a 1-link chain after the re-run, got rc=$rc: $out"; fi
 
+# ---- (d) the DESIGN RENDER LANE (#394) ------------------------------------------------------
+# Three failure classes from a design-driven consumer run, each with its own arm here:
+#   (2) a PASSING render that captured the default collapsed state and verified nothing
+#       → the RS table + {state} + the identical-hash collision detector, (dr1)/(dr3)/(dr6);
+#   (1) a NON-BLOCKING degrade that shipped five visual defects
+#       → blocking on the fix budget, (dr4)/(dr5) — there is no degraded state to assert;
+#   (3) a design-BLIND reviewer that passed while disclaiming it could verify nothing
+#       → the `fidelity:` verdict key, (fd*).
+#
+# ITS OWN FIXTURE TREE, for the reason the (x)/(z) blocks state and one more: this block's cases
+# commit render manifests and rewrite .gitignore, and every earlier block's tree is asserted
+# against by cases that would silently change meaning if either happened in it.
+#
+# The render harness is a STUB — deliberately, and it is the level the ACs are written at. The
+# real-renderer end-to-end proof is #348's own merge precondition; what is gated HERE is the
+# gate's own contract with any harness, so the stub's job is to be arg-asserting (it refuses an
+# unsubstituted placeholder rather than quietly rendering) and byte-deterministic.
+DTREE="$WORK/dtree"
+mkdir -p "$DTREE/docs/plans" "$DTREE/.claude"
+git -C "$DTREE" init -q
+git -C "$DTREE" config user.email t@example.invalid
+git -C "$DTREE" config user.name t
+printf '.claude/\n' > "$DTREE/.gitignore"
+DSPEC="$DTREE/docs/plans/acme-55-lean.md"
+DVERDICT="$DTREE/docs/plans/acme-55-lean-verdict.md"
+DMANIFEST="$DTREE/docs/plans/acme-55-lean-renders.md"
+DPROG="$WORK/dprogress.md"
+DCFG="$WORK/dconfig.json"
+DSTUB="$WORK/render-stub.sh"
+DCALLS="$WORK/stub-calls.log"
+DMODE="$WORK/stub-mode"
+
+# The arg-asserting stub. It exits NONZERO on an unsubstituted `{route}`/`{state}`/`{out}`, so a
+# gate that forwarded the template verbatim reds instead of producing a plausible screenshot —
+# the assertion AC-3 names, made by the harness rather than by a grep over the gate's stdout.
+# Its bytes are a function of route+state, which is what makes two declared states distinguish
+# themselves; `blind` mode is the same harness ignoring {state}, i.e. failure class (2).
+cat > "$DSTUB" <<EOSTUB
+#!/usr/bin/env bash
+CALLS="$DCALLS"
+MODEF="$DMODE"
+EOSTUB
+cat >> "$DSTUB" <<'EOSTUB'
+route=""; state=""; out=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --route) route="${2:-}"; shift 2 ;;
+    --state) state="${2:-}"; shift 2 ;;
+    --out)   out="${2:-}"; shift 2 ;;
+    *) shift ;;
+  esac
+done
+printf '%s|%s|%s\n' "$route" "$state" "$out" >> "$CALLS"
+mode=ok; [ -f "$MODEF" ] && mode="$(cat "$MODEF")"
+case "$route" in ''|*'{route}'*) echo "stub: {route} not substituted ('$route')" >&2; exit 90 ;; esac
+case "$out"   in ''|*'{out}'*)   echo "stub: {out} not substituted ('$out')" >&2;     exit 91 ;; esac
+case "$mode" in
+  fail)  echo "stub: simulated harness failure" >&2; exit 7 ;;
+  empty) : > "$out" ;;
+  blind) printf 'PNG-%s\n' "$route" > "$out" ;;
+  *)
+    case "$state" in ''|*'{state}'*) echo "stub: {state} not substituted ('$state')" >&2; exit 92 ;; esac
+    printf 'PNG-%s-%s\n' "$route" "$state" > "$out" ;;
+esac
+exit 0
+EOSTUB
+
+dcfg() { # dcfg <liveRender-command-or-empty> [cwd]
+  local cmd="${1:-}" cwd="${2:-}" lr=""
+  if [ -n "$cmd" ]; then
+    lr=", \"liveRender\": { \"command\": \"$cmd\"$([ -n "$cwd" ] && printf ', "cwd": "%s"' "$cwd") }"
+  fi
+  cat > "$DCFG" <<EOCFG
+{
+  "tracker": { "branchPrefix": "claude/acme-", "labels": { "queue": "ready-for-dev", "claimed": "in-progress" } },
+  "topology": { "repos": { "acme": { "path": ".", "baseBranch": "main" } } },
+  "paths": { "plansDir": "docs/plans", "pipelineStateDir": ".claude/pipeline-state" },
+  "commands": { "acme": { "lint": null, "typecheck": null, "test": null, "allowUnverified": true } },
+  "design": { "provider": "figma"$lr }
+}
+EOCFG
+}
+DSTUB_CMD="bash $DSTUB --route {route} --state {state} --out {out}"
+
+dcommit() {
+  git -C "$DTREE" add -A >/dev/null 2>&1
+  git -C "$DTREE" commit -q --allow-empty -m "${1:-fixture}" >/dev/null 2>&1
+}
+dgate() { ( unset RUN_ID CLAUDE_CODE_SESSION_ID; cd "$DTREE" \
+  && SECOND_SHIFT_CONFIG="$DCFG" LEAN_PROGRESS_FILE="$DPROG" bash "$GATE" --issue-file "$ISSUE_NOREGIONS" "$@" 2>&1 ); }
+# The UNARMED reader: the same tree and the same spec, read through a config with no design axis.
+# That pairing is the AND→OR mutant's executioner — under OR the section alone would arm.
+dgate_nodesign() { ( unset RUN_ID CLAUDE_CODE_SESSION_ID; cd "$DTREE" \
+  && SECOND_SHIFT_CONFIG="$CFG" LEAN_PROGRESS_FILE="$DPROG" bash "$GATE" --issue-file "$ISSUE_NOREGIONS" "$@" 2>&1 ); }
+dverdict() { # dverdict <session-id> <run-id> [args...]
+  local sid="$1" rid="$2"; shift 2
+  ( unset RUN_ID; cd "$DTREE" && SECOND_SHIFT_CONFIG="$DCFG" LEAN_PROGRESS_FILE="$DPROG" \
+    CLAUDE_CODE_SESSION_ID="$sid" RUN_ID="$rid" bash "$GATE" verdict 55 "$@" 2>&1 )
+}
+dreset() { rm -f "$DPROG"; { echo "# lean run — issue 55"; echo ""; echo "run_id: r-build-d"; echo "session_id: sess-build-d"; } > "$DPROG"; }
+# CAPTURE FIRST, default on the assignment — the trap lean-gate.sh's own count_matches()
+# documents: on zero matches `grep -c` PRINTS "0" *and* exits 1, so a trailing `|| echo 0`
+# emits a second "0" and every arithmetic test on the result then trips "integer expression
+# expected" and reads as false. A counter that silently returns "0\n0" fails the exact
+# assertions it exists to make (this cost (dl4) a round).
+dnum() { # dnum <grep-args...>
+  local n
+  n="$("$@" 2>/dev/null)" || n=0
+  [ -n "$n" ] || n=0
+  echo "$n"
+}
+dcalls() { if [ -f "$DCALLS" ]; then dnum grep -c . "$DCALLS"; else echo 0; fi; }
+dcount() { if [ -f "$DPROG" ]; then dnum grep -cF "$1" "$DPROG"; else echo 0; fi; }
+dmode()  { printf '%s' "$1" > "$DMODE"; }
+
+dspec_armed() { # dspec_armed <extra-rows...>
+  {
+    echo "# spec"
+    echo ""
+    echo "- AC-1: the thing"
+    echo ""
+    echo "## Design"
+    echo ""
+    echo "Handoff: https://design.example.invalid/file/abc"
+    echo ""
+    echo "| RS-n | route | state (what must be visible) | AC refs |"
+    echo "| --- | --- | --- | --- |"
+    echo "| RS-1 | prospects | default | AC-1 |"
+    echo "| RS-2 | prospects | filters expanded | AC-1 |"
+  } > "$DSPEC"
+}
+
+dmode ok
+dcfg "$DSTUB_CMD"
+dcommit "base"
+git -C "$DTREE" update-ref refs/remotes/origin/main HEAD
+printf 'the work\n' > "$DTREE/subject.txt"
+
+# ---- (dz) AC-1: the milestone-1 arming forms --------------------------------------------
+# (dz1) provider configured, no section at all.
+dreset
+printf '# spec\n\n- AC-1: the thing\n' > "$DSPEC"
+dcommit "a spec with no Design section"
+out="$(dgate 1 55)"; rc=$?
+if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q 'must carry a "## Design" section'; then
+  pass "(dz1) a configured design.provider with no '## Design' section reds milestone 1"
+else fail "(dz1) expected the missing-section refusal, rc=$rc: $out"; fi
+
+# (dz3) THE AND→OR EXECUTIONER, run before the armed cases so the spec it reads is the armed one.
+# Same tree, same spec, config with no design axis: milestone 1 must pass and say nothing about
+# arming. Under an OR reading of D-8 this case reds, because the section alone would arm a repo
+# that owns no render harness.
+dreset
+dspec_armed
+dcommit "the armed spec"
+out="$(dgate_nodesign 1 55)"; rc=$?
+if [ "$rc" -eq 0 ] && ! printf '%s' "$out" | grep -q 'ARMED'; then
+  pass "(dz3) a '## Design' section in a repo with no design.provider arms NOTHING (the AND half of D-8)"
+else fail "(dz3) expected an unarmed pass, rc=$rc: $out"; fi
+
+# (dz4) and the same spec under the design config IS armed.
+dreset
+out="$(dgate 1 55)"; rc=$?
+if [ "$rc" -eq 0 ] && printf '%s' "$out" | grep -q 'design lane ARMED'; then
+  pass "(dz4) the same spec under a configured provider arms the lane"
+else fail "(dz4) expected an armed pass, rc=$rc: $out"; fi
+
+# (dz2) the explicit-empty form.
+dreset
+printf '# spec\n\n- AC-1: the thing\n\n## Design\n\nDesign: none — no FE surface in this ticket.\n' > "$DSPEC"
+out="$(dgate 1 55)"; rc=$?
+if [ "$rc" -eq 0 ] && printf '%s' "$out" | grep -q 'disarmed'; then
+  pass "(dz2) 'Design: none — <reason>' is a conscious per-ticket disarm, not a defect"
+else fail "(dz2) expected a disarmed pass, rc=$rc: $out"; fi
+
+# (dz5) a disarm with no reason is not the form. An undocumented disarm is indistinguishable
+# from an omission at review time, which is what the review-side blocker has to judge.
+dreset
+printf '# spec\n\n- AC-1: the thing\n\n## Design\n\nDesign: none\n' > "$DSPEC"
+out="$(dgate 1 55)"; rc=$?
+if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q 'states no reason'; then
+  pass "(dz5) a bare 'Design: none' is refused — the disarm is a decision and must carry one"
+else fail "(dz5) expected the no-reason refusal, rc=$rc: $out"; fi
+
+# (dz6) render states declared, no handoff link: the review session would have nothing to score
+# the screenshots against.
+dreset
+printf '# spec\n\n- AC-1: x\n\n## Design\n\n| RS-n | route | state | AC refs |\n| --- | --- | --- | --- |\n| RS-1 | p | default | AC-1 |\n' > "$DSPEC"
+out="$(dgate 1 55)"; rc=$?
+if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q 'no provider handoff link'; then
+  pass "(dz6) an armed section with no handoff link is refused at authoring time"
+else fail "(dz6) expected the missing-link refusal, rc=$rc: $out"; fi
+
+# (dz7) a section that is neither armed nor disarmed — the shape that produced failure class (2).
+dreset
+printf '# spec\n\n- AC-1: x\n\n## Design\n\nHandoff: https://design.example.invalid/f/a\n' > "$DSPEC"
+out="$(dgate 1 55)"; rc=$?
+if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q 'declares no render state'; then
+  pass "(dz7) a section naming neither a render state nor a disarm is refused"
+else fail "(dz7) expected the no-render-state refusal, rc=$rc: $out"; fi
+
+# ---- (dr) AC-3: the render pass ----------------------------------------------------------
+# (dr7) the template must carry {out} — there is otherwise nowhere for a screenshot to land.
+dreset
+dspec_armed
+dcommit "the armed spec, restored"
+dcfg "bash $DSTUB --route {route} --state {state}"
+out="$(dgate 3 55)"; rc=$?
+if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q 'no {out} placeholder'; then
+  pass "(dr7) a liveRender.command with no {out} reds milestone 3"
+else fail "(dr7) expected the missing-{out} refusal, rc=$rc: $out"; fi
+
+# (dr6) {state} is required only because a NON-DEFAULT state is declared. Without it the harness
+# would screenshot the default view for every row — failure class (2), passing every other check.
+dreset
+dcfg "bash $DSTUB --route {route} --out {out}"
+out="$(dgate 3 55)"; rc=$?
+if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q 'no {state} placeholder'; then
+  pass "(dr6) a non-default RS row with no {state} in the command reds milestone 3"
+else fail "(dr6) expected the missing-{state} refusal, rc=$rc: $out"; fi
+
+# ...and the same command is ACCEPTED when every declared state is the default one, so (dr6)
+# turns on the declared state and not merely on the placeholder's absence.
+dreset
+{
+  echo "# spec"; echo ""; echo "- AC-1: x"; echo ""; echo "## Design"; echo ""
+  echo "Handoff: https://design.example.invalid/f/a"; echo ""
+  echo "| RS-n | route | state | AC refs |"; echo "| --- | --- | --- | --- |"
+  echo "| RS-1 | prospects | default | AC-1 |"
+} > "$DSPEC"
+dcommit "a single default-state spec"
+out="$(dgate 3 55)"; rc=$?
+# The POSITIVE half: the run reached the render itself. Asserting only the refusal's absence
+# would also pass if the gate had redded one line earlier for some unrelated reason, which is
+# how a "the check did not fire" case quietly stops asserting anything.
+if ! printf '%s' "$out" | grep -q 'no {state} placeholder' \
+   && printf '%s' "$out" | grep -q 'milestone-3: render RS-1'; then
+  pass "(dr6b) a default-only render table needs no {state} — the refusal is keyed on the declared state, and the run reaches the render"
+else fail "(dr6b) expected the template check to pass through to the render, rc=$rc: $out"; fi
+
+# (dr11) a repeated RS id. The id is the screenshot's filename, so the second render overwrites
+# the first and the manifest ends up with two rows backed by one file — evidence that fails the
+# reviewer's hash check for a reason the spec author never sees.
+dreset
+{
+  echo "# spec"; echo ""; echo "- AC-1: x"; echo ""; echo "## Design"; echo ""
+  echo "Handoff: https://design.example.invalid/f/a"; echo ""
+  echo "| RS-n | route | state | AC refs |"; echo "| --- | --- | --- | --- |"
+  echo "| RS-1 | prospects | default | AC-1 |"
+  echo "| RS-1 | prospects | filters expanded | AC-1 |"
+} > "$DSPEC"
+dcommit "a spec repeating an RS id"
+out="$(dgate 3 55)"; rc=$?
+if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q "twice"; then
+  pass "(dr11) a repeated RS id reds — one id, one screenshot file, no silently overwritten evidence"
+else fail "(dr11) expected the duplicate-id refusal, rc=$rc: $out"; fi
+
+# (dr10) cwd naming a repo this run does not host. The lean lane works one worktree; the honest
+# answer is to name the limitation, not to render the wrong tree.
+dreset
+dspec_armed
+dcommit "the armed spec, restored"
+dcfg "$DSTUB_CMD" "fe"
+out="$(dgate 3 55)"; rc=$?
+if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q 'run the lean lane from the repo that owns the render harness'; then
+  pass "(dr10) design.liveRender.cwd naming a non-host topology repo reds with the limitation named"
+else fail "(dr10) expected the cwd limitation refusal, rc=$rc: $out"; fi
+
+# (dr8) the check-ignore RED. PNG bytes must never enter history, and the refusal prints the
+# exact line to add rather than leaving the operator to derive it.
+dreset
+dcfg "$DSTUB_CMD"
+printf 'docs/nothing\n' > "$DTREE/.gitignore"
+out="$(dgate 3 55)"; rc=$?
+if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q 'not git-ignored' \
+   && printf '%s' "$out" | grep -qF '.claude/lean-renders/'; then
+  pass "(dr8) an un-ignored render output path reds, naming the exact .gitignore line to add"
+else fail "(dr8) expected the check-ignore refusal with the remedy line, rc=$rc: $out"; fi
+
+# (dr9) and the GREEN half, restored: the same assertion passes once the path is ignored, so
+# (dr8) turns on the ignore rule and not on something incidental to that tree.
+printf '.claude/\n' > "$DTREE/.gitignore"
+dcommit "restore the ignore rule"
+dreset
+out="$(dgate 3 55)"; rc=$?
+if ! printf '%s' "$out" | grep -q 'not git-ignored'; then
+  pass "(dr9) the same path passes the ignore assertion once .gitignore covers it"
+else fail "(dr9) the check-ignore refusal survived the ignore rule: $out"; fi
+
+# (dr5) a harness that exits nonzero. BLOCKING: there is no degraded state to assert, which is
+# the whole of failure class (1) — the run stops here.
+dreset
+dmode fail
+rm -f "$DCALLS" "$DMANIFEST"
+out="$(dgate 3 55)"; rc=$?
+if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q 'render RS-1' && printf '%s' "$out" | grep -q 'failed (rc=7)' \
+   && [ ! -f "$DMANIFEST" ]; then
+  pass "(dr5) a nonzero render exit reds milestone 3 and writes no manifest"
+else fail "(dr5) expected the render failure refusal and no manifest, rc=$rc: $out"; fi
+
+# (dr4) a harness that exits 0 and writes nothing. The exit code alone would have called this a
+# pass — the second half of failure class (1).
+dreset
+dmode empty
+rm -f "$DCALLS" "$DMANIFEST"
+out="$(dgate 3 55)"; rc=$?
+if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q 'wrote no PNG bytes' && [ ! -f "$DMANIFEST" ]; then
+  pass "(dr4) a zero-byte screenshot reds even though the harness exited 0"
+else fail "(dr4) expected the zero-byte refusal, rc=$rc: $out"; fi
+
+# (dr3) THE {state}-BLIND HARNESS — failure class (2) exactly. Two declared states, one view
+# rendered twice: every other assertion here passes, and only the hash collision separates it
+# from an honest two-state render.
+dreset
+dmode blind
+rm -f "$DCALLS" "$DMANIFEST"
+out="$(dgate 3 55)"; rc=$?
+if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q 'hash identically' && [ ! -f "$DMANIFEST" ]; then
+  pass "(dr3) two declared states rendering byte-identically red — the {state}-blind-harness detector"
+else fail "(dr3) expected the identical-hash refusal, rc=$rc: $out"; fi
+
+# (dr1) THE HAPPY PATH. Two rows, two distinct PNGs, two manifest rows — and the manifest reds
+# until it is committed, because the receipt sits inside reviewed_patch_id and a verdict must
+# bind to evidence that is actually on the branch.
+dreset
+dmode ok
+rm -f "$DCALLS" "$DMANIFEST"
+out="$(dgate 3 55)"; rc=$?
+D_ROWS="$(grep -cE '^\| RS-[0-9]+ \|' "$DMANIFEST" 2>/dev/null)" || D_ROWS=0
+if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q 'commit it and re-run' \
+   && [ "$D_ROWS" -eq 2 ] && [ "$(dcalls)" -eq 2 ] \
+   && [ -s "$DTREE/.claude/lean-renders/55/RS-1.png" ] && [ -s "$DTREE/.claude/lean-renders/55/RS-2.png" ]; then
+  pass "(dr1) two declared states render into two non-empty PNGs and two manifest rows, red until committed"
+else fail "(dr1) expected 2 rows / 2 calls / 2 PNGs and the commit refusal, rc=$rc rows=$D_ROWS calls=$(dcalls): $out"; fi
+
+# (dr2) the arg-asserting half made explicit: the stub was handed each declared route AND state,
+# so a gate that forwarded the template or dropped {state} could not have reached (dr1).
+if grep -qF 'prospects|default|' "$DCALLS" && grep -qF 'prospects|filters expanded|' "$DCALLS"; then
+  pass "(dr2a) the harness received each declared {route}/{state} pair, substituted"
+else fail "(dr2a) the stub's call log does not carry both substituted pairs: $(cat "$DCALLS")"; fi
+
+# (dr2) the recorded hash IS the file's hash — recomputed here rather than trusted, because a
+# manifest that hashed something else would still look like a receipt.
+D_SHA="$(shasum -a 256 "$DTREE/.claude/lean-renders/55/RS-2.png" 2>/dev/null | cut -d' ' -f1)"
+if [ -n "$D_SHA" ] && grep -qF "$D_SHA" "$DMANIFEST"; then
+  pass "(dr2b) a recomputed sha256 of a rendered PNG matches its manifest cell"
+else fail "(dr2b) the manifest does not carry RS-2's real hash ($D_SHA): $(cat "$DMANIFEST")"; fi
+
+# ---- (di) AC-4: idempotence ---------------------------------------------------------------
+# (di1) committed, the same evaluation passes WITHOUT re-rendering. Without this every `all`
+# sweep would re-shoot every state, and each re-shoot rewrites the receipt inside the reviewed
+# patch.
+dcommit "the render receipt"
+dreset
+D_CALLS_BEFORE="$(dcalls)"
+out="$(dgate 3 55)"; rc=$?
+if [ "$rc" -eq 0 ] && [ "$(dcalls)" -eq "$D_CALLS_BEFORE" ] \
+   && printf '%s' "$out" | grep -q 'not re-rendering'; then
+  pass "(di1) a pre-verdict re-run passes on the committed receipt and renders nothing again"
+else fail "(di1) expected an idempotent pass, rc=$rc calls=$(dcalls) (was $D_CALLS_BEFORE): $out"; fi
+
+# (di1b) ...and the bytes are load-bearing BEFORE a verdict exists: delete one PNG and the same
+# evaluation re-renders, because the screenshots are what a review round is about to read.
+rm -f "$DTREE/.claude/lean-renders/55/RS-2.png"
+dreset
+out="$(dgate 3 55)"; rc=$?
+if [ "$(dcalls)" -gt "$D_CALLS_BEFORE" ]; then
+  pass "(di1b) a missing PNG pre-verdict re-renders — the receipt alone is not the evidence yet"
+else fail "(di1b) expected a re-render after deleting a PNG, calls=$(dcalls) (was $D_CALLS_BEFORE): $out"; fi
+dcommit "the re-rendered receipt"
+
+# (di2) POST-APPROVE the bytes stop mattering and the binding alone passes. Two things ride on
+# this: the mandated pre-close `bash G all` sweep must not re-render (a rewritten receipt is
+# inside reviewed_patch_id and would void the approve it just earned — a livelock no fix clears),
+# and a resume in a fresh worktree has no PNGs at all.
+dreset
+printf 'verdict=approve\nrun_id: r-review-d\n' > "$DVERDICT"
+rm -rf "$DTREE/.claude/lean-renders/55"
+D_CALLS_BEFORE="$(dcalls)"
+out="$(dgate 3 55)"; rc=$?
+if [ "$rc" -eq 0 ] && [ "$(dcalls)" -eq "$D_CALLS_BEFORE" ] \
+   && printf '%s' "$out" | grep -q 'this round is approved'; then
+  pass "(di2) post-approve, the render binding alone passes with every PNG deleted — no livelock, resume-safe"
+else fail "(di2) expected a post-approve pass with no re-render, rc=$rc calls=$(dcalls): $out"; fi
+rm -f "$DVERDICT"
+
+# ---- (dl) AC-2: the disarm STATE LOCK ------------------------------------------------------
+# (dl1) the armed record is written by a PASSING armed evaluation, not only by a failing one —
+# the lock must exist on the path where nothing went wrong.
+if [ "$(dcount "| milestone-3 | armed |")" -ge 1 ]; then
+  pass "(dl1) a passing armed milestone-3 evaluation records '| milestone-3 | armed |'"
+else fail "(dl1) no armed record after a passing armed run: $(cat "$DPROG")"; fi
+
+# (dl4) and it is NOT an attempt line: arming a lane must never spend fix budget, or three
+# diagnostic re-runs would hard-stop a run that failed nothing.
+if [ "$(dcount "| milestone-3 | attempt |")" -eq 0 ]; then
+  pass "(dl4) arming leaves the fix-budget counter untouched — the record is a lock, not a counter"
+else fail "(dl4) armed evaluations appended attempt lines: $(cat "$DPROG")"; fi
+
+# (dl2)/(dl3) mid-run disarm, refused at BOTH milestones. Retiring the render evidence a review
+# round would be scored against is the one escape this design must not leave open, and the run
+# may re-enter at either milestone.
+printf '# spec\n\n- AC-1: x\n\n## Design\n\nDesign: none — changed my mind mid-run.\n' > "$DSPEC"
+out="$(dgate 1 55)"; rc=$?
+if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q 'already armed it'; then
+  pass "(dl2) disarming after the lane armed reds milestone 1"
+else fail "(dl2) expected the mid-run-disarm refusal at milestone 1, rc=$rc: $out"; fi
+out="$(dgate 3 55)"; rc=$?
+if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q 'already armed it'; then
+  pass "(dl3) ...and reds milestone 3, which a resume can re-enter without re-running milestone 1"
+else fail "(dl3) expected the mid-run-disarm refusal at milestone 3, rc=$rc: $out"; fi
+
+# ...and the same disarm on a run that never armed is simply a disarm. (dl2)/(dl3) therefore turn
+# on the recorded lock, not on the spec's wording.
+dreset
+out="$(dgate 1 55)"; rc=$?
+if [ "$rc" -eq 0 ]; then
+  pass "(dl5) the identical disarm passes on a run with no armed record — the lock is what refuses"
+else fail "(dl5) expected a clean disarm with no armed record, rc=$rc: $out"; fi
+
+# ---- (fd) AC-5: the fidelity verdict key ---------------------------------------------------
+dspec_armed
+dcommit "the armed spec, restored for the verdict cases"
+dreset
+dmode ok
+out="$(dgate 3 55)"; rc=$?
+dcommit "the render receipt at this head"
+dreset
+out="$(dgate 3 55)"; rc=$?
+[ "$rc" -eq 0 ] || fail "(fd0) the armed fixture is not green at milestone 3, so the (fd) cases would assert nothing: $out"
+
+# (fd1) the enum is validated at the writer, where the fix is one flag away.
+out="$(dverdict sess-review-d r-review-d --pr 55 --verdict approve --fidelity maybe)"; rc=$?
+if [ "$rc" -eq 2 ] && printf '%s' "$out" | grep -q "must be 'pass', 'fail' or 'not-applicable'"; then
+  pass "(fd1) --fidelity enum-validates"
+else fail "(fd1) expected an enum refusal, rc=$rc: $out"; fi
+
+# (fd4) fail x approve is a contradiction: a design failure is a blocker and any blocker is
+# needs-work. Refused at the writer rather than only at milestone 4, where it costs the round.
+out="$(dverdict sess-review-d r-review-d --pr 55 --verdict approve --fidelity fail)"; rc=$?
+if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q 'cannot accompany'; then
+  pass "(fd4) --fidelity fail with --verdict approve is refused"
+else fail "(fd4) expected the fail-x-approve refusal, rc=$rc: $out"; fi
+
+# (fd2) the key is emitted UNCONDITIONALLY, defaulting to not-applicable — the property that
+# keeps a header-anchored read meaningful, and the fail-closed default on an armed run.
+out="$(dverdict sess-review-d r-review-d --pr 55 --verdict approve)"; rc=$?
+if [ "$rc" -eq 0 ] && grep -q '^fidelity: not-applicable$' "$DVERDICT"; then
+  pass "(fd2) a verdict written without --fidelity still carries the key, defaulted"
+else fail "(fd2) expected an unconditional fidelity key, rc=$rc: $(cat "$DVERDICT" 2>/dev/null)"; fi
+
+# (fd5) ...and that default is REFUSED on an armed run: a round that never scored the design is
+# not an approval of it. This is failure class (3) caught at the gate.
+dcommit "a verdict that scored no fidelity"
+out="$(dgate 4 55)"; rc=$?
+if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q 'not fidelity=pass'; then
+  pass "(fd5) an armed run refuses a verdict whose fidelity is not 'pass'"
+else fail "(fd5) expected the armed fidelity refusal, rc=$rc: $out"; fi
+
+# (fd3) HEADER-ANCHORED, not first-match. The record below scores not-applicable in its header
+# and quotes `fidelity: pass` in the findings a real reviewer would write about this feature —
+# through --summary-file, the production path. A first-match reader certifies it.
+DBODY="$WORK/dbody.md"
+{
+  echo "## finding"
+  echo ""
+  echo '```'
+  echo "fidelity: pass"
+  echo '```'
+} > "$DBODY"
+dreset
+out="$(dverdict sess-review-d2 r-review-d2 --pr 55 --verdict approve --summary-file "$DBODY")"; rc=$?
+dcommit "a record whose body quotes the key"
+dreset
+out="$(dgate 4 55)"; rc=$?
+if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q 'not fidelity=pass'; then
+  pass "(fd3) a 'fidelity: pass' in the record's BODY is not a score — the read is anchored to the header"
+else fail "(fd3) expected the armed refusal despite the body value, rc=$rc: $out"; fi
+
+# (fd5b) and the same record scored `pass` in its header passes, so (fd5)/(fd3) turn on the
+# header value and nothing else.
+dreset
+out="$(dverdict sess-review-d3 r-review-d3 --pr 55 --verdict approve --fidelity pass)"; rc=$?
+dcommit "a record scoring fidelity pass"
+dreset
+out="$(dgate 4 55)"; rc=$?
+if [ "$rc" -eq 0 ]; then
+  pass "(fd5b) an armed run passes milestone 4 on a header-scored 'fidelity: pass'"
+else fail "(fd5b) expected an armed milestone-4 pass, rc=$rc: $out"; fi
+
+# (dm1) D-10's BACKSTOP. Everything else here is fresh — the verdict is the last commit, so both
+# freshness arms are green — and only the receipt is stale, which is precisely a reviewer who
+# scored round-1 screenshots against round-2 code and then committed an honest record.
+printf 'a fix lands after the render\n' > "$DTREE/subject.txt"
+dcommit "a fix, leaving the receipt behind"
+dreset
+out="$(dverdict sess-review-d4 r-review-d4 --pr 55 --verdict approve --fidelity pass)"; rc=$?
+dcommit "an honest record on the new head, scored against the OLD screenshots"
+dreset
+out="$(dgate 4 55)"; rc=$?
+if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q 'renders from' \
+   && ! printf '%s' "$out" | grep -q 'file(s) changed after it'; then
+  pass "(dm1) a stale render receipt reds milestone 4 on a tree whose verdict freshness is green"
+else fail "(dm1) expected the stale-receipt refusal alone, rc=$rc: $out"; fi
+
+# (fd6) the UNARMED transition allowance: a record with no fidelity key at all — every record
+# written before this key existed — still passes. Read through the no-design config, which is
+# every consumer with no design axis.
+dreset
+out="$(dgate 3 55)"; rc=$?
+dcommit "the re-rendered receipt for the new head"
+dreset
+out="$(dverdict sess-review-d5 r-review-d5 --pr 55 --verdict approve --fidelity pass)"; rc=$?
+grep -v '^fidelity:' "$DVERDICT" > "$DVERDICT.tmp" && mv "$DVERDICT.tmp" "$DVERDICT"
+dcommit "a record with the key stripped, as a pre-#394 reviewer would have written it"
+dreset
+out="$(dgate_nodesign 4 55)"; rc=$?
+if [ "$rc" -eq 0 ]; then
+  pass "(fd6) an unarmed run tolerates a record carrying no fidelity key at all"
+else fail "(fd6) expected the unarmed transition allowance, rc=$rc: $out"; fi
+
+# (fd7) ...but a value that IS present on an unarmed run must be not-applicable, so a `pass`
+# cannot be parked on an unarmed record and inherited by a later armed one.
+dreset
+out="$(dverdict sess-review-d6 r-review-d6 --pr 55 --verdict approve --fidelity pass)"; rc=$?
+dcommit "a record claiming a fidelity its spec could not have armed"
+dreset
+out="$(dgate_nodesign 4 55)"; rc=$?
+if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q 'arms no design render lane'; then
+  pass "(fd7) an unarmed run refuses a fidelity value other than not-applicable"
+else fail "(fd7) expected the unarmed non-applicable refusal, rc=$rc: $out"; fi
+
 echo "[lean-gate-selftest] $([ "$FAILS" -eq 0 ] && echo 'all green' || echo "$FAILS FAILURE(S)")"
 exit "$FAILS"

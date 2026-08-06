@@ -173,39 +173,55 @@ extract_key_at() { # extract_key_at <key> <commit>
 }
 
 # LOCKSTEP-BEGIN lean-inherited-key
-# `inherited_patch_id`, read from the record's HEADER BLOCK only, with the `none` sentinel
-# normalized to empty. Record on stdin; prints nothing when the round inherits nothing.
+# Any key of the verdict record, read from its HEADER BLOCK only. Record on stdin; prints
+# nothing when the key is absent from that block.
 #
-# HEADER-ANCHORED, unlike every other key in this schema, and the asymmetry is the whole point.
-# First-match-anywhere is safe for the other keys because the writer ALWAYS emits them above the
-# body, so the authentic value wins the race against any prose below it. This key is the first
-# one that could be ABSENT — a chain root wrote no inheritance, and records predating the key
-# carry none — and a race has no winner when one side never entered it: the first match in the
-# file is then whatever the reviewer's own findings contain. Review prose about this feature
-# quotes these keys, so the triggering round is every review of a PR that touches inheritance,
-# not a crafted one. The value lands where a CLAIM OF INHERITED COVERAGE is read, which is the
-# inverse of the property the chain exists to prove.
+# HEADER-ANCHORED, unlike the first-match reads elsewhere in this schema, and the asymmetry is
+# the whole point. First-match-anywhere is safe for a key the writer ALWAYS emits with a
+# meaningful value, because the authentic value wins the race against any prose below it. It is
+# NOT safe for a key that can be ABSENT — a chain root wrote no inheritance, records predating a
+# key carry none — because a race has no winner when one side never entered it: the first match
+# in the file is then whatever the reviewer's own findings contain. Review prose about these
+# features quotes these keys, so the triggering round is every review of a PR that touches them,
+# not a crafted one. The value lands where a CLAIM OF COVERAGE (or of design fidelity) is read,
+# which is the inverse of the property those keys exist to prove.
 #
-# The writer's half of the same fix emits the key unconditionally and makes absence a written
-# fact; this half covers the records that writer did not produce — a pre-#375 root record still
-# sitting on an in-flight branch, which every chain walk on that branch reads through.
+# The writer's half of the same fix emits both optional keys unconditionally and makes absence a
+# written fact; this half covers the records that writer did not produce — a pre-#375 root
+# record still sitting on an in-flight branch, which every chain walk on that branch reads
+# through, and every record written before `fidelity:` existed.
+#
+# PARAMETERIZED rather than duplicated (#394). `fidelity:` needs exactly this anchoring for
+# exactly this reason, and a second awk program spelled the same way would be a second thing to
+# keep in lockstep across all three readers — the drift these markers exist to prevent, forked
+# in the act of preventing it.
 #
 # The header block is the first run of `key: value` / `verdict=` lines, ending at the blank line
 # the writer emits before the body. A record whose keys are NOT in that shape (the earliest
 # records wrote `verdict=` as a bullet or a table cell) never opens the block, so nothing is
 # extracted and the round reads as a root — fail-closed, and correct: those records predate
 # inheritance entirely.
-inherited_key() { # inherited_key   (record on stdin)
-  awk '
+header_key() { # header_key <key>   (record on stdin)
+  awk -v k="$1" '
     /^[A-Za-z_][A-Za-z0-9_]*[:=]/ { hdr = 1 }
     hdr && /^[[:space:]]*$/ { exit }
-    hdr && /^inherited_patch_id:[[:space:]]*[A-Za-z0-9._-]+/ {
-      sub(/^inherited_patch_id:[[:space:]]*/, "")
+    hdr && $0 ~ "^" k ":[[:space:]]*[A-Za-z0-9._-]+" {
+      sub("^" k ":[[:space:]]*", "")
       sub(/[^A-Za-z0-9._-].*$/, "")
-      if ($0 != "none") printf "%s", $0
+      printf "%s", $0
       exit
     }
   '
+}
+
+# `inherited_patch_id` with the `none` sentinel normalized to empty — the shape every chain
+# reader wants. The sentinel lives HERE and not in header_key because it is inheritance's, not
+# the schema's: `fidelity: none` is not a value, so a generic reader that swallowed `none` would
+# be silently lenient about a key whose enum never contains it.
+inherited_key() { # inherited_key   (record on stdin)
+  local v
+  v="$(header_key inherited_patch_id)"
+  [ "$v" = "none" ] || printf '%s' "$v"
 }
 # LOCKSTEP-END lean-inherited-key
 
