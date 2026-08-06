@@ -320,7 +320,7 @@ artifact-reviewer-baseline-deltas	verbatim	plugins/design-toolkit/agents/figma-f
 #
 # `fidelity:` (#394) is behaviorally guarded the same composed way as the rest: lean-gate-selftest.sh
 # (fd1)-(fd7) drive the writer's enum, its unconditional emission and the fail-x-approve refusal,
-# then feed the result to the milestone-4 reader; check-lean-chain-selftest.sh (W3)/(W4) do it at
+# then feed the result to the milestone-4 reader; check-lean-chain-selftest.sh (X3)/(X4) do it at
 # the merge boundary. Its VALUE is armed-ness-relative, which no literal can pin: `pass` is
 # required on an armed spec, refused-unless-`not-applicable` on an unarmed one, so the writer and
 # both readers must agree about arming as well as about the key — see the `lean-design-armed` row.
@@ -380,7 +380,7 @@ lean-inherited-key-reconcile	verbatim	plugins/dev-pipeline/skills/run-lean/lean-
 # carry refusals it can neither act on nor explain.
 #
 # Behavioral guards on both sides: lean-gate-selftest.sh (dz1)-(dz7) at the gate,
-# check-lean-chain-selftest.sh (W1)-(W6) at the boundary, and scenario-liveness-selftest.sh's
+# check-lean-chain-selftest.sh (X1)-(X6) at the boundary, and scenario-liveness-selftest.sh's
 # three (lean-design-*) legs compose the writer's manifest through both readers.
 # Revisit if lean-reconcile.sh grows the receipt arm (#394 defers it) — it becomes a third copy.
 lean-design-armed	verbatim	plugins/dev-pipeline/skills/run-lean/lean-gate.sh	lean-design-armed	scripts/check-lean-chain.sh	lean-design-armed

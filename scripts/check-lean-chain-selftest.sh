@@ -836,22 +836,115 @@ if [ "$rc" -eq 0 ] && printf '%s' "$out" | grep -q 'inheritance chain: 1 inherit
   pass "(V6b) the walk terminates at a root whose body quotes the key — one link, not the two a first-match walk would count"
 else fail "(V6b) expected exactly 1 inherited link, got rc=$rc: $out"; fi
 
-# ---- (W) evidence 8: the armed design render receipt (#394) --------------------------------
+# ---- (W) evidence 5 PRECEDENCE (#403): a merge from the base branch must not void an approve
+# the patch-id arm proves is still fresh -----------------------------------------------------
+# GitHub's "Update branch" button performs exactly this: it merges the configured base into the
+# PR branch. The merged-in commits land strictly AFTER the verdict record's commit, so the
+# two-dot INFERRED arm (VERDICT_COMMIT..PR_HEAD_SHA) counts every file the base changed as a
+# change to THIS branch — even though the branch's own diff against the (now-current) base,
+# which the DECLARED arm measures, has not moved at all. Observed live on PR #400 / issue #392.
+#
+# No intent-gap record is live at this point (removed ahead of (U), never reintroduced by (V)),
+# so nothing here can be confounded by evidence 7.
+
+w_branch="$(git -C "$TREE" symbolic-ref --short HEAD 2>/dev/null)"
+
+# The review happens FIRST, against the base as it stood at review time — the real chronology.
+w_pid="$(tree_patch_id HEAD)"
+[ -n "$w_pid" ] || fail "(W0) the fixture's patch identity is empty — every (W) case would compare nothing"
+write_verdict approve r-review-w1 sess-review-w1 "$(git -C "$TREE" rev-parse HEAD)" "$w_pid"
+w_record_commit="$(git -C "$TREE" rev-parse HEAD)"
+
+# THEN the base advances — two unrelated PRs land on it, the same shape #400's own trigger was.
+git -C "$TREE" branch -f w-base refs/remotes/origin/main >/dev/null 2>&1
+git -C "$TREE" checkout -q w-base 2>/dev/null
+printf 'first unrelated base PR\n' > "$TREE/w-base-1.txt"
+git -C "$TREE" add w-base-1.txt >/dev/null 2>&1
+git -C "$TREE" commit -q -m 'unrelated base PR 1' >/dev/null 2>&1
+printf 'second unrelated base PR\n' > "$TREE/w-base-2.txt"
+git -C "$TREE" add w-base-2.txt >/dev/null 2>&1
+git -C "$TREE" commit -q -m 'unrelated base PR 2' >/dev/null 2>&1
+git -C "$TREE" update-ref refs/remotes/origin/main w-base
+git -C "$TREE" checkout -q "$w_branch" 2>/dev/null
+
+# ...and GitHub's "Update branch" merges it into the PR branch — a REAL git merge, landing the
+# base's commits strictly after the record's commit, touching nothing the branch itself changed.
+if git -C "$TREE" merge -q --no-edit w-base >/dev/null 2>&1; then w_merge_ok=1
+else w_merge_ok=0; fi
+[ "$w_merge_ok" -eq 1 ] || fail "(W-fixture) the merge from the advanced base did not apply cleanly"
+
+# The fixture premise: the merge really did land files after the record's commit, so an
+# unguarded inferred arm has something to (wrongly) fire on.
+w_would_stale="$(git -C "$TREE" diff --name-only "$w_record_commit" HEAD 2>/dev/null)"
+if [ -n "$w_would_stale" ]; then
+  pass "(W1) the merge landed files after the record's commit — the unguarded inferred arm would (wrongly) see them"
+else fail "(W1) the merge landed nothing after the record — (W) would assert nothing"; fi
+
+out="$(run_gate_base "lean/acme-42" "$WORK/comments-good.json" "$WORK/diff-lean.txt" "main")"; rc=$?
+if [ "$rc" -eq 0 ] \
+   && printf '%s' "$out" | grep -q 'freshness (inferred): skipped' \
+   && printf '%s' "$out" | grep -q 'freshness (declared, patch-id' \
+   && ! printf '%s' "$out" | grep -q 'changed between that commit and the PR head'; then
+  pass "(W2) AC-1: a merge from the configured base does not void an approve the patch-id arm proves is still fresh"
+else fail "(W2) expected rc=0 via the declared arm alone, got rc=$rc: $out"; fi
+
+# AC-2: the SAME kind of merge, but against a record predating the reviewed_patch_id key
+# (reviewed_head only) has no declared arm to defer to — the inferred arm stays its sole check,
+# and a merge from base still violates for it exactly as it did before this fix.
+write_verdict approve r-review-w2 sess-review-w2
+git -C "$TREE" branch -f w-base2 refs/remotes/origin/main >/dev/null 2>&1
+git -C "$TREE" checkout -q w-base2 2>/dev/null
+printf 'a third unrelated base PR\n' > "$TREE/w-base-3.txt"
+git -C "$TREE" add w-base-3.txt >/dev/null 2>&1
+git -C "$TREE" commit -q -m 'unrelated base PR 3' >/dev/null 2>&1
+git -C "$TREE" update-ref refs/remotes/origin/main w-base2
+git -C "$TREE" checkout -q "$w_branch" 2>/dev/null
+if git -C "$TREE" merge -q --no-edit w-base2 >/dev/null 2>&1; then w2_merge_ok=1
+else w2_merge_ok=0; fi
+[ "$w2_merge_ok" -eq 1 ] || fail "(W-fixture2) the second merge did not apply cleanly"
+
+out="$(run_gate_base "lean/acme-42" "$WORK/comments-good.json" "$WORK/diff-lean.txt" "main")"; rc=$?
+if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q 'changed between that commit and the PR head'; then
+  pass "(W3) AC-2: the same merge still violates for a record carrying no reviewed_patch_id"
+else fail "(W3) expected rc=1 via the inferred arm, got rc=$rc: $out"; fi
+
+# AC-3: a GENUINE post-record change — the branch's OWN fix, not the base's — must still
+# violate under the reviewed_patch_id shape: skipping the inferred arm must not open a blind
+# spot the declared arm doesn't already close.
+w_pid3="$(tree_patch_id HEAD)"
+write_verdict approve r-review-w3 sess-review-w3 "$(git -C "$TREE" rev-parse HEAD)" "$w_pid3"
+printf 'a real fix landing after the review\n' > "$TREE/docs/plans/notes-403.md"
+commit_tree "a genuine branch-side change after the record"
+out="$(run_gate_base "lean/acme-42" "$WORK/comments-good.json" "$WORK/diff-lean.txt" "main")"; rc=$?
+if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q 'now hashes to'; then
+  pass "(W4) AC-3: a genuine post-record branch-side change still violates under the reviewed_patch_id shape"
+else fail "(W4) expected rc=1 via the declared arm's patch-id mismatch, got rc=$rc: $out"; fi
+
+# ...and re-reviewing clears it, so (W4) is a check with a remedy, matching the rest of the
+# suite's convention.
+write_verdict approve r-review-w4 sess-review-w4 "$(git -C "$TREE" rev-parse HEAD)" "$(tree_patch_id HEAD)"
+out="$(run_gate_base "lean/acme-42" "$WORK/comments-good.json" "$WORK/diff-lean.txt" "main")"; rc=$?
+if [ "$rc" -eq 0 ] && printf '%s' "$out" | grep -q 'freshness (declared, patch-id'; then
+  pass "(W5) a fresh review round over the branch-side fix clears it"
+else fail "(W5) expected rc=0 after a new review round, got rc=$rc: $out"; fi
+
+
+# ---- (X) evidence 8: the armed design render receipt (#394) --------------------------------
 # Armed-ness is derived from the COMMITTED SPEC and never from config: `design.provider` lives in
 # a gitignored file no CI checkout can see, so a config-keyed boundary would read every consumer
 # as unarmed. These cases therefore change the SPEC, never a config, which is also the only lever
 # a real PR gives this gate.
 #
-# (W1) runs FIRST and is the vacuity guard: the whole block asserts nothing if the fixture's
+# (X1) runs FIRST and is the vacuity guard: the whole block asserts nothing if the fixture's
 # baseline spec were already armed.
 out="$(run_gate_base "lean/acme-42" "$WORK/comments-good.json" "$WORK/diff-lean.txt" "main")"; rc=$?
 if [ "$rc" -eq 0 ] && printf '%s' "$out" | grep -q 'declares no armed design render lane'; then
-  pass "(W1) a spec with no '## Design' section is unarmed — the arm prints its absence rather than skipping silently"
-else fail "(W1) expected the unarmed note on a clean run, got rc=$rc: $out"; fi
+  pass "(X1) a spec with no '## Design' section is unarmed — the arm prints its absence rather than skipping silently"
+else fail "(X1) expected the unarmed note on a clean run, got rc=$rc: $out"; fi
 
 # A render manifest matching THIS head, written the way the gate writes one. The path suffix is
 # `-lean-renders.md`, which must NOT be picked up by the spec scan's `*-lean.md` first-match —
-# (W2b) asserts that rather than assuming it.
+# (X2b) asserts that rather than assuming it.
 RENDREC="$TREE/docs/plans/acme-42-lean-renders.md"
 tree_render_id() { # tree_render_id <head-ish>
   local base
@@ -880,7 +973,7 @@ arm_spec() {
   } > "$TREE/docs/plans/acme-42-lean.md"
 }
 
-# (W2) ARMED, no receipt committed. The screenshots a fidelity verdict claims to have been scored
+# (X2) ARMED, no receipt committed. The screenshots a fidelity verdict claims to have been scored
 # against are simply not on the branch.
 arm_spec
 commit_tree "the spec arms the design render lane"
@@ -888,16 +981,16 @@ w_pid="$(tree_patch_id HEAD)"
 write_verdict approve r-review-w1 sess-review-w1 "$(git -C "$TREE" rev-parse HEAD)" "$w_pid"
 out="$(run_gate_base "lean/acme-42" "$WORK/comments-good.json" "$WORK/diff-lean.txt" "main")"; rc=$?
 if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q 'no render receipt'; then
-  pass "(W2) an armed spec with no committed render receipt reds the merge boundary"
-else fail "(W2) expected the missing-receipt violation, got rc=$rc: $out"; fi
+  pass "(X2) an armed spec with no committed render receipt reds the merge boundary"
+else fail "(X2) expected the missing-receipt violation, got rc=$rc: $out"; fi
 
-# (W2b) and the spec the gate resolved is still the SPEC. A receipt whose name ended in `-lean.md`
+# (X2b) and the spec the gate resolved is still the SPEC. A receipt whose name ended in `-lean.md`
 # would win the artifact scan's first match and be read as the definition of done.
 if printf '%s' "$out" | grep -q 'spec: docs/plans/acme-42-lean.md'; then
-  pass "(W2b) the '-lean-renders.md' suffix never shadows the '*-lean.md' spec scan"
-else fail "(W2b) the gate did not resolve the real spec: $out"; fi
+  pass "(X2b) the '-lean-renders.md' suffix never shadows the '*-lean.md' spec scan"
+else fail "(X2b) the gate did not resolve the real spec: $out"; fi
 
-# (W3) receipt present, verdict scores no fidelity. The pre-#394 record shape and the
+# (X3) receipt present, verdict scores no fidelity. The pre-#394 record shape and the
 # forgot-the-flag one are the same bytes here, and an armed ticket refuses both — a round that
 # never scored the design has not approved it.
 write_render_manifest "$(tree_render_id HEAD)"
@@ -906,22 +999,22 @@ w_pid="$(tree_patch_id HEAD)"
 write_verdict approve r-review-w2 sess-review-w2 "$(git -C "$TREE" rev-parse HEAD)" "$w_pid"
 out="$(run_gate_base "lean/acme-42" "$WORK/comments-good.json" "$WORK/diff-lean.txt" "main")"; rc=$?
 if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q "not 'fidelity: pass'"; then
-  pass "(W3) an armed run refuses a verdict that scores no fidelity"
-else fail "(W3) expected the fidelity violation, got rc=$rc: $out"; fi
+  pass "(X3) an armed run refuses a verdict that scores no fidelity"
+else fail "(X3) expected the fidelity violation, got rc=$rc: $out"; fi
 
-# (W4) THE HAPPY PATH: armed spec, committed receipt whose rendered_from is this head's render
+# (X4) THE HAPPY PATH: armed spec, committed receipt whose rendered_from is this head's render
 # binding, and a verdict scoring `fidelity: pass`.
 printf 'fidelity: pass\n' >> "$VREC"
 commit_tree "the record scores fidelity"
 # The receipt's binding excludes the verdict record AND itself, so committing either leaves it
 # unchanged — that is what lets the reviewer commit on top of evidence without invalidating it,
-# and (W4) is where the two exclusions are asserted together.
+# and (X4) is where the two exclusions are asserted together.
 out="$(run_gate_base "lean/acme-42" "$WORK/comments-good.json" "$WORK/diff-lean.txt" "main")"; rc=$?
 if [ "$rc" -eq 0 ] && printf '%s' "$out" | grep -q 'scored fidelity: pass'; then
-  pass "(W4) an armed run with a fresh receipt and a fidelity: pass verdict passes the boundary"
-else fail "(W4) expected the armed happy path, got rc=$rc: $out"; fi
+  pass "(X4) an armed run with a fresh receipt and a fidelity: pass verdict passes the boundary"
+else fail "(X4) expected the armed happy path, got rc=$rc: $out"; fi
 
-# (W5) STALENESS. Nothing else about this tree is stale — the verdict is the last commit and both
+# (X5) STALENESS. Nothing else about this tree is stale — the verdict is the last commit and both
 # freshness arms stay green — so the receipt is the only thing that can catch a reviewer who
 # scored round-1 screenshots against round-2 code. The receipt is rewritten with a binding that
 # is well-formed and wrong, which is the shape a real stale receipt has.
@@ -934,12 +1027,12 @@ commit_tree "an honest record on top of a stale receipt"
 out="$(run_gate_base "lean/acme-42" "$WORK/comments-good.json" "$WORK/diff-lean.txt" "main")"; rc=$?
 if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q 'records rendered_from' \
    && ! printf '%s' "$out" | grep -q 'file(s) changed between that commit and the PR head'; then
-  pass "(W5) a stale rendered_from reds on a tree whose verdict freshness is green"
-else fail "(W5) expected the stale-receipt violation alone, got rc=$rc: $out"; fi
+  pass "(X5) a stale rendered_from reds on a tree whose verdict freshness is green"
+else fail "(X5) expected the stale-receipt violation alone, got rc=$rc: $out"; fi
 
-# (W6) DISARMED. The same tree, the same receipt, the same fidelity-less history — with the spec
+# (X6) DISARMED. The same tree, the same receipt, the same fidelity-less history — with the spec
 # declaring the explicit disarm, the arm is not applicable and the boundary says so. This is what
-# makes (W2)/(W3)/(W5) turn on ARMING rather than on the artifacts being present.
+# makes (X2)/(X3)/(X5) turn on ARMING rather than on the artifacts being present.
 {
   printf '# lean spec\n\n- AC-1: does a thing\n- AC-2: does another\n\n'
   printf '## Design\n\nDesign: none — no FE surface in this ticket.\n'
@@ -949,8 +1042,8 @@ w_pid="$(tree_patch_id HEAD)"
 write_verdict approve r-review-w4 sess-review-w4 "$(git -C "$TREE" rev-parse HEAD)" "$w_pid"
 out="$(run_gate_base "lean/acme-42" "$WORK/comments-good.json" "$WORK/diff-lean.txt" "main")"; rc=$?
 if [ "$rc" -eq 0 ] && printf '%s' "$out" | grep -q 'declares no armed design render lane'; then
-  pass "(W6) an explicit 'Design: none' disarm leaves the boundary's design arm not applicable"
-else fail "(W6) expected the disarmed pass, got rc=$rc: $out"; fi
+  pass "(X6) an explicit 'Design: none' disarm leaves the boundary's design arm not applicable"
+else fail "(X6) expected the disarmed pass, got rc=$rc: $out"; fi
 
 echo "[check-lean-chain-selftest] $([ "$FAILS" -eq 0 ] && echo 'all green' || echo "$FAILS FAILURE(S)")"
 exit "$FAILS"

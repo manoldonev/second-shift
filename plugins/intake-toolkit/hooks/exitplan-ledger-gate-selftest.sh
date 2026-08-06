@@ -120,6 +120,20 @@ No material decisions — all choices codebase-derived.
 ')"
 assert_rc "(t1d) tier 1 explicit empty form → allow" 0 "OK"
 
+# Tier 1 scratch-files itself via `mktemp "${TMPDIR:-/tmp}/..."`, so the /tmp
+# fallback is reached ONLY with TMPDIR unset — which is the shape a GitHub-hosted
+# ubuntu runner actually hands the hook. Every other case here inherits whatever
+# TMPDIR the caller has, and the mutation harness runs killers with TMPDIR pointed
+# at a scratch dir it owns; under that ambient value the fallback is dead code and
+# nothing can fail on it. Drive it with TMPDIR removed so a rotted default is a red
+# case rather than a survivor. TMPDIR is unset for THIS invocation only — the suite's
+# own mktemp fixtures stay inside the harness-owned dir.
+OUT="$(printf '%s' "$(payload_inline "$VALID_LEDGER")" \
+  | env -u SECOND_SHIFT_CONFIG -u PLAN_INTERVIEW_SKIP -u TMPDIR \
+    SECOND_SHIFT_REPO_ROOT="$REPO" bash "$HOOK" 2>&1)"
+RC=$?
+assert_rc "(t1e) tier 1 inline with TMPDIR unset → allow via the /tmp fallback" 0 "payload tool_input.plan"
+
 # ---------------------------------------------------------------------------
 # Tier 2 — a plan-file path in the payload. All three field names must resolve.
 # ---------------------------------------------------------------------------

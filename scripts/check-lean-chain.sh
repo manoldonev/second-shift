@@ -26,13 +26,12 @@
 #      "an approve record exists" and "this code was approved" are different claims — a
 #      review session commits its record and the branch then moves on, which is the ordinary
 #      shape of the needs-work loop. Nothing but the record itself may have changed between
-#      the commit carrying it and the PR head. TWO ARMS, because neither subsumes the other:
-#      the INFERRED one derives its anchor from git (which commit carries the file — the
-#      record's prose cannot argue with that), and the DECLARED one reads what the reviewer
-#      wrote. Inference binds the record to where it was COMMITTED; the declaration binds it to
-#      what was REVIEWED. They come apart whenever code lands between the review and the
-#      record's commit — the reviewer then commits an honest record on top of a head it never
-#      read, and inference alone calls that fresh.
+#      the commit carrying it and the PR head. TWO ARMS: the INFERRED one derives its anchor
+#      from git (which commit carries the file — the record's prose cannot argue with that), and
+#      the DECLARED one reads what the reviewer wrote. Inference binds the record to where it
+#      was COMMITTED; the declaration binds it to what was REVIEWED. They come apart whenever
+#      code lands between the review and the record's commit — the reviewer then commits an
+#      honest record on top of a head it never read, and inference alone calls that fresh.
 #
 #      The declaration is keyed on `reviewed_patch_id`: the patch identity of the branch's own
 #      diff against its base, excluding the record. WHAT IT COVERS — any commit landing after
@@ -44,6 +43,16 @@
 #      one is CI's job: the reviewed content did not move, so the verdict stands, and the merged
 #      result failing is a different claim. Conflating the two is what made SHA keying
 #      over-strict. Records predating the key still gate on the `reviewed_head` SHA path.
+#
+#      PRECEDENCE (#403): when `reviewed_patch_id` is present the declared arm SUBSUMES the
+#      inferred one — the inferred arm is not evaluated at all, rather than ANDed with it. A
+#      merge from the configured base (GitHub's "Update branch" button) lands commits strictly
+#      after the record's commit without touching the branch's own diff, which the inferred
+#      arm's two-dot `git diff` cannot tell apart from a genuine change: every base-side file
+#      registers as "changed after the verdict". The declared arm is immune to this (its anchor
+#      is the branch's diff against the current base, not a commit range), so once it exists for
+#      a record it is the sole freshness truth. Only records predating the key still run the
+#      inferred arm.
 #   6. THE INHERITANCE CHAIN (#375): if the verdict record declares `inherited_patch_id` — the
 #      reviewed patch of the round whose coverage it inherits, so a fix round reads the delta
 #      instead of the whole diff again — every LINK in that chain resolves to an earlier record
@@ -131,7 +140,7 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --comments-file)   COMMENTS_FILE="${2:-}"; shift 2 ;;
     --diff-files-file) DIFF_FILES_FILE="${2:-}"; shift 2 ;;
-    -h|--help) sed -n '2,123p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,132p' "$0"; exit 0 ;;
     *) echo "[lean-chain] unknown argument: $1" >&2; exit 2 ;;
   esac
 done
@@ -541,16 +550,34 @@ if [[ -n "$VERDICT" && "$verdict_value" != "approve" ]]; then
 elif [[ -n "$VERDICT" ]]; then
   git -C "$REPO_ROOT" cat-file -e "$PR_HEAD_SHA^{commit}" 2>/dev/null \
     || envfail "PR_HEAD_SHA '$PR_HEAD_SHA' is not a commit in this checkout — the freshness check cannot run, and a check that cannot run must not report a pass."
-  VERDICT_COMMIT="$(git -C "$REPO_ROOT" log -1 --format=%H -- "$VERDICT" 2>/dev/null)"
-  if [[ -z "$VERDICT_COMMIT" ]]; then
-    note_violation "verdict record '$VERDICT' is present in the tree but carries no commit — it was never committed to the branch, so nothing dates it against the code."
+
+  # PRECEDENCE (#403): a record declaring reviewed_patch_id defers to the DECLARED arm below,
+  # exclusively — the inferred arm's two-dot diff (VERDICT_COMMIT..PR_HEAD_SHA) is not evaluated
+  # at all. That diff counts every commit the base branch gained since the branch point as a
+  # change to THIS branch: harmless on a rebase (the record stays the tip, so the diff is empty)
+  # but a false positive on a merge from base — e.g. GitHub's "Update branch" button — which
+  # lands commits strictly after the record's commit without touching the reviewed diff. The
+  # declared arm already measures the right thing (this branch's own diff against its base,
+  # excluding the record) and is unaffected by base-side commits, so running the inferred arm
+  # too would either just restate the declared arm's verdict or, when a stale base-side file
+  # slips past the exclusion, contradict it outright — the exact contradiction #403 was filed
+  # over. Same one-way, never-AND-ed precedence as the reviewed_patch_id/reviewed_head choice
+  # inside the declared arm itself. Records predating the key have no declared arm to defer to,
+  # so the inferred arm stays their sole check.
+  if [[ -n "$VERDICT_REVIEWED_PATCH_ID" ]]; then
+    echo "[lean-chain]   · freshness (inferred): skipped — record declares reviewed_patch_id, which takes precedence (see declared arm below)."
   else
-    STALE="$(git -C "$REPO_ROOT" diff --name-only "$VERDICT_COMMIT" "$PR_HEAD_SHA" 2>/dev/null | grep -vxF "$VERDICT" || true)"
-    if [[ -n "$STALE" ]]; then
-      n_stale="$(printf '%s\n' "$STALE" | wc -l | tr -d ' ')"
-      note_violation "verdict record '$VERDICT' approves $(git -C "$REPO_ROOT" rev-parse --short "$VERDICT_COMMIT"), but $n_stale file(s) changed between that commit and the PR head (e.g. $(printf '%s' "$STALE" | head -n1)). An approve for an earlier head is not an approve for this one — run another review round."
+    VERDICT_COMMIT="$(git -C "$REPO_ROOT" log -1 --format=%H -- "$VERDICT" 2>/dev/null)"
+    if [[ -z "$VERDICT_COMMIT" ]]; then
+      note_violation "verdict record '$VERDICT' is present in the tree but carries no commit — it was never committed to the branch, so nothing dates it against the code."
     else
-      echo "[lean-chain]   ✓ freshness (inferred): nothing but the verdict record itself changed between its commit and the PR head"
+      STALE="$(git -C "$REPO_ROOT" diff --name-only "$VERDICT_COMMIT" "$PR_HEAD_SHA" 2>/dev/null | grep -vxF "$VERDICT" || true)"
+      if [[ -n "$STALE" ]]; then
+        n_stale="$(printf '%s\n' "$STALE" | wc -l | tr -d ' ')"
+        note_violation "verdict record '$VERDICT' approves $(git -C "$REPO_ROOT" rev-parse --short "$VERDICT_COMMIT"), but $n_stale file(s) changed between that commit and the PR head (e.g. $(printf '%s' "$STALE" | head -n1)). An approve for an earlier head is not an approve for this one — run another review round."
+      else
+        echo "[lean-chain]   ✓ freshness (inferred): nothing but the verdict record itself changed between its commit and the PR head"
+      fi
     fi
   fi
 
