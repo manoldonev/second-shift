@@ -71,11 +71,23 @@ The concrete boundary constants, model/feature files, and expected-signal fixtur
 
 ## Warning Rules
 
-### Test-Surface Shape (pipeline-gate and contract-duplication changes)
+### Coverage That Cannot Fail (decorative tests)
 
-- When the diff touches a **pipeline gate contract**, require it to name the affected verdict paths and say how the composed-path liveness scenario was extended for each. A gate that no scenario composes against is one nothing proves reachable — a full suite of green per-component tests has already missed exactly this.
-- Flag a **new per-tool fixture case that an existing scenario subsumes**. Coverage that restates what a scenario already drives is accretion, not assurance.
-- Flag a **new prose-presence guard** — a `grep` for a literal token in a markdown/prose file — as the banned class. It asserts only that prose contains words. The remedy is a lockstep-manifest entry comparing the two copies. Narrow exception: token pins on Workflow-runtime `.mjs` seams for what execution cannot reach. Note that these files ARE executable — `runtime-shim-selftest.mjs` strips the `export const meta` block and runs the real body with injected fakes — so a grep asserting *behavior* on such a seam is no longer sanctioned; the shim is. Also flag any **mirror harness**: a selftest that re-declares production logic and tests the copy can never fail on a production edit.
+A **second axis, not a discount on the first**: every rule here is a Warning and never downgrades a Critical Coverage Intent. Flag added coverage that restates what an existing test already drives — accretion, not assurance. The shapes, in your stack's vocabulary:
+
+| Shape | Why it cannot fail |
+| --- | --- |
+| assertions differing from a sibling's only by fixture | the sibling already drives the rule |
+| asserting static copy no branch selects between | nothing produces the value; where two copies must agree, compare them mechanically rather than grepping one for a literal |
+| an existence inventory — presence assertions with no interaction and no state change | nothing is exercised |
+| asserting the absence of code that does not exist | it guards a future addition, which is review's job |
+| asserting what a library did with what we passed, rather than what we passed | it tests the library |
+| re-testing a pure function through an expensive integration render | the direct test already kills it |
+| a **mirror harness** — a test re-declaring production logic and asserting on the copy | a production edit can never fail it |
+
+**Cost is the same signal.** Flag a new case whose wall-clock is out of line with its siblings, and a **raised per-file test timeout** in the diff — a raised ceiling is almost always a symptom, not a fix.
+
+**Composed contracts.** When the diff changes a contract several components compose against (a gate, a protocol, a shared schema), require it to name the affected paths and say how the end-to-end test exercising them composed was extended for each. A contract no composed test drives is one nothing proves reachable — green per-component tests have already missed exactly this.
 
 ### Changed Logic Without Updated Tests (ALL languages)
 

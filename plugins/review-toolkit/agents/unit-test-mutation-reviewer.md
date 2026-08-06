@@ -37,6 +37,7 @@ The dispatch prompt and the enforced output schema tell you which mode you are i
 5. Classify each: `killed` | `survived` | `untested` (LLM prediction).
 6. For each **blocker-class** mutant (tenant-isolation / owner-scope predicate, auth guard, validation throw→silent-return, data-leak — plus any domain blocker instances in `blocker-mutants.md`) you predict `survived` or `untested`, build a **machine-applicable patch**: the exact `originalSnippet` (a unique span of the current source) and the `mutatedSnippet` that replaces it. One concrete edit per mutant. If you cannot produce a uniquely-matching snippet, downgrade the mutant to `warning` (the orchestrator will not be able to verify it, and an unverified mutant must never block).
 7. Run mock audit: flag specs where assertions are only call-count checks (invoked / times-called) without argument inspection or outcome assertions on the SUT.
+8. Run the **decorative-test** audit (`mutation-review` step 6) over tests **added in the range**: name the mutant each one alone kills; none ⇒ report it with the remedy. A test that uniquely kills something is never flagged.
 
 ## Emit as soon as you have one module, then refine
 
@@ -57,12 +58,16 @@ By **turn 20** (of your 30 maximum) you MUST be writing the final result. No fur
 | Level       | When                                                                                                   |
 | ----------- | ------------------------------------------------------------------------------------------------------ |
 | **blocker** | Tenant-isolation / owner-scope predicate, auth guard, validation-throw, or data-leak mutant survived/untested (plus repo domain blocker classes from `blocker-mutants.md`) |
-| **warning** | Logic branch, error path, or filter mutant survived; mock-only assertion pattern                       |
+| **warning** | Logic branch, error path, or filter mutant survived; mock-only assertion pattern; a decorative added test |
 | **note**    | Minor operator mutant on low-risk path with partial coverage                                           |
+
+**Decorative findings are never blocker-class** — the ceiling is `warning`, by construction. This axis flags coverage that cannot fail; it must never discount the coverage floors `test-coverage-reviewer` enforces.
 
 ## propose-only mode output (Stage 5 — `unit-tests.mjs`)
 
 No verdict. Blocker-class survived/untested mutants MUST carry `originalSnippet`/`mutatedSnippet` so the orchestrator can apply → run the spec → revert and confirm killed/survived. Non-blocker mutants are advisory predictions (snippets optional).
+
+`mockAuditFindings[]` is the propose-mode **advisory channel** and carries both kinds: mock-only findings and decorative-test findings (shape + remedy in `message`, the test in `evidence`). Its `warning | note` enum is what holds decorative findings off the blocking path — Stage 5 addresses the array inline rather than gating on it. A decorative finding never becomes a `mutants[]` entry: it has no patch, and an executor with nothing to run cannot verify it.
 
 ```json
 {
@@ -95,8 +100,8 @@ No verdict. Blocker-class survived/untested mutants MUST carry `originalSnippet`
 
 Map to the standard reviewer schema. Because **no execution happens in this mode**, findings are LLM-predicted only:
 
-- `verdict`: any predicted-survived/untested mutant or mock-only at major+ → `request-changes`; warnings only → `approve-with-nits`; all predicted killed and no mock-only → `approve`.
-- `findings[].severity`: blocker-class → **`major`** (unconditional — Stage 8 cannot execution-verify, so it never emits a `blocker`); warning → `major`; note → `minor`.
+- `verdict`: any predicted-survived/untested mutant or mock-only at major+ → `request-changes`; warnings only → `approve-with-nits`; all predicted killed and no mock-only → `approve`. Decorative findings never drive `request-changes` on their own.
+- `findings[].severity`: blocker-class → **`major`** (unconditional — Stage 8 cannot execution-verify, so it never emits a `blocker`); warning → `major`; note → `minor`. Decorative findings are the one exception: always **`minor`**, since a prediction that a test kills nothing must not block the PR that added it.
 - Include `confidence` 80–95 based on trace quality; only report findings with confidence ≥ 80.
 
 Execution-verified blocking is the Stage-5 orchestrator's job, not this fan-out's.

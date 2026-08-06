@@ -23,8 +23,9 @@ This is a **second axis, not a discount on the first**.
   as "address inline"). No schema field, no new array, no `mutation-gate.mjs` change.
 - No promotion path to blocker. Severity `blocker` stays unavailable to this class by
   construction — that unavailability *is* the constraint above, mechanized.
-- No re-baselining of `.claude/prose-budget.baseline.tsv`. It is already stale across 19 rows on
-  a clean tree; regenerating it here would sweep unrelated files into this diff.
+- No **regeneration** of `.claude/prose-budget.baseline.tsv`. It is already stale across 19 rows
+  on a clean tree, so `--update-baseline` would sweep unrelated files into this diff. The three
+  rows this change deliberately grows are advanced by hand instead — see AC-10.
 
 ## Acceptance criteria
 
@@ -77,6 +78,11 @@ shim with `kind: 'mutation-review'` and asserts the dispatched prompt carries th
 following the Case-H `H2a/H3a` precedent (assert on `calls[0].prompt` from an executed dispatch).
 An anti-vacuity assertion pins that the mutation-review dispatch actually happened, so the case
 cannot pass on a dispatch that never occurred.
+
+**AC-10.** The instruction layer grows, so the bloat ratchet is advanced deliberately rather than
+left red: `.claude/prose-budget.baseline.tsv` moves the rows for exactly the three markdown files
+this change edits, and every other row is byte-identical to its pre-change value.
+`prose-budget.sh --report` returns those three rows to `ok`.
 
 ## Test tier
 

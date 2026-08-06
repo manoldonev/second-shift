@@ -301,7 +301,8 @@ if (kind === 'plan-review') {
       : '') +
     (inputs.specPaths?.length ? `Spec files (plan context): ${inputs.specPaths.join(', ')}. ` : '') +
     `Changed files in range: ${fileList}. ` +
-    `Propose mutants, classify survived/untested, audit mock-only assertions. ` +
+    `Propose mutants, classify survived/untested, audit mock-only assertions, and audit decorative added tests ` +
+    `(added in the range and the only killer of no proposed mutant) — report those on mockAuditFindings with the remedy. ` +
     `Do NOT apply mutants or run tests — for each blocker-class mutant predicted survived/untested, emit a ` +
     `uniquely-matching {originalSnippet, mutatedSnippet} patch so the orchestrator can verify it by execution. ` +
     `No Stryker. No verdict (the orchestrator computes it). ` +
