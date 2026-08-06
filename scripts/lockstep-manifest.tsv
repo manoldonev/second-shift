@@ -372,6 +372,7 @@ lean-inherited-key-reconcile	verbatim	plugins/dev-pipeline/skills/run-lean/lean-
 # NOTE the deliberate NON-coupling: the lean chain gate checks ratification ONLY and does not
 # re-validate `disposition:` against the enum. That is what keeps the enum single-sited — a
 # second copy in CI would create exactly the pair this entry declines to create.
+# Revisit if a third site starts parsing either enum.
 
 # ticketTag semantics (staged-lane gate input vs lean-lane advisory hint) — three sites state
 # it: `docs/config-schema.md`'s topology row/principles, the schema's own `ticketTag`
@@ -391,4 +392,3 @@ lean-inherited-key-reconcile	verbatim	plugins/dev-pipeline/skills/run-lean/lean-
 # field there fails that check, so the staged-lane reading can't silently drift out from under
 # the docs describing it.
 # Revisit if a fourth site starts parsing or restating `ticketTag`'s semantics.
-# Revisit if a third site starts parsing either enum.

@@ -186,32 +186,61 @@ is **intake policy, never a gate**: `lean-gate.sh` does not read `ticketTag` and
 does not touch it either — it is this skill deciding whether to proceed, not a mechanic
 `lean-gate.sh` enforces.
 
-**The check.** Scan the issue title for bracket-shaped tags (`\[[A-Za-z0-9_-]+\]`).
+**The check.** The predicate is the **configured tag values**, not bracket shape. Resolve
+them first, with the same `contains` semantics Stage 1.T uses:
 
-- **Exactly one tag, and it matches one of this config's two `ticketTag` values** — this
-  ticket belongs to that side. Proceed to Step 2 normally (BE-tagged work stays here; an
-  FE-tagged ticket in a BE repo's queue is a routing mistake — comment saying so and stop,
-  same label as below).
-- **Two or more distinct tags** (e.g. both the BE and FE tags in one title) — the ticket
-  declares cross-repo scope but was filed as a single ticket. **Reject at intake exit**:
-  do not dispatch spec-reviewer, do not attempt to guess a split from the title alone.
-  Comment explaining that a pair ticket is never worked as one artifact — same principle
-  as the stacked-PR retirement — and that it needs either two single-tagged tickets, or (if
-  the scope genuinely spans both repos) to be handed to this step's own decomposition path
-  once re-filed with a single tag — see Step 4's cross-repo admission rule.
-- **No recognizable tag at all** — same terminal reject, different reason: nothing tells a
-  human, or the future thin orchestrator, which side of the pair this ticket targets.
-  Comment asking for the single correct tag in the title, and stop.
+```bash
+CONFIG="${SECOND_SHIFT_CONFIG:-$(git rev-parse --show-toplevel)/.claude/second-shift.config.json}"
+# $TITLE = the fetched issue/ticket title (github: `gh issue view`; jira: the summary).
+MATCHED=$(jq -r --arg t "$TITLE" '
+  [ .topology.repos | to_entries[]
+    | select((.value.ticketTag // "") as $tag | $tag != "" and ($t | contains($tag)))
+    | .key ] | join(" ")' "$CONFIG")
+DECLARED=$(jq -r '[ .topology.repos[] | .ticketTag // "" | select(. != "") ] | length' "$CONFIG")
+```
+
+A title may carry any number of other bracket tokens (`[BUG]`, `[urgent]`, a team prefix);
+they are not tags of this pair and this step ignores them, exactly as Stage 1.T does.
+Branch on how many of the **declared** tags matched:
+
+- **`DECLARED` is under 2 — the pair does not declare a tag on both entries.** Nothing to
+  check: skip to Step 2 and say so in the intake comment (this repo's pair config does not
+  tag both sides, so which side a ticket targets is the filer's to state in the body). Never
+  reject here — the ticket is not defective, the config simply does not declare the tags the
+  rule reads. `ticketTag` is optional in the schema and `/second-shift:onboard`'s
+  confirmed-pair draft does not emit it at all, so an untagged pair is the *ordinary* shape
+  of a freshly onboarded one, not an edge case; a half-tagged pair fails the same way for the
+  untagged side alone. (Same reasoning that gates the whole step on `be-fe-pair`: a rule keyed
+  on two tags cannot fire where two tags do not exist.)
+- **Exactly one declared tag matched** — this ticket belongs to that side. Proceed to Step 2
+  normally (BE-tagged work stays here; an FE-tagged ticket in a BE repo's queue is a routing
+  mistake — comment saying so and stop, same label as below).
+- **Both declared tags matched** — the ticket declares cross-repo scope but was filed as a
+  single ticket. **Reject at intake exit**: do not dispatch spec-reviewer, do not attempt to
+  guess a split from the title alone. Comment explaining that a pair ticket is never worked
+  as one artifact — same principle as the stacked-PR retirement — and that it needs either
+  two single-tagged tickets, or (if the scope genuinely spans both repos) to be handed to
+  this step's own decomposition path once re-filed with a single tag — see Step 4's
+  cross-repo admission rule.
+- **Neither declared tag matched** (whatever else the title carries) — same terminal reject,
+  different reason: nothing tells a human, or the future thin orchestrator, which side of
+  the pair this ticket targets. Comment asking for the single correct tag in the title, and
+  stop.
 
 **github:** label `needs-spec-work` on either reject — this is a filing-convention defect,
 not a judgment call, so it is not `needs-intake-review`. _(jira: tracker delta.)_ no label
 exists to set; present the same comment content to the operator and STOP, per this skill's
 existing jira escalation posture.
 
-This is a structural improvement on the staged lane's `targetRepos-ambiguous` failure,
-which surfaces at pipeline runtime (Stage 1.T) and lets interactive mode ask its way past
-the ambiguity. Here the same ambiguity is caught before a single agent dispatches, and it
-is terminal rather than negotiable — the ticket does not proceed in this session at all.
+The two rejects stand in different relations to the staged lane. The **neither** reject is a
+structural improvement on Stage 1.T's `targetRepos-ambiguous` failure, which surfaces at
+pipeline runtime and lets interactive mode ask its way past the ambiguity; here the same
+ambiguity is caught before a single agent dispatches, and it is terminal rather than
+negotiable. The **both** reject improves on nothing — Stage 1.T explicitly supports both tags
+(`TARGET_REPOS="be fe"`) and the staged lane runs that ticket as one cross-repo run. It is a
+filing defect only under the lean lane, where that one-run-two-repos shape has no successor:
+`lean-gate.sh` routes by invocation cwd. The work is not refused, it is re-shaped — into
+ordered per-repo tickets at Step 4.
 
 ### Step 2: Gather Evidence (structured intake fan-out)
 

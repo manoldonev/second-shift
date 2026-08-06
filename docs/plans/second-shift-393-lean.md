@@ -42,10 +42,20 @@ own `ticketTag` description, which renders live in every consumer's editor (D-4)
   tickets, never one multi-part artifact. **This is an admission rule on the existing
   `sub-issues-sequential` decomposition flavor, not a new verdict (D-7).**
 - A title carrying both tags, or neither, is a reject at intake exit (`needs-spec-work` on
-  github; present-and-STOP under jira — D-2), gated on `topology.type: be-fe-pair` (D-6) —
-  the ambiguity stop moves earlier than today's staged-lane runtime failure
-  (`targetRepos-ambiguous`) and becomes terminal rather than something interactive mode can
-  talk its way past.
+  github; present-and-STOP under jira — D-2), gated on `topology.type: be-fe-pair` (D-6).
+  The predicate is the configured `ticketTag` **values**, matched the way Stage 1.T matches
+  them, not bracket shape — a title may carry other bracket tokens and they are not tags of
+  this pair. The two rejects relate to the staged lane differently: the *neither* case moves
+  today's staged-lane runtime failure (`targetRepos-ambiguous`) earlier and makes it terminal
+  rather than something interactive mode can talk its way past, while the *both* case is a
+  reject only here — Stage 1.T supports both tags (`TARGET_REPOS="be fe"`) and the staged
+  lane runs it as one cross-repo run, a shape the lean lane has no successor for.
+- Where the pair config does not declare a `ticketTag` on **both** entries, the check does
+  not fire and the ticket proceeds. `ticketTag` is optional in the schema and onboard's
+  confirmed-pair draft does not emit it, so an untagged pair is the ordinary shape of a
+  freshly onboarded one; rejecting on it would terminally reject every ticket in that repo —
+  the same failure mode D-6 gates `standalone`/`monorepo` out to avoid. A half-tagged pair
+  fails the same way for the untagged side, so the threshold is both, not any.
 
 ## Scope
 
@@ -70,7 +80,10 @@ states plainly that FE-tagged tickets run `/dev-pipeline:run-lean` from the FE r
 **AC-2** (critic). `plugins/intake-toolkit/skills/intake-orchestrator/SKILL.md` documents:
 - A title check gated on `topology.type: be-fe-pair` (not any new config field): a title
   carrying both pair tags, or neither, is rejected at intake exit before spec review starts
-  — `needs-spec-work` on github, present-and-STOP under jira (D-2, D-6).
+  — `needs-spec-work` on github, present-and-STOP under jira (D-2, D-6). The check matches
+  the configured `ticketTag` **values** with Stage 1.T's semantics, not bracket shape, and
+  states what happens when the pair config does not declare a tag on both entries: it does
+  not fire, and the ticket proceeds.
 - The cross-repo case is documented as an **admission rule** on the existing
   `sub-issues-sequential` verdict (D-7), not a new verdict: the sibling's slice is filed in
   **its own repo's tracker**, resolved from the host's own `topology.repos.<sibling-id>.path`

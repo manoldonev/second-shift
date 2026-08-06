@@ -296,5 +296,9 @@ entire block otherwise; it is opt-in, not part of the default emitted set):
    detected sibling candidates), then run `/second-shift:onboard` there. Detection reports
    `standalone` from that side, so it drafts its own independent config, bot identity, and
    worktrees dir with no further prompts. **FE-tagged tickets run `/dev-pipeline:run-lean`
-   from the FE repo**, not from here." Offer to `cd` and re-invoke onboard on the sibling
-   now if the session can reach that path; otherwise leave it as the next step.
+   from the FE repo**, not from here. This leaves the FE command table in two places on
+   purpose: `commands.fe` here, read only by the staged lane, and `commands.<fe-id>` in the
+   FE repo's own config — the same table with nothing keeping the two in sync. Edit the FE
+   repo's own copy; this one loses its last reader when the staged lane goes." Offer to `cd`
+   and re-invoke onboard on the sibling now if the session can reach that path; otherwise
+   leave it as the next step.
