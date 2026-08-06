@@ -5,7 +5,7 @@ run_id: review-392-2
 session_id: ff980a53-1d08-4deb-ab16-d54a46c6e41a
 rounds: 2
 pr: #400
-reviewed_head: 8d58a254b31a424e4e7acb233865bc6b07f796e3
+reviewed_head: b4eba3114a043fde4553d50cb62574fe3f1803e6
 reviewed_patch_id: c6ffc5e38c9a009897f71f106eee7ef90a34e180
 inherited_patch_id: 86d23d218593c533c63de573199d83d5b5b51caa
 inherited_from_verdict: f42c2a16633852285fdb1afe7160880d063693f8
@@ -76,6 +76,28 @@ and the one reworded AC (AC-4) replaces an oracle round 1 proved structurally in
 observing the guard with one that demonstrably kills it. Nothing was narrowed to fit what
 shipped: AC-4's re-baseline clause survives verbatim, and no AC lost a requirement. Recorded
 here so the amendment is visible in the ledger rather than inferred from the diff.
+
+## Re-stamp note — same round, not a new one
+
+This record was first written at `b24447f`, then re-issued unchanged on top of the
+`Merge branch 'main' into lean/second-shift-392` commit that GitHub's "Update branch" button
+created. **No new review round was spent, and none was owed.** The merge changed no line of
+this branch's own work:
+
+- The declared freshness arm passes with the patch id unchanged — the branch's diff against
+  `origin/main` is byte-identical to the one this round read.
+- `origin/main`'s new commits touch none of the files under review: `lean-gate.sh`,
+  `lean-gate-selftest.sh`, `scenario-liveness-selftest.sh` and `tools/mutation-catalog.tsv` are
+  all untouched by them.
+- The two files that do overlap (`docs/config-schema.md`, the schema) still carry exactly this
+  branch's one-line clause each in `origin/main...HEAD` — the merge preserved them intact.
+
+The re-stamp exists only because `check-lean-chain.sh`'s **inferred** freshness arm compares
+`VERDICT_COMMIT` to `PR_HEAD_SHA` with a two-dot `git diff`, so after a merge from base it
+reports every commit the base gained since the branch point as a change to the branch — twelve
+files here, all of them the base's. The declared arm, which is merge-invariant, passes on the
+same tree. The remedy is the one #372 established: prove the patch is unchanged and re-stamp
+the same round. Filed separately as a gate defect.
 
 ## Verified green (not findings)
 
