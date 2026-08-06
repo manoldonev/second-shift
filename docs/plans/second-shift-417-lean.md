@@ -148,3 +148,26 @@ find . -name '*-selftest.sh' -type f -print0 | xargs -0 -P 4 -n1 -I{} env -u CLA
 The sweep runs **without** `SKIP_STRESS` (the ubuntu lane is the only one that exercises the stress
 legs, `audit-selftest.sh`'s among them) and **with** `env -u CLAUDE_CODE_SESSION_ID` (a session id
 leaking into a fixture clears refusals that fire in CI).
+
+### Mutation re-baseline (AC-9)
+
+`bash tools/mutation-sweep.sh --mode pr --base origin/main` — 3 guards, 27 mutants, 94s. Every row
+below was then re-derived by hand (apply the operator's own `sed` at the named line, run
+`audit-selftest.sh`, read the failure count) rather than inferred from survivor-id equality: the
+sweep is **advisory** off CI, so its kill verdicts are not by themselves comparable to a committed
+baseline.
+
+| Row | Verdict | Action |
+| --- | --- | --- |
+| `audit-tool-calls.sh::default::1` | survives — a **prose** site (the rationale block names `${CLAUDE_PROJECT_DIR:-$CWD}` literally), unkillable by construction | **added** |
+| `audit-tool-calls.sh::default::2` | killed — the real code site, displaced to ordinal 2 and still inside the k=2 window | no row |
+| `audit-history.sh::cmp-eq::1` | killed — ordinal unmoved; the new `/audit-history`-from-a-worktree case now asserts a non-zero session count | **removed** |
+| `audit-history.sh::cmp-z::1`, `::cmp-z::2` | killed — ordinals 1-2 are now the resolution's own guards; the sites these rows were authored for moved to 3-4 | **removed** |
+| `audit-history.sh::logic::2` | killed — same displacement | **removed** |
+| `audit-history.sh::fail-open::1`, `::detector::1`, `::detector::2`, `audit-tool-calls.sh::logic::2` | survive, ordinals unmoved | kept |
+| `audit-history.sh::fail-open::2` | the sweep scored it KILLED via the **killer process bound** (101 processes) — an artifact of the 20-way stress fan-out, not a kill: applied by hand it survives | kept |
+| `lean-reconcile.sh` (6 rows) | survivor set is byte-identical to the baseline; the header edit added no operator site | untouched |
+
+Honest limit on the four removals: those mutants are now killed because the k=2 budget window moved
+onto the new resolution's guards, **not** because the regressions the old rows described became
+caught. Their sites sit at ordinals 3-6 and are no longer swept at all.

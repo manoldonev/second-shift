@@ -37,14 +37,11 @@ catalog::stack-generality-filewide	seeded by the canonical seed run
 catalog::template-doctor-jq-guard	seeded by the canonical seed run
 catalog::verifyctl-targetrepos	seeded by the canonical seed run
 plugins/audit-toolkit/hooks/audit-tool-calls.sh::logic::2	seeded by the canonical seed run
-plugins/audit-toolkit/scripts/audit-history.sh::cmp-eq::1	seeded by the canonical seed run
-plugins/audit-toolkit/scripts/audit-history.sh::cmp-z::1	seeded by the canonical seed run
-plugins/audit-toolkit/scripts/audit-history.sh::cmp-z::2	seeded by the canonical seed run
+plugins/audit-toolkit/hooks/audit-tool-calls.sh::default::1	added for #417: a PROSE site. The main-checkout anchor's rationale block names the resolution's starting point literally (`${CLAUDE_PROJECT_DIR:-$CWD}` stays the starting point), and a comment flip is unkillable by construction. It displaced the one real default site to ordinal 2, where it IS killed (verified by hand: flipping ordinal 2 reds audit-selftest.sh, flipping ordinal 1 reds nothing), so no KILL was lost and the swept window at k=2 still reaches the real site (local advisory sweep, macOS; confirm at the first nightly)
 plugins/audit-toolkit/scripts/audit-history.sh::detector::1	seeded by the canonical seed run
 plugins/audit-toolkit/scripts/audit-history.sh::detector::2	seeded by the canonical seed run
 plugins/audit-toolkit/scripts/audit-history.sh::fail-open::1	seeded by the canonical seed run
 plugins/audit-toolkit/scripts/audit-history.sh::fail-open::2	seeded by the canonical seed run
-plugins/audit-toolkit/scripts/audit-history.sh::logic::2	seeded by the canonical seed run
 plugins/dev-pipeline/skills/run-lean/lean-gate.sh::cmp-eq::1	seeded for #303 from a local advisory sweep (macOS); confirm at the first nightly
 plugins/dev-pipeline/skills/run-lean/lean-gate.sh::default::1	seeded for #303 from a local advisory sweep (macOS); confirm at the first nightly
 plugins/dev-pipeline/skills/run-lean/lean-gate.sh::default::2	RE-KEYED for #394: a PROSE site now, like ordinal 1 — the Seams block gained a `${CURL:-curl}` entry documenting the readyProbe client, and a comment flip is unkillable by construction. It displaced `GH_CLI="${GH:-gh}"` (the previous ordinal 2, itself an accepted survivor every selftest seams around) to ordinal 3, beyond k=2 — so the swept window still holds two accepted survivors and no KILL was lost. Every other operator on this guard, and all five on lean-reconcile.sh and check-lean-chain.sh, were diffed against origin/main and are unmoved (local advisory sweep, macOS; confirm at the first nightly)
