@@ -107,7 +107,11 @@ gate() { # gate <args...>  — always from inside the fixture tree
   # --issue-file defaults to the no-regions fixture and is FIRST, so a caller's own
   # --issue-file (in "$@") is a later occurrence and wins — the parser overwrites left to
   # right, never appends.
-  ( unset RUN_ID CLAUDE_CODE_SESSION_ID; cd "$TREE" && SECOND_SHIFT_CONFIG="$CFG" LEAN_PROGRESS_FILE="$PROG" \
+  # GH_BOT joins the unset list for #359: milestone 5 now calls cmd_mark, whose no-op test keys
+  # on the resolved run id. If a fixture's marker ever stops matching, an ambient GH_BOT would
+  # send this suite to a LIVE bot wrapper — a selftest posting a real PR comment. Unset, the
+  # same drift surfaces as a loud `GH_BOT must point at the bot wrapper` test failure instead.
+  ( unset RUN_ID CLAUDE_CODE_SESSION_ID GH_BOT; cd "$TREE" && SECOND_SHIFT_CONFIG="$CFG" LEAN_PROGRESS_FILE="$PROG" \
     bash "$GATE" --issue-file "$ISSUE_NOREGIONS" "$@" 2>&1 )
 }
 count_in_progress() { [ -f "$PROG" ] && grep -cF "$1" "$PROG" 2>/dev/null || echo 0; }
@@ -190,26 +194,30 @@ else fail "(c2) no budget-exhausted line recorded"; fi
 # ---- (d) AC-14 entry gate ----------------------------------------------------------------
 reset_progress
 out="$( cd "$TREE" && SECOND_SHIFT_CONFIG="$CFG" LEAN_PROGRESS_FILE="$PROG" \
-        env -u CLAUDE_CODE_SESSION_ID bash "$GATE" entry 7 2>&1 )"; rc=$?
+        env -u CLAUDE_CODE_SESSION_ID -u RUN_ID bash "$GATE" entry 7 2>&1 )"; rc=$?
 if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q 'CLAUDE_CODE_SESSION_ID is unset'; then
   pass "(d1) entry refuses when the session id is unresolvable"
 else fail "(d1) expected rc=1 on an unset session id, got $rc: $out"; fi
 
 : > "$TREE/.claude/audit/sess-empty.jsonl"
 out="$( cd "$TREE" && SECOND_SHIFT_CONFIG="$CFG" LEAN_PROGRESS_FILE="$PROG" \
-        CLAUDE_CODE_SESSION_ID=sess-empty bash "$GATE" entry 7 2>&1 )"; rc=$?
+        env -u RUN_ID CLAUDE_CODE_SESSION_ID=sess-empty bash "$GATE" entry 7 2>&1 )"; rc=$?
 if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q 'missing or empty'; then
   pass "(d2) entry refuses on an EMPTY ledger — directory existence is not the test"
 else fail "(d2) expected rc=1 on an empty ledger, got $rc: $out"; fi
 
 out="$( cd "$TREE" && SECOND_SHIFT_CONFIG="$CFG" LEAN_PROGRESS_FILE="$PROG" \
-        CLAUDE_CODE_SESSION_ID=sess-absent bash "$GATE" entry 7 2>&1 )"; rc=$?
+        env -u RUN_ID CLAUDE_CODE_SESSION_ID=sess-absent bash "$GATE" entry 7 2>&1 )"; rc=$?
 if [ "$rc" -eq 1 ]; then pass "(d3) entry refuses when no ledger file exists for the session"
 else fail "(d3) expected rc=1 on an absent ledger, got $rc: $out"; fi
 
+# env -u RUN_ID on every `entry` call above and below is load-bearing, not hygiene: `entry` is
+# one of the two build-role subcommands that SEED the run-id cache, so an ambient RUN_ID (the
+# operator exports one for a real run) writes that id into the fixture tree — and milestone 5's
+# marker check then resolves an identity no fixture carries. It cost a milestone-3 red on #359.
 printf '{"tool":"Bash"}\n{"tool":"Read"}\n' > "$TREE/.claude/audit/sess-live.jsonl"
 out="$( cd "$TREE" && SECOND_SHIFT_CONFIG="$CFG" LEAN_PROGRESS_FILE="$PROG" \
-        CLAUDE_CODE_SESSION_ID=sess-live bash "$GATE" entry 7 2>&1 )"; rc=$?
+        env -u RUN_ID CLAUDE_CODE_SESSION_ID=sess-live bash "$GATE" entry 7 2>&1 )"; rc=$?
 if [ "$rc" -eq 0 ]; then pass "(d4) entry passes on a live, non-empty ledger"
 else fail "(d4) expected rc=0 on a live ledger, got $rc: $out"; fi
 
@@ -1460,13 +1468,13 @@ else fail "(n10) progress file missing the jira claim record: $(cat "$PROG_J" 2>
 # ---- the entry note ------------------------------------------------------------------------
 printf '{"tool":"Bash"}\n' > "$TREE/.claude/audit/sess-jira.jsonl"
 out="$( cd "$TREE" && SECOND_SHIFT_CONFIG="$CFG_JIRA" LEAN_PROGRESS_FILE="$PROG_J" \
-        CLAUDE_CODE_SESSION_ID=sess-jira bash "$GATE" entry "$JKEY" 2>&1 )"; rc=$?
+        env -u RUN_ID CLAUDE_CODE_SESSION_ID=sess-jira bash "$GATE" entry "$JKEY" 2>&1 )"; rc=$?
 if [ "$rc" -eq 0 ] && printf '%s' "$out" | grep -q 'no queue label to confirm'; then
   pass "(n11) entry prints the jira adapter note — step 1's label reject has no jira meaning"
 else fail "(n11) expected the jira entry note, got rc=$rc: $out"; fi
 
 out="$( cd "$TREE" && SECOND_SHIFT_CONFIG="$CFG" LEAN_PROGRESS_FILE="$PROG" \
-        CLAUDE_CODE_SESSION_ID=sess-jira bash "$GATE" entry 7 2>&1 )"; rc=$?
+        env -u RUN_ID CLAUDE_CODE_SESSION_ID=sess-jira bash "$GATE" entry 7 2>&1 )"; rc=$?
 if [ "$rc" -eq 0 ] && ! printf '%s' "$out" | grep -q 'no queue label to confirm'; then
   pass "(n12) the github arm prints no adapter note"
 else fail "(n12) the adapter note leaked into the github arm: $out"; fi

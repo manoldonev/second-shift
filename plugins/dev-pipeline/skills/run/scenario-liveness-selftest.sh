@@ -898,9 +898,16 @@ LEANCFG
   # it here (rather than inheriting the ambient one) is what makes the legs behave identically
   # in a Claude Code session, where CLAUDE_CODE_SESSION_ID is exported, and in CI, where it is
   # not: the fixture's session identity is always the fixture's.
+  #
+  # unset RUN_ID GH_BOT: the same ambient-leak pinning lean-gate-selftest.sh applies to its own
+  # helper. Load-bearing since #359 — milestone 5 calls cmd_mark, whose no-op test keys on the
+  # resolved run id, so an operator's exported RUN_ID makes these legs stamp an identity the
+  # fixtures do not carry, and an ambient GH_BOT would send that write to a LIVE bot.
+  # CLAUDE_CODE_SESSION_ID is PINNED rather than unset — the stronger form of the same fix, and
+  # the one #416 requires, since the attestation the legs compose reads THIS session's ledger.
   LEAN_SID="sess-lean-build"
   printf '{"tool":"Bash"}\n' > "$LEAN_TREE/.claude/audit/$LEAN_SID.jsonl"
-  lean_gate() { ( cd "$LEAN_TREE" && SECOND_SHIFT_CONFIG="$LEAN_CFG" LEAN_PROGRESS_FILE="$LEAN_PROG" \
+  lean_gate() { ( unset RUN_ID GH_BOT; cd "$LEAN_TREE" && SECOND_SHIFT_CONFIG="$LEAN_CFG" LEAN_PROGRESS_FILE="$LEAN_PROG" \
                   CLAUDE_CODE_SESSION_ID="$LEAN_SID" \
                   bash "$LEAN_GATE" --issue-file "$LEAN_ISSUE_NOREGIONS" "$@" 2>&1 ); }
   lean_count() { if [[ -f "$LEAN_PROG" ]]; then local n; n=$(grep -cF "$1" "$LEAN_PROG" 2>/dev/null) || n=0; echo "$n"; else echo 0; fi; }
@@ -1059,7 +1066,11 @@ LEANBOT
   # lean_seed_progress wipes exactly those. This leg runs on the state leg 1 just composed,
   # which is also the only state a real run reaches milestone 5 in.
   : > "$LEAN_BOT_SPOOL"
-  lm5=$( ( cd "$LEAN_TREE" && SECOND_SHIFT_CONFIG="$LEAN_CFG" LEAN_PROGRESS_FILE="$LEAN_PROG" \
+  # unset RUN_ID, then let the identity resolve from the CACHE lean_seed_progress wrote — which
+  # is what a real run does, since only entry/claim establish it and every later call reads it
+  # back. Passing one explicitly here would test a shape no run has, and inheriting an ambient
+  # one makes the leg stamp an identity the fixture never carries.
+  lm5=$( ( unset RUN_ID; cd "$LEAN_TREE" && SECOND_SHIFT_CONFIG="$LEAN_CFG" LEAN_PROGRESS_FILE="$LEAN_PROG" \
            CLAUDE_CODE_SESSION_ID=sess-lean-build GH_BOT="$TMP/lean-bot-stub.sh" \
            LEAN_BOT_SPOOL="$LEAN_BOT_SPOOL" \
            bash "$LEAN_GATE" --issue-file "$LEAN_ISSUE_NOREGIONS" 5 77 \
@@ -1078,7 +1089,7 @@ LEANBOT
   # sweep re-enters milestone 5, so a writer that posted unconditionally would leave one marker
   # per sweep on every PR the lane ever opens.
   : > "$LEAN_BOT_SPOOL"
-  lm5b=$( ( cd "$LEAN_TREE" && SECOND_SHIFT_CONFIG="$LEAN_CFG" LEAN_PROGRESS_FILE="$LEAN_PROG" \
+  lm5b=$( ( unset RUN_ID; cd "$LEAN_TREE" && SECOND_SHIFT_CONFIG="$LEAN_CFG" LEAN_PROGRESS_FILE="$LEAN_PROG" \
             CLAUDE_CODE_SESSION_ID=sess-lean-build GH_BOT="$TMP/lean-bot-stub.sh" \
             LEAN_BOT_SPOOL="$LEAN_BOT_SPOOL" \
             bash "$LEAN_GATE" --issue-file "$LEAN_ISSUE_NOREGIONS" 5 77 \
@@ -1399,7 +1410,7 @@ LEANPRJNV
   printf '{"tool":"Bash"}\n' > "$EL_TREE/.claude/audit/$EL_SID.jsonl"
   el_gate() { # el_gate <config-file> <progress-file> <args...>
     local cfg="$1" prog="$2"; shift 2
-    ( cd "$EL_TREE" && SECOND_SHIFT_CONFIG="$cfg" LEAN_PROGRESS_FILE="$prog" \
+    ( unset RUN_ID GH_BOT; cd "$EL_TREE" && SECOND_SHIFT_CONFIG="$cfg" LEAN_PROGRESS_FILE="$prog" \
       CLAUDE_CODE_SESSION_ID="$EL_SID" bash "$LEAN_GATE" --issue-file "$EL_ISSUE" "$@" 2>&1 )
   }
   # Each extraLanes case gets its own progress file, so each composes its own `entry` first.
@@ -1537,7 +1548,7 @@ LEANDCFG
   LEAN_DSID="sess-lean-d-build"
   mkdir -p "$LEAN_DTREE/.claude/audit"
   printf '{"tool":"Bash"}\n' > "$LEAN_DTREE/.claude/audit/$LEAN_DSID.jsonl"
-  lean_dgate() { ( cd "$LEAN_DTREE" && SECOND_SHIFT_CONFIG="$LEAN_DCFG" LEAN_PROGRESS_FILE="$LEAN_DPROG" \
+  lean_dgate() { ( unset RUN_ID GH_BOT; cd "$LEAN_DTREE" && SECOND_SHIFT_CONFIG="$LEAN_DCFG" LEAN_PROGRESS_FILE="$LEAN_DPROG" \
                    CLAUDE_CODE_SESSION_ID="$LEAN_DSID" \
                    bash "$LEAN_GATE" --issue-file "$LEAN_ISSUE_NOREGIONS" "$@" 2>&1 ); }
   lean_dcommit() { git -C "$LEAN_DTREE" add -A >/dev/null 2>&1
