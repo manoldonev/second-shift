@@ -11,7 +11,7 @@ plus the PR metadata.
 > (`transitionJiraIssue`, `addCommentToJiraIssue`, `editJiraIssue`, …). This keeps a run
 > to a single outward-facing write — the PR — and avoids a redundant approval gate.
 
-The tables below describe the **`run`** lane. The lean lane’s three adapter-sensitive
+The tables below describe the **`run`** lane. The lean lane’s adapter-sensitive
 operations are tabulated in [`../README.md`](../README.md#the-lean-lane-dev-pipelinerun-lean).
 
 > **Draft vs ready is a `run`-lane rule, not an adapter rule.** `run` opens a **draft** PR
