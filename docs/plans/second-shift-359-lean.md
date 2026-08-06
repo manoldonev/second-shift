@@ -12,6 +12,11 @@ Binding input: the pre-flight receipt at `.claude/pipeline-state/359-ledger.md` 
 OR-1/OR-2). It overrides the issue's framing where they disagree — D-2 (identity source) and
 D-6 (which arms the core carries) both widen or supersede what the issue body assumed.
 
+**That path is gitignored**, so a reviewer cannot open it and the `D-n` tags below and in the
+code comments are citations, not references. Everything they decide is restated inline here and
+at the site that implements it; nothing in this change requires the receipt to be readable to
+be reviewable. The tags are kept because the run's own reconciliation and the retro read them.
+
 ## Design
 
 Design: none — this is shell/CI plumbing with no rendered surface. The repo configures no

@@ -1055,8 +1055,10 @@ LEANBOT
   # refusal here can only be the marker's.
   jq 'map(select((.body // "") | test("lean-pr-marker") | not))' "$TMP/lean-comments.json" \
     > "$TMP/lean-comments-nomarker.json"
+  # NO re-seed: cmd_5 asserts milestones 1-4 each left a `satisfied` record, and
+  # lean_seed_progress wipes exactly those. This leg runs on the state leg 1 just composed,
+  # which is also the only state a real run reaches milestone 5 in.
   : > "$LEAN_BOT_SPOOL"
-  lean_seed_progress r-lean-1 sess-lean-build
   lm5=$( ( cd "$LEAN_TREE" && SECOND_SHIFT_CONFIG="$LEAN_CFG" LEAN_PROGRESS_FILE="$LEAN_PROG" \
            CLAUDE_CODE_SESSION_ID=sess-lean-build GH_BOT="$TMP/lean-bot-stub.sh" \
            LEAN_BOT_SPOOL="$LEAN_BOT_SPOOL" \
@@ -1076,7 +1078,6 @@ LEANBOT
   # sweep re-enters milestone 5, so a writer that posted unconditionally would leave one marker
   # per sweep on every PR the lane ever opens.
   : > "$LEAN_BOT_SPOOL"
-  lean_seed_progress r-lean-1 sess-lean-build
   lm5b=$( ( cd "$LEAN_TREE" && SECOND_SHIFT_CONFIG="$LEAN_CFG" LEAN_PROGRESS_FILE="$LEAN_PROG" \
             CLAUDE_CODE_SESSION_ID=sess-lean-build GH_BOT="$TMP/lean-bot-stub.sh" \
             LEAN_BOT_SPOOL="$LEAN_BOT_SPOOL" \

@@ -409,5 +409,43 @@ if [ "$rc" -eq 0 ] \
   pass "(bb4) --help prints through the last header line and stops before the code"
 else fail "(bb4) --help did not print exactly the header, rc=$rc: $out"; fi
 
+# ---- (cc) the two paths nothing above reached ---------------------------------------------
+# Both were found by the mutation sweep, not by reading: an unbaselined survivor is a
+# regression the suite would not have caught, and these are what its first run on this guard
+# reported.
+
+# A lean-classified PR whose body names no issue. Everything downstream keys on that number —
+# the verdict record, the intent-gap record, the arms' file lookups — so resolving nothing and
+# continuing would run every arm against the empty key and report "no committed verdict record"
+# for an issue that was never identified. The refusal is the only correct outcome, and until
+# this case existed, flipping its `exit 1` to `exit 0` passed the whole suite.
+out="$( cd "$TREE" && LEAN_BRANCH_PREFIX="lean/acme-" PIPELINE_BRANCH_PREFIX="claude/acme-" \
+        PR_HEAD_REF="lean/acme-42" PR_HEAD_SHA="$(git -C "$TREE" rev-parse HEAD)" PR_BASE_REF=main \
+        PR_BODY="A body that references nothing at all." \
+        bash "$TOOL" all --pr-comments-file "$WORK/markers-good.json" \
+        --diff-files-file "$WORK/diff-lean.txt" 2>&1 )"; rc=$?
+if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q 'no resolvable issue reference'; then
+  pass "(cc1) a lean PR whose body resolves no issue key is refused, not run against an empty key"
+else fail "(cc1) expected rc=1 on an unresolvable issue reference, got $rc: $out"; fi
+
+# THE LIVE FETCH PATH. Every case above hands the marker trail in through --pr-comments-file,
+# which seams past `${GH:-gh}` entirely — so the one line a consumer's CI actually depends on
+# was the only unexercised statement in the identity arm. A stub `gh` on PATH exercises it for
+# real: with the fallback broken the fetch cannot run, and an arm that cannot run must not pass.
+mkdir -p "$WORK/bin"
+cat > "$WORK/bin/gh" <<'GHSTUB'
+#!/usr/bin/env bash
+cat "$LEAN_EV_MARKERS"
+GHSTUB
+chmod +x "$WORK/bin/gh"
+out="$( cd "$TREE" && PATH="$WORK/bin:$PATH" LEAN_EV_MARKERS="$WORK/markers-good.json" \
+        LEAN_BRANCH_PREFIX="lean/acme-" PIPELINE_BRANCH_PREFIX="claude/acme-" \
+        PR_HEAD_REF="lean/acme-42" PR_HEAD_SHA="$(git -C "$TREE" rev-parse HEAD)" PR_BASE_REF=main \
+        PR_BODY="$BODY_GOOD" PR_NUMBER=9 GH_REPO="acme/acme" \
+        bash "$TOOL" all --diff-files-file "$WORK/diff-lean.txt" 2>&1 )"; rc=$?
+if [ "$rc" -eq 0 ] && printf '%s' "$out" | grep -q '✓ authorship'; then
+  pass "(cc2) the identity arm fetches its marker trail through the live gh path, not only the fixture seam"
+else fail "(cc2) expected the live-fetch path to pass, got $rc: $out"; fi
+
 echo "[lean-evidence-selftest] $([ "$FAILS" -eq 0 ] && echo 'all green' || echo "$FAILS FAILURE(S)")"
 exit "$FAILS"
