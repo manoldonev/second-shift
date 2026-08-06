@@ -14,6 +14,13 @@ build session, so this cannot be folded back into the build lane by convenience.
 
 `G` = `lean-gate.sh` in the sibling `run-lean/` skill directory.
 
+> **Tracker delta (`tracker.type: jira`, `writes: false`).** The checklist below is the
+> **github** default. Under jira: the issue key resolves from `Closes [<KEY>]` under
+> `### Jira Items` in the PR body, not `Closes #N` (2). The step-8 findings comment is
+> unaffected — it is a PR comment posted via `gh`, not a tracker write, so it posts the
+> same under both adapters. No other checklist step differs.
+> [Adapter contract](../run/tools/tracker/jira/README.md).
+
 ## Checklist
 
 1. Export a review identity before anything else — `RUN_ID=review-<issue>-<round>`, charset

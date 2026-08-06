@@ -287,3 +287,18 @@ entire block otherwise; it is opt-in, not part of the default emitted set):
    `.claude/SECOND-SHIFT.md` in one PR — **plus**, only if the CI evidence workflow was
    accepted (Step 3 item 9), `.github/workflows/second-shift-ci.yml` and
    `.claude/tools/second-shift-ci-check.sh` in the same PR.
+7. **Confirmed pair → offer the sibling's own onboard, and say the FE rule out loud.** This
+   run's `be-fe-pair` config (drafted at Step 3) is unchanged and still covers both sides for the
+   deprecated staged lane. The lean lane needs more: `/dev-pipeline:run-lean` routes by
+   invocation cwd and has no per-repo worktree map, so the sibling ALSO needs its own
+   standalone onboard to be worked from its own checkout. Print: "The sibling repo needs
+   its own onboard too, for `/dev-pipeline:run-lean`: `cd <sibling path>` (from the
+   detected sibling candidates), then run `/second-shift:onboard` there. Detection reports
+   `standalone` from that side, so it drafts its own independent config, bot identity, and
+   worktrees dir with no further prompts. **FE-tagged tickets run `/dev-pipeline:run-lean`
+   from the FE repo**, not from here. This leaves the FE command table in two places on
+   purpose: `commands.fe` here, read only by the staged lane, and `commands.<fe-id>` in the
+   FE repo's own config — the same table with nothing keeping the two in sync. Edit the FE
+   repo's own copy; this one loses its last reader when the staged lane goes." Offer to `cd`
+   and re-invoke onboard on the sibling now if the session can reach that path; otherwise
+   leave it as the next step.
