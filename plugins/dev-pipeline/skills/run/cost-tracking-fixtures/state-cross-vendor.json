@@ -1,0 +1,55 @@
+{
+  "ticketKey": "test-cross-vendor",
+  "runId": "fixture-run-cross-vendor",
+  "status": "in_progress",
+  "currentStage": 9,
+  "startedAt": "2026-06-10T09:00:00Z",
+  "lastUpdatedAt": "2026-06-10T09:40:00Z",
+  "branch": "claude/acme-test-cross-vendor",
+  "worktreePath": "/tmp/acme-test-cross-vendor",
+  "stages": {
+    "1": {
+      "status": "completed",
+      "startedAt": "2026-06-10T09:00:00Z",
+      "completedAt": "2026-06-10T09:05:00Z"
+    },
+    "2": {
+      "status": "completed",
+      "startedAt": "2026-06-10T09:05:00Z",
+      "completedAt": "2026-06-10T09:10:00Z"
+    },
+    "5": {
+      "status": "completed",
+      "startedAt": "2026-06-10T09:10:00Z",
+      "completedAt": "2026-06-10T09:20:00Z"
+    },
+    "7": {
+      "status": "completed",
+      "startedAt": "2026-06-10T09:20:00Z",
+      "completedAt": "2026-06-10T09:25:00Z"
+    },
+    "8": {
+      "status": "completed",
+      "startedAt": "2026-06-10T09:25:00Z",
+      "completedAt": "2026-06-10T09:30:00Z"
+    },
+    "9": {
+      "status": "completed",
+      "startedAt": "2026-06-10T09:30:00Z",
+      "completedAt": "2026-06-10T09:40:00Z"
+    }
+  },
+  "pipelineSessions": [
+    {
+      "sessionId": "33333333-4444-4555-8666-777777777777",
+      "launchedAt": "2026-06-10T09:00:00Z",
+      "source": "skill"
+    }
+  ],
+  "prs": {
+    "claude/acme-test-cross-vendor": {
+      "url": "https://github.com/owner/repo/pull/8003"
+    }
+  },
+  "costBlockApplied": null
+}
