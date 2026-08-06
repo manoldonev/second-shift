@@ -1,49 +1,91 @@
 # lean review verdict — #398
 
-verdict=needs-work
-run_id: review-398-1
-session_id: 3344aa21-451e-461a-af6c-b50679b4b84a
-rounds: 1
+verdict=approve
+run_id: review-398-2
+session_id: c193b64d-6be4-4365-a5c8-50b5c2ad7805
+rounds: 2
 pr: #407
-reviewed_head: d35ecdb1ccf4b03a38baa8aceec879b50e34df18
+reviewed_head: 83256c39461896902e11e4aead43cc663e1ef632
 reviewed_patch_id: 7a97e089c1e0bd8fe47bdb09178712f7589587c4
 inherited_patch_id: none
 inherited_from_verdict: none
 model: unknown
 
-## Round 1 — full branch diff (`ca79bbf..d35ecdb`, 3 files)
+# Review round 2 — PR #407 (issue #398), `lean/398`
 
-Range from `lean-gate.sh delta 398`: FULL — nothing verifiable to inherit, root round.
+Range from `lean-gate.sh delta 398`: **FULL** — `ca79bbf..HEAD`, 4 files. The gate refused to
+inherit, and the reason is worth stating: round 1's fix was a **message-only history rewrite**,
+so this round's tree is byte-identical to the one round 1 reviewed. `inherit_candidate` takes
+the newest record whose `reviewed_patch_id` *differs* from the current tree's; here they are
+equal (`7a97e089c1e0…` both), so there is no earlier tree to anchor a delta on. This round is a
+chain **root** and re-read the whole diff on its own.
+
+Read wider than the range in one place, deliberately: **every commit message on the branch**.
+Round 1's only blocker lived in a commit body, and a message-only rewrite is invisible in any
+tree diff — a round that read only the delta could not have seen either the defect or its fix.
 
 Reviewers dispatched via `code-review.mjs`: maintainability, scope-completeness, security,
-performance. All four returned. Trivial-inert routing would have selected only the first two;
-security and performance were added because in this repo `plugins/**/skills/**` prose IS the
-product's execution surface, and both returned clean with no surface to assess. Complexity,
-test-coverage, db, pipeline, unit-test-mutation not selected (no trigger). a11y and the
-design-fidelity dimension not routed: no changed path matched the web-component surface.
+performance — the same panel round 1 used, re-run rather than inherited by reference, because a
+root record claims coverage on its own. Complexity, test-coverage, db, pipeline,
+unit-test-mutation not selected (no trigger). a11y + design-fidelity not routed: no changed path
+matched `stageParams.webComponentGlobs` (unset; resolved default `apps/web/**/*.{tsx,jsx}`).
 
-### Findings
+## Round-1 findings — disposition
 
-| # | Severity | Location | Finding |
+| # | Round-1 class | Status | Evidence |
 | --- | --- | --- | --- |
-| 1 | **Blocker** | commit `d35ecdb`, message body | The trailer reads `Changelog: none — internal doc consistency fix, no consumer-visible behavior change.` That is **not** the no-op form. `derive-release.sh`'s `render_bullet` normalizes a trailer block by case-folding and stripping trailing whitespace and **one** trailing period, then suppresses it only when the whole block equals `none`. This block does not, so it renders as an indented bullet body under the release-note entry. Reproduced by feeding the real commit body through the production `extract_trailers` and `render_bullet` awk programs verbatim: output is the literal line `  none — internal doc consistency fix, no consumer-visible behavior change.` `check-changelog-trailer.sh` asserts presence only (`grep -cE '^Changelog:'`), so no lane reds on it and the bad bullet reaches `CHANGELOG.md` at release time. This is the same defect flagged on the #401 round. Fix: rewrite the trailer on the commit to the bare `Changelog: none.` — a message-only rewrite, so the patch is unchanged and this round's coverage carries over. |
-| 2 | Warning | `run/tools/tracker/README.md:43`, and `docs/plans/second-shift-398-lean.md:14-15` | AC-2 requires leaving `"lean-gate.sh … branches at exactly **three** sites"` unchanged on the grounds that it is correct, and the spec commits that as verified fact. It is not: the sentence was written in #365 (`312a0b4`), when the file's four `[ "$TRACKER_TYPE" = "jira" ]` conditionals grouped into three lane-operation sites (entry note, claim, exit×2). #376 (`d5b3fa5`) added a fifth conditional at `lean-gate.sh:775` — `check_pause_and_ask`'s early return — which is a milestone-3 gate check, not entry/claim/exit. So the count is stale by one under exactly the same convention that made it right, and by exactly the drift mechanism this PR exists to remove. The neighboring `lean-reconcile.sh` "exactly **one**" is the same class and was already flagged as W2 on the #388 verdict record; it has gone 0→3 conditionals since. **Not a blocker and not fixable here** — AC-2 positively mandates the sentence be untouched, so no implementation satisfying this spec could have fixed it. Route to a follow-up issue covering both sentences. |
+| 1 | **Blocker** — `Changelog: none — <rationale>` is not the no-op form | **fixed** | Both branch commits now carry a bare `Changelog: none.` Reproduced through the production awk programs verbatim (`extract_trailers` @`scripts/derive-release.sh:115`, `render_bullet`'s block-normalizer @`:240`): each commit renders as `- **<subject>**` with **no indented body**, and the concatenated squash-merge shape (two `none.` blocks) renders nothing at all. The remedy also stayed inside its bound — `branch_patch_id` is unchanged at `7a97e089c1e0bd8fe47bdb09178712f7589587c4`, so no reviewed line moved. |
+| 2 | Warning — `README.md:43`'s "exactly **three** sites" is stale, and unfixable under AC-2 | **routed** | Filed as **#408** (open, `documentation`), covering both stale counts — `lean-gate.sh` "exactly three" (now 5 `TRACKER_TYPE` conditionals at `:657`, `:676`, `:775`, `:1557`, `:1575`, grouping to 4 sites) and `lean-reconcile.sh` "exactly one" (now 3, previously flagged as W2 on the #388 record and never filed). #408 also **corrects** round 1's own prose: `check_pause_and_ask` (`:775`) is reached from `cmd_1` — a milestone **1** check, not milestone 3. The substance of the warning is unaffected: the site is outside entry/claim/exit either way. |
 
-Suppressed (below threshold): security — new spec doc scanned for embedded credentials, none
-present, no executable surface (confidence 30).
+The build session did not edit the committed round-1 record to correct that slip, which is
+right — rewriting a verdict record from the build session would forge review authorship. The
+correction lives in #408 and in this record.
 
-### Acceptance criteria
+## Findings
+
+No blockers, no warnings, no suggestions. All four reviewers returned `approve` with zero
+findings (`agents_error: 0`, 149k subagent tokens — round 1's panel died on unnamespaced agent
+types and this one did not).
+
+Suppressed (below threshold, all three independently consistent with the reading above):
+
+- security — `README.md:24`, confidence 30: prose under `plugins/**` is an execution surface,
+  but the deleted word is a count qualifier with no security semantics; the neighboring
+  `tracker.writes: false` / single-outward-write framing is unchanged.
+- scope-completeness, confidence 85: `README.md:43`'s "exactly three sites" is itself stale by
+  one conditional, but AC-2 mandates that sentence be unchanged, so it is not a scope gap for
+  #398 — route to a follow-up. (It is #408.)
+- scope-completeness, confidence 90: `pr-gates` red on #407 is the lean-chain
+  `verdict=needs-work` evidence arm reading the committed round-1 record, not a scope or suite
+  defect.
+
+The scope gate reached the second of those independently — no scope assertion from this
+orchestrator reached its prompt.
+
+## Acceptance criteria
 
 | AC | Score | Evidence |
 | --- | --- | --- |
-| **AC-1** | satisfied | Both sites drop the count and keep the pointer: `README.md:24-25` now reads "the lean lane's adapter-sensitive operations follow it"; `jira/README.md:14` reads "The lean lane's adapter-sensitive operations are tabulated in `../README.md`". A repo-wide grep for `adapter-sensitive` across `*.md`/`*.sh`/`*.mjs` returns no surviving prose count of lane operations outside the plan/verdict archive. Neither sentence can now disagree with the table. |
-| **AC-2** | satisfied (by its letter) | The diff is two lines, at `README.md:24` and `jira/README.md:14`; `README.md:43` is byte-unchanged, and the paragraph still separates gate branch sites from the lane operation table below it. Scored on the letter — the accuracy of the sentence it preserves is finding 2, outside the AC set. |
-| **AC-3** | satisfied | Diff touches three Markdown files and nothing else — no `.sh`, `.mjs`, CI workflow, or selftest. `lint-and-selftests` pass (7m40s); `selftests (macos, bash 3.2)` pass (10m41s). `pr-gates` is red on one violation only — "no committed verdict record" — which is the expected pre-review state, cleared by this record. |
-| **AC-4** | satisfied (by its letter) | `d35ecdb` carries a `Changelog:` line, which is all AC-4 asks. The defect is in the trailer's *form*, not its presence, so it is carried as blocker 1 rather than scored here. |
+| **AC-1** | satisfied | Both sites drop the count and keep the pointer. `README.md:24-25` reads "the lean lane's adapter-sensitive operations follow it"; `jira/README.md:14` reads "The lean lane's adapter-sensitive operations are tabulated in `../README.md`", with its `#the-lean-lane-dev-pipelinerun-lean` anchor still resolving against the unchanged heading. A repo-wide `adapter-sensitive` grep over `*.md`/`*.sh`/`*.mjs` leaves no prose count of *lane operations* outside the plan/verdict archive; the one surviving hit in live prose is `lean-reconcile.sh:227`'s "The ONE adapter-sensitive **check**", which counts check sites, not lane operations, and is #408's territory. Neither sentence can now disagree with the table. |
+| **AC-2** | satisfied (by its letter) | The whole diff under `plugins/` is two hunks, both `@@ -N,7 +N,7 @@` one-liners at `README.md:24` and `jira/README.md:14`. `README.md:43` is byte-unchanged, and the paragraph still separates gate branch sites from the lane operation table below it. Scored on the letter, as in round 1 — the accuracy of the sentence AC-2 preserves is round-1 finding 2, now routed to #408 and outside this AC set. |
+| **AC-3** | satisfied | Diff touches four Markdown files and nothing else — no `.sh`, `.mjs`, CI workflow, or selftest. `lint-and-selftests` pass (8m33s); `selftests (macos, bash 3.2)` pass (12m29s). `pr-gates` is red on exactly one violation, "verdict record reads `verdict=needs-work`" restated across two arms — the expected pre-approve state, cleared by this record. `✓ spec`, `✓ claim`, `✓ authorship (review-398-1 distinct from run-398-ca79bbf)` all held through the force-push. |
+| **AC-4** | satisfied | Both commits carry a `Changelog:` line, which is what AC-4 asks; and unlike round 1 the *form* is now correct too, so nothing carries over as a separate finding. |
 
-### Verdict
+## Verdict
 
-`needs-work` — one blocker. The prose fix itself is right, and the reasoning for dropping the
-count rather than bumping it to four is the durable choice: it removes the coupling instead of
-re-pinning it, so the next row addition cannot restale these two sentences. The blocker is the
-commit trailer, and its remedy does not touch the patch.
+`approve` — 0 blockers. Round 1's blocker is fixed at the source and verified by reproduction
+rather than by assertion, and its remedy provably touched no reviewed line: the branch patch
+identity is the same value round 1 recorded. The prose fix itself remains the right call —
+dropping the count removes the coupling instead of re-pinning it, so the next row added to that
+table cannot restale these two sentences a second time.
+
+One thing this round is not: a clearance of the stale counts at `README.md:43`. Those are real,
+they are the same class of drift this PR exists to remove, and AC-2 positively forbids fixing
+them here. They are #408's, and #408 is open.
+
+**Merge note.** `origin/main` advanced to `6fdd621` (`release: v3.8.5`) while this round was
+running. That does not void this record: the reviewed id is anchored on
+`merge-base(origin/main, HEAD)`, which is still `ca79bbf`, and the release touched no file in
+this diff — re-verified after the advance, same `7a97e089c1e0…`. **Do not click "Update
+branch"** on this PR. A merge commit moves the merge-base, which changes the branch patch
+identity and voids this approve at the boundary for a purely mechanical operation.
