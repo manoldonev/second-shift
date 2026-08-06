@@ -81,15 +81,29 @@ that passes, and a row matching no suite, are warnings that say "shrink the list
 
 Its scoring is **55 suites: 49 pass, 6 listed** — and how that number was arrived at is the more
 useful thing to know than the number. The first run, on the authoring machine, scored 51 pass /
-4 listed; CI then scored 49 / 2-red on the same commit, because two of the suites fail for reasons
-the authoring machine's environment hid (one needs the `claude` CLI to be *absent*, one needs bash
-older than 5.3). **A guard that reports on the environment can only be seeded from a second
-environment** — read every "measured here" claim about it as "measured on one machine" until a
-different one agrees, and let CI be that machine, because it is free.
+4 listed; CI scored 49 / 2-red on the same commit, identically on both lanes, because two suites
+fail for reasons the authoring machine's environment hid (one needs the `claude` CLI to be
+*absent*, one needs bash older than 5.3). **A guard that reports on the environment cannot be
+seeded from one environment** — read every "measured here" claim about it as "measured on one
+machine" until a different one agrees.
 
-That is also why two rows in `install-topology-known-red.tsv` are marked ENVIRONMENT-DEPENDENT.
-They will pass on some machines, and the guard will duly warn "drop its row". Do not: read the
-cause and drop the row only once the suite passes where the cause says it fails.
+**You can be the second environment without waiting for CI, and you should.** The gap is not
+mysterious: it is a small number of ambient dependencies, and removing them is a better
+experiment than re-running, which proves nothing about an environment-dependent red. Rebuild
+`PATH` symlink-for-symlink with the leaking entries left out, then run the guard under it:
+
+```bash
+# `bash` resolves to 3.2 (what the macOS lane runs), `claude` absent (what CI has)
+ln -sf /bin/bash "$SHADOW/bash"        # …after linking everything else on PATH except these two
+PATH="$SHADOW" bash tools/install-topology-selftest.sh
+```
+
+That reproduces CI's verdict exactly — same two suites, same first failure line from each — on a
+machine whose own PATH hides both. It is how the two late rows were diagnosed rather than guessed.
+
+That is also why those two rows are marked ENVIRONMENT-DEPENDENT. They will pass on some machines,
+and the guard will duly warn "drop its row". Do not: read the cause and drop the row only once the
+suite passes where the cause says it fails.
 
 Re-running the whole shipped set is the price of the class being visible at all, and it is not
 small. Suites run concurrently (`INSTALL_TOPOLOGY_JOBS`, default 4 — each suite is a separate

@@ -168,6 +168,13 @@ exercises the stress legs.
   the AC now requires a second before any count is published — and the two extra rows are the
   seeding defect's output, not new defects.)*
 
+  *(The corroborating run is measured, not predicted. Rebuilding `PATH` symlink-for-symlink with
+  `bash` pointed at `/bin/bash` 3.2 and `claude` left out — the two things that actually differ
+  between this machine and CI — the guard scores `55 ran, 49 passed, 6 known-red, 0 skipped,
+  0 stale row(s), 0 red`, rc=0, with each late row's first failure line matching CI's verbatim.
+  Removing the leaking dependency is the experiment; re-running is not one, and the AC would be
+  satisfied by a green CI run just as well.)*
+
   *(OR-2, measured: `audit-selftest.sh` passes under this topology and gets no row. The receipt's
   detached-arm sweep saw it red for a reason the version-keyed arm does not reproduce; the guard's
   own run is the authority D-9 named, so the region closes on evidence rather than on an
