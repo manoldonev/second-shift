@@ -308,11 +308,14 @@ err=$(bash "$LINT" "$TMP/prov-malformed.md" "$LEDGER_STATE" 2>&1 >/dev/null || t
   || fail "(pl-u5) malformed no-human — rc=$rc err=$err"
 
 # (pl-n1) Check 5b: 2+ creation-verb steps with zero [NEW] tags → 1, named (the run-#175 shape).
-# Fixture must live INSIDE a git repo for Check 5a's PLAN_ROOT resolution; use a
-# harness-local scratch dir under the repo tree, cleaned on exit.
+# NTMP hosts pl-n1/n2 (Check 5b, no PLAN_ROOT dependency) and pl-n5 (Check 5a's
+# foreign-tree skip, which needs the AMBIENT repo's real top level so "elsewhere/..."
+# genuinely doesn't exist there). pl-n3/n4 need the opposite — a topdir that DOES
+# exist — so they get their own throwaway repo below rather than borrowing this one's.
 NTMP="$HERE/.plan-lint-newtag-tmp"
 mkdir -p "$NTMP"
-trap 'rm -rf "$TMP" "$NTMP"' EXIT
+GHOST_REPO=""
+trap 'rm -rf "$TMP" "$NTMP" "$GHOST_REPO"' EXIT
 BT="$(printf '\140')"
 sed "s/^1\\. Step one\\./1. Add a ${BT}dormancy${BT} rule./; s/^2\\. Step two\\./2. Add the marker grammar./" \
   "$FIX/valid-plan.md" > "$NTMP/no-tags.md"
@@ -330,17 +333,28 @@ rc=$(lint_rc "$NTMP/tagged.md")
   || fail "(pl-n2) tagged plan — got rc=$rc"
 
 # (pl-n3) Check 5a: a nonexistent path under an existing top dir, untagged → 1, named.
+# The topdir must genuinely exist under PLAN_ROOT for the guard at plan-lint.sh:335 to
+# even inspect the deeper path. Borrowing second-shift's own plugins/ for that worked
+# here by coincidence — PLAN_ROOT resolves to whatever repo actually runs this
+# selftest (a plugin installed under a consumer's .claude/plugins/ tree resolves
+# PLAN_ROOT to THAT repo), and a consumer's top level can be anything (e.g.
+# dist/sdk/src/tests, no plugins/ at all), which silently SKIPS Check 5a instead of
+# exercising it. Manufacture the precondition in a throwaway repo instead of
+# borrowing it from the ambient one, so it holds wherever this selftest runs.
+GHOST_REPO="$(mktemp -d)"
+git init -q "$GHOST_REPO"
+mkdir -p "$GHOST_REPO/plugins"
 sed "s|^1\\. Step one\\.|1. Wire ${BT}plugins/no-such-plugin/fake-tool.sh${BT} into CI.|" \
-  "$FIX/valid-plan.md" > "$NTMP/ghost-path.md"
-rc=$(lint_rc "$NTMP/ghost-path.md")
-err=$(bash "$LINT" "$NTMP/ghost-path.md" 2>&1 >/dev/null || true)
+  "$FIX/valid-plan.md" > "$GHOST_REPO/ghost-path.md"
+rc=$(lint_rc "$GHOST_REPO/ghost-path.md")
+err=$(bash "$LINT" "$GHOST_REPO/ghost-path.md" 2>&1 >/dev/null || true)
 [[ "$rc" -eq 1 ]] && grep -q "does not exist" <<< "$err" \
   && pass "(pl-n3) nonexistent untagged path → 1, named" \
   || fail "(pl-n3) ghost path — rc=$rc err=$err"
 
 # (pl-n4) the same path tagged [NEW] on the same line → 0.
-sed "s|fake-tool.sh${BT} into CI\\.|fake-tool.sh${BT} [NEW] into CI.|" "$NTMP/ghost-path.md" > "$NTMP/ghost-tagged.md"
-rc=$(lint_rc "$NTMP/ghost-tagged.md")
+sed "s|fake-tool.sh${BT} into CI\\.|fake-tool.sh${BT} [NEW] into CI.|" "$GHOST_REPO/ghost-path.md" > "$GHOST_REPO/ghost-tagged.md"
+rc=$(lint_rc "$GHOST_REPO/ghost-tagged.md")
 [[ "$rc" -eq 0 ]] \
   && pass "(pl-n4) [NEW]-tagged nonexistent path → 0" \
   || fail "(pl-n4) tagged ghost path — got rc=$rc"
