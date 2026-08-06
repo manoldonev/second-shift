@@ -63,7 +63,7 @@ cat > "$CFG" <<'EOF'
   "tracker": { "branchPrefix": "claude/acme-", "labels": { "queue": "ready-for-dev", "claimed": "in-progress" } },
   "topology": { "repos": { "acme": { "path": ".", "baseBranch": "main" } } },
   "paths": { "plansDir": "docs/plans", "pipelineStateDir": ".claude/pipeline-state" },
-  "commands": { "acme": { "lint": null, "typecheck": null, "test": null } }
+  "commands": { "acme": { "lint": null, "typecheck": null, "test": null, "allowUnverified": true } }
 }
 EOF
 
@@ -237,11 +237,29 @@ if [ "$rc" -eq 0 ] && printf '%s' "$out" | grep -qi 'SKIPPED'; then
 else fail "(h) expected a skip notice, got rc=$rc: $out"; fi
 
 # ---- (i) D-18: mutation sweep absent is a printed skip ------------------------------------
+# The shared $CFG configures zero fixed keys and no extraLanes, so it now depends on its own
+# "commands.acme.allowUnverified": true (added for #392, below) to reach milestone 3's green
+# gate at all — the cases in this block are about the mutation-sweep notice, the dead `build`
+# key, and the absent extraLanes token, none of which are about the zero-lane guard itself.
 reset_progress
 out="$(gate 3 7)"; rc=$?
 if [ "$rc" -eq 0 ] && printf '%s' "$out" | grep -q 'mutation-sweep.sh absent'; then
   pass "(i) milestone-3 prints a skip notice when tools/mutation-sweep.sh is absent"
 else fail "(i) expected a mutation-sweep skip notice, got rc=$rc: $out"; fi
+
+# #392 AC-1 (second half): the same green run also carries the allowUnverified notice, since
+# the shared fixture has zero fixed keys and no extraLanes.
+if printf '%s' "$out" | grep -q 'allowUnverified opt-out is set'; then
+  pass "(i-392) the allowUnverified opt-out notice is printed on this zero-lane, opted-out run"
+else fail "(i-392) expected the allowUnverified opt-out notice, got: $out"; fi
+
+# ...and the same run's AUDIT RECORD, asserted on $PROG rather than $out. The notice on stdout
+# evaporates with the shell; the progress line is what says, at reconcile time, that a lean run
+# reported green having verified nothing. A grep of $out cannot fail when the sibling
+# `append_line` is deleted, so the printed half is no oracle for the recorded half.
+if grep -qF 'milestone-3 | skipped | no verifying lane configured — allowUnverified opt-out' "$PROG"; then
+  pass "(i-392b) the opt-out is RECORDED in the progress file, not merely printed"
+else fail "(i-392b) no opt-out record in $PROG: $(cat "$PROG" 2>/dev/null)"; fi
 
 # AC-10: `build` is gone from the fixed-key loop — the shared $CFG never declares it (same
 # as before this change), so the ONLY thing that moved is whether the dead key still prints.
@@ -255,6 +273,71 @@ else fail "(i-AC10) 'build is null' still printed — the dead key was not remov
 if ! printf '%s' "$out" | grep -q 'extra lane'; then
   pass "(i-AC5) no extraLanes key -> no 'extra lane' token in milestone-3 output"
 else fail "(i-AC5) an 'extra lane' token appeared with no extraLanes configured"; fi
+
+# ---- (iz) #392: milestone 3 must not report green having verified nothing -----------------
+# Dedicated configs derived from $CFG, isolating the zero-lane guard from the opt-out the
+# shared fixture now carries (added above so the rest of this file's milestone-3 cases, which
+# are not about this guard, keep reaching the green gate).
+CFG_NOOPT="$WORK/config-nooptout.json"
+jq 'del(.commands.acme.allowUnverified)' "$CFG" > "$CFG_NOOPT"
+
+# AC-1: zero verifying lanes configured, no opt-out -> milestone 3 reds naming the resolved
+# host slug, the config path, and allowUnverified.
+reset_progress
+out="$( cd "$TREE" && SECOND_SHIFT_CONFIG="$CFG_NOOPT" LEAN_PROGRESS_FILE="$PROG" \
+        bash "$GATE" --issue-file "$ISSUE_NOREGIONS" 3 7 2>&1 )"; rc=$?
+if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q "no verifying lane configured for 'acme'" \
+   && printf '%s' "$out" | grep -qF "$CFG_NOOPT" && printf '%s' "$out" | grep -q 'allowUnverified'; then
+  pass "(iz1) AC-1: zero verifying lanes + no opt-out reds milestone 3, naming slug/config/allowUnverified"
+else fail "(iz1) expected rc=1 naming acme/$CFG_NOOPT/allowUnverified, got $rc: $out"; fi
+
+# ...and the red must be CHARGED to milestone 3. `fail_milestone`'s first argument picks the
+# attempt/fix-budget counter the run spends and the milestone the operator is sent to fix;
+# nothing asserted above varies with it — reason text, config path and the allowUnverified
+# token are byte-identical under `fail_milestone 2`. The attempt record is where the number
+# becomes observable.
+if grep -qF '| milestone-3 | attempt | no verifying lane configured' "$PROG"; then
+  pass "(iz1b) the red is charged to milestone 3's attempt counter, not a neighbor's"
+else fail "(iz1b) no milestone-3 attempt record in $PROG: $(cat "$PROG" 2>/dev/null)"; fi
+
+# AC-1: no config file at ALL (REPO_SLUG resolves the default 'acme') reds the same way, and
+# names the same three things — the absent path included, since "which file did you read?" is
+# the whole question an operator has when there is no config.
+CFG_ABSENT="$WORK/no-such-config.json"
+reset_progress
+out="$( cd "$TREE" && SECOND_SHIFT_CONFIG="$CFG_ABSENT" LEAN_PROGRESS_FILE="$PROG" \
+        bash "$GATE" --issue-file "$ISSUE_NOREGIONS" 3 7 2>&1 )"; rc=$?
+if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q "no verifying lane configured for 'acme'" \
+   && printf '%s' "$out" | grep -qF "$CFG_ABSENT" && printf '%s' "$out" | grep -q 'allowUnverified'; then
+  pass "(iz2) AC-1: no config file at all also reds, naming slug/config/allowUnverified"
+else fail "(iz2) expected rc=1 naming acme/$CFG_ABSENT/allowUnverified, got $rc: $out"; fi
+
+# AC-2: exactly one fixed key set to a real command -> guard inert, existing behavior
+# unchanged (no mention of allowUnverified anywhere in the output).
+CFG_ONEKEY="$WORK/config-onekey.json"
+jq 'del(.commands.acme.allowUnverified) | .commands.acme.lint = "true"' "$CFG" > "$CFG_ONEKEY"
+reset_progress
+out="$( cd "$TREE" && SECOND_SHIFT_CONFIG="$CFG_ONEKEY" LEAN_PROGRESS_FILE="$PROG" \
+        bash "$GATE" --issue-file "$ISSUE_NOREGIONS" 3 7 2>&1 )"; rc=$?
+if [ "$rc" -eq 0 ] && ! printf '%s' "$out" | grep -q 'allowUnverified'; then
+  pass "(iz3) AC-2: one fixed key configured -> guard stays inert, no allowUnverified mention"
+else fail "(iz3) expected rc=0 with no allowUnverified mention, got $rc: $out"; fi
+
+# AC-3: the only verifying surface is a when-scoped extraLane, evaluated against a diff that
+# matches nothing -> still green. Configured-but-skipped is not unverified, and no opt-out is
+# needed. $TREE's HEAD has not moved past the fixture commit at this point in the suite, so
+# origin/main..HEAD is empty and no `when` glob can match.
+CFG_WHENONLY="$WORK/config-whenonly.json"
+jq 'del(.commands.acme.allowUnverified)
+    | .commands.acme.extraLanes = [{"name":"scoped","when":["docs/nope/**"],"commands":["true"],"failureClass":"TEST_FAILURE"}]' \
+  "$CFG" > "$CFG_WHENONLY"
+reset_progress
+out="$( cd "$TREE" && SECOND_SHIFT_CONFIG="$CFG_WHENONLY" LEAN_PROGRESS_FILE="$PROG" \
+        bash "$GATE" --issue-file "$ISSUE_NOREGIONS" 3 7 2>&1 )"; rc=$?
+if [ "$rc" -eq 0 ] && printf '%s' "$out" | grep -qF "extra lane 'scoped' — skipped" \
+   && ! printf '%s' "$out" | grep -q 'allowUnverified'; then
+  pass "(iz4) AC-3: a when-scoped extraLane skipped on this diff is still 'configured' -> green"
+else fail "(iz4) expected rc=0, when-skip notice, no allowUnverified mention; got $rc: $out"; fi
 
 # ---- (i2) extraLanes (#379) ---------------------------------------------------------------
 # A dedicated fixture tree, config, and issue file per case group — NOT the shared $TREE/$CFG
