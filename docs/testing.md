@@ -86,6 +86,10 @@ each suite is a separate `--run-one` invocation, which is also what gives every 
 watchdog its own job-control shell). The remaining floor is one suite: `statectl-selftest.sh` is
 94s uncontended and was measured at 244s while a second copy ran.
 
+That makes this guard the long pole of the repo sweep, not a line item in it: the whole 64-suite
+sweep is 13:12 serial and 5:22 at `-P 4`, and the 5:22 is essentially this one suite — everything
+else folds into its shadow. Know that before adding to what it runs.
+
 `INSTALL_TOPOLOGY_TIMEOUT` (default 600s) is the per-suite bound. Its job is to turn a hang into
 one named timeout line instead of a CI job that dies at its own timeout with no attributable
 cause — this guard runs a second copy of every shipped suite, frequently while the outer sweep is

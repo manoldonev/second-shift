@@ -61,13 +61,20 @@ find . -name '*-selftest.sh' -type f -print0 | xargs -0 -P 4 -n1 -I{} env SKIP_S
 ```
 
 **`-P 4` is load-bearing, not incidental.** The suites are independent — each allocates its own
-`mktemp` state dir — so running four at a time is behavior-preserving, and it is the difference
-between a **4:14** sweep and a **1:47** one (measured; the serial form runs at 65% CPU, the
-parallel one at 174%). A failing suite still fails the sweep: `xargs` propagates a non-zero exit
-under `-P` exactly as it does serially. The cost is skewed enough that parallelism is most of the
-win available — `statectl-selftest.sh` alone is 94s of the 254s serial total, and six of the
-forty-nine suites are 76% of it. Drop `-P 4` only if you need interleaved output untangled while
-debugging one suite; prefer running that suite alone instead.
+`mktemp` state dir — so running four at a time is behavior-preserving, and on the current
+64-suite tree it is the difference between a **13:12** sweep and a **5:22** one (measured). A
+failing suite still fails the sweep: `xargs` propagates a non-zero exit under `-P` exactly as it
+does serially.
+
+The cost is heavily skewed, and one suite now sets the floor: `tools/install-topology-selftest.sh`
+re-runs every *shipped* suite from a staged install cache, and takes **5:19 on its own**. It
+already parallelizes internally (`INSTALL_TOPOLOGY_JOBS`, default 4), so it is the parallel form's
+long pole rather than something an outer `-P 4` can shorten — the 5:22 above is essentially that
+one suite. Everything else is roughly 8 minutes serial and folds into its shadow. See
+[`docs/testing.md`](docs/testing.md) for what it buys.
+
+Drop `-P 4` only if you need interleaved output untangled while debugging one suite; prefer
+running that suite alone instead.
 
 Every checked-in script is **exercised by some selftest**; CI discovers suites by glob, so a new
 selftest needs no registration. CI is model-free by design (no API-billed calls).

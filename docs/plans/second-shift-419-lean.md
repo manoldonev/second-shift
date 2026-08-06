@@ -162,11 +162,18 @@ exercises the stress legs.
   `audit-selftest.sh`, and D-4's shipped-suite SKIP policy.
 
 - **AC-9** — Mutation accounting is reconciled in this diff: `tools/mutation-baseline.tsv` drops
-  any `plan-lint.sh` survivor that the now-live check 5a kills, verified by running the sweep
-  against `plan-lint.sh` on this branch. `tools/install-topology-selftest.sh` needs **no**
-  accounting row — the guard universe rule excludes `*-selftest.sh` by name
-  (`tools/mutation-sweep.sh:22-25`), so it is not in the universe and cannot be unaccounted. The
-  guard is verified in-universe-free rather than assumed.
+  any `plan-lint.sh` survivor that the hermetic fixture kills, or states — from a measurement, not
+  an assumption — that none is killed. `tools/install-topology-selftest.sh` needs **no** accounting
+  row: the guard universe rule excludes `*-selftest.sh` by name (`tools/mutation-sweep.sh:22-25`),
+  so it is not in the universe and cannot be unaccounted, and that is verified by running the
+  sweep's accounting rather than asserted.
+
+  *(Amended before milestone 5: `mutation-sweep.sh` has no single-guard mode, and this branch
+  touches no in-universe guard, so `--mode pr` sweeps nothing. The measurement is instead a
+  faithful reproduction of the sweep's own rule — operators read out of `mutation-operators.tsv`,
+  sites enumerated with the same `grep -nE --`, ordinals indexing the matched-line list — applied
+  to `plan-lint.sh` in two detached worktrees and scored by the OLD and NEW suite. That is
+  stronger evidence than a single-sided sweep would be, because it shows the delta.)*
 
 - **AC-10** — Docs: `docs/testing.md`'s tier map and `CLAUDE.md`'s "Where a new test goes" table
   each gain a row for the install-topology guard, naming what it guards (a shipped suite still
