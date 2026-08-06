@@ -14,7 +14,7 @@ Outcome-gated harness. `lean-gate.sh` (`G`, here) asserts artifacts; **how** you
 1. `bash G entry <issue>` — refuses without a live audit ledger, which is what makes the run reconcilable later. Then confirm the queue label; a missing one is a reject, no prompting.
 2. `bash G claim <issue>` — the two bot-wrapper writes (label swap + `lean-claimed` marker).
    Export `RUN_ID` first (neutral token, `[A-Za-z0-9._-]+`); it keys every record, and only `entry`/`claim` cache it to `<issue>-run-id` for the later fresh-shell calls to resolve.
-3. Cut a worktree on `<lean prefix><issue>` from the configured base. Never work in the
+3. Cut a worktree on `<branchPrefix><key>` from the configured base — the staged lane's formula, key lowercased under jira, no lane namespace. `entry`/`claim` print it; `branch-prefix.sh` refuses rather than guessing one. Never work in the
    shared checkout. `bash G 1 <issue>` prints the exact spec path it wants — and refuses if the issue declares an unresolved `pause-and-ask` Open Region (get an operator comment first).
 4. **Write the spec/AC file** at that path, ≥ 1 numbered `AC-n`. It is the living definition of done: if scope changes, amend the `AC-n` set *before* milestone 5. A pre-flight `<issue>-ledger.md` is binding input when present.
    With `design.provider` configured it also needs a `## Design` section — armed (handoff link + `| RS-n | route | state | AC refs |` rows) or `Design: none — <reason>`. Decide once: the disarm state-locks the moment milestone 3 arms. `bash G 1 <issue>`.

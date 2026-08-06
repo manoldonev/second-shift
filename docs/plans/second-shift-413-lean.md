@@ -136,5 +136,13 @@ rendered surface.
 - **AC-15.** (verification) `shellcheck` clean over all shell, `jq empty` clean over all JSON,
   and the full `*-selftest.sh` sweep green — run without `SKIP_STRESS` and with the session-id
   environment leak cleared. `tools/mutation-baseline.tsv` rows whose ordinals this diff re-keys
-  are re-baselined in the same diff, and `.claude/prose-budget.baseline.tsv` rows for edited
-  prose files are spliced, not regenerated.
+  are re-baselined in the same diff, and the new guard's own accepted survivors are enumerated
+  by probing every first-`K` mutant against its paired selftest rather than by assertion.
+
+  `.claude/prose-budget.baseline.tsv` is deliberately **not** touched, and the measurement is
+  recorded here rather than left as a silent omission: that baseline is already stale repo-wide
+  on the base branch — 19 failing rows, including both files this change edits
+  (`run-lean/SKILL.md` 575 → 972, `pipeline-retro/SKILL.md` 2377 → 3227, measured at
+  `origin/main`). This change moves them to 992 and 3296, altering no row's pass/fail state and
+  leaving the repo-wide fail count at 19. Splicing two rows would reset budgets this change did
+  not blow and would read as a claim it had.

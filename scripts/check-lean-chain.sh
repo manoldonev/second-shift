@@ -1,9 +1,11 @@
 #!/usr/bin/env bash
 # check-lean-chain.sh — merge-boundary evidence gate for /dev-pipeline:run-lean PRs.
 #
-# A SIBLING of check-pipeline-chain.sh, deliberately not a mode of it (D-45): editing that
-# script would re-key its four mutation-baseline survivor rows for zero benefit, and the two
-# gates check different evidence sets over disjoint branch namespaces.
+# A SIBLING of check-pipeline-chain.sh, deliberately not a mode of it (D-45): the two gates
+# check different evidence sets, and merging them would put one script's mutation-baseline rows
+# at the mercy of the other's edits. Since #413 the namespaces are no longer disjoint — both
+# lanes write `<branchPrefix><key>` — so what separates the two is the committed lean spec,
+# keyed to the PR's own issue, which each gate reads and which one of them owns.
 #
 # WHY THIS EXISTS. run-lean spends as few tokens as possible IN the run, which means almost
 # every in-run record is written by the agent being checked. That is fine — as long as the
@@ -84,17 +86,19 @@
 # diff and a bot-authenticated tracker comment, is what this makes detectable. Harness
 # attestation is lean-reconcile.sh's job (and #292's later).
 #
-# NON-VACUOUS BY CONSTRUCTION. Applicability triggers on branch-prefix match OR on a
-# lean-marked spec appearing in the PR diff. That second arm is the point: a stale or wrong
-# LEAN_BRANCH_PREFIX matches zero branches, and a prefix-only gate would then silently exempt
-# every lean PR — the self-neutralization mode the manifesto's T0 note records for the
-# pipeline constant. The artifact arm still fires with a zero-matching prefix, and the
-# selftest carries that exact case.
+# NON-VACUOUS BY CONSTRUCTION (#413). Applicability is the committed artifact and NOTHING
+# else: the PR's own diff carries a non-fixture lean spec whose key is this PR's key. There is
+# no branch-prefix arm to go stale — the failure mode the manifesto's T0 note records for the
+# pipeline constant, where an edited or emptied CI constant matches zero branches and silently
+# exempts every PR, has no counterpart here. A PR either commits its own spec or it does not,
+# and the check reads that from the diff it was handed.
 #
-# The artifact arm is ANDed with "the branch is not pipeline-prefixed", so a pipeline PR that
-# merely carries lean-shaped files — the delivering PR for this very feature does — is never
-# double-classified. Selftest-fixture paths are excluded from the artifact scan for the same
-# reason: fixtures are lean-shaped on purpose.
+# The KEY MATCH is what keeps this gate and check-pipeline-chain.sh disjoint, now that both
+# lanes write `<branchPrefix><key>` and the branch name discriminates nothing. That sibling
+# exempts a prefix-matched PR under the identical rule, so exactly one gate ever claims a PR:
+# a PR that merely EDITS some older ticket's lean spec is claimed by the pipeline gate, and
+# the PR that AUTHORED a spec for its own key is claimed here. Selftest-fixture paths are out
+# of the scan on both sides for the same reason: fixtures are lean-shaped on purpose.
 #
 # CONSUMER UNPORTABILITY: second-shift-only, same as its sibling. It reconciles against
 # tracker COMMENTS, which a read-only tracker (`tracker.writes: false`) posts none of. lean's
@@ -103,9 +107,9 @@
 #
 # Inputs (ALL via the environment — never spliced into a `run:` line; a PR body is
 # attacker-controllable, and ci.yml documents this convention):
-#   LEAN_BRANCH_PREFIX      required  e.g. "lean/second-shift-"
-#   PIPELINE_BRANCH_PREFIX  required  e.g. "claude/second-shift-" (the exclusion arm)
-#   PR_HEAD_REF             required  the PR's head branch name
+#   PR_HEAD_REF             required  the PR's head branch name. REPORTED, never classified
+#                                     on (#413) — it is in the output so a not-applicable
+#                                     verdict names the PR it declined.
 #   PR_BODY                 required-ish  the PR body (empty is legal; it just fails to resolve)
 #   PR_CREATED_AT           required  ISO-8601; the PR-open observation point
 #   PR_HEAD_SHA             required  the PR head commit the freshness check measures against.
@@ -113,8 +117,13 @@
 #                                     resolves refs/pull/N/merge, so HEAD is merge(base, head)
 #                                     and every base-side commit since the branch point would
 #                                     read as "changed after the verdict".
-#   PR_BASE_REF             required for the live diff, and for evidence 5's patch-id arm  the
-#                                     PR's base branch. This is the base the patch identity is
+#   PR_BASE_REF             required — for APPLICABILITY itself (#413), for the live diff and
+#                                     for evidence 5's patch-id arm — the PR's base branch.
+#                                     Since applicability is artifact-only, an absent base ref
+#                                     yields an empty diff and therefore a not-applicable
+#                                     verdict; the check prints what it scanned so that reads
+#                                     as a missing input rather than as a clean bill of health.
+#                                     This is the base the patch identity is
 #                                     measured from, and it is deliberately NOT reconciled
 #                                     against the runtime config's baseBranch — CI cannot see
 #                                     that file. The two agree whenever the PR targets the
@@ -140,7 +149,7 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --comments-file)   COMMENTS_FILE="${2:-}"; shift 2 ;;
     --diff-files-file) DIFF_FILES_FILE="${2:-}"; shift 2 ;;
-    -h|--help) sed -n '2,132p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,141p' "$0"; exit 0 ;;
     *) echo "[lean-chain] unknown argument: $1" >&2; exit 2 ;;
   esac
 done
@@ -148,20 +157,24 @@ done
 fail()    { echo "[lean-chain] ✗ $1" >&2; exit 1; }
 envfail() { echo "[lean-chain] $1" >&2; exit 2; }
 
-# LOCKSTEP-BEGIN lean-chain-artifact-patterns
 # The lean-marked name shapes, suffix-anchored. `*-lean.md` must never match the verdict
 # record (`*-lean-verdict.md`) — that is why both are anchored at the END of the filename
 # rather than matched as substrings. lean-gate.sh derives the same two names from config;
 # here they are patterns, because CI has no access to the gitignored runtime config.
 #
 # `-lean-renders.md` (#394) is anchored for the same reason and with the same care: it must not
-# end in `-lean.md`, or the artifact arm's FIRST-match spec scan would pick a render receipt and
-# call it the spec.
+# end in `-lean.md`, or the spec scan would pick a render receipt and call it the spec.
+#
+# LEAN_SPEC_SUFFIX carries its own marker pair because since #413 it is no longer this file's
+# alone: check-pipeline-chain.sh pins the identical literal to run the mirror-image exclusion,
+# and the two gates' disjointness depends on both meaning the same thing by "a lean spec".
+# scripts/lockstep-manifest.tsv's `lean-spec-suffix` row is what compares them.
+# LOCKSTEP-BEGIN lean-spec-suffix
 LEAN_SPEC_SUFFIX='-lean.md'
+# LOCKSTEP-END lean-spec-suffix
 LEAN_VERDICT_SUFFIX='-lean-verdict.md'
 LEAN_INTENT_GAP_SUFFIX='-lean-intent-gap.md'
 LEAN_RENDER_SUFFIX='-lean-renders.md'
-# LOCKSTEP-END lean-chain-artifact-patterns
 
 # Fixture paths are lean-shaped ON PURPOSE (the selftests below need lean-looking files), so
 # they must never make a PR applicable. Anything under a fixtures dir is out of the scan.
@@ -273,12 +286,12 @@ design_armed() { # design_armed   (spec on stdin)
 # LOCKSTEP-END lean-design-armed
 
 # ---- (1) env constants: fail closed, never "exempt" -------------------------------------
-# An unresolvable prefix must never degrade into "not applicable". Same posture as the
-# sibling gate, for the same reason: a vacuous green is the worst outcome available here.
-[[ -n "${LEAN_BRANCH_PREFIX:-}" ]] \
-  || envfail "LEAN_BRANCH_PREFIX is unset or empty — refusing to run (an unresolvable prefix would weaken applicability to the artifact arm alone). Set it on the pr-gates job."
-[[ -n "${PIPELINE_BRANCH_PREFIX:-}" ]] \
-  || envfail "PIPELINE_BRANCH_PREFIX is unset or empty — refusing to run (the artifact arm needs it to avoid double-classifying pipeline PRs). It is set at job level on pr-gates."
+# NO BRANCH-PREFIX CONSTANT (#413). This gate used to carry LEAN_BRANCH_PREFIX and to
+# reconcile it against PIPELINE_BRANCH_PREFIX, because the lean lane owned its own branch
+# namespace. It no longer does: both lanes write `<branchPrefix><key>`, and applicability is
+# decided ENTIRELY by the committed lean spec in the PR's own diff. That is strictly the
+# stronger arrangement — an env constant can go stale in CI and match zero branches, where a
+# committed artifact is either in the diff or is not.
 [[ -n "${PR_HEAD_REF:-}" ]] \
   || envfail "PR_HEAD_REF is unset or empty — nothing to classify."
 [[ -n "${PR_CREATED_AT:-}" ]] \
@@ -286,60 +299,57 @@ design_armed() { # design_armed   (spec on stdin)
 [[ -n "${PR_HEAD_SHA:-}" ]] \
   || envfail "PR_HEAD_SHA is unset or empty — the freshness check has nothing to measure the verdict against, and 'a verdict exists' is not 'this head was approved'. Set it on the pr-gates job."
 
-# The two prefixes must be mutually non-prefix-matching, or the two gates double-classify.
-# lean-gate.sh asserts this at derivation time; assert it again here, because CI's copies are
-# independent constants that nothing reconciles against the runtime config (the T0 residual).
-if [[ "$LEAN_BRANCH_PREFIX" == "$PIPELINE_BRANCH_PREFIX"* || "$PIPELINE_BRANCH_PREFIX" == "$LEAN_BRANCH_PREFIX"* ]]; then
-  envfail "LEAN_BRANCH_PREFIX ('$LEAN_BRANCH_PREFIX') and PIPELINE_BRANCH_PREFIX ('$PIPELINE_BRANCH_PREFIX') must be mutually non-prefix-matching; one is a prefix of the other, so both gates would classify the same PRs."
-fi
-
 REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null)" \
   || envfail "not in a git repo — cannot resolve the committed artifacts."
 
-# ---- (2) resolve the PR's changed files (for the artifact arm) ---------------------------
+# ---- (2) resolve the PR's changed files (the applicability arm) --------------------------
+# NOT a convenience any more: since #413 this list IS applicability. An unresolvable base ref
+# means no lean spec is found and the gate reports not-applicable — which is why PR_BASE_REF
+# is required on the pr-gates job rather than optional, and why the not-applicable verdict
+# below prints what it scanned.
+# Validated HERE and not inside changed_files: that function is consumed through a process
+# substitution, where `envfail`'s exit kills only the subshell and leaves the caller reading an
+# empty list. Since #413 that list IS applicability, so a mistyped seam path would report
+# not-applicable — a vacuous green — instead of the usage error it is.
+[[ -z "$DIFF_FILES_FILE" || -f "$DIFF_FILES_FILE" ]] \
+  || envfail "--diff-files-file '$DIFF_FILES_FILE' does not exist."
+
 changed_files() {
   if [[ -n "$DIFF_FILES_FILE" ]]; then
-    [[ -f "$DIFF_FILES_FILE" ]] || envfail "--diff-files-file '$DIFF_FILES_FILE' does not exist."
     cat "$DIFF_FILES_FILE"
     return 0
   fi
-  [[ -n "${PR_BASE_REF:-}" ]] || return 0   # no base ref ⇒ no artifact arm, prefix arm still applies
+  [[ -n "${PR_BASE_REF:-}" ]] || return 0
   local mb
   mb="$(git merge-base "origin/$PR_BASE_REF" HEAD 2>/dev/null)" || return 0
   git diff --name-only "$mb"..HEAD 2>/dev/null || true
 }
 
-LEAN_SPEC_IN_DIFF=""
+# EVERY non-fixture lean spec in the diff, not the first — the key match below decides which
+# one (if any) claims this PR, and a first-match scan would let an unrelated older spec that
+# happens to sort earlier shadow the PR's own.
+LEAN_SPECS_IN_DIFF=""
 while IFS= read -r f; do
   [[ -n "$f" ]] || continue
   is_fixture_path "$f" && continue
   case "$f" in
     *"$LEAN_VERDICT_SUFFIX") continue ;;                 # the verdict record is not the spec
-    *"$LEAN_SPEC_SUFFIX") LEAN_SPEC_IN_DIFF="$f"; break ;;
+    *"$LEAN_SPEC_SUFFIX") LEAN_SPECS_IN_DIFF="$LEAN_SPECS_IN_DIFF$f"$'\n' ;;
   esac
 done < <(changed_files)
 
-# ---- (3) applicability (AC-13) ----------------------------------------------------------
-APPLICABLE=0
-TRIGGER=""
-if [[ "$PR_HEAD_REF" == "$LEAN_BRANCH_PREFIX"* ]]; then
-  APPLICABLE=1; TRIGGER="branch-prefix"
-elif [[ -n "$LEAN_SPEC_IN_DIFF" && "$PR_HEAD_REF" != "$PIPELINE_BRANCH_PREFIX"* ]]; then
-  APPLICABLE=1; TRIGGER="lean-artifact ($LEAN_SPEC_IN_DIFF)"
-fi
-
-if [[ "$APPLICABLE" -eq 0 ]]; then
-  # Echo the resolved prefixes: a stale constant is otherwise invisible (it just never matches).
+# ---- (3) applicability: a KEY-MATCHED lean spec in the PR's own diff ----------------------
+# Both lanes now share one branch namespace (#413), so the branch name says nothing about
+# which gate owns a PR and the committed artifact says everything. The key match is what keeps
+# the two gates DISJOINT: a PR that merely edits some older ticket's lean spec belongs to
+# whichever lane authored it, not to the lean gate, and check-pipeline-chain.sh's mirror-image
+# exclusion is keyed identically so exactly one gate ever claims a PR.
+if [[ -z "$LEAN_SPECS_IN_DIFF" ]]; then
   echo "[lean-chain] non-lean change — lean chain check not applicable."
   echo "[lean-chain]   head branch: $PR_HEAD_REF"
-  echo "[lean-chain]   configured lean prefix: $LEAN_BRANCH_PREFIX"
-  if [[ -n "$LEAN_SPEC_IN_DIFF" ]]; then
-    echo "[lean-chain]   note: a lean-marked spec IS present ($LEAN_SPEC_IN_DIFF) but the head branch is pipeline-authored — classified to the pipeline chain gate, not this one."
-  fi
+  echo "[lean-chain]   no non-fixture *$LEAN_SPEC_SUFFIX in the PR diff."
   exit 0
 fi
-
-echo "[lean-chain] applicable via $TRIGGER: branch=$PR_HEAD_REF"
 
 # ---- (4) resolve the source issue from the PR body --------------------------------------
 # `Closes #N` wins over `Part of #N`: a program PR routinely carries both, and a bare
@@ -349,20 +359,26 @@ KEY="$(printf '%s' "$BODY" | grep -oiE 'closes[[:space:]]+#[0-9]+' | head -n1 | 
 if [[ -z "$KEY" ]]; then
   KEY="$(printf '%s' "$BODY" | grep -oiE 'part[[:space:]]+of[[:space:]]+#[0-9]+' | head -n1 | grep -oE '[0-9]+' || true)"
 fi
+# NOT an exemption, and deliberately evaluated BEFORE the key match: a PR that commits a lean
+# spec but names no source issue is unclassifiable, and "unclassifiable" must fail rather than
+# fall through into the not-applicable branch below.
 [[ -n "$KEY" ]] \
-  || fail "PR body carries no resolvable issue reference ('Closes #N' or 'Part of #N'), but this PR is classified lean via $TRIGGER. Add the reference."
+  || fail "PR body carries no resolvable issue reference ('Closes #N' or 'Part of #N'), but the diff commits a lean spec ($(printf '%s' "$LEAN_SPECS_IN_DIFF" | head -n1)). Add the reference."
 
-# On the prefix arm the branch suffix is itself the key — assert the two agree.
-if [[ "$TRIGGER" == "branch-prefix" ]]; then
-  SUFFIX="${PR_HEAD_REF#"$LEAN_BRANCH_PREFIX"}"
-  if [[ "$SUFFIX" =~ ^([0-9]+)$ ]]; then
-    [[ "${BASH_REMATCH[1]}" == "$KEY" ]] \
-      || fail "key mismatch: PR body references #$KEY but the head branch resolves to #${BASH_REMATCH[1]}."
-  else
-    echo "[lean-chain] prefix-matched branch with a non-key suffix ('$SUFFIX') — using the body key #$KEY."
-  fi
+LEAN_SPEC_IN_DIFF=""
+while IFS= read -r f; do
+  [[ -n "$f" ]] || continue
+  case "$(basename "$f")" in *"-$KEY$LEAN_SPEC_SUFFIX") LEAN_SPEC_IN_DIFF="$f"; break ;; esac
+done <<< "$LEAN_SPECS_IN_DIFF"
+
+if [[ -z "$LEAN_SPEC_IN_DIFF" ]]; then
+  echo "[lean-chain] non-lean change — lean chain check not applicable."
+  echo "[lean-chain]   head branch: $PR_HEAD_REF"
+  echo "[lean-chain]   note: the diff carries lean spec(s) — $(printf '%s' "$LEAN_SPECS_IN_DIFF" | tr '\n' ' ')— but none for this PR's own issue (#$KEY), so this PR did not author them. Classified to the pipeline chain gate, not this one."
+  exit 0
 fi
 
+echo "[lean-chain] applicable via lean-artifact ($LEAN_SPEC_IN_DIFF): branch=$PR_HEAD_REF"
 echo "[lean-chain] source issue: #$KEY"
 
 violations=0

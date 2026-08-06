@@ -151,15 +151,27 @@ fi
 # ═══════════════════════════════════════════════════════════════════════════════════
 D="$WORK/ac5"; mkdir -p "$D/comments"
 PRLIST="$D/prs.json"
+# #413: every candidate carries the CONFIGURED prefix, because that is now the only branch shape
+# either lane writes — there is no `lean/` namespace left to filter on. The lean/staged
+# discriminator is the PR's own file list, which is why each fixture PR carries `files`.
 jq -n '[
-  {number: 701, headRefName: "lean/second-shift-701", url: "https://example.invalid/pr/701"},
-  {number: 702, headRefName: "lean/second-shift-702", url: "https://example.invalid/pr/702"},
-  {number: 703, headRefName: "claude/second-shift-703", url: "https://example.invalid/pr/703"}
+  {number: 701, headRefName: "claude/second-shift-701", url: "https://example.invalid/pr/701",
+   files: [{path: "docs/plans/second-shift-701-lean.md"}, {path: "scripts/thing.sh"}]},
+  {number: 702, headRefName: "claude/second-shift-702", url: "https://example.invalid/pr/702",
+   files: [{path: "docs/plans/second-shift-702-lean.md"}]},
+  {number: 703, headRefName: "release/next", url: "https://example.invalid/pr/703",
+   files: [{path: "CHANGELOG.md"}]},
+  {number: 704, headRefName: "claude/second-shift-704", url: "https://example.invalid/pr/704",
+   files: [{path: "docs/plans/acme-704.md"}, {path: "docs/plans/second-shift-392-lean.md"}]},
+  {number: 705, headRefName: "claude/second-shift-705", url: "https://example.invalid/pr/705",
+   files: [{path: "scripts/fixtures/second-shift-705-lean.md"}]}
 ]' > "$PRLIST"
 # 701: no comments at all -> verdict-less.
 echo '[]' > "$D/comments/701.json"
 # 702: a closing comment referencing the expected verdict path -> not verdict-less.
 jq -n '[{body: "Closing. Verdict: docs/plans/second-shift-702-lean-verdict.md"}]' > "$D/comments/702.json"
+echo '[]' > "$D/comments/704.json"
+echo '[]' > "$D/comments/705.json"
 
 OUT="$(run_open_prs --pr-list-file "$PRLIST" --comments-dir "$D/comments" --json)"
 N="$(jq 'length' <<<"$OUT")"
@@ -167,9 +179,22 @@ VL701="$(jq -r '.[] | select(.issue == 701) | .verdictLess' <<<"$OUT")"
 VL702="$(jq -r '.[] | select(.issue == 702) | .verdictLess' <<<"$OUT")"
 HAS703="$(jq -r '[.[].issue] | index(703) != null' <<<"$OUT")"
 if [ "$N" = "2" ] && [ "$VL701" = "true" ] && [ "$VL702" = "false" ] && [ "$HAS703" = "false" ]; then
-  pass "(AC-5) open-prs: flags the verdict-less lean PR, clears the referenced one, ignores the non-lean PR"
+  pass "(AC-5) open-prs: flags the verdict-less lean PR, clears the referenced one, ignores the non-prefixed PR"
 else
   fail "(AC-5) n=$N vl701=$VL701 vl702=$VL702 has703=$HAS703 — got $OUT"
+fi
+
+# #413: the prefix alone no longer identifies a lean PR, so the artifact must. 704 is a staged
+# PR that happens to EDIT an older ticket's lean spec; 705's only lean-shaped file is a fixture.
+# Both are prefix-matched with a numeric suffix, so a prefix-only filter would report them as
+# verdict-less backlog — a false operator signal on every open staged PR. This is the negative
+# half of (AC-5): together they show the filter discriminates rather than merely excluding.
+HAS704="$(jq -r '[.[].issue] | index(704) != null' <<<"$OUT")"
+HAS705="$(jq -r '[.[].issue] | index(705) != null' <<<"$OUT")"
+if [ "$HAS704" = "false" ] && [ "$HAS705" = "false" ]; then
+  pass "(AC-5b) open-prs: a staged PR editing another key's lean spec, and a fixture-only PR, are not lean candidates"
+else
+  fail "(AC-5b) has704=$HAS704 has705=$HAS705 — got $OUT"
 fi
 
 # ═══════════════════════════════════════════════════════════════════════════════════

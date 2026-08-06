@@ -208,7 +208,6 @@ cfg() { # cfg <jq-filter> <default>
 
 PLANS_DIR="$(cfg '.paths.plansDir' 'docs/plans')"
 STATE_DIR="$(cfg '.paths.pipelineStateDir' '.claude/pipeline-state')"
-BRANCH_PREFIX="$(cfg '.tracker.branchPrefix' 'claude/acme-')"
 QUEUE_LABEL="$(cfg '.tracker.labels.queue' 'ready-for-dev')"
 CLAIMED_LABEL="$(cfg '.tracker.labels.claimed' 'in-progress')"
 HOST_Q='(.topology.repos | to_entries[] | select(.value.path==".") | .key)'
@@ -258,31 +257,41 @@ esac
 # one of those sites instead of derived here is a drift the CI gate surfaces as a red merge
 # boundary on every lean PR — see the plan's pinned-name-table section.
 
-# Branch prefix: replace the FIRST path segment with `lean`. The REQUIRED property is
-# MUTUAL non-prefix-matching against the pipeline prefix (AC-9): check-pipeline-chain.sh
-# classifies with `head_ref == PREFIX*`, so `lean/` derived from `claude/second-shift-`
-# would satisfy a one-directional reading while making EVERY pipeline PR applicable to the
-# lean gate. Both directions are asserted below and in the selftest.
-lean_branch_prefix() {
-  local pipeline_prefix="$1" tail derived
-  case "$pipeline_prefix" in
-    */*) tail="${pipeline_prefix#*/}" ;;
-    *)   tail="$pipeline_prefix" ;;
-  esac
-  derived="lean/$tail"
-  # Pathological input (a configured prefix already under lean/) collapses the two onto
-  # each other. Fail loudly rather than return a colliding prefix — a silent collision
-  # double-classifies every PR in both gates.
-  case "$pipeline_prefix" in
-    "$derived"*) echo "[lean-gate] configured tracker.branchPrefix '$pipeline_prefix' collides with the derived lean prefix '$derived' — they must be mutually non-prefix-matching." >&2; return 1 ;;
-  esac
-  case "$derived" in
-    "$pipeline_prefix"*) echo "[lean-gate] derived lean prefix '$derived' prefix-matches the pipeline prefix '$pipeline_prefix' — refusing." >&2; return 1 ;;
-  esac
-  echo "$derived"
-}
+# Branch name: `<branchPrefix><key>` and nothing else (#413) — the SAME formula the staged
+# lane spells at stages/2-worktree.md:31. There is no lean namespace: the lane's identity is
+# carried by the committed spec, which is what both merge-boundary gates classify on, and not
+# by a branch prefix that leaks the harness's internal name onto every `git branch` listing.
+#
+# The prefix itself is resolved by branch-prefix.sh — ONE implementation shared with
+# retro-corpus.sh (#413 AC-5), which also owns the detection path for an unset
+# `tracker.branchPrefix` and REFUSES rather than falling back to a placeholder org slug.
+#
+# Resolved once here but ENFORCED only where a branch name is actually needed: the run's front
+# door (`entry`, `claim`) and milestone 5's PR lookup, via require_branch_name below. Making it
+# fatal at init instead would be strictly worse diagnosis — milestones 1-4 assert committed
+# files and config commands and have no opinion about branches, so a repo with no config at all
+# would report "cannot resolve a branch prefix" where the operator's real problem is the missing
+# config (#392's milestone-3 red, which names the file it tried to read). Fail-fast still holds
+# for a real run: `entry` is step 1 of the checklist, so a run that starts properly learns
+# immediately, and the progress header states what was resolved either way.
+if _bp_out="$(bash "$(cd "$(dirname "$0")" && pwd)/branch-prefix.sh" --config "$CONFIG" --repo-root "$REPO_ROOT" 2>&1)"; then
+  BRANCH_PREFIX="$_bp_out"; BRANCH_PREFIX_ERR=""
+else
+  BRANCH_PREFIX=""; BRANCH_PREFIX_ERR="$_bp_out"
+fi
+# The jira key is LOWERCASED in the branch name (tools/tracker/jira/README.md) and nowhere
+# else — the artifact paths below keep the key exactly as the operator supplied it.
+BRANCH_KEY="$ISSUE"
+if [ "$TRACKER_TYPE" = "jira" ]; then
+  BRANCH_KEY="$(printf '%s' "$ISSUE" | tr '[:upper:]' '[:lower:]')"
+fi
+BRANCH_NAME=""
+[ -n "$BRANCH_PREFIX" ] && BRANCH_NAME="$BRANCH_PREFIX$BRANCH_KEY"
 
-LEAN_BRANCH_PREFIX="$(lean_branch_prefix "$BRANCH_PREFIX")" || exit 2
+require_branch_name() {
+  [ -n "$BRANCH_NAME" ] && return 0
+  envfail "$BRANCH_PREFIX_ERR"
+}
 SPEC_REL="$PLANS_DIR/$REPO_SLUG-$ISSUE-lean.md"
 VERDICT_REL="$PLANS_DIR/$REPO_SLUG-$ISSUE-lean-verdict.md"
 # Same suffix check-lean-chain.sh's LEAN_INTENT_GAP_SUFFIX pins independently (it has no
@@ -622,7 +631,10 @@ ensure_progress_file() {
       echo "run_id: $RESOLVED_RUN_ID"
       echo "session_id: ${CLAUDE_CODE_SESSION_ID:-unset}"
       echo "issue: $ISSUE"
-      echo "branch_prefix: $LEAN_BRANCH_PREFIX"
+      # `unresolved` is a written fact, not an omission: milestones 1-4 do not need a branch
+      # name, so a header written by one of them can legitimately predate a resolvable prefix.
+      echo "branch_prefix: ${BRANCH_PREFIX:-unresolved}"
+      echo "branch: ${BRANCH_NAME:-unresolved}"
       echo "spec: $SPEC_REL"
       echo "verdict_record: $VERDICT_REL"
       # #347: a corpus-aggregation key, not a new artifact — read once, here, at record
@@ -704,6 +716,7 @@ pass_milestone() {
 # reconciled by lean-reconcile.sh (or by #292 later). Fail closed.
 cmd_entry() {
   local sid ledger
+  require_branch_name
   sid="${CLAUDE_CODE_SESSION_ID:-}"
   if [ -z "$sid" ]; then
     warn "✗ entry: CLAUDE_CODE_SESSION_ID is unset — the session's audit ledger cannot be located. Refusing to start."
@@ -739,6 +752,7 @@ cmd_entry() {
 # and never touches `$GH_BOT` (documented github-only, and a hard `:?` failure below).
 cmd_claim() {
   local helper body url
+  require_branch_name
 
   if [ "$TRACKER_TYPE" = "jira" ]; then
     ensure_progress_file
@@ -2076,6 +2090,7 @@ jira_items_section() { # stdin: the PR body — prints the section's lines, noth
 
 cmd_5() {
   local pr comments url draft body
+  require_branch_name
 
   # "Progress file current" is asserted as: milestones 1-4 each left a `satisfied` record.
   #
@@ -2097,12 +2112,12 @@ cmd_5() {
     [ -f "$PR_FILE" ] || envfail "--pr-file '$PR_FILE' does not exist."
     pr="$(cat "$PR_FILE")"
   else
-    pr="$("$GH_CLI" pr list --head "$LEAN_BRANCH_PREFIX$ISSUE" --state open \
+    pr="$("$GH_CLI" pr list --head "$BRANCH_NAME" --state open \
           --json number,url,body,isDraft --limit 1 2>&1)" \
-      || { warn "$pr"; fail_milestone 5 "could not list PRs for $LEAN_BRANCH_PREFIX$ISSUE"; return $?; }
+      || { warn "$pr"; fail_milestone 5 "could not list PRs for $BRANCH_NAME"; return $?; }
   fi
   printf '%s' "$pr" | jq -e 'type == "array" and length > 0' >/dev/null 2>&1 \
-    || { fail_milestone 5 "no open PR found for branch $LEAN_BRANCH_PREFIX$ISSUE"; return $?; }
+    || { fail_milestone 5 "no open PR found for branch $BRANCH_NAME"; return $?; }
 
   draft="$(printf '%s' "$pr" | jq -r '.[0].isDraft')"
   body="$(printf '%s' "$pr" | jq -r '.[0].body // ""')"

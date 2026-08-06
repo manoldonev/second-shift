@@ -66,7 +66,13 @@ cat .claude/pipeline-state/${ISSUE}-lean-progress.md   # milestone satisfied/att
 VREL=$(grep -oE 'verdict_record:[[:space:]]*\S+' .claude/pipeline-state/${ISSUE}-lean-progress.md | awk '{print $2}')
 cat "$VREL"                                             # committed verdict record: verdict=, run_id:, session_id:, rounds:, model:
 gh api "repos/{owner}/{repo}/issues/${ISSUE}/comments" --jq '[.[] | {user: .user.login, body}]'   # claim + closing comment trail
-PR_URL=$(gh pr list --head "lean/{repo-slug}-${ISSUE}" --state all --json url --jq '.[0].url // empty')
+# The branch name is `<branchPrefix><key>` since #413, and the record states it outright — read
+# it rather than composing it. A pre-#413 record carries only `branch_prefix:` (a `lean/`-
+# namespaced value); the fallback composes from that, so an older run in the corpus still resolves.
+PROG=.claude/pipeline-state/${ISSUE}-lean-progress.md
+BRANCH=$(grep -oE '^branch:[[:space:]]*\S+' "$PROG" | awk '{print $2}')
+[ -n "$BRANCH" ] || BRANCH="$(grep -oE '^branch_prefix:[[:space:]]*\S+' "$PROG" | awk '{print $2}')${ISSUE}"
+PR_URL=$(gh pr list --head "$BRANCH" --state all --json url --jq '.[0].url // empty')
 # PR diff + commits (if a PR exists): gh pr diff / gh api .../pulls/N/commits
 # Hook ledger: .claude/audit/<session-id>.jsonl for each session_id named in the progress
 # record (build) and the verdict record (review) — two ledgers, not one, per P10.

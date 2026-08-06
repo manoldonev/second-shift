@@ -260,21 +260,21 @@ artifact-reviewer-baseline-deltas	verbatim	plugins/design-toolkit/agents/figma-f
 # negative). Printing alone would not have been coverage; the assertions are. Revisit only if
 # the schema default is ever mirrored into a comment-bearing file.
 
-# lean branch prefix (ci.yml's LEAN_BRANCH_PREFIX env constant ↔ lean-gate.sh's runtime
-# derivation from tracker.branchPrefix). One value — the lean harness's branch namespace —
-# resolved two ways, because the runtime config is gitignored and absent in CI. Considered for
-# a row and DROPPED: this is the SAME non-byte-anchorable class as PIPELINE_BRANCH_PREFIX,
-# which is a documented T0 residual rather than a lockstep pair. One side is a YAML scalar in
-# a job `env:` block; the other is a shell transform (`lean/${prefix#*/}`) that never spells
-# the resolved value as a literal anywhere. There is nothing to compare.
-# The compensating control is what makes this safe to drop, and it is stronger than the
-# pipeline constant's: check-lean-chain.sh does not classify on the prefix ALONE. It also
-# applies on lean-artifact presence, so a stale or wrong constant cannot silently exempt a
-# lean PR — the self-neutralization mode the manifesto's T0 note records. That arm is pinned
-# by check-lean-chain-selftest.sh case (C), which drives the gate with a deliberately
-# zero-matching prefix and asserts it still applies. The mutual non-prefix-match property is
-# separately asserted on both sides: lean-gate-selftest.sh (e2)/(e3) at the derivation, and
-# check-lean-chain-selftest.sh (L) at the CI constants, which exits 2 rather than guessing.
+# lean spec suffix (check-lean-chain.sh's applicability arm ↔ check-pipeline-chain.sh's lean
+# exclusion). Since #413 the two chain gates no longer discriminate lean from staged by branch
+# prefix — both lanes write `<branchPrefix><key>` — so each classifies on the SAME artifact:
+# a non-fixture `*-<key>-lean.md` in the PR's own diff. Their DISJOINTNESS is precisely the
+# property that the two literals agree. Widen the suffix on one side (or narrow it on the
+# other) and a PR falls into both gates or into neither, and no gate can tell you which.
+#
+# A real row, unlike the branch-prefix pair it replaces: both sides spell the value as a
+# single-quoted shell literal under the same variable name, so there IS something to compare.
+# check-lean-chain.sh is the canonical side — it owns the full name-shape block (verdict /
+# intent-gap / render suffixes), of which the exclusion needs only this one.
+lean-spec-suffix	verbatim	scripts/check-lean-chain.sh	lean-spec-suffix	scripts/check-pipeline-chain.sh	lean-spec-suffix
+#
+# The DROPPED note that stood here for ci.yml's `LEAN_BRANCH_PREFIX` env constant retires with
+# the constant itself (#413): there is no lean branch namespace left to keep in lockstep.
 
 # lean verdict-record key schema (`verdict=`, `run_id:`, `session_id:`, `reviewed_head:`,
 # `reviewed_patch_id:`, `inherited_patch_id:`, `inherited_from_verdict:`, `fidelity:`) — ONE
