@@ -23,6 +23,30 @@ running to notice.
 - Removing a label that is already absent must not fail the workflow. Closing an issue that was
   never claimed is the common case.
 
+## Binding pre-flight ledger
+
+`.claude/pipeline-state/423-ledger.md` is binding input and **wins over the issue body** where
+the two disagree. Rows that move this spec beyond the issue's own framing:
+
+- **D-1** — the workflow strips **`tracker.labels.queue` AND `tracker.labels.claimed`**, not the
+  claimed label alone. `tracker.labels.blockers` is deliberately excluded: it contains `epic`, a
+  permanent classification rather than run state, and a hardcoded `epic` exception against a
+  consumer-redefinable list can silently miss.
+- **D-2** — the consumer files ride onboard's **existing** Step 3 item 9 acceptance. **No new
+  onboard prompt.**
+- **D-5** — write identity is `github.token` with `permissions: issues: write`. The bot App
+  wrapper resolves against `$HOME` and is unreachable from a runner.
+- **D-10** — the YAML is **not** the unit: a grep over the workflow file is the banned
+  prose-presence class. This retracts the wiring pins the first draft of this spec sanctioned.
+- **D-11** — the widened permission is disclosed in `.claude/SECOND-SHIFT.md`, the pre-trust
+  inventory — this repo's own copy, not only the shipped template.
+- **D-3** — stale `needs-*` blocker labels on closed issues stay stale. Out of scope.
+- **OR-1** (`reversible-default-and-flag`) — ship the `issues: [closed]` trigger and **flag the
+  verification result in the PR either way**. Reversal if the merge path does not fire: add
+  `pull_request: [closed]` as a second trigger resolving the issue from the PR body.
+- **OR-2** (`reversible-default-and-flag`) — rely on the jq fallback for this repo's gitignored
+  config and **say so in a comment at the resolution site**.
+
 ## Chosen shape, and the config-readability constraint it resolves
 
 A repository workflow on `issues: [closed]` calls a committed script. The trigger is
@@ -59,25 +83,27 @@ in lockstep, and this repo dogfoods the exact artifact consumers receive.
 ## Acceptance criteria
 
 **AC-1.** `plugins/second-shift/templates/consumer/second-shift-unclaim.sh` ships as the
-testable unit. Invoked as `second-shift-unclaim.sh <issue-number>`, it resolves the claimed
-label and removes it from that issue. Config resolution mirrors `lean-gate.sh`'s seam exactly:
-the config path is `${SECOND_SHIFT_CONFIG:-<root>/.claude/second-shift.config.json}` where
-`<root>` is `${SECOND_SHIFT_REPO_ROOT:-$(git rev-parse --show-toplevel)}`, and the label is
-`.tracker.labels.claimed` when that file is readable and the key is non-null, else the shipped
-default `in-progress`. **An absent or unparseable config is not an error** — it is the canary
-repo's normal state — and resolution falls through to the default.
+testable unit. Invoked as `second-shift-unclaim.sh <issue-number>`, it resolves **both** run-state
+labels and removes each from that issue (D-1): `.tracker.labels.claimed` (default `in-progress`)
+and `.tracker.labels.queue` (default `ready-for-dev`). `.tracker.labels.blockers` is **not**
+touched. Config resolution mirrors `lean-gate.sh`'s seam exactly: the config path is
+`${SECOND_SHIFT_CONFIG:-<root>/.claude/second-shift.config.json}` where `<root>` is
+`${SECOND_SHIFT_REPO_ROOT:-$(git rev-parse --show-toplevel)}`, and each name comes from its key
+when the file is readable and the key non-null, else its shipped default. **An absent or
+unparseable config is not an error** — it is this repo's normal state — and resolution falls
+through to the defaults.
 
 **AC-2.** Three no-op arms each exit **0**, issue **zero** `gh` calls that mutate, and print one
 line naming the arm:
 
 - a. `.tracker.writes` is `false` (any tracker type),
-- b. `.tracker.type` is present and is not `github`,
-- c. the issue does not carry the resolved claimed label.
+- b. `.tracker.type` is present and is not `github` (D-8),
+- c. the issue does not carry a given label — decided per label.
 
-Arm (c) is decided by reading the issue's labels first, so the common case — an issue that was
-never claimed — performs no write at all rather than relying on a tolerated error.
+Arm (c) is decided by reading the issue's labels **once** first, so the common case — a closing
+issue carrying neither label — performs no write at all rather than relying on a tolerated error.
 
-**AC-3.** The removal is a REST `DELETE` against
+**AC-3.** Each removal is a REST `DELETE` against
 `repos/{owner}/{repo}/issues/<n>/labels/<label>` with the label **percent-encoded** for the path
 (`jq -rn --arg s … '$s|@uri'`), so a configured label containing a space or `/` is removed
 rather than 404ing. The repo is resolved by `gh` from `GH_REPO`; the script takes no repo
@@ -86,39 +112,42 @@ argument.
 **AC-4.** Failure classification, so neither a race nor a broken token is misreported:
 
 - a `DELETE` that fails **because the label is already absent** (HTTP 404 / "Label does not
-  exist") exits **0** — the read-then-delete is not atomic;
-- any other `DELETE` failure exits **1**;
+  exist") is success — the read-then-delete is not atomic (D-9);
+- any other `DELETE` failure makes the script exit **1**;
+- **a failure on one label never skips the other.** Both are always attempted, and the exit is
+  worst-wins;
 - a failure to **read** the issue's labels exits **1** — an unreadable issue must not be
   reported as "not claimed";
 - a missing or non-numeric issue number exits **2** (usage). The numeric check is also what
   keeps the argument out of an API path unvalidated.
 
 **AC-5.** `.github/workflows/unclaim-on-close.yml` is this repo's own instance: it triggers on
-`issues: [closed]`, declares `permissions: { contents: read, issues: write }`, checks out the
-repo, and runs `plugins/second-shift/templates/consumer/second-shift-unclaim.sh` with
-`GH_TOKEN`, `GH_REPO` and the issue number passed through `env:` — never `${{ }}`-interpolated
-into the `run:` body, per this repo's existing injection discipline in `ci.yml`.
+`issues: [closed]` (D-7), declares `permissions: { contents: read, issues: write }` with
+`GH_TOKEN` from `github.token` (D-5), checks out the repo, and runs
+`plugins/second-shift/templates/consumer/second-shift-unclaim.sh` with `GH_TOKEN`, `GH_REPO` and
+the issue number passed through `env:` — never `${{ }}`-interpolated into the `run:` body, per
+this repo's existing injection discipline in `ci.yml`.
 
 **AC-6.** `plugins/second-shift/templates/consumer/second-shift-unclaim.yml` is the consumer
-template with the same trigger, permissions and env discipline, differing only in that it calls
-`.claude/tools/second-shift-unclaim.sh` — the path onboard copies the script to.
+template with the same trigger, permissions, token and env discipline, differing only in that it
+calls `.claude/tools/second-shift-unclaim.sh` — the path onboard copies the script to.
 
-**AC-7.** `/second-shift:onboard` emits both consumer files on request: the Step 3 CI-evidence
-question covers the unclaim workflow as well as the evidence workflow, Step 7's emit block
-copies `second-shift-unclaim.sh` → `.claude/tools/` (executable bit kept) and
+**AC-7.** `/second-shift:onboard` emits both consumer files under its **existing** Step 3 item 9
+acceptance — **no new prompt** (D-2). That question's text covers the unclaim workflow; Step 7's
+emit block copies `second-shift-unclaim.sh` → `.claude/tools/` (executable bit kept) and
 `second-shift-unclaim.yml` → `.github/workflows/`, both **verbatim** (nothing is substituted at
-install — the script reads the committed config at run time), and Step 8's commit reminder lists
+install — the script reads the committed config at run time); Step 8's commit reminder lists
 them. The emit block states that this workflow **writes** to issues, unlike the read-only
-evidence workflow.
+evidence workflow, and that a repo whose Actions workflow permissions are read-only must switch
+to read-and-write. Under a non-github tracker the unclaim half is skipped.
 
 **AC-8.** `plugins/second-shift/templates/consumer/second-shift-unclaim-selftest.sh` is a
 hermetic behavioral selftest next to the tool — no network, `gh` stubbed on `PATH` recording its
-argv and returning a controlled status. It covers every arm of AC-1 through AC-4 (custom label
-from config; default label with no config; default label with a config that omits the key;
-`writes: false`; non-github tracker; label absent; encoded label; delete-404; delete-403;
-read-failure; missing arg; non-numeric arg), asserting on the recorded argv **and** the exit
-code so no two arms share a single observable. It additionally pins the AC-5/AC-6 workflow
-wiring (trigger, permissions, env names, invoked script path) in both YAML files.
+argv and returning a per-label controlled status. It covers every arm of AC-1 through AC-4,
+asserting on the recorded argv **and** the exit code, and **contains no grep over either
+workflow YAML** (D-10 retracts the wiring pins). Every assertion is probed by mutating the
+production file and confirming it flips red; an assertion no mutant can red is deleted rather
+than kept.
 
 **AC-9.** Doc updates, AC-scoped:
 
@@ -127,14 +156,29 @@ wiring (trigger, permissions, env names, invoked script path) in both YAML files
 - `schema/second-shift.config.schema.json`'s `tracker.labels.claimed` description no longer
   claims removal "at terminal stages" and describes the real mechanism. Description-only: no
   `configVersion` change, no migration doc.
-- `plugins/second-shift/templates/consumer/SECOND-SHIFT.md`, `docs/onboarding.md` and
-  `docs/team-rollout.md` list the two new optional committed files alongside the evidence pair,
-  and say that this one holds `issues: write`.
+- `plugins/second-shift/templates/consumer/SECOND-SHIFT.md` **and this repo's own
+  `.claude/SECOND-SHIFT.md`** disclose the `issues: write` scope (D-11); `docs/onboarding.md` and
+  `docs/team-rollout.md` list the new optional committed files alongside the evidence pair.
 
 **AC-10.** `.claude/prose-budget.baseline.tsv` is **spliced, never regenerated**: only rows for
 markdown files this change actually grows past tolerance are advanced, and every other row is
 byte-identical to its pre-change value. `prose-budget.sh --report` shows no row this change
 introduced as over budget.
+
+**AC-11.** The OR-2 disposition is honored in code: the resolution site carries a comment saying
+this repo relies on the jq fallback because its own config is gitignored, and naming the symptom
+if the two ever diverge.
+
+**AC-12.** The OR-1 disposition is honored in the handoff: the PR states the trigger's
+verification status **explicitly, either way**, and names the reversal (`pull_request: [closed]`
+as a second trigger resolving the issue from the PR body) so a workflow that never fires on the
+dominant path cannot read as shipped.
+
+**AC-13.** `scripts/check-workflows-selftest.sh` also parses the consumer workflow templates
+under `plugins/second-shift/templates/consumer/*.yml`. This is a **parse**, not a wiring grep —
+it fails on a syntax error a diff reader would not see, and it is the only thing standing between
+a malformed template and every consumer that installs it. Neither that gate nor CI's actionlint
+walks anything outside `.github/workflows/` today.
 
 ## Test tier
 
@@ -148,9 +192,13 @@ Per `CLAUDE.md`'s tier map:
   GitHub Actions, with no session and no `lean-gate.sh` invocation, triggered by a tracker event
   the harness never observes. There is no composed verdict path to extend — which is the same
   fact that made milestone-5 enforcement the wrong fix.
-- The AC-5/AC-6 YAML pins are the narrowed mjs-seam grep exception: a file never executed on the
-  path under test, guarding a constant's **wiring** rather than its behavior. They copy the
-  shape already sanctioned in `second-shift-ci-check-selftest.sh`'s `yml:` cases.
+- **No YAML wiring pins.** An earlier draft of this spec sanctioned them under the narrowed
+  mjs-seam grep exception, copying `second-shift-ci-check-selftest.sh`'s `yml:` cases. **D-10
+  retracts that**, and the ledger wins. The workflow files are covered only by what already
+  covers YAML syntax — `check-workflows-selftest.sh` and CI's actionlint for
+  `.github/workflows/`, extended by AC-13 to reach the consumer templates. The wiring itself
+  (trigger, permissions, invoked path) is therefore unguarded by construction; that is the
+  ledger's call, and the PR says so rather than leaving it to be discovered.
 - AC-9 is prose in markdown → **nothing** is written for it; a grep asserting a literal is
   present in a `.md` is the banned class.
 - No `tools/mutation-catalog.tsv` row: the new guard is covered by its own paired suite, which

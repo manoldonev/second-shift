@@ -1,4 +1,4 @@
-# Release the claimed label when a tracker item closes (#423).
+# Release the pipeline's run-state labels when a tracker item closes (#423).
 #
 # The label is added at claim and used to be removed by nothing: the lane's step-9 prose
 # said the session drops it, but the lean lane's milestone 5 requires an OPEN pr, so it
@@ -13,21 +13,30 @@
 #
 # Model-free: no API-billed model calls, just jq + gh (both preinstalled on
 # ubuntu-latest; gh authenticates via the job token).
+#
+# TRIGGER CAVEAT. GitHub suppresses event cascades for activity attributed to GITHUB_TOKEN,
+# so an issue closed by a merge an automation performed could reach closed without firing a
+# run. Merges here are maintainer-attributed, so the dominant path is expected to fire — but
+# an `issues` workflow only runs from the default branch, so this cannot be proven before it
+# merges. If a close is ever seen with no run, the reversal is additive: add
+# `pull_request: [closed]` as a second trigger and resolve the issue number from the pr body.
 name: unclaim on close
 on:
   issues:
     types: [closed]
 
 # issues:write is the whole point of this workflow and its entire blast radius: the job
-# removes one label from one issue. contents:read is for the checkout that supplies the
-# script. Never widen either.
+# removes the two run-state labels from one issue. contents:read is for the checkout that
+# supplies the script. Never widen either. Note a `permissions:` block only NARROWS the
+# repo maximum — with Actions workflow permissions set to read-only this grant is refused
+# and the removal 403s, which the script surfaces as a red run rather than a silent pass.
 permissions:
   contents: read
   issues: write
 
 jobs:
   unclaim:
-    name: release the claimed label
+    name: release the run-state labels
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
@@ -36,7 +45,7 @@ jobs:
       # same injection discipline ci.yml applies to BASE_REF and the PR_* set.
       - name: release the claimed label
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
           ISSUE_NUMBER: ${{ github.event.issue.number }}
         run: bash plugins/second-shift/templates/consumer/second-shift-unclaim.sh "$ISSUE_NUMBER"

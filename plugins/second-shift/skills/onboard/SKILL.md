@@ -149,18 +149,19 @@ Ask AT MOST one AskUserQuestion batch, containing ONLY (skip any that detection 
      review-context surface"). To write it, pipe confirmed H2 blocks to
      `bash "<installPath>/skills/onboard/tools/scaffold-review-context.sh" <repo-root> --title "<repo>"`,
      then run `check-review-context-sections.sh --preflight <repo-root>` to confirm it is clean.
-  9. **CI workflows (ONE multi-select offer; GitHub Actions repos only):** "Emit the
-     consumer-repo CI workflows? (a) **evidence** — on every PR, config-lint the committed
-     config with the linter shipped AT the pinned marketplace ref and assert the settings ref
-     and lockfile ref agree, so a half-done upgrade PR is caught server-side; (b) **unclaim**
-     — when an issue closes, release the pipeline's claimed label, which nothing else does."
-     Recommended: both, for a repo that runs GitHub Actions. Offer (b) only for the github
-     tracker — elsewhere there is no claimed label. Say which side of the write boundary each
-     falls on: **evidence is read-only** and only REPORTS a red check (to make it *block*
-     merges the repo admin marks "second-shift evidence" a required status check in branch
-     protection — onboard never edits branch protection), while **unclaim writes**, holding
-     `issues: write` to remove one label from one closing issue. Each accepted item emits its
-     file pair in Step 7. Declined / a non-Actions repo → emit nothing (absent = off).
+  9. **CI workflows (ONE offer; the server-side backstop plus the close-out step):** "Emit the
+     consumer-repo CI workflows — (a) on every PR, config-lint the committed config with the
+     linter shipped AT the pinned marketplace ref and assert the settings ref and lockfile ref
+     agree, so a half-done upgrade PR is caught server-side; and (b) on issue close, release
+     the pipeline's claimed and queue labels, which nothing else does?" Recommended: yes for a
+     repo that runs GitHub Actions. **One question, one acceptance** — on yes both file pairs
+     are emitted in Step 7. Say which side of the write boundary each falls on: the evidence
+     workflow only REPORTS a red check (to make it *block* merges the repo admin marks
+     "second-shift evidence" a required status check in branch protection — onboard never
+     edits branch protection), while the unclaim workflow **writes**, holding `issues: write`
+     to remove two labels from one closing issue, and needs the repo's Actions workflow
+     permissions set to read-and-write. Under a non-github tracker the unclaim half is skipped
+     — there is no label vocabulary. On no / a non-Actions repo, emit nothing (absent = off).
 Then present the **complete draft as one accept-or-edit screen**: a JSONC block where every
 line carries a provenance comment, e.g.
     "baseBranch": "alpha",        // from origin/HEAD
@@ -241,8 +242,9 @@ Also emit the consent doc:
 2. If the repo has a `CLAUDE.md`, offer (in the SAME final message — never a new interview,
    never silently): append `- Toolkit consent + inventory: .claude/SECOND-SHIFT.md` to it.
 
-Also emit the CI workflows — **each only when accepted in Step 3 item 9** (skip this entire
-block otherwise; they are opt-in, not part of the default emitted set):
+Also emit the CI workflows — **only when accepted in Step 3 item 9** (skip this entire block
+otherwise; they are opt-in, not part of the default emitted set). One acceptance covers both
+pairs; there is no second question:
 1. **evidence:** copy `${CLAUDE_PLUGIN_ROOT}/templates/consumer/second-shift-ci-check.sh` to
    `.claude/tools/second-shift-ci-check.sh` (create the dir; keep the executable bit) and
    `${CLAUDE_PLUGIN_ROOT}/templates/consumer/second-shift-ci.yml` to
@@ -259,15 +261,16 @@ block otherwise; they are opt-in, not part of the default emitted set):
    `.claude/tools/second-shift-unclaim.sh` (keep the executable bit) and
    `${CLAUDE_PLUGIN_ROOT}/templates/consumer/second-shift-unclaim.yml` to
    `.github/workflows/second-shift-unclaim.yml`. **Verbatim** too: the script resolves
-   `.tracker.labels.claimed` from the committed config at run time, so a name substituted at
-   install would only be a rendered copy that drifts. Tell the human this is the write half
-   of the pair — it holds `issues: write` and removes exactly one label from one closing
-   issue — and that it is what keeps the claimed label from going stale on every merged
-   ticket. Nothing else in either lane releases it: the lean lane's milestone 5 requires an
-   OPEN pr, so a session-side drop would fire while review is still in flight. Also say that
-   a `permissions:` block only narrows the repo maximum — a repo whose Actions workflow
-   permissions are read-only must switch to read-and-write, or the removal 403s (visibly, as
-   a red run).
+   `.tracker.labels.claimed` and `.tracker.labels.queue` from the committed config at run
+   time, so a name substituted at install would only be a rendered copy that drifts. Tell the
+   human this is the write half of the pair — it holds `issues: write` and removes those two
+   run-state labels from one closing issue (never `blockers`, which holds permanent
+   classifications like `epic`) — and that it is what keeps them from going stale on every
+   merged ticket. Nothing else in either lane releases them: the lean lane's milestone 5
+   requires an OPEN pr, so a session-side drop would fire while review is still in flight.
+   Also say that a `permissions:` block only narrows the repo maximum — a repo whose Actions
+   workflow permissions are read-only must switch to read-and-write, or the removal 403s
+   (visibly, as a red run).
 
 ## Step 8 — Verify and hand off
 1. Run `claude plugin list` and `claude plugin marketplace list --json`, and check the

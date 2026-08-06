@@ -15,10 +15,11 @@ CONTRIBUTING snippet).
 3. Review and commit the emitted files in one PR: `.claude/settings.json`,
    `.claude/second-shift.config.json`, `.claude/second-shift.lock.json`,
    `.claude/tools/second-shift-doctor.sh`, `.claude/SECOND-SHIFT.md` — plus, if you
-   accepted them, each CI workflow's pair: `.github/workflows/second-shift-ci.yml` +
+   accepted the CI workflows, both pairs: `.github/workflows/second-shift-ci.yml` +
    `.claude/tools/second-shift-ci-check.sh` (evidence), and
    `.github/workflows/second-shift-unclaim.yml` + `.claude/tools/second-shift-unclaim.sh`
-   (unclaim — the only emitted workflow that writes; `issues: write`).
+   (unclaim — the only emitted workflow that writes; `issues: write`, and it needs the
+   repo's Actions workflow permissions set to read-and-write).
 4. Dry-run: pick a small ticket with no external-infrastructure acceptance criteria and
    run `/dev-pipeline:run-lean <ticket>` end to end before inviting the team.
 
