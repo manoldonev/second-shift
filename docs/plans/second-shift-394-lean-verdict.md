@@ -1,235 +1,204 @@
 # lean review verdict — #394
 
-verdict=needs-work
-run_id: review-394-1
-session_id: d9d12f80-c3cd-4f3a-9950-6f45f0949368
-rounds: 1
+verdict=approve
+run_id: review-394-2
+session_id: cd630be3-37f7-441b-b614-203c90707a8c
+rounds: 2
 pr: #404
-reviewed_head: 156d3234036be558eabb927c507b266848a1d6bd
-reviewed_patch_id: d83eea4fba63f1a6fca12fe4df50164b3707c0c8
-inherited_patch_id: none
-inherited_from_verdict: none
+reviewed_head: 780ae79219241ef6572184a9f6ad62adc3db337b
+reviewed_patch_id: d87b6a29de0c8508e469bd3b0b9d332118886917
+inherited_patch_id: d83eea4fba63f1a6fca12fe4df50164b3707c0c8
+inherited_from_verdict: c1effb36615cac45382c4fd812ecb3b71c604124
 fidelity: not-applicable
 model: unknown
 
-## Round 1 — `lean/second-shift-394` (PR #404)
+## Round 2 — `lean/second-shift-394` (PR #404)
 
-Range read: `ab12060..156d323` (chain root — the whole branch diff, 17 files). Verdict
-**needs-work**: 9/9 ACs satisfied, 2 blockers outside the AC set, 3 warnings.
+Range read: `c1effb3..HEAD` — the delta since the tree round 1 covered (patch `d83eea4fba63`),
+inheriting the rest by reference to that record. Read wider than the range where it was
+misleading: the range carries a merge of `origin/main`, so most of its 16 files are base-side
+(#402's release bump, #403/#406, #405). The branch-owned delta is `3437da4` (the `subst()` fix)
+plus the merge's own conflict resolutions in `780ae79`. The whole-branch diff against `origin/main`
+was re-read for the two guards the merge touched.
 
-Verification re-run from this checkout, not taken on report: `shellcheck` rc=0, `jq empty`
-rc=0, and the full `*-selftest.sh` sweep **without `SKIP_STRESS`** and under
-`env -u CLAUDE_CODE_SESSION_ID` rc=0 (59 suites green, incl. `lean-gate-selftest`,
-`check-lean-chain-selftest`, `lean-reconcile-selftest`, `scenario-liveness` 73/0).
-`pr-gates` red is the expected pre-review state — its only violation is
-`no committed verdict record`, and the new arm printed
-`· spec declares no armed design render lane — design evidence not applicable` on this
-branch's own run, which is the boundary arm executing live.
+Verdict **approve**: 9/9 ACs satisfied, **no blockers**, 4 warnings.
+
+Verification re-run from this checkout, not taken on report: `shellcheck` rc=0, `jq empty` rc=0,
+and the full 63-suite `*-selftest.sh` sweep **without `SKIP_STRESS`** under
+`env -u CLAUDE_CODE_SESSION_ID` rc=0 — `lean-gate-selftest` all green, `check-lean-chain-selftest`
+all green, `lean-reconcile-selftest` all green, `scenario-liveness` 73 passed / 0 failed — plus
+`scripts/check-lockstep-pairs.sh` at 17 pairs / 0 failed. CI on this exact head (`780ae79`) is
+green on both interpreter lanes —
+`lint-and-selftests` (ubuntu, bash 5.2) and `selftests (macos, bash 3.2)` — which matters here
+because the defect round 1 found is invisible to one of them. `pr-gates` red is the expected
+pre-approve state; its sole cause is `verdict=needs-work, not approve` from the round-1 record.
+
+### Round-1 blockers — both cleared
+
+**B1 (`&` spliced back as the matched placeholder on bash ≥ 5.2) — fixed, and the kill
+reproduced independently.** `subst()` walks the template, so there is no replacement layer to
+interpret. Reverted it back to the three `${ecmd//\{…\}/…}` forms **write-through** (`cat` into
+the file, never `mv`/`cp` — the 0755 bit is a precondition several suites gate on) and ran
+`lean-gate-selftest.sh` under PATH bash **5.3.9**: **1 FAILURE, sole red `(dr2c)`**. Restored
+write-through; `shasum -a 256` and mode byte-identical, `git status` empty. The teardown works:
+`(di1)`/`(di2)`/`(dl4)` stayed green, so the kill is attributable to one case. Declining a
+`tools/mutation-catalog.tsv` row is right — the mutant is vacuous on the macOS lane by
+construction and would land there as a survivor for something that is not a regression.
+
+**B2 (`Changelog: none.` on a migration-bearing change) — fixed, and verified through the real
+release machinery.** Built the squash body GitHub will produce for a 5-commit PR and ran
+`derive-release.sh`'s own `extract_trailers`, `render_bullet` and `extract_breaking` awk programs
+over it: the four `none.` blocks drop, the accurate block renders in full **with its `Migration:`
+line**, `BREAKING CHANGE:` extracts, and the level derives **3 — major**. The bump was handed to
+the fix round without a ruling and the round ruled, which is what D-8's own principle asks for.
 
 ### Findings
 
 | # | Class | Where | Finding |
 | --- | --- | --- | --- |
-| B1 | blocker | `lean-gate.sh:1320-1322` | An `&` anywhere in a declared route, state or output path is replaced by the **matched placeholder** on bash ≥ 5.2 — the harness renders the wrong view and every other assertion still passes. |
-| B2 | blocker | commit trailers (all three) | `Changelog: none.` on a change that adds a blocking gate, a new milestone-1 refusal for existing `design.provider` consumers, and a new reviewer flag. The release notes render nothing. |
-| W1 | warning | `lean-gate.sh` `design_was_armed` | The mid-run-disarm lock lives in the uncommitted machine-local progress file, so "the one escape this design must not leave open" is closed only within one worktree on one machine. |
-| W2 | warning | PR body + `156d323` message | "Every operator on `check-lean-chain.sh` and `lean-reconcile.sh` … is byte-for-byte where it was" is true only inside the swept window. |
-| W3 | warning | `run-lean/SKILL.md` | The 60-line cap was met by unwrapping prose, not by cutting it: 60 → 42 lines while the file grew 575 → 972 words. |
+| W1 | warning | `check-lean-chain-selftest.sh` `(X5)` | The merge made `(X5)`'s negative assertion structurally unfalsifiable, and its comment factually wrong. |
+| W2 | warning | `tools/mutation-baseline.tsv:50` | The committed re-baseline row still carries round-1 W2's unqualified "unmoved" claim; the PR body was corrected, the row was not. |
+| W3 | warning | `scripts/derive-release.sh` | Bump level derives from the **squash subject** (= the PR title), not from the branch's commit verbs. `feat:` on a plain-English-titled PR ships a patch. Pre-existing. |
+| W4 | warning | `run-lean/SKILL.md` | Round-1 W3's residual: the 60-line cap still asserts nothing (42 lines / 972 words / longest line 492 chars). Deferral rationale accepted. |
 
 ---
 
-#### B1 — blocker. `&` in a placeholder value is spliced back as the placeholder (bash ≥ 5.2)
+#### W1 — the base merge silenced one of `(X5)`'s two guards, and left its comment wrong
 
-`cmd_3_render` substitutes each value with bash pattern replacement:
-
-```sh
-ecmd="${ecmd//\{route\}/$(shquote "$r_route")}"
-ecmd="${ecmd//\{state\}/$(shquote "$r_state")}"
-ecmd="${ecmd//\{out\}/$(shquote "$png")}"
-```
-
-Since bash 5.2, `patsub_replacement` is **on by default**: an unescaped `&` in the
-replacement string expands to the text the pattern matched. `shquote` quotes for the
-*shell*; it does nothing about the *replacement* layer above it.
-
-Reproduced through the real gate (not a probe), same fixture, same spec, two interpreters —
-spec rows `| RS-2 | prospects?tab=new&sort=asc | filters & sort expanded | AC-1 |`:
-
-```
-########## /opt/homebrew/bin/bash (5.3.9)
-[lean-gate] milestone-3: render RS-2 (prospects?tab=new&sort=asc » filters & sort expanded) »
-  bash …/stub.sh --route 'prospects?tab=new{route}sort=asc' --state 'filters {state} sort expanded' --out '…/RS-2.png'
-STUB-RECEIVED route=[prospects?tab=new{route}sort=asc] state=[filters {state} sort expanded]
-
-########## /bin/bash (3.2.57)
-[lean-gate] milestone-3: render RS-2 (prospects?tab=new&sort=asc » filters & sort expanded) »
-  bash …/stub.sh --route 'prospects?tab=new&sort=asc' --state 'filters & sort expanded' --out '…/RS-2.png'
-STUB-RECEIVED route=[prospects?tab=new&sort=asc] state=[filters & sort expanded]
-```
-
-macOS system bash (3.2) is correct; every modern Linux and every homebrew bash is not. The
-repo's own `lint-and-selftests` job runs on ubuntu (bash 5.2.x) beside its dedicated
-`selftests (macos, bash 3.2)` job, so this is a live platform split, not a hypothetical.
-
-Why it is blocker-class rather than a nit:
-
-- **It is failure class (2), reinstated.** The render exits 0; the PNG is non-empty; two rows
-  still hash differently (they were shot at different wrong states); the collision detector is
-  silent; the manifest is written and committed. The manifest records the **declared** route
-  and state, so it is honest about intent and silently wrong about what was captured — which
-  also disarms the reviewer's step-5b hash-verify, since the hashes agree on the wrong
-  screenshot. Nothing in the gate, the receipt, the boundary or the review protocol can see it.
-- **It is the very defect this PR narrates fixing.** The `shquote` block and the docs' new
-  "Placeholders appear UNQUOTED in the template" bullet were added because a two-word state
-  arrived as two arguments. The quoting contract the docs now assert is not kept on the
-  majority interpreter.
-- **The trigger is ordinary.** `{route}` is documented as "the app-relative leaf below your
-  feature mount path"; a query string (`?tab=new&sort=asc`) is a routine leaf. A state is
-  human prose, where `&` is ordinary punctuation.
-
-Remedy is at the substitution layer, not in `shquote` — `\&` is the literal-escape on 5.2+
-and a literal backslash-ampersand on 3.2, so escaping is itself version-split. Splitting on
-the placeholder avoids the replacement layer entirely and is bash-3.2 safe:
+`(X5)` is the case round 1 singled out: the one tree where a stale receipt is the *only* stale
+artifact. It asserts two things — `rc=1` with `records rendered_from` (the kill), and the absence
+of `file(s) changed between that commit and the PR head` (proof that no *other* freshness arm
+fired). #406, merged into this branch at `780ae79`, gives the declared arm precedence:
 
 ```sh
-subst() { # subst <template> <placeholder> <replacement>
-  local t="$1" p="$2" r="$3" out=""
-  while case "$t" in *"$p"*) true ;; *) false ;; esac; do
-    out="$out${t%%"$p"*}$r"; t="${t#*"$p"}"
-  done
-  printf '%s' "$out$t"
-}
+if [[ -n "$VERDICT_REVIEWED_PATCH_ID" ]]; then
+  echo "[lean-chain]   · freshness (inferred): skipped — record declares reviewed_patch_id …"
+else
+  … note_violation "… $n_stale file(s) changed between that commit and the PR head …"
 ```
 
-Guard it where the AC already looks: the `(dr2a)` stub call-log assertion is the right
-oracle — it asserts the exact substituted pair. One RS row carrying `&` in both route and
-state, asserted through that same log, kills this and would have killed it on the ubuntu lane
-today.
+That string has exactly one emission site (`scripts/check-lean-chain.sh:577`), inside the `else`.
+`(X5)`'s record is written by the **5-argument** `write_verdict`, so it always carries
+`reviewed_patch_id` and can never reach it. The clause reads as an active guard and is now dead —
+it cannot fail for any change to the gate.
 
-#### B2 — blocker. `Changelog: none.` on a consumer-visible, migration-bearing change
+The case still holds: its positive assertion carries the kill, and AC-6's clause ("a stale
+`rendered_from` reds") is satisfied. So this is a **coverage softening**, not an unmet AC. But the
+comment above it now says something false about the code — "the verdict is the last commit and
+**both freshness arms stay green**" — when only one arm runs at all. And the clause it replaced
+was the one keeping `(X5)` honest about *which* arm reds: with it dead, a tree where the
+**declared** arm also fired would still satisfy both surviving assertions, so `(X5)` can now pass
+for a reason other than the receipt. The remedy is two lines — assert the skip positively
+(`grep -q 'freshness (inferred): skipped'`, exactly the way #406's own `(W2)` does), negatively
+assert the declared arm's `now hashes to`, and reword the comment.
 
-All three commits carry `Changelog: none.`:
+Worth naming as a class rather than an incident: this is the second thing in this round created
+by *taking the merge* rather than by writing code, after the `-h|--help` range. A mid-round base
+merge can retire an assertion in code the merge did not touch, and nothing reds when it does.
 
-```
-156d323 fix(dev-pipeline): keep the chain gate's mutation ordinals where they were   Changelog: none.
-9482a1a feat(dev-pipeline): the lean lane gates design live-render fidelity          Changelog: none.
-cbcce96 docs(dev-pipeline): spec for the lean lane's design live-render gate         Changelog: none.
-```
+#### W2 — the committed baseline row still overreaches where the PR body no longer does
 
-`derive-release.sh`'s `render_bullet` normalizes case, trailing whitespace and a trailing
-period, and drops any block that is entirely the no-op word — so `none.` renders **nothing**.
-This release will carry one bare subject line for a change that:
+`tools/mutation-baseline.tsv:50` (added by this branch) ends: "Every other operator on this
+guard, and all five on lean-reconcile.sh and check-lean-chain.sh, were diffed against origin/main
+and are unmoved". Enumerating every operator in `tools/mutation-operators.tsv` and diffing the
+ordered matched-line lists `origin/main` → `HEAD`:
 
-- adds a **blocking** milestone-3 render lane on the shared 3-attempt budget;
-- adds a **milestone-1 refusal** that reds *every* lean run in any repo with `design.provider`
-  configured until each ticket's spec grows a `## Design` section (`design_state()` returns
-  `error:` on a configured provider with no section — a behavior break for existing consumers,
-  and per the memory of consumer state that is not a hypothetical population);
-- adds `--fidelity` to the `review-lean` write command, defaulting fail-closed;
-- adds a `{state}` placeholder to `design.liveRender.command`;
-- supersedes `docs/live-render.md`'s `extraLanes` wiring recipe that consumers were told to use.
+| guard | first ordinal at which the site list diverges |
+| --- | --- |
+| `lean-gate.sh` | `default` **2** (acknowledged, re-baselined), `cmp-eq` 4, `detector` 6, `logic` 15; `cmp-z` ordinal 1 differs by content (the help range), `fail-open` has no sites |
+| `check-lean-chain.sh` | `cmp-z` 2, `logic` 2, `cmp-eq` 3, `detector` 15, `default` 22; `fail-open` unmoved |
+| `lean-reconcile.sh` | `logic` 13 (the `header_key` parameterization inserts a line, shifting 14+); the other five unmoved |
 
-CLAUDE.md scopes the opt-out precisely: "Use `Changelog: none` when nothing is
-consumer-visible." Every bullet above is consumer-visible, and the first two carry a migration
-obligation with no home to be written in. This is the same class as #401 round 1 and #384
-round 1: a trailer that ships wrong, that CI's presence-only
-`check-changelog-trailer.sh` cannot red on, and that is only fixable by rewriting history.
+So "all five … are unmoved" is false as written on both named guards, and there are six operators,
+not five. What *is* true is the claim the baseline actually rests on: **inside the swept window
+(`K_BUDGET=2`) every committed row's ordinal still indexes its own site** — verified row by row,
+including all six `lean-reconcile.sh` rows, which sit on operators that are unmoved end to end.
 
-The remedy is #401's shape — one accurate block on the **last** commit, bare `Changelog: none.`
-on the in-progress ones — with a `Migration:` line naming the `## Design` requirement. While
-rewriting, settle the bump level explicitly: `feat:` derives a **minor**, and a gate that reds
-previously-green runs for configured consumers has a `BREAKING CHANGE:` argument. I am not
-ruling on it; it should be a decision in the fix round rather than a default nobody chose —
-which is, exactly, D-8's own principle.
+The round-2 PR body states this correctly and at length. The committed row — the artifact a future
+reader re-deriving the baseline will actually open — was not brought along. Same overreach round 1
+raised as W2, in the one place it still lives. Not a blocker: no row is wrong, nothing reds, and
+the two prose corrections the diff *did* make are both accurate (`lean-gate.sh` `default` ordinals
+are now 1 `${GH:-gh}` comment, 2 `${CURL:-curl}` comment, 3 `GH_CLI="${GH:-gh}"`, exactly as the
+row and the `retro-corpus.sh::default::2` correction say).
 
-#### W1 — the mid-run-disarm lock is machine-local
+#### W3 — the bump derives from the PR title, so a `feat:` verb is decorative
 
-The spec calls mid-run disarm "the one escape this design must not leave open" (AC-2), and
-`design_was_armed()` closes it by grepping `| milestone-3 | armed |` out of
-`$MAIN_ROOT/$STATE_DIR/<issue>-lean-progress.md` — uncommitted, machine-local, and absent in a
-fresh worktree or on a second machine. A resumed run elsewhere reads no lock and accepts the
-disarm; the merge boundary then reads a disarmed spec, which its own header concedes is
-"indistinguishable here from honest unarmed work".
+Found while verifying B2's remedy. `derive-release.sh` scans `$LAST_TAG..HEAD` on the base and
+tests `^feat(\(…\))?:` against each commit's **subject**. After a squash merge of a multi-commit
+PR, that subject is the **PR title**, not any commit's. This PR's title is plain English, so
+neither the `type!:` arm nor the `feat:` arm fires — its **major comes solely from the
+`BREAKING CHANGE:` footer** in the body. Had the round settled on minor instead, it would have
+shipped a **patch**.
 
-This is consistent with the file's declared trust posture (local records are tamper-evidence,
-not integrity) and the residual — review-lean's unjustified-disarm blocker — is both stated
-and now shipped. So this is a warning about the **strength of the claim**, not the design: the
-lock is a within-worktree guard, and (dl2)/(dl3)/(dl5) prove exactly that much. Worth one
-clause in the spec or the in-code comment so a later reader does not inherit "cannot be
-escaped" as a load-bearing property.
+Not hypothetical. PR #383 carried `feat(dev-pipeline): lean-gate milestone 3 runs the config's
+extra verify lanes` on a commit, had the plain-English title `lean-gate milestone 3 runs the
+config's extra verify lanes`, and released as **v3.8.1 → v3.8.2 — a patch**. CLAUDE.md's "Commit
+verbs decide the version bump" table describes something the machinery does not do whenever the
+PR title is not itself conventional, which the repo's own issue-title convention encourages.
 
-#### W2 — the mutation-ordinal claim is stronger than what holds
+Pre-existing, outside this PR's AC set, and this PR's own outcome is correct. Wants its own issue:
+either read the trailers' commit subjects rather than the squash subject, or lint the PR title.
 
-The PR body and `156d323`'s message both say every operator on `check-lean-chain.sh` and
-`lean-reconcile.sh` "is byte-for-byte where origin/main had it". Enumerating each operator's
-matched-line list from `tools/mutation-operators.tsv` against `ab12060` and `HEAD`:
+#### W4 — round-1 W3's residual, deliberately deferred
 
-- `lean-reconcile.sh` — all six operators unmoved. Claim holds.
-- `check-lean-chain.sh` — ordinals **1–2 hold** on every operator, which is the whole swept
-  window at `K_BUDGET=2`. But ordinal 3+ did move on `cmp-eq`, `cmp-z` and `logic`: the new
-  `lean-design-armed` block introduced two prose sites (`Armed-ness` matches `-ne`;
-  `` `| RS-n |` `` matches `-n `) that displaced the previous ordinals 3–4.
+`run-lean/SKILL.md` is unchanged in this delta: **42 lines, 972 words, longest line 492
+characters**. The `wc -l` cap still asserts nothing. The PR declines to fix it on the grounds that
+re-expressing the cap in units unwrapping cannot defeat changes a lane-wide authoring contract
+governing every future edit to that file — wider than this ticket's AC set. That reasoning is
+sound and the deferral is stated up front rather than discovered afterwards, so it stays a
+warning: round 1 classed the same defect a warning, and escalating a round-1 warning's residual to
+a round-2 blocker inverts the prior round. Wants its own issue.
 
-Nothing swept moved, no baseline row is wrong, and CI proves it — the PR-scoped sweep reports
-survivors exactly equal to the baseline set, with `check-lean-chain.sh::cmp-z::2` (the
-`sed -n '2,Np'` help-range mutant `156d323` went back for) **killed**. The verification is
-sound; only the sentence overreaches. The accurate form is "no ordinal inside the swept window
-moved"; the stronger claim would break the moment anyone raises `MUTATION_SWEEP_K`, and the
-next reader re-deriving it will find the difference and not know which half to trust.
+### Spec amendment — cleared, and the clearance is recorded because silence on this rule reads as an oversight
 
-AC-9 is scored satisfied on the CI sweep's actual survivor set, not on this sentence.
+The delta amends `docs/plans/second-shift-394-lean.md`, which the lane treats as blocker-class
+when a spec is bent to match the diff. It is not that here, on all three checks:
 
-#### W3 — the 60-line cap was met by unwrapping
-
-`run-lean/SKILL.md` goes 60 → **42** lines while growing 880 → 972 words (`prose-budget.sh`:
-575 → 972, its baseline row now the largest relative miss in the dev-pipeline block). The cap
-is an anti-process-accretion forcing function; measured as `wc -l` over lines with no length
-bound, it stops being one — this diff added a checklist clause to steps 4, 6 and 8 and came
-out 18 lines *under*.
-
-Two things keep it off the blocker list: AC-8 named the re-flow **up front** rather than
-amending to match what shipped, and the file was already partly unwrapped before this diff
-(the tracker-delta blockquote, the post-approve rule, the Resume paragraph), so this continues
-a trend rather than starting one. But the cap now asserts nothing, and the next change will
-have even more room. Either bind a line length alongside it or re-express the cap in the units
-`prose-budget.sh` already measures.
-
----
+- **No AC lost a requirement.** `AC-2`'s text is byte-identical; every numbered AC is untouched.
+- **The amendment came from a review finding, not from the diff.** Round-1 W1 asked in as many
+  words for the "one escape this design must not leave open" phrasing to be softened so a later
+  reader does not inherit it as a guarantee.
+- **It scopes a claim about the mechanism, not the obligation.** The replacement paragraph says
+  the lock binds within the worktree that armed the lane and names the residual (review-lean's
+  unjustified-disarm blocker). The gate's behavior, and every case that pins it, is unchanged —
+  the same wording landed in `design_was_armed`'s comment and the `(dl2)`/`(dl3)` preamble.
 
 ### Per-AC scoring — 9/9 satisfied
 
 | AC | Score | Evidence |
 | --- | --- | --- |
-| AC-1 milestone-1 arming forms | **satisfied** | `(dz1)` no-section red, `(dz2)` explicit-empty green, `(dz5)` bare `Design: none` refused, `(dz6)` missing handoff link, `(dz7)` neither-form. The AND→OR executioner is real: `(dz3)` reads the **same armed spec** through `$CFG` (no design axis) and requires a silent unarmed pass, and `(dz4)` reads it back through `$DCFG` and requires `design lane ARMED`. Under an OR reading `(dz3)` reds — the mutant is genuinely killed, not merely described. |
-| AC-2 disarm state-lock | **satisfied** | `(dl1)` the `\| milestone-3 \| armed \|` row is written by a **passing** armed evaluation; `(dl2)`/`(dl3)` the disarm reds at milestone 1 *and* 3; `(dl4)` zero `\| attempt \|` lines, so arming spends no budget; `(dl5)` the identical disarm passes with no armed record, which is what makes `(dl2)`/`(dl3)` turn on the lock rather than the wording. Scope caveat in W1. |
-| AC-3 the render pass | **satisfied** | Every enumerated clause lands: `(dr1)` 2 rows / 2 calls / 2 non-empty PNGs + red-until-committed; `(dr2b)` a **recomputed** sha256 matches its manifest cell; `(dr3)` identical-hash collision; `(dr4)` zero-byte; `(dr5)` nonzero exit + no manifest; `(dr6)`/`(dr6b)` `{state}` required only on a non-default row, with the positive half asserting the run *reaches* the render; `(dr7)` missing `{out}`; `(dr8)`/`(dr9)` `check-ignore` driven red **and** green; `(dr10)` foreign `cwd`; `(dr11)` duplicate RS id. `(dr2a)` asserts the substituted pairs from the stub's own call log. Scored by its letter — B1 is a defect the AC's clause list does not reach, not an unmet clause. |
-| AC-4 idempotence | **satisfied** | `(di1)` a committed receipt re-runs with the call count unchanged; `(di1b)` deleting one PNG **pre-verdict** re-renders, so the receipt alone is not yet the evidence; `(di2)` post-approve passes on `rendered_from` with the whole PNG directory deleted. The three together pin the asymmetry rather than just the happy arm. |
-| AC-5 the verdict key | **satisfied** | `(fd1)` enum; `(fd2)` unconditional emission of the default; `(fd4)` `fail` × `approve` refused at the writer; `(fd5)` armed run refuses the default; `(fd5b)` passes on a header-scored `pass`; `(fd6)` unarmed tolerates absence; `(fd7)` unarmed refuses a non-`not-applicable` value. `(fd3)` is the load-bearing one — it puts `fidelity: pass` in the record's **body via `--summary-file`**, the production path a reviewer's findings actually arrive through, and requires the armed refusal anyway. |
-| AC-6 the boundary arm | **satisfied** | `(W1)` vacuity guard first; `(W2)` armed-with-no-receipt; `(W2b)` the `-lean-renders.md` suffix does not shadow the `*-lean.md` first-match spec scan; `(W3)` no fidelity; `(W4)` happy path with both exclusions asserted together; `(W5)` stale `rendered_from` under a **fresh** verdict, with the negative assertion that no other freshness arm fired; `(W6)` disarmed leaves it not-applicable. Plus live evidence: this PR's own `pr-gates` run printed the not-applicable note. |
-| AC-7 scenario legs | **satisfied** | Seven `(lean-design-*)` legs, `scenario-liveness` 73 passed / 0 failed here. They compose rather than restate: `budget` walks `1114` to `rc=4` while asserting armed=1 / attempts=4; `render` reds then greens on the same evaluation; `verdict` runs `1/0/1` across unscored → scored → stale; `terminal` reaches the milestone-5 write with every PNG deleted **and** asserts nothing re-rendered; `nv` is an explicit non-vacuity leg. |
-| AC-8 docs | **satisfied** | Both named out-of-section stale assertions are gone — the "no Stage-5 and no `design.liveRender` key" pointer is rewritten to the two-lane split, and the unqualified "Failure is non-blocking" bullet is now the per-lane posture bullet. `docs/config-schema.md` and the JSON schema both state the split and `{state}`. `run-lean/SKILL.md` is 42 ≤ 60 (see W3). The review-lean 5b step, its four design blockers, and review-lead's pixel-loop sentence all land. A `Changelog:` trailer **is** present on the branch — B2 is about what it says, which this clause does not constrain. |
-| AC-9 mutation | **satisfied** | Verified against CI's actual sweep, not the claim: survivors are `lean-gate.sh::{cmp-eq::1, default::1, default::2}`, `check-lean-chain.sh::{cmp-eq::1, cmp-eq::2, cmp-z::1, default::1, default::2}`, `lean-reconcile.sh::{6}` — every one a baseline row, none absent, and `check-lean-chain.sh::cmp-z::2` killed. `lean-gate.sh::default::2` re-keyed to the `${CURL:-curl}` Seams comment and re-baselined in the same diff; independently confirmed by enumerating the `default` operator on both revisions — new ordinal 2 is the comment, ordinal 3 is the displaced `GH_CLI="${GH:-gh}"`, exactly as the row states. `retro-corpus.sh`'s citation is corrected. Both lockstep rows plus the new `lean-design-armed` row are green. Wording caveat in W2. |
+| AC-1 milestone-1 arming forms | **satisfied** | Untouched by the delta; inherited from round 1 and re-run here. `(dz1)`–`(dz7)` green, and the AND→OR executioner is still real: `(dz3)` reads the same armed spec through a config with no design axis and requires a silent unarmed pass. |
+| AC-2 disarm state-lock | **satisfied** | `(dl1)`–`(dl5)` unchanged and green. The delta reworded the `(dl2)`/`(dl3)` preamble to say what the pair actually pins — the *within-worktree* lock — which is the W1 remedy, not a weakening: `(dl5)` still keeps the pair turning on the lock rather than on the wording. |
+| AC-3 the render pass | **satisfied** | Every enumerated clause still lands (`(dr1)`–`(dr11)`, `(dr2a)`/`(dr2b)`). Round 1 scored this satisfied by its letter while carrying B1 as a separate blocker; B1 is now fixed at the substitution layer and `(dr2c)` guards it on `(dr2a)`'s call-log oracle — reproduced above as the sole red on bash 5.3.9 against the reverted mutant. |
+| AC-4 idempotence | **satisfied** | `(di1)`/`(di1b)`/`(di2)` green. The delta's risk to this AC was the new `&`-bearing fixture leaking into them; the case's explicit teardown restores the canonical spec and re-renders, and the probe confirms it — reverting the fix reds `(dr2c)` **only**. |
+| AC-5 the verdict key | **satisfied** | `(fd1)`–`(fd7)` unchanged and green, `(fd3)` still driving `fidelity:` through the real `--summary-file` body path. Independently exercised by this record: `--fidelity` is unavailable in the installed 3.8.4 gate, so this round wrote through the **branch's own** `lean-gate.sh`. |
+| AC-6 the boundary arm | **satisfied** | All seven cases green under their new ids — `(X1)` vacuity guard, `(X2)` armed-with-no-receipt, `(X2b)` suffix non-shadowing, `(X3)` no fidelity, `(X4)` happy path with both exclusions, `(X5)` stale `rendered_from` under a fresh verdict, `(X6)` disarmed. The rename is complete: `git diff origin/main...HEAD -- scripts/check-lean-chain-selftest.sh` shows **zero deletions**, so #406's `(W0)`–`(W5)` block is intact and this branch purely appends; both `lockstep-manifest.tsv` citations are re-anchored, and no stale `(W)` citation survives outside the superseded round-1 record. Caveat W1. |
+| AC-7 scenario legs | **satisfied** | The seven `(lean-design-*)` legs are untouched by the delta and green in the full sweep. |
+| AC-8 docs | **satisfied** | The clause is "a `Changelog:` trailer is present on the branch" — present, and now also *accurate*, proved through the real release awk programs rather than by reading it. `docs/live-render.md` gains the literal-substitution guarantee alongside the unquoted-placeholder rule, which is the docs half of B1. `run-lean/SKILL.md` 42 ≤ 60 (W4). |
+| AC-9 mutation | **satisfied** | Scored against CI's own PR-scoped sweep on this exact head, not the PR's sentence: survivors are `lean-gate.sh::{cmp-eq::1, default::1, default::2}`, `lean-reconcile.sh::{fail-open::2, cmp-eq::1, cmp-eq::2, detector::1, default::1, default::2}`, `check-lean-chain.sh::{cmp-eq::1, cmp-eq::2, cmp-z::1, default::1, default::2}` — **exactly the baseline set on all three guards, zero baseline-absent survivors**, with `check-lean-chain.sh::cmp-z::2` and `lean-gate.sh::cmp-z::1`/`::cmp-z::2` KILLED. Independently: `subst()` adds **zero** sites — all six operators on `lean-gate.sh` are byte-identical across the delta — so it re-keys nothing. Prose caveat W2. |
 
 ### What is genuinely good here
 
-The two-patch-identity asymmetry is the part that would be easiest to get wrong and is right:
-the manifest **inside** `reviewed_patch_id` so a verdict binds to the evidence it scored, and
-**outside** `rendered_from` so committing that evidence — and the reviewer committing on top of
-it — does not invalidate it. The post-approve arm dropping the PNG-byte dependency is the same
-insight applied once more, and `(di2)` + `(lean-design-terminal)` prove the livelock is closed
-from both the unit and the composed direction. `(fd3)` and `(W5)`/`(dm1)` are the two cases a
-weaker suite would not have written: one drives the header-anchoring through the real
-`--summary-file` path, the other constructs the single tree where the receipt is the *only*
-stale artifact and asserts the other freshness arms stay silent.
+The round did not stop at the reported defect. Round 1 handed over a bug in a substitution layer;
+the fix went to the layer, not to `shquote`, correctly rejected escaping (version-split in the
+opposite direction), and — the part that is easy to skip — made the new case's **teardown part of
+the case**, because `(dr2c)` writes the only ampersand-bearing fixture in the file and leaving it
+standing would have made the kill unattributable across four cases. Declining a catalog row for a
+platform-split mutant is the same discipline: a row there would red the macOS lane for something
+that is not a regression.
 
-### To clear round 2
+The merge is the other thing worth naming. #406 rewrote the same guard mid-round and collided on
+a case-id block; the resolution kept **both** contracts, recomputed the `-h|--help` range from the
+merged header rather than picking a side (verified in both directions here: the header ends at 132
+and `--help` prints 131 lines ending at the last header line), and renamed *this* branch's ids
+because the incumbent's were already on `main` — then re-anchored the two `lockstep-manifest.tsv`
+citations the rename rotted, which is the step that usually gets missed.
 
-1. Fix B1 at the substitution layer and add the `&`-bearing RS row to the `(dr2a)` call-log
-   assertion.
-2. Rewrite the trailers for B2 — one accurate `Changelog:` block with a `Migration:` line on
-   the last commit, and settle the bump level explicitly.
-3. W1–W3 are optional; if W1 is left as-is, soften the "one escape this design must not leave
-   open" phrasing so the next reader does not inherit it as a guarantee.
+### Follow-ups (none blocking)
 
-Everything else is inherited by this record. A new review context scores round 2 — not this
-one resumed.
+1. W1 — assert `(X5)`'s inferred-arm skip positively and fix the "both freshness arms" comment.
+2. W2 — bring the committed baseline row's wording in line with the PR body's precise form.
+3. W3 — the bump derives from the PR title; file it.
+4. W4 — re-express `run-lean/SKILL.md`'s cap in units unwrapping cannot defeat; file it.
+
+Everything not in the range above is inherited from the round-1 record at patch `d83eea4fba63`.
