@@ -3,8 +3,8 @@ run_id: lean-359-a
 session_id: 7563f6ea-6eb4-48c9-9b67-02ba31144621
 region: undeclared
 disposition: reversible-default-and-flag
-ratified: no
-ratified_by:
+ratified: yes
+ratified_by: https://github.com/manoldonev/second-shift/issues/359#issuecomment-5209212261
 
 ## Gap
 
@@ -40,3 +40,16 @@ requires, exposed as a `mark <issue>` subcommand that:
 Reversible: the step-7 call is one line in `SKILL.md` and one `cmd_mark` invocation. Removing
 it leaves the milestone-5 write D-3 specified, unchanged and still correct — the consequence is
 the manual CI re-run described above, not a broken gate.
+
+## Ratification provenance
+
+The operator read this gap in the build session, approved it there, and directed the run to post
+the ratifying comment under their identity. So `ratified_by:` cites a comment the RUN typed on
+the operator's behalf, not one the operator typed — and the comment itself says so.
+
+Written down because the boundary cannot infer it. `check-lean-chain.sh` delegates this arm to
+`lean-evidence.sh`, which checks only that `ratified: yes` carries a citation; unlike the claim
+arm it applies no author filter, so an operator-authored ratification and a run-authored one are
+indistinguishable to it. The approval is real and is in the session transcript — only its
+keystrokes were delegated — but a reader of this record should not have to take the authorship
+at face value.
