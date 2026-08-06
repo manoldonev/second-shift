@@ -162,6 +162,23 @@ OUT="$(PATH="$STUB_DIR" GH_CALLS="$TMP/calls" SECOND_SHIFT_CONFIG="$CFG_BARE" \
 check "C14 jq absent: exit 1 naming the missing tool" \
       "$([ "$RC" -eq 1 ] && echo "$OUT" | grep -q 'jq is not on PATH' && echo 0 || echo 1)"
 
+# (15) BOTH env seams unset — the production path, and the ONLY case that exercises the
+#      two default expansions or the rev-parse fallback at all. Every case above pins the
+#      config path directly, so a mutant on either of those lines survives all of them
+#      while the real workflow, which sets neither, resolves nothing. A throwaway git repo,
+#      no network: the label must come from a config found by deriving the root from git.
+GITREPO="$TMP/derived"
+git init -q "$GITREPO" 2>/dev/null
+mkdir -p "$GITREPO/.claude"
+printf '%s' '{"tracker":{"type":"github","labels":{"claimed":"derived-label"}}}' \
+  > "$GITREPO/.claude/second-shift.config.json"
+: > "$TMP/calls"
+( cd "$GITREPO" && PATH="$STUB_DIR:$PATH" GH_CALLS="$TMP/calls" \
+    STUB_LABELS_JSON='[{"name":"derived-label"}]' \
+    env -u SECOND_SHIFT_CONFIG -u SECOND_SHIFT_REPO_ROOT bash "$TOOL" 42 ) >/dev/null 2>&1
+check "C15 both seams unset: config resolved via the derived repo root" \
+      "$(grep -q 'DELETE repos/{owner}/{repo}/issues/42/labels/derived-label' "$TMP/calls" && echo 0 || echo 1)"
+
 # ---- workflow wiring -------------------------------------------------------
 # These pin the WIRING of two files that are never executed on the path under test — the
 # narrowed grep sanction, same shape as second-shift-ci-check-selftest.sh's yml cases.
