@@ -88,11 +88,25 @@ leaves this to build judgment; it is taken because mis-tiering an uncovered vend
 regression this ticket exists to prevent, and it is invisible in every total — a property worth a
 permanent named mutant rather than a one-off probe. The mutant is verified to die in this diff.
 
+**AC-12 — the milestone-3 false red this run hit (in-flight infra fix).**
+`lean-gate-selftest.sh` asserts the gate's absent-value model default (`model: unknown`) while
+inheriting `LEAN_RUN_MODEL` from the ambient environment. That variable is a documented seam of
+`lean-gate.sh`, so a lean run that stamps its model honestly exports it — and its own milestone-3
+green gate then reds on two cases, in a diff that never touched either file. The suite already
+unsets `RUN_ID` and `CLAUDE_CODE_SESSION_ID` for exactly this reason; this seam was the one left
+open. Fixed by unsetting it once at suite scope, plus `(m1c)`, the missing other direction: nothing
+covered the case where a value IS set, so a stamp that ignored the variable entirely passed every
+case while making the retro corpus's model key a constant. Scored satisfied when the suite is green
+both with and without the variable exported, and when `(m1c)` is the only case that reds under a
+hardcoded stamp. `lean-gate.sh` itself is untouched, so no mutation ordinal moves; its two
+baselined `default` rows are prose sites and its `cmp-eq::1` is unreachable from this assertion.
+
 **AC-10 — scope boundary.** No file changes outside
 `plugins/dev-pipeline/skills/run/pipeline-cost-block.sh`,
 `plugins/dev-pipeline/skills/run/cost-tracking-fixtures/`,
 `plugins/dev-pipeline/skills/run/tools/cost-block-selftest.sh`, this spec,
-`tools/mutation-baseline.tsv` (AC-9) and `tools/mutation-catalog.tsv` (AC-11). Out of scope per
+`tools/mutation-baseline.tsv` (AC-9), `tools/mutation-catalog.tsv` (AC-11) and
+`plugins/dev-pipeline/skills/run-lean/lean-gate-selftest.sh` (AC-12). Out of scope per
 D-11: `retro-corpus.sh` / `perf-retro`, `LEAN_RUN_MODEL` and the progress/verdict `model:` key,
 `plugins/*/evals/**` ids (#356), and #351's `models.tierMap` / dispatch alphabet — no lockstep row is
 opened between the two maps, because they are not two copies of one contract (fact 1: different
