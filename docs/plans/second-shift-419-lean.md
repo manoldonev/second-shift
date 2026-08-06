@@ -125,10 +125,14 @@ exercises the stress legs.
   expiry is a non-zero result reported as a named timeout, never a hang.
 
 - **AC-5** — The guard's verdict: a staged suite that fails or times out reds the guard **unless**
-  its staged-relative path appears in `tools/install-topology-known-red.tsv`. A listed suite that
-  passes is a printed warning, never red — the "shrink the list" direction, mirroring
-  `mutation-baseline.tsv`. The run prints counts for ran / passed / known-red / red, and every red
-  is named with its cause line.
+  its **repo-relative** path (`plugins/<name>/<rel>`) appears in
+  `tools/install-topology-known-red.tsv`. A listed suite that passes is a printed warning, never
+  red — the "shrink the list" direction, mirroring `mutation-baseline.tsv` — and so is a row that
+  matches no staged suite. The run prints counts for ran / passed / known-red / skipped / stale /
+  red, and every red is named with its cause line.
+
+  *(Amended before milestone 5: the key is repo-relative, not staged-relative as first written. A
+  staged path carries the version segment, so every row would rot at the next release.)*
 
 - **AC-6** — A suite the guard cannot run for an environmental reason (no `node` for a `.mjs`
   suite) is a **named, counted skip** — printed, never silently folded into "passed" (D-4's
@@ -137,8 +141,13 @@ exercises the stress legs.
 - **AC-7** — `tools/install-topology-known-red.tsv` is seeded from this guard's first clean run
   under AC-4's topology (OR-1's default). It carries **no** row for `plan-lint-selftest.sh` or
   `design-sync-selftest.mjs`. Every row states a one-line cause; a row whose cause is not known
-  reads `undiagnosed` rather than an invented rationale (OR-1's flag), and `audit-selftest.sh`'s
-  row, if it is red under the guard, is one of those (OR-2).
+  reads `undiagnosed` rather than an invented rationale (OR-1's flag).
+
+  *(OR-2, measured: `audit-selftest.sh` passes under this topology and gets no row. The receipt's
+  detached-arm sweep saw it red for a reason the version-keyed arm does not reproduce; the guard's
+  own run is the authority D-9 named, so the region closes on evidence rather than on an
+  `undiagnosed` row. `cost-block-selftest.sh` likewise passes here, because AC-4's cwd is a real
+  git-init'd directory it can write under.)*
 
 - **AC-8** — A follow-up issue is filed and linked from the closing comment, covering exactly what
   #419 defers: each remaining row of `install-topology-known-red.tsv`, D-10's undiagnosed
