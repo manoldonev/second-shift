@@ -836,5 +836,97 @@ if [ "$rc" -eq 0 ] && printf '%s' "$out" | grep -q 'inheritance chain: 1 inherit
   pass "(V6b) the walk terminates at a root whose body quotes the key — one link, not the two a first-match walk would count"
 else fail "(V6b) expected exactly 1 inherited link, got rc=$rc: $out"; fi
 
+# ---- (W) evidence 5 PRECEDENCE (#403): a merge from the base branch must not void an approve
+# the patch-id arm proves is still fresh -----------------------------------------------------
+# GitHub's "Update branch" button performs exactly this: it merges the configured base into the
+# PR branch. The merged-in commits land strictly AFTER the verdict record's commit, so the
+# two-dot INFERRED arm (VERDICT_COMMIT..PR_HEAD_SHA) counts every file the base changed as a
+# change to THIS branch — even though the branch's own diff against the (now-current) base,
+# which the DECLARED arm measures, has not moved at all. Observed live on PR #400 / issue #392.
+#
+# No intent-gap record is live at this point (removed ahead of (U), never reintroduced by (V)),
+# so nothing here can be confounded by evidence 7.
+
+w_branch="$(git -C "$TREE" symbolic-ref --short HEAD 2>/dev/null)"
+
+# The review happens FIRST, against the base as it stood at review time — the real chronology.
+w_pid="$(tree_patch_id HEAD)"
+[ -n "$w_pid" ] || fail "(W0) the fixture's patch identity is empty — every (W) case would compare nothing"
+write_verdict approve r-review-w1 sess-review-w1 "$(git -C "$TREE" rev-parse HEAD)" "$w_pid"
+w_record_commit="$(git -C "$TREE" rev-parse HEAD)"
+
+# THEN the base advances — two unrelated PRs land on it, the same shape #400's own trigger was.
+git -C "$TREE" branch -f w-base refs/remotes/origin/main >/dev/null 2>&1
+git -C "$TREE" checkout -q w-base 2>/dev/null
+printf 'first unrelated base PR\n' > "$TREE/w-base-1.txt"
+git -C "$TREE" add w-base-1.txt >/dev/null 2>&1
+git -C "$TREE" commit -q -m 'unrelated base PR 1' >/dev/null 2>&1
+printf 'second unrelated base PR\n' > "$TREE/w-base-2.txt"
+git -C "$TREE" add w-base-2.txt >/dev/null 2>&1
+git -C "$TREE" commit -q -m 'unrelated base PR 2' >/dev/null 2>&1
+git -C "$TREE" update-ref refs/remotes/origin/main w-base
+git -C "$TREE" checkout -q "$w_branch" 2>/dev/null
+
+# ...and GitHub's "Update branch" merges it into the PR branch — a REAL git merge, landing the
+# base's commits strictly after the record's commit, touching nothing the branch itself changed.
+if git -C "$TREE" merge -q --no-edit w-base >/dev/null 2>&1; then w_merge_ok=1
+else w_merge_ok=0; fi
+[ "$w_merge_ok" -eq 1 ] || fail "(W-fixture) the merge from the advanced base did not apply cleanly"
+
+# The fixture premise: the merge really did land files after the record's commit, so an
+# unguarded inferred arm has something to (wrongly) fire on.
+w_would_stale="$(git -C "$TREE" diff --name-only "$w_record_commit" HEAD 2>/dev/null)"
+if [ -n "$w_would_stale" ]; then
+  pass "(W1) the merge landed files after the record's commit — the unguarded inferred arm would (wrongly) see them"
+else fail "(W1) the merge landed nothing after the record — (W) would assert nothing"; fi
+
+out="$(run_gate_base "lean/acme-42" "$WORK/comments-good.json" "$WORK/diff-lean.txt" "main")"; rc=$?
+if [ "$rc" -eq 0 ] \
+   && printf '%s' "$out" | grep -q 'freshness (inferred): skipped' \
+   && printf '%s' "$out" | grep -q 'freshness (declared, patch-id' \
+   && ! printf '%s' "$out" | grep -q 'changed between that commit and the PR head'; then
+  pass "(W2) AC-1: a merge from the configured base does not void an approve the patch-id arm proves is still fresh"
+else fail "(W2) expected rc=0 via the declared arm alone, got rc=$rc: $out"; fi
+
+# AC-2: the SAME kind of merge, but against a record predating the reviewed_patch_id key
+# (reviewed_head only) has no declared arm to defer to — the inferred arm stays its sole check,
+# and a merge from base still violates for it exactly as it did before this fix.
+write_verdict approve r-review-w2 sess-review-w2
+git -C "$TREE" branch -f w-base2 refs/remotes/origin/main >/dev/null 2>&1
+git -C "$TREE" checkout -q w-base2 2>/dev/null
+printf 'a third unrelated base PR\n' > "$TREE/w-base-3.txt"
+git -C "$TREE" add w-base-3.txt >/dev/null 2>&1
+git -C "$TREE" commit -q -m 'unrelated base PR 3' >/dev/null 2>&1
+git -C "$TREE" update-ref refs/remotes/origin/main w-base2
+git -C "$TREE" checkout -q "$w_branch" 2>/dev/null
+if git -C "$TREE" merge -q --no-edit w-base2 >/dev/null 2>&1; then w2_merge_ok=1
+else w2_merge_ok=0; fi
+[ "$w2_merge_ok" -eq 1 ] || fail "(W-fixture2) the second merge did not apply cleanly"
+
+out="$(run_gate_base "lean/acme-42" "$WORK/comments-good.json" "$WORK/diff-lean.txt" "main")"; rc=$?
+if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q 'changed between that commit and the PR head'; then
+  pass "(W3) AC-2: the same merge still violates for a record carrying no reviewed_patch_id"
+else fail "(W3) expected rc=1 via the inferred arm, got rc=$rc: $out"; fi
+
+# AC-3: a GENUINE post-record change — the branch's OWN fix, not the base's — must still
+# violate under the reviewed_patch_id shape: skipping the inferred arm must not open a blind
+# spot the declared arm doesn't already close.
+w_pid3="$(tree_patch_id HEAD)"
+write_verdict approve r-review-w3 sess-review-w3 "$(git -C "$TREE" rev-parse HEAD)" "$w_pid3"
+printf 'a real fix landing after the review\n' > "$TREE/docs/plans/notes-403.md"
+commit_tree "a genuine branch-side change after the record"
+out="$(run_gate_base "lean/acme-42" "$WORK/comments-good.json" "$WORK/diff-lean.txt" "main")"; rc=$?
+if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q 'now hashes to'; then
+  pass "(W4) AC-3: a genuine post-record branch-side change still violates under the reviewed_patch_id shape"
+else fail "(W4) expected rc=1 via the declared arm's patch-id mismatch, got rc=$rc: $out"; fi
+
+# ...and re-reviewing clears it, so (W4) is a check with a remedy, matching the rest of the
+# suite's convention.
+write_verdict approve r-review-w4 sess-review-w4 "$(git -C "$TREE" rev-parse HEAD)" "$(tree_patch_id HEAD)"
+out="$(run_gate_base "lean/acme-42" "$WORK/comments-good.json" "$WORK/diff-lean.txt" "main")"; rc=$?
+if [ "$rc" -eq 0 ] && printf '%s' "$out" | grep -q 'freshness (declared, patch-id'; then
+  pass "(W5) a fresh review round over the branch-side fix clears it"
+else fail "(W5) expected rc=0 after a new review round, got rc=$rc: $out"; fi
+
 echo "[check-lean-chain-selftest] $([ "$FAILS" -eq 0 ] && echo 'all green' || echo "$FAILS FAILURE(S)")"
 exit "$FAILS"
