@@ -86,6 +86,44 @@ EOF
 
 echo '[]' > "$WORK/comments-empty.json"
 
+# ---- the PR marker trail (#359) ------------------------------------------------------------
+# The gate delegates its verdict / identity / ratification / patch-id arms to the plugin
+# payload, so every case needs the payload itself and a PR marker trail to reach it. Both are
+# EXPORTED once rather than threaded through each call: the fixture tree is a throwaway repo
+# with no plugins/ directory, and the seam is the payload's input, not this gate's.
+export LEAN_EVIDENCE="$HERE/../plugins/dev-pipeline/skills/run-lean/lean-evidence.sh"
+[ -f "$LEAN_EVIDENCE" ] || { echo "  FAIL: the evidence payload is missing at $LEAN_EVIDENCE" >&2; exit 1; }
+
+# The DEFAULT marker trail: one bot marker carrying the same build identity the claim comment
+# carries (r-abc123 / sess-build-1), which is what a real run leaves. Cases about the marker
+# itself override LEAN_PR_COMMENTS_FILE per call.
+cat > "$WORK/pr-markers-good.json" <<EOF
+[
+  { "user": { "type": "Bot", "login": "acme-bot" },
+    "body": "<!-- dev-pipeline -->\n<!-- run_id: r-abc123 -->\n<!-- session_id: sess-build-1 -->\n<!-- stage: lean-pr-marker -->" }
+]
+EOF
+echo '[]' > "$WORK/pr-markers-none.json"
+# A marker posted by a human: forgeable by anyone who can comment, so the trust filter must
+# reject it and the arm must read as "no marker at all".
+cat > "$WORK/pr-markers-human.json" <<EOF
+[
+  { "user": { "type": "User", "login": "someone" },
+    "body": "<!-- run_id: r-abc123 -->\n<!-- stage: lean-pr-marker -->" }
+]
+EOF
+# TWO build sessions on one PR. The second's identity is what a verdict must not carry — a
+# reader comparing only the FIRST marker would wave that verdict through (D-4).
+cat > "$WORK/pr-markers-two.json" <<EOF
+[
+  { "user": { "type": "Bot", "login": "acme-bot" },
+    "body": "<!-- run_id: r-abc123 -->\n<!-- session_id: sess-build-1 -->\n<!-- stage: lean-pr-marker -->" },
+  { "user": { "type": "Bot", "login": "acme-bot" },
+    "body": "<!-- run_id: r-review-1 -->\n<!-- session_id: sess-build-2 -->\n<!-- stage: lean-pr-marker -->" }
+]
+EOF
+export LEAN_PR_COMMENTS_FILE="$WORK/pr-markers-good.json"
+
 # Committed artifacts live in a throwaway git repo so the gate's `git rev-parse` and its
 # find-based artifact scan operate on a controlled tree rather than the real repo.
 TREE="$WORK/tree"
@@ -250,7 +288,10 @@ else fail "(I) expected rc=1 on verdict=needs-work, got rc=$rc: $out"; fi
 printf 'late change after a needs-work verdict\n' > "$TREE/docs/plans/notes-374.md"
 commit_tree "code lands after a needs-work verdict"
 out="$(run_gate "lean/acme-42" "$WORK/comments-good.json" "$WORK/diff-lean.txt")"; rc=$?
-n_violations="$(printf '%s' "$out" | grep -c '\[lean-chain\]   ✗')"
+# BOTH prefixes (#359). Half the arms now come from the delegated payload, which signs its
+# own refusals `[lean-evidence]`; counting only this gate's prefix would score a two-violation
+# run as one and let a regression that re-duplicated a delegated arm pass unnoticed.
+n_violations="$(printf '%s' "$out" | grep -cE '^\[lean-(chain|evidence)\]   ✗')"
 if [ "$rc" -eq 1 ] \
    && printf '%s' "$out" | grep -q '2 evidence artifact(s) missing' \
    && [ "$n_violations" -eq 2 ] \
@@ -1044,6 +1085,49 @@ out="$(run_gate_base "lean/acme-42" "$WORK/comments-good.json" "$WORK/diff-lean.
 if [ "$rc" -eq 0 ] && printf '%s' "$out" | grep -q 'declares no armed design render lane'; then
   pass "(X6) an explicit 'Design: none' disarm leaves the boundary's design arm not applicable"
 else fail "(X6) expected the disarmed pass, got rc=$rc: $out"; fi
+
+# ---- (Y) AC-3: the delegated PR-marker identity arm (#359) --------------------------------
+# The boundary now reads the build identity from TWO sources — the bot claim on the issue (the
+# (N) block) and bot markers on the PR (here). These cases are what stop the second source from
+# being decorative: (X6) left a tree that passes, so each one below changes only the marker
+# trail. Nothing here re-asserts the (N) block's comparisons; the claim identity stays r-abc123
+# and distinct throughout, so a refusal can only have come from the delegated arm.
+out="$(LEAN_PR_COMMENTS_FILE="$WORK/pr-markers-none.json" run_gate_base "lean/acme-42" "$WORK/comments-good.json" "$WORK/diff-lean.txt" "main")"; rc=$?
+if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q "no bot-authored 'lean-pr-marker' comment"; then
+  pass "(Y1) a PR carrying no build marker is refused — zero markers is missing evidence, not a vacuous pass"
+else fail "(Y1) expected rc=1 on an unmarked PR, got rc=$rc: $out"; fi
+
+out="$(LEAN_PR_COMMENTS_FILE="$WORK/pr-markers-human.json" run_gate_base "lean/acme-42" "$WORK/comments-good.json" "$WORK/diff-lean.txt" "main")"; rc=$?
+if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q 'none bot-authored'; then
+  pass "(Y2) an operator-posted marker does not satisfy the arm (the trust filter, on a public repo)"
+else fail "(Y2) expected the trust filter to reject a human marker, got rc=$rc: $out"; fi
+
+# D-4, and the reason the comparison walks EVERY marker. Two build sessions worked this PR; the
+# verdict carries the SECOND one's identity. A reader taking only the first marker compares
+# r-review-1 against r-abc123, finds them distinct, and waves through a verdict the second
+# build session wrote about its own code.
+w_pid="$(tree_patch_id HEAD)"
+write_verdict approve r-review-1 sess-review-1 "$(git -C "$TREE" rev-parse HEAD)" "$w_pid"
+out="$(LEAN_PR_COMMENTS_FILE="$WORK/pr-markers-two.json" run_gate_base "lean/acme-42" "$WORK/comments-good.json" "$WORK/diff-lean.txt" "main")"; rc=$?
+if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q "BUILD run's identity"; then
+  pass "(Y3) a verdict matching the SECOND build session's marker is refused (D-4: every marker, not the first)"
+else fail "(Y3) expected rc=1 against the second marker, got rc=$rc: $out"; fi
+
+# ...and the same trail with a verdict identity no marker carries still passes, so (Y3) turns on
+# the match rather than on the trail having two entries.
+write_verdict approve r-review-9 sess-review-9 "$(git -C "$TREE" rev-parse HEAD)" "$w_pid"
+out="$(LEAN_PR_COMMENTS_FILE="$WORK/pr-markers-two.json" run_gate_base "lean/acme-42" "$WORK/comments-good.json" "$WORK/diff-lean.txt" "main")"; rc=$?
+if [ "$rc" -eq 0 ]; then
+  pass "(Y4) two markers neither of which the verdict carries still passes"
+else fail "(Y4) expected rc=0 against two non-matching markers, got rc=$rc: $out"; fi
+
+# The delegation itself is fail-closed. A payload this gate cannot reach means half the evidence
+# is unevaluated, and an unevaluable check must not report a pass — the mode that would otherwise
+# arrive silently the first time the payload moves.
+out="$(LEAN_EVIDENCE="$WORK/no-such-payload.sh" run_gate_base "lean/acme-42" "$WORK/comments-good.json" "$WORK/diff-lean.txt" "main")"; rc=$?
+if [ "$rc" -eq 2 ] && printf '%s' "$out" | grep -q 'portable evidence payload is missing'; then
+  pass "(Y5) an unreachable evidence payload is an environment error, never a pass"
+else fail "(Y5) expected rc=2 on a missing payload, got rc=$rc: $out"; fi
 
 echo "[check-lean-chain-selftest] $([ "$FAILS" -eq 0 ] && echo 'all green' || echo "$FAILS FAILURE(S)")"
 exit "$FAILS"

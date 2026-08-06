@@ -27,8 +27,27 @@ jobs:
     name: second-shift evidence
     runs-on: ubuntu-latest
     steps:
+      # fetch-depth: 0 is load-bearing for the lean-evidence check, not hygiene. That check
+      # recomputes the branch's patch identity from merge-base(base, head), which a depth-1
+      # checkout cannot resolve — and an unresolvable identity is reported as a failure, not
+      # waved through, so a shallow checkout reds every lean PR rather than silently exempting
+      # one. Ordinary PRs are unaffected either way.
       - uses: actions/checkout@v4
-      - name: second-shift evidence checks (config-lint @ pinned ref + ref lockstep)
+        with:
+          fetch-depth: 0
+      - name: second-shift evidence checks (config-lint @ pinned ref + ref lockstep + lean evidence)
+        # The PR context rides in the ENVIRONMENT, never interpolated into the run line: a PR
+        # body is attacker-controllable, and `${{ }}` splicing into a shell command is
+        # injectable. PR_HEAD_SHA must be the HEAD COMMIT and not `HEAD` — on a pull_request
+        # event actions/checkout resolves refs/pull/N/merge, so HEAD is merge(base, head) and
+        # every base-side commit since the branch point would read as a post-review change.
+        # On workflow_dispatch these are all empty and the lean check reports not-applicable.
         env:
           GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_HEAD_REF: ${{ github.event.pull_request.head.ref }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PR_BASE_REF: ${{ github.base_ref }}
+          PR_BODY: ${{ github.event.pull_request.body }}
         run: bash .claude/tools/second-shift-ci-check.sh

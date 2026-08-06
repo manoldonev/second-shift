@@ -36,10 +36,24 @@ repo enables {{PLUGIN_LIST}}) — `/second-shift:doctor` verifies the install ag
 - Skills: `onboard`, `doctor`, `local-dev-refresh`. Zero session hooks, zero agents — near-zero session cost.
 - Optional committed CI files (present only if you enabled the evidence workflow at onboard):
   `.github/workflows/second-shift-ci.yml` + `.claude/tools/second-shift-ci-check.sh`. These run
-  in **GitHub Actions on your PRs** (not in a Claude session — no session cost): they config-lint
-  the committed config at the pinned marketplace ref and assert the settings ref and lockfile ref
-  agree. The workflow only reports a check; it blocks a merge only if you mark it a required status
-  check in branch protection.
+  in **GitHub Actions on your PRs** (not in a Claude session — no session cost). Three checks:
+  config-lint the committed config at the pinned marketplace ref; assert the settings ref and
+  lockfile ref agree; and, on a `/dev-pipeline:run-lean` PR, assert the merge-boundary evidence
+  the lean lane is supposed to leave — a committed approve-verdict carrying reconciliation keys,
+  a review identity distinct from the build run's, a verdict covering *this* head, and no
+  unratified intent-gap record. The workflow only reports a check; it blocks a merge only if you
+  mark it a required status check in branch protection.
+- **The lean evidence check is fail-closed.** Missing evidence is a failure, and so is a check
+  that could not run: a moved script path at your pinned ref (HTTP 404) or a shallow checkout is
+  reported as drift, never waved through green. Only a network/auth blip fetching the script is
+  a non-fatal warning. Nothing about it is model-driven and it makes no API-billed calls.
+- **Its gate strength depends on your tracker.** Under `tracker.type: github` the build run's
+  identity comes from a bot-authored marker comment the harness posts on the PR, and the
+  verdict's independence is checked against it. Under `tracker.type: jira`, `config-lint` forbids
+  `tracker.bot`, so there is no authenticated writer for that marker: the identity arm reports
+  itself unavailable at reduced strength — printed on every run, never silently skipped — while
+  every other arm still gates. The tracker/source-control axis split that would close this gap
+  is a schema change and ships separately.
 
 ## Opting out (sanctioned, personal)
 

@@ -723,9 +723,19 @@ EOF
 cat > "$WORK/pr-nospec.json" <<'EOF'
 [{ "number": 9, "url": "https://example.invalid/pr/9", "isDraft": false, "body": "Closes #7" }]
 EOF
+# Two bot PR markers, not one, and both are load-bearing (#359). cmd_5 calls cmd_mark last,
+# and cmd_mark's no-op test keys on THIS run's id — so a fixture missing the id that resolves
+# would send the case down the live `$GH_BOT` write path and abort the suite. The (k) block
+# runs before (m2) seeds the run-id cache, so it resolves `unset`; the (q)/(r) `all` cases run
+# after it and resolve `selftest-run-306`. Covering both keeps every M5 case a no-op, which is
+# what these cases are actually about — the marker's own behavior is (pm1)-(pm5)'s subject.
 cat > "$WORK/comments-closing.json" <<'EOF'
 [{ "user": { "type": "Bot" }, "created_at": "2026-01-01T00:00:00Z",
-   "body": "Done. Verdict record: docs/plans/acme-7-lean-verdict.md" }]
+   "body": "Done. Verdict record: docs/plans/acme-7-lean-verdict.md" },
+ { "user": { "type": "Bot" }, "created_at": "2026-01-01T00:00:00Z",
+   "body": "<!-- run_id: unset -->\n<!-- stage: lean-pr-marker -->" },
+ { "user": { "type": "Bot" }, "created_at": "2026-01-01T00:00:00Z",
+   "body": "<!-- run_id: selftest-run-306 -->\n<!-- stage: lean-pr-marker -->" }]
 EOF
 echo '[]' > "$WORK/comments-none.json"
 
@@ -2831,6 +2841,104 @@ if [ "$rc" -eq 0 ] && grep -q '^run_id: p-build-1$' "$PPROG" 2>/dev/null \
    && [ "$(pcount '| entry | ledger=')" -eq 1 ]; then
   pass "(ea12) the first call to establish a run identity heals the frozen header, without duplicating the row"
 else fail "(ea12) header did not heal, rc=$rc: $(grep '^run_id:' "$PPROG" 2>/dev/null) / rows=$(pcount '| entry | ledger=')"; fi
+
+# ---- (pm) AC-4: the PR build-identity marker (#359) -----------------------------------------
+# The WRITER half of the boundary's identity arm. lean-evidence.sh compares the verdict record
+# against every marker this posts; without a writer that arm refuses every honest PR, and with
+# a writer that posts unconditionally the trail fills with duplicates on every resumed run.
+#
+# Issue 8, not 7, so the build run-id cache these calls seed (`mark` is a build-role
+# subcommand) cannot reach the (m) block's cache assertions on issue 7.
+BOT_SPOOL="$WORK/bot-spool.txt"
+cat > "$WORK/bot-stub.sh" <<'EOF'
+#!/usr/bin/env bash
+# Stands in for the gh bot wrapper: spool whatever body was posted, then emit a comment URL.
+for a in "$@"; do
+  case "$a" in body=@*) cat "${a#body=@}" >> "$BOT_SPOOL" ;; esac
+done
+echo "https://example.invalid/pr/9#issuecomment-1"
+EOF
+chmod +x "$WORK/bot-stub.sh"
+
+mark_gate() { # mark_gate <config> <run-id> <session-id> <args...>
+  local cfg="$1" rid="$2" sid="$3"; shift 3
+  ( cd "$TREE" && RUN_ID="$rid" CLAUDE_CODE_SESSION_ID="$sid" SECOND_SHIFT_CONFIG="$cfg" \
+      LEAN_PROGRESS_FILE="$WORK/progress-mark.md" GH_BOT="$WORK/bot-stub.sh" BOT_SPOOL="$BOT_SPOOL" \
+      bash "$GATE" --issue-file "$ISSUE_NOREGIONS" "$@" 2>&1 )
+}
+
+cat > "$WORK/pr-mark.json" <<'EOF'
+[{ "number": 9, "url": "https://example.invalid/pr/9" }]
+EOF
+echo '[]' > "$WORK/pr-mark-none.json"
+
+: > "$BOT_SPOOL"
+out="$(mark_gate "$CFG" mark-run-1 sess-mark-1 mark 8 --pr-file "$WORK/pr-mark.json" --comments-file "$WORK/comments-none.json")"; rc=$?
+if [ "$rc" -eq 0 ] && grep -q 'run_id: mark-run-1' "$BOT_SPOOL" 2>/dev/null \
+   && grep -q 'session_id: sess-mark-1' "$BOT_SPOOL" 2>/dev/null \
+   && grep -q 'stage: lean-pr-marker' "$BOT_SPOOL" 2>/dev/null; then
+  pass "(pm1) mark posts a bot marker carrying BOTH identities and the lean-pr-marker stage token"
+else fail "(pm1) expected a posted marker with both ids, rc=$rc: $out / spool=$(cat "$BOT_SPOOL" 2>/dev/null)"; fi
+
+# IDEMPOTENT. A resumed run re-reaches milestone 5, and cmd_5 calls this last on every pass —
+# a writer that posted unconditionally would leave one marker per invocation.
+cat > "$WORK/comments-mark-same.json" <<'EOF'
+[{ "user": { "type": "Bot" }, "body": "<!-- run_id: mark-run-1 -->\n<!-- stage: lean-pr-marker -->" }]
+EOF
+: > "$BOT_SPOOL"
+out="$(mark_gate "$CFG" mark-run-1 sess-mark-1 mark 8 --pr-file "$WORK/pr-mark.json" --comments-file "$WORK/comments-mark-same.json")"; rc=$?
+if [ "$rc" -eq 0 ] && [ ! -s "$BOT_SPOOL" ] && printf '%s' "$out" | grep -q 'already carries this run'; then
+  pass "(pm2) mark is a no-op when this run's marker is already on the PR"
+else fail "(pm2) expected a silent no-op, rc=$rc: $out / spool=$(cat "$BOT_SPOOL" 2>/dev/null)"; fi
+
+# ...but idempotent BY IDENTITY, never by presence. This is the D-4 case: a SECOND build
+# session on the same PR must leave its own marker, or the boundary compares the verdict
+# against only the first session's id and that second session can review its own work.
+: > "$BOT_SPOOL"
+out="$(mark_gate "$CFG" mark-run-2 sess-mark-2 mark 8 --pr-file "$WORK/pr-mark.json" --comments-file "$WORK/comments-mark-same.json")"; rc=$?
+if [ "$rc" -eq 0 ] && grep -q 'run_id: mark-run-2' "$BOT_SPOOL" 2>/dev/null; then
+  pass "(pm3) a DIFFERENT build session still posts its own marker (D-4)"
+else fail "(pm3) expected a second marker for a second session, rc=$rc: $out / spool=$(cat "$BOT_SPOOL" 2>/dev/null)"; fi
+
+# The no-op test is right-delimited, so a longer id sharing this one's prefix is a different
+# run. Undelimited, `mark-run-1` would match `mark-run-10`'s marker and the longer-named
+# session would go unmarked — invisible at the boundary, which is the hole (pm3) closes.
+cat > "$WORK/comments-mark-prefix.json" <<'EOF'
+[{ "user": { "type": "Bot" }, "body": "<!-- run_id: mark-run-10 -->\n<!-- stage: lean-pr-marker -->" }]
+EOF
+: > "$BOT_SPOOL"
+out="$(mark_gate "$CFG" mark-run-1 sess-mark-1 mark 8 --pr-file "$WORK/pr-mark.json" --comments-file "$WORK/comments-mark-prefix.json")"; rc=$?
+if [ "$rc" -eq 0 ] && grep -q 'run_id: mark-run-1' "$BOT_SPOOL" 2>/dev/null; then
+  pass "(pm4) a marker whose run id merely PREFIX-matches does not suppress the write"
+else fail "(pm4) expected a post despite the prefix-matching marker, rc=$rc: $out / spool=$(cat "$BOT_SPOOL" 2>/dev/null)"; fi
+
+# An operator-authored marker is not evidence the harness ran — the reader filters on
+# `.user.type == "Bot"`, so a writer that let one suppress the post would strand the PR with a
+# marker the boundary cannot see.
+cat > "$WORK/comments-mark-human.json" <<'EOF'
+[{ "user": { "type": "User" }, "body": "<!-- run_id: mark-run-1 -->\n<!-- stage: lean-pr-marker -->" }]
+EOF
+: > "$BOT_SPOOL"
+out="$(mark_gate "$CFG" mark-run-1 sess-mark-1 mark 8 --pr-file "$WORK/pr-mark.json" --comments-file "$WORK/comments-mark-human.json")"; rc=$?
+if [ "$rc" -eq 0 ] && grep -q 'run_id: mark-run-1' "$BOT_SPOOL" 2>/dev/null; then
+  pass "(pm5) an operator-authored marker does not suppress the bot's own"
+else fail "(pm5) expected a post despite the human marker, rc=$rc: $out / spool=$(cat "$BOT_SPOOL" 2>/dev/null)"; fi
+
+# jira: config-lint forbids tracker.bot there, so there is no authenticated writer at all. The
+# degrade is PRINTED — a silent skip would read as "the marker was posted" in the run log.
+: > "$BOT_SPOOL"
+out="$(mark_gate "$CFG_JIRA" mark-run-j sess-mark-j mark ACME-8 --pr-file "$WORK/pr-mark.json" --comments-file "$WORK/comments-none.json")"; rc=$?
+if [ "$rc" -eq 0 ] && [ ! -s "$BOT_SPOOL" ] && printf '%s' "$out" | grep -q 'reduced strength'; then
+  pass "(pm6) under jira mark writes nothing and says so (reduced strength, printed)"
+else fail "(pm6) expected a printed jira degrade with no write, rc=$rc: $out / spool=$(cat "$BOT_SPOOL" 2>/dev/null)"; fi
+
+# No PR ⇒ no surface to stamp. Refuse rather than no-op: a run that never opened its PR has
+# not reached the step this is called from, and a silent success would hide that.
+: > "$BOT_SPOOL"
+out="$(mark_gate "$CFG" mark-run-3 sess-mark-3 mark 8 --pr-file "$WORK/pr-mark-none.json" --comments-file "$WORK/comments-none.json")"; rc=$?
+if [ "$rc" -eq 1 ] && [ ! -s "$BOT_SPOOL" ] && printf '%s' "$out" | grep -q 'no open PR found'; then
+  pass "(pm7) mark refuses when the branch has no open PR"
+else fail "(pm7) expected rc=1 with no write, rc=$rc: $out / spool=$(cat "$BOT_SPOOL" 2>/dev/null)"; fi
 
 echo "[lean-gate-selftest] $([ "$FAILS" -eq 0 ] && echo 'all green' || echo "$FAILS FAILURE(S)")"
 exit "$FAILS"

@@ -222,10 +222,17 @@ jobs:
       # `HEAD`: on a pull_request event actions/checkout resolves refs/pull/N/merge, so HEAD is
       # merge(base, head) and every base-side commit merged since the branch point would read
       # as "changed after the verdict". fetch-depth: 0 above is what makes the object reachable.
+      #
+      # PR_NUMBER is the delegated payload's input, not this script's: the build run's identity
+      # is a bot marker comment on the PR, and the arm reading it fetches that trail by number.
+      # Absent, the payload exits 2 and this gate propagates it — a check that cannot run is
+      # never scored as a pass, so dropping this constant reds every lean PR rather than
+      # quietly waiving the authorship comparison.
       - name: lean chain reconciliation (lean PRs carry their evidence set)
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
           PR_HEAD_REF: ${{ github.event.pull_request.head.ref }}
           PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           PR_BODY: ${{ github.event.pull_request.body }}

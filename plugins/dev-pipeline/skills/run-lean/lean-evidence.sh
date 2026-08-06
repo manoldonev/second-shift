@@ -1,0 +1,568 @@
+#!/usr/bin/env bash
+# lean-evidence.sh — the PORTABLE half of the lean lane's merge-boundary evidence gate.
+#
+# WHY THIS FILE EXISTS. scripts/check-lean-chain.sh is second-shift-only by construction: it
+# reconciles against tracker COMMENTS, which a read-only tracker posts none of, and its own
+# header says not to ship it to a consumer. That left the lean lane with a harness a consumer
+# can adopt and enforcement it cannot — the promotion prerequisite #343 named. The arms below
+# are the ones that need no tracker at all, extracted so a consumer's CI can fetch and run
+# THESE BYTES at its pinned marketplace ref while this repo's own gate delegates to the same
+# file. One implementation; the dogfooding repo exercises exactly what consumers execute.
+#
+# THE ARMS (D-6). Widened past the two the issue named, because a gate proving only "an
+# approve exists somewhere on this branch" is not the gate anyone thinks they installed:
+#   1. VERDICT      — a committed record naming this issue, reading `verdict=approve`, and
+#                     carrying both reconciliation keys (`run_id`, `session_id`). A local
+#                     progress-file line is not evidence; only a committed, diffable artifact is.
+#   2. IDENTITY     — the verdict's identity is NOT the build run's (P10). The build identity
+#                     at this boundary is a bot-authored marker comment on the PULL REQUEST,
+#                     never on the issue: source control is GitHub for every adapter, so the PR
+#                     is the one write surface that needs no `tracker.writes` branching. The
+#                     comparison runs against EVERY marker on the PR rather than the first — a
+#                     second build session on the same PR would otherwise be measured against
+#                     the first session's marker and could then author its own review.
+#   3. FRESHNESS    — the approve covers the head being merged, via the record's declared
+#                     `reviewed_patch_id`: the patch identity of the branch's own diff against
+#                     its base, excluding the record. A commit landing after the review moves
+#                     that id; a rebase replaying the branch unchanged does not, which is the
+#                     point. The INFERRED (commit-range) arm and the legacy `reviewed_head` SHA
+#                     path are NOT here — they exist only for records predating the key, all of
+#                     which are merged, and check-lean-chain.sh keeps them for that history.
+#   4. INTENT GAP   — a decision BUILD surfaced that the intake receipt never covered is routed
+#                     back to a human (P9), not quietly made. Absence is the ordinary case and
+#                     is PRINTED, so a log reader can tell "nothing surfaced" from "never ran".
+#
+# NOT HERE, deliberately (OR-1): the inheritance-chain and design-render arms. Both are
+# refinements firing only for multi-round reviews or design-armed tickets, both degrade to a
+# weaker claim rather than an open evidence path, and fixturing them would roughly double this
+# file's selftest surface. They remain in scripts/check-lean-chain.sh. Reversible: each is an
+# additive arm here, addable without touching the template or this file's interface.
+#
+# ZERO MARKERS IS A VIOLATION, not a vacuous pass. "Differs from every element of the empty
+# set" is true and proves nothing, and the posture everywhere in this gate is that a check
+# which cannot run must not report one. The single exception is announced, never silent:
+#
+# THE JIRA DEGRADE (D-5/OR-2). config-lint.sh rejects `tracker.bot` under `tracker.type: jira`,
+# so such a consumer has no authenticated GitHub writer and any marker it posted would fail the
+# `.user.type == "Bot"` trust filter below. The identity arm therefore reports itself
+# UNAVAILABLE AT REDUCED STRENGTH and is not evaluated — printed on every run, so the weaker
+# boundary is a stated fact rather than a silent one. The degrade is PER-ARM: every other arm
+# still gates a jira consumer exactly as it gates a github one. The axis fix (the bot is a
+# source-control capability modelled on the tracker axis) is a `configVersion` schema change
+# and rides a successor, not this file.
+#
+# HONEST ALTITUDE: tamper-EVIDENCE, not proof, same as its second-shift sibling. The build
+# agent writes the artifacts these arms read. Forging one is easy; forging all of them
+# consistently across a committed diff and a bot-authenticated comment trail is what this makes
+# detectable.
+#
+# Inputs (ALL via the environment — never spliced into a `run:` line; a PR body is
+# attacker-controllable, and both consuming workflows document that convention):
+#   PR_HEAD_REF     required  the PR's head branch name
+#   PR_HEAD_SHA     required  the PR HEAD COMMIT. NOT `HEAD`: on a pull_request event
+#                             actions/checkout resolves refs/pull/N/merge, so HEAD is
+#                             merge(base, head) and every base-side commit since the branch
+#                             point would read as "changed after the verdict".
+#   PR_BASE_REF     required  the PR's base branch; the base the patch identity is measured
+#                             from. Needs a full-history checkout (fetch-depth: 0).
+#   PR_BODY         required-ish  the PR body (empty is legal; it just fails to resolve a key)
+#   PR_NUMBER       required for the identity arm under github  the PR to read markers from
+#   GH_REPO         required for the live identity path  "<owner>/<repo>"
+#   GH_TOKEN        required for the live identity path
+#   LEAN_BRANCH_PREFIX      optional  e.g. "lean/acme-"; derived from the committed config
+#                                     when unset (a consumer commits it; this repo gitignores
+#                                     its own, so its CI passes both prefixes explicitly)
+#   PIPELINE_BRANCH_PREFIX  optional  e.g. "claude/acme-"; same resolution
+#   LEAN_TRACKER_TYPE       optional  github|jira; from the committed config when unset
+#   LEAN_MARKER_AUTHOR      optional  exact bot login; absent degrades to "any Bot author"
+#   SECOND_SHIFT_CONFIG     optional  path to the committed config (testing / vendored fork)
+#
+# Seams (zero-network selftest, the check-lean-chain.sh precedent):
+#   --pr-comments-file <path>   read the PR comment trail from a JSON fixture
+#   --diff-files-file <path>    read the PR's changed-file list from a newline fixture
+#   ${GH:-gh}                   the CLI used for the comment fetch
+#
+# Interop:
+#   --violations-file <path>    write this run's violation COUNT there. A delegating caller
+#                               needs the number, not just the exit code: it prints one
+#                               combined total, and "2 artifacts missing" collapsing to "1
+#                               delegated arm set failed" loses the only quantity an operator
+#                               triages by. A file rather than a stdout line so the log the
+#                               human reads stays prose.
+#
+# Usage:
+#   lean-evidence.sh classify              print applicable/trigger/key/spec_in_diff, exit 0
+#   lean-evidence.sh check --key N         run the arms against an already-resolved key
+#              [--arms verdict,identity,freshness,intent-gap]   default: all four
+#   lean-evidence.sh [all]                 classify, then check every arm (the consumer form)
+#
+# Exit 0 = pass or not-applicable; 1 = evidence violation; 2 = usage/environment error.
+#
+# macOS ships /bin/bash 3.2; this file stays 3.2-compatible. No `set -e` — the violation
+# counter IS the control flow.
+set -uo pipefail
+
+GH_CLI="${GH:-gh}"
+PR_COMMENTS_FILE=""
+DIFF_FILES_FILE=""
+VIOLATIONS_FILE=""
+SUB=""
+KEY=""
+ARMS="verdict,identity,freshness,intent-gap"
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    classify|check|all) SUB="$1"; shift ;;
+    --key)               KEY="${2:-}"; shift 2 ;;
+    --arms)              ARMS="${2:-}"; shift 2 ;;
+    --pr-comments-file)  PR_COMMENTS_FILE="${2:-}"; shift 2 ;;
+    --diff-files-file)   DIFF_FILES_FILE="${2:-}"; shift 2 ;;
+    --violations-file)   VIOLATIONS_FILE="${2:-}"; shift 2 ;;
+    -h|--help)           sed -n '2,102p' "$0"; exit 0 ;;
+    *) echo "[lean-evidence] unknown argument: $1" >&2; exit 2 ;;
+  esac
+done
+[ -n "$SUB" ] || SUB="all"
+
+say()     { echo "[lean-evidence] $1"; }
+envfail() { echo "[lean-evidence] $1" >&2; exit 2; }
+
+violations=0
+note_violation() { echo "[lean-evidence]   ✗ $1" >&2; violations=$((violations + 1)); }
+
+REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null)" \
+  || envfail "not in a git repo — cannot resolve the committed artifacts."
+
+# ---------------------------------------------------------------- config resolution (D-11)
+# TWO callers with genuinely different sources, one rule. A CONSUMER commits
+# .claude/second-shift.config.json (onboard Step 6), so its CI needs no constants at all and
+# derives everything here. THIS repo gitignores its own config, so its CI has nothing to read
+# and passes the prefixes as job-level env — the T0 residual the manifesto records. Env wins
+# when set; the config is the fallback, never an override.
+CONFIG="${SECOND_SHIFT_CONFIG:-$REPO_ROOT/.claude/second-shift.config.json}"
+cfg() { # cfg <jq-filter> <default>
+  local v
+  if [ -f "$CONFIG" ] && command -v jq >/dev/null 2>&1; then
+    v="$(jq -r "$1" "$CONFIG" 2>/dev/null)"
+    if [ -n "$v" ] && [ "$v" != "null" ]; then echo "$v"; return 0; fi
+  fi
+  echo "$2"
+}
+
+# LOCKSTEP-BEGIN lean-branch-prefix
+# Branch prefix: replace the FIRST path segment with `lean`. The REQUIRED property is MUTUAL
+# non-prefix-matching against the pipeline prefix: both chain gates classify with
+# `head_ref == PREFIX*`, so a bare `lean/` derived from `claude/acme-` would satisfy a
+# one-directional reading while making EVERY pipeline PR applicable to the lean gate. Both
+# directions are asserted below, and separately at each host's selftest.
+lean_branch_prefix() {
+  local pipeline_prefix="$1" tail derived
+  case "$pipeline_prefix" in
+    */*) tail="${pipeline_prefix#*/}" ;;
+    *)   tail="$pipeline_prefix" ;;
+  esac
+  derived="lean/$tail"
+  # Pathological input (a configured prefix already under lean/) collapses the two onto
+  # each other. Fail loudly rather than return a colliding prefix — a silent collision
+  # double-classifies every PR in both gates.
+  case "$pipeline_prefix" in
+    "$derived"*) echo "[lean] configured tracker.branchPrefix '$pipeline_prefix' collides with the derived lean prefix '$derived' — they must be mutually non-prefix-matching." >&2; return 1 ;;
+  esac
+  case "$derived" in
+    "$pipeline_prefix"*) echo "[lean] derived lean prefix '$derived' prefix-matches the pipeline prefix '$pipeline_prefix' — refusing." >&2; return 1 ;;
+  esac
+  echo "$derived"
+}
+# LOCKSTEP-END lean-branch-prefix
+
+PIPELINE_PREFIX="${PIPELINE_BRANCH_PREFIX:-}"
+[ -n "$PIPELINE_PREFIX" ] || PIPELINE_PREFIX="$(cfg '.tracker.branchPrefix' '')"
+LEAN_PREFIX="${LEAN_BRANCH_PREFIX:-}"
+if [ -z "$LEAN_PREFIX" ]; then
+  [ -n "$PIPELINE_PREFIX" ] \
+    || envfail "neither LEAN_BRANCH_PREFIX nor a committed tracker.branchPrefix is resolvable — an unresolvable prefix would weaken applicability to the artifact arm alone. Set it on the job, or commit .claude/second-shift.config.json."
+  LEAN_PREFIX="$(lean_branch_prefix "$PIPELINE_PREFIX")" || exit 2
+fi
+[ -n "$PIPELINE_PREFIX" ] \
+  || envfail "neither PIPELINE_BRANCH_PREFIX nor a committed tracker.branchPrefix is resolvable — the artifact arm needs it to avoid double-classifying pipeline PRs."
+
+# Asserted again HERE and not only at derivation: the two may arrive as independent env
+# constants that nothing reconciles against any config, which is exactly how one goes stale.
+case "$LEAN_PREFIX" in "$PIPELINE_PREFIX"*)
+  envfail "LEAN_BRANCH_PREFIX ('$LEAN_PREFIX') and PIPELINE_BRANCH_PREFIX ('$PIPELINE_PREFIX') must be mutually non-prefix-matching; one is a prefix of the other, so both gates would classify the same PRs." ;;
+esac
+case "$PIPELINE_PREFIX" in "$LEAN_PREFIX"*)
+  envfail "LEAN_BRANCH_PREFIX ('$LEAN_PREFIX') and PIPELINE_BRANCH_PREFIX ('$PIPELINE_PREFIX') must be mutually non-prefix-matching; one is a prefix of the other, so both gates would classify the same PRs." ;;
+esac
+
+# Absent ⇒ github is a FAIL-SAFE, not a back-compat allowance, and matches lean-gate.sh's own
+# default: github is the arm that DEMANDS the marker, so an unreadable config lands on the
+# strict side. An unrecognized value is a loud error rather than a fall-through — a typo'd
+# tracker.type silently taking the reduced-strength arm is precisely the waiver this refuses.
+TRACKER_TYPE="${LEAN_TRACKER_TYPE:-}"
+[ -n "$TRACKER_TYPE" ] || TRACKER_TYPE="$(cfg '.tracker.type' 'github')"
+case "$TRACKER_TYPE" in
+  github|jira) : ;;
+  *) envfail "unknown tracker.type '$TRACKER_TYPE' — expected 'github' or 'jira'." ;;
+esac
+
+# ---------------------------------------------------------------- the pinned name table
+# Suffix-anchored at the END of the filename, never matched as substrings: `*-lean.md` must
+# not match the verdict record (`*-lean-verdict.md`) or the render receipt
+# (`*-lean-renders.md`), or the spec scan below would pick one of those and call it the spec.
+# scripts/check-lean-chain.sh pins the identical set independently — it and this file are read
+# by CI checkouts that can see no shared runtime config.
+LEAN_SPEC_SUFFIX='-lean.md'
+LEAN_VERDICT_SUFFIX='-lean-verdict.md'
+LEAN_INTENT_GAP_SUFFIX='-lean-intent-gap.md'
+
+# LOCKSTEP-BEGIN lean-pr-marker
+# The PR marker's stage token. WRITTEN by lean-gate.sh's `mark` subcommand, READ by the
+# identity arm here. A one-sided rename silently empties the marker set, and an empty set is
+# indistinguishable from "the harness never ran" — so the reader would refuse every honest PR
+# while a reader that failed open would accept every dishonest one. Neither file can see the
+# other's spelling, hence the marker block.
+#
+# `lean-pr-marker`, NEVER `lean-claimed`: the claim marker lives on the ISSUE and is windowed
+# at PR-open by check-lean-chain.sh, and a token that matched both would let an issue-side
+# comment satisfy a PR-side arm.
+LEAN_PR_MARKER_TAG='lean-pr-marker'
+# LOCKSTEP-END lean-pr-marker
+
+# Fixture paths are lean-shaped ON PURPOSE (the selftests need lean-looking files), so they
+# must never make a PR applicable or be mistaken for a real artifact.
+is_fixture_path() {
+  case "$1" in
+    */fixtures/*|*-fixtures/*|fixtures/*) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+# The first non-fixture file in the tree whose basename ends `-<key><suffix>`.
+find_artifact() { # find_artifact <key> <suffix>
+  local f
+  while IFS= read -r f; do
+    is_fixture_path "${f#"$REPO_ROOT/"}" && continue
+    case "$(basename "$f")" in *"-$1$2") echo "${f#"$REPO_ROOT/"}"; return 0 ;; esac
+  done < <(find "$REPO_ROOT" -name "*$2" -type f 2>/dev/null)
+  return 1
+}
+
+# FIRST-MATCH, never a count over the whole file. These records carry the reviewer's own prose
+# below their header keys, and review prose discusses verdicts and ratification: a
+# count-anywhere reader passes a record whose authoritative first line says otherwise.
+record_key() { # record_key <key> <path> [charset]
+  grep -oE "$1:[[:space:]]*${3:-[A-Za-z0-9._-]+}" "$2" 2>/dev/null \
+    | head -n1 | sed -E "s/^$1:[[:space:]]*//"
+}
+
+# ---------------------------------------------------------------- classification
+changed_files() {
+  if [ -n "$DIFF_FILES_FILE" ]; then
+    [ -f "$DIFF_FILES_FILE" ] || envfail "--diff-files-file '$DIFF_FILES_FILE' does not exist."
+    cat "$DIFF_FILES_FILE"
+    return 0
+  fi
+  [ -n "${PR_BASE_REF:-}" ] || return 0   # no base ref ⇒ no artifact arm; the prefix arm still applies
+  local mb
+  mb="$(git -C "$REPO_ROOT" merge-base "origin/$PR_BASE_REF" "${PR_HEAD_SHA:-HEAD}" 2>/dev/null)" || return 0
+  [ -n "$mb" ] || return 0
+  git -C "$REPO_ROOT" diff --name-only "$mb".."${PR_HEAD_SHA:-HEAD}" 2>/dev/null || true
+}
+
+APPLICABLE=0
+TRIGGER=""
+SPEC_IN_DIFF=""
+RESOLVED_KEY=""
+
+classify() {
+  [ -n "${PR_HEAD_REF:-}" ] || envfail "PR_HEAD_REF is unset or empty — nothing to classify."
+
+  local f
+  while IFS= read -r f; do
+    [ -n "$f" ] || continue
+    is_fixture_path "$f" && continue
+    case "$f" in
+      *"$LEAN_VERDICT_SUFFIX") continue ;;                # the verdict record is not the spec
+      *"$LEAN_SPEC_SUFFIX") SPEC_IN_DIFF="$f"; break ;;
+    esac
+  done < <(changed_files)
+
+  # NON-VACUOUS BY CONSTRUCTION. The artifact arm is the point: a stale or wrong lean prefix
+  # matches zero branches, and a prefix-only gate would then silently exempt every lean PR —
+  # the self-neutralization mode the manifesto's T0 note records. It is ANDed with "the branch
+  # is not pipeline-prefixed" so a pipeline PR merely CARRYING lean-shaped files is never
+  # double-classified into both gates.
+  case "$PR_HEAD_REF" in
+    "$LEAN_PREFIX"*) APPLICABLE=1; TRIGGER="branch-prefix" ;;
+    *)
+      if [ -n "$SPEC_IN_DIFF" ]; then
+        case "$PR_HEAD_REF" in
+          "$PIPELINE_PREFIX"*) : ;;
+          *) APPLICABLE=1; TRIGGER="lean-artifact ($SPEC_IN_DIFF)" ;;
+        esac
+      fi
+      ;;
+  esac
+
+  [ "$APPLICABLE" -eq 1 ] || return 0
+
+  # `Closes #N` wins over `Part of #N`: a program PR routinely carries both, and a bare
+  # first-match would resolve to the epic. Under a read-only tracker the reference is
+  # `Closes [KEY]` instead — both bracket shapes are read here so the arms can key on the same
+  # artifact names under either adapter.
+  local body
+  body="${PR_BODY:-}"
+  RESOLVED_KEY="$(printf '%s' "$body" | grep -oiE 'closes[[:space:]]+[#[]([A-Za-z]+-)?[0-9]+' | head -n1 | grep -oE '([A-Za-z]+-)?[0-9]+$' || true)"
+  if [ -z "$RESOLVED_KEY" ]; then
+    RESOLVED_KEY="$(printf '%s' "$body" | grep -oiE 'part[[:space:]]+of[[:space:]]+[#[]([A-Za-z]+-)?[0-9]+' | head -n1 | grep -oE '([A-Za-z]+-)?[0-9]+$' || true)"
+  fi
+  return 0
+}
+
+# ---------------------------------------------------------------- arm 1: the verdict record
+VERDICT=""
+VERDICT_VALUE=""
+VERDICT_RUN_ID=""
+VERDICT_SESSION_ID=""
+VERDICT_REVIEWED_PATCH_ID=""
+
+load_verdict() {
+  VERDICT="$(find_artifact "$KEY" "$LEAN_VERDICT_SUFFIX")" || VERDICT=""
+  [ -n "$VERDICT" ] || return 1
+  # `verdict=` is written with `=`, not `:` — read it directly rather than through record_key,
+  # which builds a `<key>:` pattern. Same first-match discipline.
+  VERDICT_VALUE="$(grep -oE 'verdict=[A-Za-z-]+' "$REPO_ROOT/$VERDICT" 2>/dev/null | head -n1 | sed -E 's/^verdict=//')"
+  # `session_id:` does not contain the substring `run_id:`, and `reviewed_patch_id:` is a
+  # different string from either, so none of these extractions can capture another's value.
+  VERDICT_RUN_ID="$(record_key run_id "$REPO_ROOT/$VERDICT")"
+  VERDICT_SESSION_ID="$(record_key session_id "$REPO_ROOT/$VERDICT")"
+  VERDICT_REVIEWED_PATCH_ID="$(record_key reviewed_patch_id "$REPO_ROOT/$VERDICT")"
+  return 0
+}
+
+arm_verdict() {
+  if [ -z "$VERDICT" ]; then
+    note_violation "no committed verdict record (a file named *-$KEY$LEAN_VERDICT_SUFFIX). The independent review's verdict must be a committed, diffable artifact — a local progress-file line is not evidence."
+    return 0
+  fi
+  if [ "$VERDICT_VALUE" != "approve" ]; then
+    note_violation "verdict record '$VERDICT' reads 'verdict=${VERDICT_VALUE:-<none>}', not 'verdict=approve'."
+  else
+    say "  ✓ verdict record: $VERDICT (verdict=approve)"
+  fi
+  [ -n "$VERDICT_RUN_ID" ] \
+    || note_violation "verdict record '$VERDICT' carries no run_id reconciliation key, so its authorship cannot be separated from the build run's."
+  [ -n "$VERDICT_SESSION_ID" ] \
+    || note_violation "verdict record '$VERDICT' carries no session_id reconciliation key — the review session that produced it cannot be located, so nothing outside the record itself attests the review ran."
+}
+
+# ---------------------------------------------------------------- arm 2: authorship (P10)
+# TRUST FILTER, load-bearing on any public repo: PR comments are writable by any account, so
+# the raw trail is not the harness-written record this reasons about. `.user.type == "Bot"` is
+# the filter, optionally narrowed to an exact login. Measured on the sibling gate: the bot posts
+# with author_association CONTRIBUTOR, so an OWNER/MEMBER allowlist would exclude the bot itself.
+#
+# NOT WINDOWED, unlike check-lean-chain.sh's issue-side claim arm. That arm windows at PR-open
+# so a later re-claim cannot retroactively red an already-green PR; here the opposite is wanted.
+# Every marker ever posted to this PR must be compared, because a SECOND build session — the
+# case D-4 exists for — posts its marker after PR-open, and a window would hide exactly the
+# session whose independence is in question.
+# shellcheck disable=SC2016  # $author/$tag are jq variables, bound with --arg; shell must not expand them.
+MARKER_FILTER='
+  [ .[]
+    | select((.user.type // "") == "Bot")
+    | select($author == "" or (.user.login // "") == $author)
+    | select((.body // "") | test("<!--[[:space:]]*stage:[[:space:]]*" + $tag + "[[:space:]]*-->"))
+  ]'
+
+arm_identity() {
+  if [ "$TRACKER_TYPE" = "jira" ]; then
+    say "  · identity: UNAVAILABLE AT REDUCED STRENGTH — tracker.type is 'jira', which config-lint forbids a tracker.bot under, so this consumer has no authenticated writer and any PR marker it posted would fail the Bot trust filter. The verdict's independence is NOT checked here; every other arm still gates."
+    return 0
+  fi
+  [ -n "$VERDICT" ] || return 0   # already a violation; "authorship unverifiable" on top is noise
+
+  local comments
+  if [ -n "$PR_COMMENTS_FILE" ]; then
+    [ -f "$PR_COMMENTS_FILE" ] || envfail "--pr-comments-file '$PR_COMMENTS_FILE' does not exist."
+    comments="$(cat "$PR_COMMENTS_FILE")"
+  else
+    [ -n "${PR_NUMBER:-}" ] || envfail "PR_NUMBER is unset — cannot fetch the PR's marker trail."
+    [ -n "${GH_REPO:-}" ]   || envfail "GH_REPO is unset — cannot fetch the PR's marker trail."
+    # A failed fetch is an ENVIRONMENT error, never a silent pass: failing open here would
+    # waive the whole arm on any rate limit or transient 5xx.
+    comments="$("$GH_CLI" api "repos/$GH_REPO/issues/$PR_NUMBER/comments" --paginate 2>&1)" || {
+      echo "[lean-evidence] marker fetch failed for PR #$PR_NUMBER:" >&2
+      printf '%s\n' "$comments" >&2
+      exit 2
+    }
+  fi
+  printf '%s' "$comments" | jq -e 'type == "array"' >/dev/null 2>&1 \
+    || envfail "PR comment trail is not a JSON array — cannot reconcile."
+
+  local n_markers marker_runs marker_sessions
+  n_markers="$(printf '%s' "$comments" | jq -r --arg author "${LEAN_MARKER_AUTHOR:-}" --arg tag "$LEAN_PR_MARKER_TAG" \
+    "$MARKER_FILTER | length")"
+  if [ "${n_markers:-0}" -lt 1 ]; then
+    local any
+    any="$(printf '%s' "$comments" | jq -r --arg tag "$LEAN_PR_MARKER_TAG" \
+      '[ .[] | select((.body // "") | test("<!--[[:space:]]*stage:[[:space:]]*" + $tag + "[[:space:]]*-->")) ] | length')"
+    if [ "${any:-0}" -gt 0 ]; then
+      note_violation "found $any '$LEAN_PR_MARKER_TAG' comment(s) on this PR, but none bot-authored. An operator-posted marker is not evidence the harness ran, and it is trivially forgeable by anyone who can comment."
+    else
+      note_violation "no bot-authored '$LEAN_PR_MARKER_TAG' comment on this PR, so the BUILD run's identity is unknown and the verdict's independence is uncheckable. The build harness posts one when it opens the PR."
+    fi
+    return 0
+  fi
+
+  marker_runs="$(printf '%s' "$comments" | jq -r --arg author "${LEAN_MARKER_AUTHOR:-}" --arg tag "$LEAN_PR_MARKER_TAG" \
+    "$MARKER_FILTER"' | map((.body // "") | capture("run_id:[[:space:]]*(?<r>[A-Za-z0-9._-]+)").r? // "") | map(select(. != "")) | .[]')"
+  marker_sessions="$(printf '%s' "$comments" | jq -r --arg author "${LEAN_MARKER_AUTHOR:-}" --arg tag "$LEAN_PR_MARKER_TAG" \
+    "$MARKER_FILTER"' | map((.body // "") | capture("session_id:[[:space:]]*(?<r>[A-Za-z0-9._-]+)").r? // "") | map(select(. != "" and . != "unset")) | .[]')"
+
+  if [ -z "$marker_runs" ]; then
+    note_violation "the bot-authored '$LEAN_PR_MARKER_TAG' comment(s) on this PR carry no run_id, so the build run's identity is unknown and the verdict's independence is uncheckable."
+    return 0
+  fi
+
+  # EVERY marker, not the first (D-4). A second build session on the same PR posts its own
+  # marker; comparing only the first would let that session author its own review verdict.
+  local m hit=0
+  for m in $marker_runs; do
+    [ "$m" = "$VERDICT_RUN_ID" ] || continue
+    note_violation "verdict record '$VERDICT' carries a BUILD run's identity ('$m') — a session that wrote code on this PR also wrote its own review verdict. The verdict must come from a separate review session carrying its own identity."
+    hit=1
+  done
+  for m in $marker_sessions; do
+    [ "$m" = "$VERDICT_SESSION_ID" ] || continue
+    # The STRONGER of the two comparisons, and why the marker carries a session id at all:
+    # run_id is agent-CHOSEN, so a build session determined to review itself need only pick a
+    # second string, whereas the session id is harness-assigned.
+    note_violation "verdict record '$VERDICT' names a BUILD session ('$m') as its author — a distinct run_id does not make it an independent review (P10)."
+    hit=1
+  done
+  [ "$hit" -eq 1 ] \
+    || say "  ✓ authorship: verdict identity ($VERDICT_RUN_ID) is distinct from all $n_markers bot marker(s) on this PR, and the record names its review session"
+}
+
+# ---------------------------------------------------------------- arm 3: freshness
+arm_freshness() {
+  [ -n "$VERDICT" ] || return 0   # already a violation
+
+  # VACUITY. "Fresh" is a claim about an APPROVE — a needs-work record is neither stale nor
+  # fresh, because there is nothing for the arm to certify either way. Evaluating it anyway
+  # restates the verdict arm's finding in slightly different words, which is the "one fact
+  # printed as three violations" defect. Short-circuit before any patch-id computation runs.
+  if [ "$VERDICT_VALUE" != "approve" ]; then
+    note_violation "verdict record '$VERDICT' reads 'verdict=${VERDICT_VALUE:-<none>}', not 'verdict=approve' — freshness is undefined for a non-approve record, so the patch-id arm is not evaluated."
+    return 0
+  fi
+  if [ -z "$VERDICT_REVIEWED_PATCH_ID" ]; then
+    note_violation "verdict record '$VERDICT' declares no reviewed_patch_id, so nothing states which tree the review actually read. Re-run the review round: '/dev-pipeline:review-lean <pr>'."
+    return 0
+  fi
+  [ -n "${PR_HEAD_SHA:-}" ] \
+    || envfail "PR_HEAD_SHA is unset or empty — the freshness check has nothing to measure the verdict against, and 'a verdict exists' is not 'this head was approved'."
+  [ -n "${PR_BASE_REF:-}" ] \
+    || envfail "PR_BASE_REF is unset or empty — the branch's patch identity cannot be recomputed without a base to measure from."
+  git -C "$REPO_ROOT" cat-file -e "$PR_HEAD_SHA^{commit}" 2>/dev/null \
+    || envfail "PR_HEAD_SHA '$PR_HEAD_SHA' is not a commit in this checkout — a check that cannot run must not report a pass."
+
+  # ONE guard over the whole computation, not one per step. `git patch-id` prints NOTHING for
+  # an empty diff, so two failed computations compare EQUAL and an unguarded reader prints its
+  # ✓ having hashed nothing. An unresolvable merge-base and an empty measured range both surface
+  # as an empty id, and splitting them produces an arm no case can kill.
+  local cur
+  cur="$(git -C "$REPO_ROOT" diff "$(git -C "$REPO_ROOT" merge-base "origin/$PR_BASE_REF" "$PR_HEAD_SHA" 2>/dev/null)" \
+    "$PR_HEAD_SHA" -- . ":(exclude)$VERDICT" 2>/dev/null \
+    | git -C "$REPO_ROOT" patch-id --stable 2>/dev/null | cut -d' ' -f1)"
+  if [ -z "$cur" ]; then
+    envfail "cannot compute this branch's patch identity against origin/$PR_BASE_REF — the merge-base is unresolvable (a full-history checkout of the base is required: fetch-depth: 0), or the branch's diff excluding '$VERDICT' is empty. Either way there is nothing to compare the verdict's reviewed_patch_id against."
+  elif [ "$cur" != "$VERDICT_REVIEWED_PATCH_ID" ]; then
+    note_violation "verdict record '$VERDICT' reviewed patch $(printf '%.12s' "$VERDICT_REVIEWED_PATCH_ID"), but this branch's diff against origin/$PR_BASE_REF now hashes to $(printf '%.12s' "$cur"). Content changed after the review — a commit landed, or a rebase resolved a conflict by altering a line — so the review read a different tree than the one being merged. Run another review round."
+  else
+    say "  ✓ freshness (declared, patch-id $(printf '%.12s' "$cur")): the branch's diff against origin/$PR_BASE_REF is the one the review read"
+  fi
+}
+
+# ---------------------------------------------------------------- arm 4: ratification (P9)
+# RATIFICATION AND NOTHING ELSE. The record's disposition is deliberately not re-validated
+# against the receipt's enum — that enum is single-sited in ledger-lint.sh, and a second copy
+# here would be the duplicate machinery the lockstep manifest calls worse than none.
+arm_intent_gap() {
+  local gap ratified by
+  gap="$(find_artifact "$KEY" "$LEAN_INTENT_GAP_SUFFIX")" || gap=""
+  if [ -z "$gap" ]; then
+    say "  · no intent-gap record for #$KEY — nothing surfaced during BUILD that the receipt did not already cover."
+    return 0
+  fi
+  # `ratified_by:` cannot be captured by the `ratified:` read — the character after `ratified`
+  # is `_`, not `:`.
+  ratified="$(record_key ratified "$REPO_ROOT/$gap" '[A-Za-z]+')"
+  by="$(record_key ratified_by "$REPO_ROOT/$gap" 'https://[^[:space:]]+')"
+  if [ "$ratified" != "yes" ]; then
+    note_violation "intent-gap record '$gap' reads 'ratified: ${ratified:-<none>}' — a decision the receipt never covered is still the build run's own call, and P9 routes it back to the human before it merges. Ratify it and record the comment URL as 'ratified_by:'."
+  elif [ -z "$by" ]; then
+    note_violation "intent-gap record '$gap' claims 'ratified: yes' but cites no 'ratified_by:' URL — a ratification the run wrote about itself is a self-ratification. Cite the operator's comment."
+  else
+    say "  ✓ intent gap: $gap ratified ($by)"
+  fi
+}
+
+# ---------------------------------------------------------------- dispatch
+emit_count() {
+  [ -n "$VIOLATIONS_FILE" ] || return 0
+  printf '%s' "$violations" > "$VIOLATIONS_FILE"
+}
+
+run_arms() {
+  [ -n "$KEY" ] || envfail "check: --key is required (or use 'all', which resolves it)."
+  load_verdict || VERDICT=""
+  case ",$ARMS," in *,verdict,*)     arm_verdict ;; esac
+  case ",$ARMS," in *,identity,*)    arm_identity ;; esac
+  case ",$ARMS," in *,freshness,*)   arm_freshness ;; esac
+  case ",$ARMS," in *,intent-gap,*)  arm_intent_gap ;; esac
+  emit_count
+  if [ "$violations" -gt 0 ]; then
+    echo "[lean-evidence] ✗ $violations evidence artifact(s) missing for the lean PR on #$KEY." >&2
+    echo "[lean-evidence]   The remedy is producing the missing artifact — there is no waiver." >&2
+    return 1
+  fi
+  say "lean evidence complete for #$KEY."
+  return 0
+}
+
+case "$SUB" in
+  classify)
+    classify
+    echo "applicable=$APPLICABLE"
+    echo "trigger=$TRIGGER"
+    echo "key=$RESOLVED_KEY"
+    echo "spec_in_diff=$SPEC_IN_DIFF"
+    exit 0
+    ;;
+  check)
+    run_arms
+    exit $?
+    ;;
+  all)
+    classify
+    if [ "$APPLICABLE" -eq 0 ]; then
+      # Echo the resolved prefix: a stale constant is otherwise invisible — it just never matches.
+      say "non-lean change — lean evidence not applicable."
+      say "  head branch: ${PR_HEAD_REF:-<unset>}"
+      say "  resolved lean prefix: $LEAN_PREFIX"
+      exit 0
+    fi
+    say "applicable via $TRIGGER: branch=$PR_HEAD_REF"
+    [ -n "$RESOLVED_KEY" ] || {
+      echo "[lean-evidence]   ✗ PR body carries no resolvable issue reference ('Closes #N' or 'Closes [KEY]'), but this PR is classified lean via $TRIGGER. Add the reference." >&2
+      exit 1
+    }
+    KEY="$RESOLVED_KEY"
+    say "source issue: #$KEY"
+    run_arms
+    exit $?
+    ;;
+esac
