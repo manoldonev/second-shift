@@ -972,6 +972,15 @@ LEANC
     && pass "(lean-green) the progress-file chain carries exactly one satisfied line per milestone" \
     || fail "(lean-green) expected 5 single satisfied lines, got $lean_sat"
 
+  # #392, green-with-notice verdict path. This fixture configures no verify lane at all, so the
+  # chain above only reaches milestone 3's green gate through the `allowUnverified` opt-out —
+  # a green run that verified nothing, legitimate solely because it was DECLARED. The
+  # declaration has to survive into the artifact a reconcile reads; without this assertion the
+  # opt-out path is traversed by the composed run and pinned by nothing.
+  [[ "$(lean_count "| milestone-3 | skipped | no verifying lane configured")" -eq 1 ]] \
+    && pass "(lean-zv-skip) the declared zero-lane opt-out composes into a recorded progress line" \
+    || fail "(lean-zv-skip) the composed green run left no opt-out record in $LEAN_PROG"
+
   # AC-15's second write. What is pinned is not "a comment exists" but that it is
   # BOT-authored and carries the run id — an operator-posted comment is invisible to the
   # merge-boundary gate's trust filter, so it would not be evidence at all.
@@ -1328,6 +1337,26 @@ LEANELC
   [[ "$el_red_n" -eq 0 ]] \
     && pass "(lean-el-red) milestone-4 is never recorded satisfied when extraLanes reds milestone-3 first" \
     || fail "(lean-el-red) milestone-4 was recorded satisfied despite milestone-3 failing"
+
+  # ---- zero configured verify lanes (#392) — the RED verdict path, composed -------------
+  # (lean-el-red) above proves a milestone-3 red composes when a lane RAN and failed. This
+  # guard reds when no lane was ever configured, which is the opposite trigger and reachable
+  # by a different predicate. It needs its own leg because every lean fixture in this suite
+  # carries `allowUnverified: true` to reach a green chain at all — strip the opt-out and
+  # nothing else, and the guard's red branch is the only thing that moved. Reuses the EL
+  # substrate: same isolated tree, same spec/verdict commits, no extraLanes anywhere.
+  ZV_CFG="$TMP/lean-zv-cfg.json"
+  jq 'del(.commands.acme.allowUnverified)' "$LEAN_CFG" > "$ZV_CFG"
+  ZV_PROG="$TMP/lean-zv-prog.md"
+  out="$(el_gate "$ZV_CFG" "$ZV_PROG" all 777)"; zvr=$?
+  if [[ "$zvr" -ne 0 ]] && printf '%s' "$out" | grep -q 'stopped at milestone-3' \
+     && printf '%s' "$out" | grep -q 'no verifying lane configured'; then
+    pass "(lean-zv-red) an undeclared zero-verify-lane config composes into 'all' stopping at milestone-3"
+  else fail "(lean-zv-red) expected 'all' to stop at milestone-3 naming the zero-lane reason, got rc=$zvr: $out"; fi
+  zv_red_n=$(grep -cF '| milestone-4 | satisfied' "$ZV_PROG" 2>/dev/null) || zv_red_n=0
+  [[ "$zv_red_n" -eq 0 ]] \
+    && pass "(lean-zv-red) milestone-4 is never recorded satisfied when the zero-lane guard reds milestone-3" \
+    || fail "(lean-zv-red) milestone-4 was recorded satisfied despite the zero-lane guard failing"
 fi
 
 

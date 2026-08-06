@@ -253,6 +253,14 @@ if printf '%s' "$out" | grep -q 'allowUnverified opt-out is set'; then
   pass "(i-392) the allowUnverified opt-out notice is printed on this zero-lane, opted-out run"
 else fail "(i-392) expected the allowUnverified opt-out notice, got: $out"; fi
 
+# ...and the same run's AUDIT RECORD, asserted on $PROG rather than $out. The notice on stdout
+# evaporates with the shell; the progress line is what says, at reconcile time, that a lean run
+# reported green having verified nothing. A grep of $out cannot fail when the sibling
+# `append_line` is deleted, so the printed half is no oracle for the recorded half.
+if grep -qF 'milestone-3 | skipped | no verifying lane configured — allowUnverified opt-out' "$PROG"; then
+  pass "(i-392b) the opt-out is RECORDED in the progress file, not merely printed"
+else fail "(i-392b) no opt-out record in $PROG: $(cat "$PROG" 2>/dev/null)"; fi
+
 # AC-10: `build` is gone from the fixed-key loop — the shared $CFG never declares it (same
 # as before this change), so the ONLY thing that moved is whether the dead key still prints.
 if ! printf '%s' "$out" | grep -q 'build is null'; then
@@ -283,13 +291,26 @@ if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q "no verifying lane configured
   pass "(iz1) AC-1: zero verifying lanes + no opt-out reds milestone 3, naming slug/config/allowUnverified"
 else fail "(iz1) expected rc=1 naming acme/$CFG_NOOPT/allowUnverified, got $rc: $out"; fi
 
-# AC-1: no config file at ALL (REPO_SLUG resolves the default 'acme') reds the same way.
+# ...and the red must be CHARGED to milestone 3. `fail_milestone`'s first argument picks the
+# attempt/fix-budget counter the run spends and the milestone the operator is sent to fix;
+# nothing asserted above varies with it — reason text, config path and the allowUnverified
+# token are byte-identical under `fail_milestone 2`. The attempt record is where the number
+# becomes observable.
+if grep -qF '| milestone-3 | attempt | no verifying lane configured' "$PROG"; then
+  pass "(iz1b) the red is charged to milestone 3's attempt counter, not a neighbor's"
+else fail "(iz1b) no milestone-3 attempt record in $PROG: $(cat "$PROG" 2>/dev/null)"; fi
+
+# AC-1: no config file at ALL (REPO_SLUG resolves the default 'acme') reds the same way, and
+# names the same three things — the absent path included, since "which file did you read?" is
+# the whole question an operator has when there is no config.
+CFG_ABSENT="$WORK/no-such-config.json"
 reset_progress
-out="$( cd "$TREE" && SECOND_SHIFT_CONFIG="$WORK/no-such-config.json" LEAN_PROGRESS_FILE="$PROG" \
+out="$( cd "$TREE" && SECOND_SHIFT_CONFIG="$CFG_ABSENT" LEAN_PROGRESS_FILE="$PROG" \
         bash "$GATE" --issue-file "$ISSUE_NOREGIONS" 3 7 2>&1 )"; rc=$?
-if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q 'allowUnverified'; then
-  pass "(iz2) AC-1: no config file at all also reds, naming allowUnverified"
-else fail "(iz2) expected rc=1 naming allowUnverified with no config file, got $rc: $out"; fi
+if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q "no verifying lane configured for 'acme'" \
+   && printf '%s' "$out" | grep -qF "$CFG_ABSENT" && printf '%s' "$out" | grep -q 'allowUnverified'; then
+  pass "(iz2) AC-1: no config file at all also reds, naming slug/config/allowUnverified"
+else fail "(iz2) expected rc=1 naming acme/$CFG_ABSENT/allowUnverified, got $rc: $out"; fi
 
 # AC-2: exactly one fixed key set to a real command -> guard inert, existing behavior
 # unchanged (no mention of allowUnverified anywhere in the output).
