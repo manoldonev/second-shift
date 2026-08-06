@@ -4,6 +4,51 @@ All notable changes to the second-shift marketplace. Versions are per-plugin (`p
 this file tracks the marketplace release. `configVersion` stays `const 1` — v2 is fully backward-compatible for a
 consumer with an empty config; the migration notes below are only for consumers using the changed features.
 
+## v3.8.5
+
+### `dev-pipeline` 3.8.4 → 3.8.5
+
+- **review-lean carries a jira tracker delta (#399)** (#399)
+  `review-lean`'s SKILL.md now documents the jira tracker delta —
+  issue-key resolution from `Closes [<KEY>]` under `### Jira Items` instead
+  of `Closes #N`, and confirmation that the findings-comment step is
+  tracker-write-independent. Migration: none.
+- **lean-gate milestone 3 reds on zero verifying lanes with no explicit opt-out (#400)** (#400)
+  lean-gate.sh milestone 3 now reds when zero verifying lanes
+  (lint/typecheck/test/extraLanes) are configured for the resolved host and
+  commands.<host>.allowUnverified is not set to true, instead of silently
+  passing having verified nothing. Set the opt-out explicitly to keep a
+  genuinely lane-less repo green. Migration: none.
+
+### `intake-toolkit` 2.3.1 → 2.3.2
+
+- **pair topology under the lean lane: two standalone onboards, cross-repo split at intake (#401)** (#401)
+  a BE/FE pair repo now gets a hand-off from `/second-shift:onboard` to a second
+  onboard run in the sibling repo — the host's `be-fe-pair` config is unchanged and still
+  serves the staged lane, while the sibling gains its own standalone config so it can be
+  worked with `/dev-pipeline:run-lean` from its own checkout. `intake-orchestrator` gains a
+  pair-gated title check that terminally rejects a ticket whose title carries both of the
+  configured `ticketTag` values or neither, plus an admission rule splitting genuine
+  cross-repo scope into ordered per-repo tickets filed in each repo's own tracker.
+  `ticketTag` is now documented as advisory routing under the lean lane, distinct from the
+  staged lane's gate-enforced reading at Stage 1.T, which is unchanged. No gate behavior
+  changed. Migration: none.
+- **test(intake-toolkit): exercise the ledger gate's TMPDIR fallback (#405)** (#405)
+
+### `second-shift` 2.1.0 → 2.1.1
+
+- **pair topology under the lean lane: two standalone onboards, cross-repo split at intake (#401)** (#401)
+  a BE/FE pair repo now gets a hand-off from `/second-shift:onboard` to a second
+  onboard run in the sibling repo — the host's `be-fe-pair` config is unchanged and still
+  serves the staged lane, while the sibling gains its own standalone config so it can be
+  worked with `/dev-pipeline:run-lean` from its own checkout. `intake-orchestrator` gains a
+  pair-gated title check that terminally rejects a ticket whose title carries both of the
+  configured `ticketTag` values or neither, plus an admission rule splitting genuine
+  cross-repo scope into ordered per-repo tickets filed in each repo's own tracker.
+  `ticketTag` is now documented as advisory routing under the lean lane, distinct from the
+  staged lane's gate-enforced reading at Stage 1.T, which is unchanged. No gate behavior
+  changed. Migration: none.
+
 ## v3.8.4
 
 ### `dev-pipeline` 3.8.3 → 3.8.4
