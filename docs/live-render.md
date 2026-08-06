@@ -45,7 +45,9 @@ Your script owns **boot, auth, and screenshot**. The gate owns route derivation 
   or zero-byte file as failure.
 - **Placeholders appear UNQUOTED** in the command. The lean gate shell-quotes each substituted
   value itself — a state name is human prose and contains spaces — so `--state {state}` is correct
-  and `--state "{state}"` nests the quoting and delivers a literally-quoted argument.
+  and `--state "{state}"` nests the quoting and delivers a literally-quoted argument. Values are
+  substituted literally: a route carrying a query string (`?tab=new&sort=asc`) and a state
+  carrying punctuation both reach the harness verbatim.
 - **Exit code** — nonzero on any failure, with a one-line actionable message on stderr/stdout
   (e.g. `API not reachable on :3000 — start the backend dev server in the sibling repo`). That tail
   becomes the degraded-condition detail in the Stage-5 comment and PR body, and the operator-facing

@@ -82,7 +82,14 @@ Two accepted section forms:
 idempotent `| milestone-3 | armed |` progress row. That row is deliberately outside the
 `| attempt |` substring `attempt_count()` greps, so arming never consumes fix budget. A spec
 that transitions armed → explicit-empty while that row exists reds at **milestone 1 and
-milestone 3**: mid-run disarm is the one escape this design must not leave open.
+milestone 3**, because a mid-run disarm retires the very evidence a review round is scored
+against.
+
+Scope that lock honestly rather than as a guarantee: the progress file is uncommitted and
+machine-local, so the row binds within the worktree that armed the lane. A resume in a fresh
+worktree, or on a second machine, reads no record and accepts the disarm. That is this lane's
+declared trust posture — a local record is tamper-evidence, not integrity — and the residual is
+carried at review, where an unjustified `Design: none` on a provider repo is a blocker.
 
 ## Gate placement (D-1)
 

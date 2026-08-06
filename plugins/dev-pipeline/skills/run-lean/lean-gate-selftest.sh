@@ -2374,6 +2374,41 @@ if [ -n "$D_SHA" ] && grep -qF "$D_SHA" "$DMANIFEST"; then
   pass "(dr2b) a recomputed sha256 of a rendered PNG matches its manifest cell"
 else fail "(dr2b) the manifest does not carry RS-2's real hash ($D_SHA): $(cat "$DMANIFEST")"; fi
 
+# (dr2c) THE REPLACEMENT-LAYER TRAP, on the same call-log oracle. An ampersand is ordinary in
+# both halves of a row — a query string in a route, punctuation in a human state — and since
+# bash 5.2 a bare one in a `${t//p/r}` REPLACEMENT expands to the placeholder just matched, so
+# the harness is driven to the wrong view. Nothing else here can see it: the render exits 0, the
+# PNG is non-empty, the two rows still hash differently (two different WRONG views), and the
+# manifest records the DECLARED row, so the receipt reads as honest while the pixels are of
+# something else. Only the arguments the harness actually received tell the two apart, which is
+# why this rides (dr2a)'s oracle rather than a new one.
+# NOTE the platform split: macOS system bash is 3.2, which predates patsub_replacement, so this
+# case is vacuous there and does its killing on the ubuntu lane.
+dreset
+dmode ok
+rm -f "$DCALLS" "$DMANIFEST"
+{
+  echo "# spec"; echo ""; echo "- AC-1: the thing"; echo ""; echo "## Design"; echo ""
+  echo "Handoff: https://design.example.invalid/file/abc"; echo ""
+  echo "| RS-n | route | state (what must be visible) | AC refs |"; echo "| --- | --- | --- | --- |"
+  echo "| RS-1 | prospects | default | AC-1 |"
+  echo "| RS-2 | prospects?tab=new&sort=asc | filters & sort expanded | AC-1 |"
+} > "$DSPEC"
+dcommit "an armed spec whose row carries ampersands"
+out="$(dgate 3 55)"
+if grep -qF 'prospects?tab=new&sort=asc|filters & sort expanded|' "$DCALLS"; then
+  pass "(dr2c) an ampersand in a declared route and state reaches the harness verbatim"
+else fail "(dr2c) the ampersand row was corrupted between template and harness: $out $(cat "$DCALLS")"; fi
+# Teardown, and it is part of the case: this fixture is the only one here carrying an ampersand,
+# so leaving it in place would let the same defect red (di1)/(di2)/(dl4) as collateral and the
+# kill would no longer be attributable to one case. Restore the canonical two-row spec and
+# re-render it, which is exactly the state (dr1) left for the idempotence block.
+dspec_armed
+dcommit "the canonical armed spec, restored"
+dreset
+rm -f "$DCALLS" "$DMANIFEST"
+dgate 3 55 >/dev/null 2>&1
+
 # ---- (di) AC-4: idempotence ---------------------------------------------------------------
 # (di1) committed, the same evaluation passes WITHOUT re-rendering. Without this every `all`
 # sweep would re-shoot every state, and each re-shoot rewrites the receipt inside the reviewed
@@ -2425,9 +2460,10 @@ if [ "$(dcount "| milestone-3 | attempt |")" -eq 0 ]; then
   pass "(dl4) arming leaves the fix-budget counter untouched — the record is a lock, not a counter"
 else fail "(dl4) armed evaluations appended attempt lines: $(cat "$DPROG")"; fi
 
-# (dl2)/(dl3) mid-run disarm, refused at BOTH milestones. Retiring the render evidence a review
-# round would be scored against is the one escape this design must not leave open, and the run
-# may re-enter at either milestone.
+# (dl2)/(dl3) mid-run disarm, refused at BOTH milestones — retiring the render evidence a review
+# round would be scored against, and the run may re-enter at either milestone. What these two
+# pin is exactly the WITHIN-WORKTREE lock: the progress file is machine-local, so (dl5) below is
+# what keeps the pair honest about which population it covers.
 printf '# spec\n\n- AC-1: x\n\n## Design\n\nDesign: none — changed my mind mid-run.\n' > "$DSPEC"
 out="$(dgate 1 55)"; rc=$?
 if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q 'already armed it'; then

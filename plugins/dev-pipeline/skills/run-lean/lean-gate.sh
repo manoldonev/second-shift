@@ -979,6 +979,13 @@ design_state() { # design_state <spec-path>
 # contain the `| milestone-3 | attempt |` substring attempt_count() greps, so arming — which
 # happens on every armed evaluation, passing or failing — can never consume fix budget. It is a
 # record of a decision, not a counter.
+#
+# Read the STRENGTH of this lock correctly. PROGRESS_FILE is uncommitted and machine-local, so
+# the row binds inside the worktree that armed the lane; a resume in a fresh worktree, or on a
+# second machine, reads no record and accepts the disarm. That matches this script's declared
+# trust posture — a local record is tamper-evidence, never integrity — and the residual sits at
+# review, where an unjustified "Design: none" on a provider repo is a blocker. Do not inherit
+# this as "cannot be escaped".
 design_was_armed() {
   [ "$(count_matches "| milestone-3 | armed |" "$PROGRESS_FILE" -F)" -ge 1 ]
 }
@@ -1155,6 +1162,30 @@ shquote() { # shquote <value>
   printf "'%s'" "$(printf '%s' "$1" | sed "s/'/'\\\\''/g")"
 }
 
+# Substitution walks the template rather than using `${t//p/r}`, and that is not a style choice.
+# Since bash 5.2 `patsub_replacement` is ON by default, so a bare ampersand in the REPLACEMENT
+# expands to whatever the pattern just matched: a route `prospects?tab=new&sort=asc` arrives at
+# the harness as `prospects?tab=new{route}sort=asc`, and a state `filters & sort expanded` as
+# `filters {state} sort expanded`. shquote() cannot reach this — it quotes for the shell, one
+# layer below where the corruption happens. The failure is silent by construction: the harness
+# still exits 0, the screenshot is still non-empty, two rows still hash differently because they
+# were shot at two different WRONG views, and the manifest records the DECLARED route and state,
+# so the receipt is honest about intent while the pixels are of something else. That is failure
+# class (2) reinstated, and it also disarms the reviewer's hash check, which would agree.
+# Escaping is no fix: `\&` is the literal on 5.2+ and a literal backslash-ampersand on 3.2.
+# Splitting on the placeholder has no replacement layer at all, so it is identical on both.
+# macOS system bash (3.2) never showed this; every ubuntu runner and every homebrew bash does.
+subst() { # subst <template> <placeholder> <replacement>
+  local t="$1" p="$2" r="$3" out=""
+  while :; do
+    case "$t" in
+      *"$p"*) out="$out${t%%"$p"*}$r"; t="${t#*"$p"}" ;;
+      *) break ;;
+    esac
+  done
+  printf '%s' "$out$t"
+}
+
 # The shasum/sha256sum picker tools/mutation-sweep.sh already uses: shasum ships with macOS and
 # with the ubuntu runner's perl, sha256sum is coreutils, and this script has a bash-3.2/macOS
 # lane. Prints nothing when neither exists, which every caller must treat as a refusal — an
@@ -1317,9 +1348,9 @@ cmd_3_render() {
     png="$out_dir/$r_id.png"
     rm -f "$png"
     ecmd="$LR_COMMAND"
-    ecmd="${ecmd//\{route\}/$(shquote "$r_route")}"
-    ecmd="${ecmd//\{state\}/$(shquote "$r_state")}"
-    ecmd="${ecmd//\{out\}/$(shquote "$png")}"
+    ecmd="$(subst "$ecmd" '{route}' "$(shquote "$r_route")")"
+    ecmd="$(subst "$ecmd" '{state}' "$(shquote "$r_state")")"
+    ecmd="$(subst "$ecmd" '{out}' "$(shquote "$png")")"
     say "milestone-3: render $r_id ($r_route » $r_state) » $ecmd"
     # SEAM-SCRUBBED like every other lane child cmd_3 spawns: a consumer's render script is
     # ordinary repo tooling and must not inherit this gate's pipeline-seam env.
