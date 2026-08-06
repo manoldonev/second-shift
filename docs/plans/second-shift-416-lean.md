@@ -79,7 +79,10 @@ of the same refusal, kept here as a backstop fixture (D-13).
   budget (D-4). `entry` itself and the review-role `verdict` are exempt. Recorded consequence:
   `delta` is invoked by the **review** session, so a review of an unattested build is refused with
   a remedy only the build side can apply — intended, since a reviewer must not certify a run whose
-  ledger never existed.
+  ledger never existed. The refusal names its **second** cause as well: the progress file is
+  host-local and gitignored, so from a checkout that does not share the build host's state dir an
+  attested run is indistinguishable from an unattested one. `review-lean` step 4 says the same,
+  since "hand it back" is the wrong move when the record merely cannot be reached from here.
 
 - **AC-4** — `lean-reconcile.sh` gains a **failing** arm asserting the build entry row, running
   under both tracker adapters (it reads only the progress file it already opens). It is the only
@@ -88,7 +91,11 @@ of the same refusal, kept here as a backstop fixture (D-13).
 
 - **AC-5** — `doctor.sh`'s opt-out scan FAILs (`bad`, exit-code-affecting) when `audit-toolkit` is
   disabled **and** `dev-pipeline` is enabled; every other opt-out keeps the existing `warn`. A repo
-  that adopted only review-toolkit or intake-toolkit has no lane to protect (D-7).
+  that adopted only review-toolkit or intake-toolkit has no lane to protect (D-7). The condition is
+  unqualified by **file**: the scan reads the committed `.claude/settings.json` alongside
+  `settings.local.json` and the user settings, because the committed file is the one onboard writes
+  and therefore where a hand edit lands. Reading only the local/user pair left that flip silently
+  green — not even the pre-existing `warn` — while the identical flip one file over FAILed.
 
 - **AC-6** — Onboard's review/consent screen states the lane requirement, and step 6 says plainly
   that a hand-edited settings block disabling `audit-toolkit` breaks the lean lane. Onboard already
@@ -114,9 +121,11 @@ of the same refusal, kept here as a backstop fixture (D-13).
   passes it with one — the arm must be fixture-reddable, or it is coverage in appearance only
   (reconcile's own bar).
 
-- **AC-10** — `doctor-selftest.sh`'s `opt-out` scenario is re-keyed to AC-5's FAIL, and a paired
-  scenario pins the surviving `warn` path (`audit-toolkit` off with `dev-pipeline` off). One
-  scenario asserting only the new exit code would leave the branch AC-5 preserves untested.
+- **AC-10** — `doctor-selftest.sh`'s `opt-out` scenario is re-keyed to AC-5's FAIL, and two paired
+  scenarios cover what a single re-key would leave untested: the surviving `warn` path
+  (`audit-toolkit` off with `dev-pipeline` off), and the same FAIL reached through the committed
+  `.claude/settings.json` rather than `settings.local.json`. Only the file moves between that last
+  pair — which is the one variable a scenario keyed to a single file cannot vary.
 
 - **AC-11** — `tools/mutation-catalog.tsv` gains a row for each new guard the generic tier cannot
   reach, each verified killed by its paired suite; generic survivor ordinals re-keyed by editing
@@ -128,6 +137,26 @@ of the same refusal, kept here as a backstop fixture (D-13).
   checks. The `Changelog:` trailer states D-14's rollout: **no grandfather window** — an in-flight
   lean PR whose build ran without the row reds at `all`/`delta` and at reconcile, and the remedy is
   one idempotent `bash G entry <issue>` wherever the hook is live.
+
+  **Every arm COUNT and RANGE goes too**, wherever it sits — AC-4's arm moves both the numerator
+  and the denominator, since it is adapter-insensitive and runs in full under jira. That reaches
+  `lean-reconcile.sh`'s two range statements, the `tracker/README.md` reconcile row and its
+  jira-backstop note, and `lean-reconcile-selftest.sh`'s `(P)` prose. The remedy is #414's on this
+  same README, not a re-pin: **drop the count**, so the next arm cannot leave them stale again.
+
+- **AC-13** — The progress header's `run_id` cannot freeze. Making `entry` create the record again
+  reopens #322's `unset` freeze, because SKILL.md orders `entry` (step 1) before the `RUN_ID`
+  export (step 2) — so the header is born `unset` on an ordinary run, and `lean-reconcile.sh` arm
+  (1) then compares the claim comment's real id against it and reds a clean github run. The
+  progress-file writer heals the placeholder instead: the first call to ESTABLISH an identity
+  rewrites it, where "establish" means the value in the build cache — only `entry` and `claim`
+  persist there, so an ad-hoc `RUN_ID` on a non-persisting milestone call never reaches the header,
+  and a review identity (never in that cache, P10) could not stamp it even if `verdict` grew a
+  write. That cache compare is the whole of the guard; matching the literal `unset` narrows the
+  rewrite but cannot be red on its own, and the code says so rather than presenting it as a second
+  check. Paired `lean-gate-selftest.sh` cases cover both directions, the jira claim case asserts
+  the healed value rather than being handed one, and `tools/mutation-catalog.tsv` carries the row
+  for the heal's removal.
 
 ## Out of scope
 

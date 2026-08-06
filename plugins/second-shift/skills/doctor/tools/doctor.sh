@@ -281,7 +281,19 @@ if [[ -f "$SETTINGS" ]]; then
 fi
 DP_ENABLED=0; [[ "$dp_true" -eq 1 && "$dp_false" -eq 0 ]] && DP_ENABLED=1
 
-for f in "$LOCAL_SETTINGS" "$USER_SETTINGS"; do
+# $SETTINGS is scanned HERE too, not only for the dev-pipeline predicate above. It is the file
+# onboard writes the bundle into and therefore the primary place a hand edit lands — the very
+# edit AC-6's onboard paragraph warns about. Reading only the local/user pair left an opt-out in
+# the committed file SILENTLY green (not even the warn) while the identical flip in
+# settings.local.json FAILed, so three shipped statements promised a catch doctor could not
+# make. lean-gate.sh's audit_toolkit_opted_out() treats a `false` in any of these files as the
+# opt-out; this loop is the half that disagreed, and the asymmetry was the whole defect.
+#
+# Any `false` disables, wherever it sits — deliberately NOT the mirror of DP_ENABLED's rule
+# above. That one asks "is the lane ON", where a stray `false` must not conjure a lane; this
+# one asks "is the ledger writer OFF", where a stray `false` is the thing to report. Same
+# conservative direction in both: neither predicate lets a `false` be argued away.
+for f in "$SETTINGS" "$LOCAL_SETTINGS" "$USER_SETTINGS"; do
   [[ -f "$f" ]] || continue
   opted="$(jq -r --arg m "@$MKT" '(.enabledPlugins // {}) | to_entries[] | select(.value==false and (.key | endswith($m))) | .key' "$f" 2>/dev/null)"
   for k in $opted; do

@@ -110,14 +110,17 @@ count_in_progress() { [ -f "$PROG" ] && grep -cF "$1" "$PROG" 2>/dev/null || ech
 # that costs. The ledger is created here, per tree, because `entry` resolves it relative to the
 # git common dir of the cwd, so one file cannot serve five fixture trees.
 ENTRY_SID="sess-lean-fixture"
-attest_at() { # attest_at <tree> <config> <progress-file> <issue> [run-id]
+attest_at() { # attest_at <tree> <config> <progress-file> <issue>
   mkdir -p "$1/.claude/audit"
   printf '{"tool":"Bash"}\n' > "$1/.claude/audit/$ENTRY_SID.jsonl"
-  # `entry` CREATES the progress file when it is absent, header included — so a case whose
-  # header must carry a particular run id passes it here rather than letting the header stamp
-  # `unset` and then asserting against a value the later call could no longer write.
-  ( cd "$1" && CLAUDE_CODE_SESSION_ID="$ENTRY_SID" SECOND_SHIFT_CONFIG="$2" \
-    LEAN_PROGRESS_FILE="$3" RUN_ID="${5:-}" bash "$GATE" entry "$4" >/dev/null 2>&1 )
+  # RUN_ID is UNSET here, deliberately. `entry` creates the progress file when it is absent,
+  # header included, and SKILL.md orders it BEFORE the export — so this is the ordering every
+  # honest run is in, and a case whose header must carry a particular id gets it from the
+  # gate's own heal on the first call that establishes one. Passing the id in here instead
+  # would hide that production behavior behind a fixture knob: the header would be right in
+  # the suite and `unset` in the field.
+  ( unset RUN_ID; cd "$1" && CLAUDE_CODE_SESSION_ID="$ENTRY_SID" SECOND_SHIFT_CONFIG="$2" \
+    LEAN_PROGRESS_FILE="$3" bash "$GATE" entry "$4" >/dev/null 2>&1 )
 }
 # The unattested form, for the (p*) cases that are ABOUT the missing row. Every other case
 # wants the attested one — that is the state a run following SKILL.md step 1 is in.
@@ -1406,7 +1409,7 @@ exit 1
 EOF
 chmod +x "$WORK/bin/gh"
 rm -f "$SPY_LOG" "$PROG_J" "$TREE/.claude/pipeline-state/$JKEY-run-id"
-attest_at "$TREE" "$CFG_JIRA" "$PROG_J" "$JKEY" jira-run-1
+attest_at "$TREE" "$CFG_JIRA" "$PROG_J" "$JKEY"
 
 out="$( cd "$TREE" && env -u GH_BOT PATH="$WORK/bin:$PATH" SECOND_SHIFT_CONFIG="$CFG_JIRA" \
         LEAN_PROGRESS_FILE="$PROG_J" RUN_ID="jira-run-1" bash "$GATE" claim "$JKEY" 2>&1 )"; rc=$?
@@ -1415,7 +1418,9 @@ if [ "$rc" -eq 0 ] && [ ! -s "$SPY_LOG" ]; then
 else fail "(n9) expected rc=0 and an empty spy log, got rc=$rc, log='$(cat "$SPY_LOG" 2>/dev/null)': $out"; fi
 
 # The record is the point: no write happens, but lean-reconcile.sh's run-id anchor must
-# still land or the run stops being reconcilable.
+# still land or the run stops being reconcilable. The header this asserts against was created
+# `unset` by `entry` above — SKILL.md's own ordering — so this also pins the heal: without it
+# the anchor freezes at `unset` and reconcile arm (1) reds every honest run.
 if grep -q '^run_id: jira-run-1$' "$PROG_J" 2>/dev/null && grep -qF '| claim | tracker=jira |' "$PROG_J" 2>/dev/null; then
   pass "(n10) jira claim still records the run id and a claim line in the progress file"
 else fail "(n10) progress file missing the jira claim record: $(cat "$PROG_J" 2>/dev/null)"; fi
@@ -2727,13 +2732,18 @@ else fail "(ea6) expected rc=2 from delta, got $rc: $out"; fi
 
 # ...but `verdict` is NOT gated (D-5). Its own ledger precondition is a follow-up gated on #417,
 # and gating it here would refuse every honest review whose session works in the build worktree.
-# Anything other than 2 proves the precondition let it through to the writer's own evaluation.
+# Asserted POSITIVELY, not by the absence of a string: `exit 2` is envfail's code generally, so
+# rc alone cannot separate "gated" from "reached cmd_verdict and stopped there", and absence
+# alone passes for any other refusal whose wording differs. What discriminates is the message
+# PREFIX — the precondition writes `✗ <sub>:` and cmd_verdict's own diagnostics write a bare
+# `verdict:` — so requiring one and forbidding the other pins that control got past the gate.
 pseed_unattested
 out="$( cd "$PTREE" && CLAUDE_CODE_SESSION_ID=sess-p-review SECOND_SHIFT_CONFIG="$CFG" \
         LEAN_PROGRESS_FILE="$PPROG" RUN_ID=r-p-review-2 bash "$GATE" verdict 8 --pr 3 --verdict approve 2>&1 )"; rc=$?
-if ! printf '%s' "$out" | grep -qF 'no entry attestation'; then
+if printf '%s' "$out" | grep -qF '[lean-gate] verdict:' \
+   && ! printf '%s' "$out" | grep -qF 'no entry attestation'; then
   pass "(ea7) verdict is exempt from the build-role precondition (D-5) — it reaches its own evaluation"
-else fail "(ea7) verdict was gated by the entry precondition: $out"; fi
+else fail "(ea7) verdict was gated by the entry precondition, rc=$rc: $out"; fi
 
 # AC-2 / D-9: enrichment only. The VERDICT is the ledger predicate's in both halves (rc=1
 # either way); what changes is whether the operator is told the one thing that turns a
@@ -2770,6 +2780,35 @@ rm -f "$PTREE/.claude/settings.local.json"
 if [ "$rc" -eq 0 ] && [ "$(pcount '| entry | ledger=')" -eq 1 ]; then
   pass "(ea10) a live ledger passes even with audit-toolkit marked disabled — the predicate decides, not the settings"
 else fail "(ea10) the settings read became a second authority, rc=$rc: $out"; fi
+
+# ---- the header the attestation created (#416) ----------------------------------------------
+# `entry` creates the progress file, and SKILL.md orders it BEFORE the RUN_ID export — so on
+# every honest run the header is born `run_id: unset`. #322 closed that freeze by keeping
+# `entry` from creating the file at all, a remedy this precondition cannot keep. The heal is
+# what replaces it, and it is load-bearing: lean-reconcile.sh arm (1) compares the claim
+# comment's run_id against this header, so an unhealed `unset` reds a clean run at the merge
+# boundary. Neither direction is a fixture nicety.
+PSTATE="$PTREE/.claude/pipeline-state"
+rm -f "$PPROG" "$PSTATE/8-run-id"
+pgate entry 8 >/dev/null 2>&1
+if grep -q '^run_id: unset$' "$PPROG" 2>/dev/null; then frozen_at_entry=1; else frozen_at_entry=0; fi
+# A milestone call does NOT establish an identity (it resolves without persisting), so an
+# ad-hoc RUN_ID on one must not reach the header: the header has to carry the id `claim` wrote
+# and reconcile compares against, not whatever shell ran a gate in between.
+( cd "$PTREE" && CLAUDE_CODE_SESSION_ID="$PSID" SECOND_SHIFT_CONFIG="$CFG" \
+  LEAN_PROGRESS_FILE="$PPROG" RUN_ID=p-drive-by bash "$GATE" --issue-file "$ISSUE_NOREGIONS" 1 8 >/dev/null 2>&1 )
+if [ "$frozen_at_entry" -eq 1 ] && grep -q '^run_id: unset$' "$PPROG" 2>/dev/null; then
+  pass "(ea11) an ad-hoc RUN_ID on a milestone call cannot stamp the header — only an established identity may"
+else fail "(ea11) frozen_at_entry=$frozen_at_entry, header now: $(grep '^run_id:' "$PPROG" 2>/dev/null)"; fi
+
+# ...and the establishing call heals it. `entry` is idempotent, so re-running it with the id
+# exported is exactly the recovery an operator who read step 2 second would make.
+out="$( cd "$PTREE" && CLAUDE_CODE_SESSION_ID="$PSID" SECOND_SHIFT_CONFIG="$CFG" \
+        LEAN_PROGRESS_FILE="$PPROG" RUN_ID=p-build-1 bash "$GATE" entry 8 2>&1 )"; rc=$?
+if [ "$rc" -eq 0 ] && grep -q '^run_id: p-build-1$' "$PPROG" 2>/dev/null \
+   && [ "$(pcount '| entry | ledger=')" -eq 1 ]; then
+  pass "(ea12) the first call to establish a run identity heals the frozen header, without duplicating the row"
+else fail "(ea12) header did not heal, rc=$rc: $(grep '^run_id:' "$PPROG" 2>/dev/null) / rows=$(pcount '| entry | ledger=')"; fi
 
 echo "[lean-gate-selftest] $([ "$FAILS" -eq 0 ] && echo 'all green' || echo "$FAILS FAILURE(S)")"
 exit "$FAILS"

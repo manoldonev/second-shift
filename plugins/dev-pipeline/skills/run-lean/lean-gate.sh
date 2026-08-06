@@ -616,6 +616,46 @@ chain_walk() { # chain_walk <inherited-patch-id> <declaring-round> [declaring-co
 # verifier stays reconcilable after it lands.
 now_iso() { date -u +%Y-%m-%dT%H:%M:%SZ; }
 
+# The header is written ONCE, at creation, and was never revisited — which is how #322's
+# `run_id: unset` freeze happened, and why its remedy was to stop `entry` from being the
+# creator. #416 cannot keep that remedy: the attestation row has to exist before `claim`, the
+# first subcommand the precondition guards, so `entry` creates the file again — and SKILL.md
+# orders it BEFORE the RUN_ID export, so on an ordinary run the header IS stamped `unset`.
+# Heal the field rather than arguing about which subcommand may create the record.
+#
+# Left unhealed this is not cosmetic. lean-reconcile.sh's arm (1) compares the bot claim
+# comment's run_id against this header's, so an honest github run reds at the merge boundary
+# with the real id on one side and `unset` on the other.
+#
+# The ONE behavioral guard is the cache compare, and the BUILD CACHE is the authority — not
+# $RESOLVED_RUN_ID alone. Only `entry` and `claim` persist there, and arm (1) compares this
+# header against what `claim` wrote, so the header must carry the ESTABLISHED identity and no
+# other: a milestone call made with an ad-hoc RUN_ID resolves one for its own records and leaves
+# the header alone. It is also what keeps the review role out — a review identity is never in
+# the build cache (P10), so `verdict` could not stamp itself here even if it grew a write into
+# this file, which today it has not.
+#
+# Matching the literal `unset` is a narrowing, not a second guard: the cache compare already
+# makes a rewrite of an established id a no-op (it can only ever write the value that is
+# already there), so no fixture can red on that half alone. Do not read a surviving mutant on
+# the two lines below as a coverage hole — the placeholder check is there to keep an already
+# healed run from spawning awk on every append, which is cost, not correctness.
+heal_progress_run_id() {
+  [ -f "$PROGRESS_FILE" ] || return 0
+  [ "$RESOLVED_RUN_ID" != "unset" ] || return 0
+  [ "$(cat "$RUN_ID_CACHE" 2>/dev/null)" = "$RESOLVED_RUN_ID" ] || return 0
+  [ "$(count_matches '^run_id: unset$' "$PROGRESS_FILE")" -gt 0 ] || return 0
+  local tmp="$PROGRESS_FILE.heal"
+  # awk with an EXACT string compare, not sed: the id is operator-supplied, and a
+  # replacement-side metacharacter in a sed program would be interpreted. The compare also
+  # bounds the rewrite to the header — every appended line carries the pinned
+  # `<iso> | <kind> | …` shape, so no body line can equal this literal.
+  awk -v id="$RESOLVED_RUN_ID" '
+    $0 == "run_id: unset" { print "run_id: " id; next }
+    { print }
+  ' "$PROGRESS_FILE" > "$tmp" && mv "$tmp" "$PROGRESS_FILE" || rm -f "$tmp"
+}
+
 ensure_progress_file() {
   local dir
   dir="$(dirname "$PROGRESS_FILE")"
@@ -637,6 +677,7 @@ ensure_progress_file() {
       echo ""
     } > "$PROGRESS_FILE"
   fi
+  heal_progress_run_id
 }
 
 append_line() { ensure_progress_file; echo "$1" >> "$PROGRESS_FILE"; }
@@ -2280,11 +2321,18 @@ cmd_all() {
 # set — a symmetric review-side ledger precondition is D-5's follow-up, gated on #417, because
 # review-lean step 3 works in the build run's leftover worktree and would false-red every honest
 # review until that path split is fixed.
+#
+# The refusal names its SECOND cause too. The progress file is host-local and gitignored, so it
+# never travels with the branch: from a clone that is not a worktree of the build host, an
+# attested run looks identical to an unattested one, and the remedy the message gives cannot be
+# applied from there. That mostly bites `delta`, which the review session runs — review-lean
+# step 3 says "any checkout of that branch works", which for this one call it does not.
 require_entry_attested() {
   entry_row_present && return 0
   echo "[lean-gate] ✗ $SUB: this run has no entry attestation in $PROGRESS_FILE." >&2
   echo "[lean-gate]   \`bash G entry $ISSUE\` was never recorded, so nothing establishes that the session's audit ledger was live when the run started — and a run with no ledger is unreconcilable at the merge boundary (#416)." >&2
   echo "[lean-gate]   Run \`bash G entry $ISSUE\` (idempotent) and retry. No fix-budget attempt was charged." >&2
+  echo "[lean-gate]   Or the record is simply out of reach: that file is host-local and gitignored, so a checkout not sharing the build host's state dir cannot see an attestation that exists. Re-run from the build worktree before handing this back." >&2
   exit 2
 }
 

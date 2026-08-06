@@ -57,8 +57,8 @@
 # TRACKER ADAPTERS. Check (1)'s claim arm is the only thing here that reads a tracker, and under
 # `tracker.type: jira` the record it reads cannot exist: that adapter's claim writes nothing, so
 # no bot-authored `lean-claimed` comment is ever posted. The arm is therefore SKIPPED there
-# rather than fetched — the fetch 404s on a ticket key, and its `exit 2` used to take checks (1b)
-# through (6) down with it, including the P10 authorship check, which needs no tracker at all.
+# rather than fetched — the fetch 404s on a ticket key, and its `exit 2` used to take every
+# other check down with it, including the P10 authorship check, which needs no tracker at all.
 # The reduced evidence set is DISCLOSED in the output, at the check site and on the closing line,
 # and the exit code is NOT the disclosure: an operator scripting on it reads any non-zero as
 # "failed", which "this adapter has one arm fewer" is not.
@@ -120,7 +120,7 @@ HOST_Q='(.topology.repos | to_entries[] | select(.value.path==".") | .key)'
 REPO_SLUG="$(cfg "$HOST_Q" 'acme')"
 
 # ---- the tracker adapter -------------------------------------------------------------------
-# ONE resolution, ONE branch site: check (1)'s comment fetch. Checks (1b) and (2)-(6) read git,
+# ONE resolution, ONE branch site: check (1)'s comment fetch. EVERY OTHER check reads git,
 # the progress file, the verdict record and the audit ledger, and must stay adapter-insensitive
 # — a second branch here would make this script a second tracker authority beside lean-gate.sh.
 #
