@@ -59,11 +59,11 @@
 #      the operator comment that ratified it. Absence of a record is the ordinary case and is
 #      printed, not silently skipped.
 #   8. DESIGN EVIDENCE (#394): if the committed spec ARMS the design render lane — a `## Design`
-#      section declaring at least one `| RS-n |` render state, with no explicit disarm — then a
+#      section declaring at least one `RS-n` render state, with no explicit disarm — then a
 #      render receipt is committed beside it, the verdict scores `fidelity: pass`, and the
-#      receipt's `rendered_from` is the head's own render patch identity. Armed-ness is derived
-#      from the SPEC and never from config: `design.provider` lives in a gitignored file that no
-#      CI checkout can see, so a config-keyed boundary check would be unarmed on every consumer.
+#      receipt's `rendered_from` is the head's own render patch identity. Arming is derived from
+#      the SPEC and never from config: `design.provider` lives in a gitignored file that no CI
+#      checkout can see, so a config-keyed boundary check would be unarmed on every consumer.
 #
 #      SCOPED HONESTLY. This holds for the armed path only. A spec that never carries a
 #      `## Design` section is indistinguishable here from honest unarmed work — the residual
