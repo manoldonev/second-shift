@@ -67,10 +67,12 @@ failing suite still fails the sweep: `xargs` propagates a non-zero exit under `-
 does serially.
 
 The cost is heavily skewed, and one suite now sets the floor: `tools/install-topology-selftest.sh`
-re-runs every *shipped* suite from a staged install cache, and takes **5:19 on its own**. It
-already parallelizes internally (`INSTALL_TOPOLOGY_JOBS`, default 4), so it is the parallel form's
-long pole rather than something an outer `-P 4` can shorten — the 5:22 above is essentially that
-one suite. Everything else is roughly 8 minutes serial and folds into its shadow. See
+re-runs every *shipped* suite from a staged install cache, and takes **roughly 7 minutes on its
+own** — three runs of one unchanged tree measured 319s, 438s and 584s, so treat the range, not a
+point value, as the number (a run at the slow end is not a regression). It already parallelizes
+internally (`INSTALL_TOPOLOGY_JOBS`, default 4), so it is the parallel form's long pole rather than
+something an outer `-P 4` can shorten — the 5:22 above is essentially that one suite, and moves
+with it. Everything else is roughly 8 minutes serial and folds into its shadow. See
 [`docs/testing.md`](docs/testing.md) for what it buys.
 
 Drop `-P 4` only if you need interleaved output untangled while debugging one suite; prefer

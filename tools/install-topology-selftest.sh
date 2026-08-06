@@ -34,7 +34,7 @@ set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO="$(cd "$HERE/.." && pwd)"
 KNOWN_RED="$HERE/install-topology-known-red.tsv"
-SELF="$HERE/install-topology-selftest.sh"
+SELF="$HERE/$(basename "${BASH_SOURCE[0]}")"
 
 # Per-suite wall-clock bound. This guard runs a SECOND copy of every shipped suite, often
 # while the outer sweep is running the first, so cross-copy contention is structural rather
@@ -42,6 +42,14 @@ SELF="$HERE/install-topology-selftest.sh"
 # that way. Unbounded, a suite that hangs takes the CI job's timeout with it — a red build
 # with no attributable cause — instead of one named timeout line. The default is ~2x the
 # worst contended run measured, so contention slows the guard rather than failing it.
+#
+# That default was 600s and is now 1200s, because "the worst contended run measured" moved.
+# Under a stress-inclusive outer sweep at -P 4 the contending load is the whole sweep, not one
+# second copy, and statectl-selftest.sh crossed 600s in there — reported, correctly, as a
+# named timeout, on a tree with nothing wrong with it. A bound that ambient machine load can
+# cross stops being a hang detector and becomes a flaky test: every crossing gets
+# re-litigated by hand, which is the exact cost the named-timeout line exists to remove.
+# The rule is unchanged; only the observation it is applied to is.
 #
 # (An earlier reading of this had the bound guarding a specific `until ! pgrep -f` waiter in
 # statectl-selftest.sh. No such waiter exists in this tree — `grep -rn pgrep` finds only
@@ -52,7 +60,7 @@ SELF="$HERE/install-topology-selftest.sh"
 # two CI lanes. The `set -m` + reap-the-process-group idiom below is lifted from
 # tools/mutation-sweep.sh's bounded killer, which documents why killing the pid alone is not
 # enough (a spinning grandchild survives it).
-SUITE_TIMEOUT="${INSTALL_TOPOLOGY_TIMEOUT:-600}"
+SUITE_TIMEOUT="${INSTALL_TOPOLOGY_TIMEOUT:-1200}"
 set -m
 
 # ---- bounded runner -----------------------------------------------------------------
@@ -87,8 +95,11 @@ run_bounded() { # $1 = cwd, $2 = logfile, $3 = expiry marker; rest = command →
   ) >/dev/null 2>&1 &
   killer=$!
   wait "$pid"; rc=$?
-  kill "$killer" 2>/dev/null
-  wait "$killer" 2>/dev/null
+  # The killer must be reaped as a GROUP, not as a pid: `kill "$killer"` ends the
+  # subshell and leaves its `sleep "$SUITE_TIMEOUT"` running to full term, one per
+  # suite. That is not theoretical — GitHub's runner printed exactly one
+  # "Terminate orphan process: pid (…) (sleep)" line per staged suite at job end.
+  reap_group "$killer" >/dev/null 2>&1
   [[ -f "$expired" ]] && return 124
   return "$rc"
 }
@@ -222,6 +233,10 @@ while IFS= read -r line; do
   kr="$(known_red_index "$repo_rel" || true)"
 
   if [[ "$staged" == *.mjs && "$HAVE_NODE" -eq 0 ]]; then
+    # A skipped suite still MATCHES its row — the row is not stale, it is unevaluated.
+    # Without this the same absent `node` reports twice, as a skip and as a stale row,
+    # and the second one says "shrink the list" about a row nothing disproved.
+    [[ -n "$kr" ]] && KR_SEEN[kr]=1
     skip "$repo_rel — node not on PATH, cannot run a .mjs suite"
     continue
   fi

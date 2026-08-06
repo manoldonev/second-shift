@@ -132,6 +132,15 @@ exercises the stress legs.
   containing none of this repo's tree. Every suite runs under a per-suite wall-clock bound whose
   expiry is a non-zero result reported as a named timeout, never a hang.
 
+  *(Amended before milestone 5: `INSTALL_TOPOLOGY_TIMEOUT` defaults to 1200s, not 600s. The AC's
+  contract is unchanged — the bound's job is to make a hang attributable — but at 600s ambient
+  machine load could cross it: `statectl-selftest.sh` inside the guard timed out under a
+  stress-inclusive outer sweep at `-P 4`, and did not on a later sweep of the same tree. A bound
+  that only sometimes fires on a healthy tree is a flaky test wearing a hang detector's clothes,
+  and it is unattributable by construction. The stated rule that sets the value — ≈2x the worst
+  contended run observed — is what moved it, because under the stress-inclusive form the
+  contending load is the whole sweep rather than a single second copy.)*
+
 - **AC-5** — The guard's verdict: a staged suite that fails or times out reds the guard **unless**
   its **repo-relative** path (`plugins/<name>/<rel>`) appears in
   `tools/install-topology-known-red.tsv`. A listed suite that passes is a printed warning, never
@@ -147,15 +156,38 @@ exercises the stress legs.
   principle). The skip count appears in the summary line.
 
 - **AC-7** — `tools/install-topology-known-red.tsv` is seeded from this guard's first clean run
-  under AC-4's topology (OR-1's default). It carries **no** row for `plan-lint-selftest.sh` or
+  under AC-4's topology (OR-1's default), **corroborated in a second environment before the
+  counts are stated anywhere**. It carries **no** row for `plan-lint-selftest.sh` or
   `design-sync-selftest.mjs`. Every row states a one-line cause; a row whose cause is not known
   reads `undiagnosed` rather than an invented rationale (OR-1's flag).
+
+  *(Amended before milestone 5, and the amendment is the finding. OR-1's default said "seed from
+  the guard's first clean run" and did not say clean **where**. The first run was clean only on
+  the authoring machine: CI scored two more failures on the same commit, in both lanes. A guard
+  whose whole purpose is to report on the environment cannot be seeded from one environment, so
+  the AC now requires a second before any count is published — and the two extra rows are the
+  seeding defect's output, not new defects.)*
 
   *(OR-2, measured: `audit-selftest.sh` passes under this topology and gets no row. The receipt's
   detached-arm sweep saw it red for a reason the version-keyed arm does not reproduce; the guard's
   own run is the authority D-9 named, so the region closes on evidence rather than on an
-  `undiagnosed` row. `cost-block-selftest.sh` likewise passes here, because AC-4's cwd is a real
-  git-init'd directory it can write under.)*
+  `undiagnosed` row.)*
+
+  *(The two rows the second environment added, both diagnosed rather than `undiagnosed`, and both
+  ENVIRONMENT-DEPENDENT — which is why the list's header now tells a reader not to drop a row on a
+  single green run. `preflight-selftest.sh` is a class-B fixed hop (`$SCRIPT_DIR/../../../../review-toolkit`),
+  identical in kind to `doctor-selftest.sh`'s row: from an install it resolves to nothing, so
+  `preflight.sh` falls through to its `claude plugin list` rung, which hits only where the Claude
+  CLI is installed. Reproduced by REMOVING `claude` from `PATH` — re-running proves nothing about
+  an environment-dependent red. `cost-block-selftest.sh:40` mirrors `pipeline-cost-block.sh`'s
+  state resolution but anchors it on `$HERE` where the script anchors on `$PWD`; with no git repo
+  above an install cache the mirror falls to `cd ""`, which is a silent no-op on bash ≤ 5.2 and an
+  error on bash ≥ 5.3, so the fixture and the script land in different state dirs on exactly the
+  bash versions both CI lanes run. Reproduced by running the staged suite under `/bin/bash` 3.2 —
+  CI's first failure line verbatim — and green under 5.3 on the same tree. Both stay listed rather
+  than fixed: this spec's Out of scope defers `cost-block-selftest.sh` by name, and `preflight-selftest.sh`
+  is D-6's class-B bucket, whose fix is a third copy of a ladder the lockstep manifest has already
+  declined to pin. #421 owns both.)*
 
 - **AC-8** — A follow-up issue is filed and linked from the closing comment, covering exactly what
   #419 defers: each remaining row of `install-topology-known-red.tsv`, D-10's undiagnosed
@@ -183,9 +215,13 @@ exercises the stress legs.
 
 ## Out of scope
 
-- Diagnosing or fixing the reds owned by D-6/D-10 (`check-review-context-sections-selftest.sh`,
-  `config-lint-selftest.sh`, `cost-block-selftest.sh`, `audit-selftest.sh`) — they get rows and a
-  follow-up ticket.
+- Fixing the reds owned by D-6/D-10 (`check-review-context-sections-selftest.sh`,
+  `config-lint-selftest.sh`, `cost-block-selftest.sh`, `preflight-selftest.sh`,
+  `audit-selftest.sh`) — they get rows and a follow-up ticket. *(Amended before milestone 5:
+  `preflight-selftest.sh` joins the list — it was not known to be red when this was written,
+  because the seeding environment hid it. Diagnosing is no longer deferred with them: AC-7's
+  `undiagnosed` escape hatch is for a cause nobody has, not for one nobody looked for, and both
+  late rows carry a reproduced mechanism.)*
 - Implementing D-4's SKIP behavior in the shipped suites it governs; it is deferred with them.
 - Any change to `plan-lint.sh` itself. Check 5a behaves correctly; the assertion was wrong.
 - Adding a CI job or editing `ci.yml` — D-5's whole point is that the existing glob discovers the

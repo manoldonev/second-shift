@@ -77,23 +77,53 @@ reference, mirrored in `.mjs` at the top of `design-sync-selftest.mjs`.
 this needs its own test: it stages `plugins/` at version-keyed paths outside any git repo and
 re-runs **every** shipped suite from a `git init`'d consumer cwd, under a per-suite wall-clock
 bound. It reds on any failure absent from `tools/install-topology-known-red.tsv`; a listed suite
-that passes, and a row matching no suite, are warnings that say "shrink the list". Its first run
-scored 55 suites: 51 pass, 4 listed.
+that passes, and a row matching no suite, are warnings that say "shrink the list".
+
+Its scoring is **55 suites: 49 pass, 6 listed** — and how that number was arrived at is the more
+useful thing to know than the number. The first run, on the authoring machine, scored 51 pass /
+4 listed; CI then scored 49 / 2-red on the same commit, because two of the suites fail for reasons
+the authoring machine's environment hid (one needs the `claude` CLI to be *absent*, one needs bash
+older than 5.3). **A guard that reports on the environment can only be seeded from a second
+environment** — read every "measured here" claim about it as "measured on one machine" until a
+different one agrees, and let CI be that machine, because it is free.
+
+That is also why two rows in `install-topology-known-red.tsv` are marked ENVIRONMENT-DEPENDENT.
+They will pass on some machines, and the guard will duly warn "drop its row". Do not: read the
+cause and drop the row only once the suite passes where the cause says it fails.
 
 Re-running the whole shipped set is the price of the class being visible at all, and it is not
-small: **542s serially, 319s with suites run concurrently** (`INSTALL_TOPOLOGY_JOBS`, default 4 —
-each suite is a separate `--run-one` invocation, which is also what gives every concurrent
-watchdog its own job-control shell). The remaining floor is one suite: `statectl-selftest.sh` is
-94s uncontended and was measured at 244s while a second copy ran.
+small. Suites run concurrently (`INSTALL_TOPOLOGY_JOBS`, default 4 — each suite is a separate
+`--run-one` invocation, which is also what gives every concurrent watchdog its own job-control
+shell), against **542s** for the serial form. The remaining floor is one suite:
+`statectl-selftest.sh` is 94s uncontended and was measured at 244s while a second copy ran.
+
+**Do not plan around a single number for the concurrent form.** Three runs of this same tree, same
+command, uncontended, measured **319s, 438s and 584s** — a 1.8x spread with no code change between
+them. Budget ~7 minutes and expect either end; a run at the top of that range is not a regression
+and does not need investigating. (Reporting one of those three as *the* figure is what made an
+earlier revision of this page wrong, and it is the same single-measurement mistake the seeding
+paragraph above is about.)
 
 That makes this guard the long pole of the repo sweep, not a line item in it: the whole 64-suite
-sweep is 13:12 serial and 5:22 at `-P 4`, and the 5:22 is essentially this one suite — everything
-else folds into its shadow. Know that before adding to what it runs.
+sweep is 13:12 serial and 5:22 at `-P 4` in the documented `SKIP_STRESS=1` form, and the `-P 4`
+figure is essentially this one suite — everything else folds into its shadow. The stress-inclusive
+sweep (no `SKIP_STRESS`, the repo's own pre-commit gate) measured 540s. Know that before adding to
+what it runs.
 
-`INSTALL_TOPOLOGY_TIMEOUT` (default 600s) is the per-suite bound. Its job is to turn a hang into
+`INSTALL_TOPOLOGY_TIMEOUT` (default 1200s) is the per-suite bound. Its job is to turn a hang into
 one named timeout line instead of a CI job that dies at its own timeout with no attributable
 cause — this guard runs a second copy of every shipped suite, frequently while the outer sweep is
 running the first, so contention is structural here rather than incidental.
+
+The default was 600s and was raised on evidence: under a stress-inclusive outer sweep at `-P 4`,
+`statectl-selftest.sh` inside the guard exceeded 600s and was reported as a timeout, reding a tree
+that had nothing wrong with it. A later stress-inclusive sweep of the same tree did **not** cross
+it — which is the point, not a contradiction. **A bound that ambient machine load can cross
+intermittently is not a hang detector, it is a flaky test**: every crossing has to be re-litigated
+by hand, and it is unattributable by construction, which is precisely the cost the named-timeout
+line was supposed to remove. The rule that sets it is unchanged (≈2x the worst contended run
+observed); only the observation moved, from 244s to ≥600s, because under the stress-inclusive form
+the contending load is the whole sweep rather than one second copy.
 
 **A consumer's configured lane runs in a scrubbed child env.** `verifyctl.sh` and
 `preflight.sh` both spawn a `commands.<host>` command (`lint`/`typecheck`/`test`/`format`/

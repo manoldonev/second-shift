@@ -17,10 +17,22 @@
 # an admission, visibly, rather than an invented rationale that reads like an exemption.
 # Draining this list is tracked in #421.
 #
-# Seeded from the guard's first run: 55 suites, 51 pass, 4 listed. plan-lint-selftest.sh and
+# SOME ROWS ARE ENVIRONMENT-DEPENDENT, and those say so in their cause. A suite whose failure
+# depends on the bash version or on which CLIs are installed will PASS on some machines, and
+# the guard will then warn "listed known-red but PASSED — drop its row". Do NOT act on that
+# warning from a single green run: read the cause first, and drop the row only once the suite
+# passes in the environment the cause names. The two rows added after the first CI run are
+# exactly this kind, and they are why the seeding number below has two figures rather than one.
+#
+# Seeded from the guard's first run on the authoring machine — 55 suites, 51 pass, 4 listed —
+# and CORRECTED by the first run in a second environment, which is the only kind that can
+# falsify a "measured here" claim: CI scores 49 pass, 6 listed on both lanes. The two extra
+# rows were real failures the authoring machine's environment hid. plan-lint-selftest.sh and
 # design-sync-selftest.mjs are deliberately ABSENT — both were fixed rather than listed, and
 # so was workflows-mjs-selftest.sh, which was red only because it invokes design-sync's.
 plugins/dev-pipeline/skills/run/tools/config-lint-selftest.sh	needs schema/second-shift.config.schema.json, which lives in this repo and is not shipped inside any plugin.
 plugins/review-toolkit/scripts/check-review-context-sections-selftest.sh	needs docs/extension-points.md, which lives in this repo and is not shipped inside any plugin.
 plugins/review-toolkit/scripts/check-emit-deadline-selftest.sh	check-emit-deadline.sh derives REPO as $HERE/../../.. and globs $REPO/plugins/*/agents; from an install that is the cache root, so zero agents are linted and four assertions expecting named agents fail.
 plugins/second-shift/skills/doctor/tools/doctor-selftest.sh	resolves its review-toolkit sibling as $HERE/../../../../review-toolkit, a fixed hop count that only holds in the monorepo, so the resolved scenario degrades into the unresolved one.
+plugins/dev-pipeline/skills/run/tools/preflight-selftest.sh	preflight-selftest.sh:38 resolves its review-toolkit sibling as $SCRIPT_DIR/../../../../review-toolkit, a fixed hop count that only holds in the monorepo. From an install SECOND_SHIFT_REVIEW_TOOLKIT_ROOT is empty, so preflight.sh:144-147 falls through to its `claude plugin list` rung. ENVIRONMENT-DEPENDENT: that rung hits where the Claude CLI is installed, so the suite passes on a developer machine and fails on CI. Reproduced by removing `claude` from PATH, not by re-running.
+plugins/dev-pipeline/skills/run/tools/cost-block-selftest.sh	cost-block-selftest.sh:40 mirrors pipeline-cost-block.sh state resolution but anchors it on $HERE, while the script anchors on $PWD; in an install cache $HERE has no git repo above it, so the mirror falls to `cd ""`. ENVIRONMENT-DEPENDENT on what bash does with that: a silent no-op on bash <= 5.2 (STATE_DIR lands inside the staged plugin, where the script never looks, and the three dump assertions get no rollup JSON) and an error on bash >= 5.3 (STATE_DIR collapses to ./ and coincidentally agrees with the script). Red on both CI lanes, green on bash 5.3.
