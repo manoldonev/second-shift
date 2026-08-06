@@ -54,7 +54,6 @@ plugins/dev-pipeline/skills/run-lean/lean-reconcile.sh::default::1	seeded for #3
 plugins/dev-pipeline/skills/run-lean/lean-reconcile.sh::default::2	seeded for #303 from a local advisory sweep (macOS); confirm at the first nightly
 plugins/dev-pipeline/skills/run-lean/lean-reconcile.sh::detector::1	re-keyed for #345: the verdict-authorship checks shifted the generic ordinals (local advisory sweep, macOS; confirm at the first nightly)
 plugins/dev-pipeline/skills/run-lean/lean-reconcile.sh::fail-open::2	seeded for #303 from a local advisory sweep (macOS); confirm at the first nightly
-plugins/dev-pipeline/skills/run/pipeline-cost-block.sh::cmp-z::1	re-keyed for #303: the --stateless block shifted the generic ordinals
 plugins/dev-pipeline/skills/run/pipeline-cost-block.sh::default::2	seeded by the canonical seed run
 plugins/dev-pipeline/skills/run/pipeline-cost-block.sh::detector::1	seeded by the canonical seed run
 plugins/dev-pipeline/skills/run/pipeline-cost-block.sh::logic::2	seeded by the canonical seed run

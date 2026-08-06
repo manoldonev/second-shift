@@ -79,14 +79,20 @@ while the header ends at 27, truncating mid-sentence).
 `tools/mutation-baseline.tsv:57-60` (`cmp-z::1`, `default::2`, `detector::1`, `logic::2`) are
 re-verified against this diff by **diffing each operator's site enumeration against the base branch**
 — by site, never by survivor-id equality or line content — and re-baselined in this same diff if the
-edit moves or kills them. `tools/mutation-catalog.tsv:37` (`cost-block-cache-numerator`) targets the
-cache-rate math, untouched here; it is re-anchored only if its ordinal moves.
+edit moves or kills them. `tools/mutation-catalog.tsv` (`cost-block-cache-numerator`) targets the
+cache-rate math, untouched here; it is re-anchored only if its anchor stops matching.
+
+**AC-11 — a named guard for the fallback.** The tier map's no-match fallback gets a
+`tools/mutation-catalog.tsv` row: redirecting `unknown` into a real tier must red the suite. D-9
+leaves this to build judgment; it is taken because mis-tiering an uncovered vendor id is the exact
+regression this ticket exists to prevent, and it is invisible in every total — a property worth a
+permanent named mutant rather than a one-off probe. The mutant is verified to die in this diff.
 
 **AC-10 — scope boundary.** No file changes outside
 `plugins/dev-pipeline/skills/run/pipeline-cost-block.sh`,
 `plugins/dev-pipeline/skills/run/cost-tracking-fixtures/`,
-`plugins/dev-pipeline/skills/run/tools/cost-block-selftest.sh`, this spec, and
-`tools/mutation-baseline.tsv` (AC-9 only, and only if AC-9's diff requires it). Out of scope per
+`plugins/dev-pipeline/skills/run/tools/cost-block-selftest.sh`, this spec,
+`tools/mutation-baseline.tsv` (AC-9) and `tools/mutation-catalog.tsv` (AC-11). Out of scope per
 D-11: `retro-corpus.sh` / `perf-retro`, `LEAN_RUN_MODEL` and the progress/verdict `model:` key,
 `plugins/*/evals/**` ids (#356), and #351's `models.tierMap` / dispatch alphabet — no lockstep row is
 opened between the two maps, because they are not two copies of one contract (fact 1: different
