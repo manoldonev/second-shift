@@ -1,68 +1,104 @@
 # lean review verdict — #392
 
-verdict=needs-work
-run_id: review-392-1
-session_id: 4adb3fdd-26b4-4ff3-9b2a-b0948056eeb2
-rounds: 1
+verdict=approve
+run_id: review-392-2
+session_id: ff980a53-1d08-4deb-ab16-d54a46c6e41a
+rounds: 2
 pr: #400
-reviewed_head: 3c5f583123fb3d20150a0eab4d3d695f0be4072c
-reviewed_patch_id: 86d23d218593c533c63de573199d83d5b5b51caa
-inherited_patch_id: none
-inherited_from_verdict: none
+reviewed_head: 8d58a254b31a424e4e7acb233865bc6b07f796e3
+reviewed_patch_id: c6ffc5e38c9a009897f71f106eee7ef90a34e180
+inherited_patch_id: 86d23d218593c533c63de573199d83d5b5b51caa
+inherited_from_verdict: f42c2a16633852285fdb1afe7160880d063693f8
 model: unknown
 
-# Review round 1 — PR #400 / issue #392
+# Review round 2 — PR #400 / issue #392
 
-Range read: `3eb0e53..HEAD` (full branch — round 1, nothing to inherit).
-Reviewer: `review-lead` panel of 7 (0 dark) + operator-run execution probes.
+Range read: `f42c2a1..HEAD` (the round-2 commit), inheriting patch `86d23d218593` — round 1's
+full-branch coverage. Round-1 findings re-read from `docs/plans/second-shift-392-lean-verdict.md`
+before scoring, and `lean-gate.sh` read in full despite being outside the delta, since every AC
+this round is about whether that unchanged file's guard is observable.
 
-## Verdict: needs-work
+Reviewer: `review-lead` panel of 7 (0 dark; `unit-test-mutation-reviewer` died on its first
+dispatch and returned on the automatic retry) + operator-run execution probes.
 
-All five `AC-n` are satisfied. The blockers are outside the AC set: the guard this PR adds
-has two observable effects that **no suite can kill**, proven by execution, and the repo's
-automated mutation lane structurally cannot reach the guard to catch either.
+## Verdict: approve
+
+All seven `AC-n` satisfied. Every round-1 blocker and warning is discharged, and the two
+discharges that were mechanical claims rather than prose — the recorded-effect kills and the
+composed verdict paths — were re-verified by execution here rather than taken from the PR body.
 
 ## Per-AC scoring
 
 | AC | Score | Evidence |
 | --- | --- | --- |
-| AC-1 | satisfied | Both sub-cases red and name all three tokens. Verified by direct probe on a no-config fixture: `✗ milestone-3: no verifying lane configured for 'acme' … config read from <path> … commands.acme.allowUnverified=true`. Slug, config path and `allowUnverified` all present. `(iz1)`/`(iz2)` are the oracle. |
-| AC-2 | satisfied | `(iz3)` passes; dropping `any_verifying=1` (L967) reds the suite (rc=1), so the inertness is pinned in the killing direction. |
-| AC-3 | satisfied | `(iz4)` passes — a `when`-scoped `extraLanes` entry missing on the diff keeps the guard inert via `el_count`, never via execution. |
-| AC-4 | satisfied in substance; its named oracle cannot observe it | The re-baseline clause holds — independently verified, see W1. The kill clause is TRUE (probes below) but the diff-scoped sweep the AC names as its oracle never mutated the guard. See W1. |
-| AC-5 | satisfied | `docs/config-schema.md:9` names `lean-gate.sh` milestone 3 in the `allowUnverified` consumer list (`#98/#392`); commit body carries a `Changelog:` trailer with `Migration: none`. |
+| AC-1 | satisfied | Unchanged behavior, strengthened assertions. `(iz1)` and `(iz2)` now each require all three tokens the AC names — `no verifying lane configured for 'acme'`, the config path, and `allowUnverified` — closing round-1 W2, where `(iz2)` asserted only the third. `(i-392)`/`(i-392b)` cover the opted-out green path. |
+| AC-2 | satisfied | `(iz3)` unchanged; round 1 pinned its killing direction (dropping `any_verifying=1` reds the suite). |
+| AC-3 | satisfied | `(iz4)` unchanged — a `when`-scoped `extraLanes` entry missing on the diff keeps the guard inert through `el_count`, never through execution. |
+| AC-4 | satisfied | Two `tools/mutation-catalog.tsv` rows anchor the guard by pattern. Verified independently, not from the PR body: each sed applies with `sed -E` to **exactly one** line, leaves `bash -n`-valid output, and is killed by `lean-gate-selftest.sh` — `catalog::lean-gate-zerolane-record` by `(i-392b)` as the sole failure, `catalog::lean-gate-zerolane-milestone` by `(iz1b)` as the sole failure. `kill_set_for()` resolves `lean-gate.sh` to the same-stem `lean-gate-selftest.sh` and no pair-map row, so the paired suite the AC names is the one that kills. A diff-scoped sweep (`--mode pr --base main`) reproduces the PR body's figure exactly — `applied=12 killed=9 survived=3`, both catalog rows scored KILLED via `lean-gate-selftest.sh`, survivor ids exactly the three baselined rows (`cmp-eq::1`, `default::1`, `default::2`). Re-baseline clause: this round's diff contains no `.sh` guard at all, so no ordinal moved and those three are untouched. |
+| AC-5 | satisfied | Both halves render the three-consumer sentence. `schema/second-shift.config.schema.json`'s `allowUnverified.description`: "…Stage 6 refuses an all-skipped verifySummary, preflight withholds its pipeline-ready verdict, and lean-gate.sh milestone 3 reds naming the opt-out…". `docs/config-schema.md:9` carries the matching prose. `Changelog:` trailer present on the branch (a real block on `3c5f583`, `none` on the other two); `render_bullet` reads blocks per-sha with a whole-block `none` no-op test, so the real entry ships and the two no-ops render nothing. |
+| AC-6 | satisfied | Both legs present **and live**. Neutralizing the guard (`if false`) reds exactly the two new legs and nothing else: `(lean-zv-skip)`, plus both of `(lean-zv-red)`'s assertions — 63 passed / 3 failed against a 66/0 baseline. The fixture edit that round 1 called a silencing is now an extension: `(lean-zv-red)` strips `allowUnverified` from `$LEAN_CFG` on the isolated `EL_TREE` substrate and composes the red into `all` stopping at milestone 3 with milestone 4 never satisfied. |
+| AC-7 | satisfied | Both recorded effects are killable, proven by execution. Deleting the opt-out branch's `append_line` → `lean-gate-selftest.sh` rc=1, sole failure `(i-392b)`; re-keying `fail_milestone 3` → `2` → rc=1, sole failure `(iz1b)`. Both mutants left every suite green in round 1. |
 
 ## Blockers
 
-| # | Finding | Location |
-| --- | --- | --- |
-| B-1 | **The opt-out branch's `append_line` is unkillable.** Deleting the line leaves `lean-gate-selftest.sh` AND `scenario-liveness-selftest.sh` **fully green** (both rc=0). `(i-392)` greps stdout for the `say`, never `$PROG` for the record. This is the audit trail saying a lean run verified nothing — the same class of silent-green the issue exists to close, one level up. The predecessor's analogous skip line is asserted in **two** places (`lean-gate-selftest.sh:404` via `el_count_in … "$prog"`, `scenario-liveness-selftest.sh:1312`), so the precedent was available and not applied. Remedy: one `grep -qF 'milestone-3 \| skipped \| no verifying lane configured — allowUnverified opt-out' "$PROG"` after `(i-392)`. | `lean-gate.sh:999` |
-| B-2 | **The red branch's milestone number is unkillable.** Rewriting `fail_milestone 3` → `fail_milestone 2` on that line leaves **both** suites green (both rc=0). `(iz1)`/`(iz2)` assert rc, the reason text, the config path and the `allowUnverified` token — none of which vary with the milestone literal. A mis-keyed call mis-attributes the failure to the operator and keys the attempt/fix-budget state to the wrong milestone, with no lane going red. Not reachable by any sweep operator either (`fail-open`/`cmp-eq`/`cmp-z`/`logic`/`detector`/`default` do not touch a bare integer literal). Remedy: assert the `milestone-3` token in `(iz1)`'s output. | `lean-gate.sh:1001` |
-| B-3 | **No composed coverage for either new verdict path.** The gate contract added here has two verdict paths (red; green-with-notice). `scenario-liveness-selftest.sh`'s only change is to add `allowUnverified: true` to **both** lean fixtures — which makes the new guard inert in the one suite that composes milestone 3 through to a terminal write. The green-with-notice path is now traversed by `(lean-green)`/`(lean-jira)` but asserted by nothing; the red path is not traversed at all. `CLAUDE.md`: "A new gate contract extends the liveness scenario for every verdict path it touches." `docs/testing.md:42-44`: "If a new gate has a verdict path, extend `scenario-liveness-selftest.sh`." The immediately-prior milestone-3 gate contract (#379, one commit earlier, same file) added `(lean-el-skip)` **and** `(lean-el-red)` and its own comment names this rule as its reason. Counter-argument, stated so it can be answered with evidence: `(lean-el-red)` already composes *a* milestone-3 red to `all`-stops + milestone-4-never-satisfied, so the mechanism is covered and only this trigger is not — #379 made exactly that argument for itself and added the leg regardless. | `scenario-liveness-selftest.sh:886,1163` |
+None.
 
 ## Warnings
 
 | # | Finding |
 | --- | --- |
-| W1 | **AC-4's cited evidence does not demonstrate its own first clause, and no red-on-mutation demo exists in the record.** The guard's sites are `cmp-eq` ordinal **11** and `logic` ordinal **67**; `mutation-sweep.sh:139` sets `K_BUDGET=2`, and the site loop `continue`s past every ordinal beyond it (`mutation-sweep.sh:1273`). So the "10 mutants applied, 7 killed, 3 survivors" run **never mutated this guard** — 10 is exactly the pre-existing ordinals-1-and-2 budget. Separately, `docs/testing.md`: "Every new guard ships a red-on-mutation demo … break the thing, watch the guard go red, restore it, and say so in the commit body. This is a repo idiom, not a suggestion" — the commit body has none. The property itself is true: `-eq`→`-ne` reds the suite (rc=3), `&&`→`\|\|` reds it (rc=2). It is the citation and the record that are missing, not the kill. |
-| W2 | **`(iz2)` under-asserts AC-1's no-config sub-case.** AC-1 requires the red to name the slug, the config path and `allowUnverified` — `(iz2)` greps only `allowUnverified`. The behavior is correct (verified by direct probe, see AC-1 row), so this is assertion strength, not a defect; but as written `(iz2)` would pass on a message that dropped two of the three required tokens. |
-| W3 | **The machine contract is now stale.** `schema/second-shift.config.schema.json:112`'s `allowUnverified` description still names only Stage 6 and `preflight` as consumers. `docs/config-schema.md:3` points at that schema as the machine contract, and its prose half was updated. Outside the spec's declared file scope, so not an AC failure. |
+| W1 | **The doc↔schema coupling AC-5 asserts is a value, not a mechanism.** Round-1 W3 found the schema half stale while the prose half had been updated, and nothing red. Round 2 sets the value right but adds no guard, so the next consumer added to one half and not the other drifts exactly the same way. The coupling is not byte-anchorable — a markdown table cell and a JSON string cannot share a `verbatim` block — so `CLAUDE.md`'s remedy is the **DROPPED** form: a row in `scripts/lockstep-manifest.tsv` recording the pair and the reason it stays reviewer-guarded, the way the adjacent `preflight ↔ verifyctl` zero-verifying-lane predicate already is (`lockstep-manifest.tsv:80-87`). Warning, not blocker, on three grounds: the coupling predates #392 (the Stage-6 and `preflight` clauses were unrecorded too), no AC requires it, and round 1 classed the same defect a warning — escalating its residual in round 2 would invert that. Independently raised by `unit-test-mutation-reviewer` at confidence 80. |
 
 ## Suggestions
 
-- **S-1** No fixture sets a fixed key **and** a non-empty `extraLanes` together, so the `(1, >0)` state is never driven. No live mutant survives from this gap (the `cmp-eq` mutant already dies via the `(0,0)` state in `(iz1)`); defensive only.
-- **S-2** Setup `lanes[]` still execute before the guard reds, so a zero-verify-lane repo carrying an install lane pays the install before the red. The spec's placement rationale optimized only the sweep side. Matches the spec as written, so not a deviation.
+- **S-1** `scenario-liveness-selftest.sh` is not in `lean-gate.sh`'s mutation kill set — `kill_set_for()` returns the same-stem suite plus pair-map rows, and there is no pair-map row for this guard. So `(lean-zv-skip)`/`(lean-zv-red)` compose the verdict paths but never contribute a mutation verdict. That is the tier map working as designed (composition to the scenario suite, mutation to the paired suite) and adding a pair-map row would put a minute-scale suite behind every `lean-gate.sh` mutant. Noted so the split is visible, not as a change request.
+
+## Round-1 findings — disposition
+
+| Round-1 | Status |
+| --- | --- |
+| B-1 (opt-out `append_line` unkillable) | **Fixed and verified.** `(i-392b)` asserts the record on `$PROG`; it is the sole failure under the deletion, in `lean-gate-selftest.sh` and — via `(lean-zv-skip)` — in `scenario-liveness-selftest.sh` (65/1). |
+| B-2 (`fail_milestone` number unkillable) | **Fixed and verified.** `(iz1b)` asserts the `\| milestone-3 \| attempt \|` record; sole failure under `fail_milestone 2`. |
+| B-3 (no composed coverage for either verdict path) | **Fixed and verified.** See AC-6. `(lean-el-red)` does not subsume `(lean-zv-red)`: a lane that ran and failed and a lane that was never configured red through different predicates, which is why #379 shipped both of its own legs one commit earlier. |
+| W1 (AC-4's oracle cannot observe the guard; no red-on-mutation demo) | **Fixed.** AC-4 now names the catalog tier and states why the generic tier cannot reach ordinals 11/67 under `K_BUDGET=2`; the round-2 commit body carries the red-on-mutation table. The withdrawn "10 applied, 7 killed" citation is replaced by a delta whose two added mutants are the catalog rows. |
+| W2 (`(iz2)` under-asserts) | **Fixed.** All three tokens asserted. |
+| W3 (schema stale) | **Fixed** in value; see this round's W1 for the residual. |
+| S-1 (no fixed-key + `extraLanes` fixture) | Declined. Accepted: round 1 established no live mutant survives from the gap, so a case there is boilerplate under the repo's liveness-not-boilerplate rule. |
+| S-2 (setup `lanes[]` run before the guard reds) | Declined. Accepted: matches the spec as written, and round 1 classed it not a deviation. |
+
+## The spec amendment, considered
+
+`docs/plans/second-shift-392-lean.md` was amended in the same commit as the fixes — the file
+scope gained `scenario-liveness-selftest.sh` and the schema, AC-5 gained the schema half, and
+AC-6/AC-7 are new. A spec amended to match its diff is a blocker; this is the other direction.
+Every amendment **adds** an obligation the round-1 review found missing and the diff then meets,
+and the one reworded AC (AC-4) replaces an oracle round 1 proved structurally incapable of
+observing the guard with one that demonstrably kills it. Nothing was narrowed to fit what
+shipped: AC-4's re-baseline clause survives verbatim, and no AC lost a requirement. Recorded
+here so the amendment is visible in the ledger rather than inferred from the diff.
 
 ## Verified green (not findings)
 
-- `lean-gate-selftest.sh` and `scenario-liveness-selftest.sh` both pass with `env -u CLAUDE_CODE_SESSION_ID` and **without** `SKIP_STRESS` (63/63 on the scenario suite).
-- `shellcheck -e SC1091,SC2015,SC2181` clean on all three changed shell files.
-- **Mutation ordinals independently verified unmoved** — not inferred from survivor-id equality. Matched-line lists were diffed between `3eb0e53` and HEAD per operator: `cmp-eq` 17→18 sites (the one new site is the guard line itself, at ordinal 11), `logic` 110→111 (same line), `default`/`cmp-z`/`detector`/`fail-open` unchanged. Baselined rows `cmp-eq::1` (L107), `default::1` (L108), `default::2` (L124) are byte-identical in both revisions, so AC-4's re-baseline clause is satisfied with nothing to re-key. No `mutation-catalog.tsv` row anchors this guard.
-- The guard is a faithful copy of the staged lane's predicate: `preflight.sh:335-346` counts the same fixed keys plus `extraLanes` length and treats empty-string commands as unconfigured, which `cfg` + `[ -n "$cmd" ]` reproduces.
-- Reviewer panel: 7 dispatched, 7 returned, **0 dark**. security / performance / maintainability / complexity / test-coverage / scope-completeness all `approve`; unit-test-mutation `approve-with-nits`. B-1 and B-2 were independently raised by unit-test-mutation-reviewer at confidence 85 and 80; both are recorded here at blocker severity on the strength of the execution probes, not its classification.
-
-## Round-1 method note
-
-Every probe above was applied to a working-tree copy of `lean-gate.sh` and reverted with
-`cp` from a pristine snapshot, never `git checkout`; `git status --porcelain` was confirmed
-empty after each. The reviewed tree is unmodified.
+- `lean-gate-selftest.sh` and `scenario-liveness-selftest.sh` both pass with
+  `env -u CLAUDE_CODE_SESSION_ID` and **without** `SKIP_STRESS` — the scenario suite at 66/66,
+  matching the PR body's claim.
+- `shellcheck -e SC1091,SC2015,SC2181` clean on both changed suites; `jq empty` clean on the
+  schema. `mutation-sweep-selftest.sh` green — it is what lints the two new catalog rows.
+  `check-lockstep-pairs.sh`, `check-frozen-files.sh` and `check-changelog-trailer.sh` all clean
+  against the base branch. `check-lean-chain.sh` does not run locally (`LEAN_BRANCH_PREFIX` is a
+  CI-job variable), so it is neither evidence for nor against; the round-1 record it would read
+  is superseded by this one.
+- The PR body's `scenario rc=1 — (lean-zv-skip)` citation is accurate. My own first attempt at
+  that probe produced a **false kill** and had to be discarded: writing the mutant with `mv`
+  dropped `lean-gate.sh` from 0755 to 0644, which trips the suite's own
+  `(lean) … not executable` precondition and skips the entire lean leg (39 passed / 1 failed).
+  Re-run write-through, the mutant reds `(lean-zv-skip)` and nothing else (65/1). Recorded
+  because the two runs report the same rc for opposite reasons.
+- Reviewer panel: 7 dispatched, 7 returned, 0 dark. security / performance / maintainability /
+  complexity / test-coverage / scope-completeness / unit-test-mutation all `approve`. The panel's
+  only finding is this round's W1. `scope-completeness-reviewer` self-corrected the dispatch base
+  to the true merge-base `3eb0e53` and classified the branch's full scope, PASS.
+- Probes applied to a working-tree copy of `lean-gate.sh` and reverted with `cp` from a pristine
+  snapshot, never `git checkout`; `git status --porcelain` confirmed empty (mode included) after
+  each. `rc` is the authority throughout, and every kill is named by its failing case rather than
+  inferred from a count.
