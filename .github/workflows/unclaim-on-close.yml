@@ -1,0 +1,42 @@
+# Release the claimed label when a tracker item closes (#423).
+#
+# The label is added at claim and used to be removed by nothing: the lane's step-9 prose
+# said the session drops it, but the lean lane's milestone 5 requires an OPEN pr, so it
+# runs strictly pre-merge — the one moment the label is still correct. The stale window
+# opens at merge, when the pr's closing reference closes the issue and no session is
+# running to notice. Binding the release to the close event is deterministic, needs no
+# live session, and covers both lanes plus a hand-closed issue.
+#
+# This repo is the canary, so the job runs the SHIPPED template script in place rather
+# than a committed copy under .claude/tools/ — one artifact, no pair to keep in lockstep,
+# and what runs here is exactly what a consumer receives.
+#
+# Model-free: no API-billed model calls, just jq + gh (both preinstalled on
+# ubuntu-latest; gh authenticates via the job token).
+name: unclaim on close
+on:
+  issues:
+    types: [closed]
+
+# issues:write is the whole point of this workflow and its entire blast radius: the job
+# removes one label from one issue. contents:read is for the checkout that supplies the
+# script. Never widen either.
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  unclaim:
+    name: release the claimed label
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      # The issue number rides in the environment, never spliced into the run body — the
+      # same injection discipline ci.yml applies to BASE_REF and the PR_* set.
+      - name: release the claimed label
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+        run: bash plugins/second-shift/templates/consumer/second-shift-unclaim.sh "$ISSUE_NUMBER"

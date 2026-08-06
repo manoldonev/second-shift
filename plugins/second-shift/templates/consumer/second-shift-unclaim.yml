@@ -1,0 +1,44 @@
+# second-shift unclaim — emitted (on request) into a consumer repo by
+# /second-shift:onboard (#423). Releases the pipeline's claimed label at the moment a
+# tracker item closes, which is the only deterministic, session-free point at which the
+# label is known to be stale: the lane's milestone 5 requires an OPEN pr, so a
+# session-side drop would fire while review is still in flight and the label is correct.
+#
+# Unlike the read-only evidence workflow, this one WRITES: it removes one label from one
+# issue. That is the entire scope of the issues:write grant below.
+#
+# The committed check script resolves the label name from this repo's committed
+# .claude/second-shift.config.json at run time, so nothing here is substituted at install
+# and there is no rendered copy to drift. A tracker that declares it takes no writes, or
+# one that is not github, makes the script a stated no-op.
+#
+# Model-free: no API-billed model calls, just jq + gh (both preinstalled on
+# ubuntu-latest; gh authenticates via the built-in github.token).
+name: second-shift unclaim
+on:
+  issues:
+    types: [closed]
+
+# A workflow `permissions:` block can only narrow the repo's maximum, never widen it. If
+# Settings → Actions → Workflow permissions is "read repository contents", this grant is
+# refused and the removal fails with HTTP 403 — a red run, not a silent no-op, so it is
+# visible. Switch that setting to read-and-write to use this workflow.
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  unclaim:
+    name: second-shift unclaim
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # The issue number rides in the environment rather than being interpolated into the
+      # run body — a `${{ }}` splice into a shell line is an injection surface.
+      - name: release the claimed label
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+        run: bash .claude/tools/second-shift-unclaim.sh "$ISSUE_NUMBER"

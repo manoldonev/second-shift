@@ -149,14 +149,18 @@ Ask AT MOST one AskUserQuestion batch, containing ONLY (skip any that detection 
      review-context surface"). To write it, pipe confirmed H2 blocks to
      `bash "<installPath>/skills/onboard/tools/scaffold-review-context.sh" <repo-root> --title "<repo>"`,
      then run `check-review-context-sections.sh --preflight <repo-root>` to confirm it is clean.
-  9. **CI evidence workflow (offer; the server-side backstop):** "Emit a consumer-repo CI
-     workflow that, on every PR, (a) config-lints the committed config with the linter
-     shipped AT the pinned marketplace ref and (b) asserts the settings ref and lockfile
-     ref agree — so a half-done upgrade PR is caught server-side?" Recommended: yes for a
-     repo that runs GitHub Actions. On yes, the two files below are emitted in Step 7; note
-     that the workflow only REPORTS a red check — to make it *block* merges, the repo admin
-     marks "second-shift evidence" a required status check in branch protection (onboard
-     never edits branch protection). On no / a non-Actions repo, emit nothing (absent = off).
+  9. **CI workflows (ONE multi-select offer; GitHub Actions repos only):** "Emit the
+     consumer-repo CI workflows? (a) **evidence** — on every PR, config-lint the committed
+     config with the linter shipped AT the pinned marketplace ref and assert the settings ref
+     and lockfile ref agree, so a half-done upgrade PR is caught server-side; (b) **unclaim**
+     — when an issue closes, release the pipeline's claimed label, which nothing else does."
+     Recommended: both, for a repo that runs GitHub Actions. Offer (b) only for the github
+     tracker — elsewhere there is no claimed label. Say which side of the write boundary each
+     falls on: **evidence is read-only** and only REPORTS a red check (to make it *block*
+     merges the repo admin marks "second-shift evidence" a required status check in branch
+     protection — onboard never edits branch protection), while **unclaim writes**, holding
+     `issues: write` to remove one label from one closing issue. Each accepted item emits its
+     file pair in Step 7. Declined / a non-Actions repo → emit nothing (absent = off).
 Then present the **complete draft as one accept-or-edit screen**: a JSONC block where every
 line carries a provenance comment, e.g.
     "baseBranch": "alpha",        // from origin/HEAD
@@ -237,9 +241,9 @@ Also emit the consent doc:
 2. If the repo has a `CLAUDE.md`, offer (in the SAME final message — never a new interview,
    never silently): append `- Toolkit consent + inventory: .claude/SECOND-SHIFT.md` to it.
 
-Also emit the CI evidence workflow — **only when accepted in Step 3 item 9** (skip this
-entire block otherwise; it is opt-in, not part of the default emitted set):
-1. Copy `${CLAUDE_PLUGIN_ROOT}/templates/consumer/second-shift-ci-check.sh` to
+Also emit the CI workflows — **each only when accepted in Step 3 item 9** (skip this entire
+block otherwise; they are opt-in, not part of the default emitted set):
+1. **evidence:** copy `${CLAUDE_PLUGIN_ROOT}/templates/consumer/second-shift-ci-check.sh` to
    `.claude/tools/second-shift-ci-check.sh` (create the dir; keep the executable bit) and
    `${CLAUDE_PLUGIN_ROOT}/templates/consumer/second-shift-ci.yml` to
    `.github/workflows/second-shift-ci.yml`. Both are copied **verbatim** — the check script
@@ -250,6 +254,20 @@ entire block otherwise; it is opt-in, not part of the default emitted set):
    built-in `github.token`) and reports a red check on a half-done upgrade. To make that
    check **block** merges, mark "second-shift evidence" a required status check in this
    repo's branch protection — onboard emits the file but never configures branch protection.
+3. **unclaim** (github tracker only): copy
+   `${CLAUDE_PLUGIN_ROOT}/templates/consumer/second-shift-unclaim.sh` to
+   `.claude/tools/second-shift-unclaim.sh` (keep the executable bit) and
+   `${CLAUDE_PLUGIN_ROOT}/templates/consumer/second-shift-unclaim.yml` to
+   `.github/workflows/second-shift-unclaim.yml`. **Verbatim** too: the script resolves
+   `.tracker.labels.claimed` from the committed config at run time, so a name substituted at
+   install would only be a rendered copy that drifts. Tell the human this is the write half
+   of the pair — it holds `issues: write` and removes exactly one label from one closing
+   issue — and that it is what keeps the claimed label from going stale on every merged
+   ticket. Nothing else in either lane releases it: the lean lane's milestone 5 requires an
+   OPEN pr, so a session-side drop would fire while review is still in flight. Also say that
+   a `permissions:` block only narrows the repo maximum — a repo whose Actions workflow
+   permissions are read-only must switch to read-and-write, or the removal 403s (visibly, as
+   a red run).
 
 ## Step 8 — Verify and hand off
 1. Run `claude plugin list` and `claude plugin marketplace list --json`, and check the
@@ -287,9 +305,11 @@ entire block otherwise; it is opt-in, not part of the default emitted set):
    `/dev-pipeline:run-lean <ticket>`.
 6. Remind: commit `.claude/settings.json`, `.claude/second-shift.config.json`,
    `.claude/second-shift.lock.json`, `.claude/tools/second-shift-doctor.sh`, and
-   `.claude/SECOND-SHIFT.md` in one PR — **plus**, only if the CI evidence workflow was
-   accepted (Step 3 item 9), `.github/workflows/second-shift-ci.yml` and
-   `.claude/tools/second-shift-ci-check.sh` in the same PR.
+   `.claude/SECOND-SHIFT.md` in one PR — **plus**, per CI workflow accepted at Step 3 item 9,
+   its pair in the same PR: `.github/workflows/second-shift-ci.yml` +
+   `.claude/tools/second-shift-ci-check.sh` for evidence,
+   `.github/workflows/second-shift-unclaim.yml` + `.claude/tools/second-shift-unclaim.sh`
+   for unclaim.
 7. **Confirmed pair → offer the sibling's own onboard, and say the FE rule out loud.** This
    run's `be-fe-pair` config (drafted at Step 3) is unchanged and still covers both sides for the
    deprecated staged lane. The lean lane needs more: `/dev-pipeline:run-lean` routes by
