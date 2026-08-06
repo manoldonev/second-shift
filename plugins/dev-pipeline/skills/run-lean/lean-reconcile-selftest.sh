@@ -68,6 +68,15 @@ VERDICT="$TREE/docs/plans/acme-7-lean-verdict.md"
 PROG="$WORK/progress.md"
 
 write_progress() { # write_progress <run-id> <session-id>
+  write_progress_unattested "$1" "$2"
+  # #416's row. `lean-gate.sh entry` writes it; this file's subject is the READER, so the shape
+  # is reproduced here rather than driven through the gate — the two are kept honest by
+  # lean-gate-selftest.sh's (ea1), which pins the same shape against the writer.
+  echo "2026-01-01T00:00:00Z | entry | ledger=$AUDIT/$2.jsonl | lines=2 | session=$2" >> "$PROG"
+}
+# The same file WITHOUT the entry row — a build that never attested, which is the state both
+# runs that motivated #416 were in.
+write_progress_unattested() { # write_progress_unattested <run-id> <session-id>
   cat > "$PROG" <<EOF
 # lean run — issue 7
 
@@ -612,6 +621,30 @@ if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q 'matches no earlier verdict r
   pass "(P9) (6) a dangling inheritance link still fails under jira"
 else fail "(P9) expected rc=1 on a dangling link under jira, got $rc: $out"; fi
 p_restore "2026-01-01T14:25:00Z"
+
+# ---- (Q) the build entry attestation (#416) --------------------------------------------------
+# The arm that catches an unattested build AFTER the fact — the only route there is, since the
+# gate's own precondition binds the build host and only from the release it shipped in. This is
+# how #416 was found: two merged runs whose progress files begin at `claim`.
+#
+# The pairing is what makes it an arm rather than a decoration. Everything else about this
+# fixture is the fully-consistent (A) state, so the ONLY difference between red and green here
+# is the row.
+write_progress_unattested "$RUN_ID" "$SESSION"
+write_verdict "$REVIEW_RUN_ID" "$REVIEW_SESSION"
+write_ledger "$SESSION" "2026-01-01T05:00:00Z"
+write_ledger "$REVIEW_SESSION" "2026-01-01T06:00:00Z"
+commit_verdict "2026-01-01T15:00:00Z"
+out="$(reconcile "$WORK/comments-good.json")"; rc=$?
+if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q 'no entry attestation'; then
+  pass "(Q) a progress file with no entry row fails — nothing attests the build's ledger was live"
+else fail "(Q) expected rc=1 on an unattested build, got $rc: $out"; fi
+
+write_progress "$RUN_ID" "$SESSION"
+out="$(reconcile "$WORK/comments-good.json")"; rc=$?
+if [ "$rc" -eq 0 ] && printf '%s' "$out" | grep -q 'recorded an entry attestation'; then
+  pass "(Q) ...and the identical run passes once the row is there — the arm turns on the row alone"
+else fail "(Q) expected rc=0 with the entry row present, got $rc: $out"; fi
 
 # ---- (O) --help prints the header, and only the header --------------------------------------
 # `sed -n '2,Np'` is a hand-maintained line number, and this file had no guard for it — which is

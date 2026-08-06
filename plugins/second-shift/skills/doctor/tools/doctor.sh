@@ -256,12 +256,41 @@ done
 ok "shadow scan complete"
 
 # --- 6. opt-out scan (informational, once, never shaming) ----------------------
+# ONE exception to "informational" (#416, D-7): `audit-toolkit` off while `dev-pipeline` is on is
+# not an opt-out, it is a broken lane. The lean lane's entry gate fails closed on a missing audit
+# ledger, and the hook that writes that ledger ships in audit-toolkit — so in that combination
+# every lean run refuses at step 1, and the two runs that motivated #416 got that far only because
+# nothing enforced the refusal. A repo that adopted review-toolkit or intake-toolkit alone has no
+# lane to protect and keeps the warn.
+#
+# ENABLED means declared true somewhere and false nowhere: `false` in settings.local.json overrides
+# a `true` in settings.json, so a repo that switched dev-pipeline off locally is not running the
+# lane and must not be reded for the pairing.
+dp_true=0; dp_false=0
+for f in "$LOCAL_SETTINGS" "$USER_SETTINGS"; do
+  [[ -f "$f" ]] || continue
+  jq -e --arg k "dev-pipeline@$MKT" '(.enabledPlugins // {})[$k] == true'  "$f" >/dev/null 2>&1 && dp_true=1
+  jq -e --arg k "dev-pipeline@$MKT" '(.enabledPlugins // {})[$k] == false' "$f" >/dev/null 2>&1 && dp_false=1
+done
+# SETTINGS is the repo's committed .claude/settings.json — the file onboard writes the
+# blessed bundle into, and where dev-pipeline is normally declared. Reading only the local/user
+# pair would find no `true` there and demote every real consumer to the warn branch.
+if [[ -f "$SETTINGS" ]]; then
+  jq -e --arg k "dev-pipeline@$MKT" '(.enabledPlugins // {})[$k] == true'  "$SETTINGS" >/dev/null 2>&1 && dp_true=1
+  jq -e --arg k "dev-pipeline@$MKT" '(.enabledPlugins // {})[$k] == false' "$SETTINGS" >/dev/null 2>&1 && dp_false=1
+fi
+DP_ENABLED=0; [[ "$dp_true" -eq 1 && "$dp_false" -eq 0 ]] && DP_ENABLED=1
+
 for f in "$LOCAL_SETTINGS" "$USER_SETTINGS"; do
   [[ -f "$f" ]] || continue
   opted="$(jq -r --arg m "@$MKT" '(.enabledPlugins // {}) | to_entries[] | select(.value==false and (.key | endswith($m))) | .key' "$f" 2>/dev/null)"
   for k in $opted; do
     pname="${k%@*}"
-    warn "$pname disabled in $(basename "$f") — you're opting out of its capabilities (see .claude/SECOND-SHIFT.md inventory). That's sanctioned; doctor won't mention it again this run."
+    if [[ "$pname" == "audit-toolkit" && "$DP_ENABLED" -eq 1 ]]; then
+      bad "$pname disabled in $(basename "$f") while dev-pipeline is enabled — the lean lane refuses to start without a live audit ledger, and audit-toolkit ships the hook that writes it. Re-enable \"$k\": true and restart the session, or disable dev-pipeline if this repo does not run the lane."
+    else
+      warn "$pname disabled in $(basename "$f") — you're opting out of its capabilities (see .claude/SECOND-SHIFT.md inventory). That's sanctioned; doctor won't mention it again this run."
+    fi
   done
 done
 

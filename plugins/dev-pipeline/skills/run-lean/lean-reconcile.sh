@@ -38,6 +38,10 @@
 #      printed. Deliberately NOT checked here: that each link's commit is an ancestor of the one
 #      inheriting it. On a lean branch the record path is linear and HEAD-anchored, so that
 #      predicate holds by construction — an arm no fixture can red is coverage in appearance only.
+#   7. the BUILD run recorded an entry attestation (#416) — the one arm here about the build's own
+#      start rather than the review. `lean-gate.sh` refuses build-role subcommands without it, but
+#      that binds only runs made after it shipped and only on the build host; this is the sole
+#      mechanical route to detecting an unattested build on a run that already merged.
 #
 # RE-ANCHORED WITH THE SEPARATION. This check used to require a `lean-review` Workflow dispatch
 # row in the BUILD session's ledger. That row can never exist once review is a separate
@@ -89,7 +93,7 @@ while [ $# -gt 0 ]; do
   case "$1" in
     --session-id)    SESSION_ID="${2:-}"; shift 2 ;;
     --comments-file) COMMENTS_FILE="${2:-}"; shift 2 ;;
-    -h|--help)       sed -n '2,77p' "$0"; exit 0 ;;
+    -h|--help)       sed -n '2,81p' "$0"; exit 0 ;;
     -*)              envfail "unknown option: $1" ;;
     *)               [ -z "$ISSUE" ] && ISSUE="$1" || envfail "unexpected argument: $1"; shift ;;
   esac
@@ -453,6 +457,27 @@ else
   else
     ok "the inheritance chain resolves over $CHAIN_LINKS earlier record(s), each authored by its own review session"
   fi
+fi
+
+# ---- (6) the BUILD run recorded its entry attestation (#416) --------------------------------
+# Every arm above reasons about the REVIEW session. This one is about the build's own start: did
+# the run establish that its audit ledger was live before it began? `lean-gate.sh entry` records
+# that in the progress file, and `lean-gate.sh` refuses every build-role subcommand without it —
+# but that refusal only binds runs made after it shipped, and it is local to the build host.
+# This is the only mechanical route to detecting an unattested build on a run that already
+# merged, which is exactly how #416 was found: two runs in a consumer that could not write a
+# ledger at all reached five green milestones and a merged PR.
+#
+# ADAPTER-INSENSITIVE — it reads the progress file already open above, so it runs in full under
+# jira, where the ledger requirement matters most (that is the tracker the bad runs used).
+#
+# PRESENCE ONLY, deliberately. Re-resolving the recorded ledger path from here would inherit
+# #417's writer/reader split — the hook writes into the worktree, this reads the main checkout —
+# and would red honest runs for a defect they do not have.
+if grep -qF "| entry | ledger=" "$PROGRESS_FILE" 2>/dev/null; then
+  ok "the build run recorded an entry attestation ($(grep -F '| entry | ledger=' "$PROGRESS_FILE" | head -n1 | sed -E 's/^.*\| (lines=.*)$/\1/'))"
+else
+  bad "the progress file records no entry attestation — nothing establishes that the build session's audit ledger was live when the run started, so this run's records cannot be reconciled against a harness trace at all (\`lean-gate.sh entry $ISSUE\` was never run, or predates it)"
 fi
 
 if [ "$failures" -gt 0 ]; then
