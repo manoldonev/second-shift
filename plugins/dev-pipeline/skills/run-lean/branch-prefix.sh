@@ -32,7 +32,8 @@
 #   branch-prefix.sh [--config <path>] [--repo-root <path>] [--branches-file <path>]
 #
 # Seams (zero-network, zero-remote selftest — the retro-corpus.sh / lean-gate.sh precedent):
-#   SECOND_SHIFT_CONFIG / --config    the runtime config to read
+#   SECOND_SHIFT_CONFIG / --config    the runtime config to read; with neither, and no
+#                                     --repo-root, the MAIN checkout's copy (--git-common-dir)
 #   --repo-root <path>                the checkout `git branch -r` runs in
 #   --branches-file <path>            read the remote-branch listing from a fixture instead
 #                                     (same raw shape `git branch -r --sort=-committerdate`
@@ -52,15 +53,29 @@ while [ $# -gt 0 ]; do
     --config)        CONFIG_ARG="${2:-}"; shift 2 || fail "--config needs a path." ;;
     --repo-root)     ROOT_ARG="${2:-}"; shift 2 || fail "--repo-root needs a path." ;;
     --branches-file) BRANCHES_FILE="${2:-}"; shift 2 || fail "--branches-file needs a path." ;;
-    -h|--help)       sed -n '30,41p' "$0"; exit 0 ;;
+    -h|--help)       sed -n '30,42p' "$0"; exit 0 ;;
     *)               fail "unknown argument '$1' (expected --config|--repo-root|--branches-file)." ;;
   esac
 done
 
 CONFIG="${CONFIG_ARG:-${SECOND_SHIFT_CONFIG:-}}"
 if [ -z "$CONFIG" ]; then
-  _root="${ROOT_ARG:-$(git rev-parse --show-toplevel 2>/dev/null)}"
-  [ -n "$_root" ] || fail "no --config given and not in a git repo — cannot locate the runtime config."
+  # The MAIN checkout, not the worktree — the same --git-common-dir anchor lean-gate.sh and
+  # retro-corpus.sh use to build the `--config` they pass in. The runtime config is gitignored,
+  # so NO worktree carries a copy; anchoring this fallback on --show-toplevel instead would make
+  # the standalone invocation disagree with both of its callers, silently take the detection
+  # path from a worktree, and answer with whatever namespace that repo's remotes happen to
+  # favor. `--repo-root` still overrides, for callers that know their own root.
+  _root="$ROOT_ARG"
+  if [ -z "$_root" ]; then
+    _top="$(git rev-parse --show-toplevel 2>/dev/null)" \
+      || fail "no --config given and not in a git repo — cannot locate the runtime config."
+    _common="$(git rev-parse --git-common-dir 2>/dev/null)" \
+      || fail "no --config given and cannot resolve --git-common-dir — cannot locate the runtime config."
+    case "$_common" in /*) : ;; *) _common="$_top/$_common" ;; esac
+    _root="$(cd "$_common/.." 2>/dev/null && pwd)" \
+      || fail "no --config given and cannot resolve the main checkout from '$_common'."
+  fi
   CONFIG="$_root/.claude/second-shift.config.json"
 fi
 

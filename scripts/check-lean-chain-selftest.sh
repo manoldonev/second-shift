@@ -240,6 +240,43 @@ if [ "$rc" -eq 0 ] && printf '%s' "$out" | grep -q 'no non-fixture'; then
   pass "(D2) AC-12: a PR whose own diff carries no lean spec is not applicable here"
 else fail "(D2) expected a not-applicable exit 0 naming the empty scan, got rc=$rc: $out"; fi
 
+# ---- (D3) AC-17: declining is only safe when the SIBLING will claim ------------------------
+# The cell neither suite drove, and the one that made both gates stand down. (D) above is the
+# same shape with the keys AGREEING, and it must stay a not-applicable: the difference between
+# the two cases is the entire contract.
+#
+# Here the body resolves #99 while the branch resolves #42 and the diff commits #42's spec.
+# check-pipeline-chain.sh keys its exclusion on the BRANCH, so it exempts — its (l7) is this
+# case's other half, driven from the same three inputs. If this gate took (D)'s route and
+# declined "because the pipeline gate owns it", the PR would reach the merge boundary with its
+# claim comment, its verdict record and its freshness all unread, and both logs would say the
+# other gate had it. So: refuse, naming both keys and the spec that split them.
+#
+# Reachable without malice — lean-gate.sh milestone 5 asserts `Closes #<issue>` appears at least
+# ONCE, not that it is first, so a PR closing two issues in the other order lands here.
+BODY_SPLIT='Delivers a slice.
+
+Part of #99'
+out="$(run_gate "claude/acme-42" "$WORK/comments-good.json" "$WORK/diff-lean.txt" "$BODY_SPLIT")"; rc=$?
+if [ "$rc" -eq 1 ] \
+   && printf '%s' "$out" | grep -q 'key mismatch' \
+   && printf '%s' "$out" | grep -q '#99' \
+   && printf '%s' "$out" | grep -q '#42' \
+   && printf '%s' "$out" | grep -q 'docs/plans/acme-42-lean.md' \
+   && ! printf '%s' "$out" | grep -q 'not applicable'; then
+  pass "(D3) AC-17: a body-key/branch-key split with the branch key's spec in the diff REFUSES, never declines"
+else fail "(D3) expected rc=1 naming both keys and the spec, with no not-applicable, got rc=$rc: $out"; fi
+
+# ...and the refusal is scoped to the cell that needs it. Same split keys, but the diff commits
+# only ANOTHER key's spec, so the sibling does not exempt and the hand-off is sound again. A 4b
+# that fired on the key disagreement alone would red every staged PR that edits an old lean spec
+# from a branch whose body cites the epic — which is (D)'s corpus, not a defect.
+printf 'docs/plans/acme-777-lean.md\nREADME.md\n' > "$WORK/diff-lean-other.txt"
+out="$(run_gate "claude/acme-42" "$WORK/comments-empty.json" "$WORK/diff-lean-other.txt" "$BODY_SPLIT")"; rc=$?
+if [ "$rc" -eq 0 ] && printf '%s' "$out" | grep -q 'none for this PR'; then
+  pass "(D3b) AC-17: the same key split with no branch-key spec in the diff still declines — 4b is not a blanket mismatch check"
+else fail "(D3b) expected a not-applicable exit 0, got rc=$rc: $out"; fi
+
 # ---- (E) fixture paths are excluded from the artifact scan -------------------------------
 out="$(run_gate "some/other-branch" "$WORK/comments-empty.json" "$WORK/diff-fixture-only.txt")"; rc=$?
 if [ "$rc" -eq 0 ] && printf '%s' "$out" | grep -q 'not applicable'; then

@@ -178,6 +178,23 @@ if [[ $rc -eq 0 ]] && grep -q "chain complete and key-consistent" "$WORK/out.log
   ok "(l6) a verdict record / render receipt does not pass for the spec"
 else bad "(l6) non-spec lean artifacts: rc=$rc, log: $(cat "$WORK/out.log")"; fi
 
+# ---- (l8) AC-17: THIS side stays silent when the two gates' keys disagree -----------------
+# The off-diagonal cell of the (this gate applies) x (lean gate applies) truth table, and half
+# of one assertion: the two gates resolve the issue from DIFFERENT sources — this one from the
+# branch, check-lean-chain.sh from the PR body — so a body whose first reference is some other
+# issue splits them. This gate still exempts, because the diff does commit THIS branch key's
+# spec and that judgment is correct on its own terms.
+#
+# Which is exactly why the case is worthless alone. Its other half is (D3) in
+# check-lean-chain-selftest.sh, driven from the SAME three inputs: there the lean gate must
+# REFUSE rather than hand the PR back here. Read either case by itself and a silent gate looks
+# like a correct hand-off; that reading is what let both gates decline the same PR.
+run_chain_diff "${PREFIX}42" "Part of #99" "$FULL" "$WORK/diff-lean-42.txt"
+rc=$?
+if [[ $rc -eq 0 ]] && grep -q "lean-authored PR" "$WORK/out.log"; then
+  ok "(l8) AC-17: a branch-key/body-key disagreement still exempts here — check-lean-chain.sh (D3) owns it"
+else bad "(l8) key-disagreement exclusion: rc=$rc, log: $(cat "$WORK/out.log")"; fi
+
 # With neither a base ref nor the seam there is no diff, so nothing is excluded — the
 # fail-CLOSED direction for this gate.
 env PIPELINE_BRANCH_PREFIX="$PREFIX" PIPELINE_PLAN_PATTERN="$PATTERN" \

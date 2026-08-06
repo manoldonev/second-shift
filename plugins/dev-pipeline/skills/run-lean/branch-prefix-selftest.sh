@@ -226,6 +226,71 @@ if [ "$rc" -eq 0 ] && [ "$out" = "claude/second-shift-" ]; then
   pass "(k) SECOND_SHIFT_CONFIG is read when --config is absent, and wins over the git-derived root"
 else fail "(k) expected rc=0 and 'claude/second-shift-', got rc=$rc '$out'"; fi
 
+# ---- (k2) from a WORKTREE the git-derived root is the MAIN checkout ------------------------
+# The runtime config is gitignored, so no worktree carries a copy and every production caller
+# builds its --config from --git-common-dir. Anchoring this script's own fallback on
+# --show-toplevel instead put the bare invocation on a different root than both of its callers:
+# it found no config in the worktree, fell through to DETECTION, and answered with whatever
+# namespace that repo's remotes happened to favor — confidently, and without saying it had
+# guessed. Production was never affected; the operator debugging production was.
+#
+# Driven so a regression cannot pass by coincidence: the worktree gets a remote listing whose
+# dominant identifier (`other/`) is NOT the configured prefix, so --show-toplevel resolves
+# `other/` and --git-common-dir resolves `fixture/repo-`. The two roots give different answers,
+# which is the only way this case can fail for the right reason.
+# The config stays UNTRACKED, which is the property being modelled: it is gitignored in every
+# real consumer, so `git worktree add` cannot materialize it in the new checkout. Committing it
+# here would hand the worktree a local copy and make (k2) pass without ever reaching the main
+# root — the exact coincidence (k2b) exists to rule out.
+printf 'fixture\n' > "$FIXREPO/README.md"
+git -C "$FIXREPO" add README.md >/dev/null 2>&1
+git -C "$FIXREPO" -c user.name=selftest -c user.email=s@e.invalid \
+    -c commit.gpgsign=false commit -qm "fixture: a commit to branch from" >/dev/null 2>&1
+if git -C "$FIXREPO" worktree add -q -b wt-probe "$WORK/fixwt" >/dev/null 2>&1; then
+  printf '  origin/other/11\n  origin/other/12\n  origin/solo/13\n' > "$WORK/branches-wt.txt"
+  out="$( cd "$WORK/fixwt" && bash "$TOOL" --branches-file "$WORK/branches-wt.txt" 2>&1 )"; rc=$?
+  if [ "$rc" -eq 0 ] && [ "$out" = "fixture/repo-" ]; then
+    pass "(k2) from a worktree the config is resolved from the MAIN checkout, not the worktree root"
+  else fail "(k2) expected rc=0 and 'fixture/repo-' (the main checkout's config), got rc=$rc '$out'"; fi
+
+  # The anti-vacuity half: prove the worktree really has no config of its own, so (k2) passed by
+  # reaching the main checkout rather than by finding one locally. Without this, a resolver that
+  # silently ignored the config entirely could still satisfy (k2) on a repo where detection
+  # happened to agree.
+  if [ ! -f "$WORK/fixwt/.claude/second-shift.config.json" ]; then
+    pass "(k2b) the worktree carries no config of its own — (k2) is not passing by coincidence"
+  else fail "(k2b) the worktree carries a config; (k2) proves nothing"; fi
+else
+  fail "(k2) could not create a worktree in the fixture repo — the case did not run"
+fi
+
+# ---- (m) the SCAN root, with no --branches-file and no --repo-root ------------------------
+# Every detection case above hands the branch listing in through --branches-file, which skips
+# the `git branch -r` call and the root it runs in entirely. So the one line that resolves that
+# root had no coverage at all — and the line matters: it is where a bare operator invocation
+# actually reads the remote from.
+#
+# Zero-network, like the rest of the suite: `git update-ref` writes remote-tracking refs
+# directly, so `git branch -r` has real refs to list with no remote configured and nothing
+# fetched. The config here sets NO branchPrefix, so detection is genuinely reached rather than
+# short-circuited by the configured path.
+FIXDET="$WORK/fixdet"
+mkdir -p "$FIXDET/.claude"
+git -C "$FIXDET" init -q
+jq -n '{tracker: {type: "github"}}' > "$FIXDET/.claude/second-shift.config.json"
+printf 'seed\n' > "$FIXDET/seed.txt"
+git -C "$FIXDET" add seed.txt >/dev/null 2>&1
+git -C "$FIXDET" -c user.name=selftest -c user.email=s@e.invalid \
+    -c commit.gpgsign=false commit -qm "seed" >/dev/null 2>&1
+DETSHA="$(git -C "$FIXDET" rev-parse HEAD)"
+for ref in jdoe/7 jdoe/8 asmith/9; do
+  git -C "$FIXDET" update-ref "refs/remotes/origin/$ref" "$DETSHA"
+done
+out="$( cd "$FIXDET" && bash "$TOOL" 2>&1 )"; rc=$?
+if [ "$rc" -eq 0 ] && [ "$out" = "jdoe/" ]; then
+  pass "(m) detection scans the git-resolved root when no --branches-file and no --repo-root are given"
+else fail "(m) expected rc=0 and 'jdoe/' from the git-resolved root, got rc=$rc '$out'"; fi
+
 # ---- (l) --help prints the usage block and stops there ------------------------------------
 # BOUNDED, not a substring probe, for the reason retro-corpus-selftest.sh's (help) case
 # records: `sed -n '30,41p'` mutated to `sed -z` is rejected by BSD sed (dies locally) but
@@ -238,7 +303,7 @@ if [ "$rc" -eq 0 ] \
    && printf '%s' "$out" | grep -qF 'Usage:' \
    && printf '%s' "$out" | grep -qF 'Exit: 0 = prefix printed on stdout' \
    && ! printf '%s' "$out" | grep -qF 'set -uo pipefail' \
-   && [ "$lines" -le 12 ]; then
+   && [ "$lines" -le 13 ]; then
   pass "(l) --help prints the usage block through its last line and stops before the code"
 else fail "(l) rc=$rc, $lines line(s): $out"; fi
 

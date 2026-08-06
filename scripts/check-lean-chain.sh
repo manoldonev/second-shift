@@ -86,19 +86,31 @@
 # diff and a bot-authenticated tracker comment, is what this makes detectable. Harness
 # attestation is lean-reconcile.sh's job (and #292's later).
 #
-# NON-VACUOUS BY CONSTRUCTION (#413). Applicability is the committed artifact and NOTHING
-# else: the PR's own diff carries a non-fixture lean spec whose key is this PR's key. There is
-# no branch-prefix arm to go stale — the failure mode the manifesto's T0 note records for the
-# pipeline constant, where an edited or emptied CI constant matches zero branches and silently
-# exempts every PR, has no counterpart here. A PR either commits its own spec or it does not,
-# and the check reads that from the diff it was handed.
+# NON-VACUOUS BY CONSTRUCTION (#413). Applicability is the committed artifact: the PR's own
+# diff carries a non-fixture lean spec whose key is this PR's key. There is no branch-prefix
+# arm to go stale — the failure mode the manifesto's T0 note records for the pipeline constant,
+# where an edited or emptied CI constant matches zero branches and silently exempts every PR,
+# has no counterpart here. A PR either commits its own spec or it does not, and the check reads
+# that from the diff it was handed.
 #
 # The KEY MATCH is what keeps this gate and check-pipeline-chain.sh disjoint, now that both
 # lanes write `<branchPrefix><key>` and the branch name discriminates nothing. That sibling
-# exempts a prefix-matched PR under the identical rule, so exactly one gate ever claims a PR:
-# a PR that merely EDITS some older ticket's lean spec is claimed by the pipeline gate, and
-# the PR that AUTHORED a spec for its own key is claimed here. Selftest-fixture paths are out
-# of the scan on both sides for the same reason: fixtures are lean-shaped on purpose.
+# exempts a prefix-matched PR under the identical rule: a PR that merely EDITS some older
+# ticket's lean spec is claimed by the pipeline gate, and the PR that AUTHORED a spec for its
+# own key is claimed here. Selftest-fixture paths are out of the scan on both sides for the
+# same reason: fixtures are lean-shaped on purpose.
+#
+# THE RESIDUAL, STATED (the artifact arm is not self-sufficient). Splitting one classification
+# across two gates leaves a seam wherever they derive the KEY from different sources — this one
+# from the PR body, the sibling from the branch. Disjointness ("no PR is claimed by both") was
+# the property designed for, and it holds; its complement ("every PR is claimed by at least
+# one") is a separate property, and it does NOT follow. Where the two keys disagree, each gate
+# can hand the PR to the other and neither runs. Step 4b is the one condition that closes it:
+# before declining, this gate refuses outright if the diff commits the BRANCH key's lean spec,
+# because that is precisely the spec the sibling exempts on. So the honest invariant is
+#   no PR is EXEMPT from both — and where the two keys agree, exactly one gate applies,
+# rather than the stronger disjointness the first form suggests. On a key disagreement both
+# gates may fire; neither may be silent. That is fail-closed, and it is the correct bias here.
 #
 # CONSUMER UNPORTABILITY: second-shift-only, same as its sibling. It reconciles against
 # tracker COMMENTS, which a read-only tracker (`tracker.writes: false`) posts none of. lean's
@@ -107,7 +119,9 @@
 #
 # Inputs (ALL via the environment — never spliced into a `run:` line; a PR body is
 # attacker-controllable, and ci.yml documents this convention):
-#   PR_HEAD_REF             required  the PR's head branch name. REPORTED, never classified
+#   PR_HEAD_REF             required  the PR's head branch name. Reported everywhere; read for
+#                                     classification ONLY at step 4b's hand-off precondition,
+#                                     and there as a trailing digit run, never a prefix match
 #                                     on (#413) — it is in the output so a not-applicable
 #                                     verdict names the PR it declined.
 #   PR_BODY                 required-ish  the PR body (empty is legal; it just fails to resolve)
@@ -149,7 +163,7 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --comments-file)   COMMENTS_FILE="${2:-}"; shift 2 ;;
     --diff-files-file) DIFF_FILES_FILE="${2:-}"; shift 2 ;;
-    -h|--help) sed -n '2,141p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,155p' "$0"; exit 0 ;;
     *) echo "[lean-chain] unknown argument: $1" >&2; exit 2 ;;
   esac
 done
@@ -364,6 +378,34 @@ fi
 # fall through into the not-applicable branch below.
 [[ -n "$KEY" ]] \
   || fail "PR body carries no resolvable issue reference ('Closes #N' or 'Part of #N'), but the diff commits a lean spec ($(printf '%s' "$LEAN_SPECS_IN_DIFF" | head -n1)). Add the reference."
+
+# ---- (4b) the hand-off precondition: never decline onto a sibling that will also decline ---
+# The not-applicable arm below does not merely stay silent — it ASSERTS that the pipeline chain
+# gate owns the PR. That assertion has a precondition, because the two gates key the same
+# question on different sources: this one resolves the issue from the PR BODY, the sibling
+# resolves it from the BRANCH. When the two agree the hand-off is sound. When they disagree and
+# the diff commits a spec for the BRANCH key, the sibling exempts on exactly that spec
+# (check-pipeline-chain.sh's step 3b) and this gate declines — so no gate reads the evidence,
+# each one printing that the other owns it. That is the vacuous green this boundary exists to
+# prevent, and it is reachable from the lane: lean-gate.sh milestone 5 asserts `Closes #<issue>`
+# appears at least ONCE, never that it is first, so a PR closing two issues in the other order
+# resolves a different body key here while its branch key still names the spec it authored.
+#
+# Derived from the branch's trailing digit run, NOT from a reintroduced prefix constant: the
+# sibling's KEY_BRANCH is the head ref minus its prefix, constrained to `^[0-9]+$`, so whenever
+# that gate resolves a key at all the key IS the branch's trailing digits. Reading them costs
+# this gate nothing that can go stale.
+KEY_BRANCH=""
+[[ "$PR_HEAD_REF" =~ ([0-9]+)$ ]] && KEY_BRANCH="${BASH_REMATCH[1]}"
+if [[ -n "$KEY_BRANCH" && "$KEY_BRANCH" != "$KEY" ]]; then
+  while IFS= read -r f; do
+    [[ -n "$f" ]] || continue
+    case "$(basename "$f")" in
+      *"-$KEY_BRANCH$LEAN_SPEC_SUFFIX")
+        fail "key mismatch: the PR body resolves to #$KEY but the head branch '$PR_HEAD_REF' resolves to #$KEY_BRANCH, and the diff commits #$KEY_BRANCH's lean spec ($f). check-pipeline-chain.sh exempts on that spec, so declining here would leave this PR judged by neither gate. Make the body's first issue reference #$KEY_BRANCH (or move the work to #$KEY's branch)." ;;
+    esac
+  done <<< "$LEAN_SPECS_IN_DIFF"
+fi
 
 LEAN_SPEC_IN_DIFF=""
 while IFS= read -r f; do

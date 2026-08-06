@@ -155,14 +155,31 @@ did not classify on the prefix *alone* — a lean-marked spec in the PR diff was
 trigger, so a stale or emptied prefix could not silently exempt a lean PR.
 
 That constant is gone. Both lanes now write `<branchPrefix><key>` (#413), so a branch name carries no
-lane identity to classify on at all, and the gate applies on the committed artifact and nothing else:
-a non-fixture `*-<key>-lean.md` in the PR's own diff, keyed to the PR's own issue.
-`check-pipeline-chain.sh` excludes on the identical rule, so exactly one gate ever claims a PR. The
-DROPPED manifest entry that recorded the constant's residual risk is replaced by a real lockstep row
-(`lean-spec-suffix`) comparing the one literal the two gates now share.
+lane identity to classify on at all, and the gate applies on the committed artifact: a non-fixture
+`*-<key>-lean.md` in the PR's own diff, keyed to the PR's own issue. `check-pipeline-chain.sh`
+excludes on the identical rule. The DROPPED manifest entry that recorded the constant's residual risk
+is replaced by a real lockstep row (`lean-spec-suffix`) comparing the one literal the two gates now
+share.
 
 The generalizable rule, and the reason this is worth recording next to the limitation it escapes: a
 CI constant is self-neutralizable when it is the **sole** applicability input. Giving a check a
 second, artifact-derived trigger blunts that; making the artifact the **only** trigger removes the
-constant, and with it the whole residual. The two pipeline constants above are still the weaker
+constant, and that residual with it. The two pipeline constants above are still the weaker
 arrangement, and they remain the T0 residual of record.
+
+**What removing the constant did not remove.** Deleting a constant retires the constant's failure
+mode, not every failure mode at that boundary — and the replacement introduced one of its own, which
+is recorded here because the first version of this section claimed otherwise. The rule now lives in
+two gates that derive the same key from **different sources**: `check-lean-chain.sh` from the PR
+body's `Closes #N`, `check-pipeline-chain.sh` from the branch. Disjointness — *no PR is claimed by
+both* — was the property designed for, and it holds. Its complement — *every PR is claimed by at
+least one* — is a different property, was never asserted, and did not follow: where the two keys
+disagreed, each gate handed the PR to the other and neither read the evidence, printing a confident
+hand-off on both sides. `check-lean-chain.sh` step 4b closes it by refusing rather than declining
+whenever the diff commits the branch key's spec. The invariant that actually holds is **no PR is
+exempt from both**, with exactly-one only where the two keys agree.
+
+The lesson generalizes past this boundary, and it is the one worth carrying: when a single
+classification is split across two checks, the thing to hold in lockstep is the **key derivation**,
+not only the pattern the key feeds. Two gates can agree perfectly about the rule and still both stand
+down, because they disagree about what they are applying it to.

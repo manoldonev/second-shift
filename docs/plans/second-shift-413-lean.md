@@ -164,3 +164,46 @@ rendered surface.
   now defer to nightly on every PR, which is the policy the repo already wrote for
   `statectl.sh` and `scenario-liveness-selftest.sh`; it simply was not being applied.
 
+- **AC-17.** (added at review round 1, blocker B-1) **No PR is exempted by both chain gates.**
+  The two gates resolve the issue key from different sources — `check-lean-chain.sh` from the
+  PR body's `Closes #N` / `Part of #N`, `check-pipeline-chain.sh` from the branch — so when the
+  two disagree and the diff commits the **branch** key's lean spec, the sibling exempts on
+  exactly that spec and this gate must **not** decline onto it. It fails, naming both keys and
+  the spec that split them. Scoped to that cell: the same key disagreement with no branch-key
+  spec in the diff still declines, because there the hand-off is real. Driven through both real
+  gates from one input set, in both suites — `check-lean-chain-selftest.sh` (D3)/(D3b) and
+  `check-pipeline-chain-selftest.sh` (l8).
+
+- **AC-18.** (added at review round 1, warning W-2) Run with no `--config`, no
+  `SECOND_SHIFT_CONFIG` and no `--repo-root`, `branch-prefix.sh` reads the config from the
+  **main** checkout (`--git-common-dir`), the same root both of its callers resolve. The
+  runtime config is gitignored, so no worktree carries a copy; anchoring on `--show-toplevel`
+  put the bare invocation on a root its callers never use, where it silently took the detection
+  path and answered with whatever namespace the repo's remotes happened to favor.
+
+### AC-11, restated (review round 1)
+
+AC-11 above claimed "**No** PR is applicable to both chain gates." That direction was verified
+and holds for every PR whose body key agrees with its branch key, but as a universal statement
+it is false and was never driven: a PR on branch `<prefix>500` whose body says `Closes #392`
+and whose diff carries `…-392-lean.md` is applicable to both — the lean gate on the body key,
+the pipeline gate because no `…-500-lean.md` is present. Both then red, so it is not a hole; it
+is an over-claim. The property that actually holds, and the one AC-17 asserts, is the
+complement the original set never stated: **no PR is exempt from both.** Where the two keys
+agree, exactly one gate applies. Where they disagree, both may fire and neither may be silent —
+fail-closed, which is the correct bias at a merge boundary.
+
+The generalizable form, recorded in `docs/pipeline-manifesto.md` alongside the gate it bit:
+when one classification is split across two checks, hold the **key derivation** in lockstep, not
+only the pattern the key feeds. Proving disjointness in one direction reads as if it proved the
+complement; it does not.
+
+### Test tier for AC-17 (D-10, stated rather than skipped)
+
+D-10 mandates a `scenario-liveness-selftest.sh` leg for every verdict path a gate contract
+touches. AC-17's path is in `check-lean-chain.sh`, a **GitHub-Actions-side reader**, and that
+suite is scoped to statectl-composed verdict paths — the same tier justification both chain-gate
+selftests already carry in their headers, and the reason those two suites exist at all. AC-17 is
+therefore covered by the paired per-tool suites on both sides plus their cross-references, and no
+scenario leg is added. Recorded here so the absence is a decision rather than an omission.
+

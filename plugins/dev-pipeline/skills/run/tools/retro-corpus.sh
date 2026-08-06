@@ -176,6 +176,14 @@ cmd_corpus() {
 # The discriminator is the same artifact the merge boundary uses — a non-fixture
 # `*-<key>-lean.md` in the PR's own file list, keyed to the branch's issue — which is why the
 # `gh pr list` call asks for `files`. It is the SAME single call either way: no extra network.
+#
+# KEYED ON THE BRANCH, deliberately, and it is the third site of one rule. The two chain gates
+# split this same question and keyed it on different sources — the branch there,
+# `check-lean-chain.sh` on the PR body — and the disagreement let a PR be exempted by both. The
+# rule that settled it (that gate's step 4b) makes the BRANCH key the one that says who AUTHORED
+# a spec, with the body key reserved for reading the evidence trail. This filter is asking the
+# authorship question, so the branch key is the right one and re-keying it to the body would put
+# this site back out of step with the boundary it reports on.
 lean_spec_in_files() { # lean_spec_in_files <pr-object-json> <issue> -> 0 when present
   jq -e --arg suffix "-$2-lean.md" '
     [ (.files // [])[] | .path // ""
