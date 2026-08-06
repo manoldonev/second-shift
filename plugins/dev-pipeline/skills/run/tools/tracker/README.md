@@ -40,12 +40,12 @@ adapter-sensitive operations follow it.
 
 `run-lean` is the default lane and has no stages and no state file: its records are the
 progress file plus three committed artifacts. [`lean-gate.sh`](../../../run-lean/lean-gate.sh)
-resolves the same `tracker.type` (absent ⇒ `github`) and branches at exactly **three**
+resolves the same `tracker.type` (absent ⇒ `github`) and branches at tracker-sensitive
 sites. Milestones 1–4 are adapter-insensitive — a committed spec, two repo policy scripts,
 the config command table, a committed verdict record — and stay that way.
 [`lean-reconcile.sh`](../../../run-lean/lean-reconcile.sh) resolves the same key on the same
-terms, and branches at exactly **one**. Both reject an unrecognized value rather than
-falling through to an arm.
+terms, and branches at its own tracker-sensitive sites. Both reject an unrecognized value
+rather than falling through to an arm.
 
 | Operation | github | jira |
 | --- | --- | --- |
