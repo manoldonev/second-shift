@@ -1,160 +1,191 @@
 # lean review verdict — #393
 
-verdict=needs-work
-run_id: review-393-1
-session_id: 578f459c-9302-426e-861d-e97fc96cd3f3
-rounds: 1
+verdict=approve
+run_id: review-393-2
+session_id: cf6129d1-41a2-444e-aa51-f83e4c67042b
+rounds: 2
 pr: #401
-reviewed_head: 3e68c55619513111290743b62408f0d81e8b375c
-reviewed_patch_id: 3174bef65ff3c0e5d3f0d4cf713d2cf3f6db7166
-inherited_patch_id: none
-inherited_from_verdict: none
+reviewed_head: 24148d73c502e244ac2cd0cb6c0b61fd46ac0403
+reviewed_patch_id: 887a299cc66b7500919193c08df4b287ee7a3d55
+inherited_patch_id: 3174bef65ff3c0e5d3f0d4cf713d2cf3f6db7166
+inherited_from_verdict: d3d9ea47bc626748e059024de3745df86ab9a98c
 model: unknown
 
-# Review round 1 — PR #401 (issue #393), lean/second-shift-393
+# Review round 2 — PR #401 (issue #393), lean/second-shift-393
 
-Range read: `3eb0e53..HEAD` (full branch diff — chain root, nothing verifiable to inherit).
+Range read: `d3d9ea4..HEAD` (commit `24148d7`), inheriting the coverage of patch
+`3174bef65ff3` from round 1. Read wider than the range in two places, deliberately:
+
+- **Commit messages across the whole branch.** Round 1's B2/B3 were trailer defects, and
+  the fix for them is a message-only history rewrite — invisible in a tree-diff delta. The
+  four pre-verdict commits were replayed with new messages (trees byte-identical, which is
+  why the patch-id inheritance holds).
+- **The inherited docs half.** The delta changed the rule `docs/onboarding.md` and the
+  release-note trailer describe, so the inherited prose had to be re-read against the new
+  behavior.
+
 Spec of record: `docs/plans/second-shift-393-lean.md`. Pre-flight ledger
 `.claude/pipeline-state/393-ledger.md` read as binding (D-1..D-11, OR-1..OR-3).
 
-Verdict: **needs-work** — 3 blockers, 3 warnings.
+Verdict: **approve** — 0 blockers, 3 warnings.
 
-## Findings
+## Round-1 findings — disposition
+
+| # | Round-1 class | Status | Evidence |
+| --- | --- | --- | --- |
+| B1 | blocker | **fixed** | Predicate re-keyed to the configured values with Stage 1.T's own `contains` jq. Drove the shipped snippet against three synthetic pair configs, one branch at a time (below). |
+| B2 | blocker | **fixed** | The trailer describing the ledger-rejected design is gone: `ba14c5f` now carries a bare `Changelog: none.` and says in its body *why* it is neutered, so the next reader does not "restore" it. |
+| B3 | blocker | **fixed** | `0b977d0` likewise. Exactly one block now renders, and it describes what shipped. |
+| W1 | warning | **fixed** | `# Revisit if a third site starts parsing either enum.` is back on the intake-receipt entry; the `ticketTag` entry ends with its own trigger only. |
+| W2 | warning | **fixed** | OR-2's duplication is stated out loud in onboard Step 8's printed hand-off, with the "edit the FE repo's own copy" direction. |
+| W3 | warning | **fixed** | The claim is now split per reject and is accurate — verified against `stages/1-intake.md:26-40`, which does support `TARGET_REPOS="be fe"` and fails closed only on empty. |
+
+### B1 — verification
+
+Ran the shipped snippet verbatim (`MATCHED` + `DECLARED`) against a fully-tagged, an
+untagged and a half-tagged `be-fe-pair` config:
+
+| config | title | `DECLARED` | `MATCHED` | branch taken |
+| --- | --- | --- | --- | --- |
+| be+fe tagged | `[BE] rotate the signing key` | 2 | `be` | exactly one → proceed |
+| be+fe tagged | `[BE] [FE] end-to-end thing` | 2 | `be fe` | both → reject |
+| be+fe tagged | `[BUG] session cookie expires early` | 2 | *(empty)* | neither → reject |
+| be+fe tagged | `[BE] [urgent] rotate the signing key` | 2 | `be` | exactly one → proceed |
+| neither tagged | `Fix session cookie expiry` | 0 | *(empty)* | under 2 → skip |
+| be only | `Fix session cookie expiry` | 1 | *(empty)* | under 2 → skip |
+
+All three round-1 failure modes are closed: the onboard-drafted (untagged) pair no longer
+terminally rejects every ticket, `[BUG] …` now lands on the *neither* branch instead of
+falling through to Step 2, and `[BE] [urgent] …` is no longer mis-rejected as cross-repo.
+The half-tagged case — one config key beyond what round 1 reported — is covered by the same
+`DECLARED < 2` threshold.
+
+### B2/B3 — verification
+
+Piped `git log 3eb0e53..HEAD --reverse --format='* %s%n%n%b'` through
+`derive-release.sh`'s `extract_trailers` awk (`:117-121`) and then `render_bullet`'s `RS=""`
+no-op awk (`:239-242`). Exactly one block renders now (round 1: two, both wrong), and it
+describes the shipped design — host keeps its `be-fe-pair` config, sibling onboards
+separately, pair-gated title check, cross-repo admission rule, `ticketTag` advisory under
+the lean lane, no gate behavior changed, `Migration: none.` The verdict commit's own
+`Changelog: none` normalizes to the no-op form and does not render.
+
+## Spec amendment — judged legitimate
+
+`24148d7` amends the spec's § Ratified contract and AC-2 in the same commit as the fix.
+Scored explicitly rather than waved through, because an after-the-fact amendment that makes
+a spec match its diff is itself a blocker:
+
+- Every edit **adds** an obligation or **corrects** an inaccuracy. AC-2 now additionally
+  requires the predicate to be the configured values with Stage 1.T's semantics, and
+  requires the not-declared-on-both branch to be stated. Nothing was removed except the
+  W3 phrasing, which was wrong on the facts.
+- Both additions are traceable to inputs that predate the diff: round 1's stated B1 fix
+  shape, and ledger D-6's own reasoning (a rule keyed on tags cannot fire where the config
+  declares none — the reason the step is `be-fe-pair`-gated in the first place).
+- The issue's own contract is not contradicted: #393 says "both tags, or neither, is a
+  reject", which presupposes tags exist; the amendment fills a case the issue never reached.
+
+## New findings
 
 | # | Class | Where | Finding |
 | --- | --- | --- | --- |
-| B1 | blocker | `plugins/intake-toolkit/skills/intake-orchestrator/SKILL.md:189-204` | The Step 1.5 title check keys on **bracket shape**, not on the configured `ticketTag` values. Three failure modes follow. |
-| B2 | blocker | commit `476b96c` `Changelog:` trailer | The only trailer that renders describes the design D-1 **rejected**; it ships verbatim into the release notes. |
-| B3 | blocker | commit `3e68c55` `Changelog:` trailer | `Changelog: none — corrects an in-progress diff …` is not the no-op form, so it renders as a consumer-facing release-note bullet about an internal in-progress correction. |
-| W1 | warning | `scripts/lockstep-manifest.tsv:376-394` | The new DROPPED block was inserted **above** the intake-receipt entry's closing line, stealing it. |
-| W2 | warning | `plugins/second-shift/skills/onboard/SKILL.md:290-300` | OR-2's flag — the duplicated FE command table — is never said out loud in the hand-off step. |
-| W3 | warning | `plugins/intake-toolkit/skills/intake-orchestrator/SKILL.md:211-214` | "structural improvement on the staged lane's `targetRepos-ambiguous` failure" is true of only one of the two rejects. |
+| W1 | warning | `scripts/lockstep-manifest.tsv:377-393` + `plugins/intake-toolkit/skills/intake-orchestrator/SKILL.md:194-198` | The `ticketTag` DROPPED entry's "three sites / revisit at a fourth" is stale on arrival, and the delta added a fourth site that *is* byte-anchorable. |
+| W2 | warning | `plugins/second-shift/skills/onboard/SKILL.md` (whole file) | The title check is inert for every pair config `/second-shift:onboard` drafts, and nothing tells the operator the one edit that turns it on. |
+| W3 | warning | `plugins/intake-toolkit/skills/intake-orchestrator/SKILL.md:199` | `DECLARED` counts `ticketTag` across *all* `topology.repos` entries; the ratified predicate is "declared on **both** [pair] entries". |
 
-### B1 — the title check's predicate is bracket shape, not the configured tags
+### W1 — the register denies a coupling the same branch creates
 
-`**The check.** Scan the issue title for bracket-shaped tags (`\[[A-Za-z0-9_-]+\]`)` — then
-three bullets keyed on *how many bracket tokens* the title has. The ratified contract (spec
-§ Ratified contract, AC-2) is keyed on the two **configured `ticketTag` values**. The staged
-lane's Stage 1.T does it correctly, in this same file family: `select((.value.ticketTag //
-"") as $tag | $tag != "" and ($t | contains($tag)))` — it matches the configured values and
-ignores everything else in the title. Three consequences:
+The entry names three sites (`docs/config-schema.md`, the schema `description`,
+`stages/1-intake.md`'s Stage 1.T) and closes with *"Revisit if a fourth site starts parsing
+or restating `ticketTag`'s semantics."* This branch adds at least two more:
 
-1. **Every plain-titled ticket in an onboard-drafted pair repo is terminally rejected.**
-   `ticketTag` is optional in the schema
-   (`.properties.topology.properties.repos.additionalProperties.required == ["path","baseBranch"]`),
-   `config-lint.sh:70` only rejects *unknown* keys, and
-   `plugins/second-shift/skills/onboard/SKILL.md` contains **zero** `ticketTag` mentions —
-   its confirmed-pair draft (`SKILL.md:59`) emits `be`+`fe` entries with `path` and
-   `baseBranch` only. So the config the shipped onboard skill emits for a pair carries no
-   tags at all. Title `Fix session cookie expiry` → no bracket token → bullet 3 → terminal
-   `needs-spec-work`. That is every ticket in that repo. D-6 reasoned exactly this way for
-   `standalone`/`monorepo` and stopped one step short of the pair itself.
-2. **The contract's "neither" case has no branch when the title carries one non-pair tag.**
-   Title `[BUG] session cookie expires early`, config tags `[BE]`/`[FE]`: bullet 1 needs a
-   match (no), bullet 2 needs ≥2 distinct tags (no), bullet 3 needs *no recognizable tag at
-   all* (there is one). Nothing applies — the step falls through to Step 2 and the ticket
-   enters spec review naming neither side of the pair, which is the ambiguity AC-2 makes
-   terminal.
-3. **A correctly-tagged ticket with any second bracket token is mis-rejected.** Title
-   `[BE] [urgent] rotate the signing key` → "two or more distinct tags" → rejected with a
-   comment saying "a pair ticket is never worked as one artifact", which is false for that
-   ticket.
+- `docs/onboarding.md`'s new § Pair repos restates the two-lane reading in full. (The
+  ledger records that `docs/onboarding.md` carried zero `ticketTag` mentions before this
+  diff, so it is new.)
+- `intake-orchestrator/SKILL.md` Step 1.5 does not merely restate it — as of the delta it
+  **parses** it, and with the same expression. Stripped of leading whitespace, the two
+  predicate lines are one line:
 
-Fix shape: match against `topology.repos.<id>.ticketTag` values (Stage 1.T's `contains`
-semantics), branch on *how many of the configured tags* the title carries — 1 → proceed
-(wrong-side → routing-mistake stop), 2 → cross-repo reject, 0 → "neither" reject — and say
-what happens when the pair config declares no `ticketTag` at all (skip, or escalate; do not
-reject).
+  ```
+  | select((.value.ticketTag // "") as $tag | $tag != "" and ($t | contains($tag)))
+  ```
 
-The Step 4 cross-repo admission rule itself is correct and complete: sibling identity
-resolved from `topology.repos.<sibling-id>.path`, `needs-intake-review` escalation on
-unresolvable rather than a guessed slug, BE-first default, the D-3 reconcile obligation as a
-body line beside the existing "queue when `<predecessor>` is closed" note, single-tag slice
-titles, and the Step 6 `--repo <resolved-sibling>` note. No finding there.
+  present in both `stages/1-intake.md` and `intake-orchestrator/SKILL.md`, and nowhere else.
 
-### B2 — the rendering `Changelog:` trailer describes the design the ledger rejected
+The entry's DROPPED reasoning — *"no single quoted literal is common to all three"* — was
+true of the three sites it names and is false of the fourth. This repo already couples
+markdown block to markdown block (`ac-id-rule`, `decomposition-economy`,
+`artifact-reviewer-baseline-deltas`), so the mechanism exists; only the shared predicate
+would go between the markers, since `verbatim` compares the whole block and the two
+snippets differ in variable names (`TARGET_REPOS`/`MATCHED`, `$SECOND_SHIFT_CONFIG`/
+`$CONFIG`).
 
-`476b96c` trailer: *"…the lean lane's BE/FE pair model — **per-repo standalone onboards
-instead of a combined be-fe-pair config**…"*. `3e68c55` then reversed exactly that: *"The
-prior commit drafted onboard as if a confirmed pair should onboard THIS repo standalone-only.
-The pre-flight ledger's D-1 settled it the other way: the host's existing be-fe-pair config
-is unchanged."* What shipped is host-keeps-its-pair-config **plus** an additional sibling
-onboard. `3e68c55`'s own trailer asserts "the net consumer-visible change is unchanged from
-the previous commit's trailer" — it is not.
+Consequence if left: Stage 1.T's matching changes — anchored, trimmed, case-folded — CI
+stays green, and the lean lane's intake check silently routes the same title differently
+from the staged lane it was written to mirror. That is the drift class CLAUDE.md's tier map
+sends to a lockstep row.
 
-Trailers are extracted grep-anywhere and survive the squash (CLAUDE.md;
-`scripts/derive-release.sh:29-35`), and `check-changelog-trailer.sh` asserts *presence* only
-— it passes here. Ran the production extractor + renderer over the branch
-(`derive-release.sh:117-121` then `:239-242`) against the squash body:
+Scored a warning, not a blocker: AC-6's letter asks for a DROPPED entry recording the
+three-site coupling and why no relation expresses it, and that entry exists in the right
+shape with a verified behavioral-guard leg. The remedy is a row (or a corrected entry), not
+a rewrite of what shipped. Same class as round 1's W3.
+
+### W2 — the check never fires in the shape onboard emits
+
+`grep -rn ticketTag plugins/second-shift/` returns **zero** hits: the confirmed-pair draft
+emits `path` + `baseBranch` only. So `DECLARED` is 0 for every freshly onboarded pair, the
+`DECLARED < 2` branch takes it, and AC-2's headline capability is unreachable until someone
+hand-adds `ticketTag` to both entries. That inertness is correct — it is exactly what round
+1 asked for, and rejecting instead is the failure D-6 gates out — but no surface in the diff
+names the enabling edit. `docs/onboarding.md`'s new section and the rendered release-note
+bullet both describe the reject without it. One clause in onboard's Step 8 print ("declare
+`ticketTag` on both entries if you want intake to enforce the split") closes it.
+
+AC-1 forbids changing the confirmed-pair draft itself, so emitting the tags is not the
+remedy available here.
+
+### W3 — the count spans the wrong set of entries
 
 ```
-  onboard, intake-orchestrator, and the onboarding/config-schema/team-rollout
-  docs now document the lean lane's BE/FE pair model — per-repo standalone onboards
-  instead of a combined be-fe-pair config, and a terminal reject for ambiguously-tagged
-  pair-ticket titles at intake. No gate behavior changed; staged-lane semantics untouched.
-  Migration: none.
-  none — corrects an in-progress diff before its first review; the net
-  consumer-visible change is unchanged from the previous commit's trailer.
+DECLARED=$(jq -r '[ .topology.repos[] | .ticketTag // "" | select(. != "") ] | length' "$CONFIG")
 ```
 
-That is the release note consumers get. No lane can red on it.
+`config-lint.sh:73-74` requires a `be-fe-pair` config to *contain* `be` and `fe`; it does
+not forbid a third entry, and `additionalProperties` in the schema permits one. Given a
+tagged third entry alongside a tagged `be` and an untagged `fe`, `DECLARED` is 2, the check
+fires, and every plain-titled FE ticket lands on the *neither* branch — the round-1 terminal
+reject, reachable again through a config shape the linter admits. `MATCHED` spans the same
+set, so a `[ADMIN]`-tagged title reads as "exactly one declared tag matched" and proceeds as
+though it belonged to a side of the pair.
 
-### B3 — the correction commit's trailer is not the no-op form
-
-Second paragraph of the render above. `render_bullet`'s no-op test
-(`derive-release.sh:239-242`) is **whole-block** after normalizing case, trailing whitespace
-and a trailing period — deliberately, so that "none of the public helpers changed" stays a
-real entry. `none — corrects an in-progress diff …` is not `none`, so it renders. Use a bare
-`Changelog: none.` and move the rationale into the commit body prose.
-
-### W1 — the new manifest block stole the neighboring entry's closing line
-
-On `origin/main` the intake-receipt-vocabulary DROPPED entry ends
-`# Revisit if a third site starts parsing either enum.`. The new block was inserted between
-that entry's `NOTE the deliberate NON-COUPLING` line and it, so the file now reads: the enum
-entry ends at the NOTE with no revisit trigger, and the ticketTag entry ends with **two**
-revisit lines — its own `# Revisit if a fourth site starts parsing or restating ticketTag's
-semantics.` followed by an orphaned `# Revisit if a third site starts parsing either enum.`
-naming an enum the ticketTag entry never mentions. Append the new block after that line, not
-before it. (`check-lockstep-pairs.sh` passes either way — comments are not parsed.)
-
-### W2 — OR-2's flag is not in the hand-off step
-
-Spec OR-2's accepted default is "the duplication stands, **and onboard's hand-off step says
-so out loud**", ledger OR-2 the same. Step 8 item 7 says the sibling drafts "its own
-independent config, bot identity, and worktrees dir" — the reader learns there are two
-configs, but not that `commands.fe` and `commands.<fe-id>` are the same command table with
-nothing keeping them in sync. Not an AC, so not a blocker; one clause closes it.
-
-### W3 — the "structural improvement" claim covers only one of the two rejects
-
-Verified against `plugins/dev-pipeline/skills/run/stages/1-intake.md:28-40`: Stage 1.T raises
-`targetRepos-ambiguous` only when `TARGET_REPOS` resolves **empty**; both tags present is an
-explicitly supported case (`# both tags present ⇒ cross-repo, i.e. TARGET_REPOS="be fe"`).
-So for the two-tag reject there is no staged-lane runtime failure being improved on — the
-staged lane runs it. The spec carries the same phrasing, so the diff is faithful to it;
-flagged as an accuracy warning, not an implementation defect.
+Nothing drafts a three-entry pair today, which is why this is a warning and not a blocker.
+Restricting both expressions to the pair's two entries makes the code say what the spec
+already says.
 
 ## AC scoring
 
 | AC | Score | Evidence |
 | --- | --- | --- |
-| AC-1 | **satisfied** | `onboard/SKILL.md` Step 8 item 7 carries all three required clauses: (a) "This run's `be-fe-pair` config (drafted at Step 3) is unchanged and still covers both sides for the deprecated staged lane", (b) the `cd <sibling path>` + `/second-shift:onboard` direction with "Detection reports `standalone` from that side … with no further prompts", (c) "**FE-tagged tickets run `/dev-pipeline:run-lean` from the FE repo**, not from here." The confirmed-pair draft at `SKILL.md:57-69` is untouched, as AC-1 requires. See W2 for the OR-2 clause. |
-| AC-2 | **unsatisfied** | Both halves are written, but the title check does not implement the contract's predicate — B1. The cross-repo admission rule half is correct and complete (Step 4 + the Step 6 `--repo` note). |
-| AC-3 | **satisfied** | `docs/config-schema.md:21-30` states both readings side by side and names Stage 1.T as unchanged; `docs/onboarding.md:51-73` adds the two-onboard section plus the same two-reading paragraph; `docs/team-rollout.md:23-29` adds "A BE/FE pair needs Day 0 a second time, in the sibling repo" and the FE-repo rule, which also repairs the singular "Run `/second-shift:onboard` in the target repo" at `:12`. Cross-doc anchor `#pair-repos-befe-under-the-lean-lane` resolves against `### Pair repos (BE/FE) under the lean lane`. |
-| AC-4 | **unsatisfied** | Second half holds — grepped the full diff for consumer-repo names, company JIRA keys and the branch-prefix token: zero hits. First half fails: the trailer that renders describes a rejected design (B2) and a second block renders internal process prose (B3). |
-| AC-5 | **satisfied** | `schema/second-shift.config.schema.json` `ticketTag.description` now reads "…The staged lane (/dev-pipeline:run) reads this as a gate input at Stage 1.T; the lean lane (/dev-pipeline:run-lean, the default) never gates on it — it's advisory routing for whoever launches the session, read by the intake-orchestrator skill as ticket-filing policy." Same diff as AC-3's docs. `check-configversion-migration-doc.sh` passes (D-9 confirmed: description strings are invisible to it). |
-| AC-6 | **satisfied** | The DROPPED block is present and mirrors the intake-receipt entry's shape (coupling statement → "Considered for a row and DROPPED" with the per-relation reasoning → "Guarded behaviorally instead" → revisit trigger), and its behavioral-guard leg cites the right pin (`check-config-shadowing.sh:34`, verified clean). W1 is collateral damage to the neighbor, not a defect in this entry. |
+| AC-1 | **satisfied** | Step 8 item 7 carries all three required clauses unchanged from round 1 — (a) "This run's `be-fe-pair` config (drafted at Step 3) is unchanged and still covers both sides for the deprecated staged lane", (b) the `cd <sibling path>` + `/second-shift:onboard` direction with "Detection reports `standalone` from that side … with no further prompts", (c) "**FE-tagged tickets run `/dev-pipeline:run-lean` from the FE repo**, not from here." The confirmed-pair draft is still untouched; the delta only appends the OR-2 clause to the printed text. |
+| AC-2 | **satisfied** | Both halves now hold. The title check resolves the configured values first (`MATCHED`/`DECLARED`), branches on how many of the *declared* tags matched, and states the not-declared-on-both case as skip-and-proceed — verified by driving the snippet across all six branches above. The cross-repo admission rule half was already complete and is unchanged: sibling identity from `topology.repos.<sibling-id>.path`, `needs-intake-review` on unresolvable rather than a guessed slug, BE-first default, the D-3 reconcile obligation beside the existing "queue when `<predecessor>` is closed" line, single-tag slice titles, `--repo <resolved-sibling>` at Step 6. |
+| AC-3 | **satisfied** | Inherited from round 1, unchanged in the delta. `docs/config-schema.md:21-30` states both readings side by side and names Stage 1.T as unchanged; `docs/onboarding.md:51-73` adds the two-onboard section and the same two-reading paragraph; `docs/team-rollout.md:23-29` adds the second Day 0 and the FE-repo rule. The `#pair-repos-befe-under-the-lean-lane` anchor resolves. |
+| AC-4 | **satisfied** | Both halves. One `Changelog:` block renders and it describes what shipped — confirmed by running the production extractor + renderer, not by reading the trailer. Re-ran the identity scrub over the full branch diff (consumer repo names, company tracker keys, org names, branch-prefix tokens): zero hits. |
+| AC-5 | **satisfied** | Inherited. `schema/second-shift.config.schema.json`'s `ticketTag.description` carries the two-lane reading; `check-configversion-migration-doc.sh` reports unchanged (2), confirming D-9. |
+| AC-6 | **satisfied (letter)** | The DROPPED entry is present, mirrors the intake-receipt entry's shape, and its behavioral-guard leg is real — `check-config-shadowing.sh:34` does pin `stages/1-intake.md` to `ticketTag`, and the gate runs clean from this checkout. Its "three sites, revisit at a fourth" reasoning is already overtaken by this same branch — W1, reported rather than scored against the AC's letter. W1's collateral damage to the neighbor entry is repaired. |
 
 ## Gates run from this checkout
 
 `check-lockstep-pairs.sh` 16 pairs / 0 failed · `check-frozen-files.sh origin/main` clean ·
-`check-changelog-trailer.sh origin/main` OK (presence only — see B2) ·
+`check-changelog-trailer.sh origin/main` OK (presence only) ·
 `check-configversion-migration-doc.sh` unchanged (2) · `check-config-shadowing.sh` clean ·
-schema parses. No shell or `.mjs` file is in the diff, so the selftest sweep is unaffected.
+`jq empty` on the schema OK. No shell or `.mjs` file is in the branch diff, so the selftest
+sweep is unaffected; both CI selftest lanes (incl. macOS bash 3.2) are green on `24148d7`.
+`pr-gates` is red on the round-1 `verdict=needs-work` arm only — its authorship arm passes
+and every other artifact arm is ✓.
 
 ## Open regions
 
-OR-1 (`pause-and-ask`) is untouched by the diff — correct; it belongs to #348. OR-2 and OR-3
-are `reversible-default-and-flag`; OR-3's flag lands as the D-3 body line in the Step 4 rule
-as specified. OR-2's flag is missing — W2.
+OR-1 (`pause-and-ask`) remains untouched by the diff — correct, it belongs to #348. OR-2's
+flag is now written into the hand-off print (round 1's W2). OR-3's flag lands as the D-3
+body line in the Step 4 admission rule, as specified.
