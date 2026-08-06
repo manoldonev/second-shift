@@ -207,11 +207,11 @@
           "type": "object",
           "additionalProperties": false,
           "required": ["command"],
-          "description": "Arms the Stage-5 live-render verify gate with a repo-owned render command (#84). Key absent = the gate records render-verify-unavailable (unconfigured) exactly as before. Command failure stays non-blocking — the gate degrades with the failure detail, never mark-failed.",
+          "description": "Arms a repo-owned render command in BOTH lanes, with DIFFERENT failure postures. Stage 5: key absent = render-verify-unavailable (unconfigured); command failure is non-blocking — the gate degrades with the failure detail, never mark-failed. run-lean milestone 3: additionally requires a per-ticket `## Design` section in the committed spec (config alone arms nothing), and failure is BLOCKING on the run's shared 3-attempt fix budget with no degraded state. See docs/live-render.md.",
           "properties": {
             "command": {
               "type": "string",
-              "description": "Repo-owned render script with {route} and {out} placeholders, e.g. \"yarn render:verify --route {route} --out {out}\". {route} is the app-relative leaf below the feature mount path (the harness owns any shell/org prefix); the harness owns boot/auth/screenshot and must emit a PNG at {out}, exiting nonzero with a clear message on failure. See docs/live-render.md."
+              "description": "Repo-owned render script with {route} and {out} placeholders, plus an optional {state} the lean lane substitutes, e.g. \"yarn render:verify --route {route} --state {state} --out {out}\". {route} is the app-relative leaf below the feature mount path (the harness owns any shell/org prefix); {state} is the render state named by a lean spec's | RS-n | row, and is REQUIRED in the template whenever a ticket declares a state other than `default` (the staged lane never substitutes it); the harness owns boot/auth/screenshot and must emit a PNG at {out}, exiting nonzero with a clear message on failure. Placeholders must appear UNQUOTED — the lean gate shell-quotes each substituted value. See docs/live-render.md."
             },
             "cwd": {
               "type": "string",

@@ -15,6 +15,14 @@
 # artifacts never read as a dirty tree. (Surfaced by the #1 dogfooding retro.)
 .claude/worktrees/
 
+# Lean-lane design render output — the screenshots `lean-gate.sh` milestone 3 captures for a
+# design-armed ticket. The bytes never enter history; the committed evidence is the hash
+# manifest at <plansDir>/<key>-lean-renders.md. The gate asserts this path is ignored BEFORE it
+# renders and prints this exact line when it is not, so the rule is part of the contract rather
+# than a courtesy. Present here even though this repo declares no design.provider — the
+# assertion is on the output path, not on what happens to be in the tree.
+.claude/lean-renders/
+
 # Per-machine direnv env (OTel telemetry export for cost tracking) — local-only,
 # opt-in per engineer; see the dev-pipeline plugin's cost-tracking-setup.md.
 .envrc

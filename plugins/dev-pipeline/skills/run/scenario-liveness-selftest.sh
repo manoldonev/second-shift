@@ -1357,6 +1357,177 @@ LEANELC
   [[ "$zv_red_n" -eq 0 ]] \
     && pass "(lean-zv-red) milestone-4 is never recorded satisfied when the zero-lane guard reds milestone-3" \
     || fail "(lean-zv-red) milestone-4 was recorded satisfied despite the zero-lane guard failing"
+  # ---- design legs (#394) — the armed lane composed across all three verdict paths -------
+  # Per-tool fixtures prove each armed assertion against a fixture. What only a composed leg
+  # proves is that the armed lane rides the SAME chain everything else does: the same fix
+  # budget, the same hard stop, the same milestone-4 handoff, the same milestone-5 terminal
+  # write. An armed run that quietly grew its own failure economics would be invisible to
+  # lean-gate-selftest.sh, which drives each milestone alone.
+  #
+  # Its OWN tree and config: every leg above ran unarmed, and arming is config-keyed, so the
+  # shared LEAN_CFG cannot carry a provider without changing what those legs compose.
+  LEAN_DTREE="$TMP/lean-dtree"
+  mkdir -p "$LEAN_DTREE/docs/plans" "$LEAN_DTREE/.claude"
+  git -C "$LEAN_DTREE" init -q
+  git -C "$LEAN_DTREE" config user.email lean@example.invalid
+  git -C "$LEAN_DTREE" config user.name lean-scenario
+  printf '.claude/\n' > "$LEAN_DTREE/.gitignore"
+  LEAN_DSTUB="$TMP/lean-render-stub.sh"
+  LEAN_DMODE="$TMP/lean-render-mode"
+  cat > "$LEAN_DSTUB" <<LEANSTUB
+#!/usr/bin/env bash
+MODEF="$LEAN_DMODE"
+LEANSTUB
+  cat >> "$LEAN_DSTUB" <<'LEANSTUB'
+route=""; state=""; out=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --route) route="${2:-}"; shift 2 ;;
+    --state) state="${2:-}"; shift 2 ;;
+    --out)   out="${2:-}"; shift 2 ;;
+    *) shift ;;
+  esac
+done
+mode=ok; [ -f "$MODEF" ] && mode="$(cat "$MODEF")"
+case "$mode" in
+  fail) echo "render harness unavailable" >&2; exit 5 ;;
+  *)    printf 'PNG-%s-%s\n' "$route" "$state" > "$out" ;;
+esac
+exit 0
+LEANSTUB
+  LEAN_DCFG="$TMP/lean-config-design.json"
+  cat > "$LEAN_DCFG" <<LEANDCFG
+{
+  "tracker": { "branchPrefix": "claude/acme-", "labels": { "queue": "ready-for-dev", "claimed": "in-progress" } },
+  "topology": { "repos": { "acme": { "path": ".", "baseBranch": "main" } } },
+  "paths": { "plansDir": "docs/plans", "pipelineStateDir": ".claude/pipeline-state" },
+  "commands": { "acme": { "lint": null, "typecheck": null, "test": null, "allowUnverified": true } },
+  "design": { "provider": "figma",
+              "liveRender": { "command": "bash $LEAN_DSTUB --route {route} --state {state} --out {out}" } }
+}
+LEANDCFG
+  LEAN_DPROG="$TMP/lean-progress-design.md"
+  LEAN_DSPEC="$LEAN_DTREE/docs/plans/acme-88-lean.md"
+  lean_dgate() { ( cd "$LEAN_DTREE" && SECOND_SHIFT_CONFIG="$LEAN_DCFG" LEAN_PROGRESS_FILE="$LEAN_DPROG" \
+                   bash "$LEAN_GATE" --issue-file "$LEAN_ISSUE_NOREGIONS" "$@" 2>&1 ); }
+  lean_dcommit() { git -C "$LEAN_DTREE" add -A >/dev/null 2>&1
+                   git -C "$LEAN_DTREE" commit -q --allow-empty -m "${1:-lean design fixture}" >/dev/null 2>&1; }
+  lean_dseed() { rm -f "$LEAN_DPROG"
+                 { echo "# lean run — issue 88"; echo ""; echo "run_id: r-lean-d"; echo "session_id: sess-lean-d-build"; } > "$LEAN_DPROG"; }
+  lean_dverdict() { # lean_dverdict <session> <run-id> [args...]
+    local sid="$1" rid="$2"; shift 2
+    rm -f "$LEAN_DTREE/.claude/pipeline-state/88-review-run-id"
+    ( unset RUN_ID; cd "$LEAN_DTREE" && SECOND_SHIFT_CONFIG="$LEAN_DCFG" LEAN_PROGRESS_FILE="$LEAN_DPROG" \
+      CLAUDE_CODE_SESSION_ID="$sid" RUN_ID="$rid" bash "$LEAN_GATE" verdict 88 "$@" 2>&1 )
+  }
+  {
+    printf '# spec\n\n- AC-1: a thing\n\n## Design\n\nHandoff: https://design.example.invalid/f/a\n\n'
+    printf '| RS-n | route | state | AC refs |\n| --- | --- | --- | --- |\n'
+    printf '| RS-1 | prospects | default | AC-1 |\n| RS-2 | prospects | filters expanded | AC-1 |\n'
+  } > "$LEAN_DSPEC"
+  lean_dcommit "base"
+  git -C "$LEAN_DTREE" update-ref refs/remotes/origin/main HEAD
+  printf 'the work\n' > "$LEAN_DTREE/subject.txt"
+  lean_dcommit "the build session pushes the armed spec"
+
+  # ---- design leg 1: a blocking render red walks the SAME budget to the hard stop --------
+  # D-2's whole point: there is no degraded state, so an unreachable render harness spends the
+  # milestone's attempts and hard-stops exactly as a failing test suite does. If the armed lane
+  # had its own economics this sequence would not be 1/1/1/4.
+  lean_dseed
+  printf 'fail\n' > "$LEAN_DMODE"
+  lean_drcs=""
+  for _ in 1 2 3 4; do lean_dgate 3 88 >/dev/null 2>&1; lean_drcs="$lean_drcs$?"; done
+  [[ "$lean_drcs" == "1114" ]] \
+    && pass "(lean-design-budget) a blocking render failure spends the shared 3-attempt budget and hard-stops (rc=4)" \
+    || fail "(lean-design-budget) exit sequence was $lean_drcs, expected 1114"
+  lean_darmed=$(grep -cF '| milestone-3 | armed |' "$LEAN_DPROG" 2>/dev/null) || lean_darmed=0
+  lean_dattempts=$(grep -cF '| milestone-3 | attempt |' "$LEAN_DPROG" 2>/dev/null) || lean_dattempts=0
+  [[ "$lean_darmed" -eq 1 && "$lean_dattempts" -eq 4 ]] \
+    && pass "(lean-design-budget) the armed record is written once and counts for nothing — 4 attempts, 1 lock" \
+    || fail "(lean-design-budget) armed=$lean_darmed attempts=$lean_dattempts, expected 1 and 4"
+
+  # ---- design leg 2: the receipt commits, then milestone 4 refuses an unscored verdict ----
+  printf 'ok\n' > "$LEAN_DMODE"
+  lean_dseed
+  lean_dgate 3 88 >/dev/null 2>&1; ld_render=$?
+  lean_dcommit "the render receipt"
+  lean_dseed
+  lean_dgate 3 88 >/dev/null 2>&1; ld_green=$?
+  [[ "$ld_render" -eq 1 && "$ld_green" -eq 0 ]] \
+    && pass "(lean-design-render) the receipt reds until committed, then the same evaluation passes" \
+    || fail "(lean-design-render) expected rc 1 then 0, got $ld_render then $ld_green"
+
+  # A review round that scored no fidelity: the handoff must round-trip, not certify.
+  lean_dseed
+  lean_dverdict sess-lean-d-review r-lean-d-review --pr 8 --verdict approve >/dev/null 2>&1
+  lean_dcommit "a verdict that scored no fidelity"
+  lean_dseed
+  lean_dgate 4 88 >/dev/null 2>&1; ld_nofid=$?
+
+  # ...and a stale receipt under an otherwise-fresh verdict — D-10's backstop, composed.
+  lean_dseed
+  lean_dverdict sess-lean-d-review2 r-lean-d-review2 --pr 8 --verdict approve --fidelity pass >/dev/null 2>&1
+  lean_dcommit "a verdict scoring fidelity pass"
+  lean_dseed
+  lean_dgate 4 88 >/dev/null 2>&1; ld_pass=$?
+  printf 'a fix lands after the render\n' > "$LEAN_DTREE/subject.txt"
+  lean_dcommit "a fix, leaving the receipt behind"
+  lean_dseed
+  lean_dverdict sess-lean-d-review3 r-lean-d-review3 --pr 8 --verdict approve --fidelity pass >/dev/null 2>&1
+  lean_dcommit "an honest record on top of a stale receipt"
+  lean_dseed
+  lean_dgate 4 88 >/dev/null 2>&1; ld_stale=$?
+  [[ "$ld_nofid" -eq 1 && "$ld_pass" -eq 0 && "$ld_stale" -eq 1 ]] \
+    && pass "(lean-design-verdict) milestone 4 refuses an unscored verdict, passes a scored one, and refuses a stale receipt under a fresh verdict" \
+    || fail "(lean-design-verdict) expected rc 1/0/1, got $ld_nofid/$ld_pass/$ld_stale"
+
+  # ---- design leg 3: post-approve, `all` reaches the milestone-5 terminal write ----------
+  # The livelock this ordering exists to prevent: the mandated pre-close sweep re-evaluates
+  # milestone 3 AFTER the approve, and a re-render there would rewrite the receipt inside
+  # reviewed_patch_id and void the verdict the run just earned. So the sweep must pass on the
+  # binding alone — with the PNGs deleted, which is also every fresh-worktree resume.
+  lean_dseed
+  lean_dgate 3 88 >/dev/null 2>&1
+  lean_dcommit "the re-rendered receipt for the fixed head"
+  lean_dseed
+  lean_dverdict sess-lean-d-review4 r-lean-d-review4 --pr 8 --verdict approve --fidelity pass >/dev/null 2>&1
+  lean_dcommit "the round-2 record on the fresh receipt"
+  rm -rf "$LEAN_DTREE/.claude/lean-renders/88"
+  cat > "$TMP/lean-design-pr.json" <<'LEANDPR'
+[{ "number": 8, "url": "https://example.invalid/pr/8", "isDraft": false,
+   "body": "Closes #88\n\nSpec: docs/plans/acme-88-lean.md" }]
+LEANDPR
+  cat > "$TMP/lean-design-comments.json" <<'LEANDC'
+[{ "user": { "type": "Bot" }, "created_at": "2026-01-01T00:00:00Z",
+   "body": "<!-- run_id: r-lean-d -->\n<!-- stage: lean-claimed -->" },
+ { "user": { "type": "Bot" }, "created_at": "2026-01-02T00:00:00Z",
+   "body": "Done. Verdict record: docs/plans/acme-88-lean-verdict.md" }]
+LEANDC
+  lean_dseed
+  lean_dgate 1 88 >/dev/null 2>&1; ldf1=$?
+  lean_dgate 2 88 >/dev/null 2>&1; ldf2=$?
+  lean_dgate 3 88 >/dev/null 2>&1; ldf3=$?
+  lean_dgate 4 88 >/dev/null 2>&1; ldf4=$?
+  lean_dgate 5 88 --pr-file "$TMP/lean-design-pr.json" \
+             --comments-file "$TMP/lean-design-comments.json" >/dev/null 2>&1; ldf5=$?
+  [[ "$ldf1$ldf2$ldf3$ldf4$ldf5" == "00000" ]] \
+    && pass "(lean-design-terminal) post-approve, milestones 1-5 all exit 0 with every rendered PNG deleted" \
+    || fail "(lean-design-terminal) exit codes were $ldf1$ldf2$ldf3$ldf4$ldf5, expected 00000"
+  [[ ! -d "$LEAN_DTREE/.claude/lean-renders/88" ]] \
+    && pass "(lean-design-terminal) and nothing re-rendered — the receipt's binding alone carried the sweep" \
+    || fail "(lean-design-terminal) the post-approve sweep re-rendered, which would void the verdict it just earned"
+
+  # ---- non-vacuity for the design legs ---------------------------------------------------
+  # The whole block would stay green if arming never took. Disarm the spec on a run that
+  # already armed and the same chain must red — at milestone 1, before any of it.
+  {
+    printf '# spec\n\n- AC-1: a thing\n\n## Design\n\nDesign: none — reconsidered mid-run.\n'
+  } > "$LEAN_DSPEC"
+  lean_dgate 1 88 >/dev/null 2>&1; ld_nv=$?
+  [[ "$ld_nv" -ne 0 ]] \
+    && pass "(lean-design-nv) non-vacuity: the same chain reds when the armed spec is disarmed mid-run" \
+    || fail "(lean-design-nv) a mid-run disarm passed milestone 1 — the design legs are vacuous"
 fi
 
 

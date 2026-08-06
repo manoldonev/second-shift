@@ -277,7 +277,7 @@ artifact-reviewer-baseline-deltas	verbatim	plugins/design-toolkit/agents/figma-f
 # check-lean-chain-selftest.sh (L) at the CI constants, which exits 2 rather than guessing.
 
 # lean verdict-record key schema (`verdict=`, `run_id:`, `session_id:`, `reviewed_head:`,
-# `reviewed_patch_id:`, `inherited_patch_id:`, `inherited_from_verdict:`) — ONE
+# `reviewed_patch_id:`, `inherited_patch_id:`, `inherited_from_verdict:`, `fidelity:`) — ONE
 # writer (lean-gate.sh's `verdict` subcommand) and THREE readers: lean-gate.sh milestone 4,
 # scripts/check-lean-chain.sh, and lean-reconcile.sh. A real coupling: dropping a key on the
 # writer silently un-satisfies all three readers, and a reader-side requirement the writer
@@ -314,9 +314,16 @@ artifact-reviewer-baseline-deltas	verbatim	plugins/design-toolkit/agents/figma-f
 # a session the record names, and (J1)/(J2) collide two supplied identities — so (J3) was
 # added to make the claim true rather than the claim softened to match the coverage.)
 #
-# `inherited_patch_id:` is the schema's one OPTIONAL-VALUED key and the only one not read
-# first-match — it gets the two rows below rather than a line in this note, because unlike the
-# rest of the schema it IS byte-anchorable. See that entry.
+# `inherited_patch_id:` and `fidelity:` are the schema's OPTIONAL-VALUED keys and the only ones
+# not read first-match — they get the two rows below rather than a line in this note, because
+# unlike the rest of the schema the extraction IS byte-anchorable. See that entry.
+#
+# `fidelity:` (#394) is behaviorally guarded the same composed way as the rest: lean-gate-selftest.sh
+# (fd1)-(fd7) drive the writer's enum, its unconditional emission and the fail-x-approve refusal,
+# then feed the result to the milestone-4 reader; check-lean-chain-selftest.sh (X3)/(X4) do it at
+# the merge boundary. Its VALUE is armed-ness-relative, which no literal can pin: `pass` is
+# required on an armed spec, refused-unless-`not-applicable` on an unarmed one, so the writer and
+# both readers must agree about arming as well as about the key — see the `lean-design-armed` row.
 
 # lean inheritance-key extraction (#375) — the `inherited_key` awk program, held identically by
 # the writer's own reader (lean-gate.sh milestone 4 and its chain walk) and by the two other
@@ -353,6 +360,30 @@ artifact-reviewer-baseline-deltas	verbatim	plugins/design-toolkit/agents/figma-f
 # Revisit if a fourth reader lands.
 lean-inherited-key-chain	verbatim	plugins/dev-pipeline/skills/run-lean/lean-gate.sh	lean-inherited-key	scripts/check-lean-chain.sh	lean-inherited-key
 lean-inherited-key-reconcile	verbatim	plugins/dev-pipeline/skills/run-lean/lean-gate.sh	lean-inherited-key	plugins/dev-pipeline/skills/run-lean/lean-reconcile.sh	lean-inherited-key
+
+# lean design ARMING (#394) — `design_armed`, the awk predicate that decides whether a ticket's
+# committed spec arms the design render lane. Held by lean-gate.sh (which gates on it at
+# milestones 1, 3 and 4) and by scripts/check-lean-chain.sh (which gates the merge on it).
+#
+# The coupling is unusually sharp because the two readers have DIFFERENT INPUTS available and
+# must still agree. The gate ANDs this against config `design.provider`; the boundary cannot —
+# the config is gitignored on every consumer and never reaches a CI checkout — so the boundary
+# runs this predicate alone. Divergence is therefore invisible from either side: a boundary that
+# read arming more narrowly would wave an armed PR through with no render evidence, and one that
+# read it more widely would red honest unarmed work, and in both cases the OTHER site stays green
+# and says so.
+#
+# Only the NARROW decision is shared, deliberately. The gate's richer form validation — a
+# provider handoff link, the neither-armed-nor-disarmed refusal, the reason required on a disarm
+# — is authoring feedback it gives at milestone 1, so a spec failing any of it never reaches a
+# merge and the boundary needs no opinion about it. Sharing those too would force the boundary to
+# carry refusals it can neither act on nor explain.
+#
+# Behavioral guards on both sides: lean-gate-selftest.sh (dz1)-(dz7) at the gate,
+# check-lean-chain-selftest.sh (X1)-(X6) at the boundary, and scenario-liveness-selftest.sh's
+# three (lean-design-*) legs compose the writer's manifest through both readers.
+# Revisit if lean-reconcile.sh grows the receipt arm (#394 defers it) — it becomes a third copy.
+lean-design-armed	verbatim	plugins/dev-pipeline/skills/run-lean/lean-gate.sh	lean-design-armed	scripts/check-lean-chain.sh	lean-design-armed
 
 # intake-receipt vocabulary (Kind enum, disposition enum, intent-gap record schema) —
 # `interviewing-baseline/SKILL.md` states it in prose and tables; `ledger-lint.sh` holds the

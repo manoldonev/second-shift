@@ -928,5 +928,122 @@ if [ "$rc" -eq 0 ] && printf '%s' "$out" | grep -q 'freshness (declared, patch-i
   pass "(W5) a fresh review round over the branch-side fix clears it"
 else fail "(W5) expected rc=0 after a new review round, got rc=$rc: $out"; fi
 
+
+# ---- (X) evidence 8: the armed design render receipt (#394) --------------------------------
+# Armed-ness is derived from the COMMITTED SPEC and never from config: `design.provider` lives in
+# a gitignored file no CI checkout can see, so a config-keyed boundary would read every consumer
+# as unarmed. These cases therefore change the SPEC, never a config, which is also the only lever
+# a real PR gives this gate.
+#
+# (X1) runs FIRST and is the vacuity guard: the whole block asserts nothing if the fixture's
+# baseline spec were already armed.
+out="$(run_gate_base "lean/acme-42" "$WORK/comments-good.json" "$WORK/diff-lean.txt" "main")"; rc=$?
+if [ "$rc" -eq 0 ] && printf '%s' "$out" | grep -q 'declares no armed design render lane'; then
+  pass "(X1) a spec with no '## Design' section is unarmed — the arm prints its absence rather than skipping silently"
+else fail "(X1) expected the unarmed note on a clean run, got rc=$rc: $out"; fi
+
+# A render manifest matching THIS head, written the way the gate writes one. The path suffix is
+# `-lean-renders.md`, which must NOT be picked up by the spec scan's `*-lean.md` first-match —
+# (X2b) asserts that rather than assuming it.
+RENDREC="$TREE/docs/plans/acme-42-lean-renders.md"
+tree_render_id() { # tree_render_id <head-ish>
+  local base
+  base="$(git -C "$TREE" merge-base refs/remotes/origin/main "$1" 2>/dev/null)" || return 0
+  git -C "$TREE" diff "$base" "$1" -- . \
+    ":(exclude)docs/plans/acme-42-lean-verdict.md" ":(exclude)docs/plans/acme-42-lean-renders.md" 2>/dev/null \
+    | git -C "$TREE" patch-id --stable 2>/dev/null | cut -d' ' -f1
+}
+write_render_manifest() { # write_render_manifest <rendered-from>
+  {
+    printf '# lean render manifest — #42\n\n'
+    printf 'rendered_from: %s\n\n' "$1"
+    printf '| RS | route | state | png | sha256 |\n| --- | --- | --- | --- | --- |\n'
+    printf '| RS-1 | prospects | default | .claude/lean-renders/42/RS-1.png | abc123 |\n'
+  } > "$RENDREC"
+}
+# The armed spec. `write_verdict` does not emit `fidelity:`, so the record under test carries
+# none until a case adds one — which is the pre-#394 record shape as well as the forgot-the-flag
+# one, and both must be refused on an armed ticket.
+arm_spec() {
+  {
+    printf '# lean spec\n\n- AC-1: does a thing\n- AC-2: does another\n\n'
+    printf '## Design\n\nHandoff: https://design.example.invalid/f/a\n\n'
+    printf '| RS-n | route | state | AC refs |\n| --- | --- | --- | --- |\n'
+    printf '| RS-1 | prospects | default | AC-1 |\n'
+  } > "$TREE/docs/plans/acme-42-lean.md"
+}
+
+# (X2) ARMED, no receipt committed. The screenshots a fidelity verdict claims to have been scored
+# against are simply not on the branch.
+arm_spec
+commit_tree "the spec arms the design render lane"
+w_pid="$(tree_patch_id HEAD)"
+write_verdict approve r-review-w1 sess-review-w1 "$(git -C "$TREE" rev-parse HEAD)" "$w_pid"
+out="$(run_gate_base "lean/acme-42" "$WORK/comments-good.json" "$WORK/diff-lean.txt" "main")"; rc=$?
+if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q 'no render receipt'; then
+  pass "(X2) an armed spec with no committed render receipt reds the merge boundary"
+else fail "(X2) expected the missing-receipt violation, got rc=$rc: $out"; fi
+
+# (X2b) and the spec the gate resolved is still the SPEC. A receipt whose name ended in `-lean.md`
+# would win the artifact scan's first match and be read as the definition of done.
+if printf '%s' "$out" | grep -q 'spec: docs/plans/acme-42-lean.md'; then
+  pass "(X2b) the '-lean-renders.md' suffix never shadows the '*-lean.md' spec scan"
+else fail "(X2b) the gate did not resolve the real spec: $out"; fi
+
+# (X3) receipt present, verdict scores no fidelity. The pre-#394 record shape and the
+# forgot-the-flag one are the same bytes here, and an armed ticket refuses both — a round that
+# never scored the design has not approved it.
+write_render_manifest "$(tree_render_id HEAD)"
+commit_tree "the render receipt"
+w_pid="$(tree_patch_id HEAD)"
+write_verdict approve r-review-w2 sess-review-w2 "$(git -C "$TREE" rev-parse HEAD)" "$w_pid"
+out="$(run_gate_base "lean/acme-42" "$WORK/comments-good.json" "$WORK/diff-lean.txt" "main")"; rc=$?
+if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q "not 'fidelity: pass'"; then
+  pass "(X3) an armed run refuses a verdict that scores no fidelity"
+else fail "(X3) expected the fidelity violation, got rc=$rc: $out"; fi
+
+# (X4) THE HAPPY PATH: armed spec, committed receipt whose rendered_from is this head's render
+# binding, and a verdict scoring `fidelity: pass`.
+printf 'fidelity: pass\n' >> "$VREC"
+commit_tree "the record scores fidelity"
+# The receipt's binding excludes the verdict record AND itself, so committing either leaves it
+# unchanged — that is what lets the reviewer commit on top of evidence without invalidating it,
+# and (X4) is where the two exclusions are asserted together.
+out="$(run_gate_base "lean/acme-42" "$WORK/comments-good.json" "$WORK/diff-lean.txt" "main")"; rc=$?
+if [ "$rc" -eq 0 ] && printf '%s' "$out" | grep -q 'scored fidelity: pass'; then
+  pass "(X4) an armed run with a fresh receipt and a fidelity: pass verdict passes the boundary"
+else fail "(X4) expected the armed happy path, got rc=$rc: $out"; fi
+
+# (X5) STALENESS. Nothing else about this tree is stale — the verdict is the last commit and both
+# freshness arms stay green — so the receipt is the only thing that can catch a reviewer who
+# scored round-1 screenshots against round-2 code. The receipt is rewritten with a binding that
+# is well-formed and wrong, which is the shape a real stale receipt has.
+write_render_manifest "0000000000000000000000000000000000000000"
+commit_tree "a receipt for a tree this branch no longer is"
+w_pid="$(tree_patch_id HEAD)"
+write_verdict approve r-review-w3 sess-review-w3 "$(git -C "$TREE" rev-parse HEAD)" "$w_pid"
+printf 'fidelity: pass\n' >> "$VREC"
+commit_tree "an honest record on top of a stale receipt"
+out="$(run_gate_base "lean/acme-42" "$WORK/comments-good.json" "$WORK/diff-lean.txt" "main")"; rc=$?
+if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q 'records rendered_from' \
+   && ! printf '%s' "$out" | grep -q 'file(s) changed between that commit and the PR head'; then
+  pass "(X5) a stale rendered_from reds on a tree whose verdict freshness is green"
+else fail "(X5) expected the stale-receipt violation alone, got rc=$rc: $out"; fi
+
+# (X6) DISARMED. The same tree, the same receipt, the same fidelity-less history — with the spec
+# declaring the explicit disarm, the arm is not applicable and the boundary says so. This is what
+# makes (X2)/(X3)/(X5) turn on ARMING rather than on the artifacts being present.
+{
+  printf '# lean spec\n\n- AC-1: does a thing\n- AC-2: does another\n\n'
+  printf '## Design\n\nDesign: none — no FE surface in this ticket.\n'
+} > "$TREE/docs/plans/acme-42-lean.md"
+commit_tree "the spec disarms the design lane"
+w_pid="$(tree_patch_id HEAD)"
+write_verdict approve r-review-w4 sess-review-w4 "$(git -C "$TREE" rev-parse HEAD)" "$w_pid"
+out="$(run_gate_base "lean/acme-42" "$WORK/comments-good.json" "$WORK/diff-lean.txt" "main")"; rc=$?
+if [ "$rc" -eq 0 ] && printf '%s' "$out" | grep -q 'declares no armed design render lane'; then
+  pass "(X6) an explicit 'Design: none' disarm leaves the boundary's design arm not applicable"
+else fail "(X6) expected the disarmed pass, got rc=$rc: $out"; fi
+
 echo "[check-lean-chain-selftest] $([ "$FAILS" -eq 0 ] && echo 'all green' || echo "$FAILS FAILURE(S)")"
 exit "$FAILS"

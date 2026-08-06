@@ -67,6 +67,17 @@
 #      surfaced that the receipt did not cover — that record reads `ratified: yes` and cites
 #      the operator comment that ratified it. Absence of a record is the ordinary case and is
 #      printed, not silently skipped.
+#   8. DESIGN EVIDENCE (#394): if the committed spec ARMS the design render lane — a `## Design`
+#      section declaring at least one `RS-n` render state, with no explicit disarm — then a
+#      render receipt is committed beside it, the verdict scores `fidelity: pass`, and the
+#      receipt's `rendered_from` is the head's own render patch identity. Arming is derived from
+#      the SPEC and never from config: `design.provider` lives in a gitignored file that no CI
+#      checkout can see, so a config-keyed boundary check would be unarmed on every consumer.
+#
+#      SCOPED HONESTLY. This holds for the armed path only. A spec that never carries a
+#      `## Design` section is indistinguishable here from honest unarmed work — the residual
+#      defense is review-lean's blocker on an unjustified disarm in a provider repo, which is a
+#      judgment this model-free gate cannot make.
 #
 # HONEST ALTITUDE: like its sibling, this is tamper-EVIDENCE, not proof. The agent writes
 # artifacts 1 and 2. Forging one is easy; forging all three consistently, across a committed
@@ -129,7 +140,7 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --comments-file)   COMMENTS_FILE="${2:-}"; shift 2 ;;
     --diff-files-file) DIFF_FILES_FILE="${2:-}"; shift 2 ;;
-    -h|--help) sed -n '2,121p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,132p' "$0"; exit 0 ;;
     *) echo "[lean-chain] unknown argument: $1" >&2; exit 2 ;;
   esac
 done
@@ -142,9 +153,14 @@ envfail() { echo "[lean-chain] $1" >&2; exit 2; }
 # record (`*-lean-verdict.md`) — that is why both are anchored at the END of the filename
 # rather than matched as substrings. lean-gate.sh derives the same two names from config;
 # here they are patterns, because CI has no access to the gitignored runtime config.
+#
+# `-lean-renders.md` (#394) is anchored for the same reason and with the same care: it must not
+# end in `-lean.md`, or the artifact arm's FIRST-match spec scan would pick a render receipt and
+# call it the spec.
 LEAN_SPEC_SUFFIX='-lean.md'
 LEAN_VERDICT_SUFFIX='-lean-verdict.md'
 LEAN_INTENT_GAP_SUFFIX='-lean-intent-gap.md'
+LEAN_RENDER_SUFFIX='-lean-renders.md'
 # LOCKSTEP-END lean-chain-artifact-patterns
 
 # Fixture paths are lean-shaped ON PURPOSE (the selftests below need lean-looking files), so
@@ -166,39 +182,55 @@ record_key_at() { # record_key_at <key> <commit> <path>
 }
 
 # LOCKSTEP-BEGIN lean-inherited-key
-# `inherited_patch_id`, read from the record's HEADER BLOCK only, with the `none` sentinel
-# normalized to empty. Record on stdin; prints nothing when the round inherits nothing.
+# Any key of the verdict record, read from its HEADER BLOCK only. Record on stdin; prints
+# nothing when the key is absent from that block.
 #
-# HEADER-ANCHORED, unlike every other key in this schema, and the asymmetry is the whole point.
-# First-match-anywhere is safe for the other keys because the writer ALWAYS emits them above the
-# body, so the authentic value wins the race against any prose below it. This key is the first
-# one that could be ABSENT — a chain root wrote no inheritance, and records predating the key
-# carry none — and a race has no winner when one side never entered it: the first match in the
-# file is then whatever the reviewer's own findings contain. Review prose about this feature
-# quotes these keys, so the triggering round is every review of a PR that touches inheritance,
-# not a crafted one. The value lands where a CLAIM OF INHERITED COVERAGE is read, which is the
-# inverse of the property the chain exists to prove.
+# HEADER-ANCHORED, unlike the first-match reads elsewhere in this schema, and the asymmetry is
+# the whole point. First-match-anywhere is safe for a key the writer ALWAYS emits with a
+# meaningful value, because the authentic value wins the race against any prose below it. It is
+# NOT safe for a key that can be ABSENT — a chain root wrote no inheritance, records predating a
+# key carry none — because a race has no winner when one side never entered it: the first match
+# in the file is then whatever the reviewer's own findings contain. Review prose about these
+# features quotes these keys, so the triggering round is every review of a PR that touches them,
+# not a crafted one. The value lands where a CLAIM OF COVERAGE (or of design fidelity) is read,
+# which is the inverse of the property those keys exist to prove.
 #
-# The writer's half of the same fix emits the key unconditionally and makes absence a written
-# fact; this half covers the records that writer did not produce — a pre-#375 root record still
-# sitting on an in-flight branch, which every chain walk on that branch reads through.
+# The writer's half of the same fix emits both optional keys unconditionally and makes absence a
+# written fact; this half covers the records that writer did not produce — a pre-#375 root
+# record still sitting on an in-flight branch, which every chain walk on that branch reads
+# through, and every record written before `fidelity:` existed.
+#
+# PARAMETERIZED rather than duplicated (#394). `fidelity:` needs exactly this anchoring for
+# exactly this reason, and a second awk program spelled the same way would be a second thing to
+# keep in lockstep across all three readers — the drift these markers exist to prevent, forked
+# in the act of preventing it.
 #
 # The header block is the first run of `key: value` / `verdict=` lines, ending at the blank line
 # the writer emits before the body. A record whose keys are NOT in that shape (the earliest
 # records wrote `verdict=` as a bullet or a table cell) never opens the block, so nothing is
 # extracted and the round reads as a root — fail-closed, and correct: those records predate
 # inheritance entirely.
-inherited_key() { # inherited_key   (record on stdin)
-  awk '
+header_key() { # header_key <key>   (record on stdin)
+  awk -v k="$1" '
     /^[A-Za-z_][A-Za-z0-9_]*[:=]/ { hdr = 1 }
     hdr && /^[[:space:]]*$/ { exit }
-    hdr && /^inherited_patch_id:[[:space:]]*[A-Za-z0-9._-]+/ {
-      sub(/^inherited_patch_id:[[:space:]]*/, "")
+    hdr && $0 ~ "^" k ":[[:space:]]*[A-Za-z0-9._-]+" {
+      sub("^" k ":[[:space:]]*", "")
       sub(/[^A-Za-z0-9._-].*$/, "")
-      if ($0 != "none") printf "%s", $0
+      printf "%s", $0
       exit
     }
   '
+}
+
+# `inherited_patch_id` with the `none` sentinel normalized to empty — the shape every chain
+# reader wants. The sentinel lives HERE and not in header_key because it is inheritance's, not
+# the schema's: `fidelity: none` is not a value, so a generic reader that swallowed `none` would
+# be silently lenient about a key whose enum never contains it.
+inherited_key() { # inherited_key   (record on stdin)
+  local v
+  v="$(header_key inherited_patch_id)"
+  [ "$v" = "none" ] || printf '%s' "$v"
 }
 # LOCKSTEP-END lean-inherited-key
 
@@ -207,6 +239,38 @@ inherited_key() { # inherited_key   (record on stdin)
 inherited_key_at() { # inherited_key_at <commit> <path>
   git -C "$REPO_ROOT" show "$1:$2" 2>/dev/null | inherited_key
 }
+
+# LOCKSTEP-BEGIN lean-design-armed
+# Armed-ness exactly as the COMMITTED SPEC declares it. Spec on stdin; prints `armed`, or
+# nothing at all.
+#
+# TWO READERS, which is why this is a marker block and not a private helper: check-lean-chain.sh
+# must reach the same answer from a CI checkout that cannot see the runtime config at all (it is
+# gitignored on every consumer, this repo included). A boundary that decided armed-ness
+# differently from the gate would either wave an armed PR through with no evidence or red an
+# honest unarmed one, and neither divergence is visible from either side alone.
+#
+# The shared predicate is deliberately the NARROW one — at least one `| RS-n |` render-state row
+# and no explicit `Design: none` disarm. Everything else the gate checks about the section (a
+# provider handoff link, the neither-form refusal, the reason on a disarm) is an AUTHORING error
+# it refuses at milestone 1, so a spec that fails those never reaches a merge and the boundary
+# never needs an opinion about it. Keeping the shared decision to what both sides can compute
+# identically is what stops the two from drifting.
+#
+# The heading matches at any depth and case-folded (`## Design`, `### DESIGN`), and ANY heading
+# closes the section — the flat rule a reader can predict, the same one jira_items_section uses.
+# `#+[[:space:]]`, never `#{1,6}`: interval expressions are not portable across the awks this
+# ships on, and the space is required because `##Design` is literal text to CommonMark.
+design_armed() { # design_armed   (spec on stdin)
+  awk '
+    tolower($0) ~ /^#+[[:space:]]+design[[:space:]]*$/ { insec = 1; next }
+    insec && /^#+[[:space:]]/ { insec = 0 }
+    insec && tolower($0) ~ /^[[:space:]]*design:[[:space:]]*none([[:space:]]|$)/ { disarmed = 1; exit }
+    insec && /^[[:space:]]*\|[[:space:]]*RS-[0-9]+[[:space:]]*\|/ { rows = 1 }
+    END { if (rows && !disarmed) print "armed" }
+  '
+}
+# LOCKSTEP-END lean-design-armed
 
 # ---- (1) env constants: fail closed, never "exempt" -------------------------------------
 # An unresolvable prefix must never degrade into "not applicable". Same posture as the
@@ -658,7 +722,60 @@ else
   fi
 fi
 
-# ---- (12) verdict -----------------------------------------------------------------------
+# ---- (12) evidence 8: armed design runs carry a fresh render receipt (#394) ---------------
+# Skipped when there is no committed spec — already a violation, and "armed-ness unresolvable"
+# on top of "no spec" is noise. Absence of arming is the ordinary case and is PRINTED, so a
+# reader of the log can tell "this ticket declared no design lane" from "the arm never ran".
+if [[ -n "$SPEC" ]]; then
+  if [[ "$(design_armed < "$REPO_ROOT/$SPEC")" != "armed" ]]; then
+    echo "[lean-chain]   · spec declares no armed design render lane — design evidence not applicable."
+  else
+    RENDERS=""
+    while IFS= read -r f; do
+      is_fixture_path "${f#"$REPO_ROOT/"}" && continue
+      case "$(basename "$f")" in *"-$KEY$LEAN_RENDER_SUFFIX") RENDERS="${f#"$REPO_ROOT/"}"; break ;; esac
+    done < <(find "$REPO_ROOT" -name "*$LEAN_RENDER_SUFFIX" -type f 2>/dev/null)
+
+    if [[ -z "$RENDERS" ]]; then
+      note_violation "spec '$SPEC' arms the design render lane, but no render receipt (a file named *-$KEY$LEAN_RENDER_SUFFIX) is committed. The screenshots a fidelity verdict was scored against are not in this branch, so nothing here attests that any render happened."
+    elif [[ -z "$VERDICT" ]]; then
+      echo "[lean-chain]   · render receipt present ($RENDERS), but there is no verdict record to score fidelity against — already reported above."
+    else
+      # HEADER-ANCHORED, like `inherited_patch_id` and for the same reason: `fidelity:` can be
+      # absent (every record written before the key existed) and review prose discusses fidelity,
+      # so a first-match-anywhere read would take its value from the reviewer's own findings.
+      VERDICT_FIDELITY="$(header_key fidelity < "$REPO_ROOT/$VERDICT")"
+      if [[ "$VERDICT_FIDELITY" != "pass" ]]; then
+        note_violation "spec '$SPEC' arms the design render lane, but verdict record '$VERDICT' reads 'fidelity: ${VERDICT_FIDELITY:-<none>}', not 'fidelity: pass'. An armed ticket is approved only once a design-sighted review round scored its declared render states."
+      else
+        RENDERED_FROM="$(grep -oE 'rendered_from:[[:space:]]*[A-Za-z0-9._-]+' "$REPO_ROOT/$RENDERS" 2>/dev/null | head -n1 | sed -E 's/rendered_from:[[:space:]]*//')"
+        if [[ -z "$RENDERED_FROM" ]]; then
+          note_violation "render receipt '$RENDERS' carries no 'rendered_from:' key, so nothing states which tree it screenshotted — the receipt cannot be dated against the code being merged."
+        else
+          # The render binding: the branch's patch identity with BOTH self-referential artifacts
+          # excluded — the verdict record (as evidence 5 excludes it) and the receipt itself,
+          # which records this very value. lean-gate.sh's render_patch_id() computes the same
+          # thing from the build side; the two must agree on base, range and exclusions or every
+          # correct receipt reads stale.
+          [[ -n "${PR_BASE_REF:-}" ]] \
+            || envfail "spec '$SPEC' arms the design render lane, but PR_BASE_REF is unset or empty — the render binding cannot be recomputed without a base to measure from. Set it on the pr-gates job."
+          CUR_RENDER_ID="$(git -C "$REPO_ROOT" diff "$(git -C "$REPO_ROOT" merge-base "origin/$PR_BASE_REF" "$PR_HEAD_SHA" 2>/dev/null)" \
+            "$PR_HEAD_SHA" -- . ":(exclude)$VERDICT" ":(exclude)$RENDERS" 2>/dev/null \
+            | git -C "$REPO_ROOT" patch-id --stable 2>/dev/null | cut -d' ' -f1)"
+          if [[ -z "$CUR_RENDER_ID" ]]; then
+            envfail "cannot compute this branch's render patch identity against origin/$PR_BASE_REF — the merge-base is unresolvable (fetch-depth: 0 is required), or the branch's diff excluding '$VERDICT' and '$RENDERS' is empty. A check that cannot run must not report a pass."
+          elif [[ "$CUR_RENDER_ID" != "$RENDERED_FROM" ]]; then
+            note_violation "render receipt '$RENDERS' records rendered_from ${RENDERED_FROM:0:12}, but this branch renders from ${CUR_RENDER_ID:0:12}. The approved fidelity was scored against screenshots of different code — re-render, commit the fresh receipt, and run another review round."
+          else
+            echo "[lean-chain]   ✓ design evidence: $RENDERS (rendered_from ${CUR_RENDER_ID:0:12}) scored fidelity: pass"
+          fi
+        fi
+      fi
+    fi
+  fi
+fi
+
+# ---- (13) verdict -----------------------------------------------------------------------
 if [[ "$violations" -gt 0 ]]; then
   echo "[lean-chain] ✗ $violations evidence artifact(s) missing for lean PR on #$KEY." >&2
   echo "[lean-chain]   The remedy is producing the missing artifact — there is no waiver." >&2
