@@ -64,10 +64,10 @@ plugins/review-toolkit/agents/scope-completeness-reviewer.md	2748	18080	1
 plugins/review-toolkit/agents/security-reviewer.md	2459	18037	0
 plugins/review-toolkit/agents/spec-reviewer.md	1451	10031	0
 plugins/review-toolkit/agents/structured-emitter.md	332	2145	0
-plugins/review-toolkit/agents/test-coverage-reviewer.md	1626	10803	0
-plugins/review-toolkit/agents/unit-test-mutation-reviewer.md	1133	8261	0
+plugins/review-toolkit/agents/test-coverage-reviewer.md	1739	11337	0
+plugins/review-toolkit/agents/unit-test-mutation-reviewer.md	1306	9377	0
 plugins/review-toolkit/agents/unit-test-plan-reviewer.md	564	4509	0
-plugins/review-toolkit/skills/mutation-review/SKILL.md	1037	7887	0
+plugins/review-toolkit/skills/mutation-review/SKILL.md	1118	8355	0
 plugins/review-toolkit/skills/review-lead/SKILL.md	4895	36199	4
 plugins/review-toolkit/skills/reviewer-baseline/SKILL.md	2132	14373	0
 plugins/second-shift/skills/doctor/SKILL.md	281	2046	0

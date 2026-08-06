@@ -545,5 +545,72 @@ console.log('── Case N: intake-review.mjs referencedDocs content injection')
   ok('N4 an empty referencedDocs emits no docs note or block on either prompt', noNote)
 }
 
+// ---------------------------------------------------------------------------
+// Case P — unit-tests.mjs's mutation-review dispatch carries the decorative-test
+// audit (#410).
+//
+// The instruction lives in three places: the agent's own .md (its system prompt),
+// the mutation-review skill, and this dispatch prompt. Only the third is reachable
+// by a model-free test — the other two are markdown, where a presence grep is the
+// banned class. So this case pins the seam execution CAN see: run the real
+// unit-tests.mjs body and read what it actually dispatched.
+//
+// P2/P3 are the killer pair. P2 alone would stay green if the clause were hoisted
+// above the kind branch and sent on every dispatch — which would put a mutation-only
+// instruction in front of the plan reviewer. P3 pins the opposite branch: the two
+// must DIFFER. P1 is the anti-vacuity leg — without it a mis-keyed args.kind would
+// assert against the plan-review prompt and pass for the wrong reason.
+// ---------------------------------------------------------------------------
+console.log('── Case P: unit-tests.mjs decorative-test audit in the dispatch (#410)')
+
+const UNIT_TESTS_MJS = join(HERE, 'unit-tests.mjs')
+
+const runUnitTests = (behaviors, argsOverride = {}) => {
+  const f = makeFakeAgent(behaviors)
+  const args = {
+    kind: 'mutation-review',
+    worktree: '/tmp/wt',
+    target: 'unit-test-mutation-reviewer',
+    base: 'aaa',
+    head: 'bbb',
+    issue: '410',
+    inputs: {},
+    config: { reviewers: {} },
+    ...argsOverride,
+  }
+  return makeRunner(UNIT_TESTS_MJS)(f.agent, parallel, pipeline, args, noop, noop, undefined).then((r) => ({
+    result: r,
+    calls: f.calls,
+  }))
+}
+
+// unit-tests.mjs carries TWO schemas and validateShape rejects a near-miss, so the
+// canned block has to match the branch under test (mutants+summary vs verdict+findings).
+const mutationBlock = () => reviewBlock({ mutants: [], mockAuditFindings: [], summary: 's' })
+const planBlock = () => reviewBlock({ verdict: 'pass', findings: [], summary: 's' })
+
+{
+  const { result, calls } = await runUnitTests([mutationBlock()])
+  const p = String(calls[0]?.prompt ?? '')
+  ok(
+    'P1 the mutation-review branch dispatched to the mutation reviewer (anti-vacuity)',
+    calls[0]?.opts?.agentType === 'review-toolkit:unit-test-mutation-reviewer' && /PROPOSE-ONLY mode/.test(p),
+  )
+  ok('P1 the canned proposal is consumed, so the dispatch resolved rather than dying dark', !!result?.result && !result.result.infraFailure)
+  ok('P2 the dispatch prompt names the decorative-test audit', /decorative added tests/.test(p))
+  ok('P2 it carries the criterion, not just the label', /only killer of no proposed mutant/.test(p))
+}
+{
+  // P3 — the SAME workflow on the plan-review branch must not carry the clause.
+  const { calls } = await runUnitTests([planBlock()], {
+    kind: 'plan-review',
+    target: 'unit-test-plan-reviewer',
+    inputs: { planPath: 'docs/plans/p.md' },
+  })
+  const p = String(calls[0]?.prompt ?? '')
+  ok('P3 the plan-review prompt was actually dispatched (anti-vacuity)', /Review the unit test strategy/.test(p))
+  ok('P3 the decorative-test clause is scoped to the mutation-review branch', !/decorative/.test(p))
+}
+
 console.log(`\n[runtime-shim-selftest] ${PASS} passed, ${FAIL} failed`)
 process.exit(FAIL)

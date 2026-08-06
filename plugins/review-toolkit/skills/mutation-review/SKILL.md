@@ -51,6 +51,7 @@ For each changed production file in the diff (the **reviewer's** job, propose-on
 3. Trace each mutant against the spec: **killed** (assertion fails), **survived** (tests still pass), **untested** (no path reaches code).
 4. For each **blocker-class** mutant predicted survived/untested, emit a uniquely-matching `{ originalSnippet, mutatedSnippet }` patch + the `specPath` — so the executor can verify it. If you cannot produce a unique snippet, downgrade to `warning` (an unverifiable mutant must never block).
 5. Flag mock-only specs where every assertion is call-count without argument inspection.
+6. **Decorative tests** — the mirror question, nearly free once step 3 is done. For each test **added in the range**, name the mutant it alone kills. If there is none — it kills nothing, or a cheaper sibling kills everything it does — report it on the propose-mode advisory channel with the remedy: delete it, or fold its fixture into the case that already covers the rule. `warning`/`note` only, never blocker-class, so this axis can never discount a coverage floor.
 
 The **sequencer's executor agent** then, per blocker-class patch: apply → run the configured `test` command against `<specPath>` → test failure means **killed** (drop) / all pass means **survived** (keep blocker) → revert (always, even on error). A handful of targeted runs — not a full mutation matrix.
 
