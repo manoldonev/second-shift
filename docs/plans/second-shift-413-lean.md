@@ -35,6 +35,7 @@ confirmation a selftest case driven through the real gate, not prose.
 
 ## Scope
 
+`tools/mutation-slow-suites.tsv` (added after the first CI run — see AC-16),
 `plugins/dev-pipeline/skills/run-lean/branch-prefix.sh` **[NEW]** and its selftest,
 `plugins/dev-pipeline/skills/run-lean/lean-gate.sh` + `lean-gate-selftest.sh`,
 `plugins/dev-pipeline/skills/run-lean/SKILL.md`,
@@ -146,3 +147,20 @@ rendered surface.
   `origin/main`). This change moves them to 992 and 3296, altering no row's pass/fail state and
   leaving the repo-wide fail count at 19. Splicing two rows would reset budgets this change did
   not blow and would read as a claim it had.
+
+- **AC-16.** (added mid-run, after CI) The PR-lane mutation sweep completes inside its
+  `timeout-minutes: 15` step bound. `tools/mutation-slow-suites.tsv` gains the two paired
+  suites that meet its own stated ≥ 5s membership criterion but were missing from it —
+  `lean-gate-selftest.sh` and `check-lean-chain-selftest.sh` — so the lane's existing deferral
+  valve can fire on them. The guard this change **introduces** (`branch-prefix.sh`) is still
+  swept on the PR lane, not deferred. The step timeout is **not** raised: the bound was not
+  wrong, the data feeding it was absent.
+
+  Rationale, so the coverage cost is a decision and not a side effect: the first CI run
+  cancelled `lint-and-selftests` at that step. This diff touches five guards, and two of their
+  killers run 38s and 16s — a 53-mutant enumeration against them. Those two suites were being
+  treated as fast solely because the list did not name them, so the PR lane swept guards its
+  own policy says to defer. The consequence is that `lean-gate.sh` and `check-lean-chain.sh`
+  now defer to nightly on every PR, which is the policy the repo already wrote for
+  `statectl.sh` and `scenario-liveness-selftest.sh`; it simply was not being applied.
+

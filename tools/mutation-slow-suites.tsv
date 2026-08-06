@@ -4,6 +4,16 @@
 # A paired suite ABSENT from this file is treated as fast.
 #
 # selftest<TAB>seconds<TAB>measured_at   (seconds from the seed run's unmutated precheck; ISO-8601 date)
+#
+# The two 2026-08-06 rows are NOT from a seed run — they are serial, unloaded macOS
+# measurements taken while diagnosing a PR-lane step timeout (#413). Both suites clear the 5s
+# membership criterion by a wide margin on any platform, which is the only thing membership
+# turns on; the SECONDS are a local observation and the next seed run should overwrite them.
+# Their absence was the timeout: `lean-gate.sh` and `check-lean-chain.sh` were being swept on
+# the PR lane as though their killers were fast, and a diff touching both (plus three more
+# guards) enumerated 53 mutants against a 38s and a 16s suite. Deferral is what the lane's
+# time bound is made of, and it could not fire on data that did not exist.
+plugins/dev-pipeline/skills/run-lean/lean-gate-selftest.sh	38	2026-08-06
 plugins/dev-pipeline/skills/run/e2e-replay-selftest.sh	9	2026-07-31
 plugins/dev-pipeline/skills/run/scenario-liveness-selftest.sh	31	2026-07-31
 plugins/dev-pipeline/skills/run/statectl-selftest.sh	149	2026-07-31
@@ -11,3 +21,4 @@ plugins/dev-pipeline/skills/run/tools/cost-block-selftest.sh	30	2026-07-31
 plugins/dev-pipeline/skills/run/tools/preflight-selftest.sh	8	2026-07-31
 plugins/dev-pipeline/skills/run/verifyctl-selftest.sh	11	2026-07-31
 plugins/intake-toolkit/hooks/exitplan-ledger-gate-selftest.sh	5	2026-07-31
+scripts/check-lean-chain-selftest.sh	16	2026-08-06
