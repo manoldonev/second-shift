@@ -21,7 +21,7 @@ there — a `tracker.writes: false` adapter’s audit trail is the run’s own r
 `run` lane’s state file, the lean lane’s progress file) plus the PR metadata, not the
 ticket.
 
-The table below is the **`run` lane’s** operation contract; the lean lane’s three
+The table below is the **`run` lane’s** operation contract; the lean lane’s
 adapter-sensitive operations follow it.
 
 | Operation | github (`tracker.type: github`) | jira (`tracker.type: jira`) |
