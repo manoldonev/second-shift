@@ -175,6 +175,73 @@ Based on the issue body and labels, classify as:
 
 **Edge case**: If a "bug" is actually a rewrite (e.g., "auth flow is fundamentally broken — rebuild it"), reclassify as feature/refactor and proceed with full analysis. Comment the reclassification on the issue.
 
+### Step 1.5: Pair-Repo Title Check (only when `topology.type: be-fe-pair`)
+
+**Applicability.** This step runs only when the repo's own config declares
+`topology.type: be-fe-pair` — the same config the staged lane's Stage 1.T already reads
+`topology.repos.<id>.ticketTag` from (e.g. `"[BE]"` / `"[FE]"` on the `be`/`fe` entries; no
+new field, no onboarding change). A `standalone` or `monorepo` repo has no `ticketTag` at
+all and nothing to check here — skip straight to Step 2. Under the lean lane this reading
+is **intake policy, never a gate**: `lean-gate.sh` does not read `ticketTag` and this check
+does not touch it either — it is this skill deciding whether to proceed, not a mechanic
+`lean-gate.sh` enforces.
+
+**The check.** The predicate is the **configured tag values**, not bracket shape. Resolve
+them first, with the same `contains` semantics Stage 1.T uses:
+
+```bash
+CONFIG="${SECOND_SHIFT_CONFIG:-$(git rev-parse --show-toplevel)/.claude/second-shift.config.json}"
+# $TITLE = the fetched issue/ticket title (github: `gh issue view`; jira: the summary).
+MATCHED=$(jq -r --arg t "$TITLE" '
+  [ .topology.repos | to_entries[]
+    | select((.value.ticketTag // "") as $tag | $tag != "" and ($t | contains($tag)))
+    | .key ] | join(" ")' "$CONFIG")
+DECLARED=$(jq -r '[ .topology.repos[] | .ticketTag // "" | select(. != "") ] | length' "$CONFIG")
+```
+
+A title may carry any number of other bracket tokens (`[BUG]`, `[urgent]`, a team prefix);
+they are not tags of this pair and this step ignores them, exactly as Stage 1.T does.
+Branch on how many of the **declared** tags matched:
+
+- **`DECLARED` is under 2 — the pair does not declare a tag on both entries.** Nothing to
+  check: skip to Step 2 and say so in the intake comment (this repo's pair config does not
+  tag both sides, so which side a ticket targets is the filer's to state in the body). Never
+  reject here — the ticket is not defective, the config simply does not declare the tags the
+  rule reads. `ticketTag` is optional in the schema and `/second-shift:onboard`'s
+  confirmed-pair draft does not emit it at all, so an untagged pair is the *ordinary* shape
+  of a freshly onboarded one, not an edge case; a half-tagged pair fails the same way for the
+  untagged side alone. (Same reasoning that gates the whole step on `be-fe-pair`: a rule keyed
+  on two tags cannot fire where two tags do not exist.)
+- **Exactly one declared tag matched** — this ticket belongs to that side. Proceed to Step 2
+  normally (BE-tagged work stays here; an FE-tagged ticket in a BE repo's queue is a routing
+  mistake — comment saying so and stop, same label as below).
+- **Both declared tags matched** — the ticket declares cross-repo scope but was filed as a
+  single ticket. **Reject at intake exit**: do not dispatch spec-reviewer, do not attempt to
+  guess a split from the title alone. Comment explaining that a pair ticket is never worked
+  as one artifact — same principle as the stacked-PR retirement — and that it needs either
+  two single-tagged tickets, or (if the scope genuinely spans both repos) to be handed to
+  this step's own decomposition path once re-filed with a single tag — see Step 4's
+  cross-repo admission rule.
+- **Neither declared tag matched** (whatever else the title carries) — same terminal reject,
+  different reason: nothing tells a human, or the future thin orchestrator, which side of
+  the pair this ticket targets. Comment asking for the single correct tag in the title, and
+  stop.
+
+**github:** label `needs-spec-work` on either reject — this is a filing-convention defect,
+not a judgment call, so it is not `needs-intake-review`. _(jira: tracker delta.)_ no label
+exists to set; present the same comment content to the operator and STOP, per this skill's
+existing jira escalation posture.
+
+The two rejects stand in different relations to the staged lane. The **neither** reject is a
+structural improvement on Stage 1.T's `targetRepos-ambiguous` failure, which surfaces at
+pipeline runtime and lets interactive mode ask its way past the ambiguity; here the same
+ambiguity is caught before a single agent dispatches, and it is terminal rather than
+negotiable. The **both** reject improves on nothing — Stage 1.T explicitly supports both tags
+(`TARGET_REPOS="be fe"`) and the staged lane runs that ticket as one cross-repo run. It is a
+filing defect only under the lean lane, where that one-run-two-repos shape has no successor:
+`lean-gate.sh` routes by invocation cwd. The work is not refused, it is re-shaped — into
+ordered per-repo tickets at Step 4.
+
 ### Step 2: Gather Evidence (structured intake fan-out)
 
 Evidence-gathering is a fan-out of `spec-reviewer` + `codebase-explorer` that returns **rationale-carrying structured findings**, not prose. The orchestrator reasons over the structured object (Step 3) — `{ verdict, findings[] }` for spec-reviewer (each finding carries `severity`/`claim`/`rationale`/`confidence`) and `{ modulesAffected, crossModuleDependencies, estimatedScope, findings[] }` for codebase-explorer.
@@ -258,6 +325,30 @@ Evidence-gathering is a fan-out of `spec-reviewer` + `codebase-explorer` that re
 - Each part is meaningful and reviewable on its own
 
 The slices file as ordinary sub-issues, exactly like the parallel flavor — what differs is **ordering**, not branch topology. Every slice is a plain single-PR run against the configured `baseBranch`; ordering is carried by `Predecessor:` / `Successor:` body trailers and enforced by keeping blocked successors out of the queue (Step 6).
+
+**Cross-repo admission rule (pair topology only — not a new verdict).** When
+`topology.type: be-fe-pair` (Step 1.5) and the spec's scope genuinely crosses into the
+sibling repo — codebase-explorer's impact surface, or the spec text itself, names behavior
+that lives on the other side of the pair — this is the `sub-issues-sequential` verdict
+above with one admission difference: the two slices are not both filed in this repo.
+
+- The slice for THIS repo files exactly like any other sub-issue (Step 6).
+- The slice for the sibling repo is filed in **the sibling's own tracker**, not this one —
+  resolve the sibling's identity from this config's own `topology.repos.<sibling-id>.path`
+  entry (reading that path's own git remote, if reachable in-session, for the
+  `owner/repo` `--repo` argument). **Cannot resolve it → escalate `needs-intake-review` and
+  ask the operator; never guess a slug.**
+- Default ordering is BE before FE — the FE slice's spec pins the BE slice's landed API
+  contract **as currently specified**, plus an explicit reconcile obligation in its body:
+  at promotion (when the BE PR merges and the queue label is about to go on), confirm the
+  landed contract still matches what the FE spec pinned, edit the body if it drifted, then
+  apply the label — one line beside the existing "queue when `<predecessor>` is closed"
+  note the sequential flavor already writes (Step 6 item 3). No new machinery: this is the
+  existing ordering promotion, plus one sentence.
+- Title each slice with its own single `ticketTag`, so a human or the thin orchestrator can
+  route it correctly without re-reading the spec.
+- This is the **only** path that produces a ticket in the sibling's tracker — a routine
+  same-repo decomposition never does.
 
 **Verdict: `no-split`**
 
@@ -356,6 +447,11 @@ $GH_BOT_SH issue create --title "[slice N title]" --body "$BODY_N"   # no --labe
    Keeping blocked successors **out of the queue** is the ordering enforcement — not rejecting them after they are claimed. Promotion is an operator action at merge time: merging the predecessor's PR is already the serialization point, so labelling the successor rides that same action (Stage 9 renders the reminder on the predecessor's PR). No claim is ever burned and no failed state file is created for the routine blocked case. `../predecessor-gate.sh` is only the pre-claim backstop for a successor that got labelled early.
 
    _(jira: tracker delta.)_
+
+   **Cross-repo admission rule only (Step 4, pair topology):** the sibling's slice is created with
+   `--repo <resolved-sibling>` instead of the implicit current repo, everything else about
+   its trailers/labelling identical to the ordered flavor above. This is the one case in
+   this skill where a sub-issue is filed anywhere other than the current repo's tracker.
 
 5. Update parent issue (github adapter):
 

@@ -20,6 +20,14 @@ CONTRIBUTING snippet).
 4. Dry-run: pick a small ticket with no external-infrastructure acceptance criteria and
    run `/dev-pipeline:run-lean <ticket>` end to end before inviting the team.
 
+**A BE/FE pair needs Day 0 a second time, in the sibling repo.** Step 2's confirmed-pair
+`be-fe-pair` config is unchanged and is what the deprecated staged lane reads; the lean
+lane has no per-repo worktree map, so working the pair from `/dev-pipeline:run-lean` needs
+the sibling onboarded on its own too — its own config, own bot identity, own worktrees dir
+(detection reports plain `standalone` from that side, no extra prompts). See
+[onboarding.md § Pair repos](onboarding.md#pair-repos-befe-under-the-lean-lane).
+**FE-tagged tickets run from the FE repo's own champion setup.**
+
 **Champion's-machine caveat:** the machine that develops or first registers the
 marketplace often carries a **ref-less user-scope registration**, which shadows the
 project pin *on that machine only*. `/second-shift:doctor` flags it (WARN, not FAIL);
