@@ -20,7 +20,7 @@
 # Seeded from the guard's first run: 55 suites, 51 pass, 4 listed. plan-lint-selftest.sh and
 # design-sync-selftest.mjs are deliberately ABSENT — both were fixed rather than listed, and
 # so was workflows-mjs-selftest.sh, which was red only because it invokes design-sync's.
-plugins/dev-pipeline/skills/run/tools/config-lint-selftest.sh	needs schema/second-shift.config.schema.json, which lives in this repo and is not shipped inside any plugin. #421 class A.
-plugins/review-toolkit/scripts/check-review-context-sections-selftest.sh	needs docs/extension-points.md, which lives in this repo and is not shipped inside any plugin. #421 class A.
-plugins/review-toolkit/scripts/check-emit-deadline-selftest.sh	check-emit-deadline.sh derives REPO as $HERE/../../.. and globs $REPO/plugins/*/agents; from an install that is the cache root, so zero agents are linted and four assertions expecting named agents fail. #421 class B.
-plugins/second-shift/skills/doctor/tools/doctor-selftest.sh	resolves its review-toolkit sibling as $HERE/../../../../review-toolkit, a fixed hop count that only holds in the monorepo, so the resolved scenario degrades into the unresolved one. #421 class B.
+plugins/dev-pipeline/skills/run/tools/config-lint-selftest.sh	needs schema/second-shift.config.schema.json, which lives in this repo and is not shipped inside any plugin.
+plugins/review-toolkit/scripts/check-review-context-sections-selftest.sh	needs docs/extension-points.md, which lives in this repo and is not shipped inside any plugin.
+plugins/review-toolkit/scripts/check-emit-deadline-selftest.sh	check-emit-deadline.sh derives REPO as $HERE/../../.. and globs $REPO/plugins/*/agents; from an install that is the cache root, so zero agents are linted and four assertions expecting named agents fail.
+plugins/second-shift/skills/doctor/tools/doctor-selftest.sh	resolves its review-toolkit sibling as $HERE/../../../../review-toolkit, a fixed hop count that only holds in the monorepo, so the resolved scenario degrades into the unresolved one.

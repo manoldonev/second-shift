@@ -77,12 +77,19 @@ reference, mirrored in `.mjs` at the top of `design-sync-selftest.mjs`.
 this needs its own test: it stages `plugins/` at version-keyed paths outside any git repo and
 re-runs **every** shipped suite from a `git init`'d consumer cwd, under a per-suite wall-clock
 bound. It reds on any failure absent from `tools/install-topology-known-red.tsv`; a listed suite
-that passes, and a row matching no suite, are warnings that say "shrink the list". Re-running the
-whole shipped set costs roughly 6–9 minutes wall-clock (measured: 542s over 55 suites, of which
-statectl alone was 244s under contention), which is the price of the class being visible at all.
-`INSTALL_TOPOLOGY_TIMEOUT` (default 600s) is the per-suite bound; it exists because
-`statectl-selftest.sh`'s `until ! pgrep -f` waiter deadlocks against a second matching copy and
-this guard runs one by construction — unbounded, that would hang CI rather than red it.
+that passes, and a row matching no suite, are warnings that say "shrink the list". Its first run
+scored 55 suites: 51 pass, 4 listed.
+
+Re-running the whole shipped set is the price of the class being visible at all, and it is not
+small: **542s serially, 319s with suites run concurrently** (`INSTALL_TOPOLOGY_JOBS`, default 4 —
+each suite is a separate `--run-one` invocation, which is also what gives every concurrent
+watchdog its own job-control shell). The remaining floor is one suite: `statectl-selftest.sh` is
+94s uncontended and was measured at 244s while a second copy ran.
+
+`INSTALL_TOPOLOGY_TIMEOUT` (default 600s) is the per-suite bound. Its job is to turn a hang into
+one named timeout line instead of a CI job that dies at its own timeout with no attributable
+cause — this guard runs a second copy of every shipped suite, frequently while the outer sweep is
+running the first, so contention is structural here rather than incidental.
 
 **A consumer's configured lane runs in a scrubbed child env.** `verifyctl.sh` and
 `preflight.sh` both spawn a `commands.<host>` command (`lint`/`typecheck`/`test`/`format`/

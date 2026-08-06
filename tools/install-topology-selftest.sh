@@ -9,7 +9,7 @@
 # design-sync-selftest.mjs assumed sibling plugins stay adjacent under `plugins/`. Both were
 # green here the entire time.
 #
-# THE TOPOLOGY REPRODUCED (#419 D-3). A version-keyed install cache:
+# THE TOPOLOGY REPRODUCED. A version-keyed install cache:
 #   <root>/<plugin>/<version>/...        each plugin at its OWN declared version
 # outside any git repository, with cwd set to a separate `git init`'d consumer directory that
 # holds none of this repo's tree. That is a strict superset of the two known defects: the
@@ -19,12 +19,12 @@
 # so staging each at its own manifest version is what exercises a sibling ladder's last rung
 # instead of assuming it.
 #
-# WIRING (D-5). A plain `*-selftest.sh`; CI's existing `find . -name '*-selftest.sh'` discovers
-# it, so there is no job to add and nothing to register. It stages `plugins/` only and lives
-# under `tools/`, which is not inside `plugins/` — it cannot stage itself, so no recursion
-# guard is needed.
+# WIRING. A plain `*-selftest.sh`; CI's existing `find . -name '*-selftest.sh'` discovers it,
+# so there is no job to add and nothing to register. It stages `plugins/` only and lives under
+# `tools/`, which is not inside `plugins/` — it cannot stage itself, so no recursion guard is
+# needed.
 #
-# VERDICT (D-6). Reds only on a suite that is NOT listed in install-topology-known-red.tsv.
+# VERDICT. Reds only on a suite that is NOT listed in install-topology-known-red.tsv.
 # A listed suite that passes is a warning, never a red — the "shrink the list" direction,
 # the same contract tools/mutation-baseline.tsv carries for survivors.
 #
@@ -36,12 +36,17 @@ REPO="$(cd "$HERE/.." && pwd)"
 KNOWN_RED="$HERE/install-topology-known-red.tsv"
 SELF="$HERE/install-topology-selftest.sh"
 
-# Per-suite wall-clock bound (D-8). A hang is a live failure mode here, not a hypothetical:
-# statectl-selftest.sh has an `until ! pgrep -f` waiter that deadlocks against a second
-# matching copy, and this guard runs a second copy by construction. Unbounded, that hangs CI
-# instead of reding it. The default is ~2x the worst contended run measured while building
-# this guard (244s against a ~94s uncontended norm), so contention slows the guard rather
-# than failing it, while a true deadlock still terminates.
+# Per-suite wall-clock bound. This guard runs a SECOND copy of every shipped suite, often
+# while the outer sweep is running the first, so cross-copy contention is structural rather
+# than incidental: statectl-selftest.sh was measured at 244s against a ~94s uncontended norm
+# that way. Unbounded, a suite that hangs takes the CI job's timeout with it — a red build
+# with no attributable cause — instead of one named timeout line. The default is ~2x the
+# worst contended run measured, so contention slows the guard rather than failing it.
+#
+# (An earlier reading of this had the bound guarding a specific `until ! pgrep -f` waiter in
+# statectl-selftest.sh. No such waiter exists in this tree — `grep -rn pgrep` finds only
+# mutation-sweep-selftest.sh's orphan COUNT. The bound stands on the contention measurement
+# above; it is not defending against that mechanism.)
 #
 # `timeout(1)` is deliberately not used: it is absent from stock macOS, one of this repo's
 # two CI lanes. The `set -m` + reap-the-process-group idiom below is lifted from
@@ -174,10 +179,11 @@ done
 echo "[install-topology] staged $(find "$CACHE" -maxdepth 2 -mindepth 2 -type d | grep -c '') plugin(s) at $CACHE (no git repo above it), cwd = a git-init'd consumer dir"
 
 # ---- run every staged suite ----------------------------------------------------------
-# SKIP_STRESS=1 (set in run_bounded): D-8's mandate is to bound runtime, the class under test
-# is path resolution rather than stress behavior, and the in-repo ubuntu lane is where the
-# stress legs are exercised. `.mjs` suites need node, which is not a hard prerequisite of this
-# repo the way bash and jq are — an absent node is a NAMED, COUNTED skip, never silent green.
+# SKIP_STRESS=1 (set in run_bounded): the class under test is path resolution, not stress
+# behavior, and the in-repo ubuntu lane is the one that exercises the stress legs — so paying
+# for them a second time here buys nothing. `.mjs` suites need node, which is not a hard
+# prerequisite of this repo the way bash and jq are — an absent node is a NAMED, COUNTED skip,
+# never silent green.
 HAVE_NODE=0
 command -v node >/dev/null 2>&1 && HAVE_NODE=1
 

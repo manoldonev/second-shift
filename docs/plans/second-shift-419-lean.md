@@ -65,6 +65,14 @@ the state dir. Where a decision overrides the issue as filed, it is marked.
 first run under D-3's topology, and mark any row whose cause is unknown `undiagnosed` rather than
 inventing a rationale. Reversal is one line in a TSV either way.
 
+**One D-8 premise did not survive contact with the tree.** Its stated mechanism — "this repo has a
+known `until ! pgrep -f` waiter that deadlocks against a second matching copy" — is not true of
+this checkout: `grep -rn pgrep --include='*.sh'` finds exactly one use, `mutation-sweep-selftest.sh`'s
+orphan *count*, and no waiter anywhere. The decision itself stands on its other, measured leg
+(statectl at 244s against a ~94s norm, and an unbounded suite taking the CI job timeout rather
+than reding), so the bound ships — but the guard and `docs/testing.md` state the real reason, and
+neither repeats the waiter claim.
+
 **D-4 is deferred with the reds it governs.** It states policy for a suite that needs a repo-only
 artifact; both such suites (`check-review-context-sections-selftest.sh`, `config-lint-selftest.sh`)
 are in D-6's deferred set, so D-4 ships with the follow-up ticket, not here. Its *principle* —
