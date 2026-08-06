@@ -4,7 +4,8 @@
 # A suite listed here is REPORT-ONLY. A suite NOT listed here that fails or times out is a red
 # build. A listed suite that PASSES is a warning, never a red — that is the "shrink the list"
 # direction, the same contract tools/mutation-baseline.tsv carries for survivors. A row that
-# matches no staged suite is a stale-row warning, also never a red.
+# matches no staged suite is a stale-row warning, also never a red. So a fix and the removal of
+# its row do not have to land in the same commit.
 #
 # TAB-separated. Columns:
 #   repo-relative path <TAB> cause
@@ -13,10 +14,13 @@
 # carries a version segment, so keying on it would rot every row at the next release.
 #
 # EVERY ROW STATES ITS CAUSE. A row whose cause is not actually known reads `undiagnosed` —
-# an admission, visibly, rather than an invented rationale that reads like an exemption. That
-# is the flag half of #419's OR-1: draining this list is what closes it.
+# an admission, visibly, rather than an invented rationale that reads like an exemption.
+# Draining this list is tracked in #421.
 #
-# plan-lint-selftest.sh and design-sync-selftest.mjs are deliberately ABSENT — #419 fixed both.
-plugins/review-toolkit/scripts/check-review-context-sections-selftest.sh	needs docs/extension-points.md, which lives in this repo and is not shipped inside any plugin. Deferred to #420.
-plugins/dev-pipeline/skills/run/tools/config-lint-selftest.sh	needs schema/second-shift.config.schema.json, which lives in this repo and is not shipped inside any plugin. Deferred to #420.
-plugins/dev-pipeline/skills/run/tools/cost-block-selftest.sh	writes ./.claude/pipeline-state/... relative to cwd, so it depends on the consumer checkout it is run from rather than on a fixture. Deferred to #420.
+# Seeded from the guard's first run: 55 suites, 51 pass, 4 listed. plan-lint-selftest.sh and
+# design-sync-selftest.mjs are deliberately ABSENT — both were fixed rather than listed, and
+# so was workflows-mjs-selftest.sh, which was red only because it invokes design-sync's.
+plugins/dev-pipeline/skills/run/tools/config-lint-selftest.sh	needs schema/second-shift.config.schema.json, which lives in this repo and is not shipped inside any plugin. #421 class A.
+plugins/review-toolkit/scripts/check-review-context-sections-selftest.sh	needs docs/extension-points.md, which lives in this repo and is not shipped inside any plugin. #421 class A.
+plugins/review-toolkit/scripts/check-emit-deadline-selftest.sh	check-emit-deadline.sh derives REPO as $HERE/../../.. and globs $REPO/plugins/*/agents; from an install that is the cache root, so zero agents are linted and four assertions expecting named agents fail. #421 class B.
+plugins/second-shift/skills/doctor/tools/doctor-selftest.sh	resolves its review-toolkit sibling as $HERE/../../../../review-toolkit, a fixed hop count that only holds in the monorepo, so the resolved scenario degrades into the unresolved one. #421 class B.

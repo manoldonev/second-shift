@@ -141,6 +141,7 @@ anchors (`tools/score-review-selftest.sh`) stay grandfathered; this rule binds n
 | a production Workflow `.mjs` dispatch ladder | a shim case | `workflows/runtime-shim-selftest.mjs` |
 | a whole run's mechanical seams, end to end | a replay scenario | `e2e-replay-selftest.sh` |
 | whether an existing suite actually catches a regression | a mutation-catalog row | `tools/mutation-catalog.tsv` |
+| whether a shipped suite still passes where it is **installed** | **nothing** — the class guard already runs every shipped suite | `tools/install-topology-selftest.sh` |
 | prose in a markdown file | **nothing** — see above | — |
 
 **Test-the-tests.** `tools/mutation-sweep.sh` mutates the repo's shell guards and runs their

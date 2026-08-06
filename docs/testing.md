@@ -21,6 +21,7 @@ pyramid, plus one tier that is honest about being outside CI.
 | Runtime | `workflows/runtime-shim-selftest.mjs` — executes real Workflow `.mjs` bodies with injected fakes | Established (#214) |
 | E2E | `e2e-replay-selftest.sh` — full-run replay; every receipt minted by an executed tool | Established (#217) |
 | Mutation | Repo-level sweep: canned mutants applied to guarded scripts, paired selftest must go red | Planned |
+| Install topology | `tools/install-topology-selftest.sh` — every shipped suite re-run from a version-keyed install cache | Established (#419) |
 | Adversarial | Model-tier audit workflows — **operator-run, never CI** | This document |
 
 ## The rules that matter
@@ -59,6 +60,29 @@ like a case blessing it, so it must say, at the assertion: what the real behavio
 documented or intended behavior was, why it was not fixed here, and that the case is expected
 to flip when it is. A characterization case that only asserts an exit code is indistinguishable
 from an author who did not notice.
+
+**Green here is not green where it ships.** A shipped suite lives in this checkout while it is
+written and in a marketplace install cache everywhere it is *used*, and the two differ in ways a
+suite can silently depend on: there is no git repository above the install cache, and sibling
+plugins sit behind a version segment (`<root>/<plugin>/<version>/…`) instead of adjacent under
+`plugins/`. Two suites depended on exactly those and were green here the whole time —
+`plan-lint-selftest.sh` borrowed the repo's git toplevel for its fixtures, so from an install its
+check-5a assertions were skipped wholesale (one failing, two passing vacuously), and
+`design-sync-selftest.mjs` walked a fixed `../../../../design-toolkit` path. So: **a fixture owns
+its own repo** (`git init` inside a `mktemp -d`), and **a cross-plugin path goes through a
+resolution ladder**, never a fixed hop count — `resolve_sibling()` in `pipeline-doctor.sh` is the
+reference, mirrored in `.mjs` at the top of `design-sync-selftest.mjs`.
+
+`tools/install-topology-selftest.sh` is the class guard, and it is the reason no new instance of
+this needs its own test: it stages `plugins/` at version-keyed paths outside any git repo and
+re-runs **every** shipped suite from a `git init`'d consumer cwd, under a per-suite wall-clock
+bound. It reds on any failure absent from `tools/install-topology-known-red.tsv`; a listed suite
+that passes, and a row matching no suite, are warnings that say "shrink the list". Re-running the
+whole shipped set costs roughly 6–9 minutes wall-clock (measured: 542s over 55 suites, of which
+statectl alone was 244s under contention), which is the price of the class being visible at all.
+`INSTALL_TOPOLOGY_TIMEOUT` (default 600s) is the per-suite bound; it exists because
+`statectl-selftest.sh`'s `until ! pgrep -f` waiter deadlocks against a second matching copy and
+this guard runs one by construction — unbounded, that would hang CI rather than red it.
 
 **A consumer's configured lane runs in a scrubbed child env.** `verifyctl.sh` and
 `preflight.sh` both spawn a `commands.<host>` command (`lint`/`typecheck`/`test`/`format`/

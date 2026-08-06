@@ -34,6 +34,7 @@ set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO="$(cd "$HERE/.." && pwd)"
 KNOWN_RED="$HERE/install-topology-known-red.tsv"
+SELF="$HERE/install-topology-selftest.sh"
 
 # Per-suite wall-clock bound (D-8). A hang is a live failure mode here, not a hypothetical:
 # statectl-selftest.sh has an `until ! pgrep -f` waiter that deadlocks against a second
@@ -48,6 +49,61 @@ KNOWN_RED="$HERE/install-topology-known-red.tsv"
 # enough (a spinning grandchild survives it).
 SUITE_TIMEOUT="${INSTALL_TOPOLOGY_TIMEOUT:-600}"
 set -m
+
+# ---- bounded runner -----------------------------------------------------------------
+# `set -m` above put this shell's background jobs in their own process groups, so the whole
+# tree is reapable — SIGSTOP first, because a single SIGKILL races anything still forking.
+reap_group() {
+  local pgid="$1" i=0 n
+  while [[ $i -lt 50 ]]; do
+    kill -STOP -"$pgid" 2>/dev/null
+    kill -9 -"$pgid" 2>/dev/null || kill -9 "$pgid" 2>/dev/null
+    wait "$pgid" 2>/dev/null
+    n="$(ps -A -o pgid= 2>/dev/null | tr -d ' ' | grep -c "^$pgid\$")"
+    [[ "${n:-0}" -eq 0 ]] && return 0
+    i=$((i + 1))
+    sleep 0.1
+  done
+  return 1
+}
+
+# A one-shot watchdog job plus a BLOCKING `wait`, rather than a `kill -0` poll loop: a
+# finished-but-unreaped child is a zombie, and `kill -0` succeeds on a zombie, so a poll loop
+# can only exit once bash happens to reap — which is the very thing `wait` is for. Polling
+# would turn that timing into a spurious timeout on a suite that had already passed.
+run_bounded() { # $1 = cwd, $2 = logfile, $3 = expiry marker; rest = command → rc, or 124
+  local cwd="$1" log="$2" expired="$3"; shift 3
+  local pid killer rc
+  rm -f "$expired"
+  ( cd "$cwd" && SKIP_STRESS=1 "$@" ) > "$log" 2>&1 &
+  pid=$!
+  ( sleep "$SUITE_TIMEOUT"
+    kill -0 "$pid" 2>/dev/null && { : > "$expired"; reap_group "$pid"; }
+  ) >/dev/null 2>&1 &
+  killer=$!
+  wait "$pid"; rc=$?
+  kill "$killer" 2>/dev/null
+  wait "$killer" 2>/dev/null
+  [[ -f "$expired" ]] && return 124
+  return "$rc"
+}
+
+# ---- worker mode --------------------------------------------------------------------
+# One suite, one fresh invocation — which is exactly what gives each concurrent watchdog its
+# own job-control shell. Writes <idx>.rc and <idx>.log; the parent scores from those, so a
+# worker that dies without writing an .rc is visible as infra rather than as a green suite.
+if [[ "${1:-}" == "--run-one" ]]; then
+  W_IDX="$2"; W_LIST="$3"; W_CWD="$4"; W_OUT="$5"
+  W_STAGED="$(awk -F'\t' -v i="$W_IDX" '$1 == i { print $2 }' "$W_LIST")"
+  [[ -z "$W_STAGED" ]] && exit 0
+  if [[ "$W_STAGED" == *.mjs ]]; then
+    run_bounded "$W_CWD" "$W_OUT/$W_IDX.log" "$W_OUT/$W_IDX.expired" node "$W_STAGED"
+  else
+    run_bounded "$W_CWD" "$W_OUT/$W_IDX.log" "$W_OUT/$W_IDX.expired" bash "$W_STAGED"
+  fi
+  echo "$?" > "$W_OUT/$W_IDX.rc"
+  exit 0
+fi
 
 RAN=0; PASSED=0; KNOWN=0; SKIPPED=0; RED=0; STALE=0
 red()   { echo "  RED:   $1"; RED=$((RED + 1)); }
@@ -117,46 +173,6 @@ done
 
 echo "[install-topology] staged $(find "$CACHE" -maxdepth 2 -mindepth 2 -type d | grep -c '') plugin(s) at $CACHE (no git repo above it), cwd = a git-init'd consumer dir"
 
-# ---- bounded runner -----------------------------------------------------------------
-# Returns the suite's exit code, or 124 on expiry. `set -m` above put this shell's background
-# jobs in their own process groups, so the whole tree is reapable — SIGSTOP first, because a
-# single SIGKILL races anything still forking.
-reap_group() {
-  local pgid="$1" i=0 n
-  while [[ $i -lt 50 ]]; do
-    kill -STOP -"$pgid" 2>/dev/null
-    kill -9 -"$pgid" 2>/dev/null || kill -9 "$pgid" 2>/dev/null
-    wait "$pgid" 2>/dev/null
-    n="$(ps -A -o pgid= 2>/dev/null | tr -d ' ' | grep -c "^$pgid\$")"
-    [[ "${n:-0}" -eq 0 ]] && return 0
-    i=$((i + 1))
-    sleep 0.1
-  done
-  return 1
-}
-
-# A one-shot watchdog job plus a BLOCKING `wait`, rather than a `kill -0` poll loop: a
-# finished-but-unreaped child is a zombie, and `kill -0` succeeds on a zombie, so a poll loop
-# can only exit once bash happens to reap — which is the very thing `wait` is for. Polling
-# would turn that timing into a spurious timeout on a suite that had already passed.
-EXPIRED="$BASE/expired"
-run_bounded() { # $1 = logfile; rest = command → rc, or 124 on expiry
-  local log="$1"; shift
-  local pid killer rc
-  rm -f "$EXPIRED"
-  ( cd "$CONSUMER" && SKIP_STRESS=1 "$@" ) > "$log" 2>&1 &
-  pid=$!
-  ( sleep "$SUITE_TIMEOUT"
-    kill -0 "$pid" 2>/dev/null && { : > "$EXPIRED"; reap_group "$pid"; }
-  ) >/dev/null 2>&1 &
-  killer=$!
-  wait "$pid"; rc=$?
-  kill "$killer" 2>/dev/null
-  wait "$killer" 2>/dev/null
-  [[ -f "$EXPIRED" ]] && return 124
-  return "$rc"
-}
-
 # ---- run every staged suite ----------------------------------------------------------
 # SKIP_STRESS=1 (set in run_bounded): D-8's mandate is to bound runtime, the class under test
 # is path resolution rather than stress behavior, and the in-repo ubuntu lane is where the
@@ -165,8 +181,35 @@ run_bounded() { # $1 = logfile; rest = command → rc, or 124 on expiry
 HAVE_NODE=0
 command -v node >/dev/null 2>&1 && HAVE_NODE=1
 
-LOG="$BASE/suite.log"
+# Suites run CONCURRENTLY, for the same reason CLAUDE.md's documented sweep does: they are
+# independent (each allocates its own mktemp state dir), and re-running the whole shipped set
+# serially costs ~9 minutes — which this guard would then add to every local sweep and both CI
+# lanes, becoming their long pole. Each worker is a fresh `--run-one` invocation of this file
+# so it gets its OWN job-control shell, which is what makes the per-suite bound able to reap a
+# whole process group; sharing one shell across concurrent watchdogs could not.
+JOBS="${INSTALL_TOPOLOGY_JOBS:-4}"
+RESULTS="$BASE/results"
+mkdir -p "$RESULTS"
+
+n=0
 while IFS= read -r staged; do
+  n=$((n + 1))
+  printf '%s\t%s\n' "$(printf '%04d' "$n")" "$staged"
+done < <(find "$CACHE" \( -name '*-selftest.sh' -o -name '*-selftest.mjs' \) -type f | sort) > "$BASE/worklist"
+
+if [[ "$HAVE_NODE" -eq 0 ]]; then
+  grep -v '\.mjs$' "$BASE/worklist" > "$BASE/worklist.run" || true
+else
+  cp "$BASE/worklist" "$BASE/worklist.run"
+fi
+
+# shellcheck disable=SC2016  # the placeholders are for the inner sh -c, deliberately unexpanded
+cut -f1 "$BASE/worklist.run" | xargs -P "$JOBS" -n1 -I{} \
+  sh -c 'bash "$0" --run-one "$1" "$2" "$3" "$4"' \
+  "$SELF" "{}" "$BASE/worklist.run" "$CONSUMER" "$RESULTS" >/dev/null 2>&1
+
+while IFS= read -r line; do
+  idx="${line%%	*}"; staged="${line#*	}"
   rel="${staged#"$CACHE"/}"                       # <plugin>/<version>/<path-under-plugin>
   plugin="${rel%%/*}"; rest="${rel#*/}"; rest="${rest#*/}"
   repo_rel="plugins/$plugin/$rest"                # stable across releases; the known-red key
@@ -178,12 +221,12 @@ while IFS= read -r staged; do
   fi
 
   RAN=$((RAN + 1))
-  if [[ "$staged" == *.mjs ]]; then
-    run_bounded "$LOG" node "$staged"
+  if [[ -f "$RESULTS/$idx.rc" ]]; then
+    rc="$(cat "$RESULTS/$idx.rc")"
   else
-    run_bounded "$LOG" bash "$staged"
+    # A worker that produced no verdict is infra, not a suite result. Never silently green.
+    rc=125
   fi
-  rc=$?
 
   if [[ "$rc" -eq 0 ]]; then
     if [[ -n "$kr" ]]; then
@@ -196,8 +239,10 @@ while IFS= read -r staged; do
 
   if [[ "$rc" -eq 124 ]]; then
     detail="timed out after ${SUITE_TIMEOUT}s (bound, not a hang)"
+  elif [[ "$rc" -eq 125 ]]; then
+    detail="no verdict written — the worker died before scoring this suite (infra, not a result)"
   else
-    detail="rc=$rc — $(grep -iE 'FAIL|error|No such|not found' "$LOG" 2>/dev/null | head -1 | sed 's/^[[:space:]]*//')"
+    detail="rc=$rc — $(grep -iE 'FAIL|error|No such|not found' "$RESULTS/$idx.log" 2>/dev/null | head -1 | sed 's/^[[:space:]]*//')"
   fi
 
   if [[ -n "$kr" ]]; then
@@ -206,7 +251,7 @@ while IFS= read -r staged; do
   else
     red "$repo_rel — $detail"
   fi
-done < <(find "$CACHE" \( -name '*-selftest.sh' -o -name '*-selftest.mjs' \) -type f | sort)
+done < "$BASE/worklist"
 
 # A row whose suite never ran is stale, not a failure — same direction as a killed mutant
 # still sitting in the mutation baseline: it says "shrink the list", loudly, without reding.
