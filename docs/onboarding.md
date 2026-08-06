@@ -119,7 +119,7 @@ Two mechanisms compose, and both are needed for a durable pin:
     {
       "extraKnownMarketplaces": {
         "second-shift": {
-          "source": { "source": "github", "repo": "manoldonev/second-shift", "ref": "v3.8.5" }
+          "source": { "source": "github", "repo": "manoldonev/second-shift", "ref": "v4.0.0" }
         }
       }
     }

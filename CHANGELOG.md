@@ -4,6 +4,66 @@ All notable changes to the second-shift marketplace. Versions are per-plugin (`p
 this file tracks the marketplace release. `configVersion` stays `const 1` — v2 is fully backward-compatible for a
 consumer with an empty config; the migration notes below are only for consumers using the changed features.
 
+## v4.0.0
+
+### `dev-pipeline` 3.8.5 → 4.0.0
+
+- **tracker README counts the lean lane's operations correctly (#407)** (#407)
+- **design live-render verification has no gate in the lean lane (#404)** (#404)
+  the lean lane now gates design live-render fidelity. With
+  `design.provider` configured, a ticket's spec must carry a `## Design` section
+  — either armed (a provider handoff link plus `| RS-n | route | state | AC refs |`
+  render-state rows) or an explicit `Design: none — <reason>` disarm. Armed runs
+  render every declared state at milestone 3, commit a hash manifest beside the
+  spec at `<plansDir>/<key>-lean-renders.md`, and require a `fidelity: pass`
+  verdict at milestone 4; the merge boundary re-checks that the manifest is
+  present and still current. `design.liveRender.command` gains an optional
+  `{state}` placeholder, and `G verdict` gains `--fidelity <pass|fail|not-applicable>`.
+  Screenshot bytes never enter history.
+  Migration: repos with `design.provider` configured must add a `## Design`
+  section to each lean spec, armed or explicitly disarmed. Runs that were green
+  before will red at milestone 1 until it is present; the refusal names both
+  accepted forms. Repos with no `design.provider` are unaffected.
+  **BREAKING:** with `design.provider` configured, a lean spec carrying no `## Design` section now reds at milestone 1, and there is no config-level opt-out — the disarm is per-ticket and deliberate (D-8). Previously-green runs in such a repo require a spec edit before they pass.
+
+### `review-toolkit` 3.0.5 → 4.0.0
+
+- **design live-render verification has no gate in the lean lane (#404)** (#404)
+  the lean lane now gates design live-render fidelity. With
+  `design.provider` configured, a ticket's spec must carry a `## Design` section
+  — either armed (a provider handoff link plus `| RS-n | route | state | AC refs |`
+  render-state rows) or an explicit `Design: none — <reason>` disarm. Armed runs
+  render every declared state at milestone 3, commit a hash manifest beside the
+  spec at `<plansDir>/<key>-lean-renders.md`, and require a `fidelity: pass`
+  verdict at milestone 4; the merge boundary re-checks that the manifest is
+  present and still current. `design.liveRender.command` gains an optional
+  `{state}` placeholder, and `G verdict` gains `--fidelity <pass|fail|not-applicable>`.
+  Screenshot bytes never enter history.
+  Migration: repos with `design.provider` configured must add a `## Design`
+  section to each lean spec, armed or explicitly disarmed. Runs that were green
+  before will red at milestone 1 until it is present; the refusal names both
+  accepted forms. Repos with no `design.provider` are unaffected.
+  **BREAKING:** with `design.provider` configured, a lean spec carrying no `## Design` section now reds at milestone 1, and there is no config-level opt-out — the disarm is per-ticket and deliberate (D-8). Previously-green runs in such a repo require a spec edit before they pass.
+
+### `second-shift` 2.1.1 → 3.0.0
+
+- **design live-render verification has no gate in the lean lane (#404)** (#404)
+  the lean lane now gates design live-render fidelity. With
+  `design.provider` configured, a ticket's spec must carry a `## Design` section
+  — either armed (a provider handoff link plus `| RS-n | route | state | AC refs |`
+  render-state rows) or an explicit `Design: none — <reason>` disarm. Armed runs
+  render every declared state at milestone 3, commit a hash manifest beside the
+  spec at `<plansDir>/<key>-lean-renders.md`, and require a `fidelity: pass`
+  verdict at milestone 4; the merge boundary re-checks that the manifest is
+  present and still current. `design.liveRender.command` gains an optional
+  `{state}` placeholder, and `G verdict` gains `--fidelity <pass|fail|not-applicable>`.
+  Screenshot bytes never enter history.
+  Migration: repos with `design.provider` configured must add a `## Design`
+  section to each lean spec, armed or explicitly disarmed. Runs that were green
+  before will red at milestone 1 until it is present; the refusal names both
+  accepted forms. Repos with no `design.provider` are unaffected.
+  **BREAKING:** with `design.provider` configured, a lean spec carrying no `## Design` section now reds at milestone 1, and there is no config-level opt-out — the disarm is per-ticket and deliberate (D-8). Previously-green runs in such a repo require a spec edit before they pass.
+
 ## v3.8.5
 
 ### `dev-pipeline` 3.8.4 → 3.8.5
