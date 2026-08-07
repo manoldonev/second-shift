@@ -30,15 +30,51 @@
 //
 // Run: node .claude/skills/run/workflows/design-sync-selftest.mjs
 
-import { readFileSync } from 'node:fs'
+import { readFileSync, existsSync, readdirSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
-import { dirname, join } from 'node:path'
+import { basename, dirname, join } from 'node:path'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 const DESIGN_SYNC_MJS = join(HERE, 'design-sync.mjs')
-// contract-types.mjs lives in the design-toolkit plugin (sibling under plugins/), not
-// dev-pipeline. HERE=plugins/dev-pipeline/skills/run/workflows → up 4 to plugins/.
-const CONTRACT_TYPES_MJS = join(HERE, '..', '..', '..', '..', 'design-toolkit', 'skills', 'design-faithful', 'lib', 'contract-types.mjs')
+
+// contract-types.mjs lives in the design-toolkit plugin — a SIBLING of dev-pipeline, not a file
+// under it — so reaching it means knowing which of the two layouts this file is running from.
+// This mirrors resolve_sibling() in pipeline-doctor.sh; keep the two ladders in step.
+//   monorepo checkout:           <plugins>/<sib>/<rel>              (PLUGINS_DIR = .../plugins)
+//   version-keyed install cache: <cacheroot>/<sib>/<ver>/<rel>      (PLUGINS_DIR = <cacheroot>/dev-pipeline)
+// Rung 2 (this plugin's OWN version) is not redundant with rung 3: it pins a same-version
+// sibling when one is installed. It also misses in a real cache more often than not — plugins
+// are versioned independently, so dev-pipeline 4.0.0 sits beside design-toolkit 2.2.1 — which
+// is why rung 3 exists rather than a bare two-step. HERE=<...>/skills/run/workflows.
+const PLUGINS_DIR = join(HERE, '..', '..', '..', '..')
+const MY_VERSION = basename(join(HERE, '..', '..', '..'))
+
+const resolveSibling = (sib, rel) => {
+  const tried = []
+  const probe = (p) => {
+    tried.push(p)
+    return existsSync(p) ? p : null
+  }
+  const monorepo = probe(join(PLUGINS_DIR, sib, rel))
+  if (monorepo) return { path: monorepo, tried }
+  const cacheRoot = join(PLUGINS_DIR, '..')
+  const sameVersion = probe(join(cacheRoot, sib, MY_VERSION, rel))
+  if (sameVersion) return { path: sameVersion, tried }
+  let versions = []
+  try {
+    versions = readdirSync(join(cacheRoot, sib)).sort().reverse()
+  } catch {
+    versions = []
+  }
+  for (const v of versions) {
+    const hit = probe(join(cacheRoot, sib, v, rel))
+    if (hit) return { path: hit, tried }
+  }
+  return { path: null, tried }
+}
+
+const CONTRACT_TYPES = resolveSibling('design-toolkit', join('skills', 'design-faithful', 'lib', 'contract-types.mjs'))
+const CONTRACT_TYPES_MJS = CONTRACT_TYPES.path
 
 let PASS = 0
 let FAIL = 0
@@ -101,16 +137,25 @@ async function main() {
   {
     let ctSrc = ''
     let dsSrc = ''
-    try {
-      ctSrc = readFileSync(CONTRACT_TYPES_MJS, 'utf8')
-      dsSrc = readFileSync(DESIGN_SYNC_MJS, 'utf8')
-    } catch (e) {
-      fail(`H0 could not read source files: ${e}`)
+    // An unresolved sibling is reported as itself. Falling through to the block-match below
+    // would blame contract-types.mjs for "missing a FAIL_CLOSED block" when the real story is
+    // that no layout produced the file at all — so name the sibling and every path tried.
+    if (!CONTRACT_TYPES_MJS) {
+      fail(`H0 could not resolve sibling design-toolkit contract-types.mjs — tried:\n${CONTRACT_TYPES.tried.map((p) => `        ${p}`).join('\n')}`)
+    } else {
+      try {
+        ctSrc = readFileSync(CONTRACT_TYPES_MJS, 'utf8')
+        dsSrc = readFileSync(DESIGN_SYNC_MJS, 'utf8')
+      } catch (e) {
+        fail(`H0 could not read source files: ${e}`)
+      }
     }
     // Extract the FAIL_CLOSED Object.freeze({...}) block from contract-types.mjs and pull its
     // string values (the reason vocabulary the #195 lib actually throws).
-    const block = ctSrc.match(/FAIL_CLOSED\s*=\s*Object\.freeze\(\{([\s\S]*?)\}\)/)
-    if (!block) {
+    const block = ctSrc ? ctSrc.match(/FAIL_CLOSED\s*=\s*Object\.freeze\(\{([\s\S]*?)\}\)/) : null
+    if (!ctSrc) {
+      // H0 already reported the real cause; do not also blame the file's contents.
+    } else if (!block) {
       fail('H1 could not locate the FAIL_CLOSED Object.freeze block in contract-types.mjs')
     } else {
       const ctReasons = [...block[1].matchAll(/:\s*'([a-z][a-z-]*)'/g)].map((m) => m[1]).sort()

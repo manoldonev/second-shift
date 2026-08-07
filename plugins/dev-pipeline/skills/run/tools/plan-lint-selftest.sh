@@ -307,51 +307,65 @@ err=$(bash "$LINT" "$TMP/prov-malformed.md" "$LEDGER_STATE" 2>&1 >/dev/null || t
   && pass "(pl-u5) malformed row, no human token → 1, named (Scope: no fall-through)" \
   || fail "(pl-u5) malformed no-human — rc=$rc err=$err"
 
-# (pl-n1) Check 5b: 2+ creation-verb steps with zero [NEW] tags → 1, named (the run-#175 shape).
-# Fixture must live INSIDE a git repo for Check 5a's PLAN_ROOT resolution; use a
-# harness-local scratch dir under the repo tree, cleaned on exit.
-NTMP="$HERE/.plan-lint-newtag-tmp"
-mkdir -p "$NTMP"
-trap 'rm -rf "$TMP" "$NTMP"' EXIT
+# (pl-n1..n5) Check 5's grounding-tag rules. Check 5a resolves PLAN_ROOT by asking git for the
+# toplevel of the PLAN's own directory, so these fixtures need a git repo around them — and it
+# has to be one the fixture OWNS. Borrowing whatever repo the harness happened to sit in
+# ($HERE/...) made every 5a assertion depend on where the suite was installed: from the
+# marketplace cache nothing above the tools dir is a git repo, PLAN_ROOT resolved empty, 5a was
+# skipped wholesale, and n3 failed while n4/n5 passed vacuously (#419). `git init` inside a
+# `mktemp -d` is the sibling idiom (preflight-selftest.sh).
+NREPO="$(mktemp -d -t plan-lint-newtag.XXXXXX)"
+trap 'rm -rf "$TMP" "$NREPO"' EXIT
+git init -q "$NREPO"
+# The fixture repo's one real top directory. `pkg` exists, so a nonexistent path beneath it
+# reaches 5a's violation (n3); `elsewhere` never exists, which is what n5's precision guard
+# keys on. Neither name is borrowed from the repo under test.
+mkdir -p "$NREPO/pkg"
 BT="$(printf '\140')"
+
+# (pl-n1) Check 5b: 2+ creation-verb steps with zero [NEW] tags → 1, named (the run-#175 shape).
 sed "s/^1\\. Step one\\./1. Add a ${BT}dormancy${BT} rule./; s/^2\\. Step two\\./2. Add the marker grammar./" \
-  "$FIX/valid-plan.md" > "$NTMP/no-tags.md"
-rc=$(lint_rc "$NTMP/no-tags.md")
-err=$(bash "$LINT" "$NTMP/no-tags.md" 2>&1 >/dev/null || true)
+  "$FIX/valid-plan.md" > "$NREPO/no-tags.md"
+rc=$(lint_rc "$NREPO/no-tags.md")
+err=$(bash "$LINT" "$NREPO/no-tags.md" 2>&1 >/dev/null || true)
 [[ "$rc" -eq 1 ]] && grep -q "zero \[NEW\] grounding tags" <<< "$err" \
   && pass "(pl-n1) creation steps without [NEW] → 1, named" \
   || fail "(pl-n1) creation steps without [NEW] — rc=$rc err=$err"
 
 # (pl-n2) same plan with a [NEW] tag present anywhere → 0 (5b keys on token presence).
-sed "s/Add a ${BT}dormancy${BT} rule\\./Add a ${BT}dormancy${BT} rule [NEW]./" "$NTMP/no-tags.md" > "$NTMP/tagged.md"
-rc=$(lint_rc "$NTMP/tagged.md")
+sed "s/Add a ${BT}dormancy${BT} rule\\./Add a ${BT}dormancy${BT} rule [NEW]./" "$NREPO/no-tags.md" > "$NREPO/tagged.md"
+rc=$(lint_rc "$NREPO/tagged.md")
 [[ "$rc" -eq 0 ]] \
   && pass "(pl-n2) creation steps with [NEW] → 0" \
   || fail "(pl-n2) tagged plan — got rc=$rc"
 
 # (pl-n3) Check 5a: a nonexistent path under an existing top dir, untagged → 1, named.
-sed "s|^1\\. Step one\\.|1. Wire ${BT}plugins/no-such-plugin/fake-tool.sh${BT} into CI.|" \
-  "$FIX/valid-plan.md" > "$NTMP/ghost-path.md"
-rc=$(lint_rc "$NTMP/ghost-path.md")
-err=$(bash "$LINT" "$NTMP/ghost-path.md" 2>&1 >/dev/null || true)
+# This case is the STANDING WITNESS that 5a is live in $NREPO. n4 and n5 both assert `→ 0`,
+# which a wholesale skip of 5a satisfies just as well as the rule they mean to exercise; only
+# n3's non-zero, from the same repo, distinguishes the two. If n3 ever fails, read n4/n5 as
+# unproven rather than passing.
+sed "s|^1\\. Step one\\.|1. Wire ${BT}pkg/no-such-module/fake-tool.sh${BT} into CI.|" \
+  "$FIX/valid-plan.md" > "$NREPO/ghost-path.md"
+rc=$(lint_rc "$NREPO/ghost-path.md")
+err=$(bash "$LINT" "$NREPO/ghost-path.md" 2>&1 >/dev/null || true)
 [[ "$rc" -eq 1 ]] && grep -q "does not exist" <<< "$err" \
   && pass "(pl-n3) nonexistent untagged path → 1, named" \
   || fail "(pl-n3) ghost path — rc=$rc err=$err"
 
 # (pl-n4) the same path tagged [NEW] on the same line → 0.
-sed "s|fake-tool.sh${BT} into CI\\.|fake-tool.sh${BT} [NEW] into CI.|" "$NTMP/ghost-path.md" > "$NTMP/ghost-tagged.md"
-rc=$(lint_rc "$NTMP/ghost-tagged.md")
+sed "s|fake-tool.sh${BT} into CI\\.|fake-tool.sh${BT} [NEW] into CI.|" "$NREPO/ghost-path.md" > "$NREPO/ghost-tagged.md"
+rc=$(lint_rc "$NREPO/ghost-tagged.md")
 [[ "$rc" -eq 0 ]] \
   && pass "(pl-n4) [NEW]-tagged nonexistent path → 0" \
   || fail "(pl-n4) tagged ghost path — got rc=$rc"
 
-# (pl-n5) precision guard: a fictional path whose TOP DIR does not exist in this repo
-# (a fixture plan referencing another repo's tree) is skipped, and branch-name shapes
-# (origin/main — no dotted final segment) never match. valid-plan.md itself carries
-# `apps/api/...` and stays green (pl-a above is the standing witness).
+# (pl-n5) precision guard: a fictional path whose TOP DIR does not exist in the plan's repo
+# (a fixture plan referencing another tree) is skipped, and branch-name shapes
+# (origin/main — no dotted final segment) never match. `elsewhere` is absent from $NREPO by
+# construction; n3 above proves 5a is running, so this zero is a skip and not a no-op.
 sed "s|^2\\. Step two\\.|2. Cut from ${BT}origin/main${BT} and touch ${BT}elsewhere/repo/thing.ts${BT}.|" \
-  "$FIX/valid-plan.md" > "$NTMP/foreign.md"
-rc=$(lint_rc "$NTMP/foreign.md")
+  "$FIX/valid-plan.md" > "$NREPO/foreign.md"
+rc=$(lint_rc "$NREPO/foreign.md")
 [[ "$rc" -eq 0 ]] \
   && pass "(pl-n5) foreign-tree path + branch-name shape → 0 (precision guards)" \
   || fail "(pl-n5) precision guards — got rc=$rc"
