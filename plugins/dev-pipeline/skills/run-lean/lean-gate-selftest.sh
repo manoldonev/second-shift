@@ -818,8 +818,14 @@ else fail "(m1b) expected 'model: unknown' in the header, got: $out"; fi
 # a hardcoded `unknown` — passes (m1b) and every other case in this file, and would silently
 # make the retro corpus's model-aggregation key a constant. `unset` after, because the suite's
 # whole point above is that the ambient state for this variable is absent.
-reset_progress
-LEAN_RUN_MODEL=selftest-model-357 gate 3 7 >/dev/null 2>&1
+#
+# The value must ride the call that CREATES the file. #416 made `entry` the creator (via
+# reset_progress), and ensure_progress_file() writes the header exactly once — so setting the
+# variable on a LATER milestone call stamps nothing and this case reds on a correct gate, which
+# is how it reached main red. Driving `entry` here is also the honest shape: on a real run that
+# subcommand is what creates the record, so the seam is exercised where it actually fires.
+reset_progress_unattested
+LEAN_RUN_MODEL=selftest-model-357 attest_at "$TREE" "$CFG" "$PROG" 7
 unset LEAN_RUN_MODEL
 out="$(cat "$PROG" 2>/dev/null)"
 if printf '%s' "$out" | grep -q '^model: selftest-model-357$'; then
