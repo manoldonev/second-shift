@@ -1,247 +1,180 @@
 # lean review verdict — #416
 
-verdict=needs-work
-run_id: review-416-1
-session_id: b1fea4be-385c-4317-9b2b-679b7c56e37d
-rounds: 1
+verdict=approve
+run_id: review-416-2
+session_id: f474ff10-a0ee-41d0-b5da-5ca980a85a3a
+rounds: 2
 pr: #422
-reviewed_head: a072882090233983608359dc847795a8920c53cb
-reviewed_patch_id: 479246a9ee21e922172224cc1f940f9a98393ece
-inherited_patch_id: none
-inherited_from_verdict: none
+reviewed_head: d861aced7d638663019bfed75b9fba386070a8b5
+reviewed_patch_id: 1b79a7ae86827b5bc1b3f04a0a2da8b2038e790c
+inherited_patch_id: 479246a9ee21e922172224cc1f940f9a98393ece
+inherited_from_verdict: 4d5c0d943bd1b9f470bac74db04ae85bc4a6ca35
 fidelity: not-applicable
 model: unknown
 
-Round 1, full branch diff (`a2b158f..HEAD`, 14 files, +601/-25) — `bash G delta 416` printed the
-FULL range with nothing to inherit. Panel: security, performance, maintainability, complexity,
-test-coverage, scope-completeness (all six returned; all six `approve`, one nit at confidence 70).
-Every blocker below is my own cross-cutting finding, reproduced locally, not a panel relay.
+Round 2, inheriting round 1's coverage of patch `479246a9ee21` — `bash G delta 416` printed
+`4d5c0d9..HEAD` (11 files, +179/-30). Round 1's record
+([`second-shift-416-lean-verdict.md`](docs/plans/second-shift-416-lean-verdict.md)) was read first;
+each of its three blockers is scored below against the delta, and every `AC-n` is scored against the
+whole spec. Panel: test-coverage and maintainability, on the delta only (round 1 ran the full six
+and every one of them approved, so the marginal value here is in the two dimensions the fix
+actually moved). Both returned; every finding below is reproduced locally.
 
 Design fidelity: **not-applicable** — the spec declares no `## Design` section and this repo
 configures no `design.provider`, so step 5b does not arm.
 
-## Verdict: needs-work — 3 blockers
+## Verdict: approve — 0 blockers
 
-### B1 — `cmd_entry`'s new `ensure_progress_file` freezes `run_id: unset` into the progress header, reverting #322 and false-reding `lean-reconcile.sh` arm (1)
+### The three round-1 blockers, each closed and each proven here
 
-`cmd_entry` now calls `ensure_progress_file` before appending the AC-1 row. `ensure_progress_file`
-writes the header — including `run_id: $RESOLVED_RUN_ID` — **only at creation**, and nothing in
-`lean-gate.sh` ever rewrites it (`run_id:` is emitted at `lean-gate.sh:627` for the header, and at
-`:828`/`:1999` for unrelated records).
-
-`run-lean/SKILL.md` step 1 is `bash G entry <issue>`; the instruction to export `RUN_ID` lives in
-**step 2**. An operator following the checklist in order therefore runs `entry` with no `RUN_ID`
-in the environment, and the header freezes at `unset` for the life of the run.
-
-Reproduced end to end on a scratch fixture:
+**B1 — the frozen `run_id: unset` header. CLOSED.** `heal_progress_run_id` rewrites the
+placeholder from `ensure_progress_file`, gated on the BUILD CACHE agreeing with the resolved id.
+Reproduced end to end on a scratch github fixture, running the branch gate and the round-1 gate
+(`4d5c0d9`) side by side over SKILL.md's own ordering — `entry` with no `RUN_ID`, then the export,
+then the run:
 
 ```
-### STEP 1: `bash G entry 99` exactly as SKILL.md step 1 orders it — NO RUN_ID exported
-    [lean-gate] ✓ entry: audit ledger live (1 lines).
-    [lean-gate]   entry attestation recorded in .../prog.md.
-### header after step 1:
-    run_id: unset
-### STEP 2: operator exports RUN_ID and continues
-### header after the real RUN_ID was exported:
-    run_id: unset
+BASE (4d5c0d9)   header after step 1: run_id: unset   ... and it never moves again
+BRANCH           header after step 1: run_id: unset
+  (a) milestone call carrying an ad-hoc RUN_ID, identity NOT established  -> run_id: unset
+  (b) after `claim` establishes the identity, the next milestone writer   -> run_id: lean-99-a
+  (c) a fresh `entry` once the cache holds it                             -> run_id: lean-99-a
+  (d) a `verdict` call under a REVIEW identity                            -> run_id: unset
 ```
 
-This is exactly the defect closed by **#322** — `CHANGELOG.md:543`: *"run-lean's `entry` step no
-longer creates the progress file — milestone 1 does, after `claim` has cached RUN_ID, so the
-header's run_id field no longer freezes at 'unset' on a normal run."* Adding
-`ensure_progress_file` back into `cmd_entry` undoes that fix.
+(a) and (d) are the two leaks AC-13 forbids, and neither is reachable. (a) is not vacuous: that
+milestone call did reach the writer — it appended `| milestone-1 | attempt | no committed spec …`
+— so the cache compare, not the absence of a write, is what held the header.
 
-The consequence is not cosmetic. `lean-reconcile.sh` arm (1) compares the bot claim comment's
-`run_id` against the progress file's (`lean-reconcile.sh:280-285`):
+**B2 — `doctor.sh` could not see `.claude/settings.json`. CLOSED.** The opt-out scan loops
+`"$SETTINGS" "$LOCAL_SETTINGS" "$USER_SETTINGS"` now, matching what this same PR's
+`audit_toolkit_opted_out()` already did — the self-disagreement that made B2 cheap to prove is
+gone. `settings-optout-committed.json` is `settings-green.json` with one boolean flipped, so the
+new scenario's "only the file moves" is literally true.
 
-```
-  elif [ "$RUN_CLAIM" = "$RUN_PROGRESS" ]; then
-    ok "build run_id consistent across the claim comment and the progress file ($RUN_CLAIM)"
-  else
-    bad "build run_id mismatch — claim='$RUN_CLAIM' progress='$RUN_PROGRESS'. These must be one run."
-```
+**B3 — five arm-count statements. CLOSED, by dropping the counts rather than re-pinning them.**
+`lean-reconcile.sh`'s two range statements, both `tracker/README.md` sites and
+`lean-reconcile-selftest.sh`'s `(P)` prose now read "every other check" / "all but one". A
+repo-wide grep for count-and-range shapes over `plugins/ docs/ scripts/ tools/` finds one
+survivor, `lean-reconcile-selftest.sh:543` ("proves checks (2)-(6) RAN") — and it is *accurate on
+this branch*: arms run (1)…(6), so (2)-(6) names exactly the tracker-independent set. It was the
+stale one at the base, where arms stopped at (5). Nothing owed.
 
-With the header at `unset` and the claim comment carrying the real id, that arm reds — a hard
-`do NOT merge` on an honest github run, produced by the same diff that adds a new arm to the same
-script.
-
-**The branch's own fixtures paper over it.** `attest_at`'s signature is
-`attest_at <tree> <config> <progress-file> <issue> [run-id]` with `RUN_ID="${5:-}"`, and its
-comment says a case *"whose header must carry a particular run id passes it here rather than
-letting the header stamp `unset`"*. The jira claim case at `lean-gate-selftest.sh:1409` passes
-`jira-run-1` for precisely that reason. The suite absorbed the symptom as a fixture parameter
-instead of surfacing it as a production regression.
-
-Not triggered on this PR's own build run (`416-lean-progress.md` reads `run_id: lean-416-a`)
-because that session exported `RUN_ID` before `entry` — which is why the suite stayed green and
-why nothing here is evidence the trap is absent.
-
-Before this diff, running `entry` without `RUN_ID` was harmless; `entry` created nothing. The diff
-converts benign ordering latitude into a run-poisoning trap on a step it simultaneously makes
-mandatory-first. #322 chose the structural fix (`entry` does not create the file) over a doc fix;
-whichever route this takes, moving the export instruction into step 1 alone leaves the trap armed
-for anyone who forgets.
-
-### B2 — the new `doctor.sh` FAIL cannot see `.claude/settings.json`, so AC-5's condition does not hold for the file onboard writes
-
-AC-5 by its letter: *"`doctor.sh`'s opt-out scan FAILs (`bad`, exit-code-affecting) when
-`audit-toolkit` is disabled **and** `dev-pipeline` is enabled."* The condition is unqualified by
-file. The scan loop it lands in (`doctor.sh:283`) iterates `"$LOCAL_SETTINGS" "$USER_SETTINGS"`
-only — `$SETTINGS` (`.claude/settings.json`) is read for the new `DP_ENABLED` predicate but never
-for the opt-out itself.
-
-Proven pair, same fixture, only the file moved:
-
-```
-# audit-toolkit:false in .claude/settings.local.json
-[doctor] FAIL  audit-toolkit disabled in settings.local.json while dev-pipeline is enabled — ...
-[doctor] summary: 1 failed check(s)
-
-# audit-toolkit:false in .claude/settings.json  (dev-pipeline:true in the same file)
-[doctor] OK    audit-toolkit @ 2.0.0 installed
-[doctor] summary: 0 failed check(s)
-```
-
-Silent — not even the pre-existing `warn`. And `.claude/settings.json` is the file onboard writes
-the bundle into, so it is the *primary* place a hand edit lands.
-
-The diff disagrees with itself here: `lean-gate.sh`'s new `audit_toolkit_opted_out()` reads
-`.claude/settings.json` **and** `settings.local.json` across both roots. One half of the PR treats
-that file as a legitimate home for the flag; the other half cannot see it.
-
-Three shipped statements assert the behavior that does not hold:
-
-- `plugins/second-shift/skills/onboard/SKILL.md` — *"a later hand edit flipping it to `false` …
-  `/second-shift:doctor` FAILs on the combination rather than warning"*, immediately followed by
-  *"If the existing file already carries that `false`…"* — squarely about `.claude/settings.json`.
-- `docs/onboarding.md` — *"`/second-shift:doctor` FAILs on the pairing rather than warning"*,
-  unqualified.
-- The `Changelog:` trailer on `8e9a7af`, which ships as a release bullet:
-  *"`/second-shift:doctor` now FAILs (not warns) when `audit-toolkit` is disabled while
-  `dev-pipeline` is enabled."*
-
-Either extend the scan to `$SETTINGS` or narrow all three statements — but a doc telling an
-operator that doctor catches a misconfiguration doctor cannot see is the trust-without-observability
-shape #416 exists to close. Mitigating, and why this is second rather than first: the lane itself
-is still protected — `entry`'s ledger predicate fails closed regardless of where the flag lives,
-with the specific `audit-toolkit` wording.
-
-### B3 — the new arm makes three arm-count statements false, in the class the immediately preceding commit fixed
-
-`lean-reconcile.sh`'s header enumeration grew from **6 items to 7** (`# ---- (N)` markers 5 → 6).
-Three prose sites that count or enumerate those arms are unchanged:
-
-| site | text | why it is now false |
-| --- | --- | --- |
-| `lean-reconcile.sh:123` | "Checks (1b) and (2)-(6) read git, the progress file, …" | byte-identical to the base; the new arm is adapter-insensitive, so the range extends by one |
-| `tracker/README.md:55` | "six arms" · "**five of six.** … (1b) and (2)–(6) run unchanged" | total rose by one, and so did the jira-surviving count |
-| `tracker/README.md:61` | "keeps five of its six arms" | same |
-
-Because AC-4 makes the arm run *"under both tracker adapters"* — and the diff's own comment says
-**"ADAPTER-INSENSITIVE … it runs in full under jira"** — both the numerator and the denominator
-move. Whichever numbering those sites key to, neither number is right any more.
-
-The README understates jira coverage for exactly the new arm, and jira is the tracker of the two
-runs that motivated #416. `git log` on that file: `a2b158f` *"tracker README's lean-lane branch-site
-counts are stale for both scripts (#414)"* — the branch's own base commit — and `a74af10`
-*"tracker README counts the lean lane's operations correctly (#407)"* before it. Two of the last
-three commits touching this file corrected these same sentences.
-
-No AC covers it: AC-12's list of doc sites is closed and does not include the tracker README, and
-`lean-reconcile.sh:123` is a different comment block from the "header enumeration" AC-12 names. So
-AC-12 is satisfied by its letter and this lands here or nowhere. CLAUDE.md's rule — *"a change that
-makes docs stale needs an explicit doc `AC-n`"* — points at the gap in the AC set, not at the prose.
+**The spec amendments tighten, they do not excuse.** AC-5 and AC-10 gained the file-independence
+the round-1 proof showed was missing, AC-12 gained the arm-count obligation, and AC-13 is new. Each
+adds an obligation the diff then meets; none loosens an `AC-n` so an unmet one could score. The
+amendment landed in the same commit as the fix, and milestone 5 has not run at all — the build's
+progress file records milestones 1, 2 and 3 — so "before milestone 5" is unambiguous here.
 
 ## Warnings
 
-**W1 — `delta`'s exit 2 conflates "the build never attested" with "this checkout does not share the
-build's `MAIN_ROOT`".** `PROGRESS_FILE` resolves to `$MAIN_ROOT/.claude/pipeline-state/…`
-(`lean-gate.sh:302`) and that path is gitignored (`.gitignore:7`), so it never travels with the
-branch. `review-lean` step 3 says *"any checkout of that branch works"*; from a clone that is not a
-worktree of the build host, `delta` now exits 2 on a perfectly attested run, and the new step-4
-text tells the reviewer *"this means the BUILD run never recorded its entry attestation: stop and
-hand it back"* — with a remedy the build side cannot apply, since `entry` there is idempotent and
-reports the row already present. AC-3 models only the unattested cause. Not a blocker: every
-review in this repo's topology runs from the sibling worktree that shares `MAIN_ROOT`, which step 3
-names as "the usual place", and AC-3 delivers exactly what it specifies. Worth a diagnostic that
-distinguishes the two causes, or a step-4 sentence that admits the second.
+**W1 — AC-13's mechanism sentence is false on the github adapter, which is the default.**
+`docs/plans/second-shift-416-lean.md:151` and `lean-gate.sh:630` both say the header is rewritten by
+"the first call to ESTABLISH an identity". Only the **jira** arm of `cmd_claim` does that
+(`lean-gate.sh:844` — `ensure_progress_file; append_line …`). The github arm swaps the label and
+posts the marker comment and never touches the progress file, while the identity IS established for
+it, at the dispatch (`:352`-`:360`), adapter-blind. So on a github run the heal lands at the first
+milestone, not at `claim`. **This PR's own build run shows it**: issue #416 carries the bot
+`lean-claimed` comment (`run_id: lean-416-a`) while `416-lean-progress.md` carries no `| claim |`
+line at all — the github arm wrote nothing there.
 
-**W2 — the PR title carries no conventional-commit type, so this `feat:` ships as a patch.**
-`derive-release.sh:147` tests `^feat(\([^)]*\))?:` against each commit's **subject**, and a squash
-subject is the PR title — here *"the lean entry gate's ledger precondition is unenforced"*. The
-`BREAKING CHANGE:` path reads the body (`:145`), but `feat` does not. Pre-existing and repo-wide
-(verified previously on #383, which carried a `feat(dev-pipeline):` commit under a plain-English
-title and released as a patch), and dispositioned warning-class on the #404 record — restated only
-because this is a new-capability PR where the downgrade actually bites. Retitling is the one-line
-remedy, but it collides with the lean lane's issue-title convention, so it is the author's call,
-not a review amendment.
+Nothing behaves wrong: no reader opens the header between `claim` and milestone 1, and
+`lean-reconcile.sh` is an operator's pre-merge check long after milestone 5. AC-13's headline —
+"the progress header's `run_id` cannot freeze" — holds in all four directions probed above, which is
+why this is not a blocker. But the sentence is the one a future reader will reason about ordering
+from, and it is the second time in this ticket that a claim about *which subcommand writes a record
+first* turned out to be adapter-specific. Independently found by the maintainability reviewer, which
+called it a blocker; scored down here because the contract holds and only its description does not.
 
-**W3 — `(ea7)` asserts a missing string, not an exit code.** `if ! printf '%s' "$out" | grep -qF
-'no entry attestation'` passes for any `verdict` failure whose message differs. The comment says
-*"Anything other than 2 proves the precondition let it through"* — but rc is never read. Pinning
-`rc != 2` alongside would make the exemption case fail for the right reason.
+**W2 — the heal writes through a fixed-name temp file.** `lean-gate.sh:648` uses
+`"$PROGRESS_FILE.heal"` where the same file reaches for `mktemp -t lean-claim.XXXXXX` (`:866`) for
+the analogous write-then-rename. Two gate invocations on one issue — a retry launched over a stuck
+process, an operator running `bash G 4` beside a run — can interleave `awk`/`mv` on that one path.
+Single-actor-per-issue is the norm and this is the pipeline's own assumption elsewhere, so it is a
+deviation from the file's idiom rather than a live bug.
 
-**W4 — settings-precedence logic now exists twice** (maintainability-reviewer, confidence 70).
-`doctor.sh`'s `dp_true`/`dp_false`/`DP_ENABLED` block and `lean-gate.sh`'s `audit_toolkit_opted_out()`
-independently re-implement "scan the settings files for an `enabledPlugins` key with
-local-overrides-main precedence", in the same PR, with different shapes. Both are correct for their
-own need; the divergence in *which files* each reads is B2. A third consumer would be the point to
-extract a helper.
+**W3 — `ensure_progress_file` now returns the heal's exit status.** Previously it always fell out of
+an `if` at 0; now a failed `mv` (full disk, read-only state dir) returns `rm`'s code. All six call
+sites (`:683`, `:707`, `:812`, `:844`, `:1356`, plus `append_line`) ignore it today, so this is
+latent. A trailing `return 0` would keep it that way.
+
+**W4 — `(ea7)`'s new positive assertion pins which verdict diagnostic fires first.**
+`grep -qF '[lean-gate] verdict:'` matches only `envfail` output; every `warn` refusal in
+`cmd_verdict` prints `[lean-gate] ✗ verdict:` and would NOT match. The case passes today by reaching
+the patch-identity `envfail` at `:2002`. It discriminates correctly — the precondition's own refusal
+carries the `✗` and the `no entry attestation` string the case still forbids — but a fixture drift
+that made a `warn` path fire first would red it while the D-5 exemption it tests still worked. The
+round-1 remedy (`rc != 2`) was worse, and this was the right call; the residue is worth knowing.
+
+**W5 — `review-lean` step 4 still over-attributes rc 2.** "An exit 2 here means no entry attestation
+is READABLE" — `exit 2` is `envfail`'s general code, and `delta` reaches it for "not in a git repo",
+"cannot resolve the main checkout from …", and "unknown tracker.type" among others
+(`lean-gate.sh:169`-`:256`). Strictly better than the round-1 text it replaces, and the message on
+screen names its own cause; the sentence is the part that is absolute.
+
+**W6 — the refusal's new second-cause sentence has no fixture.** `lean-gate.sh:2337`'s "Or the
+record is simply out of reach…" line is asserted nowhere; `(ea3)` pins the remedy string one line
+above it. Pinning a second message literal would be more of the same class rather than new
+coverage, so this is a note, not a request.
 
 ## Acceptance criteria
 
 | AC | score | evidence |
 | --- | --- | --- |
-| AC-1 | satisfied | `cmd_entry` appends one row carrying `ledger=`/`lines=`/`session=`, guarded by `entry_row_present`; shape pinned in the primitives comment block at `:610`. `(ea1)`/`(ea2)`. |
-| AC-2 | satisfied | `audit_toolkit_opted_out()` picks the wording; the ledger predicate still decides. `(ea8)`/`(ea9)`/`(ea10)` — including the direction proving the settings read never became a second authority. |
-| AC-3 | satisfied | `require_entry_attested` at the dispatch, before the `case`; exit 2, remedy string, no `attempt` line; `entry` and `verdict` exempt. `(ea3)`/`(ea5)`/`(ea6)`/`(ea7)`. |
-| AC-4 | satisfied | Arm (6) at `lean-reconcile.sh:462`, presence-only, no adapter branch. |
-| AC-5 | **unsatisfied** | See **B2**: the scan loop never reads `.claude/settings.json`, so the AC's stated condition does not hold for the file onboard writes. Proven pair above. |
-| AC-6 | satisfied | Onboard step 2 states the lane requirement; step 6 states the hand-edit risk. The false doctor clause inside it is carried under B2 rather than scored here — the AC's letter is the lane-breaking claim, and that is true. |
-| AC-7 | satisfied | `(ea1)`–`(ea4)`: row, idempotency, refusal + remedy + exit 2 + zero attempts, and the D-13 milestone-4 backstop paired red/green. |
-| AC-8 | satisfied | Every lean leg acquires its row by calling the gate (`lean_seed_progress` → `lean_gate entry`); `(lean-entry)` composes the refusal at `all` **and** a single milestone with the fix budget untouched; `LEAN_SID`/`EL_SID`/`LEAN_DSID` pin the session id so the ambient one cannot leak. |
-| AC-9 | satisfied | `(Q)`'s pair reds without the row and greens with it, everything else held at the consistent-run state. |
-| AC-10 | satisfied | `opt-out` re-keyed to exit 1 + "while dev-pipeline is enabled"; new `opt-out-lane-off` pins the surviving `warn`. |
-| AC-11 | satisfied | All four catalog mutants independently re-applied with `sed -E` (the sweep's own flavor) against a pristine copy and their paired suites run: `lean-gate-entry-row` **killed** (143 failures), `lean-gate-entry-precondition` **killed** (rc 4), `lean-reconcile-entry-arm` **killed** (rc 1), `doctor-audit-toolkit-lane` **killed** (rc 1). No baseline re-key owed — see the note below. |
-| AC-12 | satisfied by its letter | The three named sites are accurate: `run-lean/SKILL.md` step 1, `lean-gate.sh`'s usage header + exit-code table (`2` now names the precondition), `lean-reconcile.sh`'s header enumeration (item 7). The `Changelog:` trailer states the no-grandfather-window rollout. B3 sits outside this AC's closed list. |
+| AC-1 | satisfied | One `ledger=`/`lines=`/`session=` row, guarded by `entry_row_present`, shape pinned in the primitives block. `(ea1)`/`(ea2)`; `(ea12)` re-asserts single-row on the healing call. |
+| AC-2 | satisfied | `audit_toolkit_opted_out()` picks the wording, the ledger predicate decides. `(ea8)`/`(ea9)`/`(ea10)`. Unchanged this round. |
+| AC-3 | satisfied | `require_entry_attested` at the dispatch (`:2340`), exit 2, remedy, no `attempt` line, `entry`/`verdict` exempt. The amended second-cause sentence ships at `:2335` (W6). `(ea3)`/`(ea5)`/`(ea6)`/`(ea7)`. |
+| AC-4 | satisfied | Arm (6) at `lean-reconcile.sh:477`, presence-only, no adapter branch. |
+| AC-5 | **satisfied** (was unsatisfied) | The scan reads `$SETTINGS`. Verified by re-applying `doctor-optout-committed-file` from the catalog with `sed -E` against a pristine copy: `doctor-selftest.sh` rc 1, and the ONLY case that reds is `opt-out-committed` — so the new scenario is the sole killer, not a restatement of `opt-out`. |
+| AC-6 | satisfied | Onboard step 2 + step 6. Its doctor claim, and `docs/onboarding.md`'s, and the `8e9a7af` release bullet's, are all true now that AC-5 is. |
+| AC-7 | satisfied | `(ea1)`–`(ea4)`, including the D-13 milestone-4 backstop paired red/green. |
+| AC-8 | satisfied | Every lean leg acquires its row by calling the gate; `(lean-entry)` composes the refusal at `all` and at a single milestone with the fix budget untouched. |
+| AC-9 | satisfied | `(Q)`'s pair reds without the row and greens with it. |
+| AC-10 | satisfied | Three scenarios: `opt-out` (FAIL), `opt-out-lane-off` (the surviving `warn`), `opt-out-committed` (same FAIL, other file). The last pair differs by one boolean and one filename. |
+| AC-11 | satisfied | Six rows. Round 1 verified four; I re-applied both new ones verbatim with the sweep's own `sed -E`, non-no-op both, against a pristine copy: `doctor-optout-committed-file` → rc 1 (killer: `opt-out-committed`), `lean-gate-runid-heal` → rc 2 (killers: `(ea12)` and `(n10)`). No baseline re-key owed — round 1 established that by site identity, and this round's edits land below every swept site. |
+| AC-12 | satisfied | The three originally-named doc sites plus the five arm-count statements, dropped rather than re-pinned. `Changelog:` trailers state the no-grandfather rollout; `Changelog: none.` is the sanctioned no-op form (`derive-release.sh:239`-`:242`), so the four docs commits ship no bullets. |
+| AC-13 | satisfied | The freeze is closed in all four directions probed above, and the guard is the cache compare — verified by deleting it, which reds `(ea11)`, and reds it *first*: without `(ea11)`'s milestone call the header is still `unset` when `(ea12)` runs, so `(ea12)` alone would not catch that mutant. Its mechanism *sentence* over-describes the github path (W1); the property it names holds. |
 
 ## Verification I ran
 
-- `shellcheck -e SC1091,SC2015,SC2181` over every `*.sh`: **rc 0**.
-- `jq empty` over every `*.json`: **rc 0**.
-- Full selftest sweep, all **63** suites, `-P 4`, **without** `SKIP_STRESS` and with
-  `env -u CLAUDE_CODE_SESSION_ID`: **rc 0**, no `FAIL:` line. (`xargs` propagates non-zero under
-  `-P`, so rc 0 is the whole-sweep claim.)
+- Full selftest sweep, all **63** suites, `-P 4`, **without** `SKIP_STRESS`, with
+  `env -u CLAUDE_CODE_SESSION_ID -u RUN_ID -u LEAN_RUN_MODEL -u GH_BOT`: **rc 0**, zero `FAIL:`
+  lines, zero `✗`. (`xargs` propagates non-zero under `-P`, so rc 0 is the whole-sweep claim.)
+- `shellcheck -e SC1091,SC2015,SC2181` over every `*.sh`: clean. `jq empty` over every `*.json`:
+  clean.
 - `check-frozen-files.sh a2b158f`: clean. `check-changelog-trailer.sh a2b158f`: OK.
-- `prose-budget.sh`: **19 FAILs on the branch, 19 at the base**, and both files this PR touches
-  were already failing at `a2b158f` (`run-lean/SKILL.md` 972→1010 against a 575 baseline;
-  `onboard/SKILL.md` 3187→3318 against 2740). The PR body's claim reproduces.
-- **Mutation-ordinal re-key**: diffed the first `k=2` matching lines of all six
-  `tools/mutation-operators.tsv` regexes across the three edited guards, base vs branch. Fifteen of
-  eighteen are byte-identical. The three apparent moves are all the *same construct* with edited
-  content — `cmp-z` ordinal 1 on `lean-gate.sh` and `lean-reconcile.sh` is the
-  `-h|--help) sed -n '2,Np'` line whose range legitimately grew (`2,128p`→`2,132p`,
-  `2,77p`→`2,81p`). Neither guard carries a `cmp-z` baseline row, so nothing is owed. The PR body's
-  "UNMOVED for all six operators on all three guards" holds under the site-identity reading, which
-  is the correct one.
-- **CI could not be read**: `gh pr checks 422` reports *"no checks reported on the
-  'lean/second-shift-416' branch"* — zero check runs were ever created, matching the
-  account-level GitHub Actions runner outage seen on this repo today. Everything above is local
-  evidence only; no lane on this PR has been observed green in CI.
+- `prose-budget.sh`: **19 FAILs**, the same count round 1 measured at the base and on the branch.
+  `review-lean/SKILL.md`, the file this round edits, has no baseline row (`NEW (add to baseline)`),
+  so the edit adds no FAIL. `run-lean/SKILL.md` is 42 lines, inside its 60-line cap.
+- **Targeted mutation probes on the round-2 assertions**, beyond the two catalog rows, because a
+  new assertion that never reds is decorative: deleting the cache compare at `lean-gate.sh:646`
+  reds `(ea11)` (and `(ea12)` behind it — but only because `(ea11)` ran first and left the header
+  stamped; on its own `(ea12)` would still see `unset` and pass, so that mutant's coverage
+  originates with `(ea11)`). Gating `verdict` in the dispatch list at `:2340` reds `(ea7)` and
+  nothing else. Removing the heal call reds `(ea12)` and `(n10)` while `(ea11)` correctly survives,
+  since a header that never heals is a header that stayed `unset`. Three mutants, three distinct
+  originating cases; the worktree was byte-restored and re-checked after each.
+- The B1 repro above ran the round-1 gate and the branch gate against one fixture, so the
+  before/after is the same tree.
+- **CI still cannot be read**: `gh pr checks 422` reports *"no checks reported on the
+  'lean/second-shift-416' branch"* — zero check runs have ever been created for this PR, the same
+  account-level Actions runner outage round 1 hit. Everything above is local evidence; no lane on
+  this PR has been observed green in CI, and this approve is given on that basis.
+- W2 was found by the maintainability reviewer; W1 independently by it and by me; W4/W5/W6 are
+  mine. The test-coverage reviewer returned approve with two nits, both subsumed above.
 
 ## Strengths
 
-- The `attest_at` helper drives the **real** `entry` rather than echoing the row, across all six
-  fixture trees. That is the difference between a guard and a decoration, and it is what makes
-  B1's fixture accommodation visible in the diff at all.
-- `(ea10)` tests the direction that matters most for AC-2 — a live ledger passing *despite*
-  `audit-toolkit: false` in settings — which is the exact way a "check the plugin instead"
-  implementation would have gone wrong and false-red every honest run.
-- `(Q)` and `(lean-entry)` are both true pairs: everything else is held at the fully-consistent
-  state so the row is the only variable. `(lean-entry)` additionally asserts the fix budget is
-  untouched, which is the half of AC-3 a rc-only check would miss.
-- Placing the precondition at the dispatch rather than inside each `cmd_*` closes every
-  start-at-milestone-N path in one site, including `all`'s cheap pre-pass — and the
-  `lean-gate-entry-precondition` catalog row models precisely the narrowing that would reopen them.
-- The rejected shapes (D-2, D-3, D-5) are recorded in the spec with their reasons, so the
-  independence from #417 is auditable rather than asserted.
+- Two mutation probes SURVIVED during the build and the **code** moved, not the record — a `-s`
+  test behind the cache compare and a first-match counter in the heal's `awk`, both deleted as
+  unreachable. The one line that still survives by construction is labelled in the source as a cost
+  guard so a later sweep does not read it as a coverage hole. That is the honest handling of a
+  survivor, and it is rarer than it should be.
+- `attest_at` losing its optional run-id parameter is the real fix for B1's second half. The helper
+  now drives `entry` with `RUN_ID` unset — the ordering every honest run is in — so the suite can no
+  longer be green on a header the field would never see. The jira claim case `(n10)` consequently
+  became a heal assertion, which is why deleting the heal reds two cases and not one.
+- `opt-out-committed` moves exactly one variable. Its fixture is `settings-green.json` with a single
+  boolean flipped, so the pair isolates the file rather than confounding it with content.
+- Dropping the arm counts instead of re-pinning them applies #414's remedy on the file #414 fixed,
+  which is the only version of that fix that survives the next arm.
