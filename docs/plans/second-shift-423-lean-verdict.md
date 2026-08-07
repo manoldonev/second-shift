@@ -1,147 +1,196 @@
 # lean review verdict — #423
 
-verdict=needs-work
-run_id: review-423-1
-session_id: 0457b055-aab0-43bd-ac2f-18bde612e6be
-rounds: 1
+verdict=approve
+run_id: review-423-2
+session_id: caf0a5c0-7f40-4a34-be26-313705d5b079
+rounds: 2
 pr: #428
-reviewed_head: a6961e810a06e9dcc8de3f48dfb0d792b5e60056
-reviewed_patch_id: fd2c5c480c8b0dfaaae1043fcabbb0f9897106ed
-inherited_patch_id: none
-inherited_from_verdict: none
+reviewed_head: c7fe6510f68934c59f75fd697a409b52c7ca5e21
+reviewed_patch_id: 1d8a9e4f5150e9444030d87ab4ddc7f9c65b8716
+inherited_patch_id: fd2c5c480c8b0dfaaae1043fcabbb0f9897106ed
+inherited_from_verdict: a6536c858b8696172b83fd3dfe826d2fe02b0ecd
 fidelity: not-applicable
 model: unknown
 
-# Review round 1 — PR #428 (issue #423)
+# Review round 2 — PR #428 (issue #423)
 
-Range read: `a2b158f..HEAD` — the whole branch diff (chain root, nothing to inherit).
+**Re-stamped after a rebase onto `origin/main`, still round 2.** The branch was rebased to
+resolve a conflict in `scripts/lockstep-manifest.tsv` after #425 and #429 landed. This costs
+no round, and the proof is not an assertion: of the fifteen files the branch touches,
+**fourteen are byte-identical** to the tree this round reviewed (`git show <old>:<f>` vs
+`git show <new>:<f>`, hashed). The fifteenth is the manifest, and its conflict was a pure
+both-append at EOF — #429 added a comment-only DROPPED block, this branch added a comment
+block plus three rows. The resolved file deletes **nothing** from `origin/main`, and the
+nineteen lines it adds are byte-identical to the nineteen the reviewed commit added. So no
+finding, no AC score and no probe in this record is stale; only the patch hash moved, which
+is exactly what the re-stamp exists to correct.
+
+Range read: `23609ec..HEAD` — the delta since the tree round 1 covered (patch `fd2c5c48`),
+inheriting the rest by reference to that record. I also re-read both workflow files and the
+production script in full, since round 2's new assertions are claims about behavior that
+lives outside the delta.
+
 Panel: security, performance, maintainability, complexity, test-coverage,
-scope-completeness — all six returned live, none dark.
+unit-test-mutation, scope-completeness — all seven returned live, none dark, all `approve`
+with zero findings. Every finding below is mine.
 
-**Verdict: needs-work.** One blocker: the suite does not cover AC-1's blockers-exclusion
-clause, and the gap is demonstrable rather than theoretical. Everything else in the diff is
-correct and well-argued; the code itself does not touch `blockers`.
+**Verdict: approve.** Round 1's blocker is genuinely closed — I reproduced both surviving
+mutants and confirmed each now reds — and both warnings are fixed. One warning remains, and
+it is a comment, not a mechanism.
 
-## Blocker
+## What round 1 raised, and where it stands
 
-**B1 — `plugins/second-shift/templates/consumer/second-shift-unclaim-selftest.sh`: AC-1's
-"`.tracker.labels.blockers` is **not** touched" has no killer in the suite, so AC-8 is
-unsatisfied.**
+**B1 (blocker) — FIXED, verified by re-running the exact two survivors.** On a sandbox copy
+of the tool, never in the reviewed tree:
 
-AC-8 requires the selftest to cover every arm of AC-1 through AC-4. AC-1's final sentence is
-an arm — the negative one, and the one D-1 spent its longest paragraph justifying. No
-assertion can fail on it, because **no fixture issue carries a blockers-vocabulary label**.
+| mutant | round 1 | round 2 |
+| --- | --- | --- |
+| `release_one "needs-spec-work"` | **SURVIVED** | 2 red (C18 count + C18 vocabulary) |
+| the whole `for b in epic needs-intake-review needs-spec-work needs-plan-review` loop | **SURVIVED** | 2 red (same pair) |
 
-Probed on a copy of the tool, never in the reviewed tree:
+The fix is the right one: a fixture, not more assertions. `CARRIES_BLOCKERS` carries the
+whole shipped blockers vocabulary — which I checked against
+`schema/second-shift.config.schema.json:68`, where the documented default is exactly
+`["epic","needs-intake-review","needs-spec-work","needs-plan-review"]` — plus a
+consumer-configured blockers name, and `CFG_BLOCKERS` configures `.tracker.labels.blockers`
+and nothing else so the expected DELETE count stays two.
 
-| mutant added to `second-shift-unclaim.sh` | suite result |
+**The three new assertions are separated, and none is decorative.** Each has a mutant the
+other two stay green through, as the PR claims:
+
+| mutant | C18 assertions red |
 | --- | --- |
-| `release_one "needs-spec-work" \|\| FAILED=1` | **0 failure(s) — SURVIVED** |
-| `for b in epic needs-intake-review needs-spec-work needs-plan-review; do release_one "$b" \|\| FAILED=1; done` | **0 failure(s) — SURVIVED** |
-| `release_one "bug" \|\| FAILED=1` (a label the fixtures *do* carry) | 2 red: `C7 … exactly one api call, and not a DELETE`, `C8 … exactly one DELETE` |
+| extra `release_one "bug"` (carried, non-blocker) | count only |
+| queue release retargeted at `epic` | vocabulary only |
+| queue name resolved from `.tracker.labels.blockers[0]` | config-key only |
 
-The third row is what makes this a fixture gap and not an un-failable assertion: the
-machinery already reds correctly the moment the over-stripped label is one the stub returns.
-So this is not the class C11 was deleted for — a killer demonstrably exists, the suite just
-cannot see it.
+I pushed the third one further, because "kills something its siblings don't" is a weaker bar
+than the repo's pruning rule deserves. Mutating the resolver to
+`QUEUE_LABEL="$(cfg '.tracker.labels.queue' "$(cfg '.tracker.labels.blockers[0]' 'ready-for-dev')")"`
+— a blockers-keyed *fallback*, which only fires on a fixture that sets `blockers` and omits
+`queue` — reds **exactly one assertion in the whole 28-assertion suite**, the config-key
+line. So the third assertion is not a sibling of the other two; it is the only thing in the
+suite that can see `.tracker.labels.blockers` being *resolved*, which is the literal
+requirement AC-1 states.
 
-Remedy is small: put a blockers-vocabulary label into a fixture (e.g.
-`CARRIES_BOTH_DEFAULT` gaining `{"name":"epic"}`) and assert no DELETE targets it. Re-probe
-with the two surviving mutants above and confirm each now reds.
+**W1 — FIXED.** Three `verbatim` rows, markers on both sides. Probed in a sandbox against a
+manifest holding only these three rows: widening `permissions` on the template side reds
+`unclaim-workflow-permissions` and nothing else; adding `reopened` reds
+`unclaim-workflow-trigger` alone; dropping `GH_REPO` reds `unclaim-workflow-env` alone;
+deleting a `LOCKSTEP-BEGIN` fails with `no LOCKSTEP-BEGIN/END block` rather than silently
+going unchecked. Restored to 3 checked / 0 failed after each. This is the sanctioned
+alternative to the grep D-10 retracted, not a reinstatement of it: it cannot pass by finding
+a word.
 
-Why this is a blocker and not a nit: the whole of D-1's reasoning is that the blockers list
-is consumer-redefinable and must never be stripped, and a regression that starts stripping it
-ships green today. The PR's own evidence section claims 28/28 killed and that every assertion
-was probed — that claim holds for every assertion that exists; the gap is a requirement with
-no assertion at all.
+**W2 — FIXED**, on both sides. The step is now `release the run-state labels` in both files,
+the template's header comments are corrected to the plural, and the job-level `name:` was
+already correct.
 
-## Warnings (not blocking)
+**S1 — declined, and the reasoning is right.** `gh api --paginate` on an array endpoint emits
+one JSON array per page, concatenated, and `jq -e` takes its exit status from the last value
+— so the naive flag would make a label present on page 1 read as absent, converting a
+theoretical miss into a real one. `--paginate --slurp` plus a flatten is the correct form.
+Recording it as a spec non-goal with that mechanism is the right disposition for a suggestion.
 
-**W1 — the two unclaim workflow YAMLs are an unguarded copy pair, and nothing records the
-decision.** `.github/workflows/unclaim-on-close.yml` and
-`plugins/second-shift/templates/consumer/second-shift-unclaim.yml` carry byte-identical
-`on:` trigger, `permissions:` block and `env:` block; they differ only in `name:`, the
-checkout pin (v5 / v4, matching existing precedent) and the invoked script path. D-10
-correctly removed the wiring greps, but the PR body's "no copy pair needing a
-`lockstep-manifest.tsv` row" reasons about the *script*, which genuinely has one copy — it
-does not address the YAML pair, which is new with this PR and is the first template workflow
-with a near-twin under `.github/workflows/`. CLAUDE.md routes exactly this case to the
-manifest, and a `verbatim` row over the three shared blocks is available; a **DROPPED** note
-with the reasoning is the cheaper alternative. Either makes the decision visible. Not a
-blocker: no AC requires it, and the drift is second-order.
+## Warning (not blocking)
 
-**W2 — `[Maintainability, confidence 82]` both YAMLs name the step `release the claimed
-label`, but two labels are released.** `.github/workflows/unclaim-on-close.yml:46` and
-`plugins/second-shift/templates/consumer/second-shift-unclaim.yml:39`, plus the comment above
-each. The script's own header is explicit ("WHICH LABELS. The two RUN-STATE roles, claimed
-and queue"), so the step name is the only place that still reads single-label.
+**W3 — `scripts/lockstep-manifest.tsv`: the `unclaim-workflow-env` comment claims a reach the
+row does not have.** The block comment says the row guards the case where
+"`${{ }}` reaching a `run:` body on one side only is exactly the divergence a reader would
+not see." It does not. The `run:` line sits **outside** the markers, and necessarily so — the
+two files invoke different script paths, so `run:` can never be part of a `verbatim` block.
 
-## Suggestion
+Probed: splicing `${{ github.event.issue.number }}` directly into the template's `run:` body
+while leaving the `env:` block byte-identical leaves the gate at **3 pair(s) checked, 0
+failed**, and the YAML still parses. What the row actually guards — env-block drift, i.e. the
+token source and which values are made available — is real and worth having; AC-14's own text
+is precise about it ("the step's `env:` block"). It is the manifest comment that overreaches.
 
-**S1 — `second-shift-unclaim.sh:108` reads labels unpaginated.** `gh api
-repos/{owner}/{repo}/issues/$ISSUE/labels` returns the first page (30) only, so on an issue
-carrying more than 30 labels a run-state label on page 2 reads as absent and is silently not
-released. Not realistic for this repo; `--paginate` would close it outright.
+Not a blocker: no AC is unmet, the guard does what AC-14 requires, and the injection
+discipline itself is intact in both files today. But this repo's whole objection to the
+prose-presence class is that something reads as coverage while not being it, and a guard's
+own comment claiming a property the guard lacks is that failure mode in miniature. Worth one
+sentence of correction whenever this file is next touched.
+
+## Note on the spec amendment
+
+Round 2 amended the spec: AC-14 is new, and a pagination non-goal was added. Both are
+sanctioned — `run-lean/SKILL.md` step 4 permits amending the `AC-n` set before milestone 5,
+which has not run — and neither is the pattern the "spec amended to match the diff" rule
+guards against. AC-14 *adds* an obligation and the diff meets it; the non-goal declines a
+round-1 **suggestion**, which was never an AC, so no acceptance criterion was weakened. Round
+2 is therefore scored against a spec round 1 never saw, which is stated here rather than left
+to be inferred.
 
 ## Per-AC scoring
 
 | AC | Score | Evidence |
 | --- | --- | --- |
-| AC-1 | satisfied | Both roles resolved, defaults `in-progress` / `ready-for-dev`, `blockers` untouched in code; seam is `${SECOND_SHIFT_CONFIG:-…}` / `${SECOND_SHIFT_REPO_ROOT:-$(git rev-parse --show-toplevel)}` as specified. Absent/keyless/unparseable config all fall through — C2/C3/C4, and my wrong-literal mutants on each default red 4 and 6 assertions. |
-| AC-2 | satisfied | Three arms exit 0 with zero calls and a named arm (C5/C6/C7). Falsifying either arm's condition reds its case. Labels read once at `unclaim.sh:108`, before any write. |
-| AC-3 | satisfied | `jq -rn --arg s … '$s\|@uri'` at `unclaim.sh:123`; C9 pins encoded-and-never-raw. Replacing `encoded` with the raw label reds 9 assertions. |
-| AC-4 | satisfied | 404 tolerance (dropping it reds C10 twice); other failures exit 1 (C11); worst-wins — dropping either `\|\| FAILED=1` reds 7; read failure exits 1 (flipping it to `exit 0` reds C13); usage exits 2 (flipping to 0 reds C14+C15). |
-| AC-5 | satisfied | `issues: [closed]`, `permissions: {contents: read, issues: write}`, `GH_TOKEN: ${{ github.token }}`, checkout, template script run in place, issue number env-borne — no `${{ }}` in the `run:` body. |
-| AC-6 | satisfied | Same trigger/permissions/token/env discipline; calls `.claude/tools/second-shift-unclaim.sh`. |
-| AC-7 | satisfied | One question at Step 3 item 9 — no second prompt; Step 7 item 3 copies both verbatim (source is `100755`, matching `second-shift-ci-check.sh`); Step 8 item 6 lists the pair; the write boundary and the read-and-write requirement are both stated; non-github skips the unclaim half. |
-| **AC-8** | **unsatisfied** | Hermetic, `gh` stubbed on PATH recording argv, per-label failure control, argv **and** exit-code assertions, zero YAML greps — all hold. AC-1's blockers arm is uncovered (B1). |
-| AC-9 | satisfied | `run-lean/SKILL.md` step 9 no longer instructs the drop and names where it now happens; file is 42 lines against the 60-line cap. Schema descriptions rewritten with no `configVersion` change. Both `SECOND-SHIFT.md` copies plus `docs/onboarding.md` and `docs/team-rollout.md` updated. |
-| AC-10 | satisfied | `.claude/prose-budget.baseline.tsv` is not in the diff at all, so nothing was regenerated. `--report` gives **19 FAIL at `a2b158f` and 19 on this branch**; both touched rows were already FAIL at base (`run-lean/SKILL.md` 972→1000, `onboard/SKILL.md` 3187→3431). No row this change introduced is over budget. |
-| AC-11 | satisfied | `unclaim.sh:73-79` — says this repo runs on the jq defaults because its config is gitignored, and names the symptom (the stale label, on the next close). |
-| AC-12 | satisfied | PR body's OR-1 section: unverified, why it cannot be verified pre-merge, the post-merge verification step, and the `pull_request: [closed]` reversal. |
-| AC-13 | satisfied | `check-workflows-selftest.sh` walks `plugins/second-shift/templates/consumer/*.yml`; run here: **7 ok, 0 failed**. |
+| AC-1 | satisfied | Production script unchanged in the delta; round-1 coverage inherited. The negative clause is now genuinely guarded — see B1 above. |
+| AC-2 | satisfied | Three no-op arms, C5/C6/C7; suite green. Inherited from round 1, unchanged in the delta. |
+| AC-3 | satisfied | `jq -rn --arg s … '$s\|@uri'` at `second-shift-unclaim.sh:123`; C9 pins encoded-and-never-raw. Inherited. |
+| AC-4 | satisfied | 404 tolerance C10; other failures exit 1 C11; worst-wins C12; read failure C13; usage exits 2 C14/C15. Inherited. |
+| AC-5 | satisfied | Re-read in full this round. `issues: [closed]`, `permissions: {contents: read, issues: write}`, `GH_TOKEN: ${{ github.token }}`, `actions/checkout@v5`, template script run in place, issue number env-borne — no `${{ }}` in the `run:` body. |
+| AC-6 | satisfied | Re-read in full. Same trigger/permissions/token/env discipline, `actions/checkout@v4`, calls `.claude/tools/second-shift-unclaim.sh`. |
+| AC-7 | satisfied | `onboard/SKILL.md:259-263` copies both verbatim under Step 7 item 3; `:314-315` lists the pair in Step 8; `:161-163` states the write boundary and the read-and-write requirement, and skips the unclaim half under a non-github tracker. One question at Step 3 item 9 — no second prompt. |
+| **AC-8** | **satisfied** | Was the round-1 blocker. Hermetic, `gh` stubbed on PATH, argv **and** exit-code assertions, zero YAML greps. AC-1's blockers arm is now covered by C18, and each of its three assertions is independently killable — one of them uniquely across the whole suite. 28/28 green. |
+| AC-9 | satisfied | Inherited from round 1: `run-lean/SKILL.md` step 9 names where the drop now happens and the file is inside its 60-line cap; schema description rewritten with no `configVersion` change; both `SECOND-SHIFT.md` copies plus `docs/onboarding.md` and `docs/team-rollout.md` updated. |
+| AC-10 | satisfied | Re-verified this round: `.claude/prose-budget.baseline.tsv` is not in the branch diff at all (0 lines). `prose-budget.sh --report` gives **19 FAIL at base `a2b158f` and 19 on this branch**. The lean spec grew 29 lines in the delta but `docs/plans/` is not budgeted (0 rows in the baseline), so no row moved. |
+| AC-11 | satisfied | `second-shift-unclaim.sh:73-79` names the reliance and the symptom. I checked the premise rather than the prose: this repo's own config carries `tracker.labels: null`, and `gh label list` shows its real labels are `in-progress` and `ready-for-dev` — exactly the shipped defaults. The canary is correct under both the config-absent and config-present paths. |
+| AC-12 | satisfied | The PR's OR-1 section states the trigger is unverified, why it cannot be verified pre-merge, the post-merge verification step (#423 itself is the first natural test), and the `pull_request: [closed]` reversal. |
+| AC-13 | satisfied | `check-workflows-selftest.sh` walks `plugins/second-shift/templates/consumer/*.yml`; **7 ok, 0 failed**, both consumer templates among them. |
+| AC-14 | satisfied | Three `verbatim` rows and markers on both sides; `check-lockstep-pairs.sh` reports **20 pairs checked, 0 failed**. Each row probed to red on its own drift and on nothing else, and a deleted marker fails loudly. `name:`, the checkout pin and the script path are outside the markers and free to differ, as specified. See W3 for a comment on the row, not on the row's behavior. |
 
 Design fidelity: **not-applicable** — the spec has no `## Design` section and arms no `RS-n`
 render states.
 
 ## Verification I ran, from this checkout
 
-- Full selftest sweep, `-P 4`, **without** `SKIP_STRESS`, `CLAUDE_CODE_SESSION_ID` unset —
-  `rc=0`, zero `✗`.
-- `shellcheck -e SC1091,SC2015,SC2181` over every `*.sh`, `jq empty` over every `*.json` —
-  both clean.
-- `second-shift-unclaim-selftest.sh` — 25/25 green.
-- `check-workflows-selftest.sh` — 7 ok, 0 failed.
-- Diff-scoped mutation sweep, `--mode pr --base a2b158f`, re-run with
-  `MUTATION_SWEEP_CACHE=0` so no verdict was inherited from the build session:
-  `applied=8 killed=8 survived=0`.
-- 17 hand-built mutants beyond the sweep's operator set, on a copy of the tool: 16 killed,
-  1 survivor — B1.
+Everything below was re-run **after** the rebase, against the new base `ec7b6a4`, not
+inherited from the pre-rebase run.
 
-**CI has produced zero check runs for this branch** (0 check-runs on all four commits;
-`mergeStateStatus: BLOCKED`). That is the GitHub Actions major outage, not a defect in this
-PR — the repo has created no run of any kind since 2026-08-06T20:27Z, and the PR opened at
-21:15Z. It does mean nothing here has been observed in the canonical `ubuntu-latest`
-environment, so the local runs above are the only evidence, and the local mutation sweep
-prints its own ADVISORY banner for that reason. The next round should read CI once Actions
-recovers.
+- Full selftest sweep, `-P 4`, **without** `SKIP_STRESS` and with `CLAUDE_CODE_SESSION_ID`
+  and `RUN_ID` unset: `rc=0`. One `✗` appears in the log and is not a failure — it is inside
+  an `install-topology-selftest.sh` line the suite itself labels `known:`
+  (`docs/extension-points.md` is not shipped inside any plugin), it arrived with the new base
+  rather than with this branch, and the sweep still exits 0.
+- `shellcheck -e SC1091,SC2015,SC2181` over the changed shell — clean.
+- `second-shift-unclaim-selftest.sh` — **28/28**.
+- `check-lockstep-pairs.sh` — 20 pairs, 0 failed, now including the rows #429 added to the
+  same manifest. `check-lockstep-pairs-selftest.sh` — 7 passed, 0 failed.
+- `check-workflows-selftest.sh` — 7 ok, 0 failed.
+- Diff-scoped mutation sweep against `ec7b6a4` with **`MUTATION_SWEEP_CACHE=0`**, so nothing
+  replayed from the build session or from the pre-rebase run:
+  `applied=8 killed=8 survived=0`, `0 served from cache`. It prints its own ADVISORY banner —
+  a local userland is not CI's. `tools/mutation-baseline.tsv` carries no row for this guard
+  and needs none; the guard file is byte-identical across the rebase, so no ordinal moved.
+- Hand-built mutants beyond the sweep's operator set, all on sandbox copies: 2 reproducing
+  round 1's survivors (both now killed), 3 separating the new C18 assertions, 1 proving the
+  third is uniquely killable suite-wide, 4 on the lockstep rows, 1 on the `run:` body (W3).
+  Every mutation was confirmed to have actually changed the file before the suite re-ran, so
+  a no-op edit could not read as "survived".
+
+**CI — the branch's first real check run.** Round 1 could cite no CI at all (Actions outage,
+zero check-runs on every commit). Run `31162453861` executed here: `lint-and-selftests`
+**success**, `selftests (macos, bash 3.2)` **success** — the bash-3.2 lane a local sweep on
+Homebrew bash 5 can never stand in for — `release-pr-gates` skipped. `pr-gates` **fails at
+exactly one step**, `lean chain reconciliation`, with `Set up job`, checkout and the three
+other guards all green; that is the expected pre-verdict red, since it wants the
+`verdict=approve` record this round is about to write.
 
 ## Strengths
 
-- The assertion pruning is the real work in this diff and it is honest: three rounds of it,
-  with the deleted cases named and the reason each was un-failable given (`C11` unreachable
-  with an empty read body; the folded `C14` pair staying green through the very mutant it
-  existed to catch). That is the discipline the repo asks for, applied against the author's
-  own tests.
-- `C17` is the case that matters most and the one easiest to omit — both env seams unset,
-  inside a throwaway git repo, so the two `${VAR:-…}` default expansions and the `rev-parse`
-  fallback are exercised on the production path instead of being pinned away by every other
-  case.
-- Read-once-then-delete with per-label failure isolation and a worst-wins exit is the right
-  shape: the common case (an issue carrying neither label) costs one call and no tolerated
-  errors, and a token that can clear one label but not the other cannot report a half-cleared
-  issue as done.
-- Extending `check-workflows-selftest.sh` to parse the consumer templates is a genuine
-  addition, not a consolation for the removed pins — it is a parse, it fails for a reason a
-  diff reader would not see, and it closes a gap where a malformed template surfaced only in
-  somebody else's repo.
+- The B1 fix is diagnosed at the right layer. The reflex is to add assertions; the actual
+  gap was that no fixture could make the violating mutant do anything, so the fix is one
+  fixture and the production script is untouched. Saying plainly that "28 mutants, 28 killed"
+  was true of every assertion that existed — and was still not coverage of the requirement —
+  is the honest reading.
+- Each new assertion was given a mutant its siblings survive, rather than three lines that
+  die together. That is the discipline this repo prunes for, applied pre-emptively.
+- W1 was answered with the *stronger* of the two options round 1 offered. A DROPPED note
+  would have closed the finding; lockstep rows actually catch the drift, and the reasoning
+  for why that is not a D-10 violation — copy-agreement and absolute correctness are
+  different properties, and only the first is byte-anchorable — is correct and worth reusing.
+- S1 is declined with the mechanism that makes the naive fix wrong, not with a judgment about
+  likelihood. A one-flag suggestion that would have silently broken the membership check is
+  exactly the kind that gets taken without checking the flag's output shape.
