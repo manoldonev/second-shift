@@ -76,9 +76,11 @@ is why `ci.yml` needs env constants and a consumer does not).
 
 **Exit-code mapping.** The payload's `1` (evidence violation) and `2` (environment error) both
 map to the consumer script's FAIL. `2` is a FAIL and not the template's usual "could not
-verify" WARN because the template supplies every input the payload needs (D-12): an env error
-means template and payload are out of lockstep at the pinned ref, which is the same drift class
-D-10 makes fatal. A network/auth failure of the *fetch itself* stays a WARN, unchanged.
+verify" WARN because the template supplies every input the payload needs (D-12) — step env, full
+history, **and the job's token scopes**, a denied API read being an environment error like any
+other: an env error means template and payload are out of lockstep at the pinned ref, which is
+the same drift class D-10 makes fatal. A network/auth failure of the *fetch itself* stays a WARN,
+unchanged.
 
 ## Deviation from D-3
 
@@ -101,7 +103,9 @@ before the review handoff.
   exits 1; an operator-authored (non-`Bot`) marker does not satisfy the arm; an intent-gap
   record reading `ratified: no` exits 1, and one reading `ratified: yes` with no `ratified_by:`
   URL exits 1; an absent or mismatched `reviewed_patch_id` exits 1; a non-lean branch carrying
-  no lean spec exits 0 as not-applicable.
+  no lean spec exits 0 as not-applicable. One fact is one violation: a non-approve record is
+  counted **once** on a combined run — the freshness arm does not restate the verdict arm's
+  finding — while `--arms freshness` alone still refuses it rather than passing vacuously.
 - **AC-2 (oracle — template selftest).** `second-shift-ci.yml` and `second-shift-ci-check.sh`
   invoke the payload fetched at the lockfile's pinned ref, and
   `second-shift-ci-check-selftest.sh` asserts: a stubbed HTTP 404 on the payload path is FAIL
@@ -109,7 +113,10 @@ before the review handoff.
   non-fatal WARN; a fetched payload reporting a violation is FAIL; a non-lean PR reports
   not-applicable and adds no FAIL; and the YAML carries `fetch-depth: 0` plus the
   `PR_HEAD_REF` / `PR_HEAD_SHA` / `PR_BASE_REF` / `PR_BODY` / `PR_NUMBER` / `GH_REPO` step env
-  the payload's arms require.
+  the payload's arms require, **and a `permissions:` block granting the `contents` / `issues` /
+  `pull-requests` read scopes** the identity arm's PR-comment fetch needs — that key replaces
+  the workflow defaults wholesale, so an unlisted scope is `none` and the fetch is denied — and
+  no write scope, asserted against the block itself rather than the file.
 - **AC-3 (oracle — delegation).** `scripts/check-lean-chain.sh` obtains classification and the
   verdict / identity / intent-gap arms from the payload, and the freshness arm from it whenever
   the record declares `reviewed_patch_id`, holding no second copy of any of them.
@@ -133,7 +140,7 @@ before the review handoff.
   `tools/mutation-baseline.tsv` rows are re-baselined in this same diff, and any
   `tools/mutation-catalog.tsv` row addressing those guards is re-anchored (D-13).
 - **AC-8 (doc).** `plugins/second-shift/templates/consumer/SECOND-SHIFT.md` documents the new
-  arm and its required-status-check wiring; `plugins/dev-pipeline/skills/run-lean/SKILL.md`
+  arm, its required-status-check wiring, and the read scopes its workflow job needs; `plugins/dev-pipeline/skills/run-lean/SKILL.md`
   step 7 names the `mark` call; `scripts/lockstep-manifest.tsv` carries the marker-shape row
   binding the writer in `lean-gate.sh` to the reader in `lean-evidence.sh`.
 - **AC-9 (critic).** Every commit carries a `Changelog:` trailer, and no consumer identity —

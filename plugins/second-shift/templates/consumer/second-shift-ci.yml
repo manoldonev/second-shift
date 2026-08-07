@@ -15,12 +15,22 @@ on:
   pull_request:
   workflow_dispatch:
 
-# contents:read is load-bearing, not hygiene: the check executes a script fetched
-# from the marketplace repo at the pinned ref, so the token this job holds is the
-# blast radius if that repo is ever compromised. Read-only caps it at "read a repo
-# that's already checked out" — never widen this job's permissions.
+# A `permissions:` key REPLACES the defaults wholesale — every scope not listed below is
+# `none`, and GitHub documents no public-repo exception — so each arm's reads must be stated
+# here or they are denied at runtime:
+#   contents:               checkout, and the pinned-ref fetch of the check scripts.
+#   issues + pull-requests: the lean evidence arm reads THIS PR's comment trail
+#                           (GET /repos/{owner}/{repo}/issues/{number}/comments) for the build
+#                           run's bot marker. Without them that read is denied, the payload
+#                           reports an environment error, and every lean PR reds with a message
+#                           pointing at the step env rather than at the token.
+# What this block caps is WRITE, not read: the check executes a script fetched from the
+# marketplace repo at the pinned ref, so the token this job holds is the blast radius if that
+# repo is ever compromised. A read scope an arm requires belongs here; never grant a write one.
 permissions:
   contents: read
+  issues: read
+  pull-requests: read
 
 jobs:
   evidence:

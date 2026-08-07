@@ -95,7 +95,6 @@ check "empty settings ref: names the missing pin"     "$(grep -q "no marketplace
 check "yml: triggers on pull_request"                  "$(grep -q "pull_request" "$YML" && echo 0 || echo 1)"
 check "yml: runs the check script"                     "$(grep -q "second-shift-ci-check.sh" "$YML" && echo 0 || echo 1)"
 check "yml: passes github.token as GH_TOKEN"           "$(grep -q "GH_TOKEN" "$YML" && grep -q "github.token" "$YML" && echo 0 || echo 1)"
-check "yml: job permissions are contents: read"        "$(grep -q "contents: read" "$YML" && echo 0 || echo 1)"
 check "yml: job name matches the documented required-status-check context" "$(grep -q "name: second-shift evidence" "$YML" && echo 0 || echo 1)"
 
 # (8) gh fetch paths (stubbed gh on PATH; SECOND_SHIFT_CONFIG_LINT unset so the fetch runs).
@@ -195,6 +194,19 @@ check "yml: checkout is full-history (fetch-depth: 0)"  "$(grep -q "fetch-depth:
 for v in GH_REPO PR_NUMBER PR_HEAD_REF PR_HEAD_SHA PR_BASE_REF PR_BODY; do
   check "yml: step env carries $v"                      "$(grep -q "$v:" "$YML" && echo 0 || echo 1)"
 done
+# The TOKEN SCOPES are an input in exactly that sense, and the one a reader cannot see is
+# missing: a `permissions:` key replaces the defaults wholesale, so a scope omitted here is
+# `none` and the identity arm's `gh api repos/O/R/issues/N/comments` read is denied — payload
+# exit 2, scored FAIL, on every lean PR. Asserted against the BLOCK, not the whole file, so a
+# `contents: read` appearing in a comment cannot satisfy it. Mirrors this repo's own pr-gates
+# job, which carries the same three for the same read.
+PERMS="$(awk '/^permissions:/{f=1;next} f&&/^[^ ]/{f=0} f' "$YML")"
+for p in "contents: read" "issues: read" "pull-requests: read"; do
+  check "yml: permissions block grants $p (AC-2)"       "$(grep -q "^  $p\$" <<<"$PERMS" && echo 0 || echo 1)"
+done
+# The blast-radius rule the block's comment states, as an assertion rather than prose: a fetched
+# script runs under this token, so a write scope here is a standing escalation.
+check "yml: permissions block grants no write scope (AC-2)" "$(grep -q ": write" <<<"$PERMS" && echo 1 || echo 0)"
 
 if [ "$FAILS" -gt 0 ]; then echo "second-shift-ci-check selftest: $FAILS FAILURE(S)"; exit 1; fi
 echo "second-shift-ci-check selftest: all green"

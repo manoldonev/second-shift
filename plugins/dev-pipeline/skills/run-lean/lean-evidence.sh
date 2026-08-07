@@ -451,11 +451,19 @@ arm_freshness() {
   [ -n "$VERDICT" ] || return 0   # already a violation
 
   # VACUITY. "Fresh" is a claim about an APPROVE — a needs-work record is neither stale nor
-  # fresh, because there is nothing for the arm to certify either way. Evaluating it anyway
-  # restates the verdict arm's finding in slightly different words, which is the "one fact
-  # printed as three violations" defect. Short-circuit before any patch-id computation runs.
+  # fresh, because there is nothing for the arm to certify either way. Short-circuit before any
+  # patch-id computation runs.
+  #
+  # ONE FACT, ONE VIOLATION. The verdict arm states this same fact, so on any invocation that
+  # ran it — including the default `all`, which is how a consumer's CI calls this — restating it
+  # here would count one fact twice and inflate the "N evidence artifact(s) missing" total.
+  # Silent then. Running ALONE (`--arms freshness`) nothing else has said it, and returning with
+  # no refusal at all would report a vacuous pass, so there it is counted.
   if [ "$VERDICT_VALUE" != "approve" ]; then
-    note_violation "verdict record '$VERDICT' reads 'verdict=${VERDICT_VALUE:-<none>}', not 'verdict=approve' — freshness is undefined for a non-approve record, so the patch-id arm is not evaluated."
+    case ",$ARMS," in
+      *,verdict,*) : ;;
+      *) note_violation "verdict record '$VERDICT' reads 'verdict=${VERDICT_VALUE:-<none>}', not 'verdict=approve' — freshness is undefined for a non-approve record, so the patch-id arm is not evaluated." ;;
+    esac
     return 0
   fi
   if [ -z "$VERDICT_REVIEWED_PATCH_ID" ]; then

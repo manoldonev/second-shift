@@ -498,3 +498,27 @@ lean-pr-marker	verbatim	plugins/dev-pipeline/skills/run-lean/lean-gate.sh	lean-p
 # side stops locating the artifact and reds — the (A) happy path and (S0)-(S4) between them
 # exercise every name in both tables.
 # Revisit if OR-1 lands: the render suffix would then exist on both sides and the sets converge.
+
+# lean evidence TOKEN SCOPES (#359) — the `permissions:` block granting `contents` + `issues` +
+# `pull-requests` read, held by this repo's `.github/workflows/ci.yml` (`pr-gates`) and by
+# `plugins/second-shift/templates/consumer/second-shift-ci.yml`. Both jobs execute the same
+# lean-evidence identity arm, whose `GET /repos/{o}/{r}/issues/{n}/comments` read is denied
+# without them — and a `permissions:` key replaces the workflow defaults wholesale, so an
+# omitted scope is `none` rather than inherited. The template shipped without the two reads and
+# would have red-lined every adopting consumer's lean PRs with an environment error.
+# Considered for a row and DROPPED, and NOT for want of an anchor — the two blocks do collapse
+# to the same string today. They are not one contract. The host job additionally runs
+# check-lean-chain.sh's issue-side claim arm, which a read-only tracker has no counterpart for,
+# so the sets coincide by present need, not by definition. A `verbatim` row would bind them in
+# the wrong direction: a scope the HOST later needs would become a scope every consumer's
+# workflow is forced to grant, which is precisely the standing escalation the template's own
+# comment refuses. The correct relation is "each block ⊇ what its own arms read", which no
+# relation in this file expresses.
+# Guarded asymmetrically instead, because the two sides have unequal signals. The template has
+# NO live signal — no consumer CI runs in this repo — so second-shift-ci-check-selftest.sh pins
+# all three scopes against the block itself (not the file, so a commented-out scope cannot
+# satisfy it) plus the no-write-scope rule. The host side has the strongest signal available:
+# its own pr-gates job executes that read on every PR, so a dropped scope reds immediately and
+# visibly. An assertion there would restate what CI already proves.
+# Revisit if the host's block gains a scope: check whether the arm needing it lives in the
+# payload (then the template needs it too) or only in check-lean-chain.sh (then it must not).

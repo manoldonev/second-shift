@@ -47,6 +47,12 @@ repo enables {{PLUGIN_LIST}}) — `/second-shift:doctor` verifies the install ag
   that could not run: a moved script path at your pinned ref (HTTP 404) or a shallow checkout is
   reported as drift, never waved through green. Only a network/auth blip fetching the script is
   a non-fatal warning. Nothing about it is model-driven and it makes no API-billed calls.
+- **If you hand-maintain that workflow, keep its `permissions:` block intact.** The identity arm
+  reads the PR's comment trail, so the job needs `contents: read` **plus `issues: read` and
+  `pull-requests: read`**. A `permissions:` key replaces the workflow defaults wholesale — any
+  scope you leave out is `none`, with no public-repo exception — so dropping either read denies
+  that call and reds every lean PR with an environment error. Read scopes only: the job executes
+  a script fetched from the marketplace repo at your pinned ref, which inherits this token.
 - **Its gate strength depends on your tracker.** Under `tracker.type: github` the build run's
   identity comes from a bot-authored marker comment the harness posts on the PR, and the
   verdict's independence is checked against it. Under `tracker.type: jira`, `config-lint` forbids

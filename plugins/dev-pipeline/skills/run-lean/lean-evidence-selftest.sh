@@ -188,14 +188,29 @@ if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q 'no committed verdict record'
 else fail "(g) expected rc=1 on a missing verdict, got $rc: $out"; fi
 mv "$WORK/held-verdict.md" "$VREC"; commit_tree "verdict restored"
 
+# ONE FACT, ONE VIOLATION — the count is asserted, not merely printed. A combined run states
+# "not approve" once (the verdict arm's); freshness must neither recompute a patch id nor
+# restate it, or the consumer's `all` reports one defect as two missing artifacts.
 write_verdict needs-work
 out="$(ev "lean/acme-42" "$WORK/markers-good.json" "$WORK/diff-lean.txt")"; rc=$?
-n="$(printf '%s' "$out" | grep -c '✗')"
 if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q "reads 'verdict=needs-work'" \
-   && printf '%s' "$out" | grep -q 'freshness is undefined for a non-approve record' \
+   && printf '%s' "$out" | grep -q '✗ 1 evidence artifact(s) missing' \
+   && ! printf '%s' "$out" | grep -q 'freshness is undefined for a non-approve record' \
    && ! printf '%s' "$out" | grep -q 'now hashes to'; then
-  pass "(h) a needs-work record fails, and freshness reports undefined rather than recomputing ($n refusals)"
-else fail "(h) expected the non-approve collapse, got $rc: $out"; fi
+  pass "(h) a needs-work record fails EXACTLY once — freshness neither recomputes nor restates it"
+else fail "(h) expected the non-approve collapse to one refusal, got $rc: $out"; fi
+
+# ...and the suppression is conditional on the verdict arm having run, not unconditional: a lone
+# freshness arm has nothing else stating the fact, so returning quietly would be a vacuous pass.
+out="$( cd "$TREE" && \
+        LEAN_BRANCH_PREFIX="lean/acme-" PIPELINE_BRANCH_PREFIX="claude/acme-" \
+        PR_HEAD_REF="lean/acme-42" PR_HEAD_SHA="$(git -C "$TREE" rev-parse HEAD)" \
+        PR_BASE_REF="main" PR_BODY="$BODY_GOOD" \
+        bash "$TOOL" check --key 42 --arms freshness 2>&1 )"; rc=$?
+if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q 'freshness is undefined for a non-approve record' \
+   && printf '%s' "$out" | grep -q '✗ 1 evidence artifact(s) missing'; then
+  pass "(h2) '--arms freshness' alone still refuses a non-approve record — no vacuous pass"
+else fail "(h2) expected a lone freshness arm to refuse once, got $rc: $out"; fi
 
 write_verdict approve "" "" ; sed -i.bak '/^run_id:/d' "$VREC" && rm -f "$VREC.bak"; commit_tree "verdict without run_id"
 out="$(ev "lean/acme-42" "$WORK/markers-good.json" "$WORK/diff-lean.txt")"; rc=$?
