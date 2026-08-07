@@ -26,6 +26,15 @@ FAILS=0
 pass() { echo "  PASS: $1"; }
 fail() { echo "  FAIL: $1" >&2; FAILS=$((FAILS + 1)); }
 
+# HERMETICITY. `LEAN_RUN_MODEL` is a documented seam of the gate, so a lean run that stamps
+# its model honestly has it EXPORTED — and (m1b)/(p5) below assert the absent-value default
+# `unknown`, which that export silently falsifies. The suite inherited the ambient value for
+# this one variable, so those two cases red on exactly the machines the lane runs on and pass
+# everywhere else: an environment artifact that surfaces at milestone 3 reading like a code
+# defect in whatever diff happens to be in flight. Unset it once here so every case starts
+# from the documented absent state; (m1c) sets it explicitly for the other direction.
+unset LEAN_RUN_MODEL
+
 WORK="$(mktemp -d -t leangate.XXXXXX)"
 # shellcheck disable=SC2317,SC2329  # invoked indirectly by the EXIT trap below.
 # BOTH codes: shellcheck >=0.10 reports SC2329 on the function, 0.9 (CI) reports SC2317 on
@@ -754,6 +763,19 @@ else fail "(m1) expected 'run_id: unset' in the header, got: $out"; fi
 if printf '%s' "$out" | grep -q '^model: unknown$'; then
   pass "(m1b) ensure_progress_file() stamps model: unknown when LEAN_RUN_MODEL is unset (#347)"
 else fail "(m1b) expected 'model: unknown' in the header, got: $out"; fi
+
+# The other direction of the same seam, which nothing covered: (m1b) alone reads as "the model
+# key works" while only ever proving the DEFAULT. A stamp that ignored the variable entirely —
+# a hardcoded `unknown` — passes (m1b) and every other case in this file, and would silently
+# make the retro corpus's model-aggregation key a constant. `unset` after, because the suite's
+# whole point above is that the ambient state for this variable is absent.
+reset_progress
+LEAN_RUN_MODEL=selftest-model-357 gate 3 7 >/dev/null 2>&1
+unset LEAN_RUN_MODEL
+out="$(cat "$PROG" 2>/dev/null)"
+if printf '%s' "$out" | grep -q '^model: selftest-model-357$'; then
+  pass "(m1c) ensure_progress_file() stamps the LEAN_RUN_MODEL value when one IS set (#347)"
+else fail "(m1c) expected 'model: selftest-model-357' in the header, got: $out"; fi
 
 reset_progress
 rm -f "$RUN_ID_CACHE"
