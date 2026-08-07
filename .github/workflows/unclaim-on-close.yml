@@ -1,15 +1,18 @@
 # Release the pipeline's run-state labels when a tracker item closes (#423).
 #
-# The label is added at claim and used to be removed by nothing: the lane's step-9 prose
-# said the session drops it, but the lean lane's milestone 5 requires an OPEN pr, so it
+# The claimed label is added at claim and used to be removed by nothing: the lane's step-9
+# prose said the session drops it, but the lean lane's milestone 5 requires an OPEN pr, so it
 # runs strictly pre-merge — the one moment the label is still correct. The stale window
 # opens at merge, when the pr's closing reference closes the issue and no session is
 # running to notice. Binding the release to the close event is deterministic, needs no
 # live session, and covers both lanes plus a hand-closed issue.
 #
 # This repo is the canary, so the job runs the SHIPPED template script in place rather
-# than a committed copy under .claude/tools/ — one artifact, no pair to keep in lockstep,
-# and what runs here is exactly what a consumer receives.
+# than a committed copy under .claude/tools/ — one script, and what runs here is exactly
+# what a consumer receives. The two workflow FILES are still a copy pair, so the three
+# blocks they must not drift on carry LOCKSTEP markers; the rows live in
+# scripts/lockstep-manifest.tsv. Everything outside them (name, checkout pin, script path)
+# is free to differ.
 #
 # Model-free: no API-billed model calls, just jq + gh (both preinstalled on
 # ubuntu-latest; gh authenticates via the job token).
@@ -21,18 +24,22 @@
 # merges. If a close is ever seen with no run, the reversal is additive: add
 # `pull_request: [closed]` as a second trigger and resolve the issue number from the pr body.
 name: unclaim on close
+# LOCKSTEP-BEGIN unclaim-workflow-trigger
 on:
   issues:
     types: [closed]
+# LOCKSTEP-END unclaim-workflow-trigger
 
 # issues:write is the whole point of this workflow and its entire blast radius: the job
 # removes the two run-state labels from one issue. contents:read is for the checkout that
 # supplies the script. Never widen either. Note a `permissions:` block only NARROWS the
 # repo maximum — with Actions workflow permissions set to read-only this grant is refused
 # and the removal 403s, which the script surfaces as a red run rather than a silent pass.
+# LOCKSTEP-BEGIN unclaim-workflow-permissions
 permissions:
   contents: read
   issues: write
+# LOCKSTEP-END unclaim-workflow-permissions
 
 jobs:
   unclaim:
@@ -43,9 +50,11 @@ jobs:
 
       # The issue number rides in the environment, never spliced into the run body — the
       # same injection discipline ci.yml applies to BASE_REF and the PR_* set.
-      - name: release the claimed label
+      - name: release the run-state labels
+        # LOCKSTEP-BEGIN unclaim-workflow-env
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
           ISSUE_NUMBER: ${{ github.event.issue.number }}
+        # LOCKSTEP-END unclaim-workflow-env
         run: bash plugins/second-shift/templates/consumer/second-shift-unclaim.sh "$ISSUE_NUMBER"

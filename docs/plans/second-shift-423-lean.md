@@ -65,8 +65,9 @@ label.
 
 **One copy, not two.** This repo is the canary, so its own workflow runs the shipped template
 script **in place** at `plugins/second-shift/templates/consumer/second-shift-unclaim.sh` rather
-than committing a second copy under `.claude/tools/`. There is therefore no copy pair to keep
-in lockstep, and this repo dogfoods the exact artifact consumers receive.
+than committing a second copy under `.claude/tools/`. There is therefore no *script* copy pair,
+and this repo dogfoods the exact artifact consumers receive. The two workflow **files** are still
+a pair — see AC-14, which pins the blocks they must not drift apart on.
 
 ## Non-goals
 
@@ -79,6 +80,13 @@ in lockstep, and this repo dogfoods the exact artifact consumers receive.
   contract with a different trigger; out of scope.
 - **No branch-protection or required-check configuration.** As with the existing evidence
   workflow, the file ships and the repo admin owns the protection rules.
+- **No pagination of the labels read.** Raised as a round-1 suggestion and declined with
+  evidence: `gh api --paginate` on an array endpoint emits one JSON array *per page*,
+  concatenated, and `jq -e` takes its status from the **last** value — so the naive flag would
+  make a label present on page 1 read as absent, turning a theoretical miss into a real one. The
+  correct form is `--paginate --slurp` plus a flatten in the membership filter: a response-shape
+  change with its own fixture and probe burden, to serve an issue carrying more than 30 labels.
+  Not this ticket.
 
 ## Acceptance criteria
 
@@ -180,6 +188,14 @@ it fails on a syntax error a diff reader would not see, and it is the only thing
 a malformed template and every consumer that installs it. Neither that gate nor CI's actionlint
 walks anything outside `.github/workflows/` today.
 
+**AC-14.** The two workflow files are a copy pair, so the three blocks they must not drift apart
+on — the `on:` trigger, the `permissions:` block, and the step's `env:` block — carry
+`LOCKSTEP-BEGIN`/`LOCKSTEP-END` markers on both sides and one `verbatim` row each in
+`scripts/lockstep-manifest.tsv`. This is a two-copy comparison, not a wiring grep: it cannot pass
+by finding a word, it reds when either side drifts, and a deleted marker fails rather than
+silently stopping the check. `name:`, the checkout pin and the invoked script path stay free to
+differ.
+
 ## Test tier
 
 Per `CLAUDE.md`'s tier map:
@@ -197,8 +213,13 @@ Per `CLAUDE.md`'s tier map:
   retracts that**, and the ledger wins. The workflow files are covered only by what already
   covers YAML syntax — `check-workflows-selftest.sh` and CI's actionlint for
   `.github/workflows/`, extended by AC-13 to reach the consumer templates. The wiring itself
-  (trigger, permissions, invoked path) is therefore unguarded by construction; that is the
-  ledger's call, and the PR says so rather than leaving it to be discovered.
+  (trigger, permissions, invoked path) is therefore unguarded *in absolute terms* — nothing
+  asserts that `issues: [closed]` is the **right** trigger; that is the ledger's call, and the PR
+  says so rather than leaving it to be discovered.
+- **But the two copies of that wiring are pinned** (AC-14). Absolute correctness and
+  copy-agreement are different properties, and only the second is byte-anchorable here. CLAUDE.md
+  routes a copy pair to `scripts/lockstep-manifest.tsv`, which compares the two sides — the
+  sanctioned alternative to the grep D-10 retracted, not a reinstatement of it.
 - AC-9 is prose in markdown → **nothing** is written for it; a grep asserting a literal is
   present in a `.md` is the banned class.
 - No `tools/mutation-catalog.tsv` row: the new guard is covered by its own paired suite, which

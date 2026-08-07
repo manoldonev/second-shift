@@ -55,6 +55,11 @@ CARRIES_BOTH_CUSTOM='[{"name":"claimed-custom"},{"name":"queue-custom"}]'
 CARRIES_QUEUE_ONLY='[{"name":"bug"},{"name":"ready-for-dev"}]'
 CARRIES_SPACED='[{"name":"in progress"}]'
 CARRIES_NEITHER='[{"name":"bug"},{"name":"enhancement"}]'
+# The blockers fixture carries the two run-state labels, the WHOLE shipped blockers
+# vocabulary, a consumer-configured blockers name, and one unrelated label. A fixture that
+# carries none of those makes the "blockers are not touched" requirement unguardable no
+# matter how many assertions surround it — the over-stripping mutant has nothing to strip.
+CARRIES_BLOCKERS='[{"name":"bug"},{"name":"in-progress"},{"name":"ready-for-dev"},{"name":"epic"},{"name":"needs-intake-review"},{"name":"needs-spec-work"},{"name":"needs-plan-review"},{"name":"blocker-custom"}]'
 
 # run <config-path> <labels-json> <issue-arg...> -> sets RC, OUT, CALLS, NCALLS
 run() {
@@ -82,6 +87,9 @@ CFG_NOWRITES="$(mkcfg nowrites '{"tracker":{"type":"github","writes":false}}')"
 CFG_JIRA="$(mkcfg jira '{"tracker":{"type":"jira"}}')"
 CFG_SPACED="$(mkcfg spaced '{"tracker":{"type":"github","labels":{"claimed":"in progress"}}}')"
 CFG_BROKEN="$(mkcfg broken '{"tracker": {"type": ')"
+# Configures blockers and NOTHING else, so claimed/queue fall through to their defaults and
+# the expected DELETE count stays two.
+CFG_BLOCKERS="$(mkcfg blockers '{"tracker":{"type":"github","labels":{"blockers":["blocker-custom"]}}}')"
 CFG_ABSENT="$TMP/definitely-not-here.json"
 
 echo "second-shift-unclaim selftest:"
@@ -212,6 +220,23 @@ printf '%s' '{"tracker":{"type":"github","labels":{"claimed":"derived-label"}}}'
     env -u SECOND_SHIFT_CONFIG -u SECOND_SHIFT_REPO_ROOT bash "$TOOL" 42 ) >/dev/null 2>&1
 check "C17 both seams unset: config resolved via the derived repo root" \
       "$(grep -q 'DELETE repos/{owner}/{repo}/issues/42/labels/derived-label' "$TMP/calls" && echo 0 || echo 1)"
+
+# (18) the NEGATIVE half of the label contract: the blockers list is never touched. Every
+#      case above carries only run-state labels, so an over-stripping regression has nothing
+#      to hit and passes them all — the requirement, not the assertions, was the gap.
+#      Three assertions, because each has a mutant the other two stay green through:
+#        - an extra release_one on any label the item carries      -> only the count reds
+#        - a run-state release retargeted at a shipped blocker     -> only the vocabulary line
+#        - a run-state release retargeted at the CONFIGURED one    -> only the config-key line
+#      The third is the literal reading of the requirement: .tracker.labels.blockers is a key
+#      this script must never resolve, not merely four names it must never name.
+run "$CFG_BLOCKERS" "$CARRIES_BLOCKERS" 42
+check "C18 blockers present: exactly two DELETEs — only the run-state pair" \
+      "$([ "$(deletes)" -eq 2 ] && echo 0 || echo 1)"
+check "C18 blockers present: no shipped blockers label is DELETEd" \
+      "$(echo "$CALLS" | grep -qE 'DELETE .*labels/(epic|needs-intake-review|needs-spec-work|needs-plan-review)' && echo 1 || echo 0)"
+check "C18 blockers present: the CONFIGURED blockers label is not DELETEd" \
+      "$(echo "$CALLS" | grep -q 'DELETE .*labels/blocker-custom' && echo 1 || echo 0)"
 
 echo "second-shift-unclaim selftest: $FAILS failure(s)"
 exit "$FAILS"
