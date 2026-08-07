@@ -31,8 +31,11 @@ build session, so this cannot be folded back into the build lane by convenience.
    the issue key (`Closes #N` in the body) and the lean spec path.
 3. Check out the PR head. The lean worktree the build run left behind is the usual place; any
    checkout of that branch works.
-4. `bash G delta <issue>` — the range this round must READ. Round 1 gets the whole branch diff.
-   A later round gets the delta since the tree the previous round covered and inherits the rest
+4. `bash G delta <issue>` — the range this round must READ. An exit 2 here means no entry
+   attestation is READABLE — that record is host-local and gitignored, so re-run from the build
+   worktree (step 3's usual place) before concluding anything. If it is genuinely absent, hand it
+   back: a run whose audit ledger was never established is not yours to certify. Round 1 gets the whole
+   branch diff. A later round gets the delta since the tree the previous round covered and inherits the rest
    by reference to that record; when there is nothing verifiable to inherit it prints the full
    range and says so. There is no flag: the range is derived from the committed records, so a
    round cannot claim a narrower reading than the branch supports, nor forget to declare one.

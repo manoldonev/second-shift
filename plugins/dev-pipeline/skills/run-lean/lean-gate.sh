@@ -77,6 +77,10 @@
 #
 # Usage:
 #   lean-gate.sh entry  <issue>          entry precondition: the session's audit ledger is live.
+#                                        On success it RECORDS that fact in the progress file;
+#                                        every build-role subcommand below refuses with exit 2
+#                                        until that row exists, so skipping this step is a
+#                                        refusal rather than a silent omission (#416).
 #                                        The queue-label reject is the SESSION's step (SKILL.md
 #                                        step 1) — it needs a tracker read, so it is not gated
 #                                        here. Under tracker.type: jira there is no queue at all.
@@ -105,7 +109,7 @@
 #
 # Exit: 0 = satisfied / ok
 #       1 = milestone failed, or a `verdict` authorship refusal (fix and retry — budget remains)
-#       2 = usage or environment error
+#       2 = usage or environment error, or a build-role call made before `entry` was recorded
 #       4 = fix budget exhausted for that milestone (hard stop; D-19)
 #
 # Seams (zero-network selftest; the check-pipeline-chain.sh precedent):
@@ -161,7 +165,7 @@ while [ $# -gt 0 ]; do
     --rounds)        VERDICT_ROUNDS="${2:-}"; shift 2 ;;
     --fidelity)      VERDICT_FIDELITY="${2:-}"; shift 2 ;;
     --summary-file)  SUMMARY_FILE="${2:-}"; shift 2 ;;
-    -h|--help)       sed -n '2,128p' "$0"; exit 0 ;;
+    -h|--help)       sed -n '2,132p' "$0"; exit 0 ;;
     -*)              envfail "unknown option: $1" ;;
     *)
       if [ "$POSITIONAL" -eq 0 ]; then SUB="$1"; POSITIONAL=1
@@ -603,6 +607,7 @@ chain_walk() { # chain_walk <inherited-patch-id> <declaring-round> [declaring-co
 # file (it is gitignored and never reaches CI), but lean-reconcile.sh does, and the
 # fix-budget counter is derived from it.
 #
+#   <iso> | entry | ledger=<path> | lines=<n> | session=<id>
 #   <iso> | milestone-<n> | attempt | <reason>
 #   <iso> | milestone-<n> | satisfied
 #   milestone-4 | verdict=<approve|needs-work> | round=<n>
@@ -610,6 +615,46 @@ chain_walk() { # chain_walk <inherited-patch-id> <declaring-round> [declaring-co
 # Reconciliation keys (AC-14) ride in the header so a run predating #292's general
 # verifier stays reconcilable after it lands.
 now_iso() { date -u +%Y-%m-%dT%H:%M:%SZ; }
+
+# The header is written ONCE, at creation, and was never revisited — which is how #322's
+# `run_id: unset` freeze happened, and why its remedy was to stop `entry` from being the
+# creator. #416 cannot keep that remedy: the attestation row has to exist before `claim`, the
+# first subcommand the precondition guards, so `entry` creates the file again — and SKILL.md
+# orders it BEFORE the RUN_ID export, so on an ordinary run the header IS stamped `unset`.
+# Heal the field rather than arguing about which subcommand may create the record.
+#
+# Left unhealed this is not cosmetic. lean-reconcile.sh's arm (1) compares the bot claim
+# comment's run_id against this header's, so an honest github run reds at the merge boundary
+# with the real id on one side and `unset` on the other.
+#
+# The ONE behavioral guard is the cache compare, and the BUILD CACHE is the authority — not
+# $RESOLVED_RUN_ID alone. Only `entry` and `claim` persist there, and arm (1) compares this
+# header against what `claim` wrote, so the header must carry the ESTABLISHED identity and no
+# other: a milestone call made with an ad-hoc RUN_ID resolves one for its own records and leaves
+# the header alone. It is also what keeps the review role out — a review identity is never in
+# the build cache (P10), so `verdict` could not stamp itself here even if it grew a write into
+# this file, which today it has not.
+#
+# Matching the literal `unset` is a narrowing, not a second guard: the cache compare already
+# makes a rewrite of an established id a no-op (it can only ever write the value that is
+# already there), so no fixture can red on that half alone. Do not read a surviving mutant on
+# the two lines below as a coverage hole — the placeholder check is there to keep an already
+# healed run from spawning awk on every append, which is cost, not correctness.
+heal_progress_run_id() {
+  [ -f "$PROGRESS_FILE" ] || return 0
+  [ "$RESOLVED_RUN_ID" != "unset" ] || return 0
+  [ "$(cat "$RUN_ID_CACHE" 2>/dev/null)" = "$RESOLVED_RUN_ID" ] || return 0
+  [ "$(count_matches '^run_id: unset$' "$PROGRESS_FILE")" -gt 0 ] || return 0
+  local tmp="$PROGRESS_FILE.heal"
+  # awk with an EXACT string compare, not sed: the id is operator-supplied, and a
+  # replacement-side metacharacter in a sed program would be interpreted. The compare also
+  # bounds the rewrite to the header — every appended line carries the pinned
+  # `<iso> | <kind> | …` shape, so no body line can equal this literal.
+  awk -v id="$RESOLVED_RUN_ID" '
+    $0 == "run_id: unset" { print "run_id: " id; next }
+    { print }
+  ' "$PROGRESS_FILE" > "$tmp" && mv "$tmp" "$PROGRESS_FILE" || rm -f "$tmp"
+}
 
 ensure_progress_file() {
   local dir
@@ -632,6 +677,7 @@ ensure_progress_file() {
       echo ""
     } > "$PROGRESS_FILE"
   fi
+  heal_progress_run_id
 }
 
 append_line() { ensure_progress_file; echo "$1" >> "$PROGRESS_FILE"; }
@@ -702,8 +748,37 @@ pass_milestone() {
 # checkout. Directory existence is explicitly NOT the test — an empty or absent per-session
 # file means the hook never fired, and a run whose tool calls left no ledger cannot be
 # reconciled by lean-reconcile.sh (or by #292 later). Fail closed.
+#
+# #416: fail-closed was never the gap. NOTHING ENFORCED THAT THIS RAN. `entry` appeared here
+# and at its dispatch arm and nowhere else, and it wrote nothing durable — so a run that simply
+# skipped step 1 reached five green milestones, a verdict record and a merged PR, with no
+# artifact recording the omission. Two such runs are what surfaced this. The row below is that
+# artifact, and require_entry_attested() is what makes skipping step 1 a refusal.
+ENTRY_ROW_MARKER="| entry | ledger="
+
+entry_row_present() { [ "$(count_matches "$ENTRY_ROW_MARKER" "$PROGRESS_FILE" -F)" -gt 0 ]; }
+
+# D-9, ENRICHMENT ONLY. `audit-toolkit` off and "the ledger is missing" are one operator action
+# apart and read identically today, so the refusal below picks its wording from the settings
+# files — best-effort, and never a second authority over the verdict: the ledger predicate stays
+# the sole decider, and an absent, unreadable or jq-less settings read just yields the generic
+# message. Matched on the plugin NAME, not `name@marketplace`, so a consumer whose marketplace is
+# vendored under another name still gets the specific wording.
+audit_toolkit_opted_out() {
+  local root f
+  for root in "$REPO_ROOT" "$MAIN_ROOT"; do
+    for f in "$root/.claude/settings.json" "$root/.claude/settings.local.json"; do
+      [ -f "$f" ] || continue
+      jq -e '(.enabledPlugins // {}) | to_entries
+             | map(select((.key | startswith("audit-toolkit@")) and .value == false)) | length > 0' \
+        "$f" >/dev/null 2>&1 && return 0
+    done
+  done
+  return 1
+}
+
 cmd_entry() {
-  local sid ledger
+  local sid ledger lines
   sid="${CLAUDE_CODE_SESSION_ID:-}"
   if [ -z "$sid" ]; then
     warn "✗ entry: CLAUDE_CODE_SESSION_ID is unset — the session's audit ledger cannot be located. Refusing to start."
@@ -711,11 +786,36 @@ cmd_entry() {
   fi
   ledger="$MAIN_ROOT/.claude/audit/$sid.jsonl"
   if [ ! -s "$ledger" ]; then
-    warn "✗ entry: audit ledger '$ledger' is missing or empty — the hook ledger is not live. Refusing to start."
-    warn "  Every lean record carries reconciliation keys; without a ledger the run is unverifiable at the merge boundary."
+    if audit_toolkit_opted_out; then
+      warn "✗ entry: audit-toolkit is disabled in this repo's settings, so no hook writes the ledger at '$ledger'. Refusing to start."
+      warn "  The lean lane requires it: re-enable \"audit-toolkit@<marketplace>\" in .claude/settings.json (or settings.local.json) and restart the session."
+    else
+      warn "✗ entry: audit ledger '$ledger' is missing or empty — the hook ledger is not live. Refusing to start."
+      warn "  Every lean record carries reconciliation keys; without a ledger the run is unverifiable at the merge boundary."
+    fi
     return 1
   fi
-  say "✓ entry: audit ledger live ($(wc -l < "$ledger" | tr -d ' ') lines)."
+  lines="$(wc -l < "$ledger" | tr -d ' ')"
+  say "✓ entry: audit ledger live ($lines lines)."
+  # The durable half (D-3/D-10). The progress file already survives worktree teardown, is
+  # already what lean-reconcile.sh reads, and is the only build-side record outliving the
+  # session. Later readers check PRESENCE ONLY — nothing re-resolves a ledger path from inside
+  # a worktree, which is what lets this land independently of #417.
+  #
+  # Idempotent, and retroactive by design (D-11): a run that skipped step 1 in a properly
+  # configured repo self-heals with one command, while in the configuration that motivated this
+  # (`audit-toolkit` off) the predicate above still refuses — so the enforcement binds exactly
+  # where it was missing. OR-1: the row is per-RUN, not per-session. It attests that the run
+  # STARTED attested; a session resuming it inherits the row without re-proving its own ledger.
+  # Tightening to per-session is one comparison against the id recorded here, but cannot be done
+  # honestly until #417 lands.
+  ensure_progress_file
+  if entry_row_present; then
+    say "  entry attestation already recorded in $PROGRESS_FILE — not duplicated."
+  else
+    append_line "$(now_iso) | entry | ledger=$ledger | lines=$lines | session=$sid"
+    say "  entry attestation recorded in $PROGRESS_FILE."
+  fi
   # SKILL.md step 1 pairs this gate with a SESSION-side queue-label confirm. That confirm
   # has no jira meaning — jira pickup is "the operator supplies the key; no queue, no claim,
   # no label" — so the documented reject-and-stop has no defined outcome there. Say so here
@@ -2209,6 +2309,37 @@ cmd_all() {
 }
 
 # ---------------------------------------------------------------- dispatch
+# D-4. A PRECONDITION on every build-role subcommand, evaluated before any milestone body runs.
+# Exit 2, not 1: "you skipped step 1" is a usage error, not a code fix, and routing it through
+# fail_milestone would charge the attempt to a milestone that did not fail — silently shortening
+# the real fix budget. Placing it here rather than inside each cmd_* closes every start-at-
+# milestone-N path at once, including `all`'s cheap pre-pass.
+#
+# `delta` is in the set even though the REVIEW session invokes it (review-lean step 4), so a
+# review of an unattested build is refused with a remedy only the build side can apply. That is
+# intended: a reviewer must not certify a run whose ledger never existed. `verdict` is NOT in the
+# set — a symmetric review-side ledger precondition is D-5's follow-up, gated on #417, because
+# review-lean step 3 works in the build run's leftover worktree and would false-red every honest
+# review until that path split is fixed.
+#
+# The refusal names its SECOND cause too. The progress file is host-local and gitignored, so it
+# never travels with the branch: from a clone that is not a worktree of the build host, an
+# attested run looks identical to an unattested one, and the remedy the message gives cannot be
+# applied from there. That mostly bites `delta`, which the review session runs — review-lean
+# step 3 says "any checkout of that branch works", which for this one call it does not.
+require_entry_attested() {
+  entry_row_present && return 0
+  echo "[lean-gate] ✗ $SUB: this run has no entry attestation in $PROGRESS_FILE." >&2
+  echo "[lean-gate]   \`bash G entry $ISSUE\` was never recorded, so nothing establishes that the session's audit ledger was live when the run started — and a run with no ledger is unreconcilable at the merge boundary (#416)." >&2
+  echo "[lean-gate]   Run \`bash G entry $ISSUE\` (idempotent) and retry. No fix-budget attempt was charged." >&2
+  echo "[lean-gate]   Or the record is simply out of reach: that file is host-local and gitignored, so a checkout not sharing the build host's state dir cannot see an attestation that exists. Re-run from the build worktree before handing this back." >&2
+  exit 2
+}
+
+case "$SUB" in
+  claim|delta|all|1|2|3|4|5) require_entry_attested ;;
+esac
+
 case "$SUB" in
   entry)   cmd_entry ;;
   claim)   cmd_claim ;;
