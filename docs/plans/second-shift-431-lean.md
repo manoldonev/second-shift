@@ -85,6 +85,19 @@ fix is the harness, never a baseline row. No new `scripts/lockstep-manifest.tsv`
 pair is a shell comment against a prose paragraph, not byte-anchorable, and the manifest
 carries no row for it today (D-11).
 
+**AC-10 — The base branch's own red is cleared (amendment, added mid-run).** `main` at
+`9c0a689` fails `lean-gate-selftest.sh (m1c)`, which reds milestone 3 for **every** run on
+this repo, this one included — reproduced at the base commit locally and visible in CI's
+macOS lane on `main` itself. Root cause: a semantic merge conflict, not a defect either
+branch shipped. #429 added `(m1c)` on the assumption that the milestone call it drives
+creates the progress-file header; #422, merged the same day, moved record creation to
+`entry` and made the suite's `reset_progress` drive it. `ensure_progress_file` will not
+rewrite a file that exists, so `(m1c)` set `LEAN_RUN_MODEL` on a call that could not stamp
+it and then read the `model: unknown` `entry` had already written. Each branch was green
+alone; the merge is red. The fix moves the variable onto the **creating** call, which is
+also the ordering an honest run is in. The case keeps its full strength — a stamp that
+ignored the variable still fails it — and no production file changes.
+
 ## Design
 
 Design: none — this is a shell test-harness change with no rendered surface; the repo
@@ -94,6 +107,12 @@ configures no `design.provider`.
 
 - `tools/mutation-sweep.sh` carries a `tools/mutation-exclusions.tsv` row (self-sweep
   recursion guard), so editing it re-keys no survivor ordinals and obliges no re-baseline.
+- **Left open by AC-10, deliberately.** `model:` is stamped once, at record creation, and
+  creation is now `entry` — so a run that resolves its model *after* `entry` stamps
+  `unknown` silently. #422 hit the identical ordering problem with `run_id` and answered it
+  with `heal_progress_run_id`; whether `model:` deserves the same heal is #347/#422's
+  question, not this ticket's, and answering it here would be the scope creep AC-10 is
+  already at the edge of. AC-10 clears the red and nothing more.
 - OR-2 (post-landing red rate) stays open: three data points against an un-isolated race is
   not a rate. If the disagreement red fires most nights the pressure lands on the isolation
   ticket, which is the intended outcome; downgrading it to a warn would be the disposition
