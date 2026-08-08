@@ -119,7 +119,7 @@ if [ "${BASH_SOURCE[0]}" = "$0" ]; then
       --tracker)     _tracker="${2:-}"; shift 2 ;;
       --key-pattern) _keypat="${2:-}"; shift 2 ;;
       --repo)        _repo="${2:-}"; shift 2 ;;
-      -h|--help)     sed -n '2,35p' "$0"; exit 0 ;;
+      -h|--help)     sed -n '2,38p' "$0"; exit 0 ;;
       *) echo "branch-prefix.sh: unknown argument '$1'" >&2; exit 2 ;;
     esac
   done
