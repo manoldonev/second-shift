@@ -56,6 +56,11 @@ fi
 # tracker.type, and the toolchain probes derive from the configured command table
 # (not a hardcoded yarn). Absent config => github/yarn defaults (backward-compatible).
 CFG="${SECOND_SHIFT_CONFIG:-$REPO_ROOT/.claude/second-shift.config.json}"
+# Same state dir the stale-claims section (block 8) resolves later — computed here
+# too (not hoisted/shared) so this early use doesn't reorder that section's own
+# config read relative to $CFG's definition above.
+STATE_DIR="$REPO_ROOT/.claude/pipeline-state"
+[[ -f "$CFG" ]] && STATE_DIR="$REPO_ROOT/$(jq -r '.paths.pipelineStateDir // ".claude/pipeline-state"' "$CFG" 2>/dev/null)"
 TRACKER_TYPE=github
 [[ -f "$CFG" ]] && TRACKER_TYPE=$(jq -r '.tracker.type // "github"' "$CFG" 2>/dev/null || echo github)
 
@@ -269,6 +274,39 @@ else
   echo "[doctor] info  tracker.type=$TRACKER_TYPE — GitHub sections (gh auth, gh feature probes, bot wrapper, required labels) skipped (not applicable to this tracker)"
 fi
 
+# --- 4b. Internal selftest sweep — fingerprint cache -----------------------------
+# Sections 5-5j re-run this TOOLKIT's own behavioral selftests (statectl alone is
+# ~90s+) so a consumer's actual bash/jq/node — which can and does diverge from
+# second-shift's own CI runner (macOS ships bash 3.2) — gets proven, not assumed.
+# That guarantee is a property of (a) the installed plugin tree's CONTENTS and (b)
+# the resolved interpreter VERSIONS, neither of which changes between two doctor
+# runs in the same environment with nothing installed/upgraded in between — so a
+# clean sweep's result is cached, fingerprinted on both, and re-verification is
+# skipped on a hit. A stale/missing/mismatched fingerprint always re-runs the full
+# sweep; nothing here ever widens what counts as "verified".
+# >>> selftest-cache-gate (extracted by pipeline-doctor-selftest.sh) >>>
+# DOCTOR_CACHE_FILE / DOCTOR_CACHE_NOW are selftest seams; production leaves them unset.
+_CACHE_FILE="${DOCTOR_CACHE_FILE:-$STATE_DIR/doctor-selftest-cache.json}"
+_CACHE_NOW="${DOCTOR_CACHE_NOW:-$(date -u +%s)}"
+_CACHE_TTL=86400   # 24h defense-in-depth expiry; the fingerprint below is the real gate
+_FP_ENV="bash:$(/bin/bash -c 'echo $BASH_VERSION') jq:$(jq --version 2>/dev/null) node:$(node --version 2>/dev/null || echo none)"
+SELFTEST_CACHE_HIT=""
+if [[ -f "$_CACHE_FILE" ]]; then
+  _fp_tree="$(find "$PLUGINS_DIR" -type f -newer "$_CACHE_FILE" -print -quit 2>/dev/null)"
+  _cached_env="$(jq -r '.env // ""' "$_CACHE_FILE" 2>/dev/null)"
+  _cached_at="$(jq -r '.verifiedAt // 0' "$_CACHE_FILE" 2>/dev/null)"
+  [[ "$_cached_at" =~ ^[0-9]+$ ]] || _cached_at=0
+  _cache_age=$(( _CACHE_NOW - _cached_at ))
+  if [[ -z "$_fp_tree" && "$_cached_env" == "$_FP_ENV" && "$_cache_age" -ge 0 && "$_cache_age" -lt "$_CACHE_TTL" ]]; then
+    SELFTEST_CACHE_HIT=1
+    ok "internal selftest sweep: cached clean ($(( _cache_age / 60 )) min ago, same plugin tree + interpreter versions — statectl/claim/plan-lint/etc. skipped; delete $_CACHE_FILE to force a re-run)"
+  fi
+fi
+# <<< selftest-cache-gate <<<
+
+if [[ -z "$SELFTEST_CACHE_HIT" ]]; then
+_FAILS_BEFORE_SWEEP=$FAILS
+
 # --- 5. statectl state machine (the safety net must work on THIS machine) -------
 if out=$(bash "$SKILL_DIR/statectl-selftest.sh" 2>&1); then
   ok "statectl selftest: $(tail -1 <<< "$out" | sed 's/\[self-test\] //')"
@@ -400,6 +438,18 @@ if node --version >/dev/null 2>&1; then
 else
   warn "node not invokable — skipping workflow-script syntax checks (see section 1b)"
 fi
+
+# A clean sweep (no NEW failure introduced across 5-5j) refreshes the fingerprint
+# cache; a dirty one leaves the existing cache file untouched (expired/absent stays
+# expired/absent) so a broken toolkit is never masked by a stale "clean" record.
+# >>> selftest-cache-write (extracted by pipeline-doctor-selftest.sh) >>>
+if [[ "$FAILS" -eq "$_FAILS_BEFORE_SWEEP" ]]; then
+  mkdir -p "$STATE_DIR" 2>/dev/null
+  jq -n --arg env "$_FP_ENV" --argjson at "$_CACHE_NOW" '{env: $env, verifiedAt: $at}' \
+    > "$_CACHE_FILE" 2>/dev/null || true
+fi
+# <<< selftest-cache-write <<<
+fi   # SELFTEST_CACHE_HIT
 
 # --- 6. Worktree base + degraded-mode notes -------------------------------------
 if mkdir -p "$REPO_ROOT/.claude/worktrees" 2>/dev/null; then ok "worktree base dir writable"; else bad "cannot create $REPO_ROOT/.claude/worktrees"; fi

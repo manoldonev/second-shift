@@ -450,3 +450,94 @@ lean-design-armed	verbatim	plugins/dev-pipeline/skills/run-lean/lean-gate.sh	lea
 # Revisit if a third site grows the ladder. Two candidates already exist and are tracked in
 # #421: preflight-selftest.sh:38 and doctor-selftest.sh:102 both still use a fixed hop count,
 # and fixing either the sanctioned way makes it a third copy.
+
+# The unclaim workflow pair. The marketplace repo runs the SHIPPED unclaim script in place,
+# so there is one script and no script pair — but there are two workflow FILES, and this is
+# the first template workflow with a near-twin under .github/workflows/. They are allowed to
+# differ in `name:`, the checkout pin (v5 here, v4 in the template, matching the precedent
+# each side already sets) and the script path. They are NOT allowed to differ in the three
+# blocks below, each anchored separately because the prose documenting it sits between them
+# and is deliberately file-specific:
+#   trigger      — a file that fires on a different event is a different workflow, and the
+#                  consumer would inherit behavior the canary never exercised.
+#   permissions  — the entire blast radius. A widening on one side that the other does not
+#                  carry is the drift with real consequences; nothing else here has any.
+#   env          — the token source and the injection discipline. `${{ }}` reaching a `run:`
+#                  body on one side only is exactly the divergence a reader would not see.
+# `verbatim` collapses whitespace, so the differing indentation of the env block against its
+# two top-level siblings is not part of the contract; the tokens are.
+unclaim-workflow-trigger	verbatim	.github/workflows/unclaim-on-close.yml	unclaim-workflow-trigger	plugins/second-shift/templates/consumer/second-shift-unclaim.yml	unclaim-workflow-trigger
+unclaim-workflow-permissions	verbatim	.github/workflows/unclaim-on-close.yml	unclaim-workflow-permissions	plugins/second-shift/templates/consumer/second-shift-unclaim.yml	unclaim-workflow-permissions
+unclaim-workflow-env	verbatim	.github/workflows/unclaim-on-close.yml	unclaim-workflow-env	plugins/second-shift/templates/consumer/second-shift-unclaim.yml	unclaim-workflow-env
+
+# lean branch-prefix DERIVATION (#359) — `lean_branch_prefix()`, the shell function that turns
+# the configured `tracker.branchPrefix` into the lean lane's namespace and refuses a pair that
+# is not mutually non-prefix-matching. Held by lean-gate.sh (which derives the branch a run cuts
+# and the PR it later stamps) and by lean-evidence.sh (which derives the same namespace from a
+# CONSUMER's committed config, since a consumer's CI has no constants to be handed).
+# A real coupling with a silent failure on both sides: a derivation that diverged would make the
+# harness cut branches the consumer's boundary classifies as non-lean — every lean PR waved
+# through with "not applicable", which reads identical to a repo that simply has no lean work.
+# Byte-anchorable, unlike the ci.yml constant above: both copies are the same shell function in
+# the same dialect, which is why this one is a ROW and that one is a DROPPED note.
+# The refusal messages are host-neutral (`[lean]`, not `[lean-gate]`) precisely so the two can
+# be compared verbatim; do not re-tag them per host.
+# Behavioral guards on both sides: lean-gate-selftest.sh (e1)-(e3) at the derivation and its
+# collision refusal, lean-evidence-selftest.sh (f)/(z1)/(z2) at the consumer-side resolution.
+lean-branch-prefix	verbatim	plugins/dev-pipeline/skills/run-lean/lean-gate.sh	lean-branch-prefix	plugins/dev-pipeline/skills/run-lean/lean-evidence.sh	lean-branch-prefix
+
+# lean PR-MARKER token (#359) — `LEAN_PR_MARKER_TAG`, the stage token identifying the comment
+# that carries a build run's identity on the pull request. WRITER: lean-gate.sh's `mark`
+# subcommand. READER: lean-evidence.sh's identity arm. Neither file can see the other's
+# spelling, and CI resolves them from different places (an installed plugin vs a fetched blob at
+# a pinned ref), so nothing but this row keeps them equal.
+# The failure is asymmetric and both halves are bad: a renamed WRITER empties the reader's marker
+# set, which the reader treats as "no marker" and refuses — every honest PR reds; a renamed
+# READER would do the same. A reader that instead failed open would accept a verdict written by
+# the build session itself, which is the property the marker exists to disprove.
+# Behavioral guards on both sides: lean-gate-selftest.sh (pm1)-(pm7) at the writer,
+# lean-evidence-selftest.sh (m)-(q) at the reader, and check-lean-chain-selftest.sh (Y1)-(Y3)
+# composes a fixture trail through the delegating boundary.
+lean-pr-marker	verbatim	plugins/dev-pipeline/skills/run-lean/lean-gate.sh	lean-pr-marker	plugins/dev-pipeline/skills/run-lean/lean-evidence.sh	lean-pr-marker
+
+# lean ARTIFACT-NAME suffixes (#359) — the `*-lean.md` / `*-lean-verdict.md` /
+# `*-lean-intent-gap.md` / `*-lean-renders.md` table, held by scripts/check-lean-chain.sh
+# (anchor `lean-chain-artifact-patterns`) and, for the three it still reads, by
+# lean-evidence.sh's own pinned name table. Both are CI-side readers that cannot see the
+# gitignored runtime config lean-gate.sh derives these names from.
+# Considered for a row and DROPPED: the two sets are deliberately DIFFERENT, so neither relation
+# fits. `-lean-renders.md` belongs only to check-lean-chain.sh (the design-render arm is parked
+# outside the consumer core by this issue's OR-1) and `-lean-intent-gap.md` belongs only to
+# lean-evidence.sh (the ratification arm moved there in full). `verbatim` would compare unlike
+# sets and fail on a correct tree; `subset-of` reads the FIRST quoted literal of each block,
+# which here is a lone suffix rather than an enum, so it would compare `-lean.md` against
+# `-lean.md` and assert nothing about the rest.
+# Guarded behaviorally instead, and end to end rather than by name: check-lean-chain-selftest.sh
+# drives a real fixture tree through the delegating boundary, so a suffix that diverged on either
+# side stops locating the artifact and reds — the (A) happy path and (S0)-(S4) between them
+# exercise every name in both tables.
+# Revisit if OR-1 lands: the render suffix would then exist on both sides and the sets converge.
+
+# lean evidence TOKEN SCOPES (#359) — the `permissions:` block granting `contents` + `issues` +
+# `pull-requests` read, held by this repo's `.github/workflows/ci.yml` (`pr-gates`) and by
+# `plugins/second-shift/templates/consumer/second-shift-ci.yml`. Both jobs execute the same
+# lean-evidence identity arm, whose `GET /repos/{o}/{r}/issues/{n}/comments` read is denied
+# without them — and a `permissions:` key replaces the workflow defaults wholesale, so an
+# omitted scope is `none` rather than inherited. The template shipped without the two reads and
+# would have red-lined every adopting consumer's lean PRs with an environment error.
+# Considered for a row and DROPPED, and NOT for want of an anchor — the two blocks do collapse
+# to the same string today. They are not one contract. The host job additionally runs
+# check-lean-chain.sh's issue-side claim arm, which a read-only tracker has no counterpart for,
+# so the sets coincide by present need, not by definition. A `verbatim` row would bind them in
+# the wrong direction: a scope the HOST later needs would become a scope every consumer's
+# workflow is forced to grant, which is precisely the standing escalation the template's own
+# comment refuses. The correct relation is "each block ⊇ what its own arms read", which no
+# relation in this file expresses.
+# Guarded asymmetrically instead, because the two sides have unequal signals. The template has
+# NO live signal — no consumer CI runs in this repo — so second-shift-ci-check-selftest.sh pins
+# all three scopes against the block itself (not the file, so a commented-out scope cannot
+# satisfy it) plus the no-write-scope rule. The host side has the strongest signal available:
+# its own pr-gates job executes that read on every PR, so a dropped scope reds immediately and
+# visibly. An assertion there would restate what CI already proves.
+# Revisit if the host's block gains a scope: check whether the arm needing it lives in the
+# payload (then the template needs it too) or only in check-lean-chain.sh (then it must not).

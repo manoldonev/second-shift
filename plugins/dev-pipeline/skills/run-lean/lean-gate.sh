@@ -176,12 +176,12 @@ while [ $# -gt 0 ]; do
   esac
 done
 
-[ -n "$SUB" ]   || envfail "usage: lean-gate.sh <entry|claim|1..5|all|delta|verdict> <issue>"
-[ -n "$ISSUE" ] || envfail "usage: lean-gate.sh <entry|claim|1..5|all|delta|verdict> <issue>"
+[ -n "$SUB" ]   || envfail "usage: lean-gate.sh <entry|claim|mark|1..5|all|delta|verdict> <issue>"
+[ -n "$ISSUE" ] || envfail "usage: lean-gate.sh <entry|claim|mark|1..5|all|delta|verdict> <issue>"
 
 case "$SUB" in
-  entry|claim|1|2|3|4|5|all|delta|verdict) : ;;
-  *) envfail "unknown subcommand '$SUB' (expected entry|claim|1..5|all|delta|verdict)" ;;
+  entry|claim|mark|1|2|3|4|5|all|delta|verdict) : ;;
+  *) envfail "unknown subcommand '$SUB' (expected entry|claim|mark|1..5|all|delta|verdict)" ;;
 esac
 
 # ---------------------------------------------------------------- roots + config
@@ -262,11 +262,12 @@ esac
 # one of those sites instead of derived here is a drift the CI gate surfaces as a red merge
 # boundary on every lean PR — see the plan's pinned-name-table section.
 
-# Branch prefix: replace the FIRST path segment with `lean`. The REQUIRED property is
-# MUTUAL non-prefix-matching against the pipeline prefix (AC-9): check-pipeline-chain.sh
-# classifies with `head_ref == PREFIX*`, so `lean/` derived from `claude/second-shift-`
-# would satisfy a one-directional reading while making EVERY pipeline PR applicable to the
-# lean gate. Both directions are asserted below and in the selftest.
+# LOCKSTEP-BEGIN lean-branch-prefix
+# Branch prefix: replace the FIRST path segment with `lean`. The REQUIRED property is MUTUAL
+# non-prefix-matching against the pipeline prefix: both chain gates classify with
+# `head_ref == PREFIX*`, so a bare `lean/` derived from `claude/acme-` would satisfy a
+# one-directional reading while making EVERY pipeline PR applicable to the lean gate. Both
+# directions are asserted below, and separately at each host's selftest.
 lean_branch_prefix() {
   local pipeline_prefix="$1" tail derived
   case "$pipeline_prefix" in
@@ -278,13 +279,14 @@ lean_branch_prefix() {
   # each other. Fail loudly rather than return a colliding prefix — a silent collision
   # double-classifies every PR in both gates.
   case "$pipeline_prefix" in
-    "$derived"*) echo "[lean-gate] configured tracker.branchPrefix '$pipeline_prefix' collides with the derived lean prefix '$derived' — they must be mutually non-prefix-matching." >&2; return 1 ;;
+    "$derived"*) echo "[lean] configured tracker.branchPrefix '$pipeline_prefix' collides with the derived lean prefix '$derived' — they must be mutually non-prefix-matching." >&2; return 1 ;;
   esac
   case "$derived" in
-    "$pipeline_prefix"*) echo "[lean-gate] derived lean prefix '$derived' prefix-matches the pipeline prefix '$pipeline_prefix' — refusing." >&2; return 1 ;;
+    "$pipeline_prefix"*) echo "[lean] derived lean prefix '$derived' prefix-matches the pipeline prefix '$pipeline_prefix' — refusing." >&2; return 1 ;;
   esac
   echo "$derived"
 }
+# LOCKSTEP-END lean-branch-prefix
 
 LEAN_BRANCH_PREFIX="$(lean_branch_prefix "$BRANCH_PREFIX")" || exit 2
 SPEC_REL="$PLANS_DIR/$REPO_SLUG-$ISSUE-lean.md"
@@ -349,8 +351,8 @@ case "$SUB" in
     # attempt would make the next call's "no review identity provisioned" refusal vanish, which is
     # the same silent-inheritance failure in a slower form.
     RESOLVED_RUN_ID="$(resolve_cached_id "$REVIEW_RUN_ID_CACHE" 0)" ;;
-  entry|claim)
-    # ONLY the two build-role subcommands may ESTABLISH the build identity. Seed-once above is
+  entry|claim|mark)
+    # ONLY the build-role subcommands may ESTABLISH the build identity. Seed-once above is
     # necessary but not sufficient: with no cache on disk yet — a run that never exported
     # RUN_ID, a state dir cleaned after a retro — a REVIEW session running `bash G 4 <issue>`
     # to check the record it just wrote would CREATE the cache holding its own id, and
@@ -878,6 +880,101 @@ cmd_claim() {
   rm -f "$body"
   [ "$rc" -eq 0 ] || { warn "✗ claim: marker comment failed: $url"; return 1; }
   say "✓ claim: labels swapped and lean-claimed comment posted ($url)"
+  return 0
+}
+
+# ---------------------------------------------------------------- the PR marker (#359 / D-2)
+# LOCKSTEP-BEGIN lean-pr-marker
+# The PR marker's stage token. WRITTEN by lean-gate.sh's `mark` subcommand, READ by the
+# identity arm here. A one-sided rename silently empties the marker set, and an empty set is
+# indistinguishable from "the harness never ran" — so the reader would refuse every honest PR
+# while a reader that failed open would accept every dishonest one. Neither file can see the
+# other's spelling, hence the marker block.
+#
+# `lean-pr-marker`, NEVER `lean-claimed`: the claim marker lives on the ISSUE and is windowed
+# at PR-open by check-lean-chain.sh, and a token that matched both would let an issue-side
+# comment satisfy a PR-side arm.
+LEAN_PR_MARKER_TAG='lean-pr-marker'
+# LOCKSTEP-END lean-pr-marker
+
+# WHY THE PR AND NOT THE ISSUE (D-2). The build run's identity has to be readable by a check
+# that knows nothing about the tracker: source control is GitHub for every adapter, so a PR
+# comment is the one authenticated write surface that needs no `tracker.writes` branching.
+# lean-evidence.sh compares the verdict record's identity against EVERY marker here.
+#
+# WHY STEP 7 AND NOT MILESTONE 5 ALONE. A PR comment does not fire a `pull_request` event, so
+# it never re-runs the merge-boundary job. The last CI run on a lean PR is the review session's
+# verdict-record push, and nothing pushes after it — a marker first written at milestone 5
+# would be invisible to that run and would red every lean PR until someone re-ran the job by
+# hand. So the checklist calls this at PR-open, and cmd_5 calls it again; the second call is a
+# no-op. (The receipt placed the write at milestone 5 on the reasoning that the PR exists by
+# then, which is equally true at step 7 — see this issue's intent-gap record.)
+#
+# IDEMPOTENT BY IDENTITY, not by presence: a marker carrying THIS run's id suppresses the
+# write, while a marker from a DIFFERENT build session on the same PR does not. That is the
+# case D-4 exists for — a second session must leave its own marker, or its identity is
+# invisible at the boundary and it could author its own review.
+cmd_mark() {
+  local pr prnum comments existing body url rc
+
+  if [ "$TRACKER_TYPE" = "jira" ]; then
+    say "· mark: jira adapter — config-lint forbids tracker.bot under tracker.type 'jira', so there is no authenticated writer for a PR marker. The boundary's identity arm runs at reduced strength (printed there); every other arm is unaffected."
+    return 0
+  fi
+
+  if [ -n "$PR_FILE" ]; then
+    [ -f "$PR_FILE" ] || envfail "--pr-file '$PR_FILE' does not exist."
+    pr="$(cat "$PR_FILE")"
+  else
+    pr="$("$GH_CLI" pr list --head "$LEAN_BRANCH_PREFIX$ISSUE" --state open \
+          --json number,url --limit 1 2>&1)" \
+      || { warn "✗ mark: could not list PRs for $LEAN_BRANCH_PREFIX$ISSUE: $pr"; return 1; }
+  fi
+  printf '%s' "$pr" | jq -e 'type == "array" and length > 0' >/dev/null 2>&1 \
+    || { warn "✗ mark: no open PR found for branch $LEAN_BRANCH_PREFIX$ISSUE — open it first (checklist step 7)."; return 1; }
+  prnum="$(printf '%s' "$pr" | jq -r '.[0].number')"
+
+  if [ -n "$COMMENTS_FILE" ]; then
+    [ -f "$COMMENTS_FILE" ] || envfail "--comments-file '$COMMENTS_FILE' does not exist."
+    comments="$(cat "$COMMENTS_FILE")"
+  else
+    comments="$("$GH_CLI" api "repos/{owner}/{repo}/issues/$prnum/comments" --paginate 2>&1)" \
+      || { warn "✗ mark: could not fetch the comment trail for PR #$prnum: $comments"; return 1; }
+  fi
+  printf '%s' "$comments" | jq -e 'type == "array"' >/dev/null 2>&1 \
+    || envfail "PR comment trail is not a JSON array."
+
+  # The run-id test is DELIMITED on its right (`[^A-Za-z0-9._-]`) rather than left open: the
+  # marker body always closes the id with ` -->`, and an open-ended match would let a marker
+  # for `lean-359-ab` suppress the write for `lean-359-a` — a silently unmarked second session,
+  # which is the exact hole D-4 closes.
+  existing="$(printf '%s' "$comments" | jq -r --arg tag "$LEAN_PR_MARKER_TAG" --arg run "$RESOLVED_RUN_ID" \
+    '[ .[]
+       | select((.user.type // "") == "Bot")
+       | select((.body // "") | test("<!--[[:space:]]*stage:[[:space:]]*" + $tag + "[[:space:]]*-->"))
+       | select((.body // "") | test("run_id:[[:space:]]*" + $run + "[^A-Za-z0-9._-]"))
+     ] | length')"
+  if [ "${existing:-0}" -ge 1 ]; then
+    say "· mark: PR #$prnum already carries this run's marker (run_id=$RESOLVED_RUN_ID) — nothing posted."
+    return 0
+  fi
+
+  body="$(mktemp -t lean-mark.XXXXXX)" || envfail "mktemp failed."
+  {
+    echo "<!-- dev-pipeline -->"
+    echo "<!-- run_id: $RESOLVED_RUN_ID -->"
+    echo "<!-- session_id: ${CLAUDE_CODE_SESSION_ID:-unset} -->"
+    echo "<!-- stage: $LEAN_PR_MARKER_TAG -->"
+    echo ""
+    echo "🤖 Built by \`/dev-pipeline:run-lean\`. This comment carries the build run's identity at"
+    echo "the merge boundary — the review verdict must carry a different one."
+  } > "$body"
+  url="$("${GH_BOT:?GH_BOT must point at the bot wrapper}" api -X POST \
+        "repos/{owner}/{repo}/issues/$prnum/comments" -F body=@"$body" --jq .html_url 2>&1)"
+  rc=$?
+  rm -f "$body"
+  [ "$rc" -eq 0 ] || { warn "✗ mark: marker comment failed: $url"; return 1; }
+  say "✓ mark: build identity posted on PR #$prnum (run_id=$RESOLVED_RUN_ID) ($url)"
   return 0
 }
 
@@ -2234,6 +2331,7 @@ cmd_5() {
     n_verdict="$(printf '%s' "$body" | grep -c -F -- "$VERDICT_REL")" || n_verdict=0
     [ "$n_verdict" -ge 1 ] \
       || { fail_milestone 5 "PR body does not reference the verdict record ($VERDICT_REL) — under a read-only tracker the body is the only surface that can carry it"; return $?; }
+    cmd_mark || { fail_milestone 5 "could not stamp the build identity on the PR"; return $?; }
     pass_milestone 5 "exit artifacts present, jira adapter, no tracker write ($url)"
     return 0
   fi
@@ -2255,6 +2353,11 @@ cmd_5() {
     '[ .[] | select((.body // "") | contains($v)) ] | length')"
   [ "$closing" -ge 1 ] \
     || { fail_milestone 5 "no closing comment on #$ISSUE references the verdict record ($VERDICT_REL)"; return $?; }
+
+  # The build identity, stamped on the PR (D-3). LAST, after every assertion above: a run that
+  # is not going to pass milestone 5 has no business leaving a marker, and the idempotent
+  # no-op means the ordinary path — where checklist step 7 already posted it — writes nothing.
+  cmd_mark || { fail_milestone 5 "could not stamp the build identity on the PR"; return $?; }
 
   pass_milestone 5 "exit artifacts present ($url)"
 }
@@ -2343,6 +2446,7 @@ esac
 case "$SUB" in
   entry)   cmd_entry ;;
   claim)   cmd_claim ;;
+  mark)    cmd_mark ;;
   delta)   cmd_delta ;;
   verdict) cmd_verdict ;;
   all)     cmd_all ;;
