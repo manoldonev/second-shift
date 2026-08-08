@@ -111,14 +111,38 @@ gate() { # gate <args...>  — always from inside the fixture tree
     bash "$GATE" --issue-file "$ISSUE_NOREGIONS" "$@" 2>&1 )
 }
 count_in_progress() { [ -f "$PROG" ] && grep -cF "$1" "$PROG" 2>/dev/null || echo 0; }
-reset_progress() { rm -f "$PROG"; }
+
+# #416: every build-role subcommand refuses with exit 2 until the run has an entry attestation
+# row, so a progress file seeded from scratch needs one before ANY other case can run. It is
+# produced by driving the REAL `entry` rather than by echoing the row — a hand-written line
+# would keep passing after the writer changed shape, and this suite's own D-41 cases show what
+# that costs. The ledger is created here, per tree, because `entry` resolves it relative to the
+# git common dir of the cwd, so one file cannot serve five fixture trees.
+ENTRY_SID="sess-lean-fixture"
+attest_at() { # attest_at <tree> <config> <progress-file> <issue>
+  mkdir -p "$1/.claude/audit"
+  printf '{"tool":"Bash"}\n' > "$1/.claude/audit/$ENTRY_SID.jsonl"
+  # RUN_ID is UNSET here, deliberately. `entry` creates the progress file when it is absent,
+  # header included, and SKILL.md orders it BEFORE the export — so this is the ordering every
+  # honest run is in, and a case whose header must carry a particular id gets it from the
+  # gate's own heal on the first call that establishes one. Passing the id in here instead
+  # would hide that production behavior behind a fixture knob: the header would be right in
+  # the suite and `unset` in the field.
+  ( unset RUN_ID; cd "$1" && CLAUDE_CODE_SESSION_ID="$ENTRY_SID" SECOND_SHIFT_CONFIG="$2" \
+    LEAN_PROGRESS_FILE="$3" bash "$GATE" entry "$4" >/dev/null 2>&1 )
+}
+# The unattested form, for the (p*) cases that are ABOUT the missing row. Every other case
+# wants the attested one — that is the state a run following SKILL.md step 1 is in.
+reset_progress_unattested() { rm -f "$PROG"; }
+reset_progress() { reset_progress_unattested; attest_at "$TREE" "$CFG" "$PROG" 7; }
 # Milestone 5 asserts milestones 1-4 left satisfied records, so the (k) cases need a
 # progress file in the state a real run would have reached by then.
 seed_progress_1_to_4() {
-  reset_progress
+  reset_progress_unattested
   { echo "# lean run — issue 7"; echo "run_id: r-1"; } > "$PROG"
   local m
   for m in 1 2 3 4; do echo "2026-01-01T00:00:00Z | milestone-$m | satisfied" >> "$PROG"; done
+  attest_at "$TREE" "$CFG" "$PROG" 7
 }
 
 echo "[lean-gate-selftest]"
@@ -391,6 +415,10 @@ git -C "$EL_TREE" add -A >/dev/null 2>&1 && git -C "$EL_TREE" commit -q -m "el f
 
 gate_el() { # gate_el <config-file> <progress-file> <args...>
   local cfg="$1" prog="$2"; shift 2
+  # Each (i*) case gets its own progress file, so each needs its own entry attestation before
+  # the build-role precondition will let milestone 3 run at all. Idempotent, and none of these
+  # cases is ABOUT the row — that is (p*)'s job.
+  attest_at "$EL_TREE" "$cfg" "$prog" 7
   ( unset RUN_ID CLAUDE_CODE_SESSION_ID; cd "$EL_TREE" && SECOND_SHIFT_CONFIG="$cfg" LEAN_PROGRESS_FILE="$prog" \
     bash "$GATE" --issue-file "$EL_ISSUE" "$@" 2>&1 )
 }
@@ -478,6 +506,7 @@ printf 'seed\n' > "$EL_TREE_NB/README.md"
 git -C "$EL_TREE_NB" add -A >/dev/null 2>&1 && git -C "$EL_TREE_NB" commit -q -m base >/dev/null 2>&1
 # Deliberately NO `update-ref refs/remotes/origin/main` — the base is unresolvable.
 cfg="$(el_cfg '[{"name":"scoped","when":["src/**/*.tsx"],"commands":["echo hi"],"failureClass":"TEST_FAILURE"}]')"
+attest_at "$EL_TREE_NB" "$cfg" "$WORK/el-prog-nb.md" 7
 out="$( unset RUN_ID CLAUDE_CODE_SESSION_ID; cd "$EL_TREE_NB" && SECOND_SHIFT_CONFIG="$cfg" LEAN_PROGRESS_FILE="$WORK/el-prog-nb.md" \
         bash "$GATE" --issue-file "$EL_ISSUE" 3 7 2>&1 )"; rc=$?
 if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q "cannot resolve origin/main to evaluate 'when'"; then
@@ -541,6 +570,7 @@ git -C "$EL_TREE_TOP" update-ref refs/remotes/origin/main HEAD
 printf 'x\n' > "$EL_TREE_TOP/src/App.tsx"
 git -C "$EL_TREE_TOP" add -A >/dev/null 2>&1 && git -C "$EL_TREE_TOP" commit -q -m "top-level tsx" >/dev/null 2>&1
 cfg="$(el_cfg '[{"name":"tsx-lane","when":["src/**/*.tsx"],"commands":["echo should-not-run"],"failureClass":"TEST_FAILURE"}]')"
+attest_at "$EL_TREE_TOP" "$cfg" "$WORK/el-prog-top.md" 7
 out="$( unset RUN_ID CLAUDE_CODE_SESSION_ID; cd "$EL_TREE_TOP" && SECOND_SHIFT_CONFIG="$cfg" LEAN_PROGRESS_FILE="$WORK/el-prog-top.md" \
         bash "$GATE" --issue-file "$EL_ISSUE" 3 7 2>&1 )"; rc=$?
 if [ "$rc" -eq 0 ] && printf '%s' "$out" | grep -qF "extra lane 'tsx-lane' — skipped" \
@@ -561,6 +591,7 @@ git -C "$EL_TREE_NEST" update-ref refs/remotes/origin/main HEAD
 printf 'y\n' > "$EL_TREE_NEST/src/a/App.tsx"
 git -C "$EL_TREE_NEST" add -A >/dev/null 2>&1 && git -C "$EL_TREE_NEST" commit -q -m "nested tsx" >/dev/null 2>&1
 cfg="$(el_cfg '[{"name":"tsx-lane","when":["src/**/*.tsx"],"commands":["echo did-run"],"failureClass":"TEST_FAILURE"}]')"
+attest_at "$EL_TREE_NEST" "$cfg" "$WORK/el-prog-nest.md" 7
 out="$( unset RUN_ID CLAUDE_CODE_SESSION_ID; cd "$EL_TREE_NEST" && SECOND_SHIFT_CONFIG="$cfg" LEAN_PROGRESS_FILE="$WORK/el-prog-nest.md" \
         bash "$GATE" --issue-file "$EL_ISSUE" 3 7 2>&1 )"; rc=$?
 if [ "$rc" -eq 0 ] && printf '%s' "$out" | grep -qF "extra lane 'tsx-lane' » echo did-run"; then
@@ -767,11 +798,18 @@ else fail "(m1b) expected 'model: unknown' in the header, got: $out"; fi
 # The other direction of the same seam, which nothing covered: (m1b) alone reads as "the model
 # key works" while only ever proving the DEFAULT. A stamp that ignored the variable entirely —
 # a hardcoded `unknown` — passes (m1b) and every other case in this file, and would silently
-# make the retro corpus's model-aggregation key a constant. `unset` after, because the suite's
-# whole point above is that the ambient state for this variable is absent.
-reset_progress
-LEAN_RUN_MODEL=selftest-model-357 gate 3 7 >/dev/null 2>&1
-unset LEAN_RUN_MODEL
+# make the retro corpus's model-aggregation key a constant.
+#
+# WHICH CALL carries the variable is load-bearing, and it moved. The header is stamped ONCE, at
+# record CREATION — `ensure_progress_file` will not rewrite a file that exists — and creation is
+# now `entry`, which `reset_progress` drives. By the time any milestone call runs, the header is
+# already written, so setting the variable on `gate 3` asserted nothing: the case read the
+# `model: unknown` that `entry` had already stamped without it. Set it on the CREATING call, in
+# a subshell so nothing leaks to the cases below. That is also the ordering an honest run is in
+# — the stamp is a property of the run, not of whichever milestone happens to execute first —
+# and the case keeps its full strength: a hardcoded `unknown` still fails here.
+reset_progress_unattested
+( export LEAN_RUN_MODEL=selftest-model-357; attest_at "$TREE" "$CFG" "$PROG" 7 )
 out="$(cat "$PROG" 2>/dev/null)"
 if printf '%s' "$out" | grep -q '^model: selftest-model-357$'; then
   pass "(m1c) ensure_progress_file() stamps the LEAN_RUN_MODEL value when one IS set (#347)"
@@ -824,8 +862,9 @@ reset_progress
 # resolve the build's cached one, and the record it wrote then differed from nothing.
 REVIEW_CACHE="$TREE/.claude/pipeline-state/7-review-run-id"
 seed_build_progress() { # seed_build_progress <run-id> <session-id>
-  reset_progress
+  reset_progress_unattested
   { echo "# lean run — issue 7"; echo ""; echo "run_id: $1"; echo "session_id: $2"; } > "$PROG"
+  attest_at "$TREE" "$CFG" "$PROG" 7
 }
 
 seed_build_progress r-build-1 sess-build-1
@@ -1304,6 +1343,7 @@ seed_progress_1_to_4_at() {
   { echo "# lean run — issue $JKEY"; echo "run_id: r-j"; } > "$1"
   local m
   for m in 1 2 3 4; do echo "2026-01-01T00:00:00Z | milestone-$m | satisfied" >> "$1"; done
+  attest_at "$TREE" "$CFG_JIRA" "$1" "$JKEY"
 }
 
 # An unrecognized tracker.type must be LOUD. Falling through to github would run the
@@ -1398,6 +1438,7 @@ exit 1
 EOF
 chmod +x "$WORK/bin/gh"
 rm -f "$SPY_LOG" "$PROG_J" "$TREE/.claude/pipeline-state/$JKEY-run-id"
+attest_at "$TREE" "$CFG_JIRA" "$PROG_J" "$JKEY"
 
 out="$( cd "$TREE" && env -u GH_BOT PATH="$WORK/bin:$PATH" SECOND_SHIFT_CONFIG="$CFG_JIRA" \
         LEAN_PROGRESS_FILE="$PROG_J" RUN_ID="jira-run-1" bash "$GATE" claim "$JKEY" 2>&1 )"; rc=$?
@@ -1406,7 +1447,9 @@ if [ "$rc" -eq 0 ] && [ ! -s "$SPY_LOG" ]; then
 else fail "(n9) expected rc=0 and an empty spy log, got rc=$rc, log='$(cat "$SPY_LOG" 2>/dev/null)': $out"; fi
 
 # The record is the point: no write happens, but lean-reconcile.sh's run-id anchor must
-# still land or the run stops being reconcilable.
+# still land or the run stops being reconcilable. The header this asserts against was created
+# `unset` by `entry` above — SKILL.md's own ordering — so this also pins the heal: without it
+# the anchor freezes at `unset` and reconcile arm (1) reds every honest run.
 if grep -q '^run_id: jira-run-1$' "$PROG_J" 2>/dev/null && grep -qF '| claim | tracker=jira |' "$PROG_J" 2>/dev/null; then
   pass "(n10) jira claim still records the run id and a claim line in the progress file"
 else fail "(n10) progress file missing the jira claim record: $(cat "$PROG_J" 2>/dev/null)"; fi
@@ -1477,7 +1520,7 @@ else fail "(n15) expected rc=0 on an all-caps heading, got $rc: $out"; fi
 mkdir -p "$TREE/docs/plans"
 printf '# lean spec — %s\n\n- **AC-1**: the jira arm reaches milestone 1.\n' "$JKEY" > "$TREE/$JSPEC_REL"
 commit_tree "jira spec fixture"
-rm -f "$PROG_J"
+rm -f "$PROG_J"; attest_at "$TREE" "$CFG_JIRA" "$PROG_J" "$JKEY"
 out="$(gate_cfg "$CFG_JIRA" "$PROG_J" 1 "$JKEY" --issue-file "$WORK/issue-or1-paa.json" --comments-file "$WORK/comments-none.json")"; rc=$?
 if [ "$rc" -eq 0 ]; then
   pass "(n16) AC-17: jira milestone 1 skips the pause-and-ask check — an unresolved region does not refuse"
@@ -1658,7 +1701,8 @@ xverdict() { # xverdict <session-id> <run-id> [args...]
   ( unset RUN_ID; cd "$XTREE" && SECOND_SHIFT_CONFIG="$CFG" LEAN_PROGRESS_FILE="$XPROG" \
     CLAUDE_CODE_SESSION_ID="$sid" RUN_ID="$rid" bash "$GATE" verdict 9 "$@" 2>&1 )
 }
-xseed_build() { rm -f "$XPROG"; { echo "# lean run — issue 9"; echo ""; echo "run_id: r-build-x"; echo "session_id: sess-build-x"; } > "$XPROG"; }
+xseed_build() { rm -f "$XPROG"; { echo "# lean run — issue 9"; echo ""; echo "run_id: r-build-x"; echo "session_id: sess-build-x"; } > "$XPROG"
+                attest_at "$XTREE" "$CFG" "$XPROG" 9; }
 xkey() { grep -oE "$1:[[:space:]]*[A-Za-z0-9._-]+" "$XVERDICT" 2>/dev/null | head -n1 | sed -E "s/^$1:[[:space:]]*//"; }
 
 xcommit "base"
@@ -1668,6 +1712,7 @@ printf 'reviewed in round 1, never touched again\n' > "$XTREE/untouched.txt"
 printf 'reviewed in round 1, and the fix will touch it\n' > "$XTREE/refixed.txt"
 xcommit "the branch's work"
 
+attest_at "$XTREE" "$CFG" "$XPROG" 9
 # (x0) nothing committed to review yet: the FULL range, said so out loud. The degrade message is
 # the same one a BROKEN chain produces, which is why (x6) asserts the diagnostic beside it.
 out="$(xgate delta 9)"; rc=$?
@@ -1848,6 +1893,7 @@ ygate() { ( unset RUN_ID CLAUDE_CODE_SESSION_ID; cd "$YTREE" && SECOND_SHIFT_CON
 yverdict() { # yverdict <session-id> <run-id> [args...]
   local sid="$1" rid="$2"; shift 2
   rm -f "$YPROG"; { echo "# lean run — issue 11"; echo ""; echo "run_id: r-build-y"; echo "session_id: sess-build-y"; } > "$YPROG"
+  attest_at "$YTREE" "$CFG" "$YPROG" 11
   rm -f "$YTREE/.claude/pipeline-state/11-review-run-id"
   ( unset RUN_ID; cd "$YTREE" && SECOND_SHIFT_CONFIG="$CFG" LEAN_PROGRESS_FILE="$YPROG" \
     CLAUDE_CODE_SESSION_ID="$sid" RUN_ID="$rid" bash "$GATE" verdict 11 "$@" 2>&1 )
@@ -1921,6 +1967,7 @@ zgate() { ( unset RUN_ID CLAUDE_CODE_SESSION_ID; cd "$ZTREE" && SECOND_SHIFT_CON
 zverdict() { # zverdict <session-id> <run-id> [args...]
   local sid="$1" rid="$2"; shift 2
   rm -f "$ZPROG"; { echo "# lean run — issue 12"; echo ""; echo "run_id: r-build-z"; echo "session_id: sess-build-z"; } > "$ZPROG"
+  attest_at "$ZTREE" "$CFG" "$ZPROG" 12
   rm -f "$ZTREE/.claude/pipeline-state/12-review-run-id"
   ( unset RUN_ID; cd "$ZTREE" && SECOND_SHIFT_CONFIG="$CFG" LEAN_PROGRESS_FILE="$ZPROG" \
     CLAUDE_CODE_SESSION_ID="$sid" RUN_ID="$rid" bash "$GATE" verdict 12 "$@" 2>&1 )
@@ -2147,7 +2194,8 @@ dverdict() { # dverdict <session-id> <run-id> [args...]
   ( unset RUN_ID; cd "$DTREE" && SECOND_SHIFT_CONFIG="$DCFG" LEAN_PROGRESS_FILE="$DPROG" \
     CLAUDE_CODE_SESSION_ID="$sid" RUN_ID="$rid" bash "$GATE" verdict 55 "$@" 2>&1 )
 }
-dreset() { rm -f "$DPROG"; { echo "# lean run — issue 55"; echo ""; echo "run_id: r-build-d"; echo "session_id: sess-build-d"; } > "$DPROG"; }
+dreset() { rm -f "$DPROG"; { echo "# lean run — issue 55"; echo ""; echo "run_id: r-build-d"; echo "session_id: sess-build-d"; } > "$DPROG"
+           attest_at "$DTREE" "$DCFG" "$DPROG" 55; }
 # CAPTURE FIRST, default on the assignment — the trap lean-gate.sh's own count_matches()
 # documents: on zero matches `grep -c` PRINTS "0" *and* exits 1, so a trailing `|| echo 0`
 # emits a second "0" and every arithmetic test on the result then trips "integer expression
@@ -2615,6 +2663,181 @@ out="$(dgate_nodesign 4 55)"; rc=$?
 if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q 'arms no design render lane'; then
   pass "(fd7) an unarmed run refuses a fidelity value other than not-applicable"
 else fail "(fd7) expected the unarmed non-applicable refusal, rc=$rc: $out"; fi
+
+# ---- (ea) the entry attestation: recorded, and enforced (#416) -------------------------------
+# The gap this closes is not "entry fails open" — it always failed closed. It is that NOTHING
+# CHECKED IT RAN: `cmd_entry` wrote nothing durable and no later reader looked, so a run that
+# skipped step 1 reached five green milestones and a merged PR. Two such runs exist. These cases
+# pin both halves: the row, and the refusal that reads it.
+PTREE="$WORK/ptree"
+mkdir -p "$PTREE/docs/plans" "$PTREE/.claude/audit"
+git -C "$PTREE" init -q
+git -C "$PTREE" config user.email t@example.invalid
+git -C "$PTREE" config user.name t
+printf '.claude/\n' > "$PTREE/.gitignore"
+printf '# spec\n\n- AC-1: a thing\n' > "$PTREE/docs/plans/acme-8-lean.md"
+git -C "$PTREE" add -A >/dev/null 2>&1
+git -C "$PTREE" commit -q -m "p fixture" >/dev/null 2>&1
+git -C "$PTREE" update-ref refs/remotes/origin/main HEAD
+PPROG="$WORK/pprogress.md"
+PSID="sess-p-build"
+printf '{"tool":"Bash"}\n{"tool":"Read"}\n' > "$PTREE/.claude/audit/$PSID.jsonl"
+pgate() { # pgate <args...> — a build session's own environment: session id set, ledger live
+  ( unset RUN_ID; cd "$PTREE" && CLAUDE_CODE_SESSION_ID="$PSID" SECOND_SHIFT_CONFIG="$CFG" \
+    LEAN_PROGRESS_FILE="$PPROG" bash "$GATE" --issue-file "$ISSUE_NOREGIONS" "$@" 2>&1 )
+}
+# Capture-then-default, never `grep -c … || echo 0`: on zero matches grep PRINTS "0" *and*
+# exits 1, so the fallback appends a second "0" and every `-eq` against it throws. This suite's
+# older count_in_progress has the same shape and gets away with it only because its callers
+# never compare against zero — (ea3) does.
+pcount() {
+  local n
+  [ -f "$PPROG" ] || { echo 0; return 0; }
+  n="$(grep -cF "$1" "$PPROG" 2>/dev/null)" || n=0
+  [ -n "$n" ] || n=0
+  echo "$n"
+}
+
+rm -f "$PPROG"
+out="$(pgate entry 8)"; rc=$?
+# All three fields, not merely the marker: the path and the count are what make the row an
+# ATTESTATION rather than a bit, and a writer that dropped them would still satisfy every
+# presence-only reader downstream.
+if [ "$rc" -eq 0 ] && [ "$(pcount '| entry | ledger=')" -eq 1 ] \
+   && grep -qF "/.claude/audit/$PSID.jsonl | lines=2 | session=$PSID" "$PPROG"; then
+  pass "(ea1) entry records one row carrying the resolved ledger path, its line count and the session id"
+else fail "(ea1) expected one full entry row, rc=$rc: $(cat "$PPROG" 2>/dev/null)"; fi
+
+out="$(pgate entry 8)"; rc=$?
+if [ "$rc" -eq 0 ] && [ "$(pcount '| entry | ledger=')" -eq 1 ]; then
+  pass "(ea2) a second entry call is idempotent — the row is not duplicated"
+else fail "(ea2) expected still exactly one row, rc=$rc, count=$(pcount '| entry | ledger=')"; fi
+
+# The refusal, on a progress file that has everything EXCEPT the row. Seeding a full header is
+# the point: "the file is missing" and "the run never attested" must not be the same test, or a
+# gate that merely required a progress file would pass this.
+pseed_unattested() {
+  rm -f "$PPROG"
+  { echo "# lean run — issue 8"; echo ""; echo "run_id: r-p"; echo "session_id: $PSID"; } > "$PPROG"
+}
+pseed_unattested
+out="$(pgate 1 8)"; rc=$?
+if [ "$rc" -eq 2 ] && printf '%s' "$out" | grep -qF 'bash G entry 8' \
+   && [ "$(pcount '| milestone-1 | attempt |')" -eq 0 ]; then
+  pass "(ea3) a build-role milestone with no entry row exits 2, names the remedy, and charges no attempt"
+else fail "(ea3) expected rc=2 + remedy + zero attempts, rc=$rc, attempts=$(pcount '| milestone-1 | attempt |'): $out"; fi
+
+# D-13's backstop, and the issue's own exit-evidence wording: a run REACHING MILESTONE 4 with no
+# entry trace reds. It reds at the precondition rather than inside cmd_4 — which is the point of
+# D-4, since the constraint the issue states as governing is that the failure be reachable BEFORE
+# a verdict record exists — but the observable the issue asks for is the same one.
+printf 'verdict=approve\nrun_id: r-p-review\nsession_id: sess-p-review\nrounds: 1\nreviewed_head: %s\n' \
+  "$(git -C "$PTREE" rev-parse HEAD)" > "$PTREE/docs/plans/acme-8-lean-verdict.md"
+git -C "$PTREE" add -A >/dev/null 2>&1
+git -C "$PTREE" commit -q -m "p review verdict" >/dev/null 2>&1
+pseed_unattested
+out="$(pgate 4 8)"; rc4_unattested=$?
+pgate entry 8 >/dev/null 2>&1
+out2="$(pgate 4 8)"; rc4_attested=$?
+if [ "$rc4_unattested" -eq 2 ] && [ "$rc4_attested" -eq 0 ]; then
+  pass "(ea4) milestone 4 reds on an unattested run and passes once the row exists — the paired backstop"
+else fail "(ea4) expected 2 then 0, got $rc4_unattested then $rc4_attested: $out / $out2"; fi
+
+# `all` is the whole-progression entry point, so a precondition it did not share would leave the
+# one call a resume actually makes unguarded.
+pseed_unattested
+out="$(pgate all 8)"; rc=$?
+if [ "$rc" -eq 2 ] && printf '%s' "$out" | grep -qF 'no entry attestation'; then
+  pass "(ea5) 'all' refuses an unattested run before its cheap pre-pass runs"
+else fail "(ea5) expected rc=2 from all, got $rc: $out"; fi
+
+# `delta` is invoked by the REVIEW session — D-4 gates it anyway and accepts the consequence: a
+# reviewer of an unattested build is told to stop, with a remedy only the build side can apply.
+pseed_unattested
+out="$(pgate delta 8)"; rc=$?
+if [ "$rc" -eq 2 ] && printf '%s' "$out" | grep -qF 'bash G entry 8'; then
+  pass "(ea6) delta refuses an unattested run — a reviewer must not certify a run with no ledger"
+else fail "(ea6) expected rc=2 from delta, got $rc: $out"; fi
+
+# ...but `verdict` is NOT gated (D-5). Its own ledger precondition is a follow-up gated on #417,
+# and gating it here would refuse every honest review whose session works in the build worktree.
+# Asserted POSITIVELY, not by the absence of a string: `exit 2` is envfail's code generally, so
+# rc alone cannot separate "gated" from "reached cmd_verdict and stopped there", and absence
+# alone passes for any other refusal whose wording differs. What discriminates is the message
+# PREFIX — the precondition writes `✗ <sub>:` and cmd_verdict's own diagnostics write a bare
+# `verdict:` — so requiring one and forbidding the other pins that control got past the gate.
+pseed_unattested
+out="$( cd "$PTREE" && CLAUDE_CODE_SESSION_ID=sess-p-review SECOND_SHIFT_CONFIG="$CFG" \
+        LEAN_PROGRESS_FILE="$PPROG" RUN_ID=r-p-review-2 bash "$GATE" verdict 8 --pr 3 --verdict approve 2>&1 )"; rc=$?
+if printf '%s' "$out" | grep -qF '[lean-gate] verdict:' \
+   && ! printf '%s' "$out" | grep -qF 'no entry attestation'; then
+  pass "(ea7) verdict is exempt from the build-role precondition (D-5) — it reaches its own evaluation"
+else fail "(ea7) verdict was gated by the entry precondition, rc=$rc: $out"; fi
+
+# AC-2 / D-9: enrichment only. The VERDICT is the ledger predicate's in both halves (rc=1
+# either way); what changes is whether the operator is told the one thing that turns a
+# five-minute hunt into a one-line fix.
+PNOLEDGER="$WORK/pnoledger"
+mkdir -p "$PNOLEDGER/docs/plans" "$PNOLEDGER/.claude"
+git -C "$PNOLEDGER" init -q
+git -C "$PNOLEDGER" config user.email t@example.invalid
+git -C "$PNOLEDGER" config user.name t
+git -C "$PNOLEDGER" commit -q --allow-empty -m base >/dev/null 2>&1
+pn_entry() { ( unset RUN_ID; cd "$PNOLEDGER" && CLAUDE_CODE_SESSION_ID=sess-absent \
+               SECOND_SHIFT_CONFIG="$CFG" LEAN_PROGRESS_FILE="$WORK/pnprogress.md" \
+               bash "$GATE" entry 8 2>&1 ); }
+rm -f "$PNOLEDGER/.claude/settings.json" "$PNOLEDGER/.claude/settings.local.json"
+out="$(pn_entry)"; rc=$?
+if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q 'is missing or empty' \
+   && ! printf '%s' "$out" | grep -q 'audit-toolkit is disabled'; then
+  pass "(ea8) with no settings to read, the missing-ledger refusal keeps its generic wording"
+else fail "(ea8) expected the generic refusal, rc=$rc: $out"; fi
+
+printf '{"enabledPlugins": {"audit-toolkit@second-shift": false}}\n' > "$PNOLEDGER/.claude/settings.local.json"
+out="$(pn_entry)"; rc=$?
+if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q 'audit-toolkit is disabled'; then
+  pass "(ea9) the same refusal names audit-toolkit when the settings say it is off — same verdict, better diagnosis"
+else fail "(ea9) expected the plugin-off wording, rc=$rc: $out"; fi
+
+# The enrichment must never become an authority: a settings file saying `false` cannot refuse a
+# run whose ledger IS live. This is the direction a "check the plugin instead" implementation
+# gets wrong, and it would red every honest run in a repo with a stale local settings file.
+printf '{"enabledPlugins": {"audit-toolkit@second-shift": false}}\n' > "$PTREE/.claude/settings.local.json"
+rm -f "$PPROG"
+out="$(pgate entry 8)"; rc=$?
+rm -f "$PTREE/.claude/settings.local.json"
+if [ "$rc" -eq 0 ] && [ "$(pcount '| entry | ledger=')" -eq 1 ]; then
+  pass "(ea10) a live ledger passes even with audit-toolkit marked disabled — the predicate decides, not the settings"
+else fail "(ea10) the settings read became a second authority, rc=$rc: $out"; fi
+
+# ---- the header the attestation created (#416) ----------------------------------------------
+# `entry` creates the progress file, and SKILL.md orders it BEFORE the RUN_ID export — so on
+# every honest run the header is born `run_id: unset`. #322 closed that freeze by keeping
+# `entry` from creating the file at all, a remedy this precondition cannot keep. The heal is
+# what replaces it, and it is load-bearing: lean-reconcile.sh arm (1) compares the claim
+# comment's run_id against this header, so an unhealed `unset` reds a clean run at the merge
+# boundary. Neither direction is a fixture nicety.
+PSTATE="$PTREE/.claude/pipeline-state"
+rm -f "$PPROG" "$PSTATE/8-run-id"
+pgate entry 8 >/dev/null 2>&1
+if grep -q '^run_id: unset$' "$PPROG" 2>/dev/null; then frozen_at_entry=1; else frozen_at_entry=0; fi
+# A milestone call does NOT establish an identity (it resolves without persisting), so an
+# ad-hoc RUN_ID on one must not reach the header: the header has to carry the id `claim` wrote
+# and reconcile compares against, not whatever shell ran a gate in between.
+( cd "$PTREE" && CLAUDE_CODE_SESSION_ID="$PSID" SECOND_SHIFT_CONFIG="$CFG" \
+  LEAN_PROGRESS_FILE="$PPROG" RUN_ID=p-drive-by bash "$GATE" --issue-file "$ISSUE_NOREGIONS" 1 8 >/dev/null 2>&1 )
+if [ "$frozen_at_entry" -eq 1 ] && grep -q '^run_id: unset$' "$PPROG" 2>/dev/null; then
+  pass "(ea11) an ad-hoc RUN_ID on a milestone call cannot stamp the header — only an established identity may"
+else fail "(ea11) frozen_at_entry=$frozen_at_entry, header now: $(grep '^run_id:' "$PPROG" 2>/dev/null)"; fi
+
+# ...and the establishing call heals it. `entry` is idempotent, so re-running it with the id
+# exported is exactly the recovery an operator who read step 2 second would make.
+out="$( cd "$PTREE" && CLAUDE_CODE_SESSION_ID="$PSID" SECOND_SHIFT_CONFIG="$CFG" \
+        LEAN_PROGRESS_FILE="$PPROG" RUN_ID=p-build-1 bash "$GATE" entry 8 2>&1 )"; rc=$?
+if [ "$rc" -eq 0 ] && grep -q '^run_id: p-build-1$' "$PPROG" 2>/dev/null \
+   && [ "$(pcount '| entry | ledger=')" -eq 1 ]; then
+  pass "(ea12) the first call to establish a run identity heals the frozen header, without duplicating the row"
+else fail "(ea12) header did not heal, rc=$rc: $(grep '^run_id:' "$PPROG" 2>/dev/null) / rows=$(pcount '| entry | ledger=')"; fi
 
 echo "[lean-gate-selftest] $([ "$FAILS" -eq 0 ] && echo 'all green' || echo "$FAILS FAILURE(S)")"
 exit "$FAILS"

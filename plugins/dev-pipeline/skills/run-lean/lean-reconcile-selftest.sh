@@ -68,6 +68,15 @@ VERDICT="$TREE/docs/plans/acme-7-lean-verdict.md"
 PROG="$WORK/progress.md"
 
 write_progress() { # write_progress <run-id> <session-id>
+  write_progress_unattested "$1" "$2"
+  # #416's row. `lean-gate.sh entry` writes it; this file's subject is the READER, so the shape
+  # is reproduced here rather than driven through the gate — the two are kept honest by
+  # lean-gate-selftest.sh's (ea1), which pins the same shape against the writer.
+  echo "2026-01-01T00:00:00Z | entry | ledger=$AUDIT/$2.jsonl | lines=2 | session=$2" >> "$PROG"
+}
+# The same file WITHOUT the entry row — a build that never attested, which is the state both
+# runs that motivated #416 were in.
+write_progress_unattested() { # write_progress_unattested <run-id> <session-id>
   cat > "$PROG" <<EOF
 # lean run — issue 7
 
@@ -496,12 +505,12 @@ if [ "$rc" -eq 0 ] && printf '%s' "$out" | grep -q 'resolves over 1 earlier reco
   pass "(N7b) the walk terminates at a root whose body quotes the key — one link, not the two a first-match walk would count"
 else fail "(N7b) expected exactly 1 earlier record in the chain, got $rc: $out"; fi
 
-# ---- (P) the tracker adapter: jira drops ONE arm, not six (#388) ----------------------------
+# ---- (P) the tracker adapter: jira drops ONE arm, not all of them (#388) --------------------
 # Before this, the comment fetch ran unconditionally and its `exit 2` killed the script before
-# checks (1b)-(6) — five arms that read only git, the progress file, the verdict record and the
+# every other check — the arms that read only git, the progress file, the verdict record and the
 # audit ledger, including the P10 authorship check, which needs no tracker at all. The suite
-# entered (P) with a green round-5 chain, so every case below starts from evidence that is
-# COMPLETE on the five tracker-independent arms; only the case's own fixture is broken.
+# enters (P) with a green round-5 chain, so every case below starts from evidence that is
+# COMPLETE on the tracker-independent arms; only the case's own fixture is broken.
 #
 # "Zero gh calls" is asserted through a recording stub reachable BOTH ways — the `${GH:-gh}` seam
 # and a `gh` earlier on PATH — so a jira arm that still shelled out to a reachable CLI is caught
@@ -539,7 +548,7 @@ if [ "$rc" -eq 0 ] && [ ! -s "$GH_CALLS" ] \
    && printf '%s' "$out" | grep -q 'claim-comment arm NOT RUN' \
    && printf '%s' "$out" | grep -q 'REDUCED evidence' \
    && printf '%s' "$out" | grep -q 'resolves over 1 earlier record'; then
-  pass "(P1) a jira consumer reconciles with zero gh calls, names the arm it skipped, and still runs the other five"
+  pass "(P1) a jira consumer reconciles with zero gh calls, names the arm it skipped, and still runs every other"
 else fail "(P1) expected rc=0, no gh call, the disclosure and the chain arm, got rc=$rc calls='$(cat "$GH_CALLS" 2>/dev/null)': $out"; fi
 
 # (P2) the default is ASSERTED, not assumed: an absent `tracker.type` takes the github arm — it
@@ -612,6 +621,30 @@ if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q 'matches no earlier verdict r
   pass "(P9) (6) a dangling inheritance link still fails under jira"
 else fail "(P9) expected rc=1 on a dangling link under jira, got $rc: $out"; fi
 p_restore "2026-01-01T14:25:00Z"
+
+# ---- (Q) the build entry attestation (#416) --------------------------------------------------
+# The arm that catches an unattested build AFTER the fact — the only route there is, since the
+# gate's own precondition binds the build host and only from the release it shipped in. This is
+# how #416 was found: two merged runs whose progress files begin at `claim`.
+#
+# The pairing is what makes it an arm rather than a decoration. Everything else about this
+# fixture is the fully-consistent (A) state, so the ONLY difference between red and green here
+# is the row.
+write_progress_unattested "$RUN_ID" "$SESSION"
+write_verdict "$REVIEW_RUN_ID" "$REVIEW_SESSION"
+write_ledger "$SESSION" "2026-01-01T05:00:00Z"
+write_ledger "$REVIEW_SESSION" "2026-01-01T06:00:00Z"
+commit_verdict "2026-01-01T15:00:00Z"
+out="$(reconcile "$WORK/comments-good.json")"; rc=$?
+if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q 'no entry attestation'; then
+  pass "(Q) a progress file with no entry row fails — nothing attests the build's ledger was live"
+else fail "(Q) expected rc=1 on an unattested build, got $rc: $out"; fi
+
+write_progress "$RUN_ID" "$SESSION"
+out="$(reconcile "$WORK/comments-good.json")"; rc=$?
+if [ "$rc" -eq 0 ] && printf '%s' "$out" | grep -q 'recorded an entry attestation'; then
+  pass "(Q) ...and the identical run passes once the row is there — the arm turns on the row alone"
+else fail "(Q) expected rc=0 with the entry row present, got $rc: $out"; fi
 
 # ---- (O) --help prints the header, and only the header --------------------------------------
 # `sed -n '2,Np'` is a hand-maintained line number, and this file had no guard for it — which is

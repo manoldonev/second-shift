@@ -99,7 +99,11 @@ repo is UI-shaped or a design MCP is connected (accepting it also offers the opt
 `design.liveRender` render-command block when a harness is detected — [`live-render.md`](live-render.md)).
 **One documented downgrade:** review-only
 (`enabledPlugins` with just `review-toolkit@second-shift: true`) — *community-supported, not
-CI-tested*. Everything else is possible via `enabledPlugins: false` and yours to own.
+CI-tested*. Everything else is possible via `enabledPlugins: false` and yours to own, with **one
+exception**: `audit-toolkit` off while `dev-pipeline` is on is not a supported combination.
+`audit-toolkit` ships the hook that writes the per-session audit ledger, the lean lane's entry
+gate refuses to start without a live one, and `/second-shift:doctor` FAILs on the pairing rather
+than warning. Disable both together if the repo does not run the lane.
 
 Why so strict: five optional plugins is a 2^5 support matrix, and the seams between plugins
 (pipeline → review panel, intake → plan gates) break precisely at partial installs. One

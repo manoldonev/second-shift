@@ -36,6 +36,9 @@ Run: `bash "${CLAUDE_PLUGIN_ROOT}/skills/onboard/tools/detect.sh"` and parse the
 
 ## Step 2 — Resolve the pin
 Run: `bash "${CLAUDE_PLUGIN_ROOT}/skills/onboard/tools/pin-resolve.sh" manoldonev/second-shift dev-pipeline review-toolkit intake-toolkit audit-toolkit second-shift` — add `design-toolkit` if (and only if) the design question below is answered yes.
+`audit-toolkit` is not an optional bundle member alongside `dev-pipeline`: it ships the hook that
+writes the per-session audit ledger, and the lean lane's entry gate refuses to start without a
+live one. State that on the review screen, so the human knows why this one has no opt-out.
 `refSource == "tag-fallback"` → include one line in the review screen: "(pinned to tag
 <ref>; this marketplace has not cut a GitHub Release yet)". Resolution failure → ABORT
 with the stderr reason (likely offline or gh unauthenticated).
@@ -204,6 +207,12 @@ Target state in `.claude/settings.json` (MERGE — never clobber unrelated keys)
                         "intake-toolkit@second-shift": true, "audit-toolkit@second-shift": true,
                         "second-shift@second-shift": true }
     (+ "design-toolkit@second-shift": true when accepted)
+`audit-toolkit@second-shift` is written unconditionally, so onboard itself has no opt-out path to
+close. What it cannot stop is a later hand edit flipping it to `false` (or a `settings.local.json`
+overriding it): that breaks the lean lane outright — its entry gate refuses to start without a
+live audit ledger — and `/second-shift:doctor` FAILs on the combination rather than warning.
+If the existing file already carries that `false`, do not silently preserve it: flag it on the
+review screen and merge the `true` in.
 Mechanics: read the existing file (or start from `{}`), apply
     jq --arg ref "<ref>" '.extraKnownMarketplaces = ((.extraKnownMarketplaces // {}) + {...}) | .enabledPlugins = ((.enabledPlugins // {}) + {...})'
 and WRITE the result back with the file-editing tool. If the write is blocked or denied:
