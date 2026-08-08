@@ -58,6 +58,16 @@ build session, so this cannot be folded back into the build lane by convenience.
    provider surface and compare **per RS row**, scoring each one in the summary. Re-rendering is
    permitted only at the reviewed head, and say so when you do; there is no foreign-checkout
    fallback and no "mismatch expected" written in advance.
+5c. **A voided round is handed back, never recorded.** `review-lead` voids a round when every
+   reviewer it selected went dark — it then emits a "review did not run" report naming the dark
+   set, and answers no merge question. When that happens, stop before step 6: post the coverage
+   gap as the step-8 PR comment, write **no** verdict record, and do not spend the round. Neither
+   value is available to you — `needs-work` would report blockers nobody found, and `approve`
+   would certify a review that never ran. Same precedent as step 4's missing entry attestation: a
+   round with no coverage is not yours to certify. The separation still holds without a gate,
+   because `check-lean-chain.sh` treats an absent verdict record as already a violation, so a
+   hand-back cannot merge. Say plainly in the comment what went dark and why, so the build
+   session knows it is waiting on infrastructure rather than on findings.
 6. Write the record **from the checkout of the PR head**:
    `bash G verdict <issue> --pr <n> --verdict <approve|needs-work> --rounds <n> --fidelity <pass|fail|not-applicable> --summary-file <path>`
    The summary file carries the finding table and the per-AC scoring. The gate writes the
@@ -83,6 +93,9 @@ build session, so this cannot be folded back into the build lane by convenience.
   record bypasses all of them and reds at `scripts/check-lean-chain.sh` anyway.
 - **One identity per review round.** Re-running a round reuses the cached id; a new round
   after a fix gets a new one, so the rounds stay distinguishable in the ledger.
+- **A round that reviewed nothing produces no record.** An all-dark panel (step 5c) is an
+  infrastructure failure wearing a review's clothes: the report looks complete and the verdict
+  slot is still there to fill. Leave it empty and hand back.
 - **Inheritance narrows what you READ, never what you must find.** Every `AC-n` is scored every
   round against the whole spec — the delta bounds the reading, not the verdict. Code an earlier
   round approved that the fix then touched IS in the delta, so it is read again; only what did

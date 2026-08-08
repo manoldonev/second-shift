@@ -1557,6 +1557,55 @@ else
   fail "(rr6) review-rounds additive-only — rounds='$rounds' exhausted='$exhausted'"
 fi
 
+# (rr7) --voided writes codeReviewVoided in the same bundle, and a plain --set leaves
+# it absent. The void is the all-reviewers-dark short-circuit (stages/8-code-review.md);
+# it must NOT be seeded, for the same reason exhaustion is not — consumers check `== true`.
+reset_state
+sct init 9999 --run-id "selftest-run-$$" >/dev/null
+sct review-rounds 9999 --set 1 >/dev/null
+voided_before=$(sct get 9999 '.codeReviewVoided // false')
+sct review-rounds 9999 --set 1 --voided >/dev/null
+rounds=$(sct get 9999 '.codeReviewRounds')
+voided=$(sct get 9999 '.codeReviewVoided')
+if [[ "$voided_before" == "false" && "$rounds" == "1" && "$voided" == "true" ]]; then
+  pass "(rr7) review-rounds --voided → codeReviewVoided=true, absent until asked for"
+else
+  fail "(rr7) review-rounds voided — before='$voided_before' rounds='$rounds' voided='$voided'"
+fi
+
+# (rr8) the void is INDEPENDENT of exhaustion, in both directions. They reach the same
+# draft + needs-deep-review handoff, so a retro that cannot separate them cannot tell a
+# review that found unclearable blockers from one that never ran.
+exhausted=$(sct get 9999 '.codeReviewExhausted // false')
+if [[ "$exhausted" == "false" ]]; then
+  pass "(rr8) --voided does not imply exhaustion"
+else
+  fail "(rr8) --voided wrongly set codeReviewExhausted='$exhausted'"
+fi
+reset_state
+sct init 9999 --run-id "selftest-run-$$" >/dev/null
+sct review-rounds 9999 --set 3 --exhausted >/dev/null
+voided=$(sct get 9999 '.codeReviewVoided // false')
+if [[ "$voided" == "false" ]]; then
+  pass "(rr8) --exhausted does not imply a void"
+else
+  fail "(rr8) --exhausted wrongly set codeReviewVoided='$voided'"
+fi
+
+# (rr9) additive-only, same invariant as (rr6): a later plain --set never resets a
+# recorded void.
+reset_state
+sct init 9999 --run-id "selftest-run-$$" >/dev/null
+sct review-rounds 9999 --set 1 --voided >/dev/null
+sct review-rounds 9999 --set 2 >/dev/null
+rounds=$(sct get 9999 '.codeReviewRounds')
+voided=$(sct get 9999 '.codeReviewVoided')
+if [[ "$rounds" == "2" && "$voided" == "true" ]]; then
+  pass "(rr9) a recorded void survives a later plain --set (additive-only invariant)"
+else
+  fail "(rr9) review-rounds void additive-only — rounds='$rounds' voided='$voided'"
+fi
+
 # (rr5) review-rounds with no state file → rejected (init must run first)
 reset_state
 err=$(sct_err review-rounds 9999 --set 1)

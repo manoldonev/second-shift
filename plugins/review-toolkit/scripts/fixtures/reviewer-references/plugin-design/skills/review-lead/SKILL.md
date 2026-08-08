@@ -1,9 +1,11 @@
 # review-lead (fixture — panel names a design-toolkit-shipped reviewer)
 
-Reviewer selection happens in-session: choose from the effective reviewer registry — the plugin-shipped panel (security-reviewer, performance-reviewer, design-toolkit:design-faithful-reviewer) plus/minus the consumer config deltas — and pass the selected agentType[] as args.reviewers.
+Reviewer selection happens in-session: choose from the effective reviewer registry — the plugin-shipped panel (review-toolkit:security-reviewer, review-toolkit:performance-reviewer, design-toolkit:design-faithful-reviewer) plus/minus the consumer config deltas — and pass the selected agentType[] as args.reviewers.
 
-The panel entry is written QUALIFIED (`design-toolkit:`) to pin that the pre-flight parse strips
-the plugin qualifier; the Routing entry below is written BARE because the Routing regex excludes `:`.
+Every panel entry is written QUALIFIED — `review-toolkit:` for this root's own agents,
+`design-toolkit:` for the sibling's — which is what failure class (e) requires, and which pins that
+the pre-flight parse strips the qualifier for every other reader. The Routing entries below stay
+BARE because the Routing regex excludes `:`.
 
 ## Reviewer Routing
 

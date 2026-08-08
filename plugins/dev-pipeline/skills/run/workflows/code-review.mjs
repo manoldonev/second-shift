@@ -15,6 +15,9 @@ export const meta = {
 // repo-local reviewers (config reviewers.add, e.g. acme's orders-reviewer) are
 // dispatched bare and get their tier from args.config.reviewers.modelOverrides (or the
 // 'sonnet' default), NOT this table.
+// Its qualified keys are ALSO the resolution source for the bare-name normalization
+// below — so a key removed from here stops normalizing that reviewer as well as
+// stopping its tier from resolving.
 const REVIEWER_MODEL = {
   'review-toolkit:security-reviewer': 'opus',
   'review-toolkit:performance-reviewer': 'sonnet',
@@ -34,6 +37,27 @@ const REVIEWER_MODEL = {
 // Used for the special-case dispatch branches below and for modelOverrides lookup
 // (config keys reviewers by bare name, per second-shift.config.schema.json).
 const bare = (t) => (String(t).includes(':') ? String(t).split(':').pop() : String(t))
+
+// Defensive dispatch-name normalization (#434). This script passes agentType to agent()
+// verbatim, so a caller that names a plugin reviewer BARE produces `agent type not found`
+// for every reviewer it selected — and those deaths return in the died-after-retry shape,
+// which synthesis renders as a fully dark panel rather than as a broken dispatch. The
+// failure therefore reads as "nothing to review" instead of "nothing ran". A stale or
+// hand-edited caller must degrade to WORKING, not to a silent zero-coverage review.
+//
+// Reverse index over REVIEWER_MODEL's qualified keys. A bare name matching exactly ONE
+// qualified key resolves to it; a bare name matching two (two plugins shipping the same
+// basename) is deliberately left alone — guessing between roots is worse than dispatching
+// what the caller asked for. Repo-local `reviewers.add` names match no key and stay bare,
+// exactly as today.
+const QUALIFIED_BY_BARE = Object.keys(REVIEWER_MODEL).reduce((acc, key) => {
+  if (!key.includes(':')) return acc
+  const b = bare(key)
+  acc[b] = b in acc ? null : key
+  return acc
+}, {})
+
+const resolveAgentType = (t) => (String(t).includes(':') ? String(t) : QUALIFIED_BY_BARE[String(t)] || String(t))
 
 // The Atlassian MCP tools scope-completeness-reviewer fetches the JIRA ticket with
 // are DEFERRED in a Workflow subagent (same surface figma.mjs documents) and their
@@ -155,7 +179,9 @@ const fileList = changedFiles.length ? changedFiles.join(', ') : '(see diff)'
 // structured verdict first; kept (cheap, right on principle) though it is not the stall cure. (3) the
 // one-shot retry in dispatchReviewer() recovers residual stochastic deaths. (4) the dark-reviewer
 // coverage-gap contract (review-lead Synthesis Rules + stages/8-code-review.md) backstops anything
-// that still goes dark, surfaced as a coverage gap and never silently dropped. Guards:
+// that still goes dark, surfaced as a coverage gap and never silently dropped — a NOTE, which is
+// the right calibration only while some domain was actually reviewed. When the WHOLE panel goes
+// dark, review-lead voids the round and answers no merge question at all (its Step 4b-void). Guards:
 // workflows/runtime-shim-selftest.mjs executes THIS body against the real ladder;
 // workflows/null-reviewer-selftest.mjs Case F pins the load-bearing tokens + emit wiring. reviewer-baseline carries the same principle as documented
 // contract ("Proportionate grounding"); this file is the operative delivery.
@@ -321,11 +347,24 @@ if (typeof budget !== 'undefined' && budget && budget.total) {
 //   - StructuredOutput death twice        → { agentType, result: null, error,
 //     retried: true, failed: true } — flagged so synthesis cannot mistake a dead
 //     reviewer for a clean "no findings".
-const dispatchReviewer = async (agentType) => {
-  // Override (bare-keyed) wins over the table's per-agent default, else 'sonnet'.
-  const model = modelOverrides[bare(agentType)] || REVIEWER_MODEL[agentType] || 'sonnet'
+// `requested` is the name the CALLER passed; `dispatched` is what actually reaches agent().
+// They differ only when normalization fired. Every object returned from here carries
+// `agentType: requested` — NOT the resolved name — because review-lead's Step 4b enumerates
+// budget-skipped darkness by comparing the returned set against the set it passed as
+// args.reviewers. Handing back a name the caller never selected breaks that comparison, and
+// would trade this bug for a quieter one. The log line below is the visibility the whole
+// failure class lacked.
+const dispatchReviewer = async (requested) => {
+  const dispatched = resolveAgentType(requested)
+  if (dispatched !== requested) {
+    log(`reviewer name normalized: '${requested}' dispatched as '${dispatched}' (plugin reviewers are addressed qualified — docs/namespaces.md rule 2)`)
+  }
+  // Override (bare-keyed) wins over the table's per-agent default, else 'sonnet'. Keyed on
+  // the RESOLVED name, so normalization recovers the reviewer's declared tier too — a bare
+  // security-reviewer that fell through to 'sonnet' is a silently downgraded review.
+  const model = modelOverrides[bare(dispatched)] || REVIEWER_MODEL[dispatched] || 'sonnet'
   let prompt
-  if (bare(agentType) === 'scope-completeness-reviewer') {
+  if (bare(dispatched) === 'scope-completeness-reviewer') {
     // Independence rule (review-lead): evidence ONLY — issue/ticket ref + branch/base.
     // No scope paraphrase, no diff summary; the reviewer fetches the ticket itself.
     // Tracker-branch the fetch (#16): github -> `gh issue view`; jira -> Atlassian MCP.
@@ -341,7 +380,7 @@ const dispatchReviewer = async (agentType) => {
       `(run \`git -C ${worktree} diff ${range}\` to see the change). ` +
       `${fetchInstr} and classify each scope item against the diff. Return your verdict and findings.` +
       PROGRESSIVE_EMIT
-  } else if (bare(agentType) === 'unit-test-mutation-reviewer') {
+  } else if (bare(dispatched) === 'unit-test-mutation-reviewer') {
     prompt =
       `Mutation review in ADVISORY mode on unit tests for this change. ` +
       `Diff scope: \`git -C ${worktree} diff ${range}\`. Changed files: ${fileList}.` +
@@ -376,30 +415,30 @@ const dispatchReviewer = async (agentType) => {
     let text
     try {
       text = await agent(prompt + FINDINGS_EPILOGUE, {
-        agentType,
+        agentType: dispatched,
         model,
-        label: attempt === 0 ? agentType : `${agentType} (retry)`,
+        label: attempt === 0 ? dispatched : `${dispatched} (retry)`,
         phase: 'Review',
       })
     } catch (err) {
       // Hard dispatch errors (tool/permission/budget) — forwarded, twice-dead-flagged on the retry.
       return attempt === 0
-        ? { agentType, result: null, error: String(err) }
-        : { agentType, result: null, error: `retry failed: ${err}`, retried: true, failed: true }
+        ? { agentType: requested, result: null, error: String(err) }
+        : { agentType: requested, result: null, error: `retry failed: ${err}`, retried: true, failed: true }
     }
     const parsed = parseReviewResult(text)
-    if (parsed && validateShape(parsed, FINDINGS_SCHEMA)) return { agentType, result: parsed }
+    if (parsed && validateShape(parsed, FINDINGS_SCHEMA)) return { agentType: requested, result: parsed }
     lastText = text
-    log(`${agentType}: text-contract miss (${/REVIEW_RESULT/.test(String(text ?? '')) ? 'invalid json' : 'no sentinel'})${attempt === 0 ? ' — retrying once' : ''}`)
+    log(`${dispatched}: text-contract miss (${/REVIEW_RESULT/.test(String(text ?? '')) ? 'invalid json' : 'no sentinel'})${attempt === 0 ? ' — retrying once' : ''}`)
   }
   if (/REVIEW_RESULT/.test(String(lastText ?? ''))) {
     try {
       // bounded-exploration-optout: validator-reference -- this schema: key parameterizes the
       //   emitter helper (whose own dispatch site carries the structured-emitter marker).
-      const emitted = await emitStructured(lastText, { label: agentType, schema: FINDINGS_SCHEMA })
-      if (emitted && validateShape(emitted, FINDINGS_SCHEMA)) return { agentType, result: emitted }
+      const emitted = await emitStructured(lastText, { label: dispatched, schema: FINDINGS_SCHEMA })
+      if (emitted && validateShape(emitted, FINDINGS_SCHEMA)) return { agentType: requested, result: emitted }
     } catch (emitErr) {
-      return { agentType, result: null, error: `emit failed: ${emitErr}`, retried: true, failed: true }
+      return { agentType: requested, result: null, error: `emit failed: ${emitErr}`, retried: true, failed: true }
     }
   }
   // Missing sentinel (truncation) or unmappable text: dark, with the SAME twice-dead marker.
@@ -412,7 +451,7 @@ const dispatchReviewer = async (agentType) => {
   // detect darkness via { result: null } + { retried: true, failed: true }, never via this string.
   const producedNothing = !String(lastText ?? '').trim()
   return {
-    agentType,
+    agentType: requested,
     result: null,
     error: producedNothing
       ? 'turn-budget: agent emitted no text on either attempt (maxTurns cap reached mid-exploration — needs an emit deadline, not a bigger cap) — declared dark'

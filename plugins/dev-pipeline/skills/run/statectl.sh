@@ -2021,14 +2021,25 @@ cmd_review_rounds() {
   # Re-running --set overwrites the round count (idempotent for retries,
   # mirroring pr-add's URL overwrite).
   #
+  # `--voided` is the same shape for the OTHER stage-8 short-circuit: the round
+  # in which every selected reviewer went dark, so review-lead voided it and
+  # returned no verdict (stages/8-code-review.md, "Voided round"). It is a
+  # distinct outcome from exhaustion and must stay distinguishable — an
+  # exhausted round found blockers it could not clear, a voided one never
+  # looked. Deliberately NOT a mark-failed reason: the void routes to the same
+  # draft + needs-deep-review handoff as the scope-blocker short-circuit, and a
+  # terminal `failed` status would make require_mutable refuse the pr-add /
+  # comment-add / mark-completed writes that handoff is made of.
+  #
   # Usage:
-  #   statectl review-rounds <issue-number> --set <1-3> [--exhausted]
+  #   statectl review-rounds <issue-number> --set <1-3> [--exhausted] [--voided]
   local key="${1:-}"; shift || true
-  local rounds="" exhausted="false" force=0
+  local rounds="" exhausted="false" voided="false" force=0
   while [[ $# -gt 0 ]]; do
     case "$1" in
       --set)       rounds="${2:-}"; shift 2 ;;
       --exhausted) exhausted="true"; shift ;;
+      --voided)    voided="true"; shift ;;
       --force)     force=1; shift ;;
       *) EXIT_CODE=3 die "review-rounds: unknown arg '$1'" ;;
     esac
@@ -2045,9 +2056,10 @@ cmd_review_rounds() {
   local now
   now=$(now_iso)
   local new_state
-  new_state=$(jq --argjson n "$rounds" --argjson exhausted "$exhausted" --arg now "$now" '
+  new_state=$(jq --argjson n "$rounds" --argjson exhausted "$exhausted" --argjson voided "$voided" --arg now "$now" '
     .codeReviewRounds = $n
     | (if $exhausted then .codeReviewExhausted = true else . end)
+    | (if $voided then .codeReviewVoided = true else . end)
     | .lastUpdatedAt = $now
   ' <<< "$current") || { EXIT_CODE=2 die "review-rounds: jq mutation failed"; }
   atomic_write "$key" "$new_state"

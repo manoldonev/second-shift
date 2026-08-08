@@ -20,6 +20,11 @@
 #   design-cache-layout  plugin-design + versioned cache siblings, NO override  -> exit 0, no notice
 #   design-shadow        REAL plugin + consumer copy of a design-toolkit name   -> exit 1
 #   real-panel-design-absent  REAL plugin + design-toolkit root unresolvable    -> exit 0 + notice naming BOTH
+#   (e) QUALIFY          bare plugin-backed panel entry                         -> exit 1
+#                        prefix naming the wrong plugin                         -> exit 1
+#                        prefixed reviewers.add name                            -> exit 1
+#                        plugin root with no readable manifest                  -> exit 0 + notice
+#                        REAL panel de-qualified (the #434 reproduction)        -> exit 1
 #
 # The design-* cases are what make the THREE-root contract falsifiable, and they only
 # work as a pair-plus-scope: design-present asserts the sibling root RESOLVED (exit 0
@@ -224,9 +229,14 @@ CACHE_MKT="$TMP/cache/mkt"
 mkdir -p "$CACHE_MKT/review-toolkit/0.0.1/scripts" \
          "$CACHE_MKT/design-toolkit/0.0.1/agents" \
          "$CACHE_MKT/design-toolkit/0.0.2/agents" \
+         "$CACHE_MKT/design-toolkit/0.0.2/.claude-plugin" \
          "$CACHE_MKT/design-toolkit/0.0.3-broken"
 cp "$CHECK" "$CACHE_MKT/review-toolkit/0.0.1/scripts/check-reviewer-references.sh"
 cp "$FX/design-toolkit/agents/design-faithful-reviewer.md" "$CACHE_MKT/design-toolkit/0.0.2/agents/"
+# The winning cache sibling carries a manifest, so this case stays a pure root-RESOLUTION
+# test: without it the design panel entry falls through to QUALIFY's prefix-underivable
+# notice, which is a different code path than the one under test here.
+cp "$FX/design-toolkit/.claude-plugin/plugin.json" "$CACHE_MKT/design-toolkit/0.0.2/.claude-plugin/"
 # Prefix assignments, not a subshell export: run_cli's exports are already subshell-scoped,
 # and a second `export` of the same names would make SC2030 fire on run_cli itself. No
 # SECOND_SHIFT_DESIGN_TOOLKIT_ROOT here — resolving it is the whole point of this case.
@@ -239,6 +249,102 @@ elif grep -q "design-toolkit is not installed" "$TMP/.stderr"; then
   fail "design-cache-layout: exit 0 but via the absent-toolkit exemption — the cache sibling was not resolved (stderr: $(cat "$TMP/.stderr"))"
 else
   ok "design-cache-layout: newest versioned cache sibling carrying agents/ resolves -> exit 0, no exemption"
+fi
+
+# --- (e) QUALIFY ------------------------------------------------------------
+# The class exists because the failure it guards is SILENT: a bare plugin name in the
+# panel kills every agent() dispatch, and those deaths return in the died-after-retry
+# shape, so synthesis renders a fully dark panel and still answers "Ready to merge?".
+# Nothing downstream reds. Each case below therefore asserts the QUALIFY line itself,
+# not merely a non-zero exit — several other classes also exit 1 on these fixtures.
+
+# qualify-bare-plugin-entry — the #434 shape, on a fixture: a panel entry whose agent file
+# sits in the plugin root, named bare.
+QUALIFY_BARE="$TMP/plugin-bare-panel"
+cp -R "$FX/plugin" "$QUALIFY_BARE"
+sed -i.bak -E 's/review-toolkit:([a-z0-9-]+-reviewer)/\1/g' "$QUALIFY_BARE/skills/review-lead/SKILL.md"
+rm -f "$QUALIFY_BARE/skills/review-lead/SKILL.md.bak"
+run_cli "$QUALIFY_BARE" "$EMPTY_CONSUMER"
+if [ $? -eq 0 ]; then
+  fail "(e) qualify-bare expected exit 1 — a bare plugin-backed panel entry must deny"
+else
+  grep -q "QUALIFY:.*'security-reviewer'.*'review-toolkit' plugin.*BARE" "$TMP/.stderr" \
+    && ok "(e) QUALIFY: bare plugin-backed panel entry -> exit 1 + message naming the derived prefix" \
+    || fail "(e) qualify-bare: exit 1 but no QUALIFY line naming security-reviewer (stderr: $(cat "$TMP/.stderr"))"
+fi
+
+# qualify-wrong-prefix — a prefix that is present but names the WRONG plugin. Distinct from
+# the bare case: "has a colon" is not the test, "resolves in the root it names" is. Without
+# this, `[ -n "$entry_prefix" ]` alone would satisfy the check.
+QUALIFY_WRONG="$TMP/plugin-wrong-prefix"
+cp -R "$FX/plugin" "$QUALIFY_WRONG"
+sed -i.bak 's/review-toolkit:security-reviewer/design-toolkit:security-reviewer/' "$QUALIFY_WRONG/skills/review-lead/SKILL.md"
+rm -f "$QUALIFY_WRONG/skills/review-lead/SKILL.md.bak"
+run_cli "$QUALIFY_WRONG" "$EMPTY_CONSUMER" "" "$FX/design-toolkit"
+if [ $? -eq 0 ]; then
+  fail "(e) qualify-wrong-prefix expected exit 1 — a prefix naming another plugin must deny"
+else
+  grep -q "QUALIFY:.*design-toolkit:security-reviewer.*resolves in the 'review-toolkit' plugin" "$TMP/.stderr" \
+    && ok "(e) QUALIFY: wrong-plugin prefix -> exit 1 + message naming the resolving plugin" \
+    || fail "(e) qualify-wrong-prefix: exit 1 but no QUALIFY line (stderr: $(cat "$TMP/.stderr"))"
+fi
+
+# qualify-add-prefixed — the other half of namespaces.md rule 2. A prefixed reviewers.add
+# name also trips DANGLING (no such consumer file), so assert the QUALIFY line specifically:
+# the DANGLING message points at a missing file, which sends the reader to create one.
+QUALIFY_ADD="$TMP/consumer-add-prefixed"
+mkdir -p "$QUALIFY_ADD/.claude/agents"
+printf -- '---\nname: orders-reviewer\ndescription: repo-local\n---\n' > "$QUALIFY_ADD/.claude/agents/orders-reviewer.md"
+printf '{\n  "reviewers": { "add": [ { "name": "review-toolkit:orders-reviewer", "dimensions": ["orders"] } ] }\n}\n' \
+  > "$QUALIFY_ADD/.claude/second-shift.config.json"
+run_cli "$PLUGIN" "$QUALIFY_ADD" "$QUALIFY_ADD/.claude/second-shift.config.json"
+if [ $? -eq 0 ]; then
+  fail "(e) qualify-add-prefixed expected exit 1 — a prefixed reviewers.add name must deny"
+else
+  grep -q "QUALIFY: reviewers.add registers 'review-toolkit:orders-reviewer' with a plugin prefix" "$TMP/.stderr" \
+    && ok "(e) QUALIFY: prefixed reviewers.add name -> exit 1 + message" \
+    || fail "(e) qualify-add-prefixed: exit 1 but no QUALIFY line for the add (stderr: $(cat "$TMP/.stderr"))"
+fi
+
+# qualify-manifest-absent — the prefix is DERIVED from the root's plugin.json, so a root
+# without one has nothing to derive. Degrade to a notice, never a denial: an install layout
+# this script cannot read a manifest from must not block every commit in the repo. Fails
+# both ways — a denial fails, and a SILENT pass fails too.
+QUALIFY_NOMANIFEST="$TMP/plugin-no-manifest"
+cp -R "$FX/plugin" "$QUALIFY_NOMANIFEST"
+rm -rf "$QUALIFY_NOMANIFEST/.claude-plugin"
+sed -i.bak -E 's/review-toolkit:([a-z0-9-]+-reviewer)/\1/g' "$QUALIFY_NOMANIFEST/skills/review-lead/SKILL.md"
+rm -f "$QUALIFY_NOMANIFEST/skills/review-lead/SKILL.md.bak"
+run_cli "$QUALIFY_NOMANIFEST" "$EMPTY_CONSUMER"
+rc=$?
+if [ $rc -ne 0 ]; then
+  fail "(e) qualify-manifest-absent expected exit 0 — an underivable prefix must not deny (stderr: $(cat "$TMP/.stderr"))"
+elif grep -q "QUALIFY:" "$TMP/.stderr"; then
+  fail "(e) qualify-manifest-absent: exit 0 but a QUALIFY error was still emitted (stderr: $(cat "$TMP/.stderr"))"
+elif ! grep -q "no readable .claude-plugin/plugin.json" "$TMP/.stderr"; then
+  fail "(e) qualify-manifest-absent: exit 0 and no QUALIFY, but the degrade was SILENT — no notice (stderr: $(cat "$TMP/.stderr"))"
+else
+  ok "(e) QUALIFY: underivable prefix -> exit 0 + notice, no denial"
+fi
+
+# qualify-real-panel — the production cell, and the direct reproduction of #434: the REAL
+# shipped SKILL.md with its panel de-qualified. The fixture cases above run on a two-entry
+# panel; this one proves the class fires on the artifact that actually ships. Its green
+# counterpart is the shipped-SKILL lockstep case above, which now also asserts the real
+# panel IS qualified (QUALIFY would deny it otherwise).
+QUALIFY_REAL="$TMP/real-bare-panel"
+mkdir -p "$QUALIFY_REAL/skills/review-lead"
+cp -R "$REAL_PLUGIN/.claude-plugin" "$QUALIFY_REAL/.claude-plugin"
+cp -R "$REAL_PLUGIN/agents" "$QUALIFY_REAL/agents"
+sed -E 's/review-toolkit:([a-z0-9-]+-reviewer)/\1/g' "$REAL_PLUGIN/skills/review-lead/SKILL.md" \
+  > "$QUALIFY_REAL/skills/review-lead/SKILL.md"
+run_cli "$QUALIFY_REAL" "$EMPTY_CONSUMER" "" "$FX/design-toolkit"
+if [ $? -eq 0 ]; then
+  fail "(e) qualify-real-panel expected exit 1 — the #434 regression on the SHIPPED panel went undetected"
+else
+  grep -q "QUALIFY:.*is named BARE" "$TMP/.stderr" \
+    && ok "(e) QUALIFY: shipped panel de-qualified -> exit 1 (the #434 reproduction)" \
+    || fail "(e) qualify-real-panel: exit 1 but no QUALIFY line (stderr: $(cat "$TMP/.stderr"))"
 fi
 
 echo

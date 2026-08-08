@@ -29,7 +29,7 @@ The reviewer fan-out runs as `agent()` calls inside `workflows/code-review.mjs` 
 
   > "review-lead requires the Workflow tool to dispatch the reviewer fan-out (via code-review.mjs) in the current session. This skill must be invoked from the main session (or from another skill running in the main session, e.g., dev-pipeline). It cannot run inside a subagent context. Aborting."
 
-  The script returns structured findings; this session then runs the Synthesis Rules over them. Reviewer **selection** (Routing, below) happens in-session first, since it needs the diff: choose from the effective reviewer registry — the plugin-shipped panel (security-reviewer, performance-reviewer, complexity-reviewer, maintainability-reviewer, test-coverage-reviewer, unit-test-mutation-reviewer, db-reviewer, pipeline-reviewer, scope-completeness-reviewer, a11y-reviewer, design-toolkit:design-faithful-reviewer, design-toolkit:figma-faithful-reviewer) plus/minus the consumer repo's config deltas (see "Consumer config: reviewer registry" below) — and pass the selected `agentType[]` as `args.reviewers`. `worktree` is the absolute path the reviewers run git against — for pure standalone `/review-lead` in the repo checkout, derive it with `git rev-parse --show-toplevel`; `base`/`head` come from the diff range (default `origin/<base>..HEAD`, where `<base>` is the configured base branch resolved in Process step 1, after a `git fetch origin <base>` — see Process step 1's stale-base rationale), and `changedFiles` from the `git diff --stat` run for Routing.
+  The script returns structured findings; this session then runs the Synthesis Rules over them. Reviewer **selection** (Routing, below) happens in-session first, since it needs the diff: choose from the effective reviewer registry — the plugin-shipped panel (review-toolkit:security-reviewer, review-toolkit:performance-reviewer, review-toolkit:complexity-reviewer, review-toolkit:maintainability-reviewer, review-toolkit:test-coverage-reviewer, review-toolkit:unit-test-mutation-reviewer, review-toolkit:db-reviewer, review-toolkit:pipeline-reviewer, review-toolkit:scope-completeness-reviewer, review-toolkit:a11y-reviewer, design-toolkit:design-faithful-reviewer, design-toolkit:figma-faithful-reviewer) plus/minus the consumer repo's config deltas (see "Consumer config: reviewer registry" below) — and pass the selected `agentType[]` as `args.reviewers`. `worktree` is the absolute path the reviewers run git against — for pure standalone `/review-lead` in the repo checkout, derive it with `git rev-parse --show-toplevel`; `base`/`head` come from the diff range (default `origin/<base>..HEAD`, where `<base>` is the configured base branch resolved in Process step 1, after a `git fetch origin <base>` — see Process step 1's stale-base rationale), and `changedFiles` from the `git diff --stat` run for Routing.
 
 - **Synthesis-only mode (driven by dev-pipeline Stage 8):** the dev-pipeline Stage 8 `Workflow` script (`workflows/code-review.mjs`) has **already dispatched** the reviewers via `agent()` and hands you their structured findings directly. In this mode you are loaded for the Synthesis Rules / Routing / Scope Completeness Gate / verdict format only — the Workflow-availability gate above does **not** apply (the fan-out already ran). Proceed straight to synthesis over the supplied findings.
 
@@ -53,7 +53,7 @@ The panel named throughout this skill is the **plugin-shipped generic registry**
 - `reviewers.remove[]` — plugin-shipped reviewers disabled in this repo (e.g. `db-reviewer` in a pure-FE repo). Never spawn a removed reviewer; omit its Verdicts row.
 - `reviewers.modelOverrides{}` — per-reviewer model-tier override applied when dispatching (e.g. `security-reviewer: opus` in one repo, `sonnet` in another). The `code-review.mjs` fan-out reads these; pass the overridden tier, not the agent-frontmatter default.
 
-If the config is absent or has no `reviewers` block, the effective registry is exactly the plugin panel. Repo-local `add` reviewers are referenced bare (that bareness is the disambiguation from plugin-shipped names); plugin reviewers are referenced bare too within this same-plugin content.
+If the config is absent or has no `reviewers` block, the effective registry is exactly the plugin panel. Repo-local `add` reviewers are referenced **bare**, and plugin-shipped reviewers **qualified** (`docs/namespaces.md` rule 2) — that asymmetry is the disambiguation between roots, and it is what the panel above is spelled to satisfy. The names in the panel are dispatch names: they reach `agent({ agentType })` through `code-review.mjs`, so a bare plugin name there is not a stylistic choice but an agent type that does not resolve. `check-reviewer-references.sh` enforces both halves.
 
 Two further keys are read from the same file at the start of Routing, both feeding the design-fidelity dimension (see Reviewer Routing):
 
@@ -301,7 +301,22 @@ For each dark reviewer:
 - In the **Verdicts** table, its row reads **`Dark (no output)`** in the Verdict column (with `—` findings / confidence) — never Pass, never Fail, never omitted.
 - The **"Ready to merge?"** reasoning MUST acknowledge the reduced coverage (e.g. "maintainability + test-coverage were dark this round; merge readiness is assessed without them").
 
-A dark reviewer does not by itself force "Ready to merge? = No" (unlike the Scope Completeness Gate) — it forces **visibility**: the human deciding to merge must be told which domains went unreviewed.
+A dark reviewer does not by itself force "Ready to merge? = No" (unlike the Scope Completeness Gate) — it forces **visibility**: the human deciding to merge must be told which domains went unreviewed. That calibration is for a *partial* panel, and Step 4b-void below is where it stops applying.
+
+### Step 4b-void: an all-dark panel voids the round
+
+The rule above is calibrated for one reviewer dying. When the **whole panel** dies it reads exactly the same, and that is the case where the report is worthless: a complete-looking review, a coverage-gap note, and a "Ready to merge?" verdict resting on **zero** reviewer coverage. An unattended run then merges on a review that reviewed nothing.
+
+**Threshold — strictly zero.** The round is void when **no** selected reviewer produced a usable result, counted across **both** of Step 4b's dark signals:
+
+1. every reviewer you selected is present in `reviewers[]` as `{ result: null, … }` (died-after-retry), **or**
+2. the return carries `budgetExhausted: true` with `reviewers: []` — where every selected reviewer is dark by construction.
+
+One usable result is enough to leave the round intact. A **partial**-dark panel keeps Step 4b's behavior exactly — the `[Coverage gap]` line, the `Dark (no output)` rows, no verdict change.
+
+**What a void emits.** Do **not** write the report structure below. Emit instead a short **"review did not run"** report that names the full dark set, its reason (`died-after-retry` / `budget-exhausted`), and the range that went unreviewed — and **do not answer "Ready to merge?"** at all.
+
+This deliberately overrides the "Always give a clear verdict" rule under Rules, for this one case and no other. Answering "No" would be the tempting shape, and it is wrong in a way that is worse than silence: "No" asserts that a review found problems, which is false in the other direction, and it sends the author hunting for findings that do not exist. There is no verdict to give, because there was no review. Say that.
 
 ### Step 4c: Not-selected ≠ dark
 
@@ -400,7 +415,7 @@ One-line bullets from all reviewers for findings with confidence < 80, so they a
 
 **Plan Compliance section**: Omit entirely when no plan/spec was provided as input. If provided but the user notes this PR covers only part of the plan, limit compliance checking to the sections the PR claims to address.
 
-The **Ready to merge?** verdict is your judgment call as the orchestrator — it weighs all reviewer verdicts, the Scope Completeness Gate, plan compliance, and strengths against findings.
+The **Ready to merge?** verdict is your judgment call as the orchestrator — it weighs all reviewer verdicts, the Scope Completeness Gate, plan compliance, and strengths against findings. It has exactly one unreachable state: a round voided under Step 4b-void emits no report in this structure at all, so the question is never posed.
 
 ## Prior Round Context
 
@@ -424,7 +439,7 @@ This reduces token waste and prevents redundant findings across review iteration
 - If ALL reviewers pass with no findings, say so concisely — include Strengths and verdict, don't pad the report
 - Never invent findings that no reviewer reported (cross-cutting self-check is the one exception — label these clearly)
 - **Always include Strengths** — pick the 2-4 most specific, non-redundant observations across all reviewer Strengths blocks. Consolidate observations about the same file into one bullet. Do not repeat the same observation twice.
-- **Always give a clear verdict** — "Ready to merge?" must be answered Yes, No, or With fixes
+- **Always give a clear verdict** — "Ready to merge?" must be answered Yes, No, or With fixes. **One exception:** a round voided under Step 4b-void (every selected reviewer dark) answers it not at all — there was no review to draw a verdict from, and "No" would assert findings that do not exist
 - Repo-local domain reviewer findings about domain correctness take precedence over complexity reviewer suggestions to simplify domain logic
 - Pipeline reviewer findings about contract integrity take precedence over performance suggestions to change worker data flow
 - **Confidence is king** — a finding at confidence 95 from one reviewer outweighs three findings at confidence 80 from others. Prioritize by confidence × severity, not by count

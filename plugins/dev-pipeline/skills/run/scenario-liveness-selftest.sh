@@ -18,6 +18,9 @@
 #                run between) -> mark-failed approach-failure-circuit-breaker ->
 #                terminal `failed`
 #   exhausted    review-rounds --exhausted -> stage 9 -> mark-completed ACCEPTED
+#   voided       review-rounds --voided (the all-reviewers-dark stage-8 short-circuit)
+#                -> stage 9 -> mark-completed ACCEPTED, and still distinguishable
+#                from an exhaustion at the terminal write
 #   be-fe-pair   per-repo worktrees + per-repo stage-6 attestation + per-repo
 #                checkpoint 7 + the stage-8 cross-boundary escape hatch
 #                -> mark-completed ACCEPTED (top-level `completed`)
@@ -52,7 +55,10 @@
 #     intake-needs-human-input (stage 1), ext-workflow-failed (the EP-6 stageWorkflows
 #     blocking class). statectl-selftest.sh covers several as enum-ACCEPTANCE writes,
 #     which is not the same as driving them from the triggering component.
-#   - scope-blocker-no-code-remedy (the stage-8 short-circuit marker).
+#   - scope-blocker-no-code-remedy (the stage-8 short-circuit marker). Its SIBLING
+#     short-circuit — the all-reviewers-dark void — is covered by the `voided` scenario
+#     below; the difference is that the void carries a state marker (codeReviewVoided)
+#     and this one carries only a comment status, so there is nothing here to drive.
 #   - Crash-recovery composition — PARTIALLY DISCHARGED (#217), one clause of four.
 #     The resume leg (a session-identity switch -> pipeline-session-add -> stage-8
 #     re-entry -> terminal write) is now a scenario in e2e-replay-selftest.sh, which
@@ -339,6 +345,68 @@ rc=$(sct_rc mark-completed "$KEY")
 [[ "$rc" -ne 0 ]] \
   && pass "(xr2) non-vacuity: an exhausted run with stage 9 incomplete is still REFUSED terminal" \
   || fail "(xr2) exhausted run wrongly accepted with stage 9 incomplete — the exhausted scenario is vacuous"
+
+# ========================================================== voided-review ===
+# The all-reviewers-dark short-circuit (stages/8-code-review.md, "Voided round"). Its
+# terminal shape is the SAME as exhaustion's — draft PR, needs-deep-review, run completes —
+# which is exactly why the marker has to survive that path intact: a void folded into an
+# exhaustion is a review that never ran, filed as a review that ran and gave up.
+#
+# This is the composed half the per-command statectl cases (rr7-rr9) cannot give. It also
+# discharges the reach-boundary question the marker was designed around: the void is a
+# state write, so a model-free harness CAN drive it, and its (B)-list entry never had to
+# be written. review-lead's void synthesis itself stays out of reach, as prose always does.
+
+echo "[scenario-liveness] voided-review: a voided round still reaches terminal completed"
+KEY=9010
+reset_state
+sct init "$KEY" --run-id "scenario-liveness-$$" >/dev/null
+for n in 1 2 3 4 5 6 7; do complete_stage "$KEY" "$n"; done
+
+# Stage 8 inline, as in exhausted-review: the path under test short-circuits at round 1
+# WITHOUT spending the remaining rounds, which is the contract's no-retry clause.
+sct set-stage "$KEY" 8 --status started >/dev/null
+sct review-rounds "$KEY" --set 1 --voided >/dev/null
+sct skill-load-add "$KEY" --stage 8 --skill review-toolkit:review-lead >/dev/null
+sct comment-add "$KEY" --marker code-review --url "https://github.example/issues/$KEY#issuecomment-110" >/dev/null
+stage_evidence "$KEY" 8
+sct set-stage "$KEY" 8 --status completed >/dev/null
+
+complete_stage "$KEY" 9
+write_report "$KEY"
+write_eval "$KEY"
+rc=$(sct_rc mark-completed "$KEY")
+status=$(sct get "$KEY" '.status')
+voided=$(sct get "$KEY" '.codeReviewVoided // false')
+exhausted=$(sct get "$KEY" '.codeReviewExhausted // false')
+rounds=$(sct get "$KEY" '.codeReviewRounds')
+[[ "$rc" -eq 0 && "$status" == "completed" && "$voided" == "true" && "$rounds" == "1" ]] \
+  && pass "(vr1) voided-review TERMINAL: mark-completed accepted, status=completed, void flag intact at round 1" \
+  || fail "(vr1) voided-review terminal — rc=$rc status='$status' voided='$voided' rounds='$rounds' err='$(sct_err mark-completed "$KEY")'"
+
+# The void must stay DISTINGUISHABLE from an exhaustion all the way to the terminal write —
+# that separability is the entire reason it is a marker rather than a comment status.
+[[ "$exhausted" == "false" ]] \
+  && pass "(vr2) a voided run terminates WITHOUT being recorded as exhausted" \
+  || fail "(vr2) voided run also carries codeReviewExhausted='$exhausted' — the two outcomes are no longer separable"
+
+# Non-vacuity, mirroring (xr2): the acceptance above comes from the run being COMPLETE,
+# not from the void flag waiving a stage-9 requirement.
+reset_state
+sct init "$KEY" --run-id "scenario-liveness-$$" >/dev/null
+for n in 1 2 3 4 5 6 7; do complete_stage "$KEY" "$n"; done
+sct set-stage "$KEY" 8 --status started >/dev/null
+sct review-rounds "$KEY" --set 1 --voided >/dev/null
+sct skill-load-add "$KEY" --stage 8 --skill review-toolkit:review-lead >/dev/null
+sct comment-add "$KEY" --marker code-review --url "https://github.example/issues/$KEY#issuecomment-110" >/dev/null
+stage_evidence "$KEY" 8
+sct set-stage "$KEY" 8 --status completed >/dev/null
+write_report "$KEY"
+write_eval "$KEY"
+rc=$(sct_rc mark-completed "$KEY")
+[[ "$rc" -ne 0 ]] \
+  && pass "(vr3) non-vacuity: a voided run with stage 9 incomplete is still REFUSED terminal" \
+  || fail "(vr3) voided run wrongly accepted with stage 9 incomplete — the voided scenario is vacuous"
 
 # ==================================================== be-fe-pair to terminal ===
 # The pair topology's per-repo pieces each have a per-tool suite; what none of
