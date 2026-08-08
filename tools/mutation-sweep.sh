@@ -292,6 +292,10 @@ WARNINGS=0
 red()  { echo "[mutation-sweep] RED: $*" >&2; RC=1; }
 warn() { echo "[mutation-sweep] WARN: $*" >&2; WARNINGS=$((WARNINGS + 1)); }
 info() { echo "[mutation-sweep] $*"; }
+# Evidence attached to the red/warn immediately above it. On stderr for that reason: `info`
+# goes to stdout, and a diagnostic that lands in a different stream than the verdict it
+# explains is one the operator has to reassemble by timestamp.
+detail() { echo "[mutation-sweep]   $*" >&2; }
 
 # ---------------------------------------------------------------- TSV loading
 # Parallel indexed arrays — bash 3.2 has no associative arrays. Sizes here are in the
@@ -581,6 +585,17 @@ swept_this_run() {
   local g="$1" x
   [[ -n "$g" ]] || return 1
   for x in ${SWEEP_GUARDS[@]+"${SWEEP_GUARDS[@]}"}; do
+    [[ "$x" == "$g" ]] && return 0
+  done
+  return 1
+}
+
+# True when this run assigned the guard but scored none of its mutants because its paired
+# suite could not run. Distinct from `swept_this_run` on purpose — see the shrink warn.
+unrun_this_run() {
+  local g="$1" x
+  [[ -n "$g" ]] || return 1
+  for x in ${UNRUN_GUARDS:-}; do
     [[ "$x" == "$g" ]] && return 0
   done
   return 1
@@ -944,6 +959,20 @@ WORKER_PGID_FILE="$WORKDIR/pgid.0"
 KILLER_LOG="$WORKDIR/killer.0.log"
 KILLER_TMPDIR="$WORKDIR/tmp.0"
 SB_CUR=""
+
+# Guards whose pair could not run. Space-separated rather than an array because the shrink
+# warn below needs membership, not order, and bash 3.2 has no associative arrays.
+UNRUN_GUARDS=""
+
+# WHY THE PRECHECK SNAPSHOTS ITS OWN OUTPUT. $KILLER_LOG is truncated by the NEXT killer and
+# deleted with $WORKDIR on exit, so by the time the `unrunnable pair` red is emitted — a
+# separate loop, after every suite has run — the evidence is already gone. Before this, that
+# red carried a reason string and nothing else: a suite reaped by the OOM killer (rc=137 on a
+# 2-core runner) and one with a genuinely failing case (rc=1) produced the identical line, so
+# the class was undiagnosable in CI by construction and every occurrence died as "no idea".
+PRE_LOG_LINES="${MUTATION_SWEEP_PRE_LOG_LINES:-40}"
+pre_log_path() { printf '%s/pre.log.%s' "$WORKDIR" "$(printf '%s' "$1" | tr '/' '_')"; }
+save_pre_log() { tail -n "$PRE_LOG_LINES" "$KILLER_LOG" > "$(pre_log_path "$1")" 2>/dev/null; }
 
 # Both codes, deliberately: shellcheck renamed this diagnostic mid-version and the two
 # releases disagree on where they hang it. >=0.10 reports SC2329 on the FUNCTION; 0.9,
@@ -1511,9 +1540,11 @@ while [[ $i -lt ${#GL_GUARD[@]} ]]; do
     SUITE_RUNS=$((SUITE_RUNS + 1))
     # Early exit is DISARMED here: this run is what decides whether the trigger can be
     # trusted for this suite at all, so reading it would beg the question.
-    if run_killer "$s" "$KILLER_TIMEOUT_S" 0; then
+    run_killer "$s" "$KILLER_TIMEOUT_S" 0; krc=$?
+    if [[ $krc -eq 0 ]]; then
       if grep -q -- "$FAIL_PATTERN" "$KILLER_LOG" 2>/dev/null; then
         PRE_BAD="${PRE_BAD:+$PRE_BAD }$s"
+        save_pre_log "$s"
         printf '%s\t%s\n' "$s" "prints '$FAIL_PATTERN' while PASSING, which would score every mutant of its guard as an early-exit KILL on prose" >> "$WORKDIR/pre.why"
         continue
       fi
@@ -1531,9 +1562,13 @@ while [[ $i -lt ${#GL_GUARD[@]} ]]; do
     elif [[ $KILLER_TIMED_OUT -eq 1 ]]; then
       why="exceeded the ${KILLER_TIMEOUT_S}s killer bound against the unmutated sandbox"
     else
-      why="does not exit 0 against the unmutated sandbox"
+      # The STATUS, not just "nonzero". 137/143 name a reaped process (the runner ran out of
+      # memory) and separate it from a suite whose own case failed — the single distinction
+      # that decides whether the next move is a code fix or a capacity one.
+      why="does not exit 0 against the unmutated sandbox (exit $krc)"
     fi
     PRE_BAD="${PRE_BAD:+$PRE_BAD }$s"
+    save_pre_log "$s"
     printf '%s\t%s\n' "$s" "$why" >> "$WORKDIR/pre.why"
   done
 done
@@ -1547,8 +1582,21 @@ while [[ $i -lt ${#GL_GUARD[@]} ]]; do
     case " $PRE_BAD " in
       *" $s "*)
         GL_UNRUN[gi]="$s"
+        UNRUN_GUARDS="${UNRUN_GUARDS:+$UNRUN_GUARDS }${GL_GUARD[$gi]}"
         why="$(awk -F'\t' -v s="$s" '$1==s {print $2; exit}' "$WORKDIR/pre.why")"
         red "unrunnable pair: $s $why (guard ${GL_GUARD[$gi]}). Its mutants are NOT scored."
+        # Nothing was scored for this guard, so its baseline rows are UNDECIDABLE this run.
+        # Said out loud because the shrink warn below now stays silent about them, and a
+        # silence the operator cannot account for reads as "the rows are fine".
+        detail "its baseline rows are undecidable this run — not reported as killed."
+        pl="$(pre_log_path "$s")"
+        if [[ -s "$pl" ]]; then
+          detail "---- last $PRE_LOG_LINES line(s) of $s ----"
+          while IFS= read -r pline || [[ -n "$pline" ]]; do detail "| $pline"; done < "$pl"
+          detail "---- end $s ----"
+        else
+          detail "(it produced no output)"
+        fi
         break
         ;;
     esac
@@ -1687,7 +1735,17 @@ while [[ $i -lt ${#BL_ID[@]} ]]; do
     # Under sharding, "now KILLED" is only decidable for guards THIS shard swept — a row
     # belonging to another shard's guard is out of scope, not stale. Unsharded (no
     # --shard) keeps the historical behavior for every row.
-    if [[ -z "$SHARD_SPEC" ]] || swept_this_run "$(sid_guard "$sid")"; then
+    #
+    # SWEPT IS NOT SCORED. SWEEP_GUARDS is the shard's ASSIGNED partition, fixed before the
+    # precheck runs, so a guard whose pair turned out to be unrunnable is still "swept" while
+    # every one of its mutants was dropped unscored. Its rows are then absent from
+    # TOTAL_SURVIVORS for the one reason that proves nothing — nothing ran — and reading that
+    # absence as a kill told the operator to drop live survivors. Obeying it reds the NEXT
+    # healthy run with exactly those rows as baseline-absent survivors: a whipsaw the sweep
+    # inflicts on itself. Undecidable is its own answer, and it is silence plus the red above.
+    if unrun_this_run "$(sid_guard "$sid")"; then
+      continue
+    elif [[ -z "$SHARD_SPEC" ]] || swept_this_run "$(sid_guard "$sid")"; then
       warn "baseline row is now KILLED: $sid — drop the row."
     fi
   fi
