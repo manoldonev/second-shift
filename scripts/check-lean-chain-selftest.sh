@@ -207,10 +207,9 @@ Closes #42'
 
 # PR_HEAD_SHA is resolved per call, never captured once: cases below add commits, and a stale
 # sha would silently measure freshness against an earlier head than the one under test.
-run_gate() { # run_gate <head-ref> <comments-file> <diff-file> [lean-prefix]
+run_gate() { # run_gate <head-ref> <comments-file> <diff-file> [branch-prefix]
   ( cd "$TREE" && \
-    LEAN_BRANCH_PREFIX="${4:-lean/acme-}" \
-    PIPELINE_BRANCH_PREFIX="claude/acme-" \
+    PIPELINE_BRANCH_PREFIX="${4:-claude/acme-}" \
     PR_HEAD_REF="$1" \
     PR_HEAD_SHA="$(git -C "$TREE" rev-parse HEAD)" \
     PR_BODY="$BODY_GOOD" \
@@ -221,7 +220,7 @@ run_gate() { # run_gate <head-ref> <comments-file> <diff-file> [lean-prefix]
 echo "[check-lean-chain-selftest]"
 
 # ---- (A) happy path: lean-prefixed branch with all three artifacts -----------------------
-out="$(run_gate "lean/acme-42" "$WORK/comments-good.json" "$WORK/diff-lean.txt")"; rc=$?
+out="$(run_gate "claude/acme-42" "$WORK/comments-good.json" "$WORK/diff-lean.txt")"; rc=$?
 if [ "$rc" -eq 0 ]; then pass "(A) lean PR with spec + approve-verdict + bot claim passes"
 else fail "(A) expected rc=0, got $rc: $out"; fi
 
@@ -254,19 +253,19 @@ if [ "$rc" -eq 0 ] && printf '%s' "$out" | grep -q 'not applicable'; then
 else fail "(E) expected fixture paths to be excluded, got rc=$rc: $out"; fi
 
 # ---- (F) human-posted claim is rejected by the trust filter ------------------------------
-out="$(run_gate "lean/acme-42" "$WORK/comments-human.json" "$WORK/diff-lean.txt")"; rc=$?
+out="$(run_gate "claude/acme-42" "$WORK/comments-human.json" "$WORK/diff-lean.txt")"; rc=$?
 if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q 'none that are bot-authored'; then
   pass "(F) an operator-posted lean-claimed comment is not accepted as evidence"
 else fail "(F) expected the trust filter to reject a human claim, got rc=$rc: $out"; fi
 
 # ---- (G) a claim posted after PR-open is outside the window ------------------------------
-out="$(run_gate "lean/acme-42" "$WORK/comments-late.json" "$WORK/diff-lean.txt")"; rc=$?
+out="$(run_gate "claude/acme-42" "$WORK/comments-late.json" "$WORK/diff-lean.txt")"; rc=$?
 if [ "$rc" -eq 1 ]; then pass "(G) a claim posted after PR-open is not evidence for this PR"
 else fail "(G) expected rc=1 for an out-of-window claim, got $rc: $out"; fi
 
 # ---- (H) missing verdict record fails ----------------------------------------------------
 mv "$TREE/docs/plans/acme-42-lean-verdict.md" "$WORK/held-verdict.md"
-out="$(run_gate "lean/acme-42" "$WORK/comments-good.json" "$WORK/diff-lean.txt")"; rc=$?
+out="$(run_gate "claude/acme-42" "$WORK/comments-good.json" "$WORK/diff-lean.txt")"; rc=$?
 if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q 'no committed verdict record'; then
   pass "(H) a lean PR with no committed verdict record fails"
 else fail "(H) expected rc=1 on a missing verdict record, got rc=$rc: $out"; fi
@@ -274,7 +273,7 @@ mv "$WORK/held-verdict.md" "$TREE/docs/plans/acme-42-lean-verdict.md"
 
 # ---- (I) a needs-work verdict is not an approval -----------------------------------------
 write_verdict needs-work
-out="$(run_gate "lean/acme-42" "$WORK/comments-good.json" "$WORK/diff-lean.txt")"; rc=$?
+out="$(run_gate "claude/acme-42" "$WORK/comments-good.json" "$WORK/diff-lean.txt")"; rc=$?
 if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q "reads 'verdict=needs-work', not 'verdict=approve'"; then
   pass "(I) a committed verdict=needs-work record blocks the merge boundary"
 else fail "(I) expected rc=1 on verdict=needs-work, got rc=$rc: $out"; fi
@@ -287,7 +286,7 @@ else fail "(I) expected rc=1 on verdict=needs-work, got rc=$rc: $out"; fi
 # ran; AC-4 requires that they never evaluate a non-approve record at all.
 printf 'late change after a needs-work verdict\n' > "$TREE/docs/plans/notes-374.md"
 commit_tree "code lands after a needs-work verdict"
-out="$(run_gate "lean/acme-42" "$WORK/comments-good.json" "$WORK/diff-lean.txt")"; rc=$?
+out="$(run_gate "claude/acme-42" "$WORK/comments-good.json" "$WORK/diff-lean.txt")"; rc=$?
 # BOTH prefixes (#359). Half the arms now come from the delegated payload, which signs its
 # own refusals `[lean-evidence]`; counting only this gate's prefix would score a two-violation
 # run as one and let a regression that re-duplicated a delegated arm pass unnoticed.
@@ -305,34 +304,44 @@ write_verdict
 
 # ---- (J) a spec with no AC-n fails -------------------------------------------------------
 printf '# lean spec\n\nNo criteria here.\n' > "$TREE/docs/plans/acme-42-lean.md"; commit_tree 'spec without AC-n'
-out="$(run_gate "lean/acme-42" "$WORK/comments-good.json" "$WORK/diff-lean.txt")"; rc=$?
+out="$(run_gate "claude/acme-42" "$WORK/comments-good.json" "$WORK/diff-lean.txt")"; rc=$?
 if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q 'no numbered AC-n'; then
   pass "(J) a committed spec with no AC-n fails (the definition of done must exist)"
 else fail "(J) expected rc=1 on an AC-less spec, got rc=$rc: $out"; fi
 printf '# lean spec\n\n- AC-1: does a thing\n' > "$TREE/docs/plans/acme-42-lean.md"; commit_tree 'spec restored'
 
-# ---- (K) unresolvable constants are FATAL, never exempt ----------------------------------
-out="$( cd "$TREE" && LEAN_BRANCH_PREFIX="" PIPELINE_BRANCH_PREFIX="claude/acme-" \
-        PR_HEAD_REF="lean/acme-42" PR_BODY="$BODY_GOOD" PR_CREATED_AT="$PR_OPEN_AT" \
-        PR_HEAD_SHA="$(git -C "$TREE" rev-parse HEAD)" \
-        bash "$GATE" --comments-file "$WORK/comments-good.json" --diff-files-file "$WORK/diff-lean.txt" 2>&1 )"; rc=$?
-if [ "$rc" -eq 2 ]; then pass "(K) an empty LEAN_BRANCH_PREFIX is an environment error, not a silent exemption"
-else fail "(K) expected rc=2 on an unresolvable prefix, got $rc: $out"; fi
-
-# ---- (L) mutually prefix-matching constants are FATAL ------------------------------------
-# `lean/` derived from `claude/second-shift-` would satisfy a one-directional reading of the
-# non-prefix-match property while making every pipeline PR applicable here.
-out="$( cd "$TREE" && LEAN_BRANCH_PREFIX="claude/" PIPELINE_BRANCH_PREFIX="claude/acme-" \
+# ---- (K) an unresolvable namespace constant is FATAL, never exempt -----------------------
+# ONE constant now (#413): the delegated key derivation strips it off the head ref, so an empty
+# one means every prefixed branch falls through to the body key — the weaker source, silently.
+out="$( cd "$TREE" && PIPELINE_BRANCH_PREFIX="" \
         PR_HEAD_REF="claude/acme-42" PR_BODY="$BODY_GOOD" PR_CREATED_AT="$PR_OPEN_AT" \
         PR_HEAD_SHA="$(git -C "$TREE" rev-parse HEAD)" \
         bash "$GATE" --comments-file "$WORK/comments-good.json" --diff-files-file "$WORK/diff-lean.txt" 2>&1 )"; rc=$?
-if [ "$rc" -eq 2 ] && printf '%s' "$out" | grep -q 'mutually non-prefix-matching'; then
-  pass "(L) prefixes where one is a prefix of the other are rejected as an environment error"
-else fail "(L) expected rc=2 on mutually prefix-matching constants, got $rc: $out"; fi
+if [ "$rc" -eq 2 ]; then pass "(K) an empty PIPELINE_BRANCH_PREFIX is an environment error, not a silent exemption"
+else fail "(K) expected rc=2 on an unresolvable prefix, got $rc: $out"; fi
+
+# ---- (L) NON-VACUITY: a zero-matching namespace still classifies -------------------------
+# The successor of the retired mutual-non-prefix-match assertion, and a stronger property than
+# it was. With applicability keyed on the artifact alone, a constant that matches NO branch
+# cannot exempt a lean PR — the key falls back to the body and the spec still classifies it.
+# A prefix-shaped kill switch no longer exists to be tested for.
+#
+# Asserted on the CLASSIFICATION line and not the exit code, for the reason (M2) records: the
+# fixture at this point carries whatever record the cases above left behind, so rc reports the
+# evidence set rather than applicability. "applicable via" is printed before any evidence is
+# weighed, and it is exactly what disappears if a namespace arm ever comes back.
+out="$(run_gate "claude/acme-42" "$WORK/comments-good.json" "$WORK/diff-lean.txt" "zzz-matches-nothing/")"; rc=$?
+if printf '%s' "$out" | grep -q 'applicable via lean-artifact'; then
+  pass "(L) a zero-matching branch namespace cannot exempt a lean PR — the artifact still classifies it"
+else fail "(L) expected the artifact arm to fire under a zero-matching prefix, got $rc: $out"; fi
 
 # ---- (M) a lean PR with no issue reference fails -----------------------------------------
-out="$( cd "$TREE" && LEAN_BRANCH_PREFIX="lean/acme-" PIPELINE_BRANCH_PREFIX="claude/acme-" \
-        PR_HEAD_REF="lean/acme-42" PR_BODY="no reference here" PR_CREATED_AT="$PR_OPEN_AT" \
+# Driven on a branch OUTSIDE the namespace: a prefixed branch always resolves its key from its
+# own suffix, so this refusal is reachable only where nothing else can name the issue. And it
+# must be a refusal rather than a decline — such a PR is exempt from the pipeline gate too, so
+# declining here would leave it gated by neither boundary.
+out="$( cd "$TREE" && PIPELINE_BRANCH_PREFIX="claude/acme-" \
+        PR_HEAD_REF="hand/made-branch" PR_BODY="no reference here" PR_CREATED_AT="$PR_OPEN_AT" \
         PR_HEAD_SHA="$(git -C "$TREE" rev-parse HEAD)" \
         bash "$GATE" --comments-file "$WORK/comments-good.json" --diff-files-file "$WORK/diff-lean.txt" 2>&1 )"; rc=$?
 if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q 'no resolvable issue reference'; then
@@ -343,8 +352,8 @@ else fail "(M) expected rc=1 on an unresolvable issue reference, got $rc: $out";
 # and a PR body with no `Closes` must still reach a key rather than failing as unreferenced.
 # (M) alone cannot see this arm — it passes whether the fallback works or is dead code, which is
 # exactly how the fallback's own mutant sat surviving in the baseline.
-out="$( cd "$TREE" && LEAN_BRANCH_PREFIX="lean/acme-" PIPELINE_BRANCH_PREFIX="claude/acme-" \
-        PR_HEAD_REF="lean/acme-42" PR_BODY="Delivers a slice.
+out="$( cd "$TREE" && PIPELINE_BRANCH_PREFIX="claude/acme-" \
+        PR_HEAD_REF="claude/acme-42" PR_BODY="Delivers a slice.
 
 Part of #42" PR_CREATED_AT="$PR_OPEN_AT" \
         PR_HEAD_SHA="$(git -C "$TREE" rev-parse HEAD)" \
@@ -364,7 +373,7 @@ else fail "(M2) expected the Part-of fallback to resolve #42, got $rc: $out"; fi
 # with every OTHER artifact present and correct: the authorship arm is load-bearing on its own,
 # not a by-product of some other violation.
 write_verdict approve r-abc123 sess-review-1
-out="$(run_gate "lean/acme-42" "$WORK/comments-good.json" "$WORK/diff-lean.txt")"; rc=$?
+out="$(run_gate "claude/acme-42" "$WORK/comments-good.json" "$WORK/diff-lean.txt")"; rc=$?
 if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q "BUILD run's identity"; then
   pass "(N1) a verdict carrying the build claim's run_id is refused at the merge boundary"
 else fail "(N1) expected rc=1 on a build-authored verdict, got rc=$rc: $out"; fi
@@ -374,7 +383,7 @@ else fail "(N1) expected rc=1 on a build-authored verdict, got rc=$rc: $out"; fi
 write_verdict_literal 'verdict=approve
 rounds: 1
 '
-out="$(run_gate "lean/acme-42" "$WORK/comments-good.json" "$WORK/diff-lean.txt")"; rc=$?
+out="$(run_gate "claude/acme-42" "$WORK/comments-good.json" "$WORK/diff-lean.txt")"; rc=$?
 if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q 'no run_id reconciliation key'; then
   pass "(N2) a verdict record with no run_id is refused"
 else fail "(N2) expected rc=1 on a run_id-less verdict, got rc=$rc: $out"; fi
@@ -383,7 +392,7 @@ write_verdict_literal 'verdict=approve
 run_id: r-review-1
 rounds: 1
 '
-out="$(run_gate "lean/acme-42" "$WORK/comments-good.json" "$WORK/diff-lean.txt")"; rc=$?
+out="$(run_gate "claude/acme-42" "$WORK/comments-good.json" "$WORK/diff-lean.txt")"; rc=$?
 if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q 'no session_id reconciliation key'; then
   pass "(N3) a verdict record that names no review session is refused"
 else fail "(N3) expected rc=1 on a session_id-less verdict, got rc=$rc: $out"; fi
@@ -392,7 +401,7 @@ else fail "(N3) expected rc=1 on a session_id-less verdict, got rc=$rc: $out"; f
 # already asserts the happy path, but re-asserting it HERE is what makes N1-N3 non-vacuous:
 # without it they could all be failing for some unrelated reason introduced above.
 write_verdict
-out="$(run_gate "lean/acme-42" "$WORK/comments-good.json" "$WORK/diff-lean.txt")"; rc=$?
+out="$(run_gate "claude/acme-42" "$WORK/comments-good.json" "$WORK/diff-lean.txt")"; rc=$?
 if [ "$rc" -eq 0 ] && printf '%s' "$out" | grep -q 'authorship'; then
   pass "(N4) distinct identities carrying both keys pass, and the gate says so"
 else fail "(N4) expected rc=0 with an authorship line, got rc=$rc: $out"; fi
@@ -401,7 +410,7 @@ else fail "(N4) expected rc=0 with an authorship line, got rc=$rc: $out"; fi
 # too. Folding this arm into the passing branch would silently treat "the build run is
 # unknown" as "the verdict is independent" — the fail-open shape this whole section exists to
 # prevent, one step upstream of where N1 looks for it.
-out="$(run_gate "lean/acme-42" "$WORK/comments-norunid.json" "$WORK/diff-lean.txt")"; rc=$?
+out="$(run_gate "claude/acme-42" "$WORK/comments-norunid.json" "$WORK/diff-lean.txt")"; rc=$?
 if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q 'carries no run_id, so the build'; then
   pass "(N5) a bot claim with no run_id is refused, not read as an independent verdict"
 else fail "(N5) expected rc=1 on a run_id-less claim, got rc=$rc: $out"; fi
@@ -410,7 +419,7 @@ else fail "(N5) expected rc=1 on a run_id-less claim, got rc=$rc: $out"; fi
 # second string; the session id is harness-assigned. A verdict naming the claim's session is
 # refused even though its run_id is distinct — which is exactly the case N1 cannot catch.
 write_verdict approve r-review-1 sess-build-1
-out="$(run_gate "lean/acme-42" "$WORK/comments-sess.json" "$WORK/diff-lean.txt")"; rc=$?
+out="$(run_gate "claude/acme-42" "$WORK/comments-sess.json" "$WORK/diff-lean.txt")"; rc=$?
 if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q 'names the BUILD session'; then
   pass "(N6) a verdict naming the claim's session is refused despite a distinct run_id"
 else fail "(N6) expected rc=1 on a build-session verdict, got rc=$rc: $out"; fi
@@ -420,7 +429,7 @@ else fail "(N6) expected rc=1 on a build-session verdict, got rc=$rc: $out"; fi
 # PR-open time — so refusing here would strand those PRs with no action that clears the gate.
 # The gate says which half of the comparison it could make.
 write_verdict
-out="$(run_gate "lean/acme-42" "$WORK/comments-good.json" "$WORK/diff-lean.txt")"; rc=$?
+out="$(run_gate "claude/acme-42" "$WORK/comments-good.json" "$WORK/diff-lean.txt")"; rc=$?
 if [ "$rc" -eq 0 ] && printf '%s' "$out" | grep -q 'only the run-id half'; then
   pass "(N7) a session_id-less claim still passes, and the gate names the half it could check"
 else fail "(N7) expected rc=0 with the transitional note, got rc=$rc: $out"; fi
@@ -431,7 +440,7 @@ else fail "(N7) expected rc=0 with the transitional note, got rc=$rc: $out"; fi
 # added — so a green here would mean the freshness link is not carrying the check at all.
 printf 'late change\n' > "$TREE/docs/plans/notes.md"
 commit_tree "code lands after the verdict"
-out="$(run_gate "lean/acme-42" "$WORK/comments-good.json" "$WORK/diff-lean.txt")"; rc=$?
+out="$(run_gate "claude/acme-42" "$WORK/comments-good.json" "$WORK/diff-lean.txt")"; rc=$?
 if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q 'changed between that commit and the PR head'; then
   pass "(O1) a verdict that predates a later code commit is refused at the merge boundary"
 else fail "(O1) expected rc=1 on a stale verdict, got rc=$rc: $out"; fi
@@ -440,7 +449,7 @@ else fail "(O1) expected rc=1 on a stale verdict, got rc=$rc: $out"; fi
 # which is what a new review round does. Without this arm (O1) could be permanent breakage
 # rather than a check with a remedy.
 write_verdict approve r-review-2 sess-review-2
-out="$(run_gate "lean/acme-42" "$WORK/comments-good.json" "$WORK/diff-lean.txt")"; rc=$?
+out="$(run_gate "claude/acme-42" "$WORK/comments-good.json" "$WORK/diff-lean.txt")"; rc=$?
 if [ "$rc" -eq 0 ] && printf '%s' "$out" | grep -q 'freshness'; then
   pass "(O2) a fresh review round over the same head clears it"
 else fail "(O2) expected rc=0 after a new review round, got rc=$rc: $out"; fi
@@ -457,7 +466,7 @@ rounds: 2
 
 Round 1 returned verdict=approve; this round found a blocker and does not.
 '
-out="$(run_gate "lean/acme-42" "$WORK/comments-good.json" "$WORK/diff-lean.txt")"; rc=$?
+out="$(run_gate "claude/acme-42" "$WORK/comments-good.json" "$WORK/diff-lean.txt")"; rc=$?
 if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q "reads 'verdict=needs-work'"; then
   pass "(P) a needs-work record whose body quotes verdict=approve is still refused"
 else fail "(P) expected rc=1 on a needs-work record with the token in its body, got rc=$rc: $out"; fi
@@ -469,8 +478,8 @@ write_verdict
 # the gate prints its ✓ freshness line having compared nothing. That is the same shape as the
 # `verdict=` substring hole (P): a check that cannot run must not report a pass. Neither guard
 # had a case; every other run_gate call resolves a live sha, so the failure paths were unreachable.
-out="$( cd "$TREE" && LEAN_BRANCH_PREFIX="lean/acme-" PIPELINE_BRANCH_PREFIX="claude/acme-" \
-        PR_HEAD_REF="lean/acme-42" PR_BODY="$BODY_GOOD" PR_CREATED_AT="$PR_OPEN_AT" \
+out="$( cd "$TREE" && PIPELINE_BRANCH_PREFIX="claude/acme-" \
+        PR_HEAD_REF="claude/acme-42" PR_BODY="$BODY_GOOD" PR_CREATED_AT="$PR_OPEN_AT" \
         PR_HEAD_SHA="" \
         bash "$GATE" --comments-file "$WORK/comments-good.json" --diff-files-file "$WORK/diff-lean.txt" 2>&1 )"; rc=$?
 if [ "$rc" -eq 2 ] && printf '%s' "$out" | grep -q 'PR_HEAD_SHA is unset or empty'; then
@@ -479,8 +488,8 @@ else fail "(Q1) expected rc=2 on an empty PR_HEAD_SHA, got $rc: $out"; fi
 
 # A sha-shaped value that names no object in this checkout. Distinct from (Q1): the emptiness
 # guard is satisfied, and only the object lookup stands between a bogus ref and a silent ✓.
-out="$( cd "$TREE" && LEAN_BRANCH_PREFIX="lean/acme-" PIPELINE_BRANCH_PREFIX="claude/acme-" \
-        PR_HEAD_REF="lean/acme-42" PR_BODY="$BODY_GOOD" PR_CREATED_AT="$PR_OPEN_AT" \
+out="$( cd "$TREE" && PIPELINE_BRANCH_PREFIX="claude/acme-" \
+        PR_HEAD_REF="claude/acme-42" PR_BODY="$BODY_GOOD" PR_CREATED_AT="$PR_OPEN_AT" \
         PR_HEAD_SHA="0000000000000000000000000000000000000000" \
         bash "$GATE" --comments-file "$WORK/comments-good.json" --diff-files-file "$WORK/diff-lean.txt" 2>&1 )"; rc=$?
 if [ "$rc" -eq 2 ] && printf '%s' "$out" | grep -q 'is not a commit in this checkout'; then
@@ -501,7 +510,7 @@ run_id: r-review-1
 session_id: sess-review-1
 rounds: 1
 '
-out="$(run_gate "lean/acme-42" "$WORK/comments-good.json" "$WORK/diff-lean.txt")"; rc=$?
+out="$(run_gate "claude/acme-42" "$WORK/comments-good.json" "$WORK/diff-lean.txt")"; rc=$?
 if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q 'no reviewed_head key'; then
   pass "(R1) a verdict record carrying no reviewed_head key is refused (the pre-key migration case)"
 else fail "(R1) expected rc=1 on a head-less verdict, got rc=$rc: $out"; fi
@@ -513,7 +522,7 @@ stale_head="$(git -C "$TREE" rev-parse HEAD)"
 printf 'landed while the review was running\n' > "$TREE/docs/plans/interleaved.md"
 commit_tree "code lands between the review and the record"
 write_verdict approve r-review-3 sess-review-3 "$stale_head"
-out="$(run_gate "lean/acme-42" "$WORK/comments-good.json" "$WORK/diff-lean.txt")"; rc=$?
+out="$(run_gate "claude/acme-42" "$WORK/comments-good.json" "$WORK/diff-lean.txt")"; rc=$?
 if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q 'states it reviewed'; then
   pass "(R2) a record naming an earlier head is refused even though its own commit IS the PR head"
 else fail "(R2) expected rc=1 on a declared-stale verdict, got rc=$rc: $out"; fi
@@ -522,7 +531,7 @@ else fail "(R2) expected rc=1 on a declared-stale verdict, got rc=$rc: $out"; fi
 # about the new one. Re-committing the record with the CORRECT declared head clears it, with the
 # interleaved commit still in history.
 write_verdict approve r-review-4 sess-review-4
-out="$(run_gate "lean/acme-42" "$WORK/comments-good.json" "$WORK/diff-lean.txt")"; rc=$?
+out="$(run_gate "claude/acme-42" "$WORK/comments-good.json" "$WORK/diff-lean.txt")"; rc=$?
 if [ "$rc" -eq 0 ] && printf '%s' "$out" | grep -q 'freshness (declared)'; then
   pass "(R3) a record naming the head it was written on top of passes, and the gate names the arm"
 else fail "(R3) expected rc=0 with a declared-freshness line, got rc=$rc: $out"; fi
@@ -531,7 +540,7 @@ else fail "(R3) expected rc=0 with a declared-freshness line, got rc=$rc: $out";
 # shrugged at an unresolvable anchor would print its ✓ having compared nothing — the same
 # fail-open (Q2) closes one level up.
 write_verdict approve r-review-5 sess-review-5 0000000000000000000000000000000000000000
-out="$(run_gate "lean/acme-42" "$WORK/comments-good.json" "$WORK/diff-lean.txt")"; rc=$?
+out="$(run_gate "claude/acme-42" "$WORK/comments-good.json" "$WORK/diff-lean.txt")"; rc=$?
 if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q 'this checkout holds no commit'; then
   pass "(R4) a reviewed_head naming no object in this checkout is refused, not compared against nothing"
 else fail "(R4) expected rc=1 on an unresolvable reviewed_head, got rc=$rc: $out"; fi
@@ -575,7 +584,7 @@ write_gap() { # write_gap <ratified> [ratified_by]
 printf 'ratified: no\n' > "$TREE/scripts/fixtures/acme-42-lean-intent-gap.md"
 commit_tree "fixture-path intent-gap record"
 write_verdict approve r-review-fx sess-review-fx
-out="$(run_gate "lean/acme-42" "$WORK/comments-good.json" "$WORK/diff-lean.txt")"; rc=$?
+out="$(run_gate "claude/acme-42" "$WORK/comments-good.json" "$WORK/diff-lean.txt")"; rc=$?
 if [ "$rc" -eq 0 ] && printf '%s' "$out" | grep -q 'no intent-gap record for #42'; then
   pass "(S0) a fixture-path intent-gap record is excluded, and absence is printed rather than silent"
 else fail "(S0) expected rc=0 with the absence notice, got rc=$rc: $out"; fi
@@ -589,14 +598,14 @@ printf 'issue: 99\nratified: no\n\n## Gap\n\nA different issue, still unratified
   > "$TREE/docs/plans/acme-99-lean-intent-gap.md"
 commit_tree "another issue's intent-gap record"
 write_verdict approve r-review-xkey sess-review-xkey
-out="$(run_gate "lean/acme-42" "$WORK/comments-good.json" "$WORK/diff-lean.txt")"; rc=$?
+out="$(run_gate "claude/acme-42" "$WORK/comments-good.json" "$WORK/diff-lean.txt")"; rc=$?
 if [ "$rc" -eq 0 ] && printf '%s' "$out" | grep -q 'no intent-gap record for #42'; then
   pass "(S0b) an unratified intent-gap record for another issue does not bind this PR"
 else fail "(S0b) expected rc=0 with the absence notice, got rc=$rc: $out"; fi
 
 # (S1) the refusal itself.
 write_gap no
-out="$(run_gate "lean/acme-42" "$WORK/comments-good.json" "$WORK/diff-lean.txt")"; rc=$?
+out="$(run_gate "claude/acme-42" "$WORK/comments-good.json" "$WORK/diff-lean.txt")"; rc=$?
 if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q "reads 'ratified: no'"; then
   pass "(S1) an unratified intent-gap record blocks the merge boundary"
 else fail "(S1) expected rc=1 on an unratified intent gap, got rc=$rc: $out"; fi
@@ -605,7 +614,7 @@ else fail "(S1) expected rc=1 on an unratified intent gap, got rc=$rc: $out"; fi
 # human agreed. Distinct from (S1): the header reads exactly what the gate wants to see, and
 # only the citation stands between a run and ratifying its own gap.
 write_gap yes
-out="$(run_gate "lean/acme-42" "$WORK/comments-good.json" "$WORK/diff-lean.txt")"; rc=$?
+out="$(run_gate "claude/acme-42" "$WORK/comments-good.json" "$WORK/diff-lean.txt")"; rc=$?
 if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q 'cites no'; then
   pass "(S2) 'ratified: yes' with no cited operator comment is refused"
 else fail "(S2) expected rc=1 on an uncited ratification, got rc=$rc: $out"; fi
@@ -613,7 +622,7 @@ else fail "(S2) expected rc=1 on an uncited ratification, got rc=$rc: $out"; fi
 # (S3) ...and ratifying it clears the gate. Without this arm S1/S2 could be permanent
 # breakage rather than a check with a remedy.
 write_gap yes 'https://example.invalid/tracker/42#issuecomment-7'
-out="$(run_gate "lean/acme-42" "$WORK/comments-good.json" "$WORK/diff-lean.txt")"; rc=$?
+out="$(run_gate "claude/acme-42" "$WORK/comments-good.json" "$WORK/diff-lean.txt")"; rc=$?
 if [ "$rc" -eq 0 ] && printf '%s' "$out" | grep -q 'intent gap: .* ratified'; then
   pass "(S3) a ratified intent-gap record citing the operator comment passes"
 else fail "(S3) expected rc=0 on a ratified intent gap, got rc=$rc: $out"; fi
@@ -624,7 +633,7 @@ else fail "(S3) expected rc=0 on a ratified intent gap, got rc=$rc: $out"; fi
 printf 'issue: 42\nratified: no\nratified_by: https://example.invalid/tracker/42#issuecomment-7\n\n## Gap\n\nThe earlier round recorded ratified: yes; this one reopened it.\n' > "$GAPREC"
 commit_tree "intent-gap record whose prose quotes the other value"
 write_verdict approve r-review-gap-4 sess-review-gap-4
-out="$(run_gate "lean/acme-42" "$WORK/comments-good.json" "$WORK/diff-lean.txt")"; rc=$?
+out="$(run_gate "claude/acme-42" "$WORK/comments-good.json" "$WORK/diff-lean.txt")"; rc=$?
 if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q "reads 'ratified: no'"; then
   pass "(S4) a 'ratified: no' record whose body quotes 'ratified: yes' is still refused"
 else fail "(S4) expected rc=1 on a reopened intent gap, got rc=$rc: $out"; fi
@@ -656,7 +665,7 @@ git -C "$TREE" commit -q -m "no intent gap on this run" >/dev/null 2>&1
 
 run_gate_base() { # run_gate_base <head-ref> <comments-file> <diff-file> <base-ref>
   ( cd "$TREE" && \
-    LEAN_BRANCH_PREFIX="lean/acme-" \
+    \
     PIPELINE_BRANCH_PREFIX="claude/acme-" \
     PR_HEAD_REF="$1" \
     PR_HEAD_SHA="$(git -C "$TREE" rev-parse HEAD)" \
@@ -671,7 +680,7 @@ run_gate_base() { # run_gate_base <head-ref> <comments-file> <diff-file> <base-r
 u_pid="$(tree_patch_id HEAD)"
 [ -n "$u_pid" ] || fail "(U0) the fixture's patch identity is empty — every (U) case would compare nothing"
 write_verdict approve r-review-6 sess-review-6 "$(git -C "$TREE" rev-parse HEAD)" "$u_pid"
-out="$(run_gate_base "lean/acme-42" "$WORK/comments-good.json" "$WORK/diff-lean.txt" "main")"; rc=$?
+out="$(run_gate_base "claude/acme-42" "$WORK/comments-good.json" "$WORK/diff-lean.txt" "main")"; rc=$?
 if [ "$rc" -eq 0 ] && printf '%s' "$out" | grep -q 'freshness (declared, patch-id'; then
   pass "(U1) a record whose reviewed_patch_id matches the head passes, and the gate names the patch-id arm"
 else fail "(U1) expected rc=0 on a matching patch id, got rc=$rc: $out"; fi
@@ -682,7 +691,7 @@ else fail "(U1) expected rc=0 on a matching patch id, got rc=$rc: $out"; fi
 # range, editing the record alone would move the id and red this.
 printf '\nReviewer prose appended after the record was committed.\n' >> "$VREC"
 commit_tree "the record's own bytes change"
-out="$(run_gate_base "lean/acme-42" "$WORK/comments-good.json" "$WORK/diff-lean.txt" "main")"; rc=$?
+out="$(run_gate_base "claude/acme-42" "$WORK/comments-good.json" "$WORK/diff-lean.txt" "main")"; rc=$?
 if [ "$rc" -eq 0 ] && printf '%s' "$out" | grep -q 'freshness (declared, patch-id'; then
   pass "(U2) editing the verdict record itself does not move the patch identity — the exclusion holds on the read side"
 else fail "(U2) expected rc=0 after editing the record, got rc=$rc: $out"; fi
@@ -711,7 +720,7 @@ if [ "$u_rebase_ok" -eq 1 ] && [ "$(git -C "$TREE" rev-parse HEAD)" != "$u_orpha
   pass "(U3a) the fixture really was rebased onto a moved base, and the SHA arm would red on it"
 else fail "(U3a) the rebase did not take (ok=$u_rebase_ok, sha-arm-diff='$u_sha_arm_would_red') — (U3) would assert nothing"; fi
 
-out="$(run_gate_base "lean/acme-42" "$WORK/comments-good.json" "$WORK/diff-lean.txt" "main")"; rc=$?
+out="$(run_gate_base "claude/acme-42" "$WORK/comments-good.json" "$WORK/diff-lean.txt" "main")"; rc=$?
 if [ "$rc" -eq 0 ] && printf '%s' "$out" | grep -q 'freshness (declared, patch-id'; then
   pass "(U3) a rebase that replays the branch unchanged does not void the verdict at the merge boundary"
 else fail "(U3) expected rc=0 after a clean replay, got rc=$rc: $out"; fi
@@ -725,7 +734,7 @@ printf '# lean spec\n\n- AC-1: does a thing, resolved differently by the rebase\
 printf 'verdict=approve\nrun_id: r-review-7\nsession_id: sess-review-7\nrounds: 1\nreviewed_head: %s\nreviewed_patch_id: %s\n' \
   "$(git -C "$TREE" rev-parse HEAD)" "$u_pid_pre" > "$VREC"
 commit_tree "a conflict resolution changes a line, committed with the record"
-out="$(run_gate_base "lean/acme-42" "$WORK/comments-good.json" "$WORK/diff-lean.txt" "main")"; rc=$?
+out="$(run_gate_base "claude/acme-42" "$WORK/comments-good.json" "$WORK/diff-lean.txt" "main")"; rc=$?
 if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q 'reviewed patch'; then
   pass "(U4) a rebase whose resolution changed a line is refused, with the inferred arm green"
 else fail "(U4) expected rc=1 on a moved patch identity, got rc=$rc: $out"; fi
@@ -733,12 +742,12 @@ else fail "(U4) expected rc=1 on a moved patch identity, got rc=$rc: $out"; fi
 # D-5 vacuity. `git patch-id` prints NOTHING for an empty diff, so two failed computations
 # compare EQUAL and an unguarded reader prints its ✓ having hashed nothing. A missing base is an
 # ENVIRONMENT error, not a violation: the evidence is present, the check simply cannot run.
-out="$(run_gate "lean/acme-42" "$WORK/comments-good.json" "$WORK/diff-lean.txt")"; rc=$?
+out="$(run_gate "claude/acme-42" "$WORK/comments-good.json" "$WORK/diff-lean.txt")"; rc=$?
 if [ "$rc" -eq 2 ] && printf '%s' "$out" | grep -q 'PR_BASE_REF is unset'; then
   pass "(U5) a declared patch id with no PR_BASE_REF is an environment error, not an unmeasured pass"
 else fail "(U5) expected rc=2 with no base ref, got rc=$rc: $out"; fi
 
-out="$(run_gate_base "lean/acme-42" "$WORK/comments-good.json" "$WORK/diff-lean.txt" "no-such-base")"; rc=$?
+out="$(run_gate_base "claude/acme-42" "$WORK/comments-good.json" "$WORK/diff-lean.txt" "no-such-base")"; rc=$?
 if [ "$rc" -eq 2 ] && printf '%s' "$out" | grep -q 'cannot compute this branch'; then
   pass "(U6) a base ref naming no branch is an environment error, not a comparison against nothing"
 else fail "(U6) expected rc=2 on an unresolvable base, got rc=$rc: $out"; fi
@@ -773,7 +782,7 @@ v_pid1="$(tree_patch_id HEAD)"
 v_spec_r1="$(cat "$TREE/docs/plans/acme-42-lean.md")"
 write_chain_record r-review-v1 sess-review-v1 1 "$v_pid1"
 v_r1_commit="$(git -C "$TREE" rev-parse HEAD)"
-out="$(run_gate_base "lean/acme-42" "$WORK/comments-good.json" "$WORK/diff-lean.txt" "main")"; rc=$?
+out="$(run_gate_base "claude/acme-42" "$WORK/comments-good.json" "$WORK/diff-lean.txt" "main")"; rc=$?
 if [ "$rc" -eq 0 ] && printf '%s' "$out" | grep -q 'declares no inherited coverage'; then
   pass "(V1) a round-1 record passes unchanged, and the gate prints that it inherited nothing"
 else fail "(V1) expected rc=0 with the no-inheritance note, got rc=$rc: $out"; fi
@@ -785,7 +794,7 @@ commit_tree "the fix round 1 asked for"
 v_pid2="$(tree_patch_id HEAD)"
 [ "$v_pid2" != "$v_pid1" ] || fail "(V2-fixture) the fix did not move the patch identity — (V2) would assert nothing"
 write_chain_record r-review-v2 sess-review-v2 2 "$v_pid2" "$v_pid1" "$v_r1_commit"
-out="$(run_gate_base "lean/acme-42" "$WORK/comments-good.json" "$WORK/diff-lean.txt" "main")"; rc=$?
+out="$(run_gate_base "claude/acme-42" "$WORK/comments-good.json" "$WORK/diff-lean.txt" "main")"; rc=$?
 if [ "$rc" -eq 0 ] && printf '%s' "$out" | grep -q 'inheritance chain: 1 inherited link'; then
   pass "(V2) AC-1: a round-2 record inheriting round 1's reviewed patch passes the merge boundary"
 else fail "(V2) expected rc=0 with one resolved link, got rc=$rc: $out"; fi
@@ -801,7 +810,7 @@ v_pid_rev="$(tree_patch_id HEAD)"
 [ "$v_pid_rev" = "$v_pid1" ] \
   || fail "(V3-fixture) the revert did not restore round 1's patch identity — (V3) would assert nothing"
 write_chain_record r-review-v3 sess-review-v3 3 "$v_pid_rev" "$v_pid2" "$v_r1_commit"
-out="$(run_gate_base "lean/acme-42" "$WORK/comments-good.json" "$WORK/diff-lean.txt" "main")"; rc=$?
+out="$(run_gate_base "claude/acme-42" "$WORK/comments-good.json" "$WORK/diff-lean.txt" "main")"; rc=$?
 if [ "$rc" -eq 0 ] && printf '%s' "$out" | grep -q 'inheritance chain: 2 inherited link'; then
   pass "(V3) a round whose reviewed patch an ancestor record also carries still resolves its chain — the search runs strictly backwards"
 else fail "(V3) expected a 2-link chain after a revert, got rc=$rc: $out"; fi
@@ -812,7 +821,7 @@ else fail "(V3) expected a 2-link chain after a revert, got rc=$rc: $out"; fi
 # test as a link in its own chain, and still PASSES — one link longer, exit code unchanged. The
 # printed count is what makes that visible, so the assertion pins the NUMBER, not merely the pass.
 write_chain_record r-review-v3 sess-review-v3 3 "$v_pid_rev" "$v_pid_rev" "$v_r1_commit"
-out="$(run_gate_base "lean/acme-42" "$WORK/comments-good.json" "$WORK/diff-lean.txt" "main")"; rc=$?
+out="$(run_gate_base "claude/acme-42" "$WORK/comments-good.json" "$WORK/diff-lean.txt" "main")"; rc=$?
 if [ "$rc" -eq 0 ] && printf '%s' "$out" | grep -q 'inheritance chain: 3 inherited link'; then
   pass "(V3b) a self-inheriting record resolves to the ancestor carrying that patch — the record under test is never a link in its own chain"
 else fail "(V3b) expected rc=0 with exactly 3 links, got rc=$rc: $out"; fi
@@ -821,7 +830,7 @@ else fail "(V3b) expected rc=0 with exactly 3 links, got rc=$rc: $out"; fi
 # downgraded to "then treat it as a root record", which would convert an unverifiable claim into
 # a satisfied one. Only the inherited key changes from (V3), so nothing else can be the cause.
 write_chain_record r-review-v3 sess-review-v3 3 "$v_pid_rev" "deadbeefdeadbeefdeadbeefdeadbeefdeadbeef" "$v_r1_commit"
-out="$(run_gate_base "lean/acme-42" "$WORK/comments-good.json" "$WORK/diff-lean.txt" "main")"; rc=$?
+out="$(run_gate_base "claude/acme-42" "$WORK/comments-good.json" "$WORK/diff-lean.txt" "main")"; rc=$?
 if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q 'matches no earlier verdict record committed on this branch'; then
   pass "(V4) AC-5: an inheritance link resolving to nothing on this branch is a violation, not a downgrade"
 else fail "(V4) expected rc=1 on a dangling link, got rc=$rc: $out"; fi
@@ -834,7 +843,7 @@ printf '# lean spec\n\n- AC-1: does a thing\n- AC-2: does another, fixed again\n
 commit_tree "a further fix round"
 v_pid4="$(tree_patch_id HEAD)"
 write_chain_record r-review-v4 sess-review-v4 4 "$v_pid4" "$v_pid_rev" "$v_r1_commit"
-out="$(run_gate_base "lean/acme-42" "$WORK/comments-good.json" "$WORK/diff-lean.txt" "main")"; rc=$?
+out="$(run_gate_base "claude/acme-42" "$WORK/comments-good.json" "$WORK/diff-lean.txt" "main")"; rc=$?
 if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q 'round 3 declares' \
    && ! printf '%s' "$out" | grep -q 'round 4 declares'; then
   pass "(V5) AC-3: a broken MIDDLE link is attributed to round 3, the round that declared it"
@@ -856,7 +865,7 @@ write_chain_record r-review-v5 sess-review-v5 5 "$v_pid_root" "" "" \
 \`\`\`
 inherited_patch_id: $v_pid1
 \`\`\`"
-out="$(run_gate_base "lean/acme-42" "$WORK/comments-good.json" "$WORK/diff-lean.txt" "main")"; rc=$?
+out="$(run_gate_base "claude/acme-42" "$WORK/comments-good.json" "$WORK/diff-lean.txt" "main")"; rc=$?
 if [ "$rc" -eq 0 ] && printf '%s' "$out" | grep -q 'declares no inherited coverage' \
    && ! printf '%s' "$out" | grep -q 'inherited link'; then
   pass "(V6) a root record whose findings quote a RESOLVING inheritance value is still read as a root"
@@ -872,7 +881,7 @@ printf '# lean spec\n\n- AC-1: does a thing\n- AC-2: and a sixth-round fix\n' > 
 commit_tree "the round-5 fix"
 v_pid6="$(tree_patch_id HEAD)"
 write_chain_record r-review-v6 sess-review-v6 6 "$v_pid6" "$v_pid_root" "$v_r1_commit"
-out="$(run_gate_base "lean/acme-42" "$WORK/comments-good.json" "$WORK/diff-lean.txt" "main")"; rc=$?
+out="$(run_gate_base "claude/acme-42" "$WORK/comments-good.json" "$WORK/diff-lean.txt" "main")"; rc=$?
 if [ "$rc" -eq 0 ] && printf '%s' "$out" | grep -q 'inheritance chain: 1 inherited link'; then
   pass "(V6b) the walk terminates at a root whose body quotes the key — one link, not the two a first-match walk would count"
 else fail "(V6b) expected exactly 1 inherited link, got rc=$rc: $out"; fi
@@ -921,7 +930,7 @@ if [ -n "$w_would_stale" ]; then
   pass "(W1) the merge landed files after the record's commit — the unguarded inferred arm would (wrongly) see them"
 else fail "(W1) the merge landed nothing after the record — (W) would assert nothing"; fi
 
-out="$(run_gate_base "lean/acme-42" "$WORK/comments-good.json" "$WORK/diff-lean.txt" "main")"; rc=$?
+out="$(run_gate_base "claude/acme-42" "$WORK/comments-good.json" "$WORK/diff-lean.txt" "main")"; rc=$?
 if [ "$rc" -eq 0 ] \
    && printf '%s' "$out" | grep -q 'freshness (inferred): skipped' \
    && printf '%s' "$out" | grep -q 'freshness (declared, patch-id' \
@@ -944,7 +953,7 @@ if git -C "$TREE" merge -q --no-edit w-base2 >/dev/null 2>&1; then w2_merge_ok=1
 else w2_merge_ok=0; fi
 [ "$w2_merge_ok" -eq 1 ] || fail "(W-fixture2) the second merge did not apply cleanly"
 
-out="$(run_gate_base "lean/acme-42" "$WORK/comments-good.json" "$WORK/diff-lean.txt" "main")"; rc=$?
+out="$(run_gate_base "claude/acme-42" "$WORK/comments-good.json" "$WORK/diff-lean.txt" "main")"; rc=$?
 if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q 'changed between that commit and the PR head'; then
   pass "(W3) AC-2: the same merge still violates for a record carrying no reviewed_patch_id"
 else fail "(W3) expected rc=1 via the inferred arm, got rc=$rc: $out"; fi
@@ -956,7 +965,7 @@ w_pid3="$(tree_patch_id HEAD)"
 write_verdict approve r-review-w3 sess-review-w3 "$(git -C "$TREE" rev-parse HEAD)" "$w_pid3"
 printf 'a real fix landing after the review\n' > "$TREE/docs/plans/notes-403.md"
 commit_tree "a genuine branch-side change after the record"
-out="$(run_gate_base "lean/acme-42" "$WORK/comments-good.json" "$WORK/diff-lean.txt" "main")"; rc=$?
+out="$(run_gate_base "claude/acme-42" "$WORK/comments-good.json" "$WORK/diff-lean.txt" "main")"; rc=$?
 if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q 'now hashes to'; then
   pass "(W4) AC-3: a genuine post-record branch-side change still violates under the reviewed_patch_id shape"
 else fail "(W4) expected rc=1 via the declared arm's patch-id mismatch, got rc=$rc: $out"; fi
@@ -964,7 +973,7 @@ else fail "(W4) expected rc=1 via the declared arm's patch-id mismatch, got rc=$
 # ...and re-reviewing clears it, so (W4) is a check with a remedy, matching the rest of the
 # suite's convention.
 write_verdict approve r-review-w4 sess-review-w4 "$(git -C "$TREE" rev-parse HEAD)" "$(tree_patch_id HEAD)"
-out="$(run_gate_base "lean/acme-42" "$WORK/comments-good.json" "$WORK/diff-lean.txt" "main")"; rc=$?
+out="$(run_gate_base "claude/acme-42" "$WORK/comments-good.json" "$WORK/diff-lean.txt" "main")"; rc=$?
 if [ "$rc" -eq 0 ] && printf '%s' "$out" | grep -q 'freshness (declared, patch-id'; then
   pass "(W5) a fresh review round over the branch-side fix clears it"
 else fail "(W5) expected rc=0 after a new review round, got rc=$rc: $out"; fi
@@ -978,7 +987,7 @@ else fail "(W5) expected rc=0 after a new review round, got rc=$rc: $out"; fi
 #
 # (X1) runs FIRST and is the vacuity guard: the whole block asserts nothing if the fixture's
 # baseline spec were already armed.
-out="$(run_gate_base "lean/acme-42" "$WORK/comments-good.json" "$WORK/diff-lean.txt" "main")"; rc=$?
+out="$(run_gate_base "claude/acme-42" "$WORK/comments-good.json" "$WORK/diff-lean.txt" "main")"; rc=$?
 if [ "$rc" -eq 0 ] && printf '%s' "$out" | grep -q 'declares no armed design render lane'; then
   pass "(X1) a spec with no '## Design' section is unarmed — the arm prints its absence rather than skipping silently"
 else fail "(X1) expected the unarmed note on a clean run, got rc=$rc: $out"; fi
@@ -1020,7 +1029,7 @@ arm_spec
 commit_tree "the spec arms the design render lane"
 w_pid="$(tree_patch_id HEAD)"
 write_verdict approve r-review-w1 sess-review-w1 "$(git -C "$TREE" rev-parse HEAD)" "$w_pid"
-out="$(run_gate_base "lean/acme-42" "$WORK/comments-good.json" "$WORK/diff-lean.txt" "main")"; rc=$?
+out="$(run_gate_base "claude/acme-42" "$WORK/comments-good.json" "$WORK/diff-lean.txt" "main")"; rc=$?
 if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q 'no render receipt'; then
   pass "(X2) an armed spec with no committed render receipt reds the merge boundary"
 else fail "(X2) expected the missing-receipt violation, got rc=$rc: $out"; fi
@@ -1038,7 +1047,7 @@ write_render_manifest "$(tree_render_id HEAD)"
 commit_tree "the render receipt"
 w_pid="$(tree_patch_id HEAD)"
 write_verdict approve r-review-w2 sess-review-w2 "$(git -C "$TREE" rev-parse HEAD)" "$w_pid"
-out="$(run_gate_base "lean/acme-42" "$WORK/comments-good.json" "$WORK/diff-lean.txt" "main")"; rc=$?
+out="$(run_gate_base "claude/acme-42" "$WORK/comments-good.json" "$WORK/diff-lean.txt" "main")"; rc=$?
 if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q "not 'fidelity: pass'"; then
   pass "(X3) an armed run refuses a verdict that scores no fidelity"
 else fail "(X3) expected the fidelity violation, got rc=$rc: $out"; fi
@@ -1050,7 +1059,7 @@ commit_tree "the record scores fidelity"
 # The receipt's binding excludes the verdict record AND itself, so committing either leaves it
 # unchanged — that is what lets the reviewer commit on top of evidence without invalidating it,
 # and (X4) is where the two exclusions are asserted together.
-out="$(run_gate_base "lean/acme-42" "$WORK/comments-good.json" "$WORK/diff-lean.txt" "main")"; rc=$?
+out="$(run_gate_base "claude/acme-42" "$WORK/comments-good.json" "$WORK/diff-lean.txt" "main")"; rc=$?
 if [ "$rc" -eq 0 ] && printf '%s' "$out" | grep -q 'scored fidelity: pass'; then
   pass "(X4) an armed run with a fresh receipt and a fidelity: pass verdict passes the boundary"
 else fail "(X4) expected the armed happy path, got rc=$rc: $out"; fi
@@ -1065,7 +1074,7 @@ w_pid="$(tree_patch_id HEAD)"
 write_verdict approve r-review-w3 sess-review-w3 "$(git -C "$TREE" rev-parse HEAD)" "$w_pid"
 printf 'fidelity: pass\n' >> "$VREC"
 commit_tree "an honest record on top of a stale receipt"
-out="$(run_gate_base "lean/acme-42" "$WORK/comments-good.json" "$WORK/diff-lean.txt" "main")"; rc=$?
+out="$(run_gate_base "claude/acme-42" "$WORK/comments-good.json" "$WORK/diff-lean.txt" "main")"; rc=$?
 if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q 'records rendered_from' \
    && ! printf '%s' "$out" | grep -q 'file(s) changed between that commit and the PR head'; then
   pass "(X5) a stale rendered_from reds on a tree whose verdict freshness is green"
@@ -1081,7 +1090,7 @@ else fail "(X5) expected the stale-receipt violation alone, got rc=$rc: $out"; f
 commit_tree "the spec disarms the design lane"
 w_pid="$(tree_patch_id HEAD)"
 write_verdict approve r-review-w4 sess-review-w4 "$(git -C "$TREE" rev-parse HEAD)" "$w_pid"
-out="$(run_gate_base "lean/acme-42" "$WORK/comments-good.json" "$WORK/diff-lean.txt" "main")"; rc=$?
+out="$(run_gate_base "claude/acme-42" "$WORK/comments-good.json" "$WORK/diff-lean.txt" "main")"; rc=$?
 if [ "$rc" -eq 0 ] && printf '%s' "$out" | grep -q 'declares no armed design render lane'; then
   pass "(X6) an explicit 'Design: none' disarm leaves the boundary's design arm not applicable"
 else fail "(X6) expected the disarmed pass, got rc=$rc: $out"; fi
@@ -1092,12 +1101,12 @@ else fail "(X6) expected the disarmed pass, got rc=$rc: $out"; fi
 # being decorative: (X6) left a tree that passes, so each one below changes only the marker
 # trail. Nothing here re-asserts the (N) block's comparisons; the claim identity stays r-abc123
 # and distinct throughout, so a refusal can only have come from the delegated arm.
-out="$(LEAN_PR_COMMENTS_FILE="$WORK/pr-markers-none.json" run_gate_base "lean/acme-42" "$WORK/comments-good.json" "$WORK/diff-lean.txt" "main")"; rc=$?
+out="$(LEAN_PR_COMMENTS_FILE="$WORK/pr-markers-none.json" run_gate_base "claude/acme-42" "$WORK/comments-good.json" "$WORK/diff-lean.txt" "main")"; rc=$?
 if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q "no bot-authored 'lean-pr-marker' comment"; then
   pass "(Y1) a PR carrying no build marker is refused — zero markers is missing evidence, not a vacuous pass"
 else fail "(Y1) expected rc=1 on an unmarked PR, got rc=$rc: $out"; fi
 
-out="$(LEAN_PR_COMMENTS_FILE="$WORK/pr-markers-human.json" run_gate_base "lean/acme-42" "$WORK/comments-good.json" "$WORK/diff-lean.txt" "main")"; rc=$?
+out="$(LEAN_PR_COMMENTS_FILE="$WORK/pr-markers-human.json" run_gate_base "claude/acme-42" "$WORK/comments-good.json" "$WORK/diff-lean.txt" "main")"; rc=$?
 if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q 'none bot-authored'; then
   pass "(Y2) an operator-posted marker does not satisfy the arm (the trust filter, on a public repo)"
 else fail "(Y2) expected the trust filter to reject a human marker, got rc=$rc: $out"; fi
@@ -1108,7 +1117,7 @@ else fail "(Y2) expected the trust filter to reject a human marker, got rc=$rc: 
 # build session wrote about its own code.
 w_pid="$(tree_patch_id HEAD)"
 write_verdict approve r-review-1 sess-review-1 "$(git -C "$TREE" rev-parse HEAD)" "$w_pid"
-out="$(LEAN_PR_COMMENTS_FILE="$WORK/pr-markers-two.json" run_gate_base "lean/acme-42" "$WORK/comments-good.json" "$WORK/diff-lean.txt" "main")"; rc=$?
+out="$(LEAN_PR_COMMENTS_FILE="$WORK/pr-markers-two.json" run_gate_base "claude/acme-42" "$WORK/comments-good.json" "$WORK/diff-lean.txt" "main")"; rc=$?
 if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q "BUILD run's identity"; then
   pass "(Y3) a verdict matching the SECOND build session's marker is refused (D-4: every marker, not the first)"
 else fail "(Y3) expected rc=1 against the second marker, got rc=$rc: $out"; fi
@@ -1116,7 +1125,7 @@ else fail "(Y3) expected rc=1 against the second marker, got rc=$rc: $out"; fi
 # ...and the same trail with a verdict identity no marker carries still passes, so (Y3) turns on
 # the match rather than on the trail having two entries.
 write_verdict approve r-review-9 sess-review-9 "$(git -C "$TREE" rev-parse HEAD)" "$w_pid"
-out="$(LEAN_PR_COMMENTS_FILE="$WORK/pr-markers-two.json" run_gate_base "lean/acme-42" "$WORK/comments-good.json" "$WORK/diff-lean.txt" "main")"; rc=$?
+out="$(LEAN_PR_COMMENTS_FILE="$WORK/pr-markers-two.json" run_gate_base "claude/acme-42" "$WORK/comments-good.json" "$WORK/diff-lean.txt" "main")"; rc=$?
 if [ "$rc" -eq 0 ]; then
   pass "(Y4) two markers neither of which the verdict carries still passes"
 else fail "(Y4) expected rc=0 against two non-matching markers, got rc=$rc: $out"; fi
@@ -1124,7 +1133,7 @@ else fail "(Y4) expected rc=0 against two non-matching markers, got rc=$rc: $out
 # The delegation itself is fail-closed. A payload this gate cannot reach means half the evidence
 # is unevaluated, and an unevaluable check must not report a pass — the mode that would otherwise
 # arrive silently the first time the payload moves.
-out="$(LEAN_EVIDENCE="$WORK/no-such-payload.sh" run_gate_base "lean/acme-42" "$WORK/comments-good.json" "$WORK/diff-lean.txt" "main")"; rc=$?
+out="$(LEAN_EVIDENCE="$WORK/no-such-payload.sh" run_gate_base "claude/acme-42" "$WORK/comments-good.json" "$WORK/diff-lean.txt" "main")"; rc=$?
 if [ "$rc" -eq 2 ] && printf '%s' "$out" | grep -q 'portable evidence payload is missing'; then
   pass "(Y5) an unreachable evidence payload is an environment error, never a pass"
 else fail "(Y5) expected rc=2 on a missing payload, got rc=$rc: $out"; fi

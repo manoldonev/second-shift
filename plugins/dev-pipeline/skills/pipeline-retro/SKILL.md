@@ -66,7 +66,11 @@ cat .claude/pipeline-state/${ISSUE}-lean-progress.md   # milestone satisfied/att
 VREL=$(grep -oE 'verdict_record:[[:space:]]*\S+' .claude/pipeline-state/${ISSUE}-lean-progress.md | awk '{print $2}')
 cat "$VREL"                                             # committed verdict record: verdict=, run_id:, session_id:, rounds:, model:
 gh api "repos/{owner}/{repo}/issues/${ISSUE}/comments" --jq '[.[] | {user: .user.login, body}]'   # claim + closing comment trail
-PR_URL=$(gh pr list --head "lean/{repo-slug}-${ISSUE}" --state all --json url --jq '.[0].url // empty')
+# The branch is `<tracker.branchPrefix><key>` — the same namespace the staged lane uses (#413).
+# Read the composed name off the record rather than rebuilding it: under jira the key is
+# lowercased, so `<branch_prefix>${ISSUE}` resolves a branch that does not exist.
+BR=$(grep -oE '^branch:[[:space:]]*\S+' .claude/pipeline-state/${ISSUE}-lean-progress.md | awk '{print $2}')
+PR_URL=$(gh pr list --head "$BR" --state all --json url --jq '.[0].url // empty')
 # PR diff + commits (if a PR exists): gh pr diff / gh api .../pulls/N/commits
 # Hook ledger: .claude/audit/<session-id>.jsonl for each session_id named in the progress
 # record (build) and the verdict record (review) — two ledgers, not one, per P10.

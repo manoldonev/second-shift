@@ -69,10 +69,13 @@
 #   PR_NUMBER       required for the identity arm under github  the PR to read markers from
 #   GH_REPO         required for the live identity path  "<owner>/<repo>"
 #   GH_TOKEN        required for the live identity path
-#   LEAN_BRANCH_PREFIX      optional  e.g. "lean/acme-"; derived from the committed config
-#                                     when unset (a consumer commits it; this repo gitignores
-#                                     its own, so its CI passes both prefixes explicitly)
-#   PIPELINE_BRANCH_PREFIX  optional  e.g. "claude/acme-"; same resolution
+#   PIPELINE_BRANCH_PREFIX  optional  e.g. "claude/acme-"; read from the committed config when
+#                                     unset (a consumer commits it; this repo gitignores its
+#                                     own, so its CI passes it explicitly). Both lanes cut
+#                                     branches under it; it is the KEY derivation's anchor, not
+#                                     a classification arm.
+#   LEAN_BRANCH_PREFIX      RETIRED (#413)  accepted and ignored, with a notice. A consumer's
+#                                     workflow may still set it from a pin predating the change.
 #   LEAN_TRACKER_TYPE       optional  github|jira; from the committed config when unset
 #   LEAN_MARKER_AUTHOR      optional  exact bot login; absent degrades to "any Bot author"
 #   SECOND_SHIFT_CONFIG     optional  path to the committed config (testing / vendored fork)
@@ -118,7 +121,7 @@ while [ $# -gt 0 ]; do
     --pr-comments-file)  PR_COMMENTS_FILE="${2:-}"; shift 2 ;;
     --diff-files-file)   DIFF_FILES_FILE="${2:-}"; shift 2 ;;
     --violations-file)   VIOLATIONS_FILE="${2:-}"; shift 2 ;;
-    -h|--help)           sed -n '2,102p' "$0"; exit 0 ;;
+    -h|--help)           sed -n '2,105p' "$0"; exit 0 ;;
     *) echo "[lean-evidence] unknown argument: $1" >&2; exit 2 ;;
   esac
 done
@@ -149,51 +152,31 @@ cfg() { # cfg <jq-filter> <default>
   echo "$2"
 }
 
-# LOCKSTEP-BEGIN lean-branch-prefix
-# Branch prefix: replace the FIRST path segment with `lean`. The REQUIRED property is MUTUAL
-# non-prefix-matching against the pipeline prefix: both chain gates classify with
-# `head_ref == PREFIX*`, so a bare `lean/` derived from `claude/acme-` would satisfy a
-# one-directional reading while making EVERY pipeline PR applicable to the lean gate. Both
-# directions are asserted below, and separately at each host's selftest.
-lean_branch_prefix() {
-  local pipeline_prefix="$1" tail derived
-  case "$pipeline_prefix" in
-    */*) tail="${pipeline_prefix#*/}" ;;
-    *)   tail="$pipeline_prefix" ;;
-  esac
-  derived="lean/$tail"
-  # Pathological input (a configured prefix already under lean/) collapses the two onto
-  # each other. Fail loudly rather than return a colliding prefix — a silent collision
-  # double-classifies every PR in both gates.
-  case "$pipeline_prefix" in
-    "$derived"*) echo "[lean] configured tracker.branchPrefix '$pipeline_prefix' collides with the derived lean prefix '$derived' — they must be mutually non-prefix-matching." >&2; return 1 ;;
-  esac
-  case "$derived" in
-    "$pipeline_prefix"*) echo "[lean] derived lean prefix '$derived' prefix-matches the pipeline prefix '$pipeline_prefix' — refusing." >&2; return 1 ;;
-  esac
-  echo "$derived"
-}
-# LOCKSTEP-END lean-branch-prefix
-
+# ONE NAMESPACE, ONE PREFIX (#413). The lean lane no longer cuts branches under a `lean/`
+# namespace of its own — it uses `<tracker.branchPrefix><key>`, the staged lane's formula. So
+# there is no lean prefix to derive, no pair to hold mutually non-prefix-matching, and no
+# branch-shaped classification arm at all: what makes a PR lean is the committed spec in its
+# own diff, which is what classify() below reads.
 PIPELINE_PREFIX="${PIPELINE_BRANCH_PREFIX:-}"
 [ -n "$PIPELINE_PREFIX" ] || PIPELINE_PREFIX="$(cfg '.tracker.branchPrefix' '')"
-LEAN_PREFIX="${LEAN_BRANCH_PREFIX:-}"
-if [ -z "$LEAN_PREFIX" ]; then
-  [ -n "$PIPELINE_PREFIX" ] \
-    || envfail "neither LEAN_BRANCH_PREFIX nor a committed tracker.branchPrefix is resolvable — an unresolvable prefix would weaken applicability to the artifact arm alone. Set it on the job, or commit .claude/second-shift.config.json."
-  LEAN_PREFIX="$(lean_branch_prefix "$PIPELINE_PREFIX")" || exit 2
-fi
+# Still fatal when unresolvable, for a NEW reason: the prefix is what lets classify() take the
+# issue key off the branch instead of off the attacker-controllable PR body (D-14). A gate that
+# silently fell back to the body would be reading the weaker source precisely when it could not
+# tell it was doing so.
 [ -n "$PIPELINE_PREFIX" ] \
-  || envfail "neither PIPELINE_BRANCH_PREFIX nor a committed tracker.branchPrefix is resolvable — the artifact arm needs it to avoid double-classifying pipeline PRs."
+  || envfail "neither PIPELINE_BRANCH_PREFIX nor a committed tracker.branchPrefix is resolvable — the key derivation reads the branch suffix and has nothing to strip. Set it on the job, or commit .claude/second-shift.config.json."
 
-# Asserted again HERE and not only at derivation: the two may arrive as independent env
-# constants that nothing reconciles against any config, which is exactly how one goes stale.
-case "$LEAN_PREFIX" in "$PIPELINE_PREFIX"*)
-  envfail "LEAN_BRANCH_PREFIX ('$LEAN_PREFIX') and PIPELINE_BRANCH_PREFIX ('$PIPELINE_PREFIX') must be mutually non-prefix-matching; one is a prefix of the other, so both gates would classify the same PRs." ;;
-esac
-case "$PIPELINE_PREFIX" in "$LEAN_PREFIX"*)
-  envfail "LEAN_BRANCH_PREFIX ('$LEAN_PREFIX') and PIPELINE_BRANCH_PREFIX ('$PIPELINE_PREFIX') must be mutually non-prefix-matching; one is a prefix of the other, so both gates would classify the same PRs." ;;
-esac
+# A consumer's workflow may still set LEAN_BRANCH_PREFIX from a pin predating #413. Say so and
+# carry on. NEVER an envfail: that would red every PR in every repo whose workflow still carries
+# the constant, over a value that is now simply inert.
+#
+# On STDERR and not stdout, unlike this file's other announcements: `classify` writes a
+# machine-readable `key=value` block that a delegating caller parses, and a prose line inside it
+# is a contract violation waiting to be parsed as data. stderr reaches the same CI job log, so
+# the notice is exactly as visible.
+if [ -n "${LEAN_BRANCH_PREFIX:-}" ]; then
+  echo "[lean-evidence] notice: LEAN_BRANCH_PREFIX ('$LEAN_BRANCH_PREFIX') is retired and ignored — lean classification is keyed on the committed spec, not on a branch namespace. Drop it from the workflow." >&2
+fi
 
 # Absent ⇒ github is a FAIL-SAFE, not a back-compat allowance, and matches lean-gate.sh's own
 # default: github is the arm that DEMANDS the marker, so an unreadable config lands on the
@@ -204,6 +187,14 @@ TRACKER_TYPE="${LEAN_TRACKER_TYPE:-}"
 case "$TRACKER_TYPE" in
   github|jira) : ;;
   *) envfail "unknown tracker.type '$TRACKER_TYPE' — expected 'github' or 'jira'." ;;
+esac
+
+# The shape a branch SUFFIX must have to be read as an issue key (D-14). Digits under github;
+# the consumer's declared `tracker.keyPattern` under jira, matched case-insensitively because
+# the lane lowercases the key when it builds the branch name.
+case "$TRACKER_TYPE" in
+  jira) KEY_RE="$(cfg '.tracker.keyPattern' '[A-Za-z]+-[0-9]+')" ;;
+  *)    KEY_RE='[0-9]+' ;;
 esac
 
 # ---------------------------------------------------------------- the pinned name table
@@ -275,47 +266,92 @@ TRIGGER=""
 SPEC_IN_DIFF=""
 RESOLVED_KEY=""
 
+# KEY FIRST, THEN THE ARTIFACT (#413, D-14). The order is load-bearing and it inverted here:
+# with both lanes on one branch namespace, applicability can no longer be "some lean-shaped
+# file is in the diff" — a staged PR that merely edits an older ticket's lean spec would then
+# be pulled into this gate and out of the pipeline gate at the same time. What makes a PR lean
+# is the spec for THIS PR's OWN key, so the key has to be resolved before the scan.
+#
+# The branch suffix is the PREFERRED source, and the PR body only the fallback. A body is
+# attacker-controllable and carries closing keywords in prose; a first-match body scan on a
+# prefixed branch therefore hands the gate a key the lane never worked on — the phantom-key
+# class. The branch name is written by the harness, so on a prefixed branch it simply wins.
+resolve_key() {
+  local body
+  # (a) the branch suffix, when the head ref is pipeline-prefixed and the suffix parses.
+  case "$PR_HEAD_REF" in
+    "$PIPELINE_PREFIX"*)
+      local suffix="${PR_HEAD_REF#"$PIPELINE_PREFIX"}"
+      if printf '%s' "$suffix" | grep -qiE "^($KEY_RE)$"; then
+        RESOLVED_KEY="$suffix"
+        return 0
+      fi
+      ;;
+  esac
+  # (b) the body. Reached for a hand-made branch outside the namespace — including every PR
+  # opened on the retired `lean/` namespace, which is what keeps those classifying correctly
+  # across the cutover. `Closes #N` wins over `Part of #N`: a program PR routinely carries
+  # both, and a bare first-match would resolve to the epic. Under a read-only tracker the
+  # reference is `Closes [KEY]` instead — both bracket shapes are read so the arms key on the
+  # same artifact names under either adapter.
+  body="${PR_BODY:-}"
+  RESOLVED_KEY="$(printf '%s' "$body" | grep -oiE 'closes[[:space:]]+[#[]([A-Za-z]+-)?[0-9]+' | head -n1 | grep -oE '([A-Za-z]+-)?[0-9]+$' || true)"
+  if [ -z "$RESOLVED_KEY" ]; then
+    RESOLVED_KEY="$(printf '%s' "$body" | grep -oiE 'part[[:space:]]+of[[:space:]]+[#[]([A-Za-z]+-)?[0-9]+' | head -n1 | grep -oE '([A-Za-z]+-)?[0-9]+$' || true)"
+  fi
+}
+
 classify() {
   [ -n "${PR_HEAD_REF:-}" ] || envfail "PR_HEAD_REF is unset or empty — nothing to classify."
 
-  local f
+  resolve_key
+
+  # Two scans in one pass. KEY_SPEC is the spec for THIS PR's key and is what applicability
+  # turns on. ANY_SPEC is any other lean spec in the diff, kept for two distinct jobs below —
+  # neither of them "classify on it".
+  local f key_spec="" any_spec=""
   while IFS= read -r f; do
     [ -n "$f" ] || continue
     is_fixture_path "$f" && continue
     case "$f" in
       *"$LEAN_VERDICT_SUFFIX") continue ;;                # the verdict record is not the spec
-      *"$LEAN_SPEC_SUFFIX") SPEC_IN_DIFF="$f"; break ;;
     esac
+    case "$f" in
+      *"$LEAN_SPEC_SUFFIX") [ -n "$any_spec" ] || any_spec="$f" ;;
+      *) continue ;;
+    esac
+    if [ -n "$RESOLVED_KEY" ]; then
+      case "$f" in *"-$RESOLVED_KEY$LEAN_SPEC_SUFFIX") key_spec="$f"; break ;; esac
+    fi
   done < <(changed_files)
 
-  # NON-VACUOUS BY CONSTRUCTION. The artifact arm is the point: a stale or wrong lean prefix
-  # matches zero branches, and a prefix-only gate would then silently exempt every lean PR —
-  # the self-neutralization mode the manifesto's T0 note records. It is ANDed with "the branch
-  # is not pipeline-prefixed" so a pipeline PR merely CARRYING lean-shaped files is never
-  # double-classified into both gates.
-  case "$PR_HEAD_REF" in
-    "$LEAN_PREFIX"*) APPLICABLE=1; TRIGGER="branch-prefix" ;;
-    *)
-      if [ -n "$SPEC_IN_DIFF" ]; then
-        case "$PR_HEAD_REF" in
-          "$PIPELINE_PREFIX"*) : ;;
-          *) APPLICABLE=1; TRIGGER="lean-artifact ($SPEC_IN_DIFF)" ;;
-        esac
-      fi
-      ;;
-  esac
+  if [ -n "$RESOLVED_KEY" ]; then
+    # THE SOLE ARM, and non-vacuous by construction. There is no branch-shaped arm left and
+    # none is wanted: the namespace no longer distinguishes the lanes, so a namespace arm would
+    # classify every staged PR as lean. Keying it to the PR's own issue is what stops the
+    # mirror error — a staged PR that merely edits some OLDER ticket's lean spec is not lean.
+    SPEC_IN_DIFF="$key_spec"
+    if [ -n "$key_spec" ]; then
+      APPLICABLE=1
+      TRIGGER="lean-artifact ($key_spec)"
+    else
+      # Declined, but say what was seen: "a lean spec is present and it is not yours" is the
+      # one decline an operator will want to argue with.
+      SPEC_IN_DIFF="$any_spec"
+    fi
+    return 0
+  fi
 
-  [ "$APPLICABLE" -eq 1 ] || return 0
-
-  # `Closes #N` wins over `Part of #N`: a program PR routinely carries both, and a bare
-  # first-match would resolve to the epic. Under a read-only tracker the reference is
-  # `Closes [KEY]` instead — both bracket shapes are read here so the arms can key on the same
-  # artifact names under either adapter.
-  local body
-  body="${PR_BODY:-}"
-  RESOLVED_KEY="$(printf '%s' "$body" | grep -oiE 'closes[[:space:]]+[#[]([A-Za-z]+-)?[0-9]+' | head -n1 | grep -oE '([A-Za-z]+-)?[0-9]+$' || true)"
-  if [ -z "$RESOLVED_KEY" ]; then
-    RESOLVED_KEY="$(printf '%s' "$body" | grep -oiE 'part[[:space:]]+of[[:space:]]+[#[]([A-Za-z]+-)?[0-9]+' | head -n1 | grep -oE '([A-Za-z]+-)?[0-9]+$' || true)"
+  # NO KEY. A prefixed branch always resolves one from its own suffix, so arriving here means a
+  # hand-made branch outside the namespace (or one whose suffix does not parse). If such a
+  # branch nonetheless commits a lean spec, it is lean work with no traceable source issue —
+  # APPLICABLE, so the caller refuses it and demands the reference. Declining instead would
+  # exempt it from this gate while the pipeline gate exempts it for not being prefixed, and a
+  # PR both gates wave through is the hole the whole boundary exists to close.
+  if [ -n "$any_spec" ]; then
+    SPEC_IN_DIFF="$any_spec"
+    APPLICABLE=1
+    TRIGGER="lean-artifact ($any_spec)"
   fi
   return 0
 }
@@ -557,15 +593,20 @@ case "$SUB" in
   all)
     classify
     if [ "$APPLICABLE" -eq 0 ]; then
-      # Echo the resolved prefix: a stale constant is otherwise invisible — it just never matches.
+      # Echo what was resolved: a decline is otherwise indistinguishable from "never ran", and
+      # the two reasons a decline can have — no key, or no key-matched spec — are the two
+      # things an operator needs to tell apart.
       say "non-lean change — lean evidence not applicable."
       say "  head branch: ${PR_HEAD_REF:-<unset>}"
-      say "  resolved lean prefix: $LEAN_PREFIX"
+      say "  resolved key: ${RESOLVED_KEY:-<none>} (pipeline prefix: $PIPELINE_PREFIX)"
       exit 0
     fi
     say "applicable via $TRIGGER: branch=$PR_HEAD_REF"
+    # Reachable only on a branch outside the namespace: this PR commits a lean spec and names
+    # no issue, so there is nothing to reconcile the evidence against. A refusal, never a
+    # waiver — see classify()'s NO KEY note.
     [ -n "$RESOLVED_KEY" ] || {
-      echo "[lean-evidence]   ✗ PR body carries no resolvable issue reference ('Closes #N' or 'Closes [KEY]'), but this PR is classified lean via $TRIGGER. Add the reference." >&2
+      echo "[lean-evidence]   ✗ PR body carries no resolvable issue reference ('Closes #N' or 'Closes [KEY]') and the head branch '$PR_HEAD_REF' is outside the configured namespace, but this PR commits a lean spec. Add the reference." >&2
       exit 1
     }
     KEY="$RESOLVED_KEY"

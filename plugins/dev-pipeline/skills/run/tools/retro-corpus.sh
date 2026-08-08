@@ -87,9 +87,22 @@ cfg() { # cfg <jq-filter> <default>
   echo "$2"
 }
 PLANS_DIR="$(cfg '.paths.plansDir' 'docs/plans')"
-BRANCH_PREFIX="$(cfg '.tracker.branchPrefix' 'claude/acme-')"
 HOST_Q='(.topology.repos | to_entries[] | select(.value.path==".") | .key)'
 REPO_SLUG="$(cfg "$HOST_Q" 'acme')"
+
+# The work-branch namespace, resolved through the ONE implementation both lanes call (#413).
+# `open-prs` needs it to derive a candidate PR's issue key; `corpus` never touches it. The
+# retired `'claude/acme-'` default is not restored as a local fallback — a placeholder namespace
+# silently matches nothing here, which reads as "no open lean work" rather than as a
+# misconfiguration.
+# shellcheck source=../../run-lean/branch-prefix.sh
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")/../../run-lean" && pwd)/branch-prefix.sh"
+BRANCH_PREFIX=""
+if [ "$SUB" = "open-prs" ]; then
+  BRANCH_PREFIX="$(resolve_branch_prefix \
+    "$(cfg '.tracker.branchPrefix' '')" "$(cfg '.tracker.type' 'github')" \
+    "$(cfg '.tracker.keyPattern' '')" "$MAIN_ROOT")" || exit 2
+fi
 
 # Same first-match key:value idiom lean-gate.sh / lean-reconcile.sh use on these records,
 # widened to allow `/` — unlike their run_id/session_id/verdict= keys, `verdict_record:`
@@ -166,47 +179,55 @@ cmd_corpus() {
 }
 
 # ============================================================== open-prs mode
-# Mirrors lean-gate.sh's derived-prefix formula (already duplicated a second time, verbatim,
-# in lean-reconcile.sh's VERDICT_REL — this is the established pattern for this one small
-# naming formula, not a new drift risk beyond what already exists).
-lean_branch_prefix() {
-  local pipeline_prefix="$1" tail derived
-  case "$pipeline_prefix" in
-    */*) tail="${pipeline_prefix#*/}" ;;
-    *)   tail="$pipeline_prefix" ;;
-  esac
-  derived="lean/$tail"
-  printf '%s\n' "$derived"
-}
-
+# THE LEAN DISCRIMINATOR IS THE ARTIFACT, NOT THE NAMESPACE (#413). Both lanes now cut
+# `<branchPrefix><key>` branches, so the prefix that used to select lean PRs here selects
+# STAGED ones too — and a staged PR has no lean verdict record by construction, so a
+# namespace-only filter would report every one of them as "verdict-less" work the harness
+# abandoned. The prefix survives only as the KEY derivation; what makes a candidate lean is a
+# non-fixture `*-<key>-lean.md` in the PR's OWN file list.
+#
+# The PR's file list, and not the local checkout: an OPEN lean PR's spec is committed on its
+# branch and is not on the base, so a working-tree test would reject every candidate this mode
+# exists to find. It rides along on the same `gh pr list` call.
 cmd_open_prs() {
-  local prefix prs rows="[]" n issue vrel comments has verdictless row
-  prefix="$(lean_branch_prefix "$BRANCH_PREFIX")"
+  local prs rows="[]" n issue vrel comments has verdictless row
+  local suffix="-lean.md"
 
   if [ -n "$PR_LIST_FILE" ]; then
     [ -f "$PR_LIST_FILE" ] || { echo "retro-corpus.sh: --pr-list-file '$PR_LIST_FILE' does not exist." >&2; exit 2; }
     prs="$(cat "$PR_LIST_FILE")"
   else
-    prs="$("$GH_CLI" pr list --state open --json number,headRefName,url --limit 100 2>&1)" \
+    prs="$("$GH_CLI" pr list --state open --json number,headRefName,url,files --limit 100 2>&1)" \
       || { echo "retro-corpus.sh: gh pr list failed: $prs" >&2; exit 2; }
   fi
   printf '%s' "$prs" | jq -e 'type == "array"' >/dev/null 2>&1 \
     || { echo "retro-corpus.sh: open-pr list is not a JSON array." >&2; exit 2; }
+  # A row with no `files` key cannot be classified, and classifying it by namespace alone is
+  # the exact conflation above. An unsupplied field is an environment error, never a skip.
+  printf '%s' "$prs" | jq -e 'all(has("files"))' >/dev/null 2>&1 \
+    || { echo "retro-corpus.sh: open-pr list rows carry no 'files' — the lean discriminator reads the PR's changed files (gh pr list --json ...,files)." >&2; exit 2; }
 
   n="$(jq 'length' <<<"$prs")"
   local i=0
   while [ "$i" -lt "$n" ]; do
-    local head url pr
+    local head url pr specs
     head="$(jq -r ".[$i].headRefName" <<<"$prs")"
     pr="$(jq -r ".[$i].number" <<<"$prs")"
     url="$(jq -r ".[$i].url" <<<"$prs")"
+    specs="$(jq -r ".[$i].files[]?.path // empty" <<<"$prs")"
     i=$((i + 1))
     case "$head" in
-      "$prefix"*) : ;;
+      "$BRANCH_PREFIX"*) : ;;
       *) continue ;;
     esac
-    issue="${head#"$prefix"}"
+    issue="${head#"$BRANCH_PREFIX"}"
     case "$issue" in ''|*[!0-9]*) continue ;; esac
+    # Key-matched and non-fixture, the same test lean-evidence.sh's classify() applies. The
+    # fixture exclusion matters here for the same reason it matters there: this repo's own
+    # selftest trees carry deliberately lean-shaped files.
+    printf '%s\n' "$specs" \
+      | grep -v -e '/fixtures/' -e '^fixtures/' -e '-fixtures/' \
+      | grep -qE "(^|/)[^/]*-$issue$suffix\$" || continue
 
     vrel="$PLANS_DIR/$REPO_SLUG-$issue-lean-verdict.md"
 

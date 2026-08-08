@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 # check-lean-chain.sh — merge-boundary evidence gate for /dev-pipeline:run-lean PRs.
 #
-# A SIBLING of check-pipeline-chain.sh, deliberately not a mode of it (D-45): editing that
-# script would re-key its four mutation-baseline survivor rows for zero benefit, and the two
-# gates check different evidence sets over disjoint branch namespaces.
+# A SIBLING of check-pipeline-chain.sh, deliberately not a mode of it (D-45): the two gates
+# check different evidence sets. They no longer cover disjoint branch NAMESPACES — both lanes
+# cut `<tracker.branchPrefix><key>` branches (#413) — so what keeps them disjoint is that both
+# ask the same classifier which lane a PR belongs to.
 #
 # WHY THIS EXISTS. run-lean spends as few tokens as possible IN the run, which means almost
 # every in-run record is written by the agent being checked. That is fine — as long as the
@@ -84,17 +85,18 @@
 # diff and a bot-authenticated tracker comment, is what this makes detectable. Harness
 # attestation is lean-reconcile.sh's job (and #292's later).
 #
-# NON-VACUOUS BY CONSTRUCTION. Applicability triggers on branch-prefix match OR on a
-# lean-marked spec appearing in the PR diff. That second arm is the point: a stale or wrong
-# LEAN_BRANCH_PREFIX matches zero branches, and a prefix-only gate would then silently exempt
-# every lean PR — the self-neutralization mode the manifesto's T0 note records for the
-# pipeline constant. The artifact arm still fires with a zero-matching prefix, and the
-# selftest carries that exact case.
+# NON-VACUOUS BY CONSTRUCTION. Applicability is the committed lean spec in the PR's own diff,
+# keyed to the PR's own issue — and nothing else (#413). There is no branch-shaped arm: both
+# lanes cut `<tracker.branchPrefix><key>` branches, so a namespace test would classify every
+# staged PR as lean. Keying the artifact to the PR's issue is what stops the arm over-reaching
+# in the other direction: a staged PR that merely edits some older ticket's lean spec resolves
+# its own key, finds no spec for it, and stays with the pipeline gate. Selftest-fixture paths
+# are excluded from the scan because fixtures are lean-shaped on purpose.
 #
-# The artifact arm is ANDed with "the branch is not pipeline-prefixed", so a pipeline PR that
-# merely carries lean-shaped files — the delivering PR for this very feature does — is never
-# double-classified. Selftest-fixture paths are excluded from the artifact scan for the same
-# reason: fixtures are lean-shaped on purpose.
+# The rule and its mirror image live in ONE place, plugins/dev-pipeline/skills/run-lean/
+# lean-evidence.sh, which this gate and check-pipeline-chain.sh both delegate to. "No PR is
+# applicable to both gates" therefore holds by construction rather than by two implementations
+# agreeing about a namespace.
 #
 # CONSUMER PORTABILITY, and the delegation that follows from it (#359). This FILE stays
 # second-shift-only: it reconciles against tracker COMMENTS, which a read-only tracker
@@ -119,8 +121,9 @@
 #
 # Inputs (ALL via the environment — never spliced into a `run:` line; a PR body is
 # attacker-controllable, and ci.yml documents this convention):
-#   LEAN_BRANCH_PREFIX      required  e.g. "lean/second-shift-"
-#   PIPELINE_BRANCH_PREFIX  required  e.g. "claude/second-shift-" (the exclusion arm)
+#   PIPELINE_BRANCH_PREFIX  required  e.g. "claude/second-shift-" — the ONE work-branch
+#                                     namespace, and the anchor the delegated key derivation
+#                                     strips. LEAN_BRANCH_PREFIX is retired (#413).
 #   PR_HEAD_REF             required  the PR's head branch name
 #   PR_BODY                 required-ish  the PR body (empty is legal; it just fails to resolve)
 #   PR_CREATED_AT           required  ISO-8601; the PR-open observation point
@@ -162,7 +165,7 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --comments-file)   COMMENTS_FILE="${2:-}"; shift 2 ;;
     --diff-files-file) DIFF_FILES_FILE="${2:-}"; shift 2 ;;
-    -h|--help) sed -n '2,154p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,157p' "$0"; exit 0 ;;
     *) echo "[lean-chain] unknown argument: $1" >&2; exit 2 ;;
   esac
 done
@@ -300,23 +303,16 @@ design_armed() { # design_armed   (spec on stdin)
 # ---- (1) env constants: fail closed, never "exempt" -------------------------------------
 # An unresolvable prefix must never degrade into "not applicable". Same posture as the
 # sibling gate, for the same reason: a vacuous green is the worst outcome available here.
-[[ -n "${LEAN_BRANCH_PREFIX:-}" ]] \
-  || envfail "LEAN_BRANCH_PREFIX is unset or empty — refusing to run (an unresolvable prefix would weaken applicability to the artifact arm alone). Set it on the pr-gates job."
+# There is exactly ONE prefix now (#413), and the pair that had to be held mutually
+# non-prefix-matching is gone with the namespace that created it.
 [[ -n "${PIPELINE_BRANCH_PREFIX:-}" ]] \
-  || envfail "PIPELINE_BRANCH_PREFIX is unset or empty — refusing to run (the artifact arm needs it to avoid double-classifying pipeline PRs). It is set at job level on pr-gates."
+  || envfail "PIPELINE_BRANCH_PREFIX is unset or empty — refusing to run (the delegated key derivation strips it off the head ref). It is set at job level on pr-gates."
 [[ -n "${PR_HEAD_REF:-}" ]] \
   || envfail "PR_HEAD_REF is unset or empty — nothing to classify."
 [[ -n "${PR_CREATED_AT:-}" ]] \
   || envfail "PR_CREATED_AT is unset or empty — the PR-open observation point is unresolvable."
 [[ -n "${PR_HEAD_SHA:-}" ]] \
   || envfail "PR_HEAD_SHA is unset or empty — the freshness check has nothing to measure the verdict against, and 'a verdict exists' is not 'this head was approved'. Set it on the pr-gates job."
-
-# The two prefixes must be mutually non-prefix-matching, or the two gates double-classify.
-# lean-gate.sh asserts this at derivation time; assert it again here, because CI's copies are
-# independent constants that nothing reconciles against the runtime config (the T0 residual).
-if [[ "$LEAN_BRANCH_PREFIX" == "$PIPELINE_BRANCH_PREFIX"* || "$PIPELINE_BRANCH_PREFIX" == "$LEAN_BRANCH_PREFIX"* ]]; then
-  envfail "LEAN_BRANCH_PREFIX ('$LEAN_BRANCH_PREFIX') and PIPELINE_BRANCH_PREFIX ('$PIPELINE_BRANCH_PREFIX') must be mutually non-prefix-matching; one is a prefix of the other, so both gates would classify the same PRs."
-fi
 
 REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null)" \
   || envfail "not in a git repo — cannot resolve the committed artifacts."
@@ -358,8 +354,9 @@ delegate() { # delegate <arms...>   — runs the payload's `check` for the named
 # NOT because they are cheap to move, but because a consumer's CI must reach the SAME answer
 # from a committed config while this gate reaches it from job-level constants — and a boundary
 # that classified differently from the one a consumer runs would make every cross-repo bug
-# report unreproducible. The rules themselves (branch-prefix OR lean-artifact, ANDed with the
-# pipeline exclusion; `Closes` beating `Part of`) are documented at the payload.
+# report unreproducible. The rules themselves (key from the branch suffix, else the body with
+# `Closes` beating `Part of`; then a key-matched non-fixture lean spec in the diff) are
+# documented at the payload.
 CLASSIFY="$(bash "$PAYLOAD" classify "${PAYLOAD_ARGS[@]+"${PAYLOAD_ARGS[@]}"}")" || exit $?
 APPLICABLE="$(printf '%s\n' "$CLASSIFY" | sed -n 's/^applicable=//p' | head -n1)"
 TRIGGER="$(printf '%s\n' "$CLASSIFY" | sed -n 's/^trigger=//p' | head -n1)"
@@ -369,33 +366,24 @@ LEAN_SPEC_IN_DIFF="$(printf '%s\n' "$CLASSIFY" | sed -n 's/^spec_in_diff=//p' | 
   || envfail "the evidence payload returned no applicability verdict — refusing to guess. Output was: $CLASSIFY"
 
 if [[ "$APPLICABLE" -eq 0 ]]; then
-  # Echo the resolved prefixes: a stale constant is otherwise invisible (it just never matches).
+  # Echo what the payload resolved: a decline is otherwise indistinguishable from "never ran".
   echo "[lean-chain] non-lean change — lean chain check not applicable."
   echo "[lean-chain]   head branch: $PR_HEAD_REF"
-  echo "[lean-chain]   configured lean prefix: $LEAN_BRANCH_PREFIX"
+  echo "[lean-chain]   resolved key: ${KEY:-<none>} (branch namespace: $PIPELINE_BRANCH_PREFIX)"
   if [[ -n "$LEAN_SPEC_IN_DIFF" ]]; then
-    echo "[lean-chain]   note: a lean-marked spec IS present ($LEAN_SPEC_IN_DIFF) but the head branch is pipeline-authored — classified to the pipeline chain gate, not this one."
+    echo "[lean-chain]   note: a lean-marked spec IS present ($LEAN_SPEC_IN_DIFF) but it is not this PR's key — classified to the pipeline chain gate, not this one."
   fi
   exit 0
 fi
 
 echo "[lean-chain] applicable via $TRIGGER: branch=$PR_HEAD_REF"
 
+# A lean PR on a branch outside the namespace, naming no issue. The payload classifies it
+# applicable on purpose rather than declining — a PR both gates decline is the hole this
+# boundary exists to close — so the refusal lands here, and it is a VIOLATION (rc=1) with a
+# remedy, not an environment error.
 [[ -n "$KEY" ]] \
-  || fail "PR body carries no resolvable issue reference ('Closes #N' or 'Part of #N'), but this PR is classified lean via $TRIGGER. Add the reference."
-
-# On the prefix arm the branch suffix is itself the key — assert the two agree. Kept HERE and
-# not delegated: it reconciles the payload's body-derived key against THIS gate's branch
-# constant, so it is a check ON the delegation rather than a part of it.
-if [[ "$TRIGGER" == "branch-prefix" ]]; then
-  SUFFIX="${PR_HEAD_REF#"$LEAN_BRANCH_PREFIX"}"
-  if [[ "$SUFFIX" =~ ^([0-9]+)$ ]]; then
-    [[ "${BASH_REMATCH[1]}" == "$KEY" ]] \
-      || fail "key mismatch: PR body references #$KEY but the head branch resolves to #${BASH_REMATCH[1]}."
-  else
-    echo "[lean-chain] prefix-matched branch with a non-key suffix ('$SUFFIX') — using the body key #$KEY."
-  fi
-fi
+  || fail "PR body carries no resolvable issue reference ('Closes #N' or 'Part of #N') and the head branch is outside '$PIPELINE_BRANCH_PREFIX', but this PR commits a lean spec. Add the reference."
 
 echo "[lean-chain] source issue: #$KEY"
 
