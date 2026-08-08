@@ -3,7 +3,8 @@ run_id: lean-434-a
 session_id: acfe299d-7de3-46cb-a37f-3b9f11199523
 region: undeclared
 disposition: reversible-default-and-flag
-ratified: no
+ratified: yes
+ratified_by: https://github.com/manoldonev/second-shift/issues/434#issuecomment-5227624705
 
 ## Gap
 
@@ -54,4 +55,12 @@ unchanged.
 
 ## Ratification provenance
 
-_To be filled at ratification, before the review handoff._
+The maintainer read this gap in the build session, approved it there, and the run posted the
+ratifying comment under their identity. So `ratified_by:` cites a comment the RUN typed on the
+maintainer's behalf, not one they typed — and the comment itself says so.
+
+Written down because the boundary cannot infer it. `check-lean-chain.sh` delegates this arm to
+`lean-evidence.sh:502-517`, which checks only that `ratified: yes` carries a `ratified_by:` URL;
+unlike the claim arm it applies no author filter, so an operator-authored ratification and a
+run-authored one are indistinguishable to it. A reader of this record should not have to take
+the authorship at face value.
