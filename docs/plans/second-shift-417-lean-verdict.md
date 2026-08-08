@@ -1,151 +1,152 @@
 # lean review verdict — #417
 
-verdict=approve
-run_id: review-417-1
-session_id: efb1ce3f-3f27-40bb-b3d6-318d1778cf7b
-rounds: 1
+verdict=needs-work
+run_id: review-417-2
+session_id: c6d9f518-2be9-4635-997e-351bc1f5aa2b
+rounds: 2
 pr: #420
-reviewed_head: 6dabc33aa9490825ee3a8347b5703ed2cd95004a
-reviewed_patch_id: 1a28fff42ca2c6fcc6f4e882368692cd2e929983
-inherited_patch_id: none
-inherited_from_verdict: none
+reviewed_head: be37163b4f03111d0390a14fcf9addcdf2ff5973
+reviewed_patch_id: fb21f1e0d879c0a8134da4f606a38b41a10f172e
+inherited_patch_id: 1a28fff42ca2c6fcc6f4e882368692cd2e929983
+inherited_from_verdict: c5d23730fe60a3cbf17203edb983a6906c89672b
 fidelity: not-applicable
 model: unknown
 
-## Round 1 — approve
+## Round 2 — needs-work
 
-Range read: `a2b158f..HEAD` (chain root — full branch diff, 13 files, +520/−62). Reviewed from a
-checkout of the PR head. Design section unarmed (`docs/plans/second-shift-417-lean.md` declares no
-`## Design`), so fidelity scores `not-applicable`.
+Range read: `c5d2373..HEAD` (delta since the tree round 1 covered, inheriting patch `1a28fff42ca2`),
+**read wider** to the branch's whole contribution at the merged head (`origin/main...HEAD`, patch
+`fb21f1e0d879`). Reviewed from the lean worktree at the PR head. Design section unarmed, so fidelity
+scores `not-applicable`.
 
-The fix is right and it is pinned by fixtures that can actually fail. Three suites drive the **real**
-hook from a **real** linked worktree, so the writer/reader agreement is asserted from both sides
-rather than modelled — the mirror-harness failure mode CLAUDE.md names is avoided by construction.
-No blockers. Four warnings, all accuracy-of-prose; none touches shipped behavior.
+**Why a round was spent rather than the round-1 approve re-stamped.** A `main` merge landed on top of
+the round-1 record today (`be37163`, "Merge main into lean/second-shift-417"), and it was **not** a
+clean replay: `git merge-tree c5d2373 3b9c810` reproduces content conflicts in `lean-reconcile.sh` and
+`lean-reconcile-selftest.sh`, and the branch's own patch identity moved `1a28fff4…` → `fb21f1e0…`.
+The #392 re-stamp remedy is only available when the patch is unchanged; it is not, so round 1 is void
+by the gate's own stated rule ("still moves on any real change — including a conflict resolution").
 
-### Verification performed (reviewer-side, not inherited from the PR body)
+**The conflict resolution itself is correct.** Diffing the branch's contribution before vs after
+(`a2b158f...c5d2373` vs `3b9c810...be37163`) leaves exactly three substantive deltas, all of them the
+right rebase of a line-sensitive edit:
+
+| Delta | Assessment |
+| --- | --- |
+| `lean-reconcile-selftest.sh`: the new case renamed **(Q) → (R)** | correct — main's #416 arm took `(Q)`; `(R)` is unique in the file, and main's `(Q)` re-establishes its whole fixture (`write_progress_unattested`/`write_verdict`/`write_ledger`×2/`commit_verdict`), so `(R)`'s mutations do not reach it |
+| `lean-reconcile.sh`: `sed -n '2,83p'` → `'2,87p'` | correct — main's header grew 4 lines (77→81); line 87 is `# Exit 0 = reconciled…`, line 88 is `set -uo pipefail`. `--help` prints 86 lines and stops before the code; case `(O)` asserts both directions and is green |
+| `lean-gate-selftest.sh` `(d5)`: hunk offset 180 → 213 | offsets only |
+
+`tools/mutation-baseline.tsv` and `scripts/lockstep-manifest.tsv` merged additively — the branch's
+rows are byte-identical and land at unchanged offsets. Every audit-toolkit file (the fix itself) is
+**byte-identical** to the tree round 1 reviewed, so AC-1…AC-5 and AC-8 inherit that round's coverage
+on unchanged content.
+
+### The blocker
+
+**B1 — the merged tree is red: `tools/install-topology-selftest.sh` fails on the two suites this PR
+extends, and neither is in `tools/install-topology-known-red.tsv`.**
+
+That guard did not exist at the branch point — it arrived with the merge. It stages `plugins/` at
+version-keyed paths (`<cache>/<plugin>/<version>/…`) outside any git repo and re-runs every shipped
+suite, and its own header names this exact failure class as one of the two it was built for
+("design-sync-selftest.mjs assumed sibling plugins stay adjacent under `plugins/`").
+
+Both new cases reach across plugins with a monorepo-only hop:
+
+```
+HOOK="$HERE/../../../audit-toolkit/hooks/audit-tool-calls.sh"
+  lean-gate-selftest.sh:227   (d5)
+  lean-reconcile-selftest.sh:641   (R)
+```
+
+In the repo that is `plugins/audit-toolkit/hooks/…` ✓. In the install cache `$HERE` is
+`<cache>/dev-pipeline/4.0.0/skills/run-lean`, so it resolves to
+`<cache>/dev-pipeline/audit-toolkit/hooks/…` — while the hook actually stages at
+`<cache>/audit-toolkit/2.1.0/hooks/…`. Both cases then take their `[ ! -x "$HOOK" ]` branch.
+
+Reproduced twice, independently:
+
+```
+[install-topology] summary: 55 ran, 49 passed, 4 known-red, 0 skipped, 0 stale row(s), 2 red
+  RED:   plugins/dev-pipeline/skills/run-lean/lean-gate-selftest.sh — rc=1
+  RED:   plugins/dev-pipeline/skills/run-lean/lean-reconcile-selftest.sh — rc=1
+```
+
+and, staging the two plugins by hand and running each suite from the staged path:
+
+```
+FAIL: (d5) audit hook not found at …/dev-pipeline/4.0.0/skills/run-lean/../../../audit-toolkit/hooks/audit-tool-calls.sh
+FAIL: (R)  audit hook not found at …/dev-pipeline/4.0.0/skills/run-lean/../../../audit-toolkit/hooks/audit-tool-calls.sh
+```
+
+Per the known-red file's own contract — "a suite NOT listed here that fails or times out is a red
+build" — this reds `lint-and-selftests` and `selftests (macos, bash 3.2)`, both of which discover
+suites by the `*-selftest.sh` glob. On this machine main scores 51 pass / 4 known-red / 0 red; the
+branch converts two passes into two reds.
+
+Not a defect in the fix — the writer/reader contract is right and the cases are the correct shape.
+It is a topology assumption that was invisible until the merge. Two remedies, and the repo has
+precedent for both: **fix** the hop so it resolves in either topology (the TSV notes
+`plan-lint-selftest.sh` and `design-sync-selftest.mjs` "were fixed rather than listed"), or **list**
+both suites with a stated cause, alongside the two existing rows whose cause is the identical
+"fixed hop count that only holds in the monorepo" (`doctor-selftest.sh`, `preflight-selftest.sh`).
+A fix is worth more here than a row: the cross-plugin reach is the *point* of these two cases, and a
+known-red row retires the very coverage AC-6/AC-7 were written to add, wherever the plugin actually
+ships.
+
+### Warnings
+
+| # | Severity | Where | Finding |
+| --- | --- | --- | --- |
+| W1 | warning | PR body, Evidence | Names the reconcile fixture as **(Q)**; the merge renamed it **(R)**, and a *different* `(Q)` now exists — main's #416 build-entry attestation arm. The body points at a real case that is not this PR's. Body-only, so its fix is not a commit and costs no round |
+| W2 | warning | `audit-selftest.sh:224` | Round-1 warning 3, unfixed and now doubly stale: cites `lean-reconcile-selftest.sh`'s **(N)**; the case is **(R)** |
+| W3 | warning | spec OR-1 / AC-2 | Round-1 warning 1, unfixed — "falls back to today's path, so no worse off" is false for submodules (ledger lands in `.git/modules/`) and bare checkouts (outside the repo) |
+| W4 | warning | spec OR-2 | Round-1 warning 2, unfixed — the unmeasured latency was measured at ~+37% per tool call |
+| W5 | warning | spec, "honest limit on the four removals" | Round-1 warning 4, unfixed — the paragraph contradicts its own table on `cmp-eq::1` |
+| W6 | nit | PR title | Round-1 nit 5, unfixed — no conventional prefix |
+
+W3–W6 are round-1 findings the branch has not addressed; no fix commit landed, only the merge. They
+stay at round-1's severity — a round that inherits coverage must not re-grade what the prior round
+already weighed.
+
+### Per-AC scoring
+
+Scored by the letter, every AC every round. The blocker sits **outside** the AC set: it is a property
+of the merged tree, not an unmet criterion.
+
+| AC | Score | Evidence |
+| --- | --- | --- |
+| AC-1 writer anchors on the main checkout, both common-dir forms | satisfied | `audit-tool-calls.sh` byte-identical to the reviewed tree; `audit-selftest.sh` green in-repo |
+| AC-2 fallback is today's path, hook never blocks | satisfied | unchanged content; see W3 on the AC's trailing generalization |
+| AC-3 `audit-history.sh` resolves identically, held by a `verbatim` row | satisfied | `check-lockstep-pairs.sh`: `PASS: audit-ledger-dir (verbatim)`, 18 pairs / 0 failed at the merged head |
+| AC-4 `/audit` + `QUERIES.md` + onboarding name the resolved dir | satisfied | files byte-identical to the reviewed tree |
+| AC-5 `audit-selftest.sh` covers (a)(b)(c) against a throwaway repo | satisfied | green in-repo **and** under the install topology — it stays inside its own plugin (`$SCRIPT_DIR/../hooks/…`), which is why it is not among B1's two reds |
+| AC-6 the false refusal is pinned | satisfied | `(d5)` present and green in the repo; the pin exists. Its suite's install-topology red is B1, a separate property |
+| AC-7 the second reader is pinned on its DEFAULT path | satisfied | `(R)` present and green in the repo, still setting no `LEAN_AUDIT_DIR`; survived the rename intact |
+| AC-8 the location contract is stated where it was false | satisfied | unchanged content |
+| AC-9 the mutation registry is re-keyed in this diff | satisfied | inherited: both guards (`audit-tool-calls.sh`, `audit-history.sh`) are byte-identical to the reviewed tree, so no ordinal moved, and the branch's baseline rows merged additively. Main's `mutation-sweep.sh` change (#433) re-verifies **survivors** only and does not bear on the kept `fail-open::2` row, whose basis was a false KILL |
+
+### Verification performed this round
 
 | Check | Result |
 | --- | --- |
 | `shellcheck -e SC1091,SC2015,SC2181` over all `*.sh` | clean |
-| `scripts/check-lockstep-pairs.sh` | 18 pairs, 0 failed (incl. the new `audit-ledger-dir` row) |
-| Full selftest sweep, **no** `SKIP_STRESS`, `env -u CLAUDE_CODE_SESSION_ID`, `-P 4` | exit 0, 0 failures |
-| CI's bash-3.2 lane replicated (`PATH` shimmed to stock `/bin/bash` 3.2) on the 3 changed suites | all green |
-| `check-frozen-files.sh`, `check-changelog-trailer.sh` | clean / trailer present |
+| `jq empty` over all `*.json` | clean |
+| `scripts/check-lockstep-pairs.sh` | 18 pairs, 0 failed |
+| Full selftest sweep, **no** `SKIP_STRESS`, `env -u CLAUDE_CODE_SESSION_ID -u RUN_ID -u LEAN_RUN_MODEL`, `-P 4` | **rc=1** — `install-topology-selftest.sh` the only failing suite (B1); every other suite green, `lean-gate-selftest` and `lean-reconcile-selftest` included |
+| Merge replay (`git merge-tree c5d2373 3b9c810`) vs the committed merge | conflicts confirmed in two files; resolution reviewed line by line, correct |
+| Branch contribution before vs after the merge | three substantive deltas, all correct; audit-toolkit untouched |
+| Branch patch identity | `1a28fff4…` → `fb21f1e0…`, so round 1 is void rather than re-stampable |
+| Staged-cache reproduction of B1 | both suites fail at the `audit hook not found` branch |
 
-### Adversarial probes — each new assertion reverted against its own writer
-
-Run in a throwaway extraction of the reviewed tree; every mutation asserted **applied** before its
-suite verdict was read (a plain `sed` no-op reads as SURVIVED, which is how a vacuous probe hides).
-
-| Probe | Mutation | Result |
-| --- | --- | --- |
-| A | hook reverted to `${CLAUDE_PROJECT_DIR:-$CWD}/.claude/audit` | `audit-selftest` 17/3 (Tests 10a, 10b, 11); `lean-gate` **(d5)** reds with the exact false-refusal text; `lean-reconcile` **(Q)** reds |
-| B | `audit-history.sh` reverted to a bare `.claude/audit` | `audit-selftest` 19/1 — **Test 14 alone**; (d5)/(Q) unaffected |
-| C | fallback arm misrouted (`root="$base"` → `"$base/nope"`) | `audit-selftest` 19/1 — **Test 12 alone** |
-
-No assertion is decorative, and the reader-side fixtures are genuinely cross-plugin: reverting the
-writer reds three suites in two plugins.
-
-### Per-AC scoring
-
-| AC | Score | Evidence |
-| --- | --- | --- |
-| AC-1 writer anchors on the main checkout, both common-dir forms | satisfied | Tests 10/11, (d5), (Q); all red under Probe A |
-| AC-2 fallback is today's path, hook never blocks | satisfied | Test 12 (killed by Probe C alone), Test 13 (`rc=0` on an unresolvable dir). See Warning 1 on the AC's trailing generalization |
-| AC-3 `audit-history.sh` resolves identically, held by a `verbatim` row | satisfied | `check-lockstep-pairs.sh` green; Test 14 is the sole guard on that half (Probe B) |
-| AC-4 `/audit` + `QUERIES.md` + onboarding name the resolved dir | satisfied | `SKILL.md` steps 1/5, `QUERIES.md` both recipes, both `audit-history.sh` heredocs, the settings template |
-| AC-5 `audit-selftest.sh` covers (a)(b)(c) against a throwaway repo | satisfied | Tests 10/12/11 respectively; fixture is a `mktemp` repo it owns — no probe run wrote into the live checkout |
-| AC-6 the false refusal is pinned | satisfied | (d5); Probe A reproduces the original refusal verbatim |
-| AC-7 the second reader is pinned on its DEFAULT path | satisfied | (Q) sets no `LEAN_AUDIT_DIR` (only the pre-existing lines 126/525 do) and reds under Probe A |
-| AC-8 the location contract is stated where it was false | satisfied | `SETUP.md` anchoring + abandonment, `lean-reconcile.sh` env block, `Changelog:` trailer; no prose-presence guard added |
-| AC-9 the mutation registry is re-keyed in this diff | satisfied | every claimed ordinal independently re-derived from the operators' own detector regexes at both revs — see below. Warning 4 is the summary paragraph, not the rows |
-
-**AC-9, re-derived rather than taken on trust.** `audit-tool-calls.sh::default` — base has one site
-(the code, L59); head has L68 (a comment) at ordinal 1 and the code at ordinal 2. Row added for the
-prose site, none for the code site: correct. `audit-history.sh::cmp-z` — base ordinals 1/2 are L74/L90;
-head ordinals 1/2 are the new resolution's own guards (L37/L46) and the old sites moved to 3/4, outside
-`k=2`. `logic::2` — base L51, head L44, old site displaced to ordinal 4. `cmp-eq::1` — same site at both
-revs. Kept rows (`fail-open::1/2`, `detector::1/2`, hook `logic::2`) are all ordinal-unmoved. The
-`lean-reconcile.sh` header edit adds no operator site — its only operator-matching `+` line is the
-pre-existing `sed -n '2,83p'`, a modified site rather than a new one.
-
-### Findings
-
-| # | Severity | Where | Finding |
-| --- | --- | --- | --- |
-| 1 | warning | `docs/plans/second-shift-417-lean.md` OR-1 (and AC-2's last sentence) | The open region's justification is empirically false for two of the three layouts it names |
-| 2 | warning | same, OR-2 | "Marginal" understates a now-measured ~+37% on the hook's own per-call cost |
-| 3 | warning | `plugins/audit-toolkit/scripts/audit-selftest.sh` (Tests 10-14 header) | Cites `lean-reconcile-selftest.sh`'s **(N)**; the case that landed is **(Q)** |
-| 4 | warning | `docs/plans/second-shift-417-lean.md` "Honest limit on the four removals" | Over-generalizes: one of the four is genuine new coverage, and the paragraph contradicts its own table |
-| 5 | nit | PR title | No conventional prefix, so the derived release bullet carries no type/scope |
-
-**1 — OR-1's "no worse off than before" does not hold for submodules or bare checkouts.** OR-1 takes
-the D-6 ladder on the stated ground that "anything that does not resolve to a readable directory falls
-back to today's path, so such a layout is no worse off than before this PR". Measured against the real
-resolver, two of the three layouts it names *do* resolve — to a new place, not the fallback:
-
-- submodule: `--git-common-dir` → `<super>/.git/modules/vendor`, so the ledger lands at
-  `<super>/.git/modules/.claude/audit/` — **inside git's private directory**.
-- bare checkout: `--git-common-dir` → `.`, so the ledger lands at `<parent-of-foo.git>/.claude/audit/`
-  — **outside the repository entirely**, in whatever directory happens to contain it.
-
-(The third, `.git`-file worktrees, *is* the linked-worktree case and is exercised.) Not a blocker: no
-consumer topology is a submodule or a bare checkout, writer and readers still agree in both layouts so
-nothing breaks functionally, and neither location is version-controlled. But the flag's whole
-reversibility argument rests on a claim that is checkable in a minute and is wrong, and AC-2's "No new
-failure mode for any layout" inherits the same over-reach. The fix is one corrected sentence — or, if
-you want the claim to become true, one `case` arm rejecting a common-dir under `.git/`.
-
-**2 — OR-2 is measurable, and the intuition behind "marginal" is the wrong one.** OR-2 declines to
-measure on the reasoning that "the hook already spawns `jq` six times and `date` once per call, so this
-is marginal". Measured on this machine (macOS, warm, 150 invocations × 3 rounds, same fixture repo,
-base hook vs head hook): base 43–61 ms/call, head 60–78 ms/call — **+16 to +17 ms, ~+37%**. Isolated:
-`git rev-parse --git-common-dir` ≈ 20 ms/op, the `cd`+`pwd` subshell ≈ 1 ms. So one `git` process costs
-roughly a third of everything the hook already did — the six-`jq` comparison points the wrong way. In
-absolute terms this is still nothing beside a model turn, and the spec correctly claims nothing, so no
-action is required; but the flag can now be closed with a number instead of left open. Related and
-pre-existing: `SETUP.md`'s unchanged "~1–2 ms" per-tool-call claim was already off by ~40× at base and
-this PR widens the gap.
-
-**3 — stale cross-reference.** The Tests 10-14 header comment tells the next reader the reconcile-side
-fixture is `lean-reconcile-selftest.sh`'s **(N)**. `(N)` is the inheritance-chain case; the case that
-landed here is **(Q)**. No lane can red on a comment, which is exactly why it is worth fixing in the
-round that introduced it.
-
-**4 — the mutation paragraph contradicts its own table.** The table scores `cmp-eq::1` as "killed —
-**ordinal unmoved**; the new `/audit-history`-from-a-worktree case now asserts a non-zero session
-count". The paragraph beneath then covers all four removals with "those mutants are now killed because
-the `k=2` budget window moved onto the new resolution's guards, **not** because the regressions the old
-rows described became caught. Their sites sit at ordinals 3-6 and are no longer swept at all." Re-derived:
-`cmp-eq::1` keys the same guard at base (L52) and head (L76), it is still at ordinal 1, it is still
-swept, and Test 14 is a real new assertion that kills it — so for that row the honest limit does not
-apply and "no longer swept at all" is false. The error under-claims the PR's own coverage, and the
-three `cmp-z`/`logic` rows it does describe are exactly right; scope the paragraph to those three.
-
-**5 — nit.** `#414`/`#411` merged with `docs(...)`/`feat(...)` subjects; `#404`/`#407` merged bare, so
-precedent runs both ways. The bump is unaffected either way (`fix:` → patch, bare subject → patch, via
-`derive-release.sh`'s level ladder), and plugin attribution comes from changed paths, not the subject.
-Purely a release-notes consistency call at merge time.
-
-### Not findings — checked and cleared
-
-- **Trailer handling across the squash.** Three `Changelog:` blocks reach the squashed body
-  (`none.`, the real prose, `none.`). `render_bullet`'s paragraph-mode `awk` normalizes case, trailing
-  whitespace and a trailing period before the no-op test, so both `none.` blocks drop and the real one
-  renders. Ordering does not matter.
-- **`check-plugin-version-bumps.sh` reds locally** for three plugins — it compares against tag `v4.0.0`
-  and so reports main's drift, not this branch's. The job is gated to `head_ref == 'release/next'` in
-  `ci.yml` and cannot fire on this PR. No frozen file is touched.
-- **`/audit`'s doc snippet omits the hook's fallback branch** — in a non-git directory the snippet
-  resolves `/.claude/audit` where the hook would use `<dir>/.claude/audit`. Unreachable for `/audit` in
-  practice (it is repo-scoped, and the empty result routes to the Case A onboarding either way).
-- **Reviewer panel** (security, performance, maintainability, complexity, test-coverage,
-  scope-completeness): 6/6 approve, 0 blockers, 0 dark. Its one ≥80-confidence suppressed note is
-  finding 3 above, reached independently.
+**Not re-run this round, stated rather than implied:** the reviewer panel (round 1 scored 6/6 approve
+on audit-toolkit content that is byte-identical here, and the merge interaction is not a thing a
+reviewer agent is placed to catch — running the class guard is), and `tools/mutation-sweep.sh`
+(AC-9's guards are unchanged; the fix for B1 will move at least one of these two suites, so the sweep
+is worth running against that tree rather than this one).
 
 ### CI
 
-No workflow run has ever been created for this PR — Actions has been stuck repo-wide (an unrelated
-18:08 run sat `queued` for 40+ minutes). Not branch-specific and not attributable to this diff; the
-merge boundary still owns the green gate. The local evidence above is what this round rests on.
+`pr-gates` fail, `lint-and-selftests` and `selftests (macos, bash 3.2)` pending on run
+`31265316163` at the time of writing. The local sweep above is what this round rests on, and it
+predicts both selftest lanes red for B1.
