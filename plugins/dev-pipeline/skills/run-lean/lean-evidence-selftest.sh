@@ -411,6 +411,39 @@ if [ "$rc" -eq 0 ] && [ "$(printf '%s\n' "$out" | grep -cv '^[a-z_]*=')" = "0" ]
   pass "(bb1b) classify's stdout stays pure key=value even while announcing the retired constant"
 else fail "(bb1b) classify stdout carried a non-key=value line, rc=$rc: $out"; fi
 
+# ---- (bb2) the artifact scan FAILS CLOSED on a diff it cannot read -------------------------
+# The three cases below drive the LIVE git path (no --diff-files-file), which is what CI takes.
+# They exist because #413 made this scan the SOLE applicability arm: with the branch-namespace
+# arm gone, "the diff was unreadable" and "the PR carries no lean spec" produce the same empty
+# file list, and the second is a merge-boundary exemption. Each asserts rc=2 AND that no
+# `applicable=` line was emitted — a silent `applicable=0` is the exact failure being closed,
+# and it is also what a producer envfailing inside a `< <( )` process substitution would print,
+# since that exit dies in the subshell and the reader sees a clean EOF.
+out="$( cd "$TREE" && PIPELINE_BRANCH_PREFIX="claude/acme-" \
+        PR_HEAD_REF="claude/acme-42" PR_BODY="$BODY_GOOD" PR_BASE_REF=main \
+        bash "$TOOL" classify 2>&1 )"; rc=$?
+if [ "$rc" -eq 0 ] && printf '%s' "$out" | grep -q '^applicable=1'; then
+  pass "(bb2a) the live git diff path classifies — the fail-closed cases below are not vacuous"
+else fail "(bb2a) expected the live path to classify applicable=1, got $rc: $out"; fi
+
+out="$( cd "$TREE" && env -u PR_BASE_REF PIPELINE_BRANCH_PREFIX="claude/acme-" \
+        PR_HEAD_REF="claude/acme-42" PR_BODY="$BODY_GOOD" \
+        bash "$TOOL" classify 2>&1 )"; rc=$?
+if [ "$rc" -eq 2 ] \
+   && printf '%s' "$out" | grep -q 'PR_BASE_REF is unset or empty' \
+   && ! printf '%s' "$out" | grep -q '^applicable='; then
+  pass "(bb2b) an unset PR_BASE_REF is an environment error, never a silent non-lean verdict"
+else fail "(bb2b) expected rc=2 and no applicable= line, got $rc: $out"; fi
+
+out="$( cd "$TREE" && PIPELINE_BRANCH_PREFIX="claude/acme-" \
+        PR_HEAD_REF="claude/acme-42" PR_BODY="$BODY_GOOD" PR_BASE_REF=no-such-base \
+        bash "$TOOL" classify 2>&1 )"; rc=$?
+if [ "$rc" -eq 2 ] \
+   && printf '%s' "$out" | grep -q 'merge-base' \
+   && ! printf '%s' "$out" | grep -q '^applicable='; then
+  pass "(bb2c) an unresolvable merge-base is an environment error too (the shallow-checkout shape)"
+else fail "(bb2c) expected rc=2 and no applicable= line, got $rc: $out"; fi
+
 # The violation COUNT, not just the exit code: a delegating caller prints one combined total,
 # and collapsing "2 missing" to "1 call failed" loses the quantity an operator triages by.
 mv "$VREC" "$WORK/held-verdict.md"; commit_tree "verdict removed (count)"

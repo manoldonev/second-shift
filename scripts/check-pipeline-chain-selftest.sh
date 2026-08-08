@@ -175,6 +175,22 @@ if [[ $rc -eq 2 ]] && grep -q "lean evidence payload is missing" "$WORK/out.log"
   ok "an unreachable lean classifier is an environment error, not a silent fall-through"
 else bad "missing payload not fail-closed: rc=$rc, log: $(cat "$WORK/out.log")"; fi
 
+# The payload REACHABLE but its input unreadable is the same class one level in, and it is the
+# one an agent-editable workflow can reach: dropping `PR_BASE_REF:` from the pr-gates env block
+# leaves the classifier with no diff to scan. AC-7's letter — "a delegation that cannot run is an
+# environment error, never a silent exemption" — is asserted here at the composed boundary, since
+# the payload's own rc=2 buys nothing if this caller swallows it. No --diff-files-file, so the
+# live path is what runs.
+env PIPELINE_BRANCH_PREFIX="$PREFIX" PIPELINE_PLAN_PATTERN="$PATTERN" \
+    LEAN_EVIDENCE="$LEAN_EV" \
+    PR_HEAD_REF="${PREFIX}42" PR_BODY="Closes #42" PR_CREATED_AT="$OPEN_AT" \
+    bash "$CHAIN" --comments-file "$EMPTY_TRAIL" > "$WORK/out.log" 2>&1
+rc=$?
+if [[ $rc -eq 2 ]] && grep -q "failed to classify" "$WORK/out.log" \
+   && ! grep -q "lean-lane change" "$WORK/out.log"; then
+  ok "a delegation whose diff is unreadable exits 2 — never a silent exemption either way (AC-7)"
+else bad "unreadable delegation input not fail-closed: rc=$rc, log: $(cat "$WORK/out.log")"; fi
+
 echo "== fail-closed env constants (AC-3) =="
 
 for var in PIPELINE_BRANCH_PREFIX PIPELINE_PLAN_PATTERN; do
@@ -264,10 +280,14 @@ if [[ $rc -eq 0 ]] && grep -q "aaaa1111" "$WORK/out.log"; then
 else bad "window selection: rc=$rc, log: $(cat "$WORK/out.log")"; fi
 
 # And the whole chain being newer than PR-open is a genuine failure: nothing was visible at open.
+# The three invocations below bypass run_chain to vary env this helper pins, so they carry
+# --diff-files-file themselves: the delegated classifier now treats an unreadable diff as an
+# environment error, and without it every one of them would exit 2 on the delegation instead of
+# reaching the arm it is here to test.
 env PIPELINE_BRANCH_PREFIX="$PREFIX" PIPELINE_PLAN_PATTERN="$PATTERN" \
     LEAN_EVIDENCE="$LEAN_EV" \
     PR_HEAD_REF="${PREFIX}42" PR_BODY="Closes #42" PR_CREATED_AT="2026-07-30T08:00:00Z" \
-    bash "$CHAIN" --comments-file "$FULL" > "$WORK/out.log" 2>&1
+    bash "$CHAIN" --comments-file "$FULL" --diff-files-file "$DIFF_PLAIN" > "$WORK/out.log" 2>&1
 rc=$?
 if [[ $rc -eq 1 ]] && grep -q "chain does not start" "$WORK/out.log"; then
   ok "a trail entirely after PR-open fails — nothing was visible at the observation point"
@@ -336,7 +356,7 @@ env PIPELINE_BRANCH_PREFIX="$PREFIX" PIPELINE_PLAN_PATTERN="$PATTERN" \
     LEAN_EVIDENCE="$LEAN_EV" \
     PR_HEAD_REF="${PREFIX}42" PR_BODY="Closes #42" PR_CREATED_AT="$OPEN_AT" \
     GH_REPO="owner/repo" GH="$MOCKBIN/gh-fail" \
-    bash "$CHAIN" > "$WORK/out.log" 2>&1
+    bash "$CHAIN" --diff-files-file "$DIFF_PLAIN" > "$WORK/out.log" 2>&1
 rc=$?
 if [[ $rc -eq 2 ]] && grep -q "comment fetch failed" "$WORK/out.log"; then
   ok "failed comment fetch exits 2 (environment), never a silent pass (D-11)"
@@ -349,7 +369,7 @@ env PIPELINE_BRANCH_PREFIX="$PREFIX" PIPELINE_PLAN_PATTERN="$PATTERN" \
     LEAN_EVIDENCE="$LEAN_EV" \
     PR_HEAD_REF="${PREFIX}42" PR_BODY="Closes #42" PR_CREATED_AT="$OPEN_AT" \
     GH_REPO="owner/repo" GH="$MOCKBIN/gh-ok" \
-    bash "$CHAIN" > "$WORK/out.log" 2>&1
+    bash "$CHAIN" --diff-files-file "$DIFF_PLAIN" > "$WORK/out.log" 2>&1
 rc=$?
 if [[ $rc -eq 0 ]]; then ok "the \${GH:-gh} seam drives the live path (zero network)"
 else bad "live path via mock gh: rc=$rc, log: $(cat "$WORK/out.log")"; fi

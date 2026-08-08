@@ -248,17 +248,28 @@ record_key() { # record_key <key> <path> [charset]
 }
 
 # ---------------------------------------------------------------- classification
+# FAILS CLOSED, and that is a consequence of #413 rather than a belt-and-braces addition. While a
+# branch-namespace arm classified independently, an unreadable diff cost only the artifact arm and
+# the prefix arm still spoke, so returning empty here was safe. That arm is gone: the scan below is
+# the WHOLE classifier, and an empty file list is indistinguishable from "carries no lean spec" —
+# a lean PR would then be reported non-applicable and waved through the merge boundary by the one
+# gate that owns it. So the two conditions arm_freshness() already treats as environment errors are
+# environment errors here too, on the same posture this file states twice: a check which cannot run
+# must not report one.
 changed_files() {
   if [ -n "$DIFF_FILES_FILE" ]; then
     [ -f "$DIFF_FILES_FILE" ] || envfail "--diff-files-file '$DIFF_FILES_FILE' does not exist."
     cat "$DIFF_FILES_FILE"
     return 0
   fi
-  [ -n "${PR_BASE_REF:-}" ] || return 0   # no base ref ⇒ no artifact arm; the prefix arm still applies
+  [ -n "${PR_BASE_REF:-}" ] \
+    || envfail "PR_BASE_REF is unset or empty — the PR's changed-file list is the SOLE applicability input and cannot be computed without a base to diff against. Set it on the job, or pass --diff-files-file."
   local mb
-  mb="$(git -C "$REPO_ROOT" merge-base "origin/$PR_BASE_REF" "${PR_HEAD_SHA:-HEAD}" 2>/dev/null)" || return 0
-  [ -n "$mb" ] || return 0
-  git -C "$REPO_ROOT" diff --name-only "$mb".."${PR_HEAD_SHA:-HEAD}" 2>/dev/null || true
+  mb="$(git -C "$REPO_ROOT" merge-base "origin/$PR_BASE_REF" "${PR_HEAD_SHA:-HEAD}" 2>/dev/null)"
+  [ -n "$mb" ] \
+    || envfail "cannot resolve the merge-base of origin/$PR_BASE_REF and ${PR_HEAD_SHA:-HEAD} — a full-history checkout of the base is required (fetch-depth: 0). Classifying on a diff this gate cannot read would report 'not lean' for a lean PR."
+  git -C "$REPO_ROOT" diff --name-only "$mb".."${PR_HEAD_SHA:-HEAD}" \
+    || envfail "git diff --name-only $mb..${PR_HEAD_SHA:-HEAD} failed — the changed-file list is unreadable, and an unreadable list is not an empty one."
 }
 
 APPLICABLE=0
@@ -309,6 +320,12 @@ classify() {
   # Two scans in one pass. KEY_SPEC is the spec for THIS PR's key and is what applicability
   # turns on. ANY_SPEC is any other lean spec in the diff, kept for two distinct jobs below —
   # neither of them "classify on it".
+  # Resolved in THIS shell, never in a `< <(changed_files)` process substitution: that runs the
+  # producer in a subshell, where an envfail's exit is swallowed and the reader sees a clean EOF —
+  # the exact fail-open shape the function above was just closed against.
+  local files
+  files="$(changed_files)" || exit $?
+
   local f key_spec="" any_spec=""
   while IFS= read -r f; do
     [ -n "$f" ] || continue
@@ -323,7 +340,7 @@ classify() {
     if [ -n "$RESOLVED_KEY" ]; then
       case "$f" in *"-$RESOLVED_KEY$LEAN_SPEC_SUFFIX") key_spec="$f"; break ;; esac
     fi
-  done < <(changed_files)
+  done <<< "$files"
 
   if [ -n "$RESOLVED_KEY" ]; then
     # THE SOLE ARM, and non-vacuous by construction. There is no branch-shaped arm left and
