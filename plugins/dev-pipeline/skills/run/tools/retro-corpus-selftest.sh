@@ -63,7 +63,7 @@ mkprogress() {
     echo "run_id: run$issue"
     echo "session_id: sess$issue"
     echo "issue: $issue"
-    echo "branch_prefix: lean/second-shift-"
+    echo "branch_prefix: claude/second-shift-"
     echo "spec: docs/plans/second-shift-$issue-lean.md"
     echo "verdict_record: docs/plans/second-shift-$issue-lean-verdict.md"
     [ -n "$modelline" ] && echo "model: $modelline"
@@ -207,6 +207,48 @@ if [ "$RC3" -eq 2 ] && printf '%s' "$OUT3" | grep -q "carry no 'files'"; then
   pass "(AC-5c) open-prs: a PR list without the files field is an environment error, not an empty result"
 else
   fail "(AC-5c) rc=$RC3 — got $OUT3"
+fi
+
+# ═══════════════════════════════════════════════════════════════════════════════════
+# #413 AC-5: this mode resolves its namespace through the SHARED resolver, not a local copy.
+# Behavioral, not a grep for an absent function: with tracker.branchPrefix UNSET, the only way
+# to reach a namespace at all is branch-prefix.sh's dominant-prefix detection over the repo's
+# remote refs. A re-introduced local copy would have to re-implement detection to pass this —
+# and a local copy that simply restored the old `claude/acme-` default fails it outright.
+# ═══════════════════════════════════════════════════════════════════════════════════
+D5="$WORK/ac5-shared"; mkdir -p "$D5/comments"
+CFG_NOPREFIX="$WORK/config-noprefix.json"
+jq 'del(.tracker.branchPrefix)' "$TREE/.claude/second-shift.config.json" > "$CFG_NOPREFIX"
+# The refs the detection votes on. `for-each-ref` reads these directly — no remote, no fetch.
+git -C "$TREE" commit -q --allow-empty -m "ac5-shared fixture" 2>/dev/null
+for b in team/second-shift-801 team/second-shift-802 release/1.2.0; do
+  git -C "$TREE" update-ref "refs/remotes/origin/$b" HEAD
+done
+jq -n '[
+  {number: 801, headRefName: "team/second-shift-801", url: "https://example.invalid/pr/801",
+   files: [{path: "docs/plans/second-shift-801-lean.md"}]}
+]' > "$D5/prs.json"
+echo '[]' > "$D5/comments/801.json"
+OUT5="$( cd "$TREE" && SECOND_SHIFT_CONFIG="$CFG_NOPREFIX" bash "$TOOL" open-prs \
+         --pr-list-file "$D5/prs.json" --comments-dir "$D5/comments" --json 2>&1 )"; RC5=$?
+if [ "$RC5" -eq 0 ] && [ "$(jq -r '.[0].issue' <<<"$OUT5" 2>/dev/null)" = "801" ]; then
+  pass "(AC-5d) open-prs resolves an UNSET branchPrefix through the shared detector, not a local default"
+else
+  fail "(AC-5d) rc=$RC5 — got $OUT5"
+fi
+
+# ...and it inherits the shared refusal, rather than falling back to anything. Same call, refs
+# cleared: a local copy carrying the retired `claude/acme-` default would quietly return zero
+# rows here instead of erroring, which reads as "no open lean work".
+for b in team/second-shift-801 team/second-shift-802 release/1.2.0; do
+  git -C "$TREE" update-ref -d "refs/remotes/origin/$b"
+done
+OUT5B="$( cd "$TREE" && SECOND_SHIFT_CONFIG="$CFG_NOPREFIX" bash "$TOOL" open-prs \
+          --pr-list-file "$D5/prs.json" --comments-dir "$D5/comments" --json 2>&1 )"; RC5B=$?
+if [ "$RC5B" -eq 2 ] && printf '%s' "$OUT5B" | grep -q 'refusing to guess'; then
+  pass "(AC-5e) open-prs inherits the shared refusal on an unresolvable namespace"
+else
+  fail "(AC-5e) rc=$RC5B — got $OUT5B"
 fi
 
 # ═══════════════════════════════════════════════════════════════════════════════════
