@@ -36,10 +36,30 @@ repo enables {{PLUGIN_LIST}}) — `/second-shift:doctor` verifies the install ag
 - Skills: `onboard`, `doctor`, `local-dev-refresh`. Zero session hooks, zero agents — near-zero session cost.
 - Optional committed CI files (present only if you enabled the evidence workflow at onboard):
   `.github/workflows/second-shift-ci.yml` + `.claude/tools/second-shift-ci-check.sh`. These run
-  in **GitHub Actions on your PRs** (not in a Claude session — no session cost): they config-lint
-  the committed config at the pinned marketplace ref and assert the settings ref and lockfile ref
-  agree. The workflow only reports a check; it blocks a merge only if you mark it a required status
-  check in branch protection.
+  in **GitHub Actions on your PRs** (not in a Claude session — no session cost). Three checks:
+  config-lint the committed config at the pinned marketplace ref; assert the settings ref and
+  lockfile ref agree; and, on a `/dev-pipeline:run-lean` PR, assert the merge-boundary evidence
+  the lean lane is supposed to leave — a committed approve-verdict carrying reconciliation keys,
+  a review identity distinct from the build run's, a verdict covering *this* head, and no
+  unratified intent-gap record. The workflow only reports a check; it blocks a merge only if you
+  mark it a required status check in branch protection.
+- **The lean evidence check is fail-closed.** Missing evidence is a failure, and so is a check
+  that could not run: a moved script path at your pinned ref (HTTP 404) or a shallow checkout is
+  reported as drift, never waved through green. Only a network/auth blip fetching the script is
+  a non-fatal warning. Nothing about it is model-driven and it makes no API-billed calls.
+- **If you hand-maintain that workflow, keep its `permissions:` block intact.** The identity arm
+  reads the PR's comment trail, so the job needs `contents: read` **plus `issues: read` and
+  `pull-requests: read`**. A `permissions:` key replaces the workflow defaults wholesale — any
+  scope you leave out is `none`, with no public-repo exception — so dropping either read denies
+  that call and reds every lean PR with an environment error. Read scopes only: the job executes
+  a script fetched from the marketplace repo at your pinned ref, which inherits this token.
+- **Its gate strength depends on your tracker.** Under `tracker.type: github` the build run's
+  identity comes from a bot-authored marker comment the harness posts on the PR, and the
+  verdict's independence is checked against it. Under `tracker.type: jira`, `config-lint` forbids
+  `tracker.bot`, so there is no authenticated writer for that marker: the identity arm reports
+  itself unavailable at reduced strength — printed on every run, never silently skipped — while
+  every other arm still gates. The tracker/source-control axis split that would close this gap
+  is a schema change and ships separately.
 - Optional committed CI files (emitted by the same acceptance as the pair above):
   `.github/workflows/second-shift-unclaim.yml` + `.claude/tools/second-shift-unclaim.sh`. Also
   **GitHub Actions, not a Claude session**, but unlike the pair above this one **writes**: when an

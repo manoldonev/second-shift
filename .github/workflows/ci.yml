@@ -152,6 +152,13 @@ jobs:
     # A `permissions:` key REPLACES the defaults wholesale, so `contents: read` must be
     # restated or actions/checkout breaks. issues/pull-requests are for the chain check's
     # comment read.
+    # Gaining a scope here is a question about the CONSUMER template too. If the arm needing it
+    # lives in the delegated payload (lean-evidence.sh), then
+    # plugins/second-shift/templates/consumer/second-shift-ci.yml needs the same scope, and
+    # without it every adopting repo's lean PRs red on an environment error. If it lives only in
+    # check-lean-chain.sh, the template must NOT get it — an unused scope there is a standing
+    # escalation for a job that executes a fetched script. Reasoned out in
+    # scripts/lockstep-manifest.tsv (the `lean evidence TOKEN SCOPES` entry).
     permissions:
       contents: read
       issues: read
@@ -222,10 +229,17 @@ jobs:
       # `HEAD`: on a pull_request event actions/checkout resolves refs/pull/N/merge, so HEAD is
       # merge(base, head) and every base-side commit merged since the branch point would read
       # as "changed after the verdict". fetch-depth: 0 above is what makes the object reachable.
+      #
+      # PR_NUMBER is the delegated payload's input, not this script's: the build run's identity
+      # is a bot marker comment on the PR, and the arm reading it fetches that trail by number.
+      # Absent, the payload exits 2 and this gate propagates it — a check that cannot run is
+      # never scored as a pass, so dropping this constant reds every lean PR rather than
+      # quietly waiving the authorship comparison.
       - name: lean chain reconciliation (lean PRs carry their evidence set)
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
           PR_HEAD_REF: ${{ github.event.pull_request.head.ref }}
           PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           PR_BODY: ${{ github.event.pull_request.body }}

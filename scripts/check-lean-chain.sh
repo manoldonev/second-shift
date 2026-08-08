@@ -96,10 +96,26 @@
 # double-classified. Selftest-fixture paths are excluded from the artifact scan for the same
 # reason: fixtures are lean-shaped on purpose.
 #
-# CONSUMER UNPORTABILITY: second-shift-only, same as its sibling. It reconciles against
-# tracker COMMENTS, which a read-only tracker (`tracker.writes: false`) posts none of. lean's
-# integrity contract is dogfood-scoped for now; consumer-side enforcement is a named
-# promotion prerequisite. Do not ship this to the consumer CI template.
+# CONSUMER PORTABILITY, and the delegation that follows from it (#359). This FILE stays
+# second-shift-only: it reconciles against tracker COMMENTS, which a read-only tracker
+# (`tracker.writes: false`) posts none of. But most of the evidence above needs no tracker at
+# all, and that half now lives in plugin payload — `lean-evidence.sh`, beside lean-gate.sh —
+# which a consumer's CI fetches at its pinned marketplace ref. This gate CALLS that file rather
+# than holding a second copy of those arms:
+#
+#   delegated:  classification (applicability + issue key), evidence 2 (the verdict record),
+#               evidence 4's PR-marker half, evidence 7 (ratification), and evidence 5's
+#               DECLARED patch-id arm.
+#   kept here:  evidence 1 (the spec), evidence 3 (the bot claim on the ISSUE), evidence 4's
+#               claim-identity half, evidence 5's INFERRED and `reviewed_head` arms — legacy
+#               paths for records predating the patch-id key — and evidence 6 and 8, which OR-1
+#               parks outside the consumer core.
+#
+# THE IDENTITY ARMS ARE BOTH RUN, and that is deliberate rather than transitional. The payload
+# reads the build identity from a bot marker on the PR, because that is the one write surface
+# every adapter has; this gate additionally compares it against the bot claim on the ISSUE,
+# which only a writing tracker has. Two independent sources for one fact make this boundary
+# strictly stronger than the consumer core — an asymmetry to disclose, not to level down.
 #
 # Inputs (ALL via the environment — never spliced into a `run:` line; a PR body is
 # attacker-controllable, and ci.yml documents this convention):
@@ -126,8 +142,14 @@
 #
 # Seams (zero-network selftest, the check-pipeline-chain.sh precedent):
 #   ${GH:-gh}                  the CLI used for the comment fetch
-#   --comments-file <path>     read the comment trail from a JSON fixture
+#   --comments-file <path>     read the ISSUE comment trail from a JSON fixture
 #   --diff-files-file <path>   read the PR's changed-file list from a newline-delimited fixture
+#   LEAN_PR_COMMENTS_FILE      read the PR marker trail from a JSON fixture. An ENV seam, alone
+#                              among the three, because it is not this script's input: it is
+#                              forwarded verbatim to the delegated payload, and every real input
+#                              this gate takes already arrives by environment.
+#   LEAN_EVIDENCE               path to lean-evidence.sh, when it is not at the committed
+#                              location below (a vendored fork, or a selftest driving a copy)
 #
 # Exit 0 = pass or not-applicable; 1 = evidence violation; 2 = usage/environment error.
 set -uo pipefail
@@ -140,7 +162,7 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --comments-file)   COMMENTS_FILE="${2:-}"; shift 2 ;;
     --diff-files-file) DIFF_FILES_FILE="${2:-}"; shift 2 ;;
-    -h|--help) sed -n '2,132p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,154p' "$0"; exit 0 ;;
     *) echo "[lean-chain] unknown argument: $1" >&2; exit 2 ;;
   esac
 done
@@ -157,9 +179,12 @@ envfail() { echo "[lean-chain] $1" >&2; exit 2; }
 # `-lean-renders.md` (#394) is anchored for the same reason and with the same care: it must not
 # end in `-lean.md`, or the artifact arm's FIRST-match spec scan would pick a render receipt and
 # call it the spec.
+#
+# `-lean-intent-gap.md` is NOT here any more (#359): the ratification arm moved to
+# lean-evidence.sh, which pins that suffix itself. Only the names this file still reads live
+# here — an unread constant is a claim about coverage the code does not make.
 LEAN_SPEC_SUFFIX='-lean.md'
 LEAN_VERDICT_SUFFIX='-lean-verdict.md'
-LEAN_INTENT_GAP_SUFFIX='-lean-intent-gap.md'
 LEAN_RENDER_SUFFIX='-lean-renders.md'
 # LOCKSTEP-END lean-chain-artifact-patterns
 
@@ -296,37 +321,52 @@ fi
 REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null)" \
   || envfail "not in a git repo — cannot resolve the committed artifacts."
 
-# ---- (2) resolve the PR's changed files (for the artifact arm) ---------------------------
-changed_files() {
-  if [[ -n "$DIFF_FILES_FILE" ]]; then
-    [[ -f "$DIFF_FILES_FILE" ]] || envfail "--diff-files-file '$DIFF_FILES_FILE' does not exist."
-    cat "$DIFF_FILES_FILE"
-    return 0
-  fi
-  [[ -n "${PR_BASE_REF:-}" ]] || return 0   # no base ref ⇒ no artifact arm, prefix arm still applies
-  local mb
-  mb="$(git merge-base "origin/$PR_BASE_REF" HEAD 2>/dev/null)" || return 0
-  git diff --name-only "$mb"..HEAD 2>/dev/null || true
+# The delegated payload. Resolved from the REPO ROOT and not from this script's own directory:
+# in CI the checkout IS the marketplace repo, so the committed path is the authority, and a
+# `$HERE/..`-relative walk would silently resolve to a different tree in a worktree layout.
+# Missing is fatal — a boundary that cannot reach half its evidence must not report a pass.
+PAYLOAD="${LEAN_EVIDENCE:-$REPO_ROOT/plugins/dev-pipeline/skills/run-lean/lean-evidence.sh}"
+[[ -f "$PAYLOAD" ]] \
+  || envfail "the portable evidence payload is missing at '$PAYLOAD' — this gate delegates its verdict, identity, ratification and patch-id arms to it and cannot evaluate them alone. Set LEAN_EVIDENCE if it lives elsewhere."
+
+# One invocation shape for every delegated call. The payload's own violation COUNT is read back
+# through --violations-file and folded into this gate's total: collapsing "2 artifacts missing"
+# into "1 delegated call failed" would drop the only quantity an operator triages by, and the
+# combined line is the one a reader of the job log sees.
+PAYLOAD_ARGS=()
+[[ -n "${LEAN_PR_COMMENTS_FILE:-}" ]] && PAYLOAD_ARGS+=(--pr-comments-file "$LEAN_PR_COMMENTS_FILE")
+[[ -n "$DIFF_FILES_FILE" ]] && PAYLOAD_ARGS+=(--diff-files-file "$DIFF_FILES_FILE")
+
+delegate() { # delegate <arms...>   — runs the payload's `check` for the named arm set
+  local countfile rc n
+  countfile="$(mktemp -t leanev.XXXXXX)" || envfail "mktemp failed."
+  bash "$PAYLOAD" check --key "$KEY" --arms "$1" --violations-file "$countfile" \
+    "${PAYLOAD_ARGS[@]+"${PAYLOAD_ARGS[@]}"}"
+  rc=$?
+  n="$(cat "$countfile" 2>/dev/null)"
+  rm -f "$countfile"
+  # rc=2 is the payload's ENVIRONMENT error and propagates as this gate's: a check that could
+  # not run must not be scored as either passing or violating.
+  [[ "$rc" -eq 2 ]] && exit 2
+  [[ -n "$n" ]] || n=0
+  violations=$((violations + n))
+  return 0
 }
 
-LEAN_SPEC_IN_DIFF=""
-while IFS= read -r f; do
-  [[ -n "$f" ]] || continue
-  is_fixture_path "$f" && continue
-  case "$f" in
-    *"$LEAN_VERDICT_SUFFIX") continue ;;                 # the verdict record is not the spec
-    *"$LEAN_SPEC_SUFFIX") LEAN_SPEC_IN_DIFF="$f"; break ;;
-  esac
-done < <(changed_files)
-
-# ---- (3) applicability (AC-13) ----------------------------------------------------------
-APPLICABLE=0
-TRIGGER=""
-if [[ "$PR_HEAD_REF" == "$LEAN_BRANCH_PREFIX"* ]]; then
-  APPLICABLE=1; TRIGGER="branch-prefix"
-elif [[ -n "$LEAN_SPEC_IN_DIFF" && "$PR_HEAD_REF" != "$PIPELINE_BRANCH_PREFIX"* ]]; then
-  APPLICABLE=1; TRIGGER="lean-artifact ($LEAN_SPEC_IN_DIFF)"
-fi
+# ---- (2/3/4) classification, delegated ---------------------------------------------------
+# Applicability, the artifact scan and the issue-key resolution all move to the payload (#359).
+# NOT because they are cheap to move, but because a consumer's CI must reach the SAME answer
+# from a committed config while this gate reaches it from job-level constants — and a boundary
+# that classified differently from the one a consumer runs would make every cross-repo bug
+# report unreproducible. The rules themselves (branch-prefix OR lean-artifact, ANDed with the
+# pipeline exclusion; `Closes` beating `Part of`) are documented at the payload.
+CLASSIFY="$(bash "$PAYLOAD" classify "${PAYLOAD_ARGS[@]+"${PAYLOAD_ARGS[@]}"}")" || exit $?
+APPLICABLE="$(printf '%s\n' "$CLASSIFY" | sed -n 's/^applicable=//p' | head -n1)"
+TRIGGER="$(printf '%s\n' "$CLASSIFY" | sed -n 's/^trigger=//p' | head -n1)"
+KEY="$(printf '%s\n' "$CLASSIFY" | sed -n 's/^key=//p' | head -n1)"
+LEAN_SPEC_IN_DIFF="$(printf '%s\n' "$CLASSIFY" | sed -n 's/^spec_in_diff=//p' | head -n1)"
+[[ -n "$APPLICABLE" ]] \
+  || envfail "the evidence payload returned no applicability verdict — refusing to guess. Output was: $CLASSIFY"
 
 if [[ "$APPLICABLE" -eq 0 ]]; then
   # Echo the resolved prefixes: a stale constant is otherwise invisible (it just never matches).
@@ -341,18 +381,12 @@ fi
 
 echo "[lean-chain] applicable via $TRIGGER: branch=$PR_HEAD_REF"
 
-# ---- (4) resolve the source issue from the PR body --------------------------------------
-# `Closes #N` wins over `Part of #N`: a program PR routinely carries both, and a bare
-# first-match would resolve to the epic.
-BODY="${PR_BODY:-}"
-KEY="$(printf '%s' "$BODY" | grep -oiE 'closes[[:space:]]+#[0-9]+' | head -n1 | grep -oE '[0-9]+' || true)"
-if [[ -z "$KEY" ]]; then
-  KEY="$(printf '%s' "$BODY" | grep -oiE 'part[[:space:]]+of[[:space:]]+#[0-9]+' | head -n1 | grep -oE '[0-9]+' || true)"
-fi
 [[ -n "$KEY" ]] \
   || fail "PR body carries no resolvable issue reference ('Closes #N' or 'Part of #N'), but this PR is classified lean via $TRIGGER. Add the reference."
 
-# On the prefix arm the branch suffix is itself the key — assert the two agree.
+# On the prefix arm the branch suffix is itself the key — assert the two agree. Kept HERE and
+# not delegated: it reconciles the payload's body-derived key against THIS gate's branch
+# constant, so it is a check ON the delegation rather than a part of it.
 if [[ "$TRIGGER" == "branch-prefix" ]]; then
   SUFFIX="${PR_HEAD_REF#"$LEAN_BRANCH_PREFIX"}"
   if [[ "$SUFFIX" =~ ^([0-9]+)$ ]]; then
@@ -406,9 +440,19 @@ VERDICT_REVIEWED_HEAD=""
 VERDICT_REVIEWED_PATCH_ID=""
 VERDICT_INHERITED_PATCH_ID=""
 VERDICT_ROUNDS=""
-if [[ -z "$VERDICT" ]]; then
-  note_violation "no committed verdict record (a file named *-$KEY$LEAN_VERDICT_SUFFIX). The independent review's verdict must be a committed, diffable artifact — a local progress-file line is not evidence."
-else
+verdict_value=""
+
+# DELEGATED. The record's existence, its `verdict=approve` value, and the presence of both
+# reconciliation keys are the payload's arm — a consumer gets exactly these refusals, in these
+# words, from the same bytes.
+delegate verdict
+
+if [[ -n "$VERDICT" ]]; then
+  # The same keys are ALSO read here, and that is not a duplicated ARM: evidence 4, 6 and 8
+  # below need their VALUES, and those three arms stay on this side of the split (OR-1, and
+  # the claim-identity half). Reading a value is not asserting one — every refusal about these
+  # keys is emitted above.
+  #
   # FIRST-MATCH, never a count over the whole file. `lean-gate.sh verdict --summary-file`
   # appends the reviewer's own prose below these keys, and review prose discusses verdicts:
   # the committed record for #237 carries `verdict=approve` on line 3 and again on line 9
@@ -418,11 +462,6 @@ else
   # reclassify already-merged evidence as unreadable. lean-gate.sh's record_verdict() is the
   # same read on the same file.
   verdict_value="$(grep -oE 'verdict=[A-Za-z-]+' "$REPO_ROOT/$VERDICT" 2>/dev/null | head -n1 | sed -E 's/^verdict=//')"
-  if [[ "$verdict_value" != "approve" ]]; then
-    note_violation "verdict record '$VERDICT' reads 'verdict=${verdict_value:-<none>}', not 'verdict=approve'."
-  else
-    echo "[lean-chain]   ✓ verdict record: $VERDICT (verdict=approve)"
-  fi
   # `session_id:` does not contain the substring `run_id:`, so the two extractions cannot
   # capture each other; head -n1 keeps the first occurrence of each, matching the shape
   # lean-gate.sh and lean-reconcile.sh read the same record with.
@@ -503,14 +542,20 @@ else
 fi
 
 # ---- (8) evidence 4: the verdict was authored OUTSIDE the build session (P10) ------------
-# Skipped only when there is no verdict record at all — that is already a violation, and
-# reporting "authorship unverifiable" on top of "no verdict" is noise, not information.
-if [[ -n "$VERDICT" ]]; then
-  if [[ -z "$VERDICT_RUN_ID" ]]; then
-    note_violation "verdict record '$VERDICT' carries no run_id reconciliation key, so its authorship cannot be separated from the build run's."
-  elif [[ -z "$VERDICT_SESSION_ID" ]]; then
-    note_violation "verdict record '$VERDICT' carries no session_id reconciliation key — the review session that produced it cannot be located, so nothing outside the record itself attests the review ran."
-  elif [[ -z "$CLAIM_RUN_ID" ]]; then
+# TWO SOURCES, both run. The payload compares the verdict against the bot markers on the PR —
+# the surface every adapter has — and is delegated first. This block then compares it against
+# the bot claim on the ISSUE, which only a writing tracker has, so it cannot move to the
+# payload and is what makes this boundary stronger than the consumer core rather than equal
+# to it. Neither subsumes the other: a run could post a PR marker and no issue claim, or the
+# reverse, and each source independently answers "whose session was this".
+delegate identity
+
+# Skipped when there is no verdict record at all — that is already a violation, and reporting
+# "authorship unverifiable" on top of "no verdict" is noise. Skipped too when either key is
+# absent: the payload already refused for exactly that, and restating it here would print one
+# fact as two violations.
+if [[ -n "$VERDICT" && -n "$VERDICT_RUN_ID" && -n "$VERDICT_SESSION_ID" ]]; then
+  if [[ -z "$CLAIM_RUN_ID" ]]; then
     note_violation "the bot-authored lean-claimed comment on #$KEY carries no run_id, so the build run's identity is unknown and the verdict's independence is uncheckable."
   elif [[ "$VERDICT_RUN_ID" == "$CLAIM_RUN_ID" ]]; then
     note_violation "verdict record '$VERDICT' carries the BUILD run's identity ('$VERDICT_RUN_ID') — the session that wrote the code also wrote its own review verdict. The verdict must come from a separate review session carrying its own identity."
@@ -593,30 +638,12 @@ elif [[ -n "$VERDICT" ]]; then
   if [[ -z "$VERDICT_REVIEWED_HEAD" ]]; then
     note_violation "verdict record '$VERDICT' carries no reviewed_head key, so nothing states which commit the review actually read. Re-run the review round on a dev-pipeline that writes it: '/dev-pipeline:review-lean <pr>'."
   elif [[ -n "$VERDICT_REVIEWED_PATCH_ID" ]]; then
-    # Both failures below are ENVIRONMENT errors, not violations, and for the (Q1)/(Q2) reason:
-    # `git patch-id` prints NOTHING for an empty diff, so two failed computations compare EQUAL
-    # and an unguarded reader prints its ✓ having hashed nothing. A check that cannot run must
-    # not report a pass — and must not report a violation either, since the evidence is not what
-    # is missing.
-    #
-    # ONE guard over the whole computation, not one per step. An unresolvable merge-base and an
-    # empty measured range both surface as an empty id, and splitting them produced an arm no
-    # case could kill: whichever fired second was unreachable, because reaching it required the
-    # first to have succeeded. An unkillable guard reads as coverage while asserting nothing.
-    # PR_BASE_REF stays separate because its remedy is different — a job-level env fix, not a
-    # checkout-depth one — and (U5) kills it on its own.
-    [[ -n "${PR_BASE_REF:-}" ]] \
-      || envfail "verdict record '$VERDICT' declares a reviewed_patch_id, but PR_BASE_REF is unset or empty — the branch's patch identity cannot be recomputed without a base to measure from. Set it on the pr-gates job."
-    CUR_PATCH_ID="$(git -C "$REPO_ROOT" diff "$(git -C "$REPO_ROOT" merge-base "origin/$PR_BASE_REF" "$PR_HEAD_SHA" 2>/dev/null)" \
-      "$PR_HEAD_SHA" -- . ":(exclude)$VERDICT" 2>/dev/null \
-      | git -C "$REPO_ROOT" patch-id --stable 2>/dev/null | cut -d' ' -f1)"
-    if [[ -z "$CUR_PATCH_ID" ]]; then
-      envfail "cannot compute this branch's patch identity against origin/$PR_BASE_REF — the merge-base is unresolvable (a full-history checkout of the base is required: fetch-depth: 0), or the branch's diff excluding '$VERDICT' is empty. Either way there is nothing to compare the verdict's reviewed_patch_id against."
-    elif [[ "$CUR_PATCH_ID" != "$VERDICT_REVIEWED_PATCH_ID" ]]; then
-      note_violation "verdict record '$VERDICT' reviewed patch ${VERDICT_REVIEWED_PATCH_ID:0:12}, but this branch's diff against origin/$PR_BASE_REF now hashes to ${CUR_PATCH_ID:0:12}. Content changed after the review — a commit landed, or a rebase resolved a conflict by altering a line — so the review read a different tree than the one being merged. Run another review round."
-    else
-      echo "[lean-chain]   ✓ freshness (declared, patch-id ${CUR_PATCH_ID:0:12}): the branch's diff against origin/$PR_BASE_REF is the one the review read"
-    fi
+    # DELEGATED. The patch-id computation — its base, its range and its exclusion of the record
+    # — is the one part of freshness a consumer can run unchanged, and the one part that MUST
+    # be byte-identical on both sides: two implementations that resolved the merge-base
+    # differently would each call the other's honest record stale. The payload also owns the
+    # empty-id guard, which is an ENVIRONMENT error there and propagates as one here.
+    delegate freshness
   elif ! git -C "$REPO_ROOT" cat-file -e "$VERDICT_REVIEWED_HEAD^{commit}" 2>/dev/null; then
     note_violation "verdict record '$VERDICT' names reviewed_head $VERDICT_REVIEWED_HEAD, for which this checkout holds no commit — the branch was rebased or force-pushed after the review, so the reviewed code is not what is being merged. Re-run the review round."
   else
@@ -699,28 +726,11 @@ fi
 # ABSENCE IS LEGAL, and PRINTED. Most runs surface no gap, so "no record" is the common case
 # rather than a missing artifact — but it is announced, so a reader of the log can tell
 # "nothing surfaced" from "the arm never ran".
-INTENT_GAP=""
-while IFS= read -r f; do
-  is_fixture_path "${f#"$REPO_ROOT/"}" && continue
-  case "$(basename "$f")" in *"-$KEY$LEAN_INTENT_GAP_SUFFIX") INTENT_GAP="${f#"$REPO_ROOT/"}"; break ;; esac
-done < <(find "$REPO_ROOT" -name "*$LEAN_INTENT_GAP_SUFFIX" -type f 2>/dev/null)
-
-if [[ -z "$INTENT_GAP" ]]; then
-  echo "[lean-chain]   · no intent-gap record for #$KEY — nothing surfaced during BUILD that the receipt did not already cover."
-else
-  # FIRST-MATCH, same discipline as the verdict read above: the record's prose discusses
-  # ratification, and a count-anywhere reader would certify a record whose header says `no`.
-  # `ratified_by:` cannot be captured here — the character after `ratified` is `_`, not `:`.
-  GAP_RATIFIED="$(grep -oE 'ratified:[[:space:]]*[A-Za-z]+' "$REPO_ROOT/$INTENT_GAP" 2>/dev/null | head -n1 | sed -E 's/ratified:[[:space:]]*//')"
-  GAP_BY="$(grep -oE 'ratified_by:[[:space:]]*https://[^[:space:]]+' "$REPO_ROOT/$INTENT_GAP" 2>/dev/null | head -n1 | sed -E 's/ratified_by:[[:space:]]*//')"
-  if [[ "$GAP_RATIFIED" != "yes" ]]; then
-    note_violation "intent-gap record '$INTENT_GAP' reads 'ratified: ${GAP_RATIFIED:-<none>}' — a decision the receipt never covered is still the build run's own call, and P9 routes it back to the human before it merges. Ratify it on #$KEY and record the comment URL as 'ratified_by:'."
-  elif [[ -z "$GAP_BY" ]]; then
-    note_violation "intent-gap record '$INTENT_GAP' claims 'ratified: yes' but cites no 'ratified_by:' URL — a ratification the run wrote about itself is a self-ratification. Cite the operator's comment."
-  else
-    echo "[lean-chain]   ✓ intent gap: $INTENT_GAP ratified ($GAP_BY)"
-  fi
-fi
+# DELEGATED in full: the record's location, its `ratified:` value and its `ratified_by:`
+# citation are all committed-artifact reads with no tracker in them. P9's routing is identical
+# for a consumer, so a second copy here would be the duplicate machinery the lockstep manifest
+# calls worse than none.
+delegate intent-gap
 
 # ---- (12) evidence 8: armed design runs carry a fresh render receipt (#394) ---------------
 # Skipped when there is no committed spec — already a violation, and "armed-ness unresolvable"
