@@ -73,6 +73,41 @@ mkdir -p "$PLAIN/vue-fe/.git"
 OUT3C="$("$DETECT" "$R3C")"
 expect "no suffix ⇒ no sibling candidates" "$OUT3C" '.topology.siblingCandidates | length' "0"
 
+# Case 3d (upstream fix, defect 1): a workspaces array whose only entry is test-scoped
+# (an e2e harness, not app code) must NOT classify the repo as monorepo — but the raw
+# array is still reported (provenance-first: evidence isn't hidden, just not decisive).
+R3D="$TMP/storefront"; mkdir -p "$R3D"; mkrepo "$R3D" "git@github.com:acme/storefront.git" main
+cp "$FIX/package-workspaces-testonly.json" "$R3D/package.json"
+OUT3D="$("$DETECT" "$R3D")"
+expect "test-only workspaces ⇒ not monorepo" "$OUT3D" '.topology.value' standalone
+expect "test-only workspaces still reported"  "$OUT3D" '.topology.workspaces[0]' e2e
+
+# Case 3e (upstream fix, defect 3): the FE side carries a recognized suffix
+# (storefront-ui) and its BE counterpart is a BARE base name (storefront, no suffix at
+# all) — the common "bare backend, suffixed frontend" convention. The same-base-name
+# loop used to only ever construct FE-suffixed candidates, so this direction (BE
+# sibling reachable FROM the FE repo) was unreachable regardless of which repo
+# detect.sh ran from. Isolated in its own dir for the same adjacency reason as 3b/3c.
+BAREBE="$TMP/barebe"; mkdir -p "$BAREBE"
+R3E="$BAREBE/storefront-ui"; mkdir -p "$R3E"; mkrepo "$R3E" "git@github.com:acme/storefront-ui.git" main
+mkdir -p "$BAREBE/storefront/.git"
+OUT3E="$("$DETECT" "$R3E")"
+expect "bare-base-name BE sibling found" "$OUT3E" '.topology.siblingCandidates[0]' "../storefront"
+expect "bare-base-name BE topology candidate" "$OUT3E" '.topology.value' "be-fe-pair-candidate"
+
+# Case 3f (upstream fix, defect 2): a repo with a REAL (non-test-only) workspaces
+# manifest that ALSO has a genuine sibling checkout next door must still surface the
+# pair candidate — an `elif` used to let the workspaces-driven monorepo branch swallow
+# the sibling signal entirely, even though `siblingCandidates` was already computed.
+MONOPAIR="$TMP/monopair"; mkdir -p "$MONOPAIR"
+R3F="$MONOPAIR/platform-ui"; mkdir -p "$R3F"; mkrepo "$R3F" "git@github.com:acme/platform-ui.git" main
+cp "$FIX/package-monorepo.json" "$R3F/package.json"
+mkdir -p "$MONOPAIR/platform/.git"
+OUT3F="$("$DETECT" "$R3F")"
+expect "sibling not swallowed by a real monorepo branch" "$OUT3F" '.topology.value' "be-fe-pair-candidate"
+expect "sibling candidate present alongside real workspaces" "$OUT3F" '.topology.siblingCandidates[0]' "../platform"
+expect "workspaces evidence still reported despite pair candidate" "$OUT3F" '.topology.workspaces | length' 2
+
 # Case 4: not a git repo ⇒ exit 3
 if "$DETECT" "$TMP" >/dev/null 2>&1; then rc=0; else rc=$?; fi
 check "non-repo exits 3" "$([[ "$rc" -eq 3 ]] && echo 0 || echo 1)"

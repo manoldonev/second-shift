@@ -405,6 +405,192 @@ MOCK
 fi
 
 # ---------------------------------------------------------------------------
+# (dc) section 4b — the selftest-cache-gate that lets pipeline-doctor.sh skip its
+# own expensive internal selftest sweep (statectl alone runs ~90s+) on a repeat
+# call in an unchanged environment. Same extract-and-execute technique as
+# bot-resolve: the REAL production block is re-hosted here against a fixture
+# plugin tree + fixture cache file. No scenario-liveness path — like bot-resolve/
+# stale-claim, this reaches no terminal write scenario-liveness-selftest.sh could
+# compose onto.
+# ---------------------------------------------------------------------------
+CACHE_GATE_BLOCK="$(sed -n '/# >>> selftest-cache-gate/,/# <<< selftest-cache-gate/p' "$DOCTOR")"
+if [[ -z "$CACHE_GATE_BLOCK" ]]; then
+  bad "(dc) selftest-cache-gate sentinels not found in $DOCTOR (section 4b refactored without updating this suite)"
+else
+  # run_cache_gate <cache-mtime|none> <verifiedAt|literal> <tree-mtime> <now-epoch> <match|mismatch>
+  # ALWAYS invoked through command substitution ($(...) below), same load-bearing
+  # isolation as run_env_classifier/run_bot_resolve above: the block re-defines
+  # ok()/bad() as stub reporters, and bash functions are NOT lexically scoped — a
+  # direct (non-substitution) call would permanently overwrite this FILE's own
+  # ok()/bad(), silently breaking every assertion after it (the exact "15 passed, 0
+  # failed" trap documented on run_env_classifier). The subshell $(...) forks means
+  # the redefinition dies with it. Three fields come back over stdout, "@@"-joined
+  # (hit|emitted|fingerprint) since a subshell cannot hand a variable back any other
+  # way; field3 (this run's REAL bash/jq/node fingerprint) is threaded into "match"
+  # fixtures on later calls — never hand-duplicated, since a second copy of the
+  # bash/jq/node probe would be exactly the mirror harness CLAUDE.md bans and could
+  # silently drift from the production formula.
+  run_cache_gate() {
+    local cache_mtime="$1" verified_at="$2" tree_mtime="$3" now="$4" env_mode="$5"
+    local pdir cfile emitted="" env_field
+    pdir="$WORK/cg-plugins-$$-$RANDOM"; mkdir -p "$pdir"
+    printf 'x' > "$pdir/seed.txt"; touch -t "$tree_mtime" "$pdir/seed.txt"
+    cfile="$WORK/cg-cache-$$-$RANDOM.json"; rm -f "$cfile"
+    if [[ "$cache_mtime" != "none" ]]; then
+      env_field="${_CAPTURED_FP_ENV:-placeholder}"
+      [[ "$env_mode" == "mismatch" ]] && env_field="bash:0.0.0 jq:none node:none"
+      if [[ "$env_mode" == "corrupt" ]]; then
+        printf '{"env":"%s","verifiedAt":"banana"}' "$env_field" > "$cfile"
+      else
+        jq -n --arg env "$env_field" --argjson at "$verified_at" '{env: $env, verifiedAt: $at}' > "$cfile"
+      fi
+      touch -t "$cache_mtime" "$cfile"
+    fi
+    # shellcheck disable=SC2317,SC2329
+    ok()  { emitted+="OK:$1;"; }
+    # shellcheck disable=SC2317,SC2329
+    bad() { emitted+="FAIL:$1;"; }
+    # shellcheck disable=SC2034  # $PLUGINS_DIR is consumed by the eval'd production block
+    PLUGINS_DIR="$pdir"
+    export DOCTOR_CACHE_FILE="$cfile"
+    export DOCTOR_CACHE_NOW="$now"
+    SELFTEST_CACHE_HIT=""
+    eval "$CACHE_GATE_BLOCK"
+    printf '%s@@%s@@%s\n' "${SELFTEST_CACHE_HIT:-0}" "$emitted" "$_FP_ENV"
+  }
+  field1() { printf '%s' "${1%%@@*}"; }                        # hit
+  field2() { local r="${1#*@@}"; printf '%s' "${r%%@@*}"; }    # emitted
+  field3() { printf '%s' "${1##*@@}"; }                        # this-run fingerprint
+
+  # Seed _CAPTURED_FP_ENV with THIS run's real fingerprint via the production block
+  # itself, decoupled from any numbered case below so reordering them can't break it.
+  out="$(run_cache_gate none 0 202001010000 1000000 match)"
+  _CAPTURED_FP_ENV="$(field3 "$out")"
+
+  # (dc1) no cache file at all → MISS, silent (no ok()/bad() from the gate itself)
+  out="$(run_cache_gate none 0 202001010000 1000000 match)"
+  hit="$(field1 "$out")"; em="$(field2 "$out")"
+  if [[ "$hit" == "0" && -z "$em" ]]; then
+    ok "(dc1) no cache file → MISS, silent"
+  else
+    bad "(dc1) no cache file → hit=$hit emitted=[$em]"
+  fi
+
+  # (dc2) matching env, fresh (age 100s), tree not newer than the cache → HIT
+  out="$(run_cache_gate 202001010000 1000000 201901010000 1000100 match)"
+  hit="$(field1 "$out")"; em="$(field2 "$out")"
+  if [[ "$hit" == "1" && "$em" == *"OK:internal selftest sweep: cached clean"* ]]; then
+    ok "(dc2) matching env + fresh + unchanged tree → HIT"
+  else
+    bad "(dc2) matching env + fresh → hit=$hit emitted=[$em]"
+  fi
+
+  # (dc3) mismatched interpreter fingerprint → MISS despite fresh + unchanged tree
+  out="$(run_cache_gate 202001010000 1000000 201901010000 1000100 mismatch)"
+  hit="$(field1 "$out")"
+  [[ "$hit" == "0" ]] \
+    && ok "(dc3) mismatched interpreter fingerprint → MISS" \
+    || bad "(dc3) mismatched env → hit=$hit"
+
+  # (dc4) matching env + fresh, but a plugin-tree file is NEWER than the cache
+  # (simulates a plugin update since the cache was written) → MISS
+  out="$(run_cache_gate 202001010000 1000000 202601010000 1000100 match)"
+  hit="$(field1 "$out")"
+  [[ "$hit" == "0" ]] \
+    && ok "(dc4) plugin tree changed since the cache was written → MISS" \
+    || bad "(dc4) changed tree → hit=$hit"
+
+  # (dc5) TTL boundary: age 86399s (just under 24h) → HIT
+  out="$(run_cache_gate 202001010000 1000000 201901010000 $((1000000 + 86399)) match)"
+  hit="$(field1 "$out")"
+  [[ "$hit" == "1" ]] \
+    && ok "(dc5) age 86399s (just under the 24h TTL) → HIT" \
+    || bad "(dc5) age 86399s → hit=$hit"
+
+  # (dc6) TTL boundary: age exactly 86400s (24h) → MISS — the TTL is a defense-in-
+  # depth expiry that fires even on an otherwise-matching fingerprint.
+  out="$(run_cache_gate 202001010000 1000000 201901010000 $((1000000 + 86400)) match)"
+  hit="$(field1 "$out")"
+  [[ "$hit" == "0" ]] \
+    && ok "(dc6) age exactly 86400s (24h TTL boundary) → MISS" \
+    || bad "(dc6) age 86400s → hit=$hit"
+
+  # (dc7) clock skew: now BEFORE verifiedAt (negative age) → MISS, fail-closed rather
+  # than treating an unmodeled clock jump as an infinitely-fresh cache.
+  out="$(run_cache_gate 202001010000 1000000 201901010000 999900 match)"
+  hit="$(field1 "$out")"
+  [[ "$hit" == "0" ]] \
+    && ok "(dc7) verifiedAt in the future (clock skew) → MISS, fail-closed" \
+    || bad "(dc7) future verifiedAt → hit=$hit"
+
+  # (dc8) cache file exists but "verifiedAt" is non-numeric ("banana") → MISS, no
+  # crash, no FAIL. jq happily extracts a non-numeric string; the real crash-risk is
+  # unguarded arithmetic on it ($(( )) on a non-numeric operand kills a non-
+  # interactive bash outright, even without -e) — this proves that does NOT happen.
+  out="$(run_cache_gate 202001010000 0 201901010000 1000100 corrupt)"
+  hit="$(field1 "$out")"; em="$(field2 "$out")"
+  if [[ "$hit" == "0" && "$em" != *"FAIL:"* ]]; then
+    ok "(dc8) non-numeric verifiedAt → MISS, no crash, never FAIL"
+  else
+    bad "(dc8) non-numeric verifiedAt → hit=[$hit] emitted=[$em] (expected a graceful MISS, got empty output if the gate crashed)"
+  fi
+fi
+
+# ---------------------------------------------------------------------------
+# (dw) section 4b's cache-write back half — "a clean sweep refreshes the
+# cache; a dirty one leaves it untouched". A SEPARATE sentinel from
+# selftest-cache-gate above: the gate decides hit/miss BEFORE the sweep runs;
+# this decides whether the sweep's OUTCOME gets persisted AFTER it runs. Same
+# extract-and-execute technique — no gh/network, and critically no real
+# selftest sweep either (that would reintroduce the exact ~90s+ cost this
+# feature exists to avoid paying on every test run too).
+# ---------------------------------------------------------------------------
+CACHE_WRITE_BLOCK="$(sed -n '/# >>> selftest-cache-write/,/# <<< selftest-cache-write/p' "$DOCTOR")"
+if [[ -z "$CACHE_WRITE_BLOCK" ]]; then
+  bad "(dw) selftest-cache-write sentinels not found in $DOCTOR (section 4b refactored without updating this suite)"
+else
+  # run_cache_write <fails> <fails-before-sweep> <pre-existing-cache-content|none>
+  # Echoes the cache file's content afterward, or the literal "none" if absent.
+  run_cache_write() {
+    local fails="$1" before="$2" pre="$3"
+    local sdir cfile
+    sdir="$WORK/cw-state-$$-$RANDOM"; cfile="$sdir/doctor-selftest-cache.json"
+    mkdir -p "$sdir"
+    [[ "$pre" != "none" ]] && printf '%s' "$pre" > "$cfile"
+    # shellcheck disable=SC2034  # all six are consumed by the eval'd production block
+    FAILS="$fails" _FAILS_BEFORE_SWEEP="$before" STATE_DIR="$sdir" \
+      _CACHE_FILE="$cfile" _FP_ENV="test-env-marker" _CACHE_NOW=1234567
+    eval "$CACHE_WRITE_BLOCK"
+    if [[ -f "$cfile" ]]; then cat "$cfile"; else printf 'none'; fi
+  }
+
+  # (dw1) clean sweep (FAILS unchanged) + no pre-existing cache → writes a fresh one
+  out="$(run_cache_write 3 3 none)"
+  if [[ "$out" == *'"env": "test-env-marker"'* && "$out" == *'"verifiedAt": 1234567'* ]]; then
+    ok "(dw1) clean sweep → cache written with the current fingerprint"
+  else
+    bad "(dw1) clean sweep → expected a fresh cache write, got [$out]"
+  fi
+
+  # (dw2) dirty sweep (FAILS grew past the pre-sweep snapshot) + no pre-existing
+  # cache → stays absent, never fabricates a clean record for a broken toolkit
+  out="$(run_cache_write 4 3 none)"
+  [[ "$out" == "none" ]] \
+    && ok "(dw2) dirty sweep, no prior cache → stays absent" \
+    || bad "(dw2) dirty sweep → expected no cache file, got [$out]"
+
+  # (dw3) dirty sweep + a pre-existing cache → left byte-for-byte untouched, not
+  # overwritten with a falsely-clean record (a stale cache just stays stale/expired,
+  # which is a MISS on its own terms — never actively re-stamped as fresh)
+  out="$(run_cache_write 4 3 '{"env":"old-env","verifiedAt":1}')"
+  if [[ "$out" == *'"env":"old-env"'* && "$out" == *'"verifiedAt":1'* ]]; then
+    ok "(dw3) dirty sweep, prior cache present → left untouched"
+  else
+    bad "(dw3) dirty sweep with a prior cache → expected it untouched, got [$out]"
+  fi
+fi
+
+# ---------------------------------------------------------------------------
 # summary
 # ---------------------------------------------------------------------------
 echo "[pipeline-doctor-selftest] $PASS passed, $FAIL failed"
