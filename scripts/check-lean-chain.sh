@@ -369,9 +369,45 @@ fi
 # `Closes #N` wins over `Part of #N`: a program PR routinely carries both, and a bare
 # first-match would resolve to the epic.
 BODY="${PR_BODY:-}"
-KEY="$(printf '%s' "$BODY" | grep -oiE 'closes[[:space:]]+#[0-9]+' | head -n1 | grep -oE '[0-9]+' || true)"
+
+# The branch key, derived from the head ref's trailing digit run — NOT from a reintroduced
+# prefix constant: the sibling's KEY_BRANCH is the head ref minus its prefix, constrained to
+# `^[0-9]+$`, so whenever that gate resolves a key at all the key IS those digits. Reading them
+# costs this gate nothing that can go stale. Hoisted above the body resolution because the body
+# resolution now consults it.
+KEY_BRANCH=""
+[[ "$PR_HEAD_REF" =~ ([0-9]+)$ ]] && KEY_BRANCH="${BASH_REMATCH[1]}"
+
+# LOCKSTEP with what the lane actually asserts, which is the generalizable half of #413's
+# manifesto note: hold the KEY DERIVATION in lockstep, not only the pattern the key feeds.
+# lean-gate.sh milestone 5 requires `Closes #<issue>` to appear at least ONCE in the body and
+# never that it is first, so a first-match derivation here reads a DIFFERENT key than the one
+# the lane guaranteed. That is not a corner case: any body that mentions another `Closes #N` in
+# prose or a code span — a review narrative documenting this very bug class is how it first
+# fired — hands this gate a phantom key lifted out of quoted text. Preferring the branch key
+# WHENEVER the body closes it makes the two derivations agree by construction, and costs step
+# 4b nothing: the cell it refuses on is the one where the body never names the branch key at
+# all, which is the genuine disagreement rather than a quoting artifact.
+#
+# Worth naming because it bounds how far this goes: GITHUB's own closing-keyword parser does not
+# honor a reference inside a code span, so a raw-text first match was not merely a stricter
+# reading of the body than the platform's — it was a DIFFERENT one, resolving to a token that
+# closes nothing. Parsing markdown here to match the platform exactly would be a far larger claim
+# than this gate needs; agreeing with what the LANE asserts is enough, and it is the only thing
+# the merge boundary is entitled to rely on.
+resolve_body_key() { # resolve_body_key <extended-regex> -> branch key if named, else first match
+  local keys
+  keys="$(printf '%s' "$BODY" | grep -oiE "$1" | grep -oE '[0-9]+' || true)"
+  [[ -n "$keys" ]] || return 0
+  if [[ -n "$KEY_BRANCH" ]] && printf '%s\n' "$keys" | grep -qxF "$KEY_BRANCH"; then
+    printf '%s' "$KEY_BRANCH"
+    return 0
+  fi
+  printf '%s' "$keys" | head -n1
+}
+KEY="$(resolve_body_key 'closes[[:space:]]+#[0-9]+')"
 if [[ -z "$KEY" ]]; then
-  KEY="$(printf '%s' "$BODY" | grep -oiE 'part[[:space:]]+of[[:space:]]+#[0-9]+' | head -n1 | grep -oE '[0-9]+' || true)"
+  KEY="$(resolve_body_key 'part[[:space:]]+of[[:space:]]+#[0-9]+')"
 fi
 # NOT an exemption, and deliberately evaluated BEFORE the key match: a PR that commits a lean
 # spec but names no source issue is unclassifiable, and "unclassifiable" must fail rather than
@@ -387,22 +423,19 @@ fi
 # the diff commits a spec for the BRANCH key, the sibling exempts on exactly that spec
 # (check-pipeline-chain.sh's step 3b) and this gate declines — so no gate reads the evidence,
 # each one printing that the other owns it. That is the vacuous green this boundary exists to
-# prevent, and it is reachable from the lane: lean-gate.sh milestone 5 asserts `Closes #<issue>`
-# appears at least ONCE, never that it is first, so a PR closing two issues in the other order
-# resolves a different body key here while its branch key still names the spec it authored.
+# prevent, and it is reachable from the lane whenever the body never names the branch key at
+# all — a PR whose work moved branches, or whose body was written against the wrong ticket.
 #
-# Derived from the branch's trailing digit run, NOT from a reintroduced prefix constant: the
-# sibling's KEY_BRANCH is the head ref minus its prefix, constrained to `^[0-9]+$`, so whenever
-# that gate resolves a key at all the key IS the branch's trailing digits. Reading them costs
-# this gate nothing that can go stale.
-KEY_BRANCH=""
-[[ "$PR_HEAD_REF" =~ ([0-9]+)$ ]] && KEY_BRANCH="${BASH_REMATCH[1]}"
+# What it no longer has to absorb is a QUOTING artifact: step 4 above resolves to the branch key
+# whenever the body closes it, so a body that merely mentions some other `Closes #N` in prose
+# reaches here with the two keys already in agreement. This arm therefore fires only on a real
+# disagreement, which is what makes a hard fail the proportionate response to it.
 if [[ -n "$KEY_BRANCH" && "$KEY_BRANCH" != "$KEY" ]]; then
   while IFS= read -r f; do
     [[ -n "$f" ]] || continue
     case "$(basename "$f")" in
       *"-$KEY_BRANCH$LEAN_SPEC_SUFFIX")
-        fail "key mismatch: the PR body resolves to #$KEY but the head branch '$PR_HEAD_REF' resolves to #$KEY_BRANCH, and the diff commits #$KEY_BRANCH's lean spec ($f). check-pipeline-chain.sh exempts on that spec, so declining here would leave this PR judged by neither gate. Make the body's first issue reference #$KEY_BRANCH (or move the work to #$KEY's branch)." ;;
+        fail "key mismatch: the PR body resolves to #$KEY but the head branch '$PR_HEAD_REF' resolves to #$KEY_BRANCH, and the diff commits #$KEY_BRANCH's lean spec ($f). check-pipeline-chain.sh exempts on that spec, so declining here would leave this PR judged by neither gate. Have the body close #$KEY_BRANCH (or move the work to #$KEY's branch)." ;;
     esac
   done <<< "$LEAN_SPECS_IN_DIFF"
 fi

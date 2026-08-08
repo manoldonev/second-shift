@@ -134,6 +134,16 @@ rendered surface.
   every verdict path this change touches (D-10). Both chain-gate selftests keep their existing
   cases green, with the prefix-only cases replaced rather than deleted.
 
+  **Amended at review round 3 (blocker B-2).** The enumeration above omitted
+  `lean-gate-selftest.sh`, and the omission is where the round-3 defect lived, so the AC now
+  names it: `(e5)` — the case asserting that the branch-name check stays out of milestones 1-4 —
+  must REACH milestone 1's body. `main`'s `require_entry_attested` (#416/#422) guards the
+  subcommand at dispatch, so a fixture that trips the precondition observes nothing inside
+  `cmd_1` and the case cannot fail for its own reason. The case therefore seeds the attestation
+  through the prefixed config and evaluates under the prefix-less one, varying only the thing
+  under test, and is verified by injecting `require_branch_name` into `cmd_1` — the exact
+  regression its comment names — and confirming it is the only red.
+
 - **AC-15.** (verification) `shellcheck` clean over all shell, `jq empty` clean over all JSON,
   and the full `*-selftest.sh` sweep green — run without `SKIP_STRESS` and with the session-id
   environment leak cleared. `tools/mutation-baseline.tsv` rows whose ordinals this diff re-keys
@@ -180,6 +190,32 @@ rendered surface.
   runtime config is gitignored, so no worktree carries a copy; anchoring on `--show-toplevel`
   put the bare invocation on a root its callers never use, where it silently took the detection
   path and answered with whatever namespace the repo's remotes happened to favor.
+
+- **AC-19.** (added at review round 3, blocker B-1) **The two chain gates derive the issue key
+  in lockstep, not merely match on it.** `lean-gate.sh` milestone 5 asserts that
+  `Closes #<issue>` appears in the PR body **at least once** and never that it is first, so
+  `check-lean-chain.sh` resolving the body key by FIRST match reads a different key than the one
+  the lane guaranteed. It therefore resolves to the **branch** key whenever the body closes it,
+  falling back to the first match only when the body never names the branch key at all. A body
+  that mentions another `Closes #N` in prose or a code span is then classified by the work it
+  authored rather than by a phantom key lifted out of quoted text — while AC-17's refusal is
+  untouched in the cell it was written for, since a body that never closes the branch key is a
+  real disagreement rather than a quoting artifact.
+
+  This is AC-11's own generalizable lesson applied to the gate that taught it: proving the two
+  gates agree on the *pattern* the key feeds does not prove they agree on the *key*. It is not
+  hypothetical — before this AC the mechanism false-red **this PR**, whose body documents the
+  AC-11 counterexample verbatim, and the failure mode reproduces for any future lean PR whose
+  body legitimately quotes the token (a review narrative about this bug class being the likeliest
+  such body).
+
+  Driven in `check-lean-chain-selftest.sh`: `(D3c)` pins the quoting artifact classifying to the
+  branch key, `(D3d)` pins that the preference does **not** degrade into ignoring the body — a
+  body that never closes the branch key must still hit AC-17's refusal. Both probed in both
+  directions; `(D3c)` is the only red when the preference is disabled, and `(D3)`/`(D3d)` are the
+  reds when it is made unconditional. The one first-`K` mutation ordinal the edit re-keys
+  (`scripts/check-lean-chain.sh::detector::2`) was probed with the verbatim operator flip and is
+  **killed**, so no baseline row is added or moved.
 
 ### AC-11, restated (review round 1)
 

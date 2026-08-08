@@ -277,6 +277,36 @@ if [ "$rc" -eq 0 ] && printf '%s' "$out" | grep -q 'none for this PR'; then
   pass "(D3b) AC-17: the same key split with no branch-key spec in the diff still declines — 4b is not a blanket mismatch check"
 else fail "(D3b) expected a not-applicable exit 0, got rc=$rc: $out"; fi
 
+# ...and the key this gate resolves is held in LOCKSTEP with what the lane guarantees (AC-19),
+# which is where the manifesto note this change records ("hold the key derivation in lockstep,
+# not only the pattern the key feeds") stops being documentation. lean-gate.sh milestone 5
+# requires `Closes #<issue>` at least ONCE and never that it is FIRST, so under a first-match
+# derivation any body that mentions another `Closes #N` earlier — prose, or a code span quoting
+# the very bug class — resolved a phantom key and hard-failed at 4b. Not hypothetical: it is how
+# this change's own PR reds, a review narrative quoting the token being enough to trip it.
+BODY_QUOTED='Documents the counterexample: a body reading "Closes #99" resolved the wrong key.
+
+Closes #42'
+out="$(run_gate "claude/acme-42" "$WORK/comments-empty.json" "$WORK/diff-lean.txt" "$BODY_QUOTED")"; rc=$?
+if [ "$rc" -eq 1 ] \
+   && printf '%s' "$out" | grep -q 'lean-artifact' \
+   && printf '%s' "$out" | grep -q 'source issue: #42' \
+   && ! printf '%s' "$out" | grep -q 'key mismatch'; then
+  pass "(D3c) AC-19: a body QUOTING another Closes #N still resolves to the branch key it closes"
+else fail "(D3c) expected the artifact arm at #42 with no key mismatch, got rc=$rc: $out"; fi
+
+# The negative that keeps (D3c) from being satisfiable by `KEY="$KEY_BRANCH"`. Same shape, but
+# this body never closes #42 at all — a REAL disagreement rather than a quoting artifact — so 4b
+# must still refuse. Without this case the branch-key preference could degrade into ignoring the
+# body entirely, which would delete AC-17's contract while every other case stayed green.
+BODY_ONLY_99='Delivers a slice.
+
+Closes #99'
+out="$(run_gate "claude/acme-42" "$WORK/comments-good.json" "$WORK/diff-lean.txt" "$BODY_ONLY_99")"; rc=$?
+if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q 'key mismatch'; then
+  pass "(D3d) AC-19: the preference applies only where the body CLOSES the branch key — a real split still refuses"
+else fail "(D3d) expected rc=1 with a key mismatch, got rc=$rc: $out"; fi
+
 # ---- (E) fixture paths are excluded from the artifact scan -------------------------------
 out="$(run_gate "some/other-branch" "$WORK/comments-empty.json" "$WORK/diff-fixture-only.txt")"; rc=$?
 if [ "$rc" -eq 0 ] && printf '%s' "$out" | grep -q 'not applicable'; then

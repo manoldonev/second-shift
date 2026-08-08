@@ -259,19 +259,20 @@ if [ "$(jq -r '.tracker.branchPrefix // "absent"' "$CFG_NOPREFIX" 2>/dev/null)" 
   # operator's real problem behind an unrelated message (the #392 (iz2) contract below is
   # exactly that failure mode). This is the case that keeps the enforcement point honest.
   #
-  # RE-AIMED where #416's entry precondition composes with this branch. Milestone 1 no longer
-  # reaches its own evaluation from a bare fixture — `require_entry_attested` refuses first —
-  # and the attestation cannot be seeded here either, because `entry` is exactly the call (e4)
-  # above proves refuses under this config. So the reachable half of the original claim is the
-  # one asserted: what stops milestone 1 here is the MISSING ATTESTATION, never the prefix.
-  # A refusal quoting 'cannot resolve a branch prefix' would mean the prefix check had migrated
-  # into milestones 1-4, which is the regression this case has always existed to catch.
+  # The attestation is seeded through the PREFIXED $CFG so that the run REACHES cmd_1: #416's
+  # `require_entry_attested` refuses at DISPATCH, before any milestone body, so a fixture that
+  # trips it observes nothing inside cmd_1 and the case cannot fail for its own reason. Seeding
+  # the precondition through a different config and then evaluating under $CFG_NOPREFIX varies
+  # only the thing under test. `entry` writes p3.md's header from $CFG, and ensure_progress_file
+  # only writes a header when the file is ABSENT, so the milestone-1 call below cannot repair
+  # its own prefix through it — what it appends is the record this case reads.
+  attest_at "$TREE" "$CFG" "$WORK/p3.md" 7
   out="$( cd "$TREE" && SECOND_SHIFT_CONFIG="$CFG_NOPREFIX" LEAN_PROGRESS_FILE="$WORK/p3.md" bash "$GATE" --issue-file "$ISSUE_NOREGIONS" 1 7 2>&1 )"; rc=$?
-  if [ "$rc" -eq 2 ] \
-     && printf '%s' "$out" | grep -q 'no entry attestation' \
+  if [ "$rc" -eq 0 ] \
+     && grep -q '| milestone-1 | satisfied' "$WORK/p3.md" \
      && ! printf '%s' "$out" | grep -q 'cannot resolve a branch prefix'; then
-    pass "(e5) an unresolvable prefix does not reach milestone 1 — only the entry precondition stops it"
-  else fail "(e5) expected rc=2 naming the attestation and not the prefix, got $rc: $out"; fi
+    pass "(e5) milestone 1 evaluates to satisfied under an unresolvable prefix — no branch-name check in milestones 1-4"
+  else fail "(e5) expected rc=0 with a milestone-1 satisfied record and no prefix refusal, got $rc: $out"; fi
 else fail "(e4) fixture build did not remove tracker.branchPrefix — the case would be vacuous"; fi
 
 # ---- (f) AC-1 / D-33: the SKILL.md line cap ----------------------------------------------

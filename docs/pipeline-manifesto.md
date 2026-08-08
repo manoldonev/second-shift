@@ -183,3 +183,13 @@ The lesson generalizes past this boundary, and it is the one worth carrying: whe
 classification is split across two checks, the thing to hold in lockstep is the **key derivation**,
 not only the pattern the key feeds. Two gates can agree perfectly about the rule and still both stand
 down, because they disagree about what they are applying it to.
+
+**And the lesson had to be applied before it was believed.** The paragraph above shipped as prose one
+round before the derivation gap it describes false-red the very PR carrying it: the lane asserts
+`Closes #<issue>` appears *at least once* in the body, the boundary gate resolved the *first* match,
+and a body quoting the token in prose — this section's own counterexample — handed the gate a phantom
+key. Hardening a consequence promotes every latent looseness in its inputs: step 4b converted what had
+been a silent decline into a hard fail, and the loose input became a lane-stopper the same day. The
+gate now resolves to the branch key whenever the body closes it, so the two derivations agree by
+construction rather than by coincidence. Recording it because the sequence is the point — a lockstep
+note that is only a note describes a coupling; it does not hold one.
