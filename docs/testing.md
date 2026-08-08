@@ -21,6 +21,7 @@ pyramid, plus one tier that is honest about being outside CI.
 | Runtime | `workflows/runtime-shim-selftest.mjs` — executes real Workflow `.mjs` bodies with injected fakes | Established (#214) |
 | E2E | `e2e-replay-selftest.sh` — full-run replay; every receipt minted by an executed tool | Established (#217) |
 | Mutation | Repo-level sweep: canned mutants applied to guarded scripts, paired selftest must go red | Planned |
+| Install topology | `tools/install-topology-selftest.sh` — every shipped suite re-run from a version-keyed install cache | Established (#419) |
 | Adversarial | Model-tier audit workflows — **operator-run, never CI** | This document |
 
 ## The rules that matter
@@ -59,6 +60,84 @@ like a case blessing it, so it must say, at the assertion: what the real behavio
 documented or intended behavior was, why it was not fixed here, and that the case is expected
 to flip when it is. A characterization case that only asserts an exit code is indistinguishable
 from an author who did not notice.
+
+**Green here is not green where it ships.** A shipped suite lives in this checkout while it is
+written and in a marketplace install cache everywhere it is *used*, and the two differ in ways a
+suite can silently depend on: there is no git repository above the install cache, and sibling
+plugins sit behind a version segment (`<root>/<plugin>/<version>/…`) instead of adjacent under
+`plugins/`. Two suites depended on exactly those and were green here the whole time —
+`plan-lint-selftest.sh` borrowed the repo's git toplevel for its fixtures, so from an install its
+check-5a assertions were skipped wholesale (one failing, two passing vacuously), and
+`design-sync-selftest.mjs` walked a fixed `../../../../design-toolkit` path. So: **a fixture owns
+its own repo** (`git init` inside a `mktemp -d`), and **a cross-plugin path goes through a
+resolution ladder**, never a fixed hop count — `resolve_sibling()` in `pipeline-doctor.sh` is the
+reference, mirrored in `.mjs` at the top of `design-sync-selftest.mjs`.
+
+`tools/install-topology-selftest.sh` is the class guard, and it is the reason no new instance of
+this needs its own test: it stages `plugins/` at version-keyed paths outside any git repo and
+re-runs **every** shipped suite from a `git init`'d consumer cwd, under a per-suite wall-clock
+bound. It reds on any failure absent from `tools/install-topology-known-red.tsv`; a listed suite
+that passes, and a row matching no suite, are warnings that say "shrink the list".
+
+Its scoring is **55 suites: 49 pass, 6 listed** — and how that number was arrived at is the more
+useful thing to know than the number. The first run, on the authoring machine, scored 51 pass /
+4 listed; CI scored 49 / 2-red on the same commit, identically on both lanes, because two suites
+fail for reasons the authoring machine's environment hid (one needs the `claude` CLI to be
+*absent*, one needs bash older than 5.3). **A guard that reports on the environment cannot be
+seeded from one environment** — read every "measured here" claim about it as "measured on one
+machine" until a different one agrees.
+
+**You can be the second environment without waiting for CI, and you should.** The gap is not
+mysterious: it is a small number of ambient dependencies, and removing them is a better
+experiment than re-running, which proves nothing about an environment-dependent red. Rebuild
+`PATH` symlink-for-symlink with the leaking entries left out, then run the guard under it:
+
+```bash
+# `bash` resolves to 3.2 (what the macOS lane runs), `claude` absent (what CI has)
+ln -sf /bin/bash "$SHADOW/bash"        # …after linking everything else on PATH except these two
+PATH="$SHADOW" bash tools/install-topology-selftest.sh
+```
+
+That reproduces CI's verdict exactly — same two suites, same first failure line from each — on a
+machine whose own PATH hides both. It is how the two late rows were diagnosed rather than guessed.
+
+That is also why those two rows are marked ENVIRONMENT-DEPENDENT. They will pass on some machines,
+and the guard will duly warn "drop its row". Do not: read the cause and drop the row only once the
+suite passes where the cause says it fails.
+
+Re-running the whole shipped set is the price of the class being visible at all, and it is not
+small. Suites run concurrently (`INSTALL_TOPOLOGY_JOBS`, default 4 — each suite is a separate
+`--run-one` invocation, which is also what gives every concurrent watchdog its own job-control
+shell), against **542s** for the serial form. The remaining floor is one suite:
+`statectl-selftest.sh` is 94s uncontended and was measured at 244s while a second copy ran.
+
+**Do not plan around a single number for the concurrent form.** Three runs of this same tree, same
+command, uncontended, measured **319s, 438s and 584s** — a 1.8x spread with no code change between
+them. Budget ~7 minutes and expect either end; a run at the top of that range is not a regression
+and does not need investigating. (Reporting one of those three as *the* figure is what made an
+earlier revision of this page wrong, and it is the same single-measurement mistake the seeding
+paragraph above is about.)
+
+That makes this guard the long pole of the repo sweep, not a line item in it: the whole 64-suite
+sweep is 13:12 serial and 5:22 at `-P 4` in the documented `SKIP_STRESS=1` form, and the `-P 4`
+figure is essentially this one suite — everything else folds into its shadow. The stress-inclusive
+sweep (no `SKIP_STRESS`, the repo's own pre-commit gate) measured 540s. Know that before adding to
+what it runs.
+
+`INSTALL_TOPOLOGY_TIMEOUT` (default 1200s) is the per-suite bound. Its job is to turn a hang into
+one named timeout line instead of a CI job that dies at its own timeout with no attributable
+cause — this guard runs a second copy of every shipped suite, frequently while the outer sweep is
+running the first, so contention is structural here rather than incidental.
+
+The default was 600s and was raised on evidence: under a stress-inclusive outer sweep at `-P 4`,
+`statectl-selftest.sh` inside the guard exceeded 600s and was reported as a timeout, reding a tree
+that had nothing wrong with it. A later stress-inclusive sweep of the same tree did **not** cross
+it — which is the point, not a contradiction. **A bound that ambient machine load can cross
+intermittently is not a hang detector, it is a flaky test**: every crossing has to be re-litigated
+by hand, and it is unattributable by construction, which is precisely the cost the named-timeout
+line was supposed to remove. The rule that sets it is unchanged (≈2x the worst contended run
+observed); only the observation moved, from 244s to ≥600s, because under the stress-inclusive form
+the contending load is the whole sweep rather than one second copy.
 
 **A consumer's configured lane runs in a scrubbed child env.** `verifyctl.sh` and
 `preflight.sh` both spawn a `commands.<host>` command (`lint`/`typecheck`/`test`/`format`/
@@ -144,12 +223,25 @@ applies, or yields invalid output, is **anchor drift = red** — the
 
 **Survivors are data, not a red build.** Only a survivor absent from `tools/mutation-baseline.tsv`,
 or a named infra failure (`baseline-missing`, `baseline-environment-mismatch`, an unrunnable pair,
-an unaccounted guard, sandbox failure), reds a lane. A baselined survivor is report-only; a
-baselined survivor that is now killed is a warn to shrink the baseline.
+an unaccounted guard, sandbox failure, `pool disagreement`), reds a lane. A baselined survivor is
+report-only; a baselined survivor that is now killed is a warn to shrink the baseline.
 
 **An unrunnable pair is infra red.** Every killer must exit 0 against the unmutated sandbox before
 any of its guard's mutants are scored, so a broken or environment-starved suite can never report
 its guard as fully killed.
+
+**A survivor that would red the lane is re-derived serially first.** The worker pool has been
+observed scoring a mutant `SURVIVED` that its own paired selftest demonstrably kills — twice in one
+nightly, on the same idiom a third guard killed in that same run, which is what proves the verdict
+was not a fact about the code. So before a baseline-absent survivor is allowed to red anything, the
+mutant blob is re-installed and its **full ordered kill set** re-run once, serially, on a sandbox no
+worker has touched: the pool is the suspect, so the oracle must not use it. If the serial run kills,
+the corrected `KILLED` verdict goes into the report, the counts and the cache, and the lane reds
+with `pool disagreement` instead — naming the harness rather than accusing an innocent guard. Free
+on a green run (zero baseline-absent survivors is zero extra suite runs), and seed mode re-verifies
+every survivor before it writes the baseline, because seed is the one lane that would otherwise
+record a fabricated survivor permanently and silently. The gate is asymmetric on purpose: survivors
+are the only class that reds, so a mutant the pool wrongly scores KILLED is still invisible.
 
 **Every killer runs under a wall-clock bound**, and a timed-out killer counts as a **kill**,
 logged by name. The bound is per suite — `4 x the suite's measured unmutated time`, floored at 60s
@@ -300,6 +392,13 @@ named id into `tools/mutation-baseline.tsv` as `<survivor_id><TAB><note>` and co
 that moved the guard**. No dispatch needed — the failing log already names every id. Before pasting,
 read the mutant: an ordinal that shifted is bookkeeping, but a *new* survivor at a site you just
 wrote is the harness telling you the test you added does not test anything.
+
+**`pool disagreement: <id> was scored SURVIVED by the worker pool but is KILLED by a serial
+re-run`** — the harness contradicting itself. The named mutant is already reported as `KILLED`;
+nothing is wrong with the guard or its suite, and **a baseline row is the one thing that must not
+be added** — a row asserts that no kill criterion exists, and this line is the proof one does.
+The lane is red so the pool race stays under pressure, not because the tree is. Read it as a
+harness bug report and route it to the pool-isolation work.
 
 **`catalog anchor drift: catalog::<id> left <guard> byte-identical`** — a hand-authored
 `tools/mutation-catalog.tsv` sed no longer matches. Either the anchor moved (re-anchor the row

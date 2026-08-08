@@ -893,7 +893,15 @@ LEANCFG
   # so a leg's own --issue-file in "$@" is a later occurrence and overrides it.
   LEAN_ISSUE_NOREGIONS="$TMP/lean-issue-noregions.json"
   printf '{"body": "# issue\\n\\nNo Open Regions section here.\\n"}' > "$LEAN_ISSUE_NOREGIONS"
+  # #416: the build-role precondition reads an entry attestation these legs must now COMPOSE,
+  # not seed — which means a live per-session ledger and a session id the legs control. Pinning
+  # it here (rather than inheriting the ambient one) is what makes the legs behave identically
+  # in a Claude Code session, where CLAUDE_CODE_SESSION_ID is exported, and in CI, where it is
+  # not: the fixture's session identity is always the fixture's.
+  LEAN_SID="sess-lean-build"
+  printf '{"tool":"Bash"}\n' > "$LEAN_TREE/.claude/audit/$LEAN_SID.jsonl"
   lean_gate() { ( cd "$LEAN_TREE" && SECOND_SHIFT_CONFIG="$LEAN_CFG" LEAN_PROGRESS_FILE="$LEAN_PROG" \
+                  CLAUDE_CODE_SESSION_ID="$LEAN_SID" \
                   bash "$LEAN_GATE" --issue-file "$LEAN_ISSUE_NOREGIONS" "$@" 2>&1 ); }
   lean_count() { if [[ -f "$LEAN_PROG" ]]; then local n; n=$(grep -cF "$1" "$LEAN_PROG" 2>/dev/null) || n=0; echo "$n"; else echo 0; fi; }
 
@@ -906,6 +914,16 @@ LEANCFG
   # The build identities are seeded explicitly rather than left to the gate's stamping, so
   # the authorship comparison has two known sides in every leg.
   lean_seed_progress() { # lean_seed_progress <build-run-id> <build-session-id>
+    rm -f "$LEAN_PROG"
+    { echo "# lean run — issue 77"; echo ""; echo "run_id: $1"; echo "session_id: $2"; } > "$LEAN_PROG"
+    # The entry attestation comes from the REAL `entry` subcommand, never a seeded line: a
+    # hand-written row would keep every leg green after the writer and the reader drifted apart,
+    # which is the shape of failure #416 itself was.
+    lean_gate entry 77 >/dev/null 2>&1
+  }
+  # The same header WITHOUT the attestation — the state a run that skipped step 1 is in, and the
+  # only thing the refusal leg below varies.
+  lean_seed_unattested() { # lean_seed_unattested <build-run-id> <build-session-id>
     rm -f "$LEAN_PROG"
     { echo "# lean run — issue 77"; echo ""; echo "run_id: $1"; echo "session_id: $2"; } > "$LEAN_PROG"
   }
@@ -1155,6 +1173,27 @@ LEANC
     || fail "(lean-nv) milestone-1 passed with no spec — the lean legs are vacuous"
   mv "$TMP/held-lean-spec.md" "$LEAN_SPEC"
 
+  # ---- leg 3b: the entry precondition, composed (#416) ----------------------
+  # CLAUDE.md: a new gate contract extends the liveness scenario for every verdict path it
+  # touches. This is that leg. The per-tool suite proves the refusal in isolation against one
+  # milestone; what only a composed leg can show is that a run which skipped step 1 is stopped
+  # at the call a REAL run makes — `all`, the whole-progression entry point a resume re-enters
+  # through — and stopped there WITHOUT charging a fix attempt, before any milestone body runs.
+  #
+  # The tree here is fully green: leg 1 above just walked milestones 1-5 to completion on it.
+  # So the ONLY thing that reds this is the missing row, which is what makes the pairing below
+  # evidence rather than coincidence.
+  lean_seed_unattested r-lean-1 sess-lean-build
+  lean_gate all 77 >/dev/null 2>&1; ea_all=$?
+  lean_gate 4 77 >/dev/null 2>&1; ea_m4=$?
+  ea_attempts=$(grep -cF '| milestone-' "$LEAN_PROG" 2>/dev/null) || ea_attempts=0
+  # ...and the same tree, one `entry` call later, walks the whole progression again.
+  lean_seed_progress r-lean-1 sess-lean-build
+  ea_healed_out="$(lean_gate 1 77)"; ea_healed=$?
+  [[ "$ea_all" -eq 2 && "$ea_m4" -eq 2 && "$ea_attempts" -eq 0 && "$ea_healed" -eq 0 ]] \
+    && pass "(lean-entry) an unattested run is refused at 'all' and at a milestone with exit 2, records nothing, and self-heals after one idempotent entry call" \
+    || fail "(lean-entry) all=$ea_all m4=$ea_m4 milestone-lines=$ea_attempts healed=$ea_healed, expected 2/2/0/0: $ea_healed_out"
+
   # ---- leg 4: the jira adapter, composed end to end ------------------------
   # The three adapter branch sites are proven in ISOLATION by lean-gate-selftest.sh's (n*)
   # cases. What only a composed leg can show is that they CHAIN: that the progress file
@@ -1184,6 +1223,7 @@ LEANCFGJ
   lean_count_j() { if [[ -f "$LEAN_PROG_J" ]]; then local n; n=$(grep -cF "$1" "$LEAN_PROG_J" 2>/dev/null) || n=0; echo "$n"; else echo 0; fi; }
 
   rm -f "$LEAN_PROG_J" "$LEAN_TREE/.claude/pipeline-state/$LEAN_JKEY-run-id"
+  printf '{"tool":"Bash"}\n' > "$LEAN_TREE/.claude/audit/sess-lean-jira-build.jsonl"
   printf '# spec\n\n- AC-1: a thing\n' > "$LEAN_TREE/docs/plans/acme-$LEAN_JKEY-lean.md"
   # The spec commits FIRST and on its own. `lean_commit` stages everything, so one combined
   # commit would put a code change inside the verdict's commit — a shape review-lean step 6
@@ -1206,6 +1246,9 @@ LEANPRJ
   # the same empty trail is a hard failure on the github legs above. That contrast IS the leg.
   echo '[]' > "$TMP/lean-comments-none.json"
 
+  # `entry` FIRST, as SKILL.md step 1 orders it and as the precondition now requires — the
+  # jira arm's claim is a build-role subcommand like any other.
+  lean_gate_j entry "$LEAN_JKEY" >/dev/null 2>&1; je=$?
   lean_gate_j claim "$LEAN_JKEY" >/dev/null 2>&1; jc=$?
   lean_gate_j 1 "$LEAN_JKEY" >/dev/null 2>&1; j1=$?
   lean_gate_j 2 "$LEAN_JKEY" >/dev/null 2>&1; j2=$?
@@ -1213,9 +1256,9 @@ LEANPRJ
   lean_gate_j 4 "$LEAN_JKEY" >/dev/null 2>&1; j4=$?
   lean_gate_j 5 "$LEAN_JKEY" --pr-file "$TMP/lean-pr-jira.json" \
               --comments-file "$TMP/lean-comments-none.json" >/dev/null 2>&1; j5=$?
-  [[ "$jc$j1$j2$j3$j4$j5" == "000000" ]] \
-    && pass "(lean-jira) claim + milestones 1-5 all exit 0 under tracker.type: jira, with no GH_BOT and an empty comment trail" \
-    || fail "(lean-jira) exit codes were $jc$j1$j2$j3$j4$j5, expected 000000"
+  [[ "$je$jc$j1$j2$j3$j4$j5" == "0000000" ]] \
+    && pass "(lean-jira) entry + claim + milestones 1-5 all exit 0 under tracker.type: jira, with no GH_BOT and an empty comment trail" \
+    || fail "(lean-jira) exit codes were $je$jc$j1$j2$j3$j4$j5, expected 0000000"
 
   lean_sat_j=0
   for m in 1 2 3 4 5; do
@@ -1315,11 +1358,15 @@ LEANPRJNV
     jq --argjson el "$2" '.commands.acme.extraLanes = $el' "$LEAN_CFG" > "$out" 2>/dev/null
     printf '%s' "$out"
   }
+  EL_SID="sess-lean-el-build"
+  printf '{"tool":"Bash"}\n' > "$EL_TREE/.claude/audit/$EL_SID.jsonl"
   el_gate() { # el_gate <config-file> <progress-file> <args...>
     local cfg="$1" prog="$2"; shift 2
     ( cd "$EL_TREE" && SECOND_SHIFT_CONFIG="$cfg" LEAN_PROGRESS_FILE="$prog" \
-      bash "$LEAN_GATE" --issue-file "$EL_ISSUE" "$@" 2>&1 )
+      CLAUDE_CODE_SESSION_ID="$EL_SID" bash "$LEAN_GATE" --issue-file "$EL_ISSUE" "$@" 2>&1 )
   }
+  # Each extraLanes case gets its own progress file, so each composes its own `entry` first.
+  el_attest() { el_gate "$1" "$2" entry 777 >/dev/null 2>&1; }
 
   # skip: a non-matching `when` composes into a fully green run, exactly like (lean-green)
   # above — extraLanes must not silently block a run it has nothing to say about.
@@ -1342,6 +1389,7 @@ LEANELPR
 LEANELC
   EL_CFG_SKIP="$(el_cfg skip '[{"name":"scoped","when":["docs/nomatch/**/*.md"],"commands":["echo should-not-run"],"failureClass":"TEST_FAILURE"}]')"
   EL_PROG_SKIP="$TMP/lean-el-prog-skip.md"
+  el_attest "$EL_CFG_SKIP" "$EL_PROG_SKIP"
   el_gate "$EL_CFG_SKIP" "$EL_PROG_SKIP" 1 777 >/dev/null 2>&1; els1=$?
   el_gate "$EL_CFG_SKIP" "$EL_PROG_SKIP" 2 777 >/dev/null 2>&1; els2=$?
   el_gate "$EL_CFG_SKIP" "$EL_PROG_SKIP" 3 777 >/dev/null 2>&1; els3=$?
@@ -1362,6 +1410,7 @@ LEANELC
   # is what THIS run records, not what the skip leg above already left behind.
   EL_CFG_RED="$(el_cfg red '[{"name":"boom","commands":["exit 3"],"failureClass":"TEST_FAILURE"}]')"
   EL_PROG_RED="$TMP/lean-el-prog-red.md"
+  el_attest "$EL_CFG_RED" "$EL_PROG_RED"
   out="$(el_gate "$EL_CFG_RED" "$EL_PROG_RED" all 777)"; elr=$?
   if [[ "$elr" -ne 0 ]] && printf '%s' "$out" | grep -q 'stopped at milestone-3'; then
     pass "(lean-el-red) a failing extraLane composes into 'all' stopping at milestone-3"
@@ -1381,6 +1430,7 @@ LEANELC
   ZV_CFG="$TMP/lean-zv-cfg.json"
   jq 'del(.commands.acme.allowUnverified)' "$LEAN_CFG" > "$ZV_CFG"
   ZV_PROG="$TMP/lean-zv-prog.md"
+  el_attest "$ZV_CFG" "$ZV_PROG"
   out="$(el_gate "$ZV_CFG" "$ZV_PROG" all 777)"; zvr=$?
   if [[ "$zvr" -ne 0 ]] && printf '%s' "$out" | grep -q 'stopped at milestone-3' \
      && printf '%s' "$out" | grep -q 'no verifying lane configured'; then
@@ -1441,12 +1491,17 @@ LEANSTUB
 LEANDCFG
   LEAN_DPROG="$TMP/lean-progress-design.md"
   LEAN_DSPEC="$LEAN_DTREE/docs/plans/acme-88-lean.md"
+  LEAN_DSID="sess-lean-d-build"
+  mkdir -p "$LEAN_DTREE/.claude/audit"
+  printf '{"tool":"Bash"}\n' > "$LEAN_DTREE/.claude/audit/$LEAN_DSID.jsonl"
   lean_dgate() { ( cd "$LEAN_DTREE" && SECOND_SHIFT_CONFIG="$LEAN_DCFG" LEAN_PROGRESS_FILE="$LEAN_DPROG" \
+                   CLAUDE_CODE_SESSION_ID="$LEAN_DSID" \
                    bash "$LEAN_GATE" --issue-file "$LEAN_ISSUE_NOREGIONS" "$@" 2>&1 ); }
   lean_dcommit() { git -C "$LEAN_DTREE" add -A >/dev/null 2>&1
                    git -C "$LEAN_DTREE" commit -q --allow-empty -m "${1:-lean design fixture}" >/dev/null 2>&1; }
   lean_dseed() { rm -f "$LEAN_DPROG"
-                 { echo "# lean run — issue 88"; echo ""; echo "run_id: r-lean-d"; echo "session_id: sess-lean-d-build"; } > "$LEAN_DPROG"; }
+                 { echo "# lean run — issue 88"; echo ""; echo "run_id: r-lean-d"; echo "session_id: sess-lean-d-build"; } > "$LEAN_DPROG"
+                 lean_dgate entry 88 >/dev/null 2>&1; }
   lean_dverdict() { # lean_dverdict <session> <run-id> [args...]
     local sid="$1" rid="$2"; shift 2
     rm -f "$LEAN_DTREE/.claude/pipeline-state/88-review-run-id"

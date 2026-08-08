@@ -11,7 +11,7 @@ Outcome-gated harness. `lean-gate.sh` (`G`, here) asserts artifacts; **how** you
 
 ## Checklist
 
-1. `bash G entry <issue>` — refuses without a live audit ledger, which is what makes the run reconcilable later. Then confirm the queue label; a missing one is a reject, no prompting.
+1. `bash G entry <issue>` — refuses without a live audit ledger, which is what makes the run reconcilable later, and records that it passed. Not optional and not skippable: every later build-role call (`claim`, `1..5`, `all`, `delta`) exits 2 until that row exists. It is idempotent, so a run that started before this shipped self-heals with one call. Then confirm the queue label; a missing one is a reject, no prompting.
 2. `bash G claim <issue>` — the two bot-wrapper writes (label swap + `lean-claimed` marker).
    Export `RUN_ID` first (neutral token, `[A-Za-z0-9._-]+`); it keys every record, and only `entry`/`claim` cache it to `<issue>-run-id` for the later fresh-shell calls to resolve.
 3. Cut a worktree on `<branchPrefix><key>` from the configured base — the staged lane's formula, key lowercased under jira, no lane namespace. `entry`/`claim` print it; `branch-prefix.sh` refuses rather than guessing one. Never work in the
@@ -39,4 +39,4 @@ Outcome-gated harness. `lean-gate.sh` (`G`, here) asserts artifacts; **how** you
 ## Resume
 
 Re-read the progress file, `bash G all <issue>`, continue at the first unsatisfied milestone — with one caveat until the verdict lands: `all` pre-checks the cheap assertions first, so while milestone 4 is outstanding (all of BUILD, and every fix round) it reports that and stops without evaluating 2 or 3. Run those directly then; once a `verdict=approve` record is committed the pre-pass is clean and `all` walks the whole progression — the state the mandated before-step-9 call runs in.
-Counters survive; rebase first if the base moved. Integrity lives at the merge boundary (`check-lean-chain.sh` — **github-only**, it reads the bot claim comment) and in `lean-reconcile.sh`, which under jira drops that one arm and runs its other five, saying so. Gaming a local counter buys only a red PR.
+Counters survive; rebase first if the base moved. Integrity lives at the merge boundary (`check-lean-chain.sh` — **github-only**, it reads the bot claim comment) and in `lean-reconcile.sh`, which under jira drops that one arm and runs the rest, saying so. Gaming a local counter buys only a red PR.
