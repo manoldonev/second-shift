@@ -622,6 +622,63 @@ if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q 'matches no earlier verdict r
 else fail "(P9) expected rc=1 on a dangling link under jira, got $rc: $out"; fi
 p_restore "2026-01-01T14:25:00Z"
 
+# ---- (R) the SHIPPED ledger path, with the REAL hook as its writer ---------------------------
+# Every case above sets LEAN_AUDIT_DIR, so the default resolution — `--git-common-dir/..`, the
+# only one a real operator run takes — is exercised by nothing here, and the ledger it points at
+# is synthesized by write_ledger(), which agrees with the reader by construction.
+#
+# That pair of gaps hid a live defect: the audit hook wrote beside the WORKTREE while this
+# script reads the main checkout, so a review session that ran in a worktree produced a verdict
+# naming a session with no ledger anywhere — reported as "the verdict record names a session the
+# harness has no record of", a forgery signal fired on an honest review.
+#
+# So this case drops the seam and drives the REAL hook from a linked worktree. The cross-plugin
+# reach is the point: a local copy of the writer's path logic could not fail on a writer edit.
+#
+# Asserted on the ledger ARM, not on the exit code. The other arms have their own fixtures
+# above, and binding this case to a fully-green run would make it fail for reasons that are not
+# about where the ledger lives — the failure mode this suite exists to keep attributable.
+#
+# Reaching the sibling takes a LADDER, not a fixed hop count: plugins sit adjacent under
+# `plugins/` in the marketplace repo but are separated by a version segment in an install
+# cache (`<root>/<plugin>/<version>/...`). A fixed `../../../` resolves only in the first, so
+# from every install this case took its not-found branch and red the suite — the exact class
+# tools/install-topology-selftest.sh stages for. Same ladder as check-model-tiers.sh's
+# resolve_sibling_plugin_root(). NOT a lockstep pair with the copy in lean-gate-selftest.sh:
+# each suite resolves its own sibling independently and drift between them breaks nothing —
+# the shared thing is a technique, not a contract.
+HOOK_REPO="$HERE/../../../audit-toolkit/hooks/audit-tool-calls.sh"
+HOOK="$HOOK_REPO"
+if [ ! -x "$HOOK" ]; then
+  # Cache layout: the lexically-newest staged version that actually carries the hook.
+  HOOK="$(for c in "$HERE"/../../../../audit-toolkit/*/hooks/audit-tool-calls.sh; do
+    [ -x "$c" ] && printf '%s\n' "$c"
+  done | tail -1)"
+fi
+if [ ! -x "$HOOK" ]; then
+  fail "(R) audit hook not found — searched $HOOK_REPO and $HERE/../../../../audit-toolkit/<version>/hooks/audit-tool-calls.sh; the writer half of the ledger contract is unreachable"
+else
+  WT_REC="$WORK/wt-rec"
+  REVIEW_SESSION_WT="sess-review-worktree"
+  write_progress "$RUN_ID" "$SESSION"
+  write_verdict "$REVIEW_RUN_ID" "$REVIEW_SESSION_WT"
+  commit_verdict "2026-01-01T15:00:00Z"
+  git -C "$TREE" worktree add -q -b wt-rec "$WT_REC" >/dev/null 2>&1
+  if [ ! -d "$WT_REC" ]; then
+    fail "(R) could not create a linked worktree on the fixture repo"
+  else
+    printf '%s' "{\"session_id\":\"$REVIEW_SESSION_WT\",\"cwd\":\"$WT_REC\",\"hook_event_name\":\"PostToolUse\",\"tool_name\":\"Read\",\"tool_input\":{\"file_path\":\"$WT_REC/x\"}}" \
+      | CLAUDE_PROJECT_DIR="$WT_REC" "$HOOK"
+    out="$( cd "$WT_REC" && SECOND_SHIFT_CONFIG="$CFG" LEAN_PROGRESS_FILE="$PROG" \
+            bash "$TOOL" 7 --comments-file "$WORK/comments-good.json" 2>&1 )"
+    if printf '%s' "$out" | grep -q "review session $REVIEW_SESSION_WT is distinct from the build session and has a live ledger" \
+       && ! printf '%s' "$out" | grep -q 'no review-session audit ledger'; then
+      pass "(R) the default ledger path resolves a worktree-run review session's REAL hook ledger"
+    else
+      fail "(R) the shipped ledger path did not find the hook's own output: $out"
+    fi
+  fi
+fi
 # ---- (Q) the build entry attestation (#416) --------------------------------------------------
 # The arm that catches an unattested build AFTER the fact — the only route there is, since the
 # gate's own precondition binds the build host and only from the release it shipped in. This is

@@ -9,7 +9,7 @@
     "//3": "Code to enable per-session tool-call logging.",
     "//4": "",
     "//5": "What you get: every tool call is appended to a per-session JSONL",
-    "//6": "ledger at .claude/audit/{session_id}.jsonl. Inspect via /audit",
+    "//6": "ledger under the main checkout's .claude/audit/. Inspect via /audit",
     "//7": "(current session) or /audit-history (cross-session aggregator).",
     "//8": "",
     "//9": "What you DON'T get: any kind of automatic block. The hooks do not",

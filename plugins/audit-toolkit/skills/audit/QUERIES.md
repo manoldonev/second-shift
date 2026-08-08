@@ -40,7 +40,10 @@ Two cautions. `Bash` targets are truncated, not sanitized — a command carrying
 Most queries assume you've resolved the current ledger:
 
 ```bash
-LEDGER=$(ls -t .claude/audit/*.jsonl | head -1)
+# The ledger directory is anchored on the main checkout (`--git-common-dir/..`), so this
+# resolves from a linked worktree too — a bare `.claude/audit` there finds nothing.
+AUDIT_DIR="$(cd "$(git rev-parse --git-common-dir)/.." && pwd)/.claude/audit"
+LEDGER=$(ls -t "$AUDIT_DIR"/*.jsonl | head -1)
 ```
 
 ## Common queries
@@ -114,7 +117,7 @@ jq -e --arg f "stages/9-open-pr.md" --arg since "2026-04-29T01:00:00Z" \
 
 ```bash
 # All sessions in the last 7 days, count Agent dispatches per subagent
-find .claude/audit -name '*.jsonl' -mtime -7 -print0 | xargs -0 cat \
+find "$AUDIT_DIR" -name '*.jsonl' -mtime -7 -print0 | xargs -0 cat \
   | jq -r 'select(.tool == "Agent" and .outcome == "ok") | .subagent' \
   | sort | uniq -c | sort -rn
 ```

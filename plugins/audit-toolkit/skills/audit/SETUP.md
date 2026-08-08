@@ -24,7 +24,7 @@ The hook adds a small per-tool-call cost (~1–2 ms). In plugin mode it's on for
 
 ## What you get
 
-- **Ledger** at `.claude/audit/{session_id}.jsonl` (gitignored, in the consumer repo). One JSON row per tool call, with these fields (kept in lockstep with `QUERIES.md`; pair `audit-row-fields`):
+- **Ledger** at `<main checkout>/.claude/audit/{session_id}.jsonl` (gitignored, in the consumer repo). The directory is resolved as `--git-common-dir/..`, so one repo family has **one** ledger directory and a session working in a linked worktree writes there too — the same anchor every reader uses. (When that resolution yields nothing — a non-git project directory — the hook falls back to `$CLAUDE_PROJECT_DIR/.claude/audit` rather than blocking the session.) One JSON row per tool call, with these fields (kept in lockstep with `QUERIES.md`; pair `audit-row-fields`):
 
   <!-- LOCKSTEP-BEGIN audit-row-fields -->
   `ts`, `session_id`, `event`, `tool`, `subagent`, `command_name`, `target`, `outcome`
@@ -44,8 +44,9 @@ The hook adds a small per-tool-call cost (~1–2 ms). In plugin mode it's on for
 After the plugin is enabled (or manual mode is wired + Claude Code restarted), run a few tool calls (anything will do). Then:
 
 ```bash
-# Confirm the ledger is being written (in the consumer repo).
-ls .claude/audit/
+# Confirm the ledger is being written (in the consumer repo). The directory is
+# anchored on the main checkout even when you run this from a linked worktree.
+ls "$(cd "$(git rev-parse --git-common-dir)/.." && pwd)/.claude/audit/"
 
 # Query the current session.
 /audit-toolkit:audit
@@ -59,6 +60,10 @@ Plugin maintainers can run the smoke test directly against the plugin checkout:
 ```bash
 <plugin>/scripts/audit-selftest.sh
 ```
+
+## Ledgers written before the main-checkout anchor
+
+Ledgers that earlier versions wrote *beside a worktree* are **abandoned, not migrated**. Most are already gone with the worktrees that held them, and the ones that survive are tamper-evidence for runs that have already merged. There is no migration tool and no reader-side worktree probe — a reader that fell back to the worktree would leave the ledger dying with it, which is a data-loss path indistinguishable from forgery. Known cost: a run in flight across this upgrade loses continuity between its old and its new ledger.
 
 ## Disable / opt out
 

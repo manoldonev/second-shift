@@ -28,25 +28,28 @@ The ledger is written by the audit-toolkit hook (`audit-tool-calls.sh`) on `Post
 
 ### Step 1: Locate ledger — and onboard if missing
 
+The ledger directory is anchored on the **main checkout**, not on whatever directory the session is running in — the hook resolves `--git-common-dir/..` so one repo family has one ledger directory, and a session working in a linked worktree is still found. Resolve it before looking for anything:
+
 ```bash
-LEDGER=$(ls -t .claude/audit/*.jsonl 2>/dev/null | head -1)
+AUDIT_DIR="$(cd "$(git rev-parse --git-common-dir)/.." && pwd)/.claude/audit"
+LEDGER=$(ls -t "$AUDIT_DIR"/*.jsonl 2>/dev/null | head -1)
 ```
 
-If `$LEDGER` is empty, **do not produce an audit report**. Instead, output the onboarding instructions verbatim to the user. Two cases:
+If `$LEDGER` is empty, **do not produce an audit report**. Instead, output the onboarding instructions verbatim to the user (substituting the resolved `$AUDIT_DIR` for the paths below). Two cases:
 
-**Case A — no `.claude/audit/` directory at all (the audit hook has never fired here):**
+**Case A — no `$AUDIT_DIR` at all (the audit hook has never fired here):**
 
 > The audit ledger is empty for this session — the audit hook hasn't written anything in this repo yet. The audit infrastructure is observability only (a small per-tool-call cost).
 >
 > To enable visibility into what tools Claude actually invokes: **enable the `audit-toolkit` plugin** for this repo. Its `hooks/hooks.json` wires the ledger writer automatically — nothing to copy. (Legacy/manual mode, for a repo not adopting the plugin, copies `templates/settings.audit-template.json` to `.claude/settings.local.json` and restarts Claude Code.)
 >
-> After the plugin is enabled, every tool call in this project is appended to a per-session JSONL ledger at `.claude/audit/{session_id}.jsonl`. Run `/audit` again to see it.
+> After the plugin is enabled, every tool call in this repo — including sessions running in a linked worktree — is appended to a per-session JSONL ledger under the main checkout's `.claude/audit/`. Run `/audit` again to see it.
 >
 > Full setup notes: the audit `SETUP.md`. The system is observability only — it never blocks pushes or commits.
 
-**Case B — `.claude/audit/` exists but has no `*.jsonl` for this session (the hook is wired but no tool calls have fired yet):**
+**Case B — `$AUDIT_DIR` exists but has no `*.jsonl` for this session (the hook is wired but no tool calls have fired yet):**
 
-> Your `.claude/audit/` directory exists, but no ledger has been written for the current session yet.
+> The audit ledger directory exists, but no ledger has been written for the current session yet.
 >
 > Two likely causes:
 >
@@ -55,7 +58,7 @@ If `$LEDGER` is empty, **do not produce an audit report**. Instead, output the o
 >
 > If neither applies, confirm the `audit-toolkit` plugin is enabled (or, in legacy manual mode, that `.claude/settings.local.json` has a `hooks.PostToolUse` entry pointing at the audit hook).
 
-Distinguish A from B by `[ -d .claude/audit ]`. If even the directory is missing, that's Case A. Otherwise Case B.
+Distinguish A from B by `[ -d "$AUDIT_DIR" ]`. If even the directory is missing, that's Case A. Otherwise Case B.
 
 ### Step 2: Aggregate counts
 
@@ -100,10 +103,10 @@ First entry: <ts>; last entry: <ts>; ledger size: <KB>.
 ### Step 5: Hand-off pointers
 
 > Inspect the raw ledger:
-> `jq '.' .claude/audit/<SID>.jsonl | less`
+> `jq '.' "$AUDIT_DIR"/<SID>.jsonl | less`
 >
 > Filter for subagent dispatches:
-> `jq -c 'select(.tool == "Agent")' .claude/audit/<SID>.jsonl`
+> `jq -c 'select(.tool == "Agent")' "$AUDIT_DIR"/<SID>.jsonl`
 >
 > Aggregate across the last N days:
 > `/audit-history 14`

@@ -25,20 +25,44 @@ while [ $# -gt 0 ]; do
 done
 
 cd "$(git rev-parse --show-toplevel 2>/dev/null)" || { echo "not in a git repo"; exit 1; }
-AUDIT_DIR=".claude/audit"
+
+# Same main-checkout anchor the writer uses, held byte-identical to it by the
+# `audit-ledger-dir` row in scripts/lockstep-manifest.tsv. A bare `.claude/audit` here
+# reported nothing at all when run from a linked worktree — which is where lean runs live,
+# and where the ledger being swept is NOT.
+# LOCKSTEP-BEGIN audit-ledger-dir
+audit_ledger_dir() { # audit_ledger_dir <base-dir> — the main checkout's .claude/audit
+  local base="$1" common="" root=""
+  common="$(git -C "$base" rev-parse --git-common-dir 2>/dev/null)"
+  if [ -n "$common" ]; then
+    # `git -C` answers relative to <base>: the main checkout prints `.git` (or `../.git`
+    # from a subdirectory), a linked worktree prints the main checkout's absolute path.
+    case "$common" in
+      /*) : ;;
+      *)  common="$base/$common" ;;
+    esac
+    root="$(cd "$common/.." 2>/dev/null && pwd)"
+  fi
+  [ -n "$root" ] || root="$base"
+  printf '%s\n' "$root/.claude/audit"
+}
+# LOCKSTEP-END audit-ledger-dir
+
+AUDIT_DIR="$(audit_ledger_dir "$PWD")"
 
 if [ ! -d "$AUDIT_DIR" ]; then
-    cat <<'EOF'
-No audit ledgers found — the audit hook hasn't written anything on this
-checkout yet.
+    cat <<EOF
+No audit ledgers found — the audit hook hasn't written anything for this
+repo yet ($AUDIT_DIR does not exist).
 
 To enable it: enable the audit-toolkit plugin for this repo. Its
 hooks/hooks.json wires the ledger writer automatically — nothing to copy.
 (Legacy/manual mode, for a repo not adopting the plugin: copy the plugin's
 templates/settings.audit-template.json to .claude/settings.local.json.)
 
-Once enabled, every Claude Code session in this project appends tool-call
-rows to .claude/audit/{session_id}.jsonl, and `/audit-history N` reports
+Once enabled, every Claude Code session in this repo — including sessions
+running in a linked worktree — appends tool-call rows to
+$AUDIT_DIR/{session_id}.jsonl, and \`/audit-history N\` reports
 across the last N days.
 
 Full setup: the audit-toolkit SETUP.md. Observability only —
@@ -51,7 +75,7 @@ LEDGERS=$(find "$AUDIT_DIR" -maxdepth 1 -name '*.jsonl' -mtime -"$DAYS" 2>/dev/n
 LEDGER_COUNT=$(echo "$LEDGERS" | grep -c . || true)
 if [ "$LEDGER_COUNT" -eq 0 ]; then
     cat <<EOF
-.claude/audit/ exists but no ledger files modified in the last $DAYS days.
+$AUDIT_DIR exists but no ledger files modified in the last $DAYS days.
 
 Possible causes:
   1. The plugin/hook was enabled mid-session — hook wiring is loaded at
