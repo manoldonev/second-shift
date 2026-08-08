@@ -75,7 +75,13 @@
 #   --comments-file <path>   read the comment trail from a JSON fixture (github arm only;
 #                            refused under jira, where no comment trail is read at all)
 #   LEAN_PROGRESS_FILE       override the resolved progress-file path
-#   LEAN_AUDIT_DIR           override the resolved audit-ledger directory
+#   LEAN_AUDIT_DIR           override the resolved audit-ledger directory. FIXTURE-ONLY, and
+#                            deliberately not promoted to an operator escape hatch: the honest
+#                            ceiling stated above is "forge a second session's hook ledger with
+#                            coherent timestamps", and a sanctioned directory override lowers it
+#                            to "write a JSONL file anywhere". Mirrors STATECTL_LEDGER_DIR.
+#                            The shipped default is the MAIN checkout's .claude/audit — the same
+#                            directory the audit hook writes to.
 #   SECOND_SHIFT_CONFIG      override the resolved config path
 #
 # Exit 0 = reconciled; 1 = a reconciliation failure; 2 = usage/environment error.
@@ -93,7 +99,7 @@ while [ $# -gt 0 ]; do
   case "$1" in
     --session-id)    SESSION_ID="${2:-}"; shift 2 ;;
     --comments-file) COMMENTS_FILE="${2:-}"; shift 2 ;;
-    -h|--help)       sed -n '2,81p' "$0"; exit 0 ;;
+    -h|--help)       sed -n '2,87p' "$0"; exit 0 ;;
     -*)              envfail "unknown option: $1" ;;
     *)               [ -z "$ISSUE" ] && ISSUE="$1" || envfail "unexpected argument: $1"; shift ;;
   esac

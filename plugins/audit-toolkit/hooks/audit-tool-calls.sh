@@ -56,7 +56,45 @@ TARGET=$(jq -r '
 OUTCOME="ok"
 [ "$EVENT" = "PostToolUseFailure" ] && OUTCOME="fail"
 
-AUDIT_DIR="${CLAUDE_PROJECT_DIR:-$CWD}/.claude/audit"
+# WHERE THE LEDGER LIVES. Anchored on the MAIN checkout, never on the directory the
+# session happens to be running in. A lean run works in a linked worktree by contract,
+# and every reader resolves `--git-common-dir/..`: lean-gate.sh's `entry` precondition,
+# lean-reconcile.sh, statectl.sh's `ledger_dir()`. Writing beside the worktree instead
+# put the ledger where none of them look, with two opposite failure modes — an honest
+# run refused at `entry` for a ledger it had just written, and a verdict record naming a
+# session reconcile could not resolve, which reads as a forgery signal. One directory
+# per repo family is also what /audit-history's cross-session sweep already assumes.
+#
+# `${CLAUDE_PROJECT_DIR:-$CWD}` stays the starting point — today's precedence, unchanged;
+# only what is DERIVED from it moves. The payload's `cwd` can wander per call, so it
+# stays the fallback rather than the primary.
+#
+# Resolved per invocation, uncached: one `git rev-parse` beside the six `jq` calls and
+# the `date` already here, and the result is a stable per-repo string a memo could hold
+# later without moving the contract. Marginal, but unmeasured — no claim is made.
+#
+# The failure path is today's path, never a hard error: this script must not block a
+# session (see the masthead), and lean-gate.sh's `entry` already fails closed on the
+# resulting absent ledger, which is where the refusal is actionable.
+# LOCKSTEP-BEGIN audit-ledger-dir
+audit_ledger_dir() { # audit_ledger_dir <base-dir> — the main checkout's .claude/audit
+  local base="$1" common="" root=""
+  common="$(git -C "$base" rev-parse --git-common-dir 2>/dev/null)"
+  if [ -n "$common" ]; then
+    # `git -C` answers relative to <base>: the main checkout prints `.git` (or `../.git`
+    # from a subdirectory), a linked worktree prints the main checkout's absolute path.
+    case "$common" in
+      /*) : ;;
+      *)  common="$base/$common" ;;
+    esac
+    root="$(cd "$common/.." 2>/dev/null && pwd)"
+  fi
+  [ -n "$root" ] || root="$base"
+  printf '%s\n' "$root/.claude/audit"
+}
+# LOCKSTEP-END audit-ledger-dir
+
+AUDIT_DIR="$(audit_ledger_dir "${CLAUDE_PROJECT_DIR:-$CWD}")"
 mkdir -p "$AUDIT_DIR" 2>/dev/null && chmod 700 "$AUDIT_DIR" 2>/dev/null
 LEDGER="$AUDIT_DIR/${SESSION_ID}.jsonl"
 

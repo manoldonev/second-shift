@@ -221,6 +221,55 @@ out="$( cd "$TREE" && SECOND_SHIFT_CONFIG="$CFG" LEAN_PROGRESS_FILE="$PROG" \
 if [ "$rc" -eq 0 ]; then pass "(d4) entry passes on a live, non-empty ledger"
 else fail "(d4) expected rc=0 on a live ledger, got $rc: $out"; fi
 
+# (d5) THE FALSE REFUSAL. Every case above hands the gate a hand-written ledger, so all of
+# them agree with `cmd_entry` about the path by construction and none can catch the reader
+# and the WRITER disagreeing. They did: the audit hook wrote beside the worktree while this
+# gate reads `--git-common-dir/..`, so a lean run — which works in a linked worktree by
+# contract — was refused at the door for a ledger it had just written correctly.
+#
+# So this case drives the REAL hook rather than synthesizing its output. It is deliberately
+# a cross-plugin reach: a copy of the writer's path logic here could not fail on a writer
+# edit, which is the whole defect. The writer's own suite covers the same agreement from
+# its side (audit-selftest.sh Tests 10-14); this one covers it from the reader's, so a
+# regression in either half reds a suite that owns that half.
+#
+# Reaching the sibling takes a LADDER, not a fixed hop count, because two on-disk layouts
+# ship this pair: the marketplace repo, where plugins sit adjacent under `plugins/`, and a
+# version-keyed install cache (`<root>/<plugin>/<version>/...`), where a version segment
+# separates them. A fixed `../../../` resolves only in the first, so from every install this
+# case took its not-found branch and red the suite — the exact class
+# tools/install-topology-selftest.sh stages for. Same ladder as
+# check-model-tiers.sh's resolve_sibling_plugin_root(). NOT a lockstep pair with the copy in
+# lean-reconcile-selftest.sh: each suite resolves its own sibling independently and drift
+# between them breaks nothing — the shared thing is a technique, not a contract.
+HOOK_REPO="$HERE/../../../audit-toolkit/hooks/audit-tool-calls.sh"
+HOOK="$HOOK_REPO"
+if [ ! -x "$HOOK" ]; then
+  # Cache layout: the lexically-newest staged version that actually carries the hook.
+  HOOK="$(for c in "$HERE"/../../../../audit-toolkit/*/hooks/audit-tool-calls.sh; do
+    [ -x "$c" ] && printf '%s\n' "$c"
+  done | tail -1)"
+fi
+if [ ! -x "$HOOK" ]; then
+  fail "(d5) audit hook not found — searched $HOOK_REPO and $HERE/../../../../audit-toolkit/<version>/hooks/audit-tool-calls.sh; the writer half of the ledger contract is unreachable"
+else
+  WT_ENTRY="$WORK/wt-entry"
+  git -C "$TREE" worktree add -q -b wt-entry "$WT_ENTRY" >/dev/null 2>&1
+  if [ ! -d "$WT_ENTRY" ]; then
+    fail "(d5) could not create a linked worktree on the fixture repo"
+  else
+    printf '%s' "{\"session_id\":\"sess-wt\",\"cwd\":\"$WT_ENTRY\",\"hook_event_name\":\"PostToolUse\",\"tool_name\":\"Read\",\"tool_input\":{\"file_path\":\"$WT_ENTRY/x\"}}" \
+      | CLAUDE_PROJECT_DIR="$WT_ENTRY" "$HOOK"
+    out="$( cd "$WT_ENTRY" && SECOND_SHIFT_CONFIG="$CFG" LEAN_PROGRESS_FILE="$PROG" \
+            CLAUDE_CODE_SESSION_ID=sess-wt bash "$GATE" entry 7 2>&1 )"; rc=$?
+    if [ "$rc" -eq 0 ]; then
+      pass "(d5) entry passes in a linked worktree whose ledger the REAL hook wrote"
+    else
+      fail "(d5) the false refusal is back — entry rejected a worktree run with a live hook (rc=$rc): $out"
+    fi
+  fi
+fi
+
 # ---- (e) AC-9: the derived prefix, asserted in BOTH directions ---------------------------
 # The gate echoes the derived prefix into the progress-file header, which is where we read it.
 reset_progress
