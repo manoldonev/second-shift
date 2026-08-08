@@ -93,19 +93,22 @@ WORKSPACES="[]"
 if [[ -f package.json ]]; then
   WORKSPACES="$(jq -c '(.workspaces // []) | if type=="object" then (.packages // []) else . end' package.json 2>/dev/null || echo '[]')"
 fi
+# Some repos declare `workspaces` purely to host test-scoped packages (an e2e harness,
+# fixture packages) — not evidence of a genuine multi-app monorepo layout. A workspaces
+# array whose every entry (glob suffix stripped) is a test-ish name shouldn't drive the
+# topology decision by itself. The raw array still ships in the output below
+# (provenance-first — never hide evidence); WORKSPACES_REAL is what topology
+# classification keys on.
+WORKSPACES_REAL="$WORKSPACES"
+if [[ "$WORKSPACES" != "[]" ]]; then
+  real_count="$(jq -r '
+    [ .[] | sub("/\\*+$"; "") | (split("/") | last) |
+      select(test("^(test|tests|__tests__|e2e|spec|specs|fixtures|testing)$"; "i") | not) ] | length
+  ' <<< "$WORKSPACES" 2>/dev/null || echo 1)"
+  [[ "$real_count" -eq 0 ]] && WORKSPACES_REAL="[]"
+fi
+
 BASENAME="$(basename "$ROOT")"
-SIBLINGS="[]"
-for suffix in ui web frontend client app; do
-  cand="../${BASENAME%-api}-$suffix"; cand="${cand/--/-}"
-  if [[ -d "$ROOT/$cand/.git" ]]; then SIBLINGS="$(jq -c --arg c "$cand" '. + [$c]' <<< "$SIBLINGS")"; fi
-done
-# Same-base-name convention match above requires the sibling to share this repo's base
-# name (e.g. shop-api / shop-ui). That misses pairs whose names carry no shared prefix at
-# all (fastapi-be / vue-fe, express-api / angular-fe) — both physically-adjacent checkouts,
-# neither detectable by the loop above. Broaden: if THIS repo's own basename carries a
-# recognized BE- or FE-side suffix, scan every adjacent git-repo directory for the
-# counterpart suffix, regardless of shared base name. Still detection, not a guess: a
-# match only adds a candidate for onboard's existing pair-confirm elicitation to ask about.
 FE_SUFFIXES=(ui web frontend client app fe)
 BE_SUFFIXES=(api be backend server service)
 has_suffix() { # $1 name, $2..  suffixes
@@ -114,6 +117,37 @@ has_suffix() { # $1 name, $2..  suffixes
   for suf in "$@"; do case "$name" in *-"$suf") return 0 ;; esac; done
   return 1
 }
+strip_suffix() { # $1 name, $2.. suffixes → base with a matching trailing "-suffix" removed
+  local name="$1"; shift
+  local suf
+  for suf in "$@"; do case "$name" in *-"$suf") printf '%s' "${name%-"$suf"}"; return 0 ;; esac; done
+  printf '%s' "$name"
+}
+SIBLINGS="[]"
+add_sibling() { # $1 = candidate dir name relative to ROOT's parent (e.g. "shop-ui")
+  [[ -d "$ROOT/../$1/.git" ]] || return 0
+  SIBLINGS="$(jq -c --arg c "../$1" 'if index($c) then . else . + [$c] end' <<< "$SIBLINGS")"
+}
+# Same-base-name convention (shop-api / shop-ui): try BOTH directions from this repo's
+# own name, not just BE→FE. A BE-suffixed repo tries every FE-suffixed same-base-name
+# candidate (the original direction, kept below). An FE-suffixed repo tries the BARE
+# base name (e.g. shop-ui → shop — the common "bare backend, suffixed
+# frontend" convention) AND every BE-suffixed same-base-name candidate; the reverse
+# direction used to be unreachable, so a bare-base-name BE sibling of an FE repo was
+# invisible even though it sits right next door.
+BASE_NO_BE="$(strip_suffix "$BASENAME" "${BE_SUFFIXES[@]}")"
+if [[ "$BASE_NO_BE" != "$BASENAME" ]]; then
+  for suffix in "${FE_SUFFIXES[@]}"; do add_sibling "${BASE_NO_BE}-${suffix}"; done
+fi
+BASE_NO_FE="$(strip_suffix "$BASENAME" "${FE_SUFFIXES[@]}")"
+if [[ "$BASE_NO_FE" != "$BASENAME" ]]; then
+  add_sibling "$BASE_NO_FE"
+  for suffix in "${BE_SUFFIXES[@]}"; do add_sibling "${BASE_NO_FE}-${suffix}"; done
+fi
+# Name-unrelated pairs (fastapi-be / vue-fe): no shared base name, so scan every
+# adjacent git-repo directory for the counterpart suffix once THIS repo's own basename
+# carries a recognized BE- or FE-side suffix. Still detection, not a guess: a match
+# only adds a candidate for onboard's existing pair-confirm elicitation to ask about.
 COUNTERPART_SUFFIXES=()
 if has_suffix "$BASENAME" "${BE_SUFFIXES[@]}"; then
   COUNTERPART_SUFFIXES=("${FE_SUFFIXES[@]}")
@@ -125,14 +159,21 @@ if [[ "${#COUNTERPART_SUFFIXES[@]}" -gt 0 && -d "$ROOT/.." ]]; then
     [[ -d "$d/.git" ]] || continue
     dname="$(basename "$d")"
     [[ "$dname" == "$BASENAME" ]] && continue
-    if has_suffix "$dname" "${COUNTERPART_SUFFIXES[@]}"; then
-      SIBLINGS="$(jq -c --arg c "../$dname" 'if index($c) then . else . + [$c] end' <<< "$SIBLINGS")"
-    fi
+    has_suffix "$dname" "${COUNTERPART_SUFFIXES[@]}" && add_sibling "$dname"
   done
 fi
+# Sibling checkouts are the stronger signal (two actual physically-adjacent repos, not
+# just a manifest field) and are checked FIRST — an `elif` here would let a (possibly
+# wrong, see WORKSPACES_REAL above) monorepo classification silently swallow a real
+# pair candidate that also exists on disk, never surfacing it for onboard's confirm step.
 TOPOLOGY=standalone; TOPO_SRC="no workspaces manifest; no sibling candidates"
-if [[ "$WORKSPACES" != "[]" ]]; then TOPOLOGY=monorepo; TOPO_SRC="package.json workspaces"
-elif [[ "$SIBLINGS" != "[]" ]]; then TOPOLOGY="be-fe-pair-candidate"; TOPO_SRC="sibling checkout(s) detected — needs confirmation"; fi
+if [[ "$SIBLINGS" != "[]" ]]; then
+  TOPOLOGY="be-fe-pair-candidate"; TOPO_SRC="sibling checkout(s) detected — needs confirmation"
+elif [[ "$WORKSPACES_REAL" != "[]" ]]; then
+  TOPOLOGY=monorepo; TOPO_SRC="package.json workspaces"
+elif [[ "$WORKSPACES" != "[]" ]]; then
+  TOPOLOGY=standalone; TOPO_SRC="package.json workspaces are test-only (e2e/fixtures) — not treated as monorepo evidence"
+fi
 
 # --- emit ---------------------------------------------------------------------
 jq -n \

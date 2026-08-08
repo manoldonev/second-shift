@@ -40,6 +40,15 @@ repo enables {{PLUGIN_LIST}}) — `/second-shift:doctor` verifies the install ag
   the committed config at the pinned marketplace ref and assert the settings ref and lockfile ref
   agree. The workflow only reports a check; it blocks a merge only if you mark it a required status
   check in branch protection.
+- Optional committed CI files (emitted by the same acceptance as the pair above):
+  `.github/workflows/second-shift-unclaim.yml` + `.claude/tools/second-shift-unclaim.sh`. Also
+  **GitHub Actions, not a Claude session**, but unlike the pair above this one **writes**: when an
+  issue closes it removes the pipeline's two run-state labels (`tracker.labels.claimed` and
+  `tracker.labels.queue`, resolved from your committed config) from that one issue. Never
+  `tracker.labels.blockers` — those are permanent classifications, not run state. That is the
+  entire `issues: write` grant, and it needs your repo's Actions workflow permissions set to
+  read-and-write. Nothing else releases those labels, so without this a merged ticket stays
+  labelled in-progress forever.
 
 ## Opting out (sanctioned, personal)
 

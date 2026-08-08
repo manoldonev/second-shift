@@ -21,7 +21,12 @@ set -uo pipefail
 cd "$(git rev-parse --show-toplevel)" || { echo "not in a git repo" >&2; exit 2; }
 
 WORKFLOW_DIR=".github/workflows"
-if [[ ! -d "$WORKFLOW_DIR" ]]; then
+# The consumer workflow TEMPLATES are parsed by the same floor. They are shipped verbatim
+# into a consumer's own .github/workflows/, so a syntax error in one is invisible here —
+# it surfaces as an "Invalid workflow file" in somebody else's repo — and nothing else
+# walks this directory: actionlint in CI is scoped to .github/workflows/ too.
+TEMPLATE_DIR="plugins/second-shift/templates/consumer"
+if [[ ! -d "$WORKFLOW_DIR" && ! -d "$TEMPLATE_DIR" ]]; then
   echo "check-workflows-selftest: no $WORKFLOW_DIR — nothing to check. PASS."
   exit 0
 fi
@@ -50,7 +55,7 @@ parse_yaml() { # parse_yaml <file> -> 0 ok, non-zero + stderr on syntax error
 
 PASS=0
 FAIL=0
-for wf in "$WORKFLOW_DIR"/*.yml "$WORKFLOW_DIR"/*.yaml; do
+for wf in "$WORKFLOW_DIR"/*.yml "$WORKFLOW_DIR"/*.yaml "$TEMPLATE_DIR"/*.yml "$TEMPLATE_DIR"/*.yaml; do
   [[ -f "$wf" ]] || continue
   if err="$(parse_yaml "$wf" 2>&1)"; then
     echo "  ok: $wf"

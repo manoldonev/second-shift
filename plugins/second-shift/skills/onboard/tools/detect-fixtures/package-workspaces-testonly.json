@@ -1,0 +1,2 @@
+{ "name": "storefront", "workspaces": ["e2e"],
+  "scripts": { "test": "vitest run", "lint": "eslint ." } }
