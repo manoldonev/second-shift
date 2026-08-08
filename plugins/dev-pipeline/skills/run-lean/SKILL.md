@@ -24,7 +24,7 @@ Outcome-gated harness. `lean-gate.sh` (`G`, here) asserts artifacts; **how** you
 8. **Milestone 4 arrives from OUTSIDE.** Dispatch no reviewer — the record is written by a
    separate top-level session (`/dev-pipeline:review-lean <pr>`) with its own identity, and this
    gate refuses one carrying yours. Hand off; `bash G 4 <issue>` passes only on a committed `verdict=approve` whose `reviewed_patch_id` **is** this branch's current patch — and, when armed, whose `fidelity` is `pass` over a receipt rendered from that same patch. On `needs-work`, fix every blocker, push, and ask for a **new** review context — never a resumed one.
-9. Post one closing comment: PR link, verdict-record reference, same cost block. Then `bash G 5 <issue>` — exit artifacts. Drop the claimed label and remove the worktree.
+9. Post one closing comment: PR link, verdict-record reference, same cost block. Then `bash G 5 <issue>` — exit artifacts. Remove the worktree, but **leave the claimed label alone**: milestone 5 requires an open PR, so review is still in flight and the label is correct. The repository's unclaim workflow releases it when the item closes.
 
 ## Rules that are not negotiable
 
