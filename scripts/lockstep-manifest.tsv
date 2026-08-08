@@ -451,6 +451,25 @@ lean-design-armed	verbatim	plugins/dev-pipeline/skills/run-lean/lean-gate.sh	lea
 # #421: preflight-selftest.sh:38 and doctor-selftest.sh:102 both still use a fixed hop count,
 # and fixing either the sanctioned way makes it a third copy.
 
+# The unclaim workflow pair. The marketplace repo runs the SHIPPED unclaim script in place,
+# so there is one script and no script pair — but there are two workflow FILES, and this is
+# the first template workflow with a near-twin under .github/workflows/. They are allowed to
+# differ in `name:`, the checkout pin (v5 here, v4 in the template, matching the precedent
+# each side already sets) and the script path. They are NOT allowed to differ in the three
+# blocks below, each anchored separately because the prose documenting it sits between them
+# and is deliberately file-specific:
+#   trigger      — a file that fires on a different event is a different workflow, and the
+#                  consumer would inherit behavior the canary never exercised.
+#   permissions  — the entire blast radius. A widening on one side that the other does not
+#                  carry is the drift with real consequences; nothing else here has any.
+#   env          — the token source and the injection discipline. `${{ }}` reaching a `run:`
+#                  body on one side only is exactly the divergence a reader would not see.
+# `verbatim` collapses whitespace, so the differing indentation of the env block against its
+# two top-level siblings is not part of the contract; the tokens are.
+unclaim-workflow-trigger	verbatim	.github/workflows/unclaim-on-close.yml	unclaim-workflow-trigger	plugins/second-shift/templates/consumer/second-shift-unclaim.yml	unclaim-workflow-trigger
+unclaim-workflow-permissions	verbatim	.github/workflows/unclaim-on-close.yml	unclaim-workflow-permissions	plugins/second-shift/templates/consumer/second-shift-unclaim.yml	unclaim-workflow-permissions
+unclaim-workflow-env	verbatim	.github/workflows/unclaim-on-close.yml	unclaim-workflow-env	plugins/second-shift/templates/consumer/second-shift-unclaim.yml	unclaim-workflow-env
+
 # lean branch-prefix DERIVATION (#359) — `lean_branch_prefix()`, the shell function that turns
 # the configured `tracker.branchPrefix` into the lean lane's namespace and refuses a pair that
 # is not mutually non-prefix-matching. Held by lean-gate.sh (which derives the branch a run cuts
