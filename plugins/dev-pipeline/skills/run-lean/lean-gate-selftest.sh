@@ -9,8 +9,9 @@
 #   (b*) the D-41 append rules — a passing gate must append at most ONE `satisfied` line ever,
 #        or diagnostic re-runs silently inflate the fix-budget counter.
 #   (c*) the D-19 hard stop — 3 attempts, the 4th red exits 4.
-#   (e*) AC-9's MUTUAL non-prefix-match. A one-directional reading passes with a derived
-#        prefix of `lean/`, which would make every pipeline PR applicable to the lean gate.
+#   (e*) #413's branch formula — `<branchPrefix><key>`, verbatim, and a REFUSAL rather than a
+#        placeholder when the prefix cannot be resolved. Both defects it replaces were silent:
+#        a re-rooted prefix and a leaked `claude/acme-` produce perfectly valid branch names.
 #   (g)  G-2 — `satisfied` is a RECORD, not a CACHE. `all` must re-evaluate a milestone that
 #        already has a satisfied line, or a green gate from before a fix round certifies code
 #        that never passed it.
@@ -213,35 +214,65 @@ out="$( cd "$TREE" && SECOND_SHIFT_CONFIG="$CFG" LEAN_PROGRESS_FILE="$PROG" \
 if [ "$rc" -eq 0 ]; then pass "(d4) entry passes on a live, non-empty ledger"
 else fail "(d4) expected rc=0 on a live ledger, got $rc: $out"; fi
 
-# ---- (e) AC-9: the derived prefix, asserted in BOTH directions ---------------------------
-# The gate echoes the derived prefix into the progress-file header, which is where we read it.
+# ---- (e) #413: the branch name is `<branchPrefix><key>`, with NO lean namespace ------------
+# The gate echoes both the resolved prefix and the composed branch name into the progress-file
+# header, which is where we read them. The old (e1)-(e4) block asserted a `lean/` re-rooting
+# and its mutual-non-prefix property; that derivation is deleted, so those assertions are
+# replaced rather than dropped — the property they guarded (the two lanes never collide) now
+# lives at the merge boundary, on the committed spec, and is pinned by the two chain selftests.
 reset_progress
 # Use milestone 1 (not `entry`) to materialize the header: entry refuses without a live
 # ledger for THIS session, so it would leave no progress file to read the prefix from.
 gate 1 7 >/dev/null 2>&1 || true
 derived="$(grep '^branch_prefix:' "$PROG" 2>/dev/null | awk '{print $2}')"
-pipeline_prefix="claude/acme-"
-if [ "$derived" = "lean/acme-" ]; then pass "(e1) prefix derives from tracker.branchPrefix ($pipeline_prefix -> $derived)"
-else fail "(e1) expected lean/acme-, got '$derived'"; fi
+branch_name="$(grep '^branch:' "$PROG" 2>/dev/null | awk '{print $2}')"
+if [ "$derived" = "claude/acme-" ]; then pass "(e1) the prefix is tracker.branchPrefix VERBATIM (no re-rooting)"
+else fail "(e1) expected claude/acme-, got '$derived'"; fi
 
-case "$derived" in
-  "$pipeline_prefix"*) fail "(e2) derived prefix '$derived' prefix-matches the pipeline prefix" ;;
-  *) pass "(e2) derived prefix does not prefix-match the pipeline prefix" ;;
-esac
-# The reverse direction is the one a one-directional reading misses: `lean/` would pass (e2)
-# while making EVERY pipeline branch match the lean gate.
-case "$pipeline_prefix" in
-  "$derived"*) fail "(e3) pipeline prefix '$pipeline_prefix' prefix-matches the derived prefix '$derived' — every pipeline PR would be double-classified" ;;
-  *) pass "(e3) pipeline prefix does not prefix-match the derived prefix (the reverse direction)" ;;
-esac
+# AC-1: byte-identical to what stages/2-worktree.md's `BRANCH="${BRANCH_PREFIX}${ISSUE}"`
+# yields for the same key. (e1) alone would still pass if the composition dropped the key.
+if [ "$branch_name" = "claude/acme-7" ]; then pass "(e2) the branch name is <branchPrefix><key> — the staged lane's formula"
+else fail "(e2) expected branch 'claude/acme-7', got '$branch_name'"; fi
 
-# A configured prefix already under lean/ collapses the two — the derivation must refuse.
-CFG_BAD="$WORK/config-collide.json"
-sed 's|"claude/acme-"|"lean/acme-"|' "$CFG" > "$CFG_BAD"
-out="$( cd "$TREE" && SECOND_SHIFT_CONFIG="$CFG_BAD" LEAN_PROGRESS_FILE="$WORK/p2.md" bash "$GATE" 1 7 2>&1 )"; rc=$?
-if [ "$rc" -eq 2 ] && printf '%s' "$out" | grep -q 'collides'; then
-  pass "(e4) a colliding configured prefix is a loud environment error, not a silent collision"
-else fail "(e4) expected rc=2 on a colliding prefix, got $rc: $out"; fi
+# The negative that makes (e1)/(e2) load-bearing: a re-rooting transform would satisfy neither
+# equality above, but a PARTIAL one (say, prefixing only the lookup path) could survive both.
+if grep -q 'lean/' "$PROG" 2>/dev/null; then
+  fail "(e3) a lean/ namespace still appears in the progress header: $(grep 'lean/' "$PROG" | tr '\n' ' ')"
+else pass "(e3) no lean/ namespace appears anywhere in the progress header"; fi
+
+# AC-3/AC-4: with tracker.branchPrefix UNSET and no detectable identifier, the run's front door
+# refuses rather than composing a branch from the placeholder `claude/acme-`. This is the whole
+# of defect 2, asserted through the gate rather than only at the resolver: the fixture tree has
+# no remote at all, so detection has nothing to find.
+CFG_NOPREFIX="$WORK/config-noprefix.json"
+jq 'del(.tracker.branchPrefix)' "$CFG" > "$CFG_NOPREFIX"
+if [ "$(jq -r '.tracker.branchPrefix // "absent"' "$CFG_NOPREFIX" 2>/dev/null)" = "absent" ]; then
+  out="$( cd "$TREE" && SECOND_SHIFT_CONFIG="$CFG_NOPREFIX" LEAN_PROGRESS_FILE="$WORK/p2.md" bash "$GATE" entry 7 2>&1 )"; rc=$?
+  if [ "$rc" -eq 2 ] \
+     && printf '%s' "$out" | grep -q 'cannot resolve a branch prefix' \
+     && ! printf '%s' "$out" | grep -q 'claude/acme-'; then
+    pass "(e4) an unresolvable prefix refuses the entry subcommand at rc=2, with no placeholder fallback"
+  else fail "(e4) expected rc=2 with no placeholder fallback, got $rc: $out"; fi
+
+  # ...and NOT before that. Milestones 1-4 assert committed files and config commands; none of
+  # them forms a branch name, and taking them down with an unresolvable prefix would mask the
+  # operator's real problem behind an unrelated message (the #392 (iz2) contract below is
+  # exactly that failure mode). This is the case that keeps the enforcement point honest.
+  #
+  # RE-AIMED where #416's entry precondition composes with this branch. Milestone 1 no longer
+  # reaches its own evaluation from a bare fixture — `require_entry_attested` refuses first —
+  # and the attestation cannot be seeded here either, because `entry` is exactly the call (e4)
+  # above proves refuses under this config. So the reachable half of the original claim is the
+  # one asserted: what stops milestone 1 here is the MISSING ATTESTATION, never the prefix.
+  # A refusal quoting 'cannot resolve a branch prefix' would mean the prefix check had migrated
+  # into milestones 1-4, which is the regression this case has always existed to catch.
+  out="$( cd "$TREE" && SECOND_SHIFT_CONFIG="$CFG_NOPREFIX" LEAN_PROGRESS_FILE="$WORK/p3.md" bash "$GATE" --issue-file "$ISSUE_NOREGIONS" 1 7 2>&1 )"; rc=$?
+  if [ "$rc" -eq 2 ] \
+     && printf '%s' "$out" | grep -q 'no entry attestation' \
+     && ! printf '%s' "$out" | grep -q 'cannot resolve a branch prefix'; then
+    pass "(e5) an unresolvable prefix does not reach milestone 1 — only the entry precondition stops it"
+  else fail "(e5) expected rc=2 naming the attestation and not the prefix, got $rc: $out"; fi
+else fail "(e4) fixture build did not remove tracker.branchPrefix — the case would be vacuous"; fi
 
 # ---- (f) AC-1 / D-33: the SKILL.md line cap ----------------------------------------------
 if [ -f "$SKILL" ]; then
@@ -1345,6 +1376,19 @@ seed_progress_1_to_4_at() {
   for m in 1 2 3 4; do echo "2026-01-01T00:00:00Z | milestone-$m | satisfied" >> "$1"; done
   attest_at "$TREE" "$CFG_JIRA" "$1" "$JKEY"
 }
+
+# #413 AC-2: under jira the KEY is lowercased in the branch name and nowhere else. The fixture
+# key is deliberately upper-case (`ACME-7`) against a `abc/` prefix, so a missing `tr` yields
+# `abc/ACME-7` — a branch git will happily create and `gh pr list --head` will then never find.
+# The artifact paths in the same header must keep the key exactly as supplied, which is the
+# half a blanket lowercase would break.
+attest_at "$TREE" "$CFG_JIRA" "$WORK/p-jbranch.md" "$JKEY"
+out="$(gate_cfg "$CFG_JIRA" "$WORK/p-jbranch.md" --issue-file "$ISSUE_NOREGIONS" 1 "$JKEY")"
+jbranch="$(grep '^branch:' "$WORK/p-jbranch.md" 2>/dev/null | awk '{print $2}')"
+jspec="$(grep '^spec:' "$WORK/p-jbranch.md" 2>/dev/null | awk '{print $2}')"
+if [ "$jbranch" = "abc/acme-7" ] && [ "$jspec" = "$JSPEC_REL" ]; then
+  pass "(n0b) AC-2: the jira key is lowercased in the branch name only — artifact paths keep it verbatim"
+else fail "(n0b) expected branch 'abc/acme-7' and spec '$JSPEC_REL', got '$jbranch' / '$jspec': $out"; fi
 
 # An unrecognized tracker.type must be LOUD. Falling through to github would run the
 # write-happy arm against whatever tracker the typo meant — the exact failure this closes.

@@ -22,14 +22,28 @@
 #   PR_HEAD_REF             required  the PR's head branch name
 #   PR_BODY                 required-ish  the PR body (empty is legal; it just fails to resolve)
 #   PR_CREATED_AT           required  ISO-8601; the PR-open observation point
+#   PR_BASE_REF             required for the lean exclusion (#413)  the PR's base branch, which
+#                                     is what the changed-file list is diffed against. Absent
+#                                     ⇒ no lean spec is seen ⇒ nothing is excluded, which is
+#                                     the fail-CLOSED direction for this gate.
 #   GH_REPO                 required for the live path  "<owner>/<repo>"
 #   GH_TOKEN                required for the live path
 #   PIPELINE_COMMENT_AUTHOR optional  exact bot login the stage trail must come from; absent
 #                                     degrades to "any Bot author" (see the trust filter below)
 #
 # Seams (zero-network selftest, following preflight-selftest.sh's PATH-mock precedent):
-#   ${GH:-gh}               the CLI used for the comment fetch
-#   --comments-file <path>  read the comment trail from a JSON fixture instead of fetching
+#   ${GH:-gh}                  the CLI used for the comment fetch
+#   --comments-file <path>     read the comment trail from a JSON fixture instead of fetching
+#   --diff-files-file <path>   read the PR's changed-file list from a newline-delimited
+#                              fixture (the check-lean-chain.sh seam, same name and shape)
+#
+# THE LEAN EXCLUSION (#413). Both lanes now write `<branchPrefix><key>`, so this prefix no
+# longer means "staged": a lean PR matches it too, and without an exclusion every lean PR
+# would red here on the stage markers the lean lane never emits. The exclusion is keyed on
+# the same artifact check-lean-chain.sh classifies on — a non-fixture `*-<key>-lean.md` in the
+# PR's own diff whose key equals the branch key — so exactly one of the two gates ever claims
+# a PR. Narrow ON PURPOSE: a staged PR that merely EDITS an older ticket's lean spec carries no
+# spec for its own key and stays fully gated here.
 #
 # The env constants exist because the runtime config (.claude/second-shift.config.json) is
 # gitignored and absent in CI. Nothing reconciles them against it: a stale prefix matches zero
@@ -43,11 +57,13 @@ set -uo pipefail
 
 GH_CLI="${GH:-gh}"
 COMMENTS_FILE=""
+DIFF_FILES_FILE=""
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --comments-file) COMMENTS_FILE="${2:-}"; shift 2 ;;
-    -h|--help) sed -n '2,40p' "$0"; exit 0 ;;
+    --comments-file)   COMMENTS_FILE="${2:-}"; shift 2 ;;
+    --diff-files-file) DIFF_FILES_FILE="${2:-}"; shift 2 ;;
+    -h|--help) sed -n '2,55p' "$0"; exit 0 ;;
     *) echo "[pipeline-chain] unknown argument: $1" >&2; exit 2 ;;
   esac
 done
@@ -99,6 +115,55 @@ if [[ ! "$SUFFIX" =~ ^([0-9]+)$ ]]; then
   exit 0
 fi
 KEY_BRANCH="${BASH_REMATCH[1]}"
+
+# ---- (3b) applicability: NOT a lean PR (#413) --------------------------------------------
+# See THE LEAN EXCLUSION in the header. Suffix-anchored on the filename, never a substring
+# match, so `*-lean-verdict.md` / `*-lean-renders.md` cannot pass for the spec — the same care
+# check-lean-chain.sh takes with the identical literal, which is why the two are a
+# lockstep pair rather than two independently-typed constants.
+# LOCKSTEP-BEGIN lean-spec-suffix
+LEAN_SPEC_SUFFIX='-lean.md'
+# LOCKSTEP-END lean-spec-suffix
+
+# Fixtures are lean-shaped on purpose (both chain selftests need lean-looking files), so a
+# fixture path must never exempt a real PR.
+is_fixture_path() {
+  case "$1" in
+    */fixtures/*|*-fixtures/*|fixtures/*) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+# Validated HERE and not inside pr_changed_files: that function is consumed through a process
+# substitution, where `envfail`'s exit kills the subshell and leaves the caller reading an empty
+# list — a missing seam file would read as "no lean spec" and change nothing but the reason.
+[[ -z "$DIFF_FILES_FILE" || -f "$DIFF_FILES_FILE" ]] \
+  || envfail "--diff-files-file '$DIFF_FILES_FILE' does not exist."
+
+pr_changed_files() {
+  if [[ -n "$DIFF_FILES_FILE" ]]; then
+    cat "$DIFF_FILES_FILE"
+    return 0
+  fi
+  [[ -n "${PR_BASE_REF:-}" ]] || return 0
+  local mb
+  mb="$(git merge-base "origin/$PR_BASE_REF" HEAD 2>/dev/null)" || return 0
+  git diff --name-only "$mb"..HEAD 2>/dev/null || true
+}
+
+LEAN_SPEC_FOR_KEY=""
+while IFS= read -r f; do
+  [[ -n "$f" ]] || continue
+  is_fixture_path "$f" && continue
+  case "$(basename "$f")" in *"-$KEY_BRANCH$LEAN_SPEC_SUFFIX") LEAN_SPEC_FOR_KEY="$f"; break ;; esac
+done < <(pr_changed_files)
+
+if [[ -n "$LEAN_SPEC_FOR_KEY" ]]; then
+  echo "[pipeline-chain] lean-authored PR — pipeline chain check not applicable."
+  echo "[pipeline-chain]   head branch: $PR_HEAD_REF (key #$KEY_BRANCH)"
+  echo "[pipeline-chain]   the diff commits this key's lean spec ($LEAN_SPEC_FOR_KEY); scripts/check-lean-chain.sh owns it."
+  exit 0
+fi
 
 echo "[pipeline-chain] applicable: branch=$PR_HEAD_REF key=$KEY_BRANCH"
 

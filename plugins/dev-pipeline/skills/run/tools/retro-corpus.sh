@@ -69,6 +69,7 @@ while [ $# -gt 0 ]; do
 done
 case "$WINDOW" in ''|*[!0-9]*) echo "retro-corpus.sh: --window must be a positive integer" >&2; exit 2 ;; esac
 
+HERE="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null)" \
   || { echo "retro-corpus.sh: not in a git repo." >&2; exit 2; }
 _common="$(git rev-parse --git-common-dir 2>/dev/null)" \
@@ -87,7 +88,6 @@ cfg() { # cfg <jq-filter> <default>
   echo "$2"
 }
 PLANS_DIR="$(cfg '.paths.plansDir' 'docs/plans')"
-BRANCH_PREFIX="$(cfg '.tracker.branchPrefix' 'claude/acme-')"
 HOST_Q='(.topology.repos | to_entries[] | select(.value.path==".") | .key)'
 REPO_SLUG="$(cfg "$HOST_Q" 'acme')"
 
@@ -166,28 +166,41 @@ cmd_corpus() {
 }
 
 # ============================================================== open-prs mode
-# Mirrors lean-gate.sh's derived-prefix formula (already duplicated a second time, verbatim,
-# in lean-reconcile.sh's VERDICT_REL — this is the established pattern for this one small
-# naming formula, not a new drift risk beyond what already exists).
-lean_branch_prefix() {
-  local pipeline_prefix="$1" tail derived
-  case "$pipeline_prefix" in
-    */*) tail="${pipeline_prefix#*/}" ;;
-    *)   tail="$pipeline_prefix" ;;
-  esac
-  derived="lean/$tail"
-  printf '%s\n' "$derived"
+# The branch prefix is resolved by the shared branch-prefix.sh (#413 AC-5) — one
+# implementation, this mode and lean-gate.sh its two live callers. Resolution is LAZY, inside
+# this function and not at file scope: `corpus` mode never forms a branch name, and an
+# unresolvable prefix (the resolver refuses rather than guessing) must not take the whole
+# corpus enumeration down with it.
+#
+# Since #413 both lanes share one branch namespace, so a prefix match no longer says "lean".
+# The discriminator is the same artifact the merge boundary uses — a non-fixture
+# `*-<key>-lean.md` in the PR's own file list, keyed to the branch's issue — which is why the
+# `gh pr list` call asks for `files`. It is the SAME single call either way: no extra network.
+#
+# KEYED ON THE BRANCH, deliberately, and it is the third site of one rule. The two chain gates
+# split this same question and keyed it on different sources — the branch there,
+# `check-lean-chain.sh` on the PR body — and the disagreement let a PR be exempted by both. The
+# rule that settled it (that gate's step 4b) makes the BRANCH key the one that says who AUTHORED
+# a spec, with the body key reserved for reading the evidence trail. This filter is asking the
+# authorship question, so the branch key is the right one and re-keying it to the body would put
+# this site back out of step with the boundary it reports on.
+lean_spec_in_files() { # lean_spec_in_files <pr-object-json> <issue> -> 0 when present
+  jq -e --arg suffix "-$2-lean.md" '
+    [ (.files // [])[] | .path // ""
+      | select(endswith($suffix))
+      | select(test("(^|/)(fixtures|[^/]*-fixtures)/") | not) ] | length > 0
+  ' >/dev/null 2>&1 <<<"$1"
 }
 
 cmd_open_prs() {
   local prefix prs rows="[]" n issue vrel comments has verdictless row
-  prefix="$(lean_branch_prefix "$BRANCH_PREFIX")"
+  prefix="$(bash "$HERE/../../run-lean/branch-prefix.sh" --config "$CONFIG" --repo-root "$REPO_ROOT")" || exit 2
 
   if [ -n "$PR_LIST_FILE" ]; then
     [ -f "$PR_LIST_FILE" ] || { echo "retro-corpus.sh: --pr-list-file '$PR_LIST_FILE' does not exist." >&2; exit 2; }
     prs="$(cat "$PR_LIST_FILE")"
   else
-    prs="$("$GH_CLI" pr list --state open --json number,headRefName,url --limit 100 2>&1)" \
+    prs="$("$GH_CLI" pr list --state open --json number,headRefName,url,files --limit 100 2>&1)" \
       || { echo "retro-corpus.sh: gh pr list failed: $prs" >&2; exit 2; }
   fi
   printf '%s' "$prs" | jq -e 'type == "array"' >/dev/null 2>&1 \
@@ -196,7 +209,8 @@ cmd_open_prs() {
   n="$(jq 'length' <<<"$prs")"
   local i=0
   while [ "$i" -lt "$n" ]; do
-    local head url pr
+    local head url pr obj
+    obj="$(jq -c ".[$i]" <<<"$prs")"
     head="$(jq -r ".[$i].headRefName" <<<"$prs")"
     pr="$(jq -r ".[$i].number" <<<"$prs")"
     url="$(jq -r ".[$i].url" <<<"$prs")"
@@ -207,6 +221,7 @@ cmd_open_prs() {
     esac
     issue="${head#"$prefix"}"
     case "$issue" in ''|*[!0-9]*) continue ;; esac
+    lean_spec_in_files "$obj" "$issue" || continue
 
     vrel="$PLANS_DIR/$REPO_SLUG-$issue-lean-verdict.md"
 

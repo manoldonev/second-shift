@@ -169,51 +169,129 @@ Closes #42'
 
 # PR_HEAD_SHA is resolved per call, never captured once: cases below add commits, and a stale
 # sha would silently measure freshness against an earlier head than the one under test.
-run_gate() { # run_gate <head-ref> <comments-file> <diff-file> [lean-prefix]
+# NO BRANCH-PREFIX CONSTANT in this environment (#413 AC-6). The gate is driven exactly as CI
+# drives it, and CI no longer carries LEAN_BRANCH_PREFIX; leaving a dead export here would let a
+# re-introduced prefix read pass unnoticed by every case below.
+run_gate() { # run_gate <head-ref> <comments-file> <diff-file> [pr-body]
   ( cd "$TREE" && \
-    LEAN_BRANCH_PREFIX="${4:-lean/acme-}" \
-    PIPELINE_BRANCH_PREFIX="claude/acme-" \
     PR_HEAD_REF="$1" \
     PR_HEAD_SHA="$(git -C "$TREE" rev-parse HEAD)" \
-    PR_BODY="$BODY_GOOD" \
+    PR_BODY="${4:-$BODY_GOOD}" \
     PR_CREATED_AT="$PR_OPEN_AT" \
     bash "$GATE" --comments-file "$2" --diff-files-file "$3" 2>&1 )
 }
 
+BODY_303='Staged work.
+
+Closes #303'
+
 echo "[check-lean-chain-selftest]"
 
-# ---- (A) happy path: lean-prefixed branch with all three artifacts -----------------------
+# ---- (A) happy path — and AC-9's confirmation --------------------------------------------
+# The head ref is a PRE-#413 `lean/`-prefixed branch, which is the transition case AC-9 asks to
+# be confirmed rather than assumed: such a PR must still classify correctly with no lean
+# namespace known to the gate. Most cases below reuse this head for the same reason.
 out="$(run_gate "lean/acme-42" "$WORK/comments-good.json" "$WORK/diff-lean.txt")"; rc=$?
-if [ "$rc" -eq 0 ]; then pass "(A) lean PR with spec + approve-verdict + bot claim passes"
+if [ "$rc" -eq 0 ]; then pass "(A) a legacy lean/-prefixed PR with spec + approve-verdict + bot claim passes (AC-9)"
 else fail "(A) expected rc=0, got $rc: $out"; fi
 
-# ---- (B) a non-lean, non-pipeline PR is simply not applicable ----------------------------
+# ---- (A2) AC-6: the SAME PR on the staged prefix classifies identically -------------------
+# The whole point of #413: the branch name carries no lane identity, so moving this PR onto the
+# staged prefix must change nothing. (A) and (A2) differ in the head ref and nothing else.
+out="$(run_gate "claude/acme-42" "$WORK/comments-good.json" "$WORK/diff-lean.txt")"; rc=$?
+if [ "$rc" -eq 0 ] && printf '%s' "$out" | grep -q 'applicable via lean-artifact'; then
+  pass "(A2) AC-6: a staged-prefixed lean PR classifies via the artifact arm, with no prefix constant in the environment"
+else fail "(A2) expected rc=0 via the artifact arm, got rc=$rc: $out"; fi
+
+# ---- (B) a PR that commits no lean spec is simply not applicable --------------------------
 out="$(run_gate "someone/hotfix" "$WORK/comments-empty.json" "$WORK/diff-plain.txt")"; rc=$?
 if [ "$rc" -eq 0 ] && printf '%s' "$out" | grep -q 'not applicable'; then
   pass "(B) ordinary PR is not applicable"
 else fail "(B) expected a not-applicable exit 0, got rc=$rc: $out"; fi
 
-# ---- (C) MANDATED: zero-matching prefix + lean artifacts still applies -------------------
-# The self-neutralization case. With a prefix that matches no branch, a prefix-only gate would
-# report "not applicable" and wave the PR through. The artifact arm must fire instead.
-out="$(run_gate "some/other-branch" "$WORK/comments-empty.json" "$WORK/diff-lean.txt" "zzz-matches-nothing/")"; rc=$?
+# ---- (C) MANDATED: applicability owes NOTHING to the branch name --------------------------
+# The successor to the self-neutralization case. A prefix-only gate could be neutralized by a
+# stale constant; this one cannot be neutralized at all, because there is no constant. An
+# arbitrary branch carrying its own key's lean spec is applicable and fails on the missing claim.
+out="$(run_gate "some/other-branch" "$WORK/comments-empty.json" "$WORK/diff-lean.txt")"; rc=$?
 if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q 'lean-artifact'; then
-  pass "(C) zero-matching prefix + lean spec in diff ⇒ applicable via the artifact arm, and fails on the missing claim"
+  pass "(C) an arbitrary branch name + this key's lean spec ⇒ applicable, and fails on the missing claim"
 else fail "(C) expected rc=1 via the artifact arm, got rc=$rc: $out"; fi
 
-# ---- (D) MANDATED: pipeline-prefixed PR carrying lean-shaped files is NOT applicable -----
-# This is the PR that delivers run-lean itself: pipeline-authored, and it necessarily carries
-# lean-shaped fixture files. Double-classifying it would make the feature unshippable.
-out="$(run_gate "claude/acme-303" "$WORK/comments-empty.json" "$WORK/diff-lean.txt")"; rc=$?
-if [ "$rc" -eq 0 ] && printf '%s' "$out" | grep -q 'not applicable'; then
-  pass "(D) pipeline-prefixed PR carrying lean-shaped files is not double-classified"
-else fail "(D) expected a not-applicable exit 0, got rc=$rc: $out"; fi
+# ---- (D) MANDATED: a PR carrying ANOTHER key's lean spec is NOT applicable ----------------
+# The disjointness case (#413 AC-11), and the successor to the pipeline-prefix exclusion this
+# replaces. `Closes #303` against a diff carrying only acme-42-lean.md: this PR did not author
+# that spec, so check-pipeline-chain.sh owns it and this gate must decline. Double-classifying
+# would red every PR that so much as edits an old lean spec.
+out="$(run_gate "claude/acme-303" "$WORK/comments-empty.json" "$WORK/diff-lean.txt" "$BODY_303")"; rc=$?
+if [ "$rc" -eq 0 ] && printf '%s' "$out" | grep -q 'not applicable' \
+   && printf '%s' "$out" | grep -q 'none for this PR'; then
+  pass "(D) AC-11: a PR carrying another key's lean spec is not double-classified"
+else fail "(D) expected a not-applicable exit 0 naming the key mismatch, got rc=$rc: $out"; fi
+
+# ---- (D2) AC-12 / OR-1: a lean-shaped branch whose diff carries NO spec is not applicable --
+# The open region the pre-flight ledger parked: a lean PR whose spec is absent from its own diff
+# (already on the base, or a reopened PR) is claimed by neither lean arm. The stated default is
+# to LET IT RED — fail-closed at a merge boundary — and it does, one gate over: this half
+# confirms the lean gate declines, and check-pipeline-chain-selftest.sh's (l4) confirms the
+# pipeline gate then reds it on the stage markers.
+out="$(run_gate "claude/acme-42" "$WORK/comments-good.json" "$WORK/diff-plain.txt")"; rc=$?
+if [ "$rc" -eq 0 ] && printf '%s' "$out" | grep -q 'no non-fixture'; then
+  pass "(D2) AC-12: a PR whose own diff carries no lean spec is not applicable here"
+else fail "(D2) expected a not-applicable exit 0 naming the empty scan, got rc=$rc: $out"; fi
+
+# ---- (D3) AC-17: declining is only safe when the SIBLING will claim ------------------------
+# The cell neither suite drove, and the one that made both gates stand down. (D) above is the
+# same shape with the keys AGREEING, and it must stay a not-applicable: the difference between
+# the two cases is the entire contract.
+#
+# Here the body resolves #99 while the branch resolves #42 and the diff commits #42's spec.
+# check-pipeline-chain.sh keys its exclusion on the BRANCH, so it exempts — its (l7) is this
+# case's other half, driven from the same three inputs. If this gate took (D)'s route and
+# declined "because the pipeline gate owns it", the PR would reach the merge boundary with its
+# claim comment, its verdict record and its freshness all unread, and both logs would say the
+# other gate had it. So: refuse, naming both keys and the spec that split them.
+#
+# Reachable without malice — lean-gate.sh milestone 5 asserts `Closes #<issue>` appears at least
+# ONCE, not that it is first, so a PR closing two issues in the other order lands here.
+BODY_SPLIT='Delivers a slice.
+
+Part of #99'
+out="$(run_gate "claude/acme-42" "$WORK/comments-good.json" "$WORK/diff-lean.txt" "$BODY_SPLIT")"; rc=$?
+if [ "$rc" -eq 1 ] \
+   && printf '%s' "$out" | grep -q 'key mismatch' \
+   && printf '%s' "$out" | grep -q '#99' \
+   && printf '%s' "$out" | grep -q '#42' \
+   && printf '%s' "$out" | grep -q 'docs/plans/acme-42-lean.md' \
+   && ! printf '%s' "$out" | grep -q 'not applicable'; then
+  pass "(D3) AC-17: a body-key/branch-key split with the branch key's spec in the diff REFUSES, never declines"
+else fail "(D3) expected rc=1 naming both keys and the spec, with no not-applicable, got rc=$rc: $out"; fi
+
+# ...and the refusal is scoped to the cell that needs it. Same split keys, but the diff commits
+# only ANOTHER key's spec, so the sibling does not exempt and the hand-off is sound again. A 4b
+# that fired on the key disagreement alone would red every staged PR that edits an old lean spec
+# from a branch whose body cites the epic — which is (D)'s corpus, not a defect.
+printf 'docs/plans/acme-777-lean.md\nREADME.md\n' > "$WORK/diff-lean-other.txt"
+out="$(run_gate "claude/acme-42" "$WORK/comments-empty.json" "$WORK/diff-lean-other.txt" "$BODY_SPLIT")"; rc=$?
+if [ "$rc" -eq 0 ] && printf '%s' "$out" | grep -q 'none for this PR'; then
+  pass "(D3b) AC-17: the same key split with no branch-key spec in the diff still declines — 4b is not a blanket mismatch check"
+else fail "(D3b) expected a not-applicable exit 0, got rc=$rc: $out"; fi
 
 # ---- (E) fixture paths are excluded from the artifact scan -------------------------------
-out="$(run_gate "some/other-branch" "$WORK/comments-empty.json" "$WORK/diff-fixture-only.txt" "zzz-matches-nothing/")"; rc=$?
+out="$(run_gate "some/other-branch" "$WORK/comments-empty.json" "$WORK/diff-fixture-only.txt")"; rc=$?
 if [ "$rc" -eq 0 ] && printf '%s' "$out" | grep -q 'not applicable'; then
   pass "(E) a lean-shaped file under fixtures/ does not trigger applicability"
 else fail "(E) expected fixture paths to be excluded, got rc=$rc: $out"; fi
+
+# ---- (E2) a missing --diff-files-file is exit 2, not a vacuous not-applicable -------------
+# The diff seam feeds applicability itself now, and it is consumed through a process
+# substitution — where an `envfail` inside the producer exits only the subshell and leaves the
+# scan reading an empty list. That failure mode is indistinguishable from an honest not-lean PR:
+# exit 0, "not applicable", green merge boundary.
+out="$(run_gate "lean/acme-42" "$WORK/comments-good.json" "$WORK/no-such-diff.txt")"; rc=$?
+if [ "$rc" -eq 2 ] && printf '%s' "$out" | grep -q 'does not exist'; then
+  pass "(E2) a missing --diff-files-file is a usage error, not a vacuous not-applicable"
+else fail "(E2) expected rc=2 on a missing diff seam, got rc=$rc: $out"; fi
 
 # ---- (F) human-posted claim is rejected by the trust filter ------------------------------
 out="$(run_gate "lean/acme-42" "$WORK/comments-human.json" "$WORK/diff-lean.txt")"; rc=$?
@@ -270,27 +348,38 @@ if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q 'no numbered AC-n'; then
 else fail "(J) expected rc=1 on an AC-less spec, got rc=$rc: $out"; fi
 printf '# lean spec\n\n- AC-1: does a thing\n' > "$TREE/docs/plans/acme-42-lean.md"; commit_tree 'spec restored'
 
-# ---- (K) unresolvable constants are FATAL, never exempt ----------------------------------
-out="$( cd "$TREE" && LEAN_BRANCH_PREFIX="" PIPELINE_BRANCH_PREFIX="claude/acme-" \
+# ---- (K) an unresolvable PR_HEAD_SHA is FATAL, never exempt -------------------------------
+# The successor to the LEAN_BRANCH_PREFIX case this replaces: the fail-closed posture on a
+# missing env input survives the deletion of the prefix constants. PR_HEAD_SHA is now the
+# strongest of the remaining ones — without it "a verdict exists" would silently stand in for
+# "this head was approved".
+out="$( cd "$TREE" && \
         PR_HEAD_REF="lean/acme-42" PR_BODY="$BODY_GOOD" PR_CREATED_AT="$PR_OPEN_AT" \
-        PR_HEAD_SHA="$(git -C "$TREE" rev-parse HEAD)" \
+        PR_HEAD_SHA="" \
         bash "$GATE" --comments-file "$WORK/comments-good.json" --diff-files-file "$WORK/diff-lean.txt" 2>&1 )"; rc=$?
-if [ "$rc" -eq 2 ]; then pass "(K) an empty LEAN_BRANCH_PREFIX is an environment error, not a silent exemption"
-else fail "(K) expected rc=2 on an unresolvable prefix, got $rc: $out"; fi
+if [ "$rc" -eq 2 ] && printf '%s' "$out" | grep -q 'PR_HEAD_SHA is unset'; then
+  pass "(K) an empty PR_HEAD_SHA is an environment error, not a silent exemption"
+else fail "(K) expected rc=2 on an unresolvable head sha, got $rc: $out"; fi
 
-# ---- (L) mutually prefix-matching constants are FATAL ------------------------------------
-# `lean/` derived from `claude/second-shift-` would satisfy a one-directional reading of the
-# non-prefix-match property while making every pipeline PR applicable here.
+# ---- (L) #413: a lingering branch-prefix constant changes NOTHING -------------------------
+# The negative that retires (L)'s predecessor. That case asserted the two CI prefix constants
+# were reconciled for mutual non-prefix-matching; both are gone from this gate, and the way to
+# prove a constant is truly unread is to set it to a value that would have changed the verdict
+# under the old code. `LEAN_BRANCH_PREFIX=claude/` prefix-matched the pipeline prefix and was
+# fatal (rc=2) before #413; here it must be inert, and the PR must classify on its artifact.
 out="$( cd "$TREE" && LEAN_BRANCH_PREFIX="claude/" PIPELINE_BRANCH_PREFIX="claude/acme-" \
         PR_HEAD_REF="claude/acme-42" PR_BODY="$BODY_GOOD" PR_CREATED_AT="$PR_OPEN_AT" \
         PR_HEAD_SHA="$(git -C "$TREE" rev-parse HEAD)" \
         bash "$GATE" --comments-file "$WORK/comments-good.json" --diff-files-file "$WORK/diff-lean.txt" 2>&1 )"; rc=$?
-if [ "$rc" -eq 2 ] && printf '%s' "$out" | grep -q 'mutually non-prefix-matching'; then
-  pass "(L) prefixes where one is a prefix of the other are rejected as an environment error"
-else fail "(L) expected rc=2 on mutually prefix-matching constants, got $rc: $out"; fi
+if [ "$rc" -ne 2 ] && printf '%s' "$out" | grep -q 'applicable via lean-artifact'; then
+  pass "(L) stale prefix constants left in the environment are inert — classification is artifact-only"
+else fail "(L) expected the prefix constants to be ignored, got $rc: $out"; fi
 
 # ---- (M) a lean PR with no issue reference fails -----------------------------------------
-out="$( cd "$TREE" && LEAN_BRANCH_PREFIX="lean/acme-" PIPELINE_BRANCH_PREFIX="claude/acme-" \
+# AC-11's guard rail: the key match added to applicability must not turn an unreferenced PR into
+# a silent exemption. A diff that commits a lean spec and a body that names no issue is
+# unclassifiable, and unclassifiable fails.
+out="$( cd "$TREE" && \
         PR_HEAD_REF="lean/acme-42" PR_BODY="no reference here" PR_CREATED_AT="$PR_OPEN_AT" \
         PR_HEAD_SHA="$(git -C "$TREE" rev-parse HEAD)" \
         bash "$GATE" --comments-file "$WORK/comments-good.json" --diff-files-file "$WORK/diff-lean.txt" 2>&1 )"; rc=$?
@@ -302,7 +391,7 @@ else fail "(M) expected rc=1 on an unresolvable issue reference, got $rc: $out";
 # and a PR body with no `Closes` must still reach a key rather than failing as unreferenced.
 # (M) alone cannot see this arm — it passes whether the fallback works or is dead code, which is
 # exactly how the fallback's own mutant sat surviving in the baseline.
-out="$( cd "$TREE" && LEAN_BRANCH_PREFIX="lean/acme-" PIPELINE_BRANCH_PREFIX="claude/acme-" \
+out="$( cd "$TREE" && \
         PR_HEAD_REF="lean/acme-42" PR_BODY="Delivers a slice.
 
 Part of #42" PR_CREATED_AT="$PR_OPEN_AT" \
@@ -428,7 +517,7 @@ write_verdict
 # the gate prints its ✓ freshness line having compared nothing. That is the same shape as the
 # `verdict=` substring hole (P): a check that cannot run must not report a pass. Neither guard
 # had a case; every other run_gate call resolves a live sha, so the failure paths were unreachable.
-out="$( cd "$TREE" && LEAN_BRANCH_PREFIX="lean/acme-" PIPELINE_BRANCH_PREFIX="claude/acme-" \
+out="$( cd "$TREE" && \
         PR_HEAD_REF="lean/acme-42" PR_BODY="$BODY_GOOD" PR_CREATED_AT="$PR_OPEN_AT" \
         PR_HEAD_SHA="" \
         bash "$GATE" --comments-file "$WORK/comments-good.json" --diff-files-file "$WORK/diff-lean.txt" 2>&1 )"; rc=$?
@@ -438,7 +527,7 @@ else fail "(Q1) expected rc=2 on an empty PR_HEAD_SHA, got $rc: $out"; fi
 
 # A sha-shaped value that names no object in this checkout. Distinct from (Q1): the emptiness
 # guard is satisfied, and only the object lookup stands between a bogus ref and a silent ✓.
-out="$( cd "$TREE" && LEAN_BRANCH_PREFIX="lean/acme-" PIPELINE_BRANCH_PREFIX="claude/acme-" \
+out="$( cd "$TREE" && \
         PR_HEAD_REF="lean/acme-42" PR_BODY="$BODY_GOOD" PR_CREATED_AT="$PR_OPEN_AT" \
         PR_HEAD_SHA="0000000000000000000000000000000000000000" \
         bash "$GATE" --comments-file "$WORK/comments-good.json" --diff-files-file "$WORK/diff-lean.txt" 2>&1 )"; rc=$?
@@ -615,8 +704,6 @@ git -C "$TREE" commit -q -m "no intent gap on this run" >/dev/null 2>&1
 
 run_gate_base() { # run_gate_base <head-ref> <comments-file> <diff-file> <base-ref>
   ( cd "$TREE" && \
-    LEAN_BRANCH_PREFIX="lean/acme-" \
-    PIPELINE_BRANCH_PREFIX="claude/acme-" \
     PR_HEAD_REF="$1" \
     PR_HEAD_SHA="$(git -C "$TREE" rev-parse HEAD)" \
     PR_BODY="$BODY_GOOD" \

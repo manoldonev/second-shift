@@ -1300,6 +1300,39 @@ LEANPRJNV
     && pass "(lean-jira-p10) a build-authored verdict is refused on the jira arm too — the adapter is no authorship loophole" \
     || fail "(lean-jira-p10) milestone-4 accepted a verdict carrying the build session id under jira"
 
+  # ---- branch-name composition (#413) — the resolved name reaching the run's own record ----
+  # lean-gate-selftest.sh's (e*)/(n0b) prove the formula against a milestone-1-created header.
+  # What only a composed leg shows is that the name the run is ACTUALLY keyed by is the one
+  # `cmd_claim` wrote — a different creation site, reached through the adapter, under an
+  # alphanumeric key whose lowercasing must apply to the branch and to nothing else. The
+  # artifact paths in the same header are the control: a blanket lowercase would move them too,
+  # and every one of them is a committed file this leg's milestones already found.
+  lean_jbranch="$(grep '^branch:' "$LEAN_PROG_J" 2>/dev/null | awk '{print $2}')"
+  lean_jspec="$(grep '^spec:' "$LEAN_PROG_J" 2>/dev/null | awk '{print $2}')"
+  [[ "$lean_jbranch" == "abc/acme-7" && "$lean_jspec" == "docs/plans/acme-ACME-7-lean.md" ]] \
+    && pass "(lean-branch-name) the claim-created record carries <branchPrefix><lowercased key>, with artifact paths keyed verbatim" \
+    || fail "(lean-branch-name) branch='$lean_jbranch' spec='$lean_jspec', expected abc/acme-7 and docs/plans/acme-ACME-7-lean.md"
+
+  # ...and the composed REFUSAL. With tracker.branchPrefix unset and no identifier detectable,
+  # the run's front door must stop before it writes anything: no placeholder branch, and no
+  # progress record for a run that has no name to work under. Asserted as a terminal NON-write,
+  # the only shape that separates "refused" from "refused after recording a claim" — the latter
+  # leaves a reconcilable-looking record behind for a run that never started.
+  LEAN_CFG_NOPFX="$TMP/lean-config-noprefix.json"
+  jq 'del(.tracker.branchPrefix)' "$LEAN_CFG_J" > "$LEAN_CFG_NOPFX"
+  LEAN_PROG_NOPFX="$TMP/lean-progress-noprefix.md"
+  rm -f "$LEAN_PROG_NOPFX"
+  lean_nopfx_out="$( cd "$LEAN_TREE" && env -u GH_BOT SECOND_SHIFT_CONFIG="$LEAN_CFG_NOPFX" \
+                     LEAN_PROGRESS_FILE="$LEAN_PROG_NOPFX" RUN_ID="r-lean-nopfx" \
+                     CLAUDE_CODE_SESSION_ID="sess-lean-nopfx" bash "$LEAN_GATE" claim "$LEAN_JKEY" 2>&1 )"
+  lean_nopfx_rc=$?
+  if [[ "$lean_nopfx_rc" -eq 2 && ! -f "$LEAN_PROG_NOPFX" ]] \
+     && ! printf '%s' "$lean_nopfx_out" | grep -q 'claude/acme-'; then
+    pass "(lean-branch-refusal) an unresolvable prefix stops claim at rc=2 with no progress record and no placeholder branch"
+  else
+    fail "(lean-branch-refusal) rc=$lean_nopfx_rc record=$([[ -f "$LEAN_PROG_NOPFX" ]] && echo present || echo absent): $lean_nopfx_out"
+  fi
+
   # ---- extraLanes composition (#379) — the skip and red verdict paths, end to end --------
   # NOT a duplicate of lean-gate-selftest.sh's per-tool AC coverage (that suite drives
   # milestone 3 alone against dozens of shapes): this is the composed-verdict-path

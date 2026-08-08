@@ -146,25 +146,40 @@ Rung 1 is therefore **tamper-evidence, not proof**, and on this repo it is weake
 assumed: every record it reads — tracker comments, the PR body, the committed plan — is agent-written,
 and so is the gate's own configuration. Harness attestation is rung 2's job.
 
-### A third constant, carrying a control the other two lack
+### A third constant, deleted rather than defended
 
-`pr-gates` now also carries `LEAN_BRANCH_PREFIX`, for the lean harness's merge-boundary gate
-(`scripts/check-lean-chain.sh`). It is unreconciled against the gitignored runtime config in exactly
-the same way as the two above — but it is **not** self-neutralizable in the same way, and the
-difference is structural rather than procedural.
+`pr-gates` used to carry a third constant, `LEAN_BRANCH_PREFIX`, for the lean harness's
+merge-boundary gate (`scripts/check-lean-chain.sh`). It was unreconciled against the gitignored
+runtime config in the same way as the two above, and the argument for tolerating it was that the gate
+did not classify on the prefix *alone* — a lean-marked spec in the PR diff was a second, artifact-derived
+trigger, so a stale or emptied prefix could not silently exempt a lean PR.
 
-That gate does not classify on the prefix alone. Applicability triggers on branch-prefix match **OR**
-on a lean-marked spec file appearing in the PR diff. So a stale or emptied prefix matches zero
-branches and the artifact arm still fires: editing the constant cannot silently exempt a lean PR, it
-can only make the gate classify by artifact instead. The arm is pinned rather than asserted —
-`check-lean-chain-selftest.sh` case (C) drives the gate with a deliberately zero-matching prefix and
-requires it to still apply.
-
-Two residuals remain, both ordinary. The constant is still a copy that nothing compares to the config
-(recorded as a DROPPED entry in `scripts/lockstep-manifest.tsv`, with the reasoning). And the two
-prefixes must stay mutually non-prefix-matching or both gates would classify the same PRs — where
-they collide the gate exits 2 rather than guessing.
+That constant is gone. Both lanes now write `<branchPrefix><key>` (#413), so a branch name carries no
+lane identity to classify on at all, and the gate applies on the committed artifact: a non-fixture
+`*-<key>-lean.md` in the PR's own diff, keyed to the PR's own issue. `check-pipeline-chain.sh`
+excludes on the identical rule. The DROPPED manifest entry that recorded the constant's residual risk
+is replaced by a real lockstep row (`lean-spec-suffix`) comparing the one literal the two gates now
+share.
 
 The generalizable rule, and the reason this is worth recording next to the limitation it escapes: a
-CI constant is self-neutralizable when it is the **sole** applicability input. Give the check a
-second, artifact-derived trigger and the constant stops being a kill switch.
+CI constant is self-neutralizable when it is the **sole** applicability input. Giving a check a
+second, artifact-derived trigger blunts that; making the artifact the **only** trigger removes the
+constant, and that residual with it. The two pipeline constants above are still the weaker
+arrangement, and they remain the T0 residual of record.
+
+**What removing the constant did not remove.** Deleting a constant retires the constant's failure
+mode, not every failure mode at that boundary — and the replacement introduced one of its own, which
+is recorded here because the first version of this section claimed otherwise. The rule now lives in
+two gates that derive the same key from **different sources**: `check-lean-chain.sh` from the PR
+body's `Closes #N`, `check-pipeline-chain.sh` from the branch. Disjointness — *no PR is claimed by
+both* — was the property designed for, and it holds. Its complement — *every PR is claimed by at
+least one* — is a different property, was never asserted, and did not follow: where the two keys
+disagreed, each gate handed the PR to the other and neither read the evidence, printing a confident
+hand-off on both sides. `check-lean-chain.sh` step 4b closes it by refusing rather than declining
+whenever the diff commits the branch key's spec. The invariant that actually holds is **no PR is
+exempt from both**, with exactly-one only where the two keys agree.
+
+The lesson generalizes past this boundary, and it is the one worth carrying: when a single
+classification is split across two checks, the thing to hold in lockstep is the **key derivation**,
+not only the pattern the key feeds. Two gates can agree perfectly about the rule and still both stand
+down, because they disagree about what they are applying it to.

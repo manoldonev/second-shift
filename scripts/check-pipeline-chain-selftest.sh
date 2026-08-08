@@ -110,6 +110,109 @@ if [[ $rc -eq 0 ]] && grep -q "non-key suffix" "$WORK/out.log"; then
   ok "prefix-matched branch with a non-key suffix is exempt with notice (AC-3)"
 else bad "non-key suffix: rc=$rc, log: $(cat "$WORK/out.log")"; fi
 
+echo "== the lean exclusion (#413) =="
+
+# Both lanes now write `<branchPrefix><key>`, so this prefix no longer means "staged". The
+# exclusion is keyed on the same artifact check-lean-chain.sh classifies on, and the two suites'
+# cases are deliberate mirrors: (l1)/(l2) here answer (A2)/(D) there, so exactly one gate ever
+# claims a PR. The trail passed is $FULL — COMPLETE — everywhere except (l4), so every rc below
+# is about applicability alone rather than about a missing marker.
+printf 'docs/plans/acme-42-lean.md\ndocs/plans/acme-42-lean-verdict.md\n' > "$WORK/diff-lean-42.txt"
+printf 'docs/plans/acme-99-lean.md\nREADME.md\n'                          > "$WORK/diff-lean-99.txt"
+printf 'scripts/fixtures/acme-42-lean.md\nREADME.md\n'                    > "$WORK/diff-fixture-42.txt"
+printf 'docs/plans/acme-42-lean-verdict.md\ndocs/plans/acme-42-lean-renders.md\n' > "$WORK/diff-lean-42-nonspec.txt"
+printf 'README.md\n'                                                      > "$WORK/diff-plain.txt"
+
+PARTIAL="$WORK/partial-for-lean.json"
+trail "$PARTIAL" \
+  "claimed:$RUN_A:2026-07-30T09:00:00Z" \
+  "intake:$RUN_A:2026-07-30T09:10:00Z" \
+  "plan:$RUN_A:2026-07-30T09:20:00Z" \
+  "doc-update:$RUN_A:2026-07-30T09:30:00Z"
+
+# run_chain_diff <branch> <body> <comments-file> <diff-file>
+run_chain_diff() {
+  local branch="$1" body="$2" cfile="$3" dfile="$4"
+  env PIPELINE_BRANCH_PREFIX="$PREFIX" PIPELINE_PLAN_PATTERN="$PATTERN" \
+      PR_HEAD_REF="$branch" PR_BODY="$body" PR_CREATED_AT="$OPEN_AT" \
+      bash "$CHAIN" --comments-file "$cfile" --diff-files-file "$dfile" > "$WORK/out.log" 2>&1
+}
+
+run_chain_diff "${PREFIX}42" "Closes #42" "$FULL" "$WORK/diff-lean-42.txt"
+rc=$?
+if [[ $rc -eq 0 ]] && grep -q "lean-authored PR" "$WORK/out.log"; then
+  ok "(l1) AC-7: a prefix-matched PR committing its own key's lean spec is not applicable"
+else bad "(l1) lean exclusion: rc=$rc, log: $(cat "$WORK/out.log")"; fi
+
+# The precision D-3 asked for. Without the key match this would exempt every PR that so much as
+# edits an older lean spec — which is most of the corpus under docs/plans/.
+run_chain_diff "${PREFIX}42" "Closes #42" "$FULL" "$WORK/diff-lean-99.txt"
+rc=$?
+if [[ $rc -eq 0 ]] && grep -q "chain complete and key-consistent" "$WORK/out.log"; then
+  ok "(l2) AC-10: another key's lean spec does NOT exempt — the PR stays fully gated"
+else bad "(l2) key-mismatched lean spec: rc=$rc, log: $(cat "$WORK/out.log")"; fi
+
+# AC-12 / OR-1's empirical half. A lean PR whose own diff carries no spec — reopened, or its
+# spec already merged to the base — is claimed by neither lean arm, and the pre-flight ledger's
+# stated default is to LET IT RED here rather than invent a compatibility arm. Driven with a
+# trail one marker short, which is what such a PR actually meets.
+run_chain_diff "${PREFIX}42" "Closes #42" "$PARTIAL" "$WORK/diff-plain.txt"
+rc=$?
+if [[ $rc -eq 1 ]] && grep -q "code-review" "$WORK/out.log"; then
+  ok "(l4) AC-12/OR-1: a lean PR with no spec in its own diff is NOT exempt and reds on the stage markers"
+else bad "(l4) no-spec PR: rc=$rc (expected the stage-marker red), log: $(cat "$WORK/out.log")"; fi
+
+# Fixtures are lean-shaped on purpose in both suites; exempting on one would let any PR buy its
+# way out of this gate by touching a fixture.
+run_chain_diff "${PREFIX}42" "Closes #42" "$FULL" "$WORK/diff-fixture-42.txt"
+rc=$?
+if [[ $rc -eq 0 ]] && grep -q "chain complete and key-consistent" "$WORK/out.log"; then
+  ok "(l5) a lean-shaped file under fixtures/ does not exempt"
+else bad "(l5) fixture exclusion: rc=$rc, log: $(cat "$WORK/out.log")"; fi
+
+# Suffix-anchored, never substring: the verdict record and the render receipt both CONTAIN
+# `-lean` and both name key 42, and neither is the spec.
+run_chain_diff "${PREFIX}42" "Closes #42" "$FULL" "$WORK/diff-lean-42-nonspec.txt"
+rc=$?
+if [[ $rc -eq 0 ]] && grep -q "chain complete and key-consistent" "$WORK/out.log"; then
+  ok "(l6) a verdict record / render receipt does not pass for the spec"
+else bad "(l6) non-spec lean artifacts: rc=$rc, log: $(cat "$WORK/out.log")"; fi
+
+# ---- (l8) AC-17: THIS side stays silent when the two gates' keys disagree -----------------
+# The off-diagonal cell of the (this gate applies) x (lean gate applies) truth table, and half
+# of one assertion: the two gates resolve the issue from DIFFERENT sources — this one from the
+# branch, check-lean-chain.sh from the PR body — so a body whose first reference is some other
+# issue splits them. This gate still exempts, because the diff does commit THIS branch key's
+# spec and that judgment is correct on its own terms.
+#
+# Which is exactly why the case is worthless alone. Its other half is (D3) in
+# check-lean-chain-selftest.sh, driven from the SAME three inputs: there the lean gate must
+# REFUSE rather than hand the PR back here. Read either case by itself and a silent gate looks
+# like a correct hand-off; that reading is what let both gates decline the same PR.
+run_chain_diff "${PREFIX}42" "Part of #99" "$FULL" "$WORK/diff-lean-42.txt"
+rc=$?
+if [[ $rc -eq 0 ]] && grep -q "lean-authored PR" "$WORK/out.log"; then
+  ok "(l8) AC-17: a branch-key/body-key disagreement still exempts here — check-lean-chain.sh (D3) owns it"
+else bad "(l8) key-disagreement exclusion: rc=$rc, log: $(cat "$WORK/out.log")"; fi
+
+# With neither a base ref nor the seam there is no diff, so nothing is excluded — the
+# fail-CLOSED direction for this gate.
+env PIPELINE_BRANCH_PREFIX="$PREFIX" PIPELINE_PLAN_PATTERN="$PATTERN" \
+    PR_HEAD_REF="${PREFIX}42" PR_BODY="Closes #42" PR_CREATED_AT="$OPEN_AT" \
+    bash "$CHAIN" --comments-file "$FULL" > "$WORK/out.log" 2>&1
+rc=$?
+if [[ $rc -eq 0 ]] && grep -q "chain complete and key-consistent" "$WORK/out.log"; then
+  ok "(l7) an unresolvable diff excludes nothing (fail-closed), rather than exempting everything"
+else bad "(l7) no-diff fallback: rc=$rc, log: $(cat "$WORK/out.log")"; fi
+
+# A missing seam file is a distinct error, not a silent empty scan that would exempt nothing
+# for a reason unrelated to the PR.
+run_chain_diff "${PREFIX}42" "Closes #42" "$FULL" "$WORK/no-such-diff.txt"
+rc=$?
+if [[ $rc -eq 2 ]] && grep -q "does not exist" "$WORK/out.log"; then
+  ok "(l8) a missing --diff-files-file is exit 2, not a silent empty scan"
+else bad "(l8) missing diff seam: rc=$rc, log: $(cat "$WORK/out.log")"; fi
+
 echo "== fail-closed env constants (AC-3) =="
 
 for var in PIPELINE_BRANCH_PREFIX PIPELINE_PLAN_PATTERN; do
