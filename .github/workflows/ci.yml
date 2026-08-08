@@ -221,14 +221,17 @@ jobs:
           PR_CREATED_AT: ${{ github.event.pull_request.created_at }}
         run: bash scripts/check-pipeline-chain.sh
 
-      # The lean harness's own merge-boundary gate. A SIBLING of the check above, not a mode
-      # of it: the two cover disjoint branch namespaces and different evidence sets, and
-      # editing check-pipeline-chain.sh would have re-keyed its four mutation-baseline rows
-      # for zero benefit.
+      # The lean harness's own merge-boundary gate. A SIBLING of the check above, not a mode of
+      # it: the two read different evidence sets. They no longer cover disjoint branch
+      # NAMESPACES — #413 put both lanes on `<tracker.branchPrefix><key>` — so what keeps exactly
+      # one of them claiming a PR is the committed lean spec, and both resolve that through the
+      # SAME classifier (lean-evidence.sh) rather than by two agreeing implementations.
       #
-      # PR_BASE_REF is additional to the PR_* set above — this gate reads the PR's changed
-      # files (for the lean-artifact applicability arm), which needs the base to diff against.
-      # Same env-not-interpolation discipline throughout.
+      # PR_BASE_REF is load-bearing for both steps, not a convenience: the classifier's sole
+      # applicability arm scans the PR's changed files, which needs a base to diff against, and
+      # it exits 2 rather than reporting "not lean" when it cannot. Dropping this key reds both
+      # gates instead of silently exempting the PR from them. Same env-not-interpolation
+      # discipline throughout.
       #
       # PR_HEAD_SHA is the freshness check's measuring point and must be the HEAD COMMIT, not
       # `HEAD`: on a pull_request event actions/checkout resolves refs/pull/N/merge, so HEAD is

@@ -70,7 +70,11 @@ gh api "repos/{owner}/{repo}/issues/${ISSUE}/comments" --jq '[.[] | {user: .user
 # Read the composed name off the record rather than rebuilding it: under jira the key is
 # lowercased, so `<branch_prefix>${ISSUE}` resolves a branch that does not exist.
 BR=$(grep -oE '^branch:[[:space:]]*\S+' .claude/pipeline-state/${ISSUE}-lean-progress.md | awk '{print $2}')
-PR_URL=$(gh pr list --head "$BR" --state all --json url --jq '.[0].url // empty')
+# Every record written before the lane began emitting `branch:` lacks the key, so REFUSE on an
+# empty BR rather than falling through: `gh pr list --head ""` is not an error, it answers rc=0
+# with the newest open PR in the repo, and the retro would then read a different run's evidence.
+if [ -n "$BR" ]; then PR_URL=$(gh pr list --head "$BR" --state all --json url --jq '.[0].url // empty')
+else echo "progress record predates the branch: key — resolve the PR from the issue's trail" >&2; fi
 # PR diff + commits (if a PR exists): gh pr diff / gh api .../pulls/N/commits
 # Hook ledger: .claude/audit/<session-id>.jsonl for each session_id named in the progress
 # record (build) and the verdict record (review) — two ledgers, not one, per P10.

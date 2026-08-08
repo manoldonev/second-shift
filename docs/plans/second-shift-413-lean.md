@@ -84,11 +84,15 @@ verdict through its existing delegation and no longer requires the constant eith
 delegation, and is unchanged in its verdict for a staged PR carrying no lean spec. A delegation that
 cannot run is an environment error, never a silent exemption.
 
-**AC-8.** No second copy of the lean discriminator exists. The live `lean-branch-prefix` row in
-`scripts/lockstep-manifest.tsv` is deleted along with both its `LOCKSTEP-BEGIN/END` blocks, the
-same-named DROPPED note is rewritten to record that its subject retired (its stated compensating
-control *was* the artifact arm this change makes sole), no new row is added, and
-`check-lockstep.sh` passes.
+**AC-8.** The lean discriminator is not duplicated as an *unrecorded* coupling. The live
+`lean-branch-prefix` row in `scripts/lockstep-manifest.tsv` is deleted along with both its
+`LOCKSTEP-BEGIN/END` blocks, the same-named DROPPED note is rewritten to record that its subject
+retired (its stated compensating control *was* the artifact arm this change makes sole), no new live
+row is added, and `check-lockstep.sh` passes. The one place the test is re-expressed rather than
+delegated — `retro-corpus.sh open-prs`, which `D-12` makes a discriminating site while `D-13` scopes
+delegation to `check-pipeline-chain.sh`, and which reads a `gh pr list` file array instead of a PR
+context — is recorded as a **DROPPED** note in that manifest, this repo's convention for a coupling
+that is real but not byte-anchorable. *(Amended in round 2 — see Amendments.)*
 
 **AC-9.** A PR opened on a legacy `lean/`-prefixed branch before this change still classifies as
 lean: not pipeline-prefixed, so the key resolves from the body and the key-matched spec in its diff
@@ -101,8 +105,11 @@ for a non-prefixed branch. A body whose first closing keyword names some other t
 the gate a phantom key on a prefixed branch.
 
 **AC-11.** A `LEAN_BRANCH_PREFIX` still set by a consumer's workflow produces a deprecation notice
-on stdout and is otherwise ignored. It is never an `envfail` — that would red every consumer's PRs
-at their next pin bump over a now-inert constant.
+on **stderr** and is otherwise ignored. It is never an `envfail` — that would red every consumer's
+PRs at their next pin bump over a now-inert constant. The stream is stderr and not stdout because
+`classify`'s stdout is a machine-read `key=value` block that both delegating gates parse, so a prose
+line inside it is data to them; stderr reaches the same CI job log, so the notice is equally
+visible. *(Amended in round 2 — see Amendments.)*
 
 **AC-12.** `retro-corpus.sh open-prs` selects lean PRs by the key-matched lean spec in the PR's own
 file list, not by namespace, so a staged PR sharing the prefix is not swept in and reported
@@ -118,14 +125,39 @@ verdict-less.
 
 **AC-15 (doc).** The prose these changes make stale is updated in the same diff:
 `docs/pipeline-manifesto.md`'s T0 note (which names `LEAN_BRANCH_PREFIX` as a `pr-gates` constant),
-`plugins/dev-pipeline/skills/pipeline-retro/SKILL.md`'s `gh pr list --head "lean/..."` recipe, and
-the file headers on both chain gates.
+`plugins/dev-pipeline/skills/pipeline-retro/SKILL.md`'s `gh pr list --head "lean/..."` recipe, the
+file headers on both chain gates, and `.github/workflows/ci.yml`'s lean-chain step comment — which
+asserts the two gates cover disjoint branch namespaces, the exact claim this change deletes. The
+rewritten retro recipe must also resolve a PR for a progress record written before it began emitting
+`branch:`; every record on disk today predates that key, and `gh pr list --head ""` answers rc=0 with
+the newest open PR rather than failing. *(Amended in round 2 — see Amendments.)*
 
 **AC-16 (test).** Coverage lands at the tier the contract sits at, not merely per-file:
 `branch-prefix-selftest.sh` for the resolver's own behavior (`AC-3`, `AC-4`), and a
 `scenario-liveness-selftest.sh` scenario for each composed verdict path this change touches — a
 lean PR on the shared prefix reaching the lean gate's terminal write, and the same PR being exempted
 by the pipeline gate.
+
+**AC-17.** `classify()`'s artifact scan fails **closed**. With no branch-namespace arm left behind
+it, that scan is the sole applicability input, so a changed-file list this gate cannot compute —
+`PR_BASE_REF` unset, or an unresolvable merge-base — is an environment error (exit 2), never an
+empty list read as "carries no lean spec". The refusal survives its call site: a producer that
+envfails inside a process substitution exits only the subshell, and the reader sees a clean EOF.
+Both delegating gates propagate it rather than falling through to their own verdict.
+
+## Amendments
+
+Round 1's verdict record (`docs/plans/second-shift-413-lean-verdict.md`) raised two blockers and
+three warnings. Two blockers and all three warnings are fixed in round 2; the AC set moves with
+them, because it is the definition of done and a definition that disagrees with the shipped
+mechanism is the defect, not a formality.
+
+| AC | Change | Why |
+| --- | --- | --- |
+| **AC-17** | new | Blocker `B-1`. Deleting the branch-namespace arm made the artifact scan sole, and the fall-through that was safe behind two arms became a silent merge-boundary exemption on one. No existing AC pinned the scan's own failure posture. |
+| **AC-11** | stdout → stderr | Blocker `B-2`. The ledger's `D-17` fixes the behavior (a notice, never an `envfail`) and says nothing about the stream; "stdout" was this spec's own gloss and is the half that is wrong — `classify`'s stdout is parsed as data by two gates, a purity `(bb1b)` pins. Reconciled toward the mechanism rather than left disagreeing. |
+| **AC-8** | first sentence narrowed | Warning `W-3`. "No second copy exists" was an absolute the diff's own `D-12`/`D-13` shape cannot honor: `retro-corpus.sh open-prs` re-expresses the test over a `gh pr list` file array. The obligation that was actually missing is the manifest's **DROPPED** note, so the AC now demands that instead of an absolute it contradicts. |
+| **AC-15** | two sites added | Warnings `W-1`, `W-2`. Both are prose this diff made false in files it already edits — the `ci.yml` step comment, and a retro recipe whose new `branch:` read has no fallback for the 29 records that predate the key. |
 
 ## Open Regions
 

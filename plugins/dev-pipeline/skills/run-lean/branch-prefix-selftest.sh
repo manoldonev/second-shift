@@ -222,10 +222,14 @@ else fail "(f2) sourcing produced output or a non-zero status, rc=$rc: $out"; fi
 
 # ---- (g) --help stops at the header ----------------------------------------------------------
 # `sed -n '2,Np'` is a hand-maintained line number and this repo has been burned by a header
-# that outgrew it. Bounded, not a substring probe: `set -uo pipefail` is the first line past
-# the intended range, so its presence means the whole file leaked.
+# that outgrew it. Bounded on BOTH ends, and the lower bound is the header's genuinely LAST
+# line (the bash-3.2 note), not the last one a reader notices: anchoring on `Exit / return:`
+# two lines above it would still pass a range that fell short by two, which is the same defect
+# one notch smaller. `set -uo pipefail` is the first line past the range, so its presence means
+# the whole file leaked.
 out="$(bash "$TOOL" --help 2>&1)"; rc=$?
 if [ "$rc" -eq 0 ] && printf '%s' "$out" | grep -qF 'Exit / return:' \
+   && printf '%s' "$out" | grep -qF '3.2-compatible' \
    && ! printf '%s' "$out" | grep -qF 'set -uo pipefail'; then
   pass "(g) --help prints through the last header line and stops before the code"
 else fail "(g) --help did not print exactly the header, rc=$rc: $out"; fi

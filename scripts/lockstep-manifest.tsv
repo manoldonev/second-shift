@@ -291,9 +291,34 @@ artifact-reviewer-baseline-deltas	verbatim	plugins/design-toolkit/agents/figma-f
 # lean spec in the PR's diff and nothing else. So there is no longer a pair here to pin OR to
 # drop — the constant and the derivation both ceased to exist, along with the mutual
 # non-prefix-match property both sides used to assert.
-# Nothing replaces this entry. The one classifier (lean-evidence.sh) is DELEGATED to by both
-# chain gates rather than copied into them, so the successor coupling is a function call, which
-# no manifest row can improve on.
+# Nothing replaces this entry at the chain gates. The one classifier (lean-evidence.sh) is
+# DELEGATED to by both of them rather than copied into them, so the successor coupling there is
+# a function call, which no manifest row can improve on. One site outside those gates re-states
+# the test instead of calling it, and it gets its own note directly below.
+
+# lean artifact discriminator: lean-evidence.sh classify() <-> retro-corpus.sh open-prs (#413).
+# A REAL coupling and the only re-statement of the test that survives this change. Both sides
+# decide "is this PR lean" the same way -- exclude fixture paths, then require a basename ending
+# `-<key>-lean.md` -- and a one-sided edit (a fourth fixture directory, a renamed suffix) leaves
+# the retro corpus silently reporting live lean PRs as verdict-less, or sweeping staged ones in.
+# It is NOT delegable, which is why the copy exists: the gates classify the PR they are running
+# ON, from a PR context (head ref, base ref, body) that lets classify() resolve one key and diff
+# one range. `open-prs` classifies a LIST of other PRs from a single `gh pr list --json files`
+# call, where no such context exists and an open PR's spec is committed on its own branch rather
+# than the base, so a working-tree file test would reject every candidate it exists to find.
+# D-12 makes it a discriminating site; D-13 scopes delegation to check-pipeline-chain.sh.
+# Considered for a row and DROPPED: the two sides share no literal to anchor. One spells the
+# test as shell `case` patterns over a `find` walk, the other as a `grep -v` chain plus a `grep
+# -qE` over a JSON array, and the suffix is a variable on one side and inlined in a pattern on
+# the other. A LOCKSTEP-BEGIN/END pair would put a `verbatim` relation between two dialects,
+# which is wrong by construction, and inventing a shared constant purely to be compared is the
+# duplicate-machinery case this file's header rejects.
+# Guarded behaviorally instead, on both sides and against the same two mistakes: lean-evidence-
+# selftest.sh (d)/(z2) pin the key match at the classifier, and retro-corpus-selftest.sh (AC-5b)
+# drives `open-prs` over a fixture PR array carrying another ticket's spec and a fixture-pathed
+# spec and asserts neither casts a vote -- with (AC-5) as the non-vacuity side, where a real lean
+# PR IS selected. Revisit if either side ever grows a shared literal -- most plausibly if the
+# `-lean.md` suffix is hoisted into the config schema.
 
 # lean verdict-record key schema (`verdict=`, `run_id:`, `session_id:`, `reviewed_head:`,
 # `reviewed_patch_id:`, `inherited_patch_id:`, `inherited_from_verdict:`, `fidelity:`) — ONE
