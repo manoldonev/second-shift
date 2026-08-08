@@ -430,10 +430,54 @@ printf '#!/usr/bin/env bash\nexit 7\n' > "$FX/guard-selftest.sh"
 OUT="$( cd "$FX" && enf bash "$SWEEP" --mode full 2>&1 )"; RC=$?
 if [[ $RC -eq 1 ]] \
   && printf '%s' "$OUT" | grep -q 'unrunnable pair' \
-  && printf '%s' "$OUT" | grep -q 'mutants_applied\|swept'; then
+  && printf '%s' "$OUT" | grep -q 'mutants_applied\|swept' \
+  && printf '%s' "$OUT" | grep -q 'it produced no output'; then
   ok "unrunnable pair is red and its mutants are not scored"
 else
   bad "(g) expected rc=1 + unrunnable pair; got rc=$RC"; printf '%s\n' "$OUT" | tail -5
+fi
+
+echo "(g2) unrunnable pair — the suite's exit status and its own output reach the operator"
+# Before this the red carried a reason string and nothing else, so a suite reaped by the OOM
+# killer (rc=137 on a 2-core runner) and one with a genuinely failing case (rc=1) produced the
+# identical line — the one distinction that decides whether the next move is a code fix or a
+# capacity one. $KILLER_LOG is truncated by the next killer and deleted with $WORKDIR on exit,
+# so the snapshot has to happen at failure time or there is nothing left to print. This killer
+# TALKS before it fails, the way a real suite does; the needle is that the talking survives.
+FX="$(new_fixture strong)"
+baseline_with "$FX" 'guard.sh::fail-open::1'
+cat > "$FX/guard-selftest.sh" <<'EOF'
+#!/usr/bin/env bash
+echo "diagnostic-needle: the fixture suite explaining itself"
+exit 7
+EOF
+( cd "$FX" && git add -A && git -c user.email=f@e.invalid -c user.name=f commit -qm talk ) >/dev/null 2>&1
+OUT="$( cd "$FX" && enf bash "$SWEEP" --mode full 2>&1 )"; RC=$?
+if [[ $RC -eq 1 ]] \
+  && printf '%s' "$OUT" | grep -q 'unrunnable pair' \
+  && printf '%s' "$OUT" | grep -q '(exit 7)' \
+  && printf '%s' "$OUT" | grep -q 'diagnostic-needle'; then
+  ok "the red names the exit status and carries the suite's own output"
+else
+  bad "(g2) expected rc=1 + '(exit 7)' + the suite's output; got rc=$RC"; printf '%s\n' "$OUT" | tail -6
+fi
+
+echo "(g3) an unrunnable guard's baseline rows are undecidable, never 'now KILLED'"
+# Reads (g2)'s run: that guard carries a baseline row and scored NOTHING, so the row is absent
+# from TOTAL_SURVIVORS for the one reason that proves nothing — nothing ran. SWEEP_GUARDS is
+# the ASSIGNED partition, fixed before the precheck, so the guard still counts as "swept" and
+# the shrink warn used to read that absence as a kill. Obeying it drops a live survivor and
+# reds the NEXT healthy run with exactly that row as a baseline-absent survivor.
+if ! printf '%s' "$OUT" | grep -q 'now KILLED'; then
+  ok "no 'now KILLED' warn for a guard whose pair never ran"
+else
+  bad "(g3) the unrunnable guard's baseline row was reported killed"; printf '%s\n' "$OUT" | grep 'now KILLED'
+fi
+# The silence above has to be accounted for, or it reads as "the rows are fine".
+if printf '%s' "$OUT" | grep -q 'undecidable this run'; then
+  ok "the red says the rows are undecidable, so the silence is accounted for"
+else
+  bad "(g3) the red did not account for the suppressed rows"; printf '%s\n' "$OUT" | tail -6
 fi
 
 echo "(h) baseline-missing — enforcing non-seed is red; seed mode is green with artifacts"
