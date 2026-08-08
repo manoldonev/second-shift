@@ -224,9 +224,26 @@ else fail "(d4) expected rc=0 on a live ledger, got $rc: $out"; fi
 # edit, which is the whole defect. The writer's own suite covers the same agreement from
 # its side (audit-selftest.sh Tests 10-14); this one covers it from the reader's, so a
 # regression in either half reds a suite that owns that half.
-HOOK="$HERE/../../../audit-toolkit/hooks/audit-tool-calls.sh"
+#
+# Reaching the sibling takes a LADDER, not a fixed hop count, because two on-disk layouts
+# ship this pair: the marketplace repo, where plugins sit adjacent under `plugins/`, and a
+# version-keyed install cache (`<root>/<plugin>/<version>/...`), where a version segment
+# separates them. A fixed `../../../` resolves only in the first, so from every install this
+# case took its not-found branch and red the suite — the exact class
+# tools/install-topology-selftest.sh stages for. Same ladder as
+# check-model-tiers.sh's resolve_sibling_plugin_root(). NOT a lockstep pair with the copy in
+# lean-reconcile-selftest.sh: each suite resolves its own sibling independently and drift
+# between them breaks nothing — the shared thing is a technique, not a contract.
+HOOK_REPO="$HERE/../../../audit-toolkit/hooks/audit-tool-calls.sh"
+HOOK="$HOOK_REPO"
 if [ ! -x "$HOOK" ]; then
-  fail "(d5) audit hook not found at $HOOK — the writer half of the ledger contract is unreachable"
+  # Cache layout: the lexically-newest staged version that actually carries the hook.
+  HOOK="$(for c in "$HERE"/../../../../audit-toolkit/*/hooks/audit-tool-calls.sh; do
+    [ -x "$c" ] && printf '%s\n' "$c"
+  done | tail -1)"
+fi
+if [ ! -x "$HOOK" ]; then
+  fail "(d5) audit hook not found — searched $HOOK_REPO and $HERE/../../../../audit-toolkit/<version>/hooks/audit-tool-calls.sh; the writer half of the ledger contract is unreachable"
 else
   WT_ENTRY="$WORK/wt-entry"
   git -C "$TREE" worktree add -q -b wt-entry "$WT_ENTRY" >/dev/null 2>&1

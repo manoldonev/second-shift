@@ -221,7 +221,7 @@ expected="ts,session_id,event,tool,subagent,command_name,target,outcome"
 #
 # These are per-tool fixtures because the WRITER is what moved; the two readers are pinned
 # from their own side, each driving this same hook from a linked worktree
-# (lean-gate-selftest.sh's (d5), lean-reconcile-selftest.sh's (N)). Between them, a
+# (lean-gate-selftest.sh's (d5), lean-reconcile-selftest.sh's (R)). Between them, a
 # writer-side regression reds three suites, and a reader-side one reds its own.
 #
 # Not a scenario: scenario-liveness-selftest.sh composes verdict paths through pipeline

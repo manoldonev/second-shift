@@ -118,15 +118,35 @@ diff. Verified by a diff-scoped `tools/mutation-sweep.sh` run over the two guard
 
 **OR-1 — common-dir resolution in layouts nothing here exercises** (submodules, `.git`-file
 worktrees, bare checkouts). Taking the receipt's stated default: the D-6 ladder, where anything that
-does not resolve to a readable directory falls back to today's path. Reversal is cheap because the
-fallback *is* the status quo — such a layout is no worse off than before this PR, and the fix for it
-would be one branch in `audit_ledger_dir()`. **Flagged: untested against those layouts.**
+does not resolve to a readable directory falls back to today's path.
+
+An earlier draft justified the flag as "the fallback *is* the status quo, so such a layout is no
+worse off than before this PR." **That is false for two of the three, and the correction is kept
+here rather than dropped, because the wrong version is the reason the flag looked cheap.** Two of
+them *resolve* — to a new place, not to the fallback:
+
+| Layout | `--git-common-dir` answers | Where the ledger lands |
+| --- | --- | --- |
+| submodule | `<super>/.git/modules/<name>` | inside git's private directory |
+| bare checkout | `.` | the parent of the bare repo, outside any repository |
+| `.git`-file worktree | the main checkout's `.git` | the main checkout — the case this PR covers |
+
+Neither of those two loses data and neither blocks a session, so the disposition is unchanged; what
+changes is the claim. Reversal is still cheap — one branch in `audit_ledger_dir()`. **Flagged: untested against
+those layouts, and the first two write somewhere new rather than somewhere old.**
 
 **OR-2 — latency of one added `git rev-parse` per tool call.** Taking the receipt's stated default:
-the direct form, resolved per invocation, no cache. The hook already spawns `jq` six times and
-`date` once per call, so this is a marginal addition — but it is **unmeasured**, and this spec
-claims nothing more. Reversal is cheap because the resolution is pure and its result is a stable
-per-repo string, so a memo can be added later without moving the contract.
+the direct form, resolved per invocation, no cache. Reversal is cheap because the resolution is pure
+and its result is a stable per-repo string, so a memo can be added later without moving the
+contract.
+
+The draft called this marginal on the grounds that the hook already spawns `jq` six times per call,
+and flagged it **unmeasured**. It has since been measured (macOS, 150 invocations × 3 rounds, base
+hook vs head hook): **43–61 → 60–78 ms/call, i.e. +16–17 ms, ≈ +37%**, of which
+`git rev-parse --git-common-dir` is ≈20 ms and the `cd`+`pwd` subshell ≈1 ms. One `git` costs about
+a third of the whole pre-existing hook — a bigger share than "marginal" implied. The disposition
+still stands (the hook is not on a latency-sensitive path and the memo remains available), but the
+number is now on the record instead of an intuition.
 
 **Deviation from the receipt's enumeration, applying its own rule.** D-10 names two prose sites
 (`SETUP.md`, the `LEAN_AUDIT_DIR` line) as examples of "corrected where the fix makes it false".
@@ -168,6 +188,10 @@ baseline.
 | `audit-history.sh::fail-open::2` | the sweep scored it KILLED via the **killer process bound** (101 processes) — an artifact of the 20-way stress fan-out, not a kill: applied by hand it survives | kept |
 | `lean-reconcile.sh` (6 rows) | survivor set is byte-identical to the baseline; the header edit added no operator site | untouched |
 
-Honest limit on the four removals: those mutants are now killed because the k=2 budget window moved
-onto the new resolution's guards, **not** because the regressions the old rows described became
-caught. Their sites sit at ordinals 3-6 and are no longer swept at all.
+Honest limit on the removals — it applies to **three of the four**, not all of them, and the table
+above is the authority on which. `cmp-z::1`, `cmp-z::2` and `logic::2` are killed because the k=2
+budget window moved onto the new resolution's guards, **not** because the regressions those rows
+described became caught: their sites sit at ordinals 3-6 and are no longer swept at all. `cmp-eq::1`
+is the opposite case — its ordinal did not move, it is still swept, and it is killed by genuinely
+new coverage (the `/audit-history`-from-a-worktree case asserting a non-zero session count).
+Sweeping all four into the budget explanation would **under**-claim this PR's coverage.
