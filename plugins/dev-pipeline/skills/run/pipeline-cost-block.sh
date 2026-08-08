@@ -25,9 +25,45 @@
 # no issue number would otherwise abort on a usage error before reaching its own mode.
 # Every state-file path below is guarded on $STATELESS, so existing invocations keep
 # their exact behavior.
+#
+# TIER BUCKETING. Cost is bucketed by (stage label, TIER), not by stage label alone. The
+# tier comes from each datapoint's `model` telemetry attribute through $TIER_FAMILY_MAP
+# below — a SCRIPT CONSTANT, deliberately not a config key. A consumer-overridable surface
+# is a follow-on for when a second vendor actually runs; a key here would cost a schema
+# edit, a lint allowlist entry and a configVersion call for a consumer nobody has yet.
+#
+# The alphabet is `reasoning` / `code` / `emit`, plus `unknown` — NOT the opus/sonnet/haiku
+# dispatch alphabet, which would make the bucket key a vendor token and move the debt
+# rather than pay it. The map is keyed on FAMILY SUBSTRINGS of the RESOLVED telemetry id
+# (`claude-opus-4-7`, not `opus`), because the resolved id is what the collector emits and
+# the dispatch string never reaches this file.
+#
+# The classification is TOTAL. An id matching no family, and a datapoint carrying no
+# `model` attribute at all, both resolve to `unknown`. Totality is the point: a model-less
+# cost datapoint already counts toward the run total, so a partial key would let its money
+# vanish from the per-tier table while still appearing in the sum.
+#
+# Coverage is today's Anthropic families only. An unrecognized backend reads honestly as
+# `unknown` rather than being mis-tiered, and the fix is one entry in the map.
+#
+# RENDER FILTER. The rollup and the cost-log row stay total: every (label, tier) pair
+# present in the fenced datapoint set has a row. The RENDERED table drops rows carrying
+# zero cost with an empty model set, because live telemetry emits whole metric families
+# with no `model` attribute (active_time.total, code_edit_tool.decision,
+# pull_request.count). Without the filter every stage label would gain a companion
+# zero-dollar `unknown` row in the artifact a human actually reads. Filtering here rather
+# than in the rollup keeps the durable record complete and the PR block legible.
 
 set -uo pipefail
 log() { echo "[pipeline-cost-block] $*" >&2; }
+
+# Telemetry-id → tier map (see TIER BUCKETING above). Keys are family substrings matched
+# against the resolved model id; values are the tier alphabet. Unmatched ids and
+# attribute-less datapoints tier to `unknown`, which is never a key here.
+TIER_FAMILY_MAP='{"opus":"reasoning","sonnet":"code","haiku":"emit"}'
+# Tier order within one stage label, so rows sharing a label never permute between runs.
+# Also orders the session-total row's tier list. Anything absent sorts last.
+TIER_ORDER='{"reasoning":1,"code":2,"emit":3,"unknown":4}'
 
 STATELESS=0
 ARG_SESSIONS=""
@@ -42,7 +78,7 @@ while [ $# -gt 0 ]; do
     --start)     ARG_START="${2:-}"; shift 2 ;;
     --end)       ARG_END="${2:-}"; shift 2 ;;
     --out)       ARG_OUT="${2:-}"; shift 2 ;;
-    -h|--help)   sed -n '2,26p' "$0"; exit 0 ;;
+    -h|--help)   sed -n '2,55p' "$0"; exit 0 ;;
     -*)          log "unknown option: $1"; exit 2 ;;
     *)           POSITIONAL_ARGS+=("$1"); shift ;;
   esac
@@ -169,6 +205,7 @@ write_cost_log_row() {
       totalUsd: $rollup.totals.cost_usd,
       durationMin: ($dur | tonumber? // null),
       models: ([$rollup.byLabel[].models[]] | unique | sort),
+      tiers: ([$rollup.byLabel[].tier] | unique | sort),
       byLabel: $rollup.byLabel,
       cacheHitRate: $rollup.totals.cache_hit_rate,
       prs: $prs }
@@ -306,8 +343,16 @@ compute_bucket_rollup() {
   jq -s --argjson sids "$SIDS_JSON" \
         --arg fenceLo "$FENCE_LO" \
         --arg fenceHi "$FENCE_HI" \
+        --argjson tierMap "$TIER_FAMILY_MAP" \
+        --argjson tierOrder "$TIER_ORDER" \
         --argjson stages "$([ "$STATELESS" -eq 1 ] && echo '{}' || jq -c '.stages' "$STATE_FILE")" '
     def nanos_to_iso: tonumber / 1e9 | todate;
+    # Total by construction: a non-string (absent) id, and a string matching no family
+    # substring, both land in "unknown".
+    def tier_of($m):
+      if ($m | type) != "string" then "unknown"
+      else ( [ $tierMap | to_entries[] as $e | select($m | contains($e.key)) | $e.value ] | first ) // "unknown"
+      end;
     def stage_label(n):
       {"1":"Intake","2":"Intake",
        "3":"Plan","4":"Plan",
@@ -330,6 +375,7 @@ compute_bucket_rollup() {
           | { name, t: $t,
               value: ($dp.asDouble // ($dp.asInt // 0 | tonumber)),
               model: $attrs.model,
+              tier: tier_of($attrs.model),
               token_type: $attrs.type,
               sid: $attrs["session.id"] }
     ] as $rows
@@ -355,16 +401,18 @@ compute_bucket_rollup() {
     {
       byLabel: (
         $tagged
-        | group_by(.label)
+        | group_by([.label, .tier])
         | map({
             label: .[0].label,
+            tier: .[0].tier,
             cost_usd: ( [.[] | select(.name=="claude_code.cost.usage") | .value] | add // 0 ),
             models: ( [.[] | .model // empty] | unique | sort )
           })
         | sort_by(
-            {"Intake":1,"Plan":2,"Implementation":3,"Verify":4,"Doc Update":5,
-             "Code Review":6,"PR Creation":7,"Cleanup":8,"Other":9}
-             [.label] // 10
+            [ {"Intake":1,"Plan":2,"Implementation":3,"Verify":4,"Doc Update":5,
+               "Code Review":6,"PR Creation":7,"Cleanup":8,"Other":9}
+               [.label] // 10,
+              $tierOrder[.tier] // 9 ]
           )
       ),
       totals: {
@@ -505,13 +553,18 @@ render_block() {
   [ "$STATELESS" -eq 1 ] && total_note="lean run — no stage windows by design"
   jq -r --arg factor "$factor" --arg dur "$DURATION_MIN" --arg windows_ok "$windows_ok" \
         --arg totalNote "$total_note" \
+        --argjson tierOrder "$TIER_ORDER" \
         --arg fenceLoHm "$fence_lo_hm" --arg fenceHiHm "$fence_hi_hm" '
     def usd(x): x * ($factor|tonumber);
     def fmt(x):
       (x * 100 | round) as $c
       | "$" + ( ($c / 100 | floor) | tostring ) + "." +
         ( $c % 100 | tostring | if length == 1 then "0" + . else . end );
+    # The render filter (see RENDER FILTER in the header). A row with no money and no model
+    # identity reports nothing; the rollup and the cost-log row keep it regardless.
+    def reportable: select((.cost_usd > 0) or ((.models | length) > 0));
     ([.byLabel[].models[]] | unique | sort) as $all_models |
+    ([.byLabel[] | reportable | .tier] | unique | sort_by($tierOrder[.] // 9)) as $all_tiers |
     (
       [
         "<!-- pipeline-cost-block -->",
@@ -522,18 +575,19 @@ render_block() {
       ]
       +
       ( if $windows_ok == "yes" then
-          [ "| Stage | Models | Cost (USD) |",
-            "|-------|--------|-----------:|" ] +
-          [ .byLabel[] |
+          [ "| Stage | Tier | Models | Cost (USD) |",
+            "|-------|------|--------|-----------:|" ] +
+          [ .byLabel[] | reportable |
               "| " + .label +
+              " | " + .tier +
               " | " + (.models | join(", ")) +
               " | " + fmt(usd(.cost_usd)) + " |"
           ] +
-          [ "| **Total** | | **" + fmt(usd(.totals.cost_usd)) + "** |" ]
+          [ "| **Total** | | | **" + fmt(usd(.totals.cost_usd)) + "** |" ]
         else
-          [ "| Scope | Models | Cost (USD) |",
-            "|-------|--------|-----------:|",
-            "| Session total (" + $totalNote + ") | " + ($all_models | join(", ")) + " | " + fmt(usd(.totals.cost_usd)) + " |"
+          [ "| Scope | Tiers | Models | Cost (USD) |",
+            "|-------|-------|--------|-----------:|",
+            "| Session total (" + $totalNote + ") | " + ($all_tiers | join(", ")) + " | " + ($all_models | join(", ")) + " | " + fmt(usd(.totals.cost_usd)) + " |"
           ]
         end
       )

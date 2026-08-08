@@ -25,7 +25,9 @@
 # mutation-pair-map.tsv row, or a mutation-exclusions.tsv row. An unaccounted guard is RED.
 #
 # EXIT CONTRACT — survivors are DATA, not automatically a red build.
-#   Red only for: a baseline-absent survivor, a missing baseline in an enforcing non-seed
+#   Red only for: a baseline-absent survivor, a `pool disagreement` (a survivor the serial
+#   re-verify kills — the harness contradicting itself, never a coverage gap), a missing
+#   baseline in an enforcing non-seed
 #   run (`baseline-missing`), catalog anchor drift, a bash -n-invalid CATALOG mutant, an
 #   operator match grep cannot run as a pattern, an
 #   unaccounted guard, an unrunnable pair, a baseline environment mismatch
@@ -1212,6 +1214,122 @@ EOF
   return 0
 }
 
+# ------------------------------------------------------------- serial re-verify
+# THE ORACLE. A baseline-absent survivor is the only thing that reds this lane, and the pool
+# has been observed fabricating one: a mutant its own paired selftest demonstrably kills was
+# scored SURVIVED, on two guards in one nightly, while a THIRD guard carrying the identical
+# idiom behind the identical assertion killed it in the same run. No single behavior of the
+# mutated construct explains both outcomes, so the verdict was not a fact about the code.
+#
+# The false-SURVIVED path inside the pool is not isolated. This does not try to isolate it —
+# it makes the class self-healing instead: before a survivor is allowed to red anything, it is
+# re-derived SERIALLY, on a sandbox no worker has touched, because the pool is the suspect and
+# an oracle must not use it. Cheap by construction: it runs only for a survivor that would red
+# (zero of them on a green run), never on the ordinary path.
+#
+# The FULL ordered kill set is re-run, not one suite. "Survived" means no suite in the set
+# killed, so re-running one is not the same question.
+#
+# Scope, and the reason is not only cost: a mutant served from the verdict CACHE is out, because
+# its verdict was not produced by this run's pool (naming it a pool disagreement would accuse a
+# path the pool never touched), the cache is inert in every enforcing lane and in seed mode, and
+# — the load-bearing half — a pool-scored mutant is exactly the set whose kill suites this run
+# prechecked GREEN. A guard with no uncached mutant is never prechecked, so feeding one to the
+# oracle would let a broken suite fabricate the correction it is supposed to detect.
+REVERIFY_SB=""
+REVERIFY_REC=""
+REVERIFY_KEY=""
+
+# A sandbox of its own, appended past the pool's, created on first use so a green run pays
+# nothing. `git worktree add` is serial by construction (see sandbox_ensure) and this runs in
+# the main shell after `wait`, so there is nothing to race.
+reverify_sandbox() {
+  [[ -n "$REVERIFY_SB" ]] && return 0
+  sandbox_ensure $((SANDBOX_N + 1)) || return 1
+  REVERIFY_SB="$(sandbox_at $((SANDBOX_N - 1)))" || return 1
+  [[ -n "$REVERIFY_SB" ]] || return 1
+  return 0
+}
+
+# A survivor is re-verified when it would red the lane. Seed mode re-verifies every pool-scored
+# survivor: it is the one lane that writes a spurious survivor into the committed baseline
+# permanently and silently, so the ~20 serial suite runs per shard buy the baseline's integrity.
+reverify_needed() {
+  [[ $SEED -eq 1 ]] && return 0
+  in_baseline "$1" && return 1
+  return 0
+}
+
+# $1 = mutant index. True when this run's POOL produced the verdict. A cache hit is resolved in
+# the serial probe and never reaches the pool, so it is out of scope — see the note above.
+pool_scored() {
+  awk -F"$TAB" -v i="$1" '$1==i {found=1; exit} END {exit !found}' "$WORKDIR/mut.final" 2>/dev/null
+}
+
+# $1 = mutant index. Returns 0 when the serial re-run KILLS what the pool called survived,
+# publishing the corrected record in REVERIFY_REC and its cache key in REVERIFY_KEY. Returns 1
+# when the pool's verdict stands — which includes every case where the re-run could not be
+# performed at all, because an oracle that cannot answer must not overturn anything.
+reverify_survivor() {
+  local idx="$1" row guard ks blob key s rc got
+  local hit_suite hit_kind hit_bound hit_procs
+  local sv_sb sv_log sv_pgid sv_tmp sv_token
+  REVERIFY_REC=""; REVERIFY_KEY=""
+  # mut.final rather than mut.todo: same six fields, already filtered to the mutants this run's
+  # pool actually scored, which is precisely the re-verify set.
+  row="$(awk -F"$TAB" -v i="$idx" '$1==i {print; exit}' "$WORKDIR/mut.final" 2>/dev/null)"
+  [[ -n "$row" ]] || return 1
+  IFS="$TAB" read -r _ _ guard ks blob key <<EOF
+$row
+EOF
+  [[ -n "$guard" && -f "$blob" ]] || return 1
+  reverify_sandbox || return 1
+
+  # run_killer reads its sandbox, log, pgid file and TMPDIR from globals the pool worker sets
+  # per worker. Borrow them under a token of their own and hand them back, so nothing later in
+  # this shell inherits the oracle's.
+  sv_sb="$SB_CUR"; sv_log="$KILLER_LOG"; sv_pgid="$WORKER_PGID_FILE"
+  sv_tmp="$KILLER_TMPDIR"; sv_token="$WORKER_TOKEN"
+  SB_CUR="$REVERIFY_SB"
+  KILLER_LOG="$WORKDIR/killer.rv.log"
+  WORKER_PGID_FILE="$WORKDIR/pgid.rv"
+  KILLER_TMPDIR="$WORKDIR/tmp.rv"
+  WORKER_TOKEN="rv"
+  : > "$WORKER_PGID_FILE"
+
+  cat "$blob" > "$SB_CUR/$guard"
+  # Counted here rather than at the call site, so the run's own timing line stays an honest
+  # record of paired-suite executions even on the paths where the oracle declines to run. One
+  # per re-derived VERDICT, matching how the pool counts its own.
+  SUITE_RUNS=$((SUITE_RUNS + 1))
+  got=0; hit_suite="-"; hit_kind="plain"; hit_bound=0; hit_procs=0
+  for s in $ks; do
+    run_killer "$s" "$(killer_bound_for "$s")"; rc=$?
+    if [[ $rc -ne 0 ]]; then
+      got=1
+      hit_suite="$s"
+      hit_bound="$KILLER_BOUND_USED"
+      hit_procs="$KILLER_BOUND_PROCS"
+      if [[ $KILLER_EARLY -eq 1 ]]; then
+        hit_kind="early"
+      elif [[ $KILLER_TIMED_OUT -eq 1 ]]; then
+        hit_kind="$KILLER_BOUND_KIND"
+      fi
+      break
+    fi
+  done
+  restore "$guard" "$SB_CUR"
+  rm -rf "$KILLER_TMPDIR" 2>/dev/null
+
+  SB_CUR="$sv_sb"; KILLER_LOG="$sv_log"; WORKER_PGID_FILE="$sv_pgid"
+  KILLER_TMPDIR="$sv_tmp"; WORKER_TOKEN="$sv_token"
+
+  [[ $got -eq 1 ]] || return 1
+  REVERIFY_REC="v1${TAB}killed${TAB}$hit_kind${TAB}$hit_suite${TAB}$hit_bound${TAB}$hit_procs"
+  REVERIFY_KEY="$key"
+  return 0
+}
+
 # ===================================================================== PHASE 1
 # ENUMERATE, serially, in sandbox 0. Cheap — sed, awk, `bash -n`, `git diff --quiet` — and
 # it is where every skip and every catalog red is decided, in the historical order. What it
@@ -1483,6 +1601,23 @@ while [[ $i -lt ${#GL_GUARD[@]} ]]; do
       j=$((j + 1)); continue
     fi
     IFS="$TAB" read -r _ verdict vkind vsuite vbound vprocs < "$vf"
+    # The oracle runs HERE — inside the aggregation, before the verdict is counted — and not
+    # beside the exit contract below, which is the only placement that makes a correction
+    # coherent everywhere at once. The counts, the survivor_ids in the report row,
+    # TOTAL_SURVIVORS, the seed baseline (written from it, and BEFORE the exit contract is
+    # ever reached) and the exit contract itself are then all derived from the corrected
+    # verdict by construction rather than patched afterwards.
+    if [[ "$verdict" == "survived" ]] && reverify_needed "$sid" && pool_scored "$j"; then
+      info "re-verifying survivor serially, outside the pool: $sid"
+      if reverify_survivor "$j"; then
+        red "pool disagreement: $sid was scored SURVIVED by the worker pool but is KILLED by a serial re-run of the same kill set outside it — the harness is at fault, not the guard. Reporting the corrected KILLED verdict; do NOT add a baseline row for this mutant."
+        printf '%s\n' "$REVERIFY_REC" > "$vf"
+        cache_put "$REVERIFY_KEY" "$REVERIFY_REC"
+        IFS="$TAB" read -r _ verdict vkind vsuite vbound vprocs < "$vf"
+      else
+        info "serial re-run agrees: $sid really does survive its kill set."
+      fi
+    fi
     [[ "$vkind" != "plain" ]] && report_bound_hit "$sid" "$vsuite" "$vkind" "$vbound" "$vprocs"
     if [[ "$verdict" == "killed" ]]; then
       killed=$((killed + 1))

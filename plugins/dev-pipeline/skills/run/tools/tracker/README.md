@@ -52,13 +52,13 @@ rather than falling through to an arm.
 | **entry** — SKILL.md step 1’s queue-label confirm | confirm the queue label; a missing one is a reject, no prompting | *not applicable* — no queue, no label; the gate prints the adapter note and the operator supplies the key |
 | **claim** (`lean-gate.sh claim`) | two bot-wrapper writes: the label swap plus a `lean-claimed` marker comment | *no tracker write.* The run-id/claim record still lands in the progress file — the anchor the reconcile row below reads — and `GH_BOT` is not required |
 | **exit** (`lean-gate.sh 5`) | ready PR carrying `Closes #<key>` + the spec link, plus a closing comment referencing the verdict record | ready PR carrying `Closes [<KEY>]` under a `Jira Items` heading, the spec link, and the verdict-record path **in the body**; the comment trail is never read |
-| **reconcile** — the operator’s pre-merge check ([`lean-reconcile.sh`](../../../run-lean/lean-reconcile.sh)) | six arms; check (1) compares the bot claim comment’s `run_id` against the progress file’s | **five of six.** Check (1)’s claim arm is skipped and the fetch is never attempted, so the run makes no `gh` call; (1b) and (2)–(6) run unchanged. The dropped arm is named in the output and on the closing line. `--comments-file` is refused here |
+| **reconcile** — the operator’s pre-merge check ([`lean-reconcile.sh`](../../../run-lean/lean-reconcile.sh)) | every arm; check (1) compares the bot claim comment’s `run_id` against the progress file’s | **all but one.** Check (1)’s claim arm is skipped and the fetch is never attempted, so the run makes no `gh` call; every other arm runs unchanged. The dropped arm is named in the output and on the closing line. `--comments-file` is refused here |
 
 The **ready-PR** requirement is adapter-independent. lean has no promotion step for a draft
 to advance out of, so the `run` lane’s draft-PR rationale (below) does not carry over.
 
 > **Partial integrity backstop under jira.** lean has two integrity checks, and they diverge
-> here. `lean-reconcile.sh` (operator-run) keeps five of its six arms: only the claim-comment
+> here. `lean-reconcile.sh` (operator-run) keeps every arm but one: only the claim-comment
 > comparison needs a tracker, and the rest read git, the progress file, the verdict record and
 > the audit ledger — including the P10 authorship check, which is what the
 > generation-must-not-author-evaluation separation rests on. It states which arm did not run, so

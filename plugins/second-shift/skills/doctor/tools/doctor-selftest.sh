@@ -72,8 +72,24 @@ scenario latest-lock      plugin-list-behind.json  settings-green.json     marke
 # colliding name: dev-pipeline ships skills/run in v2.
 mkdir -p "$TMP/shadow-skill/.claude/skills/run"
 scenario shadow-skill     plugin-list-green.json   settings-green.json     marketplace-list-pinned.json  0 "shadows plugin-shipped"
+# #416/D-7: `audit-toolkit` off WHILE `dev-pipeline` is on is not an opt-out, it is a broken
+# lean lane — its entry gate refuses to start without the ledger audit-toolkit's hook writes.
+# This scenario asserted exit 0 until that landed; it is re-keyed, not deleted, because the
+# combination it fixtures is exactly the one that produced two unattested merged runs.
 mkdir -p "$TMP/opt-out/.claude"; cp "$FIX/settings-optout.local.json" "$TMP/opt-out/.claude/settings.local.json"
-scenario opt-out          plugin-list-green.json   settings-green.json     marketplace-list-pinned.json  0 "audit-toolkit"
+scenario opt-out          plugin-list-green.json   settings-green.json     marketplace-list-pinned.json  1 "while dev-pipeline is enabled"
+# ...and the branch D-7 PRESERVES, which a single re-keyed scenario would have left untested:
+# with dev-pipeline off too, there is no lane to protect and the informational warn stands.
+# `false` in settings.local.json overrides the `true` settings-green.json declares, which is
+# also what pins the precedence half of the predicate.
+mkdir -p "$TMP/opt-out-lane-off/.claude"; cp "$FIX/settings-optout-lane-off.local.json" "$TMP/opt-out-lane-off/.claude/settings.local.json"
+scenario opt-out-lane-off plugin-list-green.json   settings-green.json     marketplace-list-pinned.json  0 "you're opting out of its capabilities"
+# ...and the SAME flip in the COMMITTED settings.json — the file onboard writes and therefore
+# where a hand edit actually lands. Only the file moved: the scan read the local/user pair
+# alone, so this combination exited 0 with no FAIL and no warn while the identical fixture
+# above FAILed. A scenario keyed only to settings.local.json cannot tell those apart, which is
+# how three shipped statements came to promise a catch that did not happen here.
+scenario opt-out-committed plugin-list-green.json  settings-optout-committed.json marketplace-list-pinned.json 1 "while dev-pipeline is enabled"
 # --report bundle: sections present (incl. the nested check run's summary) + exit 0.
 report report-sections    config-valid.json
 # --report redaction: secret-shaped keys masked, non-secret identifier preserved.
