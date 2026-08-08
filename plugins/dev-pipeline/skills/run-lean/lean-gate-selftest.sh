@@ -816,17 +816,18 @@ else fail "(m1b) expected 'model: unknown' in the header, got: $out"; fi
 # The other direction of the same seam, which nothing covered: (m1b) alone reads as "the model
 # key works" while only ever proving the DEFAULT. A stamp that ignored the variable entirely —
 # a hardcoded `unknown` — passes (m1b) and every other case in this file, and would silently
-# make the retro corpus's model-aggregation key a constant. `unset` after, because the suite's
-# whole point above is that the ambient state for this variable is absent.
+# make the retro corpus's model-aggregation key a constant.
 #
-# The value must ride the call that CREATES the file. #416 made `entry` the creator (via
-# reset_progress), and ensure_progress_file() writes the header exactly once — so setting the
-# variable on a LATER milestone call stamps nothing and this case reds on a correct gate, which
-# is how it reached main red. Driving `entry` here is also the honest shape: on a real run that
-# subcommand is what creates the record, so the seam is exercised where it actually fires.
+# WHICH CALL carries the variable is load-bearing, and it moved. The header is stamped ONCE, at
+# record CREATION — `ensure_progress_file` will not rewrite a file that exists — and creation is
+# now `entry`, which `reset_progress` drives. By the time any milestone call runs, the header is
+# already written, so setting the variable on `gate 3` asserted nothing: the case read the
+# `model: unknown` that `entry` had already stamped without it. Set it on the CREATING call, in
+# a subshell so nothing leaks to the cases below. That is also the ordering an honest run is in
+# — the stamp is a property of the run, not of whichever milestone happens to execute first —
+# and the case keeps its full strength: a hardcoded `unknown` still fails here.
 reset_progress_unattested
-LEAN_RUN_MODEL=selftest-model-357 attest_at "$TREE" "$CFG" "$PROG" 7
-unset LEAN_RUN_MODEL
+( export LEAN_RUN_MODEL=selftest-model-357; attest_at "$TREE" "$CFG" "$PROG" 7 )
 out="$(cat "$PROG" 2>/dev/null)"
 if printf '%s' "$out" | grep -q '^model: selftest-model-357$'; then
   pass "(m1c) ensure_progress_file() stamps the LEAN_RUN_MODEL value when one IS set (#347)"

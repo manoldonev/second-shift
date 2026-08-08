@@ -301,6 +301,43 @@ EOF
   ( cd "$dir" && git init -q . && git add -A \
     && git -c user.email=fixture@example.invalid -c user.name=fixture commit -qm spin ) >/dev/null 2>&1
 }
+# One guard, one fail-open site, and a killer that is deterministically flaky AGAINST THE
+# MUTANT. It always passes on the UNMUTATED guard, so the precheck is honest; on the mutated
+# guard it scores the FIRST observation green and every later one red.
+#
+# That reproduces the pool's fabricated survivor with no race in it. The race itself is
+# un-isolated and so cannot be driven directly; what IS drivable is the MECHANISM the fix
+# rests on — the sweep observes a mutant twice, once through the pool and once through the
+# serial oracle, and the two observations are allowed to disagree. A killer whose two answers
+# differ by construction puts the harness in exactly that state on every run, on every
+# machine. $2 is an absolute observation dir OUTSIDE the fixture, because every sandbox is a
+# fresh `git worktree add` and a marker written inside one would not survive to the next.
+# shellcheck disable=SC2016 # the single-quoted $-expressions are the FIXTURE's code, not ours
+make_flaky_fixture() {
+  local dir="$1" obs="$2"
+  mkdir -p "$dir/tools" "$obs"
+  printf '#!/usr/bin/env bash\nif [[ "${1:-}" == "bad" ]]; then\n  exit 1\nfi\necho ok\n' > "$dir/guard.sh"
+  chmod 755 "$dir/guard.sh"
+  { printf '#!/usr/bin/env bash\nH="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"\n'
+    printf 'OBS=%s\nmkdir -p "$OBS"\n' "$obs"
+    printf 'rc=0; bash "$H/guard.sh" bad >/dev/null 2>&1 || rc=$?\n'
+    printf '[[ $rc -ne 0 ]] && exit 0\n'
+    printf 'echo x >> "$OBS/mutrun"\n'
+    printf 'n="$(grep -c "" "$OBS/mutrun")"\n'
+    printf '[[ "$n" -le 1 ]] && exit 0\n'
+    printf 'exit 1\n'
+  } > "$dir/guard-selftest.sh"
+  printf '# fixture operators\nfail-open\texit 1\ts/exit 1/exit 0/\n' > "$dir/tools/mutation-operators.tsv"
+  printf '# fixture exclusions\n' > "$dir/tools/mutation-exclusions.tsv"
+  printf '# fixture pair map\n'   > "$dir/tools/mutation-pair-map.tsv"
+  printf '# fixture catalog\n'    > "$dir/tools/mutation-catalog.tsv"
+  ( cd "$dir" && git init -q . && git add -A \
+    && git -c user.email=fixture@example.invalid -c user.name=fixture commit -qm flaky ) >/dev/null 2>&1
+}
+
+# guard,killed,survived,survivor_ids for one row of a --report TSV.
+report_row() { awk -F'\t' -v g="$2" '$1==g {print $5"/"$6"/"$7; exit}' "$1"; }
+
 baseline_with() { # $1=dir, rest = survivor ids
   local d="$1"; shift
   { echo "# environment: ubuntu-latest SKIP_STRESS=1"
@@ -1090,9 +1127,17 @@ echo "(ac) pool equivalence — a parallel run IS the serial run, and it really 
 # — how many siblings were live, and which sandbox each ran in — and the case asserts the
 # parallel run actually overlapped BEFORE it asserts the reports match. Without that, a pool
 # that silently degraded to one worker would read as a passing equivalence proof.
+#
+# The four survivors are BASELINED, and that is load-bearing rather than tidy: an unbaselined
+# survivor is re-derived by the serial oracle on a sandbox of its own, which is a second
+# sandbox and four more killer runs — real behavior, but not the pool's, and it would drown
+# the concurrency observations this case exists to read. Baselining isolates the measurement
+# to the pool. (aj) owns the oracle.
 OBS_AC="$TMPROOT/obs-ac"
 FX="$TMPROOT/fxac$RANDOM$RANDOM"
 make_obs_fleet "$FX" 4 "$OBS_AC"
+baseline_with "$FX" 'guard1.sh::fail-open::1' 'guard2.sh::fail-open::1' \
+                    'guard3.sh::fail-open::1' 'guard4.sh::fail-open::1'
 obs_reset "$OBS_AC"
 OUT="$( cd "$FX" && adv env MUTATION_SWEEP_JOBS=1 bash "$SWEEP" --mode full --report "$TMPROOT/ac-1.tsv" 2>&1 )"; RC=$?
 MAX1="$(obs_max "$OBS_AC")"; SB1="$(obs_sandboxes "$OBS_AC")"
@@ -1130,8 +1175,10 @@ else
 fi
 # ZERO is the whole assertion, and it covers the PRECHECK as well as the mutants — a
 # precheck is a paired-suite execution too, so a warm run that still ran one would not have
-# executed none. The cold run's 2 is 1 precheck + 1 mutant; the warm run's 1 served is the
-# mutant, and the precheck is skipped outright rather than cached.
+# executed none. The cold run's 3 is 1 precheck + 1 mutant + 1 serial re-verify (this fixture
+# carries no baseline, so its survivor is one that would red); the warm run's 1 served is the
+# mutant, the precheck is skipped outright rather than cached, and the oracle declines because
+# a cache hit was never scored by the pool.
 if [[ "${C2:-9}" -eq 0 && "${S2:-0}" -gt 0 ]]; then
   ok "warm run computed 0 and served $S2 — zero paired-suite executions, precheck included"
 else
@@ -1384,6 +1431,111 @@ if [[ "$N_ENF" -eq "$N_ADV" ]]; then
   ok "the enforcing run wrote nothing — entry count unchanged at $N_ENF"
 else
   bad "(ai) entry count moved $N_ADV -> $N_ENF, so the enforcing run WROTE to the cache"
+fi
+
+echo "(aj) pool disagreement — a survivor the serial oracle kills is a named harness red, never a coverage gap"
+# The nightly reded twice in one run on mutants the guards' own selftests demonstrably kill, and
+# a baseline row would have permanently blinded the sweep to a real regression at both sites. So
+# a survivor that would red the lane is re-derived serially, outside the pool, before it is
+# allowed to red anything.
+OBS_AJ="$TMPROOT/obs-aj"
+FX="$TMPROOT/fxaj$RANDOM$RANDOM"
+make_flaky_fixture "$FX" "$OBS_AJ"
+baseline_with "$FX"
+obs_reset "$OBS_AJ"
+OUT="$( cd "$FX" && enf bash "$SWEEP" --mode full --report "$TMPROOT/aj.tsv" 2>&1 )"; RC=$?
+RUNS="$(obs_count "$OBS_AJ" mutrun)"
+if [[ $RC -eq 1 ]] \
+  && printf '%s' "$OUT" | grep -q 'pool disagreement' \
+  && ! printf '%s' "$OUT" | grep -q 'baseline-absent survivor'; then
+  ok "the flip reds as 'pool disagreement' and NOT as a coverage gap"
+else
+  bad "(aj1) expected rc=1 + pool disagreement + no baseline-absent survivor; got rc=$RC"
+  printf '%s\n' "$OUT" | tail -6
+fi
+# Two observations of the mutant and no more: one by the pool, one by the oracle. Fewer means
+# the re-verify never ran; more means it ran per killer, or twice, and "exactly one re-run" is
+# what makes a single disagreement proof rather than a vote.
+if [[ "${RUNS:-0}" -eq 2 ]]; then
+  ok "the mutant was scored exactly twice — pool once, serial oracle once"
+else
+  bad "(aj2) the mutated guard's killer ran ${RUNS:-?} time(s), want exactly 2"
+fi
+if [[ "$(report_row "$TMPROOT/aj.tsv" guard.sh)" == "1/0/" ]]; then
+  ok "the report carries the CORRECTED verdict: killed=1 survived=0, no survivor id"
+else
+  bad "(aj3) report row is '$(report_row "$TMPROOT/aj.tsv" guard.sh)', want '1/0/'"
+fi
+
+# The other direction, and the one that matters more: a genuine survivor must be untouched by
+# the oracle. If the re-verify could overturn this, the gate would be suppressing findings.
+FX="$(new_fixture weak)"
+baseline_with "$FX"
+OUT="$( cd "$FX" && enf bash "$SWEEP" --mode full --report "$TMPROOT/aj-agree.tsv" 2>&1 )"; RC=$?
+if [[ $RC -eq 1 ]] \
+  && printf '%s' "$OUT" | grep -q 'baseline-absent survivor' \
+  && printf '%s' "$OUT" | grep -q 'serial re-run agrees' \
+  && ! printf '%s' "$OUT" | grep -q 'pool disagreement' \
+  && [[ "$(report_row "$TMPROOT/aj-agree.tsv" guard.sh)" == "0/1/guard.sh::fail-open::1" ]]; then
+  ok "a real survivor survives the oracle and still reds as baseline-absent"
+else
+  bad "(aj4) expected the survivor to stand; rc=$RC row='$(report_row "$TMPROOT/aj-agree.tsv" guard.sh)'"
+  printf '%s\n' "$OUT" | tail -6
+fi
+
+# Free on a green run. A baselined survivor never reds, so it is never re-verified: 2 is the
+# whole run's paired-suite budget (1 precheck + 1 mutant), the same number this fixture cost
+# before the oracle existed.
+FX="$(new_fixture weak)"
+baseline_with "$FX" 'guard.sh::fail-open::1'
+OUT="$( cd "$FX" && enf bash "$SWEEP" --mode full 2>&1 )"; RC=$?
+C="$(computed "$OUT")"
+if [[ $RC -eq 0 ]] && [[ "${C:-0}" -eq 2 ]] \
+  && ! printf '%s' "$OUT" | grep -q 're-verifying survivor serially'; then
+  ok "a run with nothing that would red pays zero extra paired-suite executions"
+else
+  bad "(aj5) expected rc=0 and exactly 2 computed verdicts with no re-verify; got rc=$RC computed=${C:-?}"
+  printf '%s\n' "$OUT" | tail -4
+fi
+
+# Seed is the one lane that would write a fabricated survivor into the committed baseline
+# permanently and silently, and it exits via its own artifact block BEFORE the exit contract is
+# reached — so the ordering assertion is the whole point: the corrected verdict has to be in
+# hand before the file is written, not after.
+OBS_AJ2="$TMPROOT/obs-aj-seed"
+FX="$TMPROOT/fxajs$RANDOM$RANDOM"
+make_flaky_fixture "$FX" "$OBS_AJ2"
+obs_reset "$OBS_AJ2"
+OUT="$( cd "$FX" && enf bash "$SWEEP" --mode full --seed \
+        --baseline-out "$FX/seeded.tsv" --slow-out "$FX/slow.tsv" 2>&1 )"; RC=$?
+SEEDED="$(grep -v '^#' "$FX/seeded.tsv" 2>/dev/null | grep -c '')"
+if [[ $RC -eq 0 ]] \
+  && printf '%s' "$OUT" | grep -q 'pool disagreement' \
+  && [[ "${SEEDED:-1}" -eq 0 ]]; then
+  ok "seed re-verifies before it writes: the fabricated survivor never reaches the baseline"
+else
+  bad "(aj6) seed wrote ${SEEDED:-?} survivor row(s); rc=$RC"; printf '%s\n' "$OUT" | tail -6
+fi
+
+# Cache coherence. The corrected verdict must overwrite the pool's own entry, or the next
+# advisory run replays the lie from cache and the oracle never gets a chance to speak.
+OBS_AJ3="$TMPROOT/obs-aj-cache"
+FX="$TMPROOT/fxajc$RANDOM$RANDOM"
+make_flaky_fixture "$FX" "$OBS_AJ3"
+baseline_with "$FX"
+CD="$TMPROOT/cache-aj"
+rm -rf "$CD"
+obs_reset "$OBS_AJ3"
+OUT="$( cd "$FX" && cch "$CD" bash "$SWEEP" --mode full 2>&1 )"; RC=$?
+OUT2="$( cd "$FX" && cch "$CD" bash "$SWEEP" --mode full --report "$TMPROOT/aj-warm.tsv" 2>&1 )"; RC2=$?
+if [[ $RC -eq 1 ]] && printf '%s' "$OUT" | grep -q 'pool disagreement' \
+  && [[ $RC2 -eq 0 ]] \
+  && [[ "$(report_row "$TMPROOT/aj-warm.tsv" guard.sh)" == "1/0/" ]] \
+  && [[ "$(served "$OUT2")" -gt 0 ]]; then
+  ok "the flipped verdict overwrote its cache record — the warm run is served KILLED"
+else
+  bad "(aj7) warm run rc=$RC2 row='$(report_row "$TMPROOT/aj-warm.tsv" guard.sh)' served='$(served "$OUT2")'"
+  printf '%s\n' "$OUT2" | tail -6
 fi
 
 echo "(j) universe rule — every in-universe guard in the REAL tree is accounted"
