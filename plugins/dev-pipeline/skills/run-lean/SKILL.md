@@ -21,10 +21,11 @@ Outcome-gated harness. `lean-gate.sh` (`G`, here) asserts artifacts; **how** you
 5. Implement. Commit through `bot-commit.sh` — and re-pass the identity on any `--amend`, which otherwise silently re-stamps you as the committer.
 6. `bash G 2 <issue>` then `bash G 3 <issue>` — policy invariants, then the green gate. On an armed ticket that gate renders every RS row, hashes them into a receipt at `<plansDir>/<key>-lean-renders.md`, and reds until you commit it — blocking, on this milestone's budget, and re-run after any later commit.
 7. Compute the cost block once (`pipeline-cost-block.sh --stateless`). Open a **ready** (non-draft) PR: summary, spec link, `Closes #<issue>`, and the cost block appended to the description too — reviewers read the PR, not the issue thread. No stage sections.
+   Then `bash G mark <issue>` — the bot marker carrying this run's identity, which is what the boundary compares the verdict against. **Here, not at milestone 5**: a PR comment fires no `pull_request` event, so a marker posted after the review's push is invisible to the CI run that gates the merge. Idempotent; `bash G 5` re-calls it.
 8. **Milestone 4 arrives from OUTSIDE.** Dispatch no reviewer — the record is written by a
    separate top-level session (`/dev-pipeline:review-lean <pr>`) with its own identity, and this
    gate refuses one carrying yours. Hand off; `bash G 4 <issue>` passes only on a committed `verdict=approve` whose `reviewed_patch_id` **is** this branch's current patch — and, when armed, whose `fidelity` is `pass` over a receipt rendered from that same patch. On `needs-work`, fix every blocker, push, and ask for a **new** review context — never a resumed one.
-9. Post one closing comment: PR link, verdict-record reference, same cost block. Then `bash G 5 <issue>` — exit artifacts. Drop the claimed label and remove the worktree.
+9. Post one closing comment: PR link, verdict-record reference, same cost block. Then `bash G 5 <issue>` — exit artifacts. Remove the worktree, but **leave the claimed label alone**: milestone 5 requires an open PR, so review is still in flight and the label is correct. The repository's unclaim workflow releases it when the item closes.
 
 ## Rules that are not negotiable
 
@@ -32,11 +33,11 @@ Outcome-gated harness. `lean-gate.sh` (`G`, here) asserts artifacts; **how** you
 - **Any CONTENT pushed after an approve costs another round.** The verdict is bound to the branch's patch, so a later commit reopens milestone 4; a rebase that replays the branch unchanged does not. Land every fix before the handoff.
 - **3 fix attempts per milestone.** The 4th red (`rc=4`) hard-stops: append the reason, post one abort comment (github) naming the milestone, keep the worktree and the claim for manual rescue.
 - **`rc=0` from a gate is the only evidence it passed.** Never record a milestone as done because it looked done; `bash G all <issue>` re-evaluates everything against the current tree, so run it before step 9 — a milestone satisfied before a fix round is stale.
-- **Two tracker writes per clean run**, github only: the claim comment and the closing comment (an abort adds one). A `writes: false` tracker makes none. A `pause-and-ask` region open at milestone 1 needs a third: the operator's resolving comment.
+- **Two tracker writes per clean run**, github only: the claim comment and the closing comment (an abort adds one). A `writes: false` tracker makes none. A `pause-and-ask` region open at milestone 1 needs another: the operator's resolving comment — as does an intent-gap record, which must be ratified before the handoff. The step-7 PR marker is a *source-control* write and is made under every tracker that has a bot.
 - Doc updates are AC-scoped — a change that makes docs stale needs an explicit doc `AC-n`.
 - **A decision the receipt never covered is not yours to make (P9).** Write the intent-gap record (schema: `interviewing-baseline`), follow its region's disposition, and ratify before the handoff — the merge boundary refuses `ratified: no`.
 
 ## Resume
 
 Re-read the progress file, `bash G all <issue>`, continue at the first unsatisfied milestone — with one caveat until the verdict lands: `all` pre-checks the cheap assertions first, so while milestone 4 is outstanding (all of BUILD, and every fix round) it reports that and stops without evaluating 2 or 3. Run those directly then; once a `verdict=approve` record is committed the pre-pass is clean and `all` walks the whole progression — the state the mandated before-step-9 call runs in.
-Counters survive; rebase first if the base moved. Integrity lives at the merge boundary (`check-lean-chain.sh` — **github-only**, it reads the bot claim comment) and in `lean-reconcile.sh`, which under jira drops that one arm and runs the rest, saying so. Gaming a local counter buys only a red PR.
+Counters survive; rebase first if the base moved. Integrity lives at the merge boundary — `lean-evidence.sh` (portable: verdict, identity, freshness, ratification; a consumer's CI fetches it at its pinned ref) wrapped by `check-lean-chain.sh` (**github-only** additions: the bot claim comment, the inheritance chain, the design receipt) — and in `lean-reconcile.sh`, which under jira drops the claim arm and runs the rest, saying so. Gaming a local counter buys only a red PR.

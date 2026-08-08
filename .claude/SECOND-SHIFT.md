@@ -39,6 +39,13 @@ BEFORE the prompt.
 
 ### second-shift
 - Skills: `onboard`, `doctor`, `local-dev-refresh`. Zero hooks, zero agents — near-zero session cost.
+- Committed CI file that **writes**: `.github/workflows/unclaim-on-close.yml` runs in **GitHub
+  Actions, never in a Claude session**. When an issue closes it holds `issues: write` and removes
+  the pipeline's two run-state labels (`tracker.labels.claimed` and `tracker.labels.queue`,
+  defaulting to `in-progress` / `ready-for-dev` here because this repo's config is gitignored)
+  from that one issue. Never `tracker.labels.blockers` — those are permanent classifications. That
+  label removal is the whole of the grant; the job runs the shipped template script
+  (`plugins/second-shift/templates/consumer/second-shift-unclaim.sh`) in place.
 
 ## Opting out (sanctioned, personal)
 

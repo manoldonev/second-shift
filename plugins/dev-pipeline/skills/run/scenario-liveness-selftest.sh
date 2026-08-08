@@ -898,9 +898,16 @@ LEANCFG
   # it here (rather than inheriting the ambient one) is what makes the legs behave identically
   # in a Claude Code session, where CLAUDE_CODE_SESSION_ID is exported, and in CI, where it is
   # not: the fixture's session identity is always the fixture's.
+  #
+  # unset RUN_ID GH_BOT: the same ambient-leak pinning lean-gate-selftest.sh applies to its own
+  # helper. Load-bearing since #359 — milestone 5 calls cmd_mark, whose no-op test keys on the
+  # resolved run id, so an operator's exported RUN_ID makes these legs stamp an identity the
+  # fixtures do not carry, and an ambient GH_BOT would send that write to a LIVE bot.
+  # CLAUDE_CODE_SESSION_ID is PINNED rather than unset — the stronger form of the same fix, and
+  # the one #416 requires, since the attestation the legs compose reads THIS session's ledger.
   LEAN_SID="sess-lean-build"
   printf '{"tool":"Bash"}\n' > "$LEAN_TREE/.claude/audit/$LEAN_SID.jsonl"
-  lean_gate() { ( cd "$LEAN_TREE" && SECOND_SHIFT_CONFIG="$LEAN_CFG" LEAN_PROGRESS_FILE="$LEAN_PROG" \
+  lean_gate() { ( unset RUN_ID GH_BOT; cd "$LEAN_TREE" && SECOND_SHIFT_CONFIG="$LEAN_CFG" LEAN_PROGRESS_FILE="$LEAN_PROG" \
                   CLAUDE_CODE_SESSION_ID="$LEAN_SID" \
                   bash "$LEAN_GATE" --issue-file "$LEAN_ISSUE_NOREGIONS" "$@" 2>&1 ); }
   lean_count() { if [[ -f "$LEAN_PROG" ]]; then local n; n=$(grep -cF "$1" "$LEAN_PROG" 2>/dev/null) || n=0; echo "$n"; else echo 0; fi; }
@@ -916,16 +923,26 @@ LEANCFG
   lean_seed_progress() { # lean_seed_progress <build-run-id> <build-session-id>
     rm -f "$LEAN_PROG"
     { echo "# lean run — issue 77"; echo ""; echo "run_id: $1"; echo "session_id: $2"; } > "$LEAN_PROG"
+    # The build run-id CACHE, which is what a real run leaves behind and what every later
+    # fresh-shell call resolves its identity from. Seeded explicitly rather than left to
+    # resolve as `unset`: milestone 5 stamps the PR marker with this value (#359), so a leg
+    # composing an unset identity would compose a marker no real run writes. It is seeded
+    # BEFORE the entry call below so that call resolves the same identity the header carries.
+    mkdir -p "$LEAN_TREE/.claude/pipeline-state"
+    printf '%s' "$1" > "$LEAN_TREE/.claude/pipeline-state/77-run-id"
     # The entry attestation comes from the REAL `entry` subcommand, never a seeded line: a
     # hand-written row would keep every leg green after the writer and the reader drifted apart,
     # which is the shape of failure #416 itself was.
     lean_gate entry 77 >/dev/null 2>&1
   }
-  # The same header WITHOUT the attestation — the state a run that skipped step 1 is in, and the
-  # only thing the refusal leg below varies.
+  # The same seed WITHOUT the attestation — the state a run that skipped step 1 is in, and the
+  # only thing the refusal leg below varies. The run-id cache is seeded here too, precisely so
+  # the missing attestation row is the only difference between the two states.
   lean_seed_unattested() { # lean_seed_unattested <build-run-id> <build-session-id>
     rm -f "$LEAN_PROG"
     { echo "# lean run — issue 77"; echo ""; echo "run_id: $1"; echo "session_id: $2"; } > "$LEAN_PROG"
+    mkdir -p "$LEAN_TREE/.claude/pipeline-state"
+    printf '%s' "$1" > "$LEAN_TREE/.claude/pipeline-state/77-run-id"
   }
   # Milestone 4 binds the record to a tree: it must be COMMITTED and nothing but the record
   # itself may have changed since. So the legs commit, and each verdict write advances a round
@@ -967,11 +984,16 @@ LEANCFG
 [{ "number": 5, "url": "https://example.invalid/pr/5", "isDraft": false,
    "body": "Closes #77\n\nSpec: docs/plans/acme-77-lean.md" }]
 LEANPR
+  # THREE comments now (#359). The third is the PR build-identity marker milestone 5 stamps —
+  # present here carrying THIS run's id, so cmd_mark no-ops and the leg stays a pure
+  # composition of the terminal write. (lean-mark) below composes the write itself.
   cat > "$TMP/lean-comments.json" <<'LEANC'
 [{ "user": { "type": "Bot" }, "created_at": "2026-01-01T00:00:00Z",
    "body": "<!-- run_id: r-lean-1 -->\n<!-- stage: lean-claimed -->" },
  { "user": { "type": "Bot" }, "created_at": "2026-01-02T00:00:00Z",
-   "body": "Done. Verdict record: docs/plans/acme-77-lean-verdict.md" }]
+   "body": "Done. Verdict record: docs/plans/acme-77-lean-verdict.md" },
+ { "user": { "type": "Bot" }, "created_at": "2026-01-02T00:00:00Z",
+   "body": "<!-- run_id: r-lean-1 -->\n<!-- session_id: sess-lean-build -->\n<!-- stage: lean-pr-marker -->" }]
 LEANC
   lean_gate 1 77 >/dev/null 2>&1; g1=$?
   lean_gate 2 77 >/dev/null 2>&1; g2=$?
@@ -1017,6 +1039,65 @@ LEANC
   [[ "$polluting" -eq 0 ]] \
     && pass "(lean-claim) the marker is lean-distinct — no bare 'stage: claimed' to pollute pipeline family selection" \
     || fail "(lean-claim) a bare 'stage: claimed' marker would pollute pipeline family selection"
+
+  # ---- leg 1b: the PR build-identity marker, composed through the terminal write --------
+  # #359. The merge boundary compares the review verdict against bot markers on the PR; without
+  # a WRITER that comparison refuses every honest run, and the writer only ever fires from a
+  # composed milestone-5 (or from checklist step 7, the same code path). Leg 1 above deliberately
+  # pre-seeds the marker so it composes the no-op branch — this leg composes the WRITE.
+  #
+  # The bot wrapper is stubbed, not mocked away: what is asserted is the BYTES posted, because
+  # the boundary reads `run_id`/`session_id` out of that body and a marker missing either is
+  # indistinguishable to it from no marker at all.
+  LEAN_BOT_SPOOL="$TMP/lean-bot-spool.txt"
+  cat > "$TMP/lean-bot-stub.sh" <<'LEANBOT'
+#!/usr/bin/env bash
+for a in "$@"; do
+  case "$a" in body=@*) cat "${a#body=@}" >> "$LEAN_BOT_SPOOL" ;; esac
+done
+echo "https://example.invalid/pr/5#issuecomment-1"
+LEANBOT
+  chmod +x "$TMP/lean-bot-stub.sh"
+  # Same trail as leg 1 minus the marker: everything else about the run is already green, so a
+  # refusal here can only be the marker's.
+  jq 'map(select((.body // "") | test("lean-pr-marker") | not))' "$TMP/lean-comments.json" \
+    > "$TMP/lean-comments-nomarker.json"
+  # NO re-seed: cmd_5 asserts milestones 1-4 each left a `satisfied` record, and
+  # lean_seed_progress wipes exactly those. This leg runs on the state leg 1 just composed,
+  # which is also the only state a real run reaches milestone 5 in.
+  : > "$LEAN_BOT_SPOOL"
+  # unset RUN_ID, then let the identity resolve from the CACHE lean_seed_progress wrote — which
+  # is what a real run does, since only entry/claim establish it and every later call reads it
+  # back. Passing one explicitly here would test a shape no run has, and inheriting an ambient
+  # one makes the leg stamp an identity the fixture never carries.
+  lm5=$( ( unset RUN_ID; cd "$LEAN_TREE" && SECOND_SHIFT_CONFIG="$LEAN_CFG" LEAN_PROGRESS_FILE="$LEAN_PROG" \
+           CLAUDE_CODE_SESSION_ID=sess-lean-build GH_BOT="$TMP/lean-bot-stub.sh" \
+           LEAN_BOT_SPOOL="$LEAN_BOT_SPOOL" \
+           bash "$LEAN_GATE" --issue-file "$LEAN_ISSUE_NOREGIONS" 5 77 \
+           --pr-file "$TMP/lean-pr.json" --comments-file "$TMP/lean-comments-nomarker.json" \
+           >/dev/null 2>&1; echo $? ) )
+  if [[ "$lm5" -eq 0 ]] \
+     && grep -q 'stage: lean-pr-marker' "$LEAN_BOT_SPOOL" 2>/dev/null \
+     && grep -q 'run_id: r-lean-1' "$LEAN_BOT_SPOOL" 2>/dev/null \
+     && grep -q 'session_id: sess-lean-build' "$LEAN_BOT_SPOOL" 2>/dev/null; then
+    pass "(lean-mark) a composed milestone 5 stamps the PR with the build run's identity — both keys, bot-authored"
+  else
+    fail "(lean-mark) rc=$lm5, spool=$(cat "$LEAN_BOT_SPOOL" 2>/dev/null)"
+  fi
+
+  # ...and the run that already stamped does not stamp again. The mandated pre-close `all`
+  # sweep re-enters milestone 5, so a writer that posted unconditionally would leave one marker
+  # per sweep on every PR the lane ever opens.
+  : > "$LEAN_BOT_SPOOL"
+  lm5b=$( ( unset RUN_ID; cd "$LEAN_TREE" && SECOND_SHIFT_CONFIG="$LEAN_CFG" LEAN_PROGRESS_FILE="$LEAN_PROG" \
+            CLAUDE_CODE_SESSION_ID=sess-lean-build GH_BOT="$TMP/lean-bot-stub.sh" \
+            LEAN_BOT_SPOOL="$LEAN_BOT_SPOOL" \
+            bash "$LEAN_GATE" --issue-file "$LEAN_ISSUE_NOREGIONS" 5 77 \
+            --pr-file "$TMP/lean-pr.json" --comments-file "$TMP/lean-comments.json" \
+            >/dev/null 2>&1; echo $? ) )
+  [[ "$lm5b" -eq 0 && ! -s "$LEAN_BOT_SPOOL" ]] \
+    && pass "(lean-mark) a re-entered milestone 5 finds its own marker and posts nothing" \
+    || fail "(lean-mark) re-entry rc=$lm5b, spool=$(cat "$LEAN_BOT_SPOOL" 2>/dev/null)"
 
   # ---- leg 2: budget exhaustion -> abort record ----------------------------
   lean_seed_progress r-lean-1 sess-lean-build
@@ -1329,7 +1410,7 @@ LEANPRJNV
   printf '{"tool":"Bash"}\n' > "$EL_TREE/.claude/audit/$EL_SID.jsonl"
   el_gate() { # el_gate <config-file> <progress-file> <args...>
     local cfg="$1" prog="$2"; shift 2
-    ( cd "$EL_TREE" && SECOND_SHIFT_CONFIG="$cfg" LEAN_PROGRESS_FILE="$prog" \
+    ( unset RUN_ID GH_BOT; cd "$EL_TREE" && SECOND_SHIFT_CONFIG="$cfg" LEAN_PROGRESS_FILE="$prog" \
       CLAUDE_CODE_SESSION_ID="$EL_SID" bash "$LEAN_GATE" --issue-file "$EL_ISSUE" "$@" 2>&1 )
   }
   # Each extraLanes case gets its own progress file, so each composes its own `entry` first.
@@ -1348,11 +1429,17 @@ LEANPRJNV
 [{ "number": 9, "url": "https://example.invalid/pr/9", "isDraft": false,
    "body": "Closes #777\n\nSpec: docs/plans/acme-777-lean.md" }]
 LEANELPR
+  # The build run-id cache, and the PR marker milestone 5 stamps with it (#359) — same
+  # reasoning as the leg-1 tree above.
+  mkdir -p "$EL_TREE/.claude/pipeline-state"
+  printf 'r-el-1' > "$EL_TREE/.claude/pipeline-state/777-run-id"
   cat > "$TMP/lean-el-comments.json" <<LEANELC
 [{ "user": { "type": "Bot" }, "created_at": "2026-01-01T00:00:00Z",
    "body": "<!-- run_id: r-el-1 -->\n<!-- stage: lean-claimed -->" },
  { "user": { "type": "Bot" }, "created_at": "2026-01-02T00:00:00Z",
-   "body": "Done. Verdict record: docs/plans/acme-777-lean-verdict.md" }]
+   "body": "Done. Verdict record: docs/plans/acme-777-lean-verdict.md" },
+ { "user": { "type": "Bot" }, "created_at": "2026-01-02T00:00:00Z",
+   "body": "<!-- run_id: r-el-1 -->\n<!-- stage: lean-pr-marker -->" }]
 LEANELC
   EL_CFG_SKIP="$(el_cfg skip '[{"name":"scoped","when":["docs/nomatch/**/*.md"],"commands":["echo should-not-run"],"failureClass":"TEST_FAILURE"}]')"
   EL_PROG_SKIP="$TMP/lean-el-prog-skip.md"
@@ -1461,7 +1548,7 @@ LEANDCFG
   LEAN_DSID="sess-lean-d-build"
   mkdir -p "$LEAN_DTREE/.claude/audit"
   printf '{"tool":"Bash"}\n' > "$LEAN_DTREE/.claude/audit/$LEAN_DSID.jsonl"
-  lean_dgate() { ( cd "$LEAN_DTREE" && SECOND_SHIFT_CONFIG="$LEAN_DCFG" LEAN_PROGRESS_FILE="$LEAN_DPROG" \
+  lean_dgate() { ( unset RUN_ID GH_BOT; cd "$LEAN_DTREE" && SECOND_SHIFT_CONFIG="$LEAN_DCFG" LEAN_PROGRESS_FILE="$LEAN_DPROG" \
                    CLAUDE_CODE_SESSION_ID="$LEAN_DSID" \
                    bash "$LEAN_GATE" --issue-file "$LEAN_ISSUE_NOREGIONS" "$@" 2>&1 ); }
   lean_dcommit() { git -C "$LEAN_DTREE" add -A >/dev/null 2>&1
@@ -1553,11 +1640,16 @@ LEANDCFG
 [{ "number": 8, "url": "https://example.invalid/pr/8", "isDraft": false,
    "body": "Closes #88\n\nSpec: docs/plans/acme-88-lean.md" }]
 LEANDPR
+  # The build run-id cache, and the PR marker milestone 5 stamps with it (#359).
+  mkdir -p "$LEAN_DTREE/.claude/pipeline-state"
+  printf 'r-lean-d' > "$LEAN_DTREE/.claude/pipeline-state/88-run-id"
   cat > "$TMP/lean-design-comments.json" <<'LEANDC'
 [{ "user": { "type": "Bot" }, "created_at": "2026-01-01T00:00:00Z",
    "body": "<!-- run_id: r-lean-d -->\n<!-- stage: lean-claimed -->" },
  { "user": { "type": "Bot" }, "created_at": "2026-01-02T00:00:00Z",
-   "body": "Done. Verdict record: docs/plans/acme-88-lean-verdict.md" }]
+   "body": "Done. Verdict record: docs/plans/acme-88-lean-verdict.md" },
+ { "user": { "type": "Bot" }, "created_at": "2026-01-02T00:00:00Z",
+   "body": "<!-- run_id: r-lean-d -->\n<!-- stage: lean-pr-marker -->" }]
 LEANDC
   lean_dseed
   lean_dgate 1 88 >/dev/null 2>&1; ldf1=$?
