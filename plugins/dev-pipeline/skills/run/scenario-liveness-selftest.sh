@@ -1773,12 +1773,21 @@ unset STATECTL_LEDGER_DIR
 echo
 echo "── lane routing (both merge-boundary gates over one PR)"
 
-LR_LEAN="$HERE/../../../../scripts/check-lean-chain.sh"
-LR_PIPE="$HERE/../../../../scripts/check-pipeline-chain.sh"
+LR_ROOT="$HERE/../../../.."
+LR_LEAN="$LR_ROOT/scripts/check-lean-chain.sh"
+LR_PIPE="$LR_ROOT/scripts/check-pipeline-chain.sh"
 LR_EV="$HERE/../run-lean/lean-evidence.sh"
-if [[ ! -f "$LR_LEAN" || ! -f "$LR_PIPE" || ! -f "$LR_EV" ]]; then
-  # Absence is a FAILURE, not a skip — the same posture the lean legs above take. All three
-  # ship in this repo, so a missing one means the routing property was never asserted.
+# BOTH chain gates live in the marketplace repo's `scripts/`, and both are second-shift-only by
+# construction — their own headers say not to ship them to a consumer. So when this suite runs
+# from a STAGED INSTALL CACHE (tools/install-topology-selftest.sh re-runs every shipped suite
+# there), they are correctly absent and these legs have nothing to compose. Skipping is right
+# there and WRONG here, so the two cases are told apart by the marketplace manifest, which only
+# the repo root carries: absent gates inside the repo stay a hard failure.
+if [[ ! -f "$LR_LEAN" || ! -f "$LR_PIPE" || ! -f "$LR_EV" ]] \
+   && [[ ! -f "$LR_ROOT/.claude-plugin/marketplace.json" ]]; then
+  echo "  skip: lane routing — the chain gates are marketplace-repo-only and this tree is an installed plugin cache"
+elif [[ ! -f "$LR_LEAN" || ! -f "$LR_PIPE" || ! -f "$LR_EV" ]]; then
+  # In the repo, absence is a FAILURE, not a skip — the same posture the lean legs above take.
   fail "(lr) a chain gate or the classifier is missing — lane routing did not run (lean=$LR_LEAN pipe=$LR_PIPE ev=$LR_EV)"
 else
   LR_TREE="$TMP/lr-tree"

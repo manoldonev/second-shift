@@ -176,6 +176,15 @@ if [ "$rc" -eq 2 ]; then
   pass "(e2) the configured keyPattern is what decides a jira candidate, not a hardcoded shape"
 else fail "(e2) expected a non-matching pattern to find nothing, rc=$rc: $out"; fi
 
+# ...and the BUILT-IN default is reachable, so it needs its own case. `tracker.keyPattern` is
+# optional in the schema and config-lint does not require it, so a jira consumer can omit it —
+# and then this default is the only thing deciding what counts as a work branch. Without this
+# case, corrupting it is invisible: every other jira case here supplies a pattern explicitly.
+out="$(bash "$TOOL" --repo "$TREE" --tracker jira 2>&1)"; rc=$?
+if [ "$rc" -eq 0 ] && [ "$out" = "jdoe/" ]; then
+  pass "(e2b) with no keyPattern configured, the built-in jira key shape still detects candidates"
+else fail "(e2b) expected the built-in default to resolve jdoe/, rc=$rc: $out"; fi
+
 # ...and the two trackers SPLIT the same refs differently, or the --tracker argument would be
 # decorative. Under github the key is the trailing digit run, so `jdoe/gh-540` reads as prefix
 # `jdoe/gh-`; under jira the whole `gh-540` is the key and the prefix is `jdoe/`. Only one of
