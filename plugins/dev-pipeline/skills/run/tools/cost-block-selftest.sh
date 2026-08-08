@@ -87,6 +87,10 @@ dump_logrow() {
 # jq helpers over a rollup JSON on stdin.
 total_of()  { jq -r '.totals.cost_usd'; }
 label_cost() { jq -r --arg l "$1" '([.byLabel[] | select(.label==$l) | .cost_usd] | add) // 0'; }
+# Cost in whole cents for one tier (summed across labels), so assertions never compare
+# IEEE-754 artifacts: the cross-vendor fixture's unknown bucket sums to
+# 0.15000000000000002, and its total to 0.8000000000000002.
+tier_cents() { jq -r --arg t "$1" '(([.byLabel[] | select(.tier==$t) | .cost_usd] | add) // 0) * 100 | round'; }
 
 [[ -f "$METRICS" ]] || { echo "FAIL: metrics fixture missing at $METRICS" >&2; exit 1; }
 [[ -f "$SCRIPT" ]]  || { echo "FAIL: script missing at $SCRIPT" >&2; exit 1; }
@@ -103,6 +107,15 @@ else
   [[ "$A_TOTAL" == "1.00" || "$A_TOTAL" == "1" ]] \
     && ok "run A total == \$1.00 (B's \$0.45 excluded by the fence)" \
     || bad "run A total expected 1.00, got $A_TOTAL"
+
+  # (#357) This fixture's ids are the shipped map's ORACLE, not decoration: run A's whole
+  # \$1.00 carries model claude-opus-4-7, so it must land in `reasoning`. Drop opus from the
+  # map — or key the map on the dispatch alphabet, which cannot classify a resolved id — and
+  # this reads 0 with the cost sitting in `unknown` instead.
+  A_REASONING="$(tier_cents reasoning <<<"$A_ROLLUP")"
+  [[ "$A_REASONING" == "100" ]] \
+    && ok "(#357) run A's \$1.00 (claude-opus-4-7) tiers to 'reasoning'" \
+    || bad "(#357) run A 'reasoning' expected 100 cents, got $A_REASONING"
 fi
 
 echo "=== run B: [11:00–11:20] fence excludes run A's earlier cost (the regression) ==="
@@ -136,6 +149,14 @@ else
   [[ "$B_PR" == "0.05" ]] \
     && ok "run B boundary \$0.05 @ fenceHi kept (inclusive bound) -> PR Creation" \
     || bad "run B 'PR Creation' expected 0.05, got $B_PR"
+
+  # (#357) The map's second oracle: every one of run B's three datapoints carries model
+  # claude-sonnet-4-6, so the whole \$0.45 must land in `code` — across three DIFFERENT stage
+  # labels, which is also what proves the tier is a bucket key independent of the label axis.
+  B_CODE="$(tier_cents code <<<"$B_ROLLUP")"
+  [[ "$B_CODE" == "45" ]] \
+    && ok "(#357) run B's \$0.45 (claude-sonnet-4-6, 3 labels) tiers to 'code'" \
+    || bad "(#357) run B 'code' expected 45 cents, got $B_CODE"
 fi
 
 echo "=== persisted cost-log row carries byLabel (#242) ==="
@@ -197,6 +218,28 @@ echo "\$*" >> "$2"
 if [ "\${1:-}" = "pr" ] && [ "\${2:-}" = "view" ]; then
   echo "existing body without the marker"
 fi
+exit 0
+STUB
+  chmod +x "$1"
+}
+
+# Same contract as make_gh_stub, plus: on any invocation it copies the value passed to
+# --body-file to $3. The rendered cost block exists nowhere else — render_block's output
+# goes straight into the amend payload — so this is how a case asserts on the TABLE (#357's
+# Tier column and its render filter) rather than on the rollup behind it.
+#   $1 destination path   $2 argv log path   $3 captured body path
+make_gh_capture_stub() {
+  cat > "$1" <<STUB
+#!/usr/bin/env bash
+echo "\$*" >> "$2"
+if [ "\${1:-}" = "pr" ] && [ "\${2:-}" = "view" ]; then
+  echo "existing body without the marker"
+fi
+_prev=""
+for _a in "\$@"; do
+  if [ "\$_prev" = "--body-file" ]; then cp "\$_a" "$3"; fi
+  _prev="\$_a"
+done
 exit 0
 STUB
   chmod +x "$1"
@@ -430,6 +473,16 @@ grep -q '0\.50' "$SL_OUT" 2>/dev/null \
   && ok "(AC-8) emits session-window totals only (no per-stage table)" \
   || bad "(AC-8) state-less block should carry no per-stage rows"
 
+# (#357) The session-total layout carries a TIER LIST, and it runs through the same render
+# filter as the per-stage table. This fixture's four token rows carry no `model`, so an
+# unfiltered list would read "reasoning, unknown" — advertising a bucket that cost nothing
+# and names nothing. The single \$0.50 cost row is claude-opus-4-7, so the cell is exactly
+# "reasoning", which also makes this fixture an oracle for the map's opus entry.
+# shellcheck disable=SC2016 # $0.50 is a rendered dollar amount, not a shell expansion
+grep -qE '^\| Session total \(.*\) \| reasoning \| claude-opus-4-7 \| \$0\.50 \|$' "$SL_OUT" 2>/dev/null \
+  && ok "(#357) the session-total row's tier list is filtered and reads 'reasoning'" \
+  || bad "(#357) session-total tier cell should be exactly 'reasoning'"
+
 # D-36: lean runs are out of the perf corpus, so a row here would silently contaminate
 # cross-run analytics with a harness that has no stages.
 [[ ! -s "$SL_LOG" ]] \
@@ -459,6 +512,173 @@ OTEL_METRICS_FILE="$MINI_METRICS" \
 [[ $? -eq 0 ]] \
   && ok "(AC-8) --stateless needs no issue positional (flags parsed before the required \$1)" \
   || bad "(AC-8) state-less mode still requires the issue positional"
+
+echo
+echo "=== #357: tier bucketing is vendor-neutral ==="
+#
+# The cross-vendor fixture is the kill criterion the suite lacked entirely: before this,
+# `grep -c model` over this file returned 0, so no assertion could fail on vendor coupling.
+# Its five cost datapoints sit in ONE stage window, so tier is the only axis that can split
+# them — three Anthropic families the default map covers, one non-Anthropic id it does not,
+# and one datapoint carrying no `model` attribute at all. Two further datapoints in two
+# other windows give the render filter both of its cases.
+XV_METRICS="$FIX/cross-vendor.jsonl"
+XV_ID="cost-cross-vendor-selftest"
+XV_DIR="$TMP/case-cross-vendor"
+XV_BODY="$XV_DIR/pr-body.md"
+mkdir -p "$XV_DIR/bin" "$XV_DIR/state" "$XV_DIR/home"
+cp "$FIX/state-cross-vendor.json" "$XV_DIR/state/$XV_ID.json"
+printf '%s\n' '{"tracker":{"bot":{"enabled":false}}}' > "$XV_DIR/second-shift.config.json"
+make_gh_capture_stub "$XV_DIR/bin/gh" "$XV_DIR/gh.log" "$XV_BODY"
+
+XV_ROLLUP="$(OTEL_METRICS_FILE="$XV_METRICS" \
+  SECOND_SHIFT_CONFIG="$XV_DIR/second-shift.config.json" \
+  STATECTL_STATE_DIR="$XV_DIR/state" \
+  COST_BLOCK_DUMP_ROLLUP=1 \
+    bash "$SCRIPT" "$XV_ID" 2>/dev/null)"
+
+if [[ -z "$XV_ROLLUP" ]] || ! jq -e . >/dev/null 2>&1 <<<"$XV_ROLLUP"; then
+  bad "(#357) cross-vendor fixture produced no valid rollup JSON"
+else
+  # The split, and its ORDER. One stage label, four tiers, in the tier order the script
+  # declares — so a row set that permutes between runs (or collapses back onto the label
+  # axis) fails here rather than churning a PR body nobody diffs.
+  XV_TIERS="$(jq -r '[.byLabel[] | select(.label=="Implementation") | .tier] | join(",")' <<<"$XV_ROLLUP")"
+  [[ "$XV_TIERS" == "reasoning,code,emit,unknown" ]] \
+    && ok "(#357) one label splits into 4 deterministically ordered tier rows" \
+    || bad "(#357) Implementation tiers expected 'reasoning,code,emit,unknown', got '$XV_TIERS'"
+
+  # Each Anthropic family the default map covers, classified. Together with run A's opus and
+  # run B's sonnet above, every entry of the shipped map now has an oracle.
+  XV_R="$(tier_cents reasoning <<<"$XV_ROLLUP")"
+  XV_C="$(tier_cents code <<<"$XV_ROLLUP")"
+  XV_E="$(tier_cents emit <<<"$XV_ROLLUP")"
+  [[ "$XV_R" == "40" && "$XV_C" == "20" && "$XV_E" == "5" ]] \
+    && ok "(#357) opus/sonnet/haiku ids map to reasoning/code/emit (40/20/5 cents)" \
+    || bad "(#357) expected 40/20/5 cents for reasoning/code/emit, got $XV_R/$XV_C/$XV_E"
+
+  # The `unknown` fallback carries BOTH kinds of unclassifiable datapoint, and the two
+  # amounts are deliberately distinct so one assertion separates all three failures:
+  # 15 = both present, 10 = the attribute-less \$0.05 was dropped, 5 = the unmatched vendor
+  # id was mis-tiered into a real tier.
+  XV_U="$(tier_cents unknown <<<"$XV_ROLLUP")"
+  [[ "$XV_U" == "15" ]] \
+    && ok "(#357) unmatched vendor id AND attribute-less datapoint both bucket to 'unknown'" \
+    || bad "(#357) 'unknown' expected 15 cents (10 unmatched + 5 attribute-less), got $XV_U"
+
+  # Totality, stated directly: the per-tier rows must account for every dollar the run's
+  # total claims. A partial tier key leaves cost in the total and out of the table.
+  XV_SUM="$(jq -r '(([.byLabel[].cost_usd] | add) // 0) * 100 | round' <<<"$XV_ROLLUP")"
+  XV_TOT="$(jq -r '.totals.cost_usd * 100 | round' <<<"$XV_ROLLUP")"
+  [[ "$XV_SUM" == "80" && "$XV_TOT" == "80" ]] \
+    && ok "(#357) per-tier rows sum to the run total (80 cents) — no cost escapes the key" \
+    || bad "(#357) byLabel sums to $XV_SUM cents, totals says $XV_TOT, expected 80/80"
+
+  # `models` survives as the SECONDARY field the issue asks for — the tier is the bucket
+  # key, not a replacement for the id. The attribute-less datapoint contributes nothing
+  # here, which is exactly why `unknown` shows only the unmatched vendor id.
+  XV_MODELS="$(jq -r '[.byLabel[] | select(.label=="Implementation") | (.models | join("+"))] | join(",")' <<<"$XV_ROLLUP")"
+  [[ "$XV_MODELS" == "claude-opus-4-7,claude-sonnet-4-6,claude-haiku-4-5-20251001,mistral-large-2" ]] \
+    && ok "(#357) each tier row keeps its own 'models' set as the secondary field" \
+    || bad "(#357) per-tier models expected the 4 fixture ids in tier order, got '$XV_MODELS'"
+
+  # The rollup stays TOTAL: the zero-cost, model-less group the renderer drops is still a
+  # row here (and in the cost-log). Deleting it at the rollup instead would be the easy fix
+  # and the wrong one — the durable record would then disagree with the datapoint set.
+  XV_CR="$(jq -r '[.byLabel[] | select(.label=="Code Review")] | length' <<<"$XV_ROLLUP")"
+  [[ "$XV_CR" == "1" ]] \
+    && ok "(#357) the zero-cost model-less group IS present in the rollup (stays total)" \
+    || bad "(#357) expected 1 'Code Review' rollup row, got $XV_CR"
+fi
+
+# Full path, no dump hook: renders the block into the amend payload and writes the cost-log
+# row. Both artifacts are asserted below.
+PATH="$XV_DIR/bin:$PATH" \
+HOME="$XV_DIR/home" \
+OTEL_METRICS_FILE="$XV_METRICS" \
+SECOND_SHIFT_CONFIG="$XV_DIR/second-shift.config.json" \
+STATECTL_STATE_DIR="$XV_DIR/state" \
+COST_LOG_FILE="$XV_DIR/cost-log.jsonl" \
+  bash "$SCRIPT" "$XV_ID" >/dev/null 2>&1
+
+if [[ ! -s "$XV_BODY" ]]; then
+  bad "(#357) no PR body was captured — the amend never reached the stubbed gh"
+else
+  grep -qF '| Stage | Tier | Models | Cost (USD) |' "$XV_BODY" \
+    && ok "(#357) the rendered per-stage table carries a Tier column" \
+    || bad "(#357) rendered table header is missing the Tier column"
+
+  # shellcheck disable=SC2016 # $0.40 is a rendered dollar amount, not a shell expansion
+  grep -qE '^\| Implementation \| reasoning \| claude-opus-4-7 \| \$0\.40 \|$' "$XV_BODY" \
+    && ok "(#357) a rendered row reads (label, tier, models, cost)" \
+    || bad "(#357) expected '| Implementation | reasoning | claude-opus-4-7 | \$0.40 |'"
+
+  # shellcheck disable=SC2016 # $0.15 is a rendered dollar amount, not a shell expansion
+  grep -qE '^\| Implementation \| unknown \| mistral-large-2 \| \$0\.15 \|$' "$XV_BODY" \
+    && ok "(#357) the unknown bucket renders its unmatched id and its full \$0.15" \
+    || bad "(#357) expected '| Implementation | unknown | mistral-large-2 | \$0.15 |'"
+
+  # The render filter, both directions. A zero-cost row that NAMES a model still reports
+  # something (which model was active in that stage) and is kept; a zero-cost row with no
+  # model at all reports nothing and is dropped. Live telemetry emits whole metric families
+  # with no `model`, so without the drop every label gains a \$0.00 companion row.
+  # shellcheck disable=SC2016 # $0.00 is a rendered dollar amount, not a shell expansion
+  grep -qE '^\| Doc Update \| code \| claude-sonnet-4-6 \| \$0\.00 \|$' "$XV_BODY" \
+    && ok "(#357) a zero-cost row that names a model is KEPT" \
+    || bad "(#357) the zero-cost Doc Update/code row was dropped"
+
+  grep -qE '^\| Code Review \|' "$XV_BODY" \
+    && bad "(#357) the zero-cost model-less row leaked into the rendered table" \
+    || ok "(#357) the zero-cost model-less row is omitted from the rendered table"
+
+  # The total row must keep the table rectangular now that a column was added.
+  # shellcheck disable=SC2016 # $0.80 is a rendered dollar amount, not a shell expansion
+  grep -qF '| **Total** | | | **$0.80** |' "$XV_BODY" \
+    && ok "(#357) the Total row carries the added column and the full \$0.80" \
+    || bad "(#357) expected '| **Total** | | | **\$0.80** |'"
+fi
+
+XV_LOGROW="$(tail -n 1 "$XV_DIR/cost-log.jsonl" 2>/dev/null)"
+if [[ -z "$XV_LOGROW" ]] || ! jq -e . >/dev/null 2>&1 <<<"$XV_LOGROW"; then
+  bad "(#357) no valid cost-log row was written"
+else
+  XV_ROW_TIERS="$(jq -r '(.tiers // ["MISSING"]) | join(",")' <<<"$XV_LOGROW")"
+  [[ "$XV_ROW_TIERS" == "code,emit,reasoning,unknown" ]] \
+    && ok "(#357) the cost-log row carries a top-level 'tiers' array" \
+    || bad "(#357) cost-log .tiers expected 'code,emit,reasoning,unknown', got '$XV_ROW_TIERS'"
+
+  # Additive: `models` keeps its exact prior shape beside the new key.
+  XV_ROW_MODELS="$(jq -r '(.models // ["MISSING"]) | join(",")' <<<"$XV_LOGROW")"
+  [[ "$XV_ROW_MODELS" == "claude-haiku-4-5-20251001,claude-opus-4-7,claude-sonnet-4-6,mistral-large-2" ]] \
+    && ok "(#357) the cost-log row's 'models' array is unchanged beside 'tiers'" \
+    || bad "(#357) cost-log .models changed shape: '$XV_ROW_MODELS'"
+fi
+
+echo
+echo "=== #357/D-8: --help prints the whole header and none of the code ==="
+# The range in the -h branch is hand-maintained and was already off by one (it stopped at
+# 26 while the header ran to 27, truncating mid-sentence). The oracle is DERIVED from the
+# file — where the comment block actually ends — so this assertion cannot rot the next time
+# the header grows, which is the failure mode that produced the off-by-one.
+HELP_OUT="$(bash "$SCRIPT" --help 2>/dev/null)"
+HDR_END="$(awk 'NR==1{next} /^#/{last=NR; next} {print last; exit}' "$SCRIPT")"
+HELP_FIRST="$(printf '%s\n' "$HELP_OUT" | head -n 1)"
+HELP_LAST="$(printf '%s\n' "$HELP_OUT" | tail -n 1)"
+FIRST_CODE="$(awk 'NR==1{next} /^#/{next} NF{print; exit}' "$SCRIPT")"
+
+[[ -n "$HDR_END" && "$HELP_FIRST" == "$(sed -n '2p' "$SCRIPT")" ]] \
+  && ok "(D-8) --help starts at the header's first line (line 2, past the shebang)" \
+  || bad "(D-8) --help first line '$HELP_FIRST' is not the script's line 2"
+
+[[ -n "$HDR_END" && "$HELP_LAST" == "$(sed -n "${HDR_END}p" "$SCRIPT")" ]] \
+  && ok "(D-8) --help prints through the header's last line (line $HDR_END)" \
+  || bad "(D-8) --help ends at '$HELP_LAST', expected the header's last line ($HDR_END)"
+
+if [[ -n "$FIRST_CODE" ]] && printf '%s\n' "$HELP_OUT" | grep -qF -- "$FIRST_CODE"; then
+  bad "(D-8) --help leaked the first line of code ('$FIRST_CODE')"
+else
+  ok "(D-8) --help stops before the first line of code"
+fi
 
 echo
 echo "Result: $PASS passed, $FAIL failed"

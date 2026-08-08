@@ -442,3 +442,30 @@ lean-design-armed	verbatim	plugins/dev-pipeline/skills/run-lean/lean-gate.sh	lea
 # field there fails that check, so the staged-lane reading can't silently drift out from under
 # the docs describing it.
 # Revisit if a fourth site starts parsing or restating `ticketTag`'s semantics.
+
+# cross-plugin sibling-resolution ladder (#419) — three rungs (monorepo path → same-version
+# sibling in the cache → newest sibling version carrying the file), in two languages.
+# `resolve_sibling()` in plugins/dev-pipeline/skills/run/tools/pipeline-doctor.sh is the
+# canonical side; `resolveSibling()` in
+# plugins/dev-pipeline/skills/run/workflows/design-sync-selftest.mjs is a hand-maintained .mjs
+# mirror, held together by nothing but a `keep the two ladders in step` comment — the
+# only-a-prose-instruction case this manifest exists for. The RUNG ORDER is the contract: the
+# last rung is what hits in a real install, where plugins carry independent versions.
+# Considered for a row and DROPPED: neither relation can reach across bash and JavaScript. The
+# ladder is control flow, not a literal, so there is no quoted constant for `verbatim` to
+# compare or for `subset-of` to anchor its FIRST quoted literal against, and each site spells
+# the same step in its host's idiom (`sort -r | head -1` against `.sort().reverse()[0]`).
+# Extracting a shared literal purely to be compared is the "duplicate machinery is worse than
+# none" case this file's header names.
+# Recorded so the agreement is a CHECKED fact rather than an assumption: as of #419 the two do
+# agree, including the part most likely to drift — `sort -r` and `.sort().reverse()` are both
+# LEXICOGRAPHIC, not semver, so `10.0.0` sorts under `9.0.0` on both sides. That is a shared
+# defect, not a shared feature; whoever fixes one must fix the other.
+# Guarded behaviorally on the .mjs side only: tools/install-topology-selftest.sh runs
+# design-sync-selftest.mjs under a staged cache where dev-pipeline and design-toolkit carry
+# different versions, so a broken last rung fails there rather than drifting. The bash side has
+# no equivalent — no suite drives pipeline-doctor.sh's own ladder from an install cache, and
+# that asymmetry is the residual this entry is declining to close with machinery.
+# Revisit if a third site grows the ladder. Two candidates already exist and are tracked in
+# #421: preflight-selftest.sh:38 and doctor-selftest.sh:102 both still use a fixed hop count,
+# and fixing either the sanctioned way makes it a third copy.
