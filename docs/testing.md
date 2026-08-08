@@ -223,12 +223,25 @@ applies, or yields invalid output, is **anchor drift = red** — the
 
 **Survivors are data, not a red build.** Only a survivor absent from `tools/mutation-baseline.tsv`,
 or a named infra failure (`baseline-missing`, `baseline-environment-mismatch`, an unrunnable pair,
-an unaccounted guard, sandbox failure), reds a lane. A baselined survivor is report-only; a
-baselined survivor that is now killed is a warn to shrink the baseline.
+an unaccounted guard, sandbox failure, `pool disagreement`), reds a lane. A baselined survivor is
+report-only; a baselined survivor that is now killed is a warn to shrink the baseline.
 
 **An unrunnable pair is infra red.** Every killer must exit 0 against the unmutated sandbox before
 any of its guard's mutants are scored, so a broken or environment-starved suite can never report
 its guard as fully killed.
+
+**A survivor that would red the lane is re-derived serially first.** The worker pool has been
+observed scoring a mutant `SURVIVED` that its own paired selftest demonstrably kills — twice in one
+nightly, on the same idiom a third guard killed in that same run, which is what proves the verdict
+was not a fact about the code. So before a baseline-absent survivor is allowed to red anything, the
+mutant blob is re-installed and its **full ordered kill set** re-run once, serially, on a sandbox no
+worker has touched: the pool is the suspect, so the oracle must not use it. If the serial run kills,
+the corrected `KILLED` verdict goes into the report, the counts and the cache, and the lane reds
+with `pool disagreement` instead — naming the harness rather than accusing an innocent guard. Free
+on a green run (zero baseline-absent survivors is zero extra suite runs), and seed mode re-verifies
+every survivor before it writes the baseline, because seed is the one lane that would otherwise
+record a fabricated survivor permanently and silently. The gate is asymmetric on purpose: survivors
+are the only class that reds, so a mutant the pool wrongly scores KILLED is still invisible.
 
 **Every killer runs under a wall-clock bound**, and a timed-out killer counts as a **kill**,
 logged by name. The bound is per suite — `4 x the suite's measured unmutated time`, floored at 60s
@@ -379,6 +392,13 @@ named id into `tools/mutation-baseline.tsv` as `<survivor_id><TAB><note>` and co
 that moved the guard**. No dispatch needed — the failing log already names every id. Before pasting,
 read the mutant: an ordinal that shifted is bookkeeping, but a *new* survivor at a site you just
 wrote is the harness telling you the test you added does not test anything.
+
+**`pool disagreement: <id> was scored SURVIVED by the worker pool but is KILLED by a serial
+re-run`** — the harness contradicting itself. The named mutant is already reported as `KILLED`;
+nothing is wrong with the guard or its suite, and **a baseline row is the one thing that must not
+be added** — a row asserts that no kill criterion exists, and this line is the proof one does.
+The lane is red so the pool race stays under pressure, not because the tree is. Read it as a
+harness bug report and route it to the pool-isolation work.
 
 **`catalog anchor drift: catalog::<id> left <guard> byte-identical`** — a hand-authored
 `tools/mutation-catalog.tsv` sed no longer matches. Either the anchor moved (re-anchor the row
