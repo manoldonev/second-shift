@@ -1,197 +1,221 @@
 # lean review verdict — #413
 
-verdict=needs-work
-run_id: review-413-3
-session_id: 39d4dc0d-90c9-4d39-869a-aa994d807d47
-rounds: 3
+verdict=approve
+run_id: review-413-4
+session_id: d8cb1ace-f4a6-44eb-99cc-a302b4054cdb
+rounds: 4
 pr: #415
-reviewed_head: 847ea5466ed211e1e0193df7131b8bcac7c30204
-reviewed_patch_id: 4b8fcb842c9993343d201931823584f69f800a81
-inherited_patch_id: d1082fe6abd36dedb7683795d071e24af555a4b5
-inherited_from_verdict: 5db7ef83ce359a67c1f71407cd4c9919e19541f3
+reviewed_head: 43b8428d507b5621779e5a5fc6155cfed56038e6
+reviewed_patch_id: 8915d6c32621e3f299bb0ce96fe6771145ff91ba
+inherited_patch_id: 4b8fcb842c9993343d201931823584f69f800a81
+inherited_from_verdict: d7de9261674761429a118ce596d27f93c00eead6
 fidelity: not-applicable
 model: unknown
 
-# Review round 3 — PR #415 (#413), verdict: needs-work
+# Review round 4 — PR #415 (#413), verdict: approve
 
-Range read: the **whole branch contribution**, `3b9c810..HEAD` (20 files), at head `847ea54`.
-Rounds 1 and 2 findings were read first. Design: `not-applicable` — `design` is `null` in this
-repo's runtime config, so the spec's `Design: none` disarm is justified; step 5b skipped.
+Range read: the delta since round 3's reviewed tree `4b8fcb842c99` — commit `43b8428`, 5 files,
++133/−23. Rounds 1–3 findings were read first. Design: `not-applicable` — `design` is `null` in
+this repo's runtime config, so the spec's `Design: none` disarm is justified; step 5b skipped.
 
-**Why this round exists, and why the range is the whole branch.** Round 2 approved
-`reviewed_patch_id d1082fe6abd3` at `reviewed_head 51f08a7`. The branch has since taken three
-merges — `b88afe1` and `782fb17` (two independent merges of `main`, at different tips) and
-`847ea54` reconciling them. That moved the branch's own patch identity to `4b8fcb842c99`, so the
-round-2 record is void. This is not a clean replay: diffing the branch's contribution before
-(`c3f8300..5db7ef8`) against after (`3b9c810..HEAD`), with hunk offsets normalized, the
-contribution changed **content** in two places, both conflict resolutions integrating `main`'s
-newly-landed entry-attestation precondition (`require_entry_attested`, #416/#422). Everything
-else is context churn from `main`. A resolution round is a verification round, so this one read
-the whole contribution rather than a delta.
+**Why the range is a delta, and why the merge in it is not a re-verification round.** Round 3
+reviewed `4b8fcb842c99` at head `847ea54` and returned `needs-work`. The branch has since taken
+its round-3 verdict record (`d7de926`), one merge of `main` (`c2995ee`), and the fix (`43b8428`).
+The merge is a **clean replay**: diffing the branch's contribution before
+(`3b9c810..d7de926`) against after (`a7f069a..c2995ee`), with hunk offsets normalized and `index`
+lines dropped, gives **zero** differing content lines. No conflict was resolved, so unlike round 3
+this is not a resolution round and the delta is exactly the fix commit.
 
-`bash G delta 413` could not be used to derive the range: `delta` is in
-`require_entry_attested`'s gated set, this run predates the attestation row, and the only
-self-heal the refusal offers is `bash G entry 413` — a build-role write that would stamp this
-review session's ledger and session id into the build run's progress file. The gate's own header
-already anticipates this ("That mostly bites `delta`, which the review session runs"). The range
-was derived by hand instead, and widened to everything. Not a defect of this PR.
+`bash G delta 413` is still unusable here: `delta` sits in `require_entry_attested`'s gated set,
+this run predates the attestation row, and the only self-heal offered is `bash G entry 413` — a
+build-role write. The range was derived by hand, as in round 3. Not a defect of this PR.
+
+**Both round-3 blockers are fixed, and both fixes were established by execution, not by reading.**
+
+- **B-1 closed.** Driven from this checkout, zero-network, against the branch's own gate with the
+  PR's *real* body and *real* 20-file list: `applicable via lean-artifact
+  (docs/plans/second-shift-413-lean.md)`, `source issue: #413`, and the only red is the verdict arm
+  (`reads 'verdict=needs-work'`) — the expected pre-review shape. Counterfactual isolates the cause:
+  neutralizing only the branch-key preference (`if false && …`) restores the round-3 hard fail
+  byte-for-byte (`the PR body resolves to #392 …`). The body still carries the quoted token; the
+  gate no longer cares.
+- **B-2 closed.** `require_branch_name` injected into `cmd_1`'s body — the exact regression `(e5)`'s
+  comment names — and `(e5)` is the **only** red across the suite (206 pass / 1 fail). Restored by
+  `cp` from a backup, `cmp`-verified non-identical before the run. Round 3's probe had this mutant
+  unkilled repo-wide; it now dies in one case.
+
+Both of the spec's own probe claims for the new cases reproduce exactly: with the preference
+disabled `(D3c)` is the only red in 73 cases; with it made unconditional (membership test dropped)
+`(D3)` and `(D3d)` are the two reds.
 
 ## Findings
 
+No blockers. Four warnings and two suggestions; none of them fires on this PR, and none is
+lane-reachable. Each was established by driving the real gates from this checkout.
+
 | ID | Sev | Where | Finding |
 | --- | --- | --- | --- |
-| B-1 | blocker | `scripts/check-lean-chain.sh:372,400-407` | The merge boundary is red on this PR, and this PR's own step 4b is why. The body-key resolver takes the **first** `closes\s+#N` anywhere in the body — code spans and narrative prose included. This PR's body documents AC-11's counterexample verbatim as ``body `Closes #392` ``, so the body key resolves to **#392** while the branch and the committed spec both say #413, and 4b hard-fails. |
-| B-2 | blocker | `plugins/dev-pipeline/skills/run-lean/lean-gate-selftest.sh:257-274` | `(e5)` can no longer fail for the reason it exists. The merge re-aimed it at the entry-attestation refusal, which fires **before** milestone 1's body, so nothing inside `cmd_1` is observable from this fixture. |
-| W-1 | warning | PR body | The body's claim that `pr-gates` is red "only for the expected pre-review reason" is stale — at this head it reds at 4b, a hard fail, and never reaches the verdict arm. |
-| W-2 | warning | process | The round-2 approve was written at `5db7ef8`, a commit CI **never ran on** (zero check-runs). Its CI claims were carried forward from `d56d9ca`. |
+| W-1 | warning | `scripts/check-lean-chain.sh:395-407` | The fix **creates** a new both-exempt cell. A branch outside the pipeline prefix but carrying trailing digits, whose body closes both that number and another key, and whose diff commits the *other* key's lean spec, is now silent on both sides. Pre-fix the same input was applicable here. |
+| W-2 | warning | `scripts/check-lean-chain.sh:398-408` | The "agree by construction" guarantee holds **within** the closes pattern only. A body whose reference to the branch key is `Part of #<branch key>` while prose quotes some other closing keyword still resolves the phantom key and reproduces B-1's hard fail across the closes/part-of boundary. |
+| W-3 | warning | `scripts/check-pipeline-chain.sh:175,187` | AC-19's headline says "**the two chain gates** derive the issue key in lockstep". The sibling still resolves by first match and hard-fails on any mismatch, so the two gates' derivations now **diverge** where before the fix they were identical. Pre-existing behavior, newly asymmetric. |
+| W-4 | warning | `scripts/check-lean-chain.sh:402` | The `-x` in `grep -qxF` is what makes the membership test exact rather than substring, and dropping it survives the whole 73-case suite. New code, unpinned. |
+| S-1 | suggestion | `scripts/check-lean-chain.sh:122-126`, `docs/pipeline-manifesto.md:173` | The gate's `--help`-printed input contract still says `PR_HEAD_REF` is "read for classification ONLY at step 4b"; it is now read at step 4 and decides which key the whole applicability arm uses. |
+| S-2 | suggestion | `docs/pipeline-manifesto.md:189-196` | The new paragraph attributes the trigger to "this section's own counterexample". The counterexample that fired lives in the spec's *AC-11, restated* section and in the PR body; this manifesto section quotes no closing keyword at all. |
 
-### B-1 — the shipped mechanism false-reds this PR
+### W-1 — a new cell where neither gate reads the evidence
 
-`pr-gates` at `847ea54` (run 31265352870):
-
-```
-[lean-chain] ✗ key mismatch: the PR body resolves to #392 but the head branch
-'claude/second-shift-413' resolves to #413, and the diff commits #413's lean spec
-(docs/plans/second-shift-413-lean.md). check-pipeline-chain.sh exempts on that spec, so
-declining here would leave this PR judged by neither gate.
-```
-
-Reproduced from this checkout, zero-network, against the branch's own gate with the real body
-and the real changed-file list — `rc=1`, byte-identical message. The counterfactual isolates the
-cause: neutralizing **only** the prose token (`Clos&#101;s #392`, leaving the real `Closes #413`
-trailer untouched) makes the same invocation print
+Driven, both gates, one input set. Branch `lean/acme-42`; body closes #99 and #42; diff commits
+`docs/plans/acme-99-lean.md`:
 
 ```
-[lean-chain] applicable via lean-artifact (docs/plans/second-shift-413-lean.md): branch=claude/second-shift-413
-[lean-chain] source issue: #413
+check-lean-chain.sh    rc=0  non-lean change — not applicable.
+                             note: the diff carries lean spec(s) — docs/plans/acme-99-lean.md —
+                             but none for this PR's own issue (#42) … Classified to the pipeline
+                             chain gate, not this one.
+check-pipeline-chain.sh rc=0 non-pipeline change — chain check not applicable.
+                             configured prefix: claude/second-shift-
 ```
 
-so the gate classifies correctly and AC-6's property holds; it is the prose match, and nothing
-else, that reds it.
+Both silent, each naming the other — the confident double hand-off step 4b exists to prevent. 4b
+cannot see it: `KEY_BRANCH == KEY` here (the preference *succeeded*), so the mismatch arm never
+evaluates.
 
-The sibling's half of the same input set, driven with `ci.yml`'s real constants, exempts:
+The same inputs against the pre-fix gate (`git show c2995ee:scripts/check-lean-chain.sh`) print
+`applicable via lean-artifact (docs/plans/acme-99-lean.md)`, `source issue: #99`, and demand the
+evidence. So the cell is introduced by this commit, not inherited.
 
-```
-[pipeline-chain] lean-authored PR — pipeline chain check not applicable.
-[pipeline-chain]   head branch: claude/second-shift-413 (key #413)
-[pipeline-chain]   the diff commits this key's lean spec (…-413-lean.md); scripts/check-lean-chain.sh owns it.
-```
+**Why a warning and not a blocker.** It needs a branch the lane cannot write. `tracker.branchPrefix`
+is `claude/second-shift-` and `ci.yml`'s `PIPELINE_BRANCH_PREFIX` is the identical string, so every
+branch either lane produces is prefix-matched and the sibling classifies it; for a prefix-matched
+branch the same inputs make `check-pipeline-chain.sh` hard-fail on its own key check, which I drove
+to confirm. Legacy `lean/`-prefixed heads are prefix-mismatched but have branch key == spec key, so
+they do not reach this cell either. This is the same shape and the same reachability call as round
+2's non-key-suffix cell, which was scored a warning under an approve — AC-17's invariant was already
+known not to hold universally, and this widens a residual rather than opening a new class.
 
-So 4b is behaving exactly as AC-17 specifies — refusing rather than declining onto a gate that
-already declined. The defect is not the refusal; it is that the input it refuses on is a phantom
-key lifted out of a code span.
+### W-2 — the guarantee is pattern-local
 
-**Why this is the PR's debt and not incidental.** Before this PR a body/branch key disagreement
-made this gate *decline* — silent, exit 0. AC-17 made it **fatal**. That converts a pre-existing
-looseness in the key derivation into a merge-blocker, and it exposes a lockstep gap in exactly
-the shape the PR's own manifesto section warns about: `lean-gate.sh` milestone 5 asserts
-`closes\s+#$ISSUE` appears **at least once** (`-ge 1`, `lean-gate.sh:2233`), while the boundary
-gate takes the **first** match (`check-lean-chain.sh:372`). Two derivations of one key. The lane
-passes its own milestone 5 and then produces a PR its own boundary gate rejects — which is the
-generalizable lesson this PR records ("hold the key derivation in lockstep, not only the pattern
-the key feeds"), re-committed one level up.
-
-Landing an approve verdict does **not** clear this: 4b fails before the evidence arm.
-
-The immediate unblock is a PR-body edit, which costs no commit. Scoring it a blocker rather than
-a warning is deliberate and is the one call in this record most open to push-back: the body edit
-fixes this instance, but the derivation gap ships, and the next lean PR whose body legitimately
-quotes a `Closes #N` — a review narrative documenting precisely this bug class, which is how this
-one arose — reds the same way.
-
-### B-2 — `(e5)` is coverage that cannot fail
-
-Probed, not argued. `require_branch_name` injected into `cmd_1`'s body — the regression the
-case's own comment names ("A refusal quoting 'cannot resolve a branch prefix' would mean the
-prefix check had migrated into milestones 1-4, which is the regression this case has always
-existed to catch") — and the suite returns:
+`KEY="$(resolve_body_key 'closes…')"` short-circuits the `part of` fallback whenever the closes
+pattern matches *anything*, including a quoted mention. Driven, branch `claude/acme-42`, body
+`Part of #42` plus prose quoting a closing keyword and #99, diff committing `acme-42-lean.md`:
 
 ```
-rc=0
-[lean-gate-selftest] all green
-  PASS: (e5) an unresolvable prefix does not reach milestone 1 — only the entry precondition stops it
+✗ key mismatch: the PR body resolves to #99 but the head branch 'claude/acme-42' resolves to #42,
+  and the diff commits #42's lean spec … Have the body close #42 …
 ```
 
-`(e5)` passes, and so does every other case in the ~200-case suite: the mutant is unkilled
-repo-wide, not merely missed by this one case. Mutant applied via a verified non-identical write
-(`cmp` against a backup), restored by `cp` from that backup.
+That is B-1, intact, one pattern over. Not lean-lane-reachable — milestone 5 requires
+`Closes #<issue>` at least once, so a lane-produced body always puts the branch key in the closes
+set and the preference always applies. But the gate explicitly supports the `Part of` shape (`(M2)`:
+"a sub-issue of a program epic"), and for that shape the remedy the message prints is wrong advice.
+The narrow fix is to consult the branch key across **both** patterns before falling back; the
+narrower one is to say in the comment, the spec and the manifesto that the guarantee is
+closes-local. Either way the three shipped sites currently state it unqualified.
 
-The consequence is that the lazy-resolution placement — the design AC-1's rationale calls
-load-bearing, and which the PR body defends as protecting the pinned #392 milestone-3 contract —
-now has no test that can fail if someone makes it eager.
+Credit: `unit-test-mutation-reviewer` (conf 80). I reproduced it before reporting it.
 
-Remedy direction, **proposed but not probed by me**: seed the attestation with the prefixed
-`$CFG` into `p3.md` so `entry` succeeds and the row lands, then run milestone 1 under
-`CFG_NOPREFIX` against that same progress file, and assert `rc=0` plus an appended
-`| milestone-1 |` record plus the absence of the prefix message. That reaches `cmd_1` and makes
-its behavior observable again. Verify it the usual way — it must red under the mutant above.
+### W-3 — the sibling never got the lockstep
 
-## What the merge got right
+`check-pipeline-chain.sh:175` is still
+`grep -oiE 'closes[[:space:]]+#[0-9]+' | head -n1`, feeding a hard fail at `:187`. Driven with a
+staged-prefixed branch and a body whose real trailer is the branch key but whose prose quotes
+another:
 
-Worth stating, because the merge was mostly correct and only one resolution went wrong:
+```
+[pipeline-chain] applicable: branch=claude/second-shift-413 key=413
+[pipeline-chain] ✗ key mismatch: PR body references #392 but the head branch resolves to #413.
+```
 
-- The sibling resolution in the same file is **right**: `(n0b)` gained
-  `attest_at "$TREE" "$CFG_JIRA" "$WORK/p-jbranch.md" "$JKEY"`, without which milestone 1 would
-  exit 2, the header would carry no `branch:` line, and the case would have failed rather than
-  silently passed. It restores the case instead of hollowing it.
-- No branch content was lost to the merges. Key-level comparison of the three line-oriented data
-  files against both parents: `lockstep-manifest.tsv` and `mutation-slow-suites.tsv` lose nothing
-  from either side; `mutation-baseline.tsv` drops exactly one key
-  (`pipeline-cost-block.sh::cmp-z::1`), which the branch never touched and which `main`'s #429
-  removed — the merge correctly took `main`'s deletion.
-- CI is green at this exact head for everything except `pr-gates`: shellcheck, JSON, actionlint,
-  the full selftest run (11m48s), `contract lockstep pairs`, and the PR-scoped mutation sweep at
-  **17 seconds** against its `timeout-minutes: 15` bound.
+Unchanged by this diff and not this PR's debt — but AC-19's headline claims both gates, and after
+this commit the two derivations differ where they previously agreed. Scoring the AC by the letter of
+the mechanism its body specifies (which is scoped to `check-lean-chain.sh` and ships) keeps it
+satisfied; the headline is the over-claim, carried here. Same posture rounds 1–3 took with AC-11 and
+AC-17. The follow-up is either the same preference in the sibling, or a `lockstep-manifest.tsv`
+**DROPPED** row recording a real coupling that is not byte-anchorable — the repo's own prescription
+for exactly this case.
+
+### W-4 — a surviving mutant in new code
+
+`grep -qF "$KEY_BRANCH"` (the `-x` dropped) → `bash -n` clean, suite `rc=0`, **0 failures**. The
+mutant makes a short branch key match any body key containing it as a substring, flipping which key
+4b compares. Shipped behavior is correct; the assertion is missing. The fixtures use 42/303 as
+branch keys and 42/99/303 as body keys, so no pair collides. A case with a branch key that is a
+proper substring of an unrelated body-cited key closes it (and, per the tier map, a
+`tools/mutation-catalog.tsv` row if the mutant is worth pinning by name).
+
+Credit: `unit-test-mutation-reviewer` (conf 82). Probed to confirm the survival.
+
+## Verification at this head
+
+Run from the checkout of `43b8428`:
+
+- `shellcheck -e SC1091,SC2015,SC2181` over all shell — `rc=0`.
+- `jq empty` over all JSON — `rc=0`.
+- Full `*-selftest.sh` sweep, `-P 4`, **without** `SKIP_STRESS`, under `env -u CLAUDE_CODE_SESSION_ID`
+  — `rc=0`, **0** `FAIL:` lines. The one reported failure is `doctor-selftest.sh` inside
+  `install-topology-selftest.sh`, declared `known:` by that suite.
+- `scripts/check-lockstep-pairs.sh` — 21 pairs, 0 failed.
+- Mutation ordinals: all six operators enumerated per-line at `d7de926` and at head. Only
+  **`detector`** re-keys (ordinal 2 moves `:372` → `:400`); `cmp-eq`, `cmp-z`, `logic`, `default`
+  and `fail-open` keep their first-two sites byte-for-byte, so the five existing baseline rows for
+  this guard still name what their notes claim and none is owed a re-key. `detector::1` and
+  `detector::2` were both applied with the verbatim operator flip and both **KILLED** (suite rc=5
+  and rc=61), so no row is added either. Matches the commit's claim exactly.
+
+**CI has not run at this head.** `43b8428` has **zero** check-runs and the PR's status rollup is
+empty; the newest run on the branch is at `d7de926`. This is a dispatch miss, not a red — the repo
+dispatched four runs on other branches in the 20 minutes after this push. Pushing this record
+retriggers CI, which is what the merge boundary will read. The local evidence above stands in for it
+in the meantime.
 
 ## Reviewer panel
 
+All six selected reviewers returned — the first round on this PR with no dark reviewer.
+
 | Reviewer | Verdict | Findings |
 | --- | --- | --- |
-| Security | Pass | 0; 3 suppressed. One (conf 55, `check-lean-chain.sh:372`) independently names B-1's mechanism — "'Closes #N' is grepped anywhere in the PR body (code spans/prose included), so classification can be steered by quoted text" — and correctly triages it as *non-security* ("effect bounded to gate ownership"). It did not check whether it fires on this PR; it does. |
-| Performance | Pass | 0 — no performance surface in a shell/CI diff. |
-| Complexity | Pass | 0 — reads the change as a net reduction in configuration surface. |
+| Security | Pass | 0; 2 suppressed (conf 40/35), both correctly triaged as non-findings. |
+| Complexity | Pass | 0 |
 | Maintainability | Pass | 0 |
-| Scope completeness | **Fail** (conf 95) | The staged lane (`stages/2-worktree.md:27,31`) still spells `.tracker.branchPrefix // "claude/acme-"` and never calls the shared resolver — scored against AC-3, AC-5 and proposal 2. **Overridden, as in rounds 1 and 2.** Pre-flight ledger `D-1` is `user-answered`, pre-implementation, and says in terms: the staged lane's prose "is left untouched" and "AC-5 narrows to 'one implementation among live consumers'". The ledger is a binding input the scope gate cannot see. Recorded as a note, not a blocker — and escalating a round-1 note to a round-3 blocker would be its own error. The divergence between the tracked scope and the shipped scope is real and still unfiled; the PR body flags it. |
-| Test coverage | **Dark (no output)** | `turn-budget: agent emitted no text on either attempt (maxTurns cap reached mid-exploration)`. Third consecutive round dark on this PR. |
-| Unit-test mutation | **Dark (no output)** | Same error, same shape. In round 2 this reviewer carried the test dimension after test-coverage died; this round **both** are dark, so the entire test-integrity dimension went unreviewed by the panel. B-2 is the in-session substitute, not panel-corroborated. |
-
-Both deaths are the tracked emit-deadline shape (the harness's own diagnosis: "needs an emit
-deadline, not a bigger cap"), not a signal about this diff.
+| Test coverage | Pass | 0 |
+| Unit-test mutation | **Request-changes** | 3. Two are W-2 and W-4 above, both reproduced by me before adoption. The third (no case carries both `Closes` and `Part of`, so the precedence swap is unpinned) is a pre-existing gap the refactor now routes through one helper — real, and folded into W-2's remedy. |
+| Scope completeness | Pass | 0; 2 suppressed. It caught that the dispatch base was an intermediate merge commit and re-anchored on `merge-base(origin/main, HEAD)` itself rather than emitting a false FAIL — the round-1/2/3 `stages/2-worktree.md` item did not recur under that anchor. |
 
 `a11y-reviewer` and the design-fidelity dimension were **not routed**: no changed path matches
 `stageParams.webComponentGlobs` (unset, so the shipped default `apps/web/**/*.{tsx,jsx}`). Not a
-coverage gap — this diff has no web-component surface. `db-reviewer` and `pipeline-reviewer` were
-not selected (no DB layer, no queue/worker files).
+coverage gap. `db-reviewer`, `pipeline-reviewer` and `performance-reviewer` were not selected — no DB
+layer, no queue/worker files, and no performance surface in a five-file shell/docs delta.
 
-The two blockers in this record are both in-session findings, each established by execution
-rather than by reading. That is the honest characterization of this round: the panel found
-nothing new, and the reviewer whose domain would most likely have found B-2 went dark.
+W-1 and W-3 are in-session findings, each established by execution. The panel found neither.
 
-## Per-AC scoring (18 ACs, at `847ea54`)
+## Per-AC scoring (19 ACs, at `43b8428`)
 
-Scored by the letter of what each AC requires the implementation to do. Both blockers above are
-genuine defects that no AC's text covers — B-1 because AC-17 does not constrain the body-key
-derivation, B-2 because AC-14 enumerates the resolver, scenario-liveness and the two chain-gate
-suites but not `lean-gate-selftest.sh`. Reporting them as blockers outside the AC table is the
-same posture rounds 1 and 2 took with AC-11 and AC-17.
+Scored by the letter of what each AC requires the implementation to do, against the whole spec.
+AC-1 through AC-13, AC-15, AC-16 and AC-18 are inherited from round 3's coverage of
+`4b8fcb842c99`, with the ones the delta could disturb re-confirmed here rather than asserted.
 
 | AC | Score | Evidence |
 | --- | --- | --- |
-| AC-1 | satisfied | `lean_branch_prefix` absent from both consumers; `(e1)`/`(e2)`/`(e3)` pin prefix-verbatim, `<branchPrefix><key>`, and no `lean/` anywhere in the header. |
-| AC-2 | satisfied | `(n0b)` asserts branch `abc/acme-7` with the artifact path keeping `ACME-7` verbatim. |
-| AC-3 | satisfied | `branch-prefix-selftest.sh` detection cases; configured value wins. |
-| AC-4 | satisfied | zero-candidate and tie refusals both driven, naming what was considered. |
-| AC-5 | satisfied | one resolver, two callers — `lean-gate.sh:281`, `retro-corpus.sh:197`. |
-| AC-6 | satisfied | `LEAN_BRANCH_PREFIX` absent from `ci.yml`; residual mentions are the deletion narrative (which AC-13 requires) and a case that drives a stale export to prove it is ignored. Property confirmed live by the B-1 counterfactual. The PR body's claim that it classified *this* PR that way is stale — see W-1. |
-| AC-7 | satisfied | sibling reports not-applicable; staged-PR verdict unchanged. |
-| AC-8 | satisfied | `lean-spec-suffix` row at `lockstep-manifest.tsv:274`; `check-lockstep-pairs.sh` 18/0 locally and in CI. |
-| AC-9 | satisfied | legacy `lean/`-prefixed heads still classify via the artifact arm. |
-| AC-10 | satisfied | key-matched exemption; different-key spec stays gated. |
-| AC-11 | satisfied | key-matched applicability on both sides; unresolvable-reference case still fails. |
-| AC-12 | satisfied | OR-1 driven through both real gates. |
-| AC-13 | satisfied | `run-lean/SKILL.md` 42 lines (cap 60), no "lean prefix" in step 3; `pipeline-retro` recipe uses `$BRANCH`; manifesto section rewritten. |
-| AC-14 | satisfied | by its letter — the resolver's suite, the scenario leg decision, and both chain-gate suites. B-2 is in `lean-gate-selftest.sh`, which this AC does not enumerate. |
-| AC-15 | satisfied | CI at this head: shellcheck, JSON, actionlint, full selftest run all green; locally shellcheck rc=0, `jq empty` rc=0, lockstep 18/0. |
-| AC-16 | satisfied | CI at this head: `mutation sweep (PR-scoped)` 17s against `timeout-minutes: 15`. |
-| AC-17 | satisfied | the mechanism ships, is scoped by `(D3b)`, and demonstrably fires — see B-1 for the false-positive its key source produces. |
-| AC-18 | satisfied | bare invocation anchors on the main checkout; `(k2)`/`(k2b)` drive it from a real worktree. |
+| AC-1 | satisfied | `lean_branch_prefix` absent from both consumers (0 occurrences, re-checked). |
+| AC-2 | satisfied | inherited; `(n0b)` unchanged and green in this sweep. |
+| AC-3 | satisfied | inherited; the two residual `claude/acme-` strings in `branch-prefix.sh` are both comments. |
+| AC-4 | satisfied | inherited; both refusals green in this sweep. |
+| AC-5 | satisfied | one resolver, two callers (`lean-gate.sh`, `retro-corpus.sh`), re-checked. |
+| AC-6 | satisfied | `LEAN_BRANCH_PREFIX`: 0 in `ci.yml`, 1 in `check-lean-chain.sh` and that one is the deletion-narrative comment at `:303`. Confirmed live — the real-inputs drive classifies via the artifact arm with no such variable in its environment. |
+| AC-7 | satisfied | sibling reports not-applicable for this PR; re-driven with `ci.yml`'s real constants. |
+| AC-8 | satisfied | `lean-spec-suffix` row present; `check-lockstep-pairs.sh` 21/0 at this head. |
+| AC-9 | satisfied | `(A)` drives a legacy `lean/`-prefixed head through the artifact arm; green. |
+| AC-10 | satisfied | inherited; `check-pipeline-chain-selftest.sh` green in this sweep. |
+| AC-11 | satisfied | re-verified under the new derivation: key-matched applicability on both sides, and the unresolvable-reference refusal still fires (it is evaluated before 4b). |
+| AC-12 | satisfied | inherited; both halves green in this sweep. |
+| AC-13 | satisfied | `run-lean/SKILL.md` 42 lines (cap 60), no "lean prefix"; manifesto section extended, not replaced. |
+| AC-14 | satisfied | including the round-3 amendment: `(e5)` reaches milestone 1's body and is the only red under the `require_branch_name` mutant. |
+| AC-15 | satisfied | shellcheck / `jq empty` / full sweep / lockstep all green at this head, and the ordinal re-key obligation discharged by enumeration plus probing rather than assertion. |
+| AC-16 | satisfied | the two deferral rows are committed and unchanged; the delta's only guard edit is to `check-lean-chain.sh`, already on the deferred list, and adds no guard to the PR lane. Timing evidence is round 3's CI at `847ea54` (`mutation sweep (PR-scoped)` 17s against `timeout-minutes: 15`); no CI exists at this head — see above. |
+| AC-17 | satisfied | the refusal mechanism ships, is scoped by `(D3b)`, and fires on a real disagreement — driven. Its invariant remains non-universal; W-1 widens the residual and is reported as such. |
+| AC-18 | satisfied | inherited; `(k2)`/`(k2b)` green in this sweep. |
+| AC-19 | satisfied | the specified mechanism ships and is driven by `(D3c)`/`(D3d)`, both probed in both directions from this checkout. The headline's "two chain gates" over-claims — W-3. Its "by construction" is closes-local — W-2. |
+
+19/19 satisfied. The scope gate did not repeat rounds 1–3's `stages/2-worktree.md` item this round;
+ledger `D-1` (`user-answered`, pre-implementation) would still override it, and the tracked scope
+still diverges from the shipped scope until a follow-up amends one of them.
