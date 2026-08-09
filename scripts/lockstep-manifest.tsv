@@ -562,6 +562,34 @@ lean-pr-marker	verbatim	plugins/dev-pipeline/skills/run-lean/lean-gate.sh	lean-p
 # whole against the same four-value alternation.
 lean-output-dispositions	verbatim	scripts/check-lean-chain.sh	lean-output-dispositions	plugins/dev-pipeline/skills/run-lean/lean-evidence.sh	lean-output-dispositions
 
+# lean ARM CUTOFFS (#444) — the two `since:` comparators. An arm declares the instant its
+# contract took effect, so a run whose observation point precedes it is exempted rather than
+# refused for missing a contract that did not yet exist. lean-evidence.sh compares
+# `PR_CREATED_AT` against `LEAN_IDENTITY_SINCE`; lean-gate.sh compares a branch's first-commit
+# author date against `ENTRY_SINCE`.
+# The duplication is FORCED by the deployment shape, not chosen. A consumer's CI checkout has
+# lean-evidence.sh and nothing else — second-shift-ci-check.sh fetches that one file at the
+# pinned marketplace ref and never fetches lean-gate.sh — so neither file can source the other,
+# and the gate's copy has no consumer-side existence at all.
+# Considered for a row and DROPPED, and not for want of an anchor. The two comparators are not
+# one contract: the payload compares an already-UTC `PR_CREATED_AT` supplied by the workflow,
+# while the gate normalizes a git author date carrying an arbitrary offset and must pass it
+# through `TZ=UTC git log --date=format-local` to become comparable. A `verbatim` row would bind
+# them to a shared shape neither side needs and would fail on a correct tree; `subset-of` reads
+# the FIRST quoted literal of each block, which here is a lone ISO instant rather than an enum,
+# so it would compare two deliberately DIFFERENT dates and red. The `since:` values are MEANT to
+# differ — each anchors to the merge that made its own arm binding.
+# Follows the `lean evidence TOKEN SCOPES` precedent below: coincidence of present need is not a
+# contract, and both sides have live signal. lean-evidence-selftest.sh (ac1)-(ac6) drives the
+# payload's comparator across its cutoff, lean-gate-selftest.sh (eb1)-(eb7) drives the gate's
+# including two non-UTC offsets in both failure directions, check-lean-chain-selftest.sh
+# (Z1)/(Z2) composes the payload's through the delegating boundary, and this repo's own
+# `pr-gates` executes the payload on every PR — so a comparator that broke on either side reds
+# rather than quietly exempting.
+# Revisit if a shared normalization helper is ever hoisted into a file both can reach: a single
+# canonical comparator makes an ordinary `verbatim` row possible, and this entry should become
+# one.
+
 # lean ARTIFACT-NAME suffixes (#359) — the `*-lean.md` / `*-lean-verdict.md` /
 # `*-lean-intent-gap.md` / `*-lean-renders.md` table, held by scripts/check-lean-chain.sh
 # (anchor `lean-chain-artifact-patterns`) and, for the three it still reads, by

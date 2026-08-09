@@ -136,10 +136,29 @@ EOF
 commit_tree "committed consumer config"
 write_verdict
 
+# The PR-open instant every case runs on, and it is DELIBERATELY after the identity arm's
+# `since:` (#444). Every case that predates this file's cutoff work asserts the arm ENFORCING,
+# which is only what it still does while the fixture PR opened inside the arm's window — a
+# fixture clock left in the past would turn all of them into vacuous `postdated` declines while
+# reading exactly as green as before. Cases that want the other side of the cutoff override it.
+#
+# An arm that later declares a `since:` past this instant must move it forward, for the same
+# reason. `PR_CREATED_AT_OVERRIDE=none` drops the variable entirely (AC-3).
+PR_OPEN_AT='2026-08-09T00:00:00Z'
+ev_env() { # ev_env — set EV_ENV to the PR_CREATED_AT assignment, or to nothing when absent
+  EV_ENV=()
+  case "${PR_CREATED_AT_OVERRIDE:-}" in
+    none) : ;;
+    "")   EV_ENV=(PR_CREATED_AT="$PR_OPEN_AT") ;;
+    *)    EV_ENV=(PR_CREATED_AT="$PR_CREATED_AT_OVERRIDE") ;;
+  esac
+}
+
 # PR_HEAD_SHA is resolved per call, never captured once: cases below add commits, and a stale
 # sha would silently measure freshness against an earlier head than the one under test.
 ev() { # ev <head-ref> <markers-file> <diff-file> [extra env assignments via caller]
   ( cd "$TREE" && \
+    ev_env && env ${EV_ENV[@]+"${EV_ENV[@]}"} \
     PIPELINE_BRANCH_PREFIX="${PIPELINE_PREFIX_OVERRIDE:-claude/acme-}" \
     PR_HEAD_REF="$1" \
     PR_HEAD_SHA="$(git -C "$TREE" rev-parse HEAD)" \
@@ -151,6 +170,7 @@ ev() { # ev <head-ref> <markers-file> <diff-file> [extra env assignments via cal
 # The CONSUMER shape: no prefix constants at all, everything from the committed config.
 ev_cfg() { # ev_cfg <head-ref> <markers-file> <diff-file> [config-path]
   ( cd "$TREE" && \
+    ev_env && env ${EV_ENV[@]+"${EV_ENV[@]}"} \
     SECOND_SHIFT_CONFIG="${4:-$TREE/.claude/second-shift.config.json}" \
     PR_HEAD_REF="$1" \
     PR_HEAD_SHA="$(git -C "$TREE" rev-parse HEAD)" \
@@ -469,7 +489,7 @@ else fail "(ab3) expected the no-bot degrade under github, got $rc: $out"; fi
 
 # LEAN_BOT_ENABLED wins over the committed config, the same precedence LEAN_TRACKER_TYPE has —
 # and it is the seam this repo's own CI needs, since it gitignores its config and reads nothing.
-out="$( cd "$TREE" && LEAN_BOT_ENABLED=true \
+out="$( cd "$TREE" && LEAN_BOT_ENABLED=true PR_CREATED_AT="$PR_OPEN_AT" \
         SECOND_SHIFT_CONFIG="$WORK/config-github-nobot.json" \
         PR_HEAD_REF="claude/acme-42" PR_HEAD_SHA="$(git -C "$TREE" rev-parse HEAD)" \
         PR_BASE_REF="main" PR_BODY="$BODY_GOOD" \
@@ -478,6 +498,71 @@ out="$( cd "$TREE" && LEAN_BOT_ENABLED=true \
 if [ "$rc" -eq 1 ] && ! printf '%s' "$out" | grep -q 'identity: reduced-strength'; then
   pass "(ab4) LEAN_BOT_ENABLED overrides the committed tracker.bot.enabled"
 else fail "(ab4) expected the env override to force the arm on, got $rc: $out"; fi
+
+# ---- (ac) #444: the identity arm declares when its contract took effect ---------------------
+# EVERY CASE HERE RUNS ON `markers-none.json`, the trail that is a VIOLATION inside the window.
+# That is what makes the cutoff cases non-vacuous: rc=0 can only mean the arm declined, never
+# that it passed, so a comparator wired backwards or deleted shows up as a red rather than as a
+# quieter green.
+#
+# THE TWO LITERALS STRADDLE THE `since:` BY ONE SECOND, which pins AC-5's value to the second
+# without grepping the constant out of the source — a grep asserts a string is present, these
+# two assert the comparison that string participates in. The +1s is deliberate (D-14): the arm
+# anchors to a merge committed at :13, and :14 is what exempts that merge's own second instead
+# of enforcing against a PR opened in it.
+out="$(PR_CREATED_AT_OVERRIDE='2026-08-08T17:05:13Z' \
+       ev "claude/acme-42" "$WORK/markers-none.json" "$WORK/diff-lean.txt")"; rc=$?
+if [ "$rc" -eq 0 ] && class_b "$out" "identity:postdated"; then
+  pass "(ac1) AC-1: a PR opened one second before the arm's since: declines in one class-(b) line"
+else fail "(ac1) expected a postdated decline, got $rc: $out"; fi
+
+out="$(PR_CREATED_AT_OVERRIDE='2026-08-08T17:05:14Z' \
+       ev "claude/acme-42" "$WORK/markers-none.json" "$WORK/diff-lean.txt")"; rc=$?
+if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q 'no bot-authored' \
+   && ! printf '%s' "$out" | grep -q 'identity: postdated'; then
+  pass "(ac2) AC-2/AC-5: a PR opened AT the since: enforces exactly as before"
+else fail "(ac2) expected the arm to enforce at the boundary second, got $rc: $out"; fi
+
+# AC-3. ABSENT is not an environment error and must never become one: a newly-required input
+# reds every consumer whose committed workflow predates this change, which is the same
+# strand-an-innocent-PR defect the cutoff exists to close. rc=2 here is the regression.
+out="$(PR_CREATED_AT_OVERRIDE=none \
+       ev "claude/acme-42" "$WORK/markers-none.json" "$WORK/diff-lean.txt")"; rc=$?
+if [ "$rc" -eq 0 ] && class_b "$out" "identity:postdated"; then
+  pass "(ac3) AC-3: an absent PR_CREATED_AT declines rather than failing the environment"
+else fail "(ac3) expected a postdated decline on an absent cutoff, got $rc: $out"; fi
+
+# OR-1. A malformed value takes the absent path, and SAYS SO — naming the value is what lets an
+# operator tell a hand-wired workflow from a missing line, since the two are otherwise one
+# indistinguishable decline. The notice is on stderr, so it is not a second class-(b) line:
+# `class_b` still asserts the count is exactly one.
+out="$(PR_CREATED_AT_OVERRIDE='08/08/2026 17:05' \
+       ev "claude/acme-42" "$WORK/markers-none.json" "$WORK/diff-lean.txt")"; rc=$?
+if [ "$rc" -eq 0 ] && class_b "$out" "identity:postdated" \
+   && printf '%s' "$out" | grep -qF "notice: PR_CREATED_AT ('08/08/2026 17:05')"; then
+  pass "(ac4) OR-1: an unparseable cutoff is treated as absent and named on stderr"
+else fail "(ac4) expected a named decline on a malformed cutoff, got $rc: $out"; fi
+
+# D-4 PRECEDENCE. Both exemptions apply to this run — pre-cutoff AND bot-less — and `postdated`
+# must win. `reduced-strength` would report a permanent non-applicability as a fixable config
+# gap and send the operator to configure a bot that changes nothing for this PR. Asserted as a
+# specific disposition, not merely as "some class-(b) line": the ordering is the whole decision.
+out="$(PR_CREATED_AT_OVERRIDE='2026-01-01T00:00:00Z' \
+       ev_cfg "claude/acme-42" "$WORK/markers-none.json" "$WORK/diff-lean.txt" \
+              "$WORK/config-github-nobot.json")"; rc=$?
+if [ "$rc" -eq 0 ] && class_b "$out" "identity:postdated"; then
+  pass "(ac5) D-4: pre-cutoff AND bot-less reports postdated, not reduced-strength"
+else fail "(ac5) expected postdated to win over the no-bot degrade, got $rc: $out"; fi
+
+# AC-8, the structural half (D-7). The comparison is a byte compare of two Z-normalized instants
+# precisely so no `date` invocation is on the path: `date -d` (GNU) and `date -r` (BSD) fail
+# DIRTY under the other userland, so a comparator reaching for either is green on the lane that
+# has it and wrong on the lane that does not — and this suite runs on both. Host-unconditional
+# on purpose: a case gated on detecting bash 3.2 would never fire on the ubuntu lane and would
+# read as coverage while proving nothing.
+if ! grep -nE '(^|[^[:alnum:]_-])date[[:space:]]+-[dr]([[:space:]]|$)' "$TOOL" >/dev/null; then
+  pass "(ac6) AC-8: the cutoff comparison invokes neither 'date -d' nor 'date -r'"
+else fail "(ac6) a GNU/BSD-split date form reached lean-evidence.sh: $(grep -nE '(^|[^[:alnum:]_-])date[[:space:]]+-[dr]([[:space:]]|$)' "$TOOL")"; fi
 
 # ---- (bb) the delegation interface ---------------------------------------------------------
 # `classify` is what BOTH chain gates consume instead of holding their own copy of these rules;
@@ -604,7 +689,7 @@ cat "$LEAN_EV_MARKERS"
 GHSTUB
 chmod +x "$WORK/bin/gh"
 out="$( cd "$TREE" && PATH="$WORK/bin:$PATH" LEAN_EV_MARKERS="$WORK/markers-good.json" \
-        PIPELINE_BRANCH_PREFIX="claude/acme-" \
+        PIPELINE_BRANCH_PREFIX="claude/acme-" PR_CREATED_AT="$PR_OPEN_AT" \
         PR_HEAD_REF="claude/acme-42" PR_HEAD_SHA="$(git -C "$TREE" rev-parse HEAD)" PR_BASE_REF=main \
         PR_BODY="$BODY_GOOD" PR_NUMBER=9 GH_REPO="acme/acme" \
         bash "$TOOL" all --diff-files-file "$WORK/diff-lean.txt" 2>&1 )"; rc=$?
