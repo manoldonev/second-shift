@@ -60,6 +60,16 @@ a successor cannot widen the vocabulary by typing a new word at a call site.
   comment above it must name the class-(b) decline line as the discriminator instead. Repo
   convention requires a change that makes docs stale to carry an explicit doc criterion; this is
   it.
+- **AC-10** (harness, added during BUILD) — `lean-gate-selftest.sh` passes with `RUN_ID` exported
+  in the ambient environment, not only with it absent. Found by this run's own milestone 3: case
+  `(d5)` invokes `$GATE entry 7` without `env -u RUN_ID`, and `entry` PERSISTS the run-id cache,
+  so an operator's exported id seeds the fixture cache and `(k6)`'s `cmd_mark` no-op test later
+  resolves an id no fixture marker carries — falling through to the LIVE `$GH_BOT` write path. The
+  suite is therefore green in CI, which exports no `RUN_ID`, and red for any operator who followed
+  SKILL.md step 2 and kept theirs exported. Every sibling `entry` case already guards this; the
+  fix is to make `(d5)` match them. Unrelated to this ticket's subject and fixed here anyway: it
+  blocked this run's own green gate, and a harness bug worked around rather than closed is the
+  thing that costs the next run the same cycle.
 
 ## The line inventory
 
