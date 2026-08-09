@@ -17,8 +17,9 @@ build session, so this cannot be folded back into the build lane by convenience.
 > **Tracker delta (`tracker.type: jira`, `writes: false`).** The checklist below is the
 > **github** default. Under jira: the issue key resolves from `Closes [<KEY>]` under
 > `### Jira Items` in the PR body, not `Closes #N` (2). The step-8 findings comment is
-> unaffected — it is a PR comment posted via `gh`, not a tracker write, so it posts the
-> same under both adapters. No other checklist step differs.
+> unaffected — it is a code-host write, not a tracker one, so it posts the same under both
+> adapters and carries the bot identity under both wherever a bot is configured. No other
+> checklist step differs.
 > [Adapter contract](../run/tools/tracker/jira/README.md).
 
 ## Checklist
@@ -82,10 +83,13 @@ build session, so this cannot be folded back into the build lane by convenience.
    reaches CI — and it is PATCH-BOUND: milestone 4, the merge boundary and `lean-reconcile.sh`
    all recompute that hash and refuse the record once any line outside it has changed. Commit
    nothing else in this session.
-8. Post the findings as one PR comment (the build session reads the PR, not this transcript),
-   then stop. On `needs-work` the loop round-trips through artifacts only: a build session
-   addresses the findings, and a **new** review context produces the next verdict — never this
-   one resumed.
+8. Post the findings as one PR comment (the build session reads the PR, not this transcript) —
+   through [`gh-bot.sh`](../run/tools/gh-bot.sh) when its `--status` is `ok`, plain `gh`
+   otherwise. This is a `pr comment` write, which `pr-revision` already mandates the wrapper
+   for; posting it bare left the one comment a human actually reads under the operator while
+   every other pipeline comment carried the bot. Then stop. On `needs-work` the loop
+   round-trips through artifacts only: a build session addresses the findings, and a **new**
+   review context produces the next verdict — never this one resumed.
 
 ## Rules that are not negotiable
 

@@ -275,6 +275,40 @@ Notes from building it:
   keep node's event loop alive, so merely reaching the end of the file hangs for fifteen minutes
   rather than returning.
 
+## The shell equivalent: library mode
+
+The same problem shows up in shell. A gate script parses arguments, resolves roots and dispatches
+a subcommand the moment it is sourced, so a *pure* helper inside it — a formatter, a parser — can
+only be reached through whatever subcommand happens to call it. When no subcommand reaches a
+branch, the tempting move is to re-declare the helper in the suite, which is the mirror harness
+this repo forbids: a copy cannot fail on a production edit.
+
+`lean-gate.sh` answers it with `LEAN_GATE_LIB`. Set it, source the script, and it defines its
+functions and returns before the dispatch; the suite then calls the real production body. It is
+what `lean-gate-selftest.sh`'s `(fp1)`–`(fp4)` use to fixture `md_table_prettier` against
+byte-exact goldens, including a width case no render the gate can perform would reach.
+
+One caveat, and it bites under `set -u`: the script's own argument parser consumes the inert
+placeholder arguments library mode supplies, so the sourcing scope has no positional parameters
+afterwards. Copy anything you need out of `$1` **before** the `.`.
+
+### Opportunistic oracles: a SKIP reports nothing
+
+Goldens like those are a claim about *another program's* output, so they want a case that
+re-derives them from that program when it is installed — `(fp5)` against a local prettier. Two
+rules, both learned the expensive way on the case that introduced the pattern.
+
+**Feed the oracle the oracle's input grammar, not the producer's.** `md_table_prettier`'s contract
+is that the markdown delimiter row is *not* supplied — its dash count is a function of the widths
+the padder computes. Handing prettier that same input makes it read a paragraph rather than a
+table, rewrite nothing, and compare an unformatted paragraph against a padded golden: a case that
+cannot pass, and that passes review only because it never runs. Splice the row in first.
+
+**Probe a skip-guarded case by supplying the resource.** A case that reports SKIP is asserting
+nothing, and neither CI nor a local sweep will tell you which — this lane has no node by design,
+so the branch skips there forever. Put a real binary on `PATH` and run the suite before believing
+it. The same move applies to any fixture whose guard is "when X resolves".
+
 ## Test-the-tests: the mutation sweep
 
 Every tier above answers "is this behavior guarded?". None answers "does the guard actually fail

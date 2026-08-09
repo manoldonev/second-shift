@@ -32,7 +32,7 @@
         },
         "bot": {
           "type": "object",
-          "description": "github only: dedicated bot identity for issue/PR writes (claim safety).",
+          "description": "Dedicated bot identity for the pipeline's GitHub writes: PR comments and markers, the git committer, and — under tracker.type github only — the claim. Legal under either tracker.type, because source control is GitHub for every adapter, so a JIRA-tracked repo writes to GitHub too and needs the identity just as much. The key sits under `tracker` for historical reasons; its scope is the code host.",
           "additionalProperties": false,
           "properties": {
             "enabled": { "type": "boolean" },
