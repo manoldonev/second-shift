@@ -3269,5 +3269,202 @@ if [ "$(mcount '| session | ')" -eq 3 ] \
   pass "(ms11) mark records nothing — neither the refused sessions nor the successful ones were added (AC-4)"
 else fail "(ms11) mark wrote to the progress file: rows=$(mcount '| session | '), file=$(cat "$MPROG" 2>/dev/null)"; fi
 
+# ---- (fp) #439: what this gate writes must survive the consumer's format check --------------
+# $PLANS_DIR sits inside the format gate of at least one consumer, and this gate writes two
+# markdown artifacts there and requires both committed. The manifest is padded at the write site
+# (the re-derive byte-compare forbids formatting it afterwards); the verdict record is handed to
+# a locally resolved prettier, guarded, because its body is arbitrary authored markdown.
+#
+# The padder is exercised in LIBRARY MODE against byte-exact goldens rather than only through
+# the render path, for a reason the render path itself states: every column of the manifest is
+# wider than the 3-dash minimum, so that branch is unreachable there. The goldens below were
+# each produced by prettier 3.7.4 and pasted; (fp5) re-derives them from a live prettier when
+# one is installed, and SKIPS — never fails — when none is.
+
+# md_table_prettier through the real production body: no copy of the padder exists in this file.
+# shellcheck disable=SC1090  # $GATE is the script under test; following it is the point.
+mdtab() { ( cd "$TREE" && LEAN_GATE_LIB=1 SECOND_SHIFT_CONFIG="$CFG" . "$GATE" >/dev/null 2>&1 \
+            && md_table_prettier ); }
+
+# (fp1) WIDTH FROM A BODY VALUE, in every column. A padder that sized columns from the header
+# alone produces a table prettier immediately re-pads.
+FP_IN="| RS | route | state |
+| RS-1 | /a | default |
+| RS-10 | /longer | on |"
+FP_WANT="| RS    | route   | state   |
+| ----- | ------- | ------- |
+| RS-1  | /a      | default |
+| RS-10 | /longer | on      |"
+FP_GOT="$(printf '%s\n' "$FP_IN" | mdtab)"
+if [ "$FP_GOT" = "$FP_WANT" ]; then
+  pass "(fp1) column widths come from the widest body cell"
+else fail "(fp1) padded table differs from prettier's form:
+$FP_GOT"; fi
+
+# (fp2) WIDTH FROM THE HEADER, the other direction — `sha256` is wider than its only value. A
+# padder that ignored the header row when measuring gets this one wrong and (fp1) right.
+FP_IN="| sha256 | route |
+| ab | /a |"
+FP_WANT="| sha256 | route |
+| ------ | ----- |
+| ab     | /a    |"
+FP_GOT="$(printf '%s\n' "$FP_IN" | mdtab)"
+if [ "$FP_GOT" = "$FP_WANT" ]; then
+  pass "(fp2) a header cell wider than every value sets the column width"
+else fail "(fp2) padded table differs from prettier's form:
+$FP_GOT"; fi
+
+# (fp3) THE SHIPPED SHAPE, single row: the five real columns with a real 64-char digest, which
+# is the cell that guarantees the unpadded form differs from the formatted one.
+FP_IN="| RS | route | state | png | sha256 |
+| RS-1 | /a | default | .claude/lean-renders/55/RS-1.png | deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef |"
+FP_WANT="| RS   | route | state   | png                              | sha256                                                           |
+| ---- | ----- | ------- | -------------------------------- | ---------------------------------------------------------------- |
+| RS-1 | /a    | default | .claude/lean-renders/55/RS-1.png | deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef |"
+FP_GOT="$(printf '%s\n' "$FP_IN" | mdtab)"
+if [ "$FP_GOT" = "$FP_WANT" ]; then
+  pass "(fp3) a single-row manifest table matches prettier byte for byte"
+else fail "(fp3) padded table differs from prettier's form:
+$FP_GOT"; fi
+
+# (fp4) THE 3-DASH MINIMUM. Prettier never emits a delimiter cell narrower than `---`, so a
+# column whose widest content is one character still pads to three. Unreachable through the
+# render path — hence library mode.
+FP_IN="| a | bb |
+| c | d |"
+FP_WANT="| a   | bb  |
+| --- | --- |
+| c   | d   |"
+FP_GOT="$(printf '%s\n' "$FP_IN" | mdtab)"
+if [ "$FP_GOT" = "$FP_WANT" ]; then
+  pass "(fp4) columns narrower than three characters pad to the 3-dash minimum"
+else fail "(fp4) padded table differs from prettier's form:
+$FP_GOT"; fi
+
+# (fp5) THE LIVE ORACLE, opportunistic. The goldens above are a claim about another program's
+# output; this re-derives them from that program when it is installed locally. CI installs
+# nothing for it — a prettier table-format change is caught by whoever runs this suite on a
+# machine that has one, never by a red build that fetched a formatter to find out.
+FP_PRETTIER=""
+for fp_c in "$(cd "$HERE" && git rev-parse --show-toplevel 2>/dev/null)/node_modules/.bin/prettier" "$(command -v prettier 2>/dev/null)"; do
+  if [ -n "$fp_c" ] && [ -x "$fp_c" ]; then FP_PRETTIER="$fp_c"; break; fi
+done
+if [ -z "$FP_PRETTIER" ]; then
+  echo "  SKIPPED: (fp5) no local prettier resolves — the live table-form oracle is opportunistic by design"
+else
+  printf '%s\n' "$FP_IN" > "$WORK/fp-live.md"
+  printf '%s\n' "$FP_WANT" > "$WORK/fp-live-want.md"
+  "$FP_PRETTIER" --write "$WORK/fp-live.md" >/dev/null 2>&1
+  if cmp -s "$WORK/fp-live.md" "$WORK/fp-live-want.md"; then
+    pass "(fp5) the goldens above are what this machine's prettier actually writes"
+  else fail "(fp5) $FP_PRETTIER disagrees with the golden form: $(diff "$WORK/fp-live-want.md" "$WORK/fp-live.md" | head -8)"; fi
+fi
+
+# (fp6) INTEGRATION: the receipt the render path writes is already in that form, so the file
+# the milestone tells the run to commit is the file a `--check` accepts. Asserted on the
+# delimiter row, whose dash counts are a pure function of the widths the write site computed.
+dspec_armed
+printf 'x\n' > "$DTREE/fp-move-the-patch-id.txt"
+dcommit "the armed spec and a tree change, so the receipt must actually be re-derived"
+dreset
+dmode ok
+rm -f "$DCALLS" "$DMANIFEST"
+FP_OUT3="$(dgate 3 55)"; rc=$?
+FP_DELIM="$(grep -m1 -E '^\| -+ \|' "$DMANIFEST" 2>/dev/null)"
+FP_HDR="$(grep -m1 -F '| RS ' "$DMANIFEST" 2>/dev/null)"
+if [ "$rc" -eq 1 ] && [ -n "$FP_DELIM" ] && [ ${#FP_DELIM} -eq ${#FP_HDR} ] \
+   && printf '%s' "$FP_DELIM" | grep -qE '^\| ---- \| -+ \| -+ \| -+ \| -{64} \|$'; then
+  pass "(fp6) the rendered receipt carries a padded delimiter row sized to its own columns"
+else fail "(fp6) the receipt is not in prettier's table form, rc=$rc, delim=[$FP_DELIM] hdr=[$FP_HDR]"; fi
+
+# (fp7) ...and the reader is unchanged by it. render_manifest_rows trims each cell, so a PADDED
+# manifest and an UNPADDED one written before this change parse to the same rows — which is what
+# lets a receipt already committed on an in-flight branch keep being read.
+mdrows() { # mdrows <manifest-file>
+  # `m` is copied out of $1 BEFORE the source: library mode's placeholder args are consumed by
+  # the gate's own parser, which leaves this scope with no positional parameters at all.
+  local m="$1"
+  # shellcheck disable=SC1090,SC2034  # $GATE is the script under test, and the two assignments
+  # are read by the sourced production function rather than by anything in this file.
+  ( cd "$TREE" && LEAN_GATE_LIB=1 SECOND_SHIFT_CONFIG="$CFG" . "$GATE" >/dev/null 2>&1 \
+    && REPO_ROOT="$(dirname "$m")" && RENDER_MANIFEST_REL="$(basename "$m")" && render_manifest_rows )
+}
+sed -e 's/  */ /g' "$DMANIFEST" > "$WORK/fp-legacy-renders.md"
+if [ "$(mdrows "$DMANIFEST")" = "$(mdrows "$WORK/fp-legacy-renders.md")" ] \
+   && [ -n "$(mdrows "$DMANIFEST")" ]; then
+  pass "(fp7) padded and legacy unpadded manifests parse to identical rows"
+else fail "(fp7) the reader disagrees between the two forms: padded=[$(mdrows "$DMANIFEST")] legacy=[$(mdrows "$WORK/fp-legacy-renders.md")]"; fi
+dcommit "the padded render receipt"
+
+# ---- the verdict record's format step -------------------------------------------------------
+# A fake prettier at the rung lean_resolve_prettier actually probes, so these cases exercise the
+# resolver too. `mode` decides what it does to the file, which is how one fixture covers both
+# the benign path and the header-destroying one without needing prettier installed.
+FP_NM="$DTREE/node_modules/.bin"
+fp_formatter() { # fp_formatter <benign|join>
+  mkdir -p "$FP_NM"
+  cat > "$FP_NM/prettier" <<EOFMT
+#!/usr/bin/env bash
+mode=$1
+EOFMT
+  cat >> "$FP_NM/prettier" <<'EOFMT'
+f=""
+for a in "$@"; do case "$a" in --*) : ;; *) f="$a" ;; esac; done
+[ -n "$f" ] || exit 1
+if [ "$mode" = "join" ]; then
+  # proseWrap: "always" joins the header block into one line — measured, and the reason the
+  # verify-and-revert guard exists: every `^key:`-anchored reader then finds nothing.
+  awk 'BEGIN{h=0} /^[A-Za-z_][A-Za-z0-9_]*[:=]/ && h==0 {h=1} h==1 && /^[[:space:]]*$/ {h=2; print ""; next} h==1 {printf "%s ", $0; next} {print}' "$f" > "$f.j" && mv "$f.j" "$f"
+else
+  printf 'FORMATTED-BODY-MARKER\n' >> "$f"
+fi
+exit 0
+EOFMT
+  chmod +x "$FP_NM/prettier"
+}
+fp_unformatter() { rm -rf "$DTREE/node_modules"; }
+
+# (fp8) THE BENIGN PATH: a resolvable formatter runs, and its output is kept. Without this the
+# revert cases below would pass on a gate that never formatted anything at all.
+fp_formatter benign
+out="$(dverdict sess-review-fp r-review-fp --pr 55 --verdict approve --fidelity pass)"; rc=$?
+if [ "$rc" -eq 0 ] && grep -q '^FORMATTED-BODY-MARKER$' "$DVERDICT" \
+   && grep -q '^run_id: r-review-fp$' "$DVERDICT" \
+   && printf '%s' "$out" | grep -q 'formatted with'; then
+  pass "(fp8) the verdict record is handed to the resolved formatter and its output kept"
+else fail "(fp8) expected a formatted record, rc=$rc: $out / $(cat "$DVERDICT" 2>/dev/null)"; fi
+
+# (fp9) THE HEADER-DESTROYING PATH: the same call, a formatter that flattens the header block.
+# The record must come back UNFORMATTED with every key readable — a joined header silently
+# degrades the round to a chain root and drops `fidelity:`, which no reader can detect after
+# the fact. One warn line, and the call still succeeds: formatting is never the gate.
+fp_formatter join
+out="$(dverdict sess-review-fp r-review-fp --pr 55 --verdict approve --fidelity pass)"; rc=$?
+if [ "$rc" -eq 0 ] && grep -q '^run_id: r-review-fp$' "$DVERDICT" \
+   && grep -q '^fidelity: pass$' "$DVERDICT" \
+   && printf '%s' "$out" | grep -q 'changed header key'; then
+  pass "(fp9) a formatter that flattens the header is reverted, warned about, and not fatal"
+else fail "(fp9) expected a reverted record and a warning, rc=$rc: $out / $(cat "$DVERDICT" 2>/dev/null)"; fi
+
+# (fp10) NO FORMATTER: skipped, warned once, still rc=0. An absent prettier is a consumer fact,
+# not a run defect — and the gate must not reach the network to invent one, so the warning is
+# the only thing that fires.
+fp_unformatter
+out="$(dverdict sess-review-fp r-review-fp --pr 55 --verdict approve --fidelity pass)"; rc=$?
+if [ "$rc" -eq 0 ] && grep -q '^run_id: r-review-fp$' "$DVERDICT" \
+   && ! grep -q '^FORMATTED-BODY-MARKER$' "$DVERDICT" \
+   && printf '%s' "$out" | grep -q 'no prettier under'; then
+  pass "(fp10) an unresolvable formatter skips the step with one warning, never a failure"
+else fail "(fp10) expected an unformatted record and a skip warning, rc=$rc: $out / $(cat "$DVERDICT" 2>/dev/null)"; fi
+
+# (fp11) The same refusal (fp6) captured, read for what it TELLS the run. The gate formats only
+# what it authors, so the spec and any intent-gap record are the author's — and this message is
+# the only place a run learns that before CI does. It also states the re-derive cost, because a
+# padded rewrite moves reviewed_patch_id and voids a verdict already standing on the branch.
+if printf '%s' "$FP_OUT3" | grep -q 'intent-gap record are NOT' \
+   && printf '%s' "$FP_OUT3" | grep -q 'voids it'; then
+  pass "(fp11) the milestone-3 commit refusal names the formatting obligation and the re-derive cost"
+else fail "(fp11) the milestone-3 refusal does not carry both notices: $FP_OUT3"; fi
+
 echo "[lean-gate-selftest] $([ "$FAILS" -eq 0 ] && echo 'all green' || echo "$FAILS FAILURE(S)")"
 exit "$FAILS"

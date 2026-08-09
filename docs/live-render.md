@@ -123,6 +123,14 @@ land under `.claude/lean-renders/<key>/`, which the gate asserts is git-ignored 
 Milestone 4 then refuses any verdict that does not score `fidelity: pass`, or whose manifest was
 rendered from different code.
 
+**The receipt is written in Prettier's table form**, cell-padded at the write site, so a repo
+whose format gate covers `<plansDir>` does not go red on the artifact its own milestone told it
+to commit. The gate computes that padding itself and never reaches the network for a formatter.
+Two caveats: the receipt's header block (`rendered_from:` / `issue:` / `spec:`) is plain prose, so
+a `proseWrap: "always"` config still fails `--check` on it; and padding is computed by character
+count, so a wide-glyph `route` or `state` cell would mis-pad. The spec and any intent-gap record
+are yours to format — the gate formats only what it authors.
+
 **Prerequisites are the operator's, and they are worth doing before the run.** Under the blocking
 posture an unreachable dev server or a stale auth state costs a milestone-3 attempt. Before
 starting an armed run: have the harness's dependencies up (declare the health endpoint as

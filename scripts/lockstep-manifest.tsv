@@ -73,6 +73,14 @@ seam-scrub	subset-of	plugins/dev-pipeline/skills/run/tools/preflight.sh	seam-scr
 # PREFLIGHT_DOCTOR_CMD-shaped extra, so verbatim rather than subset-of.
 seam-scrub-lean	verbatim	plugins/dev-pipeline/skills/run-lean/lean-gate.sh	seam-scrub	plugins/dev-pipeline/skills/run/verifyctl.sh	seam-scrub
 #
+# Local prettier resolution (#439). lean-gate.sh formats the verdict record it authors, and
+# resolves the binary the way verifyctl.sh already does — worktree install, then main checkout.
+# Only the LOCAL rungs are shared: verifyctl.sh ends in `npx --yes prettier@x`, which a gate
+# call must never reach for, so the anchored blocks are exactly the two rungs both agree on and
+# the relation is verbatim over those. `subset-of` cannot express the narrowing — it compares
+# single-quoted pipe-delimited enums, and these are code paths, not a vocabulary.
+prettier-local-rungs	verbatim	plugins/dev-pipeline/skills/run-lean/lean-gate.sh	prettier-local-rungs	plugins/dev-pipeline/skills/run/verifyctl.sh	prettier-local-rungs
+#
 # ---------------------------------------------------------------------------------------
 # DROPPED to reviewer-guarded — recorded here rather than forgotten. Each was considered
 # for the mechanical manifest and rejected for a stated reason.

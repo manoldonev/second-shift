@@ -100,14 +100,22 @@ an in-flight verdict, costing one review round (D-12) — the #372 re-stamp prec
 extended to a formatting-only delta.
 
 **AC-8 — The Prettier-exact claim is bound by byte-exact fixtures, and CI takes no node
-dependency.** `lean-gate-selftest.sh` gains golden cases for width-from-header,
-width-from-value, a single-row table, and the minimum-3-dash case. One live-prettier diff case
-runs opportunistically and is reported **SKIP**, never a failure, when no formatter resolves.
-AC-5's revert path is driven by a fake formatter placed on `PATH` that joins the header block —
-deterministic, no prettier needed. No workflow gains a node or prettier install; a future
+dependency.** `lean-gate-selftest.sh` gains golden cases for width-from-value,
+width-from-header, a single-row table in the shipped five-column shape, and the minimum-3-dash
+case. The last is unreachable through the render path — every manifest column is wider than
+three characters — so the padder is exercised through a **library-mode** source of the real
+`lean-gate.sh` rather than a copy of it in the suite. One live-prettier diff case re-derives the
+goldens and is reported **SKIP**, never a failure, when no formatter resolves. AC-5's revert path
+is driven by a fake formatter installed at the rung the resolver actually probes, which joins the
+header block — deterministic, no prettier needed — alongside a benign-formatter case, so a gate
+that silently formatted nothing cannot pass. AC-3 is covered by parsing a padded and a legacy
+unpadded manifest through the same reader. No workflow gains a node or prettier install; a future
 Prettier table-format change is caught by whoever runs the suite locally (D-10, D-11).
 
-**AC-9 — `docs/live-render.md` states the manifest's formatting posture.** The lean-lane
-wiring section records that the receipt is written pre-padded to Prettier's table form and
-that the gate never reaches the network to format, so a consumer reading it after a red
-`format:check` finds the answer and the OR-1 flank.
+**AC-9 — Two docs are brought current.** `docs/live-render.md`'s lean-lane wiring section
+records that the receipt is written pre-padded to Prettier's table form and that the gate never
+reaches the network to format, so a consumer reading it after a red `format:check` finds the
+answer and the OR-1/OR-2 flanks. `docs/testing.md` records the library-mode seam AC-8 introduces
+— what it is for, and the positional-parameter caveat — because it is a newly sanctioned way to
+reach a pure production helper from a suite, and an author who does not know it exists writes
+the mirror harness the same page forbids.

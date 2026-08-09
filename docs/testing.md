@@ -275,6 +275,23 @@ Notes from building it:
   keep node's event loop alive, so merely reaching the end of the file hangs for fifteen minutes
   rather than returning.
 
+## The shell equivalent: library mode
+
+The same problem shows up in shell. A gate script parses arguments, resolves roots and dispatches
+a subcommand the moment it is sourced, so a *pure* helper inside it — a formatter, a parser — can
+only be reached through whatever subcommand happens to call it. When no subcommand reaches a
+branch, the tempting move is to re-declare the helper in the suite, which is the mirror harness
+this repo forbids: a copy cannot fail on a production edit.
+
+`lean-gate.sh` answers it with `LEAN_GATE_LIB`. Set it, source the script, and it defines its
+functions and returns before the dispatch; the suite then calls the real production body. It is
+what `lean-gate-selftest.sh`'s `(fp1)`–`(fp4)` use to fixture `md_table_prettier` against
+byte-exact goldens, including a width case no render the gate can perform would reach.
+
+One caveat, and it bites under `set -u`: the script's own argument parser consumes the inert
+placeholder arguments library mode supplies, so the sourcing scope has no positional parameters
+afterwards. Copy anything you need out of `$1` **before** the `.`.
+
 ## Test-the-tests: the mutation sweep
 
 Every tier above answers "is this behavior guarded?". None answers "does the guard actually fail
