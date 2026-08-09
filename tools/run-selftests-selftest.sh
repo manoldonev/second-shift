@@ -218,6 +218,35 @@ closes="$(grep -c '^::endgroup::' "$OUT")"
   || fail "AC-5: unbalanced framing — $opens ::group:: vs $closes ::endgroup::"
 
 # ---------------------------------------------------------------------------------------
+# A worker that writes no verdict is INFRA, never a pass. Documented guarantee, and the one
+# path a fixture cannot reach on its own — a suite has no handle on its worker's results dir —
+# so it goes through the RUN_SELFTESTS_DROP_RC seam. Both suites here EXIT 0; if a missing
+# verdict were read as their exit code, the sweep would be green.
+# ---------------------------------------------------------------------------------------
+RCM="$BASE/norc"; mkdir -p "$RCM"
+make_suite "$RCM" "alpha-selftest.sh" 0 'echo alpha-ok'
+make_suite "$RCM" "beta-selftest.sh" 0 'echo beta-ok'
+
+OUT="$BASE/out.norc"
+env -u TMPDIR -u RUN_SELFTESTS_DROP_LAST RUN_SELFTESTS_DROP_RC=1 \
+  bash "$RUNNER" --root "$RCM" --jobs 2 > "$OUT" 2>&1
+RC=$?
+[[ "$RC" -ne 0 ]] \
+  && grep -q 'alpha-selftest\.sh (rc=125)' "$OUT" \
+  && grep -q 'beta-selftest\.sh (rc=125)' "$OUT" \
+  && ok "no-verdict: a worker that wrote no verdict reds as rc=125, per suite" \
+  || { fail "no-verdict: a verdict-less worker did not red as 125 (rc=$RC)"; sed 's/^/    | /' "$OUT"; }
+# The infra cause must be SAID, not just coded — 125 is otherwise indistinguishable from a
+# suite that genuinely exited 125.
+[[ "$(grep -c 'no verdict written' "$OUT")" -eq 2 ]] \
+  && ok "no-verdict: each verdict-less suite is named as infra, not as a suite result" \
+  || { fail "no-verdict: the infra cause was not stated per suite"; sed 's/^/    | /' "$OUT"; }
+# Control: the same fixture without the seam is green, so the case above measures the seam.
+run_runner "$RCM" --jobs 2
+[[ "$RC" -eq 0 ]] && ok "no-verdict: control — the same fixture is green when verdicts are written" \
+                 || { fail "no-verdict: control fixture is not green (rc=$RC)"; sed 's/^/    | /' "$OUT"; }
+
+# ---------------------------------------------------------------------------------------
 # Nesting — the runner must survive running a suite that itself invokes the runner.
 #
 # THIS IS A REGRESSION GUARD, not a hypothetical. The dispatch sets RUN_SELFTESTS_WORKER on

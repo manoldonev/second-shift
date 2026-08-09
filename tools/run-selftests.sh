@@ -44,7 +44,7 @@
 set -uo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-ROOT="$(cd "$HERE/.." && pwd)"
+ROOT="$(dirname "$HERE")"   # HERE is already absolute and resolved, so its dirname is too
 JOBS="${SELFTEST_JOBS:-4}"
 EXCLUDES=""   # newline-separated; bash 3.2 has no array-of-args ergonomics worth the noise here
 
@@ -70,10 +70,18 @@ if [[ "${1:-}" == "--run-one" ]]; then
   W_ROOT="${4:?--run-one: root}"; W_OUT="${5:?--run-one: results dir}"
   W_SUITE="$(awk -F'\t' -v i="$W_IDX" '$1 == i { print $2 }' "$W_LIST")"
   [[ -n "$W_SUITE" ]] || exit 0
-  # The parent's test-only seam is stripped for the same reason: a nested runner must not
-  # inherit an instruction to truncate its own worklist.
-  ( cd "$W_ROOT" && env -u RUN_SELFTESTS_DROP_LAST bash "$W_SUITE" ) > "$W_OUT/$W_IDX.log" 2>&1
-  echo "$?" > "$W_OUT/$W_IDX.rc"
+  # The parent's test-only seams are stripped for the same reason: a nested runner must not
+  # inherit an instruction to truncate its own worklist or to suppress its own verdicts.
+  ( cd "$W_ROOT" && env -u RUN_SELFTESTS_DROP_LAST -u RUN_SELFTESTS_DROP_RC bash "$W_SUITE" ) \
+    > "$W_OUT/$W_IDX.log" 2>&1
+  W_RC=$?   # captured BEFORE anything else runs — a later test would overwrite $?
+  # Rejection-assertion seam #2 (see RUN_SELFTESTS_DROP_LAST below): exit WITHOUT writing the
+  # verdict file, reproducing a worker that died mid-suite. That path is a documented guarantee
+  # — a suite with no verdict is named as infra, never scored as a pass — and it is unreachable
+  # from a fixture otherwise, since a suite cannot reach its own worker's results directory.
+  # Never set in CI or by an operator.
+  [[ "${RUN_SELFTESTS_DROP_RC:-}" == "1" ]] && exit 0
+  echo "$W_RC" > "$W_OUT/$W_IDX.rc"
   exit 0
 fi
 
