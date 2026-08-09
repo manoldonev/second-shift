@@ -35,6 +35,19 @@ fail() { echo "  FAIL: $1" >&2; FAILS=$((FAILS + 1)); }
 # from the documented absent state; (m1c) sets it explicitly for the other direction.
 unset LEAN_RUN_MODEL
 
+# `RUN_ID` is the same class, and it hid behind a per-helper defense that did not cover every
+# call site. `gate()` unsets it, and so does every `entry` call but one: (d5)'s linked-worktree
+# call inherits the ambient value, and `entry` is a SEEDING subcommand — it writes whatever it
+# resolves into `<issue>-run-id`. Two hundred lines later (k6)'s milestone 5 resolves that cache,
+# finds an id the comment fixture's marker does not carry, and posts a marker instead of
+# skipping — with `gate()` having unset `GH_BOT`, which reds the case.
+#
+# The variable is exported by every real run: run-lean's checklist step 2 says to export it. So
+# the failure lands on an operator's own machine, inside milestone 3, on a case unrelated to
+# whatever is in flight — and passes standalone, which is the worst shape a false red can have.
+# Unset it once here rather than at each call site; every case that needs a value sets one.
+unset RUN_ID
+
 WORK="$(mktemp -d -t leangate.XXXXXX)"
 # shellcheck disable=SC2317,SC2329  # invoked indirectly by the EXIT trap below.
 # BOTH codes: shellcheck >=0.10 reports SC2329 on the function, 0.9 (CI) reports SC2317 on

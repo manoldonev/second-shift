@@ -119,3 +119,13 @@ answer and the OR-1/OR-2 flanks. `docs/testing.md` records the library-mode seam
 — what it is for, and the positional-parameter caveat — because it is a newly sanctioned way to
 reach a pure production helper from a suite, and an author who does not know it exists writes
 the mirror harness the same page forbids.
+
+**AC-10 — `lean-gate-selftest.sh` is hermetic against an exported `RUN_ID`.** Found while
+verifying this change, and in scope because it blocks the milestone that verifies it: the
+checklist tells every run to export `RUN_ID`, `(d5)`'s linked-worktree `entry` call is the one
+gate invocation that does not unset it, and `entry` seeds `<issue>-run-id` from what it
+resolves — so `(k6)`'s milestone-5 `mark` later finds an identity the comment fixture's marker
+does not carry, posts instead of skipping, and reds on the `GH_BOT` that same helper unset. The
+suite unsets the variable once at the top, beside the `LEAN_RUN_MODEL` guard it already carries
+for exactly this failure mode; cases that need a value set one. Verified by running the suite
+with and without `RUN_ID` in the environment.
