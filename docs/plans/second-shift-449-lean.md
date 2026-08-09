@@ -99,6 +99,16 @@ whole of AC-4, and a text-only assertion would pass on a FAIL. (D-9)
 re-baselined in `tools/mutation-baseline.tsv`, and any `tools/mutation-catalog.tsv` row
 addressing either file is re-anchored, in this same diff. (ledger "Obligations")
 
+**AC-10 — the one doc row this change falsifies is corrected.** `docs/config-schema.md`'s
+`grillWaivers` row states that the key waives *findings* and that doctor reports each as a
+`FAIL`. Both become false the moment a waiver can key an `unadopted` entry that doctor renders
+as a note, so the row states the two severities and which front door does what with each.
+Scope is exactly that: `docs/extending.md`'s grill paragraph is scoped to trigger 2 ("a key
+nothing *sets*, so the shipped default silently matches nothing") and stays true unchanged —
+adding cross-references to §3.6–§3.8 would be scope the ticket did not ask for.
+*(Added after milestone 1, before milestone 5, per the run-lean contract: the doc goes stale
+as a consequence of AC-1/AC-3/AC-4, and CLAUDE.md requires an explicit doc `AC-n` for that.)*
+
 ## Design
 
 Design: none — no user-facing rendered surface. The change is a CLI checker's JSON envelope,
