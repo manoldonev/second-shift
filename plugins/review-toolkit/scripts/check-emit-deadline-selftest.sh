@@ -233,6 +233,74 @@ grep -q "spec-reviewer" "$TMP/.live" \
   && ok "B5 spec-reviewer is covered by the lint under the shipped enrollment" \
   || bad "B5 expected spec-reviewer in the live lint output ($(cat "$TMP/.live"))"
 
+# B6/B7: the live scan's two REFUSALS. Both are one contract from opposite sides — a lint that
+# cannot see the tree it lints must say so, not report clean. That is what the fixed hop count
+# did from an install for a release: `$HERE/../../..` landed on the cache root, the glob matched
+# nothing, and the lint printed "clean — 0 linted agent(s)" with rc=0.
+#
+# Both stage a real directory shape and run the REAL script from inside it, so they exercise
+# production resolution rather than a model of it. `.claude-plugin/plugin.json` is what makes a
+# candidate a plugin here — the same marker install-topology-selftest.sh stages from — and is
+# why the unbounded cache-rung walk cannot wander into whatever else shares a parent.
+
+# B6: no plugin sibling in either topology => rc=1, naming the anchors it tried.
+b6="$TMP/b6/lonely/scripts"; mkdir -p "$b6"
+cp "$CHECK" "$b6/check-emit-deadline.sh"
+if (cd "$TMP" && bash "$b6/check-emit-deadline.sh") >"$TMP/.b6" 2>&1; then
+  bad "B6 expected rc=1 when no plugin sibling resolves, got rc=0 ($(cat "$TMP/.b6"))"
+else
+  grep -q "no sibling plugin agents dir found" "$TMP/.b6" \
+    && ok "B6 an unresolvable live scan fails loudly instead of reporting clean" \
+    || bad "B6 failed but did not name the resolution miss ($(cat "$TMP/.b6"))"
+fi
+
+# B7: roots resolve, but no agent file is read out of them => still rc=1. Resolving a root is
+# not the same as linting something, and "clean over zero agents" is the same vacuous green
+# wearing the other hat.
+b7="$TMP/b7/marketplace/toolkit/1.0.0"
+mkdir -p "$b7/scripts" "$b7/agents" "$b7/.claude-plugin"
+echo '{"name":"toolkit","version":"1.0.0"}' > "$b7/.claude-plugin/plugin.json"
+cp "$CHECK" "$b7/scripts/check-emit-deadline.sh"
+if (cd "$TMP" && bash "$b7/scripts/check-emit-deadline.sh") >"$TMP/.b7" 2>&1; then
+  bad "B7 expected rc=1 for a resolved-but-empty scan, got rc=0 ($(cat "$TMP/.b7"))"
+else
+  grep -q "read no agent file" "$TMP/.b7" \
+    && ok "B7 a live scan that reads no agent file fails instead of reporting clean" \
+    || bad "B7 failed for the wrong reason ($(cat "$TMP/.b7"))"
+fi
+
+# B8: the resolved roots ARE reported, and on STDERR. Resolution is the part that went wrong
+# silently, so it has to be visible; stdout has to stay byte-identical to the pre-fix run so
+# anything reading the verdict lines is unaffected by the diagnostic.
+bash "$CHECK" >"$TMP/.b8.out" 2>"$TMP/.b8.err"
+if grep -q "scanning roots:" "$TMP/.b8.err" && ! grep -q "scanning roots:" "$TMP/.b8.out"; then
+  ok "B8 resolved roots are reported on stderr, leaving stdout unchanged"
+else
+  bad "B8 expected the roots line on stderr only (out: $(head -1 "$TMP/.b8.out"); err: $(head -1 "$TMP/.b8.err"))"
+fi
+
+# B9: from a version-keyed cache shape, the scan must reach SIBLING plugins, not just the one
+# it ships in. This is the narrowing a first-hit ladder produces and nothing else here would
+# catch: B1-B5 all name agents that live in review-toolkit, so they pass identically whether
+# the scan covered every plugin or only its own. Measured on an earlier draft — from an
+# install it scanned review-toolkit alone, because one level up a cache's `<plugin>/<version>/`
+# dirs are shape-indistinguishable from the monorepo's `plugins/<plugin>/` dirs.
+b9="$TMP/b9/marketplace"
+for plug in mine other; do
+  mkdir -p "$b9/$plug/1.0.0/.claude-plugin" "$b9/$plug/1.0.0/agents"
+  echo "{\"name\":\"$plug\",\"version\":\"1.0.0\"}" > "$b9/$plug/1.0.0/.claude-plugin/plugin.json"
+  write_agent "$b9/$plug/1.0.0/agents" "$plug-reviewer" "maxTurns: 30" \
+    "By **turn 20** (of your 30 maximum) you MUST be writing the final result."
+done
+mkdir -p "$b9/mine/1.0.0/scripts"
+cp "$CHECK" "$b9/mine/1.0.0/scripts/check-emit-deadline.sh"
+(cd "$TMP" && bash "$b9/mine/1.0.0/scripts/check-emit-deadline.sh") >"$TMP/.b9" 2>&1
+if grep -q "other-reviewer" "$TMP/.b9" && grep -q "mine-reviewer" "$TMP/.b9"; then
+  ok "B9 a cache-shaped scan reaches sibling plugins, not only the one it ships in"
+else
+  bad "B9 expected both plugins' agents in a cache-shaped scan ($(cat "$TMP/.b9"))"
+fi
+
 echo
 echo "[check-emit-deadline-selftest] $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]

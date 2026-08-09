@@ -106,19 +106,86 @@ CHECKED=0
 ENROLLED_SEEN=""
 FILES_SEEN=0
 
-# Resolve the roots to scan. Explicit args win; otherwise walk up from this script to the
-# repo root and take every plugins/*/agents dir that exists.
+# Resolve the roots to scan. Explicit args win; otherwise ENUMERATE every sibling plugin's
+# agents dir, in whichever topology this script is running from.
+#
+# WHY NOT A HOP COUNT TO THE REPO ROOT. The previous form derived `$HERE/../../..` as "the
+# repo" and globbed `$REPO/plugins/*/agents`. That hop count only holds in the monorepo:
+# installed, this script lives at <cache>/<marketplace>/review-toolkit/<version>/scripts, so
+# the same expression lands on the marketplace root — which has no `plugins/` — and the scan
+# found ZERO agents while reporting clean.
+#
+# THE ANCHORS. This is the enumeration cousin of `resolve_sibling_plugin_root()` in
+# check-model-tiers.sh, which sits in THIS directory, so its hop constants transfer verbatim:
+#   $HERE/../..      the monorepo `plugins/` dir      (its `$SCRIPT_DIR/../../<name>` rung)
+#   $HERE/../../..   the install marketplace root     (its `$SCRIPT_DIR/../../../<name>/*/` rung)
+# The marketplace root is already scoped to this plugin's own marketplace, so enumerating its
+# children cannot reach another marketplace's plugins. install-topology-selftest.sh stages
+# <root>/<plugin>/<version>/, the same relative shape.
+#
+# WHAT COUNTS AS A PLUGIN. The named ladders can afford a loose marker because the NAME already
+# bounds them; an unbounded walk cannot. Every candidate must therefore carry
+# `.claude-plugin/plugin.json` — this repo's own definition of a plugin dir, and the same glob
+# install-topology-selftest.sh stages from. Without it the cache rung is just "every sibling
+# directory of my grandparent", which, run from anywhere unexpected, happily enumerates
+# whatever else lives there. That is not hypothetical: a probe of an earlier draft of this
+# block, from a lone copy under $TMPDIR, resolved an unrelated vendor's `agents` dir.
+#
+# Newest version per plugin, selected LEXICALLY — glob order, so the last match wins, the same
+# `sort -r`/`tail -1` semantics both house ladders use. `9.0.0` therefore outranks `10.0.0`;
+# that is a shared latent defect deliberately mirrored rather than fixed here.
+#
+# THE TWO SHAPES ARE UNIONED, NOT TRIED IN ORDER. The named ladders can afford "first rung that
+# hits wins" because a NAME tells the two layouts apart: in a cache, `review-toolkit/<name>`
+# does not exist, so rung 1 misses and rung 2 runs. An enumeration has no name to miss on, and
+# one level up the layouts are genuinely ambiguous — `plugins/` and `<cache>/review-toolkit/`
+# are both "a directory of dirs carrying plugin.json". A first-hit ladder therefore stops at
+# shape 1 from an install, where shape 1 matches MY OWN version dirs and nothing else: measured,
+# that scanned review-toolkit alone and silently dropped design-toolkit and intake-toolkit —
+# the same narrowing this issue is about, one level shallower. Unioning cannot narrow, and for a
+# lint the safe direction is more agents scanned, never fewer. Duplicates are dropped by path.
+#
+# NO SKIP RUNG, AND NO EMPTY PASS. If neither shape yields an agents dir this fails loudly —
+# and so does a scan that resolved roots but read no agent file out of them, because "clean, 0
+# linted" is the very report this lint spent a release emitting from an install.
 LIVE_SCAN=0
 if [ "$#" -gt 0 ]; then
   ROOTS="$*"
 else
   LIVE_SCAN=1
   HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-  REPO="$(cd "$HERE/../../.." && pwd)"
   ROOTS=""
-  for d in "$REPO"/plugins/*/agents; do
-    [ -d "$d" ] && ROOTS="$ROOTS $d"
+  add_root() { # dedup by resolved path — the two shapes overlap on my own plugin
+    local r
+    r="$(cd "$1" 2>/dev/null && pwd)" || return 0
+    case " $ROOTS " in *" $r "*) return 0 ;; esac
+    ROOTS="$ROOTS $r"
+  }
+  # Shape 1 — sibling plugins one level up: the monorepo `plugins/<plugin>/agents`.
+  for d in "$HERE"/../../*/; do
+    [ -f "$d/.claude-plugin/plugin.json" ] || continue
+    [ -d "$d/agents" ] && add_root "$d/agents"
   done
+  # Shape 2 — sibling plugins two levels up, each version-keyed: the install cache's
+  # `<marketplace>/<plugin>/<version>/agents`.
+  for p in "$HERE"/../../../*/; do
+    newest=""
+    for v in "$p"*/; do
+      [ -f "$v/.claude-plugin/plugin.json" ] || continue
+      [ -d "$v/agents" ] && newest="$v"
+    done
+    [ -n "$newest" ] && add_root "$newest/agents"
+  done
+  if [ -z "$ROOTS" ]; then
+    echo "[emit-deadline] FAIL: no sibling plugin agents dir found from $HERE — looked for" >&2
+    echo "        \$HERE/../../*/agents (monorepo) and \$HERE/../../../*/*/agents (install cache)," >&2
+    echo "        each under a dir carrying .claude-plugin/plugin.json." >&2
+    echo "        Pass the agents dirs explicitly if you meant to scope the scan." >&2
+    exit 1
+  fi
+  # Resolution is the part that silently went wrong before, so it is reported — on STDERR, so
+  # stdout stays byte-identical to a run that resolved the same roots the old way.
+  echo "[emit-deadline] scanning roots:$ROOTS" >&2
 fi
 
 for dir in $ROOTS; do
@@ -227,6 +294,16 @@ done
 # absent agent there carries no signal (and every fixture passes a synthetic one-agent
 # dir). Also requires having seen at least one agent file, so an empty or misconfigured
 # scan is not misreported as a bad enrollment.
+# Resolving roots is not the same as reading agents out of them. A live scan that saw no agent
+# file at all is the vacuous green in its second form — the roots looked plausible, the loop ran
+# over nothing, and the lint reported clean. Fail before the enrollment check below, which is
+# gated on FILES_SEEN and would otherwise stay silent on exactly this run.
+if [ "$LIVE_SCAN" -eq 1 ] && [ "$FILES_SEEN" -eq 0 ]; then
+  echo "[emit-deadline] FAIL: resolved agent roots but read no agent file from them:$ROOTS" >&2
+  echo "        A clean verdict over zero agents is not a clean verdict." >&2
+  exit 1
+fi
+
 if [ "$LIVE_SCAN" -eq 1 ] && [ "$FILES_SEEN" -gt 0 ]; then
   for e in $DEADLINE_AT_DEFAULT; do
     case " $ENROLLED_SEEN " in
