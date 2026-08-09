@@ -11,7 +11,7 @@ Three classes replace today's two markers:
 - **(b) could not evaluate** — exactly one line, on the green path. Mandatory, not permitted.
 - **failure** — unchanged: as loud and as specific as today.
 
-Satisfied arms are silent *unconditionally*, including on runs that end non-green. The output is
+Satisfied arms are silent _unconditionally_, including on runs that end non-green. The output is
 streamed, not buffered: the failure line already names the arm that failed, which is the context
 that matters.
 
@@ -20,12 +20,12 @@ that matters.
 Both files pin the same shape, because the two follow-on tickets in this decomposition emit into
 this class and must not each invent one.
 
-| Property | Value |
-| --- | --- |
-| stream | **stdout** |
-| prefix | the gate's own tag, then three spaces and `· ` — `[lean-chain]   · ` / `[lean-evidence]   · ` |
-| body | `<arm>: <disposition> — <reason>` |
-| dispositions | the closed set `not-applicable`, `reduced-strength`, `postdated`, `inert` |
+| Property     | Value                                                                                         |
+| ------------ | --------------------------------------------------------------------------------------------- |
+| stream       | **stdout**                                                                                    |
+| prefix       | the gate's own tag, then three spaces and `· ` — `[lean-chain]   · ` / `[lean-evidence]   · ` |
+| body         | `<arm>: <disposition> — <reason>`                                                             |
+| dispositions | the closed set `not-applicable`, `reduced-strength`, `postdated`, `inert`                     |
 
 `postdated` and `inert` are unused here and reserved for the successors. The set is declared once
 per file as `LEAN_OUTPUT_DISPOSITIONS`, and the emitter refuses (rc=2) a disposition outside it, so
@@ -60,39 +60,39 @@ Every green-path line in the two guards, and its class.
 
 ### `scripts/check-lean-chain.sh`
 
-| Today | Class | After |
-| --- | --- | --- |
-| whole-gate `non-lean change — … not applicable` block (4 lines) | (b) | one line, `lean-chain: not-applicable` |
-| `applicable via <trigger>` | (a) | removed |
-| `source issue: #<key>` | (a) | removed |
-| `✓ spec: …` | (a) | removed |
-| `✓ claim: …` | (a) | removed |
-| `✓ authorship: …` | (a) | removed |
-| `note: the claim comment carries no session_id …` | (b) | `authorship: reduced-strength` |
-| `· freshness (inferred): skipped — … precedence` | (a) — AC-4 names it | removed |
-| `✓ freshness (inferred): …` | (a) | removed |
-| `✓ freshness (declared): …` | (a) | removed |
-| `· verdict record declares no inherited coverage` | (a) — AC-4 names it | removed |
-| `✓ inheritance chain: N inherited link(s)` | (a) | removed |
-| `· spec declares no armed design render lane` | (a) — AC-4 names it | removed |
-| `· render receipt present, but there is no verdict record …` | (b) | `design-evidence: not-applicable` |
-| `✓ design evidence: …` | (a) | removed |
-| final `lean evidence complete for #<key> …` | (a) | removed |
+| Today                                                           | Class               | After                                  |
+| --------------------------------------------------------------- | ------------------- | -------------------------------------- |
+| whole-gate `non-lean change — … not applicable` block (4 lines) | (b)                 | one line, `lean-chain: not-applicable` |
+| `applicable via <trigger>`                                      | (a)                 | removed                                |
+| `source issue: #<key>`                                          | (a)                 | removed                                |
+| `✓ spec: …`                                                     | (a)                 | removed                                |
+| `✓ claim: …`                                                    | (a)                 | removed                                |
+| `✓ authorship: …`                                               | (a)                 | removed                                |
+| `note: the claim comment carries no session_id …`               | (b)                 | `authorship: reduced-strength`         |
+| `· freshness (inferred): skipped — … precedence`                | (a) — AC-4 names it | removed                                |
+| `✓ freshness (inferred): …`                                     | (a)                 | removed                                |
+| `✓ freshness (declared): …`                                     | (a)                 | removed                                |
+| `· verdict record declares no inherited coverage`               | (a) — AC-4 names it | removed                                |
+| `✓ inheritance chain: N inherited link(s)`                      | (a)                 | removed                                |
+| `· spec declares no armed design render lane`                   | (a) — AC-4 names it | removed                                |
+| `· render receipt present, but there is no verdict record …`    | (b)                 | `design-evidence: not-applicable`      |
+| `✓ design evidence: …`                                          | (a)                 | removed                                |
+| final `lean evidence complete for #<key> …`                     | (a)                 | removed                                |
 
 ### `plugins/dev-pipeline/skills/run-lean/lean-evidence.sh`
 
-| Today | Class | After |
-| --- | --- | --- |
-| whole-gate `non-lean change — … not applicable` block (3 lines) | (b) | one line, `lean-evidence: not-applicable` |
-| `applicable via <trigger>` | (a) | removed |
-| `source issue: #<key>` | (a) | removed |
-| `✓ verdict record: …` | (a) | removed |
-| `· identity: UNAVAILABLE AT REDUCED STRENGTH — … jira …` | (b) | `identity: reduced-strength` |
-| `✓ authorship: …` | (a) | removed |
-| `✓ freshness (declared, patch-id …)` | (a) | removed |
-| `· no intent-gap record for #<key> …` | (a) | removed |
-| `✓ intent gap: … ratified` | (a) | removed |
-| final `lean evidence complete for #<key>.` | (a) | removed |
+| Today                                                           | Class | After                                     |
+| --------------------------------------------------------------- | ----- | ----------------------------------------- |
+| whole-gate `non-lean change — … not applicable` block (3 lines) | (b)   | one line, `lean-evidence: not-applicable` |
+| `applicable via <trigger>`                                      | (a)   | removed                                   |
+| `source issue: #<key>`                                          | (a)   | removed                                   |
+| `✓ verdict record: …`                                           | (a)   | removed                                   |
+| `· identity: UNAVAILABLE AT REDUCED STRENGTH — … jira …`        | (b)   | `identity: reduced-strength`              |
+| `✓ authorship: …`                                               | (a)   | removed                                   |
+| `✓ freshness (declared, patch-id …)`                            | (a)   | removed                                   |
+| `· no intent-gap record for #<key> …`                           | (a)   | removed                                   |
+| `✓ intent gap: … ratified`                                      | (a)   | removed                                   |
+| final `lean evidence complete for #<key>.`                      | (a)   | removed                                   |
 
 ## Decisions
 
@@ -102,11 +102,11 @@ Every green-path line in the two guards, and its class.
   operator argues a misclassification with, and AC-3 constrains the line count, not its width.
 - **D-2 — `plugins/dev-pipeline/skills/run-lean/lean-reconcile.sh` is untouched.** It is named
   neither in the ticket's scope nor in its out-of-scope list, but it falls squarely under the
-  rationale that excludes `pipeline-doctor.sh`: an operator-run diagnostic whose output *is* its
+  rationale that excludes `pipeline-doctor.sh`: an operator-run diagnostic whose output _is_ its
   product, read deliberately rather than skimmed in a job log. Its own copy of the
   no-inherited-coverage line therefore stays.
 - **D-3 — the `LEAN_BRANCH_PREFIX` retirement notice is outside the taxonomy and stays.** It
-  reports an *input* the caller supplied, not the outcome of a check, so it is neither a satisfied
+  reports an _input_ the caller supplied, not the outcome of a check, so it is neither a satisfied
   arm nor an arm that could not evaluate. It fires only for a workflow still setting a constant
   retired in #413, which is not the ordinary green PR AC-1/AC-2 quantify over.
 - **D-4 — the suites replace each removed green-path grep with an explicit total-silence
@@ -115,7 +115,7 @@ Every green-path line in the two guards, and its class.
   arms' kill criteria remain their existing negative cases, which are unchanged (AC-5).
 - **D-5 — two chain cases lose an observable and are re-armed differently.** `(V3b)`
   (self-inheritance) and `(V6b)` (the walk's header-anchored read one level down) pinned the
-  printed *link count*, which class (a) removes. For `(V6b)` an rc-observable replacement exists
+  printed _link count_, which class (a) removes. For `(V6b)` an rc-observable replacement exists
   and is added: a prior record whose body quotes a **non-resolving** value dangles under a
   first-match walk and passes under a header-anchored one. For `(V3b)` none exists — an unbounded
   walk is provably the bounded walk plus one self-link with an identical terminal state, so no
