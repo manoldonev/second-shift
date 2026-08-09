@@ -142,10 +142,12 @@ done
 [[ "$JOBS" =~ ^[0-9]+$ ]] && [[ "$JOBS" -ge 1 ]] || die "--jobs/SELFTEST_JOBS must be a positive integer, got: $JOBS"
 [[ -d "$ROOT" ]] || die "--root is not a directory: $ROOT"
 ROOT="$(cd "$ROOT" && pwd)"
-# "a whole number", not the sibling's "a non-negative integer": that phrase contains the literal
-# `-ne`, so the mutation sweep enumerates this line as a cmp-eq site and the flip lands in a die
-# message where nothing can kill it — burning one of the operator's two budgeted ordinals on
-# prose, and displacing a real comparison out of the swept window.
+# "a whole number", and NOT the longer phrasing tools/mutation-sweep.sh uses for the same check:
+# that wording embeds one of the two tokens the equality operator in tools/mutation-operators.tsv
+# enumerates, so the sweep reads a die MESSAGE as a mutation site. The flip then lands in prose
+# nothing can kill, burning one of that operator's two budgeted ordinals and displacing a real
+# comparison out of the swept window. (This comment is under the same constraint, and says so
+# rather than naming the tokens: an explanation that spells them out recreates the site twice.)
 [[ "$CACHE_MAX" =~ ^[0-9]+$ ]] || die "SELFTEST_CACHE_MAX must be a whole number, got: $CACHE_MAX"
 # --cache-write without a store is a workflow that THINKS it is recording passes and is not.
 # Refusing beats accepting it: a lane silently recording nothing looks identical to a lane whose
