@@ -53,8 +53,9 @@ JSON document to stdout with exactly three arrays:
   leave the caller believing it dispositioned something, so the guard says so.
 
 Deltas are data — the script exits **0** whether or not it emitted any, so the caller does not
-treat a delta as a crash. Usage/IO errors — wrong argument count, a missing file, a
-non-JSON file on either side, `--ack` with no value — exit **3** with a message on stderr,
+treat a delta as a crash. Usage/IO errors — wrong argument count, a missing file, a file on
+either side that is not JSON *or is JSON that is not an object*, `--ack` with no value, an
+unknown option — exit **3** with a message on stderr,
 matching `config-grill.sh:33-38`. An unreadable *existing* config is specifically an exit 3
 and never a silent skip (D-10): diff mode is impossible against a document Step 0 could not
 load, so skipping would disable the guard exactly when the config is already damaged.
@@ -139,9 +140,12 @@ its "a diff review of a 90%-correct document, not a wizard" framing stay unamend
 - `--ack` suppression: one acked path drops out while an unacked sibling delta remains; a
   repeated `--ack` suppressing two; `acknowledged[]` listing what was suppressed; an ack
   matching nothing landing in `unmatchedAcks[]` and leaving `deltas[]` untouched;
-- exit 0 with deltas present, exit 0 with none, and exit 3 for each usage/IO shape: wrong
-  argument count, missing existing file, missing draft file, non-JSON existing, non-JSON draft,
-  and `--ack` with no value.
+- an ack path that is a *prefix* of a real delta path clearing nothing — the "exact, no
+  wildcards" half of AC-3, which a suppression-only test cannot distinguish from a bug;
+- exit 0 with deltas present, exit 0 with none, and exit 3 for each usage/IO shape: no
+  arguments, one argument, a third positional, missing existing file, missing draft file,
+  non-JSON existing, non-JSON draft, valid JSON that is not an object, `--ack` with no value,
+  and an unknown option.
 
 ## Open regions (from the ledger, unchanged)
 

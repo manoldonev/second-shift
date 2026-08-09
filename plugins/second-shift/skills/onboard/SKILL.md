@@ -72,9 +72,16 @@ Build the draft config from detection:
   scoped to one workspace).
 - `commands.<repo>` from detection: the emitted block contains EXACTLY these keys —
   `lint`, `lintAutofixes`, `typecheck`, `test`, `format` from detect.sh, PLUS
-  `testFile`, `unitTestScope` always as explicit `null`
+  `testFile`, `unitTestScope` as explicit `null`
   (undetectable — their provenance comment reads "set when adopting the mutation
   gate"). **Undetected lanes are explicit `null`** — never omit, never invent.
+  **On a RE-onboard (Step 0 diff mode) those two keys are carried FORWARD from the
+  existing config, and are `null` only where they were already `null`.** Undetectable
+  means detection cannot reproduce them, not that they are safe to regenerate: they are
+  precisely the keys a human sets when adopting the mutation gate, and `unitTestScope:
+  null` is a legal "no mutation surface", so nulling them turns the gate off silently
+  and `config-lint` still passes. The guard below is the mechanical backstop; this
+  clause is what keeps it from firing on every re-onboard of every adopter.
   (Integration/API test tiers, and `build`, are NOT config command keys — removed in
   v2.1.6 / #113 respectively; ship them via `extraLanes` / extension points EP-6/EP-7.
   Never emit `integrationTest`/`apiTest`/`build` under `commands.<repo>`.)
@@ -203,10 +210,31 @@ still reports green.
   behalf and never propose one**: an invented reason is a waiver with no accountability. Offer
   the mechanism, not the text.
 
+**On a RE-onboard, also DIFF the draft against the existing config.** Same temp file, one more
+call:
+`bash "${CLAUDE_PLUGIN_ROOT}/skills/onboard/tools/config-diff-guard.sh" .claude/second-shift.config.json "$TMPDIR/second-shift-draft.json"`
+— and parse its JSON. On a FRESH onboard there is nothing to diff; skip it. The guard protects
+every existing non-null value, because there is no discriminator for "human-authored": detection
+emits nothing at all for the keys the audited regression destroyed, and for keys it does produce,
+an existing value is indistinguishable from a prior run's detected one.
+
+- Every entry in `deltas[]` renders as a **blocking line** alongside the grill's findings, with
+  the entry's `evidence` then its `proposal` verbatim.
+- Every entry in `unmatchedAcks[]` renders informationally and never blocks — it means an
+  acknowledgment named a path no delta carries, so nothing was dispositioned.
+- The guard **re-runs on each loop iteration**, and "no unacknowledged deltas" joins "no unwaived
+  findings" as the accept predicate.
+- A delta is cleared by fixing the draft, or — when the human confirms the removal or a genuine
+  re-detection — by re-running with `--ack <path>` for that one path. Acks are exact, per-run, and
+  write nothing. **Never `--ack` a path the human has not confirmed**: the flag is typed by you,
+  and it is the only thing standing between a silent destruction and a seen one. `grillWaivers` is
+  not the channel here — a waiver is permanent config state, so it would silence the guard for
+  that path on every future re-onboard.
+
 This adds **no question batch and no new surface**. Disposition is captured by the human
-editing the screen they are already editing — fixing the key, or typing the waiver entry — so
-the "at most one AskUserQuestion batch" rule above and the "not a wizard" framing below both
-stand unamended.
+editing the screen they are already editing — fixing the key, typing the waiver entry, or
+confirming the removal — so the "at most one AskUserQuestion batch" rule above and the "not a
+wizard" framing below both stand unamended.
 
 The human accepts or edits values; loop the screen until accepted. This is a diff review
 of a 90%-correct document, not a wizard.

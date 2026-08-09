@@ -1,0 +1,211 @@
+#!/usr/bin/env bash
+# config-diff-guard-selftest.sh — behavioral selftest for config-diff-guard.sh.
+#
+# Hermetic: the tool takes no repo root and reads no tree, so every fixture is two JSON
+# documents under mktemp. No git, no network, no plugin cache.
+#
+# What each case guards is stated at the case. The through-line: a delta must fire on a value
+# the draft would destroy and must NOT fire on a draft that reproduces it — a guard that always
+# fires is one the human learns to acknowledge blindly, which is the failure mode the whole
+# design is arranged against.
+set -uo pipefail
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+GUARD="$HERE/config-diff-guard.sh"
+FAILS=0
+check() { if [[ "$2" -eq 0 ]]; then echo "  ✓ $1"; else echo "  ✗ $1"; FAILS=$((FAILS+1)); fi; }
+
+TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
+OUT=""; RC=0
+
+run_guard() { # $1.. → args passed through verbatim
+  RC=0
+  OUT="$(bash "$GUARD" "$@" 2>/dev/null)" || RC=$?
+}
+
+_paths() { jq -r '.deltas[].path' <<< "$OUT" | tr '\n' ' '; }
+_delta() { jq -r --arg p "$1" '.deltas[] | select(.path==$p) | "\(.kind) ⟂ \(.existing|tojson) ⟂ \(.draft|tojson) ⟂ \(.evidence) ⟂ \(.proposal)"' <<< "$OUT"; }
+
+expect_delta() { # $1 label, $2 path, $3 kind, $4.. substrings that must appear in the row
+  local label="$1" path="$2" kind="$3"; shift 3
+  local got s; got="$(_delta "$path")"
+  if [[ -z "$got" ]]; then check "$label (no delta '$path'; got: $(_paths))" 1; return; fi
+  if [[ "${got%% ⟂ *}" != "$kind" ]]; then check "$label (kind is '${got%% ⟂ *}', expected '$kind')" 1; return; fi
+  for s in "$@"; do
+    if ! grep -qF -- "$s" <<< "$got"; then check "$label (missing '$s')" 1; echo "      $got"; return; fi
+  done
+  check "$label" 0
+}
+expect_no_delta() { # $1 label, $2 path
+  if [[ -z "$(_delta "$2")" ]]; then check "$1" 0; else check "$1 (unexpected delta '$2')" 1; echo "      $(_delta "$2")"; fi
+}
+expect_count() { # $1 label, $2 expected number of deltas
+  local n; n="$(jq -r '.deltas | length' <<< "$OUT")"
+  if [[ "$n" == "$2" ]]; then check "$1" 0; else check "$1 (delta count $n, expected $2: $(_paths))" 1; fi
+}
+expect_list() { # $1 label, $2 envelope array (acknowledged|unmatchedAcks), $3 expected space-joined
+  local got; got="$(jq -r --arg k "$2" '.[$k] | join(" ")' <<< "$OUT")"
+  if [[ "$got" == "$3" ]]; then check "$1" 0; else check "$1 ($2 is '$got', expected '$3')" 1; fi
+}
+expect_rc() { # $1 label, $2 expected rc
+  if [[ "$RC" == "$2" ]]; then check "$1" 0; else check "$1 (rc=$RC, expected $2)" 1; fi
+}
+
+echo "config-diff-guard selftest:"
+
+# --- AC-2 classification table + the motivating evidence ------------------------------------
+# The audited re-onboard reverted BOTH mutation-gate keys — one to an explicit null, one by
+# omission — while every other key round-tripped. Both spellings destroy the value, so both are
+# `removed`; distinguishing them in the evidence is what tells the reader which half of the draft
+# to look at. `lint` changing is `changed`, `typecheck` round-tripping is silent.
+cat > "$TMP/e1.json" <<'EOF'
+{ "$schema": "https://example.invalid/v1/schema.json",
+  "configVersion": 2,
+  "commands": { "web": { "lint": "yarn lint", "typecheck": "yarn tsc",
+                         "testFile": "yarn test {file}", "unitTestScope": "src/**",
+                         "format": null } } }
+EOF
+cat > "$TMP/d1.json" <<'EOF'
+{ "$schema": "https://example.invalid/v1/schema.json",
+  "configVersion": 2,
+  "commands": { "web": { "lint": "yarn lint --cache", "typecheck": "yarn tsc",
+                         "testFile": null,
+                         "format": "yarn prettier" } },
+  "gates": { "mutation": false } }
+EOF
+run_guard "$TMP/e1.json" "$TMP/d1.json"
+expect_delta "draft-null is removed, and the evidence says which spelling" \
+  commands.web.testFile removed '"yarn test {file}"' "sets it to null" "--ack commands.web.testFile"
+expect_delta "draft-absent is removed, and the evidence says which spelling" \
+  commands.web.unitTestScope removed '"src/**"' "omits the key entirely"
+expect_delta "draft-differs is changed, and both values are quoted" \
+  commands.web.lint changed '"yarn lint"' '"yarn lint --cache"' "change is what the human intends"
+expect_no_delta "draft-identical is silent" commands.web.typecheck
+expect_no_delta "an existing null leaf is never protected, even when the draft fills it in" \
+  commands.web.format
+expect_no_delta "a draft-only path is never reported — an addition destroys nothing" gates.mutation
+expect_count "exactly the three destroyed values" 3
+expect_rc "exit 0 with deltas present — deltas are data, not a crash" 0
+expect_list "nothing acknowledged without --ack" acknowledged ""
+
+# --- AC-2 walk table: nested objects descend to scalar leaves --------------------------------
+# The walk must reach a leaf at any depth, and must report the LEAF path rather than the object
+# that contains it: `tracker.bot` as a whole would name a subtree the human did not change.
+cat > "$TMP/e2.json" <<'EOF'
+{ "configVersion": 2,
+  "tracker": { "type": "github", "branchPrefix": "claude/app-",
+               "bot": { "enabled": true, "envVar": "GH_BOT",
+                        "app": { "appName": "app-bot", "installationId": "1234" } } } }
+EOF
+cat > "$TMP/d2.json" <<'EOF'
+{ "configVersion": 2,
+  "tracker": { "type": "github", "branchPrefix": "claude/app-",
+               "bot": { "enabled": true, "envVar": "GH_BOT",
+                        "app": { "appName": "app-bot", "installationId": "9999" } } } }
+EOF
+run_guard "$TMP/e2.json" "$TMP/d2.json"
+expect_delta "a depth-4 scalar leaf is reached and reported at its own path" \
+  tracker.bot.app.installationId changed '"1234"' '"9999"'
+expect_count "only the changed leaf, not its enclosing objects" 1
+
+# --- AC-2 walk table: an array is a leaf, compared whole --------------------------------------
+# commands.<id>.lanes / extraLanes / reviewers.add are arrays of OBJECTS. Descending would report
+# a cascade of shifted element paths on a single insertion, so the array's own path is reported
+# ONCE and no index path ever appears.
+cat > "$TMP/e3.json" <<'EOF'
+{ "configVersion": 2,
+  "commands": { "web": { "lanes": [ {"name":"install","commands":["yarn install --immutable"]} ],
+                         "extraLanes": [ {"name":"build","commands":["yarn build"]} ] } },
+  "reviewers": { "add": ["local-reviewer"] } }
+EOF
+cat > "$TMP/d3.json" <<'EOF'
+{ "configVersion": 2,
+  "commands": { "web": { "lanes": [ {"name":"setup","commands":["yarn install --immutable"]},
+                                    {"name":"install","commands":["yarn install --immutable"]} ],
+                         "extraLanes": [ {"name":"build","commands":["yarn build"]} ] } },
+  "reviewers": { "add": ["local-reviewer"] } }
+EOF
+run_guard "$TMP/e3.json" "$TMP/d3.json"
+expect_delta "an array reports its OWN path, once" commands.web.lanes changed
+expect_count "one delta for the whole array — no per-index cascade" 1
+if jq -e '[.deltas[].path] | map(select(test("\\.[0-9]"))) | length == 0' <<< "$OUT" >/dev/null; then
+  check "no index-level path is ever emitted" 0
+else check "no index-level path is ever emitted (got: $(_paths))" 1; fi
+expect_no_delta "an array that deep-equals is silent" commands.web.extraLanes
+expect_no_delta "an array of scalars that deep-equals is silent" reviewers.add
+
+# --- AC-2: \$schema is excluded, and the exclusion is SCOPED ----------------------------------
+# Step 4 rewrites $schema to the pinned ref on every run, so a pin-upgrade re-onboard would fire
+# a delta every single time. The second half is what proves the exclusion is a key rule and not a
+# document-wide mute: a sibling key changing in the same document still fires.
+cat > "$TMP/e4.json" <<'EOF'
+{ "$schema": "https://example.invalid/v4.1.0/schema.json", "configVersion": 2,
+  "tracker": { "type": "github" } }
+EOF
+cat > "$TMP/d4.json" <<'EOF'
+{ "$schema": "https://example.invalid/v4.2.0/schema.json", "configVersion": 2,
+  "tracker": { "type": "jira" } }
+EOF
+run_guard "$TMP/e4.json" "$TMP/d4.json"
+SCHEMA_KEY="\$schema"   # the config's literal key name, not a shell expansion
+expect_no_delta "a rewritten \$schema never fires" "$SCHEMA_KEY"
+expect_delta "a sibling key in the same document still fires" tracker.type changed '"github"' '"jira"'
+expect_count "the exclusion is one key, not a document-wide mute" 1
+
+# --- AC-3: the ack channel ---------------------------------------------------------------------
+# Acks are exact and per-run. One ack drops exactly one delta; an unacked sibling stays blocking,
+# which is what keeps a single confirmation from clearing the whole screen.
+run_guard "$TMP/e1.json" "$TMP/d1.json" --ack commands.web.testFile
+expect_no_delta "an acked path drops out of deltas[]" commands.web.testFile
+expect_delta "an unacked sibling stays blocking" commands.web.unitTestScope removed
+expect_list "the suppression is auditable, not invisible" acknowledged "commands.web.testFile"
+expect_count "one fewer delta" 2
+
+run_guard "$TMP/e1.json" "$TMP/d1.json" --ack commands.web.testFile --ack commands.web.unitTestScope
+expect_count "--ack is repeatable" 1
+expect_list "both suppressions are listed" acknowledged "commands.web.testFile commands.web.unitTestScope"
+
+# An ack that matches nothing cannot let a real delta through — that delta is still in deltas[] —
+# but it does leave the caller believing it dispositioned something, so the guard says so.
+run_guard "$TMP/e1.json" "$TMP/d1.json" --ack commands.app.testFile
+expect_list "an ack matching nothing is reported" unmatchedAcks "commands.app.testFile"
+expect_list "and acknowledges nothing" acknowledged ""
+expect_count "and suppresses nothing" 3
+
+# A wildcard is not a wildcard: ack paths are exact, so a prefix clears nothing.
+run_guard "$TMP/e1.json" "$TMP/d1.json" --ack commands.web
+expect_count "a prefix is not a wildcard" 3
+expect_list "and is reported unmatched" unmatchedAcks "commands.web"
+
+# --- a clean re-onboard is silent ---------------------------------------------------------------
+# The AC-4 carry-forward exists so THIS is the common case. A guard that fires on an identical
+# draft would be ack-spam on every re-onboard forever.
+run_guard "$TMP/e1.json" "$TMP/e1.json"
+expect_count "an identical draft yields no delta" 0
+expect_rc "exit 0 with no deltas" 0
+
+# --- AC-1: usage / IO errors all exit 3 ----------------------------------------------------------
+run_guard "$TMP/e1.json"
+expect_rc "one argument is a usage error" 3
+run_guard
+expect_rc "no arguments is a usage error" 3
+run_guard "$TMP/e1.json" "$TMP/d1.json" "$TMP/e1.json"
+expect_rc "a third positional is a usage error" 3
+run_guard "$TMP/nope.json" "$TMP/d1.json"
+expect_rc "a missing EXISTING config is an error, never a silent skip" 3
+run_guard "$TMP/e1.json" "$TMP/nope.json"
+expect_rc "a missing draft is an error" 3
+printf 'not json at all' > "$TMP/bad.json"
+run_guard "$TMP/bad.json" "$TMP/d1.json"
+expect_rc "a non-JSON existing config is an error" 3
+run_guard "$TMP/e1.json" "$TMP/bad.json"
+expect_rc "a non-JSON draft is an error" 3
+printf '["a","b"]' > "$TMP/arr.json"
+run_guard "$TMP/arr.json" "$TMP/d1.json"
+expect_rc "valid JSON that is not an object is an error" 3
+run_guard "$TMP/e1.json" "$TMP/d1.json" --ack
+expect_rc "--ack with no value is a usage error" 3
+run_guard "$TMP/e1.json" "$TMP/d1.json" --waive commands.web.testFile
+expect_rc "an unknown option is a usage error — grillWaivers is not this tool's channel" 3
+
+if [[ "$FAILS" -gt 0 ]]; then echo "config-diff-guard selftest: $FAILS FAILURE(S)"; exit 1; fi
+echo "config-diff-guard selftest: all green"
