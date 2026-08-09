@@ -1556,6 +1556,15 @@ lean_sha256() { # lean_sha256 <file>
 # state cell would mis-pad; the cost is one red format check on the branch that introduced it,
 # never a mis-read artifact, and every cell this gate writes today (RS-n, a route, a state, a
 # path, a hex digest) is ASCII.
+#
+# NO ESCAPE HANDLING for a literal `|` inside a cell, and this flank is worse than the one above
+# rather than the same size. `RS-n`, the png path and the digest are gate-derived, but `route`
+# and `state` come from author-written RS rows in the spec, so a pipe in either splits the column
+# here AND shifts render_manifest_rows' positional read — a mis-parsed receipt, not just a red
+# format check. Untreated deliberately: markdown's own answer (`\|`) would have to round-trip
+# through both the padder and the reader, and no consumer has produced such a cell. An author who
+# does gets a receipt whose png/sha columns have moved, which the milestone-3 re-derive surfaces
+# immediately rather than silently.
 md_table_prettier() {
   awk -F'|' '
     /\|/ {

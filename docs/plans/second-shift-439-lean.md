@@ -54,6 +54,15 @@ width, so a wide-glyph `route`/`state` cell would mis-pad. Manifest cells are `R
 a state, a path and a hex digest — ASCII in the reported consumer. The failure mode is one red
 CI run on the branch that introduced the wide cell, never a mis-read artifact.
 
+**Known open flank** (OR-3, surfaced in review round 1): the padder splits on `|` with no escape
+handling and `render_manifest_rows` reads the result positionally, so a literal `|` in an
+author-written `route`/`state` cell both mis-pads the table and shifts the receipt's png/sha
+columns. Strictly worse than OR-2's flank — a mis-read artifact rather than one red format check
+— so it is recorded separately rather than folded into it. Left untreated: escaping would have to
+round-trip through the padder *and* the reader for a cell no consumer has produced, and the
+milestone-3 re-derive surfaces the damage on the run that introduces it rather than silently.
+Carried in `md_table_prettier`'s header comment so the next author meets it at the code.
+
 ## Acceptance criteria
 
 **AC-1 — The manifest table is emitted in Prettier's exact form.** `cmd_3_render` pads every
@@ -97,16 +106,24 @@ and the intent-gap record, which D-8 leaves untouched — must be formatted firs
 **as well as** AC-1 and AC-4, not instead of them (D-9). The milestone-3 message additionally
 states, on a re-derive, that the padded rewrite moves `reviewed_patch_id` and therefore voids
 an in-flight verdict, costing one review round (D-12) — the #372 re-stamp precedent is not
-extended to a formatting-only delta.
+extended to a formatting-only delta. Both halves are guarded, on separate cases: the milestone-3
+message and each of milestone 4's two refusal branches (never-committed, committed-but-dirty),
+which are a different code path and could have taken the notice on one and missed the other.
 
 **AC-8 — The Prettier-exact claim is bound by byte-exact fixtures, and CI takes no node
 dependency.** `lean-gate-selftest.sh` gains golden cases for width-from-value,
 width-from-header, a single-row table in the shipped five-column shape, and the minimum-3-dash
 case. The last is unreachable through the render path — every manifest column is wider than
 three characters — so the padder is exercised through a **library-mode** source of the real
-`lean-gate.sh` rather than a copy of it in the suite. One live-prettier diff case re-derives the
-goldens and is reported **SKIP**, never a failure, when no formatter resolves. AC-5's revert path
-is driven by a fake formatter installed at the rung the resolver actually probes, which joins the
+`lean-gate.sh` rather than a copy of it in the suite. One live-prettier diff case re-derives
+**every** golden — each pair is kept as it is declared, because the two variables are reassigned
+in place and a reader at the end would otherwise only ever see the last and narrowest — and is
+reported **SKIP**, never a failure, when no formatter resolves. That case splices an unpadded
+delimiter row into each input before handing it over: the padder's contract is that the row is
+*not* supplied, but markdown needs it for a table to exist, so without the splice Prettier reads
+a paragraph, rewrites nothing, and the case fails wherever a formatter resolves instead of
+re-deriving anything. AC-5's revert path is driven by a fake formatter installed at the rung the
+resolver actually probes, which joins the
 header block — deterministic, no prettier needed — alongside a benign-formatter case, so a gate
 that silently formatted nothing cannot pass. AC-3 is covered by parsing a padded and a legacy
 unpadded manifest through the same reader. No workflow gains a node or prettier install; a future

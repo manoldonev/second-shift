@@ -3299,6 +3299,13 @@ else fail "(ms11) mark wrote to the progress file: rows=$(mcount '| session | ')
 mdtab() { ( cd "$TREE" && LEAN_GATE_LIB=1 SECOND_SHIFT_CONFIG="$CFG" . "$GATE" >/dev/null 2>&1 \
             && md_table_prettier ); }
 
+# FP_IN/FP_WANT are reassigned in place through (fp1)-(fp4), so a live oracle reading them at the
+# end would re-derive only whichever pair happened to be last — the narrowest one, not the 64-char
+# digest shape the receipt actually depends on. Each pair is kept as it is declared, and (fp5)
+# walks all of them.
+FP_GOLDENS="$WORK/fp-goldens"; mkdir -p "$FP_GOLDENS"
+fp_keep() { printf '%s\n' "$FP_IN" > "$FP_GOLDENS/$1.in"; printf '%s\n' "$FP_WANT" > "$FP_GOLDENS/$1.want"; }
+
 # (fp1) WIDTH FROM A BODY VALUE, in every column. A padder that sized columns from the header
 # alone produces a table prettier immediately re-pads.
 FP_IN="| RS | route | state |
@@ -3308,6 +3315,7 @@ FP_WANT="| RS    | route   | state   |
 | ----- | ------- | ------- |
 | RS-1  | /a      | default |
 | RS-10 | /longer | on      |"
+fp_keep fp1
 FP_GOT="$(printf '%s\n' "$FP_IN" | mdtab)"
 if [ "$FP_GOT" = "$FP_WANT" ]; then
   pass "(fp1) column widths come from the widest body cell"
@@ -3321,6 +3329,7 @@ FP_IN="| sha256 | route |
 FP_WANT="| sha256 | route |
 | ------ | ----- |
 | ab     | /a    |"
+fp_keep fp2
 FP_GOT="$(printf '%s\n' "$FP_IN" | mdtab)"
 if [ "$FP_GOT" = "$FP_WANT" ]; then
   pass "(fp2) a header cell wider than every value sets the column width"
@@ -3334,6 +3343,7 @@ FP_IN="| RS | route | state | png | sha256 |
 FP_WANT="| RS   | route | state   | png                              | sha256                                                           |
 | ---- | ----- | ------- | -------------------------------- | ---------------------------------------------------------------- |
 | RS-1 | /a    | default | .claude/lean-renders/55/RS-1.png | deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef |"
+fp_keep fp3
 FP_GOT="$(printf '%s\n' "$FP_IN" | mdtab)"
 if [ "$FP_GOT" = "$FP_WANT" ]; then
   pass "(fp3) a single-row manifest table matches prettier byte for byte"
@@ -3348,6 +3358,7 @@ FP_IN="| a | bb |
 FP_WANT="| a   | bb  |
 | --- | --- |
 | c   | d   |"
+fp_keep fp4
 FP_GOT="$(printf '%s\n' "$FP_IN" | mdtab)"
 if [ "$FP_GOT" = "$FP_WANT" ]; then
   pass "(fp4) columns narrower than three characters pad to the 3-dash minimum"
@@ -3355,9 +3366,16 @@ else fail "(fp4) padded table differs from prettier's form:
 $FP_GOT"; fi
 
 # (fp5) THE LIVE ORACLE, opportunistic. The goldens above are a claim about another program's
-# output; this re-derives them from that program when it is installed locally. CI installs
-# nothing for it — a prettier table-format change is caught by whoever runs this suite on a
-# machine that has one, never by a red build that fetched a formatter to find out.
+# output; this re-derives every one of them from that program when it is installed locally. CI
+# installs nothing for it — a prettier table-format change is caught by whoever runs this suite on
+# a machine that has one, never by a red build that fetched a formatter to find out.
+#
+# THE DELIMITER ROW IS SPLICED IN FIRST, and that is the whole subtlety. md_table_prettier's input
+# contract is that the row is NOT supplied — its dash count is a function of the widths the padder
+# computes — but markdown needs it for a table to exist at all. Handing prettier the padder's raw
+# input makes it read a paragraph, rewrite nothing, and the comparison passes only by never
+# running. An unpadded `| --- | ... |` is a real table prettier must re-pad, so the goldens below
+# become what it has to produce.
 FP_PRETTIER=""
 for fp_c in "$(cd "$HERE" && git rev-parse --show-toplevel 2>/dev/null)/node_modules/.bin/prettier" "$(command -v prettier 2>/dev/null)"; do
   if [ -n "$fp_c" ] && [ -x "$fp_c" ]; then FP_PRETTIER="$fp_c"; break; fi
@@ -3365,12 +3383,18 @@ done
 if [ -z "$FP_PRETTIER" ]; then
   echo "  SKIPPED: (fp5) no local prettier resolves — the live table-form oracle is opportunistic by design"
 else
-  printf '%s\n' "$FP_IN" > "$WORK/fp-live.md"
-  printf '%s\n' "$FP_WANT" > "$WORK/fp-live-want.md"
-  "$FP_PRETTIER" --write "$WORK/fp-live.md" >/dev/null 2>&1
-  if cmp -s "$WORK/fp-live.md" "$WORK/fp-live-want.md"; then
-    pass "(fp5) the goldens above are what this machine's prettier actually writes"
-  else fail "(fp5) $FP_PRETTIER disagrees with the golden form: $(diff "$WORK/fp-live-want.md" "$WORK/fp-live.md" | head -8)"; fi
+  FP_BAD=""
+  for fp_g in "$FP_GOLDENS"/*.in; do
+    fp_id="$(basename "$fp_g" .in)"
+    awk 'NR==1 { print; n = gsub(/\|/, "|") - 1; d = "|"; while (n-- > 0) d = d " --- |"; print d; next } { print }' \
+      "$fp_g" > "$WORK/fp-live.md"
+    "$FP_PRETTIER" --write "$WORK/fp-live.md" >/dev/null 2>&1
+    cmp -s "$WORK/fp-live.md" "$FP_GOLDENS/$fp_id.want" \
+      || FP_BAD="$FP_BAD [$fp_id: $(diff "$FP_GOLDENS/$fp_id.want" "$WORK/fp-live.md" | head -4 | tr '\n' ' ')]"
+  done
+  if [ -z "$FP_BAD" ]; then
+    pass "(fp5) every golden above is what this machine's prettier actually writes"
+  else fail "(fp5) $FP_PRETTIER disagrees with the golden form:$FP_BAD"; fi
 fi
 
 # (fp6) INTEGRATION: the receipt the render path writes is already in that form, so the file
@@ -3478,6 +3502,33 @@ if printf '%s' "$FP_OUT3" | grep -q 'intent-gap record are NOT' \
    && printf '%s' "$FP_OUT3" | grep -q 'voids it'; then
   pass "(fp11) the milestone-3 commit refusal names the formatting obligation and the re-derive cost"
 else fail "(fp11) the milestone-3 refusal does not carry both notices: $FP_OUT3"; fi
+
+# (fp12) AC-7's OTHER half. Milestone 4 refuses an uncommitted record on two separate branches —
+# never-committed and committed-but-dirty — and each carries its own copy of the obligation. They
+# are a different code path from (fp11)'s milestone-3 message, so the edit that added the notice
+# could have landed on one and missed these; a guard that pins only the first would not notice.
+# A complete-enough record: the reconciliation and head keys are checked BEFORE the commit
+# branches, so a stub record reds on those instead and never reaches the messages under test.
+fp_record() { { echo 'verdict=approve'; echo 'run_id: r-review-fp12'; echo 'session_id: sess-review-fp12';
+                echo "reviewed_head: $(git -C "$DTREE" rev-parse HEAD)"; } > "$1"; }
+# The never-committed branch needs a record path with NO history, and issue 55's has been
+# committed several times over by now — so branch A runs against an unused issue number, whose
+# record `git log` has never seen. require_entry_attested() reads the progress file for an entry
+# row, not for an issue, so the same fixture progress file serves both calls.
+dreset
+fp_record "$DTREE/docs/plans/acme-56-lean-verdict.md"
+FP_OUT4A="$(dgate 4 56)"
+fp_record "$DVERDICT"
+dcommit "the verdict record, committed"
+printf 'a local edit\n' >> "$DVERDICT"
+dreset
+FP_OUT4B="$(dgate 4 55)"
+if printf '%s' "$FP_OUT4A" | grep -q 'format those before committing' \
+   && printf '%s' "$FP_OUT4B" | grep -q 'formats only what it authors'; then
+  pass "(fp12) both milestone-4 commit refusals name the formatting obligation"
+else fail "(fp12) a milestone-4 refusal is missing the notice:
+A=$FP_OUT4A
+B=$FP_OUT4B"; fi
 
 echo "[lean-gate-selftest] $([ "$FAILS" -eq 0 ] && echo 'all green' || echo "$FAILS FAILURE(S)")"
 exit "$FAILS"
