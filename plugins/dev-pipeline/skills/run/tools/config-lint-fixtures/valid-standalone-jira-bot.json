@@ -1,0 +1,27 @@
+{
+  "configVersion": 2,
+  "tracker": {
+    "type": "jira",
+    "writes": false,
+    "keyPattern": "[A-Za-z]+-[0-9]+",
+    "branchPrefix": "dev/",
+    "bot": {
+      "enabled": true,
+      "app": { "appName": "example-pipeline-bot" }
+    }
+  },
+  "topology": {
+    "type": "standalone",
+    "repos": {
+      "app": { "path": ".", "baseBranch": "main", "worktreesDir": "../app-worktrees" }
+    }
+  },
+  "commands": {
+    "app": {
+      "lint": "yarn lint",
+      "typecheck": "yarn type-check",
+      "test": "yarn test:ci",
+      "format": "yarn format:check"
+    }
+  }
+}

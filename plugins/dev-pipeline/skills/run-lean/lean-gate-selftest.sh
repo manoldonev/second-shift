@@ -3033,13 +3033,30 @@ if [ "$rc" -eq 0 ] && grep -q 'run_id: mark-run-1' "$BOT_SPOOL" 2>/dev/null; the
   pass "(pm5) an operator-authored marker does not suppress the bot's own"
 else fail "(pm5) expected a post despite the human marker, rc=$rc: $out / spool=$(cat "$BOT_SPOOL" 2>/dev/null)"; fi
 
-# jira: config-lint forbids tracker.bot there, so there is no authenticated writer at all. The
+# A consumer with no bot has no authenticated writer at all, so there is nothing to post. The
 # degrade is PRINTED — a silent skip would read as "the marker was posted" in the run log.
+# $CFG_JIRA declares no bot block, which is what every jira config looked like while config-lint
+# forbade one; that absence, not the tracker, is what this asserts (#440).
 : > "$BOT_SPOOL"
 out="$(mark_gate "$CFG_JIRA" mark-run-j sess-mark-j mark ACME-8 --pr-file "$WORK/pr-mark.json" --comments-file "$WORK/comments-none.json")"; rc=$?
 if [ "$rc" -eq 0 ] && [ ! -s "$BOT_SPOOL" ] && printf '%s' "$out" | grep -q 'reduced strength'; then
-  pass "(pm6) under jira mark writes nothing and says so (reduced strength, printed)"
-else fail "(pm6) expected a printed jira degrade with no write, rc=$rc: $out / spool=$(cat "$BOT_SPOOL" 2>/dev/null)"; fi
+  pass "(pm6) with no bot configured, mark writes nothing and says so (reduced strength, printed)"
+else fail "(pm6) expected a printed no-bot degrade with no write, rc=$rc: $out / spool=$(cat "$BOT_SPOOL" 2>/dev/null)"; fi
+
+# ...and the SAME jira consumer with a bot enabled posts the marker exactly as a github one does
+# (#440). The PR is a code-host surface every adapter has, so `tracker.type` was never the right
+# key for this write; re-keying the branch back onto the tracker fails here.
+CFG_JIRA_BOT="$WORK/config-jira-bot.json"
+jq '.tracker.bot = { "enabled": true, "app": { "appName": "acme-pipeline-bot" } }' \
+  "$CFG_JIRA" > "$CFG_JIRA_BOT"
+jq -e '.tracker.bot.enabled == true and .tracker.type == "jira"' "$CFG_JIRA_BOT" >/dev/null \
+  || fail "(pm6b) fixture builder produced no bot block — the case below would assert nothing"
+: > "$BOT_SPOOL"
+out="$(mark_gate "$CFG_JIRA_BOT" mark-run-jb sess-mark-jb mark ACME-8 --pr-file "$WORK/pr-mark.json" --comments-file "$WORK/comments-none.json")"; rc=$?
+if [ "$rc" -eq 0 ] && grep -q 'run_id: mark-run-jb' "$BOT_SPOOL" 2>/dev/null \
+   && ! printf '%s' "$out" | grep -q 'reduced strength'; then
+  pass "(pm6b) a jira consumer WITH a bot posts the PR marker, like any other"
+else fail "(pm6b) expected a posted marker under jira+bot, rc=$rc: $out / spool=$(cat "$BOT_SPOOL" 2>/dev/null)"; fi
 
 # No PR ⇒ no surface to stamp. Refuse rather than no-op: a run that never opened its PR has
 # not reached the step this is called from, and a silent success would hide that.

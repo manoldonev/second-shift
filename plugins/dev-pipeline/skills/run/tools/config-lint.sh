@@ -41,11 +41,19 @@ ERRORS=$(jq -r '
 
   # ---- tracker -------------------------------------------------------------
   + err((.tracker.type? // "") | IN("github","jira") | not; "tracker.type must be github|jira")
-  + err((.tracker.bot? != null) and (.tracker.type? == "jira"); "tracker.bot is github-only")
   + err((.tracker | type == "object") and ((.tracker | keys) - ["type","writes","bot","keyPattern","branchPrefix","labels"]) != []; "tracker: unknown keys")
   + err((.tracker.writes? != null) and ((.tracker.writes | type) != "boolean"); "tracker.writes: must be boolean")
   + err((.tracker.branchPrefix? != null) and ((.tracker.branchPrefix | type) != "string"); "tracker.branchPrefix: must be string")
   + err((.tracker.keyPattern? != null) and ((.tracker.keyPattern | type) != "string"); "tracker.keyPattern: must be string")
+  # `labels` is tracker-gated and `bot` deliberately is NOT (#440). A label vocabulary is queue
+  # machinery, and a JIRA repo has no queue — so that one really is github-only. The bot is a
+  # CODE-HOST capability that was modelled on the tracker axis by accident: every key the shape
+  # rules below allow (enabled / envVar / wrapperPath / app.*) configures write IDENTITY, and
+  # none is claim-specific. Source control is GitHub under both adapters, so a JIRA-tracked
+  # repo writes to GitHub on every run and needs the identity exactly as much as a github-
+  # tracked one. Rejecting it left those consumers permanently operator-attributed and
+  # permanently degraded at the identity arm of the merge boundary. Do not re-add this rule;
+  # if the parent name is the complaint, the fix is a configVersion migration, not a refusal.
   + err((.tracker.labels? != null) and (.tracker.type? == "jira"); "tracker.labels is github-only (a JIRA repo has no queue/claim/label vocabulary)")
   + ((.tracker.labels // {}) |
       err((type == "object") and ((keys) - ["queue","claimed","blockers"]) != []; "tracker.labels: unknown keys")

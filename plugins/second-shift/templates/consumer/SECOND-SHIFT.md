@@ -53,13 +53,13 @@ repo enables {{PLUGIN_LIST}}) — `/second-shift:doctor` verifies the install ag
   scope you leave out is `none`, with no public-repo exception — so dropping either read denies
   that call and reds every lean PR with an environment error. Read scopes only: the job executes
   a script fetched from the marketplace repo at your pinned ref, which inherits this token.
-- **Its gate strength depends on your tracker.** Under `tracker.type: github` the build run's
-  identity comes from a bot-authored marker comment the harness posts on the PR, and the
-  verdict's independence is checked against it. Under `tracker.type: jira`, `config-lint` forbids
-  `tracker.bot`, so there is no authenticated writer for that marker: the identity arm reports
-  itself unavailable at reduced strength — printed on every run, never silently skipped — while
-  every other arm still gates. The tracker/source-control axis split that would close this gap
-  is a schema change and ships separately.
+- **Its gate strength depends on your bot, not on your tracker.** The build run's identity
+  comes from a bot-authored marker comment the harness posts on the PR, and the verdict's
+  independence is checked against it. Configure `tracker.bot` — legal under **either**
+  `tracker.type`, because source control is GitHub for every adapter — and that arm gates at
+  full strength. Without one there is no authenticated writer for the marker, so the identity
+  arm reports itself unavailable at reduced strength, printed on every run and never silently
+  skipped, while every other arm still gates.
 - Optional committed CI files (emitted by the same acceptance as the pair above):
   `.github/workflows/second-shift-unclaim.yml` + `.claude/tools/second-shift-unclaim.sh`. Also
   **GitHub Actions, not a Claude session**, but unlike the pair above this one **writes**: when an

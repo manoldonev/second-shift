@@ -71,5 +71,10 @@ with cross-repo companion links. Base branches may differ per repo (BE `alpha`, 
 }
 ```
 
-No `tracker.bot` block: JIRA repos don’t claim through a bot (there is no queue race),
-and the draft PR is created with regular `gh`.
+`tracker.bot` is **optional here, not forbidden** (#440). JIRA repos don’t claim through a
+bot — there is no queue race, and `lean-gate.sh claim` writes nothing to the tracker either
+way. But the bot's other job is write identity on the **code host**, and source control is
+GitHub under this adapter too: PR comments, the step-7 PR marker, the cost-block PATCH and
+the git committer are all GitHub writes that happen on every run. Configure a bot and they
+carry its identity, and the merge boundary's identity arm gates at full strength. Omit it and
+they land as the operator, with that arm announcing itself unavailable at reduced strength.
