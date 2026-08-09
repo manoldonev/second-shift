@@ -112,6 +112,14 @@ EOF
 run_grill "$R3" "$R3/c.json"
 expect_finding "t2 webComponentGlobs: no candidate detected → fires and says so" \
   T2.webComponentGlobs "no candidate from the shipped list matched"
+# The multi-glob key renders EVERY resolved default, comma-joined — not just the last one.
+# This is the one place the four shipped triggerGlobs literals are pinned end to end, which is
+# what the DROPPED lockstep entry for these restatements says is exercised here. A consumer
+# acts on the glob list in the evidence line; a join that silently drops three of four turns
+# the diagnostic into a wrong instruction.
+expect_finding "t2 triggerGlobs: the whole resolved default set is rendered, comma-joined" \
+  T2.visualCaptureTriggerGlobs \
+  "(apps/web/src/app/**/*.{tsx,jsx}, apps/web/src/app/**/*.css, apps/web/src/components/**/*.{tsx,jsx}, apps/web/tailwind.config.{ts,js})"
 
 # --- AC-2/AC-3: trigger 2, formatGlob ------------------------------------------------------
 # formatGlob's shape has no "/", and verifyctl matches it with bash `[[ f == $a ]]`, where *
