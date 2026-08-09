@@ -65,6 +65,15 @@ case.
   the two edited guards are re-baselined in `tools/mutation-baseline.tsv`, and any
   `tools/mutation-catalog.tsv` row addressing them is re-anchored.
 
+  **Measured, and the answer is zero of each** — recorded here so the absence of a baseline
+  diff is a checked result rather than an omission. The diff-scoped sweep over this branch
+  reports `lean-evidence.sh` applied=11 killed=9 survived=2 and `lean-gate.sh` applied=16
+  killed=13 survived=3, and the five survivor ids are byte-for-byte the five rows already in
+  `tools/mutation-baseline.tsv`. Both files' additions sit *after* every site inside the swept
+  `k=2` window — the new `${PR_CREATED_AT:-}` defaults land at ordinals ≥3 — so no ordinal
+  moved. All six `tools/mutation-catalog.tsv` rows naming these guards were KILLED, which is
+  only reachable if their `sed` anchors still match.
+
 ## Decisions carried from the pre-flight ledger
 
 The pre-flight receipt at `.claude/pipeline-state/444-ledger.md` is binding input; D-1..D-14

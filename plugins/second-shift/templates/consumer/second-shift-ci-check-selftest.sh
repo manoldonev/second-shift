@@ -104,10 +104,13 @@ check "yml: job name matches the documented required-status-check context" "$(gr
 # CI runs in this repo), so the wiring is pinned structurally here.
 # Anchored against the step's ENV BLOCK rather than the file, on the permissions block's
 # precedent below: a commented-out line elsewhere in the YAML must not satisfy it.
+# WHOLE-LINE, and the indent is part of the anchor. A substring match satisfies itself on
+# `#          PR_CREATED_AT: …` — the awk window keeps a column-0 comment line, since it is not
+# the 8-space-indented sibling key that closes the block — so a commented-out wiring would read
+# as wired. Measured, not assumed: the substring form passed that exact mutation.
 STEPENV="$(awk '/^        env:/{f=1;next} f&&/^        [^ ]/{f=0} f' "$YML")"
-# shellcheck disable=SC2016  # the ${{ }} is GitHub Actions template syntax; the shell must not expand it.
 check "yml: env supplies PR_CREATED_AT from the PR's open instant (AC-4)" \
-  "$(grep -qF 'PR_CREATED_AT: ${{ github.event.pull_request.created_at }}' <<<"$STEPENV" && echo 0 || echo 1)"
+  "$(grep -qE '^ {10}PR_CREATED_AT: \$\{\{ github\.event\.pull_request\.created_at \}\}$' <<<"$STEPENV" && echo 0 || echo 1)"
 
 # (8) gh fetch paths (stubbed gh on PATH; SECOND_SHIFT_CONFIG_LINT unset so the fetch runs).
 # 404 = the pinned ref / linter path does not exist = DRIFT = FAIL, never a warn-green.
