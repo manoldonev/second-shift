@@ -139,6 +139,21 @@ EOF
 run_grill "$R5" "$R5/c.json"
 expect_no_finding "t2 formatGlob: slash-free glob crosses separators (src/deep/a.ts)" T2.formatGlob
 
+# The third enumerated case for this row: a HAND-SET formatGlob matching nothing. Not a
+# formality — formatGlob is the only slash-free row, so the configured-value path and the
+# `*` → `.*` branch only ever meet here. That both counts in this finding (0 for the configured
+# value, 1 for the alternative) come out of the crossing branch is what makes the pairing
+# load-bearing: under `[^/]*` the alternative would score 0 too and the proposal would offer a
+# value that matches nothing either.
+cfg "$R5/format-set.json" <<EOF
+{ $STD_HEAD, "commands": {"app":{}},
+  "stageParams": {"formatGlob": "*.{rs,toml}"} }
+EOF
+run_grill "$R5" "$R5/format-set.json"
+expect_finding "t2 formatGlob: hand-set value matching nothing still fires" \
+  T2.formatGlob "configured value" "*.{rs,toml}" \
+  "matches 0 of the repo's tracked files" "*.{ts,tsx,js,jsx,json,md}" "matches 1 tracked file(s)"
+
 # --- AC-2: trigger 2, visualCapture.triggerGlobs -------------------------------------------
 cfg "$R5/vc.json" <<EOF
 { $STD_HEAD, "commands": {"app":{}},
@@ -223,7 +238,10 @@ cat > "$R7/package.json" <<'EOF'
     "mon": "nodemon server.js",
     "vitepreview": "vite build",
     "lint": "eslint .",
-    "wrapped": "npx vitest" } }
+    "wrapped": "npx vitest",
+    "fmt": "prettier -w .",
+    "vrun": "vitest --run",
+    "tscw": "tsc -w" } }
 EOF
 cfg "$R7/c.json" <<EOF
 { $STD_HEAD,
@@ -233,7 +251,7 @@ cfg "$R7/c.json" <<EOF
     "lint": "npm run lint",
     "typecheck": null,
     "format": "yarn vitepreview",
-    "lanes": [{"name":"setup","commands":["yarn watchy","yarn mon"]}],
+    "lanes": [{"name":"setup","commands":["yarn watchy","yarn mon","yarn fmt","yarn vrun","yarn tscw"]}],
     "extraLanes": [{"name":"extra","commands":["pnpm dev","bun serve","npm run wrapped"],"failureClass":"TYPE_ERROR"}]}} }
 EOF
 run_grill "$R7" "$R7/c.json"
@@ -247,6 +265,18 @@ expect_finding "t5 watcher: nodemon (lanes slot)"             T5.watcher.app.lan
 expect_finding "t5 watcher: next dev (extraLanes slot)"       T5.watcher.app.extraLanes.0.0 "next dev"
 expect_finding "t5 watcher: webpack serve (extraLanes slot)"  T5.watcher.app.extraLanes.0.1 "webpack serve"
 expect_finding "t5 watcher: npx-wrapped vitest"               T5.watcher.app.extraLanes.0.2 "npx vitest"
+
+# The two shapes the AC-5 narrowings exclude. Each is a script a mainstream repo really ships,
+# and each was a doctor FAIL on a valid config before the qualification: prettier's `-w` is
+# `--write`, and vitest's `--run` is the flag spelling of the exiting `run` subcommand. A false
+# FAIL is worse than a missed warning here, because its only escape is a waiver excusing a
+# non-problem — which turns "adopt or declare" into "declare, there is nothing to adopt".
+expect_no_finding "t5 non-watcher: prettier -w (-w is --write, not watch)" T5.watcher.app.lanes.0.2
+expect_no_finding "t5 non-watcher: vitest --run (flag spelling of the run subcommand)" T5.watcher.app.lanes.0.3
+# ...and the rule the first of those narrows must still FIRE where -w really is watch, or the
+# narrowing would have deleted the rule rather than qualified it.
+expect_finding "t5 watcher: -w on a runner that defines it as watch (tsc)" \
+  T5.watcher.app.lanes.0.4 "tsc -w"
 
 # The missing-script half fires ONLY on the unambiguous `<pm> run <name>` form. `<pm> <name>`
 # without the run verb may be a built-in subcommand (yarn workspaces, pnpm dlx), and a false

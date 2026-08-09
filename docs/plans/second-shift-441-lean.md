@@ -138,10 +138,25 @@ forever. Finding id `T5.watcher.<repoId>.<slot>`. Starter taxonomy, stated so th
 fixtures are writable, expected to grow (OR-1):
 
 - first token `vitest` or `vite` with no exiting subcommand (`run`, `build`, `preview`,
-  `optimize`, `bench`, `list`);
-- a `--watch`, `--watchAll` or standalone `-w` flag anywhere (covers `jest --watch`);
+  `optimize`, `bench`, `list`) **and no `--run` flag anywhere** — `--run` is the flag spelling
+  of the `run` subcommand and exits exactly as it does;
+- a `--watch`, `--watchAll` or `--watch=true` flag anywhere (covers `jest --watch`);
+- a standalone `-w` flag **whose first token is a runner that defines `-w` as watch**:
+  `jest`, `vitest`, `vite`, `tsc`, `tsup`, `webpack`, `rollup`, `esbuild`, `parcel`, `karma`,
+  `ava`, `mocha`, `sass`, `nodemon`;
 - `nodemon` as a command token;
 - a dev-server script: `next dev`, `webpack serve`.
+
+The qualifications on `--run` and `-w` are **narrowings of the taxonomy this AC first stated**,
+folded in from review round 1. Unqualified, the `-w` rule fires on `prettier -w .` (where `-w`
+is `--write`) and the vitest rule fires on `vitest --run` — each a doctor `FAIL` on a valid
+config, whose only escape is a `grillWaivers` entry excusing a non-problem. That inverts this
+AC's own governing principle — *a false FAIL on a valid config is worse than a missed warning*
+— which is written against the missing-script half but binds the watcher half identically, and
+it weakens AC-8's "a clean report stays reachable" from *adopt or declare* to *declare, because
+there is nothing to adopt*. Both narrowings can only reduce firing, so nothing the original
+wording caught is lost but the two shapes it caught wrongly. Under-firing remains OR-1's
+subject.
 
 `<slot>` is the command's config location: `testFile`, `test`, `lint`, `typecheck`, `format`,
 `lanes.<i>.<j>`, `extraLanes.<i>.<j>`.
@@ -186,7 +201,8 @@ shorter reach than the cross-plugin one doctor already performs for `config-lint
 - the detected-alternative branch and the no-alternative-detected branch;
 - every rule in AC-4, including `gates.mutation` absent vs `true` vs `false`;
 - every row of the AC-5 resolution table and every entry of the watcher taxonomy, plus the
-  no-manifest non-evaluation;
+  no-manifest non-evaluation and — one case per narrowing — the two shapes the narrowings
+  exclude (`prettier -w .` and `vitest --run`), each asserted **silent**;
 - the multi-repo scoping rule (evaluated repo vs sibling not-evaluated);
 - a waived-finding case proving suppression;
 - a not-evaluated case proving it does **not** block acceptance (it is absent from
@@ -194,7 +210,11 @@ shorter reach than the cross-plugin one doctor already performs for `config-lint
 - exit 0 with findings present, and exit 3 on a bad config path.
 
 `config-lint-selftest.sh` gains a `grillWaivers` fixture case (valid accepted; invalid
-rejected).
+rejected). `doctor-selftest.sh` covers, besides the finding / waived / not-evaluated
+scenarios, both of doctor's grill **degrade** branches — checker present but exiting non-zero,
+and checker absent — each asserted to `warn` and to leave the exit code at 0. Those branches
+cannot produce a wrong verdict; what they can do is let a broken integration read as green,
+which is exactly what an untested `warn` path invites.
 
 **AC-10 — docs.** `docs/config-schema.md` gains a `grillWaivers` row in its group table, and
 `docs/extending.md` names the grill in the section that explains why a published key that

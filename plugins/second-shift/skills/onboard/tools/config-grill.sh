@@ -241,6 +241,15 @@ fi
 # perfectly valid config, and that is a worse outcome than a missed warning — so only an
 # unambiguous invocation is resolved, and `<pm> <name>` without the explicit `run` verb is
 # treated as ambiguous (yarn workspaces / pnpm dlx / bun x are not script invocations).
+#
+# The watcher half carries the SAME principle as the missing-script half, and the two
+# qualifications below are what make it hold. `-w` is a watch flag only on runners that define
+# it as one: on prettier it is `--write`, so an unqualified `-w` rule turns `prettier -w .`
+# into a doctor FAIL on a perfectly valid config — and the only escape from that FAIL is a
+# grillWaivers entry excusing a non-problem, which is not "adopt or declare", it is "declare,
+# because there is nothing to adopt". Likewise `--run` is the flag spelling of vitest's `run`
+# subcommand and exits exactly as it does. Both qualifications only ever REDUCE firing;
+# under-firing is OR-1's subject, and a missed warning is the cheaper error here.
 is_watcher() { # $1 = manifest script BODY → 0 when it never exits
   # A leading npx/bunx wrapper is not a category of its own — strip it so `npx vitest` is
   # judged as the `vitest` it is.
@@ -253,13 +262,23 @@ is_watcher() { # $1 = manifest script BODY → 0 when it never exits
     vitest|vite)
       case "$second" in
         run|build|preview|optimize|bench|list) ;;
-        *) return 0 ;;
+        *)
+          for w in ${t[@]+"${t[@]}"}; do
+            [[ "$w" == "--run" ]] && return 1
+          done
+          return 0 ;;
       esac
       ;;
   esac
   for w in ${t[@]+"${t[@]}"}; do
     case "$w" in
-      --watch|--watchAll|--watch=true|-w|nodemon) return 0 ;;
+      --watch|--watchAll|--watch=true|nodemon) return 0 ;;
+      -w)
+        case "$first" in
+          jest|vitest|vite|tsc|tsup|webpack|rollup|esbuild|parcel|karma|ava|mocha|sass|nodemon)
+            return 0 ;;
+        esac
+        ;;
     esac
   done
   case "$1" in

@@ -182,6 +182,7 @@ cover), omit the example command and point at the onboarding guide instead of gu
 The `lanes` line is review-screen guidance only: it is shown commented, and Step 4 emits the
 accepted config as pure JSON, so a stub the human does not fill in is simply absent from the
 file (`config-lint` runs `jq empty` and would reject a comment).
+
 **Before you render the screen, GRILL the draft.** Write the draft config (pure JSON, comments
 stripped — the same document Step 4 would emit) to a temp file, then run
 `bash "${CLAUDE_PLUGIN_ROOT}/skills/onboard/tools/config-grill.sh" <repo-root> "$TMPDIR/second-shift-draft.json"`
