@@ -334,6 +334,31 @@ else
   bad "B10 expected rc=0 from a two-version cache, got rc=1 ($(cat "$TMP/.b10"))"
 fi
 
+# B11: B10 again, with jq forced unresolvable. The name lookup has two implementations and the
+# jq one wins on every machine that has jq — which is every machine this suite has ever run on,
+# so without this the sed fallback is dead code, green by never executing. Manifests are written
+# the way real ones are (pretty-printed, two-space indent) because that is what the fallback's
+# line anchor keys on.
+b11="$TMP/b11/marketplace"
+for v in 1.0.0 2.0.0; do
+  mkdir -p "$b11/mine/$v/.claude-plugin" "$b11/mine/$v/agents"
+  printf '{\n  "name": "mine",\n  "version": "%s",\n  "author": {\n    "name": "not-the-plugin"\n  }\n}\n' \
+    "$v" > "$b11/mine/$v/.claude-plugin/plugin.json"
+done
+write_agent "$b11/mine/1.0.0/agents" "stale-reviewer" "maxTurns: 30" "No deadline in this body."
+write_agent "$b11/mine/2.0.0/agents" "current-reviewer" "maxTurns: 30" \
+  "By **turn 20** (of your 30 maximum) you MUST be writing the final result."
+mkdir -p "$b11/mine/2.0.0/scripts"
+cp "$CHECK" "$b11/mine/2.0.0/scripts/check-emit-deadline.sh"
+if (cd "$TMP" && DEADLINE_AT_DEFAULT=current-reviewer EMIT_DEADLINE_JQ=jq-does-not-resolve \
+      bash "$b11/mine/2.0.0/scripts/check-emit-deadline.sh") >"$TMP/.b11" 2>&1; then
+  grep -q "stale-reviewer" "$TMP/.b11" \
+    && bad "B11 clean, but the jq-less name lookup did not select the newest version ($(cat "$TMP/.b11"))" \
+    || ok "B11 the jq-less name lookup selects the newest version, and ignores a nested author.name"
+else
+  bad "B11 expected rc=0 with jq forced unresolvable, got rc=1 ($(cat "$TMP/.b11"))"
+fi
+
 echo
 echo "[check-emit-deadline-selftest] $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]

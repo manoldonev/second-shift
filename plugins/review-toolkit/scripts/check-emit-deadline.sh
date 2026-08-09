@@ -81,6 +81,10 @@
 # Env:   DEADLINE_AT_DEFAULT   space-separated agent names (basename, no .md) to lint even
 #                              at the default cap. Overridable so fixtures can exercise the
 #                              mechanism without depending on who is really enrolled.
+#        EMIT_DEADLINE_JQ      the jq binary used to read a plugin's declared name. Same reason
+#                              as above: pointed at a name that does not resolve, it forces the
+#                              jq-less fallback, which is otherwise dead code on any machine
+#                              that has jq — and dead code a mutant can edit freely.
 # Exit 0 = clean, 1 = violations.
 
 set -uo pipefail
@@ -98,6 +102,9 @@ DEFAULT_CAP=15
 # emitting — never prophylactically. Enrolling the whole default-cap panel is a different
 # (and much larger) decision than fixing an agent known to be falling through the gap.
 DEADLINE_AT_DEFAULT="${DEADLINE_AT_DEFAULT:-plan-reviewer spec-reviewer}"
+
+# The jq binary. A seam, not a configuration knob — see the Env note above.
+JQ="${EMIT_DEADLINE_JQ:-jq}"
 
 FAIL=0
 CHECKED=0
@@ -175,12 +182,12 @@ else
   }
   plugin_name() { # declared name of the plugin rooted at $1, empty if it cannot be read
     local j="$1/.claude-plugin/plugin.json"
-    if command -v jq >/dev/null 2>&1; then
-      jq -r '.name // empty' "$j" 2>/dev/null
+    if command -v "$JQ" >/dev/null 2>&1; then
+      "$JQ" -r '.name // empty' "$j" 2>/dev/null
       return 0
     fi
-    # jq-less consumer: the top-level `name` is the first one at zero indentation, so a nested
-    # `author.name` (indented) cannot be mistaken for it.
+    # jq-less consumer: a TOP-LEVEL `name` is anchored to the start of its line (the manifests
+    # here indent by two), so a nested `author.name` at a deeper indent cannot be mistaken for it.
     sed -n 's/^[[:space:]]\{0,2\}"name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$j" 2>/dev/null | head -1
   }
   # Shape 1 — siblings one level up: the monorepo `plugins/<plugin>/agents`, or, from an
