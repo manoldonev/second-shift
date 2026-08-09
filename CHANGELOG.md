@@ -4,6 +4,248 @@ All notable changes to the second-shift marketplace. Versions are per-plugin (`p
 this file tracks the marketplace release. `configVersion` stays `const 1` — v2 is fully backward-compatible for a
 consumer with an empty config; the migration notes below are only for consumers using the changed features.
 
+## v4.1.0
+
+### `audit-toolkit` 2.1.0 → 2.1.1
+
+- **the audit hook writes the ledger where its readers look (#420)** (#420)
+  the audit ledger now lives under the MAIN checkout's .claude/audit/ for
+  every session in a repo family, including sessions running in a linked worktree —
+  previously a worktree session wrote beside the worktree, where /audit,
+  /audit-history and the lean-lane evidence gates could not find it.
+  Migration: none. Ledgers already written beside a worktree are abandoned, not
+  migrated — most are already gone with the worktrees that held them, and the rest
+  are tamper-evidence for runs that have already merged. A run in flight across the
+  upgrade loses continuity between its old and its new ledger.
+
+### `dev-pipeline` 4.0.0 → 4.1.0
+
+- **feat(review-toolkit): flag test coverage that cannot fail (#411)** (#411)
+  test-coverage-reviewer gains a stack-neutral "coverage that cannot
+  fail" axis — seven decorative test shapes, a cost signal that flags a raised
+  per-file test timeout as a symptom, and a composed-contract rule generalized
+  off its former pipeline-gate scoping. unit-test-mutation-reviewer gains a
+  decorative-test audit over tests added in the range, reported on
+  mockAuditFindings with a delete-or-fold remedy. Both are advisory-only and
+  never discount an existing coverage floor.
+  Migration: none.
+- **docs(dev-pipeline): tracker README's lean-lane branch-site counts are stale for both scripts (#414)** (#414)
+- **plan-lint-selftest borrowed the repo it was authored in; ship a class guard for it (#425)** (#425)
+  shipped selftests that silently depended on the second-shift
+  checkout now pass from a marketplace install, so pipeline-doctor and
+  preflight stop reporting a FAIL on a clean consumer repo.
+  Migration: none.
+- **feat(dev-pipeline): bucket pipeline cost by resolved model tier (#429)** (#429)
+  the pipeline cost block buckets spend by resolved model tier
+  (`reasoning` / `code` / `emit`, with `unknown` for unmapped ids and for
+  datapoints carrying no model attribute) beside the stage label. The PR cost
+  table gains a Tier column, and each `cost-log.jsonl` row gains a top-level
+  `tiers` array beside the unchanged `models`. The map is a script constant —
+  no config key, no schema edit, no configVersion change.
+  Migration: none. Already-written cost-log rows stay readable, and
+  `stage-envelopes.sh` re-groups by label so the extra rows fold correctly.
+- **feat(dev-pipeline): enforce the lean entry gate's ledger precondition (#422)** (#422)
+  `lean-gate.sh entry` now records a durable attestation row in the run's
+  progress file, and `claim`, `1..5`, `all` and `delta` refuse with exit 2 until it
+  exists — naming `bash G entry <issue>` as the remedy and charging no fix-budget
+  attempt. Its refusal names `audit-toolkit` when the repo's settings show the plugin
+  disabled. `lean-reconcile.sh` gains an arm asserting that row, and
+  `/second-shift:doctor` now FAILs (not warns) when `audit-toolkit` is disabled while
+  `dev-pipeline` is enabled — that combination makes the lean lane unusable.
+  Migration: no grandfather window. An in-flight lean PR whose build ran before this
+  reds at `all`/`delta` and at reconcile; the remedy is one idempotent
+  `bash G entry <issue>` wherever the hook is live. A repo that deliberately disabled
+  `audit-toolkit` alongside `dev-pipeline` must re-enable it or disable the lane.
+  `docs/onboarding.md` records that `audit-toolkit` disabled while
+  `dev-pipeline` is enabled is not a supported combination — the lean lane's entry
+  gate cannot start without the ledger audit-toolkit's hook writes.
+  Migration: none.
+  `review-lean` step 4 documents what an exit 2 from `bash G delta`
+  means: no entry attestation is READABLE. That record is host-local and
+  gitignored, so a review re-runs from the build worktree before concluding
+  anything; only a genuinely absent row is handed back, since a run whose audit
+  ledger was never established cannot be reconciled.
+  Migration: none.
+- **fix(second-shift): re-verify a lane-redding survivor serially before reporting it (#433)** (#433)
+- **feat(second-shift): release the pipeline's run-state labels when a tracker item closes (#428)** (#428)
+  the pipeline's two run-state labels (`tracker.labels.claimed` and
+  `tracker.labels.queue`) are now released when a tracker item closes, instead of
+  staying on every merged ticket forever. `tracker.labels.blockers` is never
+  touched. `/second-shift:onboard` emits the workflow that does it under the same
+  acceptance as the CI evidence workflow, adding
+  `.github/workflows/second-shift-unclaim.yml` and
+  `.claude/tools/second-shift-unclaim.sh`. It is the only emitted workflow that
+  writes (`issues: write`, two labels on one closing issue), it is a stated no-op
+  under a tracker declaring `writes: false` or a non-github tracker, and it needs
+  the repo's Actions workflow permissions set to read-and-write.
+  Migration: none. Existing repos opt in at the next onboard run.
+- **fix+feat: preflight portability fixes, onboard topology detection, doctor selftest caching (#418)** (#418)
+  pipeline-doctor's plan-lint selftest no longer depends on the
+  invoking repo having a top-level plugins/ directory, so its Check 5a
+  ghost-path case now passes in any consumer repo. Migration: none.
+  /second-shift:onboard's topology detection now (a) doesn't
+  misclassify a repo with test-only workspaces as a monorepo, (b) always
+  surfaces a real sibling-repo pair candidate for confirmation even when a
+  workspaces manifest is also present, and (c) finds a bare-base-name BE
+  sibling from an FE-suffixed repo (e.g. shop next to shop-ui).
+  Migration: none.
+  pipeline-doctor.sh now caches a clean internal-selftest sweep by
+  environment fingerprint (installed plugin tree + bash/jq/node versions),
+  so a consumer's repeat preflight/doctor invocation in an unchanged
+  environment completes in seconds instead of re-paying the full sweep
+  (~4 min) every time. Delete .claude/pipeline-state/doctor-selftest-cache.json
+  to force a re-run. Migration: none.
+- **Consumer-side lean chain gate — merge-boundary evidence ships as plugin payload (#430)** (#430)
+  /dev-pipeline:run-lean's merge-boundary evidence check is now
+  consumable by a consumer repo's own CI. The second-shift evidence workflow
+  emitted by /second-shift:onboard gains a third check that, on a lean-lane PR,
+  refuses a merge without a committed approve-verdict carrying reconciliation
+  keys, a review identity distinct from the build run's, a verdict covering the
+  head being merged, and a ratified intent-gap record. It is model-free and
+  fail-closed: a moved payload path at the pinned ref (HTTP 404) or a shallow
+  checkout is reported as drift, never waved through. Under `tracker.type: jira`
+  the identity arm reports itself unavailable at reduced strength — printed,
+  never silently skipped — because config-lint forbids a `tracker.bot` there.
+  Migration: re-run /second-shift:onboard to pick up the updated
+  `.github/workflows/second-shift-ci.yml` (it now needs `fetch-depth: 0` and the
+  PR context in the step env) and `.claude/tools/second-shift-ci-check.sh`.
+  the consumer CI evidence workflow now grants `issues: read` and
+  `pull-requests: read`; without them its lean-evidence check failed on every pull request
+  it applied to. A non-approve verdict is reported as one violation rather than two.
+  Migration: an already-emitted `.github/workflows/second-shift-ci.yml` needs the two
+  scopes added to its `permissions:` block, by hand or by re-running
+  `/second-shift:onboard`.
+- **the audit hook writes the ledger where its readers look (#420)** (#420)
+  the audit ledger now lives under the MAIN checkout's .claude/audit/ for
+  every session in a repo family, including sessions running in a linked worktree —
+  previously a worktree session wrote beside the worktree, where /audit,
+  /audit-history and the lean-lane evidence gates could not find it.
+  Migration: none. Ledgers already written beside a worktree are abandoned, not
+  migrated — most are already gone with the worktrees that held them, and the rest
+  are tamper-evidence for runs that have already merged. A run in flight across the
+  upgrade loses continuity between its old and its new ledger.
+- **A review that reviewed nothing could still answer 'Ready to merge?' (#437)** (#437)
+  a standalone review-lead round in which every selected reviewer goes dark
+  now voids instead of answering 'Ready to merge?' over zero coverage, and bare
+  plugin reviewer names are normalized at dispatch rather than dying. Stage 8 records
+  such a round as codeReviewVoided and hands it to needs-deep-review without retrying.
+  Migration: none.
+- **run-lean branches join the staged lane's namespace; the lean discriminator moves onto the artifact (#438)** (#438)
+  run-lean branches are now `<tracker.branchPrefix><key>`, the same
+  namespace the staged lane uses — the `lean/` prefix is retired, as is the
+  `claude/acme-` fallback for an unset prefix (it now fails, naming the candidates
+  it considered). Both merge-boundary gates classify on the committed lean spec
+  rather than on a branch name.
+  Migration: a consumer whose CI workflow still sets `LEAN_BRANCH_PREFIX` gets a
+  deprecation notice and can drop the constant; it is ignored, never an error.
+  lean classification refuses (exit 2) when it cannot read the PR's changed files,
+  instead of reporting the PR as non-lean. A workflow that omits PR_BASE_REF now reds both
+  chain gates rather than silently exempting the PR from them.
+  Migration: none — both shipped workflows already pass PR_BASE_REF under fetch-depth: 0.
+
+### `review-toolkit` 4.0.0 → 4.1.0
+
+- **feat(review-toolkit): flag test coverage that cannot fail (#411)** (#411)
+  test-coverage-reviewer gains a stack-neutral "coverage that cannot
+  fail" axis — seven decorative test shapes, a cost signal that flags a raised
+  per-file test timeout as a symptom, and a composed-contract rule generalized
+  off its former pipeline-gate scoping. unit-test-mutation-reviewer gains a
+  decorative-test audit over tests added in the range, reported on
+  mockAuditFindings with a delete-or-fold remedy. Both are advisory-only and
+  never discount an existing coverage floor.
+  Migration: none.
+- **A review that reviewed nothing could still answer 'Ready to merge?' (#437)** (#437)
+  a standalone review-lead round in which every selected reviewer goes dark
+  now voids instead of answering 'Ready to merge?' over zero coverage, and bare
+  plugin reviewer names are normalized at dispatch rather than dying. Stage 8 records
+  such a round as codeReviewVoided and hands it to needs-deep-review without retrying.
+  Migration: none.
+
+### `second-shift` 3.0.0 → 3.1.0
+
+- **feat(dev-pipeline): enforce the lean entry gate's ledger precondition (#422)** (#422)
+  `lean-gate.sh entry` now records a durable attestation row in the run's
+  progress file, and `claim`, `1..5`, `all` and `delta` refuse with exit 2 until it
+  exists — naming `bash G entry <issue>` as the remedy and charging no fix-budget
+  attempt. Its refusal names `audit-toolkit` when the repo's settings show the plugin
+  disabled. `lean-reconcile.sh` gains an arm asserting that row, and
+  `/second-shift:doctor` now FAILs (not warns) when `audit-toolkit` is disabled while
+  `dev-pipeline` is enabled — that combination makes the lean lane unusable.
+  Migration: no grandfather window. An in-flight lean PR whose build ran before this
+  reds at `all`/`delta` and at reconcile; the remedy is one idempotent
+  `bash G entry <issue>` wherever the hook is live. A repo that deliberately disabled
+  `audit-toolkit` alongside `dev-pipeline` must re-enable it or disable the lane.
+  `docs/onboarding.md` records that `audit-toolkit` disabled while
+  `dev-pipeline` is enabled is not a supported combination — the lean lane's entry
+  gate cannot start without the ledger audit-toolkit's hook writes.
+  Migration: none.
+  `review-lean` step 4 documents what an exit 2 from `bash G delta`
+  means: no entry attestation is READABLE. That record is host-local and
+  gitignored, so a review re-runs from the build worktree before concluding
+  anything; only a genuinely absent row is handed back, since a run whose audit
+  ledger was never established cannot be reconciled.
+  Migration: none.
+- **feat(second-shift): release the pipeline's run-state labels when a tracker item closes (#428)** (#428)
+  the pipeline's two run-state labels (`tracker.labels.claimed` and
+  `tracker.labels.queue`) are now released when a tracker item closes, instead of
+  staying on every merged ticket forever. `tracker.labels.blockers` is never
+  touched. `/second-shift:onboard` emits the workflow that does it under the same
+  acceptance as the CI evidence workflow, adding
+  `.github/workflows/second-shift-unclaim.yml` and
+  `.claude/tools/second-shift-unclaim.sh`. It is the only emitted workflow that
+  writes (`issues: write`, two labels on one closing issue), it is a stated no-op
+  under a tracker declaring `writes: false` or a non-github tracker, and it needs
+  the repo's Actions workflow permissions set to read-and-write.
+  Migration: none. Existing repos opt in at the next onboard run.
+- **fix+feat: preflight portability fixes, onboard topology detection, doctor selftest caching (#418)** (#418)
+  pipeline-doctor's plan-lint selftest no longer depends on the
+  invoking repo having a top-level plugins/ directory, so its Check 5a
+  ghost-path case now passes in any consumer repo. Migration: none.
+  /second-shift:onboard's topology detection now (a) doesn't
+  misclassify a repo with test-only workspaces as a monorepo, (b) always
+  surfaces a real sibling-repo pair candidate for confirmation even when a
+  workspaces manifest is also present, and (c) finds a bare-base-name BE
+  sibling from an FE-suffixed repo (e.g. shop next to shop-ui).
+  Migration: none.
+  pipeline-doctor.sh now caches a clean internal-selftest sweep by
+  environment fingerprint (installed plugin tree + bash/jq/node versions),
+  so a consumer's repeat preflight/doctor invocation in an unchanged
+  environment completes in seconds instead of re-paying the full sweep
+  (~4 min) every time. Delete .claude/pipeline-state/doctor-selftest-cache.json
+  to force a re-run. Migration: none.
+- **Consumer-side lean chain gate — merge-boundary evidence ships as plugin payload (#430)** (#430)
+  /dev-pipeline:run-lean's merge-boundary evidence check is now
+  consumable by a consumer repo's own CI. The second-shift evidence workflow
+  emitted by /second-shift:onboard gains a third check that, on a lean-lane PR,
+  refuses a merge without a committed approve-verdict carrying reconciliation
+  keys, a review identity distinct from the build run's, a verdict covering the
+  head being merged, and a ratified intent-gap record. It is model-free and
+  fail-closed: a moved payload path at the pinned ref (HTTP 404) or a shallow
+  checkout is reported as drift, never waved through. Under `tracker.type: jira`
+  the identity arm reports itself unavailable at reduced strength — printed,
+  never silently skipped — because config-lint forbids a `tracker.bot` there.
+  Migration: re-run /second-shift:onboard to pick up the updated
+  `.github/workflows/second-shift-ci.yml` (it now needs `fetch-depth: 0` and the
+  PR context in the step env) and `.claude/tools/second-shift-ci-check.sh`.
+  the consumer CI evidence workflow now grants `issues: read` and
+  `pull-requests: read`; without them its lean-evidence check failed on every pull request
+  it applied to. A non-approve verdict is reported as one violation rather than two.
+  Migration: an already-emitted `.github/workflows/second-shift-ci.yml` needs the two
+  scopes added to its `permissions:` block, by hand or by re-running
+  `/second-shift:onboard`.
+- **run-lean branches join the staged lane's namespace; the lean discriminator moves onto the artifact (#438)** (#438)
+  run-lean branches are now `<tracker.branchPrefix><key>`, the same
+  namespace the staged lane uses — the `lean/` prefix is retired, as is the
+  `claude/acme-` fallback for an unset prefix (it now fails, naming the candidates
+  it considered). Both merge-boundary gates classify on the committed lean spec
+  rather than on a branch name.
+  Migration: a consumer whose CI workflow still sets `LEAN_BRANCH_PREFIX` gets a
+  deprecation notice and can drop the constant; it is ignored, never an error.
+  lean classification refuses (exit 2) when it cannot read the PR's changed files,
+  instead of reporting the PR as non-lean. A workflow that omits PR_BASE_REF now reds both
+  chain gates rather than silently exempting the PR from them.
+  Migration: none — both shipped workflows already pass PR_BASE_REF under fetch-depth: 0.
+
 ## v4.0.0
 
 ### `dev-pipeline` 3.8.5 → 4.0.0
