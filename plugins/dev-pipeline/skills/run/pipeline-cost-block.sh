@@ -388,11 +388,27 @@ fi
 # ISO-8601 `Z` string — as LOCAL time, and the resulting epoch is off by the operator's offset.
 # That would compare a skewed fence against real file mtimes and select the wrong backups
 # everywhere except UTC, which is the same class of bug as trusting the rotated filename.
+# Validated the same way as file_mtime below, and for the same reason: a `date` form that is
+# wrong for the platform is not reliably a non-zero exit, so the digits are the test.
 iso_to_epoch() {
-  date -u -j -f "%Y-%m-%dT%H:%M:%SZ" "$1" +%s 2>/dev/null || date -u -d "$1" +%s 2>/dev/null
+  local e
+  e=$(date -u -j -f "%Y-%m-%dT%H:%M:%SZ" "$1" +%s 2>/dev/null)
+  case "$e" in ''|*[!0-9]*) e=$(date -u -d "$1" +%s 2>/dev/null) ;; esac
+  case "$e" in ''|*[!0-9]*) return 1 ;; esac
+  printf '%s\n' "$e"
 }
+# BSD `stat -f %m` and GNU `stat -c %Y`, and neither one fails cleanly under the other. On GNU,
+# `-f` is --file-system and `%m` is read as another OPERAND, so the call prints filesystem info
+# for the real file and the `||` fallback never gets a chance to produce a number — the caller
+# then compares that text against an epoch, the test errors, and NO rotated backup is ever
+# selected. Validating the digits rather than trusting the exit status is what makes the pair
+# portable; a non-numeric result from either form is treated as no answer.
 file_mtime() {
-  stat -f %m "$1" 2>/dev/null || stat -c %Y "$1" 2>/dev/null
+  local m
+  m=$(stat -c %Y "$1" 2>/dev/null)
+  case "$m" in ''|*[!0-9]*) m=$(stat -f %m "$1" 2>/dev/null) ;; esac
+  case "$m" in ''|*[!0-9]*) return 1 ;; esac
+  printf '%s\n' "$m"
 }
 
 select_metrics_files() {

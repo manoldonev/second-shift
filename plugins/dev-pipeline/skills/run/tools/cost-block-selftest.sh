@@ -699,11 +699,25 @@ echo "=== #432: rotated backups, and the four-way skip discrimination ==="
 # `-u` matters here for the same reason it does in the script: without it BSD `date -j -f` reads
 # a `Z` timestamp as local time, and every fixture datapoint lands one tz offset away from where
 # the case says it is — green in UTC, red on the machines this actually runs on.
-iso2ep() { date -u -j -f "%Y-%m-%dT%H:%M:%SZ" "$1" +%s 2>/dev/null || date -u -d "$1" +%s 2>/dev/null; }
-set_mtime() { # set_mtime <file> <iso> — `date -r` means "reference file" on GNU, so it falls through
+# BSD and GNU disagree on both of these, and NEITHER wrong form reliably fails: `date -j -f` is
+# an invalid option on GNU (clean), but `date -r` on GNU means "reference FILE" and `stat -f` on
+# GNU means --file-system, which prints something and exits however it likes. Validate the shape
+# of the answer instead of trusting the exit status — trusting it is what let the covering-backup
+# case pass on macOS and fail on Linux, where no backup was ever selected.
+digits_or_empty() { case "$1" in ''|*[!0-9]*) echo "" ;; *) echo "$1" ;; esac; }
+iso2ep() {
+  local e
+  e="$(digits_or_empty "$(date -u -j -f "%Y-%m-%dT%H:%M:%SZ" "$1" +%s 2>/dev/null)")"
+  [ -n "$e" ] || e="$(digits_or_empty "$(date -u -d "$1" +%s 2>/dev/null)")"
+  echo "$e"
+}
+set_mtime() { # set_mtime <file> <iso>
   local ep stamp
   ep="$(iso2ep "$2")"
-  stamp="$(date -r "$ep" +%Y%m%d%H%M.%S 2>/dev/null || date -d "@$ep" +%Y%m%d%H%M.%S 2>/dev/null)"
+  [ -n "$ep" ] || { bad "set_mtime: could not convert '$2' to an epoch on this platform"; return 1; }
+  stamp="$(date -r "$ep" +%Y%m%d%H%M.%S 2>/dev/null)"
+  case "$stamp" in ''|*[!0-9.]*) stamp="$(date -d "@$ep" +%Y%m%d%H%M.%S 2>/dev/null)" ;; esac
+  [ -n "$stamp" ] || { bad "set_mtime: could not render a touch stamp for '$2'"; return 1; }
   touch -t "$stamp" "$1"
 }
 # mk_metrics <file> <metric-name> <sid:iso:value>…
