@@ -4,6 +4,42 @@ All notable changes to the second-shift marketplace. Versions are per-plugin (`p
 this file tracks the marketplace release. `configVersion` stays `const 1` — v2 is fully backward-compatible for a
 consumer with an empty config; the migration notes below are only for consumers using the changed features.
 
+## v4.1.1
+
+### `dev-pipeline` 4.1.0 → 4.1.1
+
+- **Gate output classes: silent when satisfied, loud when it could not evaluate (#451)** (#451)
+  the lean lane's two merge-boundary gates no longer recite the arms they
+  checked on a passing run — a green PR now produces no gate output at all, and the
+  only line a passing run can print is a one-line disclosure that some arm could not
+  be evaluated (with a disposition of not-applicable, reduced-strength, postdated or
+  inert). Failure output is unchanged.
+  Migration: a workflow or script that greps the gates' green-path text must move to
+  the new tokens — the whole-gate decline is now 'lean-chain: not-applicable' /
+  'lean-evidence: not-applicable' rather than the prose 'chain check not applicable'.
+  the consumer CI template's 'lean evidence' OK line now names the
+  'lean-evidence: not-applicable' decline as the thing that distinguishes a
+  complete lean PR from a non-lean one, instead of pointing at payload output a
+  satisfied run no longer produces.
+  Migration: none.
+
+### `second-shift` 3.1.0 → 3.1.1
+
+- **Gate output classes: silent when satisfied, loud when it could not evaluate (#451)** (#451)
+  the lean lane's two merge-boundary gates no longer recite the arms they
+  checked on a passing run — a green PR now produces no gate output at all, and the
+  only line a passing run can print is a one-line disclosure that some arm could not
+  be evaluated (with a disposition of not-applicable, reduced-strength, postdated or
+  inert). Failure output is unchanged.
+  Migration: a workflow or script that greps the gates' green-path text must move to
+  the new tokens — the whole-gate decline is now 'lean-chain: not-applicable' /
+  'lean-evidence: not-applicable' rather than the prose 'chain check not applicable'.
+  the consumer CI template's 'lean evidence' OK line now names the
+  'lean-evidence: not-applicable' decline as the thing that distinguishes a
+  complete lean PR from a non-lean one, instead of pointing at payload output a
+  satisfied run no longer produces.
+  Migration: none.
+
 ## v4.1.0
 
 ### `audit-toolkit` 2.1.0 → 2.1.1

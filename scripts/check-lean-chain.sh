@@ -85,6 +85,22 @@
 # diff and a bot-authenticated tracker comment, is what this makes detectable. Harness
 # attestation is lean-reconcile.sh's job (and #292's later).
 #
+# THREE OUTPUT CLASSES (#443). Reciting every arm on a passing run teaches nothing and buries the
+# lines that matter; reciting none makes a gate that checked nothing indistinguishable from one
+# that checked everything. So the recital splits three ways:
+#   (a) SATISFIED, including VACUOUSLY satisfied — no output at all, on either stream, whether the
+#       run ends green or red. The freshness precedence-skip and the no-inherited-coverage line
+#       live here: the contract WAS verified, just by the other branch, and which branch verified
+#       it is a source-reading question. Silence is unconditional and streamed, never buffered
+#       until the verdict is known; a failing run's refusal already names the arm it came from.
+#   (b) COULD NOT EVALUATE — exactly one line, on the green path. Mandatory rather than permitted:
+#       an arm that quietly declines to run is the vacuous pass this gate refuses everywhere else.
+#       Shape pinned below, identically to lean-evidence.sh's, because the successors to #443 emit
+#       into this class and must not each invent one.
+#   FAILURE output is unchanged — as loud and as specific as it ever was.
+# There is deliberately NO verbose flag. An opt-in that restores the recital restores the problem,
+# one CI job at a time, and a flag nobody sets is a code path nobody reads.
+#
 # NON-VACUOUS BY CONSTRUCTION. Applicability is the committed lean spec in the PR's own diff,
 # keyed to the PR's own issue — and nothing else (#413). There is no branch-shaped arm: both
 # lanes cut `<tracker.branchPrefix><key>` branches, so a namespace test would classify every
@@ -165,13 +181,36 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --comments-file)   COMMENTS_FILE="${2:-}"; shift 2 ;;
     --diff-files-file) DIFF_FILES_FILE="${2:-}"; shift 2 ;;
-    -h|--help) sed -n '2,157p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,173p' "$0"; exit 0 ;;
     *) echo "[lean-chain] unknown argument: $1" >&2; exit 2 ;;
   esac
 done
 
 fail()    { echo "[lean-chain] ✗ $1" >&2; exit 1; }
 envfail() { echo "[lean-chain] $1" >&2; exit 2; }
+
+# LOCKSTEP-BEGIN lean-output-dispositions
+LEAN_OUTPUT_DISPOSITIONS='not-applicable reduced-strength postdated inert'
+# LOCKSTEP-END lean-output-dispositions
+
+# The class-(b) emitter, and the ONLY way this file writes on a green path. Shape:
+#
+#   [lean-chain]   · <arm>: <disposition> — <reason>
+#
+# STDOUT, one line, disposition drawn from the closed set above. `postdated` and `inert` have no
+# call site here yet; they are the successors' and are declared now so the vocabulary is fixed
+# rather than grown a word at a time by whoever emits next.
+#
+# An unknown disposition is an ENVIRONMENT error, not a printed line: a gate whose vocabulary can
+# be widened at a call site has no closed vocabulary, and the reader that classifies these lines
+# would silently start seeing a token it has no rule for.
+inapplicable() { # inapplicable <arm> <disposition> <reason>
+  case " $LEAN_OUTPUT_DISPOSITIONS " in
+    *" $2 "*) : ;;
+    *) envfail "internal: '$2' is not a class-(b) disposition (arm '$1'). The vocabulary is closed: $LEAN_OUTPUT_DISPOSITIONS." ;;
+  esac
+  echo "[lean-chain]   · $1: $2 — $3"
+}
 
 # LOCKSTEP-BEGIN lean-chain-artifact-patterns
 # The lean-marked name shapes, suffix-anchored. `*-lean.md` must never match the verdict
@@ -359,24 +398,25 @@ delegate() { # delegate <arms...>   — runs the payload's `check` for the named
 # documented at the payload.
 CLASSIFY="$(bash "$PAYLOAD" classify "${PAYLOAD_ARGS[@]+"${PAYLOAD_ARGS[@]}"}")" || exit $?
 APPLICABLE="$(printf '%s\n' "$CLASSIFY" | sed -n 's/^applicable=//p' | head -n1)"
-TRIGGER="$(printf '%s\n' "$CLASSIFY" | sed -n 's/^trigger=//p' | head -n1)"
+# `trigger=` is deliberately NOT read back. It named the arm that classified the PR, and its only
+# consumer was the `applicable via …` recital #443 silenced — a satisfied classification is class
+# (a). The payload still emits it; the DECLINE path below is where an operator needs the detail,
+# and that path builds its own reason from `key=` and `spec_in_diff=`.
 KEY="$(printf '%s\n' "$CLASSIFY" | sed -n 's/^key=//p' | head -n1)"
 LEAN_SPEC_IN_DIFF="$(printf '%s\n' "$CLASSIFY" | sed -n 's/^spec_in_diff=//p' | head -n1)"
 [[ -n "$APPLICABLE" ]] \
   || envfail "the evidence payload returned no applicability verdict — refusing to guess. Output was: $CLASSIFY"
 
 if [[ "$APPLICABLE" -eq 0 ]]; then
-  # Echo what the payload resolved: a decline is otherwise indistinguishable from "never ran".
-  echo "[lean-chain] non-lean change — lean chain check not applicable."
-  echo "[lean-chain]   head branch: $PR_HEAD_REF"
-  echo "[lean-chain]   resolved key: ${KEY:-<none>} (branch namespace: $PIPELINE_BRANCH_PREFIX)"
-  if [[ -n "$LEAN_SPEC_IN_DIFF" ]]; then
-    echo "[lean-chain]   note: a lean-marked spec IS present ($LEAN_SPEC_IN_DIFF) but it is not this PR's key — classified to the pipeline chain gate, not this one."
-  fi
+  # CLASS (b): the whole gate could not evaluate. ONE line, carrying what the payload resolved
+  # inside its reason — a decline is otherwise indistinguishable from "never ran", and the
+  # "a lean spec IS present and it is not yours" case is the one decline an operator argues with.
+  DECLINE_NOTE=""
+  [[ -n "$LEAN_SPEC_IN_DIFF" ]] \
+    && DECLINE_NOTE=" A lean-marked spec IS present ($LEAN_SPEC_IN_DIFF) but it is not this PR's key — classified to the pipeline chain gate, not this one."
+  inapplicable lean-chain not-applicable "non-lean change on head branch '$PR_HEAD_REF' — resolved key: ${KEY:-<none>} (branch namespace: $PIPELINE_BRANCH_PREFIX).$DECLINE_NOTE"
   exit 0
 fi
-
-echo "[lean-chain] applicable via $TRIGGER: branch=$PR_HEAD_REF"
 
 # A lean PR on a branch outside the namespace, naming no issue. The payload classifies it
 # applicable on purpose rather than declining — a PR both gates decline is the hole this
@@ -384,8 +424,6 @@ echo "[lean-chain] applicable via $TRIGGER: branch=$PR_HEAD_REF"
 # remedy, not an environment error.
 [[ -n "$KEY" ]] \
   || fail "PR body carries no resolvable issue reference ('Closes #N' or 'Part of #N') and the head branch is outside '$PIPELINE_BRANCH_PREFIX', but this PR commits a lean spec. Add the reference."
-
-echo "[lean-chain] source issue: #$KEY"
 
 violations=0
 note_violation() { echo "[lean-chain]   ✗ $1" >&2; violations=$((violations + 1)); }
@@ -410,8 +448,6 @@ else
   ac_count="$(grep -cE '(^|[^A-Za-z])AC-[0-9]+' "$REPO_ROOT/$SPEC" 2>/dev/null)" || ac_count=0
   if [[ "${ac_count:-0}" -lt 1 ]]; then
     note_violation "committed spec '$SPEC' carries no numbered AC-n criterion."
-  else
-    echo "[lean-chain]   ✓ spec: $SPEC ($ac_count AC-n reference(s))"
   fi
 fi
 
@@ -525,8 +561,6 @@ if [[ "${CLAIMED:-0}" -lt 1 ]]; then
   else
     note_violation "no bot-authored 'lean-claimed' comment on #$KEY at or before PR-open ($PR_CREATED_AT). The run left no claim record."
   fi
-else
-  echo "[lean-chain]   ✓ claim: bot-authored lean-claimed comment on #$KEY within the PR-open window"
 fi
 
 # ---- (8) evidence 4: the verdict was authored OUTSIDE the build session (P10) ------------
@@ -553,15 +587,17 @@ if [[ -n "$VERDICT" && -n "$VERDICT_RUN_ID" && -n "$VERDICT_SESSION_ID" ]]; then
     # pick a second string, whereas the session id is harness-assigned.
     note_violation "verdict record '$VERDICT' names the BUILD session ('$VERDICT_SESSION_ID') as its author — a distinct run_id does not make it an independent review (P10)."
   else
-    echo "[lean-chain]   ✓ authorship: verdict run_id ($VERDICT_RUN_ID) is distinct from the build claim's ($CLAIM_RUN_ID), and the record names its review session"
     # TRANSITIONAL, and deliberately not a violation. Claim comments posted before the claim
     # writer carried a session id have none, and there is no remedy available: the comment
     # must fall inside the immutable PR-open window, so it cannot be re-posted for an open PR.
     # Refusing here would strand those PRs with no action that clears the gate. The run_id arm
     # above still applies to them, and lean-reconcile.sh makes the session comparison
     # out-of-band against the progress file, which is not window-bound.
+    #
+    # CLASS (b), not (a): only HALF the comparison ran, so the arm did not fully evaluate and
+    # the boundary is weaker here than it reads. Exactly the disclosure `reduced-strength` names.
     [[ -n "$CLAIM_SESSION_ID" ]] \
-      || echo "[lean-chain]   note: the claim comment carries no session_id (claimed before the writer emitted one) — only the run-id half of the authorship comparison was available."
+      || inapplicable authorship reduced-strength "the claim comment on #$KEY carries no session_id (claimed before the writer emitted one, and the PR-open window makes it un-repostable), so only the run-id half of the authorship comparison was available."
   fi
 fi
 
@@ -597,9 +633,12 @@ elif [[ -n "$VERDICT" ]]; then
   # over. Same one-way, never-AND-ed precedence as the reviewed_patch_id/reviewed_head choice
   # inside the declared arm itself. Records predating the key have no declared arm to defer to,
   # so the inferred arm stays their sole check.
-  if [[ -n "$VERDICT_REVIEWED_PATCH_ID" ]]; then
-    echo "[lean-chain]   · freshness (inferred): skipped — record declares reviewed_patch_id, which takes precedence (see declared arm below)."
-  else
+  #
+  # The skip is CLASS (a), not (b) (#443): freshness IS verified, by the declared arm, and which
+  # of the two arms verified it is a source-reading question. It also fires on every record that
+  # carries a reviewed_patch_id — that is to say on every ordinary green PR — so printing it was
+  # the single largest source of the recital this silence removes.
+  if [[ -z "$VERDICT_REVIEWED_PATCH_ID" ]]; then
     VERDICT_COMMIT="$(git -C "$REPO_ROOT" log -1 --format=%H -- "$VERDICT" 2>/dev/null)"
     if [[ -z "$VERDICT_COMMIT" ]]; then
       note_violation "verdict record '$VERDICT' is present in the tree but carries no commit — it was never committed to the branch, so nothing dates it against the code."
@@ -608,8 +647,6 @@ elif [[ -n "$VERDICT" ]]; then
       if [[ -n "$STALE" ]]; then
         n_stale="$(printf '%s\n' "$STALE" | wc -l | tr -d ' ')"
         note_violation "verdict record '$VERDICT' approves $(git -C "$REPO_ROOT" rev-parse --short "$VERDICT_COMMIT"), but $n_stale file(s) changed between that commit and the PR head (e.g. $(printf '%s' "$STALE" | head -n1)). An approve for an earlier head is not an approve for this one — run another review round."
-      else
-        echo "[lean-chain]   ✓ freshness (inferred): nothing but the verdict record itself changed between its commit and the PR head"
       fi
     fi
   fi
@@ -639,20 +676,17 @@ elif [[ -n "$VERDICT" ]]; then
     if [[ -n "$DECLARED_STALE" ]]; then
       n_declared="$(printf '%s\n' "$DECLARED_STALE" | wc -l | tr -d ' ')"
       note_violation "verdict record '$VERDICT' states it reviewed $(git -C "$REPO_ROOT" rev-parse --short "$VERDICT_REVIEWED_HEAD" 2>/dev/null), but $n_declared file(s) differ between that commit and the PR head (e.g. $(printf '%s' "$DECLARED_STALE" | head -n1)). The review read a different tree than the one being merged — run another review round."
-    else
-      echo "[lean-chain]   ✓ freshness (declared): the record names $(git -C "$REPO_ROOT" rev-parse --short "$VERDICT_REVIEWED_HEAD" 2>/dev/null) as the head it reviewed, and only the record itself differs from the PR head"
     fi
   fi
 fi
 
 # ---- (10) evidence 6: every declared inheritance link resolves (#375) ---------------------
 # Skipped when there is no verdict record — already a violation, and "unverifiable chain" on
-# top of "no verdict" is noise. Absence of the key is the ordinary case and is PRINTED, so a
-# reader of the log can tell "this round covered everything itself" from "the arm never ran".
+# top of "no verdict" is noise. Absence of the key is the ordinary case and is CLASS (a) (#443):
+# a round that inherits nothing covered the whole branch diff itself, which is a satisfied arm,
+# not an unevaluated one.
 if [[ -n "$VERDICT" ]]; then
-  if [[ -z "$VERDICT_INHERITED_PATCH_ID" ]]; then
-    echo "[lean-chain]   · verdict record declares no inherited coverage — it covers the whole branch diff on its own."
-  else
+  if [[ -n "$VERDICT_INHERITED_PATCH_ID" ]]; then
     # The record versions this branch committed, newest-first. Anchored at PR_HEAD_SHA for the
     # same reason evidence 5 is: on a pull_request event the checkout's HEAD is the MERGE ref,
     # so a bare `git log` would walk base-side history the PR never authored.
@@ -673,7 +707,6 @@ if [[ -n "$VERDICT" ]]; then
     CHAIN_VERSIONS="$CHAIN_REST"
     CHAIN_WANT="$VERDICT_INHERITED_PATCH_ID"
     CHAIN_ROUND="${VERDICT_ROUNDS:-?}"
-    CHAIN_LINKS=0
     CHAIN_BROKEN=""
     while [[ -n "$CHAIN_WANT" ]]; do
       CHAIN_HIT=""
@@ -687,14 +720,11 @@ if [[ -n "$VERDICT" ]]; then
         break
       fi
       CHAIN_VERSIONS="$CHAIN_REST"
-      CHAIN_LINKS=$((CHAIN_LINKS + 1))
       CHAIN_ROUND="$(record_key_at rounds "$CHAIN_HIT" "$VERDICT")"; [[ -n "$CHAIN_ROUND" ]] || CHAIN_ROUND="?"
       CHAIN_WANT="$(inherited_key_at "$CHAIN_HIT" "$VERDICT")"
     done
     if [[ -n "$CHAIN_BROKEN" ]]; then
       note_violation "$CHAIN_BROKEN The remedy is a review round that reads the full diff."
-    else
-      echo "[lean-chain]   ✓ inheritance chain: $CHAIN_LINKS inherited link(s), each resolving to an earlier verdict record on this branch"
     fi
   fi
 fi
@@ -722,12 +752,11 @@ delegate intent-gap
 
 # ---- (12) evidence 8: armed design runs carry a fresh render receipt (#394) ---------------
 # Skipped when there is no committed spec — already a violation, and "armed-ness unresolvable"
-# on top of "no spec" is noise. Absence of arming is the ordinary case and is PRINTED, so a
-# reader of the log can tell "this ticket declared no design lane" from "the arm never ran".
+# on top of "no spec" is noise. Absence of arming is the ordinary case and is CLASS (a) (#443):
+# a ticket that declares no design lane has nothing for this arm to check, and AC-4 requires that
+# an ordinary unarmed PR produce no output at all.
 if [[ -n "$SPEC" ]]; then
-  if [[ "$(design_armed < "$REPO_ROOT/$SPEC")" != "armed" ]]; then
-    echo "[lean-chain]   · spec declares no armed design render lane — design evidence not applicable."
-  else
+  if [[ "$(design_armed < "$REPO_ROOT/$SPEC")" == "armed" ]]; then
     RENDERS=""
     while IFS= read -r f; do
       is_fixture_path "${f#"$REPO_ROOT/"}" && continue
@@ -737,7 +766,10 @@ if [[ -n "$SPEC" ]]; then
     if [[ -z "$RENDERS" ]]; then
       note_violation "spec '$SPEC' arms the design render lane, but no render receipt (a file named *-$KEY$LEAN_RENDER_SUFFIX) is committed. The screenshots a fidelity verdict was scored against are not in this branch, so nothing here attests that any render happened."
     elif [[ -z "$VERDICT" ]]; then
-      echo "[lean-chain]   · render receipt present ($RENDERS), but there is no verdict record to score fidelity against — already reported above."
+      # CLASS (b): the arm is ARMED and applicable, but fidelity cannot be scored without a record
+      # to read it from. The missing verdict is already a violation above; this line reports that
+      # the design arm went unevaluated rather than passing, which is a different fact.
+      inapplicable design-evidence not-applicable "the render receipt ($RENDERS) is committed, but there is no verdict record to score fidelity against — already reported above."
     else
       # HEADER-ANCHORED, like `inherited_patch_id` and for the same reason: `fidelity:` can be
       # absent (every record written before the key existed) and review prose discusses fidelity,
@@ -764,8 +796,6 @@ if [[ -n "$SPEC" ]]; then
             envfail "cannot compute this branch's render patch identity against origin/$PR_BASE_REF — the merge-base is unresolvable (fetch-depth: 0 is required), or the branch's diff excluding '$VERDICT' and '$RENDERS' is empty. A check that cannot run must not report a pass."
           elif [[ "$CUR_RENDER_ID" != "$RENDERED_FROM" ]]; then
             note_violation "render receipt '$RENDERS' records rendered_from ${RENDERED_FROM:0:12}, but this branch renders from ${CUR_RENDER_ID:0:12}. The approved fidelity was scored against screenshots of different code — re-render, commit the fresh receipt, and run another review round."
-          else
-            echo "[lean-chain]   ✓ design evidence: $RENDERS (rendered_from ${CUR_RENDER_ID:0:12}) scored fidelity: pass"
           fi
         fi
       fi
@@ -779,5 +809,3 @@ if [[ "$violations" -gt 0 ]]; then
   echo "[lean-chain]   The remedy is producing the missing artifact — there is no waiver." >&2
   exit 1
 fi
-
-echo "[lean-chain] lean evidence complete for #$KEY (spec + approve-verdict covering the head + claim)."

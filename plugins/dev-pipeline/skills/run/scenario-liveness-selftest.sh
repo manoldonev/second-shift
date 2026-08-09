@@ -1889,7 +1889,9 @@ else
       PR_BASE_REF=main PR_BODY="$LR_BODY" PR_CREATED_AT="$LR_OPEN" \
       LEAN_EVIDENCE="$LR_EV" bash "$LR_LEAN" --comments-file "$LR_EMPTY" \
       --diff-files-file "$1" 2>&1 )"
-    if grep -q 'lean chain check not applicable' <<<"$out"; then echo declined; else echo applicable; fi
+    # Since #443 the lean gate's decline is its class-(b) line — the only thing it writes on a
+    # green run — so the token is `lean-chain: not-applicable`, not the retired prose sentence.
+    if grep -q 'lean-chain: not-applicable' <<<"$out"; then echo declined; else echo applicable; fi
   }
   lr_pipe() { # lr_pipe <diff-file> -> applicable|declined
     local out

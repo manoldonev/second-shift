@@ -200,3 +200,4 @@ scripts/stack-generality-lint.sh::logic::1	seeded by the canonical seed run
 plugins/dev-pipeline/skills/run/tools/gh-bot.sh::fail-open::2	#92: new resolver; fail-open mutant not killable by status-token suite
 plugins/dev-pipeline/skills/run/tools/gh-bot.sh::cmp-z::1	#92: new resolver; empty-path cmp not exercised by selftest cases
 plugins/dev-pipeline/skills/run/tools/gh-bot.sh::logic::1	#92: new resolver; generic logic survivor accepted at land
+tools/run-selftests.sh::default::2	equivalent mutant — the site is `${RUN_SELFTESTS_DROP_RC:-}` compared against "1"; unset yields "" and the mutant yields a literal, both unequal to "1", so behavior is identical and no assertion can distinguish them

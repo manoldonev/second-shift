@@ -1,0 +1,64 @@
+# Nightly install-topology class guard — model-free, like every other lane here.
+#
+# WHAT IT GUARDS. A shipped suite can pass in this checkout and fail everywhere it is actually
+# installed, because it silently borrows something from the tree it was authored in.
+# tools/install-topology-selftest.sh stages every plugin into a version-keyed install cache
+# outside any git repo, with cwd in a separate consumer directory, and re-runs every shipped
+# suite from there. Two real defects motivated it, both green in-tree the whole time.
+#
+# WHY IT IS NOT ON THE PR LANE. Its cost IS the shipped suite set, run a second time — ~400s on
+# macos and ~205s on ubuntu uncontended, and it was measured at 319s/438s/584s across three runs
+# of one unchanged tree, so the range is the number. Against that, the signal it produces is
+# near-identical from one PR to the next: the class only moves when suites change or when
+# packaging/topology changes. Paying the repo's longest job on every push to re-learn yesterday's
+# answer is what made CI's critical path 17:50. Nightly is where a standing measurement belongs —
+# the same posture the wholesale mutation sweep already takes, and for the same reason.
+#
+# WHAT THAT COSTS. A packaging or suite regression is caught within a day rather than at PR time.
+# That is the deliberate trade; it is not free. `workflow_dispatch` is here so it can be run on
+# demand against a branch that touches packaging, without waiting for the cron.
+#
+# BOTH LANES. Several install-topology-known-red.tsv rows are explicitly environment-dependent,
+# so the bash-3.2 copy carries signal ubuntu does not. Splitting by lane costs nothing here —
+# they run concurrently and block nothing.
+name: install-topology
+
+on:
+  schedule:
+    # 02:41 UTC — off the hour, and clear of the 03:17 mutation sweep so the two standing
+    # measurements do not contend for runners.
+    - cron: '41 2 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  install-topology:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      # The staged suites need both; this job stands alone, so it states its own tools.
+      - name: install shellcheck + jq
+        run: sudo apt-get update -q && sudo apt-get install -y shellcheck jq
+
+      - name: install-topology class guard
+        run: bash tools/install-topology-selftest.sh
+
+  install-topology-bash32:
+    name: install-topology (macos, bash 3.2)
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      # macOS ships /bin/bash 3.2 and every shipped script claims 3.2 compat, but GitHub's macOS
+      # runners put Homebrew bash 5 first on PATH — so shim PATH to force `#!/usr/bin/env bash`
+      # back to the stock binary. Same idiom as ci.yml's selftests-bash32 job.
+      - name: install-topology class guard under stock bash 3.2
+        run: |
+          mkdir -p /tmp/bash32
+          ln -sf /bin/bash /tmp/bash32/bash
+          export PATH="/tmp/bash32:$PATH"
+          bash --version | head -1
+          bash tools/install-topology-selftest.sh
