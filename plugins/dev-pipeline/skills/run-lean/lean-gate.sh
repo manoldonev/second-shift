@@ -155,6 +155,20 @@ envfail() { echo "[lean-gate] $*" >&2; exit 2; }
 SUB=""
 ISSUE=""
 POSITIONAL=0
+
+# LIBRARY MODE (#439). `LEAN_GATE_LIB=1 . lean-gate.sh` leaves this file's helpers defined and
+# dispatches nothing — the args below are inert placeholders, and the bottom of the file returns
+# before the subcommand case. It exists for one function: md_table_prettier has width cases the
+# render path cannot reach, because every column of the render manifest is wider than the
+# 3-dash minimum, and the only other way to fixture them is a hand-copied padder in the suite —
+# a mirror harness, which cannot fail on a production edit and so converges on green while the
+# real code drifts. No run sets this; every documented seam still applies in library mode.
+#
+# CAVEAT for anyone sourcing it: the parser below consumes the placeholders, so the sourcing
+# scope's own positional parameters are gone afterwards. Copy anything you need out of `$1`
+# BEFORE the `.` — a caller that reads them after it gets an unbound-variable error under
+# `set -u`, which is how this caveat was found rather than reasoned about.
+[ -n "${LEAN_GATE_LIB:-}" ] && set -- entry 0
 while [ $# -gt 0 ]; do
   case "$1" in
     --pr-file)       PR_FILE="${2:-}"; shift 2 ;;
@@ -1523,6 +1537,144 @@ lean_sha256() { # lean_sha256 <file>
   fi
 }
 
+# A markdown table in the exact bytes Prettier writes it (#439). Rows arrive on stdin as
+# `| c1 | c2 | … |`, the FIRST being the header; the delimiter row is NOT supplied, because its
+# dash count is a function of the widths computed here.
+#
+# Padded AT THE WRITE SITE rather than by running a formatter over the finished file, and that
+# is forced rather than preferred: cmd_3_render re-derives the manifest on every milestone-3
+# run and byte-compares it to HEAD, so a post-hoc `prettier --write` would red the milestone
+# forever — gate writes unpadded, operator formats, commits, gate re-derives unpadded, diff,
+# repeat. A generated table with a 64-char sha256 column differs from the formatted form on
+# every single run, which is why single-space padding was never a cosmetic choice here.
+#
+# Width = max(3, longest cell in the column, header included); one space each side of every
+# cell; the delimiter carries exactly `width` dashes. Measured against prettier 3.7.4 — the
+# version verifyctl.sh pins as its own fallback.
+#
+# CHARACTER count, not display width. Prettier pads by display width, so a wide-glyph route or
+# state cell would mis-pad; the cost is one red format check on the branch that introduced it,
+# never a mis-read artifact, and every cell this gate writes today (RS-n, a route, a state, a
+# path, a hex digest) is ASCII.
+#
+# NO ESCAPE HANDLING for a literal `|` inside a cell, and this flank is worse than the one above
+# rather than the same size. `RS-n`, the png path and the digest are gate-derived, but `route`
+# and `state` come from author-written RS rows in the spec, so a pipe in either splits the column
+# here AND shifts render_manifest_rows' positional read — a mis-parsed receipt, not just a red
+# format check. Untreated deliberately: markdown's own answer (`\|`) would have to round-trip
+# through both the padder and the reader, and no consumer has produced such a cell. An author who
+# does gets a receipt whose png/sha columns have moved, which the milestone-3 re-derive surfaces
+# immediately rather than silently.
+md_table_prettier() {
+  awk -F'|' '
+    /\|/ {
+      nr++
+      for (i = 2; i < NF; i++) {
+        c = $i
+        gsub(/^[[:space:]]+|[[:space:]]+$/, "", c)
+        cell[nr, i - 1] = c
+        if (length(c) > w[i - 1]) w[i - 1] = length(c)
+        if (i - 1 > cols) cols = i - 1
+      }
+    }
+    END {
+      for (j = 1; j <= cols; j++) if (w[j] < 3) w[j] = 3
+      for (r = 1; r <= nr; r++) {
+        line = "|"
+        for (j = 1; j <= cols; j++) line = line sprintf(" %-" w[j] "s |", cell[r, j])
+        print line
+        if (r == 1) {
+          line = "|"
+          for (j = 1; j <= cols; j++) {
+            d = ""
+            while (length(d) < w[j]) d = d "-"
+            line = line " " d " |"
+          }
+          print line
+        }
+      }
+    }
+  '
+}
+
+# The prettier binary this gate may run on an artifact IT AUTHORED (#439, D-5). Prints the
+# invocation path, or nothing when none resolves — which every caller must treat as "skip the
+# format step", never as a failure: an absent formatter is a consumer fact, not a run defect.
+#
+# Two rungs, and the omission of a third is the design. verifyctl.sh's ladder ends in
+# `npx --yes prettier@x`; that rung is deliberately NOT carried here, because a gate call must
+# not reach the network. The two rungs it does carry are held in lockstep with that ladder.
+#
+# `commands.<repo>.format` cannot supply this: in at least one consumer it is bound to the
+# CHECK variant (`yarn format:check`), and the shipped config-lint fixture carries exactly
+# that. No new config key either — this resolver needs no consumer onboarding to work.
+lean_resolve_prettier() {
+  local wt="$REPO_ROOT" mr="$MAIN_ROOT"
+  # LOCKSTEP-BEGIN prettier-local-rungs
+  if [[ -x "$wt/node_modules/.bin/prettier" ]]; then
+    printf '%s\n' "$wt/node_modules/.bin/prettier"
+    return 0
+  fi
+  if [[ -x "$mr/node_modules/.bin/prettier" ]]; then
+    printf '%s\n' "$mr/node_modules/.bin/prettier"
+    return 0
+  fi
+  # LOCKSTEP-END prettier-local-rungs
+  return 1
+}
+
+# Every header key cmd_verdict emits in `key: value` form. The list exists so the format step
+# below can prove it damaged none of them; it is the writer's own emission set, so a key added
+# to the record must be added here too or the guard silently stops covering it.
+LEAN_VERDICT_HEADER_KEYS="run_id session_id rounds pr reviewed_head reviewed_patch_id inherited_patch_id inherited_from_verdict fidelity model"
+
+# Format the verdict record, best-effort, and never at the cost of its header contract (#439,
+# D-4/D-6). Padding cannot help here the way it does for the manifest: the body is arbitrary
+# reviewer-authored markdown, table-heavy by convention, so an external formatter is the only
+# thing that can produce the form a consumer's `--check` wants.
+#
+# VERIFY-AND-REVERT, because the header is a contract and not prose. `header_key` is
+# `^key:`-anchored across three lockstep readers, and prettier under `proseWrap: "always"`
+# joins the whole header block into one line — measured — which silently degrades the round to
+# a chain root and drops `fidelity:`. So the pre-format bytes are kept, every emitted key is
+# re-read afterwards, and any mismatch restores them. A red `format:check` costs one CI run; a
+# header this step flattened would cost the round's evidence.
+#
+# Never fails the call. A formatter that is absent, or that exits non-zero, or that damages the
+# header, all land on the same posture: keep the record readable, warn once, continue.
+lean_format_verdict_record() { # lean_format_verdict_record <path>
+  local f="$1" pf tmp k b a
+  pf="$(lean_resolve_prettier)" || pf=""
+  if [ -z "$pf" ]; then
+    warn "verdict: no prettier under $REPO_ROOT/node_modules/.bin or $MAIN_ROOT/node_modules/.bin — $VERDICT_REL is written unformatted, and this gate does not reach the network to fetch one. If this repo's format gate covers $PLANS_DIR, format the record before committing it."
+    return 0
+  fi
+  tmp="$(mktemp 2>/dev/null)" || { warn "verdict: cannot stage a pre-format copy of $VERDICT_REL — leaving it unformatted."; return 0; }
+  cp "$f" "$tmp" 2>/dev/null || { rm -f "$tmp"; warn "verdict: cannot stage a pre-format copy of $VERDICT_REL — leaving it unformatted."; return 0; }
+  if ! "$pf" --write "$f" >/dev/null 2>&1; then
+    cp "$tmp" "$f" 2>/dev/null; rm -f "$tmp"
+    warn "verdict: '$pf --write' failed on $VERDICT_REL — the unformatted record is kept."
+    return 0
+  fi
+  for k in $LEAN_VERDICT_HEADER_KEYS; do
+    b="$(header_key "$k" < "$tmp")"
+    a="$(header_key "$k" < "$f")"
+    if [ "$b" != "$a" ]; then
+      cp "$tmp" "$f" 2>/dev/null; rm -f "$tmp"
+      warn "verdict: formatting $VERDICT_REL changed header key '$k' ('${b:-<none>}' » '${a:-<none>}') — the unformatted record is kept. A prettier config that reflows the header block (proseWrap: \"always\" does) cannot be applied to this artifact; the record's schema wins over the repo's format gate."
+      return 0
+    fi
+  done
+  if [ "$(record_verdict "$tmp")" != "$(record_verdict "$f")" ]; then
+    cp "$tmp" "$f" 2>/dev/null; rm -f "$tmp"
+    warn "verdict: formatting $VERDICT_REL changed the 'verdict=' line — the unformatted record is kept."
+    return 0
+  fi
+  rm -f "$tmp"
+  say "  formatted with $pf"
+  return 0
+}
+
 # The manifest's rows as `RS-n<TAB>pngPath<TAB>sha256`. The `RS-[0-9]+` anchor is what keeps the
 # markdown header and separator rows out of the result without a line counter.
 render_manifest_rows() {
@@ -1708,9 +1860,7 @@ cmd_3_render() {
     echo "issue: $ISSUE"
     echo "spec: $SPEC_REL"
     echo ""
-    echo "| RS | route | state | png | sha256 |"
-    echo "| --- | --- | --- | --- | --- |"
-    printf '%s' "$manifest_rows"
+    { echo "| RS | route | state | png | sha256 |"; printf '%s' "$manifest_rows"; } | md_table_prettier
   } > "$REPO_ROOT/$RENDER_MANIFEST_REL" \
     || { fail_milestone 3 "cannot write the render manifest at $RENDER_MANIFEST_REL"; return $?; }
 
@@ -1720,7 +1870,7 @@ cmd_3_render() {
   # sees only what is on the branch.
   if [ -z "$(git -C "$REPO_ROOT" log -1 --format=%H -- "$RENDER_MANIFEST_REL" 2>/dev/null)" ] \
      || ! git -C "$REPO_ROOT" diff --quiet HEAD -- "$RENDER_MANIFEST_REL" 2>/dev/null; then
-    fail_milestone 3 "render receipt written to $RENDER_MANIFEST_REL ($n_rows state(s), rendered_from $(printf '%.12s' "$cur")) — commit it and re-run milestone 3. It sits inside reviewed_patch_id by design, so the verdict binds to the evidence it was scored against."
+    fail_milestone 3 "render receipt written to $RENDER_MANIFEST_REL ($n_rows state(s), rendered_from $(printf '%.12s' "$cur")) — commit it and re-run milestone 3. It sits inside reviewed_patch_id by design, so the verdict binds to the evidence it was scored against; if a verdict already approves this branch, this rewrite moves that id and voids it, costing one review round. The receipt is written pre-formatted, but the spec and any intent-gap record are NOT — format those yourself before committing if this repo's format gate covers $PLANS_DIR."
     return $?
   fi
 
@@ -1969,14 +2119,14 @@ cmd_4() {
   # — the record itself — because the review session commits nothing else (review-lean step 6).
   v_commit="$(git -C "$REPO_ROOT" log -1 --format=%H -- "$VERDICT_REL" 2>/dev/null)"
   if [ -z "$v_commit" ]; then
-    fail_milestone 4 "verdict record $VERDICT_REL exists but was never committed — a local file is not evidence, and nothing downstream can see it. Commit and push it to the PR's head branch."
+    fail_milestone 4 "verdict record $VERDICT_REL exists but was never committed — a local file is not evidence, and nothing downstream can see it. Commit and push it to the PR's head branch. The gate formats this record itself when a local prettier resolves; the spec and any intent-gap record it does not, so format those before committing if this repo's format gate covers $PLANS_DIR."
     return $?
   fi
   # Tracked-but-dirty is its own case, and the one a bare `git log` lookup misses: the path has
   # a commit, so the lookup above is satisfied, while the bytes being READ are not the bytes
   # anyone committed. Both readings of "not committed" have to fail.
   if ! git -C "$REPO_ROOT" diff --quiet HEAD -- "$VERDICT_REL" 2>/dev/null; then
-    fail_milestone 4 "verdict record $VERDICT_REL has uncommitted changes — the record being read is not the record on the branch, so the one downstream sees is a different file. Commit and push it."
+    fail_milestone 4 "verdict record $VERDICT_REL has uncommitted changes — the record being read is not the record on the branch, so the one downstream sees is a different file. Commit and push it, along with any spec or intent-gap record this repo's format gate expects formatted (the gate formats only what it authors)."
     return $?
   fi
 
@@ -2286,6 +2436,11 @@ cmd_verdict() {
     if [ -n "$body" ]; then printf '%s\n' "$body"; fi
   } > "$rec"
 
+  # The record lands in $PLANS_DIR, which sits inside the format gate of at least one consumer,
+  # and the body is reviewer-authored markdown this writer cannot pre-shape. Best-effort, and
+  # header-safe — see lean_format_verdict_record.
+  lean_format_verdict_record "$rec"
+
   say "✓ verdict: $VERDICT_REL written (verdict=$VERDICT_VALUE, run_id=$RESOLVED_RUN_ID, round $VERDICT_ROUNDS, reviewed_head=$reviewed_head, reviewed_patch_id=$reviewed_patch_id, fidelity=$VERDICT_FIDELITY)"
   if [ -n "$inherited_patch_id" ]; then
     say "  inheriting the coverage of patch $(printf '%.12s' "$inherited_patch_id") — this round's own reading is the delta since that tree."
@@ -2566,6 +2721,9 @@ require_entry_attested() {
   echo "[lean-gate]   Or the record is simply out of reach: that file is host-local and gitignored, so a checkout not sharing the build host's state dir cannot see an attestation that exists. Re-run from the build worktree before handing this back." >&2
   exit 2
 }
+
+# LIBRARY MODE stops here (#439): helpers are defined, nothing is attested, nothing dispatches.
+[ -n "${LEAN_GATE_LIB:-}" ] && return 0
 
 case "$SUB" in
   claim|delta|all|1|2|3|4|5) require_entry_attested ;;

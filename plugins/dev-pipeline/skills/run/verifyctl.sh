@@ -279,17 +279,24 @@ va_path() {
 # it), then the main checkout's (INERT lane skipped install — the main checkout
 # always has one; pipeline-doctor probes it), then a pinned npx fallback.
 # Echoes an invocation prefix; caller appends file args.
+#
+# The two LOCAL rungs are held in lockstep with lean-gate.sh's lean_resolve_prettier, which
+# carries them and stops there — a gate call must not reach the network, so the npx rung below
+# is deliberately not copied. `mr` is resolved before the block rather than between the rungs
+# so the shared text is contiguous; main_root is a pure lookup, so hoisting it costs nothing.
 resolve_prettier() { # $1 = worktree abs path
   local wt="$1" mr
+  mr=$(main_root)
+  # LOCKSTEP-BEGIN prettier-local-rungs
   if [[ -x "$wt/node_modules/.bin/prettier" ]]; then
     printf '%s\n' "$wt/node_modules/.bin/prettier"
     return 0
   fi
-  mr=$(main_root)
   if [[ -x "$mr/node_modules/.bin/prettier" ]]; then
     printf '%s\n' "$mr/node_modules/.bin/prettier"
     return 0
   fi
+  # LOCKSTEP-END prettier-local-rungs
   # Pin from root package.json (strip range marker), default known-good.
   local pv
   pv=$(sed -n 's/.*"prettier": *"[~^]*\([0-9][0-9.]*\)".*/\1/p' "$mr/package.json" 2>/dev/null)
