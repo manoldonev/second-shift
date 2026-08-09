@@ -88,10 +88,10 @@ be invisible to the suite.
 
 **AC-3 — the merge boundary's identity arm keys on bot availability, not on tracker type.**
 `lean-evidence.sh arm_identity` evaluates the marker comparison whenever a bot is available
-and degrades — with the same announced UNAVAILABLE AT REDUCED STRENGTH line, reworded to name
-the real cause — whenever one is not. Availability resolves by the file's existing idiom: an
-optional `LEAN_BOT_ENABLED` env override first, then the committed config's
-`.tracker.bot.enabled`.
+and degrades whenever one is not — announced through the same `inapplicable identity
+reduced-strength …` class-(b) emitter the arm already used, with the reason reworded to name
+the real cause. Availability resolves by the file's existing idiom: an optional
+`LEAN_BOT_ENABLED` env override first, then the committed config's `.tracker.bot.enabled`.
 
 **A config that declares no bot at all falls back per tracker**, and this is the part that
 makes the change behavior-preserving rather than merely correct. "No block" carries two
@@ -126,8 +126,14 @@ and the in-file rationale comments at `lean-evidence.sh:45`, `lean-evidence-self
 time and is not touched.
 
 **AC-7 — the new behavior is covered by the existing suites, not by prose greps.**
-`lean-evidence-selftest.sh` gains cases pinning AC-3's three-way resolution: bot enabled under
-jira ⇒ arm evaluated; bot absent under github ⇒ announced degrade; config unreadable ⇒ arm
-evaluated. `lean-gate-selftest.sh` gains a case pinning AC-4: `mark` under jira with a
-bot-enabled config attempts the post rather than short-circuiting. Each new assertion is
-probed by mutating the production line it guards and confirming the case fails.
+`lean-evidence-selftest.sh` gains cases pinning AC-3's resolution: bot enabled under jira ⇒ arm
+evaluated (a missing marker *violates*, which is what fails if the arm is re-keyed onto the
+tracker) and passes **silently** on a good trail; bot explicitly disabled under github ⇒ the
+degrade, asserted through `class_b` so the count and the pinned shape are both checked, not a
+phrase; and `LEAN_BOT_ENABLED` overriding the committed value. `lean-gate-selftest.sh` gains a
+case pinning AC-4: `mark` under jira with a bot-enabled config posts rather than
+short-circuiting, its fixture builder asserted non-vacuous. Each new assertion is probed by
+mutating the production line it guards and confirming the case fails.
+
+The pre-existing `(aa1)` degrade case is re-anchored rather than left alone: it named the
+tracker as the cause, and now names the absent bot — the same verdict for the honest reason.
