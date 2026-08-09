@@ -91,11 +91,18 @@ be invisible to the suite.
 and degrades — with the same announced UNAVAILABLE AT REDUCED STRENGTH line, reworded to name
 the real cause — whenever one is not. Availability resolves by the file's existing idiom: an
 optional `LEAN_BOT_ENABLED` env override first, then the committed config's
-`.tracker.bot.enabled`. **An unresolvable config resolves to available**, preserving the
-posture stated at `:182` that an unreadable config lands on the strict side — this repo
-gitignores its own config, so its CI reads nothing and must keep gating at full strength. A
-Jira consumer with a bot enabled is gated at full strength; a consumer of either tracker with
-no bot gets the announced degrade.
+`.tracker.bot.enabled`.
+
+**A config that declares no bot at all falls back per tracker**, and this is the part that
+makes the change behavior-preserving rather than merely correct. "No block" carries two
+different meanings depending on where it was written: under jira the lint left the consumer no
+choice, so it means *no writer* and must keep degrading; under github it means *unstated*, and
+the strict reading has always applied there — as it must for an unreadable config too, since
+`TRACKER_TYPE` itself defaults to github and **this repo gitignores its own config**, so its CI
+reads nothing and has to keep gating at full strength (the posture stated at `:182`). The one
+case whose behavior moves is the one the lint used to forbid: **jira plus an enabled bot, now
+gated at full strength instead of waived.** An explicit `enabled: false` is believed under
+either tracker, which makes the degrade reachable from github for the first time.
 
 **AC-4 — `lean-gate.sh mark` posts the marker whenever a bot is configured.** `cmd_mark`'s
 early return is re-keyed from `tracker.type = jira` to "no bot enabled in config", and its
