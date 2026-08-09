@@ -627,3 +627,24 @@ lean-output-dispositions	verbatim	scripts/check-lean-chain.sh	lean-output-dispos
 # staying equal — the asymmetry is the point of this note.
 # Revisit if the fallbacks are ever hoisted into one shared resolver: a single canonical site
 # makes an ordinary `verbatim` row possible, and this entry should become one.
+#
+# onboard/SKILL.md's benefit clauses vs the docs that own the worked examples.
+# Each of the five already-elicited capability questions (gates/mutation, design + liveRender,
+# reviewer deltas, the review-context scaffold, the CI workflows) now states in ONE clause what
+# the consumer gets, and points at the authority: docs/extending.md §3.3 / §3.5,
+# docs/config-schema.md's `gates` row, docs/extension-points.md "Authoring the review-context
+# surface", docs/team-rollout.md. The coupling is real — a capability whose behavior changes
+# leaves a clause promising something the tool no longer does, and onboard is precisely where a
+# human decides on that promise.
+# Considered for rows and DROPPED. There is no literal on either side to anchor: the clause is a
+# summary IN a sentence and the authority is a multi-paragraph worked example, so `verbatim` has
+# nothing to compare and `subset-of` would compare a paraphrase against prose it deliberately
+# does not quote. Wrapping markers around them would pin only that some text exists between the
+# markers. CLAUDE.md forbids the alternative outright — grepping a literal out of a markdown file
+# asserts that prose contains words and cannot fail for a reason a reader of the diff would not
+# already see — so this is recorded as DROPPED rather than mechanized into a guard that cannot
+# fail. What holds it instead: the clause is a POINTER plus one sentence, deliberately short
+# enough that the authoritative text stays in exactly one place, so drift has little surface to
+# occur on and a reviewer reading the capability's diff sees the pointer.
+# Revisit if the benefit text is ever hoisted into a data file both sites read: a single
+# canonical site makes an ordinary `verbatim` row possible, and this entry should become one.

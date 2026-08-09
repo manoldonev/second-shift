@@ -350,6 +350,13 @@ else
   # or by declaring the opt-out in `grillWaivers`. A `notEvaluated` entry is NOT a finding
   # — it carries no proposal and cannot be waived — so it is informational and never
   # touches the exit code.
+  #
+  # An `unadopted` entry sits between the two and renders as a NOTE. It is waivable and it
+  # carries a proposal, so unlike notEvaluated it CAN force a disposition — but what it
+  # reports is an optional key sitting at its default, not a defect, and FAILing on that
+  # would take every already-green consumer non-zero on the first run after it ships, for a
+  # capability most of them will never want. Onboard renders the same entry as a blocking
+  # line instead, because there a human is already reading the config and one edit closes it.
   GRILL="${SECOND_SHIFT_CONFIG_GRILL:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../../onboard/tools" 2>/dev/null && pwd)/config-grill.sh}"
   if [[ -f "$GRILL" ]]; then
     if gout="$(bash "$GRILL" "$ROOT" "$CONF" 2>/dev/null)"; then
@@ -364,6 +371,10 @@ else
         [[ -n "$line" ]] || continue
         echo "[doctor] note  $line"; n=$((n+1)); [[ "$n" -ge 10 ]] && break
       done < <(jq -r '.notEvaluated[] | "config grill not evaluated [\(.id)]: \(.reason)"' <<< "$gout")
+      n=0; while IFS= read -r line; do
+        [[ -n "$line" ]] || continue
+        echo "[doctor] note  $line"; n=$((n+1)); [[ "$n" -ge 10 ]] && break
+      done < <(jq -r '(.unadopted // [])[] | "config grill unadopted [\(.id)] \(.evidence) Consider: \(.proposal)"' <<< "$gout")
     else
       warn "config grill could not run against $CONF — skipped (it never gates on its own failure)"
     fi
