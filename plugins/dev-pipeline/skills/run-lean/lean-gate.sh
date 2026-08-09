@@ -255,6 +255,22 @@ case "$TRACKER_TYPE" in
   *) envfail "unknown tracker.type '$TRACKER_TYPE' — expected 'github' or 'jira'." ;;
 esac
 
+# A SECOND axis, deliberately (#440): whether an authenticated GitHub writer exists. The tracker
+# answers "is there an issue to write to"; the bot answers "is there an identity to write as".
+# Source control is GitHub under both adapters, so `cmd_mark` — which writes to the PR — keys on
+# this and not on TRACKER_TYPE. Same tracker-derived default lean-evidence.sh applies, and for
+# the same reason: a config declaring no bot at all meant "no writer" under jira, where the lint
+# used to forbid the block, and meant nothing in particular under github, where the strict
+# reading has always stood.
+case "$TRACKER_TYPE" in
+  jira) BOT_ENABLED="$(cfg '.tracker.bot.enabled' 'false')" ;;
+  *)    BOT_ENABLED="$(cfg '.tracker.bot.enabled' 'true')" ;;
+esac
+case "$BOT_ENABLED" in
+  true|false) : ;;
+  *) envfail "unknown tracker.bot.enabled value '$BOT_ENABLED' — expected 'true' or 'false'." ;;
+esac
+
 # ---------------------------------------------------------------- the pinned name table
 # ONE derivation, three consumers: this script, scripts/check-lean-chain.sh (running in CI
 # with no access to any local convention), and lean-reconcile.sh. A name invented at any
@@ -918,7 +934,11 @@ cmd_entry() {
 # swap, and no comment to post. What survives is the RECORD — the progress-file header
 # carries the run id and session id, which is lean-reconcile.sh's anchor and the only thing
 # a later call can resolve `RUN_ID` from. So this path still runs, still writes that header,
-# and never touches `$GH_BOT` (documented github-only, and a hard `:?` failure below).
+# and never touches `$GH_BOT` (a hard `:?` failure below).
+#
+# THIS branch stays keyed on the tracker, unlike cmd_mark's (#440). Not for symmetry: a
+# read-only tracker has no comment surface at all, so there is nothing to authenticate even
+# when a bot exists. cmd_mark writes to the PR, which every adapter has.
 cmd_claim() {
   local helper body url
 
@@ -1002,8 +1022,8 @@ LEAN_PR_MARKER_TAG='lean-pr-marker'
 cmd_mark() {
   local pr prnum comments existing body url rc msid recorded
 
-  if [ "$TRACKER_TYPE" = "jira" ]; then
-    say "· mark: jira adapter — config-lint forbids tracker.bot under tracker.type 'jira', so there is no authenticated writer for a PR marker. The boundary's identity arm runs at reduced strength (printed there); every other arm is unaffected."
+  if [ "$BOT_ENABLED" != "true" ]; then
+    say "· mark: no bot is enabled for this consumer (tracker.bot.enabled is false, or absent under tracker.type 'jira'), so there is no authenticated writer for a PR marker. The boundary's identity arm runs at reduced strength (printed there); every other arm is unaffected. Configuring a bot restores the marker under either tracker."
     return 0
   fi
 
