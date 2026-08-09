@@ -71,7 +71,32 @@ Want it to survive reboots too? See the launchd appendix at the bottom of this f
 
 ## 3. Tell Claude Code to export telemetry
 
-The collector receives OTel data from any process with the right env vars. The recommended per-repo pattern is [direnv](https://direnv.net/) — load vars automatically when you `cd` into the repo.
+The collector receives OTel data from any process with the right env vars, and it only sees a session that had them set **at launch**. There is no way to turn this on for a session already running, and no way to recover the cost of one that ran without it — so make it survive the next terminal.
+
+**Recommended: a user-scope `env` block in `~/.claude/settings.json`.** Step 2 above already describes the collector as a single global daemon — one instance serving every repo, keyed by `session.id` — so the per-repo half was always the mismatched one. A user-scope block is what makes every `claude` session on the machine export, no matter which terminal, shell or directory launched it:
+
+```jsonc
+{
+  "env": {
+    "CLAUDE_CODE_ENABLE_TELEMETRY": "1",
+    "OTEL_METRICS_EXPORTER": "otlp",
+    "OTEL_LOGS_EXPORTER": "otlp",
+    "OTEL_EXPORTER_OTLP_PROTOCOL": "grpc",
+    "OTEL_EXPORTER_OTLP_ENDPOINT": "http://localhost:4317",
+    "OTEL_METRIC_EXPORT_INTERVAL": "2000"
+  }
+}
+```
+
+Merge those keys into your existing `~/.claude/settings.json` (don't replace the file), then restart any running sessions. Verify a live one really carries it:
+
+```bash
+ps eww -p <claude-pid> | tr ' ' '\n' | grep CLAUDE_CODE_ENABLE_TELEMETRY
+```
+
+Setting it ad hoc per terminal instead is exactly what makes cost reporting depend on which window you happened to launch from: one repo's sessions carry the variable, another's carry nothing, and the difference only surfaces at the end of a run as an empty cost block. `pipeline-doctor.sh` and `lean-gate.sh entry` both warn when the shell they run in is not exporting.
+
+**Per-repo alternative: [direnv](https://direnv.net/).** Use this when you want telemetry in some repos and not others.
 
 ```bash
 brew install direnv
@@ -92,9 +117,7 @@ EOF
 direnv allow
 ```
 
-From now on, every `claude` session launched from this repo exports telemetry to your local collector.
-
-Don't want direnv? Export the same vars from `~/.zshrc` or wrap `claude` in an alias. The pipeline doesn't care how they get there — only whether they're set when the session starts.
+Exporting the same vars from `~/.zshrc`, or wrapping `claude` in an alias, works too. The pipeline doesn't care how they get there — only whether they were set when the session started.
 
 ## 4. (No hook wiring step)
 
@@ -120,9 +143,17 @@ jq '.costBlockApplied' .claude/pipeline-state/<issue-number>.json
 **Cost block doesn't appear in PR.** Check `.claude/pipeline-state/{issue}.json` `costBlockApplied`:
 
 - `"skipped-no-sessions"` — `pipelineSessions[]` is empty, i.e. no state write in the whole run carried a UUID-shaped `$CLAUDE_CODE_SESSION_ID`. Was the session launched with it set? You can backfill manually with the real session UUID (find it as a `session.id` in `~/.claude/otel-metrics/metrics.jsonl`): `bash statectl.sh pipeline-session-add <issue> --session-id <session-uuid> --source interactive`.
-- `"skipped-telemetry-off"` — `~/.claude/otel-metrics/metrics.jsonl` is empty or absent. Was the collector running? Is your `.envrc` loaded (`direnv status` should show "Found RC")?
+- `"skipped-telemetry-off"` — no metrics file at all (neither `~/.claude/otel-metrics/metrics.jsonl` nor any rotated backup beside it), or not one datapoint from **any** session landed inside the run's window. The collector was down for the whole run, or nothing on this machine was exporting.
 - `"skipped-otel-error"` — the jq query against the metrics file failed. Re-run from a terminal to see stderr, then follow **Manual re-run after an OTel query failure** below.
-- `"skipped-zero-datapoints"` — the recorded session UUID returned `$0.00` from the collector. The likely cause: the session was launched WITHOUT the OTEL\_\* env vars exported (your `.envrc` was not loaded when the session started — see step 3 above), so the collector never received datapoints for it. (A malformed, non-UUID session id can no longer reach this state — both writers gate on the shared `is_session_uuid` shape test: `statectl pipeline-session-add` rejects it at record time, and the write seam declines to register it. Such a run lands in `skipped-no-sessions` above, not here.)
+- `"skipped-session-not-exporting"` — the window holds datapoints from **other** sessions but none from this run's. The collector was healthy the whole time; this run's `claude` process simply had no `CLAUDE_CODE_ENABLE_TELEMETRY` set, so it exported nothing. Confirm it on a live session:
+
+  ```bash
+  ps eww -p <claude-pid> | tr ' ' '\n' | grep CLAUDE_CODE_ENABLE_TELEMETRY
+  ```
+
+  Nothing recovers this run's cost — the datapoints were never emitted. Fix it for the next one with step 3 below, which is why the recommended recipe there is user-scope rather than per-terminal.
+- `"skipped-rotated-out"` — the oldest datapoint still on disk is **newer** than the run's start, so the file covering the run is gone: it aged out of the exporter's `max_backups` / `max_days` retention, or the collector had not started yet when the run did. As of #432 the sub-step reads rotated backups whose mtime covers the window, so a run that merely predates the newest rotation no longer lands here.
+- `"skipped-zero-datapoints"` — rows for the recorded session ids **are** inside the window, but none of them carries `claude_code.cost.usage`. Telemetry is flowing and there is genuinely no cost to report. (Before #432 this value also absorbed the three states above, which made "empty cost block" undiagnosable. A malformed, non-UUID session id cannot reach this state either — both writers gate on the shared `is_session_uuid` shape test: `statectl pipeline-session-add` rejects it at record time, and the write seam declines to register it. Such a run lands in `skipped-no-sessions` above.)
 - `"skipped-no-bot-wrapper"` — the bot is **enabled** but its wrapper is missing or non-executable. Install / repair the bot wrapper. (A bot-disabled repo cannot record this — it amends via plain `gh`. Seeing it on a repo you believe is bot-disabled means the config really does set `tracker.bot.enabled: true`.)
 - `"skipped-no-gh-cli"` — `gh` is not on `PATH`. Install the GitHub CLI; no PR write is possible under either identity without it.
 - `"skipped-amend-failed"` — `gh pr edit` failed. Check stderr from the most recent Stage 9 run.

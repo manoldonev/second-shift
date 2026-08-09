@@ -605,7 +605,7 @@ chain_walk() { # chain_walk <inherited-patch-id> <declaring-round> [declaring-co
 # file (it is gitignored and never reaches CI), but lean-reconcile.sh does, and the
 # fix-budget counter is derived from it.
 #
-#   <iso> | entry | ledger=<path> | lines=<n> | session=<id>
+#   <iso> | entry | ledger=<path> | lines=<n> | telemetry=<off|nocoll|on> | session=<id>
 #   <iso> | milestone-<n> | attempt | <reason>
 #   <iso> | milestone-<n> | satisfied
 #   milestone-4 | verdict=<approve|needs-work> | round=<n>
@@ -779,8 +779,71 @@ audit_toolkit_opted_out() {
   return 1
 }
 
+# AC-1/AC-3 (#432). Cost attribution is decided at minute zero and discovered at the end: a
+# session launched without CLAUDE_CODE_ENABLE_TELEMETRY exports nothing, and step 7's cost block
+# is empty with no way to recover it afterwards. This gate is a bash child of the `claude`
+# process, so its OWN inherited environment IS the export decision the run never had — the exact
+# discriminator the failing run lacked.
+#
+# WARN, never refuse (D-1/D-3). The audit-ledger precedent above does not transfer: the ledger is
+# CONSUMED downstream (lean-reconcile.sh reads it; check-lean-chain.sh gates the merge on the
+# chain it anchors), whereas nothing consumes cost — no milestone, no verdict arm, no
+# merge-boundary check. cost-tracking-setup.md declares the feature "Opt-in, local, experimental.
+# The dev-pipeline works fine without this", so refusing here would promote an optional feature to
+# a hard precondition for every consumer, including those with no collector installed.
+#
+# Three states: `off` (the variable is not enabling telemetry), `nocoll` (it is, but nothing
+# accepts on a loopback OTLP endpoint), `on` (it is, and either the probe connected or the probe
+# was skipped).
+telemetry_env_on() {
+  case "${CLAUDE_CODE_ENABLE_TELEMETRY:-}" in
+    ""|0|false|FALSE|False) return 1 ;;
+    *) return 0 ;;
+  esac
+}
+
+# OR-1. Echo `<host> <port>` for an endpoint worth probing, or nothing when the reachability half
+# must be SKIPPED. Skipping is not a fallback here, it is the correct answer: a warning that fires
+# on a working remote collector trains the operator to ignore it, which costs more than the
+# missing signal. Restricting to loopback is also what keeps the /dev/tcp connect below unable to
+# hang — a refused loopback connect returns immediately, a filtered remote one would not.
+#
+# Unset falls back to the documented default; `http://<loopback>[:port]` with no path is probed;
+# https, a path-bearing URL, a non-loopback host and anything unparseable all yield nothing.
+telemetry_probe_target() {
+  local ep="${OTEL_EXPORTER_OTLP_ENDPOINT:-}" host port rest
+  [ -n "$ep" ] || { echo "127.0.0.1 4317"; return 0; }
+  case "$ep" in
+    http://*) rest="${ep#http://}" ;;
+    *) return 0 ;;
+  esac
+  # A trailing slash is the only path we accept; anything else names a gateway, not the
+  # documented local collector.
+  rest="${rest%/}"
+  case "$rest" in */*) return 0 ;; esac
+  host="${rest%%:*}"
+  port="${rest#*:}"
+  [ "$port" = "$rest" ] && port="4317"
+  case "$host" in
+    localhost|127.0.0.1|'[::1]'|::1) : ;;
+    *) return 0 ;;
+  esac
+  case "$port" in ''|*[!0-9]*) return 0 ;; esac
+  echo "${host} ${port}"
+}
+
+telemetry_state() {
+  local target host port
+  telemetry_env_on || { echo "off"; return 0; }
+  target="$(telemetry_probe_target)"
+  [ -n "$target" ] || { echo "on"; return 0; }
+  host="${target%% *}"; port="${target##* }"
+  host="${host#[}"; host="${host%]}"
+  if (exec 3<>"/dev/tcp/${host}/${port}") 2>/dev/null; then echo "on"; else echo "nocoll"; fi
+}
+
 cmd_entry() {
-  local sid ledger lines
+  local sid ledger lines telemetry
   sid="${CLAUDE_CODE_SESSION_ID:-}"
   if [ -z "$sid" ]; then
     warn "✗ entry: CLAUDE_CODE_SESSION_ID is unset — the session's audit ledger cannot be located. Refusing to start."
@@ -799,6 +862,22 @@ cmd_entry() {
   fi
   lines="$(wc -l < "$ledger" | tr -d ' ')"
   say "✓ entry: audit ledger live ($lines lines)."
+  # AC-1. Advisory by construction — the return code below is never reached from here.
+  telemetry="$(telemetry_state)"
+  case "$telemetry" in
+    off)
+      say "  ⚠ telemetry: CLAUDE_CODE_ENABLE_TELEMETRY is not set in this session, so it exports nothing."
+      say "    Step 7's cost block will be empty, and it cannot be recovered after the run — the datapoints are never emitted."
+      say "    Fix it now if you want cost on this run: set it in ~/.claude/settings.json's \`env\` block and relaunch (cost-tracking-setup.md §3)."
+      ;;
+    nocoll)
+      say "  ⚠ telemetry: exporting is enabled, but nothing is accepting on ${OTEL_EXPORTER_OTLP_ENDPOINT:-http://127.0.0.1:4317}."
+      say "    Step 7's cost block will be empty unless the collector is running before the work starts (cost-tracking-setup.md §2)."
+      ;;
+    *)
+      say "  telemetry: on."
+      ;;
+  esac
   # The durable half (D-3/D-10). The progress file already survives worktree teardown, is
   # already what lean-reconcile.sh reads, and is the only build-side record outliving the
   # session. Later readers check PRESENCE ONLY — nothing re-resolves a ledger path from inside
@@ -815,7 +894,7 @@ cmd_entry() {
   if entry_row_present; then
     say "  entry attestation already recorded in $PROGRESS_FILE — not duplicated."
   else
-    append_line "$(now_iso) | entry | ledger=$ledger | lines=$lines | session=$sid"
+    append_line "$(now_iso) | entry | ledger=$ledger | lines=$lines | telemetry=$telemetry | session=$sid"
     say "  entry attestation recorded in $PROGRESS_FILE."
   fi
   # SKILL.md step 1 pairs this gate with a SESSION-side queue-label confirm. That confirm
