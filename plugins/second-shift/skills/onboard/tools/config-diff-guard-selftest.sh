@@ -15,11 +15,12 @@ FAILS=0
 check() { if [[ "$2" -eq 0 ]]; then echo "  ✓ $1"; else echo "  ✗ $1"; FAILS=$((FAILS+1)); fi; }
 
 TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
-OUT=""; RC=0
+OUT=""; ERR=""; RC=0
 
 run_guard() { # $1.. → args passed through verbatim
   RC=0
-  OUT="$(bash "$GUARD" "$@" 2>/dev/null)" || RC=$?
+  OUT="$(bash "$GUARD" "$@" 2>"$TMP/stderr")" || RC=$?
+  ERR="$(cat "$TMP/stderr")"
 }
 
 _paths() { jq -r '.deltas[].path' <<< "$OUT" | tr '\n' ' '; }
@@ -46,8 +47,15 @@ expect_list() { # $1 label, $2 envelope array (acknowledged|unmatchedAcks), $3 e
   local got; got="$(jq -r --arg k "$2" '.[$k] | join(" ")' <<< "$OUT")"
   if [[ "$got" == "$3" ]]; then check "$1" 0; else check "$1 ($2 is '$got', expected '$3')" 1; fi
 }
-expect_rc() { # $1 label, $2 expected rc
-  if [[ "$RC" == "$2" ]]; then check "$1" 0; else check "$1 (rc=$RC, expected $2)" 1; fi
+expect_rc() { # $1 label, $2 expected rc, $3 (optional) substring the stderr message must carry
+  if [[ "$RC" != "$2" ]]; then check "$1 (rc=$RC, expected $2)" 1; return; fi
+  # The rc alone does not distinguish the reasons: every IO shape lands on 3, so a missing file
+  # that fell through to the JSON check would still score green. The message is the only thing
+  # that tells the operator WHICH input is wrong, so it is asserted where it differs.
+  if [[ -n "${3:-}" ]] && ! grep -qF -- "$3" <<< "$ERR"; then
+    check "$1 (stderr missing '$3': $ERR)" 1; return
+  fi
+  check "$1" 0
 }
 
 echo "config-diff-guard selftest:"
@@ -191,21 +199,26 @@ expect_rc "no arguments is a usage error" 3
 run_guard "$TMP/e1.json" "$TMP/d1.json" "$TMP/e1.json"
 expect_rc "a third positional is a usage error" 3
 run_guard "$TMP/nope.json" "$TMP/d1.json"
-expect_rc "a missing EXISTING config is an error, never a silent skip" 3
+expect_rc "a missing EXISTING config is an error, never a silent skip" 3 "no such file: $TMP/nope.json"
 run_guard "$TMP/e1.json" "$TMP/nope.json"
-expect_rc "a missing draft is an error" 3
+expect_rc "a missing draft is an error" 3 "no such file: $TMP/nope.json"
 printf 'not json at all' > "$TMP/bad.json"
 run_guard "$TMP/bad.json" "$TMP/d1.json"
-expect_rc "a non-JSON existing config is an error" 3
+expect_rc "a non-JSON existing config is an error" 3 "not valid JSON: $TMP/bad.json"
 run_guard "$TMP/e1.json" "$TMP/bad.json"
-expect_rc "a non-JSON draft is an error" 3
+expect_rc "a non-JSON draft is an error" 3 "not valid JSON: $TMP/bad.json"
 printf '["a","b"]' > "$TMP/arr.json"
 run_guard "$TMP/arr.json" "$TMP/d1.json"
-expect_rc "valid JSON that is not an object is an error" 3
+expect_rc "valid JSON that is not an object is an error" 3 "not a JSON object: $TMP/arr.json"
 run_guard "$TMP/e1.json" "$TMP/d1.json" --ack
-expect_rc "--ack with no value is a usage error" 3
+expect_rc "--ack with no value is a usage error" 3 "--ack needs a config path"
 run_guard "$TMP/e1.json" "$TMP/d1.json" --waive commands.web.testFile
-expect_rc "an unknown option is a usage error — grillWaivers is not this tool's channel" 3
+expect_rc "an unknown option is a usage error — grillWaivers is not this tool's channel" 3 \
+  "unknown option: --waive"
+# The case above is also satisfied by a guard that merely SKIPS the flag, because its value then
+# lands as a third positional. A bare unknown flag is what separates rejecting from ignoring.
+run_guard "$TMP/e1.json" "$TMP/d1.json" --verbose
+expect_rc "a bare unknown option is rejected, not silently skipped" 3 "unknown option: --verbose"
 
 if [[ "$FAILS" -gt 0 ]]; then echo "config-diff-guard selftest: $FAILS FAILURE(S)"; exit 1; fi
 echo "config-diff-guard selftest: all green"

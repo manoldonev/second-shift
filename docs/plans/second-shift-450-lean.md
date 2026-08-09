@@ -145,7 +145,14 @@ its "a diff review of a 90%-correct document, not a wizard" framing stay unamend
 - exit 0 with deltas present, exit 0 with none, and exit 3 for each usage/IO shape: no
   arguments, one argument, a third positional, missing existing file, missing draft file,
   non-JSON existing, non-JSON draft, valid JSON that is not an object, `--ack` with no value,
-  and an unknown option.
+  an unknown option carrying a value, and a **bare** unknown option.
+
+  Each IO shape asserts its **stderr message**, not the rc alone. Every shape lands on 3, so a
+  missing file that fell through to the JSON check would score green on rc — and the message is
+  the only thing telling the operator which of the two inputs is wrong. The bare unknown option
+  is there for the same reason: an unknown flag *carrying a value* also exits 3 under a guard
+  that merely skips it, because the value then lands as a third positional, so only the bare
+  form separates rejecting from ignoring.
 
 ## Open regions (from the ledger, unchanged)
 
