@@ -142,7 +142,11 @@ done
 [[ "$JOBS" =~ ^[0-9]+$ ]] && [[ "$JOBS" -ge 1 ]] || die "--jobs/SELFTEST_JOBS must be a positive integer, got: $JOBS"
 [[ -d "$ROOT" ]] || die "--root is not a directory: $ROOT"
 ROOT="$(cd "$ROOT" && pwd)"
-[[ "$CACHE_MAX" =~ ^[0-9]+$ ]] || die "SELFTEST_CACHE_MAX must be a non-negative integer, got: $CACHE_MAX"
+# "a whole number", not the sibling's "a non-negative integer": that phrase contains the literal
+# `-ne`, so the mutation sweep enumerates this line as a cmp-eq site and the flip lands in a die
+# message where nothing can kill it — burning one of the operator's two budgeted ordinals on
+# prose, and displacing a real comparison out of the swept window.
+[[ "$CACHE_MAX" =~ ^[0-9]+$ ]] || die "SELFTEST_CACHE_MAX must be a whole number, got: $CACHE_MAX"
 # --cache-write without a store is a workflow that THINKS it is recording passes and is not.
 # Refusing beats accepting it: a lane silently recording nothing looks identical to a lane whose
 # cache never hits, and the difference is a whole CI cycle of debugging.
