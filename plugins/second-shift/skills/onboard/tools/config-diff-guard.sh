@@ -49,7 +49,10 @@ while [[ $# -gt 0 ]]; do
       shift
       [[ $# -gt 0 ]] || { echo "config-diff-guard: --ack needs a config path" >&2; usage; }
       ACKS+=("$1"); shift ;;
-    --) shift ;;
+    # No `--` end-of-options arm: implementing GNU semantics here would buy nothing (both
+    # positionals are temp-file paths chosen by the caller, never `-`-leading) and an arm that
+    # merely consumes the token advertises a terminator that does not terminate. `--` is an
+    # unknown option, and says so.
     -*) echo "config-diff-guard: unknown option: $1" >&2; usage ;;
     *)
       if [[ -z "$EXISTING" ]]; then EXISTING="$1"
@@ -64,17 +67,28 @@ done
 # An unreadable EXISTING config is an error, never a silent skip: diff mode is impossible against
 # a document Step 0 could not load, and skipping would disable the guard exactly when the config
 # is already damaged.
+#
+# The shape check is SLURPED — `jq -e 'type == "object"' file` reports the status of jq's LAST
+# output, so a file holding a JSON *stream* (`[1,2]` then `{...}`) passes it outright, and the
+# `--slurpfile … | .[0]` read below would then walk only document one while the rest of the file
+# went unprotected. That is a damaged config getting the silent skip this guard exists to refuse.
+# `jq -se 'length == 1 and …'` reads the whole file before deciding, so a doubled write or a
+# botched conflict resolution is an error rather than a partial comparison.
 for f in "$EXISTING" "$DRAFT"; do
   [[ -f "$f" ]] || { echo "config-diff-guard: no such file: $f" >&2; exit 3; }
   jq empty "$f" 2>/dev/null || { echo "config-diff-guard: not valid JSON: $f" >&2; exit 3; }
-  jq -e 'type == "object"' "$f" >/dev/null 2>&1 \
-    || { echo "config-diff-guard: not a JSON object: $f" >&2; exit 3; }
+  jq -se 'length == 1 and (.[0] | type == "object")' "$f" >/dev/null 2>&1 \
+    || { echo "config-diff-guard: not a single JSON object: $f" >&2; exit 3; }
 done
 
+# `--args` carries the array across verbatim. Joining on newlines and re-splitting would lose the
+# boundaries AC-3 calls exact: one `--ack` carrying an embedded newline would become two acks, and
+# `--ack ""` would vanish without ever reaching unmatchedAcks[]. The empty-array branch is for
+# bash 3.2, where `"${ACKS[@]}"` on an empty array trips `set -u`.
 if [[ "${#ACKS[@]}" -eq 0 ]]; then
   ACKS_JSON='[]'
 else
-  ACKS_JSON="$(printf '%s\n' "${ACKS[@]}" | jq -Rsc 'split("\n") | map(select(. != ""))')"
+  ACKS_JSON="$(jq -nc '$ARGS.positional' --args "${ACKS[@]}")"
 fi
 
 # The walk (see docs/plans/second-shift-450-lean.md AC-2): descend objects, treat an ARRAY as a
@@ -90,7 +104,13 @@ fi
 # A draft value of `null` is `removed`, not `changed`: the key survives and the value does not,
 # which IS the motivating evidence. Draft-only paths are never reported — an addition destroys
 # nothing — which is why the walk is over the existing document.
-jq -n \
+#
+# The result is captured rather than streamed: a filter that died would otherwise print nothing,
+# and nothing reads as "no deltas" to a caller that only sees stdout and an exit status. Validation
+# above makes this near-unreachable — but "the comparison did not run" must never be spelled the
+# same way as "the comparison found nothing", which is the same fail-open family the slurped shape
+# check closes.
+OUT="$(jq -n \
   --slurpfile existing "$EXISTING" \
   --slurpfile draft "$DRAFT" \
   --argjson acks "$ACKS_JSON" '
@@ -123,7 +143,6 @@ jq -n \
         if .kind == "removed" then
           "\(.path) is \(.existing | tojson) in the committed config, and the draft "
           + (if .state == "absent" then "omits the key entirely." else "sets it to null." end)
-          + " Nothing downstream will notice: a capability that is off simply never runs and the run still reports green."
         else
           "\(.path) is \(.existing | tojson) in the committed config, and the draft would change it to \(.draft | tojson)."
         end),
@@ -138,5 +157,6 @@ jq -n \
   | { deltas:        [ $d[] | . as $x | select(($acks | index($x.path)) == null) ],
       acknowledged:  [ $d[] | .path | . as $p | select(($acks | index($p)) != null) ],
       unmatchedAcks: [ $acks[] | . as $a | select(($paths | index($a)) == null) ] }
-'
+')" || { echo "config-diff-guard: comparison failed" >&2; exit 3; }
+printf '%s\n' "$OUT"
 exit 0

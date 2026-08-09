@@ -54,11 +54,21 @@ JSON document to stdout with exactly three arrays:
 
 Deltas are data — the script exits **0** whether or not it emitted any, so the caller does not
 treat a delta as a crash. Usage/IO errors — wrong argument count, a missing file, a file on
-either side that is not JSON *or is JSON that is not an object*, `--ack` with no value, an
-unknown option — exit **3** with a message on stderr,
+either side that is not JSON *or does not hold exactly one JSON document that is an object*,
+`--ack` with no value, an unknown option — exit **3** with a message on stderr,
 matching `config-grill.sh:33-38`. An unreadable *existing* config is specifically an exit 3
 and never a silent skip (D-10): diff mode is impossible against a document Step 0 could not
 load, so skipping would disable the guard exactly when the config is already damaged.
+
+The document check reads the **whole file** before deciding. A per-value check reports the
+status of the *last* value in the file, so a config damaged into a JSON stream — a doubled
+write, a botched conflict resolution — passes an is-it-an-object gate and is then compared as
+its first document alone, leaving everything after it unwalked and unprotected. That is the
+D-10 case arriving by a different door: a partial screen over a damaged config reads exactly
+like a clean one. No document, two documents, and one non-object document are all exit 3.
+
+There is likewise no fail-open on the comparison itself: a filter that did not run must not be
+spelled the same way as a comparison that found nothing.
 
 bash 3.2 compatible, read-only, no network.
 
@@ -99,6 +109,12 @@ correctly into `--ack` by the caller to buy anything.
 A delta whose `path` equals an acked path is suppressed from `deltas[]` and listed in
 `acknowledged[]`. Acks are **per-run only** — the guard writes nothing, and no config key is
 introduced.
+
+"Exact" covers argument **boundaries** as well as matching: each `--ack` value reaches the
+comparison verbatim, so one flag is one ack whatever it contains and an empty ack is reported
+in `unmatchedAcks[]` rather than dropped. Reconstructing the list from joined text would split
+a value on its own content and swallow an empty one — both invisibly, because the envelope
+would then describe the reconstruction instead of what the caller typed.
 
 `grillWaivers` is deliberately not reused: it is permanent config state for a one-time event,
 so waiving this path would silence the guard for it on every future re-onboard and the second
@@ -142,13 +158,19 @@ its "a diff review of a 90%-correct document, not a wizard" framing stay unamend
   matching nothing landing in `unmatchedAcks[]` and leaving `deltas[]` untouched;
 - an ack path that is a *prefix* of a real delta path clearing nothing — the "exact, no
   wildcards" half of AC-3, which a suppression-only test cannot distinguish from a bug;
+- the boundary half of AC-3: one `--ack` carrying an embedded newline staying one ack and
+  suppressing neither of the two paths it spells, and `--ack ""` reaching `unmatchedAcks[]`;
 - exit 0 with deltas present, exit 0 with none, and exit 3 for each usage/IO shape: no
   arguments, one argument, a third positional, missing existing file, missing draft file,
   non-JSON existing, non-JSON draft, valid JSON that is not an object, `--ack` with no value,
-  an unknown option carrying a value, and a **bare** unknown option.
+  an unknown option carrying a value, a **bare** unknown option, and a bare `--`;
+- the multi-document shapes, which a lone-array fixture cannot reach: an existing config
+  holding an array *followed by* an object — the one that proves the check reads the whole file
+  rather than the last value in it — an existing config holding two objects, a multi-document
+  draft, and a file holding no document at all.
 
-  Each IO shape asserts its **stderr message**, not the rc alone. Every shape lands on 3, so a
-  missing file that fell through to the JSON check would score green on rc — and the message is
+  Each usage/IO shape asserts its **stderr message**, not the rc alone. Every shape lands on 3, so
+  a missing file that fell through to the JSON check would score green on rc — and the message is
   the only thing telling the operator which of the two inputs is wrong. The bare unknown option
   is there for the same reason: an unknown flag *carrying a value* also exits 3 under a guard
   that merely skips it, because the value then lands as a third positional, so only the bare

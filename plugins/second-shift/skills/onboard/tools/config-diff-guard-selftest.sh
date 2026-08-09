@@ -47,6 +47,10 @@ expect_list() { # $1 label, $2 envelope array (acknowledged|unmatchedAcks), $3 e
   local got; got="$(jq -r --arg k "$2" '.[$k] | join(" ")' <<< "$OUT")"
   if [[ "$got" == "$3" ]]; then check "$1" 0; else check "$1 ($2 is '$got', expected '$3')" 1; fi
 }
+expect_len() { # $1 label, $2 envelope array, $3 expected length — for entries join() would blur
+  local n; n="$(jq -r --arg k "$2" '.[$k] | length' <<< "$OUT")"
+  if [[ "$n" == "$3" ]]; then check "$1" 0; else check "$1 ($2 length $n, expected $3)" 1; fi
+}
 expect_rc() { # $1 label, $2 expected rc, $3 (optional) substring the stderr message must carry
   if [[ "$RC" != "$2" ]]; then check "$1 (rc=$RC, expected $2)" 1; return; fi
   # The rc alone does not distinguish the reasons: every IO shape lands on 3, so a missing file
@@ -184,6 +188,16 @@ run_guard "$TMP/e1.json" "$TMP/d1.json" --ack commands.web
 expect_count "a prefix is not a wildcard" 3
 expect_list "and is reported unmatched" unmatchedAcks "commands.web"
 
+# "Exact" is also about ARGUMENT BOUNDARIES, and a text round-trip loses them silently. Joining
+# the acks on newlines and re-splitting turned one flag carrying an embedded newline into two acks
+# and dropped `--ack ""` entirely — both invisible, because the envelope reported the shape the
+# round-trip produced rather than the one the caller typed.
+run_guard "$TMP/e1.json" "$TMP/d1.json" --ack "$(printf 'commands.web.testFile\ncommands.web.unitTestScope')"
+expect_len "one --ack is one ack, even carrying a newline" unmatchedAcks 1
+expect_count "and it suppresses neither of the two paths it spells" 3
+run_guard "$TMP/e1.json" "$TMP/d1.json" --ack ""
+expect_len "an empty --ack is reported unmatched, not silently dropped" unmatchedAcks 1
+
 # --- a clean re-onboard is silent ---------------------------------------------------------------
 # The AC-4 carry-forward exists so THIS is the common case. A guard that fires on an identical
 # draft would be ack-spam on every re-onboard forever.
@@ -197,7 +211,7 @@ expect_rc "one argument is a usage error" 3
 run_guard
 expect_rc "no arguments is a usage error" 3
 run_guard "$TMP/e1.json" "$TMP/d1.json" "$TMP/e1.json"
-expect_rc "a third positional is a usage error" 3
+expect_rc "a third positional is a usage error" 3 "unexpected extra argument:"
 run_guard "$TMP/nope.json" "$TMP/d1.json"
 expect_rc "a missing EXISTING config is an error, never a silent skip" 3 "no such file: $TMP/nope.json"
 run_guard "$TMP/e1.json" "$TMP/nope.json"
@@ -209,7 +223,28 @@ run_guard "$TMP/e1.json" "$TMP/bad.json"
 expect_rc "a non-JSON draft is an error" 3 "not valid JSON: $TMP/bad.json"
 printf '["a","b"]' > "$TMP/arr.json"
 run_guard "$TMP/arr.json" "$TMP/d1.json"
-expect_rc "valid JSON that is not an object is an error" 3 "not a JSON object: $TMP/arr.json"
+expect_rc "valid JSON that is not an object is an error" 3 "not a single JSON object: $TMP/arr.json"
+
+# A JSON *stream* is the shape a lone-array fixture cannot catch. `jq -e 'type == "object"' file`
+# reports the status of jq's LAST output, so `[1,2]` followed by an object passes an is-it-an-object
+# gate outright — and `--slurpfile … | .[0]` then binds document one, so every later document goes
+# unwalked and unprotected. A config damaged into a stream (a doubled write, a botched conflict
+# resolution) is precisely the damaged config that must exit 3 rather than get a partial screen.
+printf '[1,2]\n{"a":1}\n' > "$TMP/streamarr.json"
+run_guard "$TMP/streamarr.json" "$TMP/d1.json"
+expect_rc "an array in front of an object does not sneak past the object check" 3 \
+  "not a single JSON object: $TMP/streamarr.json"
+printf '{"commands":{"web":{"lint":"a"}}}\n{"stageParams":{"x":1}}\n' > "$TMP/streamobj.json"
+run_guard "$TMP/streamobj.json" "$TMP/d1.json"
+expect_rc "two objects are an error, not a comparison against the first" 3 \
+  "not a single JSON object: $TMP/streamobj.json"
+run_guard "$TMP/e1.json" "$TMP/streamobj.json"
+expect_rc "a multi-document draft is an error too" 3 "not a single JSON object: $TMP/streamobj.json"
+: > "$TMP/empty.json"
+run_guard "$TMP/empty.json" "$TMP/d1.json"
+expect_rc "an empty file holds no document, so it is an error" 3 \
+  "not a single JSON object: $TMP/empty.json"
+
 run_guard "$TMP/e1.json" "$TMP/d1.json" --ack
 expect_rc "--ack with no value is a usage error" 3 "--ack needs a config path"
 run_guard "$TMP/e1.json" "$TMP/d1.json" --waive commands.web.testFile
@@ -219,6 +254,10 @@ expect_rc "an unknown option is a usage error — grillWaivers is not this tool'
 # lands as a third positional. A bare unknown flag is what separates rejecting from ignoring.
 run_guard "$TMP/e1.json" "$TMP/d1.json" --verbose
 expect_rc "a bare unknown option is rejected, not silently skipped" 3 "unknown option: --verbose"
+# There is no end-of-options arm, and that is the decision rather than an omission: an arm that
+# consumed `--` without making the rest positional advertised GNU semantics it did not implement.
+run_guard "$TMP/e1.json" "$TMP/d1.json" --
+expect_rc "-- is an unknown option, not an unimplemented terminator" 3 "unknown option: --"
 
 if [[ "$FAILS" -gt 0 ]]; then echo "config-diff-guard selftest: $FAILS FAILURE(S)"; exit 1; fi
 echo "config-diff-guard selftest: all green"

@@ -230,6 +230,11 @@ an existing value is indistinguishable from a prior run's detected one.
   and it is the only thing standing between a silent destruction and a seen one. `grillWaivers` is
   not the channel here — a waiver is permanent config state, so it would silence the guard for
   that path on every future re-onboard.
+- **Exit 3 stops the onboard; it is never a skip.** It means one of the two documents is not a
+  single JSON object — most often an existing config damaged into two documents by a doubled
+  write or a botched conflict resolution. Proceeding would write a draft over a config nothing
+  compared it against. Show the message, and ask the human to repair or replace the existing file
+  before re-running.
 
 This adds **no question batch and no new surface**. Disposition is captured by the human
 editing the screen they are already editing — fixing the key, typing the waiver entry, or
