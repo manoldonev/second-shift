@@ -278,6 +278,59 @@ expect_no_finding "t5 non-watcher: vitest --run (flag spelling of the run subcom
 expect_finding "t5 watcher: -w on a runner that defines it as watch (tsc)" \
   T5.watcher.app.lanes.0.4 "tsc -w"
 
+# The `-w` allowlist, one case PER MEMBER rather than one for the bullet. An allowlist reviewed
+# as prose reads as a single rule, so a member that fails the very predicate it instantiates
+# ships unexecuted — which is exactly how `jest` got in: its `-w` is `--maxWorkers`, and
+# `watch`/`watchAll` carry no alias, so `jest -w 4` was a doctor FAIL on an ordinary script.
+# Every membership below was decided against that runner's own CLI, not the flag's spelling.
+R7b="$(mkrepo t5-wmatrix apps/web/App.tsx a.ts)"
+cat > "$R7b/package.json" <<'EOF'
+{ "name": "t5c", "scripts": {
+    "w0":  "vitest bench -w",
+    "w1":  "vite build -w",
+    "w2":  "tsc -w",
+    "w3":  "webpack -w",
+    "w4":  "rollup -c -w",
+    "w5":  "ava -w",
+    "w6":  "mocha -w",
+    "w7":  "sass -w src:dist",
+    "w8":  "jest -w 4",
+    "w9":  "tsup -w",
+    "w10": "esbuild app.ts --bundle -w",
+    "w11": "parcel build -w",
+    "w12": "karma start -w",
+    "w13": "nodemon -w src server.js" } }
+EOF
+cfg "$R7b/c.json" <<EOF
+{ $STD_HEAD,
+  "commands": {"app":{
+    "lanes": [{"name":"wmatrix","commands":[
+      "yarn w0","yarn w1","yarn w2","yarn w3","yarn w4","yarn w5","yarn w6","yarn w7",
+      "yarn w8","yarn w9","yarn w10","yarn w11","yarn w12","yarn w13"]}]}} }
+EOF
+run_grill "$R7b" "$R7b/c.json"
+# Members: each defines -w as watch, so each must FIRE. vitest/vite reach this arm only past an
+# exiting subcommand — without one the earlier vitest/vite arm answers first.
+expect_finding "t5 -w member vitest (vitest bench -w)" T5.watcher.app.lanes.0.0  "vitest bench -w"
+expect_finding "t5 -w member vite (vite build -w)"     T5.watcher.app.lanes.0.1  "vite build -w"
+expect_finding "t5 -w member tsc"                      T5.watcher.app.lanes.0.2  "tsc -w"
+expect_finding "t5 -w member webpack"                  T5.watcher.app.lanes.0.3  "webpack -w"
+expect_finding "t5 -w member rollup"                   T5.watcher.app.lanes.0.4  "rollup -c -w"
+expect_finding "t5 -w member ava"                      T5.watcher.app.lanes.0.5  "ava -w"
+expect_finding "t5 -w member mocha"                    T5.watcher.app.lanes.0.6  "mocha -w"
+expect_finding "t5 -w member sass"                     T5.watcher.app.lanes.0.7  "sass -w src:dist"
+# Non-members: each fails the predicate, so firing on any of them is a FAIL on a valid config.
+# `jest` is the one that was harmful — the other four read no `-w` at all, so they were inert.
+expect_no_finding "t5 -w non-member jest (-w is --maxWorkers, not watch)" T5.watcher.app.lanes.0.8
+expect_no_finding "t5 -w non-member tsup (--watch only, no -w)"           T5.watcher.app.lanes.0.9
+expect_no_finding "t5 -w non-member esbuild (--watch only, no -w)"        T5.watcher.app.lanes.0.10
+expect_no_finding "t5 -w non-member parcel (watch is a subcommand)"       T5.watcher.app.lanes.0.11
+expect_no_finding "t5 -w non-member karma (--auto-watch only)"            T5.watcher.app.lanes.0.12
+# ...and `nodemon` still fires with a bare `-w`, via the token rule that owns it — which is why
+# dropping it from the allowlist as unreachable changed no answer.
+expect_finding "t5 nodemon -w still fires through the token rule" \
+  T5.watcher.app.lanes.0.13 "nodemon -w src server.js"
+
 # The missing-script half fires ONLY on the unambiguous `<pm> run <name>` form. `<pm> <name>`
 # without the run verb may be a built-in subcommand (yarn workspaces, pnpm dlx), and a false
 # FAIL on a valid config is a worse outcome than a missed warning.

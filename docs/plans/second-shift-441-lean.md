@@ -142,8 +142,14 @@ fixtures are writable, expected to grow (OR-1):
   of the `run` subcommand and exits exactly as it does;
 - a `--watch`, `--watchAll` or `--watch=true` flag anywhere (covers `jest --watch`);
 - a standalone `-w` flag **whose first token is a runner that defines `-w` as watch**:
-  `jest`, `vitest`, `vite`, `tsc`, `tsup`, `webpack`, `rollup`, `esbuild`, `parcel`, `karma`,
-  `ava`, `mocha`, `sass`, `nodemon`;
+  `vitest`, `vite`, `tsc`, `webpack`, `rollup`, `ava`, `mocha`, `sass`. Membership is decided
+  per runner against that runner's own CLI, never inferred from the flag's spelling. Excluded
+  on that evidence: `jest` — its `-w` is `--maxWorkers` and `watch`/`watchAll` carry no alias
+  at all, so `jest -w 4` is an ordinary script and firing on it is the false FAIL this AC
+  ranks as the worse error — and `tsup`, `esbuild`, `parcel`, `karma`, which define no `-w` of
+  any meaning. `nodemon` is not a member either: the token rule below already fires on any
+  body containing it, so a row here would be unreachable. `jest --watch` and `jest --watchAll`
+  keep firing through the `--watch` rule, which is untouched;
 - `nodemon` as a command token;
 - a dev-server script: `next dev`, `webpack serve`.
 
@@ -154,9 +160,18 @@ config, whose only escape is a `grillWaivers` entry excusing a non-problem. That
 AC's own governing principle — *a false FAIL on a valid config is worse than a missed warning*
 — which is written against the missing-script half but binds the watcher half identically, and
 it weakens AC-8's "a clean report stays reachable" from *adopt or declare* to *declare, because
-there is nothing to adopt*. Both narrowings can only reduce firing, so nothing the original
-wording caught is lost but the two shapes it caught wrongly. Under-firing remains OR-1's
-subject.
+there is nothing to adopt*.
+
+Every narrowing here only ever reduces firing, and the claim worth making is that no *correct*
+FAIL was traded away — not that nothing else stopped firing, which is measurably untrue.
+Measured over the same script bodies before and after: the `--run` and `-w` qualifications
+silenced the two shapes they targeted (`prettier -w .`, `vitest --run`) and two more as
+collateral, because gating `-w` on the **first** token also lets a compound body escape
+(`rm -rf dist && tsc -w`) and covers no watch-flag runner outside the list
+(`tailwindcss -i a.css -o b.css -w`). The per-runner membership audit above silences
+`tsup -w`, `esbuild … -w`, `parcel build -w` and `karma start -w` as well; those four are
+inert rather than lost, since none of those runners reads `-w` at all. All of it is
+under-firing, which is OR-1's subject and the cheaper error by this AC's own principle.
 
 `<slot>` is the command's config location: `testFile`, `test`, `lint`, `typecheck`, `format`,
 `lanes.<i>.<j>`, `extraLanes.<i>.<j>`.
@@ -200,9 +215,15 @@ shorter reach than the cross-plugin one doctor already performs for `config-lint
   hand-set-value-matches-zero, plus a matching case that emits no finding;
 - the detected-alternative branch and the no-alternative-detected branch;
 - every rule in AC-4, including `gates.mutation` absent vs `true` vs `false`;
-- every row of the AC-5 resolution table and every entry of the watcher taxonomy, plus the
+- every row of the AC-5 resolution table and every bullet of the watcher taxonomy, plus the
   no-manifest non-evaluation and — one case per narrowing — the two shapes the narrowings
   exclude (`prettier -w .` and `vitest --run`), each asserted **silent**;
+- the `-w` allowlist **per member, not per bullet**: one firing case for each of the eight
+  members and one silent case for each runner the predicate excludes (`jest`, `tsup`,
+  `esbuild`, `parcel`, `karma`). An allowlist is a test surface, not prose — reviewed as a
+  bullet it reads as one rule, and a member that fails the predicate it instantiates rides
+  through unexecuted. `nodemon -w` is asserted firing too, pinning that its removal from the
+  allowlist changed nothing because the token rule owns it;
 - the multi-repo scoping rule (evaluated repo vs sibling not-evaluated);
 - a waived-finding case proving suppression;
 - a not-evaluated case proving it does **not** block acceptance (it is absent from

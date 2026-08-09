@@ -274,9 +274,14 @@ is_watcher() { # $1 = manifest script BODY → 0 when it never exits
     case "$w" in
       --watch|--watchAll|--watch=true|nodemon) return 0 ;;
       -w)
+        # Membership is the predicate "this runner defines -w as watch", decided per runner
+        # against that runner's own CLI rather than inferred from the flag's spelling.
+        # Excluded on that evidence: `jest` (-w is --maxWorkers; watch/watchAll carry no alias
+        # at all), and `tsup`, `esbuild`, `parcel`, `karma` (no -w of any meaning). `nodemon`
+        # is absent because the token arm above already returns for any body containing it,
+        # which would leave a row here unreachable.
         case "$first" in
-          jest|vitest|vite|tsc|tsup|webpack|rollup|esbuild|parcel|karma|ava|mocha|sass|nodemon)
-            return 0 ;;
+          vitest|vite|tsc|webpack|rollup|ava|mocha|sass) return 0 ;;
         esac
         ;;
     esac
