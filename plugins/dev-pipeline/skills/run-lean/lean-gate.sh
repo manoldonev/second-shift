@@ -721,7 +721,7 @@ attempt_count() { count_matches "| milestone-$1 | attempt |" "$PROGRESS_FILE" -F
 
 # ---------------------------------------------------------------- the build-session SET (#446)
 # `mark` stamps a session id onto the PR marker, and that field is the STRONGER of the two
-# comparisons lean-evidence.sh makes (`:492-494`): run_id is agent-CHOSEN, the session id is
+# comparisons lean-evidence.sh's arm_identity makes: run_id is agent-CHOSEN, the session id is
 # harness-assigned. It was nonetheless read straight from the ambient environment while
 # $RESOLVED_RUN_ID beside it came from the role-keyed cache — so the documented manual recovery,
 # run from the REVIEW session (the only place a missing marker becomes visible, since the arm is
