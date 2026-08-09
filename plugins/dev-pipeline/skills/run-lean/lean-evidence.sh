@@ -29,8 +29,8 @@
 #                     path are NOT here — they exist only for records predating the key, all of
 #                     which are merged, and check-lean-chain.sh keeps them for that history.
 #   4. INTENT GAP   — a decision BUILD surfaced that the intake receipt never covered is routed
-#                     back to a human (P9), not quietly made. Absence is the ordinary case and
-#                     is PRINTED, so a log reader can tell "nothing surfaced" from "never ran".
+#                     back to a human (P9), not quietly made. Absence is the ordinary case, and
+#                     a SATISFIED one: nothing went unevaluated, so it is class (a) and silent.
 #
 # NOT HERE, deliberately (OR-1): the inheritance-chain and design-render arms. Both are
 # refinements firing only for multi-round reviews or design-armed tickets, both degrade to a
@@ -44,9 +44,10 @@
 #
 # THE NO-BOT DEGRADE (D-5/OR-2, re-keyed by #440). A consumer with no authenticated GitHub
 # writer cannot post a marker that survives the `.user.type == "Bot"` trust filter below, so the
-# identity arm reports itself UNAVAILABLE AT REDUCED STRENGTH and is not evaluated — printed on
-# every run, so the weaker boundary is a stated fact rather than a silent one. The degrade is
-# PER-ARM: every other arm still gates such a consumer exactly as it gates any other.
+# identity arm reports itself at the `reduced-strength` disposition and is not evaluated — a
+# class-(b) line on every run, so the weaker boundary is a stated fact rather than a silent one.
+# The degrade is PER-ARM: every other arm still gates such a consumer exactly as it gates any
+# other.
 #
 # It keys on the BOT, not on the tracker. It used to key on `tracker.type = jira`, on the
 # premise that config-lint refused a `tracker.bot` there — which conflated the issue tracker
@@ -61,6 +62,21 @@
 # agent writes the artifacts these arms read. Forging one is easy; forging all of them
 # consistently across a committed diff and a bot-authenticated comment trail is what this makes
 # detectable.
+#
+# THREE OUTPUT CLASSES (#443). Reciting every arm on a passing run teaches nothing and buries the
+# lines that matter; reciting none makes a gate that checked nothing indistinguishable from one
+# that checked everything. So the recital splits three ways:
+#   (a) SATISFIED, including VACUOUSLY satisfied — no output at all, on either stream, whether the
+#       run ends green or red. Which internal branch verified a contract is a source-reading
+#       question, and a failing run's refusal already names the arm it came from. Silence is
+#       unconditional and streamed, never buffered until the verdict is known.
+#   (b) COULD NOT EVALUATE — exactly one line, on the green path. Mandatory rather than permitted:
+#       an arm that quietly declines to run is the vacuous pass this whole file refuses everywhere
+#       else. Its shape is pinned below, and pinned identically in scripts/check-lean-chain.sh,
+#       because the successors to #443 emit into this class and must not each invent one.
+#   FAILURE output is unchanged — as loud and as specific as it ever was.
+# There is deliberately NO verbose flag. An opt-in that restores the recital restores the problem,
+# one CI job at a time, and a flag nobody sets is a code path nobody reads.
 #
 # Inputs (ALL via the environment — never spliced into a `run:` line; a PR body is
 # attacker-controllable, and both consuming workflows document that convention):
@@ -130,17 +146,39 @@ while [ $# -gt 0 ]; do
     --pr-comments-file)  PR_COMMENTS_FILE="${2:-}"; shift 2 ;;
     --diff-files-file)   DIFF_FILES_FILE="${2:-}"; shift 2 ;;
     --violations-file)   VIOLATIONS_FILE="${2:-}"; shift 2 ;;
-    -h|--help)           sed -n '2,114p' "$0"; exit 0 ;;
+    -h|--help)           sed -n '2,130p' "$0"; exit 0 ;;
     *) echo "[lean-evidence] unknown argument: $1" >&2; exit 2 ;;
   esac
 done
 [ -n "$SUB" ] || SUB="all"
 
-say()     { echo "[lean-evidence] $1"; }
 envfail() { echo "[lean-evidence] $1" >&2; exit 2; }
 
 violations=0
 note_violation() { echo "[lean-evidence]   ✗ $1" >&2; violations=$((violations + 1)); }
+
+# LOCKSTEP-BEGIN lean-output-dispositions
+LEAN_OUTPUT_DISPOSITIONS='not-applicable reduced-strength postdated inert'
+# LOCKSTEP-END lean-output-dispositions
+
+# The class-(b) emitter, and the ONLY way this file writes on a green path. Shape:
+#
+#   [lean-evidence]   · <arm>: <disposition> — <reason>
+#
+# STDOUT, one line, disposition drawn from the closed set above. `postdated` and `inert` have no
+# call site here yet; they are the successors' and are declared now so the vocabulary is fixed
+# rather than grown a word at a time by whoever emits next.
+#
+# An unknown disposition is an ENVIRONMENT error, not a printed line: a gate whose vocabulary can
+# be widened at a call site has no closed vocabulary, and the reader that classifies these lines
+# would silently start seeing a token it has no rule for.
+inapplicable() { # inapplicable <arm> <disposition> <reason>
+  case " $LEAN_OUTPUT_DISPOSITIONS " in
+    *" $2 "*) : ;;
+    *) envfail "internal: '$2' is not a class-(b) disposition (arm '$1'). The vocabulary is closed: $LEAN_OUTPUT_DISPOSITIONS." ;;
+  esac
+  echo "[lean-evidence]   · $1: $2 — $3"
+}
 
 REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null)" \
   || envfail "not in a git repo — cannot resolve the committed artifacts."
@@ -435,8 +473,6 @@ arm_verdict() {
   fi
   if [ "$VERDICT_VALUE" != "approve" ]; then
     note_violation "verdict record '$VERDICT' reads 'verdict=${VERDICT_VALUE:-<none>}', not 'verdict=approve'."
-  else
-    say "  ✓ verdict record: $VERDICT (verdict=approve)"
   fi
   [ -n "$VERDICT_RUN_ID" ] \
     || note_violation "verdict record '$VERDICT' carries no run_id reconciliation key, so its authorship cannot be separated from the build run's."
@@ -465,7 +501,7 @@ MARKER_FILTER='
 
 arm_identity() {
   if [ "$BOT_ENABLED" != "true" ]; then
-    say "  · identity: UNAVAILABLE AT REDUCED STRENGTH — no bot is enabled for this consumer (tracker.bot.enabled is false, or absent under tracker.type 'jira'), so it has no authenticated writer and any PR marker it posted would fail the Bot trust filter. The verdict's independence is NOT checked here; every other arm still gates. Configuring a bot restores this arm under either tracker."
+    inapplicable identity reduced-strength "no bot is enabled for this consumer (tracker.bot.enabled is false, or absent under tracker.type 'jira'), so it has no authenticated writer and any PR marker it posted would fail the Bot trust filter. The verdict's independence is NOT checked here; every other arm still gates. Configuring a bot restores this arm under either tracker."
     return 0
   fi
   [ -n "$VERDICT" ] || return 0   # already a violation; "authorship unverifiable" on top is noise
@@ -515,11 +551,10 @@ arm_identity() {
 
   # EVERY marker, not the first (D-4). A second build session on the same PR posts its own
   # marker; comparing only the first would let that session author its own review verdict.
-  local m hit=0
+  local m
   for m in $marker_runs; do
     [ "$m" = "$VERDICT_RUN_ID" ] || continue
     note_violation "verdict record '$VERDICT' carries a BUILD run's identity ('$m') — a session that wrote code on this PR also wrote its own review verdict. The verdict must come from a separate review session carrying its own identity."
-    hit=1
   done
   for m in $marker_sessions; do
     [ "$m" = "$VERDICT_SESSION_ID" ] || continue
@@ -527,10 +562,8 @@ arm_identity() {
     # run_id is agent-CHOSEN, so a build session determined to review itself need only pick a
     # second string, whereas the session id is harness-assigned.
     note_violation "verdict record '$VERDICT' names a BUILD session ('$m') as its author — a distinct run_id does not make it an independent review (P10)."
-    hit=1
   done
-  [ "$hit" -eq 1 ] \
-    || say "  ✓ authorship: verdict identity ($VERDICT_RUN_ID) is distinct from all $n_markers bot marker(s) on this PR, and the record names its review session"
+  return 0
 }
 
 # ---------------------------------------------------------------- arm 3: freshness
@@ -576,8 +609,6 @@ arm_freshness() {
     envfail "cannot compute this branch's patch identity against origin/$PR_BASE_REF — the merge-base is unresolvable (a full-history checkout of the base is required: fetch-depth: 0), or the branch's diff excluding '$VERDICT' is empty. Either way there is nothing to compare the verdict's reviewed_patch_id against."
   elif [ "$cur" != "$VERDICT_REVIEWED_PATCH_ID" ]; then
     note_violation "verdict record '$VERDICT' reviewed patch $(printf '%.12s' "$VERDICT_REVIEWED_PATCH_ID"), but this branch's diff against origin/$PR_BASE_REF now hashes to $(printf '%.12s' "$cur"). Content changed after the review — a commit landed, or a rebase resolved a conflict by altering a line — so the review read a different tree than the one being merged. Run another review round."
-  else
-    say "  ✓ freshness (declared, patch-id $(printf '%.12s' "$cur")): the branch's diff against origin/$PR_BASE_REF is the one the review read"
   fi
 }
 
@@ -587,11 +618,12 @@ arm_freshness() {
 # here would be the duplicate machinery the lockstep manifest calls worse than none.
 arm_intent_gap() {
   local gap ratified by
+  # ABSENCE IS CLASS (a), not class (b) (#443). Most runs surface no gap, and "the receipt already
+  # covered everything" is a SATISFIED arm — nothing went unevaluated. It used to be printed so a
+  # log reader could tell it from "the arm never ran"; that distinction now rides the fact that a
+  # class-(b) line would be there if the arm could not run.
   gap="$(find_artifact "$KEY" "$LEAN_INTENT_GAP_SUFFIX")" || gap=""
-  if [ -z "$gap" ]; then
-    say "  · no intent-gap record for #$KEY — nothing surfaced during BUILD that the receipt did not already cover."
-    return 0
-  fi
+  [ -n "$gap" ] || return 0
   # `ratified_by:` cannot be captured by the `ratified:` read — the character after `ratified`
   # is `_`, not `:`.
   ratified="$(record_key ratified "$REPO_ROOT/$gap" '[A-Za-z]+')"
@@ -600,8 +632,6 @@ arm_intent_gap() {
     note_violation "intent-gap record '$gap' reads 'ratified: ${ratified:-<none>}' — a decision the receipt never covered is still the build run's own call, and P9 routes it back to the human before it merges. Ratify it and record the comment URL as 'ratified_by:'."
   elif [ -z "$by" ]; then
     note_violation "intent-gap record '$gap' claims 'ratified: yes' but cites no 'ratified_by:' URL — a ratification the run wrote about itself is a self-ratification. Cite the operator's comment."
-  else
-    say "  ✓ intent gap: $gap ratified ($by)"
   fi
 }
 
@@ -624,7 +654,6 @@ run_arms() {
     echo "[lean-evidence]   The remedy is producing the missing artifact — there is no waiver." >&2
     return 1
   fi
-  say "lean evidence complete for #$KEY."
   return 0
 }
 
@@ -644,15 +673,13 @@ case "$SUB" in
   all)
     classify
     if [ "$APPLICABLE" -eq 0 ]; then
-      # Echo what was resolved: a decline is otherwise indistinguishable from "never ran", and
-      # the two reasons a decline can have — no key, or no key-matched spec — are the two
-      # things an operator needs to tell apart.
-      say "non-lean change — lean evidence not applicable."
-      say "  head branch: ${PR_HEAD_REF:-<unset>}"
-      say "  resolved key: ${RESOLVED_KEY:-<none>} (pipeline prefix: $PIPELINE_PREFIX)"
+      # CLASS (b): the whole gate could not evaluate. One line, and it carries what was resolved
+      # inside its reason — a decline is otherwise indistinguishable from "never ran", and the two
+      # reasons a decline can have (no key, or no key-matched spec) are the two things an operator
+      # needs to tell apart before arguing a misclassification.
+      inapplicable lean-evidence not-applicable "non-lean change on head branch '${PR_HEAD_REF:-<unset>}' — resolved key: ${RESOLVED_KEY:-<none>} (pipeline prefix: $PIPELINE_PREFIX), and no lean spec for it is in this PR's diff."
       exit 0
     fi
-    say "applicable via $TRIGGER: branch=$PR_HEAD_REF"
     # Reachable only on a branch outside the namespace: this PR commits a lean spec and names
     # no issue, so there is nothing to reconcile the evidence against. A refusal, never a
     # waiver — see classify()'s NO KEY note.
@@ -661,7 +688,6 @@ case "$SUB" in
       exit 1
     }
     KEY="$RESOLVED_KEY"
-    say "source issue: #$KEY"
     run_arms
     exit $?
     ;;

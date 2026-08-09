@@ -6,6 +6,62 @@ deliberately does not run in CI.
 The short version lives in [`CLAUDE.md`](../CLAUDE.md) under **Verification**; this file
 carries the reasoning and the operator-run adversarial recipe.
 
+## How the sweep runs
+
+One script owns it, locally and in CI:
+
+```bash
+SKIP_STRESS=1 bash tools/run-selftests.sh
+```
+
+`tools/run-selftests.sh` discovers every `*-selftest.sh` under the repo, runs `SELFTEST_JOBS`
+(default 4) at a time, and replays each suite's captured output inside `::group::`/`::endgroup::`
+framing, in worklist order. Ordering by worklist rather than by completion is what makes the log
+identical at `SELFTEST_JOBS=1` and `SELFTEST_JOBS=4` — a diff of the two runs' group headers is a
+real assertion, and `tools/run-selftests-selftest.sh` makes it.
+
+**Why a script and not a `-P` flag.** The recipe used to be a hand-rolled
+`find … | xargs -0 -P 4 -n1 -I{} bash {}` pipeline, and CI was running its *serial* cousin — an
+inline `while read` loop in both selftest jobs, 17:50 on macos and 12:51 on ubuntu, of which 709s
+was one step. Bolting `-P 4` onto that loop would have fixed the clock and destroyed the log: at
+four concurrent suites the raw streams braid, and a FAIL line no longer belongs to any identifiable
+suite. Per-suite capture and ordered replay is the whole reason this is a file — and being a
+checked-in script it then owes a selftest under the repo's coverage rule, which is where the
+guarantees below are asserted rather than merely described.
+
+**What it refuses to call green.** Each is a rejection the runner makes, not a convention it
+follows:
+
+| Condition | Verdict |
+| --- | --- |
+| any suite exits non-zero | exit 1, every failing suite named with its code |
+| a worker dies without writing a verdict | that suite scores `rc=125`, named as infra — never as a pass |
+| discovered-minus-excluded ≠ suites actually run | exit 2, `silent truncation` — a faster sweep that ran fewer suites is the failure mode this design is most exposed to |
+| `--exclude` matches no discovered suite | exit 2, `stale exclusion` — the posture a stale `install-topology-known-red.tsv` row already carries |
+| no suites discovered, or every suite excluded | exit 2 — a sweep that runs nothing is never green |
+
+`--exclude` exists for one caller: both CI selftest jobs pass
+`--exclude tools/install-topology-selftest.sh`, which runs in its own job on both lanes — inside
+the sweep it contends with the very suites it re-runs from the install cache, which is what the
+install-topology section below measures. The suite stays *discovered*: the exclusion names a path
+that must keep existing, so renaming the suite reds CI instead of silently double-running it.
+
+`SKIP_STRESS` is never set by the runner. The ubuntu lane omits it and the macos lane sets it;
+that asymmetry predates this script and is preserved, and the mutation baseline's environment
+check is only meaningful because the harness does not export it on its own.
+
+Discovery is `*-selftest.sh` only. The three `*-selftest.mjs` files are executed by
+`workflows-mjs-selftest.sh`, which is itself in the glob; widening discovery would run them twice.
+
+**Worker mode is keyed on an argv sentinel (`--run-one`), never on an environment variable**, and
+that is a correctness property rather than a style choice. An env flag is inherited by everything
+the dispatch spawns, *including the suites* — so a suite that itself invokes the runner takes the
+worker branch and collapses. The first revision keyed on an env var and
+`run-selftests-selftest.sh` (which nests a runner inside a suite) passed standalone and failed the
+instant the repo sweep ran it: 67 of 68 green, which is exactly how a leak of this shape reads if
+you only ever run one suite at a time. The same reasoning is why the parent's `--exclude`-era
+truncation seam is stripped before a suite is executed.
+
 ## Why a tier map at all
 
 CI here is **model-free by design** — no API-billed calls. That constraint is what makes the
@@ -119,10 +175,31 @@ earlier revision of this page wrong, and it is the same single-measurement mista
 paragraph above is about.)
 
 That makes this guard the long pole of the repo sweep, not a line item in it: the whole 64-suite
-sweep is 13:12 serial and 5:22 at `-P 4` in the documented `SKIP_STRESS=1` form, and the `-P 4`
-figure is essentially this one suite — everything else folds into its shadow. The stress-inclusive
-sweep (no `SKIP_STRESS`, the repo's own pre-commit gate) measured 540s. Know that before adding to
-what it runs.
+sweep is 13:12 serial and 5:22 at four-way concurrency in the documented `SKIP_STRESS=1` form, and
+the concurrent figure is essentially this one suite — everything else folds into its shadow. The
+stress-inclusive sweep (no `SKIP_STRESS`, the repo's own pre-commit gate) measured 540s. Know that
+before adding to what it runs.
+
+**It no longer runs on the PR lane at all.** It lives in `.github/workflows/install-topology.yml`
+on a nightly cron plus `workflow_dispatch`, and both CI selftest jobs exclude it by path via
+`run-selftests.sh --exclude`. The documented local recipe excludes it too.
+
+The reasoning is a cost/signal ratio, not a judgment that the guard is worthless — it caught two
+real defects that were green in-tree the whole time, and it stays. But its cost *is* the shipped
+suite set run a second time, which made it the repo's longest job, while the class it guards moves
+only when suites change or when packaging/topology changes. On the median PR it was paying the
+critical path to re-derive the previous night's answer. Inside the sweep it was also contending
+with the second copy of every suite it stages — the 244s-vs-94s statectl figure above — so it was
+simultaneously the long pole and the thing lengthening everything else.
+
+**The trade, stated plainly:** a packaging or suite regression is now caught within a day instead
+of at PR time. If your change is about how plugins are installed or laid out, that window is not
+good enough — run `bash tools/install-topology-selftest.sh` directly, or dispatch the workflow
+against your branch. Its 1200s `INSTALL_TOPOLOGY_TIMEOUT` is deliberately left alone: it was sized
+for contention that is now gone, but it is a hang detector and re-tightening it needs an
+uncontended measurement the nightly is what will produce. Both lanes are retained, because several
+`install-topology-known-red.tsv` rows are explicitly environment-dependent and the bash-3.2 lane
+carries signal ubuntu does not.
 
 `INSTALL_TOPOLOGY_TIMEOUT` (default 1200s) is the per-suite bound. Its job is to turn a hang into
 one named timeout line instead of a CI job that dies at its own timeout with no attributable

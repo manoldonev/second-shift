@@ -57,26 +57,47 @@ patch.
 ```bash
 find . -name '*.sh' -type f -print0 | xargs -0 shellcheck -e SC1091,SC2015,SC2181
 find . -name '*.json' -type f -print0 | xargs -0 -n1 jq empty
-find . -name '*-selftest.sh' -type f -print0 | xargs -0 -P 4 -n1 -I{} env SKIP_STRESS=1 bash {}
+SKIP_STRESS=1 bash tools/run-selftests.sh --exclude tools/install-topology-selftest.sh
 ```
 
-**`-P 4` is load-bearing, not incidental.** The suites are independent — each allocates its own
-`mktemp` state dir — so running four at a time is behavior-preserving, and on the current
+**`tools/run-selftests.sh` is the sweep — here, and in both CI selftest jobs.** It discovers every
+`*-selftest.sh`, runs `SELFTEST_JOBS` (default 4) of them at a time, and replays each suite's
+output as one contiguous `::group::`-framed block in a deterministic order that does not move with
+completion timing. It exits non-zero naming every failing suite, and it reds rather than reporting
+a fast green when its discovered count and its run count disagree, when an `--exclude` matches no
+discovered suite, or when a worker dies without writing a verdict. `SKIP_STRESS=1` is yours to set
+or omit — the runner never sets it, which is what keeps the mutation baseline's environment check
+meaningful.
+
+**The `--exclude` is why this recipe is ~3 minutes instead of ~10.**
+`tools/install-topology-selftest.sh` re-runs every *shipped* suite from a staged install cache, so
+its cost is the whole suite set a second time. It no longer runs on the PR lane either — both CI
+selftest jobs pass the same exclusion, and the guard runs nightly in
+`.github/workflows/install-topology.yml` (plus `workflow_dispatch` when you are touching
+packaging). Run it directly, `bash tools/install-topology-selftest.sh`, when your change is about
+how plugins are installed or laid out; that is the only time its answer differs from last night's.
+
+The hand-rolled `xargs -0 -P 4` pipeline this recipe used to carry is retired — CI had been
+running its *serial* cousin all along, at 17:50 on macos and 12:51 on ubuntu.
+
+**Concurrency is load-bearing, not incidental.** The suites are independent — each allocates its
+own `mktemp` state dir — so running four at a time is behavior-preserving, and on the current
 64-suite tree it is the difference between a **13:12** sweep and a **5:22** one (measured). A
-failing suite still fails the sweep: `xargs` propagates a non-zero exit under `-P` exactly as it
-does serially.
+failing suite still fails the sweep.
 
 The cost is heavily skewed, and one suite now sets the floor: `tools/install-topology-selftest.sh`
 re-runs every *shipped* suite from a staged install cache, and takes **roughly 7 minutes on its
 own** — three runs of one unchanged tree measured 319s, 438s and 584s, so treat the range, not a
 point value, as the number (a run at the slow end is not a regression). It already parallelizes
-internally (`INSTALL_TOPOLOGY_JOBS`, default 4), so it is the parallel form's long pole rather than
-something an outer `-P 4` can shorten — the 5:22 above is essentially that one suite, and moves
-with it. Everything else is roughly 8 minutes serial and folds into its shadow. See
-[`docs/testing.md`](docs/testing.md) for what it buys.
+internally (`INSTALL_TOPOLOGY_JOBS`, default 4), so it is the long pole rather than something an
+outer `SELFTEST_JOBS=4` can shorten — the 5:22 above is essentially that one suite, and moves with
+it. Everything else is roughly 8 minutes serial and folds into its shadow. See
+[`docs/testing.md`](docs/testing.md) for what it buys, and for the trade accepted in moving it to
+a nightly cron: a packaging or suite regression is now caught within a day rather than at PR time.
 
-Drop `-P 4` only if you need interleaved output untangled while debugging one suite; prefer
-running that suite alone instead.
+`SELFTEST_JOBS=1` gives you a serial sweep with the same verdict, if you want one while debugging;
+prefer running the single suite alone instead. Output stays framed per suite either way, so
+lowering it is not what makes the log readable.
 
 Every checked-in script is **exercised by some selftest**; CI discovers suites by glob, so a new
 selftest needs no registration. CI is model-free by design (no API-billed calls).
