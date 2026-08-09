@@ -142,42 +142,67 @@ ev_cfg() { # ev_cfg <head-ref> <markers-file> <diff-file> [config-path]
     bash "$TOOL" all --pr-comments-file "$2" --diff-files-file "$3" 2>&1 )
 }
 
+# ---- the #443 output-class assertions ------------------------------------------------------
+# CLASS (a) IS SILENCE ON BOTH STREAMS. Every `ev`/`ev_cfg` call above folds stderr into stdout
+# (`2>&1`), so an EMPTY capture is the whole assertion — and a real one, not the bare exit-status
+# demotion AC-7 forbids: it fails the moment any arm resumes narrating, in either direction.
+# It is also what replaces each removed `grep '✓ …'`, since an arm that stopped running would
+# leave the run just as silent but its own NEGATIVE case red.
+silent() { [ -z "$1" ]; }
+
+# CLASS (b) IS ONE PINNED LINE. Anchored whole, not grepped for a phrase: the successors to #443
+# emit into this class, and the shape — stream, prefix, arm, closed disposition — is the thing
+# this ticket fixes for them. A line that drifted to two, or to a fifth disposition, is the
+# regression, and only a full-line anchor sees it.
+CLASS_B_RE='^\[lean-evidence\]   · [a-z][a-z-]*: (not-applicable|reduced-strength|postdated|inert) — .'
+class_b() { # class_b <output> [expected-arm:disposition]
+  [ "$(printf '%s\n' "$1" | grep -cE "$CLASS_B_RE")" = "1" ] || return 1
+  [ -z "${2:-}" ] || printf '%s' "$1" | grep -qE "^\[lean-evidence\]   · ${2%%:*}: ${2##*:} — "
+}
+
 echo "[lean-evidence-selftest]"
 
 # ---- (a) the happy path -------------------------------------------------------------------
 # AC-1/AC-6: the head ref carries the STAGED prefix, because that is now the only namespace
 # either lane cuts. Nothing in this file's environment names a lean namespace.
+#
+# AC-2 (#443) rides here too: every arm on this run is class (a), so the tool writes NOTHING.
 out="$(ev "claude/acme-42" "$WORK/markers-good.json" "$WORK/diff-lean.txt")"; rc=$?
-if [ "$rc" -eq 0 ] && printf '%s' "$out" | grep -q 'applicable via lean-artifact'; then
-  pass "(a) complete evidence on a shared-namespace branch passes, classified by the artifact"
-else fail "(a) expected rc=0 via the artifact arm, got $rc: $out"; fi
+if [ "$rc" -eq 0 ] && silent "$out"; then
+  pass "(a) AC-2: complete evidence passes with zero bytes on stdout and stderr"
+else fail "(a) expected a silent rc=0, got $rc: $out"; fi
 
 # ---- (b) applicability --------------------------------------------------------------------
+# A whole-gate decline is class (b), not (a): nothing was evaluated, and an unevaluated gate that
+# printed nothing would be indistinguishable from one that checked everything.
 out="$(ev "someone/hotfix" "$WORK/markers-none.json" "$WORK/diff-plain.txt")"; rc=$?
-if [ "$rc" -eq 0 ] && printf '%s' "$out" | grep -q 'not applicable'; then
-  pass "(b) a non-lean branch with no lean artifacts is not applicable"
-else fail "(b) expected a not-applicable pass, got $rc: $out"; fi
+if [ "$rc" -eq 0 ] && class_b "$out" "lean-evidence:not-applicable"; then
+  pass "(b) AC-3: a non-lean branch declines in exactly one class-(b) line"
+else fail "(b) expected a one-line not-applicable pass, got $rc: $out"; fi
 
 # AC-9: PRs opened on the RETIRED `lean/` namespace before #413 must keep classifying. Nothing
 # knows that namespace any more, so this works only through the body-key fallback finding the
 # key-matched spec — which is exactly the mechanism the cutover relies on instead of a legacy
 # branch arm. Drive it against the real shape, not a hypothetical one.
+#
+# Asserted as SILENCE, which is the classification assertion now: had the legacy PR failed to
+# classify, the class-(b) decline line above would be here instead of nothing.
 out="$(ev "lean/acme-42" "$WORK/markers-good.json" "$WORK/diff-lean.txt")"; rc=$?
-if [ "$rc" -eq 0 ] && printf '%s' "$out" | grep -q 'applicable via lean-artifact'; then
+if [ "$rc" -eq 0 ] && silent "$out"; then
   pass "(c) a legacy lean/-prefixed PR still classifies, via the body key and the artifact"
-else fail "(c) expected the legacy namespace to classify via the artifact arm, got $rc: $out"; fi
+else fail "(c) expected the legacy namespace to classify (and so run silently), got $rc: $out"; fi
 
 # THE MIRROR ERROR, and the reason applicability is KEY-MATCHED rather than "any lean spec".
 # This branch's key is 303; the diff carries #42's spec. A suffix-only test would pull an
 # unrelated PR into this gate and out of the pipeline gate at the same time.
 out="$(ev "claude/acme-303" "$WORK/markers-good.json" "$WORK/diff-lean.txt")"; rc=$?
-if [ "$rc" -eq 0 ] && printf '%s' "$out" | grep -q 'not applicable' \
+if [ "$rc" -eq 0 ] && class_b "$out" "lean-evidence:not-applicable" \
    && printf '%s' "$out" | grep -q 'resolved key: 303'; then
   pass "(d) a PR carrying some OTHER ticket's lean spec is not classified lean"
 else fail "(d) expected not-applicable on a key mismatch, got $rc: $out"; fi
 
 out="$(ev "some/other-branch" "$WORK/markers-good.json" "$WORK/diff-fixture-only.txt")"; rc=$?
-if [ "$rc" -eq 0 ] && printf '%s' "$out" | grep -q 'not applicable'; then
+if [ "$rc" -eq 0 ] && class_b "$out" "lean-evidence:not-applicable"; then
   pass "(e) lean-SHAPED fixture paths never make a PR applicable"
 else fail "(e) expected fixture paths to be excluded, got $rc: $out"; fi
 
@@ -275,9 +300,9 @@ else fail "(p) expected rc=1 against the second marker, got $rc: $out"; fi
 
 write_verdict approve r-review-5 sess-review-5
 out="$(ev "claude/acme-42" "$WORK/markers-two.json" "$WORK/diff-lean.txt")"; rc=$?
-if [ "$rc" -eq 0 ]; then
+if [ "$rc" -eq 0 ] && silent "$out"; then
   pass "(q) two markers neither of which the verdict carries still passes — (p) turns on the match"
-else fail "(q) expected rc=0 against two non-matching markers, got $rc: $out"; fi
+else fail "(q) expected a silent rc=0 against two non-matching markers, got $rc: $out"; fi
 
 # ---- (r) the freshness arm ----------------------------------------------------------------
 write_verdict approve r-review-6 sess-review-6 "-"
@@ -298,9 +323,9 @@ write_verdict
 printf '\nReviewer prose appended after the record was committed.\n' >> "$VREC"
 commit_tree "the record's own bytes change"
 out="$(ev "claude/acme-42" "$WORK/markers-good.json" "$WORK/diff-lean.txt")"; rc=$?
-if [ "$rc" -eq 0 ] && printf '%s' "$out" | grep -q 'freshness (declared, patch-id'; then
+if [ "$rc" -eq 0 ] && silent "$out"; then
   pass "(t) editing the verdict record itself does not move the patch identity (the exclusion holds)"
-else fail "(t) expected rc=0 after editing the record, got $rc: $out"; fi
+else fail "(t) expected a silent rc=0 after editing the record, got $rc: $out"; fi
 
 # ...but a real branch-side change does.
 printf 'a genuine post-review change\n' > "$TREE/docs/plans/notes.md"
@@ -312,10 +337,12 @@ else fail "(u) expected rc=1 after a post-review commit, got $rc: $out"; fi
 write_verdict
 
 # ---- (v) the ratification arm (P9) --------------------------------------------------------
+# Absence is the ordinary case and CLASS (a) since #443 — nothing went unevaluated, so nothing is
+# printed. The arm's kill criteria are (w)/(x) below, which are unchanged.
 out="$(ev "claude/acme-42" "$WORK/markers-good.json" "$WORK/diff-lean.txt")"; rc=$?
-if [ "$rc" -eq 0 ] && printf '%s' "$out" | grep -q 'no intent-gap record'; then
-  pass "(v) absence of an intent-gap record is the ordinary case, and is PRINTED"
-else fail "(v) expected the absence notice, got $rc: $out"; fi
+if [ "$rc" -eq 0 ] && silent "$out"; then
+  pass "(v) absence of an intent-gap record is the ordinary case, and is silent"
+else fail "(v) expected a silent pass with no gap record, got $rc: $out"; fi
 
 printf 'issue: 42\nratified: no\nratified_by:\n\n## Gap\n\nSomething the receipt did not cover.\n' > "$GAPREC"
 commit_tree "unratified intent gap"
@@ -337,9 +364,9 @@ printf 'issue: 42\nratified: yes\nratified_by: https://example.invalid/issues/42
 commit_tree "ratified and cited"
 write_verdict
 out="$(ev "claude/acme-42" "$WORK/markers-good.json" "$WORK/diff-lean.txt")"; rc=$?
-if [ "$rc" -eq 0 ] && printf '%s' "$out" | grep -q 'intent gap: .* ratified'; then
+if [ "$rc" -eq 0 ] && silent "$out"; then
   pass "(y) a ratified, cited intent-gap record passes"
-else fail "(y) expected rc=0 on a ratified gap, got $rc: $out"; fi
+else fail "(y) expected a silent rc=0 on a ratified gap, got $rc: $out"; fi
 rm -f "$GAPREC"; commit_tree "gap cleared"
 write_verdict
 
@@ -348,9 +375,9 @@ write_verdict
 # namespace and the tracker type come from that file, or the key derivation has nothing to
 # strip and the arm the consumer installed never classifies anything.
 out="$(ev_cfg "claude/acme-42" "$WORK/markers-good.json" "$WORK/diff-lean.txt")"; rc=$?
-if [ "$rc" -eq 0 ] && printf '%s' "$out" | grep -q 'applicable via lean-artifact'; then
+if [ "$rc" -eq 0 ] && silent "$out"; then
   pass "(z1) with no env constant, the namespace comes from the committed tracker.branchPrefix"
-else fail "(z1) expected config-derived classification, got $rc: $out"; fi
+else fail "(z1) expected config-derived classification (and so a silent run), got $rc: $out"; fi
 
 # The branch key WINS over the body key on a prefixed branch (AC-10). This body says `Closes
 # #42` while the branch says 303, and the diff carries only #42's spec: a body-first derivation
@@ -364,18 +391,25 @@ else fail "(z2) expected the branch key to win, got $rc: $out"; fi
 # able to hand the constant in — and a consumer that sets one must not silently get the
 # committed value instead. Driven where the two DISAGREE, or the case proves nothing: with the
 # env prefix in force the branch is unprefixed, so the key falls back to the body.
+#
+# The two outcomes are still distinguishable after #443, which is what keeps this non-vacuous:
+# env winning resolves #42, classifies lean, and runs SILENT; the config winning resolves 303,
+# finds no spec for it, and declines in a class-(b) line naming that key. Both are asserted.
 out="$(PIPELINE_PREFIX_OVERRIDE="zzz-matches-nothing/" ev "claude/acme-303" "$WORK/markers-good.json" "$WORK/diff-lean.txt")"; rc=$?
-if [ "$rc" -eq 0 ] && printf '%s' "$out" | grep -q 'source issue: #42'; then
+if [ "$rc" -eq 0 ] && silent "$out"; then
   pass "(z3) an env namespace overrides the committed config rather than losing to it"
-else fail "(z3) expected the env prefix to win, got $rc: $out"; fi
+else fail "(z3) expected the env prefix to win (a silent lean run, not a 303 decline), got $rc: $out"; fi
 
-# ---- (aa) AC-6: the jira degrade, per-arm and PRINTED --------------------------------------
+# ---- (aa) AC-6: the jira degrade, per-arm and DISCLOSED ------------------------------------
 # config-lint forbids tracker.bot under jira, so such a consumer has no authenticated writer and
-# its markers would fail the Bot filter. The arm says so; it does not quietly skip.
+# its markers would fail the Bot filter. The arm says so; it does not quietly skip — and after
+# #443 it says so in the pinned class-(b) shape, at the `reduced-strength` disposition, which is
+# what that disposition exists for. Everything else on this run is class (a), so the degrade line
+# is the ONLY line: `class_b` asserts the count, not merely the presence.
 out="$(ev_cfg "lean/-42" "$WORK/markers-none.json" "$WORK/diff-lean.txt" "$WORK/config-jira.json")"; rc=$?
-if [ "$rc" -eq 0 ] && printf '%s' "$out" | grep -q 'UNAVAILABLE AT REDUCED STRENGTH'; then
-  pass "(aa1) under jira the identity arm is unavailable at reduced strength, and says so"
-else fail "(aa1) expected the printed jira degrade, got $rc: $out"; fi
+if [ "$rc" -eq 0 ] && class_b "$out" "identity:reduced-strength"; then
+  pass "(aa1) under jira the identity arm is unavailable at reduced strength, in one class-(b) line"
+else fail "(aa1) expected the jira degrade as the sole class-(b) line, got $rc: $out"; fi
 
 # ...and the degrade is PER-ARM. A jira consumer whose verdict record is missing still fails —
 # otherwise `tracker.type: jira` would be a global waiver rather than one arm's disclosure.
@@ -516,9 +550,36 @@ out="$( cd "$TREE" && PATH="$WORK/bin:$PATH" LEAN_EV_MARKERS="$WORK/markers-good
         PR_HEAD_REF="claude/acme-42" PR_HEAD_SHA="$(git -C "$TREE" rev-parse HEAD)" PR_BASE_REF=main \
         PR_BODY="$BODY_GOOD" PR_NUMBER=9 GH_REPO="acme/acme" \
         bash "$TOOL" all --diff-files-file "$WORK/diff-lean.txt" 2>&1 )"; rc=$?
-if [ "$rc" -eq 0 ] && printf '%s' "$out" | grep -q '✓ authorship'; then
+if [ "$rc" -eq 0 ] && silent "$out"; then
   pass "(cc2) the identity arm fetches its marker trail through the live gh path, not only the fixture seam"
-else fail "(cc2) expected the live-fetch path to pass, got $rc: $out"; fi
+else fail "(cc2) expected the live-fetch path to pass silently, got $rc: $out"; fi
+
+# ---- (dd) #443: the class-(b) emitter's own contract ---------------------------------------
+# The REAL function bytes are lifted out of the tool and executed — never re-declared here. A
+# hand-written copy could not fail on a production edit, which is the mirror-harness pattern this
+# repo bans; this is its shell analogue of workflows/runtime-shim-lib.mjs.
+emit_probe() { # emit_probe <arm> <disposition> <reason>
+  # shellcheck disable=SC2317,SC2329  # invoked from the eval'd production function below.
+  # BOTH codes: shellcheck >=0.10 reports SC2329 on the function, 0.9 (CI) reports SC2317 on each
+  # command in the body — suppressing only the newer one is clean locally and reds CI.
+  ( envfail() { echo "$1" >&2; exit 2; }
+    eval "$(grep '^LEAN_OUTPUT_DISPOSITIONS=' "$TOOL")"
+    eval "$(awk '/^inapplicable\(\) \{/,/^\}$/' "$TOOL")"
+    inapplicable "$1" "$2" "$3" )
+}
+
+out="$(emit_probe design-evidence postdated 'a reserved disposition the successors will emit.' 2>&1)"; rc=$?
+if [ "$rc" -eq 0 ] && class_b "$out" "design-evidence:postdated"; then
+  pass "(dd1) AC-3: the emitter accepts every disposition in the closed set, including the reserved two"
+else fail "(dd1) expected a class-(b) line for a reserved disposition, got $rc: $out"; fi
+
+# The vocabulary is CLOSED, and closed means enforced. A gate whose dispositions can be widened by
+# typing a new word at a call site has no vocabulary — the successors' readers would start seeing
+# a token they have no rule for, silently.
+out="$(emit_probe design-evidence probably-fine 'a word nobody agreed to.' 2>&1)"; rc=$?
+if [ "$rc" -eq 2 ] && printf '%s' "$out" | grep -q 'not a class-(b) disposition'; then
+  pass "(dd2) a disposition outside the closed set is an environment error, not a new vocabulary word"
+else fail "(dd2) expected rc=2 on an unknown disposition, got $rc: $out"; fi
 
 echo "[lean-evidence-selftest] $([ "$FAILS" -eq 0 ] && echo 'all green' || echo "$FAILS FAILURE(S)")"
 exit "$FAILS"

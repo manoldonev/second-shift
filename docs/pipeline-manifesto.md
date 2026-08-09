@@ -164,3 +164,30 @@ constants staying consistent with each other.
 The generalizable rule, and the reason this is worth recording next to the limitation it escapes: a
 CI constant is self-neutralizable when it is the **sole** applicability input. Replace it with an
 artifact-derived trigger and there is no kill switch left to reach.
+
+### What a new gate arm ships with
+
+Both merge-boundary gates are silent when every arm is satisfied and loud only where something
+could not be evaluated. A new arm therefore ships with three things, not one, and none of them is
+optional:
+
+1. **Its producer's capability stamp.** An arm enforces a contract some producer has to write. The
+   arm reads that producer's generation off the run's own evidence and enforces only where the
+   stamp shows a generation capable of the artifact it demands — because the arm travels by git ref
+   while the producer travels by versioned install, and the two are permanently skewed on the
+   branch that develops them. An arm with no stamp to read is an arm that accuses honest runs.
+2. **Its not-applicable path.** Every way the arm can fail to evaluate — a producer too old, an
+   input the adapter has no counterpart for, an artifact the run legitimately never wrote — emits
+   exactly one class-(b) line naming the arm and one disposition from the closed vocabulary
+   (`not-applicable`, `reduced-strength`, `postdated`, `inert`). Declining in silence is the vacuous
+   pass every gate here refuses; declining in a violation is an accusation nothing supports.
+3. **Its silence on green.** A satisfied arm prints nothing, on either stream, whether the run ends
+   green or red — including when it was satisfied _vacuously_, by the other branch of a precedence
+   rule. Which branch verified a contract is a source-reading question, and a job log that recites
+   it buries the lines an operator is actually looking for.
+
+The obligation is stated here rather than enforced by a test, deliberately: a guard that grepped
+this paragraph would assert only that prose contains words. The enforcement is the mechanism —
+`LEAN_OUTPUT_DISPOSITIONS` is a closed set both gates declare and a lockstep row binds, the emitter
+refuses a disposition outside it, and both suites anchor every green-path line whole, so an arm
+that starts narrating or stops disclosing reds a case rather than a paragraph.
