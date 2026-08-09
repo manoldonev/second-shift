@@ -89,8 +89,11 @@ to advance out of, so the `run` lane’s draft-PR rationale (below) does not car
   `statectl successor-key-set` to validate the key it persists.
 - `tracker.branchPrefix` — the branch namespace prepended to the key (`claude/acme-`
   github, a per-user `jdoe/` jira). Consumed by the Stage-1/2/9 branch derivation.
-- `tracker.bot.*` — github only: the bot identity for tracker/PR writes
+- `tracker.bot.*` — the bot identity for the pipeline's **GitHub** writes
   (`enabled`, `envVar`, `wrapperPath`, `app.{clientId,appName,privateKeyFilename,installationId}`).
+  Legal under **either** tracker: the key is scoped to the code host, not to the tracker, and
+  source control is GitHub for every adapter. Only the *claim* write is github-tracker-only,
+  because only a writing tracker has an issue to claim on.
 
 ## Why the github tools live in `../`, not `github/`
 

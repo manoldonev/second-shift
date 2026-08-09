@@ -42,14 +42,20 @@
 # set" is true and proves nothing, and the posture everywhere in this gate is that a check
 # which cannot run must not report one. The single exception is announced, never silent:
 #
-# THE JIRA DEGRADE (D-5/OR-2). config-lint.sh rejects `tracker.bot` under `tracker.type: jira`,
-# so such a consumer has no authenticated GitHub writer and any marker it posted would fail the
-# `.user.type == "Bot"` trust filter below. The identity arm therefore reports itself
-# UNAVAILABLE AT REDUCED STRENGTH and is not evaluated — printed on every run, so the weaker
-# boundary is a stated fact rather than a silent one. The degrade is PER-ARM: every other arm
-# still gates a jira consumer exactly as it gates a github one. The axis fix (the bot is a
-# source-control capability modelled on the tracker axis) is a `configVersion` schema change
-# and rides a successor, not this file.
+# THE NO-BOT DEGRADE (D-5/OR-2, re-keyed by #440). A consumer with no authenticated GitHub
+# writer cannot post a marker that survives the `.user.type == "Bot"` trust filter below, so the
+# identity arm reports itself UNAVAILABLE AT REDUCED STRENGTH and is not evaluated — printed on
+# every run, so the weaker boundary is a stated fact rather than a silent one. The degrade is
+# PER-ARM: every other arm still gates such a consumer exactly as it gates any other.
+#
+# It keys on the BOT, not on the tracker. It used to key on `tracker.type = jira`, on the
+# premise that config-lint refused a `tracker.bot` there — which conflated the issue tracker
+# with the code host. Source control is GitHub under both adapters, so a jira-tracked repo
+# writes to GitHub on every run and can hold a bot identity for those writes; #440 dropped the
+# refusal. A jira consumer that configures a bot is now gated here at full strength. What the
+# axis fix did NOT do is move the block to its correct parent — `tracker.bot` still spells a
+# code-host capability under the tracker key, and that rename is a `configVersion` schema
+# change riding a successor, not this file.
 #
 # HONEST ALTITUDE: tamper-EVIDENCE, not proof, same as its second-shift sibling. The build
 # agent writes the artifacts these arms read. Forging one is easy; forging all of them
@@ -77,6 +83,9 @@
 #   LEAN_BRANCH_PREFIX      RETIRED (#413)  accepted and ignored, with a notice. A consumer's
 #                                     workflow may still set it from a pin predating the change.
 #   LEAN_TRACKER_TYPE       optional  github|jira; from the committed config when unset
+#   LEAN_BOT_ENABLED        optional  true|false; whether an authenticated GitHub writer exists.
+#                                     From `tracker.bot.enabled` when unset; a config declaring
+#                                     no bot defaults per tracker (see the resolution below).
 #   LEAN_MARKER_AUTHOR      optional  exact bot login; absent degrades to "any Bot author"
 #   SECOND_SHIFT_CONFIG     optional  path to the committed config (testing / vendored fork)
 #
@@ -121,7 +130,7 @@ while [ $# -gt 0 ]; do
     --pr-comments-file)  PR_COMMENTS_FILE="${2:-}"; shift 2 ;;
     --diff-files-file)   DIFF_FILES_FILE="${2:-}"; shift 2 ;;
     --violations-file)   VIOLATIONS_FILE="${2:-}"; shift 2 ;;
-    -h|--help)           sed -n '2,105p' "$0"; exit 0 ;;
+    -h|--help)           sed -n '2,114p' "$0"; exit 0 ;;
     *) echo "[lean-evidence] unknown argument: $1" >&2; exit 2 ;;
   esac
 done
@@ -187,6 +196,31 @@ TRACKER_TYPE="${LEAN_TRACKER_TYPE:-}"
 case "$TRACKER_TYPE" in
   github|jira) : ;;
   *) envfail "unknown tracker.type '$TRACKER_TYPE' — expected 'github' or 'jira'." ;;
+esac
+
+# BOT AVAILABILITY — what the identity arm actually depends on (#440). The tracker says whether
+# there is an ISSUE to write to; the bot says whether there is an authenticated WRITER. Source
+# control is GitHub under both adapters, so those are separate facts and the identity arm reads
+# the second one. Resolution mirrors TRACKER_TYPE's: env first, then the committed config.
+#
+# THE DEFAULT IS TRACKER-DERIVED, and only for configs that declare no bot at all. Until #440,
+# config-lint refused a `tracker.bot` block under jira, so "no block" means two different things
+# depending on when and where the config was written: under jira it means "the lint left me no
+# choice" (no writer — degrade, exactly as before), under github it means "unstated" and the
+# strict reading stands, which is also where an unreadable config lands since TRACKER_TYPE
+# itself defaults to github there. A config that DECLARES `enabled` is believed either way, and
+# that is the only case whose behavior this change moves: jira + an enabled bot is now gated at
+# full strength instead of waived.
+BOT_ENABLED="${LEAN_BOT_ENABLED:-}"
+if [ -z "$BOT_ENABLED" ]; then
+  case "$TRACKER_TYPE" in
+    jira) BOT_ENABLED="$(cfg '.tracker.bot.enabled' 'false')" ;;
+    *)    BOT_ENABLED="$(cfg '.tracker.bot.enabled' 'true')" ;;
+  esac
+fi
+case "$BOT_ENABLED" in
+  true|false) : ;;
+  *) envfail "unknown bot-enabled value '$BOT_ENABLED' — expected 'true' or 'false' from LEAN_BOT_ENABLED or tracker.bot.enabled." ;;
 esac
 
 # The shape a branch SUFFIX must have to be read as an issue key (D-14). Digits under github;
@@ -430,8 +464,8 @@ MARKER_FILTER='
   ]'
 
 arm_identity() {
-  if [ "$TRACKER_TYPE" = "jira" ]; then
-    say "  · identity: UNAVAILABLE AT REDUCED STRENGTH — tracker.type is 'jira', which config-lint forbids a tracker.bot under, so this consumer has no authenticated writer and any PR marker it posted would fail the Bot trust filter. The verdict's independence is NOT checked here; every other arm still gates."
+  if [ "$BOT_ENABLED" != "true" ]; then
+    say "  · identity: UNAVAILABLE AT REDUCED STRENGTH — no bot is enabled for this consumer (tracker.bot.enabled is false, or absent under tracker.type 'jira'), so it has no authenticated writer and any PR marker it posted would fail the Bot trust filter. The verdict's independence is NOT checked here; every other arm still gates. Configuring a bot restores this arm under either tracker."
     return 0
   fi
   [ -n "$VERDICT" ] || return 0   # already a violation; "authorship unverifiable" on top is noise

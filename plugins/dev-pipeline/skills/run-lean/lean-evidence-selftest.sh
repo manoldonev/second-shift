@@ -116,6 +116,23 @@ cat > "$WORK/config-jira.json" <<'EOF'
   "topology": { "type": "standalone", "repos": { "acme": { "path": ".", "baseBranch": "main" } } },
   "commands": { "acme": {} } }
 EOF
+# #440: the same jira consumer that DOES configure a bot. config-lint used to forbid this block
+# under jira; now that it is legal, the identity arm has an authenticated writer to check.
+cat > "$WORK/config-jira-bot.json" <<'EOF'
+{ "configVersion": 2,
+  "tracker": { "type": "jira", "writes": false, "branchPrefix": "abc/",
+               "bot": { "enabled": true, "app": { "appName": "acme-pipeline-bot" } } },
+  "topology": { "type": "standalone", "repos": { "acme": { "path": ".", "baseBranch": "main" } } },
+  "commands": { "acme": {} } }
+EOF
+# ...and a github consumer that explicitly DISABLES its bot. The degrade keys on the writer, so
+# it is reachable from either tracker; before #440 no github config could reach it at all.
+cat > "$WORK/config-github-nobot.json" <<'EOF'
+{ "configVersion": 2,
+  "tracker": { "type": "github", "branchPrefix": "claude/acme-", "bot": { "enabled": false } },
+  "topology": { "type": "standalone", "repos": { "acme": { "path": ".", "baseBranch": "main" } } },
+  "commands": { "acme": {} } }
+EOF
 commit_tree "committed consumer config"
 write_verdict
 
@@ -369,13 +386,14 @@ if [ "$rc" -eq 0 ] && printf '%s' "$out" | grep -q 'source issue: #42'; then
   pass "(z3) an env namespace overrides the committed config rather than losing to it"
 else fail "(z3) expected the env prefix to win, got $rc: $out"; fi
 
-# ---- (aa) AC-6: the jira degrade, per-arm and PRINTED --------------------------------------
-# config-lint forbids tracker.bot under jira, so such a consumer has no authenticated writer and
-# its markers would fail the Bot filter. The arm says so; it does not quietly skip.
+# ---- (aa) AC-6: the no-bot degrade, per-arm and PRINTED -------------------------------------
+# A consumer with no authenticated writer cannot post a marker that survives the Bot filter, so
+# the arm says so rather than quietly skipping. A jira config that declares no bot at all is the
+# canonical case: config-lint forbade the block there until #440, so "absent" means "no writer".
 out="$(ev_cfg "lean/-42" "$WORK/markers-none.json" "$WORK/diff-lean.txt" "$WORK/config-jira.json")"; rc=$?
 if [ "$rc" -eq 0 ] && printf '%s' "$out" | grep -q 'UNAVAILABLE AT REDUCED STRENGTH'; then
-  pass "(aa1) under jira the identity arm is unavailable at reduced strength, and says so"
-else fail "(aa1) expected the printed jira degrade, got $rc: $out"; fi
+  pass "(aa1) a bot-less jira consumer degrades the identity arm, and says so"
+else fail "(aa1) expected the printed no-bot degrade, got $rc: $out"; fi
 
 # ...and the degrade is PER-ARM. A jira consumer whose verdict record is missing still fails —
 # otherwise `tracker.type: jira` would be a global waiver rather than one arm's disclosure.
@@ -386,6 +404,44 @@ if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q 'no committed verdict record'
 else fail "(aa2) expected rc=1 on a jira consumer's missing verdict, got $rc: $out"; fi
 mv "$WORK/held-verdict.md" "$VREC"; commit_tree "verdict restored"
 write_verdict
+
+# ---- (ab) #440: the degrade keys on the BOT, not on the tracker -----------------------------
+# The whole point of the axis fix. A jira consumer that configures a bot has an authenticated
+# GitHub writer, so the arm must EVALUATE — and with no marker on the PR that is a violation,
+# not a waiver. Asserting rc=1 (rather than merely the absence of the degrade line) is what
+# makes this case fail if the arm were re-keyed back onto the tracker.
+out="$(ev_cfg "lean/-42" "$WORK/markers-none.json" "$WORK/diff-lean.txt" "$WORK/config-jira-bot.json")"; rc=$?
+if [ "$rc" -eq 1 ] \
+   && ! printf '%s' "$out" | grep -q 'UNAVAILABLE AT REDUCED STRENGTH' \
+   && printf '%s' "$out" | grep -q "no bot-authored"; then
+  pass "(ab1) a jira consumer WITH a bot is gated at full strength: a missing marker violates"
+else fail "(ab1) expected an evaluated identity arm under jira+bot, got $rc: $out"; fi
+
+# ...and it passes on a good marker trail, so (ab1) is a real arm rather than an unconditional red.
+out="$(ev_cfg "lean/-42" "$WORK/markers-good.json" "$WORK/diff-lean.txt" "$WORK/config-jira-bot.json")"; rc=$?
+if [ "$rc" -eq 0 ] && ! printf '%s' "$out" | grep -q 'UNAVAILABLE AT REDUCED STRENGTH'; then
+  pass "(ab2) the same consumer passes on a bot-authored marker whose identity differs"
+else fail "(ab2) expected a clean pass under jira+bot, got $rc: $out"; fi
+
+# The mirror image: github with the bot explicitly OFF degrades. Before #440 the degrade was
+# unreachable from github, so a consumer that turned its bot off was gated on evidence it could
+# not produce. This is the case that proves the key is the writer and not the tracker.
+out="$(ev_cfg "claude/acme-42" "$WORK/markers-none.json" "$WORK/diff-lean.txt" "$WORK/config-github-nobot.json")"; rc=$?
+if [ "$rc" -eq 0 ] && printf '%s' "$out" | grep -q 'UNAVAILABLE AT REDUCED STRENGTH'; then
+  pass "(ab3) github with tracker.bot.enabled false degrades too"
+else fail "(ab3) expected the no-bot degrade under github, got $rc: $out"; fi
+
+# LEAN_BOT_ENABLED wins over the committed config, the same precedence LEAN_TRACKER_TYPE has —
+# and it is the seam this repo's own CI needs, since it gitignores its config and reads nothing.
+out="$( cd "$TREE" && LEAN_BOT_ENABLED=true \
+        SECOND_SHIFT_CONFIG="$WORK/config-github-nobot.json" \
+        PR_HEAD_REF="claude/acme-42" PR_HEAD_SHA="$(git -C "$TREE" rev-parse HEAD)" \
+        PR_BASE_REF="main" PR_BODY="$BODY_GOOD" \
+        bash "$TOOL" all --pr-comments-file "$WORK/markers-none.json" \
+                         --diff-files-file "$WORK/diff-lean.txt" 2>&1 )"; rc=$?
+if [ "$rc" -eq 1 ] && ! printf '%s' "$out" | grep -q 'UNAVAILABLE AT REDUCED STRENGTH'; then
+  pass "(ab4) LEAN_BOT_ENABLED overrides the committed tracker.bot.enabled"
+else fail "(ab4) expected the env override to force the arm on, got $rc: $out"; fi
 
 # ---- (bb) the delegation interface ---------------------------------------------------------
 # `classify` is what BOTH chain gates consume instead of holding their own copy of these rules;
