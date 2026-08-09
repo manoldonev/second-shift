@@ -97,6 +97,18 @@ check "yml: runs the check script"                     "$(grep -q "second-shift-
 check "yml: passes github.token as GH_TOKEN"           "$(grep -q "GH_TOKEN" "$YML" && grep -q "github.token" "$YML" && echo 0 || echo 1)"
 check "yml: job name matches the documented required-status-check context" "$(grep -q "name: second-shift evidence" "$YML" && echo 0 || echo 1)"
 
+# AC-4 (#444). The evidence payload's `since:`-bearing arms compare against PR_CREATED_AT, and
+# they treat it as OPTIONAL on purpose — an absent value declines rather than reds — so a
+# template that stopped supplying it silently loses those arms instead of failing. That is
+# exactly the drift this file exists to catch, and the template has NO live signal (no consumer
+# CI runs in this repo), so the wiring is pinned structurally here.
+# Anchored against the step's ENV BLOCK rather than the file, on the permissions block's
+# precedent below: a commented-out line elsewhere in the YAML must not satisfy it.
+STEPENV="$(awk '/^        env:/{f=1;next} f&&/^        [^ ]/{f=0} f' "$YML")"
+# shellcheck disable=SC2016  # the ${{ }} is GitHub Actions template syntax; the shell must not expand it.
+check "yml: env supplies PR_CREATED_AT from the PR's open instant (AC-4)" \
+  "$(grep -qF 'PR_CREATED_AT: ${{ github.event.pull_request.created_at }}' <<<"$STEPENV" && echo 0 || echo 1)"
+
 # (8) gh fetch paths (stubbed gh on PATH; SECOND_SHIFT_CONFIG_LINT unset so the fetch runs).
 # 404 = the pinned ref / linter path does not exist = DRIFT = FAIL, never a warn-green.
 mkdir -p "$TMP/bin404"

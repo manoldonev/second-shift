@@ -3106,6 +3106,121 @@ if [ "$rc" -eq 0 ] && grep -q '^run_id: p-build-1$' "$PPROG" 2>/dev/null \
   pass "(ea12) the first call to establish a run identity heals the frozen header, without duplicating the row"
 else fail "(ea12) header did not heal, rc=$rc: $(grep '^run_id:' "$PPROG" 2>/dev/null) / rows=$(pcount '| entry | ledger=')"; fi
 
+# ---- (eb) #444: the entry precondition declares when IT took effect --------------------------
+# The precondition above is itself an arm that landed while branches were in flight, and
+# enforcing it against them refuses a run for not satisfying a contract that did not exist when
+# it started. So it carries a `since:` and de-blocks anything older.
+#
+# ONE FIXTURE, RE-DATED PER CASE. The tree is rebuilt for each case because the observable IS
+# the first commit's author date past merge-base, so it cannot be varied any other way.
+EBTREE="$WORK/ebtree"
+EBPROG="$WORK/ebprogress.md"
+eb_build() { # eb_build <author-date> — a branch whose one commit past origin/main is so dated
+  rm -rf "$EBTREE" "$EBPROG"
+  mkdir -p "$EBTREE/docs/plans"
+  git -C "$EBTREE" init -q
+  git -C "$EBTREE" config user.email t@example.invalid
+  git -C "$EBTREE" config user.name t
+  printf '.claude/\n' > "$EBTREE/.gitignore"
+  git -C "$EBTREE" add -A >/dev/null 2>&1
+  git -C "$EBTREE" commit -q -m "eb base" >/dev/null 2>&1
+  git -C "$EBTREE" update-ref refs/remotes/origin/main HEAD
+  printf '# spec\n\n- AC-1: a thing\n' > "$EBTREE/docs/plans/acme-8-lean.md"
+  git -C "$EBTREE" add -A >/dev/null 2>&1
+  # COMMITTER stamped NOW, author stamped by the case. That split is the point: the comparator
+  # must read the author date, because a rebase rewrites the committer one and would make an old
+  # branch postdate its own cutoff the morning it was rebased — the exact stranding this removes.
+  GIT_AUTHOR_DATE="$1" git -C "$EBTREE" commit -q -m "eb work" >/dev/null 2>&1
+}
+ebgate() { # ebgate <args...> — an UNATTESTED run: no entry row is ever written in this block
+  ( unset RUN_ID CLAUDE_CODE_SESSION_ID
+    cd "$EBTREE" && SECOND_SHIFT_CONFIG="$CFG" LEAN_PROGRESS_FILE="$EBPROG" \
+    bash "$GATE" --issue-file "$ISSUE_NOREGIONS" "$@" 2>&1 )
+}
+# Capture-then-default, for the reason pcount above spells out: on zero matches `grep -c` PRINTS
+# "0" *and* exits 1, so a `|| echo 0` fallback emits a second "0" and the `-eq` against it throws.
+# Every case here compares against zero, so this block is exactly where that bites.
+ebrows() {
+  local n
+  [ -f "$EBPROG" ] || { echo 0; return 0; }
+  n="$(grep -cF '| entry | ledger=' "$EBPROG" 2>/dev/null)" || n=0
+  [ -n "$n" ] || n=0
+  echo "$n"
+}
+
+# AC-6, one second before. rc=0 rather than merely "not 2": milestone 1 actually RUNS and
+# passes, which is what proves the precondition let control through rather than swapping one
+# refusal for another.
+eb_build '2026-08-07T13:22:50Z'
+out="$(ebgate 1 8)"; rc=$?
+if [ "$rc" -eq 0 ] \
+   && printf '%s' "$out" | grep -qF 'before the entry precondition took effect (2026-08-07T13:22:51Z)' \
+   && ! printf '%s' "$out" | grep -qF 'no entry attestation' \
+   && [ "$(ebrows)" -eq 0 ]; then
+  pass "(eb1) AC-6: a branch started before the precondition's since: is de-blocked, announced, and NOT attested"
+else fail "(eb1) expected a de-blocked run with no entry row, rc=$rc rows=$(ebrows): $out"; fi
+
+# AC-7/AC-5, the same second. At-or-after enforces, and the refusal is the unchanged one —
+# including its SECOND cause, the host-local/gitignored paragraph, which a rewrite of this
+# function is likeliest to drop.
+eb_build '2026-08-07T13:22:51Z'
+out="$(ebgate 1 8)"; rc=$?
+if [ "$rc" -eq 2 ] && printf '%s' "$out" | grep -qF 'no entry attestation' \
+   && printf '%s' "$out" | grep -qF 'host-local and gitignored'; then
+  pass "(eb2) AC-7: a branch started AT the since: is refused, with the existing wording and second cause"
+else fail "(eb2) expected the unchanged refusal at the boundary second, rc=$rc: $out"; fi
+
+# AC-8, the behavioral half, and the direction that FAILS OPEN if the offset is ignored: local
+# 09:00 sorts before the cutoff's 13:22:51 as a string, but it is 14:00 UTC — at or after — so a
+# comparator that compared the raw author date would silently exempt a branch it must enforce.
+eb_build '2026-08-07T09:00:00-05:00'
+out="$(ebgate 1 8)"; rc=$?
+if [ "$rc" -eq 2 ] && printf '%s' "$out" | grep -qF 'no entry attestation'; then
+  pass "(eb3) AC-8: a -05:00 author date at 14:00 UTC enforces, though its local clock reads before the cutoff"
+else fail "(eb3) a non-UTC offset was compared unnormalized (fail-open direction), rc=$rc: $out"; fi
+
+# ...and the mirror, which fails CLOSED if the offset is ignored: local 18:00 sorts after the
+# cutoff, but it is 12:30 UTC — before — so the branch must be de-blocked. Both directions are
+# driven because one alone is satisfied by a comparator that is merely wrong in the other.
+eb_build '2026-08-07T18:00:00+05:30'
+out="$(ebgate 1 8)"; rc=$?
+if [ "$rc" -eq 0 ] && printf '%s' "$out" | grep -qF 'this branch started at 2026-08-07T12:30:00Z'; then
+  pass "(eb4) AC-8: a +05:30 author date at 12:30 UTC de-blocks, though its local clock reads after the cutoff"
+else fail "(eb4) a non-UTC offset was compared unnormalized (fail-closed direction), rc=$rc: $out"; fi
+
+# OR-2. An EMPTY range is not the unresolvable case: the branch was cut just now with nothing
+# committed, which is definitively at or after any cutoff, so it ENFORCES. Every (ea*) case above
+# rides on this — their fixture's origin/main IS its head — so pinning it explicitly is what
+# keeps a future "empty means unknown, be lenient" rewrite from silently waiving all of them.
+eb_build '2026-08-07T13:22:50Z'
+git -C "$EBTREE" update-ref refs/remotes/origin/main HEAD
+out="$(ebgate 1 8)"; rc=$?
+if [ "$rc" -eq 2 ] && printf '%s' "$out" | grep -qF 'no entry attestation'; then
+  pass "(eb5) OR-2: an empty commit range enforces — a branch cut now postdates nothing"
+else fail "(eb5) an empty range took the de-block path, rc=$rc: $out"; fi
+
+# D-5. An unresolvable merge-base is its OWN environment error, not a fifth cause on the refusal:
+# "you skipped entry" and "your checkout is broken" have different remedies, and this gate runs
+# where origin/$BASE_BRANCH is present by construction. Asserted in BOTH directions — the new
+# message present AND the attestation refusal absent — since rc=2 alone cannot tell them apart.
+eb_build '2026-08-07T13:22:50Z'
+git -C "$EBTREE" update-ref -d refs/remotes/origin/main
+out="$(ebgate 1 8)"; rc=$?
+if [ "$rc" -eq 2 ] && printf '%s' "$out" | grep -qF 'cannot resolve merge-base(origin/main, HEAD)' \
+   && ! printf '%s' "$out" | grep -qF 'no entry attestation'; then
+  pass "(eb6) D-5: an unresolvable merge-base fails closed with its own diagnosis, not the attestation refusal"
+else fail "(eb6) expected the merge-base envfail, rc=$rc: $out"; fi
+
+# AC-8, the structural half (D-7). git does the offset arithmetic — `--date=format-local` under
+# TZ=UTC — precisely so no `date` invocation is on this path: `date -d` (GNU) and `date -r` (BSD)
+# fail DIRTY under the other userland, so a comparator reaching for either is green on the lane
+# that has it and wrong on the lane that does not, and this suite runs on both. Deliberately not
+# gated on detecting a 3.2 interpreter: such a case would never fire on the ubuntu lane and would
+# read as coverage while proving nothing.
+if ! grep -nE '(^|[^[:alnum:]_-])date[[:space:]]+-[dr]([[:space:]]|$)' "$GATE" >/dev/null; then
+  pass "(eb7) AC-8: the cutoff comparison invokes neither 'date -d' nor 'date -r'"
+else fail "(eb7) a GNU/BSD-split date form reached lean-gate.sh: $(grep -nE '(^|[^[:alnum:]_-])date[[:space:]]+-[dr]([[:space:]]|$)' "$GATE")"; fi
+
 # ---- (pm) AC-4: the PR build-identity marker (#359) -----------------------------------------
 # The WRITER half of the boundary's identity arm. lean-evidence.sh compares the verdict record
 # against every marker this posts; without a writer that arm refuses every honest PR, and with

@@ -88,6 +88,12 @@
 #   PR_BASE_REF     required  the PR's base branch; the base the patch identity is measured
 #                             from. Needs a full-history checkout (fetch-depth: 0).
 #   PR_BODY         required-ish  the PR body (empty is legal; it just fails to resolve a key)
+#   PR_CREATED_AT   optional  ISO-8601 `Z`; the PR-open observation point, and the cutoff every
+#                             `since:`-bearing arm below compares itself against. DELIBERATELY
+#                             NOT required (#444): a newly-required input reds every consumer
+#                             whose committed workflow predates it, which is the same
+#                             strand-an-innocent-PR defect the cutoffs exist to close. Absent
+#                             or unparseable ⇒ those arms report `postdated` and decline.
 #   PR_NUMBER       required for the identity arm under github  the PR to read markers from
 #   GH_REPO         required for the live identity path  "<owner>/<repo>"
 #   GH_TOKEN        required for the live identity path
@@ -146,7 +152,7 @@ while [ $# -gt 0 ]; do
     --pr-comments-file)  PR_COMMENTS_FILE="${2:-}"; shift 2 ;;
     --diff-files-file)   DIFF_FILES_FILE="${2:-}"; shift 2 ;;
     --violations-file)   VIOLATIONS_FILE="${2:-}"; shift 2 ;;
-    -h|--help)           sed -n '2,130p' "$0"; exit 0 ;;
+    -h|--help)           sed -n '2,136p' "$0"; exit 0 ;;
     *) echo "[lean-evidence] unknown argument: $1" >&2; exit 2 ;;
   esac
 done
@@ -178,6 +184,53 @@ inapplicable() { # inapplicable <arm> <disposition> <reason>
     *) envfail "internal: '$2' is not a class-(b) disposition (arm '$1'). The vocabulary is closed: $LEAN_OUTPUT_DISPOSITIONS." ;;
   esac
   echo "[lean-evidence]   · $1: $2 — $3"
+}
+
+# ---------------------------------------------------------------- arm cutoffs (#444)
+# WHY AN ARM DECLARES A CUTOFF. An arm merged after a PR opened was enforced against that PR,
+# whose build session had already finished and could not have satisfied a contract that did not
+# yet exist. So an arm states the instant its contract took effect, and a run whose observation
+# point precedes that instant is OUTSIDE the arm's window — `postdated`, class (b), zero
+# violations — rather than in violation of it.
+#
+# AN EXPLICIT LITERAL, never derived from commit history. A derived date advances whenever the
+# arm's lines are reformatted, moved or rebased, so it fails OPEN: every reformat silently
+# exempts another tranche of runs. A literal only moves when someone edits it on purpose.
+#
+# ONLY ARMS THAT NEED ONE CARRY ONE. An arm whose contract predates every live branch has
+# nothing to declare, and a cutoff on it would be a comparator with no reachable exemption.
+#
+# The cutoff is a fixed-width Z-normalized ISO-8601 instant, which is what makes plain string
+# `<` an exact chronological compare — no `date -d` / `date -r`, whose GNU/BSD forms fail dirty
+# under the other OS and would need a runtime split this file must not carry (bash 3.2).
+# `PR_CREATED_AT` arrives already UTC from `github.event.pull_request.created_at`; the gate's
+# sibling comparator normalizes a git author date instead, which is why the two are not one
+# shared helper (see scripts/lockstep-manifest.tsv, DROPPED).
+CUTOFF_RE='^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$'
+
+# Echo the usable cutoff, or nothing when there is none to compare against. OR-1: a value that
+# does not normalize is treated as ABSENT rather than promoted to an envfail — the malformed
+# case can only arise from a hand-wired consumer workflow, and refusing there would red a PR
+# over an input its committed workflow predates. It is NAMED on stderr, so the operator can see
+# which of the two absent-shaped paths they are on rather than guessing.
+PR_CREATED_AT_UTC=""
+if [ -n "${PR_CREATED_AT:-}" ]; then
+  if printf '%s' "$PR_CREATED_AT" | grep -qE "$CUTOFF_RE"; then
+    PR_CREATED_AT_UTC="$PR_CREATED_AT"
+  else
+    echo "[lean-evidence] notice: PR_CREATED_AT ('$PR_CREATED_AT') is not a Z-normalized ISO-8601 instant, so it cannot be compared against an arm's 'since:'. Treating it as absent — every since-bearing arm will report 'postdated'." >&2
+  fi
+fi
+
+# True when the run's observation point precedes the arm's cutoff — including when there IS no
+# observation point, which is the AC-3 posture: an arm whose window cannot be established
+# declines instead of enforcing a contract it cannot place the run inside of.
+#
+# `[[ < ]]` rather than `sort`/`awk`: it is a bash builtin present in 3.2, it forks nothing, and
+# on two fixed-width Z-normalized instants a byte compare IS the chronological one.
+postdated_against() { # postdated_against <since>
+  [ -n "$PR_CREATED_AT_UTC" ] || return 0
+  [[ "$PR_CREATED_AT_UTC" < "$1" ]]
 }
 
 REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null)" \
@@ -499,7 +552,25 @@ MARKER_FILTER='
     | select((.body // "") | test("<!--[[:space:]]*stage:[[:space:]]*" + $tag + "[[:space:]]*-->"))
   ]'
 
+# The instant this arm's contract took effect (#444). Anchored to `ca269a9` — "consumer-side
+# lean chain gate, evidence ships as plugin payload (#430)", the merge that first made a
+# bot-authored PR marker a merge-boundary requirement. Committed `2026-08-08T17:05:13Z`; the
+# literal is deliberately ONE SECOND LATER and must not be "corrected" to `:13`. The comparison
+# below is at-or-after, so `:14` exempts the merge's own second and makes the following second
+# the first enforced one — `:13` would enforce against a PR opened in the same second the
+# contract landed, which is the race the cutoff exists to remove.
+LEAN_IDENTITY_SINCE='2026-08-08T17:05:14Z'
+
 arm_identity() {
+  # BEFORE the bot test, not after (D-4). A run that is both pre-cutoff and bot-less is
+  # `postdated`, not `reduced-strength`: it is outside this arm's contract window at all, which
+  # holds no matter how the consumer is configured, whereas `reduced-strength` would report a
+  # permanent non-applicability as a fixable config gap and send the operator to configure a bot
+  # that changes nothing for this PR.
+  if postdated_against "$LEAN_IDENTITY_SINCE"; then
+    inapplicable identity postdated "this arm's contract took effect at $LEAN_IDENTITY_SINCE, and this PR's open instant (${PR_CREATED_AT_UTC:-<no usable PR_CREATED_AT>}) precedes it — the build session that opened it finished before the marker was required and could not have posted one. The arm is not evaluated and contributes no violation; every other arm still gates."
+    return 0
+  fi
   if [ "$BOT_ENABLED" != "true" ]; then
     inapplicable identity reduced-strength "no bot is enabled for this consumer (tracker.bot.enabled is false, or absent under tracker.type 'jira'), so it has no authenticated writer and any PR marker it posted would fail the Bot trust filter. The verdict's independence is NOT checked here; every other arm still gates. Configuring a bot restores this arm under either tracker."
     return 0

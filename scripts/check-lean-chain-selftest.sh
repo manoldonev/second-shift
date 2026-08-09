@@ -31,8 +31,15 @@ cleanup() { [ -n "${WORK:-}" ] && rm -rf "$WORK"; }
 trap cleanup EXIT
 
 # ---------------------------------------------------------------- fixtures
-BOT_CLAIM_AT='2026-01-01T00:00:00Z'
-PR_OPEN_AT='2026-01-02T00:00:00Z'
+# THE FIXTURE CLOCK SITS AFTER THE DELEGATED PAYLOAD'S CUTOFFS (#444). This gate delegates its
+# identity arm to lean-evidence.sh, which now declines when the PR opened before that arm's
+# contract took effect — so a fixture PR dated in January would make every identity case here a
+# vacuous `postdated` decline while the suite stayed exactly as green as before. Ordering is what
+# matters within the file (claim ≤ PR-open < a late claim); the absolute values only have to
+# clear the payload's latest `since:`, and must be moved forward again if a future arm declares
+# one past them.
+BOT_CLAIM_AT='2026-08-09T00:00:00Z'
+PR_OPEN_AT='2026-08-10T00:00:00Z'
 
 # THE ORDINARY SHAPE, and the default every case below runs on: what the CURRENT claim writer
 # posts — run id and session id both. It is the default because AC-1 (#443) quantifies over the
@@ -60,7 +67,7 @@ EOF
 cat > "$WORK/comments-late.json" <<EOF
 [
   { "user": { "type": "Bot", "login": "acme-bot" },
-    "created_at": "2026-06-01T00:00:00Z",
+    "created_at": "2026-08-11T00:00:00Z",
     "body": "<!-- stage: lean-claimed -->\n<!-- run_id: r-late -->" }
 ]
 EOF
@@ -712,7 +719,7 @@ run_gate_base() { # run_gate_base <head-ref> <comments-file> <diff-file> <base-r
     PR_HEAD_REF="$1" \
     PR_HEAD_SHA="$(git -C "$TREE" rev-parse HEAD)" \
     PR_BODY="$BODY_GOOD" \
-    PR_CREATED_AT="$PR_OPEN_AT" \
+    PR_CREATED_AT="${PR_OPEN_AT_OVERRIDE:-$PR_OPEN_AT}" \
     PR_BASE_REF="$4" \
     bash "$GATE" --comments-file "$2" --diff-files-file "$3" 2>&1 )
 }
@@ -1204,6 +1211,54 @@ out="$(LEAN_PR_COMMENTS_FILE="$WORK/pr-markers-two.json" run_gate_base "claude/a
 if [ "$rc" -eq 0 ] && silent "$out"; then
   pass "(Y4) two markers neither of which the verdict carries still passes"
 else fail "(Y4) expected a silent rc=0 against two non-matching markers, got rc=$rc: $out"; fi
+
+# ---- (Z) #444: the two identity arms have DIFFERENT contract windows ----------------------
+# COMPOSED, and only observable here. This gate runs two independent identity arms over one
+# verdict: the delegated PR-marker arm in the payload, which now declares a `since:`, and its own
+# issue-side claim arm, which AC-5 gives none. Each per-tool suite sees exactly one of them, so
+# neither can show that a PR predating the payload's cutoff is exempted from THAT arm while the
+# claim arm keeps gating it. Getting this wrong in either direction is silent: a cutoff copied
+# onto the claim arm waives the stronger of the two, and a payload that ignored its own cutoff
+# strands the PRs this work exists to release.
+#
+# Its own fixture clock, deliberately January — before the payload's cutoff, and with the claim
+# inside the PR-open window so the claim arm is evaluated rather than red for a windowing reason
+# it is not being tested for.
+OLD_CLAIM_AT='2026-01-01T00:00:00Z'
+OLD_PR_OPEN_AT='2026-01-02T00:00:00Z'
+cat > "$WORK/comments-old.json" <<EOF
+[
+  { "user": { "type": "Bot", "login": "acme-bot" },
+    "created_at": "$OLD_CLAIM_AT",
+    "body": "<!-- dev-pipeline -->\n<!-- run_id: r-abc123 -->\n<!-- session_id: sess-build-1 -->\n<!-- stage: lean-claimed -->\n\nClaimed." }
+]
+EOF
+# The same trail, except the claim names the identity the verdict below carries — so the claim
+# arm MUST violate. That is what proves it still ran on a PR the payload's arm declined.
+cat > "$WORK/comments-old-collide.json" <<EOF
+[
+  { "user": { "type": "Bot", "login": "acme-bot" },
+    "created_at": "$OLD_CLAIM_AT",
+    "body": "<!-- dev-pipeline -->\n<!-- run_id: r-review-9 -->\n<!-- session_id: sess-build-1 -->\n<!-- stage: lean-claimed -->\n\nClaimed." }
+]
+EOF
+
+# `pr-markers-none.json` is a VIOLATION inside the window — (Y1) above asserts exactly that on
+# this same tree — so rc=0 here can only mean the arm declined, never that it passed.
+out="$(PR_OPEN_AT_OVERRIDE="$OLD_PR_OPEN_AT" LEAN_PR_COMMENTS_FILE="$WORK/pr-markers-none.json" \
+       run_gate_base "claude/acme-42" "$WORK/comments-old.json" "$WORK/diff-lean.txt" "main")"; rc=$?
+if [ "$rc" -eq 0 ] && class_b "$out" "identity:postdated"; then
+  pass "(Z1) AC-1: a PR opened before the payload's cutoff is exempted from the marker arm, in one class-(b) line"
+else fail "(Z1) expected a delegated postdated decline, got rc=$rc: $out"; fi
+
+# ...and the issue-side arm carries NO cutoff (AC-5). Same pre-cutoff PR, same declining payload,
+# and the boundary still reds — on the claim comparison the payload cannot make.
+out="$(PR_OPEN_AT_OVERRIDE="$OLD_PR_OPEN_AT" LEAN_PR_COMMENTS_FILE="$WORK/pr-markers-none.json" \
+       run_gate_base "claude/acme-42" "$WORK/comments-old-collide.json" "$WORK/diff-lean.txt" "main")"; rc=$?
+if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q "BUILD run's identity" \
+   && printf '%s' "$out" | grep -q 'identity: postdated'; then
+  pass "(Z2) AC-5: the issue-side claim arm has no since: — it still gates a PR the marker arm exempted"
+else fail "(Z2) expected the claim arm to fire on a pre-cutoff PR, got rc=$rc: $out"; fi
 
 # The delegation itself is fail-closed. A payload this gate cannot reach means half the evidence
 # is unevaluated, and an unevaluable check must not report a pass — the mode that would otherwise

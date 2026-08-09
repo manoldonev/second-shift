@@ -1343,6 +1343,35 @@ LEANBOT
     && pass "(lean-entry) an unattested run is refused at 'all' and at a milestone with exit 2, records nothing, and self-heals after one idempotent entry call" \
     || fail "(lean-entry) all=$ea_all m4=$ea_m4 milestone-lines=$ea_attempts healed=$ea_healed, expected 2/2/0/0: $ea_healed_out"
 
+  # ---- leg 3c: the entry precondition's cutoff, composed (#444) -------------
+  # Same CLAUDE.md obligation as leg 3b, for the verdict path #444 adds: the precondition now
+  # DE-BLOCKS a branch that started before it existed. The per-tool suite proves the comparator
+  # against fixtures; what only a composed leg can show is that de-blocking restores the RUN —
+  # control reaches a milestone body and its terminal record gets written — rather than merely
+  # suppressing a refusal and stalling somewhere quieter.
+  #
+  # The branch is aged in place rather than in a tree of its own: origin/main is moved to the
+  # current head and one commit is authored before the cutoff, so merge-base's first commit is
+  # that one. Both refs are restored afterwards — the added commit is empty, so a hard reset
+  # leaves the tree byte-identical for the legs below, which is load-bearing since leg 4 onward
+  # keeps composing milestone 4's patch-id freshness against this same history.
+  lean_seed_unattested r-lean-1 sess-lean-build
+  ec_head="$(git -C "$LEAN_TREE" rev-parse HEAD)"
+  ec_origin="$(git -C "$LEAN_TREE" rev-parse refs/remotes/origin/main)"
+  git -C "$LEAN_TREE" update-ref refs/remotes/origin/main "$ec_head"
+  GIT_AUTHOR_DATE='2026-08-07T13:22:50Z' lean_commit "work authored before the precondition existed"
+  ec_out="$(lean_gate 1 77)"; ec_rc=$?
+  ec_rows="$(lean_count '| entry | ledger=')"
+  ec_satisfied="$(lean_count '| milestone-1 | satisfied')"
+  git -C "$LEAN_TREE" reset --hard -q "$ec_head"
+  git -C "$LEAN_TREE" update-ref refs/remotes/origin/main "$ec_origin"
+  # ...and the DISCRIMINATOR: the identical unattested state on the un-aged branch is still
+  # refused. Without it the leg passes for a precondition that stopped guarding anything at all.
+  lean_gate 1 77 >/dev/null 2>&1; ec_paired=$?
+  [[ "$ec_rc" -eq 0 && "$ec_rows" -eq 0 && "$ec_satisfied" -ge 1 && "$ec_paired" -eq 2 ]] \
+    && pass "(lean-entry-since) a branch older than the entry precondition walks a milestone to its record while attesting nothing, and the same run on a newer branch is still refused" \
+    || fail "(lean-entry-since) rc=$ec_rc entry-rows=$ec_rows milestone-1-records=$ec_satisfied paired=$ec_paired, expected 0/0/≥1/2: $ec_out"
+
   # ---- leg 4: the jira adapter, composed end to end ------------------------
   # The three adapter branch sites are proven in ISOLATION by lean-gate-selftest.sh's (n*)
   # cases. What only a composed leg can show is that they CHAIN: that the progress file
@@ -1903,6 +1932,15 @@ else
       --diff-files-file "$1" 2>&1 )"
     if grep -q 'chain check not applicable' <<<"$out"; then echo declined; else echo applicable; fi
   }
+  # The same composition, output verbatim, for the cutoff leg below — which reads WHICH lines the
+  # boundary wrote rather than only whether it claimed the PR.
+  lr_lean_out() { # lr_lean_out <diff-file> <pr-created-at>
+    ( cd "$LR_TREE" && PIPELINE_BRANCH_PREFIX="$LR_PREFIX" \
+      PR_HEAD_REF="${LR_PREFIX}77" PR_HEAD_SHA="$LR_SHA" \
+      PR_BASE_REF=main PR_BODY="$LR_BODY" PR_CREATED_AT="$2" \
+      LEAN_EVIDENCE="$LR_EV" bash "$LR_LEAN" --comments-file "$LR_EMPTY" \
+      --diff-files-file "$1" 2>&1 )
+  }
 
   # (lr1) A LEAN PR: the same namespace a staged one uses, distinguished only by its spec.
   LR_DIFF_LEAN="$TMP/lr-diff-lean.txt"
@@ -1929,6 +1967,21 @@ else
   [[ "$lr_a" == "declined" && "$lr_b" == "applicable" ]] \
     && pass "(lr3) a PR carrying ANOTHER ticket's lean spec is not orphaned — the pipeline gate keeps it" \
     || fail "(lr3) cross-key routing — lean=$lr_a pipeline=$lr_b"
+
+  # (lr4) #444: the PAYLOAD's arm cutoff, composed through the delegating boundary. The other
+  # new verdict path this ticket adds — its sibling, the entry precondition's de-block, composes
+  # in the (lean-entry-since) leg above. Only a composed run shows the exemption SURVIVING
+  # delegation: check-lean-chain.sh shells out to the payload and folds back a violation COUNT,
+  # so a class-(b) decline that the boundary miscounted as a violation, or a cutoff the delegated
+  # environment never reached, is invisible to the payload's own suite.
+  #
+  # PAIRED ACROSS THE CUTOFF on one unchanged tree, which is what makes it a comparator test
+  # rather than a "does it ever print this" test: only the instant moves between the two calls.
+  lr4_before="$(lr_lean_out "$LR_DIFF_LEAN" '2026-08-08T17:05:13Z')"
+  lr4_after="$(lr_lean_out "$LR_DIFF_LEAN" '2026-08-08T17:05:14Z')"
+  grep -q 'identity: postdated' <<<"$lr4_before" && ! grep -q 'identity: postdated' <<<"$lr4_after" \
+    && pass "(lr4) the payload's arm cutoff survives delegation: the boundary exempts a PR opened one second before it and stops exempting one second after" \
+    || fail "(lr4) delegated cutoff — before=[$lr4_before] after=[$lr4_after]"
 fi
 
 echo

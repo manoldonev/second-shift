@@ -2792,8 +2792,69 @@ cmd_all() {
 # attested run looks identical to an unattested one, and the remedy the message gives cannot be
 # applied from there. That mostly bites `delta`, which the review session runs — review-lean
 # step 3 says "any checkout of that branch works", which for this one call it does not.
+#
+# AND IT DECLARES WHEN IT TOOK EFFECT (#444). This precondition is itself an arm that landed
+# after branches were already in flight, and enforcing it against them refuses a run for not
+# satisfying a contract that did not exist when it started. So it carries a `since:` and
+# de-blocks anything older.
+#
+# Anchored to `9c0a689` — "enforce the lean entry gate's ledger precondition (#422)", the merge
+# that made a missing entry row a refusal. Authored `2026-08-07T13:22:51Z`; the comparison below
+# is at-or-after, so a branch started in that second is enforced.
+ENTRY_SINCE='2026-08-07T13:22:51Z'
+
+# The branch's own start instant: the AUTHOR date of its first commit past merge-base with the
+# configured base, rendered UTC.
+#
+# AUTHOR, NEVER COMMITTER. A rebase rewrites committer dates, so a year-old branch rebased this
+# morning would postdate the cutoff and start refusing — recreating the exact stranding this
+# de-block removes. Author dates survive a rebase, which is the whole reason they are the key.
+#
+# GIT DOES THE ARITHMETIC, not `date` (D-8). `--date=format-local` under `TZ=UTC` renders the
+# author's offset into UTC inside git, so the two mutually-incompatible `date -d` / `date -r`
+# forms are never on this path and the result is a fixed-width Z instant that plain string `<`
+# compares chronologically. That is what makes this correct on bash 3.2 with BSD userland.
+#
+# `sed -n 1p` rather than `head -n1`: head closes the pipe early, and under `pipefail` git's
+# SIGPIPE death would read as a failure to resolve the date.
+branch_start_utc() { # branch_start_utc <merge-base>
+  TZ=UTC git -C "$REPO_ROOT" log --reverse --date=format-local:%Y-%m-%dT%H:%M:%SZ \
+    --format=%ad "$1..HEAD" 2>/dev/null | sed -n '1p'
+}
+
 require_entry_attested() {
   entry_row_present && return 0
+
+  # The de-block, evaluated only once the row is known to be missing — so nothing about an
+  # attested run changes, and this comparator cannot cost an honest run anything.
+  local start mb
+  mb="$(git -C "$REPO_ROOT" merge-base "origin/$BASE_BRANCH" HEAD 2>/dev/null)"
+  if [ -z "$mb" ]; then
+    # D-5. Its OWN environment error, not a fifth cause on the refusal below. This gate runs on
+    # the build host where origin/$BASE_BRANCH is present by construction, so an unresolvable
+    # merge-base means a broken checkout — a different problem with a different remedy, and
+    # conflating "you skipped `entry`" with "your checkout is broken" sends the operator to the
+    # wrong one. AC-3's leniency has no analogue here: that exists for a consumer's committed
+    # workflow no operator action can retroactively fix, whereas a fetch fixes this.
+    echo "[lean-gate] ✗ $SUB: cannot resolve merge-base(origin/$BASE_BRANCH, HEAD), so this branch's start date is unknown and the entry precondition's cutoff cannot be evaluated." >&2
+    echo "[lean-gate]   Fetch origin/$BASE_BRANCH in this checkout and re-run. A precondition that cannot be placed in time must not be waived." >&2
+    exit 2
+  fi
+  start="$(branch_start_utc "$mb")"
+  # OR-2. An EMPTY range is not the unresolvable case above and must not fall into it: the
+  # branch was cut just now with nothing committed yet, which is definitively at or after any
+  # cutoff, so it enforces. `claim` reaches here on every run — it is invoked from the main
+  # checkout before the first commit exists — and fail-closed is correct there because `entry`
+  # is always available to run, so nothing is stranded by refusing.
+  if [ -n "$start" ] && [[ "$start" < "$ENTRY_SINCE" ]]; then
+    # D-6. One plain notice, in this file's own `note:` idiom rather than a third copy of the
+    # class-(b) disposition vocabulary. Silence was rejected: a de-block is not a satisfied
+    # precondition but one that never applied, and the operator must be able to tell which.
+    echo "[lean-gate] note: $SUB: this branch started at $start, before the entry precondition took effect ($ENTRY_SINCE), so it is not refused for lacking an attestation it could not have recorded." >&2
+    echo "[lean-gate]   Nothing was attested and no entry row was written — the run is de-blocked, not credited. Later readers still see no entry row." >&2
+    return 0
+  fi
+
   echo "[lean-gate] ✗ $SUB: this run has no entry attestation in $PROGRESS_FILE." >&2
   echo "[lean-gate]   \`bash G entry $ISSUE\` was never recorded, so nothing establishes that the session's audit ledger was live when the run started — and a run with no ledger is unreconcilable at the merge boundary (#416)." >&2
   echo "[lean-gate]   Run \`bash G entry $ISSUE\` (idempotent) and retry. No fix-budget attempt was charged." >&2

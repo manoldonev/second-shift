@@ -52,6 +52,12 @@ jobs:
         # event actions/checkout resolves refs/pull/N/merge, so HEAD is merge(base, head) and
         # every base-side commit since the branch point would read as a post-review change.
         # On workflow_dispatch these are all empty and the lean check reports not-applicable.
+        #
+        # PR_CREATED_AT is the cutoff every `since:`-bearing evidence arm compares itself
+        # against: an arm whose contract took effect after this PR opened declines instead of
+        # enforcing against a build session that finished before the contract existed. The
+        # payload treats it as OPTIONAL — a workflow predating this line is not red, its lean
+        # PRs just take the declining path — so adding it here is what restores full strength.
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
@@ -60,4 +66,5 @@ jobs:
           PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           PR_BASE_REF: ${{ github.base_ref }}
           PR_BODY: ${{ github.event.pull_request.body }}
+          PR_CREATED_AT: ${{ github.event.pull_request.created_at }}
         run: bash .claude/tools/second-shift-ci-check.sh

@@ -54,8 +54,11 @@ case.
   including its existing second-cause wording.
 - **AC-8** — Timestamp comparison is correct under bash 3.2 and across a non-UTC committer
   offset, proven by a case driving each.
-- **AC-9** — `scenario-liveness-selftest.sh` covers both new verdict paths: the payload
-  identity arm's `postdated` exemption, and the entry precondition's de-block.
+- **AC-9** — `scenario-liveness-selftest.sh` covers both new verdict paths: the entry
+  precondition's de-block, and the payload identity arm's `postdated` exemption surviving
+  delegation through the merge boundary. `check-lean-chain-selftest.sh` additionally composes
+  the one property no other suite can see — that the payload's cutoff-bearing arm and the
+  issue-side claim arm, which carries none, have different windows over the same verdict.
 - **AC-10** — The two forced comparator copies are recorded as a **DROPPED** entry in
   `scripts/lockstep-manifest.tsv` with the reasoning for why no relation in that file fits.
 - **AC-11** — Mutation obligations land in this diff: re-keyed generic survivor ordinals for
