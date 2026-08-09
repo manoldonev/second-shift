@@ -5,14 +5,37 @@ run_id: review-446-1
 session_id: 7fcb7c07-157a-4236-9195-ed7caee46b9a
 rounds: 1
 pr: #456
-reviewed_head: e7c97a9f5da40c0d9dec301b75f3526e4a974d6b
-reviewed_patch_id: cd82097647a8628b4e2d3330bf2c8b5f37d234cf
+reviewed_head: 381e951425b93202d501da3f16b51a3bf80ba180
+reviewed_patch_id: c751395acd3142052dfbdcd858e873845cdc6de7
 inherited_patch_id: none
 inherited_from_verdict: none
 fidelity: not-applicable
 model: unknown
 
 ## Review round 1 — PR #456 (issue #446)
+
+### Re-stamp note (same round, not a new one)
+
+This record was first written against `e7c97a9` and is re-stamped here against `381e951`.
+Two things happened in between, neither of them a review finding:
+
+1. **`origin/main` was merged in** (`d437e9c`, an "Update branch" merge importing #457). A base
+   change moves no line of this branch's own contribution, so it does not void the round —
+   `lean-gate.sh`'s own freshness note says a base change that reds the merged suite "does NOT
+   cover … the verdict correctly still stands there".
+2. **A 3-line fixture adaptation** (`381e951`): #457 added `(pm6b)`, a jira-with-bot `mark` case
+   that reaches this PR's new guard as an unattested session, so the merged suite red on it.
+   The fix attests `sess-mark-jb` alongside the existing three and bumps `(ms11)`'s row count
+   from 2 to 3.
+
+**Disclosure:** that 3-line patch was authored by *this review session* at the operator's
+request, not by the build session. It is a fixture attest call and a count constant — no
+production line moved, and `git diff d437e9c..381e951` is entirely inside
+`lean-gate-selftest.sh`. It was verified green on the PR merge ref before it was handed over,
+and re-verified green here (67/67, `CLAUDE_CODE_SESSION_ID`/`RUN_ID` unset). Recording it
+plainly because the merge boundary cannot see it: the commit carries the bot identity and the
+build-session set is untouched, so nothing else in the chain would show who wrote those lines.
+The twelve AC scores below are unaffected — none of them depends on `(pm6b)`.
 
 Full-branch range (`c19f19e..HEAD`, chain root — nothing to inherit): 4 files, +447/−8.
 Panel: security, performance, maintainability, complexity, test-coverage,
