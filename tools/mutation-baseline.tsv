@@ -200,4 +200,9 @@ scripts/stack-generality-lint.sh::logic::1	seeded by the canonical seed run
 plugins/dev-pipeline/skills/run/tools/gh-bot.sh::fail-open::2	#92: new resolver; fail-open mutant not killable by status-token suite
 plugins/dev-pipeline/skills/run/tools/gh-bot.sh::cmp-z::1	#92: new resolver; empty-path cmp not exercised by selftest cases
 plugins/dev-pipeline/skills/run/tools/gh-bot.sh::logic::1	#92: new resolver; generic logic survivor accepted at land
-tools/run-selftests.sh::default::2	equivalent mutant — the site is `${RUN_SELFTESTS_DROP_RC:-}` compared against "1"; unset yields "" and the mutant yields a literal, both unequal to "1", so behavior is identical and no assertion can distinguish them
+# tools/run-selftests.sh::default::2 was the `${RUN_SELFTESTS_DROP_RC:-}` equivalent mutant. #448
+# added `${SELFTEST_CACHE_MAX:-5000}` above it, which takes ordinal 2 and IS killed, displacing
+# the equivalent site to ordinal 3 — outside the k=2 window, so nothing scores it and no row can
+# state anything true about it. Dropped rather than re-keyed: a row for an unswept ordinal reads
+# as "now KILLED — drop the row" on the nightly, which is a claim no run made. Restore it, at
+# whatever ordinal it then holds, if the site re-enters the budget.

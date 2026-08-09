@@ -1,0 +1,80 @@
+# selftest-cache-inputs.tsv — the OPT-IN declaration table for the selftest pass cache.
+#
+# A suite with a row here participates in tools/run-selftests.sh's content-addressed pass
+# cache: when the sha256 of (epoch, OS, bash major, suite path, the git blob id of every
+# declared input) is already recorded as a pass on this lane, the suite is not re-run.
+#
+# A suite with NO row is ALWAYS RUN. That is the whole safety posture: under-declaring a
+# suite's inputs produces a silently-skipped gate, which is the cardinal failure mode in this
+# repo, so participation is opt-in and only the rows below carry the risk.
+#
+# TAB-separated. Columns:
+#   suite repo-relative path <TAB> input repo-relative path
+#
+# ONE INPUT PER ROW, so adding one is a one-line diff. An input may name a file or a
+# DIRECTORY; a directory contributes every regular file beneath it, in sorted order.
+#
+# THE RUNNER REJECTS, with rc=2 and a named error, a table that:
+#   - names a suite it did not discover, or an input that does not exist (stale row);
+#   - omits the suite ITSELF from its own input set — no suite may cache past an edit to its
+#     own bytes;
+#   - omits the script under test, where that script is the suite's `<stem>.sh` sibling;
+#   - declares nothing besides the suite itself.
+# The table is validated on EVERY sweep, including one running with no cache at all, so a
+# malformed declaration reds locally rather than waiting for CI to read it.
+#
+# WHAT BELONGS HERE. Only suites whose cost is worth the declaration burden — the three
+# measured at >= 30s in tools/mutation-slow-suites.tsv were the landing set, and one of those
+# (scenario-liveness-selftest.sh) was DROPPED because its composed set is its transitive
+# closure and cannot be enumerated stably from the suite. Dropping a row is always safe: the
+# suite simply always runs.
+#
+# EVERY SET BELOW WAS DERIVED FROM THE SUITE, not copied from a ticket. statectl-selftest.sh
+# reads six things beyond the three an eyeball would list, including the generator it diffs
+# statectl.sh against and the stage docs it drift-checks — exactly the under-declaration the
+# self-inclusion rule cannot catch.
+#
+# AND THE SET IS THE TRANSITIVE CLOSURE, not the files the suite names. Neither of the rules
+# above can reach depth 2: a suite whose own path and whose subject are both declared still
+# under-declares if that SUBJECT resolves a third file at run time. Both sets below needed a
+# depth-2 input the first revision missed — the generator's eval-criteria.md, and the two
+# scripts statectl.sh and pipeline-cost-block.sh resolve beside themselves. When you add a
+# row, follow every `$here/`-style resolution out of every declared script until it
+# terminates, and record where it terminated.
+
+# --- statectl-selftest.sh (149s) --------------------------------------------------------
+# The generator is here because the suite RE-RUNS it and diffs the result against
+# statectl.sh, so an edit to the generator alone moves the verdict. stages/ and SKILL.md are
+# here because of the documented-value drift sweep; mutation-gate.mjs because of the
+# sentinel-block parse cases.
+#
+# The last two rows are the depth-2 closure. eval-criteria.md is the generator's OTHER
+# authoritative source — it parses the locked `## Scoring` JSON into the eval-criteria key
+# region, so renaming one key makes the regeneration differ from the committed statectl.sh and
+# reds the drift case. ledger-corroborate.sh is resolved and executed by statectl.sh itself,
+# and 13 cases drive it. Closure terminates at both: neither invokes a further repo script.
+plugins/dev-pipeline/skills/run/statectl-selftest.sh	plugins/dev-pipeline/skills/run/statectl-selftest.sh
+plugins/dev-pipeline/skills/run/statectl-selftest.sh	plugins/dev-pipeline/skills/run/statectl.sh
+plugins/dev-pipeline/skills/run/statectl-selftest.sh	plugins/dev-pipeline/skills/run/scenario-lib.sh
+plugins/dev-pipeline/skills/run/statectl-selftest.sh	plugins/dev-pipeline/skills/run/state-schema.md
+plugins/dev-pipeline/skills/run/statectl-selftest.sh	plugins/dev-pipeline/skills/run/SKILL.md
+plugins/dev-pipeline/skills/run/statectl-selftest.sh	plugins/dev-pipeline/skills/run/stages
+plugins/dev-pipeline/skills/run/statectl-selftest.sh	plugins/dev-pipeline/skills/run/statectl-selftest-fixtures
+plugins/dev-pipeline/skills/run/statectl-selftest.sh	plugins/dev-pipeline/skills/run/workflows/mutation-gate.mjs
+plugins/dev-pipeline/skills/run/statectl-selftest.sh	plugins/dev-pipeline/skills/run/tools/gen-statectl-validators.sh
+plugins/dev-pipeline/skills/run/statectl-selftest.sh	plugins/dev-pipeline/skills/run/tools/stage-times.sh
+plugins/dev-pipeline/skills/run/statectl-selftest.sh	plugins/dev-pipeline/skills/run/tools/stage-times-fixtures
+plugins/dev-pipeline/skills/run/statectl-selftest.sh	plugins/dev-pipeline/skills/run/eval-criteria.md
+plugins/dev-pipeline/skills/run/statectl-selftest.sh	plugins/dev-pipeline/skills/run/tools/ledger-corroborate.sh
+
+# --- cost-block-selftest.sh (30s) -------------------------------------------------------
+# No `cost-block.sh` sibling exists — the script under test is pipeline-cost-block.sh, one
+# directory up, which is why the sibling rule cannot be the whole of the subject check.
+#
+# gh-bot.sh is the depth-2 closure: pipeline-cost-block.sh resolves and executes it whenever
+# tracker.bot.enabled is true, which the identity cases exercise. It resolves an out-of-repo
+# wrapper under $HOME, so the closure terminates there.
+plugins/dev-pipeline/skills/run/tools/cost-block-selftest.sh	plugins/dev-pipeline/skills/run/tools/cost-block-selftest.sh
+plugins/dev-pipeline/skills/run/tools/cost-block-selftest.sh	plugins/dev-pipeline/skills/run/pipeline-cost-block.sh
+plugins/dev-pipeline/skills/run/tools/cost-block-selftest.sh	plugins/dev-pipeline/skills/run/cost-tracking-fixtures
+plugins/dev-pipeline/skills/run/tools/cost-block-selftest.sh	plugins/dev-pipeline/skills/run/tools/gh-bot.sh

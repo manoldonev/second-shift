@@ -62,6 +62,74 @@ instant the repo sweep ran it: 67 of 68 green, which is exactly how a leak of th
 you only ever run one suite at a time. The same reasoning is why the parent's `--exclude`-era
 truncation seam is stripped before a suite is executed.
 
+### The pass cache
+
+CI additionally passes `--cache-dir`, and with it a suite that has a row in
+`tools/selftest-cache-inputs.tsv` is **not re-run when the content of every declared input is
+unchanged**. The key is `sha256` over an epoch constant, `RUNNER_OS`, the bash major version,
+`SKIP_STRESS`, the runner's own blob id, the suite's path, and the `git hash-object` blob id of each
+declared input — so the two CI lanes accumulate independent marker sets and never serve each other
+an answer to a different question.
+
+It exists because the sweep re-derives the same verdict on every push. `statectl-selftest.sh` alone
+is 149s of a 171s ubuntu sweep, and most PRs touch nothing it reads.
+
+**The risk is a silently skipped gate**, which is this repo's cardinal failure mode, so the
+containment is the load-bearing part and the hashing is not. Four properties, all asserted in
+`tools/run-selftests-selftest.sh` against fixture trees:
+
+1. **Fail-closed by default, twice.** A suite with no row is always run, and the cache as a whole
+   is off unless `--cache-dir` is passed. The mandated local recipe in `CLAUDE.md` does not pass
+   it, so a bare local sweep is still cold — and so is the nightly leg below.
+2. **Self-inclusion is mandatory.** A row set must name the suite itself, and — where the naming
+   convention resolves it, `<stem>-selftest.sh` beside `<stem>.sh` — the script under test. A row
+   set that names neither, or that names nothing but the suite, is rejected with `rc=2` and a named
+   cause. **The table is validated on every sweep**, including one running with no cache at all, so
+   a malformed declaration reds locally rather than waiting for CI to read it.
+3. **Recording takes a second flag.** `--cache-dir` reads; only `--cache-write` records, and CI
+   passes it on push-to-`main` alone. A PR therefore cannot mark its own untested content as
+   passing — belt-and-braces with GitHub's own scoping, which already confines a PR-created cache
+   to that branch and denies cache writes to forks entirely.
+4. **The nightly ignores it.** `.github/workflows/nightly-guards.yml` runs the whole sweep with no
+   `--cache-dir`, on both lanes, asking the PR lane's exact question. An under-declaration surfaces
+   within a day, against a tree nobody is waiting on.
+
+Only PASS is ever recorded, and only by the parent process after the replay has scored the run — a
+red suite, and a suite whose worker died without a verdict, write nothing. That falls out of the
+shape rather than being separately enforced. A marker that is not exactly the one well-formed
+record line is read as a **miss**, never as a pass.
+
+Every skip prints the suite, the key, and every input blob id behind that key, so a log reader can
+tell a skip from a suite that quietly stopped being discovered. The summary line reads
+`N scored, M run, K served from cache` for the same reason: reporting the larger number as work
+performed is the faster-green misreading the rest of this section is about.
+
+**Adding a row is the risky edit in that file, not the cheap one.** Derive the input set from the
+suite, never from a ticket: `statectl-selftest.sh` reads six things beyond the three an eyeball
+lists, including the generator it diffs `statectl.sh` against and the stage docs it drift-checks.
+Where a suite's composed set is really its transitive closure — `scenario-liveness-selftest.sh` is
+the worked example, and is deliberately **not** in the table — drop the row. A dropped row costs
+seconds; an under-declared one costs a gate.
+
+**Derive the closure, not the file list.** Neither mechanized rule reaches depth 2: a row set can
+name the suite and its subject and still under-declare, because that subject resolves a third file
+at run time. Both shipped sets needed one — `statectl.sh` executes `tools/ledger-corroborate.sh`,
+`pipeline-cost-block.sh` executes `tools/gh-bot.sh`, and the generator parses `eval-criteria.md`
+beside `state-schema.md`. Follow every `$here/`-style resolution out of every declared script until
+it terminates, and say in the row comment where it terminated.
+
+`CACHE_EPOCH` is a constant in the runner rather than a knob. The key covers repo content —
+including `run-selftests.sh`'s own bytes, which is property 2 applied to the harness that produces
+every recorded verdict — but not the runner image, so an image bump could in principle move a
+verdict with every declared input byte-identical; bumping the epoch invalidates every marker on
+every lane in one character, and the next run is a full cold sweep. `SELFTEST_CACHE_MAX` (default 5000) clears the store when it
+overflows, with the same fail-closed consequence.
+
+This is the inverse of the mutation sweep's cache further down this page, which is local-only and
+disables itself in the enforcing lane. The difference is which side holds the authority: there CI
+is the authority and must run cold; here CI is the thing being sped up, and the authority is the
+nightly wholesale leg.
+
 ## Why a tier map at all
 
 CI here is **model-free by design** — no API-billed calls. That constraint is what makes the
@@ -180,7 +248,7 @@ the concurrent figure is essentially this one suite — everything else folds in
 stress-inclusive sweep (no `SKIP_STRESS`, the repo's own pre-commit gate) measured 540s. Know that
 before adding to what it runs.
 
-**It no longer runs on the PR lane at all.** It lives in `.github/workflows/install-topology.yml`
+**It no longer runs on the PR lane at all.** It lives in `.github/workflows/nightly-guards.yml`
 on a nightly cron plus `workflow_dispatch`, and both CI selftest jobs exclude it by path via
 `run-selftests.sh --exclude`. The documented local recipe excludes it too.
 
