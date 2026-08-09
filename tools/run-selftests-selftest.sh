@@ -639,6 +639,47 @@ run_env_case "the same OS but SKIP_STRESS set" no RUNNER_OS=Linux SKIP_STRESS=1
 run_env_case "control — the seeding identity" yes RUNNER_OS=Linux
 
 # ---------------------------------------------------------------------------------------
+# THE RUNNER'S OWN BYTES are the last axis, and the one the declaration table cannot express:
+# this harness is what produces every verdict the store records, so a change to how workers
+# are dispatched must not be served past on the suites it is most likely to move. Asserted on
+# a COPY of the runner, because the assertion needs a runner whose bytes differ — mutating the
+# one under test is not available. The copy reads its tree from --root, so it behaves
+# identically from anywhere.
+# ---------------------------------------------------------------------------------------
+RCR="$BASE/cache-runner"; mkdir -p "$RCR"
+CDIRR="$BASE/cache-store-runner"
+RCOPY="$BASE/runner-copy.sh"
+make_suite "$RCR" "r-selftest.sh" 0 'echo R-ran'
+make_suite "$RCR" "r.sh"          0 'echo r-subject'
+write_tsv "$RCR" "r-selftest.sh${T}r-selftest.sh" "r-selftest.sh${T}r.sh"
+cp "$RUNNER" "$RCOPY"
+
+run_copy_case() { # <label> <expect-served: yes|no> [--cache-write]
+  local label="$1" expect="$2"; shift 2
+  OUT="$BASE/out.runner.$RANDOM"
+  env -u TMPDIR -u SELFTEST_JOBS -u RUN_SELFTESTS_DROP_LAST \
+    bash "$RCOPY" --root "$RCR" --cache-dir "$CDIRR" "$@" > "$OUT" 2>&1
+  RC=$?
+  if [[ "$RC" -ne 0 ]]; then
+    fail "runner-axis: $label — the sweep itself reded (rc=$RC)"; sed 's/^/    | /' "$OUT"; return
+  fi
+  if [[ "$expect" == "yes" ]]; then
+    grep -q 'cache: 1 served' "$OUT" && ok "runner-axis: $label — served" \
+      || { fail "runner-axis: $label — expected a hit, got a miss"; sed 's/^/    | /' "$OUT"; }
+  else
+    grep -q 'cache: 0 served' "$OUT" && ok "runner-axis: $label — not served" \
+      || { fail "runner-axis: $label — a marker crossed the runner axis"; sed 's/^/    | /' "$OUT"; }
+  fi
+}
+
+run_copy_case "seed under the copy's own bytes" no --cache-write
+run_copy_case "control — the same runner bytes" yes
+# One comment line. Behavior is identical by construction, so a hit here could only mean the
+# runner is off the key axis entirely.
+echo '# runner-axis mutation' >> "$RCOPY"
+run_copy_case "one byte changed in the runner" no
+
+# ---------------------------------------------------------------------------------------
 # A malformed marker is a MISS, never a pass. The fail-safe half of the store contract: the
 # only thing that may be read as a pass is exactly the one well-formed record line.
 # ---------------------------------------------------------------------------------------

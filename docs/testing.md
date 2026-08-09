@@ -67,9 +67,9 @@ truncation seam is stripped before a suite is executed.
 CI additionally passes `--cache-dir`, and with it a suite that has a row in
 `tools/selftest-cache-inputs.tsv` is **not re-run when the content of every declared input is
 unchanged**. The key is `sha256` over an epoch constant, `RUNNER_OS`, the bash major version,
-`SKIP_STRESS`, the suite's path, and the `git hash-object` blob id of each declared input — so the
-two CI lanes accumulate independent marker sets and never serve each other an answer to a different
-question.
+`SKIP_STRESS`, the runner's own blob id, the suite's path, and the `git hash-object` blob id of each
+declared input — so the two CI lanes accumulate independent marker sets and never serve each other
+an answer to a different question.
 
 It exists because the sweep re-derives the same verdict on every push. `statectl-selftest.sh` alone
 is 149s of a 171s ubuntu sweep, and most PRs touch nothing it reads.
@@ -111,10 +111,18 @@ Where a suite's composed set is really its transitive closure — `scenario-live
 the worked example, and is deliberately **not** in the table — drop the row. A dropped row costs
 seconds; an under-declared one costs a gate.
 
-`SELFTEST_CACHE_EPOCH` is a constant in the runner rather than a knob. The key covers repo content,
-not the runner image, so an image bump could in principle move a verdict with every declared input
-byte-identical; bumping the epoch invalidates every marker on every lane in one character, and the
-next run is a full cold sweep. `SELFTEST_CACHE_MAX` (default 5000) clears the store when it
+**Derive the closure, not the file list.** Neither mechanized rule reaches depth 2: a row set can
+name the suite and its subject and still under-declare, because that subject resolves a third file
+at run time. Both shipped sets needed one — `statectl.sh` executes `tools/ledger-corroborate.sh`,
+`pipeline-cost-block.sh` executes `tools/gh-bot.sh`, and the generator parses `eval-criteria.md`
+beside `state-schema.md`. Follow every `$here/`-style resolution out of every declared script until
+it terminates, and say in the row comment where it terminated.
+
+`CACHE_EPOCH` is a constant in the runner rather than a knob. The key covers repo content —
+including `run-selftests.sh`'s own bytes, which is property 2 applied to the harness that produces
+every recorded verdict — but not the runner image, so an image bump could in principle move a
+verdict with every declared input byte-identical; bumping the epoch invalidates every marker on
+every lane in one character, and the next run is a full cold sweep. `SELFTEST_CACHE_MAX` (default 5000) clears the store when it
 overflows, with the same fail-closed consequence.
 
 This is the inverse of the mutation sweep's cache further down this page, which is local-only and

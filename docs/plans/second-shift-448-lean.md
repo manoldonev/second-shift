@@ -54,15 +54,21 @@ Validation (all hard errors, `rc=2`, each naming the offending row — same post
 ### The key
 
 `sha256` over a manifest built from (D-13): an epoch constant, `RUNNER_OS` (falling back to
-`uname -s`), the bash major version, `SKIP_STRESS`, the suite path, and the `git hash-object` blob
-id of every declared input in sorted order. The two CI lanes therefore never share a key.
+`uname -s`), the bash major version, `SKIP_STRESS`, `run-selftests.sh`'s own blob id, the suite
+path, and the `git hash-object` blob id of every declared input in sorted order. The two CI lanes
+therefore never share a key.
+
+The runner's own bytes are on the axis for the reason self-inclusion is mandatory one level down:
+this file is the harness that produces every verdict the store records, so a change to worker
+dispatch or to the environment workers inherit must not be served past on the suites it is most
+likely to move.
 
 `SKIP_STRESS` is on the axis beyond D-13's list, for the reason `tools/mutation-sweep.sh` already
 carries it: a suite that skipped its stress legs passed a strictly weaker question than one that
 ran them. Today the two lanes also differ by OS so nothing could collide — but that is a
 coincidence of the current matrix, not a property, and the fix is one field.
 
-`SELFTEST_CACHE_EPOCH` is the one-character invalidation OR-1 asks for: runner-image drift can in
+`CACHE_EPOCH` is the one-character invalidation OR-1 asks for: runner-image drift can in
 principle move a verdict with every declared input byte-identical, and bumping the epoch makes the
 next run a full cold sweep — the fail-closed state.
 
@@ -96,8 +102,8 @@ Per D-9, the three measured at ≥30s in `tools/mutation-slow-suites.tsv`:
 
 | suite | declared inputs |
 | --- | --- |
-| `statectl-selftest.sh` | itself, `statectl.sh`, `scenario-lib.sh`, `state-schema.md`, `SKILL.md`, `stages/`, `statectl-selftest-fixtures/`, `workflows/mutation-gate.mjs`, `tools/gen-statectl-validators.sh`, `tools/stage-times.sh`, `tools/stage-times-fixtures/` |
-| `cost-block-selftest.sh` | itself, `pipeline-cost-block.sh`, `cost-tracking-fixtures/` |
+| `statectl-selftest.sh` | itself, `statectl.sh`, `scenario-lib.sh`, `state-schema.md`, `SKILL.md`, `stages/`, `statectl-selftest-fixtures/`, `workflows/mutation-gate.mjs`, `tools/gen-statectl-validators.sh`, `tools/stage-times.sh`, `tools/stage-times-fixtures/`, `eval-criteria.md`, `tools/ledger-corroborate.sh` |
+| `cost-block-selftest.sh` | itself, `pipeline-cost-block.sh`, `cost-tracking-fixtures/`, `tools/gh-bot.sh` |
 | `scenario-liveness-selftest.sh` | **no row — OR-2 resolves to drop** |
 
 **Eight of statectl's eleven inputs are absent from the issue's own four-entry table**, and every
@@ -113,6 +119,15 @@ against the four-entry set. Adding `stages/` and `SKILL.md` pulls in a subtree t
 commits touch, so the row will miss more often than projected. It is kept anyway: even at a
 reduced hit rate it is the largest single saving available (149s), and the alternative — the
 narrower set — is a silently skipped gate. `cost-block-selftest.sh`'s set is tight and unaffected.
+
+**The set is the transitive closure, and depth 2 is where both sets first failed.** Self-inclusion
+and subject-inclusion are both mechanized, and both are satisfied by a row set that still
+under-declares, because a declared *script* resolves further files at run time:
+`gen-statectl-validators.sh` parses `eval-criteria.md` beside `state-schema.md`, `statectl.sh`
+executes `tools/ledger-corroborate.sh` (13 cases drive it), and `pipeline-cost-block.sh` executes
+`tools/gh-bot.sh` whenever the bot is enabled. All three closures terminate one level further out:
+neither leaf invokes another repo script. Nothing mechanizes this — it is a declaration obligation,
+recorded per row in the table's comments.
 
 **OR-2 resolves to its stated default.** `scenario-liveness-selftest.sh` composes ten scripts by
 name plus their transitive closure (`lean-gate.sh` alone sources `branch-prefix.sh` and invokes

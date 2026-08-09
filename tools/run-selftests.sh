@@ -29,10 +29,10 @@
 #
 # THE PASS CACHE (#448) is the second thing this file owns, and the risky one. A suite with a
 # row in tools/selftest-cache-inputs.tsv is content-addressed: the key is sha256 over an epoch
-# constant, the OS, the bash major version, the suite path and the `git hash-object` blob id of
-# every DECLARED input, and a key already recorded as a pass on this lane means the suite is not
-# re-run. Four properties contain the failure mode — a silently-skipped gate — and they are the
-# load-bearing part, not the hashing:
+# constant, the OS, the bash major version, this runner's own blob id, the suite path and the
+# `git hash-object` blob id of every DECLARED input, and a key already recorded as a pass on this
+# lane means the suite is not re-run. Four properties contain the failure mode — a
+# silently-skipped gate — and they are the load-bearing part, not the hashing:
 #
 #   1. FAIL-CLOSED BY DEFAULT. The table is opt-in; a suite with no row is always run. And the
 #      cache as a whole is off unless --cache-dir is passed, so the mandated local recipe in
@@ -74,16 +74,23 @@ set -uo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$(dirname "$HERE")"   # HERE is already absolute and resolved, so its dirname is too
+# Property 2 applied one level up: this file is the harness that PRODUCES every verdict the
+# store records, so its own bytes are on the key axis beside the declared inputs. Without it a
+# change to how workers are dispatched, or to what environment they inherit, is served past on
+# exactly the suites it is most likely to move. Resolved from BASH_SOURCE, never from $ROOT,
+# because --root points at a tree that need not contain this script at all.
+SELF="${BASH_SOURCE[0]}"
 JOBS="${SELFTEST_JOBS:-4}"
 EXCLUDES=""   # newline-separated; bash 3.2 has no array-of-args ergonomics worth the noise here
 TAB=$'\t'
 
 CACHE_DIR=""
 CACHE_WRITE=0
-# OR-1's one-character invalidation. The key covers repo CONTENT, never the runner image, so a
-# GitHub image bump could in principle move a suite's verdict with every declared input
-# byte-identical. Bumping this makes the next run of every lane a full cold sweep — the
-# fail-closed state — and the nightly wholesale leg is what surfaces the need to.
+# OR-1's one-character invalidation. The key covers repo CONTENT — including this runner's own
+# bytes, see SELF above — but never the runner IMAGE, so a GitHub image bump could in principle
+# move a suite's verdict with every declared input byte-identical. Bumping this makes the next
+# run of every lane a full cold sweep — the fail-closed state — and the nightly wholesale leg is
+# what surfaces the need to.
 CACHE_EPOCH=1
 CACHE_MAX="${SELFTEST_CACHE_MAX:-5000}"
 
@@ -286,8 +293,12 @@ cache_manifest() { # $1 = suite relpath -> writes $BASE/cache-manifest/<slug>; 1
   list="$BASE/cache-inputs/$slug"
   out="$BASE/cache-manifest/$slug"
   [[ -f "$list" ]] || return 1
-  printf 'selftest-cache|epoch=%s|os=%s|bash=%s|stress=%s|suite=%s\n' \
-    "$CACHE_EPOCH" "$CACHE_OS" "$CACHE_BASH_MAJOR" "$CACHE_STRESS" "$suite" > "$out" || return 1
+  # Unhashable runner -> no key -> every suite runs. Fail-closed, same as any unhashable input.
+  local runner_h
+  runner_h="$(git hash-object -- "$SELF" 2>/dev/null)"
+  [[ -n "$runner_h" ]] || return 1
+  printf 'selftest-cache|epoch=%s|os=%s|bash=%s|stress=%s|runner=%s|suite=%s\n' \
+    "$CACHE_EPOCH" "$CACHE_OS" "$CACHE_BASH_MAJOR" "$CACHE_STRESS" "$runner_h" "$suite" > "$out" || return 1
   while IFS= read -r p; do
     [[ -n "$p" ]] || continue
     abs="$ROOT/$p"
