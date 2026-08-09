@@ -622,9 +622,14 @@ chain_walk() { # chain_walk <inherited-patch-id> <declaring-round> [declaring-co
 # fix-budget counter is derived from it.
 #
 #   <iso> | entry | ledger=<path> | lines=<n> | session=<id>
+#   <iso> | session | <id>
 #   <iso> | milestone-<n> | attempt | <reason>
 #   <iso> | milestone-<n> | satisfied
 #   milestone-4 | verdict=<approve|needs-work> | round=<n>
+#
+# The `session` row is the BUILD-SESSION SET (#446) — see below. It deliberately spells the id
+# WITHOUT a `session_id:` key: `record_key` here and `extract_key` in lean-reconcile.sh both
+# take the FIRST match of that key in the file, and the header must keep winning that race.
 #
 # Reconciliation keys (AC-14) ride in the header so a run predating #292's general
 # verifier stays reconcilable after it lands.
@@ -730,6 +735,76 @@ append_satisfied() {
 
 attempt_count() { count_matches "| milestone-$1 | attempt |" "$PROGRESS_FILE" -F; }
 
+# ---------------------------------------------------------------- the build-session SET (#446)
+# `mark` stamps a session id onto the PR marker, and that field is the STRONGER of the two
+# comparisons lean-evidence.sh's arm_identity makes: run_id is agent-CHOSEN, the session id is
+# harness-assigned. It was nonetheless read straight from the ambient environment while
+# $RESOLVED_RUN_ID beside it came from the role-keyed cache — so the documented manual recovery,
+# run from the REVIEW session (the only place a missing marker becomes visible, since the arm is
+# unmasked by the verdict-record push), stamped the review session as the build session and the
+# boundary reported an honest, independent review as a P10 self-review.
+#
+# WHY A SET RATHER THAN A LOOKUP. Resolving the id from the progress HEADER — the issue's first
+# suggested direction — would re-open a deliberately closed hole: the header is seed-once and
+# single-valued, so a second build session on the same PR (the case cmd_mark's D-4 idempotence
+# exists for) would carry session 1's id on its own marker, and nothing checks that at session
+# level. So `mark` keeps writing the AMBIENT id, which is correct on every honest path including
+# that second session, and instead REFUSES when the ambient session is not a recorded build
+# session. A refusal is recoverable; a mis-stamped marker is not — it survives a re-run (the
+# idempotence guard keys on run_id alone) and survives a corrective second marker (the boundary
+# compares against EVERY marker), leaving only "delete bot-authored evidence and hand-supply an
+# identity string", which is the posture the P10 arms exist to remove.
+#
+# THE SET IS header ∪ rows. The header is already the build identity by cmd_verdict's compare,
+# so including it is the definition rather than a compatibility shim — and it is what keeps a run
+# already in flight when this lands, whose file has no session rows yet, from stranding at `mark`.
+#
+# 'unset' and the empty string are NOT members. cmd_mark's compare would otherwise pass an unset
+# ambient session against an unset recorded one — two unverifiable values agreeing — and write
+# `session_id: unset` onto the marker. "Unverifiable" must never resolve to "fine".
+build_session_set() { # one build session id per line, deduped; never empty, never 'unset'
+  local hdr
+  [ -f "$PROGRESS_FILE" ] || return 0
+  # The header via record_key, NOT a second extraction: two readers of one schema that disagreed
+  # about what a key looks like would be a silent divergence, not a loud one.
+  hdr="$(record_key session_id "$PROGRESS_FILE")"
+  {
+    [ -n "$hdr" ] && printf '%s\n' "$hdr"
+    sed -n 's/^.*| session | \([A-Za-z0-9._-][A-Za-z0-9._-]*\)[[:space:]]*$/\1/p' "$PROGRESS_FILE"
+  } | awk '$0 != "" && $0 != "unset" && !seen[$0]++'
+  return 0
+}
+
+session_in_build_set() { # session_in_build_set <session-id>
+  local want="$1" have
+  [ -n "$want" ] || return 1
+  [ "$want" != "unset" ] || return 1
+  for have in $(build_session_set); do
+    [ "$have" = "$want" ] && return 0
+  done
+  return 1
+}
+
+# ONLY `entry` and `claim` call this — the same arm that may ESTABLISH the build run id, for the
+# reason stated there: "an EVALUATION must be able to read an identity, never to establish one".
+# `mark` is a pure reader, or the guard would whitelist itself and be vacuous; `1..5`, `all`,
+# `delta` and `verdict` record nothing, which is what keeps a review session running
+# `bash G 4 <issue>` from whitelisting itself through a milestone call.
+#
+# Its presence test is the SESSION's own, deliberately not cmd_entry's per-RUN attestation row:
+# that row short-circuits on `entry_row_present`, so a second build session running the
+# idempotent `entry` would record no session at all and then be refused at `mark`.
+record_build_session() {
+  local sid
+  sid="${CLAUDE_CODE_SESSION_ID:-}"
+  [ -n "$sid" ] || return 0
+  ensure_progress_file
+  if ! session_in_build_set "$sid"; then
+    append_line "$(now_iso) | session | $sid"
+  fi
+  return 0
+}
+
 # A failed milestone: record the attempt, then decide retry-vs-hard-stop.
 #
 # PRECHECK (AC-1..3): cmd_all's cheap pre-pass calls milestone bodies with PRECHECK=1 to learn
@@ -834,6 +909,11 @@ cmd_entry() {
     append_line "$(now_iso) | entry | ledger=$ledger | lines=$lines | session=$sid"
     say "  entry attestation recorded in $PROGRESS_FILE."
   fi
+  # #446, and OUTSIDE the branch above on purpose: the attestation row is per-RUN and short-
+  # circuits, whereas the build-session set is per-SESSION. A second build session resuming this
+  # run reaches the `already recorded` arm and must still be admitted to the set, or its own
+  # `mark` is refused.
+  record_build_session
   # SKILL.md step 1 pairs this gate with a SESSION-side queue-label confirm. That confirm
   # has no jira meaning — jira pickup is "the operator supplies the key; no queue, no claim,
   # no label" — so the documented reject-and-stop has no defined outcome there. Say so here
@@ -861,6 +941,11 @@ cmd_entry() {
 # when a bot exists. cmd_mark writes to the PR, which every adapter has.
 cmd_claim() {
   local helper body url
+
+  # #446. Under EVERY adapter, and before the jira early return: `claim` is the second half of
+  # the arm that may establish the build identity, and the set is a build-side record with no
+  # tracker write of its own.
+  record_build_session
 
   if [ "$TRACKER_TYPE" = "jira" ]; then
     ensure_progress_file
@@ -935,11 +1020,34 @@ LEAN_PR_MARKER_TAG='lean-pr-marker'
 # case D-4 exists for — a second session must leave its own marker, or its identity is
 # invisible at the boundary and it could author its own review.
 cmd_mark() {
-  local pr prnum comments existing body url rc
+  local pr prnum comments existing body url rc msid recorded
 
   if [ "$BOT_ENABLED" != "true" ]; then
     say "· mark: no bot is enabled for this consumer (tracker.bot.enabled is false, or absent under tracker.type 'jira'), so there is no authenticated writer for a PR marker. The boundary's identity arm runs at reduced strength (printed there); every other arm is unaffected. Configuring a bot restores the marker under either tracker."
     return 0
+  fi
+
+  # #446: the ambient session must be a RECORDED build session. FIRST, before the PR lookup and
+  # the comment fetch — a review session doing the documented recovery gets its refusal at zero
+  # network cost, and the refusal needs no committed verdict record to exist yet.
+  #
+  # This never records; see record_build_session's note on why a self-whitelisting guard would be
+  # vacuous. It prints the recorded id rather than silently substituting it, which is the whole
+  # difference: a genuine second build session keeps its OWN ambient id on its OWN marker, while
+  # the operator's correction becomes "copy the harness's recorded value" instead of "hand-supply
+  # an identity string".
+  msid="${CLAUDE_CODE_SESSION_ID:-}"
+  if ! session_in_build_set "$msid"; then
+    recorded="$(build_session_set | tr '\n' ' ' | sed -e 's/[[:space:]]*$//')"
+    warn "✗ mark: this session ('${msid:-unset}') is not a recorded BUILD session for #$ISSUE — refusing to stamp it onto the PR marker."
+    warn "  session_id is the strongest identity the merge boundary compares; a marker carrying a REVIEW session's id makes lean-evidence.sh report an independent review as a P10 self-review, and no re-run or second marker clears it."
+    if [ -z "$recorded" ]; then
+      warn "  The harness recorded no build session in $PROGRESS_FILE. Run 'bash G entry $ISSUE' from the session that built this branch."
+    else
+      warn "  Build session(s) recorded by the harness: $recorded"
+      warn "  Re-invoke from one of them, or: CLAUDE_CODE_SESSION_ID=<id> bash G mark $ISSUE"
+    fi
+    return 1
   fi
 
   if [ -n "$PR_FILE" ]; then
