@@ -111,9 +111,21 @@ gate() { # gate <args...>  — always from inside the fixture tree
   # on the resolved run id. If a fixture's marker ever stops matching, an ambient GH_BOT would
   # send this suite to a LIVE bot wrapper — a selftest posting a real PR comment. Unset, the
   # same drift surfaces as a loud `GH_BOT must point at the bot wrapper` test failure instead.
-  ( unset RUN_ID CLAUDE_CODE_SESSION_ID GH_BOT; cd "$TREE" && SECOND_SHIFT_CONFIG="$CFG" LEAN_PROGRESS_FILE="$PROG" \
+  ( unset RUN_ID CLAUDE_CODE_SESSION_ID GH_BOT
+    # shellcheck disable=SC2030,SC2031  # subshell-local is the point: the identity must reach
+    # this one gate invocation and no other, exactly like the unset it re-opens.
+    [ -n "$BUILD_SID" ] && export CLAUDE_CODE_SESSION_ID="$BUILD_SID"
+    cd "$TREE" && SECOND_SHIFT_CONFIG="$CFG" LEAN_PROGRESS_FILE="$PROG" \
     bash "$GATE" --issue-file "$ISSUE_NOREGIONS" "$@" 2>&1 )
 }
+# $BUILD_SID: the OPT-IN seam past the unset above, and empty for every case that does not ask.
+# #446 makes cmd_mark refuse any session outside the recorded build-session set, and milestone 5
+# calls cmd_mark — so the handful of cases that reach it must run as an identity attest_at()
+# actually recorded, while every other case keeps the genuinely-unset pin the comment above
+# argues for. Set per call via `bgate`, never globally: a suite-wide session id would restore
+# exactly the ambient leak that cost (v6) a review round.
+BUILD_SID=""
+bgate() { BUILD_SID="$ENTRY_SID" gate "$@"; }
 count_in_progress() { [ -f "$PROG" ] && grep -cF "$1" "$PROG" 2>/dev/null || echo 0; }
 
 # #416: every build-role subcommand refuses with exit 2 until the run has an entry attestation
@@ -867,9 +879,12 @@ if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q 'not current'; then
   pass "(k5) that failure is stable on re-run (the check does not heal itself)"
 else fail "(k5) the progress-file check healed itself between runs — rc=$rc: $out"; fi
 
-# Realistic state: milestones 1-4 have run and left their records.
+# Realistic state: milestones 1-4 have run and left their records. `bgate`, not `gate`: this is
+# the only (k) case that gets past every assertion to cmd_mark, which since #446 refuses a
+# session outside the recorded build set. The failing cases above stop earlier and stay on the
+# session-less helper.
 seed_progress_1_to_4
-out="$(gate 5 7 --pr-file "$WORK/pr-ready.json" --comments-file "$WORK/comments-closing.json")"; rc=$?
+out="$(bgate 5 7 --pr-file "$WORK/pr-ready.json" --comments-file "$WORK/comments-closing.json")"; rc=$?
 if [ "$rc" -eq 0 ]; then pass "(k6) milestone-5 passes with a ready PR, spec link, closing comment, and a progress file"
 else fail "(k6) expected rc=0, got $rc: $out"; fi
 
@@ -1056,7 +1071,7 @@ commit_tree "spec settles before the review"
 write_review_verdict
 touch -t 202601010000 "$VERDICT"
 o_sum_before="$(cksum < "$VERDICT")"; o_mt_before="$(mtime_of "$VERDICT")"
-out="$(gate all 7 --pr-file "$WORK/pr-ready.json" --comments-file "$WORK/comments-closing.json")"; rc=$?
+out="$(bgate all 7 --pr-file "$WORK/pr-ready.json" --comments-file "$WORK/comments-closing.json")"; rc=$?
 o_sum_after="$(cksum < "$VERDICT")"; o_mt_after="$(mtime_of "$VERDICT")"
 if [ "$rc" -eq 0 ] && [ -n "$o_mt_before" ] && [ "$o_sum_before" = "$o_sum_after" ] && [ "$o_mt_before" = "$o_mt_after" ]; then
   pass "(o) a full 'all' sweep leaves the verdict record byte- and mtime-identical"
@@ -1072,9 +1087,14 @@ MARKER="$WORK/m3-marker"
 CFG_M3="$WORK/config-m3.json"
 jq --arg m "$MARKER" '.commands.acme.test = ("touch " + ($m | @sh))' "$CFG" > "$CFG_M3"
 gate_m3() {
-  ( unset RUN_ID CLAUDE_CODE_SESSION_ID; cd "$TREE" && SECOND_SHIFT_CONFIG="$CFG_M3" LEAN_PROGRESS_FILE="$PROG" \
+  ( unset RUN_ID CLAUDE_CODE_SESSION_ID
+    # shellcheck disable=SC2030,SC2031  # subshell-local is the point: the identity must reach
+    # this one gate invocation and no other, exactly like the unset it re-opens.
+    [ -n "$BUILD_SID" ] && export CLAUDE_CODE_SESSION_ID="$BUILD_SID"
+    cd "$TREE" && SECOND_SHIFT_CONFIG="$CFG_M3" LEAN_PROGRESS_FILE="$PROG" \
     bash "$GATE" --issue-file "$ISSUE_NOREGIONS" "$@" 2>&1 )
 }
+bgate_m3() { BUILD_SID="$ENTRY_SID" gate_m3 "$@"; }
 
 reset_progress
 rm -f "$MARKER"
@@ -1101,7 +1121,7 @@ cp "$WORK/held-spec-x.md" "$SPEC"
 reset_progress
 rm -f "$MARKER"
 write_review_verdict
-out="$(gate_m3 all 7 --pr-file "$WORK/pr-ready.json" --comments-file "$WORK/comments-closing.json")"; rc=$?
+out="$(bgate_m3 all 7 --pr-file "$WORK/pr-ready.json" --comments-file "$WORK/comments-closing.json")"; rc=$?
 if [ "$rc" -eq 0 ] && [ -e "$MARKER" ]; then
   pass "(x3) AC-2: a clean pre-pass still runs milestone-3's real body (green gate not skipped)"
 else fail "(x3) expected rc=0 and the marker present, got rc=$rc marker=$([ -e "$MARKER" ] && echo present || echo absent): $out"; fi
@@ -2962,12 +2982,37 @@ echo "https://example.invalid/pr/9#issuecomment-1"
 EOF
 chmod +x "$WORK/bot-stub.sh"
 
+MPROG="$WORK/progress-mark.md"
 mark_gate() { # mark_gate <config> <run-id> <session-id> <args...>
   local cfg="$1" rid="$2" sid="$3"; shift 3
   ( cd "$TREE" && RUN_ID="$rid" CLAUDE_CODE_SESSION_ID="$sid" SECOND_SHIFT_CONFIG="$cfg" \
-      LEAN_PROGRESS_FILE="$WORK/progress-mark.md" GH_BOT="$WORK/bot-stub.sh" BOT_SPOOL="$BOT_SPOOL" \
+      LEAN_PROGRESS_FILE="$MPROG" GH_BOT="$WORK/bot-stub.sh" BOT_SPOOL="$BOT_SPOOL" \
       bash "$GATE" --issue-file "$ISSUE_NOREGIONS" "$@" 2>&1 )
 }
+
+# #446: `mark` refuses any session outside the RECORDED build-session set, so these cases need
+# the sessions they run as to be in it. Driven through the REAL `entry` rather than echoed rows —
+# a hand-written line keeps passing after the writer changes shape, which is the failure mode
+# this suite's own D-41 cases document. Three sessions, one run: the first creates the file (its
+# id lands in the header), the next two arrive after the per-RUN attestation row already exists,
+# which is exactly the D-7 case the per-SESSION presence test is for.
+mark_attest() { # mark_attest <session-id>
+  mkdir -p "$TREE/.claude/audit"
+  printf '{"tool":"Bash"}\n' > "$TREE/.claude/audit/$1.jsonl"
+  ( unset RUN_ID; cd "$TREE" && CLAUDE_CODE_SESSION_ID="$1" SECOND_SHIFT_CONFIG="$CFG" \
+      LEAN_PROGRESS_FILE="$MPROG" bash "$GATE" --issue-file "$ISSUE_NOREGIONS" entry 8 >/dev/null 2>&1 )
+}
+mcount() { # mcount <fixed-string>
+  local n
+  [ -f "$MPROG" ] || { echo 0; return 0; }
+  n="$(grep -cF "$1" "$MPROG" 2>/dev/null)" || n=0
+  [ -n "$n" ] || n=0
+  echo "$n"
+}
+rm -f "$MPROG"
+mark_attest sess-mark-1
+mark_attest sess-mark-2
+mark_attest sess-mark-3
 
 cat > "$WORK/pr-mark.json" <<'EOF'
 [{ "number": 9, "url": "https://example.invalid/pr/9" }]
@@ -3041,6 +3086,162 @@ out="$(mark_gate "$CFG" mark-run-3 sess-mark-3 mark 8 --pr-file "$WORK/pr-mark-n
 if [ "$rc" -eq 1 ] && [ ! -s "$BOT_SPOOL" ] && printf '%s' "$out" | grep -q 'no open PR found'; then
   pass "(pm7) mark refuses when the branch has no open PR"
 else fail "(pm7) expected rc=1 with no write, rc=$rc: $out / spool=$(cat "$BOT_SPOOL" 2>/dev/null)"; fi
+
+# ---- (ms) #446: mark's session_id must come from a RECORDED build session --------------------
+# The marker's session_id is the STRONGEST identity the merge boundary compares (run_id is
+# agent-chosen; the session id is harness-assigned) and it was read from the ambient environment.
+# The documented recovery for a stranded marker is run from the REVIEW session — the only place
+# the omission becomes visible — so following it stamped the review session as the build session
+# and lean-evidence.sh reported an honest, independent review as a P10 self-review. Neither a
+# re-run (idempotent on run_id alone) nor a corrective second marker (the boundary compares
+# EVERY marker) clears that, so the only fix is refusing to write it in the first place.
+
+# AC-5/AC-6. The refusal itself, and all three things D-8 requires it to say: the conflicting
+# ambient id, every id the harness recorded, and the exact re-invocation.
+: > "$BOT_SPOOL"
+out="$(mark_gate "$CFG" mark-run-r sess-review-r mark 8 --pr-file "$WORK/pr-mark.json" --comments-file "$WORK/comments-none.json")"; rc=$?
+if [ "$rc" -eq 1 ] && [ ! -s "$BOT_SPOOL" ] \
+   && printf '%s' "$out" | grep -qF "sess-review-r" \
+   && printf '%s' "$out" | grep -qF "sess-mark-1" \
+   && printf '%s' "$out" | grep -qF "CLAUDE_CODE_SESSION_ID=<id> bash G mark 8"; then
+  pass "(ms1) mark refuses a session outside the recorded build set, naming the conflict, the recorded id(s) and the re-invocation"
+else fail "(ms1) expected rc=1 + the three D-8 fields + no write, rc=$rc: $out / spool=$(cat "$BOT_SPOOL" 2>/dev/null)"; fi
+
+# AC-5's ORDERING, pinned by consequence rather than by reading the source: --pr-file names a
+# file that does not exist, which is an envfail (rc=2) the moment the PR lookup runs. Getting
+# rc=1 proves the identity refusal landed FIRST — so a review session doing the documented
+# recovery pays no network call and needs no verdict record to exist yet.
+: > "$BOT_SPOOL"
+out="$(mark_gate "$CFG" mark-run-r sess-review-r mark 8 --pr-file "$WORK/absent-pr.json" --comments-file "$WORK/comments-none.json")"; rc=$?
+if [ "$rc" -eq 1 ] && [ ! -s "$BOT_SPOOL" ] && printf '%s' "$out" | grep -q 'not a recorded BUILD session'; then
+  pass "(ms2) the refusal precedes the PR lookup — an unreadable --pr-file is never reached"
+else fail "(ms2) expected the identity refusal before the PR lookup, rc=$rc: $out"; fi
+
+# AC-2/D-7. sess-mark-2 and sess-mark-3 registered through `entry` calls that appended NO second
+# attestation row — that row is per-RUN and short-circuits. A recorder sharing the row's presence
+# test would have recorded nothing for them, and (pm3)/(pm7) would then be refusals rather than
+# the behaviors they assert. Both halves together: one row, three usable identities.
+: > "$BOT_SPOOL"
+out="$(mark_gate "$CFG" mark-run-d7 sess-mark-3 mark 8 --pr-file "$WORK/pr-mark.json" --comments-file "$WORK/comments-none.json")"; rc=$?
+if [ "$rc" -eq 0 ] && [ "$(mcount '| entry | ledger=')" -eq 1 ] && grep -q 'session_id: sess-mark-3' "$BOT_SPOOL" 2>/dev/null; then
+  pass "(ms3) a session recorded AFTER the per-run entry row already existed still marks (D-7)"
+else fail "(ms3) expected rc=0 with one entry row, rc=$rc, rows=$(mcount '| entry | ledger='): $out"; fi
+
+# AC-8. The marker keeps carrying the AMBIENT id, not the header's — a second build session must
+# stamp its OWN identity or it is invisible at the boundary and could review its own work. This
+# is the half a "resolve session_id from the header" fix would have broken, which is why D-2
+# rejects that direction outright.
+: > "$BOT_SPOOL"
+out="$(mark_gate "$CFG" mark-run-d4 sess-mark-2 mark 8 --pr-file "$WORK/pr-mark.json" --comments-file "$WORK/comments-none.json")"; rc=$?
+if [ "$rc" -eq 0 ] && grep -q 'session_id: sess-mark-2' "$BOT_SPOOL" 2>/dev/null \
+   && ! grep -q 'session_id: sess-mark-1' "$BOT_SPOOL" 2>/dev/null; then
+  pass "(ms4) a second build session's marker carries its OWN session id, not the header's (D-4/AC-8)"
+else fail "(ms4) expected the ambient id on the marker, rc=$rc: $out / spool=$(cat "$BOT_SPOOL" 2>/dev/null)"; fi
+
+# AC-9/D-13. The appended row must stay OUT of the `session_id:` first-match race — the same
+# extraction lean-reconcile.sh:304 and cmd_verdict:2001 both perform, and both call whatever it
+# returns THE build session. Two fixtures, because a header-bearing file alone cannot see the
+# regression: there the header wins the race by position no matter how the row is spelled. The
+# discriminating shape is a progress file with NO session_id header — what seed_progress_1_to_4
+# and every hand-seeded resume produce — where a row spelled `session_id: <id>` has no competitor
+# and silently FABRICATES a build identity out of the last session to run `entry`.
+MPROG_NOHDR="$WORK/progress-nohdr.md"
+printf '# lean run — issue 8\n\nrun_id: r-nohdr\n' > "$MPROG_NOHDR"
+mkdir -p "$TREE/.claude/audit"
+printf '{"tool":"Bash"}\n' > "$TREE/.claude/audit/sess-nohdr.jsonl"
+( unset RUN_ID; cd "$TREE" && CLAUDE_CODE_SESSION_ID=sess-nohdr SECOND_SHIFT_CONFIG="$CFG" \
+    LEAN_PROGRESS_FILE="$MPROG_NOHDR" bash "$GATE" --issue-file "$ISSUE_NOREGIONS" entry 8 >/dev/null 2>&1 )
+first_of() { # first_of <file> — record_key's own extraction, performed independently
+  grep -oE 'session_id:[[:space:]]*[A-Za-z0-9._-]+' "$1" 2>/dev/null | head -n1 | sed -E 's/^session_id:[[:space:]]*//'
+}
+mfirst_session="$(first_of "$MPROG")"
+mfirst_nohdr="$(first_of "$MPROG_NOHDR")"
+if [ "$mfirst_session" = "sess-mark-1" ] && [ -z "$mfirst_nohdr" ] \
+   && grep -qF '| session | sess-nohdr' "$MPROG_NOHDR"; then
+  pass "(ms5) a session row records the id without claiming the session_id: key — no header, no fabricated build identity"
+else fail "(ms5) session rows entered the session_id: race — with-header '$mfirst_session', header-less '$mfirst_nohdr'"; fi
+
+# AC-4/D-3/D-5. A REVIEW session may READ an identity, never establish one. `bash G 4` is the
+# call review-lean makes against the build's progress file; if it recorded a session, that
+# session could then whitelist itself and mark — the silent-inheritance failure the role-keyed
+# run-id split already exists to prevent. Paired: the milestone call first, then the mark.
+: > "$BOT_SPOOL"
+mark_gate "$CFG" mark-run-rev sess-review-m4 4 8 >/dev/null 2>&1
+out="$(mark_gate "$CFG" mark-run-rev sess-review-m4 mark 8 --pr-file "$WORK/pr-mark.json" --comments-file "$WORK/comments-none.json")"; rc=$?
+if [ "$rc" -eq 1 ] && [ ! -s "$BOT_SPOOL" ] && printf '%s' "$out" | grep -q 'not a recorded BUILD session'; then
+  pass "(ms6) a review session running milestone 4 records no session, so it still cannot mark (D-3/D-5)"
+else fail "(ms6) a milestone call whitelisted the session that made it, rc=$rc: $out"; fi
+
+# AC-3. `claim` is the other half of the arm that may establish an identity, and it records under
+# BOTH adapters — driven here on jira, the only adapter whose claim path is drivable without a
+# live bot. The entry call uses a DIFFERENT session, so the file already carries a header and an
+# attestation row: if claim recorded nothing, sess-claim-1 would be refused below.
+CPROG="$WORK/progress-claim.md"
+rm -f "$CPROG"
+mkdir -p "$TREE/.claude/audit"
+printf '{"tool":"Bash"}\n' > "$TREE/.claude/audit/sess-claim-entry.jsonl"
+printf '{"tool":"Bash"}\n' > "$TREE/.claude/audit/sess-claim-1.jsonl"
+( unset RUN_ID; cd "$TREE" && CLAUDE_CODE_SESSION_ID=sess-claim-entry SECOND_SHIFT_CONFIG="$CFG_JIRA" \
+    LEAN_PROGRESS_FILE="$CPROG" bash "$GATE" entry "$JKEY" >/dev/null 2>&1 )
+( unset RUN_ID; cd "$TREE" && CLAUDE_CODE_SESSION_ID=sess-claim-1 SECOND_SHIFT_CONFIG="$CFG_JIRA" \
+    LEAN_PROGRESS_FILE="$CPROG" bash "$GATE" claim "$JKEY" >/dev/null 2>&1 )
+: > "$BOT_SPOOL"
+out="$( cd "$TREE" && RUN_ID=mark-run-c CLAUDE_CODE_SESSION_ID=sess-claim-1 SECOND_SHIFT_CONFIG="$CFG" \
+        LEAN_PROGRESS_FILE="$CPROG" GH_BOT="$WORK/bot-stub.sh" BOT_SPOOL="$BOT_SPOOL" \
+        bash "$GATE" --issue-file "$ISSUE_NOREGIONS" mark 8 \
+        --pr-file "$WORK/pr-mark.json" --comments-file "$WORK/comments-none.json" 2>&1 )"; rc=$?
+if [ "$rc" -eq 0 ] && grep -q 'session_id: sess-claim-1' "$BOT_SPOOL" 2>/dev/null; then
+  pass "(ms7) claim records the ambient session into the set, under a tracker that writes nothing (AC-3)"
+else fail "(ms7) claim did not record its session, rc=$rc: $out / progress=$(cat "$CPROG" 2>/dev/null)"; fi
+
+# AC-7/D-9, half one: no progress file at all. Fail CLOSED with a remedy — a `mark` that fell
+# through here would write `session_id: unset` onto the marker, and "unverifiable" must never
+# resolve to "fine".
+: > "$BOT_SPOOL"
+out="$( cd "$TREE" && RUN_ID=mark-run-x CLAUDE_CODE_SESSION_ID=sess-mark-1 SECOND_SHIFT_CONFIG="$CFG" \
+        LEAN_PROGRESS_FILE="$WORK/progress-absent.md" GH_BOT="$WORK/bot-stub.sh" BOT_SPOOL="$BOT_SPOOL" \
+        bash "$GATE" --issue-file "$ISSUE_NOREGIONS" mark 8 \
+        --pr-file "$WORK/pr-mark.json" --comments-file "$WORK/comments-none.json" 2>&1 )"; rc=$?
+if [ "$rc" -eq 1 ] && [ ! -s "$BOT_SPOOL" ] && printf '%s' "$out" | grep -q 'recorded no build session'; then
+  pass "(ms8) with no build session recorded anywhere, mark refuses rather than stamping 'unset' (D-9)"
+else fail "(ms8) expected the fail-closed refusal, rc=$rc: $out / spool=$(cat "$BOT_SPOOL" 2>/dev/null)"; fi
+
+# AC-7/D-9, half two: THE VACUITY. A header frozen at `unset` and an unset ambient session are
+# both unverifiable, and a naive `[ "$ambient" = "$recorded" ]` passes them — two unknowns
+# agreeing. The set drops 'unset' on the way in and the ambient side is checked for emptiness, so
+# neither can satisfy the other.
+printf '# lean run — issue 8\n\nrun_id: r-vac\nsession_id: unset\n' > "$WORK/progress-vacuous.md"
+: > "$BOT_SPOOL"
+out="$( unset CLAUDE_CODE_SESSION_ID; cd "$TREE" && RUN_ID=mark-run-v SECOND_SHIFT_CONFIG="$CFG" \
+        LEAN_PROGRESS_FILE="$WORK/progress-vacuous.md" GH_BOT="$WORK/bot-stub.sh" BOT_SPOOL="$BOT_SPOOL" \
+        bash "$GATE" --issue-file "$ISSUE_NOREGIONS" mark 8 \
+        --pr-file "$WORK/pr-mark.json" --comments-file "$WORK/comments-none.json" 2>&1 )"; rc=$?
+if [ "$rc" -eq 1 ] && [ ! -s "$BOT_SPOOL" ] && printf '%s' "$out" | grep -q 'recorded no build session'; then
+  pass "(ms9) an unset ambient session does not compare EQUAL to an 'unset' recorded one (D-9)"
+else fail "(ms9) the vacuous comparison passed, rc=$rc: $out / spool=$(cat "$BOT_SPOOL" 2>/dev/null)"; fi
+
+# AC-10. Backward compatibility for a run already in flight when this lands: its progress file
+# has a header and no session rows, and the header IS the build identity by cmd_verdict's own
+# compare — so it marks. Without the header in the set every such run would strand at `mark`,
+# with the recovery this issue is about as the only way out.
+printf '# lean run — issue 8\n\nrun_id: r-inflight\nsession_id: sess-inflight\n' > "$WORK/progress-inflight.md"
+: > "$BOT_SPOOL"
+out="$( cd "$TREE" && RUN_ID=mark-run-i CLAUDE_CODE_SESSION_ID=sess-inflight SECOND_SHIFT_CONFIG="$CFG" \
+        LEAN_PROGRESS_FILE="$WORK/progress-inflight.md" GH_BOT="$WORK/bot-stub.sh" BOT_SPOOL="$BOT_SPOOL" \
+        bash "$GATE" --issue-file "$ISSUE_NOREGIONS" mark 8 \
+        --pr-file "$WORK/pr-mark.json" --comments-file "$WORK/comments-none.json" 2>&1 )"; rc=$?
+if [ "$rc" -eq 0 ] && grep -q 'session_id: sess-inflight' "$BOT_SPOOL" 2>/dev/null; then
+  pass "(ms10) a header-only progress file (no session rows) still marks — no in-flight run strands (AC-10)"
+else fail "(ms10) an in-flight run stranded at mark, rc=$rc: $out"; fi
+
+# AC-4. `mark` is a PURE READER. A guard that recorded before checking would whitelist itself and
+# be vacuous, so the refused calls above must have left the file untouched — asserted against the
+# fixture's own byte count rather than by re-reading the ids it prints.
+if [ "$(mcount '| session | ')" -eq 2 ] \
+   && ! grep -qF 'sess-review-r' "$MPROG" 2>/dev/null \
+   && ! grep -qF 'sess-review-m4' "$MPROG" 2>/dev/null; then
+  pass "(ms11) mark records nothing — neither the refused sessions nor the successful ones were added (AC-4)"
+else fail "(ms11) mark wrote to the progress file: rows=$(mcount '| session | '), file=$(cat "$MPROG" 2>/dev/null)"; fi
 
 echo "[lean-gate-selftest] $([ "$FAILS" -eq 0 ] && echo 'all green' || echo "$FAILS FAILURE(S)")"
 exit "$FAILS"
