@@ -182,6 +182,31 @@ cover), omit the example command and point at the onboarding guide instead of gu
 The `lanes` line is review-screen guidance only: it is shown commented, and Step 4 emits the
 accepted config as pure JSON, so a stub the human does not fill in is simply absent from the
 file (`config-lint` runs `jq empty` and would reject a comment).
+**Before you render the screen, GRILL the draft.** Write the draft config (pure JSON, comments
+stripped — the same document Step 4 would emit) to a temp file, then run
+`bash "${CLAUDE_PLUGIN_ROOT}/skills/onboard/tools/config-grill.sh" <repo-root> "$TMPDIR/second-shift-draft.json"`
+and parse its JSON. It reports what `config-lint` structurally cannot: a capability that is
+detectably OFF. Absence is legal for every optional key, so the lint never looks at the tree,
+and nothing downstream looks either — a capability that is off simply never runs and the run
+still reports green.
+
+- Every entry in `findings[]` renders as a **blocking line** at the top of the accept-or-edit
+  screen: the finding's `evidence`, then its `proposal` verbatim. The proposal names the
+  benefit; do not paraphrase it down to a key name, which motivates nobody.
+- Every entry in `notEvaluated[]` renders as an informational line. It is **not** a finding —
+  it has no proposal, cannot be waived, and must never block acceptance.
+- The checker **re-runs on each loop iteration**, and "no unwaived findings" is the accept
+  predicate: the screen cannot be accepted while a finding is neither fixed nor waived.
+- A waiver is a `grillWaivers` entry — `{"<check id>": "<reason>"}`, keyed by the finding's
+  `id` — typed into the draft on that same screen. **Never author a reason on the human's
+  behalf and never propose one**: an invented reason is a waiver with no accountability. Offer
+  the mechanism, not the text.
+
+This adds **no question batch and no new surface**. Disposition is captured by the human
+editing the screen they are already editing — fixing the key, or typing the waiver entry — so
+the "at most one AskUserQuestion batch" rule above and the "not a wizard" framing below both
+stand unamended.
+
 The human accepts or edits values; loop the screen until accepted. This is a diff review
 of a 90%-correct document, not a wizard.
 

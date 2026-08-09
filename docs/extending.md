@@ -76,6 +76,8 @@ Every `stageParams` key defaults to the plugin's current literal, so an empty co
 
 Pure parameterization — no ordering, no logic. A published key that no stage actually reads is caught by `check-config-shadowing.sh` (surface rot is a lint failure, not a silent no-op).
 
+The mirror-image rot — a key nothing *sets*, so the shipped default silently matches nothing in your repo — is caught by [`config-grill.sh`](../plugins/second-shift/skills/onboard/tools/config-grill.sh), which `/second-shift:onboard` runs on its draft before the accept-or-edit screen and `/second-shift:doctor` runs on the committed config. `config-lint` cannot see any of it: absence is legal for every optional key, so a structural validator never looks at the tree, and a capability that is off simply never runs while the run still reports green. The grill does look, names what you get for setting the key, and forces a disposition — fix it, or declare it in the top-level `grillWaivers` object (`{"<check id>": "<reason>"}`), the same deliberate-declared-opt-out shape as `commands.<repo>.allowUnverified`. Field reference: [`config-schema.md`](config-schema.md).
+
 ### 3.2 `extraLanes` — add a blocking verify command
 
 You have a check the built-in lanes don't cover (a custom lint, a contract test, an i18n audit). Add it as an extra lane on the relevant repo:

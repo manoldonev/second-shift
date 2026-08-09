@@ -337,6 +337,39 @@ else
       n=0; while IFS= read -r line; do echo "[doctor]        $line"; n=$((n+1)); [[ "$n" -ge 10 ]] && break; done <<< "$out"
     fi
   fi
+  # --- 7.9 config grill: capability that is detectably OFF -------------------------
+  # config-lint above is STRUCTURAL — absence is legal for every optional key, so it is
+  # incapable of noticing that a capability is off, and no later stage notices either: a
+  # capability that is off simply never runs and the run still reports green. The grill is
+  # the other half. It ships in THIS plugin (skills/onboard/tools/), so the reach is a
+  # sibling skill dir — strictly shorter than the cross-PLUGIN reach section 7 just made
+  # for config-lint, and it does not depend on dev-pipeline being installed.
+  #
+  # A finding is a FAIL with remediation, exactly like every other doctor FAIL. That is
+  # only coherent because waivers exist: a repo reaches exit 0 by adopting the capability
+  # or by declaring the opt-out in `grillWaivers`. A `notEvaluated` entry is NOT a finding
+  # — it carries no proposal and cannot be waived — so it is informational and never
+  # touches the exit code.
+  GRILL="${SECOND_SHIFT_CONFIG_GRILL:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../../onboard/tools" 2>/dev/null && pwd)/config-grill.sh}"
+  if [[ -f "$GRILL" ]]; then
+    if gout="$(bash "$GRILL" "$ROOT" "$CONF" 2>/dev/null)"; then
+      gcount="$(jq -r '.findings | length' <<< "$gout" 2>/dev/null || echo 0)"
+      if [[ "$gcount" == "0" ]]; then ok "config grill: no unwaived findings"
+      else
+        while IFS= read -r line; do
+          [[ -n "$line" ]] && bad "$line"
+        done < <(jq -r '.findings[] | "config grill [\(.id)] \(.evidence) Fix: \(.proposal)"' <<< "$gout")
+      fi
+      n=0; while IFS= read -r line; do
+        [[ -n "$line" ]] || continue
+        echo "[doctor] note  $line"; n=$((n+1)); [[ "$n" -ge 10 ]] && break
+      done < <(jq -r '.notEvaluated[] | "config grill not evaluated [\(.id)]: \(.reason)"' <<< "$gout")
+    else
+      warn "config grill could not run against $CONF — skipped (it never gates on its own failure)"
+    fi
+  else
+    warn "config-grill.sh not found next to doctor (expected at $GRILL) — capability grill skipped"
+  fi
 fi
 
 # --- 8. verdict ------------------------------------------------------------------
