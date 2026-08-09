@@ -3,8 +3,8 @@ run_id: lean-443-20260809a
 session_id: 4682a97a-87b5-4847-a7c5-82ba269ac4e6
 region: undeclared
 disposition: reversible-default-and-flag
-ratified: no
-ratified_by:
+ratified: yes
+ratified_by: https://github.com/manoldonev/second-shift/issues/443#issuecomment-5231499422
 
 ## Gap
 
@@ -37,6 +37,10 @@ survivors, all baseline-present, none absent. The interpretation is disclosed in
 in the case comment, and in the PR body rather than left implicit.
 
 ## Disposition followed
+
+RATIFIED by the operator at the comment cited above, on both items: the harness fix rides this PR,
+and the arm-granularity reading of AC-7 for `(V3b)` is accepted on the grounds that the mutation
+sweep is AC-7's own stated witness and it is clean.
 
 Took the reversible default and flagged it: the harness fix is committed here, isolated in its
 own commit, recorded as an explicit AC in the spec, and raised for ratification before the review
