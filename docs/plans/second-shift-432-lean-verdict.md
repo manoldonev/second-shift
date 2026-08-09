@@ -5,39 +5,57 @@ run_id: review-432-1
 session_id: f2ba7aaf-90c5-4ebe-acd2-6864426b96db
 rounds: 1
 pr: #459
-reviewed_head: 4cca8e390fe2b8504b2f22d500eaa2be647e8020
-reviewed_patch_id: 4228cc669921efde78f85c9c7fbe14c0abd07688
+reviewed_head: fa43d03c4310b43329fd361664df1b8e45661dfe
+reviewed_patch_id: 57eaa9494a73f2d563c5a33d8501af479b88c680
 inherited_patch_id: none
 inherited_from_verdict: none
 fidelity: not-applicable
 model: unknown
 
-Round 1 — RE-STAMPED at the rebased head. Range `cccd575..HEAD` (the gate's `delta` prints the
-full branch diff: the prior record's patch id no longer resolves, so there is nothing verifiable
-to inherit and this covers everything).
+Round 1 — RE-STAMPED, a second time, at the head rebased onto `a885111` (#452). Range
+`a885111..HEAD` (the gate's `delta` prints the full branch diff: the prior record's patch id no
+longer resolves, so there is nothing verifiable to inherit and this covers everything).
 
-**Why a re-stamp and not a round 2.** The round-1 record (`review-432-1`, reviewed head
-`1a79364`) was invalidated by a rebase of the branch from base `c19f19e` onto `cccd575` (#456),
-which dropped an intervening `--no-ff` merge of main and replayed the four build commits. The
-merge-base-anchored contribution diff is byte-identical across the replay:
+**Rebase 1 (onto `cccd575`, #456) — the branch replayed byte-identically.** The original round-1
+record (`review-432-1`, reviewed head `1a79364`, base `c19f19e`) was invalidated by a rebase that
+dropped an intervening `--no-ff` merge of main and replayed the four build commits. The
+merge-base-anchored contribution diff was byte-identical across that replay — 1104 lines each
+side, 22 differing lines, **zero** matching `^[<>] [+-]`, every one an `index <blob>..<blob>`
+line, an `@@` hunk offset, or a context line #456 moved. The reverse direction carried no `+`/`-`
+divergence either, so main's side came in whole. `reviewed_patch_id` moved only because
+`git patch-id` hashes context lines — the mechanical limitation #372 identified, not evidence that
+a line of reviewed content changed.
+
+**Rebase 2 (onto `a885111`, #452) — one conflict, resolved by deleting this PR's copy of a fix
+main had independently landed.** #452 added its own suite-level `unset RUN_ID` to
+`lean-gate-selftest.sh`, in the same place and for the same reason as this PR's AC-10 commit; both
+sides carry the identical code line and differing rationale comments. The conflict was resolved in
+main's favor — this PR's ten-line block was dropped, main's prose kept — so the contribution
+**shrank without anything being dropped from the tree**:
 
 ```
-diff <(git diff c19f19e..1a79364  -- . ':(exclude)<record>') \
-     <(git diff cccd575..HEAD     -- . ':(exclude)<record>')
+diff <(git diff cccd575..9cefc31 -- . ':(exclude)<record>') \
+     <(git diff a885111..HEAD    -- . ':(exclude)<record>')
 ```
 
-1104 lines each side; 22 differing lines, **zero** matching `^[<>] [+-]` — every one is an
-`index <blob>..<blob>` line, an `@@` hunk offset, or a context line that main's #456 moved. The
-reverse direction (`c19f19e..cccd575` against `1a79364..HEAD`) likewise carries no `+`/`-`
-divergence, so main's side came in whole. `reviewed_patch_id` moved only because `git patch-id`
-hashes context lines, which is the mechanical limitation #372 identified — not evidence that a
-line of reviewed content changed. Per the skill's own rule ("a rebase that replays the branch
-unchanged does not [void the record]: the patch is the same") the round stands.
+1104 → 1087 lines; the only `+`/`-` divergence is those ten `<`-side lines, and there is not a
+single `>`-side one. Nothing entered the diff and nothing left the working tree. AC-10's
+observable is intact and re-verified empirically below.
 
 **What this session verified independently**, rather than re-asserting round 1's panel result: all
-ten ACs re-scored below against the code at this head, first-hand; and the two surfaces the base
-move newly touches, which round 1's panel could not have seen because they did not exist at
-`c19f19e`. The six-reviewer panel is not re-dispatched — it would read a byte-identical tree.
+ten ACs re-scored below against the code at this head, first-hand; the two surfaces #456 newly
+introduced next to `cmd_entry`; and, after rebase 2, the three affected suites re-run green at the
+new base. The six-reviewer panel is not re-dispatched — the reviewable content is unchanged.
+
+**Post-rebase-2 verification at `fa43d03`.** `shellcheck -e
+SC1091,SC2015,SC2181` clean over all six touched scripts. `lean-gate-selftest.sh` all green run
+with `RUN_ID=leaked-ambient-id LEAN_RUN_MODEL=leaked-model` deliberately exported — which is the
+direct empirical check that AC-10's property survives being delivered by the base rather than by
+this diff. `cost-block-selftest.sh` 61/0. `pipeline-doctor-selftest.sh` 36/0.
+`check-lockstep-pairs.sh` 24 pairs, 0 failed — #452 edited `scripts/lockstep-manifest.tsv` and
+`lean-gate.sh`, so the pinned pairs are re-checked rather than assumed. #452's library mode
+(`LEAN_GATE_LIB=1 . lean-gate.sh`) returns before the subcommand case, so it never reaches
+`cmd_entry` and cannot interact with the telemetry resolution this PR adds.
 
 **Base-move interaction (new since round 1), both clean.** #456 rewrote `cmd_entry`'s
 neighborhood in the same file this PR edits, and the rebase resolved without conflict; a clean
@@ -53,18 +71,20 @@ textual merge is not by itself evidence the two compose.
   previously rendered two fields. Correct and strictly more informative; the surrounding check is
   presence-only on the unchanged `| entry | ledger=` marker.
 
-**CI at this head** (`4cca8e3`): `lint-and-selftests` pass, `selftests (macos, bash 3.2)` pass,
+**CI at the pre-rebase-2 head** (`4cca8e3`): `lint-and-selftests` pass, `selftests (macos, bash 3.2)` pass,
 `mutation-sweep-pr` pass. `pr-gates` is the expected pre-record red, and its sole failing arm is
 `lean-evidence`'s patch-id comparison — precisely what this record re-stamps. `mutation-sweep-pr`
 passing is also the empirical half of AC-9 below: had the two edited guards' generic survivor
 ordinals re-keyed, the PR-scoped sweep would have reported baseline-absent survivors and redded.
+Rebase 2 removes lines from the diff and adds none, so it cannot introduce a new survivor; the
+sweep re-runs on this head regardless.
 
 ## Findings
 
 | # | Severity | Where | Finding |
 | --- | --- | --- | --- |
 | 1 | Warning | `lean-gate.sh` `telemetry_probe_target` | The `'[::1]'\|::1` arm of the loopback host case is unreachable, and so is `telemetry_state`'s matching `host="${host#[}"; host="${host%]}"` strip. Re-derived by hand at this head: on `http://[::1]:4317`, `rest` is `[::1]:4317` and `host="${rest%%:*}"` is `[`; on `http://[::1]`, `host` is `[` and `port` is `:1]`, which fails the numeric-port test; on `http://::1:4317`, `host` is empty. Every IPv6 form falls through to `return 0`. Behavior is still correct per AC-3 — an unparseable endpoint skips the reachability half and reports `on` — so this is dead code behind a right answer, not a defect. Worth deleting or making real on the next touch. |
-| 2 | Warning | spec Scope table + AC-9 | The Scope table lists `tools/mutation-baseline.tsv` as changed and AC-9 asserts the two edited guards' generic survivor ordinals re-key, so their rows "are re-baselined here". The diff does not touch that file. The obligation is genuinely nil rather than skipped — round 1 established it by enumerating the operators over `pipeline-cost-block.sh` at base and head, and CI's green `mutation-sweep-pr` at this head confirms it independently. The spec text over-claims an obligation the diff correctly did not need to pay; fix the Scope row, not the diff. |
+| 2 | Warning | spec Scope table + AC-9 | The Scope table lists `tools/mutation-baseline.tsv` as changed and AC-9 asserts the two edited guards' generic survivor ordinals re-key, so their rows "are re-baselined here". The diff does not touch that file. The obligation is genuinely nil rather than skipped — round 1 established it by enumerating the operators over `pipeline-cost-block.sh` at base and head, and CI's green `mutation-sweep-pr` at this head confirms it independently. The spec text over-claims an obligation the diff correctly did not need to pay; fix the Scope row, not the diff. Same class, added by rebase 2: the Scope row for `lean-gate-selftest.sh` still credits "the AC-10 hermeticity fix" to this PR, which now comes from the base. Both are one-line spec corrections. |
 | 3 | Note | `pipeline-cost-block.sh` | `pipeline-cost-block.sh` was `deferred-to-nightly` in the PR sweep (0 mutants applied), so the new selection/discrimination code carries no automated mutation evidence on this PR — only the build's 19 hand-probed mutants. That is the documented slow-guard norm, recorded so the nightly result is read rather than assumed. |
 
 ## AC scoring
@@ -80,7 +100,7 @@ ordinals re-keyed, the PR-scoped sweep would have reported baseline-absent survi
 | AC-7 | satisfied | `state-schema.md` 352–354 and `cost-tracking-setup.md` 148/155/156 each carry the two new values and the narrowed `skipped-zero-datapoints`, each with its own remedy and each saying plainly that the datapoints are unrecoverable for the run in question. §3 leads with the user-scope `~/.claude/settings.json` `env` block, direnv demoted to the per-repo alternative. |
 | AC-8 | satisfied | Every new behavior has a paired guard that drives production code rather than a copy: `lean-gate-selftest.sh` `(ea1)`/`(ea2)`/`(tel1)`–`(tel6)`, `cost-block-selftest.sh` +172 lines, `pipeline-doctor-selftest.sh` +78. Per D-12 no liveness scenario is added, correctly — the change introduces no gate contract and touches no verdict path. Three defensive branches are untested; see Suppressed. |
 | AC-9 | satisfied | The obligation is nil, and verified two ways rather than taken on the spec's word: round 1's operator-by-operator enumeration at base and head, and `mutation-sweep-pr` green at this head, which is the check that would red on an unbaselined generic survivor. The spec text that says otherwise is finding 2. The two `mutation-catalog.tsv` rows for the cost block still match their anchored text, and `catalog::lean-gate-entry-row` survives the row gaining a field because its anchor ends at `ledger=.*$`. |
-| AC-10 | satisfied | One suite-level `unset RUN_ID` at line 46, beside the existing `unset LEAN_RUN_MODEL` at 36 and for the same reason, plus per-call unsets of both telemetry variables in the entry helpers — without which `(ea1)` and the `(tel*)` cases would assert whatever the operator's own shell exports, and the suite is very likely running inside an exporting session. |
+| AC-10 | satisfied | One suite-level `unset RUN_ID`, beside the existing `unset LEAN_RUN_MODEL` and for the same reason, plus per-call unsets of both telemetry variables in the entry helpers — without which `(ea1)` and the `(tel*)` cases would assert whatever the operator's own shell exports, and the suite is very likely running inside an exporting session. After rebase 2 the suite-level `unset` line comes from the base (#452 landed the identical fix) and only the per-call unsets are this PR's; the AC's observable is a property of the tree, not of the diff, and it is checked directly above by running the suite with both variables exported. |
 
 ## Suppressed (below threshold)
 
