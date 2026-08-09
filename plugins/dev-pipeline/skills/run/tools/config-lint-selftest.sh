@@ -80,6 +80,13 @@ expect_violation invalid-type-gaps.json             "tracker.bot.enabled: must b
 expect_violation invalid-type-gaps.json             "stageParams.requiredLabels: every entry must be a string"
 expect_violation invalid-type-gaps.json             "stageParams.webComponentGlobs: must be array"
 expect_violation invalid-webcomponentglobs-entry.json "stageParams.webComponentGlobs: every entry must be a string"
+# grillWaivers: config-grill's declared opt-outs. valid-grillwaivers.json (picked up by the
+# valid-*.json loop above) proves the top-level allowlist accepts the key at all — without that
+# entry the whole surface reds as an unknown top-level key, which is the failure mode a
+# consumer would hit first. An empty reason is a waiver with no accountability, and a
+# non-object is not a waiver map.
+expect_violation invalid-grillwaivers.json          "grillWaivers.T2.formatGlob: must be a non-empty reason string"
+expect_violation invalid-grillwaivers-type.json     "grillWaivers: must be an object keyed by config-grill check id"
 
 # --- #100: a non-object lanes[]/extraLanes[] entry must be a CLEAN violation.
 # Before the entry-shape guard, a string/number/array lane lint-clean-passed

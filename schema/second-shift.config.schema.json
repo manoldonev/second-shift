@@ -316,6 +316,11 @@
           "agent": { "type": "string", "description": "\"<plugin>:<agent>\" (companion pack) or a repo-local bare agent name (in .claude/agents/). Unresolvable = fail closed at pre-flight." }
         }
       }
+    },
+    "grillWaivers": {
+      "type": "object",
+      "description": "Declared opt-outs for config-grill findings — the checker /second-shift:onboard runs on its draft and /second-shift:doctor runs on the committed config, which reports a capability that is detectably OFF. config-lint cannot see any of it: absence is legal for every optional key, so a structural validator never touches the tree. Keys are CHECK IDS, carrying the repo id wherever the check is per-repo (e.g. \"T4.mutation-plumbing.api\"): a dotted config path would silence two distinct checks that share a key, and a bare check id would silence every repo under a multi-repo topology. The value is the human-authored reason — never synthesized by a tool. Same shape as commands.<repo>.allowUnverified: a deliberate declared opt-out, visible in a reviewable diff. Additive and optional, so configVersion stays at 2.",
+      "additionalProperties": { "type": "string", "minLength": 1 }
     }
   }
 }

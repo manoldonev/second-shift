@@ -603,3 +603,27 @@ lean-output-dispositions	verbatim	scripts/check-lean-chain.sh	lean-output-dispos
 # visibly. An assertion there would restate what CI already proves.
 # Revisit if the host's block gains a scope: check whether the arm needing it lives in the
 # payload (then the template needs it too) or only in check-lean-chain.sh (then it must not).
+#
+# config-grill.sh's restated RUNTIME-resolved defaults vs the stages that resolve them.
+# The checker's trigger-2 table quotes, for each glob key, the jq fallback literal the
+# consuming stage actually applies — `apps/web/**/*.{tsx,jsx}` for stageParams.webComponentGlobs,
+# `*.{ts,tsx,js,json,md}` for stageParams.formatGlob, and the four shipped render-surface globs
+# for stageParams.visualCapture.triggerGlobs. Quoting the SCHEMA default instead would be a lie
+# the consumer cannot act on: nothing injects schema defaults into a config, so the value that
+# takes effect is the fallback in the stage. That makes the restatement load-bearing, and a
+# stage that changes its fallback while the checker keeps the old one produces a finding whose
+# "resolved default" names a literal no longer in force.
+# Considered for rows and DROPPED. `webComponentGlobs`'s literal alone is restated at seven
+# sites across TWO plugins (review-lead/SKILL.md x5, stages/8-code-review.md x2), and this
+# file's relations are file-to-file pairs with one in-file anchor per side — a pair cannot
+# express one canonical against seven scattered restatements, and picking one arbitrary site
+# as the canonical would leave the other six free to drift while the row stayed green. Nor is
+# a marker block placeable around them: they sit inside prose sentences and a jq expression,
+# not around a declared literal. CLAUDE.md sanctions exactly this case — record a real but
+# unanchorable coupling as DROPPED so the decision is visible rather than forgotten.
+# Guarded instead by config-grill-selftest.sh, which asserts each default fires a zero-match
+# finding on a fixture tree that deliberately contains no matching path, so the literal is
+# exercised rather than merely present. That is a check on the checker's copy, not on the two
+# staying equal — the asymmetry is the point of this note.
+# Revisit if the fallbacks are ever hoisted into one shared resolver: a single canonical site
+# makes an ordinary `verbatim` row possible, and this entry should become one.

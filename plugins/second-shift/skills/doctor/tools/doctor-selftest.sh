@@ -8,14 +8,19 @@ check() { if [[ "$2" -eq 0 ]]; then echo "  ✓ $1"; else echo "  ✗ $1"; FAILS
 scenario() { # $1 label, $2 plugin-list fixture, $3 settings fixture, $4 marketplace fixture,
              # $5 expected exit code, $6 expected substring in output,
              # $7 (optional) lock fixture — default lock-v1.json
+             # $8 (optional) config fixture — default config-valid.json
+             # $9 (optional) SECOND_SHIFT_CONFIG_GRILL override. Empty is indistinguishable
+             #    from unset — doctor reads it as `${SECOND_SHIFT_CONFIG_GRILL:-…}` — so every
+             #    pre-existing call site keeps resolving the real checker unchanged.
   local root="$TMP/$1"; mkdir -p "$root/.claude"
   cp "$FIX/${7:-lock-v1.json}" "$root/.claude/second-shift.lock.json"
-  cp "$FIX/config-valid.json" "$root/.claude/second-shift.config.json"
+  cp "$FIX/${8:-config-valid.json}" "$root/.claude/second-shift.config.json"
   sed -e "s#__ROOT__#$root#g" -e "s#__INSTALL__#$INSTALL#g" "$FIX/$3" > "$root/.claude/settings.json"
   sed -e "s#__ROOT__#$root#g" -e "s#__INSTALL__#$INSTALL#g" "$FIX/$2" > "$TMP/$1-pluglist.json"
   local out rc=0
   out="$(DOCTOR_REPO_ROOT="$root" DOCTOR_PLUGIN_LIST_FILE="$TMP/$1-pluglist.json" \
          DOCTOR_MARKETPLACE_LIST_FILE="$FIX/$4" DOCTOR_USER_SETTINGS="$TMP/empty-user-settings.json" \
+         SECOND_SHIFT_CONFIG_GRILL="${9:-}" \
          bash "$DOCTOR" 2>&1)" || rc=$?
   if [[ "$rc" -eq "$5" ]] && grep -qF "$6" <<< "$out"; then check "$1" 0
   else check "$1 (rc=$rc want $5; grep '$6' failed)" 1; echo "$out" | sed 's/^/      /' | head -12; fi
@@ -90,6 +95,32 @@ scenario opt-out-lane-off plugin-list-green.json   settings-green.json     marke
 # above FAILed. A scenario keyed only to settings.local.json cannot tell those apart, which is
 # how three shipped statements came to promise a catch that did not happen here.
 scenario opt-out-committed plugin-list-green.json  settings-optout-committed.json marketplace-list-pinned.json 1 "while dev-pipeline is enabled"
+# --- config grill (#441) -------------------------------------------------------------------
+# A grill finding is a FAIL like every other doctor FAIL, so it must move the EXIT CODE, not
+# just the text — that pairing is the whole point of D-15 and the only reason waivers have to
+# exist. The fixture config sets unitTestScope with a null testFile: Stage 5 fail-closes on
+# that pair, so the mutation gate the consumer configured a scope for cannot run.
+scenario grill-finding    plugin-list-green.json   settings-green.json     marketplace-list-pinned.json  1 "config grill [T4.testfile-plumbing.app]" lock-v1.json config-grill-finding.json
+# ...and the waived counterpart, which is what keeps a clean report REACHABLE. config-valid.json
+# carries the `grillWaivers` entry for the finding its own shape would otherwise produce
+# (gates.mutation absent is NOT false, so the gate reads ON with no surface behind it). Without
+# this branch the check could be suppress-everything and still pass the scenario above.
+scenario grill-waived     plugin-list-green.json   settings-green.json     marketplace-list-pinned.json  0 "config grill: no unwaived findings"
+# A notEvaluated entry is NOT a finding: no proposal, not waivable. It must render
+# informationally and never touch the exit code — riding in findings[] would make a repo
+# permanently non-zero with nothing it could do about it. The doctor fixture root is not a git
+# work tree, so the three trigger-2 checks land here by construction.
+scenario grill-noteval    plugin-list-green.json   settings-green.json     marketplace-list-pinned.json  0 "config grill not evaluated [T2.webComponentGlobs]"
+# The two DEGRADE branches. Neither can produce a wrong verdict — both are `warn`, so neither
+# moves the exit code — and that is exactly why they need pinning: a broken integration reads
+# as green, and the three scenarios above all run the real checker successfully, so nothing
+# else here would notice if either branch stopped saying anything at all.
+printf '#!/usr/bin/env bash\nexit 9\n' > "$TMP/grill-broken.sh"
+scenario grill-degraded-rc      plugin-list-green.json settings-green.json marketplace-list-pinned.json 0 \
+  "config grill could not run against" lock-v1.json config-valid.json "$TMP/grill-broken.sh"
+scenario grill-degraded-missing plugin-list-green.json settings-green.json marketplace-list-pinned.json 0 \
+  "config-grill.sh not found next to doctor" lock-v1.json config-valid.json "$TMP/no-such-grill.sh"
+
 # --report bundle: sections present (incl. the nested check run's summary) + exit 0.
 report report-sections    config-valid.json
 # --report redaction: secret-shaped keys masked, non-secret identifier preserved.

@@ -35,8 +35,8 @@ ERRORS=$(jq -r '
   + err((.topology | type) != "object"; "topology: required object")
   + err((.commands | type) != "object"; "commands: required object")
   + err(
-      (keys - ["$schema","configVersion","tracker","topology","commands","reviewers","paths","gates","design","stageParams","stageWorkflows","implementDelegates","planGates"]) != [];
-      "unknown top-level keys: " + ((keys - ["$schema","configVersion","tracker","topology","commands","reviewers","paths","gates","design","stageParams","stageWorkflows","implementDelegates","planGates"]) | join(", "))
+      (keys - ["$schema","configVersion","tracker","topology","commands","reviewers","paths","gates","design","stageParams","stageWorkflows","implementDelegates","planGates","grillWaivers"]) != [];
+      "unknown top-level keys: " + ((keys - ["$schema","configVersion","tracker","topology","commands","reviewers","paths","gates","design","stageParams","stageWorkflows","implementDelegates","planGates","grillWaivers"]) | join(", "))
     )
 
   # ---- tracker -------------------------------------------------------------
@@ -222,6 +222,21 @@ ERRORS=$(jq -r '
         ) | add // [])
       + err(([.[].name] | length) != ([.[].name] | unique | length); "planGates: names must be unique")
     ) else [] end)
+  # ---- grillWaivers ----------------------------------------------------------
+  # Declared opt-outs for config-grill.sh findings (shipped in the second-shift plugin,
+  # run by /second-shift:onboard and /second-shift:doctor). Keys are CHECK IDS carrying
+  # the repo id where the check is per-repo (e.g. "T4.mutation-plumbing.api") — never a
+  # dotted config path, which would silence two distinct checks that share a key, and
+  # never a bare check id, which would silence every repo under a multi-repo topology.
+  # The value is the human-authored reason; an empty one is a waiver with no accountability.
+  + (if (.grillWaivers != null) then (.grillWaivers |
+      err((type) != "object"; "grillWaivers: must be an object keyed by config-grill check id")
+      + (if (type) == "object" then (to_entries | map(
+          err(((.value | type) != "string") or ((.value | length) == 0);
+              "grillWaivers." + .key + ": must be a non-empty reason string")
+        ) | add // []) else [] end)
+    ) else [] end)
+
   + (if (.stageParams != null) then (.stageParams |
       err((type) != "object"; "stageParams: must be object")
       + err(((keys) - ["planFilePattern","requiredLabels","visualCapture","webComponentGlobs","formatGlob","inertPattern"]) != []; "stageParams: unknown keys")
