@@ -35,6 +35,16 @@ fail() { echo "  FAIL: $1" >&2; FAILS=$((FAILS + 1)); }
 # from the documented absent state; (m1c) sets it explicitly for the other direction.
 unset LEAN_RUN_MODEL
 
+# Same class, same remedy, one variable further: `RUN_ID`. `gate()` and `attest_at()` unset it
+# per-call, but nine other cases invoke the gate directly and inherit whatever the operator
+# exported — and SKILL.md step 2 tells every lean run to export it, so the leak is the NORMAL
+# state of the shell this suite is run from. It surfaces as (k6): milestone 5 calls `mark`,
+# whose no-op test keys on the resolved run id, the leaked id matches no marker in the fixture
+# trail, and the case reds with `GH_BOT must point at the bot wrapper` — a message that reads
+# like a bot-wrapper defect in whatever diff is in flight. Unsetting once here makes the
+# ambient value irrelevant everywhere; the cases that need an id still pass their own.
+unset RUN_ID
+
 WORK="$(mktemp -d -t leangate.XXXXXX)"
 # shellcheck disable=SC2317,SC2329  # invoked indirectly by the EXIT trap below.
 # BOTH codes: shellcheck >=0.10 reports SC2329 on the function, 0.9 (CI) reports SC2317 on
