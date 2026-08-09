@@ -53,6 +53,13 @@ a successor cannot widen the vocabulary by typing a new word at a call site.
   repo convention forbids prose-presence guards, and the enforcement lives in the mechanism above.
   (The issue numbers this AC-6; it is renumbered here so every criterion in this spec has a unique
   ordinal.)
+- **AC-9** (doc, added during BUILD) — Every in-repo text this change makes inaccurate is
+  corrected in the same diff. Concretely: `plugins/second-shift/templates/consumer/second-shift-ci-check.sh`
+  tells a consumer's operator to read the payload's output to learn which rc=0 reading applies,
+  and after this change a complete lean PR prints none — so the shipped `ok` message and the
+  comment above it must name the class-(b) decline line as the discriminator instead. Repo
+  convention requires a change that makes docs stale to carry an explicit doc criterion; this is
+  it.
 
 ## The line inventory
 

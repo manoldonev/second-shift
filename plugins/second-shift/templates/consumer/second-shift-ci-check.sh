@@ -164,14 +164,18 @@ elif fetch_at_ref "lean-evidence" "plugins/dev-pipeline/skills/run-lean/lean-evi
   EV="$FETCHED"
   bash "$EV" all
   EV_RC=$?
-  # 0 = evidence complete OR not a lean PR (the payload prints which). 1 = a real evidence
-  # violation. 2 = the payload could not run — a MISSING INPUT this template is responsible for
-  # supplying, so it is drift like a 404 is drift, not the transient "could not verify" a
-  # network blip earns. Failing it open would waive the whole arm on a workflow that quietly
-  # stopped passing PR_BASE_REF, which is the silent self-disable this file refuses everywhere
-  # else.
+  # 0 = evidence complete OR not a lean PR. 1 = a real evidence violation. 2 = the payload could
+  # not run — a MISSING INPUT this template is responsible for supplying, so it is drift like a
+  # 404 is drift, not the transient "could not verify" a network blip earns. Failing it open would
+  # waive the whole arm on a workflow that quietly stopped passing PR_BASE_REF, which is the
+  # silent self-disable this file refuses everywhere else.
+  #
+  # THE EXIT CODE IS THE WHOLE SIGNAL on rc=0 (#443). The payload is silent when every arm is
+  # satisfied, so a complete lean PR prints nothing at all above this line and the two rc=0
+  # readings are told apart by the payload's one-line decline, not by a recital: a decline says
+  # `lean-evidence: not-applicable`, and its absence means the evidence is complete.
   case "$EV_RC" in
-    0) ok   "lean evidence: complete (or not a lean PR — see the payload output above)" ;;
+    0) ok   "lean evidence: complete, or not a lean PR — a 'lean-evidence: not-applicable' line above says which" ;;
     1) bad  "lean evidence: the lean PR is missing merge-boundary evidence (see the payload output above)" ;;
     *) bad  "lean evidence: the check could not run (exit $EV_RC) — the workflow is not supplying what the payload at '$LOCK_REF' needs; a check that cannot run must not report a pass" ;;
   esac
