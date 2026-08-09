@@ -270,35 +270,58 @@ else
   fi
 fi
 
-# ---- (e) AC-9: the derived prefix, asserted in BOTH directions ---------------------------
-# The gate echoes the derived prefix into the progress-file header, which is where we read it.
+# ---- (e) AC-1/AC-2/AC-4 (#413): the branch formula is the staged lane's, verbatim ---------
+# The gate echoes the resolved prefix into the progress-file header, which is where we read it.
+# There is no `lean/` re-rooting left to assert in two directions: one namespace, one prefix.
 reset_progress
 # Use milestone 1 (not `entry`) to materialize the header: entry refuses without a live
 # ledger for THIS session, so it would leave no progress file to read the prefix from.
 gate 1 7 >/dev/null 2>&1 || true
-derived="$(grep '^branch_prefix:' "$PROG" 2>/dev/null | awk '{print $2}')"
-pipeline_prefix="claude/acme-"
-if [ "$derived" = "lean/acme-" ]; then pass "(e1) prefix derives from tracker.branchPrefix ($pipeline_prefix -> $derived)"
-else fail "(e1) expected lean/acme-, got '$derived'"; fi
+resolved="$(grep '^branch_prefix:' "$PROG" 2>/dev/null | awk '{print $2}')"
+if [ "$resolved" = "claude/acme-" ]; then
+  pass "(e1) the resolved prefix IS tracker.branchPrefix — no lean/ namespace is derived"
+else fail "(e1) expected claude/acme-, got '$resolved'"; fi
 
-case "$derived" in
-  "$pipeline_prefix"*) fail "(e2) derived prefix '$derived' prefix-matches the pipeline prefix" ;;
-  *) pass "(e2) derived prefix does not prefix-match the pipeline prefix" ;;
-esac
-# The reverse direction is the one a one-directional reading misses: `lean/` would pass (e2)
-# while making EVERY pipeline branch match the lean gate.
-case "$pipeline_prefix" in
-  "$derived"*) fail "(e3) pipeline prefix '$pipeline_prefix' prefix-matches the derived prefix '$derived' — every pipeline PR would be double-classified" ;;
-  *) pass "(e3) pipeline prefix does not prefix-match the derived prefix (the reverse direction)" ;;
-esac
+# AC-1 is a byte-equality claim against the staged lane's `${BRANCH_PREFIX}${ISSUE_NUMBER}`
+# (stages/2-worktree.md), so assert the composed NAME, not just the prefix it starts with.
+if [ "$resolved""7" = "claude/acme-7" ]; then
+  pass "(e2) the branch name is <branchPrefix><key>, byte-identical to the staged formula"
+else fail "(e2) branch name mismatch: '$resolved""7'"; fi
 
-# A configured prefix already under lean/ collapses the two — the derivation must refuse.
-CFG_BAD="$WORK/config-collide.json"
-sed 's|"claude/acme-"|"lean/acme-"|' "$CFG" > "$CFG_BAD"
-out="$( cd "$TREE" && SECOND_SHIFT_CONFIG="$CFG_BAD" LEAN_PROGRESS_FILE="$WORK/p2.md" bash "$GATE" 1 7 2>&1 )"; rc=$?
-if [ "$rc" -eq 2 ] && printf '%s' "$out" | grep -q 'collides'; then
-  pass "(e4) a colliding configured prefix is a loud environment error, not a silent collision"
-else fail "(e4) expected rc=2 on a colliding prefix, got $rc: $out"; fi
+# AC-2: under jira the KEY is lowercased in the branch name while the PREFIX is used as
+# configured. Read the COMPOSED name off the progress header, which is the record every
+# downstream reader (pipeline-retro's PR lookup) resolves the branch from — rebuilding it as
+# `<branch_prefix><issue>` is right under github and wrong here, which is why the key exists.
+CFG_JIRA="$WORK/config-jira-branch.json"
+jq '.tracker.type = "jira" | .tracker.writes = false | .tracker.branchPrefix = "jdoe/"
+    | .tracker.keyPattern = "[A-Z]+-[0-9]+"' "$CFG" > "$CFG_JIRA"
+PROG_JIRA="$WORK/p2.md"; rm -f "$PROG_JIRA"
+# `entry` is what materializes the header, and it is also this run's attestation — the same
+# ordering reset_progress() puts every other case in.
+attest_at "$TREE" "$CFG_JIRA" "$PROG_JIRA" GH-540
+jira_branch="$(grep '^branch:' "$PROG_JIRA" 2>/dev/null | awk '{print $2}')"
+if [ "$jira_branch" = "jdoe/gh-540" ]; then
+  pass "(e3) under jira the branch key is lowercased: jdoe/ + GH-540 -> jdoe/gh-540"
+else fail "(e3) expected jdoe/gh-540, got '$jira_branch'"; fi
+
+# ...and the github key is NOT mangled by that transform — an unconditional lowercase would be
+# invisible on digits, so the negative half of AC-2 needs a key that could change.
+if [ "$(grep '^branch:' "$PROG" 2>/dev/null | awk '{print $2}')" = "claude/acme-7" ]; then
+  pass "(e3b) under github the composed name is <prefix><key>, untransformed"
+else fail "(e3b) github branch name mismatch: $(grep '^branch:' "$PROG" 2>/dev/null)"; fi
+
+# AC-4: an unset tracker.branchPrefix must FAIL rather than fall back to the `claude/acme-`
+# placeholder — that fallback is defect 2 in the ticket, and a guessed namespace stays invisible
+# until the PR is open. The fixture tree carries no remote branches, so detection finds nothing
+# and takes the refusal path.
+CFG_NOPREFIX="$WORK/config-noprefix.json"
+jq 'del(.tracker.branchPrefix)' "$CFG" > "$CFG_NOPREFIX"
+out="$( cd "$TREE" && SECOND_SHIFT_CONFIG="$CFG_NOPREFIX" LEAN_PROGRESS_FILE="$WORK/p3.md" \
+        bash "$GATE" 1 7 2>&1 )"; rc=$?
+if [ "$rc" -eq 2 ] && printf '%s' "$out" | grep -q 'refusing to guess' \
+   && ! printf '%s' "$out" | grep -qF 'claude/acme-'; then
+  pass "(e4) an unresolvable prefix is a loud refusal, never the claude/acme- placeholder"
+else fail "(e4) expected rc=2 with no placeholder fallback, got $rc: $out"; fi
 
 # ---- (f) AC-1 / D-33: the SKILL.md line cap ----------------------------------------------
 if [ -f "$SKILL" ]; then
@@ -390,17 +413,32 @@ if grep -qF '| milestone-3 | attempt | no verifying lane configured' "$PROG"; th
   pass "(iz1b) the red is charged to milestone 3's attempt counter, not a neighbor's"
 else fail "(iz1b) no milestone-3 attempt record in $PROG: $(cat "$PROG" 2>/dev/null)"; fi
 
-# AC-1: no config file at ALL (REPO_SLUG resolves the default 'acme') reds the same way, and
-# names the same three things — the absent path included, since "which file did you read?" is
-# the whole question an operator has when there is no config.
+# AC-1: a config carrying NO commands table at all reds the same way, and names the same three
+# things — the config path included, since "which file did you read?" is the whole question an
+# operator has here. (Before #413 this case removed the config file entirely; a run with no
+# config now refuses earlier, on the unresolvable branch namespace — asserted as (iz2b).)
+CFG_NOCMDS="$WORK/config-nocommands.json"
+jq 'del(.commands)' "$CFG" > "$CFG_NOCMDS"
+reset_progress
+out="$( cd "$TREE" && SECOND_SHIFT_CONFIG="$CFG_NOCMDS" LEAN_PROGRESS_FILE="$PROG" \
+        bash "$GATE" --issue-file "$ISSUE_NOREGIONS" 3 7 2>&1 )"; rc=$?
+if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q "no verifying lane configured for 'acme'" \
+   && printf '%s' "$out" | grep -qF "$CFG_NOCMDS" && printf '%s' "$out" | grep -q 'allowUnverified'; then
+  pass "(iz2) AC-1: a config with no commands table also reds, naming slug/config/allowUnverified"
+else fail "(iz2) expected rc=1 naming acme/$CFG_NOCMDS/allowUnverified, got $rc: $out"; fi
+
+# ...and with NO config file at all the run stops before any milestone is evaluated. That is the
+# #413 posture and it is deliberately EARLIER than the zero-lane red above: with no committed
+# config there is no branch namespace, and the retired `claude/acme-` fallback made that
+# invisible by writing a placeholder org slug into real branch names.
 CFG_ABSENT="$WORK/no-such-config.json"
 reset_progress
 out="$( cd "$TREE" && SECOND_SHIFT_CONFIG="$CFG_ABSENT" LEAN_PROGRESS_FILE="$PROG" \
         bash "$GATE" --issue-file "$ISSUE_NOREGIONS" 3 7 2>&1 )"; rc=$?
-if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q "no verifying lane configured for 'acme'" \
-   && printf '%s' "$out" | grep -qF "$CFG_ABSENT" && printf '%s' "$out" | grep -q 'allowUnverified'; then
-  pass "(iz2) AC-1: no config file at all also reds, naming slug/config/allowUnverified"
-else fail "(iz2) expected rc=1 naming acme/$CFG_ABSENT/allowUnverified, got $rc: $out"; fi
+if [ "$rc" -eq 2 ] && printf '%s' "$out" | grep -q 'refusing to guess' \
+   && ! printf '%s' "$out" | grep -qF 'claude/acme-'; then
+  pass "(iz2b) no config file at all refuses on the unresolvable namespace, with no placeholder"
+else fail "(iz2b) expected rc=2 refusing to guess, got $rc: $out"; fi
 
 # AC-2: exactly one fixed key set to a real command -> guard inert, existing behavior
 # unchanged (no mention of allowUnverified anywhere in the output).

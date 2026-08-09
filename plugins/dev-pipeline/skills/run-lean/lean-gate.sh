@@ -212,7 +212,6 @@ cfg() { # cfg <jq-filter> <default>
 
 PLANS_DIR="$(cfg '.paths.plansDir' 'docs/plans')"
 STATE_DIR="$(cfg '.paths.pipelineStateDir' '.claude/pipeline-state')"
-BRANCH_PREFIX="$(cfg '.tracker.branchPrefix' 'claude/acme-')"
 QUEUE_LABEL="$(cfg '.tracker.labels.queue' 'ready-for-dev')"
 CLAIMED_LABEL="$(cfg '.tracker.labels.claimed' 'in-progress')"
 HOST_Q='(.topology.repos | to_entries[] | select(.value.path==".") | .key)'
@@ -262,33 +261,30 @@ esac
 # one of those sites instead of derived here is a drift the CI gate surfaces as a red merge
 # boundary on every lean PR — see the plan's pinned-name-table section.
 
-# LOCKSTEP-BEGIN lean-branch-prefix
-# Branch prefix: replace the FIRST path segment with `lean`. The REQUIRED property is MUTUAL
-# non-prefix-matching against the pipeline prefix: both chain gates classify with
-# `head_ref == PREFIX*`, so a bare `lean/` derived from `claude/acme-` would satisfy a
-# one-directional reading while making EVERY pipeline PR applicable to the lean gate. Both
-# directions are asserted below, and separately at each host's selftest.
-lean_branch_prefix() {
-  local pipeline_prefix="$1" tail derived
-  case "$pipeline_prefix" in
-    */*) tail="${pipeline_prefix#*/}" ;;
-    *)   tail="$pipeline_prefix" ;;
-  esac
-  derived="lean/$tail"
-  # Pathological input (a configured prefix already under lean/) collapses the two onto
-  # each other. Fail loudly rather than return a colliding prefix — a silent collision
-  # double-classifies every PR in both gates.
-  case "$pipeline_prefix" in
-    "$derived"*) echo "[lean] configured tracker.branchPrefix '$pipeline_prefix' collides with the derived lean prefix '$derived' — they must be mutually non-prefix-matching." >&2; return 1 ;;
-  esac
-  case "$derived" in
-    "$pipeline_prefix"*) echo "[lean] derived lean prefix '$derived' prefix-matches the pipeline prefix '$pipeline_prefix' — refusing." >&2; return 1 ;;
-  esac
-  echo "$derived"
-}
-# LOCKSTEP-END lean-branch-prefix
+# The BRANCH. `<branchPrefix><key>`, the staged lane's formula verbatim (#413) — this lane no
+# longer re-roots the configured prefix onto a `lean/` namespace of its own. The two lanes
+# therefore SHARE one namespace, and nothing downstream may classify lean-vs-staged by branch
+# name any more: that discriminator is the committed lean spec, resolved in lean-evidence.sh.
+#
+# The prefix itself comes from branch-prefix.sh, which is the one implementation of the
+# resolution order (config, else the dominant prefix among remote branches, else refuse). The
+# old `cfg '.tracker.branchPrefix' 'claude/acme-'` default is deliberately gone: it wrote the
+# placeholder org slug into real branch names whenever a consumer had not set the key.
+# shellcheck source=branch-prefix.sh
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/branch-prefix.sh"
+BRANCH_PREFIX="$(resolve_branch_prefix \
+  "$(cfg '.tracker.branchPrefix' '')" "$TRACKER_TYPE" "$(cfg '.tracker.keyPattern' '')" "$MAIN_ROOT")" \
+  || exit 2
 
-LEAN_BRANCH_PREFIX="$(lean_branch_prefix "$BRANCH_PREFIX")" || exit 2
+# Under jira the key is lowercased in the branch name (tools/tracker/jira/README.md's `branch
+# name` row); under github the key is digits and the transform is an identity. Applied to the
+# KEY only, never to the prefix, which is used as configured.
+case "$TRACKER_TYPE" in
+  jira) BRANCH_KEY="$(printf '%s' "$ISSUE" | tr '[:upper:]' '[:lower:]')" ;;
+  *)    BRANCH_KEY="$ISSUE" ;;
+esac
+LEAN_BRANCH="$BRANCH_PREFIX$BRANCH_KEY"
+
 SPEC_REL="$PLANS_DIR/$REPO_SLUG-$ISSUE-lean.md"
 VERDICT_REL="$PLANS_DIR/$REPO_SLUG-$ISSUE-lean-verdict.md"
 # Same suffix check-lean-chain.sh's LEAN_INTENT_GAP_SUFFIX pins independently (it has no
@@ -669,7 +665,11 @@ ensure_progress_file() {
       echo "run_id: $RESOLVED_RUN_ID"
       echo "session_id: ${CLAUDE_CODE_SESSION_ID:-unset}"
       echo "issue: $ISSUE"
-      echo "branch_prefix: $LEAN_BRANCH_PREFIX"
+      echo "branch_prefix: $BRANCH_PREFIX"
+      # The COMPOSED name, not only its prefix (#413). A reader that rebuilt it as
+      # `<branch_prefix><issue>` would be right under github and wrong under jira, where the
+      # key is lowercased — pipeline-retro's PR lookup is exactly such a reader.
+      echo "branch: $LEAN_BRANCH"
       echo "spec: $SPEC_REL"
       echo "verdict_record: $VERDICT_REL"
       # #347: a corpus-aggregation key, not a new artifact — read once, here, at record
@@ -926,12 +926,12 @@ cmd_mark() {
     [ -f "$PR_FILE" ] || envfail "--pr-file '$PR_FILE' does not exist."
     pr="$(cat "$PR_FILE")"
   else
-    pr="$("$GH_CLI" pr list --head "$LEAN_BRANCH_PREFIX$ISSUE" --state open \
+    pr="$("$GH_CLI" pr list --head "$LEAN_BRANCH" --state open \
           --json number,url --limit 1 2>&1)" \
-      || { warn "✗ mark: could not list PRs for $LEAN_BRANCH_PREFIX$ISSUE: $pr"; return 1; }
+      || { warn "✗ mark: could not list PRs for $LEAN_BRANCH: $pr"; return 1; }
   fi
   printf '%s' "$pr" | jq -e 'type == "array" and length > 0' >/dev/null 2>&1 \
-    || { warn "✗ mark: no open PR found for branch $LEAN_BRANCH_PREFIX$ISSUE — open it first (checklist step 7)."; return 1; }
+    || { warn "✗ mark: no open PR found for branch $LEAN_BRANCH — open it first (checklist step 7)."; return 1; }
   prnum="$(printf '%s' "$pr" | jq -r '.[0].number')"
 
   if [ -n "$COMMENTS_FILE" ]; then
@@ -2294,12 +2294,12 @@ cmd_5() {
     [ -f "$PR_FILE" ] || envfail "--pr-file '$PR_FILE' does not exist."
     pr="$(cat "$PR_FILE")"
   else
-    pr="$("$GH_CLI" pr list --head "$LEAN_BRANCH_PREFIX$ISSUE" --state open \
+    pr="$("$GH_CLI" pr list --head "$LEAN_BRANCH" --state open \
           --json number,url,body,isDraft --limit 1 2>&1)" \
-      || { warn "$pr"; fail_milestone 5 "could not list PRs for $LEAN_BRANCH_PREFIX$ISSUE"; return $?; }
+      || { warn "$pr"; fail_milestone 5 "could not list PRs for $LEAN_BRANCH"; return $?; }
   fi
   printf '%s' "$pr" | jq -e 'type == "array" and length > 0' >/dev/null 2>&1 \
-    || { fail_milestone 5 "no open PR found for branch $LEAN_BRANCH_PREFIX$ISSUE"; return $?; }
+    || { fail_milestone 5 "no open PR found for branch $LEAN_BRANCH"; return $?; }
 
   draft="$(printf '%s' "$pr" | jq -r '.[0].isDraft')"
   body="$(printf '%s' "$pr" | jq -r '.[0].body // ""')"

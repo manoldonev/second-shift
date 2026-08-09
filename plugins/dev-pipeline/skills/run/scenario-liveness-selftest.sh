@@ -1826,6 +1826,109 @@ lc_all=$(sct get "$LC_KEY2" '[.stages[] | .ledgerCorroboration] | unique | join(
   || fail "(lcs3) fail-open to terminal — rc=$rc status='$status' values='$lc_all'"
 
 unset STATECTL_LEDGER_DIR
+
+# ══════════════════════════════════════════════════════════════════════════════
+# LANE ROUTING (#413) — exactly one merge-boundary gate claims any given PR
+# ══════════════════════════════════════════════════════════════════════════════
+# WHY THIS IS A SCENARIO AND NOT TWO FIXTURE CASES. Both lanes now cut branches under
+# `<tracker.branchPrefix><key>`, so the branch name no longer separates them; what does is that
+# BOTH gates ask lean-evidence.sh's classify() which lane owns a PR. That is a property of the
+# PAIR. Each gate's own suite drives it in isolation and cannot see the two failure modes that
+# matter — a PR claimed by BOTH (double-gated, and the lean one then reds on a stage trail its
+# lane never emits) and a PR claimed by NEITHER (the vacuous green the whole boundary exists to
+# prevent). Composing them over ONE tree and ONE branch shape is the only way to assert
+# "exactly one".
+echo
+echo "── lane routing (both merge-boundary gates over one PR)"
+
+LR_ROOT="$HERE/../../../.."
+LR_LEAN="$LR_ROOT/scripts/check-lean-chain.sh"
+LR_PIPE="$LR_ROOT/scripts/check-pipeline-chain.sh"
+LR_EV="$HERE/../run-lean/lean-evidence.sh"
+# BOTH chain gates live in the marketplace repo's `scripts/`, and both are second-shift-only by
+# construction — their own headers say not to ship them to a consumer. So when this suite runs
+# from a STAGED INSTALL CACHE (tools/install-topology-selftest.sh re-runs every shipped suite
+# there), they are correctly absent and these legs have nothing to compose. Skipping is right
+# there and WRONG here, so the two cases are told apart by the marketplace manifest, which only
+# the repo root carries: absent gates inside the repo stay a hard failure.
+if [[ ! -f "$LR_LEAN" || ! -f "$LR_PIPE" || ! -f "$LR_EV" ]] \
+   && [[ ! -f "$LR_ROOT/.claude-plugin/marketplace.json" ]]; then
+  echo "  skip: lane routing — the chain gates are marketplace-repo-only and this tree is an installed plugin cache"
+elif [[ ! -f "$LR_LEAN" || ! -f "$LR_PIPE" || ! -f "$LR_EV" ]]; then
+  # In the repo, absence is a FAILURE, not a skip — the same posture the lean legs above take.
+  fail "(lr) a chain gate or the classifier is missing — lane routing did not run (lean=$LR_LEAN pipe=$LR_PIPE ev=$LR_EV)"
+else
+  LR_TREE="$TMP/lr-tree"
+  mkdir -p "$LR_TREE/docs/plans"
+  git -C "$LR_TREE" init -q .
+  git -C "$LR_TREE" config user.email lr@example.invalid
+  git -C "$LR_TREE" config user.name lr-scenario
+  git -C "$LR_TREE" config commit.gpgsign false
+  echo "staged plan" > "$LR_TREE/docs/plans/acme-77.md"
+  printf '# lean spec\n\n- AC-1: does a thing\n' > "$LR_TREE/docs/plans/acme-77-lean.md"
+  git -C "$LR_TREE" add -A >/dev/null 2>&1
+  git -C "$LR_TREE" commit -qm "fixture: both lanes' artifacts for #77" >/dev/null 2>&1
+
+  LR_PREFIX="claude/acme-"
+  LR_OPEN="2026-07-30T12:00:00Z"
+  LR_BODY="Closes #77"
+  LR_SHA="$(git -C "$LR_TREE" rev-parse HEAD)"
+
+  # Both gates get an EMPTY comment trail on purpose: whichever one claims the PR reds on it,
+  # so "claimed" cannot be confused with "passed everything".
+  LR_EMPTY="$TMP/lr-empty.json"
+  echo '[]' > "$LR_EMPTY"
+
+  # Applicability is read off each gate's own decline line, never inferred from rc — a gate
+  # that ran and failed and a gate that declined need distinguishing, and only one prints a
+  # decline.
+  lr_lean() { # lr_lean <diff-file> -> applicable|declined
+    local out
+    out="$( cd "$LR_TREE" && PIPELINE_BRANCH_PREFIX="$LR_PREFIX" \
+      PR_HEAD_REF="${LR_PREFIX}77" PR_HEAD_SHA="$LR_SHA" \
+      PR_BASE_REF=main PR_BODY="$LR_BODY" PR_CREATED_AT="$LR_OPEN" \
+      LEAN_EVIDENCE="$LR_EV" bash "$LR_LEAN" --comments-file "$LR_EMPTY" \
+      --diff-files-file "$1" 2>&1 )"
+    if grep -q 'lean chain check not applicable' <<<"$out"; then echo declined; else echo applicable; fi
+  }
+  lr_pipe() { # lr_pipe <diff-file> -> applicable|declined
+    local out
+    out="$( cd "$LR_TREE" && PIPELINE_BRANCH_PREFIX="$LR_PREFIX" \
+      PIPELINE_PLAN_PATTERN="docs/plans/acme-{issueKey}.md" \
+      PR_HEAD_REF="${LR_PREFIX}77" PR_HEAD_SHA="$LR_SHA" \
+      PR_BASE_REF=main PR_BODY="$LR_BODY" PR_CREATED_AT="$LR_OPEN" \
+      LEAN_EVIDENCE="$LR_EV" bash "$LR_PIPE" --comments-file "$LR_EMPTY" \
+      --diff-files-file "$1" 2>&1 )"
+    if grep -q 'chain check not applicable' <<<"$out"; then echo declined; else echo applicable; fi
+  }
+
+  # (lr1) A LEAN PR: the same namespace a staged one uses, distinguished only by its spec.
+  LR_DIFF_LEAN="$TMP/lr-diff-lean.txt"
+  printf 'src/thing.ts\ndocs/plans/acme-77-lean.md\n' > "$LR_DIFF_LEAN"
+  lr_a="$(lr_lean "$LR_DIFF_LEAN")"; lr_b="$(lr_pipe "$LR_DIFF_LEAN")"
+  [[ "$lr_a" == "applicable" && "$lr_b" == "declined" ]] \
+    && pass "(lr1) a lean PR on the shared namespace routes to the LEAN gate only" \
+    || fail "(lr1) lean PR routing — lean=$lr_a pipeline=$lr_b"
+
+  # (lr2) A STAGED PR on the SAME branch shape. The only thing that moved is the diff, which is
+  # the entire claim: the discriminator is the artifact, not the name.
+  LR_DIFF_STAGED="$TMP/lr-diff-staged.txt"
+  printf 'src/thing.ts\ndocs/plans/acme-77.md\n' > "$LR_DIFF_STAGED"
+  lr_a="$(lr_lean "$LR_DIFF_STAGED")"; lr_b="$(lr_pipe "$LR_DIFF_STAGED")"
+  [[ "$lr_a" == "declined" && "$lr_b" == "applicable" ]] \
+    && pass "(lr2) a staged PR on the SAME branch shape routes to the PIPELINE gate only" \
+    || fail "(lr2) staged PR routing — lean=$lr_a pipeline=$lr_b"
+
+  # (lr3) The cross-key case, where a suffix-only artifact test would lose BOTH gates: a staged
+  # PR that merely edits some other ticket's lean spec must stay with the pipeline gate.
+  LR_DIFF_OTHER="$TMP/lr-diff-other.txt"
+  printf 'src/thing.ts\ndocs/plans/acme-99-lean.md\n' > "$LR_DIFF_OTHER"
+  lr_a="$(lr_lean "$LR_DIFF_OTHER")"; lr_b="$(lr_pipe "$LR_DIFF_OTHER")"
+  [[ "$lr_a" == "declined" && "$lr_b" == "applicable" ]] \
+    && pass "(lr3) a PR carrying ANOTHER ticket's lean spec is not orphaned — the pipeline gate keeps it" \
+    || fail "(lr3) cross-key routing — lean=$lr_a pipeline=$lr_b"
+fi
+
 echo
 echo "[scenario-liveness] summary: $PASS passed, $FAIL failed"
 exit $FAIL

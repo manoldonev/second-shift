@@ -24,18 +24,37 @@
 #   PR_CREATED_AT           required  ISO-8601; the PR-open observation point
 #   GH_REPO                 required for the live path  "<owner>/<repo>"
 #   GH_TOKEN                required for the live path
+#   PR_BASE_REF             required for the lean exclusion  the PR's base branch; the delegated
+#                                     classifier diffs against it to see the PR's own files
+#   PR_HEAD_SHA             required for the lean exclusion  the PR HEAD COMMIT (not `HEAD`,
+#                                     which on a pull_request event is merge(base, head))
 #   PIPELINE_COMMENT_AUTHOR optional  exact bot login the stage trail must come from; absent
 #                                     degrades to "any Bot author" (see the trust filter below)
+#   LEAN_EVIDENCE           optional  path to lean-evidence.sh, when it is not at the committed
+#                                     plugin path (testing / vendored fork)
+#
+# THE LEAN EXCLUSION, AND WHY IT IS DELEGATED (#413). Both lanes now cut branches under
+# PIPELINE_BRANCH_PREFIX, so this check's prefix arm matches lean PRs too — and a lean PR
+# carries none of the stage markers below, so every one of them would red on a trail its lane
+# never emits. The exclusion is therefore mandatory, not a nicety. It is resolved by calling
+# plugins/dev-pipeline/skills/run-lean/lean-evidence.sh's `classify` and exempting when it
+# reports applicable, rather than by re-implementing the lean-spec test here: with ONE
+# classifier, "no PR is applicable to both gates" holds by construction instead of by two
+# implementations continuing to agree.
 #
 # Seams (zero-network selftest, following preflight-selftest.sh's PATH-mock precedent):
 #   ${GH:-gh}               the CLI used for the comment fetch
 #   --comments-file <path>  read the comment trail from a JSON fixture instead of fetching
+#   --diff-files-file <p>   forwarded to the delegated classifier: read the PR's changed-file
+#                           list from a newline fixture instead of diffing
 #
 # The env constants exist because the runtime config (.claude/second-shift.config.json) is
 # gitignored and absent in CI. Nothing reconciles them against it: a stale prefix matches zero
 # branches and this check degrades to a silent no-op. That is why an unresolvable constant is
 # fatal rather than exempt, and why the resolved prefix is echoed on every not-applicable
-# verdict. The residual risk is recorded in the manifesto's T0 note.
+# verdict. The residual risk is recorded in the manifesto's T0 note. Note the asymmetry the
+# delegation introduces: the LEAN gate has no such constant left to stale out, because its
+# applicability is artifact-derived. This one still does.
 #
 # Exit 0 = pass or not-applicable; 1 = chain violation; 2 = usage/environment error.
 # (Same convention as check-frozen-files.sh.)
@@ -43,11 +62,13 @@ set -uo pipefail
 
 GH_CLI="${GH:-gh}"
 COMMENTS_FILE=""
+DIFF_FILES_FILE=""
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --comments-file) COMMENTS_FILE="${2:-}"; shift 2 ;;
-    -h|--help) sed -n '2,40p' "$0"; exit 0 ;;
+    --comments-file)   COMMENTS_FILE="${2:-}"; shift 2 ;;
+    --diff-files-file) DIFF_FILES_FILE="${2:-}"; shift 2 ;;
+    -h|--help) sed -n '2,60p' "$0"; exit 0 ;;
     *) echo "[pipeline-chain] unknown argument: $1" >&2; exit 2 ;;
   esac
 done
@@ -100,6 +121,34 @@ if [[ ! "$SUFFIX" =~ ^([0-9]+)$ ]]; then
 fi
 KEY_BRANCH="${BASH_REMATCH[1]}"
 
+REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null)" \
+  || envfail "not in a git repo — cannot resolve the committed plan file."
+
+# ---- (3b) applicability: NOT a lean-lane PR ---------------------------------------------
+# Delegated, never re-implemented — see the header. Fail-closed on every failure mode the
+# delegation can have: a missing payload, a non-zero exit, or an unparseable verdict all exit 2
+# rather than falling through to "pipeline PR", because the fall-through reds a lean PR on a
+# stage trail its lane never emits and the operator has no way to tell that from a real gap.
+LEAN_PAYLOAD="${LEAN_EVIDENCE:-$REPO_ROOT/plugins/dev-pipeline/skills/run-lean/lean-evidence.sh}"
+[[ -f "$LEAN_PAYLOAD" ]] \
+  || envfail "the lean evidence payload is missing at '$LEAN_PAYLOAD' — this check cannot tell a lean PR from a pipeline one without it, and both lanes now share the branch namespace. Set LEAN_EVIDENCE if it lives elsewhere."
+
+LEAN_ARGS=()
+[[ -n "$DIFF_FILES_FILE" ]] && LEAN_ARGS+=(--diff-files-file "$DIFF_FILES_FILE")
+LEAN_CLASSIFY="$(bash "$LEAN_PAYLOAD" classify "${LEAN_ARGS[@]+"${LEAN_ARGS[@]}"}")" \
+  || envfail "the lean evidence payload failed to classify this PR — refusing to guess which gate owns it. Output was: $LEAN_CLASSIFY"
+LEAN_APPLICABLE="$(printf '%s\n' "$LEAN_CLASSIFY" | sed -n 's/^applicable=//p' | head -n1)"
+LEAN_TRIGGER="$(printf '%s\n' "$LEAN_CLASSIFY" | sed -n 's/^trigger=//p' | head -n1)"
+[[ -n "$LEAN_APPLICABLE" ]] \
+  || envfail "the lean evidence payload returned no applicability verdict — refusing to guess. Output was: $LEAN_CLASSIFY"
+
+if [[ "$LEAN_APPLICABLE" -eq 1 ]]; then
+  echo "[pipeline-chain] lean-lane change — chain check not applicable."
+  echo "[pipeline-chain]   head branch: $PR_HEAD_REF"
+  echo "[pipeline-chain]   classified lean via $LEAN_TRIGGER; scripts/check-lean-chain.sh gates this PR."
+  exit 0
+fi
+
 echo "[pipeline-chain] applicable: branch=$PR_HEAD_REF key=$KEY_BRANCH"
 
 # ---- (4) resolve the source issue from the PR body --------------------------------------
@@ -129,8 +178,6 @@ plan_path_for() { # plan_path_for <key> -> the pattern-derived path
   printf '%s' "$PIPELINE_PLAN_PATTERN" \
     | sed -e "s|{issueKey}|$1|g" -e "s|{[a-zA-Z][a-zA-Z0-9]*}||g"
 }
-REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null)" \
-  || envfail "not in a git repo — cannot resolve the committed plan file."
 
 # (b) branch key -> plan file must exist.
 PLAN_BRANCH="$(plan_path_for "$KEY_BRANCH")"

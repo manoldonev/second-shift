@@ -171,16 +171,12 @@ jobs:
     # the resolved prefix on every not-applicable verdict. Residual risk is recorded in
     # docs/pipeline-manifesto.md's T0 note.
     env:
+      # ONE namespace for both lanes (#413) — the lean harness cuts `<branchPrefix><key>`
+      # branches too, so the separate LEAN_BRANCH_PREFIX constant that used to sit here is
+      # retired. Neither chain gate classifies on the branch name any more: both delegate to
+      # lean-evidence.sh, which reads the committed lean spec in the PR's own diff.
       PIPELINE_BRANCH_PREFIX: claude/second-shift-
       PIPELINE_PLAN_PATTERN: docs/plans/acme-{issueKey}.md
-      # The lean harness's branch namespace. lean-gate.sh derives this at runtime from
-      # tracker.branchPrefix (first path segment replaced with `lean`); it is restated here
-      # for the same reason as the two constants above — the runtime config is gitignored and
-      # absent in CI. It must stay MUTUALLY non-prefix-matching with PIPELINE_BRANCH_PREFIX,
-      # or the two chain gates classify the same PRs; check-lean-chain.sh asserts exactly that
-      # and exits 2 rather than guessing. Unlike the pipeline prefix, a STALE value here
-      # cannot silently exempt a lean PR: that gate also applies on lean-artifact presence.
-      LEAN_BRANCH_PREFIX: lean/second-shift-
     steps:
       - uses: actions/checkout@v5
         with:
@@ -207,23 +203,35 @@ jobs:
       # public, so anyone can comment on an issue). Pinning the exact bot login would only
       # additionally exclude *other* GitHub Apps, and it would write an app identity into a
       # committed file plus add a third constant that can go stale. Set it if that trade flips.
+      #
+      # PR_BASE_REF and PR_HEAD_SHA are additional to the PR_* set the stage-trail arms need:
+      # this check now delegates its lean exclusion to lean-evidence.sh (#413), which reads the
+      # PR's CHANGED FILES and therefore needs a base to diff against. Without them the
+      # classifier sees an empty diff, reports every lean PR as non-lean, and this gate reds it
+      # on a stage trail the lean lane never emits. Same head-commit discipline as the lean
+      # gate's step below.
       - name: pipeline chain reconciliation (pipeline-authored PRs carry a complete stage trail)
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_REPO: ${{ github.repository }}
           PR_HEAD_REF: ${{ github.event.pull_request.head.ref }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PR_BASE_REF: ${{ github.base_ref }}
           PR_BODY: ${{ github.event.pull_request.body }}
           PR_CREATED_AT: ${{ github.event.pull_request.created_at }}
         run: bash scripts/check-pipeline-chain.sh
 
-      # The lean harness's own merge-boundary gate. A SIBLING of the check above, not a mode
-      # of it: the two cover disjoint branch namespaces and different evidence sets, and
-      # editing check-pipeline-chain.sh would have re-keyed its four mutation-baseline rows
-      # for zero benefit.
+      # The lean harness's own merge-boundary gate. A SIBLING of the check above, not a mode of
+      # it: the two read different evidence sets. They no longer cover disjoint branch
+      # NAMESPACES — #413 put both lanes on `<tracker.branchPrefix><key>` — so what keeps exactly
+      # one of them claiming a PR is the committed lean spec, and both resolve that through the
+      # SAME classifier (lean-evidence.sh) rather than by two agreeing implementations.
       #
-      # PR_BASE_REF is additional to the PR_* set above — this gate reads the PR's changed
-      # files (for the lean-artifact applicability arm), which needs the base to diff against.
-      # Same env-not-interpolation discipline throughout.
+      # PR_BASE_REF is load-bearing for both steps, not a convenience: the classifier's sole
+      # applicability arm scans the PR's changed files, which needs a base to diff against, and
+      # it exits 2 rather than reporting "not lean" when it cannot. Dropping this key reds both
+      # gates instead of silently exempting the PR from them. Same env-not-interpolation
+      # discipline throughout.
       #
       # PR_HEAD_SHA is the freshness check's measuring point and must be the HEAD COMMIT, not
       # `HEAD`: on a pull_request event actions/checkout resolves refs/pull/N/merge, so HEAD is

@@ -141,7 +141,7 @@ chmod +x "$EVSTUB"
 ev_run() { # ev_run <dir> <stub-rc>
   ( cd "$1" && SECOND_SHIFT_CONFIG_LINT="$STUB" STUB_RC=0 \
       SECOND_SHIFT_LEAN_EVIDENCE="$EVSTUB" EV_STUB_RC="$2" \
-      PR_HEAD_REF="lean/acme-42" PR_HEAD_SHA=deadbeef PR_BASE_REF=main PR_NUMBER=9 \
+      PR_HEAD_REF="claude/acme-42" PR_HEAD_SHA=deadbeef PR_BASE_REF=main PR_NUMBER=9 \
       PR_BODY="Closes #42" GH_REPO="acme/acme" bash "$TOOL" )
 }
 
@@ -173,7 +173,7 @@ check "no PR context: the payload did not run"         "$(grep -q "stub speaking
 # be missing entirely if the path were never fetched.
 make_repo "$TMP/ev404" "v9.9.0" "v9.9.0" "manoldonev/second-shift"
 out="$(cd "$TMP/ev404" && env -u SECOND_SHIFT_CONFIG_LINT -u SECOND_SHIFT_LEAN_EVIDENCE \
-        PATH="$TMP/bin404:$PATH" PR_HEAD_REF="lean/acme-42" PR_HEAD_SHA=deadbeef PR_BASE_REF=main \
+        PATH="$TMP/bin404:$PATH" PR_HEAD_REF="claude/acme-42" PR_HEAD_SHA=deadbeef PR_BASE_REF=main \
         PR_NUMBER=9 PR_BODY="Closes #42" GH_REPO="acme/acme" bash "$TOOL")"; rc=$?
 check "lean payload 404: exit >=1 (a moved path IS drift) (AC-2)" "$([ "$rc" -ge 1 ] && echo 0 || echo 1)"
 check "lean payload 404: FAIL names the payload path and the 404 (AC-2)" \
@@ -182,7 +182,7 @@ check "lean payload 404: FAIL names the payload path and the 404 (AC-2)" \
 
 # ...and a network/auth failure fetching the payload stays a non-fatal WARN, same as (a)'s.
 out="$(cd "$TMP/ev404" && env -u SECOND_SHIFT_CONFIG_LINT -u SECOND_SHIFT_LEAN_EVIDENCE \
-        PATH="$TMP/binnet:$PATH" PR_HEAD_REF="lean/acme-42" PR_HEAD_SHA=deadbeef PR_BASE_REF=main \
+        PATH="$TMP/binnet:$PATH" PR_HEAD_REF="claude/acme-42" PR_HEAD_SHA=deadbeef PR_BASE_REF=main \
         PR_NUMBER=9 PR_BODY="Closes #42" GH_REPO="acme/acme" bash "$TOOL")"; rc=$?
 check "lean payload network error: exit 0 (non-fatal WARN)" "$([ "$rc" -eq 0 ] && echo 0 || echo 1)"
 check "lean payload network error: says could not verify"   "$(grep -q "lean-evidence: could not verify" <<<"$out" && echo 0 || echo 1)"

@@ -84,12 +84,32 @@ trail "$FULL" \
   "doc-update:$RUN_A:2026-07-30T09:30:00Z" \
   "code-review:$RUN_A:2026-07-30T09:40:00Z"
 
+# THE DELEGATED LEAN CLASSIFIER (#413). Both lanes share the branch namespace now, so every
+# case below runs through the lean exclusion before it reaches a stage-trail arm. The fixture
+# repo is not a marketplace checkout, so the payload is reached through LEAN_EVIDENCE — the same
+# seam a vendored fork uses — pointed at the REAL file. Copying it in would be a mirror harness
+# that cannot fail on a production edit.
+LEAN_EV="$HERE/../plugins/dev-pipeline/skills/run-lean/lean-evidence.sh"
+if [[ ! -f "$LEAN_EV" ]]; then
+  echo "FATAL: $LEAN_EV does not exist — this check now delegates its lean exclusion to it." >&2
+  exit 2
+fi
+# The DEFAULT changed-file list carries no lean spec, so every pre-existing case below stays a
+# pipeline PR and keeps testing what it was written to test.
+DIFF_PLAIN="$WORK/diff-plain.txt"
+printf 'src/thing.ts\ndocs/plans/acme-42.md\n' > "$DIFF_PLAIN"
+# ...and this one carries #42's lean spec, which is what makes a PR lean.
+DIFF_LEAN="$WORK/diff-lean.txt"
+printf 'src/thing.ts\ndocs/plans/acme-42-lean.md\n' > "$DIFF_LEAN"
+
 # run_chain <branch> <body> <comments-file> [extra env assignments as VAR=VAL]
 run_chain() {
   local branch="$1" body="$2" cfile="$3"; shift 3
   env PIPELINE_BRANCH_PREFIX="$PREFIX" PIPELINE_PLAN_PATTERN="$PATTERN" \
+      LEAN_EVIDENCE="$LEAN_EV" \
       PR_HEAD_REF="$branch" PR_BODY="$body" PR_CREATED_AT="$OPEN_AT" \
-      "$@" bash "$CHAIN" --comments-file "$cfile" > "$WORK/out.log" 2>&1
+      "$@" bash "$CHAIN" --comments-file "$cfile" \
+      --diff-files-file "${DIFF_OVERRIDE:-$DIFF_PLAIN}" > "$WORK/out.log" 2>&1
 }
 
 echo "== applicability =="
@@ -109,6 +129,67 @@ rc=$?
 if [[ $rc -eq 0 ]] && grep -q "non-key suffix" "$WORK/out.log"; then
   ok "prefix-matched branch with a non-key suffix is exempt with notice (AC-3)"
 else bad "non-key suffix: rc=$rc, log: $(cat "$WORK/out.log")"; fi
+
+echo "== the lean exclusion (#413) =="
+
+# THE CASE THIS EXCLUSION EXISTS FOR. Both lanes cut `<branchPrefix><key>` branches, so this
+# branch is indistinguishable from a pipeline one by name. Its diff carries #42's lean spec —
+# the trail here is FULL, so a gate that ran anyway would pass for the wrong reason. Drive it
+# with an EMPTY trail instead: a lean PR emits no stage markers at all, which is exactly the
+# state that reds every arm below if the exclusion does not fire first.
+EMPTY_TRAIL="$WORK/empty.json"
+echo '[]' > "$EMPTY_TRAIL"
+DIFF_OVERRIDE="$DIFF_LEAN" run_chain "${PREFIX}42" "Closes #42" "$EMPTY_TRAIL"
+rc=$?
+if [[ $rc -eq 0 ]] && grep -q "lean-lane change" "$WORK/out.log" \
+   && grep -q "check-lean-chain.sh gates this PR" "$WORK/out.log"; then
+  ok "a lean PR sharing the branch namespace is exempted, and named to the gate that owns it"
+else bad "lean exclusion: rc=$rc, log: $(cat "$WORK/out.log")"; fi
+
+# NON-VACUITY, the other direction: the exclusion must be keyed on the artifact and not simply
+# always on. Same branch, same empty trail, a diff with no lean spec — this must still fail.
+DIFF_OVERRIDE="$DIFF_PLAIN" run_chain "${PREFIX}42" "Closes #42" "$EMPTY_TRAIL"
+rc=$?
+if [[ $rc -eq 1 ]]; then
+  ok "the exclusion is artifact-keyed: the same branch with no lean spec is still gated"
+else bad "lean exclusion over-reach: rc=$rc, log: $(cat "$WORK/out.log")"; fi
+
+# ...and a staged PR that merely EDITS some other ticket's lean spec is not lean either. The
+# branch key is 42; the diff carries #99's spec. A suffix-only artifact test would exempt this
+# PR from both gates at once.
+DIFF_OTHER="$WORK/diff-other-lean.txt"
+printf 'src/thing.ts\ndocs/plans/acme-99-lean.md\n' > "$DIFF_OTHER"
+DIFF_OVERRIDE="$DIFF_OTHER" run_chain "${PREFIX}42" "Closes #42" "$FULL"
+rc=$?
+if [[ $rc -eq 0 ]] && grep -q "chain complete and key-consistent" "$WORK/out.log"; then
+  ok "a staged PR editing ANOTHER ticket's lean spec stays gated here (no double exemption)"
+else bad "cross-key lean spec wrongly exempted: rc=$rc, log: $(cat "$WORK/out.log")"; fi
+
+# FAIL-CLOSED. An unreachable payload must exit 2, never fall through to "pipeline PR" — the
+# fall-through reds every lean PR on a trail its lane never emits, and the operator cannot tell
+# that from a real gap.
+DIFF_OVERRIDE="$DIFF_LEAN" run_chain "${PREFIX}42" "Closes #42" "$EMPTY_TRAIL" \
+  LEAN_EVIDENCE="$WORK/does-not-exist.sh"
+rc=$?
+if [[ $rc -eq 2 ]] && grep -q "lean evidence payload is missing" "$WORK/out.log"; then
+  ok "an unreachable lean classifier is an environment error, not a silent fall-through"
+else bad "missing payload not fail-closed: rc=$rc, log: $(cat "$WORK/out.log")"; fi
+
+# The payload REACHABLE but its input unreadable is the same class one level in, and it is the
+# one an agent-editable workflow can reach: dropping `PR_BASE_REF:` from the pr-gates env block
+# leaves the classifier with no diff to scan. AC-7's letter — "a delegation that cannot run is an
+# environment error, never a silent exemption" — is asserted here at the composed boundary, since
+# the payload's own rc=2 buys nothing if this caller swallows it. No --diff-files-file, so the
+# live path is what runs.
+env PIPELINE_BRANCH_PREFIX="$PREFIX" PIPELINE_PLAN_PATTERN="$PATTERN" \
+    LEAN_EVIDENCE="$LEAN_EV" \
+    PR_HEAD_REF="${PREFIX}42" PR_BODY="Closes #42" PR_CREATED_AT="$OPEN_AT" \
+    bash "$CHAIN" --comments-file "$EMPTY_TRAIL" > "$WORK/out.log" 2>&1
+rc=$?
+if [[ $rc -eq 2 ]] && grep -q "failed to classify" "$WORK/out.log" \
+   && ! grep -q "lean-lane change" "$WORK/out.log"; then
+  ok "a delegation whose diff is unreadable exits 2 — never a silent exemption either way (AC-7)"
+else bad "unreadable delegation input not fail-closed: rc=$rc, log: $(cat "$WORK/out.log")"; fi
 
 echo "== fail-closed env constants (AC-3) =="
 
@@ -199,9 +280,14 @@ if [[ $rc -eq 0 ]] && grep -q "aaaa1111" "$WORK/out.log"; then
 else bad "window selection: rc=$rc, log: $(cat "$WORK/out.log")"; fi
 
 # And the whole chain being newer than PR-open is a genuine failure: nothing was visible at open.
+# The three invocations below bypass run_chain to vary env this helper pins, so they carry
+# --diff-files-file themselves: the delegated classifier now treats an unreadable diff as an
+# environment error, and without it every one of them would exit 2 on the delegation instead of
+# reaching the arm it is here to test.
 env PIPELINE_BRANCH_PREFIX="$PREFIX" PIPELINE_PLAN_PATTERN="$PATTERN" \
+    LEAN_EVIDENCE="$LEAN_EV" \
     PR_HEAD_REF="${PREFIX}42" PR_BODY="Closes #42" PR_CREATED_AT="2026-07-30T08:00:00Z" \
-    bash "$CHAIN" --comments-file "$FULL" > "$WORK/out.log" 2>&1
+    bash "$CHAIN" --comments-file "$FULL" --diff-files-file "$DIFF_PLAIN" > "$WORK/out.log" 2>&1
 rc=$?
 if [[ $rc -eq 1 ]] && grep -q "chain does not start" "$WORK/out.log"; then
   ok "a trail entirely after PR-open fails — nothing was visible at the observation point"
@@ -267,9 +353,10 @@ MOCKBIN="$WORK/bin"; mkdir -p "$MOCKBIN"
 printf '#!/usr/bin/env bash\necho "API rate limit exceeded" >&2\nexit 1\n' > "$MOCKBIN/gh-fail"
 chmod +x "$MOCKBIN/gh-fail"
 env PIPELINE_BRANCH_PREFIX="$PREFIX" PIPELINE_PLAN_PATTERN="$PATTERN" \
+    LEAN_EVIDENCE="$LEAN_EV" \
     PR_HEAD_REF="${PREFIX}42" PR_BODY="Closes #42" PR_CREATED_AT="$OPEN_AT" \
     GH_REPO="owner/repo" GH="$MOCKBIN/gh-fail" \
-    bash "$CHAIN" > "$WORK/out.log" 2>&1
+    bash "$CHAIN" --diff-files-file "$DIFF_PLAIN" > "$WORK/out.log" 2>&1
 rc=$?
 if [[ $rc -eq 2 ]] && grep -q "comment fetch failed" "$WORK/out.log"; then
   ok "failed comment fetch exits 2 (environment), never a silent pass (D-11)"
@@ -279,9 +366,10 @@ else bad "fetch failure: rc=$rc, log: $(cat "$WORK/out.log")"; fi
 printf '#!/usr/bin/env bash\ncat "%s"\n' "$FULL" > "$MOCKBIN/gh-ok"
 chmod +x "$MOCKBIN/gh-ok"
 env PIPELINE_BRANCH_PREFIX="$PREFIX" PIPELINE_PLAN_PATTERN="$PATTERN" \
+    LEAN_EVIDENCE="$LEAN_EV" \
     PR_HEAD_REF="${PREFIX}42" PR_BODY="Closes #42" PR_CREATED_AT="$OPEN_AT" \
     GH_REPO="owner/repo" GH="$MOCKBIN/gh-ok" \
-    bash "$CHAIN" > "$WORK/out.log" 2>&1
+    bash "$CHAIN" --diff-files-file "$DIFF_PLAIN" > "$WORK/out.log" 2>&1
 rc=$?
 if [[ $rc -eq 0 ]]; then ok "the \${GH:-gh} seam drives the live path (zero network)"
 else bad "live path via mock gh: rc=$rc, log: $(cat "$WORK/out.log")"; fi

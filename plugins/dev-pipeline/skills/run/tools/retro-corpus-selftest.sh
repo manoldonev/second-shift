@@ -63,7 +63,7 @@ mkprogress() {
     echo "run_id: run$issue"
     echo "session_id: sess$issue"
     echo "issue: $issue"
-    echo "branch_prefix: lean/second-shift-"
+    echo "branch_prefix: claude/second-shift-"
     echo "spec: docs/plans/second-shift-$issue-lean.md"
     echo "verdict_record: docs/plans/second-shift-$issue-lean-verdict.md"
     [ -n "$modelline" ] && echo "model: $modelline"
@@ -145,16 +145,24 @@ else
 fi
 
 # ═══════════════════════════════════════════════════════════════════════════════════
-# AC-5: open-prs — flags a lean-branch PR verdict-less when its issue's comments carry no
-# reference to the expected verdict-record path; does not flag one that does; ignores a
-# non-lean-prefixed PR entirely.
+# AC-5: open-prs — flags a lean PR verdict-less when its issue's comments carry no reference to
+# the expected verdict-record path; does not flag one that does; ignores a non-lean PR entirely.
+#
+# WHAT "NON-LEAN" MEANS HERE CHANGED (#413). Both lanes cut `<branchPrefix><key>` branches, so
+# 703 below sits on the SAME namespace as the two lean PRs and is distinguished only by carrying
+# no lean spec in its own file list. Under the retired namespace filter it was excluded for
+# free; now excluding it is the discriminator's job, and a regression there reports every staged
+# PR as abandoned lean work.
 # ═══════════════════════════════════════════════════════════════════════════════════
 D="$WORK/ac5"; mkdir -p "$D/comments"
 PRLIST="$D/prs.json"
 jq -n '[
-  {number: 701, headRefName: "lean/second-shift-701", url: "https://example.invalid/pr/701"},
-  {number: 702, headRefName: "lean/second-shift-702", url: "https://example.invalid/pr/702"},
-  {number: 703, headRefName: "claude/second-shift-703", url: "https://example.invalid/pr/703"}
+  {number: 701, headRefName: "claude/second-shift-701", url: "https://example.invalid/pr/701",
+   files: [{path: "docs/plans/second-shift-701-lean.md"}, {path: "src/a.ts"}]},
+  {number: 702, headRefName: "claude/second-shift-702", url: "https://example.invalid/pr/702",
+   files: [{path: "docs/plans/second-shift-702-lean.md"}]},
+  {number: 703, headRefName: "claude/second-shift-703", url: "https://example.invalid/pr/703",
+   files: [{path: "docs/plans/acme-703.md"}, {path: "src/b.ts"}]}
 ]' > "$PRLIST"
 # 701: no comments at all -> verdict-less.
 echo '[]' > "$D/comments/701.json"
@@ -167,9 +175,80 @@ VL701="$(jq -r '.[] | select(.issue == 701) | .verdictLess' <<<"$OUT")"
 VL702="$(jq -r '.[] | select(.issue == 702) | .verdictLess' <<<"$OUT")"
 HAS703="$(jq -r '[.[].issue] | index(703) != null' <<<"$OUT")"
 if [ "$N" = "2" ] && [ "$VL701" = "true" ] && [ "$VL702" = "false" ] && [ "$HAS703" = "false" ]; then
-  pass "(AC-5) open-prs: flags the verdict-less lean PR, clears the referenced one, ignores the non-lean PR"
+  pass "(AC-5) open-prs: flags the verdict-less lean PR, clears the referenced one, ignores the staged PR"
 else
   fail "(AC-5) n=$N vl701=$VL701 vl702=$VL702 has703=$HAS703 — got $OUT"
+fi
+
+# The discriminator is KEY-MATCHED, not "any lean-shaped file": a staged PR that merely edits an
+# older ticket's lean spec is not abandoned lean work. And a lean-SHAPED fixture path casts no
+# vote, for the same reason it does not at the merge boundary — this repo's trees carry
+# deliberately lean-shaped fixtures.
+PRLIST2="$D/prs2.json"
+jq -n '[
+  {number: 704, headRefName: "claude/second-shift-704", url: "https://example.invalid/pr/704",
+   files: [{path: "docs/plans/second-shift-701-lean.md"}]},
+  {number: 705, headRefName: "claude/second-shift-705", url: "https://example.invalid/pr/705",
+   files: [{path: "scripts/fixtures/second-shift-705-lean.md"}]}
+]' > "$PRLIST2"
+OUT2="$(run_open_prs --pr-list-file "$PRLIST2" --comments-dir "$D/comments" --json)"
+if [ "$(jq 'length' <<<"$OUT2")" = "0" ]; then
+  pass "(AC-5b) open-prs: another ticket's spec and a fixture-path spec both cast no vote"
+else
+  fail "(AC-5b) expected no rows, got $OUT2"
+fi
+
+# A row with no `files` key at all cannot be classified. Erroring is the point: silently
+# skipping it would report "no open lean work" for a list the discriminator never actually read.
+jq -n '[{number: 706, headRefName: "claude/second-shift-706", url: "https://example.invalid/pr/706"}]' \
+  > "$D/prs-nofiles.json"
+OUT3="$(run_open_prs --pr-list-file "$D/prs-nofiles.json" --json 2>&1)"; RC3=$?
+if [ "$RC3" -eq 2 ] && printf '%s' "$OUT3" | grep -q "carry no 'files'"; then
+  pass "(AC-5c) open-prs: a PR list without the files field is an environment error, not an empty result"
+else
+  fail "(AC-5c) rc=$RC3 — got $OUT3"
+fi
+
+# ═══════════════════════════════════════════════════════════════════════════════════
+# #413 AC-5: this mode resolves its namespace through the SHARED resolver, not a local copy.
+# Behavioral, not a grep for an absent function: with tracker.branchPrefix UNSET, the only way
+# to reach a namespace at all is branch-prefix.sh's dominant-prefix detection over the repo's
+# remote refs. A re-introduced local copy would have to re-implement detection to pass this —
+# and a local copy that simply restored the old `claude/acme-` default fails it outright.
+# ═══════════════════════════════════════════════════════════════════════════════════
+D5="$WORK/ac5-shared"; mkdir -p "$D5/comments"
+CFG_NOPREFIX="$WORK/config-noprefix.json"
+jq 'del(.tracker.branchPrefix)' "$TREE/.claude/second-shift.config.json" > "$CFG_NOPREFIX"
+# The refs the detection votes on. `for-each-ref` reads these directly — no remote, no fetch.
+git -C "$TREE" commit -q --allow-empty -m "ac5-shared fixture" 2>/dev/null
+for b in team/second-shift-801 team/second-shift-802 release/1.2.0; do
+  git -C "$TREE" update-ref "refs/remotes/origin/$b" HEAD
+done
+jq -n '[
+  {number: 801, headRefName: "team/second-shift-801", url: "https://example.invalid/pr/801",
+   files: [{path: "docs/plans/second-shift-801-lean.md"}]}
+]' > "$D5/prs.json"
+echo '[]' > "$D5/comments/801.json"
+OUT5="$( cd "$TREE" && SECOND_SHIFT_CONFIG="$CFG_NOPREFIX" bash "$TOOL" open-prs \
+         --pr-list-file "$D5/prs.json" --comments-dir "$D5/comments" --json 2>&1 )"; RC5=$?
+if [ "$RC5" -eq 0 ] && [ "$(jq -r '.[0].issue' <<<"$OUT5" 2>/dev/null)" = "801" ]; then
+  pass "(AC-5d) open-prs resolves an UNSET branchPrefix through the shared detector, not a local default"
+else
+  fail "(AC-5d) rc=$RC5 — got $OUT5"
+fi
+
+# ...and it inherits the shared refusal, rather than falling back to anything. Same call, refs
+# cleared: a local copy carrying the retired `claude/acme-` default would quietly return zero
+# rows here instead of erroring, which reads as "no open lean work".
+for b in team/second-shift-801 team/second-shift-802 release/1.2.0; do
+  git -C "$TREE" update-ref -d "refs/remotes/origin/$b"
+done
+OUT5B="$( cd "$TREE" && SECOND_SHIFT_CONFIG="$CFG_NOPREFIX" bash "$TOOL" open-prs \
+          --pr-list-file "$D5/prs.json" --comments-dir "$D5/comments" --json 2>&1 )"; RC5B=$?
+if [ "$RC5B" -eq 2 ] && printf '%s' "$OUT5B" | grep -q 'refusing to guess'; then
+  pass "(AC-5e) open-prs inherits the shared refusal on an unresolvable namespace"
+else
+  fail "(AC-5e) rc=$RC5B — got $OUT5B"
 fi
 
 # ═══════════════════════════════════════════════════════════════════════════════════
