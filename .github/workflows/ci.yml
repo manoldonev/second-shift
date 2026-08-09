@@ -164,48 +164,13 @@ jobs:
           SKIP_STRESS: '1'
         run: bash tools/mutation-sweep.sh --mode pr --base "origin/$BASE_REF"
 
-  # The install-topology class guard, lifted out of the sweep into its own job on BOTH lanes.
+  # The install-topology class guard does NOT run here. It lives in .github/workflows/
+  # install-topology.yml on a nightly cron (plus workflow_dispatch), because its cost IS the
+  # shipped suite set run a second time — the repo's longest job — while the class it guards
+  # only moves when suites or packaging change. Both selftest jobs exclude it by path, and the
+  # runner hard-errors if that path ever stops matching, so it cannot silently fall out of the
+  # nightly's reach either.
   #
-  # WHY ITS OWN JOB: it stages every shipped plugin into a version-keyed install cache and
-  # re-runs every shipped suite from there, so inside the outer sweep it competes with the
-  # first copy of the same suites. Its own header documents the result — statectl at 244s
-  # against a ~94s uncontended norm — and its timeout was raised 600s → 1200s to absorb it.
-  # Alone, it is the run's critical path rather than an amplifier of it.
-  #
-  # WHY BOTH LANES: several install-topology-known-red.tsv rows are explicitly
-  # environment-dependent, so the bash-3.2 copy carries signal ubuntu does not. Dropping the
-  # macos copy would trade coverage for wall clock; splitting the job costs neither.
-  #
-  # INSTALL_TOPOLOGY_TIMEOUT's 1200s default is deliberately NOT re-tightened here. It is sized
-  # for contention this change removes, but it is a hang detector, and re-sizing it needs an
-  # uncontended measurement — which this change is what produces.
-  install-topology:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v5
-
-      - name: install shellcheck + jq
-        run: sudo apt-get update -q && sudo apt-get install -y shellcheck jq
-
-      - name: install-topology class guard
-        run: bash tools/install-topology-selftest.sh
-
-  install-topology-bash32:
-    name: install-topology (macos, bash 3.2)
-    runs-on: macos-latest
-    steps:
-      - uses: actions/checkout@v5
-
-      # Same bash-3.2 shim as selftests-bash32 below, and for the same reason: the staged
-      # suites claim 3.2 compat, and Homebrew's bash 5 is first on PATH on the macos runner.
-      - name: install-topology class guard under stock bash 3.2
-        run: |
-          mkdir -p /tmp/bash32
-          ln -sf /bin/bash /tmp/bash32/bash
-          export PATH="/tmp/bash32:$PATH"
-          bash --version | head -1
-          bash tools/install-topology-selftest.sh
-
   # Release-time derivation (#119): feature PRs must NOT write the release-owned files —
   # plugin.json version fields and CHANGELOG.md are computed on the release PR by
   # scripts/derive-release.sh. These two gates are pull_request-only and skip the release

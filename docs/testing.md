@@ -180,14 +180,26 @@ the concurrent figure is essentially this one suite — everything else folds in
 stress-inclusive sweep (no `SKIP_STRESS`, the repo's own pre-commit gate) measured 540s. Know that
 before adding to what it runs.
 
-**In CI it now runs as its own job on both lanes**, excluded from the sweep via
-`run-selftests.sh --exclude`. Inside the sweep it was contending with the second copy of every
-suite it stages, which is the contention the 244s-vs-94s statectl figure above measures — and it
-was doing so while itself being the sweep's long pole. Its 1200s `INSTALL_TOPOLOGY_TIMEOUT` was
-sized *for* that contention and is deliberately left alone: re-tightening it needs an uncontended
-measurement, which the split is what produces. The macos copy is kept rather than dropped for wall
-clock, because several `install-topology-known-red.tsv` rows are explicitly environment-dependent
-and the bash-3.2 lane carries signal ubuntu does not.
+**It no longer runs on the PR lane at all.** It lives in `.github/workflows/install-topology.yml`
+on a nightly cron plus `workflow_dispatch`, and both CI selftest jobs exclude it by path via
+`run-selftests.sh --exclude`. The documented local recipe excludes it too.
+
+The reasoning is a cost/signal ratio, not a judgment that the guard is worthless — it caught two
+real defects that were green in-tree the whole time, and it stays. But its cost *is* the shipped
+suite set run a second time, which made it the repo's longest job, while the class it guards moves
+only when suites change or when packaging/topology changes. On the median PR it was paying the
+critical path to re-derive the previous night's answer. Inside the sweep it was also contending
+with the second copy of every suite it stages — the 244s-vs-94s statectl figure above — so it was
+simultaneously the long pole and the thing lengthening everything else.
+
+**The trade, stated plainly:** a packaging or suite regression is now caught within a day instead
+of at PR time. If your change is about how plugins are installed or laid out, that window is not
+good enough — run `bash tools/install-topology-selftest.sh` directly, or dispatch the workflow
+against your branch. Its 1200s `INSTALL_TOPOLOGY_TIMEOUT` is deliberately left alone: it was sized
+for contention that is now gone, but it is a hang detector and re-tightening it needs an
+uncontended measurement the nightly is what will produce. Both lanes are retained, because several
+`install-topology-known-red.tsv` rows are explicitly environment-dependent and the bash-3.2 lane
+carries signal ubuntu does not.
 
 `INSTALL_TOPOLOGY_TIMEOUT` (default 1200s) is the per-suite bound. Its job is to turn a hang into
 one named timeout line instead of a CI job that dies at its own timeout with no attributable

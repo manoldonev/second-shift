@@ -50,8 +50,9 @@ produces (D-6, deferred).
   `--exclude` path matches no discovered suite.
 - **AC-4** `SELFTEST_JOBS=1` and `SELFTEST_JOBS=4` produce the same verdict over the same suite set.
 - **AC-5** Each suite's output is emitted as one contiguous group, not interleaved with others'.
-- **AC-6** `install-topology-selftest.sh` runs in its own job on both the ubuntu and macos lanes,
-  and is excluded from the sweep on both.
+- **AC-6** `install-topology-selftest.sh` does not run on the PR lane at all: it is excluded from
+  the sweep on both lanes and runs instead on a nightly cron (plus `workflow_dispatch`) in its own
+  workflow, on both the ubuntu and macos lanes. *(Amended mid-run — see D-10.)*
 - **AC-7** The PR mutation sweep runs as its own job; `ci.yml` declares a per-ref `concurrency`
   group with `cancel-in-progress`.
 - **AC-8** `tools/run-selftests-selftest.sh` covers AC-2 through AC-5 with executable assertions —
@@ -67,11 +68,12 @@ produces (D-6, deferred).
 | D-1 | Delete slow or low-value suites | No — no suite is removed. 6 suites are ~83% of the cost; the other 61 are ~3 min across both lanes | user-delegated |
 | D-2 | How parallelism is introduced | A shared runner script, not an inline `-P` per job — parallel output needs per-suite framing, and the every-script-is-covered rule binds any checked-in script to a selftest anyway | codebase-derived |
 | D-3 | Concurrency level | `SELFTEST_JOBS` default 4, the recipe `CLAUDE.md` already measured at 13:12 serial → 5:22 parallel | codebase-derived |
-| D-4 | Where the install-topology guard runs | Own job on both lanes, not dropped from macos — several known-red rows are explicitly environment-dependent, so the bash-3.2 copy carries signal ubuntu does not | user-delegated |
+| D-4 | Where the install-topology guard runs | ~~Own job on both lanes~~ — **superseded by D-10**. Both lanes retained, but nightly rather than per-PR | user-delegated |
 | D-5 | Conventional dependency/build caching | Not applicable and not attempted — no deps, no build; the only fetches total 7.5s against a 709s step | codebase-derived |
 | D-6 | Re-tightening `INSTALL_TOPOLOGY_TIMEOUT` | deferred — owner: follow-up to this issue, once it produces the first uncontended measurement to size the bound against | deferred |
 | D-7 | How the count-reconciliation arm is proven able to red | A narrow documented seam (`RUN_SELFTESTS_DROP_LAST`) drops one worklist entry after the counts are taken, so `run-selftests-selftest.sh` can assert the reconciliation fires. Same rejection-assertion posture `ci.yml`'s issue-forms step already carries against a checked-in bad fixture | codebase-derived |
 | D-8 | Whether discovery widens to `*-selftest.mjs` | No — the three `.mjs` suites are executed by `workflows-mjs-selftest.sh`, which is in the `.sh` glob. Widening would double-run them and break AC-9 | codebase-derived |
+| D-10 | Whether install-topology blocks a PR at all | **No — nightly cron + `workflow_dispatch`, blocking nothing.** Maintainer decision taken mid-run, superseding D-4. Its cost IS the shipped suite set run a second time (the repo's longest job, 319–584s across three runs of one unchanged tree), while the class it guards only moves when suites or packaging change — so per-PR it pays the critical path to re-learn yesterday's answer. Accepted cost, stated plainly: a packaging or suite regression is now caught within a day rather than at PR time; `workflow_dispatch` covers the packaging-touching branch on demand. Both lanes retained, per D-4's surviving half | user-directed |
 | D-9 | How worker mode is keyed | An argv sentinel (`--run-one`), not an environment variable. Found during implementation: an env-keyed flag is inherited by the suites themselves, so a suite that invokes the runner takes the worker branch and collapses — `run-selftests-selftest.sh` did exactly that, passing standalone and failing under the sweep. argv cannot leak downward. Same idiom as `install-topology-selftest.sh` | codebase-derived |
 
 ## Design

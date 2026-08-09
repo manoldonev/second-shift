@@ -57,7 +57,7 @@ patch.
 ```bash
 find . -name '*.sh' -type f -print0 | xargs -0 shellcheck -e SC1091,SC2015,SC2181
 find . -name '*.json' -type f -print0 | xargs -0 -n1 jq empty
-SKIP_STRESS=1 bash tools/run-selftests.sh
+SKIP_STRESS=1 bash tools/run-selftests.sh --exclude tools/install-topology-selftest.sh
 ```
 
 **`tools/run-selftests.sh` is the sweep — here, and in both CI selftest jobs.** It discovers every
@@ -69,9 +69,16 @@ discovered suite, or when a worker dies without writing a verdict. `SKIP_STRESS=
 or omit — the runner never sets it, which is what keeps the mutation baseline's environment check
 meaningful.
 
-Both CI jobs pass `--exclude tools/install-topology-selftest.sh`; that suite runs in its own job
-on both lanes. The hand-rolled `xargs -0 -P 4` pipeline this recipe used to carry is retired — CI
-had been running its *serial* cousin all along, at 17:50 on macos and 12:51 on ubuntu.
+**The `--exclude` is why this recipe is ~3 minutes instead of ~10.**
+`tools/install-topology-selftest.sh` re-runs every *shipped* suite from a staged install cache, so
+its cost is the whole suite set a second time. It no longer runs on the PR lane either — both CI
+selftest jobs pass the same exclusion, and the guard runs nightly in
+`.github/workflows/install-topology.yml` (plus `workflow_dispatch` when you are touching
+packaging). Run it directly, `bash tools/install-topology-selftest.sh`, when your change is about
+how plugins are installed or laid out; that is the only time its answer differs from last night's.
+
+The hand-rolled `xargs -0 -P 4` pipeline this recipe used to carry is retired — CI had been
+running its *serial* cousin all along, at 17:50 on macos and 12:51 on ubuntu.
 
 **Concurrency is load-bearing, not incidental.** The suites are independent — each allocates its
 own `mktemp` state dir — so running four at a time is behavior-preserving, and on the current
@@ -85,9 +92,8 @@ point value, as the number (a run at the slow end is not a regression). It alrea
 internally (`INSTALL_TOPOLOGY_JOBS`, default 4), so it is the long pole rather than something an
 outer `SELFTEST_JOBS=4` can shorten — the 5:22 above is essentially that one suite, and moves with
 it. Everything else is roughly 8 minutes serial and folds into its shadow. See
-[`docs/testing.md`](docs/testing.md) for what it buys. It is the reason CI runs it as its own job
-and excludes it from the sweep on both lanes: inside the sweep it contends with the very suites it
-re-runs from the install cache.
+[`docs/testing.md`](docs/testing.md) for what it buys, and for the trade accepted in moving it to
+a nightly cron: a packaging or suite regression is now caught within a day rather than at PR time.
 
 `SELFTEST_JOBS=1` gives you a serial sweep with the same verdict, if you want one while debugging;
 prefer running the single suite alone instead. Output stays framed per suite either way, so
