@@ -1,6 +1,22 @@
-# Nightly install-topology class guard — model-free, like every other lane here.
+# Nightly standing guards — model-free, like every other lane here.
 #
-# WHAT IT GUARDS. A shipped suite can pass in this checkout and fail everywhere it is actually
+# TWO GUARDS, one cron, and the same reasoning puts both here rather than on the PR lane: each is
+# a STANDING MEASUREMENT whose answer barely moves from one PR to the next, and each costs more
+# than that answer is worth on the critical path.
+#
+#   install-topology     every shipped suite, re-run from a staged install cache outside any git
+#                        repo. Detail below.
+#   wholesale-selftests  the whole sweep with the pass cache BYPASSED (#448). The PR lane skips a
+#                        suite whose declared inputs in tools/selftest-cache-inputs.tsv are
+#                        unchanged; this leg is the backstop that catches an UNDER-declaration,
+#                        within a day, against a tree nobody is waiting on. Its unique
+#                        contribution over the guard above is the suites that ship with no plugin
+#                        — those under tools/, scripts/ and tests/.
+#
+# This file was `install-topology.yml` until the second guard landed; both lanes of both guards
+# run concurrently and block nothing.
+#
+# WHAT THE CLASS GUARD GUARDS. A shipped suite can pass in this checkout and fail everywhere it is actually
 # installed, because it silently borrows something from the tree it was authored in.
 # tools/install-topology-selftest.sh stages every plugin into a version-keyed install cache
 # outside any git repo, with cwd in a separate consumer directory, and re-runs every shipped
@@ -21,7 +37,7 @@
 # BOTH LANES. Several install-topology-known-red.tsv rows are explicitly environment-dependent,
 # so the bash-3.2 copy carries signal ubuntu does not. Splitting by lane costs nothing here —
 # they run concurrently and block nothing.
-name: install-topology
+name: nightly-guards
 
 on:
   schedule:
@@ -62,3 +78,39 @@ jobs:
           export PATH="/tmp/bash32:$PATH"
           bash --version | head -1
           bash tools/install-topology-selftest.sh
+
+  # The pass cache's backstop (#448). NO --cache-dir, so nothing is skipped and no marker is
+  # written: an under-declared input set that let the PR lane skip a suite is caught here, red,
+  # by the suite failing wholesale.
+  #
+  # IT MUST ASK THE PR LANE'S QUESTION, exactly. Same `--exclude` (the class guard above already
+  # re-runs that suite), and the same SKIP_STRESS asymmetry as ci.yml — unset on ubuntu, '1' on
+  # macos. A backstop running a different question is not a backstop.
+  wholesale-selftests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0   # full history + tags: derive-release's suite diffs against the latest release tag
+
+      - name: install shellcheck + jq
+        run: sudo apt-get update -q && sudo apt-get install -y shellcheck jq
+
+      - name: wholesale selftest sweep, cache bypassed
+        run: bash tools/run-selftests.sh --exclude tools/install-topology-selftest.sh
+
+  wholesale-selftests-bash32:
+    name: wholesale-selftests (macos, bash 3.2)
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: wholesale selftest sweep under stock bash 3.2, cache bypassed
+        env:
+          SKIP_STRESS: '1'
+        run: |
+          mkdir -p /tmp/bash32
+          ln -sf /bin/bash /tmp/bash32/bash
+          export PATH="/tmp/bash32:$PATH"
+          bash --version | head -1
+          bash tools/run-selftests.sh --exclude tools/install-topology-selftest.sh

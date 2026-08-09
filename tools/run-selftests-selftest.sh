@@ -287,6 +287,378 @@ grep -q 'ZLEAF-ran' "$OUT" \
   && ok "nesting: the parent's truncation seam does not reach the nested runner" \
   || { fail "nesting: RUN_SELFTESTS_DROP_LAST leaked into the nested runner (rc=$RC)"; sed 's/^/    | /' "$OUT"; }
 
+# =========================================================================================
+# THE PASS CACHE (#448).
+#
+# Every case here drives the REAL runner against a fixture tree carrying its own
+# `tools/selftest-cache-inputs.tsv`, because the runner resolves the table at
+# `<root>/tools/selftest-cache-inputs.tsv` — so a fixture root gets a fixture table with no
+# extra flag, and the repo's own table is never in play.
+#
+# The cardinal risk this mechanism carries is a SILENTLY SKIPPED GATE, so the assertions are
+# built the way that risk demands: every skip case is paired with a proof that the same fixture
+# goes RED when its declared input moves, and every "no marker was written" case is paired with
+# a control proving a marker WOULD have been written under the same conditions. A cache case
+# that only ever asserts a hit is indistinguishable from a runner that skips everything.
+# =========================================================================================
+
+# write_tsv <root> <row>...   — each row is "suite<TAB>input" with the tab written literally
+write_tsv() {
+  local root="$1"; shift
+  mkdir -p "$root/tools"
+  : > "$root/tools/selftest-cache-inputs.tsv"
+  local row
+  for row in "$@"; do printf '%s\n' "$row" >> "$root/tools/selftest-cache-inputs.tsv"; done
+}
+
+T=$'\t'
+CDIR=""
+# run_cached <root> [args...] — as run_runner, but always with --cache-dir $CDIR.
+run_cached() {
+  local root="$1"; shift
+  run_runner "$root" --cache-dir "$CDIR" "$@"
+}
+
+# ---------------------------------------------------------------------------------------
+# AC-1 / AC-7 — fail-closed by default, twice over.
+#
+#   (a) a suite with NO row is never skipped, even when the cache is on and hot;
+#   (b) with NO --cache-dir a suite holding a valid marker still runs — which is the runner
+#       side of AC-7's "the nightly bypasses the cache", and of D-11's "a bare local sweep is
+#       still cold".
+#
+# The discriminator is a MARKER line the suite prints. A skipped suite cannot print it.
+# ---------------------------------------------------------------------------------------
+RC1="$BASE/cache-optin"; mkdir -p "$RC1"
+CDIR="$BASE/cache-store-1"
+make_suite "$RC1" "rowed-selftest.sh"  0 'echo ROWED-ran'
+make_suite "$RC1" "rowed.sh"           0 'echo subject'
+make_suite "$RC1" "norow-selftest.sh"  0 'echo NOROW-ran'
+write_tsv "$RC1" \
+  "rowed-selftest.sh${T}rowed-selftest.sh" \
+  "rowed-selftest.sh${T}rowed.sh"
+
+run_cached "$RC1" --cache-write
+[[ "$RC" -eq 0 ]] && grep -q 'ROWED-ran' "$OUT" && grep -q 'cache: 0 served, 1 recorded' "$OUT" \
+  && ok "cache: the cold run runs everything and records exactly the one rowed suite" \
+  || { fail "cache: the cold run did not record exactly one pass (rc=$RC)"; sed 's/^/    | /' "$OUT"; }
+
+run_cached "$RC1"
+[[ "$RC" -eq 0 ]] \
+  && ! grep -q 'ROWED-ran' "$OUT" \
+  && grep -q 'NOROW-ran' "$OUT" \
+  && grep -q 'cache: 1 served' "$OUT" \
+  && ok "AC-1: the rowed suite is served from cache; the un-rowed suite still runs" \
+  || { fail "AC-1: opt-in participation is not fail-closed"; sed 's/^/    | /' "$OUT"; }
+
+# AC-7 / D-11: the SAME hot store, but no --cache-dir. Nothing may be skipped.
+run_runner "$RC1"
+[[ "$RC" -eq 0 ]] && grep -q 'ROWED-ran' "$OUT" && ! grep -q 'cache:' "$OUT" \
+  && ok "AC-7: with no --cache-dir a suite holding a valid marker still runs — the bypass is the default" \
+  || { fail "AC-7: a marker was honored without --cache-dir"; sed 's/^/    | /' "$OUT"; }
+
+# ---------------------------------------------------------------------------------------
+# AC-10 — a skip names the suite, the key, and the inputs behind the key.
+#
+# Asserted against the store: the key PRINTED must be the key the marker is FILED UNDER. A run
+# that printed a plausible-looking hex string that keyed nothing would satisfy a shape check.
+# ---------------------------------------------------------------------------------------
+run_cached "$RC1"
+CKEY="$(sed -n 's/^\[run-selftests\]  *key: \([0-9a-f]\{64\}\)$/\1/p' "$OUT" | head -1)"
+if [[ -n "$CKEY" && -f "$CDIR/${CKEY:0:2}/$CKEY" ]]; then
+  ok "AC-10: the printed key is the key the marker is filed under"
+else
+  fail "AC-10: no 64-hex key was printed, or it names no marker (got '${CKEY:-}')"
+  sed 's/^/    | /' "$OUT"
+fi
+sed -n '/::group::cached  rowed-selftest.sh/,/::endgroup::/p' "$OUT" > "$BASE/ac10.block"
+grep -q 'rowed-selftest\.sh$' "$BASE/ac10.block" \
+  && grep -q 'rowed\.sh$' "$BASE/ac10.block" \
+  && [[ "$(grep -cE '^\[run-selftests\]     [0-9a-f]{40}  ' "$BASE/ac10.block")" -eq 2 ]] \
+  && ok "AC-10: the skip block names both declared inputs with their blob ids" \
+  || { fail "AC-10: the skip did not print the inputs that produced the key"; sed 's/^/    | /' "$BASE/ac10.block"; }
+
+# ---------------------------------------------------------------------------------------
+# AC-3 — breaking a DECLARED input misses the cache, and the suite goes red.
+#
+# ISOLATED ON THE SUBJECT, in its own fixture, because that is the half self-inclusion cannot
+# prove. The suite's own bytes are byte-identical across all three runs below; the only thing
+# that ever moves is `rc3.sh`. If the key did not cover it, run 3 would be served and green.
+#
+# Both halves are asserted and neither implies the other: a runner could miss the cache and
+# still report green (it re-ran a suite that happens to pass), or red for an unrelated reason.
+# ---------------------------------------------------------------------------------------
+RC3="$BASE/cache-invalidate"; mkdir -p "$RC3"
+CDIR3="$BASE/cache-store-3"
+# shellcheck disable=SC2016  # the suite body is written verbatim to a file; $0 expands THERE
+make_suite "$RC3" "rc3-selftest.sh" 0 'echo RC3-ran' \
+  'if grep -q SUBJECT-EDITED "$(dirname "$0")/rc3.sh"; then exit 1; fi'
+make_suite "$RC3" "rc3.sh" 0 'echo subject'
+write_tsv "$RC3" "rc3-selftest.sh${T}rc3-selftest.sh" "rc3-selftest.sh${T}rc3.sh"
+
+run_runner "$RC3" --cache-dir "$CDIR3" --cache-write
+[[ "$RC" -eq 0 ]] && grep -q 'RC3-ran' "$OUT" \
+  && ok "AC-3: the seeding run is green and records the pass" \
+  || { fail "AC-3: the seeding run was not green (rc=$RC)"; sed 's/^/    | /' "$OUT"; }
+
+run_runner "$RC3" --cache-dir "$CDIR3"
+[[ "$RC" -eq 0 ]] && ! grep -q 'RC3-ran' "$OUT" && grep -q 'cache: 1 served' "$OUT" \
+  && ok "AC-3: control — the unchanged tree IS served, so run 3 measures the edit" \
+  || { fail "AC-3: the unchanged tree was not served (rc=$RC)"; sed 's/^/    | /' "$OUT"; }
+
+make_suite "$RC3" "rc3.sh" 0 'echo SUBJECT-EDITED'
+run_runner "$RC3" --cache-dir "$CDIR3"
+[[ "$RC" -ne 0 ]] \
+  && grep -q 'RC3-ran' "$OUT" \
+  && grep -q 'rc3-selftest\.sh (rc=1)' "$OUT" \
+  && grep -q 'cache: 0 served' "$OUT" \
+  && ok "AC-3: editing ONLY the declared subject misses the cache and reds the suite" \
+  || { fail "AC-3: the key did not move when a declared input other than the suite did (rc=$RC)"; sed 's/^/    | /' "$OUT"; }
+
+# The self-inclusion half, on the same fixture: restore the subject so the ORIGINAL key is live
+# again, then move only the suite's own bytes. A runner keying on anything less would serve the
+# stale pass here.
+make_suite "$RC3" "rc3.sh" 0 'echo subject'
+# shellcheck disable=SC2016  # as above
+make_suite "$RC3" "rc3-selftest.sh" 1 'echo RC3-ran' \
+  'if grep -q SUBJECT-EDITED "$(dirname "$0")/rc3.sh"; then exit 1; fi' \
+  'echo suite-itself-edited'
+run_runner "$RC3" --cache-dir "$CDIR3"
+[[ "$RC" -ne 0 ]] && grep -q 'cache: 0 served' "$OUT" \
+  && ok "AC-3: editing the suite's OWN bytes misses the cache — self-inclusion is live, not just declared" \
+  || { fail "AC-3: a suite was served past an edit to itself (rc=$RC)"; sed 's/^/    | /' "$OUT"; }
+
+# ---------------------------------------------------------------------------------------
+# AC-5 — only PASS is recorded. The store must not have grown while that suite was red.
+# The count is exact, not a "no new marker for this key" check: a runner that recorded the
+# FAILING run under a different key would pass the weaker form.
+# ---------------------------------------------------------------------------------------
+before="$(find "$CDIR" -type f | grep -c '')"
+make_suite "$RC1" "rowed-selftest.sh" 1 'echo ROWED-ran' 'echo still-broken'
+run_cached "$RC1" --cache-write
+after="$(find "$CDIR" -type f | grep -c '')"
+[[ "$RC" -ne 0 && "$before" -eq "$after" ]] \
+  && ok "AC-5: a failing suite recorded nothing ($before markers before and after)" \
+  || { fail "AC-5: the store moved on a red run ($before -> $after, rc=$RC)"; sed 's/^/    | /' "$OUT"; }
+
+# Control: the identical fixture, passing, DOES record — so the case above measured the verdict
+# gate and not a store that had simply stopped being writable.
+make_suite "$RC1" "rowed-selftest.sh" 0 'echo ROWED-ran' 'echo fixed'
+run_cached "$RC1" --cache-write
+after2="$(find "$CDIR" -type f | grep -c '')"
+[[ "$RC" -eq 0 && "$after2" -gt "$after" ]] \
+  && ok "AC-5: control — the same fixture green DOES record ($after -> $after2)" \
+  || { fail "AC-5: control did not record ($after -> $after2, rc=$RC)"; sed 's/^/    | /' "$OUT"; }
+
+# A worker that wrote no verdict must also record nothing — 125 is not a pass, and this is the
+# path AC-5's "or timed-out" half names.
+RCN="$BASE/cache-norc"; mkdir -p "$RCN"
+CDIRN="$BASE/cache-store-norc"
+make_suite "$RCN" "nv-selftest.sh" 0 'echo NV-ran'
+make_suite "$RCN" "nv.sh"          0 'echo nv-subject'
+write_tsv "$RCN" "nv-selftest.sh${T}nv-selftest.sh" "nv-selftest.sh${T}nv.sh"
+OUT="$BASE/out.cache-norc"
+env -u TMPDIR -u SELFTEST_JOBS -u RUN_SELFTESTS_DROP_LAST RUN_SELFTESTS_DROP_RC=1 \
+  bash "$RUNNER" --root "$RCN" --cache-dir "$CDIRN" --cache-write > "$OUT" 2>&1
+RC=$?
+[[ "$RC" -ne 0 ]] && [[ "$(find "$CDIRN" -type f 2>/dev/null | grep -c '')" -eq 0 ]] \
+  && ok "AC-5: a verdict-less worker records nothing" \
+  || { fail "AC-5: a verdict-less worker left a marker behind (rc=$RC)"; sed 's/^/    | /' "$OUT"; }
+
+# ---------------------------------------------------------------------------------------
+# AC-6 — recording needs its own flag. This is the property that stops a PR marking its own
+# untested content as passing, so it is asserted on the RUNNER, not left to the workflow's
+# `if:`. The control immediately below is what makes it non-vacuous.
+# ---------------------------------------------------------------------------------------
+RC6="$BASE/cache-write-flag"; mkdir -p "$RC6"
+CDIR6="$BASE/cache-store-6"
+make_suite "$RC6" "w-selftest.sh" 0 'echo W-ran'
+make_suite "$RC6" "w.sh"          0 'echo w-subject'
+write_tsv "$RC6" "w-selftest.sh${T}w-selftest.sh" "w-selftest.sh${T}w.sh"
+
+run_runner "$RC6" --cache-dir "$CDIR6"
+[[ "$RC" -eq 0 ]] && [[ "$(find "$CDIR6" -type f | grep -c '')" -eq 0 ]] \
+  && grep -q 'cache: 0 served, 0 recorded' "$OUT" \
+  && ok "AC-6: --cache-dir alone records nothing" \
+  || { fail "AC-6: a read-only run wrote to the store (rc=$RC)"; sed 's/^/    | /' "$OUT"; }
+
+run_runner "$RC6" --cache-dir "$CDIR6" --cache-write
+[[ "$RC" -eq 0 ]] && [[ "$(find "$CDIR6" -type f | grep -c '')" -eq 1 ]] \
+  && ok "AC-6: control — adding --cache-write records the pass" \
+  || { fail "AC-6: --cache-write did not record (rc=$RC)"; sed 's/^/    | /' "$OUT"; }
+
+run_runner "$RC6" --cache-write
+[[ "$RC" -eq 2 ]] && ok "AC-6: --cache-write without --cache-dir is rejected" \
+                  || { fail "AC-6: --cache-write with no store was accepted (rc=$RC)"; sed 's/^/    | /' "$OUT"; }
+
+# ---------------------------------------------------------------------------------------
+# AC-4 — a suite with no row is unaffected in BOTH directions: it runs, and when it breaks it
+# reds, while its rowed neighbour is still being served. The pairing is the point: a runner
+# that had stopped scoring skipped-adjacent suites would show a green sweep here.
+# ---------------------------------------------------------------------------------------
+make_suite "$RC1" "norow-selftest.sh" 1 'echo NOROW-ran' 'echo norow-broke'
+run_cached "$RC1"
+[[ "$RC" -ne 0 ]] \
+  && grep -q 'norow-selftest\.sh (rc=1)' "$OUT" \
+  && grep -q 'cache: 1 served' "$OUT" \
+  && ok "AC-4: breaking a suite in no row still reds, while the rowed suite is served" \
+  || { fail "AC-4: an always-run suite was affected by the cache (rc=$RC)"; sed 's/^/    | /' "$OUT"; }
+make_suite "$RC1" "norow-selftest.sh" 0 'echo NOROW-ran'
+
+# ---------------------------------------------------------------------------------------
+# AC-2 — the table's rejection rules. Every arm asserts rc=2 AND the named cause, because a
+# runner that reded for an unrelated reason would satisfy the exit code alone.
+#
+# ALL OF THEM RUN WITHOUT --cache-dir. That is the contract, not an economy: the table is
+# validated on every sweep, so a malformed declaration reds the local recipe too rather than
+# waiting for the day CI enables the cache to be read at all.
+# ---------------------------------------------------------------------------------------
+RC2="$BASE/cache-reject"; mkdir -p "$RC2"
+make_suite "$RC2" "r-selftest.sh" 0 'echo R-ran'
+make_suite "$RC2" "r.sh"          0 'echo r-subject'
+make_suite "$RC2" "other-selftest.sh" 0 'echo other'
+
+reject_case() { # <label> <expected-substring> <row>...
+  local label="$1" want="$2"; shift 2
+  write_tsv "$RC2" "$@"
+  run_runner "$RC2"
+  [[ "$RC" -eq 2 ]] && grep -qF "$want" "$OUT" \
+    && ok "AC-2: $label" \
+    || { fail "AC-2: $label — rc=$RC, or the cause was not named"; sed 's/^/    | /' "$OUT"; }
+}
+
+reject_case "a row set omitting the suite itself is rejected" \
+  "does not declare ITSELF as an input" \
+  "r-selftest.sh${T}r.sh"
+
+reject_case "a row set omitting the script under test is rejected" \
+  "does not declare its script under test 'r.sh'" \
+  "r-selftest.sh${T}r-selftest.sh" \
+  "r-selftest.sh${T}other-selftest.sh"
+
+reject_case "a row set that pins only its own bytes is rejected" \
+  "declares no input besides itself" \
+  "other-selftest.sh${T}other-selftest.sh"
+
+reject_case "a row naming an undiscovered suite is a stale row" \
+  "stale cache-input row" \
+  "ghost-selftest.sh${T}ghost-selftest.sh"
+
+reject_case "a row naming a nonexistent input is rejected" \
+  "declares an input that does not exist" \
+  "r-selftest.sh${T}r-selftest.sh" \
+  "r-selftest.sh${T}r.sh" \
+  "r-selftest.sh${T}vanished.sh"
+
+reject_case "a three-column row is rejected" \
+  "expected exactly two tab-separated columns" \
+  "r-selftest.sh${T}r-selftest.sh${T}r.sh"
+
+# Control: the well-formed table over the same fixture is green, so every rejection above
+# measured its own rule rather than a tree the runner could not process at all.
+write_tsv "$RC2" \
+  "r-selftest.sh${T}r-selftest.sh" \
+  "r-selftest.sh${T}r.sh"
+run_runner "$RC2"
+[[ "$RC" -eq 0 ]] && ok "AC-2: control — the well-formed table over the same fixture is green" \
+                  || { fail "AC-2: control table was rejected (rc=$RC)"; sed 's/^/    | /' "$OUT"; }
+
+# ---------------------------------------------------------------------------------------
+# A DIRECTORY input covers the files beneath it, including ones that appear or vanish — the
+# property `cost-tracking-fixtures` and `stages/` depend on in the real table. A row that
+# hashed only the directory's name would serve a stale pass over an edited fixture.
+# ---------------------------------------------------------------------------------------
+RCD="$BASE/cache-dirinput"; mkdir -p "$RCD/fix"
+CDIRD="$BASE/cache-store-dir"
+make_suite "$RCD" "d-selftest.sh" 0 'echo D-ran'
+echo "one" > "$RCD/fix/a.txt"
+write_tsv "$RCD" "d-selftest.sh${T}d-selftest.sh" "d-selftest.sh${T}fix"
+
+run_runner "$RCD" --cache-dir "$CDIRD" --cache-write
+run_runner "$RCD" --cache-dir "$CDIRD"
+[[ "$RC" -eq 0 ]] && ! grep -q 'D-ran' "$OUT" \
+  && ok "cache: a directory input produces a stable key across an unchanged tree" \
+  || { fail "cache: the directory-input key was not stable"; sed 's/^/    | /' "$OUT"; }
+
+echo "two" > "$RCD/fix/a.txt"
+run_runner "$RCD" --cache-dir "$CDIRD"
+[[ "$RC" -eq 0 ]] && grep -q 'D-ran' "$OUT" \
+  && ok "cache: editing a file INSIDE a declared directory misses the cache" \
+  || { fail "cache: a directory input did not cover its contents"; sed 's/^/    | /' "$OUT"; }
+
+echo "one" > "$RCD/fix/a.txt"   # restore the hashed content, then ADD a sibling
+echo "new" > "$RCD/fix/b.txt"
+run_runner "$RCD" --cache-dir "$CDIRD"
+[[ "$RC" -eq 0 ]] && grep -q 'D-ran' "$OUT" \
+  && ok "cache: ADDING a file to a declared directory misses the cache" \
+  || { fail "cache: a directory input did not cover an added file"; sed 's/^/    | /' "$OUT"; }
+
+# ---------------------------------------------------------------------------------------
+# THE ENVIRONMENT AXIS of the key. A marker recorded under one lane's identity must never be
+# served to another's — the two CI lanes differ by RUNNER_OS, and by SKIP_STRESS, and a suite
+# that skipped its stress legs answered a strictly weaker question than one that ran them.
+#
+# Each arm is a SEED under one identity and a read under another, so the assertion is on the
+# store's behavior rather than on the key string. The control at the end re-reads under the
+# seeding identity, which is what stops "nothing is ever served" from passing all of this.
+# ---------------------------------------------------------------------------------------
+RCE="$BASE/cache-env"; mkdir -p "$RCE"
+CDIRE="$BASE/cache-store-env"
+make_suite "$RCE" "e-selftest.sh" 0 'echo E-ran'
+make_suite "$RCE" "e.sh"          0 'echo e-subject'
+write_tsv "$RCE" "e-selftest.sh${T}e-selftest.sh" "e-selftest.sh${T}e.sh"
+
+run_env_case() { # <label> <expect-served: yes|no> <env assignment>...
+  local label="$1" expect="$2"; shift 2
+  OUT="$BASE/out.env.$RANDOM"
+  env -u TMPDIR -u SELFTEST_JOBS -u RUN_SELFTESTS_DROP_LAST -u SKIP_STRESS -u RUNNER_OS "$@" \
+    bash "$RUNNER" --root "$RCE" --cache-dir "$CDIRE" > "$OUT" 2>&1
+  RC=$?
+  if [[ "$RC" -ne 0 ]]; then
+    fail "key-axis: $label — the sweep itself reded (rc=$RC)"; sed 's/^/    | /' "$OUT"; return
+  fi
+  if [[ "$expect" == "yes" ]]; then
+    grep -q 'cache: 1 served' "$OUT" && ok "key-axis: $label — served" \
+      || { fail "key-axis: $label — expected a hit, got a miss"; sed 's/^/    | /' "$OUT"; }
+  else
+    grep -q 'cache: 0 served' "$OUT" && ok "key-axis: $label — not served" \
+      || { fail "key-axis: $label — a marker crossed a key axis"; sed 's/^/    | /' "$OUT"; }
+  fi
+}
+
+OUT="$BASE/out.env.seed"
+env -u TMPDIR -u SELFTEST_JOBS -u RUN_SELFTESTS_DROP_LAST -u SKIP_STRESS RUNNER_OS=Linux \
+  bash "$RUNNER" --root "$RCE" --cache-dir "$CDIRE" --cache-write > "$OUT" 2>&1
+RC=$?
+[[ "$RC" -eq 0 ]] && grep -q 'cache: 0 served, 1 recorded' "$OUT" \
+  && ok "key-axis: seeded one marker under RUNNER_OS=Linux with stress legs on" \
+  || { fail "key-axis: the seeding run did not record (rc=$RC)"; sed 's/^/    | /' "$OUT"; }
+
+run_env_case "a different RUNNER_OS" no  RUNNER_OS=Darwin
+run_env_case "the same OS but SKIP_STRESS set" no RUNNER_OS=Linux SKIP_STRESS=1
+run_env_case "control — the seeding identity" yes RUNNER_OS=Linux
+
+# ---------------------------------------------------------------------------------------
+# A malformed marker is a MISS, never a pass. The fail-safe half of the store contract: the
+# only thing that may be read as a pass is exactly the one well-formed record line.
+# ---------------------------------------------------------------------------------------
+RCT="$BASE/cache-tamper"; mkdir -p "$RCT"
+CDIRT="$BASE/cache-store-tamper"
+make_suite "$RCT" "t-selftest.sh" 0 'echo T-ran'
+make_suite "$RCT" "t.sh"          0 'echo t-subject'
+write_tsv "$RCT" "t-selftest.sh${T}t-selftest.sh" "t-selftest.sh${T}t.sh"
+run_runner "$RCT" --cache-dir "$CDIRT" --cache-write
+TMARK="$(find "$CDIRT" -type f | head -1)"
+if [[ -n "$TMARK" ]]; then
+  echo "garbage" > "$TMARK"
+  run_runner "$RCT" --cache-dir "$CDIRT"
+  [[ "$RC" -eq 0 ]] && grep -q 'T-ran' "$OUT" \
+    && ok "cache: a malformed marker is a miss, not a pass" \
+    || { fail "cache: a malformed marker was honored"; sed 's/^/    | /' "$OUT"; }
+else
+  fail "cache: no marker was written, so the malformed-marker case could not run"
+fi
+
 # ---------------------------------------------------------------------------------------
 # Usage floor — a bad argument or an empty run set must never read as a green sweep.
 # ---------------------------------------------------------------------------------------

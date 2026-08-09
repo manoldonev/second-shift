@@ -101,8 +101,36 @@ jobs:
       # contending with the very suites it duplicates (statectl measured at 244s against a ~94s
       # uncontended norm). It stays DISCOVERED — the exclusion names a path that must exist, and
       # the runner hard-errors if it ever stops matching.
+      # The pass cache (#448). Restore is unconditional; SAVE is push-only, and so is the
+      # runner's own --cache-write, which is belt-and-braces on purpose: GitHub already scopes a
+      # PR-created cache to that PR's branch, but the runner flag is what makes "a PR cannot
+      # record its own untested content as a pass" an assertion in tools/run-selftests-selftest.sh
+      # rather than a property only GitHub can demonstrate.
+      - name: restore selftest pass cache
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ runner.temp }}/selftest-cache
+          key: selftest-pass-${{ runner.os }}-${{ github.run_id }}
+          restore-keys: |
+            selftest-pass-${{ runner.os }}-
+
       - name: run all selftests
-        run: bash tools/run-selftests.sh --exclude tools/install-topology-selftest.sh
+        run: |
+          args=(--exclude tools/install-topology-selftest.sh --cache-dir "$RUNNER_TEMP/selftest-cache")
+          if [[ "$GITHUB_EVENT_NAME" == "push" ]]; then
+            args+=(--cache-write)
+          fi
+          bash tools/run-selftests.sh "${args[@]}"
+
+      # `if: success()` is explicit rather than implied: a cache saved after a red sweep would
+      # carry forward the passes of a run whose verdict was never green, and the next PR would
+      # be served them.
+      - name: save selftest pass cache
+        if: success() && github.event_name == 'push'
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ runner.temp }}/selftest-cache
+          key: selftest-pass-${{ runner.os }}-${{ github.run_id }}
 
       # Contract pairs duplicated across files (an agent's inline copy of a rule, a schema
       # three Workflow scripts each redeclare) where prose alone said "keep verbatim".
@@ -165,7 +193,7 @@ jobs:
         run: bash tools/mutation-sweep.sh --mode pr --base "origin/$BASE_REF"
 
   # The install-topology class guard does NOT run here. It lives in .github/workflows/
-  # install-topology.yml on a nightly cron (plus workflow_dispatch), because its cost IS the
+  # nightly-guards.yml on a nightly cron (plus workflow_dispatch), because its cost IS the
   # shipped suite set run a second time — the repo's longest job — while the class it guards
   # only moves when suites or packaging change. Both selftest jobs exclude it by path, and the
   # runner hard-errors if that path ever stops matching, so it cannot silently fall out of the
@@ -329,6 +357,16 @@ jobs:
       # The runner is bash-3.2 compatible by construction (no `wait -n`, no associative arrays
       # on the dispatch path) — the xargs-over-indices idiom is lifted from
       # install-topology-selftest.sh, which already runs under this shim.
+      # Same pass-cache wiring as the ubuntu lane. The two lanes never share a marker: the key
+      # carries RUNNER_OS and the bash major, so a 3.2 verdict is never served to a 5.x run.
+      - name: restore selftest pass cache
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ runner.temp }}/selftest-cache
+          key: selftest-pass-${{ runner.os }}-${{ github.run_id }}
+          restore-keys: |
+            selftest-pass-${{ runner.os }}-
+
       - name: run all selftests under stock bash 3.2
         env:
           # Parallel-write stress cases are documented as too flaky for CI.
@@ -338,4 +376,15 @@ jobs:
           ln -sf /bin/bash /tmp/bash32/bash
           export PATH="/tmp/bash32:$PATH"
           bash --version | head -1
-          bash tools/run-selftests.sh --exclude tools/install-topology-selftest.sh
+          args=(--exclude tools/install-topology-selftest.sh --cache-dir "$RUNNER_TEMP/selftest-cache")
+          if [[ "$GITHUB_EVENT_NAME" == "push" ]]; then
+            args+=(--cache-write)
+          fi
+          bash tools/run-selftests.sh "${args[@]}"
+
+      - name: save selftest pass cache
+        if: success() && github.event_name == 'push'
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ runner.temp }}/selftest-cache
+          key: selftest-pass-${{ runner.os }}-${{ github.run_id }}

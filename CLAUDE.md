@@ -73,9 +73,15 @@ meaningful.
 `tools/install-topology-selftest.sh` re-runs every *shipped* suite from a staged install cache, so
 its cost is the whole suite set a second time. It no longer runs on the PR lane either — both CI
 selftest jobs pass the same exclusion, and the guard runs nightly in
-`.github/workflows/install-topology.yml` (plus `workflow_dispatch` when you are touching
+`.github/workflows/nightly-guards.yml` (plus `workflow_dispatch` when you are touching
 packaging). Run it directly, `bash tools/install-topology-selftest.sh`, when your change is about
 how plugins are installed or laid out; that is the only time its answer differs from last night's.
+
+**The recipe above runs COLD, and that is deliberate.** CI additionally passes `--cache-dir`, which
+lets a suite with a row in `tools/selftest-cache-inputs.tsv` be skipped when the content of every
+declared input is unchanged. The runner never participates without that flag, so what you run
+locally is still a full sweep — see [`docs/testing.md`](docs/testing.md) for the contract, and add
+a row there only when you can enumerate a suite's inputs exactly.
 
 The hand-rolled `xargs -0 -P 4` pipeline this recipe used to carry is retired — CI had been
 running its *serial* cousin all along, at 17:50 on macos and 12:51 on ubuntu.

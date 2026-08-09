@@ -53,9 +53,14 @@ Validation (all hard errors, `rc=2`, each naming the offending row — same post
 
 ### The key
 
-`sha256` over a manifest line built from (D-13): an epoch constant, `RUNNER_OS` (falling back to
-`uname -s`), the bash major version, the suite path, and the `git hash-object` blob id of every
-declared input in sorted order. The two CI lanes therefore never share a key.
+`sha256` over a manifest built from (D-13): an epoch constant, `RUNNER_OS` (falling back to
+`uname -s`), the bash major version, `SKIP_STRESS`, the suite path, and the `git hash-object` blob
+id of every declared input in sorted order. The two CI lanes therefore never share a key.
+
+`SKIP_STRESS` is on the axis beyond D-13's list, for the reason `tools/mutation-sweep.sh` already
+carries it: a suite that skipped its stress legs passed a strictly weaker question than one that
+ran them. Today the two lanes also differ by OS so nothing could collide — but that is a
+coincidence of the current matrix, not a property, and the fix is one field.
 
 `SELFTEST_CACHE_EPOCH` is the one-character invalidation OR-1 asks for: runner-image drift can in
 principle move a verdict with every declared input byte-identical, and bumping the epoch makes the
@@ -91,14 +96,23 @@ Per D-9, the three measured at ≥30s in `tools/mutation-slow-suites.tsv`:
 
 | suite | declared inputs |
 | --- | --- |
-| `statectl-selftest.sh` | itself, `statectl.sh`, `scenario-lib.sh`, `state-schema.md`, `tools/gen-statectl-validators.sh` |
+| `statectl-selftest.sh` | itself, `statectl.sh`, `scenario-lib.sh`, `state-schema.md`, `SKILL.md`, `stages/`, `statectl-selftest-fixtures/`, `workflows/mutation-gate.mjs`, `tools/gen-statectl-validators.sh`, `tools/stage-times.sh`, `tools/stage-times-fixtures/` |
 | `cost-block-selftest.sh` | itself, `pipeline-cost-block.sh`, `cost-tracking-fixtures/` |
 | `scenario-liveness-selftest.sh` | **no row — OR-2 resolves to drop** |
 
-`gen-statectl-validators.sh` is in the statectl set and is **absent from the issue's own table**:
-the suite re-runs the generator and diffs it against `statectl.sh`, so an edit to the generator
-alone changes that verdict. It is exactly the under-declaration the self-inclusion rule cannot
-catch, which is why the set was derived from the suite rather than copied from the ticket.
+**Eight of statectl's eleven inputs are absent from the issue's own four-entry table**, and every
+one of them can move that suite's verdict on its own: it re-runs `gen-statectl-validators.sh` and
+diffs the output against `statectl.sh`, drift-checks documented values across `stages/*.md` and
+`SKILL.md`, parses sentinel blocks out of `mutation-gate.mjs`, and drives `stage-times.sh` over its
+fixtures. This is precisely the under-declaration the self-inclusion rule cannot catch, which is
+why every set here was derived from the suite rather than copied from the ticket.
+
+**It also costs hit rate, and the honest number is lower than the pre-flight ledger's.** That
+measurement — 13 of the last 100 non-merge commits touch statectl's declared inputs — was taken
+against the four-entry set. Adding `stages/` and `SKILL.md` pulls in a subtree that far more
+commits touch, so the row will miss more often than projected. It is kept anyway: even at a
+reduced hit rate it is the largest single saving available (149s), and the alternative — the
+narrower set — is a silently skipped gate. `cost-block-selftest.sh`'s set is tight and unaffected.
 
 **OR-2 resolves to its stated default.** `scenario-liveness-selftest.sh` composes ten scripts by
 name plus their transitive closure (`lean-gate.sh` alone sources `branch-prefix.sh` and invokes
