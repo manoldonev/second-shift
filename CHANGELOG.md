@@ -4,6 +4,94 @@ All notable changes to the second-shift marketplace. Versions are per-plugin (`p
 this file tracks the marketplace release. `configVersion` stays `const 1` — v2 is fully backward-compatible for a
 consumer with an empty config; the migration notes below are only for consumers using the changed features.
 
+## v4.1.2
+
+### `dev-pipeline` 4.1.1 → 4.1.2
+
+- **The bot is a code-host capability, not a tracker one (#457)** (#457)
+  `tracker.bot` is now legal under `tracker.type: jira`. The bot
+  configures write identity on the CODE HOST, which is GitHub under every
+  tracker adapter, so a Jira-tracked repo can now carry bot identity on its PR
+  comments, the build-identity marker, the cost-block amend and its git commits
+  — and its lean PRs are gated by the merge boundary's identity arm at full
+  strength instead of the announced reduced-strength degrade. That degrade now
+  keys on whether a bot is configured rather than on the tracker, so it is
+  reachable from github too (set `tracker.bot.enabled: false`). review-lean
+  posts its findings comment through the bot wrapper.
+  Migration: none. Existing configs behave exactly as before — a config that
+  declares no bot keeps its old posture per tracker. Jira consumers who want
+  the stronger gate add a `tracker.bot` block and install the wrapper.
+- **The lean PR marker's session id comes from a recorded build session, not from whoever ran the command (#456)** (#456)
+  the lean build harness refuses to stamp a PR marker from a session it
+  never recorded as a build session, instead of writing whichever session ran the
+  command. This removes the case where the documented manual `mark` recovery, run
+  from the review session, made the merge boundary report an independent review as
+  a P10 self-review — an error that could only be cleared by deleting bot-authored
+  evidence. The refusal names the build session ids the harness itself recorded and
+  the exact re-invocation.
+  Migration: none. A run already in flight, whose progress file carries a header
+  but no session rows, still marks — the header is part of the set.
+- **The gate's own markdown no longer reds the consumer's format check (#452)** (#452)
+  lean-gate.sh now writes its render receipt in Prettier's table form
+  and formats the verdict record with a locally resolved prettier (never npx,
+  never the network), reverting if formatting would damage the record's header.
+  Both commit instructions now name the formatting obligation for the spec and
+  intent-gap record, which the gate does not author.
+  Migration: none.
+- **Cost attribution says which of the three ways it failed (#459)** (#459)
+  a run whose session was launched without CLAUDE_CODE_ENABLE_TELEMETRY
+  is told so before the work starts, not after the cost is unrecoverable, and the
+  cost block now reads metrics files that have rotated. `costBlockApplied` gains
+  `skipped-session-not-exporting` and `skipped-rotated-out`;
+  `skipped-zero-datapoints` narrows to its literal meaning.
+  Migration: none.
+- **onboard and doctor grill the config for capability that is detectably off (#455)** (#455)
+  /second-shift:onboard and /second-shift:doctor now grill the config for
+  capability that is detectably off — an unmatched webComponentGlobs/formatGlob/
+  triggerGlobs default, a mutation gate with no plumbing behind it, a design
+  provider with no render harness, and a configured command that names a missing
+  manifest script or resolves to a watch-mode one. Onboard blocks its accept
+  screen on unwaived findings; doctor reports each as a FAIL.
+  Migration: none — a repo with a real gap goes non-zero on its first doctor run
+  after upgrading; adopt the capability or declare the opt-out in the new
+  top-level grillWaivers object (configVersion stays at 2).
+  the config grill no longer reports `jest -w`, `tsup -w`, `esbuild … -w`,
+  `parcel … -w` or `karma … -w` as watch-mode commands — none of those runners defines `-w`
+  as watch, so each finding was a doctor FAIL on a valid config. `jest --watch` and
+  `jest --watchAll` still fire.
+  Migration: none.
+
+### `second-shift` 3.1.1 → 3.1.2
+
+- **The bot is a code-host capability, not a tracker one (#457)** (#457)
+  `tracker.bot` is now legal under `tracker.type: jira`. The bot
+  configures write identity on the CODE HOST, which is GitHub under every
+  tracker adapter, so a Jira-tracked repo can now carry bot identity on its PR
+  comments, the build-identity marker, the cost-block amend and its git commits
+  — and its lean PRs are gated by the merge boundary's identity arm at full
+  strength instead of the announced reduced-strength degrade. That degrade now
+  keys on whether a bot is configured rather than on the tracker, so it is
+  reachable from github too (set `tracker.bot.enabled: false`). review-lean
+  posts its findings comment through the bot wrapper.
+  Migration: none. Existing configs behave exactly as before — a config that
+  declares no bot keeps its old posture per tracker. Jira consumers who want
+  the stronger gate add a `tracker.bot` block and install the wrapper.
+- **onboard and doctor grill the config for capability that is detectably off (#455)** (#455)
+  /second-shift:onboard and /second-shift:doctor now grill the config for
+  capability that is detectably off — an unmatched webComponentGlobs/formatGlob/
+  triggerGlobs default, a mutation gate with no plumbing behind it, a design
+  provider with no render harness, and a configured command that names a missing
+  manifest script or resolves to a watch-mode one. Onboard blocks its accept
+  screen on unwaived findings; doctor reports each as a FAIL.
+  Migration: none — a repo with a real gap goes non-zero on its first doctor run
+  after upgrading; adopt the capability or declare the opt-out in the new
+  top-level grillWaivers object (configVersion stays at 2).
+  the config grill no longer reports `jest -w`, `tsup -w`, `esbuild … -w`,
+  `parcel … -w` or `karma … -w` as watch-mode commands — none of those runners defines `-w`
+  as watch, so each finding was a doctor FAIL on a valid config. `jest --watch` and
+  `jest --watchAll` still fire.
+  Migration: none.
+
 ## v4.1.1
 
 ### `dev-pipeline` 4.1.0 → 4.1.1
