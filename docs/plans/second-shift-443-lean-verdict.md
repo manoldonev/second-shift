@@ -5,7 +5,7 @@ run_id: review-443-1
 session_id: ec27f5a9-9679-4f71-b33a-31792e53e85c
 rounds: 1
 pr: #451
-reviewed_head: 37454007c6525373f5374b5cab725c9b5ac9c1cd
+reviewed_head: d40d26e1b09429d219e253e1d93a65375c0ac130
 reviewed_patch_id: 0dbd633359a764065099a60199e1c2a514e2c81c
 inherited_patch_id: none
 inherited_from_verdict: none
@@ -49,11 +49,18 @@ mutation sweep, and the failure is a **pool disagreement** on
 > outside it — the harness is at fault, not the guard. Reporting the corrected KILLED verdict;
 > do NOT add a baseline row for this mutant.
 
-Three independent facts say the same thing: the sweep's serial re-verify killed the mutant; my
-local run of the same tree scored it KILLED too; and the survivor set CI reports (12, across the
-three guards) is **identical** to the local one and is **entirely baseline-present**, with no
-baseline-absent survivor anywhere. The mutant is correctly absent from
-`tools/mutation-baseline.tsv` because it is normally killed.
+This is the **known #431 flake class, at exactly its documented site.** The `cmp-z` operator swaps
+`-z ` ↔ `-n `, and its first site in `lean-evidence.sh` is line 139 — the `-h|--help` handler's
+`sed -n '2,120p'`, which the mutant turns into `sed -z`. That line is in the sweep's scope at all
+only because this PR bumped its range (`2,105p` → `2,120p`) to cover the new header prose. On
+BSD/macOS `sed -z` dies loudly; on the GNU lane it is a valid flag, so the kill rests on the
+absence assertion — which is why this site flakes under pool concurrency and why a **local macOS
+sweep is not evidence about it in either direction**. I ran one; I am deliberately not citing it.
+
+What does stand: CI's own serial re-verify — on the GNU lane, the authority here — killed the
+mutant and named the pool as the fault. And the survivor set CI reports (12 across the three
+guards) is **entirely baseline-present**, with no baseline-absent survivor anywhere. The mutant is
+correctly absent from `tools/mutation-baseline.tsv` because it is normally killed.
 
 **The remedy is a job re-run, not a code change** — and specifically not a baseline row, which
 the tool explicitly forbids. Note for whoever acts on this: a content push to fix "the red" would
