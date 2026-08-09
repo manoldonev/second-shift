@@ -40,6 +40,16 @@ marker):
   marketplace's plugins; `tools/install-topology-selftest.sh` stages `<root>/<plugin>/<version>/`,
   the same relative shape.
 
+  **Newest-per-plugin selection applies to BOTH enumeration shapes, keyed on the declared name.**
+  A real cache holds many versions of any one plugin, this one included, and one level up those
+  version dirs are shape-1 candidates. Taking all of them lints superseded copies as if current —
+  measured on a 12-version cache, 16 violations across 38 agents — which replaces the vacuous
+  green with a hard red on a correct install rather than removing the defect. The declared `name`
+  is what separates the two shape-1 layouts: monorepo siblings have distinct names, a cache's
+  version dirs share one, so keeping the last candidate per name keeps every sibling in the
+  monorepo and only the newest version from a cache. This is the one place the enumeration is
+  allowed to narrow, because a superseded copy of a plugin is not another plugin's coverage.
+
 Hop constants are **re-derived per directory**, not copied (ledger D-6):
 `plugins/second-shift/skills/doctor/tools` and `plugins/dev-pipeline/skills/run/tools` each sit
 three levels under their plugin root, so their rungs are `../../../../<name>` and
@@ -54,12 +64,22 @@ enumeration each fail loudly — the `claims-lint.sh` else-branch becomes a coun
 `10.0.0`). That is a pre-existing latent defect in the code this slice copies; it is mirrored
 deliberately and filed separately (D-9).
 
-**Lockstep** (D-3, overriding the issue's stated default): no new `scripts/lockstep-manifest.tsv`
-rows. The existing cross-plugin sibling-resolution DROPPED entry is extended to record the new
-copies and why none is byte-anchorable — `verbatim` compares an entire marker block, and the
-enumeration variant walks an unbounded name set rather than resolving one name, so pinning it
-would mean carrying a dead copy of `resolve_sibling_plugin_root`. The enumeration stays local to
+**Lockstep** (D-3, overriding the issue's stated default): the existing cross-plugin
+sibling-resolution DROPPED entry is extended to record the new copies and why the enumeration
+variant is not byte-anchorable — `verbatim` compares an entire marker block, and that variant
+walks an unbounded name set rather than resolving one name, so pinning it would mean carrying a
+dead copy of `resolve_sibling_plugin_root`. The enumeration stays local to
 `check-emit-deadline.sh` (D-4).
+
+**Deviation from D-3 — one row IS added.** D-3 answered "no new rows" on the premise that none of
+this slice's copies is byte-anchorable. That premise turned out to be false for one pair:
+`doctor-selftest.sh` and `preflight-selftest.sh` sit at the same depth and re-derive the *same*
+four/five hop constants, so their copies differ only in which variable each reads its anchor
+from — the exact convergence the DROPPED entry's own revisit trigger names as pinnable. The
+anchor becomes a parameter in both, making the blocks byte-identical, and the
+`cross-plugin-sibling-plugin-root` `verbatim` row pins them. Raised at review round 1 and
+approved by the operator; D-3's rationale still governs the enumeration variant, which stays
+unpinned.
 
 ## Acceptance criteria
 

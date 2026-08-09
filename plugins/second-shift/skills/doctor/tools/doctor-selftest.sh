@@ -29,16 +29,22 @@ check() { if [[ "$2" -eq 0 ]]; then echo "  ✓ $1"; else echo "  ✗ $1"; FAILS
 # NEITHER LADDER HAS A SKIP RUNG. An unresolvable sibling is the defect these exist to remove,
 # so each caller below turns a miss into a COUNTED failure.
 
-# resolve_sibling_plugin_root <name> <marker-subpath> — echoes the sibling plugin ROOT.
+# resolve_sibling_plugin_root <anchor-dir> <name> <marker-subpath> — echoes the sibling plugin
+# ROOT. The anchor is a PARAMETER rather than a read of this file's own directory variable:
+# that was the only thing separating this copy from preflight-selftest.sh's, whose hop
+# constants are identical, and passing it in makes the two blocks byte-identical so
+# scripts/lockstep-manifest.tsv can pin them instead of leaving them held by prose.
+# LOCKSTEP-BEGIN cross-plugin-sibling-plugin-root
 resolve_sibling_plugin_root() {
-  local name="$1" marker="$2" cand
-  cand="$(cd "$HERE/../../../../$name" 2>/dev/null && pwd)" || cand=""
+  local anchor="$1" name="$2" marker="$3" cand
+  cand="$(cd "$anchor/../../../../$name" 2>/dev/null && pwd)" || cand=""
   if [[ -n "$cand" && -d "$cand/$marker" ]]; then printf '%s\n' "$cand"; return 0; fi
-  for cand in "$HERE"/../../../../../"$name"/*/; do
+  for cand in "$anchor"/../../../../../"$name"/*/; do
     [[ -d "$cand/$marker" ]] || continue
     (cd "$cand" && pwd)
   done | tail -1
 }
+# LOCKSTEP-END cross-plugin-sibling-plugin-root
 
 # resolve_sibling_file <name> <path-under-that-plugin> — echoes the named FILE, rc=1 if absent.
 resolve_sibling_file() {
@@ -194,7 +200,7 @@ else check "report-state-excerpt" 1; echo "$sout" | sed 's/^/      /' | head -20
 
 # --report context-coverage section: resolved (real review-toolkit) emits a coverage line;
 # unresolved (env empty + fake-cache pluglist install path has no script) emits the fallback.
-RT_REAL="$(resolve_sibling_plugin_root review-toolkit scripts || true)"
+RT_REAL="$(resolve_sibling_plugin_root "$HERE" review-toolkit scripts || true)"
 # A miss here used to be invisible: the "resolved" scenario below simply degraded into the
 # unresolved one and failed with a message about the fallback line, naming the symptom rather
 # than the cause. Assert the resolution itself so the failure says what actually broke.

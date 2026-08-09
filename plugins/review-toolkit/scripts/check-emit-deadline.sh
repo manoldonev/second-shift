@@ -135,6 +135,16 @@ FILES_SEEN=0
 # `sort -r`/`tail -1` semantics both house ladders use. `9.0.0` therefore outranks `10.0.0`;
 # that is a shared latent defect deliberately mirrored rather than fixed here.
 #
+# BOTH SHAPES SELECT NEWEST-PER-PLUGIN, AND SHAPE 1 KEYS THAT ON THE DECLARED NAME. A real cache
+# holds MORE THAN ONE version of any given plugin, this one included — which one level up are
+# shape-1 candidates, each carrying plugin.json and an agents dir. Taking all of them lints
+# superseded copies as if they were current: measured against a 12-version cache, 16 violations
+# across 38 agents, every one of them from a version that predates its own enrollment. That is
+# not more coverage, it is historical noise, and it reds the lint on a correct install. The
+# declared `name` is what tells the two shape-1 layouts apart — monorepo siblings have distinct
+# names, a cache's version dirs all share one — so keeping the last candidate per NAME
+# degenerates correctly in both: every sibling in the monorepo, newest version only from a cache.
+#
 # THE TWO SHAPES ARE UNIONED, NOT TRIED IN ORDER. The named ladders can afford "first rung that
 # hits wins" because a NAME tells the two layouts apart: in a cache, `review-toolkit/<name>`
 # does not exist, so rung 1 misses and rung 2 runs. An enumeration has no name to miss on, and
@@ -143,7 +153,9 @@ FILES_SEEN=0
 # shape 1 from an install, where shape 1 matches MY OWN version dirs and nothing else: measured,
 # that scanned review-toolkit alone and silently dropped design-toolkit and intake-toolkit —
 # the same narrowing this issue is about, one level shallower. Unioning cannot narrow, and for a
-# lint the safe direction is more agents scanned, never fewer. Duplicates are dropped by path.
+# lint the safe direction is more agents scanned, never fewer — with the newest-per-plugin
+# selection above as the one bounded exception, since a superseded copy of a plugin is not
+# another plugin's coverage. Duplicates are dropped by path.
 #
 # NO SKIP RUNG, AND NO EMPTY PASS. If neither shape yields an agents dir this fails loudly —
 # and so does a scan that resolved roots but read no agent file out of them, because "clean, 0
@@ -161,11 +173,35 @@ else
     case " $ROOTS " in *" $r "*) return 0 ;; esac
     ROOTS="$ROOTS $r"
   }
-  # Shape 1 — sibling plugins one level up: the monorepo `plugins/<plugin>/agents`.
+  plugin_name() { # declared name of the plugin rooted at $1, empty if it cannot be read
+    local j="$1/.claude-plugin/plugin.json"
+    if command -v jq >/dev/null 2>&1; then
+      jq -r '.name // empty' "$j" 2>/dev/null
+      return 0
+    fi
+    # jq-less consumer: the top-level `name` is the first one at zero indentation, so a nested
+    # `author.name` (indented) cannot be mistaken for it.
+    sed -n 's/^[[:space:]]\{0,2\}"name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$j" 2>/dev/null | head -1
+  }
+  # Shape 1 — siblings one level up: the monorepo `plugins/<plugin>/agents`, or, from an
+  # install, `<plugin>/<version>/agents` — MY OWN version dirs. Keyed on the declared name so
+  # only the last candidate per plugin survives; see the note above for why that is the one
+  # place this enumeration is allowed to narrow. A candidate whose name will not resolve keys
+  # on its own path, which is the wider (pre-selection) answer rather than a dropped root.
+  s1=""
   for d in "$HERE"/../../*/; do
     [ -f "$d/.claude-plugin/plugin.json" ] || continue
-    [ -d "$d/agents" ] && add_root "$d/agents"
+    [ -d "$d/agents" ] || continue
+    n="$(plugin_name "$d")"
+    [ -n "$n" ] || n="$d"
+    s1="$s1$n	$d
+"
   done
+  # Last candidate wins per name, emitted in first-appearance order. Tab-separated because a
+  # path may hold anything else; awk because bash 3.2 has no associative arrays.
+  while IFS= read -r d; do
+    [ -n "$d" ] && add_root "$d/agents"
+  done <<<"$(printf '%s' "$s1" | awk -F'\t' 'NF { if (!($1 in seen)) { seen[$1] = 1; order[++n] = $1 } last[$1] = $2 } END { for (i = 1; i <= n; i++) print last[order[i]] }')"
   # Shape 2 — sibling plugins two levels up, each version-keyed: the install cache's
   # `<marketplace>/<plugin>/<version>/agents`.
   for p in "$HERE"/../../../*/; do

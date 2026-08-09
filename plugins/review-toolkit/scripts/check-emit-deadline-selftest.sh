@@ -244,9 +244,14 @@ grep -q "spec-reviewer" "$TMP/.live" \
 # why the unbounded cache-rung walk cannot wander into whatever else shares a parent.
 
 # B6: no plugin sibling in either topology => rc=1, naming the anchors it tried.
-b6="$TMP/b6/lonely/scripts"; mkdir -p "$b6"
+# Staged under its OWN mktemp root rather than under $TMP: shape 2 globs two levels up, so a
+# sibling case that happens to stage `<x>/<y>/.claude-plugin` would resolve for this one and
+# quietly turn "nothing resolves" into "something did" — an order dependence on where the other
+# cases sit in this file.
+B6ROOT="$(mktemp -d)"; trap 'rm -rf "$TMP" "$B6ROOT"' EXIT
+b6="$B6ROOT/lonely/scripts"; mkdir -p "$b6"
 cp "$CHECK" "$b6/check-emit-deadline.sh"
-if (cd "$TMP" && bash "$b6/check-emit-deadline.sh") >"$TMP/.b6" 2>&1; then
+if (cd "$B6ROOT" && bash "$b6/check-emit-deadline.sh") >"$TMP/.b6" 2>&1; then
   bad "B6 expected rc=1 when no plugin sibling resolves, got rc=0 ($(cat "$TMP/.b6"))"
 else
   grep -q "no sibling plugin agents dir found" "$TMP/.b6" \
@@ -299,6 +304,34 @@ if grep -q "other-reviewer" "$TMP/.b9" && grep -q "mine-reviewer" "$TMP/.b9"; th
   ok "B9 a cache-shaped scan reaches sibling plugins, not only the one it ships in"
 else
   bad "B9 expected both plugins' agents in a cache-shaped scan ($(cat "$TMP/.b9"))"
+fi
+
+# B10: a real cache holds MORE THAN ONE version of the scanning plugin, and one level up those
+# version dirs are shape-1 candidates. Without newest-per-name selection every superseded copy
+# is linted as if current, so agents nobody ships any more red the lint on a correct install —
+# measured at 16 violations across 38 agents against a 12-version cache. B9 cannot see it: it
+# stages one version per plugin, as does install-topology-selftest.sh's staged cache.
+b10="$TMP/b10/marketplace"
+for v in 1.0.0 2.0.0; do
+  mkdir -p "$b10/mine/$v/.claude-plugin" "$b10/mine/$v/agents"
+  echo "{\"name\":\"mine\",\"version\":\"$v\"}" > "$b10/mine/$v/.claude-plugin/plugin.json"
+done
+# The superseded version carries a VIOLATION — linting it at all is both visible and fatal.
+write_agent "$b10/mine/1.0.0/agents" "stale-reviewer" "maxTurns: 30" "No deadline in this body."
+write_agent "$b10/mine/2.0.0/agents" "current-reviewer" "maxTurns: 30" \
+  "By **turn 20** (of your 30 maximum) you MUST be writing the final result."
+mkdir -p "$b10/mine/2.0.0/scripts"
+cp "$CHECK" "$b10/mine/2.0.0/scripts/check-emit-deadline.sh"
+# The shipped enrollment names agents this fixture does not have, and an unresolvable
+# enrollment is its own (B3) failure — point it at the newest version's agent instead, which
+# also asserts that agent is the one the scan reached.
+if (cd "$TMP" && DEADLINE_AT_DEFAULT=current-reviewer \
+      bash "$b10/mine/2.0.0/scripts/check-emit-deadline.sh") >"$TMP/.b10" 2>&1; then
+  grep -q "stale-reviewer" "$TMP/.b10" \
+    && bad "B10 clean, but a superseded version's agents were still scanned ($(cat "$TMP/.b10"))" \
+    || ok "B10 a multi-version cache lints only the newest version of the scanning plugin"
+else
+  bad "B10 expected rc=0 from a two-version cache, got rc=1 ($(cat "$TMP/.b10"))"
 fi
 
 echo

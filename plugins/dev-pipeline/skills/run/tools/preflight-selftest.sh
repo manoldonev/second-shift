@@ -53,16 +53,24 @@ PREFLIGHT="$SCRIPT_DIR/preflight.sh"
 # NO SKIP RUNG. Run 10 still exercises preflight's unresolved branch, but it does so by forcing
 # the override empty. A resolution MISS here is a defect, and the assertion below makes it a
 # counted failure rather than silently retargeting runs 1-9 at the `claude` rung.
-resolve_sibling_plugin_root() { # $1 = sibling plugin name, $2 = marker subpath under it
-  local name="$1" marker="$2" cand
-  cand="$(cd "$SCRIPT_DIR/../../../../$name" 2>/dev/null && pwd)" || cand=""
+#
+# resolve_sibling_plugin_root <anchor-dir> <name> <marker-subpath> — echoes the sibling plugin
+# ROOT. The anchor is a PARAMETER rather than a read of this file's own directory variable:
+# that was the only thing separating this copy from doctor-selftest.sh's, whose hop
+# constants are identical, and passing it in makes the two blocks byte-identical so
+# scripts/lockstep-manifest.tsv can pin them instead of leaving them held by prose.
+# LOCKSTEP-BEGIN cross-plugin-sibling-plugin-root
+resolve_sibling_plugin_root() {
+  local anchor="$1" name="$2" marker="$3" cand
+  cand="$(cd "$anchor/../../../../$name" 2>/dev/null && pwd)" || cand=""
   if [[ -n "$cand" && -d "$cand/$marker" ]]; then printf '%s\n' "$cand"; return 0; fi
-  for cand in "$SCRIPT_DIR"/../../../../../"$name"/*/; do
+  for cand in "$anchor"/../../../../../"$name"/*/; do
     [[ -d "$cand/$marker" ]] || continue
     (cd "$cand" && pwd)
   done | tail -1
 }
-RT_TEST_ROOT="$(resolve_sibling_plugin_root review-toolkit scripts || true)"
+# LOCKSTEP-END cross-plugin-sibling-plugin-root
+RT_TEST_ROOT="$(resolve_sibling_plugin_root "$SCRIPT_DIR" review-toolkit scripts || true)"
 
 PASS=0; FAIL=0
 assert() { # $1 = description, $2 = condition result (0 = pass)
