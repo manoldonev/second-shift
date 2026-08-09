@@ -220,6 +220,42 @@ if [ "$rc" -eq 0 ] && [ -z "$out" ]; then
   pass "(f2) sourcing alone prints nothing and exits 0 — no CLI runs on the source path"
 else fail "(f2) sourcing produced output or a non-zero status, rc=$rc: $out"; fi
 
+# ---- (h) the INVERSE question: does a branch belong to an already-resolved namespace? (#442) --
+# lean-gate.sh's worktree sweep asks this of every registered worktree before it will look a
+# branch up on the tracker, so a wrong answer here IS the sweep's blast radius. The cases that
+# matter are the ones a `case "$ref" in "$prefix"*)` string test gets wrong — that is the obvious
+# implementation, and it accepts branches that are not work branches at all.
+isw() { # isw <ref> <prefix> [<tracker>] [<key-pattern>]
+  # shellcheck source=branch-prefix.sh
+  ( . "$TOOL" && bp_is_work_branch "$1" "$2" "${3:-github}" "${4:-}" )
+}
+
+if isw "claude/acme-7" "claude/acme-" && isw "jdoe/12" "jdoe/"; then
+  pass "(h1) a github work branch is recognized under both the slugged and the bare namespace"
+else fail "(h1) a real work branch was not recognized"; fi
+
+if ! isw "claude/acme-notes" "claude/acme-" && ! isw "claude/other-7" "claude/acme-"; then
+  pass "(h2) a non-key tail and a foreign slug are both rejected — not a prefix string match"
+else fail "(h2) bp_is_work_branch accepted a branch that is not this namespace's work branch"; fi
+
+if ! isw "dependabot/npm_and_yarn/acme-7" "dependabot/" && ! isw "main" "claude/acme-"; then
+  pass "(h3) a multi-segment tool namespace and a slashless branch are rejected"
+else fail "(h3) bp_is_work_branch accepted a tool namespace or a slashless ref"; fi
+
+# The tracker argument decides the key shape here exactly as it does for the vote scan.
+if isw "claude/acme-12" "claude/" jira 'ACME-[0-9]+' \
+   && ! isw "claude/acme-12" "claude/" github; then
+  pass "(h4) the same ref parses under jira's keyPattern and not under github's numeric key"
+else fail "(h4) the tracker/key-pattern arguments are not load-bearing here"; fi
+
+# bp_key_re is the ONE definition both directions read; a caller inlining its own copy is how
+# the membership answer drifts from the one that chose the namespace in the first place.
+# shellcheck source=branch-prefix.sh
+out="$( . "$TOOL" && printf '%s|%s|%s' "$(bp_key_re github '')" "$(bp_key_re jira '')" "$(bp_key_re jira 'X-[0-9]+')" )"
+if [ "$out" = '[0-9]+|[A-Za-z]+-[0-9]+|X-[0-9]+' ]; then
+  pass "(h5) bp_key_re yields the github numeric key, jira's built-in shape, and a configured override"
+else fail "(h5) unexpected key patterns: $out"; fi
+
 # ---- (g) --help stops at the header ----------------------------------------------------------
 # `sed -n '2,Np'` is a hand-maintained line number and this repo has been burned by a header
 # that outgrew it. Bounded on BOTH ends, and the lower bound is the header's genuinely LAST

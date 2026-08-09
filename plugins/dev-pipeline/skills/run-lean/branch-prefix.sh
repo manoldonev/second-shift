@@ -30,8 +30,12 @@
 # Usage (executed):
 #   branch-prefix.sh [--configured <prefix>] [--tracker github|jira]
 #                    [--key-pattern <ere>] [--repo <dir>]
-# Usage (sourced): defines resolve_branch_prefix() and nothing else.
+# Usage (sourced): defines resolve_branch_prefix(), plus the two helpers a caller needs to ask
+#   the INVERSE question — "is this branch in the namespace?" — without re-deriving the parse
+#   (lean-gate.sh's worktree sweep, #442):
 #   resolve_branch_prefix <configured> <tracker-type> <key-pattern> [<repo-dir>]
+#   bp_key_re <tracker-type> <key-pattern>
+#   bp_is_work_branch <ref> <prefix> <tracker-type> <key-pattern>
 #
 # Exit / return: 0 = resolved (printed on stdout); 2 = unresolvable (diagnostic on stderr).
 #
@@ -62,6 +66,27 @@ _bp_candidate() { # _bp_candidate <ref> <tracker> <key-pattern>   -> prints the 
   printf '%s\n' "$ident${rest%"$key"}"
 }
 
+# The per-tracker key ERE. ONE definition, two consumers — the vote scan below and
+# bp_is_work_branch — because a caller that inlined its own copy would answer the membership
+# question by a different rule than the one that chose the namespace in the first place.
+bp_key_re() { # bp_key_re <tracker> <configured-key-pattern>
+  case "${1:-github}" in
+    jira) printf '%s\n' "${2:-[A-Za-z]+-[0-9]+}" ;;
+    *)    printf '%s\n' '[0-9]+' ;;
+  esac
+}
+
+# The INVERSE of the resolver: given a prefix already resolved, does <ref> belong to it?
+# Deliberately built on the same _bp_candidate parse rather than a `case "$ref" in "$prefix"*)`
+# string test — a prefix match alone accepts `claude/second-shift-notes` and every
+# `dependabot/...` path under a matching identifier, so the caller's blast radius would be
+# "anything whose name starts the same way" rather than "a work branch of this tracker".
+bp_is_work_branch() { # bp_is_work_branch <ref> <prefix> <tracker> <key-pattern>
+  local got
+  got="$(_bp_candidate "$1" "${3:-github}" "$(bp_key_re "${3:-github}" "${4:-}")")" || return 1
+  [ "$got" = "$2" ]
+}
+
 resolve_branch_prefix() { # resolve_branch_prefix <configured> <tracker> <key-pattern> [<repo>]
   local configured="${1:-}" tracker="${2:-github}" key_pattern="${3:-}" repo="${4:-.}"
   local key_re votes="" ref cand tally top_n winners n_win
@@ -71,10 +96,7 @@ resolve_branch_prefix() { # resolve_branch_prefix <configured> <tracker> <key-pa
     return 0
   fi
 
-  case "$tracker" in
-    jira) key_re="${key_pattern:-[A-Za-z]+-[0-9]+}" ;;
-    *)    key_re='[0-9]+' ;;
-  esac
+  key_re="$(bp_key_re "$tracker" "$key_pattern")"
 
   # `for-each-ref … refname:strip=3` rather than `git branch -r`: it drops exactly
   # `refs/remotes/<remote>/`, whatever the remote is called, where stripping "the first
@@ -119,7 +141,7 @@ if [ "${BASH_SOURCE[0]}" = "$0" ]; then
       --tracker)     _tracker="${2:-}"; shift 2 ;;
       --key-pattern) _keypat="${2:-}"; shift 2 ;;
       --repo)        _repo="${2:-}"; shift 2 ;;
-      -h|--help)     sed -n '2,38p' "$0"; exit 0 ;;
+      -h|--help)     sed -n '2,42p' "$0"; exit 0 ;;
       *) echo "branch-prefix.sh: unknown argument '$1'" >&2; exit 2 ;;
     esac
   done
