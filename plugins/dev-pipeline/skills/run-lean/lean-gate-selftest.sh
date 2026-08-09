@@ -2828,7 +2828,21 @@ PPROG="$WORK/pprogress.md"
 PSID="sess-p-build"
 printf '{"tool":"Bash"}\n{"tool":"Read"}\n' > "$PTREE/.claude/audit/$PSID.jsonl"
 pgate() { # pgate <args...> — a build session's own environment: session id set, ledger live
-  ( unset RUN_ID; cd "$PTREE" && CLAUDE_CODE_SESSION_ID="$PSID" SECOND_SHIFT_CONFIG="$CFG" \
+  # HERMETICITY (#432). cmd_entry now reads the telemetry env vars out of its OWN inherited
+  # environment and stamps the resolved state onto the attestation row. The operator running this
+  # suite is very likely IN an exporting session, so inheriting either variable would make (ea1)
+  # and the (tel*) cases below assert whatever that machine happens to export — green here, red
+  # on a colleague's laptop. Unset both; the cases that need a state set them explicitly.
+  ( unset RUN_ID CLAUDE_CODE_ENABLE_TELEMETRY OTEL_EXPORTER_OTLP_ENDPOINT
+    cd "$PTREE" && CLAUDE_CODE_SESSION_ID="$PSID" SECOND_SHIFT_CONFIG="$CFG" \
+    LEAN_PROGRESS_FILE="$PPROG" bash "$GATE" --issue-file "$ISSUE_NOREGIONS" "$@" 2>&1 )
+}
+pgate_tel() { # pgate_tel <VAR=value…> -- <args…> — same, with an explicit telemetry environment
+  local envs=()
+  while [ $# -gt 0 ] && [ "$1" != "--" ]; do envs+=("$1"); shift; done
+  shift
+  ( unset RUN_ID CLAUDE_CODE_ENABLE_TELEMETRY OTEL_EXPORTER_OTLP_ENDPOINT
+    cd "$PTREE" && env "${envs[@]}" CLAUDE_CODE_SESSION_ID="$PSID" SECOND_SHIFT_CONFIG="$CFG" \
     LEAN_PROGRESS_FILE="$PPROG" bash "$GATE" --issue-file "$ISSUE_NOREGIONS" "$@" 2>&1 )
 }
 # Capture-then-default, never `grep -c … || echo 0`: on zero matches grep PRINTS "0" *and*
@@ -2849,14 +2863,122 @@ out="$(pgate entry 8)"; rc=$?
 # ATTESTATION rather than a bit, and a writer that dropped them would still satisfy every
 # presence-only reader downstream.
 if [ "$rc" -eq 0 ] && [ "$(pcount '| entry | ledger=')" -eq 1 ] \
-   && grep -qF "/.claude/audit/$PSID.jsonl | lines=2 | session=$PSID" "$PPROG"; then
-  pass "(ea1) entry records one row carrying the resolved ledger path, its line count and the session id"
+   && grep -qF "/.claude/audit/$PSID.jsonl | lines=2 | telemetry=off | session=$PSID" "$PPROG"; then
+  pass "(ea1) entry records one row carrying the resolved ledger path, its line count, the telemetry state and the session id"
 else fail "(ea1) expected one full entry row, rc=$rc: $(cat "$PPROG" 2>/dev/null)"; fi
 
 out="$(pgate entry 8)"; rc=$?
 if [ "$rc" -eq 0 ] && [ "$(pcount '| entry | ledger=')" -eq 1 ]; then
   pass "(ea2) a second entry call is idempotent — the row is not duplicated"
 else fail "(ea2) expected still exactly one row, rc=$rc, count=$(pcount '| entry | ledger=')"; fi
+
+# ---- (tel) the entry-side telemetry probe (#432) --------------------------------------------
+# A session launched without CLAUDE_CODE_ENABLE_TELEMETRY exports nothing, and the run discovers
+# it at step 7 — after all the work is done, when the datapoints can never be recovered. The gate
+# is a bash child of the `claude` process, so its own inherited environment IS the export
+# decision the run never had. Two properties are load-bearing and pull in opposite directions:
+# the state must be REPORTED and stamped, and it must NEVER be a refusal (D-1/D-3 — nothing
+# downstream consumes cost, and the feature is opt-in, so refusing would promote it to a hard
+# precondition for every consumer that has no collector).
+#
+# A port nothing is listening on. Resolved rather than hard-coded: a fixed port that happened to
+# be occupied on the operator's machine would turn (tel2) into a silent false green.
+DEAD_PORT=""
+for _p in 45317 45318 45319 45320 45321; do
+  (exec 3<>"/dev/tcp/127.0.0.1/$_p") 2>/dev/null || { DEAD_PORT="$_p"; break; }
+done
+
+rm -f "$PPROG"
+out="$(pgate_tel -u CLAUDE_CODE_ENABLE_TELEMETRY -- entry 8)"; rc=$?
+if [ "$rc" -eq 0 ] \
+   && printf '%s' "$out" | grep -qF 'CLAUDE_CODE_ENABLE_TELEMETRY is not set' \
+   && printf '%s' "$out" | grep -qF 'cannot be recovered after the run' \
+   && grep -qF '| telemetry=off |' "$PPROG"; then
+  pass "(tel1) a non-exporting session warns, names the unrecoverable consequence, and stamps telemetry=off — WITHOUT refusing"
+else fail "(tel1) expected rc=0 + the off warning + the stamped row, rc=$rc: $out"; fi
+
+if [ -n "$DEAD_PORT" ]; then
+  rm -f "$PPROG"
+  out="$(pgate_tel CLAUDE_CODE_ENABLE_TELEMETRY=1 "OTEL_EXPORTER_OTLP_ENDPOINT=http://127.0.0.1:$DEAD_PORT" -- entry 8)"; rc=$?
+  if [ "$rc" -eq 0 ] && grep -qF '| telemetry=nocoll |' "$PPROG" \
+     && printf '%s' "$out" | grep -qF 'nothing is accepting'; then
+    pass "(tel2) exporting enabled but no collector listening resolves to nocoll, still rc=0"
+  else fail "(tel2) expected nocoll, rc=$rc: $out / $(cat "$PPROG" 2>/dev/null)"; fi
+else
+  fail "(tel2) could not find a closed loopback port to probe — the case could not run"
+fi
+
+# (tel3) OR-1: the reachability half is SKIPPED on anything that is not a plain-http loopback
+# endpoint, and the state falls back to the env var alone. A probe that fired against a working
+# REMOTE collector would warn on a healthy setup, and a warning that cries wolf gets ignored —
+# which costs more than the missing signal. The endpoint below is deliberately unreachable, so a
+# probe that ran anyway would resolve nocoll and red this case.
+rm -f "$PPROG"
+out="$(pgate_tel CLAUDE_CODE_ENABLE_TELEMETRY=1 "OTEL_EXPORTER_OTLP_ENDPOINT=https://otel.example.invalid:4317" -- entry 8)"; rc=$?
+if [ "$rc" -eq 0 ] && grep -qF '| telemetry=on |' "$PPROG"; then
+  pass "(tel3) a non-loopback/non-http endpoint skips the reachability probe and reports on"
+else fail "(tel3) expected telemetry=on for the skipped probe, rc=$rc: $(cat "$PPROG" 2>/dev/null)"; fi
+
+# (tel4) …and a path-bearing loopback URL is a gateway, not the documented local collector, so it
+# skips too. Same port as (tel2), where the bare host:port form resolved nocoll — so this pins the
+# PARSER, not the reachability of the port.
+if [ -n "$DEAD_PORT" ]; then
+  rm -f "$PPROG"
+  out="$(pgate_tel CLAUDE_CODE_ENABLE_TELEMETRY=1 "OTEL_EXPORTER_OTLP_ENDPOINT=http://127.0.0.1:$DEAD_PORT/v1/metrics" -- entry 8)"; rc=$?
+  if [ "$rc" -eq 0 ] && grep -qF '| telemetry=on |' "$PPROG"; then
+    pass "(tel4) a path-bearing loopback URL skips the probe — the same port that resolved nocoll bare"
+  else fail "(tel4) expected telemetry=on for the path-bearing URL, rc=$rc: $(cat "$PPROG" 2>/dev/null)"; fi
+else
+  fail "(tel4) could not find a closed loopback port — the case could not run"
+fi
+
+# (tel5) the CONNECTED direction. Without it, an implementation whose probe always failed would
+# warn `nocoll` on every healthy machine — the false alarm OR-1 says costs the most — and every
+# case above would still pass. Needs a real loopback listener, so it is guarded on `nc`; when
+# `nc` is absent the case is reported NOT RUN rather than silently dropped.
+TEL_LISTEN_PORT=""
+for _p in 45322 45323 45324 45325; do
+  (exec 3<>"/dev/tcp/127.0.0.1/$_p") 2>/dev/null || { TEL_LISTEN_PORT="$_p"; break; }
+done
+if command -v nc >/dev/null 2>&1 && [ -n "$TEL_LISTEN_PORT" ]; then
+  nc -l 127.0.0.1 "$TEL_LISTEN_PORT" >/dev/null 2>&1 &
+  NC_PID=$!
+  _up=0
+  for _i in 1 2 3 4 5 6 7 8 9 10; do
+    if (exec 3<>"/dev/tcp/127.0.0.1/$TEL_LISTEN_PORT") 2>/dev/null; then _up=1; break; fi
+    sleep 0.2
+  done
+  if [ "$_up" -eq 1 ]; then
+    # The connect above consumed the single accept, so re-listen for the gate's own probe.
+    kill "$NC_PID" 2>/dev/null; wait "$NC_PID" 2>/dev/null
+    nc -k -l 127.0.0.1 "$TEL_LISTEN_PORT" >/dev/null 2>&1 &
+    NC_PID=$!
+    sleep 0.5
+    rm -f "$PPROG"
+    out="$(pgate_tel CLAUDE_CODE_ENABLE_TELEMETRY=1 "OTEL_EXPORTER_OTLP_ENDPOINT=http://127.0.0.1:$TEL_LISTEN_PORT" -- entry 8)"; rc=$?
+    if [ "$rc" -eq 0 ] && grep -qF '| telemetry=on |' "$PPROG"; then
+      pass "(tel5) a loopback endpoint that ACCEPTS resolves to on — the probe is not a constant failure"
+    else fail "(tel5) expected telemetry=on against a live listener, rc=$rc: $(cat "$PPROG" 2>/dev/null)"; fi
+  else
+    echo "  NOTE: (tel5) not run — could not bring up a loopback listener on $TEL_LISTEN_PORT"
+  fi
+  kill "$NC_PID" 2>/dev/null; wait "$NC_PID" 2>/dev/null
+else
+  echo "  NOTE: (tel5) not run — no \`nc\` on PATH, so no loopback listener is available"
+fi
+
+# (tel6) BACKWARD COMPATIBILITY. The row grew a field, and a run already in flight when the new
+# gate lands has the OLD one. `entry_row_present` / `require_entry_attested` read PRESENCE, so a
+# legacy row must still satisfy them — otherwise every mid-flight run reds at its next milestone
+# on a format change it had no way to anticipate.
+rm -f "$PPROG"
+{ echo "# lean run — issue 8"; echo ""; echo "run_id: r-p"; echo "session_id: $PSID"
+  echo "2026-01-01T00:00:00Z | entry | ledger=$PTREE/.claude/audit/$PSID.jsonl | lines=2 | session=$PSID"
+} > "$PPROG"
+out="$(pgate 1 8)"; rc=$?
+if [ "$rc" -ne 2 ]; then
+  pass "(tel6) a legacy entry row without the telemetry field still attests — no mid-flight run reds on the format change"
+else fail "(tel6) legacy row rejected by the entry precondition: $out"; fi
 
 # The refusal, on a progress file that has everything EXCEPT the row. Seeding a full header is
 # the point: "the file is missing" and "the run never attested" must not be the same test, or a

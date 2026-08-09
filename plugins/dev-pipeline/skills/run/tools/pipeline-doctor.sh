@@ -454,16 +454,43 @@ fi   # SELFTEST_CACHE_HIT
 # --- 6. Worktree base + degraded-mode notes -------------------------------------
 if mkdir -p "$REPO_ROOT/.claude/worktrees" 2>/dev/null; then ok "worktree base dir writable"; else bad "cannot create $REPO_ROOT/.claude/worktrees"; fi
 
-if [[ -s "$HOME/.claude/otel-metrics/metrics.jsonl" ]]; then
+# >>> otel-telemetry-classify (extracted by pipeline-doctor-selftest.sh) >>>
+# #432: a rotated-but-healthy machine has an empty (or freshly re-created) metrics.jsonl beside a
+# full `metrics-<ts>-size.jsonl` backup, and used to read here as "no OTel metrics" — the doctor
+# reporting absent telemetry on a machine that is exporting fine. Any non-empty file for the stem
+# counts. $OTEL_METRICS_FILE is honored so the check tracks what pipeline-cost-block.sh resolves.
+_OTEL_METRICS_LIVE="${OTEL_METRICS_FILE:-$HOME/.claude/otel-metrics/metrics.jsonl}"
+_OTEL_METRICS_STEM="${_OTEL_METRICS_LIVE%.jsonl}"
+_otel_backup_present() {
+  local f
+  for f in "$_OTEL_METRICS_STEM"-*.jsonl; do
+    [[ -s "$f" ]] && return 0
+  done
+  return 1
+}
+if [[ -s "$_OTEL_METRICS_LIVE" ]]; then
   ok "OTel metrics file present — Stage 9 cost block can fire"
+elif _otel_backup_present; then
+  ok "OTel metrics present in a rotated backup (live file empty) — Stage 9 cost block can fire"
 else
-  warn "no OTel metrics at ~/.claude/otel-metrics/metrics.jsonl — cost tracking will record skipped-telemetry-off (opt-in; see cost-tracking-setup.md)"
+  warn "no OTel metrics at $_OTEL_METRICS_LIVE (nor any rotated backup beside it) — cost tracking will record skipped-telemetry-off (opt-in; see cost-tracking-setup.md)"
 fi
+# #432: the variable that actually decides whether THIS shell's sessions export anything. A run
+# launched without it produces an empty cost block that cannot be recovered afterwards, and every
+# other check in this section passes while it does. Doctor is where an operator looks before a
+# run, which makes it the cheapest place to catch it.
+case "${CLAUDE_CODE_ENABLE_TELEMETRY:-}" in
+  ""|0|false|FALSE|False)
+    warn "CLAUDE_CODE_ENABLE_TELEMETRY not enabled in this shell — a session launched from here exports nothing and its cost block will be empty (unrecoverable after the run). Set it in ~/.claude/settings.json's env block; see cost-tracking-setup.md §3" ;;
+  *)
+    ok "CLAUDE_CODE_ENABLE_TELEMETRY enabled (this shell's sessions export cost datapoints)" ;;
+esac
 if [[ -n "${CLAUDE_CODE_SESSION_ID:-}" ]]; then
   ok "CLAUDE_CODE_SESSION_ID set (cost attribution possible)"
 else
   warn "CLAUDE_CODE_SESSION_ID unset in this shell — fine inside a Claude Code session; cost tracking degrades to skipped-no-sessions otherwise"
 fi
+# <<< otel-telemetry-classify <<<
 
 # Visual-capture substrate (Stage 6): the prescribed capture tool is the Playwright MCP;
 # when it is absent the sanctioned fallback is headless Chrome (stages/6-verify.md —
