@@ -648,3 +648,13 @@ lean-output-dispositions	verbatim	scripts/check-lean-chain.sh	lean-output-dispos
 # occur on and a reviewer reading the capability's diff sees the pointer.
 # Revisit if the benefit text is ever hoisted into a data file both sites read: a single
 # canonical site makes an ordinary `verbatim` row possible, and this entry should become one.
+#
+# The monorepo probe. Two shipped selftests assert a lockstep against an artifact that lives
+# in this repo and ships inside no plugin (schema/second-shift.config.schema.json,
+# docs/extension-points.md). Each probes whether it is running in the monorepo to decide
+# between a hard FAIL and a counted rc-77 skip, and each carries its own copy of the marker
+# test because the two live in different plugins at different up-counts. The differing `ROOT=`
+# assignment sits ABOVE the markers on purpose, so only the shared test is inside the block and
+# a plain `verbatim` row is expressible — a widened or renamed marker on one side alone is
+# exactly the drift that would let one suite skip where the other still fails.
+monorepo-probe	verbatim	plugins/dev-pipeline/skills/run/tools/config-lint-selftest.sh	monorepo-probe	plugins/review-toolkit/scripts/check-review-context-sections-selftest.sh	monorepo-probe

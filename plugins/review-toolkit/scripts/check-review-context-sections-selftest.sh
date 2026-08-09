@@ -17,7 +17,28 @@ unset SECOND_SHIFT_CONFIG SECOND_SHIFT_REPO_ROOT SECOND_SHIFT_EXTENSION_MANIFEST
 HERE="$(cd "$(dirname "$0")" && pwd)"
 CHECK="$HERE/check-review-context-sections.sh"
 CATALOG="$HERE/section-catalog.txt"
-DOCS="$HERE/../../../docs/extension-points.md"
+#
+# docs/extension-points.md is a REPO artifact and ships inside no plugin, so from a
+# marketplace install it is structurally absent and its absence says nothing about drift.
+# Distinguish the two by probing the tree INTRINSICALLY — never by an environment variable a
+# harness could export, which would drain the signal for the consumer who runs this suite
+# straight from their own install, the exact case the skip exists for. The `ROOT=` up-count is
+# this suite's own walk to its artifact; the marker test below is byte-shared with the
+# dev-pipeline copy (scripts/lockstep-manifest.tsv, pair `monorepo-probe`).
+ROOT="$HERE/../../.."
+# LOCKSTEP-BEGIN monorepo-probe
+if [[ -f "$ROOT/.claude-plugin/marketplace.json" && -d "$ROOT/plugins" ]]; then
+  IN_MONOREPO=1
+else
+  IN_MONOREPO=0
+fi
+# LOCKSTEP-END monorepo-probe
+DOCS="$ROOT/docs/extension-points.md"
+# Set only when the lockstep case below cannot run because its repo-only artifact is absent
+# AND this tree is not the monorepo. Consumed at the tail: the suite exits 77 — the named,
+# counted skip tools/install-topology-selftest.sh hoists — and it does so ONLY if no other
+# assertion failed. A real failure always outranks a skip.
+SKIP_REASON=""
 FAILS=0
 ok()  { echo "  ✓ $1"; }
 bad() { echo "  ✗ $1"; FAILS=$((FAILS+1)); }
@@ -178,8 +199,10 @@ if [ -f "$DOCS" ]; then
     done < "$CATALOG"
     [ "$bad_alias" -eq 0 ] && ok "AC-3: every deprecated-alias-of target is an active catalog section" \
         || bad "AC-3: an alias points at a non-active target"
-else
+elif [ "$IN_MONOREPO" -eq 1 ]; then
     bad "AC-3: docs/extension-points.md not found at $DOCS (lockstep cannot run)"
+else
+    SKIP_REASON="SKIP: docs/extension-points.md is a repo-only artifact, unreachable from an install — the catalog/docs-template lockstep did not run"
 fi
 
 # ---- (8) --verbose surfaces novel headings + coverage in the default (mid-run) venue ----
@@ -250,9 +273,35 @@ else
     bad "a TODO:-prefixed body must be EMPTY-SECTION red at preflight (rc=$RC)"
 fi
 
+# ---- (12) the skip path must be UNREACHABLE in the monorepo -----------------------------
+# Deleting the docs from the working tree cannot prove that: the deletion would also have to
+# survive into whatever tree the probe reads. So FABRICATE one — a root carrying the monorepo
+# markers and NOT the artifact, with a copy of this directory at exactly the depth the probe
+# walks. The copy must hard-FAIL: an rc that is neither 0 nor 77, and no SKIP line at all.
+# The inline guard below stops the inner run re-entering this case. It gates a FIXTURE, never
+# the skip discriminator, which stays intrinsic.
+if [ -z "${SECOND_SHIFT_SELFTEST_FABRICATED_TREE:-}" ]; then
+    FAB="$TMP/fab"
+    mkdir -p "$FAB/.claude-plugin" "$FAB/plugins/review-toolkit"
+    printf '{}\n' > "$FAB/.claude-plugin/marketplace.json"
+    cp -R "$HERE" "$FAB/plugins/review-toolkit/scripts"
+    FAB_RC=0
+    FAB_OUT="$(SECOND_SHIFT_SELFTEST_FABRICATED_TREE=1 \
+        bash "$FAB/plugins/review-toolkit/scripts/$(basename "$0")" 2>&1)" || FAB_RC=$?
+    if [ "$FAB_RC" -ne 0 ] && [ "$FAB_RC" -ne 77 ] && ! printf '%s\n' "$FAB_OUT" | grep -q '^SKIP: '; then
+        ok "monorepo markers + absent docs still hard-FAILs, never skips (rc=$FAB_RC)"
+    else
+        bad "monorepo markers + absent docs must hard-FAIL, not skip (rc=$FAB_RC, skip lines: $(printf '%s\n' "$FAB_OUT" | grep -c '^SKIP: '))"
+    fi
+fi
+
 echo ""
-if [ "$FAILS" -eq 0 ]; then
-    echo "check-review-context-sections-selftest: ALL PASS"
-else
+if [ "$FAILS" -ne 0 ]; then
     echo "check-review-context-sections-selftest: $FAILS FAILURE(S)"; exit 1
 fi
+if [ -n "$SKIP_REASON" ]; then
+    echo "$SKIP_REASON"
+    echo "check-review-context-sections-selftest: ALL PASS apart from the skipped lockstep"
+    exit 77
+fi
+echo "check-review-context-sections-selftest: ALL PASS"
