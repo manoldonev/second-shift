@@ -5,14 +5,14 @@ run_id: review-450-2
 session_id: 75621220-2b71-4a6b-9310-a493d6bbff78
 rounds: 2
 pr: #463
-reviewed_head: 409912153c849ad54f125367effa614bfa3ac6de
+reviewed_head: 693855d4675caee1caed8619b76eb0a3d8ed71fe
 reviewed_patch_id: 4d660b6ae2a5b25c4128498746ab606a20d0e9ab
 inherited_patch_id: 928c693d1eb322707e7bc50434109b9b6a381843
 inherited_from_verdict: 83bc44b8d4221ec4e543fab12038ab6cb3748c09
 fidelity: not-applicable
 model: unknown
 
-Round 2, delta range `83bc44b..HEAD` (one commit, `4099121`), inheriting the coverage of patch `928c693d1eb3` from round 1's record. Panel plus an independent finder/verifier pass, per round 1's lesson that a specialist fan-out under-reads a single-tool diff. Design: the spec has no `## Design` section, so fidelity is `not-applicable` — unchanged from round 1.
+Round 2, delta range `83bc44b..HEAD` (one commit, `4099121`), inheriting the coverage of patch `928c693d1eb3` from round 1's record. **Deviation, declared:** the checklist names `review-lead` as the implementation, and I did not run its specialist fan-out. Round 1's record found that panel returned approve/approve-with-nits on this same tool while missing the only blocker — on a single shell+jq guard the security/perf/a11y/db axes have no surface and the panel degenerates to maintainability-of-one. I ran two purpose-built reviewers instead: an empirical correctness finder over the round-2 idioms, and a test-strength reviewer that mutation-probes the production body against its paired suite. Both blockers below came from that pass, and I re-applied and re-scored both decision-driving probes myself rather than take either agent at face value. Design: the spec has no `## Design` section, so fidelity is `not-applicable` — unchanged from round 1.
 
 **Verdict: needs-work.** Round 1's blocker is genuinely and completely fixed. Both round-1 reproductions now exit 3 with `not a single JSON object`, a 13-shape document matrix is correct, and the comparison itself is now fail-closed. The two blockers below are new, and both are the same shape: **this round widened three ACs and the diff does not reach two of the widened clauses.** Neither is the spec being bent to match the diff — every amendment is strictly strengthening — so both fixes are small and the contract is already written.
 
