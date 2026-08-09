@@ -3020,6 +3020,8 @@ rm -f "$MPROG"
 mark_attest sess-mark-1
 mark_attest sess-mark-2
 mark_attest sess-mark-3
+# #457's (pm6b) drives mark under jira+bot as its own session; it needs to be in the set too.
+mark_attest sess-mark-jb
 
 cat > "$WORK/pr-mark.json" <<'EOF'
 [{ "number": 9, "url": "https://example.invalid/pr/9" }]
@@ -3261,7 +3263,7 @@ else fail "(ms10) an in-flight run stranded at mark, rc=$rc: $out"; fi
 # AC-4. `mark` is a PURE READER. A guard that recorded before checking would whitelist itself and
 # be vacuous, so the refused calls above must have left the file untouched — asserted against the
 # fixture's own byte count rather than by re-reading the ids it prints.
-if [ "$(mcount '| session | ')" -eq 2 ] \
+if [ "$(mcount '| session | ')" -eq 3 ] \
    && ! grep -qF 'sess-review-r' "$MPROG" 2>/dev/null \
    && ! grep -qF 'sess-review-m4' "$MPROG" 2>/dev/null; then
   pass "(ms11) mark records nothing — neither the refused sessions nor the successful ones were added (AC-4)"
