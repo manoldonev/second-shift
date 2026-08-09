@@ -18,7 +18,7 @@ refusal.
 | `plugins/dev-pipeline/skills/run/tools/pipeline-doctor.sh` | telemetry env check; rotation-aware metrics-file check |
 | `plugins/dev-pipeline/skills/run/cost-tracking-setup.md` | §3 primary recipe; two new troubleshooting rows |
 | `plugins/dev-pipeline/skills/run/state-schema.md` | two new `costBlockApplied` enum rows |
-| `plugins/dev-pipeline/skills/run-lean/lean-gate-selftest.sh` | AC-1/AC-2 guards |
+| `plugins/dev-pipeline/skills/run-lean/lean-gate-selftest.sh` | AC-1/AC-2 guards; the AC-10 hermeticity fix |
 | `plugins/dev-pipeline/skills/run/tools/cost-block-selftest.sh` | AC-3/AC-4 guards |
 | `plugins/dev-pipeline/skills/run/tools/pipeline-doctor-selftest.sh` | AC-5 guards |
 | `tools/mutation-baseline.tsv` | re-baselined generic-survivor ordinals for the two edited guards |
@@ -123,6 +123,17 @@ Editing `lean-gate.sh` and `pipeline-cost-block.sh` re-keys their generic surviv
 their `tools/mutation-baseline.tsv` rows are re-baselined here. The two `tools/mutation-catalog.tsv`
 rows addressing the cost block are anchored on `sed` expressions rather than line numbers; they
 are re-checked and re-anchored only if their matched text moves.
+
+**AC-10 — `lean-gate-selftest.sh` is hermetic against an ambient `RUN_ID`.**
+Added during the build, after the suite red the run's own milestone-3 gate. `gate()` and
+`attest_at()` unset `RUN_ID` per call, but nine cases invoke the gate directly and inherit the
+caller's value — and SKILL.md step 2 tells every lean run to export one, so the leak is the
+normal state of the shell the sweep runs from. The observable is `(k6)`: milestone 5 calls
+`mark`, whose no-op test keys on the resolved run id; the leaked id matches no marker in the
+fixture trail, so the case reds with `GH_BOT must point at the bot wrapper` — a message that
+reads like a bot-wrapper defect in whatever diff is in flight. Confirmed pre-existing: the same
+case fails identically at this branch's base. One suite-level `unset`, mirroring the
+`LEAN_RUN_MODEL` guard directly above it and for the same reason.
 
 ## Open regions
 
