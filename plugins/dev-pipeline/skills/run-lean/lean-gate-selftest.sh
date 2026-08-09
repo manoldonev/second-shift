@@ -270,7 +270,14 @@ else
   else
     printf '%s' "{\"session_id\":\"sess-wt\",\"cwd\":\"$WT_ENTRY\",\"hook_event_name\":\"PostToolUse\",\"tool_name\":\"Read\",\"tool_input\":{\"file_path\":\"$WT_ENTRY/x\"}}" \
       | CLAUDE_PROJECT_DIR="$WT_ENTRY" "$HOOK"
-    out="$( cd "$WT_ENTRY" && SECOND_SHIFT_CONFIG="$CFG" LEAN_PROGRESS_FILE="$PROG" \
+    # `env -u RUN_ID`, like every sibling entry case above, and for a consequence that reaches
+    # far past this case: `entry` is one of the three subcommands that PERSIST the run-id cache,
+    # so an ambient RUN_ID seeds $TREE's cache with the operator's own id. (k6) then resolves it
+    # in cmd_mark's no-op test, matches no fixture marker, and falls through to the LIVE $GH_BOT
+    # write path — which is green in CI (no ambient RUN_ID) and red for any operator who followed
+    # SKILL.md step 2 and kept theirs exported. CLAUDE_CODE_SESSION_ID stays set on purpose: this
+    # case is about the worktree ledger the hook wrote under sess-wt.
+    out="$( cd "$WT_ENTRY" && env -u RUN_ID SECOND_SHIFT_CONFIG="$CFG" LEAN_PROGRESS_FILE="$PROG" \
             CLAUDE_CODE_SESSION_ID=sess-wt bash "$GATE" entry 7 2>&1 )"; rc=$?
     if [ "$rc" -eq 0 ]; then
       pass "(d5) entry passes in a linked worktree whose ledger the REAL hook wrote"
