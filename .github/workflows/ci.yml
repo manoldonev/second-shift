@@ -5,6 +5,14 @@ on:
     branches: [main]
   pull_request:
 
+# One in-flight run per ref. Every job here is a pure verifier of the tree at a commit — nothing
+# deploys, nothing publishes — so a superseded run's verdict is about a commit no reviewer will
+# read, and letting it finish only queues behind the run that matters. Keyed on `github.ref`, so
+# a push to one PR cancels that PR's run and nothing else's.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   lint-and-selftests:
     runs-on: ubuntu-latest
@@ -82,34 +90,19 @@ jobs:
         with:
           args: -color
 
-      - name: run all selftests
-        run: |
-          fails=0
-          while IFS= read -r -d '' t; do
-            echo "── $t"
-            bash "$t" || fails=$((fails+1))
-          done < <(find . -name '*-selftest.sh' -type f -print0)
-          exit "$fails"
-
-      # Test-the-tests, diff-scoped. Mutates only the guards this PR touches and runs their
-      # paired selftests; a mutant that SURVIVES is a regression the suite would not have
-      # caught. Guards whose kill set is not a single fast suite defer to the nightly
-      # wholesale sweep rather than being graded against a weaker criterion than the one
-      # that produced the baseline.
+      # tools/run-selftests.sh, not an inline loop: CLAUDE.md's Verification section mandates
+      # `-P 4` and measures it at 13:12 serial vs 5:22 parallel, and this step was running the
+      # exact serial form the repo tells contributors not to run — 709s of a 771s job. The
+      # runner exists rather than a bare `-P` flag because at -P 4 the suites' raw stdout
+      # braids together; it captures each suite and replays it inside ::group:: framing.
       #
-      # pull_request only: this job also runs on push-to-main, where no base ref exists.
-      # BASE_REF rides in the environment for the same injection reason as pr-gates below.
-      # SKIP_STRESS is set HERE, on the step, not on the job: the canonical sweep
-      # environment includes it, but the job's own selftest step above must keep exercising
-      # the stress legs. The harness never exports it itself — that would make the
-      # baseline's environment check vacuous.
-      - name: mutation sweep (PR-scoped)
-        if: github.event_name == 'pull_request'
-        timeout-minutes: 15
-        env:
-          BASE_REF: ${{ github.base_ref }}
-          SKIP_STRESS: '1'
-        run: bash tools/mutation-sweep.sh --mode pr --base "origin/$BASE_REF"
+      # install-topology-selftest.sh is EXCLUDED here and runs in its own job below. It re-runs
+      # every shipped suite from a staged install cache, so leaving it in this sweep has it
+      # contending with the very suites it duplicates (statectl measured at 244s against a ~94s
+      # uncontended norm). It stays DISCOVERED — the exclusion names a path that must exist, and
+      # the runner hard-errors if it ever stops matching.
+      - name: run all selftests
+        run: bash tools/run-selftests.sh --exclude tools/install-topology-selftest.sh
 
       # Contract pairs duplicated across files (an agent's inline copy of a rule, a schema
       # three Workflow scripts each redeclare) where prose alone said "keep verbatim".
@@ -135,6 +128,83 @@ jobs:
                "${TOOLKITS[@]}" --include='*.md' --include='*.mjs' --exclude-dir=scripts --exclude-dir=evals 2>/dev/null; then
             echo "::error::rule 3(b): toolkit content hard-paths into dev-pipeline (invoke workflows by bare filename; reference artifacts by name)"; exit 1
           fi
+
+  # Test-the-tests, diff-scoped. Mutates only the guards this PR touches and runs their
+  # paired selftests; a mutant that SURVIVES is a regression the suite would not have caught.
+  # Guards whose kill set is not a single fast suite defer to the nightly wholesale sweep
+  # rather than being graded against a weaker criterion than the one that produced the baseline.
+  #
+  # ITS OWN JOB, not a step of lint-and-selftests: it was serialized behind ~12 minutes of
+  # selftests while carrying its own 15-minute timeout, so on a guard-touching PR it put ~10
+  # more minutes on the critical path for no dependency reason. Nothing it reads is produced by
+  # that job.
+  #
+  # pull_request only: no base ref exists on push-to-main. BASE_REF rides in the environment for
+  # the same injection reason as pr-gates below. SKIP_STRESS is the canonical sweep environment
+  # and is set here, on this job alone — the selftest job above must keep exercising the stress
+  # legs, and the harness never exports it itself (that would make the baseline's environment
+  # check vacuous).
+  mutation-sweep-pr:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0   # the sweep diffs the PR against its base to scope the guard set
+
+      # The paired selftests this sweep runs need both. They were previously inherited from
+      # lint-and-selftests' shellcheck step; standing alone, this job states its own tools.
+      - name: install shellcheck + jq
+        run: sudo apt-get update -q && sudo apt-get install -y shellcheck jq
+
+      - name: mutation sweep (PR-scoped)
+        timeout-minutes: 15
+        env:
+          BASE_REF: ${{ github.base_ref }}
+          SKIP_STRESS: '1'
+        run: bash tools/mutation-sweep.sh --mode pr --base "origin/$BASE_REF"
+
+  # The install-topology class guard, lifted out of the sweep into its own job on BOTH lanes.
+  #
+  # WHY ITS OWN JOB: it stages every shipped plugin into a version-keyed install cache and
+  # re-runs every shipped suite from there, so inside the outer sweep it competes with the
+  # first copy of the same suites. Its own header documents the result — statectl at 244s
+  # against a ~94s uncontended norm — and its timeout was raised 600s → 1200s to absorb it.
+  # Alone, it is the run's critical path rather than an amplifier of it.
+  #
+  # WHY BOTH LANES: several install-topology-known-red.tsv rows are explicitly
+  # environment-dependent, so the bash-3.2 copy carries signal ubuntu does not. Dropping the
+  # macos copy would trade coverage for wall clock; splitting the job costs neither.
+  #
+  # INSTALL_TOPOLOGY_TIMEOUT's 1200s default is deliberately NOT re-tightened here. It is sized
+  # for contention this change removes, but it is a hang detector, and re-sizing it needs an
+  # uncontended measurement — which this change is what produces.
+  install-topology:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: install shellcheck + jq
+        run: sudo apt-get update -q && sudo apt-get install -y shellcheck jq
+
+      - name: install-topology class guard
+        run: bash tools/install-topology-selftest.sh
+
+  install-topology-bash32:
+    name: install-topology (macos, bash 3.2)
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      # Same bash-3.2 shim as selftests-bash32 below, and for the same reason: the staged
+      # suites claim 3.2 compat, and Homebrew's bash 5 is first on PATH on the macos runner.
+      - name: install-topology class guard under stock bash 3.2
+        run: |
+          mkdir -p /tmp/bash32
+          ln -sf /bin/bash /tmp/bash32/bash
+          export PATH="/tmp/bash32:$PATH"
+          bash --version | head -1
+          bash tools/install-topology-selftest.sh
 
   # Release-time derivation (#119): feature PRs must NOT write the release-owned files —
   # plugin.json version fields and CHANGELOG.md are computed on the release PR by
@@ -287,6 +357,13 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
+      # Same runner and the same exclusion as the ubuntu lane — see its step for why both.
+      # `SKIP_STRESS: '1'` here and NOT on the ubuntu lane is today's deliberate asymmetry,
+      # preserved: the stress legs run once, under bash 4+.
+      #
+      # The runner is bash-3.2 compatible by construction (no `wait -n`, no associative arrays
+      # on the dispatch path) — the xargs-over-indices idiom is lifted from
+      # install-topology-selftest.sh, which already runs under this shim.
       - name: run all selftests under stock bash 3.2
         env:
           # Parallel-write stress cases are documented as too flaky for CI.
@@ -296,9 +373,4 @@ jobs:
           ln -sf /bin/bash /tmp/bash32/bash
           export PATH="/tmp/bash32:$PATH"
           bash --version | head -1
-          fails=0
-          while IFS= read -r -d '' t; do
-            echo "── $t"
-            bash "$t" || fails=$((fails+1))
-          done < <(find . -name '*-selftest.sh' -type f -print0)
-          exit "$fails"
+          bash tools/run-selftests.sh --exclude tools/install-topology-selftest.sh
