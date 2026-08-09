@@ -191,6 +191,20 @@ For either case, synthesize with the reviewers you DO have and **record the cove
 
 `review-toolkit:review-lead`'s Synthesis Rules are authoritative for HOW the gap is rendered in the consolidated report (the `[Coverage gap]` line, the `Dark (no output)` Verdicts-table row, and the effect on "Ready to merge?"). This subsection is the pipeline-specific operational contract: no off-substrate re-dispatch, and surface the gap in the round summary + issue comment.
 
+### Voided round: the WHOLE panel went dark
+
+The coverage-gap contract above is calibrated for **some** reviewers dying. When **every** selected reviewer is dark — case 1 covering the full `args.reviewers` set, or case 2 (`budgetExhausted`) covering it by construction — review-lead voids the round under its Step 4b-void and returns no merge verdict at all. There is no report to loop on.
+
+**Do not spend another round.** After the #434 name fix the remaining causes are all retry-proof: `budgetExhausted` (a retry has no budget to spend), an infrastructure-wide reviewer failure (a full fan-out that just died wholesale has poor odds on the next one), and a future name regression (`check-reviewer-references.sh` catches that pre-commit, so it should not reach here at all). Re-running the fan-out burns the remaining rounds to arrive at the same place.
+
+So short-circuit straight to the same human handoff the scope-blocker path takes:
+
+- Record the void at the current round: `statectl.sh review-rounds "$ISSUE" --set "$ROUND" --voided`. This writes `codeReviewVoided: true` and leaves the run `in_progress`, so the handoff writes below all succeed — the round is countable in the retro corpus as a distinct outcome, never folded into a scope handoff or a three-round exhaustion.
+- Continue to step 9: draft PR (always) + `needs-deep-review` label + an **Outstanding Review Blockers** section that says the review did not run, names the dark set and the reason, and states that the diff is **unreviewed** — not that it is clean.
+- Comment via `bash "${CLAUDE_PLUGIN_ROOT}/skills/run/tools/gh-bot.sh" issue comment`: `stage: code-review`, `status: review-void-zero-coverage` (a distinct status under the unchanged `code-review` marker; the comment status column is documentation-only and not enum-constrained, so this needs no validator regeneration).
+
+The distinction that matters to whoever reads the PR: an exhausted review found problems it could not clear, and a voided review found nothing because it never looked. Never write the second as though it were a clean round.
+
 **Audit note:** the audit is observability only and does not gate the push.
 
 ### Unmatched web-component surface (not-selected ≠ dark)

@@ -1,6 +1,6 @@
 # review-lead (fixture)
 
-Reviewer selection happens in-session: choose from the effective reviewer registry — the plugin-shipped panel (security-reviewer, performance-reviewer) plus/minus the consumer config deltas — and pass the selected agentType[] as args.reviewers.
+Reviewer selection happens in-session: choose from the effective reviewer registry — the plugin-shipped panel (review-toolkit:security-reviewer, review-toolkit:performance-reviewer) plus/minus the consumer config deltas — and pass the selected agentType[] as args.reviewers.
 
 ## Reviewer Routing
 

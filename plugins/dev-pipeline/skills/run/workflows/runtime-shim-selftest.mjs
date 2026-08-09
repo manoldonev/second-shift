@@ -103,6 +103,10 @@ const gateBlock = (extra = {}) =>
 
 const runCodeReview = (behaviors, argsOverride = {}) => {
   const f = makeFakeAgent(behaviors)
+  // log lines are captured rather than dropped: Case Q asserts that a name substitution
+  // announces itself, and a silent normalization is the same invisibility class as the
+  // bug it fixes (#434).
+  const logs = []
   const args = {
     worktree: '/tmp/wt',
     base: 'aaa',
@@ -113,9 +117,10 @@ const runCodeReview = (behaviors, argsOverride = {}) => {
     config: { reviewers: {} },
     ...argsOverride,
   }
-  return makeRunner(CODE_REVIEW_MJS)(f.agent, parallel, pipeline, args, noop, noop, undefined).then((r) => ({
+  return makeRunner(CODE_REVIEW_MJS)(f.agent, parallel, pipeline, args, (m) => logs.push(String(m)), noop, undefined).then((r) => ({
     result: r,
     calls: f.calls,
+    logs,
   }))
 }
 
@@ -610,6 +615,64 @@ const planBlock = () => reviewBlock({ verdict: 'pass', findings: [], summary: 's
   const p = String(calls[0]?.prompt ?? '')
   ok('P3 the plan-review prompt was actually dispatched (anti-vacuity)', /Review the unit test strategy/.test(p))
   ok('P3 the decorative-test clause is scoped to the mutation-review branch', !/decorative/.test(p))
+}
+
+// ---------------------------------------------------------------------------
+// Case Q — code-review.mjs bare-name normalization (#434).
+//
+// The bug: review-lead's panel named plugin reviewers BARE, code-review.mjs passed
+// agentType to agent() verbatim, and every dispatch died with `agent type not found`.
+// Those deaths return in the died-after-retry shape, so synthesis rendered a fully dark
+// panel — a coverage-gap note and a "Ready to merge?" verdict over ZERO reviewers. The
+// normalization is the defensive half (the lint is the preventive half): a stale caller
+// must degrade to WORKING, not to a silent zero-coverage review.
+//
+// Three properties, and the third is the one that is easy to get wrong: the DISPATCHED
+// name is qualified, the MODEL follows the qualified key, and the RETURNED agentType is
+// the caller's own spelling — because review-lead Step 4b enumerates budget-skipped
+// darkness by comparing the returned set against the set it passed as args.reviewers.
+// ---------------------------------------------------------------------------
+console.log('── Case Q: code-review.mjs bare-name normalization')
+{
+  const { result, calls, logs } = await runCodeReview([findingsBlock('approve')], {
+    reviewers: ['security-reviewer'],
+  })
+  eq('Q1 a bare plugin name is DISPATCHED qualified', calls[0].opts.agentType, 'review-toolkit:security-reviewer')
+  eq('Q1 the qualified key also restores the declared model tier', calls[0].opts.model, 'opus')
+  eq('Q1 the RETURNED agentType is the caller-passed spelling (Step 4b compares against it)', result.reviewers[0].agentType, 'security-reviewer')
+  ok('Q1 the substitution announces itself', logs.some((l) => /normalized/.test(l) && /review-toolkit:security-reviewer/.test(l)))
+  ok('Q1 the review still lands (the whole point: degrade to working)', result.reviewers[0].result.verdict === 'approve')
+}
+{
+  // An already-qualified name is untouched and silent — normalization must not narrate
+  // on the path every healthy caller takes.
+  const { result, calls, logs } = await runCodeReview([findingsBlock('approve')], {
+    reviewers: ['review-toolkit:performance-reviewer'],
+  })
+  eq('Q2 an already-qualified name dispatches unchanged', calls[0].opts.agentType, 'review-toolkit:performance-reviewer')
+  eq('Q2 and returns unchanged', result.reviewers[0].agentType, 'review-toolkit:performance-reviewer')
+  ok('Q2 no substitution is logged when none happened', !logs.some((l) => /normalized/.test(l)))
+}
+{
+  // A repo-local `reviewers.add` name matches no table key, so it stays bare end to end
+  // and takes the 'sonnet' default — exactly today's behavior. If normalization ever
+  // guessed a prefix here it would break every consumer's domain reviewer.
+  const { result, calls, logs } = await runCodeReview([findingsBlock('approve')], {
+    reviewers: ['orders-reviewer'],
+  })
+  eq('Q3 a repo-local bare name dispatches bare', calls[0].opts.agentType, 'orders-reviewer')
+  eq('Q3 and keeps the sonnet default', calls[0].opts.model, 'sonnet')
+  eq('Q3 and returns bare', result.reviewers[0].agentType, 'orders-reviewer')
+  ok('Q3 nothing is logged for a name that matched no table key', !logs.some((l) => /normalized/.test(l)))
+}
+{
+  // The dark path returns the caller's spelling too. This is the assertion that would
+  // have caught a "fix" that normalized the returned name as well: the review still goes
+  // dark here, and Step 4b must still be able to match it against args.reviewers.
+  const { result, calls } = await runCodeReview(['', ''], { reviewers: ['security-reviewer'] })
+  eq('Q4 a normalized dispatch that dies twice is dispatched qualified', calls[0].opts.agentType, 'review-toolkit:security-reviewer')
+  eq('Q4 but its dark marker still names the caller-passed spelling', result.reviewers[0].agentType, 'security-reviewer')
+  ok('Q4 and is still a well-formed twice-dead marker', result.reviewers[0].result === null && result.reviewers[0].failed === true)
 }
 
 console.log(`\n[runtime-shim-selftest] ${PASS} passed, ${FAIL} failed`)

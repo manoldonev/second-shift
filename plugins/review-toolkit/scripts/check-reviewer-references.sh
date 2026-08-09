@@ -37,6 +37,18 @@
 #                      shipped (a stale/typo delta)
 #   (d) SHADOW       — a consumer .claude/agents/<name>.md shadows a plugin-shipped
 #                      agent name (the drift tripwire; see docs/namespaces.md rule 5)
+#   (e) QUALIFY      — a panel entry backed by a PLUGIN agent file is not spelled with
+#                      that plugin's prefix, or a reviewers.add name IS prefixed
+#                      (docs/namespaces.md rule 2). The panel is a DISPATCH list: its
+#                      names reach agent({agentType}) through code-review.mjs, so a bare
+#                      plugin name there is an agent type that does not resolve and the
+#                      whole fan-out dies. Those deaths return in the died-after-retry
+#                      shape, which synthesis renders as a fully dark panel — a review
+#                      that reviewed nothing, reported as a coverage gap rather than as
+#                      a broken dispatch. The failure is silent by construction, which
+#                      is why it needs a pre-commit gate rather than a runtime one.
+#                      The expected prefix is DERIVED from the resolving root's own
+#                      .claude-plugin/plugin.json `name`, never hardcoded.
 # Plus DRIFT — the three registries inside SKILL.md itself disagree.
 #
 # Root resolution (env overrides win, for hermetic selftests):
@@ -174,6 +186,35 @@ preflight=$(
         | sort -u
 )
 
+# 1b. The SAME parenthetical, entries kept WHOLE so a `plugin:` prefix survives.
+#     Every other consumer of the panel wants bare names and gets them from $preflight
+#     above (which strips prefixes as a side effect of its -oE pattern — the property
+#     that lets the panel be qualified without touching DRIFT or _effective-registry.sh).
+#     Failure class (e) is the one reader for which the prefix IS the subject, so it
+#     needs its own parse rather than a re-derivation from the stripped set.
+preflight_raw=$(
+    grep -oE 'the plugin-shipped panel \([^)]+\)' "$SKILL" \
+        | sed -E 's/^the plugin-shipped panel \(//; s/\)$//' \
+        | tr ',' '\n' \
+        | sed -E 's/^[[:space:]]*//; s/[[:space:]]*$//' \
+        | grep -E '^([a-z][a-z0-9-]*:)?[a-z][a-z0-9-]+-reviewer$' \
+        | sort -u
+)
+
+# The `<plugin>` half of a `<plugin>:<agent>` reference, read from the root's OWN manifest.
+# Derived rather than hardcoded because it has to be right in both on-disk layouts, and the
+# installed-cache layout puts the VERSION in the root's basename
+# (cache/<marketplace>/<plugin>/<version>/) — a basename heuristic would read "4.0.0" as the
+# plugin name and deny every consumer commit. Returns non-zero when the manifest is missing
+# or unreadable; the caller degrades to a printed notice rather than guessing a prefix.
+plugin_name_of() {
+    local root="$1" n
+    [ -n "$root" ] && [ -f "$root/.claude-plugin/plugin.json" ] || return 1
+    n=$(jq -r '.name // empty' "$root/.claude-plugin/plugin.json" 2>/dev/null) || return 1
+    [ -n "$n" ] || return 1
+    printf '%s\n' "$n"
+}
+
 # 2. Reviewer Routing — **bold** registry entries between "## Reviewer Routing"
 #    and the next top-level heading. Bold-only, deliberately: prose examples in
 #    that section (e.g. the backticked `orders-reviewer` in the repo-local
@@ -276,6 +317,60 @@ done <<< "$effective"
 if [ ${#exempt_design[@]} -gt 0 ]; then
     echo "[check-reviewer-references] notice: design-toolkit is not installed — the design-fidelity dimension will not run, and its panel entries (${exempt_design[*]}) are exempt from DANGLING." >&2
 fi
+
+# --- (e) QUALIFY: plugin-backed panel entries carry their plugin's prefix ----
+#     Scoped to the pre-flight panel deliberately. It is the only sub-registry whose
+#     entries are DISPATCH names; the Routing sub-registry's parse anchors
+#     `\*\*[a-z][a-z0-9-]+-reviewer\*\*`, which a qualified name does not match (so
+#     qualifying it would empty that set and fire DRIFT), and the Verdict table's first
+#     column carries human display labels that are sed-mapped to agent names below.
+unqualified_roots=""
+while IFS= read -r raw; do
+    [ -z "$raw" ] && continue
+    case "$raw" in
+        *:*) entry_prefix="${raw%%:*}"; entry_bare="${raw##*:}" ;;
+        *)   entry_prefix="";           entry_bare="$raw" ;;
+    esac
+    # A consumer-registered name is governed by the reviewers.add loop below, not here.
+    grep -qx "$entry_bare" <<< "$adds" && continue
+    if [ -n "$PLUGIN_ROOT" ] && [ -f "$PLUGIN_AGENTS/$entry_bare.md" ]; then
+        origin_root="$PLUGIN_ROOT"
+    elif [ -n "$DESIGN_AGENTS" ] && [ -f "$DESIGN_AGENTS/$entry_bare.md" ]; then
+        origin_root="$DESIGN_TOOLKIT_ROOT"
+    else
+        # Backed by no plugin root: DANGLING already reported it, or the
+        # design-toolkit-absent exemption already noticed it (with the root unresolvable
+        # there is no manifest to derive a prefix from), or it resolves only in the
+        # consumer root — which (b) ORPHAN and (d) SHADOW own.
+        continue
+    fi
+    expected=$(plugin_name_of "$origin_root") || {
+        unqualified_roots="$unqualified_roots$origin_root"$'\n'
+        continue
+    }
+    [ "$entry_prefix" = "$expected" ] && continue
+    if [ -z "$entry_prefix" ]; then
+        errors+=("QUALIFY: review-lead panel entry '$raw' is backed by the '$expected' plugin but is named BARE — panel names are dispatch names, so this one does not resolve at agent() and takes the whole fan-out dark. Write '$expected:$entry_bare' (docs/namespaces.md rule 2)")
+    else
+        errors+=("QUALIFY: review-lead panel entry '$raw' carries the prefix '$entry_prefix' but its agent file resolves in the '$expected' plugin — write '$expected:$entry_bare' (docs/namespaces.md rule 2)")
+    fi
+done <<< "$preflight_raw"
+
+if [ -n "$unqualified_roots" ]; then
+    echo "[check-reviewer-references] notice: no readable .claude-plugin/plugin.json under $(printf '%s' "$unqualified_roots" | sort -u | tr '\n' ' ')— panel entries backed there are exempt from QUALIFY (their plugin prefix cannot be derived)." >&2
+fi
+
+# --- (f) reviewers.add names stay BARE --------------------------------------
+#     The other half of rule 2, and the reason the panel's qualification is safe: bareness
+#     is what distinguishes a repo-local agent from a plugin-shipped one. A prefixed add
+#     name also cannot resolve — DANGLING looks for <consumer>/.claude/agents/<name>.md —
+#     but the DANGLING message points at a missing file rather than at the prefix.
+while IFS= read -r a; do
+    [ -z "$a" ] && continue
+    case "$a" in
+        *:*) errors+=("QUALIFY: reviewers.add registers '$a' with a plugin prefix — repo-local reviewers are referenced BARE (that bareness is the disambiguation from plugin-shipped names; docs/namespaces.md rule 2)") ;;
+    esac
+done <<< "$adds"
 
 shopt -s nullglob
 
