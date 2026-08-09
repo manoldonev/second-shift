@@ -30,11 +30,13 @@ build session, so this cannot be folded back into the build lane by convenience.
    boundary.
 2. `gh pr view <pr> --json number,headRefName,baseRefName,body,url` — the head branch resolves
    the issue key (`Closes #N` in the body) and the lean spec path.
-3. Check out the PR head. The lean worktree the build run left behind is the usual place; any
-   checkout of that branch works.
+3. Check out the PR head — any checkout of that branch works. The build run's worktree is the
+   usual place but is not guaranteed to be there: the build session destroys it at approval, and
+   a later `entry` sweeps the ones abandoned runs left behind.
 4. `bash G delta <issue>` — the range this round must READ. An exit 2 here means no entry
-   attestation is READABLE — that record is host-local and gitignored, so re-run from the build
-   worktree (step 3's usual place) before concluding anything. If it is genuinely absent, hand it
+   attestation is READABLE — that record is host-local and gitignored, so re-run from any checkout
+   of the build host's clone (the main checkout always qualifies; the record is anchored at
+   `--git-common-dir/..`) before concluding anything. If it is genuinely absent, hand it
    back: a run whose audit ledger was never established is not yours to certify. Round 1 gets the whole
    branch diff. A later round gets the delta since the tree the previous round covered and inherits the rest
    by reference to that record; when there is nothing verifiable to inherit it prints the full

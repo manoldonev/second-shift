@@ -36,7 +36,6 @@
 # and all three pass from a staged cache. preflight-selftest.sh's was one of the two
 # ENVIRONMENT-DEPENDENT rows above, so its removal is unverified in the authoring environment
 # by construction; what the suite now asserts directly is that the ladder resolves, and a wrong
-# call here warns rather than reds.
-plugins/dev-pipeline/skills/run/tools/config-lint-selftest.sh	needs schema/second-shift.config.schema.json, which lives in this repo and is not shipped inside any plugin.
-plugins/review-toolkit/scripts/check-review-context-sections-selftest.sh	needs docs/extension-points.md, which lives in this repo and is not shipped inside any plugin.
+# call here warns rather than reds. The two repo-only-artifact rows were drained separately, by
+# the sibling slice that gave those suites a counted skip.
 plugins/dev-pipeline/skills/run/tools/cost-block-selftest.sh	cost-block-selftest.sh:40 mirrors pipeline-cost-block.sh state resolution but anchors it on $HERE, while the script anchors on $PWD; in an install cache $HERE has no git repo above it, so the mirror falls to `cd ""`. ENVIRONMENT-DEPENDENT on what bash does with that: a silent no-op on bash <= 5.2 (STATE_DIR lands inside the staged plugin, where the script never looks, and the three dump assertions get no rollup JSON) and an error on bash >= 5.3 (STATE_DIR collapses to ./ and coincidentally agrees with the script). Red on both CI lanes, green on bash 5.3.

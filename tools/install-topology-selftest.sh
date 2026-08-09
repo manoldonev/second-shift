@@ -28,6 +28,13 @@
 # A listed suite that passes is a warning, never a red — the "shrink the list" direction,
 # the same contract tools/mutation-baseline.tsv carries for survivors.
 #
+# SUITE-DECLARED SKIPS. A suite may exit 77 to say "I need something that ships inside no
+# plugin, so from here its absence measures nothing" — scored as a named, counted SKIP rather
+# than a pass or a red, on the suite's OWN reason hoisted from its log. It must earn it: the
+# skip is decided suite-side by an intrinsic probe (never a variable this guard exports, which
+# would leave the defect alive for a consumer running the suite directly), it comes after every
+# assertion the absent artifact does not touch, and an rc 77 with no `SKIP: ` line is a red.
+#
 # NOT `set -e`: this harness runs other people's suites and SCORES their exit codes.
 set -uo pipefail
 
@@ -241,13 +248,32 @@ while IFS= read -r line; do
     continue
   fi
 
-  RAN=$((RAN + 1))
   if [[ -f "$RESULTS/$idx.rc" ]]; then
     rc="$(cat "$RESULTS/$idx.rc")"
   else
     # A worker that produced no verdict is infra, not a suite result. Never silently green.
     rc=125
   fi
+
+  # A SUITE-DECLARED skip: rc 77 means the suite reached something structurally absent from an
+  # install (a repo-only artifact that ships inside no plugin) and stood its other assertions
+  # down for it — never a suite that merely failed. The reason is the suite's own, hoisted out
+  # of the captured log HERE because that log is deleted with $BASE on exit; a SKIP line that
+  # does not carry the reason loses it entirely. An rc of 77 whose log carries no `SKIP: ` line
+  # falls through and is scored as a failure below: a skip that discloses nothing is exactly the
+  # silent green this whole list exists to prevent.
+  if [[ "$rc" -eq 77 ]]; then
+    reason="$(grep -m1 '^[[:space:]]*SKIP: ' "$RESULTS/$idx.log" 2>/dev/null | sed -e 's/^[[:space:]]*SKIP:[[:space:]]*//')"
+    if [[ -n "$reason" ]]; then
+      # Same accounting as the absent-node skip above: the row is unevaluated, not stale, and
+      # a skip is not a run.
+      [[ -n "$kr" ]] && KR_SEEN[kr]=1
+      skip "$repo_rel — $reason"
+      continue
+    fi
+  fi
+
+  RAN=$((RAN + 1))
 
   if [[ "$rc" -eq 0 ]]; then
     if [[ -n "$kr" ]]; then

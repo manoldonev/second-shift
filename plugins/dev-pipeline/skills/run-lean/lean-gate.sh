@@ -95,6 +95,13 @@
 #                                        every already-unsatisfiable one before running the real
 #                                        1..5 progression, so a stale verdict record is reported
 #                                        without paying milestone 3's green gate first.
+#   lean-gate.sh teardown <issue>        destroy this run's worktree (#442). Checklist step 9's
+#                                        final act, deliberately OUTSIDE the 1..5 progression:
+#                                        `all` runs milestones 1-5 and is mandated BEFORE that
+#                                        step, so a self-removing milestone 5 would delete the
+#                                        worktree mid-run. Refuses on unpushed or unclean work
+#                                        and exits 0 either way — hygiene is not evidence. Never
+#                                        deletes the branch: the PR points at it.
 #   lean-gate.sh delta  <issue>          REVIEW role: print the range this round must READ —
 #                                        the delta since the tree the last round covered, or the
 #                                        full branch diff when there is nothing verifiable to
@@ -113,7 +120,7 @@
 #       4 = fix budget exhausted for that milestone (hard stop; D-19)
 #
 # Seams (zero-network selftest; the check-pipeline-chain.sh precedent):
-#   ${GH:-gh}                the CLI used for reads
+#   ${GH:-gh}                the CLI used for reads, including the sweep's PR-state lookup
 #   ${CURL:-curl}            the client used for design.liveRender.readyProbe (#394). The only
 #                            outbound call milestone 3 can make, and only when a consumer
 #                            configures the probe — the suite points it at a stub.
@@ -179,7 +186,7 @@ while [ $# -gt 0 ]; do
     --rounds)        VERDICT_ROUNDS="${2:-}"; shift 2 ;;
     --fidelity)      VERDICT_FIDELITY="${2:-}"; shift 2 ;;
     --summary-file)  SUMMARY_FILE="${2:-}"; shift 2 ;;
-    -h|--help)       sed -n '2,132p' "$0"; exit 0 ;;
+    -h|--help)       sed -n '2,139p' "$0"; exit 0 ;;
     -*)              envfail "unknown option: $1" ;;
     *)
       if [ "$POSITIONAL" -eq 0 ]; then SUB="$1"; POSITIONAL=1
@@ -190,12 +197,12 @@ while [ $# -gt 0 ]; do
   esac
 done
 
-[ -n "$SUB" ]   || envfail "usage: lean-gate.sh <entry|claim|mark|1..5|all|delta|verdict> <issue>"
-[ -n "$ISSUE" ] || envfail "usage: lean-gate.sh <entry|claim|mark|1..5|all|delta|verdict> <issue>"
+[ -n "$SUB" ]   || envfail "usage: lean-gate.sh <entry|claim|mark|1..5|all|teardown|delta|verdict> <issue>"
+[ -n "$ISSUE" ] || envfail "usage: lean-gate.sh <entry|claim|mark|1..5|all|teardown|delta|verdict> <issue>"
 
 case "$SUB" in
-  entry|claim|mark|1|2|3|4|5|all|delta|verdict) : ;;
-  *) envfail "unknown subcommand '$SUB' (expected entry|claim|mark|1..5|all|delta|verdict)" ;;
+  entry|claim|mark|1|2|3|4|5|all|teardown|delta|verdict) : ;;
+  *) envfail "unknown subcommand '$SUB' (expected entry|claim|mark|1..5|all|teardown|delta|verdict)" ;;
 esac
 
 # ---------------------------------------------------------------- roots + config
@@ -302,8 +309,13 @@ esac
 # placeholder org slug into real branch names whenever a consumer had not set the key.
 # shellcheck source=branch-prefix.sh
 . "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/branch-prefix.sh"
+# Hoisted into a variable rather than inlined into the call below: the #442 worktree sweep asks
+# branch-prefix.sh the inverse question with the same pattern, and two `cfg` reads of one key is
+# how the two answers drift. NOT named `KEY_PATTERN` — that spelling is one of milestone 3's
+# scrubbed seam variables (SEAM_SCRUB), and a local of the same name reads like the seam.
+TRACKER_KEY_PATTERN="$(cfg '.tracker.keyPattern' '')"
 BRANCH_PREFIX="$(resolve_branch_prefix \
-  "$(cfg '.tracker.branchPrefix' '')" "$TRACKER_TYPE" "$(cfg '.tracker.keyPattern' '')" "$MAIN_ROOT")" \
+  "$(cfg '.tracker.branchPrefix' '')" "$TRACKER_TYPE" "$TRACKER_KEY_PATTERN" "$MAIN_ROOT")" \
   || exit 2
 
 # Under jira the key is lowercased in the branch name (tools/tracker/jira/README.md's `branch
@@ -947,6 +959,171 @@ telemetry_state() {
   if (exec 3<>"/dev/tcp/${host}/${port}") 2>/dev/null; then echo "on"; else echo "nocoll"; fi
 }
 
+# ---------------------------------------------------------------- worktree teardown (#442)
+# The lane created a worktree per run and never removed one, so a checkout accumulated a stale
+# directory per finished ticket. The cost is not disk: `git checkout <branch>` in the main
+# checkout then fails with "already used by worktree at ..." for branches whose work landed
+# weeks earlier, and the only fix was a human noticing.
+#
+# TWO ENTRY POINTS, ONE REMOVAL. `teardown` fires at approval (checklist step 9); the sweep below
+# covers the exits approval never reaches — the session died, a human merged the PR with no lean
+# round, the run was abandoned. Neither suffices alone: of five stale worktrees found on a live
+# consumer checkout, most were the second kind. Both funnel through worktree_destroy(), so a
+# worktree can only be destroyed on terms the other path would also accept.
+#
+# WHAT IS NEVER DONE HERE: `git branch -d/-D`. The PR points at the branch and the verdict record
+# is committed on it, so removing the CHECKOUT is correct and deleting the REF is not. `git
+# worktree remove` already leaves the branch alone; said out loud so a later edit does not
+# "helpfully" add the delete.
+
+# `<path>\t<branch>` for every registered worktree that has a branch checked out. --porcelain is
+# the only parseable form — the human listing pads columns with spaces and brackets the branch,
+# so it breaks on any path containing one. Detached and bare entries emit no `branch` line and
+# are therefore skipped, which is right: neither is a lane worktree.
+lean_worktrees() {
+  git -C "$MAIN_ROOT" worktree list --porcelain 2>/dev/null | awk '
+    /^worktree / { p = substr($0, 10); next }
+    /^branch /   { b = substr($0, 8); sub(/^refs\/heads\//, "", b);
+                   if (p != "") { print p "\t" b }; p = "" }
+  '
+}
+
+lean_worktree_for_branch() { # lean_worktree_for_branch <branch> -> its path, or nothing
+  local p b
+  while IFS="$(printf '\t')" read -r p b; do
+    [ -n "$b" ] || continue
+    [ "$b" = "$1" ] || continue
+    printf '%s\n' "$p"
+    return 0
+  done <<EOF
+$(lean_worktrees)
+EOF
+  return 1
+}
+
+# The DECLINE path, and the only one either mechanism has. It prints rather than fails (D-6):
+# the run is complete and a leftover directory is hygiene, not evidence, so a refusal must not
+# red a gate or an `entry` that is otherwise ready to start the next run. The manual command is
+# printed in full because it IS the whole remedy.
+worktree_keep() { # worktree_keep <path> <reason> [<detail>]
+  warn "  keeping $1 — $2."
+  if [ -n "${3:-}" ]; then printf '%s\n' "$3" | sed 's/^/[lean-gate]     /' >&2; fi
+  warn "  remove it by hand once that is resolved: git -C '$MAIN_ROOT' worktree remove '$1'"
+}
+
+# The preconditions and the removal. 0 = the worktree is gone, 1 = it was deliberately kept.
+#
+# PUSHED-NESS IS "origin/<branch>..HEAD is empty", NOT the issue's proposed `HEAD =
+# origin/<branch>`. Once the review session pushes its verdict record the build worktree is
+# legitimately BEHIND origin, and strict equality would refuse exactly the removal this exists
+# for. Behind is safe; ahead is not.
+#
+# Gitignored files do not block `git worktree remove`, so the run's render PNGs under
+# `.claude/lean-renders/<issue>/` go with it — safe, because milestone 4 depends on the render id
+# alone once the verdict lands, never on the PNG bytes.
+worktree_destroy() { # worktree_destroy <path> <branch>
+  local wt="$1" br="$2" dirty unpushed out
+  if [ "$wt" = "$MAIN_ROOT" ]; then
+    worktree_keep "$wt" "it is the main checkout, not a lane worktree"
+    return 1
+  fi
+  dirty="$(git -C "$wt" status --porcelain 2>&1)" \
+    || { worktree_keep "$wt" "its status could not be read ($dirty)"; return 1; }
+  if [ -n "$dirty" ]; then
+    worktree_keep "$wt" "its tree is not clean" "$dirty"
+    return 1
+  fi
+  # Best effort, and wrong only ever in the SAFE direction: a fetch that fails leaves a stale
+  # remote-tracking ref, which can make pushed work look unpushed and KEEP the worktree, never
+  # the reverse.
+  git -C "$wt" fetch --quiet origin "$br" >/dev/null 2>&1
+  unpushed="$(git -C "$wt" log --oneline "refs/remotes/origin/$br..HEAD" 2>&1)" \
+    || { worktree_keep "$wt" "origin/$br is unresolvable, so nothing proves its work is pushed"; return 1; }
+  if [ -n "$unpushed" ]; then
+    worktree_keep "$wt" "it carries commits that are not on origin/$br" "$unpushed"
+    return 1
+  fi
+  out="$(git -C "$MAIN_ROOT" worktree remove "$wt" 2>&1)" \
+    || { worktree_keep "$wt" "git refused to remove it ($out)"; return 1; }
+  say "  removed $wt (branch $br kept — the PR points at it)"
+  return 0
+}
+
+# Checklist step 9's final act. OUTSIDE the 1..5 progression on purpose (D-2): `cmd_all` runs
+# milestones 1-5 and the checklist mandates it BEFORE step 9, so a self-removing milestone 5
+# would delete the worktree mid-run, before the closing comment is even posted.
+#
+# NOT in require_entry_attested's set, unlike every other build-role subcommand: this asserts
+# nothing and records nothing, so refusing it for a missing attestation would block cleanup for
+# no evidentiary gain. What guards the removal is worktree_destroy()'s preconditions, which are
+# stronger and independent of any record the run wrote about itself.
+cmd_teardown() {
+  local wt
+  wt="$(lean_worktree_for_branch "$LEAN_BRANCH")" || wt=""
+  if [ -z "$wt" ]; then
+    say "teardown: no registered worktree is on $LEAN_BRANCH — nothing to remove."
+    return 0
+  fi
+  say "teardown: $LEAN_BRANCH"
+  worktree_destroy "$wt" "$LEAN_BRANCH"
+  # ALWAYS 0, whichever way that went. A kept worktree has already reported itself, and a
+  # non-zero exit on the last command of a finished run reads as "the run failed" over a
+  # directory nobody needs.
+  return 0
+}
+
+# The sweep (D-3). Invoked by `entry` and by nothing else — `entry` runs before checklist step 3
+# cuts this run's worktree, so it is always executing outside it.
+#
+# PR STATE IS THE SIGNAL, never `git branch --merged`: this repo squash-merges, so a landed lean
+# branch is never an ancestor of the base and `--merged` would fire for nothing. `gh` is
+# available under a read-only tracker too — the bot is a VCS-axis capability, not a tracker-axis
+# one — so this arm needs no adapter branch.
+#
+# It can never fail its caller. The audit-ledger predicate is the sole decider of whether a run
+# may start, and a `gh` outage must not become a second reason it cannot.
+cmd_entry_sweep() {
+  local wt br prs n_all n_open considered=0 removed=0 kept=0
+  while IFS="$(printf '\t')" read -r wt br; do
+    [ -n "$wt" ] || continue
+    [ "$wt" = "$MAIN_ROOT" ] && continue
+    # Never the caller's own worktree. The sweep is for runs that are OVER; a resumed run
+    # re-running `entry` from inside its own worktree is by definition not one of them.
+    [ "$wt" = "$REPO_ROOT" ] && continue
+    # D-10, the blast radius: only branches that parse as `<prefix><key>` for THIS repo's
+    # tracker. Anything else is skipped with no PR lookup at all.
+    bp_is_work_branch "$br" "$BRANCH_PREFIX" "$TRACKER_TYPE" "$TRACKER_KEY_PATTERN" || continue
+    considered=$((considered + 1))
+    # D-12: branch on EXIT STATUS before reading output. A failed lookup is not a "no PR"
+    # answer, and treating it as one would remove a worktree on the strength of an outage.
+    prs="$("$GH_CLI" pr list --head "$br" --state all --json number,state --limit 100 2>&1)" \
+      || { warn "  sweep: could not list PRs for $br — leaving $wt in place ($prs)"; kept=$((kept + 1)); continue; }
+    printf '%s' "$prs" | jq -e 'type == "array"' >/dev/null 2>&1 \
+      || { warn "  sweep: unreadable PR list for $br — leaving $wt in place"; kept=$((kept + 1)); continue; }
+    n_all="$(printf '%s' "$prs" | jq 'length')";                               [ -n "$n_all" ]  || n_all=0
+    n_open="$(printf '%s' "$prs" | jq '[ .[] | select(.state == "OPEN") ] | length')"
+    [ -n "$n_open" ] || n_open=0
+    # OR-1's reversible default. The only rule that would catch a PR-less worktree is an age
+    # cutoff — the one criterion that can delete work nobody has pushed anywhere — so these are
+    # LEFT, and said out loud rather than passed over in silence.
+    if [ "$n_all" -eq 0 ]; then
+      say "  sweep: $br has no PR at all — leaving $wt in place (nothing proves its work exists elsewhere)"
+      kept=$((kept + 1)); continue
+    fi
+    if [ "$n_open" -gt 0 ]; then
+      say "  sweep: $br still has an open PR — leaving $wt in place"
+      kept=$((kept + 1)); continue
+    fi
+    say "  sweep: $br has no open PR ($n_all closed or merged) — removing its worktree"
+    if worktree_destroy "$wt" "$br"; then removed=$((removed + 1)); else kept=$((kept + 1)); fi
+  done <<EOF
+$(lean_worktrees)
+EOF
+  [ "$considered" -gt 0 ] || return 0
+  say "  sweep: $considered lane worktree(s) considered, $removed removed, $kept kept."
+  return 0
+}
+
 cmd_entry() {
   local sid ledger lines telemetry
   sid="${CLAUDE_CODE_SESSION_ID:-}"
@@ -1015,6 +1192,9 @@ cmd_entry() {
   if [ "$TRACKER_TYPE" = "jira" ]; then
     say "  tracker delta (jira): no queue label to confirm — the operator supplies the ticket key (tracker.writes: false). Step 1's label reject does not apply."
   fi
+  # LAST, and its result is discarded: the attestation above is what `entry` exists to
+  # establish, so nothing the sweep does may reach this function's exit status.
+  cmd_entry_sweep
   return 0
 }
 
@@ -2812,6 +2992,7 @@ case "$SUB" in
   entry)   cmd_entry ;;
   claim)   cmd_claim ;;
   mark)    cmd_mark ;;
+  teardown) cmd_teardown ;;
   delta)   cmd_delta ;;
   verdict) cmd_verdict ;;
   all)     cmd_all ;;

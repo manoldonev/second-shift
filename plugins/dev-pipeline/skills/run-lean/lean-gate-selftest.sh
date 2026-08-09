@@ -3652,5 +3652,244 @@ else fail "(fp12) a milestone-4 refusal is missing the notice:
 A=$FP_OUT4A
 B=$FP_OUT4B"; fi
 
+# ---- (wt) WORKTREE TEARDOWN: the `teardown` subcommand and the entry sweep (#442) -------------
+# The lane never destroyed a worktree. Both mechanisms funnel through one removal, so the cases
+# below are split accordingly: the PRECONDITIONS (which either path can decline on) are pinned
+# once through `teardown`, and the sweep's own cases are about QUALIFICATION — which worktrees it
+# will even consider, and what a failed tracker lookup must not be mistaken for.
+#
+# Paths are compared literally by the implementation (`$wt = $MAIN_ROOT`, `$wt = $REPO_ROOT`), and
+# `git worktree list` reports physically-resolved paths — on macOS `$TMPDIR` is a symlink, so a
+# fixture built on the unresolved path would make every one of those comparisons false and the
+# guards would read as absent. Resolve once, here.
+WREAL="$(cd "$WORK" && pwd -P)"
+WTREE="$WREAL/wtree"
+mkdir -p "$WTREE/.claude/audit"
+git -C "$WTREE" init -q
+git -C "$WTREE" config user.email t@example.invalid
+git -C "$WTREE" config user.name t
+# The default branch name is a git CONFIG, not a constant — `main` here and `master` on an older
+# box. Every worktree below is cut from `main` by name and (wt19) checks it back out, so pin it
+# rather than inherit whatever the runner's git decided.
+git -C "$WTREE" symbolic-ref HEAD refs/heads/main
+printf '.claude/\n' > "$WTREE/.gitignore"
+git -C "$WTREE" add -A >/dev/null 2>&1
+git -C "$WTREE" commit -q -m "wt fixture" >/dev/null 2>&1
+git -C "$WTREE" update-ref refs/remotes/origin/main HEAD
+WSID="sess-wt-build"
+printf '{"tool":"Bash"}\n' > "$WTREE/.claude/audit/$WSID.jsonl"
+WPROG="$WREAL/wt-progress.md"
+WPR="$WREAL/pr-fixtures"
+mkdir -p "$WPR"
+
+# Stands in for `gh pr list --head <branch> --state all --json number,state`. A MISSING fixture
+# exits non-zero: a failed lookup and an empty array are different answers (D-12), and a stub
+# that returned `[]` for both could not tell the two cases apart.
+cat > "$WREAL/gh-wt-stub.sh" <<'EOF'
+#!/usr/bin/env bash
+head=""
+while [ $# -gt 0 ]; do
+  case "$1" in --head) head="${2:-}"; shift 2 ;; *) shift ;; esac
+done
+f="$PR_FIXTURE_DIR/$(printf '%s' "$head" | tr '/' '_').json"
+[ -f "$f" ] || { echo "gh: could not resolve $head" >&2; exit 1; }
+cat "$f"
+EOF
+chmod +x "$WREAL/gh-wt-stub.sh"
+pr_fixture() { printf '%s' "$2" > "$WPR/$(printf '%s' "$1" | tr '/' '_').json"; }
+
+wgate() { # wgate <cwd> <args...>
+  local cwd="$1"; shift
+  ( unset RUN_ID GH_BOT; cd "$cwd" && CLAUDE_CODE_SESSION_ID="$WSID" SECOND_SHIFT_CONFIG="$CFG" \
+    LEAN_PROGRESS_FILE="$WPROG" GH="$WREAL/gh-wt-stub.sh" PR_FIXTURE_DIR="$WPR" \
+    bash "$GATE" --issue-file "$ISSUE_NOREGIONS" "$@" 2>&1 )
+}
+wt_registered() { git -C "$WTREE" worktree list --porcelain 2>/dev/null | grep -qxF "worktree $1"; }
+wt_make() { # wt_make <issue> — a clean lane worktree whose branch is fully pushed
+  local br="claude/acme-$1" p="$WREAL/wt-$1"
+  git -C "$WTREE" worktree add -q --no-track -b "$br" "$p" main 2>/dev/null
+  git -C "$WTREE" update-ref "refs/remotes/origin/$br" "$(git -C "$WTREE" rev-parse "$br")"
+  printf '%s' "$p"
+}
+
+# --- the preconditions, through `teardown` ---------------------------------------------------
+rm -f "$WPROG"
+p="$(wt_make 20)"
+out="$(wgate "$WTREE" teardown 20)"; rc=$?
+# AC-4 in the same breath as AC-1/2: the branch must SURVIVE its worktree. The PR points at it
+# and the verdict record is committed on it, so a "helpful" `git branch -D` here would delete
+# the evidence the merge boundary reads.
+if [ "$rc" -eq 0 ] && ! wt_registered "$p" && [ ! -d "$p" ] \
+   && git -C "$WTREE" rev-parse --verify -q claude/acme-20 >/dev/null; then
+  pass "(wt1) teardown removes a clean, fully-pushed lane worktree and leaves its branch intact"
+else fail "(wt1) rc=$rc, still registered=$(wt_registered "$p" && echo yes || echo no): $out"; fi
+
+# ...and it did that with NO entry attestation in the progress file. Deliberate: teardown asserts
+# nothing and records nothing, so gating it behind `entry` would block cleanup for no evidentiary
+# gain. A future edit that adds it to require_entry_attested's set reds here with rc=2.
+if [ ! -f "$WPROG" ] || ! grep -q 'entry' "$WPROG" 2>/dev/null; then
+  pass "(wt2) teardown is not a build-role gated call — it needs no entry attestation and writes no record"
+else fail "(wt2) teardown touched the progress file: $(cat "$WPROG" 2>/dev/null)"; fi
+
+out="$(wgate "$WTREE" teardown 20)"; rc=$?
+if [ "$rc" -eq 0 ] && printf '%s' "$out" | grep -qF 'nothing to remove'; then
+  pass "(wt3) a second teardown is a no-op, not an error"
+else fail "(wt3) expected an idempotent no-op, rc=$rc: $out"; fi
+
+p="$(wt_make 21)"
+printf 'work in progress\n' > "$p/scratch.txt"
+out="$(wgate "$WTREE" teardown 21)"; rc=$?
+if [ "$rc" -eq 0 ] && wt_registered "$p" && printf '%s' "$out" | grep -qF 'is not clean' \
+   && printf '%s' "$out" | grep -qF 'scratch.txt' \
+   && printf '%s' "$out" | grep -qF 'worktree remove'; then
+  pass "(wt4) an unclean worktree is kept, its blocking file named, and the manual command printed — rc=0"
+else fail "(wt4) expected a kept-and-explained refusal at rc=0, rc=$rc: $out"; fi
+rm -f "$p/scratch.txt"
+
+# The data-loss direction. `git worktree remove` would take these commits with it.
+p="$(wt_make 22)"
+git -C "$p" commit -q --allow-empty -m "unpushed work" >/dev/null 2>&1
+out="$(wgate "$WTREE" teardown 22)"; rc=$?
+if [ "$rc" -eq 0 ] && wt_registered "$p" && printf '%s' "$out" | grep -qF 'not on origin/claude/acme-22'; then
+  pass "(wt5) a worktree carrying unpushed commits is kept"
+else fail "(wt5) expected a refusal on unpushed work, rc=$rc: $out"; fi
+
+# The case the issue's own proposed precondition (`HEAD = origin/<branch>`) gets WRONG. Once the
+# review session pushes its verdict record the build worktree is legitimately BEHIND origin —
+# strict equality would refuse exactly the removal this whole ticket asks for.
+p="$(wt_make 23)"
+git -C "$p" commit -q --allow-empty -m "the review session's verdict record" >/dev/null 2>&1
+git -C "$WTREE" update-ref refs/remotes/origin/claude/acme-23 "$(git -C "$p" rev-parse HEAD)"
+git -C "$p" reset -q --hard HEAD~1
+out="$(wgate "$WTREE" teardown 23)"; rc=$?
+if [ "$rc" -eq 0 ] && ! wt_registered "$p"; then
+  pass "(wt6) a worktree merely BEHIND origin is removed — behind is safe, ahead is not"
+else fail "(wt6) a behind-origin worktree was refused, rc=$rc: $out"; fi
+
+# AC-6: git's OWN refusal, which the preconditions above cannot produce. A locked worktree is
+# clean and fully pushed and `git worktree remove` still declines — the same keep-and-explain
+# path has to carry that through, rather than the removal failing silently.
+p="$(wt_make 24)"
+git -C "$WTREE" worktree lock "$p" >/dev/null 2>&1
+out="$(wgate "$WTREE" teardown 24)"; rc=$?
+git -C "$WTREE" worktree unlock "$p" >/dev/null 2>&1
+if [ "$rc" -eq 0 ] && wt_registered "$p" && printf '%s' "$out" | grep -qF 'git refused to remove it'; then
+  pass "(wt7) a removal git itself refuses is reported through the same keep path, still rc=0"
+else fail "(wt7) expected git's refusal surfaced at rc=0, rc=$rc: $out"; fi
+git -C "$WTREE" worktree remove --force "$p" >/dev/null 2>&1
+
+# AC-5: teardown is OUTSIDE the 1..5 progression. `all` is mandated BEFORE checklist step 9, so a
+# milestone that removed the worktree would delete it mid-run, before the closing comment.
+p="$(wt_make 25)"
+wgate "$WTREE" entry 25 >/dev/null 2>&1
+out="$(wgate "$WTREE" all 25)"; rc=$?
+if wt_registered "$p"; then
+  pass "(wt8) 'all' removes nothing — teardown is not part of the milestone progression"
+else fail "(wt8) 'all' destroyed a worktree, rc=$rc: $out"; fi
+
+# --- the entry sweep: qualification ------------------------------------------------------------
+# One `entry` call decides every registered worktree at once, so the fixtures are set up together
+# and the assertions read the same run's output. Issue 25's worktree above is the caller's own
+# once we re-enter from inside it; the rest are the four qualification answers.
+p26="$(wt_make 26)"; pr_fixture claude/acme-26 '[{"number":26,"state":"MERGED"}]'
+p27="$(wt_make 27)"; pr_fixture claude/acme-27 '[{"number":27,"state":"OPEN"}]'
+p28="$(wt_make 28)"; pr_fixture claude/acme-28 '[]'
+p29="$(wt_make 29)"   # no fixture at all ⇒ the stub exits non-zero ⇒ a FAILED lookup
+git -C "$WTREE" worktree add -q --no-track -b fix/not-a-lane-branch "$WREAL/wt-foreign" main 2>/dev/null
+pr_fixture claude/acme-25 '[{"number":25,"state":"CLOSED"}]'
+
+rm -f "$WPROG"
+# Run it FROM INSIDE wt-25, which is what makes that worktree the caller's own for (wt15).
+out="$(wgate "$WREAL/wt-25" entry 30)"; rc=$?
+
+if [ "$rc" -eq 0 ] && ! wt_registered "$p26" && printf '%s' "$out" | grep -qF 'has no open PR'; then
+  pass "(wt9) the sweep removes a worktree whose PR is merged — PR state, never git branch --merged"
+else fail "(wt9) merged-PR worktree survived the sweep, rc=$rc: $out"; fi
+
+if wt_registered "$p27" && printf '%s' "$out" | grep -qF 'still has an open PR'; then
+  pass "(wt10) a branch with an OPEN PR is kept, and said so"
+else fail "(wt10) the sweep touched a live run's worktree: $out"; fi
+
+if wt_registered "$p28" && printf '%s' "$out" | grep -qF 'has no PR at all'; then
+  pass "(wt11) a branch with no PR at all is kept and reported (OR-1's reversible default)"
+else fail "(wt11) the sweep guessed at a PR-less worktree: $out"; fi
+
+# D-12, the one that must never be got wrong: a FAILED lookup is not a "no PR" answer. An
+# implementation reading the stub's output without checking its exit status sees an empty
+# string, parses it as no PRs, and — under a different default — could remove the worktree.
+if wt_registered "$p29" && printf '%s' "$out" | grep -qF 'could not list PRs for claude/acme-29'; then
+  pass "(wt12) a failed gh lookup removes nothing and names the branch it could not resolve"
+else fail "(wt12) a gh outage was read as an answer: $out"; fi
+
+# ...and none of that changed `entry`'s verdict. The audit-ledger predicate is the sole decider of
+# whether a run may start; a tracker outage must not become a second reason it cannot.
+if [ "$rc" -eq 0 ] && grep -q '| entry | ledger=' "$WPROG" 2>/dev/null; then
+  pass "(wt13) the sweep cannot change entry's exit status or suppress its attestation"
+else fail "(wt13) entry's own contract was affected by the sweep, rc=$rc: $out"; fi
+
+# D-10, the blast radius. A branch that does not parse as `<prefix><key>` for this tracker is
+# skipped with NO tracker lookup — the stub would have exited non-zero and printed a diagnostic
+# naming it, so the absence of that line is the assertion.
+if wt_registered "$WREAL/wt-foreign" \
+   && ! printf '%s' "$out" | grep -qF 'fix/not-a-lane-branch'; then
+  pass "(wt14) a non-lane branch is skipped without a PR lookup"
+else fail "(wt14) the sweep considered a foreign branch: $out"; fi
+
+# The caller's own worktree, whose PR fixture says CLOSED — it qualifies on every other test and
+# is skipped anyway. The sweep is for runs that are OVER; the one you are standing in is not.
+if wt_registered "$WREAL/wt-25"; then
+  pass "(wt15) the sweep never removes the worktree it is running from, even when that PR is closed"
+else fail "(wt15) the sweep deleted its own caller's checkout: $out"; fi
+
+if wt_registered "$WTREE"; then
+  pass "(wt16) the main checkout is never a sweep candidate"
+else fail "(wt16) the sweep removed the main checkout: $out"; fi
+
+# The preconditions are the SHARED half: a qualified worktree still has to be safe to remove.
+p31="$(wt_make 31)"; pr_fixture claude/acme-31 '[{"number":31,"state":"MERGED"}]'
+printf 'unsaved\n' > "$p31/scratch.txt"
+out="$(wgate "$WTREE" entry 31)"; rc=$?
+rm -f "$p31/scratch.txt"
+if [ "$rc" -eq 0 ] && wt_registered "$p31" && printf '%s' "$out" | grep -qF 'is not clean'; then
+  pass "(wt17) a qualified-but-unclean worktree is kept by the sweep too — one precondition set, two callers"
+else fail "(wt17) the sweep bypassed the shared preconditions, rc=$rc: $out"; fi
+
+# AC-10: `entry` sweeps and nothing else does. `claim` is the adjacent call and the one a reader
+# would reach for. Probed under jira, where claim makes no tracker write at all and so needs no
+# bot wrapper — and PAIRED with an `entry` on the SAME config and the SAME worktree, because
+# "claim removed nothing" is satisfied by any config under which nothing was removable. The pair
+# is what makes it a probe of claim rather than of the fixture.
+CFG_JIRA_WT="$WREAL/config-jira-wt.json"
+jq '.tracker.type = "jira" | .tracker.writes = false | .tracker.branchPrefix = "claude/"' \
+  "$CFG" > "$CFG_JIRA_WT"
+jwt() { # jwt <sub> <key>
+  ( unset RUN_ID GH_BOT; cd "$WTREE" && CLAUDE_CODE_SESSION_ID="$WSID" SECOND_SHIFT_CONFIG="$CFG_JIRA_WT" \
+    LEAN_PROGRESS_FILE="$WREAL/wt-jira-progress.md" GH="$WREAL/gh-wt-stub.sh" PR_FIXTURE_DIR="$WPR" \
+    RUN_ID=wt-jira bash "$GATE" "$1" "$2" 2>&1 )
+}
+# `claim` is a build-role call and exits 2 without an entry attestation, so the attestation has
+# to come FIRST — which is also why the candidate worktree is created after it rather than before.
+rm -f "$WREAL/wt-jira-progress.md"
+jwt entry ACME-32 >/dev/null 2>&1
+pr_fixture claude/acme-32 '[{"number":32,"state":"MERGED"}]'
+p32="$(wt_make 32)"
+out="$(jwt claim ACME-32)"
+if wt_registered "$p32"; then claim_kept=1; else claim_kept=0; fi
+out2="$(jwt entry ACME-32)"
+if [ "$claim_kept" -eq 1 ] && ! wt_registered "$p32"; then
+  pass "(wt18) claim does not sweep, and the same config's entry does — the sweep is entry's alone"
+else fail "(wt18) claim_kept=$claim_kept, still registered after entry=$(wt_registered "$p32" && echo yes || echo no): $out / $out2"; fi
+
+# The main-checkout guard inside the removal itself, which the sweep's own skip hides. An
+# operator who checked the lean branch out in the main checkout and ran teardown must be told,
+# not have git's "is a main working tree" error surface as an unexplained failure.
+git -C "$WTREE" checkout -q -b claude/acme-33
+git -C "$WTREE" update-ref refs/remotes/origin/claude/acme-33 "$(git -C "$WTREE" rev-parse HEAD)"
+out="$(wgate "$WTREE" teardown 33)"; rc=$?
+git -C "$WTREE" checkout -q main
+if [ "$rc" -eq 0 ] && wt_registered "$WTREE" && printf '%s' "$out" | grep -qF 'it is the main checkout'; then
+  pass "(wt19) teardown refuses the main checkout by name, even when the lean branch is checked out there"
+else fail "(wt19) expected a named refusal on the main checkout, rc=$rc: $out"; fi
+
 echo "[lean-gate-selftest] $([ "$FAILS" -eq 0 ] && echo 'all green' || echo "$FAILS FAILURE(S)")"
 exit "$FAILS"

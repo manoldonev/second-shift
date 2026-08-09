@@ -8,6 +8,17 @@ LINT="$HERE/config-lint.sh"
 FIX="$HERE/config-lint-fixtures"
 FAILS=0
 
+# One mktemp root for the whole suite. Two cases below need scratch space, and a second
+# per-case `trap ... EXIT` would silently REPLACE the first — leaving the earlier dir behind.
+TMPROOT="$(mktemp -d)"
+trap 'rm -rf "$TMPROOT"' EXIT
+
+# Set only when the modelOverrides lockstep cannot run because its repo-only artifact is
+# absent AND this tree is not the monorepo. Consumed at the tail: the suite exits 77 — the
+# named, counted skip tools/install-topology-selftest.sh hoists — and it does so ONLY if no
+# other assertion failed. A real failure always outranks a skip.
+SKIP_REASON=""
+
 check() { # $1 = label, $2 = expectation result (0 ok / 1 fail)
   if [[ "$2" -eq 0 ]]; then echo "  ✓ $1"; else echo "  ✗ $1"; FAILS=$((FAILS + 1)); fi
 }
@@ -116,13 +127,33 @@ expect_violation invalid-removed-commands-build.json "commands.<repo>.build was 
 #   forward  — every tier the SCHEMA declares must be ACCEPTED by config-lint;
 #   backward — config-lint's rejection message must name exactly the schema's enum, in order.
 # A tier added to config-lint alone fails backward; one added to the schema alone fails forward.
-SCHEMA="$HERE/../../../../../schema/second-shift.config.schema.json"
+#
+# The schema is a REPO artifact and ships inside no plugin, so from a marketplace install it
+# is structurally absent and its absence says nothing about drift. Distinguish the two by
+# probing the tree INTRINSICALLY — never by an environment variable a harness could export,
+# which would drain the signal for the consumer who runs this suite straight from their own
+# install, the exact case the skip exists for. The `ROOT=` up-count is this suite's own walk
+# to its artifact; the marker test below is byte-shared with the review-toolkit copy
+# (scripts/lockstep-manifest.tsv, pair `monorepo-probe`).
+ROOT="$HERE/../../../../.."
+# LOCKSTEP-BEGIN monorepo-probe
+if [[ -f "$ROOT/.claude-plugin/marketplace.json" && -d "$ROOT/plugins" ]]; then
+  IN_MONOREPO=1
+else
+  IN_MONOREPO=0
+fi
+# LOCKSTEP-END monorepo-probe
+SCHEMA="$ROOT/schema/second-shift.config.schema.json"
 SCHEMA_Q='.properties.reviewers.properties.modelOverrides.additionalProperties.enum'
 if [[ ! -f "$SCHEMA" ]]; then
-  check "modelOverrides enum mirror: schema readable at $SCHEMA" 1
+  if [[ "$IN_MONOREPO" -eq 1 ]]; then
+    check "modelOverrides enum mirror: schema readable at $SCHEMA" 1
+  else
+    SKIP_REASON="SKIP: schema/second-shift.config.schema.json is a repo-only artifact, unreachable from an install — the modelOverrides enum lockstep did not run"
+  fi
 else
-  TIER_TMP="$(mktemp -d)"
-  trap 'rm -rf "$TIER_TMP"' EXIT
+  TIER_TMP="$TMPROOT/tier"
+  mkdir -p "$TIER_TMP"
   while IFS= read -r tier; do
     [[ -n "$tier" ]] || continue
     jq -n --arg t "$tier" '{
@@ -165,5 +196,32 @@ fi
 if "$LINT" "$FIX/does-not-exist.json" > /dev/null 2>&1; then rc=0; else rc=$?; fi
 check "missing file exits 3" "$([[ "$rc" -eq 3 ]] && echo 0 || echo 1)"
 
+# --- the skip path must be UNREACHABLE in the monorepo ------------------------------------
+# Deleting the schema from the working tree cannot prove that: the deletion would also have to
+# survive into whatever tree the probe reads. So FABRICATE one — a root carrying the monorepo
+# markers and NOT the artifact, with a copy of this directory at exactly the depth the probe
+# walks. The copy must hard-FAIL: an rc that is neither 0 nor 77, and no SKIP line at all.
+# The inline guard below stops the inner run re-entering this case. It gates a FIXTURE, never
+# the skip discriminator, which stays intrinsic.
+if [[ -z "${SECOND_SHIFT_SELFTEST_FABRICATED_TREE:-}" ]]; then
+  FAB="$TMPROOT/fab"
+  mkdir -p "$FAB/.claude-plugin" "$FAB/plugins/dev-pipeline/skills/run"
+  printf '{}\n' > "$FAB/.claude-plugin/marketplace.json"
+  cp -R "$HERE" "$FAB/plugins/dev-pipeline/skills/run/tools"
+  fab_rc=0
+  fab_out="$(SECOND_SHIFT_SELFTEST_FABRICATED_TREE=1 \
+    bash "$FAB/plugins/dev-pipeline/skills/run/tools/$(basename "${BASH_SOURCE[0]}")" 2>&1)" || fab_rc=$?
+  if [[ "$fab_rc" -ne 0 && "$fab_rc" -ne 77 ]] && ! grep -q '^SKIP: ' <<< "$fab_out"; then
+    check "monorepo markers + absent schema still hard-FAILs, never skips (rc=$fab_rc)" 0
+  else
+    check "monorepo markers + absent schema must hard-FAIL, not skip (rc=$fab_rc, skip line: $(grep -c '^SKIP: ' <<< "$fab_out"))" 1
+  fi
+fi
+
 if [[ "$FAILS" -gt 0 ]]; then echo "config-lint selftest: $FAILS FAILURE(S)"; exit 1; fi
+if [[ -n "$SKIP_REASON" ]]; then
+  echo "$SKIP_REASON"
+  echo "config-lint selftest: all green apart from the skipped lockstep"
+  exit 77
+fi
 echo "config-lint selftest: all green"

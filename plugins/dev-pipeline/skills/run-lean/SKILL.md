@@ -11,7 +11,7 @@ Outcome-gated harness. `lean-gate.sh` (`G`, here) asserts artifacts; **how** you
 
 ## Checklist
 
-1. `bash G entry <issue>` — refuses without a live audit ledger, which is what makes the run reconcilable later, and records that it passed. Not optional and not skippable: every later build-role call (`claim`, `1..5`, `all`, `delta`) exits 2 until that row exists. It is idempotent, so a run that started before this shipped self-heals with one call. Then confirm the queue label; a missing one is a reject, no prompting.
+1. `bash G entry <issue>` — refuses without a live audit ledger, which is what makes the run reconcilable later, and records that it passed. Not optional and not skippable: every later build-role call (`claim`, `1..5`, `all`, `delta`) exits 2 until that row exists. It is idempotent, so a run that started before this shipped self-heals with one call. It also sweeps away lane worktrees whose PR is no longer open — the exits step 9 never reaches. Then confirm the queue label; a missing one is a reject, no prompting.
 2. `bash G claim <issue>` — the two bot-wrapper writes (label swap + `lean-claimed` marker).
    Export `RUN_ID` first (neutral token, `[A-Za-z0-9._-]+`); it keys every record, and only `entry`/`claim` cache it to `<issue>-run-id` for the later fresh-shell calls to resolve.
 3. Cut a worktree on `<lean prefix><issue>` from the configured base. Never work in the
@@ -25,7 +25,7 @@ Outcome-gated harness. `lean-gate.sh` (`G`, here) asserts artifacts; **how** you
 8. **Milestone 4 arrives from OUTSIDE.** Dispatch no reviewer — the record is written by a
    separate top-level session (`/dev-pipeline:review-lean <pr>`) with its own identity, and this
    gate refuses one carrying yours. Hand off; `bash G 4 <issue>` passes only on a committed `verdict=approve` whose `reviewed_patch_id` **is** this branch's current patch — and, when armed, whose `fidelity` is `pass` over a receipt rendered from that same patch. On `needs-work`, fix every blocker, push, and ask for a **new** review context — never a resumed one.
-9. Post one closing comment: PR link, verdict-record reference, same cost block. Then `bash G 5 <issue>` — exit artifacts. Remove the worktree, but **leave the claimed label alone**: milestone 5 requires an open PR, so review is still in flight and the label is correct. The repository's unclaim workflow releases it when the item closes.
+9. Post one closing comment: PR link, verdict-record reference, same cost block. Then `bash G 5 <issue>` — exit artifacts — and finally `bash G teardown <issue>`, which destroys the worktree (never the branch) or says why it kept it. But **leave the claimed label alone**: milestone 5 requires an open PR, so review is still in flight and the label is correct. The repository's unclaim workflow releases it when the item closes.
 
 ## Rules that are not negotiable
 

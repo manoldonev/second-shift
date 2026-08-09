@@ -40,6 +40,8 @@ run_grill() { # $1 root, $2 config path
 _hit() { jq -r --arg i "$1" '.findings[] | select(.id==$i) | .evidence + " ⟂ " + .proposal' <<< "$OUT"; }
 _ids() { jq -r '.findings[].id' <<< "$OUT" | tr '\n' ' '; }
 _nids() { jq -r '.notEvaluated[].id' <<< "$OUT" | tr '\n' ' '; }
+_uhit() { jq -r --arg i "$1" '.unadopted[] | select(.id==$i) | .evidence + " ⟂ " + .proposal' <<< "$OUT"; }
+_uids() { jq -r '.unadopted[].id' <<< "$OUT" | tr '\n' ' '; }
 
 expect_finding() { # $1 label, $2 id, $3.. substrings that must appear in evidence+proposal
   local label="$1" id="$2"; shift 2
@@ -52,6 +54,18 @@ expect_finding() { # $1 label, $2 id, $3.. substrings that must appear in eviden
 }
 expect_no_finding() { # $1 label, $2 id
   if [[ -z "$(_hit "$2")" ]]; then check "$1" 0; else check "$1 (unexpected finding '$2')" 1; echo "      $(_hit "$2")"; fi
+}
+expect_unadopted() { # $1 label, $2 id, $3.. substrings that must appear in evidence+proposal
+  local label="$1" id="$2"; shift 2
+  local got s; got="$(_uhit "$id")"
+  if [[ -z "$got" ]]; then check "$label (no unadopted '$id'; got: $(_uids))" 1; return; fi
+  for s in "$@"; do
+    if ! grep -qF -- "$s" <<< "$got"; then check "$label (unadopted '$id' missing '$s')" 1; echo "      $got"; return; fi
+  done
+  check "$label" 0
+}
+expect_no_unadopted() { # $1 label, $2 id
+  if [[ -z "$(_uhit "$2")" ]]; then check "$1" 0; else check "$1 (unexpected unadopted '$2')" 1; echo "      $(_uhit "$2")"; fi
 }
 expect_noteval() { # $1 label, $2 id, $3 (optional) substring in reason
   local got; got="$(jq -r --arg i "$2" '.notEvaluated[] | select(.id==$i) | .reason' <<< "$OUT")"
@@ -411,6 +425,58 @@ EOF
 run_grill "$R" "$R/waived-bare.json"
 expect_finding "waiver: a repo-less id does NOT silence a per-repo check" T4.mutation-plumbing.app
 
+# --- AC-2/AC-3: trigger 1, the unadopted extension points ----------------------------------
+# The one check with NO mechanical predicate. It fires when all three additive-gate seams are
+# absent, and its proposal has to NAME all three with what each buys — a bare key name motivates
+# nobody, which is the entire defect this trigger addresses. It rides in `unadopted[]`, never in
+# `findings[]`: doctor FAILs on a finding, and a repo cannot be permanently non-zero for leaving
+# an optional key at its default.
+RT1="$(mkrepo t1-none src/App.tsx a.ts)"
+cfg "$RT1/c.json" <<EOF
+{ $STD_HEAD, "commands": {"app":{"unitTestScope":null,"testFile":null}} }
+EOF
+run_grill "$RT1" "$RT1/c.json"
+expect_unadopted "t1: fires when all three seams are absent" T1.extension-points \
+  "stageWorkflows" "implementDelegates" "planGates" "grillWaivers"
+check "t1 exits 0 (rc=$RC)" "$([[ "$RC" -eq 0 ]] && echo 0 || echo 1)"
+expect_no_finding "t1 never leaks into findings[] (doctor would FAIL on it)" T1.extension-points
+
+# Silent as soon as ANY ONE is adopted — one case per key, so a predicate that checks only the
+# first key it thought of cannot pass this. A config that already uses a seam proves the human
+# knows the family exists, which is the whole (and only) narrowing of the unconditionality.
+for seam in stageWorkflows implementDelegates planGates; do
+  cfg "$RT1/adopted-$seam.json" <<EOF
+{ $STD_HEAD, "commands": {"app":{"unitTestScope":null,"testFile":null}},
+  "$seam": [ {"name":"x"} ] }
+EOF
+  run_grill "$RT1" "$RT1/adopted-$seam.json"
+  expect_no_unadopted "t1: silent when $seam is adopted" T1.extension-points
+  if [[ "$(jq -r '.unadopted | length' <<< "$OUT")" == "0" ]]; then
+    check "t1: unadopted[] is present-and-empty when $seam is adopted" 0
+  else
+    check "t1: unadopted[] should be empty when $seam is adopted (got $(_uids))" 1
+  fi
+done
+
+# A present-but-EMPTY array configures no gate at all, so the seam still never runs. Silencing
+# on `[]` would reproduce the silent-fallback shape this checker exists to catch, and with less
+# accountability than the waiver — which at least carries a human-authored reason.
+cfg "$RT1/empty-arrays.json" <<EOF
+{ $STD_HEAD, "commands": {"app":{"unitTestScope":null,"testFile":null}},
+  "stageWorkflows": [], "implementDelegates": [], "planGates": [] }
+EOF
+run_grill "$RT1" "$RT1/empty-arrays.json"
+expect_unadopted "t1: an empty array is not adoption" T1.extension-points "stageWorkflows"
+
+# Waivable, and keyed WITHOUT a repo id: all three are top-level keys with no per-repo form, so
+# a repo-scoped id would misstate the check's scope.
+cfg "$RT1/waived.json" <<EOF
+{ $STD_HEAD, "commands": {"app":{"unitTestScope":null,"testFile":null}},
+  "grillWaivers": { "T1.extension-points": "no org companion pack; the shipped gates are enough here" } }
+EOF
+run_grill "$RT1" "$RT1/waived.json"
+expect_no_unadopted "t1: a waiver suppresses it (same mechanism as a finding)" T1.extension-points
+
 # --- AC-1: exit codes ----------------------------------------------------------------------
 run_grill "$R" "$R/nope.json"
 check "exit 3 on a missing config path (rc=$RC)" "$([[ "$RC" -eq 3 ]] && echo 0 || echo 1)"
@@ -420,10 +486,11 @@ check "exit 3 on a non-JSON config (rc=$RC)" "$([[ "$RC" -eq 3 ]] && echo 0 || e
 RC=0; bash "$GRILL" >/dev/null 2>&1 || RC=$?
 check "exit 3 with no arguments (rc=$RC)" "$([[ "$RC" -eq 3 ]] && echo 0 || echo 1)"
 RC=0; OUT="$(bash "$GRILL" "$R2" "$R2/c.json" 2>/dev/null)" || RC=$?
-if [[ "$RC" -eq 0 ]] && jq -e '(.findings | type == "array") and (.notEvaluated | type == "array")' <<< "$OUT" >/dev/null; then
-  check "envelope: two arrays, exit 0, on a clean repo" 0
+if [[ "$RC" -eq 0 ]] && jq -e '(.findings | type == "array") and (.notEvaluated | type == "array")
+                               and (.unadopted | type == "array")' <<< "$OUT" >/dev/null; then
+  check "envelope: three arrays, exit 0, on a clean repo" 0
 else
-  check "envelope: two arrays, exit 0, on a clean repo (rc=$RC)" 1
+  check "envelope: three arrays, exit 0, on a clean repo (rc=$RC)" 1
 fi
 
 if [[ "$FAILS" -gt 0 ]]; then echo "config-grill selftest: $FAILS FAILURE(S)"; exit 1; fi
