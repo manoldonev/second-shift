@@ -53,6 +53,15 @@ check is only meaningful because the harness does not export it on its own.
 Discovery is `*-selftest.sh` only. The three `*-selftest.mjs` files are executed by
 `workflows-mjs-selftest.sh`, which is itself in the glob; widening discovery would run them twice.
 
+**Worker mode is keyed on an argv sentinel (`--run-one`), never on an environment variable**, and
+that is a correctness property rather than a style choice. An env flag is inherited by everything
+the dispatch spawns, *including the suites* — so a suite that itself invokes the runner takes the
+worker branch and collapses. The first revision keyed on an env var and
+`run-selftests-selftest.sh` (which nests a runner inside a suite) passed standalone and failed the
+instant the repo sweep ran it: 67 of 68 green, which is exactly how a leak of this shape reads if
+you only ever run one suite at a time. The same reasoning is why the parent's `--exclude`-era
+truncation seam is stripped before a suite is executed.
+
 ## Why a tier map at all
 
 CI here is **model-free by design** — no API-billed calls. That constraint is what makes the

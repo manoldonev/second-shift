@@ -54,14 +54,25 @@ die() { echo "[run-selftests] $1" >&2; exit 2; }
 # One suite per fresh invocation. Writes <idx>.rc and <idx>.log; the parent scores from those,
 # so a worker that dies without writing an .rc is visible as infra rather than as a green suite.
 #
-# This branch must come BEFORE the option parser: a worker is invoked with four POSITIONAL
-# arguments, which the parser below would reject as unknown options — and it would do so into
-# the dispatch call's discarded stdout, leaving every suite scored 125 with no visible cause.
-if [[ "${RUN_SELFTESTS_WORKER:-}" == "1" ]]; then
-  W_IDX="${1:?worker: index}"; W_LIST="${2:?worker: worklist}"; W_ROOT="${3:?worker: root}"; W_OUT="${4:?worker: results}"
+# Keyed on an ARGV SENTINEL, never on an environment variable, and that is load-bearing rather
+# than style. An env flag is inherited by everything below the dispatch — including the suites
+# themselves — so a suite that invokes this runner would take this branch, read `--root` as its
+# index, and collapse. That is not hypothetical: an earlier revision keyed on
+# `RUN_SELFTESTS_WORKER`, and tools/run-selftests-selftest.sh (which nests a runner inside a
+# suite) passed standalone and failed the moment the repo sweep ran it. argv cannot leak
+# downward the way the environment does. Same `--run-one` idiom as install-topology-selftest.sh.
+#
+# It must also come BEFORE the option parser, which would otherwise reject the worker's
+# positional arguments as unknown options — into the dispatch call's discarded stdout, leaving
+# every suite scored 125 with no visible cause.
+if [[ "${1:-}" == "--run-one" ]]; then
+  W_IDX="${2:?--run-one: index}"; W_LIST="${3:?--run-one: worklist}"
+  W_ROOT="${4:?--run-one: root}"; W_OUT="${5:?--run-one: results dir}"
   W_SUITE="$(awk -F'\t' -v i="$W_IDX" '$1 == i { print $2 }' "$W_LIST")"
   [[ -n "$W_SUITE" ]] || exit 0
-  ( cd "$W_ROOT" && bash "$W_SUITE" ) > "$W_OUT/$W_IDX.log" 2>&1
+  # The parent's test-only seam is stripped for the same reason: a nested runner must not
+  # inherit an instruction to truncate its own worklist.
+  ( cd "$W_ROOT" && env -u RUN_SELFTESTS_DROP_LAST bash "$W_SUITE" ) > "$W_OUT/$W_IDX.log" 2>&1
   echo "$?" > "$W_OUT/$W_IDX.rc"
   exit 0
 fi
@@ -142,8 +153,8 @@ echo "[run-selftests] $DISCOVERED discovered, $EXCLUDED excluded, $EXPECTED to r
 
 # ---- dispatch ------------------------------------------------------------------------
 # shellcheck disable=SC2016  # the placeholders are for the inner sh -c, deliberately unexpanded
-cut -f1 "$BASE/worklist" | RUN_SELFTESTS_WORKER=1 xargs -P "$JOBS" -n1 -I{} \
-  sh -c 'bash "$0" "$1" "$2" "$3" "$4"' \
+cut -f1 "$BASE/worklist" | xargs -P "$JOBS" -n1 -I{} \
+  sh -c 'bash "$0" --run-one "$1" "$2" "$3" "$4"' \
   "$HERE/$(basename "${BASH_SOURCE[0]}")" "{}" "$BASE/worklist" "$ROOT" "$RESULTS" >/dev/null
 
 # ---- ordered replay ------------------------------------------------------------------

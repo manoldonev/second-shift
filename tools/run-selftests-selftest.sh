@@ -218,6 +218,47 @@ closes="$(grep -c '^::endgroup::' "$OUT")"
   || fail "AC-5: unbalanced framing — $opens ::group:: vs $closes ::endgroup::"
 
 # ---------------------------------------------------------------------------------------
+# Nesting — the runner must survive running a suite that itself invokes the runner.
+#
+# THIS IS A REGRESSION GUARD, not a hypothetical. The dispatch sets RUN_SELFTESTS_WORKER on
+# `xargs`, so it is inherited by every process below it, INCLUDING the suite. A suite that then
+# invoked the runner took the worker branch, read `--root` as its index, and produced garbage —
+# and the suite it broke was THIS FILE, which passed standalone and failed the moment the repo
+# sweep ran it. 67 of 68 suites green is exactly how that reads if you only run one at a time.
+#
+# The fixture reproduces the real shape: an outer sweep whose one suite is an inner sweep.
+# ---------------------------------------------------------------------------------------
+# The inner tree lives OUTSIDE the outer root on purpose. Nested inside it, the outer sweep
+# would discover the leaves itself and print their markers whether or not the nested runner ever
+# worked — the assertions below would pass vacuously.
+NEST="$BASE/nest"; mkdir -p "$NEST"
+INNER="$BASE/nest-inner"; mkdir -p "$INNER"
+make_suite "$INNER" "aleaf-selftest.sh" 0 'echo ALEAF-ran'
+make_suite "$INNER" "zleaf-selftest.sh" 0 'echo ZLEAF-ran'
+{
+  echo '#!/usr/bin/env bash'
+  echo "exec bash '$RUNNER' --root '$INNER'"
+} > "$NEST/outer-selftest.sh"
+# A second outer suite, sorting AFTER the nesting one, so the seam case below truncates this
+# plain suite rather than the nested one it is trying to observe.
+make_suite "$NEST" "zz-plain-selftest.sh" 0 'echo plain-ran'
+
+run_runner "$NEST" --jobs 2
+[[ "$RC" -eq 0 ]] && grep -q 'ALEAF-ran' "$OUT" && grep -q 'ZLEAF-ran' "$OUT" \
+  && ok "nesting: a suite that itself invokes the runner runs clean under the sweep" \
+  || { fail "nesting: the runner's own mode leaked into the suite it ran (rc=$RC)"; sed 's/^/    | /' "$OUT"; }
+
+# The parent's test-only seam must not reach a nested runner either: inherited, it would drop the
+# inner sweep's LAST suite and red it as truncation. ZLEAF is that last suite, so its marker is
+# the discriminator — the outer sweep reds either way (the seam is doing its job up there).
+OUT="$BASE/out.nest2"
+env -u TMPDIR RUN_SELFTESTS_DROP_LAST=1 bash "$RUNNER" --root "$NEST" --jobs 2 > "$OUT" 2>&1
+RC=$?
+grep -q 'ZLEAF-ran' "$OUT" \
+  && ok "nesting: the parent's truncation seam does not reach the nested runner" \
+  || { fail "nesting: RUN_SELFTESTS_DROP_LAST leaked into the nested runner (rc=$RC)"; sed 's/^/    | /' "$OUT"; }
+
+# ---------------------------------------------------------------------------------------
 # Usage floor — a bad argument or an empty run set must never read as a green sweep.
 # ---------------------------------------------------------------------------------------
 run_runner "$R2" --jobs 0

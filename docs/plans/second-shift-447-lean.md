@@ -72,6 +72,7 @@ produces (D-6, deferred).
 | D-6 | Re-tightening `INSTALL_TOPOLOGY_TIMEOUT` | deferred — owner: follow-up to this issue, once it produces the first uncontended measurement to size the bound against | deferred |
 | D-7 | How the count-reconciliation arm is proven able to red | A narrow documented seam (`RUN_SELFTESTS_DROP_LAST`) drops one worklist entry after the counts are taken, so `run-selftests-selftest.sh` can assert the reconciliation fires. Same rejection-assertion posture `ci.yml`'s issue-forms step already carries against a checked-in bad fixture | codebase-derived |
 | D-8 | Whether discovery widens to `*-selftest.mjs` | No — the three `.mjs` suites are executed by `workflows-mjs-selftest.sh`, which is in the `.sh` glob. Widening would double-run them and break AC-9 | codebase-derived |
+| D-9 | How worker mode is keyed | An argv sentinel (`--run-one`), not an environment variable. Found during implementation: an env-keyed flag is inherited by the suites themselves, so a suite that invokes the runner takes the worker branch and collapses — `run-selftests-selftest.sh` did exactly that, passing standalone and failing under the sweep. argv cannot leak downward. Same idiom as `install-topology-selftest.sh` | codebase-derived |
 
 ## Design
 
