@@ -13,11 +13,22 @@
 #
 # Usage: config-grill.sh <repo-root> [<config-path>]
 #        config-path defaults to <repo-root>/.claude/second-shift.config.json
-# Output: ONE JSON document on stdout — { findings: [...], notEvaluated: [...] }
+# Output: ONE JSON document on stdout — { findings: [...], notEvaluated: [...], unadopted: [...] }
 # Exit:  0 always when it ran (findings are DATA, not a crash) · 3 usage/IO error
 #
 # A `notEvaluated` entry is never a finding: it has no proposal, cannot be waived, and must
 # not block onboard's accept predicate. Callers render it informationally.
+#
+# An `unadopted` entry is the THIRD severity, and it exists because trigger 1 fits neither of
+# the other two. A finding is a DEFECT — doctor renders it as a FAIL, which is only coherent
+# because a repo can reach exit 0 by fixing it. An unadopted optional key is a DEFAULT, not a
+# defect: routing it through findings[] would make every long-onboarded consumer non-zero
+# forever for a capability most will never want. A notEvaluated entry is the other extreme —
+# no proposal, not waivable — so it can never force a disposition. So: same object as a
+# finding (id, key, evidence, proposal), waivable by the same mechanism, but doctor renders it
+# as a NOTE that never touches the exit code while onboard renders it as a blocking line on
+# the accept-or-edit screen. Adopt or declare, at the one moment a human is already reading
+# the config.
 #
 # Waivers live in the config's top-level `grillWaivers` object, keyed by check id (with the
 # repo id where the check is per-repo) and valued by a human-authored reason. A waived
@@ -40,11 +51,20 @@ cd "$ROOT_ABS" || exit 3
 
 FINDINGS=()
 NOTEVAL=()
+UNADOPTED=()
 WAIVERS="$(jq -c 'if (.grillWaivers | type) == "object" then .grillWaivers else {} end' "$CONFIG")"
 
 add_finding() { # $1 id, $2 key, $3 evidence, $4 proposal
   jq -e --arg k "$1" 'has($k)' <<< "$WAIVERS" >/dev/null 2>&1 && return 0
   FINDINGS+=("$(jq -nc --arg id "$1" --arg key "$2" --arg ev "$3" --arg pr "$4" \
+    '{id:$id, key:$key, evidence:$ev, proposal:$pr}')")
+}
+add_unadopted() { # $1 id, $2 key, $3 evidence, $4 proposal
+  # Suppression lives HERE, not in either caller, so onboard and doctor suppress identically —
+  # a waiver that silenced only one of them would let a repo look clean on the screen it was
+  # typed into and stay noisy forever on the other.
+  jq -e --arg k "$1" 'has($k)' <<< "$WAIVERS" >/dev/null 2>&1 && return 0
+  UNADOPTED+=("$(jq -nc --arg id "$1" --arg key "$2" --arg ev "$3" --arg pr "$4" \
     '{id:$id, key:$key, evidence:$ev, proposal:$pr}')")
 }
 add_noteval() { # $1 id, $2 key, $3 reason
@@ -350,8 +370,40 @@ if [[ -n "$REPO_ID" ]]; then
   fi
 fi
 
+# --- trigger 1: a capability nobody ever mentioned (AC-2) -----------------------------------
+# Scope is exactly the seams onboard's question batch NEVER asks about. The five it DOES ask
+# about (gates/mutation, design + liveRender, reviewer deltas, the review-context scaffold, the
+# CI workflows) are handled by naming the benefit on those existing questions — a check here
+# would re-nag a human about something they declined ten lines earlier in the same run.
+#
+# Unconditional, deliberately. Unlike triggers 2/4/5 there is NO mechanical predicate for
+# "this repo plausibly wants it": absence is the normal state of an optional key, and deriving
+# want from tree shape (db/migrations/** implies implementDelegates) would mint evidence the
+# repo never gave, which docs/extending.md §1 forbids. The unconditionality is narrowed one way
+# only — the check goes silent the moment ANY ONE of the three is adopted, because a config
+# that already uses a seam proves the human knows the family exists. One id and one waiver for
+# all three: the disposition being forced is "have you considered the additive-gate seams",
+# which is one decision, and three ids would be three waivers to type on a repo that wants none.
+#
+# A present-but-EMPTY array is not adoption. It configures no gate, no delegate and no plan
+# gate, so the seam still never runs — silencing on `[]` would reproduce exactly the
+# silent-fallback shape this whole checker exists to catch, and with less accountability than
+# the waiver, which at least carries a human-authored reason.
+EP_ADOPTED=""
+for ep in stageWorkflows implementDelegates planGates; do
+  if jq -e --arg k "$ep" '((.[$k] // []) | length) > 0' "$CONFIG" >/dev/null 2>&1; then
+    EP_ADOPTED="$ep"; break
+  fi
+done
+if [[ -z "$EP_ADOPTED" ]]; then
+  add_unadopted "T1.extension-points" "stageWorkflows, implementDelegates, planGates" \
+    "None of stageWorkflows, implementDelegates or planGates is set — the three additive-gate seams are unadopted. Absence is legal and is the default, so nothing else will ever mention them: this is the one place they get named." \
+    "Adopt whichever fits, or declare that none do. \`stageWorkflows\` (docs/extending.md §3.6) runs a workflow you own at a chosen stage as a BLOCKING sub-step — a schema-compat gate, a codegen-drift check, a license scan — without forking the stage. \`implementDelegates\` (§3.7) routes Stage-5 work on a matched surface to a specialist agent instead of the generalist implementer, and the delegate's output still passes the unchanged scope gate, so it adds an author and waives nothing. \`planGates\` (§3.8) adds your own blocking reviewer of the PLAN at Stage 4, which is where a bad approach is cheapest to stop — before any code is written. Setting any ONE of the three silences this check. $(waiver_hint "T1.extension-points")"
+fi
+
 jq -n \
   --argjson findings "$(json_array ${FINDINGS[@]+"${FINDINGS[@]}"})" \
   --argjson notEvaluated "$(json_array ${NOTEVAL[@]+"${NOTEVAL[@]}"})" \
-  '{findings: $findings, notEvaluated: $notEvaluated}'
+  --argjson unadopted "$(json_array ${UNADOPTED[@]+"${UNADOPTED[@]}"})" \
+  '{findings: $findings, notEvaluated: $notEvaluated, unadopted: $unadopted}'
 exit 0

@@ -103,11 +103,17 @@ Ask AT MOST one AskUserQuestion batch, containing ONLY (skip any that detection 
   1. tracker (only if ambiguous — show evidence per option)
   2. topology pair confirm (only if be-fe-pair-candidate)
   3. `tracker.branchPrefix` (recommended: `claude/<repo-basename>-` for github; `<user>/` for jira)
-  4. gates to enable (**mutation** — defaults false; `gates.mutation:false` is an explicit
+  4. gates to enable — **what mutation buys: it breaks your changed code on purpose and fails
+     when the unit specs still pass, which is the difference between tests that exist and tests
+     that would catch a regression** (`docs/config-schema.md`, `gates` row).
+     (**mutation** — defaults false; `gates.mutation:false` is an explicit
      off-switch for the Stage-5 unit-test mutation gate even when `unitTestScope` is set.
      It is the ONLY `gates` key the schema has as of v2.1.6 — `costTracking` was removed
      (cost attribution now runs unconditionally, passive) — never emit anything else under `gates`)
-  5. design fidelity, two-part (only if detection saw a UI-shaped repo — sibling FE candidate,
+  5. design fidelity, two-part — **what it buys: review gains a design-fidelity dimension, and
+     with `liveRender` a per-route rendered-vs-handoff receipt replaces a reviewer's opinion of
+     a diff** (docs/extending.md §3.5; docs/live-render.md).
+     (only if detection saw a UI-shaped repo — sibling FE candidate,
      or framework deps like react/vue/svelte in package.json — or a design MCP in
      `claude mcp list`): include design-toolkit? If yes, WHICH provider — emit top-level
      `design: { "provider": "figma" }` or `{ "provider": "claude-design" }`.
@@ -120,7 +126,10 @@ Ask AT MOST one AskUserQuestion batch, containing ONLY (skip any that detection 
      render state. Undetected or declined → omit the `liveRender` key (the Stage-5 gate degrades
      to render-verify-unavailable, and a lean ticket cannot arm its design lane at all;
      docs/live-render.md).
-  6. reviewer deltas (`reviewers.add` for repo-local reviewer agents, `.remove` for shipped
+  6. reviewer deltas — **what they buy: `add` puts a reviewer that knows this repo's domain on
+     every review panel; `remove` stops a shipped reviewer whose findings you always dismiss
+     from spending a slot** (docs/extending.md §3.3).
+     (`reviewers.add` for repo-local reviewer agents, `.remove` for shipped
      reviewers that don't fit — e.g. db-reviewer in an FE repo —, `.modelOverrides`).
      Recommended default: none. Emit the `reviewers` key ONLY when the answer is non-empty.
   7. **github tracker only — the first-run wall, absorbed here:**
@@ -137,7 +146,10 @@ Ask AT MOST one AskUserQuestion batch, containing ONLY (skip any that detection 
         `stageParams.requiredLabels` authoritative end-to-end.
   8. **`review-context.md` scaffold (accept-or-edit, never mandatory; default "later").**
      Offer to scaffold a starter `.claude/second-shift/review-context.md` so reviewers key on
-     named sections instead of inferring from the diff. **The offer default is "later"** —
+     named sections instead of inferring from the diff. **What it buys: every panel reviewer
+     self-loads it, so stack, severity calibration and known-accepted patterns are stated once
+     instead of re-inferred — and re-argued — on every review** (docs/extension-points.md,
+     "Authoring the review-context surface"). **The offer default is "later"** —
      onboarding stays green without it. Hard rules if accepted:
      - Emit **only sections whose content the human confirmed in this batch** — never a
        TODO-bodied heading (`scaffold-review-context.sh` refuses empty bodies; a present-but-
@@ -157,7 +169,10 @@ Ask AT MOST one AskUserQuestion batch, containing ONLY (skip any that detection 
      linter shipped AT the pinned marketplace ref and assert the settings ref and lockfile ref
      agree, so a half-done upgrade PR is caught server-side; and (b) on issue close, release
      the pipeline's claimed and queue labels, which nothing else does?" Recommended: yes for a
-     repo that runs GitHub Actions. **One question, one acceptance** — on yes both file pairs
+     repo that runs GitHub Actions. **What they buy: a half-done upgrade is caught server-side
+     on the PR that ships it rather than by whoever happens to notice, and a closed issue
+     releases its labels without anyone remembering to** (docs/team-rollout.md).
+     **One question, one acceptance** — on yes both file pairs
      are emitted in Step 7. Say which side of the write boundary each falls on: the evidence
      workflow only REPORTS a red check (to make it *block* merges the repo admin marks
      "second-shift evidence" a required status check in branch protection — onboard never
@@ -187,18 +202,24 @@ file (`config-lint` runs `jq empty` and would reject a comment).
 stripped — the same document Step 4 would emit) to a temp file, then run
 `bash "${CLAUDE_PLUGIN_ROOT}/skills/onboard/tools/config-grill.sh" <repo-root> "$TMPDIR/second-shift-draft.json"`
 and parse its JSON. It reports what `config-lint` structurally cannot: a capability that is
-detectably OFF. Absence is legal for every optional key, so the lint never looks at the tree,
-and nothing downstream looks either — a capability that is off simply never runs and the run
-still reports green.
+detectably OFF, and a capability that was never adopted at all. Absence is legal for every
+optional key, so the lint never looks at the tree, and nothing downstream looks either — a
+capability that is off simply never runs and the run still reports green.
 
 - Every entry in `findings[]` renders as a **blocking line** at the top of the accept-or-edit
   screen: the finding's `evidence`, then its `proposal` verbatim. The proposal names the
   benefit; do not paraphrase it down to a key name, which motivates nobody.
+- Every entry in `unadopted[]` renders as a **blocking line too**, identically — evidence, then
+  proposal verbatim. These are the extension points nothing else in this skill mentions, so the
+  screen is the only place they are ever named; a human who has never heard of them cannot
+  decline them. Doctor renders the same entries as informational notes (an optional key at its
+  default is not a defect); onboard blocks on them because here one edit closes it.
 - Every entry in `notEvaluated[]` renders as an informational line. It is **not** a finding —
   it has no proposal, cannot be waived, and must never block acceptance.
-- The checker **re-runs on each loop iteration**, and "no unwaived findings" is the accept
-  predicate: the screen cannot be accepted while a finding is neither fixed nor waived.
-- A waiver is a `grillWaivers` entry — `{"<check id>": "<reason>"}`, keyed by the finding's
+- The checker **re-runs on each loop iteration**, and "no unwaived `findings[]` and no unwaived
+  `unadopted[]`" is the accept predicate: the screen cannot be accepted while either is neither
+  adopted nor waived.
+- A waiver is a `grillWaivers` entry — `{"<check id>": "<reason>"}`, keyed by the entry's
   `id` — typed into the draft on that same screen. **Never author a reason on the human's
   behalf and never propose one**: an invented reason is a waiver with no accountability. Offer
   the mechanism, not the text.

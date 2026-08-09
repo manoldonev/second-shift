@@ -111,6 +111,28 @@ scenario grill-waived     plugin-list-green.json   settings-green.json     marke
 # permanently non-zero with nothing it could do about it. The doctor fixture root is not a git
 # work tree, so the three trigger-2 checks land here by construction.
 scenario grill-noteval    plugin-list-green.json   settings-green.json     marketplace-list-pinned.json  0 "config grill not evaluated [T2.webComponentGlobs]"
+# #449: an `unadopted` entry is the THIRD severity. It is waivable and carries a proposal, so
+# unlike notEvaluated it can force a disposition — but here it must render as a NOTE and leave
+# the exit code at 0. The pairing is the whole of the severity split: config-valid.json adopts
+# none of the three seams, so a `bad` would take every already-green consumer non-zero on the
+# first run after this ships, for a capability most will never want. Asserting the TEXT alone
+# would pass just as happily on a FAIL, which is why the expected rc is 0 and the fixture
+# deliberately carries no waiver for T1.
+scenario grill-unadopted  plugin-list-green.json   settings-green.json     marketplace-list-pinned.json  0 "config grill unadopted [T1.extension-points]"
+# ...and the waived counterpart, which is what proves the note is suppressible at all rather
+# than unconditional prose: without it, "renders a note" and "always renders a note" are the
+# same observation.
+scenario grill-unadopted-waived plugin-list-green.json settings-green.json marketplace-list-pinned.json 0 \
+  "summary: 0 failed" lock-v1.json config-t1-waived.json
+uwout="$(DOCTOR_REPO_ROOT="$TMP/grill-unadopted-waived" DOCTOR_PLUGIN_LIST_FILE="$TMP/grill-unadopted-waived-pluglist.json" \
+         DOCTOR_MARKETPLACE_LIST_FILE="$FIX/marketplace-list-pinned.json" DOCTOR_USER_SETTINGS="$TMP/empty-user-settings.json" \
+         bash "$DOCTOR" 2>&1)" || true
+if grep -qF "T1.extension-points" <<< "$uwout"; then
+  check "grill-unadopted-waived: the waived entry is actually absent from the output" 1
+  echo "$uwout" | grep -F "T1." | sed 's/^/      /' | head -3
+else
+  check "grill-unadopted-waived: the waived entry is actually absent from the output" 0
+fi
 # The two DEGRADE branches. Neither can produce a wrong verdict — both are `warn`, so neither
 # moves the exit code — and that is exactly why they need pinning: a broken integration reads
 # as green, and the three scenarios above all run the real checker successfully, so nothing
