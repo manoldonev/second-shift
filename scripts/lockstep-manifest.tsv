@@ -536,6 +536,24 @@ unclaim-workflow-env	verbatim	.github/workflows/unclaim-on-close.yml	unclaim-wor
 # composes a fixture trail through the delegating boundary.
 lean-pr-marker	verbatim	plugins/dev-pipeline/skills/run-lean/lean-gate.sh	lean-pr-marker	plugins/dev-pipeline/skills/run-lean/lean-evidence.sh	lean-pr-marker
 
+# lean GATE-OUTPUT dispositions (#443) — `LEAN_OUTPUT_DISPOSITIONS`, the closed vocabulary a
+# class-(b) line ("this arm could not evaluate") may name. Both merge-boundary gates declare their
+# own copy: scripts/check-lean-chain.sh cannot source the payload it delegates to (it fetches it
+# at a pinned ref in a consumer, and resolves it from the repo root here), and lean-evidence.sh
+# must stand alone in a consumer's CI where this file does not exist at all.
+# WHY IT MUST NOT DRIFT, and why a reader is the injured party rather than a writer: the two
+# tickets after this one emit into class (b) from BOTH files, and the disposition is the token
+# their readers branch on. A vocabulary that gained a word on one side alone would have that word
+# reach a reader with no rule for it — which is a silently weakened boundary, the exact class this
+# gate exists to make loud. Neither file can see the other's spelling.
+# `verbatim` compares the ENTIRE marker block, which is why both sides declare the literal under
+# the same variable name with no comments between the markers — the emitter that consumes it, and
+# the prose explaining it, sit deliberately OUTSIDE the block on each side.
+# Behavioral guards on both sides: lean-evidence-selftest.sh (dd1)/(dd2) drive the real emitter
+# bytes over an accepted and a rejected disposition, and both suites anchor every class-(b) line
+# whole against the same four-value alternation.
+lean-output-dispositions	verbatim	scripts/check-lean-chain.sh	lean-output-dispositions	plugins/dev-pipeline/skills/run-lean/lean-evidence.sh	lean-output-dispositions
+
 # lean ARTIFACT-NAME suffixes (#359) — the `*-lean.md` / `*-lean-verdict.md` /
 # `*-lean-intent-gap.md` / `*-lean-renders.md` table, held by scripts/check-lean-chain.sh
 # (anchor `lean-chain-artifact-patterns`) and, for the three it still reads, by
