@@ -681,5 +681,177 @@ else
 fi
 
 echo
+echo "=== #432: rotated backups, and the four-way skip discrimination ==="
+# Two bugs shared one symptom — an empty cost block — and one message that named neither.
+#
+#   1. METRICS_FILE resolved to the live file ONLY, while the shipped exporter rotates at 50 MB
+#      to `metrics-<ts>-size.jsonl`. Any run whose window predated the newest rotation was
+#      silently unattributable EVEN WITH TELEMETRY ON.
+#   2. The skip branch keyed on TOTAL_COST being zero and blamed "the collector … or session ids
+#      drifted" — the two things that are almost never the cause. The real one (the session was
+#      launched without CLAUDE_CODE_ENABLE_TELEMETRY and exported nothing) had no value of its own.
+#
+# WHY THE MTIME/FILENAME DISAGREEMENT BELOW IS DELIBERATE: the exporter writes those filenames
+# with `localtime: true`, so the timestamp in the name is LOCAL while the fence is ISO-8601 `Z`.
+# An implementation that selects on the filename reads correct in UTC and wrong everywhere else.
+# Each rotation fixture is therefore named to suggest the OPPOSITE of what its mtime says, so a
+# filename-parsing implementation fails these cases in every timezone, including UTC.
+# `-u` matters here for the same reason it does in the script: without it BSD `date -j -f` reads
+# a `Z` timestamp as local time, and every fixture datapoint lands one tz offset away from where
+# the case says it is — green in UTC, red on the machines this actually runs on.
+# BSD and GNU disagree on both of these, and NEITHER wrong form reliably fails: `date -j -f` is
+# an invalid option on GNU (clean), but `date -r` on GNU means "reference FILE" and `stat -f` on
+# GNU means --file-system, which prints something and exits however it likes. Validate the shape
+# of the answer instead of trusting the exit status — trusting it is what let the covering-backup
+# case pass on macOS and fail on Linux, where no backup was ever selected.
+digits_or_empty() { case "$1" in ''|*[!0-9]*) echo "" ;; *) echo "$1" ;; esac; }
+iso2ep() {
+  local e
+  e="$(digits_or_empty "$(date -u -j -f "%Y-%m-%dT%H:%M:%SZ" "$1" +%s 2>/dev/null)")"
+  [ -n "$e" ] || e="$(digits_or_empty "$(date -u -d "$1" +%s 2>/dev/null)")"
+  echo "$e"
+}
+set_mtime() { # set_mtime <file> <iso>
+  local ep stamp
+  ep="$(iso2ep "$2")"
+  [ -n "$ep" ] || { bad "set_mtime: could not convert '$2' to an epoch on this platform"; return 1; }
+  stamp="$(date -r "$ep" +%Y%m%d%H%M.%S 2>/dev/null)"
+  case "$stamp" in ''|*[!0-9.]*) stamp="$(date -d "@$ep" +%Y%m%d%H%M.%S 2>/dev/null)" ;; esac
+  [ -n "$stamp" ] || { bad "set_mtime: could not render a touch stamp for '$2'"; return 1; }
+  touch -t "$stamp" "$1"
+}
+# mk_metrics <file> <metric-name> <sid:iso:value>…
+mk_metrics() {
+  local out="$1" metric="$2"; shift 2
+  local dps="" spec sid rest iso val
+  for spec in "$@"; do
+    sid="${spec%%:*}"; rest="${spec#*:}"
+    iso="${rest%:*}"; val="${rest##*:}"
+    dps="$dps$(jq -nc --arg sid "$sid" --arg t "$(iso2ep "$iso")000000000" --argjson v "$val" \
+      '{attributes:[{key:"session.id",value:{stringValue:$sid}},
+                    {key:"model",value:{stringValue:"claude-sonnet-4-6"}},
+                    {key:"type",value:{stringValue:"input"}}],
+        timeUnixNano:$t, asDouble:$v}'),"
+  done
+  printf '{"resourceMetrics":[{"resource":{"attributes":[]},"scopeMetrics":[{"metrics":[{"name":"%s","sum":{"dataPoints":[%s]}}]}]}]}\n' \
+    "$metric" "${dps%,}" > "$out"
+}
+# mk_state <dir> <id> <sid> <startedAt|""> <lastUpdatedAt> — no stages, so the rollup renders the
+# single-row session total and every row buckets to "Other". An empty startedAt disables the fence.
+mk_state() {
+  local d="$1" id="$2" sid="$3" started="$4" last="$5"
+  mkdir -p "$d"
+  jq -n --arg sid "$sid" --arg s "$started" --arg l "$last" '
+    { pipelineSessions: [{sessionId: $sid}],
+      stages: {},
+      prs: {},
+      lastUpdatedAt: $l }
+    | if $s == "" then . else .startedAt = $s end' > "$d/$id.json"
+}
+
+SID_A="aaaaaaaa-1111-4111-8111-aaaaaaaaaaaa"   # this run
+SID_B="bbbbbbbb-2222-4222-8222-bbbbbbbbbbbb"   # a concurrent session in another repo
+F_LO="2026-05-01T10:00:00Z"
+F_HI="2026-05-01T11:00:00Z"
+
+# dump_total <state-dir> <id> <metrics-file> — the fenced rollup total, via the DUMP_ROLLUP hook.
+dump_total() {
+  OTEL_METRICS_FILE="$3" STATECTL_STATE_DIR="$1" COST_BLOCK_DUMP_ROLLUP=1 GH_BOT="$STUB_BOT" \
+    bash "$SCRIPT" "$2" 2>/dev/null | jq -r '.totals.cost_usd'
+}
+# disc <state-dir> <id> <metrics-file> — the recorded costBlockApplied.
+# COST_BLOCK_DUMP_LOGROW is set purely to skip the script's 5s collector-flush sleep: every branch
+# under test exits BEFORE the log-row hook is reached, so it changes no outcome here.
+disc() {
+  OTEL_METRICS_FILE="$3" STATECTL_STATE_DIR="$1" COST_BLOCK_DUMP_LOGROW=1 \
+  COST_LOG_FILE="$TMP/disc-cost-log.jsonl" GH_BOT="$STUB_BOT" \
+    bash "$SCRIPT" "$2" >/dev/null 2>&1
+  jq -r '.costBlockApplied' "$1/$2.json"
+}
+
+# --- rotation: a backup whose MTIME covers the fence is read ------------------
+ROT="$TMP/rot-covered"; mkdir -p "$ROT/metrics"
+mk_metrics "$ROT/metrics/metrics.jsonl" claude_code.cost.usage "$SID_A:2026-05-01T10:50:00Z:0.20"
+# Filename says 09:00 (before the fence); mtime says 10:20 (inside it). mtime must win.
+mk_metrics "$ROT/metrics/metrics-2026-05-01T09-00-00.000-size.jsonl" claude_code.cost.usage \
+  "$SID_A:2026-05-01T10:10:00Z:1.00"
+set_mtime "$ROT/metrics/metrics-2026-05-01T09-00-00.000-size.jsonl" "2026-05-01T10:20:00Z"
+mk_state "$ROT/state" rot-covered "$SID_A" "$F_LO" "$F_HI"
+T="$(dump_total "$ROT/state" rot-covered "$ROT/metrics/metrics.jsonl")"
+[[ "$T" == "1.2" || "$T" == "1.20" ]] \
+  && ok "(#432) a rotated backup whose mtime covers the fence is read (total $T = live 0.20 + backup 1.00)" \
+  || bad "(#432) expected 1.2 with the covering backup read, got '$T'"
+
+# --- rotation: a backup whose MTIME predates the fence is NOT read ------------
+ROT2="$TMP/rot-stale"; mkdir -p "$ROT2/metrics"
+mk_metrics "$ROT2/metrics/metrics.jsonl" claude_code.cost.usage "$SID_A:2026-05-01T10:50:00Z:0.20"
+# The mirror image: filename says 10:10 (inside the fence), mtime says 09:00 (before it). A backup
+# stops being written at its mtime, so it cannot hold an in-fence row — skip it, and skip paying
+# to slurp 50 MB for nothing.
+mk_metrics "$ROT2/metrics/metrics-2026-05-01T10-10-00.000-size.jsonl" claude_code.cost.usage \
+  "$SID_A:2026-05-01T10:10:00Z:1.00"
+set_mtime "$ROT2/metrics/metrics-2026-05-01T10-10-00.000-size.jsonl" "2026-05-01T09:00:00Z"
+mk_state "$ROT2/state" rot-stale "$SID_A" "$F_LO" "$F_HI"
+T="$(dump_total "$ROT2/state" rot-stale "$ROT2/metrics/metrics.jsonl")"
+[[ "$T" == "0.2" || "$T" == "0.20" ]] \
+  && ok "(#432) a backup whose mtime predates the fence is skipped (total $T, the live file alone)" \
+  || bad "(#432) expected 0.2 with the stale backup skipped, got '$T'"
+
+# --- rotation: fence disabled → the live file alone, no window to cover -------
+ROT3="$TMP/rot-nofence"; mkdir -p "$ROT3/metrics"
+cp "$ROT/metrics/metrics.jsonl" "$ROT3/metrics/metrics.jsonl"
+cp "$ROT/metrics/metrics-2026-05-01T09-00-00.000-size.jsonl" \
+   "$ROT3/metrics/metrics-2026-05-01T09-00-00.000-size.jsonl"
+set_mtime "$ROT3/metrics/metrics-2026-05-01T09-00-00.000-size.jsonl" "2026-05-01T10:20:00Z"
+mk_state "$ROT3/state" rot-nofence "$SID_A" "" "$F_HI"   # no startedAt → the fence disables itself
+T="$(dump_total "$ROT3/state" rot-nofence "$ROT3/metrics/metrics.jsonl")"
+[[ "$T" == "0.2" || "$T" == "0.20" ]] \
+  && ok "(#432) a disabled fence reads the live file alone (total $T) — no window means no backups to select" \
+  || bad "(#432) expected 0.2 on the fence-disabled path, got '$T'"
+
+# --- discrimination: nothing in the fence, from anyone -----------------------
+DSC="$TMP/disc"; mkdir -p "$DSC/m1" "$DSC/m2" "$DSC/m3" "$DSC/m4"
+mk_metrics "$DSC/m1/metrics.jsonl" claude_code.cost.usage "$SID_B:2026-05-01T09:00:00Z:1.00"
+mk_state "$DSC/s1" d1 "$SID_A" "$F_LO" "$F_HI"
+R="$(disc "$DSC/s1" d1 "$DSC/m1/metrics.jsonl")"
+[[ "$R" == "skipped-telemetry-off" ]] \
+  && ok "(#432) no in-fence rows from ANY session records skipped-telemetry-off" \
+  || bad "(#432) expected skipped-telemetry-off, got '$R'"
+
+# --- discrimination: the fence is populated, but not by us -------------------
+# One row apart from the case above: the 09:00 row keeps the oldest scanned datapoint BEFORE the
+# fence, so coverage is not in doubt and the honest verdict is "this session exported nothing".
+mk_metrics "$DSC/m2/metrics.jsonl" claude_code.cost.usage \
+  "$SID_B:2026-05-01T09:00:00Z:1.00" "$SID_B:2026-05-01T10:30:00Z:2.00"
+mk_state "$DSC/s2" d2 "$SID_A" "$F_LO" "$F_HI"
+R="$(disc "$DSC/s2" d2 "$DSC/m2/metrics.jsonl")"
+[[ "$R" == "skipped-session-not-exporting" ]] \
+  && ok "(#432) in-fence rows from other sessions only records skipped-session-not-exporting" \
+  || bad "(#432) expected skipped-session-not-exporting, got '$R'"
+
+# --- discrimination: the coverage of the window itself is gone --------------
+# Same in-fence foreign row as above, minus the 09:00 one — now the oldest datapoint on disk is
+# NEWER than the run start, so the file that covered the run is gone and no other verdict can be
+# trusted. This also pins the PRECEDENCE: in-fence foreign rows exist here too, and rotated-out
+# must still win over the not-exporting verdict.
+mk_metrics "$DSC/m3/metrics.jsonl" claude_code.cost.usage "$SID_B:2026-05-01T10:30:00Z:2.00"
+mk_state "$DSC/s3" d3 "$SID_A" "$F_LO" "$F_HI"
+R="$(disc "$DSC/s3" d3 "$DSC/m3/metrics.jsonl")"
+[[ "$R" == "skipped-rotated-out" ]] \
+  && ok "(#432) retained metrics starting after the fence records skipped-rotated-out, ahead of the not-exporting verdict" \
+  || bad "(#432) expected skipped-rotated-out, got '$R'"
+
+# --- discrimination: our rows are there, they just carry no cost ------------
+# The narrowed meaning of the value that used to absorb all four states: token rows for THIS
+# session, inside the fence, and not one claude_code.cost.usage among them.
+mk_metrics "$DSC/m4/metrics.jsonl" claude_code.token.usage \
+  "$SID_B:2026-05-01T09:00:00Z:10" "$SID_A:2026-05-01T10:30:00Z:500"
+mk_state "$DSC/s4" d4 "$SID_A" "$F_LO" "$F_HI"
+R="$(disc "$DSC/s4" d4 "$DSC/m4/metrics.jsonl")"
+[[ "$R" == "skipped-zero-datapoints" ]] \
+  && ok "(#432) in-fence rows for this session with no cost datapoint records skipped-zero-datapoints" \
+  || bad "(#432) expected skipped-zero-datapoints, got '$R'"
+
+echo
 echo "Result: $PASS passed, $FAIL failed"
 [[ "$FAIL" -eq 0 ]] && exit 0 || exit 1

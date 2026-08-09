@@ -53,6 +53,21 @@
 # pull_request.count). Without the filter every stage label would gain a companion
 # zero-dollar `unknown` row in the artifact a human actually reads. Filtering here rather
 # than in the rollup keeps the durable record complete and the PR block legible.
+#
+# ROTATED BACKUPS (#432). The shipped exporter config rotates at `max_megabytes: 50`, keeping
+# up to `max_backups: 30` files named `metrics-<ts>-size.jsonl` beside the live one. Reading
+# only the live file made ANY run whose window predates the newest rotation silently
+# unattributable even with telemetry on. select_metrics_files() below picks the live file plus
+# every backup whose MTIME is at or after the fence's lower bound — mtime, not the filename
+# timestamp, because `localtime: true` puts a LOCAL timestamp in that name while the fence is
+# ISO-8601 `Z`, and comparing them directly is an off-by-the-tz-offset bug that reads correct
+# only in UTC.
+#
+# MEMORY CEILING (#432 OR-2). compute_bucket_rollup uses `jq -s`, which slurps every input
+# file. The selection above bounds the realistic worst case to TWO 50 MB files (a fence
+# spanning one rotation), not thirty. If a longer fence ever selects more, the contained fix is
+# inside compute_bucket_rollup alone — per-file rollup then merge, or `--stream` — with no
+# change to any caller or to the emitted shape.
 
 set -uo pipefail
 log() { echo "[pipeline-cost-block] $*" >&2; }
@@ -78,7 +93,7 @@ while [ $# -gt 0 ]; do
     --start)     ARG_START="${2:-}"; shift 2 ;;
     --end)       ARG_END="${2:-}"; shift 2 ;;
     --out)       ARG_OUT="${2:-}"; shift 2 ;;
-    -h|--help)   sed -n '2,55p' "$0"; exit 0 ;;
+    -h|--help)   sed -n '2,70p' "$0"; exit 0 ;;
     -*)          log "unknown option: $1"; exit 2 ;;
     *)           POSITIONAL_ARGS+=("$1"); shift ;;
   esac
@@ -281,8 +296,26 @@ if [ -z "$SESSIONS" ]; then
 fi
 
 METRICS_FILE="${OTEL_METRICS_FILE:-$HOME/.claude/otel-metrics/metrics.jsonl}"
-if [ ! -s "$METRICS_FILE" ]; then
-  log "no OTel metrics file at $METRICS_FILE — was otelcol-contrib running?"
+METRICS_DIR=$(dirname "$METRICS_FILE")
+METRICS_STEM=$(basename "$METRICS_FILE"); METRICS_STEM="${METRICS_STEM%.jsonl}"
+
+# Every non-empty file the exporter may have written for this stem: the live file first, then
+# its rotated backups. Derived from the RESOLVED $METRICS_FILE so an $OTEL_METRICS_FILE override
+# keeps working. An unmatched glob expands to the literal pattern, which `-s` rejects.
+metrics_candidates() {
+  local f
+  [ -s "$METRICS_FILE" ] && printf '%s\n' "$METRICS_FILE"
+  for f in "$METRICS_DIR/$METRICS_STEM"-*.jsonl; do
+    [ -s "$f" ] && printf '%s\n' "$f"
+  done
+  return 0
+}
+
+# "Nothing was ever written" is now the absence of the live file AND of every backup — a machine
+# that rotated moments ago has an empty live file and a full backup, and used to read here as
+# telemetry-off.
+if [ -z "$(metrics_candidates)" ]; then
+  log "no OTel metrics file at $METRICS_FILE, and no rotated backup beside it — was otelcol-contrib running?"
   record '"skipped-telemetry-off"'
   exit 0
 fi
@@ -339,6 +372,79 @@ if [ -z "$FENCE_LO" ] || [ -z "$FENCE_HI" ]; then
   FENCE_HI=""
 fi
 
+# ────────────────────────────────────────────────────────────────────────────
+# Rotation-aware input set (#432). See ROTATED BACKUPS in the header.
+#
+# A backup's mtime is the moment it STOPPED being written, so one with mtime < FENCE_LO cannot
+# hold an in-fence row and is skipped. With the fence disabled (the degraded session-only path
+# above) there is no window to cover, so the live file is read alone.
+#
+# The selection is never allowed to come out empty: `jq -s` with no file operands reads STDIN
+# and would hang the sub-step forever. The newest candidate is the backstop — it is also the
+# right one for the rotated-out branch below, whose evidence is "the oldest row we can still see
+# starts after the run did".
+# ────────────────────────────────────────────────────────────────────────────
+# `-u` is load-bearing on BSD: without it `date -j -f` interprets the fence — which is an
+# ISO-8601 `Z` string — as LOCAL time, and the resulting epoch is off by the operator's offset.
+# That would compare a skewed fence against real file mtimes and select the wrong backups
+# everywhere except UTC, which is the same class of bug as trusting the rotated filename.
+# Validated the same way as file_mtime below, and for the same reason: a `date` form that is
+# wrong for the platform is not reliably a non-zero exit, so the digits are the test.
+iso_to_epoch() {
+  local e
+  e=$(date -u -j -f "%Y-%m-%dT%H:%M:%SZ" "$1" +%s 2>/dev/null)
+  case "$e" in ''|*[!0-9]*) e=$(date -u -d "$1" +%s 2>/dev/null) ;; esac
+  case "$e" in ''|*[!0-9]*) return 1 ;; esac
+  printf '%s\n' "$e"
+}
+# BSD `stat -f %m` and GNU `stat -c %Y`, and neither one fails cleanly under the other. On GNU,
+# `-f` is --file-system and `%m` is read as another OPERAND, so the call prints filesystem info
+# for the real file and the `||` fallback never gets a chance to produce a number — the caller
+# then compares that text against an epoch, the test errors, and NO rotated backup is ever
+# selected. Validating the digits rather than trusting the exit status is what makes the pair
+# portable; a non-numeric result from either form is treated as no answer.
+file_mtime() {
+  local m
+  m=$(stat -c %Y "$1" 2>/dev/null)
+  case "$m" in ''|*[!0-9]*) m=$(stat -f %m "$1" 2>/dev/null) ;; esac
+  case "$m" in ''|*[!0-9]*) return 1 ;; esac
+  printf '%s\n' "$m"
+}
+
+select_metrics_files() {
+  local lo_epoch="" f mt newest="" newest_mt=-1
+  METRICS_FILES=()
+  [ -s "$METRICS_FILE" ] && METRICS_FILES+=("$METRICS_FILE")
+  if [ -n "$FENCE_LO" ]; then
+    lo_epoch=$(iso_to_epoch "$FENCE_LO")
+    if [ -z "$lo_epoch" ]; then
+      log "fence lower bound '$FENCE_LO' is not a parseable timestamp — reading the live metrics file only, rotated backups are not selectable"
+    else
+      while IFS= read -r f; do
+        [ "$f" = "$METRICS_FILE" ] && continue
+        mt=$(file_mtime "$f") || continue
+        [ -n "$mt" ] && [ "$mt" -ge "$lo_epoch" ] && METRICS_FILES+=("$f")
+      done < <(metrics_candidates)
+    fi
+  fi
+  if [ ${#METRICS_FILES[@]} -eq 0 ]; then
+    while IFS= read -r f; do
+      mt=$(file_mtime "$f") || continue
+      [ -n "$mt" ] && [ "$mt" -gt "$newest_mt" ] && { newest_mt="$mt"; newest="$f"; }
+    done < <(metrics_candidates)
+    [ -n "$newest" ] && METRICS_FILES+=("$newest")
+  fi
+}
+select_metrics_files
+# Belt-and-braces against the stdin hang: metrics_candidates() already found something, so this
+# is only reachable if every candidate's mtime became unreadable between the two calls.
+if [ ${#METRICS_FILES[@]} -eq 0 ]; then
+  log "no readable metrics file could be selected under $METRICS_DIR — treating as telemetry off"
+  record '"skipped-telemetry-off"'
+  exit 0
+fi
+[ ${#METRICS_FILES[@]} -gt 1 ] && log "fence spans a rotation — reading ${#METRICS_FILES[@]} metrics files"
+
 compute_bucket_rollup() {
   jq -s --argjson sids "$SIDS_JSON" \
         --arg fenceLo "$FENCE_LO" \
@@ -360,25 +466,32 @@ compute_bucket_rollup() {
        "8":"Code Review","9":"PR Creation","10":"Cleanup"}
       [n|tostring] // "Other";
 
-    # Flatten all cost + token datapoints whose session.id is in $sids.
+    # Flatten EVERY cost + token datapoint in the scanned files, unfiltered. The two
+    # discriminating counts (#432, D-5) come off this same pass — filtering here would throw
+    # away the evidence that tells "the collector saw nothing" apart from "the collector saw
+    # everyone but us".
     [ .[] | select(.resourceMetrics)
           | .resourceMetrics[].scopeMetrics[].metrics[]
           | {name, dps: (.sum.dataPoints // [])}
           | .dps[] as $dp
           | ($dp.attributes | map({(.key): (.value.stringValue // .value.intValue)}) | add) as $attrs
           | ($dp.timeUnixNano | nanos_to_iso) as $t
-          | select( ($sids | index($attrs["session.id"])) != null )
-          # Per-run time fence: keep only datapoints inside the run wall-clock
-          # span. Disabled (kept) when $fenceLo is empty. This is what stops a
-          # co-resident sequential run/retro (same session.id) from leaking in.
-          | select( $fenceLo == "" or ($t >= $fenceLo and $t <= $fenceHi) )
           | { name, t: $t,
               value: ($dp.asDouble // ($dp.asInt // 0 | tonumber)),
               model: $attrs.model,
               tier: tier_of($attrs.model),
               token_type: $attrs.type,
               sid: $attrs["session.id"] }
-    ] as $rows
+    ] as $all
+    |
+    # Per-run time fence: keep only datapoints inside the run wall-clock span. Disabled (kept)
+    # when $fenceLo is empty. This is what stops a co-resident sequential run/retro (same
+    # session.id) from leaking in.
+    [ $all[] | select( $fenceLo == "" or (.t >= $fenceLo and .t <= $fenceHi) ) ] as $inFence
+    |
+    # `$r` is bound rather than piped: inside `index(...)` the input is $sids, so a bare `.sid`
+    # there indexes the id ARRAY, not the row.
+    [ $inFence[] as $r | select( ($sids | index($r.sid)) != null ) | $r ] as $rows
     |
     # Assign each (already-fenced) row to the first stage window containing it.
     # A row that falls in no stage window is in-fence inter-stage-gap cost (or
@@ -428,12 +541,19 @@ compute_bucket_rollup() {
         ( (.totals.input_tokens + .totals.cache_read_tokens + .totals.cache_creation_tokens) as $denom
           | if $denom > 0 then (.totals.cache_read_tokens / $denom) else 0 end )
     | .rowCount = ($tagged | length)
+    # #432 discrimination evidence. `fenceRowCount` counts in-fence rows for ANY session, so a
+    # zero `rowCount` beside a non-zero one says THIS session exported nothing. `oldestScannedAt`
+    # is the oldest row anywhere in the scanned files; when it starts AFTER the fence does, the
+    # coverage of the window itself is missing and no other verdict can be trusted.
+    | .fenceRowCount = ($inFence | length)
+    | .oldestScannedAt = ( [ $all[].t ] | min // "" )
+    | .rotatedOut = ( $fenceLo != "" and (($all | length) > 0) and (([ $all[].t ] | min) > $fenceLo) )
     | .rowSpanSeconds = (
         if ($tagged | length) > 1 then
           ( ( [$tagged[].t] | max | fromdateiso8601 )
             - ( [$tagged[].t] | min | fromdateiso8601 ) )
         else 0 end )
-  ' "$METRICS_FILE"
+  ' "${METRICS_FILES[@]}"
 }
 
 # Stage-window quality check: if startedAt is missing everywhere, or all
@@ -472,9 +592,39 @@ if [ -n "${COST_BLOCK_DUMP_ROLLUP:-}" ]; then
   exit 0
 fi
 
+# ────────────────────────────────────────────────────────────────────────────
+# Four-way discrimination (#432, D-4). The old single message named the collector and the
+# session-id format — the two things that are almost never the cause — and it keyed on
+# TOTAL_COST being zero, which conflates "no rows at all" with "rows, but no money in them".
+# The branch below keys on ROW COUNTS, and each state records its own value because the field
+# is the durable record an operator reads back: one value carrying four different remedies is
+# unqueryable.
+#
+# `rotated-out` is tested FIRST. It means the evidence itself is incomplete, so neither of the
+# other two zero-row verdicts can be trusted over it.
+# ────────────────────────────────────────────────────────────────────────────
 TOTAL_COST=$(jq -r '.totals.cost_usd' <<<"$ROLLUP")
+ROW_COUNT=$(jq -r '.rowCount // 0' <<<"$ROLLUP")
+FENCE_ROW_COUNT=$(jq -r '.fenceRowCount // 0' <<<"$ROLLUP")
+OLDEST_SCANNED=$(jq -r '.oldestScannedAt // ""' <<<"$ROLLUP")
+ROTATED_OUT=$(jq -r '.rotatedOut // false' <<<"$ROLLUP")
+
+if [ "$ROW_COUNT" -eq 0 ]; then
+  if [ "$ROTATED_OUT" = "true" ]; then
+    log "the retained metrics start at $OLDEST_SCANNED, after this run's fence opened at $FENCE_LO — the file covering the run has rotated out of retention (max_backups/max_days), or the collector was not running yet. Cost for this run is unrecoverable."
+    record '"skipped-rotated-out"'
+  elif [ "$FENCE_ROW_COUNT" -gt 0 ]; then
+    log "$FENCE_ROW_COUNT in-fence rows from other sessions, none from this run's session ids — this session was launched without CLAUDE_CODE_ENABLE_TELEMETRY and exported nothing. Set it in ~/.claude/settings.json's env block (cost-tracking-setup.md §3); the datapoints cannot be recovered for this run."
+    record '"skipped-session-not-exporting"'
+  else
+    log "no rows at all inside the fence [$FENCE_LO, $FENCE_HI] — the collector was down for the run's whole window, or nothing on this machine was exporting."
+    record '"skipped-telemetry-off"'
+  fi
+  exit 0
+fi
+
 if [ -z "$TOTAL_COST" ] || [ "$TOTAL_COST" = "0" ] || [ "$TOTAL_COST" = "null" ]; then
-  log "no metrics rows for recorded sessions (collector may have missed the run, or session ids drifted from what the collector sees)"
+  log "$ROW_COUNT in-fence rows for this run's sessions, but no claude_code.cost.usage among them — telemetry is flowing; there is genuinely no cost to report."
   record '"skipped-zero-datapoints"'
   exit 0
 fi

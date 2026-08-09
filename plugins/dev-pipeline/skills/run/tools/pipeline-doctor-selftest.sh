@@ -591,6 +591,84 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+# (ot) the OTel / cost-attribution section (#432)
+#
+# Same extract-and-execute technique as the classifier above: the block is delimited by
+# `# >>> otel-telemetry-classify` / `# <<< otel-telemetry-classify` and re-hosted here with
+# `ok`/`warn` stubbed to plain echoes, so the assertions drive the REAL production branches.
+#
+# INVARIANT GUARDED: doctor stops reporting a healthy OTel section for a machine that exports
+# nothing. Before this, every check here passed on a shell with no CLAUDE_CODE_ENABLE_TELEMETRY —
+# the one variable that decides whether a run can report cost at all — and a machine whose
+# metrics file had just rotated read as having no telemetry at all.
+# ---------------------------------------------------------------------------
+OTEL_BLOCK="$(sed -n '/# >>> otel-telemetry-classify/,/# <<< otel-telemetry-classify/p' "$DOCTOR")"
+if [[ -z "$OTEL_BLOCK" ]]; then
+  bad "(ot0) otel-telemetry-classify sentinels not found in $DOCTOR (block refactored without updating this suite)"
+else
+  # run_otel <metrics-file> [VAR=value…] — echoes the block's stubbed ok:/warn: lines.
+  run_otel() {
+    local mf="$1"; shift
+    # shellcheck disable=SC2016  # `$1` is the CHILD's positional (passed as `_ "$mf"` below) —
+    # expanding it here would bake the parent's argv into the extracted block instead.
+    env "$@" bash -c '
+      set -uo pipefail
+      ok()   { echo "ok: $1"; }
+      warn() { echo "warn: $1"; }
+      OTEL_METRICS_FILE="$1"
+      '"$OTEL_BLOCK"'
+    ' _ "$mf" 2>&1
+  }
+
+  OT="$WORK/otel"; mkdir -p "$OT"
+  : > "$OT/metrics.jsonl"                       # present but EMPTY, as right after a rotation
+  printf '{"resourceMetrics":[]}\n' > "$OT/metrics-2026-05-01T10-10-00.000-size.jsonl"
+
+  # (ot1) the rotated-but-healthy machine: empty live file, full backup → still "can fire".
+  out="$(run_otel "$OT/metrics.jsonl" CLAUDE_CODE_ENABLE_TELEMETRY=1)"
+  if [[ "$out" == *"ok: OTel metrics present in a rotated backup"* ]]; then
+    ok "(ot1) an empty live metrics file beside a non-empty rotated backup reads as present"
+  else
+    bad "(ot1) expected the rotated-backup ok line, got [$out]"
+  fi
+
+  # (ot2) genuinely nothing: no live file, no backup → the warn, naming the skip it will record.
+  OT2="$WORK/otel-empty"; mkdir -p "$OT2"
+  out="$(run_otel "$OT2/metrics.jsonl" CLAUDE_CODE_ENABLE_TELEMETRY=1)"
+  if [[ "$out" == *"warn: no OTel metrics at"* && "$out" == *"nor any rotated backup"* ]]; then
+    ok "(ot2) no live file and no backup still warns — the rotation tolerance is not a blanket pass"
+  else
+    bad "(ot2) expected the no-metrics warn, got [$out]"
+  fi
+
+  # (ot3) the variable that actually decides whether this shell's sessions export anything.
+  # `env -u` is load-bearing: inheriting the operator's own exporting shell makes this vacuous.
+  out="$(run_otel "$OT/metrics.jsonl" -u CLAUDE_CODE_ENABLE_TELEMETRY)"
+  if [[ "$out" == *"warn: CLAUDE_CODE_ENABLE_TELEMETRY not enabled"* && "$out" == *"unrecoverable after the run"* ]]; then
+    ok "(ot3) an unset CLAUDE_CODE_ENABLE_TELEMETRY warns, and names the consequence"
+  else
+    bad "(ot3) expected the telemetry-off warn naming the consequence, got [$out]"
+  fi
+
+  # (ot4) the other direction — a value that does NOT enable telemetry must not read as enabled.
+  # `0` is the trap: a bare -n test on the variable calls it set and reports the section healthy.
+  out="$(run_otel "$OT/metrics.jsonl" CLAUDE_CODE_ENABLE_TELEMETRY=0)"
+  if [[ "$out" == *"warn: CLAUDE_CODE_ENABLE_TELEMETRY not enabled"* ]]; then
+    ok "(ot4) CLAUDE_CODE_ENABLE_TELEMETRY=0 warns — presence alone is not enablement"
+  else
+    bad "(ot4) expected the warn for the literal 0, got [$out]"
+  fi
+
+  # (ot5) enabled reads as enabled, so neither branch can be a constant.
+  out="$(run_otel "$OT/metrics.jsonl" CLAUDE_CODE_ENABLE_TELEMETRY=1)"
+  if [[ "$out" == *"ok: CLAUDE_CODE_ENABLE_TELEMETRY enabled"* ]]; then
+    ok "(ot5) CLAUDE_CODE_ENABLE_TELEMETRY=1 reads as enabled"
+  else
+    bad "(ot5) expected the enabled ok line, got [$out]"
+  fi
+fi
+
+# ---------------------------------------------------------------------------
 # summary
 # ---------------------------------------------------------------------------
 echo "[pipeline-doctor-selftest] $PASS passed, $FAIL failed"
