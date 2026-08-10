@@ -116,6 +116,26 @@ envout2="$(DOCTOR_PLUGIN_LIST_FILE="$TMP/shadowed.json" DOCTOR_REPO_ROOT="$OTHER
   && check "DOCTOR_REPO_ROOT is actually read (other root -> not shadowed)" 0 \
   || { check "DOCTOR_REPO_ROOT is actually read (other root -> not shadowed) (rc=$envrc2)" 1; printf '      got: %q\n' "$envout2"; }
 
+# The UN-INJECTED path, which is the production one: local-dev-refresh and onboard call this
+# helper with nothing exported, so `claude plugin list --json` is where the data comes from for
+# every real caller. Every case above sets DOCTOR_PLUGIN_LIST_FILE and therefore proves nothing
+# about it. A PATH shim executes that leg instead of leaving it inferred — and it is the only
+# case that can tell the injection branch from an unconditional one, since with the variable
+# unset a branch that took the file path anyway dies on `set -u` with an empty stdout, which is
+# otherwise indistinguishable from the legitimate "nothing installed" answer.
+mkdir -p "$TMP/bin"
+{ echo '#!/usr/bin/env bash'; echo "cat \"$TMP/shadowed.json\""; } > "$TMP/bin/claude"
+chmod +x "$TMP/bin/claude"
+liveerr="$TMP/live.err"
+liveout="$(PATH="$TMP/bin:$PATH" env -u DOCTOR_PLUGIN_LIST_FILE -u DOCTOR_REPO_ROOT \
+  bash "$SS" --root "$ROOT" 2>"$liveerr")"; liverc=$?
+if [[ "$liverc" -eq 0 && "$liveout" == "$(printf 'shadowed\tdev-pipeline\t2.0.1\t2.1.0')" && ! -s "$liveerr" ]]; then
+  check "no injection -> reads claude plugin list --json, no stderr" 0
+else
+  check "no injection -> reads claude plugin list --json, no stderr (rc=$liverc)" 1
+  printf '      got: %q\n      err: %q\n' "$liveout" "$(cat "$liveerr")"
+fi
+
 # Usage errors are rc=2, distinct from both verdicts. A flag typo that fell through to "nothing
 # shadowed" would silently re-enable the Step 4 realignment this helper exists to block.
 for bad_args in "--root" "--marketplace" "--nope"; do
