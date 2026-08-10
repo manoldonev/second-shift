@@ -5,6 +5,9 @@
 #
 # Runs the full harness with --smoke (first fixture, 1 run), ~$1 budget.
 #
+# Inherits run.sh's model contract (#356): REVIEWER_MODEL, JUDGE_MODEL and MOCK_MODEL must
+# all be set to version-pinned model ids, or run.sh refuses before spending anything.
+#
 # Pass criteria:
 #   (a) intake-orchestrator output cites mock-spec-review content (override worked)
 #   (b) each of the three mock sub-agent dispatches shows cost_usd < $0.05

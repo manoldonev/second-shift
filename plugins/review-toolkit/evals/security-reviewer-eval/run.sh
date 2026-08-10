@@ -2,11 +2,16 @@
 #
 # Wrapper to invoke the generic agent-eval-kit runner for security-reviewer.
 #
-# Usage:
-#   ./run.sh                       # default baseline, 6 runs/fixture
-#   ./run.sh "my-note"             # pass a changelog note
-#   ./run.sh "smoke" --smoke       # one fixture x one run
-#   ./run.sh "custom" --runs-per-fixture 3 --concurrency 2
+# Model identity is the operator's, not the repo's (#356). REVIEWER_MODEL and JUDGE_MODEL are
+# REQUIRED and must carry version-pinned ids — no default here, and the runner refuses the bare
+# dispatch aliases, because `changelog.md` records the reviewer model as the key two rows are
+# compared on and a floating alias makes that key meaningless a release later.
+#
+# Usage (every form needs both variables):
+#   REVIEWER_MODEL=<pin> JUDGE_MODEL=<pin> ./run.sh
+#   ... ./run.sh "my-note"             # pass a changelog note
+#   ... ./run.sh "smoke" --smoke       # one fixture x one run
+#   ... ./run.sh "custom" --runs-per-fixture 3 --concurrency 2
 #
 # Any args after the note are forwarded to the runner.
 
@@ -16,6 +21,9 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 REPO="$(git -C "$HERE" rev-parse --show-toplevel)"
 NOTE="${1:-baseline}"
 shift || true
+
+: "${REVIEWER_MODEL:?REVIEWER_MODEL is required — set it to a version-pinned model id}"
+: "${JUDGE_MODEL:?JUDGE_MODEL is required — set it to a version-pinned model id}"
 
 # The reviewer's own prompt says "Run `git diff` to see changes", but in this
 # eval there is no checked-out branch — the fixture file IS the diff. Tell the
@@ -32,4 +40,6 @@ python3 "$HERE/../agent-eval-kit/run-eval.py" \
   --runs-per-fixture 6 \
   --concurrency 4 \
   --note "$NOTE" \
+  --reviewer-model "$REVIEWER_MODEL" \
+  --judge-model "$JUDGE_MODEL" \
   "$@"

@@ -67,11 +67,15 @@ Built during the `plan-reviewer` autoresearch campaign (see
    set -euo pipefail
    HERE="$(cd "$(dirname "$0")" && pwd)"
    REPO="$(git -C "$HERE" rev-parse --show-toplevel)"
+   : "${REVIEWER_MODEL:?REVIEWER_MODEL is required — set it to a version-pinned model id}"
+   : "${JUDGE_MODEL:?JUDGE_MODEL is required — set it to a version-pinned model id}"
    python3 "$REPO/.claude/pipeline-state/agent-eval-kit/run-eval.py" \
      --agent-name my-agent \
      --rubric "$HERE/rubric.py" \
      --fixtures-dir "$REPO/docs/my-eval-fixtures" \
      --eval-dir "$HERE" \
+     --reviewer-model "$REVIEWER_MODEL" \
+     --judge-model "$JUDGE_MODEL" \
      --runs-per-fixture 6 \
      --concurrency 4 \
      --note "${1:-baseline}"
@@ -97,9 +101,10 @@ Built during the `plan-reviewer` autoresearch campaign (see
 | `--reviewer-user-prompt-template` | no | `"Review the content at {fixture_path}. Run ID: {run_id}"` | Template with `{fixture_path}` / `{run_id}` |
 | `--judge-agent-name` | no | `eval-judge` | Inline judge agent name |
 | `--judge-description` | no | generic | Inline judge agent description |
-| `--model` | no | `claude-opus-4-7` | Default model for reviewer and judge (override per-role below) |
-| `--reviewer-model` | no | `--model` | Override `--model` for the reviewer invocation only |
-| `--judge-model` | no | `--model` | Override `--model` for the judge invocation only |
+| `--model` | see below | **none** | Model for reviewer and judge (override per-role below) |
+| `--reviewer-model` | see below | **none** | Override `--model` for the reviewer invocation only |
+| `--judge-model` | see below | **none** | Override `--model` for the judge invocation only |
+| `--mock-model` | see below | **none** | Substituted for `{{mock_model}}` in `--agents-template` |
 | `--effort` | no | `high` | Effort level (low/medium/high/max) |
 | `--runs-per-fixture` | no | 6 | Runs per fixture |
 | `--concurrency` | no | 4 | Parallel reviewer + judge calls |
@@ -109,9 +114,14 @@ Built during the `plan-reviewer` autoresearch campaign (see
 | `--reviewer-timeout-s` | no | 900.0 | Hard wall-clock kill for reviewer calls |
 | `--judge-timeout-s` | no | 400.0 | Hard wall-clock kill for judge calls |
 
+"see below" means: the reviewer and judge roles each need a model from *somewhere* —
+`--model`, or the per-role flag — and `--mock-model` is needed whenever the supplied
+`--agents-template` carries the `{{mock_model}}` token. See **Model identity is yours to
+supply**.
+
 ## Session-quota awareness
 
-Each reviewer+judge pair burns ~90–120s of Opus-4.7 time. Sixty runs at concurrency
+Each reviewer+judge pair burns ~90–120s of frontier-model time. Sixty runs at concurrency
 4 can consume 30-40% of a user's 5-hour Claude subscription window. Before running
 a full eval:
 
@@ -159,19 +169,41 @@ a full eval:
 - Rate-limit detection is string-match; new limit messages from future CLI versions
   may need the `RATE_LIMIT_MARKERS` tuple extended.
 
-## A/B a reviewer model
+## Model identity is yours to supply
 
-The reviewer model is overridable per-role (`--reviewer-model`), and the `changelog.md`
-row records `model=<reviewer_model>` so two rows diff cleanly without relying on the
-`--note` text. To prove parity (e.g. before downgrading a sub-agent from Opus to Sonnet):
+The kit holds no model id. Every role — reviewer, judge, and the sub-agent mocks — is
+**required** with **no default**, and the runner refuses the bare dispatch aliases (`opus`,
+`sonnet`, `haiku`, `fable`) for any of them. Supply a **version-pinned** id.
+
+Two reasons, and both are about the evidence rather than about vendors:
+
+- `changelog.md` records `model=<reviewer_model>` as the key two rows are compared on. A
+  floating alias resolves to a different model as generations turn over, so a row recorded
+  against one is uninterpretable a release later.
+- A default checked into the repo silently attributes a score to whatever constant happened
+  to be in the file on the day of the run.
+
+This is the **inverse** of the dispatch side of the toolkits, where `check-model-tiers.sh`
+admits only the aliases and reads a version pin as drift. The two alphabets are not
+interconvertible, which is why they share no map — see the note in `run-eval.py`.
+
+The rejection is stated as a rejection, not an allowlist: any other string is taken verbatim
+as your pin, so a model id from another backend needs no change here.
+
+The wrappers read `REVIEWER_MODEL`, `JUDGE_MODEL`, and — where an `--agents-template` is
+used — `MOCK_MODEL` from the environment, and fail naming the missing one.
+
+### A/B a reviewer model
+
+The `changelog.md` row records `model=<reviewer_model>`, so two rows diff cleanly without
+relying on the `--note` text:
 
 ```bash
-cd .claude/pipeline-state/plan-reviewer-eval         # or review-lead-eval
-./run.sh "opus-baseline"                             # A run (default model)
-REVIEWER_MODEL=claude-sonnet-4-6 ./run.sh "sonnet-ab"  # B run
+cd plugins/review-toolkit/evals/plan-reviewer-eval    # or review-lead-eval
+REVIEWER_MODEL=<pin-A> JUDGE_MODEL=<pin-J> ./run.sh "a-run"
+REVIEWER_MODEL=<pin-B> JUDGE_MODEL=<pin-J> ./run.sh "b-run"
 ```
 
-Then compare the two `model=...` rows in `changelog.md` — same fixtures and run count,
-different reviewer model. The wrappers expose `REVIEWER_MODEL` (env) as the first-class
-A/B knob; the binding parity decision rule (which dimensions, acceptable delta, run count)
-is set by whoever consumes the evidence, not by the harness.
+Then compare the two `model=...` rows in `changelog.md` — same fixtures, same run count,
+same judge, different reviewer model. The binding parity decision rule (which dimensions,
+acceptable delta, run count) is set by whoever consumes the evidence, not by the harness.

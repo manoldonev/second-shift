@@ -138,6 +138,12 @@ jobs:
       - name: contract lockstep pairs (scripts/lockstep-manifest.tsv)
         run: bash scripts/check-lockstep-pairs.sh
 
+      # No vendor model identity in the runnable eval surface under plugins/*/evals/**. The
+      # eval harnesses are operator-run and model-billed; CI never invokes them and this step
+      # does not either — it is a static text scan, so the model-free-CI principle holds.
+      - name: eval-harness model neutrality (plugins/*/evals/**)
+        run: bash scripts/check-eval-model-neutrality.sh
+
       - name: namespace direction check (docs/namespaces.md rule 3)
         run: |
           # Array, not a space-separated string: the multi-dir expansion is intentional, and
