@@ -94,9 +94,10 @@ plugin-list fixture carrying **both** a user and a project record for one plugin
 existing fixture does — with the shadow scenario's `lastUpdated` ordering set so that the
 pre-change resolver would have graded the *other* record (D-12).
 
-**AC-11 — doc.** `plugins/second-shift/skills/doctor/SKILL.md`'s `description` enumerates the
-conditions doctor detects; it gains the redundant project-scope record, so the enumeration does
-not go stale against AC-3.
+**AC-11 — doc.** Two skill `description` frontmatter lines enumerate behavior this change moves
+and would otherwise go stale: `doctor/SKILL.md`'s list of detected conditions gains the
+redundant project-scope record (AC-3), and `local-dev-refresh/SKILL.md`'s "fix project-scope
+stragglers" gains the decline (AC-8).
 
 ## Out of scope
 

@@ -118,8 +118,32 @@ printf '#!/usr/bin/env bash\necho "config-lint: OK ($1)"\n' > "$INSTALL/dev-pipe
 echo "doctor selftest:"
 scenario green            plugin-list-green.json   settings-green.json     marketplace-list-pinned.json  0 "summary: 0 failed"
 scenario missing-plugin   plugin-list-missing.json settings-green.json     marketplace-list-pinned.json  1 "claude plugin install dev-pipeline@second-shift"
-scenario version-behind   plugin-list-behind.json  settings-green.json     marketplace-list-pinned.json  1 "claude plugin marketplace update second-shift"
-scenario version-ahead    plugin-list-ahead.json   settings-green.json     marketplace-list-pinned.json  1 "ahead of the lockfile"
+# The two drift branches under a PROJECT-scope record. Both greps name the arm's own string
+# rather than the "marketplace update" / "ahead of the lockfile" prefixes both arms share —
+# those matched the user-scope arm too, so a swapped branch read as green.
+scenario version-behind   plugin-list-behind.json  settings-green.json     marketplace-list-pinned.json  1 "claude plugin install dev-pipeline@second-shift --scope project"
+scenario version-ahead    plugin-list-ahead.json   settings-green.json     marketplace-list-pinned.json  1 "settings pin v9.9.0 resolves the older catalog"
+# ...and the same two branches under a USER-scope record, where the project-scope string is not
+# a weaker fix but a NO-OP: `install` no-ops as "already installed" on the behind branch, and on
+# the ahead branch there is no project pin behind the record for a reinstall to resolve against.
+# second-shift@second-shift is the user-scope entry in every fixture here.
+scenario user-behind      plugin-list-user-behind.json settings-green.json marketplace-list-pinned.json  1 "claude plugin update second-shift@second-shift"
+scenario user-ahead       plugin-list-user-ahead.json  settings-green.json marketplace-list-pinned.json  1 "claude plugin marketplace add manoldonev/second-shift@v9.9.0"
+scenario user-ahead-no-reinstall plugin-list-user-ahead.json settings-green.json marketplace-list-pinned.json 1 "Do not reinstall"
+# A project record shadowed by a user record. The fixture's `lastUpdated` ordering is the whole
+# point: the user record is the NEWER one, so the retired `sort_by(.lastUpdated) | last` resolver
+# graded 2.1.0 and reported OK — the verdict must now describe the project record (2.0.1), which
+# is what actually loads.
+scenario shadowed-verdict plugin-list-shadowed.json settings-green.json    marketplace-list-pinned.json  1 "installed 2.0.1, lockfile wants 2.1.0"
+scenario shadowed-warn    plugin-list-shadowed.json settings-green.json    marketplace-list-pinned.json  1 "the project-scope record (2.0.1) is redundant"
+# The caveat is load-bearing, not decoration: the spurious committed-settings diff is one of the
+# two symptoms the ticket reports, so the uninstall must never be printed without its recovery.
+scenario shadowed-caveat  plugin-list-shadowed.json settings-green.json    marketplace-list-pinned.json  1 "git checkout -- .claude/settings.json && git status"
+# Severity, isolated. Both records at the wanted version, so there is no drift FAIL to hide
+# behind: the redundancy WARN must still print AND the exit code must stay 0. A FAIL here would
+# take every repo on a user-scope machine non-zero for a condition whose remediation edits a
+# committed file.
+scenario shadowed-warn-only plugin-list-shadowed-aligned.json settings-green.json marketplace-list-pinned.json 0 "the project-scope record (2.1.0) is redundant"
 scenario ref-drift        plugin-list-green.json   settings-ref-drift.json marketplace-list-pinned.json  1 "settings ref (v9.8.0) and lockfile ref (v9.9.0) disagree"
 scenario refless-shadow   plugin-list-green.json   settings-green.json     marketplace-list-refless.json 0 "ref-less"
 # canary form: lockfile pins "latest" → presence-only; a DRIFTED install (behind fixture)
