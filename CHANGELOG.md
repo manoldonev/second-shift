@@ -4,6 +4,53 @@ All notable changes to the second-shift marketplace. Versions are per-plugin (`p
 this file tracks the marketplace release. `configVersion` stays `const 1` — v2 is fully backward-compatible for a
 consumer with an empty config; the migration notes below are only for consumers using the changed features.
 
+## v4.1.4
+
+### `dev-pipeline` 4.1.3 → 4.1.4
+
+- **Suites that resolve a cross-plugin path by a fixed hop count (#469)** (#469)
+  cross-plugin sibling resolution in check-emit-deadline.sh,
+  doctor-selftest.sh and preflight-selftest.sh now works from a version-keyed
+  install cache instead of only from the monorepo, and check-emit-deadline.sh
+  refuses to report a clean verdict over zero linted agents.
+  Migration: none. A suite run from a partial checkout that genuinely lacks the
+  sibling plugin now fails instead of printing a skip.
+  check-emit-deadline.sh run from an install cache now lints only the
+  newest cached version of each plugin, instead of every version it finds — a
+  cache holding more than one version of a plugin no longer reds the lint on
+  agents that are no longer shipped.
+  Migration: none.
+
+### `review-toolkit` 4.1.1 → 4.1.2
+
+- **Suites that resolve a cross-plugin path by a fixed hop count (#469)** (#469)
+  cross-plugin sibling resolution in check-emit-deadline.sh,
+  doctor-selftest.sh and preflight-selftest.sh now works from a version-keyed
+  install cache instead of only from the monorepo, and check-emit-deadline.sh
+  refuses to report a clean verdict over zero linted agents.
+  Migration: none. A suite run from a partial checkout that genuinely lacks the
+  sibling plugin now fails instead of printing a skip.
+  check-emit-deadline.sh run from an install cache now lints only the
+  newest cached version of each plugin, instead of every version it finds — a
+  cache holding more than one version of a plugin no longer reds the lint on
+  agents that are no longer shipped.
+  Migration: none.
+
+### `second-shift` 3.1.3 → 3.1.4
+
+- **Suites that resolve a cross-plugin path by a fixed hop count (#469)** (#469)
+  cross-plugin sibling resolution in check-emit-deadline.sh,
+  doctor-selftest.sh and preflight-selftest.sh now works from a version-keyed
+  install cache instead of only from the monorepo, and check-emit-deadline.sh
+  refuses to report a clean verdict over zero linted agents.
+  Migration: none. A suite run from a partial checkout that genuinely lacks the
+  sibling plugin now fails instead of printing a skip.
+  check-emit-deadline.sh run from an install cache now lints only the
+  newest cached version of each plugin, instead of every version it finds — a
+  cache holding more than one version of a plugin no longer reds the lint on
+  agents that are no longer shipped.
+  Migration: none.
+
 ## v4.1.3
 
 ### `dev-pipeline` 4.1.2 → 4.1.3
