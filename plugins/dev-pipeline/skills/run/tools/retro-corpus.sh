@@ -169,6 +169,45 @@ cmd_corpus() {
     rows="$(jq -c --argjson r "$row" '. + [$r]' <<<"$rows")"
   done
 
+  # ---- Structural per-ticket dedup, era: "stage" rows only (#289) ----
+  # The row whose stem equals its ticketKey is the LIVE file and supersedes every snapshot of
+  # that ticket. With no live file, EVERY snapshot is kept as a distinct run — a ticket re-run
+  # three times without a surviving live file genuinely is three runs, and an orphan snapshot
+  # is that run's only record. Deliberately structural, with no `-failed-` (or `-aborted-`,
+  # `-escalated-`, `-spec-blocked-`) filename literal anywhere: those operator rename
+  # conventions are undocumented, and a literal would silently miss the ones it did not
+  # enumerate — which is how the two statectl quarantine families above came to be the only
+  # thing excluded while operator renames aggregated as their own runs.
+  #
+  # Same rule stage-envelopes.sh applies in awk over its TSV rows (its D-4), re-implemented
+  # here rather than shared: sharing would mean round-tripping these JSON rows out to TSV and
+  # back. scripts/lockstep-manifest.tsv records the coupling and names both behavioral guards.
+  #
+  # era: "artifact" rows pass through untouched. An artifact stem is `{issue}-lean-progress`
+  # and can never equal its ticketKey, so a cross-era key would DELETE the lean row whenever a
+  # stage-era live file existed for the same ticket — discarding a genuinely distinct run's
+  # cost, against perf-retro's own "an abort is a real cost" doctrine.
+  #
+  # BEFORE the --window slice, so a superseded snapshot never consumes a window slot.
+  local stage_pre stage_post superseded
+  stage_pre="$(jq 'map(select(.era == "stage")) | length' <<<"$rows")"
+  rows="$(jq -c '
+    (map(select(.era == "stage" and .stem == .ticketKey) | .ticketKey) | unique) as $live
+    | map(. as $r | select(
+        ($r.era == "stage" and $r.stem != $r.ticketKey
+         and ($live | index($r.ticketKey)) != null) | not
+      ))' <<<"$rows")"
+  stage_post="$(jq 'map(select(.era == "stage")) | length' <<<"$rows")"
+  superseded=$((stage_pre - stage_post))
+  # What was dropped is disclosed rather than silently capped — on stderr, because both
+  # consumers read stdout as a bare array with `.[] | …` and wrapping it in a declaration
+  # object would be a contract change riding on a bug fix. Only when something actually was
+  # superseded: pipeline-retro's no-argument path calls `corpus` on every invocation, and an
+  # unconditional note would be banner noise carrying no information there.
+  if [ "$superseded" -gt 0 ]; then
+    echo "retro-corpus.sh: corpus dedup — $stage_pre stage-schema file(s), $superseded superseded by a live file of the same ticket." >&2
+  fi
+
   rows="$(jq -c --argjson w "$WINDOW" '(sort_by(.startedAt // "") | reverse) | .[0:$w]' <<<"$rows")"
 
   if [ "$EMIT_JSON" = "true" ]; then

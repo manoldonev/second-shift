@@ -328,6 +328,33 @@ artifact-reviewer-baseline-deltas	verbatim	plugins/design-toolkit/agents/figma-f
 # PR IS selected. Revisit if either side ever grows a shared literal -- most plausibly if the
 # `-lean.md` suffix is hoisted into the config schema.
 
+# per-ticket corpus dedup: stage-envelopes.sh <-> retro-corpus.sh corpus (#289).
+# A REAL coupling. Both sides enumerate the same state dir and must answer "how many runs is
+# this ticket" identically -- basename equal to `ticketKey` is the live file and supersedes
+# that ticket's snapshots; with no live file every snapshot is a distinct run. They already
+# disagreed once: retro-corpus.sh had no dedup at all, so an operator-renamed
+# `{key}-failed-{ts}.json` aggregated as its own run beside the ticket's live re-run while
+# stage-envelopes.sh counted it once, and perf-retro's Step 1 carried the offset as prose.
+# Both sides are also structural on purpose -- no `-failed-`/`-aborted-`/`-escalated-`
+# filename literal on either -- because the operator rename conventions are undocumented and
+# a literal misses the ones it did not enumerate. A one-sided edit re-splits the corpus and
+# makes one report disagree with itself.
+# It is NOT delegable in the direction that would help: stage-envelopes.sh cannot consume
+# `retro-corpus.sh corpus`, because its MTIME_PREFILTER, its window ordering and its
+# stage-empty hard-exit all live in the enumeration that would be replaced.
+# Considered for a row and DROPPED: the two sides share no literal to anchor. One is awk over
+# tab-separated `startedAt/stem/ticketKey` rows, the other jq over an array of JSON objects,
+# so a `verbatim` relation would sit between two dialects -- and hoisting the rule into a
+# shared helper would mean round-tripping retro-corpus.sh's JSON out to TSV and back purely
+# to be compared, the duplicate-machinery case this file's header rejects.
+# Guarded behaviorally instead, on both sides and against the same mistakes:
+# stage-envelopes-selftest.sh (env5) pins live-supersedes-snapshot and
+# orphan-snapshots-are-distinct at the awk side, and retro-corpus-selftest.sh (289 AC-1)/(289
+# AC-2)/(289 AC-3) pin the same two plus dedup-before-window at the jq side, driving suffixes
+# neither implementation names. Revisit if the rename conventions are ever documented in
+# state-schema.md AND hoisted into a shared constant -- a shared literal is what this pair
+# lacks, not a shared intent.
+
 # lean verdict-record key schema (`verdict=`, `run_id:`, `session_id:`, `reviewed_head:`,
 # `reviewed_patch_id:`, `inherited_patch_id:`, `inherited_from_verdict:`, `fidelity:`) — ONE
 # writer (lean-gate.sh's `verdict` subcommand) and THREE readers: lean-gate.sh milestone 4,
