@@ -27,18 +27,24 @@ PLUGINS_DIR="$(cd "$SKILL_DIR/../../.." && pwd)"
 #   version-keyed install cache: <cacheroot>/<sib>/<ver>/<rel>  (PLUGINS_DIR = <cacheroot>/<this-plugin>)
 # Tries the monorepo path, then this plugin's own version in the cache, then the newest sibling
 # version that has the file. Prints the first hit; returns non-zero if none exists.
+# >>> resolve-sibling
 resolve_sibling() { # $1 = sibling plugin name, $2 = path under that plugin
   local sib="$1" rel="$2" cand v cacheroot myver
   cand="$PLUGINS_DIR/$sib/$rel"; [[ -f "$cand" ]] && { printf '%s\n' "$cand"; return 0; }
   cacheroot="$(cd "$PLUGINS_DIR/.." 2>/dev/null && pwd)" || return 1
   myver="$(basename "$(cd "$SCRIPT_DIR/../../.." 2>/dev/null && pwd)")"
   cand="$cacheroot/$sib/$myver/$rel"; [[ -f "$cand" ]] && { printf '%s\n' "$cand"; return 0; }
+  # Highest version FIRST — this loop takes the first hit, so the sort must descend. Per-key
+  # `r` modifiers, not a global `-r`: BSD sort ignores the global flag once per-key modifiers
+  # are present, which would walk the versions ASCENDING and return the oldest sibling. The
+  # plain `sort -r` this replaces was lexical, and ranked 9.0.0 above 10.0.0.
   # shellcheck disable=SC2012  # version dirs are alphanumeric (X.Y.Z); ls is safe and 3.2-portable here
-  for v in $(ls -1 "$cacheroot/$sib" 2>/dev/null | sort -r); do
+  for v in $(ls -1 "$cacheroot/$sib" 2>/dev/null | sort -t. -k1,1nr -k2,2nr -k3,3nr); do
     cand="$cacheroot/$sib/$v/$rel"; [[ -f "$cand" ]] && { printf '%s\n' "$cand"; return 0; }
   done
   return 1
 }
+# <<< resolve-sibling
 
 # Consumer repo root (state, worktrees, toolchain probes) — NOT the plugin checkout.
 # SECOND_SHIFT_REPO_ROOT overrides; else the main checkout via git-common-dir

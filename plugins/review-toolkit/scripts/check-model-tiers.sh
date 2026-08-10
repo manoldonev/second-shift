@@ -129,11 +129,14 @@ resolve_sibling_plugin_root() {
         echo "$cand"
         return
     fi
-    # Cache layout: pick the lexically-newest version dir with the marker path.
+    # Cache layout: pick the HIGHEST version dir with the marker path. Glob order is
+    # lexical, so the bare `tail -1` this used to be ranked 9.0.0 above 10.0.0. ASCENDING +
+    # `tail -1` rather than a reversed sort: BSD sort ignores a global `-r` once per-key
+    # modifiers are present, which would silently select the OLDEST version there.
     for cand in "$SCRIPT_DIR"/../../../"$name"/*/; do
         [ -d "$cand/$marker" ] || continue
-        (cd "$cand" && pwd)
-    done | tail -1
+        printf '%s\t%s\n' "$(basename "$cand")" "$(cd "$cand" && pwd)"
+    done | sort -t. -k1,1n -k2,2n -k3,3n | tail -1 | cut -f2-
 }
 DEV_PIPELINE_ROOT=$(resolve_sibling_plugin_root dev-pipeline "skills/run/workflows" "${SECOND_SHIFT_DEV_PIPELINE_ROOT:-}")
 WF="$DEV_PIPELINE_ROOT/skills/run/workflows"

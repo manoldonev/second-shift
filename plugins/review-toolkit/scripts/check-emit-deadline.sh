@@ -138,9 +138,10 @@ FILES_SEEN=0
 # whatever else lives there. That is not hypothetical: a probe of an earlier draft of this
 # block, from a lone copy under $TMPDIR, resolved an unrelated vendor's `agents` dir.
 #
-# Newest version per plugin, selected LEXICALLY — glob order, so the last match wins, the same
-# `sort -r`/`tail -1` semantics both house ladders use. `9.0.0` therefore outranks `10.0.0`;
-# that is a shared latent defect deliberately mirrored rather than fixed here.
+# Newest version per plugin means the HIGHEST one. This used to select lexically — glob order,
+# last match wins — which ranked `9.0.0` above `10.0.0`, and it was mirrored deliberately
+# because every house ladder shared the defect. They no longer do: see version_key below, and
+# the per-field numeric sort the named ladders now use.
 #
 # BOTH SHAPES SELECT NEWEST-PER-PLUGIN, AND SHAPE 1 KEYS THAT ON THE DECLARED NAME. A real cache
 # holds MORE THAN ONE version of any given plugin, this one included — which one level up are
@@ -190,33 +191,48 @@ else
     # here indent by two), so a nested `author.name` at a deeper indent cannot be mistaken for it.
     sed -n 's/^[[:space:]]\{0,2\}"name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$j" 2>/dev/null | head -1
   }
+  # A zero-padded, order-preserving key for a version dir name, so "newest" means HIGHEST
+  # version rather than lexically-last. `9.0.0` -> 000090000000000 and `10.0.0` ->
+  # 000100000000000, so the ordinary comparison that used to rank 9.0.0 first now ranks it
+  # last. A name that is not a dotted number — the monorepo's plugin dirs — keys as itself,
+  # where ordering cannot matter because each such name appears exactly once.
+  version_key() {
+    case "$1" in
+      ""|*[!0-9.]*) printf '%s' "$1" ;;
+      *) printf '%s' "$1" | awk -F. '{ printf "%05d%05d%05d", $1, $2, $3 }' ;;
+    esac
+  }
   # Shape 1 — siblings one level up: the monorepo `plugins/<plugin>/agents`, or, from an
   # install, `<plugin>/<version>/agents` — MY OWN version dirs. Keyed on the declared name so
-  # only the last candidate per plugin survives; see the note above for why that is the one
-  # place this enumeration is allowed to narrow. A candidate whose name will not resolve keys
-  # on its own path, which is the wider (pre-selection) answer rather than a dropped root.
+  # only the highest-versioned candidate per plugin survives; see the note above for why that
+  # is the one place this enumeration is allowed to narrow. A candidate whose name will not
+  # resolve keys on its own path, which is the wider (pre-selection) answer rather than a
+  # dropped root.
   s1=""
   for d in "$HERE"/../../*/; do
     [ -f "$d/.claude-plugin/plugin.json" ] || continue
     [ -d "$d/agents" ] || continue
     n="$(plugin_name "$d")"
     [ -n "$n" ] || n="$d"
-    s1="$s1$n	$d
+    s1="$s1$n	$(version_key "$(basename "$d")")	$d
 "
   done
-  # Last candidate wins per name, emitted in first-appearance order. Tab-separated because a
-  # path may hold anything else; awk because bash 3.2 has no associative arrays.
+  # HIGHEST version wins per name, emitted in first-appearance order. This used to be "last
+  # candidate wins", which is glob order — lexical — so from a cache holding both, 9.0.0 beat
+  # 10.0.0 and the lint read a superseded copy of its own plugin. Tab-separated because a path
+  # may hold anything else; awk because bash 3.2 has no associative arrays.
   while IFS= read -r d; do
     [ -n "$d" ] && add_root "$d/agents"
-  done <<<"$(printf '%s' "$s1" | awk -F'\t' 'NF { if (!($1 in seen)) { seen[$1] = 1; order[++n] = $1 } last[$1] = $2 } END { for (i = 1; i <= n; i++) print last[order[i]] }')"
+  done <<<"$(printf '%s' "$s1" | awk -F'\t' 'NF { if (!($1 in seen)) { seen[$1] = 1; order[++n] = $1 } if (!($1 in best) || $2 >= best[$1]) { best[$1] = $2; last[$1] = $3 } } END { for (i = 1; i <= n; i++) print last[order[i]] }')"
   # Shape 2 — sibling plugins two levels up, each version-keyed: the install cache's
   # `<marketplace>/<plugin>/<version>/agents`.
   for p in "$HERE"/../../../*/; do
-    newest=""
-    for v in "$p"*/; do
+    # Highest version, not the lexically-last one — see version_key above.
+    newest="$(for v in "$p"*/; do
       [ -f "$v/.claude-plugin/plugin.json" ] || continue
-      [ -d "$v/agents" ] && newest="$v"
-    done
+      [ -d "$v/agents" ] || continue
+      printf '%s\t%s\n' "$(version_key "$(basename "$v")")" "$v"
+    done | sort | tail -1 | cut -f2-)"
     [ -n "$newest" ] && add_root "$newest/agents"
   done
   if [ -z "$ROOTS" ]; then
