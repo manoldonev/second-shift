@@ -335,8 +335,50 @@ make_flaky_fixture() {
     && git -c user.email=fixture@example.invalid -c user.name=fixture commit -qm flaky ) >/dev/null 2>&1
 }
 
+# Two guards on ONE operator, differing only in how many sites they carry: `over.sh` has
+# five and `under.sh` has two, against the default K_BUDGET of 2. That is the whole
+# experiment — the pair differs in nothing else, so a difference in the report's
+# sites_beyond_budget column can only be the budget. Both killers exercise every reject
+# site, so every mutant the budget DOES allow is killed and the run's exit contract stays
+# out of the way of the column assertion.
+# shellcheck disable=SC2016 # the single-quoted $-expressions are the FIXTURE's code, not ours
+make_budget_fixture() {
+  local dir="$1" g args
+  mkdir -p "$dir/tools"
+  { printf '#!/usr/bin/env bash\n# fixture guard: five reject sites -> five `fail-open` ordinals.\n'
+    printf 'case "${1:-}" in\n'
+    printf '  a) exit 1 ;;\n  b) exit 1 ;;\n  c) exit 1 ;;\n  d) exit 1 ;;\n  e) exit 1 ;;\n'
+    printf 'esac\necho ok\nexit 0\n'
+  } > "$dir/over.sh"
+  { printf '#!/usr/bin/env bash\n# fixture guard: two reject sites, exactly the budget.\n'
+    printf 'case "${1:-}" in\n'
+    printf '  a) exit 1 ;;\n  b) exit 1 ;;\n'
+    printf 'esac\necho ok\nexit 0\n'
+  } > "$dir/under.sh"
+  chmod 755 "$dir/over.sh" "$dir/under.sh"
+  for g in over under; do
+    case "$g" in over) args="a b c d e" ;; *) args="a b" ;; esac
+    { printf '#!/usr/bin/env bash\nHERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"\nf=0\n'
+      printf 'for a in %s; do\n' "$args"
+      printf '  bash "$HERE/%s.sh" "$a" >/dev/null 2>&1 && f=$((f+1))\ndone\n' "$g"
+      printf 'out="$(bash "$HERE/%s.sh" good)"\n' "$g"
+      printf '[[ "$out" == "ok" ]] || f=$((f+1))\nexit $f\n'
+    } > "$dir/$g-selftest.sh"
+  done
+  printf '# fixture operators\nfail-open\texit 1\ts/exit 1/exit 0/\n' > "$dir/tools/mutation-operators.tsv"
+  printf '# fixture exclusions\n' > "$dir/tools/mutation-exclusions.tsv"
+  printf '# fixture pair map\n'   > "$dir/tools/mutation-pair-map.tsv"
+  printf '# fixture catalog\n'    > "$dir/tools/mutation-catalog.tsv"
+  ( cd "$dir" && git init -q . && git add -A \
+    && git -c user.email=fixture@example.invalid -c user.name=fixture commit -qm budget ) >/dev/null 2>&1
+}
+
 # guard,killed,survived,survivor_ids for one row of a --report TSV.
 report_row() { awk -F'\t' -v g="$2" '$1==g {print $5"/"$6"/"$7; exit}' "$1"; }
+
+# The sites_beyond_budget cell for one row. Read through the same positional discipline as
+# report_row: appending the column must leave $5/$6/$7 exactly where they were.
+report_beyond() { awk -F'\t' -v g="$2" '$1==g {print $8; exit}' "$1"; }
 
 baseline_with() { # $1=dir, rest = survivor ids
   local d="$1"; shift
@@ -1580,6 +1622,49 @@ if [[ $RC -eq 1 ]] && printf '%s' "$OUT" | grep -q 'pool disagreement' \
 else
   bad "(aj7) warm run rc=$RC2 row='$(report_row "$TMPROOT/aj-warm.tsv" guard.sh)' served='$(served "$OUT2")'"
   printf '%s\n' "$OUT2" | tail -6
+fi
+
+echo "(ak) budget darkness is REPORTED — a site past k is named, not silently absent"
+# The defect this closes is not that k=2 leaves sites dark; it is that the report could not
+# SAY so. A guard with no applicable site for an operator and a guard whose sites all sit
+# past the budget emitted the identical empty cell, which is how a live spinning-idiom site
+# stayed unswept across two nightlies without one line of evidence.
+FX="$TMPROOT/fxak$RANDOM$RANDOM"
+make_budget_fixture "$FX"
+baseline_with "$FX"
+OUT="$( cd "$FX" && enf bash "$SWEEP" --mode full --report "$TMPROOT/ak.tsv" 2>&1 )"; RC=$?
+BEY_OVER="$(report_beyond "$TMPROOT/ak.tsv" over.sh)"
+BEY_UNDER="$(report_beyond "$TMPROOT/ak.tsv" under.sh)"
+if [[ "$BEY_OVER" == "fail-open:3" ]]; then
+  ok "five sites at k=2 report the three the budget declined, named by operator"
+else
+  bad "(ak1) expected over.sh sites_beyond_budget='fail-open:3'; got '$BEY_OVER' (rc=$RC)"
+  printf '%s\n' "$OUT" | tail -6
+fi
+# The counterpart is what makes the cell readable: empty must mean "nothing beyond budget"
+# and not "this harness never fills the column in".
+if [[ -z "$BEY_UNDER" ]]; then
+  ok "a guard whose sites all fit the budget reports an empty cell"
+else
+  bad "(ak2) expected under.sh sites_beyond_budget empty; got '$BEY_UNDER'"
+fi
+# The column is DATA. Both guards are fully killed within budget, so if reporting darkness
+# could red a lane this run is where it would show.
+if [[ $RC -eq 0 ]] && [[ "$(report_row "$TMPROOT/ak.tsv" over.sh)" == "2/0/" ]]; then
+  ok "report-only: the darkness is reported and the run is still green"
+else
+  bad "(ak3) expected rc=0 and over.sh 2/0/; got rc=$RC row='$(report_row "$TMPROOT/ak.tsv" over.sh)'"
+  printf '%s\n' "$OUT" | tail -6
+fi
+# Appended LAST, checked as a header rather than inferred from the cells: report_row() reads
+# $5/$6/$7 positionally and --mode merge compares shard headers byte-wise, so a column
+# inserted anywhere else breaks both silently.
+HDR="$(head -1 "$TMPROOT/ak.tsv")"
+AK_TAB="$(printf '\t')"
+if [[ "$HDR" == *"${AK_TAB}survivor_ids${AK_TAB}sites_beyond_budget" ]]; then
+  ok "the column is appended last, after survivor_ids"
+else
+  bad "(ak4) header does not end in survivor_ids<TAB>sites_beyond_budget: '$HDR'"
 fi
 
 echo "(j) universe rule — every in-universe guard in the REAL tree is accounted"

@@ -10,6 +10,17 @@
 # sed   A sed -E program applied to the WHOLE guard file.
 # note  What regression the mutant models, i.e. what a survivor would MEAN.
 #
+# TIMEOUT-KILL ROWS. One class of row has no survivor for its note to describe: a mutant
+# whose expected verdict is a KILL BY TIMEOUT, because it makes the guard SPIN rather than
+# fail. `cmp-z` inverting the EOF-tolerance clause of the standard read idiom is the live
+# example. Such a row's value is not a survivor prediction — it is (a) ARMING a site the
+# generic tier's per-operator budget leaves dark, and (b) being anchor-drift LOUD, so it
+# reds the moment the spinning idiom is refactored away and the arming would otherwise
+# silently lapse. Its verdict rests on the killer time bound (mutation-sweep.sh's TIME BOUND
+# block) rather than on the paired suite's assertions, so a green run is evidence the bound
+# held. Write the note to say what the mutant DOES and what a lapse would cost; "what a
+# survivor would mean" does not apply, and a row that pretends otherwise misdescribes itself.
+#
 # THE LOUD RULE. Unlike a generic mutant, a catalog sed that leaves the file
 # byte-identical, or yields `bash -n`-invalid output, is ANCHOR DRIFT = RED. These are
 # hand-authored against named sites, so "it no longer applies" is a bug in THIS FILE, not
@@ -59,6 +70,7 @@ detect-makefile-fallback	plugins/second-shift/skills/onboard/tools/detect.sh	s#!
 pin-resolve-numeric-sort	plugins/second-shift/skills/onboard/tools/pin-resolve.sh	s#sort -t\. -k1,1n -k2,2n -k3,3n#sort#	Drops the numeric sort flags: fixture tags order identically lexicographically, and only a double-digit component (v10 vs v9) exposes it.
 pin-resolve-ref	plugins/second-shift/skills/onboard/tools/pin-resolve.sh	s#plugin\.json\?ref=\$REF#plugin.json#	Drops the pinned ref from the contents API URL, so the lockfile silently records default-branch versions — the exact defect the script header exists to prevent.
 scaffold-empty-exit	plugins/second-shift/skills/onboard/tools/scaffold-review-context.sh	s#nothing written\." >&2; exit 1#nothing written." >\&2; exit 0#	Silent success on input that was all H1/comment lines, so an empty scaffold reads as a successful one.
+scaffold-spin-at-eof	plugins/second-shift/skills/onboard/tools/scaffold-review-context.sh	s#while IFS= read -r line \|\| \[ -n "\$line" \]#while IFS= read -r line || [ -z "$line" ]#	TIMEOUT-KILL row (see the header block): inverts the EOF-tolerance clause of the standard read idiom, so at EOF the clause is permanently true and the guard spins at 100% CPU. This is the fourth tracked spinning-idiom site and the one the k=2 generic tier leaves dark at cmp-z ordinal 5; the row exists to ARM it and to red loudly if the idiom is ever refactored away, not to predict a survivor.
 ci-check-lint-path	plugins/second-shift/templates/consumer/second-shift-ci-check.sh	s#"plugins/dev-pipeline/skills/run/tools/config-lint\.sh"#"plugins/dev-pipeline/skills/run/tools/MOVED-config-lint.sh"#	Typos the fetched lint path: every stubbed gh ignores its arguments, so the literal is never validated end to end. RE-ANCHORED (#359): the path moved from a `LINT_PATH=` assignment to an argument of the shared fetch_at_ref helper, so the old anchor matched nothing — anchor drift, which is red. The mutant and what it models are unchanged.
 template-doctor-jq-guard	plugins/second-shift/templates/consumer/second-shift-doctor.sh	s#^command -v jq >/dev/null 2>&1 \|\| exit 0$#:#	Drops the jq-absent guard; with jq missing the behavior is accidentally identical (silent, exit 0), so nothing observes the difference.
 changelog-trailer-anchor	scripts/check-changelog-trailer.sh	s#'\^Changelog:'#'Changelog:'#	Accepts a mid-line mention as a trailer: no fixture has a non-trailer 'Changelog' mention, so all cases still pass.
