@@ -138,6 +138,14 @@ jobs:
       - name: contract lockstep pairs (scripts/lockstep-manifest.tsv)
         run: bash scripts/check-lockstep-pairs.sh
 
+      # Staged-lane capabilities and their recorded dispositions. Same class as the lockstep
+      # step above — a register whose guard needs an explicit invocation, because the paired
+      # selftest is glob-discovered but only proves the guard works, never runs it against the
+      # real register. This step is the gate on #348's deletions: a stage doc no row names
+      # cannot land.
+      - name: capability parity register (tools/capability-parity.tsv)
+        run: bash tools/capability-parity-check.sh
+
       - name: namespace direction check (docs/namespaces.md rule 3)
         run: |
           # Array, not a space-separated string: the multi-dir expansion is intentional, and
