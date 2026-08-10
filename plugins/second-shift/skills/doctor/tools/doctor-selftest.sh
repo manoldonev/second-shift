@@ -39,10 +39,15 @@ resolve_sibling_plugin_root() {
   local anchor="$1" name="$2" marker="$3" cand
   cand="$(cd "$anchor/../../../../$name" 2>/dev/null && pwd)" || cand=""
   if [[ -n "$cand" && -d "$cand/$marker" ]]; then printf '%s\n' "$cand"; return 0; fi
+  # HIGHEST version, not the lexically-last one. Glob order is lexical, so a bare `tail -1`
+  # here ranked 9.0.0 above 10.0.0 and resolved a superseded sibling. Per-field numeric sort
+  # on the version component is the house form (pin-resolve.sh ships it), and ASCENDING +
+  # `tail -1` is deliberate: BSD sort ignores a global `-r` once per-key modifiers are
+  # present, so a reversed form would silently select the OLDEST version there.
   for cand in "$anchor"/../../../../../"$name"/*/; do
     [[ -d "$cand/$marker" ]] || continue
-    (cd "$cand" && pwd)
-  done | tail -1
+    printf '%s\t%s\n' "$(basename "$cand")" "$(cd "$cand" && pwd)"
+  done | sort -t. -k1,1n -k2,2n -k3,3n | tail -1 | cut -f2-
 }
 # LOCKSTEP-END cross-plugin-sibling-plugin-root
 
@@ -53,8 +58,11 @@ resolve_sibling_file() {
   cacheroot="$(cd "$HERE/../../../../.." 2>/dev/null && pwd)" || return 1
   myver="$(basename "$(cd "$HERE/../../.." 2>/dev/null && pwd)")"
   cand="$cacheroot/$sib/$myver/$rel"; [[ -f "$cand" ]] && { printf '%s\n' "$cand"; return 0; }
+  # Highest version FIRST — this loop takes the first hit, so the sort must descend. Per-key
+  # `r` modifiers, not a global `-r`: BSD sort ignores the global flag once per-key modifiers
+  # are present, which would walk the versions ASCENDING and return the oldest sibling.
   # shellcheck disable=SC2012  # version dirs are alphanumeric (X.Y.Z); ls is safe and 3.2-portable here
-  for v in $(ls -1 "$cacheroot/$sib" 2>/dev/null | sort -r); do
+  for v in $(ls -1 "$cacheroot/$sib" 2>/dev/null | sort -t. -k1,1nr -k2,2nr -k3,3nr); do
     cand="$cacheroot/$sib/$v/$rel"; [[ -f "$cand" ]] && { printf '%s\n' "$cand"; return 0; }
   done
   return 1

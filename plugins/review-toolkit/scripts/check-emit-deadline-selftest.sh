@@ -311,22 +311,27 @@ fi
 # is linted as if current, so agents nobody ships any more red the lint on a correct install —
 # measured at 16 violations across 38 agents against a 12-version cache. B9 cannot see it: it
 # stages one version per plugin, as does install-topology-selftest.sh's staged cache.
+#
+# THE VERSIONS ARE 9.0.0 AND 10.0.0 ON PURPOSE, so this case pins NUMERIC ordering rather than
+# merely "some selection happens". Glob order is lexical and sorts 10.0.0 BEFORE 9.0.0, so a
+# last-wins selection lands on 9.0.0 — the superseded copy — and `stale-reviewer` reaches the
+# scan. A 1.0.0/2.0.0 pair agrees under both orderings and cannot tell them apart.
 b10="$TMP/b10/marketplace"
-for v in 1.0.0 2.0.0; do
+for v in 9.0.0 10.0.0; do
   mkdir -p "$b10/mine/$v/.claude-plugin" "$b10/mine/$v/agents"
   echo "{\"name\":\"mine\",\"version\":\"$v\"}" > "$b10/mine/$v/.claude-plugin/plugin.json"
 done
 # The superseded version carries a VIOLATION — linting it at all is both visible and fatal.
-write_agent "$b10/mine/1.0.0/agents" "stale-reviewer" "maxTurns: 30" "No deadline in this body."
-write_agent "$b10/mine/2.0.0/agents" "current-reviewer" "maxTurns: 30" \
+write_agent "$b10/mine/9.0.0/agents" "stale-reviewer" "maxTurns: 30" "No deadline in this body."
+write_agent "$b10/mine/10.0.0/agents" "current-reviewer" "maxTurns: 30" \
   "By **turn 20** (of your 30 maximum) you MUST be writing the final result."
-mkdir -p "$b10/mine/2.0.0/scripts"
-cp "$CHECK" "$b10/mine/2.0.0/scripts/check-emit-deadline.sh"
+mkdir -p "$b10/mine/10.0.0/scripts"
+cp "$CHECK" "$b10/mine/10.0.0/scripts/check-emit-deadline.sh"
 # The shipped enrollment names agents this fixture does not have, and an unresolvable
 # enrollment is its own (B3) failure — point it at the newest version's agent instead, which
 # also asserts that agent is the one the scan reached.
 if (cd "$TMP" && DEADLINE_AT_DEFAULT=current-reviewer \
-      bash "$b10/mine/2.0.0/scripts/check-emit-deadline.sh") >"$TMP/.b10" 2>&1; then
+      bash "$b10/mine/10.0.0/scripts/check-emit-deadline.sh") >"$TMP/.b10" 2>&1; then
   grep -q "stale-reviewer" "$TMP/.b10" \
     && bad "B10 clean, but a superseded version's agents were still scanned ($(cat "$TMP/.b10"))" \
     || ok "B10 a multi-version cache lints only the newest version of the scanning plugin"
@@ -340,18 +345,18 @@ fi
 # the way real ones are (pretty-printed, two-space indent) because that is what the fallback's
 # line anchor keys on.
 b11="$TMP/b11/marketplace"
-for v in 1.0.0 2.0.0; do
+for v in 9.0.0 10.0.0; do
   mkdir -p "$b11/mine/$v/.claude-plugin" "$b11/mine/$v/agents"
   printf '{\n  "name": "mine",\n  "version": "%s",\n  "author": {\n    "name": "not-the-plugin"\n  }\n}\n' \
     "$v" > "$b11/mine/$v/.claude-plugin/plugin.json"
 done
-write_agent "$b11/mine/1.0.0/agents" "stale-reviewer" "maxTurns: 30" "No deadline in this body."
-write_agent "$b11/mine/2.0.0/agents" "current-reviewer" "maxTurns: 30" \
+write_agent "$b11/mine/9.0.0/agents" "stale-reviewer" "maxTurns: 30" "No deadline in this body."
+write_agent "$b11/mine/10.0.0/agents" "current-reviewer" "maxTurns: 30" \
   "By **turn 20** (of your 30 maximum) you MUST be writing the final result."
-mkdir -p "$b11/mine/2.0.0/scripts"
-cp "$CHECK" "$b11/mine/2.0.0/scripts/check-emit-deadline.sh"
+mkdir -p "$b11/mine/10.0.0/scripts"
+cp "$CHECK" "$b11/mine/10.0.0/scripts/check-emit-deadline.sh"
 if (cd "$TMP" && DEADLINE_AT_DEFAULT=current-reviewer EMIT_DEADLINE_JQ=jq-does-not-resolve \
-      bash "$b11/mine/2.0.0/scripts/check-emit-deadline.sh") >"$TMP/.b11" 2>&1; then
+      bash "$b11/mine/10.0.0/scripts/check-emit-deadline.sh") >"$TMP/.b11" 2>&1; then
   grep -q "stale-reviewer" "$TMP/.b11" \
     && bad "B11 clean, but the jq-less name lookup did not select the newest version ($(cat "$TMP/.b11"))" \
     || ok "B11 the jq-less name lookup selects the newest version, and ignores a nested author.name"

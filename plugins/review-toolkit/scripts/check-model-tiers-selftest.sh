@@ -312,10 +312,18 @@ fi
 # the dev-pipeline root must resolve via the versioned-sibling fallback with NO
 # SECOND_SHIFT_DEV_PIPELINE_ROOT override (0.1.0 shipped resolving only the
 # marketplace-repo sibling path and UNLOCATABLE-denied every consumer commit).
+#
+# TWO sibling versions, 0.0.9 and 0.0.10, so this also pins NUMERIC ordering. Both carry the
+# marker dir (skills/run/workflows) and so are both candidates; only 0.0.10 carries the real
+# workflows. Glob order is lexical and sorts 0.0.10 BEFORE 0.0.9, so a last-wins pick resolves
+# the empty 0.0.9 and the run fails to find what it needs. Staging a single version — which is
+# what this case did — asserts that the fallback resolves SOMETHING, never that it resolves the
+# newest, so it could not tell the two orderings apart.
 CACHE_MKT="$TMP/cache/mkt"
-mkdir -p "$CACHE_MKT/review-toolkit/0.0.1/scripts" "$CACHE_MKT/dev-pipeline/0.0.1"
+mkdir -p "$CACHE_MKT/review-toolkit/0.0.1/scripts" "$CACHE_MKT/dev-pipeline/0.0.10" \
+         "$CACHE_MKT/dev-pipeline/0.0.9/skills/run/workflows"
 cp "$CHECK" "$CACHE_MKT/review-toolkit/0.0.1/scripts/check-model-tiers.sh"
-cp -R "$DP/skills" "$CACHE_MKT/dev-pipeline/0.0.1/skills"
+cp -R "$DP/skills" "$CACHE_MKT/dev-pipeline/0.0.10/skills"
 # shellcheck disable=SC2030,SC2031 # exports are deliberately subshell-scoped per case
 (
   export SECOND_SHIFT_PLUGIN_ROOT="$PLUGIN"

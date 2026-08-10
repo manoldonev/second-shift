@@ -64,10 +64,15 @@ resolve_sibling_plugin_root() {
   local anchor="$1" name="$2" marker="$3" cand
   cand="$(cd "$anchor/../../../../$name" 2>/dev/null && pwd)" || cand=""
   if [[ -n "$cand" && -d "$cand/$marker" ]]; then printf '%s\n' "$cand"; return 0; fi
+  # HIGHEST version, not the lexically-last one. Glob order is lexical, so a bare `tail -1`
+  # here ranked 9.0.0 above 10.0.0 and resolved a superseded sibling. Per-field numeric sort
+  # on the version component is the house form (pin-resolve.sh ships it), and ASCENDING +
+  # `tail -1` is deliberate: BSD sort ignores a global `-r` once per-key modifiers are
+  # present, so a reversed form would silently select the OLDEST version there.
   for cand in "$anchor"/../../../../../"$name"/*/; do
     [[ -d "$cand/$marker" ]] || continue
-    (cd "$cand" && pwd)
-  done | tail -1
+    printf '%s\t%s\n' "$(basename "$cand")" "$(cd "$cand" && pwd)"
+  done | sort -t. -k1,1n -k2,2n -k3,3n | tail -1 | cut -f2-
 }
 # LOCKSTEP-END cross-plugin-sibling-plugin-root
 RT_TEST_ROOT="$(resolve_sibling_plugin_root "$SCRIPT_DIR" review-toolkit scripts || true)"

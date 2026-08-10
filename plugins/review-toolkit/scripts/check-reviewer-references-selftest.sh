@@ -222,21 +222,26 @@ fi
 # which the real-root case never reaches (this marketplace repo ships plugins/design-toolkit
 # on disk). Installed layout is cache/<mkt>/<plugin>/<version>/, so the resolver must walk
 # ../../../design-toolkit/*/ and pick the NEWEST sibling that actually carries agents/.
-# Three siblings make that specific: 0.0.1 has an empty agents/ (picking the oldest DANGLINGs),
-# 0.0.2 is the real one, 0.0.3-broken has no agents/ at all (dropping the filter picks it,
-# DESIGN_AGENTS resolves empty, and the exemption fires instead of resolution).
+# Three siblings make that specific: 0.0.9 has an empty agents/ (picking the wrong one
+# DANGLINGs), 0.0.10 is the real one, 0.0.3-broken has no agents/ at all (dropping the filter
+# picks it, DESIGN_AGENTS resolves empty, and the exemption fires instead of resolution).
+#
+# 0.0.9 vs 0.0.10 is the ORDERING half, and it is why those two numbers: glob order is lexical,
+# so 0.0.10 sorts BEFORE 0.0.9 and a last-wins pick lands on the empty 0.0.9. Only a numeric
+# compare reaches the real sibling. The pair this case used to stage (0.0.1/0.0.2) agrees under
+# both orderings, so it asserted that SOME newest-selection happened, never which one.
 CACHE_MKT="$TMP/cache/mkt"
 mkdir -p "$CACHE_MKT/review-toolkit/0.0.1/scripts" \
-         "$CACHE_MKT/design-toolkit/0.0.1/agents" \
-         "$CACHE_MKT/design-toolkit/0.0.2/agents" \
-         "$CACHE_MKT/design-toolkit/0.0.2/.claude-plugin" \
+         "$CACHE_MKT/design-toolkit/0.0.9/agents" \
+         "$CACHE_MKT/design-toolkit/0.0.10/agents" \
+         "$CACHE_MKT/design-toolkit/0.0.10/.claude-plugin" \
          "$CACHE_MKT/design-toolkit/0.0.3-broken"
 cp "$CHECK" "$CACHE_MKT/review-toolkit/0.0.1/scripts/check-reviewer-references.sh"
-cp "$FX/design-toolkit/agents/design-faithful-reviewer.md" "$CACHE_MKT/design-toolkit/0.0.2/agents/"
+cp "$FX/design-toolkit/agents/design-faithful-reviewer.md" "$CACHE_MKT/design-toolkit/0.0.10/agents/"
 # The winning cache sibling carries a manifest, so this case stays a pure root-RESOLUTION
 # test: without it the design panel entry falls through to QUALIFY's prefix-underivable
 # notice, which is a different code path than the one under test here.
-cp "$FX/design-toolkit/.claude-plugin/plugin.json" "$CACHE_MKT/design-toolkit/0.0.2/.claude-plugin/"
+cp "$FX/design-toolkit/.claude-plugin/plugin.json" "$CACHE_MKT/design-toolkit/0.0.10/.claude-plugin/"
 # Prefix assignments, not a subshell export: run_cli's exports are already subshell-scoped,
 # and a second `export` of the same names would make SC2030 fire on run_cli itself. No
 # SECOND_SHIFT_DESIGN_TOOLKIT_ROOT here — resolving it is the whole point of this case.

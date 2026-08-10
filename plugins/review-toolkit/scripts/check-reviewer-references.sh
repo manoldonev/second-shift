@@ -125,10 +125,13 @@ resolve_design_toolkit_root() {
         echo "$cand"
         return
     fi
+    # HIGHEST version, not the lexically-last one — glob order is lexical, so a bare
+    # `tail -1` ranked 9.0.0 above 10.0.0. ASCENDING + `tail -1` rather than a reversed
+    # sort: BSD sort ignores a global `-r` once per-key modifiers are present.
     for cand in "$SCRIPT_DIR"/../../../design-toolkit/*/; do
         [ -d "$cand/agents" ] || continue
-        (cd "$cand" && pwd)
-    done | tail -1
+        printf '%s\t%s\n' "$(basename "$cand")" "$(cd "$cand" && pwd)"
+    done | sort -t. -k1,1n -k2,2n -k3,3n | tail -1 | cut -f2-
 }
 DESIGN_TOOLKIT_ROOT=$(resolve_design_toolkit_root)
 DESIGN_AGENTS="${DESIGN_TOOLKIT_ROOT:+$DESIGN_TOOLKIT_ROOT/agents}"

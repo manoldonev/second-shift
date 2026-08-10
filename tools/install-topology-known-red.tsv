@@ -38,4 +38,16 @@
 # by construction; what the suite now asserts directly is that the ladder resolves, and a wrong
 # call here warns rather than reds. The two repo-only-artifact rows were drained separately, by
 # the sibling slice that gave those suites a counted skip.
-plugins/dev-pipeline/skills/run/tools/cost-block-selftest.sh	cost-block-selftest.sh:40 mirrors pipeline-cost-block.sh state resolution but anchors it on $HERE, while the script anchors on $PWD; in an install cache $HERE has no git repo above it, so the mirror falls to `cd ""`. ENVIRONMENT-DEPENDENT on what bash does with that: a silent no-op on bash <= 5.2 (STATE_DIR lands inside the staged plugin, where the script never looks, and the three dump assertions get no rollup JSON) and an error on bash >= 5.3 (STATE_DIR collapses to ./ and coincidentally agrees with the script). Red on both CI lanes, green on bash 5.3.
+#
+# THE LIST IS NOW EMPTY, which is the state #421 called done. The last row was
+# cost-block-selftest.sh, whose mirror of pipeline-cost-block.sh's state resolution anchored on
+# $HERE while the script anchors on $PWD. It is not anchored differently now — it is not a
+# mirror at all: the suite drives the script through STATECTL_STATE_DIR, the script's own
+# highest-precedence override, which every other run in that file already used. Nothing is
+# derived, so nothing can diverge.
+#
+# That row was the second ENVIRONMENT-DEPENDENT one, and its two halves are why a single green
+# run was never evidence: on bash <= 5.2 `cd ""` is a silent no-op (measured on stock 3.2 from a
+# staged cache: 51 passed, 3 failed), and on bash >= 5.3 it errors, STATE_DIR collapses to ./,
+# and it coincidentally AGREES with the script (61 passed, 0 failed on the same tree). Keep this
+# file's rows empty by fixing suites, not by listing them.

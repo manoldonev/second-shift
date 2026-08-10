@@ -669,6 +669,38 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+# (rs) resolve_sibling — the cache rung must pick the HIGHEST version, not the
+# lexically-last one. Same extract-and-execute technique as the blocks above: the
+# real function is lifted out by its sentinels and run against a staged cache, so
+# a hand-copied resolver — the mirror harness CLAUDE.md bans — never enters.
+#
+# 9.0.0 vs 10.0.0 is the whole point of those numbers. `ls -1 | sort -r` is lexical
+# and puts 9.0.0 first, so the loop's first hit was the SUPERSEDED sibling. Any pair
+# below 10 agrees under both orderings and cannot tell them apart. BOTH versions
+# carry the file, so the `-f` filter cannot decide it either — only the ordering can.
+# ---------------------------------------------------------------------------
+RS_BLOCK="$(sed -n '/# >>> resolve-sibling/,/# <<< resolve-sibling/p' "$DOCTOR")"
+if [[ -z "$RS_BLOCK" ]]; then
+  bad "(rs) resolve-sibling sentinels not found in $DOCTOR — the function was refactored without updating this guard"
+else
+  RS="$WORK/rs"
+  mkdir -p "$RS/cache/dev-pipeline/1.0.0/skills/run/tools" \
+           "$RS/cache/review-toolkit/9.0.0/scripts" \
+           "$RS/cache/review-toolkit/10.0.0/scripts"
+  echo "superseded" > "$RS/cache/review-toolkit/9.0.0/scripts/marker.sh"
+  echo "current"    > "$RS/cache/review-toolkit/10.0.0/scripts/marker.sh"
+  rs_out="$(PLUGINS_DIR="$RS/cache/dev-pipeline" \
+            SCRIPT_DIR="$RS/cache/dev-pipeline/1.0.0/skills/run/tools" \
+            bash -c "$RS_BLOCK
+resolve_sibling review-toolkit scripts/marker.sh" 2>/dev/null)"
+  case "$rs_out" in
+    */review-toolkit/10.0.0/*) ok "(rs) the cache rung resolves the highest version, not the lexically-last" ;;
+    */review-toolkit/9.0.0/*)  bad "(rs) resolved the SUPERSEDED 9.0.0 — the version sort is lexical, so 9.0.0 outranks 10.0.0" ;;
+    *)                         bad "(rs) resolve_sibling returned [$rs_out], expected the 10.0.0 sibling" ;;
+  esac
+fi
+
+# ---------------------------------------------------------------------------
 # summary
 # ---------------------------------------------------------------------------
 echo "[pipeline-doctor-selftest] $PASS passed, $FAIL failed"

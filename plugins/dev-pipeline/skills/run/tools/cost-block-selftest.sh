@@ -33,30 +33,39 @@ SCRIPT="$HERE/../pipeline-cost-block.sh"
 FIX="$HERE/../cost-tracking-fixtures"
 METRICS="$FIX/two-runs-shared-session.jsonl"
 
-# The script resolves STATE_FILE via `git rev-parse --git-common-dir` (the MAIN
-# checkout's .claude/pipeline-state/, NOT the worktree's — they differ when this
-# tree is a git worktree). Mirror that exact resolution so the state fixtures we
-# install are the ones the script reads.
-COMMON_RAW="$(cd "$HERE" && git rev-parse --git-common-dir)"     # may be relative (e.g. .git)
-COMMON="$(cd "$HERE" && cd "$COMMON_RAW" && pwd)"                # resolved absolute
-STATE_DIR="$(dirname "$COMMON")/.claude/pipeline-state"
-
 PASS=0
 FAIL=0
 ok()  { PASS=$((PASS + 1)); echo "  OK   $1"; }
 bad() { FAIL=$((FAIL + 1)); echo "  FAIL $1"; }
 
 TMP="$(mktemp -d)"
+
+# State dir for the two fence runs below. This used to MIRROR the script's own
+# `git rev-parse --git-common-dir` derivation so the fixtures we install would be the
+# ones the script reads. That mirror was the defect: the script anchors its resolution
+# on $PWD and the mirror anchored on $HERE, so the two agreed only in the monorepo. Run
+# from a version-keyed install cache — no git repo above $HERE, cwd a different repo
+# entirely — the mirror fell through to `cd ""` and STATE_DIR landed inside the staged
+# plugin, where the script never looks; the fence assertions then got no rollup JSON.
+#
+# So it does not mirror anything now. STATECTL_STATE_DIR is the script's own
+# highest-precedence override (resolve_state() returns it before consulting a repo root
+# at all), which is what every other run in this file already drives it through — this
+# block was the last straggler. Nothing is derived, so nothing can diverge, and the
+# fixtures no longer land in the REAL repo's .claude/pipeline-state/ where a concurrent
+# suite could collide with their fixed names.
+STATE_DIR="$TMP/pipeline-state"
 # Executable stub bot wrapper: the script's early GH_BOT guard requires an
 # executable, but the dump hook exits before the wrapper is ever invoked.
 STUB_BOT="$TMP/gh-as-bot.sh"
 printf '#!/usr/bin/env bash\nexit 0\n' > "$STUB_BOT"
 chmod +x "$STUB_BOT"
 
-# Track state files we install so cleanup never touches a real run's state.
 A_STATE="$STATE_DIR/cost-fence-selftest-a.json"
 B_STATE="$STATE_DIR/cost-fence-selftest-b.json"
-cleanup() { rm -rf "$TMP"; rm -f "$A_STATE" "$B_STATE"; }
+# Both live under $TMP now, so removing it is the whole cleanup — there is no longer a
+# real run's state dir to be careful around.
+cleanup() { rm -rf "$TMP"; }
 trap cleanup EXIT
 
 mkdir -p "$STATE_DIR"
@@ -66,6 +75,7 @@ mkdir -p "$STATE_DIR"
 dump_rollup() {
   local id="$1"
   OTEL_METRICS_FILE="$METRICS" \
+  STATECTL_STATE_DIR="$STATE_DIR" \
   COST_BLOCK_DUMP_ROLLUP=1 \
   GH_BOT="$STUB_BOT" \
     bash "$SCRIPT" "$id" 2>/dev/null
@@ -78,6 +88,7 @@ dump_rollup() {
 dump_logrow() {
   local id="$1"
   OTEL_METRICS_FILE="$METRICS" \
+  STATECTL_STATE_DIR="$STATE_DIR" \
   COST_BLOCK_DUMP_LOGROW=1 \
   COST_LOG_FILE="$TMP/cost-log.jsonl" \
   GH_BOT="$STUB_BOT" \

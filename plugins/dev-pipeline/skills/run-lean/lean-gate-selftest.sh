@@ -270,10 +270,13 @@ else fail "(d4) expected rc=0 on a live ledger, got $rc: $out"; fi
 HOOK_REPO="$HERE/../../../audit-toolkit/hooks/audit-tool-calls.sh"
 HOOK="$HOOK_REPO"
 if [ ! -x "$HOOK" ]; then
-  # Cache layout: the lexically-newest staged version that actually carries the hook.
+  # Cache layout: the HIGHEST staged version that actually carries the hook. Glob order is
+  # lexical, so a bare `tail -1` ranked 9.0.0 above 10.0.0. The version is two dirs up from
+  # the hook, so it is keyed out explicitly rather than sorted on the whole path.
   HOOK="$(for c in "$HERE"/../../../../audit-toolkit/*/hooks/audit-tool-calls.sh; do
-    [ -x "$c" ] && printf '%s\n' "$c"
-  done | tail -1)"
+    [ -x "$c" ] || continue
+    printf '%s\t%s\n' "$(basename "$(dirname "$(dirname "$c")")")" "$c"
+  done | sort -t. -k1,1n -k2,2n -k3,3n | tail -1 | cut -f2-)"
 fi
 if [ ! -x "$HOOK" ]; then
   fail "(d5) audit hook not found — searched $HOOK_REPO and $HERE/../../../../audit-toolkit/<version>/hooks/audit-tool-calls.sh; the writer half of the ledger contract is unreachable"

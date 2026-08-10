@@ -60,9 +60,20 @@ const resolveSibling = (sib, rel) => {
   const cacheRoot = join(PLUGINS_DIR, '..')
   const sameVersion = probe(join(cacheRoot, sib, MY_VERSION, rel))
   if (sameVersion) return { path: sameVersion, tried }
+  // Highest version first — this loop takes the first hit. A plain `.sort().reverse()` is
+  // lexical, so it ranked '9.0.0' above '10.0.0' and resolved a superseded sibling. Compare
+  // the dotted components numerically instead; a non-numeric component compares as 0, which
+  // keeps a stray directory from outranking a real version.
   let versions = []
   try {
-    versions = readdirSync(join(cacheRoot, sib)).sort().reverse()
+    const parts = (v) => v.split('.').map((n) => Number.parseInt(n, 10) || 0)
+    versions = readdirSync(join(cacheRoot, sib)).sort((a, b) => {
+      const [pa, pb] = [parts(a), parts(b)]
+      for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
+        if ((pb[i] || 0) !== (pa[i] || 0)) return (pb[i] || 0) - (pa[i] || 0)
+      }
+      return 0
+    })
   } catch {
     versions = []
   }
