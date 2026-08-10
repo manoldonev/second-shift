@@ -212,6 +212,21 @@ inapplicable() { # inapplicable <arm> <disposition> <reason>
   echo "[lean-chain]   · $1: $2 — $3"
 }
 
+# The claim comment's stage token, plus the producer capability contract it also carries (#445).
+# THIS FILE READS ONLY THE TAG — its claim arm below counts bot-authored claim comments, and a
+# one-sided rename would empty that set and red every honest lean PR. The stamp key and the
+# capability vocabulary are in the same block because they are one contract written by one
+# producer (lean-gate.sh, the canonical side); the arm bound to a capability lives in the
+# delegated payload, lean-evidence.sh. lean-reconcile.sh keeps an unbound copy of the tag: it is
+# an operator-run reconciler rather than a merge-boundary gate.
+# LOCKSTEP-BEGIN lean-producer-capabilities
+LEAN_CLAIM_MARKER_TAG='lean-claimed'
+# shellcheck disable=SC2034  # each reader binds a SUBSET of these; the block is one contract.
+LEAN_CAPABILITY_KEY='capabilities'
+# shellcheck disable=SC2034  # ditto — unused here is the point, not an oversight.
+LEAN_CAPABILITIES='pr-marker'
+# LOCKSTEP-END lean-producer-capabilities
+
 # LOCKSTEP-BEGIN lean-chain-artifact-patterns
 # The lean-marked name shapes, suffix-anchored. `*-lean.md` must never match the verdict
 # record (`*-lean-verdict.md`) — that is why both are anchored at the END of the filename
@@ -370,6 +385,11 @@ PAYLOAD="${LEAN_EVIDENCE:-$REPO_ROOT/plugins/dev-pipeline/skills/run-lean/lean-e
 # combined line is the one a reader of the job log sees.
 PAYLOAD_ARGS=()
 [[ -n "${LEAN_PR_COMMENTS_FILE:-}" ]] && PAYLOAD_ARGS+=(--pr-comments-file "$LEAN_PR_COMMENTS_FILE")
+# The ISSUE trail this gate already holds is the capability stamp's carrier (#445), so the payload
+# is handed the same fixture rather than left to fetch a second copy. In the LIVE path there is no
+# fixture and the payload fetches for itself — which is also the only path a consumer running the
+# payload directly ever takes.
+[[ -n "$COMMENTS_FILE" ]] && PAYLOAD_ARGS+=(--issue-comments-file "$COMMENTS_FILE")
 [[ -n "$DIFF_FILES_FILE" ]] && PAYLOAD_ARGS+=(--diff-files-file "$DIFF_FILES_FILE")
 
 delegate() { # delegate <arms...>   — runs the payload's `check` for the named arm set
@@ -531,35 +551,39 @@ printf '%s' "$COMMENTS" | jq -e 'type == "array"' >/dev/null 2>&1 \
 # Windowing to PR-open makes the gate idempotent: pr-gates re-runs on every synchronize, and a
 # LATER re-claim of the same issue must not retroactively red-line an already-green PR. A PR's
 # created_at is immutable, so the window is stable across re-runs.
-# shellcheck disable=SC2016  # $author/$at are jq variables, bound with --arg; shell must not expand them.
+# shellcheck disable=SC2016  # $author/$at/$tag are jq variables, bound with --arg; shell must not expand them.
 CLAIM_FILTER='
   [ .[]
     | select((.user.type // "") == "Bot")
     | select($author == "" or (.user.login // "") == $author)
     | select((.created_at // "") != "" and .created_at <= $at)
-    | select((.body // "") | test("<!--[[:space:]]*stage:[[:space:]]*lean-claimed[[:space:]]*-->"))
+    | select((.body // "") | test("<!--[[:space:]]*stage:[[:space:]]*" + $tag + "[[:space:]]*-->"))
   ]'
 
 CLAIMED="$(printf '%s' "$COMMENTS" | jq -r --arg author "${LEAN_COMMENT_AUTHOR:-}" --arg at "$PR_CREATED_AT" \
-  "$CLAIM_FILTER | length")"
+  --arg tag "$LEAN_CLAIM_MARKER_TAG" "$CLAIM_FILTER | length")"
 
 # The build run's identity as CI can see it. Same filter as the count above — reading the id
 # off a comment that did not pass the trust/window filter would let an outsider's marker (or a
 # later re-claim) define what "the build run" means for this PR.
 CLAIM_RUN_ID="$(printf '%s' "$COMMENTS" | jq -r --arg author "${LEAN_COMMENT_AUTHOR:-}" --arg at "$PR_CREATED_AT" \
+  --arg tag "$LEAN_CLAIM_MARKER_TAG" \
   "$CLAIM_FILTER | map((.body // \"\") | capture(\"run_id:[[:space:]]*(?<r>[A-Za-z0-9._-]+)\").r? // \"\") | map(select(. != \"\")) | first // \"\"")"
 
 # The build SESSION as CI can see it, when the claim carries one. `session_id:` does not
 # contain the substring `run_id:`, so the capture above cannot have consumed it.
 CLAIM_SESSION_ID="$(printf '%s' "$COMMENTS" | jq -r --arg author "${LEAN_COMMENT_AUTHOR:-}" --arg at "$PR_CREATED_AT" \
+  --arg tag "$LEAN_CLAIM_MARKER_TAG" \
   "$CLAIM_FILTER | map((.body // \"\") | capture(\"session_id:[[:space:]]*(?<r>[A-Za-z0-9._-]+)\").r? // \"\") | map(select(. != \"\" and . != \"unset\")) | first // \"\"")"
 
 if [[ "${CLAIMED:-0}" -lt 1 ]]; then
-  any="$(printf '%s' "$COMMENTS" | jq -r '[ .[] | select((.body // "") | test("<!--[[:space:]]*stage:[[:space:]]*lean-claimed[[:space:]]*-->")) ] | length')"
+  # shellcheck disable=SC2016  # $tag is a jq variable, bound with --arg.
+  any="$(printf '%s' "$COMMENTS" | jq -r --arg tag "$LEAN_CLAIM_MARKER_TAG" \
+    '[ .[] | select((.body // "") | test("<!--[[:space:]]*stage:[[:space:]]*" + $tag + "[[:space:]]*-->")) ] | length')"
   if [[ "${any:-0}" -gt 0 ]]; then
-    note_violation "found $any 'lean-claimed' marker(s) on #$KEY, but none that are bot-authored AND at or before PR-open ($PR_CREATED_AT). An operator-posted claim is not evidence the harness ran."
+    note_violation "found $any '$LEAN_CLAIM_MARKER_TAG' marker(s) on #$KEY, but none that are bot-authored AND at or before PR-open ($PR_CREATED_AT). An operator-posted claim is not evidence the harness ran."
   else
-    note_violation "no bot-authored 'lean-claimed' comment on #$KEY at or before PR-open ($PR_CREATED_AT). The run left no claim record."
+    note_violation "no bot-authored '$LEAN_CLAIM_MARKER_TAG' comment on #$KEY at or before PR-open ($PR_CREATED_AT). The run left no claim record."
   fi
 fi
 

@@ -1243,12 +1243,18 @@ cmd_claim() {
   # the run id. run_id is agent-CHOSEN — a build session that wanted to review itself needs
   # only pick a second string — whereas the session id is harness-assigned. Carrying it here
   # is what lets check-lean-chain.sh compare the stronger of the two at the merge boundary.
+  #
+  # It also carries this producer's CAPABILITY STAMP (#445). The claim comment is the one
+  # build-side artifact EVERY github generation writes, which is what lets a merge-boundary arm
+  # tell "this run's producer could not write that artifact" from "this run withheld it".
+  resolve_capability_stamp
   body="$(mktemp -t lean-claim.XXXXXX)" || envfail "mktemp failed."
   {
     echo "<!-- dev-pipeline -->"
     echo "<!-- run_id: $RESOLVED_RUN_ID -->"
     echo "<!-- session_id: ${CLAUDE_CODE_SESSION_ID:-unset} -->"
-    echo "<!-- stage: lean-claimed -->"
+    echo "<!-- $LEAN_CAPABILITY_KEY: $LEAN_CAPABILITY_STAMP -->"
+    echo "<!-- stage: $LEAN_CLAIM_MARKER_TAG -->"
     echo ""
     echo "🤖 Claimed by \`/dev-pipeline:run-lean\`."
   } > "$body"
@@ -1258,6 +1264,70 @@ cmd_claim() {
   rm -f "$body"
   [ "$rc" -eq 0 ] || { warn "✗ claim: marker comment failed: $url"; return 1; }
   say "✓ claim: labels swapped and lean-claimed comment posted ($url)"
+  return 0
+}
+
+# ---------------------------------------------------------------- producer capabilities (#445)
+# WHY A PRODUCER STAMPS ITS GENERATION. A merge-boundary arm travels by GIT REF — a consumer's CI
+# fetches it at its pinned marketplace ref — while this file travels by VERSIONED PLUGIN INSTALL
+# into an operator's local cache. The two transports skew, and both trees report the same version,
+# so no version-keyed check can observe it. An arm that landed before its producer shipped was
+# therefore enforced against runs whose build session had no way to satisfy it.
+#
+# So the producer stamps what it CAN DO into an artifact it already writes, and an arm bound to a
+# capability enforces only when the stamp declares it. Absent a stamp the arm goes INERT rather
+# than accusing an honest run — the same degrade-toward-declining posture #444's `since:` takes.
+#
+# THE CLAIM COMMENT IS THE CARRIER, and that is what makes this non-circular: every github
+# generation posts one, the pre-token generation included. Stamping the PR marker instead would be
+# circular — the marker IS the artifact the bound arm demands, so its absence could not be told
+# apart from a producer that cannot write it. Stamping only the verdict record would let the
+# reviewed party soften a build-side arm.
+#
+# THE SHARED BLOCK holds three literals, not one:
+#   LEAN_CLAIM_MARKER_TAG  the claim comment's stage token — written here, read by
+#                          lean-evidence.sh (which reads the stamp off it) and by
+#                          scripts/check-lean-chain.sh (whose claim arm counts it).
+#                          lean-reconcile.sh keeps an unbound copy of the literal: it is an
+#                          operator-run reconciler rather than a merge-boundary gate, and it
+#                          carried that copy before this contract existed.
+#   LEAN_CAPABILITY_KEY    the stamp's key, in the claim comment and in the verdict record.
+#   LEAN_CAPABILITIES      the CLOSED vocabulary of capability tokens, comma-separated. Each side
+#                          validates its OWN token against it — the producer the subset it ships,
+#                          the reader the token its arm requires — so a one-sided rename reds
+#                          loudly on the side that renamed, instead of silently producing a stamp
+#                          no reader can ever match. Same posture as LEAN_OUTPUT_DISPOSITIONS.
+# LOCKSTEP-BEGIN lean-producer-capabilities
+LEAN_CLAIM_MARKER_TAG='lean-claimed'
+# shellcheck disable=SC2034  # each reader binds a SUBSET of these; the block is one contract.
+LEAN_CAPABILITY_KEY='capabilities'
+# shellcheck disable=SC2034  # ditto — unused here is the point, not an oversight.
+LEAN_CAPABILITIES='pr-marker'
+# LOCKSTEP-END lean-producer-capabilities
+
+# WHAT THIS GENERATION SHIPS — deliberately OUTSIDE the shared block, because it is the one thing
+# here that is not a shared contract: it is this build of this file's own answer, and a later
+# generation widens it without touching a reader.
+#
+# COMMA-SEPARATED, and that is the wire format too. The stamp rides inside an HTML comment closed
+# by ` -->`, so a space-separated list would need a capture charset containing a space and would
+# swallow the closing dashes; a comma-separated one stops cleanly at the space.
+LEAN_PRODUCER_CAPABILITIES='pr-marker'
+
+# Validated at the point of use, into a global, NEVER through a `$(…)` helper: envfail exits, and
+# an exit inside a command substitution kills only the subshell — the caller would then stamp an
+# empty capability list and every bound arm downstream would go inert on an honest run.
+LEAN_CAPABILITY_STAMP=""
+resolve_capability_stamp() {
+  local c
+  [ -n "$LEAN_CAPABILITY_STAMP" ] && return 0
+  for c in $(printf '%s' "$LEAN_PRODUCER_CAPABILITIES" | tr ',' ' '); do
+    case ",$LEAN_CAPABILITIES," in
+      *",$c,"*) : ;;
+      *) envfail "internal: '$c' is not in the closed capability vocabulary ('$LEAN_CAPABILITIES'). Stamping a token no reader can match would arm nothing and disarm everything bound to it." ;;
+    esac
+  done
+  LEAN_CAPABILITY_STAMP="$LEAN_PRODUCER_CAPABILITIES"
   return 0
 }
 
@@ -2661,6 +2731,7 @@ cmd_verdict() {
     body="$(cat "$SUMMARY_FILE")"
   fi
 
+  resolve_capability_stamp
   rec="$REPO_ROOT/$VERDICT_REL"
   mkdir -p "$(dirname "$rec")" || envfail "verdict: cannot create '$(dirname "$rec")'."
   # Cache the review identity only now — every refusal above has passed, so this is a real
@@ -2691,6 +2762,17 @@ cmd_verdict() {
     # half of that fix covering records this writer did not produce.
     echo "fidelity: $VERDICT_FIDELITY"
     echo "model: ${LEAN_RUN_MODEL:-unknown}"
+    # THE PRODUCER'S CAPABILITY STAMP (#445), with NO READER TODAY — and shipped anyway, on
+    # purpose. A review-side arm bound to a capability will need to place the generation that
+    # wrote the record it is reading, and a stamp introduced only when that arm lands would find
+    # every older record silent and go permanently inert over them. Written now, it is simply
+    # present by the time it is first read. The build-side stamp on the claim comment is what
+    # arms today's one bound arm; relaying THIS one to it would let the reviewed party soften a
+    # build-side arm, so no reader may key on it for that purpose.
+    #
+    # Comma-separated, so a future reader must widen `record_key`'s default charset (which stops
+    # at `,`) rather than silently read the first token as the whole list.
+    echo "$LEAN_CAPABILITY_KEY: $LEAN_CAPABILITY_STAMP"
     echo ""
     if [ -n "$body" ]; then printf '%s\n' "$body"; fi
   } > "$rec"

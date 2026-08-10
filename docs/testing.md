@@ -164,6 +164,20 @@ function into a test, stop and use the runtime shim.
 is indistinguishable from one that cannot fail. Break the thing, watch the guard go red, restore
 it, and say so in the commit body. This is a repo idiom, not a suggestion.
 
+**A new merge-boundary arm ships three things, not one.** An arm and the producer that satisfies
+it travel by different transports — the arm by git ref, at whatever marketplace ref a consumer
+pinned; the producer by versioned plugin install into an operator's local cache — and both report
+the same version, so no version-keyed check can observe them skew. An arm added without allowing
+for that is enforced against runs whose build session finished before the contract existed, and
+which had no remedy at all. So an arm ships with: (1) its producer's **capability stamp**,
+declared in the shared `lean-producer-capabilities` block and written onto an artifact that
+*every* producer generation already writes — the claim comment, never the artifact the arm itself
+demands, which would be circular; (2) a **not-applicable path**, one class-(b) `inert` line and
+zero violations, whenever the stamp does not place the run inside the arm's contract; and
+(3) **silence on green** — a satisfied arm is class (a) and prints nothing. The fixture pinning
+the pre-stamp generation is not optional either: once stamped runs are the norm it is the only
+thing keeping the inert path killable.
+
 **Prefer one composed scenario to N component checks.** The since-retired stacked-PR path died
 with 42 green selftests because every one of them checked a component against itself. If a new
 gate has a verdict path, extend `scenario-liveness-selftest.sh`.
