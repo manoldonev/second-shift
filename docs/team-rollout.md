@@ -21,7 +21,9 @@ CONTRIBUTING snippet).
    (unclaim — the only emitted workflow that writes; `issues: write`, and it needs the
    repo's Actions workflow permissions set to read-and-write).
 4. Dry-run: pick a small ticket with no external-infrastructure acceptance criteria and
-   run `/dev-pipeline:run-lean <ticket>` end to end before inviting the team.
+   run `/dev-pipeline:run-lean <ticket>` end to end before inviting the team. It schedules
+   `build-lean` and `review-lean` for you; driving those two by hand is the same lane, and
+   is the path to fall back on when a run needs rescuing.
 
 **A BE/FE pair needs Day 0 a second time, in the sibling repo.** Step 2's confirmed-pair
 `be-fe-pair` config is unchanged and is what the deprecated staged lane reads; the lean

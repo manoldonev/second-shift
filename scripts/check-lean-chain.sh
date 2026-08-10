@@ -6,7 +6,7 @@
 # cut `<tracker.branchPrefix><key>` branches (#413) — so what keeps them disjoint is that both
 # ask the same classifier which lane a PR belongs to.
 #
-# WHY THIS EXISTS. run-lean spends as few tokens as possible IN the run, which means almost
+# WHY THIS EXISTS. build-lean spends as few tokens as possible IN the run, which means almost
 # every in-run record is written by the agent being checked. That is fine — as long as the
 # binding evidence contract lives somewhere the agent cannot reach. This is that somewhere:
 # a model-free check at the merge boundary, costing zero run tokens (D-47). It fails an
@@ -109,7 +109,7 @@
 # its own key, finds no spec for it, and stays with the pipeline gate. Selftest-fixture paths
 # are excluded from the scan because fixtures are lean-shaped on purpose.
 #
-# The rule and its mirror image live in ONE place, plugins/dev-pipeline/skills/run-lean/
+# The rule and its mirror image live in ONE place, plugins/dev-pipeline/skills/build-lean/
 # lean-evidence.sh, which this gate and check-pipeline-chain.sh both delegate to. "No PR is
 # applicable to both gates" therefore holds by construction rather than by two implementations
 # agreeing about a namespace.
@@ -375,7 +375,7 @@ REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null)" \
 # in CI the checkout IS the marketplace repo, so the committed path is the authority, and a
 # `$HERE/..`-relative walk would silently resolve to a different tree in a worktree layout.
 # Missing is fatal — a boundary that cannot reach half its evidence must not report a pass.
-PAYLOAD="${LEAN_EVIDENCE:-$REPO_ROOT/plugins/dev-pipeline/skills/run-lean/lean-evidence.sh}"
+PAYLOAD="${LEAN_EVIDENCE:-$REPO_ROOT/plugins/dev-pipeline/skills/build-lean/lean-evidence.sh}"
 [[ -f "$PAYLOAD" ]] \
   || envfail "the portable evidence payload is missing at '$PAYLOAD' — this gate delegates its verdict, identity, ratification and patch-id arms to it and cannot evaluate them alone. Set LEAN_EVIDENCE if it lives elsewhere."
 

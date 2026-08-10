@@ -37,7 +37,7 @@
 # PIPELINE_BRANCH_PREFIX, so this check's prefix arm matches lean PRs too — and a lean PR
 # carries none of the stage markers below, so every one of them would red on a trail its lane
 # never emits. The exclusion is therefore mandatory, not a nicety. It is resolved by calling
-# plugins/dev-pipeline/skills/run-lean/lean-evidence.sh's `classify` and exempting when it
+# plugins/dev-pipeline/skills/build-lean/lean-evidence.sh's `classify` and exempting when it
 # reports applicable, rather than by re-implementing the lean-spec test here: with ONE
 # classifier, "no PR is applicable to both gates" holds by construction instead of by two
 # implementations continuing to agree.
@@ -129,7 +129,7 @@ REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null)" \
 # delegation can have: a missing payload, a non-zero exit, or an unparseable verdict all exit 2
 # rather than falling through to "pipeline PR", because the fall-through reds a lean PR on a
 # stage trail its lane never emits and the operator has no way to tell that from a real gap.
-LEAN_PAYLOAD="${LEAN_EVIDENCE:-$REPO_ROOT/plugins/dev-pipeline/skills/run-lean/lean-evidence.sh}"
+LEAN_PAYLOAD="${LEAN_EVIDENCE:-$REPO_ROOT/plugins/dev-pipeline/skills/build-lean/lean-evidence.sh}"
 [[ -f "$LEAN_PAYLOAD" ]] \
   || envfail "the lean evidence payload is missing at '$LEAN_PAYLOAD' — this check cannot tell a lean PR from a pipeline one without it, and both lanes now share the branch namespace. Set LEAN_EVIDENCE if it lives elsewhere."
 

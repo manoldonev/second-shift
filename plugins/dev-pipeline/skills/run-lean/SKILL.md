@@ -1,43 +1,58 @@
 ---
 name: run-lean
-description: The default dev-pipeline lane — tracker ticket to ready PR, gated by five artifact milestones. Outcome-gated: it asserts what exists, never how you got there. Expects a ticket with paid-off intake (queue-labeled on GitHub, operator-supplied under jira; optionally a pre-flight ledger).
+description: The lean lane's front door — one ticket in, a merged-ready PR out. A scheduler: it spawns build-lean and review-lean in fresh sessions, reads gate exit codes and tracker state, and authors nothing. Expects a ticket with paid-off intake (queue-labeled on GitHub, operator-attested under jira).
 ---
 
 # run-lean
 
-Outcome-gated harness. `lean-gate.sh` (`G`, here) asserts artifacts; **how** you produce them is yours — any skill surface (intake, plan-interview) is a pool, none mandated. Spend the tokens on the work, not on narrating it. The one thing NOT yours is the review verdict: it is authored outside this session (`/dev-pipeline:review-lean`). Read this file, then work the checklist.
+You are the scheduler, not a stage. `orchestrate-lean.sh` (`O`, here) runs the loop; your job is
+the three things it refuses to do for you, then getting out of its way.
 
-> **Tracker delta (`tracker.type: jira`, `writes: false`).** The checklist and rules below are the **github** default. Under jira: no queue label to confirm (1); claim writes nothing to the tracker, only the run-id record (2); the PR body carries `Closes [<KEY>]` under `### Jira Items` plus the verdict-record path (7); and there is no closing comment and no claimed label (9). [Adapter contract](../run/tools/tracker/jira/README.md).
+The blocks it drives — `/dev-pipeline:build-lean` and `/dev-pipeline:review-lean` — stay
+individually invokable. The two-terminal manual flow is first-class: it is the debugging and
+rescue path, and the fallback if headless sessions ever leave the subscription.
 
 ## Checklist
 
-1. `bash G entry <issue>` — refuses without a live audit ledger, which is what makes the run reconcilable later, and records that it passed. Not optional and not skippable: every later build-role call (`claim`, `1..5`, `all`, `delta`) exits 2 until that row exists. It is idempotent, so a run that started before this shipped self-heals with one call. It also sweeps away lane worktrees whose PR is no longer open — the exits step 9 never reaches. Then confirm the queue label; a missing one is a reject, no prompting.
-2. `bash G claim <issue>` — the two bot-wrapper writes (label swap + `lean-claimed` marker).
-   Export `RUN_ID` first (neutral token, `[A-Za-z0-9._-]+`); it keys every record, and only `entry`/`claim` cache it to `<issue>-run-id` for the later fresh-shell calls to resolve.
-3. Cut a worktree on `<lean prefix><issue>` from the configured base. Never work in the
-   shared checkout. `bash G 1 <issue>` prints the exact spec path it wants — and refuses if the issue declares an unresolved `pause-and-ask` Open Region (get an operator comment first).
-4. **Write the spec/AC file** at that path, ≥ 1 numbered `AC-n`. It is the living definition of done: if scope changes, amend the `AC-n` set *before* milestone 5. A pre-flight `<issue>-ledger.md` is binding input when present.
-   With `design.provider` configured it also needs a `## Design` section — armed (handoff link + `| RS-n | route | state | AC refs |` rows) or `Design: none — <reason>`. Decide once: the disarm state-locks the moment milestone 3 arms. `bash G 1 <issue>`.
-5. Implement. Commit through `bot-commit.sh` — and re-pass the identity on any `--amend`, which otherwise silently re-stamps you as the committer.
-6. `bash G 2 <issue>` then `bash G 3 <issue>` — policy invariants, then the green gate. On an armed ticket that gate renders every RS row, hashes them into a receipt at `<plansDir>/<key>-lean-renders.md`, and reds until you commit it — blocking, on this milestone's budget, and re-run after any later commit.
-7. Compute the cost block once (`pipeline-cost-block.sh --stateless`). Open a **ready** (non-draft) PR: summary, spec link, `Closes #<issue>`, and the cost block appended to the description too — reviewers read the PR, not the issue thread. No stage sections.
-   Then `bash G mark <issue>` — the bot marker carrying this run's identity, which is what the boundary compares the verdict against. **Here, not at milestone 5**: a PR comment fires no `pull_request` event, so a marker posted after the review's push is invisible to the CI run that gates the merge. Idempotent; `bash G 5` re-calls it.
-8. **Milestone 4 arrives from OUTSIDE.** Dispatch no reviewer — the record is written by a
-   separate top-level session (`/dev-pipeline:review-lean <pr>`) with its own identity, and this
-   gate refuses one carrying yours. Hand off; `bash G 4 <issue>` passes only on a committed `verdict=approve` whose `reviewed_patch_id` **is** this branch's current patch — and, when armed, whose `fidelity` is `pass` over a receipt rendered from that same patch. On `needs-work`, fix every blocker, push, and ask for a **new** review context — never a resumed one.
-9. Post one closing comment: PR link, verdict-record reference, same cost block. Then `bash G 5 <issue>` — exit artifacts — and finally `bash G teardown <issue>`, which destroys the worktree (never the branch) or says why it kept it. But **leave the claimed label alone**: milestone 5 requires an open PR, so review is still in flight and the label is correct. The repository's unclaim workflow releases it when the item closes.
+1. **Route.** One `ticketTag` → one cwd. Launch from the repo the ticket's tag routes to; the
+   lane has no per-repo worktree map, so the invocation cwd *is* the routing.
+2. **Resolve the build model from tracker state.** Read the ticket's `opus` / `sonnet` label —
+   that is where intake recorded the sizing. Pass it as `--build-model` with
+   `--model-basis label`. No label? Size the ticket yourself, pass your pick, and say why in
+   `--model-basis` (`sized-here: <one line>`). That line is the whole detector for a missing
+   label, so never leave it at the default when you sized it.
+3. **Run it.**
+   ```
+   bash O <issue> --build-model <m> --model-basis label
+   ```
+   Then watch. Between phases there is no human in the middle: build → review chains the moment
+   the PR exists.
+4. **Read the exit code, and nothing else.** `0` approved and closed out · `1` a phase failed ·
+   `2` preflight rejected (nothing was spawned) · `4` hard stop, budget spent.
+5. On `2`, fix what the preflight named — most often: run `/intake-toolkit:intake` yourself and
+   re-label the ticket. On `4`, **stop**. Re-entry is from the top, not a rescue attempt.
 
 ## Rules that are not negotiable
 
-- **You never author the verdict.** Not on a dark reviewer, not to unblock a run, not "to be replaced later" — the gate and the merge boundary both refuse it.
-- **Any CONTENT pushed after an approve costs another round.** The verdict is bound to the branch's patch, so a later commit reopens milestone 4; a rebase that replays the branch unchanged does not. Land every fix before the handoff.
-- **3 fix attempts per milestone.** The 4th red (`rc=4`) hard-stops: append the reason, post one abort comment (github) naming the milestone, keep the worktree and the claim for manual rescue.
-- **`rc=0` from a gate is the only evidence it passed.** Never record a milestone as done because it looked done; `bash G all <issue>` re-evaluates everything against the current tree, so run it before step 9 — a milestone satisfied before a fix round is stale.
-- **Two tracker writes per clean run**, github only: the claim comment and the closing comment (an abort adds one). A `writes: false` tracker makes none. A `pause-and-ask` region open at milestone 1 needs another: the operator's resolving comment — as does an intent-gap record, which must be ratified before the handoff. The step-7 PR marker is a *source-control* write and is made under every tracker that has a bot.
-- Doc updates are AC-scoped — a change that makes docs stale needs an explicit doc `AC-n`.
-- **A decision the receipt never covered is not yours to make (P9).** Write the intent-gap record (schema: `interviewing-baseline`), follow its region's disposition, and ratify before the handoff — the merge boundary refuses `ratified: no`.
+- **A missing queue label is a reject, not a prompt and not a spawned intake session.** Intake
+  elicits through questions a headless session cannot answer, so a spawned one either hangs or
+  fabricates a receipt — for which the Decision Ledger has no legal provenance. Run intake
+  yourself.
+- **You author nothing and the scheduler writes nothing.** Every tracker comment, label swap,
+  commit and record in a lean run is made by a payload block under its own identity. Adding a
+  write here puts a third identity into a two-identity contract.
+- **Never interpret a finding.** The verdict gate's exit code is the whole signal. Reading the
+  verdict record to decide what to do next is content judgment, which is how this lane grew
+  stage choreography the first time.
+- **Never resume a review context.** Each round's review is a new session — `orchestrate-lean.sh`
+  spawns with `-p` and never `--resume`. Round 2 inheriting round 1's context is round 1 agreeing
+  with itself.
+- **The velocity principles bind here** ([manifesto](../../../../docs/pipeline-manifesto.md)):
+  never idle-block on work the next step does not consume, and fan out independent work. A gate
+  that is right but slow is not done.
 
-## Resume
+## When it stops
 
-Re-read the progress file, `bash G all <issue>`, continue at the first unsatisfied milestone — with one caveat until the verdict lands: `all` pre-checks the cheap assertions first, so while milestone 4 is outstanding (all of BUILD, and every fix round) it reports that and stops without evaluating 2 or 3. Run those directly then; once a `verdict=approve` record is committed the pre-pass is clean and `all` walks the whole progression — the state the mandated before-step-9 call runs in.
-Counters survive; rebase first if the base moved. Integrity lives at the merge boundary — `lean-evidence.sh` (portable: verdict, identity, freshness, ratification; a consumer's CI fetches it at its pinned ref) wrapped by `check-lean-chain.sh` (**github-only** additions: the bot claim comment, the inheritance chain, the design receipt) — and in `lean-reconcile.sh`, which under jira drops the claim arm and runs the rest, saying so. Gaming a local counter buys only a red PR.
+Every non-zero exit leaves the worktree and the claim in place — the state a manual rescue needs.
+Pick the blocks up by hand from the routed repo, or re-run once the reject is fixed.
+`--dry-run` prints the schedule and spawns nothing: the cheap way to check routing first.

@@ -342,7 +342,7 @@ Notes from building it:
 - The meta-strip is a balanced-brace scan, not a parser. That is safe only because
   `design-sync-selftest.mjs` Case I lints every workflow for meta-literal purity — and "every"
   is a **list** of workflow directories. One directory is in it today (`skills/run/workflows/`);
-  `skills/run-lean/workflows/` was removed with run-lean's in-build reviewer rather than left
+  `skills/build-lean/workflows/` was removed with the lane's in-build reviewer rather than left
   empty, because an empty directory contributes no meta files and would make the case read
   broader than it is. Adding a directory means adding it to Case I's list **and** to
   `tools/check-bounded-exploration.sh`, which is anchored the same way — a workflow outside

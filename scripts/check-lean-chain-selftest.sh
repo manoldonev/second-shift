@@ -101,7 +101,7 @@ echo '[]' > "$WORK/comments-empty.json"
 # payload, so every case needs the payload itself and a PR marker trail to reach it. Both are
 # EXPORTED once rather than threaded through each call: the fixture tree is a throwaway repo
 # with no plugins/ directory, and the seam is the payload's input, not this gate's.
-export LEAN_EVIDENCE="$HERE/../plugins/dev-pipeline/skills/run-lean/lean-evidence.sh"
+export LEAN_EVIDENCE="$HERE/../plugins/dev-pipeline/skills/build-lean/lean-evidence.sh"
 [ -f "$LEAN_EVIDENCE" ] || { echo "  FAIL: the evidence payload is missing at $LEAN_EVIDENCE" >&2; exit 1; }
 
 # The DEFAULT marker trail: one bot marker carrying the same build identity the claim comment
@@ -208,7 +208,7 @@ commit_tree "spec + fixtures"
 write_verdict
 
 printf 'docs/plans/acme-42-lean.md\ndocs/plans/acme-42-lean-verdict.md\n' > "$WORK/diff-lean.txt"
-printf 'scripts/fixtures/acme-99-lean.md\nplugins/dev-pipeline/skills/run-lean/lean-gate.sh\n' > "$WORK/diff-fixture-only.txt"
+printf 'scripts/fixtures/acme-99-lean.md\nplugins/dev-pipeline/skills/build-lean/lean-gate.sh\n' > "$WORK/diff-fixture-only.txt"
 printf 'README.md\n' > "$WORK/diff-plain.txt"
 
 BODY_GOOD='Implements the thing.
@@ -277,7 +277,7 @@ if [ "$rc" -eq 1 ] && ! printf '%s' "$out" | grep -q 'not-applicable'; then
 else fail "(C) expected rc=1 via the artifact arm, got rc=$rc: $out"; fi
 
 # ---- (D) MANDATED: pipeline-prefixed PR carrying lean-shaped files is NOT applicable -----
-# This is the PR that delivers run-lean itself: pipeline-authored, and it necessarily carries
+# This is the PR that delivers the lean lane itself: pipeline-authored, and it necessarily carries
 # lean-shaped fixture files. Double-classifying it would make the feature unshippable.
 out="$(run_gate "claude/acme-303" "$WORK/comments-empty.json" "$WORK/diff-lean.txt")"; rc=$?
 if [ "$rc" -eq 0 ] && class_b "$out" "lean-chain:not-applicable"; then

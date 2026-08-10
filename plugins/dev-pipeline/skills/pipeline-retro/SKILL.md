@@ -107,7 +107,7 @@ Walk the run's trail against the skill contracts. For each item answer: complied
 **era: artifact — items 1, 2, 5, 6 read N/A**, not skipped-silently: they audit stage
 mechanics (`stages.N.skillsLoaded[]`, stage checkpoints, `stageCheckpoint["7"].deviations[]`,
 `stages.5.unitTestMutationReview`) that `lean-gate.sh`'s outcome-gated milestones do not
-produce by design (run-lean is "OUTCOME-gated, not process-prescribed" — its own header).
+produce by design (build-lean is "OUTCOME-gated, not process-prescribed" — its own header).
 Re-auditing milestone satisfaction here would test lean-gate.sh's own gate against itself;
 its selftest already owns that. **Item 3 also reads N/A for `artifact`**, superseded by
 `lean-reconcile.sh`, the operator-run pre-merge check that already does this reconciliation

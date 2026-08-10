@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# lean-gate-selftest.sh — behavioral suite for the run-lean milestone gates.
+# lean-gate-selftest.sh — behavioral suite for the build-lean milestone gates.
 #
 # Every case drives the REAL lean-gate.sh against a throwaway git tree and a synthetic config,
 # through the script's documented seams (LEAN_PROGRESS_FILE, SECOND_SHIFT_CONFIG, --pr-file,
@@ -42,7 +42,7 @@ unset LEAN_RUN_MODEL
 # finds an id the comment fixture's marker does not carry, and posts a marker instead of
 # skipping — with `gate()` having unset `GH_BOT`, which reds the case.
 #
-# The variable is exported by every real run: run-lean's checklist step 2 says to export it. So
+# The variable is exported by every real run: build-lean's checklist step 2 says to export it. So
 # the failure lands on an operator's own machine, inside milestone 3, on a case unrelated to
 # whatever is in flight — and passes standalone, which is the worst shape a false red can have.
 # Unset it once here rather than at each call site; every case that needs a value sets one.

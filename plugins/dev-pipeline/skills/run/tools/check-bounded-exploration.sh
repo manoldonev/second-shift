@@ -77,8 +77,8 @@ SKILLS_DIR="$(dirname "$RUN_DIR")"  # skills/
 
 # The scanned set is a LIST, not one hardcoded path, even though exactly one entry is in it
 # today. A lint anchored to a single directory silently skips every file outside it, and that
-# was a real hole rather than a theoretical one while run-lean shipped its own workflow: its
-# structured-emitter fallback IS a schema-carrying dispatch. run-lean's reviewer moved to a
+# was a real hole rather than a theoretical one while the lean lane shipped its own workflow: its
+# structured-emitter fallback IS a schema-carrying dispatch. The lean reviewer moved to a
 # separate top-level review session and its workflows/ directory went with it (an empty-but-
 # present directory would have made the meta-purity lint silently vacuous), so skills/run is
 # the whole set again. Adding a second workflow directory means one new entry here — and the

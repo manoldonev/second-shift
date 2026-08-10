@@ -437,12 +437,19 @@ The write operations below are the **github** adapter (`tracker.writes: true`) _
 
 ```bash
 # parallel — every slice is immediately workable:
-$GH_BOT_SH issue create --title "[slice title]" --body "$BODY" --label ready-for-dev
+$GH_BOT_SH issue create --title "[slice title]" --body "$BODY" --label ready-for-dev --label <opus|sonnet>
 
 # sequential — ONLY the first slice enters the queue; N>1 are created WITHOUT it:
-$GH_BOT_SH issue create --title "[slice 1 title]" --body "$BODY_1" --label ready-for-dev
-$GH_BOT_SH issue create --title "[slice N title]" --body "$BODY_N"   # no --label
+$GH_BOT_SH issue create --title "[slice 1 title]" --body "$BODY_1" --label ready-for-dev --label <opus|sonnet>
+$GH_BOT_SH issue create --title "[slice N title]" --body "$BODY_N" --label <opus|sonnet>   # no queue label
 ```
+
+   **The sizing label rides along, on every slice including the blocked ones.** `opus` or
+   `sonnet`, your judgment on the slice's weight — intake is where weight is actually assessed,
+   and the lane's scheduler reads that label to pick the build model. It is tracker state, so
+   reading it costs the scheduler no content judgment; leaving it off does not block anything,
+   but it pushes the call onto a session that has read the ticket far less carefully than you
+   just did.
 
    Keeping blocked successors **out of the queue** is the ordering enforcement — not rejecting them after they are claimed. Promotion is an operator action at merge time: merging the predecessor's PR is already the serialization point, so labelling the successor rides that same action (Stage 9 renders the reminder on the predecessor's PR). No claim is ever burned and no failed state file is created for the routine blocked case. `../predecessor-gate.sh` is only the pre-claim backstop for a successor that got labelled early.
 

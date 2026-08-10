@@ -22,7 +22,8 @@ plugins/design-toolkit/skills/figma-iterate/SKILL.md	1371	9494	0
 plugins/dev-pipeline/skills/perf-retro/SKILL.md	1669	10757	0
 plugins/dev-pipeline/skills/pipeline-retro/SKILL.md	2377	17837	2
 plugins/dev-pipeline/skills/pr-revision/SKILL.md	2250	18766	0
-plugins/dev-pipeline/skills/run-lean/SKILL.md	575	937	0
+plugins/dev-pipeline/skills/build-lean/SKILL.md	575	937	0
+plugins/dev-pipeline/skills/run-lean/SKILL.md	565	869	0
 plugins/dev-pipeline/skills/run/SKILL.md	8821	72486	1
 plugins/dev-pipeline/skills/run/cost-tracking-setup.md	1915	14273	3
 plugins/dev-pipeline/skills/run/doc-update.md	2233	17446	0

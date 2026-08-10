@@ -915,7 +915,7 @@ rc_rel_fresh=$(sct_rc reclaim "$TRK2" --release)
   || fail "(trk5) fresh reclaim --release — rc=$rc_rel_fresh file-present=$([[ -f "$STATECTL_STATE_DIR/$TRK2.json" ]] && echo y || echo n)"
 
 # ─────────────────────────────────────────────────────────────────────────────
-# LEAN LEGS (run-lean) — the composed progress-file line chain and gate exit codes
+# LEAN LEGS (build-lean) — the composed progress-file line chain and gate exit codes
 # across the three verdict paths.
 #
 # These are the assertion site for the failure economics the issue pins in PROSE but
@@ -928,17 +928,17 @@ rc_rel_fresh=$(sct_rc reclaim "$TRK2" --release)
 # is checked (the label swap itself is claim-issue.sh's contract, proven by claim-selftest.sh).
 # ─────────────────────────────────────────────────────────────────────────────
 echo
-echo "── lean legs (run-lean)"
+echo "── lean legs (build-lean)"
 
 # $HERE, not BASH_SOURCE: this suite cd's to $TMP above, so BASH_SOURCE is relative by the
 # time we get here and would resolve against the temp dir. $HERE was captured absolutely
 # before that cd for exactly this reason.
 #
-# Absence is a FAILURE, not a skip. run-lean ships in this repo, so a missing gate means the
+# Absence is a FAILURE, not a skip. build-lean ships in this repo, so a missing gate means the
 # legs below never ran — and a skipped leg reporting PASS is the vacuous green this whole
 # suite exists to prevent. (It bit these very legs once: a bad path resolved to a skip and
 # the suite reported 32/32 having asserted nothing about lean.)
-LEAN_GATE="$HERE/../run-lean/lean-gate.sh"
+LEAN_GATE="$HERE/../build-lean/lean-gate.sh"
 if [[ ! -x "$LEAN_GATE" ]]; then
   fail "(lean) lean-gate.sh not found or not executable at $LEAN_GATE — the lean legs did not run"
 else
@@ -983,7 +983,7 @@ LEANCFG
   LEAN_SPEC="$LEAN_TREE/docs/plans/acme-77-lean.md"
   LEAN_VERDICT="$LEAN_TREE/docs/plans/acme-77-lean-verdict.md"
 
-  # The verdict record is REVIEW-authored throughout these legs. run-lean's build session
+  # The verdict record is REVIEW-authored throughout these legs. build-lean's session
   # cannot produce it, so a leg composing a build-authored record would compose a state no
   # real run can reach — and the chain would prove nothing about the run it claims to model.
   # The build identities are seeded explicitly rather than left to the gate's stamping, so
@@ -1873,7 +1873,7 @@ echo "── lane routing (both merge-boundary gates over one PR)"
 LR_ROOT="$HERE/../../../.."
 LR_LEAN="$LR_ROOT/scripts/check-lean-chain.sh"
 LR_PIPE="$LR_ROOT/scripts/check-pipeline-chain.sh"
-LR_EV="$HERE/../run-lean/lean-evidence.sh"
+LR_EV="$HERE/../build-lean/lean-evidence.sh"
 # BOTH chain gates live in the marketplace repo's `scripts/`, and both are second-shift-only by
 # construction — their own headers say not to ship them to a consumer. So when this suite runs
 # from a STAGED INSTALL CACHE (tools/install-topology-selftest.sh re-runs every shipped suite

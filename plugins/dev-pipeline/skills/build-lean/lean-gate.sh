@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# lean-gate.sh — the five milestone gates of /dev-pipeline:run-lean, plus the entry
+# lean-gate.sh — the five milestone gates of /dev-pipeline:build-lean, plus the entry
 # precondition and the claim helper.
 #
-# WHY THIS EXISTS: run-lean is OUTCOME-gated, not process-prescribed. The harness asserts
+# WHY THIS EXISTS: build-lean is OUTCOME-gated, not process-prescribed. The harness asserts
 # ARTIFACTS at five ordered milestones and is deliberately silent about the path between
 # them — the session may draw on any skill surface it likes, or none. Everything this
 # script checks is a file, an exit code, or a tracker record; nothing is a claim about how
@@ -1256,7 +1256,7 @@ cmd_claim() {
     echo "<!-- $LEAN_CAPABILITY_KEY: $LEAN_CAPABILITY_STAMP -->"
     echo "<!-- stage: $LEAN_CLAIM_MARKER_TAG -->"
     echo ""
-    echo "🤖 Claimed by \`/dev-pipeline:run-lean\`."
+    echo "🤖 Claimed by \`/dev-pipeline:build-lean\`."
   } > "$body"
   url="$("${GH_BOT:?GH_BOT must point at the bot wrapper}" api -X POST \
         "repos/{owner}/{repo}/issues/$ISSUE/comments" -F body=@"$body" --jq .html_url 2>&1)"
@@ -1437,7 +1437,7 @@ cmd_mark() {
     echo "<!-- session_id: ${CLAUDE_CODE_SESSION_ID:-unset} -->"
     echo "<!-- stage: $LEAN_PR_MARKER_TAG -->"
     echo ""
-    echo "🤖 Built by \`/dev-pipeline:run-lean\`. This comment carries the build run's identity at"
+    echo "🤖 Built by \`/dev-pipeline:build-lean\`. This comment carries the build run's identity at"
     echo "the merge boundary — the review verdict must carry a different one."
   } > "$body"
   url="$("${GH_BOT:?GH_BOT must point at the bot wrapper}" api -X POST \

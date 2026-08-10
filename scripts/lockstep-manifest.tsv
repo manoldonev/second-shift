@@ -71,7 +71,7 @@ seam-scrub	subset-of	plugins/dev-pipeline/skills/run/tools/preflight.sh	seam-scr
 #
 # lean-gate.sh (#379) needs nothing narrower or wider than verifyctl.sh's own denylist — no
 # PREFLIGHT_DOCTOR_CMD-shaped extra, so verbatim rather than subset-of.
-seam-scrub-lean	verbatim	plugins/dev-pipeline/skills/run-lean/lean-gate.sh	seam-scrub	plugins/dev-pipeline/skills/run/verifyctl.sh	seam-scrub
+seam-scrub-lean	verbatim	plugins/dev-pipeline/skills/build-lean/lean-gate.sh	seam-scrub	plugins/dev-pipeline/skills/run/verifyctl.sh	seam-scrub
 #
 # Local prettier resolution (#439). lean-gate.sh formats the verdict record it authors, and
 # resolves the binary the way verifyctl.sh already does — worktree install, then main checkout.
@@ -79,7 +79,7 @@ seam-scrub-lean	verbatim	plugins/dev-pipeline/skills/run-lean/lean-gate.sh	seam-
 # call must never reach for, so the anchored blocks are exactly the two rungs both agree on and
 # the relation is verbatim over those. `subset-of` cannot express the narrowing — it compares
 # single-quoted pipe-delimited enums, and these are code paths, not a vocabulary.
-prettier-local-rungs	verbatim	plugins/dev-pipeline/skills/run-lean/lean-gate.sh	prettier-local-rungs	plugins/dev-pipeline/skills/run/verifyctl.sh	prettier-local-rungs
+prettier-local-rungs	verbatim	plugins/dev-pipeline/skills/build-lean/lean-gate.sh	prettier-local-rungs	plugins/dev-pipeline/skills/run/verifyctl.sh	prettier-local-rungs
 #
 # ---------------------------------------------------------------------------------------
 # DROPPED to reviewer-guarded — recorded here rather than forgotten. Each was considered
@@ -410,8 +410,8 @@ artifact-reviewer-baseline-deltas	verbatim	plugins/design-toolkit/agents/figma-f
 # three sides instead: lean-gate-selftest.sh (x6)/(x7)/(y2), check-lean-chain-selftest.sh
 # (V3)/(V3b)/(V4)/(V5), lean-reconcile-selftest.sh (N3)/(N6).
 # Revisit if a fourth reader lands.
-lean-inherited-key-chain	verbatim	plugins/dev-pipeline/skills/run-lean/lean-gate.sh	lean-inherited-key	scripts/check-lean-chain.sh	lean-inherited-key
-lean-inherited-key-reconcile	verbatim	plugins/dev-pipeline/skills/run-lean/lean-gate.sh	lean-inherited-key	plugins/dev-pipeline/skills/run-lean/lean-reconcile.sh	lean-inherited-key
+lean-inherited-key-chain	verbatim	plugins/dev-pipeline/skills/build-lean/lean-gate.sh	lean-inherited-key	scripts/check-lean-chain.sh	lean-inherited-key
+lean-inherited-key-reconcile	verbatim	plugins/dev-pipeline/skills/build-lean/lean-gate.sh	lean-inherited-key	plugins/dev-pipeline/skills/build-lean/lean-reconcile.sh	lean-inherited-key
 
 # lean design ARMING (#394) — `design_armed`, the awk predicate that decides whether a ticket's
 # committed spec arms the design render lane. Held by lean-gate.sh (which gates on it at
@@ -435,7 +435,7 @@ lean-inherited-key-reconcile	verbatim	plugins/dev-pipeline/skills/run-lean/lean-
 # check-lean-chain-selftest.sh (X1)-(X6) at the boundary, and scenario-liveness-selftest.sh's
 # three (lean-design-*) legs compose the writer's manifest through both readers.
 # Revisit if lean-reconcile.sh grows the receipt arm (#394 defers it) — it becomes a third copy.
-lean-design-armed	verbatim	plugins/dev-pipeline/skills/run-lean/lean-gate.sh	lean-design-armed	scripts/check-lean-chain.sh	lean-design-armed
+lean-design-armed	verbatim	plugins/dev-pipeline/skills/build-lean/lean-gate.sh	lean-design-armed	scripts/check-lean-chain.sh	lean-design-armed
 
 # intake-receipt vocabulary (Kind enum, disposition enum, intent-gap record schema) —
 # `interviewing-baseline/SKILL.md` states it in prose and tables; `ledger-lint.sh` holds the
@@ -570,7 +570,7 @@ unclaim-workflow-env	verbatim	.github/workflows/unclaim-on-close.yml	unclaim-wor
 # Behavioral guards on both sides: lean-gate-selftest.sh (pm1)-(pm7) at the writer,
 # lean-evidence-selftest.sh (m)-(q) at the reader, and check-lean-chain-selftest.sh (Y1)-(Y3)
 # composes a fixture trail through the delegating boundary.
-lean-pr-marker	verbatim	plugins/dev-pipeline/skills/run-lean/lean-gate.sh	lean-pr-marker	plugins/dev-pipeline/skills/run-lean/lean-evidence.sh	lean-pr-marker
+lean-pr-marker	verbatim	plugins/dev-pipeline/skills/build-lean/lean-gate.sh	lean-pr-marker	plugins/dev-pipeline/skills/build-lean/lean-evidence.sh	lean-pr-marker
 
 # lean PRODUCER CAPABILITIES (#445) — the claim comment's stage tag, the generation stamp's key,
 # and the closed capability vocabulary an arm may bind itself to. lean-gate.sh is the CANONICAL
@@ -590,8 +590,8 @@ lean-pr-marker	verbatim	plugins/dev-pipeline/skills/run-lean/lean-gate.sh	lean-p
 # Behavioral guards: lean-gate-selftest.sh (pc1)-(pc3) at the writer, lean-evidence-selftest.sh
 # (ad1)-(ad7) at the bound arm, and check-lean-chain-selftest.sh composes a stamped trail through
 # the delegating boundary.
-lean-producer-capabilities-evidence	verbatim	plugins/dev-pipeline/skills/run-lean/lean-gate.sh	lean-producer-capabilities	plugins/dev-pipeline/skills/run-lean/lean-evidence.sh	lean-producer-capabilities
-lean-producer-capabilities-chain	verbatim	plugins/dev-pipeline/skills/run-lean/lean-gate.sh	lean-producer-capabilities	scripts/check-lean-chain.sh	lean-producer-capabilities
+lean-producer-capabilities-evidence	verbatim	plugins/dev-pipeline/skills/build-lean/lean-gate.sh	lean-producer-capabilities	plugins/dev-pipeline/skills/build-lean/lean-evidence.sh	lean-producer-capabilities
+lean-producer-capabilities-chain	verbatim	plugins/dev-pipeline/skills/build-lean/lean-gate.sh	lean-producer-capabilities	scripts/check-lean-chain.sh	lean-producer-capabilities
 
 # lean GATE-OUTPUT dispositions (#443) — `LEAN_OUTPUT_DISPOSITIONS`, the closed vocabulary a
 # class-(b) line ("this arm could not evaluate") may name. Both merge-boundary gates declare their
@@ -609,7 +609,7 @@ lean-producer-capabilities-chain	verbatim	plugins/dev-pipeline/skills/run-lean/l
 # Behavioral guards on both sides: lean-evidence-selftest.sh (dd1)/(dd2) drive the real emitter
 # bytes over an accepted and a rejected disposition, and both suites anchor every class-(b) line
 # whole against the same four-value alternation.
-lean-output-dispositions	verbatim	scripts/check-lean-chain.sh	lean-output-dispositions	plugins/dev-pipeline/skills/run-lean/lean-evidence.sh	lean-output-dispositions
+lean-output-dispositions	verbatim	scripts/check-lean-chain.sh	lean-output-dispositions	plugins/dev-pipeline/skills/build-lean/lean-evidence.sh	lean-output-dispositions
 
 # lean ARM CUTOFFS (#444) — the two `since:` comparators. An arm declares the instant its
 # contract took effect, so a run whose observation point precedes it is exempted rather than
