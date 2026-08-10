@@ -1938,9 +1938,27 @@ else
     ( cd "$LR_TREE" && PIPELINE_BRANCH_PREFIX="$LR_PREFIX" \
       PR_HEAD_REF="${LR_PREFIX}77" PR_HEAD_SHA="$LR_SHA" \
       PR_BASE_REF=main PR_BODY="$LR_BODY" PR_CREATED_AT="$2" \
-      LEAN_EVIDENCE="$LR_EV" bash "$LR_LEAN" --comments-file "$LR_EMPTY" \
+      LEAN_EVIDENCE="$LR_EV" bash "$LR_LEAN" --comments-file "${3:-$LR_EMPTY}" \
       --diff-files-file "$1" 2>&1 )
   }
+
+  # #445. The claim trail this boundary already holds is also the carrier of the producer's
+  # CAPABILITY STAMP, which decides whether a capability-bound arm evaluates at all. Two trails,
+  # identical but for the stamp, so the legs below state which producer generation built the PR
+  # instead of inheriting an empty trail's answer. Both are claimed before the cutoff instants
+  # the legs use, so the boundary's own PR-open window is satisfied either way.
+  LR_CLAIM_STAMPED="$TMP/lr-claim-stamped.json"
+  cat > "$LR_CLAIM_STAMPED" <<'EOF'
+[{ "user": { "type": "Bot", "login": "acme-bot" },
+   "created_at": "2026-08-08T00:00:00Z",
+   "body": "<!-- dev-pipeline -->\n<!-- run_id: r-lr-build -->\n<!-- session_id: sess-lr-build -->\n<!-- capabilities: pr-marker -->\n<!-- stage: lean-claimed -->" }]
+EOF
+  LR_CLAIM_PRETOKEN="$TMP/lr-claim-pretoken.json"
+  cat > "$LR_CLAIM_PRETOKEN" <<'EOF'
+[{ "user": { "type": "Bot", "login": "acme-bot" },
+   "created_at": "2026-08-08T00:00:00Z",
+   "body": "<!-- dev-pipeline -->\n<!-- run_id: r-lr-build -->\n<!-- session_id: sess-lr-build -->\n<!-- stage: lean-claimed -->" }]
+EOF
 
   # (lr1) A LEAN PR: the same namespace a staged one uses, distinguished only by its spec.
   LR_DIFF_LEAN="$TMP/lr-diff-lean.txt"
@@ -1977,11 +1995,30 @@ else
   #
   # PAIRED ACROSS THE CUTOFF on one unchanged tree, which is what makes it a comparator test
   # rather than a "does it ever print this" test: only the instant moves between the two calls.
-  lr4_before="$(lr_lean_out "$LR_DIFF_LEAN" '2026-08-08T17:05:13Z')"
-  lr4_after="$(lr_lean_out "$LR_DIFF_LEAN" '2026-08-08T17:05:14Z')"
-  grep -q 'identity: postdated' <<<"$lr4_before" && ! grep -q 'identity: postdated' <<<"$lr4_after" \
+  #
+  # BOTH CALLS RUN ON THE STAMPED CLAIM TRAIL (#445). A capability-bound arm on an unstamped
+  # trail declines for a SECOND reason, so an empty trail would leave the after-side's "not
+  # postdated" satisfied by a different decline and the leg would prove nothing about the cutoff.
+  # The after-side asserts the arm cleared BOTH exemptions — no `postdated`, no `inert` — which is
+  # the strongest statement available on this tree: it carries no verdict record, so the arm
+  # short-circuits before its refusal (that refusal is (Y1)'s subject, in the boundary's own
+  # suite).
+  lr4_before="$(lr_lean_out "$LR_DIFF_LEAN" '2026-08-08T17:05:13Z' "$LR_CLAIM_STAMPED")"
+  lr4_after="$(lr_lean_out "$LR_DIFF_LEAN" '2026-08-08T17:05:14Z' "$LR_CLAIM_STAMPED")"
+  grep -q 'identity: postdated' <<<"$lr4_before" \
+    && ! grep -qE 'identity: (postdated|inert)' <<<"$lr4_after" \
     && pass "(lr4) the payload's arm cutoff survives delegation: the boundary exempts a PR opened one second before it and stops exempting one second after" \
     || fail "(lr4) delegated cutoff — before=[$lr4_before] after=[$lr4_after]"
+
+  # (lr5) #445: the CAPABILITY binding, composed the same way and over the same instant. Only the
+  # claim trail moves between the two calls — one stamped, one from the generation that predates
+  # the stamp — so the boundary's answer can only have come from the stamp. PAIRED, because
+  # either side alone is satisfied by an arm that always declines or one that never does.
+  lr5_pre="$(lr_lean_out "$LR_DIFF_LEAN" '2026-08-08T17:05:14Z' "$LR_CLAIM_PRETOKEN")"
+  grep -q 'identity: inert' <<<"$lr5_pre" \
+    && ! grep -q 'identity: inert' <<<"$lr4_after" \
+    && pass "(lr5) the payload's capability binding survives delegation: a pre-token producer's PR declines where a stamped one does not" \
+    || fail "(lr5) delegated capability binding — pretoken=[$lr5_pre] stamped=[$lr4_after]"
 fi
 
 echo
