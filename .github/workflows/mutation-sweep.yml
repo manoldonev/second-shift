@@ -40,20 +40,41 @@ permissions:
 # own logs (never finalized) and artifact (never reached upload) — three full runs, zero
 # diagnostics. The cause is environmental and unknown; the structural fix is to stop
 # betting the whole run's evidence on one long-lived runner. Ten shards:
-#   - ~47 sweepable guards today / 10 ≈ 5 per shard, ~4-9 min each at the measured 42-85
-#     min monolithic runtime — an order of magnitude below the shortest observed death,
-#     and still well clear even as the fixed operator enumeration grows the population;
+#   - ~47 sweepable guards today / 10 ≈ 5 per shard. MEASURED, not modelled: across the
+#     five nightlies of 2026-08-06..2026-08-10 the worst shard ran 12.7-16.1 min and the
+#     median shard 3.8-5.6 min. RE-DERIVE rather than trust that — a bare figure rots, and
+#     the `~4-9 min` this replaces was ~2x optimistic within five days of #384 — from the
+#     nightly runs' own job durations:
+#       gh run list --workflow mutation-sweep.yml --json databaseId,createdAt
+#       gh api "repos/<owner>/<repo>/actions/runs/<id>/jobs" --jq \
+#         '.jobs[]|select(.name|startswith("sweep "))|"\(.name) \(.started_at) \(.completed_at)"'
+#     Even the worst shard is an order of magnitude below the shortest observed monolithic
+#     death, with room as the fixed operator enumeration grows the mutant population;
 #   - one shard's death costs 1/10 of the evidence, and the merge job NAMES the dead
 #     shard's guards (`merge incomplete`), which IS the missing datapoint;
 #   - 10 concurrent jobs sit inside the 20-job public-repo cap with headroom for other
 #     workflows, and minutes are free on a public repo.
 # The `/10` in the --shard argument and the matrix list move together; a mismatch cannot
 # pass silently — the merge job reds on any guard left unswept or swept twice.
+#
+# WHAT PARTIAL EVIDENCE IS, EXACTLY. mutation-sweep.sh streams its report onto the artifact
+# path as rows are emitted, so a shard killed at the step bound below still publishes an
+# artifact instead of an empty directory. Do not over-read that: swept guards' rows are
+# emitted only after the whole worker pool finishes, so a shard killed DURING the pool
+# publishes the report header and shard 1's excluded-guard rows and no verdicts — its
+# per-mutant evidence is in the job LOG, which survives because the bound is on the step
+# rather than the job. The two mechanisms are complementary; neither alone is the fix.
+#
+# AND WHAT IT STILL DOES NOT COVER. All of the above needs the job to finalize and run its
+# `if: always()` steps. The 83-84 minute lost-communication deaths above are NOT that
+# class: no step executes at all, so the streamed report dies on the runner with everything
+# else. Reaching them would need out-of-band publication (incremental uploads, an external
+# sink) — a larger change than this. Partial-evidence coverage is not total coverage.
 jobs:
   sweep:
     runs-on: ubuntu-latest
-    # Generous per-shard bound: ~9 min expected worst shard today; leaves room for the
-    # growing mutant population while staying far under the old monolithic exposure.
+    # Job-level backstop, deliberately generous against a 12-16 min measured worst shard;
+    # the operative bound is the step-level one below.
     timeout-minutes: 60
     strategy:
       # A dying shard must not cancel its siblings — partial evidence is the point.
@@ -86,7 +107,15 @@ jobs:
           fi
           echo "seed=$seed" >> "$GITHUB_OUTPUT"
 
+      # STEP-level bound, not redundant with the job-level 60 above — do not "simplify" it
+      # away. Blowing a JOB timeout cancels the job, and whether an `if: always()` step
+      # runs under cancellation is disputed: GitHub documents always() as running, while
+      # the one shard that actually timed out (2026-07-31) produced neither log nor
+      # artifact. Blowing a STEP timeout is an ordinary step failure, under which the job
+      # unambiguously proceeds to its always() steps and publishes what the sweep streamed.
+      # 45 min is ~3x the measured worst shard; the job bound stays above it as a backstop.
       - name: sweep shard
+        timeout-minutes: 45
         env:
           SKIP_STRESS: '1' # canonical sweep environment; asserted against the baseline header
         run: |
@@ -103,15 +132,18 @@ jobs:
 
       # always(): a RED run is exactly the run whose evidence matters most.
       #
-      # The output dir is deliberately NOT dotted. upload-artifact@v4 excludes hidden
-      # paths unless include-hidden-files is set, so a `.sweep-out` upload silently
-      # matched nothing — and `warn` reported that as success. A whole sweep's evidence
-      # was discarded by a green step.
+      # The output dir is deliberately NOT dotted, and neither is anything the sweep writes
+      # into it (the report, the seed artifacts, the `mutation-complete` marker).
+      # upload-artifact@v4 excludes hidden paths unless include-hidden-files is set, so a
+      # `.sweep-out` upload silently matched nothing — and `warn` reported that as success.
+      # A whole sweep's evidence was discarded by a green step.
       #
-      # error, not warn: by the time this step runs the sweep has either reached finish()
-      # (which always writes the report) or already failed the job, so an empty dir means
-      # the evidence was lost — which is worth reding on its own rather than being
-      # summarized as a warning nobody reads.
+      # error, not warn: the report exists from the sweep's first row onward (--report is
+      # the streaming sink, not a copy made at the end), so by the time this step runs an
+      # empty dir means the evidence was lost — worth reding on its own rather than being
+      # summarized as a warning nobody reads. What separates a shard that finished from one
+      # killed part-way is the `mutation-complete` marker, which only finish() writes; the
+      # merge job reds by name on a report that arrives without one.
       #
       # upload-artifact@v4 requires UNIQUE names, so each shard uploads under its own;
       # the merge job below publishes the single operator-facing `mutation-sweep`.

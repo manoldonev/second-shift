@@ -53,11 +53,22 @@ of #384 — so the pointer to the source is part of the criterion, not decoratio
 
 **AC-2 — the report is streamed to `--report`, not copied at the end (D-1).**
 `tools/mutation-sweep.sh` makes `--report <file>` the sink itself: the header and
-every `emit_row` row land on that path as they are computed, so a run killed
-mid-sweep leaves its completed rows behind. The `mktemp` buffer survives only as
-the fallback when `--report` is unset, where `finish()` still prints it to stdout
-and removes it. `finish()` no longer copies. Report *content* for a run that
-reaches `finish()` is unchanged in every mode, merge included.
+every `emit_row` row land on that path as they are computed, so the report exists
+from the sweep's first moment and a killed run still publishes an artifact rather
+than an empty directory the upload step reds on (`if-no-files-found: error`). The
+`mktemp` buffer survives only as the fallback when `--report` is unset, where
+`finish()` still prints it to stdout and removes it. `finish()` no longer copies.
+Report *content* for a run that reaches `finish()` is unchanged in every mode,
+merge included.
+
+Stated precisely, because the ledger's D-1 phrasing ("a shard can die between its
+first verdict and its last") is optimistic about the current architecture: swept
+guards' rows are emitted in PHASE 5, which runs only after the whole worker pool
+completes. A shard killed *during* the pool — the actual timeout failure mode —
+therefore publishes the header plus shard 1's excluded-guard bookkeeping rows and
+no verdicts. Its per-mutant evidence is in the job **log**, which survives because
+of AC-3. AC-2 and AC-3 are complementary; neither alone is the fix, and the code
+comment says so rather than letting a later reader over-read the streaming.
 
 **AC-3 — the `sweep shard` step carries its own time bound (D-3).**
 `.github/workflows/mutation-sweep.yml` gives the `sweep shard` step a
@@ -93,10 +104,13 @@ total coverage.
 
 **AC-6 — the new behavior has cases in the sweep's paired suite (D-7).**
 `tools/mutation-sweep-selftest.sh` gains cases that fail if AC-2 or AC-4
-regresses: rows present on the `--report` path *before* the run ends (streaming,
-not a final copy); the completion marker written on a run that finishes and absent
-on one that does not; the truncated-shard red naming the shard; and the seed-arity
-check keyed on completed shards. `tools/mutation-sweep.sh` is a
+regresses: the `--report` path already carrying its header while killers are still
+running, observed by a fixture killer rather than by timing (streaming, not a final
+copy); the completion marker absent at that same moment and present once the run
+finishes, and never written at all without `--report`; the truncated-shard red
+naming the shard; and the seed-arity check keyed on completed shards, with a real
+mode mismatch still reding so the check is not merely disabled.
+`tools/mutation-sweep.sh` is a
 `mutation-exclusions.tsv` row (the harness never sweeps itself), so this diff
 re-keys no generic survivor ordinals and `tools/mutation-baseline.tsv` is
 untouched.
@@ -115,6 +129,11 @@ leaves behind when it hits a bound, and the OR-2 class it still does not cover.
   timing out a shard. Reversal is a one-line workflow knob.
 - Any mechanism for OR-2 (out-of-band / incremental publication for the
   lost-communication class). Larger than this ticket; AC-5 states the gap instead.
+- Streaming per-mutant verdicts into the output dir so a pool-time death publishes
+  structured evidence rather than only the log. The receipt's D-1 chose the report
+  sink; this is a different mechanism it did not cover, and the log already carries
+  that evidence once AC-3 keeps the job alive. Named here so the gap is a recorded
+  decision rather than an oversight.
 
 ## Design
 
