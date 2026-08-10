@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Selftest for check-eval-model-neutrality.sh — the guard that keeps vendor model identity out
+# Selftest for check-eval-model-identity.sh — the guard that keeps vendor model identity out
 # of the runnable eval surface under plugins/*/evals/**.
 #
 # What it has to prove, beyond "it runs":
@@ -16,7 +16,7 @@
 # CI runs this via the *-selftest.sh glob on both lanes, incl. macOS bash 3.2.
 set -uo pipefail
 SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
-CHECK="$SCRIPT_DIR/check-eval-model-neutrality.sh"
+CHECK="$SCRIPT_DIR/check-eval-model-identity.sh"
 REPO_ROOT=$(cd "$SCRIPT_DIR/.." && pwd)
 fail=0
 
@@ -76,8 +76,22 @@ expect_report_contains() {
 if bash "$CHECK" "$REPO_ROOT" >/dev/null 2>&1; then
     echo "PASS: real tree carries no vendor model identity in the runnable eval surface"
 else
-    echo "FAIL: real tree should pass the eval-model-neutrality check" >&2
+    echo "FAIL: real tree should pass the eval-model-identity check" >&2
     bash "$CHECK" "$REPO_ROOT" >&2 || true
+    fail=1
+fi
+
+# 1b) Green with NO argument — the form CI invokes. Not a duplicate of (1): this is the only
+#     case that exercises the default-root derivation, and a break there is silent to every
+#     explicitly-rooted case. Run from a directory that is NOT the repo, so a default that had
+#     quietly become $PWD would be caught here too.
+noarg_out=$(cd / && bash "$CHECK" 2>&1)
+noarg_rc=$?
+if [ "$noarg_rc" = "0" ]; then
+    echo "PASS: a no-argument invocation resolves the repo root from the script's own location"
+else
+    echo "FAIL: no-argument invocation should pass from the repo root, got rc=$noarg_rc" >&2
+    echo "$noarg_out" >&2
     fail=1
 fi
 
@@ -159,8 +173,8 @@ expect_report_contains "scanned 0 files" "the empty-scan refusal says why"
 expect_rc 2 "a nonexistent root refuses" "$TMP/no-such-dir"
 
 if [ "$fail" -ne 0 ]; then
-    echo "check-eval-model-neutrality-selftest: FAILED" >&2
+    echo "check-eval-model-identity-selftest: FAILED" >&2
     exit 1
 fi
-echo "check-eval-model-neutrality-selftest: OK"
+echo "check-eval-model-identity-selftest: OK"
 exit 0

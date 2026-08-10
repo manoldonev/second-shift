@@ -79,7 +79,7 @@ vendor model. The README's flag-table `Default` column for the three model flags
 required-no-default, matching AC-1.
 
 **AC-7 — a regression guard with its own contract (D-6).** A new
-`scripts/check-eval-model-neutrality.sh` fails when the **runnable** eval surface under
+`scripts/check-eval-model-identity.sh` fails when the **runnable** eval surface under
 `plugins/*/evals/**` contains vendor model identity, in either of two forms:
 
 - a versioned vendor pin (`claude-<family>-<digits>…`, case-insensitive);
@@ -94,14 +94,23 @@ green. It takes an optional root argument so a fixture tree can be scanned.
 
 CLAUDE.md exempts "the eval runners" from selftest coverage for having no independent
 contract; this lint has one, so it ships with a same-named behavioral selftest
-(`scripts/check-eval-model-neutrality-selftest.sh`) covering: a clean tree passes; each of
-the two violation forms reds and names its file; the identical literal inside each excluded
-record file still passes; a zero-file scan reds; and the **real repo tree** passes.
+(`scripts/check-eval-model-identity-selftest.sh`) covering: a clean tree passes; each of the
+violation forms reds and names its file; the identical literal inside each excluded record
+file still passes; prose that names the aliases in English stays green; a zero-file scan
+reds; the **real repo tree** passes; and the **no-argument** form passes, which is the only
+case that exercises the default-root derivation CI relies on.
 
-**AC-8 — the guard runs.** `scripts/check-eval-model-neutrality.sh` is invoked as a step of
-the `lint-and-selftests` job in `.github/workflows/ci.yml`, next to the other repo-level
-lints. This does not contradict D-10: D-10 records that CI never *invokes the eval runners*,
-so fail-closed runners cannot red a lane. A static text lint invokes no runner and makes no
+The guard is named for model *identity* rather than *neutrality* so that neither its filename
+nor the messages quoting it contain the `-ne` substring. That is not cosmetic: the mutation
+sweep enumerates `-eq|-ne` sites per line with a per-guard budget of 2, and under the earlier
+name the two matching lines were both **comments**, where a flip is unkillable by
+construction — they consumed the whole budget and the guard's one real `-eq` comparison was
+never mutated at all. The rename leaves exactly one site, the real one.
+
+**AC-8 — the guard runs.** `scripts/check-eval-model-identity.sh` is invoked as a step of the
+`lint-and-selftests` job in `.github/workflows/ci.yml`, next to the other repo-level lints.
+This does not contradict D-10: D-10 records that CI never *invokes the eval runners*, so
+fail-closed runners cannot red a lane. A static text lint invokes no runner and makes no
 model call — CI stays model-free.
 
 **AC-9 — the historical record is byte-unchanged (D-5).** No edit lands in `changelog.md`,

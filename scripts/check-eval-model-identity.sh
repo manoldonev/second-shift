@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# check-eval-model-neutrality.sh — no vendor model identity in the RUNNABLE eval surface.
+# check-eval-model-identity.sh — no vendor model identity in the RUNNABLE eval surface.
 #
 # WHY THIS EXISTS. The eval harnesses under `plugins/*/evals/**` ship inside two plugins, so a
 # model id checked in there is a vendor id in every consumer's tree (epic #350 asks that
@@ -29,17 +29,26 @@
 # empty scan set means the root is wrong or the surface moved; either way the answer is not
 # "clean".
 #
-# Usage: check-eval-model-neutrality.sh [root]
+# Usage: check-eval-model-identity.sh [root]
 #   root defaults to the repo root containing this script. The argument exists so a fixture tree
 #   can be scanned — that is how the paired selftest exercises every arm.
 
 set -uo pipefail
 
+# Resolved in two named steps rather than one nested substitution, so a failure to locate
+# either has somewhere to be observed: an unresolvable script dir would otherwise silently
+# become an empty prefix and the default root would resolve to `/`, turning a no-argument
+# invocation into a whole-filesystem scan.
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-ROOT="${1:-$(cd "$SCRIPT_DIR/.." && pwd)}"
+if [[ -z "$SCRIPT_DIR" ]]; then
+  echo "[check-eval-model-identity] could not resolve this script's own directory." >&2
+  exit 2
+fi
+DEFAULT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+ROOT="${1:-$DEFAULT_ROOT}"
 
 if [[ ! -d "$ROOT" ]]; then
-  echo "[check-eval-model-neutrality] not a directory: $ROOT" >&2
+  echo "[check-eval-model-identity] not a directory: '$ROOT'" >&2
   exit 2
 fi
 
@@ -81,7 +90,7 @@ done < <(
 )
 
 if [[ ${#files[@]} -eq 0 ]]; then
-  echo "[check-eval-model-neutrality] scanned 0 files under $ROOT — nothing matches */evals/*." >&2
+  echo "[check-eval-model-identity] scanned 0 files under $ROOT — nothing matches */evals/*." >&2
   echo "  The eval surface moved, or this root is wrong. Refusing to report a pass on an empty scan set." >&2
   exit 2
 fi
@@ -105,7 +114,7 @@ done
 if [[ $violations -gt 0 ]]; then
   {
     echo
-    echo "[check-eval-model-neutrality] $violations vendor model reference(s) in the runnable eval surface under $ROOT."
+    echo "[check-eval-model-identity] $violations vendor model reference(s) in the runnable eval surface under $ROOT."
     echo "  Model identity belongs to the operator, not to this repo. Read it from the environment"
     echo "  (REVIEWER_MODEL / JUDGE_MODEL / MOCK_MODEL) and let the runner refuse a missing or"
     echo "  floating value — see plugins/review-toolkit/evals/agent-eval-kit/README.md."
@@ -115,4 +124,4 @@ if [[ $violations -gt 0 ]]; then
   exit 1
 fi
 
-echo "[check-eval-model-neutrality] ✓ ${#files[@]} runnable eval file(s) carry no vendor model identity."
+echo "[check-eval-model-identity] ✓ ${#files[@]} runnable eval file(s) carry no vendor model identity."

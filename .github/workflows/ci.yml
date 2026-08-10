@@ -141,8 +141,8 @@ jobs:
       # No vendor model identity in the runnable eval surface under plugins/*/evals/**. The
       # eval harnesses are operator-run and model-billed; CI never invokes them and this step
       # does not either — it is a static text scan, so the model-free-CI principle holds.
-      - name: eval-harness model neutrality (plugins/*/evals/**)
-        run: bash scripts/check-eval-model-neutrality.sh
+      - name: eval-harness model identity (plugins/*/evals/**)
+        run: bash scripts/check-eval-model-identity.sh
 
       - name: namespace direction check (docs/namespaces.md rule 3)
         run: |
