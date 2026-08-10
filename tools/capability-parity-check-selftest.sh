@@ -51,11 +51,18 @@ for n in 1-alpha 2-beta 3-gamma; do : > "$SB_STAGES/$n.md"; done
 P='plugins/dev-pipeline/skills/run/stages'
 
 # write_register <extra-rows-printf-format...> — always emits the three covering rows first.
+#
+# The beta row's path ORDER is load-bearing, do not tidy it: the register is written in a
+# `", path"` style, so a stage doc cited in any non-first position arrives with a leading space
+# and only the guard's trim makes it key as a citation. Putting the `.mjs` first is what puts
+# `2-beta.md` behind that space, so every case below depends on the trim — with `2-beta.md`
+# first, deleting the trim leaves all 17 cases green and the guard would red every legitimately
+# covered doc that happens to be cited second.
 write_register() {
   {
     printf '# fixture register\n'
     printf 'alpha capability\t%s/1-alpha.md\tported\tnote a\n' "$P"
-    printf 'beta capability\t%s/2-beta.md, workflows/beta.mjs\talready-covered\tnote b\n' "$P"
+    printf 'beta capability\tworkflows/beta.mjs, %s/2-beta.md\talready-covered\tnote b\n' "$P"
     printf 'gamma capability\t%s/3-gamma.md\tchoreography\tnote c\n' "$P"
     # shellcheck disable=SC2059 # the caller's first arg IS the format — literal \t is how
     # these fixtures spell a field separator, so it must survive as a format, not as data.
@@ -171,7 +178,17 @@ rc=$(run_guard)
 [[ "$rc" -eq 1 ]] \
   && ok "(l) the enum lint still reds once the coverage clause is vacuous (unconditional, D-16)" \
   || bad "(l) off-enum disposition passed in the post-#348 state — rc=$rc"
+# (k) removed the whole directory, landing on the "does not exist" branch. #348 can equally
+# leave an empty stages/ behind, which is the sibling branch: still vacuous, still green, and
+# the note is the only thing distinguishing it from a coverage clause that ran and found
+# nothing wrong.
 mkdir -p "$SB_STAGES"
+write_register
+out=$(bash "$SANDBOX/tools/capability-parity-check.sh" 2>&1); rc=$?
+{ [[ "$rc" -eq 0 ]] && [[ "$out" == *"holds no *.md files"* ]]; } \
+  && ok "(k2) an emptied-but-present stages dir is vacuous and green, and says so" \
+  || bad "(k2) empty stages dir — rc=$rc, output: $out"
+
 for n in 1-alpha 2-beta 3-gamma; do : > "$SB_STAGES/$n.md"; done
 
 # ---- (m) rows are permanent record: a cited path need not exist ---------------------------

@@ -5,8 +5,11 @@
 # PATHS. That catches an orphaned reference; it cannot catch a BEHAVIOR disappearing, because
 # a behavior whose only implementation is a stage doc leaves nothing behind to dangle. The
 # register is the record of what each staged-lane capability's fate was decided to be, and this
-# guard is what makes a deletion answerable to it: delete a stage doc no row names, and this
-# reds.
+# guard is what makes a deletion answerable to it — as a PRECONDITION, not a deletion trigger.
+# While a stage doc no row names is PRESENT, this reds. So coverage must exist before any
+# deletion can land, and at deletion time every removed doc was already dispositioned. (Note
+# which way that runs: deleting an uncovered doc is what makes the clause stop firing, which is
+# exactly why the clause has to fire on presence.)
 #
 # LIFETIME — read this before "fixing" the coverage clause. Two jobs, with different
 # lifespans:
@@ -26,7 +29,20 @@
 # A row's paths are therefore NOT existence-checked. They are historical citations, and a
 # citation to a deleted file is still true.
 #
-# Usage: capability-parity-check.sh [register.tsv] [stages-dir]
+# BASH 3.2 — read this before "simplifying" the two newline-delimited accumulators below into
+# associative arrays. CI runs the whole selftest set on a macOS lane PATH-shimmed to stock
+# /bin/bash 3.2, which has no `declare -A`. There, an associative subscript is evaluated
+# ARITHMETICALLY: `${SEEN[$capability]}` parses a capability name as identifiers, `set -u`
+# kills the shell mid-loop, and the process exits **0**. The failure mode is silent success on
+# a register this guard never judged — the exact false-green it exists to prevent — so the cost
+# of that simplification is not a diagnosable error, it is an inert oracle.
+#
+# Usage: capability-parity-check.sh [register.tsv]
+#
+# There is deliberately no stages-dir override. The coverage clause compares repo-relative
+# paths derived from $ROOT — the CHECKER's own location — against the register's citations, so
+# a dir outside $ROOT could never match one. To relocate the file universe, relocate the
+# checker: copy it into a sandbox tree, which is what the paired selftest does.
 # Exit:  0 = clean
 #        1 = one or more violations (each printed to stderr)
 #        2 = usage / environment error
@@ -36,7 +52,7 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$(cd "$HERE/.." && pwd)"
 
 REGISTER="${1:-$HERE/capability-parity.tsv}"
-STAGES_DIR="${2:-$ROOT/plugins/dev-pipeline/skills/run/stages}"
+STAGES_DIR="$ROOT/plugins/dev-pipeline/skills/run/stages"
 
 VIOLATIONS=0
 err() { echo "[capability-parity] $1" >&2; VIOLATIONS=$((VIOLATIONS + 1)); }
@@ -56,8 +72,10 @@ is_disposition() {
   esac
 }
 
-declare -A SEEN_CAPABILITY=()
-declare -A COVERED_PATH=()
+# Newline-delimited accumulators, not associative arrays — see BASH 3.2 in the header.
+# SEEN_CAPABILITY holds "<line>\t<capability>" rows; COVERED_PATH holds one path per line.
+SEEN_CAPABILITY=""
+COVERED_PATH=""
 ROWS=0
 LINENO_=0
 
@@ -90,11 +108,15 @@ while IFS= read -r line || [[ -n "$line" ]]; do
     continue
   fi
 
-  if [[ -n "${SEEN_CAPABILITY[$capability]:-}" ]]; then
-    err "line $LINENO_: duplicate capability '$capability' (first seen at line ${SEEN_CAPABILITY[$capability]})"
+  # Exact field equality, and the needle arrives through ENVIRON rather than `-v`: awk applies
+  # backslash-escape processing to a `-v` assignment, ENVIRON is passed through untouched. A
+  # TAB is a safe delimiter because the row was already split on TABs, so no cell holds one.
+  prev_line="$(printf '%s' "$SEEN_CAPABILITY" | c="$capability" awk -F'\t' '$2 == ENVIRON["c"] { print $1; exit }')"
+  if [[ -n "$prev_line" ]]; then
+    err "line $LINENO_: duplicate capability '$capability' (first seen at line $prev_line)"
     continue
   fi
-  SEEN_CAPABILITY[$capability]="$LINENO_"
+  SEEN_CAPABILITY="${SEEN_CAPABILITY}${LINENO_}"$'\t'"${capability}"$'\n'
 
   # Unconditional (D-16): the enum is validated on every row regardless of whether its paths
   # still exist. An empty cell and an off-enum value are the same violation class — a row that
@@ -108,7 +130,7 @@ while IFS= read -r line || [[ -n "$line" ]]; do
   for p in "${row_paths[@]}"; do
     p="${p#"${p%%[![:space:]]*}"}"
     p="${p%"${p##*[![:space:]]}"}"
-    [[ -n "$p" ]] && COVERED_PATH["$p"]=1
+    [[ -n "$p" ]] && COVERED_PATH="${COVERED_PATH}${p}"$'\n'
   done
 done < "$REGISTER"
 
@@ -125,7 +147,9 @@ if [[ -d "$STAGES_DIR" ]]; then
     [[ -e "$f" ]] || continue
     n_stage_files=$((n_stage_files + 1))
     rel="${f#"$ROOT"/}"
-    if [[ -z "${COVERED_PATH[$rel]:-}" ]]; then
+    # -x whole-line and -F literal: a citation is matched in full, and a path carrying regex
+    # metacharacters cannot mis-match.
+    if ! printf '%s' "$COVERED_PATH" | grep -qxF -- "$rel"; then
       err "stage doc $rel is named by no register row — every capability it implements needs a recorded disposition before it can be deleted"
     fi
   done

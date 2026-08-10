@@ -91,8 +91,11 @@ precedent for this guard class. The selftest needs no registration (glob-discove
 ## Acceptance criteria
 
 - **AC-2** (oracle) — every staged-lane capability carries an explicit recorded disposition in
-  `tools/capability-parity.tsv`, and `#348` cannot land a deletion whose capability has none:
-  removing a `stages/*.md` file that no row names reds `tools/capability-parity-check.sh`.
+  `tools/capability-parity.tsv`, and `#348` cannot land a deletion whose capability has none.
+  The guard enforces that as a **precondition, not a deletion trigger**: while a `stages/*.md`
+  file that no row names is present, `tools/capability-parity-check.sh` reds — so coverage has
+  to exist before any deletion can land, and at deletion time every removed doc was already
+  dispositioned.
 - **AC-5** — the register has one row per capability (behavior-level, per the register-worthiness
   rule above) covering all of stages 1–10; every disposition is from the closed four-value enum;
   the four seeded rows appear with their settled dispositions; every proposed (non-seeded) row is
