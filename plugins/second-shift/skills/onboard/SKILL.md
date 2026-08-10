@@ -375,6 +375,12 @@ pairs; there is no second question:
 2. Print the install commands for whatever the bundle needs that `claude plugin list --json`
    shows as not installed at this project:
    `claude plugin install <p>@second-shift --scope project` (one per missing plugin).
+   First run `bash "${CLAUDE_PLUGIN_ROOT}/skills/doctor/tools/scope-shadows.sh"` — for any
+   plugin it reports `user-served` or `shadowed`, print
+   `<p>: served at user scope (<version>) — no project install needed` **instead of** that
+   plugin's install line. A user-scope record already satisfies the lockfile, so the install
+   would only mint a per-repo record that then rots behind it. Say it rather than skipping
+   silently: a silent skip is indistinguishable from "nothing was missing".
 3. Print the paste-ready CONTRIBUTING snippet:
        ## second-shift toolkit
        This repo uses the second-shift plugins (see .claude/second-shift.lock.json for
