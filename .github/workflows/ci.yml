@@ -138,6 +138,12 @@ jobs:
       - name: contract lockstep pairs (scripts/lockstep-manifest.tsv)
         run: bash scripts/check-lockstep-pairs.sh
 
+      # No vendor model identity in the runnable eval surface under plugins/*/evals/**. The
+      # eval harnesses are operator-run and model-billed; CI never invokes them and this step
+      # does not either — it is a static text scan, so the model-free-CI principle holds.
+      - name: eval-harness model identity (plugins/*/evals/**)
+        run: bash scripts/check-eval-model-identity.sh
+
       # Staged-lane capabilities and their recorded dispositions. Same class as the lockstep
       # step above — a register whose guard needs an explicit invocation, because the paired
       # selftest is glob-discovered but only proves the guard works, never runs it against the

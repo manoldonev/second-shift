@@ -6,7 +6,11 @@ Feeds the judge two hand-crafted intake outputs for fixture 01 (clean bug fix):
   - PERFECT: a correct intake comment + correct gh_writes. Must score 10/10.
   - BROKEN: wrong type, no gh_writes, ignores thresholds. Must score ≤4/10.
 
-Cost: ~$0.20 (two judge calls at sonnet).
+Cost: ~$0.20 (two judge calls).
+
+Requires JUDGE_MODEL — a version-pinned model id, the same contract the run*.sh wrappers
+carry (#356). The check is IMPORTED from the runner rather than restated here, so there is
+one definition of what a usable model id is.
 
 Run AFTER gate-2 passes.
 """
@@ -14,6 +18,7 @@ Run AFTER gate-2 passes.
 import asyncio
 import importlib.util
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -35,6 +40,9 @@ re_mod = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(re_mod)
 
 JUDGE_SYSTEM, MAX_POINTS = re_mod.load_rubric(EVAL_DIR / "rubric.py")
+
+# Fail closed before either billed judge call, not on the first one.
+JUDGE_MODEL = re_mod.resolve_model("judge", os.environ.get("JUDGE_MODEL"), "JUDGE_MODEL")
 
 FIXTURE_DIR = REPO / "docs" / "eval-fixtures" / "intake-orchestrator" / "01-clean-bug-fix"
 FIXTURE = {
@@ -86,7 +94,7 @@ async def score(label, output_text, gh_writes):
         "judge_system": JUDGE_SYSTEM,
         "judge_name": "intake-judge-calibration",
         "judge_desc": "Gate 3 calibration judge",
-        "judge_model": "claude-sonnet-4-6",
+        "judge_model": JUDGE_MODEL,
         "effort": "high",
         "budget": 2.0,
         "judge_timeout_s": 400.0,

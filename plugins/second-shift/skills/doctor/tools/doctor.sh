@@ -158,6 +158,15 @@ else PLUGLIST="$(claude plugin list --json 2>/dev/null)" || PLUGLIST="[]"; fi
 if [[ -n "${DOCTOR_MARKETPLACE_LIST_FILE:-}" ]]; then MKTLIST="$(cat "$DOCTOR_MARKETPLACE_LIST_FILE")"
 else MKTLIST="$(claude plugin marketplace list --json 2>/dev/null)" \
   || MKTLIST="$(claude plugin marketplace list 2>/dev/null)" || MKTLIST=""; fi
+# One snapshot, shared with scope-shadows.sh below: doctor has already asked for the plugin list,
+# and the helper reads the same DOCTOR_PLUGIN_LIST_FILE override the selftest injects — so handing
+# it this run's bytes costs one temp file and removes both a second `claude` call and any chance
+# the two grade different snapshots.
+if [[ -z "${DOCTOR_PLUGIN_LIST_FILE:-}" ]] && PLUGLIST_FILE="$(mktemp 2>/dev/null)"; then
+  trap 'rm -f "$PLUGLIST_FILE"' EXIT
+  printf '%s\n' "$PLUGLIST" > "$PLUGLIST_FILE"
+  export DOCTOR_PLUGIN_LIST_FILE="$PLUGLIST_FILE"
+fi
 
 # --- 1. lockfile + settings presence ---------------------------------------
 [[ -f "$LOCK" ]] && jq empty "$LOCK" 2>/dev/null \
@@ -168,6 +177,9 @@ if [[ -f "$SETTINGS" ]]; then SETTINGS_OK=1; ok "project settings present"
 else bad "no $SETTINGS — run /second-shift:onboard"; fi
 
 LOCK_REF="$(jq -r '.marketplace.ref // ""' "$LOCK")"
+# Read here rather than at §4's first use: §3's user-scope rollback remediation names the
+# marketplace registration as its lever, and that string needs the repo.
+LOCK_REPO="$(jq -r '.marketplace.repo' "$LOCK")"
 SET_REF=""
 [[ "$SETTINGS_OK" -eq 1 ]] && SET_REF="$(jq -r --arg m "$MKT" '.extraKnownMarketplaces[$m].source.ref // ""' "$SETTINGS" 2>/dev/null)"
 
@@ -187,10 +199,27 @@ semver_lt() { # $1 < $2 ?
   local first; first="$(printf '%s\n%s\n' "${1#v}" "${2#v}" | sort -t. -k1,1n -k2,2n -k3,3n | head -1)"
   [[ "$first" == "${1#v}" ]]
 }
+# RESOLVE_RECORD — the install record that actually loads for `$id` at `$root`. A PROJECT-scope
+# record here wins when one exists: docs/team-rollout.md gives the project level precedence in
+# this harness, so the verdict then describes what is served. `sort_by(.lastUpdated) | last`
+# alone decided it by which record was touched most recently, which on a machine carrying both
+# is reliably the freshly-minted stale project one — so doctor could FAIL "behind" against a
+# record while grading the wrong artifact. Used for the version verdict AND for every installPath
+# lookup below, so the shadow scan and config-lint read the same record the verdict describes.
+# shellcheck disable=SC2016 # a jq program — $id/$root are jq's --arg bindings, not shell vars
+RESOLVE_RECORD='[.[] | select(.id==$id and ((.projectPath // "") == $root or .scope=="user" or .scope=="local"))]
+  | ((map(select(.scope=="project" and ((.projectPath // "") == $root))) | sort_by(.lastUpdated // "") | last)
+     // (sort_by(.lastUpdated // "") | last))
+  // empty'
+# Redundant-record classification, computed once for every plugin (the helper groups by id
+# itself). Its rows drive the WARNs after this loop; its scope answer is what makes the two
+# drift remediations below adaptive.
+SCOPE_SHADOWS="${SECOND_SHIFT_SCOPE_SHADOWS:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/scope-shadows.sh}"
+SHADOW_ROWS=""
+[[ -f "$SCOPE_SHADOWS" ]] && SHADOW_ROWS="$(bash "$SCOPE_SHADOWS" --root "$ROOT" --marketplace "$MKT" 2>/dev/null)"
 for p in $(jq -r '.plugins | keys[]' "$LOCK"); do
   want="$(jq -r --arg p "$p" '.plugins[$p]' "$LOCK")"
-  entry="$(jq -c --arg id "$p@$MKT" --arg root "$ROOT" \
-    '[.[] | select(.id==$id and ((.projectPath // "") == $root or .scope=="user" or .scope=="local"))] | sort_by(.lastUpdated // "") | last // empty' <<< "$PLUGLIST")"
+  entry="$(jq -c --arg id "$p@$MKT" --arg root "$ROOT" "$RESOLVE_RECORD" <<< "$PLUGLIST")"
   if [[ -z "$entry" ]]; then
     enabled_in_settings=false
     [[ "$SETTINGS_OK" -eq 1 ]] && enabled_in_settings="$(jq -r --arg k "$p@$MKT" '.enabledPlugins[$k] // false' "$SETTINGS" 2>/dev/null)"
@@ -202,19 +231,45 @@ for p in $(jq -r '.plugins | keys[]' "$LOCK"); do
     NEED_RESTART=1; continue
   fi
   have="$(jq -r '.version' <<< "$entry")"
+  scope="$(jq -r '.scope // ""' <<< "$entry")"
   # "latest" = the canary form (the marketplace repo consuming itself, lockfile ref
   # "main"): presence-only — any installed version is correct by definition.
   if [[ "$want" == "latest" ]]; then ok "$p @ $have installed (lockfile tracks latest — canary)"; continue; fi
+  # Both drift branches name the scope of the record they just graded. A `--scope project`
+  # install prescribed against a USER-scope record does not move it: on the behind branch the
+  # verb is wrong (`install` no-ops as "already installed"), and on the ahead branch there is no
+  # project pin behind the record for a reinstall to resolve against, so it re-serves the same
+  # newer version — a no-op that reads as a fix.
   if [[ "$have" == "$want" ]]; then ok "$p @ $want installed"
   elif semver_lt "$have" "$want"; then
-    bad "$p: installed $have, lockfile wants $want. Fix: claude plugin marketplace update $MKT && claude plugin install $p@$MKT --scope project"; NEED_RESTART=1
+    if [[ "$scope" == "user" ]]; then
+      bad "$p: installed $have, lockfile wants $want. Fix: claude plugin marketplace update $MKT && claude plugin update $p@$MKT (the record is USER-scope; 'update' is the upgrade verb and it touches user scope, 'install' would no-op)"
+    else
+      bad "$p: installed $have, lockfile wants $want. Fix: claude plugin marketplace update $MKT && claude plugin install $p@$MKT --scope project"
+    fi
+    NEED_RESTART=1
   else
-    bad "$p: installed $have is ahead of the lockfile ($want) — rollback case. Fix: claude plugin marketplace update $MKT (settings pin $LOCK_REF resolves the older catalog) && claude plugin install $p@$MKT --scope project"; NEED_RESTART=1
+    if [[ "$scope" == "user" ]]; then
+      bad "$p: installed $have is ahead of the lockfile ($want) — rollback case, and the record is USER-scope, so what it serves is decided by the marketplace registration ref, not by this repo's pin. Fix: re-point the registration (claude plugin marketplace add $LOCK_REPO@${LOCK_REF:-<ref>} — in-place replace, no uninstalls), then claude plugin update $p@$MKT. Do not reinstall: with no project pin behind the record it re-serves the same version. The registration line below reports the same lever."
+    else
+      bad "$p: installed $have is ahead of the lockfile ($want) — rollback case. Fix: claude plugin marketplace update $MKT (settings pin $LOCK_REF resolves the older catalog) && claude plugin install $p@$MKT --scope project"
+    fi
+    NEED_RESTART=1
   fi
 done
 
+# Redundant project-scope records (WARN, never FAIL). Reported ALONGSIDE the version verdict
+# above and never folded into it: that verdict grades the record that loads, this one grades
+# whether the record should exist at all. The severity matches §4's ref-less-registration shadow,
+# the directly analogous "this machine shadows the pin" condition — doctor's exit code is a count
+# of FAILs, and a FAIL here would take every repo on a user-scope machine non-zero for a
+# condition whose own remediation edits a committed file.
+while IFS=$'\t' read -r kind sp spv suv; do
+  [[ "$kind" == "shadowed" ]] || continue
+  warn "$sp: the project-scope record ($spv) is redundant — a user-scope record ($suv) already serves this plugin, and only the CURRENT repo is ever realigned, so the project one rots behind it. Fix: claude plugin uninstall $sp@$MKT --scope project — CAUTION: that also deletes \"$sp@$MKT\" from the committed .claude/settings.json enabledPlugins; restore it with git checkout -- .claude/settings.json && git status"
+done <<< "$SHADOW_ROWS"
+
 # --- 4. ref-less user-scope marketplace shadow --------------------------------
-LOCK_REPO="$(jq -r '.marketplace.repo' "$LOCK")"
 if jq -e 'type == "array"' <<< "$MKTLIST" >/dev/null 2>&1; then
   mkt_entry="$(jq -c --arg m "$MKT" '[.[] | select(.name==$m)] | last // empty' <<< "$MKTLIST")"
   if [[ -z "$mkt_entry" ]]; then
@@ -238,7 +293,7 @@ fi
 # --- 5. shadow scan: repo-local names colliding with plugin-shipped names ------
 for p in $(jq -r '.plugins | keys[]' "$LOCK"); do
   entry_path="$(jq -r --arg id "$p@$MKT" --arg root "$ROOT" \
-    '[.[] | select(.id==$id and ((.projectPath // "") == $root or .scope=="user" or .scope=="local"))] | sort_by(.lastUpdated // "") | last | .installPath // empty' <<< "$PLUGLIST")"
+    "$RESOLVE_RECORD | .installPath // empty" <<< "$PLUGLIST")"
   [[ -z "$entry_path" || ! -d "$entry_path" ]] && continue
   for sk in "$entry_path"/skills/*/; do
     [[ -d "$sk" ]] || continue
@@ -312,7 +367,7 @@ if [[ ! -f "$CONF" ]]; then
   bad "no $CONF — run /second-shift:onboard"
 else
   DP_PATH="$(jq -r --arg id "dev-pipeline@$MKT" --arg root "$ROOT" \
-    '[.[] | select(.id==$id and ((.projectPath // "") == $root or .scope=="user" or .scope=="local"))] | sort_by(.lastUpdated // "") | last | .installPath // empty' <<< "$PLUGLIST")"
+    "$RESOLVE_RECORD | .installPath // empty" <<< "$PLUGLIST")"
   LINT="$DP_PATH/skills/run/tools/config-lint.sh"
   if [[ -n "$DP_PATH" && -f "$LINT" ]]; then
     if out="$(bash "$LINT" "$CONF" 2>&1)"; then ok "config-lint: $(tail -1 <<< "$out")"

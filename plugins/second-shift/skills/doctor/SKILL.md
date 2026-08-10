@@ -1,6 +1,6 @@
 ---
 name: doctor
-description: Verify this repo's second-shift install/config state against the committed lockfile - never-installed, enabled-but-not-installed, version drift (behind AND ahead), ref-less marketplace shadowing, skill/agent shadow collisions, opt-outs, config-lint. Prints exact remediation commands. Run after cloning, after upgrades, whenever the toolkit feels absent.
+description: Verify this repo's second-shift install/config state against the committed lockfile - never-installed, enabled-but-not-installed, version drift (behind AND ahead), project-scope records a user-scope one makes redundant, ref-less marketplace shadowing, skill/agent shadow collisions, opt-outs, config-lint. Prints exact remediation commands, scoped to the record that actually loads. Run after cloning, after upgrades, whenever the toolkit feels absent.
 ---
 
 You are `/second-shift:doctor`.

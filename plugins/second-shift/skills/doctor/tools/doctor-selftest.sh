@@ -118,8 +118,32 @@ printf '#!/usr/bin/env bash\necho "config-lint: OK ($1)"\n' > "$INSTALL/dev-pipe
 echo "doctor selftest:"
 scenario green            plugin-list-green.json   settings-green.json     marketplace-list-pinned.json  0 "summary: 0 failed"
 scenario missing-plugin   plugin-list-missing.json settings-green.json     marketplace-list-pinned.json  1 "claude plugin install dev-pipeline@second-shift"
-scenario version-behind   plugin-list-behind.json  settings-green.json     marketplace-list-pinned.json  1 "claude plugin marketplace update second-shift"
-scenario version-ahead    plugin-list-ahead.json   settings-green.json     marketplace-list-pinned.json  1 "ahead of the lockfile"
+# The two drift branches under a PROJECT-scope record. Both greps name the arm's own string
+# rather than the "marketplace update" / "ahead of the lockfile" prefixes both arms share —
+# those matched the user-scope arm too, so a swapped branch read as green.
+scenario version-behind   plugin-list-behind.json  settings-green.json     marketplace-list-pinned.json  1 "claude plugin install dev-pipeline@second-shift --scope project"
+scenario version-ahead    plugin-list-ahead.json   settings-green.json     marketplace-list-pinned.json  1 "settings pin v9.9.0 resolves the older catalog"
+# ...and the same two branches under a USER-scope record, where the project-scope string is not
+# a weaker fix but a NO-OP: `install` no-ops as "already installed" on the behind branch, and on
+# the ahead branch there is no project pin behind the record for a reinstall to resolve against.
+# second-shift@second-shift is the user-scope entry in every fixture here.
+scenario user-behind      plugin-list-user-behind.json settings-green.json marketplace-list-pinned.json  1 "claude plugin update second-shift@second-shift"
+scenario user-ahead       plugin-list-user-ahead.json  settings-green.json marketplace-list-pinned.json  1 "claude plugin marketplace add manoldonev/second-shift@v9.9.0"
+scenario user-ahead-no-reinstall plugin-list-user-ahead.json settings-green.json marketplace-list-pinned.json 1 "Do not reinstall"
+# A project record shadowed by a user record. The fixture's `lastUpdated` ordering is the whole
+# point: the user record is the NEWER one, so the retired `sort_by(.lastUpdated) | last` resolver
+# graded 2.1.0 and reported OK — the verdict must now describe the project record (2.0.1), which
+# is what actually loads.
+scenario shadowed-verdict plugin-list-shadowed.json settings-green.json    marketplace-list-pinned.json  1 "installed 2.0.1, lockfile wants 2.1.0"
+scenario shadowed-warn    plugin-list-shadowed.json settings-green.json    marketplace-list-pinned.json  1 "the project-scope record (2.0.1) is redundant"
+# The caveat is load-bearing, not decoration: the spurious committed-settings diff is one of the
+# two symptoms the ticket reports, so the uninstall must never be printed without its recovery.
+scenario shadowed-caveat  plugin-list-shadowed.json settings-green.json    marketplace-list-pinned.json  1 "git checkout -- .claude/settings.json && git status"
+# Severity, isolated. Both records at the wanted version, so there is no drift FAIL to hide
+# behind: the redundancy WARN must still print AND the exit code must stay 0. A FAIL here would
+# take every repo on a user-scope machine non-zero for a condition whose remediation edits a
+# committed file.
+scenario shadowed-warn-only plugin-list-shadowed-aligned.json settings-green.json marketplace-list-pinned.json 0 "the project-scope record (2.1.0) is redundant"
 scenario ref-drift        plugin-list-green.json   settings-ref-drift.json marketplace-list-pinned.json  1 "settings ref (v9.8.0) and lockfile ref (v9.9.0) disagree"
 scenario refless-shadow   plugin-list-green.json   settings-green.json     marketplace-list-refless.json 0 "ref-less"
 # canary form: lockfile pins "latest" → presence-only; a DRIFTED install (behind fixture)
@@ -152,18 +176,18 @@ scenario opt-out-committed plugin-list-green.json  settings-optout-committed.jso
 # --- config grill (#441) -------------------------------------------------------------------
 # A grill finding is a FAIL like every other doctor FAIL, so it must move the EXIT CODE, not
 # just the text — that pairing is the whole point of D-15 and the only reason waivers have to
-# exist. The fixture config sets unitTestScope with a null testFile: Stage 5 fail-closes on
-# that pair, so the mutation gate the consumer configured a scope for cannot run.
-scenario grill-finding    plugin-list-green.json   settings-green.json     marketplace-list-pinned.json  1 "config grill [T4.testfile-plumbing.app]" lock-v1.json config-grill-finding.json
+# exist. The fixture config sets unitTestScope, which declares mutation intent, over a fixture
+# root carrying no tools/mutation-sweep.sh — coverage the config asks for and the repo cannot run.
+scenario grill-finding    plugin-list-green.json   settings-green.json     marketplace-list-pinned.json  1 "config grill [T4.mutation-plumbing.app]" lock-v1.json config-grill-finding.json
 # ...and the waived counterpart, which is what keeps a clean report REACHABLE. config-valid.json
 # carries the `grillWaivers` entry for the finding its own shape would otherwise produce
-# (gates.mutation absent is NOT false, so the gate reads ON with no surface behind it). Without
+# (gates.mutation absent is NOT false, so mutation reads ON over a root with no sweep). Without
 # this branch the check could be suppress-everything and still pass the scenario above.
 scenario grill-waived     plugin-list-green.json   settings-green.json     marketplace-list-pinned.json  0 "config grill: no unwaived findings"
 # A notEvaluated entry is NOT a finding: no proposal, not waivable. It must render
 # informationally and never touch the exit code — riding in findings[] would make a repo
 # permanently non-zero with nothing it could do about it. The doctor fixture root is not a git
-# work tree, so the three trigger-2 checks land here by construction.
+# work tree, so the two trigger-2 checks land here by construction.
 scenario grill-noteval    plugin-list-green.json   settings-green.json     marketplace-list-pinned.json  0 "config grill not evaluated [T2.webComponentGlobs]"
 # #449: an `unadopted` entry is the THIRD severity. It is waivable and carries a proposal, so
 # unlike notEvaluated it can force a disposition — but here it must render as a NOTE and leave
@@ -171,7 +195,9 @@ scenario grill-noteval    plugin-list-green.json   settings-green.json     marke
 # none of the three seams, so a `bad` would take every already-green consumer non-zero on the
 # first run after this ships, for a capability most will never want. Asserting the TEXT alone
 # would pass just as happily on a FAIL, which is why the expected rc is 0 and the fixture
-# deliberately carries no waiver for T1.
+# deliberately carries no waiver for T1. The fixture's `test` lane with no repo-carried sweep
+# adds a second note on the same severity, which is the point of the tier: an advisory keyed on
+# durable config outlives the keys the paired FAIL is phrased in.
 scenario grill-unadopted  plugin-list-green.json   settings-green.json     marketplace-list-pinned.json  0 "config grill unadopted [T1.extension-points]"
 # ...and the waived counterpart, which is what proves the note is suppressible at all rather
 # than unconditional prose: without it, "renders a note" and "always renders a note" are the

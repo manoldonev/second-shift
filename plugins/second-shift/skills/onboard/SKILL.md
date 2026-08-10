@@ -73,15 +73,17 @@ Build the draft config from detection:
 - `commands.<repo>` from detection: the emitted block contains EXACTLY these keys —
   `lint`, `lintAutofixes`, `typecheck`, `test`, `format` from detect.sh, PLUS
   `testFile`, `unitTestScope` as explicit `null`
-  (undetectable — their provenance comment reads "set when adopting the mutation
-  gate"). **Undetected lanes are explicit `null`** — never omit, never invent.
+  (undetectable — their provenance comment reads "rollback-lane keys; the default lane
+  reads neither"). **Undetected lanes are explicit `null`** — never omit, never invent.
   **On a RE-onboard (Step 0 diff mode) those two keys are carried FORWARD from the
   existing config, and are `null` only where they were already `null`.** Undetectable
-  means detection cannot reproduce them, not that they are safe to regenerate: they are
-  precisely the keys a human sets when adopting the mutation gate, and `unitTestScope:
-  null` is a legal "no mutation surface", so nulling them turns the gate off silently
-  and `config-lint` still passes. The guard below is the mechanical backstop; this
-  clause is what keeps it from firing on every re-onboard of every adopter.
+  means detection cannot reproduce them, not that they are safe to regenerate: they are a
+  human's declaration about a lane detection cannot see, `null` is a legal value for both,
+  and overwriting one is a silent config deletion that `config-lint` still passes. The
+  guard below is the mechanical backstop; this clause is what keeps it from firing on
+  every re-onboard of every adopter. (Both keys are staged-lane legacy, kept until the
+  config-schema assessment rules on retiring them — the default lane's mutation story is
+  the repo-carried sweep in question 4.)
   (Integration/API test tiers, and `build`, are NOT config command keys — removed in
   v2.1.6 / #113 respectively; ship them via `extraLanes` / extension points EP-6/EP-7.
   Never emit `integrationTest`/`apiTest`/`build` under `commands.<repo>`.)
@@ -111,12 +113,18 @@ Ask AT MOST one AskUserQuestion batch, containing ONLY (skip any that detection 
   2. topology pair confirm (only if be-fe-pair-candidate)
   3. `tracker.branchPrefix` (recommended: `claude/<repo-basename>-` for github; `<user>/` for jira)
   4. gates to enable — **what mutation buys: it breaks your changed code on purpose and fails
-     when the unit specs still pass, which is the difference between tests that exist and tests
-     that would catch a regression** (`docs/config-schema.md`, `gates` row).
-     (**mutation** — defaults false; `gates.mutation:false` is an explicit
-     off-switch for the Stage-5 unit-test mutation gate even when `unitTestScope` is set.
-     It is the ONLY `gates` key the schema has as of v2.1.6 — `costTracking` was removed
-     (cost attribution now runs unconditionally, passive) — never emit anything else under `gates`)
+     when the specs still pass, which is the difference between tests that exist and tests
+     that would catch a regression. You own the sweep: the green gate runs
+     `tools/mutation-sweep.sh --mode pr --base origin/<baseBranch>` from your repo root when
+     the repo carries one, reds the milestone on a non-zero exit, and prints a SKIPPED notice
+     when it is absent — what it mutates and how is yours** (`docs/onboarding.md`, "Mutation:
+     the repo-carried sweep"; `docs/config-schema.md`, `gates` row).
+     (**mutation** — `gates.mutation` and `commands.<repo>.unitTestScope` are rollback-lane
+     keys, kept until the config-schema assessment rules on retiring them; `gates.mutation:false`
+     is that lane's explicit off-switch even when `unitTestScope` is set, and setting either
+     one does not by itself buy a sweep. `mutation` is the ONLY `gates` key the schema has as
+     of v2.1.6 — `costTracking` was removed (cost attribution now runs unconditionally, passive)
+     — never emit anything else under `gates`)
   5. design fidelity, two-part — **what it buys: review gains a design-fidelity dimension, and
      with `liveRender` a per-route rendered-vs-handoff receipt replaces a reviewer's opinion of
      a diff** (docs/extending.md §3.5; docs/live-render.md).
@@ -130,9 +138,9 @@ Ask AT MOST one AskUserQuestion batch, containing ONLY (skip any that detection 
      offer `design.liveRender` pre-filled (`command: "yarn render:verify --route {route} --state {state} --out {out}"`,
      `cwd: <fe repo id>`); the operator may add `readyProbe`, and may drop `{state}` if the
      harness cannot drive one — the lean lane then refuses any ticket declaring a non-default
-     render state. Undetected or declined → omit the `liveRender` key (the Stage-5 gate degrades
-     to render-verify-unavailable, and a lean ticket cannot arm its design lane at all;
-     docs/live-render.md).
+     render state. Undetected or declined → omit the `liveRender` key (a ticket cannot arm its
+     design lane at all: the green gate renders each declared route into a committed receipt,
+     and there is nothing to render; docs/live-render.md).
   6. reviewer deltas — **what they buy: `add` puts a reviewer that knows this repo's domain on
      every review panel; `remove` stops a shipped reviewer whose findings you always dismiss
      from spending a slot** (docs/extending.md §3.3).
@@ -375,6 +383,12 @@ pairs; there is no second question:
 2. Print the install commands for whatever the bundle needs that `claude plugin list --json`
    shows as not installed at this project:
    `claude plugin install <p>@second-shift --scope project` (one per missing plugin).
+   First run `bash "${CLAUDE_PLUGIN_ROOT}/skills/doctor/tools/scope-shadows.sh"` — for any
+   plugin it reports `user-served` or `shadowed`, print
+   `<p>: served at user scope (<version>) — no project install needed` **instead of** that
+   plugin's install line. A user-scope record already satisfies the lockfile, so the install
+   would only mint a per-repo record that then rots behind it. Say it rather than skipping
+   silently: a silent skip is indistinguishable from "nothing was missing".
 3. Print the paste-ready CONTRIBUTING snippet:
        ## second-shift toolkit
        This repo uses the second-shift plugins (see .claude/second-shift.lock.json for

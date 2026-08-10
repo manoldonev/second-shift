@@ -14,10 +14,15 @@
 # This harness therefore proves the orchestrator's REASONING-equivalence over a
 # schema-shaped object, not the live Workflow runtime (validated separately).
 #
-# Usage:
-#   ./run-structured.sh                      # default note, 5 runs/fixture
-#   ./run-structured.sh "my-note"            # pass a changelog note
-#   ./run-structured.sh "smoke" --smoke      # 1 fixture × 1 run
+# Model identity is the operator's, not the repo's (#356) — same three required, version-pinned
+# role variables as run.sh, and for the same reason. A prose-vs-structured comparison is only
+# meaningful when both arms ran on the same pins, which is now something the operator states
+# rather than something the file happens to hold.
+#
+# Usage (every form needs the three variables):
+#   REVIEWER_MODEL=<pin> JUDGE_MODEL=<pin> MOCK_MODEL=<pin> ./run-structured.sh
+#   ... ./run-structured.sh "my-note"            # pass a changelog note
+#   ... ./run-structured.sh "smoke" --smoke      # 1 fixture × 1 run
 #
 # Any args after the note are forwarded to the runner.
 
@@ -27,6 +32,10 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 REPO="$(git -C "$HERE" rev-parse --show-toplevel)"
 NOTE="${1:-structured-handoff}"
 shift || true
+
+: "${REVIEWER_MODEL:?REVIEWER_MODEL is required — set it to a version-pinned model id}"
+: "${JUDGE_MODEL:?JUDGE_MODEL is required — set it to a version-pinned model id}"
+: "${MOCK_MODEL:?MOCK_MODEL is required — set it to a version-pinned model id}"
 
 read -r -d '' PROMPT <<'PROMPT_EOF' || true
 You are being evaluated as the intake-orchestrator. Run your full checklist on the GitHub issue below. RUN_ID: {run_id}.
@@ -64,8 +73,9 @@ python3 "$HERE/../../../review-toolkit/evals/agent-eval-kit/run-eval.py" \
   --fixtures-dir "$REPO/docs/eval-fixtures/intake-orchestrator" \
   --eval-dir "$HERE" \
   --agents-template "$HERE/agents-template.structured.json" \
-  --reviewer-model claude-opus-4-7 \
-  --judge-model claude-sonnet-4-6 \
+  --reviewer-model "$REVIEWER_MODEL" \
+  --judge-model "$JUDGE_MODEL" \
+  --mock-model "$MOCK_MODEL" \
   --reviewer-user-prompt-template "$PROMPT" \
   --judge-agent-name intake-judge \
   --judge-description "Scores intake-orchestrator outputs on 7-dim rubric" \

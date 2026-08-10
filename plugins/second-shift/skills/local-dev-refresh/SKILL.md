@@ -1,6 +1,6 @@
 ---
 name: local-dev-refresh
-description: Refresh THIS MACHINE's second-shift plugin state - update the second-shift marketplace catalog, then every plugin installed from it ('plugin update' is the verb that actually upgrades - 'install' no-ops as "already installed"), fix project-scope stragglers in the current repo, print the before/after version delta, remind to restart. Scoped to the second-shift marketplace only - other marketplaces on the machine are left untouched. Run after merging plugin bumps (dogfooding) or after a release/pin change.
+description: Refresh THIS MACHINE's second-shift plugin state - update the second-shift marketplace catalog, then every plugin installed from it ('plugin update' is the verb that actually upgrades - 'install' no-ops as "already installed"), realign the current repo's project-scope stragglers - reporting rather than refreshing the ones a user-scope record already makes redundant - print the before/after version delta, remind to restart. Scoped to the second-shift marketplace only - other marketplaces on the machine are left untouched. Run after merging plugin bumps (dogfooding) or after a release/pin change.
 ---
 
 You are `/second-shift:local-dev-refresh`. You bring the plugins installed from the
@@ -62,7 +62,21 @@ For every `@second-shift` plugin id in the before-snapshot:
 
 `update` leaves project-scope installs where they were. For each `@second-shift`
 before-snapshot entry with `scope == "project"` and `projectPath == <current repo root>`
-whose version still differs from the freshly-updated cache version:
+whose version still differs from the freshly-updated cache version, **first ask whether that
+record should exist at all**:
+
+`bash "<this skill's base dir>/../doctor/tools/scope-shadows.sh" <plugin>` — exit **0** means
+a user-scope record already serves that plugin and the project record is redundant. The exit
+status is the precondition, not a suggestion: realigning a redundant record *preserves* it at
+a fresh version, and since only the CURRENT repo is ever realigned, nobody ever chooses the
+version it drifts to next. Report it and move on —
+
+> `<id>`: redundant — user scope already serves `<user-version>`. Remove it with
+> `claude plugin uninstall <id> --scope project`; that also deletes `<id>` from the committed
+> `.claude/settings.json`, so follow with `git checkout -- .claude/settings.json && git status`.
+
+Only when the helper exits non-zero (no user-scope record — this project install **is** the
+pin contract) realign it:
 `claude plugin uninstall <id> --scope project && claude plugin install <id> --scope project`
 (run from the repo root; this rewrites only the project's `enabledPlugins` entry).
 
