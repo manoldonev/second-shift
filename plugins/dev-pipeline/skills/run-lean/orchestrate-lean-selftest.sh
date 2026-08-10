@@ -153,17 +153,21 @@ setup_case() { # setup_case <spawn-rcs> <gate-rcs> <labels> <pr>
 # that DO inherit, and the whole scrub contract is invisible against a parent that never set them.
 run_tool() { # run_tool [config] [args...]
   local cfg="$1"; shift
+  local envs
+  # An ARRAY, not a fixed assignment list, because one case below must run with GH genuinely
+  # UNSET so the tool falls through to its own shipped default. `-u GH` precedes the
+  # assignments, so the ordinary case still gets the fake.
+  envs=( PATH="$BIN:$PATH"
+         SECOND_SHIFT_CONFIG="$cfg"
+         LEAN_SPAWN_BIN="${SPAWN_BIN_OVERRIDE:-$BIN/claude}"
+         LEAN_GATE="$BIN/fake-gate.sh"
+         SPAWN_LOG_DIR="$SPAWN_LOG_DIR" SPAWN_RC_FILE="$SPAWN_RC_FILE"
+         GATE_LOG_DIR="$GATE_LOG_DIR" GATE_RC_FILE="$GATE_RC_FILE"
+         GH_LOG="$GH_LOG" LABELS_FILE="$LABELS_FILE" PR_FILE="$PR_FILE"
+         RUN_ID=poisoned-parent-run LEAN_RUN_MODEL=poisoned-parent-model )
+  [ "${USE_DEFAULT_GH:-0}" -eq 1 ] || envs+=( GH="$BIN/gh" )
   ( cd "$TREE" \
-    && PATH="$BIN:$PATH" \
-       SECOND_SHIFT_CONFIG="$cfg" \
-       LEAN_SPAWN_BIN="${SPAWN_BIN_OVERRIDE:-$BIN/claude}" \
-       LEAN_GATE="$BIN/fake-gate.sh" \
-       GH="$BIN/gh" \
-       SPAWN_LOG_DIR="$SPAWN_LOG_DIR" SPAWN_RC_FILE="$SPAWN_RC_FILE" \
-       GATE_LOG_DIR="$GATE_LOG_DIR" GATE_RC_FILE="$GATE_RC_FILE" \
-       GH_LOG="$GH_LOG" LABELS_FILE="$LABELS_FILE" PR_FILE="$PR_FILE" \
-       RUN_ID=poisoned-parent-run LEAN_RUN_MODEL=poisoned-parent-model \
-       env -u CLAUDE_CODE_SESSION_ID bash "$TOOL" "$@" 2>&1 )
+    && env -u CLAUDE_CODE_SESSION_ID -u GH "${envs[@]}" bash "$TOOL" "$@" 2>&1 )
 }
 
 spawn_count() { cat "$SPAWN_LOG_DIR/count" 2>/dev/null || echo 0; }
@@ -176,7 +180,7 @@ echo "[orchestrate-lean-selftest]"
 # ---- (a) usage: the scheduler refuses to size a ticket ---------------------------------------
 setup_case "" "" "ready-for-dev" "5"
 out="$(run_tool "$CFG" "$ISSUE")"; rc=$?
-if [ "$rc" -eq 2 ] && printf '%s' "$out" | grep -q -- '--build-model is required' \
+if [ "$rc" -eq 2 ] && grep -q -- '--build-model is required' <<<"$out" \
    && [ "$(spawn_count)" -eq 0 ]; then
   pass "(a) a missing --build-model is a usage refusal naming the label, and spawns nothing"
 else fail "(a) expected rc=2 with no spawn, got rc=$rc / $(spawn_count) spawn(s): $out"; fi
@@ -188,13 +192,13 @@ setup_case "" "0" "ready-for-dev
 opus" "11"
 out="$(run_tool "$CFG" "$ISSUE" --build-model sonnet)"; rc=$?
 if [ "$rc" -eq 0 ] && [ "$(spawn_count)" -eq 3 ] && [ "$(gate_count)" -eq 1 ] \
-   && printf '%s' "$(spawn_argv 1)" | grep -q 'build-lean 7' \
-   && printf '%s' "$(spawn_argv 2)" | grep -q 'review-lean 11' \
-   && printf '%s' "$(spawn_argv 3)" | grep -q 'build-lean 7'; then
+   && grep -q 'build-lean 7' <<<"$(spawn_argv 1)" \
+   && grep -q 'review-lean 11' <<<"$(spawn_argv 2)" \
+   && grep -q 'build-lean 7' <<<"$(spawn_argv 3)"; then
   pass "(b) approve ⇒ BUILD → REVIEW(pr from the tracker) → close-out BUILD, exit 0"
 else fail "(b) expected rc=0 with 3 spawns / 1 gate call, got rc=$rc / $(spawn_count) / $(gate_count): $out"; fi
 
-if printf '%s' "$out" | grep -q 'PR #11 is open'; then
+if grep -q 'PR #11 is open' <<<"$out"; then
   pass "(b2) the PR number comes from the tracker, not from a convention"
 else fail "(b2) the resolved PR was not reported: $out"; fi
 
@@ -224,9 +228,9 @@ if grep -q '^LEAN_RUN_MODEL: sonnet$' "$SPAWN_LOG_DIR/spawn-1" \
 else fail "(d2) LEAN_RUN_MODEL was not re-set per phase: $(grep -h LEAN_RUN_MODEL "$SPAWN_LOG_DIR"/spawn-*)"; fi
 
 # ---- (e) fresh contexts, never a resumed one --------------------------------------------------
-if printf '%s' "$(all_argv)" | grep -q -- '-p' \
-   && printf '%s' "$(all_argv)" | grep -q -- '--model' \
-   && ! printf '%s' "$(all_argv)" | grep -qE -- '--resume|--continue|(^| )-c( |$)'; then
+if grep -qE -- '(^| )-p ' <<<"$(all_argv)" \
+   && grep -qE -- '(^| )--model ' <<<"$(all_argv)" \
+   && ! grep -qE -- '--resume|--continue|(^| )-c( |$)' <<<"$(all_argv)"; then
   pass "(e1) every spawn is a fresh top-level session: -p + --model, no --resume/--continue/-c"
 else fail "(e1) spawn argv carried a resume flag or lost -p/--model: $(all_argv)"; fi
 
@@ -234,7 +238,7 @@ else fail "(e1) spawn argv carried a resume flag or lost -p/--model: $(all_argv)
 # from the scheduler. Running it with the operator's own session id ambient would make this case
 # pass or fail on the environment rather than on the code.
 if ! grep -q '^SESSION_ID_SET: yes$' "$SPAWN_LOG_DIR"/spawn-* 2>/dev/null \
-   && ! printf '%s' "$(all_argv)" | grep -q -- '--session-id'; then
+   && ! grep -q -- '--session-id' <<<"$(all_argv)"; then
   pass "(e2) no session id is set or passed down — the identity separation rests on the harness's own stamp"
 else fail "(e2) the scheduler set or passed a session id on a spawned session"; fi
 
@@ -248,8 +252,8 @@ else fail "(f) the scheduler made a tracker write, or made no call at all: $(cat
 setup_case "" "0" "" "11"
 out="$(run_tool "$CFG" "$ISSUE" --build-model sonnet)"; rc=$?
 if [ "$rc" -eq 2 ] && [ "$(spawn_count)" -eq 0 ] \
-   && printf '%s' "$out" | grep -q 'FAIL intake' \
-   && printf '%s' "$out" | grep -q 'does not spawn an intake session'; then
+   && grep -q 'FAIL intake' <<<"$out" \
+   && grep -q 'does not spawn an intake session' <<<"$out"; then
   pass "(g1) a ticket without the queue label is rejected before any spawn, naming the hand-back"
 else fail "(g1) expected rc=2 with 0 spawns, got rc=$rc / $(spawn_count): $out"; fi
 
@@ -258,8 +262,8 @@ SPAWN_BIN_OVERRIDE="$WORK/no-such-binary" \
   out="$(run_tool "$CFG" "$ISSUE" --build-model sonnet)"; rc=$?
 unset SPAWN_BIN_OVERRIDE
 if [ "$rc" -eq 2 ] \
-   && printf '%s' "$out" | grep -q 'FAIL intake' \
-   && printf '%s' "$out" | grep -q 'FAIL spawn'; then
+   && grep -q 'FAIL intake' <<<"$out" \
+   && grep -q 'FAIL spawn' <<<"$out"; then
   pass "(g2) two failing probes are BOTH reported from one invocation — no first-failure abort"
 else fail "(g2) expected both probe failures in one run, got rc=$rc: $out"; fi
 
@@ -271,9 +275,9 @@ SPAWN_BIN_OVERRIDE="$WORK/no-such-binary" \
   out="$(run_tool "$CFG" "$ISSUE" --build-model sonnet)"; rc=$?
 unset SPAWN_BIN_OVERRIDE
 if [ "$rc" -eq 2 ] \
-   && printf '%s' "$out" | grep -q 'ok intake' \
-   && printf '%s' "$out" | grep -q 'FAIL spawn' \
-   && printf '%s' "$out" | grep -q 'ok gate'; then
+   && grep -q 'ok intake' <<<"$out" \
+   && grep -q 'FAIL spawn' <<<"$out" \
+   && grep -q 'ok gate' <<<"$out"; then
   pass "(g3) all three probe verdicts are reported even when a middle one fails"
 else fail "(g3) a probe verdict went missing: $out"; fi
 
@@ -282,12 +286,12 @@ setup_case "" "1
 0" "ready-for-dev" "11"
 out="$(run_tool "$CFG" "$ISSUE" --build-model sonnet)"; rc=$?
 if [ "$rc" -eq 0 ] && [ "$(spawn_count)" -eq 5 ] && [ "$(gate_count)" -eq 2 ] \
-   && printf '%s' "$(spawn_argv 3)" | grep -q 'build-lean 7' \
-   && printf '%s' "$(spawn_argv 4)" | grep -q 'review-lean 11'; then
+   && grep -q 'build-lean 7' <<<"$(spawn_argv 3)" \
+   && grep -q 'review-lean 11' <<<"$(spawn_argv 4)"; then
   pass "(h1) needs-work ⇒ a fresh fix BUILD then a fresh REVIEW, then close-out on the approve"
 else fail "(h1) expected 5 spawns / 2 gate calls, got rc=$rc / $(spawn_count) / $(gate_count): $out"; fi
 
-if ! printf '%s' "$(spawn_argv 4)" | grep -qE -- '--resume|--continue'; then
+if ! grep -qE -- '--resume|--continue' <<<"$(spawn_argv 4)"; then
   pass "(h2) round 2's review is a NEW context, not round 1's resumed"
 else fail "(h2) round 2's review resumed a context: $(spawn_argv 4)"; fi
 
@@ -295,8 +299,8 @@ else fail "(h2) round 2's review resumed a context: $(spawn_argv 4)"; fi
 setup_case "" "4" "ready-for-dev" "11"
 out="$(run_tool "$CFG" "$ISSUE" --build-model sonnet)"; rc=$?
 if [ "$rc" -eq 4 ] && [ "$(spawn_count)" -eq 2 ] \
-   && printf '%s' "$out" | grep -q 'HARD STOP' \
-   && printf '%s' "$out" | grep -q 'No rescue attempt'; then
+   && grep -q 'HARD STOP' <<<"$out" \
+   && grep -q 'No rescue attempt' <<<"$out"; then
   pass "(i1) the gate's own rc=4 is a hard stop: no close-out, no fix round, no rescue"
 else fail "(i1) expected rc=4 after 2 spawns, got rc=$rc / $(spawn_count): $out"; fi
 
@@ -309,7 +313,7 @@ setup_case "" "1
 1" "ready-for-dev" "11"
 out="$(run_tool "$CFG" "$ISSUE" --build-model sonnet --max-rounds 2)"; rc=$?
 if [ "$rc" -eq 4 ] && [ "$(spawn_count)" -eq 4 ] && [ "$(gate_count)" -eq 2 ] \
-   && printf '%s' "$out" | grep -q '2 rounds spent'; then
+   && grep -q '2 rounds spent' <<<"$out"; then
   pass "(i2) --max-rounds bounds the loop independently of the gate's own counter"
 else fail "(i2) expected rc=4 after 2 rounds, got rc=$rc / $(spawn_count) spawn(s) / $(gate_count) gate call(s): $out"; fi
 
@@ -317,14 +321,14 @@ else fail "(i2) expected rc=4 after 2 rounds, got rc=$rc / $(spawn_count) spawn(
 setup_case "9" "0" "ready-for-dev" "11"
 out="$(run_tool "$CFG" "$ISSUE" --build-model sonnet)"; rc=$?
 if [ "$rc" -eq 1 ] && [ "$(spawn_count)" -eq 1 ] && [ "$(gate_count)" -eq 0 ] \
-   && printf '%s' "$out" | grep -q 'BUILD session failed'; then
+   && grep -q 'BUILD session failed' <<<"$out"; then
   pass "(j1) a nonzero BUILD session stops the run at exit 1 — the gate is never consulted"
 else fail "(j1) expected rc=1 after 1 spawn, got rc=$rc / $(spawn_count): $out"; fi
 
 setup_case "" "0" "ready-for-dev" ""
 out="$(run_tool "$CFG" "$ISSUE" --build-model sonnet)"; rc=$?
 if [ "$rc" -eq 1 ] && [ "$(spawn_count)" -eq 1 ] \
-   && printf '%s' "$out" | grep -q 'no open PR'; then
+   && grep -q 'no open PR' <<<"$out"; then
   pass "(j2) a BUILD that left no open PR stops at exit 1 rather than reviewing nothing"
 else fail "(j2) expected rc=1 on an absent PR, got rc=$rc: $out"; fi
 
@@ -333,7 +337,7 @@ setup_case "" "0" "ready-for-dev" "11"
 out="$(run_tool "$CFG" "$ISSUE" --build-model opus --review-model sonnet --model-basis 'sized-here: two gates')"; rc=$?
 if [ "$rc" -eq 0 ] \
    && grep -q '^LEAN_RUN_MODEL: sonnet$' "$SPAWN_LOG_DIR/spawn-2" \
-   && printf '%s' "$out" | grep -q 'basis: sized-here: two gates'; then
+   && grep -q 'basis: sized-here: two gates' <<<"$out"; then
   pass "(k1) --review-model overrides the opus default, and --model-basis is echoed into the run log"
 else fail "(k1) review model or basis did not take: rc=$rc: $out"; fi
 
@@ -341,7 +345,7 @@ else fail "(k1) review model or basis did not take: rc=$rc: $out"; fi
 setup_case "" "0" "ready-for-dev" "11"
 out="$(run_tool "$CFG" "$ISSUE" --build-model sonnet --dry-run)"; rc=$?
 if [ "$rc" -eq 0 ] && [ "$(spawn_count)" -eq 0 ] && [ "$(gate_count)" -eq 0 ] \
-   && printf '%s' "$out" | grep -q "branch=$BRANCH"; then
+   && grep -q "branch=$BRANCH" <<<"$out"; then
   pass "(l) --dry-run reports the resolved branch and schedule without spawning"
 else fail "(l) expected a spawn-free dry run, got rc=$rc / $(spawn_count): $out"; fi
 
@@ -349,13 +353,13 @@ else fail "(l) expected a spawn-free dry run, got rc=$rc / $(spawn_count): $out"
 setup_case "" "0" "ready-for-dev" "11"
 out="$(run_tool "$CFG_JIRA" ACME-7 --build-model sonnet)"; rc=$?
 if [ "$rc" -eq 2 ] && [ "$(spawn_count)" -eq 0 ] \
-   && printf '%s' "$out" | grep -q 'has no queue label'; then
+   && grep -q 'has no queue label' <<<"$out"; then
   pass "(m1) under a tracker with no queue label, intake cannot be read and the run is rejected"
 else fail "(m1) expected a jira reject, got rc=$rc: $out"; fi
 
 setup_case "" "0" "" "11"
 out="$(run_tool "$CFG_JIRA" ACME-7 --build-model sonnet --intake-attested)"; rc=$?
-if [ "$rc" -eq 0 ] && printf '%s' "$(spawn_argv 1)" | grep -q 'build-lean ACME-7' \
+if [ "$rc" -eq 0 ] && grep -q 'build-lean ACME-7' <<<"$(spawn_argv 1)" \
    && grep -q "^CWD: $WORK/wt$" "$GATE_LOG_DIR/call-1" 2>/dev/null; then
   pass "(m2) --intake-attested carries the jira run: the key reaches the payload unlowercased while the BRANCH is lowercased"
 else fail "(m2) expected an attested jira run, got rc=$rc: $out"; fi
@@ -363,9 +367,21 @@ else fail "(m2) expected an attested jira run, got rc=$rc: $out"; fi
 setup_case "" "0" "ready-for-dev" "11"
 out="$(run_tool "$CFG_BAD" "$ISSUE" --build-model sonnet)"; rc=$?
 if [ "$rc" -eq 2 ] && [ "$(spawn_count)" -eq 0 ] \
-   && printf '%s' "$out" | grep -q "unrecognized tracker.type"; then
+   && grep -q "unrecognized tracker.type" <<<"$out"; then
   pass "(m3) an unrecognized tracker.type is a loud refusal, never a fall-through to an arm"
 else fail "(m3) expected rc=2 on a bad tracker.type, got rc=$rc: $out"; fi
+
+# ---- (m4) the SHIPPED default of the tracker seam ------------------------------------------------
+# Every other case sets GH to the fake, which means every other case leaves `${GH:-gh}`'s own
+# fallback unexercised — a seam whose default was mistyped would pass the entire suite. Here GH is
+# unset and the fake is named `gh` on PATH, so the run only completes if the shipped default is
+# the real CLI's name.
+setup_case "" "0" "ready-for-dev" "11"
+USE_DEFAULT_GH=1 out="$(run_tool "$CFG" "$ISSUE" --build-model sonnet)"; rc=$?
+unset USE_DEFAULT_GH
+if [ "$rc" -eq 0 ] && [ -s "$GH_LOG" ] && grep -q 'PR #11 is open' <<<"$out"; then
+  pass "(m4) with GH unset the tool falls through to its shipped 'gh' default and still resolves the PR"
+else fail "(m4) the shipped tracker-CLI default did not resolve, rc=$rc: $out"; fi
 
 # ---- (n0) the front door's own line cap ---------------------------------------------------------------
 # The same cap the payload skill carries, asserted the same way. A front door is read on every
@@ -380,8 +396,8 @@ else fail "(n0) SKILL.md not found at $SKILL"; fi
 
 # ---- (n) --help prints the header and stops before the code ------------------------------------------
 out="$(bash "$TOOL" --help 2>&1)"; rc=$?
-if [ "$rc" -eq 0 ] && printf '%s' "$out" | grep -qF 'Exit: 0 = approved' \
-   && ! printf '%s' "$out" | grep -qF 'set -uo pipefail'; then
+if [ "$rc" -eq 0 ] && grep -qF 'Exit: 0 = approved' <<<"$out" \
+   && ! grep -qF 'set -uo pipefail' <<<"$out"; then
   pass "(n) --help prints through the last header line and stops before the code"
 else fail "(n) --help did not print exactly the header, rc=$rc: $out"; fi
 
