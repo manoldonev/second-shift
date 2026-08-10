@@ -23,6 +23,29 @@ run_guard() { # $1.. → args passed through verbatim
   ERR="$(cat "$TMP/stderr")"
 }
 
+# A `jq` shim that fails exactly ONE of the guard's jq invocations, selected by an argument only
+# that invocation carries (`--slurpfile` → the comparison; `--args` → the ack marshalling). This
+# is the only way to reach the guard's did-not-run arms: the validation ahead of them makes a real
+# failure near-unreachable, and an unreachable-but-load-bearing arm is exactly the kind that can
+# revert to a fail-open with every case still green.
+mkdir -p "$TMP/shim"
+REAL_JQ="$(command -v jq)"
+cat > "$TMP/shim/jq" <<EOF
+#!/usr/bin/env bash
+for a in "\$@"; do
+  if [[ "\$a" == "\$SHIM_KILL" ]]; then exit 5; fi
+done
+exec "$REAL_JQ" "\$@"
+EOF
+chmod +x "$TMP/shim/jq"
+
+run_guard_shim() { # $1 the jq argument whose invocation dies, $2.. → guard args
+  local marker="$1"; shift
+  RC=0
+  OUT="$(SHIM_KILL="$marker" PATH="$TMP/shim:$PATH" bash "$GUARD" "$@" 2>"$TMP/stderr")" || RC=$?
+  ERR="$(cat "$TMP/stderr")"
+}
+
 _paths() { jq -r '.deltas[].path' <<< "$OUT" | tr '\n' ' '; }
 _delta() { jq -r --arg p "$1" '.deltas[] | select(.path==$p) | "\(.kind) ⟂ \(.existing|tojson) ⟂ \(.draft|tojson) ⟂ \(.evidence) ⟂ \(.proposal)"' <<< "$OUT"; }
 
@@ -50,6 +73,12 @@ expect_list() { # $1 label, $2 envelope array (acknowledged|unmatchedAcks), $3 e
 expect_len() { # $1 label, $2 envelope array, $3 expected length — for entries join() would blur
   local n; n="$(jq -r --arg k "$2" '.[$k] | length' <<< "$OUT")"
   if [[ "$n" == "$3" ]]; then check "$1" 0; else check "$1 ($2 length $n, expected $3)" 1; fi
+}
+expect_no_stdout() { # $1 label — a caller reading only stdout must see nothing at all
+  if [[ -z "$OUT" ]]; then check "$1" 0; else check "$1 (stdout: $OUT)" 1; fi
+}
+expect_no_stderr_match() { # $1 label, $2 substring the message must NOT carry
+  if grep -qF -- "$2" <<< "$ERR"; then check "$1 (stderr carries '$2': $ERR)" 1; else check "$1" 0; fi
 }
 expect_rc() { # $1 label, $2 expected rc, $3 (optional) substring the stderr message must carry
   if [[ "$RC" != "$2" ]]; then check "$1 (rc=$RC, expected $2)" 1; return; fi
@@ -198,6 +227,18 @@ expect_count "and it suppresses neither of the two paths it spells" 3
 run_guard "$TMP/e1.json" "$TMP/d1.json" --ack ""
 expect_len "an empty --ack is reported unmatched, not silently dropped" unmatchedAcks 1
 
+# Boundaries are not the whole of "verbatim": a value can survive intact and still be re-INTERPRETED
+# downstream. `--args` alone leaves jq parsing a `-`-leading ack as one of its own options
+# (`jq --args "-n"` → `[]`), and the ack then vanished — neither suppressed nor in unmatchedAcks[].
+# Only jq's `--` terminator makes every remaining word positional. The `--raw-output0` case is the
+# long form of the same class, which additionally leaked a jq warning onto the operator's screen.
+run_guard "$TMP/e1.json" "$TMP/d1.json" --ack -n
+expect_list "a '-'-leading ack survives jq's own option parser" unmatchedAcks "-n"
+expect_count "and suppresses nothing" 3
+run_guard "$TMP/e1.json" "$TMP/d1.json" --ack --raw-output0 --ack commands.web.testFile
+expect_list "a long-form jq option as an ack value is carried across too" unmatchedAcks "--raw-output0"
+expect_count "and a real ack alongside it still suppresses exactly one" 2
+
 # --- a clean re-onboard is silent ---------------------------------------------------------------
 # The AC-4 carry-forward exists so THIS is the common case. A guard that fires on an identical
 # draft would be ack-spam on every re-onboard forever.
@@ -206,10 +247,13 @@ expect_count "an identical draft yields no delta" 0
 expect_rc "exit 0 with no deltas" 0
 
 # --- AC-1: usage / IO errors all exit 3 ----------------------------------------------------------
+# Both of these assert the usage LINE, not the rc: with the argument-count guard gone, one
+# argument falls through to the file check and the tool exits 3 on `no such file: ` with an empty
+# path — same code, a message describing a file the caller never named.
 run_guard "$TMP/e1.json"
-expect_rc "one argument is a usage error" 3
+expect_rc "one argument is a usage error" 3 "usage: config-diff-guard.sh"
 run_guard
-expect_rc "no arguments is a usage error" 3
+expect_rc "no arguments is a usage error" 3 "usage: config-diff-guard.sh"
 run_guard "$TMP/e1.json" "$TMP/d1.json" "$TMP/e1.json"
 expect_rc "a third positional is a usage error" 3 "unexpected extra argument:"
 run_guard "$TMP/nope.json" "$TMP/d1.json"
@@ -258,6 +302,28 @@ expect_rc "a bare unknown option is rejected, not silently skipped" 3 "unknown o
 # consumed `--` without making the rest positional advertised GNU semantics it did not implement.
 run_guard "$TMP/e1.json" "$TMP/d1.json" --
 expect_rc "-- is an unknown option, not an unimplemented terminator" 3 "unknown option: --"
+
+# --- AC-1: no fail-open on the comparison itself -------------------------------------------------
+# The control comes first, and it is what keeps the two kill cases from being vacuous: a shim that
+# failed everything would red these regardless of the guard's arms.
+run_guard_shim --an-argument-no-invocation-carries "$TMP/e1.json" "$TMP/d1.json"
+expect_rc "the shim is inert when its marker matches nothing" 0
+expect_count "and the comparison under it is the real one" 3
+
+# A filter that DIED must not be spelled the way a filter that found nothing is. Streaming the
+# comparison instead of capturing it gives the caller rc 0 and an empty stdout — a clean envelope
+# for a comparison that never ran, over a config nothing protected.
+run_guard_shim --slurpfile "$TMP/e1.json" "$TMP/d1.json"
+expect_rc "a comparison that could not run exits 3" 3 "comparison failed"
+expect_no_stdout "and prints no envelope at all"
+
+# The ack marshalling is the same family one invocation earlier, and its failure mode is
+# misattribution: an unchecked jq leaves ACKS_JSON empty, `--argjson acks ""` kills the MAIN
+# filter, and the operator is told the comparison failed when the acks are what did.
+run_guard_shim --args "$TMP/e1.json" "$TMP/d1.json" --ack commands.web.testFile
+expect_rc "a failed --ack marshal exits 3 naming the acks" 3 "could not marshal --ack values"
+expect_no_stderr_match "and does not misattribute itself to the comparison" "comparison failed"
+expect_no_stdout "and prints no envelope either"
 
 if [[ "$FAILS" -gt 0 ]]; then echo "config-diff-guard selftest: $FAILS FAILURE(S)"; exit 1; fi
 echo "config-diff-guard selftest: all green"

@@ -160,6 +160,13 @@ its "a diff review of a 90%-correct document, not a wizard" framing stay unamend
   wildcards" half of AC-3, which a suppression-only test cannot distinguish from a bug;
 - the boundary half of AC-3: one `--ack` carrying an embedded newline staying one ack and
   suppressing neither of the two paths it spells, and `--ack ""` reaching `unmatchedAcks[]`;
+- its interpretation half, which is a separate mechanism: a `-`-leading ack value reaching
+  `unmatchedAcks[]` in both its short (`-n`) and long (`--raw-output0`) forms, rather than being
+  parsed away as an option of the marshalling `jq` and disappearing without a trace;
+- AC-1's no-fail-open-on-the-comparison clause, reachable only under a `jq` shim that fails the
+  one invocation carrying `--slurpfile` (the comparison) or `--args` (the ack marshalling), with
+  an inert-marker control alongside them so the two kill cases cannot pass vacuously: each exits
+  3, prints no envelope, and names its own subsystem rather than the other's;
 - exit 0 with deltas present, exit 0 with none, and exit 3 for each usage/IO shape: no
   arguments, one argument, a third positional, missing existing file, missing draft file,
   non-JSON existing, non-JSON draft, valid JSON that is not an object, `--ack` with no value,

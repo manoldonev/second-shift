@@ -52,7 +52,8 @@ while [[ $# -gt 0 ]]; do
     # No `--` end-of-options arm: implementing GNU semantics here would buy nothing (both
     # positionals are temp-file paths chosen by the caller, never `-`-leading) and an arm that
     # merely consumes the token advertises a terminator that does not terminate. `--` is an
-    # unknown option, and says so.
+    # unknown option, and says so. (The `--` further down is jq's terminator, not this one's — an
+    # `--ack` VALUE may well be `-`-leading, because the caller does not choose it.)
     -*) echo "config-diff-guard: unknown option: $1" >&2; usage ;;
     *)
       if [[ -z "$EXISTING" ]]; then EXISTING="$1"
@@ -85,10 +86,19 @@ done
 # boundaries AC-3 calls exact: one `--ack` carrying an embedded newline would become two acks, and
 # `--ack ""` would vanish without ever reaching unmatchedAcks[]. The empty-array branch is for
 # bash 3.2, where `"${ACKS[@]}"` on an empty array trips `set -u`.
+#
+# The `--` is load-bearing: `--args` fixes value BOUNDARIES, not value INTERPRETATION. Without it
+# jq parses a `-`-leading ack as one of its OWN options — `jq --args "-n"` yields `[]` — so that
+# ack is neither suppressed nor reported in unmatchedAcks[]; it disappears, which is the same
+# silent-drop class the newline round-trip had. Only the terminator makes every remaining word
+# positional. The status is checked for the reason the comparison below captures its output: a jq
+# that died leaves ACKS_JSON empty, an empty `--argjson` then kills the MAIN filter, and the one
+# guard-authored line the operator sees would name the wrong subsystem.
 if [[ "${#ACKS[@]}" -eq 0 ]]; then
   ACKS_JSON='[]'
 else
-  ACKS_JSON="$(jq -nc '$ARGS.positional' --args "${ACKS[@]}")"
+  ACKS_JSON="$(jq -nc '$ARGS.positional' --args -- "${ACKS[@]}")" \
+    || { echo "config-diff-guard: could not marshal --ack values" >&2; exit 3; }
 fi
 
 # The walk (see docs/plans/second-shift-450-lean.md AC-2): descend objects, treat an ARRAY as a
@@ -96,7 +106,10 @@ fi
 # index-level paths would report a cascade of shifted elements on a single insertion — noise that
 # trains the reader to acknowledge blindly.
 #
-# An existing `null` leaf is skipped: there is nothing there to destroy.
+# An existing `null` leaf is skipped: there is nothing there to destroy. Its limit, stated where a
+# reader looks for it rather than left to be discovered: the guard reports subtrees only through
+# their leaves, so a subtree whose leaves are ALL null — a `commands.<id>` with every lane unset —
+# is deletable wholesale with zero deltas. Every leaf under it is individually nothing.
 #
 # `$schema` is the only excluded key. Step 4 rewrites it to the pinned ref on every run, so a
 # pin-upgrade re-onboard would otherwise fire a delta every single time.
