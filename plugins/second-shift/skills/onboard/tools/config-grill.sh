@@ -164,13 +164,27 @@ count_glob_matches() { # $1.. globs → prints the number of tracked files match
 # hand-set value that matches nothing: an adopted value can itself be broken, so setting a key
 # wrongly must not silence the check.
 #
+# ...UNLESS the row carries an APPLICABILITY PROBE and nothing in the tree matches it. "Zero
+# matches is a finding" holds for formatGlob — every repo has files to format — and breaks for
+# the two web-conditional rows, where "this repo renders nothing" is a terminal fact rather than
+# a config omission, and one the tracked-file list already in hand can measure. A shell, CLI or
+# library consumer would otherwise be told to hand-author a glob for files that do not exist,
+# and would answer with a waiver restating a fact the tool could see for itself.
+#
+# It lands in notEvaluated[], not the unadopted[] severity: that one is for an optional key at
+# its default that a human should DISPOSE of, so it is waivable and carries a proposal. A repo
+# with no rendering surface has no disposition to force and nothing to propose — and onboard
+# blocks on unadopted[], which would re-impose the very waiver-prose tax this removes.
+#
 # The DEFAULTS below are the RUNTIME-resolved literals — the jq fallback the consuming stage
 # actually applies — never the JSON Schema `default`, which nothing injects into a config.
 # Their coupling to the source sites is recorded as a DROPPED entry in
 # scripts/lockstep-manifest.tsv: the webComponentGlobs literal alone is restated at seven
 # sites across two plugins, which file-to-file anchored pairs cannot express.
 t2_key() { # $1 id, $2 key, $3 jq expr yielding the configured globs (empty when unset),
-           # $4 benefit sentence; DEFAULT_GLOBS[] and CANDIDATES[] must be set by the caller
+           # $4 benefit sentence; DEFAULT_GLOBS[], CANDIDATES[] and PROBE_GLOBS[] must be set by
+           # the caller — PROBE_GLOBS EVERY time, empty for a universal row, or the previous
+           # call's probe leaks into this one and suppresses a row that has no probe at all
   local id="$1" key="$2" expr="$3" benefit="$4"
   if [[ "$TRACKED_OK" -ne 1 ]]; then
     add_noteval "$id" "$key" "not a git work tree — tracked files cannot be enumerated"
@@ -189,6 +203,13 @@ t2_key() { # $1 id, $2 key, $3 jq expr yielding the configured globs (empty when
   fi
   n="$(count_glob_matches "${globs[@]}")"
   [[ "$n" -gt 0 ]] && return 0
+  # The probe is consulted only here, once the configured-or-default globs have already scored
+  # zero — a key that matches is applicable by demonstration and never reaches this.
+  if [[ "${#PROBE_GLOBS[@]}" -gt 0 ]] && [[ "$(count_glob_matches "${PROBE_GLOBS[@]}")" -eq 0 ]]; then
+    add_noteval "$id" "$key" \
+      "no tracked file matches this capability's applicability probe ($(join_c "${PROBE_GLOBS[@]}")) — the surface this key scopes does not exist in this repo, so there is no value to propose and nothing to waive"
+    return 0
+  fi
   for cand in ${CANDIDATES[@]+"${CANDIDATES[@]}"}; do
     cn="$(count_glob_matches "$cand")"
     if [[ "$cn" -gt 0 ]]; then alt="$cand"; altn="$cn"; break; fi
@@ -202,20 +223,31 @@ t2_key() { # $1 id, $2 key, $3 jq expr yielding the configured globs (empty when
   add_finding "$id" "$key" "$ev" "$pr"
 }
 
+# Component and stylesheet extensions only. Bare `.ts`/`.js` are excluded ON PURPOSE: including
+# them makes the probe never fire for any TypeScript repo, which defeats it. `.html` is what
+# catches the Angular shape (`.ts` + template), matching the src/app/**/*.{html,ts} candidate.
+# Slash-free by construction, so glob_to_ere's `*`-crosses-separators branch applies and a
+# component at any depth counts. A stray tracked `.html` means the probe declines to convert and
+# present behavior stands — over-firing is the safe error, so it only suppresses when confident.
+WEB_SURFACE_PROBE=("*.{tsx,jsx,vue,svelte,astro,html,css,scss,sass,less}")
+
 DEFAULT_GLOBS=("apps/web/**/*.{tsx,jsx}")
 CANDIDATES=("src/app/**/*.{html,ts}" "src/**/*.vue" "app/**/*.tsx" "src/**/*.{tsx,jsx}")
+PROBE_GLOBS=("${WEB_SURFACE_PROBE[@]}")
 t2_key "T2.webComponentGlobs" "stageParams.webComponentGlobs" \
   '(.stageParams.webComponentGlobs // []) | .[]' \
   "This glob is the whole trigger for a11y-reviewer AND the design-fidelity dimension: while it matches nothing, neither is ever routed and every review looks clean because they never ran."
 
 DEFAULT_GLOBS=("*.{ts,tsx,js,json,md}")
 CANDIDATES=("*.{ts,tsx,js,jsx,json,md}" "*.{py,md,json}" "*.{sh,md,json,yml}" "*.{go,md,json}" "*.{rs,md,toml}")
+PROBE_GLOBS=()  # universal row: every repo has files to format. Reset, not omitted — see t2_key.
 t2_key "T2.formatGlob" "stageParams.formatGlob" \
   '.stageParams.formatGlob // ""' \
   "This glob scopes the default prettier format lane: while it matches nothing, no changed file is ever format-checked."
 
 DEFAULT_GLOBS=("apps/web/src/app/**/*.{tsx,jsx}" "apps/web/src/app/**/*.css" "apps/web/src/components/**/*.{tsx,jsx}" "apps/web/tailwind.config.{ts,js}")
 CANDIDATES=("src/**/*.{tsx,jsx}" "src/**/*.vue" "app/**/*.tsx")
+PROBE_GLOBS=("${WEB_SURFACE_PROBE[@]}")
 t2_key "T2.visualCaptureTriggerGlobs" "stageParams.visualCapture.triggerGlobs" \
   '(.stageParams.visualCapture.triggerGlobs // []) | .[]' \
   "These globs gate Stage-6 visual capture: while they match nothing, no screenshot is ever taken and a render regression ships unseen."

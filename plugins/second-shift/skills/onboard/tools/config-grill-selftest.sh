@@ -118,12 +118,14 @@ expect_no_finding "t2 webComponentGlobs: default matches → silent" T2.webCompo
 expect_no_finding "t2 triggerGlobs: default matches → silent" T2.visualCaptureTriggerGlobs
 
 # No candidate matches either → the finding STILL fires and says so, rather than going quiet
-# because the tool could not think of a value.
-R3="$(mkrepo t2-no-alt docs/guide.md)"
-cfg "$R3/c.json" <<EOF
+# because the tool could not think of a value. The tree has to carry a real component somewhere
+# no candidate reaches: this is the arm the applicability probe sits next to, so a probe that
+# over-reached would silence exactly this case.
+R3B="$(mkrepo t2-web-nocand pkg/ui/Widget.tsx docs/guide.md)"
+cfg "$R3B/c.json" <<EOF
 { $STD_HEAD, "commands": {"app":{}} }
 EOF
-run_grill "$R3" "$R3/c.json"
+run_grill "$R3B" "$R3B/c.json"
 expect_finding "t2 webComponentGlobs: no candidate detected → fires and says so" \
   T2.webComponentGlobs "no candidate from the shipped list matched"
 # The multi-glob key renders EVERY resolved default, comma-joined — not just the last one.
@@ -134,6 +136,52 @@ expect_finding "t2 webComponentGlobs: no candidate detected → fires and says s
 expect_finding "t2 triggerGlobs: the whole resolved default set is rendered, comma-joined" \
   T2.visualCaptureTriggerGlobs \
   "(apps/web/src/app/**/*.{tsx,jsx}, apps/web/src/app/**/*.css, apps/web/src/components/**/*.{tsx,jsx}, apps/web/tailwind.config.{ts,js})"
+
+# --- the applicability probe: a repo that renders nothing ----------------------------------
+# "Zero matches is a finding" is right for formatGlob and wrong for the two web-conditional
+# keys: a shell/CLI/library consumer has no rendering surface at all, so the absent glob is a
+# measured fact, not an omission. It must land in notEvaluated[] — no proposal, not waivable,
+# never blocking — rather than demanding a waiver that restates what the tool just measured.
+R3="$(mkrepo t2-renders-nothing docs/guide.md scripts/build.sh)"
+cfg "$R3/c.json" <<EOF
+{ $STD_HEAD, "commands": {"app":{}} }
+EOF
+run_grill "$R3" "$R3/c.json"
+expect_noteval "probe: webComponentGlobs not evaluated on a repo that renders nothing" \
+  T2.webComponentGlobs "applicability probe"
+expect_noteval "probe: triggerGlobs not evaluated on a repo that renders nothing" \
+  T2.visualCaptureTriggerGlobs "applicability probe"
+expect_no_finding "probe: webComponentGlobs emits no finding there" T2.webComponentGlobs
+expect_no_finding "probe: triggerGlobs emits no finding there" T2.visualCaptureTriggerGlobs
+check "probe: exits 0 (rc=$RC)" "$([[ "$RC" -eq 0 ]] && echo 0 || echo 1)"
+
+# The probe list is an allowlist, and an allowlist reviewed as prose reads as a single rule — a
+# member nothing exercises can be dropped in a later edit with every case still green. One repo
+# PER member, so removing any one extension fails exactly its own case. Each file sits at the
+# root, where neither the resolved default nor any shipped candidate reaches it: the finding
+# that fires is therefore the probe holding the check open, not a candidate rescuing it.
+for ext in tsx jsx vue svelte astro html css scss sass less; do
+  RPB="$(mkrepo "probe-$ext" "widget.$ext")"
+  cfg "$RPB/c.json" <<EOF
+{ $STD_HEAD, "commands": {"app":{}} }
+EOF
+  run_grill "$RPB" "$RPB/c.json"
+  expect_finding "probe member .$ext holds the web checks open" \
+    T2.webComponentGlobs "matches 0 of the repo's tracked files"
+done
+# ...and the two deliberate EXCLUSIONS, which are why the probe is extension-shaped rather than
+# "any source file": counting .ts/.js would keep it open for every TypeScript repo, i.e. for the
+# exact shape it exists to convert. Dropping them from the exclusion set fails here.
+for ext in ts js; do
+  RPX="$(mkrepo "probe-not-$ext" "app.$ext")"
+  cfg "$RPX/c.json" <<EOF
+{ $STD_HEAD, "commands": {"app":{}} }
+EOF
+  run_grill "$RPX" "$RPX/c.json"
+  expect_noteval "probe non-member .$ext does not hold the web checks open" \
+    T2.webComponentGlobs "applicability probe"
+  expect_no_finding "probe non-member .$ext emits no finding" T2.webComponentGlobs
+done
 
 # --- AC-2/AC-3: trigger 2, formatGlob ------------------------------------------------------
 # formatGlob's shape has no "/", and verifyctl matches it with bash `[[ f == $a ]]`, where *
@@ -146,6 +194,17 @@ EOF
 run_grill "$R4" "$R4/c.json"
 expect_finding "t2 formatGlob: default matches nothing on a go tree" \
   T2.formatGlob "*.{ts,tsx,js,json,md}" "*.{go,md,json}"
+# The probe-leak guard, and it only works on a tree with NO web surface: formatGlob is universal
+# and carries no probe, so it must still FIRE in the same call where both web keys converted.
+# A probe left set from the preceding t2_key call would take formatGlob with it, and every other
+# formatGlob fixture in this file has something the probe matches, so none of them can catch it.
+expect_noteval "t2 probe: the go tree converts webComponentGlobs" T2.webComponentGlobs "applicability probe"
+expect_noteval "t2 probe: the go tree converts triggerGlobs" T2.visualCaptureTriggerGlobs "applicability probe"
+if [[ -z "$(jq -r '.notEvaluated[] | select(.id=="T2.formatGlob") | .id' <<< "$OUT")" ]]; then
+  check "t2 probe does not leak into formatGlob (no notEvaluated entry for it)" 0
+else
+  check "t2 probe leaked into formatGlob — it converted a row that carries no probe" 1
+fi
 R5="$(mkrepo t2-format-nested src/deep/a.ts)"
 cfg "$R5/c.json" <<EOF
 { $STD_HEAD, "commands": {"app":{}} }
@@ -169,11 +228,13 @@ expect_finding "t2 formatGlob: hand-set value matching nothing still fires" \
   "matches 0 of the repo's tracked files" "*.{ts,tsx,js,jsx,json,md}" "matches 1 tracked file(s)"
 
 # --- AC-2: trigger 2, visualCapture.triggerGlobs -------------------------------------------
-cfg "$R5/vc.json" <<EOF
+# On R (src/*.tsx), not R5 (src/deep/a.ts): a hand-set value matching nothing is only a defect
+# where a rendering surface exists at all, and `.ts` is deliberately not one.
+cfg "$R/vc.json" <<EOF
 { $STD_HEAD, "commands": {"app":{}},
   "stageParams": {"visualCapture": {"triggerGlobs": ["apps/web/**/*.css"]}} }
 EOF
-run_grill "$R5" "$R5/vc.json"
+run_grill "$R" "$R/vc.json"
 expect_finding "t2 triggerGlobs: hand-set value matching nothing fires" \
   T2.visualCaptureTriggerGlobs "configured value" "apps/web/**/*.css"
 
