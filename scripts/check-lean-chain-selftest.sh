@@ -49,7 +49,7 @@ cat > "$WORK/comments-good.json" <<EOF
 [
   { "user": { "type": "Bot", "login": "acme-bot" },
     "created_at": "$BOT_CLAIM_AT",
-    "body": "<!-- dev-pipeline -->\n<!-- run_id: r-abc123 -->\n<!-- session_id: sess-build-1 -->\n<!-- stage: lean-claimed -->\n\nClaimed." }
+    "body": "<!-- dev-pipeline -->\n<!-- run_id: r-abc123 -->\n<!-- session_id: sess-build-1 -->\n<!-- capabilities: pr-marker -->\n<!-- stage: lean-claimed -->\n\nClaimed." }
 ]
 EOF
 
@@ -68,7 +68,7 @@ cat > "$WORK/comments-late.json" <<EOF
 [
   { "user": { "type": "Bot", "login": "acme-bot" },
     "created_at": "2026-08-11T00:00:00Z",
-    "body": "<!-- stage: lean-claimed -->\n<!-- run_id: r-late -->" }
+    "body": "<!-- stage: lean-claimed -->\n<!-- capabilities: pr-marker -->\n<!-- run_id: r-late -->" }
 ]
 EOF
 
@@ -80,7 +80,7 @@ cat > "$WORK/comments-oldshape.json" <<EOF
 [
   { "user": { "type": "Bot", "login": "acme-bot" },
     "created_at": "$BOT_CLAIM_AT",
-    "body": "<!-- dev-pipeline -->\n<!-- run_id: r-abc123 -->\n<!-- stage: lean-claimed -->\n\nClaimed." }
+    "body": "<!-- dev-pipeline -->\n<!-- run_id: r-abc123 -->\n<!-- capabilities: pr-marker -->\n<!-- stage: lean-claimed -->\n\nClaimed." }
 ]
 EOF
 
@@ -90,7 +90,7 @@ cat > "$WORK/comments-norunid.json" <<EOF
 [
   { "user": { "type": "Bot", "login": "acme-bot" },
     "created_at": "$BOT_CLAIM_AT",
-    "body": "<!-- dev-pipeline -->\n<!-- stage: lean-claimed -->\n\nClaimed." }
+    "body": "<!-- dev-pipeline -->\n<!-- capabilities: pr-marker -->\n<!-- stage: lean-claimed -->\n\nClaimed." }
 ]
 EOF
 
@@ -1212,6 +1212,27 @@ if [ "$rc" -eq 0 ] && silent "$out"; then
   pass "(Y4) two markers neither of which the verdict carries still passes"
 else fail "(Y4) expected a silent rc=0 against two non-matching markers, got rc=$rc: $out"; fi
 
+# #445, THROUGH THE DELEGATION. The capability stamp rides the ISSUE trail this gate already
+# holds, and the payload reads it through a seam this gate must forward — so the claim trail is
+# the only thing that changes here. `comments-pretoken.json` is exactly `comments-good.json`
+# minus the stamp: a well-formed bot claim from the generation that predates it. The marker trail
+# is the one that VIOLATES, so rc=0 can only mean the delegated arm declined.
+#
+# It pins the forwarding itself too. Every case above runs on a STAMPED trail and would go inert
+# — silently, and green — if this gate stopped handing the payload its issue fixture.
+cat > "$WORK/comments-pretoken.json" <<EOF
+[
+  { "user": { "type": "Bot", "login": "acme-bot" },
+    "created_at": "$BOT_CLAIM_AT",
+    "body": "<!-- dev-pipeline -->\n<!-- run_id: r-abc123 -->\n<!-- session_id: sess-build-1 -->\n<!-- stage: lean-claimed -->\n\nClaimed." }
+]
+EOF
+out="$(LEAN_PR_COMMENTS_FILE="$WORK/pr-markers-none.json" run_gate_base "claude/acme-42" "$WORK/comments-pretoken.json" "$WORK/diff-lean.txt" "main")"; rc=$?
+if [ "$rc" -eq 0 ] && printf '%s' "$out" | grep -qE '^\[lean-evidence\]   · identity: inert — ' \
+   && ! printf '%s' "$out" | grep -q "no bot-authored 'lean-pr-marker' comment"; then
+  pass "(Y5) a pre-token claim trail sends the delegated identity arm inert instead of refusing (#445)"
+else fail "(Y5) expected an inert decline through the delegation, got rc=$rc: $out"; fi
+
 # ---- (Z) #444: the two identity arms have DIFFERENT contract windows ----------------------
 # COMPOSED, and only observable here. This gate runs two independent identity arms over one
 # verdict: the delegated PR-marker arm in the payload, which now declares a `since:`, and its own
@@ -1230,7 +1251,7 @@ cat > "$WORK/comments-old.json" <<EOF
 [
   { "user": { "type": "Bot", "login": "acme-bot" },
     "created_at": "$OLD_CLAIM_AT",
-    "body": "<!-- dev-pipeline -->\n<!-- run_id: r-abc123 -->\n<!-- session_id: sess-build-1 -->\n<!-- stage: lean-claimed -->\n\nClaimed." }
+    "body": "<!-- dev-pipeline -->\n<!-- run_id: r-abc123 -->\n<!-- session_id: sess-build-1 -->\n<!-- capabilities: pr-marker -->\n<!-- stage: lean-claimed -->\n\nClaimed." }
 ]
 EOF
 # The same trail, except the claim names the identity the verdict below carries — so the claim

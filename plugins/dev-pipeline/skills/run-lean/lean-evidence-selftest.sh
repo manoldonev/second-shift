@@ -94,6 +94,43 @@ cat > "$WORK/markers-two.json" <<'EOF'
    "body": "<!-- run_id: r-build-2 -->\n<!-- session_id: sess-build-2 -->\n<!-- stage: lean-pr-marker -->" }]
 EOF
 
+# ---- claim-trail fixtures: the producer's capability stamp (#445) --------------------------
+# The stamp rides the ISSUE's bot-authored claim comment, which every github producer generation
+# posts — that is what lets a bound arm tell "this harness could not write the artifact" from
+# "this run withheld it". `claim-stamped.json` is the CURRENT generation and is what every case
+# in this file runs on by default; the others are the reachable degrades.
+cat > "$WORK/claim-stamped.json" <<'EOF'
+[{ "user": { "type": "Bot", "login": "acme-bot" },
+   "body": "<!-- dev-pipeline -->\n<!-- run_id: r-build-1 -->\n<!-- session_id: sess-build-1 -->\n<!-- capabilities: pr-marker -->\n<!-- stage: lean-claimed -->" }]
+EOF
+# THE PRE-TOKEN GENERATION (AC-5). A claim comment exactly as the shipped producer writes one:
+# bot-authored, well-formed, carrying no `capabilities:` key at all. This fixture is what keeps
+# the inert path killable once stamped runs are the norm and every other fixture here has a stamp.
+cat > "$WORK/claim-unstamped.json" <<'EOF'
+[{ "user": { "type": "Bot", "login": "acme-bot" },
+   "body": "<!-- dev-pipeline -->\n<!-- run_id: r-build-1 -->\n<!-- session_id: sess-build-1 -->\n<!-- stage: lean-claimed -->" }]
+EOF
+# A generation that stamps something else. A stamp naming a capability this arm does not bind to
+# is simply not `pr-marker`, and must decline rather than red.
+cat > "$WORK/claim-othercap.json" <<'EOF'
+[{ "user": { "type": "Bot", "login": "acme-bot" },
+   "body": "<!-- dev-pipeline -->\n<!-- run_id: r-build-1 -->\n<!-- capabilities: design-render -->\n<!-- stage: lean-claimed -->" }]
+EOF
+# The trust filter reaches the stamp too: anyone can comment on a public issue, so an
+# operator-posted `capabilities:` line must not arm anything.
+cat > "$WORK/claim-human-stamped.json" <<'EOF'
+[{ "user": { "type": "User", "login": "someone" },
+   "body": "<!-- run_id: r-build-1 -->\n<!-- capabilities: pr-marker -->\n<!-- stage: lean-claimed -->" }]
+EOF
+# UNION, never intersection (D-5). One stale pre-token claim beside a stamped one must not
+# disarm the arm for the whole issue.
+cat > "$WORK/claim-mixed.json" <<'EOF'
+[{ "user": { "type": "Bot", "login": "acme-bot" },
+   "body": "<!-- run_id: r-old -->\n<!-- stage: lean-claimed -->" },
+ { "user": { "type": "Bot", "login": "acme-bot" },
+   "body": "<!-- run_id: r-build-1 -->\n<!-- capabilities: pr-marker -->\n<!-- stage: lean-claimed -->" }]
+EOF
+
 printf 'docs/plans/acme-42-lean.md\ndocs/plans/acme-42-lean-verdict.md\n' > "$WORK/diff-lean.txt"
 printf 'scripts/fixtures/acme-99-lean.md\nREADME.md\n' > "$WORK/diff-fixture-only.txt"
 printf 'README.md\n' > "$WORK/diff-plain.txt"
@@ -164,7 +201,8 @@ ev() { # ev <head-ref> <markers-file> <diff-file> [extra env assignments via cal
     PR_HEAD_SHA="$(git -C "$TREE" rev-parse HEAD)" \
     PR_BASE_REF="main" \
     PR_BODY="$BODY_GOOD" \
-    bash "$TOOL" all --pr-comments-file "$2" --diff-files-file "$3" 2>&1 )
+    bash "$TOOL" all --pr-comments-file "$2" --diff-files-file "$3" \
+                     --issue-comments-file "${ISSUE_COMMENTS_OVERRIDE:-$WORK/claim-stamped.json}" 2>&1 )
 }
 
 # The CONSUMER shape: no prefix constants at all, everything from the committed config.
@@ -176,7 +214,8 @@ ev_cfg() { # ev_cfg <head-ref> <markers-file> <diff-file> [config-path]
     PR_HEAD_SHA="$(git -C "$TREE" rev-parse HEAD)" \
     PR_BASE_REF="main" \
     PR_BODY="$BODY_GOOD" \
-    bash "$TOOL" all --pr-comments-file "$2" --diff-files-file "$3" 2>&1 )
+    bash "$TOOL" all --pr-comments-file "$2" --diff-files-file "$3" \
+                     --issue-comments-file "${ISSUE_COMMENTS_OVERRIDE:-$WORK/claim-stamped.json}" 2>&1 )
 }
 
 # ---- the #443 output-class assertions ------------------------------------------------------
@@ -494,6 +533,7 @@ out="$( cd "$TREE" && LEAN_BOT_ENABLED=true PR_CREATED_AT="$PR_OPEN_AT" \
         PR_HEAD_REF="claude/acme-42" PR_HEAD_SHA="$(git -C "$TREE" rev-parse HEAD)" \
         PR_BASE_REF="main" PR_BODY="$BODY_GOOD" \
         bash "$TOOL" all --pr-comments-file "$WORK/markers-none.json" \
+                         --issue-comments-file "$WORK/claim-stamped.json" \
                          --diff-files-file "$WORK/diff-lean.txt" 2>&1 )"; rc=$?
 if [ "$rc" -eq 1 ] && ! printf '%s' "$out" | grep -q 'identity: reduced-strength'; then
   pass "(ab4) LEAN_BOT_ENABLED overrides the committed tracker.bot.enabled"
@@ -563,6 +603,83 @@ else fail "(ac5) expected postdated to win over the no-bot degrade, got $rc: $ou
 if ! grep -nE '(^|[^[:alnum:]_-])date[[:space:]]+-[dr]([[:space:]]|$)' "$TOOL" >/dev/null; then
   pass "(ac6) AC-8: the cutoff comparison invokes neither 'date -d' nor 'date -r'"
 else fail "(ac6) a GNU/BSD-split date form reached lean-evidence.sh: $(grep -nE '(^|[^[:alnum:]_-])date[[:space:]]+-[dr]([[:space:]]|$)' "$TOOL")"; fi
+
+# ---- (ad) #445: an arm enforces only what its producer's generation ships -------------------
+# EVERY CASE HERE RUNS ON `markers-none.json`, the trail that is a VIOLATION whenever the arm
+# evaluates. Same discipline as (ac): rc=0 can only mean the arm declined, never that it passed,
+# so a gate wired backwards or deleted shows up as a red rather than as a quieter green. And
+# every case above this block runs on `claim-stamped.json` by default, so none of them silently
+# became one of these declines.
+#
+# AC-1. THE PRE-TOKEN GENERATION — a bot-authored claim comment with no `capabilities:` key,
+# exactly as the shipped producer writes one. This is the fixture that keeps the inert path
+# killable after the next release makes stamped runs the norm (AC-5).
+out="$(ISSUE_COMMENTS_OVERRIDE="$WORK/claim-unstamped.json" \
+       ev "claude/acme-42" "$WORK/markers-none.json" "$WORK/diff-lean.txt")"; rc=$?
+if [ "$rc" -eq 0 ] && class_b "$out" "identity:inert"; then
+  pass "(ad1) AC-1/AC-5: an unstamped claim trail sends the bound arm inert, in one class-(b) line"
+else fail "(ad1) expected an inert decline on a pre-token producer, got $rc: $out"; fi
+
+# AC-2. The same trail WITH the stamp enforces exactly as before — which is what makes (ad1) an
+# assertion about the stamp rather than about the arm having been switched off.
+out="$(ISSUE_COMMENTS_OVERRIDE="$WORK/claim-stamped.json" \
+       ev "claude/acme-42" "$WORK/markers-none.json" "$WORK/diff-lean.txt")"; rc=$?
+if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q 'no bot-authored' \
+   && ! printf '%s' "$out" | grep -q 'identity: inert'; then
+  pass "(ad2) AC-2: a stamp declaring pr-marker enforces the arm exactly as before"
+else fail "(ad2) expected the arm to enforce on a stamped trail, got $rc: $out"; fi
+
+# AC-3. A generation that stamps a DIFFERENT capability declines rather than violating. The
+# token is asserted in the reason, so a gate that merely tested "some stamp exists" is red here.
+out="$(ISSUE_COMMENTS_OVERRIDE="$WORK/claim-othercap.json" \
+       ev "claude/acme-42" "$WORK/markers-none.json" "$WORK/diff-lean.txt")"; rc=$?
+if [ "$rc" -eq 0 ] && class_b "$out" "identity:inert" \
+   && printf '%s' "$out" | grep -qF "capabilities: design-render"; then
+  pass "(ad3) AC-3: a stamp that does not declare the arm's capability is inert, not a violation"
+else fail "(ad3) expected an inert decline naming the stamped set, got $rc: $out"; fi
+
+# D-5: UNION, never intersection. One stale pre-token claim comment beside a stamped one must not
+# disarm the arm for the whole issue — an issue is re-claimed on every resumed run.
+out="$(ISSUE_COMMENTS_OVERRIDE="$WORK/claim-mixed.json" \
+       ev "claude/acme-42" "$WORK/markers-none.json" "$WORK/diff-lean.txt")"; rc=$?
+if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q 'no bot-authored' \
+   && ! printf '%s' "$out" | grep -q 'identity: inert'; then
+  pass "(ad4) D-5: the stamp is the UNION across claim comments — a stale unstamped one does not disarm"
+else fail "(ad4) expected the union to arm the gate, got $rc: $out"; fi
+
+# THE TRUST FILTER REACHES THE STAMP. Anyone can comment on a public issue, so an operator-posted
+# `capabilities:` line is not evidence of a harness generation — and arming an arm off one would
+# hand any commenter the ability to force enforcement (or, with the token flipped, to suppress it).
+out="$(ISSUE_COMMENTS_OVERRIDE="$WORK/claim-human-stamped.json" \
+       ev "claude/acme-42" "$WORK/markers-none.json" "$WORK/diff-lean.txt")"; rc=$?
+if [ "$rc" -eq 0 ] && class_b "$out" "identity:inert"; then
+  pass "(ad5) an operator-posted capability stamp does not arm the gate (the Bot trust filter)"
+else fail "(ad5) expected a human stamp to be filtered out, got $rc: $out"; fi
+
+# AC-8. NO TRAIL AT ALL is a decline, never an environment error. Making the claim fetch mandatory
+# would red every consumer whose committed workflow grants no `issues: read` — the same
+# strand-an-innocent-PR defect this whole mechanism exists to close. rc=2 here is the regression.
+out="$( cd "$TREE" && PIPELINE_BRANCH_PREFIX="claude/acme-" PR_CREATED_AT="$PR_OPEN_AT" \
+        PR_HEAD_REF="claude/acme-42" PR_HEAD_SHA="$(git -C "$TREE" rev-parse HEAD)" PR_BASE_REF=main \
+        PR_BODY="$BODY_GOOD" \
+        bash "$TOOL" all --pr-comments-file "$WORK/markers-none.json" \
+                         --diff-files-file "$WORK/diff-lean.txt" 2>&1 )"; rc=$?
+if [ "$rc" -eq 0 ] && class_b "$out" "identity:inert" \
+   && printf '%s' "$out" | grep -q 'GH_REPO is unset'; then
+  pass "(ad6) AC-8: an unreachable claim trail declines and says why, rather than failing the environment"
+else fail "(ad6) expected a named inert decline with no trail, got $rc: $out"; fi
+
+# AC-7, THE SCOPE BOUNDARY. Under a read-only tracker `cmd_claim` writes nothing to the tracker at
+# all, so no artifact both producer generations write exists there to carry a stamp. Binding the
+# arm to one would disarm the strongest merge-boundary arm permanently for that adapter. A
+# jira+bot consumer therefore keeps the pre-#445 behavior — asserted on the trail that is a
+# violation, so this cannot pass by declining.
+out="$(ISSUE_COMMENTS_OVERRIDE="$WORK/claim-unstamped.json" \
+       ev_cfg "lean/-42" "$WORK/markers-none.json" "$WORK/diff-lean.txt" "$WORK/config-jira-bot.json")"; rc=$?
+if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q 'no bot-authored' \
+   && ! printf '%s' "$out" | grep -q 'identity: inert'; then
+  pass "(ad7) AC-7: a jira consumer is not capability-bound — the arm enforces unchanged"
+else fail "(ad7) expected the jira arm to enforce despite an unstamped trail, got $rc: $out"; fi
 
 # ---- (bb) the delegation interface ---------------------------------------------------------
 # `classify` is what BOTH chain gates consume instead of holding their own copy of these rules;
@@ -678,23 +795,31 @@ if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q 'no resolvable issue referenc
   pass "(cc1) a lean PR whose body resolves no issue key is refused, not run against an empty key"
 else fail "(cc1) expected rc=1 on an unresolvable issue reference, got $rc: $out"; fi
 
-# THE LIVE FETCH PATH. Every case above hands the marker trail in through --pr-comments-file,
-# which seams past `${GH:-gh}` entirely — so the one line a consumer's CI actually depends on
-# was the only unexercised statement in the identity arm. A stub `gh` on PATH exercises it for
-# real: with the fallback broken the fetch cannot run, and an arm that cannot run must not pass.
+# THE LIVE FETCH PATH. Every case above hands its trails in through the fixture seams, which
+# bypass `${GH:-gh}` entirely — so the lines a consumer's CI actually depends on were the only
+# unexercised statements in the identity arm. A stub `gh` on PATH exercises them for real: with
+# either fallback broken the fetch cannot run, and an arm that cannot run must not pass.
+#
+# TWO trails now, and the stub routes on the endpoint rather than serving one file to both (#445).
+# Serving the marker trail to the capability read would find no claim comment, send the arm inert,
+# and turn this case into a green that proves nothing about the fetch it is named for.
 mkdir -p "$WORK/bin"
 cat > "$WORK/bin/gh" <<'GHSTUB'
 #!/usr/bin/env bash
-cat "$LEAN_EV_MARKERS"
+case "$*" in
+  *"/issues/$LEAN_EV_PR/comments"*) cat "$LEAN_EV_MARKERS" ;;
+  *)                                cat "$LEAN_EV_CLAIMS" ;;
+esac
 GHSTUB
 chmod +x "$WORK/bin/gh"
 out="$( cd "$TREE" && PATH="$WORK/bin:$PATH" LEAN_EV_MARKERS="$WORK/markers-good.json" \
+        LEAN_EV_CLAIMS="$WORK/claim-stamped.json" LEAN_EV_PR=9 \
         PIPELINE_BRANCH_PREFIX="claude/acme-" PR_CREATED_AT="$PR_OPEN_AT" \
         PR_HEAD_REF="claude/acme-42" PR_HEAD_SHA="$(git -C "$TREE" rev-parse HEAD)" PR_BASE_REF=main \
         PR_BODY="$BODY_GOOD" PR_NUMBER=9 GH_REPO="acme/acme" \
         bash "$TOOL" all --diff-files-file "$WORK/diff-lean.txt" 2>&1 )"; rc=$?
 if [ "$rc" -eq 0 ] && silent "$out"; then
-  pass "(cc2) the identity arm fetches its marker trail through the live gh path, not only the fixture seam"
+  pass "(cc2) the identity arm fetches BOTH its marker trail and its capability stamp through the live gh path"
 else fail "(cc2) expected the live-fetch path to pass silently, got $rc: $out"; fi
 
 # ---- (dd) #443: the class-(b) emitter's own contract ---------------------------------------

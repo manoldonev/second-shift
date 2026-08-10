@@ -544,6 +544,27 @@ unclaim-workflow-env	verbatim	.github/workflows/unclaim-on-close.yml	unclaim-wor
 # composes a fixture trail through the delegating boundary.
 lean-pr-marker	verbatim	plugins/dev-pipeline/skills/run-lean/lean-gate.sh	lean-pr-marker	plugins/dev-pipeline/skills/run-lean/lean-evidence.sh	lean-pr-marker
 
+# lean PRODUCER CAPABILITIES (#445) — the claim comment's stage tag, the generation stamp's key,
+# and the closed capability vocabulary an arm may bind itself to. lean-gate.sh is the CANONICAL
+# side: it is the sole writer of all three, and the two rows below are its two readers, following
+# the `lean-inherited-key-*` precedent for one writer with two readers.
+# WHY IT MUST NOT DRIFT. An arm and its producer travel by DIFFERENT transports — the arm by git
+# ref at a consumer's pinned marketplace ref, the producer by versioned plugin install into an
+# operator's cache — and both report the same version, so nothing else can observe the skew. A
+# renamed `LEAN_CLAIM_MARKER_TAG` empties check-lean-chain.sh's claim set (every honest PR reds)
+# AND makes lean-evidence.sh find no stamp, which silently sends every capability-bound arm inert
+# — a weakened boundary that reads exactly as green as a strong one. A renamed key, or a
+# vocabulary that gained a token on one side alone, does the same quietly.
+# Each side validates its OWN token against the vocabulary — the writer the subset it ships, the
+# reader the token its arm requires — so a one-sided edit reds loudly on the side that made it.
+# lean-reconcile.sh holds an unbound copy of the tag and is deliberately not a third row: it is an
+# operator-run reconciler rather than a merge-boundary gate, and it carried that copy already.
+# Behavioral guards: lean-gate-selftest.sh (pc1)-(pc3) at the writer, lean-evidence-selftest.sh
+# (ad1)-(ad7) at the bound arm, and check-lean-chain-selftest.sh composes a stamped trail through
+# the delegating boundary.
+lean-producer-capabilities-evidence	verbatim	plugins/dev-pipeline/skills/run-lean/lean-gate.sh	lean-producer-capabilities	plugins/dev-pipeline/skills/run-lean/lean-evidence.sh	lean-producer-capabilities
+lean-producer-capabilities-chain	verbatim	plugins/dev-pipeline/skills/run-lean/lean-gate.sh	lean-producer-capabilities	scripts/check-lean-chain.sh	lean-producer-capabilities
+
 # lean GATE-OUTPUT dispositions (#443) — `LEAN_OUTPUT_DISPOSITIONS`, the closed vocabulary a
 # class-(b) line ("this arm could not evaluate") may name. Both merge-boundary gates declare their
 # own copy: scripts/check-lean-chain.sh cannot source the payload it delegates to (it fetches it

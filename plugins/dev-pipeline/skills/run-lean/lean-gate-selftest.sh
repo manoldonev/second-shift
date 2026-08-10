@@ -4006,5 +4006,82 @@ if [ "$rc" -eq 0 ] && wt_registered "$WTREE" && printf '%s' "$out" | grep -qF 'i
   pass "(wt19) teardown refuses the main checkout by name, even when the lean branch is checked out there"
 else fail "(wt19) expected a named refusal on the main checkout, rc=$rc: $out"; fi
 
+# ---- (pc) #445: the producer stamps the generation its readers gate on ----------------------
+# THE WRITER HALF of the capability contract. A merge-boundary arm bound to a capability reads
+# this stamp off the run's own claim comment; a producer that stopped writing it would send every
+# such arm inert — a weakened boundary that reads exactly as green as a strong one, which is why
+# the writer needs its own kill criterion rather than only the reader's.
+CFG_BOT="$WORK/config-bot.json"
+sed -e 's/"tracker": { "branchPrefix"/"tracker": { "bot": { "enabled": true, "envVar": "GH_BOT" }, "branchPrefix"/' \
+  "$CFG" > "$CFG_BOT"
+CLAIM_SPOOL="$WORK/claim-spool.txt"
+cat > "$WORK/claim-bot-stub.sh" <<'EOF'
+#!/usr/bin/env bash
+# Stands in for the gh bot wrapper across BOTH of claim's writes: the label swap (whose response
+# body claim-issue.sh inspects for the claimed label) and the marker comment.
+for a in "$@"; do
+  case "$a" in body=@*) cat "${a#body=@}" >> "$CLAIM_SPOOL" ;; esac
+done
+case "$*" in
+  *labels*) cat >/dev/null; printf '["in-progress"]\n' ;;
+  *)        echo "https://example.invalid/issues/8#issuecomment-1" ;;
+esac
+EOF
+chmod +x "$WORK/claim-bot-stub.sh"
+
+CPCPROG="$WORK/progress-pc.md"
+rm -f "$CPCPROG"; : > "$CLAIM_SPOOL"
+mkdir -p "$TREE/.claude/audit"
+printf '{"tool":"Bash"}\n' > "$TREE/.claude/audit/sess-pc-1.jsonl"
+( unset RUN_ID; cd "$TREE" && CLAUDE_CODE_SESSION_ID=sess-pc-1 SECOND_SHIFT_CONFIG="$CFG_BOT" \
+    LEAN_PROGRESS_FILE="$CPCPROG" bash "$GATE" entry 8 >/dev/null 2>&1 )
+out="$( cd "$TREE" && RUN_ID=pc-run-1 CLAUDE_CODE_SESSION_ID=sess-pc-1 SECOND_SHIFT_CONFIG="$CFG_BOT" \
+        LEAN_PROGRESS_FILE="$CPCPROG" GH_BOT="$WORK/claim-bot-stub.sh" CLAIM_SPOOL="$CLAIM_SPOOL" \
+        bash "$GATE" --issue-file "$ISSUE_NOREGIONS" claim 8 2>&1 )"; rc=$?
+if [ "$rc" -eq 0 ] && grep -q 'stage: lean-claimed' "$CLAIM_SPOOL" 2>/dev/null \
+   && grep -q 'capabilities: pr-marker' "$CLAIM_SPOOL" 2>/dev/null; then
+  pass "(pc1) claim stamps this producer's capabilities onto the comment its readers gate on"
+else fail "(pc1) expected a stamped claim comment, rc=$rc: $out / spool=$(cat "$CLAIM_SPOOL" 2>/dev/null)"; fi
+
+# The verdict record carries the same stamp, with NO reader today (D-7). Shipped now so a later
+# review-side arm finds it already present in older records instead of going permanently inert
+# over their silence — which only holds if the writer is guarded from the day it lands.
+out="$(yverdict sess-review-pc r-review-pc --pr 91 --verdict approve --rounds 1)"; rc=$?
+if [ "$rc" -eq 0 ] && grep -q '^capabilities: pr-marker$' "$YVERDICT" 2>/dev/null; then
+  pass "(pc2) the verdict record carries the producer's capability stamp (D-7)"
+else fail "(pc2) expected a stamped verdict record, rc=$rc: $out / record=$(cat "$YVERDICT" 2>/dev/null)"; fi
+
+# THE CLOSED VOCABULARY, driven rather than grepped. A producer stamping a token no reader binds
+# to arms nothing and disarms everything bound to the token it replaced — silently, since the
+# stamp is still present and still well-formed. So it is an environment error at the writer, and
+# nothing is posted. A COPY of the real file with one literal changed: the guard runs on
+# production bytes, and a hand-written model of it could not fail when those bytes change.
+#
+# The copy lives in a SANDBOX carrying the real siblings it sources, so what runs is the whole
+# production file rather than a fragment that dies on a missing dependency and returns the same
+# rc=2 for an unrelated reason. Driven through `verdict`, whose write path needs no helper
+# outside that directory.
+BADDIR="$WORK/gate-badcap"
+mkdir -p "$BADDIR"
+cp "$(dirname "$GATE")"/*.sh "$BADDIR"/
+sed -e "s/^LEAN_PRODUCER_CAPABILITIES='pr-marker'\$/LEAN_PRODUCER_CAPABILITIES='not-a-capability'/" \
+  "$GATE" > "$BADDIR/lean-gate.sh"
+if ! grep -q "^LEAN_PRODUCER_CAPABILITIES='not-a-capability'\$" "$BADDIR/lean-gate.sh"; then
+  fail "(pc3) the mutation did not apply — the case would assert nothing"
+else
+  rm -f "$YPROG"; { echo "# lean run — issue 11"; echo ""; echo "run_id: r-build-y"; echo "session_id: sess-build-y"; } > "$YPROG"
+  attest_at "$YTREE" "$CFG" "$YPROG" 11
+  rm -f "$YTREE/.claude/pipeline-state/11-review-run-id"
+  cp "$YVERDICT" "$WORK/held-pc-verdict.md" 2>/dev/null
+  out="$( unset RUN_ID; cd "$YTREE" && SECOND_SHIFT_CONFIG="$CFG" LEAN_PROGRESS_FILE="$YPROG" \
+          CLAUDE_CODE_SESSION_ID=sess-review-pc3 RUN_ID=r-review-pc3 \
+          bash "$BADDIR/lean-gate.sh" verdict 11 --pr 91 --verdict approve --rounds 1 2>&1 )"; rc=$?
+  if [ "$rc" -eq 2 ] && printf '%s' "$out" | grep -q 'not in the closed capability vocabulary' \
+     && ! grep -q 'not-a-capability' "$YVERDICT" 2>/dev/null; then
+    pass "(pc3) a producer token outside the closed vocabulary refuses instead of stamping it"
+  else fail "(pc3) expected an environment error on an out-of-vocabulary token, rc=$rc: $out"; fi
+  cp "$WORK/held-pc-verdict.md" "$YVERDICT" 2>/dev/null
+fi
+
 echo "[lean-gate-selftest] $([ "$FAILS" -eq 0 ] && echo 'all green' || echo "$FAILS FAILURE(S)")"
 exit "$FAILS"

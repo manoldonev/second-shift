@@ -213,8 +213,9 @@ jobs:
         github.event.pull_request.head.repo.full_name == github.repository)
     runs-on: ubuntu-latest
     # A `permissions:` key REPLACES the defaults wholesale, so `contents: read` must be
-    # restated or actions/checkout breaks. issues/pull-requests are for the chain check's
-    # comment read.
+    # restated or actions/checkout breaks. issues/pull-requests are for the chain check's comment
+    # reads — the PR's marker trail, and the issue's claim trail, which carries both the build
+    # identity and the producer capability stamp the bound arms gate on.
     # Gaining a scope here is a question about the CONSUMER template too. If the arm needing it
     # lives in the delegated payload (lean-evidence.sh), then
     # plugins/second-shift/templates/consumer/second-shift-ci.yml needs the same scope, and

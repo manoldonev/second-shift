@@ -112,9 +112,11 @@
 #   SECOND_SHIFT_CONFIG     optional  path to the committed config (testing / vendored fork)
 #
 # Seams (zero-network selftest, the check-lean-chain.sh precedent):
-#   --pr-comments-file <path>   read the PR comment trail from a JSON fixture
-#   --diff-files-file <path>    read the PR's changed-file list from a newline fixture
-#   ${GH:-gh}                   the CLI used for the comment fetch
+#   --pr-comments-file <path>      read the PR comment trail from a JSON fixture
+#   --issue-comments-file <path>   read the ISSUE comment trail (the capability stamp's carrier)
+#                                  from a JSON fixture
+#   --diff-files-file <path>       read the PR's changed-file list from a newline fixture
+#   ${GH:-gh}                      the CLI used for the comment fetches
 #
 # Interop:
 #   --violations-file <path>    write this run's violation COUNT there. A delegating caller
@@ -138,6 +140,7 @@ set -uo pipefail
 
 GH_CLI="${GH:-gh}"
 PR_COMMENTS_FILE=""
+ISSUE_COMMENTS_FILE=""
 DIFF_FILES_FILE=""
 VIOLATIONS_FILE=""
 SUB=""
@@ -150,9 +153,10 @@ while [ $# -gt 0 ]; do
     --key)               KEY="${2:-}"; shift 2 ;;
     --arms)              ARMS="${2:-}"; shift 2 ;;
     --pr-comments-file)  PR_COMMENTS_FILE="${2:-}"; shift 2 ;;
+    --issue-comments-file) ISSUE_COMMENTS_FILE="${2:-}"; shift 2 ;;
     --diff-files-file)   DIFF_FILES_FILE="${2:-}"; shift 2 ;;
     --violations-file)   VIOLATIONS_FILE="${2:-}"; shift 2 ;;
-    -h|--help)           sed -n '2,136p' "$0"; exit 0 ;;
+    -h|--help)           sed -n '2,138p' "$0"; exit 0 ;;
     *) echo "[lean-evidence] unknown argument: $1" >&2; exit 2 ;;
   esac
 done
@@ -344,6 +348,131 @@ LEAN_INTENT_GAP_SUFFIX='-lean-intent-gap.md'
 # comment satisfy a PR-side arm.
 LEAN_PR_MARKER_TAG='lean-pr-marker'
 # LOCKSTEP-END lean-pr-marker
+
+# ---------------------------------------------------------------- producer capabilities (#445)
+# WHY AN ARM ASKS WHAT ITS PRODUCER SHIPS. These arms travel by GIT REF — a consumer's CI fetches
+# this file at its pinned marketplace ref — while the producer that satisfies them (lean-gate.sh)
+# travels by VERSIONED PLUGIN INSTALL into an operator's local cache. The two transports skew, and
+# both trees report the same version, so no version-keyed check can observe it. An arm that landed
+# before its producer shipped was enforced against runs whose build session had no way to satisfy
+# it, and the run had no remedy: the artifact demanded did not exist in the harness that ran.
+#
+# So an arm may declare a CAPABILITY, and enforces only when the run's own evidence shows a
+# producer generation that declares it. Absent that, the arm is INERT — class (b), zero
+# violations — exactly as an out-of-window arm is `postdated`.
+#
+# THE STAMP RIDES THE CLAIM COMMENT, which every github generation posts including the pre-token
+# one. That is what makes this non-circular. Reading it off the PR marker would be circular (the
+# marker IS the artifact the one bound arm demands), and reading it off the VERDICT RECORD would
+# let the reviewed party soften a build-side arm.
+#
+# The block below is shared with lean-gate.sh (the writer) and scripts/check-lean-chain.sh (which
+# reads the claim tag for its own claim arm); see the writer for what each literal is for.
+# LOCKSTEP-BEGIN lean-producer-capabilities
+LEAN_CLAIM_MARKER_TAG='lean-claimed'
+# shellcheck disable=SC2034  # each reader binds a SUBSET of these; the block is one contract.
+LEAN_CAPABILITY_KEY='capabilities'
+# shellcheck disable=SC2034  # ditto — unused here is the point, not an oversight.
+LEAN_CAPABILITIES='pr-marker'
+# LOCKSTEP-END lean-producer-capabilities
+
+# Resolved ONCE per run, from the claim trail. Three outcomes the caller must keep apart:
+#   declared-set  a bot-authored claim comment carries a stamp — CAPABILITY_STAMP is the UNION
+#                 across every such comment (D-5). Intersection would let one stale pre-token
+#                 claim permanently disarm the arm for the whole issue.
+#   none          claim comments exist (or do not) and none carries a stamp ⇒ a pre-token
+#                 producer.
+#   unreadable    no trail could be obtained at all.
+CAPABILITY_STAMP=""
+CAPABILITY_STAMP_STATE=""
+CAPABILITY_STAMP_WHY=""
+
+# UNWINDOWED, matching the PR-marker arm's rule rather than check-lean-chain.sh's PR-open window:
+# what is being read here is a property of the HARNESS, not a claim about who claimed first, and a
+# window would hide a re-claim posted by the very generation whose capabilities are in question.
+# The Bot trust filter still applies — an operator-posted stamp is not evidence of a harness.
+# shellcheck disable=SC2016  # $author/$tag/$key are jq variables, bound with --arg.
+CLAIM_STAMP_FILTER='
+  [ .[]
+    | select((.user.type // "") == "Bot")
+    | select($author == "" or (.user.login // "") == $author)
+    | select((.body // "") | test("<!--[[:space:]]*stage:[[:space:]]*" + $tag + "[[:space:]]*-->"))
+  ]
+  | map((.body // "") | capture($key + ":[[:space:]]*(?<c>[A-Za-z0-9._,-]+)").c? // "")
+  | map(select(. != ""))
+  | join(",")'
+
+resolve_capability_stamp() {
+  [ -n "$CAPABILITY_STAMP_STATE" ] && return 0
+  local comments
+  if [ -n "$ISSUE_COMMENTS_FILE" ]; then
+    [ -f "$ISSUE_COMMENTS_FILE" ] || envfail "--issue-comments-file '$ISSUE_COMMENTS_FILE' does not exist."
+    comments="$(cat "$ISSUE_COMMENTS_FILE")"
+  elif [ -n "${GH_REPO:-}" ] && [ -n "$KEY" ]; then
+    # A FAILED FETCH DECLINES, and this is the ONE fetch here that does not exit 2. The marker
+    # fetch below waives an arm that would otherwise enforce, so failing open there is a
+    # waiver; failing to establish a generation lands on the declining side by construction —
+    # and making this fetch mandatory would red every consumer whose committed workflow grants
+    # no `issues: read`, which is the same strand-an-innocent-PR defect this whole mechanism
+    # exists to close. It is NAMED, never silent.
+    comments="$("$GH_CLI" api "repos/$GH_REPO/issues/$KEY/comments" --paginate 2>&1)" || {
+      CAPABILITY_STAMP_STATE="unreadable"
+      CAPABILITY_STAMP_WHY="the claim trail for #$KEY could not be fetched (does this workflow grant 'issues: read'?): $(printf '%s' "$comments" | head -n1)"
+      return 0
+    }
+  else
+    CAPABILITY_STAMP_STATE="unreadable"
+    CAPABILITY_STAMP_WHY="no claim trail is reachable — GH_REPO is unset and no --issue-comments-file was given"
+    return 0
+  fi
+  printf '%s' "$comments" | jq -e 'type == "array"' >/dev/null 2>&1 || {
+    CAPABILITY_STAMP_STATE="unreadable"
+    CAPABILITY_STAMP_WHY="the claim trail for #$KEY is not a JSON array"
+    return 0
+  }
+  CAPABILITY_STAMP="$(printf '%s' "$comments" | jq -r \
+    --arg author "${LEAN_MARKER_AUTHOR:-}" --arg tag "$LEAN_CLAIM_MARKER_TAG" --arg key "$LEAN_CAPABILITY_KEY" \
+    "$CLAIM_STAMP_FILTER")"
+  if [ -n "$CAPABILITY_STAMP" ]; then
+    CAPABILITY_STAMP_STATE="declared-set"
+  else
+    CAPABILITY_STAMP_STATE="none"
+  fi
+  return 0
+}
+
+# The gate an arm calls before it enforces. Returns 0 to ENFORCE; 1 having already emitted the
+# arm's single class-(b) `inert` line.
+#
+# AN UNKNOWN CAPABILITY IS AN ENVIRONMENT ERROR, never a decline — same posture as
+# `inapplicable`'s closed disposition set. An arm asking for a token the shared vocabulary does
+# not carry can never be armed by any producer, so it would sit inert forever while reading as a
+# considered decline.
+capability_gate() { # capability_gate <arm> <capability>
+  case ",$LEAN_CAPABILITIES," in
+    *",$2,"*) : ;;
+    *) envfail "internal: '$2' is not in the closed capability vocabulary ('$LEAN_CAPABILITIES') (arm '$1'). An arm bound to a token no producer can stamp is permanently inert." ;;
+  esac
+  # AC-7. Under a read-only tracker there is NO claim comment — `cmd_claim` writes nothing to the
+  # tracker at all — so no artifact both producer generations write exists there to carry a stamp.
+  # Binding the arm to a stamp that can never be produced would disarm the strongest
+  # merge-boundary arm permanently for that adapter, which is a strictly larger harm than the
+  # transitional skew this closes. Such a consumer keeps the pre-#445 behavior, unchanged.
+  [ "$TRACKER_TYPE" = "github" ] || return 0
+  resolve_capability_stamp
+  case "$CAPABILITY_STAMP_STATE" in
+    declared-set)
+      case ",$CAPABILITY_STAMP," in *",$2,"*) return 0 ;; esac
+      inapplicable "$1" inert "this run's producer stamped '$LEAN_CAPABILITY_KEY: $CAPABILITY_STAMP' on its claim comment, and that generation does not declare '$2' — it cannot write the artifact this arm demands, so the arm is not evaluated and contributes no violation. Every other arm still gates."
+      return 1 ;;
+    none)
+      inapplicable "$1" inert "no bot-authored '$LEAN_CLAIM_MARKER_TAG' comment on #$KEY carries a '$LEAN_CAPABILITY_KEY:' stamp, so this run's producer predates the stamp and cannot be shown to ship '$2'. The arm is not evaluated and contributes no violation; every other arm still gates."
+      return 1 ;;
+    *)
+      inapplicable "$1" inert "the producer's generation cannot be established, so nothing shows whether it ships '$2' — $CAPABILITY_STAMP_WHY. The arm is not evaluated and contributes no violation; every other arm still gates."
+      return 1 ;;
+  esac
+}
 
 # Fixture paths are lean-shaped ON PURPOSE (the selftests need lean-looking files), so they
 # must never make a PR applicable or be mistaken for a real artifact.
@@ -575,6 +704,13 @@ arm_identity() {
     inapplicable identity reduced-strength "no bot is enabled for this consumer (tracker.bot.enabled is false, or absent under tracker.type 'jira'), so it has no authenticated writer and any PR marker it posted would fail the Bot trust filter. The verdict's independence is NOT checked here; every other arm still gates. Configuring a bot restores this arm under either tracker."
     return 0
   fi
+  # AFTER both exemptions above and BEFORE the verdict short-circuit (#445). After, because
+  # `postdated` and `reduced-strength` are cheaper answers to the same question and D-6 fixes
+  # `since:` as the first evaluation — an exempt run pays no issue fetch. Before, because "the
+  # producer that ran could not post a marker" is true whether or not a verdict record exists,
+  # and an arm that reported it only on runs which got as far as a verdict would go quiet on
+  # exactly the runs an operator is triaging.
+  capability_gate identity pr-marker || return 0
   [ -n "$VERDICT" ] || return 0   # already a violation; "authorship unverifiable" on top is noise
 
   local comments
