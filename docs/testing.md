@@ -453,9 +453,25 @@ Counting the timeout as a kill follows Stryker and PIT: the suite did surface th
 scoring it a survivor would red the build on a mutant nothing can kill.
 
 Three tracked guards carry that idiom, and the `k` budget — not any property of the guards — is
-what decides which are armed: `gen-statectl-validators.sh` and `predecessor-gate.sh` hold it at
+what decided which were armed: `gen-statectl-validators.sh` and `predecessor-gate.sh` hold it at
 `cmp-z` ordinal 1 and killed their shards, while `scaffold-review-context.sh` holds it at ordinal 5
-and was simply never mutated at `k=2`. Raising `MUTATION_SWEEP_K` arms it. Budget is not safety.
+and was never mutated at `k=2`. Budget is not safety. That fourth site is now armed by the
+`scaffold-spin-at-eof` **catalog** row rather than by raising `MUTATION_SWEEP_K`, which would have
+armed every other guard's ordinals 3–5 for the sake of one named site; `k` is unchanged, so no
+baseline re-seed and no cache-key change follow. Its expected verdict is a kill by timeout, a class
+the catalog's header block now documents explicitly — such a row's value is the arming plus
+anchor-drift loudness, not a survivor prediction.
+
+What kept that site invisible for two nightlies was the report, not the budget: a guard with no
+applicable site and a guard whose sites all sit past `k` produced the same silence. The report TSV's
+last column, **`sites_beyond_budget`**, ends that. It carries per-operator detail in the
+plus-joined `paired_selftest` style (`cmp-z:3`), counts only sites the enumerator declined for
+budget — an unparseable or no-op flip is a harness artifact, not darkness — and is **report-only,
+never red**, the posture `tools/mutation-operators.tsv` already states for non-application. It is
+appended last because `report_row()` in the companion selftest reads `$5/$6/$7` positionally and
+`--mode merge` compares shard headers byte-wise. The wider question it now supplies evidence for —
+whether `k=2` is the right budget at all, given that every site past ordinal 2 is dark sweep-wide —
+stays open.
 
 **Two obligations land on ordinary PRs.** Editing a guard re-keys its generic survivor ordinals,
 so that PR re-baselines those rows in its own diff; and it re-anchors any catalog row addressing

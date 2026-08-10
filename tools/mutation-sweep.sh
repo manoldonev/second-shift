@@ -654,10 +654,26 @@ fi
 
 # ------------------------------------------------------------------- reporting
 REPORT_TMP="$(mktemp -t mutation-sweep-report.XXXXXX)" || die "mktemp failed"
-printf 'guard\tstatus\tpaired_selftest\tmutants_applied\tkilled\tsurvived\tsurvivor_ids\n' > "$REPORT_TMP"
+printf 'guard\tstatus\tpaired_selftest\tmutants_applied\tkilled\tsurvived\tsurvivor_ids\tsites_beyond_budget\n' > "$REPORT_TMP"
 
+# sites_beyond_budget is the report's answer to a question it used to be unable to
+# distinguish: a guard with NO applicable site for an operator and a guard whose sites all
+# sit past K_BUDGET both emitted the same silence, which is how a live spinning-idiom site
+# stayed dark unnoticed. It carries per-operator detail in the paired_selftest plus-joined
+# style (`cmp-z:3`, `cmp-z:3+cmp-eq:1`) — a bare count would say a guard is dark without
+# saying of which mutation class. It is REPORT-ONLY and never reds a lane, the same posture
+# mutation-operators.tsv states for non-application.
+#
+# It counts only sites the enumerator declined SOLELY because the operator's budget was
+# already spent. The other two skips — an unparseable flip, a no-op flip — are harness
+# artifacts rather than budget darkness and are not counted. On a `deferred-to-nightly` or
+# `excluded` row it is empty because enumeration never ran; the status column is what tells
+# those apart from a swept guard with nothing beyond budget.
+#
+# APPENDED LAST, and that is load-bearing: mutation-sweep-selftest.sh's report_row() parses
+# $5/$6/$7 positionally, and --mode merge compares shard headers byte-wise.
 emit_row() {
-  printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$1" "$2" "$3" "$4" "$5" "$6" "$7" >> "$REPORT_TMP"
+  printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$1" "$2" "$3" "$4" "$5" "$6" "$7" "$8" >> "$REPORT_TMP"
 }
 
 finish() {
@@ -817,7 +833,7 @@ if [[ "$MODE" == "pr" ]]; then
       defer="PR-lane cap ($PR_FAST_GUARD_CAP fast guards already swept)"
     fi
     if [[ -n "$defer" ]]; then
-      emit_row "$g" "deferred-to-nightly" "${ks// /+}" 0 0 0 ""
+      emit_row "$g" "deferred-to-nightly" "${ks// /+}" 0 0 0 "" ""
       info "defer $g -> nightly: $defer"
     else
       fast_count=$((fast_count + 1))
@@ -835,7 +851,7 @@ fi
 # diff-scoped by design.
 if [[ "$MODE" == "full" && "$SHARD_I" -eq 1 ]]; then
   for g in "${ALL_GUARDS[@]}"; do
-    is_excluded "$g" && emit_row "$g" "excluded" "" 0 0 0 ""
+    is_excluded "$g" && emit_row "$g" "excluded" "" 0 0 0 "" ""
   done
 fi
 
@@ -869,13 +885,23 @@ fi
 # (`while IFS= read -r line || [[ -n "$line" ]]` -> `|| [[ -z "$line" ]]`), which at EOF is
 # permanently true, so the guard spins at 100% CPU.
 #
-# THREE live guards carry that idiom, and K_BUDGET predicts exactly which shards died:
-#   gen-statectl-validators.sh L213  cmp-z ordinal 1  mutated      shard 4  -> died
-#   predecessor-gate.sh        L85   cmp-z ordinal 1  mutated      shard 9  -> died (reproduced)
-#   scaffold-review-context.sh L69   cmp-z ordinal 5  beyond k=2   shard 8  -> survived
-# The third is not safe, only out of budget: raising MUTATION_SWEEP_K to 5 arms it.
+# THREE live guards carry that idiom. K_BUDGET predicted exactly which shards died in the
+# seed run (middle column), and it is also what each site is armed BY today (last column):
+#   gen-statectl-validators.sh L213  cmp-z ord 1  shard 4 died               generic tier
+#   predecessor-gate.sh        L85   cmp-z ord 1  shard 9 died (reproduced)  generic tier
+#   scaffold-review-context.sh L69   cmp-z ord 5  shard 8 never mutated      catalog row
+# The third was never safe, only out of budget — ordinal 5 against k=2 — and it is armed by
+# the `scaffold-spin-at-eof` catalog row rather than by raising MUTATION_SWEEP_K, which
+# would have armed every other guard's ordinals 3-5 at the same time for one named site. The
+# budget is unchanged, so no baseline re-seed and no cache-key change follow. The general
+# question of the budget itself is separate and still open.
 # Shard 5 carries none of them and completes locally; its CI death is NOT explained by
 # this defect, and the bound is what lets that run NAME whatever it hit instead.
+#
+# What made that third site invisible for two nightlies was not the budget but the REPORT:
+# a guard with no applicable site and a guard whose sites all sit past k emitted the same
+# silence. The sites_beyond_budget column (see emit_row) is what ended that, and it is the
+# standing evidence any later decision about k should rest on.
 #
 # A timed-out killer scores as a KILL, the mutation-testing convention (Stryker and PIT
 # both count a timeout as detected): the suite did surface the defect, and the alternative
@@ -1370,6 +1396,7 @@ EOF
 # knowable until the mutants exist. A precheck IS a paired-suite execution, so a run that
 # still paid for one could not honestly claim to have executed none.
 GL_GUARD=(); GL_KS=(); GL_KSORD=(); GL_UNRUN=(); GL_APPLIED=(); GL_FIRST=(); GL_COUNT=()
+GL_BEYOND=()
 MUT_SID=()
 : > "$WORKDIR/mut.todo"
 IDX=0
@@ -1384,7 +1411,9 @@ for guard in ${SWEEP_GUARDS[@]+"${SWEEP_GUARDS[@]}"}; do
   GL_APPLIED[${#GL_APPLIED[@]}]=0
   GL_FIRST[${#GL_FIRST[@]}]="$IDX"
   GL_COUNT[${#GL_COUNT[@]}]=0
+  GL_BEYOND[${#GL_BEYOND[@]}]=""
   GFILE="$SB0/$guard"
+  BEYOND=""
 
   # One suites-sha per guard: the kill set's suite bytes, hashed in kill order. This is the
   # half of the key that makes the memo sound across test changes — a new case in ANY paired
@@ -1413,11 +1442,14 @@ for guard in ${SWEEP_GUARDS[@]+"${SWEEP_GUARDS[@]}"}; do
       red "operator match does not enumerate (grep exit $GREP_RC): $opid on $guard — $SITES"
       continue
     fi
-    ordinal=0; used=0
+    ordinal=0; used=0; beyond=0
     while IFS= read -r lineno; do
       [[ -n "$lineno" ]] || continue
       ordinal=$((ordinal + 1))
-      [[ $used -ge $K_BUDGET ]] && continue   # keep counting ordinals; stop mutating
+      # keep counting ordinals; stop mutating. The declined sites are TALLIED rather than
+      # dropped: they are the difference between a guard with no applicable site and a
+      # guard that is dark, and the report could not previously say which.
+      [[ $used -ge $K_BUDGET ]] && { beyond=$((beyond + 1)); continue; }
       REPL="$(mktemp -t mutation-sweep-line.XXXXXX)"
       awk -v n="$lineno" 'NR==n' "$GFILE" | sed -E -e "$opflip" > "$REPL"
       splice_line "$GFILE" "$lineno" "$REPL"
@@ -1445,6 +1477,7 @@ for guard in ${SWEEP_GUARDS[@]+"${SWEEP_GUARDS[@]}"}; do
       IDX=$((IDX + 1))
       restore "$guard"
     done <<< "$(printf '%s\n' "$SITES" | cut -d: -f1)"
+    [[ $beyond -gt 0 ]] && BEYOND="${BEYOND:+$BEYOND+}$opid:$beyond"
   done
 
   # ---- catalog tier
@@ -1485,6 +1518,7 @@ for guard in ${SWEEP_GUARDS[@]+"${SWEEP_GUARDS[@]}"}; do
   done
 
   GL_COUNT[gi]=$(( IDX - GL_FIRST[gi] ))
+  GL_BEYOND[gi]="$BEYOND"
   gi=$((gi + 1))
 done
 
@@ -1636,7 +1670,7 @@ while [[ $i -lt ${#GL_GUARD[@]} ]]; do
   gi="$i"
   i=$((i + 1))
   if [[ -n "${GL_UNRUN[$gi]}" ]]; then
-    emit_row "$guard" "swept" "${KS// /+}" 0 0 0 ""
+    emit_row "$guard" "swept" "${KS// /+}" 0 0 0 "" "${GL_BEYOND[$gi]}"
     continue
   fi
   applied="${GL_APPLIED[$gi]}"; killed=0; survived=0; survivors=""
@@ -1676,7 +1710,7 @@ while [[ $i -lt ${#GL_GUARD[@]} ]]; do
     fi
     j=$((j + 1))
   done
-  emit_row "$guard" "swept" "${KS// /+}" "$applied" "$killed" "$survived" "$survivors"
+  emit_row "$guard" "swept" "${KS// /+}" "$applied" "$killed" "$survived" "$survivors" "${GL_BEYOND[$gi]}"
   info "swept $guard — applied=$applied killed=$killed survived=$survived"
 done
 
