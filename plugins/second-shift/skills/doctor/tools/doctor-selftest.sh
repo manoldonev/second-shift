@@ -176,18 +176,18 @@ scenario opt-out-committed plugin-list-green.json  settings-optout-committed.jso
 # --- config grill (#441) -------------------------------------------------------------------
 # A grill finding is a FAIL like every other doctor FAIL, so it must move the EXIT CODE, not
 # just the text — that pairing is the whole point of D-15 and the only reason waivers have to
-# exist. The fixture config sets unitTestScope with a null testFile: Stage 5 fail-closes on
-# that pair, so the mutation gate the consumer configured a scope for cannot run.
-scenario grill-finding    plugin-list-green.json   settings-green.json     marketplace-list-pinned.json  1 "config grill [T4.testfile-plumbing.app]" lock-v1.json config-grill-finding.json
+# exist. The fixture config sets unitTestScope, which declares mutation intent, over a fixture
+# root carrying no tools/mutation-sweep.sh — coverage the config asks for and the repo cannot run.
+scenario grill-finding    plugin-list-green.json   settings-green.json     marketplace-list-pinned.json  1 "config grill [T4.mutation-plumbing.app]" lock-v1.json config-grill-finding.json
 # ...and the waived counterpart, which is what keeps a clean report REACHABLE. config-valid.json
 # carries the `grillWaivers` entry for the finding its own shape would otherwise produce
-# (gates.mutation absent is NOT false, so the gate reads ON with no surface behind it). Without
+# (gates.mutation absent is NOT false, so mutation reads ON over a root with no sweep). Without
 # this branch the check could be suppress-everything and still pass the scenario above.
 scenario grill-waived     plugin-list-green.json   settings-green.json     marketplace-list-pinned.json  0 "config grill: no unwaived findings"
 # A notEvaluated entry is NOT a finding: no proposal, not waivable. It must render
 # informationally and never touch the exit code — riding in findings[] would make a repo
 # permanently non-zero with nothing it could do about it. The doctor fixture root is not a git
-# work tree, so the three trigger-2 checks land here by construction.
+# work tree, so the two trigger-2 checks land here by construction.
 scenario grill-noteval    plugin-list-green.json   settings-green.json     marketplace-list-pinned.json  0 "config grill not evaluated [T2.webComponentGlobs]"
 # #449: an `unadopted` entry is the THIRD severity. It is waivable and carries a proposal, so
 # unlike notEvaluated it can force a disposition — but here it must render as a NOTE and leave
@@ -195,7 +195,9 @@ scenario grill-noteval    plugin-list-green.json   settings-green.json     marke
 # none of the three seams, so a `bad` would take every already-green consumer non-zero on the
 # first run after this ships, for a capability most will never want. Asserting the TEXT alone
 # would pass just as happily on a FAIL, which is why the expected rc is 0 and the fixture
-# deliberately carries no waiver for T1.
+# deliberately carries no waiver for T1. The fixture's `test` lane with no repo-carried sweep
+# adds a second note on the same severity, which is the point of the tier: an advisory keyed on
+# durable config outlives the keys the paired FAIL is phrased in.
 scenario grill-unadopted  plugin-list-green.json   settings-green.json     marketplace-list-pinned.json  0 "config grill unadopted [T1.extension-points]"
 # ...and the waived counterpart, which is what proves the note is suppressible at all rather
 # than unconditional prose: without it, "renders a note" and "always renders a note" are the

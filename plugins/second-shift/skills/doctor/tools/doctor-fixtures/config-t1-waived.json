@@ -4,7 +4,7 @@
   "topology": { "type": "standalone", "repos": { "app": { "path": ".", "baseBranch": "main" } } },
   "commands": { "app": { "lint": "yarn lint", "test": "yarn test" } },
   "grillWaivers": {
-    "T4.mutation-plumbing.app": "fixture repo declares no unit-test surface; the mutation gate is deliberately off here",
+    "T4.mutation-plumbing.app": "fixture repo carries no tools/mutation-sweep.sh; mutation coverage is deliberately declined here",
     "T1.extension-points": "fixture repo runs the shipped gates only; no companion pack and no repo-local workflow"
   }
 }

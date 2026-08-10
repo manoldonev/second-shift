@@ -683,9 +683,11 @@ lean-output-dispositions	verbatim	scripts/check-lean-chain.sh	lean-output-dispos
 #
 # config-grill.sh's restated RUNTIME-resolved defaults vs the stages that resolve them.
 # The checker's trigger-2 table quotes, for each glob key, the jq fallback literal the
-# consuming stage actually applies — `apps/web/**/*.{tsx,jsx}` for stageParams.webComponentGlobs,
-# `*.{ts,tsx,js,json,md}` for stageParams.formatGlob, and the four shipped render-surface globs
-# for stageParams.visualCapture.triggerGlobs. Quoting the SCHEMA default instead would be a lie
+# consuming stage actually applies — `apps/web/**/*.{tsx,jsx}` for stageParams.webComponentGlobs
+# and `*.{ts,tsx,js,json,md}` for stageParams.formatGlob. It carried a third restatement, the
+# four shipped render-surface globs for stageParams.visualCapture.triggerGlobs; that row is
+# deleted outright — visual capture is not a default-lane capability, so no key under it is
+# evaluated any more and there is nothing left to keep in step. Quoting the SCHEMA default is a lie
 # the consumer cannot act on: nothing injects schema defaults into a config, so the value that
 # takes effect is the fallback in the stage. That makes the restatement load-bearing, and a
 # stage that changes its fallback while the checker keeps the old one produces a finding whose

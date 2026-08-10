@@ -158,7 +158,10 @@ count_glob_matches() { # $1.. globs → prints the number of tracked files match
 #                       disagree with the late gate, which is worse than no warning.
 #   planFilePattern   — names a file Stage 3 is about to CREATE; zero matches is universal.
 #   paths.*           — directories a fresh repo legitimately lacks.
-#   visualCapture non-glob keys — not tree-shaped at all.
+#   visualCapture.*   — dropped outright, not merely unmeasurable: no lane on the default path
+#                       takes a screenshot, so a glob scoping one cannot be a gap. `extraLanes`
+#                       is the consumer home for a capture lane, and T1.extension-points already
+#                       advertises it. No key under `visualCapture` is evaluated here.
 #
 # Each active row fires on BOTH an absent key whose resolved default matches nothing AND a
 # hand-set value that matches nothing: an adopted value can itself be broken, so setting a key
@@ -166,7 +169,7 @@ count_glob_matches() { # $1.. globs → prints the number of tracked files match
 #
 # ...UNLESS the row carries an APPLICABILITY PROBE and nothing in the tree matches it. "Zero
 # matches is a finding" holds for formatGlob — every repo has files to format — and breaks for
-# the two web-conditional rows, where "this repo renders nothing" is a terminal fact rather than
+# the web-conditional row, where "this repo renders nothing" is a terminal fact rather than
 # a config omission, and one the tracked-file list already in hand can measure. A shell, CLI or
 # library consumer would otherwise be told to hand-author a glob for files that do not exist,
 # and would answer with a waiver restating a fact the tool could see for itself.
@@ -245,33 +248,45 @@ t2_key "T2.formatGlob" "stageParams.formatGlob" \
   '.stageParams.formatGlob // ""' \
   "This glob scopes the default prettier format lane: while it matches nothing, no changed file is ever format-checked."
 
-DEFAULT_GLOBS=("apps/web/src/app/**/*.{tsx,jsx}" "apps/web/src/app/**/*.css" "apps/web/src/components/**/*.{tsx,jsx}" "apps/web/tailwind.config.{ts,js}")
-CANDIDATES=("src/**/*.{tsx,jsx}" "src/**/*.vue" "app/**/*.tsx")
-PROBE_GLOBS=("${WEB_SURFACE_PROBE[@]}")
-t2_key "T2.visualCaptureTriggerGlobs" "stageParams.visualCapture.triggerGlobs" \
-  '(.stageParams.visualCapture.triggerGlobs // []) | .[]' \
-  "These globs gate Stage-6 visual capture: while they match nothing, no screenshot is ever taken and a render regression ships unseen."
-
 # --- trigger 4: internally inconsistent config (AC-4) --------------------------------------
-# gates.mutation follows RUNTIME semantics, not the schema default: stages/5-implement.md
-# resolves `.gates.mutation // empty` and only the literal `false` takes the off-switch
-# branch, so ABSENT IS NOT FALSE. The finding text therefore states the state actually found.
+# The mutation seam has ONE owner: a repo-carried `tools/mutation-sweep.sh`, which the green
+# gate runs diff-scoped and reds the milestone on. The technique inside it — a Stryker wrapper,
+# a per-spec harness, a shell-guard sweep — is the consumer's; the gate asserts the outcome.
+# So the detectable inconsistency is no longer "a scope with no runner": it is a config that
+# DECLARES mutation intent while the repo carries nothing to run.
+#
+# gates.mutation follows RUNTIME semantics, not the schema default: only the literal `false`
+# takes the off-switch branch, so ABSENT IS NOT FALSE and absent still reads as intent. The
+# finding text states the state actually found.
+#
+# The id is kept BYTE-FOR-BYTE across this semantic change on purpose. `grillWaivers` keys on
+# finding id, so minting a new one would silently void every consumer's existing waiver and
+# flip a doctor-green repo to FAIL on upgrade. What the waiver means — "accepted: no mutation
+# coverage here" — is continuous, which is what makes keeping the id honest rather than merely
+# convenient.
+#
+# Scoped to the evaluated root, like every other per-repo check: a pair sibling is reported by
+# the topology loop above and never reached.
 MUT_STATE="$(jq -r 'if ((.gates | type) == "object") and (.gates | has("mutation"))
                     then (.gates.mutation | tostring) else "absent" end' "$CONFIG")"
+SWEEP_REL="tools/mutation-sweep.sh"
+HAS_SWEEP=0
+[[ -f "$ROOT_ABS/$SWEEP_REL" ]] && HAS_SWEEP=1
 if [[ -n "$REPO_ID" ]]; then
   UTS="$(jq -r --arg r "$REPO_ID" '.commands[$r].unitTestScope // ""' "$CONFIG")"
-  TFL="$(jq -r --arg r "$REPO_ID" '.commands[$r].testFile // ""' "$CONFIG")"
-  if [[ -n "$UTS" && -z "$TFL" ]]; then
-    add_finding "T4.testfile-plumbing.$REPO_ID" "commands.$REPO_ID.testFile" \
-      "commands.$REPO_ID.unitTestScope is set (\"$UTS\") but commands.$REPO_ID.testFile is null — the mutation gate has a surface to mutate and no per-spec runner to run." \
-      "Set commands.$REPO_ID.testFile to the repo's per-spec runner (e.g. \"yarn vitest run {file}\"). Stage 5 fail-closes on this pair, so the gate you configured a scope for cannot run until it is set. $(waiver_hint "T4.testfile-plumbing.$REPO_ID")"
-  fi
-  if [[ "$MUT_STATE" != "false" && -z "$UTS" ]]; then
-    mut_desc="gates.mutation is true"
-    [[ "$MUT_STATE" == "absent" ]] && mut_desc="gates.mutation is absent — and absent is NOT false: only the literal \`false\` is the off-switch, so the gate is ON"
-    add_finding "T4.mutation-plumbing.$REPO_ID" "commands.$REPO_ID.unitTestScope" \
-      "$mut_desc, but commands.$REPO_ID.unitTestScope is null, which is a legal \"no mutation surface\" — Stage 5 prints \`gate OFF\` and proceeds." \
-      "Set commands.$REPO_ID.unitTestScope to the repo's unit-test surface (e.g. \"src/**\") to get the Stage-5 mutation gate you believe you have, or set \"gates\": { \"mutation\": false } to declare the opt-out where a reader can see it. $(waiver_hint "T4.mutation-plumbing.$REPO_ID")"
+  if [[ "$HAS_SWEEP" -ne 1 ]]; then
+    mut_desc=""
+    [[ -n "$UTS" ]] && mut_desc="commands.$REPO_ID.unitTestScope is set (\"$UTS\")"
+    if [[ "$MUT_STATE" != "false" ]]; then
+      mut_gates="gates.mutation is true"
+      [[ "$MUT_STATE" == "absent" ]] && mut_gates="gates.mutation is absent — and absent is NOT false: only the literal \`false\` is the off-switch, so mutation reads ON"
+      if [[ -n "$mut_desc" ]]; then mut_desc="$mut_desc, and $mut_gates"; else mut_desc="$mut_gates"; fi
+    fi
+    if [[ -n "$mut_desc" ]]; then
+      add_finding "T4.mutation-plumbing.$REPO_ID" "commands.$REPO_ID.unitTestScope" \
+        "$mut_desc — but this repo carries no $SWEEP_REL, so the green gate prints a SKIPPED notice and the run is green with nothing mutated. The config declares coverage the repo cannot execute." \
+        "Add an executable $SWEEP_REL at the repo root: the green gate runs \`bash $SWEEP_REL --mode pr --base origin/<baseBranch>\` from the root and a non-zero exit reds the milestone, so what it mutates and how is yours to choose (docs/onboarding.md). Or declare the opt-out where a reader can see it: set \"gates\": { \"mutation\": false } and leave commands.$REPO_ID.unitTestScope null. $(waiver_hint "T4.mutation-plumbing.$REPO_ID")"
+    fi
   fi
 else
   add_noteval "T4.commands" "commands" \
@@ -282,7 +297,7 @@ DESIGN_LR="$(jq -r 'if ((.design | type) == "object") and (.design.liveRender !=
 if [[ -n "$DESIGN_PROVIDER" && -z "$DESIGN_LR" ]]; then
   add_finding "T4.design-liverender" "design.liveRender" \
     "design.provider is \"$DESIGN_PROVIDER\" but design.liveRender is absent — the design axis is on with no render harness behind it." \
-    "Add design.liveRender { command, cwd?, readyProbe? } pointing at the repo's render script. Without it the Stage-5 gate degrades to render-verify-unavailable and a lean ticket cannot arm its design lane at all (docs/live-render.md). $(waiver_hint "T4.design-liverender")"
+    "Add design.liveRender { command, cwd?, readyProbe? } pointing at the repo's render script. Without it a ticket cannot arm its design lane at all: the green gate renders every declared route and hashes the results into a committed receipt, and there is nothing here to render (docs/live-render.md). $(waiver_hint "T4.design-liverender")"
 fi
 
 # --- trigger 5: a declared command that contradicts repo reality (AC-5) --------------------
@@ -403,10 +418,16 @@ if [[ -n "$REPO_ID" ]]; then
 fi
 
 # --- trigger 1: a capability nobody ever mentioned (AC-2) -----------------------------------
-# Scope is exactly the seams onboard's question batch NEVER asks about. The five it DOES ask
-# about (gates/mutation, design + liveRender, reviewer deltas, the review-context scaffold, the
-# CI workflows) are handled by naming the benefit on those existing questions — a check here
-# would re-nag a human about something they declined ten lines earlier in the same run.
+# Scope is the seams onboard's question batch cannot settle. Four of the five it DOES ask about
+# (design + liveRender, reviewer deltas, the review-context scaffold, the CI workflows) are
+# handled by naming the benefit on those existing questions — a check here would re-nag a human
+# about something they declined ten lines earlier in the same run.
+#
+# The mutation row below is the exception, and for two reasons that the gates question cannot
+# cover. What is missing is a FILE in the repo, not a config answer: a human can answer "yes,
+# mutation" and still carry no sweep, and only the tree can say which. And the question is
+# phrased in config keys that the config-schema assessment may retire, whereas this row keys on
+# `commands.<repo>.test` — durable config — so the surfacing outlives them.
 #
 # Unconditional, deliberately. Unlike triggers 2/4/5 there is NO mechanical predicate for
 # "this repo plausibly wants it": absence is the normal state of an optional key, and deriving
@@ -430,7 +451,27 @@ done
 if [[ -z "$EP_ADOPTED" ]]; then
   add_unadopted "T1.extension-points" "stageWorkflows, implementDelegates, planGates" \
     "None of stageWorkflows, implementDelegates or planGates is set — the three additive-gate seams are unadopted. Absence is legal and is the default, so nothing else will ever mention them: this is the one place they get named." \
-    "Adopt whichever fits, or declare that none do. \`stageWorkflows\` (docs/extending.md §3.6) runs a workflow you own at a chosen stage as a BLOCKING sub-step — a schema-compat gate, a codegen-drift check, a license scan — without forking the stage. \`implementDelegates\` (§3.7) routes Stage-5 work on a matched surface to a specialist agent instead of the generalist implementer, and the delegate's output still passes the unchanged scope gate, so it adds an author and waives nothing. \`planGates\` (§3.8) adds your own blocking reviewer of the PLAN at Stage 4, which is where a bad approach is cheapest to stop — before any code is written. Setting any ONE of the three silences this check. $(waiver_hint "T1.extension-points")"
+    "Adopt whichever fits, or declare that none do. \`stageWorkflows\` (docs/extending.md §3.6) runs a workflow you own as a BLOCKING sub-step at a chosen point in the run — a schema-compat gate, a codegen-drift check, a license scan — without forking the lane. \`implementDelegates\` (§3.7) routes implementation work on a matched surface to a specialist agent instead of the generalist implementer, and the delegate's output still passes the unchanged scope gate, so it adds an author and waives nothing. \`planGates\` (§3.8) adds your own blocking reviewer of the PLAN, which is where a bad approach is cheapest to stop — before any code is written. Setting any ONE of the three silences this check. $(waiver_hint "T1.extension-points")"
+fi
+
+# The mutation seam's DURABLE surfacing. The findings[] row above is keyed on config that may
+# retire; this one is keyed on `commands.<repo>.test`, which will not, and it is deliberately
+# INDEPENDENT of that row rather than suppressed by it. Coupling them would mean waiving the
+# finding makes a new note appear — "fix one, another arrives" reads as a broken tool, and the
+# two force genuinely different dispositions: one is "your config lies", this is "you have a
+# suite and nothing checks whether it would catch anything".
+#
+# It rides in unadopted[], never findings[]: absence of a sweep is a legal, common state — the
+# green gate says SKIPPED and proceeds — so a doctor FAIL would take every already-green
+# consumer non-zero for a capability many will never adopt. Same severity philosophy as the
+# printed skip it mirrors.
+if [[ -n "$REPO_ID" && "$HAS_SWEEP" -ne 1 ]]; then
+  TEST_CMD="$(jq -r --arg r "$REPO_ID" '.commands[$r].test // ""' "$CONFIG")"
+  if [[ -n "$TEST_CMD" ]]; then
+    add_unadopted "T1.mutation-sweep.$REPO_ID" "commands.$REPO_ID.test" \
+      "commands.$REPO_ID.test is configured (\"$TEST_CMD\") but this repo carries no $SWEEP_REL — there is a suite, and nothing that checks whether it would catch a regression. Absence is legal and is the default: the green gate prints a SKIPPED notice and proceeds, so nothing else will ever raise it." \
+      "Adopt the seam or declare that you don't want it. Add an executable $SWEEP_REL at the repo root; the green gate runs \`bash $SWEEP_REL --mode pr --base origin/<baseBranch>\` from the root on every run, and a non-zero exit reds the milestone. What it mutates and how is yours — a Stryker wrapper, a per-spec harness, a shell-guard sweep — because the gate asserts the outcome, not the method (docs/onboarding.md). $(waiver_hint "T1.mutation-sweep.$REPO_ID")"
+  fi
 fi
 
 jq -n \
