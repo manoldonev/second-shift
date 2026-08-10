@@ -1,92 +1,84 @@
 # lean review verdict — #450
 
-verdict=needs-work
-run_id: review-450-2
-session_id: 75621220-2b71-4a6b-9310-a493d6bbff78
-rounds: 2
+verdict=approve
+run_id: review-450-3
+session_id: 83e477a7-cffd-4444-a038-d91047985eaa
+rounds: 3
 pr: #463
-reviewed_head: 693855d4675caee1caed8619b76eb0a3d8ed71fe
-reviewed_patch_id: 4d660b6ae2a5b25c4128498746ab606a20d0e9ab
-inherited_patch_id: 928c693d1eb322707e7bc50434109b9b6a381843
-inherited_from_verdict: 83bc44b8d4221ec4e543fab12038ab6cb3748c09
+reviewed_head: 6715c560ffb52644e50735f9a65c0bf83f3db3bf
+reviewed_patch_id: 8c11800f8e96280d3d06e1f4b527397f4ba21152
+inherited_patch_id: 4d660b6ae2a5b25c4128498746ab606a20d0e9ab
+inherited_from_verdict: 30e370e3b2f7b66966afe1eccc7d6ae8339a9b49
 fidelity: not-applicable
 model: unknown
 
-Round 2, delta range `83bc44b..HEAD` (one commit, `4099121`), inheriting the coverage of patch `928c693d1eb3` from round 1's record. **Deviation, declared:** the checklist names `review-lead` as the implementation, and I did not run its specialist fan-out. Round 1's record found that panel returned approve/approve-with-nits on this same tool while missing the only blocker — on a single shell+jq guard the security/perf/a11y/db axes have no surface and the panel degenerates to maintainability-of-one. I ran two purpose-built reviewers instead: an empirical correctness finder over the round-2 idioms, and a test-strength reviewer that mutation-probes the production body against its paired suite. Both blockers below came from that pass, and I re-applied and re-scored both decision-driving probes myself rather than take either agent at face value. Design: the spec has no `## Design` section, so fidelity is `not-applicable` — unchanged from round 1.
+Round 3, delta range `30e370e..HEAD` (one commit, `6715c56`), inheriting the coverage of patch `4d660b6ae2a5` from round 2's record. **Deviation, declared:** the checklist names `review-lead` as the implementation and I did not run its specialist fan-out, for the third round running and for the reason round 1's record established — on a single shell+jq document comparator the security / perf / a11y / db axes have no surface, and that panel returned approve/approve-with-nits here while missing the only blocker of round 1. This round's method is the one that produced rounds 2's and 3's blockers: read the delta against the spec clause by clause, then apply mutants to the production body and score each against the paired suite.
 
-**Verdict: needs-work.** Round 1's blocker is genuinely and completely fixed. Both round-1 reproductions now exit 3 with `not a single JSON object`, a 13-shape document matrix is correct, and the comparison itself is now fail-closed. The two blockers below are new, and both are the same shape: **this round widened three ACs and the diff does not reach two of the widened clauses.** Neither is the spec being bent to match the diff — every amendment is strictly strengthening — so both fixes are small and the contract is already written.
+**Verdict: approve.** Both round-2 blockers are fixed at the mechanism, not at the assertion, and I reproduced each fix and each failure independently. Every warning round 2 raised is either closed in the diff or dispositioned by a stated decision. No AC clause is unmet. This round amended no AC contract — the spec gained two bullets in AC-6's coverage list and nothing else — so it creates no new obligation elsewhere in the suite, which is what made round 2's two blockers.
 
 ## Blockers
 
-**B-1 — AC-6's widened "each *usage*/IO shape asserts its stderr message" is unmet, and the gap is live.** `config-diff-guard-selftest.sh:210,212`. This round changed AC-6 from `Each **IO** shape asserts its stderr message` to `Each **usage**/IO shape` (`second-shift-450-lean.md:172`), which pulls `no arguments` and `one argument` under the obligation — and it fixed the third-positional case at :214 for exactly that reason. Those two still call `expect_rc … 3` with no message argument.
+None.
 
-Not bookkeeping. Independently applied and scored: replacing the argument-count guard at `config-diff-guard.sh:65` with `:` leaves the suite **green at 51/51**, while the tool emits
+## Round-2 blockers — both closed, verified independently
 
-```
-$ bash config-diff-guard.sh            # mutant
-config-diff-guard: no such file:       # empty path — fell through to the file check
-rc=3
-$ bash config-diff-guard.sh            # original
-usage: config-diff-guard.sh <existing-config.json> <draft-config.json> [--ack <path>]...
-rc=3
-```
-
-That is verbatim the fall-through the clause was written against. Fix, measured: add `"usage: config-diff-guard.sh"` as the third argument to both calls — green on the original, and the mutant then fails both cases with `stderr missing 'usage: config-diff-guard.sh'`.
-
-**B-2 — AC-3's widened boundary clause is unmet: a `-`-leading `--ack` value is swallowed and reported nowhere.** `config-diff-guard.sh:91`. This round added to AC-3 (`second-shift-450-lean.md:113-115`) that *"each `--ack` value reaches the comparison verbatim, so one flag is one ack **whatever it contains** and an empty ack is reported in `unmatchedAcks[]` rather than **dropped**."* The newline round-trip is gone, but `jq -nc '$ARGS.positional' --args "${ACKS[@]}"` still lets jq parse a `-`-leading value as one of **its own** options, so it never becomes a positional:
+**B-1 (AC-6, usage shapes asserted rc alone) — closed.** `config-diff-guard-selftest.sh:254,256` now pass `"usage: config-diff-guard.sh"` as the message argument. Re-applied round 2's own mutant, `[[ -n "$EXISTING" && -n "$DRAFT" ]] || usage` → `:` (`cmp`-confirmed changed, `bash -n`-confirmed parsing): the suite now **reds on exactly those two cases** —
 
 ```
-$ jq -nc '$ARGS.positional' --args "-n"        → []
-$ jq -nc '$ARGS.positional' --args -- "-n"     → ["-n"]
-
-$ bash config-diff-guard.sh e.json d.json --ack -n
-{"deltas":[3 paths],"acknowledged":[],"unmatchedAcks":[]}   rc=0
+✗ one argument is a usage error (stderr missing 'usage: config-diff-guard.sh': config-diff-guard: no such file: )
+✗ no arguments  is a usage error (stderr missing 'usage: config-diff-guard.sh': config-diff-guard: no such file: )
 ```
 
-The ack vanishes: neither suppressed nor reported. Compare the control — `--ack nope.path` lands in `unmatchedAcks[]` correctly. The round replaced one silent-drop mechanism with another for a different input class, and the two new selftest cases at :195-199 cover exactly the two values the *old* implementation broke.
+— against green at 51/51 last round. The gap the clause was written against is now the thing that fails.
 
-Severity is bounded and I checked the bound: no swallow path can **fabricate** an ack — every recognized jq option yields `[]`, every unrecognized one exits 3 — so a real delta can never be silently suppressed by this, and the guard stays fail-closed on protection. It is scored a blocker because it is a clause of an AC this round authored, with a two-line reproduction and a one-token fix: `--args -- "${ACKS[@]}"`.
+**B-2 (AC-3, a `-`-leading `--ack` value swallowed by jq's own option parser) — closed at the mechanism.** `config-diff-guard.sh:100` is `--args -- "${ACKS[@]}"`. Round 2's reproduction now behaves: `--ack -n` and `--ack --raw-output0` both land in `unmatchedAcks[]` with the two real deltas untouched. I widened the input class past the two values the suite tests, and the whole interpretation class is closed:
+
+| `--ack` value | `unmatchedAcks[]` | deltas |
+| --- | --- | --- |
+| `-n` | `["-n"]` | 2 |
+| `--raw-output0` | `["--raw-output0"]` | 2 |
+| `--` | `["--"]` | 1 |
+| `-` | `["-"]` | 1 |
+| `--args` / `--slurpfile` / `--ack` | echoed back verbatim | 1 |
+
+and `--ack -- --ack commands.web.testFile` suppresses the real path while reporting `--` unmatched, so the terminator did not cost the channel its function. Dropping the `--` reds both new cases and nothing else.
 
 ## Per-AC scoring
 
 | AC | Score | Evidence |
 | --- | --- | --- |
-| AC-1 guard contract | satisfied | The shape check is slurped and reads the whole file. Both round-1 reproductions exit 3 (`[1,2]\n{"a":1}` and two objects destroying `stageParams`). A 13-shape matrix — empty, whitespace-only, `null`, `true`, `42`, `"hi"`, `[1,2]`, one object, object-with-whitespace, `[1,2]\n{…}`, `{…}\n[1,2]`, `{…}\n{…}`, `{…}\nnull` — is correct on jq 1.7.1, `-s`+`-e` behaving as the code assumes. The comparison is fail-closed: under a `jq` shim that kills only the `--slurpfile` invocation, the original exits 3 with `comparison failed` and empty stdout. Capturing `OUT` loses nothing (484KB / 900 deltas round-trips to exactly one document and one trailing newline). Real repo config against itself: zero deltas. |
-| AC-2 comparison rule | satisfied | Untouched by the delta; inherited from round 1's record, where the walk and classification tables were verified row by row including the inverted-walk probe. W-4 below is spec-conformant, not a table violation. |
-| AC-3 ack channel | **unsatisfied** | B-2. The exactness, suppression, `acknowledged[]`/`unmatchedAcks[]` and prefix-is-not-a-wildcard halves all hold, and the newline and empty-string boundaries are now correct and tested — but the clause says "whatever it contains", and the `-`-leading class is dropped without a trace. |
-| AC-4 Step-3 diff-mode clause | satisfied | Untouched by the delta; inherited. `SKILL.md:74-82` still carries both keys forward, `null` only where already `null`. |
-| AC-5 accept predicate | satisfied | The delta adds only the exit-3 bullet at `SKILL.md:233-237`; every AC-5 requirement (blocking `deltas[]` with `evidence` then `proposal`, informational `unmatchedAcks[]`, re-run per loop iteration, fresh-onboard skip, no new question batch) is unchanged and holds. W-3 is about that new bullet's accuracy, which AC-5 does not specify. |
-| AC-6 tests | **unsatisfied** | B-1. Every other clause has a case, including all five added this round; nothing was weakened (41 added / 2 removed, both removals strengthening-in-place). Eight of ten mutants I scored against the round-2 production changes were killed, each by a case named for the invariant it guards — `length == 1` and the object test are independently necessary and independently guarded. |
+| AC-1 guard contract | satisfied | The clause round 2 left uncovered — "a filter that did not run must not be spelled the same way as a comparison that found nothing" — now has a kill criterion. Streaming the comparison instead of capturing it (probe P5) reds `a comparison that could not run exits 3` at rc 0; dropping the ack-marshal status check (P3) and misattributing its message (P4) each red the marshal case. The slurped shape check and the fail-closed comparison from earlier rounds are inherited and unchanged in this delta. |
+| AC-2 comparison rule | satisfied | Untouched by the delta; inherited. The only change under it is a header comment stating the all-`null`-subtree limit (W-4), which is spec-conformant, not a table change. I re-confirmed the behavior it documents: `commands.api` with six `null` lanes, draft omitting the key → `{"deltas":[]}` rc 0, exactly as the new prose says. |
+| AC-3 ack channel | satisfied | B-2. Exactness, suppression, `acknowledged[]`/`unmatchedAcks[]`, prefix-is-not-a-wildcard, the newline and empty-string boundaries are all inherited and hold; the interpretation half is now correct for every hostile value I could construct, including the terminator itself. |
+| AC-4 Step-3 diff-mode clause | satisfied | Untouched by the delta; inherited. |
+| AC-5 accept predicate | satisfied | The delta rewrites only the exit-3 bullet at `SKILL.md:233-240`. Every AC-5 requirement — blocking `deltas[]` with `evidence` then `proposal`, informational `unmatchedAcks[]`, re-run per loop iteration, fresh-onboard skip, no new question batch — is unchanged and holds. W-1 below is about that bullet's enumeration, which AC-5 does not specify. |
+| AC-6 tests | satisfied | Both new coverage bullets are real cases with kill criteria, and no assertion was weakened (68 added / 2 removed, the removals being the two `expect_rc` calls replaced in place by their message-carrying form). Every `expect_rc` asserting rc 3 — all 18 of them — now carries a stderr substring, which is the AC-6 sentence in full. The inert-marker control is load-bearing, not decoration: breaking the shim's passthrough (probe P6) reds it first, so the two kill cases cannot pass vacuously. |
 
 ## Verification run in this review
 
-- `shellcheck -e SC1091,SC2015,SC2181` clean on both scripts; suite green (51 checks) under bash 5 and `/bin/bash` 3.2.57.
-- Round 1's two blocker reproductions re-run at this head — both exit 3. Real committed config against itself — zero deltas.
-- Ten mutants applied to the round-2 production changes, each `cmp`-confirmed to change the file and `bash -n`-confirmed to parse: 8 killed, 2 survived (B-1's, and W-1's revert of the capture). The two decision-driving probes were re-applied and re-scored independently of the panel.
-- CI at the reviewed head: `lint-and-selftests`, `selftests (macos, bash 3.2)`, `mutation-sweep-pr` (5 applied / 5 killed / 0 survived) all pass. `pr-gates` fails only on `verdict record reads 'verdict=needs-work'` — round 1's record, which this one replaces. Not a finding.
-- No row in `scripts/lockstep-manifest.tsv`, `tools/mutation-catalog.tsv`, `tools/mutation-exclusions.tsv` or `tools/selftest-cache-inputs.tsv` references this tool, so no re-keying obligation lands on this diff.
+- `shellcheck -e SC1091,SC2015,SC2181` clean on both scripts. Guard suite green at 62 checks under bash 5 and under `/bin/bash` 3.2.57.
+- Five mutants applied to the round-3 production changes, each `cmp`-confirmed to have changed the file and `bash -n`-confirmed to still parse; **five killed, zero survived**, each by the case named for the invariant it guards: P1 drop the `--` terminator → the two interpretation cases; P2 argument-count guard → `:` → the two usage-message cases; P3 drop the ack-marshal status check → the marshal case; P4 rename the marshal message to `comparison failed` → the marshal case and its no-misattribution sibling; P5 stream the comparison → the comparison case.
+- One mutant against the **harness** (P6, shim kills every invocation) to prove the control is not vacuous: it reds `the shim is inert when its marker matches nothing` and the delta-count assertion under it before either kill case is reached.
+- Round-2 blocker reproductions re-run at this head: both fixed, as tabulated above.
+- Corpus datapoint for OR-1: the repo's own committed `.claude/second-shift.config.json` (17 protected non-null leaves) against itself → zero deltas, rc 0.
+- CI at the reviewed head: `lint-and-selftests`, `selftests (macos, bash 3.2)` and `mutation-sweep-pr` all pass; the sweep genuinely scored this tool — `swept plugins/second-shift/skills/onboard/tools/config-diff-guard.sh — applied=5 killed=5 survived=0`, not a deferred zero-verdict pass. `pr-gates` fails on one line only: `verdict record reads 'verdict=needs-work'`, round 2's record, which this one replaces. Not a finding.
+- No row in `scripts/lockstep-manifest.tsv`, `tools/mutation-catalog.tsv`, `tools/mutation-exclusions.tsv`, `tools/mutation-baseline.tsv` or `tools/selftest-cache-inputs.tsv` references this tool, so no re-keying obligation lands on this diff.
 
 ## Warnings
 
-**W-1 — AC-1's new no-fail-open-on-the-comparison clause has zero coverage.** `config-diff-guard.sh:113,160-161`. The code is right, and the `printf '%s\n' "$OUT"` line is load-bearing (dropping it fails 24 cases). But reverting change 2 wholesale — stream the filter, drop the `|| { echo "comparison failed"; exit 3; }` and the `printf` — leaves the suite **green**, and under a dying filter that mutant gives `rc=0` with empty stdout: a caller reads a clean envelope. That is verbatim what `second-shift-450-lean.md:70-71` added this round. The suite contains no PATH/shim manipulation at all (grep confirms), so nothing observes the failure branch. A hermetic, bash-3.2-safe shim case exists and was measured: green on the original, two failures on the revert.
+**W-1 (new) — the rewritten exit-3 bullet's enumeration misses the one other shape that IS the human's to repair.** `SKILL.md:233-240`. The rewrite fixes what round 2 flagged: the remedy is keyed off the message, and the destructive instruction now carries an explicit "never propose replacing a config on an exit 3 whose message did not name it". The residual is the sentence beside it — *"only `not a single JSON object` … is the human's to repair. Every other shape (a missing file, a malformed invocation, a `--ack` with no value, a comparison that could not run) is this call being wrong, and is yours to fix and re-run."* `not valid JSON: <existing config>` is in "every other shape" and is not this call being wrong; it is the same damaged-config class as `not a single JSON object`, arriving through `jq empty` one line earlier. An agent reading the enumeration literally re-runs and loops instead of surfacing a corrupt config. Fail-closed, so no destruction and no wrong verdict — the safety instruction keys off "message names the config", which `not valid JSON: <path>` satisfies — but the two sentences disagree about the same shape. One clause: add `not valid JSON` beside it.
 
-**W-2 — the ack-marshalling `jq`'s exit status is unchecked, and its failure is misattributed.** `config-diff-guard.sh:91`, surfacing at `:160`. When jq rejects an ack value, `ACKS_JSON` is empty, `--argjson acks ""` kills the main filter, and the operator gets three lines of raw jq internals plus `config-diff-guard: comparison failed` — the one guard-authored line naming the wrong subsystem. Behaviorally fail-closed (rc 3), which is what the new `|| exit 3` is for; the defect is diagnostic. Every other error path names which *input* is wrong. `${ACKS_JSON:-}` empty is trivially detectable at :91, and the `--` fix for B-2 removes most of the reachable cases.
+**W-2 (carried, closed as a decision) — the all-`null` subtree.** Round 1 and round 2 both raised it; round 3 takes the cheap half round 1 offered and writes the limit into the header at `config-diff-guard.sh:109-112`, next to the null-leaf rule that causes it. That is the right disposition — the behavior is what AC-2 specifies, so a walk change would be a spec change — and the limit is now where a reader looks for it rather than something to rediscover.
 
-**W-3 — the new `SKILL.md` exit-3 paragraph misattributes exit 3, and the remedy it names is itself config-destructive.** `SKILL.md:233-237`. It states exit 3 *"means one of the two documents is not a single JSON object"* and instructs the agent to *"ask the human to repair or replace the existing file"*. Exit 3 has seven shapes and only one is that one — the other six are a missing file, a third positional, a bad argument count, an unknown option, `--ack` with no value, and W-2's flag error. Chained with W-2 this is sharp: a mistyped `--ack` yields `comparison failed`, and an agent following this paragraph verbatim tells the human their healthy committed config is damaged and to replace it — the single remedy in this skill that can itself destroy config values, in the ticket written to prevent exactly that. Key the advice off the *message*: `not a single JSON object` → repair the file; anything else → the invocation is wrong. It is a warning rather than a blocker because the paragraph does say "show the message", so the human sees `unknown option: --waive` and will not act on the replacement advice.
+**W-3 (carried, closed as a decision) — `proposal` says "Restore" for keys the migration docs say to drop.** Left alone by stated decision: the ack channel dispositions it, and rewording would churn the assertions on it for advice the human already overrides. I agree with the call at this size; it belongs to whatever ticket does the migration-aware proposals, if one is ever wanted.
 
-**W-4 — carried from round 1, unaddressed: an all-`null` subtree is still deletable with zero deltas.** `config-diff-guard.sh:127`. Existing `commands.api` with six `null` lanes, draft omitting `commands.api` entirely → `{"deltas":[]}` rc 0. Spec-conformant (AC-2 skips an existing `null` leaf) and correctly not scored against AC-2, but round 1 offered a cheap alternative — write the limit into the header next to the array rule, where a reader looks for it — and neither that nor the fix landed. The empty-object analogue (`{"gates":{}}` dropped) behaves the same way.
-
-**W-5 — carried from round 1, unaddressed: the guard advises restoring keys the docs say to remove.** A config still carrying `commands.<id>.build` / `integrationTest` / `apiTest` diffs as `removed` deltas whose `proposal` reads "Restore …". Dispositioned by the ack channel, so not a wrong verdict — still blocking advice pointing the wrong way on a documented migration.
+**W-4 (new, minor) — one half of a spec clause has no kill criterion.** AC-6's new bullet says each shim case "names its own subsystem rather than the other's", and the marshal case asserts both halves (`could not marshal --ack values`, and no `comparison failed`) while the comparison case asserts only the positive. No mutant can make the comparison print the marshal's line, so the missing assertion has nothing to catch — it is an asymmetry in the prose, not a gap in the suite. Noted so a later reader does not mistake it for one.
 
 ## Nits
 
-- `--ack --raw-output0` additionally leaks `warning: command substitution: ignored null byte in input` with rc 0 and the ack silently gone — a sub-case of B-2 that the `--` fix closes.
-- A depth-2000 document exits 3 with `not valid JSON` (jq's own parser depth limit, hit at `jq empty` before the shape check) — a misleading message for a shape no config reaches.
+- `expect_no_stdout` on both shim cases is unfalsifiable in the shapes that reach it: when the filter dies, stdout is empty whether or not the guard checks the status, so the assertion rides along with the rc one rather than adding a kill criterion. Harmless and cheap; it would earn its place against a mutant that printed a partial envelope before exiting.
+- A depth-2000 document still exits 3 with `not valid JSON` (jq's own parser depth limit, hit at `jq empty` before the shape check) — unchanged from round 2, and a shape no config reaches.
 
 ## Open regions
 
-OR-1 and OR-2 are unchanged by this round. OR-1's ack-volume question is untouched — AC-4's carry-forward is still the only mitigation and still unmeasured on a real adopted config. OR-2 is unchanged by construction; note that B-2 narrows the *mechanism* slightly in the safe direction (no ack can be fabricated) without touching the authorization question.
-
-## Note on the spec amendments
-
-This round amended AC-1, AC-3 and AC-6. All three are strictly strengthening — AC-1's "is JSON that is not an object" became "does not hold exactly one JSON document that is an object", AC-3 gained a boundary clause, AC-6 gained five cases — and AC-1's widening was prescribed by round 1's own review. None of them is a spec bent to fit the diff. Both blockers are the inverse: the spec reached further than the diff did.
+OR-1 (first-run delta volume on a real adopted config) is measured for the first time, on one config: this repo's own, 17 protected leaves, zero deltas against itself. That is a floor, not the answer — it exercises AC-4's carry-forward on a single-command repo and says nothing about a multi-command adopter with months of detection drift. Still open, and still the thing to watch on the first real re-onboard. OR-2 (nothing mechanically proves a human authorized each `--ack`) is unchanged by construction; this round strengthens the surrounding fact only — no ack value of any shape can now be silently reinterpreted or dropped, so what `acknowledged[]` and `unmatchedAcks[]` report is exactly what the caller typed.
