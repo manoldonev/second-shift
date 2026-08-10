@@ -34,14 +34,55 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PREFLIGHT="$SCRIPT_DIR/preflight.sh"
 # review-toolkit sibling plugin root — resolved for the section-lint wiring so the selftest
 # exercises the cross-plugin path hermetically (no `claude` binary), via the env override
-# preflight.sh reads. plugins/dev-pipeline/skills/run/tools -> plugins/review-toolkit.
-RT_TEST_ROOT="$(cd "$SCRIPT_DIR/../../../../review-toolkit" 2>/dev/null && pwd || true)"
+# preflight.sh reads.
+#
+# The fixed `$SCRIPT_DIR/../../../../review-toolkit` hop count this used to be holds only in the
+# monorepo. Installed, this file lives at
+# <cache>/<marketplace>/dev-pipeline/<version>/skills/run/tools, so it resolved to nothing,
+# SECOND_SHIFT_REVIEW_TOOLKIT_ROOT went in empty, and runs 1-9 stopped exercising the env
+# override at all — preflight.sh:144-147 fell through to its `claude plugin list` rung instead,
+# which is exactly the non-hermetic path those runs exist to avoid.
+#
+# House three-rung ladder: monorepo path -> cache sibling at THIS plugin's own version -> newest
+# cache version carrying the marker. Hop constants are RE-DERIVED for this directory —
+# skills/run/tools sits three levels under the plugin root, so the plugins dir is four hops up
+# and the marketplace root five (check-model-tiers.sh, one level under its plugin root, uses two
+# and three). Newest version is chosen LEXICALLY, mirroring the house ladders: `9.0.0` outranks
+# `10.0.0`, a shared latent defect deliberately mirrored rather than fixed here.
+#
+# NO SKIP RUNG. Run 10 still exercises preflight's unresolved branch, but it does so by forcing
+# the override empty. A resolution MISS here is a defect, and the assertion below makes it a
+# counted failure rather than silently retargeting runs 1-9 at the `claude` rung.
+#
+# resolve_sibling_plugin_root <anchor-dir> <name> <marker-subpath> — echoes the sibling plugin
+# ROOT. The anchor is a PARAMETER rather than a read of this file's own directory variable:
+# that was the only thing separating this copy from doctor-selftest.sh's, whose hop
+# constants are identical, and passing it in makes the two blocks byte-identical so
+# scripts/lockstep-manifest.tsv can pin them instead of leaving them held by prose.
+# LOCKSTEP-BEGIN cross-plugin-sibling-plugin-root
+resolve_sibling_plugin_root() {
+  local anchor="$1" name="$2" marker="$3" cand
+  cand="$(cd "$anchor/../../../../$name" 2>/dev/null && pwd)" || cand=""
+  if [[ -n "$cand" && -d "$cand/$marker" ]]; then printf '%s\n' "$cand"; return 0; fi
+  for cand in "$anchor"/../../../../../"$name"/*/; do
+    [[ -d "$cand/$marker" ]] || continue
+    (cd "$cand" && pwd)
+  done | tail -1
+}
+# LOCKSTEP-END cross-plugin-sibling-plugin-root
+RT_TEST_ROOT="$(resolve_sibling_plugin_root "$SCRIPT_DIR" review-toolkit scripts || true)"
 
 PASS=0; FAIL=0
 assert() { # $1 = description, $2 = condition result (0 = pass)
   if [[ "$2" -eq 0 ]]; then PASS=$((PASS+1)); echo "[self-test] ok   $1"
   else FAIL=$((FAIL+1)); echo "[self-test] FAIL $1"; fi
 }
+
+# Runs 1-9 below feed RT_TEST_ROOT to preflight as the env override. An empty one does not fail
+# them — it silently moves them onto the `claude plugin list` rung, which is how this suite
+# passed on a developer machine and failed on CI for a release. Assert the resolution itself.
+[[ -n "$RT_TEST_ROOT" ]] && _c=0 || _c=1
+assert "review-toolkit sibling root resolved (section-lint wiring is exercised via the env override)" "$_c"
 
 BASE="$(mktemp -d -t preflight-selftest.XXXXXX)"
 trap 'rm -rf "$BASE"' EXIT

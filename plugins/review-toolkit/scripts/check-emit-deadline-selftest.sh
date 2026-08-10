@@ -233,6 +233,178 @@ grep -q "spec-reviewer" "$TMP/.live" \
   && ok "B5 spec-reviewer is covered by the lint under the shipped enrollment" \
   || bad "B5 expected spec-reviewer in the live lint output ($(cat "$TMP/.live"))"
 
+# B6/B7: the live scan's two REFUSALS. Both are one contract from opposite sides — a lint that
+# cannot see the tree it lints must say so, not report clean. That is what the fixed hop count
+# did from an install for a release: `$HERE/../../..` landed on the cache root, the glob matched
+# nothing, and the lint printed "clean — 0 linted agent(s)" with rc=0.
+#
+# Both stage a real directory shape and run the REAL script from inside it, so they exercise
+# production resolution rather than a model of it. `.claude-plugin/plugin.json` is what makes a
+# candidate a plugin here — the same marker install-topology-selftest.sh stages from — and is
+# why the unbounded cache-rung walk cannot wander into whatever else shares a parent.
+
+# B6: no plugin sibling in either topology => rc=1, naming the anchors it tried.
+# Staged under its OWN mktemp root rather than under $TMP: shape 2 globs two levels up, so a
+# sibling case that happens to stage `<x>/<y>/.claude-plugin` would resolve for this one and
+# quietly turn "nothing resolves" into "something did" — an order dependence on where the other
+# cases sit in this file.
+B6ROOT="$(mktemp -d)"; trap 'rm -rf "$TMP" "$B6ROOT"' EXIT
+b6="$B6ROOT/lonely/scripts"; mkdir -p "$b6"
+cp "$CHECK" "$b6/check-emit-deadline.sh"
+if (cd "$B6ROOT" && bash "$b6/check-emit-deadline.sh") >"$TMP/.b6" 2>&1; then
+  bad "B6 expected rc=1 when no plugin sibling resolves, got rc=0 ($(cat "$TMP/.b6"))"
+else
+  grep -q "no sibling plugin agents dir found" "$TMP/.b6" \
+    && ok "B6 an unresolvable live scan fails loudly instead of reporting clean" \
+    || bad "B6 failed but did not name the resolution miss ($(cat "$TMP/.b6"))"
+fi
+
+# B7: roots resolve, but no agent file is read out of them => still rc=1. Resolving a root is
+# not the same as linting something, and "clean over zero agents" is the same vacuous green
+# wearing the other hat.
+b7="$TMP/b7/marketplace/toolkit/1.0.0"
+mkdir -p "$b7/scripts" "$b7/agents" "$b7/.claude-plugin"
+echo '{"name":"toolkit","version":"1.0.0"}' > "$b7/.claude-plugin/plugin.json"
+cp "$CHECK" "$b7/scripts/check-emit-deadline.sh"
+if (cd "$TMP" && bash "$b7/scripts/check-emit-deadline.sh") >"$TMP/.b7" 2>&1; then
+  bad "B7 expected rc=1 for a resolved-but-empty scan, got rc=0 ($(cat "$TMP/.b7"))"
+else
+  grep -q "read no agent file" "$TMP/.b7" \
+    && ok "B7 a live scan that reads no agent file fails instead of reporting clean" \
+    || bad "B7 failed for the wrong reason ($(cat "$TMP/.b7"))"
+fi
+
+# B8: the resolved roots ARE reported, and on STDERR. Resolution is the part that went wrong
+# silently, so it has to be visible; stdout has to stay byte-identical to the pre-fix run so
+# anything reading the verdict lines is unaffected by the diagnostic.
+bash "$CHECK" >"$TMP/.b8.out" 2>"$TMP/.b8.err"
+if grep -q "scanning roots:" "$TMP/.b8.err" && ! grep -q "scanning roots:" "$TMP/.b8.out"; then
+  ok "B8 resolved roots are reported on stderr, leaving stdout unchanged"
+else
+  bad "B8 expected the roots line on stderr only (out: $(head -1 "$TMP/.b8.out"); err: $(head -1 "$TMP/.b8.err"))"
+fi
+
+# B9: from a version-keyed cache shape, the scan must reach SIBLING plugins, not just the one
+# it ships in. This is the narrowing a first-hit ladder produces and nothing else here would
+# catch: B1-B5 all name agents that live in review-toolkit, so they pass identically whether
+# the scan covered every plugin or only its own. Measured on an earlier draft — from an
+# install it scanned review-toolkit alone, because one level up a cache's `<plugin>/<version>/`
+# dirs are shape-indistinguishable from the monorepo's `plugins/<plugin>/` dirs.
+b9="$TMP/b9/marketplace"
+for plug in mine other; do
+  mkdir -p "$b9/$plug/1.0.0/.claude-plugin" "$b9/$plug/1.0.0/agents"
+  echo "{\"name\":\"$plug\",\"version\":\"1.0.0\"}" > "$b9/$plug/1.0.0/.claude-plugin/plugin.json"
+  write_agent "$b9/$plug/1.0.0/agents" "$plug-reviewer" "maxTurns: 30" \
+    "By **turn 20** (of your 30 maximum) you MUST be writing the final result."
+done
+mkdir -p "$b9/mine/1.0.0/scripts"
+cp "$CHECK" "$b9/mine/1.0.0/scripts/check-emit-deadline.sh"
+(cd "$TMP" && bash "$b9/mine/1.0.0/scripts/check-emit-deadline.sh") >"$TMP/.b9" 2>&1
+if grep -q "other-reviewer" "$TMP/.b9" && grep -q "mine-reviewer" "$TMP/.b9"; then
+  ok "B9 a cache-shaped scan reaches sibling plugins, not only the one it ships in"
+else
+  bad "B9 expected both plugins' agents in a cache-shaped scan ($(cat "$TMP/.b9"))"
+fi
+
+# B10: a real cache holds MORE THAN ONE version of the scanning plugin, and one level up those
+# version dirs are shape-1 candidates. Without newest-per-name selection every superseded copy
+# is linted as if current, so agents nobody ships any more red the lint on a correct install —
+# measured at 16 violations across 38 agents against a 12-version cache. B9 cannot see it: it
+# stages one version per plugin, as does install-topology-selftest.sh's staged cache.
+b10="$TMP/b10/marketplace"
+for v in 1.0.0 2.0.0; do
+  mkdir -p "$b10/mine/$v/.claude-plugin" "$b10/mine/$v/agents"
+  echo "{\"name\":\"mine\",\"version\":\"$v\"}" > "$b10/mine/$v/.claude-plugin/plugin.json"
+done
+# The superseded version carries a VIOLATION — linting it at all is both visible and fatal.
+write_agent "$b10/mine/1.0.0/agents" "stale-reviewer" "maxTurns: 30" "No deadline in this body."
+write_agent "$b10/mine/2.0.0/agents" "current-reviewer" "maxTurns: 30" \
+  "By **turn 20** (of your 30 maximum) you MUST be writing the final result."
+mkdir -p "$b10/mine/2.0.0/scripts"
+cp "$CHECK" "$b10/mine/2.0.0/scripts/check-emit-deadline.sh"
+# The shipped enrollment names agents this fixture does not have, and an unresolvable
+# enrollment is its own (B3) failure — point it at the newest version's agent instead, which
+# also asserts that agent is the one the scan reached.
+if (cd "$TMP" && DEADLINE_AT_DEFAULT=current-reviewer \
+      bash "$b10/mine/2.0.0/scripts/check-emit-deadline.sh") >"$TMP/.b10" 2>&1; then
+  grep -q "stale-reviewer" "$TMP/.b10" \
+    && bad "B10 clean, but a superseded version's agents were still scanned ($(cat "$TMP/.b10"))" \
+    || ok "B10 a multi-version cache lints only the newest version of the scanning plugin"
+else
+  bad "B10 expected rc=0 from a two-version cache, got rc=1 ($(cat "$TMP/.b10"))"
+fi
+
+# B11: B10 again, with jq forced unresolvable. The name lookup has two implementations and the
+# jq one wins on every machine that has jq — which is every machine this suite has ever run on,
+# so without this the sed fallback is dead code, green by never executing. Manifests are written
+# the way real ones are (pretty-printed, two-space indent) because that is what the fallback's
+# line anchor keys on.
+b11="$TMP/b11/marketplace"
+for v in 1.0.0 2.0.0; do
+  mkdir -p "$b11/mine/$v/.claude-plugin" "$b11/mine/$v/agents"
+  printf '{\n  "name": "mine",\n  "version": "%s",\n  "author": {\n    "name": "not-the-plugin"\n  }\n}\n' \
+    "$v" > "$b11/mine/$v/.claude-plugin/plugin.json"
+done
+write_agent "$b11/mine/1.0.0/agents" "stale-reviewer" "maxTurns: 30" "No deadline in this body."
+write_agent "$b11/mine/2.0.0/agents" "current-reviewer" "maxTurns: 30" \
+  "By **turn 20** (of your 30 maximum) you MUST be writing the final result."
+mkdir -p "$b11/mine/2.0.0/scripts"
+cp "$CHECK" "$b11/mine/2.0.0/scripts/check-emit-deadline.sh"
+if (cd "$TMP" && DEADLINE_AT_DEFAULT=current-reviewer EMIT_DEADLINE_JQ=jq-does-not-resolve \
+      bash "$b11/mine/2.0.0/scripts/check-emit-deadline.sh") >"$TMP/.b11" 2>&1; then
+  grep -q "stale-reviewer" "$TMP/.b11" \
+    && bad "B11 clean, but the jq-less name lookup did not select the newest version ($(cat "$TMP/.b11"))" \
+    || ok "B11 the jq-less name lookup selects the newest version, and ignores a nested author.name"
+else
+  bad "B11 expected rc=0 with jq forced unresolvable, got rc=1 ($(cat "$TMP/.b11"))"
+fi
+
+# B12: the fallback must read the RIGHT name, not merely some name. B10 and B11 assert an
+# ABSENCE — `stale-reviewer` must not appear — and an absence cannot separate "read the declared
+# name" from "returned a constant": a constant is a perfectly good dedup key, so newest-per-name
+# still collapses the two version dirs and the absence holds either way. Measured: swapping the
+# whole lookup for `head -1 "$j"` (which returns `{` for every candidate) left B10 and B11 green.
+#
+# That is also the axis the `cmp-z` mutant moves along, which is why an absence-only case does
+# not kill it on the platform CI runs. BSD sed rejects `-z` outright, so the name comes back
+# empty, every candidate keys on its own path, nothing is selected, and B11 fails. GNU sed
+# accepts it — and `-z` is not `-n`, so quiet mode silently goes away: sed auto-prints, the whole
+# manifest is one NUL-record whose `^` sits on `{`, the substitution never fires, and `head -1`
+# yields that same `{`. A constant. B11 passes there.
+#
+# So this fixture discriminates on the VALUE. The two version dirs declare DIFFERENT top-level
+# names, so a lookup that reads them keys them apart and keeps BOTH roots — the superseded
+# agent IS scanned and its violation reds the lint — while a constant-returning lookup collapses
+# them and the run comes back clean. The assertion inverts with B10/B11: here a clean run is the
+# failure, which is what makes a broken fallback detectable rather than invisible.
+#
+# `author` is written BEFORE the top-level `name` so the anchor's WIDENING direction is caught
+# too. `sed -n '…p' | head -1` takes the first matching line, so relaxing the bound
+# (`\{0,2\}` -> `\{0,\}`, or dropping the anchor) reads the nested author name — which is shared
+# across both manifests, and therefore collapses them exactly as a constant does. B11 catches the
+# narrowing direction; between them both directions are pinned.
+b12="$TMP/b12/marketplace"
+for v in 1.0.0 2.0.0; do
+  mkdir -p "$b12/mine/$v/.claude-plugin" "$b12/mine/$v/agents"
+done
+printf '{\n  "author": {\n    "name": "shared-author"\n  },\n  "name": "%s",\n  "version": "1.0.0"\n}\n' \
+  "mine-superseded" > "$b12/mine/1.0.0/.claude-plugin/plugin.json"
+printf '{\n  "author": {\n    "name": "shared-author"\n  },\n  "name": "%s",\n  "version": "2.0.0"\n}\n' \
+  "mine-current" > "$b12/mine/2.0.0/.claude-plugin/plugin.json"
+write_agent "$b12/mine/1.0.0/agents" "stale-reviewer" "maxTurns: 30" "No deadline in this body."
+write_agent "$b12/mine/2.0.0/agents" "current-reviewer" "maxTurns: 30" \
+  "By **turn 20** (of your 30 maximum) you MUST be writing the final result."
+mkdir -p "$b12/mine/2.0.0/scripts"
+cp "$CHECK" "$b12/mine/2.0.0/scripts/check-emit-deadline.sh"
+if (cd "$TMP" && DEADLINE_AT_DEFAULT=current-reviewer EMIT_DEADLINE_JQ=jq-does-not-resolve \
+      bash "$b12/mine/2.0.0/scripts/check-emit-deadline.sh") >"$TMP/.b12" 2>&1; then
+  bad "B12 two differently-named candidates came back clean — the jq-less lookup collapsed them, so it is not reading the declared name ($(cat "$TMP/.b12"))"
+else
+  grep -q "stale-reviewer" "$TMP/.b12" \
+    && ok "B12 the jq-less lookup reads the declared name — differently-named candidates are both kept" \
+    || bad "B12 failed, but not because the second candidate was scanned ($(cat "$TMP/.b12"))"
+fi
+
 echo
 echo "[check-emit-deadline-selftest] $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]

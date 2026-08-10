@@ -30,7 +30,12 @@
 # rows were real failures the authoring machine's environment hid. plan-lint-selftest.sh and
 # design-sync-selftest.mjs are deliberately ABSENT — both were fixed rather than listed, and
 # so was workflows-mjs-selftest.sh, which was red only because it invokes design-sync's.
-plugins/review-toolkit/scripts/check-emit-deadline-selftest.sh	check-emit-deadline.sh derives REPO as $HERE/../../.. and globs $REPO/plugins/*/agents; from an install that is the cache root, so zero agents are linted and four assertions expecting named agents fail.
-plugins/second-shift/skills/doctor/tools/doctor-selftest.sh	resolves its review-toolkit sibling as $HERE/../../../../review-toolkit, a fixed hop count that only holds in the monorepo, so the resolved scenario degrades into the unresolved one.
-plugins/dev-pipeline/skills/run/tools/preflight-selftest.sh	preflight-selftest.sh:38 resolves its review-toolkit sibling as $SCRIPT_DIR/../../../../review-toolkit, a fixed hop count that only holds in the monorepo. From an install SECOND_SHIFT_REVIEW_TOOLKIT_ROOT is empty, so preflight.sh:144-147 falls through to its `claude plugin list` rung. ENVIRONMENT-DEPENDENT: that rung hits where the Claude CLI is installed, so the suite passes on a developer machine and fails on CI. Reproduced by removing `claude` from PATH, not by re-running.
+#
+# The three fixed-hop-count rows — check-emit-deadline-selftest.sh, doctor-selftest.sh and
+# preflight-selftest.sh — are DRAINED: each site now runs the house sibling-resolution ladder,
+# and all three pass from a staged cache. preflight-selftest.sh's was one of the two
+# ENVIRONMENT-DEPENDENT rows above, so its removal is unverified in the authoring environment
+# by construction; what the suite now asserts directly is that the ladder resolves, and a wrong
+# call here warns rather than reds. The two repo-only-artifact rows were drained separately, by
+# the sibling slice that gave those suites a counted skip.
 plugins/dev-pipeline/skills/run/tools/cost-block-selftest.sh	cost-block-selftest.sh:40 mirrors pipeline-cost-block.sh state resolution but anchors it on $HERE, while the script anchors on $PWD; in an install cache $HERE has no git repo above it, so the mirror falls to `cd ""`. ENVIRONMENT-DEPENDENT on what bash does with that: a silent no-op on bash <= 5.2 (STATE_DIR lands inside the staged plugin, where the script never looks, and the three dump assertions get no rollup JSON) and an error on bash >= 5.3 (STATE_DIR collapses to ./ and coincidentally agrees with the script). Red on both CI lanes, green on bash 5.3.

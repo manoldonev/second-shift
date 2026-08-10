@@ -5,6 +5,60 @@ set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DOCTOR="$HERE/doctor.sh"; FIX="$HERE/doctor-fixtures"; FAILS=0
 check() { if [[ "$2" -eq 0 ]]; then echo "  ✓ $1"; else echo "  ✗ $1"; FAILS=$((FAILS+1)); fi; }
+
+# --- cross-plugin sibling resolution -------------------------------------------------------
+# This suite reaches two OTHER plugins: review-toolkit (as a root, to feed
+# SECOND_SHIFT_REVIEW_TOOLKIT_ROOT) and dev-pipeline's claims-lint.sh (as one named file). Both
+# used to be a fixed `$HERE/../../../../<name>` hop count, which holds only in the monorepo:
+# installed, this file lives at <cache>/<marketplace>/second-shift/<version>/skills/doctor/tools
+# and the same expression resolves to nothing — so the "resolved" scenario silently degraded
+# into the unresolved one, and the claims-lint scenarios silently did not run at all.
+#
+# Both ladders run the house three rungs: monorepo path -> cache sibling at THIS plugin's own
+# version -> newest cache version carrying the marker. The last rung is load-bearing, not a
+# fallback: plugins are versioned independently, so a real install rarely has the sibling at
+# this plugin's version.
+#
+# HOP CONSTANTS ARE RE-DERIVED, NOT COPIED. skills/doctor/tools sits three levels under the
+# plugin root, so the plugins dir is four hops up and the marketplace root five —
+# check-model-tiers.sh's copy, one level under its plugin root, uses two and three.
+#
+# Newest-version selection is LEXICAL, mirroring both house ladders (`9.0.0` outranks
+# `10.0.0`). A shared latent defect, deliberately mirrored rather than fixed here.
+#
+# NEITHER LADDER HAS A SKIP RUNG. An unresolvable sibling is the defect these exist to remove,
+# so each caller below turns a miss into a COUNTED failure.
+
+# resolve_sibling_plugin_root <anchor-dir> <name> <marker-subpath> — echoes the sibling plugin
+# ROOT. The anchor is a PARAMETER rather than a read of this file's own directory variable:
+# that was the only thing separating this copy from preflight-selftest.sh's, whose hop
+# constants are identical, and passing it in makes the two blocks byte-identical so
+# scripts/lockstep-manifest.tsv can pin them instead of leaving them held by prose.
+# LOCKSTEP-BEGIN cross-plugin-sibling-plugin-root
+resolve_sibling_plugin_root() {
+  local anchor="$1" name="$2" marker="$3" cand
+  cand="$(cd "$anchor/../../../../$name" 2>/dev/null && pwd)" || cand=""
+  if [[ -n "$cand" && -d "$cand/$marker" ]]; then printf '%s\n' "$cand"; return 0; fi
+  for cand in "$anchor"/../../../../../"$name"/*/; do
+    [[ -d "$cand/$marker" ]] || continue
+    (cd "$cand" && pwd)
+  done | tail -1
+}
+# LOCKSTEP-END cross-plugin-sibling-plugin-root
+
+# resolve_sibling_file <name> <path-under-that-plugin> — echoes the named FILE, rc=1 if absent.
+resolve_sibling_file() {
+  local sib="$1" rel="$2" cand v cacheroot myver
+  cand="$HERE/../../../../$sib/$rel"; [[ -f "$cand" ]] && { printf '%s\n' "$cand"; return 0; }
+  cacheroot="$(cd "$HERE/../../../../.." 2>/dev/null && pwd)" || return 1
+  myver="$(basename "$(cd "$HERE/../../.." 2>/dev/null && pwd)")"
+  cand="$cacheroot/$sib/$myver/$rel"; [[ -f "$cand" ]] && { printf '%s\n' "$cand"; return 0; }
+  # shellcheck disable=SC2012  # version dirs are alphanumeric (X.Y.Z); ls is safe and 3.2-portable here
+  for v in $(ls -1 "$cacheroot/$sib" 2>/dev/null | sort -r); do
+    cand="$cacheroot/$sib/$v/$rel"; [[ -f "$cand" ]] && { printf '%s\n' "$cand"; return 0; }
+  done
+  return 1
+}
 scenario() { # $1 label, $2 plugin-list fixture, $3 settings fixture, $4 marketplace fixture,
              # $5 expected exit code, $6 expected substring in output,
              # $7 (optional) lock fixture — default lock-v1.json
@@ -168,7 +222,12 @@ else check "report-state-excerpt" 1; echo "$sout" | sed 's/^/      /' | head -20
 
 # --report context-coverage section: resolved (real review-toolkit) emits a coverage line;
 # unresolved (env empty + fake-cache pluglist install path has no script) emits the fallback.
-RT_REAL="$(cd "$HERE/../../../../review-toolkit" 2>/dev/null && pwd || true)"
+RT_REAL="$(resolve_sibling_plugin_root "$HERE" review-toolkit scripts || true)"
+# A miss here used to be invisible: the "resolved" scenario below simply degraded into the
+# unresolved one and failed with a message about the fallback line, naming the symptom rather
+# than the cause. Assert the resolution itself so the failure says what actually broke.
+[[ -n "$RT_REAL" ]] && check "review-toolkit sibling root resolved" 0 \
+  || check "review-toolkit sibling root resolved (looked under $HERE/../../../../ and ../../../../../<ver>/)" 1
 ccroot="$TMP/cc"; mkdir -p "$ccroot/.claude/second-shift"
 cp "$FIX/lock-v1.json" "$ccroot/.claude/second-shift.lock.json"
 cp "$FIX/config-valid.json" "$ccroot/.claude/second-shift.config.json"
@@ -188,8 +247,8 @@ grep -q "review-toolkit not resolved" <<< "$ccout2" && check "context-coverage u
 # plugin in this repo checkout) is copied into the fake tree — invoke-not-duplicate,
 # same posture as the config-lint stub above. Runs AFTER the scenarios above so the
 # copy cannot alter their claims-free expectations.
-REAL_CLAIMS="$HERE/../../../../dev-pipeline/skills/run/tools/claims-lint.sh"
-if [[ -f "$REAL_CLAIMS" ]]; then
+REAL_CLAIMS="$(resolve_sibling_file dev-pipeline skills/run/tools/claims-lint.sh || true)"
+if [[ -n "$REAL_CLAIMS" ]]; then
   cp "$REAL_CLAIMS" "$INSTALL/dev-pipeline/2.1.0/skills/run/tools/claims-lint.sh"
   mkdir -p "$TMP/claims-ok/.claude/second-shift"
   # shellcheck disable=SC2016 # literal fence content — backticks must not expand
@@ -202,7 +261,10 @@ if [[ -f "$REAL_CLAIMS" ]]; then
     > "$TMP/claims-expired/.claude/second-shift/review-context.md"
   scenario claims-expired plugin-list-green.json   settings-green.json     marketplace-list-pinned.json  1 "expired or malformed severity-downgrading claim"
 else
-  echo "  - claims-lint scenarios skipped (dev-pipeline sibling not in this checkout)"
+  # Was an uncounted `echo … skipped`. That print is how these two scenarios ran nowhere but
+  # the monorepo while the suite reported all green — a miss laundered into a skip. It is a
+  # counted failure now, through the same check/FAILS tally every other scenario uses.
+  check "claims-lint sibling resolved (dev-pipeline skills/run/tools/claims-lint.sh) — claims-lint scenarios did NOT run" 1
 fi
 if [[ "$FAILS" -gt 0 ]]; then echo "doctor selftest: $FAILS FAILURE(S)"; exit 1; fi
 echo "doctor selftest: all green"

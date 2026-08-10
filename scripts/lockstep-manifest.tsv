@@ -499,9 +499,37 @@ lean-design-armed	verbatim	plugins/dev-pipeline/skills/run-lean/lean-gate.sh	lea
 # different versions, so a broken last rung fails there rather than drifting. The bash side has
 # no equivalent — no suite drives pipeline-doctor.sh's own ladder from an install cache, and
 # that asymmetry is the residual this entry is declining to close with machinery.
-# Revisit if a third site grows the ladder. Two candidates already exist and are tracked in
-# #421: preflight-selftest.sh:38 and doctor-selftest.sh:102 both still use a fixed hop count,
-# and fixing either the sanctioned way makes it a third copy.
+# The two candidates this entry flagged — preflight-selftest.sh:38 and doctor-selftest.sh:102 —
+# have since been fixed the sanctioned way, and a fourth and fifth copy arrived with them. Each
+# was considered for a row and DROPPED, for a reason the copy itself supplies:
+#   preflight-selftest.sh, doctor-selftest.sh (review-toolkit)   `resolve_sibling_plugin_root`
+#     RE-DERIVED, not copied, against CHECK-MODEL-TIERS.SH: that copy lives one level under its
+#     plugin root and uses two and three hops, these two live three levels under theirs and use
+#     four and five. The hop constants ARE the contract and they legitimately differ, so
+#     `verbatim` against check-model-tiers.sh would compare unlike blocks and fail on a correct
+#     tree. Against EACH OTHER they do not differ — same depth, same four/five rungs, same body —
+#     which is precisely the convergence the revisit trigger at the end of this entry names. So
+#     that pair IS pinned, by the row below. The one thing that had differed was which variable
+#     each read its anchor from (`HERE` vs `SCRIPT_DIR`); the anchor is now a parameter, which
+#     is what makes the blocks byte-anchorable at all.
+#   doctor-selftest.sh (claims-lint.sh)                          `resolve_sibling_file`
+#     Same divergence, keyed on a file rather than a marker dir.
+#   check-emit-deadline.sh                                       the ENUMERATION variant
+#     Shares a directory with check-model-tiers.sh, so the hop constants do transfer — but it
+#     walks an unbounded set of plugin names instead of resolving one, and unions both layout
+#     shapes rather than taking the first that hits. There is no identical block to pin without
+#     carrying a dead copy of `resolve_sibling_plugin_root` purely to be compared, which is the
+#     "duplicate machinery is worse than none" case this file's header names.
+# Guarded behaviorally instead, and better than the .mjs side is: all three sites now run under
+# tools/install-topology-selftest.sh from a staged cache — that is what drained their
+# install-topology-known-red.tsv rows — and check-emit-deadline-selftest.sh's B6-B9 drive the
+# real script from staged monorepo and cache shapes without leaving the ordinary sweep.
+# The bash residual named above narrows but does not close: pipeline-doctor.sh's own ladder is
+# still driven from no install cache by any suite.
+# Revisit if a SIXTH site grows the ladder, or if any FURTHER pair converges on identical hop
+# constants — such a pair is byte-anchorable and should be pinned, as the row below pins the
+# first one that did.
+cross-plugin-sibling-plugin-root	verbatim	plugins/second-shift/skills/doctor/tools/doctor-selftest.sh	cross-plugin-sibling-plugin-root	plugins/dev-pipeline/skills/run/tools/preflight-selftest.sh	cross-plugin-sibling-plugin-root
 
 # The unclaim workflow pair. The marketplace repo runs the SHIPPED unclaim script in place,
 # so there is one script and no script pair — but there are two workflow FILES, and this is
