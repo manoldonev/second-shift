@@ -94,7 +94,7 @@ expect_report_contains "$PIN" "the violation report quotes the offending literal
 
 # 4) Red on a floating alias as a --…model flag value.
 reset_fixture
-echo '  --judge-model sonnet \' >> "$SURFACE/run.sh"
+echo '  --judge-model sonnet' >> "$SURFACE/run.sh"
 expect_rc 1 "floating alias in a --model flag position reds"
 
 # 5) Red on a floating alias as a JSON "model" value — the shape the agents templates carry.
