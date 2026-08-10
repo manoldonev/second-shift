@@ -2,11 +2,16 @@
 #
 # Wrapper to invoke the generic agent-eval-kit runner for intake-orchestrator.
 #
-# Usage:
-#   ./run.sh                      # default baseline, 5 runs/fixture
-#   ./run.sh "my-note"            # pass a changelog note
-#   ./run.sh "smoke" --smoke      # 1 fixture × 1 run
-#   ./run.sh "custom" --runs-per-fixture 3 --concurrency 2
+# Model identity is the operator's, not the repo's (#356). All three role variables are
+# REQUIRED and must carry a version-pinned id — no default here, and the runner refuses the
+# bare dispatch aliases, because `changelog.md` records the reviewer model as the key two
+# rows are compared on and a floating alias makes that key meaningless a release later.
+#
+# Usage (every form needs the three variables):
+#   REVIEWER_MODEL=<pin> JUDGE_MODEL=<pin> MOCK_MODEL=<pin> ./run.sh
+#   ... ./run.sh "my-note"                       # pass a changelog note
+#   ... ./run.sh "smoke" --smoke                 # 1 fixture × 1 run
+#   ... ./run.sh "custom" --runs-per-fixture 3 --concurrency 2
 #
 # Any args after the note are forwarded to the runner.
 
@@ -17,8 +22,13 @@ REPO="$(git -C "$HERE" rev-parse --show-toplevel)"
 NOTE="${1:-baseline}"
 shift || true
 
-# Sub-agent mocks run at haiku/low (if --agents supports per-agent model),
-# judge runs at sonnet to save cost vs opus (see plan §Cost discipline).
+# Cost discipline is a ROLE split, not a model list: the judge and the sub-agent mocks are
+# meant to run below the reviewer's tier (see plan §Cost discipline), and the mocks at
+# effort low. Which pin each role gets is the operator's call.
+: "${REVIEWER_MODEL:?REVIEWER_MODEL is required — set it to a version-pinned model id}"
+: "${JUDGE_MODEL:?JUDGE_MODEL is required — set it to a version-pinned model id}"
+: "${MOCK_MODEL:?MOCK_MODEL is required — set it to a version-pinned model id}"
+
 read -r -d '' PROMPT <<'PROMPT_EOF' || true
 You are being evaluated as the intake-orchestrator. Run your full checklist on the GitHub issue below. RUN_ID: {run_id}.
 
@@ -55,8 +65,9 @@ python3 "$HERE/../../../review-toolkit/evals/agent-eval-kit/run-eval.py" \
   --fixtures-dir "$REPO/docs/eval-fixtures/intake-orchestrator" \
   --eval-dir "$HERE" \
   --agents-template "$HERE/agents-template.json" \
-  --reviewer-model claude-opus-4-7 \
-  --judge-model claude-sonnet-4-6 \
+  --reviewer-model "$REVIEWER_MODEL" \
+  --judge-model "$JUDGE_MODEL" \
+  --mock-model "$MOCK_MODEL" \
   --reviewer-user-prompt-template "$PROMPT" \
   --judge-agent-name intake-judge \
   --judge-description "Scores intake-orchestrator outputs on 7-dim rubric" \

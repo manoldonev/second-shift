@@ -68,16 +68,21 @@ def parse_args():
     p.add_argument("--judge-agent-name", default="eval-judge",
                    help="Name under which the inline judge agent is registered")
     p.add_argument("--judge-description", default="Scores agent outputs on the supplied rubric")
-    p.add_argument("--model", default="claude-opus-4-7",
-                   help="Default model for reviewer and judge (override per-role below)")
+    p.add_argument("--model", default=None,
+                   help="Model for reviewer and judge (override per-role below). No default: "
+                        "supply a version-pinned id, or set the per-role flags.")
     p.add_argument("--reviewer-model", default=None,
                    help="Override --model for the reviewer invocation")
     p.add_argument("--judge-model", default=None,
                    help="Override --model for the judge invocation")
+    p.add_argument("--mock-model", default=None,
+                   help="Model substituted for {{mock_model}} in --agents-template. Required "
+                        "when that template carries the token.")
     p.add_argument("--effort", default="high")
     p.add_argument("--agents-template", type=Path, default=None,
                    help="Path to a JSON template for the --agents flag. Tokens like "
-                        "{{canned_xxx}} are substituted from each fixture's mock-xxx.txt. "
+                        "{{canned_xxx}} are substituted from each fixture's mock-xxx.txt, and "
+                        "{{mock_model}} from --mock-model. "
                         "Only used with directory-per-fixture layouts.")
     p.add_argument("--fake-gh-shim", type=Path, default=None,
                    help="Path to a shim script that replaces `gh` on PATH during each run. "
@@ -92,6 +97,53 @@ def parse_args():
     p.add_argument("--reviewer-timeout-s", type=float, default=900.0)
     p.add_argument("--judge-timeout-s", type=float, default=400.0)
     return p.parse_args()
+
+
+# --- Model identity: supplied by the operator, never by this repo ----------------------
+#
+# The eval surface holds no vendor model id (issue #356). Two properties, both enforced here
+# so every caller — the wrappers, the smokes, a direct invocation — gets the same answer:
+#
+#   1. FAIL CLOSED. There is no default. A run whose model came from a repo constant records
+#      a score against whatever that constant happened to be on the day, which is exactly the
+#      attribution `changelog.md`'s `model=` column exists to prevent.
+#   2. NO FLOATING ALIAS. The CLI's bare dispatch aliases resolve to a different underlying
+#      model as generations turn over, so a row recorded against one is uninterpretable a
+#      release later. Note this is the INVERSE of the dispatch side of this repo, where
+#      check-model-tiers.sh admits only the aliases and rejects a version pin — the two
+#      alphabets are not interconvertible, which is why no shared map serves both.
+#
+# Stated as a REJECTION, not an allowlist: any other string is the operator's pin, taken
+# verbatim. Adding a backend requires no edit here — this must not assert what a valid model
+# id from some other vendor looks like.
+FLOATING_MODEL_ALIASES = ("opus", "sonnet", "haiku", "fable")
+
+# The token an --agents-template carries in place of a vendor literal for its mock sub-agents.
+MOCK_MODEL_TOKEN = "{{mock_model}}"
+
+
+class ModelIdentityError(SystemExit):
+    """Raised before any billed subprocess is spawned."""
+
+
+def resolve_model(role: str, value, source: str) -> str:
+    """Validate an operator-supplied model id for `role`. `source` names the knob the caller
+    should set (a flag, or the wrapper env var that feeds it) so the message is actionable."""
+    if value is None or not str(value).strip():
+        raise ModelIdentityError(
+            f"[eval] no model supplied for the {role} role. Set {source}.\n"
+            f"       There is no default on purpose: an eval score is only comparable to "
+            f"another run's when the model behind it is pinned."
+        )
+    value = str(value).strip()
+    if value.lower() in FLOATING_MODEL_ALIASES:
+        raise ModelIdentityError(
+            f"[eval] {source}={value!r} is a floating dispatch alias, not a pin. It resolves "
+            f"to a different model as generations turn over, so the changelog row it produces "
+            f"is uninterpretable a release later.\n"
+            f"       Supply a version-pinned model id for the {role} role instead."
+        )
+    return value
 
 
 # Substrings in CLI output that indicate a quota/rate-limit stop.
@@ -211,11 +263,19 @@ def _load_directory_fixtures(subdirs: list[Path], repo_root: Path):
     return fixtures
 
 
-def build_agents_json(template_path: Path, mocks: dict[str, str]) -> str:
-    """Load `template_path`, substitute {{canned_xxx}} tokens from `mocks`,
-    return the resulting JSON string. Values are inserted as JSON-escaped
+def build_agents_json(template_path: Path, mocks: dict[str, str], mock_model=None) -> str:
+    """Load `template_path`, substitute {{mock_model}} and the {{canned_xxx}} tokens from
+    `mocks`, return the resulting JSON string. Values are inserted as JSON-escaped
     strings so no matter what's in the mock text, the result is valid JSON."""
     text = template_path.read_text()
+    if MOCK_MODEL_TOKEN in text:
+        # Validated again here rather than trusting the caller: this function is the only
+        # place the token is consumed, and an unsubstituted token would reach the CLI as a
+        # literal model name.
+        text = text.replace(
+            MOCK_MODEL_TOKEN,
+            resolve_model("mock sub-agent", mock_model, "--mock-model (env MOCK_MODEL)"),
+        )
     for key, val in mocks.items():
         # Escape the value for embedding inside a JSON string literal.
         # json.dumps wraps in double quotes — strip them so we can paste
@@ -352,7 +412,9 @@ async def invoke_reviewer(cfg, fixture, run_id, sem):
     # If an --agents template is configured AND this fixture has mocks, build
     # the per-run --agents JSON by substituting the fixture's mock text.
     if cfg["agents_template"] is not None and fixture.get("mocks"):
-        agents_json = build_agents_json(cfg["agents_template"], fixture["mocks"])
+        agents_json = build_agents_json(
+            cfg["agents_template"], fixture["mocks"], cfg.get("mock_model"),
+        )
         extra_args += ["--agents", agents_json]
 
     args = [
@@ -570,8 +632,22 @@ async def main():
     except Exception:
         agent_sha = "unknown"
 
-    reviewer_model = args.reviewer_model or args.model
-    judge_model = args.judge_model or args.model
+    reviewer_model = resolve_model(
+        "reviewer", args.reviewer_model or args.model,
+        "--reviewer-model or --model (env REVIEWER_MODEL)",
+    )
+    judge_model = resolve_model(
+        "judge", args.judge_model or args.model,
+        "--judge-model or --model (env JUDGE_MODEL)",
+    )
+    # Resolve the mock role here too, so a missing/floating --mock-model reds at startup
+    # rather than on the first fixture that happens to carry mocks — by which point the
+    # reviewer calls for earlier fixtures have already been billed.
+    mock_model = None
+    if args.agents_template is not None and MOCK_MODEL_TOKEN in args.agents_template.read_text():
+        mock_model = resolve_model(
+            "mock sub-agent", args.mock_model, "--mock-model (env MOCK_MODEL)",
+        )
 
     # Resolve fake-gh shim path. If not set and any fixture uses mock_env_dir,
     # default to sibling `fake-gh` next to this script.
@@ -596,6 +672,7 @@ async def main():
         "judge_model": judge_model,
         "effort": args.effort,
         "agents_template": args.agents_template,
+        "mock_model": mock_model,
         "fake_gh_shim": fake_gh_shim,
         "budget": args.max_budget_usd,
         "reviewer_timeout_s": args.reviewer_timeout_s,
