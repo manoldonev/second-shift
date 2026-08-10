@@ -4,6 +4,73 @@ All notable changes to the second-shift marketplace. Versions are per-plugin (`p
 this file tracks the marketplace release. `configVersion` stays `const 1` — v2 is fully backward-compatible for a
 consumer with an empty config; the migration notes below are only for consumers using the changed features.
 
+## v4.1.3
+
+### `dev-pipeline` 4.1.2 → 4.1.3
+
+- **The lean lane destroys its worktrees (#467)** (#467)
+  the lean lane now removes its worktree at approval (`bash G teardown
+  <issue>`, checklist step 9) and sweeps abandoned lane worktrees at `bash G entry`.
+  Both refuse on unclean or unpushed work, and neither deletes a branch.
+  Migration: none.
+- **Suites that need a repo-only artifact declare a counted skip from an install (#466)** (#466)
+  a shipped selftest that needs a repo-only artifact now reports a
+  named skip from an install instead of a false failure.
+  Migration: none.
+- **Gate arms declare when their contract took effect (#470)** (#470)
+  a lean gate arm can declare the instant its contract took effect, and
+  a run whose PR opened (or whose branch started) before that instant is
+  reported as outside the arm's window instead of failing it. The consumer CI
+  template now supplies PR_CREATED_AT; a workflow that does not is not red, its
+  lean PRs just take the declining path until it is updated.
+  Migration: none.
+- **An arm enforces only what its producer's generation ships (#471)** (#471)
+  a lean merge-boundary arm can declare the producer capability it depends
+  on, and a PR built by a harness generation that does not ship that capability is
+  reported as outside the arm's contract instead of failing it. The build harness
+  stamps its capabilities onto the claim comment and the verdict record. A repo
+  whose lean PRs were built before this ships takes the declining path until it is
+  re-run; no consumer workflow change is required.
+  Migration: none.
+
+### `review-toolkit` 4.1.0 → 4.1.1
+
+- **Suites that need a repo-only artifact declare a counted skip from an install (#466)** (#466)
+  a shipped selftest that needs a repo-only artifact now reports a
+  named skip from an install instead of a false failure.
+  Migration: none.
+
+### `second-shift` 3.1.2 → 3.1.3
+
+- **onboard names the benefit for every unadopted capability, and forces a disposition (#462)** (#462)
+  onboard and doctor now name the three extension-point seams no
+  question ever mentioned, and say what each buys. Onboard blocks its
+  accept-or-edit screen until you adopt one or declare a grillWaivers entry;
+  doctor reports it as a note and its exit code is unchanged.
+  Migration: none — no schema or configVersion change. An already-onboarded repo
+  gains one doctor note until it adopts a seam or declares the waiver.
+- **Gate arms declare when their contract took effect (#470)** (#470)
+  a lean gate arm can declare the instant its contract took effect, and
+  a run whose PR opened (or whose branch started) before that instant is
+  reported as outside the arm's window instead of failing it. The consumer CI
+  template now supplies PR_CREATED_AT; a workflow that does not is not red, its
+  lean PRs just take the declining path until it is updated.
+  Migration: none.
+- **A re-onboard cannot silently destroy an existing config value (#463)** (#463)
+  a re-onboard no longer silently reverts a human-set config value. /second-shift:onboard
+  now carries testFile and unitTestScope forward from the existing config, and blocks its
+  accept-or-edit screen on any existing non-null value the draft would remove or change until
+  each one is fixed or explicitly confirmed.
+  Migration: none.
+- **An arm enforces only what its producer's generation ships (#471)** (#471)
+  a lean merge-boundary arm can declare the producer capability it depends
+  on, and a PR built by a harness generation that does not ship that capability is
+  reported as outside the arm's contract instead of failing it. The build harness
+  stamps its capabilities onto the claim comment and the verdict record. A repo
+  whose lean PRs were built before this ships takes the declining path until it is
+  re-run; no consumer workflow change is required.
+  Migration: none.
+
 ## v4.1.2
 
 ### `dev-pipeline` 4.1.1 → 4.1.2
