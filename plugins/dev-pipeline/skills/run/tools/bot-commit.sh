@@ -51,6 +51,40 @@ if [[ "${1:-}" == "-C" ]]; then
   shift 2
 fi
 
+# AI co-authorship trailer, added only when the caller supplied none.
+#
+# WHY HERE AND NOT ONLY IN THE CALLER: this trailer is what renders AI involvement on the commit
+# in GitHub's UI, and in a bot-DISABLED consumer it is the only such signal — there the author is
+# the operator, so a run's commits are otherwise indistinguishable from hand-written ones. Every
+# calling session is already instructed to append it, and sessions demonstrably forget: across two
+# consumer repos every dev-pipeline commit made through this wrapper carried no trailer, while the
+# same sessions' direct `git commit`s did.
+#
+# CALLER WINS, deliberately. A session knows its own model; this script cannot, and hardcoding a
+# precise version here would be wrong the moment the model changes. A caller that supplies its own
+# trailer keeps that precision and this generic one only fills the gap. Detection scans the
+# ARGUMENTS, not the resulting message: -F and editor bodies are not readable here, and
+# over-detecting (skipping a trailer we should have added) is the safe direction — a missing
+# trailer is cosmetic, a duplicated one is noise in history forever.
+#
+# `--trailer` rather than appending to -m: it is git's own trailer machinery, so it lands correctly
+# for -m, repeated -m, -F and editor mode alike. It needs git >= 2.32; an older git gets no trailer
+# rather than a hard failure, because this wrapper's first duty is that the commit still happens
+# (the same principle as the bot-disabled fallback below).
+TRAILER_ARGS=()
+case "$*" in
+  *[Cc]o-[Aa]uthored-[Bb]y*) : ;;
+  *)
+    _gv="$(git --version 2>/dev/null | sed -n 's/^git version \([0-9][0-9]*\)\.\([0-9][0-9]*\).*/\1 \2/p')"
+    if [[ -n "$_gv" ]]; then
+      _gmaj="${_gv%% *}"; _gmin="${_gv##* }"
+      if (( _gmaj > 2 || ( _gmaj == 2 && _gmin >= 32 ) )); then
+        TRAILER_ARGS=(--trailer "Co-Authored-By: Claude <noreply@anthropic.com>")
+      fi
+    fi
+    ;;
+esac
+
 # Anchor at the git COMMON dir (shared by every worktree) — resolved from $DIR, never from the
 # helper's own CWD. Empty when $DIR is not a git repo; guarded so `set -e` cannot abort here.
 COMMON_DIR=""
@@ -103,7 +137,7 @@ if [[ "$BOT_ENABLED" != "true" || -z "$APP_NAME" ]]; then
       echo "[bot-commit] WARN: bot disabled in $CFG (tracker.bot.enabled is not true, or app.appName is unset) — committing with the repo default identity" >&2
     fi
   fi
-  exec git -C "$DIR" commit "$@"
+  exec git -C "$DIR" commit ${TRAILER_ARGS[@]+"${TRAILER_ARGS[@]}"} "$@"
 fi
 
 BOT_LOGIN="${APP_NAME}[bot]"
@@ -124,10 +158,10 @@ fi
 
 if [[ -z "$BOT_ID" ]]; then
   echo "[bot-commit] WARN: could not resolve bot user id (gh api users/${BOT_LOGIN}) — committing with the repo default identity" >&2
-  exec git -C "$DIR" commit "$@"
+  exec git -C "$DIR" commit ${TRAILER_ARGS[@]+"${TRAILER_ARGS[@]}"} "$@"
 fi
 
 exec git -C "$DIR" \
   -c user.name="$BOT_LOGIN" \
   -c user.email="${BOT_ID}+${BOT_LOGIN}@users.noreply.github.com" \
-  commit "$@"
+  commit ${TRAILER_ARGS[@]+"${TRAILER_ARGS[@]}"} "$@"

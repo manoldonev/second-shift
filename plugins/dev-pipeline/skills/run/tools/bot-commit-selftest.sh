@@ -186,6 +186,29 @@ AUTHOR9="$(SECOND_SHIFT_REPO_ROOT="$TMP/fakeroot" \
   && pass "9c override dir received no cache write (D-7)" \
   || fail "9c cache leaked into the override root"
 
+# ---- Case 10: AI co-authorship trailer -------------------------------------------
+# On a bot-DISABLED consumer the author is the operator, so this trailer is the only signal
+# that a run wrote the commit. Both directions are asserted because the failure modes are
+# opposite and both are silent: no trailer at all (what shipped for a full run across two
+# consumer repos), or a caller's precise model name shadowed by a duplicate generic one.
+mkrepo "$TMP/r10" '{"tracker":{"bot":{"enabled":false,"app":{"appName":"test-pipeline"}}}}'
+bash "$BOT_COMMIT" -C "$TMP/r10" -q -m "test: no caller trailer" >/dev/null 2>&1 || true
+BODY10="$(git -C "$TMP/r10" log -1 --format='%B')"
+grep -qi "^Co-Authored-By: Claude <noreply@anthropic.com>$" <<< "$BODY10" \
+  && pass "10a absent caller trailer → generic Claude trailer added" \
+  || fail "10a no co-authorship trailer on the commit: $BODY10"
+
+# Caller wins: a session knows its own model, this wrapper cannot.
+echo t10b > "$TMP/r10/b.txt"; git -C "$TMP/r10" add b.txt
+bash "$BOT_COMMIT" -C "$TMP/r10" -q \
+  -m "test: caller trailer" \
+  -m "Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>" >/dev/null 2>&1 || true
+BODY10B="$(git -C "$TMP/r10" log -1 --format='%B')"
+COUNT10B="$(grep -ci "co-authored-by" <<< "$BODY10B" || true)"
+{ [[ "$COUNT10B" == "1" ]] && grep -qi "Claude Opus 5" <<< "$BODY10B"; } \
+  && pass "10b caller-supplied trailer preserved, not duplicated" \
+  || fail "10b expected exactly 1 trailer naming the caller's model, got $COUNT10B: $BODY10B"
+
 echo ""
 echo "[bot-commit-selftest] $PASS passed, $FAIL failed"
 exit "$FAIL"
