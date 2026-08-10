@@ -38,8 +38,12 @@ usage() {
 }
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --root) ROOT_ARG="${2:-}"; [[ -n "$ROOT_ARG" ]] || { echo "[scope-shadows] --root needs a value" >&2; exit 2; }; shift 2 ;;
-    --marketplace) MKT="${2:-}"; [[ -n "$MKT" ]] || { echo "[scope-shadows] --marketplace needs a value" >&2; exit 2; }; shift 2 ;;
+    # `$# -ge 2` before the `shift 2`, and the assignment only after the check. A flag whose
+    # value is merely tested non-empty leaves the shift reachable with one argument left, where
+    # it fails, consumes nothing, and spins this loop forever — a hang the mutation sweep found
+    # by flipping the very guard that was holding it shut.
+    --root) [[ $# -ge 2 && -n "$2" ]] || { echo "[scope-shadows] --root needs a value" >&2; exit 2; }; ROOT_ARG="$2"; shift 2 ;;
+    --marketplace) [[ $# -ge 2 && -n "$2" ]] || { echo "[scope-shadows] --marketplace needs a value" >&2; exit 2; }; MKT="$2"; shift 2 ;;
     -h|--help) usage; exit 0 ;;
     -*) echo "[scope-shadows] unknown argument: $1 (try --help)" >&2; exit 2 ;;
     *) break ;;
