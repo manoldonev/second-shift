@@ -52,6 +52,18 @@ mkstage() {
     > "$dir/$issue.json"
 }
 
+# mksnapshot <dir> <stem> <ticketKey> <startedAt>  — a statectl-shaped state file living
+# under an OPERATOR-RENAMED basename. The suffixes the #289 cases pass are deliberately not
+# ones any production code enumerates: the dedup under test is structural
+# (`stem == ticketKey`), and a fixture that only ever used `-failed-` would pass just as well
+# against a filename-literal implementation — which is the shape of the bug itself.
+mksnapshot() {
+  local dir="$1" stem="$2" tk="$3" sa="$4"
+  jq -n --arg tk "$tk" --arg sa "$sa" \
+    '{ticketKey: $tk, runId: ("selftest-snap-" + $tk), status: "aborted", startedAt: $sa, stages: {"1": {status: "completed"}}}' \
+    > "$dir/$stem.json"
+}
+
 # mkprogress <dir> <issue> <firstTs> [model-line]  — the exact header shape
 # lean-gate.sh's ensure_progress_file()/append_line write, with an optional trailing
 # `model:` line (omitted entirely reproduces a pre-#347 record).
@@ -313,6 +325,111 @@ if [ "$HV901" = "true" ]; then
   pass "(verdict-detect-worktree) hasApprovedVerdict resolves from the main checkout, not the worktree the tool runs in"
 else
   fail "(verdict-detect-worktree) expected true from a worktree caller, got hv901=$HV901 — got $OUT"
+fi
+
+# ═══════════════════════════════════════════════════════════════════════════════════
+# #289 AC-1/AC-2/AC-4/AC-5: structural per-ticket dedup over era: "stage" rows.
+#
+# The live corpus this fixture models: a ticket's live `{key}.json` co-existing with
+# operator-renamed snapshots of earlier runs of the SAME ticket, which keep their `stages`
+# key and are in neither statectl quarantine family — so before this they aggregated as
+# their own runs and the ticket counted several times.
+#
+# 310  live + two snapshots under two different suffixes  -> one row, the live one (AC-1)
+# 320  two snapshots, NO live file                        -> both rows survive (AC-2)
+# 340  live stage file + a lean progress record           -> both rows survive (AC-4)
+# ═══════════════════════════════════════════════════════════════════════════════════
+D="$WORK/dedup"; mkdir -p "$D"
+mkstage    "$D" 310 "2026-08-05T12:00:00Z"
+mksnapshot "$D" "310-failed-2026-08-01T100429Z"       310 "2026-08-01T10:04:29Z"
+mksnapshot "$D" "310-spec-blocked-2026-08-02T090000Z" 310 "2026-08-02T09:00:00Z"
+mksnapshot "$D" "320-aborted-2026-08-03T080000Z"      320 "2026-08-03T08:00:00Z"
+mksnapshot "$D" "320-escalated-2026-08-04T080000Z"    320 "2026-08-04T08:00:00Z"
+mkstage    "$D" 340 "2026-08-05T13:00:00Z"
+mkprogress "$D" 340 "2026-08-05T14:00:00Z" "claude-opus-5"
+
+ERRF="$WORK/dedup.err"
+OUT="$( cd "$TREE" && bash "$TOOL" corpus --state-dir "$D" --json 2>"$ERRF" )"; RCD=$?
+ERR="$(cat "$ERRF")"
+N310="$(jq '[.[] | select(.era == "stage" and .ticketKey == "310")] | length' <<<"$OUT")"
+S310="$(jq -r '[.[] | select(.era == "stage" and .ticketKey == "310") | .stem] | join(",")' <<<"$OUT")"
+N320="$(jq '[.[] | select(.era == "stage" and .ticketKey == "320")] | length' <<<"$OUT")"
+S320="$(jq -r '[.[] | select(.era == "stage" and .ticketKey == "320") | .stem] | sort | join(",")' <<<"$OUT")"
+E340="$(jq -r '[.[] | select(.ticketKey == "340") | .era] | sort | join(",")' <<<"$OUT")"
+
+if [ "$RCD" -eq 0 ] && [ "$N310" = "1" ] && [ "$S310" = "310" ]; then
+  pass "(289 AC-1) a live {key}.json supersedes every operator-renamed snapshot of that ticket, whatever suffix it carries"
+else
+  fail "(289 AC-1) rc=$RCD n310=$N310 stems=$S310 — got $OUT"
+fi
+
+if [ "$N320" = "2" ] \
+   && [ "$S320" = "320-aborted-2026-08-03T080000Z,320-escalated-2026-08-04T080000Z" ]; then
+  pass "(289 AC-2) with no live file, every snapshot survives as a distinct run — an orphan snapshot is that run's only record"
+else
+  fail "(289 AC-2) n320=$N320 stems=$S320 — got $OUT"
+fi
+
+if [ "$E340" = "artifact,stage" ]; then
+  pass "(289 AC-4) a lean record is never keyed by the dedup — it survives alongside a stage-era live file of the same ticket"
+else
+  fail "(289 AC-4) expected both eras for ticket 340, got eras=$E340 — got $OUT"
+fi
+
+# AC-5, the disclosure side: 6 stage-schema files in, 2 superseded, said on STDERR — stdout
+# stays the bare array both consumers read with `.[] | …`.
+if printf '%s' "$ERR" | grep -q '6 stage-schema file(s), 2 superseded' \
+   && printf '%s' "$OUT" | jq -e 'type == "array"' >/dev/null 2>&1; then
+  pass "(289 AC-5) the suppression is disclosed on stderr with both counts, and stdout stays a bare array"
+else
+  fail "(289 AC-5) stderr=$ERR — stdout=$OUT"
+fi
+
+# Same corpus through the default (TSV) mode: dedup is not a --json-only path, and the note
+# still goes to stderr rather than into the tab-separated rows a caller may parse.
+ERRF2="$WORK/dedup-tsv.err"
+TSV="$( cd "$TREE" && bash "$TOOL" corpus --state-dir "$D" 2>"$ERRF2" )"
+TSV310="$(printf '%s\n' "$TSV" | awk -F'\t' '$1 == "stage" && $2 == "310"' | wc -l | tr -d ' ')"
+if [ "$TSV310" = "1" ] && ! printf '%s\n' "$TSV" | grep -q 'superseded' \
+   && grep -q 'superseded' "$ERRF2"; then
+  pass "(289 AC-5) TSV mode dedups identically and keeps the note off stdout"
+else
+  fail "(289 AC-5/tsv) tsv310=$TSV310 — stdout=$TSV stderr=$(cat "$ERRF2")"
+fi
+
+# ═══════════════════════════════════════════════════════════════════════════════════
+# #289 AC-3: the dedup runs BEFORE the --window slice. Sorted by startedAt the pre-dedup
+# order is 410, 410-snapshot, 420 — so deduping after a `--window 2` slice would spend a
+# slot on the snapshot and drop ticket 420 from a two-run window entirely.
+# ═══════════════════════════════════════════════════════════════════════════════════
+D="$WORK/dedup-window"; mkdir -p "$D"
+mkstage    "$D" 410 "2026-08-05T12:00:00Z"
+mksnapshot "$D" "410-failed-2026-08-05T110000Z" 410 "2026-08-05T11:00:00Z"
+mkstage    "$D" 420 "2026-08-05T10:00:00Z"
+OUT="$(run_corpus "$D" --window 2 2>/dev/null)"
+KEYS="$(jq -r '[.[].ticketKey] | sort | join(",")' <<<"$OUT")"
+if [ "$KEYS" = "410,420" ]; then
+  pass "(289 AC-3) dedup precedes the --window slice — a superseded snapshot never consumes a window slot"
+else
+  fail "(289 AC-3) expected 410,420 in a 2-run window, got keys=$KEYS — got $OUT"
+fi
+
+# ═══════════════════════════════════════════════════════════════════════════════════
+# #289 AC-5, the silence side: a corpus with nothing superseded emits NOTHING on stderr.
+# pipeline-retro's no-argument path calls corpus mode on every invocation, so an
+# unconditional note would be banner noise on every run, carrying no information.
+# ═══════════════════════════════════════════════════════════════════════════════════
+D="$WORK/dedup-quiet"; mkdir -p "$D"
+mkstage    "$D" 510 "2026-08-05T12:00:00Z"
+mksnapshot "$D" "520-failed-2026-08-05T110000Z" 520 "2026-08-05T11:00:00Z"
+mkprogress "$D" 530 "2026-08-05T10:00:00Z" "claude-sonnet-5"
+ERRF3="$WORK/dedup-quiet.err"
+OUT="$( cd "$TREE" && bash "$TOOL" corpus --state-dir "$D" --json 2>"$ERRF3" )"
+NQ="$(jq 'length' <<<"$OUT")"
+if [ "$NQ" = "3" ] && [ ! -s "$ERRF3" ]; then
+  pass "(289 AC-5) a corpus with nothing superseded keeps all three rows and says nothing on stderr"
+else
+  fail "(289 AC-5/quiet) n=$NQ stderr=$(cat "$ERRF3") — got $OUT"
 fi
 
 echo ""

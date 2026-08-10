@@ -66,9 +66,9 @@ dimension (group candidates or fidelity notes by `model` where the profile shows
 — never bucket by, or hardcode, a specific vendor model string here; that neutrality is owned
 by #356/#357, not this step.
 
-**Envelopes come from one shared tool, not from this enumeration.** Steps 3 and 6 derive theirs from `bash "${CLAUDE_PLUGIN_ROOT}/skills/run/tools/stage-envelopes.sh" --json`, which recomputes from the corpus every invocation and stores nothing. Report the corpus it declares (file count + dedup rule) next to this step's count: **this step does not dedup per ticket and the tool does**, so a ticket with a live file plus surviving snapshots counts once there and several times here. Declaring both stops one report disagreeing with itself.
+**Envelopes come from one shared tool, not from this enumeration.** Steps 3 and 6 derive theirs from `bash "${CLAUDE_PLUGIN_ROOT}/skills/run/tools/stage-envelopes.sh" --json`, which recomputes from the corpus every invocation and stores nothing. Report the corpus it declares (file count + dedup rule) next to this step's count: **both now dedup `era: "stage"` rows per ticket by the same rule** — the file whose basename equals its `ticketKey` is live and supersedes that ticket's snapshots, and with no live file every snapshot is a distinct run — so a ticket with a live file plus surviving snapshots counts once on both sides. Declaring both stops one report disagreeing with itself.
 
-**Scope line: when #289 lands, this step adopts the tool's dedup rule** (basename equal to `ticketKey` supersedes that ticket's snapshots; with no live file every snapshot is a distinct run) rather than growing a parallel one.
+That rule is structural, never a `-failed-`/`-aborted-` filename literal, which is what makes it cover the undocumented operator rename conventions as well as the two statectl quarantine families. `corpus` says on **stderr** how many stage-schema files it read and how many it superseded, and only when that number is non-zero; `era: "artifact"` rows are never keyed by it. If this step's count still exceeds the tool's, that is a real disagreement to report, not the expected offset it used to be.
 
 ## Step 2: Fidelity triage
 
