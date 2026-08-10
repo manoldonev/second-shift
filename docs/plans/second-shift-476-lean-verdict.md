@@ -5,8 +5,8 @@ run_id: review-476-1
 session_id: 3903c806-40a4-4c5a-9ce1-99d30e42aeac
 rounds: 1
 pr: #480
-reviewed_head: ce20820e0b66654e210fbfc15834c3026deef824
-reviewed_patch_id: 46ff7c1f91b7eaae7b5ffa6e2963b1710d886c58
+reviewed_head: a435008d4588604c5c13f9a75a99d8bac02cf1eb
+reviewed_patch_id: 204b708a28370e25f684e02f29224f9565c66d33
 inherited_patch_id: none
 inherited_from_verdict: none
 fidelity: not-applicable
@@ -16,6 +16,31 @@ capabilities: pr-marker
 Round 1 — `review-476-1`. Verdict: **approve**. No blockers. Nine warnings/suggestions, all
 non-blocking; the two that matter most are an execution-verified surviving mutant and one
 register note that under-describes what lean actually drops.
+
+## Re-stamp (same round — no new round spent)
+
+This record was first written against head `ce20820` / `reviewed_patch_id 46ff7c1f`. `origin/main`
+then moved to `c8c1ad0` (#475, #479, #481), and `#475` had appended its own step to the same
+`ci.yml` job region this branch appends to — an add/add conflict that left the PR `DIRTY` and
+stopped CI dispatching at all (W-9). The conflict was resolved by keeping both steps, `#475`'s
+eval-harness step in the position it landed and the capability-parity step immediately after it;
+no other file conflicted.
+
+The patch identity moved (`46ff7c1f` → `204b708a`), so this record is re-stamped at the merged
+head. It is re-stamped rather than re-reviewed because the measured contribution is unchanged.
+Diffing the merge-base-anchored contribution diffs — `git diff 3849ef5..ce20820` against
+`git diff c8c1ad0..HEAD -- . ':(exclude)<this record>'` — yields **zero differing `+`/`-` lines**.
+The entire delta is three lines: the blob `index` line, the `@@` offset (`-138` → `-144`), and the
+two leading context lines, which are now `#475`'s step instead of `check-lockstep-pairs`. The
+eight added `ci.yml` lines are byte-identical, and the other four files are untouched by the
+merge. `git patch-id --stable` hashes context, not only offsets, which is why the id moved on a
+change that altered nothing under review — the measurement is the authority here, not the id.
+
+Re-verified on the merged tree: `capability-parity-check.sh` green (36 rows), its selftest 17/17,
+and both new CI steps present exactly once in `lint-and-selftests`, in order, after
+`contract lockstep pairs`. The rest of the gate table below was executed at `ce20820` and covers
+byte-identical content; CI now dispatches on this branch for the first time and is the live check
+on the merged tree.
 
 ## Acceptance criteria
 
