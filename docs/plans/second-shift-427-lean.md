@@ -79,7 +79,8 @@ from — the exact convergence the DROPPED entry's own revisit trigger names as 
 anchor becomes a parameter in both, making the blocks byte-identical, and the
 `cross-plugin-sibling-plugin-root` `verbatim` row pins them. Raised at review round 1 and
 approved by the operator; D-3's rationale still governs the enumeration variant, which stays
-unpinned.
+unpinned. The receipt now carries this as **D-13**, superseding D-3, so the binding input and
+this diff no longer disagree in the place a later reader checks first.
 
 ## Acceptance criteria
 

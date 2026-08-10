@@ -359,6 +359,52 @@ else
   bad "B11 expected rc=0 with jq forced unresolvable, got rc=1 ($(cat "$TMP/.b11"))"
 fi
 
+# B12: the fallback must read the RIGHT name, not merely some name. B10 and B11 assert an
+# ABSENCE — `stale-reviewer` must not appear — and an absence cannot separate "read the declared
+# name" from "returned a constant": a constant is a perfectly good dedup key, so newest-per-name
+# still collapses the two version dirs and the absence holds either way. Measured: swapping the
+# whole lookup for `head -1 "$j"` (which returns `{` for every candidate) left B10 and B11 green.
+#
+# That is also the axis the `cmp-z` mutant moves along, which is why an absence-only case does
+# not kill it on the platform CI runs. BSD sed rejects `-z` outright, so the name comes back
+# empty, every candidate keys on its own path, nothing is selected, and B11 fails. GNU sed
+# accepts it — and `-z` is not `-n`, so quiet mode silently goes away: sed auto-prints, the whole
+# manifest is one NUL-record whose `^` sits on `{`, the substitution never fires, and `head -1`
+# yields that same `{`. A constant. B11 passes there.
+#
+# So this fixture discriminates on the VALUE. The two version dirs declare DIFFERENT top-level
+# names, so a lookup that reads them keys them apart and keeps BOTH roots — the superseded
+# agent IS scanned and its violation reds the lint — while a constant-returning lookup collapses
+# them and the run comes back clean. The assertion inverts with B10/B11: here a clean run is the
+# failure, which is what makes a broken fallback detectable rather than invisible.
+#
+# `author` is written BEFORE the top-level `name` so the anchor's WIDENING direction is caught
+# too. `sed -n '…p' | head -1` takes the first matching line, so relaxing the bound
+# (`\{0,2\}` -> `\{0,\}`, or dropping the anchor) reads the nested author name — which is shared
+# across both manifests, and therefore collapses them exactly as a constant does. B11 catches the
+# narrowing direction; between them both directions are pinned.
+b12="$TMP/b12/marketplace"
+for v in 1.0.0 2.0.0; do
+  mkdir -p "$b12/mine/$v/.claude-plugin" "$b12/mine/$v/agents"
+done
+printf '{\n  "author": {\n    "name": "shared-author"\n  },\n  "name": "%s",\n  "version": "1.0.0"\n}\n' \
+  "mine-superseded" > "$b12/mine/1.0.0/.claude-plugin/plugin.json"
+printf '{\n  "author": {\n    "name": "shared-author"\n  },\n  "name": "%s",\n  "version": "2.0.0"\n}\n' \
+  "mine-current" > "$b12/mine/2.0.0/.claude-plugin/plugin.json"
+write_agent "$b12/mine/1.0.0/agents" "stale-reviewer" "maxTurns: 30" "No deadline in this body."
+write_agent "$b12/mine/2.0.0/agents" "current-reviewer" "maxTurns: 30" \
+  "By **turn 20** (of your 30 maximum) you MUST be writing the final result."
+mkdir -p "$b12/mine/2.0.0/scripts"
+cp "$CHECK" "$b12/mine/2.0.0/scripts/check-emit-deadline.sh"
+if (cd "$TMP" && DEADLINE_AT_DEFAULT=current-reviewer EMIT_DEADLINE_JQ=jq-does-not-resolve \
+      bash "$b12/mine/2.0.0/scripts/check-emit-deadline.sh") >"$TMP/.b12" 2>&1; then
+  bad "B12 two differently-named candidates came back clean — the jq-less lookup collapsed them, so it is not reading the declared name ($(cat "$TMP/.b12"))"
+else
+  grep -q "stale-reviewer" "$TMP/.b12" \
+    && ok "B12 the jq-less lookup reads the declared name — differently-named candidates are both kept" \
+    || bad "B12 failed, but not because the second candidate was scanned ($(cat "$TMP/.b12"))"
+fi
+
 echo
 echo "[check-emit-deadline-selftest] $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]
