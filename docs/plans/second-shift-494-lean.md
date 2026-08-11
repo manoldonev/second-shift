@@ -61,6 +61,11 @@ Design: none — this repo configures no `design.provider`.
   case `(c1)` keeps passing.
 - **AC-6** — `plugins/dev-pipeline/skills/build-lean/SKILL.md`'s fix-attempt rule names the second
   hard stop, so the contract does not document one bound while the gate enforces two.
+- **AC-7** — `scenario-liveness-selftest.sh` carries the composed leg CLAUDE.md requires of a new
+  gate contract: on the lean scenario's own tree, an absent spec reds `all` **and** each
+  milestone-1 call, `all`'s `PRECHECK` pre-pass records neither line kind, and a subsequent
+  _content_ failure still reaches its 4th-red `budget-exhausted` terminal write with the full
+  3 attempts. Existing leg `(lean-budget)`, which drives milestone 4, keeps passing.
 
 ## Out of scope
 

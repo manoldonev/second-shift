@@ -139,7 +139,19 @@ gate() { # gate <args...>  — always from inside the fixture tree
 # exactly the ambient leak that cost (v6) a review round.
 BUILD_SID=""
 bgate() { BUILD_SID="$ENTRY_SID" gate "$@"; }
-count_in_progress() { [ -f "$PROG" ] && grep -cF "$1" "$PROG" 2>/dev/null || echo 0; }
+# Capture-then-default, NOT `grep -cF ... || echo 0`: on zero matches `grep -c` prints "0" AND
+# exits 1, so the `||` fires too and the helper emits "0\n0" — which every `-eq 0` comparison
+# through it then rejects as a non-integer, failing the case for a reason unrelated to the gate.
+# Non-zero counts were unaffected, which is why the shape survived: it only breaks the assertions
+# that a counter did NOT move. pcount() (the (ea*) block) and the gate's own count_matches()
+# already use the form below.
+count_in_progress() {
+  local n
+  [ -f "$PROG" ] || { echo 0; return 0; }
+  n="$(grep -cF "$1" "$PROG" 2>/dev/null)" || n=0
+  [ -n "$n" ] || n=0
+  echo "$n"
+}
 
 # #416: every build-role subcommand refuses with exit 2 until the run has an entry attestation
 # row, so a progress file seeded from scratch needs one before ANY other case can run. It is
@@ -201,10 +213,11 @@ n="$(count_in_progress '| milestone-1 | satisfied')"
 if [ "$n" -eq 1 ]; then pass "(b1) repeated passing evaluations append exactly one satisfied line (idempotent)"
 else fail "(b1) expected 1 satisfied line, got $n"; fi
 
-# The two failures from (a1)/(a2) are the only attempts; passes must never add one.
+# Of (a1)/(a2), only (a2) — the CONTENT failure — is an attempt; (a1)'s absence is its own line
+# kind since #494. Passes must never add either.
 n="$(count_in_progress '| milestone-1 | attempt |')"
-if [ "$n" -eq 2 ]; then pass "(b2) only FAILED evaluations append attempt lines (passes do not inflate the counter)"
-else fail "(b2) expected 2 attempt lines, got $n"; fi
+if [ "$n" -eq 1 ]; then pass "(b2) only FAILED evaluations append attempt lines (passes do not inflate the counter)"
+else fail "(b2) expected 1 attempt line, got $n"; fi
 
 # ---- (c) D-19 fix budget: 3 attempts, the 4th red hard-stops -----------------------------
 reset_progress
@@ -215,6 +228,62 @@ else fail "(c1) expected rc sequence 1114, got $rcs"; fi
 if [ "$(count_in_progress 'budget-exhausted')" -ge 1 ]; then
   pass "(c2) budget exhaustion is recorded in the progress file"
 else fail "(c2) no budget-exhausted line recorded"; fi
+
+# ---- (c3-c6) #494: an ABSENT artifact is not a failed fix --------------------------------
+# (c1) above is the deliberate control: it drives MILESTONE 4's identical `[ -f ]` absence,
+# which #494 D-7 scopes OUT. Its rc sequence staying 1114 is the evidence that the change below
+# landed at milestone 1's call site alone and did not generalize.
+#
+# (c3) asserts BOTH halves on purpose. "attempt_count() did not rise" passes vacuously if the
+# absence path records nothing at all, so the absent lines must be counted too.
+reset_progress
+held_spec_494="$WORK/held-spec-494.md"
+mv "$SPEC" "$held_spec_494"
+rcs=""
+for _ in 1 2 3; do gate 1 7 >/dev/null 2>&1; rcs="$rcs$?"; done
+if [ "$rcs" = "111" ] \
+   && [ "$(count_in_progress '| milestone-1 | absent |')" -eq 3 ] \
+   && [ "$(count_in_progress '| milestone-1 | attempt |')" -eq 0 ]; then
+  pass "(c3) an absent spec records 'absent' lines, returns 1, and leaves the fix budget untouched"
+else fail "(c3) expected rc 111 / 3 absent / 0 attempts, got $rcs / $(count_in_progress '| milestone-1 | absent |') / $(count_in_progress '| milestone-1 | attempt |')"; fi
+
+# Same progress file, deliberately: the three absent calls above must have bought milestone 1's
+# fix budget nothing, so a CONTENT failure still gets the full 3 attempts and hard-stops on the
+# 4th. Under the pre-#494 conflation this sequence would read 444 4.
+printf '# spec\n\nNothing numbered here.\n' > "$SPEC"
+rcs=""
+for _ in 1 2 3 4; do gate 1 7 >/dev/null 2>&1; rcs="$rcs$?"; done
+if [ "$rcs" = "1114" ] && [ "$(count_in_progress '| milestone-1 | attempt |')" -eq 4 ]; then
+  pass "(c4) after 3 absent calls a CONTENT failure still gets attempts 1-3, and the 4th returns 4"
+else fail "(c4) expected rc sequence 1114 and 4 attempt lines, got $rcs / $(count_in_progress '| milestone-1 | attempt |')"; fi
+
+# The absent kind is bounded too (D-2) — free absence would leave nothing stopping a session
+# that loops on SKILL.md step 3 forever. 10 calls, the 11th hard-stops on rc=4.
+reset_progress
+rm -f "$SPEC"
+rcs=""
+for _ in 1 2 3 4 5 6 7 8 9 10 11; do gate 1 7 >/dev/null 2>&1; rcs="$rcs$?"; done
+if [ "$rcs" = "11111111114" ] && [ "$(count_in_progress '| milestone-1 | absent-exhausted |')" -eq 1 ]; then
+  pass "(c5) the absent budget is 10; the 11th call returns 4 and records absent-exhausted"
+else fail "(c5) expected rc sequence 11111111114 and 1 absent-exhausted line, got $rcs / $(count_in_progress '| milestone-1 | absent-exhausted |')"; fi
+
+# D-5's naming trap, pinned: `absent-budget-exhausted` would carry the substring (c2) counts, so
+# exhausting the absent budget would silently read as exhausting the FIX budget.
+if [ "$(count_in_progress 'budget-exhausted')" -eq 0 ]; then
+  pass "(c6) absent-exhausted does not inflate the budget-exhausted count (c2) reads"
+else fail "(c6) absent exhaustion recorded a budget-exhausted line: $(cat "$PROG")"; fi
+
+# The number the exhaustion line reports is the count of ABSENT CALLS, not of progress lines
+# that mention absence. Only the record can catch this: past the cap the verdict is already 4
+# either way, so a counter that also swept up the `absent-exhausted` lines it wrote itself
+# would red nothing while reporting 13 for a 12th call. That is the same "the record cannot be
+# read as a count of what happened" defect this ticket exists to fix, one level down.
+gate 1 7 >/dev/null 2>&1
+if [ "$(count_in_progress '| milestone-1 | absent-exhausted | 12 calls')" -eq 1 ]; then
+  pass "(c7) the exhaustion record counts absent CALLS, not the absence lines it wrote itself"
+else fail "(c7) expected an 'absent-exhausted | 12 calls' line, got: $(grep 'absent-exhausted' "$PROG" | tr '\n' ' ')"; fi
+
+mv "$held_spec_494" "$SPEC"
 
 # ---- (d) AC-14 entry gate ----------------------------------------------------------------
 reset_progress
@@ -2992,10 +3061,14 @@ pseed_unattested() {
 }
 pseed_unattested
 out="$(pgate 1 8)"; rc=$?
+# The `absent` half is #494's: the refusal fires before cmd_1 runs, so it must charge NEITHER
+# counter — a new line kind that leaked through the entry refusal would still be a record of a
+# milestone that was never evaluated.
 if [ "$rc" -eq 2 ] && printf '%s' "$out" | grep -qF 'bash G entry 8' \
-   && [ "$(pcount '| milestone-1 | attempt |')" -eq 0 ]; then
-  pass "(ea3) a build-role milestone with no entry row exits 2, names the remedy, and charges no attempt"
-else fail "(ea3) expected rc=2 + remedy + zero attempts, rc=$rc, attempts=$(pcount '| milestone-1 | attempt |'): $out"; fi
+   && [ "$(pcount '| milestone-1 | attempt |')" -eq 0 ] \
+   && [ "$(pcount '| milestone-1 | absent |')" -eq 0 ]; then
+  pass "(ea3) a build-role milestone with no entry row exits 2, names the remedy, and charges neither counter"
+else fail "(ea3) expected rc=2 + remedy + zero attempts/absences, rc=$rc, attempts=$(pcount '| milestone-1 | attempt |'), absent=$(pcount '| milestone-1 | absent |'): $out"; fi
 
 # D-13's backstop, and the issue's own exit-evidence wording: a run REACHING MILESTONE 4 with no
 # entry trace reds. It reds at the precondition rather than inside cmd_4 — which is the point of
