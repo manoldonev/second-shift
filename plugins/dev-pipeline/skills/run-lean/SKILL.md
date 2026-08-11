@@ -17,10 +17,9 @@ rescue path, and the fallback if headless sessions ever leave the subscription.
 1. **Route.** One `ticketTag` → one cwd. Launch from the repo the ticket's tag routes to; the
    lane has no per-repo worktree map, so the invocation cwd *is* the routing.
 2. **Resolve the build model from tracker state.** Read the ticket's `opus` / `sonnet` label —
-   that is where intake recorded the sizing. Pass it as `--build-model` with
-   `--model-basis label`. No label? Size the ticket yourself, pass your pick, and say why in
-   `--model-basis` (`sized-here: <one line>`). That line is the whole detector for a missing
-   label, so never leave it at the default when you sized it.
+   where intake recorded the sizing — and pass it as `--build-model` with `--model-basis label`.
+   No label? Size it yourself, pass your pick, and say why in `--model-basis`
+   (`sized-here: <one line>`) — that line is the whole detector for a missing label.
 3. **Run it.**
    ```
    bash O <issue> --build-model <m> --model-basis label
@@ -28,16 +27,19 @@ rescue path, and the fallback if headless sessions ever leave the subscription.
    Then watch. Between phases there is no human in the middle: build → review chains the moment
    the PR exists.
 4. **Read the exit code, and nothing else.** `0` approved and closed out · `1` a phase failed ·
-   `2` preflight rejected (nothing was spawned) · `4` hard stop, budget spent.
+   `2` preflight rejected (nothing was spawned) · `4` hard stop, budget spent · `5` the review
+   half produced no verdict usable against this head, twice · `6` the verdict was authored by the
+   build run or build session (P10).
 5. On `2`, fix what the preflight named — most often: run `/intake-toolkit:intake` yourself and
-   re-label the ticket. On `4`, **stop**. Re-entry is from the top, not a rescue attempt.
+   re-label the ticket. On `5`, run `/dev-pipeline:review-lean <pr>` by hand and read its output:
+   the review lane is what failed, so re-running the build fixes nothing. On `4` and `6`, **stop**.
+   Re-entry is from the top, not a rescue attempt.
 
 ## Rules that are not negotiable
 
 - **A missing queue label is a reject, not a prompt and not a spawned intake session.** Intake
   elicits through questions a headless session cannot answer, so a spawned one either hangs or
-  fabricates a receipt — for which the Decision Ledger has no legal provenance. Run intake
-  yourself.
+  fabricates a receipt the Decision Ledger has no legal provenance for. Run intake yourself.
 - **You author nothing and the scheduler writes nothing.** Every tracker comment, label swap,
   commit and record in a lean run is made by a payload block under its own identity. Adding a
   write here puts a third identity into a two-identity contract.

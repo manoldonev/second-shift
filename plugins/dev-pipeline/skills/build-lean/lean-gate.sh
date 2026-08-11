@@ -126,6 +126,13 @@
 #       1 = milestone failed, or a `verdict` authorship refusal (fix and retry — budget remains)
 #       2 = usage or environment error, or a build-role call made before `entry` was recorded
 #       4 = fix budget exhausted for that milestone (hard stop; D-19)
+#       5 = milestone 4 only: NO VERDICT USABLE AGAINST THE CURRENT HEAD — the record is absent,
+#           uncommitted, dirty, missing a reconciliation key, stale, or its inheritance chain is
+#           broken. Distinct from 1 because the remedy is a REVIEW round, never a BUILD fix, and a
+#           scheduler that cannot tell them apart re-spawns BUILD to fix nothing (#496).
+#       6 = milestone 4 only: INTEGRITY REFUSAL — the record is authored by the build run or the
+#           build session (P10). Terminal: the trust boundary this lane exists to enforce is not
+#           something a retry can clear.
 #
 # Seams (zero-network selftest; the check-pipeline-chain.sh precedent):
 #   ${GH:-gh}                the CLI used for reads, including the sweep's PR-state lookup
@@ -143,6 +150,12 @@
 #   LEAN_RUN_MODEL           #347: the `model:` key stamped into the progress/verdict record
 #                            at creation time (retro-corpus.sh's corpus-aggregation key).
 #                            Read once, not cached; absent reads "unknown", never an error.
+#   LEAN_GATE_OBSERVE=1      #496: EVALUATE WITHOUT RECORDING. Milestones 1 and 4 return their
+#                            ordinary exit code — including the taxonomy above and a spent budget's
+#                            4 — while appending no `attempt`/`absent` line, consuming no budget
+#                            and writing no `satisfied` line. `cmd_all`'s cheap pre-pass uses it,
+#                            and so does the scheduler's verdict read: reading a verdict must not
+#                            charge the build role for a milestone the reader did not fail.
 #
 # bash 3.2 compatible (macOS ships it, and CI has a bash-3.2 lane).
 set -uo pipefail
@@ -167,7 +180,7 @@ FIX_BUDGET=3
 # nothing has gone wrong when it is spent, so the number is sized to never bite an honest run
 # while still bounding a session that loops forever on "where does the spec go?". Observed honest
 # ceiling is ~4 (the #490 run made 2 such calls; a resume in a fresh worktree adds 1-2; cmd_all's
-# PRECHECK pre-pass records nothing), so 10 is ~2.5x headroom.
+# observe pre-pass records nothing), so 10 is ~2.5x headroom.
 ABSENT_BUDGET=10
 
 say()  { echo "[lean-gate] $*"; }
@@ -203,7 +216,7 @@ while [ $# -gt 0 ]; do
     --fidelity)      VERDICT_FIDELITY="${2:-}"; shift 2 ;;
     --summary-file)  SUMMARY_FILE="${2:-}"; shift 2 ;;
     --satisfied)     PROGRESS_SATISFIED="${2:-}"; shift 2 ;;
-    -h|--help)       sed -n '2,147p' "$0"; exit 0 ;;
+    -h|--help)       sed -n '2,160p' "$0"; exit 0 ;;
     -*)              envfail "unknown option: $1" ;;
     *)
       if [ "$POSITIONAL" -eq 0 ]; then SUB="$1"; POSITIONAL=1
@@ -247,6 +260,24 @@ MAIN_ROOT="$(cd "$_common/.." 2>/dev/null && pwd)" \
   || envfail "cannot resolve the main checkout from '$_common'."
 
 CONFIG="${SECOND_SHIFT_CONFIG:-$MAIN_ROOT/.claude/second-shift.config.json}"
+
+# #496 S4. ABSENT and UNPARSEABLE are two different facts and only one of them is legal. A config
+# that is not there means "this consumer configured nothing", and every `cfg` default below is the
+# documented answer. A config that IS there and does not parse means the operator's intent is
+# unknown — and the defaults are not a neutral fallback: `.tracker.type` defaults to `github`, the
+# arm that attests MORE than jira's, and a run that silently picks an arm from a typo is deciding
+# policy by accident. Fail closed.
+#
+# UP FRONT AND OUTSIDE `cfg`, deliberately. `cfg` is invoked as `$(cfg …)`, where an `exit` kills
+# the command substitution's subshell only: the caller reads an empty string and carries on. That
+# is the same invisibility the sibling scheduler's resolve_pr avoids by counting in the caller —
+# a refusal nobody can observe is not a refusal.
+#
+# `jq empty` rather than `jq -e .`: it reads the WHOLE input and asserts only that it parses,
+# where `-e .` also gates on the last document's truthiness.
+if [ -f "$CONFIG" ] && ! jq empty "$CONFIG" >/dev/null 2>&1; then
+  envfail "config $CONFIG exists but is not parseable JSON — refusing to fall back to defaults, which would silently select tracker.type=github and every other shipped default. Fix the file (jq empty '$CONFIG' names the parse error) or point SECOND_SHIFT_CONFIG elsewhere."
+fi
 
 cfg() { # cfg <jq-filter> <default>
   local v
@@ -878,15 +909,31 @@ record_build_session() {
 
 # A failed milestone: record the attempt, then decide retry-vs-hard-stop.
 #
-# PRECHECK (AC-1..3): cmd_all's cheap pre-pass calls milestone bodies with PRECHECK=1 to learn
-# whether they would fail WITHOUT recording anything — no attempt line, no budget consumed, no
-# `satisfied` line. Recording stays the real 1..5 loop's job; a pre-pass that recorded would
+# THE OBSERVE SEAM (#374 AC-1..3, promoted by #496). `LEAN_GATE_OBSERVE=1` calls a milestone body
+# to learn whether it would fail WITHOUT recording anything — no attempt line, no budget consumed,
+# no `satisfied` line. Recording stays the real 1..5 loop's job; a pre-pass that recorded would
 # double-count every attempt it shares with the real call further down the same `all` sweep.
+#
+# It was `PRECHECK`, an ambient internal, and it returned a flat 1 before the budget compare — so
+# it SWALLOWED rc=4. That was harmless while cmd_all was its only caller (the real loop below
+# re-derives the 4). It is not harmless now the scheduler reads a verdict through it: "this
+# milestone is spent" and "this milestone failed once" are the two states a scheduler must not
+# confuse. So observe mode reports exhaustion as its own value, predicted from the count already
+# on file — `count >= FIX_BUDGET` is exactly the condition under which the recording path's
+# post-append `count > FIX_BUDGET` would fire.
+#
+# THE CLASS (#496 S1). $3 is the exit code a red returns, defaulting to 1 — the historical value,
+# so every milestone that does not classify is unchanged. Milestone 4 passes one at all twenty of
+# its sites; see cmd_4. Budget exhaustion OUTRANKS the class in both paths: 4 keeps its exact prior
+# meaning, and the alternative (a class-6 red suppressing a spent budget) would trade one
+# misreport for another. Nothing loops on it — the scheduler never retries a 6 at all.
 fail_milestone() {
-  local n="$1" reason="$2" count
-  if [ "${PRECHECK:-0}" = "1" ]; then
-    warn "✗ milestone-$n (pre-pass): $reason"
-    return 1
+  local n="$1" reason="$2" class="${3:-1}" count
+  if [ "${LEAN_GATE_OBSERVE:-0}" = "1" ]; then
+    count="$(attempt_count "$n")"
+    warn "✗ milestone-$n (observe): $reason"
+    [ "$count" -ge "$FIX_BUDGET" ] && return 4
+    return "$class"
   fi
   append_attempt "$n" "$reason"
   count="$(attempt_count "$n")"
@@ -896,7 +943,7 @@ fail_milestone() {
     warn "milestone-$n has exhausted its $FIX_BUDGET-attempt fix budget — hard stop."
     return 4
   fi
-  return 1
+  return "$class"
 }
 
 # #494 D-1. A milestone that reds because its artifact IS NOT WRITTEN YET — not because a fix
@@ -916,8 +963,10 @@ fail_milestone() {
 # which drives milestone 4's absence and whose staying green is the evidence the scoping held.
 block_milestone() {
   local n="$1" reason="$2" count
-  if [ "${PRECHECK:-0}" = "1" ]; then
-    warn "✗ milestone-$n (pre-pass): $reason"
+  if [ "${LEAN_GATE_OBSERVE:-0}" = "1" ]; then
+    count="$(absent_count "$n")"
+    warn "✗ milestone-$n (observe): $reason"
+    [ "$count" -ge "$ABSENT_BUDGET" ] && return 4
     return 1
   fi
   append_absent "$n" "$reason"
@@ -932,8 +981,8 @@ block_milestone() {
 }
 
 pass_milestone() {
-  if [ "${PRECHECK:-0}" = "1" ]; then
-    say "✓ milestone-$1 (pre-pass)${2:+: $2}"
+  if [ "${LEAN_GATE_OBSERVE:-0}" = "1" ]; then
+    say "✓ milestone-$1 (observe)${2:+: $2}"
     return 0
   fi
   append_satisfied "$1"; say "✓ milestone-$1${2:+: $2}"; return 0
@@ -1598,7 +1647,7 @@ cmd_mark() {
 #
 # NETWORK, and deliberately NOT part of cmd_all's cheap pre-pass (AC-7 bounds the pre-pass,
 # not milestone 1's real body) — the issue and its comment trail are read live unless the
-# fixture seams below are set. cmd_1 skips this entirely under PRECHECK=1.
+# fixture seams below are set. cmd_1 skips this entirely under LEAN_GATE_OBSERVE=1.
 open_regions_section() { # stdin: the issue body — prints the section's lines, nothing else
   awk '
     tolower($0) ~ /^#+[[:space:]]+open regions[[:space:]]*$/ { insec = 1; next }
@@ -1815,7 +1864,7 @@ cmd_1() {
   n="$(count_matches '(^|[^A-Za-z])AC-[0-9]+' "$spec" -E)"
   [ "$n" -ge 1 ] || { fail_milestone 1 "spec $SPEC_REL carries no numbered AC-n criterion"; return $?; }
 
-  # #394 D-8. Grep-shaped like the AC-n assertion above and evaluated in the PRECHECK pass with
+  # #394 D-8. Grep-shaped like the AC-n assertion above and evaluated in the observe pass with
   # it: both read the committed spec and the config, nothing else — no network, no subprocess
   # beyond grep/awk — so an armed run learns about a malformed `## Design` section before it
   # pays for milestone 3, exactly as it already learns about a missing AC-n.
@@ -1828,7 +1877,7 @@ cmd_1() {
     armed)    note=", design lane ARMED" ;;
   esac
 
-  if [ "${PRECHECK:-0}" != "1" ]; then
+  if [ "${LEAN_GATE_OBSERVE:-0}" != "1" ]; then
     reason="$(check_pause_and_ask)"
     [ -z "$reason" ] || { fail_milestone 1 "$reason"; return $?; }
   fi
@@ -2518,19 +2567,19 @@ cmd_4() {
   # read exactly when it applies, prose is read on every run. NO DETECTION happens here — the
   # refusal is the merge boundary's alone (check-lean-chain.sh evidence 6), and a second in-run
   # copy would be the duplicate machinery D-47 rules out, not defense in depth.
-  [ -f "$rec" ] || { fail_milestone 4 "no committed verdict record at $VERDICT_REL — hand off to '/dev-pipeline:review-lean <pr>'. If this run wrote an intent-gap record, ratify it before that handoff: the merge boundary refuses one still reading 'ratified: no'."; return $?; }
+  [ -f "$rec" ] || { fail_milestone 4 "no committed verdict record at $VERDICT_REL — hand off to '/dev-pipeline:review-lean <pr>'. If this run wrote an intent-gap record, ratify it before that handoff: the merge boundary refuses one still reading 'ratified: no'." 5; return $?; }
   v_val="$(record_verdict "$rec")"
   if [ "$v_val" != "approve" ]; then
-    fail_milestone 4 "verdict record $VERDICT_REL reads verdict=${v_val:-<none>}, not verdict=approve"; return $?
+    fail_milestone 4 "verdict record $VERDICT_REL reads verdict=${v_val:-<none>}, not verdict=approve" 1; return $?
   fi
   # The reconciliation keys are what make the record checkable against the audit ledger.
   v_run="$(record_key run_id "$rec")"
   v_sess="$(record_key session_id "$rec")"
   if [ -z "$v_run" ]; then
-    fail_milestone 4 "verdict record $VERDICT_REL carries no run_id reconciliation key"; return $?
+    fail_milestone 4 "verdict record $VERDICT_REL carries no run_id reconciliation key" 5; return $?
   fi
   if [ -z "$v_sess" ]; then
-    fail_milestone 4 "verdict record $VERDICT_REL carries no session_id reconciliation key — the review session's audit ledger cannot be located, so the verdict is unreconcilable"; return $?
+    fail_milestone 4 "verdict record $VERDICT_REL carries no session_id reconciliation key — the review session's audit ledger cannot be located, so the verdict is unreconcilable" 5; return $?
   fi
   # The DECLARED reviewed head. Absent is refused for the same reason a missing verdict is:
   # nothing is checkable, and an uncheckable claim must not read as a satisfied one. Records
@@ -2538,7 +2587,7 @@ cmd_4() {
   # refreshed plugin, which is always available, so no transitional pass is warranted.
   v_head="$(record_key reviewed_head "$rec")"
   if [ -z "$v_head" ]; then
-    fail_milestone 4 "verdict record $VERDICT_REL carries no reviewed_head key, so nothing states which commit the review actually read. Re-run the review round on a dev-pipeline that writes it: '/dev-pipeline:review-lean <pr>'."; return $?
+    fail_milestone 4 "verdict record $VERDICT_REL carries no reviewed_head key, so nothing states which commit the review actually read. Re-run the review round on a dev-pipeline that writes it: '/dev-pipeline:review-lean <pr>'." 5; return $?
   fi
 
   # AUTHORSHIP (P10). TWO build identities are compared, and both are FILE-BACKED:
@@ -2562,12 +2611,12 @@ cmd_4() {
   for cand in "$b_cached" "$b_prog_run"; do
     [ -n "$cand" ] || continue
     if [ "$v_run" = "$cand" ]; then
-      fail_milestone 4 "verdict record $VERDICT_REL carries the BUILD run's identity ('$v_run') — the session that wrote the code may not author its own review verdict (P10). Produce the record from a separate review session: 'lean-gate.sh verdict $ISSUE --pr <n> --verdict approve'."
+      fail_milestone 4 "verdict record $VERDICT_REL carries the BUILD run's identity ('$v_run') — the session that wrote the code may not author its own review verdict (P10). Produce the record from a separate review session: 'lean-gate.sh verdict $ISSUE --pr <n> --verdict approve'." 6
       return $?
     fi
   done
   if [ -n "$b_prog_sess" ] && [ "$v_sess" = "$b_prog_sess" ]; then
-    fail_milestone 4 "verdict record $VERDICT_REL names the BUILD session ('$v_sess') as its author — the review must run in a separate context (P10)."
+    fail_milestone 4 "verdict record $VERDICT_REL names the BUILD session ('$v_sess') as its author — the review must run in a separate context (P10)." 6
     return $?
   fi
 
@@ -2589,14 +2638,14 @@ cmd_4() {
   # — the record itself — because the review session commits nothing else (review-lean step 6).
   v_commit="$(git -C "$REPO_ROOT" log -1 --format=%H -- "$VERDICT_REL" 2>/dev/null)"
   if [ -z "$v_commit" ]; then
-    fail_milestone 4 "verdict record $VERDICT_REL exists but was never committed — a local file is not evidence, and nothing downstream can see it. Commit and push it to the PR's head branch. The gate formats this record itself when a local prettier resolves; the spec and any intent-gap record it does not, so format those before committing if this repo's format gate covers $PLANS_DIR."
+    fail_milestone 4 "verdict record $VERDICT_REL exists but was never committed — a local file is not evidence, and nothing downstream can see it. Commit and push it to the PR's head branch. The gate formats this record itself when a local prettier resolves; the spec and any intent-gap record it does not, so format those before committing if this repo's format gate covers $PLANS_DIR." 5
     return $?
   fi
   # Tracked-but-dirty is its own case, and the one a bare `git log` lookup misses: the path has
   # a commit, so the lookup above is satisfied, while the bytes being READ are not the bytes
   # anyone committed. Both readings of "not committed" have to fail.
   if ! git -C "$REPO_ROOT" diff --quiet HEAD -- "$VERDICT_REL" 2>/dev/null; then
-    fail_milestone 4 "verdict record $VERDICT_REL has uncommitted changes — the record being read is not the record on the branch, so the one downstream sees is a different file. Commit and push it, along with any spec or intent-gap record this repo's format gate expects formatted (the gate formats only what it authors)."
+    fail_milestone 4 "verdict record $VERDICT_REL has uncommitted changes — the record being read is not the record on the branch, so the one downstream sees is a different file. Commit and push it, along with any spec or intent-gap record this repo's format gate expects formatted (the gate formats only what it authors)." 5
     return $?
   fi
 
@@ -2622,7 +2671,7 @@ cmd_4() {
     v_chain="$(chain_walk "$v_inh" "$(record_key rounds "$rec")" "$v_commit")"
     case "$v_chain" in
       "ok "*) v_coverage="inheriting ${v_chain#ok } verified earlier round(s)" ;;
-      *)      fail_milestone 4 "verdict record $VERDICT_REL: ${v_chain#break } Get a review round that reads the full diff: '/dev-pipeline:review-lean <pr>'."
+      *)      fail_milestone 4 "verdict record $VERDICT_REL: ${v_chain#break } Get a review round that reads the full diff: '/dev-pipeline:review-lean <pr>'." 5
               return $? ;;
     esac
   fi
@@ -2631,7 +2680,7 @@ cmd_4() {
   if [ -n "$stale" ]; then
     v_short="$(git -C "$REPO_ROOT" rev-parse --short "$v_commit" 2>/dev/null)"
     n_stale="$(printf '%s\n' "$stale" | wc -l | tr -d ' ')"
-    fail_milestone 4 "verdict record $VERDICT_REL approves $v_short, but $n_stale file(s) changed after it (e.g. $(printf '%s' "$stale" | head -n1)) — a verdict does not cover code it never saw. Get a new review round on the current head: '/dev-pipeline:review-lean <pr>'."
+    fail_milestone 4 "verdict record $VERDICT_REL approves $v_short, but $n_stale file(s) changed after it (e.g. $(printf '%s' "$stale" | head -n1)) — a verdict does not cover code it never saw. Get a new review round on the current head: '/dev-pipeline:review-lean <pr>'." 5
     return $?
   fi
 
@@ -2658,25 +2707,25 @@ cmd_4() {
   v_fid="$(header_key fidelity < "$rec")"
   if [ "$d_state" = "armed" ]; then
     if [ "$v_fid" != "pass" ]; then
-      fail_milestone 4 "spec $SPEC_REL arms the design render lane, but $VERDICT_REL reads fidelity=${v_fid:-<none>}, not fidelity=pass — an armed ticket is not approved until a design-sighted round scores its declared render states. Get one: '/dev-pipeline:review-lean <pr>'."
+      fail_milestone 4 "spec $SPEC_REL arms the design render lane, but $VERDICT_REL reads fidelity=${v_fid:-<none>}, not fidelity=pass — an armed ticket is not approved until a design-sighted round scores its declared render states. Get one: '/dev-pipeline:review-lean <pr>'." 5
       return $?
     fi
     m_from="$(record_key rendered_from "$REPO_ROOT/$RENDER_MANIFEST_REL")"
     if [ -z "$m_from" ]; then
-      fail_milestone 4 "spec $SPEC_REL arms the design render lane and $VERDICT_REL scores fidelity=pass, but there is no render receipt at $RENDER_MANIFEST_REL to have scored — re-run milestone 3 and commit the receipt."
+      fail_milestone 4 "spec $SPEC_REL arms the design render lane and $VERDICT_REL scores fidelity=pass, but there is no render receipt at $RENDER_MANIFEST_REL to have scored — re-run milestone 3 and commit the receipt." 1
       return $?
     fi
     cur_render="$(render_patch_id HEAD)"
     if [ -z "$cur_render" ]; then
-      fail_milestone 4 "cannot compute this branch's render patch identity against origin/$BASE_BRANCH, so $RENDER_MANIFEST_REL's rendered_from has nothing to be compared against — and a freshness check that cannot run must not report a pass. Fetch origin/$BASE_BRANCH and re-run."
+      fail_milestone 4 "cannot compute this branch's render patch identity against origin/$BASE_BRANCH, so $RENDER_MANIFEST_REL's rendered_from has nothing to be compared against — and a freshness check that cannot run must not report a pass. Fetch origin/$BASE_BRANCH and re-run." 2
       return $?
     fi
     if [ "$m_from" != "$cur_render" ]; then
-      fail_milestone 4 "$RENDER_MANIFEST_REL records rendered_from $(printf '%.12s' "$m_from"), but this branch now renders from $(printf '%.12s' "$cur_render") — the approved fidelity was scored against screenshots of different code. Re-run milestone 3, commit the fresh receipt, and get a new review round."
+      fail_milestone 4 "$RENDER_MANIFEST_REL records rendered_from $(printf '%.12s' "$m_from"), but this branch now renders from $(printf '%.12s' "$cur_render") — the approved fidelity was scored against screenshots of different code. Re-run milestone 3, commit the fresh receipt, and get a new review round." 1
       return $?
     fi
   elif [ -n "$v_fid" ] && [ "$v_fid" != "not-applicable" ]; then
-    fail_milestone 4 "$VERDICT_REL reads fidelity=$v_fid, but $SPEC_REL arms no design render lane — the only value an unarmed run may declare is 'not-applicable'."
+    fail_milestone 4 "$VERDICT_REL reads fidelity=$v_fid, but $SPEC_REL arms no design render lane — the only value an unarmed run may declare is 'not-applicable'." 5
     return $?
   fi
 
@@ -2698,11 +2747,11 @@ cmd_4() {
   if [ -n "$v_pid" ]; then
     cur_pid="$(branch_patch_id HEAD)"
     if [ -z "$cur_pid" ]; then
-      fail_milestone 4 "cannot compute this branch's patch identity against origin/$BASE_BRANCH, so there is nothing to compare $VERDICT_REL's reviewed_patch_id against — and a freshness check that cannot run must not report a pass. Fetch origin/$BASE_BRANCH and re-run."
+      fail_milestone 4 "cannot compute this branch's patch identity against origin/$BASE_BRANCH, so there is nothing to compare $VERDICT_REL's reviewed_patch_id against — and a freshness check that cannot run must not report a pass. Fetch origin/$BASE_BRANCH and re-run." 2
       return $?
     fi
     if [ "$v_pid" != "$cur_pid" ]; then
-      fail_milestone 4 "verdict record $VERDICT_REL reviewed patch $(printf '%.12s' "$v_pid"), but this branch's diff against origin/$BASE_BRANCH now hashes to $(printf '%.12s' "$cur_pid") — content changed after the review, so the verdict does not cover it. Get a new review round: '/dev-pipeline:review-lean <pr>'."
+      fail_milestone 4 "verdict record $VERDICT_REL reviewed patch $(printf '%.12s' "$v_pid"), but this branch's diff against origin/$BASE_BRANCH now hashes to $(printf '%.12s' "$cur_pid") — content changed after the review, so the verdict does not cover it. Get a new review round: '/dev-pipeline:review-lean <pr>'." 5
       return $?
     fi
     pass_milestone 4 "$VERDICT_REL reads verdict=approve, authored by review run $v_run, covering the current head (patch-id $(printf '%.12s' "$v_pid")), $v_coverage"
@@ -2710,14 +2759,14 @@ cmd_4() {
   fi
 
   if ! git -C "$REPO_ROOT" cat-file -e "$v_head^{commit}" 2>/dev/null; then
-    fail_milestone 4 "verdict record $VERDICT_REL names reviewed_head $v_head, which is not a commit in this branch's history — the branch was rebased or force-pushed after the review, so the reviewed code no longer exists here. Get a new review round: '/dev-pipeline:review-lean <pr>'."
+    fail_milestone 4 "verdict record $VERDICT_REL names reviewed_head $v_head, which is not a commit in this branch's history — the branch was rebased or force-pushed after the review, so the reviewed code no longer exists here. Get a new review round: '/dev-pipeline:review-lean <pr>'." 5
     return $?
   fi
   declared="$(git -C "$REPO_ROOT" diff --name-only "$v_head" HEAD 2>/dev/null | grep -vxF "$VERDICT_REL")"
   if [ -n "$declared" ]; then
     v_head_short="$(git -C "$REPO_ROOT" rev-parse --short "$v_head" 2>/dev/null)"
     n_declared="$(printf '%s\n' "$declared" | wc -l | tr -d ' ')"
-    fail_milestone 4 "verdict record $VERDICT_REL states it reviewed $v_head_short, but $n_declared file(s) differ between that commit and the current head (e.g. $(printf '%s' "$declared" | head -n1)) — the review read a different tree than the one being gated. Get a new review round: '/dev-pipeline:review-lean <pr>'."
+    fail_milestone 4 "verdict record $VERDICT_REL states it reviewed $v_head_short, but $n_declared file(s) differ between that commit and the current head (e.g. $(printf '%s' "$declared" | head -n1)) — the review read a different tree than the one being gated. Get a new review round: '/dev-pipeline:review-lean <pr>'." 5
     return $?
   fi
 
@@ -3145,23 +3194,31 @@ run_milestone() { # explicit dispatch, not "cmd_$1": an indirect call hides ever
 
 # #374 AC-1..3: a cheap, READ-ONLY pre-pass. Milestones 1 and 4 read only committed artifacts
 # and git state (AC-7 — no network, no subprocess beyond git/grep/jq via cmd_1's spec check and
-# cmd_4 in full — milestone 1's pause-and-ask check is excluded, see PRECHECK's guard there), so
+# cmd_4 in full — milestone 1's pause-and-ask check is excluded, see the observe guard there), so
 # evaluating them ahead of milestone 3's ~15-minute green gate costs nothing and can only report
 # sooner what a later milestone would report anyway. `all` on a tree whose committed verdict
 # record already reads `needs-work` used to pay the whole green gate before learning that,
 # knowable, fact — the pre-pass reports it first instead.
 #
-# PRECHECK=1 makes cmd_1/cmd_4 report-only (see fail_milestone/pass_milestone): neither consumes
-# a fix-budget attempt nor writes a `satisfied` record here, so nothing is double-counted against
-# the real calls in the loop below. Both are evaluated even when the first already failed
+# LEAN_GATE_OBSERVE=1 makes cmd_1/cmd_4 report-only (see fail_milestone/pass_milestone): neither
+# consumes a fix-budget attempt nor writes a `satisfied` record here, so nothing is double-counted
+# against the real calls in the loop below. Both are evaluated even when the first already failed
 # (AC-3) — an operator fixing two cheap assertions should not need two runs to learn about both.
+#
+# #496 AC-2: THE PRE-PASS PROPAGATES THE CLASS. A pre-pass that collapsed everything to 1 would
+# reintroduce, one layer up, the exact defect this taxonomy removes — `all` laundering an
+# integrity refusal into "needs-work". Milestone 4's class wins when it carries one, because
+# 4/5/6/2 each name a condition no milestone-1 edit can clear and each sends the operator
+# somewhere different; a bare 1 from either milestone keeps the historical value.
 cmd_all() {
   local n rc rc1 rc4
 
-  PRECHECK=1 cmd_1; rc1=$?
-  PRECHECK=1 cmd_4; rc4=$?
+  LEAN_GATE_OBSERVE=1 cmd_1; rc1=$?
+  LEAN_GATE_OBSERVE=1 cmd_4; rc4=$?
   if [ "$rc1" -ne 0 ] || [ "$rc4" -ne 0 ]; then
     say "all: pre-pass found an already-unsatisfiable cheap assertion — stopping before milestone-3."
+    case "$rc4" in 0|1) : ;; *) return "$rc4" ;; esac
+    case "$rc1" in 0|1) : ;; *) return "$rc1" ;; esac
     return 1
   fi
 

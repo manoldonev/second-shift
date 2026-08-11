@@ -150,7 +150,14 @@ if [ "${1:-}" = "progress" ]; then
 fi
 n=$(( $(cat "$GATE_LOG_DIR/count" 2>/dev/null || echo 0) + 1 ))
 echo "$n" > "$GATE_LOG_DIR/count"
-{ echo "ARGV: $*"; echo "CWD: $PWD"; echo "RUN_ID_SET: ${RUN_ID+yes}"; } > "$GATE_LOG_DIR/call-$n"
+{ echo "ARGV: $*"; echo "CWD: $PWD"; echo "RUN_ID_SET: ${RUN_ID+yes}"
+  echo "OBSERVE: ${LEAN_GATE_OBSERVE:-<unset>}"; } > "$GATE_LOG_DIR/call-$n"
+# #496 AC-6, modelled at the seam the scheduler actually controls: the REAL gate appends a
+# milestone-4 attempt line on every recording red, so a fake that is called WITHOUT the observe
+# seam stands in for exactly that write. The gate suite owns the other half — that observe mode
+# really does record nothing — so nothing here re-implements the gate's logic, it only records
+# which mode it was asked for.
+[ "${LEAN_GATE_OBSERVE:-0}" = "1" ] || echo "attempt $*" >> "$GATE_LOG_DIR/attempts"
 rc="$(sed -n "${n}p" "$GATE_RC_FILE" 2>/dev/null)"
 exit "${rc:-0}"
 SH
@@ -217,6 +224,12 @@ run_tool() { # run_tool [config] [args...]
 
 spawn_count() { cat "$SPAWN_LOG_DIR/count" 2>/dev/null || echo 0; }
 gate_count()  { cat "$GATE_LOG_DIR/count" 2>/dev/null || echo 0; }
+# #496: how many gate calls ran on the RECORDING path. Capture-then-default, never
+# `grep -c … || echo 0` — on zero matches grep prints "0" AND exits 1, so the `||` fires too and
+# the helper emits "0\n0", which every `-eq 0` comparison through it then rejects as a
+# non-integer. That shape survives only in suites where the counter never has to be zero, and
+# this one exists precisely to assert a zero.
+attempt_count() { local n; n="$(grep -c . "$GATE_LOG_DIR/attempts" 2>/dev/null)" || n=0; [ -n "$n" ] || n=0; echo "$n"; }
 # #492: progress reads, counted per token space. `adv` is the continuation predicate, `m5` the
 # close-out's milestone-5 check.
 progress_reads() { cat "$GATE_LOG_DIR/pcount-${1:-adv}" 2>/dev/null || echo 0; }
@@ -605,6 +618,118 @@ unset USE_DEFAULT_GH
 if [ "$rc" -eq 0 ] && [ -s "$GH_LOG" ] && grep -q 'PR #11 is open' <<<"$out"; then
   pass "(m4) with GH unset the tool falls through to its shipped 'gh' default and still resolves the PR"
 else fail "(m4) the shipped tracker-CLI default did not resolve, rc=$rc: $out"; fi
+
+# ---- (r) #496: the verdict gate's rc is a taxonomy, and each class gets its own action -----------
+# The gate here is a FAKE whose rc is popped from a fixture file, which is the point: these cases
+# are about what the SCHEDULER does with a class, never about which condition produces it. The
+# real gate's classification is the gate suite's to prove — a mutation of lean-gate.sh cannot red
+# anything below, and a case here that claimed otherwise would be asserting nothing.
+
+# Class 5 — no verdict usable against this head. No BUILD spawn, no round spent: exactly one
+# REVIEW re-spawn, then the approve that follows it closes the run out normally.
+setup_case "" "5
+0" "ready-for-dev" "11"
+out="$(run_tool "$CFG" "$ISSUE" --build-model sonnet)"; rc=$?
+if [ "$rc" -eq 0 ] && [ "$(spawn_count)" -eq 4 ] && [ "$(gate_count)" -eq 2 ] \
+   && grep -q 'review-lean 11' <<<"$(spawn_argv 2)" \
+   && grep -q 'review-lean 11' <<<"$(spawn_argv 3)" \
+   && grep -q 'build-lean 7' <<<"$(spawn_argv 4)" \
+   && grep -q 'No round spent, no BUILD spawn' <<<"$out"; then
+  pass "(r1) a class-5 read re-spawns REVIEW — not BUILD — and spends no round"
+else fail "(r1) expected rc=0 with build,review,review,close-out, got rc=$rc / $(spawn_count) spawn(s) / $(gate_count) gate call(s): $out"; fi
+
+# ...and the retry is BOUNDED at one. A second dark review is a broken review lane, so the run
+# exits 5 naming it rather than spending the round budget on sessions that produce no record.
+setup_case "" "5
+5
+5" "ready-for-dev" "11"
+out="$(run_tool "$CFG" "$ISSUE" --build-model sonnet)"; rc=$?
+if [ "$rc" -eq 5 ] && [ "$(spawn_count)" -eq 3 ] && [ "$(gate_count)" -eq 2 ] \
+   && grep -q 'HARD STOP' <<<"$out" \
+   && grep -q 'no verdict record usable against the current head, twice' <<<"$out"; then
+  pass "(r2) two class-5 reads in one round is a bounded stop at exit 5, not a third review and not a fix round"
+else fail "(r2) expected rc=5 after 3 spawns / 2 gate calls, got rc=$rc / $(spawn_count) / $(gate_count): $out"; fi
+
+# The BUILD spawn count is the load-bearing half of (r1)/(r2): a class-5 that fell through to the
+# needs-work arm would look similar in exit code from some angles but would have re-spawned BUILD.
+if [ "$(grep -l 'build-lean' "$SPAWN_LOG_DIR"/spawn-* 2>/dev/null | wc -l | tr -d ' ')" -eq 1 ]; then
+  pass "(r3) across both dark reviews exactly ONE build-lean session ran — BUILD is never asked to fix a review-half failure"
+else fail "(r3) a class-5 round spawned BUILD again: $(all_argv)"; fi
+
+# Class 6 — an integrity refusal is TERMINAL. Scripted with a second gate rc that would approve,
+# so a fall-through to the needs-work arm would be visible as a green run rather than as a
+# different failure.
+setup_case "" "6
+0" "ready-for-dev" "11"
+out="$(run_tool "$CFG" "$ISSUE" --build-model sonnet)"; rc=$?
+if [ "$rc" -eq 6 ] && [ "$(spawn_count)" -eq 2 ] && [ "$(gate_count)" -eq 1 ] \
+   && grep -q 'HARD STOP' <<<"$out" \
+   && grep -q 'P10' <<<"$out"; then
+  pass "(r4) a class-6 integrity refusal exits 6 immediately — nothing re-spawned, no round spent, and the message names P10"
+else fail "(r4) expected rc=6 after 2 spawns / 1 gate call, got rc=$rc / $(spawn_count) / $(gate_count): $out"; fi
+
+# AC-6: across a whole approved round the scheduler's verdict read records NOTHING. It used to run
+# the gate's recording path, so every non-approve verdict it merely READ spent the BUILD role's
+# milestone-4 fix budget — the "this script writes nothing" premise was false at exactly one site.
+setup_case "" "1
+0" "ready-for-dev" "11"
+out="$(run_tool "$CFG" "$ISSUE" --build-model sonnet)"; rc=$?
+if [ "$rc" -eq 0 ] && [ "$(gate_count)" -eq 2 ] && [ "$(attempt_count)" -eq 0 ]; then
+  pass "(r5) a full needs-work-then-approve run makes both verdict reads through the observe seam — zero recording-path calls"
+else fail "(r5) expected 2 gate calls and 0 recording-path calls, got rc=$rc / $(gate_count) / $(attempt_count): $out"; fi
+
+# ...and the seam is asserted on the CALL, not only through the fake's bookkeeping, so a rename of
+# the variable cannot pass this by accident.
+if grep -q '^OBSERVE: 1$' "$GATE_LOG_DIR/call-1" 2>/dev/null \
+   && grep -q '^ARGV: 4 7$' "$GATE_LOG_DIR/call-1" 2>/dev/null; then
+  pass "(r6) the verdict gate is invoked as '4 <issue>' with the observe seam set"
+else fail "(r6) the verdict call carried no observe seam: $(cat "$GATE_LOG_DIR/call-1" 2>/dev/null)"; fi
+
+# The positive control for (r5): the fake DOES record when the seam is absent. Without it, a fake
+# that never wrote the file would satisfy the zero-count assertion vacuously.
+: > "$GATE_LOG_DIR/attempts"
+( cd "$TREE" && GATE_LOG_DIR="$GATE_LOG_DIR" GATE_RC_FILE="$GATE_RC_FILE" bash "$BIN/fake-gate.sh" 4 7 >/dev/null 2>&1 )
+if [ "$(attempt_count)" -eq 1 ]; then
+  pass "(r7) the fake records a recording-path call when the seam is absent — (r5)'s zero is a measurement"
+else fail "(r7) the fake recorded nothing even without the seam, so (r5) asserts nothing"; fi
+
+# AC-8: more than one open PR on the head is refused by NAME, never resolved by picking the first.
+setup_case "" "0" "ready-for-dev" "11
+12"
+out="$(run_tool "$CFG" "$ISSUE" --build-model sonnet)"; rc=$?
+if [ "$rc" -eq 1 ] && [ "$(spawn_count)" -eq 1 ] && [ "$(gate_count)" -eq 0 ] \
+   && grep -q 'more than one open PR' <<<"$out" \
+   && grep -q '11' <<<"$out" && grep -q '12' <<<"$out"; then
+  pass "(r8) two open PRs on the head is a named refusal after the build spawn, not a silent pick of the first"
+else fail "(r8) expected rc=1 naming both PRs, got rc=$rc / $(spawn_count) spawn(s): $out"; fi
+
+# AC-9: a config that exists but does not parse is a refusal. The defaults are not neutral —
+# `.tracker.type` falls back to `github`, whose intake arm attests more than jira's — so the
+# fall-through would silently pick a policy. Nothing is spawned.
+CFG_CORRUPT="$WORK/config-corrupt.json"
+printf '{ "tracker": { "type": "jira", }\n' > "$CFG_CORRUPT"
+if jq empty "$CFG_CORRUPT" >/dev/null 2>&1; then
+  fail "(r9-fixture) the corrupt config parses, so (r9) would assert nothing"
+fi
+setup_case "" "0" "ready-for-dev" "11"
+out="$(run_tool "$CFG_CORRUPT" "$ISSUE" --build-model sonnet)"; rc=$?
+if [ "$rc" -eq 2 ] && [ "$(spawn_count)" -eq 0 ] \
+   && grep -q 'not parseable JSON' <<<"$out"; then
+  pass "(r9) an unparseable config is a refusal with nothing spawned, not a silent fall-through to tracker.type=github"
+else fail "(r9) expected rc=2 with 0 spawns, got rc=$rc / $(spawn_count): $out"; fi
+
+# ...and the other half: an ABSENT config is the ordinary un-onboarded consumer and resolves the
+# documented defaults. Without this the guard could have been "refuse unless a config parses",
+# which would break every consumer that never wrote one.
+# The remote ref is the fixture absence needs and presence did not: with no config there is no
+# `tracker.branchPrefix`, so the namespace is inferred from remote branches, and a fixture repo
+# with none refuses for that unrelated reason. One work-shaped remote branch supplies the vote.
+git -C "$TREE" update-ref refs/remotes/origin/"$BRANCH" HEAD
+setup_case "" "0" "ready-for-dev" "11"
+out="$(run_tool "$WORK/no-such-config.json" "$ISSUE" --build-model sonnet)"; rc=$?
+if [ "$rc" -eq 0 ] && [ "$(spawn_count)" -eq 3 ]; then
+  pass "(r10) an ABSENT config still resolves the shipped defaults — the guard fails closed on corruption only"
+else fail "(r10) an absent config was refused, got rc=$rc / $(spawn_count) spawn(s): $out"; fi
 
 # ---- (n0) the front door's own line cap ---------------------------------------------------------------
 # The same cap the payload skill carries, asserted the same way. A front door is read on every
