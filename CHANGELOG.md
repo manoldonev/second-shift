@@ -4,6 +4,47 @@ All notable changes to the second-shift marketplace. Versions are per-plugin (`p
 this file tracks the marketplace release. `configVersion` stays `const 1` — v2 is fully backward-compatible for a
 consumer with an empty config; the migration notes below are only for consumers using the changed features.
 
+## v4.2.0
+
+### `dev-pipeline` 4.1.5 → 4.2.0
+
+- **feat(dev-pipeline): a downgraded review model now costs a stated reason (#491)** (#491)
+  --review-model-basis makes a downgraded --review-model in the lean
+  lane's scheduler a stated decision instead of a silent one — a value other
+  than the shipped default now requires a reason via the new flag, or the run
+  refuses before spawning anything. Migration: none; the shipped default keeps
+  working unchanged.
+- **Milestone 1's absent spec is recorded, not charged to the fix budget (#504)** (#504)
+  a lean-lane milestone-1 red that only means the spec is not written yet is
+  recorded as `absent` and no longer spends the 3-attempt fix budget, so a run that follows
+  the checklist arrives at its first real fix with the whole budget intact. Absence carries
+  its own 10-call bound. Migration: none.
+- **feat(dev-pipeline): the lean scheduler reads an artifact, not a spawn's exit status (#501)** (#501)
+  run-lean re-spawns a BUILD session that exited 0 with work in flight and no
+  PR yet, instead of ending the lane at exit 1 — bounded by the new `--max-continuations`
+  (default 2, reset per build phase, `0` restores the old behavior). It also no longer
+  reports `done` on a close-out that never satisfied milestone 5, exiting non-zero and
+  naming what is unmet. Both read a new read-only `lean-gate.sh progress <issue>`
+  subcommand, which prints an opaque token and writes nothing.
+  Migration: none.
+- **Wrapper commits attribute AI co-authorship (#489)** (#489)
+  commits made through the dev-pipeline bot-commit wrapper now carry a
+  Co-Authored-By trailer when the calling session supplied none, so a run's
+  commits render as AI-co-authored even in a bot-disabled consumer. A
+  caller-supplied trailer naming a precise model is preserved, not duplicated.
+  Needs git >= 2.32; an older git commits without the trailer rather than
+  failing.
+  Migration: none.
+
+### `review-toolkit` 4.1.3 → 4.2.0
+
+- **feat(dev-pipeline): a downgraded review model now costs a stated reason (#491)** (#491)
+  --review-model-basis makes a downgraded --review-model in the lean
+  lane's scheduler a stated decision instead of a silent one — a value other
+  than the shipped default now requires a reason via the new flag, or the run
+  refuses before spawning anything. Migration: none; the shipped default keeps
+  working unchanged.
+
 ## v4.1.5
 
 ### `dev-pipeline` 4.1.4 → 4.1.5
