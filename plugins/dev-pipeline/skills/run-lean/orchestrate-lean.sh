@@ -380,6 +380,11 @@ while :; do
         || { say "cannot read the run's progress record through '$GATE' after the close-out session."; exit 1; }
 
       # AC-7. The close-out is verified against the record, never credited on its exit status.
+      # The NEW-row requirement costs the legitimate re-entry too: `append_satisfied` is idempotent
+      # and the progress file is keyed by issue rather than by run, so a second full lane run over
+      # an issue whose record already carries `| milestone-5 | satisfied` cannot move this token,
+      # and its correct close-out is reported as the failure below. Deliberate: that failure is
+      # loud and hand-recoverable, where a false `done` is neither.
       if [ "$m5_after" = "$m5_before" ]; then
         say "close-out session exited 0 but recorded no NEW milestone-5 satisfaction, so build-lean step 9 did not finish: the closing comment, the exit artifacts and the worktree teardown are all unaccounted for. Reporting a failure rather than 'done' — the ticket is still claimed and PR #$PR is still open. Finish step 9 by hand from the lane worktree."
         exit 1
