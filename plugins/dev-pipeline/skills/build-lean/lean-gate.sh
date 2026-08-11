@@ -113,6 +113,14 @@
 #                                        --fidelity defaults to not-applicable, which is the
 #                                        fail-closed side on an armed run (milestone 4 wants
 #                                        `pass`); `fail` with `approve` is refused.
+#   lean-gate.sh progress <issue> [--satisfied <n>]
+#                                        SCHEDULER role (#492): print an OPAQUE TOKEN over the
+#                                        progress rows that mean the build role advanced. Reads
+#                                        only — it writes nothing and, unlike every other
+#                                        subcommand, does not create the file it reads. The
+#                                        caller compares the token across a spawn and interprets
+#                                        nothing; `--satisfied <n>` narrows it to milestone n's
+#                                        `satisfied` row alone.
 #
 # Exit: 0 = satisfied / ok
 #       1 = milestone failed, or a `verdict` authorship refusal (fix and retry — budget remains)
@@ -149,6 +157,7 @@ VERDICT_PR=""
 VERDICT_ROUNDS=""
 VERDICT_FIDELITY=""
 SUMMARY_FILE=""
+PROGRESS_SATISFIED=""
 
 # The fix budget: 3 attempts per milestone, the 4th red hard-stops (D-19). Counted from
 # the progress file's `attempt` lines per D-41 — only FAILED evaluations append one.
@@ -193,7 +202,8 @@ while [ $# -gt 0 ]; do
     --rounds)        VERDICT_ROUNDS="${2:-}"; shift 2 ;;
     --fidelity)      VERDICT_FIDELITY="${2:-}"; shift 2 ;;
     --summary-file)  SUMMARY_FILE="${2:-}"; shift 2 ;;
-    -h|--help)       sed -n '2,139p' "$0"; exit 0 ;;
+    --satisfied)     PROGRESS_SATISFIED="${2:-}"; shift 2 ;;
+    -h|--help)       sed -n '2,147p' "$0"; exit 0 ;;
     -*)              envfail "unknown option: $1" ;;
     *)
       if [ "$POSITIONAL" -eq 0 ]; then SUB="$1"; POSITIONAL=1
@@ -204,13 +214,22 @@ while [ $# -gt 0 ]; do
   esac
 done
 
-[ -n "$SUB" ]   || envfail "usage: lean-gate.sh <entry|claim|mark|1..5|all|teardown|delta|verdict> <issue>"
-[ -n "$ISSUE" ] || envfail "usage: lean-gate.sh <entry|claim|mark|1..5|all|teardown|delta|verdict> <issue>"
+[ -n "$SUB" ]   || envfail "usage: lean-gate.sh <entry|claim|mark|1..5|all|teardown|delta|verdict|progress> <issue>"
+[ -n "$ISSUE" ] || envfail "usage: lean-gate.sh <entry|claim|mark|1..5|all|teardown|delta|verdict|progress> <issue>"
 
 case "$SUB" in
-  entry|claim|mark|1|2|3|4|5|all|teardown|delta|verdict) : ;;
-  *) envfail "unknown subcommand '$SUB' (expected entry|claim|mark|1..5|all|teardown|delta|verdict)" ;;
+  entry|claim|mark|1|2|3|4|5|all|teardown|delta|verdict|progress) : ;;
+  *) envfail "unknown subcommand '$SUB' (expected entry|claim|mark|1..5|all|teardown|delta|verdict|progress)" ;;
 esac
+
+# Validated at parse time rather than inside cmd_progress, so a typo is a usage error before any
+# root or config resolution — and so `--satisfied` on a subcommand that ignores it is still loud.
+if [ -n "$PROGRESS_SATISFIED" ]; then
+  [ "$SUB" = "progress" ] || envfail "--satisfied is only meaningful on 'progress', not '$SUB'."
+  case "$PROGRESS_SATISFIED" in
+    ''|*[!0-9]*) envfail "--satisfied takes a milestone number, got '$PROGRESS_SATISFIED'." ;;
+  esac
+fi
 
 # ---------------------------------------------------------------- roots + config
 REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null)" \
@@ -1127,6 +1146,68 @@ cmd_teardown() {
   # ALWAYS 0, whichever way that went. A kept worktree has already reported itself, and a
   # non-zero exit on the last command of a finished run reads as "the run failed" over a
   # directory nobody needs.
+  return 0
+}
+
+# ---------------------------------------------------------------- the CONTINUATION PREDICATE
+# #492. `claude -p` exits 0 whenever the model ends its turn cleanly, which is "the model stopped
+# talking", not "the block finished" — so a scheduler reading the spawn's exit status cannot tell
+# a finished build from one that stopped two milestones early with every artifact on disk. This
+# subcommand is the artifact it reads instead (AC-5): one opaque token over the progress rows that
+# mean THE BUILD ROLE ADVANCED. The caller compares the token across a spawn and interprets
+# nothing, which is what keeps orchestrate-lean.sh's "gate exit codes and tracker state, nothing
+# else" boundary intact while it gains a third thing to know.
+#
+# WHY THESE TWO ROW KINDS AND NO OTHERS (D-1). `satisfied` and `attempt` are the only rows a
+# milestone EVALUATION writes, so they are exactly "the build role did something that counts".
+# The bookkeeping rows must stay out, and one of them is load-bearing: record_build_session
+# appends `| session | <id>` on every fresh session's `entry` call — deliberately, even when
+# `entry` short-circuits — so a naive "did the file change" predicate would be TRUE for any spawn
+# that reached checklist step 1, and the no-progress case AC-3 protects would be unreachable.
+#
+# WHY A COUNT IS A SOUND TOKEN. These rows are append-only: append_attempt and append_satisfied
+# only ever add, and the single rewriter in this file (heal_progress_run_id) has an exact-string
+# compare bounded to the header. So the selected count cannot go up and back down within a spawn
+# and read as unchanged. It is printed behind a generation prefix rather than bare precisely
+# because it is a number a caller must NOT order: `progress-v1:` marks the token space, so a
+# future change of predicate is visibly a different token rather than a silently comparable
+# integer, and a caller reaching for `-gt` has to notice it is not one.
+#
+# NOT in require_entry_attested's set (D-2), for a sharper reason than teardown's: this reads the
+# very file an attestation would live in, so gating it on that attestation would make the
+# predicate unavailable in exactly the state — a spawn that died before `entry` — the scheduler
+# most needs an answer about.
+progress_token() { # progress_token [<milestone>] — prints the token, never touches the file
+  local pat n
+  if [ -n "${1:-}" ]; then
+    # D-8: milestone n's `satisfied` row ALONE. `attempt` is excluded here on purpose — a
+    # close-out that redded milestone 5 advanced the record but did not finish the checklist,
+    # and crediting it would be the exact false `done` this ticket exists to remove.
+    pat="| milestone-$1 | satisfied"
+  else
+    pat="| milestone-"
+  fi
+  # ensure_progress_file is deliberately NOT called: this subcommand must not bring into
+  # existence the artifact whose absence is itself the answer. count_matches already answers 0
+  # for a missing file.
+  if [ -n "${1:-}" ]; then
+    n="$(count_matches "$pat" "$PROGRESS_FILE" -F)"
+  else
+    # One pass, both kinds. -E over two -F greps so the row set is defined in one expression:
+    # the `| milestone-<n> | ` stem followed by either verb, end-anchored for `satisfied` and
+    # carrying the trailing separator for `attempt`, so neither a `budget-exhausted` row nor a
+    # reason string mentioning either word can inflate the count.
+    #
+    # `[|]` and not `\|`: an escaped pipe inside an ERE is a GNU extension that POSIX leaves
+    # undefined, and this file has a macOS/BSD lane. A bracket expression means the same literal
+    # to both, where `\|` is exactly the class of dual form that fails dirty rather than loudly.
+    n="$(count_matches '[|] milestone-[0-9][0-9]* [|] (satisfied$|attempt [|])' "$PROGRESS_FILE" -E)"
+  fi
+  printf 'progress-v1:%s\n' "$n"
+}
+
+cmd_progress() {
+  progress_token "$PROGRESS_SATISFIED"
   return 0
 }
 
@@ -3197,6 +3278,7 @@ case "$SUB" in
   mark)    cmd_mark ;;
   teardown) cmd_teardown ;;
   delta)   cmd_delta ;;
+  progress) cmd_progress ;;
   verdict) cmd_verdict ;;
   all)     cmd_all ;;
   *)       run_milestone "$SUB" ;;

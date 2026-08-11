@@ -109,7 +109,15 @@ cat > "$BIN/gh" <<'SH'
 echo "$*" >> "$GH_LOG"
 case "$1 $2" in
   "issue view") cat "$LABELS_FILE" 2>/dev/null; exit 0 ;;
-  "pr list")    cat "$PR_FILE" 2>/dev/null ;;
+  "pr list")
+    # #492: a PR that only APPEARS on a later spawn. Without this the tracker fake answers the
+    # same thing for every spawn in a case, and the continuation path — whose whole subject is
+    # "no PR yet, then a PR" — could not be scripted at all.
+    if [ -n "${PR_FROM_SPAWN:-}" ]; then
+      sc="$(cat "$SPAWN_LOG_DIR/count" 2>/dev/null || echo 0)"
+      [ "$sc" -ge "$PR_FROM_SPAWN" ] || exit 0
+    fi
+    cat "$PR_FILE" 2>/dev/null ;;
   *) exit 1 ;;
 esac
 SH
@@ -118,8 +126,28 @@ chmod +x "$BIN/gh"
 # The gate fake pops one exit code per call, so a case scripts `needs-work, needs-work, approve`
 # as a three-line file. It also records its own cwd: the tool must run the gate from the lane
 # WORKTREE, and a gate evaluated in the main checkout would read a different HEAD.
+#
+# #492's `progress` reads are served on a SEPARATE arm with their own counters and log. Folding
+# them into `count` would silently re-number the gate-call assertion in every case above, turning
+# a contract change into a suite-wide edit and hiding which numbers actually mean "verdict call".
 cat > "$BIN/fake-gate.sh" <<'SH'
 #!/usr/bin/env bash
+if [ "${1:-}" = "progress" ]; then
+  [ -n "${PROGRESS_FAIL:-}" ] && exit 3
+  case "$*" in
+    *--satisfied*) k=m5;  f="$PROGRESS_M5_FILE" ;;
+    *)             k=adv; f="$PROGRESS_ADV_FILE" ;;
+  esac
+  n=$(( $(cat "$GATE_LOG_DIR/pcount-$k" 2>/dev/null || echo 0) + 1 ))
+  echo "$n" > "$GATE_LOG_DIR/pcount-$k"
+  echo "ARGV: $* | CWD: $PWD | RUN_ID_SET: ${RUN_ID+yes}" >> "$GATE_LOG_DIR/progress.log"
+  # Past the end of a scripted stream the LAST line repeats. A case that scripts two reads must
+  # not have a third one invent a change the case never asked for — that would make the
+  # continuation loop advance on the fake's exhaustion rather than on the tool's logic.
+  line="$(sed -n "${n}p" "$f" 2>/dev/null)"
+  [ -n "$line" ] && echo "$line" || tail -n 1 "$f" 2>/dev/null
+  exit 0
+fi
 n=$(( $(cat "$GATE_LOG_DIR/count" 2>/dev/null || echo 0) + 1 ))
 echo "$n" > "$GATE_LOG_DIR/count"
 { echo "ARGV: $*"; echo "CWD: $PWD"; echo "RUN_ID_SET: ${RUN_ID+yes}"; } > "$GATE_LOG_DIR/call-$n"
@@ -133,6 +161,7 @@ chmod +x "$BIN/fake-gate.sh"
 # scored as this case's.
 SPAWN_LOG_DIR=""; GATE_LOG_DIR=""; GH_LOG=""; LABELS_FILE=""; PR_FILE=""
 SPAWN_RC_FILE=""; GATE_RC_FILE=""
+PROGRESS_ADV_FILE=""; PROGRESS_M5_FILE=""
 CASE_N=0
 
 setup_case() { # setup_case <spawn-rcs> <gate-rcs> <labels> <pr>
@@ -142,11 +171,25 @@ setup_case() { # setup_case <spawn-rcs> <gate-rcs> <labels> <pr>
   SPAWN_LOG_DIR="$d/spawns"; GATE_LOG_DIR="$d/gates"; GH_LOG="$d/gh.log"
   LABELS_FILE="$d/labels"; PR_FILE="$d/pr"
   SPAWN_RC_FILE="$d/spawn-rcs"; GATE_RC_FILE="$d/gate-rcs"
+  PROGRESS_ADV_FILE="$d/progress-adv"; PROGRESS_M5_FILE="$d/progress-m5"
   printf '%s' "$1" > "$SPAWN_RC_FILE"
   printf '%s' "$2" > "$GATE_RC_FILE"
   printf '%s' "$3" > "$LABELS_FILE"
   printf '%s' "$4" > "$PR_FILE"
   : > "$GH_LOG"
+  # #492 DEFAULTS, chosen so every pre-existing case keeps meaning what it meant.
+  #   adv: one line, so every read returns the same token — the run never "advances", which is
+  #        what keeps (j2)'s single-spawn no-PR stop unchanged.
+  #   m5:  two lines, so the close-out's before/after differ — an honest close-out, which is what
+  #        keeps every approve case exiting 0 with `done`.
+  # A case that wants the other polarity calls set_progress_tokens.
+  printf 'adv-0\n' > "$PROGRESS_ADV_FILE"
+  printf 'm5-0\nm5-1\n' > "$PROGRESS_M5_FILE"
+}
+
+set_progress_tokens() { # set_progress_tokens <adv-stream> <m5-stream>
+  printf '%s\n' "$1" > "$PROGRESS_ADV_FILE"
+  printf '%s\n' "$2" > "$PROGRESS_M5_FILE"
 }
 
 # RUN_ID and LEAN_RUN_MODEL are POISONED in the parent on purpose: they are ordinary env vars
@@ -164,6 +207,8 @@ run_tool() { # run_tool [config] [args...]
          SPAWN_LOG_DIR="$SPAWN_LOG_DIR" SPAWN_RC_FILE="$SPAWN_RC_FILE"
          GATE_LOG_DIR="$GATE_LOG_DIR" GATE_RC_FILE="$GATE_RC_FILE"
          GH_LOG="$GH_LOG" LABELS_FILE="$LABELS_FILE" PR_FILE="$PR_FILE"
+         PROGRESS_ADV_FILE="$PROGRESS_ADV_FILE" PROGRESS_M5_FILE="$PROGRESS_M5_FILE"
+         PR_FROM_SPAWN="${PR_FROM_SPAWN:-}" PROGRESS_FAIL="${PROGRESS_FAIL:-}"
          RUN_ID=poisoned-parent-run LEAN_RUN_MODEL=poisoned-parent-model )
   [ "${USE_DEFAULT_GH:-0}" -eq 1 ] || envs+=( GH="$BIN/gh" )
   ( cd "$TREE" \
@@ -172,6 +217,10 @@ run_tool() { # run_tool [config] [args...]
 
 spawn_count() { cat "$SPAWN_LOG_DIR/count" 2>/dev/null || echo 0; }
 gate_count()  { cat "$GATE_LOG_DIR/count" 2>/dev/null || echo 0; }
+# #492: progress reads, counted per token space. `adv` is the continuation predicate, `m5` the
+# close-out's milestone-5 check.
+progress_reads() { cat "$GATE_LOG_DIR/pcount-${1:-adv}" 2>/dev/null || echo 0; }
+progress_log()   { cat "$GATE_LOG_DIR/progress.log" 2>/dev/null; }
 spawn_argv()  { sed -n 's/^ARGV: //p' "$SPAWN_LOG_DIR/spawn-$1" 2>/dev/null; }
 all_argv()    { cat "$SPAWN_LOG_DIR"/spawn-* 2>/dev/null; }
 
@@ -331,6 +380,133 @@ if [ "$rc" -eq 1 ] && [ "$(spawn_count)" -eq 1 ] \
    && grep -q 'no open PR' <<<"$out"; then
   pass "(j2) a BUILD that left no open PR stops at exit 1 rather than reviewing nothing"
 else fail "(j2) expected rc=1 on an absent PR, got rc=$rc: $out"; fi
+
+# ---- (o) #492: exit 0 + no PR is THREE states, not two ------------------------------------------
+# `claude -p` exits 0 when the model ends its turn, not when the block finishes, so "exited 0 and
+# left no PR" splits into "did nothing" (j2, above) and "advanced and stopped early" (here). The
+# whole section turns on the tool being able to tell them apart from an artifact.
+
+# ANTI-VACUITY FOR (j2), scored while its logs are still the live ones. (j2) passed before #492
+# and would pass again if the predicate were never wired at all — the assertion below is what
+# makes it evidence that the tool CONSULTED the record and found it unmoved, rather than evidence
+# that it never looked.
+if [ "$(progress_reads adv)" -ge 2 ]; then
+  pass "(j3) the no-progress stop was reached by READING the predicate — twice, once per side of the spawn"
+else fail "(j3) (j2) stopped without consulting the progress predicate ($(progress_reads adv) read(s)) — it would pass with the feature absent"; fi
+
+# AC-1/AC-6: advanced ⇒ a second BUILD spawn, and the run goes on to REVIEW.
+setup_case "" "0" "ready-for-dev" "11"
+set_progress_tokens "a1
+a2" "m5-0
+m5-1"
+PR_FROM_SPAWN=2 out="$(run_tool "$CFG" "$ISSUE" --build-model sonnet)"; rc=$?
+unset PR_FROM_SPAWN
+if [ "$rc" -eq 0 ] && [ "$(spawn_count)" -eq 4 ] \
+   && grep -q 'build-lean 7' <<<"$(spawn_argv 1)" \
+   && grep -q 'build-lean 7' <<<"$(spawn_argv 2)" \
+   && grep -q 'review-lean 11' <<<"$(spawn_argv 3)" \
+   && grep -q 'BUILD advanced but left no open PR' <<<"$out"; then
+  pass "(o1) exit-0 + no PR + progress advanced ⇒ a second BUILD spawn, and the run reaches REVIEW"
+else fail "(o1) expected rc=0 with 4 spawns (build, build, review, close-out), got rc=$rc / $(spawn_count): $out"; fi
+
+# AC-1's other half: a continuation is a FRESH session. The separation rule this lane rests on
+# does not get an exception for the recovery path.
+if grep -qE -- '(^| )-p ' <<<"$(spawn_argv 2)" \
+   && ! grep -qE -- '--resume|--continue|(^| )-c( |$)' <<<"$(spawn_argv 2)"; then
+  pass "(o2) the continuation is a fresh -p session, never a resumed one"
+else fail "(o2) the continuation carried a resume flag or lost -p: $(spawn_argv 2)"; fi
+
+# The counter is per BUILD PHASE, and the phase ends when a PR appears. Asserted through the
+# reported ordinal rather than an internal: a cap that never reset would print "2 of 2" here.
+if grep -q 'no open PR — continuing in a fresh session (1 of 2)' <<<"$out"; then
+  pass "(o3) the continuation is reported with its ordinal against the shipped default of 2"
+else fail "(o3) the continuation ordinal was not reported: $out"; fi
+
+# AC-5's boundary, measured. The predicate must be read from the MAIN checkout — the progress
+# record lives there so it survives teardown, and the close-out compares across a spawn whose
+# last act deletes the worktree. It is also read with no ambient RUN_ID, like every other gate call.
+if grep -q "CWD: $TREE " <<<"$(progress_log)" \
+   && ! grep -q 'RUN_ID_SET: yes' <<<"$(progress_log)"; then
+  pass "(o4) the predicate is read from the main checkout, with RUN_ID scrubbed"
+else fail "(o4) the progress read was made from the wrong cwd or with an ambient RUN_ID: $(progress_log)"; fi
+
+# AC-2: the cap is honored and NAMED. Driven at 1 rather than the default so the exhaustion is
+# two spawns away instead of three — the property is the bound, not its shipped value.
+setup_case "" "0" "ready-for-dev" ""
+set_progress_tokens "a1
+a2
+a3
+a4" "m5-0
+m5-1"
+out="$(run_tool "$CFG" "$ISSUE" --build-model sonnet --max-continuations 1)"; rc=$?
+if [ "$rc" -eq 1 ] && [ "$(spawn_count)" -eq 2 ] && [ "$(gate_count)" -eq 0 ] \
+   && grep -q 'HARD STOP' <<<"$out" \
+   && grep -q -- '--max-continuations budget (1)' <<<"$out"; then
+  pass "(o5) a build phase that keeps advancing without a PR is bounded, and the exhaustion names the cap"
+else fail "(o5) expected rc=1 after 2 spawns, got rc=$rc / $(spawn_count) spawn(s) / $(gate_count) gate call(s): $out"; fi
+
+# The bound is the SCHEDULER's, and it is what keeps a payload that hit the gate's own rc=4 hard
+# stop from re-spawning forever: fail_milestone appends an attempt row on every red including the
+# over-budget one, so such a spawn reads as "advanced" here. Zero restores the pre-#492 behavior,
+# which is the honest way to ask for it rather than deleting the feature.
+setup_case "" "0" "ready-for-dev" ""
+set_progress_tokens "a1
+a2" "m5-0
+m5-1"
+out="$(run_tool "$CFG" "$ISSUE" --build-model sonnet --max-continuations 0)"; rc=$?
+if [ "$rc" -eq 1 ] && [ "$(spawn_count)" -eq 1 ] && grep -q 'HARD STOP' <<<"$out"; then
+  pass "(o6) --max-continuations 0 restores the pre-#492 single-spawn behavior on an advanced run"
+else fail "(o6) expected rc=1 after exactly 1 spawn, got rc=$rc / $(spawn_count): $out"; fi
+
+setup_case "" "0" "ready-for-dev" "abc"
+out="$(run_tool "$CFG" "$ISSUE" --build-model sonnet --max-continuations x)"; rc=$?
+if [ "$rc" -eq 2 ] && [ "$(spawn_count)" -eq 0 ] \
+   && grep -q -- '--max-continuations must be a non-negative integer' <<<"$out"; then
+  pass "(o7) a non-numeric --max-continuations is a usage refusal, not a silently-zero budget"
+else fail "(o7) expected rc=2 with no spawn, got rc=$rc / $(spawn_count): $out"; fi
+
+# An unreadable predicate must not degrade into "the run did not advance": that verdict is
+# indistinguishable from an idle session, and a scheduler that cannot tell them apart is the
+# defect this ticket is about. It refuses BEFORE spawning — spawning blind would burn a session
+# on a question the tool has already lost the ability to answer.
+setup_case "" "0" "ready-for-dev" "11"
+PROGRESS_FAIL=1 out="$(run_tool "$CFG" "$ISSUE" --build-model sonnet)"; rc=$?
+unset PROGRESS_FAIL
+if [ "$rc" -eq 1 ] && [ "$(spawn_count)" -eq 0 ] \
+   && grep -q 'continuation predicate is unavailable' <<<"$out"; then
+  pass "(o8) a gate that cannot answer the predicate is a loud refusal, not a blind spawn"
+else fail "(o8) expected rc=1 with 0 spawns on an unreadable predicate, got rc=$rc / $(spawn_count): $out"; fi
+
+# ---- (p) #492 AC-7: the close-out is VERIFIED, never credited on its exit status -----------------
+# `verdict_rc` runs before the close-out spawn and nothing evaluated after it, so this site
+# reported `done` on a session that had done nothing — worse than the no-PR case, which at least
+# exits loudly. What is checked is a NEW milestone-5 satisfaction, so a re-entered lane cannot be
+# credited with a prior run's.
+setup_case "" "0" "ready-for-dev" "11"
+set_progress_tokens "adv-0" "m5-0"
+out="$(run_tool "$CFG" "$ISSUE" --build-model sonnet)"; rc=$?
+if [ "$rc" -eq 1 ] && [ "$(spawn_count)" -eq 3 ] \
+   && grep -q 'recorded no NEW milestone-5 satisfaction' <<<"$out" \
+   && ! grep -q 'done — #' <<<"$out"; then
+  pass "(p1) a close-out that exits 0 without satisfying milestone 5 is a non-zero exit naming what is unmet, not 'done'"
+else fail "(p1) expected rc=1 after the close-out spawn, got rc=$rc / $(spawn_count): $out"; fi
+
+# D-9: verify-only. The continuation machinery is NOT extended to this site — three spawns above,
+# not four — because past an approve another silent session answers a question the operator has
+# not been told about yet.
+if [ "$(spawn_count)" -eq 3 ] && grep -q -- '--satisfied 5' <<<"$(progress_log)"; then
+  pass "(p2) the uncredited close-out is not re-spawned, and the check it failed is milestone-5-scoped"
+else fail "(p2) the close-out was re-spawned, or the check was not milestone-scoped: $(spawn_count) spawn(s) / $(progress_log)"; fi
+
+# The positive control for (p1): the SAME path with a new milestone-5 row reaches `done`. Without
+# it, (p1) would also pass against a tool that failed every close-out unconditionally.
+setup_case "" "0" "ready-for-dev" "11"
+set_progress_tokens "adv-0" "m5-0
+m5-1"
+out="$(run_tool "$CFG" "$ISSUE" --build-model sonnet)"; rc=$?
+if [ "$rc" -eq 0 ] && [ "$(progress_reads m5)" -eq 2 ] && grep -q 'done — #7 approved on PR #11' <<<"$out"; then
+  pass "(p3) a close-out that DOES satisfy milestone 5 reaches 'done' — the check is a comparison, not a blanket refusal"
+else fail "(p3) expected rc=0 with 2 milestone-5 reads, got rc=$rc / $(progress_reads m5) read(s): $out"; fi
 
 # ---- (k) model resolution stays the caller's ------------------------------------------------------
 # #490: a departure from the shipped review tier now requires a stated reason, so this case
