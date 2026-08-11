@@ -1,140 +1,161 @@
 # lean review verdict — #492
 
-verdict=needs-work
-run_id: review-492-2
-session_id: 75f8a117-920b-4ce0-929b-66688dd6828c
-rounds: 2
+verdict=approve
+run_id: review-492-3
+session_id: 200d8af7-7b7f-4349-9734-cd627432d635
+rounds: 3
 pr: #501
-reviewed_head: e932531bce919e3cdb5140f65bc8c974d5d9826f
-reviewed_patch_id: ac597fb15f2e237202485b553c62333edb07bdbc
-inherited_patch_id: 11eaf8f04eb0fe97ba02c012b9c238ecb5eff947
-inherited_from_verdict: 0324614612f38f0d56e44e59ddc2241d8d43b862
+reviewed_head: 8561290da199ba2d3d54ba944ea9627b537b374d
+reviewed_patch_id: a9a6b9d32759ec360e7b708c58ffc45e28e59401
+inherited_patch_id: ac597fb15f2e237202485b553c62333edb07bdbc
+inherited_from_verdict: 4617895acbf225b694cf9168f146e01c72cdca1e
 fidelity: not-applicable
 model: unknown
 capabilities: pr-marker
 
-## Verdict: needs-work — round 1's blocker is discharged, and the CI it unblocked is red
+## Verdict: approve — round 2's blocker is discharged, and every CI step it took down has now run
 
-Round 1 could not certify this branch because it was unmergeable and had therefore never run CI.
-Round 2 fixed that: `refs/pull/501/merge` resolves, the merge is pure reconciliation, and the lane's
-own machinery ran for the first time. It found a real failure, in this branch's own code.
+Round 2 could not certify this branch because `lint-and-selftests` died at its **first** step on
+SC2218, taking eight later verification steps down unrun. Round 3's delta is exactly the remedy that
+record prescribed, and nothing else. All four CI jobs now report, the lane's own machinery is green,
+and the eight steps that had never executed have executed and passed.
 
-Two of four jobs pass and they are the expensive ones. `lint-and-selftests` fails at its **first**
-step, on a shellcheck error `main` does not have.
+No blockers. One minor warning, which costs no round to fix.
 
-## Blocker
+## The delta (`4617895..HEAD`), and what it is
 
-**B-1 — `lint-and-selftests` is red: SC2218 in `lean-gate-selftest.sh`, introduced by this branch.**
+One commit, `8561290`, one file, 16 insertions / 16 deletions: the `(pg)` section's gate wrapper is
+renamed `pgate` → `pgprog` — its definition at line 4094 and its 15 call sites through EOF.
+Behavior-preserving by construction: the function body is untouched (`bash "$GATE" progress 77
+"$@"`), and only the identifier moved.
 
-```
-In ./plugins/dev-pipeline/skills/build-lean/lean-gate-selftest.sh line 3010:
-pgate entry 8 >/dev/null 2>&1
-^---------------------------^ SC2218 (error): This function is only defined later. Move the definition up.
-                              (also line 3092)
-Process completed with exit code 123.
-```
+Verified complete and correctly bound, not assumed:
 
-Root cause: this branch defines `pgate` **twice**. `main` has exactly one definition (line 2833,
-the build-session wrapper); the new `(pg)` section adds a second at line 4094 with a different body
-(`bash "$GATE" progress 77 "$@"`, session id unset, different tree and progress file). ShellCheck
-binds the bare calls at 3010/3092 to the *later* definition and errors.
-
-Reproduced and root-caused against CI's exact version, not inferred:
-
-| Probe | Result |
+| Check | Result |
 | --- | --- |
-| shellcheck **0.9.0** (CI's) on branch `lean-gate-selftest.sh` | `rc=1`, SC2218 ×2 — matches CI byte for byte |
-| shellcheck **0.9.0** on `origin/main`'s copy of the same file | `rc=0` |
-| rename the second definition `pgate` → `pgprog` (line 4094→EOF) | `rc=0` under 0.9.0 **and** 0.11.0 |
-| shellcheck **0.11.0** (this machine's) on branch HEAD | `rc=0` — which is why the local gate passed |
+| `pgate` occurrences after line 4094 | **none** — the first definition (2833) and `pgate_tel` (2843) keep every call site at 2864–3092, all *before* 4094 |
+| `pgprog` occurrences | 16 = 1 definition + 15 calls, all at or after 4094 — matches the diff's 16/16 exactly |
+| the surviving duplicate that caused SC2218 | gone: one `pgate`, one `pgprog`, no shadowing |
 
-The rename is mechanically safe: no `pgate_tel` call occurs at or after line 4094, and every call in
-the `(pg)` section is def-2-shaped (`pgate`, `pgate --satisfied 5`), so nothing after 4094 wants the
-first definition. It is also the better code — two same-named helpers with different gate
-invocations in one 4200-line file is a readability trap independent of the linter.
+## CI at this head (`8561290`) — the evidence round 2 unblocked and round 3 collects
 
-At runtime the suite is correct (bash binds definitions as it executes), which is why 73/73 is green.
-This is a lint failure, not a behavioral one — but it is a **hard red on a required check**, and the
-repo's own verification baseline in `CLAUDE.md` names shellcheck first.
-
-**Second-order cost.** The job aborts at step 1, so eight verification steps never executed: JSON
-validation, issue-forms schema, actionlint, the ubuntu selftest sweep, contract lockstep pairs,
-eval-harness model identity, capability parity register, and the namespace direction check. The PR
-body's "lockstep 28/28, namespace rules 3(a)/3(b) pass" remains a local claim that CI has still not
-confirmed. The selftest sweep itself is covered in substance by the macOS job below, so that one is
-duplicated rather than lost — the other seven are not.
-
-## CI evidence — the thing round 1 could not obtain
+`refs/pull/501/merge` resolves to `e52c7bd`, whose parents are `2e4b480` (main's tip, #487, landed
+19:10:38Z) and this head. The run was created 19:11:15Z — **37 seconds after #487 merged** — so all
+four jobs ran against main-at-tip merged with this branch, not a stale base.
 
 | Job | Result | What it proves |
 | --- | --- | --- |
-| `selftests (macos, bash 3.2)` | **pass** 4m16s | `73 scored, 71 run, 2 cached, 0 failed` — green on the stock-bash-3.2 lane, where a `declare -A` would fail open. |
-| `mutation-sweep-pr` | **pass** 3m30s | 30 verdicts computed (not a vacuous PR-mode zero). `lean-gate.sh` 17 applied / 14 killed / 3 survived; `orchestrate-lean.sh` 11 / 10 / 1. All four survivors are generic and baselined — the job would red on a baseline-absent one. **The PR body's mutation claim is now CI-verified, not just local.** |
-| `lint-and-selftests` | **fail** | B-1. |
-| `pr-gates` | **fail** | Only `check-lean-chain.sh`, only because the committed record reads `verdict=needs-work`. Expected pre-approval; the other three steps pass. Not a defect. |
+| `lint-and-selftests` | **pass** 3m58s | B-1 discharged. |
+| `selftests (macos, bash 3.2)` | **pass** | Green on the stock-bash-3.2 lane. |
+| `mutation-sweep-pr` | **pass** | Verdicts computed against main's newest `tools/mutation-sweep.sh` (#487 changed that file); no baseline-absent survivor. |
+| `pr-gates` | fail | `check-lean-chain.sh` only, and only on `verdict=needs-work`. Expected pre-approval — the other three steps pass. Not a defect. |
 
-## What round 2 verified in the delta (`0324614..HEAD`)
+**The step list, not the job verdict** — the discipline round 2's B-1 established. All eight steps
+that never executed under B-1 have now run and passed: `validate JSON`, `issue-forms schema`,
+`actionlint`, `run all selftests` (the ubuntu sweep), `contract lockstep pairs`,
+`eval-harness model identity`, `capability parity register`, `namespace direction check`. The one `-`
+in the list is `save selftest pass cache`, a cache **write**, not a verification step. The PR body's
+"lockstep 28/28, namespace rules 3(a)/3(b) pass" is no longer a local claim.
 
-- **The merge is pure reconciliation.** `git diff origin/main HEAD --stat` touches only #492's six
-  files — nothing arrived from or was altered on main's side. The three conflict resolutions are
-  each one side or the other: the parser keeps main's widened columns and adds
-  `--max-continuations`; the run-log line carries both `$REVIEW_BASIS_NOTE` and the continuation
-  ordinal; `-h|--help` re-ranges to `2,98p`, which I checked against the file — line 98 is the last
-  header comment and line 99 is `set -uo pipefail`. #491's cases survive intact (9 live references
-  to `--review-model-basis`), and case `(n)` still guards the range.
-- **The W-1 commit is comment-only.** `e932531` is `+5` lines in one file, all comment, immediately
-  above the unchanged `if [ "$m5_after" = "$m5_before" ]`. AC-7 is not amended and no behavior moved.
-  W-1 is closed.
+## Probes — the rename is not a vacuous green
+
+A rename that severs a test wrapper from production would leave the `(pg)` cases passing on nothing,
+and CI would look identical. Both directions were probed in **detached throwaway worktrees**, never
+the reviewed head. Every mutant was `cmp`-verified changed and `bash -n`-verified parseable before
+scoring, and the applied diff printed.
+
+**Control** — unmutated head: `rc=0`, `all green`, `(pg1)`–`(pg12)` all PASS.
+
+| Probe | Mutation | Result | What it establishes |
+| --- | --- | --- | --- |
+| **A** | rename the *definition* `pgprog()` → `pgprogSEVERED()`, leaving all 15 call sites saying `pgprog` | **8 FAILURES**; `(pg1)(pg3)(pg4)(pg5)(pg6)(pg7)(pg10)(pg11)` red, tokens empty, `(pg11)` rc=127 | The call sites genuinely resolve to the definition at 4094. Decisively **not** falling through to the surviving `pgate` at 2833 — that would have returned a non-empty token and left them green. The rename is complete on both ends. |
+| **B** | break production `progress_token` in `lean-gate.sh` to always print `progress-v1:0` | **5 FAILURES**; `(pg1)(pg3)(pg4)(pg6)(pg7)` red | The renamed wrapper still reaches the real `lean-gate.sh progress` subcommand. The cases are non-vacuous post-rename — AC-8's exercise is real. |
+
+The cases that stayed green under each probe are accounted for, not overlooked. Under A, `(pg2)`
+compares two tokens that are both broken and therefore equal; `(pg8)`, `(pg9)`, `(pg12)` never call
+`pgprog`. Under B, `(pg5)` asserts the token does **not** move on an `attempt` row — a constant `0`
+also does not move, which is the known class of case a feature-removal probe cannot red; `(pg7)`'s
+second clause covers that ground and did fire.
+
+## Reviewer panel
+
+Five reviewers selected and dispatched on the delta (Small change size: security, performance,
+maintainability + test-coverage since the change is to a test file, + scope-completeness
+unconditionally on `#492`). **All five returned, none dark. 5/5 approve, zero findings.**
+
+| Reviewer | Verdict | Findings | Confidence Range |
+| --- | --- | --- | --- |
+| Scope Completeness | Pass | 0 | — |
+| Security | Pass | 0 | — |
+| Performance | Pass | 0 | — |
+| Maintainability | Pass | 0 | — |
+| Test Coverage | Pass | 0 | — |
+
+One suppressed finding at confidence 20 (`"$@"` interpolation into a gate invocation at 4094) —
+dismissed on reading: every call site passes literal test flags inside a selftest fixture, there is
+no external input, and the construct is unchanged from before the rename.
+
+`a11y-reviewer` and the design-fidelity dimension were **not routed**: no changed path matched
+`stageParams.webComponentGlobs` (unset → default `apps/web/**/*.{tsx,jsx}`). Not a coverage gap — a
+shell selftest is not a web-component surface.
 
 ## Per-AC scoring — all eight, against the whole spec
 
-Production logic re-read at this head over `origin/main`, not inherited blind; the gate internals
-carry round 1's coverage (`inherited_patch_id 11eaf8f0`) and are now independently corroborated by
-the mutation job above.
+The delta touches only the guard file behind AC-8, so AC-1 through AC-7 inherit round 2's coverage of
+the production sources (`inherited_patch_id ac597fb1`); `orchestrate-lean.sh`'s full contribution diff
+was nonetheless re-read at this head rather than inherited blind, and CI's mutation job corroborates
+the gate internals independently.
 
 | AC | Score | Evidence at this head |
 | --- | --- | --- |
-| AC-1 | satisfied | Build phase re-spawns on a moved token; prompt is the unchanged `/dev-pipeline:build-lean $ISSUE`. Cases `(o1)`, `(o2)`. |
-| AC-2 | satisfied | `--max-continuations` default 2, parsed beside `--max-rounds`, non-negative validation with a stated reason zero is legal; exhaustion is a `HARD STOP` naming the cap. `continuations=0` at the top of each build phase, whose only exit is a PR. `(o3)`, `(o5)`, `(o6)`, `(o7)`. |
+| AC-1 | satisfied | Build phase re-spawns on a moved token; the continuation prompt is the unchanged `/dev-pipeline:build-lean $ISSUE`, a fresh `-p` session, never `--resume`. Cases `(o1)`, `(o2)`. |
+| AC-2 | satisfied | `--max-continuations` default 2; `continuations=0` at the top of each build phase, whose only exit is a PR — that scoping *is* D-3's reset. Exhaustion is a `HARD STOP` naming the cap. Zero legal, with the reason stated in-source. `(o3)`, `(o5)`, `(o6)`, `(o7)`. |
 | AC-3 | satisfied | Token equality → the pre-#492 message and one spawn. `(j2)` unchanged; `(j3)` is its anti-vacuity control. |
-| AC-4 | satisfied | Re-confirmed in source: `cmd_progress` calls only `progress_token` — no `ensure_progress_file`, no `record_build_session`. `rc=4` untouched. `(pg8)`. |
-| AC-5 | satisfied | Predicate is the read-only `lean-gate.sh progress`, returning `progress-v1:<n>`; the scheduler compares two strings and parses neither. Bookkeeping excluded. `(pg1)`, `(pg10)`. |
-| AC-6 | satisfied | The three enumerated cases plus `(o4)`. Now green on the bash-3.2 CI lane, which round 1 could not show. |
-| AC-7 | satisfied | Close-out compares `progress --satisfied 5` across the spawn, requires a NEW row, verify-only, non-zero naming what is unmet. `(p1)`, `(p2)`, `(p3)`. The re-entry trade is now documented in place. |
-| AC-8 | satisfied | Re-confirmed in source: dispatch line reads `claim\|delta\|all\|1\|2\|3\|4\|5) require_entry_attested` — `progress` is absent, per D-2. Exercised by `(pg1)`–`(pg12)`. **Note:** the guard file satisfying this AC is the one failing B-1. The cases are sound; the file does not pass the lint gate. |
-
-The blocker is not an unmet AC. The spec does not have an AC for "the branch passes its own CI", and
-it should not need one.
+| AC-4 | satisfied | `cmd_progress` calls only `progress_token` — no `ensure_progress_file`, no `record_build_session`, no milestone evaluation. `rc=4` untouched. `(pg8)`, and probe B above. |
+| AC-5 | satisfied | The predicate is the read-only `lean-gate.sh progress`, printing `progress-v1:<n>`; the scheduler compares two strings and parses neither, and returns non-zero rather than an empty token when the gate cannot answer — so a broken gate is not mistaken for an idle session. Bookkeeping rows excluded. `(pg1)`, `(pg2)`, `(pg10)`. |
+| AC-6 | satisfied | The three enumerated cases plus `(o4)`, green on both CI lanes including bash 3.2. |
+| AC-7 | satisfied | Close-out compares `progress --satisfied 5` across the spawn, requires a NEW row, verify-only, non-zero naming what is unmet. `(p1)`, `(p2)`, `(p3)`. The re-entry trade is documented in place (round 1's W-1, closed in round 2). |
+| AC-8 | **satisfied** | `progress` is absent from `require_entry_attested`'s subcommand set, per D-2; it writes nothing and creates nothing. Exercised by `(pg1)`–`(pg12)`. Round 2 scored this with the caveat that the guard file satisfying it was the file failing B-1 — that caveat is now retired: the file passes shellcheck 0.9.0 in CI, and probes A and B show the exercise survives the rename. |
 
 ## Warning
 
-**W-2 — the repo's shellcheck recipe is version-unpinned, and the skew is silent in the red direction.**
-`CLAUDE.md` prescribes `find . -name '*.sh' … | xargs -0 shellcheck -e SC1091,SC2015,SC2181` with no
-version; CI installs ubuntu's 0.9.0. This machine has 0.11.0, which dropped this SC2218 heuristic —
-so the documented local gate returned a clean green for a change CI errors on. That is the same shape
-as `local sweep is not the bash-3.2 lane`, one tool over. Not this PR's to fix; worth a ticket, since
-every contributor's local shellcheck gate is only as trustworthy as their version match.
+**W-3 — the PR body has no round-3 section, so the shipped fix is undocumented in the PR narrative.**
+The body's round-2 section still reads "shellcheck and `jq empty` clean" for head `e932531`, which is
+the head where CI proved that claim false; nothing in the body records that `8561290` renamed the
+duplicate `pgate` to clear SC2218. The commit message documents it fully, and the body is not part of
+the patch id — so this costs no round and does not gate the merge. Worth one paragraph before merge,
+since the body is the artifact a human reads.
+
+W-2 from round 2 (the version-unpinned shellcheck recipe in `CLAUDE.md`) stands as raised and remains
+correctly out of this PR's scope.
 
 ## Suppressed / dismissed
 
 - **`pr-gates` red.** Not a finding — `check-lean-chain.sh` requires `verdict=approve` and the
-  committed record is round 1's `needs-work`. It clears when an approve record lands.
-- **Ubuntu selftest sweep unrun.** Noted under B-1's second-order cost rather than raised separately:
-  the same 73 suites passed on the macOS bash-3.2 job, so the suites themselves are not unverified.
+  committed record was round 2's `needs-work`. It clears when this record lands.
+- **Cross-file duplicate `progress_token`.** `lean-gate.sh:1122` and `orchestrate-lean.sh` both define
+  a function by that name. shellcheck is per-file so there is no SC2218 exposure, the two live in
+  different scripts, and the shared name is accurate in both. Not a finding.
+- **OR-1** (a continuation re-enters `build-lean` step 1 against an already-claimed ticket). Declared
+  in the spec with a `reversible-default-and-flag` disposition and an evidence-backed default; the
+  fake-spawn harness cannot reach it, which the spec says in its own Stated Ceiling. Declared, not
+  overlooked.
 
 ## What the code does well
 
-- The reconciliation was done as a merge with the conflict fix and the W-1 comment in **separate
-  commits**, so "no content rode in on the merge" is verifiable by inspection rather than assertion.
-  It is what let this round confirm purity in one `--stat`.
-- Case `(n)` earned its keep on a merge nobody wrote it for: the `-h|--help` range had to be
-  renumbered a third time, and the guard is what makes a wrong number red instead of silently
-  truncating the header.
-- The PR body states its ceiling (the fake spawn cannot prove a real `claude -p` continuation) rather
-  than letting the green imply more than it shows, and it flags that `mutation-sweep-pr` had never
-  run — the claim that turned out to be the honest one and is now discharged.
+- **The remedy was taken literally and nothing rode along with it.** Round 2 prescribed "rename the
+  second `pgate` and its callers to EOF"; the delta is that and 16/16 lines of it. A fix round that
+  stays this small is what makes a third round cheap to certify.
+- **The chosen name carries information.** `pgprog` names the subcommand it invokes, so the two
+  wrappers are now told apart by what they do rather than by which one bash bound last — the
+  readability defect that outlived the linter error is fixed too.
+- **The commit message states the mechanism, not the symptom.** It names 0.9.0 as the version that
+  errors and 0.11.0 as the version that dropped the heuristic, which is exactly why the local gate
+  was honestly green — the next contributor reading it learns the trap, not just the fix.
 
-## Remedy
+## Stated ceiling, restated
 
-Rename the second `pgate` (line 4094 and its callers to EOF) to a distinct name. Verified green above
-under both shellcheck versions. Then let CI run the eight steps it has not yet reached.
+`orchestrate-lean-selftest.sh` fakes the spawn, so no CI case proves a real `claude -p` continuation
+completes `build-lean` unattended. Every AC is provable against the fakes; the end-to-end remains an
+operator observation on the next live run. This approve certifies the ACs and the guards, and says
+nothing more than that.
