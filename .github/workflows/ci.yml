@@ -96,11 +96,12 @@ jobs:
       # runner exists rather than a bare `-P` flag because at -P 4 the suites' raw stdout
       # braids together; it captures each suite and replays it inside ::group:: framing.
       #
-      # install-topology-selftest.sh is EXCLUDED here and runs in its own job below. It re-runs
-      # every shipped suite from a staged install cache, so leaving it in this sweep has it
-      # contending with the very suites it duplicates (statectl measured at 244s against a ~94s
-      # uncontended norm). It stays DISCOVERED — the exclusion names a path that must exist, and
-      # the runner hard-errors if it ever stops matching.
+      # install-topology-selftest.sh is EXCLUDED here and runs nightly instead (see the
+      # install-topology class guard note near the end of this file). It re-runs every shipped
+      # suite from a staged install cache, so leaving it in this sweep has it contending with
+      # the very suites it duplicates (statectl measured at 244s against a ~94s uncontended
+      # norm). It stays DISCOVERED — the exclusion names a path that must exist, and the runner
+      # hard-errors if it ever stops matching.
       # The pass cache (#448). Restore is unconditional; SAVE is push-only, and so is the
       # runner's own --cache-write, which is belt-and-braces on purpose: GitHub already scopes a
       # PR-created cache to that PR's branch, but the runner flag is what makes "a PR cannot

@@ -40,11 +40,13 @@ follows:
 | `--exclude` matches no discovered suite | exit 2, `stale exclusion` — the posture a stale `install-topology-known-red.tsv` row already carries |
 | no suites discovered, or every suite excluded | exit 2 — a sweep that runs nothing is never green |
 
-`--exclude` exists for one caller: both CI selftest jobs pass
-`--exclude tools/install-topology-selftest.sh`, which runs in its own job on both lanes — inside
-the sweep it contends with the very suites it re-runs from the install cache, which is what the
-install-topology section below measures. The suite stays *discovered*: the exclusion names a path
-that must keep existing, so renaming the suite reds CI instead of silently double-running it.
+`--exclude` has four callers: both CI selftest jobs (`ci.yml:119`, `ci.yml:394`) and both
+nightly-guards selftest lanes (`nightly-guards.yml:100`, `nightly-guards.yml:116`) all pass
+`--exclude tools/install-topology-selftest.sh` — inside the sweep it contends with the very
+suites it re-runs from the install cache, which is what the install-topology section below
+measures. `install-topology-selftest.sh` itself runs nightly, not in a job alongside any of
+these. The suite stays *discovered*: the exclusion names a path that must keep existing, so
+renaming the suite reds CI instead of silently double-running it.
 
 `SKIP_STRESS` is never set by the runner. The ubuntu lane omits it and the macos lane sets it;
 that asymmetry predates this script and is preserved, and the mutation baseline's environment
