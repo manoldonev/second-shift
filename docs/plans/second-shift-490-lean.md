@@ -22,7 +22,7 @@ departure stated, without hardcoding the tier (the seam stays for #350 vendor-ne
 | D-4 | Where the AC-2 refusal fires | Beside the existing usage assertions, after the `[ -n "$REVIEW_MODEL" ]` empty-value check and before preflight — so a refusal costs zero probes, zero tracker reads, zero worktree resolution | codebase-derived |
 | D-5 | `--review-model-basis ''` supplied alongside a non-default `--review-model` | A refusal — AC-2's letter is "non-empty", so the guard is a non-empty test on the value, not a flag-was-seen test | codebase-derived |
 | D-6 | AC-5's guard | Already exists — selftest case `(n)` asserts `--help` prints through `Exit: 0 = approved` and stops before `set -uo pipefail`, so it reds on a window too narrow or too wide. No new case is owed for AC-5 | codebase-derived |
-| D-7 | `check-emit-deadline-selftest.sh` case B6 reds milestone 3 on two consecutive attempts, on a branch that touches only `run-lean` | Scope widened by one AC (AC-8) rather than worked around. B6 stages its fixture at `<mktemp>/lonely/scripts`, so the tool's shape-2 anchor `$HERE/../../../*/` globs `$TMPDIR` itself; `install-topology-selftest.sh` re-runs all 60 shipped suites, so a second instance of this same file stages `<mktemp>/plugin-wrong-prefix` as a `$TMPDIR` sibling and resolves for the first — the failure names exactly that fixture. Alternative considered and rejected: excluding install-topology from the gate's local test lane, which leaves the latent bug live and edits config shared across worktrees. Answered mid-run in session rather than in the pre-flight ledger — this lane has no pre-flight channel for a decision the run itself surfaces, recorded as a finding in the retro | user-answered |
+| D-7 | `check-emit-deadline-selftest.sh` case B6 reds milestone 3 on two consecutive attempts, on a branch that touches only `run-lean` | Scope widened by one AC (AC-8) rather than worked around. B6 stages its fixture at `<mktemp>/lonely/scripts`, so the tool's shape-2 anchor `$HERE/../../../*/*/agents` globs `$TMPDIR/*/*/agents` — every fixture any concurrently-running suite has staged one level below its own `mktemp` root. The collider is `check-reviewer-references-selftest.sh`, a DIFFERENT suite: it does `TMP=$(mktemp -d)` and copies a plugin fixture to `$TMP/plugin-wrong-prefix`, carrying both `.claude-plugin/plugin.json` and `agents/`, which is a valid shape-2 candidate at exactly that depth. So the exposure is an ordinary `SELFTEST_JOBS=4` sweep, not only `install-topology-selftest.sh`'s re-run of every shipped suite — the latter merely widens the window. Measured both directions against the real tool: with the decoy staged, a root at `<mktemp>` resolves `…/plugin-wrong-prefix/agents` and B6's premise goes false, while a root at `<mktemp>/iso` still reports the resolution miss. Alternative considered and rejected: excluding install-topology from the gate's local test lane, which leaves the latent bug live and edits config shared across worktrees. Answered mid-run in session rather than in the pre-flight ledger — this lane has no pre-flight channel for a decision the run itself surfaces, recorded as a finding in the retro | user-answered |
 
 ## Acceptance Criteria
 
@@ -51,10 +51,13 @@ departure stated, without hardcoding the tier (the seam stays for #350 vendor-ne
   get their own cases too.
 
 - AC-8: `check-emit-deadline-selftest.sh` case B6 stages its fixture below a private parent dir,
-  so the tool's shape-2 anchor cannot glob `$TMPDIR` and pick up a concurrently-running second
-  instance of this same suite (D-7). The case keeps asserting the same contract — an
-  unresolvable live scan fails loudly naming the resolution miss — and the suite passes both
-  serially and under the concurrent lane that reds it today.
+  so the tool's shape-2 anchor cannot glob `$TMPDIR` and pick up a concurrently-running suite's
+  fixture (D-7). The case keeps asserting the same contract — an unresolvable live scan fails
+  loudly naming the resolution miss — and the suite passes both serially and under the
+  concurrent lane that reds it today. The isolation is itself guarded by a new deterministic
+  case `B6c`, which stages a plugin-shaped decoy at the collide depth and re-runs B6's own
+  command against B6's own root: dropping the private parent reds `B6c` in a single process,
+  with no concurrency and no rehearsal. B6 alone does not catch that revert.
 
 ## Out of scope
 

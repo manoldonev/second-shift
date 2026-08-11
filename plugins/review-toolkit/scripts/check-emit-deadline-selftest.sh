@@ -250,16 +250,20 @@ grep -q "spec-reviewer" "$TMP/.live" \
 # cases sit in this file.
 #
 # That root is nested one level BELOW the mktemp dir, which is what makes the isolation hold
-# against a concurrently-running second instance of this same suite. `mktemp -d` returns a
-# direct child of $TMPDIR, so staging the scripts dir at `<mktemp>/lonely/scripts` leaves shape
-# 2 — `$HERE/../../../*/` — globbing $TMPDIR ITSELF, where every other suite's fixtures sit.
-# install-topology-selftest.sh re-runs all 60 shipped suites from a staged cache, so a second
-# copy of THIS file runs alongside the first and stages its own `<mktemp>/plugin-wrong-prefix`
-# with an agents/ dir: the other instance's fixture then resolves here and the premise "nothing
-# resolves" is false through no fault of the tool. Interposing $B6PARENT means shape 2 globs
-# only that private dir, whose sole child is the staged root.
+# against any OTHER suite running at the same time. `mktemp -d` returns a direct child of
+# $TMPDIR, so staging the scripts dir at `<mktemp>/lonely/scripts` leaves shape 2 —
+# `$HERE/../../../*/*/agents` — globbing `$TMPDIR/*/*/agents`: every fixture any concurrent
+# suite has staged one level below ITS OWN mktemp root. That is an ordinary shape, not an
+# exotic one. check-reviewer-references-selftest.sh does `TMP=$(mktemp -d)` and copies a
+# plugin fixture to `$TMP/plugin-wrong-prefix`, carrying both `.claude-plugin/plugin.json`
+# and `agents/` — a valid shape-2 candidate sitting exactly there. Its fixture then resolves
+# for THIS case and the premise "nothing resolves" goes false through no fault of the tool.
+# The exposure is therefore a plain `SELFTEST_JOBS=4` sweep, not only install-topology's
+# re-run of every shipped suite. Interposing $B6PARENT means shape 2 globs only that private
+# dir, whose sole child is the staged root — asserted by B6c below, not assumed.
 B6PARENT="$(mktemp -d)"; B6ROOT="$B6PARENT/iso"; mkdir -p "$B6ROOT"
-trap 'rm -rf "$TMP" "$B6PARENT"' EXIT
+B6DECOYP="$(mktemp -d)"; B6DECOY="$B6DECOYP/plugin-decoy"
+trap 'rm -rf "$TMP" "$B6PARENT" "$B6DECOYP"' EXIT
 b6="$B6ROOT/lonely/scripts"; mkdir -p "$b6"
 cp "$CHECK" "$b6/check-emit-deadline.sh"
 if (cd "$B6ROOT" && bash "$b6/check-emit-deadline.sh") >"$TMP/.b6" 2>&1; then
@@ -268,6 +272,24 @@ else
   grep -q "no sibling plugin agents dir found" "$TMP/.b6" \
     && ok "B6 an unresolvable live scan fails loudly instead of reporting clean" \
     || bad "B6 failed but did not name the resolution miss ($(cat "$TMP/.b6"))"
+fi
+
+# B6c: B6's isolation ASSERTED, not rehearsed. The comment above claims $B6PARENT is what keeps
+# a concurrent suite's fixture out of shape 2's glob — this stages exactly such a fixture and
+# re-runs B6's own command against B6's own root, so dropping the nesting fails HERE, in one
+# deterministic process, instead of intermittently in whoever's sweep happens to interleave.
+# The decoy sits at `<its own mktemp>/plugin-decoy`: the same depth
+# check-reviewer-references-selftest.sh's `$TMP/plugin-wrong-prefix` occupies, which shape 2
+# reaches from a root staged directly at `<mktemp>` and cannot reach from `<mktemp>/iso`.
+mkdir -p "$B6DECOY/.claude-plugin" "$B6DECOY/agents"
+echo '{"name":"decoy","version":"1.0.0"}' > "$B6DECOY/.claude-plugin/plugin.json"
+printf -- '---\nname: decoy-reviewer\nmaxTurns: 5\n---\n' > "$B6DECOY/agents/decoy-reviewer.md"
+if (cd "$B6ROOT" && bash "$b6/check-emit-deadline.sh") >"$TMP/.b6c" 2>&1; then
+  bad "B6c expected rc=1 with a decoy plugin staged at the collide depth, got rc=0 ($(cat "$TMP/.b6c"))"
+else
+  grep -q "no sibling plugin agents dir found" "$TMP/.b6c" \
+    && ok "B6c a concurrent suite's plugin-shaped fixture stays outside B6's resolution glob" \
+    || bad "B6c the decoy resolved into B6's scan — the mktemp nesting no longer isolates it ($(cat "$TMP/.b6c"))"
 fi
 
 # B7: roots resolve, but no agent file is read out of them => still rc=1. Resolving a root is
