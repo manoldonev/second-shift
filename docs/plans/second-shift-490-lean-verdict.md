@@ -1,82 +1,118 @@
 # lean review verdict — #490
 
-verdict=needs-work
-run_id: review-490-1
-session_id: 25ce9959-8300-44ad-81b4-c2065b750de7
-rounds: 1
+verdict=approve
+run_id: review-490-2
+session_id: 94cb9db2-0acc-41be-91ee-01ab22522746
+rounds: 2
 pr: #491
-reviewed_head: a03369d0bf50f471e9f6f61468bf29e57b4b5be8
-reviewed_patch_id: 5d1322d8980b7e41cef64a9900d0b40b164e2059
-inherited_patch_id: none
-inherited_from_verdict: none
+reviewed_head: fd2450e580f1e3f7fe6b5adb5482c51ced015071
+reviewed_patch_id: 5b3f87d523335b173a5bdd86105e06c38b5d52bb
+inherited_patch_id: 5d1322d8980b7e41cef64a9900d0b40b164e2059
+inherited_from_verdict: b83f48b17f137b9fef7deef88bb99b0b25a10413
 fidelity: not-applicable
 model: unknown
 capabilities: pr-marker
 
-Round 1 · full-branch range `4bc19cc..HEAD` (root — nothing to inherit).
+Round 2 · delta range `b83f48b..HEAD` (one commit, two files), inheriting the coverage of
+patch `5d1322d8980b` per the round-1 record.
 
-The code is right. `--review-model-basis` lands exactly as specified, every new assertion is
-live under probe, and the B6 isolation fix is correct. One blocker, and it is entirely in the
-record rather than in the behavior: the committed rationale for AC-8 names a mechanism that is
-measurably false, and the PR body builds a lane recommendation on it.
+Round 1's single blocker is fixed, and fixed correctly: the committed rationale for AC-8 now
+names the real collider, and I re-derived that mechanism from the source rather than taking the
+record's word for it. The round also closed round 1's finding 4 — AC-8 went from a hand-run
+rehearsal to a guard that reds on revert, which I probed. One warning remains, and it is
+entirely in the PR body, which is now self-contradictory: its "ride along" section still states
+the mechanism the same PR proves false four paragraphs later. That is a merge-boundary metadata
+edit, not a commit and not a round.
 
 ## Findings
 
 | # | Severity | Where | Finding |
 | --- | --- | --- | --- |
-| 1 | **blocker** | `plugins/review-toolkit/scripts/check-emit-deadline-selftest.sh:252-260`, `docs/plans/second-shift-490-lean.md` D-7 | The recorded collision mechanism is false. Both say "a second copy of THIS file … stages its own `<mktemp>/plugin-wrong-prefix`". `check-emit-deadline-selftest.sh` never stages `plugin-wrong-prefix`, and no second copy of it can collide via shape 2 at all: every plugin fixture it stages (`b7`, `b9`–`b12`) puts `.claude-plugin/plugin.json` at `$TMP/b<N>/marketplace/…`, two or more levels below `$TMP`, whereas shape 2 requires the marker at `$TMPDIR/<tmpdir>/<x>/`. The real collider is `check-reviewer-references-selftest.sh:284`, which stages `$TMP/plugin-wrong-prefix` — depth 1, carrying both `.claude-plugin/plugin.json` and `agents/` (`fixtures/reviewer-references/plugin/`). That is a different suite, and an ordinary one: it runs in every `SELFTEST_JOBS=4` sweep, not only under `install-topology-selftest.sh`'s duplicate-suite geometry. So the exposure class in the record is narrower than the real one, and the PR body's conclusion — that the milestone-3 lane's failure to exclude install-topology "is what made a latent bug present as this branch's failure" — does not follow from it. |
-| 2 | warning | PR body | "an attempt at a synthetic deterministic repro (staging a plugin-shaped decoy as a `$TMPDIR` sibling) did **not** fire, so the exact trigger geometry is not fully characterised" — falsified. It fires deterministically at the right depth; see the measured repro below. The decoy has to sit at `$TMPDIR/<tmpdir>/<x>/`, not `$TMPDIR/<x>/`, because shape 2 globs `$HERE/../../../*/` and then `*/` beneath it. |
-| 3 | warning | PR title | "A downgraded review model now costs a stated reason" carries no conventional type. `scripts/derive-release.sh:132-149` reads each commit's own `%s` over `$LAST_TAG..HEAD` on main, so after a squash-merge only the PR title survives — the branch's `feat(dev-pipeline):` on `8b6210b` does not. A new operator-facing flag would therefore derive **patch**, not the minor CLAUDE.md's "use the honest verb" rule calls for. Fix is metadata-only (no commit, no round): retitle to `feat(dev-pipeline): a downgraded review model now costs a stated reason`. Precedent that this bites: #488 moved the build payload to `build-lean` under a verbless title and shipped inside the v4.1.4→v4.1.5 **patch**. |
-| 4 | suggestion | `check-emit-deadline-selftest.sh` | Finding 2 makes AC-8's "no guard that fails on revert" closable in this round. A ~12-line case stages the decoy at the collide-shape depth and asserts B6's premise survives it — deterministic, no concurrency, no `-P 10` rehearsal. |
-| 5 | pre-existing | `orchestrate-lean.sh:86-96` | A trailing value-less flag hangs the parse loop forever: `shift 2` with `$#`=1 returns 1 without shifting, so `while [ $# -gt 0 ]` spins. Measured under `alarm 5`: `--review-model-basis` rc=142, and `--build-model` rc=142 identically on the base branch. The new flag inherits the shape rather than introducing it — not this PR's debt. |
+| 1 | warning | PR body, `### A second, unrelated fix rides along` | The section still carries the exact mechanism round 1 falsified, verbatim: "the tool's shape-2 anchor `$HERE/../../../*/` globbing `$TMPDIR` itself" (the anchor is `$HERE/../../../*/*/agents`) and "a second instance of that same file stages its own plugin-shaped fixture as a `$TMPDIR` sibling and resolves for the first". The same body then says, under **AC-8 now has a guard that fails on revert**, that this was wrong and that the collider is `check-reviewer-references-selftest.sh` — a different suite. Both readings sit in one document, so a reader gets the false one first and unqualified. The trailing "Worth noting independently of this PR" paragraph inherits the same defect: "That divergence is what made a latent bug present as this branch's failure" is the install-topology conclusion the corrected D-7 downgrades to "merely widens the window". Fix is metadata-only — rewrite that section to match the committed D-7, which is already correct. |
+| 2 | pre-existing | `orchestrate-lean.sh:86-96` | Carried forward from round 1 unchanged and untouched by this delta: a trailing value-less flag spins the parse loop (`shift 2` with `$#`=1 returns 1 without shifting). Present identically on the base branch for `--build-model`; the new flag inherits the shape rather than introducing it. Not this PR's debt. |
 
-### Measured repro for findings 1, 2 and 4
+### What I verified rather than inherited
 
-Decoy at `<mktemp>/plugin-wrong-prefix/{.claude-plugin/plugin.json,agents/decoy-reviewer.md}`, then the
-two B6 geometries run against the real `check-emit-deadline.sh`:
+The corrected mechanism is not taken on trust — every load-bearing clause of the new D-7 and the
+new B6 comment was re-derived from source in this checkout:
 
-- **pre-fix** (`B6ROOT` = `mktemp -d` directly, as on main): resolves the foreign fixture —
-  `scanning roots: …/tmp.PbhR7Cw0lw/plugin-wrong-prefix/agents`, `2 violation(s) across 1 linted
-  agent(s)`. B6's `grep -q "no sibling plugin agents dir found"` fails. The flake, reproduced.
-- **post-fix** (`B6ROOT` = `<mktemp>/iso`, as on this PR): `FAIL: no sibling plugin agents dir
-  found from …/tmp.PBRFOZw1UK/iso/lonely/scripts`. B6 passes. The fix works.
+- **Shape 2's pattern.** `check-emit-deadline.sh:240` prints its own anchor as
+  `$HERE/../../../*/*/agents`. From `$HERE = <mktemp>/lonely/scripts`, `$HERE/../../..` is
+  `$TMPDIR`, so the glob is `$TMPDIR/*/*/agents` — any fixture one level below another suite's
+  own `mktemp` root. The record's claim is exact.
+- **The named collider is real and is a different suite.**
+  `check-reviewer-references-selftest.sh:284` sets `QUALIFY_WRONG="$TMP/plugin-wrong-prefix"` and
+  `cp -R "$FX/plugin"` into it; `fixtures/reviewer-references/plugin/` carries both
+  `.claude-plugin/` and `agents/`. With `TMP=$(mktemp -d)`, that lands at
+  `$TMPDIR/<tmp>/plugin-wrong-prefix/agents` — precisely shape 2's depth. So the exposure really
+  is an ordinary `SELFTEST_JOBS=4` sweep, and install-topology really does only widen the window.
+- **The isolation bounds the glob.** With `B6ROOT=$B6PARENT/iso`, `$HERE/../../..` resolves to
+  `$B6PARENT`, whose sole child is the staged root — no `*/*/agents` match is reachable.
+
+### Probe of the new guard (round 1's finding 4, now closed)
+
+Run out-of-tree so the reviewed worktree stayed untouched: the whole `scripts/` dir copied to a
+scratch path, with `B6ROOT="$B6PARENT/iso"` reverted to `B6ROOT="$B6PARENT"` — the exact revert
+AC-8 claims B6 alone cannot catch.
+
+- **mutant** (revert applied): `20 passed, 7 failed`. `B6c` fails with its own diagnostic —
+  "the decoy resolved into B6's scan — the mktemp nesting no longer isolates it", naming
+  `…/tmp.eSprNaALtx/plugin-decoy/agents`. **`B6` itself still PASSES.**
+- **control** (same scratch path, line restored): `21 passed, 6 failed`. `B6c` passes.
+
+The one case that moves between the two runs is `B6c`. The six failures common to both (B1–B5,
+B8) are an artifact of running the suite outside a plugin tree and are present with and without
+the mutant, so they carry no signal. This is the claim AC-8 makes, measured in both directions:
+the revert reds `B6c` in a single process, with no concurrency and no rehearsal.
+
+In the real tree, unmutated: `27 passed, 0 failed`, `B6c` included.
+
+### Blast radius of the decoy B6c stages
+
+Checked, because B6c deliberately creates a fixture of exactly the shape that broke B6, and it
+lives until the EXIT trap fires. It is contained: only this suite invokes
+`check-emit-deadline.sh`, its own B6/B6c run against the `iso`-nested root the decoy cannot
+reach, later cases (B7, B9–B12) stage two or more levels below `$TMP` and are unaffected
+(all green in the real-tree run), and a concurrently-running second copy of this file is
+likewise `iso`-nested. `B6DECOYP` is cleaned in the extended trap at `:266`.
 
 ## AC scoring
 
+AC-1 through AC-7 are untouched by this delta; their evidence is the round-1 record's, inherited
+by reference to patch `5d1322d8980b`, and re-affirmed as still standing on this head.
+
 | AC | Score | Evidence |
 | --- | --- | --- |
-| AC-1 | satisfied | `--review-model-basis` parse arm at `:88`, free text, no default, echoed per D-2's format at `:200`. Live: deleting the parse arm kills `(k1)`/`(k3)`/`(k6)`. |
-| AC-2 | satisfied | `:105-107`, after the `[ -n "$REVIEW_MODEL" ]` check and before preflight per D-4; exit 2 via `envfail`; names `--review-model-basis`; interpolates `'$REVIEW_MODEL_DEFAULT'`. Live: `if false` in place of the condition kills `(k2)` and nothing else. `(k2)` asserts `spawn_count` 0. |
-| AC-3 | satisfied (structurally; unguarded) | `opus` now occurs three times — `:17` and `:100` are the build sizing labels D-1 fences off, `:73` is the sole review-default referent (base had a fourth at `:42`, now reworded). Behaviorally unguarded, as the PR body states: substituting the literal `"opus"` into the comparison survives the whole suite. Consistent with D-1's letter, which scopes AC-3 to the referent, not to a mutant. |
-| AC-4 | satisfied | `(k5)` explicit default needs no basis; `(k6)` volunteered basis echoed. Live: always-append kills `(k5)`; never-append kills `(k6)`. |
-| AC-5 | satisfied | `sed -n '2,62p'` — line 62 is the last comment line, 63 is `set -uo pipefail`; +3 comment lines against the base's 59. D-6's claim that case `(n)` already guards this is **verified in both directions**: narrowing to `2,59p` kills `(n)`, and widening to `2,64p` kills `(n)`. No new case owed. |
-| AC-6 | satisfied | `(k1)` carries `--review-model-basis` and still asserts `LEAN_RUN_MODEL: sonnet` reaches `spawn-2`. |
-| AC-7 | satisfied | `(k2)` refusal + 0 spawns + names the flag; `(k3)` accepted departure reaches the spawn and echoes; `(k4)` happy path on the default tier with no basis note; `(k5)`/`(k6)` cover AC-4's two claims. |
-| AC-8 | satisfied (letter) | Fixture nested below `$B6PARENT`; `$HERE/../../../*/` now globs only that private dir. Same contract asserted. Serial: green on this head in both CI selftest jobs (ubuntu + the stock-bash-3.2 macOS job). Collision geometry: isolation holds under the deterministic repro above. Finding 1 is filed against AC-8's *record*, not its behavior. |
+| AC-1 | satisfied | Inherited. `--review-model-basis` parse arm, free text, no default, echoed per D-2. Round 1 probed it live: deleting the arm kills `(k1)`/`(k3)`/`(k6)`. |
+| AC-2 | satisfied | Inherited. Refusal after the `[ -n "$REVIEW_MODEL" ]` check, exit 2, names the flag, interpolates the default. `if false` in its place kills `(k2)` alone. |
+| AC-3 | satisfied (structurally; behaviorally unguarded) | Inherited, and the PR body states the gap plainly rather than papering it: substituting the literal `"opus"` for `REVIEW_MODEL_DEFAULT` survives the whole suite. Consistent with D-1's letter, which scopes AC-3 to the referent, not to a mutant. Recorded as a known limit, not a finding. |
+| AC-4 | satisfied | Inherited. `(k5)` explicit default needs no basis; `(k6)` volunteered basis echoed; always-append kills `(k5)`, never-append kills `(k6)`. |
+| AC-5 | satisfied | Inherited. `sed -n '2,62p'` window; D-6 verified in both directions — narrowing to `2,59p` and widening to `2,64p` each kill `(n)`. |
+| AC-6 | satisfied | Inherited. `(k1)` carries the basis flag and still asserts `LEAN_RUN_MODEL: sonnet` reaches `spawn-2`. |
+| AC-7 | satisfied | Inherited. `(k2)`–`(k6)` cover the refusal, the accepted departure, the untouched happy path, and AC-4's two claims. |
+| AC-8 | satisfied | Now satisfied in full, including the clause this round added. The isolation holds (`$B6PARENT` bounds shape 2's glob, re-derived above); the same contract is still asserted; the suite is green serially and in both CI selftest jobs on this head; and the isolation is now itself guarded by `B6c`, which I probed — the revert reds `B6c` while B6 passes. The spec text was amended this round to require `B6c`, which is a **widening** at the prior round's recommendation, not a retrofit to match the diff: it adds an obligation the diff then meets, rather than deleting one it missed. |
 
 ## Also verified
 
-- Probes P0–P7 on `orchestrate-lean-selftest.sh`: baseline all-green, and each mutant kills only
-  the cases named above — no new assertion is trivially true.
-- D-3 holds: the `${NAME:-value}` site list is order-identical between base and head
-  (`:58` prose, `:66` `GH_CLI`, `:67`, `:68`, `:69`, `:116`, `:142`), and the `default` operator's
-  ERE requires `[A-Za-z_]` after `${`, so the new `${2:-}` parse arm is not a site.
-  `orchestrate-lean.sh::default::1` still names the prose `${GH:-gh}` and needs no re-keying;
-  `mutation-sweep-pr` is green on this head.
-- `shellcheck -e SC1091,SC2015,SC2181` clean on all three changed scripts.
-- Release hygiene: no frozen file touched; every commit carries a `Changelog:` trailer.
-- CI on `a03369d`: `lint-and-selftests`, `selftests (macos, bash 3.2)`, `mutation-sweep-pr` all
-  green. `pr-gates` red on its **lean chain reconciliation** arm only — the missing verdict
-  record, expected pre-review; the frozen-files, changelog-trailer and pipeline-chain arms all pass.
-- Panel: security, performance, maintainability, complexity, test-coverage,
-  scope-completeness — 6/6 approve, zero findings, none dark.
+- Panel: security, performance, maintainability, test-coverage, scope-completeness — **5/5
+  approve, zero findings, none dark**. One suppressed note each from security (the new
+  `$B6DECOYP` root is fixture-only and trap-cleaned) and scope-completeness.
+- `shellcheck -e SC1091,SC2015,SC2181` clean on `check-emit-deadline-selftest.sh`.
+- Mutation ordinals need no re-keying: the delta touches a *selftest* and a doc, not a guard, so
+  no `${NAME:-value}` site order moved. `mutation-sweep-pr` green on `fd2450e`.
+- Release hygiene: no frozen file in the delta; `fd2450e` carries `Changelog: none.`
+- Round 1's finding 3 (verbless PR title deriving a patch instead of a minor) is **fixed** — the
+  title now reads `feat(dev-pipeline): a downgraded review model now costs a stated reason`.
+- Round 1's finding 2 (the "not fully characterised" claim) is **fixed** in the body's AC-8
+  section. Finding 1 above is the part of the same body that was not brought along.
+- CI on `fd2450e`: `lint-and-selftests`, `selftests (macos, bash 3.2)`, `mutation-sweep-pr` all
+  green. `pr-gates` red on its **lean chain reconciliation** arm only, and only because the
+  committed record still reads `verdict=needs-work` from round 1 — the arm says so in as many
+  words. This record clears it.
 
-## What round 2 needs
+## Before merge
 
-Correct the mechanism in `check-emit-deadline-selftest.sh`'s B6 comment and in D-7 — name
-`check-reviewer-references-selftest.sh`'s `$TMP/plugin-wrong-prefix` as the collider, and say that
-the exposure is any concurrently-running suite staging a plugin-shaped dir one level below its
-`mktemp` root, so an ordinary `SELFTEST_JOBS=4` sweep is exposed too, not only install-topology.
-Drop or correct the PR body's "not fully characterised" claim. Landing finding 4's deterministic
-case in the same round is strongly recommended: it is what turns AC-8 from a hand-run rehearsal
-into a guard, and it is now cheap. Finding 3 is a title edit at the merge boundary, not a commit.
+Rewrite the PR body's `### A second, unrelated fix rides along` section (and the "Worth noting
+independently of this PR" paragraph that follows it) to state the mechanism the committed D-7
+already states. It is a body edit at the merge boundary — no commit, no new round, and it does
+not touch the patch this record names.
