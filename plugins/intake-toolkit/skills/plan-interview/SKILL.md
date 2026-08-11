@@ -23,7 +23,17 @@ You elicit **design decisions from the engineer** (plan-authoring). You do NOT:
 
 2. **Build the decision register.** Admission = **materiality**. A decision enters the register only if it changes:
 
-   - observable behavior (user-visible flows, status codes, emitted events),
+   *What the user gets* — the categories that go first because they are the ones an engineering-shaped register silently drops:
+
+   - **states and transitions** — loading, empty, partial, error, not-found, and what moves between them,
+   - **copy the user reads** — labels, messages, empty-state and error text; "we'll word it later" is a decision deferred, not a decision avoided,
+   - **first paint** — what is on screen before the data arrives, and whether anything shifts when it does,
+   - **degraded and missing dependencies** — what the user sees when the thing this depends on is absent, stale, or empty,
+   - **composition and placement** — what else is on the surface, what it sits next to, what is suppressed when there is too little to show.
+
+   *How it is built* — material for the same reason, and lower only because they are the ones that get asked anyway:
+
+   - observable behavior (flows, status codes, emitted events),
    - API or data contracts (endpoint shapes, DTO fields, wire formats),
    - data invariants (uniqueness, soft-delete semantics — every natural key needs a conscious uniqueness decision),
    - scope boundaries (what this PR explicitly does not do),
@@ -32,14 +42,18 @@ You elicit **design decisions from the engineer** (plan-authoring). You do NOT:
 
    Everything below that bar is decided silently and does not enter the register. Material design decisions are near-always groundable, so a recommendation is expected on each question.
 
-3. **Pick the traversal.**
+3. **Enumerate the surfaces, then check the register against them.** The register is whatever you chose to admit, so "the register is empty" grades the interview against itself. Independently of it, list the surfaces and states this ticket implies — every screen, route, state and artifact a user or operator ends up looking at. Then walk that list: each entry is either **decided** by a register row, or **explicitly out of scope with a reason**. An entry that is neither is a missing register row — add it and interview it.
+
+   The list is not scratch work. Pre-flight for a pipeline ticket, it is the receipt's mandated `## Surface Inventory` section — schema in `interviewing-baseline`, enforced by `ledger-lint.sh --receipt`. In a plan-mode plan, write the same section beside the ledger; the section is receipt-only to the lint, so nothing there will fail you for omitting it, which is exactly why it is on you. Genuinely surface-free work states the explicit empty form and moves on.
+
+4. **Pick the traversal.**
 
    - **Flat walk** — ≤ 4 uncoupled decisions: walk the register in any order.
    - **Convergence walk** — ≥ 5 decisions, or any coupling (one answer changes another decision's options): resolve in dependency order, parents first, grill-me style. Both traversals share the same exit criterion.
 
-4. **Interview** per the baseline loop rules (≤ 2 material questions per turn, recommendation first, "your call" → `user-delegated`).
+5. **Interview** per the baseline loop rules (≤ 2 material questions per turn, recommendation first, "your call" → `user-delegated`).
 
-5. **Emit the Decision Ledger** and exit only when the register is empty — every material decision carries a non-`assumed` provenance. Trivial work exits immediately with the explicit empty form.
+6. **Emit the Decision Ledger** and exit only when the register is empty *and* every surface is accounted for — each material decision carrying a non-`assumed` provenance, each surface decided or scoped out. Trivial work exits immediately with both explicit empty forms.
 
 ## Where the ledger lands
 
@@ -51,7 +65,8 @@ You elicit **design decisions from the engineer** (plan-authoring). You do NOT:
 Stop and present uncertainty (what you understood / what's blocking / options / a clear question) when:
 
 - the user's answers contradict each other or the codebase, and rechecking doesn't resolve it;
-- the register keeps growing past ~10 material decisions — the ticket is likely decomposition-worthy; suggest `intake-orchestrator`.
+- the register keeps growing past ~10 material decisions — the ticket is likely decomposition-worthy; suggest `intake-orchestrator`;
+- the register is implausibly **thin** for the scope. A ticket with a page of acceptance criteria about rendered output, answered by a handful of transport and build decisions, has not been under-scoped — it has been mis-scoped, and the surfaces in step 3 are where the missing rows are. Say so and widen; a thin register is the failure this skill is most likely to exit satisfied on, because its exit criterion is met.
 
 ## What NOT to do
 

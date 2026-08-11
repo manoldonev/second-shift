@@ -42,11 +42,27 @@
 # requires exactly four columns, so plan-lint.sh, exitplan-ledger-gate.sh and
 # every in-plan Decision Ledger see no schema change at all.
 #
+# Receipt mode also requires a `## Surface Inventory` section, the structural
+# sibling of `## Open Regions`. The register a ledger records is whatever the
+# interview chose to admit, so "the register is empty" is an exit criterion the
+# interview grades itself against. The inventory is the other side: an
+# enumeration of the surfaces and states the work implies, each one either
+# `decided` (citing the D-n that decides it) or `out-of-scope` (with a reason).
+# It cannot tell you the enumeration was complete — but it turns a surface
+# nobody thought about into a surface nobody LISTED, which is a thing a reader
+# and a script can both see.
+#
+#   | ID  | Surface                          | Disposition                     |
+#   | --- | -------------------------------- | ------------------------------- |
+#   | S-1 | Empty state when no rows load    | decided (D-3)                   |
+#   | S-2 | Print stylesheet                 | out-of-scope — no print in this |
+#
 # Scope honesty: this lint buys structural presence + on-page disclosure,
 # NOT decision quality — a load-bearing decision missing from the ledger
 # entirely is the plan-reviewer's judgment call, not this script's. Receipt mode
 # does not raise that ceiling: it makes an UNDISCLOSED parked decision a lint
-# error; it cannot make an unasked question findable.
+# error, and an unlisted surface a visible omission; it cannot make an unasked
+# question findable.
 #
 # Exit: 0 clean, 1 violations (each named on stderr), 2 usage/IO error.
 set -euo pipefail
@@ -56,7 +72,7 @@ PLAN=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --receipt) RECEIPT=1; shift ;;
-    -h|--help) sed -n '2,51p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,67p' "$0"; exit 0 ;;
     -*) echo "ledger-lint: unknown option: $1" >&2; exit 2 ;;
     *)
       [[ -z "$PLAN" ]] || { echo "ledger-lint: unexpected argument: $1" >&2; exit 2; }
@@ -90,6 +106,8 @@ INTENT_PROVENANCE='user-answered|user-delegated'
 FACT_PROVENANCE='codebase-derived|ticket-sourced'
 DISPOSITION_ENUM='pause-and-ask|reversible-default-and-flag'
 OPEN_EMPTY_FORM='No open regions — every decision in scope is ratified.'
+SURFACE_DISPOSITION_ENUM='decided|out-of-scope'
+SURFACE_EMPTY_FORM='No user-visible surface — this change renders nothing a user reads.'
 
 # quoting-safe whitespace trim — xargs aborts on quotes/apostrophes/backslashes in cells
 trim() {
@@ -223,6 +241,7 @@ fi
 # regions is honest for the scope at hand is a reviewer judgment, not a script's
 # — spec-reviewer's discovery-coverage checklist owns it.
 OPEN_ROW_COUNT=0
+SURFACE_ROW_COUNT=0
 if (( RECEIPT == 1 )); then
   declare -a OPEN_IDS=()
   if ! grep -qiE '^(#{1,6}[[:space:]]+|\*\*)[[:space:]]*open regions' "$PLAN"; then
@@ -281,11 +300,107 @@ if (( RECEIPT == 1 )); then
       fi
     done
   fi
+
+  # ---- Receipt check D: the surface inventory ---------------------------------
+  # The ledger's exit criterion is "the register is empty", where the register is
+  # whatever the interview chose to admit — so an interview that never asked about
+  # the empty state exits satisfied. The inventory is the independent axis: the
+  # surfaces and states the work implies, each one accounted for. `decided` cites
+  # the ledger row that decides it; `out-of-scope` says why not. A script cannot
+  # judge whether the enumeration was complete, but it can refuse an inventory
+  # that leaves a listed surface unaccounted for.
+  declare -a SURFACE_IDS=()
+  declare -a SURFACE_CITATIONS=()
+  if ! grep -qiE '^(#{1,6}[[:space:]]+|\*\*)[[:space:]]*surface inventory' "$PLAN"; then
+    violate "missing mandated receipt section: Surface Inventory (enumerate the surfaces and states this work implies — each one 'decided (D-n)' or 'out-of-scope — <reason>' — or state the explicit empty form '$SURFACE_EMPTY_FORM')"
+  fi
+
+  while IFS= read -r line; do
+    masked="${line//\\|/__LEDGER_LINT_PIPE__}"
+    IFS='|' read -r -a cells <<< "$masked"
+    # 3-column row: leading-empty, id, surface, disposition — same arity
+    # discipline as the two loops above.
+    ncells="$(normalize_arity "${#cells[@]}" "${cells[$(( ${#cells[@]} - 1 ))]}" 4)"
+    if (( ncells != 4 )); then
+      violate "malformed surface row (expected 3 columns: ID | Surface | Disposition): $line"
+      continue
+    fi
+    s_id="$(trim "${cells[1]}")"
+    s_surface="$(trim "${cells[2]}")"
+    s_disp="$(trim "${cells[3]}")"
+    SURFACE_IDS+=("$s_id")
+    SURFACE_ROW_COUNT=$((SURFACE_ROW_COUNT + 1))
+    [[ -n "$s_surface" ]] || violate "$s_id row has an empty Surface cell"
+
+    # The disposition token is a PREFIX of the cell, because both values carry a
+    # payload after it. Anchored on a non-word boundary so `decided (D-3)` and
+    # `decided(D-3)` both read as `decided` while `decidedly` does not.
+    s_token=""
+    if [[ "$s_disp" =~ ^(${SURFACE_DISPOSITION_ENUM})([^A-Za-z0-9-]|$) ]]; then
+      s_token="${BASH_REMATCH[1]}"
+    fi
+    case "$s_token" in
+      decided)
+        # An uncited `decided` is the inventory's version of a silent assumption:
+        # it claims a decision exists without naming one, so nothing downstream
+        # can check that it does.
+        d_ref="$(printf '%s' "$s_disp" | grep -oE 'D-[0-9]+' | head -n1 || true)"
+        if [[ -z "$d_ref" ]]; then
+          violate "$s_id row: disposition 'decided' must cite the ledger row that decides it (a D-n id)"
+        else
+          SURFACE_CITATIONS+=("$s_id $d_ref")
+        fi
+        ;;
+      out-of-scope)
+        # Scoping a surface out is a legitimate answer; scoping it out silently is
+        # the batch-blessing move in miniature, so the reason is the whole content
+        # of the row.
+        if ! [[ "${s_disp#*out-of-scope}" =~ [A-Za-z0-9] ]]; then
+          violate "$s_id row: disposition 'out-of-scope' must carry the reason it is out of scope"
+        fi
+        ;;
+      *)
+        violate "$s_id row: disposition '$s_disp' not in {${SURFACE_DISPOSITION_ENUM//|/ | }} — a listed surface that is neither decided nor explicitly scoped out is the gap this section exists to make countable"
+        ;;
+    esac
+  done < <(grep -E '^\|[[:space:]]*S-[0-9]+[[:space:]]*\|' "$PLAN" || true)
+
+  if (( SURFACE_ROW_COUNT == 0 )); then
+    grep -qF "$SURFACE_EMPTY_FORM" "$PLAN" || \
+      violate "Surface Inventory has no rows and no explicit empty form ('$SURFACE_EMPTY_FORM')"
+  fi
+
+  if (( ${#SURFACE_IDS[@]} > 0 )); then
+    s_dupes=$(printf '%s\n' "${SURFACE_IDS[@]}" | sort | uniq -d)
+    [[ -z "$s_dupes" ]] || violate "duplicate surface rows for: $(echo "$s_dupes" | tr '\n' ' ')"
+  fi
+
+  # A `decided` row citing a D-n the ledger never declares is the dangling-citation
+  # failure again — it reads as a covered surface everywhere downstream.
+  if (( ${#SURFACE_CITATIONS[@]} > 0 )); then
+    for citation in "${SURFACE_CITATIONS[@]}"; do
+      cited_row="${citation%% *}"
+      cited_decision="${citation##* }"
+      found=0
+      if (( ${#ROW_IDS[@]} > 0 )); then
+        for d_id in "${ROW_IDS[@]}"; do
+          if [[ "$d_id" == "$cited_decision" ]]; then
+            found=1
+            break
+          fi
+        done
+      fi
+      if (( found == 0 )); then
+        violate "$cited_row row cites decision '$cited_decision', which the Decision Ledger does not declare"
+      fi
+    done
+  fi
 fi
 
 echo "ledger-lint: ${ROW_COUNT} ledger row(s)"
 if (( RECEIPT == 1 )); then
   echo "ledger-lint: ${OPEN_ROW_COUNT} open region(s)"
+  echo "ledger-lint: ${SURFACE_ROW_COUNT} surface(s)"
 fi
 if (( VIOLATIONS > 0 )); then
   echo "ledger-lint: FAIL — $VIOLATIONS violation(s)" >&2

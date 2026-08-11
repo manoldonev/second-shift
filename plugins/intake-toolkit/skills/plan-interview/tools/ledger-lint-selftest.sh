@@ -159,18 +159,24 @@ echo "[ledger-lint-selftest] receipt mode (--receipt): the ratification bar"
 # The receipt fixture, reduced to the one row each case mutates, so a case's
 # failure names a single cause. Built from the fixture rather than hand-written
 # so a schema drift in the fixture surfaces here too.
-receipt_with() { # receipt_with <ledger-rows-file> <open-rows-block>
+receipt_with() { # receipt_with <ledger-rows-file> <open-rows-block> [surface-block]
   printf '%s\n' '# R' '## Decision Ledger' \
     '| ID  | Decision | Resolution | Provenance | Kind |' \
     '| --- | -------- | ---------- | ---------- | ---- |'
   cat "$1"
   printf '\n%s\n' '## Open Regions'
   printf '%s\n' "$2"
+  printf '\n%s\n' '## Surface Inventory'
+  printf '%s\n' "${3-$SURFACE_EMPTY}"
 }
 
-# The explicit empty form, spelled once. Cases that are not ABOUT open regions
-# use it so their failure cannot be an open-region failure in disguise.
+# The explicit empty forms, spelled once each. Cases that are not ABOUT open
+# regions (or surfaces) use them so their failure cannot be an open-region or
+# surface failure in disguise. SURFACE_EMPTY is `receipt_with`'s default third
+# argument, so every case predating the Surface Inventory section keeps naming
+# exactly one cause.
 OPEN_EMPTY='No open regions — every decision in scope is ratified.'
+SURFACE_EMPTY='No user-visible surface — this change renders nothing a user reads.'
 
 # (ll-o) the fixture receipt — every Kind value, every legal pairing → 0
 rc=$(lint_rc --receipt "$FIX/valid-receipt.md")
@@ -178,11 +184,11 @@ rc=$(lint_rc --receipt "$FIX/valid-receipt.md")
   && pass "(ll-o) valid receipt (5 rows, 3 kinds, 2 open regions) → 0" \
   || fail "(ll-o) valid receipt — got rc=$rc"
 
-# (ll-p) open-region count reported on stdout
+# (ll-p) open-region and surface counts reported on stdout
 out=$(bash "$LINT" --receipt "$FIX/valid-receipt.md" 2>/dev/null)
-grep -q "2 open region(s)" <<< "$out" \
-  && pass "(ll-p) open-region count reported" \
-  || fail "(ll-p) open-region count — got: $out"
+grep -q "2 open region(s)" <<< "$out" && grep -q "3 surface(s)" <<< "$out" \
+  && pass "(ll-p) open-region and surface counts reported" \
+  || fail "(ll-p) receipt counts — got: $out"
 
 # (ll-q) THE BAR. An intent-resolving row backed by a derived or parked
 # provenance is the exact comprehension debt receipt mode exists to count, so
@@ -253,6 +259,7 @@ printf '%s\n' '# R' '## Decision Ledger' \
   '| ID  | Decision | Resolution | Provenance | Kind |' \
   '| --- | -------- | ---------- | ---------- | ---- |' \
   '| D-1 | Rate limit for the import endpoint | 100/min | user-answered | intent |' \
+  '' '## Surface Inventory' "$SURFACE_EMPTY" \
   > "$TMP/no-open-section.md"
 rc=$(lint_rc --receipt "$TMP/no-open-section.md")
 err=$(bash "$LINT" --receipt "$TMP/no-open-section.md" 2>&1 >/dev/null || true)
@@ -345,6 +352,169 @@ err=$(bash "$LINT" --receipt "$TMP/or-dupe.md" 2>&1 >/dev/null || true)
 [[ "$rc" -eq 1 ]] && grep -q "duplicate open-region rows for: OR-1" <<< "$err" \
   && pass "(ll-ae) duplicated OR-n → 1, named" \
   || fail "(ll-ae) duplicate open-region rows — rc=$rc err=$err"
+
+echo "[ledger-lint-selftest] receipt mode (--receipt): the surface inventory"
+
+# The inventory's cases all share one well-formed ledger, so a failure names a
+# surface-row cause and not a ratification-bar one. D-1 and D-2 exist, D-9 does not
+# — that asymmetry is what the dangling-citation case rides on.
+printf '%s\n' '| D-1 | Rate limit for the import endpoint | 100/min | user-answered | intent |
+| D-2 | Empty-list copy | "Nothing imported yet" | user-answered | intent |' > "$TMP/surface-ledger.md"
+surface_receipt() { # surface_receipt <surface-block>
+  receipt_with "$TMP/surface-ledger.md" "$OPEN_EMPTY" "$1"
+}
+
+# (ll-ag) a well-formed inventory, both dispositions → 0. The discriminator: every
+# refusal below is satisfied by a mode that rejects every inventory, and this is the
+# only case that says otherwise.
+surface_receipt '| ID | Surface | Disposition |
+| --- | --- | --- |
+| S-1 | Loading state for the import list | decided (D-1) |
+| S-2 | Print stylesheet | out-of-scope — nothing here is printed |' > "$TMP/surface-ok.md"
+rc=$(lint_rc --receipt "$TMP/surface-ok.md")
+err=$(bash "$LINT" --receipt "$TMP/surface-ok.md" 2>&1 >/dev/null || true)
+[[ "$rc" -eq 0 ]] \
+  && pass "(ll-ag) well-formed surface inventory (both dispositions) → 0" \
+  || fail "(ll-ag) well-formed inventory — rc=$rc err=$err"
+
+# (ll-ah) no Surface Inventory section at all → 1. THE point of the section: a receipt
+# that lists no surfaces is claiming the work implies none, and the claim has to be
+# made rather than left implicit. Built inline because `receipt_with` always emits one.
+printf '%s\n' '# R' '## Decision Ledger' \
+  '| ID  | Decision | Resolution | Provenance | Kind |' \
+  '| --- | -------- | ---------- | ---------- | ---- |' \
+  '| D-1 | Rate limit for the import endpoint | 100/min | user-answered | intent |' \
+  '' '## Open Regions' "$OPEN_EMPTY" \
+  > "$TMP/no-surface-section.md"
+rc=$(lint_rc --receipt "$TMP/no-surface-section.md")
+err=$(bash "$LINT" --receipt "$TMP/no-surface-section.md" 2>&1 >/dev/null || true)
+[[ "$rc" -eq 1 ]] && grep -q "missing mandated receipt section: Surface Inventory" <<< "$err" \
+  && pass "(ll-ah) receipt with no Surface Inventory section → 1, named" \
+  || fail "(ll-ah) missing Surface Inventory — rc=$rc err=$err"
+
+# (ll-ai) the section present but empty of rows AND of the explicit empty form → 1.
+# Distinct from (ll-ah): a heading with prose under it reads as an inventory to a
+# human skimming the receipt, which is the worse of the two failures.
+surface_receipt 'some prose about the UI, no table, no empty form.' > "$TMP/surface-no-rows.md"
+rc=$(lint_rc --receipt "$TMP/surface-no-rows.md")
+err=$(bash "$LINT" --receipt "$TMP/surface-no-rows.md" 2>&1 >/dev/null || true)
+[[ "$rc" -eq 1 ]] && grep -q "Surface Inventory has no rows and no explicit empty form" <<< "$err" \
+  && pass "(ll-ai) Surface Inventory with neither rows nor empty form → 1, named" \
+  || fail "(ll-ai) empty Surface Inventory — rc=$rc err=$err"
+
+# (ll-aj) the explicit empty form alone → 0. Genuinely surface-free work (a lint, a
+# CI change) must have a legal way through; without this case the section would be
+# a tax that every backend ticket pays in invented rows.
+surface_receipt "$SURFACE_EMPTY" > "$TMP/surface-empty-form.md"
+rc=$(lint_rc --receipt "$TMP/surface-empty-form.md")
+err=$(bash "$LINT" --receipt "$TMP/surface-empty-form.md" 2>&1 >/dev/null || true)
+[[ "$rc" -eq 0 ]] \
+  && pass "(ll-aj) Surface Inventory explicit empty form → 0" \
+  || fail "(ll-aj) surface empty form — rc=$rc err=$err"
+
+# (ll-ak) a disposition outside the closed enum → 1. The default arm is what makes the
+# enum closed; without it a surface could carry any word and fall through both
+# disposition-specific checks silently — an unaccounted surface that reads as accounted.
+surface_receipt '| S-1 | Loading state for the import list | probably fine |' > "$TMP/surface-bad-disp.md"
+rc=$(lint_rc --receipt "$TMP/surface-bad-disp.md")
+err=$(bash "$LINT" --receipt "$TMP/surface-bad-disp.md" 2>&1 >/dev/null || true)
+[[ "$rc" -eq 1 ]] && grep -q "disposition 'probably fine' not in" <<< "$err" \
+  && pass "(ll-ak) surface disposition outside the enum → 1, named" \
+  || fail "(ll-ak) illegal surface disposition — rc=$rc err=$err"
+
+# (ll-al) `decided` citing no D-n → 1. The inventory's version of a silent assumption:
+# it asserts a decision exists without naming one.
+surface_receipt '| S-1 | Loading state for the import list | decided |' > "$TMP/surface-uncited.md"
+rc=$(lint_rc --receipt "$TMP/surface-uncited.md")
+err=$(bash "$LINT" --receipt "$TMP/surface-uncited.md" 2>&1 >/dev/null || true)
+[[ "$rc" -eq 1 ]] && grep -q "disposition 'decided' must cite the ledger row" <<< "$err" \
+  && pass "(ll-al) 'decided' citing no D-n → 1, named" \
+  || fail "(ll-al) uncited decided row — rc=$rc err=$err"
+
+# (ll-am) `decided` citing a D-n the ledger does not declare → 1. Distinct from (ll-al)
+# for the same reason (ll-u) is distinct from (ll-t): a citation resolving to nothing
+# reads as a covered surface in every downstream artifact.
+surface_receipt '| S-1 | Loading state for the import list | decided (D-9) |' > "$TMP/surface-dangling.md"
+rc=$(lint_rc --receipt "$TMP/surface-dangling.md")
+err=$(bash "$LINT" --receipt "$TMP/surface-dangling.md" 2>&1 >/dev/null || true)
+[[ "$rc" -eq 1 ]] && grep -q "S-1 row cites decision 'D-9', which the Decision Ledger does not declare" <<< "$err" \
+  && pass "(ll-am) 'decided' citing an undeclared D-n → 1, named" \
+  || fail "(ll-am) dangling surface citation — rc=$rc err=$err"
+
+# (ll-an) `out-of-scope` with no reason → 1. Scoping a surface out is legitimate;
+# scoping it out silently is the batch-blessing move in miniature.
+surface_receipt '| S-1 | Print stylesheet | out-of-scope |' > "$TMP/surface-no-reason.md"
+rc=$(lint_rc --receipt "$TMP/surface-no-reason.md")
+err=$(bash "$LINT" --receipt "$TMP/surface-no-reason.md" 2>&1 >/dev/null || true)
+[[ "$rc" -eq 1 ]] && grep -q "must carry the reason it is out of scope" <<< "$err" \
+  && pass "(ll-an) 'out-of-scope' with no reason → 1, named" \
+  || fail "(ll-an) reasonless out-of-scope — rc=$rc err=$err"
+
+# (ll-ao) the token is a PREFIX match on a non-word boundary, so a word that merely
+# starts with a legal token is not one. Without this the enum check degrades to a
+# substring test and `decidedly unclear` lints clean as a decided surface.
+surface_receipt '| S-1 | Loading state for the import list | decidedly unclear (D-1) |' > "$TMP/surface-prefix.md"
+rc=$(lint_rc --receipt "$TMP/surface-prefix.md")
+err=$(bash "$LINT" --receipt "$TMP/surface-prefix.md" 2>&1 >/dev/null || true)
+[[ "$rc" -eq 1 ]] && grep -q "disposition 'decidedly unclear (D-1)' not in" <<< "$err" \
+  && pass "(ll-ao) a disposition merely PREFIXED by a legal token → 1, named" \
+  || fail "(ll-ao) prefix-boundary discrimination — rc=$rc err=$err"
+
+# (ll-ap) an empty Surface cell. The arity is legal, so only this check stands between
+# an unnamed surface and a receipt reporting "1 surface(s)" as if it listed one.
+surface_receipt '| S-1 |  | decided (D-1) |' > "$TMP/surface-blank.md"
+rc=$(lint_rc --receipt "$TMP/surface-blank.md")
+err=$(bash "$LINT" --receipt "$TMP/surface-blank.md" 2>&1 >/dev/null || true)
+[[ "$rc" -eq 1 ]] && grep -q "S-1 row has an empty Surface cell" <<< "$err" \
+  && pass "(ll-ap) surface row with an empty Surface cell → 1, named" \
+  || fail "(ll-ap) empty Surface cell — rc=$rc err=$err"
+
+# (ll-aq) wrong arity. Disposition is read positionally, so a fourth column silently
+# shifts what gets enum-checked — the same failure (ll-ac) guards on open regions.
+surface_receipt '| S-1 | Loading state | decided (D-1) | and one more |' > "$TMP/surface-arity.md"
+rc=$(lint_rc --receipt "$TMP/surface-arity.md")
+err=$(bash "$LINT" --receipt "$TMP/surface-arity.md" 2>&1 >/dev/null || true)
+[[ "$rc" -eq 1 ]] && grep -q "malformed surface row" <<< "$err" \
+  && pass "(ll-aq) surface row of the wrong arity → 1, named" \
+  || fail "(ll-aq) malformed surface row — rc=$rc err=$err"
+
+# (ll-ar) a duplicated S-n. Both rows are individually well-formed; the failure is that
+# the inventory no longer accounts for two distinct surfaces, and a reader counting
+# rows against the scope gets the wrong number.
+surface_receipt '| S-1 | Loading state | decided (D-1) |
+| S-1 | Empty state | decided (D-2) |' > "$TMP/surface-dupe.md"
+rc=$(lint_rc --receipt "$TMP/surface-dupe.md")
+err=$(bash "$LINT" --receipt "$TMP/surface-dupe.md" 2>&1 >/dev/null || true)
+[[ "$rc" -eq 1 ]] && grep -q "duplicate surface rows for: S-1" <<< "$err" \
+  && pass "(ll-ar) duplicated S-n → 1, named" \
+  || fail "(ll-ar) duplicate surface rows — rc=$rc err=$err"
+
+# (ll-as) MODE ISOLATION for the new section, matching (ll-y). The inventory is
+# receipt-only, so an in-plan ledger must lint clean by default — otherwise every
+# ExitPlanMode in every consumer repo starts failing on a section the plan contract
+# never mentions.
+#
+# The plan here carries a Surface Inventory that is malformed on EVERY axis the
+# receipt checks: no empty form, a duplicated id, a blank Surface cell, a
+# disposition outside the enum, and a `decided` citing a D-n the ledger does not
+# declare. A plan ledger with no S-n rows at all (which is what `valid-ledger.md`
+# is, and what (ll-a) already drives) cannot distinguish "the parser is gated off"
+# from "the parser ran and found nothing" — this fixture can.
+printf '%s\n' '# P' '## Decision Ledger' \
+  '| ID  | Decision | Resolution | Provenance |' \
+  '| --- | -------- | ---------- | ---------- |' \
+  '| D-1 | Rate limit for the import endpoint | 100/min | user-answered |' \
+  '' '## Surface Inventory' \
+  '| ID | Surface | Disposition |' \
+  '| --- | --- | --- |' \
+  '| S-1 |  | probably fine |' \
+  '| S-1 | Loading state | decided (D-9) |' \
+  > "$TMP/plan-with-surfaces.md"
+rc=$(lint_rc "$TMP/plan-with-surfaces.md")
+err=$(bash "$LINT" "$TMP/plan-with-surfaces.md" 2>&1 >/dev/null || true)
+[[ "$rc" -eq 0 ]] \
+  && pass "(ll-as) plan carrying a malformed Surface Inventory, default mode → 0" \
+  || fail "(ll-as) surface check leaked into default mode — rc=$rc err=$err"
 
 # (ll-af) --help prints the header, and only the header. `sed -n '2,Np'` is a
 # hand-maintained line number: growing the header silently truncates the help text, and

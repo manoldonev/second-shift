@@ -464,25 +464,30 @@ lean-inherited-key-reconcile	verbatim	plugins/dev-pipeline/skills/build-lean/lea
 # Revisit if lean-reconcile.sh grows the receipt arm (#394 defers it) — it becomes a third copy.
 lean-design-armed	verbatim	plugins/dev-pipeline/skills/build-lean/lean-gate.sh	lean-design-armed	scripts/check-lean-chain.sh	lean-design-armed
 
-# intake-receipt vocabulary (Kind enum, disposition enum, intent-gap record schema) —
+# intake-receipt vocabulary (Kind enum, open-region disposition enum, surface disposition
+# enum, the two explicit empty forms, intent-gap record schema) —
 # `interviewing-baseline/SKILL.md` states it in prose and tables; `ledger-lint.sh` holds the
-# only machine copies (KIND_ENUM, DISPOSITION_ENUM), and `scripts/check-lean-chain.sh` reads
+# only machine copies (KIND_ENUM, DISPOSITION_ENUM, SURFACE_DISPOSITION_ENUM, OPEN_EMPTY_FORM,
+# SURFACE_EMPTY_FORM), and `scripts/check-lean-chain.sh` reads
 # the record's `ratified:` / `ratified_by:` keys. A real coupling: a Kind value added to the
 # doc and not the lint is a value the receipt gate rejects with a message naming the enum the
-# author just read.
+# author just read. The empty forms are the sharper case — the lint compares them with
+# `grep -qF`, so a doc-side reword of one word makes the form the author copied unusable.
 # Considered for a row and DROPPED: the doc side is a markdown table of prose descriptions,
 # not a quoted literal — `verbatim` would compare a table against a shell assignment, and
 # `subset-of` reads the FIRST quoted literal in a block, of which the doc has none. Inventing
 # a canonical constant on the doc side purely to be compared is the "duplicate machinery is
-# worse than none" case this file's header names.
-# Guarded behaviorally instead: ledger-lint-selftest.sh drives all three Kind values and both
-# dispositions against real receipts (ll-o through ll-y2), so an enum edit that breaks the
+# worse than none" case this file's header names. The empty forms ARE quoted literals on the
+# lint side but sit inside fenced code blocks on the doc side, where neither relation reaches.
+# Guarded behaviorally instead: ledger-lint-selftest.sh drives all three Kind values, both
+# open-region dispositions and both surface dispositions against real receipts (ll-o through
+# ll-as), including each empty form and each refusal, so an enum or form edit that breaks the
 # contract fails there rather than drifting; check-lean-chain-selftest.sh (R0)-(R4) does the
 # same for the record's two keys at the merge boundary.
 # NOTE the deliberate NON-coupling: the lean chain gate checks ratification ONLY and does not
-# re-validate `disposition:` against the enum. That is what keeps the enum single-sited — a
+# re-validate `disposition:` against either enum. That is what keeps them single-sited — a
 # second copy in CI would create exactly the pair this entry declines to create.
-# Revisit if a third site starts parsing either enum.
+# Revisit if a third site starts parsing any of these enums.
 
 # ticketTag semantics (staged-lane gate input vs lean-lane advisory hint) — three sites state
 # it: `docs/config-schema.md`'s topology row/principles, the schema's own `ticketTag`

@@ -3,7 +3,8 @@
 ## Context
 
 Fixture. Exercises a well-formed INTAKE receipt: every Kind value, every legal
-Kind/provenance pairing, and an `open` row mapped to a declared region.
+Kind/provenance pairing, an `open` row mapped to a declared region, and a surface
+inventory carrying both dispositions.
 
 ## Decision Ledger
 
@@ -24,6 +25,14 @@ Kind/provenance pairing, and an `open` row mapped to a declared region.
 
 OR-2's reversible default: 90 days, matching the neighboring audit table; flagged on
 the PR so the operator can widen it without a migration.
+
+## Surface Inventory
+
+| ID | Surface | Disposition |
+| --- | --- | --- |
+| S-1 | First paint while the import list is still loading | decided (D-1) |
+| S-2 | Empty state when the user has imported nothing yet | decided (D-2) |
+| S-3 | Print stylesheet for the import report | out-of-scope — nothing in this ticket is printed |
 
 ## Implementation steps
 
