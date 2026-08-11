@@ -63,6 +63,34 @@ build session write its own verdict; that debt is closed, not tolerated.
 *substitutively*: the existing prose copies of the don't-split-for-splitting rule are replaced by
 this single anchor, rather than a new copy being added beside them.
 
+## The three velocity principles
+
+Operator-stated, from running the manual lane: it is slow, over-strict, and waits in vain. These
+bind **every** block of the lane — the scheduler, `build-lean`, `review-lean`, and the gates —
+retrospectively, not only new code. They sit beside P1–P10 rather than inside them: P4 is about
+what a run *spends*, and these are about what it *waits for*. Like the ten, they are a judgment
+aid and a review criterion, not a gate; a lint that policed their wording would be the first thing
+P5 forbids.
+
+- **V1 — Velocity is a design criterion, equal to correctness.** Wall-clock on the ticket →
+  mergeable-PR path counts: speed of implementation, of review, of CI, of making the PR
+  mergeable. A gate that is right but slow is not done — it gets faster, moves off the critical
+  path, or goes advisory. Strictness that cannot change the merge decision does not get to block.
+- **V2 — Never idle-block on a non-prerequisite.** No session, and above all no operator, waits
+  on execution whose output the next step does not directly consume. Advisory or CI-duplicated
+  work runs in the background or on CI. The operator-in-the-middle wait between build and review
+  is the specific latency the lane's scheduler exists to delete: build → review chains the moment
+  the PR exists, with zero human latency between phases.
+- **V3 — Parallel-first is an implementation requirement.** Every skill, script and gate ships
+  written for parallel execution: independent work fans out (job-pooled scripts, concurrent
+  dispatch, probes with no data dependency between them). Serial execution of independent steps
+  is a reviewable defect, not a style choice.
+
+**V3 posture:** it binds new code from its statement onward, and retro-binds the existing gates as
+a *profiling* obligation rather than a refactor mandate — a serial-independent-step finding is
+recorded with its measurement and filed, because parallelizing a 187KB gate blind is how a
+correctness regression enters through a velocity door.
+
 ## The trust boundary
 
 Nothing inside the session is proof. The agent executes with file access, so local artifacts — state

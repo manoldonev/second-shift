@@ -1,7 +1,7 @@
 # Live-render verify — wiring a consumer render harness
 
 `design.liveRender` names one repo-owned render command that **two** gates use, with different
-postures — the staged lane's Stage-5 verify gate and `/dev-pipeline:run-lean`'s milestone 3.
+postures — the staged lane's Stage-5 verify gate and `/dev-pipeline:build-lean`'s milestone 3.
 
 Under **Stage 5** (#84): after the design engine implements a screen, the gate runs your command,
 reads the emitted PNG, and semantically compares it against the cached design frame (placement,
@@ -12,7 +12,7 @@ Not to be confused with `stageParams.visualCapture` — that is Stage-6's **advi
 (observation only, never gates); `design.liveRender` is the Stage-5 design-fidelity check with an
 in-session fix loop behind it.
 
-`/dev-pipeline:run-lean` reads the **same key** with a **different failure posture** — blocking,
+`/dev-pipeline:build-lean` reads the **same key** with a **different failure posture** — blocking,
 per-ticket, and receipted. See [Lean-lane wiring](#lean-lane-wiring) below; the split is stated
 per bullet in [The command contract](#the-command-contract).
 
@@ -54,7 +54,7 @@ Your script owns **boot, auth, and screenshot**. The gate owns route derivation 
   reason on a lean milestone-3 red.
 - **Failure posture is per-lane, and this is the one real split.** Under **Stage 5** it is
   non-blocking: the gate degrades to `render-verify-unavailable` with your message and never aborts
-  the run. Under **run-lean** it is **blocking** — a failure reds milestone 3 on the run's shared
+  the run. Under **build-lean** it is **blocking** — a failure reds milestone 3 on the run's shared
   3-attempt fix budget, and the 4th red hard-stops. Make the message good enough that the operator
   can fix the prerequisite and re-run either way; under lean it costs an attempt.
 - **`readyProbe`** — declare your harness's external prerequisite (typically a sibling BE health
@@ -92,7 +92,7 @@ A worked example: a Vite MIFE mounted in a platform admin shell, backed by a sib
 
 ## Lean-lane wiring
 
-`/dev-pipeline:run-lean` reads `design.liveRender` directly. The `extraLanes` workaround this
+`/dev-pipeline:build-lean` reads `design.liveRender` directly. The `extraLanes` workaround this
 section used to describe is **superseded** — an opaque lane retained no screenshot, named no
 state, and bound nothing to a review, which is exactly how a *passing* render came to verify a
 screen's default collapsed state.

@@ -16,7 +16,7 @@ operations are tabulated in [`../README.md`](../README.md#the-lean-lane-dev-pipe
 
 > **Draft vs ready is a `run`-lane rule, not an adapter rule.** `run` opens a **draft** PR
 > here because a draft is not "In Review" and must not advance the ticket: the operator
-> promotes it manually at the lane's own promotion step. `run-lean` has no promotion step,
+> promotes it manually at the lane's own promotion step. The lean lane has no promotion step,
 > so that rationale does not apply and D-27's **ready** (non-draft) PR contract holds under
 > both trackers — `lean-gate.sh` milestone 5 rejects a draft on either adapter.
 

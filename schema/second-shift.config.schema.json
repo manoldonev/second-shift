@@ -207,7 +207,7 @@
           "type": "object",
           "additionalProperties": false,
           "required": ["command"],
-          "description": "Arms a repo-owned render command in BOTH lanes, with DIFFERENT failure postures. Stage 5: key absent = render-verify-unavailable (unconfigured); command failure is non-blocking — the gate degrades with the failure detail, never mark-failed. run-lean milestone 3: additionally requires a per-ticket `## Design` section in the committed spec (config alone arms nothing), and failure is BLOCKING on the run's shared 3-attempt fix budget with no degraded state. See docs/live-render.md.",
+          "description": "Arms a repo-owned render command in BOTH lanes, with DIFFERENT failure postures. Stage 5: key absent = render-verify-unavailable (unconfigured); command failure is non-blocking — the gate degrades with the failure detail, never mark-failed. build-lean milestone 3: additionally requires a per-ticket `## Design` section in the committed spec (config alone arms nothing), and failure is BLOCKING on the run's shared 3-attempt fix budget with no degraded state. See docs/live-render.md.",
           "properties": {
             "command": {
               "type": "string",

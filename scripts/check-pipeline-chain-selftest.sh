@@ -89,7 +89,7 @@ trail "$FULL" \
 # repo is not a marketplace checkout, so the payload is reached through LEAN_EVIDENCE — the same
 # seam a vendored fork uses — pointed at the REAL file. Copying it in would be a mirror harness
 # that cannot fail on a production edit.
-LEAN_EV="$HERE/../plugins/dev-pipeline/skills/run-lean/lean-evidence.sh"
+LEAN_EV="$HERE/../plugins/dev-pipeline/skills/build-lean/lean-evidence.sh"
 if [[ ! -f "$LEAN_EV" ]]; then
   echo "FATAL: $LEAN_EV does not exist — this check now delegates its lean exclusion to it." >&2
   exit 2

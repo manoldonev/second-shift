@@ -160,7 +160,7 @@ fi
 # under the pin.
 if [ -z "${PR_HEAD_REF:-}" ]; then
   ok "lean evidence: no PR context (not a pull_request run) — not applicable"
-elif fetch_at_ref "lean-evidence" "plugins/dev-pipeline/skills/run-lean/lean-evidence.sh" "${SECOND_SHIFT_LEAN_EVIDENCE:-}"; then
+elif fetch_at_ref "lean-evidence" "plugins/dev-pipeline/skills/build-lean/lean-evidence.sh" "${SECOND_SHIFT_LEAN_EVIDENCE:-}"; then
   EV="$FETCHED"
   bash "$EV" all
   EV_RC=$?

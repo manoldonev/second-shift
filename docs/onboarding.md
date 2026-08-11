@@ -65,8 +65,8 @@ from the same pair.
 `topology.repos.<id>.ticketTag` on the host's `be`/`fe` entries (e.g. `"[BE]"` / `"[FE]"`)
 reads two ways depending on which lane is running it: the staged lane's Stage 1.T resolves
 `TARGET_REPOS` from it as a gate input, but the lean lane never reads it as a gate — it is
-**advisory only**, for a human (or the future thin orchestrator) deciding which repo's
-checkout to launch `/dev-pipeline:run-lean` from. **FE-tagged tickets run from the FE
+**advisory only**, and it is what routes the lane: whoever launches `/dev-pipeline:run-lean`
+— an operator or the scheduler itself — reads the tag to pick the repo checkout to launch from. **FE-tagged tickets run from the FE
 repo.** The `intake-orchestrator` skill enforces the corresponding discipline at
 ticket-filing time: a title carrying both pair tags, or neither, is rejected before spec
 review even starts, and genuine cross-repo scope splits into one BE ticket and one FE
@@ -334,18 +334,21 @@ Three layers, in order:
 
 Then the read-only preflight — the onboarding finish line. `/second-shift:onboard` runs it as its final step; manually, resolve the dev-pipeline install path (`claude plugin list --json` → `.installPath`) and run `bash "<installPath>/skills/run/tools/preflight.sh"`. It echoes the resolved targets, runs the config gates and the environment doctor, performs one tracker READ (no claim), executes every non-null command lane once (source-mutating lanes are skipped with a note), and writes `.claude/pipeline-state/preflight-report.md` — zero tracker/git/remote mutations, so the first mutating contact happens only after everything else is proven green.
 
-Then a first run on a small, self-contained ticket. The default lane routes
-intake → build → review → merge boundary, gated by five artifact milestones:
+Then a first run on a small, self-contained ticket. The front door is a scheduler over the
+lane's blocks — it spawns each in a fresh session and reads its outcome, authoring nothing:
 
 ```text
 /dev-pipeline:run-lean <ticket>
 ```
 
-**It takes two sessions, and that is the design.** The build session stops at milestone 4 and
+**It takes two sessions, and that is the design.** The build block stops at milestone 4 and
 hands off: the verdict is authored by a separate top-level session, because a session grading
-its own work is not an independent review. Run the second half against the PR the build opened —
+its own work is not an independent review. The scheduler chains them for you, with no operator
+wait in between. Driven by hand — the two-terminal flow, and the rescue path — it is the same
+two blocks, unchanged:
 
 ```text
+/dev-pipeline:build-lean <ticket>
 /dev-pipeline:review-lean <pr>
 ```
 
@@ -355,7 +358,7 @@ build session cannot shortcut it: `lean-gate.sh verdict` refuses to run inside t
 session at all. A verdict also has to cover the head it is read against, so pushing more
 commits after an approve costs another review round.
 
-Autonomous mode is safe to trust on day one because it never guesses: `run-lean`'s entry
+Autonomous mode is safe to trust on day one because it never guesses: `build-lean`'s entry
 gate refuses without a live audit ledger, and on a GitHub tracker the session also refuses
 without the queue label (a read-only tracker has no queue). Both fire before any work begins,
 and every milestone gate **fail-fasts with a written reason** instead of asking — `.claude/pipeline-state/<issue>-lean-progress.md` tells you exactly why. (The rollback lane,

@@ -201,7 +201,7 @@ async function main() {
     // whose soundness rests on meta blocks being pure literals, so a workflow outside the
     // scanned set is both unlinted AND unsafe to drive through the shim.
     //
-    // Exactly one directory is in the list today. run-lean used to ship a second (its
+    // Exactly one directory is in the list today. The lean lane used to ship a second (its
     // in-build reviewer workflow); that reviewer became a separate top-level review session
     // and the directory was REMOVED rather than left empty — an empty-but-present directory
     // contributes zero meta files and would make this case silently narrower than it reads.

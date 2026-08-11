@@ -95,8 +95,8 @@ REPO_SLUG="$(cfg "$HOST_Q" 'acme')"
 # retired `'claude/acme-'` default is not restored as a local fallback — a placeholder namespace
 # silently matches nothing here, which reads as "no open lean work" rather than as a
 # misconfiguration.
-# shellcheck source=../../run-lean/branch-prefix.sh
-. "$(cd "$(dirname "${BASH_SOURCE[0]}")/../../run-lean" && pwd)/branch-prefix.sh"
+# shellcheck source=../../build-lean/branch-prefix.sh
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")/../../build-lean" && pwd)/branch-prefix.sh"
 BRANCH_PREFIX=""
 if [ "$SUB" = "open-prs" ]; then
   BRANCH_PREFIX="$(resolve_branch_prefix \

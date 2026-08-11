@@ -12,7 +12,7 @@ This runs as its own top-level session, and that is the entire point: the sessio
 the code must not author its own evaluation. `lean-gate.sh verdict` refuses to run inside the
 build session, so this cannot be folded back into the build lane by convenience.
 
-`G` = `lean-gate.sh` in the sibling `run-lean/` skill directory.
+`G` = `lean-gate.sh` in the sibling `build-lean/` skill directory.
 
 > **Tracker delta (`tracker.type: jira`, `writes: false`).** The checklist below is the
 > **github** default. Under jira: the issue key resolves from `Closes [<KEY>]` under

@@ -450,7 +450,7 @@ R9_RC=$?
   || bad "(AC-1) no-state run exited $R9_RC, expected 2"
 
 echo
-echo "=== AC-8: state-less mode (run-lean) is ADDITIVE ==="
+echo "=== AC-8: state-less mode (build-lean) is ADDITIVE ==="
 # The mode's whole safety claim is that it changes nothing for state-file callers — every
 # case above already exercised those paths. These assert the new one, and critically that
 # it writes NO cost-log row and needs no state.

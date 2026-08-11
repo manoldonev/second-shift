@@ -12,9 +12,9 @@
 #         non-fatal to Stage 9: the caller invokes it without checking rc, so a
 #         non-zero exit surfaces in the run summary but never blocks completion.
 #
-# STATE-LESS MODE (additive; run-lean, D-28). One instrument across both harnesses —
+# STATE-LESS MODE (additive; build-lean, D-28). One instrument across both harnesses —
 # the same collector query and the same cache-tier pricing math — with an honest
-# layout difference. run-lean has no state file and no stage windows, so the mode
+# layout difference. build-lean has no state file and no stage windows, so the mode
 # takes its two required inputs as ARGUMENTS (the session-id set and a [start, end]
 # time fence, both carried by the lean progress file), emits session-window totals
 # only to stdout or --out, amends no PR body, and writes NO cost-log.jsonl row (lean

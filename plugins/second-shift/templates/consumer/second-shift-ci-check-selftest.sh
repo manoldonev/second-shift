@@ -192,7 +192,7 @@ out="$(cd "$TMP/ev404" && env -u SECOND_SHIFT_CONFIG_LINT -u SECOND_SHIFT_LEAN_E
         PR_NUMBER=9 PR_BODY="Closes #42" GH_REPO="acme/acme" bash "$TOOL")"; rc=$?
 check "lean payload 404: exit >=1 (a moved path IS drift) (AC-2)" "$([ "$rc" -ge 1 ] && echo 0 || echo 1)"
 check "lean payload 404: FAIL names the payload path and the 404 (AC-2)" \
-  "$(grep -q "lean-evidence: plugins/dev-pipeline/skills/run-lean/lean-evidence.sh does not exist" <<<"$out" \
+  "$(grep -q "lean-evidence: plugins/dev-pipeline/skills/build-lean/lean-evidence.sh does not exist" <<<"$out" \
      && grep -q "HTTP 404" <<<"$out" && echo 0 || echo 1)"
 
 # ...and a network/auth failure fetching the payload stays a non-fatal WARN, same as (a)'s.
