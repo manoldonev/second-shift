@@ -935,6 +935,112 @@ else
   bad "(w) empty seed shard did not publish artifacts; rc=$RC"; printf '%s\n' "$OUT" | tail -4
 fi
 
+echo "(w2) --report is a STREAMING sink, and mutation-complete is written only by finish()"
+# Why this is not covered by (w): every case above reads the report AFTER the run, where a
+# streamed sink and a mktemp buffer copied in finish() are indistinguishable. The property
+# that matters to a shard that never reaches finish() is what is on the artifact path
+# WHILE it is still working — pre-fix, nothing at all, so the CI upload step (which reds on
+# an empty directory) had nothing to publish for exactly the run worth diagnosing.
+#
+# Observed by a fixture KILLER rather than by racing the sweep from here: the killer runs
+# mid-sweep by construction, so the case is deterministic instead of timing-dependent. The
+# marker is read at the same instant and must be ABSENT — it is what merge uses to tell a
+# shard killed here from one that finished, so a marker written up front would be a lie.
+FX="$TMPROOT/streamfx$RANDOM$RANDOM"
+make_weak_fleet "$FX" 2
+baseline_with "$FX" 'guard1.sh::fail-open::1' 'guard2.sh::fail-open::1'
+mkdir -p "$FX/out"
+OBS="$FX/observed"
+# shellcheck disable=SC2016 # the single-quoted $-expressions are the FIXTURE's code, not ours
+{ printf '#!/usr/bin/env bash\nH="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"\n'
+  printf '{ if [[ -f %s/out/mutation-report.tsv ]]; then\n' "$FX"
+  printf '    grep -q "^guard	status	paired_selftest" %s/out/mutation-report.tsv && echo report-headed || echo report-headless\n' "$FX"
+  printf '  else echo report-absent; fi\n'
+  printf '  [[ -f %s/out/mutation-complete ]] && echo marker-present || echo marker-absent\n' "$FX"
+  printf '} >> %s\n' "$OBS"
+  printf 'out="$(bash "$H/guard1.sh" good)"\n[[ "$out" == ok ]] || exit 1\nexit 0\n'
+} > "$FX/guard1-selftest.sh"
+( cd "$FX" && git add -A && git -c user.email=f@e.invalid -c user.name=f commit -qm obs ) >/dev/null 2>&1
+OUT="$( cd "$FX" && enf bash "$SWEEP" --mode full --report "$FX/out/mutation-report.tsv" 2>&1 )"; RC=$?
+if [[ $RC -eq 0 ]] && [[ -s "$OBS" ]] \
+  && grep -q '^report-headed$' "$OBS" \
+  && ! grep -q '^report-absent$\|^report-headless$' "$OBS"; then
+  ok "the report is headed on the --report path while killers are still running"
+else
+  bad "(w2) mid-run report observation wrong; rc=$RC obs=[$(sort -u "$OBS" 2>/dev/null | tr '\n' ' ')]"
+  printf '%s\n' "$OUT" | tail -4
+fi
+if grep -q '^marker-absent$' "$OBS" && ! grep -q '^marker-present$' "$OBS"; then
+  ok "mutation-complete does not exist mid-sweep"
+else
+  bad "(w2) mutation-complete was present mid-sweep — it cannot distinguish a killed shard"
+fi
+if [[ -f "$FX/out/mutation-complete" ]] \
+  && grep -q '^mode=full shard=1/1 rc=0 wall_s=[0-9][0-9]*$' "$FX/out/mutation-complete"; then
+  ok "a run that reaches finish() leaves a mutation-complete marker naming its mode/shard/rc"
+else
+  bad "(w2) marker missing or malformed: [$(cat "$FX/out/mutation-complete" 2>/dev/null)]"
+fi
+# Without --report there is no output dir to mark, and the report goes to stdout. A marker
+# written into some default location instead would be a file nothing publishes and merge
+# would never see — worse than none.
+FX2="$(new_fixture weak)"
+baseline_with "$FX2" 'guard.sh::fail-open::1'
+OUT="$( cd "$FX2" && enf bash "$SWEEP" --mode full 2>&1 )"; RC=$?
+STRAY="$(find "$FX2" -name mutation-complete 2>/dev/null | grep -c . )"
+if [[ $RC -eq 0 ]] && printf '%s' "$OUT" | grep -q '^guard	status	paired_selftest' && [[ "$STRAY" -eq 0 ]]; then
+  ok "without --report the report still goes to stdout and no marker is written"
+else
+  bad "(w2) no-report run wrong; rc=$RC stray_markers=$STRAY"; printf '%s\n' "$OUT" | tail -4
+fi
+
+echo "(w3) merge separates a truncated shard from a complete one"
+# A streamed report is present even when its shard died part-way, so 'a report exists' no
+# longer means 'this shard finished'. Merge must say which is which — and its seed-arity
+# check must not read a truncated shard (killed before finish(), hence before it wrote its
+# baseline) as a seed/enforcing MODE mismatch, which is the wrong diagnosis and buries the
+# real one.
+FX="$TMPROOT/truncfx$RANDOM$RANDOM"
+make_weak_fleet "$FX" 4
+mkdir -p "$FX/shards/s1" "$FX/shards/s2"
+TRUNC_OK=1
+for i in 1 2; do
+  OUT="$( cd "$FX" && enf bash "$SWEEP" --mode full --seed --shard "$i/2" \
+          --report "$FX/shards/s$i/mutation-report.tsv" \
+          --baseline-out "$FX/shards/s$i/mutation-baseline.tsv" \
+          --slow-out "$FX/shards/s$i/mutation-slow-suites.tsv" 2>&1 )"; RC=$?
+  [[ $RC -eq 0 && -f "$FX/shards/s$i/mutation-complete" ]] \
+    || { TRUNC_OK=0; bad "(w3) seed shard $i/2 failed or left no marker; rc=$RC"; printf '%s\n' "$OUT" | tail -4; }
+done
+if [[ $TRUNC_OK -eq 1 ]]; then
+  # s2 as a shard killed mid-sweep really looks: a partial report, no marker, no baseline.
+  cp -R "$FX/shards" "$FX/shards-trunc"
+  rm -f "$FX/shards-trunc/s2/mutation-complete" "$FX/shards-trunc/s2/mutation-baseline.tsv"
+  OUT="$( cd "$FX" && adv bash "$SWEEP" --mode merge --shards-dir "$FX/shards-trunc" \
+          --report "$FX/t.tsv" --baseline-out "$FX/tb.tsv" --slow-out "$FX/ts.tsv" 2>&1 )"; RC=$?
+  if [[ $RC -eq 1 ]] && printf '%s' "$OUT" | grep -q 'merge truncated:.*\bs2\b'; then
+    ok "a report without a completion marker is the named 'merge truncated' red"
+  else
+    bad "(w3) expected rc=1 + 'merge truncated' naming s2; got rc=$RC"; printf '%s\n' "$OUT" | tail -5
+  fi
+  if ! printf '%s' "$OUT" | grep -q 'mixed seed and enforcing shards'; then
+    ok "the seed-arity check counts completed shards, so a truncation is not misread as a mode mismatch"
+  else
+    bad "(w3) truncated shard was diagnosed as a seed/enforcing mode mismatch"; printf '%s\n' "$OUT" | tail -5
+  fi
+  # Control: with BOTH shards complete, a genuinely missing baseline must still red as the
+  # mode mismatch. Without this the arity check could be dead rather than re-keyed.
+  cp -R "$FX/shards" "$FX/shards-mixed"
+  rm -f "$FX/shards-mixed/s2/mutation-baseline.tsv"
+  OUT="$( cd "$FX" && adv bash "$SWEEP" --mode merge --shards-dir "$FX/shards-mixed" \
+          --report "$FX/x.tsv" --baseline-out "$FX/xb.tsv" --slow-out "$FX/xs.tsv" 2>&1 )"; RC=$?
+  if [[ $RC -eq 1 ]] && printf '%s' "$OUT" | grep -q '2 completed shard report(s) but 1 baseline(s) — mixed seed and enforcing shards'; then
+    ok "two completed shards with one baseline is still the mode-mismatch red"
+  else
+    bad "(w3) expected the mixed seed/enforcing red on complete shards; got rc=$RC"; printf '%s\n' "$OUT" | tail -5
+  fi
+fi
+
 echo "(x) sharded enforcing run — another shard's baseline rows are out of scope, not 'now KILLED'"
 # The shrink warn is only decidable for guards THIS shard swept: under sharding, every
 # shard seeing every other shard's rows as 'now KILLED' would tell the operator to drop

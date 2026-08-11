@@ -17,7 +17,9 @@
 # Deterministic for a given tree, and round-robin rather than contiguous ranges so
 # directory-clustered slow suites spread across shards instead of stacking in one. Merge
 # mode recombines the per-shard artifacts (each shard's report/baseline/slow files laid
-# out as <dir>/<shard>/mutation-*.tsv) into the single operator-facing set.
+# out as <dir>/<shard>/mutation-*.tsv) into the single operator-facing set. A shard also
+# publishes a `mutation-complete` marker, written only on reaching finish(); merge reds on
+# a report without one, because --report is streamed and a partial report looks whole.
 #
 # GUARD UNIVERSE is a rule, not a list: every git-tracked `*.sh` that is not a
 # `*-selftest.sh` and is not under `*/evals/*` or `tests/hooks-smoke/`. Every guard in it
@@ -33,15 +35,19 @@
 #   unaccounted guard, an unrunnable pair, a baseline environment mismatch
 #   (`baseline-environment-mismatch`), a sandbox failure, or — in merge mode — a guard
 #   with no shard row (`merge incomplete`, a shard died before publishing), a guard with
-#   several (`merge overlap`, the partition is broken), or shard artifacts whose headers
-#   disagree.
+#   several (`merge overlap`, the partition is broken), a shard whose report has no
+#   completion marker (`merge truncated`, streamed partial evidence), or shard artifacts
+#   whose headers disagree.
 #   Warn (never red): a killed mutant still listed in the baseline, and a baseline row
 #   whose guard no longer resolves — both say "shrink the baseline".
 #
 # KILLER TIME BOUND — every killer runs under a wall-clock bound. A mutant that makes its
-# guard spin would otherwise block the shard until the job timeout destroys BOTH the log
-# and the artifact, which is how two successive 10-shard nightlies lost the same three
-# shards with no diagnosis. A timed-out killer counts as a KILL and is logged by name; a
+# guard spin would otherwise block the shard until its time bound tore the job down, which
+# once destroyed BOTH the log and the artifact and is how two successive 10-shard nightlies
+# lost the same three shards with no diagnosis. Bounding the sweep STEP rather than the job
+# now keeps that log, and the streamed report keeps the artifact non-empty — but partial
+# evidence is a worse answer than a finished sweep, so the bound below is still what keeps
+# a shard diagnosable. A timed-out killer counts as a KILL and is logged by name; a
 # killer that blows the bound on the UNMUTATED sandbox is the existing `unrunnable pair`
 # red, now saying which it was.
 #
@@ -226,7 +232,7 @@ while [[ $# -gt 0 ]]; do
     --slow-out)     SLOW_OUT="${2:-}"; shift 2 ;;
     --shard)        SHARD_SPEC="${2:-}"; shift 2 ;;
     --shards-dir)   SHARDS_DIR="${2:-}"; shift 2 ;;
-    -h|--help)      sed -n '2,45p' "$0"; exit 0 ;;
+    -h|--help)      sed -n '2,52p' "$0"; exit 0 ;;
     *)              die "unknown argument: $1" ;;
   esac
 done
@@ -653,8 +659,38 @@ elif [[ "$MODE" == "pr" ]]; then
 fi
 
 # ------------------------------------------------------------------- reporting
-REPORT_TMP="$(mktemp -t mutation-sweep-report.XXXXXX)" || die "mktemp failed"
-printf 'guard\tstatus\tpaired_selftest\tmutants_applied\tkilled\tsurvived\tsurvivor_ids\tsites_beyond_budget\n' > "$REPORT_TMP"
+# --report IS THE SINK, not a destination copied to at the end. Buffering in mktemp and
+# copying once in finish() means a run that dies first publishes NOTHING — and the CI
+# upload step, which reds on an empty directory (`if-no-files-found: error`), then has
+# nothing to upload either. So the shard most worth diagnosing is the one that yields
+# least. Writing the header and every row straight onto the artifact path makes the
+# report exist from the sweep's first moment, so a killed shard still publishes an
+# artifact, and whatever rows had been emitted are in it.
+#
+# BE PRECISE ABOUT WHAT THAT RESCUES. Rows for swept guards are emitted in PHASE 5, which
+# runs after the whole worker pool has finished, so a shard killed DURING the pool — the
+# actual timeout failure mode — publishes the header plus shard 1's excluded-guard
+# bookkeeping rows and no verdicts. The per-mutant evidence for that death is in the job
+# LOG, which survives because the sweep step carries its own timeout-minutes (blowing a
+# step bound is a step failure and the job finalizes; blowing the job bound cancels it).
+# The two mechanisms are complementary, and neither alone is the fix.
+#
+# The mktemp buffer survives only where there is no artifact path to stream to (--report
+# unset), and there finish() still prints it to stdout.
+if [[ -n "$REPORT_OUT" ]]; then
+  REPORT_SINK="$REPORT_OUT"
+else
+  REPORT_SINK="$(mktemp -t mutation-sweep-report.XXXXXX)" || die "mktemp failed"
+fi
+printf 'guard\tstatus\tpaired_selftest\tmutants_applied\tkilled\tsurvived\tsurvivor_ids\tsites_beyond_budget\n' > "$REPORT_SINK" \
+  || die "cannot write the report sink: $REPORT_SINK"
+
+# The completion marker (see finish()) sits beside the report, so the whole output dir is
+# what a shard publishes. NON-DOTTED, deliberately: upload-artifact@v4 excludes hidden
+# paths unless include-hidden-files is set, and a dotted output dir once matched nothing
+# while reporting success.
+COMPLETE_MARKER=""
+[[ -n "$REPORT_OUT" ]] && COMPLETE_MARKER="$(dirname "$REPORT_OUT")/mutation-complete"
 
 # sites_beyond_budget is the report's answer to a question it used to be unable to
 # distinguish: a guard with NO applicable site for an operator and a guard whose sites all
@@ -673,16 +709,24 @@ printf 'guard\tstatus\tpaired_selftest\tmutants_applied\tkilled\tsurvived\tsurvi
 # APPENDED LAST, and that is load-bearing: mutation-sweep-selftest.sh's report_row() parses
 # $5/$6/$7 positionally, and --mode merge compares shard headers byte-wise.
 emit_row() {
-  printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$1" "$2" "$3" "$4" "$5" "$6" "$7" "$8" >> "$REPORT_TMP"
+  printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$1" "$2" "$3" "$4" "$5" "$6" "$7" "$8" >> "$REPORT_SINK"
 }
 
 finish() {
   if [[ -n "$REPORT_OUT" ]]; then
-    cp "$REPORT_TMP" "$REPORT_OUT" && info "report -> $REPORT_OUT"
+    info "report -> $REPORT_OUT"
   else
-    cat "$REPORT_TMP"
+    cat "$REPORT_SINK"
+    rm -f "$REPORT_SINK"
   fi
-  rm -f "$REPORT_TMP"
+  # Written HERE and nowhere else: reaching finish() is exactly the property the marker
+  # asserts. Its absence beside a report is what lets merge tell a shard that streamed
+  # some rows and then died from one that ran to completion.
+  if [[ -n "$COMPLETE_MARKER" ]]; then
+    printf 'mode=%s shard=%s rc=%s wall_s=%s\n' \
+      "$MODE" "${SHARD_SPEC:-1/1}" "$RC" "$(( $(date +%s) - RUN_T0 ))" > "$COMPLETE_MARKER" \
+      || info "could not write the completion marker: $COMPLETE_MARKER"
+  fi
   # AC-6: the improvement is MEASURED, never asserted from the design. Every run states what
   # it actually cost and how much of that the cache paid for, so a claim about the speedup
   # can be checked against a line the run printed rather than against a remembered figure.
@@ -701,6 +745,11 @@ finish() {
 # guard must appear in EXACTLY ONE shard report. A shard that died before publishing
 # therefore NAMES its guards (`merge incomplete`) — the datapoint a monolithic run's
 # destroyed logs never yielded — and a broken partition is equally loud (`merge overlap`).
+#
+# Since the report is STREAMED, a present report no longer implies a finished shard: a
+# shard killed mid-sweep publishes the rows it had reached. The completion marker is what
+# separates the two, and merge says which shards are which rather than leaving the
+# operator to infer it from a row count.
 if [[ "$MODE" == "merge" ]]; then
   SHARD_REPORTS=()
   for f in "$SHARDS_DIR"/*/mutation-report.tsv; do
@@ -709,15 +758,28 @@ if [[ "$MODE" == "merge" ]]; then
   [[ ${#SHARD_REPORTS[@]} -gt 0 ]] \
     || die "no shard reports under $SHARDS_DIR (expected <shard>/mutation-report.tsv) — every shard died before publishing"
 
-  MERGE_HDR="$(head -1 "$REPORT_TMP")"
+  SHARD_COMPLETE=()
+  SHARD_TRUNCATED=""
+  for f in "${SHARD_REPORTS[@]}"; do
+    d="$(dirname "$f")"
+    if [[ -f "$d/mutation-complete" ]]; then
+      SHARD_COMPLETE[${#SHARD_COMPLETE[@]}]="$f"
+    else
+      SHARD_TRUNCATED="$SHARD_TRUNCATED $(basename "$d")"
+    fi
+  done
+  [[ -z "$SHARD_TRUNCATED" ]] \
+    || red "merge truncated: shard(s)${SHARD_TRUNCATED} published a report but no mutation-complete marker — those rows are the partial evidence of a shard killed mid-sweep, not a finished sweep"
+
+  MERGE_HDR="$(head -1 "$REPORT_SINK")"
   for f in "${SHARD_REPORTS[@]}"; do
     [[ "$(head -1 "$f")" == "$MERGE_HDR" ]] \
       || red "shard report header mismatch (shards ran a different harness?): $f"
   done
-  for f in "${SHARD_REPORTS[@]}"; do tail -n +2 "$f"; done | grep -v '^$' | sort >> "$REPORT_TMP"
+  for f in "${SHARD_REPORTS[@]}"; do tail -n +2 "$f"; done | grep -v '^$' | sort >> "$REPORT_SINK"
 
   for g in "${ALL_GUARDS[@]}"; do
-    n="$(awk -F'\t' -v g="$g" 'NR>1 && $1==g {c++} END {print c+0}' "$REPORT_TMP")"
+    n="$(awk -F'\t' -v g="$g" 'NR>1 && $1==g {c++} END {print c+0}' "$REPORT_SINK")"
     if [[ "$n" -eq 0 ]]; then
       red "merge incomplete: no shard reported guard $g — its shard died before publishing"
     elif [[ "$n" -gt 1 ]]; then
@@ -731,8 +793,12 @@ if [[ "$MODE" == "merge" ]]; then
   done
   if [[ ${#SHARD_BASELINES[@]} -gt 0 ]]; then
     [[ -n "$BASELINE_OUT" ]] || die "seed shard baselines present but no --baseline-out (refusing to default to the committed path)"
-    [[ ${#SHARD_BASELINES[@]} -eq ${#SHARD_REPORTS[@]} ]] \
-      || red "seed merge: ${#SHARD_REPORTS[@]} shard report(s) but ${#SHARD_BASELINES[@]} baseline(s) — mixed seed and enforcing shards"
+    # COMPLETED shards, not every shard with a report: a seed shard writes its baseline
+    # inside finish(), so one killed mid-sweep has a (partial) report and no baseline by
+    # construction. Counting it here would report a truncation as a mode mismatch — the
+    # wrong diagnosis, and one that hides the truncation red above behind a louder lie.
+    [[ ${#SHARD_BASELINES[@]} -eq ${#SHARD_COMPLETE[@]} ]] \
+      || red "seed merge: ${#SHARD_COMPLETE[@]} completed shard report(s) but ${#SHARD_BASELINES[@]} baseline(s) — mixed seed and enforcing shards"
     # One header block in, one header block out: the merged baseline carries the FIRST
     # shard's comment header verbatim (survivor rows never start with '#'), which the
     # equality reds below pin to every other shard's. The enforcing lane parses these

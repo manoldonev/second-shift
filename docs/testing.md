@@ -458,6 +458,24 @@ is how two successive 10-shard nightlies lost the same three shards without yiel
 Counting the timeout as a kill follows Stryker and PIT: the suite did surface the defect, and
 scoring it a survivor would red the build on a mutant nothing can kill.
 
+**A shard that blows its bound no longer publishes nothing** — the "no artifact" half of the
+account above is history, not the current mechanism. Two changes, and neither is the fix alone:
+`--report` is the **streaming sink** rather than a buffer copied in `finish()`, so the report file
+exists from the sweep's first moment and the upload step (which reds on an empty directory) always
+has something to publish; and the `sweep shard` **step** carries its own `timeout-minutes`, so
+blowing it is an ordinary step failure the job survives — the log finalizes and the `if: always()`
+upload runs — instead of a job cancellation. Be exact about what each buys: swept guards' rows are
+emitted after the whole worker pool finishes, so a shard killed *during* the pool publishes the
+report header and shard 1's excluded-guard rows, and its per-mutant evidence is in the **log** that
+the step bound rescued. What tells the two apart afterwards is the non-dotted `mutation-complete`
+marker, which only `finish()` writes: merge reds by name (`merge truncated`) on a report that
+arrives without one, and keys its seed/enforcing arity check on completed shards only, so a
+truncation is never misreported as a mode mismatch.
+
+None of that reaches the *other* death class. The 83-84 minute "lost communication with the server"
+failures run no step at all, so the streamed report dies on the runner with everything else;
+covering those would need out-of-band publication. Partial-evidence coverage is not total coverage.
+
 Three tracked guards carry that idiom, and the `k` budget — not any property of the guards — is
 what decided which were armed: `gen-statectl-validators.sh` and `predecessor-gate.sh` hold it at
 `cmp-z` ordinal 1 and killed their shards, while `scaffold-review-context.sh` holds it at ordinal 5
