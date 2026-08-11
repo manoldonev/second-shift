@@ -22,6 +22,7 @@ departure stated, without hardcoding the tier (the seam stays for #350 vendor-ne
 | D-4 | Where the AC-2 refusal fires | Beside the existing usage assertions, after the `[ -n "$REVIEW_MODEL" ]` empty-value check and before preflight — so a refusal costs zero probes, zero tracker reads, zero worktree resolution | codebase-derived |
 | D-5 | `--review-model-basis ''` supplied alongside a non-default `--review-model` | A refusal — AC-2's letter is "non-empty", so the guard is a non-empty test on the value, not a flag-was-seen test | codebase-derived |
 | D-6 | AC-5's guard | Already exists — selftest case `(n)` asserts `--help` prints through `Exit: 0 = approved` and stops before `set -uo pipefail`, so it reds on a window too narrow or too wide. No new case is owed for AC-5 | codebase-derived |
+| D-7 | `check-emit-deadline-selftest.sh` case B6 reds milestone 3 on two consecutive attempts, on a branch that touches only `run-lean` | Scope widened by one AC (AC-8) rather than worked around. B6 stages its fixture at `<mktemp>/lonely/scripts`, so the tool's shape-2 anchor `$HERE/../../../*/` globs `$TMPDIR` itself; `install-topology-selftest.sh` re-runs all 60 shipped suites, so a second instance of this same file stages `<mktemp>/plugin-wrong-prefix` as a `$TMPDIR` sibling and resolves for the first — the failure names exactly that fixture. Alternative considered and rejected: excluding install-topology from the gate's local test lane, which leaves the latent bug live and edits config shared across worktrees | operator-answered |
 
 ## Acceptance Criteria
 
@@ -48,6 +49,12 @@ departure stated, without hardcoding the tier (the seam stays for #350 vendor-ne
   all → no basis required, review spawn still gets `REVIEW_MODEL_DEFAULT`). AC-4's two claims
   (explicit-default needs no basis; a volunteered basis on the default is accepted and echoed)
   get their own cases too.
+
+- AC-8: `check-emit-deadline-selftest.sh` case B6 stages its fixture below a private parent dir,
+  so the tool's shape-2 anchor cannot glob `$TMPDIR` and pick up a concurrently-running second
+  instance of this same suite (D-7). The case keeps asserting the same contract — an
+  unresolvable live scan fails loudly naming the resolution miss — and the suite passes both
+  serially and under the concurrent lane that reds it today.
 
 ## Out of scope
 

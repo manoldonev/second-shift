@@ -248,7 +248,18 @@ grep -q "spec-reviewer" "$TMP/.live" \
 # sibling case that happens to stage `<x>/<y>/.claude-plugin` would resolve for this one and
 # quietly turn "nothing resolves" into "something did" — an order dependence on where the other
 # cases sit in this file.
-B6ROOT="$(mktemp -d)"; trap 'rm -rf "$TMP" "$B6ROOT"' EXIT
+#
+# That root is nested one level BELOW the mktemp dir, which is what makes the isolation hold
+# against a concurrently-running second instance of this same suite. `mktemp -d` returns a
+# direct child of $TMPDIR, so staging the scripts dir at `<mktemp>/lonely/scripts` leaves shape
+# 2 — `$HERE/../../../*/` — globbing $TMPDIR ITSELF, where every other suite's fixtures sit.
+# install-topology-selftest.sh re-runs all 60 shipped suites from a staged cache, so a second
+# copy of THIS file runs alongside the first and stages its own `<mktemp>/plugin-wrong-prefix`
+# with an agents/ dir: the other instance's fixture then resolves here and the premise "nothing
+# resolves" is false through no fault of the tool. Interposing $B6PARENT means shape 2 globs
+# only that private dir, whose sole child is the staged root.
+B6PARENT="$(mktemp -d)"; B6ROOT="$B6PARENT/iso"; mkdir -p "$B6ROOT"
+trap 'rm -rf "$TMP" "$B6PARENT"' EXIT
 b6="$B6ROOT/lonely/scripts"; mkdir -p "$b6"
 cp "$CHECK" "$b6/check-emit-deadline.sh"
 if (cd "$B6ROOT" && bash "$b6/check-emit-deadline.sh") >"$TMP/.b6" 2>&1; then
