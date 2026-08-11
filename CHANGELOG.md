@@ -4,6 +4,112 @@ All notable changes to the second-shift marketplace. Versions are per-plugin (`p
 this file tracks the marketplace release. `configVersion` stays `const 1` — v2 is fully backward-compatible for a
 consumer with an empty config; the migration notes below are only for consumers using the changed features.
 
+## v4.1.5
+
+### `dev-pipeline` 4.1.4 → 4.1.5
+
+- **fix(dev-pipeline): the last install-topology red, and newest-version means highest (#484)** (#484)
+  suites and lints that resolve a sibling plugin from a version-keyed
+  install cache now select the highest version rather than the lexically-last
+  one, so a 10.x plugin is no longer passed over for a 9.x one. cost-block's
+  selftest no longer depends on a git repo above the install cache.
+  Migration: none.
+- **The retro corpus counts a ticket once, whatever its quarantined snapshots are named (#485)** (#485)
+  perf-retro's corpus no longer double-counts a ticket whose earlier run was
+  quarantined by an operator rename; an orphan snapshot with no live counterpart is
+  still counted. Migration: none.
+- **the thin orchestrator: run-lean becomes the lane's front door, the build payload moves to build-lean (#488)** (#488)
+  /dev-pipeline:run-lean now schedules the whole lane end to end -
+  build, review, fix rounds and close-out - in fresh sessions, with no operator
+  wait between phases. The build checklist it used to carry is now
+  /dev-pipeline:build-lean and is unchanged.
+  Migration: consumers taking the new second-shift-ci-check.sh template must move
+  their marketplace pin to this release or later in the same PR - the template
+  fetches lean-evidence.sh by path at the pinned ref, and that path moved from
+  skills/run-lean/ to skills/build-lean/.
+
+### `intake-toolkit` 2.3.2 → 2.3.3
+
+- **Eval-harness model identity is operator-supplied, not repo-carried (#475)** (#475)
+  the agent-eval harnesses no longer ship a default model. Set
+  REVIEWER_MODEL and JUDGE_MODEL (plus MOCK_MODEL for the intake-orchestrator
+  eval) to version-pinned model ids before invoking any evals/*/run*.sh; the
+  runner refuses a missing value and refuses the floating aliases opus, sonnet,
+  haiku and fable.
+  Migration: operators of the eval harnesses must now export the role variables;
+  no consumer or CI path invokes them.
+- **the thin orchestrator: run-lean becomes the lane's front door, the build payload moves to build-lean (#488)** (#488)
+  /dev-pipeline:run-lean now schedules the whole lane end to end -
+  build, review, fix rounds and close-out - in fresh sessions, with no operator
+  wait between phases. The build checklist it used to carry is now
+  /dev-pipeline:build-lean and is unchanged.
+  Migration: consumers taking the new second-shift-ci-check.sh template must move
+  their marketplace pin to this release or later in the same PR - the template
+  fetches lean-evidence.sh by path at the pinned ref, and that path moved from
+  skills/run-lean/ to skills/build-lean/.
+
+### `review-toolkit` 4.1.2 → 4.1.3
+
+- **Eval-harness model identity is operator-supplied, not repo-carried (#475)** (#475)
+  the agent-eval harnesses no longer ship a default model. Set
+  REVIEWER_MODEL and JUDGE_MODEL (plus MOCK_MODEL for the intake-orchestrator
+  eval) to version-pinned model ids before invoking any evals/*/run*.sh; the
+  runner refuses a missing value and refuses the floating aliases opus, sonnet,
+  haiku and fable.
+  Migration: operators of the eval harnesses must now export the role variables;
+  no consumer or CI path invokes them.
+- **fix(dev-pipeline): the last install-topology red, and newest-version means highest (#484)** (#484)
+  suites and lints that resolve a sibling plugin from a version-keyed
+  install cache now select the highest version rather than the lexically-last
+  one, so a 10.x plugin is no longer passed over for a 9.x one. cost-block's
+  selftest no longer depends on a git repo above the install cache.
+  Migration: none.
+
+### `second-shift` 3.1.4 → 3.1.5
+
+- **config-grill's web-surface checks measure applicability before demanding a glob (#474)** (#474)
+  `/second-shift:doctor` and `/second-shift:onboard` no longer demand
+  `stageParams.webComponentGlobs` and `stageParams.visualCapture.triggerGlobs`
+  from a repo with no rendering surface — a shell, CLI or library consumer gets
+  two informational "not evaluated" notes instead of two FAILs that could only
+  be answered with a waiver restating what the tool just measured. A repo that
+  does render still gets the finding, including where no shipped candidate
+  matches. `stageParams.formatGlob` is unchanged. Migration: none — a
+  `grillWaivers` entry written for either key stays valid and simply has nothing
+  left to suppress.
+- **doctor's remediation names the scope of the record it actually resolved (#479)** (#479)
+  /second-shift:doctor now reports a project-scope plugin record that a user-scope
+  record already serves as redundant, and its version-drift fixes name the scope of the record
+  they graded — the update verb and the marketplace-registration ref for a user-scope record,
+  the project-scope install only where that install is genuinely the pin contract.
+  /second-shift:local-dev-refresh declines to realign a redundant project record and reports it
+  instead; /second-shift:onboard says which plugins user scope already serves rather than
+  printing an install for them.
+  Migration: none.
+- **The grill and onboard name only mechanisms the default lane runs (#481)** (#481)
+  config-grill now flags a config that declares mutation intent while the
+  repo carries no tools/mutation-sweep.sh, and notes the unadopted seam once a test
+  lane is configured; the testFile-plumbing and visualCapture-triggerGlobs checks are
+  gone, and no emitted remediation names a stage the default lane does not run.
+  Migration: a repo waiving T4.mutation-plumbing keeps its waiver — the id is
+  unchanged. A waiver for T4.testfile-plumbing or T2.visualCaptureTriggerGlobs is now
+  inert and can be deleted.
+- **fix(dev-pipeline): the last install-topology red, and newest-version means highest (#484)** (#484)
+  suites and lints that resolve a sibling plugin from a version-keyed
+  install cache now select the highest version rather than the lexically-last
+  one, so a 10.x plugin is no longer passed over for a 9.x one. cost-block's
+  selftest no longer depends on a git repo above the install cache.
+  Migration: none.
+- **the thin orchestrator: run-lean becomes the lane's front door, the build payload moves to build-lean (#488)** (#488)
+  /dev-pipeline:run-lean now schedules the whole lane end to end -
+  build, review, fix rounds and close-out - in fresh sessions, with no operator
+  wait between phases. The build checklist it used to carry is now
+  /dev-pipeline:build-lean and is unchanged.
+  Migration: consumers taking the new second-shift-ci-check.sh template must move
+  their marketplace pin to this release or later in the same PR - the template
+  fetches lean-evidence.sh by path at the pinned ref, and that path moved from
+  skills/run-lean/ to skills/build-lean/.
+
 ## v4.1.4
 
 ### `dev-pipeline` 4.1.3 → 4.1.4
