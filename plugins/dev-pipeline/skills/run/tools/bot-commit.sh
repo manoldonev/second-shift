@@ -51,6 +51,63 @@ if [[ "${1:-}" == "-C" ]]; then
   shift 2
 fi
 
+# AI co-authorship trailer, added only when the caller supplied none.
+#
+# WHY HERE AND NOT ONLY IN THE CALLER: this trailer is what renders AI involvement on the commit
+# in GitHub's UI, and in a bot-DISABLED consumer it is the only such signal — there the author is
+# the operator, so a run's commits are otherwise indistinguishable from hand-written ones. Every
+# calling session is already instructed to append it, and sessions demonstrably forget: across two
+# consumer repos every dev-pipeline commit made through this wrapper carried no trailer, while the
+# same sessions' direct `git commit`s did.
+#
+# CALLER WINS, deliberately. A session knows its own model; this script cannot, and hardcoding a
+# precise version here would be wrong the moment the model changes. A caller that supplies its own
+# trailer keeps that precision and this generic one only fills the gap.
+#
+# TWO GUARDS, because the argument scan alone is not enough. That scan only sees what is on the
+# command line: it cannot read a -F body, an editor buffer, or the message `--amend` is reusing, so
+# on exactly those routes it under-detects and appends a SECOND Co-Authored-By beside the caller's
+# precise one — the outcome this whole block exists to avoid. `trailer.<token>.ifexists=doNothing`
+# is therefore the load-bearing guard: git evaluates it against the RESULTING message, which is the
+# thing the argument scan cannot see. It is scoped to this one token deliberately — a caller's own
+# unrelated --trailer keeps git's default semantics. The scan stays as a cheap short-circuit, and
+# is what keeps a message merely *mentioning* the token in prose from acquiring a trailer.
+#
+# `--trailer` rather than appending to -m: it is git's own trailer machinery, so it lands correctly
+# for -m, repeated -m, -F, --amend and the message an editor is opened on. One measured limit it
+# does NOT cover: git applies trailers to the buffer BEFORE the editor opens, so a trailer typed
+# IN the editor lands beside the generic one and no setting dedupes it. Unreachable from a
+# non-interactive caller, so it is recorded rather than worked around.
+#
+# It needs git >= 2.32; an older git gets
+# no trailer rather than a hard failure, because this wrapper's first duty is that the commit still
+# happens (the same principle as the bot-disabled fallback below). That duty is also why the
+# version is read WITHOUT a pipeline: under `set -euo pipefail` a `git --version | sed` substitution
+# propagates a failing git and kills the wrapper before it ever reaches the commit — `2>/dev/null`
+# hides the message, not the status.
+TRAILER_CFG=()   # git-level: must precede the `commit` subcommand
+TRAILER_ARGS=()  # commit-level
+case "$*" in
+  *[Cc]o-[Aa]uthored-[Bb]y*) : ;;
+  *)
+    _gv=""
+    if _gvout="$(git --version 2>/dev/null)"; then _gv="${_gvout#git version }"; fi
+    _gmaj="${_gv%%.*}"; _gvrest="${_gv#*.}"; _gmin="${_gvrest%%.*}"
+    # Both halves are validated in ONE test, and the arithmetic stands alone rather than hanging
+    # off that test by a boolean connector. Not cosmetic: joined on a single line they form one
+    # condition, and a mutation flipping that connector from and to or short-circuits it TRUE,
+    # handing every git the trailer while the good-git path keeps behaving — so no fixture here
+    # could catch it. Split, the arithmetic is scored on its own and the ordinary
+    # "trailer gets added" case kills it.
+    if [[ "$_gmaj.$_gmin" =~ ^[0-9][0-9]*[.][0-9][0-9]*$ ]]; then
+      if (( _gmaj > 2 || ( _gmaj == 2 && _gmin >= 32 ) )); then
+        TRAILER_CFG=(-c trailer.co-authored-by.ifexists=doNothing)
+        TRAILER_ARGS=(--trailer "Co-Authored-By: Claude <noreply@anthropic.com>")
+      fi
+    fi
+    ;;
+esac
+
 # Anchor at the git COMMON dir (shared by every worktree) — resolved from $DIR, never from the
 # helper's own CWD. Empty when $DIR is not a git repo; guarded so `set -e` cannot abort here.
 COMMON_DIR=""
@@ -103,7 +160,8 @@ if [[ "$BOT_ENABLED" != "true" || -z "$APP_NAME" ]]; then
       echo "[bot-commit] WARN: bot disabled in $CFG (tracker.bot.enabled is not true, or app.appName is unset) — committing with the repo default identity" >&2
     fi
   fi
-  exec git -C "$DIR" commit "$@"
+  exec git -C "$DIR" ${TRAILER_CFG[@]+"${TRAILER_CFG[@]}"} \
+    commit ${TRAILER_ARGS[@]+"${TRAILER_ARGS[@]}"} "$@"
 fi
 
 BOT_LOGIN="${APP_NAME}[bot]"
@@ -124,10 +182,12 @@ fi
 
 if [[ -z "$BOT_ID" ]]; then
   echo "[bot-commit] WARN: could not resolve bot user id (gh api users/${BOT_LOGIN}) — committing with the repo default identity" >&2
-  exec git -C "$DIR" commit "$@"
+  exec git -C "$DIR" ${TRAILER_CFG[@]+"${TRAILER_CFG[@]}"} \
+    commit ${TRAILER_ARGS[@]+"${TRAILER_ARGS[@]}"} "$@"
 fi
 
 exec git -C "$DIR" \
   -c user.name="$BOT_LOGIN" \
   -c user.email="${BOT_ID}+${BOT_LOGIN}@users.noreply.github.com" \
-  commit "$@"
+  ${TRAILER_CFG[@]+"${TRAILER_CFG[@]}"} \
+  commit ${TRAILER_ARGS[@]+"${TRAILER_ARGS[@]}"} "$@"
