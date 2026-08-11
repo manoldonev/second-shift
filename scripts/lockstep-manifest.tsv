@@ -487,6 +487,13 @@ lean-design-armed	verbatim	plugins/dev-pipeline/skills/build-lean/lean-gate.sh	l
 # NOTE the deliberate NON-coupling: the lean chain gate checks ratification ONLY and does not
 # re-validate `disposition:` against either enum. That is what keeps them single-sited — a
 # second copy in CI would create exactly the pair this entry declines to create.
+# THE SKILL LAYER IS A CALLER CLASS OF ITS OWN: `intake-orchestrator/SKILL.md` Step 5.5
+# prescribes the receipt shape and then runs `ledger-lint.sh --receipt` on exactly what it just
+# prescribed, and `intake-interviewer/SKILL.md` prescribes the same shape for its ledger seed.
+# Neither is an automated caller, so no CI lane reds when the lint tightens past what they
+# describe — the exit gate simply becomes unpassable at agent runtime, where nobody is watching
+# a build. A change that adds or tightens a mandated section MUST move both, and the check is
+# empirical: build a receipt verbatim to the prose and lint it.
 # Revisit if a third site starts parsing any of these enums.
 
 # ticketTag semantics (staged-lane gate input vs lean-lane advisory hint) — three sites state

@@ -41,9 +41,14 @@ Finding 3 largely falls out of 2 once the inventory exists, but the thin-registe
 is still written, because the inventory constrains the receipt and the escalation constrains
 the interview that produces it.
 
-Blast radius of the new section is small and checked: `--receipt` has **no** automated caller
-in the pipeline (the merge boundary reads only the intent-gap record's `ratified:` key), so it
-is operator-run plus the selftest and one fixture.
+Blast radius of the new section has two caller classes, and only one of them is automated.
+`--receipt` has no automated caller in the pipeline — the merge boundary reads only the
+intent-gap record's `ratified:` key — so CI and the gates are unaffected, leaving the selftest
+and one fixture. The **skill layer is the second caller class**: `intake-orchestrator`'s Step
+5.5 Receipt Exit Gate runs this lint on a receipt written to a shape that same step spells out,
+and `intake-interviewer` prescribes the same shape for its ledger seed. Tightening the lint
+without moving those two shape statements makes the exit gate unpassable by construction, at
+agent runtime where no build is watching. They move with it (AC-12).
 
 ## Acceptance criteria
 
@@ -102,6 +107,13 @@ recorded rather than silently extended.
 (`plan-interview/tools/ledger-lint-fixtures/valid-receipt.md`) carries a well-formed Surface
 Inventory exercising both disposition values, and `docs/testing.md` needs no change (this
 adds cases to an existing suite, not a tier).
+
+**AC-12** — every skill that prescribes the receipt shape states the mandated
+`## Surface Inventory` alongside `## Open Regions`: `intake-orchestrator/SKILL.md` Step 5.5
+(whose Receipt Exit Gate runs this lint on the shape it just prescribed) and
+`intake-interviewer/SKILL.md`'s Decision Ledger seed. Step 5.5's red-lint remediation prose
+covers the surface-inventory refusal class as well as the ratification one, so an agent hitting
+the new refusal is given a path. A receipt built verbatim to the corrected prose lints clean.
 
 ## Out of scope
 
