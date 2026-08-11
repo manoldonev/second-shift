@@ -4,6 +4,19 @@ All notable changes to the second-shift marketplace. Versions are per-plugin (`p
 this file tracks the marketplace release. `configVersion` stays `const 1` — v2 is fully backward-compatible for a
 consumer with an empty config; the migration notes below are only for consumers using the changed features.
 
+## v4.2.1
+
+### `dev-pipeline` 4.2.0 → 4.2.1
+
+- **The verdict gate's rc carries a taxonomy, and the scheduler routes on it (#508)** (#508)
+  the lean scheduler tells a dark or build-authored review apart from a
+  review that found problems. A review producing no usable record re-spawns
+  REVIEW once instead of spending a round on a BUILD session with nothing to fix,
+  and a P10 authorship refusal stops the run naming the violation instead of
+  being retried. orchestrate-lean.sh gains exit codes 5 and 6; lean-gate.sh's
+  milestone 4 gains the matching 5/6 alongside its existing 0/1/2/4.
+  Migration: none.
+
 ## v4.2.0
 
 ### `dev-pipeline` 4.1.5 → 4.2.0
