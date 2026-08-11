@@ -30,6 +30,7 @@ fi
 exit 1
 SHIM
 chmod +x "$TMP/bin/gh"
+REAL_GIT="$(command -v git)"   # resolved BEFORE the shim dirs go on PATH (case 10g)
 export PATH="$TMP/bin:$PATH"
 export GH_SHIM_CALLS="$TMP/gh-calls"
 : > "$GH_SHIM_CALLS"
@@ -208,6 +209,108 @@ COUNT10B="$(grep -ci "co-authored-by" <<< "$BODY10B" || true)"
 { [[ "$COUNT10B" == "1" ]] && grep -qi "Claude Opus 5" <<< "$BODY10B"; } \
   && pass "10b caller-supplied trailer preserved, not duplicated" \
   || fail "10b expected exactly 1 trailer naming the caller's model, got $COUNT10B: $BODY10B"
+
+# ---- Cases 10c-10f: the routes an ARGUMENT SCAN cannot read ----------------------
+# 10a/10b both carry the trailer state in -m arguments — the one route a scan of "$*" can see.
+# -F, --amend and editor mode are where such a scan under-detects, and where a generic trailer
+# lands beside the caller's precise one. The invariant is route-INDEPENDENT and is what these
+# cases pin: exactly one Co-Authored-By on the resulting commit, naming the caller's model
+# whenever the caller supplied one.
+ca_count() { grep -ci "co-authored-by" <<< "$1" || true; }
+
+printf 'test: -F route\n\nCo-Authored-By: Claude Opus 5 <noreply@anthropic.com>\n' > "$TMP/msg10c.txt"
+echo t10c > "$TMP/r10/c.txt"; git -C "$TMP/r10" add c.txt
+bash "$BOT_COMMIT" -C "$TMP/r10" -q -F "$TMP/msg10c.txt" >/dev/null 2>&1 || true
+BODY10C="$(git -C "$TMP/r10" log -1 --format='%B')"
+N10C="$(ca_count "$BODY10C")"
+{ [[ "$N10C" == "1" ]] && grep -qi "Claude Opus 5" <<< "$BODY10C"; } \
+  && pass "10c -F body's trailer preserved, not duplicated" \
+  || fail "10c expected 1 trailer naming the caller's model, got $N10C: $BODY10C"
+
+# --amend reuses the STORED message, unreadable from the argument list. Not hypothetical: this
+# script's header documents `--amend --reset-author` through this helper as the repair path for a
+# commit already mis-attributed to the operator.
+bash "$BOT_COMMIT" -C "$TMP/r10" -q --amend --no-edit >/dev/null 2>&1 || true
+BODY10D="$(git -C "$TMP/r10" log -1 --format='%B')"
+N10D="$(ca_count "$BODY10D")"
+{ [[ "$N10D" == "1" ]] && grep -qi "Claude Opus 5" <<< "$BODY10D"; } \
+  && pass "10d --amend --no-edit does not duplicate the stored trailer" \
+  || fail "10d expected 1 trailer after amend, got $N10D: $BODY10D"
+
+# Editor mode: the message exists only in the editor buffer while the wrapper runs. Reached here
+# through --amend, which is how it is reachable at all — a pipeline session never types into an
+# editor. GIT_EDITOR exits without touching the buffer, i.e. the operator saved unchanged.
+#
+# MEASURED LIMIT, deliberate: git applies --trailer to the buffer BEFORE the editor opens, so a
+# trailer typed IN the editor afterwards sits beside the generic one and no setting can dedupe it
+# (measured: 2 either way). That is out of reach of this wrapper and unreachable from a
+# non-interactive caller, so it is recorded rather than guarded — an editor case written that way
+# would pass whether or not the dedup works, which is worse than no case at all.
+printf '#!/usr/bin/env bash\nexit 0\n' > "$TMP/bin/editor10e"
+chmod +x "$TMP/bin/editor10e"
+echo t10e > "$TMP/r10/e.txt"; git -C "$TMP/r10" add e.txt
+bash "$BOT_COMMIT" -C "$TMP/r10" -q -m "test: editor route" \
+  -m "Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>" >/dev/null 2>&1 || true
+GIT_EDITOR="$TMP/bin/editor10e" bash "$BOT_COMMIT" -C "$TMP/r10" -q --amend >/dev/null 2>&1 || true
+BODY10E="$(git -C "$TMP/r10" log -1 --format='%B')"
+N10E="$(ca_count "$BODY10E")"
+{ [[ "$N10E" == "1" ]] && grep -qi "Claude Opus 5" <<< "$BODY10E"; } \
+  && pass "10e --amend through the editor buffer does not duplicate" \
+  || fail "10e expected 1 trailer via the editor route, got $N10E: $BODY10E"
+
+# Dedup must not have degraded into "never add on the routes the scan cannot read" — a -F body
+# with NO trailer still earns the generic one. Absent this case, 10c-10e would pass equally well
+# if the trailer were dropped outright on every such route.
+printf 'test: -F route, no trailer\n' > "$TMP/msg10f.txt"
+echo t10f > "$TMP/r10/f2.txt"; git -C "$TMP/r10" add f2.txt
+bash "$BOT_COMMIT" -C "$TMP/r10" -q -F "$TMP/msg10f.txt" >/dev/null 2>&1 || true
+BODY10F="$(git -C "$TMP/r10" log -1 --format='%B')"
+grep -qi "^Co-Authored-By: Claude <noreply@anthropic.com>$" <<< "$BODY10F" \
+  && pass "10f -F body without a trailer still earns the generic one" \
+  || fail "10f no trailer added on the -F route: $BODY10F"
+
+# ---- Case 10g: an unreadable `git --version` must not abort the commit ------------
+# The trailer is optional; the commit is not. Reading the version through a PIPELINE under
+# `set -euo pipefail` propagates a failing git and kills the wrapper before it ever reaches
+# `git commit` — `2>/dev/null` hides the message, not the status. Scored on the OUTCOME (a commit
+# exists), not on rc alone, so a wrapper that exits 0 without committing still fails.
+mkdir -p "$TMP/gitshim"
+cat > "$TMP/gitshim/git" <<SHIM
+#!/usr/bin/env bash
+[[ "\$1" == "--version" ]] && exit 3
+exec "$REAL_GIT" "\$@"
+SHIM
+chmod +x "$TMP/gitshim/git"
+mkrepo "$TMP/r10g" '{"tracker":{"bot":{"enabled":false,"app":{"appName":"test-pipeline"}}}}'
+BEFORE10G="$(git -C "$TMP/r10g" rev-list --count HEAD 2>/dev/null || echo 0)"
+set +e
+PATH="$TMP/gitshim:$PATH" bash "$BOT_COMMIT" -C "$TMP/r10g" -q -m "test: version unreadable" >/dev/null 2>&1
+RC10G=$?
+set -e
+AFTER10G="$(git -C "$TMP/r10g" rev-list --count HEAD 2>/dev/null || echo 0)"
+{ [[ "$RC10G" == "0" ]] && (( AFTER10G > BEFORE10G )); } \
+  && pass "10g unreadable git --version → commit still made" \
+  || fail "10g wrapper aborted: rc=$RC10G, commits $BEFORE10G → $AFTER10G"
+
+# ---- Case 10h: the >= 2.32 version gate ------------------------------------------
+# `--trailer` needs git 2.32; the contract for anything older is "no trailer, but the commit still
+# happens". Nothing else reaches that branch, and a gate that silently inverted would hand
+# `--trailer` to a git that rejects the option — turning an optional nicety into a failed commit.
+# Both halves are asserted: the commit exists AND carries no trailer.
+mkdir -p "$TMP/gitshim-old"
+cat > "$TMP/gitshim-old/git" <<SHIM
+#!/usr/bin/env bash
+if [[ "\$1" == "--version" ]]; then echo "git version 2.30.0"; exit 0; fi
+exec "$REAL_GIT" "\$@"
+SHIM
+chmod +x "$TMP/gitshim-old/git"
+mkrepo "$TMP/r10h" '{"tracker":{"bot":{"enabled":false,"app":{"appName":"test-pipeline"}}}}'
+PATH="$TMP/gitshim-old:$PATH" bash "$BOT_COMMIT" -C "$TMP/r10h" -q -m "test: git 2.30" >/dev/null 2>&1 || true
+BODY10H="$(git -C "$TMP/r10h" log -1 --format='%B' 2>/dev/null || echo '<no commit>')"
+N10H="$(ca_count "$BODY10H")"
+{ [[ "$N10H" == "0" ]] && grep -q "test: git 2.30" <<< "$BODY10H"; } \
+  && pass "10h git < 2.32 → commit made, no trailer attempted" \
+  || fail "10h expected a commit with 0 trailers on git 2.30, got $N10H: $BODY10H"
 
 echo ""
 echo "[bot-commit-selftest] $PASS passed, $FAIL failed"
