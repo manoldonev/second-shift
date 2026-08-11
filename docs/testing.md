@@ -40,13 +40,17 @@ follows:
 | `--exclude` matches no discovered suite | exit 2, `stale exclusion` — the posture a stale `install-topology-known-red.tsv` row already carries |
 | no suites discovered, or every suite excluded | exit 2 — a sweep that runs nothing is never green |
 
-`--exclude` has four callers: both CI selftest jobs (`ci.yml:119`, `ci.yml:394`) and both
-nightly-guards selftest lanes (`nightly-guards.yml:100`, `nightly-guards.yml:116`) all pass
-`--exclude tools/install-topology-selftest.sh` — inside the sweep it contends with the very
-suites it re-runs from the install cache, which is what the install-topology section below
-measures. `install-topology-selftest.sh` itself runs nightly, not in a job alongside any of
-these. The suite stays *discovered*: the exclusion names a path that must keep existing, so
-renaming the suite reds CI instead of silently double-running it.
+`--exclude` has four in-repo callers, all passing
+`--exclude tools/install-topology-selftest.sh`: both CI selftest jobs (`lint-and-selftests`,
+`selftests-bash32`) and both nightly wholesale lanes (`wholesale-selftests`,
+`wholesale-selftests-bash32`) — inside the sweep it contends with the very suites it re-runs
+from the install cache, which is what the install-topology section below measures.
+`install-topology-selftest.sh` itself runs in its own nightly jobs (`install-topology`,
+`install-topology-bash32`), never alongside a sweep. The maintainer's dogfood lean-gate
+milestone-3 lane passes the same exclusion for the same reason, out of the repo in a gitignored
+config — see CLAUDE.md's Verification section. The suite stays *discovered*: the exclusion names
+a path that must keep existing, so renaming the suite reds CI instead of silently
+double-running it.
 
 `SKIP_STRESS` is never set by the runner. The ubuntu lane omits it and the macos lane sets it;
 that asymmetry predates this script and is preserved, and the mutation baseline's environment
