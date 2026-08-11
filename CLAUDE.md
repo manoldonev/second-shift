@@ -60,14 +60,16 @@ find . -name '*.json' -type f -print0 | xargs -0 -n1 jq empty
 SKIP_STRESS=1 bash tools/run-selftests.sh --exclude tools/install-topology-selftest.sh
 ```
 
-**`tools/run-selftests.sh` is the sweep — here, and in both CI selftest jobs.** It discovers every
-`*-selftest.sh`, runs `SELFTEST_JOBS` (default 4) of them at a time, and replays each suite's
-output as one contiguous `::group::`-framed block in a deterministic order that does not move with
-completion timing. It exits non-zero naming every failing suite, and it reds rather than reporting
-a fast green when its discovered count and its run count disagree, when an `--exclude` matches no
-discovered suite, or when a worker dies without writing a verdict. `SKIP_STRESS=1` is yours to set
-or omit — the runner never sets it, which is what keeps the mutation baseline's environment check
-meaningful.
+**`tools/run-selftests.sh` is the sweep — here, in both CI selftest jobs, and in this repo's own
+dogfood lean-gate milestone-3 `test` lane** (the gitignored `.claude/second-shift.config.json`,
+at a wider `--jobs 10` but the same runner — not a hand-rolled `find | xargs` pipeline). It
+discovers every `*-selftest.sh`, runs `SELFTEST_JOBS` (default 4) of them at a time, and replays
+each suite's output as one contiguous `::group::`-framed block in a deterministic order that does
+not move with completion timing. It exits non-zero naming every failing suite, and it reds rather
+than reporting a fast green when its discovered count and its run count disagree, when an
+`--exclude` matches no discovered suite, or when a worker dies without writing a verdict.
+`SKIP_STRESS=1` is yours to set or omit — the runner never sets it, which is what keeps the
+mutation baseline's environment check meaningful.
 
 **The `--exclude` is why this recipe is ~3 minutes instead of ~10.**
 `tools/install-topology-selftest.sh` re-runs every *shipped* suite from a staged install cache, so

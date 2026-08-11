@@ -509,13 +509,60 @@ if [ "$rc" -eq 0 ] && [ "$(progress_reads m5)" -eq 2 ] && grep -q 'done — #7 a
 else fail "(p3) expected rc=0 with 2 milestone-5 reads, got rc=$rc / $(progress_reads m5) read(s): $out"; fi
 
 # ---- (k) model resolution stays the caller's ------------------------------------------------------
+# #490: a departure from the shipped review tier now requires a stated reason, so this case
+# carries --review-model-basis alongside its --review-model override, where before it needed
+# none — the case still proves the override itself reaches the spawn.
 setup_case "" "0" "ready-for-dev" "11"
-out="$(run_tool "$CFG" "$ISSUE" --build-model opus --review-model sonnet --model-basis 'sized-here: two gates')"; rc=$?
+out="$(run_tool "$CFG" "$ISSUE" --build-model opus --review-model sonnet --model-basis 'sized-here: two gates' --review-model-basis 'sized-here: reviewer rate limited')"; rc=$?
 if [ "$rc" -eq 0 ] \
    && grep -q '^LEAN_RUN_MODEL: sonnet$' "$SPAWN_LOG_DIR/spawn-2" \
-   && grep -q 'basis: sized-here: two gates' <<<"$out"; then
-  pass "(k1) --review-model overrides the opus default, and --model-basis is echoed into the run log"
+   && grep -q 'basis: sized-here: two gates' <<<"$out" \
+   && grep -q 'basis: sized-here: reviewer rate limited' <<<"$out"; then
+  pass "(k1) --review-model overrides the shipped default, and BOTH --model-basis and --review-model-basis are echoed into the run log"
 else fail "(k1) review model or basis did not take: rc=$rc: $out"; fi
+
+# A non-default --review-model with no --review-model-basis is a usage refusal, nothing spawned,
+# and the message names the flag that resolves it — the AC-2 defect this ticket closes.
+setup_case "" "0" "ready-for-dev" "11"
+out="$(run_tool "$CFG" "$ISSUE" --build-model sonnet --review-model sonnet)"; rc=$?
+if [ "$rc" -eq 2 ] && [ "$(spawn_count)" -eq 0 ] \
+   && grep -q -- '--review-model-basis' <<<"$out" \
+   && grep -q 'departs from the shipped default' <<<"$out"; then
+  pass "(k2) a non-default --review-model with no --review-model-basis is a usage refusal naming the flag, nothing spawned"
+else fail "(k2) expected rc=2 with 0 spawns, got rc=$rc / $(spawn_count): $out"; fi
+
+# A stated departure is accepted: the override reaches the spawn and the reason is echoed.
+setup_case "" "0" "ready-for-dev" "11"
+out="$(run_tool "$CFG" "$ISSUE" --build-model sonnet --review-model sonnet --review-model-basis 'sized-here: rate-limited on opus')"; rc=$?
+if [ "$rc" -eq 0 ] && [ "$(spawn_count)" -eq 3 ] \
+   && grep -q '^LEAN_RUN_MODEL: sonnet$' "$SPAWN_LOG_DIR/spawn-2" \
+   && grep -q 'basis: sized-here: rate-limited on opus' <<<"$out"; then
+  pass "(k3) a stated --review-model-basis is accepted: the departure reaches the spawn and the reason is echoed"
+else fail "(k3) expected rc=0 with the departure taking and the basis echoed, got rc=$rc / $(spawn_count): $out"; fi
+
+# The untouched happy path: omitting --review-model needs no basis, and the review spawn still
+# gets the shipped default tier with no basis note in the log.
+setup_case "" "0" "ready-for-dev" "11"
+out="$(run_tool "$CFG" "$ISSUE" --build-model sonnet)"; rc=$?
+if [ "$rc" -eq 0 ] && grep -q '^LEAN_RUN_MODEL: opus$' "$SPAWN_LOG_DIR/spawn-2" \
+   && ! grep -q 'review model: opus (basis' <<<"$out"; then
+  pass "(k4) omitting --review-model needs no basis, and the review spawn still gets the shipped default tier"
+else fail "(k4) expected rc=0 with the review spawn on the default tier and no basis note, got rc=$rc: $out"; fi
+
+# AC-3/AC-4: the default passed EXPLICITLY is the default, not a departure — no basis required.
+setup_case "" "0" "ready-for-dev" "11"
+out="$(run_tool "$CFG" "$ISSUE" --build-model sonnet --review-model opus)"; rc=$?
+if [ "$rc" -eq 0 ] && grep -q '^LEAN_RUN_MODEL: opus$' "$SPAWN_LOG_DIR/spawn-2" \
+   && ! grep -q 'review model: opus (basis' <<<"$out"; then
+  pass "(k5) --review-model opus passed explicitly is the shipped default, not a departure — no basis required"
+else fail "(k5) expected rc=0 with no basis required, got rc=$rc: $out"; fi
+
+# AC-4: volunteering a basis for a default-tier review is accepted and echoed, never refused.
+setup_case "" "0" "ready-for-dev" "11"
+out="$(run_tool "$CFG" "$ISSUE" --build-model sonnet --review-model opus --review-model-basis 'confirming default explicitly')"; rc=$?
+if [ "$rc" -eq 0 ] && grep -q 'review model: opus (basis: confirming default explicitly)' <<<"$out"; then
+  pass "(k6) a basis volunteered alongside the default-tier review is accepted and echoed, never refused"
+else fail "(k6) expected rc=0 with the volunteered basis echoed, got rc=$rc: $out"; fi
 
 # ---- (l) --dry-run prints the schedule and spawns nothing -------------------------------------------
 setup_case "" "0" "ready-for-dev" "11"

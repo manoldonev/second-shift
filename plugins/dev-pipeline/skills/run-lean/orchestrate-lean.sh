@@ -69,7 +69,10 @@
 # Usage:
 #   orchestrate-lean.sh <issue> --build-model <model> [options]
 #     --build-model <m>    REQUIRED. The model for every BUILD-role session.
-#     --review-model <m>   Default `opus`. REVIEW is the higher-stakes read.
+#     --review-model <m>   Defaults to the shipped review tier. REVIEW is the higher-stakes read.
+#     --review-model-basis <text>
+#                          Free text, no default. Required when --review-model departs from
+#                          the shipped default; also accepted (and echoed) alongside it.
 #     --model-basis <text> Free text recorded in the log beside the build model, e.g. `label`
 #                          or `sized-here: touches two gates`. Default `label`.
 #     --max-rounds <n>     Default 3. The n+1th is the hard stop.
@@ -103,7 +106,9 @@ GATE="${LEAN_GATE:-$SCRIPT_DIR/../build-lean/lean-gate.sh}"
 
 ISSUE=""
 BUILD_MODEL=""
-REVIEW_MODEL="opus"
+REVIEW_MODEL_DEFAULT="opus"
+REVIEW_MODEL="$REVIEW_MODEL_DEFAULT"
+REVIEW_MODEL_BASIS=""
 MODEL_BASIS="label"
 MAX_ROUNDS=3
 MAX_CONTINUATIONS=2
@@ -115,22 +120,29 @@ envfail() { echo "[orchestrate-lean] $*" >&2; exit 2; }
 
 while [ $# -gt 0 ]; do
   case "$1" in
-    --build-model)     BUILD_MODEL="${2:-}"; shift 2 ;;
-    --review-model)    REVIEW_MODEL="${2:-}"; shift 2 ;;
-    --model-basis)     MODEL_BASIS="${2:-}"; shift 2 ;;
-    --max-rounds)      MAX_ROUNDS="${2:-}"; shift 2 ;;
-    --max-continuations) MAX_CONTINUATIONS="${2:-}"; shift 2 ;;
-    --intake-attested) INTAKE_ATTESTED=1; shift ;;
-    --dry-run)         DRY_RUN=1; shift ;;
-    -h|--help)         sed -n '2,95p' "$0"; exit 0 ;;
-    -*)                envfail "unknown option: $1" ;;
-    *)                 [ -z "$ISSUE" ] && ISSUE="$1" || envfail "unexpected argument: $1"; shift ;;
+    --build-model)        BUILD_MODEL="${2:-}"; shift 2 ;;
+    --review-model)       REVIEW_MODEL="${2:-}"; shift 2 ;;
+    --review-model-basis) REVIEW_MODEL_BASIS="${2:-}"; shift 2 ;;
+    --model-basis)        MODEL_BASIS="${2:-}"; shift 2 ;;
+    --max-rounds)         MAX_ROUNDS="${2:-}"; shift 2 ;;
+    --max-continuations)  MAX_CONTINUATIONS="${2:-}"; shift 2 ;;
+    --intake-attested)    INTAKE_ATTESTED=1; shift ;;
+    --dry-run)            DRY_RUN=1; shift ;;
+    -h|--help)            sed -n '2,98p' "$0"; exit 0 ;;
+    -*)                   envfail "unknown option: $1" ;;
+    *)                    [ -z "$ISSUE" ] && ISSUE="$1" || envfail "unexpected argument: $1"; shift ;;
   esac
 done
 
 [ -n "$ISSUE" ] || envfail "usage: orchestrate-lean.sh <issue> --build-model <model> [options]"
 [ -n "$BUILD_MODEL" ] || envfail "--build-model is required: this scheduler does not size tickets. Read the ticket's opus/sonnet label, or size it yourself and say so via --model-basis."
 [ -n "$REVIEW_MODEL" ] || envfail "--review-model was given an empty value."
+# A departure from the shipped review tier costs nothing today, and that is the whole defect
+# (#490): the knob whose misuse weakens the gate itself is the one knob free to turn. Comparing
+# against the captured default rather than a literal keeps the tier name spelled in one place.
+if [ "$REVIEW_MODEL" != "$REVIEW_MODEL_DEFAULT" ] && [ -z "$REVIEW_MODEL_BASIS" ]; then
+  envfail "--review-model '$REVIEW_MODEL' departs from the shipped default ('$REVIEW_MODEL_DEFAULT'): say why via --review-model-basis, e.g. 'sized-here: rate-limited on $REVIEW_MODEL_DEFAULT'."
+fi
 case "$MAX_ROUNDS" in ''|*[!0-9]*) envfail "--max-rounds must be a positive integer, got '$MAX_ROUNDS'" ;; esac
 [ "$MAX_ROUNDS" -ge 1 ] || envfail "--max-rounds must be at least 1."
 # Zero is legal here where it is not for --max-rounds: a run with no rounds could do nothing at
@@ -223,7 +235,12 @@ if [ "$r1" -ne 0 ] || [ "$r2" -ne 0 ] || [ "$r3" -ne 0 ]; then
   exit 2
 fi
 say "preflight: clean."
-say "build model: $BUILD_MODEL (basis: $MODEL_BASIS) · review model: $REVIEW_MODEL · rounds: $MAX_ROUNDS · continuations: $MAX_CONTINUATIONS"
+# The basis parenthetical is appended only when non-empty — never synthesized as "(basis: )" or
+# a fabricated "shipped default" note, either of which would make an unstated basis
+# indistinguishable from a stated one in the very log this ticket exists to make legible.
+REVIEW_BASIS_NOTE=""
+[ -n "$REVIEW_MODEL_BASIS" ] && REVIEW_BASIS_NOTE=" (basis: $REVIEW_MODEL_BASIS)"
+say "build model: $BUILD_MODEL (basis: $MODEL_BASIS) · review model: $REVIEW_MODEL$REVIEW_BASIS_NOTE · rounds: $MAX_ROUNDS · continuations: $MAX_CONTINUATIONS"
 
 # ---- the work branch and its worktree ---------------------------------------------------------
 # One prefix resolver for the whole marketplace; this script asks it the same question the gate
