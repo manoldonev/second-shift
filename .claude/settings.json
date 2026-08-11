@@ -12,13 +12,6 @@
       }
     ]
   },
-  "enabledPlugins": {
-    "dev-pipeline@second-shift": true,
-    "review-toolkit@second-shift": true,
-    "intake-toolkit@second-shift": true,
-    "audit-toolkit@second-shift": true,
-    "second-shift@second-shift": true
-  },
   "extraKnownMarketplaces": {
     "second-shift": {
       "source": {
