@@ -4091,7 +4091,7 @@ fi
 # instead. What must hold: the token moves on exactly the rows a milestone EVALUATION writes, and
 # does not move on the bookkeeping rows a session writes merely by starting.
 PGPROG="$WORK/pg-progress.md"
-pgate() { # pgate <args...>
+pgprog() { # pgprog <args...>
   ( unset RUN_ID CLAUDE_CODE_SESSION_ID GH_BOT
     cd "$TREE" && SECOND_SHIFT_CONFIG="$CFG" LEAN_PROGRESS_FILE="$PGPROG" \
     bash "$GATE" progress 77 "$@" 2>&1 )
@@ -4115,7 +4115,7 @@ session_id: sess-pg
 2026-01-01T00:00:06Z | milestone-3 | armed | 2 rows
 milestone-4 | verdict=approve | round=1
 EOF
-BASE_TOK="$(pgate)"
+BASE_TOK="$(pgprog)"
 if [ "$BASE_TOK" = "progress-v1:2" ]; then
   pass "(pg1) the token counts the two EVALUATION rows and ignores entry/session/budget-exhausted/skipped/armed/verdict"
 else fail "(pg1) expected progress-v1:2 over the mixed fixture, got '$BASE_TOK'"; fi
@@ -4127,42 +4127,42 @@ else fail "(pg1) expected progress-v1:2 over the mixed fixture, got '$BASE_TOK'"
 # "did the file change" predicate.
 printf '%s\n' '2026-01-01T00:01:00Z | session | sess-pg-2' >> "$PGPROG"
 printf '%s\n' '2026-01-01T00:01:01Z | entry | ledger=/x | lines=9 | telemetry=on | session=sess-pg-2' >> "$PGPROG"
-if [ "$(pgate)" = "$BASE_TOK" ]; then
+if [ "$(pgprog)" = "$BASE_TOK" ]; then
   pass "(pg2) a fresh session's own bookkeeping rows do NOT move the token — the no-progress stop stays reachable"
-else fail "(pg2) a session/entry row moved the token: $BASE_TOK -> $(pgate)"; fi
+else fail "(pg2) a session/entry row moved the token: $BASE_TOK -> $(pgprog)"; fi
 
 printf '%s\n' '2026-01-01T00:02:00Z | milestone-2 | satisfied' >> "$PGPROG"
-if [ "$(pgate)" != "$BASE_TOK" ]; then
+if [ "$(pgprog)" != "$BASE_TOK" ]; then
   pass "(pg3) a new milestone 'satisfied' row DOES move the token"
 else fail "(pg3) a satisfied row left the token unchanged at $BASE_TOK"; fi
 
-TOK3="$(pgate)"
+TOK3="$(pgprog)"
 printf '%s\n' '2026-01-01T00:03:00Z | milestone-3 | attempt | red' >> "$PGPROG"
-if [ "$(pgate)" != "$TOK3" ]; then
+if [ "$(pgprog)" != "$TOK3" ]; then
   pass "(pg4) a new milestone 'attempt' row moves it too — a session that redded a gate still advanced"
 else fail "(pg4) an attempt row left the token unchanged at $TOK3"; fi
 
 # D-8's narrowing. The close-out asks a different question from the build phase, and `attempt` is
 # deliberately NOT part of it: a close-out that redded milestone 5 advanced the record but did not
 # finish step 9, and crediting it would be the false `done` #492 exists to remove.
-M5_BEFORE="$(pgate --satisfied 5)"
+M5_BEFORE="$(pgprog --satisfied 5)"
 printf '%s\n' '2026-01-01T00:04:00Z | milestone-5 | attempt | closing comment missing' >> "$PGPROG"
-if [ "$M5_BEFORE" = "progress-v1:0" ] && [ "$(pgate --satisfied 5)" = "$M5_BEFORE" ]; then
+if [ "$M5_BEFORE" = "progress-v1:0" ] && [ "$(pgprog --satisfied 5)" = "$M5_BEFORE" ]; then
   pass "(pg5) --satisfied 5 ignores milestone 5's ATTEMPT rows, so a redded close-out is not credited"
-else fail "(pg5) an attempt row moved the milestone-5-scoped token: $M5_BEFORE -> $(pgate --satisfied 5)"; fi
+else fail "(pg5) an attempt row moved the milestone-5-scoped token: $M5_BEFORE -> $(pgprog --satisfied 5)"; fi
 
 printf '%s\n' '2026-01-01T00:05:00Z | milestone-5 | satisfied' >> "$PGPROG"
-if [ "$(pgate --satisfied 5)" != "$M5_BEFORE" ]; then
+if [ "$(pgprog --satisfied 5)" != "$M5_BEFORE" ]; then
   pass "(pg6) --satisfied 5 moves on milestone 5's satisfied row — the close-out's credit signal"
 else fail "(pg6) the milestone-5 satisfied row did not move its scoped token"; fi
 
 # ...and it is SCOPED. A satisfied row on another milestone must not credit a close-out.
-M5_NOW="$(pgate --satisfied 5)"
-BROAD_NOW="$(pgate)"
+M5_NOW="$(pgprog --satisfied 5)"
+BROAD_NOW="$(pgprog)"
 printf '%s\n' '2026-01-01T00:06:00Z | milestone-4 | satisfied' >> "$PGPROG"
-if [ "$(pgate --satisfied 5)" = "$M5_NOW" ] && [ "$(pgate)" != "$BROAD_NOW" ]; then
+if [ "$(pgprog --satisfied 5)" = "$M5_NOW" ] && [ "$(pgprog)" != "$BROAD_NOW" ]; then
   pass "(pg7) another milestone's satisfaction moves the broad token but not the milestone-5-scoped one"
-else fail "(pg7) --satisfied 5 was not scoped to milestone 5: $M5_NOW -> $(pgate --satisfied 5)"; fi
+else fail "(pg7) --satisfied 5 was not scoped to milestone 5: $M5_NOW -> $(pgprog --satisfied 5)"; fi
 
 # Read-only, and specifically NOT a creator. Every other subcommand funnels through
 # ensure_progress_file; this one must not, because the absence of the record is itself the answer
@@ -4192,7 +4192,7 @@ if printf '%s' "$BASE_TOK" | grep -q '^progress-v1:'; then
   pass "(pg10) the token carries a generation prefix, so a caller reaching for a numeric compare has to notice it is not a number"
 else fail "(pg10) the token has no generation prefix: '$BASE_TOK'"; fi
 
-out="$(pgate --satisfied nope)"; rc=$?
+out="$(pgprog --satisfied nope)"; rc=$?
 if [ "$rc" -eq 2 ] && printf '%s' "$out" | grep -q 'takes a milestone number'; then
   pass "(pg11) a non-numeric --satisfied is a usage refusal"
 else fail "(pg11) expected rc=2 on a non-numeric --satisfied, got rc=$rc: $out"; fi
