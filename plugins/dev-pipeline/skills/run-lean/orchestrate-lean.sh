@@ -36,6 +36,36 @@
 # counter lives in a file a fix round can reset, and a scheduler with no bound of its own would
 # loop forever on a reset counter.
 #
+# WHY A SPAWN'S EXIT STATUS IS NOT A COMPLETION SIGNAL (#492). `claude -p` exits 0 whenever the
+# model ends its turn cleanly — which is "the model stopped talking", not "the block finished".
+# A headless payload that backgrounds a gate, exhausts its context, or decides to wait on
+# anything produces the identical signature: exit 0, work committed, nothing left to review. So
+# this loop reads a THIRD post-spawn state beside finished and failed — exited 0, no PR, but the
+# run advanced — and re-spawns on it, because build-lean is outcome-gated and resumable by
+# construction and its own Resume contract makes a fresh session the recovery.
+#
+# What it may NOT do is judge that from the session's output. "Advanced" is one opaque token from
+# `lean-gate.sh progress`, compared before and after the spawn and interpreted no further; the
+# gate owns the predicate, this script owns only the comparison. That is what keeps the boundary
+# above ("gate exit codes and tracker state") true while this script gains a third thing to read.
+#
+# THE CONTINUATION BUDGET, and why it is load-bearing rather than belt-and-braces. `fail_milestone`
+# appends an attempt row on every red including the over-budget one, so a spawn that hit the
+# gate's own `rc=4` hard stop reads as "advanced" and would re-spawn forever. --max-continuations
+# bounds that. It is NOT a new fix budget — the gate's counter still decides when a milestone is
+# spent — it is a bound on CONSECUTIVE spawns that leave no PR, and it resets whenever a spawn
+# yields one, so each build phase gets its own and a run that keeps advancing is not starved.
+#
+# THE CLOSE-OUT IS VERIFIED, NOT CREDITED. `verdict_rc` runs BEFORE the close-out spawn and
+# nothing evaluated after it, so a close-out that ended its turn early exited 0 and printed
+# `done` while step 9's obligations were all unmet — no closing comment, milestone 5 unsatisfied,
+# the worktree still on disk, and the claimed label still set on a ticket the lane had just
+# declared finished. That is worse than the no-PR case, which at least fails loudly. The check is
+# the same token narrowed to milestone 5's `satisfied` row, and the row must be NEW — a re-entered
+# lane must not be credited with a prior run's milestone 5. Verify-only, never a re-spawn: the
+# scheduler cannot invoke `bash G 5` itself either, because a failing one routes through
+# fail_milestone and would consume milestone 5's fix budget on the scheduler's behalf.
+#
 # Usage:
 #   orchestrate-lean.sh <issue> --build-model <model> [options]
 #     --build-model <m>    REQUIRED. The model for every BUILD-role session.
@@ -43,6 +73,11 @@
 #     --model-basis <text> Free text recorded in the log beside the build model, e.g. `label`
 #                          or `sized-here: touches two gates`. Default `label`.
 #     --max-rounds <n>     Default 3. The n+1th is the hard stop.
+#     --max-continuations <n>
+#                          Default 2. Consecutive BUILD spawns that exit 0, leave no PR, and
+#                          advanced the run are re-spawned up to this many times per build
+#                          phase; the counter resets whenever a spawn yields a PR. 0 restores
+#                          the pre-#492 behavior of never continuing.
 #     --intake-attested    The operator asserts intake is paid off. Required under a tracker
 #                          with no queue label; never a way to skip a github label that is
 #                          simply absent.
@@ -55,7 +90,8 @@
 #   ${GH:-gh}                    the tracker/code-host CLI, read-only here
 #   SECOND_SHIFT_CONFIG          override the resolved config path
 #
-# Exit: 0 = approved and closed out; 1 = a phase failed; 2 = usage or preflight reject;
+# Exit: 0 = approved and closed out; 1 = a phase failed, a build phase spent its continuation
+#       budget, or a close-out left step 9's exit artifacts unmet; 2 = usage or preflight reject;
 #       4 = round budget exhausted (hard stop, no rescue).
 set -uo pipefail
 
@@ -70,6 +106,7 @@ BUILD_MODEL=""
 REVIEW_MODEL="opus"
 MODEL_BASIS="label"
 MAX_ROUNDS=3
+MAX_CONTINUATIONS=2
 INTAKE_ATTESTED=0
 DRY_RUN=0
 
@@ -82,9 +119,10 @@ while [ $# -gt 0 ]; do
     --review-model)    REVIEW_MODEL="${2:-}"; shift 2 ;;
     --model-basis)     MODEL_BASIS="${2:-}"; shift 2 ;;
     --max-rounds)      MAX_ROUNDS="${2:-}"; shift 2 ;;
+    --max-continuations) MAX_CONTINUATIONS="${2:-}"; shift 2 ;;
     --intake-attested) INTAKE_ATTESTED=1; shift ;;
     --dry-run)         DRY_RUN=1; shift ;;
-    -h|--help)         sed -n '2,59p' "$0"; exit 0 ;;
+    -h|--help)         sed -n '2,95p' "$0"; exit 0 ;;
     -*)                envfail "unknown option: $1" ;;
     *)                 [ -z "$ISSUE" ] && ISSUE="$1" || envfail "unexpected argument: $1"; shift ;;
   esac
@@ -95,6 +133,10 @@ done
 [ -n "$REVIEW_MODEL" ] || envfail "--review-model was given an empty value."
 case "$MAX_ROUNDS" in ''|*[!0-9]*) envfail "--max-rounds must be a positive integer, got '$MAX_ROUNDS'" ;; esac
 [ "$MAX_ROUNDS" -ge 1 ] || envfail "--max-rounds must be at least 1."
+# Zero is legal here where it is not for --max-rounds: a run with no rounds could do nothing at
+# all, whereas a run with no continuations is exactly the pre-#492 behavior and is the honest way
+# to ask for it back.
+case "$MAX_CONTINUATIONS" in ''|*[!0-9]*) envfail "--max-continuations must be a non-negative integer, got '$MAX_CONTINUATIONS'" ;; esac
 
 REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null)" || envfail "not in a git repo."
 _common="$(git rev-parse --git-common-dir 2>/dev/null)" || envfail "cannot resolve --git-common-dir."
@@ -181,7 +223,7 @@ if [ "$r1" -ne 0 ] || [ "$r2" -ne 0 ] || [ "$r3" -ne 0 ]; then
   exit 2
 fi
 say "preflight: clean."
-say "build model: $BUILD_MODEL (basis: $MODEL_BASIS) · review model: $REVIEW_MODEL · rounds: $MAX_ROUNDS"
+say "build model: $BUILD_MODEL (basis: $MODEL_BASIS) · review model: $REVIEW_MODEL · rounds: $MAX_ROUNDS · continuations: $MAX_CONTINUATIONS"
 
 # ---- the work branch and its worktree ---------------------------------------------------------
 # One prefix resolver for the whole marketplace; this script asks it the same question the gate
@@ -238,6 +280,26 @@ verdict_rc() {
   ( cd "$wt" && env -u RUN_ID bash "$GATE" 4 "$ISSUE" )
 }
 
+# The continuation predicate (#492). One opaque token; this script never parses it, only compares
+# two of them for equality. Same RUN_ID scrub as verdict_rc, for the same reason.
+#
+# Run from MAIN_ROOT, NOT the lane worktree: the progress record lives in the main checkout so it
+# survives teardown, and the close-out comparison happens on both sides of a spawn whose last act
+# is `bash G teardown` — a reader anchored in the worktree would be reading from a directory the
+# thing it is measuring has just deleted.
+#
+# It RETURNS NON-ZERO rather than printing an empty token when the gate cannot answer. An empty
+# token compared against an empty token agrees, and that agreement would read as "the run did not
+# advance" — a broken gate would be indistinguishable from an idle session, which is the exact
+# shape of error-reads-as-success this ticket exists to remove.
+progress_token() { # progress_token [--satisfied <n>]
+  local tok rc
+  tok="$( cd "$MAIN_ROOT" && env -u RUN_ID bash "$GATE" progress "$ISSUE" "$@" 2>/dev/null )"
+  rc=$?
+  [ "$rc" -eq 0 ] && [ -n "$tok" ] || return 1
+  printf '%s\n' "$tok"
+}
+
 if [ "$DRY_RUN" -eq 1 ]; then
   say "dry run: branch=$BRANCH · gate=$GATE · $MAX_ROUNDS round(s) of BUILD → REVIEW → verdict"
   spawn BUILD "$BUILD_MODEL" "/dev-pipeline:build-lean $ISSUE"
@@ -249,11 +311,39 @@ fi
 round=1
 while :; do
   say "── round $round of $MAX_ROUNDS"
-  spawn BUILD "$BUILD_MODEL" "/dev-pipeline:build-lean $ISSUE" \
-    || { say "BUILD session failed in round $round."; exit 1; }
 
-  PR="$(resolve_pr)"
-  [ -n "$PR" ] || { say "no open PR on '$BRANCH' after the BUILD session — nothing to review."; exit 1; }
+  # The build phase. One spawn on the happy path; a continuation only when the spawn left no PR
+  # AND the progress record moved. `continuations` is scoped to this phase, which IS the reset
+  # D-3 asks for: the only way out of this loop is a PR.
+  continuations=0
+  PR=""
+  while :; do
+    tok_before="$(progress_token)" \
+      || { say "cannot read the run's progress record through '$GATE' — the continuation predicate is unavailable, so a stopped BUILD session could not be told from a finished one. Not spawning blind."; exit 1; }
+
+    spawn BUILD "$BUILD_MODEL" "/dev-pipeline:build-lean $ISSUE" \
+      || { say "BUILD session failed in round $round."; exit 1; }
+
+    PR="$(resolve_pr)"
+    [ -n "$PR" ] && break
+
+    tok_after="$(progress_token)" \
+      || { say "cannot read the run's progress record through '$GATE' after the BUILD session."; exit 1; }
+
+    # AC-3: exited 0, no PR, and nothing was recorded. Unchanged from before #492 — not
+    # reviewing nothing is still correct, and a session that did nothing will do nothing twice.
+    if [ "$tok_after" = "$tok_before" ]; then
+      say "no open PR on '$BRANCH' after the BUILD session — nothing to review."
+      exit 1
+    fi
+
+    continuations=$((continuations + 1))
+    if [ "$continuations" -gt "$MAX_CONTINUATIONS" ]; then
+      say "HARD STOP: the BUILD session advanced but left no PR, and this build phase has spent its --max-continuations budget ($MAX_CONTINUATIONS). The worktree and the claim are left in place for a manual rescue."
+      exit 1
+    fi
+    say "BUILD advanced but left no open PR — continuing in a fresh session ($continuations of $MAX_CONTINUATIONS)."
+  done
   say "PR #$PR is open on $BRANCH."
 
   spawn REVIEW "$REVIEW_MODEL" "/dev-pipeline:review-lean $PR" \
@@ -263,8 +353,20 @@ while :; do
   case "$rc" in
     0)
       say "verdict: approve. Closing out."
+      m5_before="$(progress_token --satisfied 5)" \
+        || { say "cannot read the run's progress record through '$GATE' — the close-out cannot be verified, so it is not spawned."; exit 1; }
+
       spawn BUILD "$BUILD_MODEL" "/dev-pipeline:build-lean $ISSUE" \
         || { say "close-out session failed."; exit 1; }
+
+      m5_after="$(progress_token --satisfied 5)" \
+        || { say "cannot read the run's progress record through '$GATE' after the close-out session."; exit 1; }
+
+      # AC-7. The close-out is verified against the record, never credited on its exit status.
+      if [ "$m5_after" = "$m5_before" ]; then
+        say "close-out session exited 0 but recorded no NEW milestone-5 satisfaction, so build-lean step 9 did not finish: the closing comment, the exit artifacts and the worktree teardown are all unaccounted for. Reporting a failure rather than 'done' — the ticket is still claimed and PR #$PR is still open. Finish step 9 by hand from the lane worktree."
+        exit 1
+      fi
       say "done — #$ISSUE approved on PR #$PR."
       exit 0
       ;;
