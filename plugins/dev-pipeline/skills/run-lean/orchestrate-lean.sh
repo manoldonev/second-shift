@@ -56,6 +56,24 @@
 # spent — it is a bound on CONSECUTIVE spawns that leave no PR, and it resets whenever a spawn
 # yields one, so each build phase gets its own and a run that keeps advancing is not starved.
 #
+# THE VERDICT GATE'S RC IS A TAXONOMY, NOT A BOOLEAN (#496). Every milestone-4 failure used to
+# return 1, so twenty distinct conditions arrived here as one word — and the loop had exactly one
+# response to it: spend a round, re-spawn BUILD. Two of those conditions make that response wrong
+# rather than merely wasteful.
+#
+#   5 — NO VERDICT USABLE AGAINST THE CURRENT HEAD. The review produced no record, or none that
+#       covers this tree. BUILD has nothing to fix: the review half is what failed. So this spends
+#       no round and spawns no BUILD; it re-spawns REVIEW once, on a counter of its own, and exits
+#       5 if the second one is dark too. A dark review used to loop the lane three times and then
+#       report a spent fix budget for fixes nobody ever attempted.
+#   6 — INTEGRITY REFUSAL. The verdict carries the build run's identity (P10). That is the trust
+#       boundary this two-session lane exists to enforce, and it reached the operator as
+#       "verdict: needs-work" and was RETRIED. It is terminal here, named, and never re-spawned.
+#
+# EVALUATION ORDER IS PART OF THE CONTRACT. The class routes FIRST. #492's advancement test
+# applies only within a phase spawn, never across verdict classes — a class-5 round that "advanced"
+# is still a round with no review in it.
+#
 # THE CLOSE-OUT IS VERIFIED, NOT CREDITED. `verdict_rc` runs BEFORE the close-out spawn and
 # nothing evaluated after it, so a close-out that ended its turn early exited 0 and printed
 # `done` while step 9's obligations were all unmet — no closing comment, milestone 5 unsatisfied,
@@ -94,8 +112,10 @@
 #   SECOND_SHIFT_CONFIG          override the resolved config path
 #
 # Exit: 0 = approved and closed out; 1 = a phase failed, a build phase spent its continuation
-#       budget, or a close-out left step 9's exit artifacts unmet; 2 = usage or preflight reject;
-#       4 = round budget exhausted (hard stop, no rescue).
+#       budget, the lane's PR could not be resolved unambiguously, or a close-out left step 9's
+#       exit artifacts unmet; 2 = usage or preflight reject; 4 = round budget exhausted (hard stop,
+#       no rescue); 5 = no verdict record usable against the current head, after the bounded REVIEW
+#       retry; 6 = an integrity refusal (P10) — terminal, never retried.
 set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -112,6 +132,9 @@ REVIEW_MODEL_BASIS=""
 MODEL_BASIS="label"
 MAX_ROUNDS=3
 MAX_CONTINUATIONS=2
+# #496 D-10: exactly one. Not a flag — a knob here would let an operator turn a broken review lane
+# into an expensive one, and the bound is the point.
+MAX_REVIEW_RETRIES=1
 INTAKE_ATTESTED=0
 DRY_RUN=0
 
@@ -128,7 +151,7 @@ while [ $# -gt 0 ]; do
     --max-continuations)  MAX_CONTINUATIONS="${2:-}"; shift 2 ;;
     --intake-attested)    INTAKE_ATTESTED=1; shift ;;
     --dry-run)            DRY_RUN=1; shift ;;
-    -h|--help)            sed -n '2,98p' "$0"; exit 0 ;;
+    -h|--help)            sed -n '2,118p' "$0"; exit 0 ;;
     -*)                   envfail "unknown option: $1" ;;
     *)                    [ -z "$ISSUE" ] && ISSUE="$1" || envfail "unexpected argument: $1"; shift ;;
   esac
@@ -156,6 +179,18 @@ case "$_common" in /*) : ;; *) _common="$REPO_ROOT/$_common" ;; esac
 MAIN_ROOT="$(cd "$_common/.." 2>/dev/null && pwd)" || envfail "cannot resolve the main checkout."
 
 CONFIG="${SECOND_SHIFT_CONFIG:-$MAIN_ROOT/.claude/second-shift.config.json}"
+# #496 S4, and the same guard the gate carries — the two copies differ by a comment and shared this
+# defect. ABSENT means "this consumer configured nothing" and every default below is the documented
+# answer; PRESENT-BUT-UNPARSEABLE means the operator's intent is unknown, and the defaults are not
+# neutral — `.tracker.type` falls back to `github`, whose intake arm attests MORE than jira's, so a
+# corrupt file silently picks a policy. Fail closed.
+#
+# UP FRONT AND OUTSIDE `cfg`, because `cfg` is called as `$(cfg …)`: an `exit` in there kills the
+# command substitution's subshell, the caller reads an empty string, and the refusal is invisible.
+# Exactly the shape resolve_pr avoids below by counting in the caller.
+if [ -f "$CONFIG" ] && ! jq empty "$CONFIG" >/dev/null 2>&1; then
+  envfail "config $CONFIG exists but is not parseable JSON — refusing to fall back to defaults, which would silently select tracker.type=github. Fix the file (jq empty '$CONFIG' names the parse error) or point SECOND_SHIFT_CONFIG elsewhere."
+fi
 cfg() {
   local v
   if [ -f "$CONFIG" ]; then
@@ -283,18 +318,28 @@ spawn() { # spawn <role> <model> <prompt>
   return $rc
 }
 
+# #496 S4. EVERY match, one per line — the caller decides. `.[0].number` silently picked the first
+# of however many open PRs share this head, so a lane with two of them reviewed one and closed out
+# against the other with nothing printed. The refusal lives in the CALLER rather than here for a
+# mechanical reason: this runs inside `$(resolve_pr)`, where a `return 1` is invisible to the
+# assignment and an `exit` kills only the subshell.
 resolve_pr() {
   "$GH_CLI" pr list --head "$BRANCH" --state open --json number \
-    --jq '.[0].number // empty' 2>/dev/null
+    --jq '.[].number' 2>/dev/null
 }
 
 # Called with RUN_ID unset on purpose: the gate resolves the run id from the build run's cached
 # record, and an ambient value here would let the scheduler's environment decide which run a
 # milestone was evaluated against.
+#
+# THROUGH THE OBSERVE SEAM (#496 S3). This was the last RECORDING gate call the scheduler made:
+# every non-approve verdict it merely READ appended a milestone-4 attempt line and spent the build
+# role's fix budget — so the premise that this script writes nothing was false at exactly one site.
+# `LEAN_GATE_OBSERVE=1` returns the same taxonomy and records nothing, budget exhaustion included.
 verdict_rc() {
   local wt
   wt="$(lane_worktree)" || return 3
-  ( cd "$wt" && env -u RUN_ID bash "$GATE" 4 "$ISSUE" )
+  ( cd "$wt" && env -u RUN_ID LEAN_GATE_OBSERVE=1 bash "$GATE" 4 "$ISSUE" )
 }
 
 # The continuation predicate (#492). One opaque token; this script never parses it, only compares
@@ -342,6 +387,12 @@ while :; do
       || { say "BUILD session failed in round $round."; exit 1; }
 
     PR="$(resolve_pr)"
+    # More than one open PR on this head is not a state to guess through: the review would run on
+    # one and the close-out could verify the other. Named, not counted silently.
+    if [ "$(printf '%s' "$PR" | grep -c '[0-9]')" -gt 1 ]; then
+      say "more than one open PR on '$BRANCH' ($(printf '%s' "$PR" | tr '\n' ' ')) — the lane cannot choose which one this run is about. Close or retarget the extras and re-launch."
+      exit 1
+    fi
     [ -n "$PR" ] && break
 
     tok_after="$(progress_token)" \
@@ -363,10 +414,27 @@ while :; do
   done
   say "PR #$PR is open on $BRANCH."
 
-  spawn REVIEW "$REVIEW_MODEL" "/dev-pipeline:review-lean $PR" \
-    || { say "REVIEW session failed in round $round."; exit 1; }
+  # The review phase, and its own bounded retry. A class-5 read means the review produced nothing
+  # usable against this head — dark, uncommitted, or stale — which is a failure of the REVIEW half,
+  # so the recovery is another review, not another round of fixes. One re-spawn, on a counter
+  # separate from --max-rounds and --max-continuations, because a second dark review is a broken
+  # review lane rather than bad luck and a third would only cost more to learn the same thing.
+  review_retries=0
+  while :; do
+    spawn REVIEW "$REVIEW_MODEL" "/dev-pipeline:review-lean $PR" \
+      || { say "REVIEW session failed in round $round."; exit 1; }
 
-  verdict_rc; rc=$?
+    verdict_rc; rc=$?
+    [ "$rc" -eq 5 ] || break
+
+    review_retries=$((review_retries + 1))
+    if [ "$review_retries" -gt "$MAX_REVIEW_RETRIES" ]; then
+      say "HARD STOP: the REVIEW session left no verdict record usable against the current head, twice. No round was spent and no BUILD session was spawned — BUILD has nothing to fix when the review half is what failed. Run '/dev-pipeline:review-lean $PR' by hand and read its output; the worktree and the claim are left in place."
+      exit 5
+    fi
+    say "no verdict record usable against the current head — re-spawning REVIEW ($review_retries of $MAX_REVIEW_RETRIES). No round spent, no BUILD spawn."
+  done
+
   case "$rc" in
     0)
       say "verdict: approve. Closing out."
@@ -393,6 +461,7 @@ while :; do
       exit 0
       ;;
     1) say "verdict: needs-work." ;;
+    6) say "HARD STOP: the verdict record is authored by the build run or the build session (P10) — generation may not author its own evaluation, and that is not something a retry can clear. No round spent, nothing re-spawned. The merge boundary refuses this record too; produce one from a separate review session."; exit 6 ;;
     4) say "HARD STOP: the verdict gate exhausted its fix budget. No rescue attempt — re-entry is from the top."; exit 4 ;;
     3) say "cannot locate a worktree for '$BRANCH' — the BUILD session did not leave one."; exit 1 ;;
     *) say "the verdict gate could not run (exit $rc)."; exit 1 ;;

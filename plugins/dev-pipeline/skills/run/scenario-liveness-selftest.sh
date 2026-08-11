@@ -979,6 +979,12 @@ LEANCFG
                   CLAUDE_CODE_SESSION_ID="$LEAN_SID" \
                   bash "$LEAN_GATE" --issue-file "$LEAN_ISSUE_NOREGIONS" "$@" 2>&1 ); }
   lean_count() { if [[ -f "$LEAN_PROG" ]]; then local n; n=$(grep -cF "$1" "$LEAN_PROG" 2>/dev/null) || n=0; echo "$n"; else echo 0; fi; }
+  # #496: the same call through the observe seam. A separate helper rather than an assignment
+  # prefixed to `lean_gate` — a `VAR=x func` prefix on a shell FUNCTION does not reliably scope to
+  # the call, and a seam that leaked into the legs below would silence their recording assertions.
+  lean_gate_observe() { ( unset RUN_ID GH_BOT; cd "$LEAN_TREE" && SECOND_SHIFT_CONFIG="$LEAN_CFG" \
+                  LEAN_PROGRESS_FILE="$LEAN_PROG" CLAUDE_CODE_SESSION_ID="$LEAN_SID" LEAN_GATE_OBSERVE=1 \
+                  bash "$LEAN_GATE" --issue-file "$LEAN_ISSUE_NOREGIONS" "$@" 2>&1 ); }
 
   LEAN_SPEC="$LEAN_TREE/docs/plans/acme-77-lean.md"
   LEAN_VERDICT="$LEAN_TREE/docs/plans/acme-77-lean-verdict.md"
@@ -1172,9 +1178,9 @@ LEANBOT
   mv "$LEAN_VERDICT" "$TMP/held-lean-verdict.md"
   lean_rcs=""
   for _ in 1 2 3 4; do lean_gate 4 77 >/dev/null 2>&1; lean_rcs="$lean_rcs$?"; done
-  [[ "$lean_rcs" == "1114" ]] \
+  [[ "$lean_rcs" == "5554" ]] \
     && pass "(lean-budget) 3 fix attempts then a 4th-red hard stop (rc=4) — the prose-only fix budget, asserted" \
-    || fail "(lean-budget) exit sequence was $lean_rcs, expected 1114"
+    || fail "(lean-budget) exit sequence was $lean_rcs, expected 5554"
   [[ "$(lean_count 'budget-exhausted')" -ge 1 ]] \
     && pass "(lean-budget) the abort record lands in the progress file" \
     || fail "(lean-budget) no budget-exhausted record written"
@@ -1197,6 +1203,57 @@ LEANBOT
     && pass "(lean-fixloop) the failed round is still counted after re-entry (counters survive resume)" \
     || fail "(lean-fixloop) the surviving attempt counter was lost across re-entry"
 
+  # ---- leg 3d: the milestone-4 taxonomy, composed (#496) --------------------
+  # CLAUDE.md: a new gate contract extends the liveness scenario for every verdict path it
+  # touches. The per-tool suite proves each class against its own fixture; what only a composed
+  # leg can show is that the classes stay DISTINCT along one run's progress-file chain, and that
+  # they survive `all` — the whole-progression entry point a resume re-enters through, and the
+  # one caller that reaches milestone 4 through a pre-pass rather than directly.
+  #
+  # Three conditions, three actions, on ONE tree that differs only in the verdict record: a
+  # record that does not approve (a BUILD fix), a record that is not there at all (a review
+  # round), and a record the build run authored (a refusal no retry can clear). Before #496 all
+  # three arrived as `1` and the scheduler spent a round on each.
+  lean_seed_progress r-lean-1 sess-lean-build
+  lean_write_verdict needs-work r-lean-review-tx1 sess-lean-review-tx1
+  lean_gate 4 77 >/dev/null 2>&1; tx_nw=$?
+  lean_gate all 77 >/dev/null 2>&1; tx_nw_all=$?
+
+  lean_seed_progress r-lean-1 sess-lean-build
+  mv "$LEAN_VERDICT" "$TMP/held-lean-verdict-tx.md"
+  lean_gate 4 77 >/dev/null 2>&1; tx_absent=$?
+  lean_gate all 77 >/dev/null 2>&1; tx_absent_all=$?
+  mv "$TMP/held-lean-verdict-tx.md" "$LEAN_VERDICT"
+
+  lean_seed_progress r-lean-1 sess-lean-build
+  lean_write_verdict approve r-lean-1 sess-lean-review-tx2
+  lean_gate 4 77 >/dev/null 2>&1; tx_p10=$?
+  lean_gate all 77 >/dev/null 2>&1; tx_p10_all=$?
+
+  [[ "$tx_nw" -eq 1 && "$tx_absent" -eq 5 && "$tx_p10" -eq 6 ]] \
+    && pass "(lean-taxonomy) one tree, three verdict records, three distinct classes — needs-work 1, no usable record 5, build-authored 6" \
+    || fail "(lean-taxonomy) expected rc 1/5/6, got $tx_nw/$tx_absent/$tx_p10"
+  [[ "$tx_nw_all" -eq 1 && "$tx_absent_all" -eq 5 && "$tx_p10_all" -eq 6 ]] \
+    && pass "(lean-taxonomy) ...and 'all' propagates each class rather than laundering it into its pre-pass's own 1" \
+    || fail "(lean-taxonomy) 'all' collapsed the classes: got $tx_nw_all/$tx_absent_all/$tx_p10_all, expected 1/5/6"
+
+  # THE OBSERVE SEAM, composed. The scheduler reads this gate through it on every round, so what
+  # matters on a real progress file is that the read classifies identically and appends nothing —
+  # a seam that recorded would spend the BUILD role's fix budget on the SCHEDULER's reads, three
+  # of them per run, which is the premise-breaking write #496 removes.
+  lean_seed_progress r-lean-1 sess-lean-build
+  lean_write_verdict needs-work r-lean-review-tx3 sess-lean-review-tx3
+  tx_lines_before=$(lean_count '| milestone-4 |')
+  lean_gate_observe 4 77 >/dev/null 2>&1; tx_obs=$?
+  tx_lines_after=$(lean_count '| milestone-4 |')
+  lean_gate 4 77 >/dev/null 2>&1; tx_rec=$?
+  [[ "$tx_obs" -eq 1 && "$tx_rec" -eq 1 && "$tx_lines_after" -eq "$tx_lines_before" \
+     && "$(lean_count '| milestone-4 |')" -gt "$tx_lines_after" ]] \
+    && pass "(lean-taxonomy) an observed read classifies the same and writes no milestone-4 line, while the recording path on the same file still does" \
+    || fail "(lean-taxonomy) observe=$tx_obs record=$tx_rec lines $tx_lines_before -> $tx_lines_after -> $(lean_count '| milestone-4 |')"
+  lean_seed_progress r-lean-1 sess-lean-build
+  lean_write_verdict approve r-lean-review-tx4 sess-lean-review-tx4
+
   # ---- leg 4: P10 — the same chain reds on a build-authored verdict ---------
   # The composed counterpart to lean-gate-selftest's (n) cases. Everything else in leg 1 is
   # left exactly as it was; ONLY the verdict's authorship changes, so a green here would mean
@@ -1207,9 +1264,9 @@ LEANBOT
   lean_seed_progress r-lean-1 sess-lean-build
   lean_write_verdict approve r-lean-review-1 sess-lean-build
   lean_gate 4 77 >/dev/null 2>&1; auth2=$?
-  [[ "$auth1" -eq 1 && "$auth2" -eq 1 ]] \
-    && pass "(lean-authorship) the chain reds when the verdict carries the build run's id or names its session" \
-    || fail "(lean-authorship) expected rc 1 and 1, got $auth1 then $auth2"
+  [[ "$auth1" -eq 6 && "$auth2" -eq 6 ]] \
+    && pass "(lean-authorship) the chain reds with the INTEGRITY class when the verdict carries the build run's id or names its session" \
+    || fail "(lean-authorship) expected rc 6 and 6, got $auth1 then $auth2"
 
   # ---- leg 5: the chain reds on a STALE verdict, and a new round clears it --
   # The composed counterpart to lean-gate-selftest's (t) cases, and the one failure this
@@ -1227,9 +1284,9 @@ LEANBOT
   lean_seed_progress r-lean-1 sess-lean-build
   lean_write_verdict approve r-lean-review-4 sess-lean-review-4
   lean_gate 4 77 >/dev/null 2>&1; fresh3=$?
-  [[ "$fresh1" -eq 0 && "$fresh2" -eq 1 && "$fresh3" -eq 0 ]] \
-    && pass "(lean-freshness) a verdict covering the head passes, one predating a later commit reds, a new round clears it" \
-    || fail "(lean-freshness) expected rc 0/1/0, got $fresh1 then $fresh2 then $fresh3"
+  [[ "$fresh1" -eq 0 && "$fresh2" -eq 5 && "$fresh3" -eq 0 ]] \
+    && pass "(lean-freshness) a verdict covering the head passes, one predating a later commit reds as 5, a new round clears it" \
+    || fail "(lean-freshness) expected rc 0/5/0, got $fresh1 then $fresh2 then $fresh3"
 
   # ---- leg 6: the chain reds on a verdict that DECLARES an earlier head -----
   # Leg 5 composes the INFERRED freshness arm — git decides which commit carries the record.
@@ -1247,18 +1304,18 @@ LEANBOT
   lean_seed_progress r-lean-1 sess-lean-build
   lean_write_verdict approve r-lean-review-6 sess-lean-review-6
   lean_gate 4 77 >/dev/null 2>&1; decl2=$?
-  [[ "$decl1" -eq 1 && "$decl2" -eq 0 ]] \
+  [[ "$decl1" -eq 5 && "$decl2" -eq 0 ]] \
     && pass "(lean-declared) a record whose own commit IS the head still reds when it names an earlier reviewed_head, and a re-declared round clears it" \
-    || fail "(lean-declared) expected rc 1 then 0, got $decl1 then $decl2"
+    || fail "(lean-declared) expected rc 5 then 0, got $decl1 then $decl2"
 
   # ...and the migration arm: a record with no reviewed_head at all is refused, not grandfathered.
   lean_seed_progress r-lean-1 sess-lean-build
   printf 'verdict=approve\nrun_id: r-lean-review-7\nsession_id: sess-lean-review-7\nrounds: 7\n' > "$LEAN_VERDICT"
   lean_commit "a key-less record, as written before reviewed_head existed"
   lean_gate 4 77 >/dev/null 2>&1; decl3=$?
-  [[ "$decl3" -eq 1 ]] \
+  [[ "$decl3" -eq 5 ]] \
     && pass "(lean-declared) a verdict record predating the reviewed_head key is refused, not grandfathered" \
-    || fail "(lean-declared) expected rc=1 on a key-less record, got $decl3"
+    || fail "(lean-declared) expected rc=5 on a key-less record, got $decl3"
   lean_seed_progress r-lean-1 sess-lean-build
   lean_write_verdict approve r-lean-review-8 sess-lean-review-8
 
@@ -1304,9 +1361,9 @@ LEANBOT
   lean_gate 4 77 >/dev/null 2>&1; pid3=$?
 
   [[ "$pid_write" -eq 0 && "$lean_rebased" -eq 0 && -n "$lean_sha_would_red" \
-     && "$pid1" -eq 0 && "$pid2" -eq 0 && "$pid3" -eq 1 ]] \
+     && "$pid1" -eq 0 && "$pid2" -eq 0 && "$pid3" -eq 5 ]] \
     && pass "(lean-patch-id) a review-written record passes, survives a rebase the SHA arm would have redded, and still reds once a commit changes the branch" \
-    || fail "(lean-patch-id) write=$pid_write rebase=$lean_rebased sha-arm-diff='$lean_sha_would_red' rcs=$pid1/$pid2/$pid3, expected 0/0/nonempty/0/0/1"
+    || fail "(lean-patch-id) write=$pid_write rebase=$lean_rebased sha-arm-diff='$lean_sha_would_red' rcs=$pid1/$pid2/$pid3, expected 0/0/nonempty/0/0/5"
 
   # Restore the SHA-fallback shape the remaining legs were written against.
   lean_seed_progress r-lean-1 sess-lean-build
@@ -1756,9 +1813,9 @@ LEANDCFG
   lean_dcommit "an honest record on top of a stale receipt"
   lean_dseed
   lean_dgate 4 88 >/dev/null 2>&1; ld_stale=$?
-  [[ "$ld_nofid" -eq 1 && "$ld_pass" -eq 0 && "$ld_stale" -eq 1 ]] \
-    && pass "(lean-design-verdict) milestone 4 refuses an unscored verdict, passes a scored one, and refuses a stale receipt under a fresh verdict" \
-    || fail "(lean-design-verdict) expected rc 1/0/1, got $ld_nofid/$ld_pass/$ld_stale"
+  [[ "$ld_nofid" -eq 5 && "$ld_pass" -eq 0 && "$ld_stale" -eq 1 ]] \
+    && pass "(lean-design-verdict) milestone 4 refuses an unscored verdict (5 — get a review round), passes a scored one, and refuses a stale receipt (1 — re-render, a BUILD action)" \
+    || fail "(lean-design-verdict) expected rc 5/0/1, got $ld_nofid/$ld_pass/$ld_stale"
 
   # ---- design leg 3: post-approve, `all` reaches the milestone-5 terminal write ----------
   # The livelock this ordering exists to prevent: the mandated pre-close sweep re-evaluates

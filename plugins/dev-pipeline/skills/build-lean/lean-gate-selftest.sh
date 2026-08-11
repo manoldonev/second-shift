@@ -220,19 +220,24 @@ if [ "$n" -eq 1 ]; then pass "(b2) only FAILED evaluations append attempt lines 
 else fail "(b2) expected 1 attempt line, got $n"; fi
 
 # ---- (c) D-19 fix budget: 3 attempts, the 4th red hard-stops -----------------------------
+# #496: the three reds are the milestone-4 CLASS (5 — an absent record is a review-round problem,
+# not a build fix), and the 4th is still 4. Both halves matter: a budget that stopped reporting 4
+# would lose the hard stop, and a 4th call that reported 5 would tell the scheduler to keep
+# re-spawning REVIEW past the bound. Exhaustion outranks the class.
 reset_progress
 rcs=""
 for _ in 1 2 3 4; do gate 4 7 >/dev/null 2>&1; rcs="$rcs$?"; done
-if [ "$rcs" = "1114" ]; then pass "(c1) fix budget: attempts 1-3 return 1, the 4th returns 4 (hard stop)"
-else fail "(c1) expected rc sequence 1114, got $rcs"; fi
+if [ "$rcs" = "5554" ]; then pass "(c1) fix budget: attempts 1-3 return the milestone-4 class, the 4th returns 4 (hard stop)"
+else fail "(c1) expected rc sequence 5554, got $rcs"; fi
 if [ "$(count_in_progress 'budget-exhausted')" -ge 1 ]; then
   pass "(c2) budget exhaustion is recorded in the progress file"
 else fail "(c2) no budget-exhausted line recorded"; fi
 
 # ---- (c3-c6) #494: an ABSENT artifact is not a failed fix --------------------------------
 # (c1) above is the deliberate control: it drives MILESTONE 4's identical `[ -f ]` absence,
-# which #494 D-7 scopes OUT. Its rc sequence staying 1114 is the evidence that the change below
-# landed at milestone 1's call site alone and did not generalize.
+# which #494 D-7 scopes OUT. Its rc sequence carrying a 4th-red 4 rather than three `absent` lines
+# is the evidence that the change below landed at milestone 1's call site alone and did not
+# generalize — #496 re-keyed the first three digits to milestone 4's class, not to absence.
 #
 # (c3) asserts BOTH halves on purpose. "attempt_count() did not rise" passes vacuously if the
 # absence path records nothing at all, so the absent lines must be counted too.
@@ -819,9 +824,9 @@ write_review_verdict() { # write_review_verdict [verdict] [reviewed-head]
 
 reset_progress
 out="$(gate 4 7)"; rc=$?
-if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q 'no committed verdict record'; then
+if [ "$rc" -eq 5 ] && printf '%s' "$out" | grep -q 'no committed verdict record'; then
   pass "(j1) milestone-4 fails with no committed verdict record"
-else fail "(j1) expected rc=1, got $rc: $out"; fi
+else fail "(j1) expected rc=5, got $rc: $out"; fi
 
 write_review_verdict needs-work
 out="$(gate 4 7)"; rc=$?
@@ -832,9 +837,9 @@ else fail "(j2) expected rc=1 on needs-work, got $rc: $out"; fi
 # An approve record with no reconciliation key is unverifiable at the merge boundary.
 printf 'verdict=approve\n' > "$VERDICT"; commit_tree
 out="$(gate 4 7)"; rc=$?
-if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q 'no run_id reconciliation key'; then
+if [ "$rc" -eq 5 ] && printf '%s' "$out" | grep -q 'no run_id reconciliation key'; then
   pass "(j3) milestone-4 fails an approve record carrying no run_id reconciliation key"
-else fail "(j3) expected rc=1 on a key-less approve, got $rc: $out"; fi
+else fail "(j3) expected rc=5 on a key-less approve, got $rc: $out"; fi
 
 # ...and the session key is required for the same reason: without it the review session's
 # ledger cannot be located, so nothing outside the record attests the review happened.
@@ -843,9 +848,9 @@ else fail "(j3) expected rc=1 on a key-less approve, got $rc: $out"; fi
 reset_progress
 printf 'verdict=approve\nrun_id: r-review-1\n' > "$VERDICT"; commit_tree
 out="$(gate 4 7)"; rc=$?
-if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q 'no session_id reconciliation key'; then
+if [ "$rc" -eq 5 ] && printf '%s' "$out" | grep -q 'no session_id reconciliation key'; then
   pass "(j3b) milestone-4 fails an approve record carrying no session_id reconciliation key"
-else fail "(j3b) expected rc=1 on a session-key-less approve, got $rc: $out"; fi
+else fail "(j3b) expected rc=5 on a session-key-less approve, got $rc: $out"; fi
 
 reset_progress
 write_review_verdict
@@ -868,9 +873,9 @@ else fail "(j4) expected rc=0, got $rc: $out"; fi
 reset_progress
 printf 'verdict=approve\nrun_id: r-review-1\nsession_id: sess-review-1\n' > "$VERDICT"; commit_tree
 out="$(gate 4 7)"; rc=$?
-if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q 'no reviewed_head key'; then
+if [ "$rc" -eq 5 ] && printf '%s' "$out" | grep -q 'no reviewed_head key'; then
   pass "(u1) milestone-4 fails an approve record carrying no reviewed_head key (the pre-key migration case)"
-else fail "(u1) expected rc=1 on a head-less approve, got $rc: $out"; fi
+else fail "(u1) expected rc=5 on a head-less approve, got $rc: $out"; fi
 
 # The gap the INFERRED arm cannot see, and the reason this key exists. The record is committed
 # LAST — so `git log -1 -- <record>` finds the head, nothing but the record differs from it, and
@@ -882,17 +887,17 @@ printf '# spec\n\n- AC-1: a thing\n- AC-2: landed while the review was running\n
 commit_tree "code lands between the review and the record"
 write_review_verdict approve "$stale_head"
 out="$(gate 4 7)"; rc=$?
-if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q 'states it reviewed'; then
+if [ "$rc" -eq 5 ] && printf '%s' "$out" | grep -q 'states it reviewed'; then
   pass "(u2) milestone-4 refuses a record naming an earlier head even though its own commit IS the head (inferred arm green, declared arm reds)"
-else fail "(u2) expected rc=1 on a declared-stale record, got $rc: $out"; fi
+else fail "(u2) expected rc=5 on a declared-stale record, got $rc: $out"; fi
 
 # ...and a head that is not a commit here at all — the rebase/force-push-after-approval shape.
 reset_progress
 write_review_verdict approve 0000000000000000000000000000000000000000
 out="$(gate 4 7)"; rc=$?
-if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q 'not a commit in this branch'; then
+if [ "$rc" -eq 5 ] && printf '%s' "$out" | grep -q 'not a commit in this branch'; then
   pass "(u3) milestone-4 refuses a reviewed_head absent from the branch's history"
-else fail "(u3) expected rc=1 on an unknown reviewed_head, got $rc: $out"; fi
+else fail "(u3) expected rc=5 on an unknown reviewed_head, got $rc: $out"; fi
 
 reset_progress
 write_review_verdict approve
@@ -1083,17 +1088,17 @@ seed_build_progress r-build-1 sess-build-1
 printf 'verdict=approve\nrun_id: r-build-1\nsession_id: sess-review-1\nreviewed_head: %s\n' \
   "$(git -C "$TREE" rev-parse HEAD)" > "$VERDICT"; commit_tree
 out="$(gate 4 7)"; rc=$?
-if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q "BUILD run's identity"; then
+if [ "$rc" -eq 6 ] && printf '%s' "$out" | grep -q "BUILD run's identity"; then
   pass "(n1) milestone-4 refuses a verdict carrying the build run's run_id"
-else fail "(n1) expected rc=1 on a build-authored verdict, got $rc: $out"; fi
+else fail "(n1) expected rc=6 on a build-authored verdict, got $rc: $out"; fi
 
 seed_build_progress r-build-1 sess-build-1
 printf 'verdict=approve\nrun_id: r-review-1\nsession_id: sess-build-1\nreviewed_head: %s\n' \
   "$(git -C "$TREE" rev-parse HEAD)" > "$VERDICT"; commit_tree
 out="$(gate 4 7)"; rc=$?
-if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q 'names the BUILD session'; then
+if [ "$rc" -eq 6 ] && printf '%s' "$out" | grep -q 'names the BUILD session'; then
   pass "(n2) milestone-4 refuses a verdict whose session_id is the build session's"
-else fail "(n2) expected rc=1 on a build-session verdict, got $rc: $out"; fi
+else fail "(n2) expected rc=6 on a build-session verdict, got $rc: $out"; fi
 
 # The cache arm. The progress header records no usable build run id, so ONLY the cache file
 # can supply it — which is exactly the state a review session that re-exported nothing is in.
@@ -1102,9 +1107,9 @@ mkdir -p "$(dirname "$RUN_ID_CACHE")"; printf 'r-cached-1' > "$RUN_ID_CACHE"
 printf 'verdict=approve\nrun_id: r-cached-1\nsession_id: sess-review-1\nreviewed_head: %s\n' \
   "$(git -C "$TREE" rev-parse HEAD)" > "$VERDICT"; commit_tree
 out="$(gate 4 7)"; rc=$?
-if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q "BUILD run's identity"; then
+if [ "$rc" -eq 6 ] && printf '%s' "$out" | grep -q "BUILD run's identity"; then
   pass "(n3) milestone-4 refuses an identity that resolves from the build run-id CACHE file"
-else fail "(n3) expected rc=1 on a cache-resolved identity, got $rc: $out"; fi
+else fail "(n3) expected rc=6 on a cache-resolved identity, got $rc: $out"; fi
 rm -f "$RUN_ID_CACHE"
 
 # ---- (q) a REVIEW session checking the record it wrote must not red it ---------------------
@@ -1476,9 +1481,9 @@ printf '# spec\n\n- AC-1: a thing\n- AC-2: added after the review\n' > "$SPEC"
 commit_tree "code lands after the verdict"
 seed_build_progress r-build-1 sess-build-1
 out="$(gate 4 7)"; rc=$?
-if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q 'a verdict does not cover code it never saw'; then
+if [ "$rc" -eq 5 ] && printf '%s' "$out" | grep -q 'a verdict does not cover code it never saw'; then
   pass "(t2) milestone-4 refuses a verdict that predates a later code commit"
-else fail "(t2) expected rc=1 on a stale verdict, got $rc: $out"; fi
+else fail "(t2) expected rc=5 on a stale verdict, got $rc: $out"; fi
 
 # ...and a new review round clears it, so (t2) is a check with a remedy rather than a wall.
 seed_build_progress r-build-1 sess-build-1
@@ -1499,9 +1504,9 @@ seed_build_progress r-build-1 sess-build-1
 printf 'verdict=approve\nrun_id: r-review-9\nsession_id: sess-review-9\nrounds: 99\nreviewed_head: %s\n' \
   "$(git -C "$TREE" rev-parse HEAD)" > "$VERDICT"
 out="$(gate 4 7)"; rc=$?
-if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q 'has uncommitted changes'; then
+if [ "$rc" -eq 5 ] && printf '%s' "$out" | grep -q 'has uncommitted changes'; then
   pass "(t4) milestone-4 refuses a committed record that was then edited locally"
-else fail "(t4) expected rc=1 on a dirty record, got $rc: $out"; fi
+else fail "(t4) expected rc=5 on a dirty record, got $rc: $out"; fi
 git -C "$TREE" checkout -- "$VERDICT" >/dev/null 2>&1
 
 # (t5) never committed at all. Driven on a DIFFERENT issue key, because `git log -- <path>`
@@ -1512,9 +1517,9 @@ seed_build_progress r-build-1 sess-build-1
 printf 'verdict=approve\nrun_id: r-review-9\nsession_id: sess-review-9\nrounds: 1\nreviewed_head: %s\n' \
   "$(git -C "$TREE" rev-parse HEAD)" > "$TREE/docs/plans/acme-8-lean-verdict.md"
 out="$(gate 4 8)"; rc=$?
-if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q 'was never committed'; then
+if [ "$rc" -eq 5 ] && printf '%s' "$out" | grep -q 'was never committed'; then
   pass "(t5) milestone-4 refuses a verdict record that was never committed at all"
-else fail "(t5) expected rc=1 on an untracked record, got $rc: $out"; fi
+else fail "(t5) expected rc=5 on an untracked record, got $rc: $out"; fi
 rm -f "$TREE/docs/plans/acme-8-lean-verdict.md"
 
 # ---- (n) the tracker adapter: github default + the jira arm --------------------------------
@@ -1830,9 +1835,9 @@ jq '.topology.repos.acme.baseBranch = "no-such-base"' "$CFG" > "$CFG_NOBASE"
 [ "$(jq -r '.topology.repos.acme.baseBranch' "$CFG_NOBASE" 2>/dev/null)" = "no-such-base" ] \
   || fail "(v5-fixture) the no-base config was not built — (v5)/(v6) would run against the real base"
 out="$(gate_cfg "$CFG_NOBASE" "$PROG" 4 7)"; rc=$?
-if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q 'cannot compute this branch'; then
+if [ "$rc" -eq 2 ] && printf '%s' "$out" | grep -q 'cannot compute this branch'; then
   pass "(v5) an unresolvable base is a milestone-4 refusal, not a pass over two empty patch ids"
-else fail "(v5) expected rc=1 on an unresolvable base, got $rc: $out"; fi
+else fail "(v5) expected rc=2 on an unresolvable base, got $rc: $out"; fi
 
 # D-5 vacuity, WRITE side, and the sharper half. A record written with the key silently OMITTED
 # reads downstream as "written before the key existed" and falls through to the SHA path — so a
@@ -1867,9 +1872,9 @@ out="$(verdict_cmd sess-review-9 r-review-9 --pr 12 --verdict approve)"; rc=$?
 printf '# spec\n\n- AC-1: a thing\n- AC-2: landed while the review was running\n' > "$SPEC"
 commit_tree "code and the record land together"
 out="$(gate 4 7)"; rc=$?
-if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q 'reviewed patch'; then
+if [ "$rc" -eq 5 ] && printf '%s' "$out" | grep -q 'reviewed patch'; then
   pass "(v4) milestone-4 refuses once a commit changes the branch's patch after the review, with the inferred arm green"
-else fail "(v4) expected rc=1 on a moved patch identity, got $rc: $out"; fi
+else fail "(v4) expected rc=5 on a moved patch identity, got $rc: $out"; fi
 
 # ---- (w) --help prints the header, and only the header ------------------------------------
 # `sed -n '2,Np'` is a hand-maintained line number: growing the header silently truncates the
@@ -1993,7 +1998,7 @@ else fail "(x3b) expected rc=0 on a resolvable chain, got $rc: $out"; fi
 sed -e "s/^run_id: .*/run_id: r-build-x/" "$XVERDICT" > "$XVERDICT.tmp" && mv "$XVERDICT.tmp" "$XVERDICT"
 xcommit "the record claims the build run's identity"
 out="$(xgate 4 9)"; rc=$?
-if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q "BUILD run's identity"; then
+if [ "$rc" -eq 6 ] && printf '%s' "$out" | grep -q "BUILD run's identity"; then
   pass "(x3c) a round-n record carrying the build run's identity is refused exactly as before, chain or no chain"
 else fail "(x3c) expected the P10 refusal on an inheriting round, got $rc: $out"; fi
 
@@ -2045,10 +2050,10 @@ sed -e "s/^inherited_patch_id:.*/inherited_patch_id: deadbeefdeadbeefdeadbeefdea
   && mv "$XVERDICT.tmp" "$XVERDICT"
 xcommit "the record's declared link is corrupted"
 out="$(xgate 4 9)"; rc=$?
-if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q 'matches no earlier verdict record committed on this branch' \
+if [ "$rc" -eq 5 ] && printf '%s' "$out" | grep -q 'matches no earlier verdict record committed on this branch' \
    && printf '%s' "$out" | grep -q 'round 2 declares'; then
   pass "(x6) milestone-4 refuses an unresolvable inheritance link, naming the round that declared it"
-else fail "(x6) expected rc=1 naming round 2, got $rc: $out"; fi
+else fail "(x6) expected rc=5 naming round 2, got $rc: $out"; fi
 
 # (x7) AC-3: the round NAMED is the round that BROKE the chain, not the round that declared the
 # link being walked. Round 3's own link resolves fine; it is round 2's that dangles, and a
@@ -2075,7 +2080,7 @@ sed -e "s/^inherited_patch_id:.*/inherited_patch_id: $X_R2_PID/" "$XVERDICT" > "
   && mv "$XVERDICT.tmp" "$XVERDICT"
 xcommit "round 3 declares the link by hand"
 out="$(xgate 4 9)"; rc=$?
-if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q 'round 2 declares' \
+if [ "$rc" -eq 5 ] && printf '%s' "$out" | grep -q 'round 2 declares' \
    && ! printf '%s' "$out" | grep -q 'round 3 declares'; then
   pass "(x7) the refusal names round 2 — the round whose link dangles — not round 3, which declared a link that resolves"
 else fail "(x7) expected the break to be attributed to round 2, got $rc: $out"; fi
@@ -2282,7 +2287,7 @@ else fail "(z3b) the writer refused over a value in a prior record's body: $out"
 # declares matches nothing left. Fail-closed either way — but one message says "commit it" and the
 # other sends the reviewer to redo a round over a record whose only defect is an unrun git commit.
 out="$(zgate 4 12)"; rc=$?
-if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q 'uncommitted changes' \
+if [ "$rc" -eq 5 ] && printf '%s' "$out" | grep -q 'uncommitted changes' \
    && ! printf '%s' "$out" | grep -q 'matches no earlier verdict record'; then
   pass "(z4) an uncommitted round-2 record is refused for being uncommitted, not for a chain its own state broke"
 else fail "(z4) expected the uncommitted refusal without a chain diagnostic, got rc=$rc: $out"; fi
@@ -2804,7 +2809,7 @@ else fail "(fd2) expected an unconditional fidelity key, rc=$rc: $(cat "$DVERDIC
 # not an approval of it. This is failure class (3) caught at the gate.
 dcommit "a verdict that scored no fidelity"
 out="$(dgate 4 55)"; rc=$?
-if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q 'not fidelity=pass'; then
+if [ "$rc" -eq 5 ] && printf '%s' "$out" | grep -q 'not fidelity=pass'; then
   pass "(fd5) an armed run refuses a verdict whose fidelity is not 'pass'"
 else fail "(fd5) expected the armed fidelity refusal, rc=$rc: $out"; fi
 
@@ -2824,7 +2829,7 @@ out="$(dverdict sess-review-d2 r-review-d2 --pr 55 --verdict approve --summary-f
 dcommit "a record whose body quotes the key"
 dreset
 out="$(dgate 4 55)"; rc=$?
-if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q 'not fidelity=pass'; then
+if [ "$rc" -eq 5 ] && printf '%s' "$out" | grep -q 'not fidelity=pass'; then
   pass "(fd3) a 'fidelity: pass' in the record's BODY is not a score — the read is anchored to the header"
 else fail "(fd3) expected the armed refusal despite the body value, rc=$rc: $out"; fi
 
@@ -2838,6 +2843,45 @@ out="$(dgate 4 55)"; rc=$?
 if [ "$rc" -eq 0 ]; then
   pass "(fd5b) an armed run passes milestone 4 on a header-scored 'fidelity: pass'"
 else fail "(fd5b) expected an armed milestone-4 pass, rc=$rc: $out"; fi
+
+# ---- (ac-d) #496 AC-1: the two milestone-4 arms no other case in this file reaches -----------
+# Anchored on (fd5b)'s state, which is green in every respect — so each case below turns on the
+# ONE fact it introduces. Without them, two of the twenty sites in the class table would be
+# classified by inspection alone, which is the half-covered taxonomy the ticket's intake found.
+
+# The receipt is MISSING while the record scores `pass`. Class 1, not 5: the remedy the message
+# gives is "re-run milestone 3 and commit the receipt", which is a BUILD action — re-spawning
+# REVIEW over it would produce another record scoring the same absent receipt.
+mv "$DMANIFEST" "$WORK/held-dmanifest.md"
+dreset
+out="$(dgate 4 55)"; rc=$?
+mv "$WORK/held-dmanifest.md" "$DMANIFEST"
+if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q 'no render receipt at'; then
+  pass "(ac-d1) an armed approve with no render receipt is class 1 — its remedy is a BUILD action, not another review round"
+else fail "(ac-d1) expected rc=1 on a missing receipt, got $rc: $out"; fi
+
+# ...and the ENVIRONMENT arm beside it: the receipt is there and the record scores pass, but this
+# branch's render patch identity cannot be computed at all, so there is nothing to compare against.
+# Class 2 — no verdict is at fault and no session can fix it; the operator fetches the base.
+DCFG_NOBASE="$WORK/dconfig-nobase.json"
+jq '.topology.repos.acme.baseBranch = "no-such-base"' "$DCFG" > "$DCFG_NOBASE"
+[ "$(jq -r '.topology.repos.acme.baseBranch' "$DCFG_NOBASE" 2>/dev/null)" = "no-such-base" ] \
+  || fail "(ac-d2-fixture) the no-base design config was not built — (ac-d2) would run against the real base"
+dreset
+out="$( unset RUN_ID CLAUDE_CODE_SESSION_ID; cd "$DTREE" \
+        && SECOND_SHIFT_CONFIG="$DCFG_NOBASE" LEAN_PROGRESS_FILE="$DPROG" \
+        bash "$GATE" --issue-file "$ISSUE_NOREGIONS" 4 55 2>&1 )"; rc=$?
+if [ "$rc" -eq 2 ] && printf '%s' "$out" | grep -q 'render patch identity'; then
+  pass "(ac-d2) an uncomputable render patch identity is class 2 — an environment error, never a review round"
+else fail "(ac-d2) expected rc=2 on an unresolvable base, got $rc: $out"; fi
+
+# The control: with the receipt restored and the real base, the same call is green again — so
+# neither case above turned on the fixture drifting out from under (fd5b).
+dreset
+out="$(dgate 4 55)"; rc=$?
+if [ "$rc" -eq 0 ]; then
+  pass "(ac-d3) restored, the same evaluation passes — (ac-d1)/(ac-d2) each turned on their one fact"
+else fail "(ac-d3) the restored fixture is not green, so the two cases above proved nothing: rc=$rc: $out"; fi
 
 # (dm1) D-10's BACKSTOP. Everything else here is fresh — the verdict is the last commit, so both
 # freshness arms are green — and only the receipt is stale, which is precisely a reviewer who
@@ -2877,7 +2921,7 @@ out="$(dverdict sess-review-d6 r-review-d6 --pr 55 --verdict approve --fidelity 
 dcommit "a record claiming a fidelity its spec could not have armed"
 dreset
 out="$(dgate_nodesign 4 55)"; rc=$?
-if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q 'arms no design render lane'; then
+if [ "$rc" -eq 5 ] && printf '%s' "$out" | grep -q 'arms no design render lane'; then
   pass "(fd7) an unarmed run refuses a fidelity value other than not-applicable"
 else fail "(fd7) expected the unarmed non-applicable refusal, rc=$rc: $out"; fi
 
@@ -4276,6 +4320,105 @@ out="$( unset RUN_ID CLAUDE_CODE_SESSION_ID GH_BOT
 if [ "$rc" -eq 2 ] && printf '%s' "$out" | grep -q "only meaningful on 'progress'"; then
   pass "(pg12) --satisfied on a subcommand that ignores it is a refusal, not a silently dropped flag"
 else fail "(pg12) --satisfied was accepted on 'delta', rc=$rc: $out"; fi
+
+# ---- (ac) #496: the milestone-4 failure taxonomy, the observe seam, and the config guard -----
+# The per-arm behavior is asserted where each arm's fixture already lives — (j1)/(j3)/(u*)/(t*)/
+# (v*)/(x*)/(n*)/(fd*)/(ac-d*) above, each now keyed to its class. What is left, and what only a
+# whole-function assertion can carry, is COMPLETENESS: a twenty-first site added without a class
+# silently defaults to 1, which is exactly the collapse this ticket removes, and no behavioral
+# case can red on an arm that does not exist yet.
+m4_calls="$(grep -c 'fail_milestone 4 "' "$GATE")"
+m4_sig="$(grep 'fail_milestone 4 "' "$GATE" | sed -n 's/.*" \([0-9]\).*$/\1/p' | sort | tr -d '\n')"
+if [ "$m4_calls" -eq 20 ] && [ "$m4_sig" = "11122555555555555566" ]; then
+  pass "(ac1) all 20 milestone-4 failure sites carry an explicit class, in the documented 3x1 / 2x2 / 13x5 / 2x6 split"
+else fail "(ac1) milestone-4 site mapping drifted: $m4_calls call(s), class signature '$m4_sig' (expected 20 / 11122555555555555566)"; fi
+
+# `all` PROPAGATES the class rather than laundering it into its own 1. Both halves of the pre-pass
+# are driven: an integrity refusal, which must never read as needs-work one layer up, and an absent
+# record. The m3 config is reused so a green pre-pass would be visible as the marker file — these
+# cases must stop BEFORE milestone 3 either way.
+rm -f "$MARKER"
+seed_build_progress r-build-ac sess-build-ac
+printf 'verdict=approve\nrun_id: r-build-ac\nsession_id: sess-review-ac\nreviewed_head: %s\n' \
+  "$(git -C "$TREE" rev-parse HEAD)" > "$VERDICT"; commit_tree "a build-authored verdict"
+out="$(gate_m3 all 7)"; rc=$?
+if [ "$rc" -eq 6 ] && [ ! -e "$MARKER" ] && printf '%s' "$out" | grep -q "BUILD run's identity"; then
+  pass "(ac2) 'all' propagates a milestone-4 integrity refusal as 6 — it is not laundered into the pre-pass's generic 1"
+else fail "(ac2) expected rc=6 from 'all' with no marker, got rc=$rc marker=$([ -e "$MARKER" ] && echo present || echo absent): $out"; fi
+
+reset_progress
+rm -f "$MARKER"
+mv "$VERDICT" "$WORK/held-verdict-ac.md"
+out="$(gate_m3 all 7)"; rc=$?
+mv "$WORK/held-verdict-ac.md" "$VERDICT"
+if [ "$rc" -eq 5 ] && [ ! -e "$MARKER" ]; then
+  pass "(ac3) 'all' propagates an absent verdict record as 5 — the scheduler learns the review half failed, not that a fix did"
+else fail "(ac3) expected rc=5 from 'all', got rc=$rc marker=$([ -e "$MARKER" ] && echo present || echo absent): $out"; fi
+
+# THE OBSERVE SEAM. Records nothing, and still classifies: an evaluation that answered a different
+# question under observation would make the scheduler's read worthless.
+reset_progress
+write_review_verdict needs-work
+obs_before="$(count_in_progress '| milestone-4 |')"
+out="$( unset RUN_ID CLAUDE_CODE_SESSION_ID
+        cd "$TREE" && SECOND_SHIFT_CONFIG="$CFG" LEAN_PROGRESS_FILE="$PROG" LEAN_GATE_OBSERVE=1 \
+        bash "$GATE" --issue-file "$ISSUE_NOREGIONS" 4 7 2>&1 )"; rc=$?
+if [ "$rc" -eq 1 ] && [ "$(count_in_progress '| milestone-4 |')" -eq "$obs_before" ] \
+   && printf '%s' "$out" | grep -q 'reads verdict=needs-work'; then
+  pass "(ac4) the observe seam classifies exactly as the recording path and appends no milestone-4 line"
+else fail "(ac4) expected rc=1 with an unmoved counter, got rc=$rc lines $obs_before -> $(count_in_progress '| milestone-4 |'): $out"; fi
+
+# The control for (ac4): the SAME evaluation through the recording path DOES append. Without it,
+# (ac4) would pass against a gate whose milestone 4 had stopped recording altogether.
+gate 4 7 >/dev/null 2>&1
+if [ "$(count_in_progress '| milestone-4 | attempt |')" -eq 1 ]; then
+  pass "(ac5) ...and the recording path still appends its attempt line, so (ac4) measured the seam, not a dead writer"
+else fail "(ac5) the recording path appended no attempt line — (ac4) proves nothing: $(cat "$PROG")"; fi
+
+# BUDGET EXHAUSTION SURVIVES OBSERVATION. `PRECHECK` returned a flat 1 before the budget compare,
+# so a scheduler reading through it could not tell "spent" from "failed once" — and the whole
+# point of the seam is that the scheduler reads through it. The budget is spent by the RECORDING
+# path (observe must not be able to spend one), then read.
+reset_progress
+mv "$VERDICT" "$WORK/held-verdict-ac2.md"
+for _ in 1 2 3 4; do gate 4 7 >/dev/null 2>&1; done
+obs_lines="$(count_in_progress '| milestone-4 |')"
+out="$( unset RUN_ID CLAUDE_CODE_SESSION_ID
+        cd "$TREE" && SECOND_SHIFT_CONFIG="$CFG" LEAN_PROGRESS_FILE="$PROG" LEAN_GATE_OBSERVE=1 \
+        bash "$GATE" --issue-file "$ISSUE_NOREGIONS" 4 7 2>&1 )"; rc=$?
+mv "$WORK/held-verdict-ac2.md" "$VERDICT"
+if [ "$rc" -eq 4 ] && [ "$(count_in_progress '| milestone-4 |')" -eq "$obs_lines" ]; then
+  pass "(ac6) an exhausted budget is reported through the observe seam as 4, with no line written"
+else fail "(ac6) expected rc=4 with an unmoved counter, got rc=$rc lines $obs_lines -> $(count_in_progress '| milestone-4 |'): $out"; fi
+
+# THE CONFIG GUARD. Absent is legal and resolves the documented defaults; present-but-unparseable
+# is a refusal, because the defaults are not neutral — `.tracker.type` falls back to `github`,
+# whose intake arm attests more than jira's, so a corrupt file would pick a policy in silence.
+CFG_CORRUPT="$WORK/config-corrupt.json"
+printf '{ "tracker": { "type": "jira", }\n' > "$CFG_CORRUPT"
+jq empty "$CFG_CORRUPT" >/dev/null 2>&1 \
+  && fail "(ac7-fixture) the corrupt config parses, so (ac7) would assert nothing"
+reset_progress
+out="$( unset RUN_ID CLAUDE_CODE_SESSION_ID
+        cd "$TREE" && SECOND_SHIFT_CONFIG="$CFG_CORRUPT" LEAN_PROGRESS_FILE="$PROG" \
+        bash "$GATE" --issue-file "$ISSUE_NOREGIONS" 1 7 2>&1 )"; rc=$?
+if [ "$rc" -eq 2 ] && printf '%s' "$out" | grep -q 'not parseable JSON'; then
+  pass "(ac7) a config that exists but does not parse is a refusal, not a silent fall-through to the defaults"
+else fail "(ac7) expected rc=2 naming the parse failure, got rc=$rc: $out"; fi
+
+# ...and the other half, which is what keeps the guard from being a fail-closed-on-everything
+# regression: NO config at all is the ordinary un-onboarded consumer, and every default applies.
+# The remote ref is the fixture that absence needs and presence did not: with no config there is
+# no `tracker.branchPrefix`, so the namespace is inferred from remote branches, and a fixture repo
+# with none refuses for that unrelated reason. One work-shaped remote branch supplies the vote —
+# which is the state the resolver was built for, not a way around it.
+git -C "$TREE" update-ref refs/remotes/origin/claude/acme-7 HEAD
+out="$( unset RUN_ID CLAUDE_CODE_SESSION_ID
+        cd "$TREE" && SECOND_SHIFT_CONFIG="$WORK/no-such-config.json" LEAN_PROGRESS_FILE="$PROG" \
+        bash "$GATE" --issue-file "$ISSUE_NOREGIONS" 1 7 2>&1 )"; rc=$?
+if [ "$rc" -eq 0 ]; then
+  pass "(ac8) an ABSENT config still resolves the shipped defaults — the guard fails closed on corruption only"
+else fail "(ac8) an absent config was refused, got rc=$rc: $out"; fi
 
 echo "[lean-gate-selftest] $([ "$FAILS" -eq 0 ] && echo 'all green' || echo "$FAILS FAILURE(S)")"
 exit "$FAILS"
