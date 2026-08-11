@@ -55,8 +55,18 @@ bash "$BOT_COMMIT" -C "$TMP/r1" -q -m "test: one" >/dev/null 2>&1
 AUTHOR="$(git -C "$TMP/r1" log --format='%an <%ae>' -1)"
 WANT="test-pipeline[bot] <424242+test-pipeline[bot]@users.noreply.github.com>"
 [[ "$AUTHOR" == "$WANT" ]] \
-  && pass "1 bot identity on commit ($AUTHOR)" \
-  || fail "1 bot identity — got '$AUTHOR', want '$WANT'"
+  && pass "1a bot identity on commit ($AUTHOR)" \
+  || fail "1a bot identity — got '$AUTHOR', want '$WANT'"
+
+# The trailer must land on the bot-ENABLED exec too, not only on the bot-disabled one every
+# case-10 fixture uses. Nothing else asserts it there: cases 1-9 exercise that exec's `-c`
+# PLACEMENT (a flag misplaced after `commit` errors the commit and reds them), but the whole
+# trailer wiring could be deleted from it and the rest of the suite would stay green. Measured.
+# Non-vacuous by construction — r1 has no prior commit and the invocation above is unguarded.
+grep -qi "^Co-Authored-By: Claude <noreply@anthropic.com>$" \
+  <<< "$(git -C "$TMP/r1" log -1 --format='%B')" \
+  && pass "1b trailer added on the bot-ENABLED exec path" \
+  || fail "1b no co-authorship trailer on the bot-identity commit"
 
 # ---- Case 2: id cache written and reused (gh called exactly once) ---------------
 [[ -s "$TMP/r1/.git/second-shift-bot-user-id" ]] \
@@ -95,6 +105,13 @@ AUTHOR4="$(git -C "$TMP/r4" log --format='%an <%ae>' -1)"
 grep -q "could not resolve bot user id" <<< "$ERR" \
   && pass "4b fallback is noisy (stderr WARN)" \
   || fail "4b no WARN on stderr — silent fallback"
+# The third exec path. Same gap as 1b: its trailer wiring is otherwise asserted by nothing, and
+# this is the fallback where the author is the OPERATOR — so here the trailer is load-bearing,
+# not merely redundant. 4a already read this commit, so the read cannot be answered by a neighbor.
+grep -qi "^Co-Authored-By: Claude <noreply@anthropic.com>$" \
+  <<< "$(git -C "$TMP/r4" log -1 --format='%B')" \
+  && pass "4c trailer added on the unresolvable-id fallback exec path" \
+  || fail "4c no co-authorship trailer on the id-fallback commit"
 
 # ---- Case 5: gitignored config + worktree, no env → bot identity (AC-1) ----------
 # THE regression test for #110. Unlike cases 1-4 (single `git init` repos) this builds a real
@@ -192,21 +209,39 @@ AUTHOR9="$(SECOND_SHIFT_REPO_ROOT="$TMP/fakeroot" \
 # that a run wrote the commit. Both directions are asserted because the failure modes are
 # opposite and both are silent: no trailer at all (what shipped for a full run across two
 # consumer repos), or a caller's precise model name shadowed by a duplicate generic one.
+#
+# EVERY case below reads `git log -1` from ONE shared fixture, and that is vacuous by default:
+# with the invocation `|| true`-guarded, the PREVIOUS case's commit answers for a commit that was
+# never made. Measured — no-op'ing the wrapper on just the -F and --amend routes left three of
+# these cases passing, and only the anti-vacuity control noticed. The bar is per-case: a case must
+# fail when ITS OWN invocation makes no commit. So each records the head it expects to move and
+# scores that too, and the body read degrades to a failing case rather than killing the harness on
+# an empty fixture. On the --amend routes the case also stages content first: `--amend --no-edit`
+# over an unchanged commit is object-identical (same tree, parent, message, and a same-second
+# committer stamp → the same SHA), so there a bare head compare discriminates nothing.
+head_at() { git -C "$1" rev-parse HEAD 2>/dev/null || echo '<none>'; }
+body_at() { git -C "$1" log -1 --format='%B' 2>/dev/null || echo '<no commit>'; }
+ca_count() { grep -ci "co-authored-by" <<< "$1" || true; }
+
 mkrepo "$TMP/r10" '{"tracker":{"bot":{"enabled":false,"app":{"appName":"test-pipeline"}}}}'
+H10A="$(head_at "$TMP/r10")"
 bash "$BOT_COMMIT" -C "$TMP/r10" -q -m "test: no caller trailer" >/dev/null 2>&1 || true
-BODY10="$(git -C "$TMP/r10" log -1 --format='%B')"
-grep -qi "^Co-Authored-By: Claude <noreply@anthropic.com>$" <<< "$BODY10" \
+BODY10="$(body_at "$TMP/r10")"
+{ [[ "$(head_at "$TMP/r10")" != "$H10A" ]] \
+  && grep -qi "^Co-Authored-By: Claude <noreply@anthropic.com>$" <<< "$BODY10"; } \
   && pass "10a absent caller trailer → generic Claude trailer added" \
   || fail "10a no co-authorship trailer on the commit: $BODY10"
 
 # Caller wins: a session knows its own model, this wrapper cannot.
+H10B="$(head_at "$TMP/r10")"
 echo t10b > "$TMP/r10/b.txt"; git -C "$TMP/r10" add b.txt
 bash "$BOT_COMMIT" -C "$TMP/r10" -q \
   -m "test: caller trailer" \
   -m "Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>" >/dev/null 2>&1 || true
-BODY10B="$(git -C "$TMP/r10" log -1 --format='%B')"
-COUNT10B="$(grep -ci "co-authored-by" <<< "$BODY10B" || true)"
-{ [[ "$COUNT10B" == "1" ]] && grep -qi "Claude Opus 5" <<< "$BODY10B"; } \
+BODY10B="$(body_at "$TMP/r10")"
+COUNT10B="$(ca_count "$BODY10B")"
+{ [[ "$(head_at "$TMP/r10")" != "$H10B" ]] && [[ "$COUNT10B" == "1" ]] \
+  && grep -qi "Claude Opus 5" <<< "$BODY10B"; } \
   && pass "10b caller-supplied trailer preserved, not duplicated" \
   || fail "10b expected exactly 1 trailer naming the caller's model, got $COUNT10B: $BODY10B"
 
@@ -216,24 +251,28 @@ COUNT10B="$(grep -ci "co-authored-by" <<< "$BODY10B" || true)"
 # lands beside the caller's precise one. The invariant is route-INDEPENDENT and is what these
 # cases pin: exactly one Co-Authored-By on the resulting commit, naming the caller's model
 # whenever the caller supplied one.
-ca_count() { grep -ci "co-authored-by" <<< "$1" || true; }
-
 printf 'test: -F route\n\nCo-Authored-By: Claude Opus 5 <noreply@anthropic.com>\n' > "$TMP/msg10c.txt"
+H10C="$(head_at "$TMP/r10")"
 echo t10c > "$TMP/r10/c.txt"; git -C "$TMP/r10" add c.txt
 bash "$BOT_COMMIT" -C "$TMP/r10" -q -F "$TMP/msg10c.txt" >/dev/null 2>&1 || true
-BODY10C="$(git -C "$TMP/r10" log -1 --format='%B')"
+BODY10C="$(body_at "$TMP/r10")"
 N10C="$(ca_count "$BODY10C")"
-{ [[ "$N10C" == "1" ]] && grep -qi "Claude Opus 5" <<< "$BODY10C"; } \
+{ [[ "$(head_at "$TMP/r10")" != "$H10C" ]] && [[ "$N10C" == "1" ]] \
+  && grep -qi "Claude Opus 5" <<< "$BODY10C"; } \
   && pass "10c -F body's trailer preserved, not duplicated" \
   || fail "10c expected 1 trailer naming the caller's model, got $N10C: $BODY10C"
 
 # --amend reuses the STORED message, unreadable from the argument list. Not hypothetical: this
 # script's header documents `--amend --reset-author` through this helper as the repair path for a
-# commit already mis-attributed to the operator.
+# commit already mis-attributed to the operator. Staging first is what makes the head compare
+# discriminate, and it is also closer to that repair path, where there is something to fix.
+H10D="$(head_at "$TMP/r10")"
+echo t10d > "$TMP/r10/d.txt"; git -C "$TMP/r10" add d.txt
 bash "$BOT_COMMIT" -C "$TMP/r10" -q --amend --no-edit >/dev/null 2>&1 || true
-BODY10D="$(git -C "$TMP/r10" log -1 --format='%B')"
+BODY10D="$(body_at "$TMP/r10")"
 N10D="$(ca_count "$BODY10D")"
-{ [[ "$N10D" == "1" ]] && grep -qi "Claude Opus 5" <<< "$BODY10D"; } \
+{ [[ "$(head_at "$TMP/r10")" != "$H10D" ]] && [[ "$N10D" == "1" ]] \
+  && grep -qi "Claude Opus 5" <<< "$BODY10D"; } \
   && pass "10d --amend --no-edit does not duplicate the stored trailer" \
   || fail "10d expected 1 trailer after amend, got $N10D: $BODY10D"
 
@@ -251,10 +290,13 @@ chmod +x "$TMP/bin/editor10e"
 echo t10e > "$TMP/r10/e.txt"; git -C "$TMP/r10" add e.txt
 bash "$BOT_COMMIT" -C "$TMP/r10" -q -m "test: editor route" \
   -m "Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>" >/dev/null 2>&1 || true
+H10E="$(head_at "$TMP/r10")"
+echo t10e2 > "$TMP/r10/e2.txt"; git -C "$TMP/r10" add e2.txt
 GIT_EDITOR="$TMP/bin/editor10e" bash "$BOT_COMMIT" -C "$TMP/r10" -q --amend >/dev/null 2>&1 || true
-BODY10E="$(git -C "$TMP/r10" log -1 --format='%B')"
+BODY10E="$(body_at "$TMP/r10")"
 N10E="$(ca_count "$BODY10E")"
-{ [[ "$N10E" == "1" ]] && grep -qi "Claude Opus 5" <<< "$BODY10E"; } \
+{ [[ "$(head_at "$TMP/r10")" != "$H10E" ]] && [[ "$N10E" == "1" ]] \
+  && grep -qi "Claude Opus 5" <<< "$BODY10E"; } \
   && pass "10e --amend through the editor buffer does not duplicate" \
   || fail "10e expected 1 trailer via the editor route, got $N10E: $BODY10E"
 
@@ -262,10 +304,12 @@ N10E="$(ca_count "$BODY10E")"
 # with NO trailer still earns the generic one. Absent this case, 10c-10e would pass equally well
 # if the trailer were dropped outright on every such route.
 printf 'test: -F route, no trailer\n' > "$TMP/msg10f.txt"
+H10F="$(head_at "$TMP/r10")"
 echo t10f > "$TMP/r10/f2.txt"; git -C "$TMP/r10" add f2.txt
 bash "$BOT_COMMIT" -C "$TMP/r10" -q -F "$TMP/msg10f.txt" >/dev/null 2>&1 || true
-BODY10F="$(git -C "$TMP/r10" log -1 --format='%B')"
-grep -qi "^Co-Authored-By: Claude <noreply@anthropic.com>$" <<< "$BODY10F" \
+BODY10F="$(body_at "$TMP/r10")"
+{ [[ "$(head_at "$TMP/r10")" != "$H10F" ]] \
+  && grep -qi "^Co-Authored-By: Claude <noreply@anthropic.com>$" <<< "$BODY10F"; } \
   && pass "10f -F body without a trailer still earns the generic one" \
   || fail "10f no trailer added on the -F route: $BODY10F"
 
