@@ -155,13 +155,27 @@ never red an orchestrator-suite case.
 - `plugins/dev-pipeline/skills/run-lean/SKILL.md` — AC-10
 - `plugins/dev-pipeline/skills/run/scenario-liveness-selftest.sh` — the composed taxonomy leg, and
   the milestone-4 rcs the existing lean legs assert
-- `tools/mutation-baseline.tsv` — re-key generic survivor ordinals for the edited guards
+- `tools/mutation-baseline.tsv` — **not touched, measured rather than assumed.** The ticket asks
+  for the generic survivor ordinals of both edited guards to be re-keyed in the same diff; the
+  diff-scoped sweep at this head returns `lean-gate.sh` applied=18 killed=15 survived=3 and
+  `orchestrate-lean.sh` applied=12 killed=11 survived=1, and all four survivor ids are rows that
+  already exist. The ordinals did not move: every generic operator's k=2 window still lands on the
+  same header-prose sites, because the new `${LEAN_GATE_OBSERVE:-0}` sites sit far below them in
+  file order (`default` reports 37 sites beyond budget). That quota is also why the new code's own
+  generic mutants are unswept — which is what the hand-applied probe table below covers.
 
 ## Deviations
 
-- The ticket's AC-3 says "all 22" `rc -eq 1` assertions downstream of a `gate 4` call. **24** are
-  measured in `lean-gate-selftest.sh` at this head, plus 8 more milestone-4 rc assertions in
+- **The count is 24, not 22.** The ticket's AC-3 says "all 22" `rc -eq 1` assertions downstream of
+  a `gate 4` call; 24 are measured in `lean-gate-selftest.sh` at this head — 21 re-keyed (16 to
+  `5`, 4 to `6`, 1 to `2`) and 3 correctly staying at `1`. A 25th milestone-4 assertion is a rc
+  _sequence_ rather than an `-eq 1` (case `(c1)`'s `1114` → `5554`), and 8 more live in
   `scenario-liveness-selftest.sh`, which the ticket's file list did not name. All are triaged; the
   count is descriptive, the obligation ("every one") is what binds. The liveness file is added to
-  the file list for the same reason CLAUDE.md gives — a new gate contract extends the liveness
-  scenario for every verdict path it touches.
+  the file list for the reason CLAUDE.md gives — a new gate contract extends the liveness scenario
+  for every verdict path it touches.
+- **Every class-flip probe reds two cases, not one.** The probe table asks each probe to red
+  exactly one named case. Case `(ac1)` asserts the _completeness_ of the site→class mapping, which
+  is the only thing that can fail when a twenty-first site is added unclassified — and it therefore
+  reds on any probe that changes a class, by construction. Each probe's named case still reds, and
+  the measured red set for every probe is recorded in the PR body rather than summarized.
