@@ -154,6 +154,13 @@ SUMMARY_FILE=""
 # the progress file's `attempt` lines per D-41 — only FAILED evaluations append one.
 FIX_BUDGET=3
 
+# #494 D-2. The absent-artifact budget, a SEPARATE and much larger bound. It is not a fix budget:
+# nothing has gone wrong when it is spent, so the number is sized to never bite an honest run
+# while still bounding a session that loops forever on "where does the spec go?". Observed honest
+# ceiling is ~4 (the #490 run made 2 such calls; a resume in a fresh worktree adds 1-2; cmd_all's
+# PRECHECK pre-pass records nothing), so 10 is ~2.5x headroom.
+ABSENT_BUDGET=10
+
 say()  { echo "[lean-gate] $*"; }
 warn() { echo "[lean-gate] $*" >&2; }
 envfail() { echo "[lean-gate] $*" >&2; exit 2; }
@@ -650,6 +657,8 @@ chain_walk() { # chain_walk <inherited-patch-id> <declaring-round> [declaring-co
 #   <iso> | entry | ledger=<path> | lines=<n> | telemetry=<off|nocoll|on> | session=<id>
 #   <iso> | session | <id>
 #   <iso> | milestone-<n> | attempt | <reason>
+#   <iso> | milestone-<n> | absent | <reason>            # #494 — NOT a fix attempt
+#   <iso> | milestone-<n> | absent-exhausted | <n> calls
 #   <iso> | milestone-<n> | satisfied
 #   milestone-4 | verdict=<approve|needs-work> | round=<n>
 #
@@ -750,6 +759,11 @@ count_matches() { # count_matches <pattern> <file> [extra grep args...]
 # D-41: ONLY a failed evaluation appends an `attempt` line.
 append_attempt() { append_line "$(now_iso) | milestone-$1 | attempt | $2"; }
 
+# #494: the absent-artifact counterpart. A distinct verb, not a distinct suffix on `attempt` —
+# attempt_count() greps the fixed string `| milestone-N | attempt |`, so anything carrying that
+# substring is still fix budget however it is spelled.
+append_absent() { append_line "$(now_iso) | milestone-$1 | absent | $2"; }
+
 # D-41: a passing evaluation appends AT MOST ONE `satisfied` line per milestone, so
 # diagnostic re-runs and `all` sweeps never inflate anything. Idempotent by construction.
 append_satisfied() {
@@ -760,6 +774,18 @@ append_satisfied() {
 }
 
 attempt_count() { count_matches "| milestone-$1 | attempt |" "$PROGRESS_FILE" -F; }
+
+# #494. The absent-artifact counterpart. Its line shape deliberately does NOT contain the
+# `| milestone-N | attempt |` substring attempt_count() greps — the same technique the
+# `| milestone-3 | armed |` record already uses — so an evaluation that reds only because the
+# artifact is not written yet cannot consume fix budget.
+#
+# The `absent-exhausted` line below is likewise invisible HERE: the pattern requires " absent |",
+# and the exhaustion line reads " absent-exhausted |", so exhaustion never re-counts itself.
+# Its name is also load-bearing in the other direction — `absent-budget-exhausted` would contain
+# the `budget-exhausted` substring the fix budget's own exhaustion assertion counts, and would
+# silently inflate it.
+absent_count() { count_matches "| milestone-$1 | absent |" "$PROGRESS_FILE" -F; }
 
 # ---------------------------------------------------------------- the build-session SET (#446)
 # `mark` stamps a session id onto the PR marker, and that field is the STRONGER of the two
@@ -849,6 +875,38 @@ fail_milestone() {
   if [ "$count" -gt "$FIX_BUDGET" ]; then
     append_line "$(now_iso) | milestone-$n | budget-exhausted | $count attempts"
     warn "milestone-$n has exhausted its $FIX_BUDGET-attempt fix budget — hard stop."
+    return 4
+  fi
+  return 1
+}
+
+# #494 D-1. A milestone that reds because its artifact IS NOT WRITTEN YET — not because a fix
+# did not work. `build-lean` step 3 orders `bash G 1 <issue>` to learn the path step 4 must write
+# to, so the first such red is the contract's own recommended move; charging it to a 3-attempt
+# fix budget made the bound tightest on exactly the runs that later need it most, and made
+# `attempt` lines unreadable as a difficulty signal for the retro corpus.
+#
+# WHY A SECOND COUNTER RATHER THAN FREE. Making absence cost nothing removes the only thing
+# bounding a session that loops on step 3 forever. So absence is bounded, just on its own much
+# larger budget (D-2) — and it reuses `rc=4` rather than inventing a code, so build-lean's
+# existing hard-stop handling (append the reason, one abort comment, keep the worktree and the
+# claim) covers it with no new operator path.
+#
+# WRITTEN GENERICALLY, APPLIED AT ONE SITE (D-7). Milestone 4's `[ -f "$rec" ]` carries the same
+# shape, but this ticket scopes milestones 2-5 out: widening it would flip selftest case (c1),
+# which drives milestone 4's absence and whose staying green is the evidence the scoping held.
+block_milestone() {
+  local n="$1" reason="$2" count
+  if [ "${PRECHECK:-0}" = "1" ]; then
+    warn "✗ milestone-$n (pre-pass): $reason"
+    return 1
+  fi
+  append_absent "$n" "$reason"
+  count="$(absent_count "$n")"
+  warn "✗ milestone-$n: $reason (absent $count/$ABSENT_BUDGET — not a fix attempt)"
+  if [ "$count" -gt "$ABSENT_BUDGET" ]; then
+    append_line "$(now_iso) | milestone-$n | absent-exhausted | $count calls"
+    warn "milestone-$n has been evaluated $count times against an artifact that was never written — hard stop."
     return 4
   fi
   return 1
@@ -1670,7 +1728,9 @@ design_disarm_locked_msg() {
 # file "exists" means, and check-lean-chain.sh keys its artifact scan off the same shape.
 cmd_1() {
   local spec="$REPO_ROOT/$SPEC_REL" n reason dstate note=""
-  [ -f "$spec" ] || { fail_milestone 1 "no committed spec at $SPEC_REL"; return $?; }
+  # #494: ABSENCE, not a failed fix — block_milestone, whose line kind attempt_count() cannot
+  # see. This is the call SKILL.md step 3 orders before the spec can exist.
+  [ -f "$spec" ] || { block_milestone 1 "no committed spec at $SPEC_REL"; return $?; }
   n="$(count_matches '(^|[^A-Za-z])AC-[0-9]+' "$spec" -E)"
   [ "$n" -ge 1 ] || { fail_milestone 1 "spec $SPEC_REL carries no numbered AC-n criterion"; return $?; }
 

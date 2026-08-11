@@ -1320,7 +1320,46 @@ LEANBOT
   [[ "$lean_nv" -ne 0 ]] \
     && pass "(lean-nv) non-vacuity: the same leg reds when the spec is absent" \
     || fail "(lean-nv) milestone-1 passed with no spec — the lean legs are vacuous"
+
+  # ---- leg 3c: absence is not a failed fix, composed (#494) -----------------
+  # CLAUDE.md: a new gate contract extends the liveness scenario for every verdict path it
+  # touches. The per-tool suite proves the two line kinds against a hand-seeded progress file;
+  # what only a composed leg can show is the interaction with `all` — the whole-progression
+  # entry point a resume re-enters through, and the one caller that reaches milestone 1 with
+  # PRECHECK set. A pre-pass that recorded an absence would charge a run for a milestone it
+  # never evaluated, which is the same class of defect #494 fixes.
+  #
+  # The tree is the one (lean-nv) just left: green in every respect EXCEPT the moved-away spec,
+  # so the absence is the only thing these calls can be reacting to.
+  lean_seed_progress r-lean-1 sess-lean-build
+  lean_gate all 77 >/dev/null 2>&1; ab_all=$?
+  ab_pre_absent=$(lean_count '| milestone-1 | absent |')
+  ab_pre_attempt=$(lean_count '| milestone-1 | attempt |')
+  # Now the real calls: three of them, the shape a build session following SKILL.md step 3 and
+  # resuming twice produces.
+  ab_rcs=""
+  for _ in 1 2 3; do lean_gate 1 77 >/dev/null 2>&1; ab_rcs="$ab_rcs$?"; done
+  [[ "$ab_all" -ne 0 && "$ab_pre_absent" -eq 0 && "$ab_pre_attempt" -eq 0 \
+     && "$ab_rcs" == "111" \
+     && "$(lean_count '| milestone-1 | absent |')" -eq 3 \
+     && "$(lean_count '| milestone-1 | attempt |')" -eq 0 ]] \
+    && pass "(lean-absent) an unwritten spec reds 'all' and every milestone-1 call, records 'absent', and the pre-pass records neither kind" \
+    || fail "(lean-absent) all=$ab_all pre-pass absent/attempt=$ab_pre_absent/$ab_pre_attempt rcs=$ab_rcs absent=$(lean_count '| milestone-1 | absent |') attempts=$(lean_count '| milestone-1 | attempt |'), expected nonzero/0/0/111/3/0"
+
+  # ...and the terminal write the fix budget still owes, on the SAME progress file: the three
+  # absent calls above bought milestone 1 nothing, so a CONTENT failure gets its full 3 attempts
+  # and the 4th hard-stops. Under the pre-#494 conflation this sequence reads 4444 and the abort
+  # record lands three calls early.
+  printf '# spec\n\nNothing numbered here.\n' > "$LEAN_SPEC"
+  ab_content=""
+  for _ in 1 2 3 4; do lean_gate 1 77 >/dev/null 2>&1; ab_content="$ab_content$?"; done
+  [[ "$ab_content" == "1114" && "$(lean_count 'budget-exhausted')" -ge 1 \
+     && "$(lean_count '| milestone-1 | satisfied')" -eq 0 ]] \
+    && pass "(lean-absent) after three absent calls a CONTENT failure still reaches its 4th-red abort record with the full budget" \
+    || fail "(lean-absent) content sequence was $ab_content, budget-exhausted=$(lean_count 'budget-exhausted'), satisfied=$(lean_count '| milestone-1 | satisfied'), expected 1114/>=1/0"
+
   mv "$TMP/held-lean-spec.md" "$LEAN_SPEC"
+  lean_seed_progress r-lean-1 sess-lean-build
 
   # ---- leg 3b: the entry precondition, composed (#416) ----------------------
   # CLAUDE.md: a new gate contract extends the liveness scenario for every verdict path it
