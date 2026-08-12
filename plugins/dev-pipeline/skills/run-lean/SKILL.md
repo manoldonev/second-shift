@@ -20,41 +20,39 @@ rescue path, and the fallback if headless sessions ever leave the subscription.
    where intake recorded the sizing — and pass it as `--build-model` with `--model-basis label`.
    No label? Size it yourself, pass your pick, and say why in `--model-basis`
    (`sized-here: <one line>`) — that line is the whole detector for a missing label.
-3. **Run it.**
-   ```
-   bash O <issue> --build-model <m> --model-basis label
-   ```
-   Then watch. Between phases there is no human in the middle: build → review chains the moment
-   the PR exists.
+3. **Run it.** `bash O <issue> --build-model <m> --model-basis label` — then watch. Between phases
+   there is no human in the middle: build → review chains the moment the PR exists.
 4. **Read the exit code, and nothing else.** `0` approved and closed out · `1` a phase failed ·
    `2` preflight rejected (nothing was spawned) · `4` hard stop, budget spent · `5` the review
    half produced no verdict usable against this head, twice · `6` the verdict was authored by the
    build run or build session (P10).
-5. On `2`, fix what the preflight named — most often: run `/intake-toolkit:intake` yourself and
-   re-label the ticket. On `5`, run `/dev-pipeline:review-lean <pr>` by hand and read its output:
-   the review lane is what failed, so re-running the build fixes nothing. On `4` and `6`, **stop**.
-   Re-entry is from the top, not a rescue attempt.
+5. On `2`, fix what the preflight named — usually an unintaken ticket: run
+   `/intake-toolkit:intake` yourself. On `5`, run `/dev-pipeline:review-lean <pr>` by hand and read
+   it — the review half failed, so re-running the build fixes nothing. On `4` and `6`, **stop**:
+   re-entry is from the top, not a rescue attempt.
 
 ## Rules that are not negotiable
 
-- **A missing queue label is a reject, not a prompt and not a spawned intake session.** Intake
+- **An unintaken ticket is a reject, not a prompt and not a spawned intake session.** Intake
   elicits through questions a headless session cannot answer, so a spawned one either hangs or
   fabricates a receipt the Decision Ledger has no legal provenance for. Run intake yourself.
+- **Never re-label a ticket to get past a reject, and never reach for `--intake-attested`** —
+  under github it is refused outright. A ticket claimed by a run this lane stopped is already
+  intaken; preflight reads its claim marker and re-enters.
 - **You author nothing and the scheduler writes nothing.** Every tracker comment, label swap,
-  commit and record in a lean run is made by a payload block under its own identity. Adding a
-  write here puts a third identity into a two-identity contract.
+  commit and record is made by a payload block under its own identity; a write here would put a
+  third identity into a two-identity contract.
 - **Never interpret a finding.** The verdict gate's exit code is the whole signal. Reading the
-  verdict record to decide what to do next is content judgment, which is how this lane grew
-  stage choreography the first time.
-- **Never resume a review context.** Each round's review is a new session — `orchestrate-lean.sh`
-  spawns with `-p` and never `--resume`. Round 2 inheriting round 1's context is round 1 agreeing
-  with itself.
+  record to decide what comes next is content judgment — how this lane grew stage choreography.
+- **Never resume a review context.** Each round's review is a new session (`-p`, never
+  `--resume`): round 2 inheriting round 1's context is round 1 agreeing with itself.
 - **The velocity principles bind here** ([manifesto](../../../../docs/pipeline-manifesto.md)):
   never idle-block on work the next step does not consume, and fan out independent work. A gate
   that is right but slow is not done.
 
 ## When it stops
 
-Every non-zero exit leaves the worktree and the claim in place — the state a manual rescue needs.
-Pick the blocks up by hand from the routed repo, or re-run once the reject is fixed.
+Every non-zero exit leaves the worktree and the claim in place — the state a rescue needs. Pick the
+blocks up by hand from the routed repo, or just re-launch: preflight accepts the claim the stopped
+run left, so re-entry costs no tracker write and no re-labelling.
 `--dry-run` prints the schedule and spawns nothing: the cheap way to check routing first.
