@@ -62,7 +62,7 @@ no `{issue}-eval.json` self-score, no stage checkpoints — `lean-gate.sh`'s fiv
 gates ARE this run's completion evidence.
 
 ```bash
-cat .claude/pipeline-state/${ISSUE}-lean-progress.md   # milestone satisfied/attempt lines, run_id:, session_id:, model:
+cat .claude/pipeline-state/${ISSUE}-lean-progress.md   # milestone rows (satisfied/attempt/absent, started/concluded), run_id:, session_id:, model:
 VREL=$(grep -oE 'verdict_record:[[:space:]]*\S+' .claude/pipeline-state/${ISSUE}-lean-progress.md | awk '{print $2}')
 cat "$VREL"                                             # committed verdict record: verdict=, run_id:, session_id:, rounds:, model:
 gh api "repos/{owner}/{repo}/issues/${ISSUE}/comments" --jq '[.[] | {user: .user.login, body}]'   # claim + closing comment trail
