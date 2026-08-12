@@ -612,8 +612,13 @@ lean-pr-marker	verbatim	plugins/dev-pipeline/skills/build-lean/lean-gate.sh	lean
 # vocabulary that gained a token on one side alone, does the same quietly.
 # Each side validates its OWN token against the vocabulary — the writer the subset it ships, the
 # reader the token its arm requires — so a one-sided edit reds loudly on the side that made it.
-# lean-reconcile.sh holds an unbound copy of the tag and is deliberately not a third row: it is an
-# operator-run reconciler rather than a merge-boundary gate, and it carried that copy already.
+# TWO files hold an unbound copy of the TAG and are deliberately not rows, on one reasoning:
+# neither is a merge-boundary gate, and drift in either fails CLOSED and loudly instead of
+# silently weakening a boundary — which is what earns a row in the first place.
+#   lean-reconcile.sh              an operator-run reconciler; it carried that copy already.
+#   run-lean/orchestrate-lean.sh   the scheduler's #500 re-entry probe. A drifted tag there stops
+#                                  re-entry from being recognized, so the operator meets a
+#                                  preflight reject on the next stopped run — never a green PR.
 # Behavioral guards: lean-gate-selftest.sh (pc1)-(pc3) at the writer, lean-evidence-selftest.sh
 # (ad1)-(ad7) at the bound arm, and check-lean-chain-selftest.sh composes a stamped trail through
 # the delegating boundary.

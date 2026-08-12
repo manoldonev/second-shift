@@ -84,6 +84,25 @@
 # scheduler cannot invoke `bash G 5` itself either, because a failing one routes through
 # fail_milestone and would consume milestone 5's fix budget on the scheduler's behalf.
 #
+# RE-ENTERING A RUN THE LANE STOPPED ITSELF (#500). Every non-zero exit above leaves the worktree
+# and the claim in place, and the operator is told to re-run once the reject is fixed. That was
+# unreachable: `claim` (build-lean step 2) swaps the queue label for the claimed one, and preflight
+# demanded the queue label — so the lane consumed, at step 2, the one token its own front door
+# required, and every run it stopped landed in a state it could not re-enter.
+#
+# So the github intake probe now recognizes a SECOND accepting state: the claimed label AND a
+# bot-authored `lean-claimed` marker comment on the issue. The conjunction is the guard — the label
+# alone is a human moving a card, the marker alone is a stale claim on a hand-reset ticket, and only
+# both together are evidence that THIS lane wrote the state being read back. A ticket that was never
+# intaken presents neither, so an unintaken run still rejects.
+#
+# Tracker-only, deliberately: the `<issue>-run-id` cache is local state, and consulting it would
+# make preflight's answer depend on which machine is asking. The marker is the same artifact
+# check-lean-chain.sh evidence 3 already treats as authoritative, under the same
+# `.user.type == "Bot"` trust filter — issue comments are writable by any account on a public repo,
+# so an operator-posted marker is not evidence the harness ran. Re-entry costs no tracker write: it
+# restores nothing, and build-lean skips its claim when the run is already claimed.
+#
 # Usage:
 #   orchestrate-lean.sh <issue> --build-model <model> [options]
 #     --build-model <m>    REQUIRED. The model for every BUILD-role session.
@@ -101,7 +120,9 @@
 #                          the pre-#492 behavior of never continuing.
 #     --intake-attested    The operator asserts intake is paid off. Required under a tracker
 #                          with no queue label; never a way to skip a github label that is
-#                          simply absent.
+#                          simply absent. ENFORCED under github since #500 — passing it there
+#                          is a usage refusal, because the one thing it was being used for
+#                          (re-entering a claimed ticket) is now a first-class preflight state.
 #     --dry-run            Print the schedule and exit 0 without spawning anything.
 #
 # Seams (every one has a shipped default pointing at the real thing):
@@ -151,7 +172,7 @@ while [ $# -gt 0 ]; do
     --max-continuations)  MAX_CONTINUATIONS="${2:-}"; shift 2 ;;
     --intake-attested)    INTAKE_ATTESTED=1; shift ;;
     --dry-run)            DRY_RUN=1; shift ;;
-    -h|--help)            sed -n '2,118p' "$0"; exit 0 ;;
+    -h|--help)            sed -n '2,139p' "$0"; exit 0 ;;
     -*)                   envfail "unknown option: $1" ;;
     *)                    [ -z "$ISSUE" ] && ISSUE="$1" || envfail "unexpected argument: $1"; shift ;;
   esac
@@ -208,6 +229,26 @@ case "$TRACKER_TYPE" in
   *) envfail "unrecognized tracker.type '$TRACKER_TYPE' — expected github or jira." ;;
 esac
 QUEUE_LABEL="$(cfg '.tracker.labels.queue' 'ready-for-dev')"
+# The same default lean-gate.sh carries, because the re-entry arm below reads back the label the
+# gate's own `claim` wrote. A consumer that renamed one and not the other would have re-entry
+# silently stop matching, which is why both resolve from the same config key.
+CLAIMED_LABEL="$(cfg '.tracker.labels.claimed' 'in-progress')"
+# The claim marker's stage tag. A FOURTH copy of lean-gate.sh's LEAN_CLAIM_MARKER_TAG, and
+# deliberately NOT a lockstep row — see scripts/lockstep-manifest.tsv's lean-producer-capabilities
+# comment, which records this and lean-reconcile.sh as the two non-rows. Drift here fails CLOSED
+# (re-entry stops being recognized, loudly, on the next stopped run) rather than silently
+# weakening a merge boundary, which is what earns a row.
+CLAIM_MARKER_TAG='lean-claimed'
+
+# #500 D-2. A KNOB REFUSAL, not a probe: this is a flag that does not apply here, which is the
+# shape `envfail` already answers for at :166 (review-model basis) and :208 (tracker.type) — where
+# a probe verdict is the shape for "your tracker is in the wrong state". The flag's doc always said
+# this; only the enforcement was missing, so the one re-entry path that worked was one the contract
+# disclaimed, and therefore uncitable in a run record even when its attestation was true. Closing
+# the abuse costs nothing now that the re-entry arm below is real.
+if [ "$INTAKE_ATTESTED" -eq 1 ] && [ "$TRACKER_TYPE" = "github" ]; then
+  envfail "--intake-attested does not apply under tracker.type=github: intake is readable from the tracker here, so the flag can only ever assert past a label that is genuinely absent — which its own documentation forbids. If you are re-entering a run this lane stopped, drop the flag: a ticket carrying '$CLAIMED_LABEL' and this lane's bot-authored '$CLAIM_MARKER_TAG' marker is accepted as re-entry. If intake really is unpaid, run /intake-toolkit:intake and let it label the ticket."
+fi
 
 # ---- preflight ------------------------------------------------------------------------------
 # THE PROBES RUN CONCURRENTLY, and one invocation reports EVERY failure. Both halves are
@@ -219,11 +260,42 @@ QUEUE_LABEL="$(cfg '.tracker.labels.queue' 'ready-for-dev')"
 PROBE_DIR="$(mktemp -d "${TMPDIR:-/tmp}/orchestrate-lean.XXXXXX")" || envfail "cannot create a temp dir."
 trap 'rm -rf "$PROBE_DIR"' EXIT
 
+# #500 D-1/D-7. The run id off this lane's own claim marker, or empty when there is none.
+# NON-ZERO means the READ failed, which is not the same answer as "no marker" and must not
+# collapse into it (D-8) — one is an environment error the operator has to fix before any verdict
+# means anything, the other is a legitimate reject with its own message.
+#
+# `gh api …/comments`, not `gh issue view --json comments`: measured on this repo, the latter
+# exposes only `.author.login` (unsuffixed), while the trust filter the merge boundary applies —
+# and that this arm must apply too, on a repo where anyone can post a comment — is
+# `.user.type == "Bot"`, which only the API response carries.
+#
+# UNWINDOWED and `first`, where check-lean-chain.sh windows at PR-open: preflight has no PR to
+# window at, and `first` names what that boundary will hold this run's verdict against (D-6).
+claim_marker_run_id() {
+  local comments
+  comments="$("$GH_CLI" api "repos/{owner}/{repo}/issues/$ISSUE/comments" --paginate 2>/dev/null)" || return 1
+  printf '%s' "$comments" | jq -e 'type == "array"' >/dev/null 2>&1 || return 1
+  printf '%s' "$comments" | jq -r --arg tag "$CLAIM_MARKER_TAG" '
+    [ .[]
+      | select((.user.type // "") == "Bot")
+      | select((.body // "") | test("<!--[[:space:]]*stage:[[:space:]]*" + $tag + "[[:space:]]*-->"))
+      | (.body // "")
+    ]
+    | map(capture("run_id:[[:space:]]*(?<r>[A-Za-z0-9._-]+)").r? // "")
+    | map(select(. != ""))
+    | first // ""' 2>/dev/null || return 1
+}
+
 probe_intake() {
   # A missing queue label is a REJECT-AND-STOP, never a spawned intake session (#397 D-2). Every
   # intake surface elicits through a question the operator answers; a headless intake session
   # either hangs on that question or fabricates a receipt, and the Decision Ledger has no legal
   # provenance for a fabricated one.
+  #
+  # Under github this flag is already refused up front (#500 D-2), so this arm is now reachable
+  # only under a tracker that has no queue label to read — which is what its documentation always
+  # said it was for.
   if [ "$INTAKE_ATTESTED" -eq 1 ]; then
     echo "ok intake: attested by the operator (--intake-attested)"; return 0
   fi
@@ -236,6 +308,24 @@ probe_intake() {
     echo "FAIL intake: could not read #$ISSUE's labels via '$GH_CLI'"; return 1; }
   if printf '%s\n' "$labels" | grep -qxF "$QUEUE_LABEL"; then
     echo "ok intake: #$ISSUE carries the '$QUEUE_LABEL' queue label"; return 0
+  fi
+  # #500 AC-1: the second accepting state. Gated on the claimed label FIRST so an ordinary
+  # unintaken ticket costs no extra tracker read at all — the reject path is unchanged in shape as
+  # well as in wording.
+  if printf '%s\n' "$labels" | grep -qxF "$CLAIMED_LABEL"; then
+    local marker_run_id
+    marker_run_id="$(claim_marker_run_id)" || {
+      echo "FAIL intake: #$ISSUE carries '$CLAIMED_LABEL', but its comment trail could not be read via '$GH_CLI' — so whether this is a re-entry of a run this lane stopped is unknown. Refusing rather than guessing; re-launch once the tracker read works."
+      return 1; }
+    if [ -n "$marker_run_id" ]; then
+      # D-9: named as re-entry, and carrying the run id, because the log is the operator's only
+      # evidence for why preflight did not reject — and (OR-1) the printed id is what makes a
+      # second lane on the same ticket visible rather than silent.
+      echo "ok intake: re-entry — #$ISSUE carries '$CLAIMED_LABEL' and this lane's bot-authored '$CLAIM_MARKER_TAG' marker from run '$marker_run_id'. Intake was paid off before that claim; nothing is re-labelled."
+      return 0
+    fi
+    echo "FAIL intake: #$ISSUE carries '$CLAIMED_LABEL' but no bot-authored '$CLAIM_MARKER_TAG' marker, so nothing shows this lane ever claimed it — the label alone is not evidence intake was paid off. Run intake yourself (/intake-toolkit:intake) and re-launch."
+    return 1
   fi
   echo "FAIL intake: #$ISSUE does not carry '$QUEUE_LABEL' — run intake yourself (/intake-toolkit:intake) and re-launch. This lane does not spawn an intake session."
   return 1

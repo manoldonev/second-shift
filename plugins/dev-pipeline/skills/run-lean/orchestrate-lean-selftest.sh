@@ -109,6 +109,14 @@ cat > "$BIN/gh" <<'SH'
 echo "$*" >> "$GH_LOG"
 case "$1 $2" in
   "issue view") cat "$LABELS_FILE" 2>/dev/null; exit 0 ;;
+  # #500: the comment trail, served as the REAL API's shape — a JSON array of objects carrying
+  # `.user.type`. The tool reads it through `gh api` rather than `gh issue view --json comments`
+  # precisely because only this response carries that field, so a fake that answered the trail on
+  # the `issue view` arm would leave the tool's actual call unexercised.
+  # COMMENTS_FAIL is the D-8 fixture: a read that errors, which must not read as "no marker".
+  "api "*)
+    [ -n "${COMMENTS_FAIL:-}" ] && exit 1
+    cat "$COMMENTS_FILE" 2>/dev/null; exit 0 ;;
   "pr list")
     # #492: a PR that only APPEARS on a later spawn. Without this the tracker fake answers the
     # same thing for every spawn in a case, and the continuation path — whose whole subject is
@@ -168,7 +176,7 @@ chmod +x "$BIN/fake-gate.sh"
 # scored as this case's.
 SPAWN_LOG_DIR=""; GATE_LOG_DIR=""; GH_LOG=""; LABELS_FILE=""; PR_FILE=""
 SPAWN_RC_FILE=""; GATE_RC_FILE=""
-PROGRESS_ADV_FILE=""; PROGRESS_M5_FILE=""
+PROGRESS_ADV_FILE=""; PROGRESS_M5_FILE=""; COMMENTS_FILE=""
 CASE_N=0
 
 setup_case() { # setup_case <spawn-rcs> <gate-rcs> <labels> <pr>
@@ -176,13 +184,16 @@ setup_case() { # setup_case <spawn-rcs> <gate-rcs> <labels> <pr>
   local d="$WORK/case-$CASE_N"
   mkdir -p "$d/spawns" "$d/gates"
   SPAWN_LOG_DIR="$d/spawns"; GATE_LOG_DIR="$d/gates"; GH_LOG="$d/gh.log"
-  LABELS_FILE="$d/labels"; PR_FILE="$d/pr"
+  LABELS_FILE="$d/labels"; PR_FILE="$d/pr"; COMMENTS_FILE="$d/comments"
   SPAWN_RC_FILE="$d/spawn-rcs"; GATE_RC_FILE="$d/gate-rcs"
   PROGRESS_ADV_FILE="$d/progress-adv"; PROGRESS_M5_FILE="$d/progress-m5"
   printf '%s' "$1" > "$SPAWN_RC_FILE"
   printf '%s' "$2" > "$GATE_RC_FILE"
   printf '%s' "$3" > "$LABELS_FILE"
   printf '%s' "$4" > "$PR_FILE"
+  # #500 DEFAULT: an EMPTY trail, so every pre-existing case means what it meant — a ticket with
+  # no queue label and no claim marker is still the plain reject, not a re-entry.
+  printf '[]\n' > "$COMMENTS_FILE"
   : > "$GH_LOG"
   # #492 DEFAULTS, chosen so every pre-existing case keeps meaning what it meant.
   #   adv: one line, so every read returns the same token — the run never "advances", which is
@@ -197,6 +208,26 @@ setup_case() { # setup_case <spawn-rcs> <gate-rcs> <labels> <pr>
 set_progress_tokens() { # set_progress_tokens <adv-stream> <m5-stream>
   printf '%s\n' "$1" > "$PROGRESS_ADV_FILE"
   printf '%s\n' "$2" > "$PROGRESS_M5_FILE"
+}
+
+# #500: a comment trail in the REAL API's shape, with TWO DECOYS ahead of the claim marker. Both
+# are discriminators, not scenery — each carries its own `run_id:` and sits EARLIER in the trail
+# than the real marker, so a tool that dropped either filter would take `first` from a decoy and
+# the run-id assertion in (s1) would name the wrong run:
+#   1. bot-authored, carries a run id, but no `stage: lean-claimed` tag  → kills a missing TAG filter
+#   2. tagged and carries a run id, but authored by a USER               → kills a missing TYPE filter
+# The third entry is the marker itself, whose author type the case picks — which is how (s4) drives
+# "tagged, but nothing bot-authored" without changing anything else.
+set_claim_trail() { # set_claim_trail <author-type> <run-id>
+  jq -n --arg t "$1" --arg r "$2" '
+    [ { user: { type: "Bot",  login: "some-other-bot" },
+        body: "<!-- run_id: decoy-untagged-bot -->\nnot a claim marker" },
+      { user: { type: "User", login: "an-operator" },
+        body: "<!-- stage: lean-claimed -->\n<!-- run_id: decoy-operator-forged -->" },
+      { user: { type: $t,     login: "pipeline-bot" },
+        body: ("<!-- dev-pipeline -->\n<!-- run_id: " + $r
+               + " -->\n<!-- stage: lean-claimed -->\n\nClaimed by build-lean.") } ]' \
+    > "$COMMENTS_FILE"
 }
 
 # RUN_ID and LEAN_RUN_MODEL are POISONED in the parent on purpose: they are ordinary env vars
@@ -214,6 +245,7 @@ run_tool() { # run_tool [config] [args...]
          SPAWN_LOG_DIR="$SPAWN_LOG_DIR" SPAWN_RC_FILE="$SPAWN_RC_FILE"
          GATE_LOG_DIR="$GATE_LOG_DIR" GATE_RC_FILE="$GATE_RC_FILE"
          GH_LOG="$GH_LOG" LABELS_FILE="$LABELS_FILE" PR_FILE="$PR_FILE"
+         COMMENTS_FILE="$COMMENTS_FILE" COMMENTS_FAIL="${COMMENTS_FAIL:-}"
          PROGRESS_ADV_FILE="$PROGRESS_ADV_FILE" PROGRESS_M5_FILE="$PROGRESS_M5_FILE"
          PR_FROM_SPAWN="${PR_FROM_SPAWN:-}" PROGRESS_FAIL="${PROGRESS_FAIL:-}"
          RUN_ID=poisoned-parent-run LEAN_RUN_MODEL=poisoned-parent-model )
@@ -342,6 +374,121 @@ if [ "$rc" -eq 2 ] \
    && grep -q 'ok gate' <<<"$out"; then
   pass "(g3) all three probe verdicts are reported even when a middle one fails"
 else fail "(g3) a probe verdict went missing: $out"; fi
+
+# ---- (s) #500: re-entering a run the lane stopped itself ---------------------------------------
+# `claim` swaps the queue label for the claimed one, so the ticket of a run this lane stopped
+# presents the CLAIMED label plus this lane's own bot-authored marker — never the queue label
+# preflight used to demand. That PAIR is the second accepting state; (g1) above stays the case for
+# a ticket that presents neither, which must keep rejecting.
+
+# AC-1/AC-7: accepted, the run proceeds end to end, and the accept is NAMED as re-entry with the
+# run id the marker carries — not folded into the queue-label wording.
+setup_case "" "0" "in-progress" "11"
+set_claim_trail Bot lean-500-abc123
+out="$(run_tool "$CFG" "$ISSUE" --build-model sonnet)"; rc=$?
+if [ "$rc" -eq 0 ] && [ "$(spawn_count)" -eq 3 ] \
+   && grep -q 'ok intake: re-entry' <<<"$out" \
+   && grep -q 'lean-500-abc123' <<<"$out"; then
+  pass "(s1) a claimed ticket carrying this lane's bot-authored marker is accepted as re-entry, and the accept names the marker's run id"
+else fail "(s1) expected rc=0 with 3 spawns and a named re-entry, got rc=$rc / $(spawn_count) spawn(s): $out"; fi
+
+# The claimed label defaults to `in-progress` here — the fixture config sets no
+# `.tracker.labels.claimed` — which is the same shipped default lean-gate.sh's `claim` writes. A
+# tool that resolved a different one could not have matched the label above at all.
+#
+# ANTI-VACUITY for (s1): the accept must have come from the comment READ, on the call that carries
+# `.user.type`. Without this, a tool that accepted every claimed ticket unconditionally would pass
+# (s1) — and (s3)/(s4) below are what stop it passing the rest.
+if grep -q "api repos/{owner}/{repo}/issues/$ISSUE/comments" "$GH_LOG"; then
+  pass "(s2) the re-entry evidence is read through 'gh api …/comments' — the response that carries .user.type"
+else fail "(s2) the comment trail was never read: $(cat "$GH_LOG")"; fi
+
+# AC-2, measured on the same run: re-entry restores nothing. The scheduler never wrote anyway —
+# what this pins is that the new arm did not reach for a label swap to "repair" the state it read.
+if [ -s "$GH_LOG" ] \
+   && ! grep -qE 'issue (edit|comment|create|close)|pr (comment|edit|merge|create|review)|--method (POST|PATCH|PUT|DELETE)|-X (POST|PATCH|PUT|DELETE)' "$GH_LOG"; then
+  pass "(s3) a re-entered run makes ZERO tracker writes — no label is re-swapped and none is restored"
+else fail "(s3) re-entry made a tracker write: $(cat "$GH_LOG")"; fi
+
+# AC-5: the label ALONE is a human moving a card, not evidence this lane ever claimed the ticket.
+setup_case "" "0" "in-progress" "11"
+out="$(run_tool "$CFG" "$ISSUE" --build-model sonnet)"; rc=$?
+if [ "$rc" -eq 2 ] && [ "$(spawn_count)" -eq 0 ] \
+   && grep -q "no bot-authored 'lean-claimed' marker" <<<"$out"; then
+  pass "(s4) the claimed label with no marker is rejected — the conjunction is the guard, not either half"
+else fail "(s4) expected rc=2 with 0 spawns on a markerless claimed ticket, got rc=$rc / $(spawn_count): $out"; fi
+
+# AC-5's other half. Issue comments are writable by any account on a public repo, so an
+# operator-posted marker must not be re-entry evidence: with the marker authored by a USER the
+# whole trail — decoys included — has nothing bot-authored, and the run rejects.
+setup_case "" "0" "in-progress" "11"
+set_claim_trail User lean-500-forged
+out="$(run_tool "$CFG" "$ISSUE" --build-model sonnet)"; rc=$?
+if [ "$rc" -eq 2 ] && [ "$(spawn_count)" -eq 0 ] \
+   && grep -q "no bot-authored 'lean-claimed' marker" <<<"$out" \
+   && ! grep -q 'lean-500-forged' <<<"$out"; then
+  pass "(s5) a lean-claimed marker that is not bot-authored is not re-entry evidence — an operator cannot post their way past preflight"
+else fail "(s5) expected rc=2 with 0 spawns on a user-authored marker, got rc=$rc / $(spawn_count): $out"; fi
+
+# AC-6 / D-8: a FAILED read is not "no marker". One is an environment error the operator must fix
+# before any verdict means anything; collapsing it into the reject would report a tracker outage as
+# an intake problem, and preflight never falls back to local state to paper over it.
+setup_case "" "0" "in-progress" "11"
+set_claim_trail Bot lean-500-abc123
+COMMENTS_FAIL=1 out="$(run_tool "$CFG" "$ISSUE" --build-model sonnet)"; rc=$?
+unset COMMENTS_FAIL
+if [ "$rc" -eq 2 ] && [ "$(spawn_count)" -eq 0 ] \
+   && grep -q 'comment trail could not be read' <<<"$out" \
+   && ! grep -q "no bot-authored 'lean-claimed' marker" <<<"$out"; then
+  pass "(s6) an unreadable comment trail rejects as its own failure, never as 'no marker'"
+else fail "(s6) expected rc=2 naming the failed read, got rc=$rc / $(spawn_count): $out"; fi
+
+# AC-3: under github the flag is a usage refusal. Driven on a ticket that carries NO label at all,
+# so a tool that merely stopped short-circuiting would still reject — but for the intake reason,
+# not this one. The message must name the flag's own conflict and point at the re-entry path.
+setup_case "" "0" "" "11"
+out="$(run_tool "$CFG" "$ISSUE" --build-model sonnet --intake-attested)"; rc=$?
+if [ "$rc" -eq 2 ] && [ "$(spawn_count)" -eq 0 ] \
+   && grep -q -- '--intake-attested does not apply under tracker.type=github' <<<"$out" \
+   && grep -q 're-entry' <<<"$out"; then
+  pass "(s7) --intake-attested under github is a usage refusal naming the re-entry path, not a way past an absent label"
+else fail "(s7) expected a github usage refusal, got rc=$rc / $(spawn_count): $out"; fi
+
+# ...and it is refused even where it would have been HARMLESS — a queue-labelled ticket that would
+# have passed anyway. The flag's contract is about what it asserts, not about whether the assertion
+# happens to be true this time, so a refusal only on the tickets it would have rescued would leave
+# the documented restriction still unenforced.
+setup_case "" "0" "ready-for-dev" "11"
+out="$(run_tool "$CFG" "$ISSUE" --build-model sonnet --intake-attested)"; rc=$?
+if [ "$rc" -eq 2 ] && [ "$(spawn_count)" -eq 0 ]; then
+  pass "(s8) the github refusal is unconditional — even a queue-labelled ticket that needed no attestation is refused"
+else fail "(s8) a queue-labelled ticket accepted --intake-attested, got rc=$rc / $(spawn_count): $out"; fi
+
+# AC-4/AC-1, the conjunction's OTHER half. A marker with no claimed label is a stale claim on a
+# ticket whose label was hand-reset — the lane's own bookkeeping says this ticket is not in flight,
+# and a marker from some earlier run must not override that. Without this case a tool that dropped
+# the label check entirely would pass every other case in this section.
+setup_case "" "0" "" "11"
+set_claim_trail Bot lean-500-abc123
+out="$(run_tool "$CFG" "$ISSUE" --build-model sonnet)"; rc=$?
+if [ "$rc" -eq 2 ] && [ "$(spawn_count)" -eq 0 ] \
+   && grep -q "does not carry 'ready-for-dev'" <<<"$out" \
+   && ! grep -q 're-entry' <<<"$out"; then
+  pass "(s10) a bot marker with NO claimed label is not re-entry — both halves of the conjunction are load-bearing"
+else fail "(s10) a markered ticket with no claimed label was accepted, got rc=$rc / $(spawn_count): $out"; fi
+
+# AC-4's ordering half: the queue label still wins outright, and the ordinary fresh run costs no
+# comment read at all. A tool that read the trail unconditionally would pass every case above while
+# adding a tracker round-trip to every launch in the lane.
+setup_case "" "0" "ready-for-dev
+in-progress" "11"
+set_claim_trail Bot lean-500-abc123
+out="$(run_tool "$CFG" "$ISSUE" --build-model sonnet)"; rc=$?
+if [ "$rc" -eq 0 ] && grep -q "carries the 'ready-for-dev' queue label" <<<"$out" \
+   && ! grep -q 're-entry' <<<"$out" \
+   && ! grep -q "api repos/{owner}/{repo}/issues/$ISSUE/comments" "$GH_LOG"; then
+  pass "(s9) the queue label wins outright: a fresh queued ticket is accepted as such and never pays for the comment read"
+else fail "(s9) the queue-label arm did not short-circuit, rc=$rc: $out / $(cat "$GH_LOG")"; fi
 
 # ---- (h) needs-work: a fix round and a NEW review context ---------------------------------------
 setup_case "" "1
