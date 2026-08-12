@@ -183,6 +183,15 @@ FIX_BUDGET=3
 # observe pre-pass records nothing), so 10 is ~2.5x headroom.
 ABSENT_BUDGET=10
 
+# #497 D-7. The INTERRUPTED budget: how many evaluations of one milestone may BEGIN and never
+# conclude before the next call refuses to start another. A third bound, and deliberately the
+# tightest of the three — absence is the contract's own recommended move (build-lean step 3 orders
+# a milestone-1 call before the spec can exist), interruption never is. A full lane can spawn ~9
+# build sessions (MAX_ROUNDS=3 × 1 + MAX_CONTINUATIONS=2, continuations resetting per build phase),
+# each able to interrupt once — so 5 fires on a systematic background-and-exit pattern while
+# staying out of reach of the bad luck an honest run meets (0, occasionally 1-2).
+INTERRUPTED_BUDGET=5
+
 say()  { echo "[lean-gate] $*"; }
 warn() { echo "[lean-gate] $*" >&2; }
 envfail() { echo "[lean-gate] $*" >&2; exit 2; }
@@ -709,6 +718,9 @@ chain_walk() { # chain_walk <inherited-patch-id> <declaring-round> [declaring-co
 #   <iso> | milestone-<n> | attempt | <reason>
 #   <iso> | milestone-<n> | absent | <reason>            # #494 — NOT a fix attempt
 #   <iso> | milestone-<n> | absent-exhausted | <n> calls
+#   <iso> | milestone-<n> | started |                    # #497 — an evaluation BEGAN
+#   <iso> | milestone-<n> | concluded | rc=<n>           # #497 — and returned. NOT idempotent
+#   <iso> | milestone-<n> | interrupted-exhausted | <n> unconcluded
 #   <iso> | milestone-<n> | satisfied
 #   milestone-4 | verdict=<approve|needs-work> | round=<n>
 #
@@ -836,6 +848,41 @@ attempt_count() { count_matches "| milestone-$1 | attempt |" "$PROGRESS_FILE" -F
 # the `budget-exhausted` substring the fix budget's own exhaustion assertion counts, and would
 # silently inflate it.
 absent_count() { count_matches "| milestone-$1 | absent |" "$PROGRESS_FILE" -F; }
+
+# #497. THE IN-FLIGHT PAIR. Every other row above is written after an evaluation RETURNS, so a
+# gate process killed mid-run leaves a record byte-identical to one where the milestone was never
+# invoked — and `bash G all`, the resuming session and the retro corpus all read the second.
+#
+# WHY TWO VERBS AND NOT ONE. The issue's own sketch closes a `started` row with the concluding
+# `attempt`/`satisfied` line. That is unsound HERE: append_satisfied is idempotent by construction
+# (D-41 above), so re-evaluating an already-satisfied milestone appends no closing line at all —
+# and CLAUDE.md mandates exactly such a re-run (`bash G all`) before build-lean's close-out step.
+# Every honest run would end its record looking interrupted. So the conclusion is its own,
+# deliberately NON-idempotent verb.
+#
+# WHY THE PAYLOAD IS `rc=<n>`. `| milestone-3 | concluded | satisfied` would be safe against
+# today's readers — each anchors `| milestone-N | ` immediately before its verb — but it puts the
+# literal `satisfied` on a bookkeeping line, which is the trap absent_count's note above records.
+# `rc=<n>` cannot collide, and it carries #496's class taxonomy into the record for free.
+#
+# NEITHER VERB IS IN progress_token's ROW SET, on purpose — see the D-3 note there.
+append_started()   { append_line "$(now_iso) | milestone-$1 | started |"; }
+append_concluded() { append_line "$(now_iso) | milestone-$1 | concluded | rc=$2"; }
+
+# D-11. The predicate is a DIFFERENCE, not a flag. Both rows are append-only and nothing rewrites
+# them, so `started` minus `concluded` for one milestone is exactly the cumulative number of
+# evaluations that began and never returned — progress_token's soundness argument below ("the
+# selected count cannot go up and back down within a spawn") extends to them unchanged.
+#
+# Both patterns carry the TRAILING separator, for absent_count's reason in the other direction:
+# `| milestone-N | started` alone would also count a future `started-…` verb, and
+# `interrupted-exhausted` must never be countable as either half of this pair.
+unclosed_count() { # unclosed_count <milestone>
+  local started concluded
+  started="$(count_matches "| milestone-$1 | started |" "$PROGRESS_FILE" -F)"
+  concluded="$(count_matches "| milestone-$1 | concluded |" "$PROGRESS_FILE" -F)"
+  echo $((started - concluded))
+}
 
 # ---------------------------------------------------------------- the build-session SET (#446)
 # `mark` stamps a session id onto the PR marker, and that field is the STRONGER of the two
@@ -1213,6 +1260,13 @@ cmd_teardown() {
 # appends `| session | <id>` on every fresh session's `entry` call — deliberately, even when
 # `entry` short-circuits — so a naive "did the file change" predicate would be TRUE for any spawn
 # that reached checklist step 1, and the no-progress case AC-3 protects would be unreachable.
+#
+# #497 D-3 KEEPS THE SET AT EXACTLY THOSE TWO. `started`/`concluded` are written on EVERY
+# continuation, so counting them would make each dead spawn of a background-and-exit session read
+# as advancement and burn the whole `--max-continuations` budget re-proving the same thing. Today
+# that pattern costs exactly one continuation: spawn 2 re-runs the milestones, hits
+# append_satisfied's idempotence, moves nothing, and the scheduler correctly stops. The in-flight
+# pair is a record for the resuming SESSION, never a signal to the orchestrator.
 #
 # WHY A COUNT IS A SOUND TOKEN. These rows are append-only: append_attempt and append_satisfied
 # only ever add, and the single rewriter in this file (heal_progress_run_id) has an exact-string
@@ -3181,15 +3235,87 @@ cmd_5() {
 # against the CURRENT tree on every sweep. Short-circuiting on a stored `satisfied` line is
 # exactly how a green gate from before a milestone-4 fix round would certify code that
 # never passed it.
-run_milestone() { # explicit dispatch, not "cmd_$1": an indirect call hides every callee
-  case "$1" in                        # from static analysis (shellcheck SC2329) and from
-    1) cmd_1 ;;                       # a reader grepping for call sites.
+#
+# #497: this is also where the IN-FLIGHT PAIR is written, because it is the ONE explicit cmd_N
+# dispatch — every milestone is wrapped by construction (D-5), and nothing has to be remembered at
+# five separate call sites.
+#
+# THE OBSERVE ARM IS NOT OPTIONAL HERE, and #497's own receipt (D-10) got this wrong: it reasoned
+# that cmd_all's pre-pass calls `LEAN_GATE_OBSERVE=1 cmd_1`/`cmd_4` directly and therefore bypasses
+# this wrapper — true, but not the only observe path. #496 promoted the seam to a SCHEDULER read,
+# and orchestrate-lean.sh's verdict_rc runs `LEAN_GATE_OBSERVE=1 bash "$GATE" 4 "$ISSUE"` as a
+# TOP-LEVEL invocation, which the dispatch case at the bottom of this file routes straight through
+# here. Without the arm below, every round of every lean run would have the scheduler's read
+# writing build-role rows into the record — the exact "records nothing" contract #496 exists for.
+# So observe PREDICTS exhaustion from the count already on file, exactly as fail_milestone and
+# block_milestone do, and writes neither half of the pair.
+run_milestone() {
+  local n="$1" rc unclosed
+  # VALIDATION FIRST, before any bookkeeping. The dispatch case at the bottom of this file routes
+  # every unrecognized subcommand here, and a usage error must not bring a progress file into
+  # existence or stamp `| milestone-9 | started |` on its way to exit 2.
+  #
+  # Explicit arms, not "cmd_$1": an indirect call hides every callee from static analysis
+  # (shellcheck SC2329) and from a reader grepping for call sites.
+  case "$n" in
+    1|2|3|4|5) : ;;
+    *) envfail "run_milestone: unknown milestone '$n'" ;;
+  esac
+
+  # Read BEFORE this call appends its own `started`, so the number is EARLIER evaluations that
+  # never returned. OR-1: a concurrent in-flight call contributes 1 here and is indistinguishable
+  # from an interrupted one — accepted, because the posture below is announce-not-refuse and
+  # reaching the budget would need five simultaneous calls on one milestone.
+  unclosed="$(unclosed_count "$n")"
+  if [ "$unclosed" -gt 0 ]; then
+    # ANNOUNCE, NEVER REFUSE (D-4). An interrupted milestone is precisely the one a resuming
+    # session must be able to re-run, and this is the call it makes: SKILL.md's Resume step says
+    # `all` stops early while milestone 4 is outstanding and to run the milestones directly, so
+    # `bash G <n> <issue>` is where the notice has to land to be seen.
+    warn "note: milestone-$n: $unclosed earlier evaluation(s) began and never concluded (interrupted $unclosed/$INTERRUPTED_BUDGET) — re-running it now."
+  fi
+  # OBSERVE: predict, never record (see the header note above). The announce is deliberately ABOVE
+  # this arm — it is a stderr diagnostic and touches nothing the seam promises not to touch.
+  if [ "${LEAN_GATE_OBSERVE:-0}" = "1" ]; then
+    [ "$unclosed" -ge "$INTERRUPTED_BUDGET" ] && return 4
+    case "$n" in
+      1) cmd_1 ;;
+      2) cmd_2 ;;
+      3) cmd_3 ;;
+      4) cmd_4 ;;
+      5) cmd_5 ;;
+    esac
+    return $?
+  fi
+
+  # THE ONE REFUSAL (D-2). Free interruption would remove the only per-milestone bound on a session
+  # that backgrounds this gate and ends its turn on every continuation; charging attempt_count()
+  # would bill an operator Ctrl-C against a budget that means "a fix did not work", re-conflating
+  # the difficulty signal #494 spent a ticket separating. So: its own counter, its own budget, and
+  # `rc=4` reused rather than a new code invented — build-lean's existing hard-stop handling
+  # (append the reason, one abort comment, keep the worktree and the claim) covers it unchanged.
+  if [ "$unclosed" -ge "$INTERRUPTED_BUDGET" ]; then
+    append_line "$(now_iso) | milestone-$n | interrupted-exhausted | $unclosed unconcluded"
+    warn "milestone-$n has been begun and cut off $unclosed times without ever concluding — hard stop."
+    return 4
+  fi
+
+  # The append IS the flush: append_line is a single unbuffered `echo >>`, so ordering it before
+  # the long work is the whole requirement (D-10). No trap closes this row on a signal (D-9) — the
+  # design rests on the ABSENCE of a conclusion, a partial trap would make that absence mean two
+  # different things, and SIGKILL cannot be trapped at all. An `exit` from inside a milestone body
+  # (envfail) likewise leaves the row open, which is the honest record of what happened (D-12).
+  append_started "$n"
+  case "$n" in
+    1) cmd_1 ;;
     2) cmd_2 ;;
     3) cmd_3 ;;
     4) cmd_4 ;;
     5) cmd_5 ;;
-    *) envfail "run_milestone: unknown milestone '$1'" ;;
   esac
+  rc=$?
+  append_concluded "$n" "$rc"
+  return "$rc"
 }
 
 # #374 AC-1..3: a cheap, READ-ONLY pre-pass. Milestones 1 and 4 read only committed artifacts

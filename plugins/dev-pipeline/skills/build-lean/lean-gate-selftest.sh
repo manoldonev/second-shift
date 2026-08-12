@@ -4420,5 +4420,199 @@ if [ "$rc" -eq 0 ]; then
   pass "(ac8) an ABSENT config still resolves the shipped defaults — the guard fails closed on corruption only"
 else fail "(ac8) an absent config was refused, got rc=$rc: $out"; fi
 
+# ---- (if) #497: THE IN-FLIGHT PAIR — a begun-and-never-concluded evaluation leaves a trace -----
+# The defect these cases guard is an ABSENCE: every other row this gate writes is appended after
+# an evaluation RETURNS, so a process killed mid-run left a record byte-identical to one where the
+# milestone was never invoked. (if5) is the only case in this file that produces the real trigger
+# — a live gate process, SIGKILLed mid-body — and it is what the rest are calibrated against.
+MARK497="$WORK/m497-marker"
+CFG_497="$WORK/config-497.json"
+jq --arg m "$MARK497" '.commands.acme.test = ("touch " + ($m | @sh))' "$CFG" > "$CFG_497"
+gate_497() {
+  ( unset RUN_ID CLAUDE_CODE_SESSION_ID GH_BOT
+    # shellcheck disable=SC2030,SC2031  # subshell-local is the point, exactly as in gate().
+    cd "$TREE" && SECOND_SHIFT_CONFIG="$CFG_497" LEAN_PROGRESS_FILE="$PROG" \
+    bash "$GATE" --issue-file "$ISSUE_NOREGIONS" "$@" 2>&1 )
+}
+
+reset_progress
+rm -f "$MARK497"
+out="$(gate_497 3 7)"; rc=$?
+if [ "$rc" -eq 0 ] && [ -e "$MARK497" ] \
+   && [ "$(count_in_progress '| milestone-3 | started |')" -eq 1 ] \
+   && [ "$(count_in_progress '| milestone-3 | concluded | rc=0')" -eq 1 ]; then
+  pass "(if1) a completed evaluation writes started BEFORE the body and concluded with its rc"
+else fail "(if1) expected rc=0 + marker + one started/one concluded rc=0, got rc=$rc marker=$([ -e "$MARK497" ] && echo present || echo absent) started=$(count_in_progress '| milestone-3 | started |') concluded=$(count_in_progress '| milestone-3 | concluded | rc=0'): $out"; fi
+
+# The payload is the BODY's exit code, not a constant. A `concluded` line that always said rc=0
+# would close every row and still lie about what happened.
+reset_progress
+cp "$SPEC" "$WORK/held-spec-if.md"
+printf '# spec\n\nno AC token here\n' > "$SPEC"
+gate 1 7 >/dev/null 2>&1; rc=$?
+cp "$WORK/held-spec-if.md" "$SPEC"
+if [ "$rc" -eq 1 ] && [ "$(count_in_progress '| milestone-1 | concluded | rc=1')" -eq 1 ] \
+   && [ "$(count_in_progress '| milestone-1 | concluded | rc=0')" -eq 0 ]; then
+  pass "(if2) the concluded payload carries the body's real rc, not a constant"
+else fail "(if2) expected one 'concluded | rc=1' and no rc=0, got rc=$rc: $(grep 'concluded' "$PROG" | tr '\n' ' ')"; fi
+
+# THE SOUNDNESS CASE, and the reason the conclusion is its own verb rather than the `satisfied`
+# line closing the `started` one. append_satisfied is idempotent by construction, and CLAUDE.md
+# mandates a `bash G all` before build-lean's close-out step — so under the issue's own sketch
+# every honest run would end its record with a phantom unclosed row. Three passing evaluations of
+# one milestone: three started, three concluded, still exactly one satisfied.
+reset_progress
+gate 1 7 >/dev/null 2>&1; gate 1 7 >/dev/null 2>&1; gate 1 7 >/dev/null 2>&1
+if [ "$(count_in_progress '| milestone-1 | started |')" -eq 3 ] \
+   && [ "$(count_in_progress '| milestone-1 | concluded |')" -eq 3 ] \
+   && [ "$(count_in_progress '| milestone-1 | satisfied')" -eq 1 ]; then
+  pass "(if3) concluded is NOT idempotent: re-evaluating a satisfied milestone still closes its row"
+else fail "(if3) expected 3/3/1, got started=$(count_in_progress '| milestone-1 | started |') concluded=$(count_in_progress '| milestone-1 | concluded |') satisfied=$(count_in_progress '| milestone-1 | satisfied')"; fi
+
+# ...and with every row closed, a resuming session is told nothing. The negative control for
+# (if6): a notice on an honest run would be noise the operator learns to ignore.
+out="$(gate 1 7)"
+if ! printf '%s' "$out" | grep -q 'never concluded'; then
+  pass "(if4) an honest run announces nothing — no unconcluded row exists to report"
+else fail "(if4) an honest re-run reported an interruption: $out"; fi
+
+# THE TRIGGER, for real. A configured lane that blocks, then SIGKILL on the gate's PROCESS GROUP
+# — not its PID: `kill -9` on the gate alone leaves the lane child running, and this repo has
+# already had an orphaned fixture from a killed sweep red an unrelated suite indefinitely. `set -m`
+# is what puts the background job in its own group so the negative PID below addresses all of it.
+# The lane self-terminates on a short bound rather than sleeping unbounded, so a kill that somehow
+# misses cannot leave this suite waiting on a process forever.
+CFG_KILL="$WORK/config-497-kill.json"
+jq '.commands.acme.test = "sleep 20"' "$CFG" > "$CFG_KILL"
+reset_progress
+m3_before="$(count_in_progress '| milestone-3 |')"
+set -m
+( unset RUN_ID CLAUDE_CODE_SESSION_ID GH_BOT
+  # shellcheck disable=SC2030,SC2031  # subshell-local is the point, exactly as in gate().
+  cd "$TREE" && SECOND_SHIFT_CONFIG="$CFG_KILL" LEAN_PROGRESS_FILE="$PROG" \
+  bash "$GATE" --issue-file "$ISSUE_NOREGIONS" 3 7 >/dev/null 2>&1 ) &
+kill_pgid=$!
+set +m
+waited=0
+while [ "$(count_in_progress '| milestone-3 | started |')" -eq 0 ] && [ "$waited" -lt 150 ]; do
+  sleep 0.1; waited=$((waited + 1))
+done
+kill -9 -"$kill_pgid" 2>/dev/null
+wait "$kill_pgid" 2>/dev/null
+reaped=0
+while kill -0 -"$kill_pgid" 2>/dev/null && [ "$reaped" -lt 50 ]; do sleep 0.1; reaped=$((reaped + 1)); done
+if [ "$m3_before" -eq 0 ] \
+   && [ "$(count_in_progress '| milestone-3 | started |')" -eq 1 ] \
+   && [ "$(count_in_progress '| milestone-3 | concluded |')" -eq 0 ]; then
+  pass "(if5) a SIGKILLed evaluation leaves started with NO concluded — distinguishable from one that never ran"
+else fail "(if5) expected 0 rows before / 1 started / 0 concluded, got $m3_before / $(count_in_progress '| milestone-3 | started |') / $(count_in_progress '| milestone-3 | concluded |')"; fi
+if ! kill -0 -"$kill_pgid" 2>/dev/null; then
+  pass "(if5b) the kill took the whole process group — no lane child left running"
+else fail "(if5b) process group $kill_pgid still has a live member after kill -9"; fi
+
+# The milestone the run never reached carries NEITHER row. Without this (if5) would pass against a
+# gate that wrote `started` for every milestone on every call — the two states this ticket exists
+# to separate would still be one state, just spelled differently.
+if [ "$(count_in_progress '| milestone-2 | started |')" -eq 0 ] \
+   && [ "$(count_in_progress '| milestone-2 | concluded |')" -eq 0 ]; then
+  pass "(if5c) a milestone that was never invoked carries neither row"
+else fail "(if5c) an uninvoked milestone-2 has rows: $(grep 'milestone-2' "$PROG" | tr '\n' ' ')"; fi
+
+# ANNOUNCE, NEVER REFUSE (D-4). The interrupted milestone is precisely the one the resuming
+# session must be able to re-run, so the next call reports the unconcluded row AND runs the body.
+rm -f "$MARK497"
+out="$(gate_497 3 7)"; rc=$?
+if [ "$rc" -eq 0 ] && [ -e "$MARK497" ] \
+   && printf '%s' "$out" | grep -q '1 earlier evaluation(s) began and never concluded (interrupted 1/5)'; then
+  pass "(if6) the next evaluation announces the unconcluded row and still runs the body"
+else fail "(if6) expected rc=0 + marker + the interrupted notice, got rc=$rc marker=$([ -e "$MARK497" ] && echo present || echo absent): $out"; fi
+
+# THE BUDGET (D-2/D-7). Seeded from the REAL writer's line — duplicating what append_started
+# produced above, rather than hand-spelling a shape that would keep passing after the writer moved.
+# Five unconcluded rows, and the sixth call refuses: no body, no new started row, rc=4.
+reset_progress
+rm -f "$MARK497"
+gate_497 3 7 >/dev/null 2>&1
+started_line="$(grep -F '| milestone-3 | started |' "$PROG" | head -n1)"
+[ -n "$started_line" ] && [ "$(count_in_progress '| milestone-3 | concluded |')" -eq 1 ] \
+  || fail "(if7-fixture) no closed pair to seed from — the budget cases below would assert nothing"
+for _ in 1 2 3 4 5; do printf '%s\n' "$started_line" >> "$PROG"; done
+rm -f "$MARK497"
+out="$(gate_497 3 7)"; rc=$?
+if [ "$rc" -eq 4 ] && [ ! -e "$MARK497" ] \
+   && [ "$(count_in_progress '| milestone-3 | interrupted-exhausted | 5 unconcluded')" -eq 1 ] \
+   && [ "$(count_in_progress '| milestone-3 | started |')" -eq 6 ]; then
+  pass "(if7) the 6th evaluation past 5 unconcluded rows returns 4, records the exhaustion and never runs the body"
+else fail "(if7) expected rc=4 / no marker / one 'interrupted-exhausted | 5 unconcluded' / 6 started, got rc=$rc marker=$([ -e "$MARK497" ] && echo present || echo absent) exh=$(count_in_progress '| milestone-3 | interrupted-exhausted |') started=$(count_in_progress '| milestone-3 | started |'): $out"; fi
+
+# The number it reports is the unconcluded count it REFUSED ON, not a count of the lines it wrote
+# itself — the (c7) defect one level down. Past the cap the verdict is already 4 either way, so
+# only the record can catch a counter that swept up its own exhaustion lines.
+gate_497 3 7 >/dev/null 2>&1
+if [ "$(count_in_progress '| milestone-3 | interrupted-exhausted | 5 unconcluded')" -eq 2 ]; then
+  pass "(if7b) the exhaustion record counts unconcluded ROWS, not the exhaustion lines it wrote itself"
+else fail "(if7b) expected two 'interrupted-exhausted | 5 unconcluded' lines, got: $(grep 'interrupted-exhausted' "$PROG" | tr '\n' ' ')"; fi
+
+# D-8: the new verbs are invisible to every existing counter. `interrupted-exhausted` must not
+# carry the `budget-exhausted` substring (c2) reads, nor the `absent-exhausted` one (c5) reads,
+# and neither half of the pair may look like an `attempt` or an `absent` line.
+if [ "$(count_in_progress 'budget-exhausted')" -eq 0 ] \
+   && [ "$(count_in_progress 'absent-exhausted')" -eq 0 ] \
+   && [ "$(count_in_progress '| milestone-3 | attempt |')" -eq 0 ] \
+   && [ "$(count_in_progress '| milestone-3 | absent |')" -eq 0 ]; then
+  pass "(if8) started/concluded/interrupted-exhausted inflate no existing counter"
+else fail "(if8) a new verb leaked into an existing counter: $(cat "$PROG")"; fi
+
+# D-3: and NOT into progress_token's row set either. A token that moved on this churn would make
+# every dead spawn of a background-and-exit session read as advancement to the scheduler, burning
+# the whole --max-continuations budget re-proving the same thing.
+reset_progress
+gate 1 7 >/dev/null 2>&1
+tok_before="$(gate progress 7)"
+gate 1 7 >/dev/null 2>&1; gate 1 7 >/dev/null 2>&1; gate 1 7 >/dev/null 2>&1
+tok_after="$(gate progress 7)"
+if [ -n "$tok_before" ] && [ "$tok_before" = "$tok_after" ] \
+   && [ "$(count_in_progress '| milestone-1 | started |')" -eq 4 ]; then
+  pass "(if9) a churn of started/concluded rows leaves the progress token unchanged"
+else fail "(if9) token moved '$tok_before' -> '$tok_after' over $(count_in_progress '| milestone-1 | started |') started rows"; fi
+
+# THE OBSERVE SEAM. #496 promoted it to a SCHEDULER read — orchestrate-lean.sh runs
+# `LEAN_GATE_OBSERVE=1 bash G 4 <issue>` at top level, which the dispatch routes through
+# run_milestone — so the pair must be suppressed there or every round of every lean run has the
+# scheduler writing build-role rows. The `all` pre-pass bypasses run_milestone by construction;
+# this call does not, which is why it is the one asserted.
+reset_progress
+obs_before="$(count_in_progress '| milestone-1 |')"
+out="$( unset RUN_ID CLAUDE_CODE_SESSION_ID
+        cd "$TREE" && SECOND_SHIFT_CONFIG="$CFG" LEAN_PROGRESS_FILE="$PROG" LEAN_GATE_OBSERVE=1 \
+        bash "$GATE" --issue-file "$ISSUE_NOREGIONS" 1 7 2>&1 )"; rc=$?
+if [ "$rc" -eq 0 ] && [ "$(count_in_progress '| milestone-1 |')" -eq "$obs_before" ]; then
+  pass "(if10) a top-level observed evaluation writes neither half of the pair"
+else fail "(if10) expected rc=0 with an unmoved counter, got rc=$rc lines $obs_before -> $(count_in_progress '| milestone-1 |'): $out"; fi
+
+# ...and it PREDICTS the budget rather than reporting a pass it cannot deliver — the (ac6) shape,
+# one budget over. Seeded exactly as (if7) is, from the writer's own line.
+gate 1 7 >/dev/null 2>&1
+started_line="$(grep -F '| milestone-1 | started |' "$PROG" | head -n1)"
+for _ in 1 2 3 4 5; do printf '%s\n' "$started_line" >> "$PROG"; done
+obs_before="$(count_in_progress '| milestone-1 |')"
+out="$( unset RUN_ID CLAUDE_CODE_SESSION_ID
+        cd "$TREE" && SECOND_SHIFT_CONFIG="$CFG" LEAN_PROGRESS_FILE="$PROG" LEAN_GATE_OBSERVE=1 \
+        bash "$GATE" --issue-file "$ISSUE_NOREGIONS" 1 7 2>&1 )"; rc=$?
+if [ "$rc" -eq 4 ] && [ "$(count_in_progress '| milestone-1 |')" -eq "$obs_before" ]; then
+  pass "(if11) a spent interrupted budget is reported through the observe seam as 4, with no line written"
+else fail "(if11) expected rc=4 with an unmoved counter, got rc=$rc lines $obs_before -> $(count_in_progress '| milestone-1 |'): $out"; fi
+
+# The usage error still writes nothing. `*)` in the dispatch case routes every unknown subcommand
+# through run_milestone, so a wrapper that recorded before validating would stamp
+# `| milestone-9 | started |` on its way to exit 2 — and, on a fresh run, create the progress file
+# the entry precondition exists to find absent.
+reset_progress
+before_all="$(count_in_progress '| milestone-')"
+out="$(gate 9 7)"; rc=$?
+if [ "$rc" -eq 2 ] && [ "$(count_in_progress '| milestone-')" -eq "$before_all" ]; then
+  pass "(if12) an unknown subcommand still exits 2 having written no milestone row"
+else fail "(if12) expected rc=2 with an unmoved record, got rc=$rc lines $before_all -> $(count_in_progress '| milestone-'): $out"; fi
+
 echo "[lean-gate-selftest] $([ "$FAILS" -eq 0 ] && echo 'all green' || echo "$FAILS FAILURE(S)")"
 exit "$FAILS"
