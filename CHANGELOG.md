@@ -4,6 +4,24 @@ All notable changes to the second-shift marketplace. Versions are per-plugin (`p
 this file tracks the marketplace release. `configVersion` stays `const 1` — v2 is fully backward-compatible for a
 consumer with an empty config; the migration notes below are only for consumers using the changed features.
 
+## v4.2.2
+
+### `dev-pipeline` 4.2.1 → 4.2.2
+
+- **The lane re-enters a run it stopped itself (#510)** (#510)
+  a stopped lean run can be re-launched. `run-lean` preflight now
+  accepts a ticket already claimed by a run it stopped — the claimed label plus
+  the lane's own bot-authored `lean-claimed` marker — so recovery needs no
+  tracker write and no re-labelling. `--intake-attested` is refused under
+  `tracker.type: github`, where it was the only way past the old reject.
+  Migration: none. Operators who were passing `--intake-attested` on a github
+  ticket should drop the flag; a genuinely unintaken ticket still rejects.
+- **A gate evaluation that begins leaves a trace before it can be cut off (#512)** (#512)
+  an interrupted lean-gate milestone is now visible in the progress record — a
+  `started` row with no `concluded` — instead of being indistinguishable from a milestone
+  that was never run. Repeated interruption of one milestone hard-stops at 5.
+  Migration: none.
+
 ## v4.2.1
 
 ### `dev-pipeline` 4.2.0 → 4.2.1
