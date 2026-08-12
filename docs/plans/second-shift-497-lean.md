@@ -96,12 +96,23 @@ things, and SIGKILL — the case the guard must produce — cannot be trapped at
 - **AC-8 — the record's own documentation is current.** The pinned line-shape block at the head of
   the progress-file primitives section lists the two new verbs and the exhaustion line, and the
   budget constant is documented beside `FIX_BUDGET` / `ABSENT_BUDGET` with its sizing rationale.
-  (Doc-scoped per CLAUDE.md; the pinned block is the record's schema, not prose.)
+  The one out-of-file description of the record — `pipeline-retro/SKILL.md`'s inline comment on the
+  `cat` of the progress file, which enumerates the row kinds a retro will find — names the new pair
+  too. (Doc-scoped per CLAUDE.md; the pinned block is the record's schema, not prose. No
+  prose-presence guard is written for any of it — that is the rule, not an omission.)
 
 - **AC-9 — the mutation baseline is re-keyed in this diff.** Editing this guard re-keys its generic
   survivor ordinals; `tools/mutation-baseline.tsv` rows for `lean-gate.sh` are re-derived from a
   diff-scoped sweep on this branch, and any `tools/mutation-catalog.tsv` row addressing the guard
   is re-anchored if its pattern moved.
+
+- **AC-10 — the liveness scenario covers the new verdict path.** `scenario-liveness-selftest.sh`
+  gains a leg for the interrupted budget, because a new gate contract extends the liveness
+  scenario for every verdict path it touches. What only a composed leg can show is the seam the
+  scheduler reads it through: an exhausted interrupted budget must reach
+  `LEAN_GATE_OBSERVE=1 bash G <n>` as a 4 while recording nothing. The leg carries its own
+  discriminator — closing the rows restores the milestone, so it cannot pass for a gate that
+  simply stops working after six calls.
 
 ## Out of scope
 

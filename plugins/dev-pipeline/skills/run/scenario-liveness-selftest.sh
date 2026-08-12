@@ -1418,6 +1418,39 @@ LEANBOT
   mv "$TMP/held-lean-spec.md" "$LEAN_SPEC"
   lean_seed_progress r-lean-1 sess-lean-build
 
+  # ---- leg 3d: an interrupted evaluation, composed (#497) -------------------
+  # Same CLAUDE.md obligation: the interrupted budget's rc=4 is a new verdict path. The per-tool
+  # suite proves the pair and the bound against one milestone in isolation, including the real
+  # SIGKILL. What only a composed leg can show is the SEAM the scheduler reads it through — an
+  # exhausted interrupted budget must reach `LEAN_GATE_OBSERVE=1` as a 4 while recording nothing,
+  # or orchestrate-lean's verdict read would either miss the hard stop or write build-role rows
+  # into the record on every round.
+  #
+  # The tree here is fully green — leg 1 walked milestones 1-5 on it and the spec is back — so
+  # the unclosed rows are the only thing these calls can be reacting to. They are seeded by
+  # DUPLICATING what the real writer just produced, not by hand-spelling a shape that would keep
+  # passing after the writer moved.
+  lean_gate 1 77 >/dev/null 2>&1; in_seed=$?
+  in_started="$(grep -F '| milestone-1 | started |' "$LEAN_PROG" 2>/dev/null | head -n1)"
+  in_concluded="$(grep -F '| milestone-1 | concluded |' "$LEAN_PROG" 2>/dev/null | head -n1)"
+  for _ in 1 2 3 4 5; do printf '%s\n' "$in_started" >> "$LEAN_PROG"; done
+  in_rows_before="$(lean_count '| milestone-1 |')"
+  lean_gate_observe 1 77 >/dev/null 2>&1; in_obs=$?
+  in_rows_obs="$(lean_count '| milestone-1 |')"
+  lean_gate 1 77 >/dev/null 2>&1; in_rec=$?
+  # THE DISCRIMINATOR: the bound is on UNCLOSED rows, not on how many evaluations have ever run.
+  # Closing them — the state an uninterrupted run is always in — restores the milestone. Without
+  # this the leg passes for a gate that simply stops working after six calls.
+  for _ in 1 2 3 4 5; do printf '%s\n' "$in_concluded" >> "$LEAN_PROG"; done
+  lean_gate 1 77 >/dev/null 2>&1; in_cleared=$?
+  [[ -n "$in_started" && -n "$in_concluded" && "$in_seed" -eq 0 \
+     && "$in_obs" -eq 4 && "$in_rows_obs" -eq "$in_rows_before" \
+     && "$in_rec" -eq 4 && "$(lean_count '| milestone-1 | interrupted-exhausted | 5 unconcluded')" -eq 1 \
+     && "$in_cleared" -eq 0 ]] \
+    && pass "(lean-interrupted) five unconcluded rows reach the scheduler's observe seam as 4 with nothing recorded, hard-stop the recording call with an exhaustion record, and clear the moment they are concluded" \
+    || fail "(lean-interrupted) seed=$in_seed observe=$in_obs rows $in_rows_before->$in_rows_obs recorded=$in_rec exhaustion=$(lean_count '| milestone-1 | interrupted-exhausted | 5 unconcluded') cleared=$in_cleared, expected 0/4/unmoved/4/1/0"
+  lean_seed_progress r-lean-1 sess-lean-build
+
   # ---- leg 3b: the entry precondition, composed (#416) ----------------------
   # CLAUDE.md: a new gate contract extends the liveness scenario for every verdict path it
   # touches. This is that leg. The per-tool suite proves the refusal in isolation against one
