@@ -53,6 +53,15 @@ rules. No user-visible surface renders, and this repo configures no `design.prov
   and its remedy is to re-invoke — which joins a live runner or relaunches a dead one. It appears
   in the gate header's `Exit:` block, the taxonomy of record.
 
+  **`7` is SHARED with `staleness`, which #534 landed on the base while this branch was in
+  flight**, and the taxonomy entry now carries both readings rather than one of them silently
+  winning. They do not conflate, and the reason is that neither reader is ever handed the other's
+  code: `orchestrate-lean.sh` invokes `staleness` directly and branches on its rc at that call
+  site, while a milestone-3 `7` is returned to the BUILD session that called `bash G 3` and never
+  reaches the scheduler as a gate exit — a build phase's rc is `claude -p`'s, not the gate's. The
+  two are also the same *kind* of answer, which is what makes one integer honest for both: nothing
+  was evaluated, so neither is a milestone failure and neither spends a fix attempt.
+
 - **AC-6 — the ceiling is 3600s, seamed at `LEAN_GATE_WAIT_CEILING_SECS` (D-4).** ~3× the longest
   milestone-3 evaluation on record (20m44s, #497). Deliberately generous: `CLAUDE.md` warns that
   `install-topology-selftest.sh` alone swings 319s/438s/584s and to treat the range rather than a
