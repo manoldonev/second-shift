@@ -1,159 +1,167 @@
 # lean review verdict — #511
 
 verdict=needs-work
-run_id: review-511-1
-session_id: 1b1ea189-ecb4-47eb-b02c-c3277303e2d8
-rounds: 1
+run_id: review-511-2
+session_id: aca69924-f024-48a9-8611-2cf86546f540
+rounds: 2
 pr: #535
-reviewed_head: 53333c856c74dc76920ef798d237fe25d7fe7d23
-reviewed_patch_id: 0818dd2da8c9e62051980465569c4fa8d31a1cb6
-inherited_patch_id: none
-inherited_from_verdict: none
+reviewed_head: a3f7f21a808bdb97e15b63992f31676ee5cccceb
+reviewed_patch_id: c63e4ac1f271e19652a0da5c53cc60de32c6b9b8
+inherited_patch_id: 0818dd2da8c9e62051980465569c4fa8d31a1cb6
+inherited_from_verdict: 7849f6640cf587a6549aba7af1028099b087a29e
 fidelity: not-applicable
 model: opus
 capabilities: pr-marker
 
-Round 1 read the whole branch diff (`322ef75..53333c8`, 6 files) — `bash G delta 511` reported a
-FULL range with nothing verifiable to inherit. Panel: security, performance, maintainability,
-complexity, test-coverage, scope-completeness (all six returned, none dark). Every finding below
-is mine after probing; the panel returned zero findings above threshold.
+Round 2 read the whole branch diff (`add4dec..HEAD`, 7 files) — `bash G delta 511` reported a FULL
+range with nothing verifiable to inherit, because round 1's `reviewed_head` (`53333c8`) is no longer
+an ancestor: the branch was rebased onto the new base after that round. Panel: security,
+performance, maintainability, complexity, test-coverage, scope-completeness — all six returned, none
+dark, zero findings above threshold. The finding below is mine, reproduced with a probe.
 
-The mechanism is the right shape and the write-up is unusually honest about how it got there. Two
-blockers, both reproduced with a probe rather than argued.
+**Round 1's two blockers are both closed, and both closures were verified by re-running round 1's own
+probes rather than by reading the diff.** A third defect of the same class remains, on the one arm
+AC-13 deliberately exempts.
 
-## Blockers
+## Blocker
 
-### B1 — the JOIN arm hands back a previous evaluation's exit code without evaluating
+### B3 — a wait still returns a code it did not earn, on the arm that keeps the pid record
 
-`lean-gate.sh:2209-2218`. The stale-marker guard is on the launch arm only (`rm -f "$M3_RC" …` at
-2223, reached after `m3_runner_live` has already decided to join). A join goes straight into
-`m3_wait`, whose first act is `[ -f "$M3_RC" ]` — so if a marker is on disk, the call returns that
-code immediately, having evaluated nothing.
+`lean-gate.sh:2371-2377` (the ceiling arm) is the only `m3_wait` exit that leaves `$M3_PID` on disk,
+and it is deliberate: AC-13 says "that runner is alive and a re-invocation must be able to rejoin
+it." That premise stops being true the moment the runner finishes — and when it does, the retained
+pid record and the marker the runner then stamps **carry the same token, because they are from the
+same launch**. The token binding cannot discriminate them, and the join arm consumes the marker in
+0s having evaluated nothing.
 
-Both files that make this reachable persist forever. `$M3_RC` is written by every *successful*
-evaluation and cleared only at the next launch; `$M3_PID` is written at 2240 and **never removed** —
-not at completion, not by `teardown`, not by the entry sweep (it is the only one of the three paths
-with no `rm`). So the steady state after any green milestone 3 is `.pid=<dead pid>` + `.rc=0` sitting
-in `.claude/pipeline-state/` indefinitely. This repo's own state dir holds
-`511-lean-m3-458849663.pid` = **19013** right now, against a current pid of ~20995.
+Probed in an isolated worktree at the reviewed head, appended to the `(dj)` block so it reuses
+`dj_tree`/`dj_gate`. Stage (a) fabricates nothing — a fixture whose lint lane is `sleep 5` under a
+1s ceiling reaches the real ceiling arm, and the runner then stamps on its own:
 
-Probe, in an isolated worktree at the reviewed head, appended to the `(dj)` block so it reuses
-`dj_tree`/`dj_gate`: run a real evaluation (leaves `.rc`), overwrite the marker with `99` (a code no
-evaluation can produce, standing in for the previous run's code), plant a live pid, re-invoke.
+    PROBE-C stage-a rc=7 (expect 7 = ceiling)
+    PROBE-C residue after 5s: pid=[59344 59005-1-7938] rc=[59005-1-7938 0]
+    PROBE-C the retained pid record and the stale marker CARRY THE SAME TOKEN (59005-1-7938)
 
-    PROBE-A: first real evaluation rc-marker = 0
-    PROBE-A rc=99 elapsed=0s record 5 -> 5
-    PROBE-A out: [lean-gate] milestone-3: an evaluation is already running in this worktree
-                 (pid 8566) — JOINING it rather than launching a second.
+Stage (b) substitutes only the pid *number* for a live one — standing in for the OS handing that
+number to another process, which is the trigger AC-13 itself names — and leaves the token exactly as
+the launch wrote it:
 
-`rc=99` in `0s` with the progress record unmoved. Substitute the real `rc=0` for the 99 and this is a
-green milestone 3 on a tree it never ran against — the exact harm the new
-`lean-gate-m3-stale-marker` catalog row names, reached through the arm that row does not cover.
-`(dj3)` guards the launch arm and passes; nothing guards this one.
+    PROBE-C stage-b rc=0 elapsed=0s record 4 -> 4 (ceiling was 20s)
+    PROBE-C stage-b out: [lean-gate] milestone-3: an evaluation is already running in this worktree
+                         (pid 71267) — JOINING it rather than launching a second.
 
-The trigger is pid reuse, and the in-code note at 2091-2095 mis-states both its likelihood and its
-consequence: "the window is a whole pid wraparound against a marker that is removed at every launch,
-and the failure mode is one extra ceiling wait rather than a wrong verdict." The marker is *not*
-removed on the path that reads it, so the failure mode is a wrong verdict, returned instantly. And
-the window is not a wraparound in the practical sense — `kern.maxproc` is 6000 and pids recycle
-through 99999 within a day of ordinary use here, while a reboot restarts allocation low and walks
-straight back through a recorded 19013 within minutes.
+`rc=0` in `0s` with the progress record unmoved: a **green milestone 3 on a tree it never
+evaluated**, which is verbatim the harm B1 named and the `lean-gate-m3-stale-marker` catalog row
+describes.
 
-Note the fix is not simply hoisting the `rm -f` above the liveness check: a genuinely live runner
-that has just stamped its marker would lose its result. Binding the marker to the pid that produced
-it, or clearing `$M3_PID` once a wait has consumed a marker, both close it without that.
+**The ceiling arm is not the only way in, and this is what sets the severity.** The two `rm -f
+"$M3_PID"` sites are both inside `m3_wait` (2349, 2363); there is no trap, and neither `teardown`
+nor `cmd_entry_sweep` touches the runner state. So a waiter killed by the harness's reap — the
+routine case this ticket exists for, and one this PR's own body records happening in production —
+leaves the identical residue: `.pid` retained, `.rc` stamped later by the surviving runner with that
+same token. Nothing clears it until the next milestone-3 *launch* on that key, so an abandoned or
+hard-stopped run leaves it on disk indefinitely, which is precisely the interval over which pid
+reuse becomes likely.
 
-The milder half of the same defect is already live on disk: the current state (`.pid` present,
-`.rc` absent) makes the next `bash G 3 511` join pid 19013 if it is live and block for the full
-3600s default before returning 7.
+The in-code note at 2267-2275 states the opposite as settled: "a waiter attached to a recycled pid
+waits for a marker stamped by THAT launch, which never comes, so the cost is a ceiling wait and
+`rc=7`." The marker stamped by THAT launch is exactly what is on disk. This is the same shape round
+1 flagged at 2091-2095 — a reachability argument in a comment that is wrong in the direction that
+makes the defect invisible — rewritten in a new place rather than re-derived.
 
-### B2 — `(dj10)` cannot fail on the bug AC-12 names it as guarding
+Two fixes that close it without giving up the rejoin the carve-out exists for, since neither
+touches the window where the runner is genuinely alive: have `m3_run_detached` `rm -f "$M3_PID"`
+after its stamp (the runner is the one process that knows the evaluation is over), or have the join
+arm refuse to join when a marker carrying the joined runner's token is *already* on disk and
+relaunch instead.
 
-AC-12: "`(dj10)` asserts the property both broken shapes violated — a milestone-3 lane child runs
-its own detached milestone 3, evidenced by a `started`/`concluded` pair in the inner tree's own
-record rather than by the lane's exit code, which the inline bug also produced."
+## Verified this round — round 1's blockers
 
-The inner pair is no better a discriminator than the exit code it was chosen over. `append_started` /
-`append_concluded` live inside `m3_run_detached` (2179-2186), so the pair is written whether that
-function was reached through the fork at 2237 or called inline — and calling it inline *is* the
-inline bug.
+Both closures were probed, not read. Each mutation isolates to exactly one case against a green
+baseline (`base` suite `rc=0`, 0 failures):
 
-Probe: reintroduced the pre-final handshake verbatim in shape in an isolated worktree — an inline arm
-at the top of `m3_launch_or_join` keyed on `LEAN_GATE_M3_RUNNER`, and `export LEAN_GATE_M3_RUNNER=1`
-inside the spawned subshell so it reaches the runner's lane children exactly as the shipped bug did.
-Instrumented the inline arm to prove it fired rather than no-opping:
-
-    $ cat /tmp/rev511-inline-arm.txt
-    INLINE-ARM-TAKEN cwd=<WORK>/dj-nest_inner issue=7
-    $ grep '(dj10)' probeB2.log
-      PASS: (dj10) a milestone-3 lane child runs its own detached milestone 3 — nothing is
-            inherited from the outer runner
-    suite rc=0, 0 FAILURES
-
-The lane child took the inline arm — `cwd` is `dj-nest_inner`, so this is (dj10)'s own nested call,
-the mechanism absent exactly as described in AC-12 — and the whole suite stayed green, `(dj10)`
-included. It reads as coverage for the defect this ticket was re-cut around and cannot fail on it,
-which is the failure mode `CLAUDE.md` calls out under "No mirror harnesses".
-
-Cheap fix, and the case already has the material: `dj_base` reads the gate's `runner state:`
-announcement, so asserting the inner tree got a `.pid` of its own — or that the inner call's own
-output says `spawned detached` — is a discriminator only a fork satisfies.
+- **B2 closed.** Round 1's probe reintroduced verbatim: an inline arm on `LEAN_GATE_M3_RUNNER` at the
+  top of `m3_launch_or_join`, plus `export LEAN_GATE_M3_RUNNER=1` inside the spawned subshell, with
+  the inline arm instrumented so its firing is evidence rather than inference. It fired in the case's
+  own nested tree (`INLINE-ARM-TAKEN cwd=<WORK>/dj-nest_inner issue=7`) and `(dj10)` was the **sole**
+  failure — where round 1's identical probe left the whole suite green. `spawned detached`, read off
+  the inner call's own captured stdout, is a discriminator only the fork satisfies.
+- **B1's named arm closed.** Stripping the token comparison in `m3_marker_mine` reds `(dj11)` alone,
+  and it reds with `got rc=99` — the planted stale code returned through the join arm, exactly the
+  failure the case claims to notice.
+- **AC-13's second half guarded.** Dropping `rm -f "$M3_PID"` from the marker-consumption path reds
+  `(dj12)` alone.
 
 ## Warnings
 
-- **`LEAN_GATE_WAIT_CEILING_SECS` is a new env var the gate reads and `SEAM_SCRUB` (2026) does not
-  scrub**, so milestone 3's lane children inherit it — and in this repo those children *are*
-  `lean-gate.sh`. This is the shape of dogfood finding 1, applied to the one seam the ticket
-  shipped: an operator who exports a short ceiling to debug gets spurious `rc=7` from the nested
-  suite's own milestone-3 calls. Not a blocker — `LEAN_GATE_OBSERVE` is unscrubbed on the same
-  terms, and the register is a `verbatim` lockstep row against `verifyctl.sh` that cannot be
-  widened unilaterally. Worth a header note at minimum.
-- **`build-lean/SKILL.md` never mentions `rc=7`.** AC-5 only requires the gate header, and the
-  warn text carries the remedy inline, so this is not an AC miss — but the block's rc vocabulary in
-  SKILL.md still reads "the 4th red (`rc=4`) hard-stops", and 7 is the one code whose correct
-  response is neither a fix nor a stop.
-- **AC-1 still specifies `nohup … &`**, which AC-12 supersedes with the forked subshell. The two ACs
-  are reconcilable in order, but AC-1 as written no longer describes the diff.
+- **A completed evaluation whose waiter never consumed it is discarded, and the message says
+  otherwise.** After a ceiling breach or a reap, if the runner finishes before the next invocation,
+  that invocation finds a dead pid, takes the launch arm and re-runs the whole sweep — the stamped
+  answer is thrown away. The ceiling arm's own remedy text says "Re-invoking rejoins it", which holds
+  only while the runner is alive. Cost and prose, not correctness; the fix for B3 does not change it.
+- **`(dj3)`'s pass message no longer describes what the case can fail on.** It still reads "a stale
+  rc marker is cleared at launch", but with the token match in place removing the launch `rm -f
+  "$M3_RC"` alone leaves it green, and removing the token check alone leaves it green too (the
+  launch clearing hides the planted marker) — only removing both reds it. The block comment above it
+  concedes this and the catalog row was correctly re-anchored off that clearing; the message string
+  did not follow.
+- **An unparseable marker returns `rc=7` silently.** `m3_marker_mine:2319` maps a non-numeric code to
+  7 — the right fail-closed answer — but the marker arm prints no `warn`, so the operator gets a bare
+  7 with none of the diagnosis the death and ceiling arms carry. Unreachable through the tmp+`mv`
+  write, so it costs nothing today.
+- Carried from round 1, not re-raised: `LEAN_GATE_WAIT_CEILING_SECS` is still outside `SEAM_SCRUB` and
+  so is inherited by milestone-3 lane children, which in this repo are `lean-gate.sh`. The header now
+  says so at 183-192, which is what round 1 asked for; the register is a `verbatim` lockstep row and
+  is not widenable from this side.
 
 ## Strengths
 
-- The three-terminal-state wait (2122-2166) is the right correction to #496's silence class, and the
-  one-grace-re-check at 2143-2147 is a real race, correctly reasoned, not defensive padding.
-- The launch-arm vacuity guard and its `(dj3)` case are exactly right — a stale marker planted with
-  `99` plus a second `started` row, non-vacuous in both directions.
-- Every `(dj)` case gets its own fixture tree, and `dj_base` reads the paths out of the gate's own
-  announcement instead of re-deriving `m3_paths`' key. The `$WORK` sentinel for the unannounced case
-  is the correct answer to a suite that once wrote `./.pid` into the checkout.
-- Refusing to re-baseline from an advisory local sweep (AC-11) was the right call, and CI settles it:
-  `mutation-sweep-pr` passed with `applied=23 killed=20 survived=3` against exactly the three
-  committed `lean-gate.sh` baseline rows, and all three new catalog rows killed.
-- The write-up records both discarded runner shapes with measurements rather than quietly shipping
-  the third.
+- The token is the right mechanism, and both cases resting on it are non-vacuous in a way this repo
+  has been burned on: `(dj11)` and `(dj12)` each isolate under their own mutation, and `(dj10)`'s
+  re-anchoring onto `spawned detached` is exactly the discriminator round 1 named as available.
+- The catalog work is honest. `lean-gate-m3-stale-marker` moved off a clearing that no longer
+  enforces anything and onto the comparison that does, a fourth row pins the pid-lifetime half, and
+  all four seds apply-probed against the real file with BSD sed change exactly one line each — the
+  5-second check that forecloses the ALL-SURVIVED harness-break class.
+- `rc=7`'s collision with the `staleness` arm the base gained mid-flight is recorded rather than left
+  to be discovered. Verified rather than accepted: `orchestrate-lean.sh` invokes only `staleness`,
+  `4` under `LEAN_GATE_OBSERVE=1`, and `progress`, so neither reader is ever handed the other's code.
+- The commit message and the spec amendments describe what round 1 found without softening it, and
+  AC-13 was added rather than an existing AC quietly reworded — the spec diff removes no obligation.
 
 ## Verification run this round
 
-- `bash plugins/dev-pipeline/skills/build-lean/lean-gate-selftest.sh` at the reviewed head, cold, in
-  an isolated worktree with `env -u CLAUDE_CODE_SESSION_ID -u RUN_ID -u LEAN_RUN_MODEL`: **rc=0**.
-- `shellcheck -e SC1091,SC2015,SC2181` on both changed shell files: clean (0.11.0; CI pins 0.9.0,
-  which is strictly less strict).
-- Apply-probed all three new `tools/mutation-catalog.tsv` seds against the real file with BSD sed —
-  each changes exactly one line, so no anchor drift and no `ALL-SURVIVED` harness break.
-- CI at `53333c8`: `lint-and-selftests` pass, `selftests (macos, bash 3.2)` pass, `mutation-sweep-pr`
-  pass. `pr-gates` fails only on the absent verdict record, which is this artifact.
+- `lean-gate-selftest.sh` at the reviewed head, cold, in an isolated worktree with `env -u
+  CLAUDE_CODE_SESSION_ID -u RUN_ID -u LEAN_RUN_MODEL`: **rc=0**, all 12 `(dj)` cases pass.
+- Three mutation probes, each in its own worktree, each isolating to one case: `(dj10)`, `(dj11)`,
+  `(dj12)`. Details above.
+- `shellcheck -e SC1091,SC2015,SC2181` on both changed shell files: clean (0.11.0 locally; CI
+  installs from apt and its `lint-and-selftests` job is green on this head).
+- CI at `a3f7f21`: `lint-and-selftests` pass, `selftests (macos, bash 3.2)` pass, `mutation-sweep-pr`
+  pass. `pr-gates` fails on one arm only — `verdict=needs-work`, which is round 1's record, and the
+  freshness arms are not evaluated behind it.
+- The mutation table was read rather than the body's claim: `applied=26 killed=23 survived=3`, and
+  the three survivors are exactly the three committed `lean-gate.sh` baseline rows
+  (`cmp-eq::1`, `default::1`, `default::2`). 15 catalog rows are named killed in the log and
+  `lean-gate-m3-stale-marker` is not among them — the arithmetic closes only if it is the 16th
+  applied and the 23rd kill, which is consistent with its kill coming from `(dj11)`, the suite's last
+  case, and with the P2 probe above. AC-11's refusal to re-baseline from an advisory local sweep
+  stands.
 
 ## AC scoring
 
 | AC | Score | Basis |
 | --- | --- | --- |
-| AC-1 detached evaluation, caller blocks, log replayed | satisfied | `(dj1)`; the `nohup` wording is superseded by AC-12, see Warnings |
-| AC-2 launch-or-JOIN, `kill -0` liveness, no `pgrep -f` | satisfied | `(dj4)`; no `pgrep` anywhere in the diff |
-| AC-3 a JOIN records nothing | satisfied | `(dj4)` record unmoved; independently reconfirmed by PROBE-A (5 → 5 rows) |
+| AC-1 detached evaluation, caller blocks, log replayed | satisfied | `(dj1)`; the superseded `nohup` wording is corrected this round |
+| AC-2 launch-or-JOIN, `kill -0` liveness, no `pgrep -f` | satisfied | `(dj4)`; the only `pgrep` in either file is the comment forbidding it |
+| AC-3 a JOIN records nothing | satisfied | `(dj4)`, `(dj11)`; PROBE-C independently shows 4 → 4 |
 | AC-4 three terminal states | satisfied | `(dj1)` marker, `(dj6)` death, `(dj5)` ceiling |
-| AC-5 `rc=7`, in the `Exit:` taxonomy | satisfied | `(dj6)`, `(dj7)`, header 136-141 |
+| AC-5 `rc=7`, in the `Exit:` taxonomy, both readings recorded | satisfied | `(dj6)`, `(dj7)`, header 144-156; the scheduler never invokes `3`, so the readings never meet at a call site |
 | AC-6 3600s default, seam validated before the spawn, breach spares the runner | satisfied | `M3_WAIT_CEILING_DEFAULT=3600`, `(dj8)`, `(dj5)` |
 | AC-7 milestone 3 only; `3` and `all` share one key; observe stays inline | satisfied | `(x3d)`, `(dj9)`, the `run_milestone` dispatch |
-| AC-8 the prose half in both blocks, build-lean under the 60-line cap | satisfied | both bullets present; SKILL.md is 47 lines, `(f)` |
-| AC-9 the `Workflow` exposure is measured, not assumed | satisfied | prose says await; this review session's own `review-lead` fan-out under `-p` is a second datapoint for the same result |
-| AC-10 the mechanism is selftested, the prose half deliberately not | satisfied | the `(dj)` block covers AC-1..AC-7 and each case is non-vacuous; the unguarded prose half is a stated decision consistent with the no-prose-guards rule |
-| AC-11 three catalog rows, baseline deliberately unedited | satisfied | all three killed in CI; the three survivors are exactly the committed baseline rows |
-| AC-12 forked subshell, `(dj10)` asserts what both broken shapes violated | **unsatisfied** | the production half is correct; the assertion half is B2 — `(dj10)` passes with the handshake bug reintroduced and firing |
+| AC-8 the prose half in both blocks, build-lean under the 60-line cap | satisfied | both bullets present; SKILL.md is 47 lines, `(f)`; `rc=7` now named there too |
+| AC-9 the `Workflow` exposure is measured, not assumed | satisfied | this review session is a third datapoint — a non-interactive session dispatched a six-agent `Workflow` and was re-entered with its result |
+| AC-10 the mechanism is selftested, the prose half deliberately not | satisfied | every `(dj)` case this round probed isolates; the unguarded prose half remains a stated decision |
+| AC-11 four catalog rows, baseline deliberately unedited | satisfied | CI `applied=26 killed=23 survived=3`, survivors exactly the committed baseline rows; all four seds apply-probed to one line |
+| AC-12 forked subshell, `(dj10)` asserts what both broken shapes violated | satisfied | the handshake bug reintroduced and instrumented as firing now reds `(dj10)` alone |
+| AC-13 a wait returns only its own evaluation's code; the pid does not outlive a consumed evaluation | **unsatisfied** | second half satisfied — `(dj12)`, and dropping its `rm` reds that case alone. First half falsified by PROBE-C on the ceiling/reap arm: same-launch pid record and marker share a token, so a recycled pid returns `rc=0` in 0s having evaluated nothing (B3) |
