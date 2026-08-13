@@ -33,12 +33,12 @@ rescue path, and the fallback if headless sessions ever leave the subscription.
 
 ## Rules that are not negotiable
 
-- **An unintaken ticket is a reject, not a prompt and not a spawned intake session.** Intake
-  elicits through questions a headless session cannot answer, so a spawned one either hangs or
-  fabricates a receipt the Decision Ledger has no legal provenance for. Run intake yourself.
-- **Never re-label a ticket to get past a reject, and never reach for `--intake-attested`** —
-  under github it is refused outright. A ticket claimed by a run this lane stopped is already
-  intaken; preflight reads its claim marker and re-enters.
+- **Under github, an unintaken ticket is a reject — not a prompt and not a spawned intake session.**
+  Intake elicits through questions a headless session cannot answer, so a spawned one either hangs
+  or fabricates a receipt the Decision Ledger has no legal provenance for. Run intake yourself.
+  A tracker with no queue label is ungated here; preflight says so rather than pretending.
+- **Never re-label a ticket to get past a reject.** A ticket claimed by a run this lane stopped is
+  already intaken; preflight reads its claim marker and re-enters.
 - **You author nothing and the scheduler writes nothing.** Every tracker comment, label swap,
   commit and record is made by a payload block under its own identity; a write here would put a
   third identity into a two-identity contract.
