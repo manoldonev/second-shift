@@ -119,17 +119,31 @@ rc=$RC
   && pass "(ds-d) missing --body-file → 2, named" \
   || fail "(ds-d) missing --body-file — rc=$rc out=$OUT"
 
+# The message is asserted, not just the code: it is the only thing that tells the caller
+# WHICH tunable it fumbled and what shape the tool wanted instead. A bare rc=2 is the same
+# answer this tool gives to six other mistakes.
 run "$LIVE" "$GH" --title "x" --threshold twelve
 rc=$RC
-[ "$rc" -eq 2 ] \
-  && pass "(ds-e) non-numeric --threshold → 2" \
-  || fail "(ds-e) non-numeric --threshold — got rc=$rc"
+[ "$rc" -eq 2 ] && grep -q "THRESHOLD must be a non-negative integer" <<< "$OUT" \
+  && pass "(ds-e) non-numeric --threshold → 2, names the tunable and the shape" \
+  || fail "(ds-e) non-numeric --threshold — rc=$rc out=$OUT"
 
 run "$LIVE" "$GH" --title "x" --wat
 rc=$RC
 [ "$rc" -eq 2 ] && grep -q "unknown option" <<< "$OUT" \
   && pass "(ds-f) unknown option → 2, named" \
   || fail "(ds-f) unknown option — rc=$rc out=$OUT"
+
+# `--help` serves the header comment by line range, which is a contract between the arm
+# and the file it slices: both ends are asserted, because the two ways that slice breaks
+# fail in opposite directions. Serving too little (a range that no longer reaches the
+# explanation) and serving the whole file (the range silently ignored) are both wrong, and
+# an rc-only check sees neither.
+run "$LIVE" "$GH" --help
+rc=$RC
+[ "$rc" -eq 0 ] && grep -q "WHY THIS EXISTS" <<< "$OUT" && ! grep -q "^THRESHOLD=" <<< "$OUT" \
+  && pass "(ds-f2) --help → 0, serves the header excerpt and stops before the code" \
+  || fail "(ds-f2) --help — rc=$rc out=$OUT"
 
 echo "[dup-scan-selftest] a failed look is never a clean scan"
 
@@ -294,6 +308,36 @@ rc=$RC
 [ "$rc" -eq 0 ] && grep -q "corpus: 0 scanned" <<< "$OUT" \
   && pass "(ds-w) label names come from config, not the shipped literals" \
   || fail "(ds-w) custom labels — rc=$rc out=$OUT"
+
+# Config DISCOVERY, with the environment override deliberately unset — every case above
+# hands the tool its config path, so none of them exercises the anchor the tool actually
+# ships with. `git rev-parse --git-common-dir` is what lets a lane worktree read the MAIN
+# checkout's config, and it is the only path a real intake exit takes. Staged with the
+# custom vocabulary so the two outcomes are opposite verdicts, not the same one twice: a
+# tool that discovered nothing falls back to `ready-for-dev`/`in-progress` and surfaces
+# #43, where a tool that discovered the config scans an empty corpus.
+#
+# Run from a LANE WORKTREE, not from the checkout root. From the root, a bare relative
+# `.claude/second-shift.config.json` resolves to the same file the anchor would find, so
+# the case would pass with the anchor deleted — measured: that deletion survived this case
+# until it moved here. A worktree has no `.claude/` of its own, so only `--git-common-dir`
+# reaches the config, and the two implementations give opposite verdicts.
+DISC="$TMP/discover"
+mkdir -p "$DISC/.claude"
+git init -q "$DISC"
+cp "$TMP/custom.json" "$DISC/.claude/second-shift.config.json"
+git -C "$DISC" -c user.email=selftest@example.invalid -c user.name=selftest \
+    commit -q --allow-empty -m "config only"
+git -C "$DISC" worktree add -q --detach "$TMP/discover-wt" >/dev/null 2>&1
+set +e
+OUT="$(cd "$TMP/discover-wt" && env -u SECOND_SHIFT_CONFIG PATH="$STUB:$PATH" DUP_SCAN_STUB_CORPUS="$SYN" \
+       bash "$SCAN" --title "Importer drops rows when the batch size exceeds the page limit" \
+       --body-file "$FIX/draft-body.md" 2>&1)"
+rc=$?
+set -e
+[ "$rc" -eq 0 ] && grep -q "corpus: 0 scanned" <<< "$OUT" \
+  && pass "(ds-x0) a lane worktree discovers the MAIN checkout's config via --git-common-dir" \
+  || fail "(ds-x0) config discovery via --git-common-dir — rc=$rc out=$OUT"
 
 # An ABSENT config is a legal state ("this consumer configured nothing") and selects
 # the shipped defaults — unlike an unparseable one, which refuses.
