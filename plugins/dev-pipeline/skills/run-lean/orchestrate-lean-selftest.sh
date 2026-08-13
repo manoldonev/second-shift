@@ -732,7 +732,8 @@ setup_case "" "0" "" "11"
 out="$(run_tool "$CFG_JIRA" ACME-7 --build-model sonnet)"; rc=$?
 if [ "$rc" -eq 0 ] && [ "$(spawn_count)" -gt 0 ] \
    && grep -q "tracker 'jira'" <<<"$out" \
-   && grep -q 'intake is not gated here' <<<"$out"; then
+   && grep -q 'intake is not gated here' <<<"$out" \
+   && grep -q 'Run /intake-toolkit:intake before the lane' <<<"$out"; then
   pass "(m1) a tracker with no queue label is ungated: preflight names the tracker, says so, and the run proceeds"
 else fail "(m1) expected an ungated jira run naming the tracker, got rc=$rc / $(spawn_count): $out"; fi
 
@@ -886,8 +887,13 @@ if [ -f "$SKILL" ]; then
 else fail "(n0) SKILL.md not found at $SKILL"; fi
 
 # ---- (n) --help prints the header and stops before the code ------------------------------------------
+# BOTH bounds, and the lower one is not decoration: the `Exit: 0 = approved` anchor sits four lines
+# above the header's end, so a range that over-shrinks (2,134p -> 2,130p) drops the whole exit-code
+# tail from --help while still satisfying an upper-bound-only check. Pin the LAST header line by its
+# own text so truncation reds in the direction a doc-line deletion actually moves the boundary.
 out="$(bash "$TOOL" --help 2>&1)"; rc=$?
 if [ "$rc" -eq 0 ] && grep -qF 'Exit: 0 = approved' <<<"$out" \
+   && grep -qF 'integrity refusal (P10)' <<<"$out" \
    && ! grep -qF 'set -uo pipefail' <<<"$out"; then
   pass "(n) --help prints through the last header line and stops before the code"
 else fail "(n) --help did not print exactly the header, rc=$rc: $out"; fi
