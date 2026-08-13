@@ -22,9 +22,10 @@ rules. No user-visible surface renders, and this repo configures no `design.prov
 ## Acceptance criteria
 
 - **AC-1 — milestone 3 evaluates in a different process, and the caller blocks on it.**
-  `bash G 3 <issue>` spawns the evaluation detached (`nohup … &`, no `setsid` — it does not exist
-  on macOS), the runner stamps its exit code into a marker file, and the invoking call BLOCKS on
-  that marker rather than returning. The runner's output goes to a log the waiter replays to its
+  `bash G 3 <issue>` spawns the evaluation detached (a forked subshell under `trap '' HUP`, per
+  AC-12 — not `nohup`, which needs an external command to exec, and no `setsid`, which does not
+  exist on macOS), the runner stamps its exit code into a marker file, and the invoking call
+  BLOCKS on that marker rather than returning. The runner's output goes to a log the waiter replays to its
   own stdout when it lands, so every existing caller and every existing selftest case sees what it
   always saw. A tool-timeout reap then kills the waiter and not the evaluation.
 
@@ -80,20 +81,30 @@ rules. No user-visible surface renders, and this repo configures no `design.prov
   survives would have left review's most likely death unexamined.
 
 - **AC-10 — the mechanism is selftested, and one half deliberately is not.** `lean-gate-selftest.sh`
-  gains a `(dj)` block covering AC-1..AC-7, each case on its own fixture tree so the runner key is
-  its own, plus `(x3d)` pinning that `all` reaches milestone 3 through the same wrapper.
+  gains a `(dj)` block covering AC-1..AC-7 and AC-13, each case on its own fixture tree so the
+  runner key is its own, plus `(x3d)` pinning that `all` reaches milestone 3 through the same
+  wrapper.
   **The prose half of AC-8 has no guard, and that is the decision, not an omission**: `CLAUDE.md`
   forbids prose-presence guards, because grepping a rule out of a SKILL asserts only that prose
   contains words and cannot fail for a reason a reader of the diff would not already see. The gate
   mechanism is the guard for the milestone-3 half; the "any in-flight work" half has no kill
   criterion and none is manufactured for it.
 
-- **AC-11 — the mutation obligations that ride on editing a guard.** Three new
+- **AC-11 — the mutation obligations that ride on editing a guard.** Four
   `tools/mutation-catalog.tsv` rows pin the mutants whose survival would be silent:
   `lean-gate-m3-no-join` (#500's livelock restored), `lean-gate-m3-stale-marker` (a green gate
-  certifying a tree it never ran against) and `lean-gate-m3-death-blind` (#496's silence class at
-  a second site). Each was applied and scored before being written down — they red (dj4)+(dj6),
-  43 cases, and (dj6) respectively.
+  certifying a tree it never ran against), `lean-gate-m3-death-blind` (#496's silence class at
+  a second site) and `lean-gate-m3-pid-outlives` (the dead pid that stale-marker needs as raw
+  material). Each was applied and scored before being written down.
+
+  **`lean-gate-m3-stale-marker` is RE-ANCHORED off the launch arm's `rm -f "$M3_RC"`**, and the
+  reason is the AC-13 fix rather than drift: the token match refuses a stale marker wherever it is
+  read, so removing that clearing is now survivable hygiene and a row anchored there would predict
+  a kill that no longer happens. It moves to the token comparison, which is what enforces the
+  invariant, and is killed by the case that covers the arm the clearing never reached. Every row's
+  `sed` was apply-probed against the real file with BSD sed (`sed -E "$e" F | diff - F` changes
+  exactly one line), which is the 5-second check that forecloses the ALL-SURVIVED harness-break
+  class — and the two seds written this round avoid `\|` and bare `[` for the same reason.
 
   **`tools/mutation-baseline.tsv` is deliberately NOT edited, and that is the judgment call.**
   Editing a guard re-keys its generic survivor ordinals, and this edit did: the diff-scoped sweep
@@ -116,8 +127,27 @@ rules. No user-visible surface renders, and this repo configures no `design.prov
   function the process already had loaded: 1.4s of a measured 1.9s per-call overhead, enough to
   push the paired suite past `mutation-sweep.sh`'s 300s killer bound. A forked subshell has
   neither problem. `(dj10)` asserts the property both broken shapes violated — a milestone-3 lane
-  child runs its own detached milestone 3, evidenced by a `started`/`concluded` pair in the inner
-  tree's own record rather than by the lane's exit code, which the inline bug also produced.
+  child runs its own detached milestone 3, evidenced by **the inner call's own stdout announcing
+  `spawned detached`**, which is printed between the fork and the wait on a path the inline arm
+  returned before reaching. The two cheaper-looking discriminators are both vacuous and were both
+  tried: the lane's exit code (the inline bug produced it too) and a `started`/`concluded` pair in
+  the inner tree's record — `append_started`/`append_concluded` live INSIDE `m3_run_detached`, so
+  the pair appears whether that function was forked or called inline, and calling it inline *is*
+  the bug. Round 1 shipped the second one; it passed with the handshake reintroduced and firing.
+
+- **AC-13 — a wait returns the exit code of the evaluation it is attached to, and nothing else.**
+  The launch mints a token, the forked subshell inherits it as an ordinary shell variable, the
+  runner stamps `<token> <rc>`, and a waiter consumes a marker only when the token matches the
+  launch it is waiting on — the joined runner's own, read off its record, on the join arm.
+  Round 1's stale-marker clearing was on the LAUNCH arm only, after `m3_runner_live` had already
+  branched to the join, so a joiner returned a previous evaluation's code in 0s having evaluated
+  nothing; with a real `0` in place of the probe's `99` that is a green milestone 3 certifying a
+  tree it never ran against. The trigger is pid reuse, which is a day-scale event on this machine
+  and not the "whole pid wraparound" the code claimed. Second half: **the pid record does not
+  outlive the evaluation a waiter consumed** — it was the only one of the three runner-state paths
+  with no `rm` anywhere, so every green milestone 3 left a dead pid in the state dir waiting to be
+  recycled. `(dj11)` and `(dj12)`. The ceiling arm deliberately keeps the pid: that runner is alive
+  and a re-invocation must be able to rejoin it.
 
 ## Out of scope
 

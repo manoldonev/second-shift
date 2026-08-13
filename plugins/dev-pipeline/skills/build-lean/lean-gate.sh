@@ -181,6 +181,13 @@
 #                            before returning 7. Defaults to 3600. The suite sets it to seconds to
 #                            exercise a breach; a real run should not lower it — a breach
 #                            reclassifies an honest slow sweep as infrastructure.
+#                            NOT IN `SEAM_SCRUB`, exactly like LEAN_GATE_OBSERVE beside it, so
+#                            milestone 3's lane children INHERIT it — and in this repo those
+#                            children are lean-gate.sh. An operator who exports a short ceiling to
+#                            debug gets spurious `rc=7` out of the nested suite's own milestone-3
+#                            calls. Export it for one call rather than for a shell. The register
+#                            is a `verbatim` lockstep row against verifyctl.sh and is not
+#                            widenable from this side alone.
 #
 # There is NO seam and no flag for milestone 3's detached runner, by two rounds of deliberate
 # subtraction. It began as an inherited `LEAN_GATE_M3_RUNNER=1` on a re-exec of this script, which
@@ -264,7 +271,7 @@ while [ $# -gt 0 ]; do
     --summary-file)  SUMMARY_FILE="${2:-}"; shift 2 ;;
     --satisfied)     PROGRESS_SATISFIED="${2:-}"; shift 2 ;;
     --arm)           STALENESS_ARM="${2:-}"; shift 2 ;;
-    -h|--help)       sed -n '2,195p' "$0"; exit 0 ;;
+    -h|--help)       sed -n '2,202p' "$0"; exit 0 ;;
     -*)              envfail "unknown option: $1" ;;
     *)
       if [ "$POSITIONAL" -eq 0 ]; then SUB="$1"; POSITIONAL=1
@@ -2229,6 +2236,12 @@ M3_WAIT_CEILING_DEFAULT=3600
 # wakeups of nothing rather than 6000 forks.
 M3_POLL_SECS=0.1
 
+# The launch identity a marker is stamped with and a waiter matches against. Declared here because
+# `set -u` is on and the counter is incremented before its first read; `LEAN_GATE_LIB` source mode
+# can also reach these functions without going through a launch.
+M3_LAUNCH_SEQ=0
+M3_TOKEN=""
+
 # D-10: STATE_DIR, never TMPDIR. macOS `mktemp -d` ignores TMPDIR and this repo already carries
 # orphan-fixture scars from that directory; the state dir is also gitignored, survives worktree
 # teardown, and is readable by a joining session that resolved a different checkout.
@@ -2249,24 +2262,63 @@ m3_paths() {
 
 # LIVENESS IS THE RECORDED PID PLUS `kill -0`, never `pgrep -f`. This repo carries a mutual-
 # deadlock scar where a waiter's own command line matched its own pattern and it waited on itself
-# forever. PID reuse could in principle read a recycled pid as live; the window is a whole pid
-# wraparound against a marker that is removed at every launch, and the failure mode is one extra
-# ceiling wait rather than a wrong verdict.
+# forever.
+#
+# THE RECORD IS `<pid> <token>`, and the token is what makes pid reuse survivable. A recycled pid
+# reads as live here and always will — `kill -0` cannot tell one process from another. The claim
+# this note used to make, that reuse needed "a whole pid wraparound" and cost "one extra ceiling
+# wait rather than a wrong verdict", was wrong in both halves: `kern.maxproc` is a few thousand,
+# pids recycle within a day of ordinary use here, and a reboot walks straight back through a
+# recorded one within minutes — and what the resulting join returned was a PREVIOUS evaluation's
+# exit code, instantly. The token is what makes the second half true now: a waiter attached to a
+# recycled pid waits for a marker stamped by THAT launch, which never comes, so the cost is a
+# ceiling wait and `rc=7`.
+#
+# A record carrying no token predates this format and is deliberately NOT joinable — nothing it
+# could stamp would be identifiable — so it reads as dead and relaunches, the recoverable
+# direction.
 #
 # `read <` rather than `$(cat …)`: this runs on every poll, and a command substitution is a fork.
+m3_read_runner() {
+  M3_R_PID=""; M3_R_TOKEN=""
+  [ -f "${M3_PID:-}" ] || return 1
+  read -r M3_R_PID M3_R_TOKEN < "$M3_PID" 2>/dev/null
+  case "$M3_R_PID" in ''|*[!0-9]*) M3_R_PID=""; return 1 ;; esac
+  [ -n "$M3_R_TOKEN" ] || return 1
+  return 0
+}
+
 m3_runner_live() {
-  local pid=""
-  [ -f "$M3_PID" ] || return 1
-  read -r pid < "$M3_PID" 2>/dev/null
-  case "$pid" in ''|*[!0-9]*) return 1 ;; esac
-  kill -0 "$pid" 2>/dev/null
+  m3_read_runner || return 1
+  kill -0 "$M3_R_PID" 2>/dev/null
 }
 
 # The recorded pid, for a diagnostic — empty when there is nothing to name.
 m3_runner_pid() {
-  local pid=""
-  [ -f "${M3_PID:-}" ] && read -r pid < "$M3_PID" 2>/dev/null
-  printf '%s' "$pid"
+  m3_read_runner >/dev/null 2>&1
+  printf '%s' "$M3_R_PID"
+}
+
+# THE MARKER IS BOUND TO THE LAUNCH THAT PRODUCED IT, and that binding is the whole answer to a
+# wait returning a code it did not earn. The launch arm's `rm -f "$M3_RC"` below cannot be that
+# answer, because it runs only after `m3_runner_live` has already branched away to the join — a
+# guard on one arm of an either/or. A joiner without this check returns whatever marker is on disk
+# in 0s having evaluated nothing, and when that code is 0 it is a green milestone 3 certifying a
+# tree it never ran against.
+#
+# Builtins only: this is the poll loop's first statement.
+m3_marker_mine() { # m3_marker_mine <token> — sets M3_MARKER_RC when the marker on disk is this launch's
+  local tok="" rc=""
+  M3_MARKER_RC=""
+  [ -f "${M3_RC:-}" ] || return 1
+  read -r tok rc < "$M3_RC" 2>/dev/null
+  [ "$tok" = "$1" ] || return 1
+  # A marker that is not a number is a marker mid-write or truncated — which the tmp+mv write
+  # should make impossible, so reading it as "did not complete" is the fail-closed answer rather
+  # than passing a milestone on an unparseable code.
+  case "$rc" in ''|*[!0-9]*) rc=7 ;; esac
+  M3_MARKER_RC="$rc"
+  return 0
 }
 
 # The runner's output is a FILE, not this process's stdout — it has to be, since the runner
@@ -2283,20 +2335,20 @@ m3_replay_log() {
 # review round. (i) the marker appears -> exit with its value. (ii) the recorded pid fails `kill -0`
 # with no marker -> the runner died. (iii) the ceiling is reached. (ii) and (iii) both return D-5's
 # `rc=7` and spend no fix attempt, because nothing was evaluated.
-m3_wait() { # m3_wait <ceiling-secs>
-  local ceiling="$1" rc="" pid
+m3_wait() { # m3_wait <ceiling-secs> <token>
+  local ceiling="$1" token="$2" pid
   # bash's own elapsed-seconds counter, reset here. No `date` fork per poll, and no BSD/GNU split
   # to get wrong — the two `date` arithmetic dialects are a documented scar in this repo.
   SECONDS=0
   while :; do
-    if [ -f "$M3_RC" ]; then
-      read -r rc < "$M3_RC" 2>/dev/null
-      # A marker that is not a number is a marker mid-write or truncated — which the tmp+mv write
-      # should make impossible, so reading it as "did not complete" is the fail-closed answer
-      # rather than passing a milestone on an unparseable code.
-      case "$rc" in ''|*[!0-9]*) rc=7 ;; esac
+    if m3_marker_mine "$token"; then
+      # THE PID DOES NOT OUTLIVE THE EVALUATION A WAITER CONSUMED. It was the only one of the
+      # three runner-state paths with no `rm` anywhere, so the steady state after every green
+      # milestone 3 was a dead pid sitting in the state dir waiting to be recycled into a join
+      # against an evaluation that ended hours ago.
+      rm -f "$M3_PID"
       m3_replay_log
-      return "$rc"
+      return "$M3_MARKER_RC"
     fi
     if ! m3_runner_live; then
       # ONE GRACE RE-CHECK, and it is not belt-and-braces. The runner stamps the marker with its
@@ -2304,8 +2356,11 @@ m3_wait() { # m3_wait <ceiling-secs>
       # probes above may have stamped it in that gap — without this, a completed evaluation
       # reports as a death on every fast lane.
       sleep "$M3_POLL_SECS"
-      if [ ! -f "$M3_RC" ]; then
+      if ! m3_marker_mine "$token"; then
         pid="$(m3_runner_pid)"
+        # Same reason as above, for the other terminal state a waiter reaches: the runner this
+        # pid names is gone, so leaving it on disk only feeds a later spurious join.
+        rm -f "$M3_PID"
         m3_replay_log
         warn "✗ milestone-3: the detached evaluation (pid ${pid:-unknown}) is gone and stamped no exit code — it did not complete, so NOTHING was evaluated and no fix attempt was charged."
         warn "  Re-invoke \`bash G 3 $ISSUE\`: that relaunches a dead runner, or joins a live one. Whatever it printed is above, and in $M3_LOG."
@@ -2335,12 +2390,18 @@ m3_wait() { # m3_wait <ceiling-secs>
 # one that `envfail`s out from under itself, leaves no marker — which is exactly D-3's "did not
 # complete", reported as rc=7 with this log replayed rather than as a milestone failure. Written
 # via a tmp + `mv` so a waiter can never read a half-written code.
+#
+# THE STAMP CARRIES THE LAUNCH TOKEN, not the code alone. `$M3_TOKEN` is a plain shell variable
+# minted before the fork, so this subshell already has it and no `export` is involved — the runner
+# needs no identity handshake for the same reason it needs no re-exec (AC-12). Its own pid is not
+# usable here: `$$` in a subshell is the PARENT's pid, and `$BASHPID` is bash 4+, which the stock
+# 3.2 macOS CI lane does not have.
 m3_run_detached() {
   local r_rc
   append_started 3
   cmd_3; r_rc=$?
   append_concluded 3 "$r_rc"
-  printf '%s\n' "$r_rc" > "$M3_RC.tmp" && mv "$M3_RC.tmp" "$M3_RC"
+  printf '%s %s\n' "$M3_TOKEN" "$r_rc" > "$M3_RC.tmp" && mv "$M3_RC.tmp" "$M3_RC"
   return "$r_rc"
 }
 
@@ -2372,13 +2433,25 @@ m3_launch_or_join() {
     # honestly-waiting run into INTERRUPTED_BUDGET.
     say "milestone-3: an evaluation is already running in this worktree (pid $pid) — JOINING it rather than launching a second. Nothing is recorded for a join."
     say "  runner state: $M3_BASE.{pid,rc,log}"
-    m3_wait "$ceiling"
+    # THE JOINED RUNNER'S OWN TOKEN, read off its record by the m3_runner_live above — never this
+    # process's. A join waits for the marker THAT evaluation will stamp, so a marker already on
+    # disk from an earlier one cannot end this wait.
+    m3_wait "$ceiling" "$M3_R_TOKEN"
     return $?
   fi
 
-  # THE STALE MARKER IS REMOVED BEFORE THE SPAWN, never after. A wait that could see a PREVIOUS
-  # evaluation's code would report the last run's verdict about this tree — and in the suite, where
-  # consecutive cases share one fixture and therefore one key, it would pass them vacuously.
+  # THE LAUNCH TOKEN, minted before anything is spawned so the forked subshell inherits it as an
+  # ordinary shell variable. `$$` distinguishes gate processes, the counter distinguishes launches
+  # within one, and `$RANDOM` covers a later process that reuses this pid and starts counting at 1
+  # again. No fork and no `date`: a command substitution here could not increment the counter in
+  # this shell anyway.
+  M3_LAUNCH_SEQ=$((M3_LAUNCH_SEQ + 1))
+  M3_TOKEN="$$-$M3_LAUNCH_SEQ-$RANDOM"
+
+  # THE STALE MARKER IS REMOVED BEFORE THE SPAWN, never after — hygiene now rather than the
+  # correctness guard it once was, since m3_marker_mine already refuses a marker this launch did
+  # not stamp. Leaving one on disk would still leave the state dir describing an evaluation that
+  # no longer exists, and clears the log the next waiter replays.
   rm -f "$M3_RC" "$M3_RC.tmp" "$M3_LOG"
   # A FORKED SUBSHELL, not a re-exec of this script. Two properties, both paid for:
   #   — Nothing to inherit. A re-exec needs a handshake saying "you are the runner", and the first
@@ -2396,14 +2469,14 @@ m3_launch_or_join() {
   ( trap '' HUP; m3_run_detached ) </dev/null >"$M3_LOG" 2>&1 &
   pid=$!
   disown "$pid" 2>/dev/null
-  printf '%s\n' "$pid" > "$M3_PID.tmp" && mv "$M3_PID.tmp" "$M3_PID"
+  printf '%s %s\n' "$pid" "$M3_TOKEN" > "$M3_PID.tmp" && mv "$M3_PID.tmp" "$M3_PID"
   say "milestone-3: evaluation spawned detached (pid $pid) — this call BLOCKS on it and cannot be backgrounded away (#511). Its output is replayed here when it lands."
   # NAMED, not left to be re-derived. An operator whose waiter was reaped needs the log to see how
   # far the evaluation got and the pid to stop it; and the selftest needs the same three paths,
   # where re-deriving the key would be a hand-maintained copy of m3_paths that cannot fail when
   # m3_paths changes. Production says where it put them.
   say "  runner state: $M3_BASE.{pid,rc,log}"
-  m3_wait "$ceiling"
+  m3_wait "$ceiling" "$M3_TOKEN"
   return $?
 }
 

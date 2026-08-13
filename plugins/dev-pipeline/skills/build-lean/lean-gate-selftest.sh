@@ -4888,7 +4888,7 @@ dj_count() { # dj_count <name> <fixed-pattern>
 # IT NEVER RETURNS THE EMPTY STRING, and that is not defensive style. Callers append `.pid` to it,
 # so an empty base writes `./.pid` into whatever directory the suite was LAUNCHED from — the
 # checkout under test on every real run. That happened: a gate that stopped announcing (the
-# inherited-runner-flag bug the `(dj11)` case now guards) left a stray file in the repo root, where
+# inherited-runner-flag bug the `(dj10)` case now guards) left a stray file in the repo root, where
 # it reads as an untracked artifact of the change rather than of the suite. A $WORK sentinel keeps
 # the spill inside the fixture, and every case's own assertions still red on it — `.log` is not
 # `-s`, `.rc` never appears — so the failure is reported rather than swapped for a quieter one.
@@ -4897,6 +4897,14 @@ dj_base() {
   b="$(printf '%s\n' "$1" | sed -n 's/^\[lean-gate\]   runner state: \(.*\)\.{pid,rc,log}$/\1/p' | head -n1)"
   [ -n "$b" ] || b="$WORK/dj-UNANNOUNCED"
   printf '%s' "$b"
+}
+# The fake-runner record the cases below plant, in production's `<pid> <token>` format. THE TOKEN
+# IS NOT DECORATION: a record without one is deliberately unjoinable (it reads as a pre-token
+# leftover), so a bare pid would send every case that means to JOIN down the launch arm instead
+# and pass for the wrong reason. The value is arbitrary — nothing this suite plants ever stamps a
+# marker, which is the point of every case that plants one.
+dj_plant() { # dj_plant <base> <pid>
+  printf '%s %s\n' "$2" "dj-fake-token" > "$1.pid"
 }
 
 # (dj1) THE EVALUATION IS NOT IN THIS PROCESS. Two halves, and one without the other is worthless:
@@ -4922,11 +4930,25 @@ if [ "$(dj_count m1 '| milestone-3 | started |')" -eq 1 ] \
   pass "(dj2) one started/concluded pair per detached evaluation, written by the runner"
 else fail "(dj2) expected 1 started + 1 concluded, got $(dj_count m1 '| milestone-3 | started |') / $(dj_count m1 '| milestone-3 | concluded | rc=0')"; fi
 
-# (dj3) THE VACUITY GUARD. A marker left by an earlier evaluation must not be handed back as this
-# one's answer. Planted with a code no evaluation can produce: if the launch did not clear it, the
-# gate returns 99 and this case is the only thing in the file that notices. The second half is what
-# makes it non-vacuous in the other direction — a real relaunch appends a SECOND started row.
-printf '99\n' > "$dj1_base.rc"
+# (dj12) THE PID RECORD DOES NOT OUTLIVE THE EVALUATION A WAITER CONSUMED. `$M3_PID` was the only
+# one of the three runner-state paths with no `rm` anywhere — not at completion, not at teardown,
+# not in the entry sweep — so the steady state after every green milestone 3 was a dead pid sitting
+# in the state dir, and the only thing between that and (dj11)'s wrong verdict was the operating
+# system declining to reuse the number. The marker is deliberately KEPT: it is what a rejoining
+# waiter of this same launch still has to be able to read.
+if [ ! -f "$dj1_base.pid" ] && [ -f "$dj1_base.rc" ]; then
+  pass "(dj12) a consumed evaluation leaves its exit-code marker and NOT its pid record"
+else fail "(dj12) expected the pid record gone and the marker kept, got pid=$([ -f "$dj1_base.pid" ] && echo present || echo absent) rc=$([ -f "$dj1_base.rc" ] && echo present || echo absent)"; fi
+
+# (dj3) THE VACUITY GUARD, ON THE LAUNCH ARM. A marker left by an earlier evaluation must not be
+# handed back as this one's answer. Planted with a code no evaluation can produce, in production's
+# `<token> <rc>` format so it is a faithful stand-in for the previous run's: the gate returning 99
+# is the failure this notices. The second half makes it non-vacuous in the other direction — a real
+# relaunch appends a SECOND started row.
+#
+# What carries this case is now the token match in m3_marker_mine, not the `rm -f` on the launch
+# arm; a stale marker is refused wherever it is read. (dj11) is the arm that had nothing else.
+printf 'dj-old-token 99\n' > "$dj1_base.rc"
 out="$(dj_gate m1 3 7)"; rc=$?
 if [ "$rc" -eq 0 ] && [ "$(dj_count m1 '| milestone-3 | started |')" -eq 2 ]; then
   pass "(dj3) a stale rc marker is cleared at launch — the wait cannot return a previous evaluation's code"
@@ -4941,7 +4963,7 @@ out="$(dj_gate join 3 7)"
 dj4_base="$(dj_base "$out")"
 sleep 30 &
 dj4_fake=$!
-printf '%s\n' "$dj4_fake" > "$dj4_base.pid"
+dj_plant "$dj4_base" "$dj4_fake"
 rm -f "$dj4_base.rc"
 dj4_before="$(dj_count join '| milestone-3 |')"
 DJ_CEILING=1
@@ -4973,7 +4995,7 @@ out="$(dj_gate dead 3 7)"
 dj6_base="$(dj_base "$out")"
 sleep 3 &
 dj6_fake=$!
-printf '%s\n' "$dj6_fake" > "$dj6_base.pid"
+dj_plant "$dj6_base" "$dj6_fake"
 rm -f "$dj6_base.rc"
 dj6_att_before="$(dj_count dead '| milestone-3 | attempt |')"
 dj6_abs_before="$(dj_count dead '| milestone-3 | absent |')"
@@ -5014,7 +5036,7 @@ out="$(dj_gate obs 3 7)"
 dj9_base="$(dj_base "$out")"
 sleep 30 &
 dj9_fake=$!
-printf '%s\n' "$dj9_fake" > "$dj9_base.pid"
+dj_plant "$dj9_base" "$dj9_fake"
 rm -f "$dj9_base.rc"
 DJ_CEILING=1
 out="$( unset RUN_ID CLAUDE_CODE_SESSION_ID GH_BOT
@@ -5038,20 +5060,62 @@ else fail "(dj9) expected an inline rc=0 with no marker written, got rc=$rc: $ou
 dj_tree nest_inner
 dj_tree nest_outer
 dj_nest_cfg="$WORK/dj-nest-cfg.json"
-jq --arg gate "$GATE" --arg tree "$WORK/dj-nest_inner" --arg cfg "$CFG" --arg prog "$WORK/dj-nest_inner-prog.md" --arg iss "$ISSUE_NOREGIONS" \
-   '.commands.acme.lint = ("cd " + $tree + " && SECOND_SHIFT_CONFIG=" + $cfg + " LEAN_PROGRESS_FILE=" + $prog + " bash " + $gate + " --issue-file " + $iss + " 3 7 >/dev/null 2>&1 && echo NESTED_OK || echo NESTED_BROKEN")' \
+dj_nest_out="$WORK/dj-nest-inner.out"
+jq --arg gate "$GATE" --arg tree "$WORK/dj-nest_inner" --arg cfg "$CFG" --arg prog "$WORK/dj-nest_inner-prog.md" --arg iss "$ISSUE_NOREGIONS" --arg innerout "$dj_nest_out" \
+   '.commands.acme.lint = ("cd " + $tree + " && SECOND_SHIFT_CONFIG=" + $cfg + " LEAN_PROGRESS_FILE=" + $prog + " bash " + $gate + " --issue-file " + $iss + " 3 7 > " + $innerout + " 2>&1 && echo NESTED_OK || echo NESTED_BROKEN")' \
    "$CFG" > "$dj_nest_cfg" 2>/dev/null
 out="$( unset RUN_ID CLAUDE_CODE_SESSION_ID GH_BOT
         cd "$WORK/dj-nest_outer" && SECOND_SHIFT_CONFIG="$dj_nest_cfg" LEAN_PROGRESS_FILE="$WORK/dj-nest_outer-prog.md" \
         bash "$GATE" --issue-file "$ISSUE_NOREGIONS" 3 7 2>&1 )"; rc=$?
-# The INNER run's own record is the non-vacuous half: NESTED_OK alone would also be printed by a
-# nested call that ran inline, which is precisely the bug. A started/concluded pair in the inner
-# tree's progress file can only have been written by a detached runner of its own.
+# THE DISCRIMINATOR HAS TO BE SOMETHING ONLY THE FORK PRODUCES, and two candidates that look like
+# evidence are not. `NESTED_OK` is the inner call's exit code, which the inline bug also produced.
+# So is a started/concluded pair in the inner tree's record: append_started/append_concluded live
+# INSIDE m3_run_detached, so the pair appears whether that function was forked or called inline —
+# and calling it inline IS the bug. This case shipped asserting exactly that, and passed with the
+# handshake reintroduced and firing in this case's own nested call.
+#
+# `spawned detached` is printed between the fork and the wait, on a path the inline arm returned
+# before ever reaching. The inner call's own stdout is captured to a file for this: it is the lane
+# child's output, not the outer runner's, so nothing the outer gate printed can satisfy it.
 if [ "$rc" -eq 0 ] \
    && grep -qx 'NESTED_OK' <<<"$out" \
+   && [ -s "$dj_nest_out" ] \
+   && grep -qF 'spawned detached' "$dj_nest_out" \
    && [ "$(dj_count nest_inner '| milestone-3 | concluded | rc=0')" -ge 1 ]; then
   pass "(dj10) a milestone-3 lane child runs its own detached milestone 3 — nothing is inherited from the outer runner"
-else fail "(dj10) expected NESTED_OK and an inner concluded row, got rc=$rc inner=$(dj_count nest_inner '| milestone-3 | concluded | rc=0'): $out"; fi
+else fail "(dj10) expected NESTED_OK with the inner call announcing its own detach, got rc=$rc inner_detach=$(grep -cF 'spawned detached' "$dj_nest_out" 2>/dev/null || echo 0) inner_concluded=$(dj_count nest_inner '| milestone-3 | concluded | rc=0'): $out"; fi
+
+# (dj11) THE JOIN ARM'S STALE MARKER — the other arm of the either/or (dj3) guards. `rm -f "$M3_RC"`
+# runs only after m3_runner_live has already branched to the join, so a joiner whose first act was
+# "read whatever marker is on disk" returned a PREVIOUS evaluation's code in 0s having evaluated
+# nothing. Substitute a real 0 for the 99 below and that is a green milestone 3 certifying a tree it
+# never ran against. Production reaches it by pid reuse, which is a day-scale event here rather than
+# the "whole pid wraparound" the code used to claim.
+#
+# The case plants BOTH halves of that state: a marker from an evaluation that has ended, and a live
+# pid to make the gate choose the join arm. The `sleep 3` is the recycled process — it stamps
+# nothing, exactly as an unrelated process holding a reused pid would not.
+dj_tree stalejoin
+out="$(dj_gate stalejoin 3 7)"
+dj11_base="$(dj_base "$out")"
+dj11_before="$(dj_count stalejoin '| milestone-3 |')"
+printf 'dj-old-token 99\n' > "$dj11_base.rc"
+sleep 3 &
+dj11_fake=$!
+dj_plant "$dj11_base" "$dj11_fake"
+DJ_CEILING=60
+out="$(dj_gate stalejoin 3 7)"; rc=$?
+DJ_CEILING=""
+wait "$dj11_fake" 2>/dev/null
+dj11_after="$(dj_count stalejoin '| milestone-3 |')"
+# rc=7 rather than 99 is the whole assertion; the unmoved record is what proves it reached this
+# through the JOIN arm and not by relaunching, which would pass for a reason the bug also allows.
+if [ "$rc" -eq 7 ] \
+   && grep -q 'JOINING it rather than launching a second' <<<"$out" \
+   && grep -qF 'gone and stamped no exit code' <<<"$out" \
+   && [ "$dj11_after" -eq "$dj11_before" ]; then
+  pass "(dj11) a JOIN cannot be ended by a marker some earlier evaluation stamped"
+else fail "(dj11) expected rc=7 from a join whose runner stamped nothing, got rc=$rc lines $dj11_before -> $dj11_after: $out"; fi
 
 echo "[lean-gate-selftest] $([ "$FAILS" -eq 0 ] && echo 'all green' || echo "$FAILS FAILURE(S)")"
 exit "$FAILS"
