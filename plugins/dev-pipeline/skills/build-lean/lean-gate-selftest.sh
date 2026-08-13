@@ -4614,5 +4614,200 @@ if [ "$rc" -eq 2 ] && [ "$(count_in_progress '| milestone-')" -eq "$before_all" 
   pass "(if12) an unknown subcommand still exits 2 having written no milestone row"
 else fail "(if12) expected rc=2 with an unmoved record, got rc=$rc lines $before_all -> $(count_in_progress '| milestone-'): $out"; fi
 
+# ---- (st) #515: the staleness predicate, against a REAL remote and a REAL fetch ---------------
+# Its own fixture, not the shared $TREE: this block pushes commits to an origin and moves a work
+# branch, and doing that in the tree every case above shares is how a later case starts failing
+# for a reason its own body cannot show. It is also the only block in this file with a real
+# `git remote` — the base arm's whole subject is a range against origin/<base>, and $TREE's
+# `update-ref refs/remotes/origin/main` stand-in cannot be fetched into.
+#
+# THE FETCH IS WHAT MAKES (st2) NON-VACUOUS. Base commits are pushed to the bare origin and the
+# work tree NEVER fetches them by hand — so a build of the arm that dropped its own `git fetch`
+# would read a remote-tracking ref frozen at the branch point, answer "nothing moved", and fail
+# this case. That is the exact stale-ref reading D-5 exists to refuse.
+STW="$WORK/staleness"
+SORIGIN="$STW/origin.git"
+STREE="$STW/tree"
+SPUSH="$STW/push"          # a second clone, used to land "someone else's" commits on the base
+mkdir -p "$STW"
+git init -q --bare "$SORIGIN" >/dev/null 2>&1
+git -C "$SORIGIN" symbolic-ref HEAD refs/heads/main >/dev/null 2>&1
+st_git() { git -C "$1" -c user.email=t@example.invalid -c user.name=t -c commit.gpgsign=false "${@:2}"; }
+
+git init -q "$STREE" >/dev/null 2>&1
+git -C "$STREE" symbolic-ref HEAD refs/heads/main >/dev/null 2>&1
+printf 'base\n' > "$STREE/shared.txt"
+printf 'base\n' > "$STREE/untouched.txt"
+st_git "$STREE" add -A >/dev/null 2>&1
+st_git "$STREE" commit -q -m "base" >/dev/null 2>&1
+git -C "$STREE" remote add origin "$SORIGIN" >/dev/null 2>&1
+git -C "$STREE" push -q origin main >/dev/null 2>&1
+
+# The work branch: it edits `shared.txt` and a file of its own. Created as a REF, with no
+# worktree — the subcommand resolves `refs/heads/<branch>` rather than HEAD precisely so it can
+# answer before the lane's worktree exists.
+st_git "$STREE" checkout -q -b claude/acme-7 >/dev/null 2>&1
+printf 'branch edit\n' >> "$STREE/shared.txt"
+printf 'branch only\n' > "$STREE/branch-only.txt"
+st_git "$STREE" add -A >/dev/null 2>&1
+st_git "$STREE" commit -q -m "branch work" >/dev/null 2>&1
+st_git "$STREE" checkout -q main >/dev/null 2>&1
+
+# "Someone else" landing on the base, through a clone that pushes — so $STREE learns about it
+# only by fetching.
+git clone -q "$SORIGIN" "$SPUSH" >/dev/null 2>&1
+push_base() { # push_base <file> <message>
+  printf '%s\n' "$2" >> "$SPUSH/$1"
+  st_git "$SPUSH" add -A >/dev/null 2>&1
+  st_git "$SPUSH" commit -q -m "$2" >/dev/null 2>&1
+  st_git "$SPUSH" push -q origin main >/dev/null 2>&1
+}
+
+ST_CFG="$STW/config.json"
+cat > "$ST_CFG" <<'EOF'
+{
+  "tracker": { "type": "github", "branchPrefix": "claude/acme-" },
+  "topology": { "repos": { "acme": { "path": ".", "baseBranch": "main" } } },
+  "paths": { "plansDir": "docs/plans", "pipelineStateDir": ".claude/pipeline-state" }
+}
+EOF
+ST_CFG_JIRA="$STW/config-jira.json"
+cat > "$ST_CFG_JIRA" <<'EOF'
+{
+  "tracker": { "type": "jira", "branchPrefix": "claude/", "keyPattern": "ACME-[0-9]+" },
+  "topology": { "repos": { "acme": { "path": ".", "baseBranch": "main" } } },
+  "paths": { "plansDir": "docs/plans", "pipelineStateDir": ".claude/pipeline-state" }
+}
+EOF
+
+# The tracker stub answers ONE question and records that it was asked. `ST_STATE` picks the
+# answer; `ST_GH_FAIL` makes the read itself fail, which is a different fact from `CLOSED` and
+# must not collapse into it.
+mkdir -p "$STW/bin"
+cat > "$STW/bin/gh" <<'SH'
+#!/usr/bin/env bash
+echo "$*" >> "$ST_GH_LOG"
+[ -n "${ST_GH_FAIL:-}" ] && exit 1
+printf '%s\n' "${ST_STATE:-OPEN}"
+SH
+chmod +x "$STW/bin/gh"
+ST_GH_LOG="$STW/gh.log"
+: > "$ST_GH_LOG"
+
+# NO LEAN_PROGRESS_FILE override, deliberately: (st12) asserts the subcommand creates no progress
+# file at the path the gate resolves on its own, which an override would move out from under it.
+# NO entry attestation is ever recorded in this block either — (st13) is the assertion that this
+# subcommand is reachable without one, and every case above it silently depends on that being true.
+stgate() { # stgate <config> <args...>
+  local cfg="$1"; shift
+  ( unset RUN_ID CLAUDE_CODE_SESSION_ID GH_BOT
+    cd "$STREE" && PATH="$STW/bin:$PATH" GH="$STW/bin/gh" ST_GH_LOG="$ST_GH_LOG" \
+      ST_STATE="${ST_STATE:-OPEN}" ST_GH_FAIL="${ST_GH_FAIL:-}" \
+      SECOND_SHIFT_CONFIG="$cfg" bash "$GATE" staleness "$@" 2>&1 )
+}
+
+out="$(stgate "$ST_CFG" 7)"; rc=$?
+if [ "$rc" -eq 0 ] && grep -q 'ticket arm clean' <<<"$out" \
+   && grep -q 'has not moved since the branch point' <<<"$out"; then
+  pass "(st1) an open ticket on an unmoved base is clean, with both arms reporting"
+else fail "(st1) expected rc=0 with both arms clean, got rc=$rc: $out"; fi
+
+push_base untouched.txt "an unrelated change on the base"
+out="$(stgate "$ST_CFG" 7)"; rc=$?
+if [ "$rc" -eq 0 ] && grep -q 'into no file this branch touches' <<<"$out"; then
+  pass "(st2) a base that MOVED but into no shared file is clean — bare advancement is not the trigger"
+else fail "(st2) expected rc=0 on a non-overlapping advance, got rc=$rc: $out"; fi
+
+# The discriminator for (st2): the same moved base, now touching the one file the branch also
+# edits. Without this pair, (st2) would pass just as well against an arm that never fires at all.
+push_base shared.txt "a change to the file the branch is editing"
+out="$(stgate "$ST_CFG" 7)"; rc=$?
+if [ "$rc" -eq 7 ] && grep -q 'BASE ARM FIRED' <<<"$out" && grep -q 'shared.txt' <<<"$out"; then
+  pass "(st3) a base that moved INTO a file this branch touches exits 7 and names the overlapping path"
+else fail "(st3) expected rc=7 naming shared.txt, got rc=$rc: $out"; fi
+
+if ! grep -q 'untouched.txt' <<<"$out" && ! grep -q 'branch-only.txt' <<<"$out"; then
+  pass "(st4) the report is the INTERSECTION — neither the base-only nor the branch-only file is listed"
+else fail "(st4) a non-overlapping file was reported as overlap: $out"; fi
+
+if grep -q 'no exclusion list' <<<"$out"; then
+  pass "(st5) the exit names its known false-positive class (OR-1), so an operator recognizes one in a single read"
+else fail "(st5) the overlap report did not name the false-positive class: $out"; fi
+
+out="$(stgate "$ST_CFG" 7 --arm ticket)"; rc=$?
+if [ "$rc" -eq 0 ] && ! grep -q 'BASE ARM FIRED' <<<"$out" && grep -q 'ticket arm clean' <<<"$out"; then
+  pass "(st6) --arm ticket skips the base arm — scored against a base that is currently FIRING, so the skip is a measurement"
+else fail "(st6) --arm ticket did not skip a firing base arm, rc=$rc: $out"; fi
+
+# The assignment stays INSIDE the substitution. `ST_STATE=CLOSED out="$(…)"` would be two
+# assignments rather than a command prefix, so the value would persist for every case below —
+# which is how (st13) first failed as a closed ticket it never asked for.
+out="$(ST_STATE=CLOSED stgate "$ST_CFG" 7 --arm base)"; rc=$?
+if [ "$rc" -eq 7 ] && ! grep -q 'TICKET ARM FIRED' <<<"$out" && grep -q 'BASE ARM FIRED' <<<"$out"; then
+  pass "(st7) --arm base skips the ticket arm — scored against a ticket that is CLOSED, so this skip is a measurement too"
+else fail "(st7) --arm base did not skip a closed ticket, rc=$rc: $out"; fi
+
+out="$(ST_STATE=CLOSED stgate "$ST_CFG" 7)"; rc=$?
+if [ "$rc" -eq 7 ] && grep -q 'TICKET ARM FIRED' <<<"$out" && grep -q 'CLOSED' <<<"$out"; then
+  pass "(st8) a closed ticket exits 7 on the ticket arm"
+else fail "(st8) expected rc=7 from the ticket arm, got rc=$rc: $out"; fi
+
+# D-7 in the one direction that matters: `.state` is CLOSED for `not_planned` too, and the
+# motivating ticket closed exactly that way. Reading `.stateReason` would have missed it — so the
+# stub is asserted to have been asked for `state` and nothing else.
+if grep -q -- '--json state' "$ST_GH_LOG" && ! grep -q -- 'stateReason' "$ST_GH_LOG"; then
+  pass "(st9) the ticket arm reads .state alone — any CLOSED counts, so a not_planned close is not missed"
+else fail "(st9) the ticket arm did not read .state, or narrowed on stateReason: $(cat "$ST_GH_LOG")"; fi
+
+out="$(ST_GH_FAIL=1 stgate "$ST_CFG" 7)"; rc=$?
+if [ "$rc" -eq 1 ] && grep -q "could not read #7's state" <<<"$out" \
+   && ! grep -q 'ARM FIRED' <<<"$out"; then
+  pass "(st10) an unreadable tracker is exit 1 naming the read, never 0 and never 7 (D-5 fails closed)"
+else fail "(st10) expected rc=1 from a failed tracker read, got rc=$rc: $out"; fi
+
+out="$(ST_STATE=WEIRD stgate "$ST_CFG" 7)"; rc=$?
+if [ "$rc" -eq 1 ] && grep -q 'unrecognized state' <<<"$out"; then
+  pass "(st11) an unrecognized tracker answer is exit 1, not a guess in either direction"
+else fail "(st11) expected rc=1 on an unrecognized state, got rc=$rc: $out"; fi
+
+# jira, D-8. Scored while the base is still FIRING, so a blanket "jira ⇒ clean" build fails here:
+# the ticket arm states a skip and the BASE arm still runs. The branch under jira is
+# `claude/acme-7` (prefix `claude/`, key lowercased), which is the same ref this block created.
+out="$(ST_STATE=CLOSED stgate "$ST_CFG_JIRA" ACME-7)"; rc=$?
+if [ "$rc" -eq 7 ] && grep -q 'ticket arm skipped' <<<"$out" && grep -q 'BASE ARM FIRED' <<<"$out"; then
+  pass "(st12) under jira the ticket arm states a skip and the base arm still runs — the skip is not a pass"
+else fail "(st12) expected a stated jira skip with a live base arm, got rc=$rc: $out"; fi
+
+# D-9. A branch key with no ref: the base arm has no range and says so, the ticket arm still runs,
+# and the result is 0 — NOT the exit 1 a read failure gets.
+out="$(stgate "$ST_CFG" 4242)"; rc=$?
+if [ "$rc" -eq 0 ] && grep -q 'does not exist yet' <<<"$out" \
+   && grep -q 'ticket arm clean' <<<"$out" && grep -q 'Nothing failed' <<<"$out"; then
+  pass "(st13) no branch ref yet is a stated base-arm SKIP at rc=0, with the ticket arm still evaluated"
+else fail "(st13) expected a rc=0 skip on a branch-less key, got rc=$rc: $out"; fi
+
+# The fetch's own failure mode, driven by pointing origin at nothing. Scored on a key whose branch
+# EXISTS, so the arm genuinely reaches the fetch rather than short-circuiting at (st13)'s skip.
+git -C "$STREE" remote set-url origin "$STW/no-such-remote.git" >/dev/null 2>&1
+out="$(stgate "$ST_CFG" 7 --arm base)"; rc=$?
+git -C "$STREE" remote set-url origin "$SORIGIN" >/dev/null 2>&1
+if [ "$rc" -eq 1 ] && grep -q 'could not fetch origin/main' <<<"$out" \
+   && ! grep -q 'ARM FIRED' <<<"$out" && ! grep -q 'base arm clean' <<<"$out"; then
+  pass "(st14) an unfetchable base is exit 1 naming the fetch — a stale ref must not answer 'nothing moved'"
+else fail "(st14) expected rc=1 from a failed fetch, got rc=$rc: $out"; fi
+
+# ZERO WRITES, and this block never recorded an entry attestation — so this one assertion carries
+# both facts: the subcommand ran (repeatedly, above) outside require_entry_attested's set, and it
+# brought no progress file into existence at the path the gate resolves for itself.
+if [ ! -e "$STREE/.claude/pipeline-state/7-lean-progress.md" ] \
+   && [ ! -e "$STREE/.claude/pipeline-state/4242-lean-progress.md" ]; then
+  pass "(st15) staleness needs no entry attestation and creates no progress file — it records nothing"
+else fail "(st15) staleness wrote a progress file: $(ls "$STREE/.claude/pipeline-state" 2>/dev/null)"; fi
+
+out="$(stgate "$ST_CFG" 7 --arm sideways)"; rc=$?
+if [ "$rc" -eq 2 ] && grep -q 'ticket|base|both' <<<"$out"; then
+  pass "(st16) an unknown --arm is a usage refusal, not a value that quietly selects neither arm"
+else fail "(st16) expected rc=2 on an unknown --arm, got rc=$rc: $out"; fi
+
 echo "[lean-gate-selftest] $([ "$FAILS" -eq 0 ] && echo 'all green' || echo "$FAILS FAILURE(S)")"
 exit "$FAILS"

@@ -121,6 +121,14 @@
 #                                        caller compares the token across a spawn and interprets
 #                                        nothing; `--satisfied <n>` narrows it to milestone n's
 #                                        `satisfied` row alone.
+#   lean-gate.sh staleness <issue> [--arm ticket|base|both]
+#                                        SCHEDULER role (#515): is this run's premise still true?
+#                                        The TICKET arm asks whether the issue is still open; the
+#                                        BASE arm asks whether the base has moved into files this
+#                                        branch also touches. Reads only, records nothing, spends
+#                                        no fix budget, and creates no file. `--arm` defaults to
+#                                        `both`; preflight passes `ticket`, because the base arm
+#                                        belongs to the spawn loop.
 #
 # Exit: 0 = satisfied / ok
 #       1 = milestone failed, or a `verdict` authorship refusal (fix and retry — budget remains)
@@ -133,6 +141,10 @@
 #       6 = milestone 4 only: INTEGRITY REFUSAL — the record is authored by the build run or the
 #           build session (P10). Terminal: the trust boundary this lane exists to enforce is not
 #           something a retry can clear.
+#       7 = `staleness` only: STALE — the ticket is closed, or the base has moved into this
+#           branch's files. Its own integer for the same reason 5 and 6 are: the scheduler's
+#           response differs from a phase failure's, and one that cannot tell them apart spends
+#           the rest of the run proving the premise it was just told is false.
 #
 # Seams (zero-network selftest; the check-pipeline-chain.sh precedent):
 #   ${GH:-gh}                the CLI used for reads, including the sweep's PR-state lookup
@@ -171,6 +183,9 @@ VERDICT_ROUNDS=""
 VERDICT_FIDELITY=""
 SUMMARY_FILE=""
 PROGRESS_SATISFIED=""
+# #515. Empty means "not given"; the default is applied after validation, so `--arm` on a
+# subcommand that ignores it is still loud rather than silently absorbed into the default.
+STALENESS_ARM=""
 
 # The fix budget: 3 attempts per milestone, the 4th red hard-stops (D-19). Counted from
 # the progress file's `attempt` lines per D-41 — only FAILED evaluations append one.
@@ -225,7 +240,8 @@ while [ $# -gt 0 ]; do
     --fidelity)      VERDICT_FIDELITY="${2:-}"; shift 2 ;;
     --summary-file)  SUMMARY_FILE="${2:-}"; shift 2 ;;
     --satisfied)     PROGRESS_SATISFIED="${2:-}"; shift 2 ;;
-    -h|--help)       sed -n '2,160p' "$0"; exit 0 ;;
+    --arm)           STALENESS_ARM="${2:-}"; shift 2 ;;
+    -h|--help)       sed -n '2,172p' "$0"; exit 0 ;;
     -*)              envfail "unknown option: $1" ;;
     *)
       if [ "$POSITIONAL" -eq 0 ]; then SUB="$1"; POSITIONAL=1
@@ -236,12 +252,12 @@ while [ $# -gt 0 ]; do
   esac
 done
 
-[ -n "$SUB" ]   || envfail "usage: lean-gate.sh <entry|claim|mark|1..5|all|teardown|delta|verdict|progress> <issue>"
-[ -n "$ISSUE" ] || envfail "usage: lean-gate.sh <entry|claim|mark|1..5|all|teardown|delta|verdict|progress> <issue>"
+[ -n "$SUB" ]   || envfail "usage: lean-gate.sh <entry|claim|mark|1..5|all|teardown|delta|verdict|progress|staleness> <issue>"
+[ -n "$ISSUE" ] || envfail "usage: lean-gate.sh <entry|claim|mark|1..5|all|teardown|delta|verdict|progress|staleness> <issue>"
 
 case "$SUB" in
-  entry|claim|mark|1|2|3|4|5|all|teardown|delta|verdict|progress) : ;;
-  *) envfail "unknown subcommand '$SUB' (expected entry|claim|mark|1..5|all|teardown|delta|verdict|progress)" ;;
+  entry|claim|mark|1|2|3|4|5|all|teardown|delta|verdict|progress|staleness) : ;;
+  *) envfail "unknown subcommand '$SUB' (expected entry|claim|mark|1..5|all|teardown|delta|verdict|progress|staleness)" ;;
 esac
 
 # Validated at parse time rather than inside cmd_progress, so a typo is a usage error before any
@@ -252,6 +268,17 @@ if [ -n "$PROGRESS_SATISFIED" ]; then
     ''|*[!0-9]*) envfail "--satisfied takes a milestone number, got '$PROGRESS_SATISFIED'." ;;
   esac
 fi
+
+# #515, same shape and for the same reason: an unknown arm must be a usage error before any read
+# happens, not a value that quietly selects neither arm and reports a clean run.
+if [ -n "$STALENESS_ARM" ]; then
+  [ "$SUB" = "staleness" ] || envfail "--arm is only meaningful on 'staleness', not '$SUB'."
+  case "$STALENESS_ARM" in
+    ticket|base|both) : ;;
+    *) envfail "--arm takes ticket|base|both, got '$STALENESS_ARM'." ;;
+  esac
+fi
+STALENESS_ARM="${STALENESS_ARM:-both}"
 
 # ---------------------------------------------------------------- roots + config
 REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null)" \
@@ -1311,6 +1338,136 @@ progress_token() { # progress_token [<milestone>] — prints the token, never to
 
 cmd_progress() {
   progress_token "$PROGRESS_SATISFIED"
+  return 0
+}
+
+# ---------------------------------------------------------------- the STALENESS PREDICATE (#515)
+# The lane reads tracker and base state once, at preflight, and never again — so a run whose
+# premise expired mid-flight keeps spending continuations against a base that already carries its
+# fix. Measured on this repo: the branch for one ticket kept working for 30 minutes after another
+# PR landed the same fix, and the ticket itself was not closed until 63 minutes after that.
+#
+# TWO ARMS, and the weaker one is the one everybody reaches for first. A ticket closing records a
+# HUMAN NOTICING, not the event — in the motivating incident it lagged the merge by an hour, so an
+# arm that reads only tracker state catches nothing in real time. It is still worth reading,
+# because a launch onto an already-closed ticket should not spend a run at all, but the leading
+# signal is the base: main had moved into the very files the branch was editing.
+#
+# WHY FILE OVERLAP AND NOT "THE BASE ADVANCED" (D-1). Measured here: 178 first-parent merges in 21
+# days, ~9.4/day, one every ~1.5 working hours. Bare advancement is therefore true on essentially
+# every multi-hour run, and each stop costs a hand rebase. The predicate is
+#
+#     files(merge-base..origin/<base>) ∩ files(merge-base..<branch>) ≠ ∅
+#
+# which the incident satisfies (7 files landed, 4 of them shared with the branch). Patch-level
+# redundancy was rejected as false-negative-prone: a second agent re-implementing the same fix
+# produces a different patch-id.
+#
+# ITS KNOWN FALSE-POSITIVE CLASS, named rather than engineered around (OR-1). Any file that
+# essentially every base merge touches — a version-pinned install doc, a generated lockfile — will
+# overlap a branch that also edits it, on every release. Measured here at 32 of 32 release merges
+# for one such doc, ~7% of runs. There is deliberately NO exclusion list: a config key of paths
+# that "do not count" re-introduces exactly the judgment the mechanical predicate exists to avoid,
+# and it is cheap to add later if the rate turns out to bite. The exit message names the class so
+# an operator recognizes one of these in a single read.
+#
+# READ-ONLY, in the strict sense the scheduler's contract needs (D-3). It records nothing: no
+# `attempt` row, no `satisfied` row, no fix-budget consumption, and — like `progress` — it does not
+# call ensure_progress_file, so it cannot bring the run's record into existence. The scheduler reads
+# only its rc, which is what keeps "gate exit codes and tracker state, nothing else" true while the
+# lane gains a predicate that has to look at git.
+#
+# NOT in require_entry_attested's set, for a reason sharper than `progress`'s: this runs BEFORE the
+# first BUILD spawn of round 1, and `entry` is that spawn's own first act. Gating it on an
+# attestation would refuse it on every honest run's first call.
+#
+# FAIL CLOSED (D-5). A failed fetch, an unresolvable merge-base or an unreadable tracker answer
+# returns 1 naming which read failed, and never 0. A stale `origin/<base>` would make the base arm
+# answer "nothing moved", which is indistinguishable from a clean check — the same error-reads-as-
+# success shape `progress_token`'s non-zero return exists to remove.
+#
+# THE ARMS SHORT-CIRCUIT, ticket first. It is the cheaper read (no fetch), and a run stopped by it
+# is stopping regardless of what the base says — so "which arm fired" stays unambiguous and a dead
+# ticket costs no network round trip against the base.
+#
+# Exit: 0 = clean, or an arm stated a skip · 7 = STALE · 1 = a read could not be completed.
+staleness_ticket_arm() {
+  # github-only (D-8). The gate's tracker adapter has no issue-state read under jira, and inventing
+  # one here would be a second tracker authority; the base arm still runs, which is the arm that
+  # would have caught the incident anyway.
+  if [ "$TRACKER_TYPE" != "github" ]; then
+    say "staleness: ticket arm skipped — tracker '$TRACKER_TYPE' has no issue-state read here. The base arm still runs."
+    return 0
+  fi
+  local state
+  state="$("$GH_CLI" issue view "$ISSUE" --json state --jq '.state' 2>/dev/null)" || {
+    warn "[lean-gate] ✗ staleness: could not read #$ISSUE's state via '$GH_CLI' — refusing to treat an unreadable tracker as an open ticket."
+    return 1; }
+  case "$state" in
+    # D-7: ANY closed state. The motivating ticket closed NOT_PLANNED, so narrowing to `completed`
+    # would miss the case this arm exists for — which is why `.state` is read and `.stateReason`
+    # deliberately is not.
+    OPEN)   say "staleness: ticket arm clean — #$ISSUE is still OPEN."; return 0 ;;
+    CLOSED) say "staleness: TICKET ARM FIRED — #$ISSUE is CLOSED, so this run's premise is already false."; return 7 ;;
+    *)      warn "[lean-gate] ✗ staleness: '$GH_CLI' answered an unrecognized state '$state' for #$ISSUE — refusing to guess whether the ticket is open."
+            return 1 ;;
+  esac
+}
+
+staleness_base_arm() {
+  local ref="refs/heads/$LEAN_BRANCH" mb base_files branch_files overlap n
+  # D-9. On round 1's first pass the branch does not exist yet, so there is no range to compare.
+  # A skip is NOT the fail-closed case above: nothing failed to be read, there was nothing to read.
+  if ! git -C "$MAIN_ROOT" show-ref --verify --quiet "$ref"; then
+    say "staleness: base arm skipped — $ref does not exist yet, so there is no range to compare. Nothing failed."
+    return 0
+  fi
+  # D-12: the fetch belongs here and not to the scheduler, whose zero-write premise is about
+  # tracker writes and lane artifacts under a run's identity. A remote-tracking ref is local cache.
+  git -C "$MAIN_ROOT" fetch --quiet origin "$BASE_BRANCH" 2>/dev/null || {
+    warn "[lean-gate] ✗ staleness: could not fetch origin/$BASE_BRANCH — a stale remote-tracking ref would answer 'nothing moved', which is indistinguishable from a clean check."
+    return 1; }
+  mb="$(git -C "$MAIN_ROOT" merge-base "origin/$BASE_BRANCH" "$ref" 2>/dev/null)"
+  [ -n "$mb" ] || {
+    warn "[lean-gate] ✗ staleness: cannot resolve merge-base(origin/$BASE_BRANCH, $ref), so this branch's start point is unknown and no range can be compared."
+    return 1; }
+  base_files="$(git -C "$MAIN_ROOT" diff --name-only "$mb" "origin/$BASE_BRANCH" 2>/dev/null)"
+  branch_files="$(git -C "$MAIN_ROOT" diff --name-only "$mb" "$ref" 2>/dev/null)"
+  # Both emptiness guards are load-bearing rather than defensive: `printf '%s\n' ""` emits one
+  # EMPTY LINE, and two empty line-sets intersect on it — so an unguarded set intersection would
+  # report overlap for a branch and a base that have both changed nothing.
+  if [ -z "$base_files" ]; then
+    say "staleness: base arm clean — origin/$BASE_BRANCH has not moved since the branch point."
+    return 0
+  fi
+  if [ -z "$branch_files" ]; then
+    say "staleness: base arm clean — the branch has committed no changes yet, so it can overlap nothing."
+    return 0
+  fi
+  # `grep -Fxf` IS the set intersection: fixed strings, whole-line, so a path containing a regex
+  # metacharacter is compared literally and a path that merely CONTAINS another is not a match.
+  overlap="$(printf '%s\n' "$branch_files" | grep -Fxf <(printf '%s\n' "$base_files") 2>/dev/null)"
+  if [ -z "$overlap" ]; then
+    say "staleness: base arm clean — origin/$BASE_BRANCH moved, but into no file this branch touches. Bare advancement is not the trigger."
+    return 0
+  fi
+  n="$(printf '%s\n' "$overlap" | grep -c .)"
+  say "staleness: BASE ARM FIRED — origin/$BASE_BRANCH has moved into $n file(s) this branch also touches since $mb:"
+  printf '%s\n' "$overlap" | while IFS= read -r f; do [ -n "$f" ] && say "    $f"; done
+  say "  If that list is only a file every base merge rewrites (a version-pinned doc, a generated lockfile), this is the known false-positive class — there is deliberately no exclusion list."
+  return 7
+}
+
+cmd_staleness() {
+  local rc
+  if [ "$STALENESS_ARM" != "base" ]; then
+    staleness_ticket_arm; rc=$?
+    [ "$rc" -eq 0 ] || return "$rc"
+  fi
+  if [ "$STALENESS_ARM" != "ticket" ]; then
+    staleness_base_arm; rc=$?
+    [ "$rc" -eq 0 ] || return "$rc"
+  fi
   return 0
 }
 
@@ -3462,6 +3619,7 @@ case "$SUB" in
   teardown) cmd_teardown ;;
   delta)   cmd_delta ;;
   progress) cmd_progress ;;
+  staleness) cmd_staleness ;;
   verdict) cmd_verdict ;;
   all)     cmd_all ;;
   *)       run_milestone "$SUB" ;;

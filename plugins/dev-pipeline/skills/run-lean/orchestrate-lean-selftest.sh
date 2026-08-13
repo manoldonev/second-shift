@@ -108,7 +108,14 @@ cat > "$BIN/gh" <<'SH'
 #!/usr/bin/env bash
 echo "$*" >> "$GH_LOG"
 case "$1 $2" in
-  "issue view") cat "$LABELS_FILE" 2>/dev/null; exit 0 ;;
+  # #515: the REAL gate's ticket arm asks this same subcommand for `--json state`, and the (v9)
+  # composition drives it. Discriminated on the flag rather than served from a second arm, because
+  # `issue view` is genuinely the call both make.
+  "issue view")
+    case "$*" in
+      *--json\ state*) printf '%s\n' "${STATE_ANSWER:-OPEN}"; exit 0 ;;
+    esac
+    cat "$LABELS_FILE" 2>/dev/null; exit 0 ;;
   # #500: the comment trail, served as the REAL API's shape — a JSON array of objects carrying
   # `.user.type`. The tool reads it through `gh api` rather than `gh issue view --json comments`
   # precisely because only this response carries that field, so a fake that answered the trail on
@@ -140,6 +147,23 @@ chmod +x "$BIN/gh"
 # a contract change into a suite-wide edit and hiding which numbers actually mean "verdict call".
 cat > "$BIN/fake-gate.sh" <<'SH'
 #!/usr/bin/env bash
+# #515's `staleness` reads get a THIRD arm, with their own counters, log and rc streams — the same
+# separation `progress` already has, and for the identical reason: folding them into `count` would
+# re-number the gate-call assertion in every case above and hide which numbers mean "verdict call".
+# The two call sites are split on `--arm`, so a case can script preflight's answer and the loop's
+# independently; both default to 0, which is what keeps every pre-existing case meaning what it did.
+if [ "${1:-}" = "staleness" ]; then
+  case "$*" in
+    *--arm*) k=ticket; f="$STALENESS_TICKET_RC_FILE" ;;
+    *)       k=loop;   f="$STALENESS_RC_FILE" ;;
+  esac
+  n=$(( $(cat "$GATE_LOG_DIR/scount-$k" 2>/dev/null || echo 0) + 1 ))
+  echo "$n" > "$GATE_LOG_DIR/scount-$k"
+  echo "ARGV: $* | CWD: $PWD | RUN_ID_SET: ${RUN_ID+yes}" >> "$GATE_LOG_DIR/staleness.log"
+  echo "fake-gate: staleness/$k call $n"
+  rc="$(sed -n "${n}p" "$f" 2>/dev/null)"
+  exit "${rc:-0}"
+fi
 if [ "${1:-}" = "progress" ]; then
   [ -n "${PROGRESS_FAIL:-}" ] && exit 3
   case "$*" in
@@ -177,6 +201,7 @@ chmod +x "$BIN/fake-gate.sh"
 SPAWN_LOG_DIR=""; GATE_LOG_DIR=""; GH_LOG=""; LABELS_FILE=""; PR_FILE=""
 SPAWN_RC_FILE=""; GATE_RC_FILE=""
 PROGRESS_ADV_FILE=""; PROGRESS_M5_FILE=""; COMMENTS_FILE=""
+STALENESS_RC_FILE=""; STALENESS_TICKET_RC_FILE=""
 CASE_N=0
 
 setup_case() { # setup_case <spawn-rcs> <gate-rcs> <labels> <pr>
@@ -187,6 +212,10 @@ setup_case() { # setup_case <spawn-rcs> <gate-rcs> <labels> <pr>
   LABELS_FILE="$d/labels"; PR_FILE="$d/pr"; COMMENTS_FILE="$d/comments"
   SPAWN_RC_FILE="$d/spawn-rcs"; GATE_RC_FILE="$d/gate-rcs"
   PROGRESS_ADV_FILE="$d/progress-adv"; PROGRESS_M5_FILE="$d/progress-m5"
+  # #515 DEFAULT: EMPTY streams, so every staleness read answers 0 and every pre-existing case
+  # keeps meaning what it meant — a clean premise, checked and passed.
+  STALENESS_RC_FILE="$d/staleness-rcs"; STALENESS_TICKET_RC_FILE="$d/staleness-ticket-rcs"
+  : > "$STALENESS_RC_FILE"; : > "$STALENESS_TICKET_RC_FILE"
   printf '%s' "$1" > "$SPAWN_RC_FILE"
   printf '%s' "$2" > "$GATE_RC_FILE"
   printf '%s' "$3" > "$LABELS_FILE"
@@ -248,6 +277,9 @@ run_tool() { # run_tool [config] [args...]
          COMMENTS_FILE="$COMMENTS_FILE" COMMENTS_FAIL="${COMMENTS_FAIL:-}"
          PROGRESS_ADV_FILE="$PROGRESS_ADV_FILE" PROGRESS_M5_FILE="$PROGRESS_M5_FILE"
          PR_FROM_SPAWN="${PR_FROM_SPAWN:-}" PROGRESS_FAIL="${PROGRESS_FAIL:-}"
+         STALENESS_RC_FILE="$STALENESS_RC_FILE"
+         STALENESS_TICKET_RC_FILE="$STALENESS_TICKET_RC_FILE"
+         STATE_ANSWER="${STATE_ANSWER:-OPEN}"
          RUN_ID=poisoned-parent-run LEAN_RUN_MODEL=poisoned-parent-model )
   [ "${USE_DEFAULT_GH:-0}" -eq 1 ] || envs+=( GH="$BIN/gh" )
   ( cd "$TREE" \
@@ -266,6 +298,9 @@ attempt_count() { local n; n="$(grep -c . "$GATE_LOG_DIR/attempts" 2>/dev/null)"
 # close-out's milestone-5 check.
 progress_reads() { cat "$GATE_LOG_DIR/pcount-${1:-adv}" 2>/dev/null || echo 0; }
 progress_log()   { cat "$GATE_LOG_DIR/progress.log" 2>/dev/null; }
+# #515: staleness reads, counted per call site. `loop` is the pre-spawn check, `ticket` preflight's.
+staleness_reads() { cat "$GATE_LOG_DIR/scount-${1:-loop}" 2>/dev/null || echo 0; }
+staleness_log()   { cat "$GATE_LOG_DIR/staleness.log" 2>/dev/null; }
 spawn_argv()  { sed -n 's/^ARGV: //p' "$SPAWN_LOG_DIR/spawn-$1" 2>/dev/null; }
 all_argv()    { cat "$SPAWN_LOG_DIR"/spawn-* 2>/dev/null; }
 
@@ -874,6 +909,171 @@ out="$(run_tool "$WORK/no-such-config.json" "$ISSUE" --build-model sonnet)"; rc=
 if [ "$rc" -eq 0 ] && [ "$(spawn_count)" -eq 3 ]; then
   pass "(r10) an ABSENT config still resolves the shipped defaults — the guard fails closed on corruption only"
 else fail "(r10) an absent config was refused, got rc=$rc / $(spawn_count) spawn(s): $out"; fi
+
+# ---- (v) #515: the run's premise is re-checked before every BUILD spawn, and only those --------
+# What this block owns is the scheduler's WIRING — which call sites exist, with which arm, in which
+# order, and how each rc routes. What it deliberately does NOT own is whether the predicate is
+# right: that is lean-gate-selftest.sh's (st*) block, which drives the real subcommand against a
+# real remote and a real fetch. (v11) is the one case here that joins the two, because the seam
+# between them — the scheduler invoking a subcommand and an arm the real gate actually accepts —
+# is precisely what a fake gate cannot fail on.
+setup_case "" "0" "ready-for-dev" "11"
+out="$(run_tool "$CFG" "$ISSUE" --build-model sonnet)"; rc=$?
+if [ "$rc" -eq 0 ] && [ "$(spawn_count)" -eq 3 ] \
+   && [ "$(staleness_reads loop)" -eq 1 ] && [ "$(staleness_reads ticket)" -eq 1 ]; then
+  pass "(v1) an approved run reads staleness ONCE for its one build spawn — never before REVIEW, never before the close-out"
+else fail "(v1) expected 3 spawns with 1 loop + 1 ticket read, got $(spawn_count) / $(staleness_reads loop) / $(staleness_reads ticket), rc=$rc: $out"; fi
+
+if grep -q "CWD: $TREE" <<<"$(staleness_log)" \
+   && ! grep -q 'RUN_ID_SET: yes' <<<"$(staleness_log)"; then
+  pass "(v2) every staleness read runs from the MAIN checkout with RUN_ID scrubbed, against a poisoned parent"
+else fail "(v2) the staleness reads had the wrong cwd or an ambient run id: $(staleness_log)"; fi
+
+if grep -q 'ARGV: staleness 7 --arm ticket ' <<<"$(staleness_log)" \
+   && grep -qE 'ARGV: staleness 7 \|' <<<"$(staleness_log)"; then
+  pass "(v3) preflight asks for the TICKET arm alone; the loop asks for both — the base arm belongs to the spawn loop"
+else fail "(v3) the two call sites did not use the arms the contract assigns them: $(staleness_log)"; fi
+
+# The continuation arm. Two BUILD spawns in ONE build phase, four spawns overall — so a read count
+# of 2 can only mean "per BUILD spawn", never "per spawn" and never "once per run".
+setup_case "" "0" "ready-for-dev" "11"
+set_progress_tokens 'adv-0
+adv-1' 'm5-0
+m5-1'
+PR_FROM_SPAWN=2 \
+  out="$(run_tool "$CFG" "$ISSUE" --build-model sonnet)"; rc=$?
+unset PR_FROM_SPAWN
+if [ "$rc" -eq 0 ] && [ "$(spawn_count)" -eq 4 ] && [ "$(staleness_reads loop)" -eq 2 ]; then
+  pass "(v4) a continuation re-checks the premise — 4 spawns, 2 build spawns, 2 reads"
+else fail "(v4) expected 4 spawns with 2 loop reads, got $(spawn_count) / $(staleness_reads loop), rc=$rc: $out"; fi
+
+# Round 2's read is a FRESH evaluation, not round 1's answer remembered: the same run passes the
+# check, spends a needs-work round, and is stopped by the check on the way into round 2.
+setup_case "" "1" "ready-for-dev" "11"
+printf '0\n7\n' > "$STALENESS_RC_FILE"
+out="$(run_tool "$CFG" "$ISSUE" --build-model sonnet)"; rc=$?
+if [ "$rc" -eq 7 ] && [ "$(spawn_count)" -eq 2 ] && [ "$(staleness_reads loop)" -eq 2 ]; then
+  pass "(v5) the premise is re-evaluated on every round — a run that was clean in round 1 is stopped entering round 2"
+else fail "(v5) expected rc=7 after 2 spawns and 2 reads, got rc=$rc / $(spawn_count) / $(staleness_reads loop): $out"; fi
+
+setup_case "" "0" "ready-for-dev" "11"
+printf '7\n' > "$STALENESS_RC_FILE"
+out="$(run_tool "$CFG" "$ISSUE" --build-model sonnet)"; rc=$?
+if [ "$rc" -eq 7 ] && [ "$(spawn_count)" -eq 0 ] \
+   && grep -q 'premise expired' <<<"$out" && grep -q 'Rebase this branch' <<<"$out" \
+   && grep -q 'worktree and the claim are left in place' <<<"$out"; then
+  pass "(v6) a stale premise is exit 7 with nothing spawned, naming the rebase-or-abandon choice and the state left behind"
+else fail "(v6) expected rc=7 with 0 spawns, got rc=$rc / $(spawn_count): $out"; fi
+
+if grep -q 're-fires this stop at the same point' <<<"$out"; then
+  pass "(v7) the stop says a re-launch without a rebase re-fires it, rather than leaving that to be discovered (D-10)"
+else fail "(v7) the exit-7 message did not state the re-fire: $out"; fi
+
+# Ordering, and it is not cosmetic: the progress read is a second gate invocation, and a run whose
+# premise has already expired should not pay for it.
+if [ "$(progress_reads adv)" -eq 0 ]; then
+  pass "(v8) the check runs FIRST in the loop body — a stale run costs not even the continuation predicate's read"
+else fail "(v8) the progress predicate was read $(progress_reads adv) time(s) on a stale run: $(progress_log)"; fi
+
+# D-5, at the loop. A read that could not be completed is a phase failure's exit 1, NOT 7 and
+# emphatically not 0 — the distinction the whole ticket turns on.
+setup_case "" "0" "ready-for-dev" "11"
+printf '1\n' > "$STALENESS_RC_FILE"
+out="$(run_tool "$CFG" "$ISSUE" --build-model sonnet)"; rc=$?
+if [ "$rc" -eq 1 ] && [ "$(spawn_count)" -eq 0 ] \
+   && grep -q 'could not be completed' <<<"$out" && grep -q 'premise nothing verified' <<<"$out"; then
+  pass "(v9) an unevaluable staleness read exits 1 with nothing spawned — never a blind spawn, and distinguishable from the stale stop"
+else fail "(v9) expected rc=1 with 0 spawns, got rc=$rc / $(spawn_count): $out"; fi
+
+# Preflight's arm. A launch onto an already-closed ticket costs no run at all, and reports as a
+# preflight reject (exit 2) rather than the loop's 7, because nothing was spawned.
+setup_case "" "0" "ready-for-dev" "11"
+printf '7\n' > "$STALENESS_TICKET_RC_FILE"
+out="$(run_tool "$CFG" "$ISSUE" --build-model sonnet)"; rc=$?
+if [ "$rc" -eq 2 ] && [ "$(spawn_count)" -eq 0 ] && [ "$(staleness_reads loop)" -eq 0 ] \
+   && grep -q 'FAIL ticket' <<<"$out" && grep -q 'premise is already false' <<<"$out"; then
+  pass "(v10) preflight rejects a launch onto an expired premise at exit 2, before the loop is ever entered"
+else fail "(v10) expected a preflight rc=2 with 0 spawns, got rc=$rc / $(spawn_count): $out"; fi
+
+if grep -q 'ok intake' <<<"$out" && grep -q 'ok spawn' <<<"$out" && grep -q 'ok gate' <<<"$out"; then
+  pass "(v11) the ticket probe joins the concurrent set — every other probe's verdict is still reported alongside its failure"
+else fail "(v11) a failing ticket probe suppressed the other probe verdicts: $out"; fi
+
+setup_case "" "0" "ready-for-dev" "11"
+printf '1\n' > "$STALENESS_TICKET_RC_FILE"
+out="$(run_tool "$CFG" "$ISSUE" --build-model sonnet)"; rc=$?
+if [ "$rc" -eq 2 ] && [ "$(spawn_count)" -eq 0 ] && grep -q 'could not be completed' <<<"$out"; then
+  pass "(v12) preflight fails closed too — an unreadable tracker is not an open ticket"
+else fail "(v12) expected a preflight rc=2 on an unevaluable read, got rc=$rc / $(spawn_count): $out"; fi
+
+# ---- (v13) the REAL gate, end to end: the one case a fake cannot make green ---------------------
+# Its own fixture repo with a real bare origin, because it is the only case in this file that runs
+# actual git ranges. Everything above would stay green if the scheduler asked the gate for a
+# subcommand or an arm the real gate rejects; this fails on exactly that, and on the rc integer.
+#
+# LEAN_GATE is UNSET here on purpose — the tool falls through to its shipped default, so the
+# default is asserted to point at the real sibling gate rather than merely documented to.
+v_git() { git -C "$1" -c user.email=t@example.invalid -c user.name=t -c commit.gpgsign=false "${@:2}"; }
+
+# ONE fixture builder, TWO independent trees. The overlapping and non-overlapping runs get their
+# own repo each rather than sharing one that the first run mutates — a second case reading state
+# the first left behind is how a pair like this stops discriminating without either half changing.
+# The branch always edits `shared.txt`; `$2` is the file the base's new commit lands in, which is
+# the ONLY difference between the two.
+make_real_fixture() { # make_real_fixture <dir> <file-the-base-moves-into>
+  local d="$1" moved="$2"
+  mkdir -p "$d"
+  { git init -q --bare "$d/origin.git" \
+    && git -C "$d/origin.git" symbolic-ref HEAD refs/heads/main \
+    && git init -q "$d/tree" \
+    && git -C "$d/tree" symbolic-ref HEAD refs/heads/main; } >/dev/null 2>&1
+  printf 'base\n' > "$d/tree/shared.txt"
+  printf 'base\n' > "$d/tree/elsewhere.txt"
+  { v_git "$d/tree" add -A && v_git "$d/tree" commit -q -m base \
+    && git -C "$d/tree" remote add origin "$d/origin.git" \
+    && git -C "$d/tree" push -q origin main \
+    && v_git "$d/tree" checkout -q -b "$BRANCH"; } >/dev/null 2>&1
+  printf 'the branch is editing this file\n' >> "$d/tree/shared.txt"
+  { v_git "$d/tree" add -A && v_git "$d/tree" commit -q -m "branch work" \
+    && v_git "$d/tree" checkout -q main \
+    && git clone -q "$d/origin.git" "$d/push"; } >/dev/null 2>&1
+  # Landed through a SECOND clone and never fetched by hand, so the gate's own `git fetch` is the
+  # only way `$d/tree` can learn about it. A build that dropped that fetch reads a ref frozen at
+  # the branch point and answers "nothing moved" — which would make the overlapping case green.
+  printf 'and so is someone else\n' >> "$d/push/$moved"
+  { v_git "$d/push" add -A && v_git "$d/push" commit -q -m "another PR lands" \
+    && v_git "$d/push" push -q origin main; } >/dev/null 2>&1
+}
+
+run_real_gate() { # run_real_gate <tree>
+  ( cd "$1" && env -u CLAUDE_CODE_SESSION_ID -u LEAN_GATE \
+      PATH="$BIN:$PATH" GH="$BIN/gh" SECOND_SHIFT_CONFIG="$CFG" \
+      LEAN_SPAWN_BIN="$BIN/claude" \
+      SPAWN_LOG_DIR="$SPAWN_LOG_DIR" SPAWN_RC_FILE="$SPAWN_RC_FILE" \
+      GH_LOG="$GH_LOG" LABELS_FILE="$LABELS_FILE" PR_FILE="$PR_FILE" \
+      COMMENTS_FILE="$COMMENTS_FILE" STATE_ANSWER="${STATE_ANSWER:-OPEN}" \
+      RUN_ID=poisoned-parent-run LEAN_RUN_MODEL=poisoned-parent-model \
+      bash "$TOOL" "$ISSUE" --build-model sonnet 2>&1 )
+}
+
+make_real_fixture "$WORK/real-overlap" shared.txt
+setup_case "" "0" "ready-for-dev" "11"
+out="$(run_real_gate "$WORK/real-overlap/tree")"; rc=$?
+if [ "$rc" -eq 7 ] && [ "$(spawn_count)" -eq 0 ] \
+   && grep -q 'BASE ARM FIRED' <<<"$out" && grep -q 'shared.txt' <<<"$out"; then
+  pass "(v13) against the REAL gate, an open ticket whose base moved into its own files exits 7 with nothing spawned"
+else fail "(v13) the real-gate composition did not stop the run, rc=$rc / $(spawn_count) spawn(s): $out"; fi
+
+# The other half. Same real gate, same real fetch, same branch diff — the base's new commit simply
+# lands somewhere the branch is not. Without it, (v13) would pass just as well against a gate that
+# fires unconditionally, which is a shape a lane discovers by having every run stopped.
+make_real_fixture "$WORK/real-clean" elsewhere.txt
+setup_case "" "0" "ready-for-dev" "11"
+out="$(run_real_gate "$WORK/real-clean/tree")"; rc=$?
+if [ "$rc" -ne 7 ] && [ "$(spawn_count)" -ge 1 ] \
+   && grep -q 'into no file this branch touches' <<<"$out"; then
+  pass "(v14) the real gate lets a non-overlapping advance through to the BUILD spawn — (v13) is a measurement, not a constant"
+else fail "(v14) the real gate stopped a run whose base moved elsewhere, rc=$rc / $(spawn_count) spawn(s): $out"; fi
 
 # ---- (n0) the front door's own line cap ---------------------------------------------------------------
 # The same cap the payload skill carries, asserted the same way. A front door is read on every

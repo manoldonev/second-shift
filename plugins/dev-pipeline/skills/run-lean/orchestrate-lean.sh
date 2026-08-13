@@ -103,6 +103,27 @@
 # so an operator-posted marker is not evidence the harness ran. Re-entry costs no tracker write: it
 # restores nothing, and build-lean skips its claim when the run is already claimed.
 #
+# THE RUN'S PREMISE CAN EXPIRE WHILE THE RUN IS IN FLIGHT (#515). Everything above reads tracker
+# and base state exactly once, at preflight, and never again: a continuation inherits the original
+# branch point, and nothing asks whether the ticket is still open. Measured here — a branch kept
+# working for 30 minutes after another PR landed the same fix, and its ticket was not closed until
+# 63 minutes after that. The session was not stuck and was not looping; it was diligently verifying
+# work that no longer needed doing.
+#
+# So the build phase re-asks before EVERY build spawn, through the gate's read-only `staleness`
+# subcommand: the loop owns the comparison, the gate owns the predicate — the same division
+# `progress` established, and for the same reason. A file-overlap heuristic inlined here would
+# break the boundary two paragraphs up.
+#
+# WHICH SPAWNS, and which deliberately not (D-4). Round-1 entry, every continuation, and every
+# later round's build spawn. NOT the REVIEW spawn and NOT the close-out spawn: an approved PR must
+# still land, and a stop there would strand finished, reviewed work rather than save any.
+#
+# WHAT IT CANNOT DO, said out loud so exit 7 is not misread as a promptness guarantee (OR-3): this
+# is a SPAWN-BOUNDARY check and there is no channel into a live `claude -p`, so the incident's 30
+# redundant in-session minutes would still be spent. It bounds the damage at one session, not at
+# zero.
+#
 # Usage:
 #   orchestrate-lean.sh <issue> --build-model <model> [options]
 #     --build-model <m>    REQUIRED. The model for every BUILD-role session.
@@ -128,10 +149,13 @@
 #   SECOND_SHIFT_CONFIG          override the resolved config path
 #
 # Exit: 0 = approved and closed out; 1 = a phase failed, a build phase spent its continuation
-#       budget, the lane's PR could not be resolved unambiguously, or a close-out left step 9's
-#       exit artifacts unmet; 2 = usage or preflight reject; 4 = round budget exhausted (hard stop,
-#       no rescue); 5 = no verdict record usable against the current head, after the bounded REVIEW
-#       retry; 6 = an integrity refusal (P10) — terminal, never retried.
+#       budget, the lane's PR could not be resolved unambiguously, a close-out left step 9's
+#       exit artifacts unmet, or a staleness read could not be completed; 2 = usage or preflight
+#       reject, including a launch onto an already-closed ticket; 4 = round budget exhausted (hard
+#       stop, no rescue); 5 = no verdict record usable against the current head, after the bounded
+#       REVIEW retry; 6 = an integrity refusal (P10) — terminal, never retried; 7 = the run's
+#       premise expired mid-flight (#515) — the ticket closed, or the base moved into this
+#       branch's files.
 set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -165,7 +189,7 @@ while [ $# -gt 0 ]; do
     --max-rounds)         MAX_ROUNDS="${2:-}"; shift 2 ;;
     --max-continuations)  MAX_CONTINUATIONS="${2:-}"; shift 2 ;;
     --dry-run)            DRY_RUN=1; shift ;;
-    -h|--help)            sed -n '2,134p' "$0"; exit 0 ;;
+    -h|--help)            sed -n '2,158p' "$0"; exit 0 ;;
     -*)                   envfail "unknown option: $1" ;;
     *)                    [ -z "$ISSUE" ] && ISSUE="$1" || envfail "unexpected argument: $1"; shift ;;
   esac
@@ -313,6 +337,29 @@ probe_intake() {
   return 1
 }
 
+# #515 D-4/D-6. The TICKET arm only, and the asymmetry is deliberate: the base arm belongs to the
+# spawn loop, so a re-launch that was never rebased fires exit 7 at the same point it fired last
+# time (D-10) rather than becoming a preflight reject the operator has to read differently. Here
+# nothing has been spawned yet, so a closed ticket is exit 2 like every other preflight refusal.
+#
+# Through the gate rather than a `gh issue view --json state` inlined here, even though this
+# script is allowed to read tracker state: one implementation of "is the ticket still open" is
+# what stops the two call sites from drifting into two answers.
+probe_ticket() {
+  local out rc
+  out="$( cd "$MAIN_ROOT" && env -u RUN_ID bash "$GATE" staleness "$ISSUE" --arm ticket 2>&1 )"
+  rc=$?
+  case "$rc" in
+    0) echo "ok ticket: $out"; return 0 ;;
+    7) echo "FAIL ticket: $out"
+       echo "FAIL ticket: this run's premise is already false — nothing was spawned. Re-open #$ISSUE if the work is still wanted, or drop the launch."
+       return 1 ;;
+    # Fail closed (D-5). An unreadable tracker is not an open ticket, and preflight is exactly
+    # where that distinction is cheapest to act on.
+    *) echo "FAIL ticket: the staleness check could not be completed (gate exit $rc): $out"; return 1 ;;
+  esac
+}
+
 probe_spawn() {
   if command -v "$SPAWN_BIN" >/dev/null 2>&1 || [ -x "$SPAWN_BIN" ]; then
     echo "ok spawn: session binary '$SPAWN_BIN' resolves"; return 0
@@ -330,14 +377,16 @@ probe_gate() {
 probe_intake > "$PROBE_DIR/1" 2>&1 & p1=$!
 probe_spawn  > "$PROBE_DIR/2" 2>&1 & p2=$!
 probe_gate   > "$PROBE_DIR/3" 2>&1 & p3=$!
+probe_ticket > "$PROBE_DIR/4" 2>&1 & p4=$!
 wait "$p1"; r1=$?
 wait "$p2"; r2=$?
 wait "$p3"; r3=$?
+wait "$p4"; r4=$?
 
-for f in 1 2 3; do
+for f in 1 2 3 4; do
   while IFS= read -r line; do say "  $line"; done < "$PROBE_DIR/$f"
 done
-if [ "$r1" -ne 0 ] || [ "$r2" -ne 0 ] || [ "$r3" -ne 0 ]; then
+if [ "$r1" -ne 0 ] || [ "$r2" -ne 0 ] || [ "$r3" -ne 0 ] || [ "$r4" -ne 0 ]; then
   say "preflight rejected — nothing was spawned."
   exit 2
 fi
@@ -426,6 +475,16 @@ verdict_rc() {
 # token compared against an empty token agrees, and that agreement would read as "the run did not
 # advance" — a broken gate would be indistinguishable from an idle session, which is the exact
 # shape of error-reads-as-success this ticket exists to remove.
+# #515. Both arms, from MAIN_ROOT and with RUN_ID scrubbed, for the same two reasons progress_token
+# carries: the branch ref and the remote-tracking ref live in the main checkout's common dir, and
+# an ambient run id must not let the scheduler's environment key anything the gate resolves.
+#
+# Output is NOT suppressed — the gate's line naming which arm fired and what it saw IS the
+# operator's evidence for the stop, and this script must not paraphrase a predicate it does not own.
+staleness_rc() {
+  ( cd "$MAIN_ROOT" && env -u RUN_ID bash "$GATE" staleness "$ISSUE" )
+}
+
 progress_token() { # progress_token [--satisfied <n>]
   local tok rc
   tok="$( cd "$MAIN_ROOT" && env -u RUN_ID bash "$GATE" progress "$ISSUE" "$@" 2>/dev/null )"
@@ -452,6 +511,19 @@ while :; do
   continuations=0
   PR=""
   while :; do
+    # #515, and FIRST in the loop body: a run whose premise has expired should cost nothing more,
+    # not even the progress read below. This covers round-1 entry and every continuation, because
+    # a continuation re-enters here — which is the spawn the motivating incident kept taking.
+    staleness_rc; st_rc=$?
+    case "$st_rc" in
+      0) : ;;
+      7) say "HARD STOP: this run's premise expired while it was in flight — see the gate's line above for which arm fired and what it saw. Rebase this branch onto the updated base and re-launch, or abandon the ticket; a re-launch without rebasing re-fires this stop at the same point. Detection is all this does: nothing was rebased and nothing was reverted. The worktree and the claim are left in place."
+         exit 7 ;;
+      # Fail closed (D-5). Same posture as the progress read below: a predicate that could not be
+      # evaluated is not a predicate that passed, and spawning on one would be spawning blind.
+      *) say "the staleness check could not be completed (gate exit $st_rc) — refusing to spawn BUILD against a premise nothing verified."; exit 1 ;;
+    esac
+
     tok_before="$(progress_token)" \
       || { say "cannot read the run's progress record through '$GATE' — the continuation predicate is unavailable, so a stopped BUILD session could not be told from a finished one. Not spawning blind."; exit 1; }
 

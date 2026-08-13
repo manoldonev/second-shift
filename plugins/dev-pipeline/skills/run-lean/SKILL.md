@@ -25,11 +25,12 @@ rescue path, and the fallback if headless sessions ever leave the subscription.
 4. **Read the exit code, and nothing else.** `0` approved and closed out · `1` a phase failed ·
    `2` preflight rejected (nothing was spawned) · `4` hard stop, budget spent · `5` the review
    half produced no verdict usable against this head, twice · `6` the verdict was authored by the
-   build run or build session (P10).
-5. On `2`, fix what the preflight named — usually an unintaken ticket: run
-   `/intake-toolkit:intake` yourself. On `5`, run `/dev-pipeline:review-lean <pr>` by hand and read
-   it — the review half failed, so re-running the build fixes nothing. On `4` and `6`, **stop**:
-   re-entry is from the top, not a rescue attempt.
+   build run or build session (P10) · `7` the run's premise expired mid-flight — the ticket closed,
+   or the base moved into this branch's files.
+5. On `2`, fix what preflight named — usually an unintaken ticket: run `/intake-toolkit:intake`
+   yourself. On `5`, run `/dev-pipeline:review-lean <pr>` by hand: the review half failed, so a
+   rebuild fixes nothing. On `7`, read which arm fired, then rebase and re-launch or abandon the
+   ticket; without a rebase it re-fires. On `4` and `6`, **stop** — re-entry is from the top.
 
 ## Rules that are not negotiable
 
@@ -47,12 +48,13 @@ rescue path, and the fallback if headless sessions ever leave the subscription.
 - **Never resume a review context.** Each round's review is a new session (`-p`, never
   `--resume`): round 2 inheriting round 1's context is round 1 agreeing with itself.
 - **The velocity principles bind here** ([manifesto](../../../../docs/pipeline-manifesto.md)):
-  never idle-block on work the next step does not consume, and fan out independent work. A gate
-  that is right but slow is not done.
+  never idle-block, fan out independent work. A gate that is right but slow is not done.
 
 ## When it stops
 
 Every non-zero exit leaves the worktree and the claim in place — the state a rescue needs. Pick the
 blocks up by hand from the routed repo, or just re-launch: preflight accepts the claim the stopped
 run left, so re-entry costs no tracker write and no re-labelling.
+The staleness check that produces `7` runs at the spawn boundary and has no channel into a live
+session, so it bounds a dead run at one wasted session rather than at zero.
 `--dry-run` prints the schedule and spawns nothing: the cheap way to check routing first.
