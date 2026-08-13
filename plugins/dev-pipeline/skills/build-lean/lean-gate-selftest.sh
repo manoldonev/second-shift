@@ -4867,7 +4867,7 @@ dj_tree() { # dj_tree <name> — a committed, attested fixture tree with its own
   git -C "$t" update-ref refs/remotes/origin/main HEAD
   attest_at "$t" "$CFG" "$WORK/dj-$1-prog.md" 7
 }
-dj_gate() { # dj_gate <name> <gate-args...>
+dj_gate() { # dj_gate <name> <gate-args...>   (args are passed through verbatim, flags included)
   local n="$1"; shift
   ( unset RUN_ID CLAUDE_CODE_SESSION_ID GH_BOT
     # shellcheck disable=SC2030,SC2031  # subshell-local, exactly like bgate's identity seam
@@ -4883,8 +4883,21 @@ dj_count() { # dj_count <name> <fixed-pattern>
   echo "$c"
 }
 # The gate's own announcement of where it put the runner state — the one seam the cases below key
-# on. Empty when the call never launched or joined, which is itself an assertion some cases make.
-dj_base() { printf '%s\n' "$1" | sed -n 's/^\[lean-gate\]   runner state: \(.*\)\.{pid,rc,log}$/\1/p' | head -n1; }
+# on.
+#
+# IT NEVER RETURNS THE EMPTY STRING, and that is not defensive style. Callers append `.pid` to it,
+# so an empty base writes `./.pid` into whatever directory the suite was LAUNCHED from — the
+# checkout under test on every real run. That happened: a gate that stopped announcing (the
+# inherited-runner-flag bug the `(dj11)` case now guards) left a stray file in the repo root, where
+# it reads as an untracked artifact of the change rather than of the suite. A $WORK sentinel keeps
+# the spill inside the fixture, and every case's own assertions still red on it — `.log` is not
+# `-s`, `.rc` never appears — so the failure is reported rather than swapped for a quieter one.
+dj_base() {
+  local b
+  b="$(printf '%s\n' "$1" | sed -n 's/^\[lean-gate\]   runner state: \(.*\)\.{pid,rc,log}$/\1/p' | head -n1)"
+  [ -n "$b" ] || b="$WORK/dj-UNANNOUNCED"
+  printf '%s' "$b"
+}
 
 # (dj1) THE EVALUATION IS NOT IN THIS PROCESS. Two halves, and one without the other is worthless:
 # the milestone-3 body's output lands in the runner's LOG (so it ran somewhere else), and the same
@@ -5014,6 +5027,32 @@ wait "$dj9_fake" 2>/dev/null
 if [ "$rc" -eq 0 ] && [ ! -f "$dj9_base.rc" ] && ! printf '%s' "$out" | grep -q 'JOINING'; then
   pass "(dj9) LEAN_GATE_OBSERVE evaluates milestone 3 inline — it neither joins nor stamps a marker"
 else fail "(dj9) expected an inline rc=0 with no marker written, got rc=$rc: $out"; fi
+
+# (dj10) THE RUNNER HANDSHAKE IS ARGV, AND MUST STAY ARGV. This case exists because the env-var
+# form shipped first and reded THIS repo's own milestone 3: milestone-3 lane children here are
+# lean-gate.sh itself (dogfooding), an exported `LEAN_GATE_M3_RUNNER=1` reached the nested
+# selftest, and every milestone-3 call inside it silently ran INLINE as a "runner" — no detach, no
+# marker, the whole mechanism absent while the outer run looked like it was working. argv cannot
+# reach a grandchild. The assertion below is the flag's one observable boundary: it is refused
+# anywhere it could stamp a marker a waiter is blocked on.
+dj_tree flag
+out="$(dj_gate flag --m3-runner 1 7)"; rc=$?
+if [ "$rc" -eq 2 ] && printf '%s' "$out" | grep -qF 'internal to milestone 3'; then
+  pass "(dj10) --m3-runner is refused on any subcommand but 3 — a stray runner cannot stamp a marker"
+else fail "(dj10) expected rc=2 refusing the flag, got rc=$rc: $out"; fi
+
+# (dj11) …and a milestone-3 LANE CHILD sees nothing that would make it think it is the runner.
+# The direct regression guard for the leak above, in the (i12) SCRUBBED/LEAKED idiom: line-anchored,
+# because the lane command's own text is echoed as an announcement before it runs.
+dj_cfg="$WORK/dj-runnerenv-cfg.json"
+jq '.commands.acme.lint = "[ -z \"${LEAN_GATE_M3_RUNNER:-}\" ] && echo M3ENVCLEAN || echo M3ENVLEAKED"' "$CFG" > "$dj_cfg" 2>/dev/null
+dj_tree runnerenv
+out="$( unset RUN_ID CLAUDE_CODE_SESSION_ID GH_BOT
+        cd "$WORK/dj-runnerenv" && SECOND_SHIFT_CONFIG="$dj_cfg" LEAN_PROGRESS_FILE="$WORK/dj-runnerenv-prog.md" \
+        bash "$GATE" --issue-file "$ISSUE_NOREGIONS" 3 7 2>&1 )"; rc=$?
+if [ "$rc" -eq 0 ] && printf '%s\n' "$out" | grep -qx 'M3ENVCLEAN' && ! printf '%s\n' "$out" | grep -qx 'M3ENVLEAKED'; then
+  pass "(dj11) a milestone-3 lane child inherits no runner marker from the detached evaluation"
+else fail "(dj11) expected M3ENVCLEAN with no M3ENVLEAKED, got rc=$rc: $out"; fi
 
 echo "[lean-gate-selftest] $([ "$FAILS" -eq 0 ] && echo 'all green' || echo "$FAILS FAILURE(S)")"
 exit "$FAILS"

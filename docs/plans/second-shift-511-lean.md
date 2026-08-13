@@ -90,9 +90,19 @@ rules. No user-visible surface renders, and this repo configures no `design.prov
 
 - **AC-11 — the mutation obligations that ride on editing a guard.** `tools/mutation-baseline.tsv`
   carries three generic-ordinal rows for `lean-gate.sh`; editing the guard re-keys them, so they
-  are re-baselined in this diff against what the sweep actually reports. New
-  `tools/mutation-catalog.tsv` rows pin the three mutants whose survival would be silent: a join
-  that records, a launch that does not clear the stale marker, and a wait blind to a dead runner.
+  are reconciled in this diff against what the sweep actually reports. Three new
+  `tools/mutation-catalog.tsv` rows pin the mutants whose survival would be silent:
+  `lean-gate-m3-no-join` (#500's livelock restored), `lean-gate-m3-stale-marker` (a green gate
+  certifying a tree it never ran against) and `lean-gate-m3-death-blind` (#496's silence class at
+  a second site).
+
+- **AC-12 — the runner handshake is argv, not an environment variable.** Found by dogfooding, on
+  this ticket's own first milestone-3 run. An exported `LEAN_GATE_M3_RUNNER=1` is INHERITED, and
+  milestone 3's lane children in this repo are `lean-gate.sh` itself — so the flag reached the
+  nested `lean-gate-selftest.sh` and every milestone-3 call inside it ran inline as a "runner":
+  no detach, no marker, the mechanism absent while the outer run looked healthy. `--m3-runner`
+  cannot reach a grandchild, and it is refused on any subcommand but `3`, where a stray one could
+  stamp a marker some waiter is blocked on.
 
 ## Out of scope
 
