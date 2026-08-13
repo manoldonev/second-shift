@@ -88,21 +88,36 @@ rules. No user-visible surface renders, and this repo configures no `design.prov
   mechanism is the guard for the milestone-3 half; the "any in-flight work" half has no kill
   criterion and none is manufactured for it.
 
-- **AC-11 — the mutation obligations that ride on editing a guard.** `tools/mutation-baseline.tsv`
-  carries three generic-ordinal rows for `lean-gate.sh`; editing the guard re-keys them, so they
-  are reconciled in this diff against what the sweep actually reports. Three new
+- **AC-11 — the mutation obligations that ride on editing a guard.** Three new
   `tools/mutation-catalog.tsv` rows pin the mutants whose survival would be silent:
   `lean-gate-m3-no-join` (#500's livelock restored), `lean-gate-m3-stale-marker` (a green gate
   certifying a tree it never ran against) and `lean-gate-m3-death-blind` (#496's silence class at
-  a second site).
+  a second site). Each was applied and scored before being written down — they red (dj4)+(dj6),
+  43 cases, and (dj6) respectively.
 
-- **AC-12 — the runner handshake is argv, not an environment variable.** Found by dogfooding, on
-  this ticket's own first milestone-3 run. An exported `LEAN_GATE_M3_RUNNER=1` is INHERITED, and
-  milestone 3's lane children in this repo are `lean-gate.sh` itself — so the flag reached the
-  nested `lean-gate-selftest.sh` and every milestone-3 call inside it ran inline as a "runner":
-  no detach, no marker, the mechanism absent while the outer run looked healthy. `--m3-runner`
-  cannot reach a grandchild, and it is refused on any subcommand but `3`, where a stray one could
-  stamp a marker some waiter is blocked on.
+  **`tools/mutation-baseline.tsv` is deliberately NOT edited, and that is the judgment call.**
+  Editing a guard re-keys its generic survivor ordinals, and this edit did: the diff-scoped sweep
+  now reports one survivor for this guard (`default::1`, already baselined) where three rows are
+  committed. But the only sweep available here is the local one, which prints
+  `ADVISORY RUN (GITHUB_ACTIONS unset) — kill verdicts are not comparable to the committed
+  baseline`, and the baseline's own header pins its environment to `ubuntu-latest`. Re-keying
+  from a non-comparable run risks deleting a row CI still needs, which converts a report-only
+  survivor into a red — strictly worse than a stale row, which is report-only by construction.
+  The enforcing run is the authority; if it reports a baseline-absent survivor, that is the
+  re-baseline, made against a comparable environment.
+
+- **AC-12 — the runner is a forked subshell, so there is no handshake at all.** Both prior shapes
+  are recorded here because each was found by dogfooding rather than by review. First, an
+  inherited `LEAN_GATE_M3_RUNNER=1` on a re-exec of this script: milestone 3's lane children in
+  this repo are `lean-gate.sh` itself, so the variable reached the nested `lean-gate-selftest.sh`
+  and every milestone-3 call inside it ran INLINE as a "runner" — no detach, no marker, the
+  mechanism absent while the outer run looked healthy. An argv flag closed the inheritance but
+  kept the re-exec, which re-read the config through a dozen `jq` forks per call to reach a
+  function the process already had loaded: 1.4s of a measured 1.9s per-call overhead, enough to
+  push the paired suite past `mutation-sweep.sh`'s 300s killer bound. A forked subshell has
+  neither problem. `(dj10)` asserts the property both broken shapes violated — a milestone-3 lane
+  child runs its own detached milestone 3, evidenced by a `started`/`concluded` pair in the inner
+  tree's own record rather than by the lane's exit code, which the inline bug also produced.
 
 ## Out of scope
 
