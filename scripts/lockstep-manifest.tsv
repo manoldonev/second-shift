@@ -769,3 +769,18 @@ lean-output-dispositions	verbatim	scripts/check-lean-chain.sh	lean-output-dispos
 # a plain `verbatim` row is expressible — a widened or renamed marker on one side alone is
 # exactly the drift that would let one suite skip where the other still fails.
 monorepo-probe	verbatim	plugins/dev-pipeline/skills/run/tools/config-lint-selftest.sh	monorepo-probe	plugins/review-toolkit/scripts/check-review-context-sections-selftest.sh	monorepo-probe
+#
+# The dup-scan exit taxonomy. Considered for rows and DROPPED. `dup-scan.sh`'s 0 / 10 / 2
+# contract is restated in four SKILL blocks — intake-orchestrator twice (the Step 5.5 parent
+# scan and the Step 6 per-slice scan), intake-interviewer, plan-interview — and nothing couples
+# them to the tool. There is no shared literal to anchor: each site states the obligation in the
+# vocabulary of its own exit (what "hard-stop" means differs per exit — do not label, do not
+# hand off, do not create), so a `verbatim` block would either force four prose passages into
+# one wording they do not share or degrade to a bare-number grep that CLAUDE.md forbids as a
+# prose-presence guard. What holds it instead: the numbers themselves are pinned on the tool
+# side by dup-scan-selftest.sh, which asserts each arm's rc AND the message it names, so a
+# taxonomy change reds there before any SKILL copy can be silently wrong about it. The SKILL
+# copies can still drift into describing an arm the tool no longer has; that drift is visible
+# in the diff of any change to the taxonomy, which necessarily touches the tool and its suite.
+# Revisit if the obligations are ever hoisted into one shared block the exits include by
+# reference: a single canonical site makes an ordinary `verbatim` row possible.

@@ -1,0 +1,30 @@
+[
+  {
+    "number": 41,
+    "title": "Docs: the onboarding guide names a retired flag",
+    "body": "`docs/onboarding.md` still documents `--legacy-mode`, removed two releases ago.\n",
+    "url": "https://example.invalid/issues/41",
+    "labels": [{ "name": "ready-for-dev" }]
+  },
+  {
+    "number": 43,
+    "title": "Importer silently drops rows once the batch size exceeds the page limit",
+    "body": "`importer.sh` pages the source in fixed windows. When `--batch-size` is larger than the page limit the tail of each window is discarded and the run still returns `exit 0`.\n\nRelated: #42.\n",
+    "url": "https://example.invalid/issues/43",
+    "labels": [{ "name": "in-progress" }]
+  },
+  {
+    "number": 44,
+    "title": "Retry budget is consumed by connection errors that never reached the server",
+    "body": "`retry.sh` counts a DNS failure against the same budget as a 500.\n",
+    "url": "https://example.invalid/issues/44",
+    "labels": [{ "name": "ready-for-dev" }, { "name": "in-progress" }]
+  },
+  {
+    "number": 45,
+    "title": "Importers drop a row when batches exceed page limits",
+    "body": "Reported against the nightly load. No further detail yet.\n",
+    "url": "https://example.invalid/issues/45",
+    "labels": [{ "name": "ready-for-dev" }]
+  }
+]
