@@ -1226,7 +1226,7 @@ else fail "(x3) expected rc=0 and the marker present, got rc=$rc marker=$([ -e "
 # (issue, milestone-3, worktree), so the two join one runner rather than each starting a sweep.
 # Asserted on this fixture rather than in the (dj) block because reaching milestone 3 through
 # `all` needs the clean pre-pass this case has already built.
-if printf '%s' "$out" | grep -q 'spawned detached'; then
+if grep -q 'spawned detached' <<<"$out"; then
   pass "(x3d) #511: 'all' reaches milestone 3 through the detached runner, not an inline call"
 else fail "(x3d) expected 'all' to announce a detached milestone-3 evaluation: $out"; fi
 rm -f "$MARKER"
@@ -4907,10 +4907,10 @@ dj_tree m1
 out="$(dj_gate m1 3 7)"; rc=$?
 dj1_base="$(dj_base "$out")"
 if [ "$rc" -eq 0 ] \
-   && printf '%s' "$out" | grep -q 'spawned detached' \
+   && grep -q 'spawned detached' <<<"$out" \
    && [ -n "$dj1_base" ] && [ -s "$dj1_base.log" ] \
    && grep -qF 'mutation sweep SKIPPED' "$dj1_base.log" \
-   && printf '%s' "$out" | grep -qF 'mutation sweep SKIPPED'; then
+   && grep -qF 'mutation sweep SKIPPED' <<<"$out"; then
   pass "(dj1) milestone 3 evaluates in a detached process, and the blocking waiter replays its log"
 else fail "(dj1) expected rc=0 with the body's output in both $dj1_base.log and stdout, got rc=$rc: $out"; fi
 
@@ -4954,13 +4954,13 @@ if kill -0 "$dj4_fake" 2>/dev/null; then dj5_alive=1; else dj5_alive=0; fi
 kill "$dj4_fake" 2>/dev/null
 wait "$dj4_fake" 2>/dev/null
 if [ "$rc" -eq 7 ] \
-   && printf '%s' "$out" | grep -q 'JOINING it rather than launching a second' \
-   && ! printf '%s' "$out" | grep -q 'spawned detached' \
+   && grep -q 'JOINING it rather than launching a second' <<<"$out" \
+   && ! grep -q 'spawned detached' <<<"$out" \
    && [ "$dj4_after" -eq "$dj4_before" ]; then
   pass "(dj4) a live runner is JOINED, not relaunched — and the join records nothing (D-9)"
 else fail "(dj4) expected rc=7 from a join with an unmoved record, got rc=$rc lines $dj4_before -> $dj4_after: $out"; fi
 
-if [ "$dj5_alive" -eq 1 ] && printf '%s' "$out" | grep -qF 'past the 1s ceiling'; then
+if [ "$dj5_alive" -eq 1 ] && grep -qF 'past the 1s ceiling' <<<"$out"; then
   pass "(dj5) the ceiling seam ends the WAIT at its value and leaves the evaluation running"
 else fail "(dj5) expected the runner alive (got alive=$dj5_alive) and a 1s ceiling in the message: $out"; fi
 
@@ -4981,7 +4981,7 @@ DJ_CEILING=60
 out="$(dj_gate dead 3 7)"; rc=$?
 DJ_CEILING=""
 wait "$dj6_fake" 2>/dev/null
-if [ "$rc" -eq 7 ] && printf '%s' "$out" | grep -qF 'gone and stamped no exit code'; then
+if [ "$rc" -eq 7 ] && grep -qF 'gone and stamped no exit code' <<<"$out"; then
   pass "(dj6) a runner that dies without stamping a code is reported as 7, not as silence"
 else fail "(dj6) expected rc=7 naming the missing code, got rc=$rc: $out"; fi
 
@@ -5001,8 +5001,8 @@ DJ_CEILING="soon"
 out="$(dj_gate badceil 3 7)"; rc=$?
 DJ_CEILING=""
 if [ "$rc" -eq 2 ] \
-   && printf '%s' "$out" | grep -qF 'LEAN_GATE_WAIT_CEILING_SECS must be a whole number' \
-   && ! printf '%s' "$out" | grep -q 'spawned detached'; then
+   && grep -qF 'LEAN_GATE_WAIT_CEILING_SECS must be a whole number' <<<"$out" \
+   && ! grep -q 'spawned detached' <<<"$out"; then
   pass "(dj8) a non-numeric ceiling is a usage error raised before any runner is spawned"
 else fail "(dj8) expected rc=2 with nothing spawned, got rc=$rc: $out"; fi
 
@@ -5024,7 +5024,7 @@ out="$( unset RUN_ID CLAUDE_CODE_SESSION_ID GH_BOT
 DJ_CEILING=""
 kill "$dj9_fake" 2>/dev/null
 wait "$dj9_fake" 2>/dev/null
-if [ "$rc" -eq 0 ] && [ ! -f "$dj9_base.rc" ] && ! printf '%s' "$out" | grep -q 'JOINING'; then
+if [ "$rc" -eq 0 ] && [ ! -f "$dj9_base.rc" ] && ! grep -q 'JOINING' <<<"$out"; then
   pass "(dj9) LEAN_GATE_OBSERVE evaluates milestone 3 inline — it neither joins nor stamps a marker"
 else fail "(dj9) expected an inline rc=0 with no marker written, got rc=$rc: $out"; fi
 
@@ -5048,7 +5048,7 @@ out="$( unset RUN_ID CLAUDE_CODE_SESSION_ID GH_BOT
 # nested call that ran inline, which is precisely the bug. A started/concluded pair in the inner
 # tree's progress file can only have been written by a detached runner of its own.
 if [ "$rc" -eq 0 ] \
-   && printf '%s\n' "$out" | grep -qx 'NESTED_OK' \
+   && grep -qx 'NESTED_OK' <<<"$out" \
    && [ "$(dj_count nest_inner '| milestone-3 | concluded | rc=0')" -ge 1 ]; then
   pass "(dj10) a milestone-3 lane child runs its own detached milestone 3 — nothing is inherited from the outer runner"
 else fail "(dj10) expected NESTED_OK and an inner concluded row, got rc=$rc inner=$(dj_count nest_inner '| milestone-3 | concluded | rc=0'): $out"; fi
