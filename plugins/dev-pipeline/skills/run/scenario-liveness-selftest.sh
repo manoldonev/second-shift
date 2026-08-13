@@ -1979,6 +1979,11 @@ RECFG
     # it no-ops without a second tracker read.
     RE_BODY="$RE_DIR/issue-body"
     printf '# issue\n\nNo Open Regions section here.\n' > "$RE_BODY"
+    # The staleness ticket arm's read: `issue view <n> --json state --jq '.state'`, whose answer is
+    # a bare state string. Without an arm for it the stub's catch-all exits 1 and the gate fails
+    # CLOSED on an unreadable tracker — correct behavior against a fixture with nothing to say.
+    RE_STATE="$RE_DIR/issue-state"
+    printf 'OPEN\n' > "$RE_STATE"
     RE_PR="$RE_DIR/pr.json"
     cat > "$RE_PR" <<REPR
 [{ "number": $RE_PR_NUM, "url": "https://example.invalid/pr/$RE_PR_NUM", "isDraft": false,
@@ -2027,6 +2032,7 @@ case "$1" in
     case "$*" in
       *"--json labels"*) cat "$RE_LABELS" ;;
       *"--json body"*)   cat "$RE_BODY" ;;
+      *"--json state"*)  cat "$RE_STATE" ;;
       *) exit 1 ;;
     esac ;;
   pr)
@@ -2104,6 +2110,17 @@ RESESS
     rm -f "$RE_PROG" "$RE_PROG_NV" "$RE_GH_LOG" "$RE_DIR/spawns" "$RE_DIR/session.log" \
           "$LEAN_TREE/.claude/pipeline-state/$RE_KEY-run-id" \
           "$LEAN_TREE/.claude/pipeline-state/$RE_KEY-review-run-id"
+    # A REAL remote, which none of the legs above needed: they hand-set `refs/remotes/origin/main`
+    # with `update-ref`, but the staleness base arm FETCHES, and a fetch it cannot complete is
+    # exit 1 by design rather than a clean answer. Pushed at the branch point, so the arm's answer
+    # here is "the base has not moved" — the FIRING path is owned by orchestrate-lean-selftest.sh's
+    # (v13)/(v14), which drive the same real gate against a base that did move.
+    RE_ORIGIN="$RE_DIR/origin.git"
+    rm -rf "$RE_ORIGIN"
+    git init -q --bare "$RE_ORIGIN" >/dev/null 2>&1
+    git -C "$LEAN_TREE" remote remove origin >/dev/null 2>&1
+    git -C "$LEAN_TREE" remote add origin "$RE_ORIGIN" >/dev/null 2>&1
+    git -C "$LEAN_TREE" push -q origin HEAD:refs/heads/main >/dev/null 2>&1
     git -C "$LEAN_TREE" worktree add -q -b "$RE_BRANCH" "$RE_WT" HEAD >/dev/null 2>&1; re_wt=$?
 
     # CLAUDE_CODE_SESSION_ID is UNSET on the scheduler, which is the real shape: it never sets or
@@ -2116,7 +2133,8 @@ RESESS
           SECOND_SHIFT_CONFIG="$RE_CFG" LEAN_PROGRESS_FILE="$1" RE_COMMENTS_LIVE="$2" \
           RE_DIR="$RE_DIR" RE_WT="$RE_WT" RE_GATE="$LEAN_GATE" RE_KEY="$RE_KEY" \
           RE_RUN="$RE_RUN" RE_PR_NUM="$RE_PR_NUM" RE_LEDGER_DIR="$RE_LEDGER_DIR" \
-          RE_LABELS="$RE_LABELS" RE_BODY="$RE_BODY" RE_PR="$RE_PR" RE_PR_ALL="$RE_PR_ALL" \
+          RE_LABELS="$RE_LABELS" RE_BODY="$RE_BODY" RE_STATE="$RE_STATE" \
+          RE_PR="$RE_PR" RE_PR_ALL="$RE_PR_ALL" \
           RE_PR_NUMS="$RE_PR_NUMS" RE_GH_LOG="$RE_GH_LOG" \
           bash "$RE_ORCH" "$RE_KEY" --build-model sonnet 2>&1 )
     }
