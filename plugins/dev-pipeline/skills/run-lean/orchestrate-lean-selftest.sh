@@ -443,26 +443,16 @@ if [ "$rc" -eq 2 ] && [ "$(spawn_count)" -eq 0 ] \
   pass "(s6) an unreadable comment trail rejects as its own failure, never as 'no marker'"
 else fail "(s6) expected rc=2 naming the failed read, got rc=$rc / $(spawn_count): $out"; fi
 
-# AC-3: under github the flag is a usage refusal. Driven on a ticket that carries NO label at all,
-# so a tool that merely stopped short-circuiting would still reject — but for the intake reason,
-# not this one. The message must name the flag's own conflict and point at the re-entry path.
-setup_case "" "0" "" "11"
-out="$(run_tool "$CFG" "$ISSUE" --build-model sonnet --intake-attested)"; rc=$?
-if [ "$rc" -eq 2 ] && [ "$(spawn_count)" -eq 0 ] \
-   && grep -q -- '--intake-attested does not apply under tracker.type=github' <<<"$out" \
-   && grep -q 're-entry' <<<"$out"; then
-  pass "(s7) --intake-attested under github is a usage refusal naming the re-entry path, not a way past an absent label"
-else fail "(s7) expected a github usage refusal, got rc=$rc / $(spawn_count): $out"; fi
-
-# ...and it is refused even where it would have been HARMLESS — a queue-labelled ticket that would
-# have passed anyway. The flag's contract is about what it asserts, not about whether the assertion
-# happens to be true this time, so a refusal only on the tickets it would have rescued would leave
-# the documented restriction still unenforced.
+# The retired flag has no parse arm left, so it reaches the generic `-*)` reject. Driven on a
+# queue-labelled ticket that would otherwise have run clean, so a pass here could only mean the
+# argument was silently swallowed. Without this case, deleting the parse arm is unobservable — the
+# two cases that used to exercise the flag went with it.
 setup_case "" "0" "ready-for-dev" "11"
 out="$(run_tool "$CFG" "$ISSUE" --build-model sonnet --intake-attested)"; rc=$?
-if [ "$rc" -eq 2 ] && [ "$(spawn_count)" -eq 0 ]; then
-  pass "(s8) the github refusal is unconditional — even a queue-labelled ticket that needed no attestation is refused"
-else fail "(s8) a queue-labelled ticket accepted --intake-attested, got rc=$rc / $(spawn_count): $out"; fi
+if [ "$rc" -eq 2 ] && [ "$(spawn_count)" -eq 0 ] \
+   && grep -q -- 'unknown option: --intake-attested' <<<"$out"; then
+  pass "(s7) the retired --intake-attested is an unknown option, not a silently accepted no-op"
+else fail "(s7) expected an unknown-option reject, got rc=$rc / $(spawn_count): $out"; fi
 
 # AC-4/AC-1, the conjunction's OTHER half. A marker with no claimed label is a stale claim on a
 # ticket whose label was hand-reset — the lane's own bookkeeping says this ticket is not in flight,
@@ -733,19 +723,26 @@ if [ "$rc" -eq 0 ] && [ "$(spawn_count)" -eq 0 ] && [ "$(gate_count)" -eq 0 ] \
 else fail "(l) expected a spawn-free dry run, got rc=$rc / $(spawn_count): $out"; fi
 
 # ---- (m) the tracker adapters -----------------------------------------------------------------------
-setup_case "" "0" "ready-for-dev" "11"
+# The ticket carries NO label, which is what makes this case non-vacuous: delete the non-github arm
+# entirely and the run falls through to the github label read, finds nothing, and rejects — so all
+# three assertions below fail. Driven on a labelled ticket it would instead pass against a scheduler
+# with no arm at all. Not redundant with (m2) despite the identical invocation: this one asserts the
+# arm is REACHED and what it says, (m2) asserts what the key and branch become once it has passed.
+setup_case "" "0" "" "11"
 out="$(run_tool "$CFG_JIRA" ACME-7 --build-model sonnet)"; rc=$?
-if [ "$rc" -eq 2 ] && [ "$(spawn_count)" -eq 0 ] \
-   && grep -q 'has no queue label' <<<"$out"; then
-  pass "(m1) under a tracker with no queue label, intake cannot be read and the run is rejected"
-else fail "(m1) expected a jira reject, got rc=$rc: $out"; fi
+if [ "$rc" -eq 0 ] && [ "$(spawn_count)" -gt 0 ] \
+   && grep -q "tracker 'jira'" <<<"$out" \
+   && grep -q 'intake is not gated here' <<<"$out" \
+   && grep -q 'Run /intake-toolkit:intake before the lane' <<<"$out"; then
+  pass "(m1) a tracker with no queue label is ungated: preflight names the tracker, says so, and the run proceeds"
+else fail "(m1) expected an ungated jira run naming the tracker, got rc=$rc / $(spawn_count): $out"; fi
 
 setup_case "" "0" "" "11"
-out="$(run_tool "$CFG_JIRA" ACME-7 --build-model sonnet --intake-attested)"; rc=$?
+out="$(run_tool "$CFG_JIRA" ACME-7 --build-model sonnet)"; rc=$?
 if [ "$rc" -eq 0 ] && grep -q 'build-lean ACME-7' <<<"$(spawn_argv 1)" \
    && grep -q "^CWD: $WORK/wt$" "$GATE_LOG_DIR/call-1" 2>/dev/null; then
-  pass "(m2) --intake-attested carries the jira run: the key reaches the payload unlowercased while the BRANCH is lowercased"
-else fail "(m2) expected an attested jira run, got rc=$rc: $out"; fi
+  pass "(m2) the jira key reaches the payload unlowercased while the BRANCH is lowercased"
+else fail "(m2) expected a clean jira run, got rc=$rc: $out"; fi
 
 setup_case "" "0" "ready-for-dev" "11"
 out="$(run_tool "$CFG_BAD" "$ISSUE" --build-model sonnet)"; rc=$?
@@ -890,8 +887,13 @@ if [ -f "$SKILL" ]; then
 else fail "(n0) SKILL.md not found at $SKILL"; fi
 
 # ---- (n) --help prints the header and stops before the code ------------------------------------------
+# BOTH bounds, and the lower one is not decoration: the `Exit: 0 = approved` anchor sits four lines
+# above the header's end, so a range that over-shrinks (2,134p -> 2,130p) drops the whole exit-code
+# tail from --help while still satisfying an upper-bound-only check. Pin the LAST header line by its
+# own text so truncation reds in the direction a doc-line deletion actually moves the boundary.
 out="$(bash "$TOOL" --help 2>&1)"; rc=$?
 if [ "$rc" -eq 0 ] && grep -qF 'Exit: 0 = approved' <<<"$out" \
+   && grep -qF 'integrity refusal (P10)' <<<"$out" \
    && ! grep -qF 'set -uo pipefail' <<<"$out"; then
   pass "(n) --help prints through the last header line and stops before the code"
 else fail "(n) --help did not print exactly the header, rc=$rc: $out"; fi

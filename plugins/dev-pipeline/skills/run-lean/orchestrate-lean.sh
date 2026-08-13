@@ -118,11 +118,6 @@
 #                          advanced the run are re-spawned up to this many times per build
 #                          phase; the counter resets whenever a spawn yields a PR. 0 restores
 #                          the pre-#492 behavior of never continuing.
-#     --intake-attested    The operator asserts intake is paid off. Required under a tracker
-#                          with no queue label; never a way to skip a github label that is
-#                          simply absent. ENFORCED under github since #500 — passing it there
-#                          is a usage refusal, because the one thing it was being used for
-#                          (re-entering a claimed ticket) is now a first-class preflight state.
 #     --dry-run            Print the schedule and exit 0 without spawning anything.
 #
 # Seams (every one has a shipped default pointing at the real thing):
@@ -156,7 +151,6 @@ MAX_CONTINUATIONS=2
 # #496 D-10: exactly one. Not a flag — a knob here would let an operator turn a broken review lane
 # into an expensive one, and the bound is the point.
 MAX_REVIEW_RETRIES=1
-INTAKE_ATTESTED=0
 DRY_RUN=0
 
 say()     { echo "[orchestrate-lean] $*"; }
@@ -170,9 +164,8 @@ while [ $# -gt 0 ]; do
     --model-basis)        MODEL_BASIS="${2:-}"; shift 2 ;;
     --max-rounds)         MAX_ROUNDS="${2:-}"; shift 2 ;;
     --max-continuations)  MAX_CONTINUATIONS="${2:-}"; shift 2 ;;
-    --intake-attested)    INTAKE_ATTESTED=1; shift ;;
     --dry-run)            DRY_RUN=1; shift ;;
-    -h|--help)            sed -n '2,139p' "$0"; exit 0 ;;
+    -h|--help)            sed -n '2,134p' "$0"; exit 0 ;;
     -*)                   envfail "unknown option: $1" ;;
     *)                    [ -z "$ISSUE" ] && ISSUE="$1" || envfail "unexpected argument: $1"; shift ;;
   esac
@@ -240,16 +233,6 @@ CLAIMED_LABEL="$(cfg '.tracker.labels.claimed' 'in-progress')"
 # weakening a merge boundary, which is what earns a row.
 CLAIM_MARKER_TAG='lean-claimed'
 
-# #500 D-2. A KNOB REFUSAL, not a probe: this is a flag that does not apply here, which is the
-# shape `envfail` already answers for at :166 (review-model basis) and :208 (tracker.type) — where
-# a probe verdict is the shape for "your tracker is in the wrong state". The flag's doc always said
-# this; only the enforcement was missing, so the one re-entry path that worked was one the contract
-# disclaimed, and therefore uncitable in a run record even when its attestation was true. Closing
-# the abuse costs nothing now that the re-entry arm below is real.
-if [ "$INTAKE_ATTESTED" -eq 1 ] && [ "$TRACKER_TYPE" = "github" ]; then
-  envfail "--intake-attested does not apply under tracker.type=github: intake is readable from the tracker here, so the flag can only ever assert past a label that is genuinely absent — which its own documentation forbids. If you are re-entering a run this lane stopped, drop the flag: a ticket carrying '$CLAIMED_LABEL' and this lane's bot-authored '$CLAIM_MARKER_TAG' marker is accepted as re-entry. If intake really is unpaid, run /intake-toolkit:intake and let it label the ticket."
-fi
-
 # ---- preflight ------------------------------------------------------------------------------
 # THE PROBES RUN CONCURRENTLY, and one invocation reports EVERY failure. Both halves are
 # deliberate. Concurrency because the probes are independent — a network label read, a PATH
@@ -291,17 +274,16 @@ probe_intake() {
   # A missing queue label is a REJECT-AND-STOP, never a spawned intake session (#397 D-2). Every
   # intake surface elicits through a question the operator answers; a headless intake session
   # either hangs on that question or fabricates a receipt, and the Decision Ledger has no legal
-  # provenance for a fabricated one.
+  # provenance for a fabricated one. That rule governs GITHUB, where the label is readable.
   #
-  # Under github this flag is already refused up front (#500 D-2), so this arm is now reachable
-  # only under a tracker that has no queue label to read — which is what its documentation always
-  # said it was for.
-  if [ "$INTAKE_ATTESTED" -eq 1 ]; then
-    echo "ok intake: attested by the operator (--intake-attested)"; return 0
-  fi
+  # Under any other tracker there is nothing to read: this script has no jira query path, and the
+  # operator attestation that used to stand in for one was persisted nowhere, so it enforced no
+  # checkable property. Say that intake is ungated here and pass — the same answer lean-gate.sh
+  # already gives for this condition rather than inventing a second, stricter one.
   if [ "$TRACKER_TYPE" != "github" ]; then
-    echo "FAIL intake: tracker '$TRACKER_TYPE' has no queue label, so intake cannot be read from it — pass --intake-attested once you have run intake yourself."
-    return 1
+    echo "ok intake: tracker '$TRACKER_TYPE' exposes no queue label — intake is not gated here."
+    echo "   Run /intake-toolkit:intake before the lane."
+    return 0
   fi
   local labels
   labels="$("$GH_CLI" issue view "$ISSUE" --json labels --jq '.labels[].name' 2>/dev/null)" || {
