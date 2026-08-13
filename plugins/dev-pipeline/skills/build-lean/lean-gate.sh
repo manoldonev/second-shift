@@ -152,6 +152,11 @@
 #                            outbound call milestone 3 can make, and only when a consumer
 #                            configures the probe — the suite points it at a stub.
 #   LEAN_PROGRESS_FILE       override the resolved progress-file path
+#   LEAN_LANE_REGISTRY       #526: override the lane-liveness registry. Default: lean-lanes.tsv
+#                            in the pipeline-state dir, shared by every worktree on the machine.
+#   LEAN_LANE_PID            #526: name the lane's owning process instead of resolving it from
+#                            the process tree (a scheduler registering itself). lane-registry.sh
+#                            owns both, and degrades to the single-lane answer without either.
 #   SECOND_SHIFT_CONFIG      override the resolved config path
 #   --pr-file <path>         milestone 5: read the PR record from a JSON fixture
 #   --comments-file <path>   milestone 5 and milestone 1's pause-and-ask check: read the issue
@@ -241,7 +246,7 @@ while [ $# -gt 0 ]; do
     --summary-file)  SUMMARY_FILE="${2:-}"; shift 2 ;;
     --satisfied)     PROGRESS_SATISFIED="${2:-}"; shift 2 ;;
     --arm)           STALENESS_ARM="${2:-}"; shift 2 ;;
-    -h|--help)       sed -n '2,172p' "$0"; exit 0 ;;
+    -h|--help)       sed -n '2,177p' "$0"; exit 0 ;;
     -*)              envfail "unknown option: $1" ;;
     *)
       if [ "$POSITIONAL" -eq 0 ]; then SUB="$1"; POSITIONAL=1
@@ -433,6 +438,15 @@ INTENT_GAP_REL="$PLANS_DIR/$REPO_SLUG-$ISSUE-lean-intent-gap.md"
 # suffix. check-lean-chain.sh pins this suffix independently — it cannot see this derivation.
 RENDER_MANIFEST_REL="$PLANS_DIR/$REPO_SLUG-$ISSUE-lean-renders.md"
 PROGRESS_FILE="${LEAN_PROGRESS_FILE:-$MAIN_ROOT/$STATE_DIR/$ISSUE-lean-progress.md}"
+
+# ---------------------------------------------------------------- the lane registry (#526)
+# ONE file for every lane of this repo, beside the rest of the lean run state in the MAIN
+# checkout — which every worktree on this machine already resolves to, so N concurrent lanes
+# see one another without any of them needing to know the others exist. Every other path here
+# is per-ISSUE; this one deliberately is not. lane-registry.sh owns the liveness key, the
+# ancestor walk that decides which pid is "the lane", and the degradation contract.
+LANE_REGISTRY="${LEAN_LANE_REGISTRY:-$MAIN_ROOT/$STATE_DIR/lean-lanes.tsv}"
+LANE_REGISTRY_SH="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lane-registry.sh"
 
 # ---------------------------------------------------------------- RUN_ID persistence
 # SKILL.md step 2 says "export RUN_ID first ... it keys every record" — true only if the
@@ -1249,6 +1263,56 @@ worktree_destroy() { # worktree_destroy <path> <branch>
   return 0
 }
 
+# ---------------------------------------------------------------- lane liveness (#526)
+# Three thin wrappers over lane-registry.sh. ADVISORY THROUGHOUT — every one of them returns 0
+# whatever happens, including a helper that is missing entirely. A consumer pinned to an older
+# plugin copy, or a packaging accident, must degrade to exactly today's behavior (no ceiling,
+# every lane sized to the whole machine) rather than red a milestone over a bookkeeping file.
+lane_register() {
+  [ -x "$LANE_REGISTRY_SH" ] || [ -f "$LANE_REGISTRY_SH" ] || return 0
+  bash "$LANE_REGISTRY_SH" register --registry "$LANE_REGISTRY" --issue "$ISSUE" >/dev/null 2>&1 || return 0
+  say "  lane registered in $LANE_REGISTRY — milestone-3 sweeps size themselves to this machine's live lane count."
+  return 0
+}
+
+lane_deregister() {
+  [ -f "$LANE_REGISTRY_SH" ] || return 0
+  bash "$LANE_REGISTRY_SH" deregister --registry "$LANE_REGISTRY" --issue "$ISSUE" >/dev/null 2>&1 || return 0
+  say "  lane deregistered from $LANE_REGISTRY."
+  return 0
+}
+
+# Derives the ceiling, ANNOUNCES it, and appends the assignment to the one env prefix every
+# milestone-3 child is spawned through. Appending to SEAM_SCRUB_ENV rather than editing four
+# call sites is deliberate: that array is already the single idiom shared by the render
+# pre-command, `lanes[]`, the fixed lint/typecheck/test keys and `extraLanes`, so a fifth
+# execution site added later inherits this for free instead of being forgotten. The array now
+# carries a scrub list AND one assignment; `env` takes them in that order natively.
+#
+# The append happens OUTSIDE the LOCKSTEP-BEGIN/END seam-scrub markers — those pin the denylist
+# STRING against verifyctl.sh, and this touches neither.
+lane_apply_job_ceiling() {
+  local out ceil lanes cores basis
+  [ -f "$LANE_REGISTRY_SH" ] || return 0
+  out="$(bash "$LANE_REGISTRY_SH" ceiling --registry "$LANE_REGISTRY" 2>/dev/null)" || out=""
+  IFS="$(printf '\t')" read -r ceil lanes cores basis <<<"$out"
+  case "${ceil:-}" in ''|*[!0-9]*) return 0 ;; esac
+  [ "$ceil" -ge 1 ] || return 0
+  case "$basis" in
+    live) say "milestone-3: job ceiling $ceil = $cores cores / $lanes live lane(s)." ;;
+    absent)     say "milestone-3: job ceiling $ceil = $cores cores / 1 lane assumed — no lane registry at $LANE_REGISTRY." ;;
+    unreadable) say "milestone-3: job ceiling $ceil = $cores cores / 1 lane assumed — the lane registry at $LANE_REGISTRY is unreadable." ;;
+    empty)      say "milestone-3: job ceiling $ceil = $cores cores / 1 lane assumed — the lane registry is empty." ;;
+    stale)      say "milestone-3: job ceiling $ceil = $cores cores / 1 lane assumed — the lane registry held only stale entries, now reaped." ;;
+    *)          say "milestone-3: job ceiling $ceil = $cores cores / $lanes lane(s)." ;;
+  esac
+  # AC-7. The gate cannot know whether a consumer's `test` command reads this — `vitest`,
+  # `pytest` and `cargo test` do not — so the announcement never claims it was applied.
+  say "  exported as LEAN_JOB_CEILING to every lane command below: ADVERTISED, not enforced. A command that does not read it runs exactly as before."
+  SEAM_SCRUB_ENV+=("LEAN_JOB_CEILING=$ceil")
+  return 0
+}
+
 # Checklist step 9's final act. OUTSIDE the 1..5 progression on purpose (D-2): `cmd_all` runs
 # milestones 1-5 and the checklist mandates it BEFORE step 9, so a self-removing milestone 5
 # would delete the worktree mid-run, before the closing comment is even posted.
@@ -1259,6 +1323,9 @@ worktree_destroy() { # worktree_destroy <path> <branch>
 # stronger and independent of any record the run wrote about itself.
 cmd_teardown() {
   local wt
+  # #526, FIRST and unconditionally: the lane is over whichever way the worktree removal goes,
+  # and a kept worktree (the early return below) is still a lane that stopped consuming cores.
+  lane_deregister
   wt="$(lean_worktree_for_branch "$LEAN_BRANCH")" || wt=""
   if [ -z "$wt" ]; then
     say "teardown: no registered worktree is on $LEAN_BRANCH — nothing to remove."
@@ -1591,6 +1658,11 @@ cmd_entry() {
   if [ "$TRACKER_TYPE" = "jira" ]; then
     say "  tracker delta (jira): no queue label to confirm — the operator supplies the ticket key (tracker.writes: false). Step 1's label reject does not apply."
   fi
+  # #526. Register this lane's liveness so every OTHER lane's milestone-3 sweep can size itself
+  # to its share of the machine. Advisory throughout: the helper never fails a run, and a lane
+  # that cannot be registered is simply not counted — which raises the others' ceilings back
+  # toward the uncontended default rather than starving them.
+  lane_register
   # LAST, and its result is discarded: the attestation above is what `entry` exists to
   # establish, so nothing the sweep does may reach this function's exit status.
   cmd_entry_sweep
@@ -2610,6 +2682,10 @@ cmd_3_render() {
 
 cmd_3() {
   local cmd rc sweep any_verifying=0
+  # #526. BEFORE the first lane child of any kind, since the whole point is that every one of
+  # them inherits the ceiling — the setup lanes below, the fixed keys, extraLanes, and the
+  # render pre-command cmd_3_render runs at the end.
+  lane_apply_job_ceiling
   # lanes[] setup steps first, when present. Shape is {name, cwd?, commands[]} — the SAME
   # reader verifyctl.sh uses (its step 1), including the non-object backstop (#100): a lane
   # that is not an object must fail loudly, never be silently skipped on the way to green.

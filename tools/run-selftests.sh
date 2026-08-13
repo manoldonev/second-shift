@@ -62,6 +62,8 @@
 #                 ERROR — the stale-row posture install-topology-known-red.tsv and
 #                 mutation-baseline.tsv already carry, applied to a stale workflow argument.
 #   --jobs        concurrency; defaults to $SELFTEST_JOBS, itself defaulting to 4 (the recipe).
+#                 $LEAN_JOB_CEILING, when set, caps the resolved value — see #526 below. It is
+#                 a CEILING, not an override: a smaller --jobs still wins.
 #   --root        tree to discover under; defaults to the repo root above this script.
 #   --cache-dir   marker store for the pass cache. Absent, no suite is ever skipped.
 #   --cache-write additionally RECORD passes into that store. Requires --cache-dir.
@@ -147,6 +149,29 @@ while [[ $# -gt 0 ]]; do
 done
 
 [[ "$JOBS" =~ ^[0-9]+$ ]] && [[ "$JOBS" -ge 1 ]] || die "--jobs/SELFTEST_JOBS must be a positive integer, got: $JOBS"
+# ---- the lane job ceiling (#526) ------------------------------------------------------
+# A DISTINCT variable from SELFTEST_JOBS, and that is the whole reason it exists rather than
+# being folded into the existing one. SELFTEST_JOBS is read at the top of this file, BEFORE the
+# parse loop above, and `--jobs` overwrites it unconditionally — so an injected value would be
+# discarded exactly when a caller passes `--jobs`, which is the only case this ceiling exists
+# for. Applied here instead: after the resolved value is known, as a ceiling rather than a
+# replacement, so an operator who asks for FEWER workers than their share still gets fewer.
+#
+# Validated at the same site and through the same `die` as `--jobs`, deliberately. Left
+# unvalidated, the minimum is undefined and the naive shell form yields an empty or zero JOBS —
+# a silent drop to serial with nothing announced, which is the fail-open shape this whole
+# change exists to remove rather than introduce.
+#
+# UNSET IS A NO-OP. Neither CI workflow invokes the gate that exports this, so a runner sees no
+# ceiling and every sweep there resolves exactly the value it resolves today.
+if [[ -n "${LEAN_JOB_CEILING:-}" ]]; then
+  [[ "$LEAN_JOB_CEILING" =~ ^[0-9]+$ ]] && [[ "$LEAN_JOB_CEILING" -ge 1 ]] \
+    || die "LEAN_JOB_CEILING must be a positive integer, got: $LEAN_JOB_CEILING"
+  if [[ "$JOBS" -gt "$LEAN_JOB_CEILING" ]]; then
+    echo "[run-selftests] job ceiling: $JOBS -> $LEAN_JOB_CEILING (LEAN_JOB_CEILING — this machine is running more than one lane)"
+    JOBS="$LEAN_JOB_CEILING"
+  fi
+fi
 [[ -d "$ROOT" ]] || die "--root is not a directory: $ROOT"
 ROOT="$(cd "$ROOT" && pwd)"
 # "a whole number", and NOT the longer phrasing tools/mutation-sweep.sh uses for the same check:

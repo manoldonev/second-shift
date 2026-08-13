@@ -4827,5 +4827,64 @@ if [ "$rc" -eq 1 ] && grep -q 'cannot resolve merge-base' <<<"$out" \
   pass "(st17) a branch with no shared history is exit 1 naming the merge-base — not the D-9 skip and not a clean answer"
 else fail "(st17) expected rc=1 from an unresolvable merge-base, got rc=$rc: $out"; fi
 
+# ---- (jc) #526: the lane job ceiling reaches the lane children ---------------------------
+# The registry mechanics have their own suite (lane-registry-selftest.sh). What is asserted HERE
+# is the seam between the two: that milestone 3 announces a ceiling and that a lane child is
+# actually spawned carrying it. An extraLane is the observation point because it runs through
+# the identical `env ${SEAM_SCRUB_ENV[@]…}` idiom as the fixed lint/typecheck/test keys — the
+# single injection site AC-6 names — so a child that sees the value proves all of them do.
+jc_reg="$WORK/jc-lanes.tsv"
+jc_ps="$WORK/jc-ps"
+mkdir -p "$jc_ps"
+# Two live lanes, staged through the helper's documented process-facts seam so the count does
+# not depend on anything actually running concurrently.
+for jc_p in 8801 8802; do
+  printf '1' > "$jc_ps/$jc_p.ppid"; printf 'claude' > "$jc_ps/$jc_p.comm"; printf 'S%s' "$jc_p" > "$jc_ps/$jc_p.lstart"
+  printf '%s\t%s\t%s\t%s\n' "$jc_p" "S$jc_p" 7 "2026-01-01T00:00:00Z" >> "$jc_reg"
+done
+
+# The single quotes are the assertion: $LEAN_JOB_CEILING must expand in the CHILD the gate
+# spawns. Expanding it here would compare this suite's environment against itself.
+# shellcheck disable=SC2016
+cfg="$(el_cfg '[{"name":"ceil-probe","commands":["echo child-ceiling=${LEAN_JOB_CEILING:-unset}"],"failureClass":"TEST_FAILURE"}]')"
+prog="$WORK/el-prog-ceiling.md"
+attest_at "$EL_TREE" "$cfg" "$prog" 7
+out="$( unset RUN_ID CLAUDE_CODE_SESSION_ID
+        cd "$EL_TREE" && SECOND_SHIFT_CONFIG="$cfg" LEAN_PROGRESS_FILE="$prog" \
+        LEAN_LANE_REGISTRY="$jc_reg" LEAN_LANE_PS_DIR="$jc_ps" \
+        bash "$GATE" --issue-file "$EL_ISSUE" 3 7 2>&1 )"; rc=$?
+jc_announced="$(printf '%s\n' "$out" | sed -n 's/^.*job ceiling \([0-9][0-9]*\) = .*$/\1/p' | head -1)"
+jc_child="$(printf '%s\n' "$out" | sed -n 's/^child-ceiling=//p' | head -1)"
+if [ "$rc" -eq 0 ] && [ -n "$jc_announced" ] && [ "$jc_child" = "$jc_announced" ]; then
+  pass "(jc1) milestone 3 announces a ceiling ($jc_announced) and the lane child is spawned with it"
+else fail "(jc1) expected rc=0 with the announced ceiling reaching the child, got rc=$rc announced='$jc_announced' child='$jc_child': $out"; fi
+
+if grep -qF '2 live lane(s)' <<<"$out"; then
+  pass "(jc2) AC-3: the announcement names the lane count the ceiling came from"
+else fail "(jc2) expected the announcement to name 2 live lanes: $out"; fi
+
+if grep -qF 'ADVERTISED, not enforced' <<<"$out"; then
+  pass "(jc3) AC-7: the announcement does not claim the value was applied"
+else fail "(jc3) expected an advertised-not-enforced note: $out"; fi
+
+# AC-4 through the gate, not only through the helper: no registry at all must still announce,
+# still export, and still name WHY it fell back — never a silent zero and never silence.
+# The single quotes are the assertion: $LEAN_JOB_CEILING must expand in the CHILD the gate
+# spawns. Expanding it here would compare this suite's environment against itself.
+# shellcheck disable=SC2016
+cfg="$(el_cfg '[{"name":"ceil-probe","commands":["echo child-ceiling=${LEAN_JOB_CEILING:-unset}"],"failureClass":"TEST_FAILURE"}]')"
+prog="$WORK/el-prog-ceiling-absent.md"
+attest_at "$EL_TREE" "$cfg" "$prog" 7
+out="$( unset RUN_ID CLAUDE_CODE_SESSION_ID
+        cd "$EL_TREE" && SECOND_SHIFT_CONFIG="$cfg" LEAN_PROGRESS_FILE="$prog" \
+        LEAN_LANE_REGISTRY="$WORK/jc-nope/lanes.tsv" \
+        bash "$GATE" --issue-file "$EL_ISSUE" 3 7 2>&1 )"; rc=$?
+jc_announced="$(printf '%s\n' "$out" | sed -n 's/^.*job ceiling \([0-9][0-9]*\) = .*$/\1/p' | head -1)"
+jc_child="$(printf '%s\n' "$out" | sed -n 's/^child-ceiling=//p' | head -1)"
+if [ "$rc" -eq 0 ] && [ -n "$jc_announced" ] && [ "$jc_announced" -ge 1 ] && [ "$jc_child" = "$jc_announced" ] \
+   && grep -qF '1 lane assumed — no lane registry at' <<<"$out"; then
+  pass "(jc4) AC-4: with no registry the gate degrades to one lane, names why, and still exports"
+else fail "(jc4) expected an announced single-lane fallback reaching the child, got rc=$rc announced='$jc_announced' child='$jc_child': $out"; fi
+
 echo "[lean-gate-selftest] $([ "$FAILS" -eq 0 ] && echo 'all green' || echo "$FAILS FAILURE(S)")"
 exit "$FAILS"

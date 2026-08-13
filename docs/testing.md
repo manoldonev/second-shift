@@ -52,6 +52,48 @@ config — see CLAUDE.md's Verification section. The suite stays *discovered*: t
 a path that must keep existing, so renaming the suite reds CI instead of silently
 double-running it.
 
+### The lane job ceiling
+
+A sweep sizes itself to the machine, and until #526 nothing counted how many sweeps were on it.
+Five concurrent lean lanes on ten cores measured load 16.9–26.8 and one lane at **1h46m wall for
+4m07s of its own CPU** against the 5:22 uncontended figure — each lane had asked for the whole box.
+
+The fix is one number passed downhill:
+
+| Who | Does what |
+| --- | --- |
+| `lean-gate.sh entry` | registers this lane in `lean-lanes.tsv` (pid **plus** that pid's start time — pids recycle) |
+| `lean-gate.sh 3` | derives `max(1, cores / live_lanes)`, announces it, exports `LEAN_JOB_CEILING` to every lane command |
+| `run-selftests.sh` | applies `min(resolved_jobs, ceiling)` after its parse loop |
+| `lean-gate.sh teardown` | deregisters. A lane killed before teardown is reaped by the next reader |
+
+`LEAN_JOB_CEILING` is deliberately **not** `SELFTEST_JOBS`. The runner reads `SELFTEST_JOBS` before
+argument parsing and `--jobs` overwrites it unconditionally, so an injected value would be
+discarded in exactly the case that matters — a caller passing `--jobs`. It is also a *ceiling*, not
+an override: `--jobs 2` under a ceiling of 8 still runs two.
+
+**A ceiling, not a semaphore.** The suites are independent and safe to interleave; they were
+starving each other, not racing. A wait-your-turn lock would put a waiter on the milestone-3 path
+and turn a slow lane into a hung one.
+
+**Every degradation is toward today.** An unreadable, empty, or fully-stale registry yields the
+single-lane answer — the *largest* ceiling — and names which of the three it hit. A ceiling is
+never 0 and never empty: a silent drop to serial is the fail-open shape this replaced, and a
+non-positive `LEAN_JOB_CEILING` is rejected through the same `die` as a bad `--jobs`.
+
+**CI is untouched.** Neither workflow invokes the gate, so no ceiling is exported and `JOBS`
+resolves exactly as before — asserted by a `run-selftests-selftest.sh` case rather than assumed.
+
+**Consumers may honor it, and need not.** The gate ships to repos whose `test` command is `vitest`
+/ `pytest` / `cargo test`, none of which read this variable. The gate cannot detect that, so its
+announcement says *advertised, not enforced*; a command that ignores the value behaves as it always
+did. A consumer that wants the benefit maps it onto its own flag (`vitest --maxWorkers`,
+`pytest -n`, `cargo test --jobs`) in its configured command string.
+
+Registry scope is **this repo's lanes**, not the machine's: the file lives beside the rest of the
+lean run state in the main checkout, which every worktree already resolves to. Lanes in another
+repo on the same machine are invisible to it.
+
 `SKIP_STRESS` is never set by the runner. The ubuntu lane omits it and the macos lane sets it;
 that asymmetry predates this script and is preserved, and the mutation baseline's environment
 check is only meaningful because the harness does not export it on its own.
