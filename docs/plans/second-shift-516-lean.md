@@ -48,6 +48,14 @@ are flags. The measurement is not a comment — `corpus-live.json` is that real 
 as a fixture, and the selftest asserts both halves of the separation, so retuning the constant
 without re-reading the measurement reds the suite.
 
+**One character of that capture is normalized, and it is not a score.** Issue #166's real title
+begins `dev-pipeline:`, and namespace rule 3(a) forbids that token anywhere in a toolkit —
+including shipped fixture data, which this is. The colon is replaced with an em dash. The scorer
+splits on `tr -c 'a-z0-9' '\n'`, so every non-alphanumeric is already a separator and the two
+spellings tokenize identically: the suite's full output is byte-identical across the change.
+Re-capturing this corpus from the live tracker means re-applying that normalization — a verbatim
+re-capture reds CI on rule 3(a), pointing at this file.
+
 **Known limit, stated rather than discovered later.** The scorer measures textual overlap. It
 would not have surfaced #503 against #516 (score 3) even though those two touch the same file —
 the bodies genuinely share almost no text. Same-file collision detection is a different
