@@ -86,8 +86,11 @@ predicate and is not in scope here.
   self-exclusion, the config-driven label vocabulary, the jira arm's silence, report
   determinism, and both halves of the calibration.
 - **AC-10** — Documentation is updated where this change makes it stale: the intake-toolkit
-  plugin manifest's description, and `docs/testing.md`'s account of what the intake tools
-  guard. No other doc describes this surface.
+  plugin manifest's description, which enumerates the surface and would otherwise omit the new
+  tool. Checked and deliberately not touched — `docs/testing.md` (it describes the test tiers,
+  not the intake tools, and the new suite is discovered by glob), `CLAUDE.md`'s coverage
+  register (the rule there is coverage, and `dup-scan.sh` ships a same-named suite), and
+  `scripts/lockstep-manifest.tsv` (nothing here is a second copy of another file's contract).
 
 ## Out of scope
 

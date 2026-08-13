@@ -35,6 +35,7 @@ Before any other action, verify the calling session has:
 
 1. **Task tool** with `review-toolkit:spec-reviewer` and `review-toolkit:codebase-explorer` — required for the feature-mode self-check and bug-mode codebase corroboration.
 2. **Write tool** — required only if the user explicitly asks to save the draft to disk (Step 2 emission path).
+3. **Bash tool** — required for the Step 2 duplicate scan. Without it, emit the draft and tell the user plainly that it is **unscanned**, so they do not file it as if it had been checked against the queue.
 
 If `Task` is missing — for example this skill was loaded inside a subagent context — STOP and report:
 
@@ -225,6 +226,30 @@ The marker is the final line **inside** the emitted block — below the last sec
 After the emitted issue block (outside the closing `---`), emit the **Decision Ledger** the body was assembled from, per the `interviewing-baseline` contract: every requirement-level decision the user made during the interview (`user-answered`), every "your call" (`user-delegated`), every TBD (`deferred`). Trivial interviews emit the explicit empty form. This block is a planning artifact, **NOT** part of the GitHub issue body — the engineer carries it into `plan-interview` (or saves it as `.claude/pipeline-state/{issue}-ledger.md` once an issue number exists).
 
 Emit it in the **receipt shape** (five columns plus `## Open Regions`, per `interviewing-baseline` "The intake receipt") whenever the interview is heading for a pipeline ticket rather than a paste — that is the artifact `ledger-lint.sh --receipt` checks, and re-shaping it later loses the Kind attributions only you were present for. Every TBD becomes an `open` row citing a declared `OR-n` with a disposition; a TBD that maps to nothing is the silent assumption this whole contract exists to prevent.
+
+### Duplicate scan (before the hand-off line)
+
+You are about to hand a draft to someone who will file it. Scan it against what is already
+eligible or in flight first — you have no issue number yet, so the draft *is* the subject:
+
+```bash
+bash "${CLAUDE_PLUGIN_ROOT}/skills/plan-interview/tools/dup-scan.sh" \
+  --title "<the suggested title>" --body-file <path to the emitted body>
+```
+
+Write the body to a temp path for this if you kept it in chat only — the scan reads a file, and
+it is a tracker **read**, not a write, so it does not touch the never-write-to-GitHub rule below.
+
+- **`0`** — nothing above the threshold. Say nothing; a clean scan is not a finding.
+- **`10`** — ranked candidates. Do **not** decide for the user and do not withhold the draft.
+  Present the candidates with the emission, name which reading you think applies (same work,
+  overlapping but distinct, unrelated), and let them choose. A candidate carrying the *claimed*
+  label is already being built — that one is worth naming explicitly. Record your judgment as a
+  Decision Ledger row per candidate. **Never close anything.**
+- **`2`** — the scan could not run. **Hard-stop** the hand-off: emit the draft, state the rc and
+  the reason, and tell the user it is unscanned so they do not file it as if it were.
+
+Under `tracker.type: jira` it prints a not-applicable line and exits `0`.
 
 End with:
 

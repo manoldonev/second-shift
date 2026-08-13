@@ -380,9 +380,36 @@ Before acting on your decision, verify:
 ### Step 5.5: Receipt Exit Gate
 
 Whatever the verdict, INTAKE's output is a **receipt** — the artifact BUILD is handed as the
-definition of settled intent. Two things happen before it leaves your hands.
+definition of settled intent. Three things happen before it leaves your hands.
 
-**1. Lint it.** Write the ledger you assembled to `.claude/pipeline-state/{ISSUE_NUMBER}-ledger.md`
+**1. Scan for duplicates.** Before anything is labeled or handed off:
+
+```bash
+bash "${CLAUDE_PLUGIN_ROOT}/skills/plan-interview/tools/dup-scan.sh" --issue {ISSUE_NUMBER}
+```
+
+Three exit codes, three different obligations:
+
+- **`0`** — nothing at or above the threshold. Record nothing; a clean scan is not a decision,
+  and padding the register with one is what `interviewing-baseline` forbids.
+- **`10`** — ranked candidates on stdout. **Read each one and judge it yourself.** The scorer
+  proposes; it cannot decide, and two tickets written by different routes can share most of
+  their vocabulary and still be different work. One ledger row per candidate: the same work
+  (fold this ticket into it, and say so), overlapping but distinct (queue it — and sequence it
+  if they touch the same files, because a candidate carrying the *claimed* label is already
+  being built), or unrelated. **Never close a ticket on this output.**
+- **`2`** — the scan could not run (unauthenticated, offline, rate-limited, unparseable
+  config). **Hard-stop.** Do not apply the queue label, hand nothing off, report the rc and the
+  reason, exit non-zero. The operator fixes it and re-runs intake. This is what keeps
+  "queue-labeled ⇒ scanned" a true invariant: a proceed-with-a-flag variant leaves a ticket
+  reaching the queue unscanned, which is the exact defect this rung exists to prevent, and the
+  flag would land in a local receipt the next claimant never reads while the queue label still
+  advertises the ticket as eligible.
+
+Under `tracker.type: jira` the tool prints an explicit not-applicable line and exits `0`: that
+adapter has no queue label and no claimed label, so there is no corpus of eligible tickets.
+
+**2. Lint it.** Write the ledger you assembled to `.claude/pipeline-state/{ISSUE_NUMBER}-ledger.md`
 in the receipt shape (`interviewing-baseline` → "The intake receipt": five columns, plus a
 `## Open Regions` section) and run:
 
@@ -399,7 +426,7 @@ A red lint is not a formatting complaint. An `intent` row backed by `codebase-de
 either ask them, or reclassify it honestly (a derived fact, or an `open` row under a declared
 region). Do not edit the Kind cell to clear the lint.
 
-**2. Probe it.** Dispatch `intake-toolkit:implementability-probe` via `Task`, handing it the
+**3. Probe it.** Dispatch `intake-toolkit:implementability-probe` via `Task`, handing it the
 **spec text alone** — no interview transcript, no ledger, no findings from this session. It is
 the proxy rung, and it only works blind: residue from the elicitation is exactly the context the
 cold implementer will not have. It returns guess-points, not fixes. For each one:

@@ -46,6 +46,27 @@ You elicit **design decisions from the engineer** (plan-authoring). You do NOT:
 - **Plan-mode / ad-hoc session:** a `## Decision Ledger` section in the plan file itself, before `ExitPlanMode` is called (this plugin's `exitplan-ledger-gate.sh` hook lints for it and blocks the exit if it's missing or malformed).
 - **Pipeline pre-flight** (`/plan-interview <issue>` before an autonomous `/dev-pipeline <issue>` run): write `.claude/pipeline-state/{issue}-ledger.md` — same location convention as the Product-Essence Brief; it survives worktree cleanup and Stage 1/3 hydrate it into the pipeline plan. The interview always happens in the interactive session, never inside the autonomous run.
 
+## Duplicate scan (pipeline pre-flight only)
+
+A pre-flight ledger is the last thing written before a ticket becomes eligible to run, so it is
+the last place a duplicate can still be caught cheaply. Before writing it:
+
+```bash
+bash "${CLAUDE_PLUGIN_ROOT}/skills/plan-interview/tools/dup-scan.sh" --issue <issue>
+```
+
+- **`0`** — nothing above the threshold. Record nothing.
+- **`10`** — ranked candidates. Judge each one yourself and record one Decision Ledger row per
+  candidate: the same work, overlapping but distinct (sequence it if they touch the same files —
+  a candidate carrying the *claimed* label is already being built), or unrelated. The scan
+  proposes; you and the engineer decide. **Never close a ticket on its output.**
+- **`2`** — the scan could not run. **Hard-stop**: report the rc and the reason and do not hand
+  the ledger off. A ticket that reaches the queue unscanned is the defect this exists to
+  prevent, so "could not look" must never pass for "looked and found nothing".
+
+Under `tracker.type: jira` it prints a not-applicable line and exits `0` — no queue label, no
+corpus. The ad-hoc / plan-mode path above scans nothing: there is no ticket to be a duplicate of.
+
 ## Escalation
 
 Stop and present uncertainty (what you understood / what's blocking / options / a clear question) when:
