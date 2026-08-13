@@ -4,6 +4,20 @@ All notable changes to the second-shift marketplace. Versions are per-plugin (`p
 this file tracks the marketplace release. `configVersion` stays `const 1` — v2 is fully backward-compatible for a
 consumer with an empty config; the migration notes below are only for consumers using the changed features.
 
+## v5.0.0
+
+### `dev-pipeline` 4.2.2 → 5.0.0
+
+- **the lean scheduler stops asking the operator to attest intake (#518)** (#518)
+  `--intake-attested` is retired. Under a tracker with no queue label the
+  scheduler now states that intake is not gated and proceeds, matching what
+  lean-gate.sh already does for the same condition; under github the flag's refusal
+  arm is gone with it.
+  Migration: drop `--intake-attested` from any lean invocation — it is now an
+  unknown option and exits 2.
+  **BREAKING:** `--intake-attested` is no longer accepted.
+- **test(dev-pipeline): cover the state-dir derivation the STATECTL_STATE_DIR override bypasses (#520)** (#520)
+
 ## v4.2.2
 
 ### `dev-pipeline` 4.2.1 → 4.2.2
