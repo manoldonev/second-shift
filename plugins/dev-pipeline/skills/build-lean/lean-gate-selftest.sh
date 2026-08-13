@@ -5028,31 +5028,30 @@ if [ "$rc" -eq 0 ] && [ ! -f "$dj9_base.rc" ] && ! printf '%s' "$out" | grep -q 
   pass "(dj9) LEAN_GATE_OBSERVE evaluates milestone 3 inline — it neither joins nor stamps a marker"
 else fail "(dj9) expected an inline rc=0 with no marker written, got rc=$rc: $out"; fi
 
-# (dj10) THE RUNNER HANDSHAKE IS ARGV, AND MUST STAY ARGV. This case exists because the env-var
-# form shipped first and reded THIS repo's own milestone 3: milestone-3 lane children here are
-# lean-gate.sh itself (dogfooding), an exported `LEAN_GATE_M3_RUNNER=1` reached the nested
-# selftest, and every milestone-3 call inside it silently ran INLINE as a "runner" — no detach, no
-# marker, the whole mechanism absent while the outer run looked like it was working. argv cannot
-# reach a grandchild. The assertion below is the flag's one observable boundary: it is refused
-# anywhere it could stamp a marker a waiter is blocked on.
-dj_tree flag
-out="$(dj_gate flag --m3-runner 1 7)"; rc=$?
-if [ "$rc" -eq 2 ] && printf '%s' "$out" | grep -qF 'internal to milestone 3'; then
-  pass "(dj10) --m3-runner is refused on any subcommand but 3 — a stray runner cannot stamp a marker"
-else fail "(dj10) expected rc=2 refusing the flag, got rc=$rc: $out"; fi
-
-# (dj11) …and a milestone-3 LANE CHILD sees nothing that would make it think it is the runner.
-# The direct regression guard for the leak above, in the (i12) SCRUBBED/LEAKED idiom: line-anchored,
-# because the lane command's own text is echoed as an announcement before it runs.
-dj_cfg="$WORK/dj-runnerenv-cfg.json"
-jq '.commands.acme.lint = "[ -z \"${LEAN_GATE_M3_RUNNER:-}\" ] && echo M3ENVCLEAN || echo M3ENVLEAKED"' "$CFG" > "$dj_cfg" 2>/dev/null
-dj_tree runnerenv
+# (dj10) THE RUNNER IS A FORKED SUBSHELL, so a milestone-3 LANE CHILD can run its OWN milestone 3.
+# This case exists because the first two shapes of the runner both broke exactly here. An inherited
+# `LEAN_GATE_M3_RUNNER=1` on a re-exec reached the lane child — this repo's milestone-3 lane children
+# ARE lean-gate.sh (dogfooding) — and every nested milestone-3 call silently ran INLINE as a
+# "runner": no detach, no marker, the whole mechanism absent while the outer run looked healthy.
+# Nothing is inherited now, and the assertion is the property that failed: a lane child gets a
+# detached evaluation of its own, in its own tree, and reaches its own green.
+dj_tree nest_inner
+dj_tree nest_outer
+dj_nest_cfg="$WORK/dj-nest-cfg.json"
+jq --arg gate "$GATE" --arg tree "$WORK/dj-nest_inner" --arg cfg "$CFG" --arg prog "$WORK/dj-nest_inner-prog.md" --arg iss "$ISSUE_NOREGIONS" \
+   '.commands.acme.lint = ("cd " + $tree + " && SECOND_SHIFT_CONFIG=" + $cfg + " LEAN_PROGRESS_FILE=" + $prog + " bash " + $gate + " --issue-file " + $iss + " 3 7 >/dev/null 2>&1 && echo NESTED_OK || echo NESTED_BROKEN")' \
+   "$CFG" > "$dj_nest_cfg" 2>/dev/null
 out="$( unset RUN_ID CLAUDE_CODE_SESSION_ID GH_BOT
-        cd "$WORK/dj-runnerenv" && SECOND_SHIFT_CONFIG="$dj_cfg" LEAN_PROGRESS_FILE="$WORK/dj-runnerenv-prog.md" \
+        cd "$WORK/dj-nest_outer" && SECOND_SHIFT_CONFIG="$dj_nest_cfg" LEAN_PROGRESS_FILE="$WORK/dj-nest_outer-prog.md" \
         bash "$GATE" --issue-file "$ISSUE_NOREGIONS" 3 7 2>&1 )"; rc=$?
-if [ "$rc" -eq 0 ] && printf '%s\n' "$out" | grep -qx 'M3ENVCLEAN' && ! printf '%s\n' "$out" | grep -qx 'M3ENVLEAKED'; then
-  pass "(dj11) a milestone-3 lane child inherits no runner marker from the detached evaluation"
-else fail "(dj11) expected M3ENVCLEAN with no M3ENVLEAKED, got rc=$rc: $out"; fi
+# The INNER run's own record is the non-vacuous half: NESTED_OK alone would also be printed by a
+# nested call that ran inline, which is precisely the bug. A started/concluded pair in the inner
+# tree's progress file can only have been written by a detached runner of its own.
+if [ "$rc" -eq 0 ] \
+   && printf '%s\n' "$out" | grep -qx 'NESTED_OK' \
+   && [ "$(dj_count nest_inner '| milestone-3 | concluded | rc=0')" -ge 1 ]; then
+  pass "(dj10) a milestone-3 lane child runs its own detached milestone 3 — nothing is inherited from the outer runner"
+else fail "(dj10) expected NESTED_OK and an inner concluded row, got rc=$rc inner=$(dj_count nest_inner '| milestone-3 | concluded | rc=0'): $out"; fi
 
 echo "[lean-gate-selftest] $([ "$FAILS" -eq 0 ] && echo 'all green' || echo "$FAILS FAILURE(S)")"
 exit "$FAILS"

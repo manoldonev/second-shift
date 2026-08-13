@@ -182,12 +182,15 @@
 #                            exercise a breach; a real run should not lower it — a breach
 #                            reclassifies an honest slow sweep as infrastructure.
 #
-# `--m3-runner` is NOT a seam and is deliberately NOT an environment variable. It is the internal
-# handshake m3_launch_or_join passes to the child it spawns, meaning "you are the detached
-# evaluation, not a waiter" — and it is argv precisely because an env var is INHERITED. The env
-# form cost a milestone attempt on this ticket's own PR: milestone 3's lane children are this
-# repo's own tooling (dogfooding), so the variable reached the nested lean-gate-selftest.sh and
-# every milestone-3 call inside it ran inline as a "runner". argv cannot leak into a grandchild.
+# There is NO seam and no flag for milestone 3's detached runner, by two rounds of deliberate
+# subtraction. It began as an inherited `LEAN_GATE_M3_RUNNER=1` on a re-exec of this script, which
+# cost a milestone attempt on this ticket's own PR: milestone 3's lane children here are
+# lean-gate.sh itself (dogfooding), so the variable reached the nested selftest and every
+# milestone-3 call inside it ran INLINE as a "runner". An argv flag fixed that and was still
+# paying a whole second gate startup per call — measured at 1.4s against a 1.9s total overhead,
+# which pushed the paired suite past mutation-sweep.sh's 300s killer bound. The runner is now a
+# forked SUBSHELL of the process that launches it, so there is no handshake to inherit and
+# nothing to re-parse. See m3_launch_or_join.
 #
 # bash 3.2 compatible (macOS ships it, and CI has a bash-3.2 lane).
 set -uo pipefail
@@ -206,7 +209,6 @@ PROGRESS_SATISFIED=""
 # #515. Empty means "not given"; the default is applied after validation, so `--arm` on a
 # subcommand that ignores it is still loud rather than silently absorbed into the default.
 STALENESS_ARM=""
-M3_RUNNER=0
 
 # The fix budget: 3 attempts per milestone, the 4th red hard-stops (D-19). Counted from
 # the progress file's `attempt` lines per D-41 — only FAILED evaluations append one.
@@ -262,8 +264,7 @@ while [ $# -gt 0 ]; do
     --summary-file)  SUMMARY_FILE="${2:-}"; shift 2 ;;
     --satisfied)     PROGRESS_SATISFIED="${2:-}"; shift 2 ;;
     --arm)           STALENESS_ARM="${2:-}"; shift 2 ;;
-    --m3-runner)     M3_RUNNER=1; shift ;;
-    -h|--help)       sed -n '2,192p' "$0"; exit 0 ;;
+    -h|--help)       sed -n '2,195p' "$0"; exit 0 ;;
     -*)              envfail "unknown option: $1" ;;
     *)
       if [ "$POSITIONAL" -eq 0 ]; then SUB="$1"; POSITIONAL=1
@@ -301,13 +302,6 @@ if [ -n "$STALENESS_ARM" ]; then
   esac
 fi
 STALENESS_ARM="${STALENESS_ARM:-both}"
-
-# Same posture, and here it is a safety rail rather than tidiness: this flag makes the process
-# claim to BE a detached evaluation, and a stray one on another subcommand would stamp a marker
-# some waiter is blocked on. Milestone 3 is the only place it can mean anything.
-if [ "$M3_RUNNER" = "1" ] && [ "$SUB" != "3" ]; then
-  envfail "--m3-runner is internal to milestone 3's detached runner and is meaningless on '$SUB'."
-fi
 
 # ---------------------------------------------------------------- roots + config
 REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null)" \
@@ -2222,11 +2216,6 @@ unset _seam_tok _seam_scrub_toks
 # milestone 2 in 2s, milestone 3 in 20m44s. Every observed death is the sweep, and a fork + marker
 # + poll round-trip on four evaluations that return in a second is cost bought for nothing.
 #
-# The script's own path, resolved once, because the launch re-executes it from a detached child.
-# `$0` alone is enough on every documented invocation (`bash /abs/path/lean-gate.sh …`) but not on
-# a relative one, and the child inherits a cwd the gate itself is free to leave.
-LEAN_GATE_SELF="$(cd "$(dirname "$0")" 2>/dev/null && pwd)/$(basename "$0")"
-
 # D-4. ~3x the longest milestone-3 evaluation on record (20m44s). Deliberately generous: CLAUDE.md
 # warns that `install-topology-selftest.sh` alone swings 319s/438s/584s and to "treat the range,
 # not a point value", and a breach RECLASSIFIES an honest slow run as infrastructure. Headroom is
@@ -2238,7 +2227,7 @@ M3_WAIT_CEILING_DEFAULT=3600
 # one-second poll the gate's own selftest paid ~30s in sleeps alone. The loop body below is all
 # builtins (`[ -f ]`, `read <`, `kill -0`, `$SECONDS`), so a 20-minute evaluation costs 6000
 # wakeups of nothing rather than 6000 forks.
-M3_POLL_SECS=0.2
+M3_POLL_SECS=0.1
 
 # D-10: STATE_DIR, never TMPDIR. macOS `mktemp -d` ignores TMPDIR and this repo already carries
 # orphan-fixture scars from that directory; the state dir is also gitignored, survives worktree
@@ -2335,6 +2324,26 @@ m3_wait() { # m3_wait <ceiling-secs>
   done
 }
 
+# THE DETACHED EVALUATION ITSELF — the only place cmd_3 is called on a recording path. It writes
+# exactly ONE started/concluded pair per real evaluation (D-9), then stamps its code into the
+# marker every attached waiter is blocked on.
+#
+# The unclosed check is deliberately NOT repeated here: the waiter made it before launching, and a
+# runner that re-announced would print the notice into a log nobody reads first.
+#
+# THE STAMP IS THE LAST STATEMENT, and its absence is load-bearing. A runner killed mid-sweep, or
+# one that `envfail`s out from under itself, leaves no marker — which is exactly D-3's "did not
+# complete", reported as rc=7 with this log replayed rather than as a milestone failure. Written
+# via a tmp + `mv` so a waiter can never read a half-written code.
+m3_run_detached() {
+  local r_rc
+  append_started 3
+  cmd_3; r_rc=$?
+  append_concluded 3 "$r_rc"
+  printf '%s\n' "$r_rc" > "$M3_RC.tmp" && mv "$M3_RC.tmp" "$M3_RC"
+  return "$r_rc"
+}
+
 # D-1's decision, in one predicate: a LIVE runner is joined, anything else is relaunched. There is
 # no lock — the pid's own liveness is the authority, and it is self-healing in a way a lock file
 # is not (a launcher killed while holding one wedges every later call). The window it accepts is
@@ -2371,11 +2380,20 @@ m3_launch_or_join() {
   # evaluation's code would report the last run's verdict about this tree — and in the suite, where
   # consecutive cases share one fixture and therefore one key, it would pass them vacuously.
   rm -f "$M3_RC" "$M3_RC.tmp" "$M3_LOG"
-  # `nohup … &` and nothing else. NO `setsid`: it does not exist on macOS, and adding it makes the
-  # launch report a pid while the runner never starts — the marker then never appears and the wait
-  # reads "still running" until the ceiling. `disown` is best-effort for the same reason it is in
-  # the recipe at all; `nohup` already carries the SIGHUP half on its own.
-  nohup bash "$LEAN_GATE_SELF" --m3-runner 3 "$ISSUE" </dev/null >"$M3_LOG" 2>&1 &
+  # A FORKED SUBSHELL, not a re-exec of this script. Two properties, both paid for:
+  #   — Nothing to inherit. A re-exec needs a handshake saying "you are the runner", and the first
+  #     shape of that was an env var, which milestone 3's own lane children inherited (this repo's
+  #     lane children ARE lean-gate.sh) and every nested milestone-3 call ran inline. A subshell
+  #     already knows; there is no flag for a grandchild to pick up.
+  #   — Nothing to re-parse. A re-exec re-read the config through a dozen `jq` forks and re-resolved
+  #     the git roots to reach a function this process already has loaded: 1.4s of the 1.9s per-call
+  #     overhead, measured, and enough to push the paired suite past the mutation sweep's 300s
+  #     killer bound. Production pays it once per run; the suite pays it ~35 times.
+  # `trap '' HUP` in place of `nohup`, which needs an external command to exec. NO `setsid`: it does
+  # not exist on macOS, and adding it makes the launch report a pid while the runner never starts —
+  # the marker then never appears and the wait reads "still running" until the ceiling. `disown` is
+  # best-effort; the HUP half is the trap's.
+  ( trap '' HUP; m3_run_detached ) </dev/null >"$M3_LOG" 2>&1 &
   pid=$!
   disown "$pid" 2>/dev/null
   printf '%s\n' "$pid" > "$M3_PID.tmp" && mv "$M3_PID.tmp" "$M3_PID"
@@ -3639,28 +3657,6 @@ run_milestone() {
     1|2|3|4|5) : ;;
     *) envfail "run_milestone: unknown milestone '$n'" ;;
   esac
-
-  # #511 D-1. THE DETACHED RUNNER'S OWN RE-ENTRY. `--m3-runner` is passed by
-  # m3_launch_or_join and by nothing else — this is the same script, re-executed as the child that
-  # actually evaluates milestone 3. It writes exactly ONE started/concluded pair per real
-  # evaluation (D-9), and stamps its code into the marker every attached waiter is blocked on.
-  #
-  # The unclosed check below is deliberately NOT repeated here: the waiter already made it, and a
-  # runner that re-announced would print the notice once per launch to a log nobody reads first.
-  #
-  # THE STAMP IS THE LAST STATEMENT, and its absence is load-bearing. A runner killed mid-sweep,
-  # or one that `envfail`s out from under itself, leaves no marker — which is exactly D-3's "did
-  # not complete", reported as rc=7 with this log replayed rather than as a milestone failure.
-  # Written via a tmp + `mv` so a waiter can never read a half-written code.
-  if [ "$n" = "3" ] && [ "$M3_RUNNER" = "1" ]; then
-    local r_rc
-    m3_paths
-    append_started 3
-    cmd_3; r_rc=$?
-    append_concluded 3 "$r_rc"
-    printf '%s\n' "$r_rc" > "$M3_RC.tmp" && mv "$M3_RC.tmp" "$M3_RC"
-    return "$r_rc"
-  fi
 
   # Read BEFORE this call appends its own `started`, so the number is EARLIER evaluations that
   # never returned. OR-1: a concurrent in-flight call contributes 1 here and is indistinguishable
