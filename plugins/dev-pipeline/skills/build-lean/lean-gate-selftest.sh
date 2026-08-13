@@ -4694,9 +4694,9 @@ chmod +x "$STW/bin/gh"
 ST_GH_LOG="$STW/gh.log"
 : > "$ST_GH_LOG"
 
-# NO LEAN_PROGRESS_FILE override, deliberately: (st12) asserts the subcommand creates no progress
+# NO LEAN_PROGRESS_FILE override, deliberately: (st15) asserts the subcommand creates no progress
 # file at the path the gate resolves on its own, which an override would move out from under it.
-# NO entry attestation is ever recorded in this block either — (st13) is the assertion that this
+# NO entry attestation is ever recorded in this block either — (st15) also asserts that this
 # subcommand is reachable without one, and every case above it silently depends on that being true.
 stgate() { # stgate <config> <args...>
   local cfg="$1"; shift

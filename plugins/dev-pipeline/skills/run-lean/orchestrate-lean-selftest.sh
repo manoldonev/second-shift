@@ -914,9 +914,9 @@ else fail "(r10) an absent config was refused, got rc=$rc / $(spawn_count) spawn
 # What this block owns is the scheduler's WIRING — which call sites exist, with which arm, in which
 # order, and how each rc routes. What it deliberately does NOT own is whether the predicate is
 # right: that is lean-gate-selftest.sh's (st*) block, which drives the real subcommand against a
-# real remote and a real fetch. (v11) is the one case here that joins the two, because the seam
-# between them — the scheduler invoking a subcommand and an arm the real gate actually accepts —
-# is precisely what a fake gate cannot fail on.
+# real remote and a real fetch. (v13)/(v14) are the matched pair here that joins the two, because
+# the seam between them — the scheduler invoking a subcommand and an arm the real gate actually
+# accepts — is precisely what a fake gate cannot fail on.
 setup_case "" "0" "ready-for-dev" "11"
 out="$(run_tool "$CFG" "$ISSUE" --build-model sonnet)"; rc=$?
 if [ "$rc" -eq 0 ] && [ "$(spawn_count)" -eq 3 ] \
