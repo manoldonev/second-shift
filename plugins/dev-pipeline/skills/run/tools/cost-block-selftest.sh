@@ -863,6 +863,62 @@ R="$(disc "$DSC/s4" d4 "$DSC/m4/metrics.jsonl")"
   && ok "(#432) in-fence rows for this session with no cost datapoint records skipped-zero-datapoints" \
   || bad "(#432) expected skipped-zero-datapoints, got '$R'"
 
+# --- state dir: the derivation ladder BENEATH the STATECTL_STATE_DIR override ---
+# Every other run in this file drives the script through STATECTL_STATE_DIR, and
+# resolve_state() returns that before it consults a repo root at all. So the ladder
+# underneath it — SECOND_SHIFT_REPO_ROOT > git-common-dir parent — was reachable by no
+# case here, and either fallback could be rewritten without one assertion moving. This
+# case is the one that runs with the override UNSET, so the script has to derive.
+#
+# It builds its own repo under $TMP and runs from inside it. That is the difference from
+# the mirror this suite used to carry: the mirror RE-DERIVED the path itself and anchored
+# on $HERE while the script anchors on $PWD, so the two agreed only in the monorepo. Here
+# nothing is re-derived — the script derives, and the assertion sees the rollup, which is
+# reachable only if it derived the root we built. No repo above $HERE is consulted, so an
+# install-cache run behaves the same, and the fixtures stay under $TMP.
+#
+# The three overrides are explicitly unset rather than merely not-set: each is a `${VAR:-}`
+# fallback, and a fallback can only be exercised when its variable is actually absent from
+# the environment the script inherits.
+#
+# The run happens from a NESTED subdir of the repo, and that is load-bearing, not incidental.
+# When the derivation fails, resolve_state()'s last branch emits a RELATIVE
+# ".claude/pipeline-state/<id>.json" — which, run from the repo root, names the very file the
+# derived absolute path names. Root and fallback are then the same file and no assertion can
+# tell them apart. One directory down they diverge, which is also the contract worth pinning:
+# the state dir is anchored at the repo ROOT, not at whatever cwd the block was invoked from.
+# ONE metrics file carries both sessions, and the two roots hold state fixtures naming
+# DIFFERENT ones. That is what makes the assertions discriminating: the resolved root picks
+# the state file, the state file picks the session, and the session picks the total. Give
+# each root its own metrics file instead and both cases pass no matter which root won —
+# the total would come from the file the caller named, not from the path the script derived.
+DERIV="$TMP/derived-repo"
+DERIV2="$TMP/override-root"
+mkdir -p "$DERIV/nested/cwd"
+git -C "$DERIV" init -q
+mk_state "$DERIV/.claude/pipeline-state"  deriv-root "$SID_A" "" "$F_HI"
+mk_state "$DERIV2/.claude/pipeline-state" deriv-root "$SID_B" "" "$F_HI"
+mk_metrics "$TMP/deriv-metrics.jsonl" claude_code.cost.usage \
+  "$SID_A:2026-05-01T10:30:00Z:0.40" "$SID_B:2026-05-01T10:30:00Z:0.70"
+T="$(cd "$DERIV/nested/cwd" && env -u STATECTL_STATE_DIR -u SECOND_SHIFT_REPO_ROOT -u SECOND_SHIFT_CONFIG \
+  OTEL_METRICS_FILE="$TMP/deriv-metrics.jsonl" COST_BLOCK_DUMP_ROLLUP=1 GH_BOT="$STUB_BOT" \
+  bash "$SCRIPT" deriv-root 2>/dev/null | jq -r '.totals.cost_usd')"
+[[ "$T" == "0.4" || "$T" == "0.40" ]] \
+  && ok "from a nested cwd the state dir derives from the git-common-dir ROOT, not cwd (total $T)" \
+  || bad "expected 0.4 from the root-anchored state dir, got '$T'"
+
+# The same derivation, now anchored by SECOND_SHIFT_REPO_ROOT: it outranks the
+# git-common-dir parent. Still run from inside $DERIV — a perfectly good repo with its own
+# state fixture — so reading the OTHER root's session is the only outcome that separates
+# the override from the git derivation.
+T="$(cd "$DERIV/nested/cwd" && env -u STATECTL_STATE_DIR -u SECOND_SHIFT_CONFIG \
+  SECOND_SHIFT_REPO_ROOT="$DERIV2" \
+  OTEL_METRICS_FILE="$TMP/deriv-metrics.jsonl" COST_BLOCK_DUMP_ROLLUP=1 GH_BOT="$STUB_BOT" \
+  bash "$SCRIPT" deriv-root 2>/dev/null | jq -r '.totals.cost_usd')"
+[[ "$T" == "0.7" || "$T" == "0.70" ]] \
+  && ok "SECOND_SHIFT_REPO_ROOT outranks the git-common-dir parent in the derived state dir (total $T)" \
+  || bad "expected 0.7 from the SECOND_SHIFT_REPO_ROOT-anchored state dir, got '$T'"
+
 echo
 echo "Result: $PASS passed, $FAIL failed"
 [[ "$FAIL" -eq 0 ]] && exit 0 || exit 1
