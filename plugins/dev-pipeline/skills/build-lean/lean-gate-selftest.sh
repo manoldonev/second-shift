@@ -1222,6 +1222,13 @@ out="$(bgate_m3 all 7 --pr-file "$WORK/pr-ready.json" --comments-file "$WORK/com
 if [ "$rc" -eq 0 ] && [ -e "$MARKER" ]; then
   pass "(x3) AC-2: a clean pre-pass still runs milestone-3's real body (green gate not skipped)"
 else fail "(x3) expected rc=0 and the marker present, got rc=$rc marker=$([ -e "$MARKER" ] && echo present || echo absent): $out"; fi
+# #511 D-2: `all`'s 3-leg goes through the SAME launch-or-join wrapper `bash G 3` does — keyed on
+# (issue, milestone-3, worktree), so the two join one runner rather than each starting a sweep.
+# Asserted on this fixture rather than in the (dj) block because reaching milestone 3 through
+# `all` needs the clean pre-pass this case has already built.
+if grep -q 'spawned detached' <<<"$out"; then
+  pass "(x3d) #511: 'all' reaches milestone 3 through the detached runner, not an inline call"
+else fail "(x3d) expected 'all' to announce a detached milestone-3 evaluation: $out"; fi
 rm -f "$MARKER"
 reset_progress
 
@@ -4826,6 +4833,329 @@ if [ "$rc" -eq 1 ] && grep -q 'cannot resolve merge-base' <<<"$out" \
    && ! grep -q 'does not exist yet' <<<"$out" && ! grep -q 'base arm clean' <<<"$out"; then
   pass "(st17) a branch with no shared history is exit 1 naming the merge-base — not the D-9 skip and not a clean answer"
 else fail "(st17) expected rc=1 from an unresolvable merge-base, got rc=$rc: $out"; fi
+
+# ---- (dj) #511: milestone 3 runs DETACHED, and a second caller JOINS it ----------------------
+# The mechanism that removes a `-p` block's ability to hand verification to something that
+# outlives its turn. Under `claude -p` turn end IS process exit, so a session that backgrounds the
+# green gate and signs off is dead where it stands — which is what happened twice on the #497 run.
+# The gate detaches the evaluation itself and BLOCKS, so the polite yield has nothing to yield to.
+#
+# EVERY CASE GETS ITS OWN FIXTURE TREE. The runner state is keyed (issue, milestone-3, worktree),
+# so a shared tree is a shared key — and this suite already carries scars from consecutive cases
+# passing on a previous case's artifact. Separate trees make each case's marker its own.
+#
+# NO CASE RUNS A REAL SWEEP. The fixture config leaves lint/typecheck/test null under
+# allowUnverified, so the detached evaluation returns in milliseconds; the cases that must observe
+# a LIVE runner plant a short `sleep` of their own as the pid — self-terminating, and killed by
+# RECORDED PID at the end. `pkill -f` appears nowhere here: it matches this suite's own command
+# lines, and the mutual deadlock that costs is a scar this repo already paid for.
+#
+# THE PATHS ARE READ OUT OF THE GATE'S OWN OUTPUT (`runner state: <base>.{pid,rc,log}`), never
+# re-derived here. A hand-rolled copy of m3_paths' key would be a mirror: it cannot fail when
+# m3_paths changes, and it would read as coverage the whole time.
+DJ_CEILING=""
+dj_tree() { # dj_tree <name> — a committed, attested fixture tree with its own progress file
+  local t="$WORK/dj-$1"
+  mkdir -p "$t/docs/plans"
+  git -C "$t" init -q
+  git -C "$t" config user.email t@example.invalid
+  git -C "$t" config user.name t
+  printf '.claude/\n' > "$t/.gitignore"
+  printf '# spec\n\n- AC-1: the thing\n' > "$t/docs/plans/acme-7-lean.md"
+  git -C "$t" add -A >/dev/null 2>&1
+  git -C "$t" commit -q -m base >/dev/null 2>&1
+  git -C "$t" update-ref refs/remotes/origin/main HEAD
+  attest_at "$t" "$CFG" "$WORK/dj-$1-prog.md" 7
+}
+dj_gate() { # dj_gate <name> <gate-args...>   (args are passed through verbatim, flags included)
+  local n="$1"; shift
+  ( unset RUN_ID CLAUDE_CODE_SESSION_ID GH_BOT
+    # shellcheck disable=SC2030,SC2031  # subshell-local, exactly like bgate's identity seam
+    [ -n "$DJ_CEILING" ] && export LEAN_GATE_WAIT_CEILING_SECS="$DJ_CEILING"
+    cd "$WORK/dj-$n" && SECOND_SHIFT_CONFIG="$CFG" LEAN_PROGRESS_FILE="$WORK/dj-$n-prog.md" \
+    bash "$GATE" --issue-file "$ISSUE_NOREGIONS" "$@" 2>&1 )
+}
+dj_count() { # dj_count <name> <fixed-pattern>
+  local f="$WORK/dj-$1-prog.md" c
+  [ -f "$f" ] || { echo 0; return 0; }
+  c="$(grep -cF "$2" "$f" 2>/dev/null)" || c=0
+  [ -n "$c" ] || c=0
+  echo "$c"
+}
+# The gate's own announcement of where it put the runner state — the one seam the cases below key
+# on.
+#
+# IT NEVER RETURNS THE EMPTY STRING, and that is not defensive style. Callers append `.pid` to it,
+# so an empty base writes `./.pid` into whatever directory the suite was LAUNCHED from — the
+# checkout under test on every real run. That happened: a gate that stopped announcing (the
+# inherited-runner-flag bug the `(dj10)` case now guards) left a stray file in the repo root, where
+# it reads as an untracked artifact of the change rather than of the suite. A $WORK sentinel keeps
+# the spill inside the fixture, and every case's own assertions still red on it — `.log` is not
+# `-s`, `.rc` never appears — so the failure is reported rather than swapped for a quieter one.
+dj_base() {
+  local b
+  b="$(printf '%s\n' "$1" | sed -n 's/^\[lean-gate\]   runner state: \(.*\)\.{pid,rc,log}$/\1/p' | head -n1)"
+  [ -n "$b" ] || b="$WORK/dj-UNANNOUNCED"
+  printf '%s' "$b"
+}
+# The fake-runner record the cases below plant, in production's `<pid> <token>` format. THE TOKEN
+# IS NOT DECORATION: a record without one is deliberately unjoinable (it reads as a pre-token
+# leftover), so a bare pid would send every case that means to JOIN down the launch arm instead
+# and pass for the wrong reason. The value is arbitrary — nothing this suite plants ever stamps a
+# marker, which is the point of every case that plants one — except (dj13), which plants a marker
+# under this SAME token on purpose and passes it in rather than hand-copying the default.
+dj_plant() { # dj_plant <base> <pid> [token]
+  printf '%s %s\n' "$2" "${3:-dj-fake-token}" > "$1.pid"
+}
+
+# (dj1) THE EVALUATION IS NOT IN THIS PROCESS. Two halves, and one without the other is worthless:
+# the milestone-3 body's output lands in the runner's LOG (so it ran somewhere else), and the same
+# text comes back on the waiter's stdout (so a caller — including every existing case in this file
+# — still sees what it always saw).
+dj_tree m1
+out="$(dj_gate m1 3 7)"; rc=$?
+dj1_base="$(dj_base "$out")"
+if [ "$rc" -eq 0 ] \
+   && grep -q 'spawned detached' <<<"$out" \
+   && [ -n "$dj1_base" ] && [ -s "$dj1_base.log" ] \
+   && grep -qF 'mutation sweep SKIPPED' "$dj1_base.log" \
+   && grep -qF 'mutation sweep SKIPPED' <<<"$out"; then
+  pass "(dj1) milestone 3 evaluates in a detached process, and the blocking waiter replays its log"
+else fail "(dj1) expected rc=0 with the body's output in both $dj1_base.log and stdout, got rc=$rc: $out"; fi
+
+# (dj2) D-9: the RUNNER writes exactly one started/concluded pair per evaluation. The waiter writes
+# neither — if it did, every rejoined wait would inflate the unclosed diff toward INTERRUPTED_BUDGET
+# and hard-stop a run for waiting correctly.
+if [ "$(dj_count m1 '| milestone-3 | started |')" -eq 1 ] \
+   && [ "$(dj_count m1 '| milestone-3 | concluded | rc=0')" -eq 1 ]; then
+  pass "(dj2) one started/concluded pair per detached evaluation, written by the runner"
+else fail "(dj2) expected 1 started + 1 concluded, got $(dj_count m1 '| milestone-3 | started |') / $(dj_count m1 '| milestone-3 | concluded | rc=0')"; fi
+
+# (dj12) THE PID RECORD DOES NOT OUTLIVE THE EVALUATION A WAITER CONSUMED. `$M3_PID` was the only
+# one of the three runner-state paths with no `rm` anywhere — not at completion, not at teardown,
+# not in the entry sweep — so the steady state after every green milestone 3 was a dead pid sitting
+# in the state dir, and the only thing between that and (dj11)'s wrong verdict was the operating
+# system declining to reuse the number. The marker is deliberately KEPT: it is what a rejoining
+# waiter of this same launch still has to be able to read.
+if [ ! -f "$dj1_base.pid" ] && [ -f "$dj1_base.rc" ]; then
+  pass "(dj12) a consumed evaluation leaves its exit-code marker and NOT its pid record"
+else fail "(dj12) expected the pid record gone and the marker kept, got pid=$([ -f "$dj1_base.pid" ] && echo present || echo absent) rc=$([ -f "$dj1_base.rc" ] && echo present || echo absent)"; fi
+
+# (dj3) THE VACUITY GUARD, ON THE LAUNCH ARM. A marker left by an earlier evaluation must not be
+# handed back as this one's answer. Planted with a code no evaluation can produce, in production's
+# `<token> <rc>` format so it is a faithful stand-in for the previous run's: the gate returning 99
+# is the failure this notices. The second half makes it non-vacuous in the other direction — a real
+# relaunch appends a SECOND started row.
+#
+# What carries this case is now the token match in m3_marker_mine, not the `rm -f` on the launch
+# arm; a stale marker is refused wherever it is read. (dj11) is the arm that had nothing else.
+printf 'dj-old-token 99\n' > "$dj1_base.rc"
+out="$(dj_gate m1 3 7)"; rc=$?
+if [ "$rc" -eq 0 ] && [ "$(dj_count m1 '| milestone-3 | started |')" -eq 2 ]; then
+  pass "(dj3) a launching wait cannot be ended by a marker some earlier evaluation stamped"
+else fail "(dj3) expected rc=0 from a real relaunch (2 started rows), got rc=$rc with $(dj_count m1 '| milestone-3 | started |'): $out"; fi
+
+# (dj4/dj5) LAUNCH-OR-JOIN, and what the ceiling does. A live runner is JOINED — the #500 livelock
+# was a re-spawn starting a SECOND sweep into the worktree the first was still sweeping, which no
+# "never yield" rule could have stopped. The fake runner is a `sleep` this suite owns, planted at
+# the pid path the gate itself named.
+dj_tree join
+out="$(dj_gate join 3 7)"
+dj4_base="$(dj_base "$out")"
+sleep 30 &
+dj4_fake=$!
+dj_plant "$dj4_base" "$dj4_fake"
+rm -f "$dj4_base.rc"
+dj4_before="$(dj_count join '| milestone-3 |')"
+DJ_CEILING=1
+out="$(dj_gate join 3 7)"; rc=$?
+DJ_CEILING=""
+dj4_after="$(dj_count join '| milestone-3 |')"
+# D-1's own property: the ceiling gives up on the WAIT, never on the evaluation. Probed BEFORE the
+# kill, because a waiter that killed what it was waiting on would look identical afterwards.
+if kill -0 "$dj4_fake" 2>/dev/null; then dj5_alive=1; else dj5_alive=0; fi
+kill "$dj4_fake" 2>/dev/null
+wait "$dj4_fake" 2>/dev/null
+if [ "$rc" -eq 7 ] \
+   && grep -q 'JOINING it rather than launching a second' <<<"$out" \
+   && ! grep -q 'spawned detached' <<<"$out" \
+   && [ "$dj4_after" -eq "$dj4_before" ]; then
+  pass "(dj4) a live runner is JOINED, not relaunched — and the join records nothing (D-9)"
+else fail "(dj4) expected rc=7 from a join with an unmoved record, got rc=$rc lines $dj4_before -> $dj4_after: $out"; fi
+
+if [ "$dj5_alive" -eq 1 ] && grep -qF 'past the 1s ceiling' <<<"$out"; then
+  pass "(dj5) the ceiling seam ends the WAIT at its value and leaves the evaluation running"
+else fail "(dj5) expected the runner alive (got alive=$dj5_alive) and a 1s ceiling in the message: $out"; fi
+
+# (dj6) D-3 (ii): A RUNNER THAT DIES WITHOUT STAMPING. This is the state that used to be invisible
+# — a waiter polling only for success is silent through a crash, and silence reads exactly like
+# "still running". `sleep 3` outlives the launch-or-join decision (so the gate joins it) and dies
+# well inside the ceiling, so the case exercises the death and not the ceiling.
+dj_tree dead
+out="$(dj_gate dead 3 7)"
+dj6_base="$(dj_base "$out")"
+sleep 3 &
+dj6_fake=$!
+dj_plant "$dj6_base" "$dj6_fake"
+rm -f "$dj6_base.rc"
+dj6_att_before="$(dj_count dead '| milestone-3 | attempt |')"
+dj6_abs_before="$(dj_count dead '| milestone-3 | absent |')"
+DJ_CEILING=60
+out="$(dj_gate dead 3 7)"; rc=$?
+DJ_CEILING=""
+wait "$dj6_fake" 2>/dev/null
+if [ "$rc" -eq 7 ] && grep -qF 'gone and stamped no exit code' <<<"$out"; then
+  pass "(dj6) a runner that dies without stamping a code is reported as 7, not as silence"
+else fail "(dj6) expected rc=7 naming the missing code, got rc=$rc: $out"; fi
+
+# (dj7) …and 7 IS NOT A FAILURE. Nothing was evaluated, so charging a fix attempt would bound the
+# operator's budget on infrastructure, and charging the absent budget would mis-file it as "the
+# artifact is not written yet". D-5's whole argument is that neither 1 nor 4 is the honest code.
+if [ "$(dj_count dead '| milestone-3 | attempt |')" -eq "$dj6_att_before" ] \
+   && [ "$(dj_count dead '| milestone-3 | absent |')" -eq "$dj6_abs_before" ]; then
+  pass "(dj7) rc=7 spends neither the fix budget nor the absent budget"
+else fail "(dj7) expected both counters unmoved, attempts $dj6_att_before -> $(dj_count dead '| milestone-3 | attempt |'), absents $dj6_abs_before -> $(dj_count dead '| milestone-3 | absent |')"; fi
+
+# (dj8) The seam is validated BEFORE anything is spawned. Validating inside the wait would leave a
+# detached evaluation running with no waiter and no record of it, which is the exact orphan class
+# this ticket exists to stop creating.
+dj_tree badceil
+DJ_CEILING="soon"
+out="$(dj_gate badceil 3 7)"; rc=$?
+DJ_CEILING=""
+if [ "$rc" -eq 2 ] \
+   && grep -qF 'LEAN_GATE_WAIT_CEILING_SECS must be a whole number' <<<"$out" \
+   && ! grep -q 'spawned detached' <<<"$out"; then
+  pass "(dj8) a non-numeric ceiling is a usage error raised before any runner is spawned"
+else fail "(dj8) expected rc=2 with nothing spawned, got rc=$rc: $out"; fi
+
+# (dj9) THE OBSERVE SEAM DOES NOT DETACH. Observe promises to record nothing, and a detach writes a
+# pidfile, a marker and a log. With a live runner planted and a 1s ceiling, a joining call would
+# return 7 — this one returns the evaluation's own answer instead, which is only possible inline.
+dj_tree obs
+out="$(dj_gate obs 3 7)"
+dj9_base="$(dj_base "$out")"
+sleep 30 &
+dj9_fake=$!
+dj_plant "$dj9_base" "$dj9_fake"
+rm -f "$dj9_base.rc"
+DJ_CEILING=1
+out="$( unset RUN_ID CLAUDE_CODE_SESSION_ID GH_BOT
+        cd "$WORK/dj-obs" && SECOND_SHIFT_CONFIG="$CFG" LEAN_PROGRESS_FILE="$WORK/dj-obs-prog.md" \
+        LEAN_GATE_WAIT_CEILING_SECS=1 LEAN_GATE_OBSERVE=1 \
+        bash "$GATE" --issue-file "$ISSUE_NOREGIONS" 3 7 2>&1 )"; rc=$?
+DJ_CEILING=""
+kill "$dj9_fake" 2>/dev/null
+wait "$dj9_fake" 2>/dev/null
+if [ "$rc" -eq 0 ] && [ ! -f "$dj9_base.rc" ] && ! grep -q 'JOINING' <<<"$out"; then
+  pass "(dj9) LEAN_GATE_OBSERVE evaluates milestone 3 inline — it neither joins nor stamps a marker"
+else fail "(dj9) expected an inline rc=0 with no marker written, got rc=$rc: $out"; fi
+
+# (dj10) THE RUNNER IS A FORKED SUBSHELL, so a milestone-3 LANE CHILD can run its OWN milestone 3.
+# This case exists because the first two shapes of the runner both broke exactly here. An inherited
+# `LEAN_GATE_M3_RUNNER=1` on a re-exec reached the lane child — this repo's milestone-3 lane children
+# ARE lean-gate.sh (dogfooding) — and every nested milestone-3 call silently ran INLINE as a
+# "runner": no detach, no marker, the whole mechanism absent while the outer run looked healthy.
+# Nothing is inherited now, and the assertion is the property that failed: a lane child gets a
+# detached evaluation of its own, in its own tree, and reaches its own green.
+dj_tree nest_inner
+dj_tree nest_outer
+dj_nest_cfg="$WORK/dj-nest-cfg.json"
+dj_nest_out="$WORK/dj-nest-inner.out"
+jq --arg gate "$GATE" --arg tree "$WORK/dj-nest_inner" --arg cfg "$CFG" --arg prog "$WORK/dj-nest_inner-prog.md" --arg iss "$ISSUE_NOREGIONS" --arg innerout "$dj_nest_out" \
+   '.commands.acme.lint = ("cd " + $tree + " && SECOND_SHIFT_CONFIG=" + $cfg + " LEAN_PROGRESS_FILE=" + $prog + " bash " + $gate + " --issue-file " + $iss + " 3 7 > " + $innerout + " 2>&1 && echo NESTED_OK || echo NESTED_BROKEN")' \
+   "$CFG" > "$dj_nest_cfg" 2>/dev/null
+out="$( unset RUN_ID CLAUDE_CODE_SESSION_ID GH_BOT
+        cd "$WORK/dj-nest_outer" && SECOND_SHIFT_CONFIG="$dj_nest_cfg" LEAN_PROGRESS_FILE="$WORK/dj-nest_outer-prog.md" \
+        bash "$GATE" --issue-file "$ISSUE_NOREGIONS" 3 7 2>&1 )"; rc=$?
+# THE DISCRIMINATOR HAS TO BE SOMETHING ONLY THE FORK PRODUCES, and two candidates that look like
+# evidence are not. `NESTED_OK` is the inner call's exit code, which the inline bug also produced.
+# So is a started/concluded pair in the inner tree's record: append_started/append_concluded live
+# INSIDE m3_run_detached, so the pair appears whether that function was forked or called inline —
+# and calling it inline IS the bug. This case shipped asserting exactly that, and passed with the
+# handshake reintroduced and firing in this case's own nested call.
+#
+# `spawned detached` is printed between the fork and the wait, on a path the inline arm returned
+# before ever reaching. The inner call's own stdout is captured to a file for this: it is the lane
+# child's output, not the outer runner's, so nothing the outer gate printed can satisfy it.
+if [ "$rc" -eq 0 ] \
+   && grep -qx 'NESTED_OK' <<<"$out" \
+   && [ -s "$dj_nest_out" ] \
+   && grep -qF 'spawned detached' "$dj_nest_out" \
+   && [ "$(dj_count nest_inner '| milestone-3 | concluded | rc=0')" -ge 1 ]; then
+  pass "(dj10) a milestone-3 lane child runs its own detached milestone 3 — nothing is inherited from the outer runner"
+else fail "(dj10) expected NESTED_OK with the inner call announcing its own detach, got rc=$rc inner_detach=$(grep -cF 'spawned detached' "$dj_nest_out" 2>/dev/null || echo 0) inner_concluded=$(dj_count nest_inner '| milestone-3 | concluded | rc=0'): $out"; fi
+
+# (dj11) THE JOIN ARM'S STALE MARKER — the other arm of the either/or (dj3) guards. `rm -f "$M3_RC"`
+# runs only after m3_runner_live has already branched to the join, so a joiner whose first act was
+# "read whatever marker is on disk" returned a PREVIOUS evaluation's code in 0s having evaluated
+# nothing. Substitute a real 0 for the 99 below and that is a green milestone 3 certifying a tree it
+# never ran against. Production reaches it by pid reuse, which is a day-scale event here rather than
+# the "whole pid wraparound" the code used to claim.
+#
+# The case plants BOTH halves of that state: a marker from an evaluation that has ended, and a live
+# pid to make the gate choose the join arm. The `sleep 3` is the recycled process — it stamps
+# nothing, exactly as an unrelated process holding a reused pid would not.
+dj_tree stalejoin
+out="$(dj_gate stalejoin 3 7)"
+dj11_base="$(dj_base "$out")"
+dj11_before="$(dj_count stalejoin '| milestone-3 |')"
+printf 'dj-old-token 99\n' > "$dj11_base.rc"
+sleep 3 &
+dj11_fake=$!
+dj_plant "$dj11_base" "$dj11_fake"
+DJ_CEILING=60
+out="$(dj_gate stalejoin 3 7)"; rc=$?
+DJ_CEILING=""
+wait "$dj11_fake" 2>/dev/null
+dj11_after="$(dj_count stalejoin '| milestone-3 |')"
+# rc=7 rather than 99 is the whole assertion; the unmoved record is what proves it reached this
+# through the JOIN arm and not by relaunching, which would pass for a reason the bug also allows.
+if [ "$rc" -eq 7 ] \
+   && grep -q 'JOINING it rather than launching a second' <<<"$out" \
+   && grep -qF 'gone and stamped no exit code' <<<"$out" \
+   && [ "$dj11_after" -eq "$dj11_before" ]; then
+  pass "(dj11) a JOIN cannot be ended by a marker some earlier evaluation stamped"
+else fail "(dj11) expected rc=7 from a join whose runner stamped nothing, got rc=$rc lines $dj11_before -> $dj11_after: $out"; fi
+
+# (dj13) THE SAME-LAUNCH RESIDUE — (dj11)'s state with ONE token instead of two, which is the state
+# the token match cannot see. (dj11) plants a marker from a DIFFERENT launch, so the comparison
+# separates them; here the retained pid record and the marker are from one launch and carry one
+# token, so the comparison matches and hands the caller a code it did not earn. Production reaches
+# this without anything being contrived: the ceiling arm keeps the pid deliberately, a reaped
+# waiter leaves it by accident, and in both cases the runner then stamps on its own — after which
+# the number is the only thing left to recycle.
+#
+# The planted `99` stands in for a real 0: that is a green milestone 3 on a tree nothing evaluated.
+dj_tree samejoin
+out="$(dj_gate samejoin 3 7)"
+dj13_base="$(dj_base "$out")"
+dj13_before="$(dj_count samejoin '| milestone-3 | started |')"
+dj13_token="dj-one-launch"
+# `sleep 30`, not a short one: the live pid has to still be live when the gate decides, or the case
+# passes down the launch arm for the wrong reason. Probed below before it is killed, exactly as
+# (dj5) probes its own — a relaunch that happened because the runner had already exited would be
+# indistinguishable from the fix afterwards.
+sleep 30 &
+dj13_fake=$!
+dj_plant "$dj13_base" "$dj13_fake" "$dj13_token"
+printf '%s 99\n' "$dj13_token" > "$dj13_base.rc"
+DJ_CEILING=60
+out="$(dj_gate samejoin 3 7)"; rc=$?
+DJ_CEILING=""
+if kill -0 "$dj13_fake" 2>/dev/null; then dj13_alive=1; else dj13_alive=0; fi
+kill "$dj13_fake" 2>/dev/null
+wait "$dj13_fake" 2>/dev/null
+dj13_after="$(dj_count samejoin '| milestone-3 | started |')"
+# rc=0 rather than 99 is the harm; `spawned detached` plus a SECOND started row is what proves the
+# gate got there by evaluating the tree rather than by a join that read the marker in 0s.
+if [ "$rc" -eq 0 ] \
+   && [ "$dj13_alive" -eq 1 ] \
+   && grep -q 'spawned detached' <<<"$out" \
+   && ! grep -q 'JOINING it rather than launching a second' <<<"$out" \
+   && [ "$dj13_after" -eq $((dj13_before + 1)) ]; then
+  pass "(dj13) a runner whose own launch already stamped a marker is NOT joinable — a live pid is not evidence its evaluation is unfinished"
+else fail "(dj13) expected a relaunch to rc=0 with the planted pid still live, got rc=$rc alive=$dj13_alive started $dj13_before -> $dj13_after: $out"; fi
 
 echo "[lean-gate-selftest] $([ "$FAILS" -eq 0 ] && echo 'all green' || echo "$FAILS FAILURE(S)")"
 exit "$FAILS"
