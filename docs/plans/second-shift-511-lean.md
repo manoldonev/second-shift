@@ -90,8 +90,8 @@ rules. No user-visible surface renders, and this repo configures no `design.prov
   survives would have left review's most likely death unexamined.
 
 - **AC-10 — the mechanism is selftested, and one half deliberately is not.** `lean-gate-selftest.sh`
-  gains a `(dj)` block covering AC-1..AC-7 and AC-13, each case on its own fixture tree so the
-  runner key is its own, plus `(x3d)` pinning that `all` reaches milestone 3 through the same
+  gains a `(dj)` block covering AC-1..AC-7, AC-13 and AC-14, each case on its own fixture tree so
+  the runner key is its own, plus `(x3d)` pinning that `all` reaches milestone 3 through the same
   wrapper.
   **The prose half of AC-8 has no guard, and that is the decision, not an omission**: `CLAUDE.md`
   forbids prose-presence guards, because grepping a rule out of a SKILL asserts only that prose
@@ -99,12 +99,19 @@ rules. No user-visible surface renders, and this repo configures no `design.prov
   mechanism is the guard for the milestone-3 half; the "any in-flight work" half has no kill
   criterion and none is manufactured for it.
 
-- **AC-11 — the mutation obligations that ride on editing a guard.** Four
+- **AC-11 — the mutation obligations that ride on editing a guard.** Five
   `tools/mutation-catalog.tsv` rows pin the mutants whose survival would be silent:
   `lean-gate-m3-no-join` (#500's livelock restored), `lean-gate-m3-stale-marker` (a green gate
   certifying a tree it never ran against), `lean-gate-m3-death-blind` (#496's silence class at
-  a second site) and `lean-gate-m3-pid-outlives` (the dead pid that stale-marker needs as raw
-  material). Each was applied and scored before being written down.
+  a second site), `lean-gate-m3-pid-outlives` (the dead pid that stale-marker needs as raw
+  material) and `lean-gate-m3-samelaunch-join` (stale-marker's harm on the one state the token
+  comparison cannot see). Each was applied and scored before being written down.
+
+  **`lean-gate-m3-no-join` is RE-ANCHORED, and the re-anchor is the obligation rather than a
+  cosmetic follow.** Its sed pinned the literal `if m3_runner_live; then`, which AC-14 replaces
+  with `if m3_joinable; then` — a row left on the old text would match nothing, apply nothing, and
+  report SURVIVED for a mutant that was never introduced. The mutant itself is unchanged (the join
+  arm becomes unreachable) and `(dj4)` still kills it.
 
   **`lean-gate-m3-stale-marker` is RE-ANCHORED off the launch arm's `rm -f "$M3_RC"`**, and the
   reason is the AC-13 fix rather than drift: the token match refuses a stale marker wherever it is
@@ -155,8 +162,29 @@ rules. No user-visible surface renders, and this repo configures no `design.prov
   and not the "whole pid wraparound" the code claimed. Second half: **the pid record does not
   outlive the evaluation a waiter consumed** — it was the only one of the three runner-state paths
   with no `rm` anywhere, so every green milestone 3 left a dead pid in the state dir waiting to be
-  recycled. `(dj11)` and `(dj12)`. The ceiling arm deliberately keeps the pid: that runner is alive
-  and a re-invocation must be able to rejoin it.
+  recycled. `(dj11)` and `(dj12)`. The ceiling arm still deliberately keeps the pid — that runner is
+  alive and a re-invocation must be able to rejoin it — and **that carve-out is where AC-14 lives**,
+  because its premise expires the moment the runner finishes.
+
+- **AC-14 — a runner is joinable only while its evaluation is UNFINISHED, and a live pid is not
+  that fact.** The token is the discriminator against a stale marker, and it has one blind spot by
+  construction: a retained pid record and a marker stamped by *the same launch* carry *the same
+  token*, so the comparison matches and a join consumes a code it did not earn in 0s. Two ways in,
+  neither contrived — AC-13's ceiling carve-out keeps the pid on purpose, and a waiter killed by
+  the harness's reap keeps it by accident (both `rm -f "$M3_PID"` sites are inside `m3_wait`, there
+  is no trap, and nothing clears it until the next launch on that key). In both, the runner then
+  stamps on its own and only the pid *number* is left to recycle. `m3_joinable` closes it where the
+  decision is made: a marker bearing the record's own token is proof that launch is over, because
+  the stamp is the runner's last statement, so the call falls through to the launch arm — which
+  clears the marker and evaluates the tree the caller actually has. `(dj13)`, which is `(dj11)`'s
+  state with one token in place of two.
+  **The completed-but-unconsumed evaluation is discarded, and that is the trade, not an oversight:**
+  nothing proves it ran against this caller's tree, and the ceiling arm's remedy text is corrected
+  to say a re-invocation rejoins the runner *while it runs* rather than unconditionally.
+  **Rejected: having the runner delete its own pid record after stamping.** It depends on the runner
+  surviving past its own last statement, so a `kill -9` in that window rebuilds the residue exactly;
+  and an unconditional delete there can remove a *later* launch's record, whose waiter then reads
+  the missing pidfile as a death and returns 7 having evaluated nothing.
 
 ## Out of scope
 

@@ -2270,9 +2270,10 @@ m3_paths() {
 # wait rather than a wrong verdict", was wrong in both halves: `kern.maxproc` is a few thousand,
 # pids recycle within a day of ordinary use here, and a reboot walks straight back through a
 # recorded one within minutes — and what the resulting join returned was a PREVIOUS evaluation's
-# exit code, instantly. The token is what makes the second half true now: a waiter attached to a
-# recycled pid waits for a marker stamped by THAT launch, which never comes, so the cost is a
-# ceiling wait and `rc=7`.
+# exit code, instantly. TWO mechanisms make the second half true now, and the token alone is not
+# one of them: a waiter attached to a recycled pid waits for a marker stamped by THAT launch, AND
+# m3_joinable refuses the join outright when that launch has already stamped one. Without the
+# second, the marker the waiter is sent to wait for is the one already on disk.
 #
 # A record carrying no token predates this format and is deliberately NOT joinable — nothing it
 # could stamp would be identifiable — so it reads as dead and relaunches, the recoverable
@@ -2318,6 +2319,36 @@ m3_marker_mine() { # m3_marker_mine <token> — sets M3_MARKER_RC when the marke
   # than passing a milestone on an unparseable code.
   case "$rc" in ''|*[!0-9]*) rc=7 ;; esac
   M3_MARKER_RC="$rc"
+  return 0
+}
+
+# A RUNNER IS JOINABLE ONLY WHILE ITS EVALUATION IS UNFINISHED, and "unfinished" is the ABSENCE of
+# that launch's own marker — never the liveness of its pid. Those are two different facts, and the
+# gap between them is where the ceiling arm's carve-out lives: it returns 7 and deliberately KEEPS
+# the pid record so a re-invocation can rejoin a runner that is genuinely still working. That
+# premise expires the moment the runner finishes. What is on disk then is a retained pid record and
+# a marker THE SAME LAUNCH stamped — one launch, ONE TOKEN — so the token match, which is the whole
+# defense against a stale marker, cannot separate them, and a joiner that arrived on a recycled pid
+# consumed that marker in 0s having evaluated nothing. The ceiling is not the only way in: a waiter
+# killed by the harness's reap leaves the identical residue, because both `rm -f "$M3_PID"` sites
+# are inside m3_wait and there is no trap — and nothing clears it until the next launch on that key,
+# which is exactly the interval over which pid reuse becomes likely.
+#
+# The stamp is m3_run_detached's LAST statement, so a marker bearing this record's token is proof
+# that launch is over. Refusing the join sends the caller down the launch arm, which clears the
+# stale marker and evaluates the tree the caller actually has — the recoverable direction, and the
+# same one a token-less record already takes. The cost is a completed-but-unconsumed evaluation
+# being discarded rather than handed to a waiter that was never attached to it, which is the
+# honest trade: nothing proves that evaluation ran against this caller's tree.
+#
+# NOT FIXED BY HAVING THE RUNNER DELETE ITS OWN PID RECORD. That depends on the runner surviving
+# past its own stamp, so a `kill -9` in that window rebuilds the residue exactly; and an
+# unconditional delete there can remove a LATER launch's record, whose waiter then reads the
+# missing pidfile as a death and returns 7 having evaluated nothing. This predicate needs nothing
+# from the runner and is evaluated where the decision is actually made.
+m3_joinable() {
+  m3_runner_live || return 1
+  if m3_marker_mine "$M3_R_TOKEN"; then return 1; fi
   return 0
 }
 
@@ -2372,7 +2403,7 @@ m3_wait() { # m3_wait <ceiling-secs> <token>
       pid="$(m3_runner_pid)"
       m3_replay_log
       warn "✗ milestone-3: still running after ${SECONDS}s, past the ${ceiling}s ceiling (LEAN_GATE_WAIT_CEILING_SECS) — giving up on the WAIT, not on the evaluation."
-      warn "  Runner pid ${pid:-unknown} is still alive and is NOT killed here. Re-invoking rejoins it; \`kill\` that pid to stop it. Nothing was evaluated and no fix attempt was charged."
+      warn "  Runner pid ${pid:-unknown} is still alive and is NOT killed here. Re-invoking rejoins it WHILE IT RUNS; once it finishes, its answer belongs to no waiter and the next call evaluates afresh. \`kill\` that pid to stop it. Nothing was evaluated and no fix attempt was charged."
       return 7
     fi
     sleep "$M3_POLL_SECS"
@@ -2426,7 +2457,7 @@ m3_launch_or_join() {
   [ "$ceiling" -gt 0 ] \
     || envfail "LEAN_GATE_WAIT_CEILING_SECS must be greater than 0, got '$ceiling'."
 
-  if m3_runner_live; then
+  if m3_joinable; then
     pid="$(m3_runner_pid)"
     # D-9: A JOIN WRITES NOTHING. #497 defines the unclosed diff as "evaluations that began and
     # never returned"; a join is not an evaluation beginning, and counting it would walk an

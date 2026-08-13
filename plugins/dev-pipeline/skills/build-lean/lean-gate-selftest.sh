@@ -4902,9 +4902,10 @@ dj_base() {
 # IS NOT DECORATION: a record without one is deliberately unjoinable (it reads as a pre-token
 # leftover), so a bare pid would send every case that means to JOIN down the launch arm instead
 # and pass for the wrong reason. The value is arbitrary — nothing this suite plants ever stamps a
-# marker, which is the point of every case that plants one.
-dj_plant() { # dj_plant <base> <pid>
-  printf '%s %s\n' "$2" "dj-fake-token" > "$1.pid"
+# marker, which is the point of every case that plants one — except (dj13), which plants a marker
+# under this SAME token on purpose and passes it in rather than hand-copying the default.
+dj_plant() { # dj_plant <base> <pid> [token]
+  printf '%s %s\n' "$2" "${3:-dj-fake-token}" > "$1.pid"
 }
 
 # (dj1) THE EVALUATION IS NOT IN THIS PROCESS. Two halves, and one without the other is worthless:
@@ -4951,7 +4952,7 @@ else fail "(dj12) expected the pid record gone and the marker kept, got pid=$([ 
 printf 'dj-old-token 99\n' > "$dj1_base.rc"
 out="$(dj_gate m1 3 7)"; rc=$?
 if [ "$rc" -eq 0 ] && [ "$(dj_count m1 '| milestone-3 | started |')" -eq 2 ]; then
-  pass "(dj3) a stale rc marker is cleared at launch — the wait cannot return a previous evaluation's code"
+  pass "(dj3) a launching wait cannot be ended by a marker some earlier evaluation stamped"
 else fail "(dj3) expected rc=0 from a real relaunch (2 started rows), got rc=$rc with $(dj_count m1 '| milestone-3 | started |'): $out"; fi
 
 # (dj4/dj5) LAUNCH-OR-JOIN, and what the ceiling does. A live runner is JOINED — the #500 livelock
@@ -5116,6 +5117,45 @@ if [ "$rc" -eq 7 ] \
    && [ "$dj11_after" -eq "$dj11_before" ]; then
   pass "(dj11) a JOIN cannot be ended by a marker some earlier evaluation stamped"
 else fail "(dj11) expected rc=7 from a join whose runner stamped nothing, got rc=$rc lines $dj11_before -> $dj11_after: $out"; fi
+
+# (dj13) THE SAME-LAUNCH RESIDUE — (dj11)'s state with ONE token instead of two, which is the state
+# the token match cannot see. (dj11) plants a marker from a DIFFERENT launch, so the comparison
+# separates them; here the retained pid record and the marker are from one launch and carry one
+# token, so the comparison matches and hands the caller a code it did not earn. Production reaches
+# this without anything being contrived: the ceiling arm keeps the pid deliberately, a reaped
+# waiter leaves it by accident, and in both cases the runner then stamps on its own — after which
+# the number is the only thing left to recycle.
+#
+# The planted `99` stands in for a real 0: that is a green milestone 3 on a tree nothing evaluated.
+dj_tree samejoin
+out="$(dj_gate samejoin 3 7)"
+dj13_base="$(dj_base "$out")"
+dj13_before="$(dj_count samejoin '| milestone-3 | started |')"
+dj13_token="dj-one-launch"
+# `sleep 30`, not a short one: the live pid has to still be live when the gate decides, or the case
+# passes down the launch arm for the wrong reason. Probed below before it is killed, exactly as
+# (dj5) probes its own — a relaunch that happened because the runner had already exited would be
+# indistinguishable from the fix afterwards.
+sleep 30 &
+dj13_fake=$!
+dj_plant "$dj13_base" "$dj13_fake" "$dj13_token"
+printf '%s 99\n' "$dj13_token" > "$dj13_base.rc"
+DJ_CEILING=60
+out="$(dj_gate samejoin 3 7)"; rc=$?
+DJ_CEILING=""
+if kill -0 "$dj13_fake" 2>/dev/null; then dj13_alive=1; else dj13_alive=0; fi
+kill "$dj13_fake" 2>/dev/null
+wait "$dj13_fake" 2>/dev/null
+dj13_after="$(dj_count samejoin '| milestone-3 | started |')"
+# rc=0 rather than 99 is the harm; `spawned detached` plus a SECOND started row is what proves the
+# gate got there by evaluating the tree rather than by a join that read the marker in 0s.
+if [ "$rc" -eq 0 ] \
+   && [ "$dj13_alive" -eq 1 ] \
+   && grep -q 'spawned detached' <<<"$out" \
+   && ! grep -q 'JOINING it rather than launching a second' <<<"$out" \
+   && [ "$dj13_after" -eq $((dj13_before + 1)) ]; then
+  pass "(dj13) a runner whose own launch already stamped a marker is NOT joinable — a live pid is not evidence its evaluation is unfinished"
+else fail "(dj13) expected a relaunch to rc=0 with the planted pid still live, got rc=$rc alive=$dj13_alive started $dj13_before -> $dj13_after: $out"; fi
 
 echo "[lean-gate-selftest] $([ "$FAILS" -eq 0 ] && echo 'all green' || echo "$FAILS FAILURE(S)")"
 exit "$FAILS"
