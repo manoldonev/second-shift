@@ -84,6 +84,23 @@ OUT="$(LEAN_LANE_PS_DIR="$PS_B2" bash "$LR" lane-pid --from 100 2>/dev/null)"
   || fail "(b2) '-zsh' and '/bin/bash' both read as shells — got '$OUT', wanted 300"
 
 # ---------------------------------------------------------------------------------------
+# (b3) The `-x` in `_is_shell`'s `grep -qxF`, in the direction it actually matters. The
+# candidate `comm` is the PATTERN and SHELL_NAMES is the input, so `bashful` — the example the
+# helper's comment used to cite — never matches either way and cannot detect the flag. A SHORT
+# non-shell name can: `as`, the assembler, is a substring of `dash`. Drop `-x` and the walk
+# reads pid 200 as a shell, steps over the real non-shell ancestor, and keys the lane on 300
+# instead. Whole-line membership is what makes 200 the answer.
+# ---------------------------------------------------------------------------------------
+PS_B3="$BASE/ps-b3"
+stage_proc "$PS_B3" 100 200 bash   "s"
+stage_proc "$PS_B3" 200 300 as     "s"
+stage_proc "$PS_B3" 300 1   claude "s"
+OUT="$(LEAN_LANE_PS_DIR="$PS_B3" bash "$LR" lane-pid --from 100 2>/dev/null)"
+[[ "$OUT" == "200" ]] \
+  && ok "(b3) a short non-shell comm inside a shell name ('as' in 'dash') is not a shell" \
+  || fail "(b3) a short non-shell comm inside a shell name ('as' in 'dash') is not a shell — got '$OUT', wanted 200"
+
+# ---------------------------------------------------------------------------------------
 # (c) An all-shell chain has no non-shell ancestor. Falls back to the immediate parent, which
 # under-counts (that entry ages out fast) rather than over-counting.
 # ---------------------------------------------------------------------------------------
@@ -94,6 +111,23 @@ OUT="$(LEAN_LANE_PS_DIR="$PS_C" bash "$LR" lane-pid --from 100 2>/dev/null)"
 [[ "$OUT" == "200" ]] \
   && ok "(c) an all-shell chain falls back to the immediate parent" \
   || fail "(c) an all-shell chain falls back to the immediate parent — got '$OUT', wanted 200"
+
+# ---------------------------------------------------------------------------------------
+# (c2) The walk's pid-1 stop, against a pid 1 that ANSWERS. (c) above also has a ppid of 1, but
+# stages no facts for it, so the walk there breaks because `_ps_field` failed — the right answer
+# for the wrong reason, and a build with the pid-1 arm deleted still passes it. On a real machine
+# `ps -o comm= -p 1` answers `launchd`/`systemd`, which is not a shell, so without the arm EVERY
+# lane resolves onto init: one never-dying row that every later run reads as itself, collapsing
+# the lane count to 1 forever. Staging init is what makes the arm's absence observable.
+# ---------------------------------------------------------------------------------------
+PS_C2="$BASE/ps-c2"
+stage_proc "$PS_C2" 100 200 bash    "s"
+stage_proc "$PS_C2" 200 1   zsh     "s"
+stage_proc "$PS_C2" 1   0   launchd "s"
+OUT="$(LEAN_LANE_PS_DIR="$PS_C2" bash "$LR" lane-pid --from 100 2>/dev/null)"
+[[ "$OUT" == "200" ]] \
+  && ok "(c2) a live, non-shell pid 1 is never the lane — the walk stops before init" \
+  || fail "(c2) a live, non-shell pid 1 is never the lane — got '$OUT', wanted 200"
 
 # ---------------------------------------------------------------------------------------
 # (d) No process facts at all — a `ps` that is absent or refuses. Must still print a pid.

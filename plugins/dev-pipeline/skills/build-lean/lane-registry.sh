@@ -74,8 +74,12 @@ die() { echo "[lane-registry] $1" >&2; exit 2; }
 warn() { echo "[lane-registry] $1" >&2; }
 
 # The shell set the ancestor walk steps over. Newline-delimited and matched with `grep -qxF`
-# rather than a case glob: exact whole-line membership, no accidental prefix match on a
-# command named `bashful`.
+# rather than a case glob: exact whole-line membership. `-x` is load-bearing, and in the
+# direction that is easy to state backwards — the candidate `comm` is the PATTERN and this list
+# is the INPUT, so a longer command like `bashful` never matches with or without it. What `-x`
+# actually prevents is the inverse: a SHORT non-shell `comm` matching inside a longer shell
+# name (`as`, the assembler, sits inside `dash`). Without it the walk would step over a real
+# non-shell ancestor and key the lane on something further up the tree. Case (b3) pins it.
 SHELL_NAMES='sh
 bash
 zsh
