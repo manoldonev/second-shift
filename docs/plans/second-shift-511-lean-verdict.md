@@ -1,167 +1,140 @@
 # lean review verdict — #511
 
-verdict=needs-work
-run_id: review-511-2
-session_id: aca69924-f024-48a9-8611-2cf86546f540
-rounds: 2
+verdict=approve
+run_id: review-511-3
+session_id: 86362dd9-60eb-40d5-a8a0-967c24b4b2df
+rounds: 3
 pr: #535
-reviewed_head: a3f7f21a808bdb97e15b63992f31676ee5cccceb
-reviewed_patch_id: c63e4ac1f271e19652a0da5c53cc60de32c6b9b8
-inherited_patch_id: 0818dd2da8c9e62051980465569c4fa8d31a1cb6
-inherited_from_verdict: 7849f6640cf587a6549aba7af1028099b087a29e
+reviewed_head: d1c59254ed72f3181289dec2c90e9030d017251e
+reviewed_patch_id: af0abbd579a73b001264db2f380aace01a547772
+inherited_patch_id: c63e4ac1f271e19652a0da5c53cc60de32c6b9b8
+inherited_from_verdict: 204e7ac7ecc0d63767d79941a54b35a35f95fe35
 fidelity: not-applicable
 model: opus
 capabilities: pr-marker
 
-Round 2 read the whole branch diff (`add4dec..HEAD`, 7 files) — `bash G delta 511` reported a FULL
-range with nothing verifiable to inherit, because round 1's `reviewed_head` (`53333c8`) is no longer
-an ancestor: the branch was rebased onto the new base after that round. Panel: security,
-performance, maintainability, complexity, test-coverage, scope-completeness — all six returned, none
-dark, zero findings above threshold. The finding below is mine, reproduced with a probe.
+Round 3 read `204e7ac..HEAD` (one commit, 4 files), inheriting the coverage of patch `c63e4ac1f271`
+under round 2's record. Round 2's single blocker is **closed**, and the closure was verified by
+mutating the fix back out rather than by reading the new assertion. No blockers this round.
 
-**Round 1's two blockers are both closed, and both closures were verified by re-running round 1's own
-probes rather than by reading the diff.** A third defect of the same class remains, on the one arm
-AC-13 deliberately exempts.
+Panel: security, performance, maintainability, complexity, test-coverage, scope-completeness — all
+six returned, **none dark**, zero findings above threshold; scope-completeness PASS against the
+issue body's own items. Two suppressed, both correctly under the bar: `m3_joinable`'s TOCTOU at
+confidence 40 (single-operator repo-local state dir, and the losing race relaunches — the
+recoverable direction) and `(dj13)`'s fixture token literal at 30. `test-coverage-reviewer`'s first
+attempt returned empty and the fan-out's own on-substrate retry landed it, so the domain closest to
+this commit is covered rather than papered over. Scope-completeness noted for itself that the
+round's delta range is not the PR base and re-classified against the full PR range — the right
+call, and it still passed. The findings below are mine; the panel has returned zero for three
+rounds running.
 
-## Blocker
+## Verified this round — round 2's blocker
 
-### B3 — a wait still returns a code it did not earn, on the arm that keeps the pid record
+**B3 closed.** `m3_joinable` (`lean-gate.sh:2349-2353`) refuses a join when a marker bearing the
+record's own token is already on disk, and the call falls through to the launch arm, which clears
+the marker and evaluates the caller's tree. The stamp is `m3_run_detached`'s last statement, so a
+marker under the record's token is proof that launch is over — the predicate keys on the one fact
+that separates the two states, where the token could not.
 
-`lean-gate.sh:2371-2377` (the ceiling arm) is the only `m3_wait` exit that leaves `$M3_PID` on disk,
-and it is deliberate: AC-13 says "that runner is alive and a re-invocation must be able to rejoin
-it." That premise stops being true the moment the runner finishes — and when it does, the retained
-pid record and the marker the runner then stamps **carry the same token, because they are from the
-same launch**. The token binding cannot discriminate them, and the join arm consumes the marker in
-0s having evaluated nothing.
+Certified by mutation, not by reading. Degrading `m3_joinable` back to bare liveness (the committed
+`lean-gate-m3-samelaunch-join` sed, applied verbatim) reds **`(dj13)` alone** against a 13-case green
+baseline, and it reds with the harm itself rather than a proxy:
 
-Probed in an isolated worktree at the reviewed head, appended to the `(dj)` block so it reuses
-`dj_tree`/`dj_gate`. Stage (a) fabricates nothing — a fixture whose lint lane is `sleep 5` under a
-1s ceiling reaches the real ceiling arm, and the runner then stamps on its own:
+    FAIL: (dj13) expected a relaunch to rc=0 with the planted pid still live,
+          got rc=99 alive=1 started 1 -> 1: [lean-gate] milestone-3: an evaluation is
+          already running in this worktree (pid 57807) — JOINING it rather than launching a second.
 
-    PROBE-C stage-a rc=7 (expect 7 = ceiling)
-    PROBE-C residue after 5s: pid=[59344 59005-1-7938] rc=[59005-1-7938 0]
-    PROBE-C the retained pid record and the stale marker CARRY THE SAME TOKEN (59005-1-7938)
+`rc=99` is the planted stale code returned through the join arm with the progress record unmoved —
+verbatim the state PROBE-C produced last round.
 
-Stage (b) substitutes only the pid *number* for a live one — standing in for the OS handing that
-number to another process, which is the trigger AC-13 itself names — and leaves the token exactly as
-the launch wrote it:
+**The re-anchor of `lean-gate-m3-no-join` was obligatory, and I checked rather than assumed it.**
+Round 2's sed (`s#^  if m3_runner_live; then$#...#`) applied to this head changes **0 lines**;
+`tools/mutation-sweep.sh:1567-1569` reds `catalog anchor drift` on exactly that, so CI would have
+failed rather than silently passed. The re-anchored row applies one line and reds `(dj4)` — plus
+`(dj5)`, `(dj6)`, `(dj11)`, since removing the join arm takes every case that means to join.
 
-    PROBE-C stage-b rc=0 elapsed=0s record 4 -> 4 (ceiling was 20s)
-    PROBE-C stage-b out: [lean-gate] milestone-3: an evaluation is already running in this worktree
-                         (pid 71267) — JOINING it rather than launching a second.
-
-`rc=0` in `0s` with the progress record unmoved: a **green milestone 3 on a tree it never
-evaluated**, which is verbatim the harm B1 named and the `lean-gate-m3-stale-marker` catalog row
-describes.
-
-**The ceiling arm is not the only way in, and this is what sets the severity.** The two `rm -f
-"$M3_PID"` sites are both inside `m3_wait` (2349, 2363); there is no trap, and neither `teardown`
-nor `cmd_entry_sweep` touches the runner state. So a waiter killed by the harness's reap — the
-routine case this ticket exists for, and one this PR's own body records happening in production —
-leaves the identical residue: `.pid` retained, `.rc` stamped later by the surviving runner with that
-same token. Nothing clears it until the next milestone-3 *launch* on that key, so an abandoned or
-hard-stopped run leaves it on disk indefinitely, which is precisely the interval over which pid
-reuse becomes likely.
-
-The in-code note at 2267-2275 states the opposite as settled: "a waiter attached to a recycled pid
-waits for a marker stamped by THAT launch, which never comes, so the cost is a ceiling wait and
-`rc=7`." The marker stamped by THAT launch is exactly what is on disk. This is the same shape round
-1 flagged at 2091-2095 — a reachability argument in a comment that is wrong in the direction that
-makes the defect invisible — rewritten in a new place rather than re-derived.
-
-Two fixes that close it without giving up the rejoin the carve-out exists for, since neither
-touches the window where the runner is genuinely alive: have `m3_run_detached` `rm -f "$M3_PID"`
-after its stamp (the runner is the one process that knows the evaluation is over), or have the join
-arm refuse to join when a marker carrying the joined runner's token is *already* on disk and
-relaunch instead.
-
-## Verified this round — round 1's blockers
-
-Both closures were probed, not read. Each mutation isolates to exactly one case against a green
-baseline (`base` suite `rc=0`, 0 failures):
-
-- **B2 closed.** Round 1's probe reintroduced verbatim: an inline arm on `LEAN_GATE_M3_RUNNER` at the
-  top of `m3_launch_or_join`, plus `export LEAN_GATE_M3_RUNNER=1` inside the spawned subshell, with
-  the inline arm instrumented so its firing is evidence rather than inference. It fired in the case's
-  own nested tree (`INLINE-ARM-TAKEN cwd=<WORK>/dj-nest_inner issue=7`) and `(dj10)` was the **sole**
-  failure — where round 1's identical probe left the whole suite green. `spawned detached`, read off
-  the inner call's own captured stdout, is a discriminator only the fork satisfies.
-- **B1's named arm closed.** Stripping the token comparison in `m3_marker_mine` reds `(dj11)` alone,
-  and it reds with `got rc=99` — the planted stale code returned through the join arm, exactly the
-  failure the case claims to notice.
-- **AC-13's second half guarded.** Dropping `rm -f "$M3_PID"` from the marker-consumption path reds
-  `(dj12)` alone.
+**No regression toward #500's livelock.** A refused join can only mean the marker exists, and
+nothing writes that marker but the runner's final statement, so `m3_joinable` cannot refuse a runner
+that is genuinely still evaluating. `(dj4)` holds the other direction and still kills.
 
 ## Warnings
 
-- **A completed evaluation whose waiter never consumed it is discarded, and the message says
-  otherwise.** After a ceiling breach or a reap, if the runner finishes before the next invocation,
-  that invocation finds a dead pid, takes the launch arm and re-runs the whole sweep — the stamped
-  answer is thrown away. The ceiling arm's own remedy text says "Re-invoking rejoins it", which holds
-  only while the runner is alive. Cost and prose, not correctness; the fix for B3 does not change it.
-- **`(dj3)`'s pass message no longer describes what the case can fail on.** It still reads "a stale
-  rc marker is cleared at launch", but with the token match in place removing the launch `rm -f
-  "$M3_RC"` alone leaves it green, and removing the token check alone leaves it green too (the
-  launch clearing hides the planted marker) — only removing both reds it. The block comment above it
-  concedes this and the catalog row was correctly re-anchored off that clearing; the message string
-  did not follow.
-- **An unparseable marker returns `rc=7` silently.** `m3_marker_mine:2319` maps a non-numeric code to
-  7 — the right fail-closed answer — but the marker arm prints no `warn`, so the operator gets a bare
-  7 with none of the diagnosis the death and ceiling arms carry. Unreachable through the tmp+`mv`
-  write, so it costs nothing today.
-- Carried from round 1, not re-raised: `LEAN_GATE_WAIT_CEILING_SECS` is still outside `SEAM_SCRUB` and
-  so is inherited by milestone-3 lane children, which in this repo are `lean-gate.sh`. The header now
-  says so at 183-192, which is what round 1 asked for; the register is a `verbatim` lockstep row and
-  is not widenable from this side.
+- **The commit's own rejection argument applies to code it ships.** It rejects "have the runner
+  delete its own pid record" partly because "an unconditional delete there can remove a LATER
+  launch's record, whose waiter then reads the missing pidfile as a death and returns 7". Both
+  `rm -f "$M3_PID"` sites in `m3_wait` (2380, 2394) are unconditional in the same sense — they
+  delete whatever record is on disk, not necessarily the launch this wait was attached to. The
+  interleaving is narrow (a second gate process must complete `rm` marker → spawn → write pid
+  between one waiter's marker read and its `rm`, and the two arrivals this design serializes are
+  "seconds to minutes apart"), and the consequence is the recoverable direction — an `rc=7` naming a
+  runner that is actually alive, then a second sweep on the next call. **Not a blocker and not new:**
+  those two lines are round 2's AC-13 second half, outside this round's delta, and this round scored
+  them on `(dj12)` as before. It is the reasoning that is asymmetric, not the risk that is fresh. If
+  it is ever closed, the discriminator this fix already established closes it in one line — delete
+  only while the record still carries the token this wait was on.
+- **AC-11 overstates the harness's blindness to a drifted anchor.** It says a row left on the old
+  literal "would match nothing, apply nothing, and report SURVIVED for a mutant that was never
+  introduced". The sweep reds loudly instead (`catalog anchor drift`, `mutation-sweep.sh:1567-1569`),
+  which the 0-line result above confirms. Wrong in the safe direction — the obligation the AC draws
+  from it is real either way — but it is a claim about a guard, in the file that is the definition of
+  done.
+- **Carried from round 2, deliberately not re-raised:** an unparseable marker still maps to `rc=7`
+  with no `warn` (`m3_marker_mine:2320`), unreachable through the tmp+`mv` write;
+  `LEAN_GATE_WAIT_CEILING_SECS` is still outside `SEAM_SCRUB`, documented at the header and not
+  widenable from this side. Two of round 2's warnings are **closed** by this commit: the ceiling
+  arm's remedy text now says a re-invocation rejoins the runner *while it runs*, and `(dj3)`'s pass
+  message no longer names a mechanism it cannot fail on.
 
 ## Strengths
 
-- The token is the right mechanism, and both cases resting on it are non-vacuous in a way this repo
-  has been burned on: `(dj11)` and `(dj12)` each isolate under their own mutation, and `(dj10)`'s
-  re-anchoring onto `spawned detached` is exactly the discriminator round 1 named as available.
-- The catalog work is honest. `lean-gate-m3-stale-marker` moved off a clearing that no longer
-  enforces anything and onto the comparison that does, a fourth row pins the pid-lifetime half, and
-  all four seds apply-probed against the real file with BSD sed change exactly one line each — the
-  5-second check that forecloses the ALL-SURVIVED harness-break class.
-- `rc=7`'s collision with the `staleness` arm the base gained mid-flight is recorded rather than left
-  to be discovered. Verified rather than accepted: `orchestrate-lean.sh` invokes only `staleness`,
-  `4` under `LEAN_GATE_OBSERVE=1`, and `progress`, so neither reader is ever handed the other's code.
-- The commit message and the spec amendments describe what round 1 found without softening it, and
-  AC-13 was added rather than an existing AC quietly reworded — the spec diff removes no obligation.
+- The fix is placed where the decision is made rather than where the residue is written, and the
+  alternative is rejected on a stated failure mode (`kill -9` in the window after the stamp) rather
+  than on taste. Both halves are in the spec and in the code comment, not only in the commit.
+- `(dj13)` is `(dj11)`'s state with one token in place of two, which is the smallest construction
+  that isolates the blind spot — and it asserts the *live* pid (`alive=1`) so it cannot pass down the
+  launch arm for the wrong reason, the trap this suite has been burned on before.
+- Every catalog row for this guard was apply-probed against the real file with BSD sed and changes
+  exactly one line each (all five, re-checked this round) — the check that forecloses the
+  ALL-SURVIVED harness-break class.
+- The mutation arithmetic closes exactly, and the one row with no log line is accounted for rather
+  than assumed: 23 early-exit notes + 3 survivors = 26 against `applied=27`, so precisely one kill is
+  silent — `lean-gate-m3-samelaunch-join`, whose killer `(dj13)` is the suite's last case, leaving no
+  cases to truncate.
 
 ## Verification run this round
 
 - `lean-gate-selftest.sh` at the reviewed head, cold, in an isolated worktree with `env -u
-  CLAUDE_CODE_SESSION_ID -u RUN_ID -u LEAN_RUN_MODEL`: **rc=0**, all 12 `(dj)` cases pass.
-- Three mutation probes, each in its own worktree, each isolating to one case: `(dj10)`, `(dj11)`,
-  `(dj12)`. Details above.
-- `shellcheck -e SC1091,SC2015,SC2181` on both changed shell files: clean (0.11.0 locally; CI
-  installs from apt and its `lint-and-selftests` job is green on this head).
-- CI at `a3f7f21`: `lint-and-selftests` pass, `selftests (macos, bash 3.2)` pass, `mutation-sweep-pr`
-  pass. `pr-gates` fails on one arm only — `verdict=needs-work`, which is round 1's record, and the
-  freshness arms are not evaluated behind it.
-- The mutation table was read rather than the body's claim: `applied=26 killed=23 survived=3`, and
-  the three survivors are exactly the three committed `lean-gate.sh` baseline rows
-  (`cmp-eq::1`, `default::1`, `default::2`). 15 catalog rows are named killed in the log and
-  `lean-gate-m3-stale-marker` is not among them — the arithmetic closes only if it is the 16th
-  applied and the 23rd kill, which is consistent with its kill coming from `(dj11)`, the suite's last
-  case, and with the P2 probe above. AC-11's refusal to re-baseline from an advisory local sweep
-  stands.
+  CLAUDE_CODE_SESSION_ID -u RUN_ID -u LEAN_RUN_MODEL -u TMPDIR`: **rc=0**, 347 assertions, all 13
+  `(dj)` cases plus `(x3d)`.
+- Two mutation probes, each in its own worktree: `lean-gate-m3-samelaunch-join` → `(dj13)` alone;
+  `lean-gate-m3-no-join` (re-anchored) → `(dj4)`, `(dj5)`, `(dj6)`, `(dj11)`. Both `bash -n` valid
+  before running, so neither could no-op silently.
+- All five `lean-gate-m3-*` catalog seds re-probed against the real file: one line each. Round 2's
+  anchor against this head: zero lines.
+- CI at `d1c5925`: `lint-and-selftests` pass, `selftests (macos, bash 3.2)` pass, `mutation-sweep-pr`
+  pass at `applied=27 killed=24 survived=3` with survivors exactly the three committed
+  `lean-gate.sh` baseline rows (`cmp-eq::1`, `default::1`, `default::2`) — no baseline-absent
+  survivor, so AC-11's refusal to re-baseline from an advisory local sweep costs nothing.
+  `pr-gates` fails on one arm only — `verdict=needs-work`, which is round 2's record, with the
+  freshness arms not evaluated behind it.
+- `scripts/check-frozen-files.sh` against the real merge base (`add4dec`): clean. The branch is 10
+  ahead / **0 behind** `origin/main`, so CI's verdicts are on a current base.
 
 ## AC scoring
 
 | AC | Score | Basis |
 | --- | --- | --- |
-| AC-1 detached evaluation, caller blocks, log replayed | satisfied | `(dj1)`; the superseded `nohup` wording is corrected this round |
+| AC-1 detached evaluation, caller blocks, log replayed | satisfied | `(dj1)` |
 | AC-2 launch-or-JOIN, `kill -0` liveness, no `pgrep -f` | satisfied | `(dj4)`; the only `pgrep` in either file is the comment forbidding it |
-| AC-3 a JOIN records nothing | satisfied | `(dj4)`, `(dj11)`; PROBE-C independently shows 4 → 4 |
+| AC-3 a JOIN records nothing | satisfied | `(dj4)`, `(dj11)`; `(dj13)` asserts the converse — a *refused* join records one started row |
 | AC-4 three terminal states | satisfied | `(dj1)` marker, `(dj6)` death, `(dj5)` ceiling |
-| AC-5 `rc=7`, in the `Exit:` taxonomy, both readings recorded | satisfied | `(dj6)`, `(dj7)`, header 144-156; the scheduler never invokes `3`, so the readings never meet at a call site |
+| AC-5 `rc=7`, in the `Exit:` taxonomy, both readings recorded | satisfied | `(dj6)`, `(dj7)`; the scheduler invokes `staleness`, `4` and `progress` only, so the two readings never meet at a call site |
 | AC-6 3600s default, seam validated before the spawn, breach spares the runner | satisfied | `M3_WAIT_CEILING_DEFAULT=3600`, `(dj8)`, `(dj5)` |
-| AC-7 milestone 3 only; `3` and `all` share one key; observe stays inline | satisfied | `(x3d)`, `(dj9)`, the `run_milestone` dispatch |
-| AC-8 the prose half in both blocks, build-lean under the 60-line cap | satisfied | both bullets present; SKILL.md is 47 lines, `(f)`; `rc=7` now named there too |
-| AC-9 the `Workflow` exposure is measured, not assumed | satisfied | this review session is a third datapoint — a non-interactive session dispatched a six-agent `Workflow` and was re-entered with its result |
-| AC-10 the mechanism is selftested, the prose half deliberately not | satisfied | every `(dj)` case this round probed isolates; the unguarded prose half remains a stated decision |
-| AC-11 four catalog rows, baseline deliberately unedited | satisfied | CI `applied=26 killed=23 survived=3`, survivors exactly the committed baseline rows; all four seds apply-probed to one line |
-| AC-12 forked subshell, `(dj10)` asserts what both broken shapes violated | satisfied | the handshake bug reintroduced and instrumented as firing now reds `(dj10)` alone |
-| AC-13 a wait returns only its own evaluation's code; the pid does not outlive a consumed evaluation | **unsatisfied** | second half satisfied — `(dj12)`, and dropping its `rm` reds that case alone. First half falsified by PROBE-C on the ceiling/reap arm: same-launch pid record and marker share a token, so a recycled pid returns `rc=0` in 0s having evaluated nothing (B3) |
+| AC-7 milestone 3 only; `3` and `all` share one key; observe stays inline | satisfied | `(x3d)`, `(dj9)` |
+| AC-8 the prose half in both blocks, build-lean under the 60-line cap | satisfied | `build-lean/SKILL.md:40` (47 lines, `(f)`), `review-lean/SKILL.md:100-107` |
+| AC-9 the `Workflow` exposure is measured, not assumed | satisfied | a fourth datapoint: this non-interactive session dispatched the six-agent fan-out and was re-entered with its result |
+| AC-10 the mechanism is selftested, the prose half deliberately not | satisfied | 13 `(dj)` cases + `(x3d)`, green cold; the unguarded prose half remains a stated decision under `CLAUDE.md`'s no-prose-presence-guards rule |
+| AC-11 five catalog rows, `no-join` re-anchored, baseline deliberately unedited | satisfied | five rows present, each one line; the re-anchor verified obligatory (old sed → 0 lines → `catalog anchor drift` red); `mutation-baseline.tsv` is not in the branch diff and CI reports no baseline-absent survivor. The AC's account of what a drifted anchor *does* is wrong — see Warnings — but the obligation it states is met |
+| AC-12 forked subshell, `(dj10)` asserts what both broken shapes violated | satisfied | `(dj10)` on the inner call's own `spawned detached` |
+| AC-13 a wait returns only its own evaluation's code; the pid does not outlive a consumed evaluation | satisfied | falsified last round on the ceiling/reap arm, now closed by AC-14 — every remaining exit is this launch's marker or `7`. Second half unchanged and still isolated by `(dj12)` |
+| AC-14 a runner is joinable only while its evaluation is UNFINISHED | satisfied | `(dj13)`, which reds alone under the committed mutant with `rc=99` through the join arm |
