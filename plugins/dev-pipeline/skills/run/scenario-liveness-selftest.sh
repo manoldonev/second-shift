@@ -27,6 +27,11 @@
 #   predecessor  the sub-issues-sequential pre-claim ordering backstop: an open
 #                predecessor skips WITHOUT claiming (no claim receipt, no state
 #                file), a closed one claims, and the pair is proven non-vacuous
+#   lean-reentry the LEAN lane's scheduler, composed: preflight's re-entry
+#                admission (claimed label + a bot-authored claim marker) driven
+#                through the real orchestrate-lean.sh and the real lean-gate.sh
+#                in a real worktree, to the close-out's milestone-5 record — the
+#                terminal write the scheduler's own close-out check reads back
 #
 # Scope boundary: scenarios exercise the MECHANICAL chain. Agent-prose gates (the
 # scope reviewer, review-lead synthesis) appear only as their mechanical shadows —
@@ -48,6 +53,12 @@
 #     "Design Mode"); design-sync-selftest.mjs covers the engine enum drift.
 #   - Stage 10 (cleanup). It has no stage status, so there is no state shadow to
 #     assert against.
+#   - A REAL `claude -p` session re-entering a run the lean lane stopped itself.
+#     The (lean-reentry) leg below composes the scheduler with the real gate over
+#     a SCRIPTED session binary, which is its stated ceiling — CI is model-free by
+#     design, and orchestrate-lean-selftest.sh:11-16 records the same boundary for
+#     itself. Reversing it means an operator-run end to end, which is not a CI
+#     artifact, so this is a contract boundary rather than debt.
 #
 # (B) Uncovered, TRACKED — reachable today; absence here is debt, not a decision:
 #   - failureContext.reason paths with no composed driver: worktree-missing (stage-8
@@ -1901,6 +1912,268 @@ LEANDC
   [[ "$ld_nv" -ne 0 ]] \
     && pass "(lean-design-nv) non-vacuity: the same chain reds when the armed spec is disarmed mid-run" \
     || fail "(lean-design-nv) a mid-run disarm passed milestone 1 — the design legs are vacuous"
+
+  # ---- leg 8: the SCHEDULER's re-entry admission, composed to a terminal write (#514) -----
+  # Same CLAUDE.md obligation as legs 3b/3c/3d: a new gate contract extends the liveness
+  # scenario for every verdict path it touches. #510 gave orchestrate-lean.sh's preflight a
+  # SECOND accepting state — the claimed label AND this lane's bot-authored `lean-claimed`
+  # marker — and it is covered only by orchestrate-lean-selftest.sh, which drives a FAKE gate
+  # and a fake session binary. That is the component checked against itself; no scenario ever
+  # composed an admitted re-entry through to a terminal state.
+  #
+  # THIS IS THE FIRST LEG IN THIS FILE TO INVOKE THE SCHEDULER AT ALL, which is why it composes
+  # the whole lane rather than the admission alone: real orchestrate-lean.sh -> real
+  # lean-gate.sh -> a real `git worktree` on the work branch -> the close-out's
+  # `| milestone-5 | satisfied` row. That row is the very token the scheduler's own close-out
+  # check reads back, so preflight is genuinely ON the path to a terminal state — which is what
+  # makes the non-vacuity arm below mechanical rather than a claim.
+  #
+  # ITS CEILING, stated rather than papered over: the session binary is a SCRIPT. This proves
+  # the scheduler composes with the gate; it cannot prove a real `claude -p` build session
+  # re-enters. CI is model-free by design, and orchestrate-lean-selftest.sh:11-16 states the
+  # same ceiling for itself. That fidelity is provable only by an operator-run end to end.
+  #
+  # A re-entry admission is recorded in NO artifact — #510 kept the predicate read-only so the
+  # scheduler's "writes nothing" premise stays true — so the leg keys on the scheduler's own
+  # `ok intake: re-entry` line and the marker's run id alongside rc and the milestone-5 row.
+  RE_ORCH="$HERE/../run-lean/orchestrate-lean.sh"
+  if [[ ! -f "$RE_ORCH" ]]; then
+    # Absence is a FAILURE, the same posture the lean legs above take: run-lean SHIPS in this
+    # plugin, so a missing scheduler means this leg never ran — and a skipped leg reporting PASS
+    # is the vacuous green this suite exists to prevent.
+    fail "(lean-reentry) orchestrate-lean.sh not found at $RE_ORCH — the scheduler leg did not run"
+  else
+    RE_KEY=55
+    RE_BRANCH="claude/acme-$RE_KEY"
+    RE_RUN="r-lean-reentry"
+    RE_PR_NUM=21
+    RE_DIR="$TMP/lean-reentry"
+    RE_WT="$TMP/lean-reentry-wt"
+    RE_LEDGER_DIR="$LEAN_TREE/.claude/audit"
+    mkdir -p "$RE_DIR"
+    re_count() { # re_count <file> <fixed-string>
+      if [[ -f "$1" ]]; then local n; n=$(grep -cF "$2" "$1" 2>/dev/null) || n=0; echo "$n"; else echo 0; fi; }
+
+    # ITS OWN config, progress file and issue key (never legs 1-7's), because those legs thread
+    # shared mutable state in order — leg 1b explicitly runs on the state leg 1 left. An own key
+    # also keeps the `<key>-run-id` cache and the marker fixtures clear of them. $LEAN_TREE is
+    # reused as MAIN_ROOT deliberately: the scheduler resolves the lane worktree from
+    # `git worktree list --porcelain` and MAIN_ROOT from `--git-common-dir`, so a stub directory
+    # would leave the one piece of git parsing in that script unexercised.
+    RE_CFG="$RE_DIR/config.json"
+    cat > "$RE_CFG" <<'RECFG'
+{
+  "tracker": { "type": "github", "branchPrefix": "claude/acme-",
+               "labels": { "queue": "ready-for-dev", "claimed": "in-progress" } },
+  "topology": { "repos": { "acme": { "path": ".", "baseBranch": "main" } } },
+  "paths": { "plansDir": "docs/plans", "pipelineStateDir": ".claude/pipeline-state" },
+  "commands": { "acme": { "lint": null, "typecheck": null, "test": null, "allowUnverified": true } }
+}
+RECFG
+
+    # The tracker fixtures. NO queue label — that is the state `claim` leaves behind and the
+    # exact reason preflight had to grow a second accepting state.
+    RE_LABELS="$RE_DIR/labels"
+    printf 'in-progress\n' > "$RE_LABELS"
+    # Milestone 1's pause-and-ask check reads the issue body live; no Open Regions section, so
+    # it no-ops without a second tracker read.
+    RE_BODY="$RE_DIR/issue-body"
+    printf '# issue\n\nNo Open Regions section here.\n' > "$RE_BODY"
+    RE_PR="$RE_DIR/pr.json"
+    cat > "$RE_PR" <<REPR
+[{ "number": $RE_PR_NUM, "url": "https://example.invalid/pr/$RE_PR_NUM", "isDraft": false,
+   "body": "Closes #$RE_KEY\n\nSpec: docs/plans/acme-$RE_KEY-lean.md" }]
+REPR
+    # The entry sweep's own shape (`--state all`), served with a state field so a run that ever
+    # reached it could not read this lane's own open PR as closed and destroy its worktree.
+    RE_PR_ALL="$RE_DIR/pr-all.json"
+    printf '[{ "number": %s, "state": "OPEN" }]\n' "$RE_PR_NUM" > "$RE_PR_ALL"
+    RE_PR_NUMS="$RE_DIR/pr-numbers"
+    printf '%s\n' "$RE_PR_NUM" > "$RE_PR_NUMS"
+
+    # THE RE-ENTRY EVIDENCE, plus the two comments milestone 5 needs: a closing comment naming
+    # the verdict record, and the PR build-identity marker carrying THIS run's id so cmd_mark
+    # takes its no-op branch (leg 1b owns the marker's bytes; asserting them here would only
+    # duplicate it, and the no-op branch needs no GH_BOT stub).
+    RE_COMMENTS="$RE_DIR/comments.json"
+    cat > "$RE_COMMENTS" <<REC
+[{ "user": { "type": "Bot" }, "created_at": "2026-01-01T00:00:00Z",
+   "body": "<!-- dev-pipeline -->\n<!-- run_id: $RE_RUN -->\n<!-- stage: lean-claimed -->" },
+ { "user": { "type": "Bot" }, "created_at": "2026-01-02T00:00:00Z",
+   "body": "Done. Verdict record: docs/plans/acme-$RE_KEY-lean-verdict.md" },
+ { "user": { "type": "Bot" }, "created_at": "2026-01-02T00:00:00Z",
+   "body": "<!-- run_id: $RE_RUN -->\n<!-- session_id: sess-lean-re-build -->\n<!-- stage: lean-pr-marker -->" }]
+REC
+    # The non-vacuity trail: byte-identical except that the claim marker is authored by a USER.
+    # Issue comments are writable by any account on a public repo, so this is the state a hand-
+    # reset ticket presents, and the whole trail then has nothing bot-authored to admit.
+    RE_COMMENTS_NV="$RE_DIR/comments-nv.json"
+    jq '(.[] | select((.body // "") | test("stage: lean-claimed")) | .user.type) = "User"' \
+      "$RE_COMMENTS" > "$RE_COMMENTS_NV"
+
+    # ONE fake tracker CLI, injected via GH= and serving BOTH scripts — orchestrate-lean.sh and
+    # lean-gate.sh resolve their client identically (`${GH:-gh}`), so one seam covers the pair.
+    # The gate's --pr-file / --comments-file / --issue-file seams the legs above use are NOT
+    # available here: the scheduler passes none of them to the gate subprocesses it spawns.
+    # Written fresh rather than shared with orchestrate-lean-selftest.sh's — a fake gh is not
+    # production logic, so a second copy is not a mirror harness, and coupling the two would let
+    # one suite's fixture edit red the other.
+    RE_GH="$RE_DIR/gh"
+    cat > "$RE_GH" <<'REGH'
+#!/usr/bin/env bash
+echo "$*" >> "$RE_GH_LOG"
+case "$1" in
+  issue)
+    case "$*" in
+      *"--json labels"*) cat "$RE_LABELS" ;;
+      *"--json body"*)   cat "$RE_BODY" ;;
+      *) exit 1 ;;
+    esac ;;
+  pr)
+    case "$*" in
+      *"--state all"*) cat "$RE_PR_ALL" ;;
+      *"--jq"*)        cat "$RE_PR_NUMS" ;;
+      *)               cat "$RE_PR" ;;
+    esac ;;
+  api)
+    case "$*" in *comments*) cat "$RE_COMMENTS_LIVE" ;; *) exit 1 ;; esac ;;
+  *) exit 1 ;;
+esac
+REGH
+    chmod +x "$RE_GH"
+
+    # The session fake. It dispatches on the PROMPT in ARGV plus a spawn counter — the close-out
+    # is a SECOND build-lean spawn — and it advances the run ONLY by calling the REAL gate.
+    # Hand-written progress rows are the mirror-harness failure CLAUDE.md forbids: a copy cannot
+    # fail on a production edit, so the leg would stay green after the gate's writer and the
+    # scheduler's reader drifted apart, which is precisely the drift a composed leg exists for.
+    RE_SESSION="$RE_DIR/session"
+    cat > "$RE_SESSION" <<'RESESS'
+#!/usr/bin/env bash
+n=$(( $(cat "$RE_DIR/spawns" 2>/dev/null || echo 0) + 1 ))
+echo "$n" > "$RE_DIR/spawns"
+echo "spawn $n: $*" >> "$RE_DIR/session.log"
+g() { ( cd "$RE_WT" && bash "$RE_GATE" "$@" ) >> "$RE_DIR/session.log" 2>&1; }
+case "$*" in
+  *review-lean*)
+    # A DISTINCT identity on BOTH axes, or milestone 4 refuses the record on authorship (P10)
+    # before freshness is ever reached. The record comes from the REAL `verdict` subcommand: the
+    # patch id it stamps is the thing milestone 4 recomputes, so a hand-written one would compose
+    # a record no review session produces.
+    export CLAUDE_CODE_SESSION_ID=sess-lean-re-review RUN_ID=r-lean-re-review
+    g verdict "$RE_KEY" --pr "$RE_PR_NUM" --verdict approve || exit 1
+    git -C "$RE_WT" add -A >/dev/null 2>&1
+    git -C "$RE_WT" commit -q -m "review session commits its verdict record" >/dev/null 2>&1 || exit 1
+    ;;
+  *build-lean*)
+    if [ "$n" -eq 1 ]; then
+      # SKILL.md step 2 is SKIPPED, which is the whole shape of a re-entry: the marker is posted
+      # and the labels are swapped already. The run's ESTABLISHED id is exported rather than
+      # minted, so `entry` seeds the cache with the id the marker on the ticket carries.
+      export CLAUDE_CODE_SESSION_ID=sess-lean-re-build RUN_ID="$RE_RUN"
+      printf '{"tool":"Bash"}\n' > "$RE_LEDGER_DIR/sess-lean-re-build.jsonl"
+      g entry "$RE_KEY" || exit 1
+      printf '# spec\n\n- AC-1: the composed re-entry\n' > "$RE_WT/docs/plans/acme-$RE_KEY-lean.md"
+      git -C "$RE_WT" add -A >/dev/null 2>&1
+      git -C "$RE_WT" commit -q -m "build session pushes the spec" >/dev/null 2>&1 || exit 1
+      g 1 "$RE_KEY" || exit 1
+      g 2 "$RE_KEY" || exit 1
+      g 3 "$RE_KEY" || exit 1
+    else
+      # The CLOSE-OUT is a fresh session, so a fresh id — which its own `entry` admits to the
+      # build set (#446), and without which milestone 5's `mark` would refuse to stamp it.
+      export CLAUDE_CODE_SESSION_ID=sess-lean-re-close RUN_ID="$RE_RUN"
+      printf '{"tool":"Bash"}\n' > "$RE_LEDGER_DIR/sess-lean-re-close.jsonl"
+      g entry "$RE_KEY" || exit 1
+      g all "$RE_KEY" || exit 1
+      g 5 "$RE_KEY" || exit 1
+    fi
+    ;;
+  *) exit 1 ;;
+esac
+exit 0
+RESESS
+    chmod +x "$RE_SESSION"
+
+    RE_PROG="$RE_DIR/progress.md"
+    RE_PROG_NV="$RE_DIR/progress-nv.md"
+    RE_GH_LOG="$RE_DIR/gh.log"
+    # D-8: the leg must START with no `| milestone-5 | satisfied` row. append_satisfied is
+    # idempotent and the progress file is keyed by issue, so the scheduler's close-out check —
+    # which demands a NEW row — cannot move its token over a record that already carries one.
+    rm -f "$RE_PROG" "$RE_PROG_NV" "$RE_GH_LOG" "$RE_DIR/spawns" "$RE_DIR/session.log" \
+          "$LEAN_TREE/.claude/pipeline-state/$RE_KEY-run-id" \
+          "$LEAN_TREE/.claude/pipeline-state/$RE_KEY-review-run-id"
+    git -C "$LEAN_TREE" worktree add -q -b "$RE_BRANCH" "$RE_WT" HEAD >/dev/null 2>&1; re_wt=$?
+
+    # CLAUDE_CODE_SESSION_ID is UNSET on the scheduler, which is the real shape: it never sets or
+    # passes one, and each spawn's identity is the harness's own stamp — here, the fake's export.
+    # GH_BOT is unset too, and that is load-bearing rather than hygiene: an ambient one would
+    # send cmd_mark's write to a LIVE bot if its no-op branch ever stopped being taken.
+    re_run() { # re_run <progress-file> <comments-file>
+      ( cd "$LEAN_TREE" && env -u CLAUDE_CODE_SESSION_ID -u RUN_ID -u LEAN_RUN_MODEL -u GH_BOT \
+          GH="$RE_GH" LEAN_SPAWN_BIN="$RE_SESSION" \
+          SECOND_SHIFT_CONFIG="$RE_CFG" LEAN_PROGRESS_FILE="$1" RE_COMMENTS_LIVE="$2" \
+          RE_DIR="$RE_DIR" RE_WT="$RE_WT" RE_GATE="$LEAN_GATE" RE_KEY="$RE_KEY" \
+          RE_RUN="$RE_RUN" RE_PR_NUM="$RE_PR_NUM" RE_LEDGER_DIR="$RE_LEDGER_DIR" \
+          RE_LABELS="$RE_LABELS" RE_BODY="$RE_BODY" RE_PR="$RE_PR" RE_PR_ALL="$RE_PR_ALL" \
+          RE_PR_NUMS="$RE_PR_NUMS" RE_GH_LOG="$RE_GH_LOG" \
+          bash "$RE_ORCH" "$RE_KEY" --build-model sonnet 2>&1 )
+    }
+
+    re_out="$(re_run "$RE_PROG" "$RE_COMMENTS")"; re_rc=$?
+    re_m5="$(re_count "$RE_PROG" '| milestone-5 | satisfied')"
+    [[ "$re_wt" -eq 0 && "$re_rc" -eq 0 && "$re_m5" -eq 1 ]] \
+      && grep -q 'done — #' <<<"$re_out" \
+      && pass "(lean-reentry) the real scheduler admits a claimed+markered ticket and drives the lane through the real gate to its terminal write — one NEW milestone-5 satisfaction, exit 0, done" \
+      || fail "(lean-reentry) worktree=$re_wt rc=$re_rc milestone-5-rows=$re_m5, expected 0/0/1: $re_out"
+
+    # OR-2. The admission leaves no artifact, so the scheduler's own line IS the evidence — and
+    # it must NAME the re-entry rather than fold it into the queue-label wording, carrying the id
+    # off the marker it read. Without this the case above would also pass for a scheduler that
+    # accepted every claimed ticket unconditionally.
+    grep 'ok intake: re-entry' <<<"$re_out" | grep -q "run '$RE_RUN'" \
+      && pass "(lean-reentry) the admission is named as re-entry and carries the run id off the marker — the only evidence the read-only arm produces" \
+      || fail "(lean-reentry) the accept was not named as re-entry with run '$RE_RUN': $re_out"
+
+    # ...and the record was written by the REAL gate, not by the session fake. Three shapes only
+    # the gate emits: `entry`'s attestation row, one satisfied line per milestone (append_satisfied
+    # is idempotent, so the close-out's `all` + `5` still leave exactly one), and the BUILD SESSION
+    # SET spanning both spawns.
+    #
+    # The set is header ∪ rows (#446), and the asymmetry is the assertion rather than a quirk of
+    # it: the FIRST build session is the one ensure_progress_file stamps into the header, so it
+    # gets no row, while the close-out — a fresh session on a file that already exists — is
+    # admitted by its own `entry` as a `| session |` row. Without that row milestone 5's `mark`
+    # would refuse to stamp the close-out at all, so a leg asserting only the header would pass
+    # over the exact case a re-entered run is.
+    re_sat=0
+    for m in 1 2 3 4 5; do
+      [[ "$(re_count "$RE_PROG" "| milestone-$m | satisfied")" -eq 1 ]] && re_sat=$((re_sat + 1))
+    done
+    [[ "$re_sat" -eq 5 \
+       && "$(re_count "$RE_PROG" '| entry | ledger=')" -ge 1 \
+       && "$(re_count "$RE_PROG" 'session_id: sess-lean-re-build')" -eq 1 \
+       && "$(re_count "$RE_PROG" '| session | sess-lean-re-close')" -eq 1 ]] \
+      && pass "(lean-reentry) the composed chain's record is the GATE's: an entry attestation, one satisfied line per milestone, and a build-session set spanning the header's first session and the close-out spawn's own row" \
+      || fail "(lean-reentry) satisfied=$re_sat entry-rows=$(re_count "$RE_PROG" '| entry | ledger=') header-session=$(re_count "$RE_PROG" 'session_id: sess-lean-re-build') close-session-row=$(re_count "$RE_PROG" '| session | sess-lean-re-close'), expected 5/>=1/1/1"
+
+    # ---- non-vacuity for the scheduler leg -------------------------------------------------
+    # The leg above would stay green if preflight admitted every claimed ticket. Vary the
+    # FIXTURE — not production, the same discipline (lean-nv) and (lcs2) already take — so the
+    # trail carries nothing bot-authored, and the identical run must reject at exit 2, spawn
+    # nothing, and leave ZERO milestone-5 satisfactions in its own record.
+    rm -f "$RE_DIR/spawns"
+    re_nv_out="$(re_run "$RE_PROG_NV" "$RE_COMMENTS_NV")"; re_nv_rc=$?
+    re_nv_spawns="$(cat "$RE_DIR/spawns" 2>/dev/null || echo 0)"
+    [[ "$re_nv_rc" -eq 2 && "$re_nv_spawns" -eq 0 \
+       && "$(re_count "$RE_PROG_NV" '| milestone-5 | satisfied')" -eq 0 ]] \
+      && grep -q "no bot-authored 'lean-claimed' marker" <<<"$re_nv_out" \
+      && pass "(lean-reentry-nv) non-vacuity: the same composition on a trail with no bot-authored marker rejects at exit 2, spawns nothing, and reaches no terminal write" \
+      || fail "(lean-reentry-nv) rc=$re_nv_rc spawns=$re_nv_spawns milestone-5-rows=$(re_count "$RE_PROG_NV" '| milestone-5 | satisfied'), expected 2/0/0: $re_nv_out"
+
+    git -C "$LEAN_TREE" worktree remove --force "$RE_WT" >/dev/null 2>&1
+  fi
 fi
 
 
