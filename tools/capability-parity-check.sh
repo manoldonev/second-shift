@@ -149,7 +149,7 @@ if [[ -d "$STAGES_DIR" ]]; then
     rel="${f#"$ROOT"/}"
     # -x whole-line and -F literal: a citation is matched in full, and a path carrying regex
     # metacharacters cannot mis-match.
-    if ! printf '%s' "$COVERED_PATH" | grep -qxF -- "$rel"; then
+    if ! grep -qxF -- "$rel" <<<"$COVERED_PATH"; then
       err "stage doc $rel is named by no register row — every capability it implements needs a recorded disposition before it can be deleted"
     fi
   done

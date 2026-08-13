@@ -215,7 +215,7 @@ fi
 jq -n '[{number: 706, headRefName: "claude/second-shift-706", url: "https://example.invalid/pr/706"}]' \
   > "$D/prs-nofiles.json"
 OUT3="$(run_open_prs --pr-list-file "$D/prs-nofiles.json" --json 2>&1)"; RC3=$?
-if [ "$RC3" -eq 2 ] && printf '%s' "$OUT3" | grep -q "carry no 'files'"; then
+if [ "$RC3" -eq 2 ] && grep -q "carry no 'files'" <<<"$OUT3"; then
   pass "(AC-5c) open-prs: a PR list without the files field is an environment error, not an empty result"
 else
   fail "(AC-5c) rc=$RC3 — got $OUT3"
@@ -257,7 +257,7 @@ for b in team/second-shift-801 team/second-shift-802 release/1.2.0; do
 done
 OUT5B="$( cd "$TREE" && SECOND_SHIFT_CONFIG="$CFG_NOPREFIX" bash "$TOOL" open-prs \
           --pr-list-file "$D5/prs.json" --comments-dir "$D5/comments" --json 2>&1 )"; RC5B=$?
-if [ "$RC5B" -eq 2 ] && printf '%s' "$OUT5B" | grep -q 'refusing to guess'; then
+if [ "$RC5B" -eq 2 ] && grep -q 'refusing to guess' <<<"$OUT5B"; then
   pass "(AC-5e) open-prs inherits the shared refusal on an unresolvable namespace"
 else
   fail "(AC-5e) rc=$RC5B — got $OUT5B"
@@ -278,8 +278,8 @@ HELP_OUT="$(run_open_prs --help)"
 HELP_RC=$?
 HELP_LINES="$(printf '%s\n' "$HELP_OUT" | wc -l | tr -d ' ')"
 if [ "$HELP_RC" -eq 0 ] \
-   && printf '%s' "$HELP_OUT" | grep -qF 'Usage:' \
-   && ! printf '%s' "$HELP_OUT" | grep -qF 'set -uo pipefail' \
+   && grep -qF 'Usage:' <<<"$HELP_OUT" \
+   && ! grep -qF 'set -uo pipefail' <<<"$HELP_OUT" \
    && [ "$HELP_LINES" -le 39 ]; then
   pass "(help) '--help' prints the usage doc block and stops there — not the whole script"
 else
@@ -378,7 +378,7 @@ fi
 
 # AC-5, the disclosure side: 6 stage-schema files in, 2 superseded, said on STDERR — stdout
 # stays the bare array both consumers read with `.[] | …`.
-if printf '%s' "$ERR" | grep -q '6 stage-schema file(s), 2 superseded' \
+if grep -q '6 stage-schema file(s), 2 superseded' <<<"$ERR" \
    && printf '%s' "$OUT" | jq -e 'type == "array"' >/dev/null 2>&1; then
   pass "(289 AC-5) the suppression is disclosed on stderr with both counts, and stdout stays a bare array"
 else
@@ -390,7 +390,7 @@ fi
 ERRF2="$WORK/dedup-tsv.err"
 TSV="$( cd "$TREE" && bash "$TOOL" corpus --state-dir "$D" 2>"$ERRF2" )"
 TSV310="$(printf '%s\n' "$TSV" | awk -F'\t' '$1 == "stage" && $2 == "310"' | wc -l | tr -d ' ')"
-if [ "$TSV310" = "1" ] && ! printf '%s\n' "$TSV" | grep -q 'superseded' \
+if [ "$TSV310" = "1" ] && ! grep -q 'superseded' <<<"$TSV" \
    && grep -q 'superseded' "$ERRF2"; then
   pass "(289 AC-5) TSV mode dedups identically and keeps the note off stdout"
 else

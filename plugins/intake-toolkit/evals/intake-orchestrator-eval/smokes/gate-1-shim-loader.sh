@@ -43,7 +43,7 @@ fi
 
 # 2. gh issue view 1 -> returns issue-view.json body
 OUT="$("$KIT/fake-gh" issue view 1 --json body,comments,labels)"
-if ! echo "$OUT" | grep -q '"body"'; then
+if ! grep -q '"body"' <<<"$OUT"; then
   echo "FAIL: gh issue view did not echo issue-view.json"; echo "$OUT"; exit 1
 fi
 

@@ -140,11 +140,11 @@ for sha in $(git log --reverse --format=%H "$LAST_TAG..HEAD"); do
   body="$(git log -1 --format=%b "$sha")"
 
   level=1
-  if printf '%s' "$subject" | grep -qE '^[a-z]+(\([^)]*\))?!:'; then
+  if grep -qE '^[a-z]+(\([^)]*\))?!:' <<<"$subject"; then
     level=3
-  elif printf '%s\n' "$body" | grep -qE '^BREAKING CHANGE:'; then
+  elif grep -qE '^BREAKING CHANGE:' <<<"$body"; then
     level=3
-  elif printf '%s' "$subject" | grep -qE '^feat(\([^)]*\))?:'; then
+  elif grep -qE '^feat(\([^)]*\))?:' <<<"$subject"; then
     level=2
   fi
 
@@ -271,7 +271,7 @@ COVERED_PRS="$(grep -oE '#[0-9]+' "$ABSORB_FILE" 2>/dev/null | sort -u || true)"
 
 pr_covered() { # pr_covered <n> -> 0 if the absorbed prose already references PR #n
   [[ -n "$1" ]] || return 1
-  printf '%s\n' "$COVERED_PRS" | grep -qx "#$1"
+  grep -qx "#$1" <<<"$COVERED_PRS"
 }
 
 # Split absorbed content into per-plugin chunks keyed by the backticked plugin name.

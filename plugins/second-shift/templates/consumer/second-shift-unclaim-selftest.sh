@@ -97,29 +97,29 @@ echo "second-shift-unclaim selftest:"
 # (1) both roles configured and both present -> both removed, under the configured names.
 run "$CFG_CUSTOM" "$CARRIES_BOTH_CUSTOM" 42
 check "C1 configured labels: exit 0"                   "$([ "$RC" -eq 0 ] && echo 0 || echo 1)"
-check "C1 configured labels: read targets issue 42"    "$(echo "$CALLS" | grep -q 'repos/{owner}/{repo}/issues/42/labels$' && echo 0 || echo 1)"
-check "C1 configured labels: DELETEs the configured claimed name" "$(echo "$CALLS" | grep -q 'DELETE repos/{owner}/{repo}/issues/42/labels/claimed-custom' && echo 0 || echo 1)"
-check "C1 configured labels: DELETEs the configured queue name"   "$(echo "$CALLS" | grep -q 'DELETE repos/{owner}/{repo}/issues/42/labels/queue-custom' && echo 0 || echo 1)"
+check "C1 configured labels: read targets issue 42"    "$(grep -q 'repos/{owner}/{repo}/issues/42/labels$' <<<"$CALLS" && echo 0 || echo 1)"
+check "C1 configured labels: DELETEs the configured claimed name" "$(grep -q 'DELETE repos/{owner}/{repo}/issues/42/labels/claimed-custom' <<<"$CALLS" && echo 0 || echo 1)"
+check "C1 configured labels: DELETEs the configured queue name"   "$(grep -q 'DELETE repos/{owner}/{repo}/issues/42/labels/queue-custom' <<<"$CALLS" && echo 0 || echo 1)"
 
 # (2) NO config file at all — the marketplace repo's own state in CI, since it gitignores
 #     its config. Both defaults are operative. The DELETE assertions subsume "did not
 #     abort": a script treating an absent config as fatal never reaches either call.
 run "$CFG_ABSENT" "$CARRIES_BOTH_DEFAULT" 7
 check "C2 absent config: DELETEs both shipped defaults" \
-      "$(echo "$CALLS" | grep -q 'labels/in-progress' && echo "$CALLS" | grep -q 'labels/ready-for-dev' && echo 0 || echo 1)"
+      "$(grep -q 'labels/in-progress' <<<"$CALLS" && grep -q 'labels/ready-for-dev' <<<"$CALLS" && echo 0 || echo 1)"
 
 # (3) config present, labels.* absent -> jq yields the string "null".
 #     Kills the null-string half of the resolver's guard (C2 cannot: no file is read).
 run "$CFG_BARE" "$CARRIES_BOTH_DEFAULT" 7
 check "C3 config without labels.*: DELETEs both defaults" \
-      "$(echo "$CALLS" | grep -q 'labels/in-progress' && echo "$CALLS" | grep -q 'labels/ready-for-dev' && echo 0 || echo 1)"
+      "$(grep -q 'labels/in-progress' <<<"$CALLS" && grep -q 'labels/ready-for-dev' <<<"$CALLS" && echo 0 || echo 1)"
 
 # (4) unparseable config -> jq exits non-zero and yields an EMPTY value.
 #     Kills the empty-value half of the same guard, which C3 cannot reach. An unreadable
 #     config must degrade to the defaults, never abort — and reaching the DELETEs proves it.
 run "$CFG_BROKEN" "$CARRIES_BOTH_DEFAULT" 7
 check "C4 unparseable config: DELETEs both defaults" \
-      "$(echo "$CALLS" | grep -q 'labels/in-progress' && echo "$CALLS" | grep -q 'labels/ready-for-dev' && echo 0 || echo 1)"
+      "$(grep -q 'labels/in-progress' <<<"$CALLS" && grep -q 'labels/ready-for-dev' <<<"$CALLS" && echo 0 || echo 1)"
 
 # (5) tracker.writes false -> stated no-op, ZERO api calls.
 run "$CFG_NOWRITES" "$CARRIES_BOTH_DEFAULT" 42
@@ -127,13 +127,13 @@ check "C5 writes:false: exit 0"                        "$([ "$RC" -eq 0 ] && ech
 # The count and the message die together under every mutant either catches, so they are
 # one assertion: the silence is only meaningful if the log says why it was silent.
 check "C5 writes:false: zero api calls, arm named" \
-      "$([ "$NCALLS" -eq 0 ] && echo "$OUT" | grep -q 'tracker.writes is false' && echo 0 || echo 1)"
+      "$([ "$NCALLS" -eq 0 ] && grep -q 'tracker.writes is false' <<<"$OUT" && echo 0 || echo 1)"
 
 # (6) non-github tracker, writes NOT declared -> isolates the type arm from the writes arm.
 run "$CFG_JIRA" "$CARRIES_BOTH_DEFAULT" 42
 check "C6 jira tracker: exit 0"                        "$([ "$RC" -eq 0 ] && echo 0 || echo 1)"
 check "C6 jira tracker: zero api calls, arm named" \
-      "$([ "$NCALLS" -eq 0 ] && echo "$OUT" | grep -q "tracker.type is 'jira'" && echo 0 || echo 1)"
+      "$([ "$NCALLS" -eq 0 ] && grep -q "tracker.type is 'jira'" <<<"$OUT" && echo 0 || echo 1)"
 
 # (7) the item carried neither label -> the COMMON case. One read, no write.
 run "$CFG_BARE" "$CARRIES_NEITHER" 42
@@ -146,18 +146,18 @@ check "C7 neither label: exactly one api call, and not a DELETE" \
 #     rather than as a pair.
 run "$CFG_BARE" "$CARRIES_QUEUE_ONLY" 42
 check "C8 queue label only: exactly one DELETE"        "$([ "$(deletes)" -eq 1 ] && echo 0 || echo 1)"
-check "C8 queue label only: it is the queue label"     "$(echo "$CALLS" | grep -q 'DELETE repos/{owner}/{repo}/issues/42/labels/ready-for-dev' && echo 0 || echo 1)"
+check "C8 queue label only: it is the queue label"     "$(grep -q 'DELETE repos/{owner}/{repo}/issues/42/labels/ready-for-dev' <<<"$CALLS" && echo 0 || echo 1)"
 
 # (9) a multi-word label is percent-encoded — it is a PATH segment.
 run "$CFG_SPACED" "$CARRIES_SPACED" 42
 check "C9 spaced label: DELETE path encoded, raw space never sent" \
-      "$(echo "$CALLS" | grep -q 'DELETE repos/{owner}/{repo}/issues/42/labels/in%20progress' \
-         && ! echo "$CALLS" | grep -q 'labels/in progress' && echo 0 || echo 1)"
+      "$(grep -q 'DELETE repos/{owner}/{repo}/issues/42/labels/in%20progress' <<<"$CALLS" \
+         && ! grep -q 'labels/in progress' <<<"$CALLS" && echo 0 || echo 1)"
 
 # (10) the read and the delete are not atomic: a concurrent removal is success, not failure.
 STUB_DELETE_RC=1 STUB_DELETE_ERR="gh: Not Found (HTTP 404)" run "$CFG_BARE" "$CARRIES_BOTH_DEFAULT" 42
 check "C10 delete races to 404: exit 0"                "$([ "$RC" -eq 0 ] && echo 0 || echo 1)"
-check "C10 delete races to 404: says already gone"     "$(echo "$OUT" | grep -q 'already gone' && echo 0 || echo 1)"
+check "C10 delete races to 404: says already gone"     "$(grep -q 'already gone' <<<"$OUT" && echo 0 || echo 1)"
 unset STUB_DELETE_RC STUB_DELETE_ERR
 
 # (11) any other delete failure is a real failure — a broken token must surface.
@@ -170,7 +170,7 @@ unset STUB_DELETE_RC STUB_DELETE_ERR
 STUB_DELETE_RC=1 STUB_DELETE_ERR="gh: HTTP 403" STUB_FAIL_ON="in-progress" \
   run "$CFG_BARE" "$CARRIES_BOTH_DEFAULT" 42
 check "C12 first label fails: second still attempted, exit 1" \
-      "$([ "$RC" -eq 1 ] && echo "$CALLS" | grep -q 'DELETE repos/{owner}/{repo}/issues/42/labels/ready-for-dev' && echo 0 || echo 1)"
+      "$([ "$RC" -eq 1 ] && grep -q 'DELETE repos/{owner}/{repo}/issues/42/labels/ready-for-dev' <<<"$CALLS" && echo 0 || echo 1)"
 unset STUB_DELETE_RC STUB_DELETE_ERR STUB_FAIL_ON
 
 # (13) an unreadable issue must NOT be reported as "not claimed". Only the exit code is
@@ -202,7 +202,7 @@ BASH_BIN="$(command -v bash)"
 OUT="$(PATH="$STUB_DIR" GH_CALLS="$TMP/calls" SECOND_SHIFT_CONFIG="$CFG_BARE" \
        SECOND_SHIFT_REPO_ROOT="$TMP" "$BASH_BIN" "$TOOL" 42 2>&1)"; RC=$?
 check "C16 jq absent: exit 1 naming the missing tool" \
-      "$([ "$RC" -eq 1 ] && echo "$OUT" | grep -q 'jq is not on PATH' && echo 0 || echo 1)"
+      "$([ "$RC" -eq 1 ] && grep -q 'jq is not on PATH' <<<"$OUT" && echo 0 || echo 1)"
 
 # (17) BOTH env seams unset — the production path, and the ONLY case that exercises the
 #      two default expansions or the rev-parse fallback at all. Every case above pins the
@@ -234,9 +234,9 @@ run "$CFG_BLOCKERS" "$CARRIES_BLOCKERS" 42
 check "C18 blockers present: exactly two DELETEs — only the run-state pair" \
       "$([ "$(deletes)" -eq 2 ] && echo 0 || echo 1)"
 check "C18 blockers present: no shipped blockers label is DELETEd" \
-      "$(echo "$CALLS" | grep -qE 'DELETE .*labels/(epic|needs-intake-review|needs-spec-work|needs-plan-review)' && echo 1 || echo 0)"
+      "$(grep -qE 'DELETE .*labels/(epic|needs-intake-review|needs-spec-work|needs-plan-review)' <<<"$CALLS" && echo 1 || echo 0)"
 check "C18 blockers present: the CONFIGURED blockers label is not DELETEd" \
-      "$(echo "$CALLS" | grep -q 'DELETE .*labels/blocker-custom' && echo 1 || echo 0)"
+      "$(grep -q 'DELETE .*labels/blocker-custom' <<<"$CALLS" && echo 1 || echo 0)"
 
 echo "second-shift-unclaim selftest: $FAILS failure(s)"
 exit "$FAILS"

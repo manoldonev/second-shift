@@ -92,7 +92,7 @@ n_alias=$(printf '%s\n' "$OUT" | grep -c 'ALIAS:' || true)
 n_offcat=$(printf '%s\n' "$OUT" | grep -c 'OFF-CATALOG:' || true)
 n_empty=$(printf '%s\n' "$OUT" | grep -c 'EMPTY-SECTION:' || true)
 if [ "$RC" -eq 0 ] && [ "$n_alias" -eq 1 ] && [ "$n_offcat" -eq 0 ] && [ "$n_empty" -eq 0 ] \
-   && printf '%s\n' "$OUT" | grep -q 'Maturity calibration (MVP stage)'; then
+   && grep -q 'Maturity calibration (MVP stage)' <<<"$OUT"; then
     ok "AC-1: acme fixture (default) -> exactly the alias flagged; 4 other H2s + 7 H1s silent"
 else
     bad "AC-1: expected exactly 1 alias finding at default (rc=$RC alias=$n_alias offcat=$n_offcat empty=$n_empty)"
@@ -101,8 +101,8 @@ fi
 # ---- (2) AC-2: M1 (rename alias -> novel) at --preflight -> NOT red, coverage discloses --
 build_acme "$TMP/r2" "## Historical notes"
 RC=0; OUT="$(bash "$CHECK" --preflight "$TMP/r2" 2>&1)" || RC=$?
-if [ "$RC" -eq 0 ] && printf '%s\n' "$OUT" | grep -q 'context-coverage:' \
-   && printf '%s\n' "$OUT" | grep -q 'security-reviewer'; then
+if [ "$RC" -eq 0 ] && grep -q 'context-coverage:' <<<"$OUT" \
+   && grep -q 'security-reviewer' <<<"$OUT"; then
     ok "AC-2 (M1): rename-to-novel is WARN + coverage-disclosed (security-reviewer degraded), NOT red"
 else
     bad "AC-2 (M1): expected exit 0 + coverage line naming security-reviewer (rc=$RC)"
@@ -119,7 +119,7 @@ cat > "$TMP/r3/.claude/second-shift/review-context.md" <<'MD'
 Pre-auth MVP.
 MD
 RC=0; OUT="$(bash "$CHECK" --preflight "$TMP/r3" 2>&1)" || RC=$?
-if [ "$RC" -ne 0 ] && printf '%s\n' "$OUT" | grep -q 'EMPTY-SECTION:.*Stack'; then
+if [ "$RC" -ne 0 ] && grep -q 'EMPTY-SECTION:.*Stack' <<<"$OUT"; then
     ok "AC-2 (empty-body): a present-but-empty catalog section is RED at --preflight"
 else
     bad "AC-2 (empty-body): expected non-zero exit + EMPTY-SECTION for Stack (rc=$RC)"
@@ -130,7 +130,7 @@ mkdir -p "$TMP/r4/.claude/second-shift"
 : > "$TMP/r4/.claude/second-shift/review-context.md"
 RC=0; OUT="$(bash "$CHECK" --preflight "$TMP/r4" 2>&1)" || RC=$?
 RC_REP=0; REP="$(bash "$CHECK" --report "$TMP/r4" 2>&1)" || RC_REP=$?
-if [ "$RC" -eq 0 ] && [ "$RC_REP" -eq 0 ] && printf '%s\n' "$REP" | grep -q '0/9 catalog sections present'; then
+if [ "$RC" -eq 0 ] && [ "$RC_REP" -eq 0 ] && grep -q '0/9 catalog sections present' <<<"$REP"; then
     ok "AC-2 (M4 empty-file): NOT red; coverage line discloses 0/9 sections present"
 else
     bad "AC-2 (M4): expected exit 0 (preflight=$RC report=$RC_REP) + '0/9 ... present' coverage"
@@ -158,7 +158,7 @@ MD
 printf 'Services stack\n' > "$TMP/r6/.claude/second-shift/.known-sections"
 printf 'section:Feature flags\n' > "$TMP/r6/.claude/second-shift/.known-extensions"
 RC=0; OUT="$(bash "$CHECK" --preflight "$TMP/r6" 2>&1)" || RC=$?
-if [ "$RC" -eq 0 ] && ! printf '%s\n' "$OUT" | grep -q 'OFF-CATALOG:'; then
+if [ "$RC" -eq 0 ] && ! grep -q 'OFF-CATALOG:' <<<"$OUT"; then
     ok "AC-3: .known-sections + section: in .known-extensions silence off-catalog headings"
 else
     bad "AC-3: escape hatch should silence both novel headings (rc=$RC): $(printf '%s' "$OUT" | grep OFF-CATALOG || true)"
@@ -208,8 +208,8 @@ fi
 # ---- (8) --verbose surfaces novel headings + coverage in the default (mid-run) venue ----
 # Default mode suppresses OFF-CATALOG/coverage; --verbose must reveal both.
 RC=0; OUT="$(bash "$CHECK" --verbose "$TMP/r1" 2>&1)" || RC=$?
-if [ "$RC" -eq 0 ] && printf '%s\n' "$OUT" | grep -q 'OFF-CATALOG:' \
-   && printf '%s\n' "$OUT" | grep -q 'context-coverage:'; then
+if [ "$RC" -eq 0 ] && grep -q 'OFF-CATALOG:' <<<"$OUT" \
+   && grep -q 'context-coverage:' <<<"$OUT"; then
     ok "--verbose surfaces novel headings + coverage in the default venue (suppressed without it)"
 else
     bad "--verbose should reveal OFF-CATALOG + coverage in default mode (rc=$RC)"
@@ -231,7 +231,7 @@ Rails monolith. The old heading spelling was:
 Pre-auth MVP.
 MD
 RC=0; OUT="$(bash "$CHECK" --preflight "$TMP/r9" 2>&1)" || RC=$?
-if [ "$RC" -eq 0 ] && ! printf '%s\n' "$OUT" | grep -q 'ALIAS:'; then
+if [ "$RC" -eq 0 ] && ! grep -q 'ALIAS:' <<<"$OUT"; then
     ok "fenced alias example is not linted (fence-aware heading walk)"
 else
     bad "a heading quoted inside a code fence must not trip the alias gate (rc=$RC)"
@@ -251,8 +251,8 @@ Next.js app router.
 NestJS + Postgres.
 MD
 RC=0; OUT="$(bash "$CHECK" --preflight "$TMP/r10" 2>&1)" || RC=$?
-if [ "$RC" -eq 0 ] && ! printf '%s\n' "$OUT" | grep -q 'EMPTY-SECTION:' \
-   && ! printf '%s\n' "$OUT" | grep -q 'OFF-CATALOG: "## Frontend"'; then
+if [ "$RC" -eq 0 ] && ! grep -q 'EMPTY-SECTION:' <<<"$OUT" \
+   && ! grep -q 'OFF-CATALOG: "## Frontend"' <<<"$OUT"; then
     ok "H2 organized into H3 subsections is one present section (H3 = content, not a section)"
 else
     bad "H3 subsections must not make the H2 empty or appear as sections (rc=$RC out=$(printf '%s' "$OUT" | head -3))"
@@ -267,7 +267,7 @@ cat > "$TMP/r11/.claude/second-shift/review-context.md" <<'MD'
 TODO: describe the stack here
 MD
 RC=0; OUT="$(bash "$CHECK" --preflight "$TMP/r11" 2>&1)" || RC=$?
-if [ "$RC" -ne 0 ] && printf '%s\n' "$OUT" | grep -q 'EMPTY-SECTION: "## Stack"'; then
+if [ "$RC" -ne 0 ] && grep -q 'EMPTY-SECTION: "## Stack"' <<<"$OUT"; then
     ok "TODO:-prefixed body counts as placeholder -> red at preflight (docs promise held)"
 else
     bad "a TODO:-prefixed body must be EMPTY-SECTION red at preflight (rc=$RC)"
@@ -288,7 +288,7 @@ if [ -z "${SECOND_SHIFT_SELFTEST_FABRICATED_TREE:-}" ]; then
     FAB_RC=0
     FAB_OUT="$(SECOND_SHIFT_SELFTEST_FABRICATED_TREE=1 \
         bash "$FAB/plugins/review-toolkit/scripts/$(basename "$0")" 2>&1)" || FAB_RC=$?
-    if [ "$FAB_RC" -ne 0 ] && [ "$FAB_RC" -ne 77 ] && ! printf '%s\n' "$FAB_OUT" | grep -q '^SKIP: '; then
+    if [ "$FAB_RC" -ne 0 ] && [ "$FAB_RC" -ne 77 ] && ! grep -q '^SKIP: ' <<<"$FAB_OUT"; then
         ok "monorepo markers + absent docs still hard-FAILs, never skips (rc=$FAB_RC)"
     else
         bad "monorepo markers + absent docs must hard-FAIL, not skip (rc=$FAB_RC, skip lines: $(printf '%s\n' "$FAB_OUT" | grep -c '^SKIP: '))"

@@ -55,7 +55,7 @@ if [[ ! -f "$ROOT/$DOC_UPDATER" ]]; then
   fail "guarded file missing: $DOC_UPDATER"
 else
   frontmatter="$(awk '/^---$/{n++; next} n==1{print} n>=2{exit}' "$ROOT/$DOC_UPDATER")"
-  if printf '%s\n' "$frontmatter" | grep -q '\.project/'; then
+  if grep -q '\.project/' <<<"$frontmatter"; then
     fail ".project/ literal reintroduced in $DOC_UPDATER frontmatter"
   fi
 fi

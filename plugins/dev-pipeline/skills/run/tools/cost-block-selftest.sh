@@ -685,7 +685,7 @@ FIRST_CODE="$(awk 'NR==1{next} /^#/{next} NF{print; exit}' "$SCRIPT")"
   && ok "(D-8) --help prints through the header's last line (line $HDR_END)" \
   || bad "(D-8) --help ends at '$HELP_LAST', expected the header's last line ($HDR_END)"
 
-if [[ -n "$FIRST_CODE" ]] && printf '%s\n' "$HELP_OUT" | grep -qF -- "$FIRST_CODE"; then
+if [[ -n "$FIRST_CODE" ]] && grep -qF -- "$FIRST_CODE" <<<"$HELP_OUT"; then
   bad "(D-8) --help leaked the first line of code ('$FIRST_CODE')"
 else
   ok "(D-8) --help stops before the first line of code"

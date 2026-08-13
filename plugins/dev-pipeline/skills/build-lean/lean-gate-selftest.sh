@@ -191,13 +191,13 @@ echo "[lean-gate-selftest]"
 # ---- (a) milestone 1: existence at the pinned path + >= 1 AC-n, and nothing else ---------
 reset_progress
 out="$(gate 1 7)"; rc=$?
-if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q 'no committed spec'; then
+if [ "$rc" -eq 1 ] && grep -q 'no committed spec' <<<"$out"; then
   pass "(a1) milestone-1 fails when the lean spec is absent"
 else fail "(a1) expected rc=1, got $rc: $out"; fi
 
 printf '# spec\n\nNothing numbered here.\n' > "$SPEC"
 out="$(gate 1 7)"; rc=$?
-if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q 'no numbered AC-n'; then
+if [ "$rc" -eq 1 ] && grep -q 'no numbered AC-n' <<<"$out"; then
   pass "(a2) milestone-1 fails when the spec carries no AC-n"
 else fail "(a2) expected rc=1 on an AC-less spec, got $rc: $out"; fi
 
@@ -294,14 +294,14 @@ mv "$held_spec_494" "$SPEC"
 reset_progress
 out="$( cd "$TREE" && SECOND_SHIFT_CONFIG="$CFG" LEAN_PROGRESS_FILE="$PROG" \
         env -u CLAUDE_CODE_SESSION_ID -u RUN_ID bash "$GATE" entry 7 2>&1 )"; rc=$?
-if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q 'CLAUDE_CODE_SESSION_ID is unset'; then
+if [ "$rc" -eq 1 ] && grep -q 'CLAUDE_CODE_SESSION_ID is unset' <<<"$out"; then
   pass "(d1) entry refuses when the session id is unresolvable"
 else fail "(d1) expected rc=1 on an unset session id, got $rc: $out"; fi
 
 : > "$TREE/.claude/audit/sess-empty.jsonl"
 out="$( cd "$TREE" && SECOND_SHIFT_CONFIG="$CFG" LEAN_PROGRESS_FILE="$PROG" \
         env -u RUN_ID CLAUDE_CODE_SESSION_ID=sess-empty bash "$GATE" entry 7 2>&1 )"; rc=$?
-if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q 'missing or empty'; then
+if [ "$rc" -eq 1 ] && grep -q 'missing or empty' <<<"$out"; then
   pass "(d2) entry refuses on an EMPTY ledger — directory existence is not the test"
 else fail "(d2) expected rc=1 on an empty ledger, got $rc: $out"; fi
 
@@ -427,8 +427,8 @@ CFG_NOPREFIX="$WORK/config-noprefix.json"
 jq 'del(.tracker.branchPrefix)' "$CFG" > "$CFG_NOPREFIX"
 out="$( cd "$TREE" && SECOND_SHIFT_CONFIG="$CFG_NOPREFIX" LEAN_PROGRESS_FILE="$WORK/p3.md" \
         bash "$GATE" 1 7 2>&1 )"; rc=$?
-if [ "$rc" -eq 2 ] && printf '%s' "$out" | grep -q 'refusing to guess' \
-   && ! printf '%s' "$out" | grep -qF 'claude/acme-'; then
+if [ "$rc" -eq 2 ] && grep -q 'refusing to guess' <<<"$out" \
+   && ! grep -qF 'claude/acme-' <<<"$out"; then
   pass "(e4) an unresolvable prefix is a loud refusal, never the claude/acme- placeholder"
 else fail "(e4) expected rc=2 with no placeholder fallback, got $rc: $out"; fi
 
@@ -446,7 +446,7 @@ reset_progress
 gate 1 7 >/dev/null 2>&1
 mv "$SPEC" "$WORK/held-spec.md"
 out="$(gate all 7)"; rc=$?
-if [ "$rc" -ne 0 ] && printf '%s' "$out" | grep -q 'milestone-1'; then
+if [ "$rc" -ne 0 ] && grep -q 'milestone-1' <<<"$out"; then
   pass "(g) an already-satisfied milestone is still re-evaluated by 'all' (no caching)"
 else fail "(g) 'all' short-circuited on a stored satisfied line — rc=$rc: $out"; fi
 mv "$WORK/held-spec.md" "$SPEC"
@@ -454,7 +454,7 @@ mv "$WORK/held-spec.md" "$SPEC"
 # ---- (h) D-44: consumer posture — absent policy scripts are a SKIP NOTICE, not a pass -----
 reset_progress
 out="$(gate 2 7)"; rc=$?
-if [ "$rc" -eq 0 ] && printf '%s' "$out" | grep -qi 'SKIPPED'; then
+if [ "$rc" -eq 0 ] && grep -qi 'SKIPPED' <<<"$out"; then
   pass "(h) milestone-2 prints a skip notice when the policy scripts are absent (consumer repo)"
 else fail "(h) expected a skip notice, got rc=$rc: $out"; fi
 
@@ -465,13 +465,13 @@ else fail "(h) expected a skip notice, got rc=$rc: $out"; fi
 # key, and the absent extraLanes token, none of which are about the zero-lane guard itself.
 reset_progress
 out="$(gate 3 7)"; rc=$?
-if [ "$rc" -eq 0 ] && printf '%s' "$out" | grep -q 'mutation-sweep.sh absent'; then
+if [ "$rc" -eq 0 ] && grep -q 'mutation-sweep.sh absent' <<<"$out"; then
   pass "(i) milestone-3 prints a skip notice when tools/mutation-sweep.sh is absent"
 else fail "(i) expected a mutation-sweep skip notice, got rc=$rc: $out"; fi
 
 # #392 AC-1 (second half): the same green run also carries the allowUnverified notice, since
 # the shared fixture has zero fixed keys and no extraLanes.
-if printf '%s' "$out" | grep -q 'allowUnverified opt-out is set'; then
+if grep -q 'allowUnverified opt-out is set' <<<"$out"; then
   pass "(i-392) the allowUnverified opt-out notice is printed on this zero-lane, opted-out run"
 else fail "(i-392) expected the allowUnverified opt-out notice, got: $out"; fi
 
@@ -485,14 +485,14 @@ else fail "(i-392b) no opt-out record in $PROG: $(cat "$PROG" 2>/dev/null)"; fi
 
 # AC-10: `build` is gone from the fixed-key loop — the shared $CFG never declares it (same
 # as before this change), so the ONLY thing that moved is whether the dead key still prints.
-if ! printf '%s' "$out" | grep -q 'build is null'; then
+if ! grep -q 'build is null' <<<"$out"; then
   pass "(i-AC10) the dead 'build' key no longer appears in milestone-3 output"
 else fail "(i-AC10) 'build is null' still printed — the dead key was not removed"; fi
 
 # AC-5: no extraLanes key in $CFG — the same run must carry no 'extra lane' token, and the
 # rest of this suite's shared-$TREE milestone-3 cases (this one included) stay green
 # unmodified, proving the change is additive.
-if ! printf '%s' "$out" | grep -q 'extra lane'; then
+if ! grep -q 'extra lane' <<<"$out"; then
   pass "(i-AC5) no extraLanes key -> no 'extra lane' token in milestone-3 output"
 else fail "(i-AC5) an 'extra lane' token appeared with no extraLanes configured"; fi
 
@@ -508,8 +508,8 @@ jq 'del(.commands.acme.allowUnverified)' "$CFG" > "$CFG_NOOPT"
 reset_progress
 out="$( cd "$TREE" && SECOND_SHIFT_CONFIG="$CFG_NOOPT" LEAN_PROGRESS_FILE="$PROG" \
         bash "$GATE" --issue-file "$ISSUE_NOREGIONS" 3 7 2>&1 )"; rc=$?
-if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q "no verifying lane configured for 'acme'" \
-   && printf '%s' "$out" | grep -qF "$CFG_NOOPT" && printf '%s' "$out" | grep -q 'allowUnverified'; then
+if [ "$rc" -eq 1 ] && grep -q "no verifying lane configured for 'acme'" <<<"$out" \
+   && grep -qF "$CFG_NOOPT" <<<"$out" && grep -q 'allowUnverified' <<<"$out"; then
   pass "(iz1) AC-1: zero verifying lanes + no opt-out reds milestone 3, naming slug/config/allowUnverified"
 else fail "(iz1) expected rc=1 naming acme/$CFG_NOOPT/allowUnverified, got $rc: $out"; fi
 
@@ -531,8 +531,8 @@ jq 'del(.commands)' "$CFG" > "$CFG_NOCMDS"
 reset_progress
 out="$( cd "$TREE" && SECOND_SHIFT_CONFIG="$CFG_NOCMDS" LEAN_PROGRESS_FILE="$PROG" \
         bash "$GATE" --issue-file "$ISSUE_NOREGIONS" 3 7 2>&1 )"; rc=$?
-if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q "no verifying lane configured for 'acme'" \
-   && printf '%s' "$out" | grep -qF "$CFG_NOCMDS" && printf '%s' "$out" | grep -q 'allowUnverified'; then
+if [ "$rc" -eq 1 ] && grep -q "no verifying lane configured for 'acme'" <<<"$out" \
+   && grep -qF "$CFG_NOCMDS" <<<"$out" && grep -q 'allowUnverified' <<<"$out"; then
   pass "(iz2) AC-1: a config with no commands table also reds, naming slug/config/allowUnverified"
 else fail "(iz2) expected rc=1 naming acme/$CFG_NOCMDS/allowUnverified, got $rc: $out"; fi
 
@@ -544,8 +544,8 @@ CFG_ABSENT="$WORK/no-such-config.json"
 reset_progress
 out="$( cd "$TREE" && SECOND_SHIFT_CONFIG="$CFG_ABSENT" LEAN_PROGRESS_FILE="$PROG" \
         bash "$GATE" --issue-file "$ISSUE_NOREGIONS" 3 7 2>&1 )"; rc=$?
-if [ "$rc" -eq 2 ] && printf '%s' "$out" | grep -q 'refusing to guess' \
-   && ! printf '%s' "$out" | grep -qF 'claude/acme-'; then
+if [ "$rc" -eq 2 ] && grep -q 'refusing to guess' <<<"$out" \
+   && ! grep -qF 'claude/acme-' <<<"$out"; then
   pass "(iz2b) no config file at all refuses on the unresolvable namespace, with no placeholder"
 else fail "(iz2b) expected rc=2 refusing to guess, got $rc: $out"; fi
 
@@ -556,7 +556,7 @@ jq 'del(.commands.acme.allowUnverified) | .commands.acme.lint = "true"' "$CFG" >
 reset_progress
 out="$( cd "$TREE" && SECOND_SHIFT_CONFIG="$CFG_ONEKEY" LEAN_PROGRESS_FILE="$PROG" \
         bash "$GATE" --issue-file "$ISSUE_NOREGIONS" 3 7 2>&1 )"; rc=$?
-if [ "$rc" -eq 0 ] && ! printf '%s' "$out" | grep -q 'allowUnverified'; then
+if [ "$rc" -eq 0 ] && ! grep -q 'allowUnverified' <<<"$out"; then
   pass "(iz3) AC-2: one fixed key configured -> guard stays inert, no allowUnverified mention"
 else fail "(iz3) expected rc=0 with no allowUnverified mention, got $rc: $out"; fi
 
@@ -571,8 +571,8 @@ jq 'del(.commands.acme.allowUnverified)
 reset_progress
 out="$( cd "$TREE" && SECOND_SHIFT_CONFIG="$CFG_WHENONLY" LEAN_PROGRESS_FILE="$PROG" \
         bash "$GATE" --issue-file "$ISSUE_NOREGIONS" 3 7 2>&1 )"; rc=$?
-if [ "$rc" -eq 0 ] && printf '%s' "$out" | grep -qF "extra lane 'scoped' — skipped" \
-   && ! printf '%s' "$out" | grep -q 'allowUnverified'; then
+if [ "$rc" -eq 0 ] && grep -qF "extra lane 'scoped' — skipped" <<<"$out" \
+   && ! grep -q 'allowUnverified' <<<"$out"; then
   pass "(iz4) AC-3: a when-scoped extraLane skipped on this diff is still 'configured' -> green"
 else fail "(iz4) expected rc=0, when-skip notice, no allowUnverified mention; got $rc: $out"; fi
 
@@ -631,7 +631,7 @@ gate_el() { # gate_el <config-file> <progress-file> <args...>
 cfg="$(el_cfg '[{"name":"ok-lane","commands":["echo hi"],"failureClass":"TEST_FAILURE"}]')"
 prog="$WORK/el-prog-ok.md"
 out="$(gate_el "$cfg" "$prog" 3 7)"; rc=$?
-if [ "$rc" -eq 0 ] && printf '%s' "$out" | grep -qF "extra lane 'ok-lane' » echo hi"; then
+if [ "$rc" -eq 0 ] && grep -qF "extra lane 'ok-lane' » echo hi" <<<"$out"; then
   pass "(i2) AC-1: an extraLane with no 'when' always runs"
 else fail "(i2) expected rc=0 and the lane's command printed, got rc=$rc: $out"; fi
 
@@ -639,7 +639,7 @@ else fail "(i2) expected rc=0 and the lane's command printed, got rc=$rc: $out";
 cfg="$(el_cfg '[{"name":"boom","commands":["exit 7"],"failureClass":"TEST_FAILURE"}]')"
 prog="$WORK/el-prog-boom.md"
 out="$(gate_el "$cfg" "$prog" 3 7)"; rc=$?
-if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -qF "extra lane 'boom' failed (rc=7): exit 7"; then
+if [ "$rc" -eq 1 ] && grep -qF "extra lane 'boom' failed (rc=7): exit 7" <<<"$out"; then
   pass "(i3) AC-1: a failing extraLane reds milestone 3, naming the lane and the command"
 else fail "(i3) expected rc=1 naming lane+command, got rc=$rc: $out"; fi
 
@@ -648,9 +648,9 @@ else fail "(i3) expected rc=1 naming lane+command, got rc=$rc: $out"; fi
 cfg="$(el_cfg '[{"name":"multi","commands":["echo one","exit 5","echo three"],"failureClass":"TEST_FAILURE"}]')"
 prog="$WORK/el-prog-multi.md"
 out="$(gate_el "$cfg" "$prog" 3 7)"; rc=$?
-if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -qF "» echo one" \
-   && ! printf '%s' "$out" | grep -qF "» echo three" \
-   && printf '%s' "$out" | grep -qF "failed (rc=5): exit 5"; then
+if [ "$rc" -eq 1 ] && grep -qF "» echo one" <<<"$out" \
+   && ! grep -qF "» echo three" <<<"$out" \
+   && grep -qF "failed (rc=5): exit 5" <<<"$out"; then
   pass "(i4) AC-2: a multi-command lane stops at the first non-zero command"
 else fail "(i4) expected sequential run stopping at 'exit 5', got rc=$rc: $out"; fi
 
@@ -659,8 +659,8 @@ else fail "(i4) expected sequential run stopping at 'exit 5', got rc=$rc: $out";
 cfg="$(el_cfg '[{"name":"scoped","when":["docs/**/*.md"],"commands":["echo should-not-run"],"failureClass":"TEST_FAILURE"}]')"
 prog="$WORK/el-prog-scoped.md"
 out="$(gate_el "$cfg" "$prog" 3 7)"; rc=$?
-if [ "$rc" -eq 0 ] && printf '%s' "$out" | grep -qF "extra lane 'scoped' — skipped" \
-   && ! printf '%s' "$out" | grep -q 'should-not-run'; then
+if [ "$rc" -eq 0 ] && grep -qF "extra lane 'scoped' — skipped" <<<"$out" \
+   && ! grep -q 'should-not-run' <<<"$out"; then
   pass "(i5) AC-3: a non-matching 'when' against a non-empty diff prints a skip"
 else fail "(i5) expected a printed skip and no command run, got rc=$rc: $out"; fi
 if [ "$(el_count_in "milestone-3 | skipped | extra lane 'scoped' — no changed path matches when[]" "$prog")" -ge 1 ]; then
@@ -682,19 +682,19 @@ else fail "(i7) expected lint < extraLane < sweep ordering, got lint=$lint_at la
 # AC-7: malformed entries red milestone 3 naming the entry INDEX — three shapes.
 cfg="$(el_cfg '["oops"]')"
 out="$(gate_el "$cfg" "$WORK/el-prog-bad1.md" 3 7)"; rc=$?
-if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -qF "extraLanes[0]: must be an object"; then
+if [ "$rc" -eq 1 ] && grep -qF "extraLanes[0]: must be an object" <<<"$out"; then
   pass "(i8) AC-7: a non-object extraLanes entry reds milestone 3 naming the index"
 else fail "(i8) expected the non-object shape error, got rc=$rc: $out"; fi
 
 cfg="$(el_cfg '[{"commands":["echo hi"],"failureClass":"TEST_FAILURE"}]')"
 out="$(gate_el "$cfg" "$WORK/el-prog-bad2.md" 3 7)"; rc=$?
-if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -qF "extraLanes[0]: missing 'name'"; then
+if [ "$rc" -eq 1 ] && grep -qF "extraLanes[0]: missing 'name'" <<<"$out"; then
   pass "(i9) AC-7: an entry missing 'name' reds milestone 3 naming the index"
 else fail "(i9) expected the missing-name error, got rc=$rc: $out"; fi
 
 cfg="$(el_cfg '[{"name":"x","commands":[],"failureClass":"TEST_FAILURE"}]')"
 out="$(gate_el "$cfg" "$WORK/el-prog-bad3.md" 3 7)"; rc=$?
-if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -qF "extraLanes[0] ('x'): 'commands' must be a non-empty array"; then
+if [ "$rc" -eq 1 ] && grep -qF "extraLanes[0] ('x'): 'commands' must be a non-empty array" <<<"$out"; then
   pass "(i10) AC-7: an entry with empty 'commands' reds milestone 3 naming the index"
 else fail "(i10) expected the empty-commands error, got rc=$rc: $out"; fi
 
@@ -713,7 +713,7 @@ cfg="$(el_cfg '[{"name":"scoped","when":["src/**/*.tsx"],"commands":["echo hi"],
 attest_at "$EL_TREE_NB" "$cfg" "$WORK/el-prog-nb.md" 7
 out="$( unset RUN_ID CLAUDE_CODE_SESSION_ID; cd "$EL_TREE_NB" && SECOND_SHIFT_CONFIG="$cfg" LEAN_PROGRESS_FILE="$WORK/el-prog-nb.md" \
         bash "$GATE" --issue-file "$EL_ISSUE" 3 7 2>&1 )"; rc=$?
-if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q "cannot resolve origin/main to evaluate 'when'"; then
+if [ "$rc" -eq 1 ] && grep -q "cannot resolve origin/main to evaluate 'when'" <<<"$out"; then
   pass "(i11) AC-8: an unresolvable base reds milestone 3 fail-closed (not a silent skip)"
 else fail "(i11) expected a fail-closed refusal, got rc=$rc: $out"; fi
 
@@ -726,7 +726,7 @@ else fail "(i11) expected a fail-closed refusal, got rc=$rc: $out"; fi
 cfg="$WORK/el-cfg-scrub-fixed.json"
 jq '.commands.acme.lint = "[ -z \"${SECOND_SHIFT_CONFIG:-}\" ] && echo SCRUBBED || echo LEAKED"' "$CFG" > "$cfg" 2>/dev/null
 out="$(gate_el "$cfg" "$WORK/el-prog-scrub-fixed.md" 3 7)"; rc=$?
-if [ "$rc" -eq 0 ] && printf '%s\n' "$out" | grep -qx 'SCRUBBED' && ! printf '%s\n' "$out" | grep -qx 'LEAKED'; then
+if [ "$rc" -eq 0 ] && grep -qx 'SCRUBBED' <<<"$out" && ! grep -qx 'LEAKED' <<<"$out"; then
   pass "(i12) AC-9: the fixed-key lane child runs with SECOND_SHIFT_CONFIG stripped"
 else fail "(i12) expected SCRUBBED with no LEAKED, got rc=$rc: $out"; fi
 
@@ -738,7 +738,7 @@ else fail "(i12) expected SCRUBBED with no LEAKED, got rc=$rc: $out"; fi
 cfg="$WORK/el-cfg-scrub-lanes.json"
 jq '.commands.acme.lanes = [{"name": "scrub", "commands": ["[ -z \"${SECOND_SHIFT_CONFIG:-}\" ] && echo SCRUBBED || echo LEAKED"]}]' "$CFG" > "$cfg" 2>/dev/null
 out="$(gate_el "$cfg" "$WORK/el-prog-scrub-lanes.md" 3 7)"; rc=$?
-if [ "$rc" -eq 0 ] && printf '%s\n' "$out" | grep -qx 'SCRUBBED' && ! printf '%s\n' "$out" | grep -qx 'LEAKED'; then
+if [ "$rc" -eq 0 ] && grep -qx 'SCRUBBED' <<<"$out" && ! grep -qx 'LEAKED' <<<"$out"; then
   pass "(i12b) AC-9: a lanes[] lane child runs with SECOND_SHIFT_CONFIG stripped"
 else fail "(i12b) expected SCRUBBED with no LEAKED, got rc=$rc: $out"; fi
 
@@ -748,7 +748,7 @@ else fail "(i12b) expected SCRUBBED with no LEAKED, got rc=$rc: $out"; fi
 cfg="$WORK/el-cfg-lane-nocmds.json"
 jq '.commands.acme.lanes = [{"name": "empty"}]' "$CFG" > "$cfg" 2>/dev/null
 out="$(gate_el "$cfg" "$WORK/el-prog-lane-nocmds.md" 3 7)"; rc=$?
-if [ "$rc" -ne 0 ] && printf '%s\n' "$out" | grep -q "non-empty array"; then
+if [ "$rc" -ne 0 ] && grep -q "non-empty array" <<<"$out"; then
   pass "(i12c) a commands-less lanes[] entry reds milestone 3 instead of being silently skipped"
 else fail "(i12c) expected a loud failure, got rc=$rc: $out"; fi
 
@@ -756,7 +756,7 @@ else fail "(i12c) expected a loud failure, got rc=$rc: $out"; fi
 # bash -c unexpanded, to be evaluated THERE (inside the scrubbed env), not by this shell.
 cfg="$(el_cfg '[{"name":"scrub-check","commands":["[ -z \"${SECOND_SHIFT_CONFIG:-}\" ] && echo SCRUBBED || echo LEAKED"],"failureClass":"TEST_FAILURE"}]')"
 out="$(gate_el "$cfg" "$WORK/el-prog-scrub-extra.md" 3 7)"; rc=$?
-if [ "$rc" -eq 0 ] && printf '%s\n' "$out" | grep -qx 'SCRUBBED' && ! printf '%s\n' "$out" | grep -qx 'LEAKED'; then
+if [ "$rc" -eq 0 ] && grep -qx 'SCRUBBED' <<<"$out" && ! grep -qx 'LEAKED' <<<"$out"; then
   pass "(i13) AC-9: an extraLanes child runs with SECOND_SHIFT_CONFIG stripped"
 else fail "(i13) expected SCRUBBED with no LEAKED, got rc=$rc: $out"; fi
 
@@ -777,8 +777,8 @@ cfg="$(el_cfg '[{"name":"tsx-lane","when":["src/**/*.tsx"],"commands":["echo sho
 attest_at "$EL_TREE_TOP" "$cfg" "$WORK/el-prog-top.md" 7
 out="$( unset RUN_ID CLAUDE_CODE_SESSION_ID; cd "$EL_TREE_TOP" && SECOND_SHIFT_CONFIG="$cfg" LEAN_PROGRESS_FILE="$WORK/el-prog-top.md" \
         bash "$GATE" --issue-file "$EL_ISSUE" 3 7 2>&1 )"; rc=$?
-if [ "$rc" -eq 0 ] && printf '%s' "$out" | grep -qF "extra lane 'tsx-lane' — skipped" \
-   && ! printf '%s' "$out" | grep -q 'should-not-run'; then
+if [ "$rc" -eq 0 ] && grep -qF "extra lane 'tsx-lane' — skipped" <<<"$out" \
+   && ! grep -q 'should-not-run' <<<"$out"; then
   pass "(i14) AC-4: 'src/**/*.tsx' does NOT match a top-level 'src/App.tsx'"
 else fail "(i14) expected a skip against a top-level-only tsx change, got rc=$rc: $out"; fi
 
@@ -798,7 +798,7 @@ cfg="$(el_cfg '[{"name":"tsx-lane","when":["src/**/*.tsx"],"commands":["echo did
 attest_at "$EL_TREE_NEST" "$cfg" "$WORK/el-prog-nest.md" 7
 out="$( unset RUN_ID CLAUDE_CODE_SESSION_ID; cd "$EL_TREE_NEST" && SECOND_SHIFT_CONFIG="$cfg" LEAN_PROGRESS_FILE="$WORK/el-prog-nest.md" \
         bash "$GATE" --issue-file "$EL_ISSUE" 3 7 2>&1 )"; rc=$?
-if [ "$rc" -eq 0 ] && printf '%s' "$out" | grep -qF "extra lane 'tsx-lane' » echo did-run"; then
+if [ "$rc" -eq 0 ] && grep -qF "extra lane 'tsx-lane' » echo did-run" <<<"$out"; then
   pass "(i15) AC-4: 'src/**/*.tsx' DOES match a nested 'src/a/App.tsx'"
 else fail "(i15) expected the lane to run against a nested tsx change, got rc=$rc: $out"; fi
 
@@ -824,20 +824,20 @@ write_review_verdict() { # write_review_verdict [verdict] [reviewed-head]
 
 reset_progress
 out="$(gate 4 7)"; rc=$?
-if [ "$rc" -eq 5 ] && printf '%s' "$out" | grep -q 'no committed verdict record'; then
+if [ "$rc" -eq 5 ] && grep -q 'no committed verdict record' <<<"$out"; then
   pass "(j1) milestone-4 fails with no committed verdict record"
 else fail "(j1) expected rc=5, got $rc: $out"; fi
 
 write_review_verdict needs-work
 out="$(gate 4 7)"; rc=$?
-if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q 'reads verdict=needs-work, not verdict=approve'; then
+if [ "$rc" -eq 1 ] && grep -q 'reads verdict=needs-work, not verdict=approve' <<<"$out"; then
   pass "(j2) milestone-4 fails on verdict=needs-work"
 else fail "(j2) expected rc=1 on needs-work, got $rc: $out"; fi
 
 # An approve record with no reconciliation key is unverifiable at the merge boundary.
 printf 'verdict=approve\n' > "$VERDICT"; commit_tree
 out="$(gate 4 7)"; rc=$?
-if [ "$rc" -eq 5 ] && printf '%s' "$out" | grep -q 'no run_id reconciliation key'; then
+if [ "$rc" -eq 5 ] && grep -q 'no run_id reconciliation key' <<<"$out"; then
   pass "(j3) milestone-4 fails an approve record carrying no run_id reconciliation key"
 else fail "(j3) expected rc=5 on a key-less approve, got $rc: $out"; fi
 
@@ -848,7 +848,7 @@ else fail "(j3) expected rc=5 on a key-less approve, got $rc: $out"; fi
 reset_progress
 printf 'verdict=approve\nrun_id: r-review-1\n' > "$VERDICT"; commit_tree
 out="$(gate 4 7)"; rc=$?
-if [ "$rc" -eq 5 ] && printf '%s' "$out" | grep -q 'no session_id reconciliation key'; then
+if [ "$rc" -eq 5 ] && grep -q 'no session_id reconciliation key' <<<"$out"; then
   pass "(j3b) milestone-4 fails an approve record carrying no session_id reconciliation key"
 else fail "(j3b) expected rc=5 on a session-key-less approve, got $rc: $out"; fi
 
@@ -873,7 +873,7 @@ else fail "(j4) expected rc=0, got $rc: $out"; fi
 reset_progress
 printf 'verdict=approve\nrun_id: r-review-1\nsession_id: sess-review-1\n' > "$VERDICT"; commit_tree
 out="$(gate 4 7)"; rc=$?
-if [ "$rc" -eq 5 ] && printf '%s' "$out" | grep -q 'no reviewed_head key'; then
+if [ "$rc" -eq 5 ] && grep -q 'no reviewed_head key' <<<"$out"; then
   pass "(u1) milestone-4 fails an approve record carrying no reviewed_head key (the pre-key migration case)"
 else fail "(u1) expected rc=5 on a head-less approve, got $rc: $out"; fi
 
@@ -887,7 +887,7 @@ printf '# spec\n\n- AC-1: a thing\n- AC-2: landed while the review was running\n
 commit_tree "code lands between the review and the record"
 write_review_verdict approve "$stale_head"
 out="$(gate 4 7)"; rc=$?
-if [ "$rc" -eq 5 ] && printf '%s' "$out" | grep -q 'states it reviewed'; then
+if [ "$rc" -eq 5 ] && grep -q 'states it reviewed' <<<"$out"; then
   pass "(u2) milestone-4 refuses a record naming an earlier head even though its own commit IS the head (inferred arm green, declared arm reds)"
 else fail "(u2) expected rc=5 on a declared-stale record, got $rc: $out"; fi
 
@@ -895,14 +895,14 @@ else fail "(u2) expected rc=5 on a declared-stale record, got $rc: $out"; fi
 reset_progress
 write_review_verdict approve 0000000000000000000000000000000000000000
 out="$(gate 4 7)"; rc=$?
-if [ "$rc" -eq 5 ] && printf '%s' "$out" | grep -q 'not a commit in this branch'; then
+if [ "$rc" -eq 5 ] && grep -q 'not a commit in this branch' <<<"$out"; then
   pass "(u3) milestone-4 refuses a reviewed_head absent from the branch's history"
 else fail "(u3) expected rc=5 on an unknown reviewed_head, got $rc: $out"; fi
 
 reset_progress
 write_review_verdict approve
 out="$(gate 4 7)"; rc=$?
-if [ "$rc" -eq 0 ] && printf '%s' "$out" | grep -q 'declaring reviewed_head'; then
+if [ "$rc" -eq 0 ] && grep -q 'declaring reviewed_head' <<<"$out"; then
   pass "(u4) milestone-4 passes a record naming the head it was written on top of"
 else fail "(u4) expected rc=0 on a matching reviewed_head, got $rc: $out"; fi
 
@@ -911,7 +911,7 @@ else fail "(u4) expected rc=0 on a matching reviewed_head, got $rc: $out"; fi
 # would move (u1)-(u4) onto the other arm and leave the fallback with no coverage at all, green
 # the whole time.
 if ! grep -q 'reviewed_patch_id' "$VERDICT" 2>/dev/null \
-   && ! printf '%s' "$out" | grep -q 'patch-id'; then
+   && ! grep -q 'patch-id' <<<"$out"; then
   pass "(u5) the (u) records carry no reviewed_patch_id, so this block does gate on the SHA fallback"
 else fail "(u5) the (u) block is no longer exercising the SHA fallback: $(cat "$VERDICT" 2>/dev/null)"; fi
 
@@ -945,25 +945,25 @@ echo '[]' > "$WORK/comments-none.json"
 
 seed_progress_1_to_4
 out="$(gate 5 7 --pr-file "$WORK/pr-draft.json" --comments-file "$WORK/comments-closing.json")"; rc=$?
-if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q 'still a draft'; then
+if [ "$rc" -eq 1 ] && grep -q 'still a draft' <<<"$out"; then
   pass "(k1) milestone-5 fails a draft PR (D-27 requires a ready PR)"
 else fail "(k1) expected rc=1 on a draft PR, got $rc: $out"; fi
 
 seed_progress_1_to_4
 out="$(gate 5 7 --pr-file "$WORK/pr-nospec.json" --comments-file "$WORK/comments-closing.json")"; rc=$?
-if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q 'does not link the committed spec'; then
+if [ "$rc" -eq 1 ] && grep -q 'does not link the committed spec' <<<"$out"; then
   pass "(k2) milestone-5 fails a PR body that does not link the committed spec"
 else fail "(k2) expected rc=1 on a spec-less body, got $rc: $out"; fi
 
 seed_progress_1_to_4
 out="$(gate 5 7 --pr-file "$WORK/pr-ready.json" --comments-file "$WORK/comments-none.json")"; rc=$?
-if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q 'references the verdict record'; then
+if [ "$rc" -eq 1 ] && grep -q 'references the verdict record' <<<"$out"; then
   pass "(k3) milestone-5 fails when no closing comment references the verdict record"
 else fail "(k3) expected rc=1 on a missing closing comment, got $rc: $out"; fi
 
 reset_progress
 out="$(gate 5 7 --pr-file "$WORK/pr-ready.json" --comments-file "$WORK/comments-closing.json")"; rc=$?
-if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q 'not current'; then
+if [ "$rc" -eq 1 ] && grep -q 'not current' <<<"$out"; then
   pass "(k4) milestone-5 fails when milestones 1-4 left no satisfied record"
 else fail "(k4) expected rc=1 on a non-current progress file, got $rc: $out"; fi
 
@@ -972,7 +972,7 @@ else fail "(k4) expected rc=1 on a non-current progress file, got $rc: $out"; fi
 # an attempt line and appending creates the file. Asserting the 1-4 records instead is stable —
 # an M5 attempt line never satisfies M1-4.
 out="$(gate 5 7 --pr-file "$WORK/pr-ready.json" --comments-file "$WORK/comments-closing.json")"; rc=$?
-if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q 'not current'; then
+if [ "$rc" -eq 1 ] && grep -q 'not current' <<<"$out"; then
   pass "(k5) that failure is stable on re-run (the check does not heal itself)"
 else fail "(k5) the progress-file check healed itself between runs — rc=$rc: $out"; fi
 
@@ -1005,10 +1005,10 @@ rm -f "$RUN_ID_CACHE"
 reset_progress
 gate 3 7 >/dev/null 2>&1  # RUN_ID unset here too — establishes the "no cache yet" baseline
 out="$(cat "$PROG" 2>/dev/null)"
-if printf '%s' "$out" | grep -q '^run_id: unset$'; then
+if grep -q '^run_id: unset$' <<<"$out"; then
   pass "(m1) with no RUN_ID and no cache, the header stamps run_id: unset (unchanged default)"
 else fail "(m1) expected 'run_id: unset' in the header, got: $out"; fi
-if printf '%s' "$out" | grep -q '^model: unknown$'; then
+if grep -q '^model: unknown$' <<<"$out"; then
   pass "(m1b) ensure_progress_file() stamps model: unknown when LEAN_RUN_MODEL is unset (#347)"
 else fail "(m1b) expected 'model: unknown' in the header, got: $out"; fi
 
@@ -1028,7 +1028,7 @@ else fail "(m1b) expected 'model: unknown' in the header, got: $out"; fi
 reset_progress_unattested
 ( export LEAN_RUN_MODEL=selftest-model-357; attest_at "$TREE" "$CFG" "$PROG" 7 )
 out="$(cat "$PROG" 2>/dev/null)"
-if printf '%s' "$out" | grep -q '^model: selftest-model-357$'; then
+if grep -q '^model: selftest-model-357$' <<<"$out"; then
   pass "(m1c) ensure_progress_file() stamps the LEAN_RUN_MODEL value when one IS set (#347)"
 else fail "(m1c) expected 'model: selftest-model-357' in the header, got: $out"; fi
 
@@ -1049,7 +1049,7 @@ reset_progress
 # must be what the header resolves against, not "unset".
 gate 3 7 >/dev/null 2>&1
 out="$(cat "$PROG" 2>/dev/null)"
-if printf '%s' "$out" | grep -q '^run_id: selftest-run-306$'; then
+if grep -q '^run_id: selftest-run-306$' <<<"$out"; then
   pass "(m3) a later call with NO RUN_ID in its env still resolves the cached id, not unset"
 else fail "(m3) expected 'run_id: selftest-run-306' from the cache, got: $out"; fi
 
@@ -1088,7 +1088,7 @@ seed_build_progress r-build-1 sess-build-1
 printf 'verdict=approve\nrun_id: r-build-1\nsession_id: sess-review-1\nreviewed_head: %s\n' \
   "$(git -C "$TREE" rev-parse HEAD)" > "$VERDICT"; commit_tree
 out="$(gate 4 7)"; rc=$?
-if [ "$rc" -eq 6 ] && printf '%s' "$out" | grep -q "BUILD run's identity"; then
+if [ "$rc" -eq 6 ] && grep -q "BUILD run's identity" <<<"$out"; then
   pass "(n1) milestone-4 refuses a verdict carrying the build run's run_id"
 else fail "(n1) expected rc=6 on a build-authored verdict, got $rc: $out"; fi
 
@@ -1096,7 +1096,7 @@ seed_build_progress r-build-1 sess-build-1
 printf 'verdict=approve\nrun_id: r-review-1\nsession_id: sess-build-1\nreviewed_head: %s\n' \
   "$(git -C "$TREE" rev-parse HEAD)" > "$VERDICT"; commit_tree
 out="$(gate 4 7)"; rc=$?
-if [ "$rc" -eq 6 ] && printf '%s' "$out" | grep -q 'names the BUILD session'; then
+if [ "$rc" -eq 6 ] && grep -q 'names the BUILD session' <<<"$out"; then
   pass "(n2) milestone-4 refuses a verdict whose session_id is the build session's"
 else fail "(n2) expected rc=6 on a build-session verdict, got $rc: $out"; fi
 
@@ -1107,7 +1107,7 @@ mkdir -p "$(dirname "$RUN_ID_CACHE")"; printf 'r-cached-1' > "$RUN_ID_CACHE"
 printf 'verdict=approve\nrun_id: r-cached-1\nsession_id: sess-review-1\nreviewed_head: %s\n' \
   "$(git -C "$TREE" rev-parse HEAD)" > "$VERDICT"; commit_tree
 out="$(gate 4 7)"; rc=$?
-if [ "$rc" -eq 6 ] && printf '%s' "$out" | grep -q "BUILD run's identity"; then
+if [ "$rc" -eq 6 ] && grep -q "BUILD run's identity" <<<"$out"; then
   pass "(n3) milestone-4 refuses an identity that resolves from the build run-id CACHE file"
 else fail "(n3) expected rc=6 on a cache-resolved identity, got $rc: $out"; fi
 rm -f "$RUN_ID_CACHE"
@@ -1197,7 +1197,7 @@ reset_progress
 rm -f "$MARKER"
 write_review_verdict needs-work
 out="$(gate_m3 all 7)"; rc=$?
-if [ "$rc" -ne 0 ] && [ ! -e "$MARKER" ] && printf '%s' "$out" | grep -q 'reads verdict=needs-work'; then
+if [ "$rc" -ne 0 ] && [ ! -e "$MARKER" ] && grep -q 'reads verdict=needs-work' <<<"$out"; then
   pass "(x1) AC-1: 'all' reports the milestone-4 refusal without running milestone-3's body"
 else fail "(x1) expected rc!=0, no marker, needs-work message — rc=$rc marker=$([ -e "$MARKER" ] && echo present || echo absent): $out"; fi
 
@@ -1207,8 +1207,8 @@ cp "$SPEC" "$WORK/held-spec-x.md"
 printf '# spec\n\nno AC token here\n' > "$SPEC"
 out="$(gate_m3 all 7)"; rc=$?
 if [ "$rc" -ne 0 ] \
-   && printf '%s' "$out" | grep -q 'no numbered AC-n' \
-   && printf '%s' "$out" | grep -q 'reads verdict=needs-work'; then
+   && grep -q 'no numbered AC-n' <<<"$out" \
+   && grep -q 'reads verdict=needs-work' <<<"$out"; then
   pass "(x2) AC-3: the pre-pass reports BOTH cheap failures from one 'all' run"
 else fail "(x2) expected both milestone-1 and milestone-4 pre-pass failures, got rc=$rc: $out"; fi
 cp "$WORK/held-spec-x.md" "$SPEC"
@@ -1250,7 +1250,7 @@ else fail "(y1) expected rc=0 with no Open Regions section, got $rc: $out"; fi
 # (y2) AC-8: a pause-and-ask region with no resolution artifact refuses, naming the region.
 reset_progress
 out="$(gate 1 7 --issue-file "$WORK/issue-or1-paa.json" --comments-file "$WORK/comments-none.json")"; rc=$?
-if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q 'region OR-1' && printf '%s' "$out" | grep -q 'pause-and-ask'; then
+if [ "$rc" -eq 1 ] && grep -q 'region OR-1' <<<"$out" && grep -q 'pause-and-ask' <<<"$out"; then
   pass "(y2) AC-8: an unresolved pause-and-ask region refuses milestone 1, naming the region"
 else fail "(y2) expected rc=1 naming OR-1, got $rc: $out"; fi
 
@@ -1263,7 +1263,7 @@ else fail "(y3) expected rc=0 with an operator comment naming OR-1, got $rc: $ou
 # ...and a BOT comment mentioning the same id does NOT count — only an operator write does.
 reset_progress
 out="$(gate 1 7 --issue-file "$WORK/issue-or1-paa.json" --comments-file "$WORK/comments-or1-bot.json")"; rc=$?
-if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q 'region OR-1'; then
+if [ "$rc" -eq 1 ] && grep -q 'region OR-1' <<<"$out"; then
   pass "(y3b) a BOT-authored comment naming the region does not resolve it"
 else fail "(y3b) expected rc=1 despite a bot comment mentioning OR-1, got $rc: $out"; fi
 
@@ -1271,7 +1271,7 @@ else fail "(y3b) expected rc=1 despite a bot comment mentioning OR-1, got $rc: $
 # word-boundary the id match is built on.
 reset_progress
 out="$(gate 1 7 --issue-file "$WORK/issue-or1-paa.json" --comments-file "$WORK/comments-or10-boundary.json")"; rc=$?
-if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q 'region OR-1'; then
+if [ "$rc" -eq 1 ] && grep -q 'region OR-1' <<<"$out"; then
   pass "(y3c) a comment naming OR-10 does not resolve OR-1 (word-boundary match, not substring)"
 else fail "(y3c) expected rc=1 — OR-10 must not satisfy OR-1, got $rc: $out"; fi
 
@@ -1301,7 +1301,7 @@ cat > "$WORK/issue-or1-nopipe.json" <<'EOF'
 EOF
 reset_progress
 out="$(gate 1 7 --issue-file "$WORK/issue-or1-nopipe.json" --comments-file "$WORK/comments-none.json")"; rc=$?
-if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q 'region OR-1'; then
+if [ "$rc" -eq 1 ] && grep -q 'region OR-1' <<<"$out"; then
   pass "(y6) AC-15: a pause-and-ask row in a trailing-pipe-less table still refuses (no fail-open)"
 else fail "(y6) expected rc=1 naming OR-1 on a trailing-pipe-less table, got $rc: $out"; fi
 
@@ -1314,7 +1314,7 @@ EOF
 reset_progress
 out="$(gate 1 7 --issue-file "$WORK/issue-or-two-paa.json" --comments-file "$WORK/comments-none.json")"; rc=$?
 n="$(printf '%s\n' "$out" | grep -c 'dispositioned pause-and-ask with no resolution artifact')"
-if [ "$rc" -eq 1 ] && [ "$n" -eq 1 ] && printf '%s' "$out" | grep -q 'regions OR-1, OR-3'; then
+if [ "$rc" -eq 1 ] && [ "$n" -eq 1 ] && grep -q 'regions OR-1, OR-3' <<<"$out"; then
   pass "(y7) AC-16: two unresolved regions are reported together, in a single refusal"
 else fail "(y7) expected rc=1 with 1 refusal naming both OR-1 and OR-3, got rc=$rc refusals=$n: $out"; fi
 
@@ -1328,7 +1328,7 @@ GAP="$TREE/docs/plans/acme-7-lean-intent-gap.md"
 printf 'region: OR-1\nratified: no\n' > "$GAP"
 commit_tree "unratified intent-gap for OR-1"
 out="$(gate 1 7 --issue-file "$WORK/issue-or1-paa.json" --comments-file "$WORK/comments-none.json")"; rc=$?
-if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q 'region OR-1'; then
+if [ "$rc" -eq 1 ] && grep -q 'region OR-1' <<<"$out"; then
   pass "(y8) AC-18: an intent-gap record reading 'ratified: no' does not clear the region"
 else fail "(y8) expected rc=1 — an unratified intent-gap record must not resolve OR-1, got $rc: $out"; fi
 rm -f "$GAP"; commit_tree "remove unratified intent-gap fixture"
@@ -1354,25 +1354,25 @@ seed_build_progress r-build-1 sess-build-1
 rm -f "$VERDICT" "$REVIEW_CACHE" "$RUN_ID_CACHE"
 
 out="$(verdict_cmd sess-build-1 r-review-9 --pr 12 --verdict approve)"; rc=$?
-if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q 'this IS the build session'; then
+if [ "$rc" -eq 1 ] && grep -q 'this IS the build session' <<<"$out"; then
   pass "(p1) verdict refuses when the invoking session is the build session"
 else fail "(p1) expected rc=1 from the build session, got $rc: $out"; fi
 [ -f "$VERDICT" ] && fail "(p1b) a refused verdict call still wrote the record" \
   || pass "(p1b) a refused verdict call writes nothing"
 
 out="$(verdict_cmd sess-review-9 '' --pr 12 --verdict approve)"; rc=$?
-if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q 'no review identity provisioned'; then
+if [ "$rc" -eq 1 ] && grep -q 'no review identity provisioned' <<<"$out"; then
   pass "(p2) verdict refuses with no review identity rather than inheriting the build's"
 else fail "(p2) expected rc=1 with no RUN_ID, got $rc: $out"; fi
 
 out="$(verdict_cmd sess-review-9 r-build-1 --pr 12 --verdict approve)"; rc=$?
-if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q "IS the build run's"; then
+if [ "$rc" -eq 1 ] && grep -q "IS the build run's" <<<"$out"; then
   pass "(p3) verdict refuses a review identity equal to the build run's"
 else fail "(p3) expected rc=1 on a colliding identity, got $rc: $out"; fi
 
 seed_build_progress r-build-1 unset
 out="$(verdict_cmd sess-review-9 r-review-9 --pr 12 --verdict approve)"; rc=$?
-if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q 'no session id'; then
+if [ "$rc" -eq 1 ] && grep -q 'no session id' <<<"$out"; then
   pass "(p4) verdict refuses when the build run recorded no session id (unverifiable is not fine)"
 else fail "(p4) expected rc=1 on an unverifiable build session, got $rc: $out"; fi
 
@@ -1415,14 +1415,14 @@ seed_build_progress r-build-1 sess-build-1
 rm -f "$VERDICT" "$REVIEW_CACHE"
 
 out="$(verdict_cmd sess-review-9 r-review-9 --pr not-a-number --verdict approve)"; rc=$?
-if [ "$rc" -eq 2 ] && printf '%s' "$out" | grep -q 'pr must be a positive integer'; then
+if [ "$rc" -eq 2 ] && grep -q 'pr must be a positive integer' <<<"$out"; then
   pass "(r1) verdict rejects a non-numeric --pr instead of echoing it into the record"
 else fail "(r1) expected rc=2 on a non-numeric --pr, got $rc: $out"; fi
 [ -f "$VERDICT" ] && fail "(r1b) a rejected --pr still wrote the record" \
   || pass "(r1b) a rejected --pr writes nothing"
 
 out="$(verdict_cmd sess-review-9 r-review-9 --pr 12 --verdict approve --rounds 0)"; rc=$?
-if [ "$rc" -eq 2 ] && printf '%s' "$out" | grep -q 'rounds must be a positive integer'; then
+if [ "$rc" -eq 2 ] && grep -q 'rounds must be a positive integer' <<<"$out"; then
   pass "(r2) verdict rejects --rounds 0, which its own message always called positive"
 else fail "(r2) expected rc=2 on --rounds 0, got $rc: $out"; fi
 
@@ -1436,7 +1436,7 @@ $(cat "$VERDICT" 2>/dev/null)"; fi
 # is dropped per-argument, so --rounds 0 passing at (r2) says nothing about --pr.
 rm -f "$VERDICT"
 out="$(verdict_cmd sess-review-9 r-review-9 --pr 0 --verdict approve)"; rc=$?
-if [ "$rc" -eq 2 ] && printf '%s' "$out" | grep -q 'pr must be a positive integer'; then
+if [ "$rc" -eq 2 ] && grep -q 'pr must be a positive integer' <<<"$out"; then
   pass "(r4) verdict rejects --pr 0, the same way it rejects --rounds 0"
 else fail "(r4) expected rc=2 on --pr 0, got $rc: $out"; fi
 
@@ -1457,7 +1457,7 @@ out="$(verdict_cmd sess-review-9 r-review-9 --pr 12 --verdict needs-work \
 if [ "$rc" -ne 0 ]; then fail "(s0) the fixture verdict write failed: $out"; else
   commit_tree "needs-work record whose body quotes the token"
   out="$(gate 4 7)"; rc=$?
-  if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q 'reads verdict=needs-work'; then
+  if [ "$rc" -eq 1 ] && grep -q 'reads verdict=needs-work' <<<"$out"; then
     pass "(s) a needs-work record whose summary quotes verdict=approve is still refused"
   else fail "(s) expected rc=1 on a needs-work record quoting the token, got $rc: $out"; fi
 fi
@@ -1481,7 +1481,7 @@ printf '# spec\n\n- AC-1: a thing\n- AC-2: added after the review\n' > "$SPEC"
 commit_tree "code lands after the verdict"
 seed_build_progress r-build-1 sess-build-1
 out="$(gate 4 7)"; rc=$?
-if [ "$rc" -eq 5 ] && printf '%s' "$out" | grep -q 'a verdict does not cover code it never saw'; then
+if [ "$rc" -eq 5 ] && grep -q 'a verdict does not cover code it never saw' <<<"$out"; then
   pass "(t2) milestone-4 refuses a verdict that predates a later code commit"
 else fail "(t2) expected rc=5 on a stale verdict, got $rc: $out"; fi
 
@@ -1504,7 +1504,7 @@ seed_build_progress r-build-1 sess-build-1
 printf 'verdict=approve\nrun_id: r-review-9\nsession_id: sess-review-9\nrounds: 99\nreviewed_head: %s\n' \
   "$(git -C "$TREE" rev-parse HEAD)" > "$VERDICT"
 out="$(gate 4 7)"; rc=$?
-if [ "$rc" -eq 5 ] && printf '%s' "$out" | grep -q 'has uncommitted changes'; then
+if [ "$rc" -eq 5 ] && grep -q 'has uncommitted changes' <<<"$out"; then
   pass "(t4) milestone-4 refuses a committed record that was then edited locally"
 else fail "(t4) expected rc=5 on a dirty record, got $rc: $out"; fi
 git -C "$TREE" checkout -- "$VERDICT" >/dev/null 2>&1
@@ -1517,7 +1517,7 @@ seed_build_progress r-build-1 sess-build-1
 printf 'verdict=approve\nrun_id: r-review-9\nsession_id: sess-review-9\nrounds: 1\nreviewed_head: %s\n' \
   "$(git -C "$TREE" rev-parse HEAD)" > "$TREE/docs/plans/acme-8-lean-verdict.md"
 out="$(gate 4 8)"; rc=$?
-if [ "$rc" -eq 5 ] && printf '%s' "$out" | grep -q 'was never committed'; then
+if [ "$rc" -eq 5 ] && grep -q 'was never committed' <<<"$out"; then
   pass "(t5) milestone-4 refuses a verdict record that was never committed at all"
 else fail "(t5) expected rc=5 on an untracked record, got $rc: $out"; fi
 rm -f "$TREE/docs/plans/acme-8-lean-verdict.md"
@@ -1571,7 +1571,7 @@ seed_progress_1_to_4_at() {
 # An unrecognized tracker.type must be LOUD. Falling through to github would run the
 # write-happy arm against whatever tracker the typo meant — the exact failure this closes.
 out="$(gate_cfg "$CFG_BOGUS" "$WORK/p-bogus.md" 1 7)"; rc=$?
-if [ "$rc" -eq 2 ] && printf '%s' "$out" | grep -q "unknown tracker.type"; then
+if [ "$rc" -eq 2 ] && grep -q "unknown tracker.type" <<<"$out"; then
   pass "(n1) an unrecognized tracker.type is an environment error, not a silent github fall-through"
 else fail "(n1) expected rc=2 on tracker.type 'gitlab', got $rc: $out"; fi
 
@@ -1604,19 +1604,19 @@ else fail "(n2) expected rc=0 under jira, got $rc: $out"; fi
 
 seed_progress_1_to_4_at "$PROG_J"
 out="$(gate_cfg "$CFG_JIRA" "$PROG_J" 5 "$JKEY" --pr-file "$WORK/pr-jira-nokey.json" --comments-file "$WORK/comments-none.json")"; rc=$?
-if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -qF "no 'Closes [$JKEY]'"; then
+if [ "$rc" -eq 1 ] && grep -qF "no 'Closes [$JKEY]'" <<<"$out"; then
   pass "(n3) jira milestone-5 fails a body with no sectioned ticket reference"
 else fail "(n3) expected rc=1 on a key-less body, got $rc: $out"; fi
 
 seed_progress_1_to_4_at "$PROG_J"
 out="$(gate_cfg "$CFG_JIRA" "$PROG_J" 5 "$JKEY" --pr-file "$WORK/pr-jira-noverdict.json" --comments-file "$WORK/comments-none.json")"; rc=$?
-if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q 'does not reference the verdict record'; then
+if [ "$rc" -eq 1 ] && grep -q 'does not reference the verdict record' <<<"$out"; then
   pass "(n4) jira milestone-5 fails a body that does not reference the verdict record"
 else fail "(n4) expected rc=1 on a verdict-less body, got $rc: $out"; fi
 
 seed_progress_1_to_4_at "$PROG_J"
 out="$(gate_cfg "$CFG_JIRA" "$PROG_J" 5 "$JKEY" --pr-file "$WORK/pr-jira-unsectioned.json" --comments-file "$WORK/comments-none.json")"; rc=$?
-if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -qF "no 'Closes [$JKEY]'"; then
+if [ "$rc" -eq 1 ] && grep -qF "no 'Closes [$JKEY]'" <<<"$out"; then
   pass "(n5) jira milestone-5 fails when the key appears only OUTSIDE the Jira Items section"
 else fail "(n5) expected rc=1 on an unsectioned key, got $rc: $out"; fi
 
@@ -1628,7 +1628,7 @@ cat > "$WORK/pr-jira-draft.json" <<EOF
 EOF
 seed_progress_1_to_4_at "$PROG_J"
 out="$(gate_cfg "$CFG_JIRA" "$PROG_J" 5 "$JKEY" --pr-file "$WORK/pr-jira-draft.json" --comments-file "$WORK/comments-none.json")"; rc=$?
-if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q 'still a draft'; then
+if [ "$rc" -eq 1 ] && grep -q 'still a draft' <<<"$out"; then
   pass "(n6) jira milestone-5 still rejects a draft PR (D-27 holds for both adapters)"
 else fail "(n6) expected rc=1 on a jira draft PR, got $rc: $out"; fi
 
@@ -1637,13 +1637,13 @@ else fail "(n6) expected rc=1 on a jira draft PR, got $rc: $out"; fi
 # which this body cannot satisfy.
 seed_progress_1_to_4_at "$WORK/p-default.md"
 out="$(gate_cfg "$CFG" "$WORK/p-default.md" 5 "$JKEY" --pr-file "$WORK/pr-jira-ok.json" --comments-file "$WORK/comments-none.json")"; rc=$?
-if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -qF "no 'Closes #$JKEY'"; then
+if [ "$rc" -eq 1 ] && grep -qF "no 'Closes #$JKEY'" <<<"$out"; then
   pass "(n7) with tracker.type ABSENT the github arm runs — a jira-shaped body is rejected"
 else fail "(n7) expected the github Closes-# failure with tracker.type absent, got $rc: $out"; fi
 
 seed_progress_1_to_4_at "$WORK/p-explicit.md"
 out2="$(gate_cfg "$CFG_GITHUB" "$WORK/p-explicit.md" 5 "$JKEY" --pr-file "$WORK/pr-jira-ok.json" --comments-file "$WORK/comments-none.json")"; rc2=$?
-if [ "$rc2" -eq "$rc" ] && printf '%s' "$out2" | grep -qF "no 'Closes #$JKEY'"; then
+if [ "$rc2" -eq "$rc" ] && grep -qF "no 'Closes #$JKEY'" <<<"$out2"; then
   pass "(n8) an explicit tracker.type: github behaves identically to the absent default"
 else fail "(n8) explicit github diverged from the default — rc=$rc2: $out2"; fi
 
@@ -1680,13 +1680,13 @@ else fail "(n10) progress file missing the jira claim record: $(cat "$PROG_J" 2>
 printf '{"tool":"Bash"}\n' > "$TREE/.claude/audit/sess-jira.jsonl"
 out="$( cd "$TREE" && SECOND_SHIFT_CONFIG="$CFG_JIRA" LEAN_PROGRESS_FILE="$PROG_J" \
         env -u RUN_ID CLAUDE_CODE_SESSION_ID=sess-jira bash "$GATE" entry "$JKEY" 2>&1 )"; rc=$?
-if [ "$rc" -eq 0 ] && printf '%s' "$out" | grep -q 'no queue label to confirm'; then
+if [ "$rc" -eq 0 ] && grep -q 'no queue label to confirm' <<<"$out"; then
   pass "(n11) entry prints the jira adapter note — step 1's label reject has no jira meaning"
 else fail "(n11) expected the jira entry note, got rc=$rc: $out"; fi
 
 out="$( cd "$TREE" && SECOND_SHIFT_CONFIG="$CFG" LEAN_PROGRESS_FILE="$PROG" \
         env -u RUN_ID CLAUDE_CODE_SESSION_ID=sess-jira bash "$GATE" entry 7 2>&1 )"; rc=$?
-if [ "$rc" -eq 0 ] && ! printf '%s' "$out" | grep -q 'no queue label to confirm'; then
+if [ "$rc" -eq 0 ] && ! grep -q 'no queue label to confirm' <<<"$out"; then
   pass "(n12) the github arm prints no adapter note"
 else fail "(n12) the adapter note leaked into the github arm: $out"; fi
 
@@ -1705,7 +1705,7 @@ cat > "$WORK/pr-jira-openless.json" <<EOF
 EOF
 seed_progress_1_to_4_at "$PROG_J"
 out="$(gate_cfg "$CFG_JIRA" "$PROG_J" 5 "$JKEY" --pr-file "$WORK/pr-jira-openless.json" --comments-file "$WORK/comments-none.json")"; rc=$?
-if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -qF "no 'Closes [$JKEY]'"; then
+if [ "$rc" -eq 1 ] && grep -qF "no 'Closes [$JKEY]'" <<<"$out"; then
   pass "(n13) a space-less '###Jira Items' does not open a section — it is not an ATX heading"
 else fail "(n13) expected rc=1 on a space-less opening heading, got $rc: $out"; fi
 
@@ -1767,7 +1767,7 @@ commit_tree "review session commits its patch-id-keyed record"
 
 out="$(gate 4 7)"; rc=$?
 if [ "$rc" -eq 0 ] && grep -qE 'reviewed_patch_id: [0-9a-f]{6}' "$VERDICT" 2>/dev/null \
-   && printf '%s' "$out" | grep -q 'patch-id'; then
+   && grep -q 'patch-id' <<<"$out"; then
   pass "(v1) the review role stamps reviewed_patch_id and milestone-4's pass line names the patch-id arm it gated on"
 else fail "(v1) expected a patch-id-keyed record and pass line, rc=$rc: $out
 $(cat "$VERDICT" 2>/dev/null)"; fi
@@ -1783,7 +1783,7 @@ reset_progress
 printf 'reviewer prose, amended after the fact\n' >> "$VERDICT"
 commit_tree "the record's own bytes change"
 out="$(gate 4 7)"; rc=$?
-if [ "$rc" -eq 0 ] && printf '%s' "$out" | grep -q 'patch-id'; then
+if [ "$rc" -eq 0 ] && grep -q 'patch-id' <<<"$out"; then
   pass "(v2) editing the verdict record itself does not move the patch identity — the exclusion holds on both sides"
 else fail "(v2) expected rc=0 after editing the record, got $rc: $out"; fi
 
@@ -1822,7 +1822,7 @@ if [ "$v_rebase_ok" -eq 1 ] && [ "$(git -C "$TREE" rev-parse HEAD)" != "$v_orpha
 else fail "(v3a) the rebase did not take (ok=$v_rebase_ok, sha-arm-diff='$v_sha_arm_would_red') — (v3) would assert nothing"; fi
 
 out="$(gate 4 7)"; rc=$?
-if [ "$rc" -eq 0 ] && printf '%s' "$out" | grep -q 'patch-id'; then
+if [ "$rc" -eq 0 ] && grep -q 'patch-id' <<<"$out"; then
   pass "(v3) milestone-4 passes after a rebase that replays the branch unchanged, though the declared head is no longer this branch's"
 else fail "(v3) expected rc=0 after a clean rebase, got $rc: $out"; fi
 
@@ -1835,7 +1835,7 @@ jq '.topology.repos.acme.baseBranch = "no-such-base"' "$CFG" > "$CFG_NOBASE"
 [ "$(jq -r '.topology.repos.acme.baseBranch' "$CFG_NOBASE" 2>/dev/null)" = "no-such-base" ] \
   || fail "(v5-fixture) the no-base config was not built — (v5)/(v6) would run against the real base"
 out="$(gate_cfg "$CFG_NOBASE" "$PROG" 4 7)"; rc=$?
-if [ "$rc" -eq 2 ] && printf '%s' "$out" | grep -q 'cannot compute this branch'; then
+if [ "$rc" -eq 2 ] && grep -q 'cannot compute this branch' <<<"$out"; then
   pass "(v5) an unresolvable base is a milestone-4 refusal, not a pass over two empty patch ids"
 else fail "(v5) expected rc=2 on an unresolvable base, got $rc: $out"; fi
 
@@ -1854,7 +1854,7 @@ rm -f "$REVIEW_CACHE"
 out="$( unset RUN_ID; cd "$TREE" && SECOND_SHIFT_CONFIG="$CFG_NOBASE" LEAN_PROGRESS_FILE="$PROG" \
         CLAUDE_CODE_SESSION_ID=sess-review-9 RUN_ID=r-review-9 \
         bash "$GATE" verdict 7 --pr 12 --verdict approve 2>&1 )"; rc=$?
-if [ "$rc" -eq 2 ] && printf '%s' "$out" | grep -q 'cannot compute the branch'; then
+if [ "$rc" -eq 2 ] && grep -q 'cannot compute the branch' <<<"$out"; then
   pass "(v6) the verdict writer refuses an unresolvable base rather than omitting the key and degrading to the SHA path"
 else fail "(v6) expected rc=2 from the writer on an unresolvable base, got $rc: $out"; fi
 
@@ -1872,7 +1872,7 @@ out="$(verdict_cmd sess-review-9 r-review-9 --pr 12 --verdict approve)"; rc=$?
 printf '# spec\n\n- AC-1: a thing\n- AC-2: landed while the review was running\n' > "$SPEC"
 commit_tree "code and the record land together"
 out="$(gate 4 7)"; rc=$?
-if [ "$rc" -eq 5 ] && printf '%s' "$out" | grep -q 'reviewed patch'; then
+if [ "$rc" -eq 5 ] && grep -q 'reviewed patch' <<<"$out"; then
   pass "(v4) milestone-4 refuses once a commit changes the branch's patch after the review, with the inferred arm green"
 else fail "(v4) expected rc=5 on a moved patch identity, got $rc: $out"; fi
 
@@ -1887,8 +1887,8 @@ else fail "(v4) expected rc=5 on a moved patch identity, got $rc: $out"; fi
 # presence assertion fires; on GNU sed `-z` dumps the whole file and only the absence one does.
 out="$(bash "$GATE" --help 2>&1)"; rc=$?
 if [ "$rc" -eq 0 ] \
-   && printf '%s' "$out" | grep -q 'bash 3.2 compatible' \
-   && ! printf '%s' "$out" | grep -q '^set -uo pipefail'; then
+   && grep -q 'bash 3.2 compatible' <<<"$out" \
+   && ! grep -q '^set -uo pipefail' <<<"$out"; then
   pass "(w) --help prints through the last header line and stops before the code"
 else fail "(w) --help did not print exactly the header, rc=$rc: $out"; fi
 
@@ -1938,8 +1938,8 @@ attest_at "$XTREE" "$CFG" "$XPROG" 9
 # (x0) nothing committed to review yet: the FULL range, said so out loud. The degrade message is
 # the same one a BROKEN chain produces, which is why (x6) asserts the diagnostic beside it.
 out="$(xgate delta 9)"; rc=$?
-if [ "$rc" -eq 0 ] && printf '%s' "$out" | grep -q 'FULL range' \
-   && printf '%s' "$out" | grep -q 'untouched.txt' && printf '%s' "$out" | grep -q 'refixed.txt'; then
+if [ "$rc" -eq 0 ] && grep -q 'FULL range' <<<"$out" \
+   && grep -q 'untouched.txt' <<<"$out" && grep -q 'refixed.txt' <<<"$out"; then
   pass "(x0) with no prior record, delta prints the whole branch diff"
 else fail "(x0) expected a full-range delta, rc=$rc: $out"; fi
 
@@ -1957,7 +1957,7 @@ xseed_build
 out="$(xverdict sess-review-x1 r-review-x1 --pr 90 --verdict needs-work --rounds 1)"; rc=$?
 if [ "$rc" -eq 0 ] && [ "$(xkey inherited_patch_id)" = "none" ] \
    && [ "$(xkey inherited_from_verdict)" = "none" ] && [ -n "$(xkey reviewed_patch_id)" ] \
-   && printf '%s' "$out" | grep -q 'chain ROOT'; then
+   && grep -q 'chain ROOT' <<<"$out"; then
   pass "(x1) a round-1 record carries reviewed_patch_id and writes both inheritance keys as 'none', and says it is a chain root"
 else fail "(x1) expected a root record, rc=$rc: $out
 $(cat "$XVERDICT" 2>/dev/null)"; fi
@@ -1971,9 +1971,9 @@ X_R1_COMMIT="$(git -C "$XTREE" rev-parse HEAD)"
 printf 'reviewed in round 1, and the fix touched it\n' > "$XTREE/refixed.txt"
 xcommit "the fix the round-1 blockers asked for"
 out="$(xgate delta 9)"; rc=$?
-if [ "$rc" -eq 0 ] && printf '%s' "$out" | grep -q 'inheriting the coverage of patch' \
-   && printf '%s' "$out" | grep -q 'refixed.txt' \
-   && ! printf '%s' "$out" | grep -q 'untouched.txt'; then
+if [ "$rc" -eq 0 ] && grep -q 'inheriting the coverage of patch' <<<"$out" \
+   && grep -q 'refixed.txt' <<<"$out" \
+   && ! grep -q 'untouched.txt' <<<"$out"; then
   pass "(x2) the delta range is anchored at the inherited patch: the re-touched file is in it, the untouched one is not"
 else fail "(x2) expected a narrowed delta naming refixed.txt only, rc=$rc: $out"; fi
 
@@ -1998,7 +1998,7 @@ else fail "(x3b) expected rc=0 on a resolvable chain, got $rc: $out"; fi
 sed -e "s/^run_id: .*/run_id: r-build-x/" "$XVERDICT" > "$XVERDICT.tmp" && mv "$XVERDICT.tmp" "$XVERDICT"
 xcommit "the record claims the build run's identity"
 out="$(xgate 4 9)"; rc=$?
-if [ "$rc" -eq 6 ] && printf '%s' "$out" | grep -q "BUILD run's identity"; then
+if [ "$rc" -eq 6 ] && grep -q "BUILD run's identity" <<<"$out"; then
   pass "(x3c) a round-n record carrying the build run's identity is refused exactly as before, chain or no chain"
 else fail "(x3c) expected the P10 refusal on an inheriting round, got $rc: $out"; fi
 
@@ -2050,8 +2050,8 @@ sed -e "s/^inherited_patch_id:.*/inherited_patch_id: deadbeefdeadbeefdeadbeefdea
   && mv "$XVERDICT.tmp" "$XVERDICT"
 xcommit "the record's declared link is corrupted"
 out="$(xgate 4 9)"; rc=$?
-if [ "$rc" -eq 5 ] && printf '%s' "$out" | grep -q 'matches no earlier verdict record committed on this branch' \
-   && printf '%s' "$out" | grep -q 'round 2 declares'; then
+if [ "$rc" -eq 5 ] && grep -q 'matches no earlier verdict record committed on this branch' <<<"$out" \
+   && grep -q 'round 2 declares' <<<"$out"; then
   pass "(x6) milestone-4 refuses an unresolvable inheritance link, naming the round that declared it"
 else fail "(x6) expected rc=5 naming round 2, got $rc: $out"; fi
 
@@ -2068,7 +2068,7 @@ X_R2_PID="$(git -C "$XTREE" show "HEAD~1:$XVERDICT_REL" 2>/dev/null | grep -oE '
 xseed_build
 out="$(xverdict sess-review-x3 r-review-x3 --pr 90 --verdict approve --rounds 3)"; rc=$?
 if [ "$rc" -eq 0 ] && [ "$(xkey inherited_patch_id)" = "none" ] \
-   && printf '%s' "$out" | grep -q 'inherits nothing'; then
+   && grep -q 'inherits nothing' <<<"$out"; then
   pass "(x8) the writer degrades to a ROOT record when the chain beneath it is broken, and says so"
 else fail "(x8) expected a loud degrade to root, rc=$rc: $out
 $(cat "$XVERDICT" 2>/dev/null)"; fi
@@ -2080,8 +2080,8 @@ sed -e "s/^inherited_patch_id:.*/inherited_patch_id: $X_R2_PID/" "$XVERDICT" > "
   && mv "$XVERDICT.tmp" "$XVERDICT"
 xcommit "round 3 declares the link by hand"
 out="$(xgate 4 9)"; rc=$?
-if [ "$rc" -eq 5 ] && printf '%s' "$out" | grep -q 'round 2 declares' \
-   && ! printf '%s' "$out" | grep -q 'round 3 declares'; then
+if [ "$rc" -eq 5 ] && grep -q 'round 2 declares' <<<"$out" \
+   && ! grep -q 'round 3 declares' <<<"$out"; then
   pass "(x7) the refusal names round 2 — the round whose link dangles — not round 3, which declared a link that resolves"
 else fail "(x7) expected the break to be attributed to round 2, got $rc: $out"; fi
 
@@ -2152,7 +2152,7 @@ else fail "(y1) the reverted tree hashes to $Y_PID_REV, not round 1's $Y_PID_A �
 sed -e "s/^inherited_patch_id:.*/inherited_patch_id: $Y_PID_REV/" "$YVERDICT" > "$YVERDICT.tmp" && mv "$YVERDICT.tmp" "$YVERDICT"
 ycommit "round 3 declares its own reviewed patch as the one it inherited"
 out="$(ygate 4 11)"; rc=$?
-if [ "$rc" -eq 0 ] && printf '%s' "$out" | grep -q 'inheriting 1 verified earlier round'; then
+if [ "$rc" -eq 0 ] && grep -q 'inheriting 1 verified earlier round' <<<"$out"; then
   pass "(y2) a self-inheriting record resolves to the ANCESTOR carrying that patch, counted once — the window never includes the record being read"
 else fail "(y2) expected rc=0 with exactly 1 inherited link, got $rc: $out"; fi
 
@@ -2223,8 +2223,8 @@ $(cat "$ZVERDICT" 2>/dev/null)"; fi
 Z_PID1="$(zkey reviewed_patch_id)"
 zcommit "round 1's record, whose findings quote the key"
 out="$(zgate 4 12)"; rc=$?
-if [ "$rc" -eq 0 ] && printf '%s' "$out" | grep -q 'covering the whole branch diff on its own' \
-   && ! printf '%s' "$out" | grep -q 'matches no earlier verdict record'; then
+if [ "$rc" -eq 0 ] && grep -q 'covering the whole branch diff on its own' <<<"$out" \
+   && ! grep -q 'matches no earlier verdict record' <<<"$out"; then
   pass "(z1b) milestone 4 reads that record as the ROOT it is — the value in its findings is not a claim"
 else fail "(z1b) expected a root read, got rc=$rc: $out"; fi
 
@@ -2251,8 +2251,8 @@ ZBODY2="$WORK/zbody-2.md"
 out="$(zverdict sess-review-z2 r-review-z2 --pr 92 --verdict approve --rounds 2 --summary-file "$ZBODY2")"; rc=$?
 zcommit "round 2's record, quoting a link that would resolve"
 out="$(zgate 4 12)"; rc=$?
-if [ "$rc" -eq 0 ] && printf '%s' "$out" | grep -q 'covering the whole branch diff on its own' \
-   && ! printf '%s' "$out" | grep -q 'inheriting 1 verified earlier round'; then
+if [ "$rc" -eq 0 ] && grep -q 'covering the whole branch diff on its own' <<<"$out" \
+   && ! grep -q 'inheriting 1 verified earlier round' <<<"$out"; then
   pass "(z2) a quoted value that WOULD resolve credits no coverage — the silent half, where both readings exit 0"
 else fail "(z2) expected the root coverage phrase and no inherited credit, got rc=$rc: $out"; fi
 
@@ -2287,13 +2287,13 @@ else fail "(z3b) the writer refused over a value in a prior record's body: $out"
 # declares matches nothing left. Fail-closed either way — but one message says "commit it" and the
 # other sends the reviewer to redo a round over a record whose only defect is an unrun git commit.
 out="$(zgate 4 12)"; rc=$?
-if [ "$rc" -eq 5 ] && printf '%s' "$out" | grep -q 'uncommitted changes' \
-   && ! printf '%s' "$out" | grep -q 'matches no earlier verdict record'; then
+if [ "$rc" -eq 5 ] && grep -q 'uncommitted changes' <<<"$out" \
+   && ! grep -q 'matches no earlier verdict record' <<<"$out"; then
   pass "(z4) an uncommitted round-2 record is refused for being uncommitted, not for a chain its own state broke"
 else fail "(z4) expected the uncommitted refusal without a chain diagnostic, got rc=$rc: $out"; fi
 zcommit "round 2's record"
 out="$(zgate 4 12)"; rc=$?
-if [ "$rc" -eq 0 ] && printf '%s' "$out" | grep -q 'inheriting 1 verified earlier round'; then
+if [ "$rc" -eq 0 ] && grep -q 'inheriting 1 verified earlier round' <<<"$out"; then
   pass "(z4b) committed, the same record passes with its one link — so (z4) turned on the commit and nothing else"
 else fail "(z4b) expected a 1-link pass once committed, got rc=$rc: $out"; fi
 
@@ -2313,7 +2313,7 @@ if [ "$rc" -eq 0 ] && [ "$(zkey inherited_patch_id)" = "$Z_PID1" ] \
 else fail "(z5) expected the link to be round 1's $Z_PID1, got $(zkey inherited_patch_id) (its own prior version is $Z_PID2), rc=$rc: $out"; fi
 zcommit "round 2's record, re-run after the branch moved"
 out="$(zgate 4 12)"; rc=$?
-if [ "$rc" -eq 0 ] && printf '%s' "$out" | grep -q 'inheriting 1 verified earlier round'; then
+if [ "$rc" -eq 0 ] && grep -q 'inheriting 1 verified earlier round' <<<"$out"; then
   pass "(z5b) and the chain it writes is one link, not the two a self-link would have counted"
 else fail "(z5b) expected a 1-link chain after the re-run, got rc=$rc: $out"; fi
 
@@ -2462,7 +2462,7 @@ dreset
 printf '# spec\n\n- AC-1: the thing\n' > "$DSPEC"
 dcommit "a spec with no Design section"
 out="$(dgate 1 55)"; rc=$?
-if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q 'must carry a "## Design" section'; then
+if [ "$rc" -eq 1 ] && grep -q 'must carry a "## Design" section' <<<"$out"; then
   pass "(dz1) a configured design.provider with no '## Design' section reds milestone 1"
 else fail "(dz1) expected the missing-section refusal, rc=$rc: $out"; fi
 
@@ -2474,14 +2474,14 @@ dreset
 dspec_armed
 dcommit "the armed spec"
 out="$(dgate_nodesign 1 55)"; rc=$?
-if [ "$rc" -eq 0 ] && ! printf '%s' "$out" | grep -q 'ARMED'; then
+if [ "$rc" -eq 0 ] && ! grep -q 'ARMED' <<<"$out"; then
   pass "(dz3) a '## Design' section in a repo with no design.provider arms NOTHING (the AND half of D-8)"
 else fail "(dz3) expected an unarmed pass, rc=$rc: $out"; fi
 
 # (dz4) and the same spec under the design config IS armed.
 dreset
 out="$(dgate 1 55)"; rc=$?
-if [ "$rc" -eq 0 ] && printf '%s' "$out" | grep -q 'design lane ARMED'; then
+if [ "$rc" -eq 0 ] && grep -q 'design lane ARMED' <<<"$out"; then
   pass "(dz4) the same spec under a configured provider arms the lane"
 else fail "(dz4) expected an armed pass, rc=$rc: $out"; fi
 
@@ -2489,7 +2489,7 @@ else fail "(dz4) expected an armed pass, rc=$rc: $out"; fi
 dreset
 printf '# spec\n\n- AC-1: the thing\n\n## Design\n\nDesign: none — no FE surface in this ticket.\n' > "$DSPEC"
 out="$(dgate 1 55)"; rc=$?
-if [ "$rc" -eq 0 ] && printf '%s' "$out" | grep -q 'disarmed'; then
+if [ "$rc" -eq 0 ] && grep -q 'disarmed' <<<"$out"; then
   pass "(dz2) 'Design: none — <reason>' is a conscious per-ticket disarm, not a defect"
 else fail "(dz2) expected a disarmed pass, rc=$rc: $out"; fi
 
@@ -2498,7 +2498,7 @@ else fail "(dz2) expected a disarmed pass, rc=$rc: $out"; fi
 dreset
 printf '# spec\n\n- AC-1: the thing\n\n## Design\n\nDesign: none\n' > "$DSPEC"
 out="$(dgate 1 55)"; rc=$?
-if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q 'states no reason'; then
+if [ "$rc" -eq 1 ] && grep -q 'states no reason' <<<"$out"; then
   pass "(dz5) a bare 'Design: none' is refused — the disarm is a decision and must carry one"
 else fail "(dz5) expected the no-reason refusal, rc=$rc: $out"; fi
 
@@ -2507,7 +2507,7 @@ else fail "(dz5) expected the no-reason refusal, rc=$rc: $out"; fi
 dreset
 printf '# spec\n\n- AC-1: x\n\n## Design\n\n| RS-n | route | state | AC refs |\n| --- | --- | --- | --- |\n| RS-1 | p | default | AC-1 |\n' > "$DSPEC"
 out="$(dgate 1 55)"; rc=$?
-if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q 'no provider handoff link'; then
+if [ "$rc" -eq 1 ] && grep -q 'no provider handoff link' <<<"$out"; then
   pass "(dz6) an armed section with no handoff link is refused at authoring time"
 else fail "(dz6) expected the missing-link refusal, rc=$rc: $out"; fi
 
@@ -2515,7 +2515,7 @@ else fail "(dz6) expected the missing-link refusal, rc=$rc: $out"; fi
 dreset
 printf '# spec\n\n- AC-1: x\n\n## Design\n\nHandoff: https://design.example.invalid/f/a\n' > "$DSPEC"
 out="$(dgate 1 55)"; rc=$?
-if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q 'declares no render state'; then
+if [ "$rc" -eq 1 ] && grep -q 'declares no render state' <<<"$out"; then
   pass "(dz7) a section naming neither a render state nor a disarm is refused"
 else fail "(dz7) expected the no-render-state refusal, rc=$rc: $out"; fi
 
@@ -2526,7 +2526,7 @@ dspec_armed
 dcommit "the armed spec, restored"
 dcfg "bash $DSTUB --route {route} --state {state}"
 out="$(dgate 3 55)"; rc=$?
-if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q 'no {out} placeholder'; then
+if [ "$rc" -eq 1 ] && grep -q 'no {out} placeholder' <<<"$out"; then
   pass "(dr7) a liveRender.command with no {out} reds milestone 3"
 else fail "(dr7) expected the missing-{out} refusal, rc=$rc: $out"; fi
 
@@ -2535,7 +2535,7 @@ else fail "(dr7) expected the missing-{out} refusal, rc=$rc: $out"; fi
 dreset
 dcfg "bash $DSTUB --route {route} --out {out}"
 out="$(dgate 3 55)"; rc=$?
-if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q 'no {state} placeholder'; then
+if [ "$rc" -eq 1 ] && grep -q 'no {state} placeholder' <<<"$out"; then
   pass "(dr6) a non-default RS row with no {state} in the command reds milestone 3"
 else fail "(dr6) expected the missing-{state} refusal, rc=$rc: $out"; fi
 
@@ -2553,8 +2553,8 @@ out="$(dgate 3 55)"; rc=$?
 # The POSITIVE half: the run reached the render itself. Asserting only the refusal's absence
 # would also pass if the gate had redded one line earlier for some unrelated reason, which is
 # how a "the check did not fire" case quietly stops asserting anything.
-if ! printf '%s' "$out" | grep -q 'no {state} placeholder' \
-   && printf '%s' "$out" | grep -q 'milestone-3: render RS-1'; then
+if ! grep -q 'no {state} placeholder' <<<"$out" \
+   && grep -q 'milestone-3: render RS-1' <<<"$out"; then
   pass "(dr6b) a default-only render table needs no {state} — the refusal is keyed on the declared state, and the run reaches the render"
 else fail "(dr6b) expected the template check to pass through to the render, rc=$rc: $out"; fi
 
@@ -2571,7 +2571,7 @@ dreset
 } > "$DSPEC"
 dcommit "a spec repeating an RS id"
 out="$(dgate 3 55)"; rc=$?
-if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q "twice"; then
+if [ "$rc" -eq 1 ] && grep -q "twice" <<<"$out"; then
   pass "(dr11) a repeated RS id reds — one id, one screenshot file, no silently overwritten evidence"
 else fail "(dr11) expected the duplicate-id refusal, rc=$rc: $out"; fi
 
@@ -2582,7 +2582,7 @@ dspec_armed
 dcommit "the armed spec, restored"
 dcfg "$DSTUB_CMD" "fe"
 out="$(dgate 3 55)"; rc=$?
-if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q 'run the lean lane from the repo that owns the render harness'; then
+if [ "$rc" -eq 1 ] && grep -q 'run the lean lane from the repo that owns the render harness' <<<"$out"; then
   pass "(dr10) design.liveRender.cwd naming a non-host topology repo reds with the limitation named"
 else fail "(dr10) expected the cwd limitation refusal, rc=$rc: $out"; fi
 
@@ -2592,8 +2592,8 @@ dreset
 dcfg "$DSTUB_CMD"
 printf 'docs/nothing\n' > "$DTREE/.gitignore"
 out="$(dgate 3 55)"; rc=$?
-if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q 'not git-ignored' \
-   && printf '%s' "$out" | grep -qF '.claude/lean-renders/'; then
+if [ "$rc" -eq 1 ] && grep -q 'not git-ignored' <<<"$out" \
+   && grep -qF '.claude/lean-renders/' <<<"$out"; then
   pass "(dr8) an un-ignored render output path reds, naming the exact .gitignore line to add"
 else fail "(dr8) expected the check-ignore refusal with the remedy line, rc=$rc: $out"; fi
 
@@ -2603,7 +2603,7 @@ printf '.claude/\n' > "$DTREE/.gitignore"
 dcommit "restore the ignore rule"
 dreset
 out="$(dgate 3 55)"; rc=$?
-if ! printf '%s' "$out" | grep -q 'not git-ignored'; then
+if ! grep -q 'not git-ignored' <<<"$out"; then
   pass "(dr9) the same path passes the ignore assertion once .gitignore covers it"
 else fail "(dr9) the check-ignore refusal survived the ignore rule: $out"; fi
 
@@ -2613,7 +2613,7 @@ dreset
 dmode fail
 rm -f "$DCALLS" "$DMANIFEST"
 out="$(dgate 3 55)"; rc=$?
-if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q 'render RS-1' && printf '%s' "$out" | grep -q 'failed (rc=7)' \
+if [ "$rc" -eq 1 ] && grep -q 'render RS-1' <<<"$out" && grep -q 'failed (rc=7)' <<<"$out" \
    && [ ! -f "$DMANIFEST" ]; then
   pass "(dr5) a nonzero render exit reds milestone 3 and writes no manifest"
 else fail "(dr5) expected the render failure refusal and no manifest, rc=$rc: $out"; fi
@@ -2624,7 +2624,7 @@ dreset
 dmode empty
 rm -f "$DCALLS" "$DMANIFEST"
 out="$(dgate 3 55)"; rc=$?
-if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q 'wrote no PNG bytes' && [ ! -f "$DMANIFEST" ]; then
+if [ "$rc" -eq 1 ] && grep -q 'wrote no PNG bytes' <<<"$out" && [ ! -f "$DMANIFEST" ]; then
   pass "(dr4) a zero-byte screenshot reds even though the harness exited 0"
 else fail "(dr4) expected the zero-byte refusal, rc=$rc: $out"; fi
 
@@ -2635,7 +2635,7 @@ dreset
 dmode blind
 rm -f "$DCALLS" "$DMANIFEST"
 out="$(dgate 3 55)"; rc=$?
-if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q 'hash identically' && [ ! -f "$DMANIFEST" ]; then
+if [ "$rc" -eq 1 ] && grep -q 'hash identically' <<<"$out" && [ ! -f "$DMANIFEST" ]; then
   pass "(dr3) two declared states rendering byte-identically red — the {state}-blind-harness detector"
 else fail "(dr3) expected the identical-hash refusal, rc=$rc: $out"; fi
 
@@ -2647,7 +2647,7 @@ dmode ok
 rm -f "$DCALLS" "$DMANIFEST"
 out="$(dgate 3 55)"; rc=$?
 D_ROWS="$(grep -cE '^\| RS-[0-9]+ \|' "$DMANIFEST" 2>/dev/null)" || D_ROWS=0
-if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q 'commit it and re-run' \
+if [ "$rc" -eq 1 ] && grep -q 'commit it and re-run' <<<"$out" \
    && [ "$D_ROWS" -eq 2 ] && [ "$(dcalls)" -eq 2 ] \
    && [ -s "$DTREE/.claude/lean-renders/55/RS-1.png" ] && [ -s "$DTREE/.claude/lean-renders/55/RS-2.png" ]; then
   pass "(dr1) two declared states render into two non-empty PNGs and two manifest rows, red until committed"
@@ -2710,7 +2710,7 @@ dreset
 D_CALLS_BEFORE="$(dcalls)"
 out="$(dgate 3 55)"; rc=$?
 if [ "$rc" -eq 0 ] && [ "$(dcalls)" -eq "$D_CALLS_BEFORE" ] \
-   && printf '%s' "$out" | grep -q 'not re-rendering'; then
+   && grep -q 'not re-rendering' <<<"$out"; then
   pass "(di1) a pre-verdict re-run passes on the committed receipt and renders nothing again"
 else fail "(di1) expected an idempotent pass, rc=$rc calls=$(dcalls) (was $D_CALLS_BEFORE): $out"; fi
 
@@ -2734,7 +2734,7 @@ rm -rf "$DTREE/.claude/lean-renders/55"
 D_CALLS_BEFORE="$(dcalls)"
 out="$(dgate 3 55)"; rc=$?
 if [ "$rc" -eq 0 ] && [ "$(dcalls)" -eq "$D_CALLS_BEFORE" ] \
-   && printf '%s' "$out" | grep -q 'this round is approved'; then
+   && grep -q 'this round is approved' <<<"$out"; then
   pass "(di2) post-approve, the render binding alone passes with every PNG deleted — no livelock, resume-safe"
 else fail "(di2) expected a post-approve pass with no re-render, rc=$rc calls=$(dcalls): $out"; fi
 rm -f "$DVERDICT"
@@ -2758,11 +2758,11 @@ else fail "(dl4) armed evaluations appended attempt lines: $(cat "$DPROG")"; fi
 # what keeps the pair honest about which population it covers.
 printf '# spec\n\n- AC-1: x\n\n## Design\n\nDesign: none — changed my mind mid-run.\n' > "$DSPEC"
 out="$(dgate 1 55)"; rc=$?
-if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q 'already armed it'; then
+if [ "$rc" -eq 1 ] && grep -q 'already armed it' <<<"$out"; then
   pass "(dl2) disarming after the lane armed reds milestone 1"
 else fail "(dl2) expected the mid-run-disarm refusal at milestone 1, rc=$rc: $out"; fi
 out="$(dgate 3 55)"; rc=$?
-if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q 'already armed it'; then
+if [ "$rc" -eq 1 ] && grep -q 'already armed it' <<<"$out"; then
   pass "(dl3) ...and reds milestone 3, which a resume can re-enter without re-running milestone 1"
 else fail "(dl3) expected the mid-run-disarm refusal at milestone 3, rc=$rc: $out"; fi
 
@@ -2787,14 +2787,14 @@ out="$(dgate 3 55)"; rc=$?
 
 # (fd1) the enum is validated at the writer, where the fix is one flag away.
 out="$(dverdict sess-review-d r-review-d --pr 55 --verdict approve --fidelity maybe)"; rc=$?
-if [ "$rc" -eq 2 ] && printf '%s' "$out" | grep -q "must be 'pass', 'fail' or 'not-applicable'"; then
+if [ "$rc" -eq 2 ] && grep -q "must be 'pass', 'fail' or 'not-applicable'" <<<"$out"; then
   pass "(fd1) --fidelity enum-validates"
 else fail "(fd1) expected an enum refusal, rc=$rc: $out"; fi
 
 # (fd4) fail x approve is a contradiction: a design failure is a blocker and any blocker is
 # needs-work. Refused at the writer rather than only at milestone 4, where it costs the round.
 out="$(dverdict sess-review-d r-review-d --pr 55 --verdict approve --fidelity fail)"; rc=$?
-if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q 'cannot accompany'; then
+if [ "$rc" -eq 1 ] && grep -q 'cannot accompany' <<<"$out"; then
   pass "(fd4) --fidelity fail with --verdict approve is refused"
 else fail "(fd4) expected the fail-x-approve refusal, rc=$rc: $out"; fi
 
@@ -2809,7 +2809,7 @@ else fail "(fd2) expected an unconditional fidelity key, rc=$rc: $(cat "$DVERDIC
 # not an approval of it. This is failure class (3) caught at the gate.
 dcommit "a verdict that scored no fidelity"
 out="$(dgate 4 55)"; rc=$?
-if [ "$rc" -eq 5 ] && printf '%s' "$out" | grep -q 'not fidelity=pass'; then
+if [ "$rc" -eq 5 ] && grep -q 'not fidelity=pass' <<<"$out"; then
   pass "(fd5) an armed run refuses a verdict whose fidelity is not 'pass'"
 else fail "(fd5) expected the armed fidelity refusal, rc=$rc: $out"; fi
 
@@ -2829,7 +2829,7 @@ out="$(dverdict sess-review-d2 r-review-d2 --pr 55 --verdict approve --summary-f
 dcommit "a record whose body quotes the key"
 dreset
 out="$(dgate 4 55)"; rc=$?
-if [ "$rc" -eq 5 ] && printf '%s' "$out" | grep -q 'not fidelity=pass'; then
+if [ "$rc" -eq 5 ] && grep -q 'not fidelity=pass' <<<"$out"; then
   pass "(fd3) a 'fidelity: pass' in the record's BODY is not a score — the read is anchored to the header"
 else fail "(fd3) expected the armed refusal despite the body value, rc=$rc: $out"; fi
 
@@ -2856,7 +2856,7 @@ mv "$DMANIFEST" "$WORK/held-dmanifest.md"
 dreset
 out="$(dgate 4 55)"; rc=$?
 mv "$WORK/held-dmanifest.md" "$DMANIFEST"
-if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q 'no render receipt at'; then
+if [ "$rc" -eq 1 ] && grep -q 'no render receipt at' <<<"$out"; then
   pass "(ac-d1) an armed approve with no render receipt is class 1 — its remedy is a BUILD action, not another review round"
 else fail "(ac-d1) expected rc=1 on a missing receipt, got $rc: $out"; fi
 
@@ -2871,7 +2871,7 @@ dreset
 out="$( unset RUN_ID CLAUDE_CODE_SESSION_ID; cd "$DTREE" \
         && SECOND_SHIFT_CONFIG="$DCFG_NOBASE" LEAN_PROGRESS_FILE="$DPROG" \
         bash "$GATE" --issue-file "$ISSUE_NOREGIONS" 4 55 2>&1 )"; rc=$?
-if [ "$rc" -eq 2 ] && printf '%s' "$out" | grep -q 'render patch identity'; then
+if [ "$rc" -eq 2 ] && grep -q 'render patch identity' <<<"$out"; then
   pass "(ac-d2) an uncomputable render patch identity is class 2 — an environment error, never a review round"
 else fail "(ac-d2) expected rc=2 on an unresolvable base, got $rc: $out"; fi
 
@@ -2893,8 +2893,8 @@ out="$(dverdict sess-review-d4 r-review-d4 --pr 55 --verdict approve --fidelity 
 dcommit "an honest record on the new head, scored against the OLD screenshots"
 dreset
 out="$(dgate 4 55)"; rc=$?
-if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q 'renders from' \
-   && ! printf '%s' "$out" | grep -q 'file(s) changed after it'; then
+if [ "$rc" -eq 1 ] && grep -q 'renders from' <<<"$out" \
+   && ! grep -q 'file(s) changed after it' <<<"$out"; then
   pass "(dm1) a stale render receipt reds milestone 4 on a tree whose verdict freshness is green"
 else fail "(dm1) expected the stale-receipt refusal alone, rc=$rc: $out"; fi
 
@@ -2921,7 +2921,7 @@ out="$(dverdict sess-review-d6 r-review-d6 --pr 55 --verdict approve --fidelity 
 dcommit "a record claiming a fidelity its spec could not have armed"
 dreset
 out="$(dgate_nodesign 4 55)"; rc=$?
-if [ "$rc" -eq 5 ] && printf '%s' "$out" | grep -q 'arms no design render lane'; then
+if [ "$rc" -eq 5 ] && grep -q 'arms no design render lane' <<<"$out"; then
   pass "(fd7) an unarmed run refuses a fidelity value other than not-applicable"
 else fail "(fd7) expected the unarmed non-applicable refusal, rc=$rc: $out"; fi
 
@@ -3007,8 +3007,8 @@ done
 rm -f "$PPROG"
 out="$(pgate_tel -u CLAUDE_CODE_ENABLE_TELEMETRY -- entry 8)"; rc=$?
 if [ "$rc" -eq 0 ] \
-   && printf '%s' "$out" | grep -qF 'CLAUDE_CODE_ENABLE_TELEMETRY is not set' \
-   && printf '%s' "$out" | grep -qF 'cannot be recovered after the run' \
+   && grep -qF 'CLAUDE_CODE_ENABLE_TELEMETRY is not set' <<<"$out" \
+   && grep -qF 'cannot be recovered after the run' <<<"$out" \
    && grep -qF '| telemetry=off |' "$PPROG"; then
   pass "(tel1) a non-exporting session warns, names the unrecoverable consequence, and stamps telemetry=off — WITHOUT refusing"
 else fail "(tel1) expected rc=0 + the off warning + the stamped row, rc=$rc: $out"; fi
@@ -3017,7 +3017,7 @@ if [ -n "$DEAD_PORT" ]; then
   rm -f "$PPROG"
   out="$(pgate_tel CLAUDE_CODE_ENABLE_TELEMETRY=1 "OTEL_EXPORTER_OTLP_ENDPOINT=http://127.0.0.1:$DEAD_PORT" -- entry 8)"; rc=$?
   if [ "$rc" -eq 0 ] && grep -qF '| telemetry=nocoll |' "$PPROG" \
-     && printf '%s' "$out" | grep -qF 'nothing is accepting'; then
+     && grep -qF 'nothing is accepting' <<<"$out"; then
     pass "(tel2) exporting enabled but no collector listening resolves to nocoll, still rc=0"
   else fail "(tel2) expected nocoll, rc=$rc: $out / $(cat "$PPROG" 2>/dev/null)"; fi
 else
@@ -3108,7 +3108,7 @@ out="$(pgate 1 8)"; rc=$?
 # The `absent` half is #494's: the refusal fires before cmd_1 runs, so it must charge NEITHER
 # counter — a new line kind that leaked through the entry refusal would still be a record of a
 # milestone that was never evaluated.
-if [ "$rc" -eq 2 ] && printf '%s' "$out" | grep -qF 'bash G entry 8' \
+if [ "$rc" -eq 2 ] && grep -qF 'bash G entry 8' <<<"$out" \
    && [ "$(pcount '| milestone-1 | attempt |')" -eq 0 ] \
    && [ "$(pcount '| milestone-1 | absent |')" -eq 0 ]; then
   pass "(ea3) a build-role milestone with no entry row exits 2, names the remedy, and charges neither counter"
@@ -3134,7 +3134,7 @@ else fail "(ea4) expected 2 then 0, got $rc4_unattested then $rc4_attested: $out
 # one call a resume actually makes unguarded.
 pseed_unattested
 out="$(pgate all 8)"; rc=$?
-if [ "$rc" -eq 2 ] && printf '%s' "$out" | grep -qF 'no entry attestation'; then
+if [ "$rc" -eq 2 ] && grep -qF 'no entry attestation' <<<"$out"; then
   pass "(ea5) 'all' refuses an unattested run before its cheap pre-pass runs"
 else fail "(ea5) expected rc=2 from all, got $rc: $out"; fi
 
@@ -3142,7 +3142,7 @@ else fail "(ea5) expected rc=2 from all, got $rc: $out"; fi
 # reviewer of an unattested build is told to stop, with a remedy only the build side can apply.
 pseed_unattested
 out="$(pgate delta 8)"; rc=$?
-if [ "$rc" -eq 2 ] && printf '%s' "$out" | grep -qF 'bash G entry 8'; then
+if [ "$rc" -eq 2 ] && grep -qF 'bash G entry 8' <<<"$out"; then
   pass "(ea6) delta refuses an unattested run — a reviewer must not certify a run with no ledger"
 else fail "(ea6) expected rc=2 from delta, got $rc: $out"; fi
 
@@ -3156,8 +3156,8 @@ else fail "(ea6) expected rc=2 from delta, got $rc: $out"; fi
 pseed_unattested
 out="$( cd "$PTREE" && CLAUDE_CODE_SESSION_ID=sess-p-review SECOND_SHIFT_CONFIG="$CFG" \
         LEAN_PROGRESS_FILE="$PPROG" RUN_ID=r-p-review-2 bash "$GATE" verdict 8 --pr 3 --verdict approve 2>&1 )"; rc=$?
-if printf '%s' "$out" | grep -qF '[lean-gate] verdict:' \
-   && ! printf '%s' "$out" | grep -qF 'no entry attestation'; then
+if grep -qF '[lean-gate] verdict:' <<<"$out" \
+   && ! grep -qF 'no entry attestation' <<<"$out"; then
   pass "(ea7) verdict is exempt from the build-role precondition (D-5) — it reaches its own evaluation"
 else fail "(ea7) verdict was gated by the entry precondition, rc=$rc: $out"; fi
 
@@ -3175,14 +3175,14 @@ pn_entry() { ( unset RUN_ID; cd "$PNOLEDGER" && CLAUDE_CODE_SESSION_ID=sess-abse
                bash "$GATE" entry 8 2>&1 ); }
 rm -f "$PNOLEDGER/.claude/settings.json" "$PNOLEDGER/.claude/settings.local.json"
 out="$(pn_entry)"; rc=$?
-if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q 'is missing or empty' \
-   && ! printf '%s' "$out" | grep -q 'audit-toolkit is disabled'; then
+if [ "$rc" -eq 1 ] && grep -q 'is missing or empty' <<<"$out" \
+   && ! grep -q 'audit-toolkit is disabled' <<<"$out"; then
   pass "(ea8) with no settings to read, the missing-ledger refusal keeps its generic wording"
 else fail "(ea8) expected the generic refusal, rc=$rc: $out"; fi
 
 printf '{"enabledPlugins": {"audit-toolkit@second-shift": false}}\n' > "$PNOLEDGER/.claude/settings.local.json"
 out="$(pn_entry)"; rc=$?
-if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q 'audit-toolkit is disabled'; then
+if [ "$rc" -eq 1 ] && grep -q 'audit-toolkit is disabled' <<<"$out"; then
   pass "(ea9) the same refusal names audit-toolkit when the settings say it is off — same verdict, better diagnosis"
 else fail "(ea9) expected the plugin-off wording, rc=$rc: $out"; fi
 
@@ -3274,8 +3274,8 @@ ebrows() {
 eb_build '2026-08-07T13:22:50Z'
 out="$(ebgate 1 8)"; rc=$?
 if [ "$rc" -eq 0 ] \
-   && printf '%s' "$out" | grep -qF 'before the entry precondition took effect (2026-08-07T13:22:51Z)' \
-   && ! printf '%s' "$out" | grep -qF 'no entry attestation' \
+   && grep -qF 'before the entry precondition took effect (2026-08-07T13:22:51Z)' <<<"$out" \
+   && ! grep -qF 'no entry attestation' <<<"$out" \
    && [ "$(ebrows)" -eq 0 ]; then
   pass "(eb1) AC-6: a branch started before the precondition's since: is de-blocked, announced, and NOT attested"
 else fail "(eb1) expected a de-blocked run with no entry row, rc=$rc rows=$(ebrows): $out"; fi
@@ -3285,8 +3285,8 @@ else fail "(eb1) expected a de-blocked run with no entry row, rc=$rc rows=$(ebro
 # function is likeliest to drop.
 eb_build '2026-08-07T13:22:51Z'
 out="$(ebgate 1 8)"; rc=$?
-if [ "$rc" -eq 2 ] && printf '%s' "$out" | grep -qF 'no entry attestation' \
-   && printf '%s' "$out" | grep -qF 'host-local and gitignored'; then
+if [ "$rc" -eq 2 ] && grep -qF 'no entry attestation' <<<"$out" \
+   && grep -qF 'host-local and gitignored' <<<"$out"; then
   pass "(eb2) AC-7: a branch started AT the since: is refused, with the existing wording and second cause"
 else fail "(eb2) expected the unchanged refusal at the boundary second, rc=$rc: $out"; fi
 
@@ -3295,7 +3295,7 @@ else fail "(eb2) expected the unchanged refusal at the boundary second, rc=$rc: 
 # comparator that compared the raw author date would silently exempt a branch it must enforce.
 eb_build '2026-08-07T09:00:00-05:00'
 out="$(ebgate 1 8)"; rc=$?
-if [ "$rc" -eq 2 ] && printf '%s' "$out" | grep -qF 'no entry attestation'; then
+if [ "$rc" -eq 2 ] && grep -qF 'no entry attestation' <<<"$out"; then
   pass "(eb3) AC-8: a -05:00 author date at 14:00 UTC enforces, though its local clock reads before the cutoff"
 else fail "(eb3) a non-UTC offset was compared unnormalized (fail-open direction), rc=$rc: $out"; fi
 
@@ -3304,7 +3304,7 @@ else fail "(eb3) a non-UTC offset was compared unnormalized (fail-open direction
 # driven because one alone is satisfied by a comparator that is merely wrong in the other.
 eb_build '2026-08-07T18:00:00+05:30'
 out="$(ebgate 1 8)"; rc=$?
-if [ "$rc" -eq 0 ] && printf '%s' "$out" | grep -qF 'this branch started at 2026-08-07T12:30:00Z'; then
+if [ "$rc" -eq 0 ] && grep -qF 'this branch started at 2026-08-07T12:30:00Z' <<<"$out"; then
   pass "(eb4) AC-8: a +05:30 author date at 12:30 UTC de-blocks, though its local clock reads after the cutoff"
 else fail "(eb4) a non-UTC offset was compared unnormalized (fail-closed direction), rc=$rc: $out"; fi
 
@@ -3315,7 +3315,7 @@ else fail "(eb4) a non-UTC offset was compared unnormalized (fail-closed directi
 eb_build '2026-08-07T13:22:50Z'
 git -C "$EBTREE" update-ref refs/remotes/origin/main HEAD
 out="$(ebgate 1 8)"; rc=$?
-if [ "$rc" -eq 2 ] && printf '%s' "$out" | grep -qF 'no entry attestation'; then
+if [ "$rc" -eq 2 ] && grep -qF 'no entry attestation' <<<"$out"; then
   pass "(eb5) OR-2: an empty commit range enforces — a branch cut now postdates nothing"
 else fail "(eb5) an empty range took the de-block path, rc=$rc: $out"; fi
 
@@ -3326,8 +3326,8 @@ else fail "(eb5) an empty range took the de-block path, rc=$rc: $out"; fi
 eb_build '2026-08-07T13:22:50Z'
 git -C "$EBTREE" update-ref -d refs/remotes/origin/main
 out="$(ebgate 1 8)"; rc=$?
-if [ "$rc" -eq 2 ] && printf '%s' "$out" | grep -qF 'cannot resolve merge-base(origin/main, HEAD)' \
-   && ! printf '%s' "$out" | grep -qF 'no entry attestation'; then
+if [ "$rc" -eq 2 ] && grep -qF 'cannot resolve merge-base(origin/main, HEAD)' <<<"$out" \
+   && ! grep -qF 'no entry attestation' <<<"$out"; then
   pass "(eb6) D-5: an unresolvable merge-base fails closed with its own diagnosis, not the attestation refusal"
 else fail "(eb6) expected the merge-base envfail, rc=$rc: $out"; fi
 
@@ -3413,7 +3413,7 @@ cat > "$WORK/comments-mark-same.json" <<'EOF'
 EOF
 : > "$BOT_SPOOL"
 out="$(mark_gate "$CFG" mark-run-1 sess-mark-1 mark 8 --pr-file "$WORK/pr-mark.json" --comments-file "$WORK/comments-mark-same.json")"; rc=$?
-if [ "$rc" -eq 0 ] && [ ! -s "$BOT_SPOOL" ] && printf '%s' "$out" | grep -q 'already carries this run'; then
+if [ "$rc" -eq 0 ] && [ ! -s "$BOT_SPOOL" ] && grep -q 'already carries this run' <<<"$out"; then
   pass "(pm2) mark is a no-op when this run's marker is already on the PR"
 else fail "(pm2) expected a silent no-op, rc=$rc: $out / spool=$(cat "$BOT_SPOOL" 2>/dev/null)"; fi
 
@@ -3456,7 +3456,7 @@ else fail "(pm5) expected a post despite the human marker, rc=$rc: $out / spool=
 # forbade one; that absence, not the tracker, is what this asserts (#440).
 : > "$BOT_SPOOL"
 out="$(mark_gate "$CFG_JIRA" mark-run-j sess-mark-j mark ACME-8 --pr-file "$WORK/pr-mark.json" --comments-file "$WORK/comments-none.json")"; rc=$?
-if [ "$rc" -eq 0 ] && [ ! -s "$BOT_SPOOL" ] && printf '%s' "$out" | grep -q 'reduced strength'; then
+if [ "$rc" -eq 0 ] && [ ! -s "$BOT_SPOOL" ] && grep -q 'reduced strength' <<<"$out"; then
   pass "(pm6) with no bot configured, mark writes nothing and says so (reduced strength, printed)"
 else fail "(pm6) expected a printed no-bot degrade with no write, rc=$rc: $out / spool=$(cat "$BOT_SPOOL" 2>/dev/null)"; fi
 
@@ -3471,7 +3471,7 @@ jq -e '.tracker.bot.enabled == true and .tracker.type == "jira"' "$CFG_JIRA_BOT"
 : > "$BOT_SPOOL"
 out="$(mark_gate "$CFG_JIRA_BOT" mark-run-jb sess-mark-jb mark ACME-8 --pr-file "$WORK/pr-mark.json" --comments-file "$WORK/comments-none.json")"; rc=$?
 if [ "$rc" -eq 0 ] && grep -q 'run_id: mark-run-jb' "$BOT_SPOOL" 2>/dev/null \
-   && ! printf '%s' "$out" | grep -q 'reduced strength'; then
+   && ! grep -q 'reduced strength' <<<"$out"; then
   pass "(pm6b) a jira consumer WITH a bot posts the PR marker, like any other"
 else fail "(pm6b) expected a posted marker under jira+bot, rc=$rc: $out / spool=$(cat "$BOT_SPOOL" 2>/dev/null)"; fi
 
@@ -3479,7 +3479,7 @@ else fail "(pm6b) expected a posted marker under jira+bot, rc=$rc: $out / spool=
 # not reached the step this is called from, and a silent success would hide that.
 : > "$BOT_SPOOL"
 out="$(mark_gate "$CFG" mark-run-3 sess-mark-3 mark 8 --pr-file "$WORK/pr-mark-none.json" --comments-file "$WORK/comments-none.json")"; rc=$?
-if [ "$rc" -eq 1 ] && [ ! -s "$BOT_SPOOL" ] && printf '%s' "$out" | grep -q 'no open PR found'; then
+if [ "$rc" -eq 1 ] && [ ! -s "$BOT_SPOOL" ] && grep -q 'no open PR found' <<<"$out"; then
   pass "(pm7) mark refuses when the branch has no open PR"
 else fail "(pm7) expected rc=1 with no write, rc=$rc: $out / spool=$(cat "$BOT_SPOOL" 2>/dev/null)"; fi
 
@@ -3497,9 +3497,9 @@ else fail "(pm7) expected rc=1 with no write, rc=$rc: $out / spool=$(cat "$BOT_S
 : > "$BOT_SPOOL"
 out="$(mark_gate "$CFG" mark-run-r sess-review-r mark 8 --pr-file "$WORK/pr-mark.json" --comments-file "$WORK/comments-none.json")"; rc=$?
 if [ "$rc" -eq 1 ] && [ ! -s "$BOT_SPOOL" ] \
-   && printf '%s' "$out" | grep -qF "sess-review-r" \
-   && printf '%s' "$out" | grep -qF "sess-mark-1" \
-   && printf '%s' "$out" | grep -qF "CLAUDE_CODE_SESSION_ID=<id> bash G mark 8"; then
+   && grep -qF "sess-review-r" <<<"$out" \
+   && grep -qF "sess-mark-1" <<<"$out" \
+   && grep -qF "CLAUDE_CODE_SESSION_ID=<id> bash G mark 8" <<<"$out"; then
   pass "(ms1) mark refuses a session outside the recorded build set, naming the conflict, the recorded id(s) and the re-invocation"
 else fail "(ms1) expected rc=1 + the three D-8 fields + no write, rc=$rc: $out / spool=$(cat "$BOT_SPOOL" 2>/dev/null)"; fi
 
@@ -3509,7 +3509,7 @@ else fail "(ms1) expected rc=1 + the three D-8 fields + no write, rc=$rc: $out /
 # recovery pays no network call and needs no verdict record to exist yet.
 : > "$BOT_SPOOL"
 out="$(mark_gate "$CFG" mark-run-r sess-review-r mark 8 --pr-file "$WORK/absent-pr.json" --comments-file "$WORK/comments-none.json")"; rc=$?
-if [ "$rc" -eq 1 ] && [ ! -s "$BOT_SPOOL" ] && printf '%s' "$out" | grep -q 'not a recorded BUILD session'; then
+if [ "$rc" -eq 1 ] && [ ! -s "$BOT_SPOOL" ] && grep -q 'not a recorded BUILD session' <<<"$out"; then
   pass "(ms2) the refusal precedes the PR lookup — an unreadable --pr-file is never reached"
 else fail "(ms2) expected the identity refusal before the PR lookup, rc=$rc: $out"; fi
 
@@ -3564,7 +3564,7 @@ else fail "(ms5) session rows entered the session_id: race — with-header '$mfi
 : > "$BOT_SPOOL"
 mark_gate "$CFG" mark-run-rev sess-review-m4 4 8 >/dev/null 2>&1
 out="$(mark_gate "$CFG" mark-run-rev sess-review-m4 mark 8 --pr-file "$WORK/pr-mark.json" --comments-file "$WORK/comments-none.json")"; rc=$?
-if [ "$rc" -eq 1 ] && [ ! -s "$BOT_SPOOL" ] && printf '%s' "$out" | grep -q 'not a recorded BUILD session'; then
+if [ "$rc" -eq 1 ] && [ ! -s "$BOT_SPOOL" ] && grep -q 'not a recorded BUILD session' <<<"$out"; then
   pass "(ms6) a review session running milestone 4 records no session, so it still cannot mark (D-3/D-5)"
 else fail "(ms6) a milestone call whitelisted the session that made it, rc=$rc: $out"; fi
 
@@ -3598,7 +3598,7 @@ out="$( cd "$TREE" && RUN_ID=mark-run-x CLAUDE_CODE_SESSION_ID=sess-mark-1 SECON
         LEAN_PROGRESS_FILE="$WORK/progress-absent.md" GH_BOT="$WORK/bot-stub.sh" BOT_SPOOL="$BOT_SPOOL" \
         bash "$GATE" --issue-file "$ISSUE_NOREGIONS" mark 8 \
         --pr-file "$WORK/pr-mark.json" --comments-file "$WORK/comments-none.json" 2>&1 )"; rc=$?
-if [ "$rc" -eq 1 ] && [ ! -s "$BOT_SPOOL" ] && printf '%s' "$out" | grep -q 'recorded no build session'; then
+if [ "$rc" -eq 1 ] && [ ! -s "$BOT_SPOOL" ] && grep -q 'recorded no build session' <<<"$out"; then
   pass "(ms8) with no build session recorded anywhere, mark refuses rather than stamping 'unset' (D-9)"
 else fail "(ms8) expected the fail-closed refusal, rc=$rc: $out / spool=$(cat "$BOT_SPOOL" 2>/dev/null)"; fi
 
@@ -3612,7 +3612,7 @@ out="$( unset CLAUDE_CODE_SESSION_ID; cd "$TREE" && RUN_ID=mark-run-v SECOND_SHI
         LEAN_PROGRESS_FILE="$WORK/progress-vacuous.md" GH_BOT="$WORK/bot-stub.sh" BOT_SPOOL="$BOT_SPOOL" \
         bash "$GATE" --issue-file "$ISSUE_NOREGIONS" mark 8 \
         --pr-file "$WORK/pr-mark.json" --comments-file "$WORK/comments-none.json" 2>&1 )"; rc=$?
-if [ "$rc" -eq 1 ] && [ ! -s "$BOT_SPOOL" ] && printf '%s' "$out" | grep -q 'recorded no build session'; then
+if [ "$rc" -eq 1 ] && [ ! -s "$BOT_SPOOL" ] && grep -q 'recorded no build session' <<<"$out"; then
   pass "(ms9) an unset ambient session does not compare EQUAL to an 'unset' recorded one (D-9)"
 else fail "(ms9) the vacuous comparison passed, rc=$rc: $out / spool=$(cat "$BOT_SPOOL" 2>/dev/null)"; fi
 
@@ -3767,7 +3767,7 @@ FP_OUT3="$(dgate 3 55)"; rc=$?
 FP_DELIM="$(grep -m1 -E '^\| -+ \|' "$DMANIFEST" 2>/dev/null)"
 FP_HDR="$(grep -m1 -F '| RS ' "$DMANIFEST" 2>/dev/null)"
 if [ "$rc" -eq 1 ] && [ -n "$FP_DELIM" ] && [ ${#FP_DELIM} -eq ${#FP_HDR} ] \
-   && printf '%s' "$FP_DELIM" | grep -qE '^\| ---- \| -+ \| -+ \| -+ \| -{64} \|$'; then
+   && grep -qE '^\| ---- \| -+ \| -+ \| -+ \| -{64} \|$' <<<"$FP_DELIM"; then
   pass "(fp6) the rendered receipt carries a padded delimiter row sized to its own columns"
 else fail "(fp6) the receipt is not in prettier's table form, rc=$rc, delim=[$FP_DELIM] hdr=[$FP_HDR]"; fi
 
@@ -3824,7 +3824,7 @@ fp_formatter benign
 out="$(dverdict sess-review-fp r-review-fp --pr 55 --verdict approve --fidelity pass)"; rc=$?
 if [ "$rc" -eq 0 ] && grep -q '^FORMATTED-BODY-MARKER$' "$DVERDICT" \
    && grep -q '^run_id: r-review-fp$' "$DVERDICT" \
-   && printf '%s' "$out" | grep -q 'formatted with'; then
+   && grep -q 'formatted with' <<<"$out"; then
   pass "(fp8) the verdict record is handed to the resolved formatter and its output kept"
 else fail "(fp8) expected a formatted record, rc=$rc: $out / $(cat "$DVERDICT" 2>/dev/null)"; fi
 
@@ -3836,7 +3836,7 @@ fp_formatter join
 out="$(dverdict sess-review-fp r-review-fp --pr 55 --verdict approve --fidelity pass)"; rc=$?
 if [ "$rc" -eq 0 ] && grep -q '^run_id: r-review-fp$' "$DVERDICT" \
    && grep -q '^fidelity: pass$' "$DVERDICT" \
-   && printf '%s' "$out" | grep -q 'changed header key'; then
+   && grep -q 'changed header key' <<<"$out"; then
   pass "(fp9) a formatter that flattens the header is reverted, warned about, and not fatal"
 else fail "(fp9) expected a reverted record and a warning, rc=$rc: $out / $(cat "$DVERDICT" 2>/dev/null)"; fi
 
@@ -3847,7 +3847,7 @@ fp_unformatter
 out="$(dverdict sess-review-fp r-review-fp --pr 55 --verdict approve --fidelity pass)"; rc=$?
 if [ "$rc" -eq 0 ] && grep -q '^run_id: r-review-fp$' "$DVERDICT" \
    && ! grep -q '^FORMATTED-BODY-MARKER$' "$DVERDICT" \
-   && printf '%s' "$out" | grep -q 'no prettier under'; then
+   && grep -q 'no prettier under' <<<"$out"; then
   pass "(fp10) an unresolvable formatter skips the step with one warning, never a failure"
 else fail "(fp10) expected an unformatted record and a skip warning, rc=$rc: $out / $(cat "$DVERDICT" 2>/dev/null)"; fi
 
@@ -3855,8 +3855,8 @@ else fail "(fp10) expected an unformatted record and a skip warning, rc=$rc: $ou
 # what it authors, so the spec and any intent-gap record are the author's — and this message is
 # the only place a run learns that before CI does. It also states the re-derive cost, because a
 # padded rewrite moves reviewed_patch_id and voids a verdict already standing on the branch.
-if printf '%s' "$FP_OUT3" | grep -q 'intent-gap record are NOT' \
-   && printf '%s' "$FP_OUT3" | grep -q 'voids it'; then
+if grep -q 'intent-gap record are NOT' <<<"$FP_OUT3" \
+   && grep -q 'voids it' <<<"$FP_OUT3"; then
   pass "(fp11) the milestone-3 commit refusal names the formatting obligation and the re-derive cost"
 else fail "(fp11) the milestone-3 refusal does not carry both notices: $FP_OUT3"; fi
 
@@ -3880,8 +3880,8 @@ dcommit "the verdict record, committed"
 printf 'a local edit\n' >> "$DVERDICT"
 dreset
 FP_OUT4B="$(dgate 4 55)"
-if printf '%s' "$FP_OUT4A" | grep -q 'format those before committing' \
-   && printf '%s' "$FP_OUT4B" | grep -q 'formats only what it authors'; then
+if grep -q 'format those before committing' <<<"$FP_OUT4A" \
+   && grep -q 'formats only what it authors' <<<"$FP_OUT4B"; then
   pass "(fp12) both milestone-4 commit refusals name the formatting obligation"
 else fail "(fp12) a milestone-4 refusal is missing the notice:
 A=$FP_OUT4A
@@ -3967,16 +3967,16 @@ if [ ! -f "$WPROG" ] || ! grep -q 'entry' "$WPROG" 2>/dev/null; then
 else fail "(wt2) teardown touched the progress file: $(cat "$WPROG" 2>/dev/null)"; fi
 
 out="$(wgate "$WTREE" teardown 20)"; rc=$?
-if [ "$rc" -eq 0 ] && printf '%s' "$out" | grep -qF 'nothing to remove'; then
+if [ "$rc" -eq 0 ] && grep -qF 'nothing to remove' <<<"$out"; then
   pass "(wt3) a second teardown is a no-op, not an error"
 else fail "(wt3) expected an idempotent no-op, rc=$rc: $out"; fi
 
 p="$(wt_make 21)"
 printf 'work in progress\n' > "$p/scratch.txt"
 out="$(wgate "$WTREE" teardown 21)"; rc=$?
-if [ "$rc" -eq 0 ] && wt_registered "$p" && printf '%s' "$out" | grep -qF 'is not clean' \
-   && printf '%s' "$out" | grep -qF 'scratch.txt' \
-   && printf '%s' "$out" | grep -qF 'worktree remove'; then
+if [ "$rc" -eq 0 ] && wt_registered "$p" && grep -qF 'is not clean' <<<"$out" \
+   && grep -qF 'scratch.txt' <<<"$out" \
+   && grep -qF 'worktree remove' <<<"$out"; then
   pass "(wt4) an unclean worktree is kept, its blocking file named, and the manual command printed — rc=0"
 else fail "(wt4) expected a kept-and-explained refusal at rc=0, rc=$rc: $out"; fi
 rm -f "$p/scratch.txt"
@@ -3985,7 +3985,7 @@ rm -f "$p/scratch.txt"
 p="$(wt_make 22)"
 git -C "$p" commit -q --allow-empty -m "unpushed work" >/dev/null 2>&1
 out="$(wgate "$WTREE" teardown 22)"; rc=$?
-if [ "$rc" -eq 0 ] && wt_registered "$p" && printf '%s' "$out" | grep -qF 'not on origin/claude/acme-22'; then
+if [ "$rc" -eq 0 ] && wt_registered "$p" && grep -qF 'not on origin/claude/acme-22' <<<"$out"; then
   pass "(wt5) a worktree carrying unpushed commits is kept"
 else fail "(wt5) expected a refusal on unpushed work, rc=$rc: $out"; fi
 
@@ -4008,7 +4008,7 @@ p="$(wt_make 24)"
 git -C "$WTREE" worktree lock "$p" >/dev/null 2>&1
 out="$(wgate "$WTREE" teardown 24)"; rc=$?
 git -C "$WTREE" worktree unlock "$p" >/dev/null 2>&1
-if [ "$rc" -eq 0 ] && wt_registered "$p" && printf '%s' "$out" | grep -qF 'git refused to remove it'; then
+if [ "$rc" -eq 0 ] && wt_registered "$p" && grep -qF 'git refused to remove it' <<<"$out"; then
   pass "(wt7) a removal git itself refuses is reported through the same keep path, still rc=0"
 else fail "(wt7) expected git's refusal surfaced at rc=0, rc=$rc: $out"; fi
 git -C "$WTREE" worktree remove --force "$p" >/dev/null 2>&1
@@ -4037,22 +4037,22 @@ rm -f "$WPROG"
 # Run it FROM INSIDE wt-25, which is what makes that worktree the caller's own for (wt15).
 out="$(wgate "$WREAL/wt-25" entry 30)"; rc=$?
 
-if [ "$rc" -eq 0 ] && ! wt_registered "$p26" && printf '%s' "$out" | grep -qF 'has no open PR'; then
+if [ "$rc" -eq 0 ] && ! wt_registered "$p26" && grep -qF 'has no open PR' <<<"$out"; then
   pass "(wt9) the sweep removes a worktree whose PR is merged — PR state, never git branch --merged"
 else fail "(wt9) merged-PR worktree survived the sweep, rc=$rc: $out"; fi
 
-if wt_registered "$p27" && printf '%s' "$out" | grep -qF 'still has an open PR'; then
+if wt_registered "$p27" && grep -qF 'still has an open PR' <<<"$out"; then
   pass "(wt10) a branch with an OPEN PR is kept, and said so"
 else fail "(wt10) the sweep touched a live run's worktree: $out"; fi
 
-if wt_registered "$p28" && printf '%s' "$out" | grep -qF 'has no PR at all'; then
+if wt_registered "$p28" && grep -qF 'has no PR at all' <<<"$out"; then
   pass "(wt11) a branch with no PR at all is kept and reported (OR-1's reversible default)"
 else fail "(wt11) the sweep guessed at a PR-less worktree: $out"; fi
 
 # D-12, the one that must never be got wrong: a FAILED lookup is not a "no PR" answer. An
 # implementation reading the stub's output without checking its exit status sees an empty
 # string, parses it as no PRs, and — under a different default — could remove the worktree.
-if wt_registered "$p29" && printf '%s' "$out" | grep -qF 'could not list PRs for claude/acme-29'; then
+if wt_registered "$p29" && grep -qF 'could not list PRs for claude/acme-29' <<<"$out"; then
   pass "(wt12) a failed gh lookup removes nothing and names the branch it could not resolve"
 else fail "(wt12) a gh outage was read as an answer: $out"; fi
 
@@ -4066,7 +4066,7 @@ else fail "(wt13) entry's own contract was affected by the sweep, rc=$rc: $out";
 # skipped with NO tracker lookup — the stub would have exited non-zero and printed a diagnostic
 # naming it, so the absence of that line is the assertion.
 if wt_registered "$WREAL/wt-foreign" \
-   && ! printf '%s' "$out" | grep -qF 'fix/not-a-lane-branch'; then
+   && ! grep -qF 'fix/not-a-lane-branch' <<<"$out"; then
   pass "(wt14) a non-lane branch is skipped without a PR lookup"
 else fail "(wt14) the sweep considered a foreign branch: $out"; fi
 
@@ -4085,7 +4085,7 @@ p31="$(wt_make 31)"; pr_fixture claude/acme-31 '[{"number":31,"state":"MERGED"}]
 printf 'unsaved\n' > "$p31/scratch.txt"
 out="$(wgate "$WTREE" entry 31)"; rc=$?
 rm -f "$p31/scratch.txt"
-if [ "$rc" -eq 0 ] && wt_registered "$p31" && printf '%s' "$out" | grep -qF 'is not clean'; then
+if [ "$rc" -eq 0 ] && wt_registered "$p31" && grep -qF 'is not clean' <<<"$out"; then
   pass "(wt17) a qualified-but-unclean worktree is kept by the sweep too — one precondition set, two callers"
 else fail "(wt17) the sweep bypassed the shared preconditions, rc=$rc: $out"; fi
 
@@ -4122,7 +4122,7 @@ git -C "$WTREE" checkout -q -b claude/acme-33
 git -C "$WTREE" update-ref refs/remotes/origin/claude/acme-33 "$(git -C "$WTREE" rev-parse HEAD)"
 out="$(wgate "$WTREE" teardown 33)"; rc=$?
 git -C "$WTREE" checkout -q main
-if [ "$rc" -eq 0 ] && wt_registered "$WTREE" && printf '%s' "$out" | grep -qF 'it is the main checkout'; then
+if [ "$rc" -eq 0 ] && wt_registered "$WTREE" && grep -qF 'it is the main checkout' <<<"$out"; then
   pass "(wt19) teardown refuses the main checkout by name, even when the lean branch is checked out there"
 else fail "(wt19) expected a named refusal on the main checkout, rc=$rc: $out"; fi
 
@@ -4196,7 +4196,7 @@ else
   out="$( unset RUN_ID; cd "$YTREE" && SECOND_SHIFT_CONFIG="$CFG" LEAN_PROGRESS_FILE="$YPROG" \
           CLAUDE_CODE_SESSION_ID=sess-review-pc3 RUN_ID=r-review-pc3 \
           bash "$BADDIR/lean-gate.sh" verdict 11 --pr 91 --verdict approve --rounds 1 2>&1 )"; rc=$?
-  if [ "$rc" -eq 2 ] && printf '%s' "$out" | grep -q 'not in the closed capability vocabulary' \
+  if [ "$rc" -eq 2 ] && grep -q 'not in the closed capability vocabulary' <<<"$out" \
      && ! grep -q 'not-a-capability' "$YVERDICT" 2>/dev/null; then
     pass "(pc3) a producer token outside the closed vocabulary refuses instead of stamping it"
   else fail "(pc3) expected an environment error on an out-of-vocabulary token, rc=$rc: $out"; fi
@@ -4300,24 +4300,24 @@ else fail "(pg8) expected progress-v1:0 with no file created, rc=$rc out='$out' 
 out="$( unset RUN_ID CLAUDE_CODE_SESSION_ID GH_BOT
         cd "$TREE" && SECOND_SHIFT_CONFIG="$CFG" LEAN_PROGRESS_FILE="$PG_ABSENT" \
         bash "$GATE" 1 78 2>&1 )"; rc=$?
-if [ "$rc" -eq 2 ] && printf '%s' "$out" | grep -q 'no entry attestation'; then
+if [ "$rc" -eq 2 ] && grep -q 'no entry attestation' <<<"$out"; then
   pass "(pg9) the positive control: a build-role call on that same unattested run DOES refuse"
 else fail "(pg9) the control did not refuse, so (pg8)'s ungated read proves nothing: rc=$rc: $out"; fi
 
 # The token must never be mistaken for an ordinal — it is compared for equality and nothing else.
-if printf '%s' "$BASE_TOK" | grep -q '^progress-v1:'; then
+if grep -q '^progress-v1:' <<<"$BASE_TOK"; then
   pass "(pg10) the token carries a generation prefix, so a caller reaching for a numeric compare has to notice it is not a number"
 else fail "(pg10) the token has no generation prefix: '$BASE_TOK'"; fi
 
 out="$(pgprog --satisfied nope)"; rc=$?
-if [ "$rc" -eq 2 ] && printf '%s' "$out" | grep -q 'takes a milestone number'; then
+if [ "$rc" -eq 2 ] && grep -q 'takes a milestone number' <<<"$out"; then
   pass "(pg11) a non-numeric --satisfied is a usage refusal"
 else fail "(pg11) expected rc=2 on a non-numeric --satisfied, got rc=$rc: $out"; fi
 
 out="$( unset RUN_ID CLAUDE_CODE_SESSION_ID GH_BOT
         cd "$TREE" && SECOND_SHIFT_CONFIG="$CFG" LEAN_PROGRESS_FILE="$PGPROG" \
         bash "$GATE" delta 77 --satisfied 5 2>&1 )"; rc=$?
-if [ "$rc" -eq 2 ] && printf '%s' "$out" | grep -q "only meaningful on 'progress'"; then
+if [ "$rc" -eq 2 ] && grep -q "only meaningful on 'progress'" <<<"$out"; then
   pass "(pg12) --satisfied on a subcommand that ignores it is a refusal, not a silently dropped flag"
 else fail "(pg12) --satisfied was accepted on 'delta', rc=$rc: $out"; fi
 
@@ -4342,7 +4342,7 @@ seed_build_progress r-build-ac sess-build-ac
 printf 'verdict=approve\nrun_id: r-build-ac\nsession_id: sess-review-ac\nreviewed_head: %s\n' \
   "$(git -C "$TREE" rev-parse HEAD)" > "$VERDICT"; commit_tree "a build-authored verdict"
 out="$(gate_m3 all 7)"; rc=$?
-if [ "$rc" -eq 6 ] && [ ! -e "$MARKER" ] && printf '%s' "$out" | grep -q "BUILD run's identity"; then
+if [ "$rc" -eq 6 ] && [ ! -e "$MARKER" ] && grep -q "BUILD run's identity" <<<"$out"; then
   pass "(ac2) 'all' propagates a milestone-4 integrity refusal as 6 — it is not laundered into the pre-pass's generic 1"
 else fail "(ac2) expected rc=6 from 'all' with no marker, got rc=$rc marker=$([ -e "$MARKER" ] && echo present || echo absent): $out"; fi
 
@@ -4364,7 +4364,7 @@ out="$( unset RUN_ID CLAUDE_CODE_SESSION_ID
         cd "$TREE" && SECOND_SHIFT_CONFIG="$CFG" LEAN_PROGRESS_FILE="$PROG" LEAN_GATE_OBSERVE=1 \
         bash "$GATE" --issue-file "$ISSUE_NOREGIONS" 4 7 2>&1 )"; rc=$?
 if [ "$rc" -eq 1 ] && [ "$(count_in_progress '| milestone-4 |')" -eq "$obs_before" ] \
-   && printf '%s' "$out" | grep -q 'reads verdict=needs-work'; then
+   && grep -q 'reads verdict=needs-work' <<<"$out"; then
   pass "(ac4) the observe seam classifies exactly as the recording path and appends no milestone-4 line"
 else fail "(ac4) expected rc=1 with an unmoved counter, got rc=$rc lines $obs_before -> $(count_in_progress '| milestone-4 |'): $out"; fi
 
@@ -4402,7 +4402,7 @@ reset_progress
 out="$( unset RUN_ID CLAUDE_CODE_SESSION_ID
         cd "$TREE" && SECOND_SHIFT_CONFIG="$CFG_CORRUPT" LEAN_PROGRESS_FILE="$PROG" \
         bash "$GATE" --issue-file "$ISSUE_NOREGIONS" 1 7 2>&1 )"; rc=$?
-if [ "$rc" -eq 2 ] && printf '%s' "$out" | grep -q 'not parseable JSON'; then
+if [ "$rc" -eq 2 ] && grep -q 'not parseable JSON' <<<"$out"; then
   pass "(ac7) a config that exists but does not parse is a refusal, not a silent fall-through to the defaults"
 else fail "(ac7) expected rc=2 naming the parse failure, got rc=$rc: $out"; fi
 
@@ -4472,7 +4472,7 @@ else fail "(if3) expected 3/3/1, got started=$(count_in_progress '| milestone-1 
 # ...and with every row closed, a resuming session is told nothing. The negative control for
 # (if6): a notice on an honest run would be noise the operator learns to ignore.
 out="$(gate 1 7)"
-if ! printf '%s' "$out" | grep -q 'never concluded'; then
+if ! grep -q 'never concluded' <<<"$out"; then
   pass "(if4) an honest run announces nothing — no unconcluded row exists to report"
 else fail "(if4) an honest re-run reported an interruption: $out"; fi
 
@@ -4523,7 +4523,7 @@ else fail "(if5c) an uninvoked milestone-2 has rows: $(grep 'milestone-2' "$PROG
 rm -f "$MARK497"
 out="$(gate_497 3 7)"; rc=$?
 if [ "$rc" -eq 0 ] && [ -e "$MARK497" ] \
-   && printf '%s' "$out" | grep -q '1 earlier evaluation(s) began and never concluded (interrupted 1/5)'; then
+   && grep -q '1 earlier evaluation(s) began and never concluded (interrupted 1/5)' <<<"$out"; then
   pass "(if6) the next evaluation announces the unconcluded row and still runs the body"
 else fail "(if6) expected rc=0 + marker + the interrupted notice, got rc=$rc marker=$([ -e "$MARK497" ] && echo present || echo absent): $out"; fi
 

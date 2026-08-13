@@ -305,7 +305,7 @@ scan_unknown_map_entries() {
     while IFS= read -r pair; do
         [ -z "$pair" ] && continue
         m=$(printf '%s' "$pair" | sed -E "s/^'([^']+)': '([^']+)'$/\2/")
-        printf '%s' "$m" | grep -qE "^($KNOWN_TIERS_RE)\$" && continue
+        grep -qE "^($KNOWN_TIERS_RE)\$" <<<"$m" && continue
         a=$(printf '%s' "$pair" | sed -E "s/^'([^']+)': '([^']+)'$/\1/")
         errors+=("UNKNOWN-MODEL: $tbl declares '$a' => '$m', which is not a known tier ($KNOWN_TIERS_RE). Shipped tables carry plugin defaults only; per-repo tiers (including 'fable') belong in config reviewers.modelOverrides.")
     done <<< "$(grep -oE "'[a-z0-9:-]+': '[^']+'" "$file")"
@@ -325,9 +325,9 @@ scan_unknown_inline_literals() {
     local file="$1" tbl="$2" line m a
     while IFS= read -r line; do
         [ -z "$line" ] && continue
-        printf '%s' "$line" | grep -qE "model: '[^']+'" || continue
+        grep -qE "model: '[^']+'" <<<"$line" || continue
         m=$(printf '%s' "$line" | sed -E "s/.*model: '([^']+)'.*/\1/")
-        printf '%s' "$m" | grep -qE "^($KNOWN_TIERS_RE)\$" && continue
+        grep -qE "^($KNOWN_TIERS_RE)\$" <<<"$m" && continue
         a=$(printf '%s' "$line" | sed -E "s/.*agentType: '([^']+)'.*/\1/")
         errors+=("UNKNOWN-MODEL: $tbl dispatches '$a' with inline model '$m', which is not a known tier ($KNOWN_TIERS_RE). Shipped dispatches carry plugin defaults only; per-repo tiers (including 'fable') belong in config reviewers.modelOverrides.")
     done <<< "$(grep -E "agentType: '[a-z0-9:-]+'" "$file")"
@@ -354,7 +354,7 @@ for tbl in code-review.mjs intake-review.mjs design-sync.mjs; do
     # neither loop's MISMATCH check.
     inline_pairs=$(
         grep -E "agentType: '[a-z0-9:-]+'" "$file" | while IFS= read -r line; do
-            printf '%s' "$line" | grep -qE "model: '(opus|sonnet|haiku)'" || continue
+            grep -qE "model: '(opus|sonnet|haiku)'" <<<"$line" || continue
             a=$(printf '%s' "$line" | sed -E "s/.*agentType: '([^']+)'.*/\1/")
             m=$(printf '%s' "$line" | sed -E "s/.*model: '(opus|sonnet|haiku)'.*/\1/")
             printf '%s\t%s\n' "$a" "$m"
@@ -403,7 +403,7 @@ for spec in "unit-tests.mjs:UNIT_TEST_MODEL" "plan-review.mjs:PLAN_REVIEWER_MODE
         pairs=$(
             grep -E "agentType: '[a-z0-9:-]+'" "$file" | while IFS= read -r line; do
                 a=$(printf '%s' "$line" | sed -E "s/.*agentType: '([^']+)'.*/\1/")
-                if printf '%s' "$line" | grep -qE "model: '(opus|sonnet|haiku)'"; then
+                if grep -qE "model: '(opus|sonnet|haiku)'" <<<"$line"; then
                     m=$(printf '%s' "$line" | sed -E "s/.*model: '(opus|sonnet|haiku)'.*/\1/")
                 else
                     m="$scalar_model"

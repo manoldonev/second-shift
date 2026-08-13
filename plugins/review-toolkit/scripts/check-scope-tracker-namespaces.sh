@@ -53,7 +53,7 @@ fi
 # (1) tools: frontmatter grants getJiraIssue under all three namespaces.
 tools_line=$(grep -m1 '^tools:' "$AGENT" || true)
 for ns in "${NAMESPACES[@]}"; do
-    if ! printf '%s' "$tools_line" | grep -qE "${ns}getJiraIssue([, ]|$)"; then
+    if ! grep -qE "${ns}getJiraIssue([, ]|$)" <<<"$tools_line"; then
         errors+=("MISSING-NAMESPACE: scope-completeness-reviewer 'tools:' does not grant ${ns}getJiraIssue")
     fi
 done

@@ -219,7 +219,7 @@ CUTOFF_RE='^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$'
 # which of the two absent-shaped paths they are on rather than guessing.
 PR_CREATED_AT_UTC=""
 if [ -n "${PR_CREATED_AT:-}" ]; then
-  if printf '%s' "$PR_CREATED_AT" | grep -qE "$CUTOFF_RE"; then
+  if grep -qE "$CUTOFF_RE" <<<"$PR_CREATED_AT"; then
     PR_CREATED_AT_UTC="$PR_CREATED_AT"
   else
     echo "[lean-evidence] notice: PR_CREATED_AT ('$PR_CREATED_AT') is not a Z-normalized ISO-8601 instant, so it cannot be compared against an arm's 'since:'. Treating it as absent — every since-bearing arm will report 'postdated'." >&2
@@ -547,7 +547,7 @@ resolve_key() {
   case "$PR_HEAD_REF" in
     "$PIPELINE_PREFIX"*)
       local suffix="${PR_HEAD_REF#"$PIPELINE_PREFIX"}"
-      if printf '%s' "$suffix" | grep -qiE "^($KEY_RE)$"; then
+      if grep -qiE "^($KEY_RE)$" <<<"$suffix"; then
         RESOLVED_KEY="$suffix"
         return 0
       fi
