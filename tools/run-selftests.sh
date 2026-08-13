@@ -211,7 +211,7 @@ EXCLUDED=0
 while IFS= read -r ex; do
   [[ -n "$ex" ]] || continue
   ex="${ex#./}"
-  if ! printf '%s\n' "$ALL" | grep -qxF "$ex"; then
+  if ! grep -qxF "$ex" <<<"$ALL"; then
     die "--exclude '$ex' matches no discovered suite under $ROOT — stale exclusion"
   fi
   EXCLUDED=$((EXCLUDED + 1))
@@ -248,7 +248,7 @@ if [[ -f "$CACHE_TSV" ]]; then
     c_suite="${c_suite#./}"; c_input="${c_input#./}"
     [[ -n "$c_input" ]] \
       || die "selftest-cache-inputs.tsv:$c_lineno: '$c_suite' declares an empty input"
-    printf '%s\n' "$ALL" | grep -qxF "$c_suite" \
+    grep -qxF "$c_suite" <<<"$ALL" \
       || die "selftest-cache-inputs.tsv:$c_lineno: '$c_suite' matches no discovered suite under $ROOT — stale cache-input row"
     [[ -e "$ROOT/$c_input" ]] \
       || die "selftest-cache-inputs.tsv:$c_lineno: '$c_suite' declares an input that does not exist: '$c_input'"
@@ -377,7 +377,7 @@ CACHE_STRESS="${SKIP_STRESS:-}"
 n=0
 while IFS= read -r suite; do
   [[ -n "$suite" ]] || continue
-  if [[ -n "$EXCLUDES" ]] && printf '%s' "$EXCLUDES" | grep -qxF "${suite#./}"; then
+  if [[ -n "$EXCLUDES" ]] && grep -qxF "${suite#./}" <<<"$EXCLUDES"; then
     continue
   fi
   n=$((n + 1))

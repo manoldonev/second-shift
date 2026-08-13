@@ -1692,7 +1692,7 @@ LEANELC
   EL_PROG_RED="$TMP/lean-el-prog-red.md"
   el_attest "$EL_CFG_RED" "$EL_PROG_RED"
   out="$(el_gate "$EL_CFG_RED" "$EL_PROG_RED" all 777)"; elr=$?
-  if [[ "$elr" -ne 0 ]] && printf '%s' "$out" | grep -q 'stopped at milestone-3'; then
+  if [[ "$elr" -ne 0 ]] && grep -q 'stopped at milestone-3' <<<"$out"; then
     pass "(lean-el-red) a failing extraLane composes into 'all' stopping at milestone-3"
   else fail "(lean-el-red) expected 'all' to stop at milestone-3, got rc=$elr: $out"; fi
   el_red_n=$(grep -cF '| milestone-4 | satisfied' "$EL_PROG_RED" 2>/dev/null) || el_red_n=0
@@ -1712,8 +1712,8 @@ LEANELC
   ZV_PROG="$TMP/lean-zv-prog.md"
   el_attest "$ZV_CFG" "$ZV_PROG"
   out="$(el_gate "$ZV_CFG" "$ZV_PROG" all 777)"; zvr=$?
-  if [[ "$zvr" -ne 0 ]] && printf '%s' "$out" | grep -q 'stopped at milestone-3' \
-     && printf '%s' "$out" | grep -q 'no verifying lane configured'; then
+  if [[ "$zvr" -ne 0 ]] && grep -q 'stopped at milestone-3' <<<"$out" \
+     && grep -q 'no verifying lane configured' <<<"$out"; then
     pass "(lean-zv-red) an undeclared zero-verify-lane config composes into 'all' stopping at milestone-3"
   else fail "(lean-zv-red) expected 'all' to stop at milestone-3 naming the zero-lane reason, got rc=$zvr: $out"; fi
   zv_red_n=$(grep -cF '| milestone-4 | satisfied' "$ZV_PROG" 2>/dev/null) || zv_red_n=0

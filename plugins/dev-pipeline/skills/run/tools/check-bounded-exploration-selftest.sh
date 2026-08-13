@@ -376,7 +376,7 @@ bash "$MIRROR_LINT" >/dev/null 2>&1; c1ctl_rc=$?
 mkdir -p "$MIRROR/other-skill/workflows"
 cp "$MIRROR/run/workflows/"*.mjs "$MIRROR/other-skill/workflows/"
 C1B_OUT="$(bash "$MIRROR_LINT" 2>&1)"; c1b_rc=$?
-if [ "$c1ctl_rc" -eq 0 ] && [ "$c1b_rc" -ne 0 ] && printf '%s' "$C1B_OUT" | grep -q 'absent from WORKFLOW_DIRS'; then
+if [ "$c1ctl_rc" -eq 0 ] && [ "$c1b_rc" -ne 0 ] && grep -q 'absent from WORKFLOW_DIRS' <<<"$C1B_OUT"; then
   ok "C1b a workflows/ directory outside WORKFLOW_DIRS fails the lint instead of being silently skipped"
 else
   bad "C1b control rc=$c1ctl_rc (want 0), planted rc=$c1b_rc (want non-zero): $C1B_OUT"

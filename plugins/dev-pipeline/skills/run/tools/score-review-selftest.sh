@@ -47,7 +47,7 @@ cat > "$TMP/full.json" <<'EOF'
 ] }
 EOF
 out="$(bash "$SCORER" "$TMP/full.json" "$MANIFEST")"; rc=$?
-if [[ $rc -eq 0 ]] && printf '%s\n' "$out" | grep -q "harness-score: detected=8/8 fp=0"; then
+if [[ $rc -eq 0 ]] && grep -q "harness-score: detected=8/8 fp=0" <<<"$out"; then
   ok "A1 full-detection findings score 8/8 fp=0"
 else
   bad "A1 expected detected=8/8 fp=0 rc=0; got rc=$rc, $(printf '%s\n' "$out" | tail -1)"
@@ -63,7 +63,7 @@ cat > "$TMP/partial.json" <<'EOF'
 ] }
 EOF
 out="$(bash "$SCORER" "$TMP/partial.json" "$MANIFEST")"; rc=$?
-if [[ $rc -eq 0 ]] && printf '%s\n' "$out" | grep -q "harness-score: detected=2/8 fp=2"; then
+if [[ $rc -eq 0 ]] && grep -q "harness-score: detected=2/8 fp=2" <<<"$out"; then
   ok "A2 partial findings score 2/8 with fp=2"
 else
   bad "A2 expected detected=2/8 fp=2; got: $(printf '%s\n' "$out" | tail -1)"
@@ -72,14 +72,14 @@ fi
 # A3: bare-array input is accepted.
 echo '[{"severity":"note","file":"x","description":"state-times.md is not present in the repo"}]' > "$TMP/bare.json"
 out="$(bash "$SCORER" "$TMP/bare.json" "$MANIFEST")"
-printf '%s\n' "$out" | grep -q "harness-score: detected=1/8 fp=0" \
+grep -q "harness-score: detected=1/8 fp=0" <<<"$out" \
   && ok "A3 bare-array findings input accepted" \
   || bad "A3 bare-array scoring wrong: $(printf '%s\n' "$out" | tail -1)"
 
 # A4: empty findings → 0/8, fp=0 (a review that says nothing detects nothing).
 echo '{"findings":[]}' > "$TMP/empty.json"
 out="$(bash "$SCORER" "$TMP/empty.json" "$MANIFEST")"
-printf '%s\n' "$out" | grep -q "harness-score: detected=0/8 fp=0 findings=0" \
+grep -q "harness-score: detected=0/8 fp=0 findings=0" <<<"$out" \
   && ok "A4 empty findings score 0/8" \
   || bad "A4 empty findings scoring wrong: $(printf '%s\n' "$out" | tail -1)"
 

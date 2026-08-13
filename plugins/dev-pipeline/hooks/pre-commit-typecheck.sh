@@ -20,7 +20,7 @@ needs_typecheck() {
   relevant=$(grep -E '(\.(ts|tsx|js|jsx|mjs|cjs|json)$|^yarn\.lock$)')
   [ -z "$relevant" ] && return 1
   # Gate iff at least one JS/TS-relevant path is NOT an inert .claude script.
-  printf '%s\n' "$relevant" | grep -qvE '^\.claude/.*\.(mjs|cjs)$'
+  grep -qvE '^\.claude/.*\.(mjs|cjs)$' <<<"$relevant"
 }
 
 # When sourced (e.g. by pre-commit-typecheck-selftest.sh) expose needs_typecheck and

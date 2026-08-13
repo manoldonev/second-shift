@@ -82,8 +82,8 @@ while IFS= read -r line || [ -n "$line" ]; do
                 # ERE mirrors check-review-context-sections.sh emit_headings() VERBATIM
                 # (case-insensitive here = at least as strict) — change them together, so the
                 # scaffold can never write a body the section lint then REDs as empty.
-                if printf '%s' "$line" | grep -qE '[^[:space:]]' \
-                   && ! printf '%s' "$line" | grep -qiE '^[[:space:]]*((TODO|TBD|FIXME)([[:space:]:.-].*)?|_+TBD_+|<[^>]*>|\((TODO|fill)[^)]*\)|…|\.\.\.)[[:space:]]*$'; then
+                if grep -qE '[^[:space:]]' <<<"$line" \
+                   && ! grep -qiE '^[[:space:]]*((TODO|TBD|FIXME)([[:space:]:.-].*)?|_+TBD_+|<[^>]*>|\((TODO|fill)[^)]*\)|…|\.\.\.)[[:space:]]*$' <<<"$line"; then
                     body_has_content=1
                 fi
             fi ;;

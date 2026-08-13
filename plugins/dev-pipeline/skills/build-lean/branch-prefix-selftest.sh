@@ -123,15 +123,15 @@ clear_refs
 mkref "fix/v2-cleanup"
 mkref "claude/acme-doctor-fixes"
 out="$(bp)"; rc=$?
-if [ "$rc" -eq 2 ] && printf '%s' "$out" | grep -q 'no remote branch parses'; then
+if [ "$rc" -eq 2 ] && grep -q 'no remote branch parses' <<<"$out"; then
   pass "(c2) a branch whose tail is not a key casts no vote, even where it contains digits"
 else fail "(c2) expected zero candidates, rc=$rc: $out"; fi
 
 # ---- (d) AC-4: no dominant prefix is a REFUSAL that names what it saw ------------------------
 clear_refs
 out="$(bp)"; rc=$?
-if [ "$rc" -eq 2 ] && printf '%s' "$out" | grep -q 'refusing to guess' \
-   && ! printf '%s' "$out" | grep -qF 'claude/acme-'; then
+if [ "$rc" -eq 2 ] && grep -q 'refusing to guess' <<<"$out" \
+   && ! grep -qF 'claude/acme-' <<<"$out"; then
   pass "(d1) zero candidates refuses, and never emits the retired claude/acme- placeholder"
 else fail "(d1) expected a refusal with no placeholder, rc=$rc: $out"; fi
 
@@ -144,8 +144,8 @@ mkref "aaa/2"
 mkref "bbb/3"
 mkref "bbb/4"
 out="$(bp)"; rc=$?
-if [ "$rc" -eq 2 ] && printf '%s' "$out" | grep -q 'no single prefix dominates' \
-   && printf '%s' "$out" | grep -qE '2 +aaa/' && printf '%s' "$out" | grep -qE '2 +bbb/'; then
+if [ "$rc" -eq 2 ] && grep -q 'no single prefix dominates' <<<"$out" \
+   && grep -qE '2 +aaa/' <<<"$out" && grep -qE '2 +bbb/' <<<"$out"; then
   pass "(d2) a tie at the top refuses, naming every candidate considered and its count"
 else fail "(d2) expected a tie refusal naming both candidates, rc=$rc: $out"; fi
 
@@ -264,9 +264,9 @@ else fail "(h5) unexpected key patterns: $out"; fi
 # one notch smaller. `set -uo pipefail` is the first line past the range, so its presence means
 # the whole file leaked.
 out="$(bash "$TOOL" --help 2>&1)"; rc=$?
-if [ "$rc" -eq 0 ] && printf '%s' "$out" | grep -qF 'Exit / return:' \
-   && printf '%s' "$out" | grep -qF '3.2-compatible' \
-   && ! printf '%s' "$out" | grep -qF 'set -uo pipefail'; then
+if [ "$rc" -eq 0 ] && grep -qF 'Exit / return:' <<<"$out" \
+   && grep -qF '3.2-compatible' <<<"$out" \
+   && ! grep -qF 'set -uo pipefail' <<<"$out"; then
   pass "(g) --help prints through the last header line and stops before the code"
 else fail "(g) --help did not print exactly the header, rc=$rc: $out"; fi
 

@@ -288,13 +288,13 @@ probe_intake() {
   local labels
   labels="$("$GH_CLI" issue view "$ISSUE" --json labels --jq '.labels[].name' 2>/dev/null)" || {
     echo "FAIL intake: could not read #$ISSUE's labels via '$GH_CLI'"; return 1; }
-  if printf '%s\n' "$labels" | grep -qxF "$QUEUE_LABEL"; then
+  if grep -qxF "$QUEUE_LABEL" <<<"$labels"; then
     echo "ok intake: #$ISSUE carries the '$QUEUE_LABEL' queue label"; return 0
   fi
   # #500 AC-1: the second accepting state. Gated on the claimed label FIRST so an ordinary
   # unintaken ticket costs no extra tracker read at all — the reject path is unchanged in shape as
   # well as in wording.
-  if printf '%s\n' "$labels" | grep -qxF "$CLAIMED_LABEL"; then
+  if grep -qxF "$CLAIMED_LABEL" <<<"$labels"; then
     local marker_run_id
     marker_run_id="$(claim_marker_run_id)" || {
       echo "FAIL intake: #$ISSUE carries '$CLAIMED_LABEL', but its comment trail could not be read via '$GH_CLI' — so whether this is a re-entry of a run this lane stopped is unknown. Refusing rather than guessing; re-launch once the tracker read works."

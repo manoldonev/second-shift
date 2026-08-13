@@ -30,7 +30,7 @@ RC=0; printf '## Stack\nOther.\n' | bash "$TOOL" "$TMP/r1" >/dev/null 2>&1 || RC
 mkdir -p "$TMP/r3"
 RC=0; OUT="$(printf '## Stack\nTODO\n' | bash "$TOOL" "$TMP/r3" 2>&1)" || RC=$?
 if [ "$RC" -ne 0 ] && [ ! -f "$TMP/r3/.claude/second-shift/review-context.md" ] \
-   && printf '%s' "$OUT" | grep -q 'Stack'; then
+   && grep -q 'Stack' <<<"$OUT"; then
     ok "refuses a TODO-bodied section and writes nothing"
 else
     bad "should have refused the TODO body and written nothing (rc=$RC)"

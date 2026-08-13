@@ -393,7 +393,7 @@ baseline_with() { # $1=dir, rest = survivor ids
 echo "(a) green direction — strong killer catches the mutant"
 FX="$(new_fixture strong)"
 OUT="$( cd "$FX" && adv bash "$SWEEP" --mode full 2>&1 )"; RC=$?
-if [[ $RC -eq 0 ]] && printf '%s' "$OUT" | grep -q 'killed=1 survived=0'; then
+if [[ $RC -eq 0 ]] && grep -q 'killed=1 survived=0' <<<"$OUT"; then
   ok "mutant killed, exit 0"
 else
   bad "(a) expected killed=1 survived=0 and rc=0; got rc=$RC"; printf '%s\n' "$OUT" | tail -5
@@ -403,7 +403,7 @@ echo "(b) red direction — weak killer, empty baseline, survivor is red"
 FX="$(new_fixture weak)"
 baseline_with "$FX"
 OUT="$( cd "$FX" && enf bash "$SWEEP" --mode full 2>&1 )"; RC=$?
-if [[ $RC -eq 1 ]] && printf '%s' "$OUT" | grep -q 'baseline-absent survivor'; then
+if [[ $RC -eq 1 ]] && grep -q 'baseline-absent survivor' <<<"$OUT"; then
   ok "baseline-absent survivor is red"
 else
   bad "(b) expected rc=1 + baseline-absent survivor; got rc=$RC"; printf '%s\n' "$OUT" | tail -5
@@ -424,8 +424,8 @@ FX="$(new_fixture strong)"
 baseline_with "$FX" 'guard.sh::fail-open::1' 'gone/removed.sh::fail-open::1'
 OUT="$( cd "$FX" && enf bash "$SWEEP" --mode full 2>&1 )"; RC=$?
 if [[ $RC -eq 0 ]] \
-  && printf '%s' "$OUT" | grep -q 'now KILLED' \
-  && printf '%s' "$OUT" | grep -q 'no longer resolves'; then
+  && grep -q 'now KILLED' <<<"$OUT" \
+  && grep -q 'no longer resolves' <<<"$OUT"; then
   ok "both shrink conditions warn, neither reds"
 else
   bad "(d) expected rc=0 + both warns; got rc=$RC"; printf '%s\n' "$OUT" | tail -6
@@ -436,7 +436,7 @@ FX="$(new_fixture strong)"
 baseline_with "$FX"
 printf 'drifted\tguard.sh\ts/__NEVER_PRESENT__/x/\tanchor that cannot match\n' >> "$FX/tools/mutation-catalog.tsv"
 OUT="$( cd "$FX" && enf bash "$SWEEP" --mode full 2>&1 )"; RC=$?
-if [[ $RC -eq 1 ]] && printf '%s' "$OUT" | grep -q 'catalog anchor drift'; then
+if [[ $RC -eq 1 ]] && grep -q 'catalog anchor drift' <<<"$OUT"; then
   ok "anchor drift is LOUD"
 else
   bad "(e) expected rc=1 + catalog anchor drift; got rc=$RC"; printf '%s\n' "$OUT" | tail -5
@@ -447,7 +447,7 @@ FX="$(new_fixture strong)"
 baseline_with "$FX"
 printf 'invalid\tguard.sh\ts/^echo ok$/if/\tyields bash -n invalid output\n' >> "$FX/tools/mutation-catalog.tsv"
 OUT="$( cd "$FX" && enf bash "$SWEEP" --mode full 2>&1 )"; RC=$?
-if [[ $RC -eq 1 ]] && printf '%s' "$OUT" | grep -q 'catalog mutant is bash -n invalid'; then
+if [[ $RC -eq 1 ]] && grep -q 'catalog mutant is bash -n invalid' <<<"$OUT"; then
   ok "catalog invalid mutant is red"
 else
   bad "(f1) expected rc=1 + catalog invalid; got rc=$RC"; printf '%s\n' "$OUT" | tail -5
@@ -456,7 +456,7 @@ FX="$(new_fixture strong)"
 baseline_with "$FX"
 printf 'breaker\t^echo ok$\ts/echo ok/if/\n' >> "$FX/tools/mutation-operators.tsv"
 OUT="$( cd "$FX" && enf bash "$SWEEP" --mode full 2>&1 )"; RC=$?
-if [[ $RC -eq 0 ]] && printf '%s' "$OUT" | grep -q 'skip (bash -n invalid, harness artifact)'; then
+if [[ $RC -eq 0 ]] && grep -q 'skip (bash -n invalid, harness artifact)' <<<"$OUT"; then
   ok "generic invalid mutant is skipped-and-logged, never red"
 else
   bad "(f2) expected rc=0 + skipped harness artifact; got rc=$RC"; printf '%s\n' "$OUT" | tail -5
@@ -471,9 +471,9 @@ printf '#!/usr/bin/env bash\nexit 7\n' > "$FX/guard-selftest.sh"
 ( cd "$FX" && git add -A && git -c user.email=f@e.invalid -c user.name=f commit -qm break ) >/dev/null 2>&1
 OUT="$( cd "$FX" && enf bash "$SWEEP" --mode full 2>&1 )"; RC=$?
 if [[ $RC -eq 1 ]] \
-  && printf '%s' "$OUT" | grep -q 'unrunnable pair' \
-  && printf '%s' "$OUT" | grep -q 'mutants_applied\|swept' \
-  && printf '%s' "$OUT" | grep -q 'it produced no output'; then
+  && grep -q 'unrunnable pair' <<<"$OUT" \
+  && grep -q 'mutants_applied\|swept' <<<"$OUT" \
+  && grep -q 'it produced no output' <<<"$OUT"; then
   ok "unrunnable pair is red and its mutants are not scored"
 else
   bad "(g) expected rc=1 + unrunnable pair; got rc=$RC"; printf '%s\n' "$OUT" | tail -5
@@ -496,9 +496,9 @@ EOF
 ( cd "$FX" && git add -A && git -c user.email=f@e.invalid -c user.name=f commit -qm talk ) >/dev/null 2>&1
 OUT="$( cd "$FX" && enf bash "$SWEEP" --mode full 2>&1 )"; RC=$?
 if [[ $RC -eq 1 ]] \
-  && printf '%s' "$OUT" | grep -q 'unrunnable pair' \
-  && printf '%s' "$OUT" | grep -q '(exit 7)' \
-  && printf '%s' "$OUT" | grep -q 'diagnostic-needle'; then
+  && grep -q 'unrunnable pair' <<<"$OUT" \
+  && grep -q '(exit 7)' <<<"$OUT" \
+  && grep -q 'diagnostic-needle' <<<"$OUT"; then
   ok "the red names the exit status and carries the suite's own output"
 else
   bad "(g2) expected rc=1 + '(exit 7)' + the suite's output; got rc=$RC"; printf '%s\n' "$OUT" | tail -6
@@ -510,13 +510,13 @@ echo "(g3) an unrunnable guard's baseline rows are undecidable, never 'now KILLE
 # the ASSIGNED partition, fixed before the precheck, so the guard still counts as "swept" and
 # the shrink warn used to read that absence as a kill. Obeying it drops a live survivor and
 # reds the NEXT healthy run with exactly that row as a baseline-absent survivor.
-if ! printf '%s' "$OUT" | grep -q 'now KILLED'; then
+if ! grep -q 'now KILLED' <<<"$OUT"; then
   ok "no 'now KILLED' warn for a guard whose pair never ran"
 else
   bad "(g3) the unrunnable guard's baseline row was reported killed"; printf '%s\n' "$OUT" | grep 'now KILLED'
 fi
 # The silence above has to be accounted for, or it reads as "the rows are fine".
-if printf '%s' "$OUT" | grep -q 'undecidable this run'; then
+if grep -q 'undecidable this run' <<<"$OUT"; then
   ok "the red says the rows are undecidable, so the silence is accounted for"
 else
   bad "(g3) the red did not account for the suppressed rows"; printf '%s\n' "$OUT" | tail -6
@@ -525,7 +525,7 @@ fi
 echo "(h) baseline-missing — enforcing non-seed is red; seed mode is green with artifacts"
 FX="$(new_fixture strong)"
 OUT="$( cd "$FX" && enf bash "$SWEEP" --mode full 2>&1 )"; RC=$?
-if [[ $RC -eq 1 ]] && printf '%s' "$OUT" | grep -q 'baseline-missing'; then
+if [[ $RC -eq 1 ]] && grep -q 'baseline-missing' <<<"$OUT"; then
   ok "absent baseline in an enforcing run is the named infra red"
 else
   bad "(h1) expected rc=1 + baseline-missing; got rc=$RC"; printf '%s\n' "$OUT" | tail -5
@@ -550,8 +550,8 @@ for probe in "RUNNER_OS=macOS SKIP_STRESS=1" "RUNNER_OS=Linux SKIP_STRESS=" "RUN
   # shellcheck disable=SC2086 # probe is a deliberate space-separated VAR=VAL list
   OUT="$( cd "$FX" && env GITHUB_ACTIONS=1 $probe bash "$SWEEP" --mode full 2>&1 )"; RC=$?
   if [[ $RC -eq 1 ]] \
-    && printf '%s' "$OUT" | grep -q 'baseline-environment-mismatch' \
-    && ! printf '%s' "$OUT" | grep -q 'baseline-absent survivor'; then
+    && grep -q 'baseline-environment-mismatch' <<<"$OUT" \
+    && ! grep -q 'baseline-absent survivor' <<<"$OUT"; then
     ok "mismatch [$probe] reds as itself, survivors not compared"
   else
     bad "(i) [$probe] expected the named mismatch and NO survivor diff; got rc=$RC"; printf '%s\n' "$OUT" | tail -4
@@ -562,7 +562,7 @@ echo "(l) PR mode — empty diff exits 0; slow / multi-suite guards defer visibl
 FX="$(new_fixture strong)"
 baseline_with "$FX"
 OUT="$( cd "$FX" && enf bash "$SWEEP" --mode pr --base HEAD 2>&1 )"; RC=$?
-if [[ $RC -eq 0 ]] && printf '%s' "$OUT" | grep -q 'nothing to sweep'; then
+if [[ $RC -eq 0 ]] && grep -q 'nothing to sweep' <<<"$OUT"; then
   ok "zero touched guards exits 0 before any baseline resolution"
 else
   bad "(l1) expected rc=0 + nothing to sweep; got rc=$RC"; printf '%s\n' "$OUT" | tail -4
@@ -572,7 +572,7 @@ fi
 # doc-only PR (and the PR that first lands this harness) off the baseline-missing red.
 FX="$(new_fixture strong)"
 OUT="$( cd "$FX" && enf bash "$SWEEP" --mode pr --base HEAD 2>&1 )"; RC=$?
-if [[ $RC -eq 0 ]] && ! printf '%s' "$OUT" | grep -q 'baseline-missing'; then
+if [[ $RC -eq 0 ]] && ! grep -q 'baseline-missing' <<<"$OUT"; then
   ok "empty PR diff never reaches the baseline-missing check"
 else
   bad "(l2) empty PR diff reded on a missing baseline; rc=$RC"; printf '%s\n' "$OUT" | tail -4
@@ -587,7 +587,7 @@ printf '# fixture slow list\n./guard-selftest.sh\t42\t2026-07-29\n' > "$FX/tools
 printf '\n# touched to put this guard in the PR diff\n' >> "$FX/guard.sh"
 ( cd "$FX" && git add -A && git -c user.email=f@e.invalid -c user.name=f commit -qm slow ) >/dev/null 2>&1
 OUT="$( cd "$FX" && enf bash "$SWEEP" --mode pr --base HEAD~1 2>&1 )"; RC=$?
-if [[ $RC -eq 0 ]] && printf '%s' "$OUT" | grep -q 'deferred-to-nightly'; then
+if [[ $RC -eq 0 ]] && grep -q 'deferred-to-nightly' <<<"$OUT"; then
   ok "slow-suite guard defers with a visible report row"
 else
   bad "(l3) expected a deferred-to-nightly row; got rc=$RC"; printf '%s\n' "$OUT" | tail -4
@@ -604,7 +604,7 @@ baseline_with "$FX"
 printf '# fixture exclusions\nguard.sh\tdeliberately excluded\n' > "$FX/tools/mutation-exclusions.tsv"
 printf '# fixture pair map\nguard.sh\t./guard-selftest.sh\tconflicting row\n' > "$FX/tools/mutation-pair-map.tsv"
 OUT="$( cd "$FX" && enf bash "$SWEEP" --mode full 2>&1 )"; RC=$?
-if [[ $RC -eq 1 ]] && printf '%s' "$OUT" | grep -q 'excluded AND carries pair-map rows'; then
+if [[ $RC -eq 1 ]] && grep -q 'excluded AND carries pair-map rows' <<<"$OUT"; then
   ok "conflicting exclusion + pair-map rows is red"
 else
   bad "(m) expected rc=1 + the conflict red; got rc=$RC"; printf '%s\n' "$OUT" | tail -4
@@ -615,7 +615,7 @@ FX="$(new_fixture strong)"
 for args in "--mode bogus" "--mode pr" "--frobnicate" ""; do
   # shellcheck disable=SC2086 # args is a deliberate space-separated argv fragment
   OUT="$( cd "$FX" && adv bash "$SWEEP" $args 2>&1 )"; RC=$?
-  if [[ $RC -eq 2 ]] && printf '%s' "$OUT" | grep -q 'FATAL'; then
+  if [[ $RC -eq 2 ]] && grep -q 'FATAL' <<<"$OUT"; then
     ok "rejects [${args:-<no args>}]"
   else
     bad "(n) [${args:-<no args>}] expected rc=2 + FATAL; got rc=$RC"
@@ -629,7 +629,7 @@ OUT="$( cd "$FX" && enf bash "$SWEEP" --mode full --report "$FX/report.tsv" 2>&1
 if [[ $RC -eq 0 ]] && [[ -s "$FX/report.tsv" ]] \
   && head -1 "$FX/report.tsv" | grep -q '^guard	status	paired_selftest' \
   && grep -q '^guard\.sh	swept' "$FX/report.tsv" \
-  && ! printf '%s' "$OUT" | grep -q '^guard	status'; then
+  && ! grep -q '^guard	status' <<<"$OUT"; then
   ok "report lands at the path and is kept off stdout"
 else
   bad "(o) --report did not write the expected TSV; rc=$RC"; printf '%s\n' "$OUT" | tail -4
@@ -661,8 +661,8 @@ EOF
 baseline_with "$FX"
 OUT="$( cd "$FX" && enf bash "$SWEEP" --mode full 2>&1 )"; RC=$?
 if [[ $RC -eq 1 ]] \
-  && printf '%s' "$OUT" | grep -q 'killed=0 survived=1' \
-  && printf '%s' "$OUT" | grep -q 'baseline-absent survivor'; then
+  && grep -q 'killed=0 survived=1' <<<"$OUT" \
+  && grep -q 'baseline-absent survivor' <<<"$OUT"; then
   ok "survivor exposed — exec bit held through mutation application"
 else
   bad "(p) expected killed=0 survived=1 + rc=1; a kill here means the mutant write stripped the exec bit; got rc=$RC"; printf '%s\n' "$OUT" | tail -5
@@ -690,9 +690,9 @@ printf '\n# touched to put this guard in the PR diff\n' >> "$FX/guard.sh"
 ( cd "$FX" && git add -A && git -c user.email=f@e.invalid -c user.name=f commit -qm union ) >/dev/null 2>&1
 OUT="$( cd "$FX" && enf bash "$SWEEP" --mode pr --base HEAD~1 2>&1 )"; RC=$?
 if [[ $RC -eq 0 ]] \
-  && printf '%s' "$OUT" | grep -q 'multi-suite union (2 killers)' \
-  && printf '%s' "$OUT" | grep -q 'guard\.sh	deferred-to-nightly	\./guard-selftest\.sh+\./second-killer-selftest\.sh' \
-  && ! printf '%s' "$OUT" | grep -q 'guard\.sh	swept'; then
+  && grep -q 'multi-suite union (2 killers)' <<<"$OUT" \
+  && grep -q 'guard\.sh	deferred-to-nightly	\./guard-selftest\.sh+\./second-killer-selftest\.sh' <<<"$OUT" \
+  && ! grep -q 'guard\.sh	swept' <<<"$OUT"; then
   ok "two-killer guard defers with the full union visible in its report row"
 else
   bad "(q) expected a wholesale defer with the '+'-joined union row and no sweep; got rc=$RC"; printf '%s\n' "$OUT" | tail -5
@@ -712,7 +712,7 @@ OUT="$( cd "$FX" && enf bash "$SWEEP" --mode pr --base HEAD~1 2>&1 )"; RC=$?
 SWEPT_N="$(printf '%s\n' "$OUT" | grep -c '	swept	')"
 DEFER_N="$(printf '%s\n' "$OUT" | grep -c '	deferred-to-nightly	')"
 if [[ $RC -eq 0 && "$SWEPT_N" -eq 6 && "$DEFER_N" -eq 1 ]] \
-  && printf '%s' "$OUT" | grep -q 'PR-lane cap (6 fast guards already swept)'; then
+  && grep -q 'PR-lane cap (6 fast guards already swept)' <<<"$OUT"; then
   ok "cap swept 6 guards, deferred 1 with the cap named as the reason"
 else
   bad "(r) expected swept=6 deferred=1 + the cap reason; got rc=$RC swept=$SWEPT_N deferred=$DEFER_N"; printf '%s\n' "$OUT" | tail -6
@@ -760,8 +760,8 @@ EOF
 ( cd "$FX" && git add -A && git -c user.email=f@e.invalid -c user.name=f commit -qm cmp ) >/dev/null 2>&1
 OUT="$( cd "$FX" && adv bash "$SWEEP" --mode full 2>&1 )"; RC=$?
 if [[ $RC -eq 0 ]] \
-  && printf '%s' "$OUT" | grep -q 'applied=2 killed=2 survived=0' \
-  && ! printf '%s' "$OUT" | grep -q 'skip (no-op flip)'; then
+  && grep -q 'applied=2 killed=2 survived=0' <<<"$OUT" \
+  && ! grep -q 'skip (no-op flip)' <<<"$OUT"; then
   ok "cmp-eq and cmp-z each enumerated their one real site and mutated it"
 else
   bad "(s) expected applied=2 killed=2 survived=0 and no no-op skips; got rc=$RC"; printf '%s\n' "$OUT" | tail -6
@@ -774,7 +774,7 @@ echo "(t) a match grep cannot compile is a named red, never a silent zero-site p
 FX="$(new_fixture strong)"
 printf '# fixture operators\nbadre\t(\ts/x/y/\n' > "$FX/tools/mutation-operators.tsv"
 OUT="$( cd "$FX" && adv bash "$SWEEP" --mode full 2>&1 )"; RC=$?
-if [[ $RC -eq 1 ]] && printf '%s' "$OUT" | grep -q 'operator match does not enumerate.*badre'; then
+if [[ $RC -eq 1 ]] && grep -q 'operator match does not enumerate.*badre' <<<"$OUT"; then
   ok "non-compilable match reds loudly and names the operator"
 else
   bad "(t) expected rc=1 + the named enumeration red; got rc=$RC"; printf '%s\n' "$OUT" | tail -5
@@ -789,14 +789,14 @@ for args in \
   "--mode pr --base HEAD --seed" "--mode merge --shards-dir /nonexistent-dir-xyz"; do
   # shellcheck disable=SC2086 # args is a deliberate space-separated argv fragment
   OUT="$( cd "$FX" && adv bash "$SWEEP" $args 2>&1 )"; RC=$?
-  if [[ $RC -eq 2 ]] && printf '%s' "$OUT" | grep -q 'FATAL'; then
+  if [[ $RC -eq 2 ]] && grep -q 'FATAL' <<<"$OUT"; then
     ok "rejects [$args]"
   else
     bad "(u) [$args] expected rc=2 + FATAL; got rc=$RC"
   fi
 done
 OUT="$( cd "$FX" && adv bash "$SWEEP" --mode full --shard 1/1 2>&1 )"; RC=$?
-if [[ $RC -eq 0 ]] && printf '%s' "$OUT" | grep -q 'killed=1 survived=0'; then
+if [[ $RC -eq 0 ]] && grep -q 'killed=1 survived=0' <<<"$OUT"; then
   ok "--shard 1/1 sweeps the whole (one-guard) universe like an unsharded run"
 else
   bad "(u) --shard 1/1 expected killed=1 survived=0 rc=0; got rc=$RC"; printf '%s\n' "$OUT" | tail -4
@@ -907,7 +907,7 @@ if [[ $MERGE_OK -eq 1 ]]; then
   rm -f "$FX/shards-missing/s2/mutation-report.tsv"
   OUT="$( cd "$FX" && adv bash "$SWEEP" --mode merge --shards-dir "$FX/shards-missing" \
           --report "$FX/m2.tsv" --baseline-out "$FX/b2.tsv" --slow-out "$FX/sl2.tsv" 2>&1 )"; RC=$?
-  if [[ $RC -eq 1 ]] && printf '%s' "$OUT" | grep -q 'merge incomplete: no shard reported guard guard2\.sh'; then
+  if [[ $RC -eq 1 ]] && grep -q 'merge incomplete: no shard reported guard guard2\.sh' <<<"$OUT"; then
     ok "a dead shard's guards are NAMED by the merge red"
   else
     bad "(w) expected rc=1 + 'merge incomplete' naming guard2.sh; got rc=$RC"; printf '%s\n' "$OUT" | tail -5
@@ -916,7 +916,7 @@ if [[ $MERGE_OK -eq 1 ]]; then
   cp "$FX/shards-dup/s1/mutation-report.tsv" "$FX/shards-dup/s2/mutation-report.tsv"
   OUT="$( cd "$FX" && adv bash "$SWEEP" --mode merge --shards-dir "$FX/shards-dup" \
           --report "$FX/m3.tsv" --baseline-out "$FX/b3.tsv" --slow-out "$FX/sl3.tsv" 2>&1 )"; RC=$?
-  if [[ $RC -eq 1 ]] && printf '%s' "$OUT" | grep -q 'merge overlap'; then
+  if [[ $RC -eq 1 ]] && grep -q 'merge overlap' <<<"$OUT"; then
     ok "duplicated shard rows are the named partition-broken red"
   else
     bad "(w) expected rc=1 + 'merge overlap'; got rc=$RC"; printf '%s\n' "$OUT" | tail -5
@@ -988,7 +988,7 @@ FX2="$(new_fixture weak)"
 baseline_with "$FX2" 'guard.sh::fail-open::1'
 OUT="$( cd "$FX2" && enf bash "$SWEEP" --mode full 2>&1 )"; RC=$?
 STRAY="$(find "$FX2" -name mutation-complete 2>/dev/null | grep -c . )"
-if [[ $RC -eq 0 ]] && printf '%s' "$OUT" | grep -q '^guard	status	paired_selftest' && [[ "$STRAY" -eq 0 ]]; then
+if [[ $RC -eq 0 ]] && grep -q '^guard	status	paired_selftest' <<<"$OUT" && [[ "$STRAY" -eq 0 ]]; then
   ok "without --report the report still goes to stdout and no marker is written"
 else
   bad "(w2) no-report run wrong; rc=$RC stray_markers=$STRAY"; printf '%s\n' "$OUT" | tail -4
@@ -1018,12 +1018,12 @@ if [[ $TRUNC_OK -eq 1 ]]; then
   rm -f "$FX/shards-trunc/s2/mutation-complete" "$FX/shards-trunc/s2/mutation-baseline.tsv"
   OUT="$( cd "$FX" && adv bash "$SWEEP" --mode merge --shards-dir "$FX/shards-trunc" \
           --report "$FX/t.tsv" --baseline-out "$FX/tb.tsv" --slow-out "$FX/ts.tsv" 2>&1 )"; RC=$?
-  if [[ $RC -eq 1 ]] && printf '%s' "$OUT" | grep -q 'merge truncated:.*\bs2\b'; then
+  if [[ $RC -eq 1 ]] && grep -q 'merge truncated:.*\bs2\b' <<<"$OUT"; then
     ok "a report without a completion marker is the named 'merge truncated' red"
   else
     bad "(w3) expected rc=1 + 'merge truncated' naming s2; got rc=$RC"; printf '%s\n' "$OUT" | tail -5
   fi
-  if ! printf '%s' "$OUT" | grep -q 'mixed seed and enforcing shards'; then
+  if ! grep -q 'mixed seed and enforcing shards' <<<"$OUT"; then
     ok "the seed-arity check counts completed shards, so a truncation is not misread as a mode mismatch"
   else
     bad "(w3) truncated shard was diagnosed as a seed/enforcing mode mismatch"; printf '%s\n' "$OUT" | tail -5
@@ -1034,7 +1034,7 @@ if [[ $TRUNC_OK -eq 1 ]]; then
   rm -f "$FX/shards-mixed/s2/mutation-baseline.tsv"
   OUT="$( cd "$FX" && adv bash "$SWEEP" --mode merge --shards-dir "$FX/shards-mixed" \
           --report "$FX/x.tsv" --baseline-out "$FX/xb.tsv" --slow-out "$FX/xs.tsv" 2>&1 )"; RC=$?
-  if [[ $RC -eq 1 ]] && printf '%s' "$OUT" | grep -q '2 completed shard report(s) but 1 baseline(s) — mixed seed and enforcing shards'; then
+  if [[ $RC -eq 1 ]] && grep -q '2 completed shard report(s) but 1 baseline(s) — mixed seed and enforcing shards' <<<"$OUT"; then
     ok "two completed shards with one baseline is still the mode-mismatch red"
   else
     bad "(w3) expected the mixed seed/enforcing red on complete shards; got rc=$RC"; printf '%s\n' "$OUT" | tail -5
@@ -1050,13 +1050,13 @@ FX="$TMPROOT/scopefx$RANDOM$RANDOM"
 make_fleet_fixture "$FX" 2
 baseline_with "$FX" 'guard2.sh::fail-open::1'
 OUT="$( cd "$FX" && enf bash "$SWEEP" --mode full 2>&1 )"; RC=$?
-if [[ $RC -eq 0 ]] && printf '%s' "$OUT" | grep -q 'now KILLED: guard2\.sh::fail-open::1'; then
+if [[ $RC -eq 0 ]] && grep -q 'now KILLED: guard2\.sh::fail-open::1' <<<"$OUT"; then
   ok "unsharded full run still warns on the stale row"
 else
   bad "(x) unsharded run should warn 'now KILLED'; rc=$RC"; printf '%s\n' "$OUT" | tail -4
 fi
 OUT="$( cd "$FX" && enf bash "$SWEEP" --mode full --shard 1/2 2>&1 )"; RC=$?
-if [[ $RC -eq 0 ]] && ! printf '%s' "$OUT" | grep -q 'now KILLED'; then
+if [[ $RC -eq 0 ]] && ! grep -q 'now KILLED' <<<"$OUT"; then
   ok "shard 1/2 (which does not sweep guard2.sh) stays silent about its row"
 else
   bad "(x) shard 1/2 warned about another shard's row (or reded); rc=$RC"; printf '%s\n' "$OUT" | tail -4
@@ -1128,10 +1128,10 @@ else
   SPIN_OUT="$(cat "$SPIN_LOG")"
   if [[ $SPIN_RC -ne 0 ]]; then
     bad "(z) sweep completed but exited $SPIN_RC"; printf '%s\n' "$SPIN_OUT" | tail -5
-  elif ! printf '%s' "$SPIN_OUT" | grep -q 'killer timeout'; then
+  elif ! grep -q 'killer timeout' <<<"$SPIN_OUT"; then
     bad "(z) the timed-out killer was not named in the log — a silent kill hides a spin"
     printf '%s\n' "$SPIN_OUT" | tail -5
-  elif ! printf '%s' "$SPIN_OUT" | grep -qE 'swept guard\.sh — applied=1 killed=1 survived=0'; then
+  elif ! grep -qE 'swept guard\.sh — applied=1 killed=1 survived=0' <<<"$SPIN_OUT"; then
     bad "(z) spun mutant not scored as killed-by-timeout"; printf '%s\n' "$SPIN_OUT" | tail -5
   else
     ok "spinning mutant is bounded, scored as killed, and NAMED in the log"
@@ -1295,10 +1295,10 @@ else
   pkill -9 -f "$FX/guard.sh" 2>/dev/null
   if [[ $FORK_RC -ne 0 ]]; then
     bad "(ab) sweep completed but exited $FORK_RC"; printf '%s\n' "$FORK_OUT" | tail -5
-  elif ! printf '%s' "$FORK_OUT" | grep -q 'killer process bound'; then
+  elif ! grep -q 'killer process bound' <<<"$FORK_OUT"; then
     bad "(ab) the forking killer was not named in the log — a silent kill hides a fork bomb"
     printf '%s\n' "$FORK_OUT" | tail -5
-  elif ! printf '%s' "$FORK_OUT" | grep -qE 'swept guard\.sh — applied=1 killed=1 survived=0'; then
+  elif ! grep -qE 'swept guard\.sh — applied=1 killed=1 survived=0' <<<"$FORK_OUT"; then
     bad "(ab) forking mutant not scored as killed-by-process-bound"; printf '%s\n' "$FORK_OUT" | tail -5
   elif [[ "${FORK_ORPHANS:-0}" -ne 0 ]]; then
     bad "(ab) $FORK_ORPHANS guard process(es) outlived the reap — the group kill lost the fork race"
@@ -1391,7 +1391,7 @@ FX="$(new_fixture weak)"
 CD="$TMPROOT/cache-ae"
 OUT="$( cd "$FX" && cch "$CD" bash "$SWEEP" --mode full 2>&1 )"
 GSHA_BEFORE="$(shasum -a 256 "$FX/guard.sh" 2>/dev/null | cut -d' ' -f1)"
-if printf '%s' "$OUT" | grep -q 'killed=0 survived=1'; then
+if grep -q 'killed=0 survived=1' <<<"$OUT"; then
   ok "cold: the happy-path-only killer lets the fail-open mutant survive"
 else
   bad "(ae) expected killed=0 survived=1 on the weak killer"; printf '%s\n' "$OUT" | tail -3
@@ -1415,7 +1415,7 @@ if [[ "$GSHA_BEFORE" == "$GSHA_AFTER" ]]; then
 else
   bad "(ae) the fixture changed guard.sh, so this case no longer isolates the suite key"
 fi
-if printf '%s' "$OUT2" | grep -q 'killed=1 survived=0'; then
+if grep -q 'killed=1 survived=0' <<<"$OUT2"; then
   ok "the added case kills the mutant — no stale SURVIVED was served"
 else
   bad "(ae) expected killed=1 survived=0 after the case was added; a guard-only cache key serves the stale SURVIVED here"
@@ -1429,7 +1429,7 @@ OUT="$( cd "$FX" && cch "$CD" bash "$SWEEP" --mode full 2>&1 )"
 find "$CD" -type f 2>/dev/null | while IFS= read -r f; do printf 'not a record at all\n' > "$f"; done
 OUT2="$( cd "$FX" && cch "$CD" bash "$SWEEP" --mode full 2>&1 )"
 C2="$(computed "$OUT2")"
-if [[ "${C2:-0}" -gt 0 ]] && printf '%s' "$OUT2" | grep -q 'killed=0 survived=1'; then
+if [[ "${C2:-0}" -gt 0 ]] && grep -q 'killed=0 survived=1' <<<"$OUT2"; then
   ok "a malformed entry falls back to a real run and reproduces the verdict"
 else
   bad "(af) corrupt-cache run computed=${C2:-?} — a malformed entry must never be served"
@@ -1510,7 +1510,7 @@ EARLY_DONE="$(obs_count "$OBS_AG" completed)"
 obs_reset "$OBS_AG"
 OUT2="$( cd "$FX" && adv env MUTATION_SWEEP_EARLY_EXIT=0 bash "$SWEEP" --mode full 2>&1 )"
 FULL_DONE="$(obs_count "$OBS_AG" completed)"
-if printf '%s' "$OUT" | grep -q 'killed=1 survived=0' && printf '%s' "$OUT2" | grep -q 'killed=1 survived=0'; then
+if grep -q 'killed=1 survived=0' <<<"$OUT" && grep -q 'killed=1 survived=0' <<<"$OUT2"; then
   ok "first-case kill scores killed=1 with early exit on AND off"
 else
   bad "(ag/first) verdicts differ between the early-exit and the full run"
@@ -1521,7 +1521,7 @@ if [[ "$EARLY_DONE" -eq 1 && "$FULL_DONE" -eq 2 ]]; then
 else
   bad "(ag/first) completions: early=$EARLY_DONE full=$FULL_DONE (want 1 and 2 — the precheck completes either way)"
 fi
-if printf '%s' "$OUT" | grep -q 'early exit (first'; then
+if grep -q 'early exit (first' <<<"$OUT"; then
   ok "the early exit is NAMED in the log, not a silent kill"
 else
   bad "(ag/first) no 'early exit' line — an unlogged early kill is indistinguishable from a real one"
@@ -1535,7 +1535,7 @@ L_REACH="$(obs_count "$OBS_AG" reached)"; L_DONE="$(obs_count "$OBS_AG" complete
 obs_reset "$OBS_AG"
 OUT2="$( cd "$FX" && adv env MUTATION_SWEEP_EARLY_EXIT=0 bash "$SWEEP" --mode full 2>&1 )"
 LF_DONE="$(obs_count "$OBS_AG" completed)"
-if printf '%s' "$OUT" | grep -q 'killed=1 survived=0' && printf '%s' "$OUT2" | grep -q 'killed=1 survived=0'; then
+if grep -q 'killed=1 survived=0' <<<"$OUT" && grep -q 'killed=1 survived=0' <<<"$OUT2"; then
   ok "last-case kill scores killed=1 with early exit on AND off"
 else
   bad "(ag/last) verdicts differ between the early-exit and the full run"
@@ -1554,13 +1554,13 @@ fi
 FX="$TMPROOT/fxagn$RANDOM$RANDOM"
 make_early_fixture "$FX" noisy "$OBS_AG"
 OUT="$( cd "$FX" && adv bash "$SWEEP" --mode full 2>&1 )"; RC=$?
-if [[ $RC -ne 0 ]] && printf '%s' "$OUT" | grep -q "unrunnable pair.*while PASSING"; then
+if [[ $RC -ne 0 ]] && grep -q "unrunnable pair.*while PASSING" <<<"$OUT"; then
   ok "a green suite that prints the trigger is a named unrunnable pair, and reds"
 else
   bad "(ag/noisy) rc=$RC — a green suite printing the trigger must red as an unrunnable pair"
   printf '%s\n' "$OUT" | tail -3
 fi
-if printf '%s' "$OUT" | grep -qE 'guard\.sh	swept	\./guard-selftest\.sh	0	0	0'; then
+if grep -qE 'guard\.sh	swept	\./guard-selftest\.sh	0	0	0' <<<"$OUT"; then
   ok "its mutants are NOT scored — no verdict is derived from prose"
 else
   bad "(ag/noisy) the guard's mutants were scored anyway; early exit read fixture prose as a verdict"
@@ -1609,7 +1609,7 @@ if [[ "${N_ADV:-0}" -gt 0 ]]; then
 else
   bad "(ai) the advisory run wrote nothing, so the enforcing assertions below prove nothing"
 fi
-if printf '%s' "$OUT2" | grep -q 'cache disabled in the enforcing lane'; then
+if grep -q 'cache disabled in the enforcing lane' <<<"$OUT2"; then
   ok "the enforcing run says the cache is off"
 else
   bad "(ai) the enforcing run did not disarm the cache"
@@ -1638,8 +1638,8 @@ obs_reset "$OBS_AJ"
 OUT="$( cd "$FX" && enf bash "$SWEEP" --mode full --report "$TMPROOT/aj.tsv" 2>&1 )"; RC=$?
 RUNS="$(obs_count "$OBS_AJ" mutrun)"
 if [[ $RC -eq 1 ]] \
-  && printf '%s' "$OUT" | grep -q 'pool disagreement' \
-  && ! printf '%s' "$OUT" | grep -q 'baseline-absent survivor'; then
+  && grep -q 'pool disagreement' <<<"$OUT" \
+  && ! grep -q 'baseline-absent survivor' <<<"$OUT"; then
   ok "the flip reds as 'pool disagreement' and NOT as a coverage gap"
 else
   bad "(aj1) expected rc=1 + pool disagreement + no baseline-absent survivor; got rc=$RC"
@@ -1665,9 +1665,9 @@ FX="$(new_fixture weak)"
 baseline_with "$FX"
 OUT="$( cd "$FX" && enf bash "$SWEEP" --mode full --report "$TMPROOT/aj-agree.tsv" 2>&1 )"; RC=$?
 if [[ $RC -eq 1 ]] \
-  && printf '%s' "$OUT" | grep -q 'baseline-absent survivor' \
-  && printf '%s' "$OUT" | grep -q 'serial re-run agrees' \
-  && ! printf '%s' "$OUT" | grep -q 'pool disagreement' \
+  && grep -q 'baseline-absent survivor' <<<"$OUT" \
+  && grep -q 'serial re-run agrees' <<<"$OUT" \
+  && ! grep -q 'pool disagreement' <<<"$OUT" \
   && [[ "$(report_row "$TMPROOT/aj-agree.tsv" guard.sh)" == "0/1/guard.sh::fail-open::1" ]]; then
   ok "a real survivor survives the oracle and still reds as baseline-absent"
 else
@@ -1683,7 +1683,7 @@ baseline_with "$FX" 'guard.sh::fail-open::1'
 OUT="$( cd "$FX" && enf bash "$SWEEP" --mode full 2>&1 )"; RC=$?
 C="$(computed "$OUT")"
 if [[ $RC -eq 0 ]] && [[ "${C:-0}" -eq 2 ]] \
-  && ! printf '%s' "$OUT" | grep -q 're-verifying survivor serially'; then
+  && ! grep -q 're-verifying survivor serially' <<<"$OUT"; then
   ok "a run with nothing that would red pays zero extra paired-suite executions"
 else
   bad "(aj5) expected rc=0 and exactly 2 computed verdicts with no re-verify; got rc=$RC computed=${C:-?}"
@@ -1702,7 +1702,7 @@ OUT="$( cd "$FX" && enf bash "$SWEEP" --mode full --seed \
         --baseline-out "$FX/seeded.tsv" --slow-out "$FX/slow.tsv" 2>&1 )"; RC=$?
 SEEDED="$(grep -v '^#' "$FX/seeded.tsv" 2>/dev/null | grep -c '')"
 if [[ $RC -eq 0 ]] \
-  && printf '%s' "$OUT" | grep -q 'pool disagreement' \
+  && grep -q 'pool disagreement' <<<"$OUT" \
   && [[ "${SEEDED:-1}" -eq 0 ]]; then
   ok "seed re-verifies before it writes: the fabricated survivor never reaches the baseline"
 else
@@ -1720,7 +1720,7 @@ rm -rf "$CD"
 obs_reset "$OBS_AJ3"
 OUT="$( cd "$FX" && cch "$CD" bash "$SWEEP" --mode full 2>&1 )"; RC=$?
 OUT2="$( cd "$FX" && cch "$CD" bash "$SWEEP" --mode full --report "$TMPROOT/aj-warm.tsv" 2>&1 )"; RC2=$?
-if [[ $RC -eq 1 ]] && printf '%s' "$OUT" | grep -q 'pool disagreement' \
+if [[ $RC -eq 1 ]] && grep -q 'pool disagreement' <<<"$OUT" \
   && [[ $RC2 -eq 0 ]] \
   && [[ "$(report_row "$TMPROOT/aj-warm.tsv" guard.sh)" == "1/0/" ]] \
   && [[ "$(served "$OUT2")" -gt 0 ]]; then
@@ -1794,7 +1794,7 @@ else
 fi
 # The harness must reach the same verdict through its own accounting path.
 OUT="$( cd "$REPO_ROOT" && adv bash "$SWEEP" --mode pr --base HEAD 2>&1 )"; RC=$?
-if [[ $RC -eq 0 ]] && ! printf '%s' "$OUT" | grep -q 'unaccounted guard'; then
+if [[ $RC -eq 0 ]] && ! grep -q 'unaccounted guard' <<<"$OUT"; then
   ok "the harness's own accounting agrees"
 else
   bad "(j) harness accounting disagrees with the direct lint; rc=$RC"; printf '%s\n' "$OUT" | tail -4

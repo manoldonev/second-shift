@@ -280,7 +280,7 @@ rc=$?
 # linked worktree is empty by construction.
 echo "Test 14 — /audit-history from a linked worktree sees the main checkout's ledgers"
 hist=$( cd "$WT" && "$HISTORY" 30 2>/dev/null )
-if printf '%s' "$hist" | grep -qE 'Total sessions: +[1-9]'; then
+if grep -qE 'Total sessions: +[1-9]' <<<"$hist"; then
     ok "audit-history from the worktree reported the repo family's sessions"
 else
     fail "audit-history from the worktree reported no sessions: $(printf '%s' "$hist" | tr '\n' ' ' | cut -c1-160)"

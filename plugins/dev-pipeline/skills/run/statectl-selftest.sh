@@ -112,7 +112,7 @@ reset_state
 err=$(sct_err init 9999)
 rc=$(sct_rc init 9999)
 if [[ $rc -ne 0 ]] \
-   && echo "$err" | grep -q -- "--run-id required" \
+   && grep -q -- "--run-id required" <<<"$err" \
    && [[ ! -f .claude/pipeline-state/9999.json ]]; then
   pass "(y1) init missing --run-id → rejected, no state file written"
 else

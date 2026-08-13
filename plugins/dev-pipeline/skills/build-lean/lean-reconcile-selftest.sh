@@ -151,7 +151,7 @@ else fail "(A) expected rc=0, got $rc: $out"; fi
 # ---- (B) a missing verdict record is a hard stop -------------------------------------------
 mv "$VERDICT" "$WORK/held.md"
 out="$(reconcile "$WORK/comments-good.json")"; rc=$?
-if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q 'no committed verdict record'; then
+if [ "$rc" -eq 1 ] && grep -q 'no committed verdict record' <<<"$out"; then
   pass "(B) a missing verdict record fails"
 else fail "(B) expected rc=1, got $rc: $out"; fi
 mv "$WORK/held.md" "$VERDICT"
@@ -162,7 +162,7 @@ mv "$WORK/held.md" "$VERDICT"
 # could not tell this case apart from a real run once review moved out of the build session.
 rm -f "$AUDIT/$REVIEW_SESSION.jsonl"
 out="$(reconcile "$WORK/comments-good.json")"; rc=$?
-if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q 'no review-session audit ledger'; then
+if [ "$rc" -eq 1 ] && grep -q 'no review-session audit ledger' <<<"$out"; then
   pass "(C) a verdict naming a session with no audit ledger fails"
 else fail "(C) expected rc=1 on an absent review ledger, got $rc: $out"; fi
 write_ledger "$REVIEW_SESSION" "2026-01-01T06:00:00Z"
@@ -170,14 +170,14 @@ write_ledger "$REVIEW_SESSION" "2026-01-01T06:00:00Z"
 # ---- (D) the review session POSTDATES the verdict commit -----------------------------------
 write_ledger "$REVIEW_SESSION" "2026-06-01T00:00:00Z"   # long after the 2026-01-01 commit
 out="$(reconcile "$WORK/comments-good.json")"; rc=$?
-if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q 'timestamp inversion'; then
+if [ "$rc" -eq 1 ] && grep -q 'timestamp inversion' <<<"$out"; then
   pass "(D) a review session that opened after the verdict commit fails (timestamp ordering)"
 else fail "(D) expected rc=1 on timestamp inversion, got $rc: $out"; fi
 write_ledger "$REVIEW_SESSION" "2026-01-01T06:00:00Z"
 
 # ---- (E) build run_id mismatch between the claim comment and the progress file --------------
 out="$(reconcile "$WORK/comments-otherrun.json")"; rc=$?
-if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q 'build run_id mismatch'; then
+if [ "$rc" -eq 1 ] && grep -q 'build run_id mismatch' <<<"$out"; then
   pass "(E) records stitched from different build runs fail the run_id consistency check"
 else fail "(E) expected rc=1 on a run_id mismatch, got $rc: $out"; fi
 
@@ -189,7 +189,7 @@ else fail "(F) expected rc=1 on a human-authored claim, got $rc: $out"; fi
 # ---- (G) an empty review ledger fails ---------------------------------------------------------
 : > "$AUDIT/$REVIEW_SESSION.jsonl"
 out="$(reconcile "$WORK/comments-good.json")"; rc=$?
-if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q 'no review-session audit ledger'; then
+if [ "$rc" -eq 1 ] && grep -q 'no review-session audit ledger' <<<"$out"; then
   pass "(G) an empty review audit ledger fails"
 else fail "(G) expected rc=1 on an empty ledger, got $rc: $out"; fi
 write_ledger "$REVIEW_SESSION" "2026-01-01T06:00:00Z"
@@ -199,7 +199,7 @@ write_ledger "$REVIEW_SESSION" "2026-01-01T06:00:00Z"
 # session, which is exactly the path this tool exists to close.
 write_progress "$RUN_ID" "unset"
 out="$(reconcile "$WORK/comments-good.json")"; rc=$?
-if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q 'no build session id'; then
+if [ "$rc" -eq 1 ] && grep -q 'no build session id' <<<"$out"; then
   pass "(H) an unrecorded build session id is unverifiable rather than silently substituted"
 else fail "(H) expected rc=1 on a missing session id, got $rc: $out"; fi
 write_progress "$RUN_ID" "$SESSION"
@@ -210,13 +210,13 @@ write_progress "$RUN_ID" "$SESSION"
 # green while enforcing the opposite of the contract.
 write_verdict "$RUN_ID" "$REVIEW_SESSION"
 out="$(reconcile "$WORK/comments-good.json")"; rc=$?
-if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q "BUILD run's identity"; then
+if [ "$rc" -eq 1 ] && grep -q "BUILD run's identity" <<<"$out"; then
   pass "(J1) a verdict carrying the build run's run_id fails"
 else fail "(J1) expected rc=1 on a build-authored verdict, got $rc: $out"; fi
 
 write_verdict "$REVIEW_RUN_ID" "$SESSION"
 out="$(reconcile "$WORK/comments-good.json")"; rc=$?
-if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q 'names the BUILD session'; then
+if [ "$rc" -eq 1 ] && grep -q 'names the BUILD session' <<<"$out"; then
   pass "(J2) a verdict naming the build session as its author fails"
 else fail "(J2) expected rc=1 on a build-session verdict, got $rc: $out"; fi
 
@@ -235,7 +235,7 @@ run_id: r-review-1
 rounds: 1
 EOF
 out="$(reconcile "$WORK/comments-good.json")"; rc=$?
-if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q 'carries no session_id'; then
+if [ "$rc" -eq 1 ] && grep -q 'carries no session_id' <<<"$out"; then
   pass "(J3) a verdict record naming no review session at all fails"
 else fail "(J3) expected rc=1 on a session_id-less verdict, got $rc: $out"; fi
 
@@ -269,7 +269,7 @@ session_id: $REVIEW_SESSION
 rounds: 1
 EOF
 out="$(reconcile "$WORK/comments-good.json")"; rc=$?
-if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q 'no reviewed_head key'; then
+if [ "$rc" -eq 1 ] && grep -q 'no reviewed_head key' <<<"$out"; then
   pass "(L1) a verdict record declaring no reviewed head fails (the pre-key migration case)"
 else fail "(L1) expected rc=1 on a head-less verdict, got $rc: $out"; fi
 
@@ -281,7 +281,7 @@ git -C "$TREE" add docs/plans/later.md >/dev/null 2>&1
 git -C "$TREE" commit -q -m "a commit landing after the verdict" >/dev/null 2>&1
 write_verdict "$REVIEW_RUN_ID" "$REVIEW_SESSION" "$(git -C "$TREE" rev-parse HEAD)"
 out="$(reconcile "$WORK/comments-good.json")"; rc=$?
-if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q 'does not descend from it'; then
+if [ "$rc" -eq 1 ] && grep -q 'does not descend from it' <<<"$out"; then
   pass "(L2) a record whose commit does not descend from the head it names fails"
 else fail "(L2) expected rc=1 on an incoherent reviewed_head, got $rc: $out"; fi
 
@@ -290,7 +290,7 @@ else fail "(L2) expected rc=1 on an incoherent reviewed_head, got $rc: $out"; fi
 write_verdict "$REVIEW_RUN_ID" "$REVIEW_SESSION"
 commit_verdict "2026-01-01T10:00:00Z"
 out="$(reconcile "$WORK/comments-good.json")"; rc=$?
-if [ "$rc" -eq 0 ] && printf '%s' "$out" | grep -q 'declares reviewed_head'; then
+if [ "$rc" -eq 0 ] && grep -q 'declares reviewed_head' <<<"$out"; then
   pass "(L3) a coherently-declared reviewed head reconciles, and the tool says so"
 else fail "(L3) expected rc=0 on a coherent record, got $rc: $out"; fi
 
@@ -336,7 +336,7 @@ m_pid="$(tree_patch_id HEAD)"
 write_verdict_pid "$m_pid"
 commit_verdict "2026-01-01T10:30:00Z"
 out="$(reconcile "$WORK/comments-good.json")"; rc=$?
-if [ "$rc" -eq 0 ] && printf '%s' "$out" | grep -q 'declares reviewed_patch_id'; then
+if [ "$rc" -eq 0 ] && grep -q 'declares reviewed_patch_id' <<<"$out"; then
   pass "(M1) a record declaring the patch it reviewed reconciles, and the tool names the patch-id arm"
 else fail "(M1) expected rc=0 on a coherent patch id, got $rc: $out"; fi
 
@@ -358,7 +358,7 @@ git -C "$TREE" rebase -q m-base >/dev/null 2>&1; m_rebased=$?
 git -C "$TREE" merge-base --is-ancestor "$m_pre_rebase" HEAD 2>/dev/null && m_ancestry_ok=1 || m_ancestry_ok=0
 out="$(reconcile "$WORK/comments-good.json")"; rc=$?
 if [ "$m_rebased" -eq 0 ] && [ "$m_ancestry_ok" -eq 0 ] && [ "$rc" -eq 0 ] \
-   && printf '%s' "$out" | grep -q 'declares reviewed_patch_id'; then
+   && grep -q 'declares reviewed_patch_id' <<<"$out"; then
   pass "(M2) a rebase that replays the branch unchanged still reconciles, though the ancestry arm would have failed it"
 else fail "(M2) rebase=$m_rebased ancestry-still-holds=$m_ancestry_ok rc=$rc: $out"; fi
 
@@ -367,7 +367,7 @@ else fail "(M2) rebase=$m_rebased ancestry-still-holds=$m_ancestry_ok rc=$rc: $o
 write_verdict_pid "0000000000000000000000000000000000000000"
 commit_verdict "2026-01-01T11:00:00Z"
 out="$(reconcile "$WORK/comments-good.json")"; rc=$?
-if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q 'was not written on top of the tree'; then
+if [ "$rc" -eq 1 ] && grep -q 'was not written on top of the tree' <<<"$out"; then
   pass "(M3) a record whose declared patch is not the one its commit carries fails"
 else fail "(M3) expected rc=1 on an incoherent patch id, got $rc: $out"; fi
 
@@ -403,7 +403,7 @@ n_pid1="$(tree_patch_id HEAD)"
 write_verdict_chain "$REVIEW_RUN_ID" "$REVIEW_SESSION" 1 "$n_pid1"
 commit_verdict "2026-01-01T10:05:00Z"
 out="$(reconcile "$WORK/comments-good.json")"; rc=$?
-if [ "$rc" -eq 0 ] && printf '%s' "$out" | grep -q 'declares no inherited coverage'; then
+if [ "$rc" -eq 0 ] && grep -q 'declares no inherited coverage' <<<"$out"; then
   pass "(N1) a round-1 record reconciles unchanged, and the tool prints that it inherited nothing"
 else fail "(N1) expected rc=0 with the no-inheritance note, got $rc: $out"; fi
 
@@ -414,7 +414,7 @@ n_pid2="$(tree_patch_id HEAD)"
 write_verdict_chain review-7-2 sess-review-round2 2 "$n_pid2" "$n_pid1"
 commit_verdict "2026-01-01T11:30:00Z"
 out="$(reconcile "$WORK/comments-good.json")"; rc=$?
-if [ "$rc" -eq 0 ] && printf '%s' "$out" | grep -q 'resolves over 1 earlier record'; then
+if [ "$rc" -eq 0 ] && grep -q 'resolves over 1 earlier record' <<<"$out"; then
   pass "(N2) AC-8: a two-round chain with distinct review sessions reconciles"
 else fail "(N2) expected rc=0 on a clean chain, got $rc: $out"; fi
 
@@ -422,7 +422,7 @@ else fail "(N2) expected rc=0 on a clean chain, got $rc: $out"; fi
 write_verdict_chain review-7-2 sess-review-round2 2 "$n_pid2" "deadbeefdeadbeefdeadbeefdeadbeefdeadbeef"
 commit_verdict "2026-01-01T11:40:00Z"
 out="$(reconcile "$WORK/comments-good.json")"; rc=$?
-if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q 'matches no earlier verdict record committed on this branch'; then
+if [ "$rc" -eq 1 ] && grep -q 'matches no earlier verdict record committed on this branch' <<<"$out"; then
   pass "(N3) a dangling inheritance link fails reconciliation"
 else fail "(N3) expected rc=1 on a dangling link, got $rc: $out"; fi
 
@@ -431,7 +431,7 @@ else fail "(N3) expected rc=1 on a dangling link, got $rc: $out"; fi
 write_verdict_chain review-7-2 "$REVIEW_SESSION" 2 "$n_pid2" "$n_pid1"
 commit_verdict "2026-01-01T11:50:00Z"
 out="$(reconcile "$WORK/comments-good.json")"; rc=$?
-if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q 'already authored another round in this chain'; then
+if [ "$rc" -eq 1 ] && grep -q 'already authored another round in this chain' <<<"$out"; then
   pass "(N4) a chain whose rounds share one review session is refused — inherited coverage must come from an independent review"
 else fail "(N4) expected rc=1 on a single-session chain, got $rc: $out"; fi
 
@@ -443,7 +443,7 @@ n_pid_build="$(tree_patch_id HEAD)"
 write_verdict_chain review-7-2 sess-review-round2 2 "$n_pid_build" "$n_pid1"
 commit_verdict "2026-01-01T12:20:00Z"
 out="$(reconcile "$WORK/comments-good.json")"; rc=$?
-if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q 'names the BUILD session'; then
+if [ "$rc" -eq 1 ] && grep -q 'names the BUILD session' <<<"$out"; then
   pass "(N5) inheriting from a round the build session authored is refused (P10)"
 else fail "(N5) expected rc=1 inheriting a build-authored round, got $rc: $out"; fi
 
@@ -461,8 +461,8 @@ n_pid_self="$(tree_patch_id HEAD)"
 write_verdict_chain review-7-3 sess-review-round2 3 "$n_pid_self" "$n_pid_self"
 commit_verdict "2026-01-01T12:40:00Z"
 out="$(reconcile "$WORK/comments-good.json")"; rc=$?
-if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q 'matches no earlier verdict record committed on this branch' \
-   && ! printf '%s' "$out" | grep -q 'already authored another round in this chain'; then
+if [ "$rc" -eq 1 ] && grep -q 'matches no earlier verdict record committed on this branch' <<<"$out" \
+   && ! grep -q 'already authored another round in this chain' <<<"$out"; then
   pass "(N6) a record inheriting its OWN reviewed patch is refused on the link — the search window never includes the record being read"
 else fail "(N6) expected the link refusal on a self-inheriting record, got $rc: $out"; fi
 
@@ -485,8 +485,8 @@ inherited_patch_id: $n_pid1
 \`\`\`"
 commit_verdict "2026-01-01T13:00:00Z"
 out="$(reconcile "$WORK/comments-good.json")"; rc=$?
-if [ "$rc" -eq 0 ] && printf '%s' "$out" | grep -q 'declares no inherited coverage' \
-   && ! printf '%s' "$out" | grep -q 'the inheritance chain resolves over'; then
+if [ "$rc" -eq 0 ] && grep -q 'declares no inherited coverage' <<<"$out" \
+   && ! grep -q 'the inheritance chain resolves over' <<<"$out"; then
   pass "(N7) a root record whose findings quote a RESOLVING inheritance value still reconciles as a root"
 else fail "(N7) expected the no-inheritance note and no resolved chain, got $rc: $out"; fi
 
@@ -501,7 +501,7 @@ n_pid5="$(tree_patch_id HEAD)"
 write_verdict_chain review-7-5 sess-review-round5 5 "$n_pid5" "$n_pid_root"
 commit_verdict "2026-01-01T13:20:00Z"
 out="$(reconcile "$WORK/comments-good.json")"; rc=$?
-if [ "$rc" -eq 0 ] && printf '%s' "$out" | grep -q 'resolves over 1 earlier record'; then
+if [ "$rc" -eq 0 ] && grep -q 'resolves over 1 earlier record' <<<"$out"; then
   pass "(N7b) the walk terminates at a root whose body quotes the key — one link, not the two a first-match walk would count"
 else fail "(N7b) expected exactly 1 earlier record in the chain, got $rc: $out"; fi
 
@@ -545,9 +545,9 @@ p_restore() { # p_restore <committer-date> — put the good round-5 record back
 : > "$GH_CALLS"
 out="$(reconcile_as "$WORK/config-jira.json")"; rc=$?
 if [ "$rc" -eq 0 ] && [ ! -s "$GH_CALLS" ] \
-   && printf '%s' "$out" | grep -q 'claim-comment arm NOT RUN' \
-   && printf '%s' "$out" | grep -q 'REDUCED evidence' \
-   && printf '%s' "$out" | grep -q 'resolves over 1 earlier record'; then
+   && grep -q 'claim-comment arm NOT RUN' <<<"$out" \
+   && grep -q 'REDUCED evidence' <<<"$out" \
+   && grep -q 'resolves over 1 earlier record' <<<"$out"; then
   pass "(P1) a jira consumer reconciles with zero gh calls, names the arm it skipped, and still runs every other"
 else fail "(P1) expected rc=0, no gh call, the disclosure and the chain arm, got rc=$rc calls='$(cat "$GH_CALLS" 2>/dev/null)': $out"; fi
 
@@ -560,7 +560,7 @@ p_calls="$(wc -l < "$GH_CALLS" | tr -d ' ')"
 out_github="$(reconcile_as "$WORK/config-github.json")"; rc_github=$?
 if [ "$rc" -eq 0 ] && [ "$p_calls" -ge 1 ] && [ "$rc_github" -eq 0 ] \
    && [ "$out_absent" = "$out_github" ] \
-   && ! printf '%s' "$out_absent" | grep -q 'NOT RUN'; then
+   && ! grep -q 'NOT RUN' <<<"$out_absent"; then
   pass "(P2) an absent tracker.type fetches the comment trail and reads identically to an explicit github"
 else fail "(P2) absent-key rc=$rc calls=$p_calls github rc=$rc_github, outputs differ? got: $out_absent"; fi
 
@@ -568,8 +568,8 @@ else fail "(P2) absent-key rc=$rc calls=$p_calls github rc=$rc_github, outputs d
 # second assertion pins that it refuses BEFORE any check runs — a typo must not quietly pick the
 # arm that attests less.
 out="$(reconcile_as "$WORK/config-bogus.json")"; rc=$?
-if [ "$rc" -eq 2 ] && printf '%s' "$out" | grep -q "unknown tracker.type 'gitlab'" \
-   && ! printf '%s' "$out" | grep -q 'reconciling #'; then
+if [ "$rc" -eq 2 ] && grep -q "unknown tracker.type 'gitlab'" <<<"$out" \
+   && ! grep -q 'reconciling #' <<<"$out"; then
   pass "(P3) an unrecognized tracker.type is rc=2 before any check runs"
 else fail "(P3) expected rc=2 on an unknown tracker.type, got $rc: $out"; fi
 
@@ -577,7 +577,7 @@ else fail "(P3) expected rc=2 on an unknown tracker.type, got $rc: $out"; fi
 # let a jira case hand over a comment trail, go green, and assert nothing about it — and nothing
 # would red if a later edit re-enabled the fetch.
 out="$(reconcile_as "$WORK/config-jira.json" --comments-file "$WORK/comments-good.json")"; rc=$?
-if [ "$rc" -eq 2 ] && printf '%s' "$out" | grep -q 'not meaningful under tracker.type: jira'; then
+if [ "$rc" -eq 2 ] && grep -q 'not meaningful under tracker.type: jira' <<<"$out"; then
   pass "(P4) --comments-file under jira is refused, not silently ignored"
 else fail "(P4) expected rc=2 refusing the seam under jira, got $rc: $out"; fi
 
@@ -587,21 +587,21 @@ else fail "(P4) expected rc=2 refusing the seam under jira, got $rc: $out"; fi
 write_verdict_chain "$RUN_ID" sess-review-round5 5 "$n_pid5" "$n_pid_root"
 commit_verdict "2026-01-01T14:00:00Z"
 out="$(reconcile_as "$WORK/config-jira.json")"; rc=$?
-if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q "BUILD run's identity"; then
+if [ "$rc" -eq 1 ] && grep -q "BUILD run's identity" <<<"$out"; then
   pass "(P5) (1b) P10 still fails under jira — the arm the early exit_2 was costing most"
 else fail "(P5) expected rc=1 on a build-authored verdict under jira, got $rc: $out"; fi
 p_restore "2026-01-01T14:05:00Z"
 
 mv "$AUDIT/sess-review-round5.jsonl" "$WORK/held-r5.jsonl"
 out="$(reconcile_as "$WORK/config-jira.json")"; rc=$?
-if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q 'no review-session audit ledger'; then
+if [ "$rc" -eq 1 ] && grep -q 'no review-session audit ledger' <<<"$out"; then
   pass "(P6) (2) a verdict naming a session the harness never saw still fails under jira"
 else fail "(P6) expected rc=1 on an absent review ledger under jira, got $rc: $out"; fi
 mv "$WORK/held-r5.jsonl" "$AUDIT/sess-review-round5.jsonl"
 
 write_ledger sess-review-round5 "2026-06-01T00:00:00Z"
 out="$(reconcile_as "$WORK/config-jira.json")"; rc=$?
-if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q 'timestamp inversion'; then
+if [ "$rc" -eq 1 ] && grep -q 'timestamp inversion' <<<"$out"; then
   pass "(P7) (3) a verdict committed before its review ran still fails under jira"
 else fail "(P7) expected rc=1 on timestamp inversion under jira, got $rc: $out"; fi
 write_ledger sess-review-round5 "2026-01-01T13:10:00Z"
@@ -609,7 +609,7 @@ write_ledger sess-review-round5 "2026-01-01T13:10:00Z"
 write_verdict_chain review-7-5 sess-review-round5 5 "0000000000000000000000000000000000000000" "$n_pid_root"
 commit_verdict "2026-01-01T14:10:00Z"
 out="$(reconcile_as "$WORK/config-jira.json")"; rc=$?
-if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q 'was not written on top of the tree'; then
+if [ "$rc" -eq 1 ] && grep -q 'was not written on top of the tree' <<<"$out"; then
   pass "(P8) (4/5) a record declaring a patch its commit does not carry still fails under jira"
 else fail "(P8) expected rc=1 on an incoherent patch id under jira, got $rc: $out"; fi
 p_restore "2026-01-01T14:15:00Z"
@@ -617,7 +617,7 @@ p_restore "2026-01-01T14:15:00Z"
 write_verdict_chain review-7-5 sess-review-round5 5 "$n_pid5" "deadbeefdeadbeefdeadbeefdeadbeefdeadbeef"
 commit_verdict "2026-01-01T14:20:00Z"
 out="$(reconcile_as "$WORK/config-jira.json")"; rc=$?
-if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q 'matches no earlier verdict record committed on this branch'; then
+if [ "$rc" -eq 1 ] && grep -q 'matches no earlier verdict record committed on this branch' <<<"$out"; then
   pass "(P9) (6) a dangling inheritance link still fails under jira"
 else fail "(P9) expected rc=1 on a dangling link under jira, got $rc: $out"; fi
 p_restore "2026-01-01T14:25:00Z"
@@ -674,8 +674,8 @@ else
       | CLAUDE_PROJECT_DIR="$WT_REC" "$HOOK"
     out="$( cd "$WT_REC" && SECOND_SHIFT_CONFIG="$CFG" LEAN_PROGRESS_FILE="$PROG" \
             bash "$TOOL" 7 --comments-file "$WORK/comments-good.json" 2>&1 )"
-    if printf '%s' "$out" | grep -q "review session $REVIEW_SESSION_WT is distinct from the build session and has a live ledger" \
-       && ! printf '%s' "$out" | grep -q 'no review-session audit ledger'; then
+    if grep -q "review session $REVIEW_SESSION_WT is distinct from the build session and has a live ledger" <<<"$out" \
+       && ! grep -q 'no review-session audit ledger' <<<"$out"; then
       pass "(R) the default ledger path resolves a worktree-run review session's REAL hook ledger"
     else
       fail "(R) the shipped ledger path did not find the hook's own output: $out"
@@ -696,13 +696,13 @@ write_ledger "$SESSION" "2026-01-01T05:00:00Z"
 write_ledger "$REVIEW_SESSION" "2026-01-01T06:00:00Z"
 commit_verdict "2026-01-01T15:00:00Z"
 out="$(reconcile "$WORK/comments-good.json")"; rc=$?
-if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q 'no entry attestation'; then
+if [ "$rc" -eq 1 ] && grep -q 'no entry attestation' <<<"$out"; then
   pass "(Q) a progress file with no entry row fails — nothing attests the build's ledger was live"
 else fail "(Q) expected rc=1 on an unattested build, got $rc: $out"; fi
 
 write_progress "$RUN_ID" "$SESSION"
 out="$(reconcile "$WORK/comments-good.json")"; rc=$?
-if [ "$rc" -eq 0 ] && printf '%s' "$out" | grep -q 'recorded an entry attestation'; then
+if [ "$rc" -eq 0 ] && grep -q 'recorded an entry attestation' <<<"$out"; then
   pass "(Q) ...and the identical run passes once the row is there — the arm turns on the row alone"
 else fail "(Q) expected rc=0 with the entry row present, got $rc: $out"; fi
 
@@ -714,8 +714,8 @@ else fail "(Q) expected rc=0 with the entry row present, got $rc: $out"; fi
 # assertion fires, on GNU sed `-z` dumps the whole file and only the absence one does.
 out="$(bash "$TOOL" --help 2>&1)"; rc=$?
 if [ "$rc" -eq 0 ] \
-   && printf '%s' "$out" | grep -q 'Exit 0 = reconciled' \
-   && ! printf '%s' "$out" | grep -q '^set -uo pipefail'; then
+   && grep -q 'Exit 0 = reconciled' <<<"$out" \
+   && ! grep -q '^set -uo pipefail' <<<"$out"; then
   pass "(O) --help prints through the last header line and stops before the code"
 else fail "(O) --help did not print exactly the header, rc=$rc: $out"; fi
 

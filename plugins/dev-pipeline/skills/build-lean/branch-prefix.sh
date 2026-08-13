@@ -53,13 +53,13 @@ _bp_candidate() { # _bp_candidate <ref> <tracker> <key-pattern>   -> prints the 
   # never a work branch.
   case "$rest" in */*) return 1 ;; esac
   if [ "$tracker" = "jira" ]; then
-    printf '%s' "$rest" | grep -qiE "^($key_re)$" || return 1
+    grep -qiE "^($key_re)$" <<<"$rest" || return 1
     printf '%s\n' "$ident"
     return 0
   fi
   # github: `<slug->?<digits>`. The optional slug group must end in `-`, so a branch whose
   # name merely CONTAINS digits (`fix/v2-cleanup`) does not parse.
-  printf '%s' "$rest" | grep -qE '^([A-Za-z0-9._-]+-)?[0-9]+$' || return 1
+  grep -qE '^([A-Za-z0-9._-]+-)?[0-9]+$' <<<"$rest" || return 1
   # `##*[!0-9]` strips the longest prefix ending in a non-digit, leaving the trailing digit
   # run — and leaves an all-digits `rest` untouched, which is the bare `<ident>/<n>` shape.
   key="${rest##*[!0-9]}"
