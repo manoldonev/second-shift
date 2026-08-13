@@ -388,6 +388,11 @@ definition of settled intent. Three things happen before it leaves your hands.
 bash "${CLAUDE_PLUGIN_ROOT}/skills/plan-interview/tools/dup-scan.sh" --issue {ISSUE_NUMBER}
 ```
 
+This scans **this** issue, which is what `no-split` hands to BUILD carrying the queue label. It
+is not the whole obligation: on the `sub-issues` routes the queue label moves off this issue and
+onto slices that do not exist yet, and Step 6 scans each of those before creating it. A ticket is
+scanned at the point it becomes eligible, and for a slice that point is its own creation.
+
 Three exit codes, three different obligations:
 
 - **`0`** — nothing at or above the threshold. Record nothing; a clean scan is not a decision,
@@ -460,7 +465,32 @@ The write operations below are the **github** adapter (`tracker.writes: true`) _
    - its acceptance criteria **verbatim**, `AC-n` IDs intact — the tracker body is the only channel that reaches the scope-completeness gate, so a paraphrase silently downgrades it to fallback numbering;
    - when Step 0.5 produced a Brief: the **full reconciled QUARANTINE table** (all three tags, verbatim) and the settled user guardrails, so parent-level decisions are not re-litigated per sub-issue.
 3. **Sequential flavor only — ordering trailers.** You know the whole chain in this one batch, so write both directions at creation: each sub-issue after the first carries `Predecessor: <key>`, and each predecessor carries a forward `Successor: <key>`. Render keys per the adapter's `tracker.keyPattern` (`#` prefix optional on github), one trailer per line, as the body's last lines. A blocked body also states plainly: **"queue when `<predecessor>` is closed."**
-4. Create sub-issues (github adapter). **The queue label is where the two flavors diverge:**
+4. **Scan each slice for duplicates — before it is created, not after.** Step 5.5 scanned the
+   *parent*, and on this route the parent is the one item that ends up **without** the queue
+   label. The slices below are the ones this exit actually mints as eligible, and none of them
+   existed when that scan ran. Scan each synthesized body, as a draft subject:
+
+```bash
+# per slice, with $SLICE_BODY already written to a file:
+bash "${CLAUDE_PLUGIN_ROOT}/skills/plan-interview/tools/dup-scan.sh" \
+  --title "[slice title]" --body-file "$SLICE_BODY_FILE"
+```
+
+   Same three obligations as Step 5.5 — `0` record nothing, `10` judge each candidate and write
+   a ledger row, **`2` hard-stop**: create nothing, label nothing, report the rc and the reason.
+   Hard-stopping here costs an operator re-run; proceeding mints up to five queue-labeled
+   tickets that nothing ever looked at, which is the defect this rung exists to prevent.
+
+   Scan the blocked successors too, not just the queued first slice. Promotion at merge time is
+   a bare label edit by an operator who runs no scan, so creation is the only point where a
+   successor is ever looked at.
+
+   **The corpus does not contain the sibling slices** — they are unfiled, and a decomposition's
+   slices are related to each other by construction, so scoring them against one another would
+   report the split itself as a duplicate. The question here is whether a slice duplicates work
+   already queued or in flight, which is exactly the corpus the tool reads.
+
+5. Create sub-issues (github adapter). **The queue label is where the two flavors diverge:**
 
 ```bash
 # parallel — every slice is immediately workable:
@@ -487,7 +517,7 @@ $GH_BOT_SH issue create --title "[slice N title]" --body "$BODY_N" --label <opus
    its trailers/labelling identical to the ordered flavor above. This is the one case in
    this skill where a sub-issue is filed anywhere other than the current repo's tracker.
 
-5. Update parent issue (github adapter):
+6. Update parent issue (github adapter):
 
 ```bash
 $GH_BOT_SH issue edit $ISSUE_NUMBER --add-label epic --remove-label ready-for-dev --remove-label in-progress
@@ -496,8 +526,8 @@ gh issue edit $ISSUE_NUMBER --remove-assignee @me
 
    _(jira: tracker delta.)_
 
-6. Post decomposition rationale + links as issue comment _(jira: tracker delta.)_ For the sequential flavor, state the order explicitly and which slice is queued.
-7. Pipeline stops for this run — both flavors are stopping verdicts; each sub-issue is its own scope contract and gets its own run.
+7. Post decomposition rationale + links as issue comment _(jira: tracker delta.)_ For the sequential flavor, state the order explicitly and which slice is queued.
+8. Pipeline stops for this run — both flavors are stopping verdicts; each sub-issue is its own scope contract and gets its own run.
 
 ### Brief persistence
 

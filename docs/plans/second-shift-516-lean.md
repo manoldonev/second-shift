@@ -78,6 +78,11 @@ predicate and is not in scope here.
   `plan-interview` pre-flight) run the scan before the ticket is labeled or handed off, and
   each **hard-stops on rc `2`**: the queue label is not applied and nothing is handed off, so
   `queue-labeled ⇒ scanned` stays a true invariant. (Operator resolution of OR-2.)
+  The invariant is keyed to the item that ends up **carrying** the label, not the item the exit
+  was pointed at: `intake-orchestrator`'s `sub-issues` / `sub-issues-sequential` routes strip the
+  queue label from the parent and mint 1–5 new sub-issues, so each synthesized slice is scanned
+  in its unfiled form (`--title` / `--body-file`) before creation, blocked successors included —
+  their later promotion is a bare operator label edit that runs no scan.
 - **AC-8** — When the scan returns `10`, the exit records one Decision Ledger row per judged
   candidate in the receipt it already emits. A `0` scan records nothing — padding the register
   with a clean result is what `interviewing-baseline` forbids.
@@ -87,10 +92,13 @@ predicate and is not in scope here.
   determinism, and both halves of the calibration.
 - **AC-10** — Documentation is updated where this change makes it stale: the intake-toolkit
   plugin manifest's description, which enumerates the surface and would otherwise omit the new
-  tool. Checked and deliberately not touched — `docs/testing.md` (it describes the test tiers,
-  not the intake tools, and the new suite is discovered by glob), `CLAUDE.md`'s coverage
-  register (the rule there is coverage, and `dup-scan.sh` ships a same-named suite), and
-  `scripts/lockstep-manifest.tsv` (nothing here is a second copy of another file's contract).
+  tool, and `scripts/lockstep-manifest.tsv`, which gains a **DROPPED** annotation for the one
+  real coupling this change introduces — the `0` / `10` / `2` taxonomy restated across the tool
+  and four SKILL blocks, with no shared literal to anchor a row on and the reasoning recorded so
+  the decision is visible rather than forgotten. Checked and deliberately not touched —
+  `docs/testing.md` (it describes the test tiers, not the intake tools, and the new suite is
+  discovered by glob) and `CLAUDE.md`'s coverage register (the rule there is coverage, and
+  `dup-scan.sh` ships a same-named suite).
 
 ## Out of scope
 

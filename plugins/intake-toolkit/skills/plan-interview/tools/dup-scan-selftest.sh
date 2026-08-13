@@ -8,7 +8,7 @@
 #
 # THE CALIBRATION IS A TEST CASE, not a comment. `corpus-live.json` is the real pair
 # of tickets that motivated this tool plus the nearest non-duplicates from the queue
-# they were filed into; cases (ds-i)/(ds-j) pin that the shipped threshold separates
+# they were filed into; cases (ds-k)/(ds-l) pin that the shipped threshold separates
 # them. Retuning the constant without re-reading that measurement reds here.
 set -euo pipefail
 
@@ -106,6 +106,15 @@ rc=$RC
 [ "$rc" -eq 2 ] && grep -q "mutually exclusive" <<< "$OUT" \
   && pass "(ds-b) --issue with --title → 2, named" \
   || fail "(ds-b) --issue with --title — rc=$rc out=$OUT"
+
+# The second mutual-exclusion arm, and it fails differently from (ds-b): a body file is not
+# a competing subject, it is a body for one the tracker already holds. The file is a real one,
+# so the not-found check downstream cannot be what produces the 2.
+run "$LIVE" "$GH" --issue 500 --body-file "$FIX/draft-body.md"
+rc=$RC
+[ "$rc" -eq 2 ] && grep -q "body-file is meaningless with --issue" <<< "$OUT" \
+  && pass "(ds-b2) --issue with --body-file → 2, named" \
+  || fail "(ds-b2) --issue with --body-file — rc=$rc out=$OUT"
 
 run "$LIVE" "$GH" --issue five
 rc=$RC
