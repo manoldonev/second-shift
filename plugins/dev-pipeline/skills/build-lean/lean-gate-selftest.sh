@@ -4809,5 +4809,23 @@ if [ "$rc" -eq 2 ] && grep -q 'ticket|base|both' <<<"$out"; then
   pass "(st16) an unknown --arm is a usage refusal, not a value that quietly selects neither arm"
 else fail "(st16) expected rc=2 on an unknown --arm, got rc=$rc: $out"; fi
 
+# The THIRD fail-closed arm, and the only one with no natural driver: a branch that shares no
+# history with the base, so the fetch succeeds and the merge-base does not exist. Reached with an
+# orphan root rather than a broken remote, which is what keeps it distinct from (st14) — the ref
+# resolves, the fetch works, and there is still no range. LAST in the block because it moves the
+# fixture's HEAD around.
+st_git "$STREE" checkout -q --orphan claude/acme-99 >/dev/null 2>&1
+st_git "$STREE" rm -rq --cached . >/dev/null 2>&1
+printf 'unrelated history\n' > "$STREE/orphan.txt"
+st_git "$STREE" add orphan.txt >/dev/null 2>&1
+st_git "$STREE" commit -q -m "an unrelated root" >/dev/null 2>&1
+st_git "$STREE" checkout -qf main >/dev/null 2>&1
+rm -f "$STREE/orphan.txt"
+out="$(stgate "$ST_CFG" 99 --arm base)"; rc=$?
+if [ "$rc" -eq 1 ] && grep -q 'cannot resolve merge-base' <<<"$out" \
+   && ! grep -q 'does not exist yet' <<<"$out" && ! grep -q 'base arm clean' <<<"$out"; then
+  pass "(st17) a branch with no shared history is exit 1 naming the merge-base — not the D-9 skip and not a clean answer"
+else fail "(st17) expected rc=1 from an unresolvable merge-base, got rc=$rc: $out"; fi
+
 echo "[lean-gate-selftest] $([ "$FAILS" -eq 0 ] && echo 'all green' || echo "$FAILS FAILURE(S)")"
 exit "$FAILS"
