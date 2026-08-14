@@ -954,42 +954,57 @@ append_absent() { append_line "$(now_iso) | milestone-$1 | absent | $2"; }
 # issue-keyed) can both read zero rows and both append, duplicating the line this function
 # exists to keep singular.
 #
-# UNIQUE TEMP + ATOMIC RENAME, the same technique heal_progress_run_id uses just above — not a
-# persistent claim/lock. A claim keyed only by milestone number has no way to tell "held by a
-# genuinely concurrent same-epoch writer" from "orphaned by a progress file that was deleted and
-# rewritten since" (the gate itself recreates a deleted file, and an operator can do the same by
-# hand) — and this file's own tooling recreates the record from scratch by design, so a
-# claim that outlives that reset would permanently block the milestone it names from ever being
-# recorded satisfied again. That is a worse failure than the duplicate line it would prevent.
+# AN ATOMIC CLAIM, THEN A PLAIN APPEND — deliberately NOT the unique-temp-plus-rename technique
+# heal_progress_run_id uses just above. That technique rebuilds the whole file, which would make
+# this function a SECOND rewriter of the record, and progress_token()'s soundness argument below
+# rests on there being exactly one: it states that `attempt`/`satisfied` rows are append-only and
+# so the selected count "cannot go up and back down within a spawn". A rebuild built from a
+# fresh-at-write-time read can drop a row a concurrent append_attempt/append_absent wrote in the
+# gap, and a dropped `attempt` row does exactly what that comment says cannot happen — it also
+# un-charges #494's fix budget by one, silently and unrecoverably, because append_attempt fires
+# only on a fresh failure and a re-evaluation never replays it. Keeping this function append-only
+# keeps that invariant true rather than leaving it standing while false.
 #
 # THE CHECK ABOVE IS A FAST PATH ONLY, not the guard. Two writers can both pass it before either
-# writes — that gap is exactly what makes this "not atomic" in the first place, and it can be
-# arbitrarily wide (a descheduled process, not just a same-instant coincidence). So the write
-# below re-verifies absence against the copy it is ABOUT to commit, immediately before deciding
-# to append: if that fresh read already carries the line — because the other writer's rename
-# landed first, however long ago — this call adds nothing and discards its temp file instead of
-# renaming it. That is what makes "exactly one line" hold regardless of how far apart the two
-# writers' checks and writes fall, not merely when they fall close together.
+# writes — that gap is exactly what makes a bare check-then-append not atomic, and it can be
+# arbitrarily wide (a descheduled process, not just a same-instant coincidence). The guard is the
+# `mkdir` below: it is atomic and refuses an existing target, so of any number of concurrent
+# same-issue writers exactly ONE enters and the rest return immediately. Nothing waits, nothing
+# retries, and a loser returning empty-handed is correct — the winner is inside writing the very
+# row the loser would have written.
 #
-# The residual risk this technique accepts: a full-file rewrite built from a fresh-at-write-time
-# read can still overwrite a line a different append_attempt/append_absent/append_started/
-# append_concluded call (plain `>>` through append_line) wrote in the instant between THIS call's
-# read and its rename. Unlike a stuck milestone, that is self-correcting — the next `bash G all`
-# re-evaluates and re-records what was lost — and the two ends of a real same-issue overlap (a
-# resumed session, a not-yet-dead earlier process) are rare enough that this repo accepts it as
-# the smaller failure mode.
+# THE RE-CHECK INSIDE IS WHAT MAKES IT EXACTLY ONE, not the mkdir. A loser that arrives AFTER the
+# winner released would otherwise claim cleanly and append a second row; re-reading the record
+# inside the critical section is what closes that, and it is what makes correctness independent
+# of how far apart two writers' checks and writes fall.
+#
+# HELD ACROSS ONE APPEND, THEN RELEASED — deliberately not a persistent per-milestone claim. A
+# claim that outlives the call cannot tell "held by a genuinely concurrent writer" from "orphaned
+# by a record that was replaced since", and this repo replaces records routinely (the gate
+# recreates a deleted one, an operator rewrites one by hand, a fixture seeds one directly). Such a
+# claim permanently blocks the milestone it names from ever being recorded satisfied again, which
+# is a far worse failure than the duplicate row it prevents. Measured, not theorised: a persistent
+# form of this claim reded a full `all` sweep in lean-gate-selftest.sh's own fixture.
+#
+# The one window left is a process KILLED between mkdir and rmdir — microseconds, and the run it
+# kills is over anyway. `clear_satisfied_claims` sweeps such an orphan at `entry`, which every
+# session runs before anything else, so recovery is the checklist's existing first step.
 append_satisfied() {
   ensure_progress_file
   [ "$(count_matches "| milestone-$1 | satisfied" "$PROGRESS_FILE" -F)" -eq 0 ] || return 0
   _lean_gate_test_stall "satisfied-$1"
-  local tmp
-  tmp="$(mktemp "$PROGRESS_FILE.satisfied.XXXXXX")" || return 0
-  if cat "$PROGRESS_FILE" > "$tmp" 2>/dev/null \
-     && ! grep -qF "| milestone-$1 | satisfied" "$tmp"; then
-    printf '%s\n' "$(now_iso) | milestone-$1 | satisfied" >> "$tmp" && mv "$tmp" "$PROGRESS_FILE" && return 0
+  local claim="$PROGRESS_FILE.satisfied-$1.claim"
+  mkdir "$claim" 2>/dev/null || return 0
+  if [ "$(count_matches "| milestone-$1 | satisfied" "$PROGRESS_FILE" -F)" -eq 0 ]; then
+    append_line "$(now_iso) | milestone-$1 | satisfied"
   fi
-  rm -f "$tmp"
+  rmdir "$claim" 2>/dev/null
+  return 0
 }
+
+# Orphans only — see append_satisfied. Called where a leftover claim can no longer be held by a
+# live writer: at `entry`, which every session runs before anything else.
+clear_satisfied_claims() { rm -rf "$PROGRESS_FILE".satisfied-*.claim; }
 
 attempt_count() { count_matches "| milestone-$1 | attempt |" "$PROGRESS_FILE" -F; }
 
@@ -1480,7 +1495,11 @@ cmd_teardown() {
 # WHY A COUNT IS A SOUND TOKEN. These rows are append-only: append_attempt and append_satisfied
 # only ever add, and the single rewriter in this file (heal_progress_run_id) has an exact-string
 # compare bounded to the header. So the selected count cannot go up and back down within a spawn
-# and read as unchanged. It is printed behind a generation prefix rather than bare precisely
+# and read as unchanged. #528 is what keeps that true under a concurrent same-issue writer:
+# append_satisfied takes an atomic exclusive-create claim and then appends, rather than
+# rebuilding the file — a rebuild would make it a second rewriter, and one that can drop a
+# concurrently-appended `attempt` row, which is precisely the downward movement this paragraph
+# rules out. It is printed behind a generation prefix rather than bare precisely
 # because it is a number a caller must NOT order: `progress-v1:` marks the token space, so a
 # future change of predicate is visibly a different token rather than a silently comparable
 # integer, and a caller reaching for `-gt` has to notice it is not one.
@@ -1754,6 +1773,9 @@ cmd_entry() {
   # Tightening to per-session is one comparison against the id recorded here, but cannot be done
   # honestly until #417 lands.
   ensure_progress_file
+  # #528: a claim still present here was orphaned by a killed writer, never held by a live one —
+  # see append_satisfied. This is where a session starts, so it is where the sweep belongs.
+  clear_satisfied_claims
   if entry_row_present; then
     say "  entry attestation already recorded in $PROGRESS_FILE — not duplicated."
   else

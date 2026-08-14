@@ -23,9 +23,19 @@
 # parsed or reformatted, because BSD and GNU render `lstart` differently and a dual-form parse
 # is this repo's documented way of failing dirty under the other OS.
 #
+# PRODUCER AND CONSUMER SHARE ONE EXPRESSION — tools/fixture-stamp.sh, sourced by this script
+# and by both fixture-producing suites. They used to carry the sanitization twice in two shapes
+# that agreed only on a `ps` padding lstart with a trailing blank; under one that does not, the
+# stamp read back never matched the stamp written and this script deleted LIVE fixtures. See
+# that file's header for the measurement.
+#
 # A directory is reap-eligible only when BOTH hold:
 #   1. OWNERSHIP says it is not live: the pid is gone, or a DIFFERENT process now holds a
-#      recycled pid (its current `lstart` no longer matches the embedded stamp).
+#      recycled pid (its current `lstart` no longer matches the embedded stamp). "Could not
+#      tell" is a THIRD answer, not a synonym for the second: a pid that is alive but whose
+#      start time cannot be read leaves the directory in place. Every failure to establish
+#      ownership must resolve toward keeping, because the cost of keeping is disk and the cost
+#      of deleting is a live suite's working tree.
 #   2. AGE clears a floor — a small one (MIN_AGE_OWNED) when ownership already answered the
 #      safety question, a large one (MIN_AGE_LEGACY, clearing the documented worst-case suite
 #      duration by a wide margin) for a name this script does not recognize at all: an
@@ -47,6 +57,13 @@ set -uo pipefail
 
 die() { echo "[reap-lean-fixtures] $1" >&2; exit 2; }
 
+HERE="$(cd "$(dirname "$0")" && pwd)"
+# Not optional here, unlike the producer side: without the shared expression this script cannot
+# read a stamp at all, and a reaper that silently fell back to age alone is the unsafe shape.
+# shellcheck source=tools/fixture-stamp.sh
+[ -r "$HERE/fixture-stamp.sh" ] || die "the sibling fixture-stamp.sh is absent — ownership cannot be established, refusing to reap on age alone."
+. "$HERE/fixture-stamp.sh"
+
 DIR="${TMPDIR:-/tmp}"
 MIN_AGE_OWNED=600      # 10 min: ownership already proved it is not the live owner; this is a
                         # small buffer against a narrow ps-read race, well under any realistic
@@ -61,7 +78,7 @@ while [ $# -gt 0 ]; do
     --min-age-owned-secs)   MIN_AGE_OWNED="${2:-}"; shift 2 ;;
     --min-age-legacy-secs)  MIN_AGE_LEGACY="${2:-}"; shift 2 ;;
     --dry-run)               DRY_RUN=1; shift ;;
-    -h|--help)               sed -n '2,45p' "$0"; exit 0 ;;
+    -h|--help)               sed -n '2,55p' "$0"; exit 0 ;;
     *) die "unknown argument: $1" ;;
   esac
 done
@@ -86,18 +103,24 @@ file_mtime() {
 # Seam for the selftest: REAP_LEAN_PS_STUB, a directory of "<pid>.lstart" files. When set,
 # liveness and the start-time readback come from staged files instead of the real process
 # table, so every case is deterministic — no real pid needs to be alive or dead on the machine
-# running the suite. Absent (the real-run path), a dead or unreadable pid is simply "not owned".
-_pid_lstart() { # $1 pid -> prints the sanitized stamp, or fails if dead/unreadable
-  local pid="$1" raw
+# running the suite. An ABSENT stub file models a gone pid; a PRESENT but empty one models the
+# third answer — a process that is alive while its start time cannot be read.
+#
+# THREE ANSWERS, not two. `not-owned` is a positive finding (the pid is gone, or a recycled pid
+# now belongs to a different process); `unknown` is the absence of a finding, and it keeps.
+_own_state() { # _own_state <pid> <embedded stamp> -> prints owned | not-owned | unknown
+  local pid="$1" want="$2" raw current
   if [ -n "${REAP_LEAN_PS_STUB:-}" ]; then
-    [ -f "$REAP_LEAN_PS_STUB/$pid.lstart" ] || return 1
+    [ -f "$REAP_LEAN_PS_STUB/$pid.lstart" ] || { printf 'not-owned'; return 0; }
     raw="$(cat "$REAP_LEAN_PS_STUB/$pid.lstart" 2>/dev/null)"
+    [ -n "$raw" ] || { printf 'unknown'; return 0; }
+    current="$(fixture_stamp_sanitize "$raw")"
   else
-    kill -0 "$pid" 2>/dev/null || return 1
-    raw="$(ps -o lstart= -p "$pid" 2>/dev/null)"
+    kill -0 "$pid" 2>/dev/null || { printf 'not-owned'; return 0; }
+    # Alive, but `ps` said nothing usable. Not a finding — see the header.
+    current="$(fixture_stamp_for_pid "$pid")" || { printf 'unknown'; return 0; }
   fi
-  [ -n "$raw" ] || return 1
-  printf '%s' "$raw" | tr -cs 'A-Za-z0-9' '_'
+  if [ "$current" = "$want" ]; then printf 'owned'; else printf 'not-owned'; fi
 }
 
 REMOVED=0
@@ -118,9 +141,11 @@ for pattern in 'leangate.*' 'orchestrate-lean-selftest.*'; do
     age=$((now - mtime))
     [ "$age" -ge 0 ] || age=0   # clock-skew guard — never treat a future mtime as ancient
 
-    # <prefix>.<pid>.<stamp>.<random> — 4 dot-fields. Anything else (legacy pre-stamp names,
-    # or content this script does not recognize) is NEVER treated as owned; it falls to the
-    # long age-only floor below instead.
+    # <prefix>.<pid>.<stamp>.<random> — AT LEAST 4 dot-fields. BSD `mktemp -d -t` treats the
+    # whole argument as a prefix and appends its own suffix, so a real stamped name has 5;
+    # only fields 2 and 3 are read, so both shapes parse identically. Anything shorter (legacy
+    # pre-stamp names, or content this script does not recognize) is NEVER treated as owned;
+    # it falls to the long age-only floor below instead.
     field_count="$(printf '%s' "$name" | awk -F. '{print NF}')"
     pid=""
     stamp=""
@@ -131,10 +156,14 @@ for pattern in 'leangate.*' 'orchestrate-lean-selftest.*'; do
     fi
 
     if [ -n "$pid" ]; then
-      owned=0
-      current="$(_pid_lstart "$pid")" && [ "$current" = "$stamp" ] && owned=1
-      if [ "$owned" -eq 1 ]; then
+      state="$(_own_state "$pid" "$stamp")"
+      if [ "$state" = "owned" ]; then
         echo "[reap-lean-fixtures] keep (live owner pid $pid): $name"
+        KEPT=$((KEPT + 1))
+        continue
+      fi
+      if [ "$state" = "unknown" ]; then
+        echo "[reap-lean-fixtures] keep (ownership unknown for live pid $pid): $name"
         KEPT=$((KEPT + 1))
         continue
       fi

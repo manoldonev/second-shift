@@ -39,21 +39,34 @@ if [ ! -f "$HERE/../build-lean/branch-prefix.sh" ]; then
   exit 2
 fi
 
-# Ownership stamp for tools/reap-lean-fixtures.sh (#528) — see lean-gate-selftest.sh's copy of
-# this helper for the full rationale: pid + that pid's `ps -o lstart=` start time, sanitized and
-# treated as an opaque string so the reaper can tell a signal-killed run's leftovers from a live
-# one's without guessing from age alone.
-_own_stamp() {
-  local raw
-  raw="$(ps -o lstart= -p "$$" 2>/dev/null | tr -cs 'A-Za-z0-9' '_')"
-  printf '%s.%s' "$$" "${raw:-0}"
-}
+# Ownership stamp for tools/reap-lean-fixtures.sh (#528). The expression is NOT repeated here —
+# it lives in tools/fixture-stamp.sh, sourced by this producer and by the reaper that reads the
+# stamp back, so the two cannot drift into an agreement that holds only on one `ps`. Optional:
+# a shipped plugin install carries no tools/, and an unstamped name is the safe fallback.
+STAMP_LIB="$HERE/../../../../tools/fixture-stamp.sh"
+OWN_SEG=""
+if [ -r "$STAMP_LIB" ]; then
+  # shellcheck source=../../../../tools/fixture-stamp.sh
+  . "$STAMP_LIB"
+  OWN_SEG="$(fixture_stamp_own 2>/dev/null)" || OWN_SEG=""
+fi
 
+# TRAP INSTALLED BEFORE WORK EXISTS (#528), mirroring lean-gate-selftest.sh: the old order
+# (mktemp, then trap) left a window where a signal orphaned WORK with nothing registered to
+# remove it. cleanup() guards on WORK being set, so registering it first is safe.
+# shellcheck disable=SC2317,SC2329  # invoked indirectly by the EXIT trap below.
+# BOTH codes: shellcheck >=0.10 reports SC2329 on the function, 0.9 (CI) reports SC2317 on
+# each command in the body — suppressing only the newer one is clean locally and reds CI.
+cleanup() { [ -n "${WORK:-}" ] && rm -rf "$WORK"; }
+trap cleanup EXIT
 # `pwd -P` because macOS resolves /var through a symlink to /private/var: the tool reports the
 # worktree path git gives it, and an unresolved fixture path would make the cwd assertions below
 # fail for a reason that has nothing to do with the tool.
-WORK="$(mktemp -d -t "orchestrate-lean-selftest.$(_own_stamp).XXXXXX")"
-trap 'rm -rf "$WORK"' EXIT
+if [ -n "$OWN_SEG" ]; then
+  WORK="$(mktemp -d -t "orchestrate-lean-selftest.$OWN_SEG.XXXXXX")"
+else
+  WORK="$(mktemp -d -t "orchestrate-lean-selftest.XXXXXX")"
+fi
 WORK="$(cd "$WORK" && pwd -P)"
 
 ISSUE=7

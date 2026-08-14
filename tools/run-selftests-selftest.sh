@@ -789,6 +789,40 @@ CEILING=0; run_runner "$RJ"
                   || { fail "ceiling: LEAN_JOB_CEILING=0 was accepted (rc=$RC)"; sed 's/^/    | /' "$OUT"; }
 CEILING=""
 
+# ---------------------------------------------------------------------------------------
+# THE FIXTURE REAPER CALL SITE (#528). Every other case builds a --root whose tools/ holds only
+# selftest-cache-inputs.tsv, so the `[[ -x <root>/tools/reap-lean-fixtures.sh ]]` guard takes
+# its FALSE branch in all of them and nothing proved the true branch does anything at all.
+#
+# Two properties, and the second is the one that matters: the reaper is invoked, and a reaper
+# that FAILS is housekeeping — never a reason to red a sweep whose suites all passed.
+RRP="$BASE/reaper"
+make_suite "$RRP" "ok-selftest.sh" 0 'echo "ok-suite ran"'
+mkdir -p "$RRP/tools"
+{
+  echo '#!/usr/bin/env bash'
+  echo 'echo "REAPER-RAN"'
+  echo 'exit 3'
+} > "$RRP/tools/reap-lean-fixtures.sh"
+chmod +x "$RRP/tools/reap-lean-fixtures.sh"
+
+run_runner "$RRP"
+if [[ "$RC" -eq 0 ]] && grep -q 'REAPER-RAN' "$OUT" && grep -q 'ok-suite ran' "$OUT"; then
+  ok "reaper: a present tool is invoked, and its non-zero exit does not red the sweep"
+else
+  fail "reaper: expected an invoked reaper and a green sweep (rc=$RC)"; sed 's/^/    | /' "$OUT"
+fi
+
+# The control: with the tool ABSENT the sweep is identical and silent, so the case above is
+# reading the guard's true branch rather than something the runner prints regardless.
+rm -f "$RRP/tools/reap-lean-fixtures.sh"
+run_runner "$RRP"
+if [[ "$RC" -eq 0 ]] && ! grep -q 'REAPER-RAN' "$OUT"; then
+  ok "reaper: with no tool under the root the sweep runs unchanged"
+else
+  fail "reaper: the absent-tool control did not hold (rc=$RC)"; sed 's/^/    | /' "$OUT"
+fi
+
 echo
 if [[ "$FAILS" -eq 0 ]]; then
   echo "run-selftests-selftest: PASS"

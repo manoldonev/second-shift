@@ -49,16 +49,25 @@ unset LEAN_RUN_MODEL
 unset RUN_ID
 
 # Ownership stamp for tools/reap-lean-fixtures.sh (#528): this process's pid, plus its start
-# time read back from `ps -o lstart=` and sanitized to [A-Za-z0-9_] — an OPAQUE string, never
-# parsed or reformatted, because BSD and GNU render `lstart` differently and a dual-form parse
-# is this repo's documented way of failing dirty under the other OS. A suite killed by a signal
-# leaves WORK behind with no trap to run; the stamp is what lets the reaper tell a dead run's
-# leftovers from a live one's without guessing from age alone.
-_own_stamp() {
-  local raw
-  raw="$(ps -o lstart= -p "$$" 2>/dev/null | tr -cs 'A-Za-z0-9' '_')"
-  printf '%s.%s' "$$" "${raw:-0}"
-}
+# time. A suite killed by a signal leaves WORK behind with no trap to run; the stamp is what
+# lets the reaper tell a dead run's leftovers from a live one's without guessing from age alone.
+#
+# THE EXPRESSION IS NOT SPELLED OUT HERE. It lives in tools/fixture-stamp.sh, which the reaper
+# sources too: a producer and a consumer that each spell the sanitization their own way agree
+# only by accident of how `ps` pads its lstart column, and on a `ps` that does not pad, the
+# reaper reads a live suite's fixture as unowned and deletes it.
+#
+# OPTIONAL by design — a shipped plugin install carries no tools/ directory, so a suite that
+# cannot find the library builds an UNSTAMPED name and the reaper governs it by the long legacy
+# floor alone. That is the safe direction: no stamp at all beats a stamp the reader would read
+# back as somebody else's.
+STAMP_LIB="$HERE/../../../../tools/fixture-stamp.sh"
+OWN_SEG=""
+if [ -r "$STAMP_LIB" ]; then
+  # shellcheck source=../../../../tools/fixture-stamp.sh
+  . "$STAMP_LIB"
+  OWN_SEG="$(fixture_stamp_own 2>/dev/null)" || OWN_SEG=""
+fi
 # TRAP INSTALLED BEFORE WORK EXISTS (#528). The old order (mktemp, then trap) left a window —
 # five lines, here — where a signal orphaned WORK with nothing registered to remove it. This
 # closes it airtight rather than merely dominant; cleanup() already guards on WORK being set,
@@ -68,7 +77,11 @@ _own_stamp() {
 # each command in the body — suppressing only the newer one is clean locally and reds CI.
 cleanup() { [ -n "${WORK:-}" ] && rm -rf "$WORK"; }
 trap cleanup EXIT
-WORK="$(mktemp -d -t "leangate.$(_own_stamp).XXXXXX")"
+if [ -n "$OWN_SEG" ]; then
+  WORK="$(mktemp -d -t "leangate.$OWN_SEG.XXXXXX")"
+else
+  WORK="$(mktemp -d -t "leangate.XXXXXX")"
+fi
 
 # ---------------------------------------------------------------- fixture repo + config
 TREE="$WORK/tree"
@@ -5361,8 +5374,15 @@ rsat_writer() { # rsat_writer <out-file>
 rsat_writer "$WORK/rsat-a.out" & rsat_pid_a=$!
 rsat_writer "$WORK/rsat-b.out" & rsat_pid_b=$!
 rsat_waited=0
+# BAIL THE MOMENT A WRITER CANNOT STILL ARRIVE. Waiting out the full ceiling whenever a writer
+# dies early is pure wall-clock sleep, and under tools/mutation-sweep.sh it is paid once per
+# mutant that stops a writer short — enough of them to push the PR-scoped sweep past its
+# 15-minute budget while the CPU sat idle. A writer that has exited will never create its ready
+# file, so the loop has nothing left to wait for; `go` is written immediately below either way,
+# which releases whichever writer IS parked in the stall.
 while [ "$(find "$RSAT_STALL" -maxdepth 1 -name 'ready.satisfied-1.*' 2>/dev/null | wc -l | tr -d ' ')" -lt 2 ] \
-      && [ "$rsat_waited" -lt 100 ]; do
+      && [ "$rsat_waited" -lt 100 ] \
+      && kill -0 "$rsat_pid_a" 2>/dev/null && kill -0 "$rsat_pid_b" 2>/dev/null; do
   sleep 0.1; rsat_waited=$((rsat_waited + 1))
 done
 rsat_ready="$(find "$RSAT_STALL" -maxdepth 1 -name 'ready.satisfied-1.*' 2>/dev/null | wc -l | tr -d ' ')"
@@ -5373,10 +5393,31 @@ if [ "$rsat_ready" -eq 2 ] \
   pass "(rc1) two genuinely concurrent append_satisfied calls for the same milestone leave exactly one satisfied row"
 else fail "(rc1) expected both writers to reach the stall (got $rsat_ready/2) and exactly one satisfied row, got $(grep -cF '| milestone-1 | satisfied' "$RSAT_PROG" 2>/dev/null)"; fi
 
-rsat_leftover="$(find "$WORK" -maxdepth 1 -name 'rsat-progress.md.satisfied.*' 2>/dev/null | wc -l | tr -d ' ')"
-[ "$rsat_leftover" -eq 0 ] \
-  && pass "(rc2) neither racing writer's temp file survives — the loser's is removed, the winner's is renamed away" \
-  || fail "(rc2) a temp file from the race was left behind: $(find "$WORK" -maxdepth 1 -name 'rsat-progress.md.satisfied.*')"
+# ---- AC-2a: the mutex is RELEASED, and an orphan cannot outlive a session -----------------
+# The mutex that makes (rc1) single-writer is a directory. Held past the call it guards, it would
+# permanently block its milestone from ever being recorded satisfied again — a far worse failure
+# than the duplicate row it prevents. Two properties, one case:
+#
+#   (a) after (rc1) — two writers, one of which lost the race — NO claim remains;
+#   (b) a claim planted by hand (the microsecond window where a killed writer leaves one) does not
+#       block the milestone: `entry` sweeps it, and the row is recorded on the next evaluation.
+#
+# (b) is asserted against a claim this suite plants rather than one it can arrange to be killed
+# mid-critical-section, because the real window is microseconds wide and cannot be hit reliably —
+# the state left behind is what matters, and it is reproduced exactly.
+rsat_left="$(find "$WORK" -maxdepth 1 -name 'rsat-progress.md.satisfied-*.claim' 2>/dev/null | wc -l | tr -d ' ')"
+rm -f "$RSAT_PROG"
+mkdir -p "$RSAT_PROG.satisfied-1.claim"    # an orphan, exactly as a killed writer leaves it
+attest_at "$TREE" "$CFG" "$RSAT_PROG" 7    # a REAL `entry` — the session start that sweeps it
+( unset RUN_ID CLAUDE_CODE_SESSION_ID GH_BOT
+  cd "$TREE" && SECOND_SHIFT_CONFIG="$CFG" LEAN_PROGRESS_FILE="$RSAT_PROG" \
+  bash "$GATE" --issue-file "$ISSUE_NOREGIONS" 1 7 ) > "$WORK/rsat-reset.out" 2>&1
+rsat_again="$(grep -cF '| milestone-1 | satisfied' "$RSAT_PROG" 2>/dev/null)"
+if [ "$rsat_left" -eq 0 ] && [ "$rsat_again" -eq 1 ]; then
+  pass "(rc2) the satisfied mutex is released after its append, and an orphaned one is swept at entry"
+elif [ "$rsat_left" -ne 0 ]; then
+  fail "(rc2) a claim outlived the call it guards: $(find "$WORK" -maxdepth 1 -name 'rsat-progress.md.satisfied-*.claim')"
+else fail "(rc2) an orphaned claim blocked milestone 1 from being recorded — satisfied $rsat_again time(s): $(cat "$WORK/rsat-reset.out")"; fi
 
 # ---- AC-2b: heal_progress_run_id against a genuinely concurrent same-issue heal ------------
 # Same technique, over the OTHER seam #528 names: two racing evaluators both see a frozen
@@ -5404,8 +5445,10 @@ rheal_writer() { # rheal_writer <out-file>
 rheal_writer "$WORK/rheal-a.out" & rheal_pid_a=$!
 rheal_writer "$WORK/rheal-b.out" & rheal_pid_b=$!
 rheal_waited=0
+# Same early bail as (rc1) above, for the same reason — see its comment.
 while [ "$(find "$RHEAL_STALL" -maxdepth 1 -name 'ready.heal.*' 2>/dev/null | wc -l | tr -d ' ')" -lt 2 ] \
-      && [ "$rheal_waited" -lt 100 ]; do
+      && [ "$rheal_waited" -lt 100 ] \
+      && kill -0 "$rheal_pid_a" 2>/dev/null && kill -0 "$rheal_pid_b" 2>/dev/null; do
   sleep 0.1; rheal_waited=$((rheal_waited + 1))
 done
 rheal_ready="$(find "$RHEAL_STALL" -maxdepth 1 -name 'ready.heal.*' 2>/dev/null | wc -l | tr -d ' ')"
@@ -5417,16 +5460,56 @@ if [ "$rheal_ready" -eq 2 ] \
   pass "(rc3) two genuinely concurrent heals of the same frozen header leave it healed exactly once"
 else fail "(rc3) expected both writers to reach the stall (got $rheal_ready/2) and one healed header, got: $(grep '^run_id:' "$RHEAL_PROG" 2>/dev/null | tr '\n' ' ')"; fi
 
-rheal_leftover="$(find "$WORK" -maxdepth 1 -name 'rheal-progress.md.heal.*' 2>/dev/null | wc -l | tr -d ' ')"
+# `heal*`, NOT `heal.*`: the pre-#528 temp was the FIXED sibling `rheal-progress.md.heal` — no
+# dot, no suffix — so a dot-anchored glob was structurally incapable of matching the very name it
+# was written to catch, and reported a clean sweep for the shape it was auditing.
+rheal_leftover="$(find "$WORK" -maxdepth 1 -name 'rheal-progress.md.heal*' 2>/dev/null | wc -l | tr -d ' ')"
 [ "$rheal_leftover" -eq 0 ] \
   && pass "(rc4) neither racing heal's temp file survives" \
-  || fail "(rc4) a heal temp file from the race was left behind: $(find "$WORK" -maxdepth 1 -name 'rheal-progress.md.heal.*')"
+  || fail "(rc4) a heal temp file from the race was left behind: $(find "$WORK" -maxdepth 1 -name 'rheal-progress.md.heal*')"
+
+# ---- AC-2b, the part a race cannot observe: the temp is UNIQUE ---------------------------
+# (rc3) cannot fail for the defect it names. Two racing heals resolve the SAME id from the same
+# header, so their output is byte-identical: colliding on one fixed filename still leaves one
+# correctly-healed header, and the assertion has nothing to see. The collision is real; its
+# effect on the result is not — so the uniqueness of the temp has to be asserted directly.
+#
+# Plant a file at the exact path the pre-#528 code wrote (`<progress>.heal`) and require a heal
+# to leave it alone. The old shape truncates it, renames it over the record, and destroys it;
+# any unique-temp shape cannot touch it. One writer, no race, deterministic.
+RHEAL2_PROG="$WORK/rheal2-progress.md"
+rm -f "$RHEAL2_PROG" "$RHEAL_CACHE_DIR/7-run-id"
+attest_at "$TREE" "$CFG" "$RHEAL2_PROG" 7
+printf 'p-race-heal' > "$RHEAL_CACHE_DIR/7-run-id"
+printf 'BYSTANDER\n' > "$RHEAL2_PROG.heal"
+( unset CLAUDE_CODE_SESSION_ID GH_BOT
+  cd "$TREE" && SECOND_SHIFT_CONFIG="$CFG" LEAN_PROGRESS_FILE="$RHEAL2_PROG" \
+  RUN_ID=p-race-heal bash "$GATE" --issue-file "$ISSUE_NOREGIONS" 1 7 ) > "$WORK/rheal2.out" 2>&1
+if [ "$(grep -cF 'run_id: p-race-heal' "$RHEAL2_PROG" 2>/dev/null)" -eq 1 ] \
+   && [ "$(cat "$RHEAL2_PROG.heal" 2>/dev/null)" = "BYSTANDER" ]; then
+  pass "(rc4a) a heal writes a UNIQUE temp — the fixed .heal sibling two heals used to collide on is untouched"
+else fail "(rc4a) the heal wrote through the fixed .heal sibling (content now: '$(cat "$RHEAL2_PROG.heal" 2>/dev/null)'), header: $(grep '^run_id:' "$RHEAL2_PROG" 2>/dev/null | tr '\n' ' ')"; fi
 
 # ---- AC-3: the resolved config path is announced --------------------------------------------
 out="$(gate entry 7)"
 if grep -q "^\[lean-gate\] config: $CFG$" <<<"$out"; then
   pass "(rc5) the resolved config path is announced on an ordinary subcommand"
 else fail "(rc5) expected an announced config line for '$CFG', got: $out"; fi
+
+# WHICH STREAM, asserted separately. gate() merges 2>&1, so (rc5)/(rc6) above cannot tell an
+# announcement on stderr from one on stdout — and the stream is the load-bearing half of this
+# design, not a detail: every machine-read answer this script gives is on stdout, and a
+# diagnostic riding along there is a parse hazard for a caller that captures it. Capture the two
+# streams apart and require the line on exactly one of them.
+rc5_stdout="$( unset RUN_ID CLAUDE_CODE_SESSION_ID GH_BOT
+               cd "$TREE" && SECOND_SHIFT_CONFIG="$CFG" LEAN_PROGRESS_FILE="$PROG" \
+               bash "$GATE" --issue-file "$ISSUE_NOREGIONS" entry 7 2>/dev/null )"
+rc5_stderr="$( unset RUN_ID CLAUDE_CODE_SESSION_ID GH_BOT
+               cd "$TREE" && SECOND_SHIFT_CONFIG="$CFG" LEAN_PROGRESS_FILE="$PROG" \
+               bash "$GATE" --issue-file "$ISSUE_NOREGIONS" entry 7 2>&1 >/dev/null )"
+if ! grep -q 'config:' <<<"$rc5_stdout" && grep -q "^\[lean-gate\] config: $CFG$" <<<"$rc5_stderr"; then
+  pass "(rc5a) the announcement goes to stderr and never to stdout"
+else fail "(rc5a) wrong stream — stdout carried: $(grep 'config:' <<<"$rc5_stdout"); stderr carried: $(grep 'config:' <<<"$rc5_stderr")"; fi
 
 # A re-point mid-run is visible: a SECOND config, read on the next call, is announced too — not
 # just remembered from the first.

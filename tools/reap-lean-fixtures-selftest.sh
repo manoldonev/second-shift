@@ -190,28 +190,99 @@ bash "$TOOL" --bogus > "$OUT" 2>&1
               || fail "usage: an unknown argument was accepted"
 
 # ---------------------------------------------------------------------------------------
-# The REAL ownership path, which no other case reaches. Every case above sets REAP_LEAN_PS_STUB,
-# so `kill -0` / `ps -o lstart=` never runs and a mutation making the stub branch unconditional
-# survives the whole suite — production would silently consult a stub directory that does not
-# exist and read every live fixture as unowned. This case uses the suite's OWN pid, which is
-# necessarily alive, and backdates far past the owned floor so that KEEPING it can only be
-# ownership talking, never age.
-D9="$BASE/d9"; mkdir -p "$D9"
+# WRITER -> READER ROUND TRIP over the REAL ownership path, which no other case reaches. Every
+# case above sets REAP_LEAN_PS_STUB, so `kill -0` / `ps -o lstart=` never runs and a mutation
+# making the stub branch unconditional survives the whole suite — production would silently
+# consult a stub directory that does not exist and read every live fixture as unowned.
+#
+# The fixture name is built by fixture_stamp_own — the SAME function the two fixture-producing
+# suites call, not a re-derivation of the reader's expression. That distinction is the whole
+# point of this case: it used to spell the sanitization out here, which compared the reader
+# against a copy of itself and could not see the writer disagreeing with either. It did not:
+# the writer piped `ps` output INCLUDING its newline into `tr`, the reader let `$()` strip the
+# newline first, and the two matched only on a `ps` that pads lstart with a trailing blank.
+# Under one that does not, this fixture is DELETED while its owner is alive.
+#
+# The suite's own pid is necessarily alive, and the fixture is backdated far past the owned
+# floor, so KEEPING it can only be ownership talking, never age.
+STAMP_LIB="$HERE/fixture-stamp.sh"
+[ -r "$STAMP_LIB" ] || { echo "FATAL: $STAMP_LIB is missing — the tool sources it, so every ownership case would fail for the same uninformative reason." >&2; exit 2; }
+# shellcheck source=tools/fixture-stamp.sh
+. "$STAMP_LIB"
+
+D10="$BASE/d10"; mkdir -p "$D10"
 live_pid=$$
-live_raw="$(ps -o lstart= -p "$live_pid" 2>/dev/null)"
-live_stamp="$(printf '%s' "$live_raw" | tr -cs 'A-Za-z0-9' '_')"
-REALLIVE="$D9/leangate.$live_pid.$live_stamp.real01"
+own_seg="$(fixture_stamp_own)"
+REALLIVE="$D10/leangate.$own_seg.real01"
 mkdir -p "$REALLIVE"
 backdate "$REALLIVE" 999999
 
 OUT="$BASE/out.realps"
-env -u REAP_LEAN_PS_STUB bash "$TOOL" --dir "$D9" \
+env -u REAP_LEAN_PS_STUB bash "$TOOL" --dir "$D10" \
   --min-age-owned-secs 5 --min-age-legacy-secs 10 > "$OUT" 2>&1
 realps_rc=$?
 if [ "$realps_rc" -eq 0 ] && [ -d "$REALLIVE" ] \
    && grep -qF "keep (live owner pid $live_pid)" "$OUT"; then
-  pass "with no stub, a genuinely live pid is read from the real process table and kept"
-else fail "the real-ps ownership path did not keep a live-owned fixture (rc=$realps_rc): $(tail -1 "$OUT")"; fi
+  pass "a name stamped by the real producer round-trips: the reader keeps it as live-owned"
+else fail "the writer->reader round trip did not keep a live-owned fixture (rc=$realps_rc): $(tail -1 "$OUT")"; fi
+
+# ---------------------------------------------------------------------------------------
+# The property that makes the round trip hold on EVERY `ps`, asserted directly rather than
+# inferred from the machine this happens to run on: the token must not depend on whether the
+# raw lstart string ends in a blank, a newline, both, or neither. `ps` implementations differ
+# exactly there — BSD pads the column, a fixed-width ctime slice does not.
+sane_bare="$(fixture_stamp_sanitize 'Fri Aug 14 14:16:19 2026')"
+sane_blank="$(fixture_stamp_sanitize 'Fri Aug 14 14:16:19 2026 ')"
+sane_nl="$(fixture_stamp_sanitize 'Fri Aug 14 14:16:19 2026
+')"
+if [ -n "$sane_bare" ] && [ "$sane_bare" = "$sane_blank" ] && [ "$sane_bare" = "$sane_nl" ]; then
+  pass "the ownership token is identical whether the raw lstart string is padded, newline-terminated, or bare"
+else fail "trailing-whitespace shapes produced different tokens: bare='$sane_bare' blank='$sane_blank' newline='$sane_nl'"; fi
+
+# ---------------------------------------------------------------------------------------
+# OWNERSHIP HAS THREE ANSWERS. A pid that is alive while its start time cannot be read is
+# "cannot tell", not "not mine" — every failure to establish ownership must resolve toward
+# keeping, because the cost of keeping is disk and the cost of deleting is a live suite's tree.
+# An EMPTY stub entry models it: the pid answers, the start time does not.
+D11="$BASE/d11"; mkdir -p "$D11"
+UNKNOWN="$D11/leangate.3131.Some_Stamp.ss66tt"
+mkdir -p "$UNKNOWN"
+backdate "$UNKNOWN" 999999
+: > "$STUB/3131.lstart"
+
+run_reap "$D11"
+[ "$RC" -eq 0 ] && [ -d "$UNKNOWN" ] && grep -q 'keep (ownership unknown for live pid 3131)' "$OUT" \
+  && pass "a live pid whose start time cannot be read is kept, not reaped as unowned" \
+  || { fail "an unresolvable-ownership fixture was reaped"; sed 's/^/    | /' "$OUT"; }
+
+# ---------------------------------------------------------------------------------------
+# THE DEFAULT FLOORS, which no other case reaches. Every case above passes explicit
+# --min-age-*-secs, so MIN_AGE_OWNED/MIN_AGE_LEGACY are never what decides anything and
+# `86400 -> 0` passed the whole suite — while the sole production call site
+# (run-selftests.sh) passes no overrides, making those two constants exactly what gates real
+# deletions. One fixture on each side of each floor, run with no flags at all.
+D12="$BASE/d12"; mkdir -p "$D12"
+OWNED_OLD="$D12/leangate.4141.Gone_Owner.aa01bb"      # dead owner, past 600s
+OWNED_YOUNG="$D12/leangate.4141.Gone_Owner.cc02dd"    # dead owner, inside 600s
+LEG_OLD="$D12/leangate.uu77vv"                        # unstamped, past 86400s
+LEG_MID="$D12/leangate.ww88xx"                        # unstamped, past 600s but inside 86400s
+mkdir -p "$OWNED_OLD" "$OWNED_YOUNG" "$LEG_OLD" "$LEG_MID"
+backdate "$OWNED_OLD" 1800
+backdate "$OWNED_YOUNG" 120
+backdate "$LEG_OLD" 172800
+backdate "$LEG_MID" 1800
+
+OUT="$BASE/out.defaultfloors"
+REAP_LEAN_PS_STUB="$STUB" bash "$TOOL" --dir "$D12" > "$OUT" 2>&1
+floors_rc=$?
+if [ "$floors_rc" -eq 0 ] \
+   && [ ! -d "$OWNED_OLD" ] && [ -d "$OWNED_YOUNG" ] \
+   && [ ! -d "$LEG_OLD" ] && [ -d "$LEG_MID" ]; then
+  pass "with no flags, the built-in 600s owned floor and 86400s legacy floor are what decide"
+else
+  fail "the default floors did not govern (rc=$floors_rc): owned_old=$([ -d "$OWNED_OLD" ] && echo kept || echo gone) owned_young=$([ -d "$OWNED_YOUNG" ] && echo kept || echo gone) legacy_old=$([ -d "$LEG_OLD" ] && echo kept || echo gone) legacy_mid=$([ -d "$LEG_MID" ] && echo kept || echo gone)"
+  sed 's/^/    | /' "$OUT"
+fi
 
 # ---------------------------------------------------------------------------------------
 # The DEFAULT scan root, which no other case reaches. Every case above passes `--dir`, so the
