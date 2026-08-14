@@ -1,0 +1,49 @@
+# fail-open-sites.tsv — the disposition of every site the `pipeline` leg of
+# scripts/check-fail-open-shapes.sh enumerates.
+#
+# TAB-separated. Columns:
+#   file <TAB> disposition <TAB> anchor <TAB> why
+#
+# file        Repo-root-relative path.
+# disposition converted | safe | out-of-scope | not-a-site
+# anchor      A distinctive substring of the site's LINE. Text, never a line number: a
+#             `file:line` key would red on every unrelated edit above it, and a guard that
+#             cries wolf gets baselined away. The anchor must still appear in the file
+#             (absence is ANCHOR DRIFT = red) and, for anything but `converted`, must still
+#             cover a live enumerated site (a row that outlived its site is also red).
+# why         What makes this disposition true. Not "looks fine" — name the mechanism.
+#
+# THE COUNT IS NOT THE CONTRACT. Three independent measurements of "the sites" disagreed
+# (17 / 18 / 26) purely on scoping, so a completeness claim against a number is
+# unfalsifiable. The guard's `--list` output is the denominator, and this file must cover
+# it exactly — that pair is the contract, and neither half can rot without the other saying so.
+#
+# `converted` rows anchor on the REPLACEMENT text, so they are the one kind that must NOT
+# cover a live site. Reverting a conversion therefore reds twice: the anchor stops resolving
+# (or starts covering a site again), and the restored `| grep -q` reappears unclassified.
+#
+# --- converted: now three-outcome via checked_match --------------------------------------
+plugins/second-shift/skills/onboard/tools/detect.sh	converted	checked_match -iE -e 'atlassian|jira' -- claude mcp list	A failed `claude mcp list` used to read as "no Atlassian MCP", which elects `github` and MISDETECTS the consumer's tracker during onboarding. Now rc 2 leaves the tracker ambiguous with the exit status in its provenance.
+plugins/dev-pipeline/skills/run/tools/pipeline-doctor.sh	converted	checked_match -e '--head' -- gh pr list --help	A failed capability probe used to fabricate "old gh" and route Stage 9 around a feature that may well be present.
+plugins/dev-pipeline/skills/run/tools/pipeline-doctor.sh	converted	checked_match -i -e playwright -- claude mcp list	The block's own comment already said to treat an unavailable `claude mcp list` as "unknown, not missing". The code did not; now it does.
+# --- safe: the construct stands, because a dead producer cannot buy a false green ---------
+.github/workflows/ci.yml	safe	check-jsonschema --help | grep -q	Fails CLOSED. The site is the condition of an `if !` whose body prints ::error:: and exits 1, so a dead probe stops the job rather than passing it.
+plugins/dev-pipeline/skills/pr-revision/SKILL.md	safe	if git worktree list | grep -q "$WORKTREE_PATH"	A `git worktree list` that fails means this is not a working repo, in which case the else arm's `git worktree add` fails loudly on the next line. The wrong branch is taken; nothing silently proceeds on a false answer.
+plugins/dev-pipeline/skills/run/statectl.sh	safe	grep -v '<!-- dev-pipeline-report -->' "$report_file" | grep -q	Fails CLOSED, and the producer cannot fail anyway: the file is proven to exist and to carry the marker by the two refusals immediately above. `grep -v` exiting 1 means every line was the marker, which is exactly the emptiness this arm dies on.
+plugins/dev-pipeline/skills/run/tools/retro-corpus.sh	safe	| grep -qE "(^|/)[^/]*-$issue$suffix\$" || continue	The immediate producer is a `grep -v` filter over a shell variable — no file to fail reading, and its exit 1 means "everything was filtered", a genuine negative.
+plugins/second-shift/skills/doctor/tools/scope-shadows.sh	safe	cut -f1 <<< "$rows" | grep -qx shadowed	`cut` over a herestring has no failure mode short of OOM, and `$rows` was already proven readable by the `|| exit 2` on its own assignment.
+# --- out-of-scope: as the ticket scopes them ----------------------------------------------
+plugins/dev-pipeline/skills/run/stages/2-worktree.md	out-of-scope	if git -C "$REPO_ABS" branch --list "$BRANCH" | grep -q .	Deprecated fat-lane stage doc, targeted for deletion by #348. Converting prose scheduled for removal buys nothing.
+plugins/dev-pipeline/skills/run/stages/2-worktree.md	out-of-scope	if git branch --list "$BRANCH" | grep -q .	Same doc, same deletion.
+plugins/dev-pipeline/skills/build-lean/lean-gate-selftest.sh	out-of-scope	git -C "$WTREE" worktree list --porcelain 2>/dev/null | grep -qxF	Selftest-internal. A dead producer inside a test harness reds the suite; it cannot mislead production.
+plugins/dev-pipeline/skills/run/scenario-liveness-selftest.sh	out-of-scope	| grep -q "run '$RE_RUN'"	Selftest-internal.
+tools/mutation-sweep-selftest.sh	out-of-scope	head -1 "$FX/report.tsv" | grep -q	Selftest-internal.
+plugins/dev-pipeline/skills/run/tools/checked-call-selftest.sh	out-of-scope	say_nomatch 2>/dev/null | grep -qi -e playwright	The replaced shape, executed ON PURPOSE by case (c10) so the collapse it has is pinned by a run rather than asserted in a comment.
+plugins/dev-pipeline/skills/run/tools/checked-call-selftest.sh	out-of-scope	die_7 2>/dev/null | grep -qi -e playwright	The other half of that same demonstration — the arm whose rc must equal the one above.
+# --- not-a-site: the recipe's own textual false positives, recorded not filtered -----------
+# Recorded rather than pruned by a cleverer regex: a filter that dropped prose would also drop
+# a real site written inside a heredoc, and nobody would ever know which.
+plugins/dev-pipeline/skills/run/tools/checked-call.sh	not-a-site	has two outcomes where the world has three	Prose in the canonical idiom's own header, naming the shape it replaces.
+plugins/dev-pipeline/skills/run/tools/checked-call-selftest.sh	not-a-site	pipeline it replaces yields two	Prose in that suite's header.
+scripts/check-changelog-trailer-selftest.sh	not-a-site	if grep -qE 'git log .*--format=%B	The match sits inside a quoted grep PATTERN — that suite greps its gate FOR the shape. There is no pipeline here.
+scripts/check-eval-model-identity-selftest.sh	not-a-site	# run. Deliberately NOT	A comment explaining why the shape was avoided.

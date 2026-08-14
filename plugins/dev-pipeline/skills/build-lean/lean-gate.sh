@@ -2007,16 +2007,37 @@ region_resolved() { # region_resolved <id> <comments-json>
   [ "${n:-0}" -ge 1 ]
 }
 
-check_pause_and_ask() { # prints a fail_milestone reason on stdout, nothing when clear
+# RETURN-CODE VOCABULARY (#532), shared with `checked_match` in
+# plugins/dev-pipeline/skills/run/tools/checked-call.sh — this is the same defect in its
+# capture-shaped costume, so it takes the same numbers:
+#
+#   0 + empty stdout   CLEAR — the issue was read and declares no unresolved region.
+#   0 + a reason       an unresolved region exists. A milestone-1 failure and a fix attempt:
+#                      there is something for the operator to go and clear.
+#   2 + a reason       the READ ITSELF failed, so the answer is UNKNOWN. Not clear, and not a
+#                      failed fix either — no edit the build role can make will fix a tracker
+#                      that would not answer. The CALLER turns this into an environment
+#                      refusal; cmd_1 says why it cannot be raised from in here.
+#
+# What changed: these arms already printed a reason, so they already REFUSED — the ticket's
+# "milestone 1 passes" premise is wrong about the two gh arms. What they could not do is refuse
+# for the right REASON: an unreadable tracker spent one of milestone 1's three fix attempts, and
+# three blips hard-stopped the run at rc=4 with a rescue path nobody could act on. The `jq` arm
+# below is the one that did fail open.
+check_pause_and_ask() { # prints a reason on stdout; the vocabulary above says what rc means
   [ "$TRACKER_TYPE" = "jira" ] && return 0   # no gh issue to read under a read-only tracker
   local body ids comments id
 
   if [ -n "$ISSUE_FILE" ]; then
     [ -f "$ISSUE_FILE" ] || envfail "--issue-file '$ISSUE_FILE' does not exist."
-    body="$(jq -r '.body // ""' "$ISSUE_FILE" 2>/dev/null)"
+    # A malformed fixture landed here as an EMPTY body with its stderr discarded: no region ids
+    # to enumerate, so the function returned CLEAR. Existing but unparseable is not "declares no
+    # region" — it is the same "could not read" the two gh arms report.
+    body="$(jq -r '.body // ""' "$ISSUE_FILE" 2>/dev/null)" \
+      || { echo "could not parse --issue-file '$ISSUE_FILE' while checking for an unresolved pause-and-ask region"; return 2; }
   else
     body="$("$GH_CLI" issue view "$ISSUE" --json body --jq .body 2>&1)" \
-      || { echo "could not read issue #$ISSUE to check for an unresolved pause-and-ask region: $body"; return 0; }
+      || { echo "could not read issue #$ISSUE to check for an unresolved pause-and-ask region: $body"; return 2; }
   fi
 
   ids="$(printf '%s' "$body" | pause_and_ask_ids)"
@@ -2027,7 +2048,7 @@ check_pause_and_ask() { # prints a fail_milestone reason on stdout, nothing when
     comments="$(cat "$COMMENTS_FILE")"
   else
     comments="$("$GH_CLI" api "repos/{owner}/{repo}/issues/$ISSUE/comments" --paginate 2>&1)" \
-      || { echo "could not read #$ISSUE's comment trail to check for an unresolved pause-and-ask region: $comments"; return 0; }
+      || { echo "could not read #$ISSUE's comment trail to check for an unresolved pause-and-ask region: $comments"; return 2; }
   fi
 
   # Every unresolved region, not just the first — the same ergonomic the `all` pre-pass owes
@@ -2170,7 +2191,7 @@ design_disarm_locked_msg() {
 # and NO further content assertion. The path predicate is not an extra check — it is which
 # file "exists" means, and check-lean-chain.sh keys its artifact scan off the same shape.
 cmd_1() {
-  local spec="$REPO_ROOT/$SPEC_REL" n reason dstate note=""
+  local spec="$REPO_ROOT/$SPEC_REL" n reason pa_rc dstate note=""
   # #494: ABSENCE, not a failed fix — block_milestone, whose line kind attempt_count() cannot
   # see. This is the call SKILL.md step 3 orders before the spec can exist.
   [ -f "$spec" ] || { block_milestone 1 "no committed spec at $SPEC_REL"; return $?; }
@@ -2191,7 +2212,13 @@ cmd_1() {
   esac
 
   if [ "${LEAN_GATE_OBSERVE:-0}" != "1" ]; then
-    reason="$(check_pause_and_ask)"
+    reason="$(check_pause_and_ask)"; pa_rc=$?
+    # #532. rc 2 = the read failed, so the answer is UNKNOWN — an environment error, never a
+    # fix attempt. Raised HERE and not inside the function: `envfail` exits, and an exit inside
+    # the `$(…)` above kills only the subshell, which would leave `reason` empty and PASS the
+    # milestone — failing open in the very act of fixing a fail-open. Same reasoning the
+    # capability-stamp resolver above spells out for its own globals.
+    [ "$pa_rc" -ne 2 ] || envfail "milestone-1: $reason"
     [ -z "$reason" ] || { fail_milestone 1 "$reason"; return $?; }
   fi
 

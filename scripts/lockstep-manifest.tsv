@@ -794,3 +794,14 @@ monorepo-probe	verbatim	plugins/dev-pipeline/skills/run/tools/config-lint-selfte
 # in the diff of any change to the taxonomy, which necessarily touches the tool and its suite.
 # Revisit if the obligations are ever hoisted into one shared block the exits include by
 # reference: a single canonical site makes an ordinary `verbatim` row possible.
+#
+# The three-outcome checked-call idiom. `checked_match` has consumers in TWO plugins, and a
+# sibling `source` across a plugin boundary is a path resolved by hop count — the trap #469 was
+# filed for, which breaks under the version-keyed install cache. So dev-pipeline SOURCES the
+# canonical file and second-shift's detect.sh carries an inline copy, byte-identical.
+#
+# `verbatim` over the WHOLE block, comments included: the comments are what tell the next
+# reader that rc 2 means UNKNOWN and must not be folded into a caller's `else`. A copy that
+# kept the code and dropped that paragraph would be the fail-open this idiom exists to remove,
+# reintroduced one call site at a time.
+checked-call	verbatim	plugins/dev-pipeline/skills/run/tools/checked-call.sh	checked-call	plugins/second-shift/skills/onboard/tools/detect.sh	checked-call
