@@ -190,6 +190,30 @@ bash "$TOOL" --bogus > "$OUT" 2>&1
               || fail "usage: an unknown argument was accepted"
 
 # ---------------------------------------------------------------------------------------
+# The REAL ownership path, which no other case reaches. Every case above sets REAP_LEAN_PS_STUB,
+# so `kill -0` / `ps -o lstart=` never runs and a mutation making the stub branch unconditional
+# survives the whole suite — production would silently consult a stub directory that does not
+# exist and read every live fixture as unowned. This case uses the suite's OWN pid, which is
+# necessarily alive, and backdates far past the owned floor so that KEEPING it can only be
+# ownership talking, never age.
+D9="$BASE/d9"; mkdir -p "$D9"
+live_pid=$$
+live_raw="$(ps -o lstart= -p "$live_pid" 2>/dev/null)"
+live_stamp="$(printf '%s' "$live_raw" | tr -cs 'A-Za-z0-9' '_')"
+REALLIVE="$D9/leangate.$live_pid.$live_stamp.real01"
+mkdir -p "$REALLIVE"
+backdate "$REALLIVE" 999999
+
+OUT="$BASE/out.realps"
+env -u REAP_LEAN_PS_STUB bash "$TOOL" --dir "$D9" \
+  --min-age-owned-secs 5 --min-age-legacy-secs 10 > "$OUT" 2>&1
+realps_rc=$?
+if [ "$realps_rc" -eq 0 ] && [ -d "$REALLIVE" ] \
+   && grep -qF "keep (live owner pid $live_pid)" "$OUT"; then
+  pass "with no stub, a genuinely live pid is read from the real process table and kept"
+else fail "the real-ps ownership path did not keep a live-owned fixture (rc=$realps_rc): $(tail -1 "$OUT")"; fi
+
+# ---------------------------------------------------------------------------------------
 # The DEFAULT scan root, which no other case reaches. Every case above passes `--dir`, so the
 # `--dir`-less fallback is never exercised by them and a mutation of its default value survived
 # the entire suite — measured, not hypothesised. `--dry-run` is what makes asserting it safe:
