@@ -629,8 +629,11 @@ fi
 #
 # The direction of the risk is safe. Warn is stderr and `pool:` is stdout, merged by 2>&1 —
 # buffering can only DELAY the stdout line, never move it ahead of a write that has not
-# happened yet. `<<<` and not a pipe: this suite is `set -uo pipefail`, where `| grep -q`
-# scores a match as a miss when grep exits early and the producer takes SIGPIPE.
+# happened yet. Here-string and not a pipe: this suite is `set -uo pipefail`, where piping a
+# producer into an early-exiting `grep -q` scores a MATCH as a miss — grep leaves, the producer
+# takes SIGPIPE, and pipefail reports the signal. (Spelled out rather than shown: the pipe form
+# is enumerated as a fail-open site by scripts/check-fail-open-shapes.sh, which reads text and
+# cannot tell a warning about the shape from a use of it.)
 WLN="$(awk '/slow-list drift/{print NR; exit}' <<<"$OUT")"
 PLN="$(awk '/\[mutation-sweep\] pool: [0-9]+ worker/{print NR; exit}' <<<"$OUT")"
 if [[ -n "$WLN" && -n "$PLN" && "$WLN" -lt "$PLN" ]]; then
