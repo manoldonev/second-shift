@@ -46,12 +46,15 @@ echo "== checked-call: the three outcomes =="
 
 # Producers. Each is a real command whose behavior the case names, so no case depends on
 # a stub agreeing with a comment.
-# shellcheck disable=SC2329  # invoked indirectly — checked_match runs them via "$@".
+# shellcheck disable=SC2317,SC2329  # invoked indirectly — checked_match runs them via "$@".
+# Both codes: 0.10+ calls this SC2329, 0.9.0 (what CI installs) calls the same condition
+# SC2317. A disable for a code the running version never emits is inert, so naming both is
+# the only form that is clean on either.
 say_match()   { printf '%s\n' 'server: Playwright (connected)'; }
 say_nomatch() { printf '%s\n' 'server: atlassian (connected)'; }
-# shellcheck disable=SC2329  # ditto.
+# shellcheck disable=SC2317,SC2329  # ditto.
 say_empty()   { :; }
-# shellcheck disable=SC2329  # ditto.
+# shellcheck disable=SC2317,SC2329  # ditto.
 say_stderr()  { printf '%s\n' 'Playwright' >&2; }
 die_7()       { return 7; }
 
