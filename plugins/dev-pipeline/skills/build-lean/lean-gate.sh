@@ -193,6 +193,13 @@
 #                            calls. Export it for one call rather than for a shell. The register
 #                            is a `verbatim` lockstep row against verifyctl.sh and is not
 #                            widenable from this side alone.
+#   LEAN_GATE_TEST_STALL_DIR #528: TEST-ONLY, never set in CI or by an operator — the loop it
+#                            gates is otherwise unreachable. Pauses append_satisfied/
+#                            heal_progress_run_id between their absence check and their write,
+#                            so a selftest can force two same-issue writers to both observe
+#                            "absent" before either commits — the one race shape a real
+#                            concurrent run cannot be driven through deterministically.
+#                            Bounded (10s) so a broken harness cannot hang a real run.
 #
 # There is NO seam and no flag for milestone 3's detached runner, by two rounds of deliberate
 # subtraction. It began as an inherited `LEAN_GATE_M3_RUNNER=1` on a re-exec of this script, which
@@ -276,7 +283,7 @@ while [ $# -gt 0 ]; do
     --summary-file)  SUMMARY_FILE="${2:-}"; shift 2 ;;
     --satisfied)     PROGRESS_SATISFIED="${2:-}"; shift 2 ;;
     --arm)           STALENESS_ARM="${2:-}"; shift 2 ;;
-    -h|--help)       sed -n '2,207p' "$0"; exit 0 ;;
+    -h|--help)       sed -n '2,214p' "$0"; exit 0 ;;
     -*)              envfail "unknown option: $1" ;;
     *)
       if [ "$POSITIONAL" -eq 0 ]; then SUB="$1"; POSITIONAL=1
@@ -349,6 +356,25 @@ CONFIG="${SECOND_SHIFT_CONFIG:-$MAIN_ROOT/.claude/second-shift.config.json}"
 if [ -f "$CONFIG" ] && ! jq empty "$CONFIG" >/dev/null 2>&1; then
   envfail "config $CONFIG exists but is not parseable JSON — refusing to fall back to defaults, which would silently select tracker.type=github and every other shipped default. Fix the file (jq empty '$CONFIG' names the parse error) or point SECOND_SHIFT_CONFIG elsewhere."
 fi
+
+# #528. The config is a SHARED, mutable file (the main checkout's, unless SECOND_SHIFT_CONFIG
+# points elsewhere) — a sibling session's edit mid-run re-points every live lane's gate, and
+# nothing in any run's record said which file it actually read. Announced once per invocation,
+# so a re-point is visible in the output rather than inferred afterwards from file timestamps.
+#
+# STDERR, via `warn` rather than `say`: orchestrate-lean.sh's progress_token() captures this
+# script's STDOUT verbatim (`2>/dev/null`) and compares it byte-for-byte across two reads to
+# decide whether the BUILD phase made progress. A stdout announcement would ride along in that
+# comparison — harmless while the config path is stable, but on the exact mid-run re-point this
+# AC exists to surface, it would flip `tok_before` != `tok_after` with nothing in the actual
+# progress record having changed, corrupting the continuation predicate on the one event this is
+# supposed to make visible, not break.
+#
+# SKIPPED on `progress` specifically, even on stderr: that subcommand's own contract is "prints
+# the token, never touches the file" (see progress_token() below) — a bare, machine-read answer
+# by design, not merely by the happenstance of whichever caller redirects what. Every other
+# subcommand gets the announcement.
+[ "$SUB" = "progress" ] || warn "config: $CONFIG"
 
 cfg() { # cfg <jq-filter> <default>
   local v
@@ -827,12 +853,35 @@ now_iso() { date -u +%Y-%m-%dT%H:%M:%SZ; }
 # already there), so no fixture can red on that half alone. Do not read a surviving mutant on
 # the two lines below as a coverage hole — the placeholder check is there to keep an already
 # healed run from spawning awk on every append, which is cost, not correctness.
+# TEST-ONLY, exactly like LEAN_GATE_OBSERVE / LEAN_GATE_WAIT_CEILING_SECS above and
+# RUN_SELFTESTS_DROP_LAST/RC in run-selftests.sh — never set in CI or by an operator. Pauses the
+# caller between its absence check and its write, so a selftest can force two same-issue
+# writers to both observe "absent" before either commits — the exact race #528's atomic-write
+# fixes close, and the one shape a real race cannot be driven through deterministically.
+# Bounded (10s) so a broken harness cannot hang a real run; nothing real ever exports the var
+# this checks, so the loop body is unreachable outside a test.
+_lean_gate_test_stall() { # _lean_gate_test_stall <label>
+  [ -n "${LEAN_GATE_TEST_STALL_DIR:-}" ] || return 0
+  : > "$LEAN_GATE_TEST_STALL_DIR/ready.$1.$$"
+  local waited=0
+  while [ ! -e "$LEAN_GATE_TEST_STALL_DIR/go" ] && [ "$waited" -lt 100 ]; do
+    sleep 0.1; waited=$((waited + 1))
+  done
+}
+
 heal_progress_run_id() {
   [ -f "$PROGRESS_FILE" ] || return 0
   [ "$RESOLVED_RUN_ID" != "unset" ] || return 0
   [ "$(cat "$RUN_ID_CACHE" 2>/dev/null)" = "$RESOLVED_RUN_ID" ] || return 0
   [ "$(count_matches '^run_id: unset$' "$PROGRESS_FILE")" -gt 0 ] || return 0
-  local tmp="$PROGRESS_FILE.heal"
+  _lean_gate_test_stall heal
+  # #528: a UNIQUE temp, not the fixed "$PROGRESS_FILE.heal" sibling this used to write — two
+  # concurrent heals (same-issue re-entry, never a cross-lane race: STATE_DIR is issue-keyed)
+  # no longer stomp each other's in-flight write. `mktemp` creates it atomically; same
+  # directory as PROGRESS_FILE keeps the final `mv` a same-filesystem rename, so no reader ever
+  # observes a partial file.
+  local tmp
+  tmp="$(mktemp "$PROGRESS_FILE.heal.XXXXXX")" || return 0
   # awk with an EXACT string compare, not sed: the id is operator-supplied, and a
   # replacement-side metacharacter in a sed program would be interpreted. The compare also
   # bounds the rewrite to the header — every appended line carries the pinned
@@ -899,12 +948,63 @@ append_absent() { append_line "$(now_iso) | milestone-$1 | absent | $2"; }
 
 # D-41: a passing evaluation appends AT MOST ONE `satisfied` line per milestone, so
 # diagnostic re-runs and `all` sweeps never inflate anything. Idempotent by construction.
+#
+# #528: the check-then-append above is a READ-THEN-APPEND, and therefore not atomic — two gate
+# processes on the SAME issue (same-issue re-entry, never a cross-lane race: STATE_DIR is
+# issue-keyed) can both read zero rows and both append, duplicating the line this function
+# exists to keep singular.
+#
+# AN ATOMIC CLAIM, THEN A PLAIN APPEND — deliberately NOT the unique-temp-plus-rename technique
+# heal_progress_run_id uses just above. That technique rebuilds the whole file, which would make
+# this function a SECOND rewriter of the record, and progress_token()'s soundness argument below
+# rests on there being exactly one: it states that `attempt`/`satisfied` rows are append-only and
+# so the selected count "cannot go up and back down within a spawn". A rebuild built from a
+# fresh-at-write-time read can drop a row a concurrent append_attempt/append_absent wrote in the
+# gap, and a dropped `attempt` row does exactly what that comment says cannot happen — it also
+# un-charges #494's fix budget by one, silently and unrecoverably, because append_attempt fires
+# only on a fresh failure and a re-evaluation never replays it. Keeping this function append-only
+# keeps that invariant true rather than leaving it standing while false.
+#
+# THE CHECK ABOVE IS A FAST PATH ONLY, not the guard. Two writers can both pass it before either
+# writes — that gap is exactly what makes a bare check-then-append not atomic, and it can be
+# arbitrarily wide (a descheduled process, not just a same-instant coincidence). The guard is the
+# `mkdir` below: it is atomic and refuses an existing target, so of any number of concurrent
+# same-issue writers exactly ONE enters and the rest return immediately. Nothing waits, nothing
+# retries, and a loser returning empty-handed is correct — the winner is inside writing the very
+# row the loser would have written.
+#
+# THE RE-CHECK INSIDE IS WHAT MAKES IT EXACTLY ONE, not the mkdir. A loser that arrives AFTER the
+# winner released would otherwise claim cleanly and append a second row; re-reading the record
+# inside the critical section is what closes that, and it is what makes correctness independent
+# of how far apart two writers' checks and writes fall.
+#
+# HELD ACROSS ONE APPEND, THEN RELEASED — deliberately not a persistent per-milestone claim. A
+# claim that outlives the call cannot tell "held by a genuinely concurrent writer" from "orphaned
+# by a record that was replaced since", and this repo replaces records routinely (the gate
+# recreates a deleted one, an operator rewrites one by hand, a fixture seeds one directly). Such a
+# claim permanently blocks the milestone it names from ever being recorded satisfied again, which
+# is a far worse failure than the duplicate row it prevents. Measured, not theorised: a persistent
+# form of this claim reded a full `all` sweep in lean-gate-selftest.sh's own fixture.
+#
+# The one window left is a process KILLED between mkdir and rmdir — microseconds, and the run it
+# kills is over anyway. `clear_satisfied_claims` sweeps such an orphan at `entry`, which every
+# session runs before anything else, so recovery is the checklist's existing first step.
 append_satisfied() {
   ensure_progress_file
+  [ "$(count_matches "| milestone-$1 | satisfied" "$PROGRESS_FILE" -F)" -eq 0 ] || return 0
+  _lean_gate_test_stall "satisfied-$1"
+  local claim="$PROGRESS_FILE.satisfied-$1.claim"
+  mkdir "$claim" 2>/dev/null || return 0
   if [ "$(count_matches "| milestone-$1 | satisfied" "$PROGRESS_FILE" -F)" -eq 0 ]; then
     append_line "$(now_iso) | milestone-$1 | satisfied"
   fi
+  rmdir "$claim" 2>/dev/null
+  return 0
 }
+
+# Orphans only — see append_satisfied. Called where a leftover claim can no longer be held by a
+# live writer: at `entry`, which every session runs before anything else.
+clear_satisfied_claims() { rm -rf "$PROGRESS_FILE".satisfied-*.claim; }
 
 attempt_count() { count_matches "| milestone-$1 | attempt |" "$PROGRESS_FILE" -F; }
 
@@ -1395,7 +1495,11 @@ cmd_teardown() {
 # WHY A COUNT IS A SOUND TOKEN. These rows are append-only: append_attempt and append_satisfied
 # only ever add, and the single rewriter in this file (heal_progress_run_id) has an exact-string
 # compare bounded to the header. So the selected count cannot go up and back down within a spawn
-# and read as unchanged. It is printed behind a generation prefix rather than bare precisely
+# and read as unchanged. #528 is what keeps that true under a concurrent same-issue writer:
+# append_satisfied takes an atomic exclusive-create claim and then appends, rather than
+# rebuilding the file — a rebuild would make it a second rewriter, and one that can drop a
+# concurrently-appended `attempt` row, which is precisely the downward movement this paragraph
+# rules out. It is printed behind a generation prefix rather than bare precisely
 # because it is a number a caller must NOT order: `progress-v1:` marks the token space, so a
 # future change of predicate is visibly a different token rather than a silently comparable
 # integer, and a caller reaching for `-gt` has to notice it is not one.
@@ -1669,6 +1773,9 @@ cmd_entry() {
   # Tightening to per-session is one comparison against the id recorded here, but cannot be done
   # honestly until #417 lands.
   ensure_progress_file
+  # #528: a claim still present here was orphaned by a killed writer, never held by a live one —
+  # see append_satisfied. This is where a session starts, so it is where the sweep belongs.
+  clear_satisfied_claims
   if entry_row_present; then
     say "  entry attestation already recorded in $PROGRESS_FILE — not duplicated."
   else

@@ -145,7 +145,15 @@
 set -uo pipefail
 
 K_BUDGET="${MUTATION_SWEEP_K:-2}"   # generic mutants per operator per guard
-SLOW_THRESHOLD_S=5                  # a paired suite at or above this is "slow"
+# A paired suite at or above this is "slow". Overridable for the same reason
+# MUTATION_SWEEP_KILLER_MAX_PROCS is: the companion selftest can then trip the drift warn on a
+# fixture suite that sleeps for a second, instead of one that has to sleep past the real bar.
+# WIDER THAN THAT ONE USE, THOUGH. is_slow() reads it, and is_slow() is what decides the PR
+# lane's deferred-to-nightly set and what a --seed run publishes against — so moving this
+# moves which guards a PR grades, not just whether a warn fires. Nothing sets it in CI and the
+# companion suite scopes it non-exporting, which is the only reason there is no live leak
+# path; this repo has already had a gate seam exported into a nested real invocation.
+SLOW_THRESHOLD_S="${MUTATION_SWEEP_SLOW_THRESHOLD_S:-5}"
 PR_FAST_GUARD_CAP=6                 # PR lane: sweep at most this many fast guards
 # Ceiling on ONE killer invocation, and the bound used for the unmutated precheck (which
 # has no measurement yet — it IS the measurement). Clears the slowest paired suite by a
@@ -295,8 +303,15 @@ ENFORCING=0
 
 RC=0                 # 1 = red
 WARNINGS=0
+BL_WARNINGS=0        # the subset of WARNINGS whose remedy is the baseline file
 red()  { echo "[mutation-sweep] RED: $*" >&2; RC=1; }
 warn() { echo "[mutation-sweep] WARN: $*" >&2; WARNINGS=$((WARNINGS + 1)); }
+# A warn whose remedy IS "drop the row". Counted apart from the generic one because finish()
+# PRESCRIBES a remedy, and while every warn was a baseline row it could name that remedy
+# unconditionally. It no longer is: slow-list drift is a warn about a different file, and an
+# aggregate that answers it with "shrink the baseline" sends the reader to a file needing
+# nothing. Classify at the call site; the summary reads the class rather than assuming it.
+warn_baseline() { warn "$@"; BL_WARNINGS=$((BL_WARNINGS + 1)); }
 info() { echo "[mutation-sweep] $*"; }
 # Evidence attached to the red/warn immediately above it. On stderr for that reason: `info`
 # goes to stdout, and a diagnostic that lands in a different stream than the verdict it
@@ -732,7 +747,13 @@ finish() {
   # can be checked against a line the run printed rather than against a remembered figure.
   info "timing: $(( $(date +%s) - RUN_T0 ))s wall — ${SUITE_RUNS:-0} verdict(s) computed by running a paired suite, ${CACHE_HITS:-0} served from cache (pool $JOBS, cache=$CACHE_ENABLED)."
   [[ $ENFORCING -eq 1 ]] || info "ADVISORY RUN (GITHUB_ACTIONS unset) — kill verdicts are not comparable to the committed baseline; a local run's userland does not exactly reproduce CI's."
-  [[ $WARNINGS -gt 0 ]] && info "$WARNINGS warning(s) — shrink the baseline."
+  if [[ $WARNINGS -gt 0 ]]; then
+    if [[ $BL_WARNINGS -gt 0 ]]; then
+      info "$WARNINGS warning(s), $BL_WARNINGS of them stale baseline row(s) — shrink the baseline."
+    else
+      info "$WARNINGS warning(s) — see the WARN line(s) above; the baseline is not one of them."
+    fi
+  fi
   exit "$RC"
 }
 
@@ -1650,6 +1671,18 @@ while [[ $i -lt ${#GL_GUARD[@]} ]]; do
       fi
       t1="$(date +%s)"
       MEASURED="${MEASURED:-}"$'\n'"$s	$((t1 - t0))"
+      # SLOW-LIST DRIFT, WARNED HERE RATHER THAN IN THE REPORT. A suite that has grown past
+      # the threshold while absent from the committed list keeps its guard in the PR lane,
+      # where every mutant that makes the guard spin costs the full killer bound — enough of
+      # them and the job dies on its own ceiling BEFORE finish() ever runs, so a warn deferred
+      # to the report is precisely the one nobody sees. lean-gate-selftest.sh reached 143s
+      # this way and took three PR runs with it, each reading only as "timed out after 15
+      # minutes". Emitting at measurement time is what makes the diagnosis outlive the
+      # timeout it diagnoses. Warn, never red: the list is a cost record, and a stale row
+      # costs wall clock, not correctness.
+      if [[ $((t1 - t0)) -ge $SLOW_THRESHOLD_S ]] && ! is_slow "$s"; then
+        warn "slow-list drift: $s measured $((t1 - t0))s (>= ${SLOW_THRESHOLD_S}s) but tools/mutation-slow-suites.tsv does not record it at or above that bar, so its guard is still swept in the PR lane. Add or update the row by ordinary PR."
+      fi
       PRE_OK="${PRE_OK:+$PRE_OK }$s"
       continue
     fi
@@ -1830,7 +1863,7 @@ while [[ $i -lt ${#BL_ID[@]} ]]; do
   esac
   bg="${sid%%::*}"
   if [[ "$bg" != "catalog" && ! -f "$REPO_ROOT/$bg" ]]; then
-    warn "baseline row's guard no longer resolves (renamed or deleted): $sid — drop the row."
+    warn_baseline "baseline row's guard no longer resolves (renamed or deleted): $sid — drop the row."
   elif [[ "$MODE" == "full" ]]; then
     # Under sharding, "now KILLED" is only decidable for guards THIS shard swept — a row
     # belonging to another shard's guard is out of scope, not stale. Unsharded (no
@@ -1846,7 +1879,7 @@ while [[ $i -lt ${#BL_ID[@]} ]]; do
     if unrun_this_run "$(sid_guard "$sid")"; then
       continue
     elif [[ -z "$SHARD_SPEC" ]] || swept_this_run "$(sid_guard "$sid")"; then
-      warn "baseline row is now KILLED: $sid — drop the row."
+      warn_baseline "baseline row is now KILLED: $sid — drop the row."
     fi
   fi
 done

@@ -593,6 +593,73 @@ else
   bad "(l3) expected a deferred-to-nightly row; got rc=$RC"; printf '%s\n' "$OUT" | tail -4
 fi
 
+echo "(l4) slow-list drift is warned AT MEASUREMENT — the diagnosis outlives the timeout it diagnoses"
+# A suite that grows past the threshold while absent from the list keeps its guard in the PR
+# lane, where the cost lands on every mutant that makes the guard spin. That is how
+# lean-gate-selftest.sh reached 143s against a 5s bar and took three PR runs with it, each
+# reading only as "timed out after 15 minutes" — because a warn emitted in the report is not
+# reached by a job that dies before the report. Hence the placement: the warn fires from the
+# precheck, where the measurement is taken, not from finish().
+FX="$(new_fixture strong)"
+baseline_with "$FX"
+# The precheck times the suite; make it measurably slow. 1.2s against a threshold of 1s
+# clears the integer-second floor whichever side of a tick the two samples land on.
+#
+# AND COMMIT IT. The sweep sandboxes the fixture's HEAD, not its working tree, so an
+# uncommitted `sleep` never reaches the suite that gets timed. Left uncommitted this case
+# still passed — on the ~1s of incidental setup overhead — and a kill probe that made the
+# warn unconditional then FAILED it, because that run happened to measure 0s. The sleep is
+# what makes the measurement the case's own rather than the machine's.
+printf 'sleep 1.2\n' | cat - "$FX/guard-selftest.sh" > "$FX/guard-selftest.sh.tmp"
+mv "$FX/guard-selftest.sh.tmp" "$FX/guard-selftest.sh"
+( cd "$FX" && git add -A \
+  && git -c user.email=f@e.invalid -c user.name=f commit -qm 'slow the fixture suite' ) >/dev/null 2>&1
+printf '# fixture slow list — deliberately EMPTY of the suite below\n' > "$FX/tools/mutation-slow-suites.tsv"
+OUT="$( cd "$FX" && enf env MUTATION_SWEEP_SLOW_THRESHOLD_S=1 bash "$SWEEP" --mode full 2>&1 )"; RC=$?
+if [[ $RC -eq 0 ]] && grep -q 'slow-list drift: \./guard-selftest\.sh measured' <<<"$OUT"; then
+  ok "an unlisted suite past the threshold warns, naming itself, without reding the run"
+else
+  bad "(l4) expected a slow-list drift warn naming ./guard-selftest.sh and rc=0; got rc=$RC"; printf '%s\n' "$OUT" | tail -4
+fi
+# PLACEMENT, WHICH IS THE WHOLE POINT — and the half a deletion probe cannot certify. Deleting
+# the warn fails the assertion above, so that assertion is live for the warn's EXISTENCE; it
+# passes unchanged on a warn RELOCATED into finish(), which is the one placement the fix
+# exists to rule out. Ordering closes it: the precheck's own `pool:` line is the next thing
+# the run prints, and finish() is 15s and a whole report later.
+#
+# The direction of the risk is safe. Warn is stderr and `pool:` is stdout, merged by 2>&1 —
+# buffering can only DELAY the stdout line, never move it ahead of a write that has not
+# happened yet. Here-string and not a pipe: this suite is `set -uo pipefail`, where piping a
+# producer into an early-exiting `grep -q` scores a MATCH as a miss — grep leaves, the producer
+# takes SIGPIPE, and pipefail reports the signal. (Spelled out rather than shown: the pipe form
+# is enumerated as a fail-open site by scripts/check-fail-open-shapes.sh, which reads text and
+# cannot tell a warning about the shape from a use of it.)
+WLN="$(awk '/slow-list drift/{print NR; exit}' <<<"$OUT")"
+PLN="$(awk '/\[mutation-sweep\] pool: [0-9]+ worker/{print NR; exit}' <<<"$OUT")"
+if [[ -n "$WLN" && -n "$PLN" && "$WLN" -lt "$PLN" ]]; then
+  ok "the warn precedes the pool, so a job killed by its own ceiling has already said why"
+else
+  bad "(l4) drift warn did not precede the pool line (warn=$WLN pool=$PLN)"; printf '%s\n' "$OUT" | tail -4
+fi
+# The summary prescribes a remedy, so it has to know which class it is summarizing. This run
+# has exactly one warn and it is not a baseline row; an aggregate that says "shrink the
+# baseline" here is pointing at a file that needs nothing.
+if grep -q 'warning(s)' <<<"$OUT" && ! grep -q 'warning(s).*shrink the baseline' <<<"$OUT"; then
+  ok "a non-baseline warn is summarized without prescribing the baseline"
+else
+  bad "(l4) the warning summary prescribed the baseline for a slow-list drift warn"; grep 'warning(s)' <<<"$OUT" | tail -2
+fi
+# CONTROL: the same fixture, the same sleep, the same threshold — only the row is added. A
+# case that skipped this would pass on a warn keyed to duration alone, which would then fire
+# on every listed suite forever and train the reader to ignore it.
+printf '# fixture slow list\n./guard-selftest.sh\t2\t2026-08-14\n' > "$FX/tools/mutation-slow-suites.tsv"
+OUT="$( cd "$FX" && enf env MUTATION_SWEEP_SLOW_THRESHOLD_S=1 bash "$SWEEP" --mode full 2>&1 )"; RC=$?
+if [[ $RC -eq 0 ]] && ! grep -q 'slow-list drift' <<<"$OUT"; then
+  ok "the same suite, once listed, warns no more"
+else
+  bad "(l4) a LISTED suite still warned about drift; rc=$RC"; printf '%s\n' "$OUT" | tail -4
+fi
+
 echo "(m) exclusions preempt pairing — a guard in BOTH files is a lint error, via the harness"
 # Driven THROUGH mutation-sweep.sh, not re-checked in this file. Case (k) lints the
 # committed TSVs directly, which is a data lint; asserting the harness's own red branch

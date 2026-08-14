@@ -174,6 +174,25 @@ if [[ -n "${LEAN_JOB_CEILING:-}" ]]; then
 fi
 [[ -d "$ROOT" ]] || die "--root is not a directory: $ROOT"
 ROOT="$(cd "$ROOT" && pwd)"
+
+# ---- orphan reaping (#528) -------------------------------------------------------------
+# "The sweep harness on entry": lean-gate-selftest.sh and orchestrate-lean-selftest.sh — both
+# discovered and run by THIS sweep — leave a signal-killed run's fixture dir behind (their own
+# `trap ... EXIT` never gets to fire). Reaping here, before dispatch, is the entry point that
+# catches every prior sweep's casualties, not just this run's.
+#
+# GUARDED ON THE TOOL'S PRESENCE UNDER THIS ROOT, not on an env flag: a fixture tree built by
+# run-selftests-selftest.sh (--root pointing at a throwaway directory of leaf `*-selftest.sh`
+# files) never contains tools/reap-lean-fixtures.sh, so this is inert there for free — no
+# separate test-only seam needed to keep those fixtures hermetic. A real sweep, in this repo or
+# a worktree of it, always has the tool beside it.
+#
+# Best-effort: a reap failure is housekeeping, never a reason to fail the sweep it is entered
+# from — `|| true` keeps a broken reaper from turning a green run red.
+if [[ -x "$ROOT/tools/reap-lean-fixtures.sh" ]]; then
+  bash "$ROOT/tools/reap-lean-fixtures.sh" --dir "${TMPDIR:-/tmp}" | sed 's/^/[run-selftests] /' || true
+fi
+
 # "a whole number", and NOT the longer phrasing tools/mutation-sweep.sh uses for the same check:
 # that wording embeds one of the two tokens the equality operator in tools/mutation-operators.tsv
 # enumerates, so the sweep reads a die MESSAGE as a mutation site. The flip then lands in prose

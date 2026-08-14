@@ -349,6 +349,11 @@ probe_ticket() {
   local out rc
   out="$( cd "$MAIN_ROOT" && env -u RUN_ID bash "$GATE" staleness "$ISSUE" --arm ticket 2>&1 )"
   rc=$?
+  # #528: this capture merges stderr so a failure carries the gate's diagnostic, and the gate now
+  # announces its resolved config path there. That belongs in a run's record, not inlined into the
+  # one-line preflight verdict a human reads. Filtered AFTER `rc` is taken, never by piping the
+  # capture itself — a trailing `grep` would report its own status as the gate's.
+  out="$(printf '%s\n' "$out" | grep -v '^\[lean-gate\] config: ')"
   case "$rc" in
     0) echo "ok ticket: $out"; return 0 ;;
     7) echo "FAIL ticket: $out"
