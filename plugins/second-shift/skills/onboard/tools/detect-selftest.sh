@@ -130,7 +130,7 @@ STUBS="$TMP/stubs"; mkdir -p "$STUBS"
 
 printf '#!/bin/sh\necho "error: could not connect" >&2\nexit 9\n' > "$STUBS/claude"
 chmod +x "$STUBS/claude"
-OUT6="$(PATH="$STUBS:$PATH" DETECT_SKIP_MCP= "$DETECT" "$R6")"
+OUT6="$(PATH="$STUBS:$PATH" DETECT_SKIP_MCP='' "$DETECT" "$R6")"
 expect "unreadable MCP does not elect github"   "$OUT6" '.tracker.value' ambiguous
 expect "unreadable MCP claims no jira evidence" "$OUT6" '.tracker.jiraEvidence | length' 0
 SRC6="$(jq -r '.tracker.source' <<< "$OUT6")"
@@ -145,7 +145,7 @@ fi
 # simply stopped classifying anything.
 printf '#!/bin/sh\necho "server: filesystem (connected)"\n' > "$STUBS/claude"
 chmod +x "$STUBS/claude"
-OUT6B="$(PATH="$STUBS:$PATH" DETECT_SKIP_MCP= "$DETECT" "$R6")"
+OUT6B="$(PATH="$STUBS:$PATH" DETECT_SKIP_MCP='' "$DETECT" "$R6")"
 expect "a readable MCP list with no jira still elects github" "$OUT6B" '.tracker.value' github
 
 if [[ "$FAILS" -gt 0 ]]; then echo "detect selftest: $FAILS FAILURE(S)"; exit 1; fi
