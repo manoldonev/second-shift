@@ -27,7 +27,7 @@ only when BOTH hold:
 
 **Writer and reader share ONE expression** — `tools/fixture-stamp.sh`, sourced by the reaper and
 by both fixture-producing suites. Two spellings of the sanitization is not a style question: the
-producer piping `ps` output *including its newline* into `tr` and the consumer letting `$()`
+producer piping `ps` output _including its newline_ into `tr` and the consumer letting `$()`
 strip the newline first agree only on a `ps` that pads its `lstart` column with a trailing
 blank. Under one that does not, the stamp read back never matches the stamp written, ownership
 reads as "not mine", and the reaper deletes a live suite's working tree — the exact harm the
@@ -61,7 +61,7 @@ same-issue writer, introducing no blocking waiter.**
   temp + atomic rename) fits: a heal genuinely has to rewrite the file.
 - `append_satisfied` moves from a bare read-then-`>>`-append to a **released mutex around a
   re-check and an append**: `mkdir` (atomic, refuses an existing target) admits exactly one of
-  any number of concurrent same-issue writers, the row's absence is re-read *inside* the critical
+  any number of concurrent same-issue writers, the row's absence is re-read _inside_ the critical
   section, and the claim is removed immediately after. Nothing waits and nothing retries — a
   writer that loses returns, because the winner is inside writing the very row it would have
   written. The re-check, not the `mkdir`, is what makes "exactly one satisfied line" hold however
@@ -69,7 +69,7 @@ same-issue writer, introducing no blocking waiter.**
 
   **It deliberately does NOT take the unique-temp + atomic-rename shape**, though the ticket's
   AC-2 names that mechanism. Applied here it rebuilds the whole file, which makes
-  `append_satisfied` a *second* rewriter of the record — and `progress_token()`'s written
+  `append_satisfied` a _second_ rewriter of the record — and `progress_token()`'s written
   soundness argument (`lean-gate.sh`, "WHY A COUNT IS A SOUND TOKEN") depends on there being
   exactly one. That argument states these rows are append-only and so the selected count "cannot
   go up and back down within a spawn"; a rebuild built from a fresh-at-write-time read can drop a
@@ -114,18 +114,18 @@ has.** Added in review round 3, for a blocker that is the lane's rather than thi
 `mutation-sweep-pr` timed out at 15 minutes on three consecutive heads of this branch, never
 emitting a result set. Re-diagnosed from the runs' own logs rather than from a local sweep:
 
-| what | measurement |
-| --- | --- |
-| `lean-gate-selftest.sh`, unmutated, at merge-base `e583994` | **143s** |
-| the same suite at this branch's head | **147s** |
-| `lean-gate.sh` mutants in the PR pool | 28 of 53 |
-| of those, mutants that spin to the full 300s killer bound | **10** — 3000s of wall-clock wait alone |
-| CI pool | 2 workers (`cores - 2` on a 4-core runner) |
+| what                                                        | measurement                                |
+| ----------------------------------------------------------- | ------------------------------------------ |
+| `lean-gate-selftest.sh`, unmutated, at merge-base `e583994` | **143s**                                   |
+| the same suite at this branch's head                        | **147s**                                   |
+| `lean-gate.sh` mutants in the PR pool                       | 28 of 53                                   |
+| of those, mutants that spin to the full 300s killer bound   | **10** — 3000s of wall-clock wait alone    |
+| CI pool                                                     | 2 workers (`cores - 2` on a 4-core runner) |
 
 This branch added **4 seconds** to a suite that was already 143s. The cost predates it, and
 `claude/second-shift-526`'s PR hit the same ceiling and merged red. The repo's answer to a suite
-this expensive already exists — `tools/mutation-slow-suites.tsv`, whose header reads *"The PR lane
-defers any guard whose killer appears here"* against a **5s** bar. `statectl-selftest.sh` is listed
+this expensive already exists — `tools/mutation-slow-suites.tsv`, whose header reads _"The PR lane
+defers any guard whose killer appears here"_ against a **5s** bar. `statectl-selftest.sh` is listed
 at 149s. `lean-gate-selftest.sh`, its twin at 147s, was never added: the list is hand-maintained and
 was last measured 2026-07-31.
 
@@ -147,8 +147,8 @@ lane while leaving a ~42-minute PR sweep in place and the stale list untouched.
 
 **One warn is left standing, deliberately.** On its first live run the new warn found a second
 drifted suite — `tools/run-selftests-selftest.sh` at 7s, also absent from the list. It is not added
-here: at 7s it costs the lane nothing, and listing it would defer `run-selftests.sh`, a guard *this
-diff changes*, losing PR-lane coverage exactly where this PR most needs it. Leaving the warn
+here: at 7s it costs the lane nothing, and listing it would defer `run-selftests.sh`, a guard _this
+diff changes_, losing PR-lane coverage exactly where this PR most needs it. Leaving the warn
 standing is that file's own documented disposition — warn, never red, updated by ordinary PR — and
 it is now visible rather than silent, which is the whole point.
 
@@ -195,6 +195,7 @@ makes).
   short. **The bail works and was not the budget breach** — round 2 probed it firing and CI timed
   out anyway; AC-4 carries the measured cause. Kept because it is free and correct, not because it
   buys the lane anything.
+
 - `run-selftests-selftest.sh`: a fixture root carrying an executable `tools/reap-lean-fixtures.sh`
   proves the call site fires and that a failing reaper leaves the sweep's verdict green, with an
   absent-tool control proving the case reads the guard's true branch. Every other root it builds
@@ -214,3 +215,11 @@ makes).
   fire on every listed suite forever, and the reader would learn to ignore it. The row added to
   `tools/mutation-slow-suites.tsv` is data, not behavior, and is verified where it acts — a
   PR-mode sweep on this branch reporting `lean-gate.sh` as `deferred-to-nightly`.
+
+## Out of scope, with an owner
+
+Three review warnings carried since round 2 — the over-claiming `clear_satisfied_claims` comment,
+the unexercised optional-library and `die` fallbacks, and the untested real-path `unknown` twin —
+are filed as #543 rather than carried into a fifth round. All three are comment or coverage debt on
+a guard this branch moved to the nightly lane, so the mutation re-baselining each one obliges is
+evidence the PR lane can no longer produce; #543 takes them together with a nightly re-baseline.
