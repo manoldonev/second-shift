@@ -830,6 +830,269 @@ if [ "$rc" -eq 0 ] && grep -qF "extra lane 'tsx-lane' » echo did-run" <<<"$out"
   pass "(i15) AC-4: 'src/**/*.tsx' DOES match a nested 'src/a/App.tsx'"
 else fail "(i15) expected the lane to run against a nested tsx change, got rc=$rc: $out"; fi
 
+# ---- (ic) #527: A VERIFY LANE'S RESERVED INFRASTRUCTURE CODE ------------------------------
+# Exit 3 from a verify lane means "I failed for reasons that are not this branch". Milestone 3
+# must red with 7 — nothing was evaluated — and charge NO fix attempt, or a run whose sweep was
+# killed arrives at its first REAL milestone-3 fix with the budget already spent.
+#
+# Driven through the EL fixture because it is the one with a real non-empty diff and its own
+# progress file per case; the ASSERTIONS are on the gate's exit code and on the progress record,
+# never on the lane's own output.
+ic_cfg() { # ic_cfg <jq-filter> — the shared config with that filter applied
+  EL_CFG_N=$((EL_CFG_N + 1))
+  local out="$WORK/ic-cfg-$EL_CFG_N.json"
+  jq "$1" "$CFG" > "$out" 2>/dev/null
+  printf '%s' "$out"
+}
+
+# AC-2/AC-3, the FIXED KEYS — which is the path a repo-carried sweep takes, since
+# `commands[repo].test` is its only call site.
+cfg="$(ic_cfg '.commands.acme.test = "exit 3"')"
+prog="$WORK/ic-prog-fixed.md"
+out="$(gate_el "$cfg" "$prog" 3 7)"; rc=$?
+if [ "$rc" -eq 7 ] && grep -q 'INFRASTRUCTURE' <<<"$out" \
+   && grep -qF 'test failed (rc=3)' <<<"$out"; then
+  pass "(ic1) AC-2: a fixed key exiting the reserved 3 reds milestone 3 with 7, named as infrastructure"
+else fail "(ic1) expected rc=7 naming infrastructure, got rc=$rc: $out"; fi
+if [ "$(el_count_in '| milestone-3 | attempt |' "$prog")" -eq 0 ]; then
+  pass "(ic2) AC-3: the infra red appends NO attempt row — no fix budget was charged"
+else fail "(ic2) an infra red charged a fix attempt: $(cat "$prog" 2>/dev/null)"; fi
+
+# THE CONTROL, and (ic1)/(ic2) are vacuous without it: an ordinary red must still be rc=1 and
+# must still charge. Same lane, same call, one digit different.
+cfg="$(ic_cfg '.commands.acme.test = "exit 1"')"
+prog="$WORK/ic-prog-ordinary.md"
+out="$(gate_el "$cfg" "$prog" 3 7)"; rc=$?
+if [ "$rc" -eq 1 ] && [ "$(el_count_in '| milestone-3 | attempt |' "$prog")" -eq 1 ] \
+   && ! grep -q 'INFRASTRUCTURE' <<<"$out"; then
+  pass "(ic3) control: a lane failing with any other code is still rc=1 and still charges one attempt"
+else fail "(ic3) expected rc=1 with one attempt row, got rc=$rc / $(el_count_in '| milestone-3 | attempt |' "$prog") attempt(s): $out"; fi
+
+# AC-2, EXTRALANES — D-1's uniformity. The reserved code cannot mean one thing on the fixed keys
+# and another on the additive lanes, or a consumer's integration tier is charged for a killed
+# runner while its unit tier is not.
+cfg="$(ic_cfg '.commands.acme.extraLanes = [{"name":"flaky","commands":["exit 3"],"failureClass":"TEST_FAILURE"}]')"
+prog="$WORK/ic-prog-extra.md"
+out="$(gate_el "$cfg" "$prog" 3 7)"; rc=$?
+if [ "$rc" -eq 7 ] && grep -q 'INFRASTRUCTURE' <<<"$out" \
+   && [ "$(el_count_in '| milestone-3 | attempt |' "$prog")" -eq 0 ]; then
+  pass "(ic4) AC-2: an extraLane exiting the reserved 3 is classed identically to a fixed key"
+else fail "(ic4) expected rc=7 with no attempt row, got rc=$rc: $out"; fi
+
+# AC-3, the claim that actually matters at run time: repeated infra reds never exhaust the fix
+# budget. Four calls is one past FIX_BUDGET — the count at which an ordinary red hard-stops with
+# rc=4 — so a class that leaked into the counter would show up here as a 4 rather than a 7.
+cfg="$(ic_cfg '.commands.acme.test = "exit 3"')"
+prog="$WORK/ic-prog-repeat.md"
+gate_el "$cfg" "$prog" 3 7 >/dev/null 2>&1
+gate_el "$cfg" "$prog" 3 7 >/dev/null 2>&1
+gate_el "$cfg" "$prog" 3 7 >/dev/null 2>&1
+out="$(gate_el "$cfg" "$prog" 3 7)"; rc=$?
+if [ "$rc" -eq 7 ] && [ "$(el_count_in '| milestone-3 | attempt |' "$prog")" -eq 0 ] \
+   && [ "$(el_count_in 'budget-exhausted' "$prog")" -eq 0 ]; then
+  pass "(ic5) AC-3: four consecutive infra reds still return 7 — the fix budget is never touched"
+else fail "(ic5) expected a fourth rc=7 with no attempt and no exhaustion, got rc=$rc: $(cat "$prog" 2>/dev/null)"; fi
+
+# AC-1 ↔ AC-2 COMPOSED, and this is the case that makes the reserved code a contract rather than
+# two files agreeing by coincidence. The writer (tools/run-selftests.sh) and the reader (this
+# gate) share a NUMBER, not an anchorable block, so a lockstep row cannot hold them — see the
+# DROPPED entry in scripts/lockstep-manifest.tsv. What holds them is this: the real runner, over
+# a fixture tree whose every suite dies without a verdict, wired into `commands.acme.test` exactly
+# as a consumer would wire it. A one-sided change of the number reds here.
+#
+# WHERE IT DOES NOT RUN, and why that is two different answers. This suite SHIPS inside the
+# plugin, and install-topology-selftest.sh re-runs it from a staged cache with no git repo above
+# it — a topology in which the repo's `tools/` genuinely does not exist. That is the boundary, not
+# a defect, so it is a stated SKIP. Anywhere a git toplevel DOES resolve, a missing runner means
+# the file moved and the coupling lost its only composed guard: that reds.
+IC_RUNNER="$HERE/../../../../tools/run-selftests.sh"
+if [ -f "$IC_RUNNER" ]; then
+  IC_SWEEP="$WORK/ic-sweep-tree"
+  mkdir -p "$IC_SWEEP"
+  printf '#!/usr/bin/env bash\nexit 125\n' > "$IC_SWEEP/one-selftest.sh"
+  printf '#!/usr/bin/env bash\nexit 125\n' > "$IC_SWEEP/two-selftest.sh"
+  cfg="$(ic_cfg "$(printf '.commands.acme.test = "bash %s --root %s --jobs 2"' "$IC_RUNNER" "$IC_SWEEP")")"
+  prog="$WORK/ic-prog-composed.md"
+  out="$(gate_el "$cfg" "$prog" 3 7)"; rc=$?
+  if [ "$rc" -eq 7 ] && [ "$(el_count_in '| milestone-3 | attempt |' "$prog")" -eq 0 ]; then
+    pass "(ic6) AC-1↔AC-2: the REAL sweep's all-infra exit reaches this gate as 7 and charges nothing"
+  else fail "(ic6) the composed writer→reader path did not classify as infra, got rc=$rc: $out"; fi
+
+  # The other polarity through the same wiring: one genuinely red suite and the run is a red
+  # branch again — rc=1, one attempt charged. Without it (ic6) would pass against a runner that
+  # returned 3 unconditionally.
+  printf '#!/usr/bin/env bash\nexit 1\n' > "$IC_SWEEP/two-selftest.sh"
+  prog="$WORK/ic-prog-composed-mixed.md"
+  out="$(gate_el "$cfg" "$prog" 3 7)"; rc=$?
+  if [ "$rc" -eq 1 ] && [ "$(el_count_in '| milestone-3 | attempt |' "$prog")" -eq 1 ]; then
+    pass "(ic7) AC-1↔AC-2: one genuinely red suite in the same sweep is a branch failure again"
+  else fail "(ic7) the composed path misclassified a mixed sweep, got rc=$rc: $out"; fi
+elif ! git -C "$HERE" rev-parse --show-toplevel >/dev/null 2>&1; then
+  echo "  SKIPPED: (ic6/ic7) staged install cache — tools/run-selftests.sh is repo-only, so the composed writer→reader case runs in the repo sweep and not here"
+else
+  fail "(ic6/ic7) tools/run-selftests.sh is not beside this gate in a git checkout — the reserved code's only composed guard did not run"
+fi
+
+# ---- (ib) #527 AC-4: the INTERRUPTED budget is per-milestone ------------------------------
+# Without this the fix is self-defeating. Once an infra kill stops charging a fix attempt the
+# lane re-spawns, and each dead spawn leaves another unclosed `started` row that nothing
+# decrements — so the run would hard-stop here, one bound over, on a milestone nothing judged.
+#
+# The discriminator is the SAME COUNT answered two ways: 5 unclosed rows exhausts milestone 1
+# and does not exhaust milestone 3.
+IB_TREE="$WORK/ib-tree"
+mkdir -p "$IB_TREE/docs/plans"
+git -C "$IB_TREE" init -q
+git -C "$IB_TREE" config user.email t@example.invalid
+git -C "$IB_TREE" config user.name t
+printf '.claude/\n' > "$IB_TREE/.gitignore"
+printf '# spec\n\nAC-1: something.\n' > "$IB_TREE/docs/plans/acme-7-lean.md"
+git -C "$IB_TREE" add -A >/dev/null 2>&1 && git -C "$IB_TREE" commit -q -m "ib base" >/dev/null 2>&1
+git -C "$IB_TREE" update-ref refs/remotes/origin/main HEAD
+
+ib_seed() { # ib_seed <progress-file> <milestone> <n-unclosed>
+  attest_at "$IB_TREE" "$CFG" "$1" 7
+  local i
+  for (( i=0; i<$3; i++ )); do
+    echo "2026-01-01T00:00:00Z | milestone-$2 | started |" >> "$1"
+  done
+}
+gate_ib() { # gate_ib <progress-file> <args...>
+  local prog="$1"; shift
+  ( unset RUN_ID CLAUDE_CODE_SESSION_ID; cd "$IB_TREE" && SECOND_SHIFT_CONFIG="$CFG" \
+    LEAN_PROGRESS_FILE="$prog" bash "$GATE" --issue-file "$EL_ISSUE" "$@" 2>&1 )
+}
+
+prog="$WORK/ib-prog-m1.md"; rm -f "$prog"; ib_seed "$prog" 1 5
+out="$(gate_ib "$prog" 1 7)"; rc=$?
+if [ "$rc" -eq 4 ] && grep -q 'interrupted-exhausted' "$prog" \
+   && grep -q 'interrupted 5/5' <<<"$out"; then
+  pass "(ib1) AC-4: milestone 1 keeps the 5-interruption bound, and reports it as 5/5"
+else fail "(ib1) expected rc=4 at 5 unclosed on milestone 1, got rc=$rc: $out"; fi
+
+prog="$WORK/ib-prog-m3.md"; rm -f "$prog"; ib_seed "$prog" 3 5
+out="$(gate_ib "$prog" 3 7)"; rc=$?
+if [ "$rc" -ne 4 ] && grep -q 'interrupted 5/8' <<<"$out" \
+   && ! grep -q 'interrupted-exhausted' "$prog"; then
+  pass "(ib2) AC-4: the SAME count does not exhaust milestone 3 — it runs, on its own 8-bound"
+else fail "(ib2) expected milestone 3 to run at 5 unclosed on an 8 budget, got rc=$rc: $out"; fi
+
+# ...and the larger bound is a BOUND, not an absence of one. A hand-run `bash G 3 <issue>` has
+# no --max-continuations, so the gate-side refusal is the only thing left holding it.
+prog="$WORK/ib-prog-m3-spent.md"; rm -f "$prog"; ib_seed "$prog" 3 8
+out="$(gate_ib "$prog" 3 7)"; rc=$?
+if [ "$rc" -eq 4 ] && grep -q 'interrupted-exhausted' "$prog"; then
+  pass "(ib3) AC-4: milestone 3 still hard-stops once its own budget is spent"
+else fail "(ib3) expected rc=4 at 8 unclosed on milestone 3, got rc=$rc: $out"; fi
+
+# ---- (ir) #527 AC-5: `progress --infra`, the read derived from residue ---------------------
+# Under topology T-A nothing survives the kill to write a class — SIGKILL cannot be trapped, and
+# the scheduler never invokes milestone 3 itself — so the answer is derived from what is left
+# behind: unclosed `started` rows, minus any runner record still naming a live pid.
+#
+# ITS OWN TREE, deliberately. Earlier milestone-3 cases leave real runner records in their
+# fixture's state dir, and a read that inherited them would be measuring another case's residue.
+IR_TREE="$WORK/ir-tree"
+mkdir -p "$IR_TREE/.claude/pipeline-state"
+git -C "$IR_TREE" init -q
+git -C "$IR_TREE" config user.email t@example.invalid
+git -C "$IR_TREE" config user.name t
+printf '.claude/\n' > "$IR_TREE/.gitignore"
+printf 'seed\n' > "$IR_TREE/README.md"
+git -C "$IR_TREE" add -A >/dev/null 2>&1 && git -C "$IR_TREE" commit -q -m "ir base" >/dev/null 2>&1
+git -C "$IR_TREE" update-ref refs/remotes/origin/main HEAD
+IR_STATE="$IR_TREE/.claude/pipeline-state"
+IR_PROG="$WORK/ir-progress.md"
+
+# stderr is DROPPED here, not merged: the token cases below compare $out against an exact string,
+# and the read's OR-1 diagnostic ("n unclosed, n records, n live") goes to stderr by design so it
+# cannot contaminate the token a caller parses. gate_ir_e is the usage-error variant.
+gate_ir() { # gate_ir <args...>
+  ( unset RUN_ID CLAUDE_CODE_SESSION_ID; cd "$IR_TREE" && SECOND_SHIFT_CONFIG="$CFG" \
+    LEAN_PROGRESS_FILE="$IR_PROG" bash "$GATE" --issue-file "$EL_ISSUE" "$@" 2>/dev/null )
+}
+gate_ir_e() { # gate_ir_e <args...> — stderr merged, for the refusal cases
+  ( unset RUN_ID CLAUDE_CODE_SESSION_ID; cd "$IR_TREE" && SECOND_SHIFT_CONFIG="$CFG" \
+    LEAN_PROGRESS_FILE="$IR_PROG" bash "$GATE" --issue-file "$EL_ISSUE" "$@" 2>&1 )
+}
+
+# A genuinely dead pid: spawned and reaped here, rather than a large integer guessed to be free.
+( : ) & IR_DEAD=$!
+wait "$IR_DEAD" 2>/dev/null
+
+rm -f "$IR_PROG"; rm -f "$IR_STATE"/*.pid
+out="$(gate_ir progress 7 --infra)"; rc=$?
+if [ "$rc" -eq 0 ] && [ "$out" = "m3infra-v1:0" ]; then
+  pass "(ir1) AC-5: no record at all answers m3infra-v1:0 — never empty, which the caller rejects"
+else fail "(ir1) expected m3infra-v1:0, got rc=$rc '$out'"; fi
+if [ ! -f "$IR_PROG" ]; then
+  pass "(ir2) AC-5: the read does not bring the progress file it reads into existence"
+else fail "(ir2) the --infra read created $IR_PROG"; fi
+
+# Two evaluations begun, one concluded ⇒ exactly one death, with no runner record to excuse it.
+{ echo "# lean run — issue 7"; echo "run_id: r-ir"
+  echo "2026-01-01T00:00:00Z | milestone-3 | started |"
+  echo "2026-01-01T00:00:01Z | milestone-3 | concluded | rc=0"
+  echo "2026-01-01T00:00:02Z | milestone-3 | started |"; } > "$IR_PROG"
+out="$(gate_ir progress 7 --infra)"
+if [ "$out" = "m3infra-v1:1" ]; then
+  pass "(ir3) AC-5: an unclosed evaluation with no runner record reads as one infra death"
+else fail "(ir3) expected m3infra-v1:1, got '$out'"; fi
+
+# A LIVE runner is an honest in-flight evaluation, not a death — and it accounts for exactly one
+# unclosed row, so subtracting it is what makes the answer stable across the spawn.
+printf '%s live-token\n' "$$" > "$IR_STATE/7-lean-m3-12345.pid"
+out="$(gate_ir progress 7 --infra)"
+if [ "$out" = "m3infra-v1:0" ]; then
+  pass "(ir4) AC-5: a record naming a LIVE pid subtracts — an in-flight evaluation is not a death"
+else fail "(ir4) expected a live runner to answer m3infra-v1:0, got '$out'"; fi
+
+# THE CONJUNCTION, and this is the case the whole read exists for: the record is still there and
+# the pid it names is gone. Byte-identical residue to (ir4) apart from the liveness.
+printf '%s dead-token\n' "$IR_DEAD" > "$IR_STATE/7-lean-m3-12345.pid"
+out="$(gate_ir progress 7 --infra)"
+if [ "$out" = "m3infra-v1:1" ]; then
+  pass "(ir5) AC-5: a record naming a DEAD pid is the death — the same residue, one liveness apart"
+else fail "(ir5) expected m3infra-v1:1 against a dead recorded pid, got '$out'"; fi
+
+# A record carrying no token predates the current format and names nothing joinable, so it reads
+# as dead — m3_read_runner's rejection, applied by the same rule here rather than a second one.
+printf '%s\n' "$$" > "$IR_STATE/7-lean-m3-12345.pid"
+out="$(gate_ir progress 7 --infra)"
+if [ "$out" = "m3infra-v1:1" ]; then
+  pass "(ir6) AC-5: a token-less record is not credited as live, even when its pid is alive"
+else fail "(ir6) expected a token-less record to read as dead, got '$out'"; fi
+
+# THE GLOB, not the computed key (D-4). m3_paths hashes the cwd-derived repo root, so a read run
+# from the main checkout — which is where the scheduler runs it — cannot name a build worktree's
+# record. This case's key is a value no cksum of this tree produces.
+rm -f "$IR_STATE"/*.pid
+printf '%s glob-token\n' "$$" > "$IR_STATE/7-lean-m3-00000000.pid"
+out="$(gate_ir progress 7 --infra)"
+if [ "$out" = "m3infra-v1:0" ]; then
+  pass "(ir7) AC-5: the record is found by issue-keyed GLOB, not by recomputing m3_paths' key"
+else fail "(ir7) a record under an unrelated key was not found by the glob, got '$out'"; fi
+
+# ISSUE-KEYED: another issue's residue is not this run's. Same state dir, same shape.
+rm -f "$IR_STATE"/*.pid
+printf '%s other-token\n' "$IR_DEAD" > "$IR_STATE/8-lean-m3-12345.pid"
+out="$(gate_ir progress 7 --infra)"
+if [ "$out" = "m3infra-v1:1" ]; then
+  pass "(ir8) AC-5: a record for a DIFFERENT issue is not read as this run's runner"
+else fail "(ir8) another issue's record leaked into this read, got '$out'"; fi
+rm -f "$IR_STATE"/*.pid
+
+# The two flags are different token spaces and one call prints one of them; and a flag that
+# silently selects nothing on a subcommand that ignores it is a read answering nobody's question.
+out="$(gate_ir_e progress 7 --infra --satisfied 5)"; rc=$?
+if [ "$rc" -eq 2 ] && grep -q 'cannot be combined' <<<"$out"; then
+  pass "(ir9) AC-5: --infra and --satisfied together are a usage error"
+else fail "(ir9) expected rc=2 refusing the combination, got rc=$rc: $out"; fi
+out="$(gate_ir_e 1 7 --infra)"; rc=$?
+if [ "$rc" -eq 2 ] && grep -q "only meaningful on 'progress'" <<<"$out"; then
+  pass "(ir10) AC-5: --infra on another subcommand is a usage error, not a silent no-op"
+else fail "(ir10) expected rc=2 on a non-progress subcommand, got rc=$rc: $out"; fi
+
 # ---- (j) AC-6: milestone 4 blocks on anything but a committed verdict=approve -------------
 # The fixture verdict is REVIEW-authored throughout: `r-review-1` / `sess-review-1` are the
 # separate review session's identities. A build-authored one is case (n).
@@ -4603,35 +4866,40 @@ else fail "(if5c) an uninvoked milestone-2 has rows: $(grep 'milestone-2' "$PROG
 rm -f "$MARK497"
 out="$(gate_497 3 7)"; rc=$?
 if [ "$rc" -eq 0 ] && [ -e "$MARK497" ] \
-   && grep -q '1 earlier evaluation(s) began and never concluded (interrupted 1/5)' <<<"$out"; then
+   && grep -q '1 earlier evaluation(s) began and never concluded (interrupted 1/8)' <<<"$out"; then
   pass "(if6) the next evaluation announces the unconcluded row and still runs the body"
 else fail "(if6) expected rc=0 + marker + the interrupted notice, got rc=$rc marker=$([ -e "$MARK497" ] && echo present || echo absent): $out"; fi
 
 # THE BUDGET (D-2/D-7). Seeded from the REAL writer's line — duplicating what append_started
 # produced above, rather than hand-spelling a shape that would keep passing after the writer moved.
-# Five unconcluded rows, and the sixth call refuses: no body, no new started row, rc=4.
+# EIGHT unconcluded rows, and the ninth call refuses: no body, no new started row, rc=4.
+#
+# Eight, not five, since #527: milestone 3 carries its own larger interrupted budget, because an
+# infrastructure kill no longer charges a fix attempt and each dead re-spawn leaves another
+# unclosed row here. The 5-bound is still asserted, on a milestone that keeps it — (if11) and
+# (ib1) both drive milestone 1 — so the split is pinned from both sides rather than relaxed.
 reset_progress
 rm -f "$MARK497"
 gate_497 3 7 >/dev/null 2>&1
 started_line="$(grep -F '| milestone-3 | started |' "$PROG" | head -n1)"
 [ -n "$started_line" ] && [ "$(count_in_progress '| milestone-3 | concluded |')" -eq 1 ] \
   || fail "(if7-fixture) no closed pair to seed from — the budget cases below would assert nothing"
-for _ in 1 2 3 4 5; do printf '%s\n' "$started_line" >> "$PROG"; done
+for _ in 1 2 3 4 5 6 7 8; do printf '%s\n' "$started_line" >> "$PROG"; done
 rm -f "$MARK497"
 out="$(gate_497 3 7)"; rc=$?
 if [ "$rc" -eq 4 ] && [ ! -e "$MARK497" ] \
-   && [ "$(count_in_progress '| milestone-3 | interrupted-exhausted | 5 unconcluded')" -eq 1 ] \
-   && [ "$(count_in_progress '| milestone-3 | started |')" -eq 6 ]; then
-  pass "(if7) the 6th evaluation past 5 unconcluded rows returns 4, records the exhaustion and never runs the body"
-else fail "(if7) expected rc=4 / no marker / one 'interrupted-exhausted | 5 unconcluded' / 6 started, got rc=$rc marker=$([ -e "$MARK497" ] && echo present || echo absent) exh=$(count_in_progress '| milestone-3 | interrupted-exhausted |') started=$(count_in_progress '| milestone-3 | started |'): $out"; fi
+   && [ "$(count_in_progress '| milestone-3 | interrupted-exhausted | 8 unconcluded')" -eq 1 ] \
+   && [ "$(count_in_progress '| milestone-3 | started |')" -eq 9 ]; then
+  pass "(if7) the 9th evaluation past 8 unconcluded rows returns 4, records the exhaustion and never runs the body"
+else fail "(if7) expected rc=4 / no marker / one 'interrupted-exhausted | 8 unconcluded' / 9 started, got rc=$rc marker=$([ -e "$MARK497" ] && echo present || echo absent) exh=$(count_in_progress '| milestone-3 | interrupted-exhausted |') started=$(count_in_progress '| milestone-3 | started |'): $out"; fi
 
 # The number it reports is the unconcluded count it REFUSED ON, not a count of the lines it wrote
 # itself — the (c7) defect one level down. Past the cap the verdict is already 4 either way, so
 # only the record can catch a counter that swept up its own exhaustion lines.
 gate_497 3 7 >/dev/null 2>&1
-if [ "$(count_in_progress '| milestone-3 | interrupted-exhausted | 5 unconcluded')" -eq 2 ]; then
+if [ "$(count_in_progress '| milestone-3 | interrupted-exhausted | 8 unconcluded')" -eq 2 ]; then
   pass "(if7b) the exhaustion record counts unconcluded ROWS, not the exhaustion lines it wrote itself"
-else fail "(if7b) expected two 'interrupted-exhausted | 5 unconcluded' lines, got: $(grep 'interrupted-exhausted' "$PROG" | tr '\n' ' ')"; fi
+else fail "(if7b) expected two 'interrupted-exhausted | 8 unconcluded' lines, got: $(grep 'interrupted-exhausted' "$PROG" | tr '\n' ' ')"; fi
 
 # D-8: the new verbs are invisible to every existing counter. `interrupted-exhausted` must not
 # carry the `budget-exhausted` substring (c2) reads, nor the `absent-exhausted` one (c5) reads,

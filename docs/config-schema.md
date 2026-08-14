@@ -19,6 +19,19 @@ Principles:
 - **No domain knowledge in config.** Prose-shaped knowledge goes to extension files ([`extension-points.md`](extension-points.md)); config stays enumerable and lintable.
 - `configVersion` bumps only on breaking schema changes; plugins support one version per release. The migration contract and per-version upgrade docs live in [`migrations/`](migrations/README.md); config-lint fails older/newer configs with the pointer, never a bare "invalid".
 - **A `commands.<host>` lane runs in a scrubbed child env.** `verifyctl.sh`, `preflight.sh`, and `lean-gate.sh` milestone 3 all spawn every configured lane command (`lint`/`typecheck`/`test`/`format`/`lanes`/`extraLanes`) with the pipeline's own seam vars (`SECOND_SHIFT_CONFIG`, `STATECTL_STATE_DIR`, and related overrides) stripped from its environment (`env -u`) — a lane command that is itself second-shift tooling (dogfooding) must not see the caller's pipeline state. See [`stages/6-verify.md`](../plugins/dev-pipeline/skills/run/stages/6-verify.md#deterministic-verify-runner-verifyctl).
+- **Exit code `3` is RESERVED on a verify lane: "this failed for reasons that are not the branch."**
+  It applies to the fixed `lint`/`typecheck`/`test` keys and to every `extraLanes` entry (setup
+  `lanes[]` are already infra-classed, and are out of it). `lean-gate.sh` milestone 3 reads a `3`
+  as infrastructure: it reds with exit `7` — *nothing was evaluated* — instead of `1`, charges **no
+  fix attempt**, and the lean scheduler re-spawns the build session rather than reporting an idle
+  one. This repo's own [`tools/run-selftests.sh`](../tools/run-selftests.sh) raises it when every
+  failing suite is its no-verdict class (the workers were killed); a run mixing infra with a
+  genuinely red suite still exits `1`, because a red branch is still a red branch.
+  **The exposure:** a lane that already exits `3` for a genuine failure is reclassified as
+  infrastructure and charged no fix attempt. There is deliberately no per-lane opt-out — the
+  failure direction is a run that retries when it should have stopped, bounded by the scheduler's
+  `--max-continuations` and by the gate's milestone-3 interrupt budget, never a red branch reported
+  green. Have such a lane exit any other non-zero code.
 - **`ticketTag` reads two ways depending on the lane.** Both readings key off the same
   `topology.repos.<id>.ticketTag` values on a confirmed pair's `be`+`fe` entries — nothing
   about the field or its config location changes. Under the staged lane (`/dev-pipeline:run`)

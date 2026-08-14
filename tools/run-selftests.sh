@@ -70,6 +70,10 @@
 #
 # EXIT: 0 iff every run suite passed. Non-zero names every failing suite. 2 for a usage error,
 # a stale exclusion, a malformed cache-input table, or a discovered/run count disagreement.
+# 3 (#527) when there were failures and EVERY one of them is the no-verdict infrastructure class —
+# the workers died rather than the suites failing, so the sweep learned nothing about the tree.
+# Mixed infra-and-real is 1, because a red branch is still a red branch. lean-gate.sh milestone 3
+# reads 3 from any verify lane as infrastructure and charges no fix attempt.
 #
 # NOT `set -e`: this harness runs other people's suites and SCORES their exit codes.
 set -uo pipefail
@@ -476,6 +480,12 @@ xargs -P "$JOBS" -n1 -I{} \
 RAN=0
 CACHED=0
 FAILED=""
+# #527 AC-1. The infra tally beside the failure list. The per-suite class already exists below
+# (`rc=125`, the no-verdict-written case) and is already PRINTED as infra — only the parent
+# collapsed it, so a caller could not tell a sweep whose workers were killed from a sweep whose
+# suites are red. Counted here rather than re-derived from $FAILED at the exit: parsing "(rc=125)"
+# back out of a formatted list would be a second reader of a string this file only writes.
+INFRA=0
 while IFS="$TAB" read -r idx suite key; do
   [[ -n "$idx" ]] || continue
   RAN=$((RAN + 1))
@@ -512,6 +522,7 @@ while IFS="$TAB" read -r idx suite key; do
 
   if [[ "$rc" -ne 0 ]]; then
     FAILED="$FAILED$suite (rc=$rc)"$'\n'
+    [[ "$rc" -eq 125 ]] && INFRA=$((INFRA + 1))
   fi
 done < "$BASE/worklist"
 
@@ -547,7 +558,21 @@ if [[ -n "$FAILED" ]]; then
   echo "[run-selftests] FAILED suites:" >&2
   printf '%s' "$FAILED" | while IFS= read -r f; do [[ -n "$f" ]] && echo "  $f" >&2; done
   count="$(printf '%s' "$FAILED" | grep -c .)"
-  echo "[run-selftests] summary: $RAN scored, $((RAN - CACHED)) run, $CACHED served from cache, $count failed" >&2
+  echo "[run-selftests] summary: $RAN scored, $((RAN - CACHED)) run, $CACHED served from cache, $count failed ($INFRA infrastructure)" >&2
+  # #527 AC-1. THE RESERVED CODE, and it is reserved rather than merely returned: a consumer wires
+  # this runner (or any other suite runner) into `commands.<host>.test`, and lean-gate.sh milestone
+  # 3 reads a 3 from ANY verify lane as "this told us nothing about the branch". So the condition
+  # has to be ALL, never ANY — one genuinely red suite alongside a killed worker is still a red
+  # branch, and reporting that as infrastructure would be the fail-open direction: a broken branch
+  # that costs no fix attempt and re-spawns until the continuation budget runs out.
+  #
+  # 0/1/2 are taken here (`die`, the count reconciliation, the failure list), so a fourth code was
+  # needed; 125-127 was rejected because it is the shell's and `timeout`'s own "could not execute"
+  # band, which a consumer lane can hit by accident once the code means something cross-repo.
+  if [[ "$INFRA" -eq "$count" ]]; then
+    echo "[run-selftests] every failure above is the no-verdict INFRASTRUCTURE class — the workers died, so nothing was learned about this tree. Exiting 3 (reserved), not 1." >&2
+    exit 3
+  fi
   exit 1
 fi
 
