@@ -1,285 +1,163 @@
 # lean review verdict — #528
 
 verdict=needs-work
-run_id: review-528-1
-session_id: 86bd7274-879b-4e60-86cd-941991810f6b
-rounds: 1
+run_id: review-528-2
+session_id: b9a86b94-8407-4fa0-9708-06f0e228b5a5
+rounds: 2
 pr: #540
-reviewed_head: 0899d16c398851446d53183838d3e17b81cdc450
-reviewed_patch_id: 0e7aa587092a758b3f06e498749ccc3e831c8f75
-inherited_patch_id: none
-inherited_from_verdict: none
+reviewed_head: 84814ae792ec42c5e8afe56bf6d9aa3153b7f82c
+reviewed_patch_id: 9a22f54e9aadc9f43aa518456af8c1e10141478f
+inherited_patch_id: 0e7aa587092a758b3f06e498749ccc3e831c8f75
+inherited_from_verdict: c6b4d5d8becc57bcdd41ef71f2a41184ccc755c8
 fidelity: not-applicable
 model: unknown
 capabilities: pr-marker
 
-# Review round 1 — PR #540 (#528), `review-528-1`
+# Review round 2 — PR #540 (#528), `review-528-2`
 
-Range read: full branch diff `e583994..0899d16` (root round — `delta` printed FULL, nothing to
-inherit). Panel: security, performance, maintainability, complexity, test-coverage,
+Range read: `c6b4d5d..HEAD` (`84814ae`), inheriting the coverage of patch `0e7aa587092a` recorded
+by `review-528-1`. Panel: security, performance, maintainability, complexity, test-coverage,
 unit-test-mutation, scope-completeness — 7 selected, 7 returned, none dark.
 
-**Verdict: needs-work.** Four blockers: AC-1's safety interlock is breakable and unguarded (B1), the
-mutation lane is red (B2), AC-2's heal half is guarded by two cases that cannot fail for the defect
-they name (B3), and the `append_satisfied` rewrite falsifies a soundness argument the scheduler's
-continuation predicate rests on (B4). The `append_satisfied` code itself and AC-3 are genuinely
-tested — kill-probed below.
+**Verdict: needs-work.** One blocker, and it is round 1's B2 unchanged: `mutation-sweep-pr` is
+still red on this exact head. Everything else round 1 raised is genuinely closed — B1, B3, B4, W1,
+W2 and W3 all verified below, four of them by kill probe rather than by reading. All three ACs
+score satisfied; the red lane is a blocker outside the AC set.
 
 ---
 
 ## Blockers
 
-### B1 — the ownership interlock's writer and reader are different expressions, so AC-1's "never delete a live lane's fixture" does not hold portably
+### B2 (carried) — `mutation-sweep-pr` still times out, on this head
 
-AC-1 (ticket, verbatim): *"Reaping is age-and-ownership guarded so it can **never** delete a live
-concurrent lane's fixture."*
+Not a stale run: run 31801507447, job 94770340622, head `84814ae` — the commit this record names.
 
-The stamp is written one way and read back another:
+| head | mutants | pool started | ended | outcome |
+| --- | ---: | --- | --- | --- |
+| `0899d16` (round-1 head) | 50 | 11:14:34 | 11:28:04 | timeout |
+| `c6b4d5d` (round-1 verdict commit) | 50 | 11:44:12 | 11:57:25 | timeout |
+| **`84814ae` (this head)** | **53** | **12:45:14** | **12:58:26** | **timeout** |
 
-| | expression | trailing newline |
-| --- | --- | --- |
-| **writer** — `lean-gate-selftest.sh:59`, `orchestrate-lean-selftest.sh:48` | `raw="$(ps -o lstart= -p "$$" 2>/dev/null \| tr -cs 'A-Za-z0-9' '_')"` | `tr` sees it → becomes a trailing `_` |
-| **reader** — `reap-lean-fixtures.sh:97-100` | `raw="$(ps -o lstart= -p "$pid" 2>/dev/null)"` then `printf '%s' "$raw" \| tr -cs …` | command substitution strips it *before* `tr` |
+Three consecutive runs, none of which emitted a result set. The elapsed column is flat only
+because the 15-minute budget is fixed — it measures the ceiling, not progress, so "13m12 vs 13m30"
+is not an improvement and must not be read as one. The mutant count went **up**, 50 → 53, because
+`tools/fixture-stamp.sh` joined the swept surface.
 
-The two agree **only if `ps` emits at least one trailing blank before the newline**. macOS BSD `ps`
-does — measured, two of them:
+The round-2 fix is well aimed and is not a no-op: I probed the `kill -0` early bail directly and it
+fires — an exited-but-unreaped background child does *not* answer `kill -0` under either bash 5.3
+or stock 3.2 on this platform, so the coordinators do bail rather than spinning the ceiling. What
+the fix did not do is move CI below the cliff. So round 1's *diagnosis* — that the ceiling spin was
+the whole gap — is the part that did not survive contact: closing it recovered less than the ~5 min
+that diagnosis predicted, and 3 extra mutants ate whatever was left.
 
-```
-$ ps -o lstart= -p $$ | od -c
-0000000  F r i   A u g   1 4   1 4 : 1 6 : 1 9   2 0 2 6       \n
-                                                        ^^^^^^^
-```
+The PR body's "mutation sweep 53 mutants across 4 guards / 0 survivors" is again a local result on
+a wider pool. Round 1 recorded exactly why that measurement cannot settle this question — the cost
+is wall-clock sleep, which a wide local pool overlaps away and CI's 2 workers serialize. CI is the
+authority and it has never produced a result set for this branch.
 
-Nothing in the repo tests, documents, or enforces that property, and the failure is silent
-destruction rather than a red test. Measured fire/no-fire pair, both arms running the branch's own
-`_own_stamp` and the branch's own `reap-lean-fixtures.sh`, with **only `ps` swapped** (same raw
-string fed to both sides):
+This is the lane's to close, not the diff's to argue around, and the remedies are the build's call:
+raise the job's timeout, shrink the racing cases' ceiling further, skip them under the sweep, or
+re-diagnose per-mutant cost from a CI run rather than a local one. **What would settle it is one
+green `mutation-sweep-pr` on the reviewed head** — no local sweep substitutes.
 
-```
-ARM A — this machine's BSD ps
-  fixture : leangate.97025.Fri_Aug_14_14_19_47_2026_.XXXXXX.Ab3xY9zQ1p   (owner pid LIVE)
-  [reap-lean-fixtures] keep (live owner pid 97025)
-  RESULT  : fixture SURVIVED
+---
 
-ARM B — a ps whose lstart column carries no trailing blank (procps renders lstart as a
-         fixed "%24.24s" ctime slice), identical shipped code on both sides
-  fixture : leangate.97025.Thu_Aug_7_09_12_33_2025_.XXXXXX.Ab3xY9zQ1p    (owner pid LIVE)
-  [reap-lean-fixtures] removed: … (age=51023988s)
-  RESULT  : fixture DESTROYED
-```
+## Round-1 findings: verified closed
 
-Removal in ARM B is ownership talking, not age — the code keeps an owned fixture regardless of age,
-and the emitted line is `removed:`, not `keep (live owner …)`.
+**B1 — the ownership interlock. Closed by construction, not merely tested.** There is now exactly
+one expression (`tools/fixture-stamp.sh`), sourced by the reaper and by both producing suites, so
+the two sides cannot disagree — and the sanitizer is made insensitive to the trailing-whitespace
+difference that caused the disagreement (`tr -cs` squeeze, then strip one leading and one trailing
+separator). Ownership gained the third `unknown` answer, and it resolves toward keeping. Probed:
+removing the stub-path `unknown` branch reds the suite (`an unresolvable-ownership fixture was
+reaped`). The reaper `die`s when the library is absent rather than falling back to age alone.
 
-**It is guarded by nothing.** Replacing the writer's whole stamp with a constant leaves every suite
-that could plausibly notice green:
-
-```
-producer stamp -> "MUTANT_STAMP" in BOTH templates
-  tools/reap-lean-fixtures-selftest.sh                    rc=0   PASS
-  plugins/…/run-lean/orchestrate-lean-selftest.sh         rc=0   all green (77 cases)
-```
-
-The one case that reaches the real path — `reap-lean-fixtures-selftest.sh:200-214`, *"with no stub,
-a genuinely live pid is read from the real process table and kept"* — re-derives the **reader's**
-form at `:202` to build its fixture name, so it compares the reader against itself and cannot see
-the disagreement. That is the hand-maintained copy of production logic `CLAUDE.md`'s *No mirror
-harnesses* rule names; and four copies of one sanitization in two forms
-(`lean-gate-selftest.sh:59`, `orchestrate-lean-selftest.sh:48`, `reap-lean-fixtures.sh:100`,
-`reap-lean-fixtures-selftest.sh:202`) with no row in `scripts/lockstep-manifest.tsv` is exactly the
-tier map's *"two copies of one contract staying identical → a lockstep row"*.
-
-Blast radius is the harm the tool exists to prevent, and it is worse than the status quo: before
-this PR nothing deleted live fixtures at all. `tools/run-selftests.sh` invokes the reaper on every
-real sweep including the ubuntu `lint-and-selftests` lane (the file is committed `100755`, so the
-`[[ -x ]]` guard fires), and CLAUDE.md records live sweeps at 5:22–13:12 — routinely past the 600s
-owned floor.
-
-One more instance of the same root cause: ownership has no *unknown* state. Every failure to
-establish it — a dead pid, an unreadable one, `ps` absent, the writer's own `${raw:-0}` fallback at
-`lean-gate-selftest.sh:60` — resolves to `owned=0`, i.e. **delete**. For a genuinely dead pid that
-is right; for "could not tell" it is the unsafe direction.
-
-Confidence split, stated honestly: that the two expressions differ and that a non-padding `ps`
-destroys a live fixture is **measured** here. That GNU/procps specifically is the non-padding case
-is **inferred** from its fixed-width `lstart` rendering — no Linux was reachable from this session
-to execute it. The finding does not rest on that inference: the agreement is untested and
-OS-dependent either way, and the fix (one expression, used on both sides, pinned by a lockstep row
-or a writer→reader round-trip case) is cheap and OS-independent.
-
-### B2 — `mutation-sweep-pr` is red: the PR-scoped sweep exceeded its 15-minute budget
-
-`mutation-sweep-pr` **failed** — `The action 'mutation sweep (PR-scoped)' has timed out after 15
-minutes` (run 31795284556, job 94750916495). It reached `pool: 2 worker(s), 50 mutant(s) to score,
-0 served from cache` and never emitted a result set.
-
-This is not mutant volume. Same 2-worker pool, same dominant guard (`lean-gate.sh`) paired to the
-same suite (`lean-gate-selftest.sh`), three recent green runs:
-
-| PR / branch | mutants | wall to results | outcome |
-| --- | ---: | --- | --- |
-| #538 / `…-532` | **66** | ~11 min | pass |
-| #535 / `…-511` | 27 | ~11 min | pass |
-| #534 / `…-515` | 22 | ~6 min | pass |
-| **#540 / `…-528`** | **50** | **>15 min** | **timeout** |
-
-66 mutants finished three runs ago; 50 did not. So per-mutant cost is what moved — and it is **not**
-the clean-run cost of the added cases, which I measured as small (`lean-gate-selftest.sh`, same
-worktree, CPU time rather than wall because a co-running session distorts wall: main
-`42.35u + 59.91s = 102.3s`, branch head `44.86u + 64.67s = 109.5s` — about +7%). +7% over 50
-mutants does not turn an 11-minute
-66-mutant sweep into a 15-minute timeout.
-
-The cost is on the *mutant* path, and it is **wall-clock sleep, not compute** — measured. `(rc1)`
-and `(rc3)` each wait for two background gate processes to reach `LEAN_GATE_TEST_STALL_DIR`,
-bounded at `100 × sleep 0.1` = 10s; `_lean_gate_test_stall` in `lean-gate.sh` carries its own 10s
-ceiling. A mutant that stops a writer from reaching `append_satisfied` leaves the second `ready.*`
-file uncreated, so the coordinator spins its whole ceiling. Running the suite under one
-representative mutant (`append_satisfied`'s absence test flipped `0` → `1`):
+**B3 — the heal cases. Closed, and the new case is the live one.** Reverting
+`heal_progress_run_id` to the pre-#528 fixed `.heal` sibling, scored by case id:
 
 ```
-                       wall        user + sys
-clean branch head      2m28.3s     44.86 + 64.67 = 109.5s
-under one mutant       2m40.6s     45.57 + 66.87 = 112.4s
-delta                  +12.3s      +2.9s
-  FAIL: (rc1) expected both writers to reach the stall (got 0/2) …
+(rc3)  PASS   <- still vacuous, as round 1 found (byte-identical writers)
+(rc4)  PASS   <- still cannot kill it (the pre-fix `mv` removes the temp on success)
+(rc4a) FAIL   <- MUTANT KILLED
+suite: [lean-gate-selftest] 1 FAILURE(S)
 ```
 
-`got 0/2` is the ceiling being spun in full. +12s of wall per mutant × 50 mutants ÷ 2 workers ≈
-**+5 min** on top of a ~9-minute base — which lands exactly on the 15-minute cliff, and a mutant
-that also perturbs the heal path pays another ~10s.
+`(rc4a)` — a bystander file planted at the pre-fix fixed path, required to survive a heal — is the
+guard, and it is deterministic and single-writer, which is what a race case structurally could not
+be here. The spec now says plainly that `(rc3)` cannot observe the collision rather than claiming
+it does.
 
-The +2.9s CPU is why this did not show up locally: the added time is `sleep`, so a wider local pool
-overlaps it away while CI's 2-worker pool serializes it. The PR body's *"mutation sweep 0 survivors
-across all three swept guards"* is a local (macOS, wider pool) result; CI's table is the authority
-here and CI never produced one.
+**B4 — the falsified soundness argument. Eliminated rather than re-argued.** `append_satisfied` is
+append-only again (atomic `mkdir` claim → re-check inside → `append_line` → release), so
+`progress_token`'s "these rows are append-only… cannot go up and back down" is true rather than
+standing while false, and the `attempt`-row budget cannot be silently un-charged. The paragraph at
+`lean-gate.sh:1495` is corrected to say why. This is the stronger of the two available fixes.
 
-Either way the lane is red and is the lane's to close, not the diff's to argue around — a shorter
-ceiling, an early bail once a writer exits, or skipping the racing cases under the sweep are all
-the build's call.
-
-### B3 — `(rc3)` and `(rc4)` cannot fail for the `heal_progress_run_id` defect they name
-
-The ticket's Tests section mandates *"assert exactly one satisfied row **and no `.heal`
-collision**"*, and the spec's Tests section claims `(rc3)`/`(rc4)` deliver it. They do not. Reverting
-`heal_progress_run_id` to the exact pre-#528 shape the ticket calls *worse* — `local
-tmp="$PROGRESS_FILE.heal"`, the fixed sibling two concurrent heals collide on — leaves the **whole
-suite green**:
+**W1 — default floors. Closed, probed.** Round 1 measured `86400 → 0` passing the whole suite. Now:
 
 ```
-M3: heal reverted to the fixed .heal sibling
-  rc=0   suite verdict: [lean-gate-selftest] all green
-  (rc3) passed  <- mutant SURVIVED
-  (rc4) passed  <- mutant SURVIVED
+MIN_AGE_LEGACY 86400 -> 0   suite rc=1  (the default floors did not govern)
+MIN_AGE_OWNED    600 -> 0   suite rc=1  (the default floors did not govern)
 ```
 
-Both are vacuous, for two different reasons, each confirmed:
+**W2 — closed.** The trap-before-`mktemp` reorder is mirrored into `orchestrate-lean-selftest.sh`,
+with the same shellcheck dual-code note.
 
-- **`(rc3)`** asserts one `run_id: p-race-heal` and zero `run_id: unset`. Both racing heals run the
-  same `awk` over the same header and resolve the same id (`lean-gate.sh:889-892`), so their output
-  is **byte-identical**. Colliding on one filename still yields one correctly-healed header —
-  there is nothing for the assertion to observe. The collision is real; its effect is not.
-- **`(rc4)`** asserts no leftover matching `-name 'rheal-progress.md.heal.*'`. The pre-fix temp is
-  named `rheal-progress.md.heal` — no dot, no suffix — so it **cannot match that glob**, measured:
+**W3 — closed.** A fixture root carrying an executable reaper proves the guard fires, with an
+absent-tool control. The case's own comment states precisely what it does *not* pin (the `|| true`
+token, since that harness is not `set -e`) — which is the right way to record a measured limit.
 
-  ```
-  $ find /tmp/rc4glob -maxdepth 1 -name 'rheal-progress.md.heal.*'   # file: rheal-progress.md.heal
-  0
-  ```
-
-  The pattern was written against the *post*-fix name shape, so the case is structurally incapable
-  of reddening for the code it replaced. (It is also moot: the pre-fix `mv` removes the temp on the
-  success path anyway.)
-
-Contrast the sibling half, which is genuinely live: reverting `append_satisfied` to read-then-append
-**does** red `(rc1)`. So the technique works — it just was not made to bite on the heal seam. The
-production change to `heal_progress_run_id` is correct; what is missing is any case that would
-notice if it were reverted, which is the coverage this ticket exists to add.
-
-### B4 — the diff falsifies `progress_token`'s in-tree soundness argument and leaves it standing
-
-`lean-gate.sh:1480-1483`, **untouched by this diff**, is the written justification for the
-scheduler's continuation predicate:
-
-> *"WHY A COUNT IS A SOUND TOKEN. These rows are append-only: `append_attempt` and
-> `append_satisfied` **only ever add**, and **the single rewriter in this file**
-> (`heal_progress_run_id`) has an exact-string compare bounded to the header. So the selected count
-> **cannot go up and back down** within a spawn and read as unchanged."*
-
-Both clauses are false at head. `append_satisfied` (`:983-992`) is now `cat` the whole file → append
-→ `mv`, i.e. a full-file rewrite, and it is a second rewriter. The consequence the comment declares
-impossible is the residual risk the spec itself accepts: a rewrite built from a fresh-at-write-time
-read can drop a row a concurrent `append_attempt`/`append_absent`/`append_started`/
-`append_concluded` wrote in the gap. Dropping an `attempt` row makes the counted set go **down** —
-the movement the comment says cannot occur — and `orchestrate-lean.sh:490` compares that token
-byte-for-byte across two reads to decide whether the BUILD phase advanced.
-
-The spec's stated mitigation does not cover it. *"Self-correcting — the next `bash G all`
-re-evaluates and re-records what was lost"* holds for `satisfied`/`absent`, which a re-evaluation
-regenerates. It does not hold for `attempt`: `append_attempt` fires only on a fresh milestone
-failure (`:1141`), so a lost row is never replayed and the #494 fix budget is silently un-charged by
-one. That is the permissive direction on the counter the epic named as this exact seam.
-
-The window is the narrow one the spec already documents, so this is not a new hazard class — but an
-accepted risk is only accepted if the acceptance is accurate, and here the acceptance rests on a
-mitigation that does not apply and leaves a contradicting invariant in the same file. The fix is
-small: correct `:1480-1483` and re-argue the acceptance for the `attempt`-row case (or exclude
-`attempt` rows from the rewrite by appending rather than rebuilding).
+Round-1 suggestions are all addressed: the dot-field header comment, the stream assertion
+(`(rc5a)`), the orchestrator's announcement filter, the `file_mtime` lockstep decision (declined,
+with the reasoning recorded), and the `mutation-baseline`/`mutation-catalog` zero-edit conclusion.
 
 ---
 
 ## Warnings
 
-- **W1 — `MIN_AGE_OWNED`/`MIN_AGE_LEGACY` (600/86400) are never exercised.** Every fixtured case in
-  `reap-lean-fixtures-selftest.sh` passes explicit `--min-age-*-secs`; the one flag-less case is a
-  `--dry-run` against the real `/tmp` asserting only the scan root. The sole production call site
-  (`run-selftests.sh:192`) passes **no** overrides, so these two constants are exactly what gates
-  real deletions. `86400 → 0` would pass the whole suite.
-- **W2 — the trap-before-`mktemp` reorder was not mirrored.** `lean-gate-selftest.sh` moves
-  `trap cleanup EXIT` above its `mktemp` with a comment saying this closes AC-1's second window;
-  `orchestrate-lean-selftest.sh:48-50` keeps `WORK="$(mktemp …)"` then `trap`, leaving the same
-  one-line window open in the sibling the same PR is otherwise treating identically.
-- **W3 — the new `run-selftests.sh` call site is unexercised.** Every case in
-  `run-selftests-selftest.sh` drives a synthetic `--root` whose `tools/` (built by `write_tsv` at
-  `:319`) only ever contains `selftest-cache-inputs.tsv`, so the `[[ -x … ]]` guard takes its false
-  branch in all of them. Nothing proves the guard fires when the tool *is* present, nor that a
-  non-zero reaper exit is genuinely swallowed.
+- **N1 — `clear_satisfied_claims`' comment claims more than the code can.** It reads *"a claim still
+  present here was orphaned by a killed writer, never held by a live one"*, and `entry` is not a
+  point where that holds: the progress file is issue-keyed, so a second same-issue session running
+  `entry` can `rm -rf` a claim a first session is holding *inside* its critical section. The
+  duplicate row then needs the sweep to land in a microsecond-wide window and a second writer to
+  reach the same milestone before the first appends — so the practical risk is very low, and I did
+  not construct the interleaving (the existing stall seam parks a writer *before* the `mkdir`, so
+  reproducing it means adding a seam). Stated as read, not measured. But this is the same shape as
+  B4 — an in-tree correctness claim the diff does not support — and the cheap fix is to narrow the
+  sentence to what is true rather than to change the sweep.
+- **N2 — the optional-library fallback and the reaper's `die` path are unexercised.** Both producers
+  guard on `[ -r "$STAMP_LIB" ]` and no case takes the false branch; nothing asserts `WORK`'s
+  basename carries (or lacks) a stamp segment. Inverting the producers' check is the *safe*
+  direction (unstamped names fall to the 24h floor), so this is a warning; inverting the reaper's
+  `die` is not, and it is equally unguarded.
+- **N3 — the real-path `unknown` fallback is untested.** The stub-path branch is killed by the new
+  case (probed above); its non-stub twin — a pid that is alive while `fixture_stamp_for_pid` fails —
+  has no case, because the one real-`ps` case uses the suite's own pid, which always resolves.
 
-## Suggestions
-
-- The header's *"`<prefix>.<pid>.<stamp>.<random>` — 4 dot-fields"* (`reap-lean-fixtures.sh:121`) is
-  wrong on BSD: `mktemp -d -t` treats the whole argument as a prefix and appends its own suffix,
-  yielding **5** fields (`leangate.12345.<stamp>.XXXXXX.Hm1uZwFg4A` — measured). `-ge 4` is
-  tolerant, so this is doc-only, but no fixture uses a >4-field name.
-- `rc5`/`rc6` capture `2>&1`, so they cannot distinguish the announcement being on stderr from it
-  being on stdout — the stream choice is the load-bearing part of the AC-3 design comment.
-- `orchestrate-lean.sh:350` captures `staleness` with `2>&1` into a human-facing preflight message,
-  which now carries a `[lean-gate] config: …` line. Display-only, so cosmetic — worth a glance.
-- `file_mtime` (`reap-lean-fixtures.sh:77-83`) is a second hand-maintained copy of
-  `pipeline-cost-block.sh`'s BSD/GNU pair, as its own comment says, with no
-  `scripts/lockstep-manifest.tsv` row either. This one is *correct* — it validates the digits rather
-  than the exit status, which is what makes the pair portable — but it is the same duplication
-  pattern that B1 turned into a live defect one function up.
-- The zero-edit conclusion for `mutation-baseline.tsv`/`mutation-catalog.tsv` is correct (the
-  `default` ordinals 1–2 stay the Seams-block prose entries and `K_BUDGET=2` leaves the window
-  unmoved) but is recorded nowhere, so the next reader re-derives it.
+---
 
 ## Verified
 
-- Kill probes against the pre-#528 code, scored by case id: `append_satisfied` reverted to
-  read-then-append → **(rc1) FAILS** (mutant killed); the config announcement removed → **(rc5) and
-  (rc6) FAIL** (mutant killed). The heal arm is B3.
-- bash 3.2 clean: the reaper and its suite both run green under stock `/bin/bash 3.2.57`, and all
-  four changed shell files pass `bash -n` under it.
-- `shellcheck -e SC1091,SC2015,SC2181` clean on all six changed shell files (0.11.0 local;
-  CI 0.9.0 lane green).
-- `lint-and-selftests` (ubuntu) and `selftests (macos, bash 3.2)` both pass.
-- Scope-completeness gate: **PASS** — all three ACs present in the diff.
+- Kill probes, all in an isolated worktree, scored by case id: heal reverted to the fixed `.heal`
+  sibling → **(rc4a) FAIL**; `MIN_AGE_LEGACY 86400→0` → **suite red**; `MIN_AGE_OWNED 600→0` →
+  **suite red**; stub-path `unknown` branch removed → **suite red**. Baseline copy green (rc=0).
+- `tools/reap-lean-fixtures-selftest.sh` green at head, including all four new cases.
+- `kill -0` on an exited-unwaited background child fails under bash 5.3.9 and stock 3.2 — the early
+  bail is genuinely effective, which is what makes B2 a diagnosis problem rather than a fix that
+  was never applied.
+- `orchestrate-lean.sh:353` takes `rc` before filtering and the script is `set -uo pipefail` with no
+  `-e`, so the `grep -v` returning 1 on an all-filtered capture cannot abort or be misread as the
+  gate's status. The comment says so.
+- `lint-and-selftests` (ubuntu) and `selftests (macos, bash 3.2)` both **pass** on this head.
+- `pr-gates` red is the expected pre-review state (round-1 record reads `verdict=needs-work`); no
+  other arm fails.
+- Scope-completeness gate: **PASS** — the reviewer widened to the true merge-base on its own and
+  found all three ACs implemented.
 
 ## AC scoring
 
 | AC | Score | Basis |
 | --- | --- | --- |
-| **AC-1** — orphans reaped, age-and-ownership guarded, never deletes a live lane's fixture | **unsatisfied** | The reaping half works (dry run against this machine's 289 real orphans behaves as specified). The safety half does not: B1 destroys a live-owned fixture with the branch's own code, and no suite guards the writer↔reader agreement. |
-| **AC-2** — `append_satisfied` + `heal_progress_run_id` atomic, no blocking waiter | **unsatisfied** | The **code** is right on both seams — unique temp + atomic rename, `append_satisfied` re-verifying absence against the copy it commits, no lock and no waiter. The ticket's Tests clause is not: it mandates a "no `.heal` collision" assertion, and B3 shows `(rc3)`/`(rc4)` cannot fail for the pre-fix heal. The `append_satisfied` half is fully satisfied and kill-probed. |
-| **AC-3** — resolved config path announced | **satisfied** | `lean-gate.sh:377`, via `warn` (defined `:253`), skipped on `progress`. Kill-probed: removal fails `(rc5)` and `(rc6)`. `(rc7)` pins the `progress` exemption. |
+| **AC-1** — orphans reaped, age-and-ownership guarded, never deletes a live lane's fixture | **satisfied** | The safety half is now one shared expression rather than two agreeing by accident, made whitespace-insensitive, with `unknown` as a third answer that keeps. The reaping half was already right. Guarded: the `unknown` branch and both default floors are kill-probed live. N2/N3 are unexercised branches, not defects. |
+| **AC-2** — `append_satisfied` + `heal_progress_run_id` atomic, no blocking waiter | **satisfied** | Both seams ship the mechanism the spec specifies, and both are now guarded by a case that can fail for the defect: `(rc1)` for the append half (round 1), `(rc4a)` for the heal half (probed here). The `append_satisfied` shape is append-only, so it no longer falsifies `progress_token`. N1 is an over-claiming comment on the orphan sweep, carried separately. |
+| **AC-3** — resolved config path announced | **satisfied** | Unchanged since round 1, where removal was kill-probed against `(rc5)`/`(rc6)`. Round 2 adds `(rc5a)`, which captures the two streams apart so the stream choice is asserted rather than merged away, and filters the line out of the scheduler's one-line preflight verdict. |
