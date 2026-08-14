@@ -593,6 +593,37 @@ else
   bad "(l3) expected a deferred-to-nightly row; got rc=$RC"; printf '%s\n' "$OUT" | tail -4
 fi
 
+echo "(l4) slow-list drift is warned AT MEASUREMENT — the diagnosis outlives the timeout it diagnoses"
+# A suite that grows past the threshold while absent from the list keeps its guard in the PR
+# lane, where the cost lands on every mutant that makes the guard spin. That is how
+# lean-gate-selftest.sh reached 143s against a 5s bar and took three PR runs with it, each
+# reading only as "timed out after 15 minutes" — because a warn emitted in the report is not
+# reached by a job that dies before the report. Hence the placement: the warn fires from the
+# precheck, where the measurement is taken, not from finish().
+FX="$(new_fixture strong)"
+baseline_with "$FX"
+# The precheck times the suite; make it measurably slow. 1.2s against a threshold of 1s
+# clears the integer-second floor whichever side of a tick the two samples land on.
+printf 'sleep 1.2\n' | cat - "$FX/guard-selftest.sh" > "$FX/guard-selftest.sh.tmp"
+mv "$FX/guard-selftest.sh.tmp" "$FX/guard-selftest.sh"
+printf '# fixture slow list — deliberately EMPTY of the suite below\n' > "$FX/tools/mutation-slow-suites.tsv"
+OUT="$( cd "$FX" && enf env MUTATION_SWEEP_SLOW_THRESHOLD_S=1 bash "$SWEEP" --mode full 2>&1 )"; RC=$?
+if [[ $RC -eq 0 ]] && grep -q 'slow-list drift: \./guard-selftest\.sh measured' <<<"$OUT"; then
+  ok "an unlisted suite past the threshold warns, naming itself, without reding the run"
+else
+  bad "(l4) expected a slow-list drift warn naming ./guard-selftest.sh and rc=0; got rc=$RC"; printf '%s\n' "$OUT" | tail -4
+fi
+# CONTROL: the same fixture, the same sleep, the same threshold — only the row is added. A
+# case that skipped this would pass on a warn keyed to duration alone, which would then fire
+# on every listed suite forever and train the reader to ignore it.
+printf '# fixture slow list\n./guard-selftest.sh\t2\t2026-08-14\n' > "$FX/tools/mutation-slow-suites.tsv"
+OUT="$( cd "$FX" && enf env MUTATION_SWEEP_SLOW_THRESHOLD_S=1 bash "$SWEEP" --mode full 2>&1 )"; RC=$?
+if [[ $RC -eq 0 ]] && ! grep -q 'slow-list drift' <<<"$OUT"; then
+  ok "the same suite, once listed, warns no more"
+else
+  bad "(l4) a LISTED suite still warned about drift; rc=$RC"; printf '%s\n' "$OUT" | tail -4
+fi
+
 echo "(m) exclusions preempt pairing — a guard in BOTH files is a lint error, via the harness"
 # Driven THROUGH mutation-sweep.sh, not re-checked in this file. Case (k) lints the
 # committed TSVs directly, which is a data lint; asserting the harness's own red branch

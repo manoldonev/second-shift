@@ -145,7 +145,10 @@
 set -uo pipefail
 
 K_BUDGET="${MUTATION_SWEEP_K:-2}"   # generic mutants per operator per guard
-SLOW_THRESHOLD_S=5                  # a paired suite at or above this is "slow"
+# A paired suite at or above this is "slow". Overridable for the same reason
+# MUTATION_SWEEP_KILLER_MAX_PROCS is: the companion selftest can then trip the drift warn on a
+# fixture suite that sleeps for a second, instead of one that has to sleep past the real bar.
+SLOW_THRESHOLD_S="${MUTATION_SWEEP_SLOW_THRESHOLD_S:-5}"
 PR_FAST_GUARD_CAP=6                 # PR lane: sweep at most this many fast guards
 # Ceiling on ONE killer invocation, and the bound used for the unmutated precheck (which
 # has no measurement yet — it IS the measurement). Clears the slowest paired suite by a
@@ -1650,6 +1653,18 @@ while [[ $i -lt ${#GL_GUARD[@]} ]]; do
       fi
       t1="$(date +%s)"
       MEASURED="${MEASURED:-}"$'\n'"$s	$((t1 - t0))"
+      # SLOW-LIST DRIFT, WARNED HERE RATHER THAN IN THE REPORT. A suite that has grown past
+      # the threshold while absent from the committed list keeps its guard in the PR lane,
+      # where every mutant that makes the guard spin costs the full killer bound — enough of
+      # them and the job dies on its own ceiling BEFORE finish() ever runs, so a warn deferred
+      # to the report is precisely the one nobody sees. lean-gate-selftest.sh reached 143s
+      # this way and took three PR runs with it, each reading only as "timed out after 15
+      # minutes". Emitting at measurement time is what makes the diagnosis outlive the
+      # timeout it diagnoses. Warn, never red: the list is a cost record, and a stale row
+      # costs wall clock, not correctness.
+      if [[ $((t1 - t0)) -ge $SLOW_THRESHOLD_S ]] && ! is_slow "$s"; then
+        warn "slow-list drift: $s measured $((t1 - t0))s (>= ${SLOW_THRESHOLD_S}s) but is absent from tools/mutation-slow-suites.tsv, so its guard is still swept in the PR lane. Add the row by ordinary PR."
+      fi
       PRE_OK="${PRE_OK:+$PRE_OK }$s"
       continue
     fi

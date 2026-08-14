@@ -619,6 +619,16 @@ distinct suite, before the pool**: its timings set every killer bound and feed
 `tools/mutation-slow-suites.tsv`, so taking them under the pool's own contention would measure the
 pool rather than the suite.
 
+It is also where **slow-list drift is warned**, and the placement is the point. A suite that has
+grown past the 5s bar while absent from `tools/mutation-slow-suites.tsv` keeps its guard in the PR
+lane, where every mutant that makes the guard spin costs the full killer bound; enough of them and
+the job dies on its own 15-minute ceiling — before the report, and therefore before any warn the
+report would have carried. `lean-gate-selftest.sh` reached **143s** against that 5s bar exactly this
+way, and the three PR runs it killed read only as "timed out". Warning from the precheck is what
+makes the diagnosis outlive the timeout it diagnoses. It stays a warn, never a red: the list is a
+cost record, and a stale row costs wall clock rather than correctness. Fix it by adding the row in
+an ordinary PR.
+
 **2. Mutants run in a pool.** One sandbox per worker, created lazily and restored between items — so
 no two concurrently-running mutants share a tree, and disk stays at `pool × ~7MB` rather than growing
 with the mutant count. Size defaults to `min(cores-2, 8)` and is set by `MUTATION_SWEEP_JOBS`;

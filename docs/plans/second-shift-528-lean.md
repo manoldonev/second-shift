@@ -108,6 +108,43 @@ merged capture, so it is skipped there specifically). A config re-point mid-run 
 in the output of the next invocation, rather than needing to be inferred from file timestamps
 afterward.
 
+**AC-4 — the PR-lane mutation sweep completes inside its budget, by the rule the repo already
+has.** Added in review round 3, for a blocker that is the lane's rather than this diff's.
+
+`mutation-sweep-pr` timed out at 15 minutes on three consecutive heads of this branch, never
+emitting a result set. Re-diagnosed from the runs' own logs rather than from a local sweep:
+
+| what | measurement |
+| --- | --- |
+| `lean-gate-selftest.sh`, unmutated, at merge-base `e583994` | **143s** |
+| the same suite at this branch's head | **147s** |
+| `lean-gate.sh` mutants in the PR pool | 28 of 53 |
+| of those, mutants that spin to the full 300s killer bound | **10** — 3000s of wall-clock wait alone |
+| CI pool | 2 workers (`cores - 2` on a 4-core runner) |
+
+This branch added **4 seconds** to a suite that was already 143s. The cost predates it, and
+`claude/second-shift-526`'s PR hit the same ceiling and merged red. The repo's answer to a suite
+this expensive already exists — `tools/mutation-slow-suites.tsv`, whose header reads *"The PR lane
+defers any guard whose killer appears here"* against a **5s** bar. `statectl-selftest.sh` is listed
+at 149s. `lean-gate-selftest.sh`, its twin at 147s, was never added: the list is hand-maintained and
+was last measured 2026-07-31.
+
+- The row is added, so `lean-gate.sh` defers to the nightly wholesale sweep — the same trade
+  `CLAUDE.md` already accepts for the install-topology guard: a regression there is caught within a
+  day rather than at PR time. This PR's own `lean-gate.sh` mutation evidence was collected before
+  the change and is recorded in the PR body (28 applied, 28 killed, 0 survivors).
+- **The rot is closed, not just the row.** Nothing announced the drift: the file's header promises
+  a report warn and no such warn existed anywhere in the script. A report-time warn is also
+  structurally the one that never arrives — a job killed by its own ceiling dies before the report.
+  The warn is therefore emitted from the **precheck**, at the moment the measurement is taken, so a
+  run that later times out has already said why on the way past.
+- `SLOW_THRESHOLD_S` becomes overridable (`MUTATION_SWEEP_SLOW_THRESHOLD_S`) for the reason
+  `MUTATION_SWEEP_KILLER_MAX_PROCS` already is: so the companion suite can trip the warn on a
+  fixture that sleeps for a second rather than one that has to sleep past the real bar.
+
+The job's `timeout-minutes: 15` is deliberately left alone. Raising it would have bought a green
+lane while leaving a ~42-minute PR sweep in place and the stale list untouched.
+
 ## Explicitly out of scope
 
 Unchanged from the ticket: `cost-log.jsonl` atomicity, a marker-file naming contract pending
@@ -147,9 +184,10 @@ makes).
   `progress`.
 
   The two race coordinators bail as soon as a writer has exited rather than waiting out their full
-  10s ceiling. That is not cosmetic: under `tools/mutation-sweep.sh` the ceiling is spun in full
-  once per mutant that stops a writer short, which is wall-clock sleep on a 2-worker CI pool and
-  pushed the PR-scoped sweep past its 15-minute budget.
+  10s ceiling, since the ceiling would otherwise be spun in full once per mutant that stops a writer
+  short. **The bail works and was not the budget breach** — round 2 probed it firing and CI timed
+  out anyway; AC-4 carries the measured cause. Kept because it is free and correct, not because it
+  buys the lane anything.
 - `run-selftests-selftest.sh`: a fixture root carrying an executable `tools/reap-lean-fixtures.sh`
   proves the call site fires and that a failing reaper leaves the sweep's verdict green, with an
   absent-tool control proving the case reads the guard's true branch. Every other root it builds
@@ -157,3 +195,10 @@ makes).
   was measured: the green-on-failure property comes from this harness deliberately not being
   `set -e`, not from the call site's `|| true` — dropping that token leaves the case green, so the
   case pins the behavior and not the token.
+- `mutation-sweep-selftest.sh` `(l4)`: a fixture suite slowed past an overridden threshold, absent
+  from the slow list, warns and names itself without reding the run — asserted while only the
+  precheck has run, which is the placement the whole change is about. Its **control** holds every
+  input fixed and adds only the row: a warn keyed to duration alone would fire on every listed
+  suite forever, and the reader would learn to ignore it. The row added to
+  `tools/mutation-slow-suites.tsv` is data, not behavior, and is verified where it acts — a
+  PR-mode sweep on this branch reporting `lean-gate.sh` as `deferred-to-nightly`.

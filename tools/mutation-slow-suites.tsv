@@ -4,6 +4,7 @@
 # A paired suite ABSENT from this file is treated as fast.
 #
 # selftest<TAB>seconds<TAB>measured_at   (seconds from the seed run's unmutated precheck; ISO-8601 date)
+plugins/dev-pipeline/skills/build-lean/lean-gate-selftest.sh	147	2026-08-14
 plugins/dev-pipeline/skills/run/e2e-replay-selftest.sh	9	2026-07-31
 plugins/dev-pipeline/skills/run/scenario-liveness-selftest.sh	31	2026-07-31
 plugins/dev-pipeline/skills/run/statectl-selftest.sh	149	2026-07-31
