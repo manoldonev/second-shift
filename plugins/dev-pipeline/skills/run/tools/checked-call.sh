@@ -2,7 +2,7 @@
 # checked-call.sh — the three-outcome checked-call idiom, SOURCED (never executed).
 #
 # WHY THIS EXISTS. `producer | grep -q P` has two outcomes where the world has three. If the
-# producer dies, `grep` sees an empty stream and reports "no match"; under `pipefail` the dead
+# producer dies, `grep` sees an empty stream and reports no match; under `pipefail` the dead
 # producer also makes the whole pipeline non-zero, which reads as "no match" again. Either way
 # the caller learns "no" — and "no" is not what happened. The measured cost: a failed
 # `claude mcp list` misdetects a consumer's tracker during onboarding, silently, with the
@@ -10,8 +10,8 @@
 #
 # The contract is the RETURN CODE VOCABULARY, and it is shared beyond this function:
 # `lean-gate.sh`'s check_pause_and_ask uses the same numbers for the capture-shaped version of
-# the same defect (`out="$(cmd)" || return 0`, where 0 meant "clear"). One rule covers both —
-# **2 means you may not treat this as a negative.**
+# the same defect: a capture whose failure arm returned 0, where 0 meant "clear". One rule
+# covers both — **2 means you may not treat this as a negative.**
 #
 # SOURCE it; there is nothing to run:
 #   . "$SCRIPT_DIR/checked-call.sh"
@@ -34,8 +34,8 @@
 #   3  usage error (falls into a caller's default arm, which is the safe one)
 #
 # The grep args are passed through verbatim and MUST carry the pattern under `-e`. That is not
-# ceremony: `--` is this function's own separator, so the `grep -q -- '--head'` form callers
-# would otherwise need is unavailable, and `-e` removes the leading-hyphen ambiguity entirely.
+# ceremony: `--` is this function's own separator, so the option-terminator form callers would
+# otherwise reach for is unavailable, and `-e` removes the leading-hyphen ambiguity entirely.
 #
 # The producer's stderr is discarded, deliberately: an error message that reached the matcher
 # could MATCH, turning a dead call into a false positive — the same defect pointed the other way.

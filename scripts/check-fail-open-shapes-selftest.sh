@@ -203,6 +203,29 @@ lrc=$?
   && ok "(g14) --list exits 0 even on a tree with unclassified sites — it reports, it does not judge" \
   || bad "(g14) --list exited $lrc on an unclassified tree"
 
+echo "== the two seams a fixture case cannot reach =="
+
+# --help is range-FREE by construction (it prints to its own last line rather than to a line
+# number), and the only thing that can check that claim is its actual output: it must reach the
+# closing line and stop before the code. Asserting all three at once is what makes the
+# extraction mechanism itself testable rather than just its exit code.
+help="$(bash "$GUARD" --help 2>&1)"; hrc=$?
+if [[ $hrc -eq 0 ]] \
+   && grep -q 'THE DENOMINATOR IS THIS SCRIPT' <<<"$help" \
+   && grep -q 'Exit code = number of violations' <<<"$help" \
+   && ! grep -q 'set -uo pipefail' <<<"$help"; then
+  ok "(g15) --help prints the header through its last line and stops before the code"
+else bad "(g15) --help wrong (rc=$hrc): $help"; fi
+
+# TMPDIR is SET on a developer's macOS shell and UNSET on ubuntu CI, so the `:-/tmp` fallback in
+# the row-scratch mktemp is live in exactly the environment nobody runs interactively. Unsetting
+# it here is what makes the fallback reachable from a laptop at all.
+D="$(new_fixture notmpdir)"
+out="$(env -u TMPDIR bash "$GUARD" "$D" 2>&1)"; rc=$?
+[[ $rc -eq 0 ]] \
+  && ok "(g16) with TMPDIR unset the /tmp fallback still yields a real scratch file -> rc 0" \
+  || bad "(g16) TMPDIR-unset run expected rc 0, got $rc: $out"
+
 echo
 echo "[check-fail-open-shapes-selftest] $([ "$FAILS" -eq 0 ] && echo 'all green' || echo "$FAILS failed") — $PASS passed, $FAILS failed"
 exit $((FAILS > 0))

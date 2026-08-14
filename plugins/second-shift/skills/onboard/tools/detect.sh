@@ -25,8 +25,8 @@ set -uo pipefail
 #   3  usage error (falls into a caller's default arm, which is the safe one)
 #
 # The grep args are passed through verbatim and MUST carry the pattern under `-e`. That is not
-# ceremony: `--` is this function's own separator, so the `grep -q -- '--head'` form callers
-# would otherwise need is unavailable, and `-e` removes the leading-hyphen ambiguity entirely.
+# ceremony: `--` is this function's own separator, so the option-terminator form callers would
+# otherwise reach for is unavailable, and `-e` removes the leading-hyphen ambiguity entirely.
 #
 # The producer's stderr is discarded, deliberately: an error message that reached the matcher
 # could MATCH, turning a dead call into a false positive — the same defect pointed the other way.

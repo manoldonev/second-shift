@@ -148,5 +148,21 @@ chmod +x "$STUBS/claude"
 OUT6B="$(PATH="$STUBS:$PATH" DETECT_SKIP_MCP='' "$DETECT" "$R6")"
 expect "a readable MCP list with no jira still elects github" "$OUT6B" '.tracker.value' github
 
+# The POSITIVE arm, and the reason it is not optional: rc 0 and rc 1 are the only outcomes the
+# two sub-cases above tell apart, and BOTH of them leave the evidence array empty. A
+# checked_match whose matcher never matched would satisfy them exactly as written — so without
+# this case the suite cannot see that mutant. Only a list that DOES carry Atlassian turns the
+# probe into evidence.
+printf '#!/bin/sh\necho "server: atlassian (connected)"\n' > "$STUBS/claude"
+chmod +x "$STUBS/claude"
+OUT6C="$(PATH="$STUBS:$PATH" DETECT_SKIP_MCP='' "$DETECT" "$R6")"
+expect "a matching MCP list IS jira evidence" "$OUT6C" '.tracker.jiraEvidence | length' 1
+
+# And on a non-github origin that same evidence is what elects jira — the match reaching a
+# terminal answer, not merely a populated array.
+R6D="$TMP/mcpjira"; mkdir -p "$R6D"; mkrepo "$R6D" "git@git.acme-corp.example:acme/mcpjira.git" main
+OUT6D="$(PATH="$STUBS:$PATH" DETECT_SKIP_MCP='' "$DETECT" "$R6D")"
+expect "non-github origin + Atlassian MCP elects jira" "$OUT6D" '.tracker.value' jira
+
 if [[ "$FAILS" -gt 0 ]]; then echo "detect selftest: $FAILS FAILURE(S)"; exit 1; fi
 echo "detect selftest: all green"
