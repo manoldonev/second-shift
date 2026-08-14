@@ -5,8 +5,8 @@ run_id: review-526-2
 session_id: ed61155c-e2cf-4056-b533-96aa6d2d8265
 rounds: 2
 pr: #536
-reviewed_head: ad87b005069a961368f2b9e40c163a5e751a8e64
-reviewed_patch_id: 16c8f03d1cceab239c0285f7bad37b8a39d186f7
+reviewed_head: 10839c2c29c8528da21725ac8cc7bf678075be99
+reviewed_patch_id: da9a3837122cdaf2e97bd54109207ef2f0471059
 inherited_patch_id: 4f5c0eb67676a88287aef8b566368bfb9b8af341
 inherited_from_verdict: ba147e3a77bd96743ac708aea6bd2a19e8b671a8
 fidelity: not-applicable
@@ -23,6 +23,39 @@ routed — no changed path matches `stageParams.webComponentGlobs` (default
 
 Round 1's blocker is closed, and closed the way the repo asks for: the fix is a guard, and the
 guard has its own killer on each side. No new blockers. `approve`.
+
+## Re-stamped after a merge from main — same round, and why
+
+#535 (the detached-runner/join rewrite of milestone 3) landed on `main` after this record was
+first written, conflicting in the same three files the earlier rebase hit. The merge is
+`10839c2`, so this record is re-stamped against the merged tree rather than a new round being
+spent. The test is the merge-base-anchored contribution diff, and it comes out to **exactly one
+differing line**: `lean-gate.sh`'s `--help` range, which both sides moved (ours `172→177`, theirs
+`172→202`, merged `202→207`). The branch's own edit — add its five header lines to whatever the
+base declares — is unchanged; only the absolute number moved because the base's header grew. Every
+other byte of the contribution is identical to the tree this record already covered.
+
+**Disclosure, because it matters more than the round accounting.** The merge resolution was
+authored by this review session, not by a build session. Two of the three conflicts are pure unions
+and carry no judgment (all seven catalog rows kept; both the `(jc)`/`(jw)` and `(dj)` selftest
+blocks kept, with the blank separator between them restored). The third does carry judgment — the
+`--help` number is derived, and a wrong value either truncates the header or dumps code — so it was
+re-derived from the merged file (first non-comment line is 208, `set -uo pipefail`) rather than by
+adding the two sides' deltas, and `--help` was run to confirm it terminates at 207. A reader who
+wants that line checked by someone other than its author is asking for something this record cannot
+give.
+
+**The interaction was the real risk, not the conflicts.** #535 grew `lean-gate.sh` by ~340 lines
+inside `cmd_3`, which is exactly where AC-6 injects. `cmd_3()` still calls `lane_apply_job_ceiling`
+as its first statement (`:3031`), ahead of all four consumption sites (`:3060`, `:3072`, `:3153`,
+and `cmd_3_render` via `:3163`), and #535's detached runner reaches milestone 3 through `cmd_3`
+(`:2505`) — so the ceiling applies inside the detached evaluation. AC-6 survives.
+
+Verified on the merged tree: `shellcheck -e SC1091,SC2015,SC2181` clean on both gate files, every
+non-comment catalog row still four-field, and `lean-gate-selftest.sh` (including #535's own `(dj)`
+cases), `lane-registry-selftest.sh` and `run-selftests-selftest.sh` all green. **Not** re-run: the
+mutation sweep. #535 added five `lean-gate-m3-*` catalog rows, so whether the merged file re-keys
+any generic survivor ordinal on `lean-gate.sh` is unanswered here and belongs to milestone 3.
 
 ## Coverage gap
 
