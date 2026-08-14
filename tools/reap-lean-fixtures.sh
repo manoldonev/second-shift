@@ -3,7 +3,7 @@
 # signal-killed suite left behind (#528).
 #
 # WHY THIS EXISTS. lean-gate-selftest.sh and orchestrate-lean-selftest.sh each allocate a
-# templated `mktemp -d -t <name>.XXXXXX` work dir under ${TMPDIR:-/tmp} and clean it up with a
+# templated `mktemp -d -t <name>.XXXXXX` work dir under TMPDIR (or /tmp) and clean it up with a
 # `trap ... EXIT`. BSD `mktemp -t` DOES honor TMPDIR (unlike its no-template form — see
 # CLAUDE.md's killed-sweep note), so the template is not the problem. A trap is: a suite killed
 # by a SIGNAL (a `timeout`, a reaped background job, several concurrent sweeps starving each

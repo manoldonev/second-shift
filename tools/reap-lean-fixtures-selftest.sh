@@ -190,6 +190,18 @@ bash "$TOOL" --bogus > "$OUT" 2>&1
               || fail "usage: an unknown argument was accepted"
 
 # ---------------------------------------------------------------------------------------
+# The DEFAULT scan root, which no other case reaches. Every case above passes `--dir`, so the
+# `--dir`-less fallback is never exercised by them and a mutation of its default value survived
+# the entire suite — measured, not hypothesised. `--dry-run` is what makes asserting it safe:
+# the real root is scanned, but nothing anywhere is removed.
+OUT="$BASE/out.defaultroot"
+env -u TMPDIR bash "$TOOL" --dry-run > "$OUT" 2>&1
+defroot_rc=$?
+if [ "$defroot_rc" -eq 0 ] && grep -qF 'under /tmp' "$OUT"; then
+  pass "with TMPDIR unset the scan root falls back to /tmp"
+else fail "the TMPDIR-unset fallback root was not /tmp (rc=$defroot_rc): $(tail -1 "$OUT")"; fi
+
+# ---------------------------------------------------------------------------------------
 # --help prints the header, and only the header — the lean-gate-selftest.sh (w) / orchestrate-
 # lean-selftest.sh (n) pattern, applied here: a hand-maintained `sed -n '2,Np'` line count
 # silently truncates or leaks code the moment the header grows or shrinks, so it needs its own
