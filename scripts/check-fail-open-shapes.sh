@@ -50,7 +50,9 @@ ROOT=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --list) LIST_ONLY=1; shift ;;
-    -h|--help) sed -n '2,46p' "$0"; exit 0 ;;
+    # Range-free: print the header comment up to (and not past) its last line, so an edit to
+    # the prose above cannot silently start leaking `set -uo pipefail` into --help.
+    -h|--help) sed -n '2,/^# Exit code = number of violations/p' "$0"; exit 0 ;;
     *) ROOT="$1"; shift ;;
   esac
 done
