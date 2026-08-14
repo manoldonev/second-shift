@@ -4,6 +4,106 @@ All notable changes to the second-shift marketplace. Versions are per-plugin (`p
 this file tracks the marketplace release. `configVersion` stays `const 1` — v2 is fully backward-compatible for a
 consumer with an empty config; the migration notes below are only for consumers using the changed features.
 
+## v5.1.0
+
+### `audit-toolkit` 2.1.1 → 2.1.2
+
+- **fix: assertion pipelines read a matching grep as a miss under pipefail (#522)** (#522)
+  gate, hook and lint predicates no longer read a matching `grep -q` as a
+  miss when the producing `printf` takes SIGPIPE under `pipefail`, which could flip
+  a verdict or skip a check at random.
+  Migration: none.
+
+### `dev-pipeline` 5.0.0 → 5.1.0
+
+- **fix: assertion pipelines read a matching grep as a miss under pipefail (#522)** (#522)
+  gate, hook and lint predicates no longer read a matching `grep -q` as a
+  miss when the producing `printf` takes SIGPIPE under `pipefail`, which could flip
+  a verdict or skip a check at random.
+  Migration: none.
+- **The lean scheduler's re-entry admission, composed to a terminal write (#521)** (#521)
+  the shipped liveness suite now composes the lean lane's scheduler end
+  to end, so a regression in preflight's re-entry admission fails a scenario
+  rather than only a component checked against itself.
+  Migration: none.
+- **The lean lane re-checks its own premise before every build spawn (#534)** (#534)
+  /dev-pipeline:run-lean now stops a run whose premise expired while it was
+  in flight — exit 7, distinct from a phase failure's 1 — when the ticket has closed or
+  the base has moved into files the branch is also editing. Detection only: nothing is
+  rebased or reverted, and the worktree and claim are left in place.
+  Migration: none.
+- **The green gate outlives the turn that started it (#535)** (#535)
+  build-lean's milestone-3 green gate now runs as a detached process the
+  gate call blocks on, so a reaped or timed-out call rejoins the same evaluation
+  instead of abandoning it or starting a second. New exit code 7 means the
+  evaluation did not complete (dead runner, or the 3600s
+  LEAN_GATE_WAIT_CEILING_SECS ceiling) — it charges no fix attempt and the remedy
+  is to re-invoke. Migration: none.
+  a milestone-3 call that joins a running evaluation can no longer be ended by
+  an exit code some earlier evaluation stamped, which on a reused pid returned a stale
+  verdict instantly; and a completed evaluation no longer leaves its pid record behind.
+  Migration: none.
+  a milestone-3 call no longer joins a runner whose own evaluation has
+  already finished — after a ceiling breach or a reaped waiter, the leftover pid
+  record and the marker that launch stamped share a token, and joining them
+  returned a previous evaluation's exit code instantly on a reused pid. Such a
+  call now re-evaluates the tree instead.
+  Migration: none.
+- **feat(dev-pipeline): a lean lane sizes its milestone-3 sweep to its share of the machine (#536)** (#536)
+  concurrent lean lanes no longer each size their verification sweep to
+  the whole machine. The build gate now counts live lanes and hands each one a
+  job ceiling, announced on milestone-3 output. A consumer whose test command
+  reads LEAN_JOB_CEILING gets the benefit; one that ignores it is unaffected.
+  Migration: none.
+- **A dead call stops reading as a negative result (#538)** (#538)
+  a failed shell call is no longer reported as a genuine negative result.
+  `detect.sh` leaves the tracker ambiguous when `claude mcp list` cannot be read
+  instead of electing github; `pipeline-doctor.sh` reports an unprobeable gh or MCP as
+  UNKNOWN rather than absent; and lean-gate's milestone 1 treats an unreadable issue as
+  an environment error (rc 2) that spends no fix budget, where it used to charge a fix
+  attempt. Migration: none.
+
+### `intake-toolkit` 2.3.3 → 2.3.4
+
+- **fix: assertion pipelines read a matching grep as a miss under pipefail (#522)** (#522)
+  gate, hook and lint predicates no longer read a matching `grep -q` as a
+  miss when the producing `printf` takes SIGPIPE under `pipefail`, which could flip
+  a verdict or skip a check at random.
+  Migration: none.
+- **Intake scans for duplicates before a ticket becomes eligible to run (#523)** (#523)
+  every intake exit now scans a new ticket against the open queue —
+  including tickets already claimed for a build — and reports likely duplicates
+  for the operator to judge. A scan that cannot run (unauthenticated, offline)
+  hard-stops intake instead of labeling the ticket.
+  Migration: none.
+  intake's duplicate scan now runs on each sub-issue a decomposition
+  creates, not only on the parent it strips the queue label from — so a slice
+  can no longer reach the queue unscanned.
+  Migration: none.
+
+### `review-toolkit` 4.2.0 → 4.2.1
+
+- **fix: assertion pipelines read a matching grep as a miss under pipefail (#522)** (#522)
+  gate, hook and lint predicates no longer read a matching `grep -q` as a
+  miss when the producing `printf` takes SIGPIPE under `pipefail`, which could flip
+  a verdict or skip a check at random.
+  Migration: none.
+
+### `second-shift` 3.1.5 → 3.1.6
+
+- **fix: assertion pipelines read a matching grep as a miss under pipefail (#522)** (#522)
+  gate, hook and lint predicates no longer read a matching `grep -q` as a
+  miss when the producing `printf` takes SIGPIPE under `pipefail`, which could flip
+  a verdict or skip a check at random.
+  Migration: none.
+- **A dead call stops reading as a negative result (#538)** (#538)
+  a failed shell call is no longer reported as a genuine negative result.
+  `detect.sh` leaves the tracker ambiguous when `claude mcp list` cannot be read
+  instead of electing github; `pipeline-doctor.sh` reports an unprobeable gh or MCP as
+  UNKNOWN rather than absent; and lean-gate's milestone 1 treats an unreadable issue as
+  an environment error (rc 2) that spends no fix budget, where it used to charge a fix
+  attempt. Migration: none.
+
 ## v5.0.0
 
 ### `dev-pipeline` 4.2.2 → 5.0.0
