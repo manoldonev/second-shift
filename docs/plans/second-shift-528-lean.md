@@ -151,6 +151,9 @@ makes).
   once per mutant that stops a writer short, which is wall-clock sleep on a 2-worker CI pool and
   pushed the PR-scoped sweep past its 15-minute budget.
 - `run-selftests-selftest.sh`: a fixture root carrying an executable `tools/reap-lean-fixtures.sh`
-  proves the call site fires and that a non-zero reaper exit does not red the sweep, with an
+  proves the call site fires and that a failing reaper leaves the sweep's verdict green, with an
   absent-tool control proving the case reads the guard's true branch. Every other root it builds
-  lacks the tool, so the call is inert there without a dedicated seam.
+  lacks the tool, so the call is inert there without a dedicated seam. Stated precisely because it
+  was measured: the green-on-failure property comes from this harness deliberately not being
+  `set -e`, not from the call site's `|| true` — dropping that token leaves the case green, so the
+  case pins the behavior and not the token.
