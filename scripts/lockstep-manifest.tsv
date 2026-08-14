@@ -189,6 +189,16 @@ prettier-local-rungs	verbatim	plugins/dev-pipeline/skills/build-lean/lean-gate.s
 # header's per-line usage forms. The behavioral guard is statectl-selftest.sh (fr1)'s
 # decoy probe: a value payload containing the literal "--force-reason" must pass through
 # unharmed, which fails if a value-taking flag is missing from the skip-list.
+#
+# LEAN_JOB_CEILING, writer ↔ reader (#526). lean-gate.sh EXPORTS that name into every
+# milestone-3 lane child; tools/run-selftests.sh READS it. A one-sided rename breaks the
+# coupling silently AND in the invisible direction — the runner sees no ceiling and every
+# lane sizes itself to the whole machine again, which is exactly the pre-#526 behavior and
+# so reds nothing that asserts correctness. Considered for a row and DROPPED: the two sites
+# share a token, not an anchorable BLOCK, and pinning a variable name in two places is the
+# presence check this repo bans. The behavioral guard is lean-gate-selftest.sh (jc1) — a
+# real extraLane child echoes `${LEAN_JOB_CEILING:-unset}` and its value must equal the
+# ceiling the gate announced, so a rename on either side leaves the child reporting `unset`.
 
 # Audit ledger row schema — the field list a consumer keys off (audit QUERIES.md schema
 # section ↔ audit SETUP.md "What you get"). This pair is the reason the ledger drifted:

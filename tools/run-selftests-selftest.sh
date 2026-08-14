@@ -23,12 +23,23 @@ BASE="$(mktemp -d "${TMPDIR:-/tmp}/run-selftests-selftest.XXXXXX")" || exit 2
 trap 'rm -rf "$BASE"' EXIT
 
 # run_runner <fixture-root> [args...] -> writes $OUT, sets $RC
+#
+# LEAN_JOB_CEILING is SCRUBBED unless a case opts in through $CEILING, and that scrub is not
+# hygiene — it is what makes the jobs assertions below mean anything. The lean gate exports that
+# variable into every milestone-3 child, and one of those children is the sweep that runs this
+# file, so an inherited ceiling would silently clip the value every ceiling case asserts.
 OUT=""; RC=0
+CEILING=""
 run_runner() {
   local root="$1"; shift
   OUT="$BASE/out.$$.$RANDOM"
-  env -u TMPDIR -u SELFTEST_JOBS -u RUN_SELFTESTS_DROP_LAST \
-    bash "$RUNNER" --root "$root" "$@" > "$OUT" 2>&1
+  if [[ -n "$CEILING" ]]; then
+    env -u TMPDIR -u SELFTEST_JOBS -u RUN_SELFTESTS_DROP_LAST LEAN_JOB_CEILING="$CEILING" \
+      bash "$RUNNER" --root "$root" "$@" > "$OUT" 2>&1
+  else
+    env -u TMPDIR -u SELFTEST_JOBS -u RUN_SELFTESTS_DROP_LAST -u LEAN_JOB_CEILING \
+      bash "$RUNNER" --root "$root" "$@" > "$OUT" 2>&1
+  fi
   RC=$?
 }
 
@@ -718,6 +729,65 @@ run_runner "$EMPTY"
 run_runner "$R3" --exclude "keep-selftest.sh" --exclude "drop-selftest.sh"
 [[ "$RC" -eq 2 ]] && ok "usage: excluding every suite reds instead of passing vacuously" \
                   || { fail "usage: an all-excluded sweep did not red (rc=$RC)"; sed 's/^/    | /' "$OUT"; }
+
+# ---------------------------------------------------------------------------------------
+# The lane job ceiling (#526). A fixture tree of two trivial passing suites — nothing here is
+# about what the suites do, only about the jobs value the runner resolves and prints.
+#
+# The ceiling is asserted through `jobs=` on the runner's own summary line rather than by
+# timing anything: a concurrency assertion keyed on wall clock is a flake generator, and the
+# resolved value is the entire contract.
+# ---------------------------------------------------------------------------------------
+RJ="$BASE/jobs"; mkdir -p "$RJ"
+make_suite "$RJ" "j1-selftest.sh" 0 'echo j1'
+make_suite "$RJ" "j2-selftest.sh" 0 'echo j2'
+
+# AC-5. No ceiling and no flag is what BOTH CI workflows produce — neither invokes the gate that
+# exports one, and neither passes --jobs. Asserted, not assumed: this is the case that says CI's
+# concurrency is untouched by everything else in this change.
+CEILING=""; run_runner "$RJ"
+if [[ "$RC" -eq 0 ]] && grep -q 'jobs=4' "$OUT" && ! grep -q 'job ceiling' "$OUT"; then
+  ok "ceiling: absent leaves the default at 4 — CI's resolved concurrency is unchanged"
+else
+  fail "ceiling: absent must resolve jobs=4 with no announcement (rc=$RC)"; sed 's/^/    | /' "$OUT"
+fi
+
+# AC-2. The case the whole ticket exists for: SELFTEST_JOBS could not carry a ceiling because
+# --jobs overwrites it, so absent-with-an-explicit-flag must be byte-identical to today.
+CEILING=""; run_runner "$RJ" --jobs 10
+if [[ "$RC" -eq 0 ]] && grep -q 'jobs=10' "$OUT" && ! grep -q 'job ceiling' "$OUT"; then
+  ok "ceiling: absent leaves an explicit --jobs 10 alone"
+else
+  fail "ceiling: absent must leave --jobs 10 alone (rc=$RC)"; sed 's/^/    | /' "$OUT"
+fi
+
+CEILING=2; run_runner "$RJ" --jobs 10
+if [[ "$RC" -eq 0 ]] && grep -q 'jobs=2' "$OUT" && grep -q 'job ceiling: 10 -> 2' "$OUT"; then
+  ok "ceiling: below the flag clips it, and says so"
+else
+  fail "ceiling: 2 must clip --jobs 10 to 2 and announce it (rc=$RC)"; sed 's/^/    | /' "$OUT"
+fi
+
+# A CEILING, not an override. An operator who asked for fewer workers than their share keeps
+# them — raising anyone's concurrency is not something this variable may ever do.
+CEILING=9; run_runner "$RJ" --jobs 3
+if [[ "$RC" -eq 0 ]] && grep -q 'jobs=3' "$OUT" && ! grep -q 'job ceiling' "$OUT"; then
+  ok "ceiling: above the flag is a no-op"
+else
+  fail "ceiling: 9 must leave --jobs 3 alone (rc=$RC)"; sed 's/^/    | /' "$OUT"
+fi
+
+# Rejected the way --jobs is. Unvalidated, the minimum is undefined and the naive shell form
+# yields an empty or zero jobs value — a silent drop to serial, which is the fail-open shape
+# this change exists to remove.
+CEILING=abc; run_runner "$RJ"
+[[ "$RC" -eq 2 ]] && ok "ceiling: a non-numeric ceiling is rejected" \
+                  || { fail "ceiling: LEAN_JOB_CEILING=abc was accepted (rc=$RC)"; sed 's/^/    | /' "$OUT"; }
+
+CEILING=0; run_runner "$RJ"
+[[ "$RC" -eq 2 ]] && ok "ceiling: a zero ceiling is rejected" \
+                  || { fail "ceiling: LEAN_JOB_CEILING=0 was accepted (rc=$RC)"; sed 's/^/    | /' "$OUT"; }
+CEILING=""
 
 echo
 if [[ "$FAILS" -eq 0 ]]; then

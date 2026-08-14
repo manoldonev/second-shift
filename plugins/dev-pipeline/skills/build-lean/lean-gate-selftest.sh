@@ -4834,6 +4834,123 @@ if [ "$rc" -eq 1 ] && grep -q 'cannot resolve merge-base' <<<"$out" \
   pass "(st17) a branch with no shared history is exit 1 naming the merge-base — not the D-9 skip and not a clean answer"
 else fail "(st17) expected rc=1 from an unresolvable merge-base, got rc=$rc: $out"; fi
 
+# ---- (jc) #526: the lane job ceiling reaches the lane children ---------------------------
+# The registry mechanics have their own suite (lane-registry-selftest.sh). What is asserted HERE
+# is the seam between the two: that milestone 3 announces a ceiling and that a lane child is
+# actually spawned carrying it. An extraLane is the observation point because it runs through
+# the identical `env ${SEAM_SCRUB_ENV[@]…}` idiom as the fixed lint/typecheck/test keys — the
+# single injection site AC-6 names — so a child that sees the value proves all of them do.
+jc_reg="$WORK/jc-lanes.tsv"
+jc_ps="$WORK/jc-ps"
+mkdir -p "$jc_ps"
+# Two live lanes, staged through the helper's documented process-facts seam so the count does
+# not depend on anything actually running concurrently.
+for jc_p in 8801 8802; do
+  printf '1' > "$jc_ps/$jc_p.ppid"; printf 'claude' > "$jc_ps/$jc_p.comm"; printf 'S%s' "$jc_p" > "$jc_ps/$jc_p.lstart"
+  printf '%s\t%s\t%s\t%s\n' "$jc_p" "S$jc_p" 7 "2026-01-01T00:00:00Z" >> "$jc_reg"
+done
+
+# The single quotes are the assertion: $LEAN_JOB_CEILING must expand in the CHILD the gate
+# spawns. Expanding it here would compare this suite's environment against itself.
+# shellcheck disable=SC2016
+cfg="$(el_cfg '[{"name":"ceil-probe","commands":["echo child-ceiling=${LEAN_JOB_CEILING:-unset}"],"failureClass":"TEST_FAILURE"}]')"
+prog="$WORK/el-prog-ceiling.md"
+attest_at "$EL_TREE" "$cfg" "$prog" 7
+out="$( unset RUN_ID CLAUDE_CODE_SESSION_ID
+        cd "$EL_TREE" && SECOND_SHIFT_CONFIG="$cfg" LEAN_PROGRESS_FILE="$prog" \
+        LEAN_LANE_REGISTRY="$jc_reg" LEAN_LANE_PS_DIR="$jc_ps" \
+        bash "$GATE" --issue-file "$EL_ISSUE" 3 7 2>&1 )"; rc=$?
+jc_announced="$(printf '%s\n' "$out" | sed -n 's/^.*job ceiling \([0-9][0-9]*\) = .*$/\1/p' | head -1)"
+jc_child="$(printf '%s\n' "$out" | sed -n 's/^child-ceiling=//p' | head -1)"
+if [ "$rc" -eq 0 ] && [ -n "$jc_announced" ] && [ "$jc_child" = "$jc_announced" ]; then
+  pass "(jc1) milestone 3 announces a ceiling ($jc_announced) and the lane child is spawned with it"
+else fail "(jc1) expected rc=0 with the announced ceiling reaching the child, got rc=$rc announced='$jc_announced' child='$jc_child': $out"; fi
+
+if grep -qF '2 live lane(s)' <<<"$out"; then
+  pass "(jc2) AC-3: the announcement names the lane count the ceiling came from"
+else fail "(jc2) expected the announcement to name 2 live lanes: $out"; fi
+
+if grep -qF 'ADVERTISED, not enforced' <<<"$out"; then
+  pass "(jc3) AC-7: the announcement does not claim the value was applied"
+else fail "(jc3) expected an advertised-not-enforced note: $out"; fi
+
+# AC-4 through the gate, not only through the helper: no registry at all must still announce,
+# still export, and still name WHY it fell back — never a silent zero and never silence.
+# The single quotes are the assertion: $LEAN_JOB_CEILING must expand in the CHILD the gate
+# spawns. Expanding it here would compare this suite's environment against itself.
+# shellcheck disable=SC2016
+cfg="$(el_cfg '[{"name":"ceil-probe","commands":["echo child-ceiling=${LEAN_JOB_CEILING:-unset}"],"failureClass":"TEST_FAILURE"}]')"
+prog="$WORK/el-prog-ceiling-absent.md"
+attest_at "$EL_TREE" "$cfg" "$prog" 7
+out="$( unset RUN_ID CLAUDE_CODE_SESSION_ID
+        cd "$EL_TREE" && SECOND_SHIFT_CONFIG="$cfg" LEAN_PROGRESS_FILE="$prog" \
+        LEAN_LANE_REGISTRY="$WORK/jc-nope/lanes.tsv" \
+        bash "$GATE" --issue-file "$EL_ISSUE" 3 7 2>&1 )"; rc=$?
+jc_announced="$(printf '%s\n' "$out" | sed -n 's/^.*job ceiling \([0-9][0-9]*\) = .*$/\1/p' | head -1)"
+jc_child="$(printf '%s\n' "$out" | sed -n 's/^child-ceiling=//p' | head -1)"
+if [ "$rc" -eq 0 ] && [ -n "$jc_announced" ] && [ "$jc_announced" -ge 1 ] && [ "$jc_child" = "$jc_announced" ] \
+   && grep -qF '1 lane assumed — no lane registry at' <<<"$out"; then
+  pass "(jc4) AC-4: with no registry the gate degrades to one lane, names why, and still exports"
+else fail "(jc4) expected an announced single-lane fallback reaching the child, got rc=$rc announced='$jc_announced' child='$jc_child': $out"; fi
+
+# ---- (jw) #526: the JOIN — `entry` registers this lane, `teardown` removes it ----------------
+# (jc1)-(jc4) above prove the gate READS a registry, against a file this suite pre-staged;
+# lane-registry-selftest.sh proves the helper works when something calls it. NEITHER reaches the
+# two lines that make the registry exist at all — `lane_register` in cmd_entry and
+# `lane_deregister` in cmd_teardown — and both wrappers are advisory by construction (helper
+# output suppressed, `return 0` on every path), so replacing either call site with `:` changes no
+# rc and no required line. Measured before these cases existed: both replaced, this suite stayed
+# at 320 PASS / 0 FAIL while the feature was entirely inert — no lane ever registers, `basis`
+# resolves `empty`, every ceiling is the whole machine, and milestone 3 goes on announcing one.
+# A silent regression wearing the fix's own output is exactly the shape CLAUDE.md's scenario-first
+# rule names, so the join gets its own cases rather than a coverage note.
+#
+# The assertion is the ROW, not the say-line: the row is the only observable that cannot be
+# produced without the helper having actually been invoked with this lane's identity.
+jw_reg="$WORK/jw-lanes.tsv"
+jw_ps="$WORK/jw-ps"
+jw_prog="$WORK/jw-progress.md"
+mkdir -p "$jw_ps"
+# LEAN_LANE_PID pins WHICH pid is written, so nothing here depends on the suite's own ancestry;
+# LEAN_LANE_PS_DIR is what makes that pid readable as live. 9902 is a second lane staged straight
+# into the file — the control for (jw2), which must drop this lane's row and only this lane's.
+for jw_p in 9901 9902; do
+  printf '1' > "$jw_ps/$jw_p.ppid"; printf 'claude' > "$jw_ps/$jw_p.comm"; printf 'S%s' "$jw_p" > "$jw_ps/$jw_p.lstart"
+done
+printf '%s\t%s\t%s\t%s\n' 9902 S9902 99 "2026-01-01T00:00:00Z" > "$jw_reg"
+
+# pid/start/issue of the row for <pid>, or empty. awk rather than `grep -q` on a tab-bearing
+# pattern: the field split is what the assertion is about, and a pipeline whose producer can be
+# SIGPIPEd would score a match as a miss under this file's pipefail.
+jw_row() { awk -F'\t' -v p="$1" '$1==p {print $1"/"$2"/"$3; exit}' "$jw_reg" 2>/dev/null; }
+
+jw_gate() { # jw_gate <args…> — a build session with the lane seams pinned
+  ( unset RUN_ID CLAUDE_CODE_ENABLE_TELEMETRY OTEL_EXPORTER_OTLP_ENDPOINT
+    cd "$PTREE" && CLAUDE_CODE_SESSION_ID="$PSID" SECOND_SHIFT_CONFIG="$CFG" \
+    LEAN_PROGRESS_FILE="$jw_prog" \
+    LEAN_LANE_REGISTRY="$jw_reg" LEAN_LANE_PS_DIR="$jw_ps" LEAN_LANE_PID=9901 \
+    bash "$GATE" --issue-file "$ISSUE_NOREGIONS" "$@" 2>&1 )
+}
+
+rm -f "$jw_prog"
+out="$(jw_gate entry 8)"; rc=$?
+if [ "$rc" -eq 0 ] && [ "$(jw_row 9901)" = "9901/S9901/8" ] && [ -n "$(jw_row 9902)" ]; then
+  pass "(jw1) AC-1: 'entry' registers this lane — the row every other lane's ceiling divides by exists because the gate wrote it"
+else fail "(jw1) expected entry to write a live 9901 row for issue 8 and keep 9902, got rc=$rc, registry: $(cat "$jw_reg" 2>/dev/null)"; fi
+
+# Idempotent by rewrite, at gate level: `entry` is re-run on every resume, and a join that
+# appended would hand one lane N votes and starve every other lane in proportion.
+out="$(jw_gate entry 8)"; rc=$?
+jw_n="$(awk -F'\t' '$1=="9901"' "$jw_reg" 2>/dev/null | wc -l | tr -d ' ')"
+if [ "$rc" -eq 0 ] && [ "$jw_n" -eq 1 ]; then
+  pass "(jw2) a re-entered run still holds exactly one vote — the join is idempotent, not additive"
+else fail "(jw2) expected exactly one 9901 row after a second entry, got rc=$rc count=$jw_n: $(cat "$jw_reg" 2>/dev/null)"; fi
+
+out="$(jw_gate teardown 8)"; rc=$?
+if [ "$rc" -eq 0 ] && [ -z "$(jw_row 9901)" ] && [ -n "$(jw_row 9902)" ]; then
+  pass "(jw3) AC-1: 'teardown' removes this lane's row and leaves the other live lane's alone"
+else fail "(jw3) expected 9901 gone and 9902 kept, got rc=$rc, registry: $(cat "$jw_reg" 2>/dev/null)"; fi
+
 # ---- (dj) #511: milestone 3 runs DETACHED, and a second caller JOINS it ----------------------
 # The mechanism that removes a `-p` block's ability to hand verification to something that
 # outlives its turn. Under `claude -p` turn end IS process exit, so a session that backgrounds the
