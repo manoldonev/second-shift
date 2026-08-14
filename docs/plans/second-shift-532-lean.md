@@ -103,10 +103,22 @@ clear.
   production text, and executes the replaced pipeline beside them so the collapse is pinned by
   a run rather than by a comment. `check-fail-open-shapes-selftest.sh` covers the guard,
   including the real repo tree (which is how it reaches CI at all — there is no `ci.yml`
-  registration, only the `*-selftest.sh` glob). `lean-gate-selftest.sh` gains (y9)-(y11) and
-  `detect-selftest.sh` a two-sided MCP case. `tools/mutation-catalog.tsv` gains rows for both
-  new guards, since a guard nothing kills is not coverage; generic survivor ordinals re-keyed
-  by editing `detect.sh`, `pipeline-doctor.sh` and `lean-gate.sh` are re-baselined in this diff.
+  registration, only the `*-selftest.sh` glob) — including `--help` and the row-scratch
+  `TMPDIR` fallback, two seams no fixture case reaches. `lean-gate-selftest.sh` gains
+  (y9)-(y11) and `detect-selftest.sh` a THREE-sided MCP case: dead producer, genuine no, and
+  the match. The third is not symmetry — the first two both leave the evidence array empty, so
+  without it a `checked_match` whose matcher never matched passes the suite as written.
+  `tools/mutation-catalog.tsv` gains rows for both new guards, since a guard nothing kills is
+  not coverage; generic survivor ordinals re-keyed by editing `detect.sh`,
+  `pipeline-doctor.sh` and `lean-gate.sh` are re-baselined in this diff.
+
+  The generic operators sweep at most **k=2 sites per class**, which makes comment prose that
+  quotes an operator literal a coverage hazard and not just noise: in both copies of the idiom
+  the first two `detector` sites were comments, so the real matcher sat at ordinal 3, outside
+  the window, and its never-match mutant was unreachable rather than merely unkilled. The
+  three comments carrying such a literal are reworded so the budget lands on executable code.
+  Where prose is left holding a slot (`check-fail-open-shapes.sh`'s two `logic` ordinals), the
+  baseline row records what it displaces and why that is the better trade.
 
 ## Out of scope
 
