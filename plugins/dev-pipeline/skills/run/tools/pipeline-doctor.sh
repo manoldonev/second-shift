@@ -22,6 +22,11 @@ SKILL_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 # here; their selftests are reached script-relative (they are NOT in the consumer repo).
 PLUGINS_DIR="$(cd "$SKILL_DIR/../../.." && pwd)"
 
+# Same directory, not a sibling plugin — this one ships with us under every layout, so it
+# needs none of resolve_sibling's machinery below.
+# shellcheck source=checked-call.sh
+. "$SCRIPT_DIR/checked-call.sh"
+
 # Resolve a sibling-plugin file across BOTH layouts the doctor runs from:
 #   monorepo checkout:  <PLUGINS_DIR>/<sib>/<rel>              (PLUGINS_DIR = .../plugins)
 #   version-keyed install cache: <cacheroot>/<sib>/<ver>/<rel>  (PLUGINS_DIR = <cacheroot>/<this-plugin>)
@@ -189,11 +194,12 @@ else
   warn "no issues found to probe the gh GraphQL path"
 fi
 
-if gh pr list --help 2>/dev/null | grep -q -- '--head'; then
-  ok "gh pr list --head supported"
-else
-  warn "gh pr list lacks --head (old gh) — Stage 9 duplicate guard must use REST: gh api 'repos/{owner}/{repo}/pulls?head={owner}:BRANCH'"
-fi
+checked_match -e '--head' -- gh pr list --help
+case $? in
+  0) ok "gh pr list --head supported" ;;
+  1) warn "gh pr list lacks --head (old gh) — Stage 9 duplicate guard must use REST: gh api 'repos/{owner}/{repo}/pulls?head={owner}:BRANCH'" ;;
+  *) warn "could not probe 'gh pr list --help' (exit $CHECKED_MATCH_RC) — --head support is UNKNOWN, not missing. Re-run the doctor once gh works rather than routing Stage 9 around a capability that may be there" ;;
+esac
 
 # --- 3. Bot wrapper -------------------------------------------------------------
 # >>> bot-resolve (classification + bind — extracted by pipeline-doctor-selftest.sh) >>>
@@ -506,13 +512,24 @@ fi
 # non-interactive shell; treat that as "unknown", not "missing".
 CHROME_BIN="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
 command -v google-chrome >/dev/null 2>&1 && CHROME_BIN="$(command -v google-chrome)"
-if claude mcp list 2>/dev/null | grep -qi playwright; then
-  ok "Playwright MCP configured — Stage 6 visual capture uses the prescribed tool"
-elif [[ -x "$CHROME_BIN" ]]; then
-  warn "Playwright MCP not configured — Stage 6 visual capture degrades to the headless-Chrome fallback (mobile viewport clamps to ~500px min-width)"
-else
-  warn "neither Playwright MCP nor headless Chrome available — Stage 6 visual capture will skip (logged, non-blocking); PR bodies omit the Visual Verification section"
+mcp_rc=1
+if command -v claude >/dev/null 2>&1; then
+  checked_match -i -e playwright -- claude mcp list
+  mcp_rc=$?
 fi
+# `claude` ABSENT is a genuine "not configured" (rc 1 above, unchanged). `claude mcp list`
+# PRESENT but failing is the third state the comment above already prescribed and the old
+# pipeline could not express — a non-interactive shell that cannot answer, reported as such
+# instead of as a missing MCP.
+case $mcp_rc in
+  0) ok "Playwright MCP configured — Stage 6 visual capture uses the prescribed tool" ;;
+  1) if [[ -x "$CHROME_BIN" ]]; then
+       warn "Playwright MCP not configured — Stage 6 visual capture degrades to the headless-Chrome fallback (mobile viewport clamps to ~500px min-width)"
+     else
+       warn "neither Playwright MCP nor headless Chrome available — Stage 6 visual capture will skip (logged, non-blocking); PR bodies omit the Visual Verification section"
+     fi ;;
+  *) warn "could not read 'claude mcp list' (exit $CHECKED_MATCH_RC) — Playwright MCP presence is UNKNOWN, not absent. Stage 6 capture may well work; re-run the doctor from an interactive shell before assuming the fallback" ;;
+esac
 
 # --- 7. Instruction-prose budget ratchet (L2 debloat, #188) ---------------------
 # Quality signal, not an environment blocker: surface prose-layer growth over the

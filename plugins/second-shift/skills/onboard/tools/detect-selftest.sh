@@ -121,5 +121,32 @@ OUT5="$("$DETECT" "$R5")"
 expect "undetected baseBranch is empty" "$OUT5" '.git.baseBranch.value' ""
 expect "undetected provenance"          "$OUT5" '.git.baseBranch.source' undetected
 
+# Case 6 (#532): `claude mcp list` FAILING is not evidence of "no Atlassian MCP". A github
+# origin plus an empty evidence array elects `github`, so a blip in a non-interactive shell
+# used to MISDETECT the tracker and there was no third answer to give. Both directions matter,
+# hence two sub-cases over the SAME repo — only the stub's exit status differs.
+R6="$TMP/mcpblip"; mkdir -p "$R6"; mkrepo "$R6" "git@github.com:acme/mcpblip.git" main
+STUBS="$TMP/stubs"; mkdir -p "$STUBS"
+
+printf '#!/bin/sh\necho "error: could not connect" >&2\nexit 9\n' > "$STUBS/claude"
+chmod +x "$STUBS/claude"
+OUT6="$(PATH="$STUBS:$PATH" DETECT_SKIP_MCP= "$DETECT" "$R6")"
+expect "unreadable MCP does not elect github"   "$OUT6" '.tracker.value' ambiguous
+expect "unreadable MCP claims no jira evidence" "$OUT6" '.tracker.jiraEvidence | length' 0
+SRC6="$(jq -r '.tracker.source' <<< "$OUT6")"
+if grep -q 'exited 9' <<< "$SRC6"; then
+  check "unreadable MCP puts the producer's exit status in the provenance" 0
+else
+  check "unreadable MCP provenance (want 'exited 9', got '$SRC6')" 1
+fi
+
+# The negative half: a stub that SUCCEEDS with no Atlassian server is a genuine negative and
+# must still elect github. Without it the case above would also pass on a detect.sh that had
+# simply stopped classifying anything.
+printf '#!/bin/sh\necho "server: filesystem (connected)"\n' > "$STUBS/claude"
+chmod +x "$STUBS/claude"
+OUT6B="$(PATH="$STUBS:$PATH" DETECT_SKIP_MCP= "$DETECT" "$R6")"
+expect "a readable MCP list with no jira still elects github" "$OUT6B" '.tracker.value' github
+
 if [[ "$FAILS" -gt 0 ]]; then echo "detect selftest: $FAILS FAILURE(S)"; exit 1; fi
 echo "detect selftest: all green"

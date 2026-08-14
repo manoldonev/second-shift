@@ -1341,6 +1341,51 @@ else fail "(y8) expected rc=1 — an unratified intent-gap record must not resol
 rm -f "$GAP"; commit_tree "remove unratified intent-gap fixture"
 reset_progress
 
+# (y9)-(y11) #532: "could not read the issue" is not "the issue declares no region", and it is
+# not a failed FIX either. Both gh arms already printed a reason, so both already refused —
+# what they could not do was refuse for the right REASON: an unreadable tracker spent one of
+# milestone 1's three attempts, and three blips hard-stopped the run at rc=4.
+#
+# Each case asserts BOTH halves. The rc alone is not enough — rc=1 and rc=2 are both refusals,
+# and only the attempt COUNT separates "the operator has work to do" from "the environment is
+# broken". Read straight off the progress file, which is what the budget is computed from.
+attempts_1() { grep -cF '| milestone-1 | attempt |' "$PROG" 2>/dev/null || true; }
+
+reset_progress
+before="$(attempts_1)"
+printf '{"body": not json at all' > "$WORK/issue-malformed.json"
+out="$(gate 1 7 --issue-file "$WORK/issue-malformed.json" --comments-file "$WORK/comments-none.json")"; rc=$?
+after="$(attempts_1)"
+if [ "$rc" -eq 2 ] && grep -q 'could not parse' <<<"$out" && [ "$before" = "$after" ]; then
+  pass "(y9) an UNPARSEABLE issue file is an environment refusal (rc=2), not a clear and not a fix attempt"
+else fail "(y9) expected rc=2 naming 'could not parse' with attempts unchanged ($before), got rc=$rc attempts=$after: $out"; fi
+
+# The gh arm. `gate` injects --issue-file, so this one goes through gate_cfg with a GH_CLI that
+# cannot succeed — the real network-blip shape.
+reset_progress
+before="$(attempts_1)"
+printf '#!/bin/sh\necho "gh: connection refused" >&2\nexit 1\n' > "$WORK/gh-dead.sh"
+chmod +x "$WORK/gh-dead.sh"
+out="$( unset RUN_ID CLAUDE_CODE_SESSION_ID
+        cd "$TREE" && SECOND_SHIFT_CONFIG="$CFG" LEAN_PROGRESS_FILE="$PROG" \
+        GH="$WORK/gh-dead.sh" bash "$GATE" 1 7 2>&1 )"; rc=$?
+after="$(attempts_1)"
+if [ "$rc" -eq 2 ] && grep -q 'could not read issue' <<<"$out" && [ "$before" = "$after" ]; then
+  pass "(y10) a dead \`gh issue view\` is an environment refusal (rc=2) that spends no fix budget"
+else fail "(y10) expected rc=2 naming 'could not read issue' with attempts unchanged ($before), got rc=$rc attempts=$after: $out"; fi
+
+# The direction that keeps (y9)/(y10) honest: a REAL unresolved region must still cost an
+# attempt. Without it, turning every milestone-1 refusal into rc=2 would pass both cases above
+# while silently putting the whole fix budget out of reach.
+reset_progress
+before="$(attempts_1)"
+out="$(gate 1 7 --issue-file "$WORK/issue-or1-paa.json" --comments-file "$WORK/comments-none.json")"; rc=$?
+after="$(attempts_1)"
+if [ "$rc" -eq 1 ] && [ "$after" -eq $((before + 1)) ]; then
+  pass "(y11) a genuine unresolved region still costs one fix attempt — the two refusals stay distinct"
+else fail "(y11) expected rc=1 with attempts $before -> $((before + 1)), got rc=$rc attempts=$after: $out"; fi
+reset_progress
+
 # ---- (p) the REVIEW role: lean-gate.sh verdict ---------------------------------------------
 # Every arm here is a refusal that fails CLOSED. The subcommand is the only write path to the
 # verdict record, and it lives in this script solely so the pinned name table has one

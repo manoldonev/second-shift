@@ -9,6 +9,53 @@
 # Selftest env hooks: DETECT_SKIP_GH, DETECT_SKIP_MCP, DETECT_SKIP_LSREMOTE
 set -uo pipefail
 
+# The three-outcome checked-call idiom. CANONICAL TEXT:
+# plugins/dev-pipeline/skills/run/tools/checked-call.sh — a DIFFERENT PLUGIN, where a sibling
+# `source` would be a cross-plugin path resolved by hop count (the trap #469 was filed for), so
+# this copy is inline and pinned byte-identical by the `checked-call` row in
+# scripts/lockstep-manifest.tsv. Edit one, edit both.
+# LOCKSTEP-BEGIN checked-call
+# checked_match — run a producer and match its stdout, with THREE outcomes.
+#
+#   checked_match <grep-arg>... -- <producer> [arg]...
+#
+#   0  the producer succeeded and its output MATCHED
+#   1  the producer succeeded and its output did NOT match — a genuine negative
+#   2  the producer FAILED — the answer is UNKNOWN, and the caller must say so
+#   3  usage error (falls into a caller's default arm, which is the safe one)
+#
+# The grep args are passed through verbatim and MUST carry the pattern under `-e`. That is not
+# ceremony: `--` is this function's own separator, so the `grep -q -- '--head'` form callers
+# would otherwise need is unavailable, and `-e` removes the leading-hyphen ambiguity entirely.
+#
+# The producer's stderr is discarded, deliberately: an error message that reached the matcher
+# could MATCH, turning a dead call into a false positive — the same defect pointed the other way.
+# Its exit status is the diagnostic instead, published as CHECKED_MATCH_RC for the caller's
+# message. Only the producer's own exit status decides outcome 2 — with one benign overlap: a
+# `grep` that cannot run its own pattern also exits 2, which lands the caller in the same
+# "unknown" arm. That is the conservative direction, and the alternative (a malformed pattern
+# read as a genuine negative) is the defect this function exists to remove.
+# shellcheck disable=SC2034  # read by CALLERS, for the message an unknown outcome owes.
+CHECKED_MATCH_RC=0
+checked_match() {
+  local out rc gn=0
+  local gopts=()
+  while [ "$#" -gt 0 ] && [ "$1" != "--" ]; do
+    gopts[gn]="$1"; gn=$((gn + 1)); shift
+  done
+  [ "$#" -gt 0 ] || { echo "checked_match: missing '--' between the grep args and the producer" >&2; return 3; }
+  shift
+  [ "$gn" -gt 0 ] || { echo "checked_match: no grep args given (the pattern goes under -e)" >&2; return 3; }
+  [ "$#" -gt 0 ] || { echo "checked_match: no producer command given" >&2; return 3; }
+
+  out="$("$@" 2>/dev/null)"; rc=$?
+  CHECKED_MATCH_RC=$rc
+  [ "$rc" -eq 0 ] || return 2
+
+  grep -q "${gopts[@]}" <<<"$out"
+}
+# LOCKSTEP-END checked-call
+
 ROOT="${1:-$(pwd)}"
 cd "$ROOT" 2>/dev/null || { echo "detect: no such dir: $ROOT" >&2; exit 3; }
 git rev-parse --show-toplevel >/dev/null 2>&1 || { echo "detect: not a git repo: $ROOT" >&2; exit 3; }
@@ -34,11 +81,24 @@ fi
 GH_AUTH=no
 if [[ -z "${DETECT_SKIP_GH:-}" ]] && gh auth status >/dev/null 2>&1; then GH_AUTH=yes; fi
 JIRA_EVIDENCE="[]"
+# `claude` ABSENT is a genuine "no Atlassian MCP" — nothing to read, and MCP_PROBE stays
+# "skipped". `claude mcp list` PRESENT but FAILING is a third state: the old pipeline recorded
+# it as "[]" too, and an empty evidence array is what elects `github` below — so a blip in a
+# non-interactive shell used to MISDETECT the consumer's tracker, with the `2>/dev/null`
+# discarding the only clue. Provenance-first means an unknown answer stays unknown.
+MCP_PROBE="skipped"
 if [[ -z "${DETECT_SKIP_MCP:-}" ]] && command -v claude >/dev/null 2>&1; then
-  if claude mcp list 2>/dev/null | grep -qiE 'atlassian|jira'; then JIRA_EVIDENCE='["mcp:atlassian"]'; fi
+  checked_match -iE -e 'atlassian|jira' -- claude mcp list
+  case $? in
+    0) JIRA_EVIDENCE='["mcp:atlassian"]'; MCP_PROBE="ok" ;;
+    1) MCP_PROBE="ok" ;;
+    *) MCP_PROBE="unreadable" ;;
+  esac
 fi
 TRACKER="ambiguous"; TRACKER_SRC="origin host ${ORIGIN_HOST:-none}"
-if [[ "$ORIGIN_HOST" == "github.com" && "$JIRA_EVIDENCE" == "[]" ]]; then
+if [[ "$MCP_PROBE" == "unreadable" ]]; then
+  TRACKER_SRC="$TRACKER_SRC; 'claude mcp list' exited $CHECKED_MATCH_RC — Atlassian MCP evidence is UNKNOWN, not absent, so the tracker stays ambiguous for the skill to ask about"
+elif [[ "$ORIGIN_HOST" == "github.com" && "$JIRA_EVIDENCE" == "[]" ]]; then
   TRACKER="github"; TRACKER_SRC="origin host github.com"
   [[ "$GH_AUTH" == yes ]] && TRACKER_SRC="$TRACKER_SRC + gh auth ok"
 elif [[ "$ORIGIN_HOST" != "github.com" && "$JIRA_EVIDENCE" != "[]" ]]; then
