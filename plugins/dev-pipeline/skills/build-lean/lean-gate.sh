@@ -113,7 +113,7 @@
 #                                        --fidelity defaults to not-applicable, which is the
 #                                        fail-closed side on an armed run (milestone 4 wants
 #                                        `pass`); `fail` with `approve` is refused.
-#   lean-gate.sh progress <issue> [--satisfied <n>]
+#   lean-gate.sh progress <issue> [--satisfied <n> | --infra]
 #                                        SCHEDULER role (#492): print an OPAQUE TOKEN over the
 #                                        progress rows that mean the build role advanced. Reads
 #                                        only — it writes nothing and, unlike every other
@@ -121,6 +121,14 @@
 #                                        caller compares the token across a spawn and interprets
 #                                        nothing; `--satisfied <n>` narrows it to milestone n's
 #                                        `satisfied` row alone.
+#                                        `--infra` (#527) prints a DIFFERENT token space,
+#                                        `m3infra-v1:<n>`, over milestone-3 evaluations that began,
+#                                        never concluded, and have no live runner — an
+#                                        infrastructure death, derived from residue because nothing
+#                                        survives one to write a class. `m3infra-v1:0` is the
+#                                        no-death answer; it is never empty. Compare it ACROSS a
+#                                        spawn, never as a level: the record is append-only.
+#                                        The two flags are mutually exclusive.
 #   lean-gate.sh staleness <issue> [--arm ticket|base|both]
 #                                        SCHEDULER role (#515): is this run's premise still true?
 #                                        The TICKET arm asks whether the issue is still open; the
@@ -153,6 +161,21 @@
 #             judged, and 4 would fire an abort comment at a sweep that is very likely still
 #             running. The remedy is to RE-INVOKE, which joins a live runner or relaunches a dead
 #             one.
+#           * milestone 3 (#527): A VERIFY LANE RAISED THE RESERVED INFRASTRUCTURE CODE — see
+#             below. Same meaning, same remedy, and likewise no fix attempt charged.
+#
+# THE RESERVED VERIFY-LANE INPUT CODE (#527). Exit 3 from a configured verify lane — the fixed
+# `lint`/`typecheck`/`test` keys, or any `extraLanes` entry — means "I failed for reasons that are
+# not this branch": the sweep's workers were killed, the runner could not start, the environment
+# went away. Milestone 3 reds with the 7 above rather than 1 and charges NO fix attempt, because
+# nothing was evaluated. `tools/run-selftests.sh` raises it when EVERY failing suite is its
+# no-verdict class; a mixed run stays 1, because a red branch is still a red branch.
+#
+# It is reserved CROSS-REPO, and that is its one exposure: a consumer whose lane already exits 3
+# for a genuine failure is reclassified as infrastructure and charged no fix attempt. The failure
+# direction is a run that RETRIES when it should have stopped — bounded by the scheduler's
+# --max-continuations and by INTERRUPTED_BUDGET_M3 — never a red branch reported green. There is
+# deliberately no per-lane config opt-out; see docs/config-schema.md.
 #
 # Seams (zero-network selftest; the check-pipeline-chain.sh precedent):
 #   ${GH:-gh}                the CLI used for reads, including the sweep's PR-state lookup
@@ -225,6 +248,7 @@ VERDICT_ROUNDS=""
 VERDICT_FIDELITY=""
 SUMMARY_FILE=""
 PROGRESS_SATISFIED=""
+PROGRESS_INFRA=0
 # #515. Empty means "not given"; the default is applied after validation, so `--arm` on a
 # subcommand that ignores it is still loud rather than silently absorbed into the default.
 STALENESS_ARM=""
@@ -248,6 +272,41 @@ ABSENT_BUDGET=10
 # each able to interrupt once — so 5 fires on a systematic background-and-exit pattern while
 # staying out of reach of the bad luck an honest run meets (0, occasionally 1-2).
 INTERRUPTED_BUDGET=5
+
+# #527 D-7. MILESTONE 3 GETS ITS OWN, LARGER BOUND, and without it the rest of this ticket is
+# self-defeating: once an infrastructure kill stops charging a fix attempt the lane re-spawns, and
+# every one of those spawns leaves another unclosed `started` row that `unclosed_count` never
+# decrements — so the run hard-stops at `rc=4` here instead of at the fix budget, one bound over.
+# 8 clears the 6 spawns a scheduler can generate (--max-rounds 3 × --max-continuations 2) with
+# headroom, while still bounding a hand-run loop that has no --max-continuations at all.
+#
+# PER-MILESTONE, NOT PER-ROW. The residue describes only the LATEST runner, so a historical
+# unclosed row carries no class and cannot be sorted into "infrastructure" or "operator Ctrl-C"
+# after the fact. Milestone 3 is the only one that runs detached and the only one long enough to
+# be killed by a turn boundary, so the milestone IS the class here.
+INTERRUPTED_BUDGET_M3=8
+
+interrupted_budget_for() { # interrupted_budget_for <milestone>
+  case "$1" in
+    3) echo "$INTERRUPTED_BUDGET_M3" ;;
+    *) echo "$INTERRUPTED_BUDGET" ;;
+  esac
+}
+
+# #527 D-2/D-3. THE TWO HALVES OF THE INFRASTRUCTURE CONTRACT, named rather than spelled inline so
+# the reserved code and the exit code it becomes are greppable and cannot drift apart.
+#
+# LANE_INFRA_RC is an INPUT: the exit code a verify lane (`lint`/`typecheck`/`test`, or any
+# extraLane) uses to say "I failed for reasons that are not this branch". tools/run-selftests.sh
+# raises it when every failing suite is its no-verdict class. Reserved cross-repo — see
+# docs/config-schema.md for the exposure a consumer whose lane already exits 3 carries.
+#
+# INFRA_CLASS is an OUTPUT: the exit code milestone 3 returns for it, and it is deliberately the
+# EXISTING 7 rather than a new integer. 7 already means "NOTHING WAS EVALUATED … THE EVALUATION
+# DID NOT COMPLETE" with the same remedy — re-invoke — so build-lean/SKILL.md gains no new
+# operator path, and both readers already handle it.
+LANE_INFRA_RC=3
+INFRA_CLASS=7
 
 say()  { echo "[lean-gate] $*"; }
 warn() { echo "[lean-gate] $*" >&2; }
@@ -282,8 +341,9 @@ while [ $# -gt 0 ]; do
     --fidelity)      VERDICT_FIDELITY="${2:-}"; shift 2 ;;
     --summary-file)  SUMMARY_FILE="${2:-}"; shift 2 ;;
     --satisfied)     PROGRESS_SATISFIED="${2:-}"; shift 2 ;;
+    --infra)         PROGRESS_INFRA=1; shift ;;
     --arm)           STALENESS_ARM="${2:-}"; shift 2 ;;
-    -h|--help)       sed -n '2,214p' "$0"; exit 0 ;;
+    -h|--help)       sed -n '2,237p' "$0"; exit 0 ;;
     -*)              envfail "unknown option: $1" ;;
     *)
       if [ "$POSITIONAL" -eq 0 ]; then SUB="$1"; POSITIONAL=1
@@ -309,6 +369,16 @@ if [ -n "$PROGRESS_SATISFIED" ]; then
   case "$PROGRESS_SATISFIED" in
     ''|*[!0-9]*) envfail "--satisfied takes a milestone number, got '$PROGRESS_SATISFIED'." ;;
   esac
+fi
+
+# #527 D-6, the same shape and the same reason: a flag that silently selects nothing is a read that
+# answers a question nobody asked. The two flags are MUTUALLY EXCLUSIVE rather than composable —
+# they print different token spaces, and one invocation can only print one of them, so accepting
+# both would have to pick a winner silently.
+if [ "$PROGRESS_INFRA" -eq 1 ]; then
+  [ "$SUB" = "progress" ] || envfail "--infra is only meaningful on 'progress', not '$SUB'."
+  [ -z "$PROGRESS_SATISFIED" ] \
+    || envfail "--infra and --satisfied are different token spaces and cannot be combined — ask for one per call."
 fi
 
 # #515, same shape and for the same reason: an unknown arm must be a usage error before any read
@@ -1145,13 +1215,36 @@ record_build_session() {
 # its sites; see cmd_4. Budget exhaustion OUTRANKS the class in both paths: 4 keeps its exact prior
 # meaning, and the alternative (a class-6 red suppressing a spent budget) would trade one
 # misreport for another. Nothing loops on it — the scheduler never retries a 6 at all.
+#
+# THE INFRA CLASS (#527 D-8). Class 7 is the one value that is not a verdict about the branch: it
+# says the evaluation did not happen. Charging it a fix attempt bills the difficulty signal #494
+# separated for a sweep whose workers were killed, and — worse — walks a run that is doing real
+# work into `rc=4` on a milestone nothing ever judged. So the class is honored BEFORE the append,
+# not after it: the observe arm above is the nearest existing precedent for returning a class
+# while writing nothing.
+#
+# AND IT IS THE ONE CLASS THAT OUTRANKS BUDGET EXHAUSTION, inverting the paragraph above rather
+# than contradicting it. That rule exists because a class-6 red must not hide a spent budget; here
+# the direction reverses, because an infra red spends nothing and never can. Reporting 4 for one
+# would tell the caller "this milestone is out of attempts" about a call that took none — the same
+# misreport in the other direction. So the recording path returns 7 before it ever reads the count,
+# and observe predicts the identical answer.
+#
+# On the recording path that also means budget exhaustion NEEDS NO CARVE-OUT: `count > FIX_BUDGET`
+# is only reached below, on a count this call did increment.
 fail_milestone() {
   local n="$1" reason="$2" class="${3:-1}" count
   if [ "${LEAN_GATE_OBSERVE:-0}" = "1" ]; then
-    count="$(attempt_count "$n")"
     warn "✗ milestone-$n (observe): $reason"
+    [ "$class" = "$INFRA_CLASS" ] && return "$INFRA_CLASS"
+    count="$(attempt_count "$n")"
     [ "$count" -ge "$FIX_BUDGET" ] && return 4
     return "$class"
+  fi
+  if [ "$class" = "$INFRA_CLASS" ]; then
+    warn "✗ milestone-$n: $reason"
+    warn "  INFRASTRUCTURE, not a verdict about this branch — NOTHING was evaluated, so no fix attempt was charged. Re-invoke the milestone."
+    return "$INFRA_CLASS"
   fi
   append_attempt "$n" "$reason"
   count="$(attempt_count "$n")"
@@ -1537,7 +1630,66 @@ progress_token() { # progress_token [<milestone>] — prints the token, never to
   printf 'progress-v1:%s\n' "$n"
 }
 
+# ---------------------------------------------------------------- the INFRA-DEATH READ (#527)
+# THE CLASS IS DERIVED FROM RESIDUE, because nothing is alive to write it. Topology T-A is the
+# milestone-3 runner dying at the turn boundary that killed the session which launched it: SIGKILL
+# cannot be trapped (see the note beside run_milestone's append_started), the scheduler never
+# invokes milestone 3 itself, and no process survives to return a code. What DOES survive is a
+# shape: `append_started 3` already flushed, no matching `concluded` row, a pid record naming a
+# dead pid, and no marker.
+#
+# LOCATED BY GLOB, NOT BY m3_paths (D-4). That key is `cksum($REPO_ROOT)` and REPO_ROOT is
+# cwd-derived, so the scheduler — which runs this from $MAIN_ROOT, deliberately, because the
+# progress record must survive worktree teardown — would hash the main checkout and name a record
+# that does not exist. The issue-keyed glob is the one handle both sides share.
+#
+# THE FULL CONJUNCTION IS KEPT, so a LIVE runner is never read as a death: an honest in-flight
+# evaluation accounts for exactly one unclosed row, and subtracting it is what makes the answer
+# stable. Sound under the caller's equality compare — when that runner concludes, `unclosed` drops
+# by 1 and the subtraction drops with it, so n does not move. Under the shipped one-worktree-per-
+# issue topology at most one record exists and this is D-5's "less 1" exactly; with more than one
+# (OR-1, a concurrency artifact rather than a supported configuration) subtracting each live record
+# is the fail-closed generalization — more live runners can only make this report FEWER deaths.
+m3_runner_records() { # prints "<found> <live>" over $ISSUE-lean-m3-*.pid in the state dir
+  local f found=0 live=0 r_pid r_tok
+  for f in "$MAIN_ROOT/$STATE_DIR/$ISSUE-lean-m3-"*.pid; do
+    [ -f "$f" ] || continue
+    found=$((found + 1))
+    r_pid=""; r_tok=""
+    read -r r_pid r_tok < "$f" 2>/dev/null
+    # The same two rejections m3_read_runner makes, and for its reasons: a non-numeric pid is not a
+    # pid, and a record carrying no token predates the current format and names nothing joinable.
+    case "$r_pid" in ''|*[!0-9]*) continue ;; esac
+    [ -n "$r_tok" ] || continue
+    kill -0 "$r_pid" 2>/dev/null && live=$((live + 1))
+  done
+  printf '%s %s\n' "$found" "$live"
+}
+
+# PRINTED BEHIND A GENERATION PREFIX, like progress_token's, and for the identical reason: this is
+# a number a caller must NOT order. `m3infra-v1:` marks the token space, so a later change of
+# predicate is visibly a different token rather than a silently comparable integer.
+#
+# NEVER EMPTY. "No infra death" is `m3infra-v1:0`, because the scheduler's reader rejects an empty
+# token as a broken gate — a legitimate negative answer must not look like one.
+infra_token() {
+  local unclosed found live n rec
+  unclosed="$(unclosed_count 3)"
+  rec="$(m3_runner_records)"
+  found="${rec% *}"; live="${rec#* }"
+  n=$((unclosed - live))
+  [ "$n" -lt 0 ] && n=0
+  # OR-1's diagnostic: the read says what it saw, so an operator can tell "no records at all" from
+  # "a record, and its runner is alive". stderr, so it cannot contaminate the token on stdout.
+  warn "progress --infra: $unclosed unclosed milestone-3 evaluation(s), $found runner record(s), $live live."
+  printf 'm3infra-v1:%s\n' "$n"
+}
+
 cmd_progress() {
+  if [ "$PROGRESS_INFRA" -eq 1 ]; then
+    infra_token
+    return 0
+  fi
   progress_token "$PROGRESS_SATISFIED"
   return 0
 }
@@ -3157,6 +3309,25 @@ cmd_3_render() {
   return 0
 }
 
+# #527 D-1. The verify-lane exit code, classified. ONE resolver rather than a test at each call
+# site, because the contract is that the reserved code means the same thing wherever a lane runs —
+# a per-site check is how the fixed keys and extraLanes drift into disagreeing about it.
+#
+# NOT A PER-LANE CONFIG DECLARATION. A `failureClass`-style opt-in would put the answer in the
+# config of the repo whose lane just told us it could not answer, and every consumer would have to
+# discover the key before the class did anything. A reserved code is discovered once, in
+# docs/config-schema.md, and works on the fixed keys — which is where the repo-carried sweep runs,
+# since `commands[repo].test` is its only call path.
+#
+# SCOPED TO VERIFY LANES. Setup `lanes[]` are already infra by construction, and the repo-carried
+# mutation sweep reports survivors as data rather than through this code — neither reads a 3.
+lane_failure_class() { # lane_failure_class <lane-rc> — the class fail_milestone should return
+  case "$1" in
+    "$LANE_INFRA_RC") echo "$INFRA_CLASS" ;;
+    *)                echo 1 ;;
+  esac
+}
+
 cmd_3() {
   local cmd rc sweep any_verifying=0
   # #526. BEFORE the first lane child of any kind, since the whole point is that every one of
@@ -3204,7 +3375,7 @@ cmd_3() {
     any_verifying=1
     say "milestone-3: $key » $cmd"
     ( cd "$REPO_ROOT" && env ${SEAM_SCRUB_ENV[@]+"${SEAM_SCRUB_ENV[@]}"} bash -c "$cmd" ); rc=$?
-    [ "$rc" -eq 0 ] || { fail_milestone 3 "$key failed (rc=$rc)"; return $?; }
+    [ "$rc" -eq 0 ] || { fail_milestone 3 "$key failed (rc=$rc)" "$(lane_failure_class "$rc")"; return $?; }
   done
 
   # ---- extraLanes (EP-2) ---------------------------------------------------------
@@ -3285,7 +3456,7 @@ cmd_3() {
         el_cmd="$(jq -r --argjson i "$el_i" --argjson j "$el_ci" '.[$i].commands[$j]' <<<"$el_lanes")"
         say "milestone-3: extra lane '$el_name' » $el_cmd"
         ( cd "$REPO_ROOT" && env ${SEAM_SCRUB_ENV[@]+"${SEAM_SCRUB_ENV[@]}"} bash -c "$el_cmd" ); rc=$?
-        [ "$rc" -eq 0 ] || { fail_milestone 3 "extra lane '$el_name' failed (rc=$rc): $el_cmd"; return $?; }
+        [ "$rc" -eq 0 ] || { fail_milestone 3 "extra lane '$el_name' failed (rc=$rc): $el_cmd" "$(lane_failure_class "$rc")"; return $?; }
       done
     done
   fi
@@ -3960,7 +4131,7 @@ cmd_5() {
 # So observe PREDICTS exhaustion from the count already on file, exactly as fail_milestone and
 # block_milestone do, and writes neither half of the pair.
 run_milestone() {
-  local n="$1" rc unclosed
+  local n="$1" rc unclosed budget
   # VALIDATION FIRST, before any bookkeeping. The dispatch case at the bottom of this file routes
   # every unrecognized subcommand here, and a usage error must not bring a progress file into
   # existence or stamp `| milestone-9 | started |` on its way to exit 2.
@@ -3977,12 +4148,15 @@ run_milestone() {
   # from an interrupted one — accepted, because the posture below is announce-not-refuse and
   # reaching the budget would need five simultaneous calls on one milestone.
   unclosed="$(unclosed_count "$n")"
+  # #527 D-7: milestone 3's own, larger bound. Resolved once, here, so the announce, the observe
+  # prediction and the refusal below cannot disagree about which budget this milestone is on.
+  budget="$(interrupted_budget_for "$n")"
   if [ "$unclosed" -gt 0 ]; then
     # ANNOUNCE, NEVER REFUSE (D-4). An interrupted milestone is precisely the one a resuming
     # session must be able to re-run, and this is the call it makes: SKILL.md's Resume step says
     # `all` stops early while milestone 4 is outstanding and to run the milestones directly, so
     # `bash G <n> <issue>` is where the notice has to land to be seen.
-    warn "note: milestone-$n: $unclosed earlier evaluation(s) began and never concluded (interrupted $unclosed/$INTERRUPTED_BUDGET) — re-running it now."
+    warn "note: milestone-$n: $unclosed earlier evaluation(s) began and never concluded (interrupted $unclosed/$budget) — re-running it now."
   fi
   # OBSERVE: predict, never record (see the header note above). The announce is deliberately ABOVE
   # this arm — it is a stderr diagnostic and touches nothing the seam promises not to touch.
@@ -3992,7 +4166,7 @@ run_milestone() {
   # cmd_all's pre-pass, which evaluates 1 and 4 alone precisely to avoid paying for milestone 3.
   # A caller that sets the seam by hand on `3` is asking to watch it, not to survive it.
   if [ "${LEAN_GATE_OBSERVE:-0}" = "1" ]; then
-    [ "$unclosed" -ge "$INTERRUPTED_BUDGET" ] && return 4
+    [ "$unclosed" -ge "$budget" ] && return 4
     case "$n" in
       1) cmd_1 ;;
       2) cmd_2 ;;
@@ -4009,7 +4183,7 @@ run_milestone() {
   # the difficulty signal #494 spent a ticket separating. So: its own counter, its own budget, and
   # `rc=4` reused rather than a new code invented — build-lean's existing hard-stop handling
   # (append the reason, one abort comment, keep the worktree and the claim) covers it unchanged.
-  if [ "$unclosed" -ge "$INTERRUPTED_BUDGET" ]; then
+  if [ "$unclosed" -ge "$budget" ]; then
     append_line "$(now_iso) | milestone-$n | interrupted-exhausted | $unclosed unconcluded"
     warn "milestone-$n has been begun and cut off $unclosed times without ever concluding — hard stop."
     return 4

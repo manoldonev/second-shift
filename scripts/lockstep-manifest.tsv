@@ -805,3 +805,17 @@ monorepo-probe	verbatim	plugins/dev-pipeline/skills/run/tools/config-lint-selfte
 # kept the code and dropped that paragraph would be the fail-open this idiom exists to remove,
 # reintroduced one call site at a time.
 checked-call	verbatim	plugins/dev-pipeline/skills/run/tools/checked-call.sh	checked-call	plugins/second-shift/skills/onboard/tools/detect.sh	checked-call
+#
+# The reserved verify-lane INFRASTRUCTURE exit code (#527), writer ↔ reader. tools/run-selftests.sh
+# RAISES 3 when every failing suite is its no-verdict class; lean-gate.sh milestone 3 READS 3 from
+# any verify lane as "nothing was evaluated" and charges no fix attempt. Considered for a row and
+# DROPPED, for LEAN_JOB_CEILING's reason one field over: the two sites share a NUMBER, not an
+# anchorable block, and pinning a literal in two places is the presence check this repo bans.
+#
+# It is not left reviewer-guarded either, which is where this differs from the ceiling above.
+# lean-gate-selftest.sh (ic6)/(ic7) COMPOSE the pair — the real runner, over a fixture tree whose
+# every suite dies without a verdict, wired into `commands.acme.test` exactly as a consumer would
+# wire it — so a one-sided change of the number reds there in both polarities. The two ends are
+# additionally pinned alone: run-selftests-selftest.sh's AC-1 cases on the writer, (ic1)-(ic5) on
+# the reader. The composed case is repo-only by construction (the staged install cache has no
+# `tools/`), and says so rather than skipping in silence.

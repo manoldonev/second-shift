@@ -242,11 +242,14 @@ OUT="$BASE/out.norc"
 env -u TMPDIR -u RUN_SELFTESTS_DROP_LAST RUN_SELFTESTS_DROP_RC=1 \
   bash "$RUNNER" --root "$RCM" --jobs 2 > "$OUT" 2>&1
 RC=$?
-[[ "$RC" -ne 0 ]] \
+# rc=3, not merely non-zero: this fixture is the REAL shape #527 reserves the code for — every
+# worker died without scoring its suite — so binding it to the exact parent code here is what ties
+# the reserved value to the path a consumer's lane actually takes.
+[[ "$RC" -eq 3 ]] \
   && grep -q 'alpha-selftest\.sh (rc=125)' "$OUT" \
   && grep -q 'beta-selftest\.sh (rc=125)' "$OUT" \
-  && ok "no-verdict: a worker that wrote no verdict reds as rc=125, per suite" \
-  || { fail "no-verdict: a verdict-less worker did not red as 125 (rc=$RC)"; sed 's/^/    | /' "$OUT"; }
+  && ok "no-verdict: a verdict-less worker reds as rc=125 per suite, and the sweep exits the reserved 3" \
+  || { fail "no-verdict: a verdict-less worker did not red as 125 into a parent 3 (rc=$RC)"; sed 's/^/    | /' "$OUT"; }
 # The infra cause must be SAID, not just coded — 125 is otherwise indistinguishable from a
 # suite that genuinely exited 125.
 [[ "$(grep -c 'no verdict written' "$OUT")" -eq 2 ]] \
@@ -256,6 +259,54 @@ RC=$?
 run_runner "$RCM" --jobs 2
 [[ "$RC" -eq 0 ]] && ok "no-verdict: control — the same fixture is green when verdicts are written" \
                  || { fail "no-verdict: control fixture is not green (rc=$RC)"; sed 's/^/    | /' "$OUT"; }
+
+# ---------------------------------------------------------------------------------------
+# #527 AC-1 — the RESERVED PARENT CODE, and the condition on it is ALL, never ANY.
+#
+# The classification is the recorded rc, so a suite that genuinely exits 125 lands in the infra
+# class exactly like a worker that wrote no verdict — deliberate, and stated in the no-verdict
+# block above. That is what lets these cases be driven from plain fixtures rather than through
+# the DROP_RC seam, which is all-or-nothing and so cannot express a MIXED sweep at all.
+#
+# THE MIXED CASE IS THE FAIL-OPEN GUARD and the reason the all-infra case is not enough on its
+# own: a runner that collapsed to 3 on ANY infra failure would report a genuinely red branch as
+# infrastructure, which downstream costs no fix attempt and re-spawns until the continuation
+# budget is gone — a red branch that never reds.
+# ---------------------------------------------------------------------------------------
+INF="$BASE/infra-all"; mkdir -p "$INF"
+make_suite "$INF" "alpha-selftest.sh" 125 'echo alpha-infra'
+make_suite "$INF" "beta-selftest.sh"  125 'echo beta-infra'
+make_suite "$INF" "gamma-selftest.sh" 0   'echo gamma-ok'
+run_runner "$INF" --jobs 2
+[[ "$RC" -eq 3 ]] \
+  && ok "AC-1: every failure in the infra class ⇒ the reserved exit 3" \
+  || { fail "AC-1: an all-infra sweep exited $RC, not the reserved 3"; sed 's/^/    | /' "$OUT"; }
+# The split must be READABLE, not only encoded: an operator reading a log sees why the sweep
+# claimed infrastructure, and a consumer debugging a reclassification has the count to point at.
+grep -q '2 failed (2 infrastructure)' "$OUT" \
+  && grep -q 'Exiting 3 (reserved)' "$OUT" \
+  && ok "AC-1: the summary names the infra split and the reserved code is announced" \
+  || { fail "AC-1: the infra split was not reported in the summary"; sed 's/^/    | /' "$OUT"; }
+
+MIX="$BASE/infra-mixed"; mkdir -p "$MIX"
+make_suite "$MIX" "alpha-selftest.sh" 125 'echo alpha-infra'
+make_suite "$MIX" "beta-selftest.sh"  1   'echo beta-genuinely-red'
+run_runner "$MIX" --jobs 2
+[[ "$RC" -eq 1 ]] \
+  && ok "AC-1: one genuinely red suite alongside an infra failure still exits 1" \
+  || { fail "AC-1: a mixed sweep exited $RC, not 1 — a red branch would read as infrastructure"; sed 's/^/    | /' "$OUT"; }
+grep -q '2 failed (1 infrastructure)' "$OUT" \
+  && ok "AC-1: the mixed summary still reports the infra count it did not act on" \
+  || { fail "AC-1: the mixed summary lost the infra count"; sed 's/^/    | /' "$OUT"; }
+
+# A green sweep is untouched by any of it — the code only exists on the failing path, and a
+# reserved value that leaked into a clean run would red every consumer lane at once.
+GRN="$BASE/infra-green"; mkdir -p "$GRN"
+make_suite "$GRN" "alpha-selftest.sh" 0 'echo alpha-ok'
+run_runner "$GRN" --jobs 2
+[[ "$RC" -eq 0 ]] \
+  && ok "AC-1: a clean sweep still exits 0" \
+  || { fail "AC-1: a clean sweep exited $RC"; sed 's/^/    | /' "$OUT"; }
 
 # ---------------------------------------------------------------------------------------
 # Nesting — the runner must survive running a suite that itself invokes the runner.

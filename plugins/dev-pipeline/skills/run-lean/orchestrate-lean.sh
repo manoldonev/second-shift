@@ -150,7 +150,9 @@
 #
 # Exit: 0 = approved and closed out; 1 = a phase failed, a build phase spent its continuation
 #       budget, the lane's PR could not be resolved unambiguously, a close-out left step 9's
-#       exit artifacts unmet, or a staleness read could not be completed; 2 = usage or preflight
+#       exit artifacts unmet, or a staleness / progress / infra-residue read could not be
+#       completed (#527: every one of the three is fail-closed — a predicate that could not be
+#       evaluated is not a predicate that passed); 2 = usage or preflight
 #       reject, including a launch onto an already-closed ticket; 4 = round budget exhausted (hard
 #       stop, no rescue); 5 = no verdict record usable against the current head, after the bounded
 #       REVIEW retry; 6 = an integrity refusal (P10) — terminal, never retried; 7 = the run's
@@ -189,7 +191,7 @@ while [ $# -gt 0 ]; do
     --max-rounds)         MAX_ROUNDS="${2:-}"; shift 2 ;;
     --max-continuations)  MAX_CONTINUATIONS="${2:-}"; shift 2 ;;
     --dry-run)            DRY_RUN=1; shift ;;
-    -h|--help)            sed -n '2,158p' "$0"; exit 0 ;;
+    -h|--help)            sed -n '2,160p' "$0"; exit 0 ;;
     -*)                   envfail "unknown option: $1" ;;
     *)                    [ -z "$ISSUE" ] && ISSUE="$1" || envfail "unexpected argument: $1"; shift ;;
   esac
@@ -498,6 +500,24 @@ progress_token() { # progress_token [--satisfied <n>]
   printf '%s\n' "$tok"
 }
 
+# #527. THE INFRA-DEATH READ, and it is a SEPARATE token space from the one above rather than a
+# widening of it. The continuation predicate counts milestones the build role SATISFIED or FAILED;
+# an evaluation that was killed did neither, which is exactly why a session that spent five minutes
+# sweeping is byte-identical to one that did nothing. Folding the two into one token would make
+# every killed spawn read as advancement — the thing lean-gate.sh's row set was closed to prevent.
+#
+# Same MAIN_ROOT anchor and same RUN_ID scrub as its sibling, for the same two reasons; and the
+# same FAIL-CLOSED posture, for a third. The gate answers `m3infra-v1:0` when there is no death, so
+# an empty or erroring read is never a legitimate negative — treating it as one would put this
+# script back to reading a killed session as an idle one, which is the bug being removed.
+infra_token() {
+  local tok rc
+  tok="$( cd "$MAIN_ROOT" && env -u RUN_ID bash "$GATE" progress "$ISSUE" --infra 2>/dev/null )"
+  rc=$?
+  [ "$rc" -eq 0 ] && [ -n "$tok" ] || return 1
+  printf '%s\n' "$tok"
+}
+
 if [ "$DRY_RUN" -eq 1 ]; then
   say "dry run: branch=$BRANCH · gate=$GATE · $MAX_ROUNDS round(s) of BUILD → REVIEW → verdict"
   spawn BUILD "$BUILD_MODEL" "/dev-pipeline:build-lean $ISSUE"
@@ -532,6 +552,14 @@ while :; do
     tok_before="$(progress_token)" \
       || { say "cannot read the run's progress record through '$GATE' — the continuation predicate is unavailable, so a stopped BUILD session could not be told from a finished one. Not spawning blind."; exit 1; }
 
+    # #527: read on BOTH sides, in the same shape as the token above, because the routing below is
+    # on the DELTA and never on the level. The record is append-only, so one infrastructure death
+    # leaves a level test true for the rest of the run — every later idle session would then read
+    # as recoverable and spend the whole continuation budget on nothing, which is a fresh instance
+    # of the bug this reads for.
+    infra_before="$(infra_token)" \
+      || { say "cannot read the run's milestone-3 infrastructure residue through '$GATE' — a killed evaluation could not be told from an idle session, which is the one distinction this loop needs. Not spawning blind."; exit 1; }
+
     spawn BUILD "$BUILD_MODEL" "/dev-pipeline:build-lean $ISSUE" \
       || { say "BUILD session failed in round $round."; exit 1; }
 
@@ -546,12 +574,26 @@ while :; do
 
     tok_after="$(progress_token)" \
       || { say "cannot read the run's progress record through '$GATE' after the BUILD session."; exit 1; }
+    infra_after="$(infra_token)" \
+      || { say "cannot read the run's milestone-3 infrastructure residue through '$GATE' after the BUILD session."; exit 1; }
 
     # AC-3: exited 0, no PR, and nothing was recorded. Unchanged from before #492 — not
     # reviewing nothing is still correct, and a session that did nothing will do nothing twice.
+    #
+    # #527 NARROWS "a session that did nothing", which was the false half of that sentence. It is
+    # true of an IDLE session and false of a KILLED one, and until this read the code could not
+    # tell them apart: a milestone-3 evaluation killed at the turn boundary satisfies no milestone
+    # and fails none, so the token it leaves is byte-identical to an idle spawn's — measured at
+    # four launches, zero PRs, both continuations unspent every time, against an implementation
+    # that was complete and correct the whole time. The stop below is now conditioned on BOTH
+    # predicates being unmoved; an infrastructure death falls through to the ordinary continuation
+    # path, on the ordinary --max-continuations bound.
     if [ "$tok_after" = "$tok_before" ]; then
-      say "no open PR on '$BRANCH' after the BUILD session — nothing to review."
-      exit 1
+      if [ "$infra_after" = "$infra_before" ]; then
+        say "no open PR on '$BRANCH' after the BUILD session — nothing to review."
+        exit 1
+      fi
+      say "the BUILD session's milestone-3 evaluation was killed by infrastructure — it recorded no milestone because none of them concluded, not because the session was idle. Re-spawning rather than stopping."
     fi
 
     continuations=$((continuations + 1))

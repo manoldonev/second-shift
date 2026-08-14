@@ -36,6 +36,7 @@ follows:
 | --- | --- |
 | any suite exits non-zero | exit 1, every failing suite named with its code |
 | a worker dies without writing a verdict | that suite scores `rc=125`, named as infra — never as a pass |
+| **every** failing suite is that infra class | exit **3**, the reserved code (#527) — the workers died, so the sweep learned nothing about the tree. `lean-gate.sh` milestone 3 reads a 3 from any verify lane as "nothing was evaluated": it reds with 7 and charges no fix attempt. Mixed infra-and-real stays exit 1, because a red branch is still a red branch. See [`config-schema.md`](config-schema.md) for the cross-repo contract |
 | discovered-minus-excluded ≠ suites actually run | exit 2, `silent truncation` — a faster sweep that ran fewer suites is the failure mode this design is most exposed to |
 | `--exclude` matches no discovered suite | exit 2, `stale exclusion` — the posture a stale `install-topology-known-red.tsv` row already carries |
 | no suites discovered, or every suite excluded | exit 2 — a sweep that runs nothing is never green |
