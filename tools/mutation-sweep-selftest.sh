@@ -604,8 +604,16 @@ FX="$(new_fixture strong)"
 baseline_with "$FX"
 # The precheck times the suite; make it measurably slow. 1.2s against a threshold of 1s
 # clears the integer-second floor whichever side of a tick the two samples land on.
+#
+# AND COMMIT IT. The sweep sandboxes the fixture's HEAD, not its working tree, so an
+# uncommitted `sleep` never reaches the suite that gets timed. Left uncommitted this case
+# still passed — on the ~1s of incidental setup overhead — and a kill probe that made the
+# warn unconditional then FAILED it, because that run happened to measure 0s. The sleep is
+# what makes the measurement the case's own rather than the machine's.
 printf 'sleep 1.2\n' | cat - "$FX/guard-selftest.sh" > "$FX/guard-selftest.sh.tmp"
 mv "$FX/guard-selftest.sh.tmp" "$FX/guard-selftest.sh"
+( cd "$FX" && git add -A \
+  && git -c user.email=f@e.invalid -c user.name=f commit -qm 'slow the fixture suite' ) >/dev/null 2>&1
 printf '# fixture slow list — deliberately EMPTY of the suite below\n' > "$FX/tools/mutation-slow-suites.tsv"
 OUT="$( cd "$FX" && enf env MUTATION_SWEEP_SLOW_THRESHOLD_S=1 bash "$SWEEP" --mode full 2>&1 )"; RC=$?
 if [[ $RC -eq 0 ]] && grep -q 'slow-list drift: \./guard-selftest\.sh measured' <<<"$OUT"; then

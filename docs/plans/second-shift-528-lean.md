@@ -145,6 +145,13 @@ was last measured 2026-07-31.
 The job's `timeout-minutes: 15` is deliberately left alone. Raising it would have bought a green
 lane while leaving a ~42-minute PR sweep in place and the stale list untouched.
 
+**One warn is left standing, deliberately.** On its first live run the new warn found a second
+drifted suite — `tools/run-selftests-selftest.sh` at 7s, also absent from the list. It is not added
+here: at 7s it costs the lane nothing, and listing it would defer `run-selftests.sh`, a guard *this
+diff changes*, losing PR-lane coverage exactly where this PR most needs it. Leaving the warn
+standing is that file's own documented disposition — warn, never red, updated by ordinary PR — and
+it is now visible rather than silent, which is the whole point.
+
 ## Explicitly out of scope
 
 Unchanged from the ticket: `cost-log.jsonl` atomicity, a marker-file naming contract pending
