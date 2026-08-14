@@ -97,6 +97,14 @@ build session, so this cannot be folded back into the build lane by convenience.
 
 - **Never write the verdict by hand.** The gate's refusals are the separation; a hand-written
   record bypasses all of them and reds at `scripts/check-lean-chain.sh` anyway.
+- **Never end a turn with work this turn started and has not collected.** The scheduler spawns
+  this session under `claude -p` exactly as it spawns the build one, and there turn end IS
+  process exit: a `&`-detached command, a probe you mean to report on "when it lands", or an
+  armed `Monitor` is abandoned, not deferred. Two build sessions were lost to that shape before
+  it was written down. **Your long pole is not one of them.** A `Workflow` dispatch — how
+  `review-lead` fans out — was MEASURED under `-p`: the session is re-entered when the workflow
+  completes and reports its result normally. So await it. Do not arrange to collect it later,
+  and do not restructure the panel around a death it does not have.
 - **One identity per review round.** Re-running a round reuses the cached id; a new round
   after a fix gets a new one, so the rounds stay distinguishable in the ledger.
 - **A round that reviewed nothing produces no record.** An all-dark panel (step 5c) is an
