@@ -1,6 +1,8 @@
 # mutation-slow-suites.tsv — paired suites measured at or above 5s in the canonical
 # environment. The PR lane defers any guard whose killer appears here.
-# Membership drift is a report warn, never red; this committed copy updates by ordinary PR.
+# Membership drift is a PRECHECK warn, never red; this committed copy updates by ordinary PR.
+# Precheck, not report: a job killed by its own ceiling dies before the report, which is
+# exactly the run whose diagnosis this is. See docs/testing.md.
 # A paired suite ABSENT from this file is treated as fast.
 #
 # selftest<TAB>seconds<TAB>measured_at   (seconds from the seed run's unmutated precheck; ISO-8601 date)

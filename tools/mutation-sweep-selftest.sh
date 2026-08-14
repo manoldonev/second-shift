@@ -621,6 +621,31 @@ if [[ $RC -eq 0 ]] && grep -q 'slow-list drift: \./guard-selftest\.sh measured' 
 else
   bad "(l4) expected a slow-list drift warn naming ./guard-selftest.sh and rc=0; got rc=$RC"; printf '%s\n' "$OUT" | tail -4
 fi
+# PLACEMENT, WHICH IS THE WHOLE POINT — and the half a deletion probe cannot certify. Deleting
+# the warn fails the assertion above, so that assertion is live for the warn's EXISTENCE; it
+# passes unchanged on a warn RELOCATED into finish(), which is the one placement the fix
+# exists to rule out. Ordering closes it: the precheck's own `pool:` line is the next thing
+# the run prints, and finish() is 15s and a whole report later.
+#
+# The direction of the risk is safe. Warn is stderr and `pool:` is stdout, merged by 2>&1 —
+# buffering can only DELAY the stdout line, never move it ahead of a write that has not
+# happened yet. `<<<` and not a pipe: this suite is `set -uo pipefail`, where `| grep -q`
+# scores a match as a miss when grep exits early and the producer takes SIGPIPE.
+WLN="$(awk '/slow-list drift/{print NR; exit}' <<<"$OUT")"
+PLN="$(awk '/\[mutation-sweep\] pool: [0-9]+ worker/{print NR; exit}' <<<"$OUT")"
+if [[ -n "$WLN" && -n "$PLN" && "$WLN" -lt "$PLN" ]]; then
+  ok "the warn precedes the pool, so a job killed by its own ceiling has already said why"
+else
+  bad "(l4) drift warn did not precede the pool line (warn=$WLN pool=$PLN)"; printf '%s\n' "$OUT" | tail -4
+fi
+# The summary prescribes a remedy, so it has to know which class it is summarizing. This run
+# has exactly one warn and it is not a baseline row; an aggregate that says "shrink the
+# baseline" here is pointing at a file that needs nothing.
+if grep -q 'warning(s)' <<<"$OUT" && ! grep -q 'warning(s).*shrink the baseline' <<<"$OUT"; then
+  ok "a non-baseline warn is summarized without prescribing the baseline"
+else
+  bad "(l4) the warning summary prescribed the baseline for a slow-list drift warn"; grep 'warning(s)' <<<"$OUT" | tail -2
+fi
 # CONTROL: the same fixture, the same sleep, the same threshold — only the row is added. A
 # case that skipped this would pass on a warn keyed to duration alone, which would then fire
 # on every listed suite forever and train the reader to ignore it.

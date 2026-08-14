@@ -203,9 +203,14 @@ makes).
   `set -e`, not from the call site's `|| true` — dropping that token leaves the case green, so the
   case pins the behavior and not the token.
 - `mutation-sweep-selftest.sh` `(l4)`: a fixture suite slowed past an overridden threshold, absent
-  from the slow list, warns and names itself without reding the run — asserted while only the
-  precheck has run, which is the placement the whole change is about. Its **control** holds every
-  input fixed and adds only the row: a warn keyed to duration alone would fire on every listed
-  suite forever, and the reader would learn to ignore it. The row added to
+  from the slow list, warns and names itself without reding the run. That first assertion is live
+  for the warn's **existence** only — deleting the warn fails it, but relocating it into `finish()`
+  passes it unchanged, and `finish()` is the one placement the change exists to rule out. The
+  **placement** assertion is a separate one on the same captured output: the warn's line must
+  precede the precheck's own `pool:` line, so a run later killed by its own ceiling has already
+  said why. Kill-probe it by moving the warn, not by deleting it. A third assertion pins that the
+  warning summary does not prescribe the baseline for a warn that is not a baseline row. Its
+  **control** holds every input fixed and adds only the row: a warn keyed to duration alone would
+  fire on every listed suite forever, and the reader would learn to ignore it. The row added to
   `tools/mutation-slow-suites.tsv` is data, not behavior, and is verified where it acts — a
   PR-mode sweep on this branch reporting `lean-gate.sh` as `deferred-to-nightly`.
