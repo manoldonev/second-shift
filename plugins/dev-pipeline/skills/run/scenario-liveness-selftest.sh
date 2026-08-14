@@ -2191,6 +2191,191 @@ RESESS
       || fail "(lean-reentry-nv) rc=$re_nv_rc spawns=$re_nv_spawns milestone-5-rows=$(re_count "$RE_PROG_NV" '| milestone-5 | satisfied'), expected 2/0/0: $re_nv_out"
 
     git -C "$LEAN_TREE" worktree remove --force "$RE_WT" >/dev/null 2>&1
+
+    # ---- leg 9: an INFRASTRUCTURE KILL composed through to a terminal write (#527) --------
+    # Same CLAUDE.md obligation as leg 8, on the verdict path #527 adds: a BUILD session whose
+    # milestone-3 evaluation is killed satisfies no milestone and fails none, so its progress
+    # token is byte-identical to an idle spawn's — and the scheduler stopped there with both
+    # continuations unspent, on runs whose implementation was complete the whole time.
+    #
+    # WHY IT HAS TO BE COMPOSED. Both halves are covered against themselves already:
+    # lean-gate-selftest.sh (ir*) drives the residue read against hand-placed pid records, and
+    # orchestrate-lean-selftest.sh (oi*) drives the routing against a FAKE gate whose infra
+    # answers a case scripts. Neither can fail if the gate's writer and the scheduler's reader
+    # disagree about what residue a killed evaluation leaves — which is the whole contract.
+    # Here the kill is real (`kill -9` on the gate's process group, (if5)'s mechanic), the
+    # residue is whatever the real gate left, and the run must reach `| milestone-5 | satisfied`.
+    IK_KEY=56
+    IK_BRANCH="claude/acme-$IK_KEY"
+    IK_RUN="r-lean-infrakill"
+    IK_PR_NUM=22
+    IK_DIR="$TMP/lean-infrakill"
+    IK_WT="$TMP/lean-infrakill-wt"
+    mkdir -p "$IK_DIR"
+
+    # Two configs, and the split is what makes the kill reachable: the lane the FIRST spawn runs
+    # must block long enough to be killed mid-sweep, while every other gate call in the run — the
+    # scheduler's, and the later spawns' — takes the ordinary zero-lane one. The session fake
+    # selects per call; nothing about the scheduler's own environment changes.
+    IK_CFG="$IK_DIR/config.json"
+    cp "$RE_CFG" "$IK_CFG"
+    IK_CFG_BLOCK="$IK_DIR/config-block.json"
+    jq '.commands.acme.test = "sleep 20"' "$IK_CFG" > "$IK_CFG_BLOCK"
+
+    IK_LABELS="$IK_DIR/labels";     printf 'in-progress\n' > "$IK_LABELS"
+    IK_BODY="$IK_DIR/issue-body";   printf '# issue\n\nNo Open Regions section here.\n' > "$IK_BODY"
+    IK_STATE="$IK_DIR/issue-state"; printf 'OPEN\n' > "$IK_STATE"
+    IK_PR="$IK_DIR/pr.json"
+    cat > "$IK_PR" <<IKPR
+[{ "number": $IK_PR_NUM, "url": "https://example.invalid/pr/$IK_PR_NUM", "isDraft": false,
+   "body": "Closes #$IK_KEY\n\nSpec: docs/plans/acme-$IK_KEY-lean.md" }]
+IKPR
+    IK_PR_ALL="$IK_DIR/pr-all.json"
+    printf '[{ "number": %s, "state": "OPEN" }]\n' "$IK_PR_NUM" > "$IK_PR_ALL"
+    # EMPTY at the start, and that is the fixture's whole job: `resolve_pr` reads this file on
+    # every iteration, so a lane with no PR yet is expressed by its contents rather than by a
+    # spawn counter the scheduler would have to be told about. The second BUILD spawn writes it.
+    IK_PR_NUMS="$IK_DIR/pr-numbers"; : > "$IK_PR_NUMS"
+
+    IK_COMMENTS="$IK_DIR/comments.json"
+    cat > "$IK_COMMENTS" <<IKC
+[{ "user": { "type": "Bot" }, "created_at": "2026-01-01T00:00:00Z",
+   "body": "<!-- dev-pipeline -->\n<!-- run_id: $IK_RUN -->\n<!-- stage: lean-claimed -->" },
+ { "user": { "type": "Bot" }, "created_at": "2026-01-02T00:00:00Z",
+   "body": "Done. Verdict record: docs/plans/acme-$IK_KEY-lean-verdict.md" },
+ { "user": { "type": "Bot" }, "created_at": "2026-01-02T00:00:00Z",
+   "body": "<!-- run_id: $IK_RUN -->\n<!-- session_id: sess-lean-ik-build -->\n<!-- stage: lean-pr-marker -->" }]
+IKC
+
+    # The session fake. Spawn 1 KILLS its own milestone-3 evaluation and exits 0 having produced
+    # no PR — `claude -p`'s exact shape, since a turn that ends takes its detached children with
+    # it. Spawn 2 is the continuation and completes the build. Nothing writes a progress row by
+    # hand: every row in the record below came out of the real gate.
+    IK_SESSION="$IK_DIR/session"
+    cat > "$IK_SESSION" <<'IKSESS'
+#!/usr/bin/env bash
+n=$(( $(cat "$IK_DIR/spawns" 2>/dev/null || echo 0) + 1 ))
+echo "$n" > "$IK_DIR/spawns"
+echo "spawn $n: $*" >> "$IK_DIR/session.log"
+g() { ( cd "$IK_WT" && SECOND_SHIFT_CONFIG="$IK_CFG" bash "$IK_GATE" "$@" ) >> "$IK_DIR/session.log" 2>&1; }
+case "$*" in
+  *review-lean*)
+    export CLAUDE_CODE_SESSION_ID=sess-lean-ik-review RUN_ID=r-lean-ik-review
+    g verdict "$IK_KEY" --pr "$IK_PR_NUM" --verdict approve || exit 1
+    git -C "$IK_WT" add -A >/dev/null 2>&1
+    git -C "$IK_WT" commit -q -m "review session commits its verdict record" >/dev/null 2>&1 || exit 1
+    ;;
+  *build-lean*)
+    export CLAUDE_CODE_SESSION_ID=sess-lean-ik-build RUN_ID="$IK_RUN"
+    printf '{"tool":"Bash"}\n' > "$IK_LEDGER_DIR/sess-lean-ik-build.jsonl"
+    if [ "$n" -eq 1 ] && [ "${IK_MODE:-kill}" = "idle" ]; then
+      # THE NON-VACUITY SPAWN. `entry` and nothing else: its rows are deliberately outside
+      # progress_token's set, and it starts no milestone-3 evaluation, so BOTH predicates are
+      # unmoved across this spawn and the scheduler must stop.
+      g entry "$IK_KEY" || exit 1
+    elif [ "$n" -eq 1 ]; then
+      g entry "$IK_KEY" || exit 1
+      printf '# spec\n\n- AC-1: the composed infrastructure kill\n' > "$IK_WT/docs/plans/acme-$IK_KEY-lean.md"
+      git -C "$IK_WT" add -A >/dev/null 2>&1
+      git -C "$IK_WT" commit -q -m "build session pushes the spec" >/dev/null 2>&1 || exit 1
+      # NO milestone 1 or 2 HERE, and that omission is the case. A satisfied milestone moves the
+      # continuation predicate, and this spawn must move NOTHING that predicate can see — or the
+      # run continues down the pre-#527 "advanced but left no open PR" path and the infra route
+      # is never taken. Writing and committing the spec is not a gate call, so the record stays
+      # untouched until the kill leaves its residue. Spawn 2 satisfies 1 and 2.
+      # THE KILL. Its own process group (`set -m`) so the negative pid reaches the detached
+      # runner too — killing the waiter alone would leave the sweep running and the residue this
+      # leg is about would never form. The lane self-terminates on a short bound, so a kill that
+      # somehow misses cannot wedge the suite.
+      set -m
+      ( cd "$IK_WT" && SECOND_SHIFT_CONFIG="$IK_CFG_BLOCK" bash "$IK_GATE" 3 "$IK_KEY" \
+          >> "$IK_DIR/session.log" 2>&1 ) &
+      kpg=$!
+      set +m
+      waited=0
+      while ! grep -qF "| milestone-3 | started |" "$LEAN_PROGRESS_FILE" 2>/dev/null \
+            && [ "$waited" -lt 200 ]; do sleep 0.1; waited=$((waited + 1)); done
+      kill -9 -"$kpg" 2>/dev/null
+      wait "$kpg" 2>/dev/null
+      reaped=0
+      while kill -0 -"$kpg" 2>/dev/null && [ "$reaped" -lt 50 ]; do sleep 0.1; reaped=$((reaped + 1)); done
+    elif [ "$n" -eq 2 ]; then
+      g entry "$IK_KEY" || exit 1
+      g 1 "$IK_KEY" || exit 1
+      g 2 "$IK_KEY" || exit 1
+      g 3 "$IK_KEY" || exit 1
+      printf '%s\n' "$IK_PR_NUM" > "$IK_PR_NUMS"
+    else
+      export CLAUDE_CODE_SESSION_ID=sess-lean-ik-close
+      printf '{"tool":"Bash"}\n' > "$IK_LEDGER_DIR/sess-lean-ik-close.jsonl"
+      g entry "$IK_KEY" || exit 1
+      g all "$IK_KEY" || exit 1
+      g 5 "$IK_KEY" || exit 1
+    fi
+    ;;
+  *) exit 1 ;;
+esac
+exit 0
+IKSESS
+    chmod +x "$IK_SESSION"
+
+    IK_PROG="$IK_DIR/progress.md"
+    IK_PROG_NV="$IK_DIR/progress-nv.md"
+    IK_GH_LOG="$IK_DIR/gh.log"
+    ik_run() { # ik_run <progress-file> <kill|idle>
+      rm -f "$IK_DIR/spawns" "$IK_DIR/session.log" "$IK_GH_LOG" "$IK_PR_NUMS" \
+            "$LEAN_TREE/.claude/pipeline-state/$IK_KEY-run-id" \
+            "$LEAN_TREE/.claude/pipeline-state/$IK_KEY-review-run-id"
+      rm -f "$LEAN_TREE/.claude/pipeline-state/$IK_KEY"-lean-m3-*.pid \
+            "$LEAN_TREE/.claude/pipeline-state/$IK_KEY"-lean-m3-*.rc \
+            "$LEAN_TREE/.claude/pipeline-state/$IK_KEY"-lean-m3-*.log
+      : > "$IK_PR_NUMS"
+      git -C "$LEAN_TREE" worktree remove --force "$IK_WT" >/dev/null 2>&1
+      git -C "$LEAN_TREE" branch -D "$IK_BRANCH" >/dev/null 2>&1
+      git -C "$LEAN_TREE" worktree add -q -b "$IK_BRANCH" "$IK_WT" HEAD >/dev/null 2>&1
+      ( cd "$LEAN_TREE" && env -u CLAUDE_CODE_SESSION_ID -u RUN_ID -u LEAN_RUN_MODEL -u GH_BOT \
+          GH="$RE_GH" LEAN_SPAWN_BIN="$IK_SESSION" \
+          SECOND_SHIFT_CONFIG="$IK_CFG" LEAN_PROGRESS_FILE="$1" RE_COMMENTS_LIVE="$IK_COMMENTS" \
+          IK_MODE="$2" \
+          IK_DIR="$IK_DIR" IK_WT="$IK_WT" IK_GATE="$LEAN_GATE" IK_KEY="$IK_KEY" \
+          IK_CFG="$IK_CFG" IK_CFG_BLOCK="$IK_CFG_BLOCK" IK_RUN="$IK_RUN" \
+          IK_PR_NUM="$IK_PR_NUM" IK_PR_NUMS="$IK_PR_NUMS" IK_LEDGER_DIR="$RE_LEDGER_DIR" \
+          RE_LABELS="$IK_LABELS" RE_BODY="$IK_BODY" RE_STATE="$IK_STATE" \
+          RE_PR="$IK_PR" RE_PR_ALL="$IK_PR_ALL" RE_PR_NUMS="$IK_PR_NUMS" RE_GH_LOG="$IK_GH_LOG" \
+          bash "$RE_ORCH" "$IK_KEY" --build-model sonnet 2>&1 )
+    }
+
+    ik_out="$(ik_run "$IK_PROG" kill)"; ik_rc=$?
+    ik_m5="$(re_count "$IK_PROG" '| milestone-5 | satisfied')"
+    ik_unclosed="$(re_count "$IK_PROG" '| milestone-3 | started |')"
+    ik_closed="$(re_count "$IK_PROG" '| milestone-3 | concluded |')"
+    [[ "$ik_rc" -eq 0 && "$ik_m5" -eq 1 ]] \
+      && grep -q 'killed by infrastructure' <<<"$ik_out" \
+      && grep -q 'done — #' <<<"$ik_out" \
+      && pass "(lean-infrakill) a BUILD session whose milestone-3 evaluation is KILLED continues in a fresh session and the real lane still reaches its terminal write" \
+      || fail "(lean-infrakill) rc=$ik_rc milestone-5-rows=$ik_m5, expected 0/1: $ik_out"
+
+    # The residue was REAL, not asserted: the kill left a started row the run never closed, which
+    # is exactly the shape the gate's read derives an infrastructure death from. A leg that
+    # continued for any other reason would show a matched pair here.
+    [[ "$ik_unclosed" -gt "$ik_closed" ]] \
+      && pass "(lean-infrakill) the killed evaluation left a genuinely unclosed milestone-3 row — the residue the continuation was routed on" \
+      || fail "(lean-infrakill) started=$ik_unclosed concluded=$ik_closed — nothing was actually killed, so the leg proves nothing"
+
+    # ---- non-vacuity ----------------------------------------------------------------------
+    # The leg above would stay green if the scheduler continued on every PR-less spawn. Vary the
+    # FIXTURE — a first spawn that does nothing but `entry`, whose rows are deliberately outside
+    # the progress token AND leave no milestone-3 residue — and the identical composition must
+    # stop at exit 1 with nothing to review.
+    ik_nv_out="$(ik_run "$IK_PROG_NV" idle)"; ik_nv_rc=$?
+    ik_nv_spawns="$(cat "$IK_DIR/spawns" 2>/dev/null || echo 0)"
+    [[ "$ik_nv_rc" -eq 1 && "$ik_nv_spawns" -eq 1 \
+       && "$(re_count "$IK_PROG_NV" '| milestone-5 | satisfied')" -eq 0 ]] \
+      && grep -q 'nothing to review' <<<"$ik_nv_out" \
+      && pass "(lean-infrakill-nv) non-vacuity: the same composition with a genuinely idle first spawn stops at exit 1 after ONE spawn and reaches no terminal write" \
+      || fail "(lean-infrakill-nv) rc=$ik_nv_rc spawns=$ik_nv_spawns milestone-5-rows=$(re_count "$IK_PROG_NV" '| milestone-5 | satisfied'), expected 1/1/0: $ik_nv_out"
+
+    git -C "$LEAN_TREE" worktree remove --force "$IK_WT" >/dev/null 2>&1
   fi
 fi
 

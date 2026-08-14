@@ -893,6 +893,33 @@ if [ "$rc" -eq 7 ] && [ "$(el_count_in '| milestone-3 | attempt |' "$prog")" -eq
   pass "(ic5) AC-3: four consecutive infra reds still return 7 — the fix budget is never touched"
 else fail "(ic5) expected a fourth rc=7 with no attempt and no exhaustion, got rc=$rc: $(cat "$prog" 2>/dev/null)"; fi
 
+# AC-3 THROUGH THE OBSERVE SEAM, on the one state where the two rules collide. Budget exhaustion
+# normally outranks the class; an infra red inverts that, because it spends nothing and never can,
+# so answering 4 would report "out of attempts" about a call that takes none. The fix budget is
+# genuinely spent here — three real reds through the real writer — and the infra answer must still
+# be 7, with the ordinary class right beside it still answering 4.
+#
+# NAMED CONFIGS, not `ic_cfg`: that helper runs in a command substitution, so its counter
+# increments in a subshell and every call writes the SAME path. Harmless where one config is used
+# before the next is built — every case above — and wrong here, where two must be live at once.
+IC8_ORD="$WORK/ic8-ordinary.json"; jq '.commands.acme.test = "exit 1"' "$CFG" > "$IC8_ORD"
+IC8_INF="$WORK/ic8-infra.json";    jq '.commands.acme.test = "exit 3"' "$CFG" > "$IC8_INF"
+prog="$WORK/ic-prog-spent.md"
+gate_el "$IC8_ORD" "$prog" 3 7 >/dev/null 2>&1
+gate_el "$IC8_ORD" "$prog" 3 7 >/dev/null 2>&1
+gate_el "$IC8_ORD" "$prog" 3 7 >/dev/null 2>&1
+ic_before="$(el_count_in '| milestone-3 |' "$prog")"
+out="$( unset RUN_ID CLAUDE_CODE_SESSION_ID; cd "$EL_TREE" && SECOND_SHIFT_CONFIG="$IC8_INF" \
+        LEAN_PROGRESS_FILE="$prog" LEAN_GATE_OBSERVE=1 \
+        bash "$GATE" --issue-file "$EL_ISSUE" 3 7 2>&1 )"; rc=$?
+out2="$( unset RUN_ID CLAUDE_CODE_SESSION_ID; cd "$EL_TREE" && SECOND_SHIFT_CONFIG="$IC8_ORD" \
+         LEAN_PROGRESS_FILE="$prog" LEAN_GATE_OBSERVE=1 \
+         bash "$GATE" --issue-file "$EL_ISSUE" 3 7 2>&1 )"; rc2=$?
+if [ "$rc" -eq 7 ] && [ "$rc2" -eq 4 ] \
+   && [ "$(el_count_in '| milestone-3 |' "$prog")" -eq "$ic_before" ]; then
+  pass "(ic8) AC-3: observe reports an infra red as 7 even on a spent budget, while an ordinary red there still predicts 4 — and records neither"
+else fail "(ic8) expected infra=7 / ordinary=4 with an unmoved record, got $rc / $rc2 and $ic_before -> $(el_count_in '| milestone-3 |' "$prog"): $out$out2"; fi
+
 # AC-1 ↔ AC-2 COMPOSED, and this is the case that makes the reserved code a contract rather than
 # two files agreeing by coincidence. The writer (tools/run-selftests.sh) and the reader (this
 # gate) share a NUMBER, not an anchorable block, so a lockstep row cannot hold them — see the

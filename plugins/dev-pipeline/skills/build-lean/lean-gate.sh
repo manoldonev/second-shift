@@ -1223,14 +1223,21 @@ record_build_session() {
 # not after it: the observe arm above is the nearest existing precedent for returning a class
 # while writing nothing.
 #
-# BUDGET EXHAUSTION NEEDS NO CARVE-OUT: `count > FIX_BUDGET` is evaluated on a count this call did
-# not increment, so a call that appends nothing cannot be the one that tips it. An ALREADY-spent
-# budget still reports 4 on the ordinary classes below, exactly as before.
+# AND IT IS THE ONE CLASS THAT OUTRANKS BUDGET EXHAUSTION, inverting the paragraph above rather
+# than contradicting it. That rule exists because a class-6 red must not hide a spent budget; here
+# the direction reverses, because an infra red spends nothing and never can. Reporting 4 for one
+# would tell the caller "this milestone is out of attempts" about a call that took none — the same
+# misreport in the other direction. So the recording path returns 7 before it ever reads the count,
+# and observe predicts the identical answer.
+#
+# On the recording path that also means budget exhaustion NEEDS NO CARVE-OUT: `count > FIX_BUDGET`
+# is only reached below, on a count this call did increment.
 fail_milestone() {
   local n="$1" reason="$2" class="${3:-1}" count
   if [ "${LEAN_GATE_OBSERVE:-0}" = "1" ]; then
-    count="$(attempt_count "$n")"
     warn "✗ milestone-$n (observe): $reason"
+    [ "$class" = "$INFRA_CLASS" ] && return "$INFRA_CLASS"
+    count="$(attempt_count "$n")"
     [ "$count" -ge "$FIX_BUDGET" ] && return 4
     return "$class"
   fi
