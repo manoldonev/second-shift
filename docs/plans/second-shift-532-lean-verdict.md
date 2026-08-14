@@ -1,128 +1,123 @@
 # lean review verdict — #532
 
-verdict=needs-work
-run_id: review-532-1
-session_id: c2db65e5-4276-4067-b10a-0baf0a980dfe
-rounds: 1
+verdict=approve
+run_id: review-532-2
+session_id: 3b26a17b-bb80-4504-8d06-92bd5b0fbad5
+rounds: 2
 pr: #538
-reviewed_head: 02a45e2976d99facd7bb0e67e5c479619db7cee8
-reviewed_patch_id: 23eb273a63ab6adbec1e1cfd0a8650043bd40d55
-inherited_patch_id: none
-inherited_from_verdict: none
+reviewed_head: d9c67ab7357d4041861c4f03addbda0693c5f652
+reviewed_patch_id: 7ae791219096d01598827d9712134cb263921d40
+inherited_patch_id: 23eb273a63ab6adbec1e1cfd0a8650043bd40d55
+inherited_from_verdict: 90da2d033694b052e8de5c912851850fe522031b
 fidelity: not-applicable
 model: opus
 capabilities: pr-marker
 
-Round 1. Range reviewed: `128586c..02a45e2` (FULL branch diff — nothing verifiable to inherit).
+Round 2. Range reviewed: `90da2d0..d9c67ab` (the blocker fix), inheriting patch `23eb273a63ab`
+— round 1's coverage of `128586c..02a45e2`, recorded in the prior verdict.
 
 ## Verdict
 
-`needs-work` — one blocker. The implementation is sound and every AC is met on its merits; the
-blocker is that the PR's own `lint-and-selftests` lane is red, and it reds *before* the ubuntu
-selftest sweep runs.
+`approve` — round 1's single blocker is closed, and closed for the right reason. Every AC is
+scored below against the whole spec; nothing new was introduced by the fix.
 
-## Blockers
+## B1 — closed
 
-### B1 — CI `lint-and-selftests` is red: shellcheck SC2317 on the new suite
+Round 1 blocked on `checked-call-selftest.sh:49,52,54` carrying `# shellcheck disable=SC2329`,
+a code only shellcheck >= 0.10 emits. CI installs 0.9.0, which reports the identical
+"function appears unreachable" condition as **SC2317** — absent from the CI exclusion list — so
+`xargs` exited 123 and the lane died at its **first** step, taking the whole ubuntu selftest
+sweep down with it.
 
-`plugins/dev-pipeline/skills/run/tools/checked-call-selftest.sh:49,52,54` carry
-`# shellcheck disable=SC2329`. SC2329 is emitted only by shellcheck >= 0.10. CI installs
-**0.9.0** (`shellcheck is already the newest version (0.9.0-1)`, job 94647756830), which reports
-the same "function appears unreachable" condition as **SC2317** — not in the CI exclusion list
-(`-e SC1091,SC2015,SC2181`, `.github/workflows/ci.yml:31`). `xargs` therefore exits **123** and
-the lane fails at 1m5s.
+`d9c67ab` widens the three directives to `SC2317,SC2329`. What makes it closed is not the diff
+but the evidence on both sides of the skew:
 
-Two consequences, the second of which is the reason this is a blocker rather than a nit:
+| Evidence | Round 1 (`02a45e2`) | Round 2 (`d9c67ab`) |
+| --- | --- | --- |
+| `lint-and-selftests` | **fail**, 1m5s | **pass**, 3m47s |
+| `shellcheck` step | failure | success (48s) |
+| `run all selftests` step | never reached | success (2m35s), `77 discovered, 1 excluded, 76 to run` |
+| local shellcheck 0.11.0 | rc=0 | rc=0 |
 
-1. The lane is red, so the PR cannot merge.
-2. shellcheck is the **first** step of that job, so **the ubuntu selftest sweep never ran on this
-   PR at all**. AC-5's suites are unexecuted on that lane. (`selftests (macos, bash 3.2)` did run
-   and passed, and `mutation-sweep-pr` passed — see below — so this is a lint failure, not a test
-   failure.)
+The duration jump is the tell that the sweep actually executed rather than the lane simply
+going quiet — shellcheck is that job's first step, so the earlier red was the *absence* of a
+test result, not a test result. All four suites this diff touches are named `pass` in the
+ubuntu log: `checked-call-selftest` (13 passed, 0 failed), `check-fail-open-shapes-selftest`
+(17 passed, 0 failed), `detect-selftest`, `lean-gate-selftest`.
 
-Why it was missed: local shellcheck is 0.11.0, where `-e SC1091,SC2015,SC2181` over the four new
-files returns **rc=0**. The disable directive matches what the local version emits and misses what
-CI's emits.
+The fix is version-agnostic rather than version-flipped: naming both codes is clean on either
+binary, because a disable for a code the running version never emits is inert. That is the
+property that keeps this from trading CI's red for a local one.
 
-Fix: widen the three directives to `# shellcheck disable=SC2317,SC2329`. Verified in an isolated
-worktree — clean on 0.11.0 (rc=0) and the suite still passes 13/13, so the fix does not trade one
-version's red for the other's. `say_nomatch` (:51) and `die_7` (:56) need no directive; both are
-invoked directly at :129/:131, so neither version flags them.
+I checked the suppression is honest rather than merely quiet. The three functions carrying a
+directive — `say_match` (:53), `say_empty` (:56), `say_stderr` (:58) — are invoked **only**
+indirectly, through `checked_match … -- <fn>` running them via `"$@"`, so the directives
+describe a real indirection and hide no dead code. `say_nomatch` and `die_7` are invoked
+directly at :132/:134 and correctly carry no directive; neither version flags them. The
+directive at :49 is separated from `say_match` by three comment lines and still binds it —
+shellcheck skips comments — which both binaries confirm empirically.
 
 ## Per-AC scoring
 
 | AC | Score | Basis |
 | --- | --- | --- |
-| AC-1 | **satisfied** | `checked_match` returns 0/1/2/3 from one canonical text. Lockstep `checked-call` row present; `check-lockstep-pairs.sh` PASS (29 pairs, 0 failed); block SHAs identical by hand (`44a8b9d…`). Probe P1 (`return 2` -> `return 1`, both copies) fails (c3)(c4)(c5) and both halves of detect case 6. |
-| AC-2 | **satisfied** | All three arms return 2; `cmd_1:2146` raises `envfail`, from the caller as the spec argues. Probe P2 (gh arm -> `return 0`) fails **(y10) only**, reproducing the pre-fix behavior exactly: `rc=1 attempts=1`. Probe P3' (jq arm's `||` removed) fails **(y9) only**, with `rc=0` — a clean milestone-1 pass on an unparseable issue file, the genuine fail-open. (y11) holds the opposite direction. |
-| AC-3 | **satisfied** | Guard green: 16 enumerated sites, and the TSV carries exactly 16 non-converted rows (5 safe + 7 out-of-scope + 4 not-a-site) plus 3 converted. Probe P6 (new command-producer site) reds `UNCLASSIFIED`; P10 (anchor no longer a substring) reds `ANCHOR DRIFT`; P9 (conversion reverted to the old pipeline) reds **twice**, rc=2, exactly as the TSV header claims it must. |
-| AC-4 | **satisfied** | Both declared legs fire: P6 (`\| grep -q`) and P7 (`pgrep -fc … \|\| echo 0`) each red. See the warning below on what the legs deliberately do not bind. |
-| AC-5 | **satisfied in content; unexecuted on the ubuntu lane** | All five suites pass locally (checked-call 13/13, check-fail-open-shapes 17/17, detect all green, lean-gate all green, lockstep 29/0). `mutation-sweep-pr` passed: `checked-call.sh` applied=5 killed=5 **survived=0**, `check-fail-open-shapes.sh` applied=13 killed=11 survived=2 — the two survivors are exactly the baselined prose `logic` ordinals. All four new catalog rows are proved applied by arithmetic (13 = 10 generic at k=2 x 5 classes + 3 catalog; 5 = 4 generic + 1 catalog) and all four killed, with no `catalog anchor drift`. Blocked only by B1's lane ordering. |
+| AC-1 | **satisfied** | Inherited. `checked_match` returns three distinguishable outcomes from one canonical text, second copy pinned byte-identical. Re-confirmed at this head by CI's `contract lockstep pairs` step (success) and by the ubuntu `checked-call-selftest` run, 13/13. Round 1's probe P1 (`return 2` -> `return 1`, both copies) killed (c3)(c4)(c5) and both halves of detect case 6. |
+| AC-2 | **satisfied** | Inherited; untouched by the delta. All three arms of `check_pause_and_ask` return 2 and the caller raises `envfail`. Round 1 probes: P2 (gh arm -> `return 0`) killed **(y10) alone**, reproducing the pre-fix `rc=1 attempts=1`; P3' (jq arm's `||` removed) killed **(y9) alone** at `rc=0` — the genuine fail-open. (y11) holds the opposite direction. `lean-gate-selftest` green on both CI lanes at this head. |
+| AC-3 | **satisfied** | Re-run live at this head, not inherited: `check-fail-open-shapes.sh` exits 0 — `16 enumerated site(s), all dispositioned; no banned shapes` — and `--list` prints exactly 16, against 16 non-converted TSV rows (5 safe + 7 out-of-scope + 4 not-a-site) plus 3 converted. Round 1 probes P6 (`UNCLASSIFIED`), P10 (`ANCHOR DRIFT`), and P9 (a reverted conversion, which reds **both** at rc=2) each fired. |
+| AC-4 | **satisfied** | Both declared legs fire (round 1 P6 `\| grep -q`, P7 `pgrep -fc … \|\| echo 0`); guard green at this head. The narrowing is stated in the committed spec and measured, not assumed — see W1. |
+| AC-5 | **satisfied** | **Upgraded from round 1's "satisfied in content; unexecuted on the ubuntu lane".** The suites now demonstrably ran there: 76 of 77 discovered suites executed (the one exclusion is `install-topology`, per the standing CI recipe) and the sweep passed, alongside a green `selftests (macos, bash 3.2)`. `mutation-sweep-pr` passed with `checked-call.sh` applied=5 killed=5 **survived=0** and `check-fail-open-shapes.sh` applied=13 killed=11 survived=2 — identical to round 1, and the two survivors are exactly the baselined prose `logic` ordinals. No unbaselined survivor on any swept guard. |
 
 Fidelity: `not-applicable` — the spec declares no `## Design` section.
 
+## Panel
+
+5 selected, 5 returned, **none dark**: maintainability, test-coverage, security, performance,
+scope-completeness — all `approve`, zero findings. `test-coverage-reviewer`, which went dark in
+round 1 and was the dimension that diff most needed, ran this round and approved.
+`scope-completeness-reviewer` re-resolved the range to `merge-base(origin/main, HEAD)` and
+scored the **whole ticket** rather than the delta: PASS.
+
+Not routed, and not a coverage gap: `a11y-reviewer` and the design-fidelity dimension — no
+changed path matched `stageParams.webComponentGlobs` (absent from config, so the default
+`apps/web/**/*.{tsx,jsx}`). `complexity` and `test-coverage` are depth-skipped at this size;
+test-coverage was spawned anyway because the delta touches a test file.
+
+Provenance note, because it changes how the panel's coverage should be read: the first dispatch
+carried a base SHA that did not resolve in the worktree, which made the reviewers' canonical
+diff command fatal. Their approvals could not be certified as diff-grounded, so the panel was
+re-dispatched against the true SHA `90da2d033694b052e8de5c912851850fe522031b`. The result above
+is the second run; the first is discarded, not averaged in.
+
 ## Warnings (not blocking)
 
-### W1 — the capture costume has no guard leg
+### W1 — the capture costume still has no guard leg (carried forward from round 1)
 
 The guard binds `| grep -q` and `pgrep -c`. It does not bind
-`out="$(cmd)" || { warn; return 0; }` — which is the shape AC-2 just fixed in
-`check_pause_and_ask`, and the shape of the ticket's third session-authored instance (the `gh`
-poll loop). Nothing reds if it is reintroduced in a committed file.
+`out="$(cmd)" || { warn; return 0; }` — the shape AC-2 just fixed in `check_pause_and_ask`, and
+the shape of the ticket's third session-authored instance. Nothing reds if it is reintroduced in
+a committed file.
 
-Not a blocker: the committed spec states this narrowing explicitly rather than quietly, argues it
-from the `stack-generality-lint.sh` posture the ticket itself names as the template, and backs it
-with a measurement. I verified the measurement — 54 files here match
-`$(… || echo <default>)`, and 198 of 223 such expressions (89%) are the
-`$(cond && echo a || echo b)` ternary or a `jq … || echo <config default>`. A leg reddening on
-those would be switched off, as the spec says. Worth a follow-up ticket for the narrower
-`|| { …; return 0; }`-inside-a-predicate slice, not a change to this PR.
+Unchanged from round 1 and still not a blocker for the same reasons: the committed spec states
+the narrowing explicitly, argues it from the `stack-generality-lint.sh` posture the ticket names
+as its template, and backs it with a measurement that re-runs true. Per the round contract a
+round-1 warning is not escalated to a round-2 blocker, and nothing in the delta touched it. Worth
+a follow-up ticket for the narrower `|| { …; return 0; }`-inside-a-predicate slice.
 
-### W2 — `test-coverage-reviewer` went dark this round
+## CI at this head
 
-The reviewer panel returned 5 approve / 0 findings (security, performance, maintainability,
-complexity, scope-completeness); `test-coverage-reviewer` died after its automatic retry
-(turn-budget, no emit). That is the dimension this diff most needed, so I covered it directly
-rather than leaving it as a gap: seven mutation probes in an isolated worktree, all scored by case
-ID. Six killed (P1, P2, P3', P6, P7, P9, P10); one earlier attempt (P3) was **void**, not a
-survivor — the edit orphaned an `else` at runtime though `bash -n` passed, so it was re-run
-properly as P3'. An eighth (P8, appending text after a converted row's anchor) survived by
-construction and is not a defect: the anchor check is a substring match, so appending cannot break
-it, which is the intended behavior. Coverage for this round should be read as: panel minus
-test-coverage, plus the probe set above.
-
-## The spec amendment, examined
-
-`29a12e2 docs(532): amend the spec to what the code actually does` narrows AC-4 after the
-implementation landed, which the review contract flags as blocker-shaped. I do not score it as
-one. It narrows the **spec's own first-draft elaboration** (`$(… || echo <literal>)` and
-`$(… 2>/dev/null || true)`), not the ticket's AC-4, which asks only for "a guard [that] prevents
-reintroduction, as code rather than convention" on the `stack-generality-lint.sh` template — and
-that is delivered. The amendment is a separate labeled commit, states the narrowing in the
-committed artifact ("because AC-4's own text overreaches"), and carries a measurement that holds
-up when re-run.
-
-The AC-2 correction in the same commit is stronger than an argument: it is verifiable, and it
-checks out. The ticket asserts the two `gh` arms make milestone 1 **pass** on a blip. Probe P2
-restores the pre-fix `return 0` and the gate emits
-`✗ milestone-1: could not read issue #7 … (attempt 1/3)`, rc=1 — a refusal that spent a fix
-attempt, never a pass. The spec's correction is right and the ticket's premise was wrong.
+`lint-and-selftests` pass · `mutation-sweep-pr` pass · `selftests (macos, bash 3.2)` pass ·
+`release-pr-gates` skipped · `pr-gates` **fail** — at `lean chain reconciliation` only, every
+other step in that job green. That arm names its own reason and clears when this record lands;
+it is the expected pre-verdict state, not a finding.
 
 ## Strengths
 
-- The three-outcome vocabulary is carried by **one canonical text** with the second copy pinned
-  byte-identical, so the selftest drives production rather than a mirror — the failure mode
-  CLAUDE.md bans, avoided by construction.
-- The denominator is the guard's own `--list` output rather than a number, and the two halves
-  check each other: an unclassified site reds and a stale row reds. P9 demonstrates the pair
-  working — one reverted conversion trips both at once.
-- (y11) and detect case 6's third arm are both there specifically to stop their siblings passing
-  vacuously, and both earn it: P2 and P3' each fail exactly one case, which is what makes the
-  other two meaningful.
-- `mutation-baseline.tsv` rows say what they displace and why, instead of being re-keyed silently.
-
-## What to do
-
-Widen the three disable directives to `SC2317,SC2329`, push, and let CI re-run. Nothing else in
-the diff needs to change. Once `lint-and-selftests` is green — which also lets the ubuntu selftest
-sweep actually execute for the first time on this branch — this is an approve on the merits.
+- The blocker fix is the version-agnostic form rather than the version-flipped one, so it cannot
+  reintroduce the same class on whichever binary the other lane happens to run.
+- Its commit message verifies against CI's actual 0.9.0 binary in both directions (rc=0 after,
+  rc=1 with exactly those three SC2317s before) instead of reasoning about the version skew.
+- The directives are placed narrowly and honestly: exactly the three indirectly-invoked stubs
+  carry one, and the two directly-invoked stubs deliberately do not.
+- The round-1 diff's structural strengths hold unchanged — one canonical text with a
+  byte-identical pinned copy, and a denominator that is the guard's own `--list` output with each
+  half checking the other.
