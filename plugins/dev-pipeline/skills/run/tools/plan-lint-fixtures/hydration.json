@@ -1,8 +1,0 @@
-{
-  "ticketKey": "9998",
-  "briefPath": null,
-  "acceptanceCriteria": [
-    { "id": "AC-1", "text": "Import returns the credited ride", "negative": false, "source": "explicit" },
-    { "id": "AC-2", "text": "A failed import is retried", "negative": false, "source": "explicit" }
-  ]
-}

@@ -19,9 +19,13 @@ check() { if [[ "$2" -eq 0 ]]; then echo "  ✓ $1"; else echo "  ✗ $1"; FAILS
 # fallback: plugins are versioned independently, so a real install rarely has the sibling at
 # this plugin's version.
 #
-# HOP CONSTANTS ARE RE-DERIVED, NOT COPIED. skills/doctor/tools sits three levels under the
-# plugin root, so the plugins dir is four hops up and the marketplace root five —
-# check-model-tiers.sh's copy, one level under its plugin root, uses two and three.
+# THE ANCHOR IS THE PLUGIN ROOT, so the hop constants are the same on both sides: one hop to
+# the plugins dir, two to the marketplace root. #348 is why. The two copies used to anchor on
+# their own tool directory and share a four-hop constant because both sat three levels under
+# their plugin root; preflight-selftest.sh moved to plugins/dev-pipeline/tools/ (one level
+# down) and the shared constant stopped holding for both. Each caller now walks up to its own
+# plugin root and passes THAT, which keeps the blocks byte-identical without either side
+# encoding the other's depth.
 #
 # Newest-version selection is LEXICAL, mirroring both house ladders (`9.0.0` outranks
 # `10.0.0`). A shared latent defect, deliberately mirrored rather than fixed here.
@@ -30,21 +34,22 @@ check() { if [[ "$2" -eq 0 ]]; then echo "  ✓ $1"; else echo "  ✗ $1"; FAILS
 # so each caller below turns a miss into a COUNTED failure.
 
 # resolve_sibling_plugin_root <anchor-dir> <name> <marker-subpath> — echoes the sibling plugin
-# ROOT. The anchor is a PARAMETER rather than a read of this file's own directory variable:
+# ROOT. The anchor is THIS PLUGIN'S ROOT, passed as a parameter rather than read from this
+# file's own directory variable:
 # that was the only thing separating this copy from preflight-selftest.sh's, whose hop
 # constants are identical, and passing it in makes the two blocks byte-identical so
 # scripts/lockstep-manifest.tsv can pin them instead of leaving them held by prose.
 # LOCKSTEP-BEGIN cross-plugin-sibling-plugin-root
 resolve_sibling_plugin_root() {
   local anchor="$1" name="$2" marker="$3" cand
-  cand="$(cd "$anchor/../../../../$name" 2>/dev/null && pwd)" || cand=""
+  cand="$(cd "$anchor/../$name" 2>/dev/null && pwd)" || cand=""
   if [[ -n "$cand" && -d "$cand/$marker" ]]; then printf '%s\n' "$cand"; return 0; fi
   # HIGHEST version, not the lexically-last one. Glob order is lexical, so a bare `tail -1`
   # here ranked 9.0.0 above 10.0.0 and resolved a superseded sibling. Per-field numeric sort
   # on the version component is the house form (pin-resolve.sh ships it), and ASCENDING +
   # `tail -1` is deliberate: BSD sort ignores a global `-r` once per-key modifiers are
   # present, so a reversed form would silently select the OLDEST version there.
-  for cand in "$anchor"/../../../../../"$name"/*/; do
+  for cand in "$anchor"/../../"$name"/*/; do
     [[ -d "$cand/$marker" ]] || continue
     printf '%s\t%s\n' "$(basename "$cand")" "$(cd "$cand" && pwd)"
   done | sort -t. -k1,1n -k2,2n -k3,3n | tail -1 | cut -f2-
@@ -256,7 +261,7 @@ else check "report-state-excerpt" 1; echo "$sout" | sed 's/^/      /' | head -20
 
 # --report context-coverage section: resolved (real review-toolkit) emits a coverage line;
 # unresolved (env empty + fake-cache pluglist install path has no script) emits the fallback.
-RT_REAL="$(resolve_sibling_plugin_root "$HERE" review-toolkit scripts || true)"
+RT_REAL="$(resolve_sibling_plugin_root "$HERE/../../.." review-toolkit scripts || true)"
 # A miss here used to be invisible: the "resolved" scenario below simply degraded into the
 # unresolved one and failed with a message about the fallback line, naming the symptom rather
 # than the cause. Assert the resolution itself so the failure says what actually broke.
