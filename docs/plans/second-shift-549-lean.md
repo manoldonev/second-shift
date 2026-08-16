@@ -63,8 +63,10 @@ the probe model and identical prompts across arms. No result here is reasoned ab
 | # | Verdict | Measured |
 | --- | --- | --- |
 | i | ✗ | `--tmux` **requires `--worktree`**, which collides head-on with a lane whose worktree the gate creates and destroys. |
-| ii–v | ✗ | Unreachable behind i. |
+| ii–v | — | **Not measured.** Unreachable behind i, and `tmux` is absent, so there was nothing to measure them against. Unreachable is not the same as failing, and scoring these ✗ would claim four measurements nobody took. |
 | vi | ✗ | Needs a terminal, and `tmux` is absent on the operator's own machine. |
+
+Criterion i disqualifies C on its own; the outcome does not turn on the four rows above.
 
 ### D — the streaming transport, which the receipt does not enumerate
 
@@ -76,9 +78,14 @@ one compact JSON user message on stdin. It has **two configurations**, and they 
 | i | ✓ 60s foreground call → `result: success`, rc=0 at 84s | ✓ |
 | ii | ✓ the `{"type":"result"}` line, then the child exits | ✗ **see below** |
 | iii | ✓ native — direct child, `${PIPESTATUS[0]}` unchanged | ✓ native |
-| iv | ✓ payload is the child's stdout pipe, renderable to text and tee'd to today's two sinks | ✓ |
+| iv | ✓† payload is the child's stdout pipe, tee'd to today's two sinks | ✓† |
 | v | ✓ | ✓ |
 | vi | ✓ stdin a file, both streams pipes | ✓ |
+
+† **(iv) holds given a renderer that does not exist.** The channel is right — it is a pipe the
+scheduler owns — but the bytes on it are stream-json, and a wall of stream-json in the transcript
+satisfies the letter of D-4's split while destroying the thing the split exists for. The ✓ is for
+the channel, not for the output as it stands.
 
 **Why "held open" fails (ii).** A `result` event is emitted at *every* settle point, not at the
 end of the phase. Measured: a session that armed a `Monitor` emitted `result: success` at 15.0s,
@@ -107,6 +114,26 @@ open and the failing one did not, and in the EOF run the model simply ended its 
 and the process exited with it. Attributing that to the transport would have credited it with a win
 it does not have.
 
+### What is not committed here, and why that is a known weakness
+
+The numbers above with decimals in them — the 15.0s/42.7s/45.2s settle sequence, `SLEPT-200` at
+210.5s, 13 ANSI escapes in the first 1302 bytes — were read off live runs during the build session,
+and **their transcripts, scripts and timing logs were not preserved**. The tables are the
+per-candidate, per-criterion record D-3 asks for and they are complete at that level, but they are
+not independently re-checkable.
+
+That matters more here than it usually would, because this dataset has **already produced one wrong
+conclusion** — the 200s row corrected immediately above — and it was caught only by re-reading
+notes that no longer exist. A second error of the same kind would be undetectable from this
+document.
+
+So: treat every timing above as a **single-run observation on one machine**, not as a reproduced
+measurement. The claims that survive without the notes are the cheap re-checkable ones, and those
+were re-run independently at review and held exactly — `claude --version` = 2.1.233, `command -v
+tmux` absent, the `--bg`/`--print` refusal text, and `--tmux` requiring `--worktree` per `claude
+--help`. Re-running the settle-sequence measurement behind a committed harness is the first thing
+question 1 below should buy if it is taken; it is the finding everything else would rest on.
+
 ## AC-2 — the stop, and what it is asking for (OR-1)
 
 OR-1's trigger condition is met: no candidate survives D-3's criteria list. Its disposition is
@@ -118,6 +145,24 @@ reporting success is the shape #531 was filed for."*
 EOF configuration was written and reverted: it passes every criterion, the scheduler's loop stays
 green under it, and it is measured to deliver **no** improvement — landing it would have reported
 this ticket done while changing nothing an operator would feel.
+
+**What this branch withdrew.** At `608e57c` this spec carried **AC-1 through AC-10** — a full
+implementation spec that made candidate D's EOF configuration the lane's default, with the
+capability check, the `LEAN_PHASE_TRANSPORT` channel, the `SEAM_SCRUB_ENV` scrub, both `SKILL.md`
+two-branch rules, and six new `orchestrate-lean-selftest.sh` cases. `5bd3654` replaced that set
+with the three ACs above, once the A/B at the end of AC-1 showed the EOF configuration buys
+nothing. The direction of that edit is the safe one — claims were *withdrawn*, not stretched to
+cover a diff — and OR-1's `pause-and-ask` disposition, written at intake, is what licenses
+replacing the AC set mid-run. It is disclosed here because the merged file otherwise reads as
+though this ticket never had an implementation spec at all.
+
+**And the implementation is gone.** It was discarded rather than parked: it is not in the reflog,
+not in a stash, and not in a dangling object. Reverting before handoff was right; discarding and
+preserving were separate decisions and only the first was taken. The cost lands entirely on
+question 1 below, where the held-open configuration would reuse most of it — in particular the
+`spawn_prompt` accessor that decouples the selftest's ten argv-bound prompt assertions from the
+transport, which is a prerequisite for *any* transport that moves the prompt off argv, not just
+this one.
 
 What the operator is being asked, on the issue:
 
@@ -137,6 +182,34 @@ What the operator is being asked, on the issue:
 This branch adds one document. It changes no behavior, adds no seam, and asserts no improvement.
 D-6's exit criterion (one real build phase's transcript showing the milestone-3 wait costing at
 most one model turn) is **not** met and is not claimed to be.
+
+## What this branch does not dispose of
+
+The receipt's remaining decisions are each conditional on a surviving candidate, and none survived.
+That is not skipped work — but it is also not *settled* work, and a merge carrying `Closes #549`
+would dispose of all nine **by closure**, silently. They are enumerated here so the disposition is
+something a reader can find rather than infer, and so that answering OR-1 is one line per row
+rather than a re-derivation.
+
+**Every row below is `parked — awaiting OR-1`.** Under question 2 the whole table resolves to
+"closed as answered; no transport lands, so nothing here has a subject". Under question 1 the whole
+table carries forward into the re-scope, against candidate D's held-open configuration.
+
+| Item | What it obliges | Why it has no subject yet |
+| --- | --- | --- |
+| D-1 | Winner becomes the lane default; `-p` retained as an automatic fallback behind a `spawn()` capability check | There is no winner to default to. D-1's stated price — one capability check plus one branch — is also measured to be the wrong price for the only configuration that delivers anything (see question 1). |
+| D-4 | #531 D-5's three-way stream split holds verbatim under the new transport | Scored **per candidate** as criterion (iv) in AC-1, which is the disqualifying use D-4 asks for. What is not done is the other half — asserting it in the suite against a landed transport. |
+| D-5 | `LEAN_PHASE_TRANSPORT` channel, the nested-child `SEAM_SCRUB_ENV` scrub, and `build-lean/SKILL.md`'s two-branch in-flight rule | The two-branch rule's second branch describes a transport that does not exist; writing it now would document a capability the lane does not have. |
+| D-7 | The transport must surface a recoverable rc; a thin wrapper writes an rc file where it is not native | Measured per candidate as criterion (iii). Candidate A is where it actually bites — the session never exits, so the wrapper has no position to sit in. No wrapper is written because no candidate is adopted. |
+| D-8 | All three spawn sites move together, via the single `spawn()` | `spawn()` is unchanged, so the invariant holds vacuously. Re-assert it against any landed transport. |
+| D-10 | P10 identity invariants **asserted**, not assumed, under the new transport: fresh session per phase, the `env -u RUN_ID -u LEAN_RUN_MODEL` scrub re-applied, `--permission-mode` passed through, no phase able to block on a human prompt | `--permission-mode` pass-through was measured per candidate (criterion v). The other three are unasserted — they are properties of a spawn path that did not change. |
+| Testing 1 | Extend `orchestrate-lean-selftest.sh`'s `LEAN_SPAWN_BIN` fake with the winner's surface plus a fake status channel | No winner, no surface to fake. |
+| Testing 2 | The fallback path stays exercised by the cases that run today | Holds vacuously — those cases are the only cases, and they are green on this branch. |
+| Testing 3 | #531's stream-split assertions are the acceptance evidence for D-4 and must pass under **both** transports | There is one transport. They pass under it. |
+
+One obligation from `## Testing` is **not** parked and is discharged: *"editing this guard re-keys
+its generic survivor ordinals — re-baseline in the same diff."* This branch edits no guard, so
+there are no ordinals to re-key and no `tools/mutation-catalog.tsv` row to re-anchor.
 
 ---
 
