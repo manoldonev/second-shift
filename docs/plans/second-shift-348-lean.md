@@ -216,10 +216,16 @@ its Blocking? column. Filing the retirement is out of scope; the record is not.
   (`tools/run-selftests.sh`), and `shellcheck` + `jq empty` are clean. Plus the mechanical
   orphan check, run in the PR: a grep of every `*-selftest.sh`, `tools/*.tsv`,
   `scripts/*.tsv` and `scripts/lockstep-manifest.tsv` for any deleted or relocated
-  `skills/run/` path returns empty — **exempting `tools/capability-parity.tsv`**, whose rows
-  are permanent historical citations by its own contract (`capability-parity-check.sh:29`)
-  and are deliberately not existence-checked. `scripts/fail-open-sites.tsv` is inside this
-  check (widened from the issue's glob per ledger D-15).
+  `skills/run/` path returns empty, with exactly **two** exemptions, both stated rather than
+  discovered: `tools/capability-parity.tsv`, whose rows are permanent historical citations by
+  its own contract (`capability-parity-check.sh:29`) and are deliberately not existence-checked;
+  and `tools/capability-parity-check-selftest.sh`, which must FABRICATE a `skills/run/stages`
+  tree under its sandbox to exercise the coverage clause at all — the clause's own LIFETIME note
+  forbids deleting it, so its test needs a stage doc to point at. `scripts/fail-open-sites.tsv`
+  is inside this check (widened from the issue's glob per ledger D-15), and so is
+  `.claude/prose-budget.baseline.tsv`, whose deleted rows were removed and whose moved rows were
+  re-pointed **individually** — regenerating it wholesale would have reset a ratchet carrying 18
+  pre-existing over-budget signals that have nothing to do with this change.
 - **AC-2 (oracle — mutation sweep).** No baseline, exclusion, pair-map, slow-suite or catalog
   row references a deleted guard; every re-keyed row lands in this same diff, and
   `tools/mutation-sweep.sh` runs clean against the surviving guard set on the PR lane.
