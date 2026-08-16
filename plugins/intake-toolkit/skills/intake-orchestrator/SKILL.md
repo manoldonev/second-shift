@@ -416,7 +416,8 @@ adapter has no queue label and no claimed label, so there is no corpus of eligib
 
 **2. Lint it.** Write the ledger you assembled to `.claude/pipeline-state/{ISSUE_NUMBER}-ledger.md`
 in the receipt shape (`interviewing-baseline` → "The intake receipt": five columns, plus a
-`## Open Regions` section) and run:
+`## Open Regions` section and a `## Surface Inventory` section — each carrying rows or its own
+explicit empty form) and run:
 
 ```bash
 bash "${CLAUDE_PLUGIN_ROOT}/skills/plan-interview/tools/ledger-lint.sh" \
@@ -426,10 +427,19 @@ bash "${CLAUDE_PLUGIN_ROOT}/skills/plan-interview/tools/ledger-lint.sh" \
 `${CLAUDE_PLUGIN_ROOT}` is intake-toolkit here, and the lint ships in this same plugin — this
 is a sibling-skill path, not the cross-plugin resolution the bot-writes note above describes.
 
-A red lint is not a formatting complaint. An `intent` row backed by `codebase-derived` /
-`ticket-sourced` / `deferred` means you recorded a decision *you* made as one the human made —
-either ask them, or reclassify it honestly (a derived fact, or an `open` row under a declared
-region). Do not edit the Kind cell to clear the lint.
+A red lint is not a formatting complaint, and it has two distinct causes.
+
+**A ratification failure.** An `intent` row backed by `codebase-derived` / `ticket-sourced` /
+`deferred` means you recorded a decision *you* made as one the human made — either ask them, or
+reclassify it honestly (a derived fact, or an `open` row under a declared region). Do not edit
+the Kind cell to clear the lint.
+
+**A surface-inventory failure.** A missing `## Surface Inventory`, a `decided` disposition citing
+no `D-n` (or citing one the ledger never declares), or an `out-of-scope` carrying no reason means
+the decomposition has a user-visible surface it never accounted for. Enumerate the surfaces the
+work implies, then give each one a decision to cite or a stated reason it is out of scope. The
+empty form (`No user-visible surface — this change renders nothing a user reads.`) is for work
+that genuinely renders nothing — it is not a way to clear the section.
 
 **3. Probe it.** Dispatch `intake-toolkit:implementability-probe` via `Task`, handing it the
 **spec text alone** — no interview transcript, no ledger, no findings from this session. It is
