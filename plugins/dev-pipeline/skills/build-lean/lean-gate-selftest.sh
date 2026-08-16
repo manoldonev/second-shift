@@ -4412,6 +4412,14 @@ wt_make() { # wt_make <issue> — a clean lane worktree whose branch is fully pu
   git -C "$WTREE" update-ref "refs/remotes/origin/$br" "$(git -C "$WTREE" rev-parse "$br")"
   printf '%s' "$p"
 }
+# #530: a SECOND worktree on a branch `wt_make` already checked out. `--force` is required —
+# without it git refuses a branch already checked out elsewhere — and it is what the fixture is
+# for: the sanctioned "review session cut its own checkout of the same PR head" shape.
+wt_make_second() { # wt_make_second <issue> <suffix> — a second worktree on wt_make's branch
+  local br="claude/acme-$1" p="$WREAL/wt-$1-$2"
+  git -C "$WTREE" worktree add -q --force "$p" "$br" 2>/dev/null
+  printf '%s' "$p"
+}
 
 # --- the preconditions, through `teardown` ---------------------------------------------------
 rm -f "$WPROG"
@@ -4488,6 +4496,46 @@ if wt_registered "$p"; then
   pass "(wt8) 'all' removes nothing — teardown is not part of the milestone progression"
 else fail "(wt8) 'all' destroyed a worktree, rc=$rc: $out"; fi
 
+# --- (wt20)-(wt22) #530: a SECOND worktree on the same branch is a SANCTIONED state, not a -------
+# violated expectation — review-lean cuts its own checkout of the PR head, and the build worktree
+# is not guaranteed to still be there. `lean_worktree_for_branch`'s first-match return orphaned
+# whichever one it did not see; these pin that both are now accounted for.
+# Issue numbers 120-122, not 26-28: the entry-sweep qualification block below already owns
+# 26-29 for its own fixtures, and `wt_make`'s `-b` add fails silently (2>/dev/null) on a branch
+# that already exists — reusing those numbers here left that block's worktrees never created,
+# which is what actually broke (wt9)-(wt11) there rather than anything this pins.
+p1="$(wt_make 120)"
+p2="$(wt_make_second 120 b)"
+out="$(wgate "$WTREE" teardown 120)"; rc=$?
+if [ "$rc" -eq 0 ] && ! wt_registered "$p1" && ! wt_registered "$p2" \
+   && git -C "$WTREE" rev-parse --verify -q claude/acme-120 >/dev/null; then
+  pass "(wt20) #530: two clean, fully-pushed worktrees on one branch are both removed, the branch kept"
+else fail "(wt20) rc=$rc, p1 reg=$(wt_registered "$p1" && echo yes || echo no) p2 reg=$(wt_registered "$p2" && echo yes || echo no): $out"; fi
+
+# The mixed case: one tree is collected, the other still holds work. Both preconditions apply
+# PER TREE — a dirty sibling must not block the clean one's removal, and a removed sibling must
+# not hide the one that still needs a human.
+p1="$(wt_make 121)"
+p2="$(wt_make_second 121 b)"
+printf 'uncollected\n' > "$p2/scratch.txt"
+out="$(wgate "$WTREE" teardown 121)"; rc=$?
+if [ "$rc" -eq 0 ] && ! wt_registered "$p1" && wt_registered "$p2" \
+   && grep -qF 'is not clean' <<<"$out" && grep -qF 'scratch.txt' <<<"$out"; then
+  pass "(wt21) #530: one clean and one dirty tree on the same branch — the clean one is removed, the dirty one kept"
+else fail "(wt21) rc=$rc, p1 reg=$(wt_registered "$p1" && echo yes || echo no) p2 reg=$(wt_registered "$p2" && echo yes || echo no): $out"; fi
+rm -f "$p2/scratch.txt"
+git -C "$WTREE" worktree remove --force "$p2" >/dev/null 2>&1
+
+# D-7: the CALLER's own worktree is one of the registered trees on its branch when teardown runs
+# from inside it (the ordinary checklist-step-9 shape) — and it must be removed like any other,
+# never silently skipped for being the cwd.
+p1="$(wt_make 122)"
+p2="$(wt_make_second 122 b)"
+out="$(wgate "$p1" teardown 122)"; rc=$?
+if [ "$rc" -eq 0 ] && ! wt_registered "$p1" && ! wt_registered "$p2"; then
+  pass "(wt22) #530 D-7: teardown run from inside its own worktree removes it too, not just its sibling"
+else fail "(wt22) rc=$rc, p1(own) reg=$(wt_registered "$p1" && echo yes || echo no) p2 reg=$(wt_registered "$p2" && echo yes || echo no): $out"; fi
+
 # --- (if) #531 D-3: the shared IN-FLIGHT predicate, exposed read-only ---------------------------
 # ONE PREDICATE, TWO CALLERS. The (wt4)-(wt6) cases above pin it through `teardown`; these pin the
 # same conditions through the subcommand the SCHEDULER calls, which is the point of the extraction
@@ -4554,6 +4602,48 @@ if [ "$rc" -eq 0 ] && grep -qF 'no registered worktree' <<<"$out"; then
 else fail "(if7) expected rc=0 with nothing to read, rc=$rc: $out"; fi
 git -C "$WTREE" worktree remove --force "$p" >/dev/null 2>&1
 
+# --- (if8)-(if10) #530 D-3: the SAME predicate, read across every worktree on the branch --------
+# ONE PREDICATE, MULTIPLE TREES NOW. (wt20)-(wt22) above pin the same fixture shape through
+# `teardown`; these pin it through the scheduler's read. The strongest answer wins: 8 outranks 1,
+# 1 outranks 0 — a tree demonstrably holding work is more actionable than one nothing could read,
+# and a read that did not complete is not the clean answer either.
+p1="$(wt_make 46)"
+p2="$(wt_make_second 46 b)"
+printf 'uncollected\n' > "$p2/scratch.txt"
+out="$(wgate "$WTREE" inflight 46)"; rc=$?
+if [ "$rc" -eq 8 ] && grep -qF 'STILL HOLDS WORK' <<<"$out" && grep -qF "$p2" <<<"$out"; then
+  pass "(if8) #530 D-3: a dirty tree outranks a clean sibling on the same branch — 8 over 0"
+else fail "(if8) rc=$rc: $out"; fi
+rm -f "$p2/scratch.txt"
+git -C "$WTREE" worktree remove --force "$p2" >/dev/null 2>&1
+git -C "$WTREE" worktree remove --force "$p1" >/dev/null 2>&1
+
+# The unresolvable-status case is per-TREE (a missing directory), unlike an unresolvable remote
+# ref — which is per-BRANCH and so cannot differ between two worktrees on the same one. Deleting
+# the tree out from under its registration (never pruned) reproduces "the status could not be
+# read" without touching the branch both trees share.
+p1="$(wt_make 47)"
+p2="$(wt_make_second 47 b)"
+rm -rf "$p2"
+out="$(wgate "$WTREE" inflight 47)"; rc=$?
+if [ "$rc" -eq 1 ] && grep -qF 'could not be evaluated' <<<"$out"; then
+  pass "(if9) #530 D-3: a tree whose status cannot be read outranks a clean sibling — 1 over 0"
+else fail "(if9) rc=$rc: $out"; fi
+git -C "$WTREE" worktree remove --force "$p1" >/dev/null 2>&1
+git -C "$WTREE" worktree prune >/dev/null 2>&1
+
+p1="$(wt_make 48)"
+p2="$(wt_make_second 48 b)"
+printf 'uncollected\n' > "$p1/scratch.txt"
+rm -rf "$p2"
+out="$(wgate "$WTREE" inflight 48)"; rc=$?
+if [ "$rc" -eq 8 ] && grep -qF 'STILL HOLDS WORK' <<<"$out" && grep -qF "$p1" <<<"$out"; then
+  pass "(if10) #530 D-3: a dirty tree outranks an unreadable sibling — 8 over 1"
+else fail "(if10) rc=$rc: $out"; fi
+rm -f "$p1/scratch.txt"
+git -C "$WTREE" worktree remove --force "$p1" >/dev/null 2>&1
+git -C "$WTREE" worktree prune >/dev/null 2>&1
+
 # --- (td) #531 D-11: teardown REPORTS its outcome, and is never certified ------------------------
 # Checklist step 9 runs `bash G 5` and THEN teardown, so the outcome does not exist when milestone
 # 5 is decided and cannot be one of its obligations. It gets a row of its own instead, in its own
@@ -4610,6 +4700,28 @@ tdgate teardown 44 >/dev/null 2>&1
 if [ "$(td_count '| teardown | ')" -le 4 ]; then
   pass "(td6) re-running teardown restates nothing — one row per outcome kind"
 else fail "(td6) teardown rows accumulated: $(grep -c 'teardown' "$TDPROG")"; fi
+rm -f "$TDPROG"
+
+# #530 D-4: a SINGLE call that both removes one tree and keeps another records BOTH rows, `kept`
+# last — so the one row `progress --obligations` surfaces (the most recent) is the state that
+# still needs a human, not the one that already left.
+p1="$(wt_make 45)"
+p2="$(wt_make_second 45 b)"
+printf 'uncollected\n' > "$p2/scratch.txt"
+tdgate entry 45 >/dev/null 2>&1
+out="$(tdgate teardown 45)"; rc=$?
+if [ "$rc" -eq 0 ] && [ "$(td_count '| teardown | removed |')" -eq 1 ] \
+   && [ "$(td_count '| teardown | kept |')" -eq 1 ] \
+   && ! wt_registered "$p1" && wt_registered "$p2"; then
+  pass "(td7) #530: a call that removes one tree and keeps another records both outcomes in one pass"
+else fail "(td7) rc=$rc, rows: $(grep 'teardown' "$TDPROG" 2>/dev/null)"; fi
+
+obl="$(tdgate progress 45 --obligations)"
+if grep -qE '^teardown: kept ' <<<"$obl"; then
+  pass "(td8) #530 D-4: 'kept' is the standing outcome when one call reaches both — the row an operator sees is the one still needing them"
+else fail "(td8) expected 'kept' as the standing teardown row: $obl"; fi
+rm -f "$p2/scratch.txt"
+git -C "$WTREE" worktree remove --force "$p2" >/dev/null 2>&1
 rm -f "$TDPROG"
 
 # --- the entry sweep: qualification ------------------------------------------------------------

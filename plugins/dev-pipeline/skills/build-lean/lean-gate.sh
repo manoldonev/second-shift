@@ -1545,17 +1545,23 @@ lean_worktrees() {
   '
 }
 
-lean_worktree_for_branch() { # lean_worktree_for_branch <branch> -> its path, or nothing
-  local p b
+# #530: PLURAL by construction. A second worktree on the same branch is a SANCTIONED state, not
+# a violated expectation — review-lean cuts its own checkout of the PR head, and the build
+# worktree is not guaranteed to still be there when it does. A singular `lean_worktree_for_branch`
+# that returned on the first match left every caller blind to the second tree, which is what
+# accumulated the stray worktrees this fixes. One path per line; both current callers iterate, so
+# there is no remaining consumer of a first-match form.
+lean_worktrees_for_branch() { # lean_worktrees_for_branch <branch> -> one path per line, or nothing
+  local p b found=1
   while IFS="$(printf '\t')" read -r p b; do
     [ -n "$b" ] || continue
     [ "$b" = "$1" ] || continue
     printf '%s\n' "$p"
-    return 0
+    found=0
   done <<EOF
 $(lean_worktrees)
 EOF
-  return 1
+  return "$found"
 }
 
 # The DECLINE path, and the only one either mechanism has. It prints rather than fails (D-6):
@@ -1779,7 +1785,7 @@ append_teardown() { # append_teardown <outcome> <detail>
 }
 
 cmd_teardown() {
-  local wt
+  local wt paths rest="" own="" order removed_paths="" removed=0 kept_lines=""
   # #526, FIRST and unconditionally: the lane is over whichever way the worktree removal goes,
   # and a kept worktree (the early return below) is still a lane that stopped consuming cores.
   lane_deregister
@@ -1787,19 +1793,42 @@ cmd_teardown() {
   # outliving its lane is worth stopping whether or not there is a directory left to remove, and
   # ordering it after the removal would be the race this exists to close.
   m3_reap_runners
-  wt="$(lean_worktree_for_branch "$LEAN_BRANCH")" || wt=""
-  if [ -z "$wt" ]; then
+  paths="$(lean_worktrees_for_branch "$LEAN_BRANCH")" || paths=""
+  if [ -z "$paths" ]; then
     say "teardown: no registered worktree is on $LEAN_BRANCH — nothing to remove."
     append_teardown absent "no registered worktree on $LEAN_BRANCH"
     return 0
   fi
   say "teardown: $LEAN_BRANCH"
-  WORKTREE_KEEP_REASON=""
-  if worktree_destroy "$wt" "$LEAN_BRANCH"; then
-    append_teardown removed "$wt"
-  else
-    append_teardown kept "$wt — ${WORKTREE_KEEP_REASON:-reason not recorded}"
-  fi
+  # #530: every registered worktree on the branch is accounted for, not just the first match — a
+  # second one is the sanctioned shape a review session's own checkout leaves. The caller's own
+  # tree ($REPO_ROOT) is ordered LAST and never skipped: `git worktree remove` can remove the
+  # current worktree from inside it, but removing it first would leave the remaining trees'
+  # removal running from a deleted cwd.
+  while IFS= read -r wt; do
+    [ -n "$wt" ] || continue
+    if [ "$wt" = "$REPO_ROOT" ]; then own="${own}${wt}"$'\n'; else rest="${rest}${wt}"$'\n'; fi
+  done <<EOF
+$paths
+EOF
+  order="${rest}${own}"
+  while IFS= read -r wt; do
+    [ -n "$wt" ] || continue
+    WORKTREE_KEEP_REASON=""
+    if worktree_destroy "$wt" "$LEAN_BRANCH"; then
+      removed=$((removed + 1))
+      removed_paths="${removed_paths:+$removed_paths, }$wt"
+    else
+      kept_lines="${kept_lines:+$kept_lines; }$wt — ${WORKTREE_KEEP_REASON:-reason not recorded}"
+    fi
+  done <<EOF
+$order
+EOF
+  # One row per outcome KIND (append_teardown's own idempotence), not one per tree — and `kept`
+  # last when a single call reaches both: the one row `progress --obligations` surfaces is then
+  # the state that still needs a human, per the "LAST row wins" contract at obligations_report.
+  [ "$removed" -gt 0 ] && append_teardown removed "$removed_paths"
+  [ -n "$kept_lines" ] && append_teardown kept "$kept_lines"
   # ALWAYS 0, whichever way that went. A kept worktree has already reported itself, and a
   # non-zero exit on the last command of a finished run reads as "the run failed" over a
   # directory nobody needs.
@@ -1827,21 +1856,43 @@ cmd_teardown() {
 # BUILD spawn that never cut a worktree is caught by the continuation predicate beside this, which
 # is the read that owns "did anything happen at all".
 cmd_inflight() {
-  local wt rc
-  wt="$(lean_worktree_for_branch "$LEAN_BRANCH")" || wt=""
-  if [ -z "$wt" ]; then
+  local wt rc paths win_rc=0 win_wt="" win_reason="" win_detail=""
+  paths="$(lean_worktrees_for_branch "$LEAN_BRANCH")" || paths=""
+  if [ -z "$paths" ]; then
     say "inflight: no registered worktree is on $LEAN_BRANCH — there is no tree that could be holding work."
     return 0
   fi
-  worktree_inflight "$wt" "$LEAN_BRANCH"; rc=$?
-  case "$rc" in
-    0) say "inflight: clean — $wt has a clean tree and every commit on origin/$LEAN_BRANCH."
+  # #530 D-1/D-3: every registered worktree on the branch is read, not just the first match, and
+  # the strongest answer wins — 8 outranks 1, 1 outranks 0. A tree demonstrably holding work is
+  # stronger and more actionable than one nothing could read, and clean outranks nothing. Ranked
+  # explicitly (first-found wins a tie) rather than by a numeric rc comparison, so a future
+  # renumbering of these codes cannot silently invert it. A tree that is passed over still prints
+  # its own reason here — it just does not go on to own the terminal answer below.
+  while IFS= read -r wt; do
+    [ -n "$wt" ] || continue
+    worktree_inflight "$wt" "$LEAN_BRANCH"; rc=$?
+    case "$rc" in
+      8) warn "  inflight: $wt STILL HOLDS WORK — $INFLIGHT_REASON."
+         if [ "$win_rc" != 8 ]; then
+           win_rc=8; win_wt="$wt"; win_reason="$INFLIGHT_REASON"; win_detail="$INFLIGHT_DETAIL"
+         fi ;;
+      0) say "  inflight: $wt is clean." ;;
+      *) warn "  inflight: $wt could not be evaluated — $INFLIGHT_REASON."
+         if [ "$win_rc" = 0 ]; then
+           win_rc=1; win_wt="$wt"; win_reason="$INFLIGHT_REASON"; win_detail="$INFLIGHT_DETAIL"
+         fi ;;
+    esac
+  done <<EOF
+$paths
+EOF
+  case "$win_rc" in
+    0) say "inflight: clean — every registered tree on $LEAN_BRANCH has a clean status and every commit on origin/$LEAN_BRANCH."
        return 0 ;;
-    8) warn "[lean-gate] ✗ inflight: $wt STILL HOLDS WORK — $INFLIGHT_REASON."
-       if [ -n "$INFLIGHT_DETAIL" ]; then printf '%s\n' "$INFLIGHT_DETAIL" | sed 's/^/[lean-gate]     /' >&2; fi
-       warn "  Nothing outside this worktree has a copy, so a review would read a head missing it. Commit and push from $wt, then re-launch."
+    8) warn "[lean-gate] ✗ inflight: $win_wt STILL HOLDS WORK — $win_reason."
+       if [ -n "$win_detail" ]; then printf '%s\n' "$win_detail" | sed 's/^/[lean-gate]     /' >&2; fi
+       warn "  Nothing outside this worktree has a copy, so a review would read a head missing it. Commit and push from $win_wt, then re-launch."
        return 8 ;;
-    *) warn "[lean-gate] ✗ inflight: the predicate could not be evaluated — $INFLIGHT_REASON."
+    *) warn "[lean-gate] ✗ inflight: the predicate could not be evaluated for $win_wt — $win_reason."
        warn "  Refusing to report a tree nothing could read as collected: an unreadable answer is not a clean one."
        return 1 ;;
   esac
