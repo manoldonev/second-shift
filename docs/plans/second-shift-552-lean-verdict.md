@@ -1,234 +1,197 @@
 # lean review verdict — #552
 
-verdict=needs-work
-run_id: review-552-1
-session_id: 003f1149-4bb3-48fa-ab23-97fce6025425
-rounds: 1
+verdict=approve
+run_id: review-552-2
+session_id: d5afb92b-4fc1-4d8d-9050-3a2a4f498008
+rounds: 2
 pr: #561
-reviewed_head: 82042f6ed443f1aa1d468580d308c3ac832c79c5
-reviewed_patch_id: cf0c7e27093a6ddaf2777f407b008a63e51448b5
-inherited_patch_id: none
-inherited_from_verdict: none
+reviewed_head: 537b6cb1402be3b2b30b3d52193ee53d3274d0ff
+reviewed_patch_id: ecc2eedd1b48b65c8a6490319d6417148391c8c8
+inherited_patch_id: cf0c7e27093a6ddaf2777f407b008a63e51448b5
+inherited_from_verdict: d7ca4a0182ad0c8481572253ca5de2f1bc32616b
 fidelity: not-applicable
 model: unknown
 capabilities: pr-marker
 
-# Review round 1 — PR #561 / issue #552 (shell prose ratchet)
+# Review round 2 — PR #561 / issue #552 (shell prose ratchet)
 
-Range read: `54aec70..82042f6` (root round — full branch diff, per `lean-gate.sh delta 552`).
-Panel: security, performance, maintainability, complexity, test-coverage, scope-completeness.
-Five approve, one request-changes (scope, dismissed below). Two blockers found by the round
-itself, neither of which the panel raised.
+Range read: `d7ca4a0..537b6cb` (per `lean-gate.sh delta 552`), inheriting the coverage of patch
+`cf0c7e27093a` — round 1's record, read first. Three files: `pipeline-doctor.sh`,
+`prose-budget-selftest.sh`, `tools/mutation-baseline.tsv`.
 
-Verdict: **needs-work**. Fidelity: **not-applicable** (`Design: none`, justified — no design
-provider configured in this repo and the change renders nothing outside a terminal and two TSVs).
+Panel: security, performance, maintainability, test-coverage, scope-completeness. **Five approve**,
+one nit (finding 3 below). Reviewer lineup reduced per prior-round context — the round-1 blockers
+were the round's own, and both are in this delta.
+
+Verdict: **approve**. Fidelity: **not-applicable** (`Design: none`, justified — no design provider
+configured and the change renders nothing outside a terminal).
+
+## Both round-1 blockers are discharged, re-derived independently
+
+**Blocker 1 — `tools/mutation-baseline.tsv:95` (AC-12).** Row `prose-budget.sh::detector::2` is
+dropped. Re-derived rather than accepted: enumerating the `detector` operator over
+`prose-budget.sh` at head gives six sites, `::2` being the new `tracked_shell_files` grep at line
+163 and the site the row was granted for now at `::5`, beyond `K_BUDGET=2`. Applied that mutant in
+an isolated copy of the reviewed head (the sweep's own mechanic — extract the line, apply the flip
+unaddressed, splice back; `diff` shows exactly 1 changed line, `bash -n` clean):
+
+```
+clean  : [prose-budget-selftest] 31 passed, 0 failed   (rc 0)
+mutant : [prose-budget-selftest] 30 passed, 1 failed   (rc 1)   → KILLED by S4
+```
+
+CI corroborates it from the other direction: `mutation-sweep-pr` at this head swept
+`prose-budget.sh` **applied=9 killed=7 survived=2** and is green with the row already gone, so the
+drop is proven by a real sweep and not only by my probe.
+
+**Blocker 2 — the doctor's `n/a` short-circuit.** Fixed as sketched: the predicate now reads the
+combined summary `coverage: md n/a, sh n/a`, so only a run that measured nothing on *either* path
+claims that arm. The literal occurs exactly once in `pipeline-doctor.sh`, in the branch itself, so
+the selftest precondition that reads it is not vacuous.
+
+**The AC-12 obligation the fix created was handled correctly, and I checked it rather than took
+it.** Editing that predicate is an in-place *content* change to `pipeline-doctor.sh::detector::2`.
+Comparing the matched-**text** sequence per operator (`diff <(grep -oE -- "$match" OLD) <(grep -oE
+-- "$match" NEW)`) across all six operators in `tools/mutation-operators.tsv`:
+
+```
+fail-open  IDENTICAL (0 sites)   cmp-eq  IDENTICAL (2)    cmp-z  IDENTICAL (18)
+logic      IDENTICAL (41)        default IDENTICAL (13)
+detector   13 → 13, one line differs — exactly the edited predicate
+```
+
+So the ordinal→site map is preserved, the row keeps its number, and re-wording its rationale
+(rather than re-keying or dropping it) is right. Its "still a survivor" claim also holds: there is
+no `tools/mutation-pair-map.tsv` row for either file, so `prose-budget-selftest.sh` — which *does*
+grep that literal — is not in `pipeline-doctor.sh`'s kill set. Confirmed in the file.
+
+Round-1 warnings 3 and 4 are both closed, at no round cost: the PR body's AC-7 table now labels the
+files under `plugins/dev-pipeline/skills/…`, and issue #552's body carries the AC-8 amendment as an
+attributed note pointing at the operator's ratification comment.
 
 ## Findings
 
 | # | Severity | Where | Finding |
 |---|---|---|---|
-| 1 | blocker | `tools/mutation-baseline.tsv:95` | AC-12 unmet: `prose-budget.sh::detector::2` re-keyed to a new site and its mutant is now KILLED, but the row was left in place. |
-| 2 | blocker | `plugins/dev-pipeline/skills/run/tools/pipeline-doctor.sh:540` | The `n/a` short-circuit now reports "nothing to measure" in the exact repo shape where the new shell path DID measure. This diff makes an existing operator message false. |
-| 3 | warning | PR body, "AC-7" section | Path labels in the reproduced table are wrong (`.claude/skills/…`); the measured files are under `plugins/dev-pipeline/skills/…`. Values are correct. |
-| 4 | warning | issue #552 body | The AC-8 amendment is ratified in an issue COMMENT; the issue BODY still carries the superseded clause with no deferral language. |
+| 1 | warning | `prose-budget-selftest.sh:472-492` | T11b does not guard the regression it was added for, and its committed non-vacuity argument is false. The case never reads `pipeline-doctor.sh`. |
+| 2 | warning | `prose-budget-selftest.sh:440-443` | The guard that *does* hold blocker 2 is an existence check, so it is blind to placement: the round-1 bug can be reintroduced with the suite fully green. One line closes it. |
+| 3 | note | `prose-budget-selftest.sh:440` | Scope reviewer's nit: AC-8's "existing cases untouched" clause deviates by one line. Dismissed — compelled by the round-1 fix and outside the amended AC's scope. |
 
-### 1 — blocker. AC-12: `detector::2` was not re-derived
+### 1 — warning. T11b is decorative for blocker 2
 
-AC-12: "`tools/mutation-baseline.tsv` rows keyed `prose-budget.sh::detector::2` and
-`prose-budget.sh::logic::1` are **re-derived**". The diff touches neither file. The PR body
-declines to act on row 95 on the ground that the local sweep printed `ADVISORY RUN — kill
-verdicts are not comparable to the committed baseline`.
+T11b's own comment states its non-vacuity argument:
 
-That is the wrong basis, and this repo has already written down why: an ordinal re-key is a
-**positional** fact provable by arithmetic, and a kill/survive verdict on a single site is
-provable by an isolated probe. Neither needs a baseline-comparable sweep. Both were run this
-round.
+> Restore the old `n/a — no instruction layer` predicate and this case fails on it while every
+> other T11 case, and S5b, stay green.
 
-Ordinals are `grep -nE -- "$opmatch"` line order (`tools/mutation-sweep.sh:1553-1582`), with
-`K_BUDGET=2` applied per operator per guard. The `detector` operator over `prose-budget.sh`:
+That is not what happens. `run_tool` runs `prose-budget.sh` only (`OUT="$(cd "$repo" && bash
+"$TOOL" …)"`, line 47) — T11b never reads `pipeline-doctor.sh`, so no edit to the doctor can fail
+it. Probed in an isolated copy of the reviewed head, restoring the round-1 predicate verbatim:
 
 ```
-base  54aec70   detector::1  line  86   | grep -v -- '-fixtures/'            (tracked_files)
-                detector::2  line 128   grep -vc '^#' "$REPO_BASELINE"       (update confirmation)
-                (2 sites total)
-
-head  82042f6   detector::1  line 118   | grep -v -- '-fixtures/'            (tracked_files)      unchanged
-                detector::2  line 163   | grep -v -- '-fixtures/'            (tracked_shell_files) NEW CODE
-                detector::3  line 180   grep -c '[^[:space:]]'               NEW, beyond K=2
-                detector::4  line 181   grep -c '^[[:space:]]*#'             NEW, beyond K=2
-                detector::5  line 214   grep -vc '^#' "$REPO_BASELINE"       ← the OLD ::2, beyond K=2
-                detector::6  line 228   grep -vc '^#' "$SHELL_BASELINE"      NEW, beyond K=2
-                (7 sites total)
+  FAIL T11 precondition: doctor no longer contains 'coverage: md n/a, sh n/a'
+  OK   T11b md n/a + sh measured falls through to doctor's summary arm, not its n/a arm (AC-4)
+  [prose-budget-selftest] 31 passed, 1 failed
 ```
 
-So row 95 now names a different site, and the site it was granted for is no longer applied at
-all. Probed the new `detector::2` in an isolated copy of the reviewed head — flip line 163's
-pattern to `__MUTANT_NEVER_MATCHES__`, `bash -n` clean, then run the paired suite:
+T11b passes. The precondition loop is what reds. The PR body's own probe table reports exactly this
+diagnostic — the evidence was right there and the conclusion drawn from it was not.
 
-```
-clean tree : [prose-budget-selftest] 30 passed, 0 failed     (rc=0)
-mutant     : [prose-budget-selftest] 29 passed, 1 failed     (rc=1)   → KILLED
-```
+What T11b actually asserts, once the doctor is out of the picture, is that a `tools/`-only repo
+prints `coverage: md n/a, sh measured` plus the markdown n/a marker at rc 0. Its first clause
+(`! grep -qF 'coverage: md n/a, sh n/a'`) is *entailed* by its second (`grep -qF 'coverage: md n/a,
+sh measured'`): line 418 prints one coverage pair, so the two can never both hold, and clause 1 can
+never be the sole failing clause. What remains is S5b's assertion with a different fixture. That
+matches the build's second probe, where dropping `tools/` from `shell_roots()` failed "T11b
+alongside S5 and S5b" — three cases, one fact.
 
-Correct re-derivation is therefore **drop row 95**, which is what `mutation-sweep.sh:1896`
-itself would say (`baseline row is now KILLED: … — drop the row.`).
+Not a blocker: the behavior is fixed and the realistic regression direction *is* caught (by the
+precondition). But "probe every new assertion — one still green is decorative" is this repo's rule,
+and a committed comment asserting a probe result the probe contradicts is worse than no comment,
+because the next reader budgets coverage against it.
 
-Why CI did not catch it: `mutation-sweep-pr` is green and non-vacuous here —
-`prose-budget-selftest.sh` carries no `tools/mutation-slow-suites.tsv` row, so the guard was
-genuinely swept — but the shrink-warn that names a now-killed row is gated on
-`[[ "$MODE" == "full" ]]`, so the PR lane structurally cannot report it. It surfaces on the
-next nightly, as a recurring warn.
+### 2 — warning. The surviving guard is existence-only, so it is placement-blind
 
-Impact if shipped: not a red — `warn_baseline` is non-fatal. But the row is a standing
-pre-authorized amnesty at an id whose meaning has changed, which is the precise failure mode
-CLAUDE.md's "editing a guard re-keys its generic survivor ordinals — re-baseline those rows in
-the same diff" exists to prevent.
-
-Verified clean, for the record, so the fix stays one line:
-- `logic::1` / `logic::2` — same code at base and head (`SCRIPT_DIR=…&& pwd`, `REPO=…||{…}`). Not re-keyed. AC-12's second row needs no edit.
-- `cmp-z::1/2` — unchanged sites.
-- `default::2` DID re-key (base `${PROSE_ROOTS:-}` → head `${PROSE_SHELL_TOLERANCE_PP:-5}`), but there is no baseline row for it and CI's sweep is green, so no obligation.
-- `tools/mutation-catalog.tsv:54` — `stale == rows` is single-site at head (only line 369); the `sh_rows`/`sh_stale` naming holds. **AC-12's catalog clause is satisfied.**
-
-**Fix:** delete line 95 of `tools/mutation-baseline.tsv`.
-
-### 2 — blocker. The doctor's `n/a` branch swallows a measured shell verdict
-
-`pipeline-doctor.sh:540-544`, unchanged by this PR:
+With T11b out, blocker 2 rests entirely on one line: `grep -qF -- "$DOCTOR_NA_PAT" "$DOCTOR"`. That
+asserts the new literal is *somewhere in the file*, not that it is the predicate that runs first.
+Probed the placement direction — reintroduce the round-1 arm ahead of it and keep the new one below:
 
 ```sh
-if pb=$(bash "$SCRIPT_DIR/prose-budget.sh" 2>&1); then
   if grep -q 'n/a — no instruction layer' <<< "$pb"; then
     ok "prose-budget: n/a — no instruction layer in this repo (nothing to measure)"
-  else
-    ok "prose-budget: $(tail -1 <<< "$pb" | sed 's/\[prose-budget\] //')"
+  elif grep -q 'coverage: md n/a, sh n/a' <<< "$pb"; then
+    …
 ```
 
-Before this PR that message was true: markdown `n/a` meant nothing was measured, and the tool
-`exit 0`'d on that branch. AC-4 deliberately removes that early exit so a repo with `tools/*.sh`
-and no `skills/`/`agents/` root reaches a shell verdict. The doctor's predicate was not revisited,
-so the shell verdict is now computed and then discarded.
+`bash -n` clean, exact round-1 defect restored — **31 passed, 0 failed**. T11b green. Nothing in the
+suite moves. And there is no mutation-side net either: `pipeline-doctor.sh::detector::2` is a
+*baselined survivor*, i.e. the repo has already recorded that nothing kills a mutation of this very
+line.
 
-Probed in a fixture of exactly that shape (`tools/x.sh`, `tools/y.sh`, no instruction-layer root):
+The cheap close is one line in the same precondition block, and it is placement-robust by
+construction rather than by another fixture — the markdown-only marker is now **absent** from
+`pipeline-doctor.sh` (verified: zero occurrences), so:
 
-```
-[prose-budget] n/a — no instruction layer in this repo (no skills/ or agents/ root found).
-[prose-budget] note: no shell baseline — every shell file reports NEW. …
-[prose-budget] 0 fail(s), 2 warning(s)  (coverage: md n/a, sh measured; tolerance: …)   rc=0
-
-doctor branch taken → ok "prose-budget: n/a — no instruction layer in this repo (nothing to measure)"
+```sh
+! grep -qF -- "$NA_PAT" "$DOCTOR" || bad "T11 precondition: doctor branches on the markdown-only n/a marker again"
 ```
 
-Two shell files measured, two warnings raised, and the operator is told nothing was measured.
-The `tail -1` line the ledger's D-4 went out of its way to keep combined is the line this branch
-throws away.
+You cannot branch on a literal that is not in the file, so this kills both probe shapes. Worth
+taking with T11b's comment correction in the same edit; a fix here costs a round, so it is your call
+whether it is worth one — the approve does not depend on it.
 
-This is not exotic: the tool's own comment calls the no-instruction-layer shape "the expected
-state for a repo whose skills and agents come from the plugin cache" — i.e. every consumer that
-is not this repo. Dogfooding here is blind to it because second-shift has `plugins/*/skills`, so
-the branch never fires locally.
+### 3 — note. AC-8's "untouched" clause, one line
 
-Scoped honestly: AC-10's letter ("stays reachable from `pipeline-doctor.sh`, whose branch set
-gains one arm per shell failure state") is met — the three failure arms exist and the tool is
-invoked. This is a blocker **outside** the AC set, on the ground that the diff introduces a new
-gap: it makes a shipped operator-facing message false. Push back with reasoning if you read the
-boundary differently.
+`scope-completeness-reviewer` (confidence 85, verdict approve) notes that T11's precondition loop
+was edited: `$NA_PAT` out, `$DOCTOR_NA_PAT` in. Correct as an observation, dismissed as a finding.
+The edit is *compelled* by the round-1 fix — the doctor no longer contains `n/a — no instruction
+layer`, so leaving the assertion would red the suite for asserting a property the fix deliberately
+removed. AC-8's amended text scopes its guarantee to the markdown path's behavior (format, column-2
+lookup, the pre-existing cases' outcomes), and T11 is a doctor-routing case whose outcome is
+unchanged. Recorded so the deviation is visible rather than silent.
 
-Coverage note: `T11 n/a` uses a bare `mkrepo` with no shell files, so it passes and does not
-codify this. `S5b` asserts the tool's own summary line, not the doctor's rendering of it — which
-is why nothing in the suite fires.
-
-**Fix sketch:** gate the short-circuit on both paths being `n/a` (the summary line already carries
-`coverage: md n/a, sh n/a`), falling through to the `tail -1` arm otherwise; add a T11 case for
-`md n/a + sh measured`.
-
-### 3 — warning. PR body AC-7 table mislabels the paths
-
-The body prints `.claude/skills/lean-gate.sh` and `.claude/skills/orchestrate-lean.sh`. The files
-measured — and the rows in the committed baseline — are
-`plugins/dev-pipeline/skills/build-lean/lean-gate.sh` and
-`plugins/dev-pipeline/skills/run-lean/orchestrate-lean.sh`. Re-derived independently at `3e83e46`:
-
-```
-plugins/dev-pipeline/skills/build-lean/lean-gate.sh        4875 / 4612 / 2494   round=541  trunc=540
-plugins/dev-pipeline/skills/run-lean/orchestrate-lean.sh    922 /  872 /  520   round=596  trunc=596
-tools/run-selftests.sh                                      581 /  543 /  245   round=451  trunc=451
-```
-
-Values reproduce AC-7 exactly, and confirm AC-6's claim that `lean-gate.sh` is the only one of
-the three that discriminates rounding from truncation. Body-only defect, so it costs no round.
-
-### 4 — warning. The AC-8 amendment is ratified in a comment, not the body
-
-`scope-completeness-reviewer` returned `request-changes` at confidence 92 on AC-8: the issue body
-still says "existing markdown baseline rows keep their current values" while the diff moves ~30
-rows, and it found no deferral language in the body.
-
-**Dismissed as a merge blocker.** The committed lean spec is the definition of done here, its
-AC-8 is the amended text, and the amendment followed the sanctioned route: the gap was
-`undeclared`, the build paused rather than taking a default it was not entitled to, and the
-operator ratified explicitly at
-`https://github.com/manoldonev/second-shift/issues/552#issuecomment-5309460053` — in their own
-words, naming the choice ("refresh … rather than shipping the new nightly job red on arrival")
-and the amendment ("AC-8 is amended accordingly"). An issue comment can redirect scope, and a
-user-answered disposition overrides the generic scope gate. The reviewer reads the body only, so
-it could not see this.
-
-Carried as a warning because the reviewer's underlying point survives: a future reader of the
-issue body alone meets a clause the merged diff contradicts, with nothing on that page pointing
-at the ratification. Worth folding the operator's sentence into the issue body — but it is a
-tracker-hygiene action, not a code remedy, and it does not gate this PR.
+The same reviewer flagged, in `suppressed[]`, that the dispatch base `d7ca4a0` is the round-1 head
+rather than the merge base — it re-derived from `54aec70..537b6cb` on its own. That is the delta
+range working as designed, and the reviewer handled it correctly.
 
 ## Per-AC scoring
 
 | AC | Score | Evidence |
 |---|---|---|
-| AC-1 | satisfied | Four fields per file; `comment_lines_of` = `grep -c '^[[:space:]]*#'` (shebang counts); `nonblank_of` is the denominator. S2 asserts `6 5 3 60.0%` by value, so a total-lines denominator fails there rather than reading as rounding noise. |
-| AC-2 | satisfied | `shell_roots()` = `prose_roots()` + `tools/` under the same `[[ -d ]]` filter; `-fixtures/` excluded in `tracked_shell_files`. S5 pins the `tools/` inclusion with no skills/agents root. |
-| AC-3 | satisfied | `find $roots -type f -name '*.sh'` — generic. 106 baseline rows, no hardcoded list. |
-| AC-4 | satisfied | `SH_COVERAGE` computed from `sh_tracked` + `raw_shell_matches()`, independent of `MD_COVERAGE`; the markdown `n/a` `exit 0` is removed. Probed directly: a `tools/`-only repo reaches `coverage: md n/a, sh measured`. S1/S4 pin the n/a-vs-vacuous asymmetry, S5b pins the summary rather than the table (correct — the table prints above the removed short-circuit). |
-| AC-5 | satisfied | Own file, 106 rows, columns `path/total/nonblank/comments/ratio_tenths`, ceiling reads col 5. Markdown baseline header byte-identical (no `#` line in the diff) and every data row still 4 fields. No stub companion; absence yields `have_shell_baseline=0` → NEW. |
-| AC-6 | satisfied | `ratio_tenths` = `(c*1000 + n/2)/n` — round half up, verified against `lean-gate.sh` @ `3e83e46` (541 rounded vs 540 truncated). `sh_ceiling = sh_base + SH_TOL_PP*10` — additive points. `PROSE_SHELL_TOLERANCE_PP` default 5. S2b (5/9 → 55.6%) is the only case that discriminates the two forms, and it does. S3/S3b prove the tolerance is consulted and read in points. |
-| AC-7 | satisfied | Reproduced independently at `3e83e46`: 54.1 / 59.6 / 45.1, exactly. Committed baseline carries this branch's values (`lean-gate.sh` = 539). No selftest pins a repo-file ratio. Path labels in the PR body are wrong — finding 3, body-only. |
-| AC-8 (amended) | satisfied | 17 pre-existing cases untouched and passing (30 passed / 0 failed on the clean tree); markdown format and column-2 lookup unchanged; the empty-snapshot refusal and `PROSE_ALLOW_EMPTY_BASELINE` hatch stay markdown-keyed. Amendment operator-ratified — see finding 4. |
-| AC-9 | satisfied | S1 (n/a), S2/S2b (measured + rounding), S3/S3b (over tolerance, both directions), S4 (vacuous), S5/S5b (`tools/` inclusion, independence), S6 (no cross-file leak), S8, S9. Every case names its AC and its non-vacuity argument. |
-| AC-10 | satisfied | Read-only, never reds the lean lane; three new `pipeline-doctor.sh` arms, one per shell failure state; one standalone `prose-budget` job on `ubuntu-latest` in `nightly-guards.yml`. Ran the tool on the reviewed tree: `0 fail(s), 20 warning(s)`, rc 0 — the nightly is green on arrival. (The doctor's green-path reporting defect is finding 2, scored outside this AC.) |
-| AC-11 | satisfied | `FAIL vacuous shell coverage` / `FAIL stale shell baseline` / `FAIL ratio grew` — none a substring of its markdown counterpart, and the markdown arms sit earlier in the chain so the direction that matters is the one T11s asserts. Last line is one combined summary naming both tolerances. |
-| AC-12 | **unsatisfied** | Catalog clause holds (`stale == rows` single-site at head, confirmed). `logic::1` positionally unchanged. `detector::2` re-keyed and now KILLED, and the row was not re-derived — finding 1. |
+| AC-1 | satisfied | Unchanged since round 1; not in the delta, inherited from `cf0c7e27093a`. |
+| AC-2 | satisfied | Inherited. |
+| AC-3 | satisfied | Inherited. |
+| AC-4 | satisfied | Inherited at the tool. The delta extends it to the consumer: the doctor no longer discards a measured shell verdict, verified by reading the branch and by the fixture shape S5/S5b describe. |
+| AC-5 | satisfied | Inherited. |
+| AC-6 | satisfied | Inherited. |
+| AC-7 | satisfied | Inherited; the body's path labels are corrected (round-1 finding 3 closed). |
+| AC-8 (amended) | satisfied | 31 passed / 0 failed on the clean reviewed head. Markdown-path behavior unchanged; the one edited line is T11's doctor-literal precondition — finding 3. Amendment now also carried in the issue body (round-1 finding 4 closed). |
+| AC-9 | satisfied | Every case the AC enumerates (measured, over tolerance, n/a, vacuous root, `tools/` inclusion) is present and unchanged. T11b is an addition beyond the AC, so finding 1 does not bear on this score. |
+| AC-10 | satisfied | Three shell arms plus the corrected n/a arm; nightly job unchanged; still read-only. |
+| AC-11 | satisfied | Marker distinctness unchanged (T11s); the combined last line is what the corrected predicate now reads. |
+| AC-12 | **satisfied** | `detector::2` dropped and independently proved KILLED (probe + CI sweep); `logic::1` positionally unchanged; catalog `prose-budget-stale-gate` still single-site; the new obligation the fix created — `pipeline-doctor.sh::detector::2`'s stale rationale — is discharged by re-wording with the ordinal proved unmoved by matched-text sequence. |
 
-Score: 11 satisfied, 1 unsatisfied, 0 undeterminable.
+Score: **12 satisfied, 0 unsatisfied, 0 undeterminable.**
 
 ## What is good here
 
-- **D-7 was the trap and the build walked around it.** Round-half-up is not a detail — a
-  truncating implementation reproduces two thirds of the ticket's own table and still violates
-  AC-6, and `lean-gate.sh` is the single file that notices. S2b was added specifically because
-  the original S2 fixture (3/5 = exactly 60.0%) could not see the difference.
-- **S5b was rewritten after it was found vacuous.** It originally asserted a table row, which
-  prints *above* the removed early exit and therefore survived a restored short-circuit. Moving
-  it to the summary verdict is what makes AC-4's independence actually guarded, and the PR body
-  says so plainly instead of quietly.
-- **The comment-as-mutation-site fix.** `-ness` containing `-ne`, and a comment spelling the
-  literal a catalog row anchors on, are both real and both non-obvious. Removing the sites rather
-  than baselining the noise is the right direction, and the `sh_rows`/`sh_stale` naming that
-  keeps catalog row 54 single-site was carried from D-11 into the code and then re-verified.
-- **The intent gap was paused on, not defaulted through.** No open region covered it, the build
-  said so, recommended the conservative horn, and let the operator override it.
+- **The ordinal question was answered by matched-text sequence, not by site count.** Equal counts
+  are compatible with a removal above plus an addition below; the build ran the per-operator diff
+  and kept the row's number on that basis. That is the stronger technique, and it is the one that
+  licenses re-wording instead of re-keying.
+- **The kill set was checked before inferring a kill.** `prose-budget-selftest.sh` greps
+  `pipeline-doctor.sh`, which reads like coverage; the build looked up `mutation-pair-map.tsv`,
+  found no row, and correctly kept the survivor. The tempting inference was the wrong one.
+- **The doctor fix names the shape it protects.** The comment says out loud that the broken shape is
+  every consumer whose skills and agents come from the plugin cache, and that dogfooding here cannot
+  see it. That is the sentence a future reader needs.
 
-## CI at the reviewed head (`82042f6`)
+## CI at the reviewed head (`537b6cb`)
 
 | Check | Result |
 |---|---|
 | `lint-and-selftests` | success |
 | `selftests (macos, bash 3.2)` | success |
-| `mutation-sweep-pr` | success — non-vacuous (`prose-budget-selftest.sh` has no slow-suite row, so the guard was swept) |
+| `mutation-sweep-pr` | success — non-vacuous: swept `pipeline-doctor.sh` (applied=10 killed=2 survived=8) and `prose-budget.sh` (applied=9 killed=7 survived=2), no slow-suite row for either |
 | `pr-gates` | failure — sole failing step is `lean chain reconciliation`, the missing-verdict arm. Expected pre-review; not a finding. |
 | `release-pr-gates` | skipped |
-
-## To clear this round
-
-1. Delete `tools/mutation-baseline.tsv:95`.
-2. Fix the `pipeline-doctor.sh` `n/a` short-circuit so a measured shell verdict is not reported
-   as "nothing to measure", and add the `md n/a + sh measured` case to T11.
-3. Optional, no round cost: correct the AC-7 path labels in the PR body; fold the operator's
-   ratification sentence into the issue #552 body.
