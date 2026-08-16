@@ -46,11 +46,21 @@ Scope is not implementable and is dropped on mechanical grounds).
   — the same posture `progress` and `staleness` hold. `0` = nothing in flight; a distinct
   non-zero = the lane worktree carries uncollected work, naming which arm fired and what it
   saw; `1` = the read could not be completed (fail closed).
-- **AC-5** — the scheduler calls that subcommand after **every** BUILD spawn and after the
-  close-out spawn, and treats uncollected work as its own named terminal rather than
-  continuing. An answer it could not read is fail-closed, like `staleness` and `progress`
-  beside it. It is a **scheduler-boundary** check only: nothing in `bash G all` or milestone
-  5 is gated on it, and the directly-invoked two-terminal flow is unchanged (D-3/D-4).
+- **AC-5** — the scheduler calls that subcommand on every BUILD spawn **that produced a PR**
+  and after the close-out spawn, and treats uncollected work as its own named terminal rather
+  than continuing. An answer it could not read is fail-closed, like `staleness` and
+  `progress` beside it. It is a **scheduler-boundary** check only: nothing in `bash G all` or
+  milestone 5 is gated on it, and the directly-invoked two-terminal flow is unchanged
+  (D-3/D-4).
+
+  *Amended mid-build, before milestone 5, per the checklist.* The ticket says "after every
+  BUILD spawn"; that placement hard-stops the spawn #527 taught the loop to **continue** from.
+  A build session legitimately holds unpushed commits for most of its life — milestone 3 runs
+  long before checklist step 7 pushes — so an unconditional check reds an infrastructure kill
+  mid-sweep. The harm the ticket actually describes is a review reading a PR's stale remote
+  head, which needs a PR to exist; gating on that is where the check belongs, and it makes the
+  unreadable arm a genuine environment error rather than the ordinary state of a young lane.
+  Guarded in both directions (AC-12).
 
 ### The review phase
 

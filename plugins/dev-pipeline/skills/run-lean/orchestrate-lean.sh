@@ -80,9 +80,65 @@
 # the worktree still on disk, and the claimed label still set on a ticket the lane had just
 # declared finished. That is worse than the no-PR case, which at least fails loudly. The check is
 # the same token narrowed to milestone 5's `satisfied` row, and the row must be NEW — a re-entered
-# lane must not be credited with a prior run's milestone 5. Verify-only, never a re-spawn: the
-# scheduler cannot invoke `bash G 5` itself either, because a failing one routes through
-# fail_milestone and would consume milestone 5's fix budget on the scheduler's behalf.
+# lane must not be credited with a prior run's milestone 5. The scheduler still cannot invoke
+# `bash G 5` itself, because a failing one routes through fail_milestone and would consume
+# milestone 5's fix budget on the scheduler's behalf.
+#
+# WHAT IT NO LONGER MEANS (#531 D-8). "Verify-only, never a re-spawn" used to be part of that
+# sentence, and it was an assertion whose `because` clause bound to the SEPARATELY-reasoned
+# prohibition beside it — the word "either" was the tell. Re-spawning a payload violates no
+# invariant here: "the scheduler must not record" is real and is enforced through
+# LEAN_GATE_OBSERVE=1, not through spawn counts. Close-out therefore has the continuation arm the
+# build phase already had, on the same advancement predicate and a HARD-CODED budget of one — a
+# knob would let an operator turn a broken lane into an expensive one, and close-out is three
+# bookkeeping actions: a fresh session that cannot finish them twice will not finish them on a
+# third. The cost of not having it, measured: an entire second build+review cycle to redo
+# bookkeeping.
+#
+# AND WHAT IT REPORTS (#531 D-10/D-12). The failure used to name three obligations as one — "the
+# closing comment, the exit artifacts and the worktree teardown are all unaccounted for" — which
+# was wrong twice: milestone 5 never asserted the teardown at all (step 9 runs it AFTERWARDS), and
+# for the two it does assert the message could not say which was outstanding. The gate now records
+# a row per obligation and reports them through `progress --obligations`; this script ECHOES those
+# lines and reads nothing, which is the same division `progress` and `staleness` already hold.
+#
+# A HEAD THAT ALREADY CARRIES AN APPROVE IS NOT RE-REVIEWED (#531 D-7). The round loop entered the
+# build phase unconditionally and the REVIEW spawn PRECEDED the only verdict read, so a re-entry
+# ran BUILD and then fell into a review against an already-approved head — and a fresh round could
+# author a COMPETING verdict record for it. On the run that surfaced this it was killed by hand.
+# `verdict_rc` now runs first; rc=0 skips the review and falls into the close-out rather than
+# stopping, because stopping would strand finished, reviewed work.
+#
+# THE BUILD EXIT CONTRACT IS A GATE CALL, NOT PROSE (#531 D-3/D-4). A BUILD session that exits 0
+# with commits unpushed or a dirty tree is `claude -p` ending a turn, and everything this loop
+# reads afterwards is about a REMOTE head missing whatever it did — three occurrences in a single
+# run of one ticket, each costing a full review round, with nothing in the log to tell them from a
+# legitimate one. #535 added a PROSE rule against exactly this, it shipped installed, and the very
+# next run ignored it. So the check is `bash G inflight`, called on every BUILD spawn that produced
+# a PR and after the close-out — never on the no-PR path, where an unpushed commit is the ORDINARY
+# state of a lane that has not reached checklist step 7 yet, and where a stop would hard-fail the
+# very spawn #527 taught this loop to continue from. It is a SCHEDULER-BOUNDARY check only: folding
+# it into `bash G all` would
+# spend milestone-5 fix budget on a condition whose remedy is one push, and the directly-invoked
+# two-terminal flow has a human watching by construction. No trap-based push, which the ticket
+# also asked for: SIGKILL is untrappable and under `claude -p` no build-session process survives to
+# carry a trap, so its only host would be spawn() — making this script a source-control writer
+# against its own header two paragraphs up.
+#
+# THE TERMINAL TAXONOMY (#531 D-1). Every run-ending exit prints `terminal: <slug>` before it goes,
+# so a log can be routed on the CONDITION rather than on a prose match that moves with the wording.
+# The slugs are in the LOG and not in the exit contract: the codes below are unchanged, nothing in
+# this lane branches on an exit-1 subclass, and run-lean/SKILL.md — which enumerates the codes —
+# sits at exactly the 60-line cap its own selftest asserts.
+#
+# THE LOG IS THREE-WAY SEPARABLE (#531 D-5/D-6). `spawn` ran the child with no redirection, so its
+# stdout and stderr interleaved with control lines on both streams, and `say` wrote stdout while
+# `envfail` wrote stderr — even this script's own output was split. Now: control lines are stdout
+# and timestamped (ISO-8601 UTC, the gate's `now_iso` format, so they sort against progress-file
+# rows without conversion), payload goes to stderr AND to a per-role transcript under the
+# pipeline-state dir. The terminal still shows everything; a plain stdout redirect captures pure
+# control; the transcript is pure payload and is the durable per-phase timeline whose absence forced
+# one run's timings to be rebuilt from git and PR metadata.
 #
 # RE-ENTERING A RUN THE LANE STOPPED ITSELF (#500). Every non-zero exit above leaves the worktree
 # and the claim in place, and the operator is told to re-run once the reject is fixed. That was
@@ -179,8 +235,41 @@ MAX_CONTINUATIONS=2
 MAX_REVIEW_RETRIES=1
 DRY_RUN=0
 
-say()     { echo "[orchestrate-lean] $*"; }
-envfail() { echo "[orchestrate-lean] $*" >&2; exit 2; }
+# #531 D-6. THE CLOCK, in the gate's own `now_iso` format, so scheduler control lines and
+# progress-file rows sort against each other without conversion. Reconstructing one run's phase
+# timings previously meant rebuilding the whole timeline from git and PR metadata, because the
+# only chronology in a run lived in the gate's record and nothing here could be joined to it.
+now_iso() { date -u +%Y-%m-%dT%H:%M:%SZ; }
+
+# #531 D-5. ONE STREAM FOR CONTROL. `say` wrote stdout and `envfail` wrote stderr, so even this
+# script's own lines were split across two — and a watcher filtering the merged log for "error"
+# caught build-session prose. Control is stdout, all of it; the PAYLOAD is what goes to stderr now
+# (see spawn), which is what makes the two mechanically separable rather than a matter of reading
+# carefully.
+say()     { echo "$(now_iso) [orchestrate-lean] $*"; }
+
+# #531 D-1. THE TERMINAL TAXONOMY. `grep -c 'exit 1'` on this file used to return thirteen sites,
+# and one of them — "BUILD advanced but left no open PR" — covered *paused on a question nothing
+# could answer*, *crashed*, and *orphaned its sweep and died*: three different remedies behind one
+# scalar. Every run-ending exit now prints a stable machine-readable slug, so a log can be routed
+# on the CONDITION rather than on a prose match that moves with the wording.
+#
+# THE SLUG IS IN THE LOG, NOT IN THE EXIT CONTRACT, and that is deliberate rather than a
+# compromise. The eight documented exit codes below are unchanged: run-lean/SKILL.md enumerates
+# them and sits at exactly the 60-line cap its selftest asserts, so thirteen codes cannot be
+# documented there — and nothing in this lane branches on an exit-1 subclass. The harm the ticket
+# names is an unclassifiable LOG, not a caller that cannot branch, so that is where the fix lands.
+#
+# EVERY run-ending path goes through here, usage refusals included. `--help` deliberately does not:
+# it prints documentation and starts no run, so a terminal line there would name a state that never
+# existed.
+terminal() { # terminal <slug> <exit-code> <message...>
+  local slug="$1" code="$2"
+  shift 2
+  say "terminal: $slug — $*"
+  exit "$code"
+}
+envfail() { terminal "$1" 2 "$2"; }
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -191,32 +280,32 @@ while [ $# -gt 0 ]; do
     --max-rounds)         MAX_ROUNDS="${2:-}"; shift 2 ;;
     --max-continuations)  MAX_CONTINUATIONS="${2:-}"; shift 2 ;;
     --dry-run)            DRY_RUN=1; shift ;;
-    -h|--help)            sed -n '2,160p' "$0"; exit 0 ;;
-    -*)                   envfail "unknown option: $1" ;;
-    *)                    [ -z "$ISSUE" ] && ISSUE="$1" || envfail "unexpected argument: $1"; shift ;;
+    -h|--help)            sed -n '2,216p' "$0"; exit 0 ;;
+    -*)                   envfail usage-unknown-option "unknown option: $1" ;;
+    *)                    [ -z "$ISSUE" ] && ISSUE="$1" || envfail usage-unexpected-argument "unexpected argument: $1"; shift ;;
   esac
 done
 
-[ -n "$ISSUE" ] || envfail "usage: orchestrate-lean.sh <issue> --build-model <model> [options]"
-[ -n "$BUILD_MODEL" ] || envfail "--build-model is required: this scheduler does not size tickets. Read the ticket's opus/sonnet label, or size it yourself and say so via --model-basis."
-[ -n "$REVIEW_MODEL" ] || envfail "--review-model was given an empty value."
+[ -n "$ISSUE" ] || envfail usage-missing-issue "usage: orchestrate-lean.sh <issue> --build-model <model> [options]"
+[ -n "$BUILD_MODEL" ] || envfail usage-missing-build-model "--build-model is required: this scheduler does not size tickets. Read the ticket's opus/sonnet label, or size it yourself and say so via --model-basis."
+[ -n "$REVIEW_MODEL" ] || envfail usage-empty-review-model "--review-model was given an empty value."
 # A departure from the shipped review tier costs nothing today, and that is the whole defect
 # (#490): the knob whose misuse weakens the gate itself is the one knob free to turn. Comparing
 # against the captured default rather than a literal keeps the tier name spelled in one place.
 if [ "$REVIEW_MODEL" != "$REVIEW_MODEL_DEFAULT" ] && [ -z "$REVIEW_MODEL_BASIS" ]; then
-  envfail "--review-model '$REVIEW_MODEL' departs from the shipped default ('$REVIEW_MODEL_DEFAULT'): say why via --review-model-basis, e.g. 'sized-here: rate-limited on $REVIEW_MODEL_DEFAULT'."
+  envfail usage-review-model-basis "--review-model '$REVIEW_MODEL' departs from the shipped default ('$REVIEW_MODEL_DEFAULT'): say why via --review-model-basis, e.g. 'sized-here: rate-limited on $REVIEW_MODEL_DEFAULT'."
 fi
-case "$MAX_ROUNDS" in ''|*[!0-9]*) envfail "--max-rounds must be a positive integer, got '$MAX_ROUNDS'" ;; esac
-[ "$MAX_ROUNDS" -ge 1 ] || envfail "--max-rounds must be at least 1."
+case "$MAX_ROUNDS" in ''|*[!0-9]*) envfail usage-max-rounds "--max-rounds must be a positive integer, got '$MAX_ROUNDS'" ;; esac
+[ "$MAX_ROUNDS" -ge 1 ] || envfail usage-max-rounds "--max-rounds must be at least 1."
 # Zero is legal here where it is not for --max-rounds: a run with no rounds could do nothing at
 # all, whereas a run with no continuations is exactly the pre-#492 behavior and is the honest way
 # to ask for it back.
-case "$MAX_CONTINUATIONS" in ''|*[!0-9]*) envfail "--max-continuations must be a non-negative integer, got '$MAX_CONTINUATIONS'" ;; esac
+case "$MAX_CONTINUATIONS" in ''|*[!0-9]*) envfail usage-max-continuations "--max-continuations must be a non-negative integer, got '$MAX_CONTINUATIONS'" ;; esac
 
-REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null)" || envfail "not in a git repo."
-_common="$(git rev-parse --git-common-dir 2>/dev/null)" || envfail "cannot resolve --git-common-dir."
+REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null)" || envfail env-no-git-repo "not in a git repo."
+_common="$(git rev-parse --git-common-dir 2>/dev/null)" || envfail env-git-common-dir "cannot resolve --git-common-dir."
 case "$_common" in /*) : ;; *) _common="$REPO_ROOT/$_common" ;; esac
-MAIN_ROOT="$(cd "$_common/.." 2>/dev/null && pwd)" || envfail "cannot resolve the main checkout."
+MAIN_ROOT="$(cd "$_common/.." 2>/dev/null && pwd)" || envfail env-main-root "cannot resolve the main checkout."
 
 CONFIG="${SECOND_SHIFT_CONFIG:-$MAIN_ROOT/.claude/second-shift.config.json}"
 # #496 S4, and the same guard the gate carries — the two copies differ by a comment and shared this
@@ -229,7 +318,7 @@ CONFIG="${SECOND_SHIFT_CONFIG:-$MAIN_ROOT/.claude/second-shift.config.json}"
 # command substitution's subshell, the caller reads an empty string, and the refusal is invisible.
 # Exactly the shape resolve_pr avoids below by counting in the caller.
 if [ -f "$CONFIG" ] && ! jq empty "$CONFIG" >/dev/null 2>&1; then
-  envfail "config $CONFIG exists but is not parseable JSON — refusing to fall back to defaults, which would silently select tracker.type=github. Fix the file (jq empty '$CONFIG' names the parse error) or point SECOND_SHIFT_CONFIG elsewhere."
+  envfail env-config-unparseable "config $CONFIG exists but is not parseable JSON — refusing to fall back to defaults, which would silently select tracker.type=github. Fix the file (jq empty '$CONFIG' names the parse error) or point SECOND_SHIFT_CONFIG elsewhere."
 fi
 cfg() {
   local v
@@ -245,7 +334,7 @@ cfg() {
 TRACKER_TYPE="$(cfg '.tracker.type' 'github')"
 case "$TRACKER_TYPE" in
   github|jira) : ;;
-  *) envfail "unrecognized tracker.type '$TRACKER_TYPE' — expected github or jira." ;;
+  *) envfail env-tracker-type "unrecognized tracker.type '$TRACKER_TYPE' — expected github or jira." ;;
 esac
 QUEUE_LABEL="$(cfg '.tracker.labels.queue' 'ready-for-dev')"
 # The same default lean-gate.sh carries, because the re-entry arm below reads back the label the
@@ -259,6 +348,19 @@ CLAIMED_LABEL="$(cfg '.tracker.labels.claimed' 'in-progress')"
 # weakening a merge boundary, which is what earns a row.
 CLAIM_MARKER_TAG='lean-claimed'
 
+# #531 D-5. WHERE THE PAYLOAD TRANSCRIPT LANDS. The same default and the same config key the gate
+# resolves, so a consumer that re-rooted its state dir gets its scheduler logs beside its progress
+# record rather than in a second place nothing points at.
+#
+# AND NO, THIS DOES NOT BREAK "WHAT IT WRITES: NOTHING". That premise is about ARTIFACTS — records
+# carrying a run's identity, which the merge boundary compares — and a transcript carries none: it
+# is a local cache of bytes the spawned session already emitted, read by an operator and by no gate.
+# It is the same distinction #515 drew for the staleness fetch's remote-tracking ref. What it buys
+# is the durable per-phase timeline whose absence forced one run's timings to be rebuilt from git
+# and PR metadata.
+STATE_DIR="$(cfg '.paths.pipelineStateDir' '.claude/pipeline-state')"
+LOG_DIR="$MAIN_ROOT/$STATE_DIR"
+
 # ---- preflight ------------------------------------------------------------------------------
 # THE PROBES RUN CONCURRENTLY, and one invocation reports EVERY failure. Both halves are
 # deliberate. Concurrency because the probes are independent — a network label read, a PATH
@@ -266,7 +368,7 @@ CLAIM_MARKER_TAG='lean-claimed'
 # style choice. Report-everything because the operator's next action is "fix the preflight", and
 # a first-failure abort makes that two round trips where the evidence for both was already in
 # hand on the first.
-PROBE_DIR="$(mktemp -d "${TMPDIR:-/tmp}/orchestrate-lean.XXXXXX")" || envfail "cannot create a temp dir."
+PROBE_DIR="$(mktemp -d "${TMPDIR:-/tmp}/orchestrate-lean.XXXXXX")" || envfail env-temp-dir "cannot create a temp dir."
 trap 'rm -rf "$PROBE_DIR"' EXIT
 
 # #500 D-1/D-7. The run id off this lane's own claim marker, or empty when there is none.
@@ -394,8 +496,7 @@ for f in 1 2 3 4; do
   while IFS= read -r line; do say "  $line"; done < "$PROBE_DIR/$f"
 done
 if [ "$r1" -ne 0 ] || [ "$r2" -ne 0 ] || [ "$r3" -ne 0 ] || [ "$r4" -ne 0 ]; then
-  say "preflight rejected — nothing was spawned."
-  exit 2
+  terminal preflight-rejected 2 "preflight rejected — nothing was spawned."
 fi
 say "preflight: clean."
 # The basis parenthetical is appended only when non-empty — never synthesized as "(basis: )" or
@@ -409,12 +510,15 @@ say "build model: $BUILD_MODEL (basis: $MODEL_BASIS) · review model: $REVIEW_MO
 # One prefix resolver for the whole marketplace; this script asks it the same question the gate
 # and the evidence payload ask, rather than re-deriving `<prefix><key>` a fourth time.
 # shellcheck source=../build-lean/branch-prefix.sh
-. "$SCRIPT_DIR/../build-lean/branch-prefix.sh" || envfail "cannot load the sibling branch-prefix.sh."
+. "$SCRIPT_DIR/../build-lean/branch-prefix.sh" || envfail env-branch-prefix-lib "cannot load the sibling branch-prefix.sh."
 
 BRANCH_KEY="$ISSUE"
 [ "$TRACKER_TYPE" = "jira" ] && BRANCH_KEY="$(printf '%s' "$ISSUE" | tr '[:upper:]' '[:lower:]')"
+# The resolver prints its own diagnosis, so this adds the slug and nothing else — a second wording
+# of a refusal the shared library already worded is how two answers to one question start.
 PREFIX="$(resolve_branch_prefix "$(cfg '.tracker.branchPrefix' '')" "$TRACKER_TYPE" \
-            "$(cfg '.tracker.keyPattern' '')" "$MAIN_ROOT")" || exit 2
+            "$(cfg '.tracker.keyPattern' '')" "$MAIN_ROOT")" \
+  || terminal env-branch-prefix 2 "the lane's branch prefix could not be resolved — see the line above."
 BRANCH="$PREFIX$BRANCH_KEY"
 
 # The gate is milestone-scoped and HEAD-bound, so it must run where the branch is checked out.
@@ -435,15 +539,45 @@ lane_worktree() {
 # `-p` and a fresh prompt, never --resume/--continue. A resumed review context carries the
 # previous round's conclusions into the next one, which is the single failure this lane's
 # separation exists to prevent: round 2 would be round 1 agreeing with itself.
+#
+# #531 D-5. THE STREAM SPLIT. `spawn` ran the child with NO redirection, so the spawned session's
+# stdout and stderr interleaved with this script's control lines on both streams at once, and the
+# run was one undifferentiated log. Three-way separable now:
+#
+#   * the terminal still shows everything, which is what an operator watching a live run needs;
+#   * a plain `> control.log` captures ONLY control lines, because the payload is on stderr;
+#   * the per-role file is ONLY payload, and is the durable per-phase timeline.
+#
+# `2>&1 | tee` rather than a process substitution, and the choice is mechanical: `> >(tee …)` leaves
+# the tee racing past the child's exit, so the last lines of a phase can land after the control line
+# announcing its end. A pipeline is ordered, and `${PIPESTATUS[0]}` is the child's own status —
+# read explicitly rather than relying on `$?`, which under this pipeline is tee's.
+SPAWN_N=0
 spawn() { # spawn <role> <model> <prompt>
-  local role="$1" model="$2" prompt="$3" rc
+  local role="$1" model="$2" prompt="$3" rc lower log
+  SPAWN_N=$((SPAWN_N + 1))
+  lower="$(printf '%s' "$role" | tr '[:upper:]' '[:lower:]')"
+  log="$LOG_DIR/$ISSUE-lean-spawn-$SPAWN_N-$lower.log"
   say "spawn $role — model=$model — $prompt"
   if [ "$DRY_RUN" -eq 1 ]; then return 0; fi
+  # ADVISORY, never fatal (AC-3). A transcript that cannot be opened is a lost convenience; a run
+  # stopped over one would be this script deciding that its own logging outranks the work. The
+  # mkdir is part of that: round 1's first spawn precedes the BUILD session's own `entry`, so on a
+  # checkout that has never run the lane the state dir does not exist yet and every transcript
+  # would degrade for the life of the run.
+  mkdir -p "$LOG_DIR" 2>/dev/null
+  if ! ( : > "$log" ) 2>/dev/null; then
+    say "  the payload transcript could not be opened at $log — the run continues and the payload still reaches stderr."
+    log=/dev/null
+  else
+    say "  payload transcript: $log"
+  fi
   env -u RUN_ID -u LEAN_RUN_MODEL LEAN_RUN_MODEL="$model" \
-    "$SPAWN_BIN" --permission-mode "$PERM_MODE" --model "$model" -p "$prompt"
-  rc=$?
+    "$SPAWN_BIN" --permission-mode "$PERM_MODE" --model "$model" -p "$prompt" 2>&1 \
+    | tee -a "$log" >&2
+  rc=${PIPESTATUS[0]}
   say "spawn $role exited $rc"
-  return $rc
+  return "$rc"
 }
 
 # #496 S4. EVERY match, one per line — the caller decides. `.[0].number` silently picked the first
@@ -492,6 +626,33 @@ staleness_rc() {
   ( cd "$MAIN_ROOT" && env -u RUN_ID bash "$GATE" staleness "$ISSUE" )
 }
 
+# #531 D-3. THE BUILD EXIT CONTRACT, mechanized as a gate call rather than as build-lean prose.
+# #535 added a prose rule against ending a turn with work in flight, it shipped installed, and the
+# very next run ignored it — which is the class #166 exists for. The predicate itself is the one
+# `teardown` already refuses on, extracted so that the boundary and the cleanup cannot drift into
+# two answers about whether a tree is collected.
+#
+# Same MAIN_ROOT anchor and same RUN_ID scrub as its two siblings, for their reasons exactly: the
+# branch and remote-tracking refs live in the main checkout's common dir, the close-out's last act
+# deletes the worktree a reader anchored there would be standing in, and an ambient run id must not
+# let the scheduler's environment key anything the gate resolves.
+#
+# Output is NOT suppressed. The gate's line naming which arm fired and what it saw IS the operator's
+# evidence, and this script must not paraphrase a predicate it does not own.
+inflight_rc() {
+  ( cd "$MAIN_ROOT" && env -u RUN_ID bash "$GATE" inflight "$ISSUE" )
+}
+
+# #531 D-12. The close-out report, read by the gate and ECHOED here. The scheduler must be able to
+# name WHICH obligation is outstanding, and the alternative — parsing the progress record — would
+# make it a reader of the record's schema, which its header forbids. Best-effort by construction:
+# this decorates a failure that has already been decided, so a read that cannot be completed
+# degrades to a note rather than changing an exit code.
+closeout_report() {
+  ( cd "$MAIN_ROOT" && env -u RUN_ID bash "$GATE" progress "$ISSUE" --obligations 2>/dev/null ) \
+    || echo "the gate could not report milestone 5's obligations — read $MAIN_ROOT/$STATE_DIR/$ISSUE-lean-progress.md by hand."
+}
+
 progress_token() { # progress_token [--satisfied <n>]
   local tok rc
   tok="$( cd "$MAIN_ROOT" && env -u RUN_ID bash "$GATE" progress "$ISSUE" "$@" 2>/dev/null )"
@@ -522,8 +683,7 @@ if [ "$DRY_RUN" -eq 1 ]; then
   say "dry run: branch=$BRANCH · gate=$GATE · $MAX_ROUNDS round(s) of BUILD → REVIEW → verdict"
   spawn BUILD "$BUILD_MODEL" "/dev-pipeline:build-lean $ISSUE"
   spawn REVIEW "$REVIEW_MODEL" "/dev-pipeline:review-lean <pr>"
-  say "dry run: nothing was spawned."
-  exit 0
+  terminal dry-run 0 "dry run: nothing was spawned."
 fi
 
 round=1
@@ -542,15 +702,14 @@ while :; do
     staleness_rc; st_rc=$?
     case "$st_rc" in
       0) : ;;
-      7) say "HARD STOP: this run's premise expired while it was in flight — see the gate's line above for which arm fired and what it saw. Rebase this branch onto the updated base and re-launch, or abandon the ticket; a re-launch without rebasing re-fires this stop at the same point. Detection is all this does: nothing was rebased and nothing was reverted. The worktree and the claim are left in place."
-         exit 7 ;;
+      7) terminal staleness-expired 7 "HARD STOP: this run's premise expired while it was in flight — see the gate's line above for which arm fired and what it saw. Rebase this branch onto the updated base and re-launch, or abandon the ticket; a re-launch without rebasing re-fires this stop at the same point. Detection is all this does: nothing was rebased and nothing was reverted. The worktree and the claim are left in place." ;;
       # Fail closed (D-5). Same posture as the progress read below: a predicate that could not be
       # evaluated is not a predicate that passed, and spawning on one would be spawning blind.
-      *) say "the staleness check could not be completed (gate exit $st_rc) — refusing to spawn BUILD against a premise nothing verified."; exit 1 ;;
+      *) terminal staleness-unreadable 1 "the staleness check could not be completed (gate exit $st_rc) — refusing to spawn BUILD against a premise nothing verified." ;;
     esac
 
     tok_before="$(progress_token)" \
-      || { say "cannot read the run's progress record through '$GATE' — the continuation predicate is unavailable, so a stopped BUILD session could not be told from a finished one. Not spawning blind."; exit 1; }
+      || terminal progress-unreadable 1 "cannot read the run's progress record through '$GATE' — the continuation predicate is unavailable, so a stopped BUILD session could not be told from a finished one. Not spawning blind."
 
     # #527: read on BOTH sides, in the same shape as the token above, because the routing below is
     # on the DELTA and never on the level. The record is append-only, so one infrastructure death
@@ -558,24 +717,52 @@ while :; do
     # as recoverable and spend the whole continuation budget on nothing, which is a fresh instance
     # of the bug this reads for.
     infra_before="$(infra_token)" \
-      || { say "cannot read the run's milestone-3 infrastructure residue through '$GATE' — a killed evaluation could not be told from an idle session, which is the one distinction this loop needs. Not spawning blind."; exit 1; }
+      || terminal infra-unreadable 1 "cannot read the run's milestone-3 infrastructure residue through '$GATE' — a killed evaluation could not be told from an idle session, which is the one distinction this loop needs. Not spawning blind."
 
     spawn BUILD "$BUILD_MODEL" "/dev-pipeline:build-lean $ISSUE" \
-      || { say "BUILD session failed in round $round."; exit 1; }
+      || terminal build-session-failed 1 "BUILD session failed in round $round."
 
     PR="$(resolve_pr)"
     # More than one open PR on this head is not a state to guess through: the review would run on
     # one and the close-out could verify the other. Named, not counted silently.
     if [ "$(printf '%s' "$PR" | grep -c '[0-9]')" -gt 1 ]; then
-      say "more than one open PR on '$BRANCH' ($(printf '%s' "$PR" | tr '\n' ' ')) — the lane cannot choose which one this run is about. Close or retarget the extras and re-launch."
-      exit 1
+      terminal pr-ambiguous 1 "more than one open PR on '$BRANCH' ($(printf '%s' "$PR" | tr '\n' ' ')) — the lane cannot choose which one this run is about. Close or retarget the extras and re-launch."
     fi
-    [ -n "$PR" ] && break
+    # #531 AC-5. THE BUILD EXIT CONTRACT, and it is gated on there BEING a PR, which is where the
+    # harm lives: the round that follows hands `review-lean` a PR whose REMOTE head is missing
+    # everything the build session just did. Measured three times in a single run of one ticket,
+    # each costing a full review round with nothing in the log to distinguish it from a legitimate
+    # one; the worst shape had BUILD correctly rebase onto a moved base AND find a real defect the
+    # new base introduced, then exit 0 leaving both unpushed — one teardown from losing them.
+    #
+    # DELIBERATELY NOT ON THE NO-PR PATH, and that ordering is load-bearing rather than incidental.
+    # A build session is expected to hold unpushed commits for most of its life — milestone 3 runs
+    # long before checklist step 7 pushes — so asserting this before a PR exists would hard-stop
+    # exactly the spawn #527 taught this loop to CONTINUE from: an infrastructure kill mid-sweep,
+    # whose worktree legitimately carries an unpushed spec commit. The continuation predicate below
+    # owns "did anything happen at all"; this owns "is what happened visible to a reviewer".
+    #
+    # An open PR also means the branch was pushed at least once, which is what makes the unreadable
+    # arm below a genuine environment error rather than the ordinary state of a young lane.
+    #
+    # A TERMINAL, not a continuation. The remedy is one push from a tree that still exists, and a
+    # fresh session re-deriving the work would be the expensive way to reach the same place.
+    if [ -n "$PR" ]; then
+      inflight_rc; if_rc=$?
+      case "$if_rc" in
+        0) break ;;
+        8) terminal build-inflight 1 "HARD STOP: the BUILD session exited 0 and PR #$PR is open, but the lane worktree still holds work nothing else has a copy of — see the gate's line above for which arm fired. A review would read a remote head missing it. Push from the lane worktree and re-launch; the worktree and the claim are left in place." ;;
+        # Fail closed, the same posture the two reads above take: a predicate that could not be
+        # evaluated is not a predicate that passed, and the failure direction of guessing here is a
+        # review round spent on code nobody will merge.
+        *) terminal build-inflight-unreadable 1 "the in-flight check could not be completed (gate exit $if_rc) — whether the BUILD session left work behind is unknown, and reviewing on that guess is the defect this check exists to remove." ;;
+      esac
+    fi
 
     tok_after="$(progress_token)" \
-      || { say "cannot read the run's progress record through '$GATE' after the BUILD session."; exit 1; }
+      || terminal progress-unreadable 1 "cannot read the run's progress record through '$GATE' after the BUILD session."
     infra_after="$(infra_token)" \
-      || { say "cannot read the run's milestone-3 infrastructure residue through '$GATE' after the BUILD session."; exit 1; }
+      || terminal infra-unreadable 1 "cannot read the run's milestone-3 infrastructure residue through '$GATE' after the BUILD session."
 
     # AC-3: exited 0, no PR, and nothing was recorded. Unchanged from before #492 — not
     # reviewing nothing is still correct, and a session that did nothing will do nothing twice.
@@ -590,16 +777,14 @@ while :; do
     # path, on the ordinary --max-continuations bound.
     if [ "$tok_after" = "$tok_before" ]; then
       if [ "$infra_after" = "$infra_before" ]; then
-        say "no open PR on '$BRANCH' after the BUILD session — nothing to review."
-        exit 1
+        terminal build-idle 1 "no open PR on '$BRANCH' after the BUILD session — nothing to review."
       fi
       say "the BUILD session's milestone-3 evaluation was killed by infrastructure — it recorded no milestone because none of them concluded, not because the session was idle. Re-spawning rather than stopping."
     fi
 
     continuations=$((continuations + 1))
     if [ "$continuations" -gt "$MAX_CONTINUATIONS" ]; then
-      say "HARD STOP: the BUILD session advanced but left no PR, and this build phase has spent its --max-continuations budget ($MAX_CONTINUATIONS). The worktree and the claim are left in place for a manual rescue."
-      exit 1
+      terminal build-continuations-spent 1 "HARD STOP: the BUILD session advanced but left no PR, and this build phase has spent its --max-continuations budget ($MAX_CONTINUATIONS). The worktree and the claim are left in place for a manual rescue."
     fi
     say "BUILD advanced but left no open PR — continuing in a fresh session ($continuations of $MAX_CONTINUATIONS)."
   done
@@ -610,57 +795,128 @@ while :; do
   # so the recovery is another review, not another round of fixes. One re-spawn, on a counter
   # separate from --max-rounds and --max-continuations, because a second dark review is a broken
   # review lane rather than bad luck and a third would only cost more to learn the same thing.
-  review_retries=0
-  while :; do
-    spawn REVIEW "$REVIEW_MODEL" "/dev-pipeline:review-lean $PR" \
-      || { say "REVIEW session failed in round $round."; exit 1; }
+  # #531 D-7. THE VERDICT READ MOVES AHEAD OF THE SPAWN. The loop entered the build phase
+  # unconditionally and the review spawn PRECEDED the only verdict read, so a re-entry ran BUILD and
+  # then fell into a review against a head that already carried an approve — and a fresh round could
+  # author a COMPETING verdict record for the same head. On the run that surfaced this it was killed
+  # by hand; nothing in the lane would have.
+  #
+  # rc=0 HERE IS NOT A STOP. Stopping would strand approved, reviewed work, which the two paragraphs
+  # above already decline to do for the REVIEW and close-out spawns. It skips the review it does not
+  # need and falls into the close-out, so the competing-record path closes without costing the run
+  # anything. A prior run's approve is still caught loudly downstream by the close-out's NEW-row
+  # requirement.
+  #
+  # EVERY OTHER CLASS ROUTES EXACTLY AS BEFORE — including 5, whose bounded retry is below, and
+  # 4 and 6, which now hard-stop one spawn EARLIER. That is strictly better: neither is something a
+  # review could clear, so spawning one to produce a record the gate will refuse is pure cost.
+  verdict_rc; rc=$?
+  if [ "$rc" -eq 0 ]; then
+    say "terminal-vocabulary: review-skipped-approved — the current head already carries an approve verdict, so no REVIEW is spawned against it and no competing record can be authored for it. Falling into the close-out."
+  else
+    review_retries=0
+    while :; do
+      spawn REVIEW "$REVIEW_MODEL" "/dev-pipeline:review-lean $PR" \
+        || terminal review-session-failed 1 "REVIEW session failed in round $round."
 
-    verdict_rc; rc=$?
-    [ "$rc" -eq 5 ] || break
+      verdict_rc; rc=$?
+      [ "$rc" -eq 5 ] || break
 
-    review_retries=$((review_retries + 1))
-    if [ "$review_retries" -gt "$MAX_REVIEW_RETRIES" ]; then
-      say "HARD STOP: the REVIEW session left no verdict record usable against the current head, twice. No round was spent and no BUILD session was spawned — BUILD has nothing to fix when the review half is what failed. Run '/dev-pipeline:review-lean $PR' by hand and read its output; the worktree and the claim are left in place."
-      exit 5
-    fi
-    say "no verdict record usable against the current head — re-spawning REVIEW ($review_retries of $MAX_REVIEW_RETRIES). No round spent, no BUILD spawn."
-  done
+      review_retries=$((review_retries + 1))
+      if [ "$review_retries" -gt "$MAX_REVIEW_RETRIES" ]; then
+        terminal review-dark 5 "HARD STOP: the REVIEW session left no verdict record usable against the current head, twice. No round was spent and no BUILD session was spawned — BUILD has nothing to fix when the review half is what failed. Run '/dev-pipeline:review-lean $PR' by hand and read its output; the worktree and the claim are left in place."
+      fi
+      say "no verdict record usable against the current head — re-spawning REVIEW ($review_retries of $MAX_REVIEW_RETRIES). No round spent, no BUILD spawn."
+    done
+  fi
 
   case "$rc" in
     0)
       say "verdict: approve. Closing out."
-      m5_before="$(progress_token --satisfied 5)" \
-        || { say "cannot read the run's progress record through '$GATE' — the close-out cannot be verified, so it is not spawned."; exit 1; }
+      # #531 D-8. THE CONTINUATION ARM THE BUILD PHASE ALREADY HAD. Close-out had the identical
+      # failure mode — exited 0, obligations unmet, but the record advanced — got one spawn, and
+      # exited 1. The header's stated reason did not cover it: "Verify-only, never a re-spawn" is an
+      # assertion whose `because` clause binds to a SECOND, separately-reasoned prohibition (the
+      # word "either" is the tell), and re-spawning a payload violates no invariant here — "the
+      # scheduler must not record" is real and is enforced through LEAN_GATE_OBSERVE=1, not through
+      # spawn counts. Cost on the run that surfaced it: an entire second build+review cycle to redo
+      # bookkeeping.
+      #
+      # EXACTLY ONE, HARD-CODED, NOT A FLAG — mirroring MAX_REVIEW_RETRIES and its reasoning. A knob
+      # here lets an operator turn a broken lane into an expensive one, and the bound is the point:
+      # close-out is three bookkeeping actions, and a fresh session that cannot complete them twice
+      # will not complete them on a third.
+      MAX_CLOSEOUT_CONTINUATIONS=1
+      closeout_continuations=0
+      while :; do
+        # #531 D-9. TWO READS, ONE TOKEN SPACE EACH, and no third one invented. The milestone-5
+        # token decides SUCCESS; the general token — reused verbatim from the build phase — decides
+        # whether a failed close-out ADVANCED. A close-out whose gate call redded appended a
+        # milestone-5 attempt row, so the general token moves; one that died before calling the gate
+        # at all wrote nothing any predicate could see, and per-obligation rows would not catch it
+        # either.
+        co_m5_before="$(progress_token --satisfied 5)" \
+          || terminal closeout-progress-unreadable 1 "cannot read the run's progress record through '$GATE' — the close-out cannot be verified, so it is not spawned."
+        co_tok_before="$(progress_token)" \
+          || terminal closeout-progress-unreadable 1 "cannot read the run's progress record through '$GATE' — the close-out's advancement predicate is unavailable, so it is not spawned."
 
-      spawn BUILD "$BUILD_MODEL" "/dev-pipeline:build-lean $ISSUE" \
-        || { say "close-out session failed."; exit 1; }
+        spawn BUILD "$BUILD_MODEL" "/dev-pipeline:build-lean $ISSUE" \
+          || terminal closeout-session-failed 1 "close-out session failed."
 
-      m5_after="$(progress_token --satisfied 5)" \
-        || { say "cannot read the run's progress record through '$GATE' after the close-out session."; exit 1; }
+        # AC-5 again, at the second boundary D-3 names. The ordinary shape here is that there is
+        # nothing left to read — the close-out's last act is `bash G teardown` — so this fires only
+        # when teardown KEPT the worktree over uncollected work, which is exactly the state that
+        # must not be reported as a finished run.
+        inflight_rc; co_if_rc=$?
+        case "$co_if_rc" in
+          0) : ;;
+          8) terminal closeout-inflight 1 "HARD STOP: the close-out session exited 0 but the lane worktree still holds work nothing else has a copy of — see the gate's line above. The ticket is still claimed and PR #$PR is still open." ;;
+          *) terminal closeout-inflight-unreadable 1 "the in-flight check could not be completed after the close-out (gate exit $co_if_rc) — whether the lane worktree still holds work is unknown, and reporting a finished run on that guess is what this check exists to prevent." ;;
+        esac
 
-      # AC-7. The close-out is verified against the record, never credited on its exit status.
-      # The NEW-row requirement costs the legitimate re-entry too: `append_satisfied` is idempotent
-      # and the progress file is keyed by issue rather than by run, so a second full lane run over
-      # an issue whose record already carries `| milestone-5 | satisfied` cannot move this token,
-      # and its correct close-out is reported as the failure below. Deliberate: that failure is
-      # loud and hand-recoverable, where a false `done` is neither.
-      if [ "$m5_after" = "$m5_before" ]; then
-        say "close-out session exited 0 but recorded no NEW milestone-5 satisfaction, so build-lean step 9 did not finish: the closing comment, the exit artifacts and the worktree teardown are all unaccounted for. Reporting a failure rather than 'done' — the ticket is still claimed and PR #$PR is still open. Finish step 9 by hand from the lane worktree."
-        exit 1
-      fi
-      say "done — #$ISSUE approved on PR #$PR."
-      exit 0
+        co_m5_after="$(progress_token --satisfied 5)" \
+          || terminal closeout-progress-unreadable 1 "cannot read the run's progress record through '$GATE' after the close-out session."
+        co_tok_after="$(progress_token)" \
+          || terminal closeout-progress-unreadable 1 "cannot read the run's progress record's advancement predicate through '$GATE' after the close-out session."
+
+        # AC-7. The close-out is verified against the record, never credited on its exit status.
+        # The NEW-row requirement costs the legitimate re-entry too: `append_satisfied` is idempotent
+        # and the progress file is keyed by issue rather than by run, so a second full lane run over
+        # an issue whose record already carries `| milestone-5 | satisfied` cannot move this token,
+        # and its correct close-out is reported as a failure below. Deliberate: that failure is
+        # loud and hand-recoverable, where a false `done` is neither.
+        [ "$co_m5_after" != "$co_m5_before" ] && break
+
+        # #531 D-12. The message names the two obligations milestone 5 OWNS, each with its own
+        # state, plus teardown's outcome read SEPARATELY — it no longer claims milestone 5 certifies
+        # a teardown that runs after it and that it has never asserted. The states come from the
+        # gate; this loop echoes them and reads nothing.
+        if [ "$co_tok_after" = "$co_tok_before" ]; then
+          say "close-out session exited 0 and advanced nothing at all — it did not reach a single gate call, so there is no continuation to make."
+          say "milestone 5's own obligations, as recorded:"
+          closeout_report | while IFS= read -r line; do say "  $line"; done
+          terminal closeout-idle 1 "close-out session recorded no NEW milestone-5 satisfaction, so build-lean step 9 did not finish. Reporting a failure rather than 'done' — the ticket is still claimed and PR #$PR is still open. Finish step 9 by hand from the lane worktree."
+        fi
+
+        closeout_continuations=$((closeout_continuations + 1))
+        if [ "$closeout_continuations" -gt "$MAX_CLOSEOUT_CONTINUATIONS" ]; then
+          say "milestone 5's own obligations, as recorded:"
+          closeout_report | while IFS= read -r line; do say "  $line"; done
+          terminal closeout-continuations-spent 1 "HARD STOP: the close-out advanced but recorded no NEW milestone-5 satisfaction, and it has spent its continuation budget ($MAX_CLOSEOUT_CONTINUATIONS). Reporting a failure rather than 'done' — the ticket is still claimed and PR #$PR is still open. Finish step 9 by hand from the lane worktree."
+        fi
+        say "close-out advanced but recorded no NEW milestone-5 satisfaction — continuing in a fresh session ($closeout_continuations of $MAX_CLOSEOUT_CONTINUATIONS)."
+      done
+      terminal approved 0 "done — #$ISSUE approved on PR #$PR."
       ;;
     1) say "verdict: needs-work." ;;
-    6) say "HARD STOP: the verdict record is authored by the build run or the build session (P10) — generation may not author its own evaluation, and that is not something a retry can clear. No round spent, nothing re-spawned. The merge boundary refuses this record too; produce one from a separate review session."; exit 6 ;;
-    4) say "HARD STOP: the verdict gate exhausted its fix budget. No rescue attempt — re-entry is from the top."; exit 4 ;;
-    3) say "cannot locate a worktree for '$BRANCH' — the BUILD session did not leave one."; exit 1 ;;
-    *) say "the verdict gate could not run (exit $rc)."; exit 1 ;;
+    6) terminal verdict-self-authored 6 "HARD STOP: the verdict record is authored by the build run or the build session (P10) — generation may not author its own evaluation, and that is not something a retry can clear. No round spent, nothing re-spawned. The merge boundary refuses this record too; produce one from a separate review session." ;;
+    4) terminal verdict-budget-spent 4 "HARD STOP: the verdict gate exhausted its fix budget. No rescue attempt — re-entry is from the top." ;;
+    3) terminal worktree-missing 1 "cannot locate a worktree for '$BRANCH' — the BUILD session did not leave one." ;;
+    *) terminal verdict-gate-failed 1 "the verdict gate could not run (exit $rc)." ;;
   esac
 
   round=$((round + 1))
   if [ "$round" -gt "$MAX_ROUNDS" ]; then
-    say "HARD STOP: $MAX_ROUNDS rounds spent without an approve. No rescue attempt — re-entry is from the top."
-    exit 4
+    terminal rounds-spent 4 "HARD STOP: $MAX_ROUNDS rounds spent without an approve. No rescue attempt — re-entry is from the top."
   fi
 done
