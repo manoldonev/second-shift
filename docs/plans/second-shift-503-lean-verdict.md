@@ -1,89 +1,117 @@
 # lean review verdict — #503
 
-verdict=needs-work
-run_id: review-503-1
-session_id: a91bf332-cce6-48e4-acb9-e95bd169bd2d
-rounds: 1
+verdict=approve
+run_id: review-503-2
+session_id: 2db9fff7-3a1e-4892-918a-5b426f176144
+rounds: 2
 pr: #507
-reviewed_head: 36a6bbffed8643ce56b2bed99db7b03d28c2f790
-reviewed_patch_id: b3b2c4179e794929eb6b0f6e38d16e9144cd07cc
-inherited_patch_id: none
-inherited_from_verdict: none
+reviewed_head: d258f19be5ab127179c21587ff73fe8359a987ef
+reviewed_patch_id: d1ae8937d66cdb428152e715d0448c2f8cbaf9c0
+inherited_patch_id: b3b2c4179e794929eb6b0f6e38d16e9144cd07cc
+inherited_from_verdict: 871dfc329d746e41b8fbaae45d29c50596b42b0c
 fidelity: not-applicable
 model: unknown
 capabilities: pr-marker
 
-Round 1, full branch diff (`3cf27cd..36a6bbf`, 8 files). Panel: 7/7 reviewers returned, none
-dark. Design lane not applicable — the repo configures no `design.provider`, and the spec has
-no `## Design` section to arm.
+Round 2, inheriting round 1's coverage of patch `b3b2c4179e79` by reference to the record at
+`871dfc3`. Read this round: `871dfc3..d258f19`, 4 files (spec, `intake-orchestrator/SKILL.md`,
+`intake-interviewer/SKILL.md`, `scripts/lockstep-manifest.tsv`) — plus the canonical receipt
+contract, `ledger-lint.sh`'s receipt-mode parser and every site in the repo that restates the
+receipt shape, read wider than the delta because the delta's whole subject is a cross-file
+contract. Panel: 4/4 reviewers returned, none dark. Design lane not applicable — the repo
+configures no `design.provider` and the spec has no `## Design` section to arm.
 
-The implementation is good and the ACs all land. One blocker sits outside the AC set: the new
-mandated receipt section breaks two sibling skills that build receipts to the old shape, one of
-which runs this very lint as its own exit gate.
+Round 1's blocker is fixed, and fixed at the mechanism rather than at the symptom: both sites
+now name `## Surface Inventory` alongside `## Open Regions`, and Step 5.5's remediation prose
+gained the refusal class it was missing. One warning is carried forward — the canonical-source
+notice that should have caught the drift still does not name the two sites that drifted.
 
 ## Findings
 
 | # | Severity | Where | Finding |
 | --- | --- | --- | --- |
-| 1 | **Blocker** | `plugins/intake-toolkit/skills/intake-orchestrator/SKILL.md:386`, `plugins/intake-toolkit/skills/intake-interviewer/SKILL.md:227` | Both skills instruct their agent to emit a receipt in the pre-#503 shape — "five columns, plus a `## Open Regions` section" — and `intake-orchestrator` Step 5.5 then runs `ledger-lint.sh --receipt` on exactly what it just told the agent to write. After this diff that lint refuses it. Measured: a receipt built verbatim to that prose lints `OK` (rc=0) at `3cf27cd` and `FAIL — 2 violation(s)` (rc=1) at this head, on `missing mandated receipt section: Surface Inventory` plus `has no rows and no explicit empty form`. `intake-orchestrator`'s Receipt Exit Gate is therefore unpassable by construction, and its red-lint remediation prose explains only the ratification-bar failure ("an `intent` row backed by `codebase-derived`…"), so an agent hitting the new refusal is given no path — while `intake-interviewer` states as fact that the old shape "is the artifact `ledger-lint.sh --receipt` checks", which is now false. Fix is two prose edits: add `## Surface Inventory` to both shape statements, and extend Step 5.5's remediation note to cover the new refusal. |
-| 2 | Warning | `docs/plans/second-shift-503-lean.md:44-46`, PR body | The blast-radius claim — "`--receipt` has **no** automated caller in the pipeline … so it is operator-run plus the selftest and one fixture" — is the reasoning that produced finding 1. It is true of CI and of the merge boundary, and false of the skill layer: `intake-orchestrator` Step 5.5 is a mandated in-skill caller. Worth correcting in the spec so the next change to this lint scopes against skill-driven callers too, not only automated ones. |
-| 3 | Warning | `plugins/intake-toolkit/skills/interviewing-baseline/SKILL.md:10` | The canonical-source notice was correctly widened to cover the surface inventory ("Every other site that restates it…"), which makes finding 1 a violation of a contract this same diff strengthens, rather than an incidental oversight. Same fix; noted separately because it is the rule that should have caught it. |
-| 4 | Suggestion | `ledger-lint.sh:347` | `grep -oE 'D-[0-9]+' \| head -n1` takes the first citation in a `decided` cell; `head`→`tail` survives every case, since no fixture puts two `D-n` tokens in one cell. Equivalent-mutant territory and it mirrors the pre-existing `OR-n` extraction it was modelled on — not worth a case unless the multi-citation form is ever given meaning. (unit-test-mutation-reviewer, confidence 82) |
-| 5 | Informational | `plugins/intake-toolkit/evals/` | The issue's Notes float a `plan-interview` eval as finding 2's regression guard; the spec declines it under Out of scope and ships the lint instead. Correct call for a repo whose CI is model-free by design, and the deterministic guard is strictly stronger than an API-billed one. Recorded because the deferral rationale lives in the spec rather than the issue body. (scope-completeness-reviewer, PASS, confidence 85) |
+| 1 | Warning | `plugins/intake-toolkit/skills/interviewing-baseline/SKILL.md:10` | The canonical-source notice asserts that *"Every other site that restates them (`plan-interview/tools/ledger-lint.sh`, this plugin's `hooks/exitplan-ledger-gate.sh` via that lint, `review-toolkit:plan-reviewer`) carries a mirror marker and must be updated in lockstep."* `intake-orchestrator/SKILL.md:386` and `intake-interviewer/SKILL.md:227` demonstrably restate the intake-receipt contract, carry no mirror marker, and appear in neither the notice's list nor the paragraph the same diff widened to cover the surface inventory. The enumeration is now false by omission at exactly the site whose job is to be complete. The repair went to `scripts/lockstep-manifest.tsv` instead, which is the register CLAUDE.md designates and which records the obligation explicitly ("A change that adds or tightens a mandated section MUST move both, and the check is empirical") — so this is a placement judgment, not an unrecorded coupling. Kept as a warning rather than escalated: the runtime break is closed and measured, and adding these two to a list whose predicate is "carries a mirror marker" is a wider change than the delta. Two reviewers reached this independently (maintainability 88, test-coverage 82); it matches round 1's finding 3, unresolved at the site that owns it. |
+| 2 | Informational | `plugins/intake-toolkit/skills/intake-orchestrator/SKILL.md:398-408` | The split remediation prose names 3 of the 8 receipt-mode refusals explicitly (missing section; `decided` citing no `D-n` or an undeclared one; `out-of-scope` with no reason) plus the empty-form path, and covers the rest with a generic instruction. That is adequate rather than a gap: the five unnamed refusals are the mechanical ones (row arity, blank Surface cell, out-of-enum disposition, duplicate `S-n`, neither-rows-nor-form), and each of `ledger-lint.sh`'s messages for them states the expected shape inline, so an agent hitting one is not left without a path. AC-12's claim is about the refusal *class*, and the class is covered. |
+| 3 | Informational | `plugins/intake-toolkit/evals/` | Scope-completeness returned PASS with one nit: the issue's Notes float a `plan-interview` eval as finding 2's regression guard, the check was performed, and the guard shipped as a deterministic lint instead — but the deferral is argued only in the PR's spec, not in the issue body, and no follow-up is linked. Same observation as round 1's finding 5; correct call for a repo whose CI is model-free by design. Not a scope miss: the issue's imperative was "check", and the eval clause is subjunctive. |
+| 4 | Suggestion | `ledger-lint.sh:347` | Round 1's finding 4 (`grep -oE 'D-[0-9]+' \| head -n1` — `head`→`tail` is an equivalent mutant while no cell carries two citations) is unchanged and inherited. Still not worth a case unless the multi-citation form is given meaning. |
+
+No blockers.
 
 ## Acceptance criteria
 
+Every `AC-n` is scored against the whole spec, not against the delta. AC-1 through AC-11 were
+satisfied at `36a6bbf`, are unmodified by this delta except where noted, and are re-affirmed
+here; AC-10 and AC-12 were re-verified directly at this head.
+
 | AC | Score | Evidence |
 | --- | --- | --- |
-| AC-1 | satisfied | `plan-interview/SKILL.md` step 2 leads with five product/UX categories (states and transitions — loading/empty/partial/error/not-found; copy the user reads; first paint; degraded and missing dependencies; composition and placement) under a *What the user gets* heading, with the six engineering categories retained below under *How it is built*. The AC's "empty / error / edge surfaces" is folded into the states bullet rather than standing alone; every named concept is present. |
-| AC-2 | satisfied | New step 3 enumerates surfaces and checks the register against them as an independent axis, and names `## Surface Inventory` as the residue for a pre-flight receipt. Steps renumbered 3→4, 4→5, 5→6 consistently; step 6's exit criterion now reads "the register is empty *and* every surface is accounted for". |
-| AC-3 | satisfied | Escalation section gains the implausibly-**thin** register trigger alongside the existing >~10 fat-register one. |
-| AC-4 | satisfied | P8 gains the batch-blessing paragraph naming the move exactly as the AC specifies, plus a matching bullet under "What all interviewers must avoid". |
-| AC-5 | satisfied | New numbered loop rule 9, widen-and-slow, with a second avoid-list bullet ("Reading repeated pushback as fatigue and narrowing in response"). |
-| AC-6 | satisfied | `### The Surface Inventory` documents row grammar (worked 3-row table), the closed `decided \| out-of-scope` enum, the `D-n` citation requirement, and the explicit empty form. Canonical-source notice widened to match. |
-| AC-7 | satisfied | All eight refusals implemented as distinct named violations (`ledger-lint.sh:304-397`), a well-formed inventory lints clean, and `${SURFACE_ROW_COUNT} surface(s)` prints alongside the ledger-row and open-region counts. Verified by probe, not by reading — see Verification. |
-| AC-8 | satisfied | 14 new cases `(ll-ag)`–`(ll-as)`; `(ll-af)`'s `--help` line-range guard holds after the header grew to 67 lines. Suite is 48 cases, 48 passed / 0 failed at this head. |
-| AC-9 | satisfied | `intake/SKILL.md` gains a pre-dispatch attribute section ahead of the scenario table, with three dispositions; the handoff table row is narrowed to "**is the input**" and a note routes the merely-exists case to the attribute. Dispatch rule updated to announce the attribute result. |
-| AC-10 | satisfied | The intake-receipt DROPPED entry names `SURFACE_DISPOSITION_ENUM`, both empty forms, why neither `verbatim` nor `subset-of` reaches a fenced code block, and re-points the behavioral guard at `ll-o`–`ll-as`. |
-| AC-11 | satisfied | `valid-receipt.md` carries S-1/S-2 `decided` and S-3 `out-of-scope`; `docs/testing.md` correctly untouched (cases added to an existing suite, no new tier). |
+| AC-1 | satisfied | Unchanged by the delta. Product/UX categories lead `plan-interview` step 2 under *What the user gets*; the six engineering categories retained below under *How it is built*. |
+| AC-2 | satisfied | Unchanged. New step 3 enumerates surfaces and checks the register against them as an independent axis; names `## Surface Inventory` as the residue; step 6's exit criterion widened to "the register is empty *and* every surface is accounted for". |
+| AC-3 | satisfied | Unchanged. Thin-register escalation present alongside the fat-register one. |
+| AC-4 | satisfied | Unchanged. P8's batch-blessing paragraph plus the matching avoid-list bullet. |
+| AC-5 | satisfied | Unchanged. Loop rule 9, widen-and-slow, plus the second avoid-list bullet. |
+| AC-6 | satisfied | Unchanged. `### The Surface Inventory` documents row grammar, the closed enum, the `D-n` citation requirement and the explicit empty form. |
+| AC-7 | satisfied | Unchanged; re-read at this head. All eight refusals are distinct named violations in receipt check D (`ledger-lint.sh:304-397`), each message stating the expected shape; `${SURFACE_ROW_COUNT} surface(s)` prints alongside the ledger-row and open-region counts. |
+| AC-8 | satisfied | Re-run at this head with `CLAUDE_CODE_SESSION_ID` unset: `ledger-lint-selftest.sh` **48 passed, 0 failed**; `exitplan-ledger-gate-selftest.sh` **26 passed, 0 failed**. |
+| AC-9 | satisfied | Unchanged. `intake/SKILL.md`'s pre-dispatch attribute section precedes the scenario table; handoff row narrowed to "**is the input**". |
+| AC-10 | satisfied | Re-verified. The intake-receipt DROPPED entry covers the new section and its enum, and the delta extends it with the skill layer as a caller class of its own plus the empirical check the next tightening should run. Strengthened, not weakened. |
+| AC-11 | satisfied | Unchanged. `valid-receipt.md` carries S-1/S-2 `decided` and S-3 `out-of-scope`; `docs/testing.md` correctly untouched. |
+| AC-12 | satisfied | Both shape statements name `## Surface Inventory` (`intake-orchestrator:386-388`, `intake-interviewer:227`); Step 5.5's remediation splits into a ratification failure and a surface-inventory failure, and states that the empty form is for work rendering nothing rather than a way to clear the section. "A receipt built verbatim to the corrected prose lints clean" verified independently — see Verification. |
 
-All 11 satisfied. The blocker is a regression outside the AC set — the ACs bound what the spec
-asked for, not what the diff may break.
+AC-12 is a legitimate strengthening of the spec, not the after-the-fact amendment the lean
+contract treats as a blocker: it adds an obligation the diff then discharges, rather than
+relaxing one the diff failed. The spec's blast-radius paragraph is corrected in the same
+direction — it now names the skill layer as a second caller class instead of claiming the
+blast radius was the selftest and one fixture.
 
 ## Verification performed at the reviewed head
 
-- `ledger-lint-selftest.sh`: **48 passed, 0 failed** (run with `CLAUDE_CODE_SESSION_ID` unset).
-- `shellcheck -e SC1091,SC2015,SC2181` over both changed scripts: clean (local 0.11.0; CI's
-  0.9.0 lane is green on the PR).
-- CI at this head: `lint-and-selftests` pass, `selftests (macos, bash 3.2)` pass,
-  `mutation-sweep-pr` pass. `pr-gates` fails on exactly one thing — the absent verdict record
-  this round produces (`no committed verdict record (a file named *-503-lean-verdict.md)`).
-- **Independent mutation probe of every new assertion.** 15 mutants, each applied to an
-  isolated copy of the tool, each proven to differ from pristine (`cmp`) and to still parse
-  (`bash -n`), scored by which selftest case id flipped: **15 killed, 0 survived.** Covered:
-  the section-presence check, the empty-Surface-cell check, the uncited-`decided` check, the
-  out-of-scope-reason check, the closed-enum default arm, the duplicate-`S-n` check, the
-  explicit-empty-form check, the dangling-citation loop, the surface-count stdout line, the
-  arity check, the prefix-boundary regex weakened to a bare prefix test, the receipt-mode gate
-  leaked into default mode, and two positive discriminators (always-dangling citation, empty
-  form never accepted) which killed via `(ll-o)`/`(ll-r)`/`(ll-aj)`.
-- **`(ll-as)` is not vacuous.** Its fixture was linted in the other mode: the same file that
-  returns rc=0 in default mode returns rc=1 with four violations under `--receipt` (blank
-  Surface cell, out-of-enum disposition, duplicate `S-1`, dangling `D-9`). The mode-isolation
-  case therefore discriminates "the parser is gated off" from "the parser found nothing", which
-  is what it claims.
+- **Independent probe of the fix, built from the prose rather than from the fixture.** Three
+  receipts authored verbatim to what each prose statement prescribes, linted with this
+  checkout's `ledger-lint.sh --receipt`:
+  - pre-fix shape ("five columns, plus a `## Open Regions` section") → **rc=1**, exactly two
+    violations: `missing mandated receipt section: Surface Inventory` and `Surface Inventory
+    has no rows and no explicit empty form`. The round-1 blocker reproduces.
+  - corrected shape, rows branch → **rc=0** (`2 ledger row(s) / 0 open region(s) / 2
+    surface(s) / OK`).
+  - corrected shape, explicit-empty-form branch → **rc=0** (`0 surface(s) / OK`).
+  Both branches of "each carrying rows or its own explicit empty form" therefore hold, which
+  the build's own measurement did not separate.
+- **Mirror-site enumeration re-run independently**, not taken from the PR body. Grepped the
+  repo for `--receipt`, `Open Regions`, `five columns` and `receipt shape`: the only sites
+  prescribing or restating the receipt shape are the canonical `interviewing-baseline`, the
+  two this delta fixes, and `plan-interview/SKILL.md:47` — which already names
+  `## Surface Inventory` and correctly states the section is receipt-only to the lint. No
+  site was left behind. The two further sites the canonical notice names
+  (`exitplan-ledger-gate.sh`, `review-toolkit:plan-reviewer`) mirror the ledger schema and
+  provenance enum, neither of which this PR changes.
+- **Cross-cutting check the delta does not show.** `intake-orchestrator` Step 5.5 writes the
+  receipt to `.claude/pipeline-state/{ISSUE}-ledger.md`, which `dev-pipeline`'s `plan-lint.sh`
+  Check 6 also parses as the backing pre-flight ledger. Verified no collision: `plan-lint.sh`
+  anchors on `^\|[[:space:]]*D-[0-9]+[[:space:]]*\|` (lines 304, 385, 402), so `| S-n |` rows
+  in the new section are invisible to it. `exitplan-ledger-gate.sh` runs the lint in default
+  mode, where the surface block is gated off entirely.
+- **CI at this head**: `lint-and-selftests` pass, `selftests (macos, bash 3.2)` pass,
+  `mutation-sweep-pr` pass. `pr-gates` fails on exactly one thing — the round-1 `needs-work`
+  record this round replaces (`reads 'verdict=needs-work', not 'verdict=approve'`).
+- Round 2 changes no shell, so the guard set, the mutation baseline and the catalog anchors
+  are untouched; round 1's mutation evidence is inherited rather than re-derived.
+- Delta re-checked immediately before writing this record: PR head still `d258f19`, and
+  `871dfc3..HEAD` is still the same four files.
 
 ## Strengths
 
-- The new block is a deliberate structural sibling of Open Regions — same `normalize_arity`
-  discipline, same masked-pipe split, same dupe pass, same citation-resolution loop — so it
-  reads as one parser rather than a second dialect, and it inherits the arity reasoning that
-  comment block already earned.
-- The prefix-boundary anchor (`^(enum)([^A-Za-z0-9-]|$)`) is the non-obvious detail, and
-  `(ll-ao)` is the case that makes it load-bearing: without it the enum check degrades to a
-  substring test and `decidedly unclear` lints clean as a decided surface.
-- Scope honesty is written into the artifact itself — header comment, skill prose and spec all
-  state that the inventory cannot prove the enumeration was complete, only that an unlisted
-  surface becomes visible. That is the rare case of a guard documenting its own ceiling.
-- `(ll-as)` chooses the malformed-on-every-axis fixture over the trivially-empty one, which is
-  exactly the distinction that makes a mode-isolation case worth having.
+- The fix repairs the mechanism, not just the two broken sentences. Step 5.5's remediation
+  prose previously had one story for a red lint (the ratification one); an agent hitting a
+  surface-inventory refusal would have been told to reclassify a Kind cell that was never the
+  problem. Splitting it by cause is what makes the gate passable *and* diagnosable.
+- The empty-form sentence is the load-bearing addition nobody asked for: "it is not a way to
+  clear the section" closes the obvious escape hatch an agent under a red lint would reach for
+  first, and closes it in the same paragraph that introduces the form.
+- The blast-radius correction is written as a taxonomy ("two caller classes, and only one of
+  them is automated") rather than as an erratum, so the distinction that produced the bug —
+  automated callers red in CI, skill-layer callers fail silently at agent runtime — is now the
+  shape of the paragraph rather than a fact buried in it.
+- The lockstep entry states the check as an *empirical* one ("build a receipt verbatim to the
+  prose and lint it") rather than as a reading obligation. That is the difference between a
+  register a future author can act on and one they can only agree with.
