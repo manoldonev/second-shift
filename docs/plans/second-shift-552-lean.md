@@ -64,10 +64,20 @@ Pre-flight ledger: `.claude/pipeline-state/552-ledger.md` (binding — 15 rows, 
   97 lines between `3e83e46` and `54aec70`. No selftest case pins a ratio of a real repo file;
   such a case would red on any later edit to the very files #553 and #554 exist to change.
 
-- **AC-8**: The markdown path is unchanged — every existing `prose-budget-selftest.sh` case
-  passes **untouched**, and existing markdown baseline rows keep their current values. The
-  `--update-baseline` empty-snapshot refusal and its `PROSE_ALLOW_EMPTY_BASELINE` hatch keep
-  their present markdown-keyed condition.
+- **AC-8**: The markdown path's **behavior** is unchanged — every existing
+  `prose-budget-selftest.sh` case passes **untouched**, and the markdown baseline's format and
+  its check-mode column-2 lookup are byte-identical. The `--update-baseline` empty-snapshot
+  refusal and its `PROSE_ALLOW_EMPTY_BASELINE` hatch keep their present markdown-keyed
+  condition.
+
+  **Amended mid-run** (see `second-shift-552-lean-intent-gap.md`). As filed, this AC also
+  required that "existing markdown baseline rows keep their current values". That turned out to
+  be incompatible with AC-10: 26 markdown files were already over their ceiling at `54aec70`,
+  invisible because `pipeline-doctor.sh` only ever WARNed, so the new nightly job would have
+  been red on its first run for reasons unrelated to this slice. The operator dispositioned the
+  gap by refreshing the markdown **data** here. The row VALUES therefore move; nothing about how
+  they are produced or read does. The refresh is called out separately in the PR body so it is
+  reviewed as its own change rather than as noise inside a shell-measurement diff.
 
 - **AC-9**: `prose-budget-selftest.sh` gains shell-path cases: a measured file, a file over
   tolerance, the `n/a` outcome, a genuinely vacuous root (a root containing shell files that
