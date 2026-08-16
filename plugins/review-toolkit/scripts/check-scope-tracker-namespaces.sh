@@ -67,16 +67,16 @@ fi
 DP_ROOT="${SECOND_SHIFT_DEV_PIPELINE_ROOT:-}"
 if [ -z "$DP_ROOT" ]; then
     cand=$(cd "$SCRIPT_DIR/../../dev-pipeline" 2>/dev/null && pwd) || cand=""
-    if [ -n "$cand" ] && [ -d "$cand/skills/run/workflows" ]; then
+    if [ -n "$cand" ] && [ -d "$cand/workflows" ]; then
         DP_ROOT="$cand"
     else
         for c in "$SCRIPT_DIR"/../../../dev-pipeline/*/; do
-            [ -d "$c/skills/run/workflows" ] || continue
+            [ -d "$c/workflows" ] || continue
             DP_ROOT=$(cd "$c" && pwd)
         done
     fi
 fi
-CR="$DP_ROOT/skills/run/workflows/code-review.mjs"
+CR="$DP_ROOT/workflows/code-review.mjs"
 if [ -n "$DP_ROOT" ] && [ -f "$CR" ]; then
     for ns in "${NAMESPACES[@]}"; do
         if ! grep -qE "${ns}getJiraIssue," "$CR"; then

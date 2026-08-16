@@ -17,7 +17,7 @@ set -uo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
 CHAIN="$HERE/check-pipeline-chain.sh"
-SCHEMA="$HERE/../plugins/dev-pipeline/skills/run/state-schema.md"
+SCHEMA="$HERE/../plugins/dev-pipeline/state-schema.md"
 
 PASS=0
 FAIL=0

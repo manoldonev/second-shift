@@ -82,7 +82,7 @@ run_cli() {
 make_dp_variant() {
   local key="$2" model="$3" dst="$TMP/$1"
   cp -R "$DP" "$dst"
-  cat > "$dst/skills/run/workflows/code-review.mjs" <<MJS
+  cat > "$dst/workflows/code-review.mjs" <<MJS
 const REVIEWER_MODEL = {
   '$key': '$model',
   'performance-reviewer': 'sonnet',
@@ -163,7 +163,7 @@ run_cli "$QUAL"
 make_dp_inline_variant() {
   local dst="$TMP/$1" inline="$2"
   cp -R "$DP" "$dst"
-  cat > "$dst/skills/run/workflows/unit-tests.mjs" <<MJS
+  cat > "$dst/workflows/unit-tests.mjs" <<MJS
 const UNIT_TEST_MODEL = 'sonnet'
 const emit = { agentType: 'review-toolkit:structured-emitter', model: '$inline', label: 'x' }
 const plan = { agentType: 'unit-test-plan-reviewer', model: modelOverrides['unit-test-plan-reviewer'] || UNIT_TEST_MODEL }
@@ -238,7 +238,7 @@ fi
 make_dp_inline_scalar_variant() {
   local dst="$TMP/$1" scalar="$2" inline="$3"
   cp -R "$DP" "$dst"
-  cat > "$dst/skills/run/workflows/unit-tests.mjs" <<MJS
+  cat > "$dst/workflows/unit-tests.mjs" <<MJS
 const UNIT_TEST_MODEL = '$scalar'
 const emit = { agentType: 'review-toolkit:structured-emitter', model: '$inline', label: 'x' }
 MJS
@@ -262,7 +262,7 @@ fi
 make_dp_map_inline_variant() {
   local dst="$TMP/$1" inline="$2"
   cp -R "$DP" "$dst"
-  cat > "$dst/skills/run/workflows/code-review.mjs" <<MJS
+  cat > "$dst/workflows/code-review.mjs" <<MJS
 const REVIEWER_MODEL = {
   'security-reviewer': 'opus',
 }
@@ -291,7 +291,7 @@ fi
 make_dp_map_inline_mismatch_variant() {
   local dst="$TMP/$1" inline="$2"
   cp -R "$DP" "$dst"
-  cat > "$dst/skills/run/workflows/code-review.mjs" <<MJS
+  cat > "$dst/workflows/code-review.mjs" <<MJS
 const REVIEWER_MODEL = {
   'security-reviewer': 'opus',
 }
@@ -314,16 +314,17 @@ fi
 # marketplace-repo sibling path and UNLOCATABLE-denied every consumer commit).
 #
 # TWO sibling versions, 0.0.9 and 0.0.10, so this also pins NUMERIC ordering. Both carry the
-# marker dir (skills/run/workflows) and so are both candidates; only 0.0.10 carries the real
+# marker dir (workflows) and so are both candidates; only 0.0.10 carries the real
 # workflows. Glob order is lexical and sorts 0.0.10 BEFORE 0.0.9, so a last-wins pick resolves
 # the empty 0.0.9 and the run fails to find what it needs. Staging a single version — which is
 # what this case did — asserts that the fallback resolves SOMETHING, never that it resolves the
 # newest, so it could not tell the two orderings apart.
 CACHE_MKT="$TMP/cache/mkt"
 mkdir -p "$CACHE_MKT/review-toolkit/0.0.1/scripts" "$CACHE_MKT/dev-pipeline/0.0.10" \
-         "$CACHE_MKT/dev-pipeline/0.0.9/skills/run/workflows"
+         "$CACHE_MKT/dev-pipeline/0.0.9/workflows"
 cp "$CHECK" "$CACHE_MKT/review-toolkit/0.0.1/scripts/check-model-tiers.sh"
-cp -R "$DP/skills" "$CACHE_MKT/dev-pipeline/0.0.10/skills"
+cp -R "$DP/workflows" "$CACHE_MKT/dev-pipeline/0.0.10/workflows"
+cp "$DP/model-tiering.md" "$CACHE_MKT/dev-pipeline/0.0.10/model-tiering.md"
 # shellcheck disable=SC2030,SC2031 # exports are deliberately subshell-scoped per case
 (
   export SECOND_SHIFT_PLUGIN_ROOT="$PLUGIN"

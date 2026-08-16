@@ -99,8 +99,9 @@ tamper-*proof* line is the merge boundary: CI checks plus branch protection, whi
 edit from a run.
 
 P3 is satisfied by **three-record reconciliation**: (a) the hook-written tool ledger
-(harness-recorded, outside model control); (b) the harness-written run records (progress and
-verdict records in the lean lane; statectl receipts and state in the staged lane); (c) the
+(harness-recorded, outside model control); (b) the harness-written run records — the progress
+file and the committed verdict record (through #348 the staged lane's statectl receipts and
+state file were a second shape of this record; that lane is deleted); (c) the
 tracker trail and PR artifacts. The three are reconciled mechanically, with CI as the terminal
 verifier. Forging any one record is possible; forging all three consistently is what
 reconciliation makes detectable.

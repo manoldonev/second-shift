@@ -9,7 +9,7 @@ Outcome-gated harness. `lean-gate.sh` (`G`, here) asserts artifacts; **how** you
 
 `/dev-pipeline:run-lean` drives this block and `review-lean` for you, each in a fresh session. Invoked directly — the two-terminal manual flow — this block is unchanged and first-class: it stays the debugging and rescue path.
 
-> **Tracker delta (`tracker.type: jira`, `writes: false`).** The checklist and rules below are the **github** default. Under jira: no queue label to confirm (1); claim writes nothing to the tracker, only the run-id record (2); the PR body carries `Closes [<KEY>]` under `### Jira Items` plus the verdict-record path (7); and there is no closing comment and no claimed label (9). [Adapter contract](../run/tools/tracker/jira/README.md).
+> **Tracker delta (`tracker.type: jira`, `writes: false`).** The checklist and rules below are the **github** default. Under jira: no queue label to confirm (1); claim writes nothing to the tracker, only the run-id record (2); the PR body carries `Closes [<KEY>]` under `### Jira Items` plus the verdict-record path (7); and there is no closing comment and no claimed label (9). [Adapter contract](../../tools/tracker/jira/README.md).
 
 ## Checklist
 

@@ -233,12 +233,12 @@ write_cost_log_row() {
 # writes through the wrapper (missing wrapper => skipped-no-bot-wrapper). A
 # bot-DISABLED repo — including one whose config is absent, unreadable, or
 # malformed, which resolves to disabled per `// false` — writes with plain `gh`
-# under operator identity. Same enabled/disabled default as tools/bot-commit.sh,
+# under operator identity. Same enabled/disabled default as the sibling bot-commit.sh,
 # but NOT the same config lookup: that helper searches $SECOND_SHIFT_CONFIG, its
 # -C dir, then the main checkout, so a gitignored config absent from a worktree
 # still resolves there. This script's _repo_root() is already common-dir anchored.
 # ────────────────────────────────────────────────────────────────────────────
-# Bot wrapper: single resolver (tools/gh-bot.sh, #92). Config tracker.bot.enabled
+# Bot wrapper: single resolver (the sibling gh-bot.sh, #92). Config tracker.bot.enabled
 # decides bot-vs-operator; when disabled we never call the resolver (so a stray
 # env var cannot take the write — cost-block-selftest AC-4).
 CFG_FILE=$(_config_path)
@@ -249,7 +249,7 @@ if [ -n "$CFG_FILE" ] && [ -f "$CFG_FILE" ]; then
 fi
 
 if [ "$BOT_ENABLED" = "true" ]; then
-  _RESOLVER="$(cd "$(dirname "$0")" && pwd)/tools/gh-bot.sh"
+  _RESOLVER="$(cd "$(dirname "$0")" && pwd)/gh-bot.sh"
   if [ ! -f "$_RESOLVER" ]; then
     log "gh-bot.sh missing at $_RESOLVER — skipping PR amend"
     record '"skipped-no-bot-wrapper"'

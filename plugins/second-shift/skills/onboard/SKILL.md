@@ -283,9 +283,9 @@ Write the accepted config as PURE JSON (comments stripped) with a `$schema` firs
 
 ## Step 5 — Validate in a loop
 Resolve config-lint: `claude plugin list --json | jq -r '[.[] | select(.id=="dev-pipeline@second-shift")] | sort_by(.lastUpdated) | last | .installPath // empty'`.
-- Found → `bash "<installPath>/skills/run/tools/config-lint.sh" .claude/second-shift.config.json`
+- Found → `bash "<installPath>/tools/config-lint.sh" .claude/second-shift.config.json`
 - Not installed yet (normal on first onboard) → fetch the SAME file at the pinned ref:
-  `gh api "repos/manoldonev/second-shift/contents/plugins/dev-pipeline/skills/run/tools/config-lint.sh?ref=<ref>" --jq .content | base64 --decode > "$TMPDIR/config-lint.sh"` and run that.
+  `gh api "repos/manoldonev/second-shift/contents/plugins/dev-pipeline/tools/config-lint.sh?ref=<ref>" --jq .content | base64 --decode > "$TMPDIR/config-lint.sh"` and run that.
   (Any ref onboard can resolve is ≥ v2.1.0 — the first release that ships onboard also ships
   the `$schema`-aware config-lint, so the fetched lint always accepts the emitted config.)
 Non-zero → fix the config (asking the human only if the fix needs a decision), re-run.
@@ -401,7 +401,7 @@ pairs; there is no second question:
 5. **Run the read-only preflight — the onboarding finish line.** Resolve the dev-pipeline
    install path (never a cache path from memory):
    `claude plugin list --json | jq -r '.[] | select(.id == "dev-pipeline@second-shift") | .installPath'`,
-   then run `bash "<installPath>/skills/run/tools/preflight.sh"` from the repo root. It is
+   then run `bash "<installPath>/tools/preflight.sh"` from the repo root. It is
    zero-write (no claim, no branch/worktree, no push, no tracker comment): target echo,
    config gates, the environment doctor, one tracker READ, one pass over every non-null
    command lane, and a report at `.claude/pipeline-state/preflight-report.md`. Surface the

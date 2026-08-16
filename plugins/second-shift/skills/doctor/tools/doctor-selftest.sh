@@ -116,17 +116,17 @@ report() { # $1 label, $2 config fixture, $3 extra-present (optional), $4 extra-
 TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
 echo '{}' > "$TMP/empty-user-settings.json"
 # Fake install tree mirroring the v2 cache layout. Skill dir names are the REAL
-# v2 plugin skill names (dev-pipeline ships skills/run — the shadow scan compares
-# against these basenames).
+# v2 plugin skill names (since #348 dev-pipeline ships skills/build-lean, not skills/run —
+# the shadow scan compares against these basenames).
 INSTALL="$TMP/cache"
-mkdir -p "$INSTALL/dev-pipeline/2.1.0/skills/run/tools" \
+mkdir -p "$INSTALL/dev-pipeline/2.1.0/skills/build-lean" "$INSTALL/dev-pipeline/2.1.0/tools" \
          "$INSTALL/review-toolkit/2.0.2/skills/review-lead" \
          "$INSTALL/intake-toolkit/2.0.0/skills/intake" \
          "$INSTALL/audit-toolkit/2.0.0/skills/audit" \
          "$INSTALL/second-shift/1.0.0/skills/onboard" \
          "$INSTALL/second-shift/1.0.0/skills/doctor"
 # shellcheck disable=SC2016 # emitting a literal stub script — $1 must not expand here
-printf '#!/usr/bin/env bash\necho "config-lint: OK ($1)"\n' > "$INSTALL/dev-pipeline/2.1.0/skills/run/tools/config-lint.sh"
+printf '#!/usr/bin/env bash\necho "config-lint: OK ($1)"\n' > "$INSTALL/dev-pipeline/2.1.0/tools/config-lint.sh"
 
 echo "doctor selftest:"
 scenario green            plugin-list-green.json   settings-green.json     marketplace-list-pinned.json  0 "summary: 0 failed"
@@ -165,8 +165,8 @@ scenario latest-lock      plugin-list-behind.json  settings-green.json     marke
 # WARN-only scenarios (exit stays 0): shadow skill + opt-out.
 # Extra files are pre-created under $TMP/<label> BEFORE the scenario call
 # (scenario's mkdir -p tolerates the existing tree). The shadow uses the REAL
-# colliding name: dev-pipeline ships skills/run in v2.
-mkdir -p "$TMP/shadow-skill/.claude/skills/run"
+# colliding name: dev-pipeline ships skills/build-lean since #348.
+mkdir -p "$TMP/shadow-skill/.claude/skills/build-lean"
 scenario shadow-skill     plugin-list-green.json   settings-green.json     marketplace-list-pinned.json  0 "shadows plugin-shipped"
 # #416/D-7: `audit-toolkit` off WHILE `dev-pipeline` is on is not an opt-out, it is a broken
 # lean lane — its entry gate refuses to start without the ledger audit-toolkit's hook writes.
@@ -286,9 +286,9 @@ grep -q "review-toolkit not resolved" <<< "$ccout2" && check "context-coverage u
 # plugin in this repo checkout) is copied into the fake tree — invoke-not-duplicate,
 # same posture as the config-lint stub above. Runs AFTER the scenarios above so the
 # copy cannot alter their claims-free expectations.
-REAL_CLAIMS="$(resolve_sibling_file dev-pipeline skills/run/tools/claims-lint.sh || true)"
+REAL_CLAIMS="$(resolve_sibling_file dev-pipeline tools/claims-lint.sh || true)"
 if [[ -n "$REAL_CLAIMS" ]]; then
-  cp "$REAL_CLAIMS" "$INSTALL/dev-pipeline/2.1.0/skills/run/tools/claims-lint.sh"
+  cp "$REAL_CLAIMS" "$INSTALL/dev-pipeline/2.1.0/tools/claims-lint.sh"
   mkdir -p "$TMP/claims-ok/.claude/second-shift"
   # shellcheck disable=SC2016 # literal fence content — backticks must not expand
   printf -- '```second-shift-claims\n- id: no-auth-system\n  claim: "fixture claim"\n  reverify-by: 9999-12-31\n```\n' \
@@ -303,7 +303,7 @@ else
   # Was an uncounted `echo … skipped`. That print is how these two scenarios ran nowhere but
   # the monorepo while the suite reported all green — a miss laundered into a skip. It is a
   # counted failure now, through the same check/FAILS tally every other scenario uses.
-  check "claims-lint sibling resolved (dev-pipeline skills/run/tools/claims-lint.sh) — claims-lint scenarios did NOT run" 1
+  check "claims-lint sibling resolved (dev-pipeline tools/claims-lint.sh) — claims-lint scenarios did NOT run" 1
 fi
 if [[ "$FAILS" -gt 0 ]]; then echo "doctor selftest: $FAILS FAILURE(S)"; exit 1; fi
 echo "doctor selftest: all green"

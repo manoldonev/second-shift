@@ -51,7 +51,10 @@ expect_violation invalid-bad-design-provider.json   "design.provider must be fig
 expect_violation invalid-bad-liverender.json        "design.liveRender: unknown keys"
 expect_violation invalid-bad-liverender.json        "design.liveRender.command: required"
 expect_violation invalid-bad-liverender.json        "design.liveRender.cwd: not a topology.repos id"
-expect_violation invalid-bad-viewport.json          "stageParams.visualCapture.viewports must be a subset"
+# #348 retired stageParams.visualCapture. This fixture no longer carries a BAD viewport — a
+# perfectly well-formed one is enough now, because the key itself is the violation. Renaming the
+# file would break its git history for no gain; the assertion says what it actually proves.
+expect_violation invalid-bad-viewport.json          "stageParams.visualCapture was removed in #348"
 expect_violation invalid-bad-extralane.json         "extraLanes[0].failureClass: must be a closed failure-taxonomy value"
 expect_violation invalid-bad-stageworkflow.json     "stageWorkflows[0].stage: must be an integer 1-10"
 expect_violation invalid-bad-plangate.json          "planGates[0].agent: required"
@@ -77,8 +80,8 @@ expect_violation invalid-bad-inertpattern.json      "stageParams.inertPattern: n
 # --- #15: the 12 config-lint type-check gaps (F83 mutant matrix). One packed fixture,
 # one assertion per surviving-mutant class it must now KILL. Plus the removed-key notes.
 expect_violation invalid-type-gaps.json             "stageWorkflows[0].stage: must be an integer 1-10"
-expect_violation invalid-type-gaps.json             "stageParams.visualCapture.smokeRoutes: must be array"
-expect_violation invalid-type-gaps.json             "stageParams.visualCapture.baseUrl: must be string"
+expect_violation invalid-type-gaps.json             "stageParams.planFilePattern: must be string"
+expect_violation invalid-type-gaps.json             "stageParams.inertPattern: must be string"
 expect_violation invalid-type-gaps.json             "reviewers.remove: must be array"
 expect_violation invalid-type-gaps.json             "commands.host.extraLanes[0].when: must be array"
 expect_violation invalid-type-gaps.json             "paths.plansDir: must be string"

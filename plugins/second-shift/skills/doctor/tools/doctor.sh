@@ -368,7 +368,7 @@ if [[ ! -f "$CONF" ]]; then
 else
   DP_PATH="$(jq -r --arg id "dev-pipeline@$MKT" --arg root "$ROOT" \
     "$RESOLVE_RECORD | .installPath // empty" <<< "$PLUGLIST")"
-  LINT="$DP_PATH/skills/run/tools/config-lint.sh"
+  LINT="$DP_PATH/tools/config-lint.sh"
   if [[ -n "$DP_PATH" && -f "$LINT" ]]; then
     if out="$(bash "$LINT" "$CONF" 2>&1)"; then ok "config-lint: $(tail -1 <<< "$out")"
     else
@@ -383,7 +383,7 @@ else
   # ONE summary line when second-shift-claims fences exist (count + probe-less slugs);
   # silent when none. Expired/malformed claims are FAILs here too — a stale
   # severity-downgrading claim blocks pipeline runs at their pre-flight.
-  CLAIMS="$DP_PATH/skills/run/tools/claims-lint.sh"
+  CLAIMS="$DP_PATH/tools/claims-lint.sh"
   if [[ -n "$DP_PATH" && -f "$CLAIMS" ]]; then
     if out="$(bash "$CLAIMS" "$ROOT" 2>&1)"; then
       [[ -n "$out" ]] && ok "claims-lint: $(tail -1 <<< "$out" | sed 's/^\[claims-lint\] summary: //')"

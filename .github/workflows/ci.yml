@@ -100,7 +100,7 @@ jobs:
       # it runs on a nightly cron in .github/workflows/nightly-guards.yml, and the note above
       # the release-time derivation gates below says why. It re-runs every shipped suite from a
       # staged install cache, so leaving it in this sweep has it contending with the very suites
-      # it duplicates (statectl measured at 244s against a ~94s uncontended norm). It stays
+      # it duplicates (the then-slowest suite measured at 244s against a ~94s uncontended norm). It stays
       # DISCOVERED — the exclusion names a path that must exist, and the runner hard-errors if
       # it ever stops matching.
       # The pass cache (#448). Restore is unconditional; SAVE is push-only, and so is the
@@ -165,10 +165,13 @@ jobs:
             echo "::error::rule 3(a): a toolkit references the dev-pipeline: namespace"; exit 1
           fi
           # (b) no hard dev-pipeline/ PATH reference in toolkit CONTENT (skills + agents).
-          #     Workflows are invoked by bare filename (D-15). Validator/eval tools that resolve
+          #     Workflows are invoked by bare filename (D-15). `skills/run/` and `stages` are kept in
+          #     the pattern after #348 deleted them: a toolkit that resurrects the old path is still a
+          #     rule-3(b) violation, and a pattern that forgets a retired path stops catching it.
+          #     Validator/eval tools that resolve
           #     the sibling dev-pipeline plugin are exempt — they live under scripts/ and evals/,
           #     which are excluded here (grep the toolkit roots directly so paths are never empty).
-          if grep -rnE 'skills/run/|dev-pipeline/(workflows|stages|state-schema|doc-update)|\.\./dev-pipeline/' \
+          if grep -rnE 'skills/run/|dev-pipeline/(workflows|stages|state-schema|model-tiering)|\.\./dev-pipeline/' \
                "${TOOLKITS[@]}" --include='*.md' --include='*.mjs' --exclude-dir=scripts --exclude-dir=evals 2>/dev/null; then
             echo "::error::rule 3(b): toolkit content hard-paths into dev-pipeline (invoke workflows by bare filename; reference artifacts by name)"; exit 1
           fi
@@ -355,12 +358,11 @@ jobs:
       - name: configVersion migration-doc gate
         run: bash scripts/check-configversion-migration-doc.sh
 
-  # macOS ships /bin/bash 3.2 and every shipped script claims 3.2 compat — two real
-  # statectl bugs (generator mapfile, mark-failed brace-default expansion) lived
-  # undetected while the selftests only ever ran under bash 4+. GitHub macOS runners
-  # put Homebrew bash 5 first on PATH, so shim PATH to force `#!/usr/bin/env bash`
-  # back to the stock 3.2 binary. (Ported from the acme vendored-era workflow,
-  # widened from statectl-only to the full selftest set.)
+  # macOS ships /bin/bash 3.2 and every shipped script claims 3.2 compat — two real bugs
+  # (a generator mapfile, a mark-failed brace-default expansion) lived undetected while the
+  # selftests only ever ran under bash 4+. GitHub macOS runners put Homebrew bash 5 first on
+  # PATH, so shim PATH to force `#!/usr/bin/env bash` back to the stock 3.2 binary. (Ported
+  # from the acme vendored-era workflow, widened from one suite to the full selftest set.)
   selftests-bash32:
     name: selftests (macos, bash 3.2)
     runs-on: macos-latest

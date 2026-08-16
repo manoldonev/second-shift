@@ -175,11 +175,40 @@ Re-key or remove every row/reference carrying a deleted or relocated path:
   (`version` stays frozen).
 - `.github/workflows/ci.yml` rule 3(b) pattern, which names `skills/run/`.
 
-**Config-schema assessment.** Enumerate stage-only keys; a key is stage-only iff no surviving
-reader remains (ledger D-17). `extraLanes` explicitly **survives** (#379 moved its consumer
-into lean-gate milestone 3). Any retirement follows the established dead-key pattern
-(`configVersion` bump + `docs/migrations/` entry, paired by
-`check-configversion-migration-doc.sh`); `configVersion` is never edited down.
+## Config-schema assessment (ledger D-17)
+
+A key is stage-only iff **no surviving reader remains** after the deletion. Enumerated against
+the surviving tree, not the schema:
+
+| Key | Surviving reader | Disposition |
+| --- | --- | --- |
+| `stageParams.planFilePattern` | `tools/preflight.sh` | keep |
+| `stageParams.inertPattern` | `tools/is-inert-diff.sh`, `tools/preflight.sh` | keep |
+| `stageParams.requiredLabels` | `tools/pipeline-doctor.sh`, `intake-orchestrator` | keep |
+| `stageParams.webComponentGlobs` | `review-lead/SKILL.md` (a11y + design-fidelity routing) | keep |
+| `stageParams.formatGlob` | `config-grill.sh`'s `T2.formatGlob` waiver | keep — it lost its *executor* (`verifyctl`), not its reader |
+| `gates.mutation` | `config-grill.sh`'s mutation-seam findings + unadopted rows | keep — the lean mutation seam is a repo-carried `tools/mutation-sweep.sh` and this is the declared intent it grades |
+| `commands.<h>.unitTestScope`, `.testFile` | `workflows/mutation-gate.mjs` | keep |
+| `commands.<h>.extraLanes` | `lean-gate.sh` milestone 3 (#379) | keep |
+| `design.liveRender` | `lean-gate.sh` milestone 3 | keep |
+| `topology.repos.<id>.ticketTag` | `run-lean/SKILL.md`, `intake-orchestrator` — advisory, no gate | keep |
+| **`stageParams.visualCapture`** | **none** — Stage 6's advisory smoke-capture was its only consumer, and `config-grill.sh:161` already states it evaluates no key under it | **RETIRED** |
+| `stageWorkflows` (EP-6), `implementDelegates` (EP-7), `planGates` (EP-8) | `tools/check-extensions.sh` **validates** their references; nothing **dispatches** them | keep, documented **INERT** — see below |
+
+**`stageParams.visualCapture` is retired here**, under the established dead-key pattern: a
+`config-lint.sh` `err(has(...))` naming the removal plus a `docs/migrations/` pointer, and the
+property dropped from `schema/second-shift.config.schema.json`. **No `configVersion` bump** —
+that pattern is what `gates.costTracking` used in v2.1.6, and `check-configversion-migration-doc.sh`
+gates on the schema's `configVersion.const` changing, which it does not. Its successor for the
+blocking case is `design.liveRender`, which already exists.
+
+**The EP-6/7/8 trio is documented inert, not retired.** They lost their dispatchers (the stages)
+but keep a validating reader, so by the letter of D-17 they are not reader-less. More
+importantly, retiring an advertised consumer-pluggable extension surface is a product decision —
+whether second-shift still offers blocking, consumer-owned gates, and what dispatches them on
+the lean lane — that this deletion does not make and should not make silently. `docs/extending.md`
+§3.6-3.8 now carries an INERT banner naming the cause, and the decision-guide table says so in
+its Blocking? column. Filing the retirement is out of scope; the record is not.
 
 ## Acceptance criteria
 
@@ -207,9 +236,16 @@ into lean-gate milestone 3). Any retirement follows the established dead-key pat
   own LIFETIME note declares.
 - **AC-6 (doc).** Every doc that names deleted machinery is updated in the same diff — the
   AC-scoped doc obligation: `CLAUDE.md`, `docs/testing.md`, `docs/pipeline-manifesto.md`,
-  `README.md`, `docs/{onboarding,namespaces,config-schema,extension-points,team-rollout}.md`,
-  and both plugin/marketplace descriptions. CLAUDE.md's coverage register and
-  `tools/mutation-exclusions.tsv` move in lockstep.
+  `README.md`, `docs/{onboarding,namespaces,config-schema,extension-points,team-rollout,
+  extending,live-render}.md`, and both plugin/marketplace descriptions. CLAUDE.md's coverage
+  register and `tools/mutation-exclusions.tsv` move in lockstep. `docs/native-primitive-audit.md`
+  is deliberately **excluded**: it is a dated audit record, and rewriting its subject would
+  falsify the record.
+- **AC-7 (oracle — CI).** The retirement of `stageParams.visualCapture` follows the established
+  dead-key pattern end to end: `config-lint.sh` rejects it with a migration pointer, the schema
+  no longer publishes it, `docs/migrations/v1-to-v2.md` carries the entry, and `configVersion`
+  is unchanged — so `check-configversion-migration-doc.sh` stays green without a bump, exactly
+  as `gates.costTracking`'s removal did.
 
 ## Out of scope
 

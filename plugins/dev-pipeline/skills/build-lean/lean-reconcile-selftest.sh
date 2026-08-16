@@ -719,10 +719,16 @@ if [ "$rc" -eq 0 ] \
   pass "(O) --help prints through the last header line and stops before the code"
 else fail "(O) --help did not print exactly the header, rc=$rc: $out"; fi
 
-# ---- (I) header states the #292 deferral ----------------------------------------------------
-if grep -q 'DEFERS TO #292' "$TOOL"; then
-  pass "(I) the script records that it defers to the general verifier (#292) on arrival"
-else fail "(I) no #292 deferral recorded in the header"; fi
+# ---- (I) DROPPED in #348 --------------------------------------------------------------------
+# This case asserted that the header carried the literal `DEFERS TO #292` — the record that a
+# general run-reconcile verifier would take ownership when it landed. #292 was closed as
+# moot-via-#348 (it was scoped to the staged lane's statectl records), so the deferral is no
+# longer true and the header now states the opposite: this script IS the owner.
+#
+# Not re-anchored to the replacement wording. That would be a prose-presence guard — grepping a
+# comment for a literal, which cannot fail for a reason a reader of the diff would not already
+# see (CLAUDE.md forbids adding them). Case (O) above still proves the header is printed by
+# --help, which is the only mechanical property of it that matters.
 
 echo "[lean-reconcile-selftest] $([ "$FAILS" -eq 0 ] && echo 'all green' || echo "$FAILS FAILURE(S)")"
 exit "$FAILS"

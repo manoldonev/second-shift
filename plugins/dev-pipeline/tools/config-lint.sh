@@ -239,6 +239,7 @@ ERRORS=$(jq -r '
 
   + (if (.stageParams != null) then (.stageParams |
       err((type) != "object"; "stageParams: must be object")
+      + err(has("visualCapture"); "stageParams.visualCapture was removed in #348 — Stage 6'"'"'s advisory smoke-capture died with the staged lane and has no lean reader. The blocking design check is design.liveRender (docs/live-render.md, docs/migrations/v1-to-v2.md)")
       + err(((keys) - ["planFilePattern","requiredLabels","visualCapture","webComponentGlobs","formatGlob","inertPattern"]) != []; "stageParams: unknown keys")
       + err((.planFilePattern? != null) and ((.planFilePattern | type) != "string"); "stageParams.planFilePattern: must be string")
       + err((.formatGlob? != null) and ((.formatGlob | type) != "string"); "stageParams.formatGlob: must be string")
@@ -248,17 +249,6 @@ ERRORS=$(jq -r '
       + ((.requiredLabels // []) | if type == "array" then (map(select((type) != "string")) | if length > 0 then ["stageParams.requiredLabels: every entry must be a string"] else [] end) else [] end)
       + err((.webComponentGlobs? != null) and ((.webComponentGlobs | type) != "array"); "stageParams.webComponentGlobs: must be array")
       + ((.webComponentGlobs // []) | if type == "array" then (map(select((type) != "string")) | if length > 0 then ["stageParams.webComponentGlobs: every entry must be a string"] else [] end) else [] end)
-      + ((.visualCapture // {}) |
-          err((type) != "object"; "stageParams.visualCapture: must be object")
-          + err(((keys) - ["baseUrl","devServerCommand","smokeRoutes","viewports","triggerGlobs"]) != []; "stageParams.visualCapture: unknown keys")
-          + err((.baseUrl? != null) and ((.baseUrl | type) != "string"); "stageParams.visualCapture.baseUrl: must be string")
-          + err((.devServerCommand? != null) and ((.devServerCommand | type) != "string"); "stageParams.visualCapture.devServerCommand: must be string")
-          + err((.smokeRoutes? != null) and ((.smokeRoutes | type) != "array"); "stageParams.visualCapture.smokeRoutes: must be array")
-          + err((.triggerGlobs? != null) and ((.triggerGlobs | type) != "array"); "stageParams.visualCapture.triggerGlobs: must be array")
-          + err((.viewports? != null) and ((.viewports | type) != "array"); "stageParams.visualCapture.viewports: must be array")
-          + ((.viewports // []) | map(select(. as $v | ["mobile","tablet","laptop","desktop"] | index($v) | not)) |
-              if length > 0 then ["stageParams.visualCapture.viewports must be a subset of mobile|tablet|laptop|desktop"] else [] end)
-        )
     ) else [] end)
 
   | .[]

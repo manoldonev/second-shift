@@ -60,28 +60,33 @@ rc=$(run_checker "$SANDBOX")
 
 # ---- (c) verbatim drift is caught -----------------------------------------------------
 # Mutate ONE leg of the FINDINGS_SCHEMA pair: flip a severity enum value.
-TARGET="$SANDBOX/plugins/dev-pipeline/skills/run/workflows/stall-probe.mjs"
+TARGET="$SANDBOX/plugins/dev-pipeline/workflows/stall-probe.mjs"
 sed "s/'blocker', 'major', 'minor', 'nit'/'blocker', 'major', 'minor', 'trivial'/" "$TARGET" > "$TARGET.m" && mv "$TARGET.m" "$TARGET"
 if grep -q "'trivial'" "$TARGET"; then
   rc=$(run_checker "$SANDBOX")
   [[ "$rc" -ne 0 ]] \
     && ok "(c) verbatim: a one-token drift in stall-probe.mjs FINDINGS_SCHEMA goes RED (rc=$rc)" \
     || bad "(c) verbatim drift NOT caught — the guard cannot fail"
-  cp "$ROOT/plugins/dev-pipeline/skills/run/workflows/stall-probe.mjs" "$TARGET"   # restore
+  cp "$ROOT/plugins/dev-pipeline/workflows/stall-probe.mjs" "$TARGET"   # restore
 else
   bad "(c) mutation did not apply — the sed anchor has moved; fix this selftest"
 fi
 
 # ---- (d) subset-of violation is caught ------------------------------------------------
 # Add a token to the SUBSET leg that the canonical enum does not carry.
-TARGET="$SANDBOX/plugins/dev-pipeline/skills/run/tools/plan-lint.sh"
-sed "s/HUMAN_PROVENANCE='user-answered|user-delegated'/HUMAN_PROVENANCE='user-answered|user-delegated|invented-value'/" "$TARGET" > "$TARGET.m" && mv "$TARGET.m" "$TARGET"
-if grep -q 'invented-value' "$TARGET"; then
+#
+# #348 RE-ANCHORED. The old case mutated plan-lint.sh's HUMAN_PROVENANCE against
+# ledger-lint.sh; plan-lint.sh died with the staged lane and that row was dropped. `seam-scrub`
+# is now the manifest's only subset-of row — preflight.sh is the canonical superset (it also
+# scrubs PREFLIGHT_DOCTOR_CMD) and lean-gate.sh the subset — so the mutation goes on lean-gate.
+TARGET="$SANDBOX/plugins/dev-pipeline/skills/build-lean/lean-gate.sh"
+sed "s/^SEAM_SCRUB='SECOND_SHIFT_CONFIG|/SEAM_SCRUB='INVENTED_SEAM_VAR|SECOND_SHIFT_CONFIG|/" "$TARGET" > "$TARGET.m" && mv "$TARGET.m" "$TARGET"
+if grep -q 'INVENTED_SEAM_VAR' "$TARGET"; then
   rc=$(run_checker "$SANDBOX")
   [[ "$rc" -ne 0 ]] \
     && ok "(d) subset-of: a token absent from the canonical enum goes RED (rc=$rc)" \
     || bad "(d) subset-of violation NOT caught"
-  cp "$ROOT/plugins/dev-pipeline/skills/run/tools/plan-lint.sh" "$TARGET"   # restore
+  cp "$ROOT/plugins/dev-pipeline/skills/build-lean/lean-gate.sh" "$TARGET"   # restore
 else
   bad "(d) mutation did not apply — the sed anchor has moved; fix this selftest"
 fi
@@ -94,14 +99,14 @@ rc=$(run_checker "$SANDBOX")
   || bad "(e) restored tree is RED — a restore failed, or subset-of rejects a valid subset"
 
 # ---- (f) a REMOVED marker is a failure, never a silent skip ---------------------------
-TARGET="$SANDBOX/plugins/dev-pipeline/skills/run/state-schema.md"
+TARGET="$SANDBOX/plugins/dev-pipeline/state-schema.md"
 sed 's/<!-- LOCKSTEP-BEGIN ac-id-rule -->//' "$TARGET" > "$TARGET.m" && mv "$TARGET.m" "$TARGET"
 if ! grep -q 'LOCKSTEP-BEGIN ac-id-rule' "$TARGET"; then
   rc=$(run_checker "$SANDBOX")
   [[ "$rc" -ne 0 ]] \
     && ok "(f) a deleted marker FAILS the pair (a silently-unchecked pair is the bug class)" \
     || bad "(f) deleted marker was treated as a skip — the guard can be disabled by deletion"
-  cp "$ROOT/plugins/dev-pipeline/skills/run/state-schema.md" "$TARGET"   # restore
+  cp "$ROOT/plugins/dev-pipeline/state-schema.md" "$TARGET"   # restore
 else
   bad "(f) mutation did not apply — the sed anchor has moved; fix this selftest"
 fi

@@ -14,7 +14,7 @@ You are `/second-shift:doctor`.
    record is server-side CI, this is fast local feedback.
 5. If the user asks about pipeline RUNTIME issues (gh auth, node, labels, statectl), point
    them to dev-pipeline's pipeline-doctor: it ships inside the dev-pipeline plugin at
-   `skills/run/tools/pipeline-doctor.sh` (resolve via `claude plugin list --json`
+   `tools/pipeline-doctor.sh` (resolve via `claude plugin list --json`
    installPath — never have them type a cache path from memory).
 
 ## `--report` — assemble a feedback bundle

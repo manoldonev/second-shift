@@ -241,32 +241,11 @@
           "items": { "type": "string" },
           "description": "Tracker labels the queue-and-claim model requires. Default = the plugin's shipped set (ready-for-dev, needs-spec-work, needs-plan-review, needs-intake-review, in-progress, epic)."
         },
-        "visualCapture": {
-          "type": "object",
-          "additionalProperties": false,
-          "description": "Stage-6 render-surface visual capture. Defaults reproduce the shipped literals.",
-          "properties": {
-            "baseUrl": { "type": "string", "default": "http://localhost:3001/" },
-            "devServerCommand": { "type": "string", "default": "yarn dev" },
-            "smokeRoutes": { "type": "array", "items": { "type": "string" }, "default": ["/"] },
-            "viewports": {
-              "type": "array",
-              "items": { "type": "string", "enum": ["mobile", "tablet", "laptop", "desktop"] },
-              "default": ["mobile", "tablet", "laptop"],
-              "description": "Closed enum of named viewports; the stage maps each name to its pixel dimensions."
-            },
-            "triggerGlobs": {
-              "type": "array",
-              "items": { "type": "string" },
-              "description": "Render-surface globs that gate visual capture. Default = the shipped apps/web component/CSS/tailwind globs."
-            }
-          }
-        },
         "webComponentGlobs": {
           "type": "array",
           "items": { "type": "string" },
           "default": ["apps/web/**/*.{tsx,jsx}"],
-          "description": "Stage-8 web-component surface: the globs whose presence in the diff route the a11y reviewer and the design-fidelity reviewer. Set this when the FE is not React-under-apps/web — e.g. [\"src/app/**/*.{html,ts}\"] (Angular), [\"src/**/*.vue\"] (Vue), [\"app/**/*.tsx\"] (React Router v7). Distinct from stageParams.visualCapture.triggerGlobs, which gates screenshot capture and includes CSS/tailwind config."
+          "description": "Stage-8 web-component surface: the globs whose presence in the diff route the a11y reviewer and the design-fidelity reviewer. Set this when the FE is not React-under-apps/web — e.g. [\"src/app/**/*.{html,ts}\"] (Angular), [\"src/**/*.vue\"] (Vue), [\"app/**/*.tsx\"] (React Router v7)."
         },
         "formatGlob": { "type": "string", "default": "*.{ts,tsx,js,json,md}" },
         "inertPattern": {

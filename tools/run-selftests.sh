@@ -18,7 +18,7 @@
 # `/tmp/x` only as an opaque `--worktree` argument and never writes it.
 #
 # DISCOVERY IS `*-selftest.sh` ONLY, deliberately. The three `*-selftest.mjs` files are executed
-# by plugins/dev-pipeline/skills/run/workflows/workflows-mjs-selftest.sh, which is itself in this
+# by plugins/dev-pipeline/workflows/workflows-mjs-selftest.sh, which is itself in this
 # glob. Widening discovery to `.mjs` would double-run them.
 #
 # DISPATCH IDIOM is lifted from tools/install-topology-selftest.sh: `xargs -P` over zero-padded

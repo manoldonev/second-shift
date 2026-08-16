@@ -273,13 +273,26 @@ else
   bad "B2 expected >=16 detected sites in the live tree, got '${sites:-none}'"
 fi
 
-# B3/B4: AC-6 — retries dropped 2 -> 1, and the surviving retry is not a verbatim repeat.
-for f in plan-review.mjs unit-tests.mjs; do
+# B3: AC-6 — retries dropped 2 -> 1 on EVERY carrier of dispatchSchemaAgent.
+# plan-review.mjs left this list in #348 (deleted with Stage 4). The carriers are enumerated
+# rather than globbed, so a file that silently stops carrying the helper is a B3 failure
+# rather than an invisible drop from the loop.
+for f in unit-tests.mjs design-sync.mjs figma.mjs; do
   if grep -qF 'dispatchSchemaAgent = async (prompt, opts, retries = 1)' "$WORKFLOWS/$f"; then
     ok "B3 $f dispatchSchemaAgent retries = 1"
   else
     bad "B3 $f no longer pins retries = 1 (AC-6)"
   fi
+done
+
+# B4: the surviving retry is not a verbatim repeat. NARROWER than B3 by contract, not by
+# oversight: RETRY_ESCALATION is the exploration-nudge escalation, and only the two
+# exploration-class dispatchers ever carried it — plan-review.mjs (deleted in #348) and
+# unit-tests.mjs. design-sync.mjs and figma.mjs carry the retries=1 pin without it, and
+# always have; asserting it on them would be a new requirement wearing a regression's clothes.
+# shellcheck disable=SC2043  # one carrier since #348 deleted plan-review.mjs; kept as a loop
+# because the contract is "every exploration-class dispatcher", not "this one file".
+for f in unit-tests.mjs; do
   if grep -qF 'RETRY_ESCALATION' "$WORKFLOWS/$f"; then
     ok "B4 $f retry carries an escalated preamble"
   else
@@ -288,13 +301,21 @@ for f in plan-review.mjs unit-tests.mjs; do
 done
 
 # B5: the probe's plan-shaped arms must dispatch what production dispatches. stall-probe.mjs
-# necessarily re-states plan-review.mjs's schema and nudge (Workflow scripts cannot import), so an
+# necessarily re-states the plan-shaped schema and nudge (Workflow scripts cannot import), so an
 # edit to one without the other silently makes the AFTER rate measure a dispatch nobody ships.
+#
+# RE-ANCHORED in #348, and this is the load-bearing half of that deletion for #291. The
+# production side used to be plan-review.mjs — Stage 4's dispatcher, now deleted — so the
+# lockstep would have died with it, leaving the probe's plan-shaped arm free to drift away from
+# anything shipped. It does not die: `unit-tests.mjs` in its `kind: 'plan-review'` mode carries
+# BOTH tokens verbatim and survives the deletion, so it is the production counterpart now. The
+# probe still measures a dispatch that ships.
+PROD_PLAN_SHAPED="$WORKFLOWS/unit-tests.mjs"
 for token in "verdict: { type: 'string', enum: ['block', 'fix-and-go', 'pass'] }" "GROUND PROPORTIONATELY"; do
-  if grep -qF "$token" "$WORKFLOWS/stall-probe.mjs" && grep -qF "$token" "$WORKFLOWS/plan-review.mjs"; then
-    ok "B5 stall-probe and plan-review agree on: ${token:0:38}"
+  if grep -qF "$token" "$WORKFLOWS/stall-probe.mjs" && grep -qF "$token" "$PROD_PLAN_SHAPED"; then
+    ok "B5 stall-probe and unit-tests (plan-review mode) agree on: ${token:0:38}"
   else
-    bad "B5 drift between stall-probe.mjs and plan-review.mjs on: ${token:0:38}"
+    bad "B5 drift between stall-probe.mjs and unit-tests.mjs on: ${token:0:38}"
   fi
 done
 
@@ -365,16 +386,20 @@ fi
 # The planted directory goes in a MIRROR of the skills/ layout under $TMP, never in the real
 # tree: the lint resolves its roots from BASH_SOURCE, so copying it into the mirror is all it
 # takes, and an interrupted run then cannot leave a stray directory in the repo.
-MIRROR="$TMP/skills"
-mkdir -p "$MIRROR/run/tools" "$MIRROR/run/workflows"
-cp "$LINT" "$MIRROR/run/tools/"
-cp "$WORKFLOWS"/*.mjs "$MIRROR/run/workflows/"   # the real, known-clean corpus
-MIRROR_LINT="$MIRROR/run/tools/$(basename "$LINT")"
+# #348 changed the mirror's SHAPE, not the case: the lint moved from skills/run/tools/ to the
+# plugin's own tools/, so the mirror is now a plugin root rather than a skills/ tree, and the
+# planted directory goes under its skills/ subtree — exactly where a future skill-shipped
+# workflows/ dir would appear.
+MIRROR="$TMP/plugin"
+mkdir -p "$MIRROR/tools" "$MIRROR/workflows"
+cp "$LINT" "$MIRROR/tools/"
+cp "$WORKFLOWS"/*.mjs "$MIRROR/workflows/"   # the real, known-clean corpus
+MIRROR_LINT="$MIRROR/tools/$(basename "$LINT")"
 
 # Control first: the mirror itself must be clean, or C1b would "pass" for the wrong reason.
 bash "$MIRROR_LINT" >/dev/null 2>&1; c1ctl_rc=$?
-mkdir -p "$MIRROR/other-skill/workflows"
-cp "$MIRROR/run/workflows/"*.mjs "$MIRROR/other-skill/workflows/"
+mkdir -p "$MIRROR/skills/other-skill/workflows"
+cp "$MIRROR/workflows/"*.mjs "$MIRROR/skills/other-skill/workflows/"
 C1B_OUT="$(bash "$MIRROR_LINT" 2>&1)"; c1b_rc=$?
 if [ "$c1ctl_rc" -eq 0 ] && [ "$c1b_rc" -ne 0 ] && grep -q 'absent from WORKFLOW_DIRS' <<<"$C1B_OUT"; then
   ok "C1b a workflows/ directory outside WORKFLOW_DIRS fails the lint instead of being silently skipped"

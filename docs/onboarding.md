@@ -51,21 +51,19 @@ variant — is its own playbook: [`team-rollout.md`](team-rollout.md).
 
 ### Pair repos (BE/FE) under the lean lane
 
-`/dev-pipeline:run-lean` routes by invocation cwd — it has no per-repo worktree map, so a
-confirmed pair's existing `topology.type: be-fe-pair` config (unchanged, `be`+`fe` entries)
-covers only the deprecated staged lane's `/dev-pipeline:run`, which resolves both repos
-from that one host config and worktrees them per-repo across its own stages. Working the
-pair from the lean lane needs one more thing: **the sibling repo onboards separately, on
-its own.** `cd` into it and run `/second-shift:onboard` there too — detection reports plain
+`/dev-pipeline:run-lean` routes by invocation cwd — it has no per-repo worktree map. A
+confirmed pair's `topology.type: be-fe-pair` config (unchanged, `be`+`fe` entries) stays a
+legal shape and other readers still honour it, but nothing fans a run out across both repos
+any more: the staged lane that did, `/dev-pipeline:run`, was deleted in #348. Working the
+pair therefore needs one thing: **the sibling repo onboards separately, on its own.** `cd` into it and run `/second-shift:onboard` there too — detection reports plain
 `standalone` from that side (the sibling-candidate probe is directional), so it drafts its
 own independent config (itself at `path: "."`), its own bot identity, its own worktrees
 dir, with no further prompts. Two onboard runs, two configs, each serving a different lane
 from the same pair.
 
 `topology.repos.<id>.ticketTag` on the host's `be`/`fe` entries (e.g. `"[BE]"` / `"[FE]"`)
-reads two ways depending on which lane is running it: the staged lane's Stage 1.T resolves
-`TARGET_REPOS` from it as a gate input, but the lean lane never reads it as a gate — it is
-**advisory only**, and it is what routes the lane: whoever launches `/dev-pipeline:run-lean`
+is **advisory only** — no gate reads it (the staged lane's Stage 1.T resolved `TARGET_REPOS`
+from it as a gate input; that reader was deleted in #348). What it does is route the lane: whoever launches `/dev-pipeline:run-lean`
 — an operator or the scheduler itself — reads the tag to pick the repo checkout to launch from. **FE-tagged tickets run from the FE
 repo.** The `intake-orchestrator` skill enforces the corresponding discipline at
 ticket-filing time: a title carrying both pair tags, or neither, is rejected before spec
@@ -175,7 +173,7 @@ Validate it:
 
 ```bash
 # config-lint ships INSIDE the dev-pipeline plugin (so installed-cache consumers can run it):
-bash "${CLAUDE_PLUGIN_ROOT:-<dev-pipeline-plugin-root>}/skills/run/tools/config-lint.sh" \
+bash "${CLAUDE_PLUGIN_ROOT:-<dev-pipeline-plugin-root>}/tools/config-lint.sh" \
   .claude/second-shift.config.json
 ```
 
@@ -184,9 +182,9 @@ bash "${CLAUDE_PLUGIN_ROOT:-<dev-pipeline-plugin-root>}/skills/run/tools/config-
 ## 2b. Prerequisites the first run enforces (GitHub tracker)
 
 `/second-shift:onboard` walks you through both of these; if you onboarded manually, the
-first pipeline run enforces them (either lane — the bot wrapper and the claim's queue
-label are load-bearing for both `/dev-pipeline:run-lean` and `/dev-pipeline:run`), so
-handle them now rather than mid-run:
+first pipeline run enforces them — the bot wrapper and the claim's queue label are
+load-bearing for `/dev-pipeline:run-lean` and for `/dev-pipeline:build-lean` invoked
+directly — so handle them now rather than mid-run:
 
 - **The six queue labels.** Pre-flight requires `ready-for-dev`, `needs-spec-work`,
   `needs-plan-review`, `needs-intake-review`, `in-progress`, `epic` to exist on the repo
@@ -203,12 +201,12 @@ handle them now rather than mid-run:
   checks the bot wrapper FIRST, unconditionally, for the GitHub tracker. You need a GitHub
   App (issues+contents write) and its private key; the dev-pipeline plugin ships the
   bootstrap — resolve the plugin root via `claude plugin list --json` → `installPath`, then
-  run its `skills/run/tools/install-gh-bot.sh`. No bot yet = the run aborts at pre-flight with a
+  run its `tools/install-gh-bot.sh`. No bot yet = the run aborts at pre-flight with a
   written reason; that is a pipeline requirement, not an onboarding failure.
 
 Neither applies to the JIRA tracker (reads via the Atlassian MCP; `writes: false` is the
-default posture). Both trackers need `gh` regardless — Stage 9 opens the PR with
-`gh pr create` — plus `node` for the Stage-8 review and mutation Workflow gates.
+default posture). Both trackers need `gh` regardless — the build block opens the PR with
+`gh pr create` — plus `node` for the review and mutation Workflow gates.
 
 ### Finish the command table — and give it a setup lane
 
@@ -217,15 +215,16 @@ Detection only covers JS package managers plus a Makefile fallback. On any other
 `commands.<id>` lane as `null`. **That table is a starting point, not a finished config** —
 fill in your repo's real commands. Until at least one verifying lane (`lint`, `typecheck`,
 `test`, or an `extraLanes` entry) is configured, `preflight` warns and withholds its
-`pipeline-ready` verdict, and Stage 6 refuses to complete a run that verified nothing. If
+`pipeline-ready` verdict, and the lean gate's milestone 3 refuses a run that verified
+nothing. If
 verifying nothing is genuinely intended (a docs-only repo, say), set
 `commands.<id>.allowUnverified: true` so the choice is explicit rather than an oversight.
 
-**A configured lane can still never run.** Stage 6 skips the suite for an "inert" diff —
+**A configured lane can still never run.** The verify sweep skips the suite for an "inert" diff —
 one whose every changed path is zero-coverage for a JS/TS suite — and the shipped inert
 set includes `*.md` and `*.sh`. On a repo where those ARE the product (a shell toolchain,
 a docs site, a Python project whose tooling lives in shell), every real diff classifies
-inert, your correctly-configured `lint`/`test` never execute, and Stage 6 reports
+inert, your correctly-configured `lint`/`test` never execute, and the sweep reports
 `skipped (inert diff)` — a false green that looks like a pass. If that is your stack, set
 `stageParams.inertPattern` to an ERE that leaves your product's file types OUT of the
 inert set; it replaces the shipped default outright. `preflight` warns when the effective
@@ -275,7 +274,7 @@ the outcome; it has no opinion on the method. `gates.mutation` and `commands.<id
 are rollback-lane keys and buy no sweep on their own.
 
 Environment sanity for all of the above in one command: `pipeline-doctor.sh` (ships in the
-dev-pipeline plugin at `skills/run/tools/pipeline-doctor.sh`, config-aware since 2.0.7 —
+dev-pipeline plugin at `tools/pipeline-doctor.sh`, config-aware since 2.0.7 —
 probes only what YOUR tracker and command table actually use).
 
 ## 3. Optional: dynamic context
@@ -326,13 +325,13 @@ Three layers, in order:
    is schema-legal.
 2. **Install state**: `/second-shift:doctor` — installed plugins vs the lockfile, settings
    pin, shadow collisions (see §0).
-3. **Runtime environment**: `pipeline-doctor.sh` (dev-pipeline plugin, `skills/run/tools/`)
-   — tracker CLI/auth, bot wrapper, labels, node, statectl. Different layer from
+3. **Runtime environment**: `pipeline-doctor.sh` (dev-pipeline plugin, `tools/`)
+   — tracker CLI/auth, bot wrapper, labels, node, the lean gate. Different layer from
    `/second-shift:doctor`; both exist on purpose. Extension files are checked at pre-flight
    by `check-extensions.sh` against the shipped manifest (a typo'd extension filename is
    loud, never silently ignored).
 
-Then the read-only preflight — the onboarding finish line. `/second-shift:onboard` runs it as its final step; manually, resolve the dev-pipeline install path (`claude plugin list --json` → `.installPath`) and run `bash "<installPath>/skills/run/tools/preflight.sh"`. It echoes the resolved targets, runs the config gates and the environment doctor, performs one tracker READ (no claim), executes every non-null command lane once (source-mutating lanes are skipped with a note), and writes `.claude/pipeline-state/preflight-report.md` — zero tracker/git/remote mutations, so the first mutating contact happens only after everything else is proven green.
+Then the read-only preflight — the onboarding finish line. `/second-shift:onboard` runs it as its final step; manually, resolve the dev-pipeline install path (`claude plugin list --json` → `.installPath`) and run `bash "<installPath>/tools/preflight.sh"`. It echoes the resolved targets, runs the config gates and the environment doctor, performs one tracker READ (no claim), executes every non-null command lane once (source-mutating lanes are skipped with a note), and writes `.claude/pipeline-state/preflight-report.md` — zero tracker/git/remote mutations, so the first mutating contact happens only after everything else is proven green.
 
 Then a first run on a small, self-contained ticket. The front door is a scheduler over the
 lane's blocks — it spawns each in a fresh session and reads its outcome, authoring nothing:
@@ -361,13 +360,11 @@ commits after an approve costs another review round.
 Autonomous mode is safe to trust on day one because it never guesses: `build-lean`'s entry
 gate refuses without a live audit ledger, and on a GitHub tracker the session also refuses
 without the queue label (a read-only tracker has no queue). Both fire before any work begins,
-and every milestone gate **fail-fasts with a written reason** instead of asking — `.claude/pipeline-state/<issue>-lean-progress.md` tells you exactly why. (The rollback lane,
-`/dev-pipeline:run`, has its own equivalent: a Target Confirmation Gate that echoes the
-resolved config at the top of the run, and `.claude/pipeline-state/<key>.json` as its
-failure record.) Two tips for a clean first run: set `tracker.branchPrefix` in config
-(skips runtime branch-identity derivation, which has nothing to match in a repo with no
-prior pipeline branches), and pick a ticket with no external-infrastructure ACs. An
-interactive step-through mode exists for debugging aborted `/dev-pipeline:run` runs — see
-the `dev-pipeline` SKILL — but onboarding doesn't need it.
+and every milestone gate **fail-fasts with a written reason** instead of asking — `.claude/pipeline-state/<issue>-lean-progress.md` tells you exactly why. Two tips for a clean
+first run: set `tracker.branchPrefix` in config (skips runtime branch-identity derivation,
+which has nothing to match in a repo with no prior pipeline branches), and pick a ticket with
+no external-infrastructure ACs. When a run stops mid-way, the debugging path is the two-terminal
+manual flow — invoke `/dev-pipeline:build-lean` and `/dev-pipeline:review-lean` directly, which
+is the same block the scheduler drives.
 
 **Sequencing note (migrating repos with vendored copies):** delete the repo-local files that shadow plugin-shipped names, commit, and **start a fresh session** before the dry-run — deleting same-named skills mid-session invalidates that session's skill registry and every `Skill(<plugin>:<name>)` call returns "Unknown skill" until restart ([`namespaces.md`](namespaces.md) rule 6).

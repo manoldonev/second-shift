@@ -990,8 +990,8 @@ chain_walk() { # chain_walk <inherited-patch-id> <declaring-round> [declaring-co
 # WITHOUT a `session_id:` key: `record_key` here and `extract_key` in lean-reconcile.sh both
 # take the FIRST match of that key in the file, and the header must keep winning that race.
 #
-# Reconciliation keys (AC-14) ride in the header so a run predating #292's general
-# verifier stays reconcilable after it lands.
+# Reconciliation keys (AC-14) ride in the header so a run stays reconcilable by whatever
+# reads the record later, not just by the tool that wrote it.
 now_iso() { date -u +%Y-%m-%dT%H:%M:%SZ; }
 
 # The header is written ONCE, at creation, and was never revisited — which is how #322's
@@ -1429,7 +1429,7 @@ pass_milestone() {
 # AC-14. The predicate is a NON-EMPTY ledger file for THIS session, anchored at the main
 # checkout. Directory existence is explicitly NOT the test — an empty or absent per-session
 # file means the hook never fired, and a run whose tool calls left no ledger cannot be
-# reconciled by lean-reconcile.sh (or by #292 later). Fail closed.
+# reconciled by lean-reconcile.sh. Fail closed.
 #
 # #416: fail-closed was never the gap. NOTHING ENFORCED THAT THIS RAN. `entry` appeared here
 # and at its dispatch arm and nowhere else, and it wrote nothing durable — so a run that simply
@@ -2414,7 +2414,7 @@ cmd_claim() {
     return 0
   fi
 
-  helper="$(dirname "$(cd "$(dirname "$0")" && pwd)")/run/tools/claim-issue.sh"
+  helper="$(dirname "$(dirname "$(cd "$(dirname "$0")" && pwd)")")/tools/claim-issue.sh"
   [ -f "$helper" ] || envfail "claim-issue.sh not found at '$helper'."
 
   # (i) the label swap — reuses the pipeline's add-before-remove + confirm-before-DELETE
@@ -2712,7 +2712,7 @@ pause_and_ask_ledger_path() {
 }
 
 # RETURN-CODE VOCABULARY (#532), shared with `checked_match` in
-# plugins/dev-pipeline/skills/run/tools/checked-call.sh — this is the same defect in its
+# plugins/dev-pipeline/tools/checked-call.sh — this is the same defect in its
 # capture-shaped costume, so it takes the same numbers:
 #
 #   0 + empty stdout   CLEAR — every declared source was read and none declares an unresolved

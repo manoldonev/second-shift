@@ -141,7 +141,7 @@ fetch_at_ref() { # fetch_at_ref <label> <path-at-ref> <seam-value>
 if [ ! -f "$CONFIG" ]; then
   bad "no $CONFIG — run /second-shift:onboard"
 else
-  if fetch_at_ref "config-lint" "plugins/dev-pipeline/skills/run/tools/config-lint.sh" "${SECOND_SHIFT_CONFIG_LINT:-}"; then
+  if fetch_at_ref "config-lint" "plugins/dev-pipeline/tools/config-lint.sh" "${SECOND_SHIFT_CONFIG_LINT:-}"; then
     LINT="$FETCHED"
     if bash "$LINT" "$CONFIG"; then
       ok "config-lint passed against $CONFIG (@ ${LOCK_REF:-local})"

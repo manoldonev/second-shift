@@ -79,8 +79,6 @@ echo "diff-range-selftest: reviewer diff-range semantics (#130)"
 THREE_DOT='${base}...${head}'
 # shellcheck disable=SC2016  # literal token, see above
 TWO_DOT='${base}..${head}'
-# shellcheck disable=SC2016  # literal token, see above (used by Case G)
-HEAD_TOKEN='${head}'
 
 for f in code-review.mjs design-sync.mjs unit-tests.mjs mutation-gate.mjs; do
   path="$WORKFLOWS/$f"
@@ -105,18 +103,16 @@ for f in code-review.mjs design-sync.mjs unit-tests.mjs mutation-gate.mjs; do
   fi
 done
 
-# --- Case G (AC-5): plan-review.mjs is confirmed range-free ------------------
-# AC-5 names plan-review.mjs as an audit target. It constructs no diff range at
-# all, so it needs no fix — but that "confirmed unaffected" verdict is re-checked
-# mechanically here rather than trusted to a plan's prose.
-PLAN_REVIEW="$WORKFLOWS/plan-review.mjs"
-if [[ ! -f "$PLAN_REVIEW" ]]; then
-  bad "G plan-review.mjs is missing at $PLAN_REVIEW"
-elif grep -qF "$HEAD_TOKEN" "$PLAN_REVIEW"; then
-  bad "G plan-review.mjs now interpolates a head ref — it gained a diff range and must be audited for #130"
-else
-  ok "G plan-review.mjs still constructs no diff range (confirmed unaffected)"
-fi
+# --- Case G (AC-5): DROPPED in #348 ------------------------------------------
+# AC-5 named plan-review.mjs as an audit target and this case re-checked the plan's
+# "confirmed unaffected" verdict mechanically: the file constructed no diff range at all, and
+# a later edit must not let it grow one silently. #348 deleted plan-review.mjs with Stage 4.
+#
+# NOT re-anchored, deliberately. The case asserts an ABSENCE on a file that has no range, and
+# no surviving dispatcher has that property — code-review.mjs, design-sync.mjs, unit-tests.mjs
+# and mutation-gate.mjs all render one and are covered by C-F above, in both directions. Pointing
+# case G at any of them would assert something already asserted, or assert a falsehood. A guard
+# whose subject no longer exists is removed, not repurposed.
 
 echo "diff-range-selftest: $PASS passed, $FAIL failed"
 exit "$FAIL"

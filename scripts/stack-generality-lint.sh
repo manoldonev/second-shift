@@ -10,8 +10,8 @@
 # from prose describing the anti-pattern to refuse.
 #
 # Legs (each with a declared path scope and check direction):
-#   .project/ absence  — no `.project/` literal in the three dev-pipeline contract files
-#                        (file-wide), nor in review-toolkit/agents/doc-updater.md's
+#   .project/ absence  — no `.project/` literal in the three dev-pipeline lane-contract
+#                        SKILLs (file-wide), nor in review-toolkit/agents/doc-updater.md's
 #                        FRONTMATTER block. The doc-updater body legitimately mentions
 #                        `.project/` (anti-pattern prose and a labeled illustration
 #                        block), so only its frontmatter is scanned.
@@ -36,10 +36,15 @@ fail() { echo "[stack-generality] ✗ $1" >&2; violations=$((violations + 1)); }
 
 # ---- .project/ absence -------------------------------------------------------
 
+# RE-ANCHORED in #348. The three staged-lane contract files this used to name
+# (stages/5-implement.md, stages/7-doc-update.md, skills/run/SKILL.md) were deleted with the
+# lane. The lane contracts a consumer's prompts now come from are the three lean SKILLs, so
+# they take the slot — the leg guards "the dev-pipeline's own contract prose carries no
+# birth-stack doc root", and that claim is about whichever files hold the contract.
 PROJECT_FILEWIDE=(
-  "plugins/dev-pipeline/skills/run/stages/5-implement.md"
-  "plugins/dev-pipeline/skills/run/stages/7-doc-update.md"
-  "plugins/dev-pipeline/skills/run/SKILL.md"
+  "plugins/dev-pipeline/skills/build-lean/SKILL.md"
+  "plugins/dev-pipeline/skills/review-lean/SKILL.md"
+  "plugins/dev-pipeline/skills/run-lean/SKILL.md"
 )
 for f in "${PROJECT_FILEWIDE[@]}"; do
   if [[ ! -f "$ROOT/$f" ]]; then
@@ -73,9 +78,13 @@ fi
 
 # ---- (AC-n) presence ---------------------------------------------------------
 
+# RE-ANCHORED in #348: stages/5-implement.md was the staged declarer and is deleted.
+# mutation-review/SKILL.md is now the sole DECLARER of the test-title convention, and
+# pipeline-retro/SKILL.md its CONSUMER (its AC-coverage audit greps the PR diff for `(AC-n)`
+# titles). Both sides are named, so dropping the token from either one reds.
 ACN_SITES=(
-  "plugins/dev-pipeline/skills/run/stages/5-implement.md"
   "plugins/review-toolkit/skills/mutation-review/SKILL.md"
+  "plugins/dev-pipeline/skills/pipeline-retro/SKILL.md"
 )
 for f in "${ACN_SITES[@]}"; do
   if [[ ! -f "$ROOT/$f" ]]; then

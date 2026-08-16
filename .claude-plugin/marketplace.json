@@ -12,7 +12,7 @@
     {
       "name": "dev-pipeline",
       "source": "./plugins/dev-pipeline",
-      "description": "Autonomous ticket → intake → build → review → merge-boundary pipeline, gated by lean's five artifact milestones by default (crash-recoverable state, deterministic verify runner, tracker adapters github|jira); the ten-stage statectl lane is kept as an ablation/rollback path."
+      "description": "Autonomous ticket → intake → build → review → merge-boundary pipeline, gated by lean's five artifact milestones (outcome-gated blocks, portable merge-boundary evidence, tracker adapters github|jira)."
     },
     {
       "name": "review-toolkit",

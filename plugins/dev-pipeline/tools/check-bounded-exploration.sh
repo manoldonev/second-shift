@@ -73,7 +73,6 @@ LOOKBACK=40
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PLUGIN_DIR="$(dirname "$SCRIPT_DIR")"      # plugins/dev-pipeline
-SKILLS_DIR="$PLUGIN_DIR/skills"            # plugins/dev-pipeline/skills
 
 # The scanned set is a LIST, not one hardcoded path, even though exactly one entry is in it
 # today. A lint anchored to a single directory silently skips every file outside it, and that
@@ -87,10 +86,17 @@ SKILLS_DIR="$PLUGIN_DIR/skills"            # plugins/dev-pipeline/skills
 # edit can be silently forgotten.
 WORKFLOW_DIRS=("$PLUGIN_DIR/workflows")
 
-# SELF-CHECK on the hand-maintained list. Discover every workflows/ directory under skills/
-# and refuse to run against a stale list, rather than reporting a confident green over files
-# never opened. Only on the default path — the explicit override scans one directory on
+# SELF-CHECK on the hand-maintained list. Discover every workflows/ directory under the PLUGIN
+# ROOT and refuse to run against a stale list, rather than reporting a confident green over
+# files never opened. Only on the default path — the explicit override scans one directory on
 # purpose.
+#
+# #348 WIDENED THE DISCOVERY ROOT from skills/ to the plugin root, and that is not cosmetic:
+# the one real workflows/ dir moved OUT of skills/ (to the plugin root) when the staged lane
+# was deleted, so a scan rooted at skills/ would have matched zero directories and the
+# self-check would have been silently vacuous — the exact self-neutralization it exists to
+# prevent. The plugin root subsumes skills/, so a future skill-shipped workflows/ is still
+# discovered.
 if [[ $# -eq 0 ]]; then
   while IFS= read -r _d; do
     [[ -n "$_d" ]] || continue
@@ -100,7 +106,7 @@ if [[ $# -eq 0 ]]; then
       echo "check-bounded-exploration: FAIL — workflow directory '$_d' exists but is absent from WORKFLOW_DIRS, so its dispatch sites are never scanned. Add it to the list." >&2
       exit 1
     fi
-  done < <(find "$SKILLS_DIR" -type d -name workflows 2>/dev/null | sort)
+  done < <(find "$PLUGIN_DIR" -type d -name workflows 2>/dev/null | sort)
 fi
 
 [[ $# -gt 0 ]] && WORKFLOW_DIRS=("$1")   # explicit override (the selftest drives this)

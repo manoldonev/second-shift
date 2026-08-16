@@ -26,8 +26,9 @@ CONTRIBUTING snippet).
    is the path to fall back on when a run needs rescuing.
 
 **A BE/FE pair needs Day 0 a second time, in the sibling repo.** Step 2's confirmed-pair
-`be-fe-pair` config is unchanged and is what the deprecated staged lane reads; the lean
-lane has no per-repo worktree map, so working the pair from `/dev-pipeline:run-lean` needs
+`be-fe-pair` config is unchanged and stays a legal shape, but no lane fans a run out across
+both repos any more — the staged lane that did was deleted in #348. The lean lane has no
+per-repo worktree map, so working the pair from `/dev-pipeline:run-lean` needs
 the sibling onboarded on its own too — its own config, own bot identity, own worktrees dir
 (detection reports plain `standalone` from that side, no extra prompts). See
 [onboarding.md § Pair repos](onboarding.md#pair-repos-befe-under-the-lean-lane).

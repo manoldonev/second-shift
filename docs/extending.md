@@ -31,9 +31,9 @@ You have a repo-, org-, or domain-specific need. Walk it down this list; the fir
 | Add **domain knowledge** a shipped agent should read (blocker mutants, security rules, review context, design tokens, doc routing) | an **extension file** under `.claude/second-shift/` | knowledge | additive to that agent |
 | Add a **whole new reviewer** dimension for this repo | a repo-local agent in `.claude/agents/` + `reviewers.add` | config + agent | it's a reviewer |
 | Turn on **design-fidelity** review against Figma or Claude-Design | `design.provider` config | config | fail-closed gate |
-| Run a **blocking workflow at a specific stage** (a schema-diff gate, a license scan, a codegen-drift check) | `stageWorkflows` (EP-6) | config → workflow | always |
-| Route certain **Stage-5 implementation work** to a specialist agent | `implementDelegates` (EP-7) | config → agent | passes the normal gates |
-| Add a **blocking plan-review gate** (a QA-tier plan review, an ADR-compliance check on the plan) | `planGates` (EP-8) | config → agent | additive, runs after the built-in Stage-4 gates |
+| Run a **blocking workflow at a specific stage** (a schema-diff gate, a license scan, a codegen-drift check) | `stageWorkflows` (EP-6) | config → workflow | **inert — no dispatcher since #348** |
+| Route certain **implementation work** to a specialist agent | `implementDelegates` (EP-7) | config → agent | **inert — no dispatcher since #348** |
+| Add a **blocking plan-review gate** (a QA-tier plan review, an ADR-compliance check on the plan) | `planGates` (EP-8) | config → agent | **inert — no dispatcher since #348** |
 | Ship any of the above **across many repos in your org**, versioned and pinned | a **companion pack** plugin (EP-5) that the config points at | its own plugin | per the mechanism it uses |
 
 Two cuts make almost every decision:
@@ -63,18 +63,12 @@ Every `stageParams` key defaults to the plugin's current literal, so an empty co
     // REPLACES the default outright (only replacement can remove `\.sh$`), so it is a
     // hand-copy that won't inherit later additions. Omit the key to keep the default.
     "inertPattern": "(\\.md$|^\\.github/workflows/.*\\.yml$)",
-    "webComponentGlobs": ["src/**/*.vue"],                        // Stage-8 a11y + design-fidelity trigger — set when the FE isn't React under apps/web
-    "visualCapture": {
-      "baseUrl": "http://localhost:5173/",
-      "devServerCommand": "pnpm dev",
-      "smokeRoutes": ["/", "/dashboard"],
-      "viewports": ["mobile", "desktop"]
-    }
+    "webComponentGlobs": ["src/**/*.vue"]                          // a11y + design-fidelity reviewer trigger — set when the FE isn't React under apps/web
   }
 }
 ```
 
-Pure parameterization — no ordering, no logic. A published key that no stage actually reads is caught by `check-config-shadowing.sh` (surface rot is a lint failure, not a silent no-op).
+Pure parameterization — no ordering, no logic. A published key that nothing actually reads is caught by `check-config-shadowing.sh` (surface rot is a lint failure, not a silent no-op).
 
 The mirror-image rot — a key nothing *sets*, so the shipped default silently matches nothing in your repo — is caught by [`config-grill.sh`](../plugins/second-shift/skills/onboard/tools/config-grill.sh), which `/second-shift:onboard` runs on its draft before the accept-or-edit screen and `/second-shift:doctor` runs on the committed config. `config-lint` cannot see any of it: absence is legal for every optional key, so a structural validator never looks at the tree, and a capability that is off simply never runs while the run still reports green. The grill does look, names what you get for setting the key, and forces a disposition — fix it, or declare it in the top-level `grillWaivers` object (`{"<check id>": "<reason>"}`), the same deliberate-declared-opt-out shape as `commands.<repo>.allowUnverified`. Field reference: [`config-schema.md`](config-schema.md).
 
@@ -152,6 +146,14 @@ An opt-in axis, off unless the key is present:
 
 ### 3.6 `stageWorkflows` — a blocking gate owned by you (EP-6)
 
+> **INERT since #348 — no dispatcher.** This extension point was dispatched by the staged
+> lane, which was deleted. The config key is still schema-legal and `check-extensions.sh`
+> still validates the agents/workflows it references, so nothing about a consumer's existing
+> config reds — but nothing runs it either. It is documented rather than deleted because
+> whether second-shift keeps a consumer-pluggable blocking gate, and what dispatches it on the
+> lean lane, is a product decision this deletion did not make. Until it is made, treat this
+> section as a record of the shape, not as a capability you can turn on.
+
 You need something heavier than a verify command: a real workflow that runs at a chosen stage and blocks completion. A schema-compatibility gate before implementation, a codegen-drift check, a license scan.
 
 ```jsonc
@@ -167,6 +169,14 @@ The `workflow` is either `"<plugin>:<relpath>"` (a companion pack's script, §4)
 
 ### 3.7 `implementDelegates` — route Stage-5 work to a specialist (EP-7)
 
+> **INERT since #348 — no dispatcher.** This extension point was dispatched by the staged
+> lane, which was deleted. The config key is still schema-legal and `check-extensions.sh`
+> still validates the agents/workflows it references, so nothing about a consumer's existing
+> config reds — but nothing runs it either. It is documented rather than deleted because
+> whether second-shift keeps a consumer-pluggable blocking gate, and what dispatches it on the
+> lean lane, is a product decision this deletion did not make. Until it is made, treat this
+> section as a record of the shape, not as a capability you can turn on.
+
 You want certain implementation work done by a specialist agent instead of the inline implementer — a migrations specialist for schema changes, a codegen agent for a generated surface.
 
 ```jsonc
@@ -181,6 +191,14 @@ You want certain implementation work done by a specialist agent instead of the i
 `surface` is a path glob or the reserved key `unit`; matching work items route to the delegate. The delegate's output then passes through the **unchanged** Stage-5 scope-enforcement gate and every downstream gate — it *adds work* (a different author) and *waives nothing*. `agent` is `"<plugin>:<agent>"` (a companion pack) or a bare repo-local agent name. An unresolvable agent fails closed at pre-flight.
 
 ### 3.8 `planGates` — a blocking plan-review gate (EP-8)
+
+> **INERT since #348 — no dispatcher.** This extension point was dispatched by the staged
+> lane, which was deleted. The config key is still schema-legal and `check-extensions.sh`
+> still validates the agents/workflows it references, so nothing about a consumer's existing
+> config reds — but nothing runs it either. It is documented rather than deleted because
+> whether second-shift keeps a consumer-pluggable blocking gate, and what dispatches it on the
+> lean lane, is a product decision this deletion did not make. Until it is made, treat this
+> section as a record of the shape, not as a capability you can turn on.
 
 You want an extra reviewer of the *plan itself* at Stage 4 — a QA-tier review of the test strategy for a surface, an ADR-compliance check — that can block a bad plan before any code is written.
 
@@ -237,6 +255,12 @@ platform/*.md
 ---
 
 ## 5. End-to-end case study: an API-test QA tier
+
+> **Read §3.6-3.8 first.** Three of the five mechanisms this case study composes (`stageWorkflows`,
+> `implementDelegates`, `planGates`) are INERT since #348 — they have no dispatcher. The
+> `extraLanes` and extension-file halves still run. The study is kept whole because it is the
+> only worked example of how the five compose, and it is the argument any replacement dispatcher
+> would have to satisfy.
 
 The single snippets above each touch one seam. Real capabilities compose several. Here's a worked case a QA-minded org actually wants: **black-box API tests as a first-class pipeline concern** — the plan's API-test strategy gets reviewed *before* code is written, the tests are authored by a specialist, the suite runs as a blocking gate, and the tests themselves get code-reviewed. That's four different gating stages, so it's four seams — packaged once as a companion pack, `acme-qa-pack`, and wired from each consumer's config.
 

@@ -21,7 +21,8 @@
   "stageParams": {
     "requiredLabels": [1],
     "webComponentGlobs": "src/**/*.vue",
-    "visualCapture": { "baseUrl": 5, "smokeRoutes": "/" }
+    "planFilePattern": 5,
+    "inertPattern": 7
   },
   "implementDelegates": [ { "surface": 5, "agent": "a" } ],
   "planGates": [ { "name": "p", "surface": 5, "agent": "a" } ],
