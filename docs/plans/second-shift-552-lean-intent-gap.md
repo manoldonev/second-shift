@@ -3,8 +3,8 @@ run_id: lean-552-54aec70-a
 session_id: dfb9ee56-1085-4762-b2dc-6d8acc42078f
 region: undeclared
 disposition: pause-and-ask
-ratified: no
-ratified_by:
+ratified: yes
+ratified_by: https://github.com/manoldonev/second-shift/issues/552#issuecomment-5309460053
 
 ## Gap
 
