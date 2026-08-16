@@ -1154,6 +1154,24 @@ SB0="$(sandbox_at 0)"
 
 restore() { git -C "${2:-$SB0}" checkout -- "$1" 2>/dev/null; }
 
+# UNTRACKED LITTER IS NOT THE NEXT MUTANT'S INPUT. restore() reverts the one TRACKED path a
+# mutant was spliced into; it cannot see the files a killer created, and nothing else removed
+# them — so a sandbox accumulated every suite's debris for the length of the run. That is not
+# inert, because the operator alphabet writes ONE placeholder token into every guard it
+# mutates, which makes that token a shared namespace on disk. A mutant turning
+# `mkdir -p "${VAR:-real}"` into `mkdir -p __MUTANT_DEFAULT__` is killed correctly and leaves
+# the directory behind; a LATER mutant in the same sandbox turning
+# `mktemp "${TMPDIR:-/tmp}/x.XXXXXX"` into `mktemp __MUTANT_DEFAULT__/x.XXXXXX` then SUCCEEDS
+# where it had to fail, and is scored SURVIVED on the strength of its predecessor's litter.
+# The oracle below re-derives it on a clean sandbox, kills it, and reds the lane as a pool
+# disagreement — which is how this reached the nightly and read as flake. It is deterministic
+# per tree: the pairing re-rolls only when the guard list moves, which is why the red walked
+# between shards instead of sitting still.
+#
+# `-x` as well as `-fd`: an ignored path is litter by the same argument, and a sandbox is
+# `git worktree add --detach` output holding nothing worth carrying between mutants.
+scrub() { git -C "${1:-$SB0}" clean -qfdx 2>/dev/null; }
+
 # Splice ONE mutated line back into the file. awk-with-a-file rather than `awk -v`,
 # because -v mangles backslashes and these lines are dense with them.
 # Mutants are applied by writing THROUGH the guard's existing inode (`cat >`), never by
@@ -1328,6 +1346,9 @@ do_mutant_item() {
   IFS="$TAB" read -r idx sid guard ks blob key <<EOF
 $line
 EOF
+  # Before the splice, not after the restore: this also clears what the unmutated PRECHECK
+  # left behind, and the first mutant a worker scores is as entitled to a clean tree as the last.
+  scrub "$SB_CUR"
   cat "$blob" > "$SB_CUR/$guard"
   got_kill=0; hit_suite="-"; hit_kind="plain"; hit_bound=0; hit_procs=0
   for s in $ks; do
@@ -1439,6 +1460,10 @@ EOF
   WORKER_TOKEN="rv"
   : > "$WORKER_PGID_FILE"
 
+  # The oracle's sandbox is created once and REUSED across survivors, so the second survivor
+  # it re-derives would inherit the first's litter — the very contamination it exists to rule
+  # out. An oracle that can be poisoned by its own previous answer is not one.
+  scrub "$SB_CUR"
   cat "$blob" > "$SB_CUR/$guard"
   # Counted here rather than at the call site, so the run's own timing line stays an honest
   # record of paired-suite executions even on the paths where the oracle declines to run. One
