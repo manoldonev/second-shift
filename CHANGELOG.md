@@ -4,6 +4,33 @@ All notable changes to the second-shift marketplace. Versions are per-plugin (`p
 this file tracks the marketplace release. `configVersion` stays `const 1` — v2 is fully backward-compatible for a
 consumer with an empty config; the migration notes below are only for consumers using the changed features.
 
+## v5.2.2
+
+### `dev-pipeline` 5.2.1 → 5.2.2
+
+- **fix(dev-pipeline): the pause-and-ask guard reads the pre-flight ledger too (#556)** (#556)
+  milestone 1's pause-and-ask guard now also reads the pre-flight
+  ledger's Open Regions table (in addition to the issue body), and is now
+  reachable under tracker.type: jira via the ledger. New seam: --ledger-file.
+  Migration: none.
+- **Teardown and inflight account for every worktree on the lane branch (#559)** (#559)
+  cmd_teardown and cmd_inflight in the lean-gate now account for every
+  worktree registered on the lane branch instead of only the first
+  git-worktree-list match, so a review session's own checkout no longer orphans
+  the build tree (or vice versa) and no longer hides in-flight work behind a
+  clean sibling. Migration: none.
+- **prose-budget.sh measures shell comment density, so the lane's guards stop growing unwatched (#561)** (#561)
+  prose-budget.sh now ratchets shell comment density alongside markdown
+  size, with its own baseline at .claude/prose-budget-shell.baseline.tsv, a
+  PROSE_SHELL_TOLERANCE_PP tolerance in percentage points, and a nightly
+  prose-budget job. pipeline-doctor.sh gains an arm per shell failure state.
+  Migration: run 'prose-budget.sh --update-baseline' once per repo to snapshot
+  the shell baseline; without it every shell file reports NEW and warns.
+  pipeline-doctor no longer reports "prose-budget: nothing to measure" in a repo
+  where the shell ratchet did measure files — the shape of every consumer whose skills and
+  agents come from the plugin cache.
+  Migration: none.
+
 ## v5.2.1
 
 ### `dev-pipeline` 5.2.0 → 5.2.1
