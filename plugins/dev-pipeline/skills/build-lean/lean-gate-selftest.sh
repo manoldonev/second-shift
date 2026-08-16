@@ -1800,6 +1800,89 @@ if [ "$rc" -eq 1 ] && [ "$after" -eq $((before + 1)) ]; then
 else fail "(y11) expected rc=1 with attempts $before -> $((before + 1)), got rc=$rc attempts=$after: $out"; fi
 reset_progress
 
+# ---- #533: milestone 1 also reads the pre-flight ledger's Open Regions table -----------------
+# Intake's plan-interview writes pause-and-ask regions THERE, not into the issue body, so a run
+# whose spec came out of pre-flight had a region declared somewhere this guard, before #533,
+# never looked.
+LEDGER_OR1="$WORK/ledger-or1.md"
+printf '## Open Regions\n\n| ID | Region | Disposition |\n| --- | --- | --- |\n| OR-1 | Ordering guarantee | pause-and-ask |\n' > "$LEDGER_OR1"
+LEDGER_FLAG_ONLY="$WORK/ledger-flag-only.md"
+printf '## Open Regions\n\n| ID | Region | Disposition |\n| --- | --- | --- |\n| OR-2 | Retention window | reversible-default-and-flag |\n' > "$LEDGER_FLAG_ONLY"
+
+# (y12) AC-1: a region declared ONLY in the ledger (the issue body carries no Open Regions
+# section at all — gate()'s default $ISSUE_NOREGIONS) refuses, naming it. Proves the existing
+# parser is genuinely reused against the new source, not merely declared reusable.
+reset_progress
+out="$(gate 1 7 --comments-file "$WORK/comments-none.json" --ledger-file "$LEDGER_OR1")"; rc=$?
+if [ "$rc" -eq 1 ] && grep -q 'region OR-1' <<<"$out"; then
+  pass "(y12) AC-1: a pause-and-ask region declared only in the pre-flight ledger refuses milestone 1"
+else fail "(y12) expected rc=1 naming OR-1 from a ledger-only region, got $rc: $out"; fi
+
+# (y13) AC-1's union half: the SAME id in both the ledger and the issue body is reported ONCE,
+# not twice — the two sources are deduplicated before resolution is checked.
+reset_progress
+out="$(gate 1 7 --issue-file "$WORK/issue-or1-paa.json" --comments-file "$WORK/comments-none.json" --ledger-file "$LEDGER_OR1")"; rc=$?
+n="$(printf '%s\n' "$out" | grep -c 'region OR-1')"
+if [ "$rc" -eq 1 ] && [ "$n" -eq 1 ]; then
+  pass "(y13) AC-1: the same region declared in both the ledger and the issue body is reported once"
+else fail "(y13) expected rc=1 with OR-1 named once, got rc=$rc n=$n: $out"; fi
+
+# (y14) AC-1: reversible-default-and-flag in the LEDGER never refuses, same as the existing (y5)
+# rule for the issue body — the disposition enum applies uniformly across sources.
+reset_progress
+out="$(gate 1 7 --comments-file "$WORK/comments-none.json" --ledger-file "$LEDGER_FLAG_ONLY")"; rc=$?
+if [ "$rc" -eq 0 ]; then
+  pass "(y14) AC-1: a reversible-default-and-flag region in the ledger does not refuse milestone 1"
+else fail "(y14) expected rc=0 with only a reversible-default-and-flag ledger region, got $rc: $out"; fi
+
+# (y15) AC-2: an explicit --ledger-file pointed at a path that does not exist is an environment
+# refusal, symmetric with --issue-file ((y9)) — a typo'd fixture path is not "no ledger".
+reset_progress
+before="$(attempts_1)"
+out="$(gate 1 7 --comments-file "$WORK/comments-none.json" --ledger-file "$WORK/does-not-exist-ledger.md")"; rc=$?
+after="$(attempts_1)"
+if [ "$rc" -eq 2 ] && grep -q 'does not exist' <<<"$out" && [ "$before" = "$after" ]; then
+  pass "(y15) AC-2: an explicit --ledger-file naming a missing path is an environment refusal, no fix attempt spent"
+else fail "(y15) expected rc=2 naming the missing --ledger-file with attempts unchanged ($before), got rc=$rc attempts=$after: $out"; fi
+
+# (y16) AC-4: the resolved DEFAULT ledger path (no --ledger-file) being absent is legitimate
+# absence, not an error — most tickets never go through pre-flight.
+reset_progress
+rm -f "$TREE/.claude/pipeline-state/7-ledger.md"
+out="$(gate 1 7 --comments-file "$WORK/comments-none.json")"; rc=$?
+if [ "$rc" -eq 0 ]; then
+  pass "(y16) AC-4: no ledger at the resolved default path is absence, not an error — milestone 1 unaffected"
+else fail "(y16) expected rc=0 with no ledger at the default path, got $rc: $out"; fi
+
+# (y17) AC-1/AC-4: the other half of (y16) — a ledger actually present at the resolved DEFAULT
+# path ($STATE_DIR/<issue>-ledger.md under $MAIN_ROOT, not the --ledger-file seam) is read and
+# refuses, proving the default-path branch is not merely inert.
+reset_progress
+mkdir -p "$TREE/.claude/pipeline-state"
+cp "$LEDGER_OR1" "$TREE/.claude/pipeline-state/7-ledger.md"
+out="$(gate 1 7 --comments-file "$WORK/comments-none.json")"; rc=$?
+rm -f "$TREE/.claude/pipeline-state/7-ledger.md"
+if [ "$rc" -eq 1 ] && grep -q 'region OR-1' <<<"$out"; then
+  pass "(y17) AC-1/AC-4: a ledger present at the resolved default path is read and refuses"
+else fail "(y17) expected rc=1 naming OR-1 from the default-path ledger, got $rc: $out"; fi
+
+# (y18) AC-4: an unreadable ledger (exists, unreadable — chmod 000, this repo's existing
+# precedent from lane-registry-selftest.sh's (g)) is an environment refusal distinguishable from
+# absence, and spends no fix-budget attempt — mirrors the two gh arms' (y9)/(y10) contract.
+reset_progress
+before="$(attempts_1)"
+mkdir -p "$TREE/.claude/pipeline-state"
+: > "$TREE/.claude/pipeline-state/7-ledger.md"
+chmod 000 "$TREE/.claude/pipeline-state/7-ledger.md"
+out="$(gate 1 7 --comments-file "$WORK/comments-none.json")"; rc=$?
+after="$(attempts_1)"
+chmod 644 "$TREE/.claude/pipeline-state/7-ledger.md"
+rm -f "$TREE/.claude/pipeline-state/7-ledger.md"
+if [ "$rc" -eq 2 ] && grep -q 'could not read pre-flight ledger' <<<"$out" && [ "$before" = "$after" ]; then
+  pass "(y18) AC-4: an unreadable ledger at the default path is an environment refusal (rc=2), not a clear and not a fix attempt"
+else fail "(y18) expected rc=2 naming 'could not read pre-flight ledger' with attempts unchanged ($before), got rc=$rc attempts=$after: $out"; fi
+reset_progress
+
 # ---- (p) the REVIEW role: lean-gate.sh verdict ---------------------------------------------
 # Every arm here is a refusal that fails CLOSED. The subcommand is the only write path to the
 # verdict record, and it lives in this script solely so the pinned name table has one
@@ -2198,21 +2281,57 @@ if [ "$rc" -eq 0 ]; then
   pass "(n15) '### JIRA Items' is accepted — the heading match folds case, like the Closes grep"
 else fail "(n15) expected rc=0 on an all-caps heading, got $rc: $out"; fi
 
-# (n16) AC-17: milestone 1 — the one milestone the jira arm reaches outside milestone 5, and the
-# only case in this file that drives it. `check_pause_and_ask` opens with a jira short-circuit
-# that is load-bearing, not defensive: the function's tracker read is `gh issue view <JIRA-KEY>`,
-# which cannot succeed, and its failure branch PRINTS a reason — a printed reason IS the refusal.
-# So deleting the short-circuit refuses milestone 1 for the entire jira lane. The issue fixture
-# below carries an unresolved pause-and-ask region precisely so rc=0 proves the check was
-# SKIPPED rather than merely having found nothing to fire on.
+# (n16) AC-17/#533 AC-3: milestone 1 — the one milestone the jira arm reaches outside milestone
+# 5, and the only case in this file that drives it. `check_pause_and_ask` skips the ISSUE-BODY
+# read under jira (no `gh issue` to read there), but #533 made the pre-flight-ledger read
+# UNCONDITIONAL — so jira is no longer a blanket short-circuit, and the four cases below prove
+# the reachability is genuine rather than an accident of an unrelated fixture never hitting it.
 mkdir -p "$TREE/docs/plans"
 printf '# lean spec — %s\n\n- **AC-1**: the jira arm reaches milestone 1.\n' "$JKEY" > "$TREE/$JSPEC_REL"
 commit_tree "jira spec fixture"
+JLEDGER_OR1="$WORK/ledger-jira-or1.md"
+printf '## Open Regions\n\n| ID | Region | Disposition |\n| --- | --- | --- |\n| OR-1 | Ordering guarantee | pause-and-ask |\n' > "$JLEDGER_OR1"
+
+# (n16a) no ledger at all (the resolved default path, under jira's own $STATE_DIR, is absent) —
+# clear, same as any ticket that never went through pre-flight. --issue-file is passed anyway
+# (an unresolved region, were the body read) to prove this rc=0 is the ledger's own absence
+# talking, not the issue-body skip alone.
 rm -f "$PROG_J"; attest_at "$TREE" "$CFG_JIRA" "$PROG_J" "$JKEY"
 out="$(gate_cfg "$CFG_JIRA" "$PROG_J" 1 "$JKEY" --issue-file "$WORK/issue-or1-paa.json" --comments-file "$WORK/comments-none.json")"; rc=$?
 if [ "$rc" -eq 0 ]; then
-  pass "(n16) AC-17: jira milestone 1 skips the pause-and-ask check — an unresolved region does not refuse"
-else fail "(n16) expected rc=0 under tracker.type: jira despite an unresolved OR-1, got $rc: $out"; fi
+  pass "(n16a) jira milestone 1: no ledger present is clear, regardless of what the (unread) issue body declares"
+else fail "(n16a) expected rc=0 under tracker.type: jira with no ledger, got $rc: $out"; fi
+
+# (n16b) #533 AC-3 non-vacuity: an unresolved pause-and-ask region IN THE LEDGER refuses
+# milestone 1 under jira — the guard is genuinely reachable there, not merely not-crashing.
+rm -f "$PROG_J"; attest_at "$TREE" "$CFG_JIRA" "$PROG_J" "$JKEY"
+out="$(gate_cfg "$CFG_JIRA" "$PROG_J" 1 "$JKEY" --issue-file "$WORK/issue-or1-paa.json" --comments-file "$WORK/comments-none.json" --ledger-file "$JLEDGER_OR1")"; rc=$?
+if [ "$rc" -eq 1 ] && grep -q 'region OR-1' <<<"$out"; then
+  pass "(n16b) #533 AC-3: an unresolved ledger region refuses jira milestone 1 — the guard is reachable, not skipped"
+else fail "(n16b) expected rc=1 naming OR-1 under tracker.type: jira, got $rc: $out"; fi
+
+# (n16c) the comment trail is NOT consulted under jira, even when one is supplied and would
+# resolve the region under github — comments-or1-resolved.json (defined above, (y3)) carries a
+# non-bot comment naming OR-1. Its presence changing nothing here is what proves jira's
+# `comments="[]"` default, not merely that this fixture happens to carry no resolving comment.
+rm -f "$PROG_J"; attest_at "$TREE" "$CFG_JIRA" "$PROG_J" "$JKEY"
+out="$(gate_cfg "$CFG_JIRA" "$PROG_J" 1 "$JKEY" --issue-file "$WORK/issue-or1-paa.json" --comments-file "$WORK/comments-or1-resolved.json" --ledger-file "$JLEDGER_OR1")"; rc=$?
+if [ "$rc" -eq 1 ] && grep -q 'region OR-1' <<<"$out"; then
+  pass "(n16c) a comment naming OR-1 does not resolve it under jira — no comment trail this check reads"
+else fail "(n16c) expected rc=1 (comment trail ignored) under tracker.type: jira, got $rc: $out"; fi
+
+# (n16d) the tracker-agnostic resolution artifact still works: a ratified intent-gap record
+# clears the same ledger region under jira, with no comment trail available at all.
+JGAP="$TREE/docs/plans/acme-$JKEY-lean-intent-gap.md"
+printf 'region: OR-1\nratified: yes\nratified_by: https://example.invalid/browse/%s#comment-1\n' "$JKEY" > "$JGAP"
+commit_tree "ratified intent-gap for jira OR-1"
+rm -f "$PROG_J"; attest_at "$TREE" "$CFG_JIRA" "$PROG_J" "$JKEY"
+out="$(gate_cfg "$CFG_JIRA" "$PROG_J" 1 "$JKEY" --issue-file "$WORK/issue-or1-paa.json" --comments-file "$WORK/comments-none.json" --ledger-file "$JLEDGER_OR1")"; rc=$?
+if [ "$rc" -eq 0 ]; then
+  pass "(n16d) a ratified intent-gap record clears a ledger region under jira, with no comment trail"
+else fail "(n16d) expected rc=0 with a ratified intent-gap record under tracker.type: jira, got $rc: $out"; fi
+rm -f "$JGAP"; commit_tree "remove jira intent-gap fixture"
+
 rm -f "$TREE/$JSPEC_REL"; commit_tree "remove jira spec fixture"
 
 rm -f "$TREE/.claude/pipeline-state/$JKEY-run-id"

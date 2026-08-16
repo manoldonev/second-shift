@@ -233,6 +233,10 @@
 #                            fetches it once from the same endpoint)
 #   --issue-file <path>      milestone 1's pause-and-ask check: read the issue body ({"body":
 #                            "..."}) from a JSON fixture instead of `gh issue view`
+#   --ledger-file <path>     milestone 1's pause-and-ask check: read the pre-flight ledger's
+#                            Open Regions table from this path instead of the default
+#                            $STATE_DIR/<issue>-ledger.md (#533). Read ALONGSIDE the issue body,
+#                            not instead of it — a region declared in either source is seen.
 #   LEAN_RUN_MODEL           #347: the `model:` key stamped into the progress/verdict record
 #                            at creation time (retro-corpus.sh's corpus-aggregation key).
 #                            Read once, not cached; absent reads "unknown", never an error.
@@ -296,6 +300,7 @@ CURL_CLI="${CURL:-curl}"
 PR_FILE=""
 COMMENTS_FILE=""
 ISSUE_FILE=""
+LEDGER_FILE=""
 VERDICT_VALUE=""
 VERDICT_PR=""
 VERDICT_ROUNDS=""
@@ -398,6 +403,7 @@ while [ $# -gt 0 ]; do
     --pr-file)       PR_FILE="${2:-}"; shift 2 ;;
     --comments-file) COMMENTS_FILE="${2:-}"; shift 2 ;;
     --issue-file)    ISSUE_FILE="${2:-}"; shift 2 ;;
+    --ledger-file)   LEDGER_FILE="${2:-}"; shift 2 ;;
     --pr)            VERDICT_PR="${2:-}"; shift 2 ;;
     --verdict)       VERDICT_VALUE="${2:-}"; shift 2 ;;
     --rounds)        VERDICT_ROUNDS="${2:-}"; shift 2 ;;
@@ -408,7 +414,7 @@ while [ $# -gt 0 ]; do
     --obligations)   PROGRESS_OBLIGATIONS=1; shift ;;
     --m3-token)      M3_RUN_TOKEN="${2:-}"; shift 2 ;;
     --arm)           STALENESS_ARM="${2:-}"; shift 2 ;;
-    -h|--help)       sed -n '2,291p' "$0"; exit 0 ;;
+    -h|--help)       sed -n '2,295p' "$0"; exit 0 ;;
     -*)              envfail "unknown option: $1" ;;
     *)
       if [ "$POSITIONAL" -eq 0 ]; then SUB="$1"; POSITIONAL=1
@@ -2636,14 +2642,33 @@ region_resolved() { # region_resolved <id> <comments-json>
   [ "${n:-0}" -ge 1 ]
 }
 
+# #533. The OTHER declared source: intake's plan-interview writes pause-and-ask regions into
+# the pre-flight ledger, not the issue body — so a run whose spec came out of pre-flight has its
+# regions sitting somewhere this guard, pre-#533, never looked. The ledger's `## Open Regions`
+# table is the SAME shape interviewing-baseline defines for the issue body (`pause_and_ask_ids`
+# reads either unchanged; only the source differs), so no second parser is needed here.
+#
+# Default path mirrors plan-lint.sh's `{issue}-ledger.md` convention — the sibling of every
+# other per-issue file in $STATE_DIR (PROGRESS_FILE, RUN_ID_CACHE). `--ledger-file` overrides it,
+# symmetric with `--issue-file`/`--comments-file`, so a selftest can drive this leg without a real
+# write into $STATE_DIR — a SHARED, mutable directory across every worktree on the machine.
+pause_and_ask_ledger_path() {
+  if [ -n "$LEDGER_FILE" ]; then
+    printf '%s\n' "$LEDGER_FILE"
+  else
+    printf '%s\n' "$MAIN_ROOT/$STATE_DIR/$ISSUE-ledger.md"
+  fi
+}
+
 # RETURN-CODE VOCABULARY (#532), shared with `checked_match` in
 # plugins/dev-pipeline/skills/run/tools/checked-call.sh — this is the same defect in its
 # capture-shaped costume, so it takes the same numbers:
 #
-#   0 + empty stdout   CLEAR — the issue was read and declares no unresolved region.
+#   0 + empty stdout   CLEAR — every declared source was read and none declares an unresolved
+#                      region.
 #   0 + a reason       an unresolved region exists. A milestone-1 failure and a fix attempt:
 #                      there is something for the operator to go and clear.
-#   2 + a reason       the READ ITSELF failed, so the answer is UNKNOWN. Not clear, and not a
+#   2 + a reason       a READ ITSELF failed, so the answer is UNKNOWN. Not clear, and not a
 #                      failed fix either — no edit the build role can make will fix a tracker
 #                      that would not answer. The CALLER turns this into an environment
 #                      refusal; cmd_1 says why it cannot be raised from in here.
@@ -2654,31 +2679,52 @@ region_resolved() { # region_resolved <id> <comments-json>
 # three blips hard-stopped the run at rc=4 with a rescue path nobody could act on. The `jq` arm
 # below is the one that did fail open.
 check_pause_and_ask() { # prints a reason on stdout; the vocabulary above says what rc means
-  [ "$TRACKER_TYPE" = "jira" ] && return 0   # no gh issue to read under a read-only tracker
-  local body ids comments id
+  local body="" ledger_ids="" body_ids="" ids comments="[]" id ledger_path ledger_content
 
-  if [ -n "$ISSUE_FILE" ]; then
-    [ -f "$ISSUE_FILE" ] || envfail "--issue-file '$ISSUE_FILE' does not exist."
-    # A malformed fixture landed here as an EMPTY body with its stderr discarded: no region ids
-    # to enumerate, so the function returned CLEAR. Existing but unparseable is not "declares no
-    # region" — it is the same "could not read" the two gh arms report.
-    body="$(jq -r '.body // ""' "$ISSUE_FILE" 2>/dev/null)" \
-      || { echo "could not parse --issue-file '$ISSUE_FILE' while checking for an unresolved pause-and-ask region"; return 2; }
-  else
-    body="$("$GH_CLI" issue view "$ISSUE" --json body --jq .body 2>&1)" \
-      || { echo "could not read issue #$ISSUE to check for an unresolved pause-and-ask region: $body"; return 2; }
+  # ---- source 1: the pre-flight ledger. Read under BOTH trackers — it is the only source at
+  # all under jira (AC-3), and a github consumer may carry regions here instead of, or as well
+  # as, the issue body (AC-1: a region declared in EITHER source is seen). An ABSENT ledger is
+  # not an error — most tickets never went through pre-flight — but an existing, unreadable one
+  # is, exactly like an unreadable issue below: "no ledger" and "a ledger this could not read"
+  # are different facts, and neither may silently report CLEAR (AC-4).
+  ledger_path="$(pause_and_ask_ledger_path)"
+  [ -z "$LEDGER_FILE" ] || [ -f "$LEDGER_FILE" ] || envfail "--ledger-file '$LEDGER_FILE' does not exist."
+  if [ -f "$ledger_path" ]; then
+    ledger_content="$(cat "$ledger_path" 2>&1)" \
+      || { echo "could not read pre-flight ledger $ledger_path while checking for an unresolved pause-and-ask region"; return 2; }
+    ledger_ids="$(printf '%s' "$ledger_content" | pause_and_ask_ids)"
   fi
 
-  ids="$(printf '%s' "$body" | pause_and_ask_ids)"
+  # ---- source 2: the issue body. github only — there is no gh issue to read under jira.
+  if [ "$TRACKER_TYPE" != "jira" ]; then
+    if [ -n "$ISSUE_FILE" ]; then
+      [ -f "$ISSUE_FILE" ] || envfail "--issue-file '$ISSUE_FILE' does not exist."
+      # A malformed fixture landed here as an EMPTY body with its stderr discarded: no region ids
+      # to enumerate, so the function returned CLEAR. Existing but unparseable is not "declares no
+      # region" — it is the same "could not read" the two gh arms report.
+      body="$(jq -r '.body // ""' "$ISSUE_FILE" 2>/dev/null)" \
+        || { echo "could not parse --issue-file '$ISSUE_FILE' while checking for an unresolved pause-and-ask region"; return 2; }
+    else
+      body="$("$GH_CLI" issue view "$ISSUE" --json body --jq .body 2>&1)" \
+        || { echo "could not read issue #$ISSUE to check for an unresolved pause-and-ask region: $body"; return 2; }
+    fi
+    body_ids="$(printf '%s' "$body" | pause_and_ask_ids)"
+  fi
+
+  ids="$(printf '%s\n%s\n' "$ledger_ids" "$body_ids" | awk 'NF' | sort -u)"
   [ -n "$ids" ] || return 0
 
-  if [ -n "$COMMENTS_FILE" ]; then
-    [ -f "$COMMENTS_FILE" ] || envfail "--comments-file '$COMMENTS_FILE' does not exist."
-    comments="$(cat "$COMMENTS_FILE")"
-  else
-    comments="$("$GH_CLI" api "repos/{owner}/{repo}/issues/$ISSUE/comments" --paginate 2>&1)" \
-      || { echo "could not read #$ISSUE's comment trail to check for an unresolved pause-and-ask region: $comments"; return 2; }
+  if [ "$TRACKER_TYPE" != "jira" ]; then
+    if [ -n "$COMMENTS_FILE" ]; then
+      [ -f "$COMMENTS_FILE" ] || envfail "--comments-file '$COMMENTS_FILE' does not exist."
+      comments="$(cat "$COMMENTS_FILE")"
+    else
+      comments="$("$GH_CLI" api "repos/{owner}/{repo}/issues/$ISSUE/comments" --paginate 2>&1)" \
+        || { echo "could not read #$ISSUE's comment trail to check for an unresolved pause-and-ask region: $comments"; return 2; }
+    fi
   fi
+  # Under jira `comments` stays "[]" — no comment trail this check reads, so only a ratified
+  # intent-gap record (tracker-agnostic) can resolve a region there.
 
   # Every unresolved region, not just the first — the same ergonomic the `all` pre-pass owes
   # (AC-3): an operator clearing two regions must not pay two round-trips to discover the
@@ -2690,7 +2736,7 @@ check_pause_and_ask() { # prints a reason on stdout; the vocabulary above says w
   done <<< "$ids"
   [ -n "$unresolved" ] || return 0
   case "$unresolved" in *,*) label="regions" ;; esac
-  echo "issue #$ISSUE declares $label $unresolved dispositioned pause-and-ask with no resolution artifact — neither a non-bot comment naming each nor a ratified intent-gap record ($INTENT_GAP_REL) exists. Get an operator comment on #$ISSUE resolving them, or ratify an intent-gap record, before continuing."
+  echo "$label $unresolved dispositioned pause-and-ask with no resolution artifact — neither a non-bot comment naming each nor a ratified intent-gap record ($INTENT_GAP_REL) exists. Resolve with an operator comment, or a ratified intent-gap record, before continuing."
 }
 
 # ---------------------------------------------------------------- the design axis: arming
