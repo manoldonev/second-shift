@@ -99,6 +99,24 @@ jobs:
       - name: wholesale selftest sweep, cache bypassed
         run: bash tools/run-selftests.sh --exclude tools/install-topology-selftest.sh
 
+  # The prose ratchet (#552). Standing measurement, same as its neighbours: it compares the
+  # instruction layer and the lane's shell guards against committed baselines and reds when one
+  # grows past its ceiling. It is ADVISORY TO THE LEAN LANE — build-lean never runs it and a red
+  # here blocks no PR — but "advisory" scopes the lane, not CI, so this job reds like every other
+  # guard in this file.
+  #
+  # ONE LANE, deliberately. The shell path's ratio arithmetic is integer-only for stock bash 3.2,
+  # and that constraint is already exercised at PR time: ci.yml's selftests-bash32 runs the whole
+  # sweep under the stock binary and picks up prose-budget-selftest.sh by glob. A 3.2 twin here
+  # would re-run the same code path over different data.
+  prose-budget:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: instruction-layer + shell prose ratchet
+        run: bash plugins/dev-pipeline/skills/run/tools/prose-budget.sh
+
   wholesale-selftests-bash32:
     name: wholesale-selftests (macos, bash 3.2)
     runs-on: macos-latest

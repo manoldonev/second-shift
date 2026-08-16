@@ -537,8 +537,16 @@ esac
 if pb=$(bash "$SCRIPT_DIR/prose-budget.sh" 2>&1); then
   # An n/a result is a legitimate pass, but it must not READ like a measured one —
   # "0 fail(s)" against nothing inspected is the ambiguity this check now closes.
-  if grep -q 'n/a — no instruction layer' <<< "$pb"; then
-    ok "prose-budget: n/a — no instruction layer in this repo (nothing to measure)"
+  #
+  # BOTH paths have to be n/a to claim that (#552). Branching on the markdown marker alone
+  # was true until the shell ratchet existed; now a repo with tools/*.sh and no skills/ or
+  # agents/ root emits that marker AND a measured shell verdict, and this branch would throw
+  # the verdict away while telling the operator nothing was measured. That shape is not
+  # exotic — it is every consumer whose skills and agents come from the plugin cache, i.e.
+  # everyone but this repo, which is why dogfooding cannot see it. The summary line carries
+  # both coverages, so branch on it and let every other combination fall through to it.
+  if grep -q 'coverage: md n/a, sh n/a' <<< "$pb"; then
+    ok "prose-budget: n/a — nothing to measure in this repo (no instruction layer, and no shell under the scan roots)"
   else
     ok "prose-budget: $(tail -1 <<< "$pb" | sed 's/\[prose-budget\] //')"
   fi
@@ -548,6 +556,19 @@ elif grep -q 'FAIL vacuous coverage' <<< "$pb"; then
 elif grep -q 'FAIL stale baseline' <<< "$pb"; then
   warn "prose-budget: STALE baseline — no row resolves against the files on disk. Regenerate: bash \"$SCRIPT_DIR/prose-budget.sh\" --update-baseline"
   grep -E 'FAIL stale baseline' <<< "$pb" | sed 's/^/[doctor]        /' | head -2
+# The shell path (#552) gets its own arms rather than falling through to the growth
+# fallback below. Each of its three markers is deliberately NOT a superstring of the
+# markdown marker it parallels, so no branch above can claim shell output and no branch
+# here can claim markdown output — which is the property T11 exists to hold.
+elif grep -q 'FAIL vacuous shell coverage' <<< "$pb"; then
+  warn "prose-budget: VACUOUS (shell) — root(s) matched shell files but every one was excluded, so the ratchet measured nothing. Fix the scan roots, then: bash \"$SCRIPT_DIR/prose-budget.sh\" --update-baseline"
+  grep -E 'roots searched' <<< "$pb" | sed 's/^/[doctor]        /' | head -2
+elif grep -q 'FAIL stale shell baseline' <<< "$pb"; then
+  warn "prose-budget: STALE shell baseline — no row resolves against the .sh files on disk. Regenerate: bash \"$SCRIPT_DIR/prose-budget.sh\" --update-baseline"
+  grep -E 'FAIL stale shell baseline' <<< "$pb" | sed 's/^/[doctor]        /' | head -2
+elif grep -q 'FAIL ratio grew' <<< "$pb"; then
+  warn "prose-budget: shell comment density grew past baseline — run: bash \"$SCRIPT_DIR/prose-budget.sh\""
+  grep -E 'FAIL ratio grew' <<< "$pb" | sed 's/^/[doctor]        /' | head -5
 else
   warn "prose-budget: instruction layer grew past baseline — run: bash \"$SCRIPT_DIR/prose-budget.sh\""
   grep -E 'FAIL ' <<< "$pb" | sed 's/^/[doctor]        /' | head -5

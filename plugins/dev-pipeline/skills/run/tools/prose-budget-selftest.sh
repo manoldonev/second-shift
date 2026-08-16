@@ -216,6 +216,192 @@ else
   bad "T5 expected non-zero rc + 'FAIL grew'; rc=$RC output: $(head -5 <<< "$OUT")"
 fi
 
+echo "[prose-budget-selftest] shell path (#552)"
+
+# The shell path measures comment DENSITY, not size, and its coverage verdict is computed
+# independently of markdown's. S1/S4 are the matched pair that pins the asymmetry:
+#   S1  a root with markdown and zero .sh   -> n/a     (NOT vacuous — AC-4)
+#   S4  a root whose every .sh is excluded  -> vacuous (the scan looked at nothing but fixtures)
+# Collapsing S1 into vacuous is the failure AC-4 names: it would red every markdown-only
+# consumer on a path they cannot remediate, since having no shell is not a defect.
+
+# --- S1 (AC-4): markdown present, zero shell files -> n/a, never vacuous -----
+R="$(mkrepo s1)"
+mkdir -p "$R/.claude/skills"
+printf 'alpha beta gamma\n' > "$R/.claude/skills/x.md"
+run_tool "$R"
+if (( RC == 0 )) && grep -q 'shell: n/a — no shell files' <<< "$OUT" \
+   && ! grep -q 'vacuous shell coverage' <<< "$OUT"; then
+  ok "S1 a root with markdown and no .sh reports shell n/a, not vacuous"
+else
+  bad "S1 expected rc=0 + shell n/a + no shell-vacuous marker; rc=$RC output: $(head -5 <<< "$OUT")"
+fi
+
+# --- S2 (AC-1/AC-6): a measured shell file reports the four fields -----------
+# 6 total, 5 non-blank, 3 comment lines (the shebang counts — AC-1 says ANY ^[[:space:]]*#).
+# 3/5 = 60.0%. The fields are asserted by value, so a denominator that silently became
+# total-lines (3/6 = 50.0%) fails here rather than passing as a rounding difference.
+R="$(mkrepo s2)"
+mkdir -p "$R/.claude/skills"
+printf '#!/usr/bin/env bash\n# one\n\n# two\ntrue\nfalse\n' > "$R/.claude/skills/m.sh"
+run_tool "$R" --report
+if grep -qE 'skills/m\.sh +6 +5 +3 +60\.0%' <<< "$OUT"; then
+  ok "S2 a measured shell file reports total/non-blank/comments/ratio (6 5 3 60.0%)"
+else
+  bad "S2 expected '6 5 3 60.0%' for m.sh; output: $(grep 'm.sh' <<< "$OUT")"
+fi
+
+# --- S2b (AC-6): the ratio ROUNDS half up, it does not truncate --------------
+# S2's 3/5 is exactly 60.0%, where rounding and truncation agree — so on its own it cannot see
+# this. 5 comment lines over 9 non-blank is 55.55…%: truncating gives 55.5%, rounding gives
+# 55.6%. AC-6 states 541 for lean-gate.sh's 2494/4612, which is the rounded value (truncation
+# gives 540), and lean-gate.sh is the ONLY one of the three motivating files where the two forms
+# differ — so a truncating implementation reproduces two thirds of the ticket's table and still
+# violates the AC. This case is the one that notices.
+R="$(mkrepo s2b)"
+mkdir -p "$R/.claude/skills"
+printf '# 1\n# 2\n# 3\n# 4\n# 5\ntrue\ntrue\ntrue\ntrue\n' > "$R/.claude/skills/r.sh"
+run_tool "$R" --report
+if grep -qE 'skills/r\.sh +9 +9 +5 +55\.6%' <<< "$OUT"; then
+  ok "S2b 5/9 reports 55.6% — the ratio rounds half up rather than truncating"
+else
+  bad "S2b expected 55.6% (rounded) for 5/9, not 55.5% (truncated); output: $(grep 'r.sh' <<< "$OUT")"
+fi
+
+# --- S3 (AC-6): ratio growth past tolerance fails, additively in points ------
+# Baseline 1/2 = 50.0%, grown to 5/6 = 83.3% — a +33.3pp jump, past the +5pp default. The
+# marker is 'FAIL ratio grew', deliberately not a superstring of markdown's 'FAIL grew'.
+R="$(mkrepo s3)"
+mkdir -p "$R/.claude/skills"
+printf '# c\ntrue\n' > "$R/.claude/skills/g.sh"
+printf 'seed prose\n' > "$R/.claude/skills/seed.md"
+(cd "$R" && bash "$TOOL" --update-baseline >/dev/null 2>&1)
+printf '# c\n# c\n# c\n# c\n# c\ntrue\n' > "$R/.claude/skills/g.sh"
+run_tool "$R"
+if (( RC != 0 )) && grep -q 'FAIL ratio grew' <<< "$OUT"; then
+  ok "S3 comment-ratio growth past the +5pp tolerance fails"
+else
+  bad "S3 expected non-zero rc + 'FAIL ratio grew'; rc=$RC output: $(head -8 <<< "$OUT")"
+fi
+
+# --- S3b (AC-6): the SAME growth passes under a tolerance wide enough --------
+# Proves the tolerance is actually consulted rather than the FAIL being unconditional, and that
+# it is read in POINTS: 34 points admits the +33.3pp jump above.
+OUT="$(cd "$R" && PROSE_SHELL_TOLERANCE_PP=34 bash "$TOOL" 2>&1)"; RC=$?
+if (( RC == 0 )) && ! grep -q 'FAIL ratio grew' <<< "$OUT"; then
+  ok "S3b PROSE_SHELL_TOLERANCE_PP=34 admits the same +33.3pp growth (points, not percent)"
+else
+  bad "S3b expected rc=0 with no ratio failure at 34pp; rc=$RC output: $(head -5 <<< "$OUT")"
+fi
+
+# --- S4 (AC-4/AC-9): every .sh excluded -> genuinely vacuous ------------------
+# The scan DID match shell files; the fixture filter ate all of them. That is the state where a
+# green would be meaningless, and it is the only shell state that earns a vacuous FAIL.
+R="$(mkrepo s4)"
+mkdir -p "$R/plugins/foo/skills/tool/thing-fixtures"
+printf 'prose\n' > "$R/plugins/foo/skills/real.md"
+printf '# fixture\ntrue\n' > "$R/plugins/foo/skills/tool/thing-fixtures/f.sh"
+run_tool "$R"
+if (( RC != 0 )) && grep -q 'FAIL vacuous shell coverage' <<< "$OUT" \
+   && ! grep -q 'shell: n/a' <<< "$OUT"; then
+  ok "S4 a root whose every .sh is fixture-excluded fails as shell-vacuous"
+else
+  bad "S4 expected non-zero rc + shell-vacuous marker + no shell n/a; rc=$RC output: $(head -6 <<< "$OUT")"
+fi
+
+# --- S5 (AC-2): tools/ is scanned, and it is the divergence from prose_roots --
+# tools/run-selftests.sh is one of the three files #552 exists to measure and lives under none
+# of .claude/skills, .claude/agents, plugins/*/skills, plugins/*/agents. Reusing prose_roots()
+# unchanged would silently omit it while every other assertion here still passed.
+R="$(mkrepo s5)"
+mkdir -p "$R/tools"
+printf '# c\ntrue\n' > "$R/tools/t.sh"
+run_tool "$R" --report
+if grep -q 'tools/t.sh' <<< "$OUT"; then
+  ok "S5 tools/ is scanned for shell even with no skills/ or agents/ root (AC-2)"
+else
+  bad "S5 expected tools/t.sh in the shell table; output: $(head -8 <<< "$OUT")"
+fi
+
+# --- S5b (AC-4): a tools/-only repo still REACHES a shell coverage verdict ----
+# The markdown path reports n/a here and USED TO `exit 0` on that branch, which meant the shell
+# path's coverage verdict, staleness check and summary were never reached in exactly the repo
+# shape S5 describes. Independence is what AC-4 buys, and it is the SUMMARY that proves it:
+# asserting the table row instead would pass under the old early exit, because the shell table
+# is printed above the coverage block and survives a short-circuit below it.
+run_tool "$R"
+if [[ "$(tail -1 <<< "$OUT")" == *"coverage: md n/a, sh measured"* ]]; then
+  ok "S5b markdown n/a no longer short-circuits the shell coverage verdict"
+else
+  bad "S5b expected a summary reading 'md n/a, sh measured'; got: $(tail -1 <<< "$OUT")"
+fi
+
+# --- S6 (AC-5/AC-8): shell rows land in their OWN file, markdown untouched ----
+R="$(mkrepo s6)"
+mkdir -p "$R/.claude/skills"
+printf 'alpha beta\n' > "$R/.claude/skills/a.md"
+printf '# c\ntrue\n' > "$R/.claude/skills/a.sh"
+run_tool "$R" --update-baseline
+# Stripping comments first is load-bearing: the markdown baseline's own header carries the
+# literal `prose-budget.sh --update-baseline`, so a naive scan for '.sh' matches the header and
+# reports a leak that is not there. Only DATA rows can leak a path.
+#
+# The strip is captured into a variable rather than piped into the match, and that is the
+# difference between a real assertion and a fail-open one: this suite runs under `pipefail`, so
+# a matcher that exits early on success can SIGPIPE its producer and hand the pipeline 141 —
+# which `!` then reads as "no leak" in exactly the case where a leak exists.
+MD_ROWS="$(grep -v '^#' "$R/.claude/prose-budget.baseline.tsv")"
+if [[ -f "$R/.claude/prose-budget-shell.baseline.tsv" ]] \
+   && grep -q 'skills/a.sh' "$R/.claude/prose-budget-shell.baseline.tsv" \
+   && ! grep -q '\.sh' <<< "$MD_ROWS"; then
+  ok "S6 shell rows go to prose-budget-shell.baseline.tsv, never into the markdown TSV"
+else
+  bad "S6 shell rows were not separated from the markdown baseline (rc=$RC)"
+fi
+
+# --- S7: no shell baseline is a NEW/warn state, never a failure --------------
+# Mirrors T8b on the markdown side. There is no shipped shell stub, so absence of the file is
+# the whole fallback — if it hard-failed, every consumer would be red until they ran an update.
+R="$(mkrepo s7)"
+mkdir -p "$R/.claude/skills"
+printf 'alpha beta\n' > "$R/.claude/skills/a.md"
+printf '# c\ntrue\n' > "$R/.claude/skills/a.sh"
+run_tool "$R"
+if (( RC == 0 )) && grep -q 'no shell baseline' <<< "$OUT" && ! grep -q 'FAIL' <<< "$OUT"; then
+  ok "S7 a missing shell baseline warns and never fails"
+else
+  bad "S7 expected rc=0 + 'no shell baseline' note + no FAIL; rc=$RC output: $(head -5 <<< "$OUT")"
+fi
+
+# --- S8 (AC-11): the summary line stays last and names BOTH tolerances -------
+# pipeline-doctor.sh reads the OK message with `tail -1`. A per-path summary would leave the
+# markdown counts unreadable there, and a line still claiming only "+5%" would misattribute the
+# tolerance for half of what the counts cover.
+if [[ "$(tail -1 <<< "$OUT")" == *"tolerance: md +5% words, sh +5pp ratio"* ]]; then
+  ok "S8 the last line is one combined summary naming both tolerances"
+else
+  bad "S8 last line did not carry both tolerances: $(tail -1 <<< "$OUT")"
+fi
+
+# --- S9 (AC-11): shell staleness is reported and routed apart from markdown --
+R="$(mkrepo s9)"
+mkdir -p "$R/.claude/skills"
+printf 'alpha beta\n' > "$R/.claude/skills/a.md"
+printf '# c\ntrue\n' > "$R/.claude/skills/a.sh"
+(cd "$R" && bash "$TOOL" --update-baseline >/dev/null 2>&1)
+{
+  printf '# path\ttotal\tnonblank\tcomments\tratio_tenths\n'
+  printf 'tools/vanished.sh\t10\t8\t4\t500\n'
+} > "$R/.claude/prose-budget-shell.baseline.tsv"
+run_tool "$R"
+if grep -q 'FAIL stale shell baseline' <<< "$OUT" \
+   && ! grep -q 'FAIL stale baseline' <<< "$OUT" \
+   && ! grep -q 'vacuous' <<< "$OUT"; then
+  ok "S9 an all-unresolvable shell baseline fails on its own marker, not markdown's"
+else
+  bad "S9 expected shell-stale marker alone; rc=$RC output: $(head -8 <<< "$OUT")"
+fi
+
 echo "[prose-budget-selftest] drift"
 
 # T10 (6 source greps over the tool and pipeline-doctor.sh) was deleted (#214): the four
@@ -239,23 +425,72 @@ echo "[prose-budget-selftest] doctor routing"
 VACUOUS_PAT='FAIL vacuous coverage'
 NA_PAT='n/a — no instruction layer'
 STALE_PAT='FAIL stale baseline'
+SH_VACUOUS_PAT='FAIL vacuous shell coverage'
+SH_STALE_PAT='FAIL stale shell baseline'
+SH_GROW_PAT='FAIL ratio grew'
+# The literal doctor's "nothing was measured" short-circuit branches on. It is deliberately
+# NOT NA_PAT: the markdown marker alone is emitted by a repo whose shell files WERE measured,
+# and branching on it reported that repo as having nothing to measure (#552 review r1).
+DOCTOR_NA_PAT='coverage: md n/a, sh n/a'
 
 # Guard: these are the literals doctor branches on. If they drift there, T10 fails; if
 # they drift in the tool, the assertions below fail. Both directions are covered.
-for pat in "$VACUOUS_PAT" "$NA_PAT" "$STALE_PAT"; do
+# NA_PAT is asserted against the TOOL's output only (it is a marker doctor no longer reads),
+# so it is not in this loop — T11's n/a case below is what holds it.
+for pat in "$VACUOUS_PAT" "$DOCTOR_NA_PAT" "$STALE_PAT" "$SH_VACUOUS_PAT" "$SH_STALE_PAT" "$SH_GROW_PAT"; do
   grep -qF -- "$pat" "$DOCTOR" || bad "T11 precondition: doctor no longer contains '$pat'"
 done
 
-# n/a output must hit the n/a branch and NO warn branch.
+# T11s: the shell markers must not be claimable by the markdown branches, which sit EARLIER in
+# doctor's elif chain and would therefore win. This is a property of the literals themselves —
+# 'FAIL vacuous shell coverage' does not contain 'FAIL vacuous coverage', and 'FAIL ratio grew'
+# does not contain 'FAIL grew' — so assert it directly rather than inferring it from a fixture.
+# Rewording either side into an overlap is the regression: doctor would then hand a shell
+# failure the markdown remediation, and the operator would go fix the wrong scan roots.
+if ! grep -qF -- "$VACUOUS_PAT" <<< "$SH_VACUOUS_PAT" \
+   && ! grep -qF -- "$STALE_PAT" <<< "$SH_STALE_PAT" \
+   && ! grep -qF -- 'FAIL grew' <<< "$SH_GROW_PAT"; then
+  ok "T11s no shell marker is a superstring of the markdown marker it parallels"
+else
+  bad "T11s a shell marker overlaps its markdown counterpart — doctor's earlier branch would claim it"
+fi
+
+# n/a output must hit the n/a branch and NO warn branch. Nothing is measured on EITHER path
+# in a bare repo, so doctor's short-circuit predicate must claim it.
 R="$(mkrepo t11na)"
 run_tool "$R"
 if grep -qF -- "$NA_PAT" <<< "$OUT" \
+   && grep -qF -- "$DOCTOR_NA_PAT" <<< "$OUT" \
    && ! grep -qF -- "$VACUOUS_PAT" <<< "$OUT" \
    && ! grep -qF -- "$STALE_PAT" <<< "$OUT" \
    && (( RC == 0 )); then
   ok "T11 n/a output routes to doctor's n/a branch only"
 else
   bad "T11 n/a output did not route cleanly (rc=$RC)"
+fi
+
+# --- T11b (AC-4/AC-10): md n/a + sh measured must NOT read as "nothing to measure" ---------
+# The repo shape S5/S5b describe — tools/*.sh, no skills/ or agents/ root — emits the markdown
+# n/a marker AND a measured shell verdict. Doctor's short-circuit used to branch on the markdown
+# marker alone, so it announced "nothing to measure" over a run that measured two files and
+# raised two warnings, discarding the tail -1 summary that D-4 kept combined precisely so this
+# arm could report it. Asserting the summary (S5b) is not enough on its own: this is about which
+# of DOCTOR's two arms claims that summary, and only the predicate can say.
+#
+# Non-vacuity: the first clause is the regression. Restore the old `n/a — no instruction layer`
+# predicate and this case fails on it while every other T11 case, and S5b, stay green.
+R="$(mkrepo t11nasm)"
+mkdir -p "$R/tools"
+printf '# c\ntrue\n' > "$R/tools/t.sh"
+printf '# d\n# e\ntrue\n' > "$R/tools/u.sh"
+run_tool "$R"
+if ! grep -qF -- "$DOCTOR_NA_PAT" <<< "$OUT" \
+   && grep -qF -- 'coverage: md n/a, sh measured' <<< "$OUT" \
+   && grep -qF -- "$NA_PAT" <<< "$OUT" \
+   && (( RC == 0 )); then
+  ok "T11b md n/a + sh measured falls through to doctor's summary arm, not its n/a arm (AC-4)"
+else
+  bad "T11b md-n/a-with-measured-shell routed to the 'nothing to measure' arm (rc=$RC); summary: $(tail -1 <<< "$OUT")"
 fi
 
 # vacuous output must hit the vacuous branch, not the generic growth fallback.
