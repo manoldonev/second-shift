@@ -94,7 +94,7 @@ WORKFLOW_DIRS=("$PLUGIN_DIR/workflows")
 # #348 WIDENED THE DISCOVERY ROOT from skills/ to the plugin root, and that is not cosmetic:
 # the one real workflows/ dir moved OUT of skills/ (to the plugin root) when the staged lane
 # was deleted, so a scan rooted at skills/ would have matched zero directories and the
-# self-check would have been silently vacuous — the exact self-neutralization it exists to
+# self-check would have been silently vacuous — the exact self-blinding it exists to
 # prevent. The plugin root subsumes skills/, so a future skill-shipped workflows/ is still
 # discovered.
 if [[ $# -eq 0 ]]; then
