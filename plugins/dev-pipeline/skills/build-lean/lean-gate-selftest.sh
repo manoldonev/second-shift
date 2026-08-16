@@ -5702,14 +5702,23 @@ else fail "(dj13) expected a relaunch to rc=0 with the planted pid still live, g
 # needs the runner to still exist when the read happens, which the millisecond-fast fixture lane
 # cannot promise — hence the `sleep`-backed config below and a waiter left blocking in the
 # background while its runner is inspected.
+# THE LANE OUTLIVES THE SETTLE BY DESIGN, and it costs no suite wall time to do so: both cases
+# below kill the runner the moment their read is made, so this number never elapses. All it buys is
+# a window wide enough that `ps` is never asking about a corpse — the failure that took (dj14b) red
+# on the macOS lane when the window was 8s and the settle spent 7 of it.
+DJ_ESC_LANE_SECS=40
 DJ_ESC_CFG="$WORK/config-dj-escape.json"
-jq '.commands.acme.test = "sleep 8"' "$CFG" > "$DJ_ESC_CFG"
+jq --arg t "sleep $DJ_ESC_LANE_SECS" '.commands.acme.test = $t' "$CFG" > "$DJ_ESC_CFG"
 dj_esc_gate() { # dj_esc_gate <name> <gate-args...> — dj_gate with the slow lane, backgrounded
   ( unset RUN_ID CLAUDE_CODE_SESSION_ID GH_BOT
     # shellcheck disable=SC2030,SC2031  # subshell-local, exactly like dj_gate's own seams
     [ -n "$DJ_NEW_SESSION" ] && export LEAN_GATE_M3_NEW_SESSION="$DJ_NEW_SESSION"
+    # The ceiling is set clear of the lane so the waiter never concludes for a reason unrelated to
+    # what these cases read. Its give-up path is benign either way — it leaves both the runner and
+    # its record alive — but a fixture that leans on that is a fixture explaining someone else's
+    # invariant.
     cd "$WORK/dj-$1" && SECOND_SHIFT_CONFIG="$DJ_ESC_CFG" LEAN_PROGRESS_FILE="$WORK/dj-$1-prog.md" \
-    LEAN_GATE_WAIT_CEILING_SECS=30 bash "$GATE" --issue-file "$ISSUE_NOREGIONS" 3 7 >/dev/null 2>&1 )
+    LEAN_GATE_WAIT_CEILING_SECS=120 bash "$GATE" --issue-file "$ISSUE_NOREGIONS" 3 7 >/dev/null 2>&1 )
 }
 # The recorded runner's pid, once its record appears — empty if it never did. Polled rather than
 # slept on, so the case costs what the spawn costs and no more.
@@ -5734,23 +5743,35 @@ dj_reap_pid() { # dj_reap_pid <pid>
   kill -9 -"$1" 2>/dev/null || kill -9 "$1" 2>/dev/null
   return 0
 }
-# 0 when <pid> becomes its own process-group leader within the bound, 1 otherwise.
+# 0 when <pid> leads its own process group within the bound, 1 when the bound ran out with it
+# still in someone else's group, 2 when it vanished before either could be decided.
 #
 # POLLED, AND THAT ASYMMETRY IS THE MECHANISM, not a flake accommodation. The launcher records the
 # pid it forked and blocks; that process is python, and it inherits the launcher's group until
 # `setsid(2)` runs one syscall later. A single `ps` right after the record appears therefore reads
-# the group the runner is LEAVING — which is how this case first failed, reporting the suite's own
-# pgid against a runner that went on to lead its own. The default path has nothing to settle: its
-# runner is forked into the launcher's group and stays there, so its case reads once (below).
+# the group the runner is LEAVING — which is how (dj14) first failed, reporting the suite's own
+# pgid against a runner that went on to lead its own.
+#
+# BOUNDED IN SECONDS, NOT ITERATIONS. The negative arm can only ever return by exhausting the
+# bound, so the bound IS that arm's cost — and an iteration count does not price it, because what
+# each iteration spends is a `ps` fork at whatever the runner's load makes one cost. 100 iterations
+# measured 7s on an unloaded machine against a fixture lane that lived 8s; on a 3-core CI runner
+# sweeping four suites the same 100 iterations outlived the runner, and the case failed reading a
+# pgid off a corpse. A wall-clock bound costs the same everywhere, which is what lets
+# DJ_ESC_LANE_SECS outrun it by a margin that survives load.
+#
+# 2 IS NOT 1. Vanishing is not evidence the runner never led a group — it is evidence the fixture
+# stopped being able to answer, and the caller reds on it rather than banking a pass from a settle
+# that never actually ran.
+DJ_SETTLE_SECS=5
 dj_wait_own_pgid() { # dj_wait_own_pgid <pid>
-  local w=0 g
-  while [ "$w" -lt 100 ]; do
+  local g
+  SECONDS=0
+  while [ "$SECONDS" -lt "$DJ_SETTLE_SECS" ]; do
     g="$(ps -o pgid= -p "$1" 2>/dev/null | tr -d ' ')"
-    # Gone before it ever led a group: not the property under test, and not something a longer
-    # wait can turn into it.
-    [ -n "$g" ] || return 1
+    [ -n "$g" ] || return 2
     [ "$g" = "$1" ] && return 0
-    sleep 0.05; w=$((w + 1))
+    sleep 0.05
   done
   return 1
 }
@@ -5786,20 +5807,33 @@ dj_reap_pid "$dj14_pid"
 
 # The NEGATIVE control, and without it (dj14) proves only that some process leads some group: the
 # default path's runner is a forked subshell, so its group is its launcher's and pgid != pid. Same
-# fixture, same read, one seam apart — and read through the SAME bounded settle, so "it never
-# became its own leader" is a decided answer rather than a race this case happened to win.
+# fixture, one seam apart — and read through the SAME bounded settle, so "it never became its own
+# leader" is a decided answer rather than a race this case happened to win.
+#
+# THE PGID IS READ FIRST AND THE SETTLE RUNS AFTER IT. That is the opposite of the obvious order,
+# and it is why this case is stable: the settle can only end this arm by running out, so reading
+# the pgid on its far side spent the runner's whole life before asking the question. On a loaded
+# lane `ps` then came back empty and the case failed with `pgid=none` against a perfectly correct
+# runner. Reading early is sound on THIS arm specifically — a forked subshell is in its launcher's
+# group from birth with no pending syscall that could move it, so there is no later answer to wait
+# for. On (dj14)'s arm there is, which is why that one still reads through the settle.
+#
+# The settle remains what catches the regression this case exists for: a default path that started
+# calling setsid(2) would move the runner AFTER the early read, and only dj14b_settle would see it.
 rm -f "$WORK/dj-esc/.claude/pipeline-state/"*.pid "$WORK/dj-esc/.claude/pipeline-state/"*.rc
 set -m
 dj_esc_gate esc & dj14b_waiter=$!
 set +m
 dj14b_pid="$(dj_runner_pid "$DJ_ESC_STATE")"
-dj14b_own=0
-[ -n "$dj14b_pid" ] && dj_wait_own_pgid "$dj14b_pid" && dj14b_own=1
 dj14b_pgid=""
-[ -n "$dj14b_pid" ] && dj14b_pgid="$(ps -o pgid= -p "$dj14b_pid" 2>/dev/null | tr -d ' ')"
-if [ "$dj14b_own" -eq 0 ] && [ -n "$dj14b_pgid" ] && [ "$dj14b_pgid" != "$dj14b_pid" ]; then
+dj14b_settle=2
+if [ -n "$dj14b_pid" ]; then
+  dj14b_pgid="$(ps -o pgid= -p "$dj14b_pid" 2>/dev/null | tr -d ' ')"
+  dj_wait_own_pgid "$dj14b_pid"; dj14b_settle=$?
+fi
+if [ "$dj14b_settle" -eq 1 ] && [ -n "$dj14b_pgid" ] && [ "$dj14b_pgid" != "$dj14b_pid" ]; then
   pass "(dj14b) AC-1: with the seam OFF the runner stays in its launcher's group — the shipped shape is untouched"
-else fail "(dj14b) expected the default runner NOT to lead its own group, got pid=${dj14b_pid:-none} pgid=${dj14b_pgid:-none}"; fi
+else fail "(dj14b) expected the default runner NOT to lead its own group, got pid=${dj14b_pid:-none} pgid=${dj14b_pgid:-none} settle=$dj14b_settle (0=led its own group, 1=decided it never did, 2=vanished before the ${DJ_SETTLE_SECS}s bound could decide)"; fi
 dj_kill_group "$dj14b_waiter"
 dj_reap_pid "$dj14b_pid"
 rm -f "$WORK/dj-esc/.claude/pipeline-state/"*.pid "$WORK/dj-esc/.claude/pipeline-state/"*.rc
@@ -5851,13 +5885,18 @@ else fail "(dj18) expected rc=2 refusing --m3-token on milestone 3, got rc=$rc: 
 dj_tree reap
 sleep 30 &
 dj19_fake=$!
+# DISOWNED, so the shell stops carrying it as a job. The reap under test is a third party killing
+# this process, and bash announces a signal-killed job it still owns — `Killed: 9  sleep 30`,
+# stamped with a suite line number — into the middle of a log this repo replays as one contiguous
+# block. Nothing here needed the job entry: the case reads the process with `kill -0`.
+disown "$dj19_fake" 2>/dev/null || true
 mkdir -p "$WORK/dj-reap/.claude/pipeline-state"
 dj_plant "$WORK/dj-reap/.claude/pipeline-state/7-lean-m3-12345" "$dj19_fake" "dj-reap-token"
 out="$(dj_gate reap teardown 7)"; rc=$?
 dj19_w=0
 while kill -0 "$dj19_fake" 2>/dev/null && [ "$dj19_w" -lt 50 ]; do sleep 0.1; dj19_w=$((dj19_w + 1)); done
 if kill -0 "$dj19_fake" 2>/dev/null; then dj19_alive=1; else dj19_alive=0; fi
-kill -9 "$dj19_fake" 2>/dev/null; wait "$dj19_fake" 2>/dev/null
+kill -9 "$dj19_fake" 2>/dev/null
 if [ "$rc" -eq 0 ] && [ "$dj19_alive" -eq 0 ] \
    && [ ! -f "$WORK/dj-reap/.claude/pipeline-state/7-lean-m3-12345.pid" ] \
    && grep -qF 'reaped 1 live milestone-3 runner' <<<"$out"; then
