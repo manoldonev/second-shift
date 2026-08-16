@@ -1049,9 +1049,9 @@ wait "$IR_DEAD" 2>/dev/null
 
 rm -f "$IR_PROG"; rm -f "$IR_STATE"/*.pid
 out="$(gate_ir progress 7 --infra)"; rc=$?
-if [ "$rc" -eq 0 ] && [ "$out" = "m3infra-v1:0" ]; then
-  pass "(ir1) AC-5: no record at all answers m3infra-v1:0 — never empty, which the caller rejects"
-else fail "(ir1) expected m3infra-v1:0, got rc=$rc '$out'"; fi
+if [ "$rc" -eq 0 ] && [ "$out" = "m3infra-v2:0" ]; then
+  pass "(ir1) AC-5: no record at all answers m3infra-v2:0 — never empty, which the caller rejects"
+else fail "(ir1) expected m3infra-v2:0, got rc=$rc '$out'"; fi
 if [ ! -f "$IR_PROG" ]; then
   pass "(ir2) AC-5: the read does not bring the progress file it reads into existence"
 else fail "(ir2) the --infra read created $IR_PROG"; fi
@@ -1062,51 +1062,69 @@ else fail "(ir2) the --infra read created $IR_PROG"; fi
   echo "2026-01-01T00:00:01Z | milestone-3 | concluded | rc=0"
   echo "2026-01-01T00:00:02Z | milestone-3 | started |"; } > "$IR_PROG"
 out="$(gate_ir progress 7 --infra)"
-if [ "$out" = "m3infra-v1:1" ]; then
+if [ "$out" = "m3infra-v2:1" ]; then
   pass "(ir3) AC-5: an unclosed evaluation with no runner record reads as one infra death"
-else fail "(ir3) expected m3infra-v1:1, got '$out'"; fi
+else fail "(ir3) expected m3infra-v2:1, got '$out'"; fi
 
-# A LIVE runner is an honest in-flight evaluation, not a death — and it accounts for exactly one
-# unclosed row, so subtracting it is what makes the answer stable across the spawn.
+# #539 AC-3, AND THE CASE THIS TICKET INVERTS. Shipped, a live record SUBTRACTED and answered
+# `:0` — "an in-flight evaluation is not a death". With the new-session escape the runner outlives
+# the session that launched it, so a scheduler reading this AFTER that spawn returned is looking at
+# an orphan: in-flight, joinable, and the strongest recoverable signal there is. It counts.
+#
+# The token alone no longer separates this from (ir5) — that is the point of the change, both are
+# one recoverable death — so the DIAGNOSTIC is what carries the discrimination now, and these cases
+# pin it. Without that half, (ir4) through (ir7) would agree on `:1` for four different reasons and
+# stop being able to fail apart.
 printf '%s live-token\n' "$$" > "$IR_STATE/7-lean-m3-12345.pid"
 out="$(gate_ir progress 7 --infra)"
-if [ "$out" = "m3infra-v1:0" ]; then
-  pass "(ir4) AC-5: a record naming a LIVE pid subtracts — an in-flight evaluation is not a death"
-else fail "(ir4) expected a live runner to answer m3infra-v1:0, got '$out'"; fi
+err="$(gate_ir_e progress 7 --infra)"
+if [ "$out" = "m3infra-v2:1" ] && grep -qF '1 runner record(s), 1 live' <<<"$err"; then
+  pass "(ir4) AC-3: a record naming a LIVE pid is in-flight-and-JOINABLE — counted, not subtracted"
+else fail "(ir4) expected m3infra-v2:1 with a '1 record, 1 live' diagnostic, got '$out' / '$err'"; fi
 
-# THE CONJUNCTION, and this is the case the whole read exists for: the record is still there and
-# the pid it names is gone. Byte-identical residue to (ir4) apart from the liveness.
+# THE OTHER LIVENESS, same residue and same count, and the diagnostic is the only thing that tells
+# an operator which situation they are in: nothing left to rejoin, versus a sweep still running.
 printf '%s dead-token\n' "$IR_DEAD" > "$IR_STATE/7-lean-m3-12345.pid"
 out="$(gate_ir progress 7 --infra)"
-if [ "$out" = "m3infra-v1:1" ]; then
-  pass "(ir5) AC-5: a record naming a DEAD pid is the death — the same residue, one liveness apart"
-else fail "(ir5) expected m3infra-v1:1 against a dead recorded pid, got '$out'"; fi
+err="$(gate_ir_e progress 7 --infra)"
+if [ "$out" = "m3infra-v2:1" ] && grep -qF '1 runner record(s), 0 live' <<<"$err"; then
+  pass "(ir5) AC-5: a record naming a DEAD pid is the death the read was built for"
+else fail "(ir5) expected m3infra-v2:1 with a '1 record, 0 live' diagnostic, got '$out' / '$err'"; fi
 
 # A record carrying no token predates the current format and names nothing joinable, so it reads
 # as dead — m3_read_runner's rejection, applied by the same rule here rather than a second one.
 printf '%s\n' "$$" > "$IR_STATE/7-lean-m3-12345.pid"
 out="$(gate_ir progress 7 --infra)"
-if [ "$out" = "m3infra-v1:1" ]; then
+err="$(gate_ir_e progress 7 --infra)"
+if [ "$out" = "m3infra-v2:1" ] && grep -qF '1 runner record(s), 0 live' <<<"$err"; then
   pass "(ir6) AC-5: a token-less record is not credited as live, even when its pid is alive"
-else fail "(ir6) expected a token-less record to read as dead, got '$out'"; fi
+else fail "(ir6) expected a token-less record to read as dead, got '$out' / '$err'"; fi
 
 # THE GLOB, not the computed key (D-4). m3_paths hashes the cwd-derived repo root, so a read run
 # from the main checkout — which is where the scheduler runs it — cannot name a build worktree's
 # record. This case's key is a value no cksum of this tree produces.
+#
+# ASSERTED ON THE DIAGNOSTIC, not on the count (#539). Under v1 a found live record subtracted, so
+# `:0` was proof the glob had matched; under v2 it does not, and the count is `:1` whether the glob
+# found this record or found nothing at all. The record COUNT is the only remaining observable that
+# can fail when the glob stops matching.
 rm -f "$IR_STATE"/*.pid
 printf '%s glob-token\n' "$$" > "$IR_STATE/7-lean-m3-00000000.pid"
-out="$(gate_ir progress 7 --infra)"
-if [ "$out" = "m3infra-v1:0" ]; then
+err="$(gate_ir_e progress 7 --infra)"
+if grep -qF '1 runner record(s), 1 live' <<<"$err"; then
   pass "(ir7) AC-5: the record is found by issue-keyed GLOB, not by recomputing m3_paths' key"
-else fail "(ir7) a record under an unrelated key was not found by the glob, got '$out'"; fi
+else fail "(ir7) a record under an unrelated key was not found by the glob: '$err'"; fi
 
-# ISSUE-KEYED: another issue's residue is not this run's. Same state dir, same shape.
+# ISSUE-KEYED: another issue's residue is not this run's. Same state dir, same shape, and again on
+# the diagnostic — the count cannot tell "did not look at issue 8's record" from "looked and
+# subtracted nothing".
 rm -f "$IR_STATE"/*.pid
 printf '%s other-token\n' "$IR_DEAD" > "$IR_STATE/8-lean-m3-12345.pid"
 out="$(gate_ir progress 7 --infra)"
-if [ "$out" = "m3infra-v1:1" ]; then
+err="$(gate_ir_e progress 7 --infra)"
+if [ "$out" = "m3infra-v2:1" ] && grep -qF '0 runner record(s), 0 live' <<<"$err"; then
   pass "(ir8) AC-5: a record for a DIFFERENT issue is not read as this run's runner"
-else fail "(ir8) another issue's record leaked into this read, got '$out'"; fi
+else fail "(ir8) another issue's record leaked into this read, got '$out' / '$err'"; fi
 rm -f "$IR_STATE"/*.pid
 
 # The two flags are different token spaces and one call prints one of them; and a flag that
@@ -4876,9 +4894,28 @@ if [ "$m3_before" -eq 0 ] \
    && [ "$(count_in_progress '| milestone-3 | concluded |')" -eq 0 ]; then
   pass "(if5) a SIGKILLed evaluation leaves started with NO concluded — distinguishable from one that never ran"
 else fail "(if5) expected 0 rows before / 1 started / 0 concluded, got $m3_before / $(count_in_progress '| milestone-3 | started |') / $(count_in_progress '| milestone-3 | concluded |')"; fi
+# #539 AC-2: RE-DERIVED TO REAP THE RUNNER EXPLICITLY. This case asserted "the kill took the whole
+# process group", and that assertion was resting on the runner sharing the launcher's group — the
+# exact property LEAN_GATE_M3_NEW_SESSION exists to break. It cannot stay a statement about the
+# gate's own group, because on the escape path the group kill above legitimately leaves the runner
+# alive and the orphan is cleaned up by cmd_teardown's reap instead.
+#
+# So the case now asserts what is true on BOTH paths and is the thing the suite actually needs: no
+# lane child is left running once the recorded runner's pgid has been reaped. The reap is the same
+# `kill -9 -<pid>` fall back to `kill -9 <pid>` pair m3_reap_runners uses, for its reasons — the
+# negative form addresses a group leader's whole sweep tree, and fails with ESRCH on a runner that
+# never led one.
+for _if5_rec in "$TREE/.claude/pipeline-state/7-lean-m3-"*.pid; do
+  [ -f "$_if5_rec" ] || continue
+  read -r _if5_pid _ < "$_if5_rec" 2>/dev/null
+  case "${_if5_pid:-}" in ''|*[!0-9]*) continue ;; esac
+  kill -9 -"$_if5_pid" 2>/dev/null || kill -9 "$_if5_pid" 2>/dev/null
+done
+reaped=0
+while kill -0 -"$kill_pgid" 2>/dev/null && [ "$reaped" -lt 50 ]; do sleep 0.1; reaped=$((reaped + 1)); done
 if ! kill -0 -"$kill_pgid" 2>/dev/null; then
-  pass "(if5b) the kill took the whole process group — no lane child left running"
-else fail "(if5b) process group $kill_pgid still has a live member after kill -9"; fi
+  pass "(if5b) reaping the recorded runner's pgid leaves no lane child running"
+else fail "(if5b) process group $kill_pgid still has a live member after the group kill and the recorded-runner reap"; fi
 
 # The milestone the run never reached carries NEITHER row. Without this (if5) would pass against a
 # gate that wrote `started` for every milestone on every call — the two states this ticket exists
@@ -5339,6 +5376,9 @@ else fail "(jw3) expected 9901 gone and 9902 kept, got rc=$rc, registry: $(cat "
 # re-derived here. A hand-rolled copy of m3_paths' key would be a mirror: it cannot fail when
 # m3_paths changes, and it would read as coverage the whole time.
 DJ_CEILING=""
+# #539's escape seam, driven the same way DJ_CEILING is: set around a call, cleared after it, so a
+# case that forgets to clear cannot silently put every later case on the escape path.
+DJ_NEW_SESSION=""
 dj_tree() { # dj_tree <name> — a committed, attested fixture tree with its own progress file
   local t="$WORK/dj-$1"
   mkdir -p "$t/docs/plans"
@@ -5357,6 +5397,8 @@ dj_gate() { # dj_gate <name> <gate-args...>   (args are passed through verbatim,
   ( unset RUN_ID CLAUDE_CODE_SESSION_ID GH_BOT
     # shellcheck disable=SC2030,SC2031  # subshell-local, exactly like bgate's identity seam
     [ -n "$DJ_CEILING" ] && export LEAN_GATE_WAIT_CEILING_SECS="$DJ_CEILING"
+    # shellcheck disable=SC2030,SC2031  # same subshell-local seam as the ceiling above
+    [ -n "$DJ_NEW_SESSION" ] && export LEAN_GATE_M3_NEW_SESSION="$DJ_NEW_SESSION"
     cd "$WORK/dj-$n" && SECOND_SHIFT_CONFIG="$CFG" LEAN_PROGRESS_FILE="$WORK/dj-$n-prog.md" \
     bash "$GATE" --issue-file "$ISSUE_NOREGIONS" "$@" 2>&1 )
 }
@@ -5641,6 +5683,198 @@ if [ "$rc" -eq 0 ] \
    && [ "$dj13_after" -eq $((dj13_before + 1)) ]; then
   pass "(dj13) a runner whose own launch already stamped a marker is NOT joinable — a live pid is not evidence its evaluation is unfinished"
 else fail "(dj13) expected a relaunch to rc=0 with the planted pid still live, got rc=$rc alive=$dj13_alive started $dj13_before -> $dj13_after: $out"; fi
+
+# ---- #539: the new-session escape, its ceiling, and the runner's reaper --------------------
+# WHAT LIVES HERE AND WHAT DOES NOT. These cases pin the escape's MECHANICS against a fixture that
+# returns in milliseconds — which shape was spawned, which ceiling that selects, and that the
+# runner is now reapable by record. Whether it SURVIVES a simulated turn end is a composed
+# property of a whole run and belongs to scenario-liveness-selftest.sh, which drives it end to end
+# and fails with the seam off.
+
+# (dj14) THE SPAWN SHAPE, read off the runner's own process group. Under the default the runner is
+# a forked subshell and its group is the launcher's, so it is not its own leader; under the escape
+# it is exec'd after `setsid(2)` and pgid == pid. That equality is the whole mechanism — a group
+# leader in a new session is what a session-directed teardown cannot address, and what makes
+# cmd_teardown's `kill -9 -<pid>` reach the sweep tree.
+#
+# THE PGID IS READ OFF THE REAL RUNNER, never a planted stand-in: a planted pid would carry the
+# SUITE's process group and could only ever restate how the suite spawned its own sleeper. That
+# needs the runner to still exist when the read happens, which the millisecond-fast fixture lane
+# cannot promise — hence the `sleep`-backed config below and a waiter left blocking in the
+# background while its runner is inspected.
+DJ_ESC_CFG="$WORK/config-dj-escape.json"
+jq '.commands.acme.test = "sleep 8"' "$CFG" > "$DJ_ESC_CFG"
+dj_esc_gate() { # dj_esc_gate <name> <gate-args...> — dj_gate with the slow lane, backgrounded
+  ( unset RUN_ID CLAUDE_CODE_SESSION_ID GH_BOT
+    # shellcheck disable=SC2030,SC2031  # subshell-local, exactly like dj_gate's own seams
+    [ -n "$DJ_NEW_SESSION" ] && export LEAN_GATE_M3_NEW_SESSION="$DJ_NEW_SESSION"
+    cd "$WORK/dj-$1" && SECOND_SHIFT_CONFIG="$DJ_ESC_CFG" LEAN_PROGRESS_FILE="$WORK/dj-$1-prog.md" \
+    LEAN_GATE_WAIT_CEILING_SECS=30 bash "$GATE" --issue-file "$ISSUE_NOREGIONS" 3 7 >/dev/null 2>&1 )
+}
+# The recorded runner's pid, once its record appears — empty if it never did. Polled rather than
+# slept on, so the case costs what the spawn costs and no more.
+dj_runner_pid() { # dj_runner_pid <state-dir-glob-base>
+  local w=0 f p
+  while [ "$w" -lt 150 ]; do
+    for f in "$1"*.pid; do
+      [ -f "$f" ] || continue
+      read -r p _ < "$f" 2>/dev/null
+      case "${p:-}" in ''|*[!0-9]*) continue ;; esac
+      printf '%s' "$p"
+      return 0
+    done
+    sleep 0.1; w=$((w + 1))
+  done
+  printf ''
+}
+# Killed by RECORDED PID, group first exactly as m3_reap_runners does — and never with an empty or
+# non-numeric pid, because `kill -9 -0` addresses THIS suite's own process group.
+dj_reap_pid() { # dj_reap_pid <pid>
+  case "${1:-}" in ''|*[!0-9]*) return 0 ;; esac
+  kill -9 -"$1" 2>/dev/null || kill -9 "$1" 2>/dev/null
+  return 0
+}
+# 0 when <pid> becomes its own process-group leader within the bound, 1 otherwise.
+#
+# POLLED, AND THAT ASYMMETRY IS THE MECHANISM, not a flake accommodation. The launcher records the
+# pid it forked and blocks; that process is python, and it inherits the launcher's group until
+# `setsid(2)` runs one syscall later. A single `ps` right after the record appears therefore reads
+# the group the runner is LEAVING — which is how this case first failed, reporting the suite's own
+# pgid against a runner that went on to lead its own. The default path has nothing to settle: its
+# runner is forked into the launcher's group and stays there, so its case reads once (below).
+dj_wait_own_pgid() { # dj_wait_own_pgid <pid>
+  local w=0 g
+  while [ "$w" -lt 100 ]; do
+    g="$(ps -o pgid= -p "$1" 2>/dev/null | tr -d ' ')"
+    # Gone before it ever led a group: not the property under test, and not something a longer
+    # wait can turn into it.
+    [ -n "$g" ] || return 1
+    [ "$g" = "$1" ] && return 0
+    sleep 0.05; w=$((w + 1))
+  done
+  return 1
+}
+
+# EACH LAUNCHER GETS ITS OWN PROCESS GROUP and is killed by it, (if5)'s idiom. Backgrounding the
+# helper alone leaves the GATE running inside it, and an abandoned waiter is not passive: on
+# noticing its runner gone it does `rm -f "$M3_PID"` on a path keyed by the worktree, which the
+# NEXT case's launcher has by then written its own record into. That is how (dj14b) first failed —
+# no record to read, because the previous case's waiter had deleted it.
+dj_kill_group() { # dj_kill_group <pgid-leader>
+  local w=0
+  kill -9 -"$1" 2>/dev/null
+  wait "$1" 2>/dev/null
+  while kill -0 -"$1" 2>/dev/null && [ "$w" -lt 50 ]; do sleep 0.1; w=$((w + 1)); done
+}
+
+dj_tree esc
+DJ_ESC_STATE="$WORK/dj-esc/.claude/pipeline-state/7-lean-m3-"
+rm -f "$WORK/dj-esc/.claude/pipeline-state/"*.pid
+DJ_NEW_SESSION=1
+set -m
+dj_esc_gate esc & dj14_waiter=$!
+set +m
+dj14_pid="$(dj_runner_pid "$DJ_ESC_STATE")"
+DJ_NEW_SESSION=""
+if [ -n "$dj14_pid" ] && dj_wait_own_pgid "$dj14_pid"; then
+  pass "(dj14) AC-1: the escape's runner leads its OWN process group — pgid == pid, which a forked subshell never is"
+else fail "(dj14) expected the recorded runner to lead its own group, got pid=${dj14_pid:-none} pgid=$(ps -o pgid= -p "${dj14_pid:-0}" 2>/dev/null | tr -d ' ')"; fi
+dj_kill_group "$dj14_waiter"
+# AFTER the group kill, not before: the escape's runner is in its own group, so this is the only
+# thing that stops it — the same asymmetry cmd_teardown's reap exists for.
+dj_reap_pid "$dj14_pid"
+
+# The NEGATIVE control, and without it (dj14) proves only that some process leads some group: the
+# default path's runner is a forked subshell, so its group is its launcher's and pgid != pid. Same
+# fixture, same read, one seam apart — and read through the SAME bounded settle, so "it never
+# became its own leader" is a decided answer rather than a race this case happened to win.
+rm -f "$WORK/dj-esc/.claude/pipeline-state/"*.pid "$WORK/dj-esc/.claude/pipeline-state/"*.rc
+set -m
+dj_esc_gate esc & dj14b_waiter=$!
+set +m
+dj14b_pid="$(dj_runner_pid "$DJ_ESC_STATE")"
+dj14b_own=0
+[ -n "$dj14b_pid" ] && dj_wait_own_pgid "$dj14b_pid" && dj14b_own=1
+dj14b_pgid=""
+[ -n "$dj14b_pid" ] && dj14b_pgid="$(ps -o pgid= -p "$dj14b_pid" 2>/dev/null | tr -d ' ')"
+if [ "$dj14b_own" -eq 0 ] && [ -n "$dj14b_pgid" ] && [ "$dj14b_pgid" != "$dj14b_pid" ]; then
+  pass "(dj14b) AC-1: with the seam OFF the runner stays in its launcher's group — the shipped shape is untouched"
+else fail "(dj14b) expected the default runner NOT to lead its own group, got pid=${dj14b_pid:-none} pgid=${dj14b_pgid:-none}"; fi
+dj_kill_group "$dj14b_waiter"
+dj_reap_pid "$dj14b_pid"
+rm -f "$WORK/dj-esc/.claude/pipeline-state/"*.pid "$WORK/dj-esc/.claude/pipeline-state/"*.rc
+
+# (dj15) WHICH DEFAULT CEILING THE SEAM SELECTS, off the gate's own announcement rather than by
+# waiting either of them out. The inversion is the contract (AC-1): 3600s is right when giving up
+# loses the work, 300s is right when the runner survives the give-up and the next call rejoins.
+dj_tree ceil
+out="$(dj_gate ceil 3 7)"
+DJ_NEW_SESSION=1
+out2="$(dj_gate ceil 3 7)"
+DJ_NEW_SESSION=""
+if grep -qF 'this session, ceiling 3600s' <<<"$out" && grep -qF 'own session, ceiling 300s' <<<"$out2"; then
+  pass "(dj15) AC-1: the shipped default is today's shape at 3600s; the escape carries its own 300s ceiling"
+else fail "(dj15) expected 3600s off / 300s on, got: $out // $out2"; fi
+
+# ...and LEAN_GATE_WAIT_CEILING_SECS still outranks BOTH defaults, which is what makes (dj5)'s
+# breach case and OR-2's per-invocation retune work on either path.
+DJ_NEW_SESSION=1
+DJ_CEILING=45
+out="$(dj_gate ceil 3 7)"
+DJ_CEILING=""
+DJ_NEW_SESSION=""
+if grep -qF 'own session, ceiling 45s' <<<"$out"; then
+  pass "(dj16) AC-1: LEAN_GATE_WAIT_CEILING_SECS outranks the escape default, not only the shipped one"
+else fail "(dj16) expected the explicit ceiling to win on the escape path, got: $out"; fi
+
+# (dj17) THE RUNNER HANDSHAKE IS ARGV, and a token-less `m3-run` is a usage error raised BEFORE the
+# sweep rather than after it. A runner that evaluated the whole tree and then stamped a marker no
+# waiter can match is the most expensive way to spell a missing flag: every waiter reads it as "the
+# evaluation did not complete" and re-invokes.
+out="$(dj_gate ceil m3-run 7 2>&1)"; rc=$?
+if [ "$rc" -eq 2 ] && grep -qF 'needs --m3-token' <<<"$out"; then
+  pass "(dj17) AC-1: m3-run without a launch token is a usage error, not a sweep with an unmatchable marker"
+else fail "(dj17) expected rc=2 naming --m3-token, got rc=$rc: $out"; fi
+out="$(dj_gate ceil 3 7 --m3-token borrowed 2>&1)"; rc=$?
+if [ "$rc" -eq 2 ] && grep -qF "only meaningful on 'm3-run'" <<<"$out"; then
+  pass "(dj18) AC-1: --m3-token on a subcommand that ignores it is loud, like --satisfied and --arm"
+else fail "(dj18) expected rc=2 refusing --m3-token on milestone 3, got rc=$rc: $out"; fi
+
+# (dj19) AC-2: cmd_teardown REAPS THE RECORDED RUNNER. Escaping the session removes the runner's
+# only reaper — the harness teardown that used to take it — so without this a `worktree remove` can
+# pull the tree out from under a live sweep, and CLAUDE.md's orphaned-fixture scar says what that
+# costs the suites that run next. The record is cleared whether or not anything was killed: a
+# pidfile outliving its worktree is raw material for a join on a recycled pid.
+#
+# The sleeper stands in for a runner mid-sweep and is killed by RECORDED PID either way, so a
+# regression leaves no orphan behind it.
+dj_tree reap
+sleep 30 &
+dj19_fake=$!
+mkdir -p "$WORK/dj-reap/.claude/pipeline-state"
+dj_plant "$WORK/dj-reap/.claude/pipeline-state/7-lean-m3-12345" "$dj19_fake" "dj-reap-token"
+out="$(dj_gate reap teardown 7)"; rc=$?
+dj19_w=0
+while kill -0 "$dj19_fake" 2>/dev/null && [ "$dj19_w" -lt 50 ]; do sleep 0.1; dj19_w=$((dj19_w + 1)); done
+if kill -0 "$dj19_fake" 2>/dev/null; then dj19_alive=1; else dj19_alive=0; fi
+kill -9 "$dj19_fake" 2>/dev/null; wait "$dj19_fake" 2>/dev/null
+if [ "$rc" -eq 0 ] && [ "$dj19_alive" -eq 0 ] \
+   && [ ! -f "$WORK/dj-reap/.claude/pipeline-state/7-lean-m3-12345.pid" ] \
+   && grep -qF 'reaped 1 live milestone-3 runner' <<<"$out"; then
+  pass "(dj19) AC-2: teardown reaps the recorded runner and clears its record before touching the worktree"
+else fail "(dj19) expected the recorded runner dead and its record gone, got rc=$rc alive=$dj19_alive record=$([ -f "$WORK/dj-reap/.claude/pipeline-state/7-lean-m3-12345.pid" ] && echo present || echo gone): $out"; fi
+
+# ...and a record naming a pid that is already gone is cleared without claiming a kill. The reap
+# announcing a reap it did not perform would be the same class of lie as a green milestone nobody
+# evaluated.
+( : ) & dj20_dead=$!
+wait "$dj20_dead" 2>/dev/null
+dj_plant "$WORK/dj-reap/.claude/pipeline-state/7-lean-m3-12345" "$dj20_dead" "dj-reap-token"
+out="$(dj_gate reap teardown 7)"; rc=$?
+if [ "$rc" -eq 0 ] && [ ! -f "$WORK/dj-reap/.claude/pipeline-state/7-lean-m3-12345.pid" ] \
+   && ! grep -qF 'reaped' <<<"$out"; then
+  pass "(dj20) AC-2: a record naming a dead pid is cleared, and no kill is claimed for it"
+else fail "(dj20) expected a silent clear against a dead recorded pid, got rc=$rc: $out"; fi
 
 # =========================================================================================
 # #528 — same-issue re-entry hardening: atomic progress-file writes, the reaper's ownership
