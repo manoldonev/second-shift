@@ -630,10 +630,20 @@ makes the diagnosis outlive the timeout it diagnoses. It stays a warn, never a r
 cost record, and a stale row costs wall clock rather than correctness. Fix it by adding the row in
 an ordinary PR.
 
-**2. Mutants run in a pool.** One sandbox per worker, created lazily and restored between items — so
+**2. Mutants run in a pool.** One sandbox per worker, created lazily and reset between items — so
 no two concurrently-running mutants share a tree, and disk stays at `pool × ~7MB` rather than growing
 with the mutant count. Size defaults to `min(cores-2, 8)` and is set by `MUTATION_SWEEP_JOBS`;
 `MUTATION_SWEEP_JOBS=1` is the serial harness exactly.
+
+**Reset means the whole tree, not the mutated path.** Reverting the one file a mutant was spliced
+into leaves behind everything the killer *created*, and that is not inert: the operator alphabet
+writes one placeholder token into every guard it mutates, making the token a shared namespace on
+disk. A mutant whose `mkdir -p "${VAR:-real}"` became `mkdir -p __MUTANT_DEFAULT__` is killed
+correctly and leaves the directory; a later mutant in that sandbox whose
+`mktemp "${TMPDIR:-/tmp}/x.XXXXXX"` became `mktemp __MUTANT_DEFAULT__/x.XXXXXX` then succeeds where
+it had to fail, and is scored SURVIVED on its predecessor's litter. So each item is applied to a
+sandbox cleaned of untracked *and* ignored files, the oracle's reused sandbox included. Case (al)
+holds the line.
 
 The report is a function of the work list and nothing else: every verdict is written to its own file
 and read back in item order, so a parallel run's survivor set, counts and report TSV are

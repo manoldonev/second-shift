@@ -373,6 +373,53 @@ make_budget_fixture() {
     && git -c user.email=fixture@example.invalid -c user.name=fixture commit -qm budget ) >/dev/null 2>&1
 }
 
+# Two guards that collide through the SANDBOX rather than through each other, carrying the
+# REAL `default` operator row verbatim — because the collision is a property of that
+# alphabet: every guard it mutates receives the SAME placeholder token, so the token is a
+# shared namespace on disk. `a-dirtier.sh` mutates into `mkdir -p __MUTANT_DEFAULT__` and is
+# correctly KILLED, leaving the directory behind untracked; `b-victim.sh` mutates into
+# `mktemp __MUTANT_DEFAULT__/f.XXXXXX`, which fails — and is therefore killed — only while
+# that directory does NOT exist. Swept in that order in one sandbox, the second verdict is
+# a fact about the first mutant's litter rather than about the guard.
+# shellcheck disable=SC2016 # the single-quoted $-expressions are the FIXTURES' code, not ours
+make_debris_fixture() {
+  local dir="$1"
+  mkdir -p "$dir/tools" "$dir/victim-tmp"
+  # Neither guard may mention the mutated shape in PROSE. A comment carrying it is a real
+  # operator site, it takes ordinal 1, and being unkillable it survives — which would bury
+  # this case's actual subject under two baseline-absent reds. Exactly one site each.
+  { printf '#!/usr/bin/env bash\n# fixture guard: names a directory by expansion fallback, then creates it.\n'
+    printf 'cd "$(dirname "${BASH_SOURCE[0]}")" || exit 1\n'
+    printf 'D="${DIRT_DIR:-dirt-scratch}"\nmkdir -p "$D"\necho "$D"\n'
+  } > "$dir/a-dirtier.sh"
+  { printf '#!/usr/bin/env bash\n# fixture guard: scratch file under a directory that must ALREADY exist.\n'
+    printf 'cd "$(dirname "${BASH_SOURCE[0]}")" || exit 1\n'
+    printf 'f="$(mktemp "${VICTIM_TMP:-victim-tmp}/f.XXXXXX")" || exit 1\nrm -f "$f"\necho ok\n'
+  } > "$dir/b-victim.sh"
+  chmod 755 "$dir/a-dirtier.sh" "$dir/b-victim.sh"
+  { printf '#!/usr/bin/env bash\nHERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"\n'
+    printf 'out="$(bash "$HERE/a-dirtier.sh")" || exit 1\n'
+    printf '[[ "$out" == "dirt-scratch" ]] || exit 1\nexit 0\n'
+  } > "$dir/a-dirtier-selftest.sh"
+  { printf '#!/usr/bin/env bash\nHERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"\n'
+    printf 'out="$(bash "$HERE/b-victim.sh")" || exit 1\n'
+    printf '[[ "$out" == "ok" ]] || exit 1\nexit 0\n'
+  } > "$dir/b-victim-selftest.sh"
+  # git cannot track an empty directory, and the victim's unmutated path needs a real one.
+  : > "$dir/victim-tmp/.keep"
+  # The production `default` row, byte-for-byte. A paraphrase here would let the fixture
+  # keep passing while the shipped alphabet drifted into a different shared token.
+  { printf '# fixture operators\n'
+    printf '%s\t%s\t%s\n' 'default' '\$\{[A-Za-z_][A-Za-z0-9_]*:-[^}]*\}' \
+      's/(\$\{[A-Za-z_][A-Za-z0-9_]*:-)[^}]*\}/\1__MUTANT_DEFAULT__}/'
+  } > "$dir/tools/mutation-operators.tsv"
+  printf '# fixture exclusions\n' > "$dir/tools/mutation-exclusions.tsv"
+  printf '# fixture pair map\n'   > "$dir/tools/mutation-pair-map.tsv"
+  printf '# fixture catalog\n'    > "$dir/tools/mutation-catalog.tsv"
+  ( cd "$dir" && git init -q . && git add -A \
+    && git -c user.email=fixture@example.invalid -c user.name=fixture commit -qm debris ) >/dev/null 2>&1
+}
+
 # guard,killed,survived,survivor_ids for one row of a --report TSV.
 report_row() { awk -F'\t' -v g="$2" '$1==g {print $5"/"$6"/"$7; exit}' "$1"; }
 
@@ -1838,6 +1885,39 @@ if [[ "$HDR" == *"${AK_TAB}survivor_ids${AK_TAB}sites_beyond_budget" ]]; then
   ok "the column is appended last, after survivor_ids"
 else
   bad "(ak4) header does not end in survivor_ids<TAB>sites_beyond_budget: '$HDR'"
+fi
+
+echo "(al) a mutant's LITTER is not the next mutant's input — the sandbox is scrubbed between them"
+# The nightly reded on this for weeks and read as flaky because the pairing re-rolls with the
+# guard list: restore() reverts the one mutated TRACKED path and nothing removed the untracked
+# files a killer left in the sandbox, so an earlier mutant's `mkdir` decided a later mutant's
+# verdict. Deterministic per tree, which is why --jobs 1 reproduces it exactly: one worker, one
+# sandbox, guards swept in ls-files order, a-dirtier before b-victim.
+FX="$TMPROOT/fxal$RANDOM$RANDOM"
+make_debris_fixture "$FX"
+baseline_with "$FX"
+OUT="$( cd "$FX" && enf env MUTATION_SWEEP_JOBS=1 bash "$SWEEP" --mode full \
+        --report "$TMPROOT/al.tsv" 2>&1 )"; RC=$?
+if [[ "$(report_row "$TMPROOT/al.tsv" b-victim.sh)" == "1/0/" ]]; then
+  ok "the victim's mutant is KILLED on its own merits, not spared by the dirtier's leftovers"
+else
+  bad "(al1) b-victim.sh row is '$(report_row "$TMPROOT/al.tsv" b-victim.sh)', want '1/0/'"
+  printf '%s\n' "$OUT" | tail -8
+fi
+# Not vacuous: the dirtier has to have been applied and scored for its litter to exist at all.
+# A '0/0/' here would mean the operator matched nothing and (al1) proved only that.
+if [[ "$(report_row "$TMPROOT/al.tsv" a-dirtier.sh)" == "1/0/" ]]; then
+  ok "the dirtier's own mutant was applied and killed, so its mkdir really ran"
+else
+  bad "(al2) a-dirtier.sh row is '$(report_row "$TMPROOT/al.tsv" a-dirtier.sh)', want '1/0/'"
+fi
+# The oracle is the backstop, not the fix. Reaching it at all means the pool fabricated the
+# survivor and the lane reds — green here has to mean the pool never got it wrong.
+if [[ $RC -eq 0 ]] && ! grep -q 'pool disagreement' <<<"$OUT"; then
+  ok "the run is green with no serial re-verify — the pool scored it right the first time"
+else
+  bad "(al3) expected rc=0 and no pool disagreement; got rc=$RC"
+  printf '%s\n' "$OUT" | tail -8
 fi
 
 echo "(j) universe rule — every in-universe guard in the REAL tree is accounted"
