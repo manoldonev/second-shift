@@ -1321,6 +1321,84 @@ out="$(bgate 5 7 --pr-file "$WORK/pr-ready.json" --comments-file "$WORK/comments
 if [ "$rc" -eq 0 ]; then pass "(k6) milestone-5 passes with a ready PR, spec link, closing comment, and a progress file"
 else fail "(k6) expected rc=0, got $rc: $out"; fi
 
+# ---- (ob) #531 D-10: milestone 5 reports its two obligations SEPARATELY -------------------
+# THE DEFECT. `orchestrate-lean.sh` could only say "the closing comment, the exit artifacts and
+# the worktree teardown are all unaccounted for", because a milestone-5 red left one `attempt`
+# line and nothing else — so every recovery started with a human reading the record. What is
+# asserted here is the record's shape; the scheduler's use of it is its own suite's.
+#
+# THE VERB IS THE WHOLE CONTRACT (D-10). progress_token narrows to a milestone by the FIXED
+# SUBSTRING `| milestone-n | satisfied`, so an obligation row spelled with that verb would move
+# the scheduler's close-out token the instant the FIRST obligation held — printing `done` over a
+# run with no closing comment on it, which is the false `done` the taxonomy exists to remove.
+# (ob3) is that assertion, driven on the REAL rows rather than on the verb's spelling.
+seed_progress_1_to_4
+ob_tok_before="$(gate progress 7 --satisfied 5)"
+out="$(gate 5 7 --pr-file "$WORK/pr-ready.json" --comments-file "$WORK/comments-none.json")"; rc=$?
+if [ "$rc" -eq 1 ] \
+   && [ "$(count_in_progress '| milestone-5 | obligation | exit-artifacts | met')" -eq 1 ] \
+   && [ "$(count_in_progress '| milestone-5 | obligation | verdict-reference | unmet')" -eq 1 ] \
+   && [ "$(count_in_progress '| milestone-5 | satisfied')" -eq 0 ]; then
+  pass "(ob1) a PARTIALLY finished close-out records each obligation's own state and withholds the aggregate"
+else fail "(ob1) rc=$rc, rows: $(grep -c 'obligation' "$PROG" 2>/dev/null): $(grep 'milestone-5' "$PROG" 2>/dev/null)"; fi
+
+# THE POINT OF THE DISTINCT VERB, measured rather than asserted about the spelling: the
+# scheduler's close-out token must be UNMOVED across a close-out that met one obligation. A row
+# carrying `| milestone-5 | satisfied` in any form would move it here.
+ob_tok_after="$(gate progress 7 --satisfied 5)"
+if [ "$ob_tok_before" = "$ob_tok_after" ] && [ -n "$ob_tok_after" ]; then
+  pass "(ob3) an obligation row does NOT move the scheduler's milestone-5 token — the verb is distinct from the aggregate's"
+else fail "(ob3) the obligation row moved the close-out token: '$ob_tok_before' -> '$ob_tok_after'"; fi
+
+# The report the scheduler ECHOES. Each obligation with its own state, the aggregate's own state
+# alongside its parts — "both met, no aggregate" is a real state — and teardown read SEPARATELY,
+# never folded into the milestone (D-11).
+out="$(gate progress 7 --obligations)"; rc=$?
+if [ "$rc" -eq 0 ] \
+   && grep -qF 'milestone-5 obligation exit-artifacts: met' <<<"$out" \
+   && grep -qF 'milestone-5 obligation verdict-reference: unmet' <<<"$out" \
+   && grep -qF 'milestone-5 aggregate: not satisfied' <<<"$out" \
+   && grep -qF 'teardown: not recorded' <<<"$out"; then
+  pass "(ob4) 'progress --obligations' reports each obligation, the aggregate, and teardown as four separate answers"
+else fail "(ob4) the obligations report was wrong, rc=$rc: $out"; fi
+
+# ...and once the missing comment exists the SAME milestone passes, recording the transition
+# rather than rewriting it. `bgate`, because this is the case that reaches cmd_mark.
+out="$(bgate 5 7 --pr-file "$WORK/pr-ready.json" --comments-file "$WORK/comments-closing.json")"; rc=$?
+if [ "$rc" -eq 0 ] \
+   && [ "$(count_in_progress '| milestone-5 | obligation | verdict-reference | unmet')" -eq 1 ] \
+   && [ "$(count_in_progress '| milestone-5 | obligation | verdict-reference | met')" -eq 1 ] \
+   && [ "$(count_in_progress '| milestone-5 | satisfied')" -eq 1 ]; then
+  pass "(ob2) the fixed close-out passes, and the record keeps BOTH states — an append-only history, not a rewrite"
+else fail "(ob2) rc=$rc: $(grep 'milestone-5' "$PROG" 2>/dev/null)"; fi
+
+# `met` WINS over `unmet` when both are on file. There is no reverse transition, so reporting the
+# failure would make an append-only record say the run got worse.
+out="$(gate progress 7 --obligations)"
+if grep -qF 'milestone-5 obligation verdict-reference: met' <<<"$out" \
+   && grep -qF 'milestone-5 aggregate: satisfied' <<<"$out"; then
+  pass "(ob5) with both states on file the report reads 'met' — the pair is a history, and only one direction of it exists"
+else fail "(ob5) the report did not resolve the met/unmet pair: $out"; fi
+
+# IDEMPOTENT PER (obligation, state). `all` re-runs cmd_5 on every sweep, and a record that grew
+# a row per sweep would be unreadable long before it was wrong.
+out="$(bgate 5 7 --pr-file "$WORK/pr-ready.json" --comments-file "$WORK/comments-closing.json")"
+if [ "$(count_in_progress '| milestone-5 | obligation | exit-artifacts | met')" -eq 1 ] \
+   && [ "$(count_in_progress '| milestone-5 | obligation | verdict-reference | met')" -eq 1 ]; then
+  pass "(ob6) re-running milestone 5 restates nothing — one row per (obligation, state)"
+else fail "(ob6) obligation rows accumulated across re-runs: $(grep -c 'obligation' "$PROG")"; fi
+
+# The flag is a REPORT, not a token space, so it cannot be combined with either of them — a
+# caller that asked for both would get two different KINDS of answer on one stream.
+out="$(gate progress 7 --obligations --infra)"; rc=$?
+if [ "$rc" -eq 2 ] && grep -q 'cannot be combined' <<<"$out"; then
+  pass "(ob7) --obligations refuses to combine with --infra"
+else fail "(ob7) expected rc=2, got $rc: $out"; fi
+out="$(gate 5 7 --obligations)"; rc=$?
+if [ "$rc" -eq 2 ] && grep -q "only meaningful on 'progress'" <<<"$out"; then
+  pass "(ob8) --obligations on a subcommand that ignores it is a usage error, not a silent no-op"
+else fail "(ob8) expected rc=2, got $rc: $out"; fi
+
 # ---- (l) usage errors --------------------------------------------------------------------
 out="$(gate 9 7)"; rc=$?
 if [ "$rc" -eq 2 ]; then pass "(l1) an unknown subcommand is a usage error"
@@ -4409,6 +4487,130 @@ out="$(wgate "$WTREE" all 25)"; rc=$?
 if wt_registered "$p"; then
   pass "(wt8) 'all' removes nothing — teardown is not part of the milestone progression"
 else fail "(wt8) 'all' destroyed a worktree, rc=$rc: $out"; fi
+
+# --- (if) #531 D-3: the shared IN-FLIGHT predicate, exposed read-only ---------------------------
+# ONE PREDICATE, TWO CALLERS. The (wt4)-(wt6) cases above pin it through `teardown`; these pin the
+# same conditions through the subcommand the SCHEDULER calls, which is the point of the extraction
+# — two copies of "is this tree collected" would be two answers the moment one grew a case, and a
+# scheduler-side copy that drifted LENIENT costs a review round spent on code nobody will merge.
+#
+# THREE ANSWERS, NOT TWO. "Could not look" is neither "clean" nor "dirty", and a caller that could
+# not tell them apart would either stop every run whose fetch flaked or review a stale head.
+rm -f "$WPROG"
+p="$(wt_make 40)"
+out="$(wgate "$WTREE" inflight 40)"; rc=$?
+if [ "$rc" -eq 0 ] && grep -qF 'inflight: clean' <<<"$out"; then
+  pass "(if1) a clean, fully-pushed lane worktree reports nothing in flight"
+else fail "(if1) expected rc=0 on a collected worktree, rc=$rc: $out"; fi
+
+# ...and it did that WITHOUT an entry attestation and WITHOUT bringing a record into existence.
+# Both matter: the states this read is most needed in are the ones where a spawn died early, and
+# a read that created the file whose absence is itself an answer would be a writer.
+if [ ! -f "$WPROG" ]; then
+  pass "(if2) the inflight read is read-only — no entry attestation required, and no progress file created"
+else fail "(if2) inflight wrote a record: $(cat "$WPROG" 2>/dev/null)"; fi
+
+printf 'work in progress\n' > "$p/scratch.txt"
+out="$(wgate "$WTREE" inflight 40)"; rc=$?
+if [ "$rc" -eq 8 ] && grep -qF 'is not clean' <<<"$out" && grep -qF 'scratch.txt' <<<"$out"; then
+  pass "(if3) a dirty tree is exit 8, naming the file that blocks it"
+else fail "(if3) expected rc=8 on a dirty tree, rc=$rc: $out"; fi
+rm -f "$p/scratch.txt"
+
+git -C "$p" commit -q --allow-empty -m "committed, never pushed" >/dev/null 2>&1
+out="$(wgate "$WTREE" inflight 40)"; rc=$?
+if [ "$rc" -eq 8 ] && grep -qF 'not on origin/claude/acme-40' <<<"$out"; then
+  pass "(if4) an unpushed commit is exit 8 too — the shape a BUILD session that exited 0 without pushing leaves"
+else fail "(if4) expected rc=8 on unpushed work, rc=$rc: $out"; fi
+
+# The asymmetry (wt6) pins at the other caller: BEHIND origin is safe, AHEAD is not. Once the
+# review session pushes its verdict record the build worktree is legitimately behind, and a
+# predicate that stopped there would fire on every honest run.
+git -C "$WTREE" update-ref refs/remotes/origin/claude/acme-40 "$(git -C "$p" rev-parse HEAD)"
+git -C "$p" reset -q --hard HEAD~1
+out="$(wgate "$WTREE" inflight 40)"; rc=$?
+if [ "$rc" -eq 0 ]; then
+  pass "(if5) a worktree merely BEHIND origin holds nothing in flight — the same asymmetry teardown applies"
+else fail "(if5) a behind-origin worktree was reported in flight, rc=$rc: $out"; fi
+
+# FAIL CLOSED, and DISTINGUISHABLY. An unresolvable remote-tracking ref is not a clean answer and
+# not a dirty one; collapsing it into either is the error-reads-as-success shape the whole
+# taxonomy exists to remove.
+p41="$(wt_make 41)"
+git -C "$WTREE" update-ref -d refs/remotes/origin/claude/acme-41 >/dev/null 2>&1
+out="$(wgate "$WTREE" inflight 41)"; rc=$?
+if [ "$rc" -eq 1 ] && grep -qF 'could not be evaluated' <<<"$out" \
+   && grep -qF 'unresolvable' <<<"$out"; then
+  pass "(if6) an unresolvable origin ref is exit 1 — a read that did not complete, never a clean answer"
+else fail "(if6) expected rc=1 on an unresolvable remote, rc=$rc: $out"; fi
+git -C "$WTREE" worktree remove --force "$p41" >/dev/null 2>&1
+
+# NO WORKTREE IS 0, and it has to be: the scheduler calls this after the close-out, whose last act
+# is teardown. A tree that does not exist holds no uncollected work, and `git worktree remove`
+# refuses a dirty one, so the directory cannot have taken work with it.
+out="$(wgate "$WTREE" inflight 42)"; rc=$?
+if [ "$rc" -eq 0 ] && grep -qF 'no registered worktree' <<<"$out"; then
+  pass "(if7) a branch with no worktree reports nothing in flight, naming why"
+else fail "(if7) expected rc=0 with nothing to read, rc=$rc: $out"; fi
+git -C "$WTREE" worktree remove --force "$p" >/dev/null 2>&1
+
+# --- (td) #531 D-11: teardown REPORTS its outcome, and is never certified ------------------------
+# Checklist step 9 runs `bash G 5` and THEN teardown, so the outcome does not exist when milestone
+# 5 is decided and cannot be one of its obligations. It gets a row of its own instead, in its own
+# `| teardown |` namespace — which is what keeps a hygiene outcome out of every reader that
+# anchors on `| milestone-<n> |`.
+TDPROG="$WREAL/td-progress.md"
+tdgate() { ( unset RUN_ID GH_BOT; cd "$WTREE" && CLAUDE_CODE_SESSION_ID="$WSID" \
+             SECOND_SHIFT_CONFIG="$CFG" LEAN_PROGRESS_FILE="$TDPROG" \
+             GH="$WREAL/gh-wt-stub.sh" PR_FIXTURE_DIR="$WPR" \
+             bash "$GATE" --issue-file "$ISSUE_NOREGIONS" "$@" 2>&1 ) }
+td_count() { local n; [ -f "$TDPROG" ] || { echo 0; return 0; }
+             n="$(grep -cF "$1" "$TDPROG" 2>/dev/null)" || n=0; echo "${n:-0}"; }
+
+rm -f "$TDPROG"
+p="$(wt_make 43)"
+tdgate entry 43 >/dev/null 2>&1
+td_tok_before="$(tdgate progress 43)"
+out="$(tdgate teardown 43)"; rc=$?
+if [ "$rc" -eq 0 ] && [ "$(td_count '| teardown | removed |')" -eq 1 ]; then
+  pass "(td1) a successful teardown records 'removed' in its own namespace"
+else fail "(td1) rc=$rc, rows: $(grep 'teardown' "$TDPROG" 2>/dev/null)"; fi
+
+# It is a DIAGNOSTIC, so it must be invisible to both scheduler token spaces. A teardown row that
+# moved either one would make hygiene an input to a completion decision.
+td_tok_after="$(tdgate progress 43)"
+if [ "$td_tok_before" = "$td_tok_after" ] && [ -n "$td_tok_after" ]; then
+  pass "(td2) the teardown row moves neither the continuation predicate nor anything anchored on a milestone"
+else fail "(td2) the teardown row moved the progress token: '$td_tok_before' -> '$td_tok_after'"; fi
+
+out="$(tdgate teardown 43)"; rc=$?
+if [ "$rc" -eq 0 ] && [ "$(td_count '| teardown | absent |')" -eq 1 ]; then
+  pass "(td3) a teardown with nothing to remove records 'absent' — a second outcome, not a repeat of the first"
+else fail "(td3) rc=$rc, rows: $(grep 'teardown' "$TDPROG" 2>/dev/null)"; fi
+
+p="$(wt_make 44)"
+printf 'uncollected\n' > "$p/scratch.txt"
+out="$(tdgate teardown 44)"; rc=$?
+if [ "$rc" -eq 0 ] && [ "$(td_count '| teardown | kept |')" -eq 1 ] \
+   && grep -qF 'is not clean' "$TDPROG"; then
+  pass "(td4) a KEPT worktree records 'kept' carrying the reason the operator was just shown — still rc=0"
+else fail "(td4) rc=$rc, rows: $(grep 'teardown' "$TDPROG" 2>/dev/null)"; fi
+
+# ...and the report reads the LAST outcome, because a run that fixed a kept worktree carries both.
+rm -f "$p/scratch.txt"
+tdgate teardown 44 >/dev/null 2>&1
+out="$(tdgate progress 44 --obligations)"
+if grep -qE '^teardown: (removed|kept) ' <<<"$out"; then
+  pass "(td5) the obligations report reads teardown's standing outcome, as its own line"
+else fail "(td5) teardown was not reported separately: $out"; fi
+
+# ONE ROW PER OUTCOME KIND, not one per call: the record is re-runnable and a bounded one is the
+# readable one.
+tdgate teardown 44 >/dev/null 2>&1
+if [ "$(td_count '| teardown | ')" -le 4 ]; then
+  pass "(td6) re-running teardown restates nothing — one row per outcome kind"
+else fail "(td6) teardown rows accumulated: $(grep -c 'teardown' "$TDPROG")"; fi
+rm -f "$TDPROG"
 
 # --- the entry sweep: qualification ------------------------------------------------------------
 # One `entry` call decides every registered worktree at once, so the fixtures are set up together

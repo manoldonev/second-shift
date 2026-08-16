@@ -101,7 +101,20 @@
 #                                        step, so a self-removing milestone 5 would delete the
 #                                        worktree mid-run. Refuses on unpushed or unclean work
 #                                        and exits 0 either way — hygiene is not evidence. Never
-#                                        deletes the branch: the PR points at it.
+#                                        deletes the branch: the PR points at it. #531: it also
+#                                        appends a `| teardown | <outcome> |` DIAGNOSTIC row —
+#                                        removed, kept-with-reason or nothing-to-remove — in its
+#                                        own namespace, so nothing reading `| milestone-<n> |`
+#                                        can mistake a hygiene outcome for a certified one.
+#   lean-gate.sh inflight <issue>        SCHEDULER role (#531): does this lane's worktree hold work
+#                                        that exists nowhere else? The same dirty-tree /
+#                                        unpushed-head predicate teardown refuses on, exposed
+#                                        read-only at the boundary where a BUILD session that
+#                                        exited 0 without pushing is still recoverable. Records
+#                                        nothing, spends no fix budget, creates no file. 0 =
+#                                        collected (a missing worktree included — nothing that does
+#                                        not exist holds work); 8 = it still holds work, naming
+#                                        which arm fired; 1 = the read could not be completed.
 #   lean-gate.sh delta  <issue>          REVIEW role: print the range this round must READ —
 #                                        the delta since the tree the last round covered, or the
 #                                        full branch diff when there is nothing verifiable to
@@ -113,7 +126,7 @@
 #                                        --fidelity defaults to not-applicable, which is the
 #                                        fail-closed side on an armed run (milestone 4 wants
 #                                        `pass`); `fail` with `approve` is refused.
-#   lean-gate.sh progress <issue> [--satisfied <n> | --infra]
+#   lean-gate.sh progress <issue> [--satisfied <n> | --infra | --obligations]
 #                                        SCHEDULER role (#492): print an OPAQUE TOKEN over the
 #                                        progress rows that mean the build role advanced. Reads
 #                                        only — it writes nothing and, unlike every other
@@ -121,6 +134,14 @@
 #                                        caller compares the token across a spawn and interprets
 #                                        nothing; `--satisfied <n>` narrows it to milestone n's
 #                                        `satisfied` row alone.
+#                                        `--obligations` (#531) prints neither token but a REPORT:
+#                                        one line per milestone-5 obligation with its recorded
+#                                        state, the aggregate's own state, and the teardown
+#                                        outcome read separately. Lines to ECHO, never to parse —
+#                                        the scheduler's close-out failure message is assembled
+#                                        from them so that it can name WHICH obligation is
+#                                        outstanding without the scheduler reading the record.
+#                                        All three flags are mutually exclusive.
 #                                        `--infra` (#527) prints a DIFFERENT token space,
 #                                        `m3infra-v2:<n>`, over milestone-3 evaluations that began
 #                                        and never concluded — an infrastructure death, derived
@@ -131,7 +152,6 @@
 #                                        death occurred. `m3infra-v2:0` is the no-death answer; it
 #                                        is never empty. Compare it ACROSS a spawn, never as a
 #                                        level: the record is append-only.
-#                                        The two flags are mutually exclusive.
 #   lean-gate.sh staleness <issue> [--arm ticket|base|both]
 #                                        SCHEDULER role (#515): is this run's premise still true?
 #                                        The TICKET arm asks whether the issue is still open; the
@@ -175,6 +195,12 @@
 #             one.
 #           * milestone 3 (#527): A VERIFY LANE RAISED THE RESERVED INFRASTRUCTURE CODE — see
 #             below. Same meaning, same remedy, and likewise no fix attempt charged.
+#       8 = `inflight` only (#531): THE LANE WORKTREE STILL HOLDS WORK — its tree is dirty, or it
+#           carries commits that are not on origin/<branch>. Its own integer rather than 1 for the
+#           reason 5, 6 and 7 have theirs: 1 on this subcommand means the predicate could not be
+#           EVALUATED, and a scheduler that could not tell "there is uncollected work" from "I
+#           could not look" would either stop every run whose fetch flaked or review a head missing
+#           everything the build session just did.
 #
 # THE RESERVED VERIFY-LANE INPUT CODE (#527). Exit 3 from a configured verify lane — the fixed
 # `lint`/`typecheck`/`test` keys, or any `extraLanes` entry — means "I failed for reasons that are
@@ -277,6 +303,11 @@ VERDICT_FIDELITY=""
 SUMMARY_FILE=""
 PROGRESS_SATISFIED=""
 PROGRESS_INFRA=0
+# #531 D-12. A third `progress` mode, and a REPORT rather than a token: the scheduler's close-out
+# failure message must name each obligation's own state, and a scheduler that parsed the record to
+# get them would own a reader it has no business owning. This prints the lines; the loop echoes
+# them and interprets nothing.
+PROGRESS_OBLIGATIONS=0
 # #515. Empty means "not given"; the default is applied after validation, so `--arm` on a
 # subcommand that ignores it is still loud rather than silently absorbed into the default.
 STALENESS_ARM=""
@@ -374,9 +405,10 @@ while [ $# -gt 0 ]; do
     --summary-file)  SUMMARY_FILE="${2:-}"; shift 2 ;;
     --satisfied)     PROGRESS_SATISFIED="${2:-}"; shift 2 ;;
     --infra)         PROGRESS_INFRA=1; shift ;;
+    --obligations)   PROGRESS_OBLIGATIONS=1; shift ;;
     --m3-token)      M3_RUN_TOKEN="${2:-}"; shift 2 ;;
     --arm)           STALENESS_ARM="${2:-}"; shift 2 ;;
-    -h|--help)       sed -n '2,265p' "$0"; exit 0 ;;
+    -h|--help)       sed -n '2,291p' "$0"; exit 0 ;;
     -*)              envfail "unknown option: $1" ;;
     *)
       if [ "$POSITIONAL" -eq 0 ]; then SUB="$1"; POSITIONAL=1
@@ -387,12 +419,12 @@ while [ $# -gt 0 ]; do
   esac
 done
 
-[ -n "$SUB" ]   || envfail "usage: lean-gate.sh <entry|claim|mark|1..5|all|teardown|delta|verdict|progress|staleness|m3-run> <issue>"
-[ -n "$ISSUE" ] || envfail "usage: lean-gate.sh <entry|claim|mark|1..5|all|teardown|delta|verdict|progress|staleness|m3-run> <issue>"
+[ -n "$SUB" ]   || envfail "usage: lean-gate.sh <entry|claim|mark|1..5|all|teardown|inflight|delta|verdict|progress|staleness|m3-run> <issue>"
+[ -n "$ISSUE" ] || envfail "usage: lean-gate.sh <entry|claim|mark|1..5|all|teardown|inflight|delta|verdict|progress|staleness|m3-run> <issue>"
 
 case "$SUB" in
-  entry|claim|mark|1|2|3|4|5|all|teardown|delta|verdict|progress|staleness|m3-run) : ;;
-  *) envfail "unknown subcommand '$SUB' (expected entry|claim|mark|1..5|all|teardown|delta|verdict|progress|staleness|m3-run)" ;;
+  entry|claim|mark|1|2|3|4|5|all|teardown|inflight|delta|verdict|progress|staleness|m3-run) : ;;
+  *) envfail "unknown subcommand '$SUB' (expected entry|claim|mark|1..5|all|teardown|inflight|delta|verdict|progress|staleness|m3-run)" ;;
 esac
 
 # #539, the same parse-time shape as `--satisfied` and `--infra` beside it. `m3-run` without a token
@@ -427,6 +459,15 @@ if [ "$PROGRESS_INFRA" -eq 1 ]; then
   [ "$SUB" = "progress" ] || envfail "--infra is only meaningful on 'progress', not '$SUB'."
   [ -z "$PROGRESS_SATISFIED" ] \
     || envfail "--infra and --satisfied are different token spaces and cannot be combined — ask for one per call."
+fi
+
+# #531, the same shape again, and mutually exclusive with BOTH of the above for a sharper reason
+# than theirs: this one prints a human-readable report rather than a token at all, so a caller that
+# combined it with either would get two different KINDS of answer on one stream.
+if [ "$PROGRESS_OBLIGATIONS" -eq 1 ]; then
+  [ "$SUB" = "progress" ] || envfail "--obligations is only meaningful on 'progress', not '$SUB'."
+  [ "$PROGRESS_INFRA" -eq 0 ] && [ -z "$PROGRESS_SATISFIED" ] \
+    || envfail "--obligations prints a report, not a token — it cannot be combined with --infra or --satisfied."
 fi
 
 # #515, same shape and for the same reason: an unknown arm must be a usage error before any read
@@ -1124,6 +1165,37 @@ append_satisfied() {
 # live writer: at `entry`, which every session runs before anything else.
 clear_satisfied_claims() { rm -rf "$PROGRESS_FILE".satisfied-*.claim; }
 
+# #531 D-10. THE PER-OBLIGATION ROW, and its verb is load-bearing rather than descriptive.
+#
+# progress_token narrows to milestone n by the FIXED SUBSTRING `| milestone-n | satisfied`, so an
+# obligation row spelled with that verb — `| milestone-5 | satisfied | closing comment` — would
+# move the scheduler's close-out token the instant the FIRST of the two obligations held. The
+# close-out would then report `done` over a run with no closing comment on it, which is precisely
+# the false `done` orchestrate-lean.sh's header calls worse than the loud failure it replaced.
+# `obligation` collides with nothing: not progress_token's two row kinds, not attempt_count's
+# `| milestone-n | attempt |`, not absent_count's, not unclosed_count's pair.
+#
+# BOTH DIRECTIONS ARE RECORDED, because the scheduler's failure message (D-12) has to name which
+# obligation is outstanding, and a record that only ever writes successes cannot answer that.
+#
+# IDEMPOTENT ON THE FULL TRIPLE, not on the name: `unmet` then `met` is the history a fix round
+# leaves and is worth keeping, while an `all` sweep re-running cmd_5 must not restate what is
+# already on file. So the record is bounded at one row per (obligation, state) pair.
+append_obligation() { # append_obligation <milestone> <name> <met|unmet>
+  ensure_progress_file
+  [ "$(count_matches "| milestone-$1 | obligation | $2 | $3" "$PROGRESS_FILE" -F)" -eq 0 ] || return 0
+  append_line "$(now_iso) | milestone-$1 | obligation | $2 | $3"
+}
+
+# Record the outstanding obligation, then fail EXACTLY as before. Every milestone-5 red that names
+# one of the two obligations routes through here rather than calling fail_milestone directly, so
+# the record and the failure cannot fall out of step — the shape that would let a red leave no row
+# and send the scheduler back to reporting all of them as one.
+fail_obligation() { # fail_obligation <name> <reason>
+  append_obligation 5 "$1" unmet
+  fail_milestone 5 "$2"
+}
+
 attempt_count() { count_matches "| milestone-$1 | attempt |" "$PROGRESS_FILE" -F; }
 
 # #494. The absent-artifact counterpart. Its line shape deliberately does NOT contain the
@@ -1490,42 +1562,89 @@ EOF
 # the run is complete and a leftover directory is hygiene, not evidence, so a refusal must not
 # red a gate or an `entry` that is otherwise ready to start the next run. The manual command is
 # printed in full because it IS the whole remedy.
+#
+# #531: it also PUBLISHES the reason it printed, so cmd_teardown's diagnostic row records the
+# same words the operator just read rather than re-deriving them from a second source that could
+# disagree. Set before anything is printed, so a caller reading it back is never reading a stale
+# value from an earlier decline.
+WORKTREE_KEEP_REASON=""
 worktree_keep() { # worktree_keep <path> <reason> [<detail>]
+  WORKTREE_KEEP_REASON="$2"
   warn "  keeping $1 — $2."
   if [ -n "${3:-}" ]; then printf '%s\n' "$3" | sed 's/^/[lean-gate]     /' >&2; fi
   warn "  remove it by hand once that is resolved: git -C '$MAIN_ROOT' worktree remove '$1'"
 }
 
-# The preconditions and the removal. 0 = the worktree is gone, 1 = it was deliberately kept.
+# ---------------------------------------------------------------- the IN-FLIGHT PREDICATE (#531)
+# THE ONE QUESTION BOTH SIDES ASK: does this lane worktree hold work that exists nowhere else?
+# Teardown has always asked it — a worktree carrying uncommitted or unpushed work must not be
+# destroyed — and #531 D-3 gives the SCHEDULER the same question at a different boundary: a BUILD
+# session that exits 0 with commits unpushed is `claude -p` ending a turn, not a block finishing,
+# and the round that follows reviews a remote head missing everything BUILD just did.
+#
+# EXTRACTED RATHER THAN RE-DERIVED, and that is the whole point of the row. Two copies of "is this
+# tree collected" would be two answers the moment one grew a case — and the failure direction of a
+# scheduler-side copy that drifted LENIENT is a review round spent on code nobody will merge, which
+# is the defect being fixed. One predicate, two callers.
 #
 # PUSHED-NESS IS "origin/<branch>..HEAD is empty", NOT the issue's proposed `HEAD =
 # origin/<branch>`. Once the review session pushes its verdict record the build worktree is
 # legitimately BEHIND origin, and strict equality would refuse exactly the removal this exists
 # for. Behind is safe; ahead is not.
 #
+# THREE ANSWERS, NOT TWO, and the third is why this is not a boolean. "The status could not be
+# read" and "origin/<branch> is unresolvable" are not "the tree is clean" and not "the tree is
+# dirty" — they are reads that did not complete, and both callers must fail CLOSED on them: the
+# same posture `staleness` and `progress` already take, for the same error-reads-as-success reason.
+# Teardown's own handling is unchanged by the split, because it keeps the worktree on 1 and on 8
+# alike.
+#
+# The reason and its detail are PUBLISHED rather than printed, so each caller frames them in its
+# own vocabulary — teardown says "keeping", the scheduler says "still carries work" — without a
+# second copy of the conditions.
+INFLIGHT_REASON=""
+INFLIGHT_DETAIL=""
+worktree_inflight() { # worktree_inflight <path> <branch> — 0 collected · 8 in flight · 1 unreadable
+  local wt="$1" br="$2" dirty unpushed
+  INFLIGHT_REASON=""
+  INFLIGHT_DETAIL=""
+  dirty="$(git -C "$wt" status --porcelain 2>&1)" \
+    || { INFLIGHT_REASON="its status could not be read ($dirty)"; return 1; }
+  if [ -n "$dirty" ]; then
+    INFLIGHT_REASON="its tree is not clean"
+    INFLIGHT_DETAIL="$dirty"
+    return 8
+  fi
+  # Best effort, and wrong only ever in the SAFE direction: a fetch that fails leaves a stale
+  # remote-tracking ref, which can make pushed work look unpushed and KEEP the worktree (or, at the
+  # scheduler boundary, stop a run for a push that already happened), never the reverse.
+  git -C "$wt" fetch --quiet origin "$br" >/dev/null 2>&1
+  unpushed="$(git -C "$wt" log --oneline "refs/remotes/origin/$br..HEAD" 2>&1)" \
+    || { INFLIGHT_REASON="origin/$br is unresolvable, so nothing proves its work is pushed"; return 1; }
+  if [ -n "$unpushed" ]; then
+    INFLIGHT_REASON="it carries commits that are not on origin/$br"
+    INFLIGHT_DETAIL="$unpushed"
+    return 8
+  fi
+  return 0
+}
+
+# The preconditions and the removal. 0 = the worktree is gone, 1 = it was deliberately kept.
+#
 # Gitignored files do not block `git worktree remove`, so the run's render PNGs under
 # `.claude/lean-renders/<issue>/` go with it — safe, because milestone 4 depends on the render id
 # alone once the verdict lands, never on the PNG bytes.
 worktree_destroy() { # worktree_destroy <path> <branch>
-  local wt="$1" br="$2" dirty unpushed out
+  local wt="$1" br="$2" out rc
   if [ "$wt" = "$MAIN_ROOT" ]; then
     worktree_keep "$wt" "it is the main checkout, not a lane worktree"
     return 1
   fi
-  dirty="$(git -C "$wt" status --porcelain 2>&1)" \
-    || { worktree_keep "$wt" "its status could not be read ($dirty)"; return 1; }
-  if [ -n "$dirty" ]; then
-    worktree_keep "$wt" "its tree is not clean" "$dirty"
-    return 1
-  fi
-  # Best effort, and wrong only ever in the SAFE direction: a fetch that fails leaves a stale
-  # remote-tracking ref, which can make pushed work look unpushed and KEEP the worktree, never
-  # the reverse.
-  git -C "$wt" fetch --quiet origin "$br" >/dev/null 2>&1
-  unpushed="$(git -C "$wt" log --oneline "refs/remotes/origin/$br..HEAD" 2>&1)" \
-    || { worktree_keep "$wt" "origin/$br is unresolvable, so nothing proves its work is pushed"; return 1; }
-  if [ -n "$unpushed" ]; then
-    worktree_keep "$wt" "it carries commits that are not on origin/$br" "$unpushed"
+  # Both non-zero answers keep the worktree, exactly as the four inline conditions this replaced
+  # did: an unreadable status is no more evidence that the work is safe than a dirty tree is.
+  worktree_inflight "$wt" "$br"; rc=$?
+  if [ "$rc" -ne 0 ]; then
+    worktree_keep "$wt" "$INFLIGHT_REASON" "$INFLIGHT_DETAIL"
     return 1
   fi
   out="$(git -C "$MAIN_ROOT" worktree remove "$wt" 2>&1)" \
@@ -1636,6 +1755,29 @@ m3_reap_runners() {
   return 0
 }
 
+# #531 D-11. TEARDOWN IS REPORTED, NEVER CERTIFIED. Checklist step 9 runs `bash G 5` and THEN
+# `bash G teardown`, so the outcome does not exist when milestone 5 is decided and cannot be one of
+# its obligations. Gating the aggregate on it would also contradict the note above — the kept
+# worktree is a sanctioned state, and a run that legitimately finished would red over a directory.
+#
+# So it gets a row of its own, in its own `| teardown |` namespace rather than a milestone one:
+# nothing that reads `| milestone-<n> |` can see it, which is what keeps it a diagnostic instead of
+# a silent input to the scheduler's satisfied token.
+#
+# ONE ROW PER OUTCOME KIND, not one per call. `bash G teardown` is re-runnable and a bounded record
+# is the readable one; a later call reaching a DIFFERENT outcome still appends, which is the
+# transition an operator actually wants to see (kept, fixed, then removed).
+#
+# IT NEVER MINTS A RECORD. cmd_teardown is deliberately outside require_entry_attested's set so
+# cleanup works from a checkout with no run state at all, and a write that brought the progress
+# file into existence would quietly undo that. Guarded on the file rather than on a flag, because
+# the condition IS "there is a record to annotate".
+append_teardown() { # append_teardown <outcome> <detail>
+  [ -f "$PROGRESS_FILE" ] || return 0
+  [ "$(count_matches "| teardown | $1 |" "$PROGRESS_FILE" -F)" -eq 0 ] || return 0
+  append_line "$(now_iso) | teardown | $1 | $2"
+}
+
 cmd_teardown() {
   local wt
   # #526, FIRST and unconditionally: the lane is over whichever way the worktree removal goes,
@@ -1648,14 +1790,61 @@ cmd_teardown() {
   wt="$(lean_worktree_for_branch "$LEAN_BRANCH")" || wt=""
   if [ -z "$wt" ]; then
     say "teardown: no registered worktree is on $LEAN_BRANCH — nothing to remove."
+    append_teardown absent "no registered worktree on $LEAN_BRANCH"
     return 0
   fi
   say "teardown: $LEAN_BRANCH"
-  worktree_destroy "$wt" "$LEAN_BRANCH"
+  WORKTREE_KEEP_REASON=""
+  if worktree_destroy "$wt" "$LEAN_BRANCH"; then
+    append_teardown removed "$wt"
+  else
+    append_teardown kept "$wt — ${WORKTREE_KEEP_REASON:-reason not recorded}"
+  fi
   # ALWAYS 0, whichever way that went. A kept worktree has already reported itself, and a
   # non-zero exit on the last command of a finished run reads as "the run failed" over a
   # directory nobody needs.
   return 0
+}
+
+# ---------------------------------------------------------------- the IN-FLIGHT READ (#531)
+# SCHEDULER ROLE, and the same "gate owns the predicate, loop owns the comparison" division
+# `progress` and `staleness` established. The scheduler needs to know whether a spawn that exited 0
+# left work only this worktree has; it must not learn that by running git itself, because a
+# file-overlap-style heuristic inlined there breaks the boundary its header states.
+#
+# READ-ONLY in the strict sense that boundary needs: no `attempt` row, no `satisfied` row, no fix
+# budget, and — like `progress` and `staleness` — no ensure_progress_file, so it cannot bring the
+# run's record into existence.
+#
+# NOT in require_entry_attested's set, for `progress`'s reason exactly: the states it is most
+# needed in are the ones where a spawn died early, and refusing it there would remove the answer
+# precisely when it matters.
+#
+# NO WORKTREE IS 0, DELIBERATELY. The scheduler calls this after the close-out too, whose last act
+# is `bash G teardown` — so the ordinary successful shape is that there is nothing left to read.
+# It is also the honest answer: a tree that does not exist holds no uncollected work, and
+# `git worktree remove` refuses a dirty one, so the directory cannot have taken work with it. A
+# BUILD spawn that never cut a worktree is caught by the continuation predicate beside this, which
+# is the read that owns "did anything happen at all".
+cmd_inflight() {
+  local wt rc
+  wt="$(lean_worktree_for_branch "$LEAN_BRANCH")" || wt=""
+  if [ -z "$wt" ]; then
+    say "inflight: no registered worktree is on $LEAN_BRANCH — there is no tree that could be holding work."
+    return 0
+  fi
+  worktree_inflight "$wt" "$LEAN_BRANCH"; rc=$?
+  case "$rc" in
+    0) say "inflight: clean — $wt has a clean tree and every commit on origin/$LEAN_BRANCH."
+       return 0 ;;
+    8) warn "[lean-gate] ✗ inflight: $wt STILL HOLDS WORK — $INFLIGHT_REASON."
+       if [ -n "$INFLIGHT_DETAIL" ]; then printf '%s\n' "$INFLIGHT_DETAIL" | sed 's/^/[lean-gate]     /' >&2; fi
+       warn "  Nothing outside this worktree has a copy, so a review would read a head missing it. Commit and push from $wt, then re-launch."
+       return 8 ;;
+    *) warn "[lean-gate] ✗ inflight: the predicate could not be evaluated — $INFLIGHT_REASON."
+       warn "  Refusing to report a tree nothing could read as collected: an unreadable answer is not a clean one."
+       return 1 ;;
+  esac
 }
 
 # ---------------------------------------------------------------- the CONTINUATION PREDICATE
@@ -1807,7 +1996,66 @@ infra_token() {
   printf 'm3infra-v2:%s\n' "$n"
 }
 
+# ---------------------------------------------------------------- the CLOSE-OUT REPORT (#531)
+# D-12. The scheduler's close-out failure used to name three obligations as one — "the closing
+# comment, the exit artifacts and the worktree teardown are all unaccounted for" — which was wrong
+# twice over: milestone 5 never asserted the teardown at all, and even for the two it does assert
+# the message could not say which of them was outstanding. Every recovery began with a human
+# reading the record by hand.
+#
+# A REPORT, NOT A TOKEN, and the distinction is the boundary. Everything else on this subcommand
+# prints an opaque value the caller may only COMPARE; this prints lines the caller may only ECHO.
+# Neither lets the scheduler interpret the record, which is what its header forbids — and putting
+# the reading here rather than there is the same division `progress` and `staleness` already hold.
+#
+# TEARDOWN IS READ SEPARATELY and labelled as its own thing (D-11), so the report cannot be
+# mistaken for a claim that milestone 5 certified it.
+#
+# ALWAYS 0. It answers a question about a record that may legitimately be empty — a close-out that
+# died before its first gate call leaves nothing, and "nothing was recorded" is that answer rather
+# than a failure to produce one.
+LEAN_M5_OBLIGATIONS='exit-artifacts verdict-reference'
+
+# `met` WINS over `unmet` when both are on file, and that is the only sound reading of an
+# append-only record: the pair is a HISTORY, so a fix round that turned an outstanding obligation
+# into a met one leaves both rows, and reporting the failure would make the record say the run got
+# worse. There is no reverse transition — nothing un-meets an obligation once cmd_5 has seen it.
+obligation_state() { # obligation_state <milestone> <name>
+  if [ "$(count_matches "| milestone-$1 | obligation | $2 | met" "$PROGRESS_FILE" -F)" -gt 0 ]; then
+    echo met
+  elif [ "$(count_matches "| milestone-$1 | obligation | $2 | unmet" "$PROGRESS_FILE" -F)" -gt 0 ]; then
+    echo unmet
+  else
+    echo "not recorded"
+  fi
+}
+
+obligations_report() {
+  local name td
+  for name in $LEAN_M5_OBLIGATIONS; do
+    printf 'milestone-5 obligation %s: %s\n' "$name" "$(obligation_state 5 "$name")"
+  done
+  # The aggregate, stated ALONGSIDE its parts rather than left to be inferred from them: it is
+  # appended only when every obligation holds, so "both met, no aggregate" is a real state — the
+  # gate redded on something that is not an obligation, the identity stamp — and a report that
+  # printed only the parts could not show it.
+  if [ "$(count_matches "| milestone-5 | satisfied" "$PROGRESS_FILE" -F)" -gt 0 ]; then
+    printf 'milestone-5 aggregate: satisfied\n'
+  else
+    printf 'milestone-5 aggregate: not satisfied\n'
+  fi
+  # Its own namespace, its own line, never folded into the milestone above. LAST row wins, because
+  # append_teardown records one row per outcome KIND and a run that fixed a kept worktree carries
+  # both — the later one is the standing outcome.
+  td="$(sed -n 's/^.*| teardown | \([a-z][a-z]*\) | \(.*\)$/\1 (\2)/p' "$PROGRESS_FILE" 2>/dev/null | sed -n '$p')"
+  printf 'teardown: %s\n' "${td:-not recorded}"
+}
+
 cmd_progress() {
+  if [ "$PROGRESS_OBLIGATIONS" -eq 1 ]; then
+    obligations_report
+    return 0
+  fi
   if [ "$PROGRESS_INFRA" -eq 1 ]; then
     infra_token
     return 0
@@ -4275,38 +4523,51 @@ cmd_5() {
     return $?
   fi
 
+  # #531 D-10. FROM HERE ON, EACH OF MILESTONE 5'S TWO OBLIGATIONS RECORDS ITS OWN STATE before
+  # the aggregate is decided. The failure paths below are unchanged in every respect but that —
+  # same order, same wording, same fix-budget accounting — and the aggregate `satisfied` row is
+  # still appended only at the very end, once every obligation holds. What is new is that a
+  # partially finished close-out now leaves a record naming WHICH half is outstanding, instead of
+  # one indistinguishable `attempt` line the scheduler could only report as "all three unaccounted
+  # for". `fail_obligation` is the whole mechanic: record, then fail exactly as before.
+  #
+  # `exit-artifacts` is the ready PR carrying its ticket reference and its spec link.
+  # `verdict-reference` is the surface that points at the committed verdict record — the closing
+  # comment on the issue under github, and the PR body under a `writes: false` tracker, which is
+  # the same obligation discharged where the adapter allows.
   if [ -n "$PR_FILE" ]; then
     [ -f "$PR_FILE" ] || envfail "--pr-file '$PR_FILE' does not exist."
     pr="$(cat "$PR_FILE")"
   else
     pr="$("$GH_CLI" pr list --head "$LEAN_BRANCH" --state open \
           --json number,url,body,isDraft --limit 1 2>&1)" \
-      || { warn "$pr"; fail_milestone 5 "could not list PRs for $LEAN_BRANCH"; return $?; }
+      || { warn "$pr"; fail_obligation exit-artifacts "could not list PRs for $LEAN_BRANCH"; return $?; }
   fi
   printf '%s' "$pr" | jq -e 'type == "array" and length > 0' >/dev/null 2>&1 \
-    || { fail_milestone 5 "no open PR found for branch $LEAN_BRANCH"; return $?; }
+    || { fail_obligation exit-artifacts "no open PR found for branch $LEAN_BRANCH"; return $?; }
 
   draft="$(printf '%s' "$pr" | jq -r '.[0].isDraft')"
   body="$(printf '%s' "$pr" | jq -r '.[0].body // ""')"
   url="$(printf '%s' "$pr" | jq -r '.[0].url')"
 
-  [ "$draft" = "false" ] || { fail_milestone 5 "PR $url is still a draft (D-27 requires a ready PR)"; return $?; }
+  [ "$draft" = "false" ] || { fail_obligation exit-artifacts "PR $url is still a draft (D-27 requires a ready PR)"; return $?; }
   # Same capture-first discipline as count_matches — these read a string, not a file.
   local n_closes n_spec
   if [ "$TRACKER_TYPE" = "jira" ]; then
     n_closes="$(printf '%s' "$body" | jira_items_section | grep -c -i -E "closes[[:space:]]+\[$ISSUE\]")" || n_closes=0
     [ "$n_closes" -ge 1 ] \
-      || { fail_milestone 5 "PR body carries no 'Closes [$ISSUE]' under a 'Jira Items' heading"; return $?; }
+      || { fail_obligation exit-artifacts "PR body carries no 'Closes [$ISSUE]' under a 'Jira Items' heading"; return $?; }
   else
     n_closes="$(printf '%s' "$body" | grep -c -i -E "closes[[:space:]]+#$ISSUE")" || n_closes=0
     [ "$n_closes" -ge 1 ] \
-      || { fail_milestone 5 "PR body carries no 'Closes #$ISSUE'"; return $?; }
+      || { fail_obligation exit-artifacts "PR body carries no 'Closes #$ISSUE'"; return $?; }
   fi
   # Adapter-INSENSITIVE: the spec is a committed repo path at the same pinned location under
   # both trackers, so the link assertion is shared rather than duplicated per arm.
   n_spec="$(printf '%s' "$body" | grep -c -F -- "$SPEC_REL")" || n_spec=0
   [ "$n_spec" -ge 1 ] \
-    || { fail_milestone 5 "PR body does not link the committed spec ($SPEC_REL)"; return $?; }
+    || { fail_obligation exit-artifacts "PR body does not link the committed spec ($SPEC_REL)"; return $?; }
+  append_obligation 5 exit-artifacts met
 
   # Under jira the verdict reference has nowhere else to live: `tracker.writes: false` means
   # there is no closing comment, so the PR body carries it and the comment trail is never
@@ -4315,7 +4576,8 @@ cmd_5() {
     local n_verdict
     n_verdict="$(printf '%s' "$body" | grep -c -F -- "$VERDICT_REL")" || n_verdict=0
     [ "$n_verdict" -ge 1 ] \
-      || { fail_milestone 5 "PR body does not reference the verdict record ($VERDICT_REL) — under a read-only tracker the body is the only surface that can carry it"; return $?; }
+      || { fail_obligation verdict-reference "PR body does not reference the verdict record ($VERDICT_REL) — under a read-only tracker the body is the only surface that can carry it"; return $?; }
+    append_obligation 5 verdict-reference met
     cmd_mark || { fail_milestone 5 "could not stamp the build identity on the PR"; return $?; }
     pass_milestone 5 "exit artifacts present, jira adapter, no tracker write ($url)"
     return 0
@@ -4326,7 +4588,7 @@ cmd_5() {
     comments="$(cat "$COMMENTS_FILE")"
   else
     comments="$("$GH_CLI" api "repos/{owner}/{repo}/issues/$ISSUE/comments" --paginate 2>&1)" \
-      || { warn "$comments"; fail_milestone 5 "could not fetch the comment trail for #$ISSUE"; return $?; }
+      || { warn "$comments"; fail_obligation verdict-reference "could not fetch the comment trail for #$ISSUE"; return $?; }
   fi
   printf '%s' "$comments" | jq -e 'type == "array"' >/dev/null 2>&1 \
     || envfail "comment trail is not a JSON array."
@@ -4337,11 +4599,16 @@ cmd_5() {
   closing="$(printf '%s' "$comments" | jq -r --arg v "$VERDICT_REL" \
     '[ .[] | select((.body // "") | contains($v)) ] | length')"
   [ "$closing" -ge 1 ] \
-    || { fail_milestone 5 "no closing comment on #$ISSUE references the verdict record ($VERDICT_REL)"; return $?; }
+    || { fail_obligation verdict-reference "no closing comment on #$ISSUE references the verdict record ($VERDICT_REL)"; return $?; }
+  append_obligation 5 verdict-reference met
 
   # The build identity, stamped on the PR (D-3). LAST, after every assertion above: a run that
   # is not going to pass milestone 5 has no business leaving a marker, and the idempotent
   # no-op means the ordinary path — where checklist step 7 already posted it — writes nothing.
+  #
+  # NOT an obligation row of its own (D-11 draws the set at two): it is an assertion milestone 5
+  # makes about the run's identity, not one of checklist step 9's obligations, and adding it to the
+  # report would make the report answer a question the failure message does not ask.
   cmd_mark || { fail_milestone 5 "could not stamp the build identity on the PR"; return $?; }
 
   pass_milestone 5 "exit artifacts present ($url)"
@@ -4596,6 +4863,7 @@ case "$SUB" in
   claim)   cmd_claim ;;
   mark)    cmd_mark ;;
   teardown) cmd_teardown ;;
+  inflight) cmd_inflight ;;
   delta)   cmd_delta ;;
   progress) cmd_progress ;;
   staleness) cmd_staleness ;;
