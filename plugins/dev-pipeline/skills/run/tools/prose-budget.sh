@@ -76,7 +76,7 @@ fi
 # The shell ratchet has NO stub companion. On the markdown side the stub exists so a consumer
 # that never ran --update-baseline gets warnings instead of a hard failure; here the same
 # outcome falls out of the file simply being absent (have_shell_baseline=0 -> every file NEW),
-# so shipping one would only add an artifact whose header-only-ness needs its own guard.
+# so shipping one would only add an artifact whose header-only shape needs its own guard.
 SHELL_BASELINE="$REPO/.claude/prose-budget-shell.baseline.tsv"
 
 TOL="${PROSE_TOLERANCE_PCT:-5}"
@@ -236,7 +236,7 @@ fi
 # scripts must stay 3.2-compatible — so look the baseline up per-file with awk
 # (below) instead of building a path→words map.
 have_baseline=0; [[ -f "$BASELINE" ]] && have_baseline=1
-# No stub fallback on the shell side, so local-ness and existence are the same question here.
+# No stub fallback on the shell side, so locality and existence are the same question here.
 have_shell_baseline=0; [[ -f "$SHELL_BASELINE" ]] && have_shell_baseline=1
 
 fails=0; warns=0; total_words=0; total_nnn=0; tracked=0
@@ -384,9 +384,10 @@ fi
 #
 # The counters are named sh_rows/sh_stale rather than reusing rows/stale, and that is load
 # bearing rather than style: tools/mutation-catalog.tsv's prose-budget-stale-gate row anchors
-# the markdown check with the literal sed pattern `stale == rows`. A second site carrying the
-# same expression would make that mutant apply in two places at once, quietly changing what the
-# catalog row measures while it still reported a kill.
+# the markdown all-rows-unresolvable comparison by its literal text. A second site spelling that
+# comparison the same way would make the mutant apply in two places at once, quietly changing
+# what the catalog row measures while it still reported a kill. For the same reason this note
+# describes the comparison rather than quoting it — a comment is a mutation site too.
 if (( have_shell_baseline )); then
   sh_rows=0; sh_stale=0
   while IFS=$'\t' read -r p _rest; do
