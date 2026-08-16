@@ -428,10 +428,16 @@ STALE_PAT='FAIL stale baseline'
 SH_VACUOUS_PAT='FAIL vacuous shell coverage'
 SH_STALE_PAT='FAIL stale shell baseline'
 SH_GROW_PAT='FAIL ratio grew'
+# The literal doctor's "nothing was measured" short-circuit branches on. It is deliberately
+# NOT NA_PAT: the markdown marker alone is emitted by a repo whose shell files WERE measured,
+# and branching on it reported that repo as having nothing to measure (#552 review r1).
+DOCTOR_NA_PAT='coverage: md n/a, sh n/a'
 
 # Guard: these are the literals doctor branches on. If they drift there, T10 fails; if
 # they drift in the tool, the assertions below fail. Both directions are covered.
-for pat in "$VACUOUS_PAT" "$NA_PAT" "$STALE_PAT" "$SH_VACUOUS_PAT" "$SH_STALE_PAT" "$SH_GROW_PAT"; do
+# NA_PAT is asserted against the TOOL's output only (it is a marker doctor no longer reads),
+# so it is not in this loop — T11's n/a case below is what holds it.
+for pat in "$VACUOUS_PAT" "$DOCTOR_NA_PAT" "$STALE_PAT" "$SH_VACUOUS_PAT" "$SH_STALE_PAT" "$SH_GROW_PAT"; do
   grep -qF -- "$pat" "$DOCTOR" || bad "T11 precondition: doctor no longer contains '$pat'"
 done
 
@@ -449,16 +455,42 @@ else
   bad "T11s a shell marker overlaps its markdown counterpart — doctor's earlier branch would claim it"
 fi
 
-# n/a output must hit the n/a branch and NO warn branch.
+# n/a output must hit the n/a branch and NO warn branch. Nothing is measured on EITHER path
+# in a bare repo, so doctor's short-circuit predicate must claim it.
 R="$(mkrepo t11na)"
 run_tool "$R"
 if grep -qF -- "$NA_PAT" <<< "$OUT" \
+   && grep -qF -- "$DOCTOR_NA_PAT" <<< "$OUT" \
    && ! grep -qF -- "$VACUOUS_PAT" <<< "$OUT" \
    && ! grep -qF -- "$STALE_PAT" <<< "$OUT" \
    && (( RC == 0 )); then
   ok "T11 n/a output routes to doctor's n/a branch only"
 else
   bad "T11 n/a output did not route cleanly (rc=$RC)"
+fi
+
+# --- T11b (AC-4/AC-10): md n/a + sh measured must NOT read as "nothing to measure" ---------
+# The repo shape S5/S5b describe — tools/*.sh, no skills/ or agents/ root — emits the markdown
+# n/a marker AND a measured shell verdict. Doctor's short-circuit used to branch on the markdown
+# marker alone, so it announced "nothing to measure" over a run that measured two files and
+# raised two warnings, discarding the tail -1 summary that D-4 kept combined precisely so this
+# arm could report it. Asserting the summary (S5b) is not enough on its own: this is about which
+# of DOCTOR's two arms claims that summary, and only the predicate can say.
+#
+# Non-vacuity: the first clause is the regression. Restore the old `n/a — no instruction layer`
+# predicate and this case fails on it while every other T11 case, and S5b, stay green.
+R="$(mkrepo t11nasm)"
+mkdir -p "$R/tools"
+printf '# c\ntrue\n' > "$R/tools/t.sh"
+printf '# d\n# e\ntrue\n' > "$R/tools/u.sh"
+run_tool "$R"
+if ! grep -qF -- "$DOCTOR_NA_PAT" <<< "$OUT" \
+   && grep -qF -- 'coverage: md n/a, sh measured' <<< "$OUT" \
+   && grep -qF -- "$NA_PAT" <<< "$OUT" \
+   && (( RC == 0 )); then
+  ok "T11b md n/a + sh measured falls through to doctor's summary arm, not its n/a arm (AC-4)"
+else
+  bad "T11b md-n/a-with-measured-shell routed to the 'nothing to measure' arm (rc=$RC); summary: $(tail -1 <<< "$OUT")"
 fi
 
 # vacuous output must hit the vacuous branch, not the generic growth fallback.
