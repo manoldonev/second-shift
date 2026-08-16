@@ -4,6 +4,42 @@ All notable changes to the second-shift marketplace. Versions are per-plugin (`p
 this file tracks the marketplace release. `configVersion` stays `const 1` — v2 is fully backward-compatible for a
 consumer with an empty config; the migration notes below are only for consumers using the changed features.
 
+## v5.2.0
+
+### `dev-pipeline` 5.1.0 → 5.2.0
+
+- **feat(dev-pipeline): signal-killed suites no longer orphan their fixtures, and same-issue progress writes are atomic (#540)** (#540)
+  milestone-3 sweeps no longer red on fixture litter left by a
+  signal-killed suite, and concurrent same-issue gate calls no longer write
+  duplicate satisfied rows. lean-gate.sh now announces its resolved config
+  path on stderr for every subcommand except progress.
+  Migration: none.
+  the lean gate's fixture reaper no longer deletes a running suite's working
+  directory on platforms whose `ps` renders start times without trailing padding, and a
+  concurrent same-issue progress write can no longer drop a recorded fix attempt.
+  Migration: none.
+  the mutation sweep's warning summary no longer tells you to shrink
+  the baseline when the warning was not about the baseline.
+  Migration: none.
+- **An infrastructure kill is told apart from an idle session (#545)** (#545)
+  a lean run whose milestone-3 sweep is killed by infrastructure no longer
+  stops with its continuations unspent, and no longer spends a fix attempt on a
+  verdict nothing produced. tools/run-selftests.sh exits 3 when every failing suite
+  died without writing a verdict; lean-gate.sh milestone 3 reads that from any verify
+  lane as 'nothing was evaluated'.
+  Migration: a consumer whose lint/typecheck/test/extraLanes command already exits 3
+  for a genuine failure should change it to any other non-zero code — see
+  docs/config-schema.md.
+- **The milestone-3 runner can outlive the turn that launched it (#547)** (#547)
+  milestone 3's detached evaluation can now be spawned in its own
+  session, behind `LEAN_GATE_M3_NEW_SESSION=1`, so it survives the turn boundary
+  that used to kill it in a headless build child; teardown reaps that runner, and
+  the infrastructure-death read counts a surviving one as recoverable.
+  Migration: none — unset, the seam leaves the shipped shape unchanged. A
+  scheduler comparing the `progress --infra` token across a gate upgrade will see
+  the token space move from `m3infra-v1:` to `m3infra-v2:` once and route that
+  spawn as an infrastructure death.
+
 ## v5.1.0
 
 ### `audit-toolkit` 2.1.1 → 2.1.2
