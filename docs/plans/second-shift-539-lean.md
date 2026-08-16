@@ -73,11 +73,17 @@ subcommand** is not inherited the way an exported var is.
   while the lane cannot reach milestone 3 at all, so a case that cannot fail on the seam being off
   is not a guard.
 
-- **AC-6 — the mutation obligations on this diff are paid in this diff.** The five
-  `tools/mutation-catalog.tsv` rows anchored into the m3 region (`lean-gate-m3-no-join`,
-  `-stale-marker`, `-death-blind`, `-pid-outlives`, `-samelaunch-join`) keep working `sed` anchors,
-  and editing `cmd_teardown` / `infra_token` / `m3_wait` re-keys their generic survivor ordinals —
-  re-baseline those rows in `tools/mutation-baseline.tsv` here, per CLAUDE.md.
+- **AC-6 — the mutation obligations on this diff are settled in this diff, either way.** Two
+  obligations, and each is discharged by a check whose answer is recorded, not by assuming which
+  way it goes. (i) The five `tools/mutation-catalog.tsv` rows anchored into the m3 region
+  (`lean-gate-m3-no-join`, `-stale-marker`, `-death-blind`, `-pid-outlives`, `-samelaunch-join`)
+  still match their `sed` anchors exactly once each, or are re-anchored here. (ii) The generic
+  survivor ordinals for every guard this diff edits — `lean-gate.sh` at `cmp-eq::1`, `default::1`,
+  `default::2` and `orchestrate-lean.sh` at `default::1` — still name the sites their baseline
+  notes describe, or `tools/mutation-baseline.tsv` is re-keyed here. Ordinals are the operator's
+  match order over the whole file, so an edit ABOVE a baselined site moves it and an edit below
+  does not; the check is a `grep -nE` with the committed operator pattern against both revisions,
+  and its result belongs in the PR body whichever way it comes out.
 
 ## Out of scope, stated
 
