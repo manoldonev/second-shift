@@ -4,6 +4,36 @@ All notable changes to the second-shift marketplace. Versions are per-plugin (`p
 this file tracks the marketplace release. `configVersion` stays `const 1` — v2 is fully backward-compatible for a
 consumer with an empty config; the migration notes below are only for consumers using the changed features.
 
+## v5.2.1
+
+### `dev-pipeline` 5.2.0 → 5.2.1
+
+- **Every phase boundary infers completion from exit 0 instead of asserting terminal state (#548)** (#548)
+  the lean scheduler now names each terminal state with a stable slug, refuses to
+  hand a review a PR whose remote head is missing work the build session left behind,
+  continues a partially finished close-out once, and skips the review on a head that
+  already carries an approve. Milestone 5 reports the closing comment and the exit
+  artifacts as separate obligations, and teardown records its own outcome.
+  Migration: none.
+
+### `intake-toolkit` 2.3.4 → 2.3.5
+
+- **intake: plan-interview elicits the product surface, and the receipt proves it (#507)** (#507)
+  plan-interview leads its materiality list with product/UX
+  categories and enumerates the surfaces a ticket implies, each decided or
+  explicitly scoped out. Intake receipts carry a mandated
+  `## Surface Inventory` section, enforced by `ledger-lint.sh --receipt`;
+  in-plan Decision Ledgers are unaffected. Batch-blessing is named as a
+  prohibited interview move, and design-handoff presence is checked before
+  the intake router dispatches.
+  Migration: an existing intake receipt needs a `## Surface Inventory`
+  section — rows, or the empty form
+  `No user-visible surface — this change renders nothing a user reads.`
+  `intake-orchestrator` and `intake-interviewer` now describe the intake
+  receipt's mandated `## Surface Inventory` section, so `intake-orchestrator`'s Receipt
+  Exit Gate passes on the shape it prescribes.
+  Migration: none.
+
 ## v5.2.0
 
 ### `dev-pipeline` 5.1.0 → 5.2.0
