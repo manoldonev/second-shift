@@ -1,125 +1,145 @@
 # lean review verdict — #348
 
 verdict=needs-work
-run_id: review-348-2
-session_id: c9356284-c208-4d7c-825f-f9062b5fe24b
-rounds: 2
+run_id: review-348-3
+session_id: a9092cec-70fa-4d4c-ac51-32676cf478d6
+rounds: 3
 pr: #568
-reviewed_head: 74562a06658deab7442a99cf0a7d7034d68b0160
-reviewed_patch_id: c20ccc39703802f56efc473965de5abad6381356
-inherited_patch_id: d558b5da579f293ff16d22427b603b714ba19675
-inherited_from_verdict: ae7c47c850317021e0810d26ac4398d5e93b7970
+reviewed_head: 469d37dfd9772304c1a9d608eabbec1e89a73f3d
+reviewed_patch_id: bd8238bc7c30327dcb23098683a8239da9bcbf55
+inherited_patch_id: c20ccc39703802f56efc473965de5abad6381356
+inherited_from_verdict: 0a2046829083321ec388d5613efd58bf9638ff7a
 fidelity: not-applicable
 model: unknown
 capabilities: pr-marker
 
-Round 2 over the delta `ae7c47c..HEAD` (11 files, +78/−30), inheriting round 1's coverage of
-`33e6187..7047b83` by reference to the committed round-1 record. Read wider than the range where
-the delta looked misleading: the whole-tree orphan sweep, the relative-link resolution over every
-shipped `.md`, and the pin literal against the tag list are branch-wide reads, because a deletion's
-blast radius is not diff-shaped.
+Round 3 over the delta `0a20468..HEAD` (15 files, +203/−82), inheriting rounds 1–2 by reference to
+the committed round-2 record. Read wider than the range wherever the delta looked misleading: all
+three orphan-check kinds whole-tree, the relative-link resolution at head **and** at the merge-base,
+every `${CLAUDE_PLUGIN_ROOT}`-anchored path in the tree, and the two config surfaces AC-6 names.
 
-**All five round-1 blockers are closed, and all six warnings with them.** Verified individually, not
-taken from the PR body — see the closure table. The commit that closed them is careful work: it
-adopted round 1's reasoning rather than just its remedies, and the AC-1 restatement is now exactly
-true (I ran the check as specified and got precisely the seven declared classes, no eighth).
+**Both round-2 blockers and all four warnings are closed, verified individually rather than taken
+from the PR body.** The AC-1 amendment is exactly true at this head — I re-ran all three kinds:
 
-The blockers below are new, and they are the same defect one more layer out. AC-1's orphan check is
-a **path-prefix grep for `skills/run/`**. This change broke three kinds of reference, and that key
-only sees the first:
-
-| Kind of reference | Caught by the `skills/run/` grep? |
+| Kind | Result at `469d37d` |
 | --- | --- |
-| a **path** into the deleted tree | yes — swept clean, twice |
-| a **slash command** (`/dev-pipeline:run`) | **no** — the token contains no path |
-| a **relative link** whose depth changed under relocation | **no** — the link text is unchanged; only its resolution moved |
+| 1 — path into the deleted tree | the seven declared classes and no eighth (37 `capability-parity.tsv` rows + 9 sites + `ci.yml`'s two denylist patterns) |
+| 2 — the deleted command literal (`grep -rE '/dev-pipeline:run([^-a-zA-Z]|$)'`) | 10 hits, **all** in the three declared exemptions (`CHANGELOG.md`, `docs/migrations/v1-to-v2.md`, `docs/onboarding.md`) |
+| 3 — relative-link resolution, head vs merge-base | 24 broken at head, 7 at `33e6187`; **22 new**, exactly the two declared classes (16 historical-corpus rows, 6 `state-schema.md`) and **zero shipped-doc rows**. The branch also *fixed* 5 of the base's 7. |
 
-Both blockers are instances of AC-6 as this round amended it — and the amendment names both classes
-by name ("shipped plugin docs whose copy-pasteable commands … moved", "relocated-verbatim docs whose
-sibling links no longer resolve"). Neither is exotic: one lands in a file whose sibling this very
-commit fixed, the other in two files this commit opened.
+The `(env16)`/`(env16b)` re-homing is the best work in this delta and it is not decorative — I
+mutation-probed it in an isolated worktree (22/22 green at head):
+
+| Mutant | `(env16)` | `(env16b)` |
+| --- | --- | --- |
+| M1 — drop the total subtraction (`$wall - $pausedSecs` → `$wall`) | **kill** | **kill** |
+| M2 — drop the per-stage overlap (`($ee-$ss) - $ov` → `($ee-$ss)`) | **kill** | survives |
+| M3 — swap `effectiveTotalMin`/`wallMin` in the **text renderer only** | survives | **kill** |
+
+Each case kills a mutant the other survives, so `(env16b)` is not the vacuous outer-guard shape.
+
+The blockers below are new. Both are the same class as round 2's, at the two surfaces its sweep did
+not reach — and one of them is a claim **this delta wrote** that is not true.
 
 ## Findings
 
 | # | Severity | Where | Finding |
 | --- | --- | --- | --- |
-| 1 | **Blocker** | 5 tracked files / **AC-6** | The deleted **slash command** `/dev-pipeline:run` is still advertised in shipped, consumer-facing artifacts. `plugins/second-shift/templates/consumer/SECOND-SHIFT.md:15` is the sharpest: it is the onboard template **copied into every consumer repo**, and it lists `` `run` (the 10-stage ticket→PR state machine, invoked as `/dev-pipeline:run`, deprecated — kept as an ablation/rollback lane) `` among dev-pipeline's skills. From this release on that skill does not exist, so onboard writes a false skill inventory into every repo it touches. `plugins/dev-pipeline/tools/tracker/jira/README.md:37` is the second sharp one — the **pickup row of the JIRA adapter contract** reads `(/dev-pipeline:run GH-540)`; under jira there is no queue, so that row *is* the documented entry point, and it names a command that is gone. Its sibling `tools/tracker/README.md` **was** fixed in this same commit; the `jira/` copy relocated at `similarity index 100%` and was not re-read — precisely the failure mode `74562a0`'s own message documents for four other relocated docs. Also: `plugins/second-shift/skills/onboard/SKILL.md:155` ("the first `/dev-pipeline:run` pre-flight will fail until one exists"), `plugins/dev-pipeline/skills/pipeline-retro/SKILL.md:3` (the frontmatter `description:` — the string the harness shows in the skill listing — "Run after a `/dev-pipeline:run` run completes (or aborts)"), and `.claude/SECOND-SHIFT.md:23`, this repo's own tracked dogfood record. **Three of the five are files this branch already edits** (`onboard/SKILL.md`, `pipeline-retro/SKILL.md`, `tracker/jira/README.md` each have one commit on the branch) — the sweep opened them and missed the line, because it was looking for a path. Lower-stakes sixth site, same class: `.github/ISSUE_TEMPLATE/pipeline-aborted.yml:17`'s placeholder. Remedy: re-point all six, and widen AC-1's check to the command literal alongside the path prefix. |
-| 2 | **Blocker** | `plugins/dev-pipeline/tools/tracker/README.md:42,46,55` / **AC-6** | Three markdown links that **resolved before the move and do not now**, in the file round-1 warning 8 was about — half-swept. `[lean-gate.sh](../../../build-lean/lean-gate.sh)` (`:42`) and `[lean-reconcile.sh](../../../build-lean/lean-reconcile.sh)` (`:46`, `:55`) were correct from `skills/run/tools/tracker/` (`../../../` reached `skills/`); from `tools/tracker/` the same text resolves to `plugins/build-lean/`. **The targets survive** — `plugins/dev-pipeline/skills/build-lean/lean-{gate,reconcile}.sh` are both present — so this is pure relocation-depth rot, fixable by re-pointing, and it is not the "no path to re-point to" case that earned `state-schema.md` a banner. Verified against the base: `git cat-file -e 33e6187:plugins/dev-pipeline/skills/build-lean/lean-gate.sh` resolves, so the links worked at `33e6187` and this branch broke them. This file is the tracker adapter contract that `build-lean/SKILL.md`, `review-lean/SKILL.md` and `lean-gate.sh` all send readers to. (Its fourth broken link, `../../../../../docs/context-model.md`, was **already broken at the base** — pre-existing, not yours.) |
-| 3 | Warning | `plugins/dev-pipeline/tools/tracker/github/README.md`, `.../jira/README.md` | The same relocation left four links pointing into the **deleted** tree — `github/README.md` → `../../../SKILL.md`, `../../../stages/1-intake.md`, `../../../stages/9-open-pr.md`; `jira/README.md` → `../../../stages/2-worktree.md`. All four resolved at `33e6187` (verified), so this branch broke them. Unlike finding 2 there is nothing to re-point *to*, which is exactly the situation `state-schema.md` was given a historical banner for in this same commit — and the reasoning that earned it one applies here verbatim. These two got neither a banner nor a note, so a future reader will try to "fix" links that exist to name what was removed. Not a blocker only because the adapter contract's *substance* is unaffected; the treatment should match its sibling's. |
-| 4 | Warning | `plugins/dev-pipeline/tools/stage-times-fixtures/acme-89-pause.json:2` | Relocated at `R100` with a stale copy-pasteable command in its `_fixture` field: `Read it with: STATECTL_STATE_DIR=docs/eval-fixtures bash .claude/skills/run/tools/stage-times.sh acme-89-pause`. Two of the three parts are wrong — `stage-times.sh` moved to `plugins/dev-pipeline/tools/` (its own `:18` usage line **was** correctly re-pointed to `${CLAUDE_PLUGIN_ROOT}/tools/stage-times.sh` in this branch), and `docs/eval-fixtures` does not exist (that half was already stale at base). Same class as round-1 warnings 6–8, one instance further out. Nothing executes the string, and `stage-times.sh` itself is properly covered (`stage-envelopes-selftest.sh` is its external executor, and `tools/mutation-pair-map.tsv:28` records that) — so this is documentation rot, not a coverage hole. |
-| 5 | Nit | `plugins/dev-pipeline/skills/pipeline-retro/SKILL.md:37` | `S=../dev-pipeline/statectl.sh` — a dead assignment to a deleted script, in an operator-facing copy-paste block. Inert and honestly declared (the PR body says the `era: "stage"` arm "assigns `S=` but reads the historical corpus as raw state JSON via `cat`/`jq` — it never calls `statectl`", which I verified: `$S` is referenced nowhere in the file). Worth deleting rather than keeping, because the line immediately below it — `bash ../dev-pipeline/tools/stage-times.sh` — **was** re-pointed by `61a85b7`, so the same pass touched this block and left a reader the impression that `statectl.sh` is still resolvable. |
-| 6 | Nit | `plugins/dev-pipeline/workflows/null-reviewer-selftest.mjs:25` | "Mirrors the conventions of `statectl-selftest.sh`" — names a file this PR deletes, with no `#348` annotation, unlike the dozen other such comments in the tree (`check-bounded-exploration-selftest.sh:277,290,293`, `text-contract-selftest.sh:44`, `check-model-tiers.sh:53,373,398`, `diff-range-selftest.sh:109`, `pipeline-doctor.sh:426` all say so explicitly). Its `:28` sibling line **was** fixed by this commit (round-1 nit 11), so the file was open. One clause. |
+| 1 | **Blocker** | `.github/ISSUE_TEMPLATE/pipeline-aborted.yml:24` + `plugins/second-shift/skills/doctor/tools/doctor.sh:63-77` / **AC-6** | The rewritten template's required `state-excerpt` field says the lean progress record "**is included in the `--report` bundle** under 'pipeline-state excerpt'". It is not, and cannot be. `state_excerpt()` globs `"$dir"/*.json` only — the lean lane writes `<issue>-lean-progress.md` and no JSON at all — and then projects `{ticketKey, status, currentStage, failureContext}`, four staged-schema fields the lean lane never writes. Proved rather than argued: with a `DOCTOR_REPO_ROOT` containing only `42-lean-progress.md`, `doctor.sh --report` emits `no pipeline runs recorded (.claude/pipeline-state/ is empty or absent)`. So a lean-only consumer hitting the failure mode this template was **just retargeted at** (a milestone hard stop) is told to paste a bundle section that is empty. The tool's own comment at `:60` names the cause — "the state-file excerpt the feedback forms ask for is exactly the `.failureContext` **statectl** writes on a fail-fast abort" — a deleted tool, in a shipped `/second-shift:doctor` command, which is squarely AC-6. Remedy is either half: teach `state_excerpt()` to prefer `*-lean-progress.md` (tailing it, not `jq`-projecting it), or drop the template's bundle claim. The first is better — the abort path is the one this lane actually has. |
+| 2 | **Blocker** | `schema/second-shift.config.schema.json` (18 descriptions), `docs/config-schema.md:9,13`, `docs/extending.md:97,130,273-296` / **AC-6** | The two config surfaces still describe the deleted lane as the live mechanism for keys that are **live under lean**. AC-6's own enumerated floor names `docs/{config-schema,extending}.md`, and round 2's amendment names this schema file by name — its `ticketTag` description is one of the seven sites this very commit fixed. The other 17 were left. On live keys: `.paths.plansDir` — "where **Stage 3** writes plan files … (Stage 3 reads the key)", while `lean-gate.sh`/`lean-reconcile.sh`/`retro-corpus.sh` are the readers; `.tracker.keyPattern` — "**statectl init** validates the key against this anchored pattern"; `.commands` — "null = lane not available in this repo (**verifyctl** must not select it)"; `.commands.*.lintAutofixes` — "(**verifyctl** LINT_AUTOFIX failure classification)" while `preflight.sh:286-308` is the real reader; `.commands.*.extraLanes` — "a lane blocks **Stage-6** completion or it does not exist"; `.commands.*.extraLanes[].failureClass` — "e.g. **verifyctl's** 2-attempt budget"; `.stageParams.inertPattern` — "**Stage-6** INERT-lane classifier override"; `.stageParams.webComponentGlobs` — "**Stage-8** web-component surface"; `.gates.mutation` — "**Stage-5** unit-test mutation gate", the key D-17 explicitly *kept*; `.tracker.labels` — "the **Stage-1** queue query". `.design.liveRender` is the sharpest: "Arms a repo-owned render command in **BOTH lanes**, with **DIFFERENT** failure postures. **Stage 5**: …" — there is one lane, and `docs/config-schema.md:13` repeats it verbatim ("in **both** lanes with **different failure postures**: Stage 5 degrades…"). This is not cosmetic: the file carries `$schema`, so these strings are what renders in a consumer's editor as the authoritative account of a key they are setting. |
+| 3 | Warning | `schema/second-shift.config.schema.json` (`.stageWorkflows`, `.implementDelegates`, `.planGates`, `.planGates[].surface`) | The EP-6/7/8 **INERT** decision is declared and well-reasoned, and `docs/extending.md` §3.6–3.8 + the decision-guide table carry the banner. The schema does not — it still describes EP-6 as "a **BLOCKING stage sub-step** — dispatched AFTER the stage's built-in sub-steps and BEFORE the **stage-completion write**", with no cause named. The banner was applied to one of the two consumer-facing surfaces; a consumer's editor shows the other. Separate from finding 2 because the remedy differs: a banner, not a rewrite. |
+| 4 | Warning | `docs/extending.md:273-296` | The worked example — "one block, every stage of the tier registered and auditable" — is stage-keyed end to end (`// Stage 4 — gate the PLAN`, `// Stage 5 — WRITE`, `// Stage 6 — RUN`, `// Stage 8 — REVIEW`). Two of its four blocks are the inert EPs; the other two (`extraLanes`, `reviewers.add`) are live under `lean-gate.sh` milestone 3 and review-lead. It sits *after* the §3.6–3.8 INERT banners and inherits none of them, so it reads as a live staged walkthrough. `:130`'s "`doc-routing.md` … for **Stage-7** doc updates" is the same class one line at a time. |
+| 5 | Nit | `plugins/dev-pipeline/tools/config-lint.sh:105` | A **runtime error message** a consumer sees names a deleted tool: "npm swallows the `--fix` suffix **verifyctl** appends". The rule it enforces is still right (`lintAutofixes: true` + a plain `npm run` lint is a silent no-op) — only the actor is gone. Same class as finding 2, but in emitted text rather than a description. |
+| 6 | Nit | `plugins/second-shift/skills/doctor/SKILL.md:15` | "pipeline RUNTIME issues (gh auth, node, labels, **statectl**)" — a deleted tool as an example in a shipped skill. Inert; one word. |
 
 ## Acceptance criteria
 
 | AC | Verdict | Evidence |
 | --- | --- | --- |
-| **AC-1** — sweep green, shellcheck/jq clean, orphan check | **satisfied** | CI at this head: `lint-and-selftests` pass 3m43s, `selftests (macos, bash 3.2)` pass 5m37s, `mutation-sweep-pr` pass (29s — correct, this delta contains no `.sh` guard to sweep). I re-ran the orphan check **exactly as AC-1 now specifies** (`*-selftest.sh` + `tools/*.tsv` + `scripts/*.tsv` + `lockstep-manifest.tsv` + `.github/workflows/*.yml`, literal `skills/run/`): the hit set is `capability-parity.tsv`×37 (class 1), `capability-parity-check-selftest.sh:42,51,195` (class 2), `is-inert-diff-selftest.sh:74` + `pre-commit-typecheck-selftest.sh:73,74` (class 3), `pipeline-doctor-selftest.sh:687,693` (class 4), `check-bounded-exploration-selftest.sh:389` + `workflows-mjs-selftest.sh:13` (class 5), `ci.yml:168,174` (class 6) — **exactly the seven declared classes with no eighth**, and the body's "9 hits outside the two exemptions" is exact. Round-1 finding 10 is fully closed: the claim now says what the check verifies. Findings 1–2 are **not** scored here — a slash command and a link depth are not paths, so AC-1's oracle cannot see them by construction; they are AC-6's. |
-| **AC-2** — no register row names a deleted guard | **satisfied** | Re-verified independently at this head: every `skills/run` token in `mutation-{baseline,catalog,pair-map}.tsv` is `skills/run-lean/`, not the deleted `skills/run/`. Both prose-budget baselines carry **zero** `skills/run/` rows — the row-by-row re-pointing the spec claims is real, and #561's `prose-budget-shell.baseline.tsv` is re-keyed too. |
-| **AC-3** — keep list, demotion register, D-3 override, pin in the body | **satisfied** | All present from round 1 and unchanged. Pin literal now verified rather than accepted: `v5.2.2` is the newest tag **and** carries `plugins/dev-pipeline/skills/run` (`git ls-tree -d v5.2.2` resolves), so it is genuinely the last stage-carrying release. The at-merge half (recording it on #348, re-confirming no later release landed) stays a merge precondition, which AC-3's own wording licenses. |
-| **AC-4** — frozen-files green; breaking verb; `Changelog:` + `Migration:` naming the pin and the moved `config-lint.sh` | **satisfied** | Round-1 blocker 2 closed on both halves, in the place that matters. The **PR title** is `feat(dev-pipeline)!: delete stage choreography from main` — load-bearing, because this repo squash-merges and `derive-release.sh:141` matches `^[a-z]+(\([^)]*\))?!:` against the squash subject, which is the title. `74562a0` additionally carries a `BREAKING CHANGE:` footer and a real `Changelog:` trailer whose `Migration:` line names **v5.2.2** and the `skills/run/tools/config-lint.sh` → `tools/config-lint.sh` move. Frozen half holds: `marketplace.json` and `plugin.json` both still read `5.2.2` (main's), `CHANGELOG.md` untouched. |
-| **AC-5** — `capability-parity-check.sh` green, coverage clause vacuous | **satisfied** | Unchanged from round 1 and structurally intact: `capability-parity-check.sh:55` still resolves `STAGES_DIR="$ROOT/plugins/dev-pipeline/skills/run/stages"`, which is absent, so the clause reports vacuous rather than violated — the success condition its LIFETIME note declares. |
-| **AC-6** — every doc naming deleted machinery updated in the same diff | **unsatisfied** | Findings 1 and 2. The three docs AC-6 names **by name** that round 1 blocked on — `docs/pipeline-manifesto.md`, `docs/config-schema.md`, `README.md` — are all correctly fixed (verified: every relative link in all three resolves, the manifesto's P1/P2 posture is rewritten past tense with the pin re-pointed at the `Migration:` trailer, and `config-schema.md:21`'s dead `stages/6-verify.md` link now points at the surviving `LOCKSTEP-BEGIN seam-scrub` block in `lean-gate.sh:3016`, which exists). What is unmet is the **class** this round's own amendment brought into AC-6: a shipped template and a shipped adapter contract still advertise the deleted command, and a relocated adapter contract's links no longer resolve. |
-| **AC-7** — `visualCapture` retirement follows the dead-key pattern | **satisfied** | Unchanged from round 1; nothing in the delta touches it. |
+| **AC-1** — sweep green, shellcheck/jq clean, orphan check (all three kinds) | **satisfied** | CI at `469d37d`: `lint-and-selftests` pass 4m09s, `selftests (macos, bash 3.2)` pass 4m24s, `mutation-sweep-pr` pass. I re-ran all three orphan kinds myself; results in the table above. The amendment that added kinds 2 and 3 is round 2's *prescribed* remedy, and the claim it makes is now exactly what the checks return — including the honest "22-row residue in two declared classes" rather than a claim of empty. |
+| **AC-2** — no register row names a deleted guard | **satisfied** | Registers clean at this head. `mutation-sweep-pr` computed **49 verdicts** (a real green, not the zero-verdict shape) — but it **deferred `stage-times.sh` and `stage-envelopes.sh` to nightly on the PR-lane cap**, and this delta edits `stage-times.sh`. So the round owns that evidence: I compared the `logic` and `default` operators' matched-site **sequences** between `0a20468` and `HEAD` — byte-identical, so the three baseline rows (`stage-times.sh::default::1`, `::default::2`, `::logic::2`) are not re-keyed. The paired suite only *gained* cases, and a killed mutant still listed in the baseline is a warn, never a red (`mutation-sweep.sh:41`). |
+| **AC-3** — keep list, demotion register, D-3 override, pin in the body | **satisfied** | Unchanged from round 2. `v5.2.2` verified as the newest tag and genuinely stage-carrying. The at-merge half stays a merge precondition, which AC-3's wording licenses. |
+| **AC-4** — frozen-files green; breaking verb; `Changelog:` + `Migration:` | **satisfied** | PR **title** is `feat(dev-pipeline)!: delete stage choreography from main` — the load-bearing surface under squash merge. `74562a0` carries the `BREAKING CHANGE:` footer and a `Changelog:` whose `Migration:` line names both the `v5.2.2` pin (with the re-confirm caveat) and the moved `config-lint.sh` path. |
+| **AC-5** — `capability-parity-check.sh` green, coverage clause vacuous | **satisfied** | Re-run at this head: `note: … /skills/run/stages does not exist — the coverage clause is vacuous (expected once #348 has landed)` then `OK — 37 capability row(s)`. That note **is** the pass. |
+| **AC-6** — every doc naming deleted machinery updated in the same diff | **unsatisfied** | Findings 1–4. AC-6's enumerated floor names `docs/config-schema.md` and `docs/extending.md` directly; the schema JSON is named in round 2's own amendment. The three docs round 1 blocked on (`pipeline-manifesto.md`, `config-schema.md` links, `README.md`) and the seven sites round 2 blocked on are all correctly closed — this is the same class one surface further out, at the config layer rather than the skills layer. |
+| **AC-7** — `visualCapture` retirement follows the dead-key pattern | **satisfied** | Unchanged; nothing in the delta touches it. The scope reviewer independently re-verified the no-`configVersion`-bump precedent against `gates.costTracking` in v2.1.6 and found it sound. |
 
 ## Design fidelity
 
 `not-applicable`. The spec disarms with `Design: none — no design.provider is configured for this
-repo, and the diff has no UI surface`. Re-verified at this head rather than inherited: `jq
-'{design, webGlobs: .stageParams.webComponentGlobs}'` on the effective config returns `null` for
-both, and the round-2 delta is `.md`/`.yml`/`.mjs`-comment only. The disarm is justified.
+repo, and the diff has no UI surface`. Re-verified at this head rather than inherited: `design` and
+`stageParams.webComponentGlobs` are both `null` in the effective config, and the delta is
+`.md`/`.yml`/`.json`/`.sh`/`.mjs`-comment only with no UI surface. The disarm is justified.
 
 ## Panel
 
-Six reviewers selected, six returned — no dark reviewer, no coverage gap. `db-reviewer`,
+Six reviewers selected, six returned — **no dark reviewer, no coverage gap**. `db-reviewer`,
 `pipeline-reviewer` and `unit-test-mutation-reviewer` were not triggered (no DB, no queue surface,
 no co-located specs). `a11y-reviewer` and the design-fidelity dimension were not routed: no changed
-path matched `stageParams.webComponentGlobs` (unset, so the default `apps/web/**/*.{tsx,jsx}`).
+path matched `stageParams.webComponentGlobs` (unset ⇒ default `apps/web/**/*.{tsx,jsx}`).
 
-Security, performance, maintainability, complexity and test-coverage returned clean.
-`scope-completeness-reviewer` returned `request-changes` and independently found finding 1 — its
-gate is hard, but it stands on its merits: I confirmed all five sites with `git ls-files
---error-unmatch` and re-read each in context, and it undercounted by one (`pipeline-aborted.yml`).
-Finding 2 is the round's own; so are 3, 4, 5 and 6. Finding 2 is the one the panel structurally
-could not reach — `tools/tracker/github/README.md` and `jira/README.md` are `R100` relocations with
-zero content delta, so they appear in no diff-scoped reviewer's window at all, and `tracker/README.md`
-appeared only as its two `gh-bot.sh` lines.
+Security, performance, complexity, maintainability and test-coverage returned **clean, zero
+findings**. `scope-completeness-reviewer` returned `request-changes`; its four findings are triaged
+under "What is not a finding" below — none survives as a blocker, and it also self-reported that the
+dispatch range I gave it was the round-3 delta rather than `origin/main`, which it corrected for
+itself before classifying.
+
+**All four findings above are the round's own.** Findings 1, 2 and 4 live in files the delta either
+did not touch (`doctor.sh`, the schema's other 17 descriptions, `extending.md`) or touched at one
+line while the defect sits elsewhere in the same file — structurally outside every diff-scoped
+reviewer's window, which is the third round running that this PR's hardest finding has that shape.
 
 ## What is not a finding
 
-- **The spec amendment.** A spec amended to match the diff is a blocker; this is the opposite
-  shape. Diffed across its own commits: AC-1's restatement is round-1 finding 10's **prescribed
-  remedy** (round 1 wrote "the claim is over-stated" and the amendment states what is verified), and
-  AC-6 was **widened**, bringing four files previously outside its enumerated list into scope. An
-  amendment that makes the definition of done stricter and more honest is licensed. It is also what
-  makes findings 1 and 2 scoreable against AC-6 at all.
-- **`pr-gates` red.** The `lean chain reconciliation` arm reporting `verdict record … reads
-  'verdict=needs-work'` — the round-1 record, which this round replaces. It names its own reason.
-  Every other check is green.
-- **The pin not yet on #348, and the OR-2 FE canary.** Both are AC-3/D-11 **merge preconditions**,
-  already enumerated in the PR body. A remedy that lives outside the tree is not a review round.
-- **The D-3 `statectl` override and the `visualCapture` no-bump.** Re-verified, both grounded,
-  both flagged rather than silent — round 1's assessment stands and the scope reviewer reached it
-  independently. Deleting `statectl.sh` costs `pipeline-retro`'s stage-era arm nothing: it reads the
-  historical corpus through `cat`/`jq` (finding 5 is only the dead `S=` line left behind).
-- **`state-schema.md`'s six dead links.** Deliberate, and the banner this commit added says so —
-  every sibling it links is deleted, so there is no path to re-point to. Verified the banner's
-  claims rather than taking them: `statectl.sh`, `verifyctl.sh`, `plan-scope-paths.sh`,
-  `gen-statectl-validators.sh` and `plan-lint.sh` are all genuinely absent from the tree.
-- **Four other broken links in shipped docs.** `tracker/README.md → ../../../../../docs/context-model.md`,
-  `pipeline-retro/SKILL.md → ../../agents/retro-scorer.md` and `→ ../dev-pipeline/eval-criteria.md`,
-  `review-lead-eval/README.md → ../../../docs/eval-fixtures/review-lead/` — all four verified broken
-  **at `33e6187`** too. Pre-existing, not this PR's to fix.
+- **The scope gate's S8 pin-location finding.** The issue asks for the concrete pin "in the P1/P2
+  posture note"; `docs/pipeline-manifesto.md:50-56` deliberately records a pointer to the
+  `Migration:` trailer instead, arguing a literal there would rot. That treatment **was round 1's
+  remedy and round 2 reviewed and accepted it**; re-opening it now would be escalating a settled
+  decision into a round-3 blocker. The substance is delivered and discoverable. Worth one line in
+  the issue body at merge to close the wording gap — a merge act, not a round.
+- **The scope gate's AC-1 `tools/*.tsv` finding.** Correct on the letter — `capability-parity.tsv`
+  matches `tools/*.tsv` and still cites 17 deleted paths — and settled twice: the file's own header
+  and `capability-parity-check.sh:29` state that its paths are permanent historical citations, not
+  existence-checked, and re-keying them would destroy this deletion's audit trail. The committed
+  spec's amended AC-1 declares the exclusion. The committed spec is the definition of done.
+- **The three merge-time obligations** (the pin recorded on #348, the OR-2 FE canary, re-stamping
+  `v5.2.2` if a `v5.2.3` lands first). All enumerated in the PR body as merge preconditions. A
+  remedy that lives outside the tree is not a review round.
+- **`pr-gates` red.** Read the log: the only failing arm is `lean-evidence` / `lean-chain` reporting
+  `verdict record … reads 'verdict=needs-work'` — the round-2 record, which this round replaces.
+  Every other check at this head is green.
+- **`state-schema.md`'s six dead links.** Deliberate, and this round widened the banner to name all
+  six — I verified the count independently: the resolver finds exactly six, and all six named
+  siblings are genuinely absent from the tree.
+- **The `ticketTag` three-site coupling.** Handled properly: `docs/config-schema.md:37,39`, the
+  schema description and `run-lean/SKILL.md` all now state the advisory reading, and
+  `scripts/lockstep-manifest.tsv:520` records the considered-and-**DROPPED** entry with its
+  reasoning — the sanctioned treatment for a real coupling that is not byte-anchorable.
+- **The tracker README rewrites.** I re-read all three whole rather than checking their links, which
+  is the lesson round 2 wrote. They are accurate: `build-lean/SKILL.md` step 1 *is* the queue-label
+  confirm and step 7 *is* the ready PR with `Closes #<issue>`; every `../`-relative script they cite
+  resolves; the `${CLAUDE_PLUGIN_ROOT}/tools/gh-bot.sh` form is right for an installed consumer; and
+  the `#the-lean-lane-dev-pipelinerun-lean` anchor `jira/README.md` uses resolves against the
+  sibling's actual heading.
+- **The 22-row link residue and the `${CLAUDE_PLUGIN_ROOT}/skills/run/` hits.** Every one lands in
+  `CHANGELOG.md` or `docs/plans/` — the two declared exempt classes. Checked, not assumed.
 
 ## Verdict
 
-`needs-work` — two blockers, both AC-6, both cheap. Finding 1 is six one-line edits plus widening
-AC-1's check to the command literal. Finding 2 is three link paths in one file (`../../../build-lean/`
-→ `../../skills/build-lean/`). Finding 3 is a banner copied from the one `state-schema.md` already
-carries.
+`needs-work` — two blockers, both AC-6, both bounded.
 
-The deletion itself remains careful, and the round-1 response was genuinely good work — five of five
-blockers and six of six warnings closed, each by understanding the finding rather than pattern-matching
-the remedy, and AC-1's honesty fix is exactly right. What is left is not a new class of mistake; it is
-the same class at the two reference kinds a path-prefix grep cannot see. Widening the check is worth
-more than fixing the six sites, because the next relocation will have the same blind spot.
+Finding 1 is the one that matters, and it is small: the delta retargeted the abort template at the
+lean lane and, in doing so, asserted a bundle contains something the bundle's producer cannot
+produce. Teaching `state_excerpt()` to prefer `*-lean-progress.md` fixes the template, the shipped
+`/second-shift:doctor` command, and the `statectl` comment at `doctor.sh:60` in one edit.
+
+Finding 2 is volume, not difficulty — the same edit this commit already performed once, applied to
+the other 17 descriptions and the two doc rows that mirror them.
+
+The deletion remains careful work and the round-2 response was again genuinely good: it adopted the
+three-reference-kinds diagnosis rather than the two remedies, widened AC-1 to carry it, re-read the
+tracker docs whole instead of patching their links, and turned an orphaned fixture into two real
+guards that I could not make vacuous. What is left is that same class one layer further out. The
+skills layer now describes the surviving lane correctly; the **config** layer — the schema a
+consumer's editor renders, and the doctor bundle a consumer pastes into a bug report — still
+describes the deleted one.
