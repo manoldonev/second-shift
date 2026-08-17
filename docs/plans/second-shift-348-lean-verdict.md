@@ -1,145 +1,104 @@
 # lean review verdict — #348
 
 verdict=needs-work
-run_id: review-348-3
-session_id: a9092cec-70fa-4d4c-ac51-32676cf478d6
-rounds: 3
+run_id: review-348-4
+session_id: 56d1044d-6e65-48e4-8882-59c5a90088bf
+rounds: 4
 pr: #568
-reviewed_head: 469d37dfd9772304c1a9d608eabbec1e89a73f3d
-reviewed_patch_id: bd8238bc7c30327dcb23098683a8239da9bcbf55
-inherited_patch_id: c20ccc39703802f56efc473965de5abad6381356
-inherited_from_verdict: 0a2046829083321ec388d5613efd58bf9638ff7a
+reviewed_head: f59de2f48c742369630ca36dd4634f76f6daef4c
+reviewed_patch_id: 2402f48229b934a34c6fe8d6532f7ec435ff93b4
+inherited_patch_id: bd8238bc7c30327dcb23098683a8239da9bcbf55
+inherited_from_verdict: da021d77254c387742efab7bc7eac5e949622bc1
 fidelity: not-applicable
 model: unknown
 capabilities: pr-marker
 
-Round 3 over the delta `0a20468..HEAD` (15 files, +203/−82), inheriting rounds 1–2 by reference to
-the committed round-2 record. Read wider than the range wherever the delta looked misleading: all
-three orphan-check kinds whole-tree, the relative-link resolution at head **and** at the merge-base,
-every `${CLAUDE_PLUGIN_ROOT}`-anchored path in the tree, and the two config surfaces AC-6 names.
+Round 4 over the delta `da021d7..HEAD` (1 commit, `f59de2f`, 44 files, +362/−186), inheriting
+rounds 1–3 by reference to the committed round-3 record. Read wider than the range wherever the
+delta looked misleading: all four orphan-check kinds whole-tree, the deleted-tool-name
+discriminator whole-tree, every mutation register cross-checked against the surviving tree, and
+the caller claims each rewritten comment makes.
 
-**Both round-2 blockers and all four warnings are closed, verified individually rather than taken
-from the PR body.** The AC-1 amendment is exactly true at this head — I re-ran all three kinds:
+**All six round-3 findings are closed, each verified against the code rather than taken from the
+PR body.**
 
-| Kind | Result at `469d37d` |
+| Round-3 finding | Verified how |
 | --- | --- |
-| 1 — path into the deleted tree | the seven declared classes and no eighth (37 `capability-parity.tsv` rows + 9 sites + `ci.yml`'s two denylist patterns) |
-| 2 — the deleted command literal (`grep -rE '/dev-pipeline:run([^-a-zA-Z]|$)'`) | 10 hits, **all** in the three declared exemptions (`CHANGELOG.md`, `docs/migrations/v1-to-v2.md`, `docs/onboarding.md`) |
-| 3 — relative-link resolution, head vs merge-base | 24 broken at head, 7 at `33e6187`; **22 new**, exactly the two declared classes (16 historical-corpus rows, 6 `state-schema.md`) and **zero shipped-doc rows**. The branch also *fixed* 5 of the base's 7. |
+| Blocker 1 — the abort bundle asserted a section its producer could not emit | Ran the reviewer's own repro **and a second case**: `state_excerpt()` now prefers `*-lean-progress.md` **by class**, tails it, and still selects newest-within-class when two lean records exist. The mtime-inversion in the fixture is load-bearing, so neither new case is the vacuous outer-guard shape. |
+| Blocker 2 + warning 3 — the `$schema`-rendered config layer | Zero staged-lane vocabulary left in **any** schema `description` (`jq` over every `description` string: no `Stage N`, no `statectl`/`verifyctl`, no "both lanes"). The two surviving hits in `docs/{config-schema,extending}.md` are past-tense, which this spec's own discriminator licenses as class (a). EP-6/7/8 carry the `INERT since #348` banner in the schema now, not only in `extending.md`. |
+| Warning 4 — the stage-keyed worked example | Rewritten: each of the four blocks is labelled LIVE (with its surviving reader) or INERT (with its §). |
+| Nits 5, 6 | Closed. `config-lint.sh`'s runtime message is reframed on the real actor; `doctor/SKILL.md` names `lean-gate`. |
 
-The `(env16)`/`(env16b)` re-homing is the best work in this delta and it is not decorative — I
-mutation-probed it in an isolated worktree (22/22 green at head):
+The AC-1 amendment is exactly true at this head — I re-ran all four kinds myself:
 
-| Mutant | `(env16)` | `(env16b)` |
-| --- | --- | --- |
-| M1 — drop the total subtraction (`$wall - $pausedSecs` → `$wall`) | **kill** | **kill** |
-| M2 — drop the per-stage overlap (`($ee-$ss) - $ov` → `($ee-$ss)`) | **kill** | survives |
-| M3 — swap `effectiveTotalMin`/`wallMin` in the **text renderer only** | survives | **kill** |
+| Kind | Result at `f59de2f` |
+| --- | --- |
+| 1 — path into the deleted tree | the seven declared classes and no eighth |
+| 2 — `/dev-pipeline:run` literal | every hit in the three declared exemptions or the historical plan corpus |
+| 3 — relative-link resolution | unchanged from round 3; nothing in this delta moves a link |
+| 4 — bare `/dev-pipeline` invocation | **no shipped artifact instructs it** — every remaining hit is `plugins/dev-pipeline/…` path noise or the spec's own description of the check |
 
-Each case kills a mutant the other survives, so `(env16b)` is not the vacuous outer-guard shape.
+The **whole-tree discriminator sweep** the spec now commits to (`statectl`/`verifyctl` by tool
+name) returns no present-tense claim about a live mechanism outside the declared keep-classes. I
+spot-verified the three sharpest rewritten claims against the code rather than reading them:
+`resolve-worktrees-dir.sh`'s "one live caller today" (exactly `preflight.sh:219`),
+`is-inert-diff.sh`'s "the ONLY runtime caller" (exactly `preflight.sh:358`), and
+`intake-readroot-selftest.sh`'s MOOT recording (`non-main-base-autonomous` survives only in
+`state-schema.md`'s bannered row and `CHANGELOG.md`). All three hold. The `cost-tracking-setup.md`
+rewrite was checked against `pipeline-cost-block.sh` line by line — the `--stateless` CLI surface,
+the `exit 2` on a missing `--sessions`, the no-`cost-log.jsonl` claim and the `build-lean` step-7
+call site are all as documented.
 
-The blockers below are new. Both are the same class as round 2's, at the two surfaces its sweep did
-not reach — and one of them is a claim **this delta wrote** that is not true.
+**The two blockers below are new, and both are this delta's own.** One is a red lane the delta
+introduced; the other is a machine-readable register three rounds have scored clean.
 
 ## Findings
 
 | # | Severity | Where | Finding |
 | --- | --- | --- | --- |
-| 1 | **Blocker** | `.github/ISSUE_TEMPLATE/pipeline-aborted.yml:24` + `plugins/second-shift/skills/doctor/tools/doctor.sh:63-77` / **AC-6** | The rewritten template's required `state-excerpt` field says the lean progress record "**is included in the `--report` bundle** under 'pipeline-state excerpt'". It is not, and cannot be. `state_excerpt()` globs `"$dir"/*.json` only — the lean lane writes `<issue>-lean-progress.md` and no JSON at all — and then projects `{ticketKey, status, currentStage, failureContext}`, four staged-schema fields the lean lane never writes. Proved rather than argued: with a `DOCTOR_REPO_ROOT` containing only `42-lean-progress.md`, `doctor.sh --report` emits `no pipeline runs recorded (.claude/pipeline-state/ is empty or absent)`. So a lean-only consumer hitting the failure mode this template was **just retargeted at** (a milestone hard stop) is told to paste a bundle section that is empty. The tool's own comment at `:60` names the cause — "the state-file excerpt the feedback forms ask for is exactly the `.failureContext` **statectl** writes on a fail-fast abort" — a deleted tool, in a shipped `/second-shift:doctor` command, which is squarely AC-6. Remedy is either half: teach `state_excerpt()` to prefer `*-lean-progress.md` (tailing it, not `jq`-projecting it), or drop the template's bundle claim. The first is better — the abort path is the one this lane actually has. |
-| 2 | **Blocker** | `schema/second-shift.config.schema.json` (18 descriptions), `docs/config-schema.md:9,13`, `docs/extending.md:97,130,273-296` / **AC-6** | The two config surfaces still describe the deleted lane as the live mechanism for keys that are **live under lean**. AC-6's own enumerated floor names `docs/{config-schema,extending}.md`, and round 2's amendment names this schema file by name — its `ticketTag` description is one of the seven sites this very commit fixed. The other 17 were left. On live keys: `.paths.plansDir` — "where **Stage 3** writes plan files … (Stage 3 reads the key)", while `lean-gate.sh`/`lean-reconcile.sh`/`retro-corpus.sh` are the readers; `.tracker.keyPattern` — "**statectl init** validates the key against this anchored pattern"; `.commands` — "null = lane not available in this repo (**verifyctl** must not select it)"; `.commands.*.lintAutofixes` — "(**verifyctl** LINT_AUTOFIX failure classification)" while `preflight.sh:286-308` is the real reader; `.commands.*.extraLanes` — "a lane blocks **Stage-6** completion or it does not exist"; `.commands.*.extraLanes[].failureClass` — "e.g. **verifyctl's** 2-attempt budget"; `.stageParams.inertPattern` — "**Stage-6** INERT-lane classifier override"; `.stageParams.webComponentGlobs` — "**Stage-8** web-component surface"; `.gates.mutation` — "**Stage-5** unit-test mutation gate", the key D-17 explicitly *kept*; `.tracker.labels` — "the **Stage-1** queue query". `.design.liveRender` is the sharpest: "Arms a repo-owned render command in **BOTH lanes**, with **DIFFERENT** failure postures. **Stage 5**: …" — there is one lane, and `docs/config-schema.md:13` repeats it verbatim ("in **both** lanes with **different failure postures**: Stage 5 degrades…"). This is not cosmetic: the file carries `$schema`, so these strings are what renders in a consumer's editor as the authoritative account of a key they are setting. |
-| 3 | Warning | `schema/second-shift.config.schema.json` (`.stageWorkflows`, `.implementDelegates`, `.planGates`, `.planGates[].surface`) | The EP-6/7/8 **INERT** decision is declared and well-reasoned, and `docs/extending.md` §3.6–3.8 + the decision-guide table carry the banner. The schema does not — it still describes EP-6 as "a **BLOCKING stage sub-step** — dispatched AFTER the stage's built-in sub-steps and BEFORE the **stage-completion write**", with no cause named. The banner was applied to one of the two consumer-facing surfaces; a consumer's editor shows the other. Separate from finding 2 because the remedy differs: a banner, not a rewrite. |
-| 4 | Warning | `docs/extending.md:273-296` | The worked example — "one block, every stage of the tier registered and auditable" — is stage-keyed end to end (`// Stage 4 — gate the PLAN`, `// Stage 5 — WRITE`, `// Stage 6 — RUN`, `// Stage 8 — REVIEW`). Two of its four blocks are the inert EPs; the other two (`extraLanes`, `reviewers.add`) are live under `lean-gate.sh` milestone 3 and review-lead. It sits *after* the §3.6–3.8 INERT banners and inherits none of them, so it reads as a live staged walkthrough. `:130`'s "`doc-routing.md` … for **Stage-7** doc updates" is the same class one line at a time. |
-| 5 | Nit | `plugins/dev-pipeline/tools/config-lint.sh:105` | A **runtime error message** a consumer sees names a deleted tool: "npm swallows the `--fix` suffix **verifyctl** appends". The rule it enforces is still right (`lintAutofixes: true` + a plain `npm run` lint is a silent no-op) — only the actor is gone. Same class as finding 2, but in emitted text rather than a description. |
-| 6 | Nit | `plugins/second-shift/skills/doctor/SKILL.md:15` | "pipeline RUNTIME issues (gh auth, node, labels, **statectl**)" — a deleted tool as an example in a shipped skill. Inert; one word. |
+| 1 | **Blocker** | `plugins/intake-toolkit/skills/intake/SKILL.md:54,56`, `plugins/intake-toolkit/skills/plan-interview/SKILL.md:61`, `plugins/audit-toolkit/skills/audit-history/SKILL.md:37` / **outside the AC set** | **CI is red at this head, and this commit caused it.** `lint-and-selftests` fails at step 14, `namespace direction check (docs/namespaces.md rule 3)`, with `::error::rule 3(a): a toolkit references the dev-pipeline: namespace`. The kind-4 fix replaced the bare `/dev-pipeline <issue>` form with the namespaced `/dev-pipeline:run-lean` / `:review-lean` — correct under namespaces rule 1 — but three of the four sites are inside **toolkit** plugins, where rule 3(a) bans the `dev-pipeline:` token outright with no exemption mechanism. Provenance is unambiguous: `git grep 'dev-pipeline:'` over the four toolkit roots returns **0 hits at the merge-base `33e6187`**, **0 at round 3's reviewed head `da021d7`**, and **4 at `f59de2f`**. The pre-namespacing form passed only because it carried no colon. Two things are owed, not one: the four lines (name the lane without the plugin prefix — the surrounding toolkit prose already does), **and the spec's kind-4 clause**, whose committed remedy is "replace with the namespaced form" with no rule-3(a) carve-out. Left as written, the next deletion re-derives the same red. Note the branch already edits this guard's block in `ci.yml` (the 3(b) pattern comment) and still tripped 3(a). |
+| 2 | **Blocker** | `tools/mutation-baseline.tsv:27,38` / **AC-2** | **Two orphan `catalog::` baseline rows name guards this branch deleted.** `catalog::plan-lint-dup-traceability` and `catalog::verifyctl-targetrepos` point at catalog ids that existed at the merge-base (`tools/mutation-catalog.tsv:51,56` at `33e6187`, keyed on `skills/run/tools/plan-lint.sh` and `skills/run/verifyctl.sh`) and that **this branch removed**. The branch's `catalog::` baseline diff is empty — no `catalog::` row was touched in either direction. AC-2's letter is "No baseline, exclusion, pair-map, slow-suite or catalog row references a deleted guard; every re-keyed row lands in this same diff." These are the exception. **They will never self-heal, which is why the round owns them rather than the nightly:** `mutation-sweep.sh:1892` explicitly exempts `catalog::` from the "baseline row's guard no longer resolves" warn (a catalog row's guard is indirect), and `sid_guard()` returns *empty* for an id with no catalog row, so under the nightly's sharded run `swept_this_run ""` is false and no warn fires either. Unsharded, the surviving arm mislabels them "now KILLED", pointing the operator at the wrong remedy. Remedy: drop both rows in this diff, as the deleted guards' own generic rows already were. |
+| 3 | Nit | `plugins/second-shift/skills/doctor/tools/doctor.sh:63-77` | The `--report` state excerpt widened from a four-field `jq` whitelist (`{ticketKey,status,currentStage,failureContext}`) to a raw `tail -n 40` of the newest progress record, inside a **paste-ready** bundle whose header states it "never pastes an UNredacted config". The excerpt is a separate section from the redacted-config one, so the contract is not literally broken, and the progress rows are gate-authored markers — but one row is not: `lean-gate.sh:2979` appends `check-frozen-files.sh`'s captured `$out` verbatim as `milestone-2 \| advisory \| …`. Bounded today (that output is this repo's own guard, and `:111` tells the user to review before posting), which is why this is a nit and not a warning. Worth one line of comment saying the excerpt is deliberately unredacted, so a future widening of what lands in a progress row is a visible decision. |
+
+**Triaged away, and recorded here so a fifth round inherits the disposition.** The scope gate
+returned `block` on two items. The first is finding 1 above, independently confirmed. The second —
+that `docs/pipeline-manifesto.md`'s P1/P2 note records the pin **by reference** to `74562a0`'s
+`Migration:` trailer rather than as the literal `v5.2.2` — is **not a finding**. The committed spec
+pre-authorizes it in an open region at lines 19–23: "The concrete release literal is recorded in
+the PR body and on the issue **at merge** (AC-3, ledger D-9/D-18) — writing a version literal today
+would be stale and would contaminate the ablation's staged arm with post-pin improvements." AC-3's
+own text puts the literal in the PR body (present: `v5.2.2`) and on the issue at merge (a declared
+merge precondition), never in the manifesto. This is the **third consecutive round** the gate has
+raised it — round 1 *prescribed* the pointer as its own remedy, round 2 accepted it, round 3
+declined to re-open it. The gate scores against the issue body; the committed spec plus its D-9/D-18
+ledger rows are the definition of done, and they settle it.
 
 ## Acceptance criteria
 
 | AC | Verdict | Evidence |
 | --- | --- | --- |
-| **AC-1** — sweep green, shellcheck/jq clean, orphan check (all three kinds) | **satisfied** | CI at `469d37d`: `lint-and-selftests` pass 4m09s, `selftests (macos, bash 3.2)` pass 4m24s, `mutation-sweep-pr` pass. I re-ran all three orphan kinds myself; results in the table above. The amendment that added kinds 2 and 3 is round 2's *prescribed* remedy, and the claim it makes is now exactly what the checks return — including the honest "22-row residue in two declared classes" rather than a claim of empty. |
-| **AC-2** — no register row names a deleted guard | **satisfied** | Registers clean at this head. `mutation-sweep-pr` computed **49 verdicts** (a real green, not the zero-verdict shape) — but it **deferred `stage-times.sh` and `stage-envelopes.sh` to nightly on the PR-lane cap**, and this delta edits `stage-times.sh`. So the round owns that evidence: I compared the `logic` and `default` operators' matched-site **sequences** between `0a20468` and `HEAD` — byte-identical, so the three baseline rows (`stage-times.sh::default::1`, `::default::2`, `::logic::2`) are not re-keyed. The paired suite only *gained* cases, and a killed mutant still listed in the baseline is a warn, never a red (`mutation-sweep.sh:41`). |
-| **AC-3** — keep list, demotion register, D-3 override, pin in the body | **satisfied** | Unchanged from round 2. `v5.2.2` verified as the newest tag and genuinely stage-carrying. The at-merge half stays a merge precondition, which AC-3's wording licenses. |
-| **AC-4** — frozen-files green; breaking verb; `Changelog:` + `Migration:` | **satisfied** | PR **title** is `feat(dev-pipeline)!: delete stage choreography from main` — the load-bearing surface under squash merge. `74562a0` carries the `BREAKING CHANGE:` footer and a `Changelog:` whose `Migration:` line names both the `v5.2.2` pin (with the re-confirm caveat) and the moved `config-lint.sh` path. |
-| **AC-5** — `capability-parity-check.sh` green, coverage clause vacuous | **satisfied** | Re-run at this head: `note: … /skills/run/stages does not exist — the coverage clause is vacuous (expected once #348 has landed)` then `OK — 37 capability row(s)`. That note **is** the pass. |
-| **AC-6** — every doc naming deleted machinery updated in the same diff | **unsatisfied** | Findings 1–4. AC-6's enumerated floor names `docs/config-schema.md` and `docs/extending.md` directly; the schema JSON is named in round 2's own amendment. The three docs round 1 blocked on (`pipeline-manifesto.md`, `config-schema.md` links, `README.md`) and the seven sites round 2 blocked on are all correctly closed — this is the same class one surface further out, at the config layer rather than the skills layer. |
-| **AC-7** — `visualCapture` retirement follows the dead-key pattern | **satisfied** | Unchanged; nothing in the delta touches it. The scope reviewer independently re-verified the no-`configVersion`-bump precedent against `gates.costTracking` in v2.1.6 and found it sound. |
+| **AC-1** — sweep green, shellcheck/jq clean, orphan check (all four kinds) | **satisfied** | Scored by AC-1's own named oracles, all green at `f59de2f`: `run all selftests` pass, `shellcheck` pass, `validate JSON` pass, and `selftests (macos, bash 3.2)` pass 5m51s. I re-ran all four orphan kinds myself (table above) and the discriminator sweep whole-tree. **The rule-3(a) red is a different step and a different guard**, named in none of AC-1's clauses — so it is a blocker *outside* the AC set (finding 1), not an AC-1 miss. Recording it that way rather than folding it in keeps the AC honest in both directions: the sweep genuinely is green, and the lane genuinely is red. |
+| **AC-2** — no register row names a deleted guard | **unsatisfied** | Finding 2. Every other clause holds, and I re-derived the one the PR body argues rather than inheriting it: for each operator in `tools/mutation-operators.tsv` I extracted `doctor.sh`'s matched-site sequence at `da021d7` and at `f59de2f` — `detector` (2 sites) and `default` (12) are byte-identical, `logic` ordinals 1 and 2 sit at lines 28 and 56 **at both revisions** (the new sites land below), and the shifted `cmp-z` sequence is moot because `doctor.sh` carries no `cmp-z` baseline row. **No generic row needs re-baselining** — the PR body's conclusion is right. (Its stated counts differ slightly from mine — `logic` 57→59 here, not 63→66 — but the conclusion is independent of the count.) `mutation-sweep-pr` is green at this head with 50 verdicts computed, a real green rather than the zero-verdict shape. |
+| **AC-3** — keep list, demotion register, D-3 override, pin in the body | **satisfied** | Unchanged from round 3. The pin literal `v5.2.2` is in the PR body with its re-confirm-at-merge caveat; the at-merge half is a declared merge precondition, which AC-3's wording licenses. See the triage note above. |
+| **AC-4** — frozen-files green; breaking verb; `Changelog:` + `Migration:` | **satisfied** | `frozen files guard` and `changelog trailer guard` both pass at this head. PR title is `feat(dev-pipeline)!: …` — the load-bearing surface under squash merge. Nothing in this delta touches it. |
+| **AC-5** — `capability-parity-check.sh` green, coverage clause vacuous | **satisfied** | Re-run by me at this head, not inherited: `note: … /skills/run/stages does not exist — the coverage clause is vacuous (expected once #348 has landed)` then `OK — 37 capability row(s)`. That note **is** the pass. |
+| **AC-6** — every doc naming deleted machinery updated in the same diff | **satisfied** | The class rounds 1–3 chased is closed at the config layer, and my whole-tree discriminator sweep finds no present-tense claim about a live mechanism outside the four declared keep-classes. The three toolkit SKILL.md edits in finding 1 are *correctly* updated as documents — the defect there is that the chosen wording violates a different guard, which is why finding 1 sits outside the AC set rather than reopening AC-6. |
+| **AC-7** — `visualCapture` retirement follows the dead-key pattern | **satisfied** | Unchanged; nothing in the delta touches it. `check-config-shadowing.sh`'s header, which round 3 found contradicting the spec's D-17 table, now states the two different reasons three rows left `CHECKS`, and matches the table. |
 
 ## Design fidelity
 
 `not-applicable`. The spec disarms with `Design: none — no design.provider is configured for this
 repo, and the diff has no UI surface`. Re-verified at this head rather than inherited: `design` and
-`stageParams.webComponentGlobs` are both `null` in the effective config, and the delta is
-`.md`/`.yml`/`.json`/`.sh`/`.mjs`-comment only with no UI surface. The disarm is justified.
+`stageParams.webComponentGlobs` are both `null` in the effective config, and this delta is
+`.md`/`.json`/`.sh`/`.tsv` only with no UI surface. The disarm is justified.
 
 ## Panel
 
-Six reviewers selected, six returned — **no dark reviewer, no coverage gap**. `db-reviewer`,
-`pipeline-reviewer` and `unit-test-mutation-reviewer` were not triggered (no DB, no queue surface,
-no co-located specs). `a11y-reviewer` and the design-fidelity dimension were not routed: no changed
-path matched `stageParams.webComponentGlobs` (unset ⇒ default `apps/web/**/*.{tsx,jsx}`).
-
-Security, performance, complexity, maintainability and test-coverage returned **clean, zero
-findings**. `scope-completeness-reviewer` returned `request-changes`; its four findings are triaged
-under "What is not a finding" below — none survives as a blocker, and it also self-reported that the
-dispatch range I gave it was the round-3 delta rather than `origin/main`, which it corrected for
-itself before classifying.
-
-**All four findings above are the round's own.** Findings 1, 2 and 4 live in files the delta either
-did not touch (`doctor.sh`, the schema's other 17 descriptions, `extending.md`) or touched at one
-line while the defect sits elsewhere in the same file — structurally outside every diff-scoped
-reviewer's window, which is the third round running that this PR's hardest finding has that shape.
-
-## What is not a finding
-
-- **The scope gate's S8 pin-location finding.** The issue asks for the concrete pin "in the P1/P2
-  posture note"; `docs/pipeline-manifesto.md:50-56` deliberately records a pointer to the
-  `Migration:` trailer instead, arguing a literal there would rot. That treatment **was round 1's
-  remedy and round 2 reviewed and accepted it**; re-opening it now would be escalating a settled
-  decision into a round-3 blocker. The substance is delivered and discoverable. Worth one line in
-  the issue body at merge to close the wording gap — a merge act, not a round.
-- **The scope gate's AC-1 `tools/*.tsv` finding.** Correct on the letter — `capability-parity.tsv`
-  matches `tools/*.tsv` and still cites 17 deleted paths — and settled twice: the file's own header
-  and `capability-parity-check.sh:29` state that its paths are permanent historical citations, not
-  existence-checked, and re-keying them would destroy this deletion's audit trail. The committed
-  spec's amended AC-1 declares the exclusion. The committed spec is the definition of done.
-- **The three merge-time obligations** (the pin recorded on #348, the OR-2 FE canary, re-stamping
-  `v5.2.2` if a `v5.2.3` lands first). All enumerated in the PR body as merge preconditions. A
-  remedy that lives outside the tree is not a review round.
-- **`pr-gates` red.** Read the log: the only failing arm is `lean-evidence` / `lean-chain` reporting
-  `verdict record … reads 'verdict=needs-work'` — the round-2 record, which this round replaces.
-  Every other check at this head is green.
-- **`state-schema.md`'s six dead links.** Deliberate, and this round widened the banner to name all
-  six — I verified the count independently: the resolver finds exactly six, and all six named
-  siblings are genuinely absent from the tree.
-- **The `ticketTag` three-site coupling.** Handled properly: `docs/config-schema.md:37,39`, the
-  schema description and `run-lean/SKILL.md` all now state the advisory reading, and
-  `scripts/lockstep-manifest.tsv:520` records the considered-and-**DROPPED** entry with its
-  reasoning — the sanctioned treatment for a real coupling that is not byte-anchorable.
-- **The tracker README rewrites.** I re-read all three whole rather than checking their links, which
-  is the lesson round 2 wrote. They are accurate: `build-lean/SKILL.md` step 1 *is* the queue-label
-  confirm and step 7 *is* the ready PR with `Closes #<issue>`; every `../`-relative script they cite
-  resolves; the `${CLAUDE_PLUGIN_ROOT}/tools/gh-bot.sh` form is right for an installed consumer; and
-  the `#the-lean-lane-dev-pipelinerun-lean` anchor `jira/README.md` uses resolves against the
-  sibling's actual heading.
-- **The 22-row link residue and the `${CLAUDE_PLUGIN_ROOT}/skills/run/` hits.** Every one lands in
-  `CHANGELOG.md` or `docs/plans/` — the two declared exempt classes. Checked, not assumed.
-
-## Verdict
-
-`needs-work` — two blockers, both AC-6, both bounded.
-
-Finding 1 is the one that matters, and it is small: the delta retargeted the abort template at the
-lean lane and, in doing so, asserted a bundle contains something the bundle's producer cannot
-produce. Teaching `state_excerpt()` to prefer `*-lean-progress.md` fixes the template, the shipped
-`/second-shift:doctor` command, and the `statectl` comment at `doctor.sh:60` in one edit.
-
-Finding 2 is volume, not difficulty — the same edit this commit already performed once, applied to
-the other 17 descriptions and the two doc rows that mirror them.
-
-The deletion remains careful work and the round-2 response was again genuinely good: it adopted the
-three-reference-kinds diagnosis rather than the two remedies, widened AC-1 to carry it, re-read the
-tracker docs whole instead of patching their links, and turned an orphaned fixture into two real
-guards that I could not make vacuous. What is left is that same class one layer further out. The
-skills layer now describes the surviving lane correctly; the **config** layer — the schema a
-consumer's editor renders, and the doctor bundle a consumer pastes into a bug report — still
-describes the deleted one.
+Five reviewers selected, five returned — **no dark reviewer, no coverage gap**. `maintainability`,
+`complexity`, `test-coverage` and `security` returned clean approves; `scope-completeness` returned
+`block` (triaged above: one confirmed, one settled). Lineup reduced per the prior-round rule —
+`db-reviewer`, `pipeline-reviewer` and `unit-test-mutation-reviewer` were not triggered (no DB, no
+queue surface, no co-located specs). `a11y-reviewer` and the design-fidelity dimension were not
+routed: no changed path matched `stageParams.webComponentGlobs` (unset ⇒ default
+`apps/web/**/*.{tsx,jsx}`). Both blockers in this record are the lead's own, found before the panel
+returned and confirmed independently by it in the first case.
