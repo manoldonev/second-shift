@@ -4,6 +4,34 @@ All notable changes to the second-shift marketplace. Versions are per-plugin (`p
 this file tracks the marketplace release. `configVersion` stays `const 1` — v2 is fully backward-compatible for a
 consumer with an empty config; the migration notes below are only for consumers using the changed features.
 
+## v7.0.0
+
+### `dev-pipeline` 6.0.0 → 7.0.0
+
+- **feat(dev-pipeline)!: retire the EP-6/EP-7/EP-8 config keys — a kept dead key silently disarms a consumer's blocking gate (#571)** (#571)
+  the config keys stageWorkflows (EP-6), implementDelegates (EP-7) and
+  planGates (EP-8) are removed; config-lint now rejects each by name.
+  check-extensions.sh no longer reads the consumer config at all — its EP-3
+  manifest lint is unchanged — and /second-shift:onboard no longer raises the
+  T1.extension-points grill row.
+  Migration: delete stageWorkflows, implementDelegates and planGates from
+  .claude/second-shift.config.json. No configVersion bump. There is no drop-in
+  replacement: a blocking check of your own is commands.<repo>.extraLanes; a
+  plan gate has no lean equivalent. See docs/migrations/v1-to-v2.md.
+
+### `second-shift` 4.0.0 → 5.0.0
+
+- **feat(dev-pipeline)!: retire the EP-6/EP-7/EP-8 config keys — a kept dead key silently disarms a consumer's blocking gate (#571)** (#571)
+  the config keys stageWorkflows (EP-6), implementDelegates (EP-7) and
+  planGates (EP-8) are removed; config-lint now rejects each by name.
+  check-extensions.sh no longer reads the consumer config at all — its EP-3
+  manifest lint is unchanged — and /second-shift:onboard no longer raises the
+  T1.extension-points grill row.
+  Migration: delete stageWorkflows, implementDelegates and planGates from
+  .claude/second-shift.config.json. No configVersion bump. There is no drop-in
+  replacement: a blocking check of your own is commands.<repo>.extraLanes; a
+  plan gate has no lean equivalent. See docs/migrations/v1-to-v2.md.
+
 ## v6.0.0
 
 ### `audit-toolkit` 2.1.2 → 3.0.0
