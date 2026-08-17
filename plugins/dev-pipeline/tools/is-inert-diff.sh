@@ -127,7 +127,7 @@ PATTERN="${1:-$INERT_RE}"
 # inert iff there is NO line that fails to match. `grep -vE` selects the non-inert paths;
 # if it selects any (exit 0) the diff is SUITE, otherwise (exit 1) it is INERT. Output is
 # discarded — only the exit code matters. This reuses the exact grep evaluation the
-# Stage-6 inline idiom used (`grep -vE … && LANE=suite || LANE=inert`), so classification
+# inline idiom formerly used (`grep -vE … && LANE=suite || LANE=inert`), so classification
 # is byte-identical. `grep -vE` (not `grep -qvE`) is deliberate: `-q` short-circuits and
 # trips a BSD-grep early-exit quirk, whereas plain `-vE` reproduces the original exit code.
 #

@@ -1,7 +1,7 @@
 export const meta = {
   name: 'dev-pipeline-unit-tests',
   description:
-    "Stage 4/5 unit test dispatch for the dev-pipeline. kind='plan-review' dispatches unit-test-plan-reviewer; kind='mutation-review' dispatches unit-test-mutation-reviewer. Verdict handling and state writes stay in the dev-pipeline session.",
+    "Unit test dispatch for the dev-pipeline. kind='plan-review' dispatches unit-test-plan-reviewer; kind='mutation-review' dispatches unit-test-mutation-reviewer. Verdict handling and state writes stay in the dev-pipeline session.",
   phases: [{ title: 'Unit Tests', detail: 'one agent() per plan-review/mutation-review dispatch' }],
 }
 
@@ -37,8 +37,8 @@ const PLAN_REVIEW_SCHEMA = {
   },
 }
 
-// Stage-5 PROPOSE-ONLY shape: the agent proposes mutants + patches; it does NOT apply/run/revert
-// or emit a verdict. The Stage-5 orchestrator executes the blocker-class patches (apply → run spec →
+// PROPOSE-ONLY shape: the agent proposes mutants + patches; it does NOT apply/run/revert
+// or emit a verdict. The propose-mode orchestrator executes the blocker-class patches (apply → run spec →
 // revert) and computes the verdict + mutationScore from the results. Keeping execution out of the
 // schema-forced agent turn lowers (but does not eliminate) the StructuredOutput staller — the
 // mandate + inline retry below are what actually drive it to ~zero.
@@ -132,9 +132,9 @@ const RETRY_ESCALATION =
 // validated in-script; the schema objects become validators. The transcription-only emitter
 // agent (tools: [], maxTurns: 2) is the only schema carrier — and ONLY for the plan-review
 // kind. The mutation kind never routes through the emitter: its blocker mutants carry
-// {originalSnippet, mutatedSnippet} patch bytes that Stage 5 applies MECHANICALLY, and a
+// {originalSnippet, mutatedSnippet} patch bytes the orchestrator applies MECHANICALLY, and a
 // transcription model is a corruption surface for verbatim code. A mutation contract miss
-// goes straight to the caller's infraFailure envelope instead (Stage 5 re-dispatches once).
+// goes straight to the caller's infraFailure envelope instead (the orchestrator re-dispatches once).
 const parseReviewResult = (text) => {
   const m = [...String(text ?? '').matchAll(/REVIEW_RESULT\s*```json\s*([\s\S]*?)```/g)]
   if (!m.length) return null
@@ -248,7 +248,7 @@ if (typeof budget !== 'undefined' && budget && budget.total) {
   log(`budget: ${Math.round(budget.remaining() / 1000)}k / ${Math.round(budget.total / 1000)}k tokens left`)
   if (budget.remaining() <= 0) {
     log('budget exhausted — skipping unit-tests dispatch')
-    // Clean skip: NOT a fake block. Stage 4/5 must not map budgetExhausted to
+    // Clean skip: NOT a fake block. Callers must not map budgetExhausted to
     // unit-test-plan-reviewer-block / unit-test-mutation-reviewer-block (eval-tracked reasons).
     return { kind, target, worktree, budgetExhausted: true }
   }
@@ -333,7 +333,7 @@ if (kind === 'plan-review') {
 
 // `infraFailure: true` marks a dispatch/StructuredOutput death that survived the inline retries, so
 // the orchestrator + pipeline-retro can tell it apart from a real agent verdict — never route it to
-// a `*-block` (eval-tracked). Stage 5 may re-dispatch once more, then surfaces it.
+// a `*-block` (eval-tracked). The orchestrator may re-dispatch once more, then surfaces it.
 const result = await dispatchSchemaAgent(prompt, opts).catch((err) => ({
   ...failClosed('agent dispatch failed: ' + String(err)),
   infraFailure: true,

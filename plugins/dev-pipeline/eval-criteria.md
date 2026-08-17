@@ -6,7 +6,7 @@
 These criteria are scored after each pipeline run. Each is binary: PASS or FAIL.
 Pass rate = (criteria passed across all runs) / (total criteria scored).
 
-**Runtime note:** any criterion that reasons about a run's duration must read **effective** (compute) time — `tools/stage-times.sh`'s effective total / per-stage output, which subtracts recorded `pauseSpans[]` — not the raw `lastUpdatedAt − startedAt` wall difference. A paused/resumed run (session-quota exhaustion → resume hours later) inflates wall time by the idle gap; effective time is the trustworthy signal. (No criterion below references runtime today; this is forward-looking guidance.)
+**Runtime note:** any criterion that reasons about a run's duration must read **effective** (compute) time, which subtracts recorded pause spans — not the raw `lastUpdatedAt − startedAt` wall difference. A paused/resumed run (session-quota exhaustion → resume hours later) inflates wall time by the idle gap; effective time is the trustworthy signal. (No criterion below references runtime today; this is forward-looking guidance.)
 
 Derived from real pipeline sessions in the acme repo and the hardening patterns the skill has accumulated.
 

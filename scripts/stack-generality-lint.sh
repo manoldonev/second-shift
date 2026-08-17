@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # stack-generality-lint.sh — regression guard for the mechanizable stack-generality legs.
 #
-# WHY THIS EXISTS: the Stage-3/5 prompt contracts were genericized off the birth stack
+# WHY THIS EXISTS: the prompt contracts were genericized off the birth stack
 # once before, and the literals crept back because nothing model-free guarded them. This
 # lint bans re-entry of the mechanizable ones. It deliberately guards ONLY the legs a
 # substring check can honestly decide; the normative-vs-illustrative distinction

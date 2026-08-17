@@ -1,13 +1,13 @@
 export const meta = {
   name: 'dev-pipeline-figma',
   description:
-    "Stage 3/4/5 Figma dispatch for the dev-pipeline, run natively from the BE session (no claude -p). kind='produce' dispatches a subagent that invokes the REAL figma-faithful(-spec) plugin Skill (Figma MCP; writes the artifact); kind='gate' dispatches the REAL figma-faithful-*-reviewer plugin agent. Verdict/status handling and state writes stay in the dev-pipeline session.",
+    "Figma dispatch for the dev-pipeline, run natively from the BE session (no claude -p). kind='produce' dispatches a subagent that invokes the REAL figma-faithful(-spec) plugin Skill (Figma MCP; writes the artifact); kind='gate' dispatches the REAL figma-faithful-*-reviewer plugin agent. Verdict/status handling and state writes stay in the dev-pipeline session.",
   phases: [{ title: 'Figma', detail: 'one agent() per produce/gate dispatch' }],
 }
 
-// Selected by the design-provider axis (config `design.provider: "figma"`). Stage 1
+// Selected by the design-provider axis (config `design.provider: "figma"`). Intake
 // flips designDriven only when the provider is figma and a figma.com URL is present;
-// Stages 3/5 dispatch this workflow (produce) and Stage 8 routes the figma-faithful
+// The spec/implement path dispatches this workflow (produce) and the review fan-out routes the figma-faithful
 // code reviewer on a figma-provider designDriven run. The produce/gate targets are the
 // design-toolkit plugin components (design-toolkit:figma-faithful[-spec],
 // design-toolkit:figma-faithful-*-reviewer), passed in via args.target — this workflow
@@ -178,7 +178,7 @@ log(`figma: ${kind} via ${target} in ${feWorktree}${jiraKey ? ` (${jiraKey})` : 
 phase('Figma')
 
 // Cost discipline: the Workflow budget bounds the agent() call. Budget-exhausted skips dispatch
-// cleanly — Stage 3/4/5 must not map it to figma-mcp-unreachable / figma-*-reviewer-block.
+// cleanly — callers must not map it to figma-mcp-unreachable / figma-*-reviewer-block.
 if (typeof budget !== 'undefined' && budget && budget.total) {
   log(`budget: ${Math.round(budget.remaining() / 1000)}k / ${Math.round(budget.total / 1000)}k tokens left`)
   if (budget.remaining() <= 0) {

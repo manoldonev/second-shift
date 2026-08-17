@@ -14,7 +14,7 @@ export const meta = {
 // historical commit, so the probe is reproducible without committing a fixture.
 // An even lower-signal alternative is `84e3efa^..84e3efa` (a 2-word docs nit).
 //
-// To isolate the variable: this probe mirrors the production Stage-8 dispatch EXACTLY
+// To isolate the variable: this probe mirrors the production review dispatch EXACTLY
 // (same FINDINGS_SCHEMA, same STRUCTURED_OUTPUT_FIRST nudge, same death detector). The
 // ONLY thing that differs between a BEFORE and an AFTER run is the reviewer-baseline
 // contract the dispatched agents inherit — so a drop in the stall rate is attributable
@@ -206,7 +206,7 @@ const TARGETS = {
       `file, line, confidence 0-100). Ignore stylistic issues handled by formatter/linter.`,
     mandate: STRUCTURED_OUTPUT_FIRST,
   },
-  // The Stage-4 gate that aborted runs #165 and #169 at 6/6 apiece.
+  // The plan-review gate that aborted runs #165 and #169 at 6/6 apiece.
   'plan-reviewer': {
     // bounded-exploration-optout: probe target -- measurement control, as above.
     schema: PLAN_REVIEW_SCHEMA,
@@ -221,7 +221,7 @@ const TARGETS = {
       `missed downstream impacts. Return trinary verdict (block | fix-and-go | pass) and findings.`,
     mandate: STRUCTURED_OUTPUT_MANDATE,
   },
-  // The Stage-4 child plan-review.mjs nests via workflow() (unit-tests.mjs kind: 'plan-review').
+  // The child plan-review nests via workflow() (unit-tests.mjs kind: 'plan-review').
   'unit-test-plan-reviewer': {
     // bounded-exploration-optout: probe target -- measurement control, as above.
     schema: PLAN_REVIEW_SCHEMA,

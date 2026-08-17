@@ -121,8 +121,8 @@ declared input — so the two CI lanes accumulate independent marker sets and ne
 an answer to a different question.
 
 It exists because the sweep re-derives the same verdict on every push. The measurement that
-motivated it: `statectl-selftest.sh` alone was 149s of a 171s ubuntu sweep, and most PRs touched
-nothing it read. That suite was deleted with the staged lane in #348 — the figure is kept because
+motivated it: one suite alone was 149s of a 171s ubuntu sweep, and most PRs touched
+nothing it read. The figure is kept because
 it is what the mechanism was sized against, not because the suite still exists.
 
 **The risk is a silently skipped gate**, which is this repo's cardinal failure mode, so the
@@ -234,12 +234,11 @@ with 42 green selftests because every one of them checked a component against it
 gate has a verdict path, extend `scenario-liveness-selftest.sh`.
 
 **Never plant what a tool could produce.** A composed scenario can still be hollow if the values
-it composes over are typed in by the harness. `scenario-lib.sh` planted every comment receipt as
-`https://github.example/issues/<key>#issuecomment-<n>`, so the post-a-comment → read `html_url` →
-record-the-receipt chain was never executed by anything. Worse, planting hides its own failures: the stage-7
-checkpoint plant was passing a payload keyed to another ticket, `checkpoint` rejected it, `sct`
-discarded the stderr, and both consumers walked stage 7 with no `stageCheckpoint["7"]` at all —
-green the whole time. Prefer a shim you execute over a literal you write; where no production tool
+it composes over are typed in by the harness. A retired scenario helper planted every comment
+receipt as `https://github.example/issues/<key>#issuecomment-<n>`, so the post-a-comment → read
+`html_url` → record-the-receipt chain was never executed by anything. Worse, planting hides its own failures: a checkpoint plant
+passing a payload keyed to another ticket was rejected, the stderr discarded, and both consumers
+walked on with no checkpoint at all — green the whole time. Prefer a shim you execute over a literal you write; where no production tool
 owns the call, say so at the assertion instead of implying the literal proves something.
 
 **Characterization is allowed; silent characterization is not.** Covering a gate often means
@@ -254,9 +253,9 @@ from an author who did not notice.
 written and in a marketplace install cache everywhere it is *used*, and the two differ in ways a
 suite can silently depend on: there is no git repository above the install cache, and sibling
 plugins sit behind a version segment (`<root>/<plugin>/<version>/…`) instead of adjacent under
-`plugins/`. Two suites depended on exactly those and were green here the whole time —
-`plan-lint-selftest.sh` borrowed the repo's git toplevel for its fixtures, so from an install its
-check-5a assertions were skipped wholesale (one failing, two passing vacuously), and
+`plugins/`. Two suites depended on exactly those and were green here the whole time — one
+borrowed the repo's git toplevel for its fixtures, so from an install its assertions were skipped
+wholesale (one failing, two passing vacuously), and
 `design-sync-selftest.mjs` walked a fixed `../../../../design-toolkit` path. So: **a fixture owns
 its own repo** (`git init` inside a `mktemp -d`), and **a cross-plugin path goes through a
 resolution ladder**, never a fixed hop count — `resolve_sibling()` in `pipeline-doctor.sh` is the
@@ -298,8 +297,8 @@ Re-running the whole shipped set is the price of the class being visible at all,
 small. Suites run concurrently (`INSTALL_TOPOLOGY_JOBS`, default 4 — each suite is a separate
 `--run-one` invocation, which is also what gives every concurrent watchdog its own job-control
 shell), against **542s** for the serial form. The remaining floor is one suite:
-`statectl-selftest.sh` was 94s uncontended and was measured at 244s while a second copy ran
-(that suite was deleted in #348; the ratio is what the sizing argument rests on, not the suite).
+the then-slowest suite was 94s uncontended and was measured at 244s while a second copy ran
+(the ratio is what the sizing argument rests on, not the suite).
 
 **Do not plan around a single number for the concurrent form.** Three runs of this same tree, same
 command, uncontended, measured **319s, 438s and 584s** — a 1.8x spread with no code change between
@@ -323,7 +322,7 @@ real defects that were green in-tree the whole time, and it stays. But its cost 
 suite set run a second time, which made it the repo's longest job, while the class it guards moves
 only when suites change or when packaging/topology changes. On the median PR it was paying the
 critical path to re-derive the previous night's answer. Inside the sweep it was also contending
-with the second copy of every suite it stages — the 244s-vs-94s statectl figure above — so it was
+with the second copy of every suite it stages — the 244s-vs-94s figure above — so it was
 simultaneously the long pole and the thing lengthening everything else.
 
 **The trade, stated plainly:** a packaging or suite regression is now caught within a day instead
@@ -341,7 +340,7 @@ cause — this guard runs a second copy of every shipped suite, frequently while
 running the first, so contention is structural here rather than incidental.
 
 The default was 600s and was raised on evidence: under a stress-inclusive outer sweep at `-P 4`,
-the then-slowest suite inside the guard (`statectl-selftest.sh`, since deleted) exceeded 600s and
+the then-slowest suite inside the guard exceeded 600s and
 was reported as a timeout, reding a tree
 that had nothing wrong with it. A later stress-inclusive sweep of the same tree did **not** cross
 it — which is the point, not a contradiction. **A bound that ambient machine load can cross
@@ -363,10 +362,7 @@ shape via two different code paths (the lean gate's milestone-3 sweep vs preflig
 doctor sweep), kept honest by a `scripts/lockstep-manifest.tsv` `subset-of` row rather than a
 shared import (neither is importable by the other).
 
-The canonical leg used to be `verifyctl.sh`, the staged lane's Stage-6 verify runner, and BOTH
-rows pointed at it until #348 deleted it. Nothing about the contract changed: the two old rows
-established `lean-gate == verifyctl` and `preflight ⊇ verifyctl`, so `preflight ⊇ lean-gate`
-follows, and the single surviving row asserts exactly that — directly, which neither old row did.
+The single row asserts `preflight ⊇ lean-gate` directly.
 
 This is a different concern from the `unset SECOND_SHIFT_CONFIG …` lines at the top of several
 *direct-invocation* selftests (`preflight-selftest.sh`, `scenario-liveness-selftest.sh`, etc.):
@@ -389,9 +385,8 @@ The top-level `return` becomes a legal return from the arrow, and every injected
 as a parameter the test controls. Drive it with a behavior queue of canned agent outputs and
 assert on what the workflow actually returns.
 
-The mechanics live in `workflows/runtime-shim-lib.mjs` — import them. Two suites consume it:
-`runtime-shim-selftest.mjs` for per-workflow dispatch-ladder cases, and `e2e-workflow-leg.mjs`
-for the E2E replay's stage-4/5/8 legs.
+The mechanics live in `workflows/runtime-shim-lib.mjs` — import them. `runtime-shim-selftest.mjs`
+consumes it for per-workflow dispatch-ladder cases.
 
 Notes from building it:
 
@@ -401,8 +396,7 @@ Notes from building it:
 - The meta-strip is a balanced-brace scan, not a parser. That is safe only because
   `design-sync-selftest.mjs` Case I lints every workflow for meta-literal purity — and "every"
   is a **list** of workflow directories. One directory is in it today — the plugin's own
-  `workflows/`, which is where #348 put it when the staged lane's `skills/run/workflows/` was
-  deleted. Adding a directory means adding it to Case I's list **and** to
+  `workflows/`. Adding a directory means adding it to Case I's list **and** to
   `tools/check-bounded-exploration.sh`, which is anchored the same way — a workflow outside
   the list is unlinted, which makes the meta-strip unsound for exactly the files it is used
   on. Neither edit can be silently skipped: both sites discover every `workflows/` directory
@@ -412,8 +406,7 @@ Notes from building it:
   and the self-check would have been silently vacuous.
 - `workflow` is **last** in the parameter list, and adding a global must stay an append —
   inserting one shifts every existing positional call site, and cases then fail for reasons that
-  look like production bugs. `mutation-gate.mjs` needs it for its nested dispatches (so did
-  `plan-review.mjs`, until #348 deleted it with Stage 4); a workflow that never calls it is
+  look like production bugs. `mutation-gate.mjs` needs it for its nested dispatches; a workflow that never calls it is
   driven by omitting the argument.
 - A script that drives a workflow must `process.exit()` explicitly. The dispatch ceiling timers
   keep node's event loop alive, so merely reaching the end of the file hangs for fifteen minutes
@@ -534,7 +527,7 @@ covering those would need out-of-band publication. Partial-evidence coverage is 
 
 Three tracked guards carry that idiom, and the `k` budget — not any property of the guards — is
 what decided which were armed: `predecessor-gate.sh` held it at `cmp-z` ordinal 1 and killed its
-shard (so did `gen-statectl-validators.sh`, deleted with the staged lane in #348), while `scaffold-review-context.sh` holds it at ordinal 5
+shard, while `scaffold-review-context.sh` holds it at ordinal 5
 and was never mutated at `k=2`. Budget is not safety. That fourth site is now armed by the
 `scaffold-spin-at-eof` **catalog** row rather than by raising `MUTATION_SWEEP_K`, which would have
 armed every other guard's ordinals 3–5 for the sake of one named site; `k` is unchanged, so no

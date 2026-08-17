@@ -172,7 +172,7 @@ if [[ "$KEY_BODY" != "$KEY_BRANCH" ]]; then
   fail "key mismatch: PR body references #$KEY_BODY but the head branch resolves to #$KEY_BRANCH."
 fi
 
-# The plan file is committed on the branch at Stage 3, and pr-gates runs actions/checkout@v5
+# The plan file is committed on the branch by the build half, and pr-gates runs actions/checkout@v5
 # (fetch-depth: 0) on the PR ref — so the branch's plan file is present in the CI checkout.
 plan_path_for() { # plan_path_for <key> -> the pattern-derived path
   printf '%s' "$PIPELINE_PLAN_PATTERN" \
@@ -182,7 +182,7 @@ plan_path_for() { # plan_path_for <key> -> the pattern-derived path
 # (b) branch key -> plan file must exist.
 PLAN_BRANCH="$(plan_path_for "$KEY_BRANCH")"
 [[ -f "$REPO_ROOT/$PLAN_BRANCH" ]] \
-  || fail "no committed plan at '$PLAN_BRANCH' (derived from the head-branch key #$KEY_BRANCH). Stage 3 commits the plan onto the branch."
+  || fail "no committed plan at '$PLAN_BRANCH' (derived from the head-branch key #$KEY_BRANCH). The build half commits the plan onto the branch."
 
 # (c) body key -> plan file must exist AND be the same file.
 PLAN_BODY="$(plan_path_for "$KEY_BODY")"

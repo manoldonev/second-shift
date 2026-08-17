@@ -2,7 +2,7 @@
 # claim-issue.sh — atomically swap `ready-for-dev` -> `in-progress` on a GitHub
 # issue, REST two-call form, with the silent-failed-add guard.
 #
-# Single source of truth for the Stage 1.A claim swap (was inline model-executed
+# Single source of truth for the claim swap (was inline model-executed
 # prose in SKILL.md / stages/1-intake.md). Extracting it removes the
 # transcription-error surface #170 hardened and gives the failed-add abort path an
 # automated regression test (#183, claim-selftest.sh) — which #170's AC#3 could not
@@ -43,7 +43,7 @@
 set -uo pipefail
 
 ISSUE="${1:-}"; shift || true
-# Label vocabulary (config tracker.labels; #11) — Stage 1 passes the resolved
+# Label vocabulary (config tracker.labels; #11) — the caller passes the resolved
 # names, defaulting to the shipped queue/claimed labels when omitted.
 QUEUE_LABEL="ready-for-dev"
 CLAIMED_LABEL="in-progress"

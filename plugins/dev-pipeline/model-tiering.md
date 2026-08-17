@@ -7,7 +7,7 @@ and consumer-overridable.
 Mapping" / "Model Tiering" sections. The staged lane is gone; the tier CONTRACT is not tied to
 it — the `.mjs` dispatch tables it governs (`workflows/`) survive and are still enforced at
 commit time — so the sections moved here whole. What did NOT move is the per-stage tier table:
-its rows were stage choreography (one row per stage 1-10), and there are no stages.
+its rows were choreography (one row per stage), and there are no stages.
 
 ## Tier alphabet
 

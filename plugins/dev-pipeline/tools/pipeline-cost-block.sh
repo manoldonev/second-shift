@@ -1,6 +1,6 @@
 #!/bin/bash
 # pipeline-cost-block.sh — append a per-stage OTel cost block to a dev-pipeline
-# run's PR(s). Invoked explicitly by Stage 9 (this is NOT a Stop hook).
+# run's PR(s). Invoked explicitly by the caller (this is NOT a Stop hook).
 #
 # Usage:  pipeline-cost-block.sh <issue-number>
 #         pipeline-cost-block.sh --stateless --sessions <id[,id…]> \
@@ -9,7 +9,7 @@
 #         collector, no PRs, …) into the state file's costBlockApplied field.
 #         non-zero = the state file could not be resolved (nothing to record
 #         into) — a loud, state-unresolvable failure. Either way the sub-step is
-#         non-fatal to Stage 9: the caller invokes it without checking rc, so a
+#         non-fatal to the caller: it invokes this without checking rc, so a
 #         non-zero exit surfaces in the run summary but never blocks completion.
 #
 # STATE-LESS MODE (additive; build-lean, D-28). One instrument across both harnesses —
@@ -178,8 +178,8 @@ STATE_FILE=$(resolve_state)
 # $STATE_FILE, which by definition does not exist here, so we cannot leave a
 # costBlockApplied breadcrumb. Fail LOUD (non-zero) instead of the old silent
 # `exit 0` — a bare null was the #188 silent-skip. A cross-repo run must point
-# this script at the CONTROL repo's state (Stage 9 exports SECOND_SHIFT_REPO_ROOT
-# on the invocation; operators of a bespoke cwd set STATECTL_STATE_DIR). Stage 9
+# this script at the CONTROL repo's state (the caller exports SECOND_SHIFT_REPO_ROOT
+# on the invocation; operators of a bespoke cwd set STATECTL_STATE_DIR). The caller
 # invokes this without checking rc, so the non-zero never blocks completion.
 [ -f "$STATE_FILE" ] || { log "no state file at $STATE_FILE — state unresolvable, cannot record costBlockApplied (see #188: export SECOND_SHIFT_REPO_ROOT/STATECTL_STATE_DIR to the control repo)"; exit 2; }
 fi
@@ -499,7 +499,7 @@ compute_bucket_rollup() {
     |
     # Assign each (already-fenced) row to the first stage window containing it.
     # A row that falls in no stage window is in-fence inter-stage-gap cost (or
-    # pre-Stage-1 setup) → explicit "Other" bucket. Out-of-fence rows were
+    # pre-run setup) → explicit "Other" bucket. Out-of-fence rows were
     # already dropped above, so there is no whole-session "Other" anymore.
     ($stages | to_entries
       | map({n: .key,
@@ -563,7 +563,7 @@ compute_bucket_rollup() {
 # Stage-window quality check: if startedAt is missing everywhere, or all
 # timestamps collapse to a single distinct value, bucketing is meaningless
 # and we degrade to a single-row "Session total" table.
-# This also tolerates a lifecycle-less final stage (e.g. a Stage 9 that never
+# This also tolerates a lifecycle-less final stage (e.g. a final stage that never
 # wrote startedAt — see #174): the gate keys off >=2 starts / >=3 distinct
 # timestamps across ALL stages, so a single missing final-stage window still
 # passes (prior stages satisfy it) and never crashes the cost block.

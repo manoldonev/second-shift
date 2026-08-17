@@ -4,7 +4,7 @@
 # Every case executes the REAL script against a generated corpus and asserts on what it
 # emits. Fixtures are hand-written in the REAL shapes the two producing tools emit
 # (statectl-shaped stage-schema JSON; lean-gate.sh-shaped progress/verdict records) rather
-# than driving those tools end-to-end — the same choice stage-envelopes-selftest.sh makes for
+# than driving those tools end-to-end — the same choice makes for
 # the same reason: the point here is the READER's era-detection and aggregation, and the two
 # WRITERS have their own coverage — lean-gate-selftest.sh for the surviving writer, and
 # statectl-selftest.sh for the staged one until #348 deleted it along with that writer. The
@@ -89,7 +89,7 @@ mkprogress() {
 # ═══════════════════════════════════════════════════════════════════════════════════
 # AC-1: artifact-schema-only corpus (no stage .json files) — must not error. Extended
 # (round-1 review B2) past corpus enumeration to the REPORT path: perf-retro's Step 1
-# guard decides whether to call stage-envelopes.sh by counting this corpus's era:"stage"
+# guard decides whether to route by counting this corpus's era:"stage"
 # rows, so that count is asserted here too, and the tool the guard exists to route
 # around is proven to still hard-exit on the identical fixture — never a blank report.
 # ═══════════════════════════════════════════════════════════════════════════════════
@@ -106,13 +106,6 @@ if OUT="$(run_corpus "$D")"; then
   fi
 else
   fail "(AC-1) corpus mode exited non-zero on an artifact-only state dir"
-fi
-
-STAGE_ENV_TOOL="$SCRIPT_DIR/stage-envelopes.sh"
-if [ -f "$STAGE_ENV_TOOL" ] && ! bash "$STAGE_ENV_TOOL" --state-dir "$D" >/dev/null 2>&1; then
-  pass "(AC-1) stage-envelopes.sh still hard-exits on the same artifact-only state dir — the report path must route around it via the era count, not by catching its failure"
-else
-  fail "(AC-1) stage-envelopes.sh did not hard-exit on an artifact-only state dir — the report-path guard's premise no longer holds"
 fi
 
 # ═══════════════════════════════════════════════════════════════════════════════════

@@ -248,7 +248,7 @@ Clarify-then-fix comments are NOT implemented in this pass. They are addressed i
 
 ### 7. Verify
 
-Same commands as the main pipeline Stage 7: run the configured format, lint, type-check, and test commands from the config `commands` table.
+Same commands as the main verify lane: run the configured format, lint, type-check, and test commands from the config `commands` table.
 
 - **If any command fails:** attempt to fix (max 2 tries per failure).
 - **If still failing after 2 fix attempts:**

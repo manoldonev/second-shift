@@ -7,7 +7,7 @@
 # CAUSE block in workflows/code-review.mjs: ~50% -> 0/12, ~45% fewer tokens; the identical text
 # in the inherited reviewer-baseline doc cured 0 of 6, so placement is load-bearing). That nudge
 # shipped on exactly one of six dispatchers and the omission went unnoticed for months, aborting
-# a Stage-4 run 6/6. Workflow scripts cannot `import`, so the constants are necessarily re-stated
+# a plan-review run 6/6. Workflow scripts cannot `import`, so the constants are necessarily re-stated
 # per file — the same shape check-model-tiers.sh polices for model tiers. Prose cannot hold this
 # invariant (23 retros' worth of evidence); a lint can.
 #

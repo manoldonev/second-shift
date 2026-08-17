@@ -104,11 +104,8 @@ echo "hello" > "$FIX/README.md"
 # coverage line — committed so it does not perturb the zero-write assertion.
 mkdir -p "$FIX/.claude/second-shift"
 printf '# Review context — fix\n\n## Stack\nNext.js + Postgres.\n' > "$FIX/.claude/second-shift/review-context.md"
-# One tracked NON-inert source file. Without it every tracked path in this fixture is
-# *.md, i.e. the whole tree classifies INERT — which is the unreachable-lane condition
-# the AC-4 check below warns about, and it would fire across the shared cases that are
-# about something else entirely. A consumer repo whose lanes are meant to be reachable
-# has a product surface; this makes the fixture one.
+# One tracked source file, so the fixture looks like a consumer repo with a real
+# product surface rather than a docs-only tree.
 mkdir -p "$FIX/src"
 printf 'export const x = 1\n' > "$FIX/src/index.ts"
 git -C "$FIX" add README.md .claude/second-shift/review-context.md src/index.ts && git -C "$FIX" commit -qm init
@@ -368,64 +365,6 @@ else
   ! grep -q -- "— pipeline-ready" "$BASE/out.log"
   assert "no-host-repo run does not claim pipeline-ready even with FAILs (rc=$rc) (AC-1)" "$?"
 fi
-
-# ---- runs 16-17: configured lanes that can NEVER run (#127, AC-4) ----
-# The sibling of run 12, opposite cause: lanes ARE configured, but every tracked file
-# classifies INERT, so Stage 6 always takes the inert lane and they never execute. The
-# config looks verified while the pipeline verifies nothing — a false green that is
-# otherwise invisible until a run reports "skipped (inert diff)".
-#
-# This needs its own repo: the shared fixture deliberately tracks a .ts source so the
-# condition does NOT hold there (see the fixture comment above).
-SHFIX="$BASE/shell-consumer"
-mkdir -p "$SHFIX/.claude/second-shift"
-git init -q "$SHFIX"
-git -C "$SHFIX" config user.email t@t
-git -C "$SHFIX" config user.name t
-printf '# shell tool\n' > "$SHFIX/README.md"
-printf '#!/usr/bin/env bash\necho hi\n' > "$SHFIX/run.sh"
-printf '# Review context — sh\n\n## Stack\nBash.\n' > "$SHFIX/.claude/second-shift/review-context.md"
-git -C "$SHFIX" add -A && git -C "$SHFIX" commit -qm init
-
-write_shell_config() { # $1 = inertPattern JSON value ("null" = omit the key)
-  cat > "$SHFIX/.claude/second-shift.config.json" <<EOF
-{
-  "configVersion": 2,
-  "tracker": { "type": "github", "branchPrefix": "claude/sh-" },
-  "topology": { "type": "standalone", "repos": { "sh": { "path": ".", "baseBranch": "main" } } },
-  "commands": { "sh": { "lint": "echo lint-green", "typecheck": null, "test": "echo test-green", "format": null } },
-  "stageParams": { "inertPattern": $1 }
-}
-EOF
-  [[ "$1" == "null" ]] && jq 'del(.stageParams)' "$SHFIX/.claude/second-shift.config.json" > "$BASE/shcfg.tmp" \
-    && mv "$BASE/shcfg.tmp" "$SHFIX/.claude/second-shift.config.json"
-  return 0
-}
-
-run_shell_preflight() {
-  SECOND_SHIFT_REPO_ROOT="$SHFIX" PREFLIGHT_DOCTOR_CMD="bash $DOC_OK" \
-    SECOND_SHIFT_REVIEW_TOOLKIT_ROOT="$RT_TEST_ROOT" \
-    bash "$PREFLIGHT" >"$BASE/out.log" 2>&1
-}
-
-# run 16: lanes configured, NO override — the default inert set swallows *.sh and *.md,
-# so the whole tree is inert and the lanes are unreachable. WARN fires.
-write_shell_config null
-run_shell_preflight; rc=$?
-grep -q "can never run" "$BASE/out.log"
-assert "all-inert tree with configured lanes surfaces the unreachable-lane WARN (AC-4)" "$?"
-grep -q "Set stageParams.inertPattern" "$BASE/out.log"
-assert "the WARN names the remedy when no override is set (AC-4)" "$?"
-! grep -q -- "— pipeline-ready" "$BASE/out.log"
-assert "a repo whose lanes can never run is not pipeline-ready (AC-4)" "$?"
-
-# run 17: same repo, override set so *.sh is no longer inert — the lanes are reachable
-# and the WARN must NOT fire. Without this negative the check could pass by always
-# warning.
-write_shell_config '"(\\.md$)"'
-run_shell_preflight; rc=$?
-! grep -q "can never run" "$BASE/out.log"
-assert "an override that frees the product surface suppresses the WARN (AC-4)" "$?"
 
 # ---- run 18: plan-path resolution strips retired/unknown tokens (#267 D-3) ----------
 # The substitution enumerates {plansDir} and {issueKey} and then strips ANY residual

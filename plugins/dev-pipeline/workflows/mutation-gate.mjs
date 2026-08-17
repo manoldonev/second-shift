@@ -1,7 +1,7 @@
 export const meta = {
   name: 'dev-pipeline-mutation-gate',
   description:
-    "Stage 5 mutation-gate sequencer for the dev-pipeline. Proposes via nested unit-tests.mjs (schema'd, unchanged child with its own staller mitigations), executes blocker mutants via SEQUENTIAL SCHEMA-FREE executor agents (plain-text MUTANT_RESULT line parsed in JS — the StructuredOutput staller class cannot occur without a forced call), computes the verdict in JS. The strengthen loop (test-writing judgment) and all state writes stay in the dev-pipeline session.",
+    "Mutation-gate sequencer for the dev-pipeline. Proposes via nested unit-tests.mjs (schema'd, unchanged child with its own staller mitigations), executes blocker mutants via SEQUENTIAL SCHEMA-FREE executor agents (plain-text MUTANT_RESULT line parsed in JS — the StructuredOutput staller class cannot occur without a forced call), computes the verdict in JS. The strengthen loop (test-writing judgment) and all state writes stay in the dev-pipeline session.",
   phases: [{ title: 'Mutation Gate', detail: 'nested propose workflow + one schema-free agent() per blocker mutant' }],
 }
 
@@ -64,7 +64,7 @@ const computeVerdict = (executions) => {
 }
 // <<< verdict <<<
 
-// args (assembled in-session by Stage 5):
+// args (assembled in-session by the caller):
 //   worktree     — ABSOLUTE worktree path (executors apply/run/revert here;
 //                  the per-spec test command runs from ${worktree})
 //   base, head   — git refs bounding the reviewed range (propose child contract): branch,

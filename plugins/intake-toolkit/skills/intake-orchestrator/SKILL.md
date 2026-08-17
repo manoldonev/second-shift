@@ -101,7 +101,7 @@ decision you made wearing the costume of a finding.
 ## Inputs
 
 - **Required**: Issue number (pipeline provides this after claim)
-- **Required**: RUN_ID (passed from pipeline Stage 1 — do not generate a new one. Use this value in all `{RUN_ID}` comment templates.)
+- **Required**: RUN_ID (passed in by the caller — do not generate a new one. Use this value in all `{RUN_ID}` comment templates.)
 - **Assumed** (github adapter): `gh` CLI is authenticated, repo root is working directory _(jira: tracker delta.)_
 - **Context**: Bootstrap from the repo's `CLAUDE.md` (and whatever convention / current-focus docs and knowledge skills it routes to)
 
@@ -145,7 +145,7 @@ Sort every part of the spec into two buckets:
 - The problem and who has it; user goals / jobs-to-be-done
 - User-facing behavior, flows, copy
 - Business rules & invariants stated in **domain** terms (not schema terms)
-- Acceptance criteria as observable outcomes — **preserve `AC-n` IDs verbatim** when the source carries them; if it doesn't, assign IDs per the positional fallback rule (the pipeline state-schema's "Intake intent snapshot" section — normative) and mark each `derived`
+- Acceptance criteria as observable outcomes — **preserve `AC-n` IDs verbatim** when the source carries them; if it doesn't, assign IDs per the positional fallback rule (normative home: review-toolkit's `scope-completeness-reviewer` agent) and mark each `derived`
 - Explicit in-scope AND out-of-scope deliverable lists
 - Product-level non-functional constraints (as requirements, not as the mechanism)
 
@@ -178,8 +178,8 @@ Based on the issue body and labels, classify as:
 ### Step 1.5: Pair-Repo Title Check (only when `topology.type: be-fe-pair`)
 
 **Applicability.** This step runs only when the repo's own config declares
-`topology.type: be-fe-pair` — the same config the staged lane's Stage 1.T already reads
-`topology.repos.<id>.ticketTag` from (e.g. `"[BE]"` / `"[FE]"` on the `be`/`fe` entries; no
+`topology.type: be-fe-pair` — reading
+`topology.repos.<id>.ticketTag` (e.g. `"[BE]"` / `"[FE]"` on the `be`/`fe` entries; no
 new field, no onboarding change). A `standalone` or `monorepo` repo has no `ticketTag` at
 all and nothing to check here — skip straight to Step 2. Under the lean lane this reading
 is **intake policy, never a gate**: `lean-gate.sh` does not read `ticketTag` and this check
@@ -187,7 +187,7 @@ does not touch it either — it is this skill deciding whether to proceed, not a
 `lean-gate.sh` enforces.
 
 **The check.** The predicate is the **configured tag values**, not bracket shape. Resolve
-them first, with the same `contains` semantics Stage 1.T uses:
+them first, with `contains` semantics:
 
 ```bash
 CONFIG="${SECOND_SHIFT_CONFIG:-$(git rev-parse --show-toplevel)/.claude/second-shift.config.json}"
@@ -200,7 +200,7 @@ DECLARED=$(jq -r '[ .topology.repos[] | .ticketTag // "" | select(. != "") ] | l
 ```
 
 A title may carry any number of other bracket tokens (`[BUG]`, `[urgent]`, a team prefix);
-they are not tags of this pair and this step ignores them, exactly as Stage 1.T does.
+they are not tags of this pair and this step ignores them.
 Branch on how many of the **declared** tags matched:
 
 - **`DECLARED` is under 2 — the pair does not declare a tag on both entries.** Nothing to
@@ -232,15 +232,10 @@ not a judgment call, so it is not `needs-intake-review`. _(jira: tracker delta.)
 exists to set; present the same comment content to the operator and STOP, per this skill's
 existing jira escalation posture.
 
-The two rejects stand in different relations to the staged lane. The **neither** reject is a
-structural improvement on Stage 1.T's `targetRepos-ambiguous` failure, which surfaces at
-pipeline runtime and lets interactive mode ask its way past the ambiguity; here the same
-ambiguity is caught before a single agent dispatches, and it is terminal rather than
-negotiable. The **both** reject improves on nothing — Stage 1.T explicitly supports both tags
-(`TARGET_REPOS="be fe"`) and the staged lane runs that ticket as one cross-repo run. It is a
-filing defect only under the lean lane, where that one-run-two-repos shape has no successor:
-`lean-gate.sh` routes by invocation cwd. The work is not refused, it is re-shaped — into
-ordered per-repo tickets at Step 4.
+Both rejects are terminal and are caught before a single agent dispatches. The **both** case
+is a filing defect: one ticket cannot span two repos, because `lean-gate.sh` routes by
+invocation cwd and works exactly one repo's worktree. The work is not refused, it is
+re-shaped — into ordered per-repo tickets at Step 4.
 
 ### Step 2: Gather Evidence (structured intake fan-out)
 
@@ -248,7 +243,7 @@ Evidence-gathering is a fan-out of `spec-reviewer` + `codebase-explorer` that re
 
 **Transport (the reasoning is identical across both):**
 
-- **Production:** run the dev-pipeline intake Workflow **directly** via the `Workflow` tool — pass `intake-review.mjs` as the `scriptPath` and the call args as `{ issue, issueBody, referencedDocs, agents, readRoot, config }` (`readRoot` — optional absolute path to the Stage-1 pinned read surface, the detached `origin/<base>` worktree from dev-pipeline Step 1.P; when set, every dispatch prompt is prefixed with the pinned-read instruction. `config` — carries ONLY the config keys this script reads, which is `reviewers` alone: pass `{ reviewers: CONFIG.reviewers }`, where `CONFIG` is the parsed `second-shift.config.json`. This is what makes `reviewers.modelOverrides` reachable for `spec-reviewer`/`codebase-explorer`; omitting it leaves every intake agent pinned to its shipped table tier no matter what the consumer configured. Do **not** pass `CONFIG` whole — its `commands.<host>` shell-command strings and top-level `$schema` go through Workflow arg serialization, the payload that killed a dispatch outright — and do **not** pass `{ reviewers: {} }`, the opposite trap that serializes cleanly while silently disabling every override). It dispatches the selected sub-agents as `agent({ schema })` in `parallel()` and returns `{ specReview, codebaseExplorer }`. This mirrors the Stage 8 reviewer fan-out (`workflows/code-review.mjs`). Do **not** wrap it in a nested `workflow()` call with a repo-relative path: a nested `workflow({ scriptPath: '.claude/.../intake-review.mjs' })` resolves the path relative to the workflow-scripts dir, not the repo root, so it path-doubles and fails — use an absolute `scriptPath` (or the bare filename) when invoking the `Workflow` tool.
+- **Production:** run the dev-pipeline intake Workflow **directly** via the `Workflow` tool — pass `intake-review.mjs` as the `scriptPath` and the call args as `{ issue, issueBody, referencedDocs, agents, readRoot, config }` (`readRoot` — optional absolute path to the pinned read surface, the detached `origin/<base>` worktree; when set, every dispatch prompt is prefixed with the pinned-read instruction. `config` — carries ONLY the config keys this script reads, which is `reviewers` alone: pass `{ reviewers: CONFIG.reviewers }`, where `CONFIG` is the parsed `second-shift.config.json`. This is what makes `reviewers.modelOverrides` reachable for `spec-reviewer`/`codebase-explorer`; omitting it leaves every intake agent pinned to its shipped table tier no matter what the consumer configured. Do **not** pass `CONFIG` whole — its `commands.<host>` shell-command strings and top-level `$schema` go through Workflow arg serialization, the payload that killed a dispatch outright — and do **not** pass `{ reviewers: {} }`, the opposite trap that serializes cleanly while silently disabling every override). It dispatches the selected sub-agents as `agent({ schema })` in `parallel()` and returns `{ specReview, codebaseExplorer }`. This mirrors the reviewer fan-out (`workflows/code-review.mjs`). Do **not** wrap it in a nested `workflow()` call with a repo-relative path: a nested `workflow({ scriptPath: '.claude/.../intake-review.mjs' })` resolves the path relative to the workflow-scripts dir, not the repo root, so it path-doubles and fails — use an absolute `scriptPath` (or the bare filename) when invoking the `Workflow` tool.
 - **Under the eval harness:** the Workflow runtime is not mocked, so the harness dispatches the sub-agents via the `Task` tool with the structured findings fed as the mock payload. Same structured object reaches the orchestrator — only the transport differs.
 
 **For bug/chore (spec review only):**
@@ -289,7 +284,7 @@ Evidence-gathering is a fan-out of `spec-reviewer` + `codebase-explorer` that re
 
 - Stop processing after 3 true blockers — spec fails regardless
 - For each finding, ask: "Is this a real problem, or is the spec-reviewer being overly cautious?"
-- Classify remaining findings as resolvable gaps or true blockers (same definitions as the pipeline's Stage 1 intake)
+- Classify remaining findings as resolvable gaps or true blockers (same definitions as the pipeline's intake)
 - Resolve up to 5 resolvable gaps yourself — read code/docs, make decisions with rationale
 - If >5 resolvable gaps: escalate via `needs-spec-work` — spec needs rewriting
 - If true blockers remain after resolution: escalate via `needs-spec-work`
@@ -465,7 +460,7 @@ The write operations below are the **github** adapter (`tracker.writes: true`) _
 **`no-split`:**
 
 1. Post spec review results + resolved decisions as issue comment _(jira: tracker delta.)_
-2. Return control to pipeline (Stage 3: create worktree)
+2. Return control to the caller (the lean lane's build half cuts the worktree at its checklist step 3)
 
 **`sub-issues` (parallel) and `sub-issues-sequential` (ordered)** — one creation flow, two label/trailer postures:
 
@@ -518,7 +513,7 @@ $GH_BOT_SH issue create --title "[slice N title]" --body "$BODY_N" --label <opus
    but it pushes the call onto a session that has read the ticket far less carefully than you
    just did.
 
-   Keeping blocked successors **out of the queue** is the ordering enforcement — not rejecting them after they are claimed. Promotion is an operator action at merge time: merging the predecessor's PR is already the serialization point, so labelling the successor rides that same action (Stage 9 renders the reminder on the predecessor's PR). No claim is ever burned and no failed state file is created for the routine blocked case. `../predecessor-gate.sh` is only the pre-claim backstop for a successor that got labelled early.
+   Keeping blocked successors **out of the queue** is the ordering enforcement — not rejecting them after they are claimed. Promotion is an operator action at merge time: merging the predecessor's PR is already the serialization point, so labelling the successor rides that same action. **Nothing renders that reminder for you** — no lane writes a promotion line onto the predecessor's PR, so the successor's `ready-for-dev` label is an unprompted operator action. Say so in the predecessor's spec, or the chain stalls silently. No claim is ever burned and no failed state file is created for the routine blocked case. `../predecessor-gate.sh` is only the pre-claim backstop for a successor that got labelled early.
 
    _(jira: tracker delta.)_
 
@@ -541,7 +536,7 @@ gh issue edit $ISSUE_NUMBER --remove-assignee @me
 
 ### Brief persistence
 
-When Step 0.5 produced a Product-Essence Brief, write it to `.claude/pipeline-state/{ISSUE_NUMBER}-brief.md` before returning control — on `no-split` (where it hydrates the run's own gates) **and on `sub-issues-sequential`**, where the pipeline stops but the Brief is the audit artifact the per-sub-issue QUARANTINE carry (step 2 above) can be verified against — the KEEP restatement, the reconciled QUARANTINE table (`confirmed | conflicts | unverifiable`, post-Step-3), and any settled user guardrails. Local gitignored file (the whole `.claude/pipeline-state/` tree is gitignored), written in the invocation repo **pre-worktree** so it survives Stage-10 cleanup. Stage 1 of the dev-pipeline resolves `briefPath` by checking this conventional path (only when the orchestrator wrote it **this run** — a stale brief from a prior run never leaks). Engineer-authored issues (no Step 0.5) write no brief; `briefPath` stays `null`.
+When Step 0.5 produced a Product-Essence Brief, write it to `.claude/pipeline-state/{ISSUE_NUMBER}-brief.md` before returning control — on `no-split` (where it hydrates the run's own gates) **and on `sub-issues-sequential`**, where the pipeline stops but the Brief is the audit artifact the per-sub-issue QUARANTINE carry (step 2 above) can be verified against — the KEEP restatement, the reconciled QUARANTINE table (`confirmed | conflicts | unverifiable`, post-Step-3), and any settled user guardrails. Local gitignored file (the whole `.claude/pipeline-state/` tree is gitignored), written in the invocation repo **pre-worktree** so it survives worktree cleanup. The dev-pipeline resolves `briefPath` by checking this conventional path (only when the orchestrator wrote it **this run** — a stale brief from a prior run never leaks). Engineer-authored issues (no Step 0.5) write no brief; `briefPath` stays `null`.
 
 ## Thresholds
 

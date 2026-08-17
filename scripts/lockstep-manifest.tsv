@@ -42,7 +42,6 @@
 # AC-ID positional fallback rule. Both docs already SAY they must match byte-for-byte;
 # nothing checked it until now. The markers sit after each site's differing parenthetical
 # prefix, so only the shared rule body is compared — the prefixes stay free to differ.
-ac-id-rule	verbatim	plugins/dev-pipeline/state-schema.md	ac-id-rule	plugins/review-toolkit/agents/scope-completeness-reviewer.md	ac-id-rule
 #
 # FINDINGS_SCHEMA triple. The Workflow runtime gives these scripts no import, so each
 # declares its own copy; stall-probe and tool-discipline-probe exist to reproduce

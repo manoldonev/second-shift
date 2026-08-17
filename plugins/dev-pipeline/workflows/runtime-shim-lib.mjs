@@ -10,7 +10,6 @@
 // It has no dedicated selftest by design — it is pure mechanics with no independent
 // contract, and every CI run exercises it through both callers:
 //   - workflows/runtime-shim-selftest.mjs — the per-workflow dispatch-ladder cases
-//   - workflows/e2e-workflow-leg.mjs      — the E2E replay's stage-4/5/8 legs
 //
 // WHY THE SHIM EXISTS (#214, epic #213)
 // -------------------------------------

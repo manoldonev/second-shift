@@ -99,14 +99,17 @@ rc=$(run_checker "$SANDBOX")
   || bad "(e) restored tree is RED — a restore failed, or subset-of rejects a valid subset"
 
 # ---- (f) a REMOVED marker is a failure, never a silent skip ---------------------------
-TARGET="$SANDBOX/plugins/dev-pipeline/state-schema.md"
-sed 's/<!-- LOCKSTEP-BEGIN ac-id-rule -->//' "$TARGET" > "$TARGET.m" && mv "$TARGET.m" "$TARGET"
-if ! grep -q 'LOCKSTEP-BEGIN ac-id-rule' "$TARGET"; then
+# RE-ANCHORED: this case used the ac-id-rule pair, whose canonical leg was state-schema.md.
+# That file is gone and the row with it, so the deletion is demonstrated on a surviving
+# verbatim pair instead.
+TARGET="$SANDBOX/plugins/dev-pipeline/workflows/stall-probe.mjs"
+sed 's|// LOCKSTEP-BEGIN findings-schema||' "$TARGET" > "$TARGET.m" && mv "$TARGET.m" "$TARGET"
+if ! grep -q 'LOCKSTEP-BEGIN findings-schema' "$TARGET"; then
   rc=$(run_checker "$SANDBOX")
   [[ "$rc" -ne 0 ]] \
     && ok "(f) a deleted marker FAILS the pair (a silently-unchecked pair is the bug class)" \
     || bad "(f) deleted marker was treated as a skip — the guard can be disabled by deletion"
-  cp "$ROOT/plugins/dev-pipeline/state-schema.md" "$TARGET"   # restore
+  cp "$ROOT/plugins/dev-pipeline/workflows/stall-probe.mjs" "$TARGET"   # restore
 else
   bad "(f) mutation did not apply — the sed anchor has moved; fix this selftest"
 fi

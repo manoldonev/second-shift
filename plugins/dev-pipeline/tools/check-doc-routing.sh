@@ -2,7 +2,7 @@
 # check-doc-routing.sh — lints that the paths a consumer's doc-routing.md routes to still
 # resolve. doc-routing.md (an EP-3 extension file) is checked by basename only
 # (extension-manifest.txt) — its CONTENT, a change-category -> doc-path routing map read by
-# Stage-7 doc-update.md and review-toolkit/agents/doc-updater.md, is not: a routing entry
+# review-toolkit/agents/doc-updater.md, is not: a routing entry
 # pointing at a moved or deleted doc silently misroutes every future doc update with no
 # signal. This is the same class of gap check-extensions.sh closes for the extension-file NAMES
 # it lints (EP-3), applied one level down to doc-routing.md's row CONTENT.
