@@ -24,7 +24,6 @@ catalog::ledger-lint-empty-decision	seeded by the canonical seed run
 catalog::lockstep-normalize	seeded by the canonical seed run
 catalog::pin-resolve-numeric-sort	seeded by the canonical seed run
 catalog::pin-resolve-ref	seeded by the canonical seed run
-catalog::plan-lint-dup-traceability	seeded by the canonical seed run
 catalog::preflight-queue-label	seeded by the canonical seed run
 catalog::prose-budget-stale-gate	seeded by the canonical seed run
 catalog::review-context-maxdepth	seeded by the canonical seed run
@@ -35,7 +34,6 @@ catalog::scope-namespaces-fail-closed	seeded by the canonical seed run
 catalog::score-review-title	seeded by the canonical seed run
 catalog::stack-generality-filewide	seeded by the canonical seed run
 catalog::template-doctor-jq-guard	seeded by the canonical seed run
-catalog::verifyctl-targetrepos	seeded by the canonical seed run
 plugins/audit-toolkit/hooks/audit-tool-calls.sh::logic::2	seeded by the canonical seed run
 plugins/audit-toolkit/hooks/audit-tool-calls.sh::default::1	added for #417: a PROSE site. The main-checkout anchor's rationale block names the resolution's starting point literally (`${CLAUDE_PROJECT_DIR:-$CWD}` stays the starting point), and a comment flip is unkillable by construction. It displaced the one real default site to ordinal 2, where it IS killed (verified by hand: flipping ordinal 2 reds audit-selftest.sh, flipping ordinal 1 reds nothing), so no KILL was lost and the swept window at k=2 still reaches the real site (local advisory sweep, macOS; confirm at the first nightly)
 plugins/audit-toolkit/scripts/audit-history.sh::detector::1	seeded by the canonical seed run

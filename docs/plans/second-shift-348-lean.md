@@ -275,6 +275,20 @@ its Blocking? column. Filing the retirement is out of scope; the record is not.
     pre-flight. `grep -rE '/dev-pipeline([[:space:]<`)]|$)'` finds it; the character class is what
     keeps `plugins/dev-pipeline/...` path noise out, and without it the result is unreadable.
 
+    **The remedy depends on where the site lives (round-4 amendment).** Outside the four
+    toolkits, replace the bare form with the namespaced one (`/dev-pipeline:run-lean`) per
+    `docs/namespaces.md` rule 1. **Inside `plugins/{review,intake,design,audit}-toolkit`, that
+    remedy is itself a violation**: rule 3(a) bans the `dev-pipeline:` token in toolkit content
+    outright, with no exemption mechanism, and CI greps for it (`ci.yml`, `namespace direction
+    check`). There, name the lane **bare** — `` `run-lean` ``, `` `review-lean` `` — which is what
+    the surrounding toolkit prose already does for `build-lean`, `plan-interview` and
+    `intake-orchestrator`. Round 4 proved the trap is live rather than theoretical: the round-3
+    remedy applied uniformly turned four toolkit lines red, and the pre-namespacing form had
+    passed rule 3(a) only because it carried no colon. Generalizes past kind 4: **before
+    committing any textual remedy to this spec, run the replacement token against every guard
+    that reads the same token class** — a fix that satisfies one committed rule can violate
+    another, and the two guards here are one file apart.
+
   - **Kind 2 — the deleted command literal.** `grep -rE '/dev-pipeline:run([^-a-zA-Z]|$)'` over
     every tracked file. The negative class is load-bearing and is where a naive filter fails: an
     exclusion of `/dev-pipeline:run-lean` **hides the sharpest site**, because

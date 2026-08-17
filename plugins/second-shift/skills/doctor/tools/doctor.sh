@@ -64,6 +64,14 @@ redact_config() { # $1 = config path
 # JSON state from a pre-lean run falls back to projecting the four fields that schema
 # had. Each glob is guarded against literal-pattern expansion when the dir is
 # empty/absent (a fresh clone has no runs).
+#
+# The tail is deliberately UNREDACTED, unlike the config section beside it in the same
+# paste-ready bundle. Progress rows are gate-authored markers, with one exception:
+# lean-gate.sh appends check-frozen-files.sh's captured output verbatim as a milestone-2
+# advisory row. That output is this repo's own guard today, and the bundle header tells
+# the reader to review before posting, which is what keeps the widening bounded. Should a
+# progress row ever start carrying third-party or environment-derived text, this excerpt
+# owes a filter — this comment is here so that becomes a visible decision, not a silent one.
 state_excerpt() {
   local dir="$ROOT/.claude/pipeline-state" newest="" f
   if [[ -d "$dir" ]]; then
