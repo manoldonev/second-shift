@@ -122,9 +122,9 @@ PARENT="$(git rev-parse --verify --quiet "${PR_HEAD_SHA}^" 2>/dev/null)"
   || decide_unknown "cannot resolve the parent of $PR_HEAD_SHA — a root commit, or a checkout too shallow to see it (fetch-depth: 2 is the minimum)"
 
 # ------------------------------------------------------------------ (2) is the delta the verdict record?
-# `git diff` is run into a VARIABLE with its own status checked, never `| grep -q`: a failed
-# diff piped into a matcher is indistinguishable from a clean non-match, and "the delta is
-# unreadable" must never resolve the same way as "the delta is a normal commit".
+# `git diff` is run into a VARIABLE whose own status is checked, never piped straight into a
+# matcher: a dead producer leaves the matcher an empty stream, which reports no match — so "the
+# delta is unreadable" would resolve exactly the way "the delta is a normal commit" does.
 FILES="$(git diff --name-only "$PARENT" "$PR_HEAD_SHA" 2>/dev/null)" \
   || decide_unknown "git diff $PARENT..$PR_HEAD_SHA failed — an unreadable delta is not a docs-only one"
 
