@@ -39,20 +39,14 @@
 #
 # Usage: capability-parity-check.sh [register.tsv]
 #
-# There is deliberately no stages-dir override. The coverage clause compares repo-relative
-# paths derived from $ROOT — the CHECKER's own location — against the register's citations, so
-# a dir outside $ROOT could never match one. To relocate the file universe, relocate the
-# checker: copy it into a sandbox tree, which is what the paired selftest does.
 # Exit:  0 = clean
 #        1 = one or more violations (each printed to stderr)
 #        2 = usage / environment error
 set -uo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-ROOT="$(cd "$HERE/.." && pwd)"
 
 REGISTER="${1:-$HERE/capability-parity.tsv}"
-STAGES_DIR="$ROOT/plugins/dev-pipeline/skills/run/stages"
 
 VIOLATIONS=0
 err() { echo "[capability-parity] $1" >&2; VIOLATIONS=$((VIOLATIONS + 1)); }
@@ -138,32 +132,10 @@ if [[ "$ROWS" -eq 0 ]]; then
   err "register $REGISTER contains no rows"
 fi
 
-# ---- coverage (transitional; see LIFETIME above) --------------------------------------
-if [[ -d "$STAGES_DIR" ]]; then
-  # Repo-relative, matching how the register cites paths. Resolved against $ROOT so an
-  # override dir under a sandbox still yields the citation form the register uses.
-  n_stage_files=0
-  for f in "$STAGES_DIR"/*.md; do
-    [[ -e "$f" ]] || continue
-    n_stage_files=$((n_stage_files + 1))
-    rel="${f#"$ROOT"/}"
-    # -x whole-line and -F literal: a citation is matched in full, and a path carrying regex
-    # metacharacters cannot mis-match.
-    if ! grep -qxF -- "$rel" <<<"$COVERED_PATH"; then
-      err "stage doc $rel is named by no register row — every capability it implements needs a recorded disposition before it can be deleted"
-    fi
-  done
-  if [[ "$n_stage_files" -eq 0 ]]; then
-    echo "[capability-parity] note: $STAGES_DIR holds no *.md files — the coverage clause is vacuous (expected once #348 has landed); shape and enum lints still applied."
-  fi
-else
-  echo "[capability-parity] note: $STAGES_DIR does not exist — the coverage clause is vacuous (expected once #348 has landed); shape and enum lints still applied."
-fi
-
 if [[ "$VIOLATIONS" -gt 0 ]]; then
   echo "[capability-parity] $VIOLATIONS violation(s) in $REGISTER" >&2
   exit 1
 fi
 
-echo "[capability-parity] OK — $ROWS capability row(s), every disposition in enum, every stage doc covered."
+echo "[capability-parity] OK — $ROWS capability row(s), every disposition in enum."
 exit 0

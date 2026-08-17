@@ -39,7 +39,7 @@
 # behavior, it does not fork the vocabulary the lockstep manifest pins.
 #
 # The Kind cell is receipt-mode ONLY. Without `--receipt` this script still
-# requires exactly four columns, so plan-lint.sh, exitplan-ledger-gate.sh and
+# requires exactly four columns, so exitplan-ledger-gate.sh and
 # every in-plan Decision Ledger see no schema change at all.
 #
 # Receipt mode also requires a `## Surface Inventory` section, the structural
@@ -88,7 +88,7 @@ violate() { echo "ledger-lint: VIOLATION: $1" >&2; VIOLATIONS=$((VIOLATIONS + 1)
 
 # mirror of interviewing-baseline provenance enum — keep verbatim.
 # Mechanical canonical of TWO lockstep pairs (scripts/lockstep-manifest.tsv):
-# plan-lint.sh's PROVENANCE_ENUM copies this literal verbatim, and its HUMAN_PROVENANCE
+# This file is the canonical carrier of the enum; the prose mirrors
 # is a subset of it. Nothing may sit between the markers below — verbatim compares the
 # whole block.
 # LOCKSTEP-BEGIN provenance-enum

@@ -320,7 +320,7 @@ if [[ -z "$SELFTEST_CACHE_HIT" ]]; then
 _FAILS_BEFORE_SWEEP=$FAILS
 
 # --- 5. lean gate (the safety net must work on THIS machine) --------------------
-# #348 retired the statectl state machine with the staged lane; the lean lane's gate is
+# #348 retired the staged state machine; the lean lane's gate is
 # what a run's five milestones are asserted by, so it takes this section's place.
 if out=$(bash "$PLUGIN_DIR/skills/build-lean/lean-gate-selftest.sh" 2>&1); then
   ok "lean-gate selftest: $(tail -1 <<< "$out" | sed 's/\[self-test\] //')"
@@ -415,7 +415,7 @@ else
 fi
 
 # --- 5i. lean merge-boundary evidence (portable verdict/identity/freshness) ------
-# verifyctl.sh was the staged lane's deterministic verify runner and died with it (#348).
+
 # What replaces it here is the boundary a lean run is actually judged at: lean-evidence.sh
 # reads the committed verdict record's verdict, authoring identity, patch freshness and
 # ratification, and a consumer's CI fetches it at its pinned ref.

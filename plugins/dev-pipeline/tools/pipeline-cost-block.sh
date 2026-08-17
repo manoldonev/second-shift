@@ -112,7 +112,7 @@ fi
 
 # ────────────────────────────────────────────────────────────────────────────
 # Resolve state-file path in the CONSUMER repo, git-common-dir anchored from
-# $PWD (mirrors statectl.sh state_dir: STATECTL_STATE_DIR > SECOND_SHIFT_REPO_ROOT
+# $PWD (ladder: STATECTL_STATE_DIR > SECOND_SHIFT_REPO_ROOT
 # > cwd-derived main checkout; config paths.pipelineStateDir overrides the
 # default subdir).
 # ────────────────────────────────────────────────────────────────────────────
@@ -186,7 +186,7 @@ fi
 
 # ────────────────────────────────────────────────────────────────────────────
 # Record outcome into costBlockApplied (raw jq — this script owns the field outright;
-# it was never statectl's, and no other writer survives #348).
+# no other writer survives #348).
 # ────────────────────────────────────────────────────────────────────────────
 record() {
   local val="$1"  # JSON scalar: `true` or a quoted string
@@ -269,7 +269,7 @@ fi
 
 # ────────────────────────────────────────────────────────────────────────────
 # Session set. State-less mode (the lean lane) is HANDED the set by its caller; the
-# stateful branch below reads pipelineSessions[], which the staged lane's statectl write
+# stateful branch below reads pipelineSessions[], which the staged lane's write
 # seam (apply_session_seam) registered on each contributing session's first state write.
 # #348 deleted that writer, so the stateful branch now only ever reads a pre-lean state
 # file — no tool in this tree populates the field. Each id is

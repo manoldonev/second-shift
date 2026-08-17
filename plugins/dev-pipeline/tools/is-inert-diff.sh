@@ -19,7 +19,7 @@
 # is JS/TS-centric, so on (say) a shell-and-Markdown repo every real diff classifies inert
 # and the configured lint/test lanes never run — a false green. Such a repo sets
 # `stageParams.inertPattern` to a narrowed copy; preflight.sh resolves that key and passes
-# it here (the ONLY runtime caller, since #348 deleted the staged lane's verifyctl.sh).
+# it here (the ONLY runtime caller).
 # Replace, not merge, is deliberate: only replacement
 # can REMOVE an alternative such as `\.sh$`, which is the whole point.
 #

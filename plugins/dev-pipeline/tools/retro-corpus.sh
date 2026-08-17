@@ -176,7 +176,7 @@ cmd_corpus() {
   # is that run's only record. Deliberately structural, with no `-failed-` (or `-aborted-`,
   # `-escalated-`, `-spec-blocked-`) filename literal anywhere: those operator rename
   # conventions are undocumented, and a literal would silently miss the ones it did not
-  # enumerate — which is how the two statectl quarantine families above came to be the only
+  # enumerate — which is how the two quarantine families above came to be the only
   # thing excluded while operator renames aggregated as their own runs.
   #
   # Same dedup rule applied in awk over the TSV rows, re-implemented

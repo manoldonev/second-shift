@@ -24,7 +24,7 @@
 #
 # --- converted: now three-outcome via checked_match --------------------------------------
 plugins/second-shift/skills/onboard/tools/detect.sh	converted	checked_match -iE -e 'atlassian|jira' -- claude mcp list	A failed `claude mcp list` used to read as "no Atlassian MCP", which elects `github` and MISDETECTS the consumer's tracker during onboarding. Now rc 2 leaves the tracker ambiguous with the exit status in its provenance.
-plugins/dev-pipeline/tools/pipeline-doctor.sh	converted	checked_match -e '--head' -- gh pr list --help	A failed capability probe used to fabricate "old gh" and route Stage 9 around a feature that may well be present.
+plugins/dev-pipeline/tools/pipeline-doctor.sh	converted	checked_match -e '--head' -- gh pr list --help	A failed capability probe used to fabricate "old gh" and route the PR step around a feature that may well be present.
 # --- safe: the construct stands, because a dead producer cannot buy a false green ---------
 .github/workflows/ci.yml	safe	check-jsonschema --help | grep -q	Fails CLOSED. The site is the condition of an `if !` whose body prints ::error:: and exits 1, so a dead probe stops the job rather than passing it.
 plugins/dev-pipeline/skills/pr-revision/SKILL.md	safe	if git worktree list | grep -q "$WORKTREE_PATH"	A `git worktree list` that fails means this is not a working repo, in which case the else arm's `git worktree add` fails loudly on the next line. The wrong branch is taken; nothing silently proceeds on a false answer.

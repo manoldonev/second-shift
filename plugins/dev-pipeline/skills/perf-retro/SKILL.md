@@ -7,7 +7,7 @@ description: 'Cross-run execution-latency retrospective for dev-pipeline runs: f
 
 Cross-run performance retrospective for the dev-pipeline. `pipeline-retro` sharpens a **single** run for correctness — this skill is the second axis, **execution speed across runs**. It exists because nothing else in the improvement loop argues against latency: every fix lands as another gate, another round, another serialized dispatch, and run wall-time drifts upward unopposed while each individual change looks justified.
 
-The data to argue with already exists and has had no systematic consumer. Timing signal sits in every run-state file, [`stage-times.sh`](../../tools/stage-times.sh) turns them into pause-aware effective time plus inter-stage gaps, and the audit ledger timestamps every tool call and `SubagentStop`.
+The data to argue with already exists and has had no systematic consumer. Timing signal sits in the cost log and the audit ledgers.
 
 **Usage:** `/dev-pipeline:perf-retro` — profiles the 15 most recent trusted runs. `--last N` widens or narrows that window; a **bare integer is a ticket key**, focusing the profile on that one run. So `perf-retro 30` profiles ticket 30, while `perf-retro --last 30` profiles the last 30 runs. The two readings never collide.
 

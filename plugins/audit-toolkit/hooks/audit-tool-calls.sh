@@ -59,7 +59,7 @@ OUTCOME="ok"
 # WHERE THE LEDGER LIVES. Anchored on the MAIN checkout, never on the directory the
 # session happens to be running in. A lean run works in a linked worktree by contract,
 # and every reader resolves `--git-common-dir/..`: lean-gate.sh's `entry` precondition and
-# lean-reconcile.sh (as did the deleted statectl.sh's `ledger_dir()`). Writing beside the worktree instead
+# lean-reconcile.sh. Writing beside the worktree instead
 # put the ledger where none of them look, with two opposite failure modes — an honest
 # run refused at `entry` for a ledger it had just written, and a verdict record naming a
 # session reconcile could not resolve, which reads as a forgery signal. One directory

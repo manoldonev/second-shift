@@ -1,7 +1,7 @@
 export const meta = {
   name: 'dev-pipeline-tool-discipline-probe',
   description:
-    'Measures how a reviewer-baseline tool-preference instruction affects reviewer Bash discipline over a shell-heavy diff. Dispatches shell-touching reviewers K times under ONE selected instruction arm (baseline | grep-nudge | strict-one-command), through the SAME schema + StructuredOutput nudge as Stage 8, and captures each reviewer\'s completion vs StructuredOutput death. Run one arm per invocation, A/B the arms, to measure an instruction proposal instead of asserting it. This is a REAL agent-dispatch probe (it costs tokens) — NOT an offline node selftest — because agent() is a runtime-injected Workflow global. Invoke via the Workflow tool, never `node`.',
+    'Measures how a reviewer-baseline tool-preference instruction affects reviewer Bash discipline over a shell-heavy diff. Dispatches shell-touching reviewers K times under ONE selected instruction arm (baseline | grep-nudge | strict-one-command), through the SAME schema + StructuredOutput nudge as the review fan-out, and captures each reviewer\'s completion vs StructuredOutput death. Run one arm per invocation, A/B the arms, to measure an instruction proposal instead of asserting it. This is a REAL agent-dispatch probe (it costs tokens) — NOT an offline node selftest — because agent() is a runtime-injected Workflow global. Invoke via the Workflow tool, never `node`.',
   phases: [{ title: 'Probe' }],
 }
 

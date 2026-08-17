@@ -129,7 +129,7 @@ expect_violation invalid-grillwaivers-type.json     "grillWaivers: must be an ob
 # --- #100: a non-object lanes[]/extraLanes[] entry must be a CLEAN violation.
 # Before the entry-shape guard, a string/number/array lane lint-clean-passed
 # (jq's right-to-left `+` and `.name?`-on-a-string yielding `empty` collapsed the
-# whole chain), and verifyctl then silently skipped it — a false green. `null`
+# whole chain), and the verify lane then silently skipped it — a false green. `null`
 # and a non-object extraLane crashed jq with rc=5 instead of reporting. Every
 # non-object type must now name the required shape. The trailing well-formed
 # lane in the fixture proves the guard is per-entry, not a whole-block abort.

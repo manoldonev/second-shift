@@ -98,7 +98,7 @@ const MUTATION_REVIEW_SCHEMA = {
 //
 // plan-review kind: the agent checks a plan's test strategy against the codebase, so bound HOW it
 // grounds (batch the existence checks, sample the content reads), never WHETHER — that would gut
-// the gate. Mirrors plan-review.mjs's constant of the same name; restated because Workflow scripts
+// the gate. Mirrors the plan dispatcher's constant of the same name; restated because Workflow scripts
 // cannot import.
 // bounded-exploration-dormant: BOUNDED_PLAN_GROUNDING -- defined for probe lockstep; deliberately not appended (measured no-nudge arm)
 const BOUNDED_PLAN_GROUNDING =

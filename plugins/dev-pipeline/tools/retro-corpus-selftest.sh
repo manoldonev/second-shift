@@ -3,11 +3,11 @@
 #
 # Every case executes the REAL script against a generated corpus and asserts on what it
 # emits. Fixtures are hand-written in the REAL shapes the two producing tools emit
-# (statectl-shaped stage-schema JSON; lean-gate.sh-shaped progress/verdict records) rather
+# (stage-schema JSON; lean-gate.sh-shaped progress/verdict records) rather
 # than driving those tools end-to-end — the same choice makes for
 # the same reason: the point here is the READER's era-detection and aggregation, and the two
 # WRITERS have their own coverage — lean-gate-selftest.sh for the surviving writer, and
-# statectl-selftest.sh for the staged one until #348 deleted it along with that writer. The
+# a since-deleted suite for the staged one, removed in #348 along with that writer. The
 # staged-era fixtures stay: the READER must still aggregate that historical corpus.
 #
 # A throwaway git-init'd tree stands in for the repo root (retro-corpus.sh resolves
@@ -46,7 +46,7 @@ jq -n '{
 run_corpus() { ( cd "$TREE" && bash "$TOOL" corpus --state-dir "$1" --json "${@:2}" ); }
 run_open_prs() { ( cd "$TREE" && bash "$TOOL" open-prs "$@" ); }
 
-# mkstage <dir> <issue> <startedAt>  — a minimal but real statectl-shaped state file.
+# mkstage <dir> <issue> <startedAt>  — a minimal but real stage-shaped state file.
 mkstage() {
   local dir="$1" issue="$2" sa="$3"
   jq -n --arg tk "$issue" --arg sa "$sa" \
@@ -54,7 +54,7 @@ mkstage() {
     > "$dir/$issue.json"
 }
 
-# mksnapshot <dir> <stem> <ticketKey> <startedAt>  — a statectl-shaped state file living
+# mksnapshot <dir> <stem> <ticketKey> <startedAt>  — a stage-shaped state file living
 # under an OPERATOR-RENAMED basename. The suffixes the #289 cases pass are deliberately not
 # ones any production code enumerates: the dedup under test is structural
 # (`stem == ticketKey`), and a fixture that only ever used `-failed-` would pass just as well
@@ -100,7 +100,7 @@ if OUT="$(run_corpus "$D")"; then
   ERA="$(jq -r '.[0].era' <<<"$OUT")"
   STAGE_ROWS="$(jq '[.[] | select(.era == "stage")] | length' <<<"$OUT")"
   if [ "$N" = "1" ] && [ "$ERA" = "artifact" ] && [ "$STAGE_ROWS" = "0" ]; then
-    pass "(AC-1) artifact-only corpus: exit 0, one artifact-era row, zero stage-era rows — the signal perf-retro's report path reads to skip stage-envelopes.sh"
+    pass "(AC-1) artifact-only corpus: exit 0, one artifact-era row, zero stage-schema rows — the signal the report path reads"
   else
     fail "(AC-1) unexpected output — got $OUT (stage-era rows: $STAGE_ROWS)"
   fi
@@ -260,7 +260,7 @@ fi
 
 # ═══════════════════════════════════════════════════════════════════════════════════
 # help: -h/--help prints the usage doc block via `sed -n`, not a live gh/network call.
-# The assertion has to be BOUNDED, not a substring probe — ledger-corroborate-selftest.sh's
+# The assertion has to be BOUNDED, not a substring probe — a since-deleted suite's
 # (lc38) case found this the hard way: `sed -n '2,40p' "$0"` mutated to `sed -z '2,40p' "$0"`
 # reads differently per platform. BSD sed (macOS) rejects `-z` — rc=1, nothing printed, mutant
 # dies locally. GNU sed (CI's ubuntu lane) accepts `-z`, which also drops `-n`'s no-autoprint,
@@ -327,7 +327,7 @@ fi
 #
 # The live corpus this fixture models: a ticket's live `{key}.json` co-existing with
 # operator-renamed snapshots of earlier runs of the SAME ticket, which keep their `stages`
-# key and are in neither statectl quarantine family — so before this they aggregated as
+# key and are in neither quarantine family — so before this they aggregated as
 # their own runs and the ticket counted several times.
 #
 # 310  live + two snapshots under two different suffixes  -> one row, the live one (AC-1)

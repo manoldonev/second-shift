@@ -10,7 +10,7 @@
 # Both are real, asserting suites; they were simply unreachable. This shim rides the
 # glob and hands them to node.
 #
-# Deliberately located next to the .mjs files it runs, rather than in skills/run/ or
+# Deliberately located next to the .mjs files it runs, rather than in
 # tools/ with the other shell harnesses: it is a thin adapter for THIS directory's
 # contents, and a reader deleting a workflow selftest should see its runner alongside.
 #

@@ -49,9 +49,9 @@
 #
 # #348 NOTE — what this suite USED to carry. The staged-lane scenarios (no-split,
 # sub-issues carve-out, failure-path, exhausted-review, voided-review, be-fe-pair,
-# the verifyctl circuit breaker, waived-run, the jira zero-evidence guard, the
-# stage-1 predecessor ordering backstop, the tracker-reconcile resume, and ledger
-# corroboration) each composed `statectl` stage progression to a terminal write.
+# the verify circuit breaker, waived-run, the jira zero-evidence guard, the
+# predecessor ordering backstop, the tracker-reconcile resume, and ledger
+# corroboration) each composed stage progression to a terminal write.
 # They were deleted with the lane, not lost: `tools/capability-parity.tsv` carries
 # the per-capability disposition for every behavior they asserted on, and the tools
 # that SURVIVED the deletion (predecessor-gate.sh, claim-issue.sh) kept their own

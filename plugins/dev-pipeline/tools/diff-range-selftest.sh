@@ -104,9 +104,9 @@ for f in code-review.mjs design-sync.mjs unit-tests.mjs mutation-gate.mjs; do
 done
 
 # --- Case G (AC-5): DROPPED in #348 ------------------------------------------
-# AC-5 named plan-review.mjs as an audit target and this case re-checked the plan's
+# AC-5 named a since-deleted plan dispatcher as an audit target and this case re-checked its
 # "confirmed unaffected" verdict mechanically: the file constructed no diff range at all, and
-# a later edit must not let it grow one silently. #348 deleted plan-review.mjs with Stage 4.
+# a later edit must not let it grow one silently.
 #
 # NOT re-anchored, deliberately. The case asserts an ABSENCE on a file that has no range, and
 # no surviving dispatcher has that property — code-review.mjs, design-sync.mjs, unit-tests.mjs

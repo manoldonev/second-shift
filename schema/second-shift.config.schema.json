@@ -24,7 +24,7 @@
         "writes": {
           "type": "boolean",
           "default": true,
-          "description": "Whether the pipeline writes back to the tracker (comments, status/label transitions, claim). github default true (queue+claim+comment model); JIRA setups typically run read-only (fetch the ticket via MCP, never transition or comment — the state file + draft-PR metadata are the audit trail), so JIRA repos usually set false. A false value makes the tracker-write steps in stages 1/8/9 no-ops; ticket fetch stays active regardless."
+          "description": "Whether the pipeline writes back to the tracker (comments, status/label transitions, claim). github default true (queue+claim+comment model); JIRA setups typically run read-only (fetch the ticket via MCP, never transition or comment — the state file + draft-PR metadata are the audit trail), so JIRA repos usually set false. A false value makes the tracker-write steps no-ops; ticket fetch stays active regardless."
         },
         "branchPrefix": {
           "type": "string",

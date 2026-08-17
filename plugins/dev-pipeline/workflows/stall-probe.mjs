@@ -1,7 +1,7 @@
 export const meta = {
   name: 'dev-pipeline-stall-probe',
   description:
-    'Measures the reviewer StructuredOutput-stall rate over a fixed low-signal diff. Dispatches the historically-stalling reviewers K times each, through the SAME schema + nudge as Stage 8 (workflows/code-review.mjs), catches each result, and counts StructuredOutput deaths vs clean returns. Run it BEFORE and AFTER a reviewer-contract change to measure the change\'s effect on the stall rate. This is a REAL agent-dispatch probe (it costs tokens) — it is NOT an offline node selftest like null-reviewer-selftest.mjs, because agent() is a runtime-injected Workflow global. Invoke via the Workflow tool, never `node`.',
+    'Measures the reviewer StructuredOutput-stall rate over a fixed low-signal diff. Dispatches the historically-stalling reviewers K times each, through the SAME schema + nudge as the review fan-out (workflows/code-review.mjs), catches each result, and counts StructuredOutput deaths vs clean returns. Run it BEFORE and AFTER a reviewer-contract change to measure the change\'s effect on the stall rate. This is a REAL agent-dispatch probe (it costs tokens) — it is NOT an offline node selftest like null-reviewer-selftest.mjs, because agent() is a runtime-injected Workflow global. Invoke via the Workflow tool, never `node`.',
   phases: [{ title: 'Probe' }],
 }
 
@@ -96,7 +96,7 @@ const STRUCTURED_OUTPUT_FIRST =
   ' Call StructuredOutput FIRST with your verdict and findings, before any prose' +
   ' explanation — do not write a long write-up before the structured call.'
 
-// Copied verbatim from plan-review.mjs so a plan-shaped arm dispatches identically to production.
+// Copied verbatim from the plan dispatcher so a plan-shaped arm dispatches identically to production.
 // The trinary shape is NOT interchangeable with FINDINGS_SCHEMA above: plan reviewers return
 // block|fix-and-go|pass, diff reviewers return approve|...|block. Measuring one with the other's
 // schema would not be measuring the dispatch that stalls.
@@ -126,14 +126,14 @@ const PLAN_REVIEW_SCHEMA = {
 }
 
 // Production plan-shaped dispatches append the MANDATE, not code-review's FIRST. An arm carrying
-// the wrong one is not measuring the dispatch that died — copied verbatim from plan-review.mjs.
+// the wrong one is not measuring the dispatch that died — copied verbatim from that dispatcher.
 const STRUCTURED_OUTPUT_MANDATE =
   ' IMPORTANT: the StructuredOutput tool call is your ONLY deliverable — a prose write-up is' +
   ' discarded and counts as producing nothing. Do your work, then your FINAL action MUST be the' +
   ' StructuredOutput call; if you are running low on budget, call it early with partial results' +
   ' rather than writing a summary. Never end your turn without calling StructuredOutput.'
 
-// The plan-shaped candidate FIX under test. Verbatim from plan-review.mjs's constant of the same
+// The plan-shaped candidate FIX under test. Verbatim from the plan dispatcher's constant of the same
 // name — the AFTER arm must carry the exact text production ships, or it measures something else.
 const BOUNDED_PLAN_GROUNDING =
   ' GROUND PROPORTIONATELY: verify that the paths and symbols the plan references exist using' +

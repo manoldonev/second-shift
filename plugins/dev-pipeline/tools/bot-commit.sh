@@ -26,8 +26,7 @@
 # Candidate 3 is the load-bearing one: the consumer config is commonly gitignored, so it is
 # NEVER checked out into a pipeline worktree. The main checkout is anchored via
 # `--git-common-dir` → dirname — the same idiom as lean-gate.sh's state resolution and
-# pipeline-cost-block.sh _repo_root() (and, through #348, the staged lane's statectl.sh
-# state_dir() and verifyctl.sh main_root()). Anchoring on `--show-toplevel` (the
+# pipeline-cost-block.sh _repo_root(). Anchoring on `--show-toplevel` (the
 # pre-#110 behavior) resolves to the WORKTREE, so every candidate missed, the bot read as
 # disabled, and pipeline commits silently landed under the operator's identity — recorded in
 # four separate pipeline retros before it was fixed.
@@ -36,7 +35,7 @@
 #   - $SECOND_SHIFT_REPO_ROOT overrides the CONFIG root only; the bot-id cache stays anchored
 #     at the real --git-common-dir. The cache must live in an actual git dir to be writable and
 #     worktree-shared, whereas the override exists so selftests can point config resolution at a
-#     fixture. This was a deliberate NON-parity with the staged lane's verifyctl main_root(),
+#     fixture. This was a deliberate NON-parity with the older main_root() resolver,
 #     and the asymmetry outlived it: no surviving resolver widens the override to the cache.
 #   - `dirname "$COMMON_DIR"` is not the repo root under a non-standard layout (e.g.
 #     `git init --separate-git-dir`). That only makes candidate 3 miss, which falls through to

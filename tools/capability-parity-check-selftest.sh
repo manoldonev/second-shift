@@ -39,16 +39,14 @@ rc=$(bash "$CHECKER" >/dev/null 2>&1; echo $?)
 
 # ---- sandbox ---------------------------------------------------------------------------
 SANDBOX="$TMP/tree"
-SB_STAGES="$SANDBOX/plugins/dev-pipeline/skills/run/stages"
 SB_REGISTER="$SANDBOX/tools/capability-parity.tsv"
-mkdir -p "$SANDBOX/tools" "$SB_STAGES"
+mkdir -p "$SANDBOX/tools"
 cp "$CHECKER" "$SANDBOX/tools/"
 
 # Three fixture stage docs; content is irrelevant (the coverage clause is file-level by
 # design — D-14), only their paths are.
-for n in 1-alpha 2-beta 3-gamma; do : > "$SB_STAGES/$n.md"; done
 
-P='plugins/dev-pipeline/skills/run/stages'
+P='plugins/dev-pipeline/retired'
 
 # write_register <extra-rows-printf-format...> — always emits the three covering rows first.
 #
@@ -93,24 +91,6 @@ rc=$(run_guard)
   && ok "(d) empty disposition cell reds" \
   || bad "(d) empty disposition did NOT red — rc=$rc"
 
-# ---- (e) AC-6: an uncovered stages/*.md file reds ---------------------------------------
-write_register
-: > "$SB_STAGES/4-delta.md"
-rc=$(run_guard)
-[[ "$rc" -eq 1 ]] \
-  && ok "(e) a stage doc named by no row reds (the #348 deletion gate)" \
-  || bad "(e) uncovered stage doc did NOT red — rc=$rc"
-rm -f "$SB_STAGES/4-delta.md"
-
-# Covering it clears the red — the guard reacts to the register, not to the file count.
-write_register 'delta capability\t%s/4-delta.md\tdropped\tnote d\n' "$P"
-: > "$SB_STAGES/4-delta.md"
-rc=$(run_guard)
-[[ "$rc" -eq 0 ]] \
-  && ok "(e2) adding a covering row for that file clears the red" \
-  || bad "(e2) covered stage doc still RED — rc=$rc"
-rm -f "$SB_STAGES/4-delta.md"
-
 # ---- (f/g/h) AC-6: malformed rows red ---------------------------------------------------
 write_register 'delta capability\t%s/1-alpha.md\tdropped\n' "$P"
 rc=$(run_guard)
@@ -153,46 +133,21 @@ rc=$(run_guard)
   || bad "(i) duplicate capability did NOT red — rc=$rc"
 
 # ---- (j) an empty register reds ----------------------------------------------------------
-# Asserted in the POST-#348 state (stage docs gone), where the coverage clause cannot red and
-# the zero-rows check is therefore the only thing that can. Against live stage docs an empty
-# register reds anyway — for uncovered files — which would let this case pass with the
-# zero-rows check deleted.
-mv "$SB_STAGES" "$TMP/stages-parked"
 printf '# nothing but a header\n' > "$SB_REGISTER"
 rc=$(run_guard)
 [[ "$rc" -eq 1 ]] \
-  && ok "(j) a register emptied after #348 still reds (nothing else is left to notice)" \
+  && ok "(j) an emptied register reds" \
   || bad "(j) empty register did NOT red — rc=$rc"
-mv "$TMP/stages-parked" "$SB_STAGES"
 
-# ---- (k/l) LIFETIME: the coverage clause goes vacuous, the enum lint does not -------------
-write_register
-rm -rf "$SB_STAGES"
-rc=$(run_guard)
-[[ "$rc" -eq 0 ]] \
-  && ok "(k) with the stage docs gone the coverage clause is vacuous and the guard stays green" \
-  || bad "(k) guard RED after the stage docs were deleted — rc=$rc (post-#348 state must pass)"
-
+# ---- (l) the enum lint is unconditional (D-16) --------------------------------------------
 write_register 'delta capability\t%s/1-alpha.md\tdeferred\tnote d\n' "$P"
 rc=$(run_guard)
 [[ "$rc" -eq 1 ]] \
-  && ok "(l) the enum lint still reds once the coverage clause is vacuous (unconditional, D-16)" \
-  || bad "(l) off-enum disposition passed in the post-#348 state — rc=$rc"
-# (k) removed the whole directory, landing on the "does not exist" branch. #348 can equally
-# leave an empty stages/ behind, which is the sibling branch: still vacuous, still green, and
-# the note is the only thing distinguishing it from a coverage clause that ran and found
-# nothing wrong.
-mkdir -p "$SB_STAGES"
-write_register
-out=$(bash "$SANDBOX/tools/capability-parity-check.sh" 2>&1); rc=$?
-{ [[ "$rc" -eq 0 ]] && [[ "$out" == *"holds no *.md files"* ]]; } \
-  && ok "(k2) an emptied-but-present stages dir is vacuous and green, and says so" \
-  || bad "(k2) empty stages dir — rc=$rc, output: $out"
-
-for n in 1-alpha 2-beta 3-gamma; do : > "$SB_STAGES/$n.md"; done
+  && ok "(l) an off-enum disposition reds" \
+  || bad "(l) off-enum disposition passed — rc=$rc"
 
 # ---- (m) rows are permanent record: a cited path need not exist ---------------------------
-write_register 'delta capability\t%s/99-retired.md, plugins/dev-pipeline/skills/run/tools/gone.sh\tdropped\tits paths died with #348\n' "$P"
+write_register 'delta capability\t%s/99-retired.md, plugins/dev-pipeline/retired/gone.sh\tdropped\tits paths died with #348\n' "$P"
 rc=$(run_guard)
 [[ "$rc" -eq 0 ]] \
   && ok "(m) a row citing paths that no longer exist stays valid (rows outlive implementations)" \

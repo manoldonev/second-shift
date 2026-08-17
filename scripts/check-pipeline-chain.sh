@@ -77,8 +77,8 @@ fail()  { echo "[pipeline-chain] ✗ $1" >&2; exit 1; }
 envfail() { echo "[pipeline-chain] $1" >&2; exit 2; }
 
 # LOCKSTEP-BEGIN pipeline-chain-required-markers
-# The markers required at PR-open time. A deliberate NARROWING of the stage-comment enum in
-# plugins/dev-pipeline/state-schema.md: `plan-review` and `verify` are conditional
+# The markers required at PR-open time. A deliberate NARROWING of the marker vocabulary:
+# `plan-review` and `verify` are conditional
 # (verify emits on the failure path only), and `pr` is out of reach — it is posted AFTER the PR
 # is created and no event re-triggers this check.
 #

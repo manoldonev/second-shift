@@ -15,7 +15,7 @@
 #
 # PARALLEL SAFETY is asserted by CLAUDE.md: the suites are independent, each allocating its own
 # `mktemp` state dir. The one suite that carried a literal `/tmp` path passed `/tmp/x` only as
-# an opaque `--worktree` argument and never wrote it; that was statectl-selftest.sh, deleted
+# an opaque `--worktree` argument and never wrote it; that suite was deleted
 # with the staged lane in #348, so no suite in the tree carries one today.
 #
 # DISCOVERY IS `*-selftest.sh` ONLY, deliberately. The three `*-selftest.mjs` files are executed

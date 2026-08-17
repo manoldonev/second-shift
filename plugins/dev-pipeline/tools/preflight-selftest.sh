@@ -23,7 +23,7 @@
 # macOS ships bash 3.2 as /bin/bash; this selftest runs there.
 
 set -uo pipefail
-# Hermetic hygiene: a dev-pipeline Stage-6 verify run exports pipeline seam vars
+# Hermetic hygiene: a dev-pipeline verify run exports pipeline seam vars
 # (SECOND_SHIFT_CONFIG, BRANCH_PREFIX, …) into the test command, and the tools under
 # test honor them as overrides — which would clobber this selftest's own fixtures.
 # Unset them so the selftest controls its environment regardless of the caller (#34).
@@ -317,7 +317,7 @@ assert "setup lanes still run but do not count as verification (AC-1)" "$?"
 
 # ---- run 13: allowUnverified is the explicit opt-out — stay silent (#102, AC-2) ----
 # The repo already ships allowUnverified as the sanctioned zero-lane safety valve
-# (verifyctl emits its labeled skip at Stage 6). An operator who has declared the opt-out
+# (the gate emits its labeled skip). An operator who has declared the opt-out
 # has answered the question, so the warning must not nag — and readiness is honest again.
 jq '.commands.fix.allowUnverified = true' \
   "$FIX/.claude/second-shift.config.json" > "$BASE/cfg.tmp" \

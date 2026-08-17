@@ -288,7 +288,7 @@ fi
 
 # ---------------------------------------------------------------------------
 # (dc) section 4b — the selftest-cache-gate that lets pipeline-doctor.sh skip its
-# own expensive internal selftest sweep (statectl alone runs ~90s+) on a repeat
+# own expensive internal selftest sweep (~90s+ for the slowest suite) on a repeat
 # call in an unchanged environment. Same extract-and-execute technique as
 # bot-resolve: the REAL production block is re-hosted here against a fixture
 # plugin tree + fixture cache file. No scenario-liveness path — like bot-resolve/
@@ -566,13 +566,13 @@ if [[ -z "$RS_BLOCK" ]]; then
   bad "(rs) resolve-sibling sentinels not found in $DOCTOR — the function was refactored without updating this guard"
 else
   RS="$WORK/rs"
-  mkdir -p "$RS/cache/dev-pipeline/1.0.0/skills/run/tools" \
+  mkdir -p "$RS/cache/dev-pipeline/1.0.0/tools" \
            "$RS/cache/review-toolkit/9.0.0/scripts" \
            "$RS/cache/review-toolkit/10.0.0/scripts"
   echo "superseded" > "$RS/cache/review-toolkit/9.0.0/scripts/marker.sh"
   echo "current"    > "$RS/cache/review-toolkit/10.0.0/scripts/marker.sh"
   rs_out="$(PLUGINS_DIR="$RS/cache/dev-pipeline" \
-            SCRIPT_DIR="$RS/cache/dev-pipeline/1.0.0/skills/run/tools" \
+            SCRIPT_DIR="$RS/cache/dev-pipeline/1.0.0/tools" \
             bash -c "$RS_BLOCK
 resolve_sibling review-toolkit scripts/marker.sh" 2>/dev/null)"
   case "$rs_out" in
@@ -611,7 +611,7 @@ done < <(grep -oE '\$SCRIPT_DIR/[a-z0-9-]+-selftest\.sh' "$DOCTOR" | sed 's|^\$S
 if [[ "$seen" -eq 0 ]]; then
   bad "(inv) found no \$SCRIPT_DIR selftest delegations in $DOCTOR — the extraction pattern drifted, so this guard is inert"
 elif [[ -n "$missing" ]]; then
-  bad "(inv) pipeline-doctor delegates to selftest(s) that do not exist:$missing — the invocation outlived its subject (the #348 plan-lint class)"
+  bad "(inv) pipeline-doctor delegates to selftest(s) that do not exist:$missing — the invocation outlived its subject"
 else
   ok "(inv) all $seen same-plugin selftest delegations resolve to a real file"
 fi

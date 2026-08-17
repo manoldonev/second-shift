@@ -29,30 +29,17 @@
 # closure and cannot be enumerated stably from the suite. Dropping a row is always safe: the
 # suite simply always runs.
 #
-# EVERY SET BELOW WAS DERIVED FROM THE SUITE, not copied from a ticket. statectl-selftest.sh
-# reads six things beyond the three an eyeball would list, including the generator it diffs
-# statectl.sh against and the stage docs it drift-checks — exactly the under-declaration the
-# self-inclusion rule cannot catch.
+# EVERY SET BELOW WAS DERIVED FROM THE SUITE, not copied from a ticket. A suite typically
+# reads more than an eyeball would list — exactly the under-declaration the self-inclusion
+# rule cannot catch.
 #
 # AND THE SET IS THE TRANSITIVE CLOSURE, not the files the suite names. Neither of the rules
 # above can reach depth 2: a suite whose own path and whose subject are both declared still
-# under-declares if that SUBJECT resolves a third file at run time. Both sets below needed a
-# depth-2 input the first revision missed — the generator's eval-criteria.md, and the two
-# scripts statectl.sh and pipeline-cost-block.sh resolve beside themselves. When you add a
+# under-declares if that SUBJECT resolves a third file at run time. The set below needed a
+# depth-2 input the first revision missed — the scripts pipeline-cost-block.sh resolves
+# beside itself. When you add a
 # row, follow every `$here/`-style resolution out of every declared script until it
 # terminates, and record where it terminated.
-
-# --- statectl-selftest.sh (149s) --------------------------------------------------------
-# The generator is here because the suite RE-RUNS it and diffs the result against
-# statectl.sh, so an edit to the generator alone moves the verdict. stages/ and SKILL.md are
-# here because of the documented-value drift sweep; mutation-gate.mjs because of the
-# sentinel-block parse cases.
-#
-# The last two rows are the depth-2 closure. eval-criteria.md is the generator's OTHER
-# authoritative source — it parses the locked `## Scoring` JSON into the eval-criteria key
-# region, so renaming one key makes the regeneration differ from the committed statectl.sh and
-# reds the drift case. ledger-corroborate.sh is resolved and executed by statectl.sh itself,
-# and 13 cases drive it. Closure terminates at both: neither invokes a further repo script.
 
 # --- cost-block-selftest.sh (30s) -------------------------------------------------------
 # No `cost-block.sh` sibling exists — the script under test is pipeline-cost-block.sh, one
