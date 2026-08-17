@@ -92,9 +92,9 @@ REASON=""
 
 emit() {
   echo "[second-shift-delta-guard] skip=$SKIP — $REASON"
-  # Resolved ONCE into a local, then written through that local. Testing `${GITHUB_OUTPUT:-}`
-  # and then redirecting to `$GITHUB_OUTPUT` would be two readings of one fact: outside Actions
-  # the variable is unset, the redirect target is whatever the second reading yields, and the
+  # Resolved ONCE into a local, then written through that local. Testing the defaulted form and
+  # then redirecting to the bare variable would be two readings of one fact: outside Actions the
+  # variable is unset, the redirect target is whatever the second reading yields, and the
   # difference between "skipped the write" and "wrote somewhere" stops being observable.
   local out="${GITHUB_OUTPUT:-}"
   if [ -n "$out" ]; then
