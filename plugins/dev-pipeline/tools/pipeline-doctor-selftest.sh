@@ -594,64 +594,89 @@ fi
 # the header states. It resolves their PATHS, which is the property that rots. It is
 # not a prose-presence guard: it fails on a real filesystem fact (a deleted subject),
 # which is exactly what a grep for the literal could not do.
+#
+# THREE ARMS, because the doctor delegates in three shapes and the invariant is the
+# same for each: `$SCRIPT_DIR/<name>` (a sibling file), `$PLUGIN_DIR/<relpath>`
+# (elsewhere in this plugin — where the lean gate, lean evidence and null-reviewer
+# suites live), and `resolve_sibling <plugin> <relpath>` (another plugin). A shape
+# with no arm is a shape where the 5h2 break recurs unseen, so the arm set tracks the
+# doctor's actual delegation forms rather than the two that were easiest to reach.
 DOCTOR_DIR="$(cd "$(dirname "$DOCTOR")" && pwd)"
+OWN_PLUGIN_DIR="$(cd "$DOCTOR_DIR/.." && pwd)"
 PLUGINS_ROOT="$(cd "$DOCTOR_DIR/../.." && pwd)"
 
-# Arm 1: same-plugin delegates, invoked as "$SCRIPT_DIR/<name>-selftest.sh".
-missing=""
-seen=0
-# shellcheck disable=SC2016  # deliberate: `$SCRIPT_DIR` is the literal TEXT being matched in the
-# doctor's source, not a variable to expand here.
-while IFS= read -r name; do
-  [[ -z "$name" ]] && continue
-  seen=$((seen + 1))
-  [[ -f "$DOCTOR_DIR/$name" ]] || missing="$missing $name"
-done < <(grep -oE '\$SCRIPT_DIR/[a-z0-9-]+-selftest\.sh' "$DOCTOR" | sed 's|^\$SCRIPT_DIR/||' | sort -u)
+# ONE extraction, shared by the live assertion and by every probe. The probes drive
+# THIS function against a doctored copy instead of restating its greps: a hand-kept
+# copy of the extraction cannot fail when the extraction drifts, which is CLAUDE.md's
+# no-mirror-harness rule applied to the guard's own probe.
+# shellcheck disable=SC2016  # deliberate: the `$SCRIPT_DIR` / `$PLUGIN_DIR` prefixes are the
+# literal TEXT being matched in the doctor's source, not variables to expand here.
+inv_extract() { # inv_extract <doctor-file> <arm: script|plugin|sibling>
+  case "$2" in
+    script)  grep -oE '\$SCRIPT_DIR/[a-z0-9-]+-selftest\.(sh|mjs)' "$1" \
+               | sed 's|^\$SCRIPT_DIR/||' ;;
+    plugin)  grep -oE '\$PLUGIN_DIR/[A-Za-z0-9/_.-]+-selftest\.(sh|mjs)' "$1" \
+               | sed 's|^\$PLUGIN_DIR/||' ;;
+    sibling) grep -oE 'resolve_sibling [a-z-]+ [A-Za-z0-9/_.-]+-selftest\.(sh|mjs)' "$1" \
+               | sed 's|^resolve_sibling ||' ;;
+  esac | sort -u
+}
 
-if [[ "$seen" -eq 0 ]]; then
-  bad "(inv) found no \$SCRIPT_DIR selftest delegations in $DOCTOR — the extraction pattern drifted, so this guard is inert"
-elif [[ -n "$missing" ]]; then
-  bad "(inv) pipeline-doctor delegates to selftest(s) that do not exist:$missing — the invocation outlived its subject"
-else
-  ok "(inv) all $seen same-plugin selftest delegations resolve to a real file"
-fi
+# Globals, because bash 3.2 has no way to return two values and the header forbids
+# associative arrays. Reset on every call so a stale set cannot survive into the next.
+INV_SEEN=0
+INV_MISSING=""
+inv_scan() { # inv_scan <doctor-file> <arm>
+  local doc="$1" arm="$2" hit plug rel base
+  INV_SEEN=0
+  INV_MISSING=""
+  while IFS= read -r hit; do
+    [[ -z "$hit" ]] && continue
+    INV_SEEN=$((INV_SEEN + 1))
+    case "$arm" in
+      script)  base="$DOCTOR_DIR/$hit" ;;
+      plugin)  base="$OWN_PLUGIN_DIR/$hit" ;;
+      sibling) plug="${hit%% *}"; rel="${hit#* }"; hit="$plug/$rel"
+               base="$PLUGINS_ROOT/$plug/$rel" ;;
+    esac
+    [[ -f "$base" ]] || INV_MISSING="$INV_MISSING $hit"
+  done < <(inv_extract "$doc" "$arm")
+}
 
-# Arm 2: cross-plugin delegates, invoked as `resolve_sibling <plugin> <relpath>`.
-# Checked against the in-repo sibling, which is what a release ships.
-missing=""
-seen=0
-while IFS= read -r pair; do
-  [[ -z "$pair" ]] && continue
-  seen=$((seen + 1))
-  plug="${pair%% *}"; rel="${pair#* }"
-  [[ -f "$PLUGINS_ROOT/$plug/$rel" ]] || missing="$missing $plug/$rel"
-done < <(grep -oE 'resolve_sibling [a-z-]+ [A-Za-z0-9/_.-]+-selftest\.sh' "$DOCTOR" \
-           | sed 's|^resolve_sibling ||' | sort -u)
+for _arm in script plugin sibling; do
+  inv_scan "$DOCTOR" "$_arm"
+  if [[ "$INV_SEEN" -eq 0 ]]; then
+    bad "(inv/$_arm) found no $_arm-form selftest delegations in $DOCTOR — the extraction pattern drifted, so this arm is inert"
+  elif [[ -n "$INV_MISSING" ]]; then
+    bad "(inv/$_arm) pipeline-doctor delegates to selftest(s) that do not exist:$INV_MISSING — the invocation outlived its subject"
+  else
+    ok "(inv/$_arm) all $INV_SEEN $_arm-form selftest delegations resolve to a real file"
+  fi
+done
 
-if [[ "$seen" -eq 0 ]]; then
-  bad "(inv) found no resolve_sibling selftest delegations in $DOCTOR — the extraction pattern drifted, so this arm is inert"
-elif [[ -n "$missing" ]]; then
-  bad "(inv) pipeline-doctor delegates to sibling selftest(s) that do not exist:$missing"
-else
-  ok "(inv) all $seen cross-plugin selftest delegations resolve to a real file"
-fi
-
-# Probe: the guard must FAIL on a doctor that names a deleted subject. Without this,
-# a drifted extraction pattern would report the same green as a clean tree.
-PROBE="$WORK/probe-doctor.sh"
-# shellcheck disable=SC2016  # deliberate: the injected line must carry the literal `$SCRIPT_DIR`
-# so the extraction below sees the same shape it sees in the real doctor.
-{ cat "$DOCTOR"; echo 'bash "$SCRIPT_DIR/definitely-deleted-selftest.sh"'; } > "$PROBE"
-probe_missing=""
-# shellcheck disable=SC2016  # same literal-text match as arm 1.
-while IFS= read -r name; do
-  [[ -z "$name" ]] && continue
-  [[ -f "$DOCTOR_DIR/$name" ]] || probe_missing="$probe_missing $name"
-done < <(grep -oE '\$SCRIPT_DIR/[a-z0-9-]+-selftest\.sh' "$PROBE" | sed 's|^\$SCRIPT_DIR/||' | sort -u)
-case "$probe_missing" in
-  *definitely-deleted-selftest.sh*) ok "(inv-probe) the arm-1 check reports a delegation whose subject is absent" ;;
-  *) bad "(inv-probe) arm 1 did NOT catch an injected delegation to a deleted selftest — the guard is inert" ;;
-esac
+# Probe, ONE PER ARM. Without a probe a drifted extraction reports the same green as a
+# clean tree — and an arm covered only by a SIBLING arm's probe is unprobed in practice,
+# because each arm carries its own regex and its own filesystem base.
+inv_probe() { # inv_probe <arm> <injected-line>
+  local arm="$1" inject="$2" probe="$WORK/probe-doctor-$1.sh"
+  { cat "$DOCTOR"; printf '%s\n' "$inject"; } > "$probe"
+  inv_scan "$probe" "$arm"
+  case "$INV_MISSING" in
+    *definitely-deleted-selftest*)
+      ok "(inv-probe/$arm) the $arm arm reports a delegation whose subject is absent" ;;
+    *)
+      bad "(inv-probe/$arm) the $arm arm did NOT catch an injected delegation to a deleted selftest — that arm is inert" ;;
+  esac
+}
+# shellcheck disable=SC2016  # deliberate: each injected line must carry the literal prefix so
+# the extraction sees the same shape it sees in the real doctor.
+INV_INJECT_SCRIPT='bash "$SCRIPT_DIR/definitely-deleted-selftest.sh"'
+# shellcheck disable=SC2016  # same literal-text match as above.
+INV_INJECT_PLUGIN='bash "$PLUGIN_DIR/skills/build-lean/definitely-deleted-selftest.sh"'
+INV_INJECT_SIBLING='resolve_sibling review-toolkit scripts/definitely-deleted-selftest.sh'
+inv_probe script  "$INV_INJECT_SCRIPT"
+inv_probe plugin  "$INV_INJECT_PLUGIN"
+inv_probe sibling "$INV_INJECT_SIBLING"
 
 # ---------------------------------------------------------------------------
 # summary

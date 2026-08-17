@@ -36,10 +36,9 @@
 # AND THE SET IS THE TRANSITIVE CLOSURE, not the files the suite names. Neither of the rules
 # above can reach depth 2: a suite whose own path and whose subject are both declared still
 # under-declares if that SUBJECT resolves a third file at run time. The set below needed a
-# depth-2 input the first revision missed — the scripts pipeline-cost-block.sh resolves
-# beside itself. When you add a
-# row, follow every `$here/`-style resolution out of every declared script until it
-# terminates, and record where it terminated.
+# depth-2 input the first revision missed: the scripts pipeline-cost-block.sh resolves
+# beside itself. When you add a row, follow every `$here/`-style resolution out of every
+# declared script until it terminates, and record where it terminated.
 
 # --- cost-block-selftest.sh (30s) -------------------------------------------------------
 # No `cost-block.sh` sibling exists — the script under test is pipeline-cost-block.sh, one

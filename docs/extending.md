@@ -63,10 +63,11 @@ Every `stageParams` key defaults to the plugin's current literal, so an empty co
     "planFilePattern": "{plansDir}/plan-{issueKey}.md",   // drop the shipped "acme-" prefix
     "requiredLabels": ["ready", "in-progress"],                   // your tracker's label vocabulary
     "formatGlob": "*.{ts,tsx,css,md}",
-    // INERT-lane classifier override (read by is-inert-diff.sh and preflight.sh). The
-    // default inert set is JS/TS-centric and treats
-    // *.md and *.sh as zero-coverage — true for a TS app, false when shell IS the
-    // product: there, every diff classifies inert and your lint/test lanes never run.
+    // INERT-lane classifier override (read by is-inert-diff.sh). The default inert set
+    // is JS/TS-centric and treats *.md and *.sh as zero-coverage — true for a TS app,
+    // false when shell IS the product. Its live consumer is the pre-commit type-check
+    // carve-out; the lean lane's milestone-3 verify has deliberately NO inert lane, so
+    // this key cannot make a verify lane skip.
     // REPLACES the default outright (only replacement can remove `\.sh$`), so it is a
     // hand-copy that won't inherit later additions. Omit the key to keep the default.
     "inertPattern": "(\\.md$|^\\.github/workflows/.*\\.yml$)",

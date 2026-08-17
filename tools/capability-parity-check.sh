@@ -67,9 +67,8 @@ is_disposition() {
 }
 
 # Newline-delimited accumulators, not associative arrays — see BASH 3.2 in the header.
-# SEEN_CAPABILITY holds "<line>\t<capability>" rows; COVERED_PATH holds one path per line.
+# SEEN_CAPABILITY holds "<line>\t<capability>" rows.
 SEEN_CAPABILITY=""
-COVERED_PATH=""
 ROWS=0
 LINENO_=0
 
@@ -119,13 +118,6 @@ while IFS= read -r line || [[ -n "$line" ]]; do
     err "line $LINENO_: capability '$capability' has disposition '$disposition' — not one of ported|dropped|already-covered|choreography"
     continue
   fi
-
-  IFS=',' read -ra row_paths <<< "$paths"
-  for p in "${row_paths[@]}"; do
-    p="${p#"${p%%[![:space:]]*}"}"
-    p="${p%"${p##*[![:space:]]}"}"
-    [[ -n "$p" ]] && COVERED_PATH="${COVERED_PATH}${p}"$'\n'
-  done
 done < "$REGISTER"
 
 if [[ "$ROWS" -eq 0 ]]; then

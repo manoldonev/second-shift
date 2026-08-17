@@ -331,8 +331,7 @@ if [[ -f "$CFG" ]] && command -v jq >/dev/null 2>&1; then
     # VERIFYING lanes are lint/typecheck/test and extraLanes[]. lanes[] is SETUP-only, and
     # format never verifies — so neither counts here. Keep this set in lockstep with
     # lean-gate.sh; an early warning that disagrees with the late gate is worse than no
-    # warning. (scripts/lockstep-manifest.tsv records the
-    # re-anchoring.)
+    # warning. (scripts/lockstep-manifest.tsv records the re-anchoring.)
     VERIFYING=$(jq -r --arg h "$HOST_ID" '
       ([.commands[$h] | .lint, .typecheck, .test | select(. != null and . != "")] | length)
       + ((.commands[$h].extraLanes // []) | length)' "$CFG" 2>/dev/null || echo 0)
