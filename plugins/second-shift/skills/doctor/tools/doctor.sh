@@ -56,20 +56,41 @@ redact_config() { # $1 = config path
         else . end)' "$1" 2>/dev/null || echo "(config unreadable or invalid JSON)"
 }
 
-# Newest pipeline-state file → the abort-relevant fields. The "state-file excerpt"
-# the feedback forms ask for is exactly the .failureContext statectl writes on a
-# fail-fast abort. Guards the glob against literal-pattern expansion when the dir
-# is empty/absent (a fresh clone has no runs).
+# Newest pipeline-state record → the abort-relevant rows. What the feedback forms ask
+# for is the TAIL of the lean lane's <issue>-lean-progress.md: every hard stop appends
+# its reason there as an `attempt` row followed by `concluded | rc=`. So the markdown
+# progress record is what this looks for FIRST — the lane that can abort is the lane
+# that has to be excerptable, and it writes no JSON at all. A repo carrying leftover
+# JSON state from a pre-lean run falls back to projecting the four fields that schema
+# had. Each glob is guarded against literal-pattern expansion when the dir is
+# empty/absent (a fresh clone has no runs).
+#
+# The tail is deliberately UNREDACTED, unlike the config section beside it in the same
+# paste-ready bundle. Progress rows are gate-authored markers, with one exception:
+# lean-gate.sh appends check-frozen-files.sh's captured output verbatim as a milestone-2
+# advisory row. That output is this repo's own guard today, and the bundle header tells
+# the reader to review before posting, which is what keeps the widening bounded. Should a
+# progress row ever start carrying third-party or environment-derived text, this excerpt
+# owes a filter — this comment is here so that becomes a visible decision, not a silent one.
 state_excerpt() {
   local dir="$ROOT/.claude/pipeline-state" newest="" f
   if [[ -d "$dir" ]]; then
+    for f in "$dir"/*-lean-progress.md; do
+      [[ -e "$f" ]] || continue                       # no-match glob → skip
+      [[ -z "$newest" || "$f" -nt "$newest" ]] && newest="$f"
+    done
+    if [[ -n "$newest" ]]; then
+      echo "// $(basename "$newest") (tail)"
+      tail -n 40 "$newest"
+      return 0
+    fi
     for f in "$dir"/*.json; do
       [[ -e "$f" ]] || continue                       # no-match glob → skip
       [[ -z "$newest" || "$f" -nt "$newest" ]] && newest="$f"
     done
   fi
   if [[ -n "$newest" ]]; then
-    echo "// $(basename "$newest")"
+    echo "// $(basename "$newest") (pre-lean JSON state)"
     jq '{ticketKey, status, currentStage, failureContext}' "$newest" 2>/dev/null \
       || echo "(state file unreadable or invalid JSON)"
   else
@@ -131,7 +152,9 @@ emit_report() {
   echo '```'
   echo
   echo "### pipeline-state excerpt (newest run)"
-  echo '```json'
+  # Unlabelled fence: the excerpt is a markdown progress tail on the lean lane and JSON only
+  # on the pre-lean fallback, so a `json` label would mis-highlight the common case.
+  echo '```'
   state_excerpt
   echo '```'
 }
@@ -368,7 +391,7 @@ if [[ ! -f "$CONF" ]]; then
 else
   DP_PATH="$(jq -r --arg id "dev-pipeline@$MKT" --arg root "$ROOT" \
     "$RESOLVE_RECORD | .installPath // empty" <<< "$PLUGLIST")"
-  LINT="$DP_PATH/skills/run/tools/config-lint.sh"
+  LINT="$DP_PATH/tools/config-lint.sh"
   if [[ -n "$DP_PATH" && -f "$LINT" ]]; then
     if out="$(bash "$LINT" "$CONF" 2>&1)"; then ok "config-lint: $(tail -1 <<< "$out")"
     else
@@ -383,7 +406,7 @@ else
   # ONE summary line when second-shift-claims fences exist (count + probe-less slugs);
   # silent when none. Expired/malformed claims are FAILs here too — a stale
   # severity-downgrading claim blocks pipeline runs at their pre-flight.
-  CLAIMS="$DP_PATH/skills/run/tools/claims-lint.sh"
+  CLAIMS="$DP_PATH/tools/claims-lint.sh"
   if [[ -n "$DP_PATH" && -f "$CLAIMS" ]]; then
     if out="$(bash "$CLAIMS" "$ROOT" 2>&1)"; then
       [[ -n "$out" ]] && ok "claims-lint: $(tail -1 <<< "$out" | sed 's/^\[claims-lint\] summary: //')"

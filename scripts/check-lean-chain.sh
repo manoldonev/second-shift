@@ -83,7 +83,7 @@
 # HONEST ALTITUDE: like its sibling, this is tamper-EVIDENCE, not proof. The agent writes
 # artifacts 1 and 2. Forging one is easy; forging all three consistently, across a committed
 # diff and a bot-authenticated tracker comment, is what this makes detectable. Harness
-# attestation is lean-reconcile.sh's job (and #292's later).
+# attestation is lean-reconcile.sh's job.
 #
 # THREE OUTPUT CLASSES (#443). Reciting every arm on a passing run teaches nothing and buries the
 # lines that matter; reciting none makes a gate that checked nothing indistinguishable from one

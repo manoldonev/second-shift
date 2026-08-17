@@ -24,7 +24,7 @@
 # -----------------
 #   .mjs tables      live in the dev-pipeline PLUGIN:
 #                    $SECOND_SHIFT_DEV_PIPELINE_ROOT (or $SCRIPT_DIR/../../dev-pipeline)
-#                      /skills/run/workflows/
+#                      /workflows/
 #                    If this dir is unlocatable the check FAILS naming the override.
 #   agent frontmatter is read from BOTH roots:
 #                    PLUGIN agents   $SECOND_SHIFT_PLUGIN_ROOT (or $SCRIPT_DIR/..)/agents
@@ -50,18 +50,20 @@
 #     lockstep-checked against frontmatter/override directly, same as the scalar loop's
 #     inline handling below.
 #   - scalar UNIT_TEST_MODEL     in workflows/unit-tests.mjs   (per dispatched agentType)
-#   - scalar PLAN_REVIEWER_MODEL in workflows/plan-review.mjs  (same shape)
+#   - scalar PLAN_REVIEWER_MODEL in workflows/plan-review.mjs  — RETIRED in #348 with Stage 4's
+#     dispatcher; the spec was removed from the loop, not made optional.
 #   - scalar EXECUTOR_MODEL      in workflows/mutation-gate.mjs (anonymous executors —
-#     asserted against dev-pipeline SKILL.md's Model Tiering note instead)
+#     asserted against dev-pipeline model-tiering.md's note instead)
 #
 # Error classes:
 #   MISMATCH / DANGLING / NO-FRONTMATTER  the lockstep failures above.
 #   PARSE / MISSING-TABLE / UNLOCATABLE   the script could not read what it validates.
 #   UNKNOWN-MODEL                         a model token outside opus|sonnet|haiku in a
 #                                         shipped MAP entry (the three map files) or in an
-#                                         inline `model: '<tier>'` literal (ALL FIVE parsed
+#                                         inline `model: '<tier>'` literal (ALL FOUR parsed
 #                                         workflow files — the three map files plus
-#                                         unit-tests.mjs and plan-review.mjs). Both used to
+#                                         unit-tests.mjs; plan-review.mjs was the fifth until
+#                                         #348 deleted it). Both used to
 #                                         be SILENT: the enum lived inside the extraction
 #                                         regexes, so an unknown token was skipped entirely
 #                                         (map) or attributed to the file's scalar (inline).
@@ -138,9 +140,9 @@ resolve_sibling_plugin_root() {
         printf '%s\t%s\n' "$(basename "$cand")" "$(cd "$cand" && pwd)"
     done | sort -t. -k1,1n -k2,2n -k3,3n | tail -1 | cut -f2-
 }
-DEV_PIPELINE_ROOT=$(resolve_sibling_plugin_root dev-pipeline "skills/run/workflows" "${SECOND_SHIFT_DEV_PIPELINE_ROOT:-}")
-WF="$DEV_PIPELINE_ROOT/skills/run/workflows"
-skill_md="$DEV_PIPELINE_ROOT/skills/run/SKILL.md"
+DEV_PIPELINE_ROOT=$(resolve_sibling_plugin_root dev-pipeline "workflows" "${SECOND_SHIFT_DEV_PIPELINE_ROOT:-}")
+WF="$DEV_PIPELINE_ROOT/workflows"
+skill_md="$DEV_PIPELINE_ROOT/model-tiering.md"
 
 # design-toolkit plugin root -> design-faithful agent-family frontmatter
 # (design-sync.mjs / code-review.mjs tables reference these agents, which ship
@@ -181,7 +183,7 @@ fi
 # The .mjs tables are the reason this check exists — if we can't find them, fail
 # loudly naming the override rather than silently passing.
 if [ -z "$DEV_PIPELINE_ROOT" ] || [ ! -d "$WF" ]; then
-    msg="UNLOCATABLE: dev-pipeline workflow tables not found via env override, repo-layout sibling ($SCRIPT_DIR/../../dev-pipeline), or cache-layout siblings ($SCRIPT_DIR/../../../dev-pipeline/<ver>) — expected <root>/skills/run/workflows. Set SECOND_SHIFT_DEV_PIPELINE_ROOT to the dev-pipeline plugin root."
+    msg="UNLOCATABLE: dev-pipeline workflow tables not found via env override, repo-layout sibling ($SCRIPT_DIR/../../dev-pipeline), or cache-layout siblings ($SCRIPT_DIR/../../../dev-pipeline/<ver>) — expected <root>/workflows. Set SECOND_SHIFT_DEV_PIPELINE_ROOT to the dev-pipeline plugin root."
     printf '%s\n' "$msg" >&2
     if [ $HOOK_MODE -eq 1 ]; then
         # Standalone adoption (#14, F57): the sibling dev-pipeline plugin isn't
@@ -368,7 +370,13 @@ done
 
 # --- Scalar tables: const <VAR> = '<model>' applied to each agentType the file
 #     dispatches (agentType may be plugin:-qualified). Pairs are "<file>:<VAR>". ---
-for spec in "unit-tests.mjs:UNIT_TEST_MODEL" "plan-review.mjs:PLAN_REVIEWER_MODEL"; do
+# plan-review.mjs:PLAN_REVIEWER_MODEL left this list in #348 — Stage 4's dispatcher was
+# deleted with the staged lane. It is removed rather than made conditional: a missing table is
+# MISSING-TABLE by design (a table that vanished is the failure this loop reports), so leaving
+# a dead spec in would red every consumer.
+# shellcheck disable=SC2043  # a REGISTRY that happens to hold one row since #348 retired
+# plan-review.mjs:PLAN_REVIEWER_MODEL — the loop form is what a second scalar table joins.
+for spec in "unit-tests.mjs:UNIT_TEST_MODEL"; do
     tbl="${spec%%:*}"
     var="${spec#*:}"
     file="$WF/$tbl"
@@ -386,9 +394,9 @@ for spec in "unit-tests.mjs:UNIT_TEST_MODEL" "plan-review.mjs:PLAN_REVIEWER_MODE
         # (`{ agentType: 'x', model: 'haiku', ... }`), and that literal — not the
         # file's scalar — is what is passed at runtime. Attributing such a dispatch
         # to the scalar is a false MISMATCH: observed with structured-emitter, which
-        # is dispatched `model: 'haiku'` from both unit-tests.mjs (scalar sonnet) and
-        # plan-review.mjs (scalar opus), denying every commit in the repo while the
-        # code was correct.
+        # is dispatched `model: 'haiku'` from unit-tests.mjs (scalar sonnet) and, before
+        # #348 deleted it, from plan-review.mjs (scalar opus) — denying every commit in the
+        # repo while the code was correct.
         #
         # An inline literal is still a re-statement of the tier, so it is locksteped
         # against frontmatter exactly like the scalar — only the SOURCE of the
@@ -421,7 +429,9 @@ done
 # --- EXECUTOR_MODEL (mutation-gate.mjs): a constrained scalar with NO agent
 #     frontmatter counterpart — the executors are anonymous agent() calls. Assert
 #     (a) the constant parses as a known tier, and (b) it equals the tier the
-#     dev-pipeline SKILL.md Model Tiering note states for the executors. ---
+#     dev-pipeline model-tiering.md note states for the executors. Until #348 that note
+#     lived in the staged run SKILL.md; the doc moved to the plugin root with the lane's
+#     deletion, and the assertion is unchanged. ---
 mg="$WF/mutation-gate.mjs"
 if [ -f "$mg" ]; then
     mg_model=$(grep -oE "const EXECUTOR_MODEL = '(opus|sonnet|haiku)'" "$mg" \
@@ -432,9 +442,9 @@ if [ -f "$mg" ]; then
         skill_note=$(grep -oE "mutation-gate executors: (opus|sonnet|haiku)" "$skill_md" \
             | sed -E "s/.*: //" | head -1)
         if [ -z "$skill_note" ]; then
-            errors+=("PARSE: SKILL.md Model Tiering has no 'mutation-gate executors: <tier>' note to lockstep EXECUTOR_MODEL against")
+            errors+=("PARSE: $skill_md has no 'mutation-gate executors: <tier>' note to lockstep EXECUTOR_MODEL against")
         elif [ "$mg_model" != "$skill_note" ]; then
-            errors+=("MISMATCH: 'mutation-gate executors' — SKILL.md says '$skill_note' but mutation-gate.mjs (EXECUTOR_MODEL) says '$mg_model'")
+            errors+=("MISMATCH: 'mutation-gate executors' — model-tiering.md says '$skill_note' but mutation-gate.mjs (EXECUTOR_MODEL) says '$mg_model'")
         fi
     fi
     # EP-4: the executor is a NAMED logical agent 'mutation-executor' — assert the modelOverrides

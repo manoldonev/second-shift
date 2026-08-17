@@ -81,7 +81,7 @@ if [ ! -t 0 ]; then
         # Self-gate on the REAL command. A PreToolUse `if:` matcher sees only the
         # outer command string, and the configured glob (`Bash(git -c * commit *)`)
         # over-matches non-commit commands that merely contain a `git -c`/`git -C`
-        # substring plus a `commit`/`commitSha` substring (e.g. a statectl call whose
+        # substring plus a `commit`/`commitSha` substring (e.g. a gate call whose
         # inline `git -C <wt> rev-parse` + expanded JSON payload carry both). That
         # produced spurious denials on non-commit Bash calls (issue #208). The glob's
         # tokenization is engine-internal and unverifiable, so we self-gate here

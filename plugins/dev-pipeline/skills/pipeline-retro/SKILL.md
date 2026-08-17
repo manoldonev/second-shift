@@ -1,6 +1,6 @@
 ---
 name: pipeline-retro
-description: 'Post-run retrospective for a dev-pipeline run: independent eval re-scoring, contract-deviation audit, and improvement routing. Run after a /dev-pipeline:run run completes (or aborts).'
+description: 'Post-run retrospective for a dev-pipeline run: independent eval re-scoring, contract-deviation audit, and improvement routing. Run after a /dev-pipeline:run-lean run completes (or aborts); also reads the pre-#348 staged-run corpus.'
 ---
 
 # Pipeline Retro
@@ -33,15 +33,18 @@ fi
 
 ### era: stage (full-pipeline run)
 
+This era's runs predate #348, which deleted the staged lane. Everything below reads the
+**historical corpus as files** — `cat`/`jq` over the state JSON — and calls no deleted
+tool; that is what keeps the stage era retro-able after the machinery is gone.
+
 ```bash
-S=../dev-pipeline/statectl.sh
 cat .claude/pipeline-state/${ISSUE}.json          # state: stages, checkpoints, deviations, failureContext
 cat .claude/pipeline-state/${ISSUE}-eval.json     # the run's SELF-score
 # The run report — Stage 9's durable narrative, written before the terminal
 # narration so an API disconnect cannot destroy it. Absent = either a pre-schema
 # run or a run that never reached Stage 9's pr-add.
 [ -f ".claude/pipeline-state/${ISSUE}-report.md" ] && cat ".claude/pipeline-state/${ISSUE}-report.md"
-bash ../dev-pipeline/tools/stage-times.sh ${ISSUE}   # per-stage wall times + transition gaps
+bash "${CLAUDE_PLUGIN_ROOT}/tools/stage-times.sh" ${ISSUE}   # per-stage wall times + transition gaps
 gh api "repos/{owner}/{repo}/issues/${ISSUE}/comments" --jq '[.[] | {user: .user.login, body}]'   # run_id-marked trail
 PR_URL=$(jq -r '.prs | to_entries[0].value.url // empty' .claude/pipeline-state/${ISSUE}.json)
 # PR diff + commits (if a PR exists): gh pr diff / gh api .../pulls/N/commits
@@ -92,7 +95,7 @@ self-score exists to compare against and no independent score is produced. Route
 first time an artifact-era retro reaches this step in a given window — check Step 5's
 dedup-against-open-issues search first so repeat retros don't re-propose it.
 
-**era: stage** — dispatch ONE `retro-scorer` agent (Task tool) whose prompt contains: the five criteria definitions copied verbatim from [`../dev-pipeline/eval-criteria.md`](../dev-pipeline/eval-criteria.md) and the artifact contents from Step 1. The agent ([`../../agents/retro-scorer.md`](../../agents/retro-scorer.md)) carries the standing re-score rubric — score each criterion PASS/FAIL/N/A strictly by the letter, quote artifact evidence, "absence of evidence is not a PASS", and the ctx-wire-legitimacy rule — and runs on **Sonnet** via its frontmatter, so the harness binds the tier (a prose "use Sonnet" against `general-purpose` would not — it has no frontmatter and inherits the session Opus default).
+**era: stage** — dispatch ONE `retro-scorer` agent (Task tool) whose prompt contains: the five criteria definitions copied verbatim from [`../../eval-criteria.md`](../../eval-criteria.md) and the artifact contents from Step 1. The agent ([`../../../review-toolkit/agents/retro-scorer.md`](../../../review-toolkit/agents/retro-scorer.md)) carries the standing re-score rubric — score each criterion PASS/FAIL/N/A strictly by the letter, quote artifact evidence, "absence of evidence is not a PASS", and the ctx-wire-legitimacy rule — and runs on **Sonnet** via its frontmatter, so the harness binds the tier (a prose "use Sonnet" against `general-purpose` would not — it has no frontmatter and inherits the session Opus default).
 
 **Empty-return failure mode.** This dispatch carries no emit deadline, retry, or darkness detection — unlike the Workflow fan-out's `check-emit-deadline.sh` stack, which does not cover a Task-tool dispatch. A `retro-scorer` call that completes with no text (a silent dark return, or a `maxTurns` cutoff) is a named failure, not a run with nothing to score: before doing anything else, resume the *same* agent (its transcript, not a fresh dispatch) and instruct it to emit its verdict from the evidence already gathered, with no further tool calls. This recovered two independently observed dark returns at a fraction of the original dispatch's cost (#271: the #244 run, 78k tokens / 26 tool calls / no output, resumed in 14s / 0 tool calls; the #243 run, 20 tool calls / no output, resumed successfully) — the analysis was sitting in the transcript, only its emission was lost. This resume is scoped to this dispatch: it is not a general Agent-tool-dispatch policy, and `retro-scorer` is deliberately staying off the Workflow substrate — that would buy the emit-deadline stack but adds StructuredOutput-staller surface for what is structurally a single dispatch, not worth it for the resume fix already closing the gap.
 
@@ -120,7 +123,7 @@ verdict record) — this retro does not duplicate it. Items 4, 7, 8 apply to bot
 1. **Mandated loads & dispatches** — was every skill the stage files say to load actually loaded (`intake-toolkit:intake-orchestrator`, `review-toolkit:review-lead` for synthesis)? Diff `stages.N.skillsLoaded[]` (the self-reported load evidence the completion gates read) against the session audit ledger (`.claude/audit/<session>.jsonl` — `Skill` tool invocations, whose `target` field carries the skill name, making this an identity diff rather than only a count): a skill recorded in state but absent from the ledger is a **fabricated evidence write**, strictly worse than the silent skip the gate exists to stop. For Stage 8 the *ordering* is now gate-enforced — `comment-add --marker code-review` refuses until the `review-lead` load is recorded — so what still needs eyes is the residual that gate cannot see: compare the ledger's `Skill` timestamp against the synthesis comment's `created_at`, and treat a load that post-dates the published synthesis as a deviation even though the receipt was accepted afterwards. Were sub-agents dispatched for real (never inlined)? Check `/audit` if available.
 2. **State discipline** — every stage has `startedAt`/`completedAt`; checkpoints written at 1/5/7; boundary writes (`worktree-set`, `pr-add`) ordered before stage completion; `verifyAttempts` incremented for every fix loop (including plan-specific verification commands — see Stage 6). A Stage-6 `refactor:` commit recorded in `stages.6.qualityPass` is the advisory quality pass — an expected, disclosed, non-`verifyAttempts` event (its one-shot `--no-attempt` safety-net re-verify is not a fix loop).
 3. **Comment trail** — every pipeline comment carries `run_id` + a marker from the closed enum (`state-schema.md` "Stage-comment markers"); no duplicates; failures left a comment.
-4. **Bot identity** — all writes through `bash "${CLAUDE_PLUGIN_ROOT}/skills/run/tools/gh-bot.sh"`; label swaps add-before-remove.
+4. **Bot identity** — all writes through `bash "${CLAUDE_PLUGIN_ROOT}/tools/gh-bot.sh"`; label swaps add-before-remove.
 5. **Deviations ledger** — does `stageCheckpoint["7"].deviations[]` plus the PR body disclose everything the diff/trail shows actually happened? Undisclosed deltas are silent deviations. (An applied Stage-6 quality-pass cleanup is disclosed via `stageCheckpoint["7"].qualityPassSummary`, not `deviations[]` — only a `reverted` outcome requires a `surprise` entry.)
 6. **QA-gate integrity** (the mutation gate — the stall-prone surface). On unit-test-applicable runs, `stages.5.unitTestMutationReview` must be terminal `completed` (vocabulary: `reviewing | completed`; `executing` only on legacy pre-sequencer state files), and `mutationReviewAudit.rounds[].executions[]` must be the `mutation-gate.mjs` return ledger — the per-mutant results are **machine-attested by the workflow journal**, so an audit that disagrees with the journal (or an audit written with no corresponding Workflow dispatch) is a fabricated gate. A `budget-skipped` or `infra` overall that still closed Stage 5 with `completed` sub-status is a silent coverage gap.
 7. **AC-coverage + brief-reconciliation audit** (skip when state has no `acceptanceCriteria[]` — pre-schema run). For every `acceptanceCriteria[].id`: is it traceable to a covering test (grep the PR diff for `(AC-n)` test titles), a diff hunk that plainly implements it, or a disclosed `deviations[]` / `— no test` traceability row? An AC with none of the three is an **undisclosed coverage gap** — finding. When `briefPath` is non-null, also check the Brief's reconciled QUARANTINE table: any `conflicts`-tagged PM claim the implementation silently followed anyway (the codebase was supposed to win) is a **silent deviation** — finding. Judgment against the surviving diff is expected here; the `(AC-n)` title convention is best-effort ("where natural"), so a covered-but-unlabeled test is satisfied by the diff-hunk leg, not flagged.
@@ -128,7 +131,7 @@ verdict record) — this retro does not duplicate it. Items 4, 7, 8 apply to bot
 
 ## Step 4: Environment friction log
 
-List every mid-run improvisation the trail reveals (REST fallbacks, version workarounds, missing tools, degraded sub-steps like `costBlockApplied: skipped-*`). For each: is it covered by a [`pipeline-doctor.sh`](../dev-pipeline/tools/pipeline-doctor.sh) check or canonical-form doc yet? If not, it becomes a routed improvement below.
+List every mid-run improvisation the trail reveals (REST fallbacks, version workarounds, missing tools, degraded sub-steps like `costBlockApplied: skipped-*`). For each: is it covered by a [`pipeline-doctor.sh`](../../tools/pipeline-doctor.sh) check or canonical-form doc yet? If not, it becomes a routed improvement below.
 
 **era: stage** — also read the `stage-times.sh` output against expectations: an inert-diff run that still paid the configured verify suite (Stage 6 ≳ 4 min on a docs/shell-only diff), large inter-stage gaps (synchronous posting of non-gating comments), or a stage whose recorded window is implausibly short (work done before `set-stage N --status started` — a state-discipline deviation for Step 3) are all findings. **era: artifact** has no per-stage timing table to check against — `retro-corpus.sh`/`stage-envelopes.sh` are `perf-retro`'s territory (cross-run), and this per-run step has nothing stage-shaped to read.
 
@@ -147,8 +150,8 @@ If a finding is already covered by an open issue: do **not** re-file or silently
 
 **Enforcement-mechanism ladder (apply to every drift-class finding).** When a finding shows the executing LLM bent or forgot a written rule, propose the CHEAPEST mechanism on this ladder that closes it — and say which rung you chose and why the cheaper rungs don't suffice:
 
-1. **statectl precondition on evidence shape** — can a `set-stage`/`mark-completed` gate refuse the outcome because the evidence a compliant run necessarily produces is absent? Cheapest; no new artifacts. (Precedent: the per-stage completion preconditions, the terminal all-stages/eval gates.)
-2. **Bash helper owning commands + bookkeeping** — the rule governs _command execution_ (suites, git, gh, counters): a helper runs the commands and does its own accounting, removing the honesty burden entirely. (Precedent: `verifyctl.sh` owning `verifyAttempts`; `is-inert-diff.sh`; `claim-issue.sh`.)
+1. **Gate precondition on evidence shape** — can a milestone assertion refuse the outcome because the evidence a compliant run necessarily produces is absent? Cheapest; no new artifacts. (Precedent: `lean-gate.sh`'s per-milestone preconditions and its `4`/`5` terminal gates.)
+2. **Bash helper owning commands + bookkeeping** — the rule governs _command execution_ (suites, git, gh, counters): a helper runs the commands and does its own accounting, removing the honesty burden entirely. (Precedent: `lean-gate.sh` owning the milestone fix-attempt budget; `is-inert-diff.sh`; `claim-issue.sh`.)
 3. **`.mjs` Workflow sequencer** — ONLY when the rule sequences _multiple agent dispatches_ with enum verdicts; the script enforces the ordering/verdict mapping and returns one auditable ledger. (Precedent: `plan-review.mjs`, `code-review.mjs`.) Do not reach for this before exhausting rungs 1–2 — it buys observability the cheaper rungs already give, at higher cost, and each schema-forced dispatch adds StructuredOutput-staller surface.
 4. **Retro audit + accept** — the rule is judgment (deviations completeness, plan grounding quality): scripting it produces compliance theater; this skill IS the enforcement. Route as process note.
 
@@ -167,7 +170,7 @@ Drift-class findings pick their ladder rung first, then land in `Record only`, `
 **Approval gate (no-auto-commit):** routing decides _what_ each finding needs; it does **not** authorize the write. Before any git commit, branch push, or GitHub issue/PR creation, **present the proposed routes and get explicit user approval** — then apply only the approved ones. Writing the retro report itself (Step 6, a gitignored `.claude/pipeline-state/` file) and read-only dedup queries need no approval. If running fully unattended (no user to ask), record each actionable route as **proposed** in the report and stop short of the write.
 
 **Unattended addition — verdict-less open PRs (#347).** A fully-unattended pass also runs
-`bash "${CLAUDE_PLUGIN_ROOT}/skills/run/tools/retro-corpus.sh" open-prs` and folds its
+`bash "${CLAUDE_PLUGIN_ROOT}/tools/retro-corpus.sh" open-prs` and folds its
 `verdictLess: true` rows into the report as the operator-visible backlog signal: open lean
 PRs whose linked issue carries no comment yet referencing the expected verdict-record path —
 a review that never landed, not (necessarily) a broken run. Read-only, so it needs no
@@ -177,9 +180,9 @@ own — it is a report line, not a finding that gets routed).
 | Route             | When                                                                                        | Action                                                                                                                                   |
 | ----------------- | ------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
 | Record only       | **Default.** Single occurrence, un-root-caused, or speculative — fails any meaningful-issue bar | Finding stays in the retro report (Step 6). No further artifact. Recurrence at a later retro re-tests the bar with the prior report as evidence. |
-| Datapoint comment | Finding is covered by an open issue and recurred this run                                   | One-line `bash "${CLAUDE_PLUGIN_ROOT}/skills/run/tools/gh-bot.sh"` comment on that issue citing this run — the recurrence signal that bumps its priority. Never a new issue.             |
+| Datapoint comment | Finding is covered by an open issue and recurred this run                                   | One-line `bash "${CLAUDE_PLUGIN_ROOT}/tools/gh-bot.sh"` comment on that issue citing this run — the recurrence signal that bumps its priority. Never a new issue.             |
 | Skill-file edit   | Small doc/contract fix, no design needed                                                    | On approval: apply (prettier, commit via bot identity), reference the retro in the commit body. Commit on a branch, not the base branch directly. |
-| GitHub issue      | Passes ALL THREE meaningful-issue bars, and needs code/tooling change or design > ~30 min   | `bash "${CLAUDE_PLUGIN_ROOT}/skills/run/tools/gh-bot.sh"` create issue; label `ready-for-dev` only if genuinely pipeline-able, else leave unlabeled                                      |
+| GitHub issue      | Passes ALL THREE meaningful-issue bars, and needs code/tooling change or design > ~30 min   | `bash "${CLAUDE_PLUGIN_ROOT}/tools/gh-bot.sh"` create issue; label `ready-for-dev` only if genuinely pipeline-able, else leave unlabeled                                      |
 | Doctor check      | Environment friction that pre-flight could catch, seen more than once                       | Edit `pipeline-doctor.sh` + its selftest expectations                                                                                    |
 | Criteria proposal | Eval criterion ambiguous/mis-calibrated                                                     | Proposal text in the report ONLY — never edit `eval-criteria.md`                                                                         |
 | Process note      | Behavioral lapse by the executing model                                                     | Surface to the user; they decide whether it becomes a CLAUDE.md/skill guardrail                                                          |

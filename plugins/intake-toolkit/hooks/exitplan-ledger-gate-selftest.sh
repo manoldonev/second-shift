@@ -15,7 +15,7 @@
 # WHY NO SCENARIO COVERS IT (CLAUDE.md scenario-first rule): scenario-liveness-
 # selftest.sh composes dev-pipeline verdict paths inside a run. This hook fires in
 # the HARNESS, on the operator's ExitPlanMode tool call, before and outside any
-# pipeline run — it has no statectl state, no ticket, and no stage. There is no
+# pipeline run — it has no run state, no ticket, and no milestone. There is no
 # verdict path to compose it onto. Its callee ledger-lint.sh has its own suite
 # (ledger-lint-selftest.sh); this file covers the resolution and exit contract
 # around it, which that suite cannot reach.

@@ -152,8 +152,8 @@ Ask AT MOST one AskUserQuestion batch, containing ONLY (skip any that detection 
         private key; the pipeline pre-flight enforces the wrapper unconditionally for the
         github tracker.)" If yes, point at the dev-pipeline bot bootstrap
         (`install-gh-bot.sh` in the dev-pipeline tools) as the follow-up; if no, note that
-        the first `/dev-pipeline:run` pre-flight will fail until one exists — this is a
-        pipeline requirement, not an onboard requirement.
+        the first `/dev-pipeline:run-lean` pre-flight will fail until one exists — this is
+        a pipeline requirement, not an onboard requirement.
      b. Queue labels: "Create the six required queue labels now?" On yes, print AND run:
         `gh label create ready-for-dev`, `needs-spec-work`, `needs-plan-review`,
         `needs-intake-review`, `in-progress`, `epic` (skip ones that already exist).
@@ -283,9 +283,9 @@ Write the accepted config as PURE JSON (comments stripped) with a `$schema` firs
 
 ## Step 5 — Validate in a loop
 Resolve config-lint: `claude plugin list --json | jq -r '[.[] | select(.id=="dev-pipeline@second-shift")] | sort_by(.lastUpdated) | last | .installPath // empty'`.
-- Found → `bash "<installPath>/skills/run/tools/config-lint.sh" .claude/second-shift.config.json`
+- Found → `bash "<installPath>/tools/config-lint.sh" .claude/second-shift.config.json`
 - Not installed yet (normal on first onboard) → fetch the SAME file at the pinned ref:
-  `gh api "repos/manoldonev/second-shift/contents/plugins/dev-pipeline/skills/run/tools/config-lint.sh?ref=<ref>" --jq .content | base64 --decode > "$TMPDIR/config-lint.sh"` and run that.
+  `gh api "repos/manoldonev/second-shift/contents/plugins/dev-pipeline/tools/config-lint.sh?ref=<ref>" --jq .content | base64 --decode > "$TMPDIR/config-lint.sh"` and run that.
   (Any ref onboard can resolve is ≥ v2.1.0 — the first release that ships onboard also ships
   the `$schema`-aware config-lint, so the fetched lint always accepts the emitted config.)
 Non-zero → fix the config (asking the human only if the fix needs a decision), re-run.
@@ -401,7 +401,7 @@ pairs; there is no second question:
 5. **Run the read-only preflight — the onboarding finish line.** Resolve the dev-pipeline
    install path (never a cache path from memory):
    `claude plugin list --json | jq -r '.[] | select(.id == "dev-pipeline@second-shift") | .installPath'`,
-   then run `bash "<installPath>/skills/run/tools/preflight.sh"` from the repo root. It is
+   then run `bash "<installPath>/tools/preflight.sh"` from the repo root. It is
    zero-write (no claim, no branch/worktree, no push, no tracker comment): target echo,
    config gates, the environment doctor, one tracker READ, one pass over every non-null
    command lane, and a report at `.claude/pipeline-state/preflight-report.md`. Surface the

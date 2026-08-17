@@ -23,7 +23,7 @@ fi
 TMP=$(mktemp -d)
 trap 'rm -rf "$TMP"' EXIT
 mkdir -p "$TMP/plugins/intake-toolkit/skills/demo"
-mkdir -p "$TMP/plugins/dev-pipeline/skills/run"
+mkdir -p "$TMP/plugins/dev-pipeline/skills/build-lean"
 PRISTINE="$TMP/pristine.md"
 cat > "$PRISTINE" <<'EOF'
 Fetch the ticket via the Atlassian MCP getJiraIssue — namespace varies:
@@ -55,7 +55,7 @@ fi
 # file list). Restore the clean file, then add a fresh single-prefix site in the other
 # scan root.
 cp "$PRISTINE" "$CLEAN"
-NEWSITE="$TMP/plugins/dev-pipeline/skills/run/new-fetch.md"
+NEWSITE="$TMP/plugins/dev-pipeline/skills/build-lean/new-fetch.md"
 echo 'Fetch the ticket read-only via mcp__atlassian__getJiraIssue (single prefix).' > "$NEWSITE"
 if bash "$CHECK" "$TMP" >/dev/null 2>&1; then
     echo "FAIL: check should reject a newly-added single-prefix fetch site" >&2

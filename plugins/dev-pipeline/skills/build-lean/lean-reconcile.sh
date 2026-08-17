@@ -1,10 +1,12 @@
 #!/usr/bin/env bash
 # lean-reconcile.sh — the OPERATOR's pre-merge check on a lean PR (D-48, AC-16).
 #
-# DEFERS TO #292. This is an explicitly lean-scoped forerunner of the general run-reconcile
-# verifier. When that lands, this script defers to it and stops being the owner — the same
-# one-owner discipline the mutation-exclusions register follows with CLAUDE.md. Do not grow
-# it into a general attestation tool in the meantime.
+# THE OWNER, not a forerunner. This header used to read "DEFERS TO #292" — a general
+# run-reconcile verifier that would take ownership when it landed. #292 was closed as
+# moot-via-#348: it was scoped to the staged lane's statectl records, which no longer exist,
+# and this script is the successor rather than a placeholder for one. Ownership is settled,
+# so the deferral is dropped — but the scope discipline it carried is not: this stays the
+# lean lane's pre-merge reconciliation and does not grow into a general attestation tool.
 #
 # RUN THIS YOURSELF, NOT FROM THE RUN. Self-reconciliation is not evidence: a run checking
 # its own records proves nothing an adversarial (or merely reward-hacking) agent could not
@@ -99,7 +101,7 @@ while [ $# -gt 0 ]; do
   case "$1" in
     --session-id)    SESSION_ID="${2:-}"; shift 2 ;;
     --comments-file) COMMENTS_FILE="${2:-}"; shift 2 ;;
-    -h|--help)       sed -n '2,87p' "$0"; exit 0 ;;
+    -h|--help)       sed -n '2,89p' "$0"; exit 0 ;;
     -*)              envfail "unknown option: $1" ;;
     *)               [ -z "$ISSUE" ] && ISSUE="$1" || envfail "unexpected argument: $1"; shift ;;
   esac

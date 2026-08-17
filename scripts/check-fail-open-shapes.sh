@@ -6,7 +6,7 @@
 # producer leaves grep an empty stream, which reports no match; under `pipefail` the dead
 # producer also makes the pipeline non-zero, which reads as "no match" again. The caller learns
 # "no", and "no" is not what happened. The sanctioned replacement is `checked_match`
-# (plugins/dev-pipeline/skills/run/tools/checked-call.sh), whose rc 2 means UNKNOWN.
+# (plugins/dev-pipeline/tools/checked-call.sh), whose rc 2 means UNKNOWN.
 #
 # WHY A GUARD AND NOT A CONVENTION: two of the three worst instances on record were never in a
 # file at all — a session typed them into a shell. A lint cannot see those, and pretending

@@ -20,7 +20,7 @@ build session, so this cannot be folded back into the build lane by convenience.
 > unaffected — it is a code-host write, not a tracker one, so it posts the same under both
 > adapters and carries the bot identity under both wherever a bot is configured. No other
 > checklist step differs.
-> [Adapter contract](../run/tools/tracker/jira/README.md).
+> [Adapter contract](../../tools/tracker/jira/README.md).
 
 ## Checklist
 
@@ -86,7 +86,7 @@ build session, so this cannot be folded back into the build lane by convenience.
    all recompute that hash and refuse the record once any line outside it has changed. Commit
    nothing else in this session.
 8. Post the findings as one PR comment (the build session reads the PR, not this transcript) —
-   through [`gh-bot.sh`](../run/tools/gh-bot.sh) when its `--status` is `ok`, plain `gh`
+   through [`gh-bot.sh`](../../tools/gh-bot.sh) when its `--status` is `ok`, plain `gh`
    otherwise. This is a `pr comment` write, which `pr-revision` already mandates the wrapper
    for; posting it bare left the one comment a human actually reads under the operator while
    every other pipeline comment carried the bot. Then stop. On `needs-work` the loop

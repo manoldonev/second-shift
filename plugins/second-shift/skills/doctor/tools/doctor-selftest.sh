@@ -19,9 +19,13 @@ check() { if [[ "$2" -eq 0 ]]; then echo "  ✓ $1"; else echo "  ✗ $1"; FAILS
 # fallback: plugins are versioned independently, so a real install rarely has the sibling at
 # this plugin's version.
 #
-# HOP CONSTANTS ARE RE-DERIVED, NOT COPIED. skills/doctor/tools sits three levels under the
-# plugin root, so the plugins dir is four hops up and the marketplace root five —
-# check-model-tiers.sh's copy, one level under its plugin root, uses two and three.
+# THE ANCHOR IS THE PLUGIN ROOT, so the hop constants are the same on both sides: one hop to
+# the plugins dir, two to the marketplace root. #348 is why. The two copies used to anchor on
+# their own tool directory and share a four-hop constant because both sat three levels under
+# their plugin root; preflight-selftest.sh moved to plugins/dev-pipeline/tools/ (one level
+# down) and the shared constant stopped holding for both. Each caller now walks up to its own
+# plugin root and passes THAT, which keeps the blocks byte-identical without either side
+# encoding the other's depth.
 #
 # Newest-version selection is LEXICAL, mirroring both house ladders (`9.0.0` outranks
 # `10.0.0`). A shared latent defect, deliberately mirrored rather than fixed here.
@@ -30,21 +34,22 @@ check() { if [[ "$2" -eq 0 ]]; then echo "  ✓ $1"; else echo "  ✗ $1"; FAILS
 # so each caller below turns a miss into a COUNTED failure.
 
 # resolve_sibling_plugin_root <anchor-dir> <name> <marker-subpath> — echoes the sibling plugin
-# ROOT. The anchor is a PARAMETER rather than a read of this file's own directory variable:
+# ROOT. The anchor is THIS PLUGIN'S ROOT, passed as a parameter rather than read from this
+# file's own directory variable:
 # that was the only thing separating this copy from preflight-selftest.sh's, whose hop
 # constants are identical, and passing it in makes the two blocks byte-identical so
 # scripts/lockstep-manifest.tsv can pin them instead of leaving them held by prose.
 # LOCKSTEP-BEGIN cross-plugin-sibling-plugin-root
 resolve_sibling_plugin_root() {
   local anchor="$1" name="$2" marker="$3" cand
-  cand="$(cd "$anchor/../../../../$name" 2>/dev/null && pwd)" || cand=""
+  cand="$(cd "$anchor/../$name" 2>/dev/null && pwd)" || cand=""
   if [[ -n "$cand" && -d "$cand/$marker" ]]; then printf '%s\n' "$cand"; return 0; fi
   # HIGHEST version, not the lexically-last one. Glob order is lexical, so a bare `tail -1`
   # here ranked 9.0.0 above 10.0.0 and resolved a superseded sibling. Per-field numeric sort
   # on the version component is the house form (pin-resolve.sh ships it), and ASCENDING +
   # `tail -1` is deliberate: BSD sort ignores a global `-r` once per-key modifiers are
   # present, so a reversed form would silently select the OLDEST version there.
-  for cand in "$anchor"/../../../../../"$name"/*/; do
+  for cand in "$anchor"/../../"$name"/*/; do
     [[ -d "$cand/$marker" ]] || continue
     printf '%s\t%s\n' "$(basename "$cand")" "$(cd "$cand" && pwd)"
   done | sort -t. -k1,1n -k2,2n -k3,3n | tail -1 | cut -f2-
@@ -111,17 +116,17 @@ report() { # $1 label, $2 config fixture, $3 extra-present (optional), $4 extra-
 TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
 echo '{}' > "$TMP/empty-user-settings.json"
 # Fake install tree mirroring the v2 cache layout. Skill dir names are the REAL
-# v2 plugin skill names (dev-pipeline ships skills/run — the shadow scan compares
-# against these basenames).
+# v2 plugin skill names (since #348 dev-pipeline ships skills/build-lean, not skills/run —
+# the shadow scan compares against these basenames).
 INSTALL="$TMP/cache"
-mkdir -p "$INSTALL/dev-pipeline/2.1.0/skills/run/tools" \
+mkdir -p "$INSTALL/dev-pipeline/2.1.0/skills/build-lean" "$INSTALL/dev-pipeline/2.1.0/tools" \
          "$INSTALL/review-toolkit/2.0.2/skills/review-lead" \
          "$INSTALL/intake-toolkit/2.0.0/skills/intake" \
          "$INSTALL/audit-toolkit/2.0.0/skills/audit" \
          "$INSTALL/second-shift/1.0.0/skills/onboard" \
          "$INSTALL/second-shift/1.0.0/skills/doctor"
 # shellcheck disable=SC2016 # emitting a literal stub script — $1 must not expand here
-printf '#!/usr/bin/env bash\necho "config-lint: OK ($1)"\n' > "$INSTALL/dev-pipeline/2.1.0/skills/run/tools/config-lint.sh"
+printf '#!/usr/bin/env bash\necho "config-lint: OK ($1)"\n' > "$INSTALL/dev-pipeline/2.1.0/tools/config-lint.sh"
 
 echo "doctor selftest:"
 scenario green            plugin-list-green.json   settings-green.json     marketplace-list-pinned.json  0 "summary: 0 failed"
@@ -160,8 +165,8 @@ scenario latest-lock      plugin-list-behind.json  settings-green.json     marke
 # WARN-only scenarios (exit stays 0): shadow skill + opt-out.
 # Extra files are pre-created under $TMP/<label> BEFORE the scenario call
 # (scenario's mkdir -p tolerates the existing tree). The shadow uses the REAL
-# colliding name: dev-pipeline ships skills/run in v2.
-mkdir -p "$TMP/shadow-skill/.claude/skills/run"
+# colliding name: dev-pipeline ships skills/build-lean since #348.
+mkdir -p "$TMP/shadow-skill/.claude/skills/build-lean"
 scenario shadow-skill     plugin-list-green.json   settings-green.json     marketplace-list-pinned.json  0 "shadows plugin-shipped"
 # #416/D-7: `audit-toolkit` off WHILE `dev-pipeline` is on is not an opt-out, it is a broken
 # lean lane — its entry gate refuses to start without the ledger audit-toolkit's hook writes.
@@ -235,9 +240,10 @@ scenario grill-degraded-missing plugin-list-green.json settings-green.json marke
 report report-sections    config-valid.json
 # --report redaction: secret-shaped keys masked, non-secret identifier preserved.
 report report-redaction   config-with-secret.json  "***REDACTED***" "119943793" "SUPER_SECRET_VALUE"
-# --report state excerpt (populated pipeline-state dir): the NEWEST run's failureContext
-# surfaces; the older run does not. Exercises state_excerpt()'s -nt selection + jq extraction
-# (the empty-dir branch is covered by the two scenarios above).
+# --report state excerpt, PRE-LEAN JSON fallback (populated pipeline-state dir, no lean
+# progress record): the NEWEST run's failureContext surfaces; the older run does not.
+# Exercises state_excerpt()'s -nt selection + jq extraction (the empty-dir branch is covered
+# by the two scenarios above; the lean-preference branch by the two cases after it).
 sroot="$TMP/report-state"; mkdir -p "$sroot/.claude/pipeline-state"
 cp "$FIX/lock-v1.json" "$sroot/.claude/second-shift.lock.json"
 cp "$FIX/config-valid.json" "$sroot/.claude/second-shift.config.json"
@@ -254,9 +260,47 @@ if grep -qF "approach-failure-circuit-breaker" <<< "$sout" \
    && ! grep -qF "no pipeline runs recorded" <<< "$sout"; then check "report-state-excerpt" 0
 else check "report-state-excerpt" 1; echo "$sout" | sed 's/^/      /' | head -20; fi
 
+# --report state excerpt, LEAN PREFERENCE (#348). The abort form asks the filer to paste the
+# tail of `<issue>-lean-progress.md`, and asserts the --report bundle already carries it. The
+# lean lane writes that markdown and NO json at all, so a `*.json`-only glob answers "no
+# pipeline runs recorded" on the exact failure mode the form is aimed at — the bundle claim
+# would be false. Preference is keyed on the CLASS, not on mtime: the progress record here is
+# deliberately the OLDER file, so selecting by mtime alone picks the json and reds this case.
+# The tail must also be TAILED, not jq-projected: an `attempt` row carries the hard stop's
+# reason as prose that no `{ticketKey,status,...}` projection can reach.
+lroot="$TMP/report-lean"; mkdir -p "$lroot/.claude/pipeline-state"
+cp "$FIX/lock-v1.json" "$lroot/.claude/second-shift.lock.json"
+cp "$FIX/config-valid.json" "$lroot/.claude/second-shift.config.json"
+sed -e "s#__ROOT__#$lroot#g" -e "s#__INSTALL__#$INSTALL#g" "$FIX/settings-green.json" > "$lroot/.claude/settings.json"
+sed -e "s#__ROOT__#$lroot#g" -e "s#__INSTALL__#$INSTALL#g" "$FIX/plugin-list-green.json" > "$TMP/report-lean-pluglist.json"
+printf '{"ticketKey":"77","status":"failed","currentStage":6,"failureContext":{"stage":6,"reason":"json-era-marker"}}\n' > "$lroot/.claude/pipeline-state/77.json"
+{ printf '# lean run — issue 88\n\nrun_id: r-88\n\n'
+  printf '2026-01-02T03:04:05Z | milestone-3 | attempt | lean-era-abort-reason\n'
+  printf '2026-01-02T03:04:06Z | milestone-3 | concluded | rc=4\n'; } > "$lroot/.claude/pipeline-state/88-lean-progress.md"
+touch -t 202001010000 "$lroot/.claude/pipeline-state/88-lean-progress.md"  # OLDER than the json
+lout="$(DOCTOR_REPO_ROOT="$lroot" DOCTOR_PLUGIN_LIST_FILE="$TMP/report-lean-pluglist.json" \
+        DOCTOR_MARKETPLACE_LIST_FILE="$FIX/marketplace-list-pinned.json" DOCTOR_USER_SETTINGS="$TMP/empty-user-settings.json" \
+        bash "$DOCTOR" --report 2>&1)"
+if grep -qF "lean-era-abort-reason" <<< "$lout" \
+   && grep -qF "rc=4" <<< "$lout" \
+   && grep -qF "88-lean-progress.md" <<< "$lout" \
+   && ! grep -qF "json-era-marker" <<< "$lout" \
+   && ! grep -qF "no pipeline runs recorded" <<< "$lout"; then check "report-state-excerpt-lean-preferred" 0
+else check "report-state-excerpt-lean-preferred" 1; echo "$lout" | sed 's/^/      /' | head -20; fi
+
+# ...and WITHIN the lean class, newest still wins — so the preference above is a class filter
+# layered on the -nt selection, not a replacement for it.
+printf '2026-02-02T03:04:05Z | milestone-1 | attempt | newer-lean-run-marker\n' > "$lroot/.claude/pipeline-state/99-lean-progress.md"
+lout2="$(DOCTOR_REPO_ROOT="$lroot" DOCTOR_PLUGIN_LIST_FILE="$TMP/report-lean-pluglist.json" \
+         DOCTOR_MARKETPLACE_LIST_FILE="$FIX/marketplace-list-pinned.json" DOCTOR_USER_SETTINGS="$TMP/empty-user-settings.json" \
+         bash "$DOCTOR" --report 2>&1)"
+if grep -qF "newer-lean-run-marker" <<< "$lout2" \
+   && ! grep -qF "lean-era-abort-reason" <<< "$lout2"; then check "report-state-excerpt-lean-newest" 0
+else check "report-state-excerpt-lean-newest" 1; echo "$lout2" | sed 's/^/      /' | head -20; fi
+
 # --report context-coverage section: resolved (real review-toolkit) emits a coverage line;
 # unresolved (env empty + fake-cache pluglist install path has no script) emits the fallback.
-RT_REAL="$(resolve_sibling_plugin_root "$HERE" review-toolkit scripts || true)"
+RT_REAL="$(resolve_sibling_plugin_root "$HERE/../../.." review-toolkit scripts || true)"
 # A miss here used to be invisible: the "resolved" scenario below simply degraded into the
 # unresolved one and failed with a message about the fallback line, naming the symptom rather
 # than the cause. Assert the resolution itself so the failure says what actually broke.
@@ -281,9 +325,9 @@ grep -q "review-toolkit not resolved" <<< "$ccout2" && check "context-coverage u
 # plugin in this repo checkout) is copied into the fake tree — invoke-not-duplicate,
 # same posture as the config-lint stub above. Runs AFTER the scenarios above so the
 # copy cannot alter their claims-free expectations.
-REAL_CLAIMS="$(resolve_sibling_file dev-pipeline skills/run/tools/claims-lint.sh || true)"
+REAL_CLAIMS="$(resolve_sibling_file dev-pipeline tools/claims-lint.sh || true)"
 if [[ -n "$REAL_CLAIMS" ]]; then
-  cp "$REAL_CLAIMS" "$INSTALL/dev-pipeline/2.1.0/skills/run/tools/claims-lint.sh"
+  cp "$REAL_CLAIMS" "$INSTALL/dev-pipeline/2.1.0/tools/claims-lint.sh"
   mkdir -p "$TMP/claims-ok/.claude/second-shift"
   # shellcheck disable=SC2016 # literal fence content — backticks must not expand
   printf -- '```second-shift-claims\n- id: no-auth-system\n  claim: "fixture claim"\n  reverify-by: 9999-12-31\n```\n' \
@@ -298,7 +342,7 @@ else
   # Was an uncounted `echo … skipped`. That print is how these two scenarios ran nowhere but
   # the monorepo while the suite reported all green — a miss laundered into a skip. It is a
   # counted failure now, through the same check/FAILS tally every other scenario uses.
-  check "claims-lint sibling resolved (dev-pipeline skills/run/tools/claims-lint.sh) — claims-lint scenarios did NOT run" 1
+  check "claims-lint sibling resolved (dev-pipeline tools/claims-lint.sh) — claims-lint scenarios did NOT run" 1
 fi
 if [[ "$FAILS" -gt 0 ]]; then echo "doctor selftest: $FAILS FAILURE(S)"; exit 1; fi
 echo "doctor selftest: all green"

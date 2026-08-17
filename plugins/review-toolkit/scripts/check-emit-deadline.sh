@@ -56,7 +56,6 @@
 #
 #   // bounded-exploration-dormant: BOUNDED_PLAN_GROUNDING -- defined for probe lockstep;
 #   // deliberately not appended (measured no-nudge arm)
-#       — plugins/dev-pipeline/skills/run/workflows/plan-review.mjs
 #
 # So plan-reviewer was held by NEITHER lint: unbounded at dispatch (deliberately, as the
 # measurement control) and unlinted here (because it sits exactly at the cap). It died at

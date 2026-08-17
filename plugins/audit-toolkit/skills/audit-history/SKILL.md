@@ -34,7 +34,7 @@ The script handles: filesystem walk, aggregate counts, and top-N histograms. The
 
 - **Visibility signal only.** This skill surfaces counts for **manual review**; nothing is blocked.
 - **Per-session detail requires `UserPromptExpansion` capture** (i.e. the audit-toolkit plugin/hook was enabled for that session). Sessions without UPE rows have no signal that an orchestrator was loaded.
-- **`Skill()` loads are visible, but this aggregator does not count them.** Programmatic skill loads (`/dev-pipeline → review-lead`) *do* reach the ledger as `PostToolUse` rows with `tool: "Skill"`, and `target` carries the skill name. The "top loaded orchestrators" tally below is built from `UserPromptExpansion` / `command_name` only, so it still reflects user-typed slash commands alone. For nested loads, query `target` directly — see the audit `QUERIES.md`.
+- **`Skill()` loads are visible, but this aggregator does not count them.** Programmatic skill loads (`review-lean → review-lead`) *do* reach the ledger as `PostToolUse` rows with `tool: "Skill"`, and `target` carries the skill name. The "top loaded orchestrators" tally below is built from `UserPromptExpansion` / `command_name` only, so it still reflects user-typed slash commands alone. For nested loads, query `target` directly — see the audit `QUERIES.md`.
 - **No tamper detection.** The lean audit has no hash chain. The ledger is plain JSONL; a teammate with shell access could rewrite it.
 
 ## When to use this

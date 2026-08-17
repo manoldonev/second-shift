@@ -1,20 +1,18 @@
 # Live-render verify — wiring a consumer render harness
 
-`design.liveRender` names one repo-owned render command that **two** gates use, with different
-postures — the staged lane's Stage-5 verify gate and `/dev-pipeline:build-lean`'s milestone 3.
+`design.liveRender` names one repo-owned render command that `/dev-pipeline:build-lean`'s
+milestone 3 runs: after the design engine implements a screen, the gate runs your command, reads
+the emitted PNG, and semantically compares it against the cached design frame (placement,
+sizing/fill, truncation, default state — not a pixel diff). Without the key an armed ticket reds;
+without a provider, nothing arms. See [Lean-lane wiring](#lean-lane-wiring) below.
 
-Under **Stage 5** (#84): after the design engine implements a screen, the gate runs your command,
-reads the emitted PNG, and semantically compares it against the cached design frame (placement,
-sizing/fill, truncation, default state — not a pixel diff). Without the key the gate records
-`render-verify-unavailable` (unconfigured) and that check never executes.
-
-Not to be confused with `stageParams.visualCapture` — that is Stage-6's **advisory** smoke-capture
-(observation only, never gates); `design.liveRender` is the Stage-5 design-fidelity check with an
-in-session fix loop behind it.
-
-`/dev-pipeline:build-lean` reads the **same key** with a **different failure posture** — blocking,
-per-ticket, and receipted. See [Lean-lane wiring](#lean-lane-wiring) below; the split is stated
-per bullet in [The command contract](#the-command-contract).
+**One posture now, not two.** This key used to serve two gates: the staged lane's Stage-5 verify
+gate (#84), where a failure was non-blocking and degraded to `render-verify-unavailable`, and the
+lean gate, where it blocks. #348 deleted the staged lane, so only the blocking lean posture
+remains — every "under Stage 5 it is…" contrast below is history, kept because a consumer's
+harness written against the tolerant posture is now on the strict one and should be told why.
+The advisory smoke-capture it was contrasted with, `stageParams.visualCapture`, was retired in
+the same change (it had no reader left).
 
 ## Config
 
@@ -50,13 +48,13 @@ Your script owns **boot, auth, and screenshot**. The gate owns route derivation 
   carrying punctuation both reach the harness verbatim.
 - **Exit code** — nonzero on any failure, with a one-line actionable message on stderr/stdout
   (e.g. `API not reachable on :3000 — start the backend dev server in the sibling repo`). That tail
-  becomes the degraded-condition detail in the Stage-5 comment and PR body, and the operator-facing
-  reason on a lean milestone-3 red.
-- **Failure posture is per-lane, and this is the one real split.** Under **Stage 5** it is
-  non-blocking: the gate degrades to `render-verify-unavailable` with your message and never aborts
-  the run. Under **build-lean** it is **blocking** — a failure reds milestone 3 on the run's shared
-  3-attempt fix budget, and the 4th red hard-stops. Make the message good enough that the operator
-  can fix the prerequisite and re-run either way; under lean it costs an attempt.
+  becomes the operator-facing reason on a milestone-3 red, and the degraded-condition detail in
+  the PR body.
+- **Failure is blocking.** A failure reds milestone 3 on the run's shared 3-attempt fix budget,
+  and the 4th red hard-stops. (Through #348 the staged lane's Stage 5 ran the same command
+  non-blocking, degrading to `render-verify-unavailable`; that tolerant posture is gone with the
+  lane.) Make the message good enough that the operator can fix the prerequisite and re-run — here
+  it costs an attempt.
 - **`readyProbe`** — declare your harness's external prerequisite (typically a sibling BE health
   endpoint) so the gate fails fast with the probe URL instead of waiting out a render timeout.
   Under the blocking lean posture this is what keeps an environmental red cheap: pay a probe, not

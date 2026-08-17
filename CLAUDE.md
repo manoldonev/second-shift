@@ -13,7 +13,7 @@ This repo IS the second-shift marketplace, and it consumes itself as the dogfood
 | `.claude-plugin/marketplace.json` → `metadata.version` | `scripts/derive-release.sh`, on the release PR |
 
 A feature PR that touches any of them is rejected by CI (`scripts/check-frozen-files.sh`).
-This applies to **every** contributor, human or agent — including `/dev-pipeline:run`. A
+This applies to **every** contributor, human or agent — including `/dev-pipeline:run-lean`. A
 pipeline run must not bump a version or append a changelog entry "to follow repo
 convention": that convention was retired in #119, and doing it now turns the PR red.
 
@@ -117,13 +117,16 @@ The rule is coverage, not naming. Several scripts are covered under a differentl
 
 Genuine exceptions, one kind:
 
-- **By design, no independent contract:** `plugins/dev-pipeline/skills/run/scenario-lib.sh` (shared
-  scenario mechanics, named so it does **not** match the discovery glob — `statectl-selftest.sh`,
-  `scenario-liveness-selftest.sh` and `e2e-replay-selftest.sh` exercise it on every run),
-  `workflows/runtime-shim-lib.mjs` (the meta-strip + injected-fake mechanics, same non-glob naming
-  — `runtime-shim-selftest.mjs` and `e2e-workflow-leg.mjs` both drive it),
-  `workflows/e2e-workflow-leg.mjs` (the E2E replay's stage-4/5/8 leg driver, executed by
-  `e2e-replay-selftest.sh`), `_effective-registry.sh`, `install-gh-bot.sh`, and the eval runners.
+- **By design, no independent contract:** `plugins/dev-pipeline/workflows/runtime-shim-lib.mjs`
+  (the meta-strip + injected-fake mechanics, named so it does **not** match the discovery glob —
+  `runtime-shim-selftest.mjs` drives it on every run), `_effective-registry.sh`,
+  `install-gh-bot.sh`, and the eval runners.
+
+  Two entries left this list in #348 with the staged lane: `scenario-lib.sh` (its three drivers
+  were `statectl-selftest.sh`, `e2e-replay-selftest.sh` — both deleted — and the liveness suite's
+  staged scenarios, also deleted, so it had no surviving consumer) and
+  `workflows/e2e-workflow-leg.mjs` (the E2E replay's stage-4/5/8 leg driver, deleted with the
+  replay). Neither is an exception any more; both are simply gone.
 
 **This register is authoritative; `tools/mutation-exclusions.tsv` defers to it.** The mutation
 sweep needs the same "no kill criterion exists" facts in machine-readable form, so two of its
@@ -139,7 +142,7 @@ same-named behavioral suite, as does `pipeline-doctor.sh`.
 ### What to write when you add a test
 
 **Scenario-first.** A new per-tool fixture case must name the invariant it guards and why no
-scenario in `scenario-liveness-selftest.sh` covers it. The since-retired stacked-PR path died
+scenario in `plugins/dev-pipeline/skills/build-lean/scenario-liveness-selftest.sh` covers it. The since-retired stacked-PR path died
 with all 42 selftests green because every one of them checked a component against itself.
 
 **No prose-presence guards.** Grepping a literal out of a markdown file asserts only that prose
@@ -157,9 +160,8 @@ replacement is `workflows/runtime-shim-lib.mjs`, which strips the `export const 
 wraps the remainder in
 `(async (agent, parallel, pipeline, args, log, phase, budget, workflow) => { … })`,
 and executes the **real** production body with injected fakes. Import it — do not re-create the
-wrapper; `runtime-shim-selftest.mjs` (per-workflow ladder cases) and `e2e-workflow-leg.mjs` (the
-E2E replay's stage-4/5/8 legs) are both consumers. If you are about to re-declare a production
-function inside a selftest, use the shim instead.
+wrapper; `runtime-shim-selftest.mjs` (per-workflow ladder cases) is its consumer. If you are
+about to re-declare a production function inside a selftest, use the shim instead.
 
 **The mjs-seam grep exception, narrowed.** It used to read "grep is the only technique available"
 for Workflow-runtime `.mjs` files. That is no longer true — the shim executes them. The sanction
@@ -167,7 +169,8 @@ now covers only what the shim cannot reach: static/textual properties of a file 
 executed on the path under test (`tools/intake-readroot-selftest.sh`'s `intake-review.mjs` seam
 pins; `null-reviewer-selftest.mjs`'s Case F token + emit-wiring counts, which guard a constant's
 *wiring* rather than its behavior). Behavior belongs on the shim. Pre-existing mutation-eval
-anchors (`tools/score-review-selftest.sh`) stay grandfathered; this rule binds newly added guards.
+anchors (`plugins/dev-pipeline/tools/score-review-selftest.sh`) stay grandfathered; this rule
+binds newly added guards.
 
 **Where a new test goes** (the tier map — full version in [`docs/testing.md`](docs/testing.md)):
 
@@ -175,9 +178,8 @@ anchors (`tools/score-review-selftest.sh`) stay grandfathered; this rule binds n
 | --- | --- | --- |
 | one script's behavior against fixtures | a per-tool behavioral selftest | `*-selftest.sh` next to the tool |
 | two copies of one contract staying identical | a lockstep row | `scripts/lockstep-manifest.tsv` |
-| a composed verdict path reaching a terminal write | a scenario | `scenario-liveness-selftest.sh` |
+| a composed verdict path reaching a terminal write | a scenario | `skills/build-lean/scenario-liveness-selftest.sh` |
 | a production Workflow `.mjs` dispatch ladder | a shim case | `workflows/runtime-shim-selftest.mjs` |
-| a whole run's mechanical seams, end to end | a replay scenario | `e2e-replay-selftest.sh` |
 | whether an existing suite actually catches a regression | a mutation-catalog row | `tools/mutation-catalog.tsv` |
 | whether a shipped suite still passes where it is **installed** | **nothing** — the class guard already runs every shipped suite | `tools/install-topology-selftest.sh` |
 | prose in a markdown file | **nothing** — see above | — |

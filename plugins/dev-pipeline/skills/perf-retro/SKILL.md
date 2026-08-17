@@ -7,7 +7,7 @@ description: 'Cross-run execution-latency retrospective for dev-pipeline runs: f
 
 Cross-run performance retrospective for the dev-pipeline. `pipeline-retro` sharpens a **single** run for correctness — this skill is the second axis, **execution speed across runs**. It exists because nothing else in the improvement loop argues against latency: every fix lands as another gate, another round, another serialized dispatch, and run wall-time drifts upward unopposed while each individual change looks justified.
 
-The data to argue with already exists and has had no systematic consumer. Per-stage `startedAt`/`completedAt` sit in every run-state file, [`stage-times.sh`](../run/tools/stage-times.sh) turns them into pause-aware effective time plus inter-stage gaps, and the audit ledger timestamps every tool call and `SubagentStop`.
+The data to argue with already exists and has had no systematic consumer. Per-stage `startedAt`/`completedAt` sit in every run-state file, [`stage-times.sh`](../../tools/stage-times.sh) turns them into pause-aware effective time plus inter-stage gaps, and the audit ledger timestamps every tool call and `SubagentStop`.
 
 **Usage:** `/dev-pipeline:perf-retro` — profiles the 15 most recent trusted runs. `--last N` widens or narrows that window; a **bare integer is a ticket key**, focusing the profile on that one run. So `perf-retro 30` profiles ticket 30, while `perf-retro --last 30` profiles the last 30 runs. The two readings never collide.
 
@@ -31,7 +31,7 @@ object at all, so it never enters the corpus through the old `*.json`-only enume
 one era has zero rows (a corpus that is entirely lean runs is a normal input, not a failure):
 
 ```bash
-bash "${CLAUDE_PLUGIN_ROOT}/skills/run/tools/retro-corpus.sh" corpus --window 15 --json
+bash "${CLAUDE_PLUGIN_ROOT}/tools/retro-corpus.sh" corpus --window 15 --json
 # --last N (below) replaces --window 15; a bare integer ticket key bypasses corpus gathering.
 ```
 
@@ -56,7 +56,7 @@ those tables, rather than erroring or silently emitting empty ones.
 
 **Completed and aborted runs are both in scope.** An abort is a real cost, often the most expensive shape of run, and excluding it flatters the profile.
 
-Per selected `era: "stage"` run, gather: `bash "${CLAUDE_PLUGIN_ROOT}/skills/run/tools/stage-times.sh" <key>`; the cost log at `<STATE_DIR>/cost-log.jsonl` when present; the timing paragraphs of any existing `<key>-retro.md`; and, for each session id in that run's `pipelineSessions[]`, the audit ledger at `.claude/audit/<session>.jsonl` when it exists on disk.
+Per selected `era: "stage"` run, gather: `bash "${CLAUDE_PLUGIN_ROOT}/tools/stage-times.sh" <key>`; the cost log at `<STATE_DIR>/cost-log.jsonl` when present; the timing paragraphs of any existing `<key>-retro.md`; and, for each session id in that run's `pipelineSessions[]`, the audit ledger at `.claude/audit/<session>.jsonl` when it exists on disk.
 
 **Model identity (#347 comment, ratified 2026-08-03).** Corpus rows carry `model` so
 cross-model deltas are queryable — an `era: "artifact"` row reads it from the progress/verdict
@@ -66,7 +66,7 @@ dimension (group candidates or fidelity notes by `model` where the profile shows
 — never bucket by, or hardcode, a specific vendor model string here; that neutrality is owned
 by #356/#357, not this step.
 
-**Envelopes come from one shared tool, not from this enumeration.** Steps 3 and 6 derive theirs from `bash "${CLAUDE_PLUGIN_ROOT}/skills/run/tools/stage-envelopes.sh" --json`, which recomputes from the corpus every invocation and stores nothing. Report the corpus it declares (file count + dedup rule) next to this step's count: **both now dedup `era: "stage"` rows per ticket by the same rule** — the file whose basename equals its `ticketKey` is live and supersedes that ticket's snapshots, and with no live file every snapshot is a distinct run — so a ticket with a live file plus surviving snapshots counts once on both sides. Declaring both stops one report disagreeing with itself.
+**Envelopes come from one shared tool, not from this enumeration.** Steps 3 and 6 derive theirs from `bash "${CLAUDE_PLUGIN_ROOT}/tools/stage-envelopes.sh" --json`, which recomputes from the corpus every invocation and stores nothing. Report the corpus it declares (file count + dedup rule) next to this step's count: **both now dedup `era: "stage"` rows per ticket by the same rule** — the file whose basename equals its `ticketKey` is live and supersedes that ticket's snapshots, and with no live file every snapshot is a distinct run — so a ticket with a live file plus surviving snapshots counts once on both sides. Declaring both stops one report disagreeing with itself.
 
 That rule is structural, never a `-failed-`/`-aborted-` filename literal, which is what makes it cover the undocumented operator rename conventions as well as the two statectl quarantine families. `corpus` says on **stderr** how many stage-schema files it read and how many it superseded, and only when that number is non-zero; `era: "artifact"` rows are never keyed by it. If this step's count still exceeds the tool's, that is a real disagreement to report, not the expected offset it used to be.
 

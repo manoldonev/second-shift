@@ -14,11 +14,12 @@
 # which is the second reason (CLAUDE.md, Verification).
 #
 # PARALLEL SAFETY is asserted by CLAUDE.md: the suites are independent, each allocating its own
-# `mktemp` state dir. The one suite carrying a literal `/tmp` path (statectl-selftest.sh) passes
-# `/tmp/x` only as an opaque `--worktree` argument and never writes it.
+# `mktemp` state dir. The one suite that carried a literal `/tmp` path passed `/tmp/x` only as
+# an opaque `--worktree` argument and never wrote it; that was statectl-selftest.sh, deleted
+# with the staged lane in #348, so no suite in the tree carries one today.
 #
 # DISCOVERY IS `*-selftest.sh` ONLY, deliberately. The three `*-selftest.mjs` files are executed
-# by plugins/dev-pipeline/skills/run/workflows/workflows-mjs-selftest.sh, which is itself in this
+# by plugins/dev-pipeline/workflows/workflows-mjs-selftest.sh, which is itself in this
 # glob. Widening discovery to `.mjs` would double-run them.
 #
 # DISPATCH IDIOM is lifted from tools/install-topology-selftest.sh: `xargs -P` over zero-padded

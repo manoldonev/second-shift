@@ -120,8 +120,10 @@ unchanged**. The key is `sha256` over an epoch constant, `RUNNER_OS`, the bash m
 declared input — so the two CI lanes accumulate independent marker sets and never serve each other
 an answer to a different question.
 
-It exists because the sweep re-derives the same verdict on every push. `statectl-selftest.sh` alone
-is 149s of a 171s ubuntu sweep, and most PRs touch nothing it reads.
+It exists because the sweep re-derives the same verdict on every push. The measurement that
+motivated it: `statectl-selftest.sh` alone was 149s of a 171s ubuntu sweep, and most PRs touched
+nothing it read. That suite was deleted with the staged lane in #348 — the figure is kept because
+it is what the mechanism was sized against, not because the suite still exists.
 
 **The risk is a silently skipped gate**, which is this repo's cardinal failure mode, so the
 containment is the load-bearing part and the hashing is not. Four properties, all asserted in
@@ -154,18 +156,19 @@ tell a skip from a suite that quietly stopped being discovered. The summary line
 performed is the faster-green misreading the rest of this section is about.
 
 **Adding a row is the risky edit in that file, not the cheap one.** Derive the input set from the
-suite, never from a ticket: `statectl-selftest.sh` reads six things beyond the three an eyeball
-lists, including the generator it diffs `statectl.sh` against and the stage docs it drift-checks.
+suite, never from a ticket: `cost-block-selftest.sh` reads the fixture corpus, the script under
+test, AND the `gh-bot.sh` that script resolves at run time — three things where an eyeball lists
+one.
 Where a suite's composed set is really its transitive closure — `scenario-liveness-selftest.sh` is
 the worked example, and is deliberately **not** in the table — drop the row. A dropped row costs
 seconds; an under-declared one costs a gate.
 
 **Derive the closure, not the file list.** Neither mechanized rule reaches depth 2: a row set can
 name the suite and its subject and still under-declare, because that subject resolves a third file
-at run time. Both shipped sets needed one — `statectl.sh` executes `tools/ledger-corroborate.sh`,
-`pipeline-cost-block.sh` executes `tools/gh-bot.sh`, and the generator parses `eval-criteria.md`
-beside `state-schema.md`. Follow every `$here/`-style resolution out of every declared script until
-it terminates, and say in the row comment where it terminated.
+at run time. The shipped set needed one — `pipeline-cost-block.sh` executes its sibling
+`gh-bot.sh`, so `cost-block-selftest.sh`'s row must declare it even though the suite never names
+it. Follow every `$here/`-style resolution out of every declared script until it terminates, and
+say in the row comment where it terminated.
 
 `CACHE_EPOCH` is a constant in the runner rather than a knob. The key covers repo content —
 including `run-selftests.sh`'s own bytes, which is property 2 applied to the harness that produces
@@ -192,7 +195,6 @@ pyramid, plus one tier that is honest about being outside CI.
 | Contract | `scripts/lockstep-manifest.tsv` + registry and schema lints (config-lint ↔ schema, model tiers, text-contract carriers) | Established |
 | Integration | `scenario-liveness-selftest.sh` — composed verdict paths through real scripts to a terminal write | Established, extending |
 | Runtime | `workflows/runtime-shim-selftest.mjs` — executes real Workflow `.mjs` bodies with injected fakes | Established (#214) |
-| E2E | `e2e-replay-selftest.sh` — full-run replay; every receipt minted by an executed tool | Established (#217) |
 | Mutation | Repo-level sweep: canned mutants applied to guarded scripts, paired selftest must go red | Planned |
 | Install topology | `tools/install-topology-selftest.sh` — every shipped suite re-run from a version-keyed install cache | Established (#419) |
 | Adversarial | Model-tier audit workflows — **operator-run, never CI** | This document |
@@ -296,7 +298,8 @@ Re-running the whole shipped set is the price of the class being visible at all,
 small. Suites run concurrently (`INSTALL_TOPOLOGY_JOBS`, default 4 — each suite is a separate
 `--run-one` invocation, which is also what gives every concurrent watchdog its own job-control
 shell), against **542s** for the serial form. The remaining floor is one suite:
-`statectl-selftest.sh` is 94s uncontended and was measured at 244s while a second copy ran.
+`statectl-selftest.sh` was 94s uncontended and was measured at 244s while a second copy ran
+(that suite was deleted in #348; the ratio is what the sizing argument rests on, not the suite).
 
 **Do not plan around a single number for the concurrent form.** Three runs of this same tree, same
 command, uncontended, measured **319s, 438s and 584s** — a 1.8x spread with no code change between
@@ -338,7 +341,8 @@ cause — this guard runs a second copy of every shipped suite, frequently while
 running the first, so contention is structural here rather than incidental.
 
 The default was 600s and was raised on evidence: under a stress-inclusive outer sweep at `-P 4`,
-`statectl-selftest.sh` inside the guard exceeded 600s and was reported as a timeout, reding a tree
+the then-slowest suite inside the guard (`statectl-selftest.sh`, since deleted) exceeded 600s and
+was reported as a timeout, reding a tree
 that had nothing wrong with it. A later stress-inclusive sweep of the same tree did **not** cross
 it — which is the point, not a contradiction. **A bound that ambient machine load can cross
 intermittently is not a hang detector, it is a flaky test**: every crossing has to be re-litigated
@@ -347,22 +351,28 @@ line was supposed to remove. The rule that sets it is unchanged (≈2x the worst
 observed); only the observation moved, from 244s to ≥600s, because under the stress-inclusive form
 the contending load is the whole sweep rather than one second copy.
 
-**A consumer's configured lane runs in a scrubbed child env.** `verifyctl.sh` and
-`preflight.sh` both spawn a `commands.<host>` command (`lint`/`typecheck`/`test`/`format`/
+**A consumer's configured lane runs in a scrubbed child env.** `preflight.sh` and
+`lean-gate.sh` both spawn a `commands.<host>` command (`lint`/`typecheck`/`test`/`format`/
 `lanes`/`extraLanes`) as a `bash -c` child of the pipeline session. When this repo dogfoods
 itself, that child IS second-shift tooling — the configured `test` command is the selftest
-sweep — so it must not see the caller's own `SECOND_SHIFT_CONFIG` / `STATECTL_STATE_DIR` /
-etc.: an ambient value silently re-roots or re-states the child, producing spurious failures
-unrelated to the code under review (#34's ~20 of them). Both files carry the scrub
-independently — one `SEAM_SCRUB` denylist, `env -u`'d at every child-invocation site — because
-they reach that lane shape via two different code paths (verifyctl's Stage-6 run vs
-preflight's one-pass doctor sweep), kept honest by a `scripts/lockstep-manifest.tsv`
-`subset-of` row rather than a shared import (neither is importable by the other). This is a
-different concern from the eight `unset SECOND_SHIFT_CONFIG …` lines already present at the
-top of several *direct-invocation* selftests (`statectl-selftest.sh`, `preflight-selftest.sh`,
-etc.): those defend against a seam var poisoning the selftest's OWN process when the operator
-sweep or CI's `find *-selftest.sh` glob runs it directly — a path the configured-lane scrub
-above never touches — so both defenses stay, in depth, rather than either replacing the other.
+sweep — so it must not see the caller's own `SECOND_SHIFT_CONFIG` / `SECOND_SHIFT_REPO_ROOT` /
+etc.: an ambient value silently re-roots the child, producing spurious failures unrelated to
+the code under review (#34's ~20 of them). Both files carry the scrub independently — one
+`SEAM_SCRUB` denylist, `env -u`'d at every child-invocation site — because they reach that lane
+shape via two different code paths (the lean gate's milestone-3 sweep vs preflight's one-pass
+doctor sweep), kept honest by a `scripts/lockstep-manifest.tsv` `subset-of` row rather than a
+shared import (neither is importable by the other).
+
+The canonical leg used to be `verifyctl.sh`, the staged lane's Stage-6 verify runner, and BOTH
+rows pointed at it until #348 deleted it. Nothing about the contract changed: the two old rows
+established `lean-gate == verifyctl` and `preflight ⊇ verifyctl`, so `preflight ⊇ lean-gate`
+follows, and the single surviving row asserts exactly that — directly, which neither old row did.
+
+This is a different concern from the `unset SECOND_SHIFT_CONFIG …` lines at the top of several
+*direct-invocation* selftests (`preflight-selftest.sh`, `scenario-liveness-selftest.sh`, etc.):
+those defend against a seam var poisoning the selftest's OWN process when the operator sweep or
+CI's `find *-selftest.sh` glob runs it directly — a path the configured-lane scrub above never
+touches — so both defenses stay, in depth, rather than either replacing the other.
 
 ## The runtime shim
 
@@ -390,18 +400,21 @@ Notes from building it:
   backwards makes cases fail for the wrong reason.
 - The meta-strip is a balanced-brace scan, not a parser. That is safe only because
   `design-sync-selftest.mjs` Case I lints every workflow for meta-literal purity — and "every"
-  is a **list** of workflow directories. One directory is in it today (`skills/run/workflows/`);
-  `skills/build-lean/workflows/` was removed with the lane's in-build reviewer rather than left
-  empty, because an empty directory contributes no meta files and would make the case read
-  broader than it is. Adding a directory means adding it to Case I's list **and** to
+  is a **list** of workflow directories. One directory is in it today — the plugin's own
+  `workflows/`, which is where #348 put it when the staged lane's `skills/run/workflows/` was
+  deleted. Adding a directory means adding it to Case I's list **and** to
   `tools/check-bounded-exploration.sh`, which is anchored the same way — a workflow outside
   the list is unlinted, which makes the meta-strip unsound for exactly the files it is used
   on. Neither edit can be silently skipped: both sites discover every `workflows/` directory
-  under `skills/` and fail on one that is missing from the list.
+  under the PLUGIN ROOT and fail on one that is missing from the list. That root widened in
+  #348 for a reason worth keeping: while the sole workflows dir lived under `skills/`, a
+  discovery scan rooted at `skills/` was sound; once it moved out, that scan matched nothing
+  and the self-check would have been silently vacuous.
 - `workflow` is **last** in the parameter list, and adding a global must stay an append —
   inserting one shifts every existing positional call site, and cases then fail for reasons that
-  look like production bugs. `plan-review.mjs` and `mutation-gate.mjs` need it for their nested
-  dispatches; a workflow that never calls it is driven by omitting the argument.
+  look like production bugs. `mutation-gate.mjs` needs it for its nested dispatches (so did
+  `plan-review.mjs`, until #348 deleted it with Stage 4); a workflow that never calls it is
+  driven by omitting the argument.
 - A script that drives a workflow must `process.exit()` explicitly. The dispatch ceiling timers
   keep node's event loop alive, so merely reaching the end of the file hangs for fifteen minutes
   rather than returning.
@@ -520,8 +533,8 @@ failures run no step at all, so the streamed report dies on the runner with ever
 covering those would need out-of-band publication. Partial-evidence coverage is not total coverage.
 
 Three tracked guards carry that idiom, and the `k` budget — not any property of the guards — is
-what decided which were armed: `gen-statectl-validators.sh` and `predecessor-gate.sh` hold it at
-`cmp-z` ordinal 1 and killed their shards, while `scaffold-review-context.sh` holds it at ordinal 5
+what decided which were armed: `predecessor-gate.sh` held it at `cmp-z` ordinal 1 and killed its
+shard (so did `gen-statectl-validators.sh`, deleted with the staged lane in #348), while `scaffold-review-context.sh` holds it at ordinal 5
 and was never mutated at `k=2`. Budget is not safety. That fourth site is now armed by the
 `scaffold-spin-at-eof` **catalog** row rather than by raising `MUTATION_SWEEP_K`, which would have
 armed every other guard's ordinals 3–5 for the sake of one named site; `k` is unchanged, so no
@@ -574,7 +587,8 @@ sha256(mutation-sweep.sh) + sha256(mutated guard) + sha256(each paired suite, in
 
 **The key is narrow, and it is not sound.** A third file can flip a verdict with the guard and all
 its suites byte-identical: `lean-gate.sh` shells out to four sibling scripts, and
-`statectl-selftest.sh` sources `scenario-lib.sh`. A whole-tree key would be sound — and would also
+`cost-block-selftest.sh` reaches `pipeline-cost-block.sh`'s own resolution of `gh-bot.sh`.
+A whole-tree key would be sound — and would also
 drop the hit rate to zero, since the sweep sandboxes HEAD and every fix round is a new commit.
 
 What makes that an acceptable trade rather than an unsound one is **the lane**: the cache is neither
@@ -717,9 +731,9 @@ a handful of shifted rows.
 regardless. A run has shipped a reding baseline on exactly this mistake.
 
 **A green PR does not mean a green nightly.** The PR lane sweeps only guards whose kill set is a
-single fast suite; everything paired to a slow or multi-suite killer (`statectl-selftest`,
-`scenario-liveness-selftest`, `scenario-lib.sh`'s three killers, anything in
-`tools/mutation-slow-suites.tsv`) reports `deferred-to-nightly` and is **not graded on your PR**.
+single fast suite; everything paired to a slow or multi-suite killer (`lean-gate-selftest`,
+`scenario-liveness-selftest`, anything in `tools/mutation-slow-suites.tsv`) reports
+`deferred-to-nightly` and is **not graded on your PR**.
 Edit one of those and the ordinal re-key surfaces at 03:17 UTC, on someone else's morning. If your
 diff touches a deferred guard, expect to re-baseline from the nightly rather than from your PR.
 

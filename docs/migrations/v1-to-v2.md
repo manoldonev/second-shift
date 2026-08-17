@@ -68,6 +68,39 @@ above. Removed; config-lint rejects it with a migration pointer.
 `gates.mutation` is now **wired as a real off-switch**: `false` disables the Stage-5 unit-test
 mutation gate even when `commands.<host>.unitTestScope` is set (previously ignored).
 
+### Staged-lane removal (#348) — `/dev-pipeline:run` and `stageParams.visualCapture`
+
+The ten-stage `statectl` lane is deleted. `/dev-pipeline:run` no longer exists in releases from
+this one on; the lean lane (`/dev-pipeline:run-lean`, and the `build-lean`/`review-lean` blocks
+it schedules) is the only lane. **A consumer that still needs the staged lane keeps it by
+pinning the marketplace to the last stage-carrying release** — the concrete version is named in
+the release notes for this change and in #348.
+
+Two consumer-visible consequences beyond the lane itself:
+
+- **`stageParams.visualCapture` is removed.** It configured Stage 6's *advisory* smoke-capture
+  (base URL, dev-server command, smoke routes, viewports, trigger globs), which observed and
+  never gated. Its only consumer died with the stage, so it became a dead key: set it and
+  nothing happens. config-lint now rejects it with a pointer here. The **blocking**
+  design-fidelity check is a different key and is unaffected — see
+  [`live-render.md`](../live-render.md) for `design.liveRender`, which the lean gate's milestone
+  3 runs per ticket and receipts. Delete `stageParams.visualCapture` from your config; there is
+  no replacement for the advisory capture itself.
+
+- **Paths inside the dev-pipeline plugin moved.** Shared tooling left the deleted skill for the
+  plugin root: `skills/run/tools/*` → **`tools/*`**, `skills/run/workflows/*` →
+  **`workflows/*`**. This matters to exactly one thing a consumer owns: the CI template's
+  config-lint fetch, which hardcodes the path at your pinned ref. If you vendored
+  `second-shift-ci-check.sh`, update its lint path to
+  **`plugins/dev-pipeline/tools/config-lint.sh`** in the same commit that moves your pin
+  forward. Repinning without that edit fails the check with a fetch error, loudly — the
+  template treats a moved linter path as drift by design.
+
+`stageWorkflows` (EP-6), `implementDelegates` (EP-7) and `planGates` (EP-8) are **not** removed
+and your config still validates, but nothing dispatches them any more — the stages did. They
+are documented as inert in [`extending.md`](../extending.md) §3.6-3.8 pending a decision about
+what replaces the dispatcher.
+
 ### `gates.apiTests` → removed (extension point)
 
 The API-test tier left the core. Ship it as a companion pack via extension points EP-6

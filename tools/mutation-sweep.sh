@@ -117,8 +117,9 @@
 # and a guard-only key would serve the stale SURVIVED forever.
 #
 # The key is narrow, and NOT sound: a THIRD file can flip a verdict with the guard and its
-# suites byte-identical — `lean-gate.sh` shells out to four sibling scripts, and
-# `statectl-selftest.sh` sources `scenario-lib.sh`. A whole-tree key would be sound and would
+# suites byte-identical — `lean-gate.sh` shells out to four sibling scripts. (The second
+# example here was `statectl-selftest.sh` sourcing `scenario-lib.sh`; #348 deleted both of
+# those.) A whole-tree key would be sound and would
 # also drop the hit rate to zero, since the sweep sandboxes HEAD and every fix round is a new
 # commit. What bounds the unsoundness is the lane: the cache is neither read nor written when
 # GITHUB_ACTIONS is set, so a stale verdict can only make a LOCAL advisory run optimistic,
@@ -193,8 +194,9 @@ fi
 # ADVISORY LANE ONLY. The cache is neither read nor written when GITHUB_ACTIONS is set (see
 # below, once ENFORCING is known). The key is deliberately NARROW — the mutated guard and its
 # suites — and that key is not quite sound in this tree: `lean-gate.sh` shells out to four
-# sibling scripts and `statectl-selftest.sh` sources `scenario-lib.sh`, so a THIRD file can
-# flip a verdict with both keyed files byte-identical. A whole-tree key would be sound and
+# sibling scripts, so a THIRD file can flip a verdict with both keyed files byte-identical.
+# (A second such case, `statectl-selftest.sh` sourcing `scenario-lib.sh`, died with the
+# staged lane in #348.) A whole-tree key would be sound and
 # would also drop the hit rate to zero, since the sweep sandboxes HEAD and every fix round is
 # a new commit. Confining the cache to the advisory lane is what makes the narrow key an
 # acceptable trade instead of an unsound one: a stale verdict can then only make a LOCAL run
