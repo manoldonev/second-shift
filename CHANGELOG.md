@@ -4,6 +4,113 @@ All notable changes to the second-shift marketplace. Versions are per-plugin (`p
 this file tracks the marketplace release. `configVersion` stays `const 1` — v2 is fully backward-compatible for a
 consumer with an empty config; the migration notes below are only for consumers using the changed features.
 
+## v6.0.0
+
+### `audit-toolkit` 2.1.2 → 3.0.0
+
+- **feat(dev-pipeline)!: delete stage choreography from main (#568)** (#568)
+  the staged `run` lane and its stage choreography are removed; the lean
+  lane (`/dev-pipeline:run-lean`) is the only lane. Shared tooling moved out of
+  `skills/run/` to the plugin root: `tools/*` and `workflows/*`.
+  Migration: consumers still running the staged lane pin the marketplace to
+  **v5.2.2**, the last stage-carrying release (re-confirm at merge that no later
+  release has landed — the pin must be the last release preceding this one).
+  Consumers whose CI hardcodes the config-lint path must re-point
+  `plugins/dev-pipeline/skills/run/tools/config-lint.sh` to
+  `plugins/dev-pipeline/tools/config-lint.sh`; the shipped consumer CI template
+  (`second-shift-ci-check.sh`) treats a moved linter path as drift by design.
+  /second-shift:doctor --report now carries the lean lane's progress-record
+  tail in its pipeline-state excerpt, so the abort issue form's bundle claim holds; a
+  pre-lean JSON state file is still projected as before. The config schema and the
+  extending/config-schema guides now name each key's real reader instead of a deleted
+  stage, and the three inert extension points say so in the schema a consumer's editor
+  renders. Migration: none.
+  **BREAKING:** the staged `run` lane is deleted. `/dev-pipeline:run` no longer exists, and every tool shipped under `plugins/dev-pipeline/skills/run/` has moved to `plugins/dev-pipeline/{tools,workflows}/`. Consumers that pinned the lane keep it via the marketplace pin named below.
+
+### `dev-pipeline` 5.2.2 → 6.0.0
+
+- **feat(dev-pipeline)!: delete stage choreography from main (#568)** (#568)
+  the staged `run` lane and its stage choreography are removed; the lean
+  lane (`/dev-pipeline:run-lean`) is the only lane. Shared tooling moved out of
+  `skills/run/` to the plugin root: `tools/*` and `workflows/*`.
+  Migration: consumers still running the staged lane pin the marketplace to
+  **v5.2.2**, the last stage-carrying release (re-confirm at merge that no later
+  release has landed — the pin must be the last release preceding this one).
+  Consumers whose CI hardcodes the config-lint path must re-point
+  `plugins/dev-pipeline/skills/run/tools/config-lint.sh` to
+  `plugins/dev-pipeline/tools/config-lint.sh`; the shipped consumer CI template
+  (`second-shift-ci-check.sh`) treats a moved linter path as drift by design.
+  /second-shift:doctor --report now carries the lean lane's progress-record
+  tail in its pipeline-state excerpt, so the abort issue form's bundle claim holds; a
+  pre-lean JSON state file is still projected as before. The config schema and the
+  extending/config-schema guides now name each key's real reader instead of a deleted
+  stage, and the three inert extension points say so in the schema a consumer's editor
+  renders. Migration: none.
+  **BREAKING:** the staged `run` lane is deleted. `/dev-pipeline:run` no longer exists, and every tool shipped under `plugins/dev-pipeline/skills/run/` has moved to `plugins/dev-pipeline/{tools,workflows}/`. Consumers that pinned the lane keep it via the marketplace pin named below.
+
+### `intake-toolkit` 2.3.5 → 3.0.0
+
+- **feat(dev-pipeline)!: delete stage choreography from main (#568)** (#568)
+  the staged `run` lane and its stage choreography are removed; the lean
+  lane (`/dev-pipeline:run-lean`) is the only lane. Shared tooling moved out of
+  `skills/run/` to the plugin root: `tools/*` and `workflows/*`.
+  Migration: consumers still running the staged lane pin the marketplace to
+  **v5.2.2**, the last stage-carrying release (re-confirm at merge that no later
+  release has landed — the pin must be the last release preceding this one).
+  Consumers whose CI hardcodes the config-lint path must re-point
+  `plugins/dev-pipeline/skills/run/tools/config-lint.sh` to
+  `plugins/dev-pipeline/tools/config-lint.sh`; the shipped consumer CI template
+  (`second-shift-ci-check.sh`) treats a moved linter path as drift by design.
+  /second-shift:doctor --report now carries the lean lane's progress-record
+  tail in its pipeline-state excerpt, so the abort issue form's bundle claim holds; a
+  pre-lean JSON state file is still projected as before. The config schema and the
+  extending/config-schema guides now name each key's real reader instead of a deleted
+  stage, and the three inert extension points say so in the schema a consumer's editor
+  renders. Migration: none.
+  **BREAKING:** the staged `run` lane is deleted. `/dev-pipeline:run` no longer exists, and every tool shipped under `plugins/dev-pipeline/skills/run/` has moved to `plugins/dev-pipeline/{tools,workflows}/`. Consumers that pinned the lane keep it via the marketplace pin named below.
+
+### `review-toolkit` 4.2.1 → 5.0.0
+
+- **feat(dev-pipeline)!: delete stage choreography from main (#568)** (#568)
+  the staged `run` lane and its stage choreography are removed; the lean
+  lane (`/dev-pipeline:run-lean`) is the only lane. Shared tooling moved out of
+  `skills/run/` to the plugin root: `tools/*` and `workflows/*`.
+  Migration: consumers still running the staged lane pin the marketplace to
+  **v5.2.2**, the last stage-carrying release (re-confirm at merge that no later
+  release has landed — the pin must be the last release preceding this one).
+  Consumers whose CI hardcodes the config-lint path must re-point
+  `plugins/dev-pipeline/skills/run/tools/config-lint.sh` to
+  `plugins/dev-pipeline/tools/config-lint.sh`; the shipped consumer CI template
+  (`second-shift-ci-check.sh`) treats a moved linter path as drift by design.
+  /second-shift:doctor --report now carries the lean lane's progress-record
+  tail in its pipeline-state excerpt, so the abort issue form's bundle claim holds; a
+  pre-lean JSON state file is still projected as before. The config schema and the
+  extending/config-schema guides now name each key's real reader instead of a deleted
+  stage, and the three inert extension points say so in the schema a consumer's editor
+  renders. Migration: none.
+  **BREAKING:** the staged `run` lane is deleted. `/dev-pipeline:run` no longer exists, and every tool shipped under `plugins/dev-pipeline/skills/run/` has moved to `plugins/dev-pipeline/{tools,workflows}/`. Consumers that pinned the lane keep it via the marketplace pin named below.
+
+### `second-shift` 3.1.6 → 4.0.0
+
+- **feat(dev-pipeline)!: delete stage choreography from main (#568)** (#568)
+  the staged `run` lane and its stage choreography are removed; the lean
+  lane (`/dev-pipeline:run-lean`) is the only lane. Shared tooling moved out of
+  `skills/run/` to the plugin root: `tools/*` and `workflows/*`.
+  Migration: consumers still running the staged lane pin the marketplace to
+  **v5.2.2**, the last stage-carrying release (re-confirm at merge that no later
+  release has landed — the pin must be the last release preceding this one).
+  Consumers whose CI hardcodes the config-lint path must re-point
+  `plugins/dev-pipeline/skills/run/tools/config-lint.sh` to
+  `plugins/dev-pipeline/tools/config-lint.sh`; the shipped consumer CI template
+  (`second-shift-ci-check.sh`) treats a moved linter path as drift by design.
+  /second-shift:doctor --report now carries the lean lane's progress-record
+  tail in its pipeline-state excerpt, so the abort issue form's bundle claim holds; a
+  pre-lean JSON state file is still projected as before. The config schema and the
+  extending/config-schema guides now name each key's real reader instead of a deleted
+  stage, and the three inert extension points say so in the schema a consumer's editor
+  renders. Migration: none.
+  **BREAKING:** the staged `run` lane is deleted. `/dev-pipeline:run` no longer exists, and every tool shipped under `plugins/dev-pipeline/skills/run/` has moved to `plugins/dev-pipeline/{tools,workflows}/`. Consumers that pinned the lane keep it via the marketplace pin named below.
+
 ## v5.2.2
 
 ### `dev-pipeline` 5.2.1 → 5.2.2
