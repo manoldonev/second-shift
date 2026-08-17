@@ -277,6 +277,18 @@ out="$(gate 1 7)"; rc=$?
 if [ "$rc" -eq 0 ]; then pass "(a7) a Decision Ledger stating the explicit empty form passes milestone 1"
 else fail "(a7) expected rc=0 on the explicit empty form, got $rc: $out"; fi
 
+# (a8) round-1 review Blocker 3: the section detector at :2962 is a second copy of
+# ledger-lint.sh's own check-1 detector, and the `\*\*` (bold-heading) alternative was
+# exercised by no case — a mutant narrowing the detector to the `#{1,6}` branch alone would
+# have survived every suite while silently skipping provenance validation on this form.
+# intake-interviewer/SKILL.md:226 documents `**Decision Ledger**` as what the interview emits.
+reset_progress
+printf '# spec\n\n- AC-1: a thing\n\n**Decision Ledger**\n\n| ID | Decision | Resolution | Provenance |\n| --- | --- | --- | --- |\n| D-1 | Fix shape | Do the thing | issue-specified |\n' > "$SPEC"
+out="$(gate 1 7)"; rc=$?
+if [ "$rc" -eq 1 ] && grep -q 'fails ledger-lint' <<<"$out" && grep -q "provenance 'issue-specified' not in" <<<"$out"; then
+  pass "(a8) the bold-heading Decision Ledger form is detected too — an invented provenance under it refuses milestone 1"
+else fail "(a8) expected rc=1 naming the invented provenance under the bold heading, got $rc: $out"; fi
+
 reset_progress
 printf '# spec\n\n- AC-1: a thing\n- AC-2: another\n' > "$SPEC"
 

@@ -2912,33 +2912,23 @@ design_disarm_locked_msg() {
   printf 'spec %s now disarms the design lane ("Design: none"), but this run already armed it — the progress file carries a "| milestone-3 | armed |" record. Disarming mid-run retires the render evidence a review round would be scored against, so it is refused: restore the "## Design" render-state table, or abandon the run and re-file the ticket with the disarm in its spec from the start.' "$SPEC_REL"
 }
 
-# #562: resolves intake-toolkit's ledger-lint.sh across both layouts this script runs from —
-# the same two-rung ladder check-model-tiers.sh's resolve_sibling_plugin_root uses (#419),
-# RE-DERIVED rather than copied: this file sits three directories under its plugin root
-# (skills/build-lean), where that one sits one (scripts), so the hop counts legitimately differ
-# (lockstep-manifest.tsv's cross-plugin-sibling-plugin-root entry is precedent for that being
-# fine). No env-override knob, unlike the *_ROOT variables SEAM_SCRUB denylists: those exist
-# because OTHER tooling branches on them; nothing here does, so a knob would be machinery with
-# no consumer.
-#   monorepo checkout:            plugins/dev-pipeline/skills/build-lean -> ../../../intake-toolkit
-#   version-keyed install cache:  .../dev-pipeline/<ver>/skills/build-lean -> ../../../../intake-toolkit/<newest>
+# #562: resolves intake-toolkit's ledger-lint.sh across both layouts this script runs from,
+# reusing resolve_sibling() (#419) rather than re-deriving a second copy of its ladder — a
+# review-round finding on this ticket (a byte-identical copy is exactly the duplicate machinery
+# this repo's manifest calls worse than none). resolve-sibling.sh's header explains the split:
+# the ladder is shared, and each caller keeps its own hop count from its file to its plugin
+# root, computed the same way pipeline-doctor.sh computes SCRIPT_DIR/PLUGINS_DIR for itself.
+# This file sits two directories under its plugin root (skills/build-lean), where
+# pipeline-doctor.sh sits one (tools) — the differing depth pipeline-doctor.sh's own D-4
+# argued from is real, but it bears only on these two lines, not on the ladder itself.
+# shellcheck source=../../tools/resolve-sibling.sh
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")/../../tools" && pwd)/resolve-sibling.sh"
 resolve_ledger_lint() {
-  local this_dir plugins_or_dp_dir cache_dir rel="skills/plan-interview/tools/ledger-lint.sh" cand v
-  this_dir="$(cd "$(dirname "$0")" && pwd)" || return 1
-  plugins_or_dp_dir="$(dirname "$(dirname "$(dirname "$this_dir")")")"
-  cand="$plugins_or_dp_dir/intake-toolkit/$rel"
-  if [ -f "$cand" ]; then printf '%s\n' "$cand"; return 0; fi
-  # Cache layout: $this_dir is .../<mkt>/dev-pipeline/<ver>/skills/build-lean, so the candidate
-  # above resolved (and missed) .../<mkt>/dev-pipeline/intake-toolkit/... — one level too deep.
-  # The marketplace dir is one level up from there; take the newest sibling version carrying it.
-  cache_dir="$(dirname "$plugins_or_dp_dir")"
-  # shellcheck disable=SC2012  # version dirs are alphanumeric (X.Y.Z); ls is safe and 3.2-portable here
-  for v in $(ls -1 "$cache_dir/intake-toolkit" 2>/dev/null | sort -t. -k1,1nr -k2,2nr -k3,3nr); do
-    cand="$cache_dir/intake-toolkit/$v/$rel"
-    [ -f "$cand" ] || continue
-    printf '%s\n' "$cand"; return 0
-  done
-  return 1
+  local SCRIPT_DIR PLUGINS_DIR
+  SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)" || return 1
+  # shellcheck disable=SC2034  # read by resolve_sibling() via dynamic scope (resolve-sibling.sh, sourced above)
+  PLUGINS_DIR="$(dirname "$(dirname "$(dirname "$SCRIPT_DIR")")")"
+  resolve_sibling intake-toolkit skills/plan-interview/tools/ledger-lint.sh
 }
 
 # ---------------------------------------------------------------- milestone 1: spec/AC

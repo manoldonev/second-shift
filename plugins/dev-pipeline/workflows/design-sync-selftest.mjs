@@ -39,7 +39,7 @@ const DESIGN_SYNC_MJS = join(HERE, 'design-sync.mjs')
 
 // contract-types.mjs lives in the design-toolkit plugin — a SIBLING of dev-pipeline, not a file
 // under it — so reaching it means knowing which of the two layouts this file is running from.
-// This mirrors resolve_sibling() in pipeline-doctor.sh; keep the two ladders in step.
+// This mirrors resolve_sibling() in tools/resolve-sibling.sh; keep the two ladders in step.
 //   monorepo checkout:           <plugins>/<sib>/<rel>              (PLUGINS_DIR = .../plugins)
 //   version-keyed install cache: <cacheroot>/<sib>/<ver>/<rel>      (PLUGINS_DIR = <cacheroot>/dev-pipeline)
 // Rung 2 (this plugin's OWN version) is not redundant with rung 3: it pins a same-version

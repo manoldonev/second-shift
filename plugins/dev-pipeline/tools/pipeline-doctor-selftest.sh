@@ -34,6 +34,7 @@ set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DOCTOR="${PIPELINE_DOCTOR:-$SCRIPT_DIR/pipeline-doctor.sh}"
+RESOLVE_SIBLING="${RESOLVE_SIBLING_SH:-$SCRIPT_DIR/resolve-sibling.sh}"
 
 PASS=0
 FAIL=0
@@ -674,14 +675,19 @@ fi
 # real function is lifted out by its sentinels and run against a staged cache, so
 # a hand-copied resolver — the mirror harness CLAUDE.md bans — never enters.
 #
+# Lives in resolve-sibling.sh (#562), not pipeline-doctor.sh — extracted so
+# lean-gate.sh's own sibling lookup reuses this ladder instead of re-deriving it.
+# Both callers' resolve_ledger_lint()/pipeline-doctor.sh call sites are exercised
+# through THIS one function, so a single case here covers both.
+#
 # 9.0.0 vs 10.0.0 is the whole point of those numbers. `ls -1 | sort -r` is lexical
 # and puts 9.0.0 first, so the loop's first hit was the SUPERSEDED sibling. Any pair
 # below 10 agrees under both orderings and cannot tell them apart. BOTH versions
 # carry the file, so the `-f` filter cannot decide it either — only the ordering can.
 # ---------------------------------------------------------------------------
-RS_BLOCK="$(sed -n '/# >>> resolve-sibling/,/# <<< resolve-sibling/p' "$DOCTOR")"
+RS_BLOCK="$(sed -n '/# >>> resolve-sibling/,/# <<< resolve-sibling/p' "$RESOLVE_SIBLING")"
 if [[ -z "$RS_BLOCK" ]]; then
-  bad "(rs) resolve-sibling sentinels not found in $DOCTOR — the function was refactored without updating this guard"
+  bad "(rs) resolve-sibling sentinels not found in $RESOLVE_SIBLING — the function was refactored without updating this guard"
 else
   RS="$WORK/rs"
   mkdir -p "$RS/cache/dev-pipeline/1.0.0/skills/run/tools" \
