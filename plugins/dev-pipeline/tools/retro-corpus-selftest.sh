@@ -6,7 +6,9 @@
 # (statectl-shaped stage-schema JSON; lean-gate.sh-shaped progress/verdict records) rather
 # than driving those tools end-to-end — the same choice stage-envelopes-selftest.sh makes for
 # the same reason: the point here is the READER's era-detection and aggregation, and the two
-# WRITERS already have their own coverage (statectl-selftest.sh, lean-gate-selftest.sh).
+# WRITERS have their own coverage — lean-gate-selftest.sh for the surviving writer, and
+# statectl-selftest.sh for the staged one until #348 deleted it along with that writer. The
+# staged-era fixtures stay: the READER must still aggregate that historical corpus.
 #
 # A throwaway git-init'd tree stands in for the repo root (retro-corpus.sh resolves
 # --git-common-dir unconditionally, even with --state-dir overriding where the corpus itself

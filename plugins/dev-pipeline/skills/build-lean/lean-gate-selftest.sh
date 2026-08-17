@@ -759,7 +759,7 @@ if [ "$rc" -eq 0 ] && grep -qx 'SCRUBBED' <<<"$out" && ! grep -qx 'LEAKED' <<<"$
 else fail "(i12) expected SCRUBBED with no LEAKED, got rc=$rc: $out"; fi
 
 # lanes[] entries are {name, cwd?, commands[]} objects — the shape config-lint.sh enforces
-# (its lanes[] arm: `name` required, unknown keys rejected) and the one verifyctl.sh reads.
+# (its lanes[] arm: `name` required, unknown keys rejected) and the one the gate itself reads.
 # This fixture previously wrote `{command: "..."}`, a shape no lint-clean config can hold, and
 # so pinned the reader bug rather than the contract: `.command // .` fed the whole lane object
 # to `bash -c`, which is a syntax error on every real config that declares a lane.

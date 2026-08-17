@@ -35,7 +35,7 @@ COMMAND_NAME=$(jq -r '.command_name // empty' <<<"$PAYLOAD")
 # Prefer a redundant alternative to a confident guess.
 #
 # Bash is the one branch with real exposure. First line, 200 chars is enough to
-# identify `statectl.sh set-stage …` or `yarn render:verify …` without dumping full
+# identify `lean-gate.sh 3 …` or `yarn render:verify …` without dumping full
 # argv or stdin — but it is NOT "non-secret by construction": a prefix is the worst
 # window for that, since flags and env assignments precede payloads
 # (`gh api -H "Authorization: Bearer …"`). What bounds the risk is the ledger's
@@ -58,8 +58,8 @@ OUTCOME="ok"
 
 # WHERE THE LEDGER LIVES. Anchored on the MAIN checkout, never on the directory the
 # session happens to be running in. A lean run works in a linked worktree by contract,
-# and every reader resolves `--git-common-dir/..`: lean-gate.sh's `entry` precondition,
-# lean-reconcile.sh, statectl.sh's `ledger_dir()`. Writing beside the worktree instead
+# and every reader resolves `--git-common-dir/..`: lean-gate.sh's `entry` precondition and
+# lean-reconcile.sh (as did the deleted statectl.sh's `ledger_dir()`). Writing beside the worktree instead
 # put the ledger where none of them look, with two opposite failure modes — an honest
 # run refused at `entry` for a ledger it had just written, and a verdict record naming a
 # session reconcile could not resolve, which reads as a forgery signal. One directory

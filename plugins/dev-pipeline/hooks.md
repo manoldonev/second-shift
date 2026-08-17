@@ -73,7 +73,7 @@ Plugin-shipped (fires via `hooks/hooks.json` on `git commit`); must be `chmod +x
 # is an inert .claude/**/*.{mjs,cjs} Workflow script. Those scripts live outside the
 # yarn workspace tree and are referenced by no tsconfig/eslint/jest config, so
 # type-check gives them zero coverage — gating on them is pure wasted node_modules
-# install + run. This mirrors the Stage-6 inert lane; the inert set is defined once in
+# install + run. This mirrors the pipeline's INERT lane; the inert set is defined once in
 # the dev-pipeline skill's tools/is-inert-diff.sh (the single source of truth), and
 # the .claude/**/*.{mjs,cjs} pattern below is kept in lockstep with it (asserted by
 # pre-commit-typecheck-selftest.sh).
@@ -128,9 +128,9 @@ exit 0
 
 ### Scope
 
-The full verify suite (`format`, `lint`, `type-check`, `test`) runs at stage boundaries in Stage 6. This hook is intentionally scoped to `type-check` only — it must be fast enough to not slow down the commit-per-chunk workflow in Stage 5.
+The full verify suite (`format`, `lint`, `type-check`, `test`) runs at the gate — `lean-gate.sh` milestone 3. This hook is intentionally scoped to `type-check` only: it must be fast enough not to slow down the commit-per-chunk workflow while the implementation is being written.
 
-If the hook denies a commit during Stage 5, fix the type error before retrying. Do not remove the hook to work around failures.
+If the hook denies a commit mid-implementation, fix the type error before retrying. Do not remove the hook to work around failures.
 
 ## 2. Stop — session-end type-check (informational)
 

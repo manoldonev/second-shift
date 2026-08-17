@@ -185,7 +185,8 @@ STATE_FILE=$(resolve_state)
 fi
 
 # ────────────────────────────────────────────────────────────────────────────
-# Record outcome into costBlockApplied (raw jq — statectl does not own this).
+# Record outcome into costBlockApplied (raw jq — this script owns the field outright;
+# it was never statectl's, and no other writer survives #348).
 # ────────────────────────────────────────────────────────────────────────────
 record() {
   local val="$1"  # JSON scalar: `true` or a quoted string
@@ -267,8 +268,11 @@ else
 fi
 
 # ────────────────────────────────────────────────────────────────────────────
-# Session set: read pipelineSessions[], registered by statectl's shared write seam
-# (apply_session_seam) on each contributing session's first state write. Each id is
+# Session set. State-less mode (the lean lane) is HANDED the set by its caller; the
+# stateful branch below reads pipelineSessions[], which the staged lane's statectl write
+# seam (apply_session_seam) registered on each contributing session's first state write.
+# #348 deleted that writer, so the stateful branch now only ever reads a pre-lean state
+# file — no tool in this tree populates the field. Each id is
 # the native Claude Code session UUID ($CLAUDE_CODE_SESSION_ID), the same value the
 # collector tags datapoints with as session.id; every session that wrote state
 # appears, including a crash-recovery resume at any stage. Runs with no recorded

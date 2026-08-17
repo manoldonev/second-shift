@@ -215,7 +215,7 @@ expected="ts,session_id,event,tool,subagent,command_name,target,outcome"
 # Invariant guarded: the hook resolves the ledger directory as `--git-common-dir/..` of
 # ${CLAUDE_PROJECT_DIR:-$CWD} — the MAIN checkout — because every reader does. It used to
 # write beside the worktree, so a lean run's ledger landed where lean-gate.sh's `entry`,
-# lean-reconcile.sh and statectl.sh's ledger_dir() all do not look: an honest run refused
+# and lean-reconcile.sh do not look (nor did the deleted statectl.sh's ledger_dir()): an honest run refused
 # at the door, and a verdict record naming a session reconcile could not resolve, which
 # reads as forgery.
 #

@@ -256,8 +256,8 @@
 #                            children are lean-gate.sh. An operator who exports a short ceiling to
 #                            debug gets spurious `rc=7` out of the nested suite's own milestone-3
 #                            calls. Export it for one call rather than for a shell. The register
-#                            is a `verbatim` lockstep row against verifyctl.sh and is not
-#                            widenable from this side alone.
+#                            is a `subset-of` lockstep row against preflight.sh (which carries
+#                            the superset) and is not widenable from this side alone.
 #   LEAN_GATE_TEST_STALL_DIR #528: TEST-ONLY, never set in CI or by an operator — the loop it
 #                            gates is otherwise unreachable. Pauses append_satisfied/
 #                            heal_progress_run_id between their absence check and their write,
@@ -1692,7 +1692,7 @@ lane_deregister() {
 # carries a scrub list AND one assignment; `env` takes them in that order natively.
 #
 # The append happens OUTSIDE the LOCKSTEP-BEGIN/END seam-scrub markers — those pin the denylist
-# STRING against verifyctl.sh, and this touches neither.
+# STRING against preflight.sh's superset, and this touches neither.
 lane_apply_job_ceiling() {
   local out ceil lanes cores basis
   [ -f "$LANE_REGISTRY_SH" ] || return 0
@@ -3008,11 +3008,12 @@ cmd_2() {
 # lint/typecheck/test keys, and extraLanes — is itself second-shift tooling reach on this
 # repo (dogfooding), so it must not inherit the gate's own pipeline-seam env: an ambient
 # SECOND_SHIFT_CONFIG/STATECTL_STATE_DIR silently re-roots or re-states it, the same class
-# #34 found in verifyctl.sh. Verbatim copy of that denylist (scripts/lockstep-manifest.tsv
-# pins it) — lean-gate needs nothing narrower or wider. `eval "$cmd"` becomes
-# `env <scrub> bash -c "$cmd"`: functionally identical for a shell command string (verifyctl.sh
-# already runs this repo's own configured lane commands that way), and the only shape `env`
-# can scrub ahead of.
+# #34 found in the staged lane's verifyctl.sh, which held this denylist until #348. This file is
+# now its canonical carrier, with preflight.sh's superset pinned against it
+# (scripts/lockstep-manifest.tsv) — lean-gate needs nothing narrower or wider. `eval "$cmd"`
+# becomes `env <scrub> bash -c "$cmd"`: functionally identical for a shell command string
+# (preflight.sh runs this repo's own configured lane commands the same way), and the only
+# shape `env` can scrub ahead of.
 # LOCKSTEP-BEGIN seam-scrub
 SEAM_SCRUB='SECOND_SHIFT_CONFIG|SECOND_SHIFT_REPO_ROOT|SECOND_SHIFT_EXTENSION_MANIFEST|SECOND_SHIFT_PLUGIN_ROOT|SECOND_SHIFT_REVIEW_TOOLKIT_ROOT|SECOND_SHIFT_DEV_PIPELINE_ROOT|SECOND_SHIFT_DESIGN_TOOLKIT_ROOT|SECOND_SHIFT_SECTION_CATALOG|STATECTL_STATE_DIR|STATECTL_WRITER|DEV_PIPELINE_MODE|BRANCH_PREFIX|KEY_PATTERN'
 # LOCKSTEP-END seam-scrub
@@ -3023,8 +3024,8 @@ for _seam_tok in "${_seam_scrub_toks[@]}"; do
 done
 unset _seam_tok _seam_scrub_toks
 
-# #539, appended OUTSIDE the lockstep block above — `SEAM_SCRUB` is a `verbatim` row against
-# verifyctl.sh and is not widenable from this side, and LEAN_JOB_CEILING already sets the precedent
+# #539, appended OUTSIDE the lockstep block above — `SEAM_SCRUB` is a `subset-of` row against
+# preflight.sh and is not widenable from this side, and LEAN_JOB_CEILING already sets the precedent
 # for adding to the array rather than to the string. The escape seam is scrubbed where
 # LEAN_GATE_OBSERVE and LEAN_GATE_WAIT_CEILING_SECS deliberately are not, because it answers a
 # question only the OUTERMOST call has: a lane child is not turn-bound and has nothing to outlive.
@@ -3451,9 +3452,11 @@ m3_launch_or_join() {
 }
 
 # extraLanes `when` glob match — bash pattern matching (NOT globstar, NOT git pathspec),
-# verifyctl.sh's pinned dialect (AC-4, verifyctl.sh:742-748): `*` crosses `/`, so `**` buys
-# nothing extra and a bare directory literal never matches a file beneath it. Its own
-# function so the selftest can pin the dialect directly instead of through cmd_3's plumbing.
+# the dialect the staged lane's verifyctl.sh pinned (its AC-4) and this gate inherited: `*`
+# crosses `/`, so `**` buys nothing extra and a bare directory literal never matches a file
+# beneath it. #348 left this file the sole carrier, so the selftest is the only thing holding
+# the dialect — which is why this is its own function, pinnable directly rather than through
+# cmd_3's plumbing.
 lean_when_matches() { # lean_when_matches <glob> <changed-files, newline-separated>
   local glob="$1" changed="$2" f
   while IFS= read -r f; do
@@ -3562,7 +3565,7 @@ lean_sha256() { # lean_sha256 <file>
 #
 # Width = max(3, longest cell in the column, header included); one space each side of every
 # cell; the delimiter carries exactly `width` dashes. Measured against prettier 3.7.4 — the
-# version verifyctl.sh pins as its own fallback.
+# version this gate pins as its own fallback (inherited from verifyctl.sh, deleted in #348).
 #
 # CHARACTER count, not display width. Prettier pads by display width, so a wide-glyph route or
 # state cell would mis-pad; the cost is one red format check on the branch that introduced it,
@@ -3613,9 +3616,11 @@ md_table_prettier() {
 # invocation path, or nothing when none resolves — which every caller must treat as "skip the
 # format step", never as a failure: an absent formatter is a consumer fact, not a run defect.
 #
-# Two rungs, and the omission of a third is the design. verifyctl.sh's ladder ends in
-# `npx --yes prettier@x`; that rung is deliberately NOT carried here, because a gate call must
-# not reach the network. The two rungs it does carry are held in lockstep with that ladder.
+# Two rungs, and the omission of a third is the design. The staged lane's verifyctl.sh ladder
+# ended in `npx --yes prettier@x`; that rung was deliberately NOT carried here, because a gate
+# call must not reach the network. #348 deleted that ladder, leaving this file the sole carrier
+# of the two rungs — scripts/lockstep-manifest.tsv records the paired row as DROPPED for exactly
+# that reason, so nothing outside this file holds them now.
 #
 # `commands.<repo>.format` cannot supply this: in at least one consumer it is bound to the
 # CHECK variant (`yarn format:check`), and the shipped config-lint fixture carries exactly
@@ -3916,7 +3921,7 @@ cmd_3() {
   # render pre-command cmd_3_render runs at the end.
   lane_apply_job_ceiling
   # lanes[] setup steps first, when present. Shape is {name, cwd?, commands[]} — the SAME
-  # reader verifyctl.sh uses (its step 1), including the non-object backstop (#100): a lane
+  # reader the staged lane's verifyctl.sh used (its step 1), including the non-object backstop (#100): a lane
   # that is not an object must fail loudly, never be silently skipped on the way to green.
   # Reading `.command // .` instead emits the whole lane object as the command, which is a
   # bash syntax error on every schema-valid config that declares a lane.
@@ -3963,7 +3968,7 @@ cmd_3() {
   # Additive verify lanes: the schema's slot for everything config-lint forces out of the
   # fixed keys (build lanes, path-scoped suites, a design-driven live-render lane). Run
   # sequentially AFTER the fixed keys and BEFORE the mutation sweep (AC-6), in declaration
-  # order, fail-fast — the same placement verifyctl.sh gives them.
+  # order, fail-fast — the same placement verifyctl.sh gave them before #348.
   local el_lanes="[]" el_count=0
   if [ -f "$CONFIG" ]; then
     el_lanes="$(jq -c --arg s "$REPO_SLUG" '(.commands[$s].extraLanes // [])' "$CONFIG" 2>/dev/null)"
@@ -3999,7 +4004,7 @@ cmd_3() {
       # Shape backstop (AC-7): nothing in this lane ever runs config-lint, so this is the
       # only shape guard extraLanes gets here. A non-object entry, or one missing `name` or
       # a non-empty `commands`, reds milestone 3 naming the entry INDEX — mirroring the hole
-      # verifyctl.sh grew this same guard for (#100).
+      # verifyctl.sh had grown this same guard for (#100).
       el_type="$(jq -r --argjson i "$el_i" '.[$i] | type' <<<"$el_lanes")"
       if [ "$el_type" != "object" ]; then
         fail_milestone 3 "extraLanes[$el_i]: must be an object {name, when?, commands[], failureClass}, got $el_type"; return $?

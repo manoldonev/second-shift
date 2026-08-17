@@ -48,8 +48,8 @@
 set -uo pipefail
 
 # Denylist of pipeline seam vars that must NOT leak into a configured command-lane
-# child process (run_lane() below) — see verifyctl.sh's matching SEAM_SCRUB for the
-# full rationale (#34). Superset of verifyctl.sh's list: this file also carries its
+# child process (run_lane() below) — see lean-gate.sh's matching SEAM_SCRUB for the
+# full rationale (#34). Superset of lean-gate.sh's list: this file also carries its
 # own PREFLIGHT_DOCTOR_CMD seam. scripts/lockstep-manifest.tsv keeps the two in sync
 # (subset-of, this file as fileA). No comments inside the marker block itself (breaks
 # check-lockstep-pairs.sh's first_enum).
@@ -185,8 +185,8 @@ fi
 
 # --- Section 2: Target Confirmation echo (read-only) ------------------------------
 # The resolved config the first real run will operate on — tracker, repos, branch
-# and worktree-path STRINGS (computed, never created: no statectl init, no git
-# worktree add). Defaults mirror the run skill's resolution sites.
+# and worktree-path STRINGS (computed, never created: no state is initialized and no
+# git worktree add runs). Defaults mirror the lean lane's resolution sites.
 hdr "Target Confirmation (resolved targets)"
 TRACKER_TYPE=github; TRACKER_WRITES=true; BRANCH_PREFIX="claude/acme-"; KEY_PATTERN=""
 TOPO=standalone; QUEUE_LABEL="ready-for-dev"; CLAIMED_LABEL="in-progress"
@@ -262,7 +262,7 @@ else
 fi
 
 # --- Section 5: command lanes, once each, in the current checkout ------------------
-# Order mirrors verifyctl: setup lanes[] first, then the trio, then extraLanes.
+# Order mirrors the gate's: setup lanes[] first, then the trio, then extraLanes.
 hdr "Command lanes (one pass, current checkout)"
 run_lane() { # $1 = lane label, $2 = command string
   local label="$1" cmd="$2" out rc
@@ -327,11 +327,13 @@ if [[ -f "$CFG" ]] && command -v jq >/dev/null 2>&1; then
     # cover (Python, bun, cargo, go) correctly drafts every lane null rather than
     # guessing — but an all-null table then passes config-lint and prints only per-lane
     # SKIPs, so the adopter is never told the table is unfinished. The predicate mirrors
-    # verifyctl.sh's zero-verifying-lane check (which feeds the verifySummary that
-    # statectl.sh's Stage-6 gate then refuses): VERIFYING lanes are lint/typecheck/test
-    # and extraLanes[]. lanes[] is SETUP-only, and format never verifies — so neither
-    # counts here. Keep this set in lockstep with verifyctl.sh; an early
-    # warning that disagrees with the late gate is worse than no warning.
+    # lean-gate.sh milestone 3's zero-verifying-lane check (which reds naming the opt-out):
+    # VERIFYING lanes are lint/typecheck/test and extraLanes[]. lanes[] is SETUP-only, and
+    # format never verifies — so neither counts here. Keep this set in lockstep with
+    # lean-gate.sh; an early warning that disagrees with the late gate is worse than no
+    # warning. (Through #348 the canonical leg was the staged lane's verifyctl.sh, whose
+    # verifySummary a statectl gate then refused; scripts/lockstep-manifest.tsv records the
+    # re-anchoring.)
     VERIFYING=$(jq -r --arg h "$HOST_ID" '
       ([.commands[$h] | .lint, .typecheck, .test | select(. != null and . != "")] | length)
       + ((.commands[$h].extraLanes // []) | length)' "$CFG" 2>/dev/null || echo 0)
@@ -339,7 +341,7 @@ if [[ -f "$CFG" ]] && command -v jq >/dev/null 2>&1; then
     if [[ "${VERIFYING:-0}" -eq 0 ]]; then
       if [[ "$ALLOW_UNVERIFIED" == "true" ]]; then
         # The deliberate opt-out: already explicit in the config, so it stays silent
-        # here and verifyctl emits its labeled zero-lane skip at Stage 6.
+        # here and lean-gate.sh milestone 3 names the opt-out in its own labeled skip.
         skipn "no verifying lane for '$HOST_ID' — allowUnverified opt-out is set, so this is deliberate"
       else
         UNVERIFIED=1

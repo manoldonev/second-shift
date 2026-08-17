@@ -57,7 +57,8 @@ Every `stageParams` key defaults to the plugin's current literal, so an empty co
     "planFilePattern": "{plansDir}/plan-{issueKey}.md",   // drop the shipped "acme-" prefix
     "requiredLabels": ["ready", "in-progress"],                   // your tracker's label vocabulary
     "formatGlob": "*.{ts,tsx,css,md}",
-    // Stage-6 INERT-lane override. The default inert set is JS/TS-centric and treats
+    // INERT-lane classifier override (read by is-inert-diff.sh and preflight.sh). The
+    // default inert set is JS/TS-centric and treats
     // *.md and *.sh as zero-coverage — true for a TS app, false when shell IS the
     // product: there, every diff classifies inert and your lint/test lanes never run.
     // REPLACES the default outright (only replacement can remove `\.sh$`), so it is a
@@ -94,7 +95,7 @@ You have a check the built-in lanes don't cover (a custom lint, a contract test,
 }
 ```
 
-Extra lanes run **sequentially after** the built-in SUITE lanes, never interleaving or replacing them; results land under a namespaced `ext:openapi-drift` key so canonical lane keys stay unreachable. There is no advisory mode: a lane blocks Stage-6 completion or it doesn't exist. `failureClass` must be one of the closed taxonomy values (`FORMAT`, `LINT_AUTOFIX`, `TYPE_ERROR`, `TEST_FAILURE`, `PLAN_CMD_FAILURE`, `INFRA`) — extensions borrow the taxonomy, they never extend it — and the lane gets the standard 2-attempt fix budget.
+Extra lanes run **sequentially after** the built-in SUITE lanes, never interleaving or replacing them; results land under a namespaced `ext:openapi-drift` key so canonical lane keys stay unreachable. There is no advisory mode: a lane blocks `lean-gate.sh` milestone 3 or it doesn't exist. `failureClass` must be one of the closed taxonomy values (`FORMAT`, `LINT_AUTOFIX`, `TYPE_ERROR`, `TEST_FAILURE`, `PLAN_CMD_FAILURE`, `INFRA`) — extensions borrow the taxonomy, they never extend it — and the lane gets the standard 2-attempt fix budget.
 
 A build/compile step (`ng build`, `tsc --noEmit --project ...`) is a common `extraLanes` use: it's blocking, runs after the trio, and — unlike a lint or unit-test lane — catches breaks a spec doesn't happen to exercise (e.g. an Angular AOT template referencing a nonexistent property, invisible to `typecheck`/`test` unless some spec transitively imports the broken component). `failureClass: "TYPE_ERROR"` fits: the class already covers compile-time breaks the type-check lane didn't catch. `/second-shift:onboard` drafts this automatically when it detects a build command.
 
@@ -127,7 +128,7 @@ The shipped agents are domain-blind by design; you feed them domain knowledge th
 .claude/second-shift/blocker-mutants.md      # extra blocker-class mutants for unit-test review
 .claude/second-shift/review-context.md       # repo-wide calibration core + ownership pointers
 .claude/second-shift/review-context/<r>.md   # per-reviewer rules (basename = registry reviewer name)
-.claude/second-shift/doc-routing.md          # change-category → doc-path map for Stage-7 doc updates
+.claude/second-shift/doc-routing.md          # change-category → doc-path map for doc updates
 ```
 
 Each consuming agent's prompt names its own file and loads it *if present*, treating the contents as additive — they can tighten review, never weaken the generic protocol. What files exist and who reads them is the table in [`extension-points.md`](extension-points.md); this is the "add evidence" half of the axiom in its purest form. Every file you drop here must match the shipped **extension manifest** or your own `.known-extensions` allowlist (§4.3), or `check-extensions.sh` fails closed — a typo'd `security-rules.md.md` is loud, not silently ignored. The *named sections inside* `review-context.md` (and `review-context/<r>.md`) are linted too: `check-review-context-sections.sh` matches your H2 headings against the shipped section catalog, so a drifted spelling (`## Maturity calibration` vs `## Maturity stage`) or an empty section body is caught at pre-work preflight — see [extension-points.md → Authoring the review-context surface](extension-points.md#authoring-the-review-context-surface).
@@ -142,7 +143,7 @@ An opt-in axis, off unless the key is present:
 { "design": { "provider": "figma" } }        // or "claude-design"
 ```
 
-`figma` selects the figma-faithful skills and requires a Figma MCP connection; `claude-design` selects the design-faithful / design-sync path and requires DesignSync. Same fail-closed posture as every gate: if the provider's prerequisite is missing at run time, the design steps fail closed rather than degrading silently. Absent key = a run behaves exactly like a non-design run. The design-system reference itself (component catalog, token roles) is knowledge — it lives in `.claude/second-shift/design-tokens/*.md`, an extension file per §3.4. To make the Stage-5 live-render verify gate actually execute (a repo-owned render command the gate screenshots through), add the optional `design.liveRender` block — see [`live-render.md`](live-render.md).
+`figma` selects the figma-faithful skills and requires a Figma MCP connection; `claude-design` selects the design-faithful / design-sync path and requires DesignSync. Same fail-closed posture as every gate: if the provider's prerequisite is missing at run time, the design steps fail closed rather than degrading silently. Absent key = a run behaves exactly like a non-design run. The design-system reference itself (component catalog, token roles) is knowledge — it lives in `.claude/second-shift/design-tokens/*.md`, an extension file per §3.4. To make the live-render verify gate actually execute (a repo-owned render command the gate screenshots through, blocking on `build-lean` milestone 3), add the optional `design.liveRender` block — see [`live-render.md`](live-render.md).
 
 ### 3.6 `stageWorkflows` — a blocking gate owned by you (EP-6)
 
@@ -165,9 +166,9 @@ You need something heavier than a verify command: a real workflow that runs at a
 }
 ```
 
-The `workflow` is either `"<plugin>:<relpath>"` (a companion pack's script, §4) or a repo-relative path. It's dispatched **after** the stage's built-in sub-steps and **before** the stage-completion write, as a blocking sub-step — no advisory field, because advisory gates don't exist here. The result is recorded under `stageCheckpoint[N].extWorkflows[<name>]`; a failure produces the stage's standard fail-fast write with reason **`ext-workflow-failed`** (your name in the detail field). Registration lives in *consumer config* (auditable, per-repo), never in the plugin manifest. The workflow may write state **only** via `statectl` checkpoint payloads namespaced `ext:` — it adds evidence, it never reinterprets what the pipeline already recorded. An unresolvable reference is a config-lint failure.
+The `workflow` is either `"<plugin>:<relpath>"` (a companion pack's script, §4) or a repo-relative path. As designed, it was dispatched **after** the named stage's built-in sub-steps and **before** that stage's completion write, as a blocking sub-step — no advisory field, because advisory gates don't exist here. The result was recorded under `stageCheckpoint[N].extWorkflows[<name>]`; a failure produced the stage's standard fail-fast write with reason **`ext-workflow-failed`** (your name in the detail field), and the workflow could write state **only** via the staged lane's `statectl` checkpoint payloads namespaced `ext:` — adding evidence, never reinterpreting what the pipeline had recorded. Two things are still true today: registration lives in *consumer config* (auditable, per-repo) rather than the plugin manifest, and an unresolvable reference is a config-lint failure.
 
-### 3.7 `implementDelegates` — route Stage-5 work to a specialist (EP-7)
+### 3.7 `implementDelegates` — route implementation work to a specialist (EP-7)
 
 > **INERT since #348 — no dispatcher.** This extension point was dispatched by the staged
 > lane, which was deleted. The config key is still schema-legal and `check-extensions.sh`
@@ -188,7 +189,7 @@ You want certain implementation work done by a specialist agent instead of the i
 }
 ```
 
-`surface` is a path glob or the reserved key `unit`; matching work items route to the delegate. The delegate's output then passes through the **unchanged** Stage-5 scope-enforcement gate and every downstream gate — it *adds work* (a different author) and *waives nothing*. `agent` is `"<plugin>:<agent>"` (a companion pack) or a bare repo-local agent name. An unresolvable agent fails closed at pre-flight.
+`surface` is a path glob or the reserved key `unit`; matching work items routed to the delegate. The delegate's output then passed through the **unchanged** scope-enforcement gate and every downstream gate — it *adds work* (a different author) and *waives nothing*. `agent` is `"<plugin>:<agent>"` (a companion pack) or a bare repo-local agent name. An unresolvable agent fails closed at pre-flight.
 
 ### 3.8 `planGates` — a blocking plan-review gate (EP-8)
 
@@ -200,7 +201,7 @@ You want certain implementation work done by a specialist agent instead of the i
 > lean lane, is a product decision this deletion did not make. Until it is made, treat this
 > section as a record of the shape, not as a capability you can turn on.
 
-You want an extra reviewer of the *plan itself* at Stage 4 — a QA-tier review of the test strategy for a surface, an ADR-compliance check — that can block a bad plan before any code is written.
+You want an extra reviewer of the *plan itself* — a QA-tier review of the test strategy for a surface, an ADR-compliance check — that can block a bad plan before any code is written.
 
 ```jsonc
 {
@@ -210,7 +211,7 @@ You want an extra reviewer of the *plan itself* at Stage 4 — a QA-tier review 
 }
 ```
 
-Each plan gate runs **after** the built-in Stage-4 gates (plan-reviewer, design FE-spec, unit-test-plan) as an additive trinary reviewer over the plan; it appears in the gate ledger as `plan-gate:<name>`. `surface` (optional) scopes it — Stage 4 runs the gate only when the plan touches that glob. A `block` maps to the existing `plan-reviewer-block` reason (no per-extension enum value) — it can only make a passing plan-review *block*, never waive a built-in gate. This is the Stage-4 counterpart of `extraLanes` (Stage-6 verify) and `reviewers.add` (Stage-8 code review): the three additive-gate seams, one per gating stage. `agent` is `"<plugin>:<agent>"` or a bare repo-local name; unresolvable fails closed at pre-flight.
+As designed, each plan gate ran **after** the built-in plan gates (plan-reviewer, design FE-spec, unit-test-plan) as an additive trinary reviewer over the plan, appearing in the gate ledger as `plan-gate:<name>`; `surface` (optional) scoped it to plans touching that glob, and a `block` mapped to the existing `plan-reviewer-block` reason (no per-extension enum value) — able to make a passing plan review *block*, never to waive a built-in gate. It was conceived as the plan-stage counterpart of `extraLanes` and `reviewers.add`, but that symmetry no longer holds: **those two still run** — `extraLanes` is read by `lean-gate.sh` milestone 3 and `reviewers.add` by `review-lead` — while this seam has no dispatcher. `agent` is `"<plugin>:<agent>"` or a bare repo-local name; unresolvable fails closed at pre-flight.
 
 ### 3.9 Companion pack — package the above for the whole org
 
@@ -262,7 +263,7 @@ platform/*.md
 > only worked example of how the five compose, and it is the argument any replacement dispatcher
 > would have to satisfy.
 
-The single snippets above each touch one seam. Real capabilities compose several. Here's a worked case a QA-minded org actually wants: **black-box API tests as a first-class pipeline concern** — the plan's API-test strategy gets reviewed *before* code is written, the tests are authored by a specialist, the suite runs as a blocking gate, and the tests themselves get code-reviewed. That's four different gating stages, so it's four seams — packaged once as a companion pack, `acme-qa-pack`, and wired from each consumer's config.
+The single snippets above each touch one seam. Real capabilities compose several. Here's a worked case a QA-minded org actually wants: **black-box API tests as a first-class pipeline concern** — the plan's API-test strategy gets reviewed *before* code is written, the tests are authored by a specialist, the suite runs as a blocking gate, and the tests themselves get code-reviewed. That's four different gating moments, so it's four seams — packaged once as a companion pack, `acme-qa-pack`, and wired from each consumer's config.
 
 **What the pack ships** (authored once, versioned, pinned — §4):
 - `agents/api-test-plan-reviewer.md` — reviews the plan's API-test strategy (trinary verdict).
@@ -270,19 +271,23 @@ The single snippets above each touch one seam. Real capabilities compose several
 - `agents/api-test-reviewer.md` — reviews the written test code.
 - `skills/api-testing/` — the shared "how we write API tests here" playbook the agents load.
 
-**What each consumer repo puts in `.claude/second-shift.config.json`** — one block, every stage of the tier registered and auditable:
+**What each consumer repo puts in `.claude/second-shift.config.json`** — one block, every seam of the tier registered and auditable. Two of the four still dispatch; the other two are recorded for their shape (§3.6-3.8):
 
 ```jsonc
 {
-  // Stage 4 — gate the PLAN: block a ticket whose API-test strategy is wrong before any code exists
+  // gate the PLAN — INERT since #348 (§3.8): registered and reference-validated, but no
+  // dispatcher runs it. As designed: block a ticket whose API-test strategy is wrong
+  // before any code exists.
   "planGates": [
     { "name": "api-plan", "surface": "tests/api/**", "agent": "acme-qa-pack:api-test-plan-reviewer" }
   ],
-  // Stage 5 — WRITE: route API-test work to the specialist instead of the inline implementer
+  // route the WRITING — INERT since #348 (§3.7). As designed: route API-test work to the
+  // specialist instead of the inline implementer.
   "implementDelegates": [
     { "surface": "tests/api/**", "agent": "acme-qa-pack:api-test-coder" }
   ],
-  // Stage 6 — RUN: the API suite is a blocking verify lane, gated to when API surface changed
+  // RUN the suite — LIVE: read by lean-gate.sh milestone 3. The API suite is a blocking
+  // verify lane, gated to when API surface changed.
   "commands": {
     "<repo-id>": {
       "extraLanes": [
@@ -291,7 +296,8 @@ The single snippets above each touch one seam. Real capabilities compose several
       ]
     }
   },
-  // Stage 8 — REVIEW: the written tests get a domain code review
+  // REVIEW the tests — LIVE: read by review-lead when it selects the panel. The written
+  // tests get a domain code review.
   "reviewers": {
     "add": [{ "name": "acme-qa-pack:api-test-reviewer", "dimensions": ["api-testing"] }]
   }

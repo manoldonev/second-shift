@@ -266,6 +266,14 @@ its Blocking? column. Filing the retirement is out of scope; the record is not.
   | a **path** into the deleted tree | yes | the token IS the path |
   | a **slash command** (`/dev-pipeline:run`) | **no** | the token contains no path at all |
   | a **relative link** whose depth changed under relocation | **no** | the link text never changes — only its resolution moves |
+  | a **bare invocation** of the deleted command (`/dev-pipeline <issue>`) | **no** | it carries neither the path nor the `:run` suffix kind 2 keys on |
+
+  - **Kind 4 — the bare command form (round-3 amendment).** Kind 2's regex keys on the `:run`
+    suffix, so it is blind to the pre-namespacing invocation form `/dev-pipeline <issue>`, which
+    three shipped artifacts still told a reader to run: `cost-tracking-setup.md`'s verification
+    recipe, `intake/SKILL.md`'s routing table (twice), and `plan-interview/SKILL.md`'s pipeline
+    pre-flight. `grep -rE '/dev-pipeline([[:space:]<`)]|$)'` finds it; the character class is what
+    keeps `plugins/dev-pipeline/...` path noise out, and without it the result is unreadable.
 
   - **Kind 2 — the deleted command literal.** `grep -rE '/dev-pipeline:run([^-a-zA-Z]|$)'` over
     every tracked file. The negative class is load-bearing and is where a naive filter fails: an
@@ -333,6 +341,56 @@ its Blocking? column. Filing the retirement is out of scope; the record is not.
      rationale that died with the manual promotion step. Both are rewritten around the surviving
      lane rather than link-patched — three broken links in one of them were the visible symptom,
      not the defect.
+
+  **Round-3 amendment — the CONFIG layer, and a stated discriminator.** Three rounds each found
+  this same class one layer further out, so the boundary is no longer an enumeration but a rule.
+  A reference to deleted machinery is a **defect** iff it makes a *present-tense claim about the
+  live mechanism*: the actor that resolves a config key, the guard that covers a behavior, the
+  file a maintainer is told to keep in lockstep with, or the command a consumer is told to run.
+  It is a deliberate **keep** iff it is one of: (a) an explicitly-dated historical statement
+  ("died with the staged lane in #348"); (b) the proper name of a historical data format a
+  surviving tool still reads ("a `statectl`-shaped state file"); (c) a frozen eval/review fixture
+  whose content is test input (`review-harness-fixtures/`, `score-review-selftest.sh`'s
+  grandfathered anchors, `dup-scan-fixtures/`); or (d) a measurement attributed to a named past
+  era. The rule is what makes the residue auditable instead of re-litigated each round.
+
+  Applied whole-tree over the deleted **tool names** (`statectl`, `verifyctl`) — which, unlike
+  `Stage N`, are never legitimate in the present tense — it closes four sub-classes the
+  skills/docs sweeps could not see:
+
+  1. **The `$schema`-rendered config layer.** `schema/second-shift.config.schema.json` described
+     the deleted lane as the live mechanism for **18** descriptions of keys that are live under
+     lean, and these strings render in every consumer's editor as the authoritative account of a
+     key they are setting. `docs/config-schema.md` mirrored three of them. Each is re-pointed to
+     the reader named in the D-17 table above, not merely de-staged. The EP-6/7/8 descriptions
+     additionally carry the §3.6-3.8 **INERT** banner, which had been applied to only one of the
+     two consumer-facing surfaces.
+  2. **False coverage claims.** A comment asserting a guard exists is read as coverage. Several
+     named deleted suites: `intake-readroot-selftest.sh` said AC-5 "is guarded ... in
+     `statectl-selftest.sh`" (AC-5's *subject* also died, so the guarantee is MOOT, not orphaned —
+     recorded as such rather than re-homed), `retro-corpus-selftest.sh` and
+     `pipeline-doctor-selftest.sh` cited deleted writers, and
+     `pre-commit-typecheck-selftest.sh`'s header still advertised a `6-verify.md` contract the
+     same file had already dropped at its case (1b).
+  3. **Lockstep partners that no longer exist.** `preflight.sh` instructed maintainers to "keep
+     this set in lockstep with verifyctl.sh" for a row the branch had already re-anchored to
+     `lean-gate.sh`, and `lean-gate.sh` described `SEAM_SCRUB` as a `verbatim` row against that
+     deleted file when the live row is `subset-of` against `preflight.sh`. Both directions are
+     corrected, and the manifest's three DROPPED entries whose pairs died with the lane are marked
+     **MOOT via #348** so they read as decision records rather than live reasoning.
+  4. **A whole consumer-facing setup doc.** `cost-tracking-setup.md`'s entire operating model was
+     the staged lane — a Stage-9 in-band sub-step, `statectl`'s write seam registering
+     `pipelineSessions[]`, `costBlockApplied`, PR amendment. It is rewritten around the lane's
+     actual invocation (`pipeline-cost-block.sh --stateless` at `build-lean` step 7, verified
+     against the code): no PR amend, no recorded outcome, and no `cost-log.jsonl` row by D-36.
+     The stateful path is kept and labelled a historical-record path — it has **no writer left in
+     this tree**, which the doc now says outright.
+
+  Also corrected here: `check-config-shadowing.sh`'s header contradicted the D-17 table in this
+  very spec, claiming `formatGlob` and `gates.mutation` were rejected as removed keys when both
+  are kept and reader-backed; and `doctor.sh`'s bundle now actually contains what the retargeted
+  abort template says it does (see AC-6's blocker-1 remedy — `state_excerpt()` prefers the lean
+  progress record and tails it, guarded by two new probe-verified cases).
 
   **A fixture whose only oracle was deleted is an orphan too.** Round 3's own sweep found
   `tools/stage-times-fixtures/acme-89-pause.json` reachable by no suite: its `(pause3)`/`(pause4)`

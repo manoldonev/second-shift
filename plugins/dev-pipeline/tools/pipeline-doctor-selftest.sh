@@ -10,8 +10,8 @@
 # to reclaim a run a live session still owns, which corrupts that run's worktree.
 #
 # WHY NO SCENARIO COVERS IT (CLAUDE.md scenario-first rule): scenario-liveness-
-# selftest.sh composes verdict paths that reach a terminal WRITE — statectl
-# transitions, gate verdicts, PR-shaped outcomes. Block 8 writes nothing. It is a
+# selftest.sh composes verdict paths that reach a terminal WRITE — milestone
+# progressions, gate verdicts, PR-shaped outcomes. Block 8 writes nothing. It is a
 # read-only operator diagnostic that runs OUTSIDE any pipeline run, over state
 # files left behind by runs that already died. There is no verdict path to
 # compose it onto, so a scenario cannot reach it.

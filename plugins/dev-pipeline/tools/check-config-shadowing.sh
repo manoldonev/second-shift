@@ -16,14 +16,20 @@ fails=0
 #
 # #348 RE-ANCHORED. Every row used to name a `stages/*.md` file; the staged lane is gone, so
 # each surviving key is now anchored to its surviving reader. Three rows did not survive the
-# move and were RETIRED rather than re-pointed — `stageParams.visualCapture`,
-# `stageParams.formatGlob` and `gates.mutation` lost their only executors with stages 5/6, so
-# there is no reader to anchor to. They are rejected by config-lint.sh's removed-key arm
-# instead, which is the established dead-key pattern (docs/migrations/v1-to-v2.md).
+# move, for two different reasons (spec ledger D-17):
+#
+#   - `stageParams.visualCapture` is RETIRED outright — Stage 6's advisory smoke-capture was
+#     its only consumer, so no reader remains. config-lint.sh's removed-key arm rejects it,
+#     the established dead-key pattern (docs/migrations/v1-to-v2.md).
+#   - `stageParams.formatGlob` and `gates.mutation` are KEPT keys and still schema-legal:
+#     each lost its EXECUTOR with stages 5/6 but retains a reader in onboard's
+#     config-grill.sh (the `T2.formatGlob` waiver; the mutation-seam findings). They are
+#     absent from CHECKS for the sibling-plugin reason below, NOT because they are dead.
 #
 # Keys whose reader is in a SIBLING plugin are deliberately absent: this validator is anchored
-# at $DP and cannot see review-toolkit. `stageParams.webComponentGlobs` is the one such key
-# (read by review-lead/SKILL.md); scripts/lockstep-manifest.tsv carries the pairing instead.
+# at $DP and cannot see review-toolkit or second-shift. `stageParams.webComponentGlobs` (read
+# by review-lead/SKILL.md) is one, as are the two above; scripts/lockstep-manifest.tsv and
+# config-grill.sh's own key list carry those pairings instead.
 #
 # form: "<relative-file>|<config-key-reference>|<label>"
 CHECKS=(

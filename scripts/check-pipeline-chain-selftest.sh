@@ -5,7 +5,7 @@
 # trails via --comments-file, and mocks `gh` on PATH for the live-fetch cases. ZERO NETWORK.
 #
 # Tier justification (CLAUDE.md's map): one script's behavior against fixtures => a per-tool
-# behavioral selftest. The scenario-liveness suite is scoped to statectl-composed verdict paths
+# behavioral selftest. The scenario-liveness suite is scoped to gate-composed verdict paths
 # and cannot compose a GitHub-Actions-side reader, so no scenario covers this invariant.
 #
 # Anti-vacuity: the script's existence is asserted up front (exit 2 with a distinct message if
@@ -431,8 +431,10 @@ else bad "author pin (mismatch): rc=$rc, log: $(cat "$WORK/out.log")"; fi
 echo "== required markers are a subset of the canonical enum =="
 
 # The script's REQUIRED_MARKERS is a second checked-in copy of part of the stage-comment enum.
-# The canonical side is a GENERATED bash `case` in statectl.sh, so there is no quoted literal to
-# anchor a lockstep row against (see the DROPPED entry in scripts/lockstep-manifest.tsv). This
+# The canonical side was a GENERATED bash `case` in statectl.sh, so there was no quoted literal
+# to anchor a lockstep row against (see the DROPPED entry in scripts/lockstep-manifest.tsv);
+# #348 deleted that generator with the staged lane, leaving state-schema.md's table — a
+# historical record — as the only other copy. This
 # asserts the real invariant behaviorally: every required marker must exist in state-schema.md's
 # authoritative table — parsed from the canonical source, never re-declared here.
 if [[ -f "$SCHEMA" ]]; then

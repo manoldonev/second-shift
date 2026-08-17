@@ -99,7 +99,8 @@ done
 #
 # A pattern containing "/" is path-shaped: "*" stops at a separator, "**" crosses them.
 # A pattern with NO "/" (the formatGlob shape) is matched with "*" crossing separators —
-# that reproduces verifyctl.sh's `[[ "$f" == $a ]]` byte-for-byte. Using [^/]* there would
+# that reproduces the bash `[[ "$f" == $a ]]` match the staged lane's verifyctl.sh applied to
+# this key, byte-for-byte (the key outlived its executor — D-17). Using [^/]* there would
 # match only root-level files and would fire a zero-match finding on every repo whose sources
 # sit in a subdirectory.
 glob_to_ere() { # $1 = glob → prints an anchored ERE

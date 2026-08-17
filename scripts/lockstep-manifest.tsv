@@ -96,12 +96,15 @@ seam-scrub	subset-of	plugins/dev-pipeline/tools/preflight.sh	seam-scrub	plugins/
 # DROPPED to reviewer-guarded — recorded here rather than forgotten. Each was considered
 # for the mechanical manifest and rejected for a stated reason.
 #
-# preflight ↔ verifyctl zero-verifying-lane predicate. preflight.sh computes an aggregated
-# VERIFYING count inline; verifyctl.sh reads allowUnverified / lanes / extraLanes into
-# separate variables under a different jq arg name. No byte-identical block exists, and
-# reaching one means restructuring working code for the benefit of its own guard. The
-# intent is already declared in prose at preflight.sh's VERIFYING comment ("Keep this set
-# in lockstep with verifyctl.sh").
+# preflight ↔ gate zero-verifying-lane predicate. RE-ANCHORED in #348: the pair was
+# preflight ↔ verifyctl until the staged lane's verify runner was deleted. The coupling is
+# real and unchanged against its surviving counterpart, lean-gate.sh milestone 3, which reds
+# naming the opt-out where preflight only warns. preflight.sh computes an aggregated
+# VERIFYING count inline; the gate reads allowUnverified / lanes / extraLanes into separate
+# variables under a different jq arg name. No byte-identical block exists, and reaching one
+# means restructuring working code for the benefit of its own guard. The intent is already
+# declared in prose at preflight.sh's VERIFYING comment ("Keep this set in lockstep with
+# lean-gate.sh").
 #
 # Stage-8 secondary-review loop, past the clean-worktree assertion. The stage doc
 # interleaves in-session review prose that the selftest's bash mirror deliberately omits,
@@ -132,6 +135,9 @@ seam-scrub	subset-of	plugins/dev-pipeline/tools/preflight.sh	seam-scrub	plugins/
 # both — and the missed regression is a benign per-issue-namespaced detached worktree leak
 # on crashed runs, not a verdict path. Reviewer-guarded.
 #
+# MOOT via #348 — both halves' subject died with the staged lane; retained as the decision
+# record, not as live reasoning. The behavioral guard it cites (statectl-selftest.sh) is gone
+# too, so nothing below is a coverage claim about this tree.
 # implementation_resilience evidence gate (statectl.sh require_eval_file's gate comment ↔
 # state-schema.md's `mark-completed` terminal-gates paragraph). Both describe what the gate
 # keys on, and the two drifted apart once already: the gate shipped scoped to the inert lane
@@ -176,6 +182,9 @@ seam-scrub	subset-of	plugins/dev-pipeline/tools/preflight.sh	seam-scrub	plugins/
 # tables are short, sit in the two files every contributor reads first, and a new tier lands
 # with its own suite in the same PR.
 #
+# MOOT via #348 — this pair and the addendum below both name files the staged lane took with
+# it (statectl.sh, its selftest, and the run skill's SKILL.md). Retained as the decision
+# record; the guards they cite no longer exist, so neither is a coverage claim about this tree.
 # statectl `--repo` CLI surface (statectl.sh's header `Usage:` block + per-command usage
 # comments ↔ SKILL.md's CLI-surface listing). One contract — which flags each statectl
 # subcommand takes — stated in two places, and they drifted: `--repo` is load-bearing on a

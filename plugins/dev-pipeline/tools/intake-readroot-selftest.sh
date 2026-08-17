@@ -10,10 +10,12 @@
 # pin from one (or both) dispatch prompts.
 #
 # AC-5 (the `non-main-base-autonomous` reason value is retained, re-semanticized to the
-# pin-failure trigger rather than renamed) is NOT guarded here — it is guarded where it
-# is mechanically enforceable, in statectl-selftest.sh: the validator enum is generated
-# from the state-schema.md row, so its regenerate-and-diff drift check plus the
-# mark-failed case cover deletion both with and without regeneration.
+# pin-failure trigger rather than renamed) was never guarded here — it was guarded where it
+# was mechanically enforceable, in statectl-selftest.sh, whose validator enum was generated
+# from the state-schema.md row. #348 deleted that suite AND the enum it guarded, so the
+# guarantee is MOOT rather than orphaned: the only surviving mention of the value is the
+# corresponding row in state-schema.md, which the same PR banners as a historical record.
+# There is no live subject left to guard, which is why no replacement guard is filed.
 #
 # WHY grep-shaped (and grep-ONLY): intake-review.mjs runs inside the Workflow
 # tool's runtime (its globals — agent()/parallel()/log() — are injected there, and
@@ -59,11 +61,12 @@ else
 fi
 
 # The three markdown-prose checks that used to sit here were deleted (#214):
-#   - the state-schema.md `non-main-base-autonomous` row grep was DOUBLY redundant: the
-#     statectl enum is GENERATED from that very row (gen-statectl-validators.sh), and
-#     statectl-selftest.sh guards both mutation paths — its regenerate-and-diff drift
-#     check catches deletion without regeneration, and its mark-failed case catches
-#     deletion WITH regeneration. That is where the AC-5 guarantee actually lives.
+#   - the state-schema.md `non-main-base-autonomous` row grep was DOUBLY redundant at the
+#     time: the statectl enum was GENERATED from that very row (gen-statectl-validators.sh),
+#     and statectl-selftest.sh guarded both mutation paths — its regenerate-and-diff drift
+#     check caught deletion without regeneration, and its mark-failed case caught deletion
+#     WITH regeneration. That is where the AC-5 guarantee lived until #348 deleted the enum,
+#     the generator and the suite together; see the header note above.
 #   - the two `intake-pin-` prose anchors (1-intake.md / 10-cleanup.md) were the banned
 #     prose-presence class: independent greps, not a comparison, so a consistent rename
 #     across both files false-passes and an inconsistent one is visible in the diff. The

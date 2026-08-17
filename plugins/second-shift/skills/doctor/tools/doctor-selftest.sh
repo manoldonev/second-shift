@@ -240,9 +240,10 @@ scenario grill-degraded-missing plugin-list-green.json settings-green.json marke
 report report-sections    config-valid.json
 # --report redaction: secret-shaped keys masked, non-secret identifier preserved.
 report report-redaction   config-with-secret.json  "***REDACTED***" "119943793" "SUPER_SECRET_VALUE"
-# --report state excerpt (populated pipeline-state dir): the NEWEST run's failureContext
-# surfaces; the older run does not. Exercises state_excerpt()'s -nt selection + jq extraction
-# (the empty-dir branch is covered by the two scenarios above).
+# --report state excerpt, PRE-LEAN JSON fallback (populated pipeline-state dir, no lean
+# progress record): the NEWEST run's failureContext surfaces; the older run does not.
+# Exercises state_excerpt()'s -nt selection + jq extraction (the empty-dir branch is covered
+# by the two scenarios above; the lean-preference branch by the two cases after it).
 sroot="$TMP/report-state"; mkdir -p "$sroot/.claude/pipeline-state"
 cp "$FIX/lock-v1.json" "$sroot/.claude/second-shift.lock.json"
 cp "$FIX/config-valid.json" "$sroot/.claude/second-shift.config.json"
@@ -258,6 +259,44 @@ if grep -qF "approach-failure-circuit-breaker" <<< "$sout" \
    && grep -qF '"ticketKey": "42"' <<< "$sout" \
    && ! grep -qF "no pipeline runs recorded" <<< "$sout"; then check "report-state-excerpt" 0
 else check "report-state-excerpt" 1; echo "$sout" | sed 's/^/      /' | head -20; fi
+
+# --report state excerpt, LEAN PREFERENCE (#348). The abort form asks the filer to paste the
+# tail of `<issue>-lean-progress.md`, and asserts the --report bundle already carries it. The
+# lean lane writes that markdown and NO json at all, so a `*.json`-only glob answers "no
+# pipeline runs recorded" on the exact failure mode the form is aimed at — the bundle claim
+# would be false. Preference is keyed on the CLASS, not on mtime: the progress record here is
+# deliberately the OLDER file, so selecting by mtime alone picks the json and reds this case.
+# The tail must also be TAILED, not jq-projected: an `attempt` row carries the hard stop's
+# reason as prose that no `{ticketKey,status,...}` projection can reach.
+lroot="$TMP/report-lean"; mkdir -p "$lroot/.claude/pipeline-state"
+cp "$FIX/lock-v1.json" "$lroot/.claude/second-shift.lock.json"
+cp "$FIX/config-valid.json" "$lroot/.claude/second-shift.config.json"
+sed -e "s#__ROOT__#$lroot#g" -e "s#__INSTALL__#$INSTALL#g" "$FIX/settings-green.json" > "$lroot/.claude/settings.json"
+sed -e "s#__ROOT__#$lroot#g" -e "s#__INSTALL__#$INSTALL#g" "$FIX/plugin-list-green.json" > "$TMP/report-lean-pluglist.json"
+printf '{"ticketKey":"77","status":"failed","currentStage":6,"failureContext":{"stage":6,"reason":"json-era-marker"}}\n' > "$lroot/.claude/pipeline-state/77.json"
+{ printf '# lean run — issue 88\n\nrun_id: r-88\n\n'
+  printf '2026-01-02T03:04:05Z | milestone-3 | attempt | lean-era-abort-reason\n'
+  printf '2026-01-02T03:04:06Z | milestone-3 | concluded | rc=4\n'; } > "$lroot/.claude/pipeline-state/88-lean-progress.md"
+touch -t 202001010000 "$lroot/.claude/pipeline-state/88-lean-progress.md"  # OLDER than the json
+lout="$(DOCTOR_REPO_ROOT="$lroot" DOCTOR_PLUGIN_LIST_FILE="$TMP/report-lean-pluglist.json" \
+        DOCTOR_MARKETPLACE_LIST_FILE="$FIX/marketplace-list-pinned.json" DOCTOR_USER_SETTINGS="$TMP/empty-user-settings.json" \
+        bash "$DOCTOR" --report 2>&1)"
+if grep -qF "lean-era-abort-reason" <<< "$lout" \
+   && grep -qF "rc=4" <<< "$lout" \
+   && grep -qF "88-lean-progress.md" <<< "$lout" \
+   && ! grep -qF "json-era-marker" <<< "$lout" \
+   && ! grep -qF "no pipeline runs recorded" <<< "$lout"; then check "report-state-excerpt-lean-preferred" 0
+else check "report-state-excerpt-lean-preferred" 1; echo "$lout" | sed 's/^/      /' | head -20; fi
+
+# ...and WITHIN the lean class, newest still wins — so the preference above is a class filter
+# layered on the -nt selection, not a replacement for it.
+printf '2026-02-02T03:04:05Z | milestone-1 | attempt | newer-lean-run-marker\n' > "$lroot/.claude/pipeline-state/99-lean-progress.md"
+lout2="$(DOCTOR_REPO_ROOT="$lroot" DOCTOR_PLUGIN_LIST_FILE="$TMP/report-lean-pluglist.json" \
+         DOCTOR_MARKETPLACE_LIST_FILE="$FIX/marketplace-list-pinned.json" DOCTOR_USER_SETTINGS="$TMP/empty-user-settings.json" \
+         bash "$DOCTOR" --report 2>&1)"
+if grep -qF "newer-lean-run-marker" <<< "$lout2" \
+   && ! grep -qF "lean-era-abort-reason" <<< "$lout2"; then check "report-state-excerpt-lean-newest" 0
+else check "report-state-excerpt-lean-newest" 1; echo "$lout2" | sed 's/^/      /' | head -20; fi
 
 # --report context-coverage section: resolved (real review-toolkit) emits a coverage line;
 # unresolved (env empty + fake-cache pluglist install path has no script) emits the fallback.

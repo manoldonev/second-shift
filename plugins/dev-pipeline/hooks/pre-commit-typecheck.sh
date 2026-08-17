@@ -9,7 +9,7 @@
 # is an inert .claude/**/*.{mjs,cjs} Workflow script. Those scripts live outside the
 # yarn workspace tree and are referenced by no tsconfig/eslint/jest config, so
 # type-check gives them zero coverage — gating on them is pure wasted node_modules
-# install + run. This mirrors the Stage-6 inert lane; the inert set is defined once in
+# install + run. This mirrors the pipeline's INERT lane; the inert set is defined once in
 # the dev-pipeline skill's tools/is-inert-diff.sh (the single source of truth), and
 # the .claude/**/*.{mjs,cjs} pattern below is kept in lockstep with it (asserted by
 # pre-commit-typecheck-selftest.sh).

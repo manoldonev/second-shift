@@ -2,11 +2,11 @@
 # resolve-worktrees-dir.sh — single source of truth for a repo's pipeline-worktree base
 # directory (config `topology.repos.<id>.worktreesDir`). Every call site that used to
 # interpolate `${WORKTREES_DIR}` (or a locally-derived `WTDIR`) inline routes through
-# this script instead: `stages/1-intake.md`'s Step 1.P pin, `stages/2-worktree.md`'s
-# be-fe-pair loop AND its single-repo block (both the worktree-add and the
-# statectl-persist call — a separate bash fence, re-derived rather than relied on
-# carrying over), `stages/10-cleanup.md`'s intake-pin backstop, and `preflight.sh`'s
-# advisory report.
+# this script instead. Its one live caller today is `preflight.sh`'s advisory report:
+# #348 deleted the staged lane, and with it the other five (the intake step's pin, the
+# worktree step's be-fe-pair loop and its single-repo block — worktree-add plus a
+# separate statectl-persist fence — and the cleanup step's intake-pin backstop). The
+# lean lane cuts its worktree by hand per `build-lean` step 3, so it is not a caller.
 #
 # `worktreesDir` is documented as OPTIONAL with a default of `../<repo>-worktrees`
 # (schema/second-shift.config.schema.json) — but before this script existed, three call

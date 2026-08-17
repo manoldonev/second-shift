@@ -183,7 +183,8 @@ EOF
 done
 
 # --- AC-2/AC-3: trigger 2, formatGlob ------------------------------------------------------
-# formatGlob's shape has no "/", and verifyctl matches it with bash `[[ f == $a ]]`, where *
+# formatGlob's shape has no "/", and the bash `[[ f == $a ]]` match it inherited from the
+# staged lane's verifyctl treats * as one that
 # CROSSES separators. Transliterating * to [^/]* would match only root-level files and fire a
 # false zero-match on every repo with sources in a subdirectory — this pair pins that rule.
 R4="$(mkrepo t2-format-go main.go pkg/server.go)"

@@ -105,7 +105,8 @@ TRANSCRIPT=$(jq -r '.transcript_path // empty' <<<"$PAYLOAD" 2>/dev/null || true
 
 # Anchor the plans dir on the CONSUMER repo (git toplevel via --git-common-dir,
 # worktree-safe), with config paths.plansDir (default .claude/plans). Falls back
-# to $HOME/.claude/plans when not in a git repo. Mirrors statectl's state_dir.
+# to $HOME/.claude/plans when not in a git repo. Same precedence idiom the pipeline's
+# other state-dir resolvers use (lean-gate.sh, and the deleted statectl.sh before it).
 resolve_plans_dir() {
   local root="" common_dir cfg rel=".claude/plans"
   if [[ -n "${SECOND_SHIFT_REPO_ROOT:-}" ]]; then

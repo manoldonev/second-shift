@@ -12,7 +12,7 @@ You are `/second-shift:doctor`.
 3. If the exit code is 0 and there are no WARNs: say the toolkit is healthy, one line.
 4. Tone contract: missing plugins are "missing accelerators", not violations — the gate of
    record is server-side CI, this is fast local feedback.
-5. If the user asks about pipeline RUNTIME issues (gh auth, node, labels, statectl), point
+5. If the user asks about pipeline RUNTIME issues (gh auth, node, labels, lean-gate), point
    them to dev-pipeline's pipeline-doctor: it ships inside the dev-pipeline plugin at
    `tools/pipeline-doctor.sh` (resolve via `claude plugin list --json`
    installPath — never have them type a cache path from memory).

@@ -10,8 +10,8 @@
 # consumer. The gate runs on exactly one PR (the release PR) and had no test at all.
 #
 # WHY NO SCENARIO COVERS IT (CLAUDE.md scenario-first rule): scenario-liveness-
-# selftest.sh composes dev-pipeline verdict paths — stage transitions reaching a
-# terminal statectl write. This gate is not on any pipeline path. It runs in the
+# selftest.sh composes dev-pipeline verdict paths — milestone progressions reaching
+# a terminal write. This gate is not on any pipeline path. It runs in the
 # marketplace CI release-pr-gates job, over git history, after the pipeline is done.
 # There is no verdict path to compose it onto.
 #

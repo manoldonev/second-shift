@@ -6,7 +6,7 @@
 # against a committed baseline ceiling and fails when a file grows past it, and it flags
 # narrative `#NNN` incident archaeology that crept into operational prose.
 #
-# Mirrors the statectl drift-check posture (committed baseline + mechanical check).
+# Same posture as this repo's other drift checks (committed baseline + mechanical check).
 # Wired into pipeline-doctor.sh; exit code = number of FAILED checks (0 = clean).
 #
 # LAYOUTS. Two are supported, additively — a repo may use either or both:

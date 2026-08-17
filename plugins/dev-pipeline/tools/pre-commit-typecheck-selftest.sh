@@ -16,14 +16,15 @@
 # locks the predicate AND the lockstep contracts the carve-out depends on:
 #   - the hook's .claude carve-out extensions match is-inert-diff.sh (the single
 #     source of truth for the inert set),
-#   - Stage-6 (6-verify.md) delegates the lane decision to is-inert-diff.sh rather
-#     than re-inlining the grep, and
 #   - the embedded copy of the script in hooks.md matches the real script verbatim.
 #
+# A third contract — that the staged lane's verify step delegated the lane decision to
+# is-inert-diff.sh rather than re-inlining the grep — was case (1b), DROPPED in #348 along
+# with its subject; see the note at that case below.
+#
 # DRIFT MODEL: the parity tail fails if the hook's inert extension set changes without
-# is-inert-diff.sh following (lockstep), if 6-verify.md stops delegating to the script,
-# or if hooks.md's embedded ```bash block drifts from the real script — same technique
-# as claim-selftest's drift-check.
+# is-inert-diff.sh following (lockstep), or if hooks.md's embedded ```bash block drifts
+# from the real script — same technique as claim-selftest's drift-check.
 
 set -uo pipefail
 

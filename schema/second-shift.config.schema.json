@@ -56,12 +56,12 @@
         },
         "keyPattern": {
           "type": "string",
-          "description": "Regex for ticket keys as used in branch names and state files (e.g. \"[A-Z]+-[0-9]+\" for JIRA, \"[0-9]+\" for GitHub issue numbers). statectl init validates the key against this anchored pattern (fails closed on a malformed key); absent = accept any non-empty key."
+          "description": "Regex for ticket keys as used in branch names and record filenames (e.g. \"[A-Z]+-[0-9]+\" for JIRA, \"[0-9]+\" for GitHub issue numbers). Read by preflight.sh (which reports the effective pattern) and retro-corpus.sh (which filters the run corpus by it); predecessor-gate.sh applies the same pattern from its caller. Absent = accept any non-empty key."
         },
         "labels": {
           "type": "object",
           "additionalProperties": false,
-          "description": "github only: the queue/claim/blocker label vocabulary by ROLE (not a flat list). Every functional site reads these roles — the Stage-1 queue query, the claim label-swap, the do-not-pick-up guard, claim-issue.sh, and pipeline-doctor — and the pre-flight existence check verifies their union. Absent → the shipped defaults. Config home for the previously-hardcoded label literals (F75); a consumer with custom labels sets these once and every site follows.",
+          "description": "github only: the queue/claim/blocker label vocabulary by ROLE (not a flat list). Every functional site reads these roles — the queue-label confirm at build-lean step 1, the claim label-swap, the do-not-pick-up guard, claim-issue.sh, and pipeline-doctor — and the pre-flight existence check verifies their union. Absent → the shipped defaults. Config home for the previously-hardcoded label literals (F75); a consumer with custom labels sets these once and every site follows.",
           "properties": {
             "queue": { "type": "string", "description": "The label the pipeline picks work from and drops at claim. A crashed claim swap can leave it behind, so the unclaim workflow /second-shift:onboard emits also releases it when the item CLOSES. Default \"ready-for-dev\"." },
             "claimed": { "type": "string", "description": "The label added atomically at claim. It stays on for as long as the work is in flight — including through review, since the lean lane's exit milestone still requires an OPEN pr — and is released when the tracker item CLOSES, by the unclaim workflow /second-shift:onboard emits. Default \"in-progress\"." },
@@ -96,20 +96,20 @@
     },
     "commands": {
       "type": "object",
-      "description": "Command truth table per logical repo id (keys must exist in topology.repos). null = lane not available in this repo (verifyctl must not select it).",
+      "description": "Command truth table per logical repo id (keys must exist in topology.repos). null = lane not available in this repo; lean-gate.sh milestone 3 and preflight.sh both skip a null lane rather than inventing one.",
       "minProperties": 1,
       "additionalProperties": {
         "type": "object",
         "additionalProperties": false,
         "properties": {
           "lint": { "type": ["string", "null"] },
-          "lintAutofixes": { "type": "boolean", "description": "Whether the lint command mutates files (verifyctl LINT_AUTOFIX failure classification)." },
+          "lintAutofixes": { "type": "boolean", "description": "Whether the lint command mutates files. preflight.sh skips the lint lane when this is true — a read-only pre-flight never runs a mutating command — and LINT_AUTOFIX is the lane's class in the closed failure taxonomy." },
           "typecheck": { "type": ["string", "null"] },
           "test": { "type": ["string", "null"] },
           "testFile": { "type": ["string", "null"], "description": "Template for running ONE spec file (the mutation gate's per-spec runner). {file} is replaced with the spec path; the command runs from the worktree root. e.g. \"yarn --cwd apps/api test {file}\". null = no per-spec runner (previously hardcoded to the acme apps/api form)." },
-          "unitTestScope": { "type": ["string", "null"], "description": "Glob selecting the backend source in scope for the unit-test mutation gate (Stages 3-5 classify unitTestSurface against it). e.g. \"apps/api/src/**\". null = not scoped (the whole repo, or the gate is off)." },
+          "unitTestScope": { "type": ["string", "null"], "description": "Glob selecting the backend source in scope for the unit-test mutation gate (workflows/mutation-gate.mjs classifies the unit-test surface against it). e.g. \"apps/api/src/**\". null = not scoped (the whole repo, or the gate is off)." },
           "format": { "type": ["string", "null"] },
-          "allowUnverified": { "type": "boolean", "description": "Zero-lane safety valve. When no verifying lane is configured (lint/typecheck/test all null and extraLanes empty), Stage 6 refuses an all-skipped verifySummary, preflight withholds its pipeline-ready verdict, and lean-gate.sh milestone 3 reds naming the opt-out — unless this is true, which declares the opt-out deliberate. Inert when any verifying lane is configured." },
+          "allowUnverified": { "type": "boolean", "description": "Zero-lane safety valve. When no verifying lane is configured (lint/typecheck/test all null and extraLanes empty), preflight.sh withholds its pipeline-ready verdict and lean-gate.sh milestone 3 reds naming the opt-out — unless this is true, which declares the opt-out deliberate. Inert when any verifying lane is configured." },
           "lanes": {
             "type": "array",
             "description": "SETUP-ONLY steps run sequentially BEFORE the built-in lint/typecheck/test trio (e.g. dependency install, workspace-package builds for apps/*, packages/*). Every lane failure is classed INFRA (environment/setup), NOT a code defect — a lane never gets the TEST_FAILURE/TYPE_ERROR fix budget. Do NOT put a test/lint/typecheck command here (e.g. `poetry run pytest`): its failures would be misreported as environment errors and bypass the fix budget. For additive VERIFY-style lanes that carry a real failure class and the standard fix budget, use extraLanes (EP-2) below.",
@@ -126,7 +126,7 @@
           },
           "extraLanes": {
             "type": "array",
-            "description": "EP-2: additive verify lanes. Run sequentially AFTER the built-in SUITE lanes, never interleaving or replacing them. Results land under namespaced ext:<name> keys in the verify summary (canonical keys unreachable). No advisory mode — a lane blocks Stage-6 completion or it does not exist.",
+            "description": "EP-2: additive verify lanes. Run sequentially AFTER the built-in SUITE lanes, never interleaving or replacing them. Results land under namespaced ext:<name> keys in the verify summary (canonical keys unreachable). No advisory mode — a lane blocks lean-gate.sh milestone 3 or it does not exist.",
             "items": {
               "type": "object",
               "additionalProperties": false,
@@ -138,7 +138,7 @@
                 "failureClass": {
                   "type": "string",
                   "enum": ["FORMAT", "LINT_AUTOFIX", "TYPE_ERROR", "TEST_FAILURE", "PLAN_CMD_FAILURE", "INFRA"],
-                  "description": "MUST be an existing closed failure-taxonomy value — extensions borrow the taxonomy, never extend it. Blocking; the attempt-budget behavior belongs to the consuming lane (e.g. verifyctl's 2-attempt budget; lean-gate's 3-attempt milestone budget)."
+                  "description": "MUST be an existing closed failure-taxonomy value — extensions borrow the taxonomy, never extend it. Blocking; the attempt-budget behavior belongs to the consuming lane (lean-gate's 3-attempt milestone budget)."
                 }
               }
             }
@@ -180,7 +180,7 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "plansDir": { "type": "string", "default": "docs/plans", "description": "Directory (worktree-relative) where Stage 3 writes plan files. Default = the plugin's current literal; a consumer that sets it has it honored (Stage 3 reads the key — fixed the prior drift where it was ignored)." },
+        "plansDir": { "type": "string", "default": "docs/plans", "description": "Directory (worktree-relative) holding the lane's per-ticket records — the spec/AC file, the review verdict record, and the design render receipt. Default = the plugin's current literal; a consumer that sets it has it honored. Read by lean-gate.sh (which resolves every milestone artifact under it), lean-reconcile.sh and retro-corpus.sh." },
         "pipelineStateDir": { "type": "string", "default": ".claude/pipeline-state" }
       }
     },
@@ -189,7 +189,7 @@
       "description": "Optional pipeline gates/capabilities. Everything defaults to off; a gate that is on but missing its prerequisites must fail closed at run time.",
       "additionalProperties": false,
       "properties": {
-        "mutation": { "type": "boolean", "default": false, "description": "false disables the Stage-5 unit-test mutation gate even when commands.<host>.unitTestScope is set (an explicit off-switch). Absent/true = the gate runs whenever a mutation surface (unitTestScope) is configured." }
+        "mutation": { "type": "boolean", "default": false, "description": "false declares the unit-test mutation seam deliberately off even when commands.<host>.unitTestScope is set (an explicit off-switch). Absent/true = the seam is expected wherever a mutation surface (unitTestScope) is configured. The lean lane's sweep is repo-carried — lean-gate.sh milestone 3 runs tools/mutation-sweep.sh when the repo ships one and records SKIPPED when it does not — so this key is the declared INTENT that onboard's config-grill grades that plumbing against, not a switch the gate reads." }
       }
     },
     "design": {
@@ -207,11 +207,11 @@
           "type": "object",
           "additionalProperties": false,
           "required": ["command"],
-          "description": "Arms a repo-owned render command in BOTH lanes, with DIFFERENT failure postures. Stage 5: key absent = render-verify-unavailable (unconfigured); command failure is non-blocking — the gate degrades with the failure detail, never mark-failed. build-lean milestone 3: additionally requires a per-ticket `## Design` section in the committed spec (config alone arms nothing), and failure is BLOCKING on the run's shared 3-attempt fix budget with no degraded state. See docs/live-render.md.",
+          "description": "Arms a repo-owned render command on build-lean milestone 3. Config alone arms nothing: the gate additionally requires a per-ticket `## Design` section in the committed spec, and once a ticket arms, the disarm state-locks. Failure is BLOCKING on the run's shared 3-attempt fix budget, with no degraded state — the milestone renders every RS row, hashes them into a committed receipt, and reds until that receipt is committed. See docs/live-render.md.",
           "properties": {
             "command": {
               "type": "string",
-              "description": "Repo-owned render script with {route} and {out} placeholders, plus an optional {state} the lean lane substitutes, e.g. \"yarn render:verify --route {route} --state {state} --out {out}\". {route} is the app-relative leaf below the feature mount path (the harness owns any shell/org prefix); {state} is the render state named by a lean spec's | RS-n | row, and is REQUIRED in the template whenever a ticket declares a state other than `default` (the staged lane never substitutes it); the harness owns boot/auth/screenshot and must emit a PNG at {out}, exiting nonzero with a clear message on failure. Placeholders must appear UNQUOTED — the lean gate shell-quotes each substituted value. See docs/live-render.md."
+              "description": "Repo-owned render script with {route} and {out} placeholders, plus an optional {state} the lean lane substitutes, e.g. \"yarn render:verify --route {route} --state {state} --out {out}\". {route} is the app-relative leaf below the feature mount path (the harness owns any shell/org prefix); {state} is the render state named by a lean spec's | RS-n | row, and is REQUIRED in the template whenever a ticket declares a state other than `default`; the harness owns boot/auth/screenshot and must emit a PNG at {out}, exiting nonzero with a clear message on failure. Placeholders must appear UNQUOTED — the lean gate shell-quotes each substituted value. See docs/live-render.md."
             },
             "cwd": {
               "type": "string",
@@ -245,19 +245,19 @@
           "type": "array",
           "items": { "type": "string" },
           "default": ["apps/web/**/*.{tsx,jsx}"],
-          "description": "Stage-8 web-component surface: the globs whose presence in the diff route the a11y reviewer and the design-fidelity reviewer. Set this when the FE is not React-under-apps/web — e.g. [\"src/app/**/*.{html,ts}\"] (Angular), [\"src/**/*.vue\"] (Vue), [\"app/**/*.tsx\"] (React Router v7)."
+          "description": "The web-component surface: the globs whose presence in the diff route the a11y reviewer and the design-fidelity reviewer (read by review-lead when it selects the panel). Set this when the FE is not React-under-apps/web — e.g. [\"src/app/**/*.{html,ts}\"] (Angular), [\"src/**/*.vue\"] (Vue), [\"app/**/*.tsx\"] (React Router v7)."
         },
         "formatGlob": { "type": "string", "default": "*.{ts,tsx,js,json,md}" },
         "inertPattern": {
           "type": "string",
           "minLength": 1,
-          "description": "Stage-6 INERT-lane classifier override: an extended regular expression that REPLACES the shipped inert set outright. Omit to keep the default, which is JS/TS-centric — it treats *.md, *.sh, .github/workflows/*.yml and .claude/** data files as inert because a JS/TS lint/type-check/test suite gives them zero coverage. Set this when your product surface IS one of those extensions: on a shell-and-Markdown repo the default classifies every real diff inert, so the configured lint/test lanes never run and Stage 6 reports a false green. Replace-not-merge is deliberate — only replacement can REMOVE an alternative such as \\.sh$; the value is a hand-copy and will not inherit future additions to the default. An uncompilable pattern is rejected by config-lint, and fails closed to the full suite at runtime."
+          "description": "INERT-lane classifier override, read by tools/is-inert-diff.sh and tools/preflight.sh: an extended regular expression that REPLACES the shipped inert set outright. Omit to keep the default, which is JS/TS-centric — it treats *.md, *.sh, .github/workflows/*.yml and .claude/** data files as inert because a JS/TS lint/type-check/test suite gives them zero coverage. Set this when your product surface IS one of those extensions: on a shell-and-Markdown repo the default classifies every real diff inert, so the configured lint/test lanes never run and the green gate reports a false green. Replace-not-merge is deliberate — only replacement can REMOVE an alternative such as \\.sh$; the value is a hand-copy and will not inherit future additions to the default. An uncompilable pattern is rejected by config-lint, and fails closed to the full suite at runtime."
         }
       }
     },
     "stageWorkflows": {
       "type": "array",
-      "description": "EP-6: gate-owned workflow dispatch. Registers a Workflow script (a companion plugin's, or repo-local) as a BLOCKING stage sub-step — dispatched AFTER the stage's built-in sub-steps and BEFORE the stage-completion write. Registration lives in consumer config (auditable, per-repo), never in the plugin manifest. Always blocking (no advisory field — advisory lanes don't exist). Result recorded under stageCheckpoint[N].extWorkflows[<name>]; a failure produces the stage's standard fail-fast write with reason ext-workflow-failed (the name in the detail field). The workflow may write state ONLY via statectl checkpoint payloads namespaced ext: (adds evidence, never reinterprets it). Unresolvable reference = config-lint failure, fail closed.",
+      "description": "INERT since #348 — no dispatcher. EP-6: gate-owned workflow dispatch. The staged lane dispatched this extension point and was deleted; the key stays schema-legal and check-extensions.sh still validates the workflow it references, so an existing consumer config does not red — but nothing runs it either. Documented rather than retired because whether second-shift keeps a consumer-pluggable blocking gate, and what dispatches it on the lean lane, is a product decision the deletion did not make (docs/extending.md §3.6). Treat what follows as a record of the shape as designed, not a capability you can turn on: registers a Workflow script (a companion plugin's, or repo-local) as a BLOCKING sub-step of the stage named below, with registration in consumer config (auditable, per-repo) rather than the plugin manifest, always blocking (no advisory field), the result recorded under that stage's checkpoint and a failure producing a fail-fast write with reason ext-workflow-failed. Unresolvable reference = config-lint failure, fail closed.",
       "items": {
         "type": "object",
         "additionalProperties": false,
@@ -271,7 +271,7 @@
     },
     "implementDelegates": {
       "type": "array",
-      "description": "EP-7: implementer delegation (Stage 5). Routes matching work items to a delegate agent INSTEAD of inline implementation; the delegate's output passes through the unchanged Stage-5 scope-enforcement gate and all downstream gates (adds work, waives nothing). Unresolvable agent = fail closed at pre-flight.",
+      "description": "INERT since #348 — no dispatcher. EP-7: implementer delegation. The staged lane's implement step routed this and was deleted; the key stays schema-legal and check-extensions.sh still validates the agent it references, so an existing consumer config does not red — but nothing routes to it either. Documented rather than retired for the same product reason as EP-6 (docs/extending.md §3.7). Shape as designed: routes matching work items to a delegate agent INSTEAD of inline implementation, with the delegate's output passing through the unchanged scope-enforcement gate and all downstream gates (adds work, waives nothing). Unresolvable agent = fail closed at pre-flight.",
       "items": {
         "type": "object",
         "additionalProperties": false,
@@ -284,14 +284,14 @@
     },
     "planGates": {
       "type": "array",
-      "description": "EP-8: additive Stage-4 plan-review gates. Registers a consumer/companion plan-reviewer agent that runs AFTER the built-in plan gates (plan-reviewer, design FE-spec, unit-test-plan) and returns a trinary verdict — additive-only: it can only make a passing plan-review block, never waive a built-in gate. A block maps to the existing plan-reviewer-block reason (no per-extension reason). Symmetric with commands.<repo>.extraLanes (Stage-6 verify) and reviewers.add (Stage-8 code review).",
+      "description": "INERT since #348 — no dispatcher. EP-8: additive plan-review gates. The staged lane's plan-gate step ran these and was deleted; the key stays schema-legal and check-extensions.sh still validates the agent it references, so an existing consumer config does not red — but nothing runs it either. Documented rather than retired for the same product reason as EP-6 (docs/extending.md §3.8). Shape as designed: registers a consumer/companion plan-reviewer agent that runs AFTER the built-in plan gates and returns a trinary verdict — additive-only, able to make a passing plan review block but never to waive a built-in gate. NOT symmetric with its two live siblings, which do still run: commands.<repo>.extraLanes is read by lean-gate.sh milestone 3, and reviewers.add by review-lead.",
       "items": {
         "type": "object",
         "additionalProperties": false,
         "required": ["name", "agent"],
         "properties": {
           "name": { "type": "string", "description": "kebab-case, unique; the gate ledger key is plan-gate:<name>." },
-          "surface": { "type": "string", "description": "Optional path glob — Stage 4 runs the gate only when the plan touches this surface (absent = always)." },
+          "surface": { "type": "string", "description": "Optional path glob — as designed (see the INERT note above), the gate ran only when the plan touched this surface (absent = always)." },
           "agent": { "type": "string", "description": "\"<plugin>:<agent>\" (companion pack) or a repo-local bare agent name (in .claude/agents/). Unresolvable = fail closed at pre-flight." }
         }
       }
