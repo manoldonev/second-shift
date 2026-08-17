@@ -227,10 +227,13 @@ capability that is off simply never runs and the run still reports green.
   screen: the finding's `evidence`, then its `proposal` verbatim. The proposal names the
   benefit; do not paraphrase it down to a key name, which motivates nobody.
 - Every entry in `unadopted[]` renders as a **blocking line too**, identically — evidence, then
-  proposal verbatim. These are the extension points nothing else in this skill mentions, so the
-  screen is the only place they are ever named; a human who has never heard of them cannot
-  decline them. Doctor renders the same entries as informational notes (an optional key at its
-  default is not a defect); onboard blocks on them because here one edit closes it.
+  proposal verbatim. These are optional seams nothing else in this skill mentions, so the screen
+  is the only place they are ever named; a human who has never heard of one cannot decline it.
+  Doctor renders the same entries as informational notes (an optional key at its default is not
+  a defect); onboard blocks on them because here one edit closes it — which is load-bearing, not
+  incidental. An unadopted row whose "adopt" arm has stopped being reachable is a deadlock, and
+  the row is what has to go: that is why #569 deleted `T1.extension-points` along with the three
+  config keys it proposed rather than leaving a row only a waiver could clear.
 - Every entry in `notEvaluated[]` renders as an informational line. It is **not** a finding —
   it has no proposal, cannot be waived, and must never block acceptance.
 - The checker **re-runs on each loop iteration**, and "no unwaived `findings[]` and no unwaived

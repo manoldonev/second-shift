@@ -99,8 +99,11 @@ expect_violation invalid-v1-gates-figma.json        'gates.figma was removed in 
 expect_violation invalid-empty-inertpattern.json    "stageParams.inertPattern: must be non-empty"
 expect_violation invalid-bad-inertpattern.json      "stageParams.inertPattern: not a valid extended regular expression"
 
-# --- #15: the 12 config-lint type-check gaps (F83 mutant matrix). One packed fixture,
-# one assertion per surviving-mutant class it must now KILL. Plus the removed-key notes.
+# --- #15: the config-lint type-check gaps (F83 mutant matrix). One packed fixture, one
+# assertion per surviving-mutant class it must now KILL. Plus the removed-key notes.
+# #569 retired three of the classes along with their keys — stageWorkflows[].stage,
+# implementDelegates[].surface and planGates[].surface have no per-item shape check left to
+# gap. The fixture keeps implementDelegates, repurposed as the removal probe below.
 expect_violation invalid-type-gaps.json             "stageParams.planFilePattern: must be string"
 expect_violation invalid-type-gaps.json             "stageParams.inertPattern: must be string"
 expect_violation invalid-type-gaps.json             "reviewers.remove: must be array"
