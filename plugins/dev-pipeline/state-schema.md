@@ -1,5 +1,14 @@
 # Dev Pipeline State Schema
 
+> **Historical record — the pre-#348 staged-lane format.** #348 deleted the staged `run` lane, and
+> with it every sibling this document links (`statectl.sh`, `verifyctl.sh`,
+> `tools/plan-scope-paths.sh`, `tools/gen-statectl-validators.sh`, `plan-lint.sh`) and every
+> `stages/*.md` it cites. **Those links are dead by design and are not to be "fixed"** — they name
+> the machinery as it stood, which is what makes this file legible as a record. It is kept because
+> `pipeline-retro` and `perf-retro` still read the staged-era run corpus, whose state files are in
+> exactly this shape. The lean lane writes no file of this kind; nothing below describes current
+> behavior.
+
 Reference for the state file at `.claude/pipeline-state/{issue-number}.json` written by the pipeline for crash recovery. Runtime behavior (resume logic, write discipline) stays in `SKILL.md` — this file is the schema reference only.
 
 **Mutations are owned by [`statectl.sh`](./statectl.sh)** — a sibling Bash helper that enforces atomic field bundles, closed-enum validation against the indexes below, and server-clock timestamps. The skill body invokes statectl at every write site rather than inlining jq, with **one documented exception**: `costBlockApplied`, written only by `pipeline-cost-block.sh` (see its field entry under Outputs). Three of the closed-enum validators (`valid_failure_reason`, `valid_deviation_kind`, `valid_stage_marker`) are **generated** from this schema by [`tools/gen-statectl-validators.sh`](./tools/gen-statectl-validators.sh) (developer-step, output committed). Drift between this schema and the committed helper is detected by `statectl-selftest.sh` via regenerate-and-diff.

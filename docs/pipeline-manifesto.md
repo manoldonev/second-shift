@@ -50,10 +50,12 @@ be the first thing it forbids.
   arrangement, not in the intelligence. Generation and evaluation run in separate contexts, and
   neither writes the other's record.
 
-**P1/P2 posture:** stated in block form — receipts and outcome gates. Until the stage-machinery
-deletion lands, the staged path remains in-tree solely as rollback and ablation control (the pin is
-the last stage-carrying release, recorded on the deletion PR when it merges); new work runs the lean
-lane. P10 is mechanically enforced rather than owed: the lean lane's verdict record is written by a
+**P1/P2 posture:** stated in block form — receipts and outcome gates. The stage machinery is gone
+from the tree: #348 deleted the staged `run` lane, so the lean lane is the only lane. Rollback and
+the ablation's staged arm are served by a marketplace pin of the last stage-carrying release, whose
+version literal is recorded in #348's `Migration:` trailer — and so in that release's changelog
+entry — rather than restated here, where it would rot. P10 is mechanically enforced rather than
+owed: the lean lane's verdict record is written by a
 separate top-level review session carrying its own identity, and a record carrying the build run's
 identity — or naming the build session as its author — is refused both in-gate and at the merge
 boundary. The in-build reviewer is deleted, and with it the dispatch-failure fallback that let a

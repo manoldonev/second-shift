@@ -115,7 +115,7 @@ jobs:
       - uses: actions/checkout@v5
 
       - name: instruction-layer + shell prose ratchet
-        run: bash plugins/dev-pipeline/skills/run/tools/prose-budget.sh
+        run: bash plugins/dev-pipeline/tools/prose-budget.sh
 
   wholesale-selftests-bash32:
     name: wholesale-selftests (macos, bash 3.2)

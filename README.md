@@ -54,7 +54,7 @@ The blocks it drives stay individually invokable, which is the manual two-termin
 /dev-pipeline:review-lean <pr>
 ```
 
-Full onboarding — topologies (monorepo, BE+FE pair), reviewer tuning, extension files — is in [`docs/onboarding.md`](docs/onboarding.md); the JIRA tracker's setup and behavioral delta live in [the JIRA tracker README](plugins/dev-pipeline/skills/run/tools/tracker/jira/README.md). To keep collaborators on the same toolset, commit the settings pin `onboard` writes (`extraKnownMarketplaces` + `enabledPlugins` in `.claude/settings.json`); track latest only in a canary.
+Full onboarding — topologies (monorepo, BE+FE pair), reviewer tuning, extension files — is in [`docs/onboarding.md`](docs/onboarding.md); the JIRA tracker's setup and behavioral delta live in [the JIRA tracker README](plugins/dev-pipeline/tools/tracker/jira/README.md). To keep collaborators on the same toolset, commit the settings pin `onboard` writes (`extraKnownMarketplaces` + `enabledPlugins` in `.claude/settings.json`); track latest only in a canary.
 
 ## Why
 

@@ -25,7 +25,7 @@
 // Mirrors the conventions of statectl-selftest.sh: numbered cases, pass/fail
 // counters, exit code = number of failed cases (0 = all pass).
 //
-// Run: node .claude/skills/run/workflows/null-reviewer-selftest.mjs
+// Run: node plugins/dev-pipeline/workflows/null-reviewer-selftest.mjs
 
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'

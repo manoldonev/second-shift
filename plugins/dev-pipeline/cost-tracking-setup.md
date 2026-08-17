@@ -37,7 +37,7 @@ Verify: `otelcol-contrib --version`.
 
 The collector is a **single global daemon** — one instance serves every repo's telemetry, keyed by `session.id`, not by which repo you launched it from. It listens on `127.0.0.1:4317`, batches every 1s, and appends JSONL to `~/.claude/otel-metrics/metrics.jsonl` (50 MB rotation, 30-day retention). It does not need a tmux/iTerm pane and it does not need to be started from any particular `cwd`.
 
-The config ships at `plugins/dev-pipeline/skills/run/otel-collector-config.yaml` inside dev-pipeline. **Don't reference that path directly** — if you installed the plugin from the marketplace it resolves to a version-pinned cache path (`~/.claude/plugins/cache/second-shift/dev-pipeline/<version>/skills/run/...`) that moves out from under you on the next upgrade. Copy it to a stable location once instead:
+The config ships at `plugins/dev-pipeline/otel-collector-config.yaml` inside dev-pipeline. **Don't reference that path directly** — if you installed the plugin from the marketplace it resolves to a version-pinned cache path (`~/.claude/plugins/cache/second-shift/dev-pipeline/<version>/...`) that moves out from under you on the next upgrade. Copy it to a stable location once instead:
 
 ```bash
 mkdir -p ~/.claude/otel-metrics
@@ -45,7 +45,7 @@ SRC=$(find ~/.claude/plugins/cache/second-shift/dev-pipeline -name otel-collecto
 cp "$SRC" ~/.claude/otel-metrics/otel-collector-config.yaml
 ```
 
-(If you're working directly in a clone of second-shift itself, `SRC` is `plugins/dev-pipeline/skills/run/otel-collector-config.yaml` relative to the repo root instead.)
+(If you're working directly in a clone of second-shift itself, `SRC` is `plugins/dev-pipeline/otel-collector-config.yaml` relative to the repo root instead.)
 
 Then launch it backgrounded with `nohup` — no dedicated pane to babysit:
 

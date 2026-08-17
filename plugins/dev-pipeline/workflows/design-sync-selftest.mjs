@@ -28,7 +28,7 @@
 // Mirrors the conventions of null-reviewer-selftest.mjs: numbered cases, pass/fail counters,
 // exit code = number of failed cases (0 = all pass).
 //
-// Run: node .claude/skills/run/workflows/design-sync-selftest.mjs
+// Run: node plugins/dev-pipeline/workflows/design-sync-selftest.mjs
 
 import { readFileSync, existsSync, readdirSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'

@@ -95,6 +95,8 @@ operator-facing diagnostics, and the collector config is the artifact that doc i
 | `ledger-corroborate.sh`, `plan-scope-paths.sh`, `tracker-reconcile-check.sh` | — | **delete** | Sole invokers are `statectl.sh`, `stages/7-doc-update.md` and `SKILL.md` respectively. `capability-parity.tsv` already dispositions the first two as `dropped`. |
 | `score-review.sh` | not enumerated | **relocate** | It is the scorer half of the `stall-probe.mjs` instrument set that ledger D-2 preserves for #291's pre-registered replication; deleting it would break the same experiment D-2 protects. CLAUDE.md also grandfathers its selftest as a mutation-eval anchor. |
 | `tools/capability-parity.tsv` | ledger D-15 listed it for re-keying | **left untouched** | Its own header and `capability-parity-check.sh:29` state that rows are permanent record and their paths are **historical citations, not existence-checked**. Re-keying it would destroy the deletion's audit trail. AC-1's orphan grep exempts it for this reason. |
+| `cost-tracking-fixtures/` | listed under the **Deletion set** | **relocate** | Re-verified at implementation: it is not statectl-state-only. `cost-block-selftest.sh` survives the deletion and drives all four fixtures (the shared-session time-fence pair and the cross-vendor tier fixture), so deleting them would delete a live suite's only oracle. Declared here rather than left as a silent read of the deletion set. |
+| `state-schema.md` | relocate, "no content edit beyond path fixes" | **relocate + historical banner** | Its siblings (`statectl.sh`, `verifyctl.sh`, `plan-scope-paths.sh`, `gen-statectl-validators.sh`) are all deleted, so there is no path to fix them *to* — the links cannot be re-pointed, only removed or declared. A banner declaring the file the pre-#348 format keeps the record legible and stops a future reader "fixing" dead links that name the machinery on purpose. The corpus `pipeline-retro`/`perf-retro` read is still in this shape. |
 
 ## Deletion set
 
@@ -214,18 +216,44 @@ its Blocking? column. Filing the retirement is out of scope; the record is not.
 
 - **AC-1 (oracle — CI).** The full selftest sweep is green after the deletion
   (`tools/run-selftests.sh`), and `shellcheck` + `jq empty` are clean. Plus the mechanical
-  orphan check, run in the PR: a grep of every `*-selftest.sh`, `tools/*.tsv`,
-  `scripts/*.tsv` and `scripts/lockstep-manifest.tsv` for any deleted or relocated
-  `skills/run/` path returns empty, with exactly **two** exemptions, both stated rather than
-  discovered: `tools/capability-parity.tsv`, whose rows are permanent historical citations by
-  its own contract (`capability-parity-check.sh:29`) and are deliberately not existence-checked;
-  and `tools/capability-parity-check-selftest.sh`, which must FABRICATE a `skills/run/stages`
-  tree under its sandbox to exercise the coverage clause at all — the clause's own LIFETIME note
-  forbids deleting it, so its test needs a stage doc to point at. `scripts/fail-open-sites.tsv`
-  is inside this check (widened from the issue's glob per ledger D-15), and so is
-  `.claude/prose-budget.baseline.tsv`, whose deleted rows were removed and whose moved rows were
-  re-pointed **individually** — regenerating it wholesale would have reset a ratchet carrying 18
-  pre-existing over-budget signals that have nothing to do with this change.
+  orphan check, run in the PR, over every `*-selftest.sh`, `tools/*.tsv`, `scripts/*.tsv`,
+  `scripts/lockstep-manifest.tsv` **and `.github/workflows/*.yml`**.
+
+  The check's verdict is **"no orphaned reference"** — every `skills/run/` token that something
+  actually resolves is re-pointed — **not** "the grep returns empty". It does not return empty,
+  and claiming it did is how the next deletion's real orphan gets waved through (round-1 finding
+  10). The surviving hits fall in seven stated classes, each a token nothing resolves:
+
+  1. `tools/capability-parity.tsv` — rows are permanent historical citations by its own contract
+     (`capability-parity-check.sh:29`), deliberately not existence-checked. Re-keying would
+     destroy the audit trail this deletion exists to leave.
+  2. `tools/capability-parity-check-selftest.sh` — must FABRICATE a `skills/run/stages` tree in
+     its sandbox to exercise the coverage clause at all; the clause's LIFETIME note forbids
+     deleting it, so its test needs a stage doc to point at.
+  3. Consumer-side `.claude/`-prefixed literals exercising path matching generically —
+     `is-inert-diff-selftest.sh:74`, `pre-commit-typecheck-selftest.sh:73,74`. The string is a
+     *consumer's* tree, not this repo's.
+  4. Fabricated version-cache layouts where the directory name is arbitrary —
+     `pipeline-doctor-selftest.sh:687,693` builds a `1.0.0` cache for a version-ordering case.
+  5. Prose and comments *about* the #348 move — `check-bounded-exploration-selftest.sh:389`,
+     `workflows-mjs-selftest.sh:13`, `runtime-shim-lib.mjs:7`, `design-sync-selftest.mjs:49`,
+     `docs/testing.md:404`, `docs/migrations/v1-to-v2.md:91`, `scripts/stack-generality-lint.sh:40`,
+     and `state-schema.md`'s historical banner. Naming the old path is the point.
+  6. The namespace-enforcement grep **pattern** — `.github/workflows/ci.yml:168,174` and
+     `docs/namespaces.md:9,11`. `skills/run/` is a banned *token* in a denylist, not a path.
+  7. `plugins/dev-pipeline/tools/review-harness-fixtures/harness-plan-alpha.md` — a frozen
+     measurement instrument with deliberately planted defects, never implemented; the scorer's
+     anchor-drift guard asserts its content does **not** move.
+
+  `scripts/fail-open-sites.tsv` is inside this check (widened from the issue's glob per ledger
+  D-15), and so is `.claude/prose-budget.baseline.tsv`, whose deleted rows were removed and whose
+  moved rows were re-pointed **individually** — regenerating it wholesale would have reset a
+  ratchet carrying 18 pre-existing over-budget signals unrelated to this change.
+
+  The `.github/workflows/` arm is the round-1 lesson, not decoration: `nightly-guards.yml` invoked
+  `prose-budget.sh` by its pre-move path and no reviewer window reached it, because #561 added that
+  line to `main` **after** this branch's re-pointing commit and the rebase carried it in unswept. A
+  deletion's blast radius includes CI definitions the branch never touched.
 - **AC-2 (oracle — mutation sweep).** No baseline, exclusion, pair-map, slow-suite or catalog
   row references a deleted guard; every re-keyed row lands in this same diff, and
   `tools/mutation-sweep.sh` runs clean against the surviving guard set on the PR lane.
@@ -247,6 +275,15 @@ its Blocking? column. Filing the retirement is out of scope; the record is not.
   register and `tools/mutation-exclusions.tsv` move in lockstep. `docs/native-primitive-audit.md`
   is deliberately **excluded**: it is a dated audit record, and rewriting its subject would
   falsify the record.
+
+  The enumerated list is a floor, not the boundary — round 1 found four files of the same class
+  outside it, and they are in scope: **shipped plugin docs whose copy-pasteable commands or
+  `${CLAUDE_PLUGIN_ROOT}`-relative paths moved** (`cost-tracking-setup.md`,
+  `cost-tracking-fixtures/README.md`, `tools/tracker/README.md`), and **relocated-verbatim docs
+  whose sibling links no longer resolve** (`state-schema.md`). A doc that relocates at
+  `similarity index 100%` is exactly where this rots: the move is invisible in review precisely
+  because nothing in it changed. `${CLAUDE_PLUGIN_ROOT}`-relative paths are the sharp case — they
+  are wrong for an *installed consumer*, not merely for this checkout.
 - **AC-7 (oracle — CI).** The retirement of `stageParams.visualCapture` follows the established
   dead-key pattern end to end: `config-lint.sh` rejects it with a migration pointer, the schema
   no longer publishes it, `docs/migrations/v1-to-v2.md` carries the entry, and `configVersion`
