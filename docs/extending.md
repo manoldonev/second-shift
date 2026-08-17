@@ -27,11 +27,10 @@ You have a repo-, org-, or domain-specific need. Walk it down this list; the fir
 | You want to… | Use | Layer | Blocking? |
 | --- | --- | --- | --- |
 | Change a **value** the plugin hardcodes (a path, a URL, a command, a label set, a plan-file name) | `stageParams` / `commands` / `paths` config | config | n/a |
-| Add a **verify command** that must pass (a linter, a contract check, a custom test suite) | `commands.<repo>.extraLanes` (EP-2) | config | always |
+| Add a **blocking check of your own** that must pass (a linter, a contract check, a custom test suite, a schema-diff gate, a license scan, a codegen-drift check) | `commands.<repo>.extraLanes` (EP-2) | config | always |
 | Add **domain knowledge** a shipped agent should read (blocker mutants, security rules, review context, design tokens, doc routing) | an **extension file** under `.claude/second-shift/` | knowledge | additive to that agent |
 | Add a **whole new reviewer** dimension for this repo | a repo-local agent in `.claude/agents/` + `reviewers.add` | config + agent | it's a reviewer |
 | Turn on **design-fidelity** review against Figma or Claude-Design | `design.provider` config | config | fail-closed gate |
-| Run a **blocking check of your own** (a schema-diff gate, a license scan, a codegen-drift check) | `commands.<repo>.extraLanes` (EP-2) | config | always |
 | Ship any of the above **across many repos in your org**, versioned and pinned | a **companion pack** plugin (EP-5) that the config points at | its own plugin | per the mechanism it uses |
 
 **Three rows used to sit in that table and no longer do.** `stageWorkflows` (EP-6),
@@ -45,7 +44,7 @@ them — see [`migrations/v1-to-v2.md`](migrations/v1-to-v2.md).
 
 Two cuts make almost every decision:
 
-- **Value vs knowledge vs behavior.** If two repos would differ on a *string*, it's config. If they'd differ on *prose* (why/how/gotchas), it's an extension file. If they'd differ on *what runs*, it's an extraLane, a stageWorkflow, a delegate, or a reviewer — all registered from config so the behavior change is auditable. (This is the litmus test from [`context-model.md`](context-model.md), applied.)
+- **Value vs knowledge vs behavior.** If two repos would differ on a *string*, it's config. If they'd differ on *prose* (why/how/gotchas), it's an extension file. If they'd differ on *what runs*, it's an extraLane or a reviewer — both registered from config so the behavior change is auditable. (This is the litmus test from [`context-model.md`](context-model.md), applied.)
 - **One repo vs the whole org.** A single repo's knowledge lives in that repo (`.claude/second-shift/`, `.claude/agents/`). Knowledge or agents shared across an org's repos get **packaged once** as a companion pack (§4) instead of vendored N times — the same disease this marketplace cures for the tooling, one layer up.
 
 When two rows both seem to fit, prefer the **narrower, more auditable** one: config over a file, a file over an agent, a repo-local agent over a companion pack. Reach for a companion pack only when the duplication across repos is real.
@@ -152,13 +151,14 @@ An opt-in axis, off unless the key is present:
 
 `figma` selects the figma-faithful skills and requires a Figma MCP connection; `claude-design` selects the design-faithful / design-sync path and requires DesignSync. Same fail-closed posture as every gate: if the provider's prerequisite is missing at run time, the design steps fail closed rather than degrading silently. Absent key = a run behaves exactly like a non-design run. The design-system reference itself (component catalog, token roles) is knowledge — it lives in `.claude/second-shift/design-tokens/*.md`, an extension file per §3.4. To make the live-render verify gate actually execute (a repo-owned render command the gate screenshots through, blocking on `build-lean` milestone 3), add the optional `design.liveRender` block — see [`live-render.md`](live-render.md).
 
-### 3.6 `stageWorkflows` — a blocking gate owned by you (EP-6)
+### 3.6 `stageWorkflows` — a blocking gate owned by you (EP-6) — **RETIRED (#569)**
 
 > **Historical record — retired in #569. The config key does not exist.** This extension point
 > was dispatched by the staged lane, deleted in #348; #569 removed the key from the schema and
 > `config-lint` now rejects it by name. The section is kept, in the **past tense**, because the
-> shape argument is the legitimate part: whether second-shift keeps a consumer-pluggable
-> blocking gate, and what would dispatch it on the lean lane, is an open product decision, and
+> shape argument is the legitimate part: whether second-shift keeps consumer-pluggable blocking
+> gates and delegate seams at all, and what would dispatch them on the lean lane, is an open
+> product decision, and
 > this is the record it would start from. Everything below describes a mechanism **as it was
 > designed**, not one you can turn on. Nothing here is current behavior.
 >
@@ -170,6 +170,7 @@ An opt-in axis, off unless the key is present:
 The need it answered: something heavier than a verify command — a real workflow that ran at a chosen stage and blocked completion. A schema-compatibility gate before implementation, a codegen-drift check, a license scan. (For that need today, reach for `extraLanes` (§3.2): it is a blocking verify lane with a real `failureClass`, and it is read by `lean-gate.sh` milestone 3.)
 
 ```jsonc
+// NOT VALID CONFIG — config-lint rejects this key by name (#569). Shown as designed.
 {
   "stageWorkflows": [
     { "stage": 5, "name": "schema-compat", "workflow": "acme-platform:workflows/schema-compat.mjs" },
@@ -180,13 +181,14 @@ The need it answered: something heavier than a verify command — a real workflo
 
 The `workflow` was either `"<plugin>:<relpath>"` (a companion pack's script, §4) or a repo-relative path. As designed, it was dispatched **after** the named stage's built-in sub-steps and **before** that stage's completion write, as a blocking sub-step — no advisory field, because advisory gates don't exist here. The result was recorded under `stageCheckpoint[N].extWorkflows[<name>]`; a failure produced the stage's standard fail-fast write with reason **`ext-workflow-failed`** (your name in the detail field), and the workflow could write state **only** via the staged lane's `statectl` checkpoint payloads namespaced `ext:` — adding evidence, never reinterpreting what the pipeline had recorded. Two things are still true today: registration lives in *consumer config* (auditable, per-repo) rather than the plugin manifest, and an unresolvable reference is a config-lint failure.
 
-### 3.7 `implementDelegates` — route implementation work to a specialist (EP-7)
+### 3.7 `implementDelegates` — route implementation work to a specialist (EP-7) — **RETIRED (#569)**
 
 > **Historical record — retired in #569. The config key does not exist.** This extension point
 > was dispatched by the staged lane, deleted in #348; #569 removed the key from the schema and
 > `config-lint` now rejects it by name. The section is kept, in the **past tense**, because the
-> shape argument is the legitimate part: whether second-shift keeps a consumer-pluggable
-> blocking gate, and what would dispatch it on the lean lane, is an open product decision, and
+> shape argument is the legitimate part: whether second-shift keeps consumer-pluggable blocking
+> gates and delegate seams at all, and what would dispatch them on the lean lane, is an open
+> product decision, and
 > this is the record it would start from. Everything below describes a mechanism **as it was
 > designed**, not one you can turn on. Nothing here is current behavior.
 >
@@ -198,6 +200,7 @@ The `workflow` was either `"<plugin>:<relpath>"` (a companion pack's script, §4
 The need it answered: certain implementation work done by a specialist agent instead of the inline implementer — a migrations specialist for schema changes, a codegen agent for a generated surface. (The lean lane is outcome-gated and silent on *how* a diff is produced, so a build session may still dispatch such an agent by choice. What has no lean home is the declared, config-routed, pre-flight-validated form.)
 
 ```jsonc
+// NOT VALID CONFIG — config-lint rejects this key by name (#569). Shown as designed.
 {
   "implementDelegates": [
     { "surface": "db/migrations/**", "agent": "acme-platform:migration-writer" },
@@ -208,13 +211,14 @@ The need it answered: certain implementation work done by a specialist agent ins
 
 `surface` was a path glob or the reserved key `unit`; matching work items routed to the delegate. The delegate's output then passed through the **unchanged** scope-enforcement gate and every downstream gate — it *added work* (a different author) and *waived nothing*. `agent` was `"<plugin>:<agent>"` (a companion pack) or a bare repo-local agent name, and an unresolvable one failed closed at pre-flight. That pre-flight arm went with the key in #569: `check-extensions.sh` had been enforcing referential integrity on behalf of a dispatcher that no longer existed, which could only ever block a run, never protect one.
 
-### 3.8 `planGates` — a blocking plan-review gate (EP-8)
+### 3.8 `planGates` — a blocking plan-review gate (EP-8) — **RETIRED (#569)**
 
 > **Historical record — retired in #569. The config key does not exist.** This extension point
 > was dispatched by the staged lane, deleted in #348; #569 removed the key from the schema and
 > `config-lint` now rejects it by name. The section is kept, in the **past tense**, because the
-> shape argument is the legitimate part: whether second-shift keeps a consumer-pluggable
-> blocking gate, and what would dispatch it on the lean lane, is an open product decision, and
+> shape argument is the legitimate part: whether second-shift keeps consumer-pluggable blocking
+> gates and delegate seams at all, and what would dispatch them on the lean lane, is an open
+> product decision, and
 > this is the record it would start from. Everything below describes a mechanism **as it was
 > designed**, not one you can turn on. Nothing here is current behavior.
 >
@@ -226,6 +230,7 @@ The need it answered: certain implementation work done by a specialist agent ins
 The need it answered: an extra reviewer of the *plan itself* — a QA-tier review of the test strategy for a surface, an ADR-compliance check — able to block a bad plan before any code was written. The lean lane has no plan gate for one to be additive to; the spec is judged at the merge boundary by `review-lean`, after the diff exists.
 
 ```jsonc
+// NOT VALID CONFIG — config-lint rejects this key by name (#569). Shown as designed.
 {
   "planGates": [
     { "name": "api-plan", "surface": "tests/api/**", "agent": "acme-qa-pack:api-test-plan-reviewer" }

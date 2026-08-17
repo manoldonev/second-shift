@@ -142,6 +142,80 @@ specs and verdict records — historical). `plugins/dev-pipeline/state-schema.md
 (already under its own "Historical record — the pre-#348 staged-lane format" banner, whose
 explicit contract is that its dead references "are not to be 'fixed'").
 
+## AC-3 evidence — the `logic` ordinal re-key, proven
+
+The `logic` operator is `&&|\|\|`, applied with `grep -nE --`; a site is a matched **line**, and
+ordinals index the operator's full matched-line list in file order. Both sequences, verbatim:
+
+**Before** (`origin/main`, 9 sites):
+
+```
+1  15: MANIFEST="${SECOND_SHIFT_EXTENSION_MANIFEST:-$(cd "$(dirname "$0")" && pwd)/extension-manifest.txt}"
+2  20: if [[ -f "$CONFIG" ]] && command -v jq >/dev/null 2>&1; then
+3  22:     [[ -z "$wf" ]] && continue
+4  31:     [[ -z "$ag" ]] && continue
+5  40:     [[ -z "$ag" ]] && continue
+6  51:   [[ -f "$MANIFEST" ]] || { echo "check-extensions: manifest not found: $MANIFEST" >&2; exit 2; }
+7  54:     [[ -z "$line" || "$line" == \#* ]] && continue
+8  62:       [[ -z "$line" || "$line" == \#* ]] && continue
+9  68:     [[ "$(basename "$rel")" == .* ]] && continue   # dotfiles are control files, not extension content
+```
+
+**After** (this branch, 5 sites):
+
+```
+1  17: MANIFEST="${SECOND_SHIFT_EXTENSION_MANIFEST:-$(cd "$(dirname "$0")" && pwd)/extension-manifest.txt}"
+2  22:   [[ -f "$MANIFEST" ]] || { echo "check-extensions: manifest not found: $MANIFEST" >&2; exit 2; }
+3  25:     [[ -z "$line" || "$line" == \#* ]] && continue
+4  33:       [[ -z "$line" || "$line" == \#* ]] && continue
+5  39:     [[ "$(basename "$rel")" == .* ]] && continue   # dotfiles are control files, not extension content
+```
+
+Matching by **line text**, not by count: new 1←old 1, new 2←old **6**, new 3←old 7, new 4←old 8,
+new 5←old 9. Old ordinals 2–5 are the deleted block and no longer exist.
+
+The baselined survivor was `::logic::2` = old ordinal 2, the `[[ -f "$CONFIG" ]] &&` guard —
+deleted. Every site that inherits an ordinal (old 1, 6, 7, 8, 9) was **absent** from the
+baseline, i.e. killed at the canonical seed run. So the row is **deleted, not re-pointed**:
+re-pointing it would newly accept a survivor at a site that was already being killed.
+
+Confirmed by execution, `bash tools/mutation-sweep.sh --mode pr --base origin/main`:
+
+```
+swept plugins/dev-pipeline/tools/check-extensions.sh — applied=7 killed=7 survived=0
+swept plugins/dev-pipeline/tools/check-doc-routing.sh — applied=6 killed=6 survived=0
+swept plugins/second-shift/skills/onboard/tools/config-grill.sh — applied=7 killed=7 survived=0
+swept plugins/dev-pipeline/tools/config-lint.sh — applied=8 killed=6 survived=2
+  survivors: config-lint.sh::fail-open::1, catalog::config-lint-lanes-name  (both already baselined)
+```
+
+The run prints `ADVISORY RUN (GITHUB_ACTIONS unset)`, so its kill verdicts are not formally
+comparable to the committed baseline — which is why the textual sequence above, not the run, is
+the load-bearing argument. The run corroborates it.
+
+**Two guards in the delta needed the same check and did not move.**
+
+- `preflight.sh` was **`deferred-to-nightly`** by the PR-lane slow-suite rule, so its ordinals
+  are this round's responsibility rather than the sweep's. All six operators produce a
+  byte-identical matched-line sequence before and after (`fail-open` 0, `cmp-eq` 5, `cmp-z` 18,
+  `logic` 43, `detector` 3, `default` 7 sites) — the edit is one string inside an `ok "…"` call,
+  which no operator's ERE matches. Its five baseline rows stand unchanged.
+- `config-lint.sh` likewise: all six sequences byte-identical (`fail-open` 2, `cmp-z` 2, `logic`
+  4, `detector` 1, others 0), so `::fail-open::1` keeps its meaning. The sweep re-applied
+  `catalog::config-lint-lanes-name` successfully, so that anchor has not drifted either.
+- `config-grill.sh` and `check-doc-routing.sh` carry **no** baseline or catalog rows, so the
+  config-grill block deletion re-keys nothing.
+
+**One warning left unactioned, deliberately.** The sweep printed:
+
+> `WARN: slow-list drift: config-grill-selftest.sh measured 16s (>= 5s) but
+> tools/mutation-slow-suites.tsv does not record it at or above that bar`
+
+Adding that row is what the warning asks for, and it is declined **in this PR**: the row would
+defer `config-grill.sh` to nightly, removing PR-lane mutation coverage from a guard this very
+diff edits. The warning says "by ordinary PR", not "by this one". Recorded here rather than
+dropped, so the next person sees a decision instead of an oversight.
+
 ## Verification
 
 - `find . -name '*.sh' -type f -print0 | xargs -0 shellcheck -e SC1091,SC2015,SC2181`

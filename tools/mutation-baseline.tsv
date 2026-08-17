@@ -58,7 +58,6 @@ plugins/dev-pipeline/tools/check-bounded-exploration.sh::detector::2	seeded by t
 plugins/dev-pipeline/tools/check-bounded-exploration.sh::fail-open::2	re-keyed for #345: dropping the run-lean workflow dir + the stale-list self-check shifted the generic ordinals (local advisory sweep, macOS; confirm at the first nightly)
 plugins/dev-pipeline/tools/check-config-shadowing.sh::fail-open::1	seeded by the canonical seed run
 plugins/dev-pipeline/tools/check-config-shadowing.sh::logic::1	seeded by the canonical seed run
-plugins/dev-pipeline/tools/check-extensions.sh::logic::2	seeded by the canonical seed run
 plugins/dev-pipeline/tools/claim-issue.sh::logic::1	re-keyed after the private wrapper ladder became a gh-bot.sh delegation; the four sibling rows that ordinal shift orphaned are dropped
 plugins/dev-pipeline/tools/claims-lint.sh::default::2	seeded by the canonical seed run
 plugins/dev-pipeline/tools/claims-lint.sh::detector::2	seeded by the canonical seed run
