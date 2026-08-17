@@ -2912,17 +2912,61 @@ design_disarm_locked_msg() {
   printf 'spec %s now disarms the design lane ("Design: none"), but this run already armed it — the progress file carries a "| milestone-3 | armed |" record. Disarming mid-run retires the render evidence a review round would be scored against, so it is refused: restore the "## Design" render-state table, or abandon the run and re-file the ticket with the disarm in its spec from the start.' "$SPEC_REL"
 }
 
+# #562: resolves intake-toolkit's ledger-lint.sh across both layouts this script runs from —
+# the same two-rung ladder check-model-tiers.sh's resolve_sibling_plugin_root uses (#419),
+# RE-DERIVED rather than copied: this file sits three directories under its plugin root
+# (skills/build-lean), where that one sits one (scripts), so the hop counts legitimately differ
+# (lockstep-manifest.tsv's cross-plugin-sibling-plugin-root entry is precedent for that being
+# fine). No env-override knob, unlike the *_ROOT variables SEAM_SCRUB denylists: those exist
+# because OTHER tooling branches on them; nothing here does, so a knob would be machinery with
+# no consumer.
+#   monorepo checkout:            plugins/dev-pipeline/skills/build-lean -> ../../../intake-toolkit
+#   version-keyed install cache:  .../dev-pipeline/<ver>/skills/build-lean -> ../../../../intake-toolkit/<newest>
+resolve_ledger_lint() {
+  local this_dir plugins_or_dp_dir cache_dir rel="skills/plan-interview/tools/ledger-lint.sh" cand v
+  this_dir="$(cd "$(dirname "$0")" && pwd)" || return 1
+  plugins_or_dp_dir="$(dirname "$(dirname "$(dirname "$this_dir")")")"
+  cand="$plugins_or_dp_dir/intake-toolkit/$rel"
+  if [ -f "$cand" ]; then printf '%s\n' "$cand"; return 0; fi
+  # Cache layout: $this_dir is .../<mkt>/dev-pipeline/<ver>/skills/build-lean, so the candidate
+  # above resolved (and missed) .../<mkt>/dev-pipeline/intake-toolkit/... — one level too deep.
+  # The marketplace dir is one level up from there; take the newest sibling version carrying it.
+  cache_dir="$(dirname "$plugins_or_dp_dir")"
+  # shellcheck disable=SC2012  # version dirs are alphanumeric (X.Y.Z); ls is safe and 3.2-portable here
+  for v in $(ls -1 "$cache_dir/intake-toolkit" 2>/dev/null | sort -t. -k1,1nr -k2,2nr -k3,3nr); do
+    cand="$cache_dir/intake-toolkit/$v/$rel"
+    [ -f "$cand" ] || continue
+    printf '%s\n' "$cand"; return 0
+  done
+  return 1
+}
+
 # ---------------------------------------------------------------- milestone 1: spec/AC
 # AC-3, as resolved at intake (G-1): existence AT THE PINNED PATH plus >= 1 numbered AC-n,
 # and NO further content assertion. The path predicate is not an extra check — it is which
 # file "exists" means, and check-lean-chain.sh keys its artifact scan off the same shape.
 cmd_1() {
-  local spec="$REPO_ROOT/$SPEC_REL" n reason pa_rc dstate note=""
+  local spec="$REPO_ROOT/$SPEC_REL" n reason pa_rc dstate note="" lint lint_out lint_rc
   # #494: ABSENCE, not a failed fix — block_milestone, whose line kind attempt_count() cannot
   # see. This is the call SKILL.md step 3 orders before the spec can exist.
   [ -f "$spec" ] || { block_milestone 1 "no committed spec at $SPEC_REL"; return $?; }
   n="$(count_matches '(^|[^A-Za-z])AC-[0-9]+' "$spec" -E)"
   [ "$n" -ge 1 ] || { fail_milestone 1 "spec $SPEC_REL carries no numbered AC-n criterion"; return $?; }
+
+  # #562: a committed Decision Ledger's provenance is validated, reusing ledger-lint.sh rather
+  # than re-implementing its enum — a second copy would be exactly the duplicate machinery this
+  # repo's manifest calls worse than none (interviewing-baseline is the canonical source).
+  # Conditional on the section being PRESENT: whether a lean spec carries one at all is #517's
+  # row-presence question, not this one's provenance-validity question, so an AC-n-only spec with
+  # no Decision Ledger section is unaffected, exactly as it is today.
+  if grep -qiE '^(#{1,6}[[:space:]]+|\*\*)[[:space:]]*decision ledger' "$spec"; then
+    lint="$(resolve_ledger_lint)" \
+      || envfail "milestone-1: intake-toolkit's ledger-lint.sh could not be resolved (checked the monorepo layout and the install cache under both plugins) — cannot validate $SPEC_REL's Decision Ledger. Fix the install."
+    lint_out="$(bash "$lint" "$spec" 2>&1)"; lint_rc=$?
+    if [ "$lint_rc" -ne 0 ]; then
+      fail_milestone 1 "spec $SPEC_REL's Decision Ledger fails ledger-lint: $lint_out"; return $?
+    fi
+  fi
 
   # #394 D-8. Grep-shaped like the AC-n assertion above and evaluated in the observe pass with
   # it: both read the committed spec and the config, nothing else — no network, no subprocess
