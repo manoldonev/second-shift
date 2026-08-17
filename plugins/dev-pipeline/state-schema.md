@@ -2,8 +2,10 @@
 
 > **Historical record — the pre-#348 staged-lane format.** #348 deleted the staged `run` lane, and
 > with it every sibling this document links (`statectl.sh`, `verifyctl.sh`,
-> `tools/plan-scope-paths.sh`, `tools/gen-statectl-validators.sh`, `plan-lint.sh`) and every
-> `stages/*.md` it cites. **Those links are dead by design and are not to be "fixed"** — they name
+> `tools/plan-scope-paths.sh`, `tools/gen-statectl-validators.sh`, `plan-lint.sh`,
+> `doc-update.md`) and every `stages/*.md` it cites — six dead relative links in all, plus
+> the `SKILL.md` and `statectl-selftest.sh` it names in prose.
+> **Those links are dead by design and are not to be "fixed"** — they name
 > the machinery as it stood, which is what makes this file legible as a record. It is kept because
 > `pipeline-retro` and `perf-retro` still read the staged-era run corpus, whose state files are in
 > exactly this shape. The lean lane writes no file of this kind; nothing below describes current

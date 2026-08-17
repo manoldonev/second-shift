@@ -88,7 +88,7 @@
               "path": { "type": "string", "minLength": 1, "description": "Relative to the config's repo root; \".\" for the host repo." },
               "baseBranch": { "type": "string", "minLength": 1, "description": "The integration mainline PRs target (repos in a pair may differ, e.g. BE alpha / FE main)." },
               "worktreesDir": { "type": "string", "description": "Where pipeline worktrees are created for this repo (default ../<repo>-worktrees)." },
-              "ticketTag": { "type": "string", "description": "Ticket-title tag routing work to this repo (e.g. \"[BE]\"). The staged lane (/dev-pipeline:run) reads this as a gate input at Stage 1.T; the lean lane (/dev-pipeline:run-lean, the default) never gates on it — it's advisory routing for whoever launches the session, read by the intake-orchestrator skill as ticket-filing policy." }
+              "ticketTag": { "type": "string", "description": "Ticket-title tag routing work to this repo (e.g. \"[BE]\"). No lane gates on it: the lean lane (/dev-pipeline:run-lean) treats it as advisory routing for whoever launches the session, read by the intake-orchestrator skill as ticket-filing policy. The staged lane that read it as a gate input was deleted in #348." }
             }
           }
         }

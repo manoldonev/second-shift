@@ -1,12 +1,12 @@
 name: Pipeline aborted
-description: A dev-pipeline run stopped with a failureContext (fail-fast abort).
+description: A dev-pipeline run hard-stopped on a milestone (fix budget exhausted).
 title: "[pipeline-abort]: "
 labels: ["feedback", "pipeline-abort"]
 body:
   - type: markdown
     attributes:
       value: |
-        Every fail-fast abort writes its reason to the pipeline state file, so a good report is mostly a paste.
+        Every hard stop appends its reason to the run's progress record, so a good report is mostly a paste.
 
         **Run `/second-shift:doctor --report`** (or `bash <path-to>/doctor.sh --report`) and paste the bundle below — it already carries the plugin list, the redacted config, and the newest pipeline-state excerpt. Sensitive-shaped config values are auto-redacted, but glance over it before posting.
   - type: textarea
@@ -14,14 +14,14 @@ body:
     attributes:
       label: What happened
       description: What you ran, what you expected, and what the pipeline did instead.
-      placeholder: "Ran /dev-pipeline:run 42; expected a draft PR, got an abort at Stage 6."
+      placeholder: "Ran /dev-pipeline:run-lean 42; expected a ready PR, got a hard stop on milestone 3."
     validations:
       required: true
   - type: textarea
     id: state-excerpt
     attributes:
-      label: State-file excerpt (failureContext)
-      description: The `.failureContext` object from `.claude/pipeline-state/<issue>.json` — the stage and reason. It is included in the `--report` bundle under "pipeline-state excerpt"; paste it here too if you have it directly.
+      label: Progress-record excerpt (the abort rows)
+      description: The tail of `.claude/pipeline-state/<issue>-lean-progress.md` — the `attempt` rows for the failing milestone and the `concluded | rc=` row that hard-stopped. It is included in the `--report` bundle under "pipeline-state excerpt"; paste it here too if you have it directly.
     validations:
       required: true
   - type: textarea

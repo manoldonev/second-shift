@@ -1,5 +1,7 @@
 #!/usr/bin/env node
-// null-reviewer-selftest.mjs — verifies the Stage 8 dark-reviewer contract (#168).
+// null-reviewer-selftest.mjs — verifies the dark-reviewer contract (#168). It entered the
+// tree as the staged lane's Stage 8 contract; that stage was deleted in #348 and the
+// contract's live consumer is now review-lead's dispatch (`code-review.mjs`), unchanged.
 //
 // Style note: like its sibling Workflow scripts (code-review.mjs, intake-review.mjs),
 // this file is NOT covered by the repo `format` script (which globs only
@@ -22,7 +24,8 @@
 //   exploration.sh greps only `^const BOUNDED_[A-Z_]+`, so PROGRESSIVE_EMIT wiring is
 //   invisible to it and this is the only guard on it in the tree.
 //
-// Mirrors the conventions of statectl-selftest.sh: numbered cases, pass/fail
+// Mirrors the conventions of statectl-selftest.sh (deleted with the staged lane in #348;
+// the same conventions survive in every `*-selftest.sh` here): numbered cases, pass/fail
 // counters, exit code = number of failed cases (0 = all pass).
 //
 // Run: node plugins/dev-pipeline/workflows/null-reviewer-selftest.mjs

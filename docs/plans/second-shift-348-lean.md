@@ -254,6 +254,36 @@ its Blocking? column. Filing the retirement is out of scope; the record is not.
   `prose-budget.sh` by its pre-move path and no reviewer window reached it, because #561 added that
   line to `main` **after** this branch's re-pointing commit and the rebase carried it in unswept. A
   deletion's blast radius includes CI definitions the branch never touched.
+
+  **All three kinds of reference, not one (round-2 amendment).** The check above is keyed on the
+  path prefix `skills/run/`, and this change broke three kinds of reference of which that key sees
+  exactly one. Round 2 proved it: the path arm was exhaustively clean — re-verified, precisely the
+  seven classes above, no eighth — while two other kinds were still broken in shipped artifacts.
+  The check is therefore three checks, all run whole-tree:
+
+  | Kind | Caught by the `skills/run/` grep? | Why |
+  | --- | --- | --- |
+  | a **path** into the deleted tree | yes | the token IS the path |
+  | a **slash command** (`/dev-pipeline:run`) | **no** | the token contains no path at all |
+  | a **relative link** whose depth changed under relocation | **no** | the link text never changes — only its resolution moves |
+
+  - **Kind 2 — the deleted command literal.** `grep -rE '/dev-pipeline:run([^-a-zA-Z]|$)'` over
+    every tracked file. The negative class is load-bearing and is where a naive filter fails: an
+    exclusion of `/dev-pipeline:run-lean` **hides the sharpest site**, because
+    `templates/consumer/SECOND-SHIFT.md:15` names both literals on one line. Exempt only
+    `CHANGELOG.md` (frozen release artifact), `docs/migrations/v1-to-v2.md` and
+    `docs/onboarding.md`, which describe the removal in the past tense — naming the command is
+    the point there.
+  - **Kind 3 — relative-link resolution.** Resolve every relative markdown link against its own
+    dirname, over every tracked `*.md`, and **run the same check at the merge-base and diff the
+    two lists**: 7 of the branch-head failures predate this branch, and reporting those as this
+    PR's finding is the same over-statement AC-1 was restated to stop. The residue after this
+    round is 22 rows in two deliberate classes, both declared and neither shipped-doc:
+    (a) the **historical plan/verdict corpus** (`docs/plans/acme-{90,93,146,272}.md` and this
+    issue's own round-2 verdict record, which is the review *quoting* the links it found) — same
+    contract as `capability-parity.tsv`, citations of the tree as it stood, which re-pointing
+    would falsify; and (b) `plugins/dev-pipeline/state-schema.md`'s six links, dead by design
+    under the banner it carries, which this round widened to name all six.
 - **AC-2 (oracle — mutation sweep).** No baseline, exclusion, pair-map, slow-suite or catalog
   row references a deleted guard; every re-keyed row lands in this same diff, and
   `tools/mutation-sweep.sh` runs clean against the surviving guard set on the PR lane.
@@ -284,6 +314,32 @@ its Blocking? column. Filing the retirement is out of scope; the record is not.
   `similarity index 100%` is exactly where this rots: the move is invisible in review precisely
   because nothing in it changed. `${CLAUDE_PLUGIN_ROOT}`-relative paths are the sharp case — they
   are wrong for an *installed consumer*, not merely for this checkout.
+
+  **Round-2 amendment — two further classes, both shipped and consumer-facing.** Round 2 found
+  the floor short again, in files the panel could not structurally reach:
+
+  1. **Artifacts advertising the deleted `run` skill or its stage vocabulary**, whatever the file
+     type — the onboard template copied into every consumer repo
+     (`templates/consumer/SECOND-SHIFT.md` and this repo's own `.claude/SECOND-SHIFT.md`),
+     `onboard/SKILL.md`, `pipeline-retro/SKILL.md`'s frontmatter `description` (which is the text
+     the skill listing shows), `schema/second-shift.config.schema.json`'s `ticketTag` description,
+     and `.github/ISSUE_TEMPLATE/pipeline-aborted.yml`, whose whole shape — `failureContext`, the
+     state file, "abort at Stage 6" — belonged to the deleted lane and is retargeted at the lean
+     lane's progress record. `CHANGELOG.md` is exempt: a frozen release artifact recording what
+     shipped.
+  2. **Whole documents whose subject was the deleted lane**, not merely stale lines in them.
+     `tools/tracker/README.md` carried a full operation-contract table headed "the **`run`**
+     lane's"; `tracker/jira/README.md` framed its tables the same way and carried a draft-PR
+     rationale that died with the manual promotion step. Both are rewritten around the surviving
+     lane rather than link-patched — three broken links in one of them were the visible symptom,
+     not the defect.
+
+  **A fixture whose only oracle was deleted is an orphan too.** Round 3's own sweep found
+  `tools/stage-times-fixtures/acme-89-pause.json` reachable by no suite: its `(pause3)`/`(pause4)`
+  cases lived in `statectl-selftest.sh`, and every case in the surviving `stage-envelopes-selftest.sh`
+  generates `pauseSpans: []`. `stage-times.sh`'s pause arithmetic was therefore live, shipped and
+  unguarded. The cases are **re-homed** as `(env16)`/`(env16b)` in that suite rather than dropped —
+  the deletion may not silently retire a guard's subject.
 - **AC-7 (oracle — CI).** The retirement of `stageParams.visualCapture` follows the established
   dead-key pattern end to end: `config-lint.sh` rejects it with a migration pointer, the schema
   no longer publishes it, `docs/migrations/v1-to-v2.md` carries the entry, and `configVersion`

@@ -330,7 +330,7 @@ fi
 # entirely unexercised. The mutation sweep found this: mutants in the ladder's
 # `${VAR:-}` defaults and its `-n` guards all survived, because no case could reach
 # them. STATECTL_STATE_DIR is also the documented way a fixture is addressed through
-# this family of tools ((pause3) uses it), so it is contract, not an internal.
+# this family of tools ((env16) below uses it), so it is contract, not an internal.
 # ─────────────────────────────────────────────────────────────────────────────────
 D="$WORK/env12"; mkdir -p "$D"
 for i in $(seq 1 3); do mkrun "$D" "e$i" "e$i" $((i * 1000)) "1:0:3"; done
@@ -419,6 +419,50 @@ if env -u GIT_DIR -u GIT_WORK_TREE -u GIT_INDEX_FILE git -C "$REPO" init --quiet
   fi
 else
   echo "  skip (env15) — git init unavailable in this environment"
+fi
+
+# ─────────────────────────────────────────────────────────────────────────────────
+# (env16) The PAUSE arithmetic in stage-times.sh, re-homed here by #348.
+#
+# It lives in this suite rather than a new one because this suite already drives
+# stage-times.sh as its corpus seam (see the header) — but every case above generates
+# `pauseSpans: []`, so none of them reaches the subtraction. Its only oracle was
+# statectl-selftest.sh's (pause3)/(pause4), deleted with the staged lane, which would
+# have left `plugins/dev-pipeline/tools/stage-times-fixtures/acme-89-pause.json` a
+# committed fixture with no consumer and the arithmetic silently unguarded.
+#
+# The fixture is COMMITTED rather than generated (the exception to this suite's
+# generate-don't-commit rule): a straddling pause window is the whole point, and the
+# expected values below are only readable against a fixed one. It is addressed through
+# STATECTL_STATE_DIR, which (env12) establishes as contract rather than an internal.
+#
+# (pause3) asserted the text form; (pause4) asserted the two renderers agree on the
+# same fixture. Both survive here.
+# ─────────────────────────────────────────────────────────────────────────────────
+PAUSE_DIR="$SCRIPT_DIR/stage-times-fixtures"
+STAGE_TIMES="$SCRIPT_DIR/stage-times.sh"
+if [[ -f "$PAUSE_DIR/acme-89-pause.json" && -f "$STAGE_TIMES" ]]; then
+  PJ="$(STATECTL_STATE_DIR="$PAUSE_DIR" bash "$STAGE_TIMES" --json acme-89-pause 2>&1)"
+  # effective = wall − Σ pause (260 − 215 = 45), and stage 5 — the stage the pause
+  # window straddles — shrinks from a ~230 min wall to its 15 min of real compute.
+  if jq -e '.wallMin == 260 and .pausedMin == 215 and .effectiveTotalMin == 45
+            and (.stages[] | select(.stage == "5") | .effectiveMin) == 15' \
+       >/dev/null 2>&1 <<<"$PJ"; then
+    pass "(env16) pause spans are subtracted from the total and from the straddled stage"
+  else
+    fail "(env16) pause arithmetic — got ${PJ:0:200}"
+  fi
+
+  # The text renderer must agree with --json on the same fixture: the two read one
+  # model, and a drift between them is exactly what a second renderer risks.
+  PT="$(STATECTL_STATE_DIR="$PAUSE_DIR" bash "$STAGE_TIMES" acme-89-pause 2>&1)"
+  if grep -q 'total: 45 min effective  (wall 260 min, paused 215 min)' <<<"$PT"; then
+    pass "(env16b) the text renderer reports the same effective/wall/paused as --json"
+  else
+    fail "(env16b) text vs --json drift — got $(sed -n '2p' <<<"$PT")"
+  fi
+else
+  fail "(env16) the committed pause fixture or stage-times.sh is missing — the pause arithmetic has no oracle"
 fi
 
 echo

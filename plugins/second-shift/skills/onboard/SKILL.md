@@ -152,8 +152,8 @@ Ask AT MOST one AskUserQuestion batch, containing ONLY (skip any that detection 
         private key; the pipeline pre-flight enforces the wrapper unconditionally for the
         github tracker.)" If yes, point at the dev-pipeline bot bootstrap
         (`install-gh-bot.sh` in the dev-pipeline tools) as the follow-up; if no, note that
-        the first `/dev-pipeline:run` pre-flight will fail until one exists — this is a
-        pipeline requirement, not an onboard requirement.
+        the first `/dev-pipeline:run-lean` pre-flight will fail until one exists — this is
+        a pipeline requirement, not an onboard requirement.
      b. Queue labels: "Create the six required queue labels now?" On yes, print AND run:
         `gh label create ready-for-dev`, `needs-spec-work`, `needs-plan-review`,
         `needs-intake-review`, `in-progress`, `epic` (skip ones that already exist).

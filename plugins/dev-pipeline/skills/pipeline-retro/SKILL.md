@@ -1,6 +1,6 @@
 ---
 name: pipeline-retro
-description: 'Post-run retrospective for a dev-pipeline run: independent eval re-scoring, contract-deviation audit, and improvement routing. Run after a /dev-pipeline:run run completes (or aborts).'
+description: 'Post-run retrospective for a dev-pipeline run: independent eval re-scoring, contract-deviation audit, and improvement routing. Run after a /dev-pipeline:run-lean run completes (or aborts); also reads the pre-#348 staged-run corpus.'
 ---
 
 # Pipeline Retro
@@ -33,15 +33,18 @@ fi
 
 ### era: stage (full-pipeline run)
 
+This era's runs predate #348, which deleted the staged lane. Everything below reads the
+**historical corpus as files** — `cat`/`jq` over the state JSON — and calls no deleted
+tool; that is what keeps the stage era retro-able after the machinery is gone.
+
 ```bash
-S=../dev-pipeline/statectl.sh
 cat .claude/pipeline-state/${ISSUE}.json          # state: stages, checkpoints, deviations, failureContext
 cat .claude/pipeline-state/${ISSUE}-eval.json     # the run's SELF-score
 # The run report — Stage 9's durable narrative, written before the terminal
 # narration so an API disconnect cannot destroy it. Absent = either a pre-schema
 # run or a run that never reached Stage 9's pr-add.
 [ -f ".claude/pipeline-state/${ISSUE}-report.md" ] && cat ".claude/pipeline-state/${ISSUE}-report.md"
-bash ../dev-pipeline/tools/stage-times.sh ${ISSUE}   # per-stage wall times + transition gaps
+bash "${CLAUDE_PLUGIN_ROOT}/tools/stage-times.sh" ${ISSUE}   # per-stage wall times + transition gaps
 gh api "repos/{owner}/{repo}/issues/${ISSUE}/comments" --jq '[.[] | {user: .user.login, body}]'   # run_id-marked trail
 PR_URL=$(jq -r '.prs | to_entries[0].value.url // empty' .claude/pipeline-state/${ISSUE}.json)
 # PR diff + commits (if a PR exists): gh pr diff / gh api .../pulls/N/commits
@@ -92,7 +95,7 @@ self-score exists to compare against and no independent score is produced. Route
 first time an artifact-era retro reaches this step in a given window — check Step 5's
 dedup-against-open-issues search first so repeat retros don't re-propose it.
 
-**era: stage** — dispatch ONE `retro-scorer` agent (Task tool) whose prompt contains: the five criteria definitions copied verbatim from [`../dev-pipeline/eval-criteria.md`](../dev-pipeline/eval-criteria.md) and the artifact contents from Step 1. The agent ([`../../agents/retro-scorer.md`](../../agents/retro-scorer.md)) carries the standing re-score rubric — score each criterion PASS/FAIL/N/A strictly by the letter, quote artifact evidence, "absence of evidence is not a PASS", and the ctx-wire-legitimacy rule — and runs on **Sonnet** via its frontmatter, so the harness binds the tier (a prose "use Sonnet" against `general-purpose` would not — it has no frontmatter and inherits the session Opus default).
+**era: stage** — dispatch ONE `retro-scorer` agent (Task tool) whose prompt contains: the five criteria definitions copied verbatim from [`../../eval-criteria.md`](../../eval-criteria.md) and the artifact contents from Step 1. The agent ([`../../../review-toolkit/agents/retro-scorer.md`](../../../review-toolkit/agents/retro-scorer.md)) carries the standing re-score rubric — score each criterion PASS/FAIL/N/A strictly by the letter, quote artifact evidence, "absence of evidence is not a PASS", and the ctx-wire-legitimacy rule — and runs on **Sonnet** via its frontmatter, so the harness binds the tier (a prose "use Sonnet" against `general-purpose` would not — it has no frontmatter and inherits the session Opus default).
 
 **Empty-return failure mode.** This dispatch carries no emit deadline, retry, or darkness detection — unlike the Workflow fan-out's `check-emit-deadline.sh` stack, which does not cover a Task-tool dispatch. A `retro-scorer` call that completes with no text (a silent dark return, or a `maxTurns` cutoff) is a named failure, not a run with nothing to score: before doing anything else, resume the *same* agent (its transcript, not a fresh dispatch) and instruct it to emit its verdict from the evidence already gathered, with no further tool calls. This recovered two independently observed dark returns at a fraction of the original dispatch's cost (#271: the #244 run, 78k tokens / 26 tool calls / no output, resumed in 14s / 0 tool calls; the #243 run, 20 tool calls / no output, resumed successfully) — the analysis was sitting in the transcript, only its emission was lost. This resume is scoped to this dispatch: it is not a general Agent-tool-dispatch policy, and `retro-scorer` is deliberately staying off the Workflow substrate — that would buy the emit-deadline stack but adds StructuredOutput-staller surface for what is structurally a single dispatch, not worth it for the resume fix already closing the gap.
 
@@ -128,7 +131,7 @@ verdict record) — this retro does not duplicate it. Items 4, 7, 8 apply to bot
 
 ## Step 4: Environment friction log
 
-List every mid-run improvisation the trail reveals (REST fallbacks, version workarounds, missing tools, degraded sub-steps like `costBlockApplied: skipped-*`). For each: is it covered by a [`pipeline-doctor.sh`](../dev-pipeline/tools/pipeline-doctor.sh) check or canonical-form doc yet? If not, it becomes a routed improvement below.
+List every mid-run improvisation the trail reveals (REST fallbacks, version workarounds, missing tools, degraded sub-steps like `costBlockApplied: skipped-*`). For each: is it covered by a [`pipeline-doctor.sh`](../../tools/pipeline-doctor.sh) check or canonical-form doc yet? If not, it becomes a routed improvement below.
 
 **era: stage** — also read the `stage-times.sh` output against expectations: an inert-diff run that still paid the configured verify suite (Stage 6 ≳ 4 min on a docs/shell-only diff), large inter-stage gaps (synchronous posting of non-gating comments), or a stage whose recorded window is implausibly short (work done before `set-stage N --status started` — a state-discipline deviation for Step 3) are all findings. **era: artifact** has no per-stage timing table to check against — `retro-corpus.sh`/`stage-envelopes.sh` are `perf-retro`'s territory (cross-run), and this per-run step has nothing stage-shaped to read.
 

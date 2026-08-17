@@ -21,8 +21,10 @@
 # for programmatic consumers (tools/stage-envelopes.sh). It is ADDITIVE: the default
 # text output is unchanged, and both renderers read from ONE model computed once in
 # the jq program below — there is no second copy of the pause arithmetic, so the two
-# cannot drift. statectl-selftest's (pause3) pins the text form and (pause4) asserts
-# the two renderers agree on the same fixture.
+# cannot drift. stage-envelopes-selftest.sh's (env16) pins the arithmetic and (env16b)
+# asserts the two renderers agree on the same committed fixture. (Those were
+# statectl-selftest's (pause3)/(pause4) until #348 deleted that suite with the staged
+# lane; they were re-homed rather than dropped.)
 #
 # The argument is a state-file BASENAME STEM, not strictly an issue number: snapshot
 # files whose basename differs from their ticketKey (e.g. `42-aborted-<ts>`) are
