@@ -185,6 +185,23 @@ head="$(git -C "$TMP/skip" rev-parse HEAD)"
     bash "$TOOL" ) > "$TMP/stdout" 2>&1
 check "gh absent from the runner: skip=false"                       "$([ "$(sed -n 's/^skip=//p' "$out" | tail -n1)" = false ] && echo 0 || echo 1)"
 
+# ---------------------------------------------------------------- run outside Actions
+# $GITHUB_OUTPUT is absent whenever the guard is run by hand — which is how a consumer finds
+# out why their lane did NOT skip. The decision must still reach stdout, and the output write
+# must be genuinely skipped rather than redirected somewhere: a guarded write whose fallback is
+# a filename litters the working tree of whoever ran it, silently and once per invocation.
+mkdir -p "$TMP/nooutput" && cp -R "$TMP/skip/." "$TMP/nooutput/"
+BEFORE="$(find "$TMP/nooutput" -maxdepth 1 | sort | tr '\n' ' ')"
+head="$(git -C "$TMP/nooutput" rev-parse HEAD)"
+( cd "$TMP/nooutput" && env -u GITHUB_OUTPUT PATH="$TMP/bin:$PATH" \
+    GH_REPO="acme/acme" GH_TOKEN=x PR_HEAD_SHA="$head" GUARD_RUN_ID=777 \
+    GUARD_EVENT_NAME=pull_request STUB_WORKFLOW_ID=99 \
+    STUB_RUNS="$(runs_json 99 pull_request completed success)" \
+    bash "$TOOL" ) > "$TMP/stdout" 2>&1
+AFTER="$(find "$TMP/nooutput" -maxdepth 1 | sort | tr '\n' ' ')"
+check "no \$GITHUB_OUTPUT: the decision still reaches stdout"        "$(grep -q "skip=true" < "$TMP/stdout" && echo 0 || echo 1)"
+check "no \$GITHUB_OUTPUT: writes no file into the working tree"     "$([ "$BEFORE" = "$AFTER" ] && echo 0 || echo 1)"
+
 # ---------------------------------------------------------------- the annotation seam
 # An "unknown" no-skip is a DIFFERENT event from a normal commit: the guard is inert and an
 # operator needs to see it. A normal commit must NOT produce that annotation, or the signal is

@@ -92,11 +92,16 @@ REASON=""
 
 emit() {
   echo "[second-shift-delta-guard] skip=$SKIP — $REASON"
-  if [ -n "${GITHUB_OUTPUT:-}" ]; then
+  # Resolved ONCE into a local, then written through that local. Testing `${GITHUB_OUTPUT:-}`
+  # and then redirecting to `$GITHUB_OUTPUT` would be two readings of one fact: outside Actions
+  # the variable is unset, the redirect target is whatever the second reading yields, and the
+  # difference between "skipped the write" and "wrote somewhere" stops being observable.
+  local out="${GITHUB_OUTPUT:-}"
+  if [ -n "$out" ]; then
     {
       echo "skip=$SKIP"
       echo "reason=$REASON"
-    } >> "$GITHUB_OUTPUT"
+    } >> "$out"
   fi
   # A no-skip decision reached because something could not be READ (as opposed to a genuine
   # "this is a normal commit") is surfaced as an annotation. It is not a failure — the lane
