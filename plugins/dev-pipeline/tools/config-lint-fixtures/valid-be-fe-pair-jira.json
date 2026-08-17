@@ -56,25 +56,5 @@
       "cwd": "fe",
       "readyProbe": "http://localhost:3000/system/status"
     }
-  },
-  "stageWorkflows": [
-    {
-      "stage": 6,
-      "name": "behavioral-api-verify",
-      "workflow": "acme-qa-pack:workflows/api-verify.mjs"
-    }
-  ],
-  "implementDelegates": [
-    {
-      "surface": "tests/api/**",
-      "agent": "acme-qa-pack:api-test-coder"
-    }
-  ],
-  "planGates": [
-    {
-      "name": "api-plan",
-      "surface": "tests/api/**",
-      "agent": "acme-qa-pack:api-test-plan-reviewer"
-    }
-  ]
+  }
 }

@@ -255,47 +255,6 @@
         }
       }
     },
-    "stageWorkflows": {
-      "type": "array",
-      "description": "INERT since #348 — no dispatcher. EP-6: gate-owned workflow dispatch. The staged lane dispatched this extension point and was deleted; the key stays schema-legal and check-extensions.sh still validates the workflow it references, so an existing consumer config does not red — but nothing runs it either. Documented rather than retired because whether second-shift keeps a consumer-pluggable blocking gate, and what dispatches it on the lean lane, is a product decision the deletion did not make (docs/extending.md §3.6). Treat what follows as a record of the shape as designed, not a capability you can turn on: registers a Workflow script (a companion plugin's, or repo-local) as a BLOCKING sub-step of the stage named below, with registration in consumer config (auditable, per-repo) rather than the plugin manifest, always blocking (no advisory field), the result recorded under that stage's checkpoint and a failure producing a fail-fast write with reason ext-workflow-failed. Unresolvable reference = config-lint failure, fail closed.",
-      "items": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": ["stage", "name", "workflow"],
-        "properties": {
-          "stage": { "type": "integer", "minimum": 1, "maximum": 10 },
-          "name": { "type": "string", "description": "kebab-case, unique across stageWorkflows; results recorded under this name." },
-          "workflow": { "type": "string", "description": "\"<plugin>:<relpath>\" (a companion plugin's workflow script) or a repo-relative path." }
-        }
-      }
-    },
-    "implementDelegates": {
-      "type": "array",
-      "description": "INERT since #348 — no dispatcher. EP-7: implementer delegation. The staged lane's implement step routed this and was deleted; the key stays schema-legal and check-extensions.sh still validates the agent it references, so an existing consumer config does not red — but nothing routes to it either. Documented rather than retired for the same product reason as EP-6 (docs/extending.md §3.7). Shape as designed: routes matching work items to a delegate agent INSTEAD of inline implementation, with the delegate's output passing through the unchanged scope-enforcement gate and all downstream gates (adds work, waives nothing). Unresolvable agent = fail closed at pre-flight.",
-      "items": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": ["surface", "agent"],
-        "properties": {
-          "surface": { "type": "string", "description": "A path glob, or the reserved surface key 'unit'. Work items matching it route to the delegate instead of inline implementation." },
-          "agent": { "type": "string", "description": "\"<plugin>:<agent>\" (a companion pack agent) or a repo-local bare agent name (in .claude/agents/)." }
-        }
-      }
-    },
-    "planGates": {
-      "type": "array",
-      "description": "INERT since #348 — no dispatcher. EP-8: additive plan-review gates. The staged lane's plan-gate step ran these and was deleted; the key stays schema-legal and check-extensions.sh still validates the agent it references, so an existing consumer config does not red — but nothing runs it either. Documented rather than retired for the same product reason as EP-6 (docs/extending.md §3.8). Shape as designed: registers a consumer/companion plan-reviewer agent that runs AFTER the built-in plan gates and returns a trinary verdict — additive-only, able to make a passing plan review block but never to waive a built-in gate. NOT symmetric with its two live siblings, which do still run: commands.<repo>.extraLanes is read by lean-gate.sh milestone 3, and reviewers.add by review-lead.",
-      "items": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": ["name", "agent"],
-        "properties": {
-          "name": { "type": "string", "description": "kebab-case, unique; the gate ledger key is plan-gate:<name>." },
-          "surface": { "type": "string", "description": "Optional path glob — as designed (see the INERT note above), the gate ran only when the plan touched this surface (absent = always)." },
-          "agent": { "type": "string", "description": "\"<plugin>:<agent>\" (companion pack) or a repo-local bare agent name (in .claude/agents/). Unresolvable = fail closed at pre-flight." }
-        }
-      }
-    },
     "grillWaivers": {
       "type": "object",
       "description": "Declared opt-outs for config-grill findings — the checker /second-shift:onboard runs on its draft and /second-shift:doctor runs on the committed config, which reports a capability that is detectably OFF. config-lint cannot see any of it: absence is legal for every optional key, so a structural validator never touches the tree. Keys are CHECK IDS, carrying the repo id wherever the check is per-repo (e.g. \"T4.mutation-plumbing.api\"): a dotted config path would silence two distinct checks that share a key, and a bare check id would silence every repo under a multi-repo topology. The value is the human-authored reason — never synthesized by a tool. Same shape as commands.<repo>.allowUnverified: a deliberate declared opt-out, visible in a reviewable diff. Additive and optional, so configVersion stays at 2.",

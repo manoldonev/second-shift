@@ -35,6 +35,14 @@ ERRORS=$(jq -r '
   + err((.tracker | type) != "object"; "tracker: required object")
   + err((.topology | type) != "object"; "topology: required object")
   + err((.commands | type) != "object"; "commands: required object")
+  # EP-6/EP-7/EP-8 retired in #569. Same shape as stageParams.visualCapture below and as
+  # gates.costTracking/figma/apiTests above: a NAMED rejection, and the retired key stays in
+  # the allowlist beneath so this message fires INSTEAD of a bare "unknown top-level keys",
+  # which would name the key without saying what happened to it. The keys are not legal —
+  # the allowlist entry is message routing, and the schema no longer publishes them.
+  + err(has("stageWorkflows"); "stageWorkflows was removed in #569 — the EP-6 dispatcher was the staged lane, deleted in #348, so a registered stage workflow silently stopped running. Nothing replaced it: an additive VERIFY lane is commands.<repo>.extraLanes, read by lean-gate.sh milestone 3. Delete the key from your config (docs/migrations/v1-to-v2.md; the shape is kept as a design record in docs/extending.md §3.6)")
+  + err(has("implementDelegates"); "implementDelegates was removed in #569 — the EP-7 router was the staged lane implement step, deleted in #348, so a registered delegate silently stopped being routed to. The lean lane is outcome-gated and silent on HOW the diff is produced, so a build session may still dispatch the same agent by choice; what has no lean home is the config-routed surface-to-agent mechanism. Delete the key from your config (docs/migrations/v1-to-v2.md; the shape is kept as a design record in docs/extending.md §3.7)")
+  + err(has("planGates"); "planGates was removed in #569 — the EP-8 dispatcher was the staged lane plan-gate step, deleted in #348, so a registered BLOCKING plan gate silently stopped running. There is no plan gate on the lean lane for one to be additive to; the spec is judged at the merge boundary by review-lean. Delete the key from your config (docs/migrations/v1-to-v2.md; the shape is kept as a design record in docs/extending.md §3.8)")
   + err(
       (keys - ["$schema","configVersion","tracker","topology","commands","reviewers","paths","gates","design","stageParams","stageWorkflows","implementDelegates","planGates","grillWaivers"]) != [];
       "unknown top-level keys: " + ((keys - ["$schema","configVersion","tracker","topology","commands","reviewers","paths","gates","design","stageParams","stageWorkflows","implementDelegates","planGates","grillWaivers"]) | join(", "))
@@ -96,7 +104,7 @@ ERRORS=$(jq -r '
     )
   + ((.commands // {}) | to_entries | map(
       (.key as $repo | .value |
-        err(((keys) - ["lint","lintAutofixes","typecheck","test","testFile","unitTestScope","format","lanes","extraLanes","allowUnverified"]) != []; "commands." + $repo + ": unknown keys (note: integrationTest/apiTest were removed in v2.1.6, commands.<repo>.build was removed (#113: never executed by any verify lane) — ship those tiers via extraLanes / extension points EP-6/EP-7; see docs/migrations)")
+        err(((keys) - ["lint","lintAutofixes","typecheck","test","testFile","unitTestScope","format","lanes","extraLanes","allowUnverified"]) != []; "commands." + $repo + ": unknown keys (note: integrationTest/apiTest were removed in v2.1.6, commands.<repo>.build was removed (#113: never executed by any verify lane) — ship those tiers via extraLanes; see docs/migrations)")
         + ([to_entries[] | select(.key | IN("lint","typecheck","test","testFile","unitTestScope","format")) |
             err((.value | type) | IN("string","null") | not; "commands." + $repo + "." + .key + ": must be string or null")
           ] | add // [])
@@ -168,7 +176,7 @@ ERRORS=$(jq -r '
     )
   + ((.gates // {}) |
       err(has("figma"); "gates.figma was removed in v2 — use design: {\"provider\": ...} (docs/migrations/v1-to-v2.md)")
-      + err(has("apiTests"); "gates.apiTests was removed in v2 — ship an API-test tier via extension points EP-6/EP-7 (docs/migrations/v1-to-v2.md)")
+      + err(has("apiTests"); "gates.apiTests was removed in v2 — ship an API-test tier via commands.<repo>.extraLanes, an additive verify lane with a real failureClass (docs/migrations/v1-to-v2.md)")
       + err(has("costTracking"); "gates.costTracking was removed in v2.1.6 — local OTel cost attribution now runs unconditionally (passive, never blocks); the toggle had no reader (docs/migrations/v1-to-v2.md)")
       + err(((keys) - ["mutation","costTracking","figma","apiTests"]) != [];
             "gates: unknown keys: " + (((keys) - ["mutation","costTracking","figma","apiTests"]) | join(", ")))
@@ -187,41 +195,6 @@ ERRORS=$(jq -r '
           + err((.cwd? != null) and ((.cwd | type) == "string") and ($repoIds != []) and ((.cwd as $c | $repoIds | index($c)) == null); "design.liveRender.cwd: not a topology.repos id")
           + err((.readyProbe? != null) and ((.readyProbe | type) != "string"); "design.liveRender.readyProbe: must be string")
         ) else [] end)
-    ) else [] end)
-  + (if (.stageWorkflows != null) then (.stageWorkflows |
-      err((type) != "array"; "stageWorkflows: must be array")
-      + (to_entries | map(
-          (.key as $i | .value |
-            err(((keys) - ["stage","name","workflow"]) != []; "stageWorkflows[" + ($i|tostring) + "]: unknown keys")
-            + err(((.stage | type) != "number") or (((.stage // 0) | floor) != (.stage // 0)) or ((.stage // 0) < 1) or ((.stage // 0) > 10); "stageWorkflows[" + ($i|tostring) + "].stage: must be an integer 1-10")
-            + err((.name? // "") == ""; "stageWorkflows[" + ($i|tostring) + "].name: required")
-            + err((.workflow? // "") == ""; "stageWorkflows[" + ($i|tostring) + "].workflow: required")
-          )
-        ) | add // [])
-      + err(([.[].name] | length) != ([.[].name] | unique | length); "stageWorkflows: names must be unique")
-    ) else [] end)
-  + (if (.implementDelegates != null) then (.implementDelegates |
-      err((type) != "array"; "implementDelegates: must be array")
-      + (to_entries | map(
-          (.key as $i | .value |
-            err(((keys) - ["surface","agent"]) != []; "implementDelegates[" + ($i|tostring) + "]: unknown keys")
-            + err((.surface? // "") == ""; "implementDelegates[" + ($i|tostring) + "].surface: required")
-            + err((.surface? != null) and ((.surface | type) != "string"); "implementDelegates[" + ($i|tostring) + "].surface: must be string")
-            + err((.agent? // "") == ""; "implementDelegates[" + ($i|tostring) + "].agent: required")
-          )
-        ) | add // [])
-    ) else [] end)
-  + (if (.planGates != null) then (.planGates |
-      err((type) != "array"; "planGates: must be array")
-      + (to_entries | map(
-          (.key as $i | .value |
-            err(((keys) - ["name","surface","agent"]) != []; "planGates[" + ($i|tostring) + "]: unknown keys")
-            + err((.name? // "") == ""; "planGates[" + ($i|tostring) + "].name: required")
-            + err((.surface? != null) and ((.surface | type) != "string"); "planGates[" + ($i|tostring) + "].surface: must be string")
-            + err((.agent? // "") == ""; "planGates[" + ($i|tostring) + "].agent: required")
-          )
-        ) | add // [])
-      + err(([.[].name] | length) != ([.[].name] | unique | length); "planGates: names must be unique")
     ) else [] end)
   # ---- grillWaivers ----------------------------------------------------------
   # Declared opt-outs for config-grill.sh findings (shipped in the second-shift plugin,

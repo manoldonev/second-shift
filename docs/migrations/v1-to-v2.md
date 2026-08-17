@@ -48,7 +48,8 @@ removed; config-lint now rejects them with a migration pointer (fail closed).
 - **`commands.<repo>.integrationTest` / `commands.<repo>.apiTest`** — never executed by any
   verify lane. Ship an integration/API test tier via **`commands.<repo>.extraLanes`** (an
   additive verify lane with a real `failureClass`, so failures get the correct fix budget)
-  or as a companion pack through extension points EP-6/EP-7. See [`extending.md`](../extending.md).
+  See [`extending.md`](../extending.md) §3.2. (This entry used to offer EP-6/EP-7 as a second
+  route; those keys were themselves retired in #569, below — `extraLanes` is the route.)
 - **`gates.costTracking`** — the mutation gate keyed off `unitTestScope` presence, and cost
   attribution ran unconditionally regardless of this flag; it toggled nothing in either
   direction. Removed. Local OTel cost attribution is now simply always-on (passive, never
@@ -96,17 +97,54 @@ Two consumer-visible consequences beyond the lane itself:
   forward. Repinning without that edit fails the check with a fetch error, loudly — the
   template treats a moved linter path as drift by design.
 
-`stageWorkflows` (EP-6), `implementDelegates` (EP-7) and `planGates` (EP-8) are **not** removed
-and your config still validates, but nothing dispatches them any more — the stages did. They
-are documented as inert in [`extending.md`](../extending.md) §3.6-3.8 pending a decision about
-what replaces the dispatcher.
+`stageWorkflows` (EP-6), `implementDelegates` (EP-7) and `planGates` (EP-8) also lost their
+dispatcher here — the stages were it. They were left schema-legal in this release and retired
+one release later; see the next entry.
+
+### Dead-key removal (#569) — `stageWorkflows` / `implementDelegates` / `planGates`
+
+The three extension-point keys #348 left schema-legal are **removed**. config-lint rejects each
+by name with a pointer here (fail closed). **Delete them from your config**; there is no
+drop-in replacement, and no `configVersion` bump.
+
+Leaving them legal was the more cautious-looking option and was the worse one. All three
+register a **blocking** thing — a stage workflow, a plan gate, a delegate that must author a
+surface. A consumer with a license scan in `stageWorkflows` upgraded past #348, saw no error,
+and kept believing it ran. It did not. The `INERT` banner lived in a doc nobody re-reads on an
+upgrade, so a rejection was the only mechanism that actually reached them — the same reasoning
+that retired `stageParams.visualCapture` in the entry above. And the keys were not merely inert:
+`check-extensions.sh` still fail-closed-validated their references at pre-flight, so a missing
+delegate agent file could **block a run** on behalf of a dispatcher that no longer existed. That
+arm is gone too.
+
+- **`stageWorkflows`** — for a blocking check of your own, use **`commands.<repo>.extraLanes`**:
+  an additive verify lane with a real `failureClass`, run by `lean-gate.sh` milestone 3.
+- **`implementDelegates`** — the lean lane is outcome-gated and says nothing about *how* a diff
+  is produced, so a build session may still dispatch the same specialist agent by choice. What
+  has no replacement is the declared, config-routed, pre-flight-validated form.
+- **`planGates`** — no replacement. There is no plan gate on the lean lane for one to be
+  additive to; the spec is judged at the merge boundary by `review-lean`, after the diff exists.
+
+The shape of all three is kept as a **design record** in [`extending.md`](../extending.md)
+§3.6-3.8, because whether the lean lane grows a consumer-pluggable blocking gate is an open
+product question. Removing a key is the breaking change and re-adding one is a minor, so the
+retirement happened inside the window #348 already opened — if the answer later turns out to be
+yes, a key comes back for free (and EP-6 would need a new one regardless: `stageWorkflows[].stage`
+was an integer constrained `1..10`, and its addressing scheme *was* the ten deleted stages).
+
+`/second-shift:onboard`'s `T1.extension-points` grill check went with them: it proposed adopting
+one of the three, and after the retirement its only remaining exits were a rejected config or a
+waiver. Nothing else about the grill changes, and no waiver you already carry becomes invalid —
+`grillWaivers` accepts any check id.
 
 ### `gates.apiTests` → removed (extension point)
 
-The API-test tier left the core. Ship it as a companion pack via extension points EP-6
-(`implementDelegates`) / EP-7 (`stageWorkflows`/`extraLanes`), declaring its files in
-`.claude/second-shift/.known-extensions` — see [`extending.md`](../extending.md) for the
-full worked example (plan gate + coder delegate + verify lane + reviewer).
+The API-test tier left the core. Ship it as **`commands.<repo>.extraLanes`** (the blocking
+suite) plus **`reviewers.add`** (a domain reviewer for the tests), with any companion-pack
+knowledge files declared in `.claude/second-shift/.known-extensions` — see
+[`extending.md`](../extending.md) §5 for the full worked example. That example used to name two
+further seams, `planGates` and `implementDelegates`; both were retired in #569 and are kept
+there only as a design record.
 
 ### `design-toolkit:playwright-cli` → removed
 

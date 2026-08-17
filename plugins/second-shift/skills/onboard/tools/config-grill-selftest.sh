@@ -531,57 +531,36 @@ EOF
 run_grill "$R" "$R/waived-bare.json"
 expect_finding "waiver: a repo-less id does NOT silence a per-repo check" T4.mutation-plumbing.app
 
-# --- AC-2/AC-3: trigger 1, the unadopted extension points ----------------------------------
-# The one check with NO mechanical predicate. It fires when all three additive-gate seams are
-# absent, and its proposal has to NAME all three with what each buys — a bare key name motivates
-# nobody, which is the entire defect this trigger addresses. It rides in `unadopted[]`, never in
-# `findings[]`: doctor FAILs on a finding, and a repo cannot be permanently non-zero for leaving
-# an optional key at its default.
+# --- #569: trigger 1's extension-points row is RETIRED --------------------------------------
+# The block that lived here drove `T1.extension-points` through its whole matrix: fires when all
+# three additive-gate seams are absent, silent as soon as any ONE is adopted, `[]` is not
+# adoption, waivable by a repo-less id. #569 retired stageWorkflows / implementDelegates /
+# planGates, so every one of those cases now asserts behavior over keys config-lint rejects.
+#
+# The replacement is not "delete and move on" — that would let the row come back unnoticed, and
+# the row is worse than useless now: onboard BLOCKS on an unwaived unadopted entry, so a config
+# with none of the three keys (which is every config, since they cannot be set any more) would
+# be permanently blocked behind a waiver for a capability that does not exist. So the guard is
+# inverted: the id must be ABSENT on exactly the config shape that used to produce it.
 RT1="$(mkrepo t1-none src/App.tsx a.ts)"
 cfg "$RT1/c.json" <<EOF
 { $STD_HEAD, "commands": {"app":{"unitTestScope":null,"testFile":null}} }
 EOF
 run_grill "$RT1" "$RT1/c.json"
-expect_unadopted "t1: fires when all three seams are absent" T1.extension-points \
-  "stageWorkflows" "implementDelegates" "planGates" "grillWaivers"
+expect_no_unadopted "t1: the retired extension-points row does not fire (#569)" T1.extension-points
+expect_no_finding "t1: nor does it leak into findings[]" T1.extension-points
 check "t1 exits 0 (rc=$RC)" "$([[ "$RC" -eq 0 ]] && echo 0 || echo 1)"
-expect_no_finding "t1 never leaks into findings[] (doctor would FAIL on it)" T1.extension-points
 
-# Silent as soon as ANY ONE is adopted — one case per key, so a predicate that checks only the
-# first key it thought of cannot pass this. A config that already uses a seam proves the human
-# knows the family exists, which is the whole (and only) narrowing of the unconditionality.
-for seam in stageWorkflows implementDelegates planGates; do
-  cfg "$RT1/adopted-$seam.json" <<EOF
-{ $STD_HEAD, "commands": {"app":{"unitTestScope":null,"testFile":null}},
-  "$seam": [ {"name":"x"} ] }
-EOF
-  run_grill "$RT1" "$RT1/adopted-$seam.json"
-  expect_no_unadopted "t1: silent when $seam is adopted" T1.extension-points
-  if [[ "$(jq -r '.unadopted | length' <<< "$OUT")" == "0" ]]; then
-    check "t1: unadopted[] is present-and-empty when $seam is adopted" 0
-  else
-    check "t1: unadopted[] should be empty when $seam is adopted (got $(_uids))" 1
-  fi
-done
-
-# A present-but-EMPTY array configures no gate at all, so the seam still never runs. Silencing
-# on `[]` would reproduce the silent-fallback shape this checker exists to catch, and with less
-# accountability than the waiver — which at least carries a human-authored reason.
-cfg "$RT1/empty-arrays.json" <<EOF
+# A config that still CARRIES the retired keys must not resurrect it either. config-lint rejects
+# such a config, but the grill runs on onboard's draft as well as on a committed file, so it has
+# to be inert on the shape rather than merely unreachable — and an `EP_ADOPTED`-style predicate
+# left behind would read as "adopted" here and hide a re-introduction.
+cfg "$RT1/legacy-keys.json" <<EOF
 { $STD_HEAD, "commands": {"app":{"unitTestScope":null,"testFile":null}},
   "stageWorkflows": [], "implementDelegates": [], "planGates": [] }
 EOF
-run_grill "$RT1" "$RT1/empty-arrays.json"
-expect_unadopted "t1: an empty array is not adoption" T1.extension-points "stageWorkflows"
-
-# Waivable, and keyed WITHOUT a repo id: all three are top-level keys with no per-repo form, so
-# a repo-scoped id would misstate the check's scope.
-cfg "$RT1/waived.json" <<EOF
-{ $STD_HEAD, "commands": {"app":{"unitTestScope":null,"testFile":null}},
-  "grillWaivers": { "T1.extension-points": "no org companion pack; the shipped gates are enough here" } }
-EOF
-run_grill "$RT1" "$RT1/waived.json"
-expect_no_unadopted "t1: a waiver suppresses it (same mechanism as a finding)" T1.extension-points
+run_grill "$RT1" "$RT1/legacy-keys.json"
+expect_no_unadopted "t1: retired keys present-but-empty raises nothing (#569)" T1.extension-points
 
 # --- AC-4: the durable mutation-seam advisory ----------------------------------------------
 # Keyed on commands.<repo>.test — durable config — so this surfacing outlives the keys the
@@ -727,7 +706,10 @@ fi
 # Control 2 — SENTINELS, one per capture arm. The first is a literal sitting at a call site; the
 # second lives on an `ev=` assignment inside t2_key and is reachable ONLY through the variable
 # closure, so losing that arm fails here rather than passing quietly.
-for sentinel in "Adopt whichever fits" "matches 0 of the repo"; do
+# ("Adopt the seam or declare" replaced "Adopt whichever fits" in #569 — the latter lived in
+# the retired T1.extension-points proposal. Both are direct call-site literals; the arm under
+# test is unchanged.)
+for sentinel in "Adopt the seam or declare" "matches 0 of the repo"; do
   if grep -qF -- "$sentinel" <<< "$CORPUS"; then
     check "oracle sentinel present: '$sentinel'" 0
   else
@@ -761,7 +743,7 @@ mutate() { # $1 label, $2 sed script, $3 expect: catch|clean
   fi
 }
 mutate "mutant: a banned token at a direct call-site literal is caught" \
-  's|Setting any ONE of the three silences|Setting any ONE of the three (Stage 5) silences|' catch
+  's|there is a suite, and nothing that checks|there is a Stage 5 suite, and nothing that checks|' catch
 mutate "mutant: a banned token at an indirect (ev=) literal is caught" \
   's|matches 0 of the repo|matches 0 of the stages/6 repo|' catch
 

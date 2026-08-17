@@ -161,8 +161,8 @@ count_glob_matches() { # $1.. globs → prints the number of tracked files match
 #   paths.*           — directories a fresh repo legitimately lacks.
 #   visualCapture.*   — dropped outright, not merely unmeasurable: no lane on the default path
 #                       takes a screenshot, so a glob scoping one cannot be a gap. `extraLanes`
-#                       is the consumer home for a capture lane, and T1.extension-points already
-#                       advertises it. No key under `visualCapture` is evaluated here.
+#                       is the consumer home for a capture lane. No key under `visualCapture`
+#                       is evaluated here.
 #
 # Each active row fires on BOTH an absent key whose resolved default matches nothing AND a
 # hand-set value that matches nothing: an adopted value can itself be broken, so setting a key
@@ -424,36 +424,18 @@ fi
 # handled by naming the benefit on those existing questions — a check here would re-nag a human
 # about something they declined ten lines earlier in the same run.
 #
-# The mutation row below is the exception, and for two reasons that the gates question cannot
-# cover. What is missing is a FILE in the repo, not a config answer: a human can answer "yes,
-# mutation" and still carry no sweep, and only the tree can say which. And the question is
-# phrased in config keys that the config-schema assessment may retire, whereas this row keys on
-# `commands.<repo>.test` — durable config — so the surfacing outlives them.
+# This trigger used to carry a SECOND row, `T1.extension-points`, which fired whenever all of
+# stageWorkflows / implementDelegates / planGates were absent and proposed adopting one. #569
+# retired those three keys, so the row's two exits became "adopt a seam config-lint now rejects"
+# and "type a waiver" — and because onboard BLOCKS its accept-or-edit screen on an unwaived
+# unadopted entry, that is a deadlock, not a nag. It is deleted rather than reworded: the
+# disposition it forced ("have you considered the additive-gate seams") no longer has a subject.
 #
-# Unconditional, deliberately. Unlike triggers 2/4/5 there is NO mechanical predicate for
-# "this repo plausibly wants it": absence is the normal state of an optional key, and deriving
-# want from tree shape (db/migrations/** implies implementDelegates) would mint evidence the
-# repo never gave, which docs/extending.md §1 forbids. The unconditionality is narrowed one way
-# only — the check goes silent the moment ANY ONE of the three is adopted, because a config
-# that already uses a seam proves the human knows the family exists. One id and one waiver for
-# all three: the disposition being forced is "have you considered the additive-gate seams",
-# which is one decision, and three ids would be three waivers to type on a repo that wants none.
-#
-# A present-but-EMPTY array is not adoption. It configures no gate, no delegate and no plan
-# gate, so the seam still never runs — silencing on `[]` would reproduce exactly the
-# silent-fallback shape this whole checker exists to catch, and with less accountability than
-# the waiver, which at least carries a human-authored reason.
-EP_ADOPTED=""
-for ep in stageWorkflows implementDelegates planGates; do
-  if jq -e --arg k "$ep" '((.[$k] // []) | length) > 0' "$CONFIG" >/dev/null 2>&1; then
-    EP_ADOPTED="$ep"; break
-  fi
-done
-if [[ -z "$EP_ADOPTED" ]]; then
-  add_unadopted "T1.extension-points" "stageWorkflows, implementDelegates, planGates" \
-    "None of stageWorkflows, implementDelegates or planGates is set — the three additive-gate seams are unadopted. Absence is legal and is the default, so nothing else will ever mention them: this is the one place they get named." \
-    "Adopt whichever fits, or declare that none do. \`stageWorkflows\` (docs/extending.md §3.6) runs a workflow you own as a BLOCKING sub-step at a chosen point in the run — a schema-compat gate, a codegen-drift check, a license scan — without forking the lane. \`implementDelegates\` (§3.7) routes implementation work on a matched surface to a specialist agent instead of the generalist implementer, and the delegate's output still passes the unchanged scope gate, so it adds an author and waives nothing. \`planGates\` (§3.8) adds your own blocking reviewer of the PLAN, which is where a bad approach is cheapest to stop — before any code is written. Setting any ONE of the three silences this check. $(waiver_hint "T1.extension-points")"
-fi
+# The mutation row below outlives it exactly as its own comment predicted it would. What is
+# missing there is a FILE in the repo, not a config answer: a human can answer "yes, mutation"
+# and still carry no sweep, and only the tree can say which. And it keys on
+# `commands.<repo>.test` — durable config — rather than on keys the config-schema assessment
+# might retire, which is what has just happened to its sibling.
 
 # The mutation seam's DURABLE surfacing. The findings[] row above is keyed on config that may
 # retire; this one is keyed on `commands.<repo>.test`, which will not, and it is deliberately

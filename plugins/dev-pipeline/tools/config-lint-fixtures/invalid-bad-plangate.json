@@ -4,6 +4,6 @@
   "topology": { "type": "standalone", "repos": { "app": { "path": ".", "baseBranch": "main" } } },
   "commands": { "app": { "lint": "yarn lint", "test": "yarn test" } },
   "planGates": [
-    { "name": "api-plan", "surface": "tests/api/**" }
+    { "name": "api-plan", "surface": "tests/api/**", "agent": "acme-qa-pack:api-test-plan-reviewer" }
   ]
 }
