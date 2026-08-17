@@ -70,6 +70,25 @@ repo enables {{PLUGIN_LIST}}) — `/second-shift:doctor` verifies the install ag
   read-and-write. Nothing else releases those labels, so without this a merged ticket stays
   labelled in-progress forever.
 
+- Optional committed CI files (same acceptance again):
+  `.github/workflows/second-shift-delta-guard.yml` + `.claude/tools/second-shift-delta-guard.sh`.
+  **GitHub Actions, read-only, and inert until you wire it in.** The lean lane's review half
+  must commit its verdict record to the PR head as the *last* commit, which on a
+  `pull_request`-triggered CI costs a second full run of your lane for a markdown file. This
+  reusable workflow classifies that commit and exposes a `skip` output; you gate your own heavy
+  jobs on it (`needs:` + `if: needs.second-shift-delta-guard.outputs.skip != 'true'`). It holds
+  `contents: read` + `actions: read` and never writes.
+- **It skips only against an already-earned green.** The short-circuit fires solely when the
+  PARENT commit already has a completed, successful run of that same workflow for that same
+  event. Cancelled, failed, still running, absent, or unreadable — every one of those runs your
+  lane in full. There is no "assume it was fine" path, because the whole point is that the green
+  it licenses was already earned by the tree it is claiming green for.
+- **Related, and worth doing whether or not you wire the guard:** for `pull_request` events, do
+  not key `cancel-in-progress: true` bare on the ref. A verdict push then cancels the code
+  commit's in-flight run, leaving a cancelled run on the SHA that carries the code and a
+  completed one on the SHA that carries only markdown. Key the group on the head SHA, or set
+  `cancel-in-progress: false`.
+
 ## Opting out (sanctioned, personal)
 
 Put `"<plugin>@second-shift": false` in `.claude/settings.local.json` (NOT user settings —

@@ -24,6 +24,24 @@ package.json can answer), presents ONE accept-or-edit screen, and emits:
 - `.claude/SECOND-SHIFT.md` — the consent doc: what installs, what hooks fire, before the trust prompt
 - **(on request)** `.github/workflows/second-shift-ci.yml` + `.claude/tools/second-shift-ci-check.sh` — the server-side backstop: on every PR it config-lints the committed config with the linter shipped at the pinned marketplace ref and asserts the settings ref and lockfile ref agree, so a half-done upgrade PR is caught. Reports a red check; mark it a required status check in branch protection to block merges.
 - **(same request, github tracker)** `.github/workflows/second-shift-unclaim.yml` + `.claude/tools/second-shift-unclaim.sh` — the close-out step neither lane owned: when an issue closes it removes the pipeline's two run-state labels (`tracker.labels.claimed` and `tracker.labels.queue`, resolved from your committed config at run time; never `tracker.labels.blockers`, which holds permanent classifications like `epic`). This is the one emitted workflow that **writes** — `issues: write`, two labels on one issue, which needs the repo's Actions workflow permissions set to read-and-write (a `permissions:` block narrows the repo maximum, it cannot widen it). The lean lane's exit milestone requires an open PR, so a session-side drop would fire while review is still in flight; binding the release to the close event needs no live session and covers a hand-closed issue too.
+- **(same request)** `.github/workflows/second-shift-delta-guard.yml` + `.claude/tools/second-shift-delta-guard.sh` — the delta guard, which is about your **CI bill** rather than your evidence. `review-lean` must commit the verdict record to the PR head as the *last* commit, so on a `pull_request`-triggered CI every lean PR pays a second full run — lint, typecheck, build, the whole test suite — for a markdown file the pipeline wrote itself. The guard is a reusable workflow exposing a `skip` output; you gate your heavy jobs on it with two lines each:
+
+  ```yaml
+  jobs:
+    second-shift-delta-guard:
+      uses: ./.github/workflows/second-shift-delta-guard.yml
+
+    test:
+      needs: second-shift-delta-guard
+      if: needs.second-shift-delta-guard.outputs.skip != 'true'
+  ```
+
+  `!= 'true'`, never `== 'false'`: a guard that produced no output at all leaves the string empty, and an empty string has to *run* the lane. **It skips only when the parent SHA already has a completed, successful run of that same workflow for that same event** — cancelled, failed, still running, absent, or unreadable all fall through to a full run, which is what stops the guard from laundering a green onto code nothing verified. This is the one emitted pair you must wire in yourself, because the jobs it shortens are yours; unwired it is inert.
+
+  Two things it is deliberately *not*. It is not `[skip ci]`: that produces **no run at all** for the head SHA, so a repo with required status checks blocks on a check that stays `Expected` forever — whereas a job skipped by a job-level `if:` still produces a check run GitHub counts as passing. And it is not `paths-ignore`, which cannot work here at all: for `pull_request` events GitHub evaluates path filters against the whole PR diff (base…head), not the incremental push, so every PR containing a source change matches regardless of what the last commit touched.
+
+- **Concurrency, whether or not you adopt the guard.** For `pull_request` events, do not key `cancel-in-progress: true` bare on the ref. The verdict push then cancels the code commit's in-flight run, and you are left with a **cancelled** run on the SHA carrying the code and a **completed** one on the SHA carrying only markdown — the evidence is inverted, not merely duplicated. Key the concurrency group on the head SHA, or set `cancel-in-progress: false`. Reachable any time review latency is under CI latency, which a fast panel on a small diff hits easily.
+
 - a paste-ready CONTRIBUTING snippet for teammates
 
 The config is validated with the plugin-shipped `config-lint` in-loop before anything lands.

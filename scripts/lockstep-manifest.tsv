@@ -732,6 +732,19 @@ lean-output-dispositions	verbatim	scripts/check-lean-chain.sh	lean-output-dispos
 # side stops locating the artifact and reds — the (A) happy path and (S0)-(S4) between them
 # exercise every name in both tables.
 # Revisit if OR-1 lands: the render suffix would then exist on both sides and the sets converge.
+#
+# The VERDICT suffix alone DOES get a row (#542), and that is not a reversal of the DROP above.
+# What changed is that it acquired a third holder with a different transport: the consumer CI
+# delta guard (plugins/second-shift/templates/consumer/second-shift-delta-guard.sh) recognises
+# the docs-only verdict commit by this exact suffix, and is COMMITTED INTO a consumer repo
+# rather than fetched at the pinned ref — so no behavioral end-to-end run in this tree can
+# observe that pair the way check-lean-chain-selftest.sh observes the others. Nor would a
+# consumer: a diverged suffix leaves the guard classifying every verdict commit as ordinary,
+# the heavy lane runs in full, and the only symptom is the CI bill this guard exists to lower.
+# Silent, and green the whole time.
+# ONE line inside each block, comments deliberately OUTSIDE the markers, which is what makes
+# `verbatim` the honest relation here rather than the unlike-sets comparison the DROP rejects.
+lean-verdict-suffix	verbatim	plugins/dev-pipeline/skills/build-lean/lean-evidence.sh	lean-verdict-suffix	plugins/second-shift/templates/consumer/second-shift-delta-guard.sh	lean-verdict-suffix
 
 # lean evidence TOKEN SCOPES (#359) — the `permissions:` block granting `contents` + `issues` +
 # `pull-requests` read, held by this repo's `.github/workflows/ci.yml` (`pr-gates`) and by

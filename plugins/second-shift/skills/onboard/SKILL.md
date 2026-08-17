@@ -197,6 +197,14 @@ Ask AT MOST one AskUserQuestion batch, containing ONLY (skip any that detection 
      to remove two labels from one closing issue, and needs the repo's Actions workflow
      permissions set to read-and-write. Under a non-github tracker the unclaim half is skipped
      — there is no label vocabulary. On no / a non-Actions repo, emit nothing (absent = off).
+     The same acceptance also emits **(c) the delta guard**: the lean lane's review half must
+     commit the verdict record to the PR head as the LAST commit, which on a
+     `pull_request`-triggered CI fires a second full run — lint, typecheck, build, the whole
+     test suite — for a markdown file the pipeline wrote itself. The guard lets those jobs skip
+     for exactly that commit, and only when the code commit's own run already completed
+     successfully. It is the one emitted pair the repo must **wire in by hand** (two lines per
+     heavy job, in their own workflow), so say that out loud: unwired it is inert and costs
+     nothing, which is also why it is safe to emit unasked-for.
 Then present the **complete draft as one accept-or-edit screen**: a JSONC block where every
 line carries a provenance comment, e.g.
     "baseBranch": "alpha",        // from origin/HEAD
@@ -376,6 +384,39 @@ pairs; there is no second question:
    Also say that a `permissions:` block only narrows the repo maximum — a repo whose Actions
    workflow permissions are read-only must switch to read-and-write, or the removal 403s
    (visibly, as a red run).
+4. **delta guard:** copy
+   `${CLAUDE_PLUGIN_ROOT}/templates/consumer/second-shift-delta-guard.sh` to
+   `.claude/tools/second-shift-delta-guard.sh` (keep the executable bit) and
+   `${CLAUDE_PLUGIN_ROOT}/templates/consumer/second-shift-delta-guard.yml` to
+   `.github/workflows/second-shift-delta-guard.yml`. **Verbatim** — the guard reads the PR
+   context and the calling run's identity from the environment at run time; nothing is
+   substituted at emit.
+   Unlike the two pairs above, this one does nothing until the repo **wires it in**, because
+   the jobs it shortens are the repo's own. Print the snippet and say it is theirs to paste:
+
+       jobs:
+         second-shift-delta-guard:
+           uses: ./.github/workflows/second-shift-delta-guard.yml
+
+         <each heavy job>:
+           needs: second-shift-delta-guard
+           if: needs.second-shift-delta-guard.outputs.skip != 'true'
+
+   Say the three things a reader will otherwise get wrong. (a) `!= 'true'`, never
+   `== 'false'`: a guard that produced no output leaves the string empty, and an empty string
+   must RUN the lane. (b) This shape rather than `[skip ci]` because a job skipped by a
+   job-level `if:` still produces a check run that GitHub counts as passing for required
+   status checks, while `[skip ci]` produces no run at all and leaves a required check
+   'Expected' forever. (c) `paths-ignore` cannot substitute for it: on `pull_request` events
+   GitHub evaluates path filters against the whole PR diff, not the incremental push, so every
+   PR containing a source change matches regardless.
+   And state the concurrency rule, which is worth acting on whether or not they wire the
+   guard: **for `pull_request` events, do not key `cancel-in-progress: true` bare on the ref.**
+   The verdict push then cancels the code SHA's in-flight run, leaving a cancelled run on the
+   commit that carries the code and a completed one on the commit that carries only markdown —
+   the evidence is inverted, not merely duplicated. Key the concurrency group on the head SHA,
+   or set `cancel-in-progress: false`. It is also the condition under which the guard declines
+   to skip, so a repo that leaves it as-is pays the double run it was trying to avoid.
 
 ## Step 8 — Verify and hand off
 1. Run `claude plugin list` and `claude plugin marketplace list --json`, and check the
@@ -423,7 +464,10 @@ pairs; there is no second question:
    its pair in the same PR: `.github/workflows/second-shift-ci.yml` +
    `.claude/tools/second-shift-ci-check.sh` for evidence,
    `.github/workflows/second-shift-unclaim.yml` + `.claude/tools/second-shift-unclaim.sh`
-   for unclaim.
+   for unclaim, and `.github/workflows/second-shift-delta-guard.yml` +
+   `.claude/tools/second-shift-delta-guard.sh` for the delta guard — plus, in that same PR,
+   the `needs:`/`if:` lines wiring the guard into their own heavy workflow, since an unwired
+   guard is a file nobody will remember to connect later.
 7. **Confirmed pair → offer the sibling's own onboard, and say the FE rule out loud.** This
    run's `be-fe-pair` config (drafted at Step 3) is unchanged and still covers both sides for the
    deprecated staged lane. The lean lane needs more: `/dev-pipeline:run-lean` routes by
