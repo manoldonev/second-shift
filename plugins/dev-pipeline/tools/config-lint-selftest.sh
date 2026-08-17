@@ -40,6 +40,19 @@ expect_violation() { # $1 = fixture, $2 = expected substring in error output
   fi
 }
 
+# The negative form. A retired top-level key is rejected by NAME, and the generic
+# "unknown top-level keys" must stay silent on it — an assertion expect_violation cannot
+# make, since both messages come out of the same failing run and grep would find either.
+expect_no_violation() { # $1 = fixture, $2 = substring that must NOT appear
+  local out
+  out=$("$LINT" "$FIX/$1" 2>&1) || true
+  if grep -qF "$2" <<< "$out"; then
+    check "$1 does NOT also say '$2' (got: $(head -3 <<< "$out" | tr '\n' ' '))" 1
+  else
+    check "$1 does NOT also say '$2'" 0
+  fi
+}
+
 expect_violation invalid-bad-tracker.json           "tracker.type must be github|jira"
 expect_violation invalid-pair-missing-fe.json       "be-fe-pair requires repos.be and repos.fe"
 expect_violation invalid-monorepo-two-id.json       "commands.<id>.lanes / extraLanes"
@@ -56,8 +69,17 @@ expect_violation invalid-bad-liverender.json        "design.liveRender.cwd: not 
 # file would break its git history for no gain; the assertion says what it actually proves.
 expect_violation invalid-bad-viewport.json          "stageParams.visualCapture was removed in #348"
 expect_violation invalid-bad-extralane.json         "extraLanes[0].failureClass: must be a closed failure-taxonomy value"
-expect_violation invalid-bad-stageworkflow.json     "stageWorkflows[0].stage: must be an integer 1-10"
-expect_violation invalid-bad-plangate.json          "planGates[0].agent: required"
+# #569 retired stageWorkflows / implementDelegates / planGates. Same treatment as
+# invalid-bad-viewport.json above: both fixtures now carry a perfectly WELL-FORMED entry,
+# because the key itself is the violation — a per-item shape check no longer exists to fail.
+# The rejection must NAME the key (a bare "unknown top-level keys" would not say what
+# happened to it), which is why the retired keys stay in config-lint's top-level allowlist.
+expect_violation invalid-bad-stageworkflow.json     "stageWorkflows was removed in #569"
+expect_violation invalid-bad-plangate.json          "planGates was removed in #569"
+# ...and the generic rejection must NOT also fire, or the specific message is drowned by a
+# second one contradicting it. This is the whole point of the allowlist mechanic.
+expect_no_violation invalid-bad-stageworkflow.json  "unknown top-level keys"
+expect_no_violation invalid-bad-plangate.json       "unknown top-level keys"
 # #107: lintAutofixes:true + a plain `npm run` lint command silently no-ops the autofix the
 # flag declares — npm swallows a trailing `--fix` without a `--` separator. valid-lintautofix-npm-withfix.json
 # (picked up by the valid-*.json loop above) proves the trailing-`--` escape hatch is accepted.
@@ -79,14 +101,13 @@ expect_violation invalid-bad-inertpattern.json      "stageParams.inertPattern: n
 
 # --- #15: the 12 config-lint type-check gaps (F83 mutant matrix). One packed fixture,
 # one assertion per surviving-mutant class it must now KILL. Plus the removed-key notes.
-expect_violation invalid-type-gaps.json             "stageWorkflows[0].stage: must be an integer 1-10"
 expect_violation invalid-type-gaps.json             "stageParams.planFilePattern: must be string"
 expect_violation invalid-type-gaps.json             "stageParams.inertPattern: must be string"
 expect_violation invalid-type-gaps.json             "reviewers.remove: must be array"
 expect_violation invalid-type-gaps.json             "commands.host.extraLanes[0].when: must be array"
 expect_violation invalid-type-gaps.json             "paths.plansDir: must be string"
-expect_violation invalid-type-gaps.json             "implementDelegates[0].surface: must be string"
-expect_violation invalid-type-gaps.json             "planGates[0].surface: must be string"
+# The third retired key (#569); its two siblings have dedicated fixtures above.
+expect_violation invalid-type-gaps.json             "implementDelegates was removed in #569"
 expect_violation invalid-type-gaps.json             "commands.host.lanes[0].cwd: must be string"
 expect_violation invalid-type-gaps.json             "commands.host.lanes[0].commands: must be array"
 expect_violation invalid-type-gaps.json             "commands.host.lanes[1].commands: at least one required when present"

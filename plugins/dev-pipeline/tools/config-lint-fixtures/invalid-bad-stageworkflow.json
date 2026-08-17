@@ -4,6 +4,6 @@
   "topology": { "type": "standalone", "repos": { "app": { "path": ".", "baseBranch": "main" } } },
   "commands": { "app": { "lint": "yarn lint", "test": "yarn test" } },
   "stageWorkflows": [
-    { "stage": 11, "name": "bad-stage", "workflow": "acme-qa-pack:workflows/x.mjs" }
+    { "stage": 6, "name": "api-verify", "workflow": "acme-qa-pack:workflows/x.mjs" }
   ]
 }

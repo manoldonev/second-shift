@@ -4,8 +4,8 @@
 # (extension-manifest.txt) — its CONTENT, a change-category -> doc-path routing map read by
 # Stage-7 doc-update.md and review-toolkit/agents/doc-updater.md, is not: a routing entry
 # pointing at a moved or deleted doc silently misroutes every future doc update with no
-# signal. This is the same class of gap check-extensions.sh closes for EP-6/EP-7 references,
-# applied to doc-routing.md's rows.
+# signal. This is the same class of gap check-extensions.sh closes for the extension-file NAMES
+# it lints (EP-3), applied one level down to doc-routing.md's row CONTENT.
 #
 # Scan scope: only markdown table body rows (lines starting with "|"; the header row — the
 # first "|"-line of each table — and its "---" separator row are explicitly skipped, tracked

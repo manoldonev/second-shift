@@ -7,7 +7,6 @@
 # survivor_id<TAB>note
 catalog::bounded-exploration-lookback	seeded by the canonical seed run
 catalog::changelog-trailer-anchor	seeded by the canonical seed run
-catalog::check-extensions-plangates	seeded by the canonical seed run
 catalog::ci-check-lint-path	seeded by the canonical seed run
 catalog::gh-bot-wrapperpath	seeded by the canonical seed run
 catalog::claims-lint-seen-ids	seeded by the canonical seed run

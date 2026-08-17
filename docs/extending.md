@@ -31,10 +31,17 @@ You have a repo-, org-, or domain-specific need. Walk it down this list; the fir
 | Add **domain knowledge** a shipped agent should read (blocker mutants, security rules, review context, design tokens, doc routing) | an **extension file** under `.claude/second-shift/` | knowledge | additive to that agent |
 | Add a **whole new reviewer** dimension for this repo | a repo-local agent in `.claude/agents/` + `reviewers.add` | config + agent | it's a reviewer |
 | Turn on **design-fidelity** review against Figma or Claude-Design | `design.provider` config | config | fail-closed gate |
-| Run a **blocking workflow at a specific stage** (a schema-diff gate, a license scan, a codegen-drift check) | `stageWorkflows` (EP-6) | config → workflow | **inert — no dispatcher since #348** |
-| Route certain **implementation work** to a specialist agent | `implementDelegates` (EP-7) | config → agent | **inert — no dispatcher since #348** |
-| Add a **blocking plan-review gate** (a QA-tier plan review, an ADR-compliance check on the plan) | `planGates` (EP-8) | config → agent | **inert — no dispatcher since #348** |
+| Run a **blocking check of your own** (a schema-diff gate, a license scan, a codegen-drift check) | `commands.<repo>.extraLanes` (EP-2) | config | always |
 | Ship any of the above **across many repos in your org**, versioned and pinned | a **companion pack** plugin (EP-5) that the config points at | its own plugin | per the mechanism it uses |
+
+**Three rows used to sit in that table and no longer do.** `stageWorkflows` (EP-6),
+`implementDelegates` (EP-7) and `planGates` (EP-8) were dispatched by the ten-stage lane #348
+deleted, and #569 retired the config keys: `config-lint` now rejects each by name. They are not
+an answer to anything, which is why they are out of a table whose contract is "the first row that
+fits is your answer". Their shape is kept as a **design record** in §3.6–3.8, because whether the
+lean lane grows a consumer-pluggable blocking gate is still an open product question and that
+argument is worth not re-deriving. If you carry any of the three in a config today, delete
+them — see [`migrations/v1-to-v2.md`](migrations/v1-to-v2.md).
 
 Two cuts make almost every decision:
 
@@ -147,15 +154,20 @@ An opt-in axis, off unless the key is present:
 
 ### 3.6 `stageWorkflows` — a blocking gate owned by you (EP-6)
 
-> **INERT since #348 — no dispatcher.** This extension point was dispatched by the staged
-> lane, which was deleted. The config key is still schema-legal and `check-extensions.sh`
-> still validates the agents/workflows it references, so nothing about a consumer's existing
-> config reds — but nothing runs it either. It is documented rather than deleted because
-> whether second-shift keeps a consumer-pluggable blocking gate, and what dispatches it on the
-> lean lane, is a product decision this deletion did not make. Until it is made, treat this
-> section as a record of the shape, not as a capability you can turn on.
+> **Historical record — retired in #569. The config key does not exist.** This extension point
+> was dispatched by the staged lane, deleted in #348; #569 removed the key from the schema and
+> `config-lint` now rejects it by name. The section is kept, in the **past tense**, because the
+> shape argument is the legitimate part: whether second-shift keeps a consumer-pluggable
+> blocking gate, and what would dispatch it on the lean lane, is an open product decision, and
+> this is the record it would start from. Everything below describes a mechanism **as it was
+> designed**, not one you can turn on. Nothing here is current behavior.
+>
+> Keeping the key instead was considered and rejected. A dead-but-legal key **silently disarms**
+> what a consumer registered: they upgrade, see no error, and believe their gate still runs. A
+> rejection is the only mechanism that reaches them. Re-adding a key later is a minor release;
+> removing one is breaking — so the retirement happened in the window #348 already opened.
 
-You need something heavier than a verify command: a real workflow that runs at a chosen stage and blocks completion. A schema-compatibility gate before implementation, a codegen-drift check, a license scan.
+The need it answered: something heavier than a verify command — a real workflow that ran at a chosen stage and blocked completion. A schema-compatibility gate before implementation, a codegen-drift check, a license scan. (For that need today, reach for `extraLanes` (§3.2): it is a blocking verify lane with a real `failureClass`, and it is read by `lean-gate.sh` milestone 3.)
 
 ```jsonc
 {
@@ -166,19 +178,24 @@ You need something heavier than a verify command: a real workflow that runs at a
 }
 ```
 
-The `workflow` is either `"<plugin>:<relpath>"` (a companion pack's script, §4) or a repo-relative path. As designed, it was dispatched **after** the named stage's built-in sub-steps and **before** that stage's completion write, as a blocking sub-step — no advisory field, because advisory gates don't exist here. The result was recorded under `stageCheckpoint[N].extWorkflows[<name>]`; a failure produced the stage's standard fail-fast write with reason **`ext-workflow-failed`** (your name in the detail field), and the workflow could write state **only** via the staged lane's `statectl` checkpoint payloads namespaced `ext:` — adding evidence, never reinterpreting what the pipeline had recorded. Two things are still true today: registration lives in *consumer config* (auditable, per-repo) rather than the plugin manifest, and an unresolvable reference is a config-lint failure.
+The `workflow` was either `"<plugin>:<relpath>"` (a companion pack's script, §4) or a repo-relative path. As designed, it was dispatched **after** the named stage's built-in sub-steps and **before** that stage's completion write, as a blocking sub-step — no advisory field, because advisory gates don't exist here. The result was recorded under `stageCheckpoint[N].extWorkflows[<name>]`; a failure produced the stage's standard fail-fast write with reason **`ext-workflow-failed`** (your name in the detail field), and the workflow could write state **only** via the staged lane's `statectl` checkpoint payloads namespaced `ext:` — adding evidence, never reinterpreting what the pipeline had recorded. Two things are still true today: registration lives in *consumer config* (auditable, per-repo) rather than the plugin manifest, and an unresolvable reference is a config-lint failure.
 
 ### 3.7 `implementDelegates` — route implementation work to a specialist (EP-7)
 
-> **INERT since #348 — no dispatcher.** This extension point was dispatched by the staged
-> lane, which was deleted. The config key is still schema-legal and `check-extensions.sh`
-> still validates the agents/workflows it references, so nothing about a consumer's existing
-> config reds — but nothing runs it either. It is documented rather than deleted because
-> whether second-shift keeps a consumer-pluggable blocking gate, and what dispatches it on the
-> lean lane, is a product decision this deletion did not make. Until it is made, treat this
-> section as a record of the shape, not as a capability you can turn on.
+> **Historical record — retired in #569. The config key does not exist.** This extension point
+> was dispatched by the staged lane, deleted in #348; #569 removed the key from the schema and
+> `config-lint` now rejects it by name. The section is kept, in the **past tense**, because the
+> shape argument is the legitimate part: whether second-shift keeps a consumer-pluggable
+> blocking gate, and what would dispatch it on the lean lane, is an open product decision, and
+> this is the record it would start from. Everything below describes a mechanism **as it was
+> designed**, not one you can turn on. Nothing here is current behavior.
+>
+> Keeping the key instead was considered and rejected. A dead-but-legal key **silently disarms**
+> what a consumer registered: they upgrade, see no error, and believe their gate still runs. A
+> rejection is the only mechanism that reaches them. Re-adding a key later is a minor release;
+> removing one is breaking — so the retirement happened in the window #348 already opened.
 
-You want certain implementation work done by a specialist agent instead of the inline implementer — a migrations specialist for schema changes, a codegen agent for a generated surface.
+The need it answered: certain implementation work done by a specialist agent instead of the inline implementer — a migrations specialist for schema changes, a codegen agent for a generated surface. (The lean lane is outcome-gated and silent on *how* a diff is produced, so a build session may still dispatch such an agent by choice. What has no lean home is the declared, config-routed, pre-flight-validated form.)
 
 ```jsonc
 {
@@ -189,19 +206,24 @@ You want certain implementation work done by a specialist agent instead of the i
 }
 ```
 
-`surface` is a path glob or the reserved key `unit`; matching work items routed to the delegate. The delegate's output then passed through the **unchanged** scope-enforcement gate and every downstream gate — it *adds work* (a different author) and *waives nothing*. `agent` is `"<plugin>:<agent>"` (a companion pack) or a bare repo-local agent name. An unresolvable agent fails closed at pre-flight.
+`surface` was a path glob or the reserved key `unit`; matching work items routed to the delegate. The delegate's output then passed through the **unchanged** scope-enforcement gate and every downstream gate — it *added work* (a different author) and *waived nothing*. `agent` was `"<plugin>:<agent>"` (a companion pack) or a bare repo-local agent name, and an unresolvable one failed closed at pre-flight. That pre-flight arm went with the key in #569: `check-extensions.sh` had been enforcing referential integrity on behalf of a dispatcher that no longer existed, which could only ever block a run, never protect one.
 
 ### 3.8 `planGates` — a blocking plan-review gate (EP-8)
 
-> **INERT since #348 — no dispatcher.** This extension point was dispatched by the staged
-> lane, which was deleted. The config key is still schema-legal and `check-extensions.sh`
-> still validates the agents/workflows it references, so nothing about a consumer's existing
-> config reds — but nothing runs it either. It is documented rather than deleted because
-> whether second-shift keeps a consumer-pluggable blocking gate, and what dispatches it on the
-> lean lane, is a product decision this deletion did not make. Until it is made, treat this
-> section as a record of the shape, not as a capability you can turn on.
+> **Historical record — retired in #569. The config key does not exist.** This extension point
+> was dispatched by the staged lane, deleted in #348; #569 removed the key from the schema and
+> `config-lint` now rejects it by name. The section is kept, in the **past tense**, because the
+> shape argument is the legitimate part: whether second-shift keeps a consumer-pluggable
+> blocking gate, and what would dispatch it on the lean lane, is an open product decision, and
+> this is the record it would start from. Everything below describes a mechanism **as it was
+> designed**, not one you can turn on. Nothing here is current behavior.
+>
+> Keeping the key instead was considered and rejected. A dead-but-legal key **silently disarms**
+> what a consumer registered: they upgrade, see no error, and believe their gate still runs. A
+> rejection is the only mechanism that reaches them. Re-adding a key later is a minor release;
+> removing one is breaking — so the retirement happened in the window #348 already opened.
 
-You want an extra reviewer of the *plan itself* — a QA-tier review of the test strategy for a surface, an ADR-compliance check — that can block a bad plan before any code is written.
+The need it answered: an extra reviewer of the *plan itself* — a QA-tier review of the test strategy for a surface, an ADR-compliance check — able to block a bad plan before any code was written. The lean lane has no plan gate for one to be additive to; the spec is judged at the merge boundary by `review-lean`, after the diff exists.
 
 ```jsonc
 {
@@ -215,13 +237,13 @@ As designed, each plan gate ran **after** the built-in plan gates (plan-reviewer
 
 ### 3.9 Companion pack — package the above for the whole org
 
-When the extension files, reviewers, workflows, or delegate agents above would be copied across many of your repos, package them once as a companion pack plugin and point config at it. That's §4.
+When the extension files or reviewers above would be copied across many of your repos, package them once as a companion pack plugin and point config at it. That's §4.
 
-## 4. The companion-pack contract (EP-5 / EP-6 / EP-7)
+## 4. The companion-pack contract (EP-5)
 
-A **companion pack** is your own private plugin — same distribution mechanics as second-shift, different visibility — that carries the org-wide half of your extension surface: shared domain reviewers, shared workflow scripts (EP-6 targets), shared delegate agents (EP-7 targets), and shared knowledge files. It's the concrete form of the "org/platform overlay" (layer 2) named in [`context-model.md`](context-model.md): author org knowledge once, version it, pin it, instead of vendoring it into every repo.
+A **companion pack** is your own private plugin — same distribution mechanics as second-shift, different visibility — that carries the org-wide half of your extension surface: shared domain reviewers and shared knowledge files. (It used to carry shared workflow scripts and delegate agents too — the EP-6/EP-7 targets — but #569 retired the config keys that referenced them; see §3.6–3.7.) It's the concrete form of the "org/platform overlay" (layer 2) named in [`context-model.md`](context-model.md): author org knowledge once, version it, pin it, instead of vendoring it into every repo.
 
-A consumer repo enables the companion pack alongside second-shift and then *references* its contents from `.claude/second-shift.config.json` — `stageWorkflows[].workflow: "acme-platform:…"`, `implementDelegates[].agent: "acme-platform:…"`, `reviewers.add` for its reviewers. The pack itself never edits a consumer's config; wiring is always the consumer's auditable choice.
+A consumer repo enables the companion pack alongside second-shift and then *references* its contents from `.claude/second-shift.config.json` — `reviewers.add` for its reviewers — and declares its knowledge files in `.known-extensions` (§4.3). The pack itself never edits a consumer's config; wiring is always the consumer's auditable choice.
 
 ### 4.1 The two-pin model
 
@@ -236,10 +258,10 @@ They upgrade independently: bumping your org pack's domain rules is a companion-
 
 Everything a companion pack exposes is addressed `<pack>:<name>`, exactly like the shipped plugins ([`namespaces.md`](namespaces.md)):
 
-- **Agents** referenced from config carry the qualifier: `implementDelegates[].agent: "acme-platform:migration-writer"`, and a pack reviewer registered via `reviewers.add` is dispatched by its qualified name. (A repo-*local* agent stays bare — that's the disambiguation between the two roots.)
-- **Workflows** referenced from `stageWorkflows[].workflow` use the `"<pack>:<relpath>"` form; the Workflow tool resolves it against the installed-plugin search path — never hard-code a filesystem path into another plugin.
+- **Agents** referenced from config carry the qualifier: a pack reviewer registered via `reviewers.add` is dispatched by its qualified name, `"acme-platform:api-test-reviewer"`. (A repo-*local* agent stays bare — that's the disambiguation between the two roots.)
+- **Workflows** a pack ships use the same `"<pack>:<relpath>"` form wherever the Workflow tool resolves one; it searches the installed-plugin path, so never hard-code a filesystem path into another plugin. No *config* key points at one any more — the two that did (`stageWorkflows`, `implementDelegates`) were retired in #569.
 
-The qualifier is what lets `check-reviewer-references.sh` and the pre-flight resolver tell "shipped", "companion", and "repo-local" apart, and what keeps a pack from silently shadowing a shipped name.
+The qualifier is what lets `check-reviewer-references.sh` tell "shipped", "companion", and "repo-local" apart, and what keeps a pack from silently shadowing a shipped name.
 
 ### 4.3 Vendoring the pack's knowledge files: `.known-extensions`
 
@@ -257,11 +279,14 @@ platform/*.md
 
 ## 5. End-to-end case study: an API-test QA tier
 
-> **Read §3.6-3.8 first.** Three of the five mechanisms this case study composes (`stageWorkflows`,
-> `implementDelegates`, `planGates`) are INERT since #348 — they have no dispatcher. The
-> `extraLanes` and extension-file halves still run. The study is kept whole because it is the
-> only worked example of how the five compose, and it is the argument any replacement dispatcher
-> would have to satisfy.
+> **Half of this study is a historical record — read §3.6-3.8 first.** Three of the five
+> mechanisms it composes (`stageWorkflows`, `implementDelegates`, `planGates`) lost their
+> dispatcher in #348 and lost their config keys in #569: `config-lint` rejects them by name, so
+> a config carrying them **fails pre-flight**. The `extraLanes`, `reviewers.add` and
+> extension-file halves still run, and the config block below carries only those.
+> The retired halves are shown separately, as design record, because this is the only worked
+> example of how the five composed — and it is the argument any replacement dispatcher would
+> have to satisfy.
 
 The single snippets above each touch one seam. Real capabilities compose several. Here's a worked case a QA-minded org actually wants: **black-box API tests as a first-class pipeline concern** — the plan's API-test strategy gets reviewed *before* code is written, the tests are authored by a specialist, the suite runs as a blocking gate, and the tests themselves get code-reviewed. That's four different gating moments, so it's four seams — packaged once as a companion pack, `acme-qa-pack`, and wired from each consumer's config.
 
@@ -271,21 +296,12 @@ The single snippets above each touch one seam. Real capabilities compose several
 - `agents/api-test-reviewer.md` — reviews the written test code.
 - `skills/api-testing/` — the shared "how we write API tests here" playbook the agents load.
 
-**What each consumer repo puts in `.claude/second-shift.config.json`** — one block, every seam of the tier registered and auditable. Two of the four still dispatch; the other two are recorded for their shape (§3.6-3.8):
+**What each consumer repo puts in `.claude/second-shift.config.json`** — the two seams of the
+tier that still dispatch, registered and auditable. This block is valid config; paste it and
+`config-lint` passes:
 
 ```jsonc
 {
-  // gate the PLAN — INERT since #348 (§3.8): registered and reference-validated, but no
-  // dispatcher runs it. As designed: block a ticket whose API-test strategy is wrong
-  // before any code exists.
-  "planGates": [
-    { "name": "api-plan", "surface": "tests/api/**", "agent": "acme-qa-pack:api-test-plan-reviewer" }
-  ],
-  // route the WRITING — INERT since #348 (§3.7). As designed: route API-test work to the
-  // specialist instead of the inline implementer.
-  "implementDelegates": [
-    { "surface": "tests/api/**", "agent": "acme-qa-pack:api-test-coder" }
-  ],
   // RUN the suite — LIVE: read by lean-gate.sh milestone 3. The API suite is a blocking
   // verify lane, gated to when API surface changed.
   "commands": {
@@ -304,6 +320,28 @@ The single snippets above each touch one seam. Real capabilities compose several
 }
 ```
 
+**And the two seams that are gone.** The block below is **not valid config** — `config-lint`
+rejects all three of these keys by name (#569). It is reproduced because the tier's *shape*
+argument depends on it: the point of the study is that a QA tier wants a gating moment at the
+plan and a different author at the implementation, and neither has a lean home today.
+
+```jsonc
+// RETIRED IN #569 — DO NOT PUT THIS IN A CONFIG. Design record only (§3.7-3.8).
+{
+  // gate the PLAN (§3.8). As designed: block a ticket whose API-test strategy is wrong
+  // before any code exists. No lean equivalent — the spec is judged at the merge boundary.
+  "planGates": [
+    { "name": "api-plan", "surface": "tests/api/**", "agent": "acme-qa-pack:api-test-plan-reviewer" }
+  ],
+  // route the WRITING (§3.7). As designed: route API-test work to the specialist instead of
+  // the inline implementer. A lean build session may still dispatch the same agent by
+  // choice — what is gone is the declared, config-routed form.
+  "implementDelegates": [
+    { "surface": "tests/api/**", "agent": "acme-qa-pack:api-test-coder" }
+  ]
+}
+```
+
 Plus the pack's harness reference, declared so the manifest lint recognizes it (§4.3):
 
 ```
@@ -313,12 +351,12 @@ api-testing/*.md
 
 **How it maps — one seam per gating stage:**
 
-| Pipeline stage | Seam | What runs | Fails how |
-| --- | --- | --- | --- |
-| 4 — plan review | `planGates` (EP-8) | `api-test-plan-reviewer` judges the plan's test strategy | `block` → `plan-reviewer-block` |
-| 5 — implement | `implementDelegates` (EP-7) | `api-test-coder` writes `tests/api/**` | output passes the unchanged scope + downstream gates |
-| 6 — verify | `extraLanes` (EP-2) | the API suite runs | nonzero → `TEST_FAILURE`, standard budget |
-| 8 — code review | `reviewers.add` | `api-test-reviewer` reviews the tests | its verdict folds into the review round |
+| Gating moment | Seam | What runs | Fails how | Status |
+| --- | --- | --- | --- | --- |
+| plan review | `planGates` (EP-8) | `api-test-plan-reviewer` judges the plan's test strategy | `block` → `plan-reviewer-block` | **retired #569** — no lean equivalent |
+| implement | `implementDelegates` (EP-7) | `api-test-coder` writes `tests/api/**` | output passes the unchanged scope + downstream gates | **retired #569** — a session may still choose the agent |
+| verify | `extraLanes` (EP-2) | the API suite runs | nonzero → `TEST_FAILURE`, standard budget | live (`lean-gate.sh` milestone 3) |
+| code review | `reviewers.add` | `api-test-reviewer` reviews the tests | its verdict folds into the review round | live (`review-lead`) |
 
 Every one of these **adds** a gate or a unit of work; not one can waive a shipped check — an API-test tier can only make a green run *red* (a bad plan, a failing suite, a rejected review), which is exactly the fork-vs-extend line from §1. And because the wiring lives in the consumer's config, anyone auditing the repo sees the whole tier in one file — while the *implementation* (agents, skill) is versioned and pinned in the pack, bumped independently.
 
@@ -326,4 +364,4 @@ Every one of these **adds** a gate or a unit of work; not one can waive a shippe
 
 ---
 
-**In one breath:** config for values and switches; extension files to add evidence; planGates / extraLanes / reviewers to add a gate at each of the three gating stages, and stageWorkflows / delegates to add work — all registered from config so they're auditable; a companion pack to ship any of it across an org, two-pinned and namespaced. And through all of it: extensions add, they never subtract; if your change could turn a red run green, you wanted a fork.
+**In one breath:** config for values and switches; extension files to add evidence; `extraLanes` to add a blocking verify gate and `reviewers.add` to add a review dimension — both registered from config so they're auditable; a companion pack to ship any of it across an org, two-pinned and namespaced. (The plan-gate and delegate seams that once sat alongside them were retired in #569 and survive only as the design record in §3.6-3.8.) And through all of it: extensions add, they never subtract; if your change could turn a red run green, you wanted a fork.

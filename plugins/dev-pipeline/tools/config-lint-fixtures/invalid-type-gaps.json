@@ -24,7 +24,5 @@
     "planFilePattern": 5,
     "inertPattern": 7
   },
-  "implementDelegates": [ { "surface": 5, "agent": "a" } ],
-  "planGates": [ { "name": "p", "surface": 5, "agent": "a" } ],
-  "stageWorkflows": [ { "stage": 2.5, "name": "n", "workflow": "w.mjs" } ]
+  "implementDelegates": [ { "surface": "unit", "agent": "acme-unit-author" } ]
 }

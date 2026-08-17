@@ -85,8 +85,10 @@ Build the draft config from detection:
   config-schema assessment rules on retiring them — the default lane's mutation story is
   the repo-carried sweep in question 4.)
   (Integration/API test tiers, and `build`, are NOT config command keys — removed in
-  v2.1.6 / #113 respectively; ship them via `extraLanes` / extension points EP-6/EP-7.
-  Never emit `integrationTest`/`apiTest`/`build` under `commands.<repo>`.)
+  v2.1.6 / #113 respectively; ship them via `extraLanes`. Never emit
+  `integrationTest`/`apiTest`/`build` under `commands.<repo>`, and never emit
+  `stageWorkflows`/`implementDelegates`/`planGates` either — retired in #569, and a draft
+  carrying one self-rejects at config-lint.)
   `lanes` (setup steps) is deliberately NOT in that key list — detection cannot prove a
   repo's install command, so onboard never writes one. It is raised on the review screen
   instead (below), where the human can supply it.

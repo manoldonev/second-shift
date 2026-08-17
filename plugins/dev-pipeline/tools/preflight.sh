@@ -123,7 +123,7 @@ else
     while IFS= read -r l; do say "[preflight]        $l"; done < <(tail -10 <<< "$out")
   fi
   if out=$(bash "$SCRIPT_DIR/check-extensions.sh" "$REPO_ROOT" 2>&1); then
-    ok "check-extensions: extension files + EP-6/EP-7 references resolve"
+    ok "check-extensions: extension files match a known name (EP-3)"
   else
     bad "check-extensions rejected the repo:"
     while IFS= read -r l; do say "[preflight]        $l"; done < <(tail -10 <<< "$out")
