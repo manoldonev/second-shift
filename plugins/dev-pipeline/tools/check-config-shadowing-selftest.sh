@@ -42,11 +42,11 @@ fi
 # re-pointed at a path that does not exist would otherwise read as "reader absent" forever.
 TMP3="$(mktemp -d)"; trap 'rm -rf "$TMP" "$TMP2" "$TMP3"' EXIT
 cp -R "$DP/." "$TMP3/"
-rm -f "$TMP3/workflows/mutation-gate.mjs"
+rm -f "$TMP3/tools/is-inert-diff.sh"
 if bash "$CHECK" "$TMP3" >"$TMP/shadow3.out" 2>&1; then
   bad "missing anchor file should FAIL but passed"
 else
-  grep -q "SHADOW-CHECK: missing file workflows/mutation-gate.mjs" "$TMP/shadow3.out" \
+  grep -q "SHADOW-CHECK: missing file tools/is-inert-diff.sh" "$TMP/shadow3.out" \
     && ok "missing anchor file -> distinct SHADOW-CHECK message" \
     || bad "missing anchor file failed but without the expected SHADOW-CHECK message"
 fi

@@ -35,7 +35,8 @@
 #
 # (A) Out of reach BY CONTRACT — nothing to add until the contract itself changes:
 #   - Design mode. The mode is contractually interactive/MCP-backed and headless
-#     fail-closes by design; design-sync-selftest.mjs covers the engine enum drift.
+#     fail-closes by design. (The engine-enum drift guard died with the design-sync
+#     engine and its selftest, #574; milestone 3's render lane is the design gate.)
 #   - A REAL `claude -p` session re-entering a run the lean lane stopped itself.
 #     The (lean-reentry) leg below composes the scheduler with the real gate over
 #     a SCRIPTED session binary, which is its stated ceiling — CI is model-free by

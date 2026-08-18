@@ -41,10 +41,12 @@ command -v node >/dev/null 2>&1 || {
 TMP="$(mktemp -d -t text-contract-selftest.XXXXXX)"
 trap 'rm -rf "$TMP"' EXIT
 
-# The plan dispatcher left both lists in #348 — it was deleted with the staged
-# lane, so it carries no copy to hold in lockstep.
-PARSE_CARRIERS="code-review.mjs unit-tests.mjs intake-review.mjs design-sync.mjs figma.mjs stall-probe.mjs"
-VALIDATE_CARRIERS="code-review.mjs unit-tests.mjs intake-review.mjs design-sync.mjs figma.mjs"
+# The plan dispatcher left both lists in #348 (deleted with the staged lane);
+# design-sync.mjs, figma.mjs and unit-tests.mjs left in #574 (retired with the
+# engine set). Each carried its own copy because the Workflow runtime gives these
+# scripts no import.
+PARSE_CARRIERS="code-review.mjs intake-review.mjs stall-probe.mjs"
+VALIDATE_CARRIERS="code-review.mjs intake-review.mjs"
 
 extract() { # extract <file> <fn-header> -> prints the function body to stdout
   sed -n "/^const $2 = ($3) => {\$/,/^}\$/p" "$WORKFLOWS/$1"
@@ -65,7 +67,7 @@ for f in $PARSE_CARRIERS; do
     drift=$((drift + 1))
   fi
 done
-[ "$drift" -eq 0 ] && ok "A1 parseReviewResult byte-identical across all 7 carriers"
+[ "$drift" -eq 0 ] && ok "A1 parseReviewResult byte-identical across all 3 carriers"
 
 ref_validate="$(extract code-review.mjs validateShape 'obj, schema')"
 [ -n "$ref_validate" ] || bad "A0 could not extract validateShape from code-review.mjs"
@@ -80,7 +82,7 @@ for f in $VALIDATE_CARRIERS; do
     drift=$((drift + 1))
   fi
 done
-[ "$drift" -eq 0 ] && ok "A2 validateShape byte-identical across all 6 carriers"
+[ "$drift" -eq 0 ] && ok "A2 validateShape byte-identical across both carriers"
 
 # ---------- (B) behavior — the PRODUCTION source, extracted, not a reference copy ----------
 

@@ -71,22 +71,13 @@ Build the draft config from detection:
   `commands.<id>.extraLanes` (path-triggered extra tiers, e.g. contract tests
   scoped to one workspace).
 - `commands.<repo>` from detection: the emitted block contains EXACTLY these keys —
-  `lint`, `lintAutofixes`, `typecheck`, `test`, `format` from detect.sh, PLUS
-  `testFile`, `unitTestScope` as explicit `null`
-  (undetectable — their provenance comment reads "rollback-lane keys; the default lane
-  reads neither"). **Undetected lanes are explicit `null`** — never omit, never invent.
-  **On a RE-onboard (Step 0 diff mode) those two keys are carried FORWARD from the
-  existing config, and are `null` only where they were already `null`.** Undetectable
-  means detection cannot reproduce them, not that they are safe to regenerate: they are a
-  human's declaration about a lane detection cannot see, `null` is a legal value for both,
-  and overwriting one is a silent config deletion that `config-lint` still passes. The
-  guard below is the mechanical backstop; this clause is what keeps it from firing on
-  every re-onboard of every adopter. (Both keys are staged-lane legacy, kept until the
-  config-schema assessment rules on retiring them — the default lane's mutation story is
-  the repo-carried sweep in question 4.)
+  `lint`, `lintAutofixes`, `typecheck`, `test`, `format` from detect.sh. **Undetected
+  lanes are explicit `null`** — never omit, never invent.
   (Integration/API test tiers, and `build`, are NOT config command keys — removed in
   v2.1.6 / #113 respectively; ship them via `extraLanes`. Never emit
-  `integrationTest`/`apiTest`/`build` under `commands.<repo>`, and never emit
+  `integrationTest`/`apiTest`/`build` under `commands.<repo>`, never emit
+  `testFile`/`unitTestScope` — retired in #574 with the mutation-gate engine; the
+  mutation story is the repo-carried sweep in question 4 — and never emit
   `stageWorkflows`/`implementDelegates`/`planGates` either — retired in #569, and a draft
   carrying one self-rejects at config-lint.)
   `lanes` (setup steps) is deliberately NOT in that key list — detection cannot prove a
@@ -121,12 +112,10 @@ Ask AT MOST one AskUserQuestion batch, containing ONLY (skip any that detection 
      the repo carries one, reds the milestone on a non-zero exit, and prints a SKIPPED notice
      when it is absent — what it mutates and how is yours** (`docs/onboarding.md`, "Mutation:
      the repo-carried sweep"; `docs/config-schema.md`, `gates` row).
-     (**mutation** — `gates.mutation` and `commands.<repo>.unitTestScope` are rollback-lane
-     keys, kept until the config-schema assessment rules on retiring them; `gates.mutation:false`
-     is that lane's explicit off-switch even when `unitTestScope` is set, and setting either
-     one does not by itself buy a sweep. `mutation` is the ONLY `gates` key the schema has as
-     of v2.1.6 — `costTracking` was removed (cost attribution now runs unconditionally, passive)
-     — never emit anything else under `gates`)
+     (**mutation** — `gates.mutation:false` is the explicit off-switch a reader can see;
+     setting it true does not by itself buy a sweep. `mutation` is the ONLY `gates` key the
+     schema has as of v2.1.6 — `costTracking` was removed (cost attribution now runs
+     unconditionally, passive) — never emit anything else under `gates`)
   5. design fidelity, two-part — **what it buys: review gains a design-fidelity dimension, and
      with `liveRender` a per-route rendered-vs-handoff receipt replaces a reviewer's opinion of
      a diff** (docs/extending.md §3.5; docs/live-render.md).

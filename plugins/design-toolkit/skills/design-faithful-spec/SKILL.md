@@ -1,6 +1,6 @@
 ---
 name: design-faithful-spec
-description: Normalize a Claude Design handoff into a faithful frontend spec for the repo — completeness inventory, behavioral/state contract, and design→real-stack component map. Use to turn a screen-level design handoff into an implementable FE spec before writing code. Dispatched by the design-sync engine (produce, implement:false).
+description: Normalize a Claude Design handoff into a faithful frontend spec for the repo — completeness inventory, behavioral/state contract, and design→real-stack component map. Use to turn a screen-level design handoff into an implementable FE spec before writing code. Dispatched by the intake router's design-handoff route, or by a session's choice (the design-sync engine that used to dispatch it was retired in #574).
 ---
 
 You produce a **faithful frontend spec for the repo** from a Claude Design handoff. You read
@@ -20,7 +20,7 @@ extension file / discovered), **never** the handoff README's stack claims — a 
 routinely declares a different framework/data stack than the repo actually runs; such claims
 are wrong for the repo and must be flagged, not honored.
 
-## Inputs (from the design-sync engine prompt)
+## Inputs (from the dispatch prompt)
 
 - `projectId` — the handoff project, **opened by id** (required).
 - `screen` — the screen/component to spec, e.g. `detail` (required).

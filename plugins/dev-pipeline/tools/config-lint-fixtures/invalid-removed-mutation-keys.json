@@ -1,0 +1,6 @@
+{
+  "configVersion": 2,
+  "tracker": { "type": "github" },
+  "topology": { "type": "standalone", "repos": { "host": { "path": ".", "baseBranch": "main" } } },
+  "commands": { "host": { "test": "yarn test", "unitTestScope": "src/**", "testFile": "yarn test {file}" } }
+}

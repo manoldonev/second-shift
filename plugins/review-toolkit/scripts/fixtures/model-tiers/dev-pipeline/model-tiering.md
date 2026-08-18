@@ -1,5 +1,4 @@
 # dev-pipeline (fixture)
 
-## Anonymous-executor tiers
-
-- mutation-gate executors: sonnet (`EXECUTOR_MODEL` in `workflows/mutation-gate.mjs`)
+(The anonymous-executor tier note lived here until #574 retired mutation-gate.mjs and
+its EXECUTOR_MODEL lockstep; the fixture doc stays because the resolver copies it.)

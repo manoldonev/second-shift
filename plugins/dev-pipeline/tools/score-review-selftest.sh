@@ -101,9 +101,16 @@ grep -qE '(^|[[:space:]])(const|let|var)[[:space:]]+dispatchSchemaAgent' "$PLUGI
   && bad "B1 code-review.mjs now defines dispatchSchemaAgent — mutant M5 is no longer false; update the fixture" \
   || ok "B1 M5 anchor holds (no dispatchSchemaAgent in code-review.mjs)"
 
-grep -q "withCeiling" "$PLUGIN_DIR/workflows/unit-tests.mjs" \
-  && bad "B2 unit-tests.mjs now has withCeiling — mutant M6 is no longer false; update the fixture" \
-  || ok "B2 M6 anchor holds (no withCeiling in unit-tests.mjs)"
+# unit-tests.mjs was retired in #574; M6's claim ("withCeiling is absent from
+# unit-tests.mjs") is now anchored to the file's absence — a file that does not exist
+# cannot gain the symbol. If the engine ever returns, this re-arms the content grep.
+if [ -f "$PLUGIN_DIR/workflows/unit-tests.mjs" ]; then
+  grep -q "withCeiling" "$PLUGIN_DIR/workflows/unit-tests.mjs" \
+    && bad "B2 unit-tests.mjs now has withCeiling — mutant M6 is no longer false; update the fixture" \
+    || ok "B2 M6 anchor holds (no withCeiling in unit-tests.mjs)"
+else
+  ok "B2 M6 anchor holds (unit-tests.mjs retired in #574 — withCeiling cannot exist)"
+fi
 
 [[ -e "$SCRIPT_DIR/state-migrate.sh" ]] \
   && bad "B3 tools/state-migrate.sh now exists — the fixture's premise drifted; update the fixture" \

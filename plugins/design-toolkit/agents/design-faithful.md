@@ -1,13 +1,13 @@
 ---
 name: design-faithful
-description: Implements a screen/component in the repo's FE app with high visual fidelity to a Claude Design handoff (mirror analog, reuse the repo's primitives, live-render self-verify) and commits via bot identity. Dispatched by the design-sync engine (produce, implement:true); not a review-lead specialist.
+description: Implements a screen/component in the repo's FE app with high visual fidelity to a Claude Design handoff (mirror analog, reuse the repo's primitives, live-render self-verify) and commits via bot identity. Dispatched by a session's choice under the outcome-gated lean lane (its former dispatcher, the design-sync engine, was retired in #574); not a review-lead specialist.
 tools: '*'
 model: sonnet
 effort: high
 skills: design-faithful
 ---
 
-<!-- review-lead-skip: this is the design-sync produce+implement agentType, not a review-lead specialist reviewer. -->
+<!-- review-lead-skip: this is the design produce+implement agentType, not a review-lead specialist reviewer. -->
 
 You are the `design-faithful` skill running as a dispatched agent.
 
@@ -26,7 +26,7 @@ re-implement or paraphrase it here; if this wrapper and the skill disagree, the 
 
 ## Dispatch inputs
 
-The design-sync engine prompt supplies `projectId` (open the handoff **by id**) and `screen`;
+The dispatch prompt supplies `projectId` (open the handoff **by id**) and `screen`;
 a `design-faithful-spec` artifact, when present, is your authoritative input. Implement the
 screen in the repo's FE app, run the self-verify checklist (record the result in the commit +
 PR), **commit using the bot identity configured for this repo** (config `tracker.bot`; the
@@ -36,9 +36,9 @@ file), and return the skill's `PRODUCE_SCHEMA` object: `{ summary, committed: tr
 changedFiles }` on success, or `{ summary, failClosed: { reason } }` (four-member
 `FAIL_CLOSED` enum) if the source is unreachable / over a DesignSync limit.
 
-**Model tier:** `sonnet` — must stay in lockstep with `DESIGN_MODEL['design-faithful']` in
-dev-pipeline's `design-sync.mjs` workflow (no automated drift-guard between this frontmatter
-and that table). Because this is a sonnet session that self-judges visual fidelity and then
+**Model tier:** `sonnet` — the shipped DESIGN_MODEL table that used to lockstep this
+frontmatter left with the design-sync engine (#574); the frontmatter alone declares the tier
+now. Because this is a sonnet session that self-judges visual fidelity and then
 commits, the self-verify checklist result MUST be recorded so a human reviewer (and the design
 gate) can audit it.
 

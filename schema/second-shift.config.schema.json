@@ -106,8 +106,6 @@
           "lintAutofixes": { "type": "boolean", "description": "Whether the lint command mutates files. preflight.sh skips the lint lane when this is true — a read-only pre-flight never runs a mutating command — and LINT_AUTOFIX is the lane's class in the closed failure taxonomy." },
           "typecheck": { "type": ["string", "null"] },
           "test": { "type": ["string", "null"] },
-          "testFile": { "type": ["string", "null"], "description": "Template for running ONE spec file (the mutation gate's per-spec runner). {file} is replaced with the spec path; the command runs from the worktree root. e.g. \"yarn --cwd apps/api test {file}\". null = no per-spec runner (previously hardcoded to the acme apps/api form)." },
-          "unitTestScope": { "type": ["string", "null"], "description": "Glob selecting the backend source in scope for the unit-test mutation gate (workflows/mutation-gate.mjs classifies the unit-test surface against it). e.g. \"apps/api/src/**\". null = not scoped (the whole repo, or the gate is off)." },
           "format": { "type": ["string", "null"] },
           "allowUnverified": { "type": "boolean", "description": "Zero-lane safety valve. When no verifying lane is configured (lint/typecheck/test all null and extraLanes empty), preflight.sh withholds its pipeline-ready verdict and lean-gate.sh milestone 3 reds naming the opt-out — unless this is true, which declares the opt-out deliberate. Inert when any verifying lane is configured." },
           "lanes": {
@@ -171,7 +169,7 @@
         },
         "modelOverrides": {
           "type": "object",
-          "description": "Per-agent model-tier override, keyed by any agent the .mjs dispatch tables model — panel reviewers AND named workflow agents like mutation-executor (EP-4). Observed need: security-reviewer opus in one repo, sonnet in another. check-model-tiers validates .mjs tables against frontmatter + these overrides. Values must be tiers this consumer's subscription can actually dispatch — an inaccessible tier surfaces as a dead reviewer and the gate fails closed. `fable` is override-only: never a shipped default, and a check-model-tiers error if it appears in a shipped dispatch table.",
+          "description": "Per-agent model-tier override, keyed by any agent the .mjs dispatch tables model — the review-lead panel reviewers and the intake fan-out agents (EP-4; the named mutation-executor override left with its engine, #574). Observed need: security-reviewer opus in one repo, sonnet in another. check-model-tiers validates .mjs tables against frontmatter + these overrides. Values must be tiers this consumer's subscription can actually dispatch — an inaccessible tier surfaces as a dead reviewer and the gate fails closed. `fable` is override-only: never a shipped default, and a check-model-tiers error if it appears in a shipped dispatch table.",
           "additionalProperties": { "enum": ["haiku", "sonnet", "opus", "fable"] }
         }
       }
@@ -189,7 +187,7 @@
       "description": "Optional pipeline gates/capabilities. Everything defaults to off; a gate that is on but missing its prerequisites must fail closed at run time.",
       "additionalProperties": false,
       "properties": {
-        "mutation": { "type": "boolean", "default": false, "description": "false declares the unit-test mutation seam deliberately off even when commands.<host>.unitTestScope is set (an explicit off-switch). Absent/true = the seam is expected wherever a mutation surface (unitTestScope) is configured. The lean lane's sweep is repo-carried — lean-gate.sh milestone 3 runs tools/mutation-sweep.sh when the repo ships one and records SKIPPED when it does not — so this key is the declared INTENT that onboard's config-grill grades that plumbing against, not a switch the gate reads." }
+        "mutation": { "type": "boolean", "default": false, "description": "false declares the mutation seam deliberately off (an explicit off-switch a reader can see, as opposed to the silent absence of a sweep). Absent/true = the seam is expected. The lean lane's sweep is repo-carried — lean-gate.sh milestone 3 runs tools/mutation-sweep.sh when the repo ships one and records SKIPPED when it does not — so this key is the declared INTENT that onboard's config-grill grades that plumbing against, not a switch the gate reads." }
       }
     },
     "design": {
@@ -201,7 +199,7 @@
         "provider": {
           "type": "string",
           "enum": ["figma", "claude-design"],
-          "description": "figma → figma-faithful skills + Figma-MCP prerequisite; claude-design → design-faithful/design-sync path + DesignSync prerequisite."
+          "description": "figma → figma-faithful skills + Figma-MCP prerequisite; claude-design → design-faithful skills + DesignSync prerequisite."
         },
         "liveRender": {
           "type": "object",

@@ -16,8 +16,8 @@
 # FINDINGS_SCHEMA triple. The Workflow runtime gives these scripts no import, so each
 # declares its own copy; stall-probe and tool-discipline-probe exist to reproduce
 # production behavior exactly, which is worthless if their schema has drifted. A triple is
-# expressed as two pairs against the same canonical leg (code-review.mjs). design-sync.mjs
-# is NOT a leg — it only references the schema in a comment.
+# expressed as two pairs against the same canonical leg (code-review.mjs). (design-sync.mjs,
+# which referenced the schema only in a comment, was never a leg; retired in #574.)
 findings-schema-stall	verbatim	plugins/dev-pipeline/workflows/code-review.mjs	findings-schema	plugins/dev-pipeline/workflows/stall-probe.mjs	findings-schema
 findings-schema-tdp	verbatim	plugins/dev-pipeline/workflows/code-review.mjs	findings-schema	plugins/dev-pipeline/workflows/tool-discipline-probe.mjs	findings-schema
 #
@@ -157,7 +157,7 @@ decomposition-economy	verbatim	plugins/intake-toolkit/skills/intake-orchestrator
 # Artifact-reviewer baseline deltas (figma-faithful-spec-reviewer <-> figma-faithful-plan-reviewer).
 # Both adopt review-toolkit:reviewer-baseline but must override the same two things the same way:
 # the merge-gating Critical/Warning/Pre-existing ladder does not apply to an artifact graded
-# before implementation, and figma.mjs dispatches them schema-free so the baseline's Output Mode
+# before implementation, and their dispatchers ran them schema-free (figma.mjs, until #574 retired it) so the baseline's Output Mode
 # StructuredOutput instruction is wrong for them. Two live copies rather than a cross-reference:
 # each agent is loaded alone, into a context that has not read the other, so a pointer would
 # resolve to nothing at the moment the override is needed -- the same reasoning as
@@ -389,32 +389,19 @@ lean-design-armed	verbatim	plugins/dev-pipeline/skills/build-lean/lean-gate.sh	l
 # Revisit if a fourth site starts parsing or restating `ticketTag`'s semantics.
 
 # cross-plugin sibling-resolution ladder (#419) — three rungs (monorepo path → same-version
-# sibling in the cache → newest sibling version carrying the file), in two languages.
+# sibling in the cache → newest sibling version carrying the file).
 # `resolve_sibling()` in plugins/dev-pipeline/tools/resolve-sibling.sh is the
 # canonical side (extracted from pipeline-doctor.sh in #562 so lean-gate.sh's
 # resolve_ledger_lint() reuses it too — a caller-computes-its-own-hop-count split, not a
-# second ladder; see that file's header); `resolveSibling()` in
-# plugins/dev-pipeline/workflows/design-sync-selftest.mjs is a hand-maintained .mjs
-# mirror, held together by nothing but a `keep the two ladders in step` comment — the
-# only-a-prose-instruction case this manifest exists for. The RUNG ORDER is the contract: the
-# last rung is what hits in a real install, where plugins carry independent versions.
-# Considered for a row and DROPPED: neither relation can reach across bash and JavaScript. The
-# ladder is control flow, not a literal, so there is no quoted constant for `verbatim` to
-# compare or for `subset-of` to anchor its FIRST quoted literal against, and each site spells
-# the same step in its host's idiom (`sort -r | head -1` against `.sort().reverse()[0]`).
-# Extracting a shared literal purely to be compared is the "duplicate machinery is worse than
-# none" case this file's header names.
-# Recorded so the agreement is a CHECKED fact rather than an assumption: as of #419 the two do
-# agree, including the part most likely to drift — `sort -r` and `.sort().reverse()` are both
-# LEXICOGRAPHIC, not semver, so `10.0.0` sorts under `9.0.0` on both sides. That is a shared
-# defect, not a shared feature; whoever fixes one must fix the other.
-# Guarded behaviorally on the .mjs side only: tools/install-topology-selftest.sh runs
-# design-sync-selftest.mjs under a staged cache where dev-pipeline and design-toolkit carry
-# different versions, so a broken last rung fails there rather than drifting. The bash side has
-# no INSTALL-TOPOLOGY equivalent — no suite runs the shipped pipeline-doctor.sh or lean-gate.sh
-# from a real staged install — and that asymmetry is the residual this entry is declining to
-# close with machinery. What it does have, since #562 r2, is a unit-level equivalent that covers
-# the part the mirror's own rung-2 comment calls easy to miss: pipeline-doctor-selftest.sh's
+# second ladder; see that file's header). The hand-maintained .mjs mirror this entry used
+# to hold beside it — `resolveSibling()` in design-sync-selftest.mjs, the
+# only-a-prose-instruction case this manifest exists for — was retired with that suite in
+# #574, which also retires the two-language drift risk and the mirror's lexicographic-vs-
+# numeric version-ordering divergence this entry tracked. The RUNG ORDER remains the
+# contract: the last rung is what hits in a real install, where plugins carry independent
+# versions. Still DROPPED as a row (one implementation left; nothing to compare).
+# The behavioral guard the bash side has, since #562 r2, is a unit-level equivalent covering
+# the part the mirror's own rung-2 comment called easy to miss: pipeline-doctor-selftest.sh's
 # (rs1)/(rs3) drive the ladder against a fabricated cache at BOTH bash consumers' real depths
 # (pipeline-doctor.sh at tools/, lean-gate.sh's resolve_ledger_lint() at skills/build-lean/),
 # lifting each caller's hop arithmetic by sentinel rather than injecting its results — because a

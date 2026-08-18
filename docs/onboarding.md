@@ -288,8 +288,8 @@ bash tools/mutation-sweep.sh --mode pr --base origin/<baseBranch>
 
 What the sweep does inside is entirely your choice — a Stryker or `mutmut` wrapper, a per-spec
 harness that flips operators and re-runs the affected file, a shell-guard sweep. The gate asserts
-the outcome; it has no opinion on the method. `gates.mutation` and `commands.<id>.unitTestScope`
-are rollback-lane keys and buy no sweep on their own.
+the outcome; it has no opinion on the method. `gates.mutation` declares the intent and buys
+no sweep on its own (`commands.<id>.unitTestScope`/`testFile` were retired in #574).
 
 Environment sanity for all of the above in one command: `pipeline-doctor.sh` (ships in the
 dev-pipeline plugin at `tools/pipeline-doctor.sh`, config-aware since 2.0.7 —

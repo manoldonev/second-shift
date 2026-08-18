@@ -2,12 +2,13 @@
 # config-diff-guard.sh — refuse to let a RE-onboard silently destroy an existing config value.
 #
 # /second-shift:onboard Step 0 promises diff mode against the existing config, and Step 3's key
-# contract used to override it unconditionally: `testFile` and `unitTestScope` were emitted
-# ALWAYS as explicit null. Those are exactly the keys a human sets when adopting the mutation
-# gate, so a re-onboard reverted the adoption — and `unitTestScope: null` is a legal "no mutation
-# surface", so the run printed `gate OFF`, `config-lint` passed, and the gate stayed off for
-# months. Step 3 now carries those two keys forward; this guard is the mechanical backstop, so a
-# prose intent cannot be overridden by prose a second time.
+# contract used to override it unconditionally: `testFile` and `unitTestScope` (both since
+# retired outright, #574) were emitted ALWAYS as explicit null. Those were exactly the keys a
+# human set when adopting the mutation gate, so a re-onboard reverted the adoption — and
+# `unitTestScope: null` was a legal "no mutation surface", so the run printed `gate OFF`,
+# `config-lint` passed, and the gate stayed off for months. The incident's lesson outlives its
+# keys: this guard is the mechanical backstop protecting EVERY existing value, so a prose
+# intent cannot be overridden by prose a second time.
 #
 # There is no discriminator for "human-authored" — detection emits nothing for the two keys the
 # evidence names, and for keys it DOES produce, an existing value is indistinguishable from a

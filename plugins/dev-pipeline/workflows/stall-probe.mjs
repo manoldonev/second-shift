@@ -162,7 +162,7 @@ const isNoStructuredOutputError = (err) => /StructuredOutput/.test(String(err))
 // Mirrors the future production rung 1: no schema is passed, so the StructuredOutput death
 // class cannot occur; the agent ends with a sentinel + fenced JSON block that the script
 // parses. Last-match-wins guards against the agent quoting the instruction mid-prose
-// (mutation-gate.mjs parseResult precedent).
+// (the parseResult precedent from the since-retired mutation-gate.mjs engine, #574).
 const REVIEW_RESULT_EPILOGUE =
   '\n\nWrite your review, grounding as much as you need. Your FINAL output MUST end with' +
   ' this sentinel line followed by one fenced json block and NOTHING after it:\n\n' +
@@ -186,10 +186,13 @@ const parseReviewResult = (text) => {
 // introduced it when quoting a rate. The diff-shaped default is already SHA-pinned (see the header);
 // this keeps the plan-shaped arms equally reproducible after the file is edited.
 //
-// MODEL TIERS are re-stated here and are NOT covered by check-model-tiers.sh, which validates six
-// named tables and does not include this file. A change to PLAN_REVIEWER_MODEL or UNIT_TEST_MODEL
-// must be mirrored here by hand or the instrument silently drifts from production. Accepted, known
-// gap; extending that lint's file list is the follow-up.
+// MODEL TIERS are re-stated here and are NOT covered by check-model-tiers.sh, which validates two
+// named map tables (REVIEWER_MODEL in code-review.mjs, INTAKE_MODEL in intake-review.mjs) and does
+// not include this file. The scalar tables that census once carried died with their engines
+// (PLAN_REVIEWER_MODEL in #348, UNIT_TEST_MODEL in #574), so the plan-shaped arms below replay a
+// historical dispatch shape by design; a change to a surviving production tier must still be
+// mirrored here by hand or the instrument silently drifts from it. Accepted, known gap; extending
+// that lint's file list is the follow-up.
 const PLAN_PIN = '521b387'
 const TARGETS = {
   // The original diff-shaped arm — unchanged default so existing invocations behave as before.
@@ -221,7 +224,9 @@ const TARGETS = {
       `missed downstream impacts. Return trinary verdict (block | fix-and-go | pass) and findings.`,
     mandate: STRUCTURED_OUTPUT_MANDATE,
   },
-  // The child plan-review nests via workflow() (unit-tests.mjs kind: 'plan-review').
+  // Mirrored the production nested dispatch (unit-tests.mjs kind: 'plan-review') until
+  // #574 retired that engine; kept as-is — the instrument replays the pre-registered
+  // #291 dispatch shape, which is historical by design.
   'unit-test-plan-reviewer': {
     // bounded-exploration-optout: probe target -- measurement control, as above.
     schema: PLAN_REVIEW_SCHEMA,

@@ -5,7 +5,7 @@ description: Propose→execute mutation-review protocol for co-located unit test
 
 # Mutation review (propose → execute)
 
-This skill defines the **generic** mutation-review protocol shared by `unit-test-mutation-reviewer` (proposes) and the pipeline's mutation-gate sequencer (executes). It is repo-agnostic: the test-runner command comes from the consumer config, and any repo-specific blocker-mutant classes come from `.claude/second-shift/blocker-mutants.md`. Repo conventions (which test framework, co-location rules, fixture tricks) live in the consuming repo's own testing skill, not here.
+This skill defines the **generic** mutation-review protocol: `unit-test-mutation-reviewer` proposes, and the propose-mode orchestrator that dispatched it executes. (The pipeline's shipped sequencer, mutation-gate.mjs, was retired unreachable in #574 — the protocol binds whichever orchestrator adopts it; #482 tracks the consumer on-ramp.) It is repo-agnostic: the test-runner command comes from the consumer config, and any repo-specific blocker-mutant classes come from `.claude/second-shift/blocker-mutants.md`. Repo conventions (which test framework, co-location rules, fixture tricks) live in the consuming repo's own testing skill, not here.
 
 **Runner commands come from config.** The executor runs the repo's configured `test` command (from `<repo-root>/.claude/second-shift.config.json` `commands.<host>.test`, env override `SECOND_SHIFT_CONFIG`) scoped to the spec path — this skill never hardcodes a package manager or command. Where a step below says "run the spec", it means: invoke the configured `test` command against that spec file.
 

@@ -14,7 +14,7 @@ You are a unit test plan reviewer. You review the **unit test strategy** and **m
 
 **Your job**: Verify the plan will produce mutation-resistant unit tests (not mock-only call-count specs) for behavior changes within the repo's mutation-review target surface.
 
-<!-- review-lead-skip: QA-tier plan reviewer dispatched via unit-tests.mjs -->
+<!-- review-lead-skip: QA-tier plan reviewer, dispatched by plan-review flows rather than the review-lead panel -->
 
 ## Scope
 
@@ -72,7 +72,7 @@ You ONLY review the plan's unit/integration test strategy for the repo's mutatio
 
 ## Structured output (Workflow dispatch)
 
-When dispatched via `unit-tests.mjs` (`kind: "plan-review"`), return:
+When a dispatcher requests the structured plan-review shape, return:
 
 ```json
 {

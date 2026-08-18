@@ -8,22 +8,19 @@ The goal: the lean lane's build session computes the block once at [`build-lean`
 pipeline-cost-block.sh --stateless --sessions <id[,id…]> --start <iso> --end <iso> [--out <file>]
 ```
 
-**State-less mode is the lane's only mode**, and it is deliberately inert on everything a state file used to carry: it amends no PR (the session pastes the block itself), records no `costBlockApplied`, and writes **no** `cost-log.jsonl` row — lean runs are out of the perf corpus by declaration (D-36), so a row here would quietly contaminate cross-run analytics with a harness that has no stages. The run's own progress record is what carries the session ids to hand it; #348 deleted the staged lane, and with it the write seam that used to register them automatically. The stateful invocation (`pipeline-cost-block.sh <issue>`) still works but has **no writer left in this tree** — it reads `pipelineSessions[]` from a pre-lean `{issue}.json`, so it is a historical-record path only. Everything in Troubleshooting keyed to `costBlockApplied` belongs to it.
+**State-less mode is the script's only mode** (#574 deleted the stateful branch, unreachable since #348 removed its only writer), and it is deliberately inert on everything a state file used to carry: it amends no PR (the session pastes the block itself), records no `costBlockApplied`, and writes **no** `cost-log.jsonl` row — lean runs are out of the perf corpus by declaration (D-36), so a row here would quietly contaminate cross-run analytics with a harness that has no stages. The run's own progress record is what carries the session ids to hand it.
 
 Opting in is just steps 1–3 below (collector + telemetry env + bot wrapper) — no per-engineer hook wiring. Each id you pass is a native Claude Code session UUID (`$CLAUDE_CODE_SESSION_ID`), the same value the OTel exporter tags datapoints with as `session.id`, which is what lets the cost block match them.
 
 ## Prerequisites
 
 - **macOS** (tested on Darwin arm64; Linux works with minor tweaks to the date commands in `pipeline-cost-block.sh`).
-- **`gh` CLI** installed and authenticated (`gh auth status` should succeed). Used for PR reads.
-- **Bot wrapper** — required **only when config `tracker.bot.enabled` is true**. Installed by `tools/install-gh-bot.sh`; resolved via `tools/gh-bot.sh`'s three-rung ladder — the env var named by config `tracker.bot.envVar` (default `GH_BOT`) first, then config `tracker.bot.wrapperPath`, then a path derived from the consumer repo's directory name. It uses the wrapper for the `gh pr edit` write call, per the dev-pipeline's bot-identity convention. If the bot is enabled and the wrapper is missing or non-executable, the script records `costBlockApplied: "skipped-no-bot-wrapper"` and exits 0 with an actionable log line — no PR is amended.
 
-  On a **bot-disabled** repo no wrapper is needed: the script amends the PR with plain `gh` under **operator identity**. An absent, unreadable, or malformed config counts as disabled (`.tracker.bot.enabled // false`, the same default `tools/bot-commit.sh` applies), so a repo with no config still gets its cost block. Note the two resolve "absent" differently: this script reads one path, whereas `bot-commit.sh` searches `$SECOND_SHIFT_CONFIG` → its `-C` dir → the main checkout (via `--git-common-dir`), so a gitignored config that is absent from a worktree is still found there.
 - **`jq` ≥ 1.6** (ships with macOS).
 - **Native session UUIDs to hand it.** State-less mode is told its session set; nothing discovers it. Each contributing session's `$CLAUDE_CODE_SESSION_ID` is recorded in the run's progress record (`.claude/pipeline-state/{issue}-lean-progress.md`), which is why that record's reconciliation keys are load-bearing rather than forward-looking. A session launched without that variable set to a UUID contributes no id, and a call with none at all exits `2` naming the missing `--sessions`.
 - **A wall-clock fence to hand it.** `--start`/`--end` (ISO-8601) are the only span this mode knows: there are no per-stage windows to bucket, so the block is a single session-total row. Both are required — the fence is what keeps a co-resident run's datapoints out.
 
-  On the historical stateful path these two came from the state file instead (`pipelineSessions[]` plus `stages.{N}.startedAt`/`completedAt` and `prs.{branch}.url`, all written by the deleted staged lane at each stage boundary).
+  (On the historical stateful path, retired in #574, these two came from the state file instead — `pipelineSessions[]` plus `stages.{N}.startedAt`/`completedAt`, all written by the staged lane #348 deleted.)
 
 ## 1. Install the OTel collector
 
@@ -150,31 +147,26 @@ An empty-looking block here means the query found no `claude_code.cost.usage` da
 
 ## Troubleshooting
 
-**The block is empty or absent.** State-less mode records nothing, so the diagnosis is the stderr log line from the step-7 call. The `costBlockApplied` values below are the **historical stateful path's** vocabulary — reachable only over a pre-lean `.claude/pipeline-state/{issue}.json` — but each names a distinct root cause the log line reports in the same words, so the list stays the reference for both:
+**The block is empty or absent.** The script records nothing, so the diagnosis is the stderr log line from the step-7 call — `skip(<verdict>): …`. Each verdict names a distinct root cause (before #432 one value absorbed the first four states, which made "empty cost block" undiagnosable):
 
-- `"skipped-no-sessions"` — no UUID-shaped session id was available. Was the session launched with `$CLAUDE_CODE_SESSION_ID` set? Under state-less mode this cannot be silent: a call with no `--sessions` exits `2` naming the flag. Recover by finding the id as a `session.id` in `~/.claude/otel-metrics/metrics.jsonl` and re-running with `--sessions <session-uuid>`.
-- `"skipped-telemetry-off"` — no metrics file at all (neither `~/.claude/otel-metrics/metrics.jsonl` nor any rotated backup beside it), or not one datapoint from **any** session landed inside the run's window. The collector was down for the whole run, or nothing on this machine was exporting.
-- `"skipped-otel-error"` — the jq query against the metrics file failed. Re-run from a terminal to see stderr, then follow **Manual re-run after an OTel query failure** below.
-- `"skipped-session-not-exporting"` — the window holds datapoints from **other** sessions but none from this run's. The collector was healthy the whole time; this run's `claude` process simply had no `CLAUDE_CODE_ENABLE_TELEMETRY` set, so it exported nothing. Confirm it on a live session:
+- `skip(no-sessions)` — the supplied `--sessions` set was empty after filtering. Was the session launched with `$CLAUDE_CODE_SESSION_ID` set? A call with no `--sessions` flag at all exits `2` naming it instead. Recover by finding the id as a `session.id` in `~/.claude/otel-metrics/metrics.jsonl` and re-running with `--sessions <session-uuid>`.
+- `skip(telemetry-off)` — no metrics file at all (neither `~/.claude/otel-metrics/metrics.jsonl` nor any rotated backup beside it), or not one datapoint from **any** session landed inside the run's window. The collector was down for the whole run, or nothing on this machine was exporting.
+- `skip(otel-error)` — the jq query against the metrics file failed. Re-run from a terminal to see stderr, then follow **Manual re-run after an OTel query failure** below.
+- `skip(session-not-exporting)` — the window holds datapoints from **other** sessions but none from this run's. The collector was healthy the whole time; this run's `claude` process simply had no `CLAUDE_CODE_ENABLE_TELEMETRY` set, so it exported nothing. Confirm it on a live session:
 
   ```bash
   ps eww -p <claude-pid> | tr ' ' '\n' | grep CLAUDE_CODE_ENABLE_TELEMETRY
   ```
 
   Nothing recovers this run's cost — the datapoints were never emitted. Fix it for the next one with step 3 below, which is why the recommended recipe there is user-scope rather than per-terminal.
-- `"skipped-rotated-out"` — the oldest datapoint still on disk is **newer** than the run's start, so the file covering the run is gone: it aged out of the exporter's `max_backups` / `max_days` retention, or the collector had not started yet when the run did. As of #432 the sub-step reads rotated backups whose mtime covers the window, so a run that merely predates the newest rotation no longer lands here.
-- `"skipped-zero-datapoints"` — rows for the recorded session ids **are** inside the window, but none of them carries `claude_code.cost.usage`. Telemetry is flowing and there is genuinely no cost to report. (Before #432 this value also absorbed the three states above, which made "empty cost block" undiagnosable. A malformed, non-UUID session id cannot reach this state either — it is filtered by the shared `is_session_uuid` shape test before the query runs, so such a run lands in `skipped-no-sessions` above. The two writers that used to gate it at record time died with that lane in #348.)
-- `"skipped-no-bot-wrapper"` — the bot is **enabled** but its wrapper is missing or non-executable. Install / repair the bot wrapper. (A bot-disabled repo cannot record this — it amends via plain `gh`. Seeing it on a repo you believe is bot-disabled means the config really does set `tracker.bot.enabled: true`.)
-- `"skipped-no-gh-cli"` — `gh` is not on `PATH`. Install the GitHub CLI; no PR write is possible under either identity without it.
-- `"skipped-amend-failed"` — `gh pr edit` failed. Stateful path only: state-less mode amends no PR, so a missing block there is a paste that never happened, not a failed write.
-- `"skipped-no-prs"` — the run resolved its state file and had cost, but `prs` was empty (no PR to amend). Recorded so the miss is never a bare `null` (#188).
-- **`costBlockApplied` left `null`/absent AND the sub-step exited non-zero (rc 2)** — the state file could not be **resolved** at all (`no state file at … — state unresolvable` on stderr). This is the one non-zero exit; nothing can be recorded because there is no file to write into. On a **cross-repo run** (a control repo driving a foreign checkout via `--add-dir`, or any cwd not linked to the control repo's `.git`), point the sub-step at the control repo's state: `SECOND_SHIFT_REPO_ROOT=<control-repo root> bash pipeline-cost-block.sh <issue>` (or `STATECTL_STATE_DIR=<control>/.claude/pipeline-state …`). State-less mode resolves no state file at all, so it cannot reach this state — a lean run needs neither override.
+- `skip(rotated-out)` — the oldest datapoint still on disk is **newer** than the run's start, so the file covering the run is gone: it aged out of the exporter's `max_backups` / `max_days` retention, or the collector had not started yet when the run did. As of #432 the sub-step reads rotated backups whose mtime covers the window, so a run that merely predates the newest rotation no longer lands here.
+- `skip(zero-datapoints)` — rows for the supplied session ids **are** inside the window, but none of them carries `claude_code.cost.usage`. Telemetry is flowing and there is genuinely no cost to report.
 
-On the stateful path the cost log at `.claude/pipeline-state/cost-log.jsonl` has the run's rollup; if it's there but the PR wasn't amended, the `gh pr edit` call failed — through the bot wrapper on a bot-enabled repo, or under operator identity otherwise. A lean run writes **no** such row (D-36), so its rollup lives only in the block itself.
+The rollup lives only in the block itself — a lean run writes no `cost-log.jsonl` row (D-36).
 
 ### Manual re-run after an OTel query failure
 
-The cost block is **best-effort** — the run's work is already done when it records `skipped-otel-error`. Its exit contract (#188): **exit 0** whenever it ran or reported a documented skip; **non-zero (rc 2)** only when it could not be given what it needs — a missing `--sessions`/fence under state-less mode, or an unresolvable state file on the stateful path. On the lean lane the enforcement is the artifact, not a field: `build-lean` step 7 requires the block in the PR description and step 9 requires it in the closing comment, so a call that never ran shows up as a missing block rather than a silent null. (The staged lane instead gated its own completion on `costBlockApplied` being non-null — #243 — which is the vocabulary the list above belongs to.) Nothing re-enters on your behalf to retry it. Recovery is a manual, idempotent re-run:
+The cost block is **best-effort** — the run's work is already done when it logs `skip(otel-error)`. Its exit contract (#188): **exit 0** whenever it ran or reported a documented skip; **non-zero (rc 2)** only when it could not be given what it needs — a missing `--sessions`/fence, or a positional-issue invocation (the retired stateful entry point, refused by name since #574). On the lean lane the enforcement is the artifact, not a field: `build-lean` step 7 requires the block in the PR description and step 9 repeats it in the closing comment.
 
 1. **Fix the precondition that made the query fail.** Usually one of:
    - the OTel collector wasn't reachable / wasn't running when the sub-step ran — start it (steps 1–2 above) and confirm `~/.claude/otel-metrics/metrics.jsonl` is non-empty;
@@ -187,9 +179,9 @@ The cost block is **best-effort** — the run's work is already done when it rec
      --sessions <id[,id…]> --start <iso> --end <iso>
    ```
 
-   Take the ids from the `| session |` rows of `.claude/pipeline-state/<issue>-lean-progress.md` and the fence from its first and last timestamps. On the historical stateful path the equivalent is `bash pipeline-cost-block.sh <issue-number>`, which reads both from the state file.
+   Take the ids from the `| session |` rows of `.claude/pipeline-state/<issue>-lean-progress.md` and the fence from its first and last timestamps.
 
-3. Paste the re-rendered block over the stale one in the PR description and closing comment. The stateful path instead amends PRs itself, **idempotently on the `<!-- pipeline-cost-block -->` marker** — already-amended PRs are detected and skipped, and a clean re-run flips `costBlockApplied` to `true`. Either way, re-running after success is safe.
+3. Paste the re-rendered block over the stale one in the PR description and closing comment. Re-running after success is safe — the script writes nothing anywhere but stdout/`--out`.
 
 **Collector won't start.** Port 4317 in use? `lsof -iTCP:4317` to see what's holding it. Kill the old process or change the port in `~/.claude/otel-metrics/otel-collector-config.yaml` AND in your `.envrc` `OTEL_EXPORTER_OTLP_ENDPOINT`.
 

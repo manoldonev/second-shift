@@ -50,9 +50,9 @@ plugins/dev-pipeline/skills/build-lean/lean-reconcile.sh::default::1	seeded for 
 plugins/dev-pipeline/skills/build-lean/lean-reconcile.sh::default::2	seeded for #303 from a local advisory sweep (macOS); confirm at the first nightly
 plugins/dev-pipeline/skills/build-lean/lean-reconcile.sh::detector::1	re-keyed for #345: the verdict-authorship checks shifted the generic ordinals (local advisory sweep, macOS; confirm at the first nightly)
 plugins/dev-pipeline/skills/build-lean/lean-reconcile.sh::fail-open::2	seeded for #303 from a local advisory sweep (macOS); confirm at the first nightly
-plugins/dev-pipeline/tools/pipeline-cost-block.sh::default::2	seeded by the canonical seed run
-plugins/dev-pipeline/tools/pipeline-cost-block.sh::detector::1	seeded by the canonical seed run
-plugins/dev-pipeline/tools/pipeline-cost-block.sh::logic::2	seeded by the canonical seed run
+plugins/dev-pipeline/tools/pipeline-cost-block.sh::default::1	RE-KEYED for #574: the stateful-branch deletion (839->459 lines) re-enumerated every operator class. This is the `"${2:-}"` arg-parse fallback — a missing flag VALUE defaults to the mutant token instead of empty; every case passes real values, so nothing can observe it. Same benign-robustness class as the seeded default survivors. Verified by the sweep's serial re-run (local advisory, macOS; confirm at the first nightly).
+plugins/dev-pipeline/tools/pipeline-cost-block.sh::default::2	RE-KEYED for #574 (ordinal coincidentally stable across the stateful-branch deletion): still a survivor on the post-#574 tree per the local advisory sweep.
+plugins/dev-pipeline/tools/pipeline-cost-block.sh::logic::2	RE-KEYED for #574 (ordinal coincidentally stable across the stateful-branch deletion): still a survivor on the post-#574 tree per the local advisory sweep. The seeded detector::1 row is GONE with its site class: the old first grep sites lived in the deleted PR-amend/record paths, and the re-enumerated detector mutants are killed by the rewritten suite (applied in the same advisory run, no detector survivor).
 plugins/dev-pipeline/tools/bot-commit.sh::default::2	seeded by the canonical seed run
 plugins/dev-pipeline/tools/check-bounded-exploration.sh::detector::2	seeded by the canonical seed run
 plugins/dev-pipeline/tools/check-bounded-exploration.sh::fail-open::2	re-keyed for #345: dropping the run-lean workflow dir + the stale-list self-check shifted the generic ordinals (local advisory sweep, macOS; confirm at the first nightly)
@@ -96,7 +96,7 @@ plugins/intake-toolkit/skills/plan-interview/tools/ledger-lint.sh::cmp-eq::2	see
 plugins/intake-toolkit/skills/plan-interview/tools/ledger-lint.sh::cmp-z::1	seeded by the canonical seed run
 plugins/intake-toolkit/skills/plan-interview/tools/ledger-lint.sh::cmp-z::2	seeded by the canonical seed run
 plugins/review-toolkit/scripts/check-model-tiers.sh::cmp-eq::1	seeded by the canonical seed run
-plugins/review-toolkit/scripts/check-model-tiers.sh::cmp-eq::2	seeded by the canonical seed run
+plugins/review-toolkit/scripts/check-model-tiers.sh::cmp-eq::2	seeded by the canonical seed run. STALE CANDIDATE (#574): the local advisory sweep scores this ordinal KILLED after the scalar/executor arms left the guard — left in place because an advisory run cannot prove a shrink (local != CI); remove on the first nightly that agrees.
 plugins/review-toolkit/scripts/check-model-tiers.sh::cmp-z::1	seeded by the canonical seed run
 plugins/review-toolkit/scripts/check-model-tiers.sh::default::2	seeded by the canonical seed run
 plugins/review-toolkit/scripts/check-model-tiers.sh::detector::2	seeded by the canonical seed run

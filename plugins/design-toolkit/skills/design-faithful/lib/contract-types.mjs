@@ -3,7 +3,7 @@
 // Plain importable ESM (no top-level return, no injected globals) so the design-faithful
 // skills (the DesignSync callers) and the push path's import can `import` this directly. (The
 // Workflow engine does NOT import this — its runtime guarantees no ESM import; it inlines the
-// FAIL_CLOSED values and drift-guards them. See design-sync.mjs READ BOUNDARY.) JSDoc typedefs document the
+// FAIL_CLOSED values and drift-guarded them until #574 retired that engine; this file is the vocabulary's sole owner now.) JSDoc typedefs document the
 // DesignContract output shape — this is the interface every downstream piece builds
 // against. `.mjs` files under .claude/ are prettier-ignored and hand-styled (single
 // quotes, no semicolons) to match the existing Workflow-script convention.
