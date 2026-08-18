@@ -359,6 +359,12 @@ else fail "(a12) expected a silent rc=0 with no receipt, got $rc: $out"; fi
 # clean reconciliation. rc=2 and, just as load-bearing, the attempt counter must not move — no
 # edit the build role can make fixes a file it cannot read, and three such blips would
 # hard-stop the run at rc=4 with a rescue path nobody can act on.
+#
+# TWO calls, because the ordinary one is not attributable. #533's check_pause_and_ask reports
+# the same fact for the same file, so deleting the reconciliation entirely leaves the first
+# assertion passing — measured, not assumed. The OBSERVE call is the discriminator: that check
+# sits under the observe guard and is skipped there, so under LEAN_GATE_OBSERVE=1 the only
+# reader left that can refuse an unreadable receipt is this one.
 reset_progress
 rc_spec
 RC_UNREADABLE="$WORK/517-receipt-unreadable.md"
@@ -367,10 +373,13 @@ if [ -r "$RC_UNREADABLE" ]; then
   fail "(a13) precondition: chmod 000 left the receipt readable (running as root?) — the fail-open arm is unverified"
 else
   out="$(gate --ledger-file "$RC_UNREADABLE" 1 7)"; rc=$?
+  obs_out="$( cd "$TREE" && SECOND_SHIFT_CONFIG="$CFG" LEAN_PROGRESS_FILE="$PROG" LEAN_GATE_OBSERVE=1 \
+              bash "$GATE" --issue-file "$ISSUE_NOREGIONS" --ledger-file "$RC_UNREADABLE" 1 7 2>&1 )"; obs_rc=$?
   if [ "$rc" -eq 2 ] && grep -q 'could not read pre-flight ledger' <<<"$out" \
+     && [ "$obs_rc" -eq 2 ] && grep -q 'while reconciling it against' <<<"$obs_out" \
      && [ "$(count_in_progress '| milestone-1 | attempt |')" -eq 0 ]; then
-    pass "(a13) #517 AC-7: an unreadable receipt is an envfail (rc=2) and spends no fix budget"
-  else fail "(a13) expected rc=2 with no attempt line, got $rc / $(count_in_progress '| milestone-1 | attempt |'): $out"; fi
+    pass "(a13) #517 AC-7: an unreadable receipt is an envfail (rc=2) in the observe pass too, and spends no fix budget"
+  else fail "(a13) expected rc=2 both ways with no attempt line, got $rc / observe $obs_rc / $(count_in_progress '| milestone-1 | attempt |'): $out || $obs_out"; fi
 fi
 chmod 644 "$RC_UNREADABLE"
 
