@@ -71,7 +71,17 @@ net add under the 2026-08-16 deletion doctrine.
   ("A SITE IS A MATCHED LINE … Ordinals index this operator's FULL matched-line list") and
   `docs/testing.md` state it. `docs/testing.md`'s standing `k=2` passage argues from
   displacement evidence this change invalidates; it is re-derived against the numbers above,
-  not left standing.
+  not left standing. **Amended during the build:** `CLAUDE.md`'s "Test-the-tests" paragraph is a
+  third contract surface — it states the re-key obligation unconditionally, and this change
+  relaxes it for comment-only edits, so it is amended in the same diff.
+- **AC-10 — promoted sites are resolved, never silently baselined.** *(Added during the build.)*
+  The ticket's "strictly shrinks the sweep" framing is wrong in one direction: vacating comment
+  sites from the `k=2` window **arms** the real code sites behind them — 28 of them, measured — and
+  some survive. Every survivor that appears for this reason is resolved in this diff, either by
+  **killing** it (the suite is strengthened, and the kill is verified by hand-applying the
+  operator's own flip) or by a baseline row carrying a per-site rationale and CI evidence from a
+  dispatched full sweep on this branch. The PR body enumerates each one and which disposition it
+  got. A baseline row added without that reconciliation fails this AC.
 
 ## Non-goals
 

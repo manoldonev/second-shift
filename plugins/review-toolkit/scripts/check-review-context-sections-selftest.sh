@@ -101,11 +101,16 @@ fi
 # ---- (2) AC-2: M1 (rename alias -> novel) at --preflight -> NOT red, coverage discloses --
 build_acme "$TMP/r2" "## Historical notes"
 RC=0; OUT="$(bash "$CHECK" --preflight "$TMP/r2" 2>&1)" || RC=$?
+# The "preflight OK" line is asserted on BOTH sides of its condition — here on the green
+# side and on the red side in (3). Its guard (`[ "$RC" -eq 0 ]`) is a live mutation site that
+# entered the swept window when comment lines stopped enumerating (#579); asserting only that
+# preflight is green cannot see the line move to the wrong branch.
 if [ "$RC" -eq 0 ] && grep -q 'context-coverage:' <<<"$OUT" \
-   && grep -q 'security-reviewer' <<<"$OUT"; then
+   && grep -q 'security-reviewer' <<<"$OUT" \
+   && grep -q 'preflight OK' <<<"$OUT"; then
     ok "AC-2 (M1): rename-to-novel is WARN + coverage-disclosed (security-reviewer degraded), NOT red"
 else
-    bad "AC-2 (M1): expected exit 0 + coverage line naming security-reviewer (rc=$RC)"
+    bad "AC-2 (M1): expected exit 0 + coverage line naming security-reviewer + the preflight-OK line (rc=$RC)"
 fi
 
 # ---- (3) AC-2: present-but-empty catalog section at --preflight -> RED -------------------
@@ -119,10 +124,11 @@ cat > "$TMP/r3/.claude/second-shift/review-context.md" <<'MD'
 Pre-auth MVP.
 MD
 RC=0; OUT="$(bash "$CHECK" --preflight "$TMP/r3" 2>&1)" || RC=$?
-if [ "$RC" -ne 0 ] && grep -q 'EMPTY-SECTION:.*Stack' <<<"$OUT"; then
-    ok "AC-2 (empty-body): a present-but-empty catalog section is RED at --preflight"
+if [ "$RC" -ne 0 ] && grep -q 'EMPTY-SECTION:.*Stack' <<<"$OUT" \
+   && ! grep -q 'preflight OK' <<<"$OUT"; then
+    ok "AC-2 (empty-body): a present-but-empty catalog section is RED at --preflight, and says nothing about being OK"
 else
-    bad "AC-2 (empty-body): expected non-zero exit + EMPTY-SECTION for Stack (rc=$RC)"
+    bad "AC-2 (empty-body): expected non-zero exit + EMPTY-SECTION for Stack + NO preflight-OK line (rc=$RC)"
 fi
 
 # ---- (4) AC-2: M4 empty file -> NOT red; coverage discloses -----------------------------
