@@ -186,10 +186,13 @@ const parseReviewResult = (text) => {
 // introduced it when quoting a rate. The diff-shaped default is already SHA-pinned (see the header);
 // this keeps the plan-shaped arms equally reproducible after the file is edited.
 //
-// MODEL TIERS are re-stated here and are NOT covered by check-model-tiers.sh, which validates six
-// named tables and does not include this file. A change to PLAN_REVIEWER_MODEL or UNIT_TEST_MODEL
-// must be mirrored here by hand or the instrument silently drifts from production. Accepted, known
-// gap; extending that lint's file list is the follow-up.
+// MODEL TIERS are re-stated here and are NOT covered by check-model-tiers.sh, which validates two
+// named map tables (REVIEWER_MODEL in code-review.mjs, INTAKE_MODEL in intake-review.mjs) and does
+// not include this file. The scalar tables that census once carried died with their engines
+// (PLAN_REVIEWER_MODEL in #348, UNIT_TEST_MODEL in #574), so the plan-shaped arms below replay a
+// historical dispatch shape by design; a change to a surviving production tier must still be
+// mirrored here by hand or the instrument silently drifts from it. Accepted, known gap; extending
+// that lint's file list is the follow-up.
 const PLAN_PIN = '521b387'
 const TARGETS = {
   // The original diff-shaped arm — unchanged default so existing invocations behave as before.

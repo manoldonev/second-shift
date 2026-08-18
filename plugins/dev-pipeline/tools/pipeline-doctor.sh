@@ -110,7 +110,7 @@ fi
 CMD_TOOLS=""
 [[ -f "$CFG" ]] && CMD_TOOLS=$(jq -r '
   [ (.commands // {}) | .[]
-    | ( .lint,.typecheck,.test,.testFile,.build,.format )
+    | ( .lint,.typecheck,.test,.build,.format )
     , ( (.lanes // [])      | .[] | (.commands // [])[] )
     , ( (.extraLanes // []) | .[] | (.commands // [])[] ) ]
   | map(select(type=="string" and length>0) | ltrimstr(" ") | split(" ")[0])
@@ -374,9 +374,9 @@ fi
 
 # --- 5g. model-tier lockstep selftest (.mjs tables vs agent frontmatter) ---------
 # Proves check-model-tiers.sh catches drift between a dev-pipeline .mjs dispatch
-# table (REVIEWER_MODEL / INTAKE_MODEL / DESIGN_MODEL / UNIT_TEST_MODEL /
-# PLAN_REVIEWER_MODEL) and the dispatched agent's `model:` frontmatter, and that
-# its #208 hook self-gate holds.
+# table (REVIEWER_MODEL in code-review.mjs, INTAKE_MODEL in intake-review.mjs —
+# the census that survived #348/#574) and the dispatched agent's `model:`
+# frontmatter, and that its #208 hook self-gate holds.
 if _st=$(resolve_sibling review-toolkit scripts/check-model-tiers-selftest.sh) && out=$(bash "$_st" 2>&1); then
   ok "model-tier selftest: $(tail -1 <<< "$out")"
 else
