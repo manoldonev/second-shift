@@ -697,7 +697,7 @@ if [[ -n "$REPORT_OUT" ]]; then
 else
   REPORT_SINK="$(mktemp -t mutation-sweep-report.XXXXXX)" || die "mktemp failed"
 fi
-printf 'guard\tstatus\tpaired_selftest\tmutants_applied\tkilled\tsurvived\tsurvivor_ids\tsites_beyond_budget\n' > "$REPORT_SINK" \
+printf 'guard\tstatus\tpaired_selftest\tmutants_applied\tkilled\tsurvived\tsurvivor_ids\tsites_beyond_budget\tsites_comment_only\n' > "$REPORT_SINK" \
   || die "cannot write the report sink: $REPORT_SINK"
 
 # The completion marker (see finish()) sits beside the report, so the whole output dir is
@@ -721,10 +721,24 @@ COMPLETE_MARKER=""
 # `excluded` row it is empty because enumeration never ran; the status column is what tells
 # those apart from a swept guard with nothing beyond budget.
 #
+# sites_comment_only answers the question comment exclusion (#579) created. A comment line
+# is no longer a site: it contributes no mutant and consumes no ordinal. That is the whole
+# point — a comment flip is unkillable by construction, so enumerating one only manufactured
+# a permanent baseline row and pushed a real code site out of the k budget. But it re-opens
+# the same conflation sites_beyond_budget was added to close, one level down: an operator
+# with NO matched line and an operator whose matched lines were ALL comments now both
+# contribute nothing and would report the identical silence.
+#
+# So the fully-excluded case gets its own cell, in the same plus-joined per-operator style
+# (`fail-open:1`, `fail-open:1+cmp-eq:2`), counting the operator's matched lines. It is
+# deliberately NARROW: a partial exclusion is not recorded, because an operator that still
+# has a site is not dark. Report-only, never red, exactly like the column before it.
+#
 # APPENDED LAST, and that is load-bearing: mutation-sweep-selftest.sh's report_row() parses
-# $5/$6/$7 positionally, and --mode merge compares shard headers byte-wise.
+# $5/$6/$7 positionally, and --mode merge compares shard headers byte-wise. Each new column
+# goes on the END for that reason; sites_beyond_budget stays $8.
 emit_row() {
-  printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$1" "$2" "$3" "$4" "$5" "$6" "$7" "$8" >> "$REPORT_SINK"
+  printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$1" "$2" "$3" "$4" "$5" "$6" "$7" "$8" "$9" >> "$REPORT_SINK"
 }
 
 finish() {
@@ -920,7 +934,7 @@ if [[ "$MODE" == "pr" ]]; then
       defer="PR-lane cap ($PR_FAST_GUARD_CAP fast guards already swept)"
     fi
     if [[ -n "$defer" ]]; then
-      emit_row "$g" "deferred-to-nightly" "${ks// /+}" 0 0 0 "" ""
+      emit_row "$g" "deferred-to-nightly" "${ks// /+}" 0 0 0 "" "" ""
       info "defer $g -> nightly: $defer"
     else
       fast_count=$((fast_count + 1))
@@ -938,7 +952,7 @@ fi
 # diff-scoped by design.
 if [[ "$MODE" == "full" && "$SHARD_I" -eq 1 ]]; then
   for g in "${ALL_GUARDS[@]}"; do
-    is_excluded "$g" && emit_row "$g" "excluded" "" 0 0 0 "" ""
+    is_excluded "$g" && emit_row "$g" "excluded" "" 0 0 0 "" "" ""
   done
 fi
 
@@ -1508,7 +1522,7 @@ EOF
 # knowable until the mutants exist. A precheck IS a paired-suite execution, so a run that
 # still paid for one could not honestly claim to have executed none.
 GL_GUARD=(); GL_KS=(); GL_KSORD=(); GL_UNRUN=(); GL_APPLIED=(); GL_FIRST=(); GL_COUNT=()
-GL_BEYOND=()
+GL_BEYOND=(); GL_CMTONLY=()
 MUT_SID=()
 : > "$WORKDIR/mut.todo"
 IDX=0
@@ -1524,8 +1538,9 @@ for guard in ${SWEEP_GUARDS[@]+"${SWEEP_GUARDS[@]}"}; do
   GL_FIRST[${#GL_FIRST[@]}]="$IDX"
   GL_COUNT[${#GL_COUNT[@]}]=0
   GL_BEYOND[${#GL_BEYOND[@]}]=""
+  GL_CMTONLY[${#GL_CMTONLY[@]}]=""
   GFILE="$SB0/$guard"
-  BEYOND=""
+  BEYOND=""; CMTONLY=""
 
   # One suites-sha per guard: the kill set's suite bytes, hashed in kill order. This is the
   # half of the key that makes the memo sound across test changes — a new case in ANY paired
@@ -1553,6 +1568,33 @@ for guard in ${SWEEP_GUARDS[@]+"${SWEEP_GUARDS[@]}"}; do
     if [[ $GREP_RC -ge 2 ]]; then
       red "operator match does not enumerate (grep exit $GREP_RC): $opid on $guard — $SITES"
       continue
+    fi
+    # #579. COMMENT LINES ARE NOT SITES, and the exclusion happens HERE — between the
+    # enumerating grep and the ordinal counter — rather than as a skip inside the loop
+    # below. The distinction is the whole contract: a skip would still advance `ordinal`,
+    # so the comment would keep displacing the real code site's identity even after it
+    # stopped producing a mutant. Filtering the matched-line list means the comment never
+    # existed as far as `<guard>::<operator>::<ordinal>` is concerned.
+    #
+    # A comment flip cannot be killed by anything behavioural, so every such site was a
+    # guaranteed survivor: 41 of the 142 ordinal-keyed baseline rows existed only to record
+    # that fact, and because they took ordinals 1 and 2 they pushed 28 real code sites past
+    # k entirely. That is the vacuous-green class at its root — a green sweep proving count
+    # and labels, never identity.
+    #
+    # The rule is LEADING `#` only, and the two residues are accepted rather than
+    # discovered. A trailing comment on a code line still enumerates, because the operators
+    # are substring EREs (`foo || bar  # the -ne case` remains a site); and `#`-headed
+    # heredoc PAYLOAD stops enumerating along with real comments. A heredoc- and
+    # quote-aware classifier would fix both, at roughly an order of magnitude more code,
+    # living inside the one file the sweep is forbidden to sweep (mutation-exclusions.tsv,
+    # recursion guard) — unguardable parsing shipped to delete register rows is a net add.
+    raw_sites=0; [[ -n "$SITES" ]] && raw_sites="$(printf '%s\n' "$SITES" | wc -l | tr -d ' ')"
+    SITES="$(printf '%s\n' "$SITES" | grep -vE '^[0-9]+:[[:space:]]*#')"
+    kept_sites=0; [[ -n "$SITES" ]] && kept_sites="$(printf '%s\n' "$SITES" | wc -l | tr -d ' ')"
+    if [[ $raw_sites -gt 0 && $kept_sites -eq 0 ]]; then
+      CMTONLY="${CMTONLY:+$CMTONLY+}$opid:$raw_sites"
+      info "all $raw_sites site(s) excluded as comment lines: $opid on $guard"
     fi
     ordinal=0; used=0; beyond=0
     while IFS= read -r lineno; do
@@ -1631,6 +1673,7 @@ for guard in ${SWEEP_GUARDS[@]+"${SWEEP_GUARDS[@]}"}; do
 
   GL_COUNT[gi]=$(( IDX - GL_FIRST[gi] ))
   GL_BEYOND[gi]="$BEYOND"
+  GL_CMTONLY[gi]="$CMTONLY"
   gi=$((gi + 1))
 done
 
@@ -1794,7 +1837,7 @@ while [[ $i -lt ${#GL_GUARD[@]} ]]; do
   gi="$i"
   i=$((i + 1))
   if [[ -n "${GL_UNRUN[$gi]}" ]]; then
-    emit_row "$guard" "swept" "${KS// /+}" 0 0 0 "" "${GL_BEYOND[$gi]}"
+    emit_row "$guard" "swept" "${KS// /+}" 0 0 0 "" "${GL_BEYOND[$gi]}" "${GL_CMTONLY[$gi]}"
     continue
   fi
   applied="${GL_APPLIED[$gi]}"; killed=0; survived=0; survivors=""
@@ -1834,7 +1877,7 @@ while [[ $i -lt ${#GL_GUARD[@]} ]]; do
     fi
     j=$((j + 1))
   done
-  emit_row "$guard" "swept" "${KS// /+}" "$applied" "$killed" "$survived" "$survivors" "${GL_BEYOND[$gi]}"
+  emit_row "$guard" "swept" "${KS// /+}" "$applied" "$killed" "$survived" "$survivors" "${GL_BEYOND[$gi]}" "${GL_CMTONLY[$gi]}"
   info "swept $guard — applied=$applied killed=$killed survived=$survived"
 done
 

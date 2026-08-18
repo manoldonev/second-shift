@@ -385,9 +385,10 @@ make_budget_fixture() {
 make_debris_fixture() {
   local dir="$1"
   mkdir -p "$dir/tools" "$dir/victim-tmp"
-  # Neither guard may mention the mutated shape in PROSE. A comment carrying it is a real
-  # operator site, it takes ordinal 1, and being unkillable it survives — which would bury
-  # this case's actual subject under two baseline-absent reds. Exactly one site each.
+  # Exactly one site each. The prose restriction this fixture used to carry — that neither
+  # guard may name the mutated shape in a comment, because such a comment took ordinal 1 and
+  # survived unkillably — is retired: comments no longer enumerate (see case (am)). The
+  # one-site-each shape is kept because the case is about sandbox litter ordering, not sites.
   { printf '#!/usr/bin/env bash\n# fixture guard: names a directory by expansion fallback, then creates it.\n'
     printf 'cd "$(dirname "${BASH_SOURCE[0]}")" || exit 1\n'
     printf 'D="${DIRT_DIR:-dirt-scratch}"\nmkdir -p "$D"\necho "$D"\n'
@@ -420,12 +421,73 @@ make_debris_fixture() {
     && git -c user.email=fixture@example.invalid -c user.name=fixture commit -qm debris ) >/dev/null 2>&1
 }
 
+# Three guards that differ ONLY in how comments and code interleave for one operator, which
+# is what makes the comparison a measurement rather than an anecdote.
+#   cg.sh  comment first, then TWO code sites — one the killer exercises, one it does not.
+#   co.sh  a single matched line, and it is a comment.
+#   cn.sh  no matched line at all.
+# The cg.sh shape is the discriminator. Its expected survivor is `cg.sh::fail-open::2`, and
+# each wrong implementation lands on a DIFFERENT id: enumerating comments makes the comment
+# ordinal 1 and the survivor `::fail-open::1`; excluding them with a `continue` inside the
+# mutation loop (which still advances the counter) makes the survivor `::fail-open::3`. An
+# assertion on mutants_applied alone cannot tell those apart, which is why the id is what is
+# asserted. The killed site carries the other half: a comment flip is unkillable by
+# construction, so ordinal 1 being KILLED is what proves ordinal 1 is the code line.
+# shellcheck disable=SC2016 # the single-quoted $-expressions are the FIXTURES' code, not ours
+make_comment_fixture() {
+  local dir="$1" g
+  mkdir -p "$dir/tools"
+  { printf '#!/usr/bin/env bash\n'
+    printf '# fixture guard: THIS PROSE LINE is the first line the operator matches - it says exit 1.\n'
+    printf 'case "${1:-}" in\n'
+    printf '  bad)  echo violation; exit 1 ;;\n'
+    printf '  dark) exit 1 ;;\n'
+    printf 'esac\necho ok\nexit 0\n'
+  } > "$dir/cg.sh"
+  { printf '#!/usr/bin/env bash\n'
+    printf '# fixture guard: the only mention of exit 1 in this file is this prose line.\n'
+    printf 'echo ok\n'
+  } > "$dir/co.sh"
+  { printf '#!/usr/bin/env bash\n'
+    printf '# fixture guard: nothing here matches the operator at all.\n'
+    printf 'echo ok\n'
+  } > "$dir/cn.sh"
+  chmod 755 "$dir/cg.sh" "$dir/co.sh" "$dir/cn.sh"
+  # cg's killer exercises `bad` and the happy path, never `dark` — so the first code site is
+  # killed and the second survives, in one run, with no second guard needed.
+  { printf '#!/usr/bin/env bash\nHERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"\nf=0\n'
+    printf 'out="$(bash "$HERE/cg.sh" bad)"; rc=$?\n'
+    printf '[[ $rc -eq 1 ]] || f=$((f+1))\n'
+    printf '[[ "$out" == "violation" ]] || f=$((f+1))\n'
+    printf 'out="$(bash "$HERE/cg.sh" good)"; rc=$?\n'
+    printf '[[ $rc -eq 0 ]] || f=$((f+1))\n'
+    printf '[[ "$out" == "ok" ]] || f=$((f+1))\nexit $f\n'
+  } > "$dir/cg-selftest.sh"
+  for g in co cn; do
+    { printf '#!/usr/bin/env bash\nHERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"\n'
+      printf 'out="$(bash "$HERE/%s.sh")" || exit 1\n' "$g"
+      printf '[[ "$out" == "ok" ]] || exit 1\nexit 0\n'
+    } > "$dir/$g-selftest.sh"
+  done
+  printf '# fixture operators\nfail-open\texit 1\ts/exit 1/exit 0/\n' > "$dir/tools/mutation-operators.tsv"
+  printf '# fixture exclusions\n' > "$dir/tools/mutation-exclusions.tsv"
+  printf '# fixture pair map\n'   > "$dir/tools/mutation-pair-map.tsv"
+  printf '# fixture catalog\n'    > "$dir/tools/mutation-catalog.tsv"
+  ( cd "$dir" && git init -q . && git add -A \
+    && git -c user.email=fixture@example.invalid -c user.name=fixture commit -qm comments ) >/dev/null 2>&1
+}
+
 # guard,killed,survived,survivor_ids for one row of a --report TSV.
 report_row() { awk -F'\t' -v g="$2" '$1==g {print $5"/"$6"/"$7; exit}' "$1"; }
 
 # The sites_beyond_budget cell for one row. Read through the same positional discipline as
 # report_row: appending the column must leave $5/$6/$7 exactly where they were.
 report_beyond() { awk -F'\t' -v g="$2" '$1==g {print $8; exit}' "$1"; }
+
+# The sites_comment_only cell, and mutants_applied. Same discipline: each new column lands
+# on the END of the row, so $4 and $5/$6/$7 never move.
+report_comment_only() { awk -F'\t' -v g="$2" '$1==g {print $9; exit}' "$1"; }
+report_applied()      { awk -F'\t' -v g="$2" '$1==g {print $4; exit}' "$1"; }
 
 baseline_with() { # $1=dir, rest = survivor ids
   local d="$1"; shift
@@ -1881,10 +1943,11 @@ fi
 # inserted anywhere else breaks both silently.
 HDR="$(head -1 "$TMPROOT/ak.tsv")"
 AK_TAB="$(printf '\t')"
-if [[ "$HDR" == *"${AK_TAB}survivor_ids${AK_TAB}sites_beyond_budget" ]]; then
-  ok "the column is appended last, after survivor_ids"
+AK_TAIL="${AK_TAB}survivor_ids${AK_TAB}sites_beyond_budget${AK_TAB}sites_comment_only"
+if [[ "$HDR" == *"$AK_TAIL" ]]; then
+  ok "the columns are appended last, in order, after survivor_ids"
 else
-  bad "(ak4) header does not end in survivor_ids<TAB>sites_beyond_budget: '$HDR'"
+  bad "(ak4) header does not end in survivor_ids<TAB>sites_beyond_budget<TAB>sites_comment_only: '$HDR'"
 fi
 
 echo "(al) a mutant's LITTER is not the next mutant's input — the sandbox is scrubbed between them"
@@ -1918,6 +1981,53 @@ if [[ $RC -eq 0 ]] && ! grep -q 'pool disagreement' <<<"$OUT"; then
 else
   bad "(al3) expected rc=0 and no pool disagreement; got rc=$RC"
   printf '%s\n' "$OUT" | tail -8
+fi
+
+echo "(am) a COMMENT is not a site — it contributes no mutant AND consumes no ordinal"
+# 41 of the 142 ordinal-keyed baseline rows on the tree that carried this change existed only
+# to record that a comment cannot be killed, and because they took ordinals 1 and 2 they held
+# 28 real code sites out of the k=2 window. This case is the falsifiable half of that claim.
+FX="$TMPROOT/fxam$RANDOM$RANDOM"
+make_comment_fixture "$FX"
+baseline_with "$FX" "cg.sh::fail-open::2"
+OUT="$( cd "$FX" && enf bash "$SWEEP" --mode full --report "$TMPROOT/am.tsv" 2>&1 )"; RC=$?
+# THE assertion. The survivor id is the only observation that separates a correct filter from
+# both wrong ones: ::1 means comments still enumerate, ::3 means they were skipped inside the
+# loop after the counter had already advanced, ::2 means the comment never existed. And the
+# killed mutant at ordinal 1 is what proves ordinal 1 is the CODE line — nothing behavioural
+# can kill a comment flip, so a killed ordinal 1 cannot be the comment.
+if [[ "$(report_row "$TMPROOT/am.tsv" cg.sh)" == "1/1/cg.sh::fail-open::2" ]]; then
+  ok "the code site is ordinal 1 (killed) and the second code site is ordinal 2 (survives)"
+else
+  bad "(am1) cg.sh row is '$(report_row "$TMPROOT/am.tsv" cg.sh)', want '1/1/cg.sh::fail-open::2'"
+  printf '%s\n' "$OUT" | tail -6
+fi
+# Two code sites, budget 2: the comment is not merely unmutated, it is not competing for the
+# budget either. Enumerating it would push the second code site past k and fill this cell.
+if [[ "$(report_applied "$TMPROOT/am.tsv" cg.sh)" == "2" ]] \
+  && [[ -z "$(report_beyond "$TMPROOT/am.tsv" cg.sh)" ]]; then
+  ok "both code sites fit the budget the comment used to displace them from"
+else
+  bad "(am2) cg.sh applied='$(report_applied "$TMPROOT/am.tsv" cg.sh)' beyond='$(report_beyond "$TMPROOT/am.tsv" cg.sh)'; want 2 and empty"
+fi
+# AC-7's conflation, closed the same way sites_beyond_budget closed its own: an operator whose
+# every matched line was a comment and an operator with no matched line contribute the same
+# nothing, and the report has to say which.
+CO="$(report_comment_only "$TMPROOT/am.tsv" co.sh)"
+CN="$(report_comment_only "$TMPROOT/am.tsv" cn.sh)"
+if [[ "$CO" == "fail-open:1" && -z "$CN" ]]; then
+  ok "an all-comment operator is named; a genuinely inapplicable one stays empty"
+else
+  bad "(am3) sites_comment_only: co.sh='$CO' (want 'fail-open:1'), cn.sh='$CN' (want empty)"
+  printf '%s\n' "$OUT" | tail -6
+fi
+# Report-only, never red — the posture both tally columns share. The one baselined survivor is
+# the only thing standing between this run and rc=0.
+if [[ $RC -eq 0 ]]; then
+  ok "report-only: the exclusion is reported and the run is still green"
+else
+  bad "(am4) expected rc=0; got rc=$RC"
+  printf '%s\n' "$OUT" | tail -6
 fi
 
 echo "(j) universe rule — every in-universe guard in the REAL tree is accounted"

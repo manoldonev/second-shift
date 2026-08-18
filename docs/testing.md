@@ -471,6 +471,24 @@ will not parse is a harness artifact — skipped and logged, never red. Catalog 
 applies, or yields invalid output, is **anchor drift = red** — the
 `check-lockstep-pairs-selftest.sh` convention.
 
+**A comment line is not a site.** Generic enumeration drops every matched line matching
+`^[[:space:]]*#` before the ordinal counter, so a comment contributes no mutant *and consumes no
+ordinal* — adding or deleting one re-keys nothing. The reason is that a comment flip changes no
+reachable behavior, so nothing can kill it: each such site was a permanent baseline row asserting
+only that a comment cannot be killed, and at `k=2` they routinely occupied ordinals 1 and 2 and
+pushed the guard's real code sites out of the swept window entirely. Measured on the tree that
+carried the change: **41 of 142 ordinal-keyed baseline rows** were comment sites and are gone,
+**6** surviving rows re-keyed, and **28** real code sites moved from beyond-budget into budget.
+Two residues are accepted rather than discovered: the rule is LEADING `#` only, so a trailing
+comment on a code line still enumerates (the operator matches are substring EREs — 4 of those 142
+rows sit on a code line containing a `#`), and `#`-headed heredoc *payload* stops enumerating with
+real comments (0 such lines in today's swept universe). The heredoc- and quote-aware classifier
+that would fix both is roughly an order of magnitude more code and would live inside
+`tools/mutation-sweep.sh`, the one file the sweep is forbidden to sweep — unguardable parsing
+shipped to delete register rows is a net add. When an operator's matched lines were *all*
+comments, the report's `sites_comment_only` cell says so per operator, so that state never reads
+as "no applicable site".
+
 **Survivors are data, not a red build.** Only a survivor absent from `tools/mutation-baseline.tsv`,
 or a named infra failure (`baseline-missing`, `baseline-environment-mismatch`, an unrunnable pair,
 an unaccounted guard, sandbox failure, `pool disagreement`), reds a lane. A baselined survivor is
@@ -538,15 +556,26 @@ the catalog's header block now documents explicitly — such a row's value is th
 anchor-drift loudness, not a survivor prediction.
 
 What kept that site invisible for two nightlies was the report, not the budget: a guard with no
-applicable site and a guard whose sites all sit past `k` produced the same silence. The report TSV's
-last column, **`sites_beyond_budget`**, ends that. It carries per-operator detail in the
-plus-joined `paired_selftest` style (`cmp-z:3`), counts only sites the enumerator declined for
-budget — an unparseable or no-op flip is a harness artifact, not darkness — and is **report-only,
-never red**, the posture `tools/mutation-operators.tsv` already states for non-application. It is
-appended last because `report_row()` in the companion selftest reads `$5/$6/$7` positionally and
-`--mode merge` compares shard headers byte-wise. The wider question it now supplies evidence for —
-whether `k=2` is the right budget at all, given that every site past ordinal 2 is dark sweep-wide —
-stays open.
+applicable site and a guard whose sites all sit past `k` produced the same silence. The report TSV
+column **`sites_beyond_budget`** ends that. It carries per-operator detail in the plus-joined
+`paired_selftest` style (`cmp-z:3`), counts only sites the enumerator declined for budget — an
+unparseable or no-op flip is a harness artifact, not darkness — and is **report-only, never red**,
+the posture `tools/mutation-operators.tsv` already states for non-application. `sites_comment_only`
+was appended after it on the same terms. Both go on the END of the row because `report_row()` in
+the companion selftest reads `$5/$6/$7` positionally and `--mode merge` compares shard headers
+byte-wise.
+
+**The standing `k=2` question is re-derived, not inherited.** It used to rest on "every site past
+ordinal 2 is dark sweep-wide", measured while comment lines were still sites — and that measurement
+counted a displacement whose dominant cause has since been removed. Excluding comments moved **28**
+real code sites from beyond-budget into budget and vacated **43** unkillable ones from the `k=2`
+window, so the darkness the argument pointed at was substantially bookkeeping rather than budget.
+What survives the re-derivation is the *pair of examples above*, and they survive intact: neither
+`predecessor-gate.sh`'s `cmp-z` ordinal 1 nor `scaffold-review-context.sh`'s ordinal 5 is a comment
+line, so both ordinals are unchanged by the exclusion and "budget is not safety" still holds on its
+own evidence. The question of whether `k=2` is the right budget therefore stays open — but it is
+now open against the post-exclusion measurement, and re-arguing it means re-measuring, not quoting
+the pre-#579 numbers.
 
 **Two obligations land on ordinary PRs.** Editing a guard re-keys its generic survivor ordinals,
 so that PR re-baselines those rows in its own diff; and it re-anchors any catalog row addressing
