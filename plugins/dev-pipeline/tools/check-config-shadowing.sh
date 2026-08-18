@@ -18,11 +18,11 @@ fails=0
 # each surviving key is now anchored to its surviving reader. Three rows did not survive the
 # move, for two different reasons (spec ledger D-17):
 #
-#   - `stageParams.visualCapture` is RETIRED outright — Stage 6's advisory smoke-capture was
+#   - `stageParams.visualCapture` is RETIRED outright — the advisory smoke-capture was
 #     its only consumer, so no reader remains. config-lint.sh's removed-key arm rejects it,
 #     the established dead-key pattern (docs/migrations/v1-to-v2.md).
 #   - `stageParams.formatGlob` and `gates.mutation` are KEPT keys and still schema-legal:
-#     each lost its EXECUTOR with stages 5/6 but retains a reader in onboard's
+#     each lost its EXECUTOR but retains a reader in onboard's
 #     config-grill.sh (the `T2.formatGlob` waiver; the mutation-seam findings). They are
 #     absent from CHECKS for the sibling-plugin reason below, NOT because they are dead.
 #

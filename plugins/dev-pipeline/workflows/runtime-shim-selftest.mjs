@@ -41,7 +41,7 @@
 //
 // The shim mechanics themselves (stripMeta / makeRunner / the injected fakes) live in
 // `runtime-shim-lib.mjs` — a non-glob sibling, so CI never executes it directly — because
-// the E2E replay's stage-4/5/8 legs drive production workflows through the same wrapper.
+// production workflows are driven through the same wrapper.
 // Two consumers, one definition; see that file's header.
 //
 // Exit code = number of failed checks (repo selftest convention).
@@ -346,7 +346,7 @@ console.log('── Case F: design-sync.mjs fail-closed normalization (end-to-en
 // ---------------------------------------------------------------------------
 // Case G — the injected `workflow` global (the 8th wrapper parameter, #217).
 //
-// Without it, mutation-gate.mjs and plan-review.mjs die with a ReferenceError before
+// Without it, mutation-gate.mjs dies with a ReferenceError before
 // reaching a fake — the same class as design-sync.mjs's retired STRUCTURED_OUTPUT_MANDATE
 // (Case E0). An 8th parameter that nothing invokes is untested wiring, so this case
 // asserts the nested dispatch actually goes THROUGH it, and that the argument really is
@@ -408,7 +408,7 @@ console.log('── Case G: the injected workflow() global')
 // a behavioral guard rather than a reviewer's attention.
 //
 // H2/H3 are the pair that makes this a killer. H2 alone would stay green if `tracker`
-// were dropped from the Stage-8 subset and the default happened to match the fixture, so
+// were dropped from the review subset and the default happened to match the fixture, so
 // H3 pins the opposite branch: the two must DIFFER. Each case also asserts it reached the
 // scope-completeness prompt at all — without that, a mis-wired reviewers override would
 // assert against runCodeReview's default complexity-reviewer prompt and pass vacuously
@@ -437,7 +437,7 @@ console.log('── Case H: args.config subset delivery (#77)')
 }
 {
   // H3 — the same dispatch with `tracker` ABSENT falls back to gh. This is the mutant
-  // detector: drop `tracker` from the Stage-8 subset and H2b goes red while this stays
+  // detector: drop `tracker` from the review subset and H2b goes red while this stays
   // green, so the two together prove the key is load-bearing rather than decorative.
   const { calls } = await runCodeReview([findingsBlock()], {
     reviewers: ['review-toolkit:scope-completeness-reviewer'],

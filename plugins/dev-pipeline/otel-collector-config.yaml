@@ -1,6 +1,6 @@
 # OTel Collector config for dev-pipeline cost tracking.
 # Consumed by the run skill's pipeline-cost-block.sh (invoked
-# in-band at Stage 9 of the dev-pipeline skill).
+# in-band by the dev-pipeline cost block).
 #
 # Receives OTLP/gRPC on 4317 from Claude Code processes with
 # CLAUDE_CODE_ENABLE_TELEMETRY=1. Writes each export batch as one JSONL line
@@ -17,7 +17,7 @@ receivers:
 
 processors:
   batch:
-    # 1s batching keeps the flush race with the in-band Stage 9
+    # 1s batching keeps the flush race with the in-band cost-block
     # pipeline-cost-block.sh sub-step to ~single-second headroom
     # (the sub-step also sleeps 5s before querying).
     timeout: 1s

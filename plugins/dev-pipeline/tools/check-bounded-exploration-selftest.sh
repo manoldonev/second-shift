@@ -274,7 +274,7 @@ else
 fi
 
 # B3: AC-6 — retries dropped 2 -> 1 on EVERY carrier of dispatchSchemaAgent.
-# plan-review.mjs left this list in #348 (deleted with Stage 4). The carriers are enumerated
+# A second carrier left this list in #348. The carriers are enumerated
 # rather than globbed, so a file that silently stops carrying the helper is a B3 failure
 # rather than an invisible drop from the loop.
 for f in unit-tests.mjs design-sync.mjs figma.mjs; do
@@ -287,10 +287,10 @@ done
 
 # B4: the surviving retry is not a verbatim repeat. NARROWER than B3 by contract, not by
 # oversight: RETRY_ESCALATION is the exploration-nudge escalation, and only the two
-# exploration-class dispatchers ever carried it — plan-review.mjs (deleted in #348) and
+# exploration-class dispatchers ever carried it — one deleted in #348, and
 # unit-tests.mjs. design-sync.mjs and figma.mjs carry the retries=1 pin without it, and
 # always have; asserting it on them would be a new requirement wearing a regression's clothes.
-# shellcheck disable=SC2043  # one carrier since #348 deleted plan-review.mjs; kept as a loop
+# shellcheck disable=SC2043  # one carrier since #348; kept as a loop
 # because the contract is "every exploration-class dispatcher", not "this one file".
 for f in unit-tests.mjs; do
   if grep -qF 'RETRY_ESCALATION' "$WORKFLOWS/$f"; then
@@ -305,7 +305,7 @@ done
 # edit to one without the other silently makes the AFTER rate measure a dispatch nobody ships.
 #
 # RE-ANCHORED in #348, and this is the load-bearing half of that deletion for #291. The
-# production side used to be plan-review.mjs — Stage 4's dispatcher, now deleted — so the
+# production side used to be a since-deleted dispatcher, so the
 # lockstep would have died with it, leaving the probe's plan-shaped arm free to drift away from
 # anything shipped. It does not die: `unit-tests.mjs` in its `kind: 'plan-review'` mode carries
 # BOTH tokens verbatim and survives the deletion, so it is the production counterpart now. The
@@ -386,7 +386,7 @@ fi
 # The planted directory goes in a MIRROR of the skills/ layout under $TMP, never in the real
 # tree: the lint resolves its roots from BASH_SOURCE, so copying it into the mirror is all it
 # takes, and an interrupted run then cannot leave a stray directory in the repo.
-# #348 changed the mirror's SHAPE, not the case: the lint moved from skills/run/tools/ to the
+# #348 changed the mirror's SHAPE, not the case: the lint moved to the
 # plugin's own tools/, so the mirror is now a plugin root rather than a skills/ tree, and the
 # planted directory goes under its skills/ subtree — exactly where a future skill-shipped
 # workflows/ dir would appear.

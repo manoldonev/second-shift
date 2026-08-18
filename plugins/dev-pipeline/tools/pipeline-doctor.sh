@@ -102,7 +102,7 @@ echo "[doctor] info  /bin/bash is $(/bin/bash -c 'echo $BASH_VERSION') (macOS sh
 # not on `command -v`. node + yarn are hard deps (FAIL); npx/prettier/ruff degrade (WARN).
 
 # node — hard dep of the PIPELINE ITSELF: the Workflow gates (code-review.mjs at
-# Stage 8, mutation-gate.mjs) run under node regardless of the consumer's language.
+# the review fan-out, mutation-gate.mjs) run under node regardless of the consumer's language.
 if node --version >/dev/null 2>&1; then
   ok "node invokable ($(node --version 2>/dev/null)) — Workflow gates (code-review.mjs / mutation-gate.mjs)"
 elif command -v node >/dev/null 2>&1; then
@@ -146,12 +146,12 @@ else
   warn "npx not invokable in this non-interactive shell — fall back to absolute-path invocation (node_modules/.bin/<tool>) for any npx-run tool"
 fi
 
-# repo-local prettier — WARN: the Stage 6 inert-lane 'prettier --check' format gate.
+# repo-local prettier — WARN: backs the configured 'prettier --check' format command.
 PRETTIER_BIN="$REPO_ROOT/node_modules/.bin/prettier"
 if [[ -x "$PRETTIER_BIN" ]] && "$PRETTIER_BIN" --version >/dev/null 2>&1; then
-  ok "repo-local prettier runnable (Stage 6 inert-lane format check)"
+  ok "repo-local prettier runnable (format check)"
 else
-  warn "repo-local prettier not runnable at node_modules/.bin/prettier — run 'yarn install'; Stage 6's inert-lane 'prettier --check' is skipped otherwise"
+  warn "repo-local prettier not runnable at node_modules/.bin/prettier — run 'yarn install'; the configured 'prettier --check' is skipped otherwise"
 fi
 
 # ruff — WARN, gated on Python under pipeline scope. "In scope" = a pyproject.toml
@@ -197,8 +197,8 @@ fi
 checked_match -e '--head' -- gh pr list --help
 case $? in
   0) ok "gh pr list --head supported" ;;
-  1) warn "gh pr list lacks --head (old gh) — Stage 9 duplicate guard must use REST: gh api 'repos/{owner}/{repo}/pulls?head={owner}:BRANCH'" ;;
-  *) warn "could not probe 'gh pr list --help' (exit $CHECKED_MATCH_RC) — --head support is UNKNOWN, not missing. Re-run the doctor once gh works rather than routing Stage 9 around a capability that may be there" ;;
+  1) warn "gh pr list lacks --head (old gh) — the PR duplicate guard must use REST: gh api 'repos/{owner}/{repo}/pulls?head={owner}:BRANCH'" ;;
+  *) warn "could not probe 'gh pr list --help' (exit $CHECKED_MATCH_RC) — --head support is UNKNOWN, not missing. Re-run the doctor once gh works rather than routing the PR step around a capability that may be there" ;;
 esac
 
 # --- 3. Bot wrapper -------------------------------------------------------------
@@ -320,8 +320,8 @@ if [[ -z "$SELFTEST_CACHE_HIT" ]]; then
 _FAILS_BEFORE_SWEEP=$FAILS
 
 # --- 5. lean gate (the safety net must work on THIS machine) --------------------
-# #348 retired the statectl state machine with the staged lane; the lean lane's gate is
-# what a run's five milestones are asserted by, so it takes this section's place.
+# #348 retired the staged state machine. The lean lane's gate is what a run's five
+# milestones are asserted by, so it takes this section's place.
 if out=$(bash "$PLUGIN_DIR/skills/build-lean/lean-gate-selftest.sh" 2>&1); then
   ok "lean-gate selftest: $(tail -1 <<< "$out" | sed 's/\[self-test\] //')"
 else
@@ -329,7 +329,7 @@ else
   tail -5 <<< "$out" | sed 's/^/[doctor]        /'
 fi
 
-# --- 5b. Stage 8 dark-reviewer retry contract (#168) ----------------------------
+# --- 5b. dark-reviewer retry contract (#168) ------------------------------------
 # Validates code-review.mjs's null/dark-reviewer handling (retry decision + the
 # drift-guard that the production script still carries the load-bearing tokens).
 # Gate on invocation (not `command -v`) for the same reason as section 1b: a node
@@ -339,11 +339,11 @@ if node --version >/dev/null 2>&1; then
   if out=$(node "$PLUGIN_DIR/workflows/null-reviewer-selftest.mjs" 2>&1); then
     ok "null-reviewer selftest: $(tail -1 <<< "$out")"
   else
-    bad "null-reviewer selftest FAILED — the Stage 8 dark-reviewer contract is broken (or code-review.mjs drifted). Output tail:"
+    bad "null-reviewer selftest FAILED — the dark-reviewer contract is broken (or code-review.mjs drifted). Output tail:"
     tail -5 <<< "$out" | sed 's/^/[doctor]        /'
   fi
 else
-  warn "node not invokable — skipping null-reviewer selftest (Stage 8 dark-reviewer contract unverified on this machine; see the node FAIL in section 1b for the cause)"
+  warn "node not invokable — skipping null-reviewer selftest (dark-reviewer contract unverified on this machine; see the node FAIL in section 1b for the cause)"
 fi
 
 # --- 5d. reviewer-drift gate selftest (real-commit self-gate + registry lockstep) ---
@@ -354,7 +354,7 @@ else
   tail -5 <<< "$out" | sed 's/^/[doctor]        /'
 fi
 
-# --- 5e. claim-sequence selftest (Stage 1.A claim swap helper + failed-add abort) ---
+# --- 5e. claim-sequence selftest (claim swap helper + failed-add abort) ------------
 # Proves tools/claim-issue.sh ADDs in-progress, confirms the add, then DELETEs
 # ready-for-dev — and aborts with ready-for-dev intact (no DELETE) on a failed add.
 # This is the automated regression test #170's AC#3 could not satisfy while the swap
@@ -363,7 +363,7 @@ fi
 if out=$(bash "$SCRIPT_DIR/claim-selftest.sh" 2>&1); then
   ok "claim-sequence selftest: $(tail -1 <<< "$out")"
 else
-  bad "claim-sequence selftest FAILED — the Stage 1.A claim swap helper (or its prose call-sites) drifted. Output tail:"
+  bad "claim-sequence selftest FAILED — the claim swap helper (or its prose call-sites) drifted. Output tail:"
   tail -5 <<< "$out" | sed 's/^/[doctor]        /'
 fi
 
@@ -395,7 +395,7 @@ fi
 # --- 5h. is-inert-diff classifier selftest (INERT-lane single source of truth) ---
 # Proves is-inert-diff.sh classifies every inert pattern and the SUITE defaults
 # correctly, and that its INERT_RE has not drifted from the selftest's CANONICAL_RE
-# lockstep mirror (golden-master parity). This is the single source of truth the Stage-6
+# lockstep mirror (golden-master parity). This is the single source of truth the verify
 # lane decision and the pre-commit hook carve-out both depend on (#249).
 if out=$(bash "$SCRIPT_DIR/is-inert-diff-selftest.sh" 2>&1); then
   ok "is-inert-diff selftest: $(tail -1 <<< "$out")"
@@ -404,15 +404,7 @@ else
   tail -5 <<< "$out" | sed 's/^/[doctor]        /'
 fi
 
-# --- 5h2. plan-lint selftest (Stage-3/4 deterministic plan structure lint) --------
-if out=$(bash "$SCRIPT_DIR/plan-lint-selftest.sh" 2>&1); then
-  ok "plan-lint selftest: $(tail -1 <<< "$out" | sed 's/\[plan-lint-selftest\] //')"
-else
-  bad "plan-lint selftest FAILED — the Stage-3/4 plan structure lint (mandated sections / AC-traceability table / 1:1 snapshot) drifted. Output tail:"
-  tail -5 <<< "$out" | sed 's/^/[doctor]        /'
-fi
-
-# --- 5h3. ledger-lint selftest (Decision Ledger structural lint) ------------------
+# --- 5h2. ledger-lint selftest (Decision Ledger structural lint) ------------------
 # Lives in the intake-toolkit plugin (plan-interview skill), not dev-pipeline — reach
 # it script-relative via the sibling-plugins dir, not the consumer repo.
 if _st=$(resolve_sibling intake-toolkit skills/plan-interview/tools/ledger-lint-selftest.sh) && out=$(bash "$_st" 2>&1); then
@@ -423,8 +415,8 @@ else
 fi
 
 # --- 5i. lean merge-boundary evidence (portable verdict/identity/freshness) ------
-# verifyctl.sh was the staged lane's deterministic verify runner and died with it (#348).
-# What replaces it here is the boundary a lean run is actually judged at: lean-evidence.sh
+# The staged lane's deterministic verify runner died with it (#348). What stands here
+# instead is the boundary a lean run is actually judged at: lean-evidence.sh
 # reads the committed verdict record's verdict, authoring identity, patch freshness and
 # ratification, and a consumer's CI fetches it at its pinned ref.
 if out=$(bash "$PLUGIN_DIR/skills/build-lean/lean-evidence-selftest.sh" 2>&1); then
@@ -483,9 +475,9 @@ _otel_backup_present() {
   return 1
 }
 if [[ -s "$_OTEL_METRICS_LIVE" ]]; then
-  ok "OTel metrics file present — Stage 9 cost block can fire"
+  ok "OTel metrics file present — the cost block can fire"
 elif _otel_backup_present; then
-  ok "OTel metrics present in a rotated backup (live file empty) — Stage 9 cost block can fire"
+  ok "OTel metrics present in a rotated backup (live file empty) — the cost block can fire"
 else
   warn "no OTel metrics at $_OTEL_METRICS_LIVE (nor any rotated backup beside it) — cost tracking will record skipped-telemetry-off (opt-in; see cost-tracking-setup.md)"
 fi
@@ -505,33 +497,6 @@ else
   warn "CLAUDE_CODE_SESSION_ID unset in this shell — fine inside a Claude Code session; cost tracking degrades to skipped-no-sessions otherwise"
 fi
 # <<< otel-telemetry-classify <<<
-
-# Visual-capture substrate (Stage 6): the prescribed capture tool is the Playwright MCP;
-# when it is absent the sanctioned fallback is headless Chrome (review-lean's capture note —
-# caveat: Chrome clamps windows to ~500px min-width, so a true 375px mobile capture is
-# unavailable). Neither being present is still only a WARN — capture degrades to the
-# logged skip line, never a pipeline failure. `claude mcp list` may be unavailable in a
-# non-interactive shell; treat that as "unknown", not "missing".
-CHROME_BIN="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
-command -v google-chrome >/dev/null 2>&1 && CHROME_BIN="$(command -v google-chrome)"
-mcp_rc=1
-if command -v claude >/dev/null 2>&1; then
-  checked_match -i -e playwright -- claude mcp list
-  mcp_rc=$?
-fi
-# `claude` ABSENT is a genuine "not configured" (rc 1 above, unchanged). `claude mcp list`
-# PRESENT but failing is the third state the comment above already prescribed and the old
-# pipeline could not express — a non-interactive shell that cannot answer, reported as such
-# instead of as a missing MCP.
-case $mcp_rc in
-  0) ok "Playwright MCP configured — Stage 6 visual capture uses the prescribed tool" ;;
-  1) if [[ -x "$CHROME_BIN" ]]; then
-       warn "Playwright MCP not configured — Stage 6 visual capture degrades to the headless-Chrome fallback (mobile viewport clamps to ~500px min-width)"
-     else
-       warn "neither Playwright MCP nor headless Chrome available — Stage 6 visual capture will skip (logged, non-blocking); PR bodies omit the Visual Verification section"
-     fi ;;
-  *) warn "could not read 'claude mcp list' (exit $CHECKED_MATCH_RC) — Playwright MCP presence is UNKNOWN, not absent. Stage 6 capture may well work; re-run the doctor from an interactive shell before assuming the fallback" ;;
-esac
 
 # --- 7. Instruction-prose budget ratchet (L2 debloat, #188) ---------------------
 # Quality signal, not an environment blocker: surface prose-layer growth over the
@@ -612,62 +577,6 @@ if [[ -d "$STATE_DIR_D" ]]; then
     fi
   done
   [[ "$stale_found" == "0" ]] && ok "no stale in_progress claims (>=30 min since last state write)"
-fi
-
-# --- 9. Over-envelope stages on the most recent run (advisory) -------------------
-# The waste half of manifesto P4. Derives per-stage time envelopes from the recorded
-# corpus (tools/stage-envelopes.sh — the single derivation owner; nothing is stored)
-# and surfaces the most recent run's over-envelope stages.
-#
-# WARN, NEVER FAIL — joining sections 7 and 8 as a quality signal. This check must not
-# touch $FAILS: an environment is pipeline-ready whether or not the last run was slow,
-# and a pre-flight that blocked on a *previous* run's latency would be actively wrong.
-#
-# TIME AXIS ONLY. Cost is a post-run artifact (the Stage-9 cost block writes it after
-# the work is done), so a pre-flight surface has nothing to say about it.
-if [[ -d "$STATE_DIR_D" ]] && command -v jq >/dev/null 2>&1; then
-  # --mtime-prefilter caps enumeration at the newest ~3N files so this stays fast on a
-  # several-hundred-file state dir; final selection and ordering are still by startedAt
-  # inside the tool. It is a declared best-effort superset, not a proven one (a run
-  # touched recently can have started long ago) — acceptable precisely because a miss
-  # here costs a missed hint and can never produce a wrong flag.
-  env_out="$(bash "$SCRIPT_DIR/stage-envelopes.sh" --state-dir "$STATE_DIR_D" --mtime-prefilter --json 2>/dev/null)"
-  if [[ -z "$env_out" ]] || ! jq -e . >/dev/null 2>&1 <<<"$env_out"; then
-    ok "stage envelopes: n/a — corpus not derivable yet (no readable runs)"
-  else
-    # >>> envelope-classify (pure — extracted and executed by tools/pipeline-doctor-selftest.sh) >>>
-    # Reads only $env_out. Emits through ok()/warn() and NEVER through fail(), so this
-    # check cannot move the exit code — AC-4's "no gate consumes the envelope output".
-    #
-    # The SENTINEL DELIBERATELY SPANS THE DISPATCH, not just the jq. The never-blocking
-    # property lives in which reporter each arm calls; a sentinel that stopped at the
-    # jq would leave an added `fail` here unguarded, and a mutation demo proved exactly
-    # that gap before this boundary was widened.
-    env_lines=$(jq -r '
-      .flags[] | select(.axis == "time")
-      | "\(.key): \(.measured) min exceeds corpus p90 \(.p90) min (n=\(.n))"
-        + (if .record then " — a new record; at this n the p90 IS the observed maximum" else "" end)
-    ' <<<"$env_out" 2>/dev/null)
-    # A corpus under the min-n floor is reported as a known-unknown, never as a clean
-    # bill of health — the same VACUOUS distinction section 7 draws between "measured
-    # nothing" and "measured, and found nothing".
-    env_summary=$(jq -r '
-      ([ .timeEnvelopes[] | select(.floorMet) ] | length) as $withEnv
-      | if $withEnv == 0
-        then "VACUOUS: no stage reached the min-n floor of \(.corpus.minN) trusted windows after leave-one-out — no envelope derived (corpus: \(.corpus.runsInWindow) run(s))"
-        else "measured \($withEnv) stage envelope(s) over \(.corpus.runsInWindow) run(s), \(.trustedWindows) trusted window(s)"
-        end
-    ' <<<"$env_out" 2>/dev/null)
-    if [[ "$env_summary" == VACUOUS:* ]]; then
-      warn "stage envelopes: ${env_summary#VACUOUS: }"
-    elif [[ -n "$env_lines" ]]; then
-      warn "stage envelopes: the most recent run ($(jq -r '.runUnderTest.stem' <<<"$env_out")) exceeded its corpus envelope — advisory only, nothing is blocked"
-      while IFS= read -r l; do [[ -n "$l" ]] && echo "[doctor]        $l"; done <<<"$env_lines"
-    else
-      ok "stage envelopes: $env_summary; most recent run within envelope"
-    fi
-    # <<< envelope-classify <<<
-  fi
 fi
 
 echo "[doctor] summary: $FAILS failed check(s)"

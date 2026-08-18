@@ -14,7 +14,7 @@ This skill loads instructions into the **calling session**. The calling session 
 
 ## Pre-flight: dispatch substrate
 
-The convention-verification evidence comes from a single `codebase-explorer` `agent()` call inside `workflows/intake-review.mjs` (the Stage 1 intake fan-out script, invoked here with the `codebase-explorer` subset). Before any other action, verify the `Workflow` tool is available in the calling session. If it is not — for example this skill was loaded inside a subagent context (subagents can spawn neither `Workflow` nor nested agents) — STOP and report:
+The convention-verification evidence comes from a single `codebase-explorer` `agent()` call inside `workflows/intake-review.mjs` (the intake fan-out script, invoked here with the `codebase-explorer` subset). Before any other action, verify the `Workflow` tool is available in the calling session. If it is not — for example this skill was loaded inside a subagent context (subagents can spawn neither `Workflow` nor nested agents) — STOP and report:
 
 > "decomposition-reviewer requires the Workflow tool to dispatch `codebase-explorer` (via `intake-review.mjs`) in the current session. This skill must be invoked from the main session (or another skill running in the main session). It cannot run inside a subagent context. Aborting."
 

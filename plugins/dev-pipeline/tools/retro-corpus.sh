@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # retro-corpus.sh — era-aware run-corpus enumeration for pipeline-retro / perf-retro (#347).
 #
-# WHY THIS EXISTS. pipeline-retro and perf-retro (and stage-envelopes.sh, which perf-retro
+# WHY THIS EXISTS. pipeline-retro and perf-retro
 # calls) consumed only the stage-schema shape: `.claude/pipeline-state/{issue}.json` with a
 # top-level `stages` key. A lean/block run's only artifact in that directory is
 # `{issue}-lean-progress.md` — wrong extension AND wrong shape — so it was invisible at
@@ -11,7 +11,7 @@
 # a failure, when artifact-schema rows exist — AC-1).
 #
 # Artifact-schema detection is STRUCTURAL (a `verdict_record:` header key), not a `-lean-`
-# filename literal — the same reasoning stage-envelopes.sh's own dedup gives for avoiding
+# filename literal — the same reasoning the dedup gives for avoiding
 # filename literals: an undocumented future naming convention would silently miss the scan.
 # A future non-lean implementation that reuses this receipt shape is covered by construction.
 #
@@ -31,7 +31,7 @@
 #   retro-corpus.sh corpus   [--window N] [--state-dir <dir>] [--json]
 #   retro-corpus.sh open-prs [--pr-list-file <path>] [--comments-dir <dir>] [--json]
 #
-# Seams (zero-network selftest, the stage-envelopes.sh / lean-gate.sh precedent):
+# Seams (zero-network selftest, the lean-gate.sh precedent):
 #   STATECTL_STATE_DIR / SECOND_SHIFT_CONFIG / --state-dir   corpus: state-dir resolution
 #   ${GH:-gh}                                                open-prs: the CLI used for reads
 #   --pr-list-file <path>     open-prs: read the open-PR list from a JSON fixture instead of
@@ -131,7 +131,7 @@ cmd_corpus() {
   [ -d "$dir" ] || { echo "retro-corpus.sh: no state dir at $dir" >&2; exit 2; }
 
   # ---- stage-schema rows: has("stages"), minus both quarantine families (perf-retro Step 1 /
-  # stage-envelopes.sh precedent, unchanged) ----
+  # (precedent unchanged) ----
   for f in "$dir"/*.json; do
     [ -f "$f" ] || continue
     case "$(basename "$f")" in *-stale-*|*-released-*) continue ;; esac
@@ -176,10 +176,10 @@ cmd_corpus() {
   # is that run's only record. Deliberately structural, with no `-failed-` (or `-aborted-`,
   # `-escalated-`, `-spec-blocked-`) filename literal anywhere: those operator rename
   # conventions are undocumented, and a literal would silently miss the ones it did not
-  # enumerate — which is how the two statectl quarantine families above came to be the only
+  # enumerate — which is how the two quarantine families above came to be the only
   # thing excluded while operator renames aggregated as their own runs.
   #
-  # Same rule stage-envelopes.sh applies in awk over its TSV rows (its D-4), re-implemented
+  # Same dedup rule applied in awk over the TSV rows, re-implemented
   # here rather than shared: sharing would mean round-tripping these JSON rows out to TSV and
   # back. scripts/lockstep-manifest.tsv records the coupling and names both behavioral guards.
   #

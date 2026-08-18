@@ -5,14 +5,14 @@
 # this script instead. Its one live caller today is `preflight.sh`'s advisory report:
 # #348 deleted the staged lane, and with it the other five (the intake step's pin, the
 # worktree step's be-fe-pair loop and its single-repo block — worktree-add plus a
-# separate statectl-persist fence — and the cleanup step's intake-pin backstop). The
+# separate persist fence — and the cleanup step's intake-pin backstop). The
 # lean lane cuts its worktree by hand per `build-lean` step 3, so it is not a caller.
 #
 # `worktreesDir` is documented as OPTIONAL with a default of `../<repo>-worktrees`
 # (schema/second-shift.config.schema.json) — but before this script existed, three call
-# sites (Stage 1, Stage 2's single-repo path, Stage 10) never derived `WORKTREES_DIR` at
+# call sites never derived `WORKTREES_DIR` at
 # all; the doc's `${WORKTREES_DIR}` interpolation just expanded empty, composing an
-# absolute-root path (`/intake-pin-<n>`). Stage 10 swallowed the resulting failure via an
+# absolute-root path (`/intake-pin-<n>`). Cleanup swallowed the resulting failure via an
 # unconditional discard-and-continue — a completed run (#230) left `intake-pin-230`
 # behind with zero signal (issue #237).
 #

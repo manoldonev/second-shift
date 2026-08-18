@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # stack-generality-lint.sh — regression guard for the mechanizable stack-generality legs.
 #
-# WHY THIS EXISTS: the Stage-3/5 prompt contracts were genericized off the birth stack
+# WHY THIS EXISTS: the prompt contracts were genericized off the birth stack
 # once before, and the literals crept back because nothing model-free guarded them. This
 # lint bans re-entry of the mechanizable ones. It deliberately guards ONLY the legs a
 # substring check can honestly decide; the normative-vs-illustrative distinction
@@ -36,9 +36,7 @@ fail() { echo "[stack-generality] ✗ $1" >&2; violations=$((violations + 1)); }
 
 # ---- .project/ absence -------------------------------------------------------
 
-# RE-ANCHORED in #348. The three staged-lane contract files this used to name
-# (stages/5-implement.md, stages/7-doc-update.md, skills/run/SKILL.md) were deleted with the
-# lane. The lane contracts a consumer's prompts now come from are the three lean SKILLs, so
+# The lane contracts a consumer's prompts come from are the three lean SKILLs, so
 # they take the slot — the leg guards "the dev-pipeline's own contract prose carries no
 # birth-stack doc root", and that claim is about whichever files hold the contract.
 PROJECT_FILEWIDE=(

@@ -6,7 +6,7 @@
 # catalog<->extension-points.md template lockstep.
 set -euo pipefail
 
-# Hermetic hygiene (mirrors check-review-context-selftest.sh): a Stage-6 verify run exports
+# Hermetic hygiene (mirrors check-review-context-selftest.sh): a verify run exports
 # pipeline seam vars that the tools honor as overrides — unset them so this selftest owns its
 # environment. NOTE: SECOND_SHIFT_SECTION_CATALOG is intentionally left UNSET so the script
 # resolves the REAL shipped catalog ($SCRIPT_DIR/section-catalog.txt) — the lockstep case

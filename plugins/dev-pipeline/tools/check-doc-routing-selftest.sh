@@ -68,7 +68,7 @@ fi
 # (5) prose/blockquote backtick mentions outside table/list rows are never scanned
 mkdir -p "$TMP/prose/.claude/second-shift"
 cat > "$TMP/prose/.claude/second-shift/doc-routing.md" << 'ROUTING'
-> Read by `dev-pipeline`'s Stage-7 doc-update protocol and `review-toolkit:doc-updater`.
+> Read by `review-toolkit:doc-updater`.
 > `.project/` is the authoritative knowledge tree.
 ROUTING
 bash "$CHECK" "$TMP/prose" >/dev/null 2>&1 && ok "prose/blockquote backtick mentions -> not scanned, clean" \

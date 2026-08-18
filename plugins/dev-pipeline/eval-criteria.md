@@ -6,7 +6,7 @@
 These criteria are scored after each pipeline run. Each is binary: PASS or FAIL.
 Pass rate = (criteria passed across all runs) / (total criteria scored).
 
-**Runtime note:** any criterion that reasons about a run's duration must read **effective** (compute) time — `tools/stage-times.sh`'s effective total / per-stage output, which subtracts recorded `pauseSpans[]` — not the raw `lastUpdatedAt − startedAt` wall difference. A paused/resumed run (session-quota exhaustion → resume hours later) inflates wall time by the idle gap; effective time is the trustworthy signal. (No criterion below references runtime today; this is forward-looking guidance.)
+**Runtime note:** any criterion that reasons about a run's duration must read **effective** (compute) time, which subtracts recorded pause spans — not the raw `lastUpdatedAt − startedAt` wall difference. A paused/resumed run (session-quota exhaustion → resume hours later) inflates wall time by the idle gap; effective time is the trustworthy signal. (No criterion below references runtime today; this is forward-looking guidance.)
 
 Derived from real pipeline sessions in the acme repo and the hardening patterns the skill has accumulated.
 
@@ -89,7 +89,7 @@ After each pipeline run, score all 5 binary criteria. Record in `.claude/pipelin
 
 The five binary criteria above are the sole inputs to the pass-rate calculation.
 
-The example's `criteria` keys are the **canonical machine names**. Through #348 they were mechanically enforced: `statectl mark-completed` refused any other key set, from a validator generated out of this very example block. Both died with the staged lane, so the key set is now a convention its readers (`pipeline-retro`, `retro-scorer`) depend on rather than a checked contract — changing a key here silently re-partitions the historical corpus. Criterion 1's key is `target_confirmation` (its title, "Autonomous Pre-flight", evolved later): the key keeps its original name because every historical eval file scores under it, and cross-era comparability outranks title symmetry. Titles are prose; keys are the contract.
+The example's `criteria` keys are the **canonical machine names**. Through #348 they were mechanically enforced: the terminal gate refused any other key set, from a validator generated out of this very example block. Both died with the staged lane, so the key set is now a convention its readers (`pipeline-retro`, `retro-scorer`) depend on rather than a checked contract — changing a key here silently re-partitions the historical corpus. Criterion 1's key is `target_confirmation` (its title, "Autonomous Pre-flight", evolved later): the key keeps its original name because every historical eval file scores under it, and cross-era comparability outranks title symmetry. Titles are prose; keys are the contract.
 
 Use `N/A` when a criterion is not exercised (e.g., `implementation_resilience` when there are no test failures). N/A criteria are excluded from the pass rate denominator.
 

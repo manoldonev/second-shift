@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# Self-test for the Stage 1.A claim swap helper (tools/claim-issue.sh).
+# Self-test for the claim swap helper (tools/claim-issue.sh).
 #
 # A self-test in the style of the other tools/ harnesses, located under tools/
 # and wired into pipeline-doctor.sh (block 5e). Pure-local: no Claude CLI, no

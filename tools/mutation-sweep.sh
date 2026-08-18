@@ -4,7 +4,7 @@
 # suite would not have caught.
 #
 # Deliberately named OUTSIDE the `*-selftest.sh` discovery glob so CI never runs it
-# against itself (the scenario-lib.sh precedent). Its companion IS in-glob:
+# against itself. Its companion IS in-glob:
 # tools/mutation-sweep-selftest.sh.
 #
 # USAGE
@@ -117,9 +117,8 @@
 # and a guard-only key would serve the stale SURVIVED forever.
 #
 # The key is narrow, and NOT sound: a THIRD file can flip a verdict with the guard and its
-# suites byte-identical — `lean-gate.sh` shells out to four sibling scripts. (The second
-# example here was `statectl-selftest.sh` sourcing `scenario-lib.sh`; #348 deleted both of
-# those.) A whole-tree key would be sound and would
+# suites byte-identical — `lean-gate.sh` shells out to four sibling scripts.
+# A whole-tree key would be sound and would
 # also drop the hit rate to zero, since the sweep sandboxes HEAD and every fix round is a new
 # commit. What bounds the unsoundness is the lane: the cache is neither read nor written when
 # GITHUB_ACTIONS is set, so a stale verdict can only make a LOCAL advisory run optimistic,
@@ -158,7 +157,7 @@ SLOW_THRESHOLD_S="${MUTATION_SWEEP_SLOW_THRESHOLD_S:-5}"
 PR_FAST_GUARD_CAP=6                 # PR lane: sweep at most this many fast guards
 # Ceiling on ONE killer invocation, and the bound used for the unmutated precheck (which
 # has no measurement yet — it IS the measurement). Clears the slowest paired suite by a
-# wide margin under runner load: statectl-selftest measured 107-120s on the CI lane.
+# wide margin under runner load: the slowest suite measured 107-120s on the CI lane.
 KILLER_TIMEOUT_S="${MUTATION_SWEEP_KILLER_TIMEOUT_S:-300}"
 KILLER_TIMEOUT_FACTOR=4             # mutant-run bound = this x the suite's measured time
 # ...floored here, so a fast suite still gets real slack. Overridable so the companion
@@ -166,8 +165,8 @@ KILLER_TIMEOUT_FACTOR=4             # mutant-run bound = this x the suite's meas
 KILLER_TIMEOUT_MIN_S="${MUTATION_SWEEP_KILLER_MIN_S:-60}"
 # Live processes allowed in ONE killer's process group. Sized off measurement, not taste:
 # the seven heaviest paired suites were sampled in this exact shape (own process group,
-# `ps -A -o pgid=`) and peak between 6 and 9 — statectl 8, scenario-liveness 9, cost-block
-# 8, verifyctl 9, e2e-replay 7, doctor 6, check-lean-chain 7. 100 therefore clears the
+# `ps -A -o pgid=`) and peak between 6 and 9 — scenario-liveness 9, cost-block 8,
+# doctor 6, check-lean-chain 7. 100 therefore clears the
 # measured ceiling by more than 10x, with room for suites that fan out harder than
 # anything here does today, while still catching a forking guard within seconds of it
 # starting. Overridable so the companion selftest can trip it on a handful of processes
@@ -195,8 +194,7 @@ fi
 # below, once ENFORCING is known). The key is deliberately NARROW — the mutated guard and its
 # suites — and that key is not quite sound in this tree: `lean-gate.sh` shells out to four
 # sibling scripts, so a THIRD file can flip a verdict with both keyed files byte-identical.
-# (A second such case, `statectl-selftest.sh` sourcing `scenario-lib.sh`, died with the
-# staged lane in #348.) A whole-tree key would be sound and
+# A whole-tree key would be sound and
 # would also drop the hit rate to zero, since the sweep sandboxes HEAD and every fix round is
 # a new commit. Confining the cache to the advisory lane is what makes the narrow key an
 # acceptable trade instead of an unsound one: a stale verdict can then only make a LOCAL run
@@ -433,9 +431,9 @@ measured_seconds() {
 # mutants all spin costs k * 300s, and shard 2 of the first bounded seed run blew a 60-min
 # job on a ~15-min cost model doing exactly that. Scaling to what the suite actually takes
 # fixes the accumulation where the mutants are — 38 of shard 2's mutants pair with ~2s
-# suites and only 6 with statectl — without touching the slow end's safety margin:
-#   ~2s suite   -> the 60s floor      (5x cheaper than the flat bound)
-#   statectl     -> 300s ceiling       (measured 107-120s on CI; margin unchanged)
+# suites and only 6 with a slow one — without touching the slow end's safety margin:
+#   ~2s suite    -> the 60s floor      (5x cheaper than the flat bound)
+#   slow suite   -> 300s ceiling       (measured 107-120s on CI; margin unchanged)
 # Floor first, ceiling last, so KILLER_TIMEOUT_S stays a hard cap the floor cannot raise.
 killer_bound_for() {
   local s="$1" secs b
@@ -976,7 +974,7 @@ fi
 #
 # THREE live guards carry that idiom. K_BUDGET predicted exactly which shards died in the
 # seed run (middle column), and it is also what each site is armed BY today (last column):
-#   gen-statectl-validators.sh L213  cmp-z ord 1  shard 4 died               generic tier
+#   a since-deleted guard L213     cmp-z ord 1  shard 4 died               generic tier
 #   predecessor-gate.sh        L85   cmp-z ord 1  shard 9 died (reproduced)  generic tier
 #   scaffold-review-context.sh L69   cmp-z ord 5  shard 8 never mutated      catalog row
 # The third was never safe, only out of budget — ordinal 5 against k=2 — and it is armed by

@@ -8,41 +8,10 @@
 # What belongs here: a contract duplicated across files where the ONLY thing keeping the
 # copies together is a prose instruction. What does NOT: pairs already mechanically
 # enforced elsewhere — model tiers (check-model-tiers.sh), the reviewer registry, the
-# section catalog, statectl's codegen byte-match (statectl-selftest drift-check), the
-# text-contract carriers, config-lint vs schema (the modelOverrides tier enum is driven
+# section catalog, the text-contract carriers, config-lint vs schema (the modelOverrides tier enum is driven
 # from both sides in config-lint-selftest.sh — every schema-declared tier must be accepted,
 # and config-lint's rejection message must name exactly the schema's enum). Duplicate
 # machinery is worse than none.
-#
-# Decision-Ledger provenance enum — TWO rows, because plan-lint.sh now holds two literals.
-# ledger-lint.sh is the canonical side of both.
-#   provenance-enum        verbatim   — plan-lint's PROVENANCE_ENUM enum-validates the whole
-#                                       provenance cell, so it is a full copy, not a narrowing.
-#                                       verbatim compares the ENTIRE marker block, which is why
-#                                       both sides declare the literal under the same variable
-#                                       name with no comments between the markers.
-#   human-provenance-enum  subset-of  — plan-lint's HUMAN_PROVENANCE stays a deliberate
-#                                       narrowing to the human-attributed values (the
-#                                       fabrication guard). It lives in its OWN anchor: this
-#                                       relation reads the FIRST quoted literal in a block, so
-#                                       sharing an anchor with the full enum would make the
-#                                       outcome depend on declaration order — invisibly, since
-#                                       both literals are subsets of the canonical.
-# The prose canonical (interviewing-baseline) and the agent-md mirrors are further
-# representations in bullet/prose form — not byte-anchorable without authoring new canonical
-# literals, so they stay reviewer-guarded.
-#
-# DROPPED in #348 (both rows). plan-lint.sh was the staged lane's Stage-3 plan gate and died
-# with it, taking BOTH copies of the enum with it. ledger-lint.sh is now the only carrier, and
-# a one-carrier contract has nothing to hold in lockstep — the rows were removed rather than
-# re-pointed. Re-file a row the moment a second carrier appears: the enum is still duplicated
-# in PROSE (interviewing-baseline) and in the agent mirrors, which is exactly the shape that
-# drifts. What is NOT lost: ledger-lint.sh keeps its own selftest over the enum's behavior.
-#
-# AC-ID positional fallback rule. Both docs already SAY they must match byte-for-byte;
-# nothing checked it until now. The markers sit after each site's differing parenthetical
-# prefix, so only the shared rule body is compared — the prefixes stay free to differ.
-ac-id-rule	verbatim	plugins/dev-pipeline/state-schema.md	ac-id-rule	plugins/review-toolkit/agents/scope-completeness-reviewer.md	ac-id-rule
 #
 # FINDINGS_SCHEMA triple. The Workflow runtime gives these scripts no import, so each
 # declares its own copy; stall-probe and tool-discipline-probe exist to reproduce
@@ -58,16 +27,7 @@ findings-schema-tdp	verbatim	plugins/dev-pipeline/workflows/code-review.mjs	find
 # exhaustive-class reviewer(s), and a copy that drifts silently re-opens the #175/#183
 # turn-cap-death class one file at a time.
 #
-# The third leg, `progressive-emit-plan`, was DROPPED with plan-review.mjs — Stage 4's
-# dispatcher, deleted in #348. Its agent (unit-test-plan-reviewer) survives as a pool agent
-# with no automated dispatcher, so there is no second file left holding a copy.
 progressive-emit-intake	verbatim	plugins/dev-pipeline/workflows/code-review.mjs	progressive-emit	plugins/dev-pipeline/workflows/intake-review.mjs	progressive-emit
-#
-# DROPPED in #348: the Stage-7/8 dual-target rows. Both sides of each pair — the stage doc
-# and the selftest mirroring its bash — were deleted with the staged lane. The behavior they
-# guarded (be-fe-pair per-repo fan-out) has no lean counterpart at all; that is a recorded
-# decision, not an oversight, and `tools/capability-parity.tsv` carries it as a `dropped`
-# disposition with the reasoning. Nothing here is re-pointable: a pair needs two carriers.
 #
 # Pipeline-seam env denylist (#83, re-anchored in #348). preflight.sh and lean-gate.sh both
 # spawn a consumer's configured lane commands as a child process and must scrub the same
@@ -75,30 +35,16 @@ progressive-emit-intake	verbatim	plugins/dev-pipeline/workflows/code-review.mjs	
 # / etc. re-roots or re-states a lane that is itself second-shift tooling — #34's ~20 spurious
 # failures).
 #
-# THE CANONICAL LEG MOVED. verifyctl.sh was the staged lane's verify runner and held the
-# canonical denylist; both rows pointed at it, and it died in #348. The transitive fact the two
-# rows established survives the move unchanged: `seam-scrub-lean` was verbatim (lean-gate ==
-# verifyctl) and `seam-scrub` was subset-of (preflight ⊇ verifyctl), so preflight.sh is a
-# superset of lean-gate.sh's list — it also scrubs its own PREFLIGHT_DOCTOR_CMD. The two rows
-# therefore collapse into ONE, with lean-gate.sh as the new canonical leg. Merging them loses
-# no assertion: neither old row compared preflight.sh to lean-gate.sh directly, and this one
-# does.
+# preflight.sh is a superset of lean-gate.sh's list — it also scrubs its own
+# PREFLIGHT_DOCTOR_CMD — so ONE subset-of row states the whole contract directly.
 seam-scrub	subset-of	plugins/dev-pipeline/tools/preflight.sh	seam-scrub	plugins/dev-pipeline/skills/build-lean/lean-gate.sh	seam-scrub
-#
-# DROPPED in #348: `prettier-local-rungs`. Local prettier resolution (#439) paired
-# lean-gate.sh's worktree-then-main-checkout rungs against verifyctl.sh's identical pair.
-# verifyctl.sh is deleted and no other file resolves prettier that way, so lean-gate.sh is the
-# sole carrier and there is nothing left to hold it in lockstep with. The rungs themselves are
-# unchanged and stay marker-delimited in lean-gate.sh, so a second carrier can re-file the row
-# without restructuring either side.
 #
 # ---------------------------------------------------------------------------------------
 # DROPPED to reviewer-guarded — recorded here rather than forgotten. Each was considered
 # for the mechanical manifest and rejected for a stated reason.
 #
-# preflight ↔ gate zero-verifying-lane predicate. RE-ANCHORED in #348: the pair was
-# preflight ↔ verifyctl until the staged lane's verify runner was deleted. The coupling is
-# real and unchanged against its surviving counterpart, lean-gate.sh milestone 3, which reds
+# preflight ↔ gate zero-verifying-lane predicate. The coupling is real against
+# lean-gate.sh milestone 3, which reds
 # naming the opt-out where preflight only warns. preflight.sh computes an aggregated
 # VERIFYING count inline; the gate reads allowUnverified / lanes / extraLanes into separate
 # variables under a different jq arg name. No byte-identical block exists, and reaching one
@@ -106,49 +52,8 @@ seam-scrub	subset-of	plugins/dev-pipeline/tools/preflight.sh	seam-scrub	plugins/
 # declared in prose at preflight.sh's VERIFYING comment ("Keep this set in lockstep with
 # lean-gate.sh").
 #
-# Stage-8 secondary-review loop, past the clean-worktree assertion. The stage doc
-# interleaves in-session review prose that the selftest's bash mirror deliberately omits,
-# so no single contiguous block spans the rest of the loop. The pinned span above covers
-# the preamble and the clean-worktree assertion; the remainder is reviewer-guarded.
-#
 # GH_BOT config-dir basename (install-gh-bot.sh ↔ claim-issue.sh): RETIRED by #92 —
 # both call tools/gh-bot.sh; one ladder remains, so no pair to lockstep.
-#
-# Check-6 hydration-compare contract (plan-lint.sh Check-6 header ↔ stages/3-write-plan.md
-# Decision Ledger bullet). Both state what hydration requires of a plan author, and #219
-# changed that requirement — the compare now normalizes whitespace and paired emphasis
-# delimiters instead of matching trimmed bytes — so both copies were edited together.
-# Considered for a row and DROPPED: neither site carries a byte-anchorable literal. The
-# stage doc states the rule as one clause inside a long italic bullet aimed at a plan
-# author; the lint states it as implementation commentary aimed at a maintainer, next to
-# the code. Forcing a shared literal would mean writing prose that serves neither reader.
-# The behavior itself is not reviewer-guarded — norm_cell()'s closure is pinned by
-# plan-lint-selftest.sh (pl-ae/af/ag); it is only the doc WORDING that is, and per the
-# repo's no-prose-presence rule that is the correct tier for it.
-#
-# intake-pin- worktree-name coupling (stages/1-intake.md Step 1.P ↔ stages/10-cleanup.md).
-# The Stage-1 read pin is created under an `intake-pin-<issue>` name and removed by the
-# Stage-10 backstop; a ONE-SIDED rename orphans the cleanup. Considered for a row and
-# DROPPED: the two sites carry no byte-identical anchorable line without restructuring
-# working prose, the two greps that used to assert it (intake-readroot-selftest.sh checks
-# 5-6, deleted in #214) were independent presence checks — a consistent rename false-passed
-# both — and the missed regression is a benign per-issue-namespaced detached worktree leak
-# on crashed runs, not a verdict path. Reviewer-guarded.
-#
-# MOOT via #348 — both halves' subject died with the staged lane; retained as the decision
-# record, not as live reasoning. The behavioral guard it cites (statectl-selftest.sh) is gone
-# too, so nothing below is a coverage claim about this tree.
-# implementation_resilience evidence gate (statectl.sh require_eval_file's gate comment ↔
-# state-schema.md's `mark-completed` terminal-gates paragraph). Both describe what the gate
-# keys on, and the two drifted apart once already: the gate shipped scoped to the inert lane
-# and both copies said so, which is exactly the narrowness that let a green SUITE run
-# self-score PASS. Considered for a row and DROPPED: neither site carries a byte-anchorable
-# literal — the schema states it as one clause of a long consumer-facing paragraph about all
-# three terminal gates, the code states it as maintainer commentary next to the predicate,
-# and forcing a shared literal would mean writing prose that serves neither reader. The
-# BEHAVIOR is not reviewer-guarded: statectl-selftest.sh's (mc-ir1)-(mc-ir9) pin every
-# branch of the predicate, and (mc-ir2) asserts the refusal message's wording. Only the doc
-# WORDING is, and per the repo's no-prose-presence rule that is the correct tier for it.
 #
 # args.config subset (the six Workflow dispatch sites' `config:` args + their explaining
 # comments ↔ the `config.` reads inside the dispatched .mjs scripts). One contract — which
@@ -182,34 +87,6 @@ seam-scrub	subset-of	plugins/dev-pipeline/tools/preflight.sh	seam-scrub	plugins/
 # tables are short, sit in the two files every contributor reads first, and a new tier lands
 # with its own suite in the same PR.
 #
-# MOOT via #348 — this pair and the addendum below both name files the staged lane took with
-# it (statectl.sh, its selftest, and the run skill's SKILL.md). Retained as the decision
-# record; the guards they cite no longer exist, so neither is a coverage claim about this tree.
-# statectl `--repo` CLI surface (statectl.sh's header `Usage:` block + per-command usage
-# comments ↔ SKILL.md's CLI-surface listing). One contract — which flags each statectl
-# subcommand takes — stated in two places, and they drifted: `--repo` is load-bearing on a
-# be-fe-pair topology (it decides whether `.prs` is keyed by branch or repo id) and both
-# copies omitted it on four commands while the stage files documented it correctly.
-# Considered for a row and DROPPED: neither relation can express this pair. `verbatim`
-# needs a whitespace-collapsed byte match, but statectl.sh writes `<issue-number>` where
-# SKILL.md writes `<issue>`, and statectl.sh carries `[--force]` where SKILL.md does not —
-# forcing a shared literal means rewriting one file's placeholder convention purely for its
-# own guard. `subset-of` compares each block's first single-quoted pipe-enum, and no usage
-# line carries one. The statectl.sh HALF is not reviewer-guarded: statectl-selftest.sh
-# (pa11) derives the expectation from the parser itself — any command whose parser has a
-# `--repo)` arm and carries a usage line must name `--repo` in it, covering both the header
-# block and the per-command comments. Only the SKILL.md leg is reviewer-guarded, because
-# pinning it would mean grepping a literal out of a markdown file — the technique this
-# repo bans outright.
-#
-# Same-pair addendum (#243): the pre-dispatch --force-reason argv scan in statectl.sh
-# main() carries a skip-list of value-taking flags that mirrors the usage header's flag
-# vocabulary. Considered for a row and DROPPED for the same reasons as above — no
-# byte-anchorable literal spans the scan's space-delimited skip-list string and the
-# header's per-line usage forms. The behavioral guard is statectl-selftest.sh (fr1)'s
-# decoy probe: a value payload containing the literal "--force-reason" must pass through
-# unharmed, which fails if a value-taking flag is missing from the skip-list.
-#
 # LEAN_JOB_CEILING, writer ↔ reader (#526). lean-gate.sh EXPORTS that name into every
 # milestone-3 lane child; tools/run-selftests.sh READS it. A one-sided rename breaks the
 # coupling silently AND in the invisible direction — the runner sees no ceiling and every
@@ -240,7 +117,7 @@ audit-row-fields	verbatim	plugins/audit-toolkit/skills/audit/QUERIES.md	audit-ro
 #
 # Audit ledger DIRECTORY resolution — the hook (writer) ↔ audit-history.sh (sweeper). Both
 # must land on `--git-common-dir/..`, because the lean readers (lean-gate.sh's `entry`,
-# lean-reconcile.sh, statectl.sh's ledger_dir()) all do, and the writer disagreeing with
+# lean-reconcile.sh) all do, and the writer disagreeing with
 # them produced two opposite failures: an honest worktree run refused at `entry` for a
 # ledger it had just written, and a verdict record naming a session reconcile could not
 # resolve — which reads as forgery.
@@ -249,10 +126,9 @@ audit-row-fields	verbatim	plugins/audit-toolkit/skills/audit/QUERIES.md	audit-ro
 # and stays dependency-free (no `source`, no PATH assumption, nothing to resolve at hook
 # time), and audit-history.sh is a standalone slash-command script. Prose was the only
 # thing that would otherwise hold them together, which is exactly this file's remit. The
-# THIRD and FOURTH sites are deliberately NOT rows: lean-gate.sh derives `MAIN_ROOT` for
-# many purposes beyond the ledger and statectl.sh's `ledger_dir()` carries its own
-# three-tier override ladder, so neither shares anchorable bytes with this block. Those
-# two are held by fixtures instead — lean-gate-selftest.sh and lean-reconcile-selftest.sh
+# THIRD site is deliberately NOT a row: lean-gate.sh derives `MAIN_ROOT` for many
+# purposes beyond the ledger, so it shares no anchorable bytes with this block. It is
+# held by fixtures instead — lean-gate-selftest.sh and lean-reconcile-selftest.sh
 # each drive the REAL hook from a linked worktree and assert their reader finds the result,
 # so a writer-side drift reds a reader's suite.
 audit-ledger-dir	verbatim	plugins/audit-toolkit/hooks/audit-tool-calls.sh	audit-ledger-dir	plugins/audit-toolkit/scripts/audit-history.sh	audit-ledger-dir
@@ -288,26 +164,16 @@ decomposition-economy	verbatim	plugins/intake-toolkit/skills/intake-orchestrator
 # decomposition-economy above. A one-sided edit re-opens the drift #258 closed.
 artifact-reviewer-baseline-deltas	verbatim	plugins/design-toolkit/agents/figma-faithful-spec-reviewer.md	artifact-reviewer-baseline-deltas	plugins/design-toolkit/agents/figma-faithful-plan-reviewer.md	artifact-reviewer-baseline-deltas
 #
-# check-pipeline-chain.sh REQUIRED_MARKERS <-> the stage-comment marker enum. The rung-1 chain
-# check hard-codes five of the eight markers as required, which is a genuine second checked-in
-# copy of part of that enum. Considered for a row and DROPPED: neither relation can reach it.
-# The canonical side is a GENERATED bash `case` region inside statectl.sh (built from
-# state-schema.md's table by gen-statectl-validators.sh, with a byte-match drift check), so it
-# carries no single-quoted 'a|b|c' literal for `subset-of` to split, and hand-adding one would
-# create a THIRD copy inside a region marked do-not-hand-edit. Anchoring against the markdown
-# table instead would mean `verbatim` against a five-of-eight narrowing, which is wrong by
-# construction.
-# Guarded behaviorally instead, which is stronger than a presence check: check-pipeline-chain-
-# selftest.sh parses state-schema.md's `#### Stage-comment markers` table with the SAME awk the
-# generator uses and asserts every REQUIRED_MARKERS entry appears in it -- plus a non-vacuity
-# assertion that the parsed enum is non-empty, so a table rename fails loudly instead of
-# passing on an empty set. The LOCKSTEP-BEGIN/END markers around REQUIRED_MARKERS are left in
-# place so a future row is cheap if the canonical side ever grows an anchorable literal.
+# check-pipeline-chain.sh REQUIRED_MARKERS is now the SOLE carrier of the marker list —
+# the generated `case` region and the schema table that held the other copies are both
+# gone, so there is no pair left to express. check-pipeline-chain-selftest.sh asserts the
+# list parses non-empty, so a rename fails loudly instead of passing on an empty set. The
+# LOCKSTEP-BEGIN/END markers are left in place so a future row is cheap if a second
+# carrier ever appears.
 #
-# schema planFilePattern default <-> the five hardcoded copies of that literal (preflight.sh,
-# stages/3-write-plan.md x2, 4-plan-review.md, 5-implement.md). A real coupling: each copy is
-# the fallback the stage uses when a consumer sets no override, so a one-sided edit ships a
-# stage resolving a path the schema no longer publishes. Considered for a row and DROPPED: the
+# schema planFilePattern default <-> preflight.sh's hardcoded copy of that literal. A real
+# coupling: the copy is the fallback used when a consumer sets no override, so a one-sided
+# edit resolves a path the schema no longer publishes. Considered for a row and DROPPED: the
 # canonical side is schema/second-shift.config.schema.json, and JSON has no comment syntax, so
 # a LOCKSTEP-BEGIN/END marker cannot be placed there at all -- the pair is unanchorable by
 # construction, not merely awkward. Guarded behaviorally instead: preflight.sh resolves the
@@ -358,32 +224,10 @@ artifact-reviewer-baseline-deltas	verbatim	plugins/design-toolkit/agents/figma-f
 # PR IS selected. Revisit if either side ever grows a shared literal -- most plausibly if the
 # `-lean.md` suffix is hoisted into the config schema.
 
-# per-ticket corpus dedup: stage-envelopes.sh <-> retro-corpus.sh corpus (#289).
-# A REAL coupling. Both sides enumerate the same state dir and must answer "how many runs is
-# this ticket" identically -- basename equal to `ticketKey` is the live file and supersedes
-# that ticket's snapshots; with no live file every snapshot is a distinct run. They already
-# disagreed once: retro-corpus.sh had no dedup at all, so an operator-renamed
-# `{key}-failed-{ts}.json` aggregated as its own run beside the ticket's live re-run while
-# stage-envelopes.sh counted it once, and perf-retro's Step 1 carried the offset as prose.
-# Both sides are also structural on purpose -- no `-failed-`/`-aborted-`/`-escalated-`
-# filename literal on either -- because the operator rename conventions are undocumented and
-# a literal misses the ones it did not enumerate. A one-sided edit re-splits the corpus and
-# makes one report disagree with itself.
-# It is NOT delegable in the direction that would help: stage-envelopes.sh cannot consume
-# `retro-corpus.sh corpus`, because its MTIME_PREFILTER, its window ordering and its
-# stage-empty hard-exit all live in the enumeration that would be replaced.
-# Considered for a row and DROPPED: the two sides share no literal to anchor. One is awk over
-# tab-separated `startedAt/stem/ticketKey` rows, the other jq over an array of JSON objects,
-# so a `verbatim` relation would sit between two dialects -- and hoisting the rule into a
-# shared helper would mean round-tripping retro-corpus.sh's JSON out to TSV and back purely
-# to be compared, the duplicate-machinery case this file's header rejects.
-# Guarded behaviorally instead, on both sides and against the same mistakes:
-# stage-envelopes-selftest.sh (env5) pins live-supersedes-snapshot and
-# orphan-snapshots-are-distinct at the awk side, and retro-corpus-selftest.sh (289 AC-1)/(289
-# AC-2)/(289 AC-3) pin the same two plus dedup-before-window at the jq side, driving suffixes
-# neither implementation names. Revisit if the rename conventions are ever documented in
-# state-schema.md AND hoisted into a shared constant -- a shared literal is what this pair
-# lacks, not a shared intent.
+# per-ticket corpus dedup (#289) — RETIRED. retro-corpus.sh is the sole carrier of the
+# basename-equals-ticketKey supersedes rule, so there is nothing to hold it in lockstep with.
+# Its own behavior stays guarded by retro-corpus-selftest.sh (289 AC-1)/(AC-2)/(AC-3), which
+# pin live-supersedes-snapshot, orphan-snapshots-are-distinct and dedup-before-window.
 
 # lean verdict-record key schema (`verdict=`, `run_id:`, `session_id:`, `reviewed_head:`,
 # `reviewed_patch_id:`, `inherited_patch_id:`, `inherited_from_verdict:`, `fidelity:`) — ONE
@@ -532,11 +376,8 @@ lean-design-armed	verbatim	plugins/dev-pipeline/skills/build-lean/lean-gate.sh	l
 # it. A real coupling: a doc claiming a reading the lane doesn't have (or vice versa) ships the
 # exact wrong-but-plausible surface the re-scope exists to kill.
 #
-# #348 NARROWED THE CLAIM. The third site used to be `stages/1-intake.md`'s Stage 1.T, where
-# the key was a GATE INPUT: the staged lane fanned a run out over `targetRepos` derived from it.
-# That reader is deleted, and the lean lane's is advisory only — it routes an intake decision,
-# it does not gate a run. The docs must now describe the advisory reading; the "staged-lane gate
-# input vs lean-lane advisory hint" contrast the entry once carried is settled, not pending.
+# The lane's reading is advisory only — it routes an intake decision, it does not gate a run,
+# and the docs must describe it that way.
 # Considered for a row and DROPPED: neither relation can express this pair. The doc side is
 # markdown prose across two files, the schema side is a JSON string, and the lane side is prose
 # in a SKILL — no single quoted literal is common to all three, so `verbatim` would compare
@@ -769,7 +610,7 @@ lean-output-dispositions	verbatim	scripts/check-lean-chain.sh	lean-output-dispos
 # stage that changes its fallback while the checker keeps the old one produces a finding whose
 # "resolved default" names a literal no longer in force.
 # Considered for rows and DROPPED. `webComponentGlobs`'s literal alone is restated at seven
-# sites across TWO plugins (review-lead/SKILL.md x5, stages/8-code-review.md x2), and this
+# sites (review-lead/SKILL.md x5, plus the config-grill and schema restatements), and this
 # file's relations are file-to-file pairs with one in-file anchor per side — a pair cannot
 # express one canonical against seven scattered restatements, and picking one arbitrary site
 # as the canonical would leave the other six free to drift while the row stayed green. Nor is

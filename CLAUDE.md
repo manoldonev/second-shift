@@ -26,7 +26,7 @@ The release notes are assembled from commit trailers, so changelog intent lives 
 commit body, not in `CHANGELOG.md`:
 
 ```
-feat(dev-pipeline): stage-6 quality pass now reverts on red
+feat(dev-pipeline): the quality pass now reverts on red
 
 Changelog: the advisory quality pass resets the worktree when its safety-net
   re-verify fails, instead of leaving a half-applied refactor.
@@ -121,12 +121,6 @@ Genuine exceptions, one kind:
   (the meta-strip + injected-fake mechanics, named so it does **not** match the discovery glob —
   `runtime-shim-selftest.mjs` drives it on every run), `_effective-registry.sh`,
   `install-gh-bot.sh`, and the eval runners.
-
-  Two entries left this list in #348 with the staged lane: `scenario-lib.sh` (its three drivers
-  were `statectl-selftest.sh`, `e2e-replay-selftest.sh` — both deleted — and the liveness suite's
-  staged scenarios, also deleted, so it had no surviving consumer) and
-  `workflows/e2e-workflow-leg.mjs` (the E2E replay's stage-4/5/8 leg driver, deleted with the
-  replay). Neither is an exception any more; both are simply gone.
 
 **This register is authoritative; `tools/mutation-exclusions.tsv` defers to it.** The mutation
 sweep needs the same "no kill criterion exists" facts in machine-readable form, so two of its

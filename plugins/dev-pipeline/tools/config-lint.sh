@@ -213,7 +213,7 @@ ERRORS=$(jq -r '
 
   + (if (.stageParams != null) then (.stageParams |
       err((type) != "object"; "stageParams: must be object")
-      + err(has("visualCapture"); "stageParams.visualCapture was removed in #348 — Stage 6'"'"'s advisory smoke-capture died with the staged lane and has no lean reader. The blocking design check is design.liveRender (docs/live-render.md, docs/migrations/v1-to-v2.md)")
+      + err(has("visualCapture"); "stageParams.visualCapture was removed in #348 — the advisory smoke-capture died with the staged lane and has no lean reader. The blocking design check is design.liveRender (docs/live-render.md, docs/migrations/v1-to-v2.md)")
       + err(((keys) - ["planFilePattern","requiredLabels","visualCapture","webComponentGlobs","formatGlob","inertPattern"]) != []; "stageParams: unknown keys")
       + err((.planFilePattern? != null) and ((.planFilePattern | type) != "string"); "stageParams.planFilePattern: must be string")
       + err((.formatGlob? != null) and ((.formatGlob | type) != "string"); "stageParams.formatGlob: must be string")
@@ -230,7 +230,7 @@ ERRORS=$(jq -r '
 
 # stageParams.inertPattern must actually COMPILE as an ERE. jq can only check that it
 # is a non-empty string; whether `grep -E` accepts it is knowable only by asking grep.
-# Doing it here means a typo is a config-time rejection rather than a Stage-6 surprise
+# Doing it here means a typo is a config-time rejection rather than a verify-time surprise
 # — and while is-inert-diff.sh fails closed to SUITE on an uncompilable pattern, that
 # is a safety net, not a diagnosis: it fires once per verify with the run already
 # underway. rc 0/1 are both "compiled" (matched / did not match); rc >= 2 is the

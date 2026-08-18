@@ -63,10 +63,14 @@ Every `stageParams` key defaults to the plugin's current literal, so an empty co
     "planFilePattern": "{plansDir}/plan-{issueKey}.md",   // drop the shipped "acme-" prefix
     "requiredLabels": ["ready", "in-progress"],                   // your tracker's label vocabulary
     "formatGlob": "*.{ts,tsx,css,md}",
-    // INERT-lane classifier override (read by is-inert-diff.sh and preflight.sh). The
-    // default inert set is JS/TS-centric and treats
-    // *.md and *.sh as zero-coverage — true for a TS app, false when shell IS the
-    // product: there, every diff classifies inert and your lint/test lanes never run.
+    // INERT-lane classifier override. is-inert-diff.sh applies it when a caller passes
+    // it in; the default set is JS/TS-centric and treats *.md and *.sh as zero-coverage —
+    // true for a TS app, false when shell IS the product.
+    // CURRENTLY UNCONSUMED: preflight.sh was the only runtime caller that resolved this
+    // key, and that read went with the staged lane (#348). The lean lane's milestone-3
+    // verify has deliberately no inert lane, and the pre-commit type-check hook carries
+    // its own hardcoded carve-out instead of reading config. config-lint still accepts
+    // the key, so setting it stays legal and today changes nothing.
     // REPLACES the default outright (only replacement can remove `\.sh$`), so it is a
     // hand-copy that won't inherit later additions. Omit the key to keep the default.
     "inertPattern": "(\\.md$|^\\.github/workflows/.*\\.yml$)",
@@ -179,7 +183,7 @@ The need it answered: something heavier than a verify command — a real workflo
 }
 ```
 
-The `workflow` was either `"<plugin>:<relpath>"` (a companion pack's script, §4) or a repo-relative path. As designed, it was dispatched **after** the named stage's built-in sub-steps and **before** that stage's completion write, as a blocking sub-step — no advisory field, because advisory gates don't exist here. The result was recorded under `stageCheckpoint[N].extWorkflows[<name>]`; a failure produced the stage's standard fail-fast write with reason **`ext-workflow-failed`** (your name in the detail field), and the workflow could write state **only** via the staged lane's `statectl` checkpoint payloads namespaced `ext:` — adding evidence, never reinterpreting what the pipeline had recorded. Two things are still true today: registration lives in *consumer config* (auditable, per-repo) rather than the plugin manifest, and an unresolvable reference is a config-lint failure.
+The `workflow` was either `"<plugin>:<relpath>"` (a companion pack's script, §4) or a repo-relative path. As designed, it was dispatched **after** the named stage's built-in sub-steps and **before** that stage's completion write, as a blocking sub-step — no advisory field, because advisory gates don't exist here. The result was recorded under `stageCheckpoint[N].extWorkflows[<name>]`; a failure produced the stage's standard fail-fast write with reason **`ext-workflow-failed`** (your name in the detail field), and the workflow could write state **only** via the staged lane's checkpoint payloads namespaced `ext:` — adding evidence, never reinterpreting what the pipeline had recorded. Two things are still true today: registration lives in *consumer config* (auditable, per-repo) rather than the plugin manifest, and an unresolvable reference is a config-lint failure.
 
 ### 3.7 `implementDelegates` — route implementation work to a specialist (EP-7) — **RETIRED (#569)**
 

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# check-intake-tracker-namespaces.sh — regression guard for the intake/Stage-1 tracker
+# check-intake-tracker-namespaces.sh — regression guard for the intake tracker
 # fetch prose, keeping it namespace-agnostic for the Atlassian MCP.
 #
 # WHY THIS EXISTS
@@ -12,11 +12,11 @@
 # that exposes the MCP under one of the other two namespaces ("No such tool available").
 # #187 fixed this for scope-completeness-reviewer (guarded by the sibling
 # review-toolkit/scripts/check-scope-tracker-namespaces.sh); this guard covers the
-# parallel intake/Stage-1 fetch *prose* sites, which carry no `tools:` frontmatter for
+# parallel intake fetch *prose* sites, which carry no `tools:` frontmatter for
 # that check to key off. This repo's CI is model-free, so the live JIRA-under-plugin
 # behavior cannot be exercised — this static check is the regression guard for it.
 #
-# The check is DISCOVERY-BASED, not a hardcoded file list: it scans the intake/Stage-1
+# The check is DISCOVERY-BASED, not a hardcoded file list: it scans the intake
 # skill surface (all file types — .md prose, .sh tooling, .mjs) and asserts that any
 # file naming the top-level `mcp__atlassian__` prefix ALSO names the other two prefixes
 # (proving the three-namespace discovery is co-located). A new fetch site is therefore
@@ -40,7 +40,7 @@ NS2="mcp__plugin_atlassian_atlassian__"
 NS3="mcp__claude_ai_Atlassian_Rovo__"
 
 # The intake fetch surface. Roots, not a file list, so new sites are covered.
-# #348 widened the dev-pipeline root from the deleted `skills/run` (the staged Stage-1 fetch)
+# #348 widened the dev-pipeline root from the deleted staged intake fetch
 # to the whole skills tree: the lanes that fetch a tracker item now are build-lean, review-lean
 # and pr-revision, and naming the parent keeps a future one covered without another edit.
 SCAN_ROOTS="
@@ -79,5 +79,5 @@ if [ "$violations" -gt 0 ]; then
     exit "$violations"
 fi
 
-echo "check-intake-tracker-namespaces: OK (every intake/Stage-1 fetch site names all three Atlassian namespaces)"
+echo "check-intake-tracker-namespaces: OK (every intake fetch site names all three Atlassian namespaces)"
 exit 0

@@ -7,7 +7,7 @@ description: 'Cross-run execution-latency retrospective for dev-pipeline runs: f
 
 Cross-run performance retrospective for the dev-pipeline. `pipeline-retro` sharpens a **single** run for correctness — this skill is the second axis, **execution speed across runs**. It exists because nothing else in the improvement loop argues against latency: every fix lands as another gate, another round, another serialized dispatch, and run wall-time drifts upward unopposed while each individual change looks justified.
 
-The data to argue with already exists and has had no systematic consumer. Per-stage `startedAt`/`completedAt` sit in every run-state file, [`stage-times.sh`](../../tools/stage-times.sh) turns them into pause-aware effective time plus inter-stage gaps, and the audit ledger timestamps every tool call and `SubagentStop`.
+The data to argue with already exists and has had no systematic consumer. Timing signal sits in the cost log and the audit ledgers.
 
 **Usage:** `/dev-pipeline:perf-retro` — profiles the 15 most recent trusted runs. `--last N` widens or narrows that window; a **bare integer is a ticket key**, focusing the profile on that one run. So `perf-retro 30` profiles ticket 30, while `perf-retro --last 30` profiles the last 30 runs. The two readings never collide.
 
@@ -35,40 +35,27 @@ bash "${CLAUDE_PLUGIN_ROOT}/tools/retro-corpus.sh" corpus --window 15 --json
 # --last N (below) replaces --window 15; a bare integer ticket key bypasses corpus gathering.
 ```
 
-Each row carries `era: "stage" | "artifact"`, `ticketKey`, `startedAt`, and `model` (the
+Each row carries `ticketKey`, `startedAt`, and `model` (the
 run's model identity — see the note at the end of this step). The second column that mattered
 before (the ticket key) is still what the per-run timing tool takes.
 
-**Only `era: "stage"` rows feed Steps 2–4's per-stage timing profile** — `stage-times.sh` and
-`stage-envelopes.sh` compute against a `stages` object that artifact-schema rows do not have.
-List `era: "artifact"` rows in their own corpus line in the Step-6 report (count, ticket keys,
-`model` values) rather than folding them into the per-stage table or silently dropping them —
-labeled-but-out-of-scope-for-this-table is the honest reading, not invisible.
-
-**Zero `era: "stage"` rows is not an error — it is the near-term steady state once lean/block
-runs dominate the corpus.** Count this step's `era: "stage"` rows before Steps 3 and 6 touch
-`stage-envelopes.sh`. That tool hard-exits by design on a stage-empty state dir rather than
-print a blank report over nothing (`stage-envelopes-selftest.sh` env14) — it is not a soft
-degradation to catch after the call. When the count is zero, **skip the `stage-envelopes.sh`
-call entirely** and have Steps 3 and 6 state `0 stage-era run(s) in window — per-stage profile
-and over-envelope flags not applicable (every run in window is era: "artifact")` in place of
-those tables, rather than erroring or silently emitting empty ones.
+Every row is in scope. There is no per-stage timing table any more — the staged state files
+that carried `stages[]` lifecycle windows are gone, and no run produces them. Timing evidence
+now comes from the cost log and the audit ledgers named below.
 
 **Completed and aborted runs are both in scope.** An abort is a real cost, often the most expensive shape of run, and excluding it flatters the profile.
 
-Per selected `era: "stage"` run, gather: `bash "${CLAUDE_PLUGIN_ROOT}/tools/stage-times.sh" <key>`; the cost log at `<STATE_DIR>/cost-log.jsonl` when present; the timing paragraphs of any existing `<key>-retro.md`; and, for each session id in that run's `pipelineSessions[]`, the audit ledger at `.claude/audit/<session>.jsonl` when it exists on disk.
+Per selected run, gather: the cost log at `<STATE_DIR>/cost-log.jsonl` when present; the timing
+paragraphs of any existing `<key>-retro.md`; and, for each session id in that run's
+`pipelineSessions[]`, the audit ledger at `.claude/audit/<session>.jsonl` when it exists on disk.
 
 **Model identity (#347 comment, ratified 2026-08-03).** Corpus rows carry `model` so
 cross-model deltas are queryable — an `era: "artifact"` row reads it from the progress/verdict
 record's `model:` key (`lean-gate.sh`, when `LEAN_RUN_MODEL` was exported at record-creation
-time); `era: "stage"` rows have no such field yet and read `"unknown"`. Report it as a corpus
+time). Report it as a corpus
 dimension (group candidates or fidelity notes by `model` where the profile shows a difference)
 — never bucket by, or hardcode, a specific vendor model string here; that neutrality is owned
 by #356/#357, not this step.
-
-**Envelopes come from one shared tool, not from this enumeration.** Steps 3 and 6 derive theirs from `bash "${CLAUDE_PLUGIN_ROOT}/tools/stage-envelopes.sh" --json`, which recomputes from the corpus every invocation and stores nothing. Report the corpus it declares (file count + dedup rule) next to this step's count: **both now dedup `era: "stage"` rows per ticket by the same rule** — the file whose basename equals its `ticketKey` is live and supersedes that ticket's snapshots, and with no live file every snapshot is a distinct run — so a ticket with a live file plus surviving snapshots counts once on both sides. Declaring both stops one report disagreeing with itself.
-
-That rule is structural, never a `-failed-`/`-aborted-` filename literal, which is what makes it cover the undocumented operator rename conventions as well as the two statectl quarantine families. `corpus` says on **stderr** how many stage-schema files it read and how many it superseded, and only when that number is non-zero; `era: "artifact"` rows are never keyed by it. If this step's count still exceeds the tool's, that is a real disagreement to report, not the expected offset it used to be.
 
 ## Step 2: Fidelity triage
 
@@ -78,24 +65,16 @@ Degraded signals:
 
 1. **Multi-session run with empty or implausibly short pause spans** — wall time far exceeds any plausible compute time, because the idle gap between sessions was never recorded and so was never subtracted.
 2. **Effective equal to wall across calendar days** — the same defect seen from the other side: a run that spans days with nothing subtracted did not pause, according to the data, which cannot be true.
-3. **A window where start and completion nearly coincide, preceded by a large inter-stage gap** — the stage's real work happened before its start was recorded, so the time landed in the gap instead of the stage.
 4. **Human-paced (attended) runs** — a session a human is stepping through measures the human, not the pipeline. Key this off the run's `.mode` (`interactive` ⇒ attended), **not** off `pipelineSessions[].source`: every pipeline-written record carried `source: "interactive"` unconditionally, so that field was a constant and could never discriminate — read literally it degraded every run in the corpus. Seam-registered records carry `source: null`, which makes the constancy visible rather than introducing it.
-5. **A stage present in state but absent from the timing table** — a missing lifecycle field dropped it. On an aborted run this is always the terminal stage, and is expected there.
-6. **A pause with no second session** — a non-empty `pauseSpans[]` alongside fewer than two `pipelineSessions[]` records. A span exists only because a second session resumed, so the two cannot disagree: the run's session accounting is short and its cost is under-attributed by at least one whole session. **Scope this to runs that post-date seam-owned session registration** (`state-schema.md` § `pipelineSessions`): a run started before it legitimately shows this shape, because `lastWriteSessionId` has been stamped since the pause-span seam landed while registration was still declared per-stage. Report the pre-seam shape as a **pre-seam accounting** note — context for reading the number, not a defect to route — and treat only post-change runs as a real finding.
+6. **A pause with no second session** — a non-empty `pauseSpans[]` alongside fewer than two `pipelineSessions[]` records. A span exists only because a second session resumed, so the two cannot disagree: the run's session accounting is short and its cost is under-attributed by at least one whole session.
 
 Degraded windows are **excluded from every aggregate**. They are not discarded: each distinct fidelity defect is a routable instrumentation finding for Step 5, deduped against already-scoped work **by mechanism** — describe what is unrecorded and where, never by ticket number, which rots as fast as it is written.
 
 ## Step 3: Profile
 
-**Zero `era: "stage"` rows in window** (Step 1's guard): skip straight to the report text given
-there and move on to Step 4 with an empty per-stage table — do not call `stage-envelopes.sh`.
-
 Across trusted runs only, build the table every candidate must cite:
 
-- **Per-stage effective time** — median, worst, **p90**, and share of run. Compute shares over the **sum of the listed stage times**, not the tool's independently computed run total; the two differ whenever a stage was dropped, and dividing by the larger number silently understates every stage's share. The p90 comes from `stage-envelopes.sh` (nearest-rank, so always a value some run produced) — do not recompute it.
-- **Over-envelope flags** — stages and cost buckets exceeding the corpus p90, computed leave-one-out so the run under test never inflates the envelope judging it. Below the min-n floor the tool reports a known-unknown row instead of a flag; carry those through rather than dropping them. At small n an over-flag often means only "set a new record" — the tool says which, and so must the report.
-- **Lifecycle-dropped stages as explicit known-unknown rows.** A stage omitted from the table is invisible; a stage listed as unknown is a question. Never let a dropped stage read as a fast one.
-- **Inter-stage gap totals** — transition overhead, where synchronous non-gating writes accumulate.
+- **Per-run effective time** — median, worst, and p90 across the window (nearest-rank, so always a value some run produced).
 - **Review-round count against review time** — one round is the common case, so a round count above one is the first thing to check before attributing the cost to the stage itself.
 - **Ceiling and dark-marker hits** — a dispatch that hit its time ceiling, or died without emitting, costs its full ceiling and returns nothing.
 - **Per-dispatch latency** from audit-ledger `SubagentStop` differencing, where ledgers exist. When no ledger covers the window, **omit the column entirely** rather than showing partial rows that read as complete.
@@ -133,18 +112,12 @@ Write `.claude/pipeline-state/perf-retro-{YYYY-MM-DD}.md`. A second pass on the 
 
 ## Profile (trusted runs only)
 
-| Stage | Median | p90 | Worst | Share | Notes |
-| ----- | ------ | --- | ----- | ----- | ----- |
+| Run | Effective | p90 | Model | Notes |
+| --- | --------- | --- | ----- | ----- |
 
-Inter-stage gap total: {m} min. Runs profiled: {n} trusted, {d} degraded.
+Runs profiled: {n} trusted, {d} degraded.
 
-Corpus: {file count} state file(s) → {n} run(s) after `stage-envelopes.sh`'s dedup
-({its declared rule}); Step 1's own enumeration counted {n'} before dedup. {a} `era:
-"artifact"` run(s) also in the corpus, out of scope for this table (models: {list}) —
-see `retro-corpus.sh corpus`. **When Step 1 counted zero `era: "stage"` rows**, this line
-instead reads: `0 stage-era run(s) in window — per-stage profile not applicable; {a} era:
-"artifact" run(s) (models: {list}) — see retro-corpus.sh corpus`, and the Profile table above
-is omitted rather than left empty.
+Corpus: {file count} state file(s) → {n} run(s) (models: {list}) — see `retro-corpus.sh corpus`.
 
 ## Cost envelopes (per bucket)
 
@@ -155,13 +128,11 @@ Over the cost log's own window, independent of the run window above.
 
 ## Over-envelope
 
-| Axis | Stage / bucket | Run | Measured | Corpus p90 | n | Join flag |
-| ---- | -------------- | --- | -------- | ---------- | - | --------- |
+| Axis | Bucket | Run | Measured | Corpus p90 | n | Join flag |
+| ---- | ------ | --- | -------- | ---------- | - | --------- |
 
-{known-unknown rows — below the min-n floor, or lifecycle-dropped. An absent envelope is
-a question, not a pass.} **Zero `era: "stage"` rows in window**: the table is replaced with
-one line, `0 stage-era run(s) in window — over-envelope flags not applicable`, never an empty
-table (env14's distinction — "measured nothing" must not read as "measured and found nothing").
+{known-unknown rows — below the min-n floor. An absent envelope is a question, not a pass.
+"measured nothing" must not read as "measured and found nothing".}
 
 Advisory: nothing here gates, and no run is failed for appearing in this table.
 

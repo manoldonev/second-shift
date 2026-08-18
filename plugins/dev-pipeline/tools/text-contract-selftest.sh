@@ -41,7 +41,7 @@ command -v node >/dev/null 2>&1 || {
 TMP="$(mktemp -d -t text-contract-selftest.XXXXXX)"
 trap 'rm -rf "$TMP"' EXIT
 
-# plan-review.mjs left both lists in #348 — Stage 4's dispatcher was deleted with the staged
+# The plan dispatcher left both lists in #348 — it was deleted with the staged
 # lane, so it carries no copy to hold in lockstep.
 PARSE_CARRIERS="code-review.mjs unit-tests.mjs intake-review.mjs design-sync.mjs figma.mjs stall-probe.mjs"
 VALIDATE_CARRIERS="code-review.mjs unit-tests.mjs intake-review.mjs design-sync.mjs figma.mjs"

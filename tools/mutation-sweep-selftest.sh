@@ -2,7 +2,7 @@
 # mutation-sweep-selftest.sh — companion suite for tools/mutation-sweep.sh.
 #
 # Deliberately IN-GLOB (unlike the harness it tests): CLAUDE.md's coverage rule exempts
-# the scenario-lib precedent from the *glob*, not from *coverage*. Being in-glob also runs
+# excluded from the *glob*, not from *coverage*. Being in-glob also runs
 # this on the macOS lane's stock bash 3.2, which is what actually enforces the harness's
 # bash-3.2-clean claim.
 #
