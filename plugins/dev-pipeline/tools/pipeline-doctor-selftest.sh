@@ -696,9 +696,21 @@ inv_probe sibling "$INV_INJECT_SIBLING" 'review-toolkit/scripts/definitely-delet
 # double-invocation would move it spuriously). The declared side reads a shape the arms do
 # not parse — every -selftest basename the doctor invokes, comment lines excluded — so a
 # delegation FORM with no arm reds here even though no arm knows to look for it.
+# BASENAME granularity is forced, not chosen. The three arms emit three DIFFERENT path
+# shapes ("claim-selftest.sh", "skills/build-lean/x-selftest.sh", "<plugin> scripts/y.sh"),
+# and the declared side reads raw doctor text where the same paths are written with
+# $SCRIPT_DIR / $PLUGIN_DIR / resolve_sibling prefixes. Normalizing to a common full path
+# would require the declared side to KNOW those three shapes — which is exactly the
+# independence that lets it red on a FOURTH shape no arm parses. So the sides meet at the
+# basename, and the precondition that makes that sound is asserted below.
 inv_declared_names() {
   grep -E -- '-selftest\.(sh|mjs)' "$DOCTOR" | grep -vE '^[[:space:]]*#' \
     | grep -oE '[A-Za-z0-9_.-]+-selftest\.(sh|mjs)' | sort -u
+}
+# Same extraction, keeping `/` — so two delegations to different paths stay distinct.
+inv_declared_paths() {
+  grep -E -- '-selftest\.(sh|mjs)' "$DOCTOR" | grep -vE '^[[:space:]]*#' \
+    | grep -oE '[A-Za-z0-9/_.-]+-selftest\.(sh|mjs)' | sort -u
 }
 inv_covered_names() {
   local a
@@ -708,12 +720,18 @@ inv_covered_names() {
 }
 inv_uncovered="$(comm -23 <(inv_declared_names) <(inv_covered_names) | tr '\n' ' ')"
 inv_n_declared="$(inv_declared_names | wc -l | tr -d ' ')"
+inv_n_paths="$(inv_declared_paths | wc -l | tr -d ' ')"
 if [[ "$inv_n_declared" -eq 0 ]]; then
   bad "(inv/complete) found no selftest delegations at all in $DOCTOR — the declared-side extraction drifted, so this cross-check is inert"
+elif [[ "$inv_n_paths" -ne "$inv_n_declared" ]]; then
+  # The precondition for comparing by basename: no two delegated paths may share one. If
+  # they do, an UNCOVERED delegation would look covered because a different arm reported
+  # the same basename — the blind spot is loud here instead of silent above.
+  bad "(inv/complete) two delegated paths share a basename ($inv_n_paths path(s), $inv_n_declared name(s)) — the coverage cross-check compares by basename and cannot tell them apart. Rename one, or teach both sides a common full-path form."
 elif [[ -n "${inv_uncovered// }" ]]; then
-  bad "(inv/complete) the doctor delegates to selftest(s) no arm covers: ${inv_uncovered}— a delegation SHAPE has no arm, or an arm was dropped from the loop"
+  bad "(inv/complete) the doctor delegates to selftest(s) no arm covers: ${inv_uncovered}— a delegation SHAPE has no arm, or an arm was dropped from the loop. (A bare mention in a TRAILING comment on a code line also trips this; move it to its own comment line.)"
 else
-  ok "(inv/complete) all $inv_n_declared selftest delegation(s) the doctor makes are covered by an arm"
+  ok "(inv/complete) all $inv_n_declared selftest delegation(s) the doctor makes are covered by an arm, and no two share a basename"
 fi
 
 # ---------------------------------------------------------------------------
