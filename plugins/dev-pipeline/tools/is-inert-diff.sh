@@ -18,8 +18,10 @@
 # consumers whose product surface IS one of the defaulted-inert extensions: this default
 # is JS/TS-centric, so on (say) a shell-and-Markdown repo every real diff classifies inert
 # and the configured lint/test lanes never run — a false green. Such a repo sets
-# `stageParams.inertPattern` to a narrowed copy; preflight.sh resolves that key and passes
-# it here (the ONLY runtime caller).
+# `stageParams.inertPattern` to a narrowed copy, which a caller resolves and passes here
+# as $1. NOTE: preflight.sh was that caller, and its read was removed with the staged lane
+# (#348), so the key has no runtime caller today — this override path is now reached only
+# by this script's own selftest.
 # Replace, not merge, is deliberate: only replacement
 # can REMOVE an alternative such as `\.sh$`, which is the whole point.
 #

@@ -643,7 +643,13 @@ inv_scan() { # inv_scan <doctor-file> <arm>
   done < <(inv_extract "$doc" "$arm")
 }
 
-for _arm in script plugin sibling; do
+# THE arm list — single definition. Both the live loop below and inv_covered_names()
+# read it, so dropping an arm shrinks the covered set and the completeness check reds.
+# Two copies of this list would let a dropped arm stay invisible, which is the bug this
+# whole block exists to prevent.
+INV_ARMS="script plugin sibling"
+
+for _arm in $INV_ARMS; do
   inv_scan "$DOCTOR" "$_arm"
   if [[ "$INV_SEEN" -eq 0 ]]; then
     bad "(inv/$_arm) found no $_arm-form selftest delegations in $DOCTOR — the extraction pattern drifted, so this arm is inert"
@@ -657,15 +663,18 @@ done
 # Probe, ONE PER ARM. Without a probe a drifted extraction reports the same green as a
 # clean tree — and an arm covered only by a SIBLING arm's probe is unprobed in practice,
 # because each arm carries its own regex and its own filesystem base.
-inv_probe() { # inv_probe <arm> <injected-line>
-  local arm="$1" inject="$2" probe="$WORK/probe-doctor-$1.sh"
+# <expect> is the EXACT string the arm must report, not a shared substring: the sibling
+# arm rewrites its `<plugin> <relpath>` match into `<plugin>/<relpath>` for the message,
+# and a shared token would let that join rot unnoticed.
+inv_probe() { # inv_probe <arm> <injected-line> <expect>
+  local arm="$1" inject="$2" expect="$3" probe="$WORK/probe-doctor-$1.sh"
   { cat "$DOCTOR"; printf '%s\n' "$inject"; } > "$probe"
   inv_scan "$probe" "$arm"
-  case "$INV_MISSING" in
-    *definitely-deleted-selftest*)
-      ok "(inv-probe/$arm) the $arm arm reports a delegation whose subject is absent" ;;
+  case " $INV_MISSING " in
+    *" $expect "*)
+      ok "(inv-probe/$arm) the $arm arm reports the absent delegation as '$expect'" ;;
     *)
-      bad "(inv-probe/$arm) the $arm arm did NOT catch an injected delegation to a deleted selftest — that arm is inert" ;;
+      bad "(inv-probe/$arm) the $arm arm did NOT report '$expect' — that arm is inert, or its reported form drifted. Got:[$INV_MISSING]" ;;
   esac
 }
 # shellcheck disable=SC2016  # deliberate: each injected line must carry the literal prefix so
@@ -674,9 +683,38 @@ INV_INJECT_SCRIPT='bash "$SCRIPT_DIR/definitely-deleted-selftest.sh"'
 # shellcheck disable=SC2016  # same literal-text match as above.
 INV_INJECT_PLUGIN='bash "$PLUGIN_DIR/skills/build-lean/definitely-deleted-selftest.sh"'
 INV_INJECT_SIBLING='resolve_sibling review-toolkit scripts/definitely-deleted-selftest.sh'
-inv_probe script  "$INV_INJECT_SCRIPT"
-inv_probe plugin  "$INV_INJECT_PLUGIN"
-inv_probe sibling "$INV_INJECT_SIBLING"
+inv_probe script  "$INV_INJECT_SCRIPT"  'definitely-deleted-selftest.sh'
+inv_probe plugin  "$INV_INJECT_PLUGIN"  'skills/build-lean/definitely-deleted-selftest.sh'
+inv_probe sibling "$INV_INJECT_SIBLING" 'review-toolkit/scripts/definitely-deleted-selftest.sh'
+
+# COMPLETENESS — the arms are only as good as the arm LIST. Drop one from the loop above
+# and its live check silently disappears while every probe still passes, because a probe
+# calls inv_scan with its own literal arm token: round 1's defect recurring one level up,
+# and a suite that stays green because the summary only counts FAILures.
+#
+# So cross-check the two sides by NAME, not by count (a count cannot say which file, and
+# double-invocation would move it spuriously). The declared side reads a shape the arms do
+# not parse — every -selftest basename the doctor invokes, comment lines excluded — so a
+# delegation FORM with no arm reds here even though no arm knows to look for it.
+inv_declared_names() {
+  grep -E -- '-selftest\.(sh|mjs)' "$DOCTOR" | grep -vE '^[[:space:]]*#' \
+    | grep -oE '[A-Za-z0-9_.-]+-selftest\.(sh|mjs)' | sort -u
+}
+inv_covered_names() {
+  local a
+  for a in $INV_ARMS; do
+    inv_extract "$DOCTOR" "$a" | grep -oE '[A-Za-z0-9_.-]+-selftest\.(sh|mjs)'
+  done | sort -u
+}
+inv_uncovered="$(comm -23 <(inv_declared_names) <(inv_covered_names) | tr '\n' ' ')"
+inv_n_declared="$(inv_declared_names | wc -l | tr -d ' ')"
+if [[ "$inv_n_declared" -eq 0 ]]; then
+  bad "(inv/complete) found no selftest delegations at all in $DOCTOR — the declared-side extraction drifted, so this cross-check is inert"
+elif [[ -n "${inv_uncovered// }" ]]; then
+  bad "(inv/complete) the doctor delegates to selftest(s) no arm covers: ${inv_uncovered}— a delegation SHAPE has no arm, or an arm was dropped from the loop"
+else
+  ok "(inv/complete) all $inv_n_declared selftest delegation(s) the doctor makes are covered by an arm"
+fi
 
 # ---------------------------------------------------------------------------
 # summary
