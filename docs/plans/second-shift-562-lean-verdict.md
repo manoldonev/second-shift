@@ -5,8 +5,8 @@ run_id: review-562-3
 session_id: c9a0e72c-b011-4ba0-b75b-ba67d77bfadb
 rounds: 3
 pr: #573
-reviewed_head: 0ebb3c37f4f34942f2bdb6b2c85d8badd9228edc
-reviewed_patch_id: 3365b601334bdff5e12002347d0dfcd5c05ce319
+reviewed_head: d5845ef95918b6c2278b99d5ed80229f72a60ce2
+reviewed_patch_id: 725b160ac551df3c10fdbaa80d3a5485bab31a62
 inherited_patch_id: 15bc6d3225819052ede27a9b223d350b00a4469a
 inherited_from_verdict: 8ff8f52d98a910894daa09c677be8f6da66f3e0e
 fidelity: not-applicable
@@ -16,6 +16,54 @@ capabilities: pr-marker
 Round 3 on PR 573 (#562). **approve** — zero blockers. Round 2's single blocker is discharged
 completely, and the discharge is proved by mutation at both callers' real depths rather than
 argued from the diff.
+
+## Re-stamp — not a fourth round
+
+`main` moved to #577 after this record was written, and the branch was merged rather than rebased
+(`d5845ef`). Two keys are re-pointed at the merged head; **nothing else in this record changed**,
+and the round-3 panel, findings and verdict are the ones the review session authored. This section
+was written by the operator session that resolved the merge, not by the reviewer — stated so the
+record does not imply a reviewer looked at the merged tree.
+
+| Key | Was | Now |
+| --- | --- | --- |
+| `reviewed_head` | `0ebb3c3` | `d5845ef` |
+| `reviewed_patch_id` | `3365b601` | `725b160a` |
+
+`inherited_patch_id` is untouched and still verifies: `merge-base(origin/main, 8ff8f52)` is still
+`a8cd2b5`, so round 2's identity recomputes to the same `15bc6d32` and the chain resolves.
+
+**Why this is a re-stamp and not a round.** The merge-base-anchored contribution diff against the
+old record (`a8cd2b5..0ebb3c3` vs `7620251..d5845ef`, both excluding this file) is four lines, all
+on the `-` side, zero `+` lines:
+
+```
+< -  mkdir -p "$RS/cache/dev-pipeline/1.0.0/skills/run/tools" \
+> -  mkdir -p "$RS/cache/dev-pipeline/1.0.0/tools" \
+< -            SCRIPT_DIR="$RS/cache/dev-pipeline/1.0.0/skills/run/tools" \
+> -            SCRIPT_DIR="$RS/cache/dev-pipeline/1.0.0/tools" \
+```
+
+The branch authored no new line. Both sides had rewritten `pipeline-doctor-selftest.sh`'s `(rs)`
+block; the merge takes this branch's version, so what moved is only the upstream text it deletes —
+#577 had edited those two lines on its way to deleting the staged-lane directory they name.
+Taking the branch side is also forced, not preferred: #577's version extracts `resolve_sibling`
+from `$DOCTOR`, and this branch moved that function to `tools/resolve-sibling.sh`, so after the
+merge that extraction yields the empty string rather than an error.
+
+Re-verified on the merged tree rather than inherited: `pipeline-doctor-selftest.sh` 42/42,
+`lean-gate-selftest.sh` rc=0, `check-lockstep-pairs.sh` 21 pairs / 0 failed,
+`check-frozen-files.sh origin/main` clean, shellcheck clean. The PR-scoped mutation sweep reports
+`pipeline-doctor.sh applied=10 killed=4 survived=6` with the survivor set exactly the six rows the
+merged baseline carries — `logic::1`/`::2` now killed, as this round's baseline shrink claimed —
+and `resolve-sibling.sh applied=2 killed=2 survived=0`. That sweep is the one thing both sides'
+edits could have invalidated silently, since each side edited `pipeline-doctor.sh` without
+re-baselining it and each was green alone.
+
+Known and deliberately left: `docs/testing.md:261` still places `resolve_sibling()` in
+`pipeline-doctor.sh`. It is identical on both sides of the merge — pre-existing on this branch, not
+introduced here — and is the same warning class as the stale comment this round already deferred.
+Fixing it would add authored lines and convert this re-stamp into a real round.
 
 ## Range read
 
