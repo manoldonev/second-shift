@@ -358,17 +358,19 @@ EOF
 cfg "$R7/c.json" <<EOF
 { $STD_HEAD,
   "commands": {"app":{
-    "testFile": "yarn test {file}",
     "test": "yarn test:run",
     "lint": "npm run lint",
     "typecheck": null,
     "format": "yarn vitepreview",
-    "lanes": [{"name":"setup","commands":["yarn watchy","yarn mon","yarn fmt","yarn vrun","yarn tscw"]}],
+    "lanes": [{"name":"setup","commands":["yarn watchy","yarn mon","yarn fmt","yarn vrun","yarn tscw","yarn test"]}],
     "extraLanes": [{"name":"extra","commands":["pnpm dev","bun serve","npm run wrapped"],"failureClass":"TYPE_ERROR"}]}} }
 EOF
 run_grill "$R7" "$R7/c.json"
-expect_finding "t5 watcher: bare vitest under a fine-looking testFile" \
-  T5.watcher.app.testFile 'scripts.test = "vitest"' "never exits"
+# Case C's oracle rode the testFile slot until #574 retired the key: `yarn test` LOOKS
+# fine and scripts.test = "vitest" underneath is what hangs, so the probe now rides a
+# lanes command — same manifest-body resolution, different slot.
+expect_finding "t5 watcher: bare vitest behind a fine-looking yarn alias (lanes slot)" \
+  T5.watcher.app.lanes.0.5 'scripts.test = "vitest"' "never exits"
 expect_no_finding "t5 non-watcher: vitest run" T5.watcher.app.test
 expect_no_finding "t5 non-watcher: eslint ." T5.watcher.app.lint
 expect_no_finding "t5 non-watcher: vite build" T5.watcher.app.format
