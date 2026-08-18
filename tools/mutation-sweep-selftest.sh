@@ -426,13 +426,17 @@ make_debris_fixture() {
 #   cg.sh  comment first, then TWO code sites — one the killer exercises, one it does not.
 #   co.sh  a single matched line, and it is a comment.
 #   cn.sh  no matched line at all.
-# The cg.sh shape is the discriminator. Its expected survivor is `cg.sh::fail-open::2`, and
-# each wrong implementation lands on a DIFFERENT id: enumerating comments makes the comment
-# ordinal 1 and the survivor `::fail-open::1`; excluding them with a `continue` inside the
-# mutation loop (which still advances the counter) makes the survivor `::fail-open::3`. An
-# assertion on mutants_applied alone cannot tell those apart, which is why the id is what is
-# asserted. The killed site carries the other half: a comment flip is unkillable by
-# construction, so ordinal 1 being KILLED is what proves ordinal 1 is the code line.
+# The cg.sh shape is the discriminator. Its expected survivor is the SECOND enumerated site,
+# and each wrong implementation makes that phrase name a different LINE: enumerating comments
+# makes the comment the first enumerated site, so the k=2 window holds the comment and the
+# first code line and the second code line is never applied; excluding comments with a
+# `continue` INSIDE the mutation loop leaves the enumerated list three long, so the second
+# enumerated site is the first code line while the actual survivor is the second. Only
+# filtering the matched-line list before anything is counted makes "second enumerated site"
+# and "the surviving code line" the same site. An assertion on mutants_applied alone cannot
+# tell those apart, which is why the id is what is asserted. The killed site carries the other
+# half: a comment flip is unkillable by construction, so the first site being KILLED is what
+# proves the first site is the code line.
 # shellcheck disable=SC2016 # the single-quoted $-expressions are the FIXTURES' code, not ours
 make_comment_fixture() {
   local dir="$1" g
@@ -493,8 +497,32 @@ baseline_with() { # $1=dir, rest = survivor ids
   local d="$1"; shift
   { echo "# environment: ubuntu-latest SKIP_STRESS=1"
     echo "# k=2"
+    echo "# keying: content-v1"
     for s in "$@"; do printf '%s\tseeded\n' "$s"; done
   } > "$d/tools/mutation-baseline.tsv"
+}
+
+# A fixture site's survivor id, DERIVED by asking production for it. Generic ids are keyed by
+# the matched line's content, so a positional literal (`guard.sh::fail-open::1`) is no longer
+# an id at all. The two ways to get one here are to compute the sha in this file — which
+# re-implements the key function inside its own test suite, the mirror-harness shape CLAUDE.md
+# forbids, since a copy cannot fail on a production edit — or to ask the harness. This asks:
+# `--emit-site-keys` enumerates and prints `<guard><TAB><operator><TAB><ordinal><TAB><key>`
+# while SCORING NOTHING, so what comes back is a derivation and not a verdict captured from a
+# run and fed back as its own expectation.
+sid_for() { # $1=fixture dir, $2=guard relpath, $3=operator id, $4=1-based ordinal
+  ( cd "$1" && adv bash "$SWEEP" --emit-site-keys 2>/dev/null ) \
+    | awk -F'\t' -v g="$2" -v o="$3" -v n="$4" '$1==g && $2==o && $3==n {print g"::"o"::"$4; exit}'
+}
+
+# Commit a fixture edit so the sandboxed sweep (which checks out HEAD) can see it.
+fx_commit() {
+  ( cd "$1" && git add -A && git -c user.email=f@e.invalid -c user.name=f commit -qm "${2:-edit}" ) >/dev/null 2>&1
+}
+
+# The survivor_ids cell of a report row, as a sorted, newline-separated set.
+survivor_set() { # $1=report tsv, $2=guard
+  awk -F'\t' -v g="$2" '$1==g {print $7; exit}' "$1" | tr ',' '\n' | grep -v '^$' | sort
 }
 
 # ============================================================= fixture cases
@@ -520,7 +548,7 @@ fi
 
 echo "(c) baseline suppression — the same survivor listed is report-only"
 FX="$(new_fixture weak)"
-baseline_with "$FX" 'guard.sh::fail-open::1'
+baseline_with "$FX" "$(sid_for "$FX" guard.sh fail-open 1)"
 OUT="$( cd "$FX" && enf bash "$SWEEP" --mode full 2>&1 )"; RC=$?
 if [[ $RC -eq 0 ]]; then
   ok "listed survivor does not red the build"
@@ -530,7 +558,9 @@ fi
 
 echo "(d) shrink warns — killed-but-listed, and a listed guard that no longer resolves"
 FX="$(new_fixture strong)"
-baseline_with "$FX" 'guard.sh::fail-open::1' 'gone/removed.sh::fail-open::1'
+# The second id's guard does not exist, which is the point of the row — nothing can derive a
+# key for a file that is not there, so it carries a syntactically valid literal instead.
+baseline_with "$FX" "$(sid_for "$FX" guard.sh fail-open 1)" 'gone/removed.sh::fail-open::000000000000'
 OUT="$( cd "$FX" && enf bash "$SWEEP" --mode full 2>&1 )"; RC=$?
 if [[ $RC -eq 0 ]] \
   && grep -q 'now KILLED' <<<"$OUT" \
@@ -596,7 +626,7 @@ echo "(g2) unrunnable pair — the suite's exit status and its own output reach 
 # so the snapshot has to happen at failure time or there is nothing left to print. This killer
 # TALKS before it fails, the way a real suite does; the needle is that the talking survives.
 FX="$(new_fixture strong)"
-baseline_with "$FX" 'guard.sh::fail-open::1'
+baseline_with "$FX" "$(sid_for "$FX" guard.sh fail-open 1)"
 cat > "$FX/guard-selftest.sh" <<'EOF'
 #!/usr/bin/env bash
 echo "diagnostic-needle: the fixture suite explaining itself"
@@ -645,7 +675,8 @@ OUT="$( cd "$FX" && enf bash "$SWEEP" --mode full --seed \
 if [[ $RC -eq 0 ]] && [[ -s "$FX/seeded-baseline.tsv" ]] \
   && grep -q '^# environment: ubuntu-latest SKIP_STRESS=1$' "$FX/seeded-baseline.tsv" \
   && grep -q '^# k=2$' "$FX/seeded-baseline.tsv" \
-  && grep -q '^guard.sh::fail-open::1' "$FX/seeded-baseline.tsv" \
+  && grep -q '^# keying: content-v1$' "$FX/seeded-baseline.tsv" \
+  && grep -q "^$(sid_for "$FX" guard.sh fail-open 1)	" "$FX/seeded-baseline.tsv" \
   && [[ -s "$FX/seeded-slow.tsv" ]]; then
   ok "seed mode exits green and writes a headed, populated baseline + slow list"
 else
@@ -1060,12 +1091,13 @@ if [[ $MERGE_OK -eq 1 ]]; then
   ROWS_OK=1
   for g in 1 2 3 4; do
     [[ "$(grep -c "^guard$g\.sh	swept" "$FX/merged-report.tsv")" -eq 1 ]] || ROWS_OK=0
-    grep -q "^guard$g\.sh::fail-open::1	" "$FX/merged-baseline.tsv" || ROWS_OK=0
+    grep -q "^$(sid_for "$FX" "guard$g.sh" fail-open 1)	" "$FX/merged-baseline.tsv" || ROWS_OK=0
   done
   if [[ $RC -eq 0 && $ROWS_OK -eq 1 ]] \
     && [[ "$(grep -c '^guard	status	paired_selftest' "$FX/merged-report.tsv")" -eq 1 ]] \
     && [[ "$(grep -c '^# environment:' "$FX/merged-baseline.tsv")" -eq 1 ]] \
-    && [[ "$(grep -c '^# k=' "$FX/merged-baseline.tsv")" -eq 1 ]]; then
+    && [[ "$(grep -c '^# k=' "$FX/merged-baseline.tsv")" -eq 1 ]] \
+    && [[ "$(grep -c '^# keying: content-v1$' "$FX/merged-baseline.tsv")" -eq 1 ]]; then
     ok "merged report has one header + one row per guard; baseline has one header block + all survivors"
   else
     bad "(w) merge output malformed; rc=$RC rows_ok=$ROWS_OK"; printf '%s\n' "$OUT" | tail -6
@@ -1124,7 +1156,7 @@ echo "(w2) --report is a STREAMING sink, and mutation-complete is written only b
 # shard killed here from one that finished, so a marker written up front would be a lie.
 FX="$TMPROOT/streamfx$RANDOM$RANDOM"
 make_weak_fleet "$FX" 2
-baseline_with "$FX" 'guard1.sh::fail-open::1' 'guard2.sh::fail-open::1'
+baseline_with "$FX" "$(sid_for "$FX" guard1.sh fail-open 1)" "$(sid_for "$FX" guard2.sh fail-open 1)"
 mkdir -p "$FX/out"
 OBS="$FX/observed"
 # shellcheck disable=SC2016 # the single-quoted $-expressions are the FIXTURE's code, not ours
@@ -1161,7 +1193,7 @@ fi
 # written into some default location instead would be a file nothing publishes and merge
 # would never see — worse than none.
 FX2="$(new_fixture weak)"
-baseline_with "$FX2" 'guard.sh::fail-open::1'
+baseline_with "$FX2" "$(sid_for "$FX2" guard.sh fail-open 1)"
 OUT="$( cd "$FX2" && enf bash "$SWEEP" --mode full 2>&1 )"; RC=$?
 STRAY="$(find "$FX2" -name mutation-complete 2>/dev/null | grep -c . )"
 if [[ $RC -eq 0 ]] && grep -q '^guard	status	paired_selftest' <<<"$OUT" && [[ "$STRAY" -eq 0 ]]; then
@@ -1224,9 +1256,14 @@ echo "(x) sharded enforcing run — another shard's baseline rows are out of sco
 # case (d) and re-pinned here on the same fixture.
 FX="$TMPROOT/scopefx$RANDOM$RANDOM"
 make_fleet_fixture "$FX" 2
-baseline_with "$FX" 'guard2.sh::fail-open::1'
+# make_fleet_fixture's guards contain no `exit 1` at all, so there is no site to derive a key
+# from — and none is needed: what this case exercises is a baselined row whose GUARD resolves,
+# which is decided by the first segment. The literal is content-key-SHAPED so the committed
+# baseline's own lint keeps applying to the same vocabulary.
+G2SID='guard2.sh::fail-open::000000000000'
+baseline_with "$FX" "$G2SID"
 OUT="$( cd "$FX" && enf bash "$SWEEP" --mode full 2>&1 )"; RC=$?
-if [[ $RC -eq 0 ]] && grep -q 'now KILLED: guard2\.sh::fail-open::1' <<<"$OUT"; then
+if [[ $RC -eq 0 ]] && grep -q "now KILLED: $G2SID" <<<"$OUT"; then
   ok "unsharded full run still warns on the stale row"
 else
   bad "(x) unsharded run should warn 'now KILLED'; rc=$RC"; printf '%s\n' "$OUT" | tail -4
@@ -1504,8 +1541,8 @@ echo "(ac) pool equivalence — a parallel run IS the serial run, and it really 
 OBS_AC="$TMPROOT/obs-ac"
 FX="$TMPROOT/fxac$RANDOM$RANDOM"
 make_obs_fleet "$FX" 4 "$OBS_AC"
-baseline_with "$FX" 'guard1.sh::fail-open::1' 'guard2.sh::fail-open::1' \
-                    'guard3.sh::fail-open::1' 'guard4.sh::fail-open::1'
+baseline_with "$FX" "$(sid_for "$FX" guard1.sh fail-open 1)" "$(sid_for "$FX" guard2.sh fail-open 1)" \
+                    "$(sid_for "$FX" guard3.sh fail-open 1)" "$(sid_for "$FX" guard4.sh fail-open 1)"
 obs_reset "$OBS_AC"
 OUT="$( cd "$FX" && adv env MUTATION_SWEEP_JOBS=1 bash "$SWEEP" --mode full --report "$TMPROOT/ac-1.tsv" 2>&1 )"; RC=$?
 MAX1="$(obs_max "$OBS_AC")"; SB1="$(obs_sandboxes "$OBS_AC")"
@@ -1771,7 +1808,7 @@ echo "(ai) the cache is INERT in the enforcing lane — neither read nor written
 # honest: a third file the suite merely SOURCES can flip a verdict with the guard and its
 # suites byte-identical, so a stale entry must never be able to reach the authoritative lane.
 FX="$(new_fixture weak)"
-baseline_with "$FX" "guard.sh::fail-open::1"
+baseline_with "$FX" "$(sid_for "$FX" guard.sh fail-open 1)"
 CD="$TMPROOT/cache-ai"
 rm -rf "$CD"
 OUT="$( cd "$FX" && cch "$CD" bash "$SWEEP" --mode full 2>&1 )"
@@ -1844,7 +1881,7 @@ if [[ $RC -eq 1 ]] \
   && grep -q 'baseline-absent survivor' <<<"$OUT" \
   && grep -q 'serial re-run agrees' <<<"$OUT" \
   && ! grep -q 'pool disagreement' <<<"$OUT" \
-  && [[ "$(report_row "$TMPROOT/aj-agree.tsv" guard.sh)" == "0/1/guard.sh::fail-open::1" ]]; then
+  && [[ "$(report_row "$TMPROOT/aj-agree.tsv" guard.sh)" == "0/1/$(sid_for "$FX" guard.sh fail-open 1)" ]]; then
   ok "a real survivor survives the oracle and still reds as baseline-absent"
 else
   bad "(aj4) expected the survivor to stand; rc=$RC row='$(report_row "$TMPROOT/aj-agree.tsv" guard.sh)'"
@@ -1855,7 +1892,7 @@ fi
 # whole run's paired-suite budget (1 precheck + 1 mutant), the same number this fixture cost
 # before the oracle existed.
 FX="$(new_fixture weak)"
-baseline_with "$FX" 'guard.sh::fail-open::1'
+baseline_with "$FX" "$(sid_for "$FX" guard.sh fail-open 1)"
 OUT="$( cd "$FX" && enf bash "$SWEEP" --mode full 2>&1 )"; RC=$?
 C="$(computed "$OUT")"
 if [[ $RC -eq 0 ]] && [[ "${C:-0}" -eq 2 ]] \
@@ -1989,17 +2026,25 @@ echo "(am) a COMMENT is not a site — it contributes no mutant AND consumes no 
 # 28 real code sites out of the k=2 window. This case is the falsifiable half of that claim.
 FX="$TMPROOT/fxam$RANDOM$RANDOM"
 make_comment_fixture "$FX"
-baseline_with "$FX" "cg.sh::fail-open::2"
+# The expected survivor is the SECOND site the operator enumerates on cg.sh, asked for by
+# ordinal — which is what --emit-site-keys resolves ordinals for. Under content keying the
+# ordinal is a locator into the enumerated list, so "site 2" still names the second CODE line
+# only if the comment was filtered out of that list.
+CG2="$(sid_for "$FX" cg.sh fail-open 2)"
+baseline_with "$FX" "$CG2"
 OUT="$( cd "$FX" && enf bash "$SWEEP" --mode full --report "$TMPROOT/am.tsv" 2>&1 )"; RC=$?
-# THE assertion. The survivor id is the only observation that separates a correct filter from
-# both wrong ones: ::1 means comments still enumerate, ::3 means they were skipped inside the
-# loop after the counter had already advanced, ::2 means the comment never existed. And the
-# killed mutant at ordinal 1 is what proves ordinal 1 is the CODE line — nothing behavioural
-# can kill a comment flip, so a killed ordinal 1 cannot be the comment.
-if [[ "$(report_row "$TMPROOT/am.tsv" cg.sh)" == "1/1/cg.sh::fail-open::2" ]]; then
-  ok "the code site is ordinal 1 (killed) and the second code site is ordinal 2 (survives)"
+# THE assertion, and it still separates the correct filter from both wrong ones — by which
+# LINE the survivor is, now that the id names content rather than a number. Enumerating the
+# comment puts it in the k=2 window ahead of the second code line, so the surviving key is the
+# comment's and the second code site is never applied at all; skipping it inside the loop
+# leaves the enumerated list three long, so `sid_for … 2` resolves to the FIRST code line
+# while the survivor is the second. Only the filtered list makes the two agree. The killed
+# mutant carries the other half: nothing behavioural can kill a comment flip, so a killed
+# first site cannot be the comment.
+if [[ "$(report_row "$TMPROOT/am.tsv" cg.sh)" == "1/1/$CG2" ]]; then
+  ok "the first enumerated site is the code line (killed) and the second code site survives"
 else
-  bad "(am1) cg.sh row is '$(report_row "$TMPROOT/am.tsv" cg.sh)', want '1/1/cg.sh::fail-open::2'"
+  bad "(am1) cg.sh row is '$(report_row "$TMPROOT/am.tsv" cg.sh)', want '1/1/$CG2'"
   printf '%s\n' "$OUT" | tail -6
 fi
 # Two code sites, budget 2: the comment is not merely unmutated, it is not competing for the
@@ -2028,6 +2073,340 @@ if [[ $RC -eq 0 ]]; then
 else
   bad "(am4) expected rc=0; got rc=$RC"
   printf '%s\n' "$OUT" | tail -6
+fi
+
+# ---------------------------------------------------------------- content keying
+# A guard whose matched lines are chosen to exercise the key function's whole contract:
+#   alpha/beta  two lines that NORMALIZE IDENTICALLY but are not byte-identical (they differ
+#               only in indentation) — the shape that collides if the occurrence index ranges
+#               over the byte-identical class while the hash ranges over the normalized one.
+#   gamma       a line unique to itself, so moving its block cannot change anybody's index.
+# The killer only ever walks the happy path, so all three sites survive and the REPORT names
+# every id — which is what makes these cases assert on the sweep's own output rather than on
+# --emit-site-keys alone.
+make_keying_fixture() {
+  local dir="$1"
+  mkdir -p "$dir/tools"
+  cat > "$dir/guard.sh" <<'EOF'
+#!/usr/bin/env bash
+alpha() {
+  [[ "${1:-}" == "bad" ]] && exit 1
+}
+beta() {
+    [[ "${1:-}" == "bad" ]] && exit 1
+}
+gamma() {
+  [[ "${1:-}" == "ugly" ]] && exit 1
+}
+alpha "${1:-}"
+beta "${1:-}"
+gamma "${1:-}"
+echo ok
+exit 0
+EOF
+  chmod 755 "$dir/guard.sh"
+  cat > "$dir/guard-selftest.sh" <<'EOF'
+#!/usr/bin/env bash
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+out="$(bash "$HERE/guard.sh" good)"
+[[ "$out" == "ok" ]] || exit 1
+exit 0
+EOF
+  printf '# fixture operators\nfail-open\texit 1\ts/exit 1/exit 0/\n' > "$dir/tools/mutation-operators.tsv"
+  printf '# fixture exclusions\n' > "$dir/tools/mutation-exclusions.tsv"
+  printf '# fixture pair map\n'   > "$dir/tools/mutation-pair-map.tsv"
+  printf '# fixture catalog\n'    > "$dir/tools/mutation-catalog.tsv"
+  ( cd "$dir" && git init -q . && git add -A \
+    && git -c user.email=fixture@example.invalid -c user.name=fixture commit -qm init ) >/dev/null 2>&1
+}
+
+# k is raised for these three cases so every site is swept and therefore NAMED in the report.
+# At k=2 an inserted site would push a real one out of the window, and the resulting change in
+# the survivor set would be the BUDGET moving rather than an identity moving — which is the
+# distinction these cases exist to make.
+keying_run() { # $1=fixture, $2=report path -> report written, stdout is the run log
+  ( cd "$1" && adv env MUTATION_SWEEP_K=9 bash "$SWEEP" --mode full --report "$2" 2>&1 )
+}
+
+echo "(an) inserting a killable site ABOVE an existing one re-keys nothing"
+# The defect this replaces the whole keying model for. With positional ids every row below the
+# insertion point moved, so an edit that changed nothing about a mutant still obliged its PR to
+# re-baseline — the coupling that froze the gate and left #543 unresolvable at PR time.
+# DIFFERENTIAL by construction: the ids from the pre-edit run are the expectation, so nothing
+# here re-implements the key function.
+FX="$TMPROOT/fxan$RANDOM$RANDOM"
+make_keying_fixture "$FX"
+OUT="$(keying_run "$FX" "$TMPROOT/an-before.tsv")"
+BEFORE="$(survivor_set "$TMPROOT/an-before.tsv" guard.sh)"
+# The same guard with ONE new matched line above every existing one, normalizing to something
+# no other site does. Rewritten whole rather than sed -i'd: the in-place flag and the `a\`
+# append form are both BSD/GNU dialect splits, and this suite runs on the macOS lane.
+cat > "$FX/guard.sh" <<'EOF'
+#!/usr/bin/env bash
+[[ "${GUARD_PREFLIGHT:-}" == "no" ]] && exit 1
+alpha() {
+  [[ "${1:-}" == "bad" ]] && exit 1
+}
+beta() {
+    [[ "${1:-}" == "bad" ]] && exit 1
+}
+gamma() {
+  [[ "${1:-}" == "ugly" ]] && exit 1
+}
+alpha "${1:-}"
+beta "${1:-}"
+gamma "${1:-}"
+echo ok
+exit 0
+EOF
+chmod 755 "$FX/guard.sh"
+fx_commit "$FX" insert-above
+OUT2="$(keying_run "$FX" "$TMPROOT/an-after.tsv")"
+AFTER="$(survivor_set "$TMPROOT/an-after.tsv" guard.sh)"
+KEPT="$(comm -12 <(printf '%s\n' "$BEFORE") <(printf '%s\n' "$AFTER") | grep -c .)"
+NBEFORE="$(printf '%s\n' "$BEFORE" | grep -c .)"
+NAFTER="$(printf '%s\n' "$AFTER" | grep -c .)"
+if [[ "$NBEFORE" -eq 3 && "$NAFTER" -eq 4 && "$KEPT" -eq 3 ]]; then
+  ok "all 3 pre-existing ids survive an insertion above them; only the new site is new"
+else
+  bad "(an) before=$NBEFORE after=$NAFTER unchanged=$KEPT (want 3/4/3)"
+  printf 'before:\n%s\nafter:\n%s\n' "$BEFORE" "$AFTER"; printf '%s\n' "$OUT2" | tail -4
+fi
+
+echo "(ao) MOVING a block, indentation changed, re-keys nothing"
+# Whitespace normalization is what buys this, and it is not decoration: relocating a block into
+# or out of a function body changes its indentation without changing what it does. `git
+# patch-id`, the repo's other content hash, cannot deliver it — it hashes the hunk's CONTEXT
+# lines, so a block re-keys when a NEIGHBOUR moves.
+FX="$TMPROOT/fxao$RANDOM$RANDOM"
+make_keying_fixture "$FX"
+OUT="$(keying_run "$FX" "$TMPROOT/ao-before.tsv")"
+BEFORE="$(survivor_set "$TMPROOT/ao-before.tsv" guard.sh)"
+# gamma's block moves to the top of the file AND is re-indented from 2 spaces to 6. Its own
+# line is unique to it, so nothing's occurrence index moves either: the edit is purely
+# positional, which is exactly what must cost nothing.
+cat > "$FX/guard.sh" <<'EOF'
+#!/usr/bin/env bash
+gamma() {
+      [[ "${1:-}" == "ugly" ]] && exit 1
+}
+alpha() {
+  [[ "${1:-}" == "bad" ]] && exit 1
+}
+beta() {
+    [[ "${1:-}" == "bad" ]] && exit 1
+}
+alpha "${1:-}"
+beta "${1:-}"
+gamma "${1:-}"
+echo ok
+exit 0
+EOF
+chmod 755 "$FX/guard.sh"
+fx_commit "$FX" move-and-reindent
+# The re-indented line, byte for byte — the assertion below reads it back off disk so the case
+# fails loudly if the heredoc above ever stops producing the move it claims to.
+# shellcheck disable=SC2016 # this is the FIXTURE's code, not ours
+GAMMA_MOVED='      [[ "${1:-}" == "ugly" ]] && exit 1'
+
+OUT2="$(keying_run "$FX" "$TMPROOT/ao-after.tsv")"
+AFTER="$(survivor_set "$TMPROOT/ao-after.tsv" guard.sh)"
+if [[ -n "$BEFORE" && "$BEFORE" == "$AFTER" ]] \
+  && [[ "$(sed -n '2p' "$FX/guard.sh")" == "gamma() {" ]] \
+  && [[ "$(sed -n '3p' "$FX/guard.sh")" == "$GAMMA_MOVED" ]]; then
+  ok "the moved, re-indented block keeps its id, and so does every other site"
+else
+  bad "(ao) survivor set moved across a pure block move"
+  printf 'before:\n%s\nafter:\n%s\n' "$BEFORE" "$AFTER"; sed -n '1,12p' "$FX/guard.sh"
+fi
+
+echo "(ap) two normalization-identical sites get DISTINCT ids; removing the first re-keys only the second"
+# D-6's measured hazard, in miniature: hash the normalized line but index over the BYTE-identical
+# class and alpha and beta both take index 1 over the same string — one key for two sites. 24
+# such groups exist on the real tree, so getting this wrong reds `main` outright.
+FX="$TMPROOT/fxap$RANDOM$RANDOM"
+make_keying_fixture "$FX"
+OUT="$(keying_run "$FX" "$TMPROOT/ap-before.tsv")"
+BEFORE="$(survivor_set "$TMPROOT/ap-before.tsv" guard.sh)"
+NDISTINCT="$(printf '%s\n' "$BEFORE" | sort -u | grep -c .)"
+A1="$(sid_for "$FX" guard.sh fail-open 1)"; A2="$(sid_for "$FX" guard.sh fail-open 2)"
+A3="$(sid_for "$FX" guard.sh fail-open 3)"
+# alpha's whole function is deleted, taking the FIRST of the two identical lines with it.
+cat > "$FX/guard.sh" <<'EOF'
+#!/usr/bin/env bash
+beta() {
+    [[ "${1:-}" == "bad" ]] && exit 1
+}
+gamma() {
+  [[ "${1:-}" == "ugly" ]] && exit 1
+}
+beta "${1:-}"
+gamma "${1:-}"
+echo ok
+exit 0
+EOF
+chmod 755 "$FX/guard.sh"
+fx_commit "$FX" drop-first-identical
+OUT2="$(keying_run "$FX" "$TMPROOT/ap-after.tsv")"
+AFTER="$(survivor_set "$TMPROOT/ap-after.tsv" guard.sh)"
+WANT="$(printf '%s\n%s\n' "$A1" "$A3" | sort)"
+if [[ "$NDISTINCT" -eq 3 && "$A1" != "$A2" && "$AFTER" == "$WANT" ]]; then
+  ok "the identical pair is distinguished, and deleting the first hands its key to the second"
+else
+  bad "(ap) distinct=$NDISTINCT a1='$A1' a2='$A2'"
+  printf 'after:\n%s\nwant:\n%s\n' "$AFTER" "$WANT"; printf '%s\n' "$OUT2" | tail -4
+fi
+
+echo "(aq) two enumerated sites sharing a key is a named red — over ALL sites, not just the emitted ones"
+# A real 12-hex collision is a ~2^24 birthday search, so the comparison WIDTH is the seam (it
+# narrows the check only; the emitted key is always 12 hex). At one hex there are 16 buckets and
+# the fixture enumerates 20 sites, so a collision is guaranteed by pigeonhole rather than by
+# luck. k stays at 2, so 18 of those 20 sites are never emitted as sids — if the check ranged
+# over emitted ids only, it would have nothing to find.
+# shellcheck disable=SC2016 # the single-quoted $-expressions are the FIXTURE's code, not ours
+make_collide_fixture() {
+  local dir="$1" i=1
+  mkdir -p "$dir/tools"
+  { printf '#!/usr/bin/env bash\ncase "${1:-}" in\n'
+    while [[ $i -le 20 ]]; do printf '  bad%02d) echo v%02d; exit 1 ;;\n' "$i" "$i"; i=$((i + 1)); done
+    printf 'esac\necho ok\nexit 0\n'
+  } > "$dir/g.sh"
+  chmod 755 "$dir/g.sh"
+  { printf '#!/usr/bin/env bash\nHERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"\n'
+    printf 'out="$(bash "$HERE/g.sh" good)"\n[[ "$out" == "ok" ]] || exit 1\nexit 0\n'
+  } > "$dir/g-selftest.sh"
+  printf '# fixture operators\nfail-open\texit 1\ts/exit 1/exit 0/\n' > "$dir/tools/mutation-operators.tsv"
+  printf '# fixture exclusions\n' > "$dir/tools/mutation-exclusions.tsv"
+  printf '# fixture pair map\n'   > "$dir/tools/mutation-pair-map.tsv"
+  printf '# fixture catalog\n'    > "$dir/tools/mutation-catalog.tsv"
+  ( cd "$dir" && git init -q . && git add -A \
+    && git -c user.email=fixture@example.invalid -c user.name=fixture commit -qm init ) >/dev/null 2>&1
+}
+FX="$TMPROOT/fxaq$RANDOM$RANDOM"
+make_collide_fixture "$FX"
+baseline_with "$FX" "$(sid_for "$FX" g.sh fail-open 1)" "$(sid_for "$FX" g.sh fail-open 2)"
+OUT="$( cd "$FX" && enf bash "$SWEEP" --mode full 2>&1 )"; RC=$?
+if [[ $RC -eq 0 ]] && ! grep -q 'site-key collision' <<<"$OUT"; then
+  ok "20 distinct sites do not collide at the shipped 12-hex width (the negative control)"
+else
+  bad "(aq1) unmutated width should be clean; rc=$RC"; printf '%s\n' "$OUT" | tail -5
+fi
+OUT="$( cd "$FX" && enf env MUTATION_SWEEP_SITE_KEY_CMP_HEX=1 bash "$SWEEP" --mode full 2>&1 )"; RC=$?
+if [[ $RC -eq 1 ]] && grep -q 'site-key collision: two enumerated sites of fail-open on g.sh' <<<"$OUT" \
+  && grep -q 'colliding lines:' <<<"$OUT"; then
+  ok "a collision among the 18 sites past the budget still reds, by name"
+else
+  bad "(aq2) expected rc=1 + a named site-key collision; got rc=$RC"; printf '%s\n' "$OUT" | tail -5
+fi
+
+echo "(ar) no sha binary — the run reds by name, and only where a key is actually computed"
+# Fail-closed, and LAZY. The hash used to matter only to the cache, which could disable itself;
+# it now decides IDENTITY, so a run that cannot compute one must red rather than invent it. Fired
+# at the first key and not at resolution time, or a doc-only PR — which enumerates nothing —
+# would red on a host with neither binary.
+NOSHA="$TMPROOT/nosha-bin"
+mkdir -p "$NOSHA"
+OLDIFS="$IFS"; IFS=:
+for pdir in $PATH; do
+  [[ -d "$pdir" ]] && ln -s "$pdir"/* "$NOSHA"/ 2>/dev/null
+done
+IFS="$OLDIFS"
+rm -f "$NOSHA/shasum" "$NOSHA/sha256sum" "$NOSHA/gsha256sum" "$NOSHA/sha256"
+FX="$(new_fixture weak)"
+baseline_with "$FX" "$(sid_for "$FX" guard.sh fail-open 1)"
+# Control FIRST: the symlink farm is a fixture, and a farm too thin to run the sweep at all
+# would make the red below prove nothing.
+OUT="$( cd "$FX" && adv env PATH="$NOSHA:$(dirname "$(command -v sha256sum || command -v shasum)")" \
+        bash "$SWEEP" --mode full 2>&1 )"; RC=$?
+if [[ $RC -eq 0 ]] && ! grep -q 'no-sha-binary' <<<"$OUT"; then
+  ok "the pruned PATH plus one sha binary runs a clean sweep (the control)"
+else
+  bad "(ar1) control run failed; rc=$RC"; printf '%s\n' "$OUT" | tail -6
+fi
+OUT="$( cd "$FX" && adv env PATH="$NOSHA" bash "$SWEEP" --mode full 2>&1 )"; RC=$?
+if [[ $RC -eq 1 ]] && grep -q 'no-sha-binary' <<<"$OUT"; then
+  ok "a sweep that must key a site reds by name with neither binary present"
+else
+  bad "(ar2) expected rc=1 + no-sha-binary; got rc=$RC"; printf '%s\n' "$OUT" | tail -6
+fi
+# The green half of the same contract: PR mode with nothing in the diff computes no key.
+OUT="$( cd "$FX" && adv env PATH="$NOSHA" bash "$SWEEP" --mode pr --base HEAD 2>&1 )"; RC=$?
+if [[ $RC -eq 0 ]] && grep -q 'nothing to sweep' <<<"$OUT" && ! grep -q 'no-sha-binary' <<<"$OUT"; then
+  ok "a nothing-to-sweep PR run stays green with no sha binary at all"
+else
+  bad "(ar3) expected a green nothing-to-sweep run; got rc=$RC"; printf '%s\n' "$OUT" | tail -6
+fi
+# ...and so does merge, which recombines artifacts and enumerates nothing.
+FXM="$TMPROOT/fxarm$RANDOM$RANDOM"
+make_fleet_fixture "$FXM" 2
+mkdir -p "$FXM/shards/s1"
+OUT="$( cd "$FXM" && enf bash "$SWEEP" --mode full --seed --shard 1/1 \
+        --report "$FXM/shards/s1/mutation-report.tsv" \
+        --baseline-out "$FXM/shards/s1/mutation-baseline.tsv" \
+        --slow-out "$FXM/shards/s1/mutation-slow-suites.tsv" 2>&1 )"; SRC=$?
+OUT="$( cd "$FXM" && adv env PATH="$NOSHA" bash "$SWEEP" --mode merge --shards-dir "$FXM/shards" \
+        --report "$FXM/m.tsv" --baseline-out "$FXM/mb.tsv" --slow-out "$FXM/ms.tsv" 2>&1 )"; RC=$?
+if [[ $SRC -eq 0 && $RC -eq 0 ]] && ! grep -q 'no-sha-binary' <<<"$OUT"; then
+  ok "merge mode stays green with no sha binary — it computes no keys"
+else
+  bad "(ar4) merge should stay green; seed_rc=$SRC merge_rc=$RC"; printf '%s\n' "$OUT" | tail -6
+fi
+
+echo "(as) a baseline written under different keying is a named red, in EVERY mode"
+# Read content keys against an ordinal-keyed baseline and the run reports every row as
+# now-KILLED and every survivor as baseline-absent — a doubled false signal with no clue in it.
+# NOT gated on ENFORCING, unlike the environment check: a local advisory run is where the
+# damage lands, because nothing re-reads it in CI.
+FX="$(new_fixture weak)"
+SID="$(sid_for "$FX" guard.sh fail-open 1)"
+{ echo "# environment: ubuntu-latest SKIP_STRESS=1"
+  echo "# k=2"
+  printf '%s\tseeded\n' "$SID"
+} > "$FX/tools/mutation-baseline.tsv"
+AS_OK=1
+for lane in adv enf; do
+  OUT="$( cd "$FX" && $lane bash "$SWEEP" --mode full 2>&1 )"; RC=$?
+  [[ $RC -eq 1 ]] || { AS_OK=0; bad "(as1) $lane: expected rc=1, got $RC"; }
+  grep -q 'baseline-keying-mismatch' <<<"$OUT" || { AS_OK=0; bad "(as1) $lane: no named keying red"; }
+  grep -q 'now KILLED' <<<"$OUT" && { AS_OK=0; bad "(as1) $lane: reported a now-KILLED row anyway"; }
+  grep -q 'baseline-absent survivor' <<<"$OUT" && { AS_OK=0; bad "(as1) $lane: reported baseline-absent anyway"; }
+done
+[[ $AS_OK -eq 1 ]] && ok "an unkeyed baseline reds by name in both lanes, and compares no survivor"
+# A header carrying the WRONG keying is the same red — the check is equality, not presence.
+sed 's/^# k=2$/# k=2\n# keying: ordinal-v0/' "$FX/tools/mutation-baseline.tsv" > "$FX/tools/bl.tmp" \
+  && mv "$FX/tools/bl.tmp" "$FX/tools/mutation-baseline.tsv"
+OUT="$( cd "$FX" && adv bash "$SWEEP" --mode full 2>&1 )"; RC=$?
+if [[ $RC -eq 1 ]] && grep -q "declares '# keying: ordinal-v0'" <<<"$OUT"; then
+  ok "a stale keying VALUE reds and names what the file declares"
+else
+  bad "(as2) expected rc=1 naming the declared keying; got rc=$RC"; printf '%s\n' "$OUT" | tail -5
+fi
+# And a shard set that disagrees fails the merge header check rather than merging into a file
+# whose rows name two different identity functions.
+FX="$TMPROOT/fxas$RANDOM$RANDOM"
+make_fleet_fixture "$FX" 2
+MOK=1
+for i in 1 2; do
+  mkdir -p "$FX/shards/s$i"
+  OUT="$( cd "$FX" && enf bash "$SWEEP" --mode full --seed --shard "$i/2" \
+          --report "$FX/shards/s$i/mutation-report.tsv" \
+          --baseline-out "$FX/shards/s$i/mutation-baseline.tsv" \
+          --slow-out "$FX/shards/s$i/mutation-slow-suites.tsv" 2>&1 )"; RC=$?
+  [[ $RC -eq 0 ]] || { MOK=0; bad "(as3) seed shard $i failed rc=$RC"; }
+done
+if [[ $MOK -eq 1 ]]; then
+  OUT="$( cd "$FX" && adv bash "$SWEEP" --mode merge --shards-dir "$FX/shards" \
+          --report "$FX/m.tsv" --baseline-out "$FX/mb.tsv" --slow-out "$FX/ms.tsv" 2>&1 )"; RC=$?
+  [[ $RC -eq 0 ]] || { MOK=0; bad "(as3) the agreeing merge should be green, got rc=$RC"; }
+  sed 's/^# keying: content-v1$/# keying: content-v2/' "$FX/shards/s2/mutation-baseline.tsv" \
+    > "$FX/shards/s2/bl.tmp" && mv "$FX/shards/s2/bl.tmp" "$FX/shards/s2/mutation-baseline.tsv"
+  OUT="$( cd "$FX" && adv bash "$SWEEP" --mode merge --shards-dir "$FX/shards" \
+          --report "$FX/m2.tsv" --baseline-out "$FX/mb2.tsv" --slow-out "$FX/ms2.tsv" 2>&1 )"; RC=$?
+  if [[ $MOK -eq 1 && $RC -eq 1 ]] && grep -q 'baseline header mismatch across shards' <<<"$OUT"; then
+    ok "shards disagreeing on keying fail the merge header check"
+  else
+    bad "(as3) expected rc=1 + a header mismatch; got rc=$RC"; printf '%s\n' "$OUT" | tail -5
+  fi
 fi
 
 echo "(j) universe rule — every in-universe guard in the REAL tree is accounted"
@@ -2138,11 +2517,24 @@ done <<< "$(cd "$REPO_ROOT" && git ls-files '*-selftest.sh')"
 if [[ -f "$REPO_ROOT/tools/mutation-baseline.tsv" ]]; then
   grep -q '^# environment: ' "$REPO_ROOT/tools/mutation-baseline.tsv" || lint_fail "baseline has no '# environment:' header"
   grep -q '^# k=' "$REPO_ROOT/tools/mutation-baseline.tsv" || lint_fail "baseline has no '# k=' header"
+  # The keying header is what the sweep compares its own identity function against, so a
+  # committed baseline missing it is a file every run would red on.
+  grep -q '^# keying: content-v1$' "$REPO_ROOT/tools/mutation-baseline.tsv" \
+    || lint_fail "baseline has no '# keying: content-v1' header"
   while IFS=$'\t' read -r sid _; do
     case "$sid" in ''|'#'*) continue ;; esac
     case "$sid" in
       catalog::*) : ;;
-      *::*::*)    : ;;
+      # Generic ids carry a 12-hex CONTENT key in the third segment. A surviving ordinal
+      # (`::1`) is what an un-migrated row looks like, and it would silently compare against
+      # nothing for the life of the file.
+      *::*::*)
+        k="${sid##*::}"
+        case "$k" in
+          [0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]) : ;;
+          *) lint_fail "baseline survivor id is not content-keyed (want 12 hex): $sid" ;;
+        esac
+        ;;
       *) lint_fail "malformed baseline survivor id: $sid" ;;
     esac
   done < "$REPO_ROOT/tools/mutation-baseline.tsv"

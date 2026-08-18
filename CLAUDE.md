@@ -183,10 +183,12 @@ binds newly added guards.
 **Test-the-tests.** `tools/mutation-sweep.sh` mutates the repo's shell guards and runs their
 paired selftests; a mutant that survives is a regression the suite would not have caught. It runs
 diff-scoped on every PR and wholesale nightly. Survivors are **data**, not a red build — only a
-survivor absent from `tools/mutation-baseline.tsv`, or a named infra failure, reds a lane. Two
-obligations land on ordinary PRs: editing a guard's CODE re-keys its generic survivor ordinals
-(re-baseline those rows in the same diff), and re-anchors any `tools/mutation-catalog.tsv` row
-addressing it. Comment lines are not sites, so a comment-only edit re-keys nothing.
+survivor absent from `tools/mutation-baseline.tsv`, or a named infra failure, reds a lane.
+Generic survivor ids are **content-keyed**: the id is derived from the matched line itself, not
+from its position, so inserting a line above a site, moving a block, or editing a comment re-keys
+nothing and an ordinary guard edit carries **no re-baseline obligation**. One obligation still
+lands on ordinary PRs: editing a guard's CODE re-anchors any `tools/mutation-catalog.tsv` row
+addressing it, because catalog anchors are literal seds.
 Full contract: [`docs/testing.md`](docs/testing.md).
 
 **A new gate contract extends the liveness scenario** for every verdict path it touches — a gate

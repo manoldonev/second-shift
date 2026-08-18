@@ -526,7 +526,8 @@ comments, the report's `sites_comment_only` cell says so per operator, so that s
 as "no applicable site".
 
 **Survivors are data, not a red build.** Only a survivor absent from `tools/mutation-baseline.tsv`,
-or a named infra failure (`baseline-missing`, `baseline-environment-mismatch`, an unrunnable pair,
+or a named infra failure (`baseline-missing`, `baseline-environment-mismatch`,
+`baseline-keying-mismatch`, `site-key collision`, `no-sha-binary`, an unrunnable pair,
 an unaccounted guard, sandbox failure, `pool disagreement`), reds a lane. A baselined survivor is
 report-only; a baselined survivor that is now killed is a warn to shrink the baseline.
 
@@ -613,11 +614,25 @@ own evidence. The question of whether `k=2` is the right budget therefore stays 
 now open against the post-exclusion measurement, and re-arguing it means re-measuring, not quoting
 the pre-#579 numbers.
 
-**Two obligations land on ordinary PRs.** Editing a guard re-keys its generic survivor ordinals,
-so that PR re-baselines those rows in its own diff; and it re-anchors any catalog row addressing
+**Generic survivor ids are content-keyed, so identity is not positional.** A site's id is
+`<guard>::<operator>::<key>`, where `<key>` is 12 hex of a sha256 over the whitespace-normalized
+matched line plus that line's occurrence index among the operator's *normalization-identical*
+matched lines in the same guard. Inserting a killable line above a site, moving a block (whether or
+not the move re-indents it), adding or deleting a comment, and raising `k` all re-key **nothing**.
+Only editing a site's own line, or removing one of its normalization-identical siblings from
+earlier in the file, changes a key. `git patch-id` was rejected for the job precisely because it
+hashes a hunk's *context* lines, which is the sensitivity this keying exists to remove.
+
+Derive an id without a scoring run with `bash tools/mutation-sweep.sh --emit-site-keys`, which
+prints `<guard><TAB><operator><TAB><ordinal><TAB><key>` for every enumerated site. The ordinal is
+still emitted — the **budget** is positional even though identity is not, and `k` still admits the
+first two applicable sites in file order — but nothing keys on it.
+
+**One obligation lands on ordinary PRs.** Editing a guard re-anchors any catalog row addressing
 it. Catalog rows are pattern-addressed for exactly that reason — a bare line address is rejected,
 because during this harness's own intake the `check-emit-deadline` site moved by 68 lines between
-two runs a day apart, and only the expression-addressed entry survived.
+two runs a day apart, and only the expression-addressed entry survived. The generic tier's
+matching obligation is gone: with content keys there is nothing for an ordinary edit to re-key.
 
 **Where it runs.** Diff-scoped on every PR — guards whose kill set is not a single fast suite defer
 to nightly rather than being graded against a weaker criterion than the one that produced the
@@ -756,12 +771,30 @@ included.
 
 ### Runbook: the sweep just reded
 
-**`baseline-absent survivor: <guard>::<operator>::<ordinal>`** — the usual one, and usually your
-own doing: you edited a guard, which re-keyed its ordinals. The red line *is* the answer. Copy each
-named id into `tools/mutation-baseline.tsv` as `<survivor_id><TAB><note>` and commit it **in the PR
-that moved the guard**. No dispatch needed — the failing log already names every id. Before pasting,
-read the mutant: an ordinal that shifted is bookkeeping, but a *new* survivor at a site you just
-wrote is the harness telling you the test you added does not test anything.
+**`baseline-absent survivor: <guard>::<operator>::<key>`** — usually your own doing: you wrote a
+line the paired suite does not exercise. The red line *is* the answer. Copy each named id into
+`tools/mutation-baseline.tsv` as `<survivor_id><TAB><note>` and commit it **in the PR that wrote
+the site**. No dispatch needed — the failing log already names every id. Before pasting, read the
+mutant: since ids are content-keyed, a survivor that appears here sits on a line this diff *wrote
+or edited* rather than on one a shift renumbered — which usually means the test you added does not
+test anything.
+
+**`baseline-keying-mismatch: … declares '<header>', this sweep keys survivors 'content-v1'`** —
+the baseline was written under a different identity function, so *every* row would report
+`now KILLED` and *every* survivor `baseline-absent`. Checked in every mode, advisory runs included,
+because a doubled false signal does its worst damage on the run nobody re-reads in CI. Migrate the
+file rather than re-seeding it: `bash tools/mutation-sweep.sh --emit-site-keys` gives the
+`<guard>/<operator>/<ordinal> → <key>` mapping, and re-keying the rows preserves the curated notes
+a `--seed` run would flatten.
+
+**`site-key collision: two enumerated sites of <op> on <guard> both key to <key>`** — a 12-hex
+truncation collision between two sites that normalize *differently* (the occurrence index already
+separates ones that normalize the same). It ranges over every enumerated site, not just the emitted
+ones, so it fires before a rising `k` could turn it into two rows silently sharing one identity.
+
+**`no-sha-binary`** — neither `sha256sum` nor `shasum` resolves and a site key had to be computed.
+Identity is content-derived, so the sweep reds rather than inventing one. Fired lazily, at the
+first key: `--mode merge` and a nothing-to-sweep PR run compute no keys and stay green.
 
 **`pool disagreement: <id> was scored SURVIVED by the worker pool but is KILLED by a serial
 re-run`** — the harness contradicting itself. The named mutant is already reported as `KILLED`;
@@ -794,8 +827,9 @@ regardless. A run has shipped a reding baseline on exactly this mistake.
 single fast suite; everything paired to a slow or multi-suite killer (`lean-gate-selftest`,
 `scenario-liveness-selftest`, anything in `tools/mutation-slow-suites.tsv`) reports
 `deferred-to-nightly` and is **not graded on your PR**.
-Edit one of those and the ordinal re-key surfaces at 03:17 UTC, on someone else's morning. If your
-diff touches a deferred guard, expect to re-baseline from the nightly rather than from your PR.
+Edit one of those and any new survivor surfaces at 03:17 UTC, on someone else's morning. If your
+diff touches a deferred guard, expect to learn about it from the nightly rather than from your PR —
+though content keying means only a site you actually *wrote* can produce one.
 
 ## Adversarial tier (operator-run, never CI)
 

@@ -3,8 +3,8 @@
 # TAB-separated. Columns:
 #   id <TAB> guard <TAB> sed <TAB> note
 #
-# id    Echoes the seed-corpus entry it encodes. Survivor id is `catalog::<id>` —
-#       inherently stable, unlike the generic tier's positional ordinals.
+# id    Echoes the seed-corpus entry it encodes. Survivor id is `catalog::<id>` — stable by
+#       construction, as the generic tier's content keys now are too (#583).
 # guard Repo-root-relative path of the file the sed mutates. Must be in-universe and
 #       must NOT be excluded (the companion selftest lints both).
 # sed   A sed -E program applied to the WHOLE guard file.
@@ -32,8 +32,9 @@
 # was verified at :132/:133 during one intake run of this ticket and sits at :200 in the
 # base the work branched from, moved by an unrelated PR two merges later. It survived only
 # because it was addressed by its expression. A multi-line block uses a start/end pattern
-# range. A PR that edits a guard re-anchors that guard's rows in the same diff — the same
-# obligation the generic tier has to re-baseline its ordinals.
+# range. A PR that edits a guard re-anchors that guard's rows in the same diff. Since #583
+# that obligation is the CATALOG tier's ALONE: generic ids are content-derived, so an edit
+# that leaves a site's own line intact re-keys nothing and re-baselines nothing.
 #
 # SCOPE. Bash guards only. The .mjs / .md / .yml / multi-file corpus entries are deferred
 # to #240, and the struck diff-range entry (a future-refactor prediction with nothing to
