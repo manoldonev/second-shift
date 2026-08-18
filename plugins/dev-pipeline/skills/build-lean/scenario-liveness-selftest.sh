@@ -582,6 +582,70 @@ LEANBOT
   mv "$TMP/held-lean-spec.md" "$LEAN_SPEC"
   lean_seed_progress r-lean-1 sess-lean-build
 
+  # ---- leg 3e: the pre-flight receipt, composed (#517) ----------------------
+  # CLAUDE.md again: a new gate contract extends this scenario for every verdict path it
+  # touches. The per-tool suites prove the reconciliation against fixtures and the gate's
+  # classification of its exit codes. What only a composed leg can show is that the refusal
+  # is reachable through `all` — the whole-progression entry point a resume re-enters
+  # through, and the one caller that reaches milestone 1 with PRECHECK set. A check placed
+  # below the observe guard (where the gh-calling pause-and-ask check sits) would let `all`
+  # report milestone 1 clean on a spec the very next direct call refuses, which is the
+  # shape a scheduler reads as progress.
+  #
+  # The receipt is written at the DEFAULT path rather than through --ledger-file, so the leg
+  # composes the real $MAIN_ROOT/$STATE_DIR/<issue>-ledger.md resolution too. It is removed
+  # again at the end: it would otherwise change milestone 1 for every leg below.
+  LEAN_RECEIPT="$LEAN_TREE/.claude/pipeline-state/77-ledger.md"
+  mkdir -p "$LEAN_TREE/.claude/pipeline-state"
+  printf '%s\n' '# receipt' '## Decision Ledger' \
+    '| ID | Decision | Resolution | Provenance | Kind |' \
+    '| --- | --- | --- | --- | --- |' \
+    '| D-1 | Fix scope | Both call sites | user-answered | intent |' \
+    '| D-2 | Cache TTL | 5 minutes | codebase-derived | fact |' \
+    > "$LEAN_RECEIPT"
+  cp "$LEAN_SPEC" "$TMP/held-lean-spec-517.md"
+
+  # The spec leg 1 committed carries no Decision Ledger at all — the state the founding
+  # incident shipped in, and the state every spec in this suite is otherwise in. That is why
+  # the refusal here names the missing SECTION rather than the individual row: the per-row
+  # naming is lean-gate-selftest.sh's (a9), and what this leg owns is the composed path.
+  lean_seed_progress r-lean-1 sess-lean-build
+  rcp_all_out="$(lean_gate all 77 2>&1)"; rcp_all=$?
+  rcp_pre_attempt=$(lean_count '| milestone-1 | attempt |')
+  rcp_direct_out="$(lean_gate 1 77 2>&1)"; rcp_direct=$?
+
+  # ...and the same tree once the row is carried forward. Nothing else about the spec or the
+  # tree changes between the two calls, so the reconciliation is the only thing they can be
+  # reacting to.
+  {
+    printf '\n## Decision Ledger\n'
+    printf '| ID | Decision | Resolution | Provenance |\n'
+    printf '| --- | --- | --- | --- |\n'
+    printf '| D-1 | Fix scope | Both call sites | user-answered |\n'
+  } >> "$LEAN_SPEC"
+  lean_seed_progress r-lean-1 sess-lean-build
+  rcp_fixed_out="$(lean_gate 1 77 2>&1)"; rcp_fixed=$?
+
+  # NON-VACUITY, and the inertness contract: put the dropped-row spec back, take the RECEIPT
+  # away, and the same call passes. Without this the leg cannot tell "the reconciliation
+  # refused" from "this spec was refused for some other reason all along".
+  cp "$TMP/held-lean-spec-517.md" "$LEAN_SPEC"
+  rm -f "$LEAN_RECEIPT"
+  lean_seed_progress r-lean-1 sess-lean-build
+  rcp_inert_out="$(lean_gate 1 77 2>&1)"; rcp_inert=$?
+
+  [[ "$rcp_all" -ne 0 && "$rcp_direct" -eq 1 && "$rcp_fixed" -eq 0 && "$rcp_inert" -eq 0 \
+     && "$rcp_pre_attempt" -eq 0 ]] \
+    && grep -q 'does not reconcile with the pre-flight ledger' <<< "$rcp_all_out" \
+    && grep -q 'carries 1 row(s) the plan must carry forward' <<< "$rcp_direct_out" \
+    && grep -q '1 bound, 0 carried, 0 departure(s)' <<< "$rcp_direct_out" \
+    && grep -q '1 bound, 1 carried, 0 departure(s)' <<< "$rcp_fixed_out" \
+    && ! grep -q 'bound,' <<< "$rcp_inert_out" \
+    && pass "(lean-receipt) a dropped pre-flight receipt row reds both 'all' and milestone 1, passes once carried forward, and is inert with no receipt" \
+    || fail "(lean-receipt) all=$rcp_all direct=$rcp_direct fixed=$rcp_fixed inert=$rcp_inert pre-pass-attempts=$rcp_pre_attempt, expected nonzero/1/0/0/0. all-out=$rcp_all_out direct-out=$rcp_direct_out fixed-out=$rcp_fixed_out inert-out=$rcp_inert_out"
+
+  lean_seed_progress r-lean-1 sess-lean-build
+
   # ---- leg 3d: an interrupted evaluation, composed (#497) -------------------
   # Same CLAUDE.md obligation: the interrupted budget's rc=4 is a new verdict path. The per-tool
   # suite proves the pair and the bound against one milestone in isolation, including the real

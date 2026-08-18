@@ -233,10 +233,12 @@
 #                            fetches it once from the same endpoint)
 #   --issue-file <path>      milestone 1's pause-and-ask check: read the issue body ({"body":
 #                            "..."}) from a JSON fixture instead of `gh issue view`
-#   --ledger-file <path>     milestone 1's pause-and-ask check: read the pre-flight ledger's
-#                            Open Regions table from this path instead of the default
-#                            $STATE_DIR/<issue>-ledger.md (#533). Read ALONGSIDE the issue body,
-#                            not instead of it — a region declared in either source is seen.
+#   --ledger-file <path>     milestone 1's pause-and-ask check AND its #517 receipt
+#                            reconciliation: read the pre-flight ledger from this path instead
+#                            of the default $STATE_DIR/<issue>-ledger.md (#533). Its Open
+#                            Regions table is read ALONGSIDE the issue body, not instead of it
+#                            — a region declared in either source is seen — while its `D-n`
+#                            rows are the only source for the carry-forward check.
 #   LEAN_RUN_MODEL           #347: the `model:` key stamped into the progress/verdict record
 #                            at creation time (retro-corpus.sh's corpus-aggregation key).
 #                            Read once, not cached; absent reads "unknown", never an error.
@@ -414,7 +416,7 @@ while [ $# -gt 0 ]; do
     --obligations)   PROGRESS_OBLIGATIONS=1; shift ;;
     --m3-token)      M3_RUN_TOKEN="${2:-}"; shift 2 ;;
     --arm)           STALENESS_ARM="${2:-}"; shift 2 ;;
-    -h|--help)       sed -n '2,295p' "$0"; exit 0 ;;
+    -h|--help)       sed -n '2,297p' "$0"; exit 0 ;;
     -*)              envfail "unknown option: $1" ;;
     *)
       if [ "$POSITIONAL" -eq 0 ]; then SUB="$1"; POSITIONAL=1
@@ -2988,7 +2990,8 @@ resolve_ledger_lint() {
 # and NO further content assertion. The path predicate is not an extra check — it is which
 # file "exists" means, and check-lean-chain.sh keys its artifact scan off the same shape.
 cmd_1() {
-  local spec="$REPO_ROOT/$SPEC_REL" n reason pa_rc dstate note="" lint lint_out lint_rc
+  local spec="$REPO_ROOT/$SPEC_REL" n reason pa_rc dstate note="" lint="" lint_out lint_rc
+  local receipt rec_out rec_rc
   # #494: ABSENCE, not a failed fix — block_milestone, whose line kind attempt_count() cannot
   # see. This is the call SKILL.md step 3 orders before the spec can exist.
   [ -f "$spec" ] || { block_milestone 1 "no committed spec at $SPEC_REL"; return $?; }
@@ -3008,6 +3011,40 @@ cmd_1() {
     if [ "$lint_rc" -ne 0 ]; then
       fail_milestone 1 "spec $SPEC_REL's Decision Ledger fails ledger-lint: $lint_out"; return $?
     fi
+  fi
+
+  # #517: the pre-flight receipt is BINDING INPUT (SKILL.md step 4) — and until now nothing in
+  # the lane held it beside the spec this run committed. The review session reads the COMMITTED
+  # spec; by the time it looks, a dropped receipt row has left no trace to notice its absence
+  # against, and a row the spec silently re-decided the other way reads as an ordinary choice.
+  # This is the one place both documents are in reach at once.
+  #
+  # It is necessarily LOCAL and never a merge-boundary check: $STATE_DIR is gitignored on every
+  # consumer, this repo included, so check-lean-chain.sh in CI cannot read the receipt at all.
+  #
+  # Same seam as the #562 lint above, and the same reason: the provenance enum stays single-sited
+  # in ledger-lint.sh rather than gaining a third parser here (lockstep-manifest.tsv:370).
+  # `resolve_ledger_lint` is re-used only when the branch above did not already resolve it.
+  receipt="$(pause_and_ask_ledger_path)"
+  if [ -f "$receipt" ]; then
+    [ -n "$lint" ] || lint="$(resolve_ledger_lint)" \
+      || envfail "milestone-1: intake-toolkit's ledger-lint.sh could not be resolved (checked the monorepo layout and the install cache under both plugins) — cannot reconcile $SPEC_REL against the pre-flight ledger. Fix the install."
+    rec_out="$(bash "$lint" --reconcile "$receipt" "$spec" 2>&1)"; rec_rc=$?
+    case "$rec_rc" in
+      0) note="$note, ${rec_out#ledger-lint: reconcile: }" ;;
+      # A fix the build role can make — edit the committed spec — so it spends a fix attempt,
+      # exactly as #562's provenance lint does two blocks up.
+      1) fail_milestone 1 "spec $SPEC_REL does not reconcile with the pre-flight ledger $receipt: $rec_out"; return $? ;;
+      # Anything else is a READ that failed (an unreadable receipt, a broken install). "No
+      # ledger" and "a ledger this could not read" are different facts and neither may report
+      # CLEAR — but the second is not a failed fix either, so it never charges the budget.
+      #
+      # This is the SAME fact #533's check_pause_and_ask reports below, and it is worded so,
+      # because this block now reaches an unreadable ledger first: it runs in the observe pass
+      # (it opens no socket) while that check sits under the guard. The rc and the
+      # no-fix-attempt half of the contract are unchanged — only which reader says it first.
+      *) envfail "milestone-1: could not read pre-flight ledger $receipt while reconciling it against $SPEC_REL (ledger-lint exit $rec_rc): $rec_out" ;;
+    esac
   fi
 
   # #394 D-8. Grep-shaped like the AC-n assertion above and evaluated in the observe pass with
