@@ -301,7 +301,19 @@ else check "report-state-excerpt-lean-preferred" 1; echo "$lout" | sed 's/^/    
 
 # ...and WITHIN the lean class, newest still wins — so the preference above is a class filter
 # layered on the -nt selection, not a replacement for it.
-printf '2026-02-02T03:04:05Z | milestone-1 | attempt | newer-lean-run-marker\n' > "$lroot/.claude/pipeline-state/99-lean-progress.md"
+#
+# #585. THE NEWER FILE MUST SORT BEFORE THE OLDER ONE. state_excerpt()'s scan is a
+# `[[ -z "$newest" || "$f" -nt "$newest" ]]` accumulator over a glob, and flipping its emptiness
+# test degenerates it into "take the LAST entry in glob order": with newest="" the -nt arm is
+# true because its second operand does not exist, and every iteration after that short-circuits
+# on the now-non-empty left arm. This case used to write the newer marker to `99-…`, which was
+# BOTH newest by mtime and last in glob order — so the degenerate selection agreed with the
+# correct one and the case passed either way, which is how that flip reached the nightly sweep
+# as a survivor. `11-…` sorts ahead of the older `88-…` and breaks the coincidence: mtime
+# selection reaches for this file, glob-order selection reaches for the other, and only one of
+# them satisfies both assertions below. Renaming it to anything sorting after `88-…` re-blinds
+# the case.
+printf '2026-02-02T03:04:05Z | milestone-1 | attempt | newer-lean-run-marker\n' > "$lroot/.claude/pipeline-state/11-lean-progress.md"
 lout2="$(DOCTOR_REPO_ROOT="$lroot" DOCTOR_PLUGIN_LIST_FILE="$TMP/report-lean-pluglist.json" \
          DOCTOR_MARKETPLACE_LIST_FILE="$FIX/marketplace-list-pinned.json" DOCTOR_USER_SETTINGS="$TMP/empty-user-settings.json" \
          bash "$DOCTOR" --report 2>&1)"

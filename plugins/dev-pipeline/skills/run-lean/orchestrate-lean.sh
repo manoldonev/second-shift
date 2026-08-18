@@ -248,11 +248,17 @@ now_iso() { date -u +%Y-%m-%dT%H:%M:%SZ; }
 # carefully.
 say()     { echo "$(now_iso) [orchestrate-lean] $*"; }
 
-# #531 D-1. THE TERMINAL TAXONOMY. `grep -c 'exit 1'` on this file used to return thirteen sites,
-# and one of them — "BUILD advanced but left no open PR" — covered *paused on a question nothing
-# could answer*, *crashed*, and *orphaned its sweep and died*: three different remedies behind one
-# scalar. Every run-ending exit now prints a stable machine-readable slug, so a log can be routed
-# on the CONDITION rather than on a prose match that moves with the wording.
+# #531 D-1. THE TERMINAL TAXONOMY. Counting this file's bare status-1 exits used to return
+# thirteen sites, and one of them — "BUILD advanced but left no open PR" — covered *paused on a
+# question nothing could answer*, *crashed*, and *orphaned its sweep and died*: three different
+# remedies behind one scalar. Every run-ending exit now prints a stable machine-readable slug, so
+# a log can be routed on the CONDITION rather than on a prose match that moves with the wording.
+#
+# #585. That count is spelled in words on purpose, and so is the text-search idiom that produced
+# it. The mutation enumerator reads prose as code, so naming either literal here manufactures a
+# phantom site — this one line was ordinal 1 for TWO operators at once while the guard's real
+# sites had all moved into terminal(), which is how it reached the nightly as a survivor no case
+# could ever kill. Keep it in words.
 #
 # THE SLUG IS IN THE LOG, NOT IN THE EXIT CONTRACT, and that is deliberate rather than a
 # compromise. The eight documented exit codes below are unchanged: run-lean/SKILL.md enumerates
