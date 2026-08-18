@@ -162,7 +162,7 @@ const isNoStructuredOutputError = (err) => /StructuredOutput/.test(String(err))
 // Mirrors the future production rung 1: no schema is passed, so the StructuredOutput death
 // class cannot occur; the agent ends with a sentinel + fenced JSON block that the script
 // parses. Last-match-wins guards against the agent quoting the instruction mid-prose
-// (mutation-gate.mjs parseResult precedent).
+// (the parseResult precedent from the since-retired mutation-gate.mjs engine, #574).
 const REVIEW_RESULT_EPILOGUE =
   '\n\nWrite your review, grounding as much as you need. Your FINAL output MUST end with' +
   ' this sentinel line followed by one fenced json block and NOTHING after it:\n\n' +
@@ -221,7 +221,9 @@ const TARGETS = {
       `missed downstream impacts. Return trinary verdict (block | fix-and-go | pass) and findings.`,
     mandate: STRUCTURED_OUTPUT_MANDATE,
   },
-  // The child plan-review nests via workflow() (unit-tests.mjs kind: 'plan-review').
+  // Mirrored the production nested dispatch (unit-tests.mjs kind: 'plan-review') until
+  // #574 retired that engine; kept as-is — the instrument replays the pre-registered
+  // #291 dispatch shape, which is historical by design.
   'unit-test-plan-reviewer': {
     // bounded-exploration-optout: probe target -- measurement control, as above.
     schema: PLAN_REVIEW_SCHEMA,

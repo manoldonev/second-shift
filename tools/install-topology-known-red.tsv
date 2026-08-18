@@ -28,8 +28,9 @@
 # and CORRECTED by the first run in a second environment, which is the only kind that can
 # falsify a "measured here" claim: CI scores 49 pass, 6 listed on both lanes. The two extra
 # rows were real failures the authoring machine's environment hid. Two suites and
-# design-sync-selftest.mjs are deliberately ABSENT — both were fixed rather than listed, and
-# so was workflows-mjs-selftest.sh, which was red only because it invokes design-sync's.
+# design-sync-selftest.mjs were deliberately ABSENT — both were fixed rather than listed, and
+# so was workflows-mjs-selftest.sh, which was red only because it invoked design-sync's.
+# (design-sync-selftest.mjs itself was retired in #574 with its engine.)
 #
 # The three fixed-hop-count rows — check-emit-deadline-selftest.sh, doctor-selftest.sh and
 # preflight-selftest.sh — are DRAINED: each site now runs the house sibling-resolution ladder,

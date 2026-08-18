@@ -3,12 +3,11 @@
 #
 # Why this shim exists: CI discovers selftests purely by the `*-selftest.sh` glob
 # (.github/workflows/ci.yml), so a `.mjs` selftest is invisible to it no matter how
-# thorough it is. Before this file, neither sibling ran in CI:
-#   - null-reviewer-selftest.mjs  — executed ONLY by tools/pipeline-doctor.sh, an
-#                                   operator diagnostic that CI never invokes.
-#   - design-sync-selftest.mjs    — no executor anywhere in the tree.
-# Both are real, asserting suites; they were simply unreachable. This shim rides the
-# glob and hands them to node.
+# thorough it is. Before this file, neither .mjs sibling ran in CI (null-reviewer-
+# selftest.mjs was executed ONLY by tools/pipeline-doctor.sh, an operator diagnostic
+# CI never invokes; the since-retired design-sync-selftest.mjs had no executor
+# anywhere in the tree). Real, asserting suites; they were simply unreachable. This
+# shim rides the glob and hands them to node.
 #
 # Deliberately located next to the .mjs files it runs, rather than in
 # tools/ with the other shell harnesses: it is a thin adapter for THIS directory's
@@ -45,11 +44,12 @@ run_mjs() {
 }
 
 echo "[workflows-mjs-selftest]"
-run_mjs design-sync-selftest.mjs
 run_mjs null-reviewer-selftest.mjs
 # runtime-shim-selftest.mjs executes the PRODUCTION .mjs bodies (meta-stripped, injected
 # fakes) instead of hand-maintained copies of them — the structural replacement for the
-# mirror-harness technique the two suites above used to rely on (#214).
+# mirror-harness technique the suite above used to rely on (#214). It also carries the
+# meta literal-purity lint over every sibling workflow (relocated from the retired
+# design-sync-selftest.mjs Case I, #574).
 run_mjs runtime-shim-selftest.mjs
 
 echo "[workflows-mjs-selftest] $([[ $FAILS -eq 0 ]] && echo 'all green' || echo "$FAILS FAILURE(S)")"

@@ -44,8 +44,8 @@ CHECKS=(
   "skills/run-lean/SKILL.md|ticketTag|topology.repos.<id>.ticketTag pair routing (#4)"
   # #15: extended BEYOND stageParams — every published key that gained a reader
   # must keep it, or the dead-key class (a config key nothing reads) ships again.
-  "workflows/mutation-gate.mjs|unitTestScope|commands.<host>.unitTestScope"
-  "workflows/mutation-gate.mjs|testFile|commands.<host>.testFile"
+  # (The mutation-gate.mjs rows for unitTestScope/testFile left with the engine and
+  # the keys' retirement, #574.)
 )
 
 

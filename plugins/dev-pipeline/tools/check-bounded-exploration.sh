@@ -81,7 +81,7 @@ PLUGIN_DIR="$(dirname "$SCRIPT_DIR")"      # plugins/dev-pipeline
 # separate top-level review session and its workflows/ directory went with it (an empty-but-
 # present directory would have made the meta-purity lint silently vacuous), so skills/run is
 # the whole set again. Adding a second workflow directory means one new entry here — and the
-# matching one in design-sync-selftest.mjs Case I, which is anchored the same way. Both
+# matching one in runtime-shim-selftest.mjs Case R, which is anchored the same way. Both
 # suites DISCOVER the real set and fail if a directory is missing from the list, so neither
 # edit can be silently forgotten.
 WORKFLOW_DIRS=("$PLUGIN_DIR/workflows")

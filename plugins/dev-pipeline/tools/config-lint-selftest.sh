@@ -80,6 +80,13 @@ expect_violation invalid-bad-plangate.json          "planGates was removed in #5
 # second one contradicting it. This is the whole point of the allowlist mechanic.
 expect_no_violation invalid-bad-stageworkflow.json  "unknown top-level keys"
 expect_no_violation invalid-bad-plangate.json       "unknown top-level keys"
+# #574 retired commands.<repo>.unitTestScope / .testFile with the mutation-gate engine —
+# the nested-key sibling of the #569 mechanic above: WELL-FORMED values, because the keys
+# themselves are the violation; the rejection must NAME each key; and the generic
+# unknown-keys message must NOT also fire (the keys stay in the commands allowlist).
+expect_violation invalid-removed-mutation-keys.json "commands.host.unitTestScope was removed in #574"
+expect_violation invalid-removed-mutation-keys.json "commands.host.testFile was removed in #574"
+expect_no_violation invalid-removed-mutation-keys.json "commands.host: unknown keys"
 # #107: lintAutofixes:true + a plain `npm run` lint command silently no-ops the autofix the
 # flag declares — npm swallows a trailing `--fix` without a `--` separator. valid-lintautofix-npm-withfix.json
 # (picked up by the valid-*.json loop above) proves the trailing-`--` escape hatch is accepted.

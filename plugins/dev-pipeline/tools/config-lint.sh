@@ -104,8 +104,14 @@ ERRORS=$(jq -r '
     )
   + ((.commands // {}) | to_entries | map(
       (.key as $repo | .value |
-        err(((keys) - ["lint","lintAutofixes","typecheck","test","testFile","unitTestScope","format","lanes","extraLanes","allowUnverified"]) != []; "commands." + $repo + ": unknown keys (note: integrationTest/apiTest were removed in v2.1.6, commands.<repo>.build was removed (#113: never executed by any verify lane) — ship those tiers via extraLanes; see docs/migrations)")
-        + ([to_entries[] | select(.key | IN("lint","typecheck","test","testFile","unitTestScope","format")) |
+        # unitTestScope/testFile retired in #574 with the mutation-gate engine (their only
+        # functional reader, itself unreachable since #348). Same shape as the EP-6/7/8
+        # retirement above: a NAMED rejection, and the retired keys stay in the unknown-keys
+        # allowlist so this message — not the generic one — is what a consumer sees.
+        err(has("unitTestScope"); "commands." + $repo + ".unitTestScope was removed in #574 — the unit-test mutation engine that read it (workflows/mutation-gate.mjs) lost its dispatcher in #348 and was retired, so the key armed nothing. The mutation seam is repo-carried: lean-gate.sh milestone 3 runs tools/mutation-sweep.sh when your repo ships one (docs/onboarding.md), and gates.mutation declares the intent. Delete the key from your config (docs/migrations/v1-to-v2.md)")
+        + err(has("testFile"); "commands." + $repo + ".testFile was removed in #574 — it was the retired unit-test mutation engine\u0027s per-spec runner template, read by nothing else. Delete the key from your config (docs/migrations/v1-to-v2.md)")
+        + err(((keys) - ["lint","lintAutofixes","typecheck","test","testFile","unitTestScope","format","lanes","extraLanes","allowUnverified"]) != []; "commands." + $repo + ": unknown keys (note: integrationTest/apiTest were removed in v2.1.6, commands.<repo>.build was removed (#113: never executed by any verify lane) — ship those tiers via extraLanes; see docs/migrations)")
+        + ([to_entries[] | select(.key | IN("lint","typecheck","test","format")) |
             err((.value | type) | IN("string","null") | not; "commands." + $repo + "." + .key + ": must be string or null")
           ] | add // [])
         + err((.lintAutofixes? != null) and ((.lintAutofixes | type) != "boolean"); "commands." + $repo + ".lintAutofixes: must be boolean")

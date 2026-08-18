@@ -89,7 +89,7 @@ echo "config-grill selftest:"
 # nothing injects), and a detected alternative must be offered with its own count.
 R="$(mkrepo t2-web-default src/App.tsx src/Button.tsx README.md)"
 cfg "$R/c.json" <<EOF
-{ $STD_HEAD, "commands": {"app":{"unitTestScope":null,"testFile":null}} }
+{ $STD_HEAD, "commands": {"app":{}} }
 EOF
 run_grill "$R" "$R/c.json"
 expect_finding "t2 webComponentGlobs: absent key, default matches nothing" \
@@ -228,11 +228,12 @@ expect_finding "t2 formatGlob: hand-set value matching nothing still fires" \
 
 # --- AC-4: the deleted ids are GONE from every envelope array -------------------------------
 # Deleted outright, not merely silenced. Visual capture is dropped as a capability (`extraLanes`
-# is the consumer home for a capture lane), and the testFile obligation is inert on the default
-# lane, which reads neither `testFile` nor `unitTestScope`. This fixture is the exact shape that
-# made BOTH fire before — a hand-set triggerGlobs matching nothing on a tree that renders
-# something, plus a unitTestScope with a null testFile — so a re-introduction lands here rather
-# than nowhere. Checked across all three arrays: re-appearing as a notEvaluated or unadopted
+# is the consumer home for a capture lane), and the testFile obligation died with its key
+# (`testFile`/`unitTestScope` were retired outright in #574). This fixture deliberately KEEPS
+# the retired keys — it replays the exact shape that made BOTH ids fire before (a hand-set
+# triggerGlobs matching nothing on a tree that renders something, plus a unitTestScope with a
+# null testFile), so a re-introduction lands here rather than nowhere. The grill runs on
+# drafts pre-lint, so the schema retirement does not blank the probe. Checked across all three arrays: re-appearing as a notEvaluated or unadopted
 # entry is the same regression wearing a different severity.
 cfg "$R/deleted.json" <<EOF
 { $STD_HEAD, "commands": {"app":{"unitTestScope":"src/**","testFile":null}},
@@ -265,65 +266,60 @@ done
 # --- AC-4: trigger 4, the mutation seam ----------------------------------------------------
 # The seam has ONE owner: a repo-carried tools/mutation-sweep.sh that the green gate executes.
 # So the detectable inconsistency is a config that DECLARES mutation intent over a repo carrying
-# nothing to run it. Either half of the declaration is enough, and each gets its own case with
-# the other half explicitly OFF — a check keyed to one half alone would pass every fixture built
-# for the other.
+# nothing to run it. Since #574 retired commands.<repo>.unitTestScope, gates.mutation is the
+# ONLY declared-intent signal — under RUNTIME semantics: `.gates.mutation // empty` means only
+# the literal false is the off-switch, so ABSENT IS NOT FALSE. The evidence must say which
+# state it found; a check keyed to `== true` alone would miss the far commoner absent case.
 R6="$(mkrepo t4 apps/web/App.tsx apps/web/src/app/P.tsx a.ts)"
 R6S="$(mkrepo t4-swept apps/web/App.tsx apps/web/src/app/P.tsx a.ts tools/mutation-sweep.sh)"
 
-# Declaration half 1: unitTestScope set, with gates.mutation explicitly false so it cannot be
-# what fires.
-cfg "$R6/scope-no-sweep.json" <<EOF
-{ $STD_HEAD, "commands": {"app":{"unitTestScope":"src/**","testFile":null}},
-  "gates": {"mutation": false} }
-EOF
-run_grill "$R6" "$R6/scope-no-sweep.json"
-expect_finding "t4 unitTestScope set + no sweep (gate explicitly off)" \
-  T4.mutation-plumbing.app "commands.app.unitTestScope is set" "carries no tools/mutation-sweep.sh" \
-  "--mode pr --base origin/<baseBranch>"
-
-# Declaration half 2: gates.mutation, under RUNTIME semantics — `.gates.mutation // empty` means
-# only the literal false is the off-switch, so ABSENT IS NOT FALSE. The evidence must say which
-# state it found; a check keyed to `== true` alone would miss the far commoner absent case.
 cfg "$R6/mut-absent.json" <<EOF
-{ $STD_HEAD, "commands": {"app":{"unitTestScope":null,"testFile":null}} }
+{ $STD_HEAD, "commands": {"app":{}} }
 EOF
 run_grill "$R6" "$R6/mut-absent.json"
 expect_finding "t4 gates.mutation absent (absent is not false) + no sweep" \
   T4.mutation-plumbing.app "absent" "NOT false"
 cfg "$R6/mut-true.json" <<EOF
-{ $STD_HEAD, "commands": {"app":{"unitTestScope":null}}, "gates": {"mutation": true} }
+{ $STD_HEAD, "commands": {"app":{}}, "gates": {"mutation": true} }
 EOF
 run_grill "$R6" "$R6/mut-true.json"
 expect_finding "t4 gates.mutation true + no sweep" T4.mutation-plumbing.app "gates.mutation is true"
 
-# Both halves at once: ONE finding whose evidence names both states, not two findings and not
-# whichever state was evaluated last.
-cfg "$R6/mut-both.json" <<EOF
+# The retirement probe (#574): the RETIRED key must contribute nothing — one finding, whose
+# evidence is the gates state alone. Before #574 this exact shape produced evidence naming
+# unitTestScope; a re-introduced arm lands here rather than nowhere. (The fixture key is
+# schema-retired — the grill runs on drafts pre-lint, so what is probed is the grill's own
+# read, not the schema.)
+cfg "$R6/mut-retired-key.json" <<EOF
 { $STD_HEAD, "commands": {"app":{"unitTestScope":"src/**"}}, "gates": {"mutation": true} }
 EOF
-run_grill "$R6" "$R6/mut-both.json"
-expect_finding "t4 both halves declared → evidence names both" \
-  T4.mutation-plumbing.app "commands.app.unitTestScope is set" "and gates.mutation is true"
-if [[ "$(jq -r '[.findings[] | select(.id=="T4.mutation-plumbing.app")] | length' <<< "$OUT")" == "1" ]]; then
-  check "t4 both halves declared → exactly one finding" 0
+run_grill "$R6" "$R6/mut-retired-key.json"
+expect_finding "t4 the retired unitTestScope key contributes nothing to the evidence" \
+  T4.mutation-plumbing.app "gates.mutation is true"
+if [[ -z "$(jq -r '.findings[] | select(.id=="T4.mutation-plumbing.app") | .evidence | select(test("unitTestScope"))' <<< "$OUT")" ]]; then
+  check "t4 retired-key evidence never names unitTestScope" 0
 else
-  check "t4 both halves declared → duplicate findings" 1
+  check "t4 retired-key evidence still names unitTestScope (#574 regression)" 1
+fi
+if [[ "$(jq -r '[.findings[] | select(.id=="T4.mutation-plumbing.app")] | length' <<< "$OUT")" == "1" ]]; then
+  check "t4 retired key → still exactly one finding" 0
+else
+  check "t4 retired key → duplicate findings" 1
 fi
 
 # The declared opt-out stays silent...
 cfg "$R6/mut-false.json" <<EOF
-{ $STD_HEAD, "commands": {"app":{"unitTestScope":null}}, "gates": {"mutation": false} }
+{ $STD_HEAD, "commands": {"app":{}}, "gates": {"mutation": false} }
 EOF
 run_grill "$R6" "$R6/mut-false.json"
-expect_no_finding "t4 gates.mutation false + no scope is the declared off-switch → silent" \
+expect_no_finding "t4 gates.mutation false is the declared off-switch → silent" \
   T4.mutation-plumbing.app
 
 # ...and so does a repo that actually CARRIES the sweep — the negative half, without which the
 # check could be "fires on every config" and still pass everything above. Byte-identical config
 # to the absent-gates case that fires, so the sweep file is the only difference between them.
 cfg "$R6S/mut-absent.json" <<EOF
-{ $STD_HEAD, "commands": {"app":{"unitTestScope":null,"testFile":null}} }
+{ $STD_HEAD, "commands": {"app":{}} }
 EOF
 run_grill "$R6S" "$R6S/mut-absent.json"
 expect_no_finding "t4 the repo carries the sweep → silent" T4.mutation-plumbing.app
@@ -496,11 +492,11 @@ cfg "$RP/c.json" <<'EOF'
   "topology": {"type":"be-fe-pair","repos":{
     "be": {"path":".","baseBranch":"main"},
     "fe": {"path":"../scoping-fe","baseBranch":"main"}}},
-  "commands": {"be":{"unitTestScope":"src/**","testFile":null},
-               "fe":{"unitTestScope":"src/**","testFile":null}} }
+  "commands": {"be":{"test":"yarn test"},
+               "fe":{"test":"yarn test"}} }
 EOF
 run_grill "$RP" "$RP/c.json"
-expect_finding "scoping: the evaluated repo IS checked" T4.mutation-plumbing.be "commands.be"
+expect_finding "scoping: the evaluated repo IS checked" T4.mutation-plumbing.be "NOT false"
 expect_no_finding "scoping: the sibling repo is NOT checked" T4.mutation-plumbing.fe
 expect_noteval "scoping: the sibling is reported as not-evaluated" topology.fe "sibling checkout"
 
@@ -598,26 +594,26 @@ expect_no_unadopted "t1 sweep: silent when the repo carries one" T1.mutation-swe
 # checks it"). Both directions of the waiver are pinned, since a suppression written into the
 # wrong tier only shows up from one side.
 cfg "$RMS/both-tiers.json" <<EOF
-{ $STD_HEAD, "commands": {"app":{"test":"yarn test","unitTestScope":"src/**"}} }
+{ $STD_HEAD, "commands": {"app":{"test":"yarn test"}} }
 EOF
 run_grill "$RMS" "$RMS/both-tiers.json"
 expect_finding "t1 sweep: the findings[] row fires alongside the advisory" \
-  T4.mutation-plumbing.app "unitTestScope is set"
+  T4.mutation-plumbing.app "NOT false"
 expect_unadopted "t1 sweep: the advisory fires alongside the finding" T1.mutation-sweep.app "yarn test"
 cfg "$RMS/waived-finding.json" <<EOF
-{ $STD_HEAD, "commands": {"app":{"test":"yarn test","unitTestScope":"src/**"}},
+{ $STD_HEAD, "commands": {"app":{"test":"yarn test"}},
   "grillWaivers": { "T4.mutation-plumbing.app": "declared: no mutation coverage here" } }
 EOF
 run_grill "$RMS" "$RMS/waived-finding.json"
 expect_no_finding "t1 sweep: waiving the finding suppresses only the finding" T4.mutation-plumbing.app
 expect_unadopted "t1 sweep: ...and leaves the advisory standing" T1.mutation-sweep.app "yarn test"
 cfg "$RMS/waived-advisory.json" <<EOF
-{ $STD_HEAD, "commands": {"app":{"test":"yarn test","unitTestScope":"src/**"}},
+{ $STD_HEAD, "commands": {"app":{"test":"yarn test"}},
   "grillWaivers": { "T1.mutation-sweep.app": "no sweep wanted here" } }
 EOF
 run_grill "$RMS" "$RMS/waived-advisory.json"
 expect_no_unadopted "t1 sweep: a waiver suppresses the advisory" T1.mutation-sweep.app
-expect_finding "t1 sweep: ...and leaves the finding standing" T4.mutation-plumbing.app "unitTestScope is set"
+expect_finding "t1 sweep: ...and leaves the finding standing" T4.mutation-plumbing.app "NOT false"
 
 # --- AC-1: exit codes ----------------------------------------------------------------------
 run_grill "$R" "$R/nope.json"

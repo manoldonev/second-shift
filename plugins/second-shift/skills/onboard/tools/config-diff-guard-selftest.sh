@@ -94,7 +94,8 @@ expect_rc() { # $1 label, $2 expected rc, $3 (optional) substring the stderr mes
 echo "config-diff-guard selftest:"
 
 # --- AC-2 classification table + the motivating evidence ------------------------------------
-# The audited re-onboard reverted BOTH mutation-gate keys — one to an explicit null, one by
+# The audited re-onboard reverted BOTH mutation keys (since retired, #574 — the guard is
+# path-agnostic and this fixture replays the original incident) — one to an explicit null, one by
 # omission — while every other key round-tripped. Both spellings destroy the value, so both are
 # `removed`; distinguishing them in the evidence is what tells the reader which half of the draft
 # to look at. `lint` changing is `changed`, `typecheck` round-tripping is silent.

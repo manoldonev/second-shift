@@ -3,7 +3,7 @@
 // DesignSync is a model-invoked tool, so the actual list_projects/get_project/list_files/
 // get_file calls are made by the orchestrating agent — the design-faithful skills, which
 // carry the DesignSync tool. (The Workflow engine does NOT call DesignSync; its runtime has
-// no tool access — see design-sync.mjs READ BOUNDARY.) These helpers are
+// no tool access — the handoff is read upstream and passed in as data.) These helpers are
 // pure: they take the JSON those calls return and apply the limits / fail-closed
 // classification, so the contract is testable without the live tool.
 //

@@ -267,57 +267,27 @@ else
 fi
 
 sites="$(printf '%s\n' "$out" | sed -n 's/^check-bounded-exploration: \([0-9]*\) dispatch site.*/\1/p')"
-if [ -n "$sites" ] && [ "$sites" -ge 16 ]; then
-  ok "B2 live tree detection finds $sites dispatch sites (>=16)"
+# Floor re-baselined 16 -> 12 in #574: the four retired engines (design-sync, figma,
+# mutation-gate, unit-tests) took their dispatch sites with them.
+if [ -n "$sites" ] && [ "$sites" -ge 12 ]; then
+  ok "B2 live tree detection finds $sites dispatch sites (>=12)"
 else
-  bad "B2 expected >=16 detected sites in the live tree, got '${sites:-none}'"
+  bad "B2 expected >=12 detected sites in the live tree, got '${sites:-none}'"
 fi
 
-# B3: AC-6 — retries dropped 2 -> 1 on EVERY carrier of dispatchSchemaAgent.
-# A second carrier left this list in #348. The carriers are enumerated
-# rather than globbed, so a file that silently stops carrying the helper is a B3 failure
-# rather than an invisible drop from the loop.
-for f in unit-tests.mjs design-sync.mjs figma.mjs; do
-  if grep -qF 'dispatchSchemaAgent = async (prompt, opts, retries = 1)' "$WORKFLOWS/$f"; then
-    ok "B3 $f dispatchSchemaAgent retries = 1"
-  else
-    bad "B3 $f no longer pins retries = 1 (AC-6)"
-  fi
-done
-
-# B4: the surviving retry is not a verbatim repeat. NARROWER than B3 by contract, not by
-# oversight: RETRY_ESCALATION is the exploration-nudge escalation, and only the two
-# exploration-class dispatchers ever carried it — one deleted in #348, and
-# unit-tests.mjs. design-sync.mjs and figma.mjs carry the retries=1 pin without it, and
-# always have; asserting it on them would be a new requirement wearing a regression's clothes.
-# shellcheck disable=SC2043  # one carrier since #348; kept as a loop
-# because the contract is "every exploration-class dispatcher", not "this one file".
-for f in unit-tests.mjs; do
-  if grep -qF 'RETRY_ESCALATION' "$WORKFLOWS/$f"; then
-    ok "B4 $f retry carries an escalated preamble"
-  else
-    bad "B4 $f lost RETRY_ESCALATION — a retry would repeat verbatim (AC-6)"
-  fi
-done
-
-# B5: the probe's plan-shaped arms must dispatch what production dispatches. stall-probe.mjs
-# necessarily re-states the plan-shaped schema and nudge (Workflow scripts cannot import), so an
-# edit to one without the other silently makes the AFTER rate measure a dispatch nobody ships.
+# B3/B4/B5: DROPPED in #574 — the subjects no longer exist.
 #
-# RE-ANCHORED in #348, and this is the load-bearing half of that deletion for #291. The
-# production side used to be a since-deleted dispatcher, so the
-# lockstep would have died with it, leaving the probe's plan-shaped arm free to drift away from
-# anything shipped. It does not die: `unit-tests.mjs` in its `kind: 'plan-review'` mode carries
-# BOTH tokens verbatim and survives the deletion, so it is the production counterpart now. The
-# probe still measures a dispatch that ships.
-PROD_PLAN_SHAPED="$WORKFLOWS/unit-tests.mjs"
-for token in "verdict: { type: 'string', enum: ['block', 'fix-and-go', 'pass'] }" "GROUND PROPORTIONATELY"; do
-  if grep -qF "$token" "$WORKFLOWS/stall-probe.mjs" && grep -qF "$token" "$PROD_PLAN_SHAPED"; then
-    ok "B5 stall-probe and unit-tests (plan-review mode) agree on: ${token:0:38}"
-  else
-    bad "B5 drift between stall-probe.mjs and unit-tests.mjs on: ${token:0:38}"
-  fi
-done
+# B3 asserted the retries=1 pin on every carrier of dispatchSchemaAgent, and B4 the
+# RETRY_ESCALATION preamble on the exploration-class carrier; #574 retired all three
+# carriers (unit-tests.mjs, design-sync.mjs, figma.mjs), and no surviving workflow
+# ships the helper at all. B5 held stall-probe.mjs's plan-shaped arms in lockstep with
+# unit-tests.mjs's `kind: 'plan-review'` dispatch — the production counterpart #348's
+# re-anchor chose, retired with the same set. The probe itself stays (it is the #291
+# pre-registered instrument, preserved by #348 ledger D-2) and now replays a HISTORICAL
+# dispatch shape by design; a lockstep against a file that no longer exists would red
+# forever, and re-anchoring it to the probe alone would compare a copy against itself
+# — the mirror-harness class. A guard whose subject no longer exists is removed, not
+# repurposed (the diff-range Case G precedent).
 
 # B6: the probe keeps an unbounded arm. If `bounded` ever stops gating the nudge there is no
 # control, and every AFTER rate becomes unfalsifiable.

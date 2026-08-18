@@ -256,10 +256,10 @@ plugins sit behind a version segment (`<root>/<plugin>/<version>/…`) instead o
 `plugins/`. Two suites depended on exactly those and were green here the whole time — one
 borrowed the repo's git toplevel for its fixtures, so from an install its assertions were skipped
 wholesale (one failing, two passing vacuously), and
-`design-sync-selftest.mjs` walked a fixed `../../../../design-toolkit` path. So: **a fixture owns
-its own repo** (`git init` inside a `mktemp -d`), and **a cross-plugin path goes through a
-resolution ladder**, never a fixed hop count — `resolve_sibling()` in `pipeline-doctor.sh` is the
-reference, mirrored in `.mjs` at the top of `design-sync-selftest.mjs`.
+the since-retired `design-sync-selftest.mjs` (#574) walked a fixed `../../../../design-toolkit`
+path. So: **a fixture owns its own repo** (`git init` inside a `mktemp -d`), and **a
+cross-plugin path goes through a resolution ladder**, never a fixed hop count —
+`resolve_sibling()` in `tools/resolve-sibling.sh` is the reference.
 
 `tools/install-topology-selftest.sh` is the class guard, and it is the reason no new instance of
 this needs its own test: it stages `plugins/` at version-keyed paths outside any git repo and
@@ -394,9 +394,10 @@ Notes from building it:
   itself; a schema-carrying dispatch resolves to an already-validated **object**. Getting this
   backwards makes cases fail for the wrong reason.
 - The meta-strip is a balanced-brace scan, not a parser. That is safe only because
-  `design-sync-selftest.mjs` Case I lints every workflow for meta-literal purity — and "every"
+  `runtime-shim-selftest.mjs` Case R lints every workflow for meta-literal purity (relocated
+  from the retired design-sync-selftest.mjs Case I, #574) — and "every"
   is a **list** of workflow directories. One directory is in it today — the plugin's own
-  `workflows/`. Adding a directory means adding it to Case I's list **and** to
+  `workflows/`. Adding a directory means adding it to Case R's list **and** to
   `tools/check-bounded-exploration.sh`, which is anchored the same way — a workflow outside
   the list is unlinted, which makes the meta-strip unsound for exactly the files it is used
   on. Neither edit can be silently skipped: both sites discover every `workflows/` directory
@@ -406,8 +407,9 @@ Notes from building it:
   and the self-check would have been silently vacuous.
 - `workflow` is **last** in the parameter list, and adding a global must stay an append —
   inserting one shifts every existing positional call site, and cases then fail for reasons that
-  look like production bugs. `mutation-gate.mjs` needs it for its nested dispatches; a workflow that never calls it is
-  driven by omitting the argument.
+  look like production bugs. No shipped workflow invokes it since #574 retired the nested
+  dispatcher (mutation-gate.mjs); the parameter mirrors the runtime's injection set, and a
+  workflow that never calls it is driven by omitting the argument.
 - A script that drives a workflow must `process.exit()` explicitly. The dispatch ceiling timers
   keep node's event loop alive, so merely reaching the end of the file hangs for fifteen minutes
   rather than returning.

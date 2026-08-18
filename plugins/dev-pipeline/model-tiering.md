@@ -22,13 +22,10 @@ Each LLM dispatch site uses a capability tier; this table maps tiers to concrete
 
 ## Anonymous-executor tiers
 
-Most dispatch sites name an agent, so their tier is lockstep-checked against that agent's
-`model:` frontmatter. One does not: `workflows/mutation-gate.mjs` dispatches ANONYMOUS
-executors, which have no frontmatter to compare against. Its tier is therefore declared here
-and `check-model-tiers.sh` holds `EXECUTOR_MODEL` to this line:
-
-- mutation-gate executors: sonnet (`EXECUTOR_MODEL` in `workflows/mutation-gate.mjs`)
-
-The tier stays consumer-overridable: the executor is the named logical agent
-`mutation-executor`, and the script must route through `modelOverrides['mutation-executor']`
-rather than reading the scalar directly — `check-model-tiers.sh` asserts that too (EP-4).
+Every surviving dispatch site names an agent, so its tier is lockstep-checked against that
+agent's `model:` frontmatter. The one anonymous carrier — `workflows/mutation-gate.mjs`,
+whose executors had no frontmatter and were declared here for `check-model-tiers.sh` to hold
+`EXECUTOR_MODEL` against — was retired with its engine in #574, along with the
+`modelOverrides['mutation-executor']` (EP-4) routing assertion. A future anonymous dispatcher
+re-adds its tier note under this heading; the guard's shape is in check-model-tiers.sh's git
+history.

@@ -52,7 +52,7 @@ Hard limits — state them rather than guessing:
 
 See `review-toolkit:reviewer-baseline` for the full protocol (loaded automatically via the `skills: reviewer-baseline` frontmatter) — in particular **Grounding Verdicts in Source Artifacts**, **Diff-scope discipline**, **Time-boxing**, **Confidence Scoring**, and **Severity Levels**.
 
-**Output delta.** Under `figma.mjs` (`kind: 'gate'`) this reviewer is dispatched **schema-free**, so the baseline's Output Mode instruction to call `StructuredOutput` does not apply: write the prose review, then end your output with the `REVIEW_RESULT` sentinel and one fenced JSON block (`verdict`, `findings[]`, `summary`) and nothing after it — the dispatcher parses that block. Dispatched without that gate wrapper, the prose **Standard Output Format** and **Suppressed Findings** apply as written.
+**Output delta.** Under the review-lead fan-out's text contract this reviewer is dispatched **schema-free** (its former gate dispatcher, the figma.mjs engine, was retired in #574), so the baseline's Output Mode instruction to call `StructuredOutput` does not apply: write the prose review, then end your output with the `REVIEW_RESULT` sentinel and one fenced JSON block (`verdict`, `findings[]`, `summary`) and nothing after it — the dispatcher parses that block. Dispatched without that gate wrapper, the prose **Standard Output Format** and **Suppressed Findings** apply as written.
 
 ---
 

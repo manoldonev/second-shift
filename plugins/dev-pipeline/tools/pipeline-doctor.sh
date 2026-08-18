@@ -93,13 +93,14 @@ echo "[doctor] info  /bin/bash is $(/bin/bash -c 'echo $BASH_VERSION') (macOS sh
 # not on `command -v`. node + yarn are hard deps (FAIL); npx/prettier/ruff degrade (WARN).
 
 # node — hard dep of the PIPELINE ITSELF: the Workflow gates (code-review.mjs at
-# the review fan-out, mutation-gate.mjs) run under node regardless of the consumer's language.
+# the review fan-out, intake-review.mjs at intake) run under node regardless of the
+# consumer's language.
 if node --version >/dev/null 2>&1; then
-  ok "node invokable ($(node --version 2>/dev/null)) — Workflow gates (code-review.mjs / mutation-gate.mjs)"
+  ok "node invokable ($(node --version 2>/dev/null)) — Workflow gates (code-review.mjs / intake-review.mjs)"
 elif command -v node >/dev/null 2>&1; then
   bad "node is on PATH but 'node --version' fails to run — a broken nvm/shell wrapper? The pipeline's Bash sees the same failure. Fix the shell init, or put an absolute node bin dir on PATH"
 else
-  bad "node not invokable in this non-interactive shell — the Workflow gates (code-review.mjs, mutation-gate.mjs) need it; if nvm-managed, login-shell aliases don't apply to the pipeline's Bash. Put an absolute node bin dir on PATH"
+  bad "node not invokable in this non-interactive shell — the Workflow gates (code-review.mjs, intake-review.mjs) need it; if nvm-managed, login-shell aliases don't apply to the pipeline's Bash. Put an absolute node bin dir on PATH"
 fi
 
 # Package managers / tools the CONFIGURED commands invoke (first word of each
@@ -422,7 +423,7 @@ fi
 # function), so a bare `node --check` false-fails; wrap before checking. Gate on
 # node invocability like 5b.
 if node --version >/dev/null 2>&1; then
-  for wfscript in code-review.mjs mutation-gate.mjs; do
+  for wfscript in code-review.mjs intake-review.mjs; do
     wrap=$(mktemp -t doctor-wfcheck.XXXXXX).mjs
     { echo '(async () => {'; sed 's/^export const meta/const meta/' "$PLUGIN_DIR/workflows/$wfscript"; echo '})()'; } > "$wrap"
     if node --check "$wrap" >/dev/null 2>&1; then

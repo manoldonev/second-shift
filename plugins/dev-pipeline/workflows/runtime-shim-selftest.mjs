@@ -4,8 +4,8 @@
 //
 // WHY THIS EXISTS (#214, epic #213)
 // --------------------------------
-// The suites this file replaces (design-sync-selftest.mjs Cases A-F, null-reviewer-
-// selftest.mjs Cases A-E/G) were MIRROR HARNESSES: they re-implemented production's
+// The suites this file replaces (the since-retired design-sync-selftest.mjs Cases A-F,
+// null-reviewer-selftest.mjs Cases A-E/G) were MIRROR HARNESSES: they re-implemented production's
 // dispatch logic inside the selftest and then tested the copy. That technique is
 // structurally incapable of failing on a production edit, and it rotted exactly as
 // you would predict — both suites still modelled the pre-#169 StructuredOutput-retry
@@ -28,16 +28,18 @@
 //
 // WHAT THIS DOES AND DOES NOT PROVE
 // ---------------------------------
-// Proves: the real dispatch ladders in code-review.mjs and design-sync.mjs behave as
+// Proves: the real dispatch ladders in code-review.mjs and intake-review.mjs behave as
 // specified under success, contract-miss-then-retry, emitter fallback, turn-cap death,
 // hard-throw, and budget-exhaustion — because THIS FILE EXECUTES THOSE FILES.
 // Does not prove: anything about the Workflow runtime itself (concurrency caps, real
 // model dispatch, journal semantics). Those remain out of reach of a model-free CI.
 //
 // The meta-strip is a balanced-brace scan, not a parser. That is sound here because
-// design-sync-selftest.mjs Case I lints every sibling workflow for meta-literal purity
-// (no template interpolation, no computed values), so a brace inside a string in the
-// meta block cannot ship.
+// Case R below lints every sibling workflow for meta-literal purity (no template
+// interpolation, no computed values), so a brace inside a string in the meta block
+// cannot ship. (The lint lived in design-sync-selftest.mjs Case I until #574 retired
+// that suite with its engine; it moved here because this file is what its soundness
+// underwrites.)
 //
 // The shim mechanics themselves (stripMeta / makeRunner / the injected fakes) live in
 // `runtime-shim-lib.mjs` — a non-glob sibling, so CI never executes it directly — because
@@ -52,7 +54,6 @@ import { fileURLToPath } from 'node:url'
 import {
   makeBudget,
   makeFakeAgent,
-  makeFakeWorkflow,
   makeRunner,
   noop,
   parallel,
@@ -63,7 +64,6 @@ import {
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 const CODE_REVIEW_MJS = join(HERE, 'code-review.mjs')
-const DESIGN_SYNC_MJS = join(HERE, 'design-sync.mjs')
 const INTAKE_REVIEW_MJS = join(HERE, 'intake-review.mjs')
 
 let PASS = 0
@@ -90,15 +90,6 @@ const findingsBlock = (verdict = 'approve') =>
   reviewBlock({
     verdict,
     findings: [{ severity: 'minor', title: 't', description: 'd', confidence: 70, file: 'f.ts', line: 1 }],
-  })
-
-// The same for design-sync's GATE_SCHEMA (verdict enum pass|warn|block), optionally
-// carrying a failClosed marker.
-const gateBlock = (extra = {}) =>
-  reviewBlock({
-    verdict: 'pass',
-    findings: [{ severity: 'nit', title: 't', description: 'd', confidence: 60 }],
-    ...extra,
   })
 
 const runCodeReview = (behaviors, argsOverride = {}) => {
@@ -132,7 +123,7 @@ console.log('[runtime-shim-selftest]')
 console.log('── Case A: meta-strip + wrap executes production bodies')
 for (const [name, path] of [
   ['code-review.mjs', CODE_REVIEW_MJS],
-  ['design-sync.mjs', DESIGN_SYNC_MJS],
+  ['intake-review.mjs', INTAKE_REVIEW_MJS],
 ]) {
   try {
     makeRunner(path)
@@ -243,155 +234,6 @@ console.log('── Case C: code-review.mjs budget clean-skip')
   eq('C1 exhausted budget returns the budgetExhausted marker', result.budgetExhausted, true)
   eq('C1 exhausted budget dispatches NOTHING (all-or-nothing)', f.calls.length, 0)
   eq('C1 exhausted budget yields an empty reviewer set by construction', result.reviewers, [])
-}
-
-// ---------------------------------------------------------------------------
-// Case D — design-sync.mjs args validation (rebuilt from the deleted Case A).
-// ---------------------------------------------------------------------------
-console.log('── Case D: design-sync.mjs args validation')
-const runDesignSync = (behaviors, args, budget) => {
-  const f = makeFakeAgent(behaviors)
-  return makeRunner(DESIGN_SYNC_MJS)(f.agent, parallel, pipeline, args, noop, noop, budget).then(
-    (result) => ({ result, calls: f.calls }),
-    (error) => ({ error, calls: f.calls }),
-  )
-}
-{
-  const { error } = await runDesignSync([], { kind: 'nonsense' })
-  ok('D1 an illegal kind is rejected', !!error && /args.kind must be/.test(error.message))
-}
-{
-  const { error } = await runDesignSync([], { kind: 'produce', screen: 'detail' })
-  ok('D2 produce without projectId is rejected', !!error && /projectId and args.screen are required/.test(error.message))
-}
-{
-  const { error } = await runDesignSync([], { kind: 'produce', implement: true, projectId: 'p', screen: 'detail' })
-  ok('D3 produce implement:true without a worktree is rejected (F26)', !!error && /args.worktree is required when implement:true/.test(error.message))
-}
-{
-  const { error } = await runDesignSync([], { kind: 'gate', worktree: '/tmp/wt', base: 'a', head: 'b', reviewers: [] })
-  ok('D4 gate with an empty reviewer set is rejected', !!error && /reviewers must be a non-empty array/.test(error.message))
-}
-
-// ---------------------------------------------------------------------------
-// Case E — design-sync.mjs gate-reviewer first-throw returns {error} immediately.
-// This is the behavior the deleted mirror got WRONG: it modelled a retry that
-// production does not perform on a throw.
-// ---------------------------------------------------------------------------
-console.log('── Case E: design-sync.mjs gate dispatch ladder')
-{
-  const gateArgs = {
-    kind: 'gate',
-    worktree: '/tmp/wt',
-    base: 'a',
-    head: 'b',
-    issue: '214',
-    reviewers: ['design-toolkit:design-faithful-reviewer'],
-    config: { reviewers: {} },
-  }
-  const { result, calls, error } = await runDesignSync([{ throw: 'transport died' }], gateArgs)
-  // REGRESSION GUARD (#214): before this PR the gate path referenced the retired
-  // STRUCTURED_OUTPUT_MANDATE (#169), an identifier design-sync.mjs never defines, so
-  // EVERY gate dispatch died with ReferenceError before reaching a model. The mirror
-  // harness could not see it — it exercised its own copy of dispatchGateReviewer.
-  // Executing the real body is the only technique that catches this class.
-  ok('E0 the gate path executes without a ReferenceError (retired-global regression)', !error || !/is not defined/.test(String(error.message)))
-  eq('E1 a first-attempt throw is NOT retried (production returns immediately)', calls.length, 1)
-  const entry = result && Array.isArray(result.reviewers) ? result.reviewers[0] : undefined
-  ok('E1 the throw is forwarded as an error entry', !!entry && entry.result === null && !!entry.error)
-  ok('E1 a first-throw is NOT flagged twice-dead', !!entry && !entry.retried && !entry.failed)
-}
-
-// ---------------------------------------------------------------------------
-// Case F — design-sync.mjs normalizeFailClosed, exercised END TO END.
-// The deleted Case C tested an in-file COPY of this function. Here the real one runs:
-// we feed a fail-closed payload through the production gate and assert the envelope.
-// ---------------------------------------------------------------------------
-console.log('── Case F: design-sync.mjs fail-closed normalization (end-to-end)')
-{
-  const FAIL_CLOSED = ['design-source-unreachable', 'project-type-mismatch', 'file-too-large', 'batch-overflow']
-  const gateArgs = {
-    kind: 'gate',
-    worktree: '/tmp/wt',
-    base: 'a',
-    head: 'b',
-    issue: '214',
-    reviewers: ['design-toolkit:design-faithful-reviewer'],
-    config: { reviewers: {} },
-  }
-  for (const reason of FAIL_CLOSED) {
-    const { result, error } = await runDesignSync([gateBlock({ failClosed: { reason, detail: 'd' } })], gateArgs)
-    const blob = JSON.stringify(result ?? String(error))
-    ok(`F ${reason} survives normalization into the returned envelope`, blob.includes(reason))
-  }
-  // An UNKNOWN reason must NOT be promoted to a fail-closed marker — that is the whole
-  // point of the allowlist (an unknown string masquerading as a clean skip would mask a
-  // real verdict).
-  const { result } = await runDesignSync([gateBlock({ failClosed: { reason: 'totally-made-up-reason' } })], gateArgs)
-  const unknownEntry = result.reviewers[0]
-  // The raw agent payload still carries the bogus marker under `result` — that is fine
-  // and expected. What must NOT happen is PROMOTION to the entry-level `failClosed`
-  // annotation, which is what downstream reads. Assert on structure, not substring.
-  ok('F an UNKNOWN failClosed reason is not promoted to the entry-level marker', !('failClosed' in unknownEntry))
-  const { result: knownResult } = await runDesignSync(
-    [gateBlock({ failClosed: { reason: 'file-too-large', detail: 'd' } })],
-    gateArgs,
-  )
-  ok(
-    'F the known-reason path DOES promote (proving the check above is not vacuous)',
-    'failClosed' in knownResult.reviewers[0] && knownResult.reviewers[0].failClosed.reason === 'file-too-large',
-  )
-}
-
-// ---------------------------------------------------------------------------
-// Case G — the injected `workflow` global (the 8th wrapper parameter, #217).
-//
-// Without it, mutation-gate.mjs dies with a ReferenceError before
-// reaching a fake — the same class as design-sync.mjs's retired STRUCTURED_OUTPUT_MANDATE
-// (Case E0). An 8th parameter that nothing invokes is untested wiring, so this case
-// asserts the nested dispatch actually goes THROUGH it, and that the argument really is
-// last (a mis-ordered insert would silently shift `args` and is caught by G3).
-//
-// G1 is deliberately the WEAK assertion and must not be read as the guard. Verified by
-// removing the parameter and re-running: G1 stays green, because mutation-gate.mjs wraps
-// its propose call in try/catch (`proposalError = 'propose dispatch threw: …'`) and
-// swallows the ReferenceError into its own retry loop. G2/G3/G4 are the killers — they go
-// red on that mutant. The distinction matters: a future reader trimming this case to "the
-// ReferenceError check" would be left with a guard that cannot fail.
-// ---------------------------------------------------------------------------
-console.log('── Case G: the injected workflow() global')
-{
-  const MUTATION_GATE_MJS = join(HERE, 'mutation-gate.mjs')
-  const gateArgs = {
-    worktree: '/tmp/wt',
-    base: 'aaa',
-    head: 'bbb',
-    issue: '217',
-    workflowsDir: 'workflows',
-    round: 1,
-    inputs: {},
-    config: { reviewers: {} },
-    testFileCommand: 'true {file}',
-  }
-  // The nested propose call resolves to unit-tests.mjs's envelope. No blocker mutants ⇒
-  // no executor dispatches, so the gate reaches its verdict on the proposal alone.
-  const f = makeFakeAgent([])
-  const w = makeFakeWorkflow([{ result: { mutants: [], mockAuditFindings: [], summary: 'canned' } }])
-  let result
-  let error
-  try {
-    result = await makeRunner(MUTATION_GATE_MJS)(f.agent, parallel, pipeline, gateArgs, noop, noop, undefined, w.workflow)
-  } catch (e) {
-    error = e
-  }
-  ok('G1 mutation-gate.mjs executes without a ReferenceError on the workflow global', !error || !/is not defined/.test(String(error.message)))
-  eq('G2 the nested propose goes through the injected workflow()', w.calls.length, 1)
-  ok('G3 the nested dispatch targets unit-tests.mjs (proving args reached the body intact)', String(w.calls[0]?.ref?.scriptPath) === 'workflows/unit-tests.mjs')
-  // NOT merely `typeof overall === 'string'` — under the missing-parameter mutant the
-  // swallowed ReferenceError produces overall:'infra', which is also a string. Asserting
-  // the propose SUCCEEDED is what makes this a killer.
-  ok('G4 the canned proposal is consumed (overall is a real verdict, not the infra path)', !!result && result.overall !== 'infra' && typeof result.overall === 'string')
-  eq('G5 no executor is dispatched when there are no blocker mutants', f.calls.length, 0)
 }
 
 // ---------------------------------------------------------------------------
@@ -551,73 +393,6 @@ console.log('── Case N: intake-review.mjs referencedDocs content injection')
 }
 
 // ---------------------------------------------------------------------------
-// Case P — unit-tests.mjs's mutation-review dispatch carries the decorative-test
-// audit (#410).
-//
-// The instruction lives in three places: the agent's own .md (its system prompt),
-// the mutation-review skill, and this dispatch prompt. Only the third is reachable
-// by a model-free test — the other two are markdown, where a presence grep is the
-// banned class. So this case pins the seam execution CAN see: run the real
-// unit-tests.mjs body and read what it actually dispatched.
-//
-// P2/P3 are the killer pair. P2 alone would stay green if the clause were hoisted
-// above the kind branch and sent on every dispatch — which would put a mutation-only
-// instruction in front of the plan reviewer. P3 pins the opposite branch: the two
-// must DIFFER. P1 is the anti-vacuity leg — without it a mis-keyed args.kind would
-// assert against the plan-review prompt and pass for the wrong reason.
-// ---------------------------------------------------------------------------
-console.log('── Case P: unit-tests.mjs decorative-test audit in the dispatch (#410)')
-
-const UNIT_TESTS_MJS = join(HERE, 'unit-tests.mjs')
-
-const runUnitTests = (behaviors, argsOverride = {}) => {
-  const f = makeFakeAgent(behaviors)
-  const args = {
-    kind: 'mutation-review',
-    worktree: '/tmp/wt',
-    target: 'unit-test-mutation-reviewer',
-    base: 'aaa',
-    head: 'bbb',
-    issue: '410',
-    inputs: {},
-    config: { reviewers: {} },
-    ...argsOverride,
-  }
-  return makeRunner(UNIT_TESTS_MJS)(f.agent, parallel, pipeline, args, noop, noop, undefined).then((r) => ({
-    result: r,
-    calls: f.calls,
-  }))
-}
-
-// unit-tests.mjs carries TWO schemas and validateShape rejects a near-miss, so the
-// canned block has to match the branch under test (mutants+summary vs verdict+findings).
-const mutationBlock = () => reviewBlock({ mutants: [], mockAuditFindings: [], summary: 's' })
-const planBlock = () => reviewBlock({ verdict: 'pass', findings: [], summary: 's' })
-
-{
-  const { result, calls } = await runUnitTests([mutationBlock()])
-  const p = String(calls[0]?.prompt ?? '')
-  ok(
-    'P1 the mutation-review branch dispatched to the mutation reviewer (anti-vacuity)',
-    calls[0]?.opts?.agentType === 'review-toolkit:unit-test-mutation-reviewer' && /PROPOSE-ONLY mode/.test(p),
-  )
-  ok('P1 the canned proposal is consumed, so the dispatch resolved rather than dying dark', !!result?.result && !result.result.infraFailure)
-  ok('P2 the dispatch prompt names the decorative-test audit', /decorative added tests/.test(p))
-  ok('P2 it carries the criterion, not just the label', /only killer of no proposed mutant/.test(p))
-}
-{
-  // P3 — the SAME workflow on the plan-review branch must not carry the clause.
-  const { calls } = await runUnitTests([planBlock()], {
-    kind: 'plan-review',
-    target: 'unit-test-plan-reviewer',
-    inputs: { planPath: 'docs/plans/p.md' },
-  })
-  const p = String(calls[0]?.prompt ?? '')
-  ok('P3 the plan-review prompt was actually dispatched (anti-vacuity)', /Review the unit test strategy/.test(p))
-  ok('P3 the decorative-test clause is scoped to the mutation-review branch', !/decorative/.test(p))
-}
-
-// ---------------------------------------------------------------------------
 // Case Q — code-review.mjs bare-name normalization (#434).
 //
 // The bug: review-lead's panel named plugin reviewers BARE, code-review.mjs passed
@@ -673,6 +448,84 @@ console.log('── Case Q: code-review.mjs bare-name normalization')
   eq('Q4 a normalized dispatch that dies twice is dispatched qualified', calls[0].opts.agentType, 'review-toolkit:security-reviewer')
   eq('Q4 but its dark marker still names the caller-passed spelling', result.reviewers[0].agentType, 'security-reviewer')
   ok('Q4 and is still a well-formed twice-dead marker', result.reviewers[0].result === null && result.reviewers[0].failed === true)
+}
+
+// ---------------------------------------------------------------------------
+// Case R — Workflow meta literal-purity across every sibling workflows/*.mjs.
+// Relocated verbatim-in-substance from the retired design-sync-selftest.mjs Case I
+// (#574): the Workflow runtime requires `export const meta = {...}` to be a PURE
+// LITERAL — a BinaryExpression (string concatenation), template literal, call,
+// spread, or identifier value makes the runtime reject the whole script at dispatch
+// ("non-literal node type in meta"). v2.0.0 shipped a workflow with a concatenated
+// meta.description and the defect surfaced only at the first real dispatch (a canary
+// run). This case is the offline guard, and it is load-bearing for THIS file too:
+// stripMeta's balanced-brace scan is sound only while meta blocks are pure literals,
+// so it lives beside the consumer of the invariant.
+//
+// The scanned set is a LIST of workflow directories. A workflow outside it is both
+// unlinted AND unsafe to drive through the shim, so the discovery assertion below
+// walks the plugin root's siblings and fails on any workflows/ dir not in the list.
+// Adding a directory means one entry here plus the matching one in
+// tools/check-bounded-exploration.sh, and neither can be silently forgotten.
+// ---------------------------------------------------------------------------
+console.log('── Case R: workflow meta literal-purity (relocated from design-sync-selftest Case I)')
+{
+  const { readdirSync, existsSync, statSync } = await import('node:fs')
+  const PLUGIN_SIBLINGS = join(HERE, '..', '..')
+  const WORKFLOW_DIRS = [HERE].filter((d) => existsSync(d))
+  const discovered = readdirSync(PLUGIN_SIBLINGS)
+    .map((s) => join(PLUGIN_SIBLINGS, s, 'workflows'))
+    .filter((d) => existsSync(d) && statSync(d).isDirectory())
+  // Extracted rather than inlined so its FAIL branch can be driven with a synthetic
+  // tree: a discovery check that only ever sees the real, currently-clean layout
+  // asserts nothing about what it does when a directory IS missing from the list.
+  const unlistedDirs = (found, listed) => found.filter((d) => !listed.includes(d))
+  const unlisted = unlistedDirs(discovered, WORKFLOW_DIRS)
+  ok(
+    `R-discovery every workflows/ dir under the plugin root is in the scanned set (${discovered.length})`,
+    unlisted.length === 0,
+  )
+  const planted = join(PLUGIN_SIBLINGS, 'planted-skill', 'workflows')
+  eq(
+    'R-discovery-nv a workflows/ dir outside the scanned set is reported, not silently skipped',
+    unlistedDirs([...discovered, planted], WORKFLOW_DIRS),
+    [planted],
+  )
+  const metaFiles = WORKFLOW_DIRS.flatMap((dir) =>
+    readdirSync(dir)
+      .filter((f) => f.endsWith('.mjs'))
+      .sort()
+      .map((f) => [dir === HERE ? f : `${dir}/${f}`, readFileSync(join(dir, f), 'utf8')]),
+  )
+    // Line-start anchor: `export const meta` may legitimately appear INSIDE a string
+    // elsewhere — only a top-level declaration counts.
+    .filter(([, src]) => /^export const meta = \{/m.test(src))
+  ok('R0 workflow scripts with `export const meta` found (glob not broken)', metaFiles.length > 0)
+  for (const [file, src] of metaFiles) {
+    // Meta block = from `export const meta = {` at line start to the first `}` at line
+    // start (hand-style formatting invariant across these files).
+    const m = src.match(/^export const meta = \{([\s\S]*?)\n\}/m)
+    if (!m) {
+      fail(`R meta-purity: ${file} — could not extract the meta block (formatting drifted?)`)
+      continue
+    }
+    // Strip string literals in ONE left-to-right alternation pass (two sequential passes
+    // mis-nest when a double-quoted string contains apostrophes, or vice versa), then any
+    // remaining non-literal construct token is a violation.
+    const stripped = m[1].replace(/'(?:[^'\\]|\\.)*'|"(?:[^"\\]|\\.)*"/g, '')
+    const violations = [
+      ['+', 'string concatenation (BinaryExpression)'],
+      ['`', 'template literal'],
+      ['${', 'template interpolation'],
+      ['(', 'function call'],
+      ['...', 'spread'],
+    ].filter(([tok]) => stripped.includes(tok))
+    violations.length === 0
+      ? pass(`R meta-purity: ${file} meta is a pure literal`)
+      : fail(
+          `R meta-purity: ${file} meta contains ${violations.map(([, why]) => why).join(', ')} — the Workflow runtime will reject the script at dispatch`,
+        )
+  }
 }
 
 console.log(`\n[runtime-shim-selftest] ${PASS} passed, ${FAIL} failed`)

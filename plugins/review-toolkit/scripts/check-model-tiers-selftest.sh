@@ -18,8 +18,6 @@
 #   override three-way   table matches neither modelOverride nor
 #                        frontmatter                                    -> exit 1 + MISMATCH
 #   qualified name       table key 'review-toolkit:security-reviewer'  -> exit 0
-#   inline honored       scalar file, inline 'haiku' over 'sonnet'      -> exit 0
-#   inline drift         scalar file, inline 'opus' vs haiku fm         -> exit 1 + MISMATCH
 #   cache layout         versioned-sibling dev-pipeline root resolves   -> exit 0
 #
 # UNKNOWN-MODEL cases (the silent-skip hole). Each is written so the PRE-FIX script
@@ -29,8 +27,6 @@
 #                        (override values are never enum-checked — the feature)
 #   fable in MAP         'fable' as a shipped REVIEWER_MODEL value      -> exit 1 + UNKNOWN-MODEL
 #   unknown in MAP       'gpt-4' as a shipped REVIEWER_MODEL value      -> exit 1 + UNKNOWN-MODEL
-#   unknown inline/scalar scalar file, inline 'gpt-4', scalar == the
-#                        dispatched agent's frontmatter tier            -> exit 1 + UNKNOWN-MODEL
 #   unknown inline/MAP   map file, inline 'gpt-4' on an agentType line  -> exit 1 + UNKNOWN-MODEL
 #
 # MAP-file inline literal MISMATCH case (#247 — the in-enum counterpart to the
@@ -152,42 +148,12 @@ run_cli "$QUAL"
 [ $? -eq 0 ] && ok "qualified name: 'review-toolkit:security-reviewer' parsed bare -> exit 0" \
   || fail "qualified name expected exit 0 (stderr: $(cat "$TMP/.stderr"))"
 
-# --- scalar-table files: a dispatch may re-state its tier INLINE ---------------
-# Regression guard. A scalar-table file (`const UNIT_TEST_MODEL = 'sonnet'`) can also
-# dispatch an agent with an explicit `model: '<tier>'` on the dispatch itself; that
-# literal is what runs, not the scalar. The checker used to attribute EVERY agentType
-# in the file to the scalar, so a `model: 'haiku'` dispatch inside a sonnet file was
-# reported as drift and DENIED EVERY COMMIT IN THE REPO while the code was correct.
-# Copy the dev-pipeline fixture and rewrite unit-tests.mjs with such a dispatch.
-# Args: <dest_name> <inline-model-for-structured-emitter> -> prints the root path
-make_dp_inline_variant() {
-  local dst="$TMP/$1" inline="$2"
-  cp -R "$DP" "$dst"
-  cat > "$dst/workflows/unit-tests.mjs" <<MJS
-const UNIT_TEST_MODEL = 'sonnet'
-const emit = { agentType: 'review-toolkit:structured-emitter', model: '$inline', label: 'x' }
-const plan = { agentType: 'unit-test-plan-reviewer', model: modelOverrides['unit-test-plan-reviewer'] || UNIT_TEST_MODEL }
-MJS
-  printf '%s' "$dst"
-}
-
-# honored — inline 'haiku' matches structured-emitter's frontmatter, so no drift,
-# even though the file's scalar is 'sonnet'. (The sibling dispatch with no inline
-# literal must still fall through to the scalar and match its own frontmatter.)
-INLINE_OK=$(make_dp_inline_variant inline-ok "haiku")
-run_cli "$INLINE_OK"
-[ $? -eq 0 ] && ok "scalar table: inline model literal is honored over the scalar -> exit 0" \
-  || fail "inline model expected exit 0 (stderr: $(cat "$TMP/.stderr"))"
-
-# still locksteped — an inline literal is a re-statement like any other, so an inline
-# 'opus' against haiku frontmatter is real drift. Proves the fix narrowed the SOURCE
-# of the declared model without opening a blind spot.
-INLINE_DRIFT=$(make_dp_inline_variant inline-drift "opus")
-run_cli "$INLINE_DRIFT"
-if [ $? -eq 0 ]; then fail "inline model drift expected exit 1"; else
-  grep -q "MISMATCH: 'structured-emitter'" "$TMP/.stderr" && ok "scalar table: inline literal still locksteped against frontmatter -> exit 1 + MISMATCH" \
-    || fail "inline drift: exit 1 but no MISMATCH for structured-emitter (stderr: $(cat "$TMP/.stderr"))"
-fi
+# --- scalar-table files: RETIRED (#574) ----------------------------------------
+# The inline-honored / inline-drift pair and the unknown-inline-scalar case drove the
+# scalar loop (`const UNIT_TEST_MODEL = ...` in unit-tests.mjs); the loop left with its
+# last carrier, and a case exercising a loop that no longer iterates would pass for
+# the wrong reason. The MAP-file inline cases below carry the same three properties
+# (honored-over-nothing, in-enum lockstep, out-of-enum guard) on the surviving loop.
 
 # --- UNKNOWN-MODEL: model tokens outside opus|sonnet|haiku --------------------
 # The pre-fix script baked the enum into its EXTRACTION regexes, so an unknown token
@@ -227,37 +193,9 @@ if [ $? -eq 0 ]; then fail "unknown token in a shipped MAP entry expected exit 1
     || fail "unknown map: exit 1 but no UNKNOWN-MODEL line (stderr: $(cat "$TMP/.stderr"))"
 fi
 
-# (d) out-of-enum INLINE literal in a scalar file. make_dp_inline_variant is NOT usable
-# here: it hardcodes `const UNIT_TEST_MODEL = 'sonnet'` plus a sibling unit-test-plan-reviewer
-# dispatch, so pre-fix the unknown token falls through to 'sonnet' and is compared against
-# structured-emitter's 'haiku' frontmatter -> MISMATCH, exit 1. That would make the demo
-# vacuous (the fixture fails before AND after). This variant sets the scalar EQUAL to the
-# dispatched agent's frontmatter tier and writes only the inline dispatch, so the
-# fall-through lands on a matching value and the pre-fix script is genuinely silent.
-# Args: <dest_name> <scalar> <inline-model> -> prints the root path
-make_dp_inline_scalar_variant() {
-  local dst="$TMP/$1" scalar="$2" inline="$3"
-  cp -R "$DP" "$dst"
-  cat > "$dst/workflows/unit-tests.mjs" <<MJS
-const UNIT_TEST_MODEL = '$scalar'
-const emit = { agentType: 'review-toolkit:structured-emitter', model: '$inline', label: 'x' }
-MJS
-  printf '%s' "$dst"
-}
-
-INLINE_UNKNOWN=$(make_dp_inline_scalar_variant inline-unknown "haiku" "gpt-4")
-run_cli "$INLINE_UNKNOWN"
-if [ $? -eq 0 ]; then fail "unknown inline literal (scalar file) expected exit 1"; else
-  grep -q "UNKNOWN-MODEL: unit-tests.mjs dispatches 'review-toolkit:structured-emitter' with inline model 'gpt-4'" "$TMP/.stderr" \
-    && ok "unknown inline literal in a scalar file -> exit 1 + UNKNOWN-MODEL" \
-    || fail "inline unknown: exit 1 but no UNKNOWN-MODEL line (stderr: $(cat "$TMP/.stderr"))"
-fi
-
-# (e) out-of-enum INLINE literal in a MAP file. The reason the scan is not scoped to the
-# scalar loop: a map file's inline dispatch is reached by neither loop today (the MAP grep
-# cannot see it — `model:` is an unquoted key — and the inline handling lives inside the
-# scalar `for spec in` list). Without this case the guard could ship covering 2 of 5 files
-# and every other case would still pass.
+# (e) out-of-enum INLINE literal in a MAP file. The MAP grep cannot see an inline
+# dispatch at all (`model:` is an unquoted key), so without this case the guard could
+# ship covering only the map entries and every other case would still pass.
 # Args: <dest_name> <inline-model> -> prints the root path
 make_dp_map_inline_variant() {
   local dst="$TMP/$1" inline="$2"

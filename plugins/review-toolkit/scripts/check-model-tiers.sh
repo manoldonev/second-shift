@@ -43,27 +43,24 @@
 # Tables validated (unchanged from the single-root era):
 #   - map  REVIEWER_MODEL  in workflows/code-review.mjs
 #   - map  INTAKE_MODEL    in workflows/intake-review.mjs
-#   - map  DESIGN_MODEL    in workflows/design-sync.mjs
 #     Each MAP file's dispatch lines may ALSO carry an inline `model: '<tier>'` literal
-#     (the three files' shared `structured-emitter` dispatch does); that literal is a
+#     (the files' shared `structured-emitter` dispatch does); that literal is a
 #     STANDALONE declaration — MAP files have no scalar to fall through to — and is
-#     lockstep-checked against frontmatter/override directly, same as the scalar loop's
-#     inline handling below.
-#   - scalar UNIT_TEST_MODEL     in workflows/unit-tests.mjs   (per dispatched agentType)
-#   - a scalar plan-reviewer model constant — RETIRED in #348 with the plan dispatcher's
-#     dispatcher; the spec was removed from the loop, not made optional.
-#   - scalar EXECUTOR_MODEL      in workflows/mutation-gate.mjs (anonymous executors —
-#     asserted against dev-pipeline model-tiering.md's note instead)
+#     lockstep-checked against frontmatter/override directly.
+#   - a map  DESIGN_MODEL (design-sync.mjs), a scalar UNIT_TEST_MODEL (unit-tests.mjs)
+#     and a scalar EXECUTOR_MODEL (mutation-gate.mjs) — RETIRED in #574 with their
+#     engines; a scalar plan-reviewer constant was RETIRED in #348 with the plan
+#     dispatcher. Each spec was removed from its loop, not made optional: a missing
+#     table is MISSING-TABLE by design, so a dead spec would red every consumer.
 #
 # Error classes:
 #   MISMATCH / DANGLING / NO-FRONTMATTER  the lockstep failures above.
 #   PARSE / MISSING-TABLE / UNLOCATABLE   the script could not read what it validates.
 #   UNKNOWN-MODEL                         a model token outside opus|sonnet|haiku in a
-#                                         shipped MAP entry (the three map files) or in an
-#                                         inline `model: '<tier>'` literal (ALL FOUR parsed
-#                                         workflow files — the three map files plus
-#                                         unit-tests.mjs; a fifth carrier existed until
-#                                         #348 deleted it). Both used to
+#                                         shipped MAP entry (the two map files) or in an
+#                                         inline `model: '<tier>'` literal (BOTH parsed
+#                                         workflow files; further carriers existed until
+#                                         #348/#574 deleted them). Both used to
 #                                         be SILENT: the enum lived inside the extraction
 #                                         regexes, so an unknown token was skipped entirely
 #                                         (map) or attributed to the file's scalar (inline).
@@ -142,11 +139,10 @@ resolve_sibling_plugin_root() {
 }
 DEV_PIPELINE_ROOT=$(resolve_sibling_plugin_root dev-pipeline "workflows" "${SECOND_SHIFT_DEV_PIPELINE_ROOT:-}")
 WF="$DEV_PIPELINE_ROOT/workflows"
-skill_md="$DEV_PIPELINE_ROOT/model-tiering.md"
 
 # design-toolkit plugin root -> design-faithful agent-family frontmatter
-# (design-sync.mjs / code-review.mjs tables reference these agents, which ship
-# in design-toolkit, not review-toolkit). Optional: a consumer without the
+# (the code-review.mjs table references these agents, which ship in
+# design-toolkit, not review-toolkit). Optional: a consumer without the
 # design-toolkit plugin resolves this empty, and those agents fall through to
 # the consumer root like any other name.
 DESIGN_TOOLKIT_ROOT=$(resolve_sibling_plugin_root design-toolkit "agents" "${SECOND_SHIFT_DESIGN_TOOLKIT_ROOT:-}")
@@ -314,11 +310,10 @@ scan_unknown_map_entries() {
 }
 
 # Inline `model:` literals on agentType-bearing lines. Runs over ALL FIVE parsed
-# workflow files, not just the two scalar ones: the inline handling in the scalar
-# loop below is scoped to its own `for spec in` list, and the MAP grep above cannot
-# see an inline literal at all (`model:` is an unquoted key). This scan catches an
-# OUT-OF-ENUM inline literal in any of the five; the MAP loop's own inline pass
-# (below, in the `code-review.mjs`/`intake-review.mjs`/`design-sync.mjs` for-loop)
+# workflow files: the MAP grep above cannot see an inline literal at all
+# (`model:` is an unquoted key). This scan catches an OUT-OF-ENUM inline literal
+# in either file; the MAP loop's own inline pass
+# (below, in the `code-review.mjs`/`intake-review.mjs` for-loop)
 # separately lockstep-checks an IN-ENUM inline literal there against frontmatter, so
 # the two together cover both failure modes in the MAP files.
 # A `model:` that is an EXPRESSION (`modelOverrides[...] || SCALAR`) carries no
@@ -336,7 +331,7 @@ scan_unknown_inline_literals() {
 }
 
 # --- Map tables: 'agent': 'model' entries (agent may be plugin:-qualified). ---
-for tbl in code-review.mjs intake-review.mjs design-sync.mjs; do
+for tbl in code-review.mjs intake-review.mjs; do
     file="$WF/$tbl"
     [ -f "$file" ] || { errors+=("MISSING-TABLE: $file not found"); continue; }
     scan_unknown_map_entries "$file" "$tbl"
@@ -368,91 +363,12 @@ for tbl in code-review.mjs intake-review.mjs design-sync.mjs; do
     done <<< "$inline_pairs"
 done
 
-# --- Scalar tables: const <VAR> = '<model>' applied to each agentType the file
-#     dispatches (agentType may be plugin:-qualified). Pairs are "<file>:<VAR>". ---
-# The plan-reviewer scalar left this list in #348 — that dispatcher was
-# deleted with the staged lane. It is removed rather than made conditional: a missing table is
-# MISSING-TABLE by design (a table that vanished is the failure this loop reports), so leaving
-# a dead spec in would red every consumer.
-# shellcheck disable=SC2043  # a REGISTRY that happens to hold one row since #348 retired
-# the retired plan-reviewer scalar — the loop form is what a second scalar table joins.
-for spec in "unit-tests.mjs:UNIT_TEST_MODEL"; do
-    tbl="${spec%%:*}"
-    var="${spec#*:}"
-    file="$WF/$tbl"
-    if [ ! -f "$file" ]; then
-        errors+=("MISSING-TABLE: $file not found")
-        continue
-    fi
-    scan_unknown_inline_literals "$file" "$tbl"
-    scalar_model=$(grep -oE "const $var = '(opus|sonnet|haiku)'" "$file" \
-        | sed -E "s/.*'([^']+)'.*/\1/")
-    if [ -z "$scalar_model" ]; then
-        errors+=("PARSE: could not resolve $var in $file")
-    else
-        # Per-DISPATCH model. A dispatch may re-state the tier INLINE
-        # (`{ agentType: 'x', model: 'haiku', ... }`), and that literal — not the
-        # file's scalar — is what is passed at runtime. Attributing such a dispatch
-        # to the scalar is a false MISMATCH: observed with structured-emitter, which
-        # is dispatched `model: 'haiku'` from unit-tests.mjs (scalar sonnet) and, before
-        # #348 deleted it, from the plan dispatcher (scalar opus) — denying every commit in the
-        # repo while the code was correct.
-        #
-        # An inline literal is still a re-statement of the tier, so it is locksteped
-        # against frontmatter exactly like the scalar — only the SOURCE of the
-        # declared model changes, never the strictness. A dispatch whose `model:` is
-        # an expression (`modelOverrides[...] || SCALAR`) carries no literal and
-        # correctly falls through to the scalar.
-        #
-        # Matching is per-line, which is the shape these dispatches have. If one is
-        # ever reformatted so an inline literal no longer shares the agentType's
-        # line, this reverts to comparing against the scalar — a LOUD false positive,
-        # never a silent pass, so the failure direction stays safe.
-        pairs=$(
-            grep -E "agentType: '[a-z0-9:-]+'" "$file" | while IFS= read -r line; do
-                a=$(printf '%s' "$line" | sed -E "s/.*agentType: '([^']+)'.*/\1/")
-                if grep -qE "model: '(opus|sonnet|haiku)'" <<<"$line"; then
-                    m=$(printf '%s' "$line" | sed -E "s/.*model: '(opus|sonnet|haiku)'.*/\1/")
-                else
-                    m="$scalar_model"
-                fi
-                printf '%s\t%s\n' "$a" "$m"
-            done | sort -u
-        )
-        while IFS=$'\t' read -r agent agent_model; do
-            [ -z "$agent" ] && continue
-            check_pair "$agent" "$agent_model" "$tbl ($var)"
-        done <<< "$pairs"
-    fi
-done
-
-# --- EXECUTOR_MODEL (mutation-gate.mjs): a constrained scalar with NO agent
-#     frontmatter counterpart — the executors are anonymous agent() calls. Assert
-#     (a) the constant parses as a known tier, and (b) it equals the tier the
-#     dev-pipeline model-tiering.md note states for the executors. Until #348 that note
-#     lived in the staged run SKILL.md; the doc moved to the plugin root with the lane's
-#     deletion, and the assertion is unchanged. ---
-mg="$WF/mutation-gate.mjs"
-if [ -f "$mg" ]; then
-    mg_model=$(grep -oE "const EXECUTOR_MODEL = '(opus|sonnet|haiku)'" "$mg" \
-        | sed -E "s/.*'([^']+)'.*/\1/")
-    if [ -z "$mg_model" ]; then
-        errors+=("PARSE: could not resolve EXECUTOR_MODEL in $mg (must be a literal opus|sonnet|haiku)")
-    elif [ -f "$skill_md" ]; then
-        skill_note=$(grep -oE "mutation-gate executors: (opus|sonnet|haiku)" "$skill_md" \
-            | sed -E "s/.*: //" | head -1)
-        if [ -z "$skill_note" ]; then
-            errors+=("PARSE: $skill_md has no 'mutation-gate executors: <tier>' note to lockstep EXECUTOR_MODEL against")
-        elif [ "$mg_model" != "$skill_note" ]; then
-            errors+=("MISMATCH: 'mutation-gate executors' — model-tiering.md says '$skill_note' but mutation-gate.mjs (EXECUTOR_MODEL) says '$mg_model'")
-        fi
-    fi
-    # EP-4: the executor is a NAMED logical agent 'mutation-executor' — assert the modelOverrides
-    # lookup exists so the tier is consumer-overridable, not a bare scalar the override can't reach.
-    if ! grep -qF "modelOverrides['mutation-executor']" "$mg"; then
-        errors+=("LOOKUP: mutation-gate.mjs must route the executor tier through modelOverrides['mutation-executor'] (EP-4 named-agent override), not a bare EXECUTOR_MODEL scalar")
-    fi
-fi
+# --- Scalar tables: RETIRED. The registry held UNIT_TEST_MODEL (unit-tests.mjs)
+# until #574 retired that engine, and the plan-reviewer scalar until #348 retired its
+# dispatcher. Each spec was removed rather than made conditional — a missing table is
+# MISSING-TABLE by design, so a dead spec would red every consumer. A future scalar
+# carrier re-adds the registry loop this comment replaces (see git history for its
+# shape: per-dispatch inline `model:` literals override the file scalar). ---
 
 if [ ${#errors[@]} -gt 0 ]; then
     printf '%s\n' "${errors[@]}" >&2

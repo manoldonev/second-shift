@@ -80,22 +80,26 @@ THREE_DOT='${base}...${head}'
 # shellcheck disable=SC2016  # literal token, see above
 TWO_DOT='${base}..${head}'
 
-for f in code-review.mjs design-sync.mjs unit-tests.mjs mutation-gate.mjs; do
+# One carrier since #574 retired design-sync.mjs / unit-tests.mjs / mutation-gate.mjs
+# with the rest of the engine set; kept as a loop because the contract is "every
+# range-rendering dispatcher", not "this one file".
+# shellcheck disable=SC2043
+for f in code-review.mjs; do
   path="$WORKFLOWS/$f"
   if [[ ! -f "$path" ]]; then
     bad "C-F $f is missing at $path"
     continue
   fi
-  # Presence: mutation-gate.mjs renders the range only in a log line, so match the
-  # three-dot interpolation rather than a `const range =` assignment.
+  # Presence: match the three-dot interpolation itself rather than a
+  # `const range =` assignment (some carriers rendered it only in a log line).
   if grep -qF "$THREE_DOT" "$path"; then
     ok "C-F $f renders a three-dot range"
   else
     bad "C-F $f lost the three-dot range — #130 regression"
   fi
-  # Absence: the zero-occurrence form is what catches a PARTIAL fix. unit-tests.mjs
-  # carries two range sites (a log line and the const); a presence-only check would
-  # happily pass with one of them still two-dot.
+  # Absence: the zero-occurrence form is what catches a PARTIAL fix — a carrier with
+  # several range sites (the retired unit-tests.mjs had two) would pass a presence-only
+  # check with one of them still two-dot.
   if grep -qF "$TWO_DOT" "$path"; then
     bad "C-F $f still contains a two-dot ${TWO_DOT} range — #130 regression (check every site, not just the first)"
   else
@@ -109,10 +113,10 @@ done
 # a later edit must not let it grow one silently.
 #
 # NOT re-anchored, deliberately. The case asserts an ABSENCE on a file that has no range, and
-# no surviving dispatcher has that property — code-review.mjs, design-sync.mjs, unit-tests.mjs
-# and mutation-gate.mjs all render one and are covered by C-F above, in both directions. Pointing
-# case G at any of them would assert something already asserted, or assert a falsehood. A guard
-# whose subject no longer exists is removed, not repurposed.
+# no surviving dispatcher has that property — code-review.mjs (the one range-rendering
+# dispatcher left after #574) renders one and is covered by C-F above, in both directions.
+# Pointing case G at it would assert something already asserted, or assert a falsehood. A
+# guard whose subject no longer exists is removed, not repurposed.
 
 echo "diff-range-selftest: $PASS passed, $FAIL failed"
 exit "$FAIL"

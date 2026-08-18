@@ -274,19 +274,18 @@ SWEEP_REL="tools/mutation-sweep.sh"
 HAS_SWEEP=0
 [[ -f "$ROOT_ABS/$SWEEP_REL" ]] && HAS_SWEEP=1
 if [[ -n "$REPO_ID" ]]; then
-  UTS="$(jq -r --arg r "$REPO_ID" '.commands[$r].unitTestScope // ""' "$CONFIG")"
+  # (#574 retired commands.<repo>.unitTestScope, which used to be this check's second
+  # arm; the declared-intent signal is gates.mutation alone now.)
   if [[ "$HAS_SWEEP" -ne 1 ]]; then
     mut_desc=""
-    [[ -n "$UTS" ]] && mut_desc="commands.$REPO_ID.unitTestScope is set (\"$UTS\")"
     if [[ "$MUT_STATE" != "false" ]]; then
-      mut_gates="gates.mutation is true"
-      [[ "$MUT_STATE" == "absent" ]] && mut_gates="gates.mutation is absent — and absent is NOT false: only the literal \`false\` is the off-switch, so mutation reads ON"
-      if [[ -n "$mut_desc" ]]; then mut_desc="$mut_desc, and $mut_gates"; else mut_desc="$mut_gates"; fi
+      mut_desc="gates.mutation is true"
+      [[ "$MUT_STATE" == "absent" ]] && mut_desc="gates.mutation is absent — and absent is NOT false: only the literal \`false\` is the off-switch, so mutation reads ON"
     fi
     if [[ -n "$mut_desc" ]]; then
-      add_finding "T4.mutation-plumbing.$REPO_ID" "commands.$REPO_ID.unitTestScope" \
+      add_finding "T4.mutation-plumbing.$REPO_ID" "gates.mutation" \
         "$mut_desc — but this repo carries no $SWEEP_REL, so the green gate prints a SKIPPED notice and the run is green with nothing mutated. The config declares coverage the repo cannot execute." \
-        "Add an executable $SWEEP_REL at the repo root: the green gate runs \`bash $SWEEP_REL --mode pr --base origin/<baseBranch>\` from the root and a non-zero exit reds the milestone, so what it mutates and how is yours to choose (docs/onboarding.md). Or declare the opt-out where a reader can see it: set \"gates\": { \"mutation\": false } and leave commands.$REPO_ID.unitTestScope null. $(waiver_hint "T4.mutation-plumbing.$REPO_ID")"
+        "Add an executable $SWEEP_REL at the repo root: the green gate runs \`bash $SWEEP_REL --mode pr --base origin/<baseBranch>\` from the root and a non-zero exit reds the milestone, so what it mutates and how is yours to choose (docs/onboarding.md). Or declare the opt-out where a reader can see it: set \"gates\": { \"mutation\": false }. $(waiver_hint "T4.mutation-plumbing.$REPO_ID")"
     fi
   fi
 else
@@ -302,8 +301,8 @@ if [[ -n "$DESIGN_PROVIDER" && -z "$DESIGN_LR" ]]; then
 fi
 
 # --- trigger 5: a declared command that contradicts repo reality (AC-5) --------------------
-# EVERY configured command is inspected, not just testFile: a command that never exits hangs
-# the verify lane exactly as it hangs a mutation run, so the exposure is the same wherever it sits.
+# EVERY configured command is inspected: a command that never exits hangs the verify lane,
+# so the exposure is the same wherever it sits.
 #
 # Resolution is deliberately NARROW. The missing-script half can produce a false FAIL on a
 # perfectly valid config, and that is a worse outcome than a missed warning — so only an
@@ -406,7 +405,7 @@ if [[ -n "$REPO_ID" ]]; then
       fi
     done < <(jq -r --arg r "$REPO_ID" '
       (.commands[$r] // {}) as $c
-      | ( ["testFile","test","lint","typecheck","format"]
+      | ( ["test","lint","typecheck","format"]
           | map(select(($c[.] // null) != null) | [., $c[.]]) )
       + ( ($c.lanes // []) | to_entries
           | map(.key as $i | ((.value.commands // []) | to_entries

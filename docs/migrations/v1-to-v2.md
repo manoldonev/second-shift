@@ -137,6 +137,31 @@ one of the three, and after the retirement its only remaining exits were a rejec
 waiver. Nothing else about the grill changes, and no waiver you already carry becomes invalid —
 `grillWaivers` accepts any check id.
 
+### Dead-key removal (#574) — `commands.<repo>.unitTestScope` / `commands.<repo>.testFile`
+
+The two mutation-engine keys are **removed**. config-lint rejects each by name with a pointer
+here (fail closed). **Delete them from your config**; there is no drop-in replacement, and no
+`configVersion` bump.
+
+Their only functional reader was `workflows/mutation-gate.mjs` — the LLM-proposed-mutants
+engine over co-located unit tests — which lost its dispatcher when #348 deleted the staged
+lane and was retired in #574. A configured `unitTestScope` therefore armed **nothing**: the
+same silently-disarmed-gate class as the #569 entry above, reached the same way (a consumer
+upgraded past #348, saw no error, and kept believing their mutation gate ran).
+
+- **`unitTestScope`** — the mutation seam is repo-carried now: ship an executable
+  `tools/mutation-sweep.sh` at your repo root and `lean-gate.sh` milestone 3 runs it
+  (`--mode pr --base origin/<baseBranch>`; non-zero reds the milestone — `docs/onboarding.md`).
+  `gates.mutation` remains the declared intent (`false` is the explicit off-switch a reader
+  can see); it is unchanged by this removal.
+- **`testFile`** — the retired engine's per-spec runner template, read by nothing else. No
+  replacement: a repo-carried sweep invokes its own runner however it chooses.
+
+The advisory-mode remnant of the capability needs no key: review-lead routes
+`unit-test-mutation-reviewer` off the diff itself (LLM-predicted, no execution). Whether an
+execution-verified starter sweep ships for co-located-unit-test consumers is #482's open
+question, unchanged by this removal.
+
 ### `gates.apiTests` → removed (extension point)
 
 The API-test tier left the core. Ship it as **`commands.<repo>.extraLanes`** (the blocking

@@ -32,8 +32,6 @@
       "lintAutofixes": true,
       "typecheck": "yarn typecheck",
       "test": "yarn test",
-      "testFile": "yarn --cwd apps/api test {file}",
-      "unitTestScope": "apps/api/src/**",
       "format": "yarn format",
       "lanes": [
         {

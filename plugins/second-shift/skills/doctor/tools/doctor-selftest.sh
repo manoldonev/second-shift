@@ -189,8 +189,9 @@ scenario opt-out-committed plugin-list-green.json  settings-optout-committed.jso
 # --- config grill (#441) -------------------------------------------------------------------
 # A grill finding is a FAIL like every other doctor FAIL, so it must move the EXIT CODE, not
 # just the text — that pairing is the whole point of D-15 and the only reason waivers have to
-# exist. The fixture config sets unitTestScope, which declares mutation intent, over a fixture
-# root carrying no tools/mutation-sweep.sh — coverage the config asks for and the repo cannot run.
+# exist. The fixture config leaves gates.mutation absent (absent is NOT false, so mutation reads
+# ON) over a fixture root carrying no tools/mutation-sweep.sh — coverage the config asks for and
+# the repo cannot run.
 scenario grill-finding    plugin-list-green.json   settings-green.json     marketplace-list-pinned.json  1 "config grill [T4.mutation-plumbing.app]" lock-v1.json config-grill-finding.json
 # ...and the waived counterpart, which is what keeps a clean report REACHABLE. config-valid.json
 # carries the `grillWaivers` entry for the finding its own shape would otherwise produce

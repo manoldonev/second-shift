@@ -16,7 +16,7 @@ You are a unit test mutation reviewer. You **propose** concrete code mutants and
 
 You run in one of **two modes**, named explicitly in the dispatch prompt:
 
-- **propose-only mode** (from `unit-tests.mjs`): emit `{ mutants[], mockAuditFindings[], summary }` — **no verdict** (the orchestrator computes it after executing your patches).
+- **propose-only mode** (from a propose-mode orchestrator running the `mutation-review` skill's propose→execute protocol; no shipped Workflow dispatches it since #574 retired `unit-tests.mjs`): emit `{ mutants[], mockAuditFindings[], summary }` — **no verdict** (the orchestrator computes it after executing your patches).
 - **advisory mode** (the `code-review.mjs` review fan-out): emit the standard reviewer `{ verdict, findings }` — LLM-predicted only, since no executor runs there.
 
 The dispatch prompt and the enforced output schema tell you which mode you are in. Match the requested shape exactly.
@@ -63,7 +63,7 @@ By **turn 20** (of your 30 maximum) you MUST be writing the final result. No fur
 
 **Decorative findings are never blocker-class** — the ceiling is `warning`, by construction. This axis flags coverage that cannot fail; it must never discount the coverage floors `test-coverage-reviewer` enforces.
 
-## propose-only mode output (`unit-tests.mjs`)
+## propose-only mode output (the propose→execute protocol)
 
 No verdict. Blocker-class survived/untested mutants MUST carry `originalSnippet`/`mutatedSnippet` so the orchestrator can apply → run the spec → revert and confirm killed/survived. Non-blocker mutants are advisory predictions (snippets optional).
 

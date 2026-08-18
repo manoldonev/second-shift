@@ -60,7 +60,7 @@ const QUALIFIED_BY_BARE = Object.keys(REVIEWER_MODEL).reduce((acc, key) => {
 const resolveAgentType = (t) => (String(t).includes(':') ? String(t) : QUALIFIED_BY_BARE[String(t)] || String(t))
 
 // The Atlassian MCP tools scope-completeness-reviewer fetches the JIRA ticket with
-// are DEFERRED in a Workflow subagent (same surface figma.mjs documents) and their
+// are DEFERRED in a Workflow subagent and their
 // namespace depends on HOW the MCP was registered: a top-level `mcpServers` entry
 // exposes `mcp__atlassian__*`; a plugin-bundled server exposes
 // `mcp__plugin_atlassian_atlassian__*`; the claude.ai Atlassian (Rovo) integration
@@ -68,7 +68,8 @@ const resolveAgentType = (t) => (String(t).includes(':') ? String(t) : QUALIFIED
 // returns the names that exist and silently ignores the absent ones, so the same
 // dispatch works regardless of provenance. Hardcoding one prefix made the Scope
 // Completeness Gate unsatisfiable for consumers registered under the other two.
-// Mirrors figma.mjs's FIGMA_MCP_TOOLSEARCH.
+// (The retired figma.mjs engine documented and mirrored the same both-spellings
+// discipline — see docs/namespaces.md.)
 const ATLASSIAN_MCP_TOOLSEARCH =
   'select:mcp__atlassian__getJiraIssue,mcp__plugin_atlassian_atlassian__getJiraIssue,mcp__claude_ai_Atlassian_Rovo__getJiraIssue,' +
   'mcp__atlassian__getAccessibleAtlassianResources,mcp__plugin_atlassian_atlassian__getAccessibleAtlassianResources,mcp__claude_ai_Atlassian_Rovo__getAccessibleAtlassianResources,' +

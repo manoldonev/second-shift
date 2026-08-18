@@ -29,7 +29,7 @@
 // outputs and we assert on what it actually returns — no copies, no mirrors.
 //
 // The meta-strip is a balanced-brace scan, not a parser. That is sound because
-// design-sync-selftest.mjs Case I lints every sibling workflow for meta-literal purity
+// runtime-shim-selftest.mjs Case R lints every sibling workflow for meta-literal purity
 // (no template interpolation, no computed values), so a brace inside a string in the meta
 // block cannot ship.
 
@@ -64,11 +64,13 @@ export const stripMeta = (src) => {
 // positional call site (args would arrive as log), and the cases would then fail for
 // reasons that look like production bugs rather than a harness edit.
 //
-// `workflow` was added for nested dispatch: the plan dispatcher's unit-test gate and
-// mutation-gate.mjs:101 (its nested propose call) both invoke the `workflow()` global,
-// so under a 7-parameter wrapper those two bodies die with a ReferenceError before
-// reaching a fake. Callers that drive a workflow which never calls it simply omit the
-// argument.
+// `workflow` was added for nested dispatch (#217): the runtime injects it into every
+// body, and workflows that nested a child dispatch through it (mutation-gate.mjs:101,
+// until #574 retired that engine) died with a ReferenceError under a 7-parameter
+// wrapper. No shipped workflow invokes it today; the parameter stays because it mirrors
+// the runtime's injection set — dropping it would re-break the next nested dispatcher
+// the moment one ships. Callers that drive a workflow which never calls it simply omit
+// the argument.
 export const makeRunner = (path) => {
   const body = stripMeta(readFileSync(path, 'utf8'))
   // eslint-disable-next-line no-new-func
@@ -105,21 +107,6 @@ export const makeFakeAgent = (behaviors) => {
     return typeof next === 'function' ? next(opts) : next
   }
   return { agent, calls, remaining: () => queue.length }
-}
-
-// A fake `workflow()` global, driven by the same behavior-queue shape as makeFakeAgent.
-// Production calls it as workflow({ scriptPath }, args) for a nested dispatch; each queue
-// entry is the value that nested call resolves to (or { throw } to reject).
-export const makeFakeWorkflow = (behaviors) => {
-  const calls = []
-  const queue = [...behaviors]
-  const workflow = async (ref, wargs) => {
-    calls.push({ ref, args: wargs })
-    const next = queue.length ? queue.shift() : {}
-    if (next && typeof next === 'object' && 'throw' in next) throw new Error(next.throw)
-    return typeof next === 'function' ? next(ref, wargs) : next
-  }
-  return { workflow, calls, remaining: () => queue.length }
 }
 
 // Build the REVIEW_RESULT sentinel + fenced-JSON block that every schema-free explorer
