@@ -16,11 +16,18 @@
 
 set -uo pipefail
 
+# The hop arithmetic resolve_sibling() depends on, kept caller-side because the hop count is
+# the one thing that legitimately differs between its callers (this file sits one directory
+# under its plugin root; lean-gate.sh sits two). Sentinel-delimited so
+# pipeline-doctor-selftest.sh can lift these lines and run them at this real depth instead of
+# injecting their results — see resolve-sibling.sh's header.
+# >>> plugin-dirs
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PLUGIN_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 # Marketplace plugins/ dir — sibling plugins (review-toolkit, intake-toolkit) live
 # here; their selftests are reached script-relative (they are NOT in the consumer repo).
 PLUGINS_DIR="$(cd "$PLUGIN_DIR/.." && pwd)"
+# <<< plugin-dirs
 
 # Same directory, not a sibling plugin — this one ships with us under every layout, so it
 # needs none of resolve_sibling's machinery below.

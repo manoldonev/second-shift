@@ -2917,19 +2917,28 @@ design_disarm_locked_msg() {
 # review-round finding on this ticket (a byte-identical copy is exactly the duplicate machinery
 # this repo's manifest calls worse than none). resolve-sibling.sh's header explains the split:
 # the ladder is shared, and each caller keeps its own hop count from its file to its plugin
-# root, computed the same way pipeline-doctor.sh computes SCRIPT_DIR/PLUGINS_DIR for itself.
+# root, computed the same way pipeline-doctor.sh computes PLUGIN_DIR/PLUGINS_DIR for itself.
 # This file sits two directories under its plugin root (skills/build-lean), where
 # pipeline-doctor.sh sits one (tools) — the differing depth pipeline-doctor.sh's own D-4
-# argued from is real, but it bears only on these two lines, not on the ladder itself.
+# argued from is real, but it bears only on the three lines below, not on the ladder itself.
+# Those globals are exactly what the ladder reads: PLUGIN_DIR (rung 2 — this plugin's own
+# version in the cache is that directory's basename) and PLUGINS_DIR (rungs 1 and 3). Both are
+# hop-adjusted HERE and nothing downstream re-derives a depth, which is what makes the shared
+# ladder depth-agnostic rather than merely claimed to be (#562 r2). pipeline-doctor-selftest.sh
+# lifts the block below by its sentinels and runs it at this real depth.
 # shellcheck source=../../tools/resolve-sibling.sh
 . "$(cd "$(dirname "${BASH_SOURCE[0]}")/../../tools" && pwd)/resolve-sibling.sh"
+# >>> ledger-lint-resolver
 resolve_ledger_lint() {
-  local SCRIPT_DIR PLUGINS_DIR
+  local SCRIPT_DIR PLUGIN_DIR PLUGINS_DIR
   SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)" || return 1
-  # shellcheck disable=SC2034  # read by resolve_sibling() via dynamic scope (resolve-sibling.sh, sourced above)
-  PLUGINS_DIR="$(dirname "$(dirname "$(dirname "$SCRIPT_DIR")")")"
+  # shellcheck disable=SC2034  # PLUGIN_DIR and PLUGINS_DIR are read by resolve_sibling() via dynamic scope (resolve-sibling.sh, sourced above)
+  PLUGIN_DIR="$(dirname "$(dirname "$SCRIPT_DIR")")"
+  # shellcheck disable=SC2034
+  PLUGINS_DIR="$(dirname "$PLUGIN_DIR")"
   resolve_sibling intake-toolkit skills/plan-interview/tools/ledger-lint.sh
 }
+# <<< ledger-lint-resolver
 
 # ---------------------------------------------------------------- milestone 1: spec/AC
 # AC-3, as resolved at intake (G-1): existence AT THE PINNED PATH plus >= 1 numbered AC-n,
