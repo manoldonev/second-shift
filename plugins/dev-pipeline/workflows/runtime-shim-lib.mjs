@@ -4,13 +4,12 @@
 // NOT a selftest: the filename deliberately does NOT match the CI discovery globs
 // (`*-selftest.sh` / the `.mjs` names `workflows-mjs-selftest.sh` hands to node), so CI
 // never executes this file directly. Same posture, and same reason, as
-// `skills/run/scenario-lib.sh`: two suites need one definition of the mechanics, and
+// a shared helper: two suites need one definition of the mechanics, and
 // duplicating them is how the two drift apart.
 //
 // It has no dedicated selftest by design — it is pure mechanics with no independent
 // contract, and every CI run exercises it through both callers:
 //   - workflows/runtime-shim-selftest.mjs — the per-workflow dispatch-ladder cases
-//   - workflows/e2e-workflow-leg.mjs      — the E2E replay's stage-4/5/8 legs
 //
 // WHY THE SHIM EXISTS (#214, epic #213)
 // -------------------------------------
@@ -65,7 +64,7 @@ export const stripMeta = (src) => {
 // positional call site (args would arrive as log), and the cases would then fail for
 // reasons that look like production bugs rather than a harness edit.
 //
-// `workflow` was added for the E2E legs: plan-review.mjs (its unit-test gate) and
+// `workflow` was added for nested dispatch: the plan dispatcher's unit-test gate and
 // mutation-gate.mjs:101 (its nested propose call) both invoke the `workflow()` global,
 // so under a 7-parameter wrapper those two bodies die with a ReferenceError before
 // reaching a fake. Callers that drive a workflow which never calls it simply omit the

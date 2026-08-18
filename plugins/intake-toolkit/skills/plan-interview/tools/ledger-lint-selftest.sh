@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ledger-lint-selftest.sh — deterministic checks for ledger-lint.sh (mirrors the
-# plan-lint-selftest culture: fixture + inline mutants, pass/fail counters,
+# House selftest culture: fixture + inline mutants, pass/fail counters,
 # exit code = number of failures).
 set -euo pipefail
 

@@ -7,11 +7,11 @@ and consumer-overridable.
 Mapping" / "Model Tiering" sections. The staged lane is gone; the tier CONTRACT is not tied to
 it — the `.mjs` dispatch tables it governs (`workflows/`) survive and are still enforced at
 commit time — so the sections moved here whole. What did NOT move is the per-stage tier table:
-its rows were stage choreography (one row per stage 1-10), and there are no stages.
+its rows were choreography (one row per stage), and there are no stages.
 
 ## Tier alphabet
 
-Each LLM dispatch site uses a capability tier; this table maps tiers to concrete models. The tier each agent actually runs at lives in two places that must stay in lockstep: each agent's `model:` frontmatter (the `agents/<name>.md` in whichever plugin ships that agent) and the five `.mjs` dispatch tables that re-state it (`REVIEWER_MODEL`, `INTAKE_MODEL`, `DESIGN_MODEL`, `UNIT_TEST_MODEL`, `EXECUTOR_MODEL` under `workflows/`; `PLAN_REVIEWER_MODEL` was the sixth until #348 deleted Stage 4's dispatcher). `check-model-tiers.sh` (shipped in review-toolkit at `scripts/check-model-tiers.sh`) enforces that lockstep at commit time.
+Each LLM dispatch site uses a capability tier; this table maps tiers to concrete models. The tier each agent actually runs at lives in two places that must stay in lockstep: each agent's `model:` frontmatter (the `agents/<name>.md` in whichever plugin ships that agent) and the five `.mjs` dispatch tables that re-state it (`REVIEWER_MODEL`, `INTAKE_MODEL`, `DESIGN_MODEL`, `UNIT_TEST_MODEL`, `EXECUTOR_MODEL` under `workflows/`). `check-model-tiers.sh` (shipped in review-toolkit at `scripts/check-model-tiers.sh`) enforces that lockstep at commit time.
 
 | Tier      | Model             | Rationale                                       |
 | --------- | ----------------- | ----------------------------------------------- |

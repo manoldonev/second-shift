@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# Self-test for the Stage-1 read-surface pin wiring (#59).
+# Self-test for the intake read-surface pin wiring (#59).
 #
 # A drift-check in the style of claim-selftest.sh's parity tail: pure-local, no
 # Claude CLI, no network. The pin is model-executed prose (stages/1-intake.md
@@ -11,10 +11,10 @@
 #
 # AC-5 (the `non-main-base-autonomous` reason value is retained, re-semanticized to the
 # pin-failure trigger rather than renamed) was never guarded here — it was guarded where it
-# was mechanically enforceable, in statectl-selftest.sh, whose validator enum was generated
-# from the state-schema.md row. #348 deleted that suite AND the enum it guarded, so the
+# was mechanically enforceable in a suite whose validator enum was generated from a schema
+# row. #348 deleted that suite AND the enum it guarded, so the
 # guarantee is MOOT rather than orphaned: the only surviving mention of the value is the
-# corresponding row in state-schema.md, which the same PR banners as a historical record.
+# corresponding schema row went with it.
 # There is no live subject left to guard, which is why no replacement guard is filed.
 #
 # WHY grep-shaped (and grep-ONLY): intake-review.mjs runs inside the Workflow
@@ -36,7 +36,7 @@ FAIL=0
 ok()  { PASS=$((PASS + 1)); echo "  OK   $1"; }
 bad() { FAIL=$((FAIL + 1)); echo "  FAIL $1"; }
 
-echo "intake-readroot-selftest: Stage-1 read-pin wiring (#59)"
+echo "intake-readroot-selftest: read-pin wiring (#59)"
 
 # --- (1) intake-review.mjs carries the readRoot seam --------------------------
 if grep -q "readRoot = ''" "$WORKFLOW"; then
@@ -61,9 +61,9 @@ else
 fi
 
 # The three markdown-prose checks that used to sit here were deleted (#214):
-#   - the state-schema.md `non-main-base-autonomous` row grep was DOUBLY redundant at the
-#     time: the statectl enum was GENERATED from that very row (gen-statectl-validators.sh),
-#     and statectl-selftest.sh guarded both mutation paths — its regenerate-and-diff drift
+#   - the `non-main-base-autonomous` row grep was DOUBLY redundant at the time: the enum
+#     was GENERATED from that very row, and its suite guarded both mutation paths — the
+#     regenerate-and-diff drift
 #     check caught deletion without regeneration, and its mark-failed case caught deletion
 #     WITH regeneration. That is where the AC-5 guarantee lived until #348 deleted the enum,
 #     the generator and the suite together; see the header note above.

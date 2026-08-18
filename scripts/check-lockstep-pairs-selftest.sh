@@ -75,9 +75,7 @@ fi
 # ---- (d) subset-of violation is caught ------------------------------------------------
 # Add a token to the SUBSET leg that the canonical enum does not carry.
 #
-# #348 RE-ANCHORED. The old case mutated plan-lint.sh's HUMAN_PROVENANCE against
-# ledger-lint.sh; plan-lint.sh died with the staged lane and that row was dropped. `seam-scrub`
-# is now the manifest's only subset-of row — preflight.sh is the canonical superset (it also
+# `seam-scrub` is the manifest's only subset-of row — preflight.sh is the canonical superset (it also
 # scrubs PREFLIGHT_DOCTOR_CMD) and lean-gate.sh the subset — so the mutation goes on lean-gate.
 TARGET="$SANDBOX/plugins/dev-pipeline/skills/build-lean/lean-gate.sh"
 sed "s/^SEAM_SCRUB='SECOND_SHIFT_CONFIG|/SEAM_SCRUB='INVENTED_SEAM_VAR|SECOND_SHIFT_CONFIG|/" "$TARGET" > "$TARGET.m" && mv "$TARGET.m" "$TARGET"
@@ -99,14 +97,14 @@ rc=$(run_checker "$SANDBOX")
   || bad "(e) restored tree is RED — a restore failed, or subset-of rejects a valid subset"
 
 # ---- (f) a REMOVED marker is a failure, never a silent skip ---------------------------
-TARGET="$SANDBOX/plugins/dev-pipeline/state-schema.md"
-sed 's/<!-- LOCKSTEP-BEGIN ac-id-rule -->//' "$TARGET" > "$TARGET.m" && mv "$TARGET.m" "$TARGET"
-if ! grep -q 'LOCKSTEP-BEGIN ac-id-rule' "$TARGET"; then
+TARGET="$SANDBOX/plugins/dev-pipeline/workflows/stall-probe.mjs"
+sed 's|// LOCKSTEP-BEGIN findings-schema||' "$TARGET" > "$TARGET.m" && mv "$TARGET.m" "$TARGET"
+if ! grep -q 'LOCKSTEP-BEGIN findings-schema' "$TARGET"; then
   rc=$(run_checker "$SANDBOX")
   [[ "$rc" -ne 0 ]] \
     && ok "(f) a deleted marker FAILS the pair (a silently-unchecked pair is the bug class)" \
     || bad "(f) deleted marker was treated as a skip — the guard can be disabled by deletion"
-  cp "$ROOT/plugins/dev-pipeline/state-schema.md" "$TARGET"   # restore
+  cp "$ROOT/plugins/dev-pipeline/workflows/stall-probe.mjs" "$TARGET"   # restore
 else
   bad "(f) mutation did not apply — the sed anchor has moved; fix this selftest"
 fi

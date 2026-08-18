@@ -99,7 +99,7 @@ done
 #
 # A pattern containing "/" is path-shaped: "*" stops at a separator, "**" crosses them.
 # A pattern with NO "/" (the formatGlob shape) is matched with "*" crossing separators —
-# that reproduces the bash `[[ "$f" == $a ]]` match the staged lane's verifyctl.sh applied to
+# that reproduces the bash `[[ "$f" == $a ]]` match the verify lane applies to
 # this key, byte-for-byte (the key outlived its executor — D-17). Using [^/]* there would
 # match only root-level files and would fire a zero-match finding on every repo whose sources
 # sit in a subdirectory.
@@ -157,7 +157,7 @@ count_glob_matches() { # $1.. globs → prints the number of tracked files match
 #                       runs the real classifier at its Step 8, where the plugin resolves.
 #                       Re-implementing the predicate here would be an early warning that can
 #                       disagree with the late gate, which is worse than no warning.
-#   planFilePattern   — names a file Stage 3 is about to CREATE; zero matches is universal.
+#   planFilePattern   — names a file the run is about to CREATE; zero matches is universal.
 #   paths.*           — directories a fresh repo legitimately lacks.
 #   visualCapture.*   — dropped outright, not merely unmeasurable: no lane on the default path
 #                       takes a screenshot, so a glob scoping one cannot be a gap. `extraLanes`
@@ -303,7 +303,7 @@ fi
 
 # --- trigger 5: a declared command that contradicts repo reality (AC-5) --------------------
 # EVERY configured command is inspected, not just testFile: a command that never exits hangs
-# Stage 6 exactly as it hangs a mutation run, so the exposure is the same wherever it sits.
+# the verify lane exactly as it hangs a mutation run, so the exposure is the same wherever it sits.
 #
 # Resolution is deliberately NARROW. The missing-script half can produce a false FAIL on a
 # perfectly valid config, and that is a worse outcome than a missed warning — so only an

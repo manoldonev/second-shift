@@ -46,7 +46,7 @@ const DESIGN_SYNC_MJS = join(HERE, 'design-sync.mjs')
 // sibling when one is installed. It also misses in a real cache more often than not — plugins
 // are versioned independently, so dev-pipeline 4.0.0 sits beside design-toolkit 2.2.1 — which
 // is why rung 3 exists rather than a bare two-step. HERE=<plugin-root>/workflows (since #348;
-// it was <plugin-root>/skills/run/workflows before the staged lane was deleted, which is why
+// the layout moved in #348, which is why
 // the hop constants below are two shorter than the ladder they mirror once was).
 const PLUGINS_DIR = join(HERE, '..', '..')
 const MY_VERSION = basename(join(HERE, '..'))

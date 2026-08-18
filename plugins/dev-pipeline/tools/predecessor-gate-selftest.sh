@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # predecessor-gate-selftest.sh — behavioral selftest for tools/predecessor-gate.sh.
 #
-# Harness shape came from statectl-selftest.sh's `(mps)` section — deleted with the staged
+# Harness shape came from a since-deleted suite's `(mps)` section — deleted with the staged
 # lane in #348, leaving this file its only carrier: a one-line helper pipes
 # literal fixture text into the tool and the cases assert on stdout / exit code.
 # There is deliberately NO `gh` mock anywhere — the tool is pure logic by contract

@@ -27,7 +27,7 @@
 # Seeded from the guard's first run on the authoring machine — 55 suites, 51 pass, 4 listed —
 # and CORRECTED by the first run in a second environment, which is the only kind that can
 # falsify a "measured here" claim: CI scores 49 pass, 6 listed on both lanes. The two extra
-# rows were real failures the authoring machine's environment hid. plan-lint-selftest.sh and
+# rows were real failures the authoring machine's environment hid. Two suites and
 # design-sync-selftest.mjs are deliberately ABSENT — both were fixed rather than listed, and
 # so was workflows-mjs-selftest.sh, which was red only because it invokes design-sync's.
 #

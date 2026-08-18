@@ -34,7 +34,7 @@ Principles:
   green. Have such a lane exit any other non-zero code.
 - **`ticketTag` is advisory, and only advisory.** It keys off
   `topology.repos.<id>.ticketTag` on a confirmed pair's `be`+`fe` entries. It used to read two
-  ways: the staged lane's Stage 1.T resolved `TARGET_REPOS` from it as a gate input and failed
+  ways: a retired lane resolved `TARGET_REPOS` from it as a gate input and failed
   closed on an unrecognized title, while the lean lane treated it as a hint. #348 deleted the
   staged lane, so only the advisory reading remains — no gate reads it, `lean-gate.sh`
   included, and the sibling's own separate standalone onboard (needed for `run-lean` — see

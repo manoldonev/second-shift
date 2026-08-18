@@ -213,126 +213,8 @@ out="$(run_classifier "$D")"
   || bad "(d7) empty state dir → expected silence, got: [$out]"
 
 # ---------------------------------------------------------------------------
-# (d8) block 9 — the over-envelope classifier. Same extract-and-execute technique
-# as the stale-claim block above: the REAL production block is re-hosted here and
-# fed canned stage-envelopes.sh output, so these cases cannot pass against a
-# classifier that no longer exists.
-# ---------------------------------------------------------------------------
-ENV_BLOCK="$(sed -n '/# >>> envelope-classify/,/# <<< envelope-classify/p' "$DOCTOR")"
-if [[ -z "$ENV_BLOCK" ]]; then
-  bad "(d8) envelope-classify sentinels not found in $DOCTOR (block 9 refactored without updating this suite)"
-else
-  # Run the REAL extracted block over a canned model and report everything the cases
-  # need: "<summary>|<lines>|<fail-count>|<emitted>".
-  #
-  # ALWAYS invoked through command substitution, so the reporter stubs below live in a
-  # subshell. That isolation is load-bearing: the production block calls `ok`, and so
-  # does THIS suite — defining the stub in the parent shell silently replaced the
-  # suite's own reporter and made a case disappear instead of run. (Observed during
-  # development: the run went "15 passed, 0 failed" with (d8e) never recorded.)
-  #
-  # `fail` increments a counter exactly as the production reporter does, which is what
-  # makes (d8e)'s never-blocking assertion real rather than assumed.
-  run_env_classifier() { # run_env_classifier <json>
-    local env_out env_lines env_summary df="0" emitted=""
-    # shellcheck disable=SC2034  # $env_out is the eval'd production block's only input
-    env_out="$1"
-    # shellcheck disable=SC2317,SC2329  # invoked from inside the eval'd production block
-    ok()   { emitted+="OK:$1;"; }
-    # shellcheck disable=SC2317,SC2329
-    warn() { emitted+="WARN:$1;"; }
-    # shellcheck disable=SC2317,SC2329
-    fail() { df=$((df + 1)); emitted+="FAIL:$1;"; }
-    eval "$ENV_BLOCK" >/dev/null
-    # printf, not a herestring: `tr <<< ""` would emit a spurious ';' for the
-    # herestring's own trailing newline, making "no lines" indistinguishable from
-    # "one empty line" — exactly the distinction (d8d) turns on.
-    printf '%s|%s|%s|%s\n' "$env_summary" "$(printf '%s' "$env_lines" | tr '\n' ';')" "$df" "$emitted"
-  }
-
-  # (d8a) an over-envelope time flag is surfaced, with the record wording.
-  out="$(run_env_classifier '{
-    "corpus": {"minN": 8, "runsInWindow": 12},
-    "trustedWindows": 40,
-    "runUnderTest": {"stem": "4242"},
-    "timeEnvelopes": [{"stage":"5","floorMet":true}],
-    "flags": [{"axis":"time","key":"stage 5","measured":99,"p90":12,"n":10,"record":true}]
-  }')"
-  if [[ "$out" == *"stage 5: 99 min exceeds corpus p90 12 min (n=10)"* && "$out" == *"a new record"* ]]; then
-    ok "(d8a) an over-envelope time flag is surfaced with its measured value and record wording"
-  else
-    bad "(d8a) over-envelope flag not surfaced — got [$out]"
-  fi
-
-  # (d8b) cost flags are NOT surfaced here — block 9 is time-axis only, because cost
-  # is written after the run and a pre-flight has nothing to say about it.
-  out="$(run_env_classifier '{
-    "corpus": {"minN": 8, "runsInWindow": 12},
-    "trustedWindows": 40,
-    "runUnderTest": {"stem": "4242"},
-    "timeEnvelopes": [{"stage":"5","floorMet":true}],
-    "flags": [{"axis":"cost","key":"Implementation","measured":50,"p90":20,"n":9,"record":false}]
-  }')"
-  if [[ "$out" != *"Implementation"* ]]; then
-    ok "(d8b) cost-axis flags are not surfaced by the pre-flight block (time axis only)"
-  else
-    bad "(d8b) cost flag leaked into the pre-flight check — got [$out]"
-  fi
-
-  # (d8c) a corpus under the min-n floor reports VACUOUS rather than a clean bill of
-  # health — "measured nothing" must never read like "measured and found nothing".
-  out="$(run_env_classifier '{
-    "corpus": {"minN": 8, "runsInWindow": 3},
-    "trustedWindows": 6,
-    "runUnderTest": {"stem": "4242"},
-    "timeEnvelopes": [{"stage":"5","floorMet":false}],
-    "flags": []
-  }')"
-  if [[ "$out" == VACUOUS:* ]]; then
-    ok "(d8c) a below-floor corpus reports VACUOUS, not a pass"
-  else
-    bad "(d8c) below-floor corpus — expected VACUOUS, got [$out]"
-  fi
-
-  # (d8d) a within-envelope run emits no lines at all.
-  out="$(run_env_classifier '{
-    "corpus": {"minN": 8, "runsInWindow": 12},
-    "trustedWindows": 40,
-    "runUnderTest": {"stem": "4242"},
-    "timeEnvelopes": [{"stage":"5","floorMet":true}],
-    "flags": []
-  }')"
-  if [[ "$out" == "measured 1 stage envelope(s) over 12 run(s), 40 trusted window(s)||0|OK:"* ]]; then
-    ok "(d8d) a run inside its envelope produces a measured summary and no flag lines"
-  else
-    bad "(d8d) within-envelope run — got [$out]"
-  fi
-
-  # (d8e) THE never-blocking posture (AC-4), asserted behaviorally over the WHOLE block
-  # including its dispatch: run it against a corpus that DOES flag, and confirm nothing
-  # reached the failure reporter. The stubs above make `fail` observable, so an arm that
-  # started calling it — the one realistic way this advisory check could become a gate —
-  # turns this case red. An earlier, narrower sentinel that stopped at the jq left this
-  # unguarded, and a mutation demo caught the gap.
-  out="$(run_env_classifier '{
-    "corpus": {"minN": 8, "runsInWindow": 12},
-    "trustedWindows": 40,
-    "runUnderTest": {"stem": "4242"},
-    "timeEnvelopes": [{"stage":"5","floorMet":true}],
-    "flags": [{"axis":"time","key":"stage 5","measured":99,"p90":12,"n":10,"record":false}]
-  }')"
-  env_fails="$(cut -d'|' -f3 <<< "$out")"
-  env_emitted="$(cut -d'|' -f4- <<< "$out")"
-  if [[ "$env_fails" == "0" && "$env_emitted" == *"WARN:stage envelopes"* && "$env_emitted" != *"FAIL:"* ]]; then
-    ok "(d8e) a flagging run reaches warn() and never fail() — the check cannot move the exit code (AC-4)"
-  else
-    bad "(d8e) never-blocking violated — fail-count=$env_fails emitted=[$env_emitted]"
-  fi
-fi
-
-# ---------------------------------------------------------------------------
 # (d7-bot) block 3 — bot-resolve classification (#92). Same extract-and-execute
-# technique as stale-claim / envelope: the REAL production block is re-hosted
+# technique as stale-claim: the REAL production block is re-hosted
 # here against a mock gh-bot.sh. No scenario-liveness path — like doctor block 8,
 # this reaches no terminal write (stated per the scenario-first rule).
 # ---------------------------------------------------------------------------
@@ -410,7 +292,7 @@ fi
 
 # ---------------------------------------------------------------------------
 # (dc) section 4b — the selftest-cache-gate that lets pipeline-doctor.sh skip its
-# own expensive internal selftest sweep (statectl alone runs ~90s+) on a repeat
+# own expensive internal selftest sweep (~90s+ for the slowest suite) on a repeat
 # call in an unchanged environment. Same extract-and-execute technique as
 # bot-resolve: the REAL production block is re-hosted here against a fixture
 # plugin tree + fixture cache file. No scenario-liveness path — like bot-resolve/
@@ -768,6 +650,158 @@ else
         bad "(rs3-$rs_shape) resolve_sibling returned [$rs_out], expected the 10.0.0 sibling" ;;
     esac
   done
+fi
+
+# ---------------------------------------------------------------------------
+# (inv) every selftest the doctor DELEGATES to must exist
+#
+# INVARIANT: an invocation may not outlive its subject. Delete a selftest and leave
+# the doctor's `bash "$SCRIPT_DIR/<name>-selftest.sh"` behind, and bash returns 127,
+# the `if` takes the else arm, and the doctor reports a permanent FAIL for the drift
+# of a check that no longer exists — a red no consumer can act on.
+#
+# This does NOT run the delegates — that would break the no-gh/no-network contract
+# the header states. It resolves their PATHS, which is the property that rots. It is
+# not a prose-presence guard: it fails on a real filesystem fact (a deleted subject),
+# which is exactly what a grep for the literal could not do.
+#
+# THREE ARMS, because the doctor delegates in three shapes and the invariant is the
+# same for each: `$SCRIPT_DIR/<name>` (a sibling file), `$PLUGIN_DIR/<relpath>`
+# (elsewhere in this plugin — where the lean gate, lean evidence and null-reviewer
+# suites live), and `resolve_sibling <plugin> <relpath>` (another plugin). A shape
+# with no arm is a shape where the 5h2 break recurs unseen, so the arm set tracks the
+# doctor's actual delegation forms rather than the two that were easiest to reach.
+DOCTOR_DIR="$(cd "$(dirname "$DOCTOR")" && pwd)"
+OWN_PLUGIN_DIR="$(cd "$DOCTOR_DIR/.." && pwd)"
+PLUGINS_ROOT="$(cd "$DOCTOR_DIR/../.." && pwd)"
+
+# ONE extraction, shared by the live assertion and by every probe. The probes drive
+# THIS function against a doctored copy instead of restating its greps: a hand-kept
+# copy of the extraction cannot fail when the extraction drifts, which is CLAUDE.md's
+# no-mirror-harness rule applied to the guard's own probe.
+# shellcheck disable=SC2016  # deliberate: the `$SCRIPT_DIR` / `$PLUGIN_DIR` prefixes are the
+# literal TEXT being matched in the doctor's source, not variables to expand here.
+inv_extract() { # inv_extract <doctor-file> <arm: script|plugin|sibling>
+  case "$2" in
+    script)  grep -oE '\$SCRIPT_DIR/[a-z0-9-]+-selftest\.(sh|mjs)' "$1" \
+               | sed 's|^\$SCRIPT_DIR/||' ;;
+    plugin)  grep -oE '\$PLUGIN_DIR/[A-Za-z0-9/_.-]+-selftest\.(sh|mjs)' "$1" \
+               | sed 's|^\$PLUGIN_DIR/||' ;;
+    sibling) grep -oE 'resolve_sibling [a-z-]+ [A-Za-z0-9/_.-]+-selftest\.(sh|mjs)' "$1" \
+               | sed 's|^resolve_sibling ||' ;;
+  esac | sort -u
+}
+
+# Globals, because bash 3.2 has no way to return two values and the header forbids
+# associative arrays. Reset on every call so a stale set cannot survive into the next.
+INV_SEEN=0
+INV_MISSING=""
+inv_scan() { # inv_scan <doctor-file> <arm>
+  local doc="$1" arm="$2" hit plug rel base
+  INV_SEEN=0
+  INV_MISSING=""
+  while IFS= read -r hit; do
+    [[ -z "$hit" ]] && continue
+    INV_SEEN=$((INV_SEEN + 1))
+    case "$arm" in
+      script)  base="$DOCTOR_DIR/$hit" ;;
+      plugin)  base="$OWN_PLUGIN_DIR/$hit" ;;
+      sibling) plug="${hit%% *}"; rel="${hit#* }"; hit="$plug/$rel"
+               base="$PLUGINS_ROOT/$plug/$rel" ;;
+    esac
+    [[ -f "$base" ]] || INV_MISSING="$INV_MISSING $hit"
+  done < <(inv_extract "$doc" "$arm")
+}
+
+# THE arm list — single definition. Both the live loop below and inv_covered_names()
+# read it, so dropping an arm shrinks the covered set and the completeness check reds.
+# Two copies of this list would let a dropped arm stay invisible, which is the bug this
+# whole block exists to prevent.
+INV_ARMS="script plugin sibling"
+
+for _arm in $INV_ARMS; do
+  inv_scan "$DOCTOR" "$_arm"
+  if [[ "$INV_SEEN" -eq 0 ]]; then
+    bad "(inv/$_arm) found no $_arm-form selftest delegations in $DOCTOR — the extraction pattern drifted, so this arm is inert"
+  elif [[ -n "$INV_MISSING" ]]; then
+    bad "(inv/$_arm) pipeline-doctor delegates to selftest(s) that do not exist:$INV_MISSING — the invocation outlived its subject"
+  else
+    ok "(inv/$_arm) all $INV_SEEN $_arm-form selftest delegations resolve to a real file"
+  fi
+done
+
+# Probe, ONE PER ARM. Without a probe a drifted extraction reports the same green as a
+# clean tree — and an arm covered only by a SIBLING arm's probe is unprobed in practice,
+# because each arm carries its own regex and its own filesystem base.
+# <expect> is the EXACT string the arm must report, not a shared substring: the sibling
+# arm rewrites its `<plugin> <relpath>` match into `<plugin>/<relpath>` for the message,
+# and a shared token would let that join rot unnoticed.
+inv_probe() { # inv_probe <arm> <injected-line> <expect>
+  local arm="$1" inject="$2" expect="$3" probe="$WORK/probe-doctor-$1.sh"
+  { cat "$DOCTOR"; printf '%s\n' "$inject"; } > "$probe"
+  inv_scan "$probe" "$arm"
+  case " $INV_MISSING " in
+    *" $expect "*)
+      ok "(inv-probe/$arm) the $arm arm reports the absent delegation as '$expect'" ;;
+    *)
+      bad "(inv-probe/$arm) the $arm arm did NOT report '$expect' — that arm is inert, or its reported form drifted. Got:[$INV_MISSING]" ;;
+  esac
+}
+# shellcheck disable=SC2016  # deliberate: each injected line must carry the literal prefix so
+# the extraction sees the same shape it sees in the real doctor.
+INV_INJECT_SCRIPT='bash "$SCRIPT_DIR/definitely-deleted-selftest.sh"'
+# shellcheck disable=SC2016  # same literal-text match as above.
+INV_INJECT_PLUGIN='bash "$PLUGIN_DIR/skills/build-lean/definitely-deleted-selftest.sh"'
+INV_INJECT_SIBLING='resolve_sibling review-toolkit scripts/definitely-deleted-selftest.sh'
+inv_probe script  "$INV_INJECT_SCRIPT"  'definitely-deleted-selftest.sh'
+inv_probe plugin  "$INV_INJECT_PLUGIN"  'skills/build-lean/definitely-deleted-selftest.sh'
+inv_probe sibling "$INV_INJECT_SIBLING" 'review-toolkit/scripts/definitely-deleted-selftest.sh'
+
+# COMPLETENESS — the arms are only as good as the arm LIST. Drop one from the loop above
+# and its live check silently disappears while every probe still passes, because a probe
+# calls inv_scan with its own literal arm token: round 1's defect recurring one level up,
+# and a suite that stays green because the summary only counts FAILures.
+#
+# So cross-check the two sides by NAME, not by count (a count cannot say which file, and
+# double-invocation would move it spuriously). The declared side reads a shape the arms do
+# not parse — every -selftest basename the doctor invokes, comment lines excluded — so a
+# delegation FORM with no arm reds here even though no arm knows to look for it.
+# BASENAME granularity is forced, not chosen. The three arms emit three DIFFERENT path
+# shapes ("claim-selftest.sh", "skills/build-lean/x-selftest.sh", "<plugin> scripts/y.sh"),
+# and the declared side reads raw doctor text where the same paths are written with
+# $SCRIPT_DIR / $PLUGIN_DIR / resolve_sibling prefixes. Normalizing to a common full path
+# would require the declared side to KNOW those three shapes — which is exactly the
+# independence that lets it red on a FOURTH shape no arm parses. So the sides meet at the
+# basename, and the precondition that makes that sound is asserted below.
+inv_declared_names() {
+  grep -E -- '-selftest\.(sh|mjs)' "$DOCTOR" | grep -vE '^[[:space:]]*#' \
+    | grep -oE '[A-Za-z0-9_.-]+-selftest\.(sh|mjs)' | sort -u
+}
+# Same extraction, keeping `/` — so two delegations to different paths stay distinct.
+inv_declared_paths() {
+  grep -E -- '-selftest\.(sh|mjs)' "$DOCTOR" | grep -vE '^[[:space:]]*#' \
+    | grep -oE '[A-Za-z0-9/_.-]+-selftest\.(sh|mjs)' | sort -u
+}
+inv_covered_names() {
+  local a
+  for a in $INV_ARMS; do
+    inv_extract "$DOCTOR" "$a" | grep -oE '[A-Za-z0-9_.-]+-selftest\.(sh|mjs)'
+  done | sort -u
+}
+inv_uncovered="$(comm -23 <(inv_declared_names) <(inv_covered_names) | tr '\n' ' ')"
+inv_n_declared="$(inv_declared_names | wc -l | tr -d ' ')"
+inv_n_paths="$(inv_declared_paths | wc -l | tr -d ' ')"
+if [[ "$inv_n_declared" -eq 0 ]]; then
+  bad "(inv/complete) found no selftest delegations at all in $DOCTOR — the declared-side extraction drifted, so this cross-check is inert"
+elif [[ "$inv_n_paths" -ne "$inv_n_declared" ]]; then
+  # The precondition for comparing by basename: no two delegated paths may share one. If
+  # they do, an UNCOVERED delegation would look covered because a different arm reported
+  # the same basename — the blind spot is loud here instead of silent above.
+  bad "(inv/complete) two delegated paths share a basename ($inv_n_paths path(s), $inv_n_declared name(s)) — the coverage cross-check compares by basename and cannot tell them apart. Rename one, or teach both sides a common full-path form."
+elif [[ -n "${inv_uncovered// }" ]]; then
+  bad "(inv/complete) the doctor delegates to selftest(s) no arm covers: ${inv_uncovered}— a delegation SHAPE has no arm, or an arm was dropped from the loop. (A bare mention in a TRAILING comment on a code line also trips this; move it to its own comment line.)"
+else
+  ok "(inv/complete) all $inv_n_declared selftest delegation(s) the doctor makes are covered by an arm, and no two share a basename"
 fi
 
 # ---------------------------------------------------------------------------

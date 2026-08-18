@@ -1,7 +1,7 @@
 export const meta = {
   name: 'dev-pipeline-code-review',
   description:
-    "Reviewer fan-out for review-lead — used by dev-pipeline Stage 8 and by standalone /review-lead (and pr-revision). Dispatches the selected specialist reviewers as parallel agent() calls and returns their structured findings. Synthesis (dedup, triage, Scope Completeness Gate, cross-reviewer self-check) is NOT done here — it stays in the caller's session on the caller's model, per review-lead's Synthesis Rules.",
+    "Reviewer fan-out for review-lead — used by the dev-pipeline review lane and by standalone /review-lead (and pr-revision). Dispatches the selected specialist reviewers as parallel agent() calls and returns their structured findings. Synthesis (dedup, triage, Scope Completeness Gate, cross-reviewer self-check) is NOT done here — it stays in the caller's session on the caller's model, per review-lead's Synthesis Rules.",
   phases: [{ title: 'Review', detail: 'one agent() per selected specialist reviewer' }],
 }
 
@@ -107,7 +107,7 @@ const FINDINGS_SCHEMA = {
 }
 // LOCKSTEP-END findings-schema
 
-// args (assembled in-session by Stage 8, which has Bash to size the diff and route):
+// args (assembled in-session by the caller, which has Bash to size the diff and route):
 //   worktree     — absolute path the reviewers run git against
 //   base, head   — git refs bounding the review: a branch, a ref, or a SHA — all accepted.
 //                  The range is rendered THREE-DOT (`<base>...<head>`), which is merge-base
@@ -277,7 +277,7 @@ const BOUNDED_EXPLORATION =
 //     is ambiguous"), so its honest early skeleton is every item [unsatisfied], refined upward
 //     only as evidence lands. A cut-short result over-reports FAIL, never a false PASS.
 //   - unit-test-mutation-reviewer's unreached mutants are simply absent, and an absent mutant
-//     never blocks (execution-verified blocking is Stage 5's, not this fan-out's).
+//     never blocks (execution-verified blocking is the propose-mode orchestrator's, not this fan-out's).
 // This does NOT weaken the dark path (#175's stated non-fix): nothing transcribes partial text
 // and no parser changes — the AGENT emits a well-formed block, and a missing sentinel is still
 // dark. parseReviewResult() is already last-match-wins, which is what makes re-emission free.
@@ -297,7 +297,7 @@ const PROGRESSIVE_EMIT =
 // Per-reviewer wall-clock ceiling (#219). The Workflow runtime's own agent-stall loop
 // (multiple attempts × a no-progress window) can let a genuinely wedged reviewer burn
 // ~90 min before agent() settles — observed in run #183, where one dark reviewer added
-// ~90 min to a Stage 8 whose five other reviewers had finished in minutes. That loop is
+// ~90 min to a review round whose five other reviewers had finished in minutes. That loop is
 // a RUNTIME property: it is NOT reachable from this script (agent() exposes no
 // timeout/abort option, and there is no AbortController in the Workflow sandbox). So we
 // bound it in userland — race each reviewer's dispatch against this ceiling and, on
@@ -307,7 +307,7 @@ const PROGRESSIVE_EMIT =
 // but it does NOT block parallel()/the fan-out from returning (the runtime does not wait
 // on an orphaned pending promise). Single tunable knob.
 //   15 min: >=2.5x the largest observed healthy single-reviewer turn (bounded above by the
-//   ~6 min aggregate Stage-8 wall-clock of runs #195/#218), ~6x tighter than the #183 wedge.
+//   ~6 min aggregate fan-out wall-clock of runs #195/#218), ~6x tighter than the #183 wedge.
 //   Raise it if a future large-diff run legitimately needs a longer single reviewer turn.
 const REVIEWER_CEILING_MS = 15 * 60 * 1000
 
@@ -316,7 +316,7 @@ phase('Review')
 
 // Cost discipline. The Workflow runtime enforces the operator's turn token budget
 // (the "+Nk" launch directive) across every agent() call in the run — all three
-// Stage 8 rounds draw on one shared pool — and makes agent() throw once it is
+// review rounds draw on one shared pool — and makes agent() throw once it is
 // spent; the per-reviewer .catch below already turns that into a forwarded error
 // rather than a crash. Surface the posture, and if the budget is already spent,
 // skip the fan-out cleanly instead of dispatching calls that will all throw.
@@ -387,7 +387,7 @@ const dispatchReviewer = async (requested) => {
       (prContext ? ` Context: ${prContext}.` : '') +
       ` Propose mutants and predict survived/untested — LLM prediction ONLY; ` +
       `do NOT apply mutants or run tests (this fan-out has no executor). ` +
-      `Blocker-class mutants map to severity \`major\` (never \`blocker\` — only the Stage-5 ` +
+      `Blocker-class mutants map to severity \`major\` (never \`blocker\` — only the propose-mode ` +
       `execution-verified gate can block). No Stryker. ` +
       `Return verdict and findings (severity major/minor/nit, file, line, confidence 0-100).` +
       PROGRESSIVE_EMIT

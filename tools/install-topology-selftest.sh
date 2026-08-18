@@ -4,7 +4,7 @@
 # WHAT CLASS. A shipped suite can pass in this checkout and fail everywhere it is actually
 # installed, because it silently borrows something from the tree it was authored in. Nothing
 # else in CI runs a shipped suite from the shape a consumer installs, so the whole class was
-# invisible: plan-lint-selftest.sh borrowed the repo's git toplevel for its fixtures (its 5a
+# invisible: one suite borrowed the repo's git toplevel for its fixtures (its 5a
 # assertions were skipped wholesale from the cache, one failing and two passing vacuously) and
 # design-sync-selftest.mjs assumed sibling plugins stay adjacent under `plugins/`. Both were
 # green here the entire time.
@@ -45,21 +45,21 @@ SELF="$HERE/$(basename "${BASH_SOURCE[0]}")"
 
 # Per-suite wall-clock bound. This guard runs a SECOND copy of every shipped suite, often
 # while the outer sweep is running the first, so cross-copy contention is structural rather
-# than incidental: statectl-selftest.sh was measured at 244s against a ~94s uncontended norm
+# than incidental: the slowest suite was measured at 244s against a ~94s uncontended norm
 # that way. Unbounded, a suite that hangs takes the CI job's timeout with it — a red build
 # with no attributable cause — instead of one named timeout line. The default is ~2x the
 # worst contended run measured, so contention slows the guard rather than failing it.
 #
 # That default was 600s and is now 1200s, because "the worst contended run measured" moved.
 # Under a stress-inclusive outer sweep at -P 4 the contending load is the whole sweep, not one
-# second copy, and statectl-selftest.sh crossed 600s in there — reported, correctly, as a
+# second copy, and that suite crossed 600s in there — reported, correctly, as a
 # named timeout, on a tree with nothing wrong with it. A bound that ambient machine load can
 # cross stops being a hang detector and becomes a flaky test: every crossing gets
 # re-litigated by hand, which is the exact cost the named-timeout line exists to remove.
 # The rule is unchanged; only the observation it is applied to is.
 #
 # (An earlier reading of this had the bound guarding a specific `until ! pgrep -f` waiter in
-# statectl-selftest.sh. No such waiter exists in this tree — `grep -rn pgrep` finds only
+# that suite. No such waiter exists in this tree — `grep -rn pgrep` finds only
 # mutation-sweep-selftest.sh's orphan COUNT. The bound stands on the contention measurement
 # above; it is not defending against that mechanism.)
 #

@@ -2699,7 +2699,7 @@ region_resolved() { # region_resolved <id> <comments-json>
 # table is the SAME shape interviewing-baseline defines for the issue body (`pause_and_ask_ids`
 # reads either unchanged; only the source differs), so no second parser is needed here.
 #
-# Default path mirrors plan-lint.sh's `{issue}-ledger.md` convention — the sibling of every
+# Default path follows the `{issue}-ledger.md` convention — the sibling of every
 # other per-issue file in $STATE_DIR (PROGRESS_FILE, RUN_ID_CACHE). `--ledger-file` overrides it,
 # symmetric with `--issue-file`/`--comments-file`, so a selftest can drive this leg without a real
 # write into $STATE_DIR — a SHARED, mutable directory across every worktree on the machine.
@@ -3043,7 +3043,7 @@ cmd_2() {
 }
 
 # ---------------------------------------------------------------- milestone 3: green
-# D-17: the config commands table DIRECTLY — no verifyctl, and deliberately NO inert-diff
+# D-17: the config commands table DIRECTLY — and deliberately NO inert-diff
 # lane. In a repo whose diffs are mostly shell and markdown, the inert lane would skip the
 # suite on exactly the changes that need it most.
 #
@@ -3051,7 +3051,7 @@ cmd_2() {
 # lint/typecheck/test keys, and extraLanes — is itself second-shift tooling reach on this
 # repo (dogfooding), so it must not inherit the gate's own pipeline-seam env: an ambient
 # SECOND_SHIFT_CONFIG/STATECTL_STATE_DIR silently re-roots or re-states it, the same class
-# #34 found in the staged lane's verifyctl.sh, which held this denylist until #348. This file is
+# #34 found in the previous verify runner, which held this denylist until #348. This file is
 # now its canonical carrier, with preflight.sh's superset pinned against it
 # (scripts/lockstep-manifest.tsv) — lean-gate needs nothing narrower or wider. `eval "$cmd"`
 # becomes `env <scrub> bash -c "$cmd"`: functionally identical for a shell command string
@@ -3495,7 +3495,7 @@ m3_launch_or_join() {
 }
 
 # extraLanes `when` glob match — bash pattern matching (NOT globstar, NOT git pathspec),
-# the dialect the staged lane's verifyctl.sh pinned (its AC-4) and this gate inherited: `*`
+# the dialect this gate inherited (AC-4): `*`
 # crosses `/`, so `**` buys nothing extra and a bare directory literal never matches a file
 # beneath it. #348 left this file the sole carrier, so the selftest is the only thing holding
 # the dialect — which is why this is its own function, pinnable directly rather than through
@@ -3608,7 +3608,7 @@ lean_sha256() { # lean_sha256 <file>
 #
 # Width = max(3, longest cell in the column, header included); one space each side of every
 # cell; the delimiter carries exactly `width` dashes. Measured against prettier 3.7.4 — the
-# version this gate pins as its own fallback (inherited from verifyctl.sh, deleted in #348).
+# version this gate pins as its own fallback.
 #
 # CHARACTER count, not display width. Prettier pads by display width, so a wide-glyph route or
 # state cell would mis-pad; the cost is one red format check on the branch that introduced it,
@@ -3659,7 +3659,7 @@ md_table_prettier() {
 # invocation path, or nothing when none resolves — which every caller must treat as "skip the
 # format step", never as a failure: an absent formatter is a consumer fact, not a run defect.
 #
-# Two rungs, and the omission of a third is the design. The staged lane's verifyctl.sh ladder
+# Two rungs, and the omission of a third is the design. The previous ladder
 # ended in `npx --yes prettier@x`; that rung was deliberately NOT carried here, because a gate
 # call must not reach the network. #348 deleted that ladder, leaving this file the sole carrier
 # of the two rungs — scripts/lockstep-manifest.tsv records the paired row as DROPPED for exactly
@@ -3964,7 +3964,7 @@ cmd_3() {
   # render pre-command cmd_3_render runs at the end.
   lane_apply_job_ceiling
   # lanes[] setup steps first, when present. Shape is {name, cwd?, commands[]} — the SAME
-  # reader the staged lane's verifyctl.sh used (its step 1), including the non-object backstop (#100): a lane
+  # reader the previous runner used (its step 1), including the non-object backstop (#100): a lane
   # that is not an object must fail loudly, never be silently skipped on the way to green.
   # Reading `.command // .` instead emits the whole lane object as the command, which is a
   # bash syntax error on every schema-valid config that declares a lane.
@@ -4011,7 +4011,7 @@ cmd_3() {
   # Additive verify lanes: the schema's slot for everything config-lint forces out of the
   # fixed keys (build lanes, path-scoped suites, a design-driven live-render lane). Run
   # sequentially AFTER the fixed keys and BEFORE the mutation sweep (AC-6), in declaration
-  # order, fail-fast — the same placement verifyctl.sh gave them before #348.
+  # order, fail-fast — the same placement the previous runner gave them.
   local el_lanes="[]" el_count=0
   if [ -f "$CONFIG" ]; then
     el_lanes="$(jq -c --arg s "$REPO_SLUG" '(.commands[$s].extraLanes // [])' "$CONFIG" 2>/dev/null)"
@@ -4047,7 +4047,7 @@ cmd_3() {
       # Shape backstop (AC-7): nothing in this lane ever runs config-lint, so this is the
       # only shape guard extraLanes gets here. A non-object entry, or one missing `name` or
       # a non-empty `commands`, reds milestone 3 naming the entry INDEX — mirroring the hole
-      # verifyctl.sh had grown this same guard for (#100).
+      # the previous runner had grown this same guard for (#100).
       el_type="$(jq -r --argjson i "$el_i" '.[$i] | type' <<<"$el_lanes")"
       if [ "$el_type" != "object" ]; then
         fail_milestone 3 "extraLanes[$el_i]: must be an object {name, when?, commands[], failureClass}, got $el_type"; return $?

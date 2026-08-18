@@ -42,8 +42,8 @@ with one or more Figma node links (optionally with override notes because Figma 
 
 **Do not use** for:
 
-- Autonomous pipeline runs — that is `figma-faithful` dispatched through the dev-pipeline
-  (Stage 5). This skill rejects a non-interactive context (see the guard).
+- Autonomous pipeline runs — that is `figma-faithful` dispatched through the dev-pipeline.
+  This skill rejects a non-interactive context (see the guard).
 - Shaping a still-undecided feature / producing a formal spec — that is
   [`figma-faithful-spec`](../figma-faithful-spec/SKILL.md).
 - A claude-design (non-Figma) repo — that is [`design-faithful`](../design-faithful/SKILL.md).

@@ -1,6 +1,6 @@
 #!/bin/bash
 # pipeline-cost-block.sh — append a per-stage OTel cost block to a dev-pipeline
-# run's PR(s). Invoked explicitly by Stage 9 (this is NOT a Stop hook).
+# run's PR(s). Invoked explicitly by the caller (this is NOT a Stop hook).
 #
 # Usage:  pipeline-cost-block.sh <issue-number>
 #         pipeline-cost-block.sh --stateless --sessions <id[,id…]> \
@@ -9,7 +9,7 @@
 #         collector, no PRs, …) into the state file's costBlockApplied field.
 #         non-zero = the state file could not be resolved (nothing to record
 #         into) — a loud, state-unresolvable failure. Either way the sub-step is
-#         non-fatal to Stage 9: the caller invokes it without checking rc, so a
+#         non-fatal to the caller: it invokes this without checking rc, so a
 #         non-zero exit surfaces in the run summary but never blocks completion.
 #
 # STATE-LESS MODE (additive; build-lean, D-28). One instrument across both harnesses —
@@ -112,7 +112,7 @@ fi
 
 # ────────────────────────────────────────────────────────────────────────────
 # Resolve state-file path in the CONSUMER repo, git-common-dir anchored from
-# $PWD (mirrors statectl.sh state_dir: STATECTL_STATE_DIR > SECOND_SHIFT_REPO_ROOT
+# $PWD (ladder: STATECTL_STATE_DIR > SECOND_SHIFT_REPO_ROOT
 # > cwd-derived main checkout; config paths.pipelineStateDir overrides the
 # default subdir).
 # ────────────────────────────────────────────────────────────────────────────
@@ -178,15 +178,15 @@ STATE_FILE=$(resolve_state)
 # $STATE_FILE, which by definition does not exist here, so we cannot leave a
 # costBlockApplied breadcrumb. Fail LOUD (non-zero) instead of the old silent
 # `exit 0` — a bare null was the #188 silent-skip. A cross-repo run must point
-# this script at the CONTROL repo's state (Stage 9 exports SECOND_SHIFT_REPO_ROOT
-# on the invocation; operators of a bespoke cwd set STATECTL_STATE_DIR). Stage 9
+# this script at the CONTROL repo's state (the caller exports SECOND_SHIFT_REPO_ROOT
+# on the invocation; operators of a bespoke cwd set STATECTL_STATE_DIR). The caller
 # invokes this without checking rc, so the non-zero never blocks completion.
 [ -f "$STATE_FILE" ] || { log "no state file at $STATE_FILE — state unresolvable, cannot record costBlockApplied (see #188: export SECOND_SHIFT_REPO_ROOT/STATECTL_STATE_DIR to the control repo)"; exit 2; }
 fi
 
 # ────────────────────────────────────────────────────────────────────────────
 # Record outcome into costBlockApplied (raw jq — this script owns the field outright;
-# it was never statectl's, and no other writer survives #348).
+# no other writer survives #348).
 # ────────────────────────────────────────────────────────────────────────────
 record() {
   local val="$1"  # JSON scalar: `true` or a quoted string
@@ -269,7 +269,7 @@ fi
 
 # ────────────────────────────────────────────────────────────────────────────
 # Session set. State-less mode (the lean lane) is HANDED the set by its caller; the
-# stateful branch below reads pipelineSessions[], which the staged lane's statectl write
+# stateful branch below reads pipelineSessions[], which the staged lane's write
 # seam (apply_session_seam) registered on each contributing session's first state write.
 # #348 deleted that writer, so the stateful branch now only ever reads a pre-lean state
 # file — no tool in this tree populates the field. Each id is
@@ -499,7 +499,7 @@ compute_bucket_rollup() {
     |
     # Assign each (already-fenced) row to the first stage window containing it.
     # A row that falls in no stage window is in-fence inter-stage-gap cost (or
-    # pre-Stage-1 setup) → explicit "Other" bucket. Out-of-fence rows were
+    # pre-run setup) → explicit "Other" bucket. Out-of-fence rows were
     # already dropped above, so there is no whole-session "Other" anymore.
     ($stages | to_entries
       | map({n: .key,
@@ -563,7 +563,7 @@ compute_bucket_rollup() {
 # Stage-window quality check: if startedAt is missing everywhere, or all
 # timestamps collapse to a single distinct value, bucketing is meaningless
 # and we degrade to a single-row "Session total" table.
-# This also tolerates a lifecycle-less final stage (e.g. a Stage 9 that never
+# This also tolerates a lifecycle-less final stage (e.g. a final stage that never
 # wrote startedAt — see #174): the gate keys off >=2 starts / >=3 distinct
 # timestamps across ALL stages, so a single missing final-stage window still
 # passes (prior stages satisfy it) and never crashes the cost block.

@@ -5,12 +5,12 @@ description: Orchestrates parallel code review across specialized reviewers. Use
 
 <!-- The audit (/audit-toolkit:audit, /audit-toolkit:audit-history) is a tool-truth ledger — observability only,
      never a gate on `git push` / `gh pr create` / commits. Dispatch the reviewers for
-     real via the `code-review.mjs` Workflow `agent()` fan-out (standalone and Stage 8
+     real via the `code-review.mjs` Workflow `agent()` fan-out (standalone and pipeline-driven
      alike); never inline reviewer logic. -->
 
 You are the code review team lead for the repo under review.
 
-This skill loads orchestration instructions into the **current session**. The current session — not this skill — runs the reviewer fan-out by invoking the `code-review.mjs` Workflow script (via the `Workflow` tool), both standalone and under dev-pipeline Stage 8. The body below tells the current session HOW to run the review.
+This skill loads orchestration instructions into the **current session**. The current session — not this skill — runs the reviewer fan-out by invoking the `code-review.mjs` Workflow script (via the `Workflow` tool), both standalone and pipeline-driven. The body below tells the current session HOW to run the review.
 
 ## Pre-flight: dispatch substrate
 
@@ -31,7 +31,7 @@ The reviewer fan-out runs as `agent()` calls inside `workflows/code-review.mjs` 
 
   The script returns structured findings; this session then runs the Synthesis Rules over them. Reviewer **selection** (Routing, below) happens in-session first, since it needs the diff: choose from the effective reviewer registry — the plugin-shipped panel (review-toolkit:security-reviewer, review-toolkit:performance-reviewer, review-toolkit:complexity-reviewer, review-toolkit:maintainability-reviewer, review-toolkit:test-coverage-reviewer, review-toolkit:unit-test-mutation-reviewer, review-toolkit:db-reviewer, review-toolkit:pipeline-reviewer, review-toolkit:scope-completeness-reviewer, review-toolkit:a11y-reviewer, design-toolkit:design-faithful-reviewer, design-toolkit:figma-faithful-reviewer) plus/minus the consumer repo's config deltas (see "Consumer config: reviewer registry" below) — and pass the selected `agentType[]` as `args.reviewers`. `worktree` is the absolute path the reviewers run git against — for pure standalone `/review-lead` in the repo checkout, derive it with `git rev-parse --show-toplevel`; `base`/`head` come from the diff range (default `origin/<base>..HEAD`, where `<base>` is the configured base branch resolved in Process step 1, after a `git fetch origin <base>` — see Process step 1's stale-base rationale), and `changedFiles` from the `git diff --stat` run for Routing.
 
-- **Synthesis-only mode (driven by dev-pipeline Stage 8):** the dev-pipeline Stage 8 `Workflow` script (`workflows/code-review.mjs`) has **already dispatched** the reviewers via `agent()` and hands you their structured findings directly. In this mode you are loaded for the Synthesis Rules / Routing / Scope Completeness Gate / verdict format only — the Workflow-availability gate above does **not** apply (the fan-out already ran). Proceed straight to synthesis over the supplied findings.
+- **Synthesis-only mode (driven by the calling pipeline):** the `workflows/code-review.mjs` Workflow script has **already dispatched** the reviewers via `agent()` and hands you their structured findings directly. In this mode you are loaded for the Synthesis Rules / Routing / Scope Completeness Gate / verdict format only — the Workflow-availability gate above does **not** apply (the fan-out already ran). Proceed straight to synthesis over the supplied findings.
 
 Do **not** attempt to inline reviewer logic in either mode. Inlining produces a fake multi-reviewer verdict; it must not be reintroduced.
 
@@ -163,7 +163,7 @@ Analyze the `git diff --stat` output and spawn reviewers accordingly.
 | ------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **db-reviewer**                 | The repo's DB layer changed — schema definitions, migrations, or query code (e.g. `*.schema.*`, a migrations dir). Skip/remove in repos with no DB (config `reviewers.remove`).                                                                                              |
 | **pipeline-reviewer**           | Async worker / queue-processor / job-producer files changed (e.g. `*processor*`, `*queue*`, a workers dir).                                                                                                                                                                 |
-| **unit-test-mutation-reviewer** | A production file within the repo's mutation-review target surface changed AND a co-located spec is in the diff; OR the pipeline ran with `unitTestSurface.action == strengthen`. Advisory mode (LLM-predicted, no execution — Stage 5 owns execution-verified blocking).    |
+| **unit-test-mutation-reviewer** | A production file within the repo's mutation-review target surface changed AND a co-located spec is in the diff; OR the pipeline ran with `unitTestSurface.action == strengthen`. Advisory mode (LLM-predicted, no execution — the propose-mode orchestrator owns execution-verified blocking).    |
 | **scope-completeness-reviewer** | Invocation references a tracker issue number (e.g., `Closes #758`, `Part of #758`, an explicit `--issue 758` flag, or PR body contains `#<number>`). Spawn unconditionally — depth routing does not apply. If no issue is referenced, do not spawn.                          |
 | **a11y-reviewer**               | Diff touches the repo's web-component surface — `$WEB_COMPONENT_GLOBS` (config `stageParams.webComponentGlobs`, default `apps/web/**/*.{tsx,jsx}`). WCAG/ARIA/keyboard/contrast/reduced-motion, primitives-library-aware.                                                    |
 | **design-fidelity dimension**   | Same `$WEB_COMPONENT_GLOBS` trigger as `a11y-reviewer`, spawned alongside it. Exactly one of **design-faithful-reviewer** / **figma-faithful-reviewer**, selected by config `design.provider` — see "Design-fidelity dimension" below.                                        |
@@ -198,7 +198,7 @@ Keying this on the *dimension being selected* rather than on `design.provider` b
 One dispatch substrate — the `code-review.mjs` Workflow — across both entry modes:
 
 - **Dispatch mode (standalone `/review-lead`, and `pr-revision`):** this session invokes `workflows/code-review.mjs` via the `Workflow` tool, passing the selected `reviewers` plus `worktree`/`base`/`head`/`changedFiles`/`prContext` (see Pre-flight). The script issues one `agent({ agentType, model, schema })` per selected reviewer, via `parallel()`, each at the model tier declared in its agent frontmatter, and returns structured findings.
-- **dev-pipeline Stage 8:** Stage 8 invokes the same `code-review.mjs` script itself and hands this session the findings (synthesis-only mode — see Pre-flight).
+- **Pipeline-driven review:** the caller invokes the same `code-review.mjs` script itself and hands this session the findings (synthesis-only mode — see Pre-flight).
 
 In both modes the script returns structured findings and this session runs the Synthesis Rules over them. The args the script forwards to each reviewer:
 
@@ -282,13 +282,13 @@ If `scope-completeness-reviewer` was spawned and returned `FAIL` or `BLOCKED`, t
 - Each `[unsatisfied]` scope item is included as a `Critical [Scope completeness]` finding in the Critical section, with the unsatisfied item, the reason, and the question "is this item covered by the diff somewhere I missed, or does it need to be added to the PR or explicitly deferred in the issue body?"
 - The orchestrator's prompt (the user's invocation) does not override this gate. Claims like "that's deferred" or "out of scope here" are not evidence — only the diff covering the item, or the issue body explicitly deferring it (with a linked follow-up issue), satisfies a scope item.
 - If the user pushes back ("but it really is out of scope"), the response is to either (a) cover the item in the diff, or (b) update the issue body with explicit deferral language and re-run the gate.
-- **Autonomous-pipeline caveat:** remediation (b) edits a GitHub issue's acceptance criteria — a **human-authority action** the `auto`-mode permission classifier denies, and one no agent should take unprompted. So in dev-pipeline `auto` mode a scope blocker with **no code remedy** is not cleared by the synthesis loop; Stage 8 routes it to the draft + `needs-deep-review` fallback (the pipeline's Stage 8, "Scope blocker with no code remedy"). Do not reach for an input-requesting prompt to record the deferral — that breaks the `auto`-mode no-prompts invariant and hangs a headless run. (Standalone `/review-lead` and `interactive` mode may still ask.)
+- **Autonomous-pipeline caveat:** remediation (b) edits a GitHub issue's acceptance criteria — a **human-authority action** the `auto`-mode permission classifier denies, and one no agent should take unprompted. So in dev-pipeline `auto` mode a scope blocker with **no code remedy** is not cleared by the synthesis loop; carry it into your verdict as an unresolved blocker and let the merge boundary hold it, rather than clearing or deferring it yourself. Do not reach for an input-requesting prompt to record the deferral — that breaks the `auto`-mode no-prompts invariant and hangs a headless run. (Standalone `/review-lead` and `interactive` mode may still ask.)
 
 If `scope-completeness-reviewer` returned `N/A — no issue provided`, include a single line in the Review Summary: "No GitHub issue referenced; scope completeness not verified."
 
 ### Step 4b: Dead / dark reviewer accounting
 
-A reviewer that was **selected** but produced no usable result went **dark**. A dark reviewer is NOT a clean PASS and NOT a silent omission — it is a **coverage gap**: its domain was not reviewed this round. Under dev-pipeline Stage 8 the fan-out runs inside `code-review.mjs`, which already retried a dark reviewer once on-substrate; do **not** re-dispatch a dark reviewer yourself.
+A reviewer that was **selected** but produced no usable result went **dark**. A dark reviewer is NOT a clean PASS and NOT a silent omission — it is a **coverage gap**: its domain was not reviewed this round. Under a pipeline-driven review the fan-out runs inside `code-review.mjs`, which already retried a dark reviewer once on-substrate; do **not** re-dispatch a dark reviewer yourself.
 
 Detect darkness from two distinct signals — never from "the array is shorter than I expected" alone:
 
@@ -419,7 +419,7 @@ The **Ready to merge?** verdict is your judgment call as the orchestrator — it
 
 ## Prior Round Context
 
-When invoked for round 2+ of a multi-round review (e.g., during dev-pipeline Stage 8):
+When invoked for round 2+ of a multi-round review (e.g., during a pipeline-driven review):
 
 The user should provide context like: "Round 2 of 3. Prior findings: [list]. Focus on: verifying prior fixes + new issues only."
 

@@ -722,7 +722,7 @@ else fail "(O) --help did not print exactly the header, rc=$rc: $out"; fi
 # ---- (I) DROPPED in #348 --------------------------------------------------------------------
 # This case asserted that the header carried the literal `DEFERS TO #292` — the record that a
 # general run-reconcile verifier would take ownership when it landed. #292 was closed as
-# moot-via-#348 (it was scoped to the staged lane's statectl records), so the deferral is no
+# moot-via-#348 (it was scoped to staged-lane records), so the deferral is no
 # longer true and the header now states the opposite: this script IS the owner.
 #
 # Not re-anchored to the replacement wording. That would be a prose-presence guard — grepping a

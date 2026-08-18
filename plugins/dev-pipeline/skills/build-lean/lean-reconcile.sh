@@ -3,7 +3,7 @@
 #
 # THE OWNER, not a forerunner. This header used to read "DEFERS TO #292" — a general
 # run-reconcile verifier that would take ownership when it landed. #292 was closed as
-# moot-via-#348: it was scoped to the staged lane's statectl records, which no longer exist,
+# moot-via-#348: it was scoped to staged-lane records, which no longer exist,
 # and this script is the successor rather than a placeholder for one. Ownership is settled,
 # so the deferral is dropped — but the scope discipline it carried is not: this stays the
 # lean lane's pre-merge reconciliation and does not grow into a general attestation tool.

@@ -2,7 +2,7 @@
 # Selftest for check-review-context.sh: registry-named files pass; a typo'd or
 # unregistered basename fails closed; config add/remove deltas are honored.
 set -euo pipefail
-# Hermetic hygiene: a dev-pipeline Stage-6 verify run exports pipeline seam vars
+# Hermetic hygiene: a dev-pipeline verify run exports pipeline seam vars
 # (SECOND_SHIFT_CONFIG, BRANCH_PREFIX, …) into the test command, and the tools under
 # test honor them as overrides — which would clobber this selftest's own fixtures.
 # Unset them so the selftest controls its environment regardless of the caller (#34).

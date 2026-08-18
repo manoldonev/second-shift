@@ -184,7 +184,7 @@ done
 
 # --- AC-2/AC-3: trigger 2, formatGlob ------------------------------------------------------
 # formatGlob's shape has no "/", and the bash `[[ f == $a ]]` match it inherited from the
-# staged lane's verifyctl treats * as one that
+# the verify lane treats * as one that
 # CROSSES separators. Transliterating * to [^/]* would match only root-level files and fire a
 # false zero-match on every repo with sources in a subdirectory — this pair pins that rule.
 R4="$(mkrepo t2-format-go main.go pkg/server.go)"
@@ -249,7 +249,7 @@ for gone in T2.visualCaptureTriggerGlobs T4.testfile-plumbing.app; do
 done
 
 # --- AC-2: the DROPPED rows are dropped, not silently implemented --------------------------
-# planFilePattern names a file Stage 3 CREATES and paths.* name dirs a fresh repo lacks, so a
+# planFilePattern names a file the run CREATES and paths.* name dirs a fresh repo lacks, so a
 # "zero matches" rule on them would fire universally. Nothing may emit a finding for them.
 cfg "$R3/dropped.json" <<EOF
 { $STD_HEAD, "commands": {"app":{}},

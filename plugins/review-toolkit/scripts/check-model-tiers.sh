@@ -50,7 +50,7 @@
 #     lockstep-checked against frontmatter/override directly, same as the scalar loop's
 #     inline handling below.
 #   - scalar UNIT_TEST_MODEL     in workflows/unit-tests.mjs   (per dispatched agentType)
-#   - scalar PLAN_REVIEWER_MODEL in workflows/plan-review.mjs  — RETIRED in #348 with Stage 4's
+#   - a scalar plan-reviewer model constant — RETIRED in #348 with the plan dispatcher's
 #     dispatcher; the spec was removed from the loop, not made optional.
 #   - scalar EXECUTOR_MODEL      in workflows/mutation-gate.mjs (anonymous executors —
 #     asserted against dev-pipeline model-tiering.md's note instead)
@@ -62,7 +62,7 @@
 #                                         shipped MAP entry (the three map files) or in an
 #                                         inline `model: '<tier>'` literal (ALL FOUR parsed
 #                                         workflow files — the three map files plus
-#                                         unit-tests.mjs; plan-review.mjs was the fifth until
+#                                         unit-tests.mjs; a fifth carrier existed until
 #                                         #348 deleted it). Both used to
 #                                         be SILENT: the enum lived inside the extraction
 #                                         regexes, so an unknown token was skipped entirely
@@ -370,12 +370,12 @@ done
 
 # --- Scalar tables: const <VAR> = '<model>' applied to each agentType the file
 #     dispatches (agentType may be plugin:-qualified). Pairs are "<file>:<VAR>". ---
-# plan-review.mjs:PLAN_REVIEWER_MODEL left this list in #348 — Stage 4's dispatcher was
+# The plan-reviewer scalar left this list in #348 — that dispatcher was
 # deleted with the staged lane. It is removed rather than made conditional: a missing table is
 # MISSING-TABLE by design (a table that vanished is the failure this loop reports), so leaving
 # a dead spec in would red every consumer.
 # shellcheck disable=SC2043  # a REGISTRY that happens to hold one row since #348 retired
-# plan-review.mjs:PLAN_REVIEWER_MODEL — the loop form is what a second scalar table joins.
+# the retired plan-reviewer scalar — the loop form is what a second scalar table joins.
 for spec in "unit-tests.mjs:UNIT_TEST_MODEL"; do
     tbl="${spec%%:*}"
     var="${spec#*:}"
@@ -395,7 +395,7 @@ for spec in "unit-tests.mjs:UNIT_TEST_MODEL"; do
         # file's scalar — is what is passed at runtime. Attributing such a dispatch
         # to the scalar is a false MISMATCH: observed with structured-emitter, which
         # is dispatched `model: 'haiku'` from unit-tests.mjs (scalar sonnet) and, before
-        # #348 deleted it, from plan-review.mjs (scalar opus) — denying every commit in the
+        # #348 deleted it, from the plan dispatcher (scalar opus) — denying every commit in the
         # repo while the code was correct.
         #
         # An inline literal is still a re-statement of the tier, so it is locksteped

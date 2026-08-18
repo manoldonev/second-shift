@@ -6,11 +6,8 @@ the emitted PNG, and semantically compares it against the cached design frame (p
 sizing/fill, truncation, default state — not a pixel diff). Without the key an armed ticket reds;
 without a provider, nothing arms. See [Lean-lane wiring](#lean-lane-wiring) below.
 
-**One posture now, not two.** This key used to serve two gates: the staged lane's Stage-5 verify
-gate (#84), where a failure was non-blocking and degraded to `render-verify-unavailable`, and the
-lean gate, where it blocks. #348 deleted the staged lane, so only the blocking lean posture
-remains — every "under Stage 5 it is…" contrast below is history, kept because a consumer's
-harness written against the tolerant posture is now on the strict one and should be told why.
+**One blocking posture.** A failure on this key reds the lean gate. A consumer whose harness
+was written against an older, tolerant posture is now on the strict one.
 The advisory smoke-capture it was contrasted with, `stageParams.visualCapture`, was retired in
 the same change (it had no reader left).
 
@@ -51,9 +48,7 @@ Your script owns **boot, auth, and screenshot**. The gate owns route derivation 
   becomes the operator-facing reason on a milestone-3 red, and the degraded-condition detail in
   the PR body.
 - **Failure is blocking.** A failure reds milestone 3 on the run's shared 3-attempt fix budget,
-  and the 4th red hard-stops. (Through #348 the staged lane's Stage 5 ran the same command
-  non-blocking, degrading to `render-verify-unavailable`; that tolerant posture is gone with the
-  lane.) Make the message good enough that the operator can fix the prerequisite and re-run — here
+  and the 4th red hard-stops.  Make the message good enough that the operator can fix the prerequisite and re-run — here
   it costs an attempt.
 - **`readyProbe`** — declare your harness's external prerequisite (typically a sibling BE health
   endpoint) so the gate fails fast with the probe URL instead of waiting out a render timeout.

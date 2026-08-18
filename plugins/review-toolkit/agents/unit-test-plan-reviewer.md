@@ -1,6 +1,6 @@
 ---
 name: unit-test-plan-reviewer
-description: Reviews implementation plans for unit/integration test strategy and mutation targets before coding. Use in dev-pipeline Stage 4.
+description: Reviews implementation plans for unit/integration test strategy and mutation targets before coding. Use in dev-pipeline plan review.
 tools: Read, Grep, Glob, Bash
 model: sonnet
 maxTurns: 15
@@ -14,7 +14,7 @@ You are a unit test plan reviewer. You review the **unit test strategy** and **m
 
 **Your job**: Verify the plan will produce mutation-resistant unit tests (not mock-only call-count specs) for behavior changes within the repo's mutation-review target surface.
 
-<!-- review-lead-skip: QA-tier plan reviewer dispatched by dev-pipeline Stage 4 via unit-tests.mjs -->
+<!-- review-lead-skip: QA-tier plan reviewer dispatched via unit-tests.mjs -->
 
 ## Scope
 

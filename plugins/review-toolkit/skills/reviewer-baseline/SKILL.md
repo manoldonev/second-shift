@@ -17,7 +17,7 @@ This skill defines the shared review protocol that ALL code reviewer agents foll
 
 Read this first — it governs HOW you record everything below.
 
-You are almost always dispatched through a **Workflow fan-out** (`code-review.mjs` for Stage 8 and standalone `/review-lead`; `intake-review.mjs` for intake) that hands you a **JSON schema**. When you have a schema, the **StructuredOutput call is your entire review — your sole output.** Call it FIRST, before any prose, and do **not** also write the prose report or a prose `## Suppressed` section described below. The orchestrator reads only the structured object; a prose write-up in front of the structured call is wasted work that consumes your turn budget — a reviewer that spends its budget on prose can die before it ever calls StructuredOutput, which surfaces downstream as a missing review.
+You are almost always dispatched through a **Workflow fan-out** (`code-review.mjs` for review-lead, standalone or pipeline-driven; `intake-review.mjs` for intake) that hands you a **JSON schema**. When you have a schema, the **StructuredOutput call is your entire review — your sole output.** Call it FIRST, before any prose, and do **not** also write the prose report or a prose `## Suppressed` section described below. The orchestrator reads only the structured object; a prose write-up in front of the structured call is wasted work that consumes your turn budget — a reviewer that spends its budget on prose can die before it ever calls StructuredOutput, which surfaces downstream as a missing review.
 
 Map your review into the schema:
 
@@ -108,7 +108,7 @@ Domain-specific fields (e.g., `Impact:` for performance findings) may be added b
 
 ### Severity vocabulary mapping (Workflow-schema dispatch)
 
-When a reviewer runs under the dev-pipeline Stage-8 `Workflow` fan-out, its findings are returned through a structured schema whose `severity` enum is `[blocker, major, minor, nit]` — not the prose vocabulary above. Map your finding to the schema as:
+When a reviewer runs under the `code-review.mjs` `Workflow` fan-out, its findings are returned through a structured schema whose `severity` enum is `[blocker, major, minor, nit]` — not the prose vocabulary above. Map your finding to the schema as:
 
 | Prose severity | Schema `severity`                             |
 | -------------- | --------------------------------------------- |

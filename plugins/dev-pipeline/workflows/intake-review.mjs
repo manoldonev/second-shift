@@ -1,7 +1,7 @@
 export const meta = {
   name: 'dev-pipeline-intake-review',
   description:
-    "Stage 1 intake evidence-gathering fan-out for the dev-pipeline. Dispatches spec-reviewer and codebase-explorer as parallel agent() calls and returns their rationale-carrying structured findings. Critical evaluation, gap resolution, dependency analysis, and the decomposition decision are NOT done here — they stay in the intake-orchestrator session on the caller's model. This mirrors workflows/code-review.mjs (the Stage 8 reviewer fan-out).",
+    "Intake evidence-gathering fan-out for the dev-pipeline. Dispatches spec-reviewer and codebase-explorer as parallel agent() calls and returns their rationale-carrying structured findings. Critical evaluation, gap resolution, dependency analysis, and the decomposition decision are NOT done here — they stay in the intake-orchestrator session on the caller's model. This mirrors workflows/code-review.mjs (the Stage 8 reviewer fan-out).",
   phases: [{ title: 'Intake', detail: 'spec-reviewer + codebase-explorer in parallel' }],
 }
 
@@ -107,13 +107,13 @@ const CODEBASE_EXPLORER_SCHEMA = {
   },
 }
 
-// args (assembled in-session by Stage 1 intake):
+// args (assembled in-session by the intake caller):
 //   issue        — GitHub issue number (drives the prompts)
 //   issueBody    — the full issue body text (so the sub-agents don't re-fetch)
 //   referencedDocs — optional array of {path, content} the orchestrator pre-read (max 5)
 //   agents       — optional subset to dispatch (default both). Bug/chore intake passes
 //                  ['spec-reviewer'] for the spec-review-only path.
-//   readRoot     — optional ABSOLUTE path to the Stage-1 pinned read surface (the
+//   readRoot     — optional ABSOLUTE path to the pinned read surface (the
 //                  detached origin/<base> worktree from Step 1.P). When set, every
 //                  sub-agent is instructed to perform ALL codebase reads under it and
 //                  never the main checkout (whose branch/dirty state must not inform
@@ -156,7 +156,7 @@ const docsBlock = referencedDocs.length
   ? '\n\n' + referencedDocs.map((d) => `--- REFERENCED DOC: ${d.path} ---\n${d.content}`).join('\n\n') + '\n'
   : ''
 
-// Stage-1 read-surface pin (issue #59): prefixed to EVERY dispatch prompt so the
+// Read-surface pin (issue #59): prefixed to EVERY dispatch prompt so the
 // sub-agents ground against origin/<base>, not the operator's checkout. Leads the
 // prompt (not appended) so it is the first instruction the agent reads.
 const readRootNote = readRoot
@@ -249,7 +249,7 @@ const emitStructured = (text, opts) =>
 // measured it dying at the turn cap having emitted nothing, the same failure class
 // BOUNDED_EXPLORATION-style "explore less" nudges do not cure (that framing REPLACED a
 // BOUNDED_SPEC_GROUNDING nudge here, which was already in place during #273's death and did not
-// prevent it). Verbatim-shared with code-review.mjs/plan-review.mjs (workflows cannot `import`)
+// prevent it). Verbatim-shared with code-review.mjs (workflows cannot `import`)
 // — kept honest by scripts/lockstep-manifest.tsv. Belt-and-suspenders half of the same pair as
 // spec-reviewer.md's own turn-numbered emit deadline (see check-emit-deadline.sh enrollment).
 // LOCKSTEP-BEGIN progressive-emit

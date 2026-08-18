@@ -173,7 +173,7 @@ t=$(last_target Workflow)
 # Test 7 — Bash: first line only, capped at 200 chars (AC-2)
 echo "Test 7 — Bash → first line, truncated to 200 chars"
 PAD=$(head -c 400 /dev/zero | tr '\0' 'x')
-CMD="statectl.sh set-stage 244 9 --status completed $PAD
+CMD="lean-gate.sh mark 244 --status completed $PAD
 rm -rf /should/not/appear"
 feed "$(jq -nc --arg s "$TSID" --arg c "$TREE" --arg cmd "$CMD" \
     '{session_id:$s, cwd:$c, hook_event_name:"PostToolUse", tool_name:"Bash", tool_input:{command:$cmd}}')"
@@ -181,7 +181,7 @@ t=$(last_target Bash)
 len=${#t}
 [ "$len" -eq 200 ] && ok "Bash target truncated to 200 chars" || fail "Bash target length=$len (expected 200)"
 case "$t" in
-    "statectl.sh set-stage 244 9 --status completed"*) ok "Bash target keeps the identifying prefix" ;;
+    "lean-gate.sh mark 244 --status completed"*) ok "Bash target keeps the identifying prefix" ;;
     *) fail "Bash target lost its prefix: $t" ;;
 esac
 case "$t" in
@@ -215,7 +215,7 @@ expected="ts,session_id,event,tool,subagent,command_name,target,outcome"
 # Invariant guarded: the hook resolves the ledger directory as `--git-common-dir/..` of
 # ${CLAUDE_PROJECT_DIR:-$CWD} — the MAIN checkout — because every reader does. It used to
 # write beside the worktree, so a lean run's ledger landed where lean-gate.sh's `entry`,
-# and lean-reconcile.sh do not look (nor did the deleted statectl.sh's ledger_dir()): an honest run refused
+# and lean-reconcile.sh do not look: an honest run refused
 # at the door, and a verdict record naming a session reconcile could not resolve, which
 # reads as forgery.
 #

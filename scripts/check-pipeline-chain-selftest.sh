@@ -17,7 +17,6 @@ set -uo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
 CHAIN="$HERE/check-pipeline-chain.sh"
-SCHEMA="$HERE/../plugins/dev-pipeline/state-schema.md"
 
 PASS=0
 FAIL=0
@@ -430,43 +429,15 @@ else bad "author pin (mismatch): rc=$rc, log: $(cat "$WORK/out.log")"; fi
 
 echo "== required markers are a subset of the canonical enum =="
 
-# The script's REQUIRED_MARKERS is a second checked-in copy of part of the stage-comment enum.
-# The canonical side was a GENERATED bash `case` in statectl.sh, so there was no quoted literal
-# to anchor a lockstep row against (see the DROPPED entry in scripts/lockstep-manifest.tsv);
-# #348 deleted that generator with the staged lane, leaving state-schema.md's table — a
-# historical record — as the only other copy. This
-# asserts the real invariant behaviorally: every required marker must exist in state-schema.md's
-# authoritative table — parsed from the canonical source, never re-declared here.
-if [[ -f "$SCHEMA" ]]; then
-  REQ_LINE="$(grep -E "^REQUIRED_MARKERS='" "$CHAIN" | head -n1 | sed -e "s/^REQUIRED_MARKERS='//" -e "s/'.*$//")"
-  if [[ -z "$REQ_LINE" ]]; then
-    bad "could not parse REQUIRED_MARKERS out of $CHAIN"
-  else
-    ENUM="$(awk '
-      /^#### Stage-comment markers/ { in_s = 1; next }
-      in_s && /^#### / { in_s = 0 }
-      in_s && /^### / { in_s = 0 }
-      in_s && /^## / { in_s = 0 }
-      in_s && /^\| `/ { line = $0; sub(/^\| `/, "", line); sub(/`.*$/, "", line); print line }
-    ' "$SCHEMA")"
-    missing=""
-    OLD_IFS="$IFS"; IFS='|'
-    # shellcheck disable=SC2206  # deliberate split on the enum delimiter
-    REQ_ARR=($REQ_LINE)
-    IFS="$OLD_IFS"
-    for m in "${REQ_ARR[@]}"; do
-      grep -qx "$m" <<< "$ENUM" || missing="$missing $m"
-    done
-    if [[ -z "$missing" ]]; then
-      ok "every REQUIRED_MARKERS entry exists in state-schema.md's stage-comment enum"
-    else
-      bad "REQUIRED_MARKERS contains marker(s) absent from the canonical enum:$missing"
-    fi
-    [[ -n "$ENUM" ]] && ok "the canonical enum parsed non-empty (the subset check is not vacuous)" \
-                     || bad "parsed an empty enum from $SCHEMA — the subset check would be vacuous"
-  fi
+# REQUIRED_MARKERS is now the sole home of the marker list (the generated `case` and the
+# schema table that used to hold copies are both gone), so there is nothing to cross-check
+# it against. Assert only that it parses non-empty — an empty list would make every
+# downstream marker assertion vacuous.
+REQ_LINE="$(grep -E "^REQUIRED_MARKERS='" "$CHAIN" | head -n1 | sed -e "s/^REQUIRED_MARKERS='//" -e "s/'.*$//")"
+if [[ -n "$REQ_LINE" ]]; then
+  ok "REQUIRED_MARKERS parses non-empty (the marker assertions are not vacuous)"
 else
-  bad "state-schema.md not found at $SCHEMA — cannot verify the marker subset"
+  bad "could not parse REQUIRED_MARKERS out of $CHAIN"
 fi
 
 echo

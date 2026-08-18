@@ -62,7 +62,7 @@ dir, with no further prompts. Two onboard runs, two configs, each serving a diff
 from the same pair.
 
 `topology.repos.<id>.ticketTag` on the host's `be`/`fe` entries (e.g. `"[BE]"` / `"[FE]"`)
-is **advisory only** — no gate reads it (the staged lane's Stage 1.T resolved `TARGET_REPOS`
+is **advisory only** — no gate reads it (a retired lane resolved `TARGET_REPOS`
 from it as a gate input; that reader was deleted in #348). What it does is route the lane: whoever launches `/dev-pipeline:run-lean`
 — an operator or the scheduler itself — reads the tag to pick the repo checkout to launch from. **FE-tagged tickets run from the FE
 repo.** The `intake-orchestrator` skill enforces the corresponding discipline at

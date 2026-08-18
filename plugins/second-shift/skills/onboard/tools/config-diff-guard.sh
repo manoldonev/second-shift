@@ -5,7 +5,7 @@
 # contract used to override it unconditionally: `testFile` and `unitTestScope` were emitted
 # ALWAYS as explicit null. Those are exactly the keys a human sets when adopting the mutation
 # gate, so a re-onboard reverted the adoption — and `unitTestScope: null` is a legal "no mutation
-# surface", so Stage 5 printed `gate OFF`, `config-lint` passed, and the gate stayed off for
+# surface", so the run printed `gate OFF`, `config-lint` passed, and the gate stayed off for
 # months. Step 3 now carries those two keys forward; this guard is the mechanical backstop, so a
 # prose intent cannot be overridden by prose a second time.
 #
