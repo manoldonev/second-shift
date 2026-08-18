@@ -15,11 +15,15 @@ CONTRIBUTING snippet).
 3. Review and commit the emitted files in one PR: `.claude/settings.json`,
    `.claude/second-shift.config.json`, `.claude/second-shift.lock.json`,
    `.claude/tools/second-shift-doctor.sh`, `.claude/SECOND-SHIFT.md` — plus, if you
-   accepted the CI workflows, both pairs: `.github/workflows/second-shift-ci.yml` +
-   `.claude/tools/second-shift-ci-check.sh` (evidence), and
+   accepted the CI workflows, all three pairs: `.github/workflows/second-shift-ci.yml` +
+   `.claude/tools/second-shift-ci-check.sh` (evidence),
    `.github/workflows/second-shift-unclaim.yml` + `.claude/tools/second-shift-unclaim.sh`
    (unclaim — the only emitted workflow that writes; `issues: write`, and it needs the
-   repo's Actions workflow permissions set to read-and-write).
+   repo's Actions workflow permissions set to read-and-write), and
+   `.github/workflows/second-shift-delta-guard.yml` +
+   `.claude/tools/second-shift-delta-guard.sh` (the delta guard — read-only, and the one pair
+   that does nothing until you add its `needs:`/`if:` lines to your own heavy workflow; wire it
+   in the SAME PR, or it becomes a file nobody remembers to connect).
 4. Dry-run: pick a small ticket with no external-infrastructure acceptance criteria and
    run `/dev-pipeline:run-lean <ticket>` end to end before inviting the team. It schedules
    `build-lean` and `review-lean` for you; driving those two by hand is the same lane, and

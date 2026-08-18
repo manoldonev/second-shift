@@ -1,0 +1,106 @@
+# second-shift delta guard — emitted (on request) into a consumer repo by
+# /second-shift:onboard (#542). A REUSABLE workflow: it runs nothing of yours, it only answers
+# whether your heavy jobs may be skipped for this push.
+#
+# WHAT IT SAVES. The lean lane's review half must commit the verdict record to the PR's head
+# branch as the LAST commit. On a `pull_request`-triggered CI that push fires a second full run
+# — lint, typecheck, build, the whole test suite — for a markdown file the pipeline wrote
+# itself. This guard reports `skip=true` for exactly that commit, and only when the code
+# commit's own run already passed.
+#
+# ------------------------------------------------------------------ HOW TO WIRE IT
+# In your existing heavy workflow, add the guard as a first-stage job and gate the heavy jobs
+# on its output. Two lines per heavy job:
+#
+#     jobs:
+#       second-shift-delta-guard:
+#         uses: ./.github/workflows/second-shift-delta-guard.yml
+#
+#       test:
+#         needs: second-shift-delta-guard
+#         if: needs.second-shift-delta-guard.outputs.skip != 'true'
+#         ...
+#
+# `!= 'true'` and not `== 'false'` on purpose: a guard that failed to produce an output at all
+# leaves the string empty, and an empty string must run the lane, not skip it.
+#
+# WHY A SKIPPED JOB AND NOT `[skip ci]`. A job skipped by a job-level `if:` still produces a
+# check run, and GitHub counts a skipped job as PASSING for required status checks — so a
+# branch-protected repo stays mergeable. `[skip ci]` creates no run for the head SHA at all,
+# which leaves every required check 'Expected' forever. And `paths-ignore` cannot help either:
+# on `pull_request` events GitHub evaluates path filters against the whole PR diff (base…head),
+# not the incremental push, so a PR containing any source change always matches.
+#
+# ------------------------------------------------------------------ WHEN IT DOES NOT SKIP
+# The guard skips ONLY when the parent SHA already has a completed, successful run of the
+# CALLING workflow for the same event. Cancelled, failed, still running, absent, unreadable,
+# or any API error ⇒ `skip=false` and your lane runs in full. That condition is the whole
+# design: without it the guard would report a green head SHA on the strength of a run that
+# `concurrency.cancel-in-progress` had killed.
+#
+# WHICH IS ALSO WHY: for `pull_request` events, do NOT key `cancel-in-progress: true` bare on
+# the ref. A verdict push then cancels the code SHA's in-flight run, and you get a cancelled
+# run on the commit that carries the code and a completed one on the commit that carries only
+# markdown. Key the concurrency group on the head SHA, or set `cancel-in-progress: false`.
+#
+# Model-free: no API-billed model calls, just git + jq + gh (all preinstalled on
+# ubuntu-latest; gh authenticates via the built-in github.token).
+name: second-shift delta guard
+
+on:
+  workflow_call:
+    outputs:
+      skip:
+        description: >-
+          "true" when this push's head commit is exactly a lean verdict record AND the parent
+          SHA already has a completed, successful run of the calling workflow for the same
+          event. "false" in every other case, including every case the guard could not read.
+        value: ${{ jobs.guard.outputs.skip }}
+      reason:
+        description: The one-line explanation of the decision, for logs and PR triage.
+        value: ${{ jobs.guard.outputs.reason }}
+
+# A `permissions:` key REPLACES the defaults wholesale — every scope not listed is `none`, with
+# no public-repo exception — so both reads must be stated or they are denied at runtime:
+#   contents: read   checkout of the head commit and its parent.
+#   actions:  read   the trust condition: GET /repos/{o}/{r}/actions/runs on the parent SHA.
+#                    Without it the guard cannot verify the parent's run, reports skip=false,
+#                    and your lane simply runs in full — inert, not broken, and it says so as
+#                    a workflow annotation rather than going quiet.
+# READ SCOPES ONLY. This job's token is the blast radius of the committed script it runs.
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  guard:
+    name: second-shift delta guard
+    runs-on: ubuntu-latest
+    outputs:
+      skip: ${{ steps.guard.outputs.skip }}
+      reason: ${{ steps.guard.outputs.reason }}
+    steps:
+      # `ref:` must be the PR's HEAD COMMIT, and fetch-depth 2 is the minimum, not hygiene. On
+      # a pull_request event actions/checkout defaults to refs/pull/N/merge, whose first parent
+      # is the BASE — the guard would then read every base-side commit as this push's delta.
+      # Depth 2 is exactly head + parent, which is all the classification needs.
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 2
+
+      # The PR context rides in the ENVIRONMENT, never interpolated into the run line.
+      # GUARD_RUN_ID is the CALLER's run id (a reusable workflow shares it), which is how the
+      # guard resolves whose green counts — the workflow whose jobs are being skipped, not this
+      # one. GUARD_EVENT_NAME is likewise the caller's event: the same workflow can run a
+      # different job set under `push` than under `pull_request`, so a green from the other
+      # event is not evidence about this one.
+      - name: classify the head commit
+        id: guard
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          GUARD_RUN_ID: ${{ github.run_id }}
+          GUARD_EVENT_NAME: ${{ github.event_name }}
+        run: bash .claude/tools/second-shift-delta-guard.sh

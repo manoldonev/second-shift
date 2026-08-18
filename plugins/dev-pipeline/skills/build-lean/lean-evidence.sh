@@ -333,7 +333,16 @@ esac
 # scripts/check-lean-chain.sh pins the identical set independently — it and this file are read
 # by CI checkouts that can see no shared runtime config.
 LEAN_SPEC_SUFFIX='-lean.md'
+# The VERDICT suffix alone carries a lockstep marker, because it alone has a third holder
+# outside this repo's reach: the consumer CI delta guard
+# (plugins/second-shift/templates/consumer/second-shift-delta-guard.sh, #542) recognises the
+# verdict-record commit by this exact suffix, and is COMMITTED INTO a consumer repo rather than
+# fetched at the pinned ref. A one-sided rename leaves that guard classifying every verdict
+# commit as an ordinary one — the lane simply runs in full, costing minutes and reporting
+# nothing, so nothing would ever surface it. The other two suffixes have no such holder.
+# LOCKSTEP-BEGIN lean-verdict-suffix
 LEAN_VERDICT_SUFFIX='-lean-verdict.md'
+# LOCKSTEP-END lean-verdict-suffix
 LEAN_INTENT_GAP_SUFFIX='-lean-intent-gap.md'
 
 # LOCKSTEP-BEGIN lean-pr-marker
