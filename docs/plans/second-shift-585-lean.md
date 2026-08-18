@@ -8,19 +8,61 @@ problem this PR solves.
 
 The nightly `mutation-sweep` redness has **three independent causes**, not one. The ticket body
 names a single survivor and attributes to it a date range and a shard that belong to a different
-cause:
+cause. A **fourth** cause was found after the fact, by this branch's own dispatched sweep, and
+folded in by the operator's OR-2 resolution — see *Scope addition* below:
 
 | Night | SHA | Shard | Actual `RED:` line | Status |
 | --- | --- | --- | --- | --- |
 | 08-13, 08-15, 08-16 | e6a16ef, dc2db95 ×2 | 1 | `pool disagreement` (`lean-evidence.sh::cmp-z::1`, then `check-fail-open-shapes.sh::default::2`) | **already closed by #558** (`ec42f38`, 08-16 20:52) — needs no work here |
 | 08-17, 08-18 | 33e6187, a8cd2b5 | 9 | `orchestrate-lean.sh::fail-open::1` + `orchestrate-lean.sh::detector::1`, baseline-absent | **in scope** (D-3) |
 | 08-18 | a8cd2b5 | 10 | `doctor.sh::cmp-z::1`, baseline-absent | **in scope** (D-2) |
+| — (never seen by a nightly) | f969c8c, this branch | 2 | `capability-parity-check.sh::logic::2`, baseline-absent | **in scope** — added by the OR-2 resolution (AC-10) |
 
-Both live causes are fixed here, in one PR (D-1). Fixing only the survivor the ticket names
-would leave shard 9 red and the stated goal — a green moat before #579 re-keys baseline rows —
-unmet, while reading as "the sweep is fixed".
+Every live cause is fixed here, in one PR (D-1, extended by the OR-2 resolution). Fixing only the
+survivor the ticket names would leave shard 9 red and the stated goal — a green moat before #579
+re-keys baseline rows — unmet, while reading as "the sweep is fixed". The fourth row is the same
+argument one step further: it is not this branch's defect, but leaving it red leaves the moat red,
+which is the only thing D-4 actually asks for.
 
 `doctor.sh::cmp-z::1` is **one night old** and on **shard 10**, not "since 08-15 on shard 9".
+
+## Scope addition — the fourth cause (OR-2 resolved, 2026-08-18)
+
+AC-8's dispatched sweep on this branch (run `32172818773`, `headSha` `f969c8c`) put **9 of 10
+shards green**, including both shards the ticket owns. Shard 2 returned one further
+baseline-absent survivor that no nightly has ever reported:
+`tools/capability-parity-check.sh::logic::2`.
+
+**It is not this branch's.** Three independent checks settle that, and each is one command:
+
+1. This branch's diff cannot reach the guard. `git diff --name-only a30c29b..HEAD` names three
+   files and `tools/capability-parity-check.sh` is not among them.
+2. The arming edit is visible at the blob. `git show a8cd2b5:tools/capability-parity-check.sh`
+   has `ROOT="$(cd "$HERE/.." && pwd)"` at line 52; `git show a30c29b:` has it **absent**,
+   deleted by #577 (`7620251`).
+3. No nightly has ever run on an arming SHA. The newest nightly is `a8cd2b5` (08-18 03:57),
+   which predates #577 — so the survivor was invisible to every nightly *by construction*, and
+   main's next nightly reds on it with or without #585.
+
+**Why it lands here anyway.** D-4 makes #585 a hard merge precondition for #579 *because #579
+needs a green moat*. Closing only the two in-scope causes no longer delivers one, so the operator
+widened this ticket rather than opening a second lane (issue comment, 2026-08-18 19:56Z). The
+remedy is already diagnosed and is the same **shape** as D-2, so it costs one spec amendment.
+
+**The deletion-pulls-a-site-into-budget class.** Removing a matched line *above* a known-unkillable
+idiom arms that idiom, and the PR that removes the line is nowhere near the guard that goes red.
+#577 deleted the `ROOT=` assignment — a `logic` site above the file's
+`while IFS= read -r line || [[ -n "$line" ]]` — which moved the read idiom from `logic` ordinal 3
+to ordinal **2**, into the `k=2` budget window where it had never been mutated. This is the mirror
+image of the prose-adds-a-site class that causes D-7, and `mutation-sweep.sh` already documents its
+twin ("The third was never safe, only out of budget — ordinal 5 against k=2").
+
+**Why the idiom is dark.** The `||`→`&&` flip only changes a verdict for a register whose final
+line is unterminated (`read` returns 1, so without the second operand the last row is never
+judged) or one containing a blank line. `capability-parity.tsv` has neither, and every fixture in
+`capability-parity-check-selftest.sh` is `printf`-written with a trailing `\n`, so mutant and
+original agree on all 14 cases. The gap is the fixtures' termination, not a missing case — exactly
+D-2's shape, one operator over.
 
 ## Root causes
 
@@ -63,6 +105,11 @@ Both remedies are the ones the receipt fixes; neither is re-derived here.
   owned by #567's decomposition (#579/#583). Duplicating it here collides with that program's
   sweep-wide re-keying.
 - **D-4** — #585 is a hard merge precondition for #579.
+- **OR-2 resolution** — strengthen the existing `(c)` case in
+  `tools/capability-parity-check-selftest.sh` **in place** so its fixture register's final line
+  lacks a trailing newline. Remedied **at the site**, never by a baseline row: "never re-baseline
+  blind" stands unchanged, and this acquires no row. `capability-parity-check.sh` itself is not
+  edited — its read idiom is correct, and changing it would be the regression rather than the fix.
 
 ## Acceptance criteria
 
@@ -82,7 +129,10 @@ line 251 — its remaining sites keep their relative order and shift down by exa
 `orchestrate-lean.sh` has no `fail-open` or `detector` baseline row today, so the ordinal shift in
 AC-2 re-keys nothing that exists. Post-fix `detector` ordinals 1 and 2 (the `$QUEUE_LABEL` and
 `$CLAIMED_LABEL` label probes) are both killed by the guard's existing kill set, so no new row is
-owed either.
+owed either. The same holds for the fourth cause: `tools/capability-parity-check.sh` has **no**
+baseline row and **no** `tools/mutation-catalog.tsv` row today, and AC-10 edits only its selftest,
+so the guard's own matched-line sequence — and therefore every operator's ordinals over it — is
+byte-identical base-to-head. Nothing is re-keyed and nothing is added.
 
 **AC-4** — `doctor-selftest.sh`'s `report-state-excerpt-lean-newest` case is strengthened in place
 so the file `state_excerpt()` must select by mtime is **not** the last entry in the directory's
@@ -108,20 +158,44 @@ baseline present and `seed=false` is **enforcing**, in the canonical `ubuntu-lat
 `SKIP_STRESS=1` environment (D-8). The PR lane cannot prove it — it defers `doctor.sh` under the
 six-fast-guard cap, which is exactly how #568 shipped this. Local macOS runs are advisory only
 (`RUNNER_OS` must be `Linux`). The run's conclusion and id are recorded on the PR.
+Because the AC-10 remedy landed after run `32172818773`, the proof of record is a **re-dispatched**
+run on the amended head; the earlier run stands only as the evidence that surfaced the fourth cause.
 
 **AC-9** — The PR body carries the corrected triage table above. #579/#583 key off survivor
 identity, so a wrong attribution left in the record is the input that poisons them (D-9).
+
+**AC-10** — `tools/capability-parity-check-selftest.sh`'s existing `(c)` case
+(`disposition outside the enum ('deferred') reds`) is strengthened **in place** so the register it
+writes ends **without** a trailing newline, putting the row it asserts on last and unterminated.
+The case keeps its name, its position, and its assertion (`rc == 1`). No new case is added, no new
+fixture helper is introduced, and no other case's fixture is changed.
+
+**AC-11** — `tools/capability-parity-check.sh` is **not modified**. The fix is test-only; the
+guard's observable output for every input, and its matched-line sequence for every mutation
+operator, are unchanged.
+
+**AC-12** — Applying the `logic` operator's flip to `tools/capability-parity-check.sh` ordinal 2
+(`while IFS= read -r line || [[ -n "$line" ]]` → `&&`) makes `capability-parity-check-selftest.sh`
+**fail on case (c) specifically**, and the suite passes unmutated. Ordinal 1
+(`HERE="$(cd … && pwd)"`) is likewise killed, so the guard's entire `k=2` window is covered. All
+three directions are demonstrated, not asserted.
 
 ## Open Regions
 
 | ID | Region | Disposition | How it is discharged here |
 | --- | --- | --- | --- |
 | OR-1 | Durability of the D-3 reword — nothing prevents a future comment from re-introducing a phantom mutation site | reversible-default-and-flag | The reword ships as the stated default (reversing it is a one-line edit with no downstream consumers). The residual risk is **flagged** in the PR body and by a short in-file note at the site, itself worded to match neither ERE. The durable fix is owned by #579/#583. |
-| OR-2 | Whether the dispatched sweep surfaces a further baseline-absent survivor beyond the two in scope | **pause-and-ask** | All ten shards ran on 08-18 and only 9 and 10 failed, so the expected finding is none. A new one is a **new root cause**: it routes back to the operator and does **not** acquire a baseline row. #585's binding constraint is never re-baseline blind — a survivor recorded without a root cause is the vacuous-green class #567 exists to delete. |
+| OR-2 | Whether the dispatched sweep surfaces a further baseline-absent survivor beyond the two in scope | **pause-and-ask** | **RESOLVED 2026-08-18 19:56Z** by operator comment on #585. It did: `tools/capability-parity-check.sh::logic::2` on shard 2. It was root-caused before disposition (#577 deleted a `logic` site above the read idiom, pulling it into the `k=2` window) and the operator widened this ticket to fix it **at the site** — AC-10/11/12. It acquires **no** baseline row, so the binding "never re-baseline blind" constraint is honoured rather than waived. S-7 and S-8 stay out of scope. |
 
 ## Out of scope
 
 - The pool-disagreement class (closed by #558).
 - Any enumerator change that stops prose being read as code (#579/#583, per D-5).
 - `doctor.sh --report` bundle behavior (S-7) and `orchestrate-lean.sh` runtime behavior (S-8) —
-  both unchanged by construction; a diff touching either means a remedy overreached.
+  both unchanged by construction; a diff touching either means a remedy overreached. S-7 and S-8
+  are explicitly reaffirmed as out of scope by the OR-2 resolution.
+- `capability-parity-check.sh`'s own runtime behavior (AC-11) — the fourth remedy is test-only,
+  for the same reason D-2's is: the read idiom is correct, and editing it would be the regression.
+- The `logic` flip's *other* divergence — a register containing a blank line, where the mutant
+  stops early. One kill closes the survivor; asserting a second vector is not what "remedied at
+  the site" asks for, and `capability-parity.tsv` has no blank lines to protect.
