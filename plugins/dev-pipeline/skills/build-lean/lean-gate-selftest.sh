@@ -247,6 +247,51 @@ n="$(count_in_progress '| milestone-1 | attempt |')"
 if [ "$n" -eq 1 ]; then pass "(b2) only FAILED evaluations append attempt lines (passes do not inflate the counter)"
 else fail "(b2) expected 1 attempt line, got $n"; fi
 
+# ---- (a4)-(a7) #562: a committed Decision Ledger's provenance lints, via ledger-lint.sh ------
+# The check is CONDITIONAL on the section existing at all — whether a spec carries one is #517's
+# row-presence question, distinct from this one's provenance-validity question. Each case resets
+# the progress file itself; (a1)-(b2) above are done reading it by this point.
+reset_progress
+printf '# spec\n\n- AC-1: a thing\n\n## Decision Ledger\n\n| ID | Decision | Resolution | Provenance |\n| --- | --- | --- | --- |\n| D-1 | Fix shape | Do the thing | issue-specified |\n' > "$SPEC"
+out="$(gate 1 7)"; rc=$?
+if [ "$rc" -eq 1 ] && grep -q 'fails ledger-lint' <<<"$out" && grep -q "provenance 'issue-specified' not in" <<<"$out"; then
+  pass "(a4) #562 AC-1: an invented provenance value in the committed Decision Ledger refuses milestone 1"
+else fail "(a4) expected rc=1 naming the invented provenance, got $rc: $out"; fi
+
+reset_progress
+printf '# spec\n\n- AC-1: a thing\n\n## Decision Ledger\n\n| ID | Decision | Resolution | Provenance |\n| --- | --- | --- | --- |\n| D-1 | Fix shape | Do the thing | codebase-derived |\n' > "$SPEC"
+out="$(gate 1 7)"; rc=$?
+if [ "$rc" -eq 0 ]; then pass "(a5) #562 AC-2: a Decision Ledger with only enum-legal provenance passes milestone 1"
+else fail "(a5) expected rc=0 on a clean ledger, got $rc: $out"; fi
+
+reset_progress
+printf '# spec\n\n- AC-1: a thing\n' > "$SPEC"
+out="$(gate 1 7)"; rc=$?
+if [ "$rc" -eq 0 ]; then pass "(a6) #562 AC-3: a spec with no Decision Ledger section at all is unaffected (row-presence is #517's question, not this one's)"
+else fail "(a6) expected rc=0 with no Decision Ledger section, got $rc: $out"; fi
+
+# The explicit empty form is itself a clean ledger-lint pass (no rows, no provenance to invent).
+reset_progress
+printf '# spec\n\n- AC-1: a thing\n\n## Decision Ledger\n\nNo material decisions — all choices codebase-derived.\n' > "$SPEC"
+out="$(gate 1 7)"; rc=$?
+if [ "$rc" -eq 0 ]; then pass "(a7) a Decision Ledger stating the explicit empty form passes milestone 1"
+else fail "(a7) expected rc=0 on the explicit empty form, got $rc: $out"; fi
+
+# (a8) round-1 review Blocker 3: the section detector at :2962 is a second copy of
+# ledger-lint.sh's own check-1 detector, and the `\*\*` (bold-heading) alternative was
+# exercised by no case — a mutant narrowing the detector to the `#{1,6}` branch alone would
+# have survived every suite while silently skipping provenance validation on this form.
+# intake-interviewer/SKILL.md:226 documents `**Decision Ledger**` as what the interview emits.
+reset_progress
+printf '# spec\n\n- AC-1: a thing\n\n**Decision Ledger**\n\n| ID | Decision | Resolution | Provenance |\n| --- | --- | --- | --- |\n| D-1 | Fix shape | Do the thing | issue-specified |\n' > "$SPEC"
+out="$(gate 1 7)"; rc=$?
+if [ "$rc" -eq 1 ] && grep -q 'fails ledger-lint' <<<"$out" && grep -q "provenance 'issue-specified' not in" <<<"$out"; then
+  pass "(a8) the bold-heading Decision Ledger form is detected too — an invented provenance under it refuses milestone 1"
+else fail "(a8) expected rc=1 naming the invented provenance under the bold heading, got $rc: $out"; fi
+
+reset_progress
+printf '# spec\n\n- AC-1: a thing\n- AC-2: another\n' > "$SPEC"
+
 # ---- (c) D-19 fix budget: 3 attempts, the 4th red hard-stops -----------------------------
 # #496: the three reds are the milestone-4 CLASS (5 — an absent record is a review-round problem,
 # not a build fix), and the 4th is still 4. Both halves matter: a budget that stopped reporting 4

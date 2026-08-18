@@ -390,8 +390,10 @@ lean-design-armed	verbatim	plugins/dev-pipeline/skills/build-lean/lean-gate.sh	l
 
 # cross-plugin sibling-resolution ladder (#419) — three rungs (monorepo path → same-version
 # sibling in the cache → newest sibling version carrying the file), in two languages.
-# `resolve_sibling()` in plugins/dev-pipeline/tools/pipeline-doctor.sh is the
-# canonical side; `resolveSibling()` in
+# `resolve_sibling()` in plugins/dev-pipeline/tools/resolve-sibling.sh is the
+# canonical side (extracted from pipeline-doctor.sh in #562 so lean-gate.sh's
+# resolve_ledger_lint() reuses it too — a caller-computes-its-own-hop-count split, not a
+# second ladder; see that file's header); `resolveSibling()` in
 # plugins/dev-pipeline/workflows/design-sync-selftest.mjs is a hand-maintained .mjs
 # mirror, held together by nothing but a `keep the two ladders in step` comment — the
 # only-a-prose-instruction case this manifest exists for. The RUNG ORDER is the contract: the
@@ -409,8 +411,15 @@ lean-design-armed	verbatim	plugins/dev-pipeline/skills/build-lean/lean-gate.sh	l
 # Guarded behaviorally on the .mjs side only: tools/install-topology-selftest.sh runs
 # design-sync-selftest.mjs under a staged cache where dev-pipeline and design-toolkit carry
 # different versions, so a broken last rung fails there rather than drifting. The bash side has
-# no equivalent — no suite drives pipeline-doctor.sh's own ladder from an install cache, and
-# that asymmetry is the residual this entry is declining to close with machinery.
+# no INSTALL-TOPOLOGY equivalent — no suite runs the shipped pipeline-doctor.sh or lean-gate.sh
+# from a real staged install — and that asymmetry is the residual this entry is declining to
+# close with machinery. What it does have, since #562 r2, is a unit-level equivalent that covers
+# the part the mirror's own rung-2 comment calls easy to miss: pipeline-doctor-selftest.sh's
+# (rs1)/(rs3) drive the ladder against a fabricated cache at BOTH bash consumers' real depths
+# (pipeline-doctor.sh at tools/, lean-gate.sh's resolve_ledger_lint() at skills/build-lean/),
+# lifting each caller's hop arithmetic by sentinel rather than injecting its results — because a
+# fixture that supplies PLUGIN_DIR/PLUGINS_DIR covers the ladder and no caller, which is how a
+# structurally dead rung 2 shipped on one consumer while reading as shared.
 # The two candidates this entry flagged — preflight-selftest.sh:38 and doctor-selftest.sh:102 —
 # have since been fixed the sanctioned way, and a fourth and fifth copy arrived with them. Each
 # was considered for a row and DROPPED, for a reason the copy itself supplies:
@@ -436,8 +445,10 @@ lean-design-armed	verbatim	plugins/dev-pipeline/skills/build-lean/lean-gate.sh	l
 # tools/install-topology-selftest.sh from a staged cache — that is what drained their
 # install-topology-known-red.tsv rows — and check-emit-deadline-selftest.sh's B6-B9 drive the
 # real script from staged monorepo and cache shapes without leaving the ordinary sweep.
-# The bash residual named above narrows but does not close: pipeline-doctor.sh's own ladder is
-# still driven from no install cache by any suite.
+# The bash residual named above narrows but does not close: resolve-sibling.sh's ladder is
+# still driven from no install cache by any suite (pipeline-doctor-selftest.sh's (rs1)/(rs3)
+# cases do drive it against a fabricated cache at both consumers' depths — a unit-level guard,
+# not the install-topology integration this paragraph is about).
 # Revisit if a SIXTH site grows the ladder, or if any FURTHER pair converges on identical hop
 # constants — such a pair is byte-anchorable and should be pinned, as the row below pins the
 # first one that did.

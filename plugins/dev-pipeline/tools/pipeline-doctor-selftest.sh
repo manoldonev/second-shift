@@ -34,6 +34,10 @@ set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DOCTOR="${PIPELINE_DOCTOR:-$SCRIPT_DIR/pipeline-doctor.sh}"
+RESOLVE_SIBLING="${RESOLVE_SIBLING_SH:-$SCRIPT_DIR/resolve-sibling.sh}"
+# resolve_sibling()'s SECOND caller (#562), read for its prep lines only: (rs1)/(rs3) below
+# drive both callers' real hop arithmetic, and lean-gate.sh's is not this plugin's tools/ depth.
+LEAN_GATE="${LEAN_GATE_SH:-$SCRIPT_DIR/../skills/build-lean/lean-gate.sh}"
 
 PASS=0
 FAIL=0
@@ -551,35 +555,101 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# (rs) resolve_sibling — the cache rung must pick the HIGHEST version, not the
-# lexically-last one. Same extract-and-execute technique as the blocks above: the
-# real function is lifted out by its sentinels and run against a staged cache, so
-# a hand-copied resolver — the mirror harness CLAUDE.md bans — never enters.
+# (rs1)/(rs3) resolve_sibling — the ladder rungs that only a staged cache can tell
+# apart, each asserted at BOTH callers' real depths.
 #
-# 9.0.0 vs 10.0.0 is the whole point of those numbers. `ls -1 | sort -r` is lexical
-# and puts 9.0.0 first, so the loop's first hit was the SUPERSEDED sibling. Any pair
-# below 10 agrees under both orderings and cannot tell them apart. BOTH versions
-# carry the file, so the `-f` filter cannot decide it either — only the ordering can.
+#   (rs1) rung 2 — this plugin's own version in the cache must win over a NEWER
+#         sibling. The rung derives that version from the caller-supplied PLUGIN_DIR,
+#         so it is exactly where a depth assumption hides: a rung-2 miss falls
+#         through to rung 3 and still returns *a* file, which reads as working. That
+#         is the #562-r2 defect — deriving the version inside the ladder from the
+#         caller's SCRIPT_DIR made rung 2 structurally dead for lean-gate.sh.
+#   (rs3) rung 3 — with no version-matched sibling, the NEWEST one carrying the file
+#         wins. 9.0.0 vs 10.0.0 is the whole point of those numbers: `ls -1 | sort -r`
+#         is lexical and puts 9.0.0 first, so the loop's first hit was the SUPERSEDED
+#         sibling. Any pair below 10 agrees under both orderings and cannot tell them
+#         apart. BOTH versions carry the file, so the `-f` filter cannot decide it
+#         either — only the ordering can.
+#
+# Same extract-and-execute technique as the blocks above, extended one step: the real
+# function AND each caller's real prep lines are lifted by their sentinels and written
+# to a stub at that caller's real path inside the staged cache, then run from there. So
+# ${BASH_SOURCE[0]} resolves at the depth production runs at, and no hop constant is
+# re-typed here — a hand-copied resolver, or a hand-copied hop count, is the mirror
+# harness CLAUDE.md bans. Injecting SCRIPT_DIR/PLUGIN_DIR as environment instead would
+# exercise the FUNCTION while leaving both callers' arithmetic unguarded, which is how
+# the rung-2 depth bug reached a shipped file.
+#
+# No scenario in scenario-liveness-selftest.sh reaches this: every in-repo suite invokes
+# the real scripts at their real monorepo paths, where rung 1 short-circuits and rungs 2
+# and 3 are dead code. Only a fabricated cache can distinguish them.
 # ---------------------------------------------------------------------------
-RS_BLOCK="$(sed -n '/# >>> resolve-sibling/,/# <<< resolve-sibling/p' "$DOCTOR")"
-if [[ -z "$RS_BLOCK" ]]; then
-  bad "(rs) resolve-sibling sentinels not found in $DOCTOR — the function was refactored without updating this guard"
+RS_BLOCK="$(sed -n '/# >>> resolve-sibling/,/# <<< resolve-sibling/p' "$RESOLVE_SIBLING")"
+RS_GATE_PREP="$(sed -n '/# >>> ledger-lint-resolver/,/# <<< ledger-lint-resolver/p' "$LEAN_GATE")"
+RS_DOCTOR_PREP="$(sed -n '/# >>> plugin-dirs/,/# <<< plugin-dirs/p' "$DOCTOR")"
+if [[ -z "$RS_BLOCK" || -z "$RS_GATE_PREP" || -z "$RS_DOCTOR_PREP" ]]; then
+  bad "(rs) sentinels not found — resolve-sibling in $RESOLVE_SIBLING [${RS_BLOCK:+ok}${RS_BLOCK:-MISSING}], ledger-lint-resolver in $LEAN_GATE [${RS_GATE_PREP:+ok}${RS_GATE_PREP:-MISSING}], plugin-dirs in $DOCTOR [${RS_DOCTOR_PREP:+ok}${RS_DOCTOR_PREP:-MISSING}]: a caller or the ladder was refactored without updating this guard"
 else
   RS="$WORK/rs"
-  mkdir -p "$RS/cache/dev-pipeline/1.0.0/tools" \
-           "$RS/cache/review-toolkit/9.0.0/scripts" \
-           "$RS/cache/review-toolkit/10.0.0/scripts"
-  echo "superseded" > "$RS/cache/review-toolkit/9.0.0/scripts/marker.sh"
-  echo "current"    > "$RS/cache/review-toolkit/10.0.0/scripts/marker.sh"
-  rs_out="$(PLUGINS_DIR="$RS/cache/dev-pipeline" \
-            SCRIPT_DIR="$RS/cache/dev-pipeline/1.0.0/tools" \
-            bash -c "$RS_BLOCK
-resolve_sibling review-toolkit scripts/marker.sh" 2>/dev/null)"
-  case "$rs_out" in
-    */review-toolkit/10.0.0/*) ok "(rs) the cache rung resolves the highest version, not the lexically-last" ;;
-    */review-toolkit/9.0.0/*)  bad "(rs) resolved the SUPERSEDED 9.0.0 — the version sort is lexical, so 9.0.0 outranks 10.0.0" ;;
-    *)                         bad "(rs) resolve_sibling returned [$rs_out], expected the 10.0.0 sibling" ;;
-  esac
+  RS_REL="skills/plan-interview/tools/ledger-lint.sh"   # what resolve_ledger_lint() asks for
+  RS_MYVER="7.0.0"                                      # the version THIS plugin is staged at
+
+  # Stages a cache whose dev-pipeline is at $RS_MYVER and whose intake-toolkit sibling
+  # carries $RS_REL at each version named in $2..., then writes the two callers' stubs at
+  # their real depths under it. $1 = cache root.
+  rs_stage() {
+    local root="$1" v; shift
+    mkdir -p "$root/dev-pipeline/$RS_MYVER/tools" \
+             "$root/dev-pipeline/$RS_MYVER/skills/build-lean"
+    for v in "$@"; do
+      mkdir -p "$root/intake-toolkit/$v/${RS_REL%/*}"
+      echo "$v" > "$root/intake-toolkit/$v/$RS_REL"
+    done
+    # lean-gate.sh's caller: two directories under its plugin root, resolving through
+    # resolve_ledger_lint()'s own hop arithmetic.
+    printf '%s\n%s\n%s\nresolve_ledger_lint\n' 'set -uo pipefail' "$RS_BLOCK" "$RS_GATE_PREP" \
+      > "$root/dev-pipeline/$RS_MYVER/skills/build-lean/gate-caller.sh"
+    # pipeline-doctor.sh's caller: one directory under its plugin root, its top-level prep
+    # lines then the same call it makes at :402.
+    printf '%s\n%s\n%s\nresolve_sibling intake-toolkit %s\n' \
+      'set -uo pipefail' "$RS_DOCTOR_PREP" "$RS_BLOCK" "$RS_REL" \
+      > "$root/dev-pipeline/$RS_MYVER/tools/doctor-caller.sh"
+  }
+  rs_run() { # $1 = cache root, $2 = gate|doctor
+    case "$2" in
+      gate)   bash "$1/dev-pipeline/$RS_MYVER/skills/build-lean/gate-caller.sh" 2>/dev/null ;;
+      doctor) bash "$1/dev-pipeline/$RS_MYVER/tools/doctor-caller.sh" 2>/dev/null ;;
+    esac
+  }
+
+  # (rs1) rung 2: the version-matched sibling must beat the newer one, at both depths.
+  rs_stage "$RS/own" "$RS_MYVER" 9.0.0
+  for rs_shape in gate doctor; do
+    rs_out="$(rs_run "$RS/own" "$rs_shape")"
+    case "$rs_out" in
+      */intake-toolkit/"$RS_MYVER"/*)
+        ok "(rs1-$rs_shape) rung 2 resolves this plugin's OWN version at the $rs_shape caller's depth" ;;
+      */intake-toolkit/9.0.0/*)
+        bad "(rs1-$rs_shape) fell through to rung 3 and took 9.0.0 — rung 2 is dead at the $rs_shape caller's depth, so the ladder re-derives a hop the caller already adjusted" ;;
+      *)
+        bad "(rs1-$rs_shape) resolve_sibling returned [$rs_out], expected the version-matched $RS_MYVER sibling" ;;
+    esac
+  done
+
+  # (rs3) rung 3: with no version-matched sibling, the highest version wins — not the
+  # lexically-last — at both depths.
+  rs_stage "$RS/newest" 9.0.0 10.0.0
+  for rs_shape in gate doctor; do
+    rs_out="$(rs_run "$RS/newest" "$rs_shape")"
+    case "$rs_out" in
+      */intake-toolkit/10.0.0/*)
+        ok "(rs3-$rs_shape) rung 3 resolves the highest version, not the lexically-last, at the $rs_shape caller's depth" ;;
+      */intake-toolkit/9.0.0/*)
+        bad "(rs3-$rs_shape) resolved the SUPERSEDED 9.0.0 — the version sort is lexical, so 9.0.0 outranks 10.0.0" ;;
+      *)
+        bad "(rs3-$rs_shape) resolve_sibling returned [$rs_out], expected the 10.0.0 sibling" ;;
+    esac
+  done
 fi
 
 # ---------------------------------------------------------------------------
