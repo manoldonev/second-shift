@@ -4,6 +4,203 @@ All notable changes to the second-shift marketplace. Versions are per-plugin (`p
 this file tracks the marketplace release. `configVersion` stays `const 1` — v2 is fully backward-compatible for a
 consumer with an empty config; the migration notes below are only for consumers using the changed features.
 
+## v8.0.0
+
+### `audit-toolkit` 3.0.0 → 4.0.0
+
+- **fix(dev-pipeline)!: delete the staged-lane residue #348 left behind, and the dead checks that outlived it (#577)** (#577)
+  pipeline-doctor no longer reports a permanent FAIL for the retired plan-lint
+  gate, and no longer probes for the retired visual-capture substrate; preflight no longer
+  emits an unreachable-lane warning for an inert lane the lean gate does not have.
+  intake-orchestrator no longer promises an automatic promotion reminder that nothing
+  writes.
+  Migration: the staged-run readers `tools/stage-times.sh` and `tools/stage-envelopes.sh`
+  and the `state-schema.md` reference are removed, along with perf-retro's per-stage timing
+  profile. They only ever read staged-lane state files, which no lane has written since
+  #348.
+  docs/extending.md no longer claims preflight.sh reads
+  stageParams.inertPattern — it does not, and the key cannot cause a verify-lane skip
+  under the lean gate. pipeline-doctor's selftest now asserts its
+  every-delegate-exists invariant over all three of the doctor's delegation forms, so
+  a deleted suite behind a $PLUGIN_DIR invocation is caught rather than shipped as a
+  permanent FAIL.
+  Migration: none.
+  docs/extending.md and is-inert-diff.sh now state that
+  stageParams.inertPattern has no runtime consumer, instead of naming callers that
+  do not read it. pipeline-doctor's every-delegate-exists invariant now also fails
+  when a delegation form has no arm, or when an arm is dropped, so the guard cannot
+  silently narrow.
+  Migration: none.
+  **BREAKING:** `plugins/dev-pipeline/state-schema.md`, `tools/stage-times.sh` and `tools/stage-envelopes.sh` are removed from the shipped plugin, and perf-retro no longer produces a per-stage timing profile.
+
+### `design-toolkit` 2.2.1 → 3.0.0
+
+- **fix(dev-pipeline)!: delete the staged-lane residue #348 left behind, and the dead checks that outlived it (#577)** (#577)
+  pipeline-doctor no longer reports a permanent FAIL for the retired plan-lint
+  gate, and no longer probes for the retired visual-capture substrate; preflight no longer
+  emits an unreachable-lane warning for an inert lane the lean gate does not have.
+  intake-orchestrator no longer promises an automatic promotion reminder that nothing
+  writes.
+  Migration: the staged-run readers `tools/stage-times.sh` and `tools/stage-envelopes.sh`
+  and the `state-schema.md` reference are removed, along with perf-retro's per-stage timing
+  profile. They only ever read staged-lane state files, which no lane has written since
+  #348.
+  docs/extending.md no longer claims preflight.sh reads
+  stageParams.inertPattern — it does not, and the key cannot cause a verify-lane skip
+  under the lean gate. pipeline-doctor's selftest now asserts its
+  every-delegate-exists invariant over all three of the doctor's delegation forms, so
+  a deleted suite behind a $PLUGIN_DIR invocation is caught rather than shipped as a
+  permanent FAIL.
+  Migration: none.
+  docs/extending.md and is-inert-diff.sh now state that
+  stageParams.inertPattern has no runtime consumer, instead of naming callers that
+  do not read it. pipeline-doctor's every-delegate-exists invariant now also fails
+  when a delegation form has no arm, or when an arm is dropped, so the guard cannot
+  silently narrow.
+  Migration: none.
+  **BREAKING:** `plugins/dev-pipeline/state-schema.md`, `tools/stage-times.sh` and `tools/stage-envelopes.sh` are removed from the shipped plugin, and perf-retro no longer produces a per-stage timing profile.
+
+### `dev-pipeline` 7.0.0 → 8.0.0
+
+- **fix(dev-pipeline)!: delete the staged-lane residue #348 left behind, and the dead checks that outlived it (#577)** (#577)
+  pipeline-doctor no longer reports a permanent FAIL for the retired plan-lint
+  gate, and no longer probes for the retired visual-capture substrate; preflight no longer
+  emits an unreachable-lane warning for an inert lane the lean gate does not have.
+  intake-orchestrator no longer promises an automatic promotion reminder that nothing
+  writes.
+  Migration: the staged-run readers `tools/stage-times.sh` and `tools/stage-envelopes.sh`
+  and the `state-schema.md` reference are removed, along with perf-retro's per-stage timing
+  profile. They only ever read staged-lane state files, which no lane has written since
+  #348.
+  docs/extending.md no longer claims preflight.sh reads
+  stageParams.inertPattern — it does not, and the key cannot cause a verify-lane skip
+  under the lean gate. pipeline-doctor's selftest now asserts its
+  every-delegate-exists invariant over all three of the doctor's delegation forms, so
+  a deleted suite behind a $PLUGIN_DIR invocation is caught rather than shipped as a
+  permanent FAIL.
+  Migration: none.
+  docs/extending.md and is-inert-diff.sh now state that
+  stageParams.inertPattern has no runtime consumer, instead of naming callers that
+  do not read it. pipeline-doctor's every-delegate-exists invariant now also fails
+  when a delegation form has no arm, or when an arm is dropped, so the guard cannot
+  silently narrow.
+  Migration: none.
+  **BREAKING:** `plugins/dev-pipeline/state-schema.md`, `tools/stage-times.sh` and `tools/stage-envelopes.sh` are removed from the shipped plugin, and perf-retro no longer produces a per-stage timing profile.
+- **feat(second-shift): delta-aware consumer CI guard — the verdict-record push re-runs the whole lane, and can cancel the code commit's run (#576)** (#576)
+  /second-shift:onboard now emits a third optional CI pair —
+  .github/workflows/second-shift-delta-guard.yml plus
+  .claude/tools/second-shift-delta-guard.sh — which lets a consumer skip its
+  heavy jobs on the lean lane's docs-only verdict-record commit, but only
+  against a completed successful run on the parent SHA. Read-only, and inert
+  until the consumer wires its own jobs to the guard's skip output. Onboarding
+  guidance also now states the pull_request concurrency rule: do not key
+  cancel-in-progress: true bare on the ref.
+  Migration: none — existing consumers are unaffected until they re-run
+  /second-shift:onboard or copy the pair by hand.
+- **feat(dev-pipeline): lint the committed Decision Ledger's provenance at milestone 1 (#573)** (#573)
+  lean-gate.sh milestone 1 now lints a committed spec's Decision
+  Ledger provenance column against the interviewing-baseline enum when the
+  section is present, refusing an invented value (e.g. "issue-specified")
+  that previously reached a committed artifact undetected. Reuses
+  intake-toolkit's ledger-lint.sh; no new artifact, no schema change.
+  Migration: none.
+  none — the trailer on 0c09b21 already carries this PR's consumer-visible
+  change; this commit only discharges round 1's review blockers on it.
+  none — round-1 blocker follow-through on 0c09b21's consumer-visible
+  change; this commit only re-greens the guard accounting 813a275 disturbed.
+
+### `intake-toolkit` 3.0.0 → 4.0.0
+
+- **fix(dev-pipeline)!: delete the staged-lane residue #348 left behind, and the dead checks that outlived it (#577)** (#577)
+  pipeline-doctor no longer reports a permanent FAIL for the retired plan-lint
+  gate, and no longer probes for the retired visual-capture substrate; preflight no longer
+  emits an unreachable-lane warning for an inert lane the lean gate does not have.
+  intake-orchestrator no longer promises an automatic promotion reminder that nothing
+  writes.
+  Migration: the staged-run readers `tools/stage-times.sh` and `tools/stage-envelopes.sh`
+  and the `state-schema.md` reference are removed, along with perf-retro's per-stage timing
+  profile. They only ever read staged-lane state files, which no lane has written since
+  #348.
+  docs/extending.md no longer claims preflight.sh reads
+  stageParams.inertPattern — it does not, and the key cannot cause a verify-lane skip
+  under the lean gate. pipeline-doctor's selftest now asserts its
+  every-delegate-exists invariant over all three of the doctor's delegation forms, so
+  a deleted suite behind a $PLUGIN_DIR invocation is caught rather than shipped as a
+  permanent FAIL.
+  Migration: none.
+  docs/extending.md and is-inert-diff.sh now state that
+  stageParams.inertPattern has no runtime consumer, instead of naming callers that
+  do not read it. pipeline-doctor's every-delegate-exists invariant now also fails
+  when a delegation form has no arm, or when an arm is dropped, so the guard cannot
+  silently narrow.
+  Migration: none.
+  **BREAKING:** `plugins/dev-pipeline/state-schema.md`, `tools/stage-times.sh` and `tools/stage-envelopes.sh` are removed from the shipped plugin, and perf-retro no longer produces a per-stage timing profile.
+
+### `review-toolkit` 5.0.0 → 6.0.0
+
+- **fix(dev-pipeline)!: delete the staged-lane residue #348 left behind, and the dead checks that outlived it (#577)** (#577)
+  pipeline-doctor no longer reports a permanent FAIL for the retired plan-lint
+  gate, and no longer probes for the retired visual-capture substrate; preflight no longer
+  emits an unreachable-lane warning for an inert lane the lean gate does not have.
+  intake-orchestrator no longer promises an automatic promotion reminder that nothing
+  writes.
+  Migration: the staged-run readers `tools/stage-times.sh` and `tools/stage-envelopes.sh`
+  and the `state-schema.md` reference are removed, along with perf-retro's per-stage timing
+  profile. They only ever read staged-lane state files, which no lane has written since
+  #348.
+  docs/extending.md no longer claims preflight.sh reads
+  stageParams.inertPattern — it does not, and the key cannot cause a verify-lane skip
+  under the lean gate. pipeline-doctor's selftest now asserts its
+  every-delegate-exists invariant over all three of the doctor's delegation forms, so
+  a deleted suite behind a $PLUGIN_DIR invocation is caught rather than shipped as a
+  permanent FAIL.
+  Migration: none.
+  docs/extending.md and is-inert-diff.sh now state that
+  stageParams.inertPattern has no runtime consumer, instead of naming callers that
+  do not read it. pipeline-doctor's every-delegate-exists invariant now also fails
+  when a delegation form has no arm, or when an arm is dropped, so the guard cannot
+  silently narrow.
+  Migration: none.
+  **BREAKING:** `plugins/dev-pipeline/state-schema.md`, `tools/stage-times.sh` and `tools/stage-envelopes.sh` are removed from the shipped plugin, and perf-retro no longer produces a per-stage timing profile.
+
+### `second-shift` 5.0.0 → 6.0.0
+
+- **fix(dev-pipeline)!: delete the staged-lane residue #348 left behind, and the dead checks that outlived it (#577)** (#577)
+  pipeline-doctor no longer reports a permanent FAIL for the retired plan-lint
+  gate, and no longer probes for the retired visual-capture substrate; preflight no longer
+  emits an unreachable-lane warning for an inert lane the lean gate does not have.
+  intake-orchestrator no longer promises an automatic promotion reminder that nothing
+  writes.
+  Migration: the staged-run readers `tools/stage-times.sh` and `tools/stage-envelopes.sh`
+  and the `state-schema.md` reference are removed, along with perf-retro's per-stage timing
+  profile. They only ever read staged-lane state files, which no lane has written since
+  #348.
+  docs/extending.md no longer claims preflight.sh reads
+  stageParams.inertPattern — it does not, and the key cannot cause a verify-lane skip
+  under the lean gate. pipeline-doctor's selftest now asserts its
+  every-delegate-exists invariant over all three of the doctor's delegation forms, so
+  a deleted suite behind a $PLUGIN_DIR invocation is caught rather than shipped as a
+  permanent FAIL.
+  Migration: none.
+  docs/extending.md and is-inert-diff.sh now state that
+  stageParams.inertPattern has no runtime consumer, instead of naming callers that
+  do not read it. pipeline-doctor's every-delegate-exists invariant now also fails
+  when a delegation form has no arm, or when an arm is dropped, so the guard cannot
+  silently narrow.
+  Migration: none.
+  **BREAKING:** `plugins/dev-pipeline/state-schema.md`, `tools/stage-times.sh` and `tools/stage-envelopes.sh` are removed from the shipped plugin, and perf-retro no longer produces a per-stage timing profile.
+- **feat(second-shift): delta-aware consumer CI guard — the verdict-record push re-runs the whole lane, and can cancel the code commit's run (#576)** (#576)
+  /second-shift:onboard now emits a third optional CI pair —
+  .github/workflows/second-shift-delta-guard.yml plus
+  .claude/tools/second-shift-delta-guard.sh — which lets a consumer skip its
+  heavy jobs on the lean lane's docs-only verdict-record commit, but only
+  against a completed successful run on the parent SHA. Read-only, and inert
+  until the consumer wires its own jobs to the guard's skip output. Onboarding
+  guidance also now states the pull_request concurrency rule: do not key
+  cancel-in-progress: true bare on the ref.
+  Migration: none — existing consumers are unaffected until they re-run
+  /second-shift:onboard or copy the pair by hand.
+
 ## v7.0.0
 
 ### `dev-pipeline` 6.0.0 → 7.0.0
