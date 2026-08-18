@@ -66,7 +66,11 @@ gates them.
   pass: "no ledger" and "a ledger this could not read" are different facts.
 - **AC-8** — milestone 1's pass line discloses the reconciliation through `cmd_1`'s existing
   `note` variable, the idiom the design lane already uses for its armed and disarmed states, and
-  says nothing extra when no receipt exists.
+  says nothing extra when no receipt exists. Because this reconciliation is the **first** writer
+  of `note` that the design block does not own, the disclosure must survive **every** design
+  state: `unarmed`, `disarmed` and `armed`. Before #517 the design block was the only writer, so
+  its `note=` was harmlessly an assignment; it must now append, or an armed consumer loses the
+  counts on exactly the runs that also have a design lane.
 - **AC-9** — `plugins/dev-pipeline/skills/build-lean/SKILL.md` step 4 states the carry-forward
   obligation. Today it says only that a pre-flight ledger is "binding input when present", so a
   gate demanding a shape the instructions never asked for would burn a fix attempt on every first
@@ -75,7 +79,9 @@ gates them.
 - **AC-10** — `ledger-lint.sh --help` documents the new mode, and its hand-maintained
   `sed -n '2,Np'` range is re-checked so the header still prints in full and stops before the code.
 - **AC-11** — tests, per the tier map. Behavioral cases in `ledger-lint-selftest.sh` for AC-1
-  through AC-6 and AC-10; behavioral cases in `lean-gate-selftest.sh` for AC-7 and AC-8; and a
+  through AC-6 and AC-10; behavioral cases in `lean-gate-selftest.sh` for AC-7 and AC-8 — including `(a15)`,
+  which drives the reconciliation through the suite's **design** config, since the `(a9)`-`(a14)`
+  fixture declares no `design` key and so scores only the `unarmed` branch of `cmd_1`; and a
   composed leg in `scenario-liveness-selftest.sh` for the new milestone-1 verdict path, since a
   gate contract nothing composes against is a gate the next `#204` walks through. Editing
   `lean-gate.sh` and `ledger-lint.sh` re-keys their generic mutation survivor ordinals, so

@@ -3261,6 +3261,52 @@ if [ "$rc" -eq 1 ] && grep -q 'declares no render state' <<<"$out"; then
   pass "(dz7) a section naming neither a render state nor a disarm is refused"
 else fail "(dz7) expected the no-render-state refusal, rc=$rc: $out"; fi
 
+# (a15) #517 AC-8, on the two branches this suite's OTHER config cannot reach. The (a9)-(a14)
+# block above runs through $CFG, which declares no `design` key, so design_state() returns
+# `unarmed` there, the `case` below the reconciliation matches no arm, and every one of those
+# cases scores only the branch where nothing else writes `note`. (a11) therefore cannot fail on
+# an assignment in the armed or disarmed arm — which is exactly the defect it was written to
+# guard against, and exactly the defect that shipped.
+#
+# So drive the SAME reconciliation through the design config instead. Both facts must appear on
+# one pass line: an implementation that assigns rather than appends keeps whichever it wrote
+# last and drops the other, so asserting only one of the two would still pass the clobber.
+# The receipt is fixed and the ONLY thing varying between the two calls is the `## Design`
+# section, which is what makes the design state the attributable cause.
+D_RECEIPT="$WORK/55-receipt.md"
+printf '%s\n' '# receipt' '## Decision Ledger' \
+  '| ID | Decision | Resolution | Provenance | Kind |' \
+  '| --- | --- | --- | --- | --- |' \
+  '| D-1 | Rate limit | 100/min, per tenant | user-answered | intent |' \
+  '| D-2 | Cache TTL | 5 minutes | codebase-derived | fact |' \
+  > "$D_RECEIPT"
+
+# ARMED: the reconciliation counts survive alongside the arming note.
+dreset
+dspec_armed
+printf '%s\n' '' '## Decision Ledger' \
+  '| ID | Decision | Resolution | Provenance |' \
+  '| --- | --- | --- | --- |' \
+  '| D-1 | Rate limit | 100/min, per tenant | user-answered |' >> "$DSPEC"
+out="$(dgate --ledger-file "$D_RECEIPT" 1 55)"; rc=$?
+if [ "$rc" -eq 0 ] && grep -q '1 bound, 1 carried, 0 departure(s)' <<<"$out" \
+   && grep -q 'design lane ARMED' <<<"$out"; then
+  pass "(a15) #517 AC-8: an ARMED design lane does not clobber the reconciliation disclosure"
+else fail "(a15) expected rc=0 carrying BOTH the counts and the arming note, got $rc: $out"; fi
+
+# DISARMED: same tree, same receipt, same bound row — only the section changes.
+dreset
+{ printf '%s\n' '# spec' '' '- AC-1: the thing' '' '## Design' '' \
+    'Design: none — no FE surface in this ticket.' '' '## Decision Ledger' \
+    '| ID | Decision | Resolution | Provenance |' \
+    '| --- | --- | --- | --- |' \
+    '| D-1 | Rate limit | 100/min, per tenant | user-answered |'; } > "$DSPEC"
+out="$(dgate --ledger-file "$D_RECEIPT" 1 55)"; rc=$?
+if [ "$rc" -eq 0 ] && grep -q '1 bound, 1 carried, 0 departure(s)' <<<"$out" \
+   && grep -q 'design lane disarmed for this ticket' <<<"$out"; then
+  pass "(a15) #517 AC-8: a DISARMED design lane does not clobber it either"
+else fail "(a15) expected rc=0 carrying BOTH the counts and the disarm note, got $rc: $out"; fi
+
 # ---- (dr) AC-3: the render pass ----------------------------------------------------------
 # (dr7) the template must carry {out} — there is otherwise nowhere for a screenshot to land.
 dreset

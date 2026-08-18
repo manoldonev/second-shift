@@ -539,13 +539,16 @@ echo "[ledger-lint-selftest] reconcile mode (#517): the receipt beside the plan"
 # The reconcile fixtures. The receipt binds TWO rows (one per intent provenance value) and
 # carries a third that is NOT bound, which is what makes every "N bound" assertion below
 # discriminating: a mode that bound every row would report 3 and pass the same greps.
-rc_receipt() { # rc_receipt <resolution-for-D-3>
+# Takes no argument, unlike its rc_plan sibling: every case below varies the PLAN's D-3
+# resolution against a fixed receipt, so a parameter here would be dead. shellcheck 0.9.0 (the
+# version CI installs) raises SC2120/SC2119 on a `${1:-…}` no call site ever supplies.
+rc_receipt() {
   printf '%s\n' '# receipt' '## Decision Ledger' \
     '| ID | Decision | Resolution | Provenance | Kind |' \
     '| --- | --- | --- | --- | --- |' \
     '| D-1 | Rate limit | 100/min, per tenant | user-answered | intent |' \
     '| D-2 | Cache TTL | 5 minutes | codebase-derived | fact |' \
-    "| D-3 | Fix scope | ${1:-Both call sites} | user-delegated | intent |"
+    '| D-3 | Fix scope | Both call sites | user-delegated | intent |'
 }
 rc_plan() { # rc_plan <resolution-for-D-3>  — the committed spec's Decision Ledger
   printf '%s\n' '# spec' '- AC-1: a thing' '## Decision Ledger' \

@@ -3056,8 +3056,12 @@ cmd_1() {
     error:*)  fail_milestone 1 "${dstate#error:}"; return $? ;;
     disarmed)
       design_was_armed && { fail_milestone 1 "$(design_disarm_locked_msg)"; return $?; }
-      note=", design lane disarmed for this ticket" ;;
-    armed)    note=", design lane ARMED" ;;
+      # APPEND, never assign. Since #517 this is no longer the first writer of `note` — the
+      # receipt reconciliation above puts its counts there — so an assignment here silently
+      # drops that disclosure on exactly the runs that also have a design lane. Invisible to
+      # this repo, which configures no provider and so never reaches either arm.
+      note="$note, design lane disarmed for this ticket" ;;
+    armed)    note="$note, design lane ARMED" ;;
   esac
 
   if [ "${LEAN_GATE_OBSERVE:-0}" != "1" ]; then
