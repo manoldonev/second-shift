@@ -78,7 +78,16 @@ rc=$(run_guard)
   || bad "(b) sandbox baseline is RED before any mutation — rc=$rc"
 
 # ---- (c) AC-6: a disposition outside the enum reds --------------------------------------
-write_register 'delta capability\t%s/1-alpha.md\tdeferred\tnote d\n' "$P"
+#
+# The delta row's MISSING trailing newline is load-bearing, do not tidy it. The guard reads its
+# register with `while IFS= read -r line || [[ -n "$line" ]]`, and that `||` exists for exactly
+# one reason: a final line with no terminator makes `read` return 1, so without the second
+# operand the last row would never be judged. Every other fixture here is newline-terminated,
+# which left the clause dark — flipping `||` to `&&` kept all 14 cases green, and the nightly
+# sweep of record surfaced it as `capability-parity-check.sh::logic::2` (#585). Unterminated,
+# this case is the one that dies when the idiom breaks: the mutant drops the delta row, the
+# off-enum disposition goes unjudged, and the guard exits 0 where 1 is asserted.
+write_register 'delta capability\t%s/1-alpha.md\tdeferred\tnote d' "$P"
 rc=$(run_guard)
 [[ "$rc" -eq 1 ]] \
   && ok "(c) disposition outside the enum ('deferred') reds" \
