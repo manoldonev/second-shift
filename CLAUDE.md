@@ -81,9 +81,11 @@ how plugins are installed or laid out; that is the only time its answer differs 
 
 **The recipe above runs COLD, and that is deliberate.** CI additionally passes `--cache-dir`, which
 lets a suite with a row in `tools/selftest-cache-inputs.tsv` be skipped when the content of every
-declared input is unchanged. The runner never participates without that flag, so what you run
-locally is still a full sweep — see [`docs/testing.md`](docs/testing.md) for the contract, and add
-a row there only when you can enumerate a suite's inputs exactly.
+declared input is unchanged. The runner participates only where a store is named — that flag, or
+the `LEAN_SELFTEST_CACHE_DIR` the lean gate exports into its own milestone-3 lane (#563) — and the
+recipe above names neither, so what you run locally is still a full sweep. See
+[`docs/testing.md`](docs/testing.md) for the contract, and add a row there only when you can
+enumerate a suite's inputs exactly.
 
 The hand-rolled `xargs -0 -P 4` pipeline this recipe used to carry is retired — CI had been
 running its *serial* cousin all along, at 17:50 on macos and 12:51 on ubuntu.

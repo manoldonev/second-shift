@@ -69,6 +69,10 @@
 #   --cache-dir   marker store for the pass cache. Absent, no suite is ever skipped.
 #   --cache-write additionally RECORD passes into that store. Requires --cache-dir.
 #
+#   $LEAN_SELFTEST_CACHE_DIR is the same store handed down by lean-gate.sh milestone 3, which
+#   cannot pass a flag to a lane command it does not own — see #563 below. Argv wins; unset is
+#   a no-op; recording is on for that path and the reasoning is at the reading site.
+#
 # EXIT: 0 iff every run suite passed. Non-zero names every failing suite. 2 for a usage error,
 # a stale exclusion, a malformed cache-input table, or a discovered/run count disagreement.
 # 3 (#527) when there were failures and EVERY one of them is the no-verdict infrastructure class —
@@ -125,7 +129,15 @@ if [[ "${1:-}" == "--run-one" ]]; then
   [[ -n "$W_SUITE" ]] || exit 0
   # The parent's test-only seams are stripped for the same reason: a nested runner must not
   # inherit an instruction to truncate its own worklist or to suppress its own verdicts.
-  ( cd "$W_ROOT" && env -u RUN_SELFTESTS_DROP_LAST -u RUN_SELFTESTS_DROP_RC bash "$W_SUITE" ) \
+  #
+  # LEAN_SELFTEST_CACHE_DIR (#563) is stripped on the same principle, and it is not a test-only
+  # seam: the cache is decided ONCE, in the parent, and a worker never touches the store. Left
+  # inheritable, a suite that nests its own runner — run-selftests-selftest.sh does exactly that
+  # — would silently start caching under the dogfood sweep while the same suite run standalone
+  # did not, which is both a fixture that means something different depending on who ran it and
+  # a cache activated by a route nobody declared.
+  ( cd "$W_ROOT" && env -u RUN_SELFTESTS_DROP_LAST -u RUN_SELFTESTS_DROP_RC \
+       -u LEAN_SELFTEST_CACHE_DIR bash "$W_SUITE" ) \
     > "$W_OUT/$W_IDX.log" 2>&1
   W_RC=$?   # captured BEFORE anything else runs — a later test would overwrite $?
   # Rejection-assertion seam #2 (see RUN_SELFTESTS_DROP_LAST below): exit WITHOUT writing the
@@ -212,6 +224,31 @@ if [[ "$CACHE_WRITE" -eq 1 && -z "$CACHE_DIR" ]]; then
   die "--cache-write requires --cache-dir"
 fi
 
+# ---- the lean lane's store (#563) ------------------------------------------------------
+# The SECOND activation path, and the only one that is not argv. lean-gate.sh milestone 3 cannot
+# rewrite the `test` command it runs — that string lives in a consumer's config, gitignored here
+# — so it hands the store down the one channel it does own, exactly as it already hands down
+# LEAN_JOB_CEILING (#526). This is the reading end of that coupling.
+#
+# ARGV WINS, and this sits AFTER the parse and after the --cache-write check so that stays true
+# in both directions: an explicit --cache-dir is never overridden, and a lone --cache-write is
+# still the usage error it is today rather than being quietly satisfied out of the environment.
+# UNSET IS A NO-OP: the CLAUDE.md local recipe, both CI lanes and the nightly wholesale leg see
+# no such variable and resolve exactly what they resolve today.
+#
+# RECORDING IS ON for this path, which is the one place it departs from CI's split. CI withholds
+# --cache-write from the PR lane because there an untrusted branch would record into a store
+# other runs read; this store is machine-local and records the operator's own tree, the posture
+# tools/mutation-sweep.sh's cache already takes. And a store that is never written can never be
+# served from: the lean lane's whole case is the SECOND sweep of an unmoved head.
+CACHE_FROM_ENV=0
+if [[ -z "$CACHE_DIR" && -n "${LEAN_SELFTEST_CACHE_DIR:-}" ]]; then
+  CACHE_DIR="$LEAN_SELFTEST_CACHE_DIR"
+  CACHE_WRITE=1
+  CACHE_FROM_ENV=1
+  echo "[run-selftests] cache: activated from LEAN_SELFTEST_CACHE_DIR (recording on) — $CACHE_DIR"
+fi
+
 # ---- hashing -------------------------------------------------------------------------
 # The picker tools/mutation-sweep.sh already carries: shasum ships with macOS and with the
 # ubuntu runner's perl, sha256sum is coreutils. `git hash-object` needs no repository — it is a
@@ -240,8 +277,17 @@ if [[ -n "$CACHE_DIR" ]] && ! command -v git >/dev/null 2>&1; then
   echo "[run-selftests] cache disabled: git is unavailable, so no declared input can be hashed."
   CACHE_DIR=""; CACHE_WRITE=0
 fi
+if [[ -n "$CACHE_DIR" ]] && ! mkdir -p "$CACHE_DIR" 2>/dev/null; then
+  # The one behavioral difference between the two activation paths (#563). A --cache-dir that
+  # cannot be created is a flag an operator typed that cannot work, and saying so beats running
+  # a sweep they think is caching. An INJECTED store that cannot be created is not the tree's
+  # fault, and dying on it would let an unwritable $HOME red a milestone about something else
+  # entirely — so that path joins the two disable arms above and runs cold, named.
+  [[ "$CACHE_FROM_ENV" -eq 1 ]] || die "--cache-dir is not creatable: $CACHE_DIR"
+  echo "[run-selftests] cache disabled: LEAN_SELFTEST_CACHE_DIR is not creatable: $CACHE_DIR"
+  CACHE_DIR=""; CACHE_WRITE=0
+fi
 if [[ -n "$CACHE_DIR" ]]; then
-  mkdir -p "$CACHE_DIR" 2>/dev/null || die "--cache-dir is not creatable: $CACHE_DIR"
   CACHE_DIR="$(cd "$CACHE_DIR" && pwd)"
 fi
 

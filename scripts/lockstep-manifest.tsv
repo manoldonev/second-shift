@@ -97,6 +97,18 @@ seam-scrub	subset-of	plugins/dev-pipeline/tools/preflight.sh	seam-scrub	plugins/
 # real extraLane child echoes `${LEAN_JOB_CEILING:-unset}` and its value must equal the
 # ceiling the gate announced, so a rename on either side leaves the child reporting `unset`.
 
+# LEAN_SELFTEST_CACHE_DIR, writer ↔ reader (#563). The same coupling one ticket later, and
+# DROPPED for the same reason: lean-gate.sh EXPORTS that name into every milestone-3 lane
+# child and tools/run-selftests.sh READS it, but the two sites share a token, not an
+# anchorable BLOCK, and pinning a variable name in two places is the presence check this repo
+# bans. The invisible-direction risk is the sharper one here — a one-sided rename does not red
+# anything, it just means no lean sweep ever serves from cache again, which looks exactly like
+# a cache that is working and never hitting. Behaviorally guarded on BOTH sides:
+# lean-gate-selftest.sh (sc1-sc3) spawns a real lane child that must report the store the gate
+# announced, and run-selftests-selftest.sh's #563 cases drive the runner through the variable
+# rather than the flag — so a rename on either side leaves a child reporting `unset` and the
+# runner's env cases cold.
+
 # Audit ledger row schema — the field list a consumer keys off (audit QUERIES.md schema
 # section ↔ audit SETUP.md "What you get"). This pair is the reason the ledger drifted:
 # for months QUERIES.md documented queries against `.args_excerpt.command` /

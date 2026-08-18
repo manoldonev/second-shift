@@ -5776,6 +5776,70 @@ if [ "$rc" -eq 0 ] && [ -n "$jc_announced" ] && [ "$jc_announced" -ge 1 ] && [ "
   pass "(jc4) AC-4: with no registry the gate degrades to one lane, names why, and still exports"
 else fail "(jc4) expected an announced single-lane fallback reaching the child, got rc=$rc announced='$jc_announced' child='$jc_child': $out"; fi
 
+# ---- (sc) #563: the selftest pass-cache store reaches the lane children -------------------
+# The SAME seam (jc1) asserts, carrying the second value the gate hands down, and asserted the
+# same way and for the same reason: an extraLane runs through the one `env ${SEAM_SCRUB_ENV[@]…}`
+# idiom every milestone-3 child is spawned through, so a child that sees the store proves the
+# fixed `test` key — the one that actually runs run-selftests.sh — sees it too.
+#
+# What CANNOT be asserted here is that a suite is then skipped: that is the runner's contract and
+# tools/run-selftests-selftest.sh's #563 cases own it, driven through this very variable. The
+# coupling between the two sides is a variable NAME, which scripts/lockstep-manifest.tsv records
+# as a DROPPED row for LEAN_JOB_CEILING and which this case pins the same way: behaviorally, from
+# the writer's side, so a rename here leaves a child reporting `unset`.
+sc_xdg="$WORK/sc-xdg"
+# The single quotes are the assertion: $LEAN_SELFTEST_CACHE_DIR must expand in the CHILD the gate
+# spawns. Expanding it here would compare this suite's environment against itself.
+# shellcheck disable=SC2016
+cfg="$(el_cfg '[{"name":"store-probe","commands":["echo child-store=${LEAN_SELFTEST_CACHE_DIR:-unset}"],"failureClass":"TEST_FAILURE"}]')"
+prog="$WORK/el-prog-store.md"
+attest_at "$EL_TREE" "$cfg" "$prog" 7
+out="$( unset RUN_ID CLAUDE_CODE_SESSION_ID LEAN_SELFTEST_CACHE_DIR LEAN_SELFTEST_CACHE
+        cd "$EL_TREE" && SECOND_SHIFT_CONFIG="$cfg" LEAN_PROGRESS_FILE="$prog" \
+        XDG_CACHE_HOME="$sc_xdg" \
+        bash "$GATE" --issue-file "$EL_ISSUE" 3 7 2>&1 )"; rc=$?
+sc_child="$(printf '%s\n' "$out" | sed -n 's/^child-store=//p' | head -1)"
+if [ "$rc" -eq 0 ] && [ "$sc_child" = "$sc_xdg/second-shift/lean-selftest" ] \
+   && grep -qF "selftest pass cache store $sc_xdg/second-shift/lean-selftest" <<<"$out" \
+   && grep -qF 'ADVERTISED, not enforced' <<<"$out"; then
+  pass "(sc1) milestone 3 announces the default store and the lane child is spawned with it"
+else fail "(sc1) expected the announced default store to reach the child, got rc=$rc child='$sc_child': $out"; fi
+
+# The operator override, asserted on the ANNOUNCEMENT and deliberately not on the child. The
+# child value cannot discriminate here and saying so is the point: an operator-set variable is
+# inherited by every descendant anyway, so a child reporting it proves nothing about the gate —
+# a measured fact, not a supposition (the first revision of this case asserted the child and
+# passed with the export line replaced by `:`). (sc1) is where the export itself is pinned,
+# against a DEFAULT store the environment does not carry; this case pins the resolution.
+prog="$WORK/el-prog-store-override.md"
+attest_at "$EL_TREE" "$cfg" "$prog" 7
+out="$( unset RUN_ID CLAUDE_CODE_SESSION_ID LEAN_SELFTEST_CACHE
+        cd "$EL_TREE" && SECOND_SHIFT_CONFIG="$cfg" LEAN_PROGRESS_FILE="$prog" \
+        XDG_CACHE_HOME="$sc_xdg" LEAN_SELFTEST_CACHE_DIR="$WORK/sc-operator-store" \
+        bash "$GATE" --issue-file "$EL_ISSUE" 3 7 2>&1 )"; rc=$?
+if [ "$rc" -eq 0 ] && grep -qF "selftest pass cache store $WORK/sc-operator-store" <<<"$out" \
+   && ! grep -qF "$sc_xdg/second-shift/lean-selftest" <<<"$out"; then
+  pass "(sc2) an operator-set store overrides the default the gate would otherwise announce"
+else fail "(sc2) expected the operator store to be the announced one, got rc=$rc: $out"; fi
+
+# The off switch, run in the ONLY environment where it can fail: one that already carries a
+# store. Ambient inheritance is what a bare "do not export" walks straight past — the gate would
+# announce a cold sweep while the runner below it cached — so the case that matters sets the
+# variable and demands the child see nothing. A gate that merely stopped PRINTING, or that
+# declined to export while leaving the operator's value inherited, both red here.
+prog="$WORK/el-prog-store-off.md"
+attest_at "$EL_TREE" "$cfg" "$prog" 7
+out="$( unset RUN_ID CLAUDE_CODE_SESSION_ID
+        cd "$EL_TREE" && SECOND_SHIFT_CONFIG="$cfg" LEAN_PROGRESS_FILE="$prog" \
+        XDG_CACHE_HOME="$sc_xdg" LEAN_SELFTEST_CACHE_DIR="$WORK/sc-ambient-store" \
+        LEAN_SELFTEST_CACHE=0 \
+        bash "$GATE" --issue-file "$EL_ISSUE" 3 7 2>&1 )"; rc=$?
+sc_child="$(printf '%s\n' "$out" | sed -n 's/^child-store=//p' | head -1)"
+if [ "$rc" -eq 0 ] && [ "$sc_child" = "unset" ] \
+   && grep -qF 'selftest pass cache DISABLED (LEAN_SELFTEST_CACHE=0)' <<<"$out"; then
+  pass "(sc3) the off switch scrubs an AMBIENT store out of the lane child, not just the export"
+else fail "(sc3) an ambient store survived the off switch, got rc=$rc child='$sc_child': $out"; fi
+
 # ---- (jw) #526: the JOIN — `entry` registers this lane, `teardown` removes it ----------------
 # (jc1)-(jc4) above prove the gate READS a registry, against a file this suite pre-staged;
 # lane-registry-selftest.sh proves the helper works when something calls it. NEITHER reaches the
