@@ -2263,12 +2263,19 @@ echo "(aq) two enumerated sites sharing a key is a named red — over ALL sites,
 # the fixture enumerates 20 sites, so a collision is guaranteed by pigeonhole rather than by
 # luck. k stays at 2, so 18 of those 20 sites are never emitted as sids — if the check ranged
 # over emitted ids only, it would have nothing to find.
+#
+# THE CASE HAD TO BE MADE TO DISCRIMINATE, and the first version did not. With the sites labelled
+# `bad01..bad20` the FIRST TWO keys happened to share their leading hex, so a check restricted to
+# the emitted pair still found a collision and the restriction probe changed nothing. The labels
+# are `c01..c20` for that reason, and the assertion below is not "a collision was reported" alone
+# but "the reported group names a line the budget never reached" — which is the property AC-6
+# actually states, and which fails loudly if the grouping ever degenerates onto the emitted pair.
 # shellcheck disable=SC2016 # the single-quoted $-expressions are the FIXTURE's code, not ours
 make_collide_fixture() {
   local dir="$1" i=1
   mkdir -p "$dir/tools"
   { printf '#!/usr/bin/env bash\ncase "${1:-}" in\n'
-    while [[ $i -le 20 ]]; do printf '  bad%02d) echo v%02d; exit 1 ;;\n' "$i" "$i"; i=$((i + 1)); done
+    while [[ $i -le 20 ]]; do printf '  c%02d) echo v%02d; exit 1 ;;\n' "$i" "$i"; i=$((i + 1)); done
     printf 'esac\necho ok\nexit 0\n'
   } > "$dir/g.sh"
   chmod 755 "$dir/g.sh"
@@ -2292,11 +2299,15 @@ else
   bad "(aq1) unmutated width should be clean; rc=$RC"; printf '%s\n' "$OUT" | tail -5
 fi
 OUT="$( cd "$FX" && enf env MUTATION_SWEEP_SITE_KEY_CMP_HEX=1 bash "$SWEEP" --mode full 2>&1 )"; RC=$?
+# g.sh is a shebang, a `case` line, then the 20 arms — so site n is line n+2 and the k=2 window
+# is lines 3 and 4. A named line above 4 is a site the sweep never emitted an id for.
+BEYOND_NAMED="$(sed -n 's/.*colliding lines: //p' <<<"$OUT" | tr ' ' '\n' | awk '$1 + 0 > 4' | grep -c .)"
 if [[ $RC -eq 1 ]] && grep -q 'site-key collision: two enumerated sites of fail-open on g.sh' <<<"$OUT" \
-  && grep -q 'colliding lines:' <<<"$OUT"; then
-  ok "a collision among the 18 sites past the budget still reds, by name"
+  && [[ "${BEYOND_NAMED:-0}" -ge 1 ]]; then
+  ok "a collision reaching past the k=2 window reds, and the red names a beyond-budget line"
 else
-  bad "(aq2) expected rc=1 + a named site-key collision; got rc=$RC"; printf '%s\n' "$OUT" | tail -5
+  bad "(aq2) expected rc=1 + a collision naming a line past the budget; got rc=$RC beyond=${BEYOND_NAMED:-0}"
+  printf '%s\n' "$OUT" | tail -5
 fi
 
 echo "(ar) no sha binary — the run reds by name, and only where a key is actually computed"
