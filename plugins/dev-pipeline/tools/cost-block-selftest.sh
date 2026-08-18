@@ -60,6 +60,7 @@ rollup() {
 # skip(<verdict>) discrimination lines. COST_BLOCK_SKIP_FLUSH skips the 5s collector
 # flush; every branch under test exits before rendering.
 skipline() {
+  # shellcheck disable=SC2069 # deliberate: keep STDERR (the skip verdict), discard stdout
   OTEL_METRICS_FILE="$1" COST_BLOCK_SKIP_FLUSH=1 \
     bash "$SCRIPT" --stateless --sessions "$2" --start "$3" --end "$4" 2>&1 >/dev/null
 }
@@ -67,6 +68,7 @@ skipline() {
 SHARED_SID="11111111-2222-4333-8444-555555555555"
 
 echo "=== #574: the stateful invocation is a NAMED usage error, not a silent resolve ==="
+# shellcheck disable=SC2069 # deliberate: keep STDERR (the refusal), discard stdout
 OUT="$(bash "$SCRIPT" 42 2>&1 >/dev/null)"; RC=$?
 [[ "$RC" -eq 2 ]] \
   && ok "(#574) a positional-issue invocation exits 2" \
