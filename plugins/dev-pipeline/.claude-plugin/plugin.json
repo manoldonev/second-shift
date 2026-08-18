@@ -1,7 +1,7 @@
 {
   "name": "dev-pipeline",
   "description": "Autonomous ticket-to-PR pipeline across intake → build → review → merge-boundary blocks, gated by lean's five artifact milestones — a thin scheduler (/dev-pipeline:run-lean) over payload blocks that stay individually invokable (/dev-pipeline:build-lean, /dev-pipeline:review-lean). Portable merge-boundary evidence, tracker adapters (github|jira), Workflow-based review/mutation gates, cost tracking, retro. Reads per-repo static context from .claude/second-shift.config.json.",
-  "version": "9.0.0",
+  "version": "9.0.1",
   "author": {
     "name": "Manol Donev"
   }

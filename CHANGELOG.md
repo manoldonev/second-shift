@@ -4,6 +4,28 @@ All notable changes to the second-shift marketplace. Versions are per-plugin (`p
 this file tracks the marketplace release. `configVersion` stays `const 1` — v2 is fully backward-compatible for a
 consumer with an empty config; the migration notes below are only for consumers using the changed features.
 
+## v9.1.0
+
+### `dev-pipeline` 9.0.0 → 9.0.1
+
+- **fix(second-shift): close every live cause of the nightly sweep's redness, at the site (#588)** (#588)
+  the shipped doctor selftest's lean-progress newest-file case no
+  longer passes when the selection is inverted, and run-lean's terminal-taxonomy
+  comment no longer registers as a mutation site for two operators.
+  Migration: none.
+
+### `review-toolkit` 7.0.0 → 7.1.0
+
+- **feat(second-shift): comment lines stop enumerating as mutation sites (#589)** (#589)
+
+### `second-shift` 7.0.0 → 7.0.1
+
+- **fix(second-shift): close every live cause of the nightly sweep's redness, at the site (#588)** (#588)
+  the shipped doctor selftest's lean-progress newest-file case no
+  longer passes when the selection is inverted, and run-lean's terminal-taxonomy
+  comment no longer registers as a mutation site for two operators.
+  Migration: none.
+
 ## v9.0.0
 
 ### `design-toolkit` 3.0.0 → 4.0.0
