@@ -130,8 +130,9 @@ containment is the load-bearing part and the hashing is not. Four properties, al
 `tools/run-selftests-selftest.sh` against fixture trees:
 
 1. **Fail-closed by default, twice.** A suite with no row is always run, and the cache as a whole
-   is off unless `--cache-dir` is passed. The mandated local recipe in `CLAUDE.md` does not pass
-   it, so a bare local sweep is still cold — and so is the nightly leg below.
+   is off unless a store is named — `--cache-dir` on argv, or `$LEAN_SELFTEST_CACHE_DIR` from the
+   lean lane below. The mandated local recipe in `CLAUDE.md` names neither, so a bare local sweep
+   is still cold — and so is the nightly leg below.
 2. **Self-inclusion is mandatory.** A row set must name the suite itself, and — where the naming
    convention resolves it, `<stem>-selftest.sh` beside `<stem>.sh` — the script under test. A row
    set that names neither, or that names nothing but the suite, is rejected with `rc=2` and a named
@@ -144,6 +145,39 @@ containment is the load-bearing part and the hashing is not. Four properties, al
 4. **The nightly ignores it.** `.github/workflows/nightly-guards.yml` runs the whole sweep with no
    `--cache-dir`, on both lanes, asking the PR lane's exact question. An under-declaration surfaces
    within a day, against a tree nobody is waiting on.
+
+**The lean lane is the third participant (#563).** `lean-gate.sh` milestone 3 runs a `test`
+command it does not own — that string lives in a consumer's `.claude/second-shift.config.json`,
+gitignored in this repo — so it cannot add a flag to it. It exports `LEAN_SELFTEST_CACHE_DIR`
+instead, beside the `LEAN_JOB_CEILING` it already exports, and `run-selftests.sh` reads that when
+argv named no store. Argv wins, and unset is a no-op, so both CI lanes, the nightly leg and the
+local recipe resolve exactly what they resolve today. Three differences from the CI path, all
+deliberate:
+
+- **It records without a second flag.** Property 3 exists because a PR lane would otherwise record
+  untrusted content into a store other runs read. This store is machine-local and records the
+  operator's own tree — the posture the mutation sweep's cache further down this page already
+  takes — and a store nothing writes can never serve the second sweep this lane exists to speed
+  up.
+- **An unusable store is a cold sweep, not an error.** A `--cache-dir` that cannot be created is a
+  flag an operator typed that cannot work, and still exits 2. An *injected* store that cannot be
+  created is not the tree's fault, so it prints a named notice and runs cold rather than reddening
+  a milestone about something else entirely.
+- **It has an off switch.** `LEAN_SELFTEST_CACHE=0` runs the lane cold, announced — the same
+  escape hatch as `MUTATION_SWEEP_CACHE=0`, and the thing that makes a suspicious green
+  re-checkable. It **scrubs** rather than merely declining to export: an operator already
+  carrying `LEAN_SELFTEST_CACHE_DIR` would otherwise hand it to every lane child by ordinary
+  inheritance, and the gate would announce a cold sweep while the runner cached.
+
+The store defaults to `${XDG_CACHE_HOME:-~/.cache}/second-shift/lean-selftest`: outside every
+checkout, so a worktree teardown never costs it, and per-machine, which matches a key already
+scoped by OS and bash major. The `--run-one` worker scrubs the variable, so a suite never inherits
+it — the cache is decided once, in the parent, and a suite that nests its own runner keeps meaning
+what it means standalone.
+
+**What it is worth is bounded by the table, not by the seam.** One suite is rowed today, so an
+unchanged-head close-out sweep saves ~30s of the ~9:47 measured in #549. The wiring is what makes
+every row added later pay in the lean lane as well as in CI.
 
 Only PASS is ever recorded, and only by the parent process after the replay has scored the run — a
 red suite, and a suite whose worker died without a verdict, write nothing. That falls out of the
@@ -180,7 +214,9 @@ overflows, with the same fail-closed consequence.
 This is the inverse of the mutation sweep's cache further down this page, which is local-only and
 disables itself in the enforcing lane. The difference is which side holds the authority: there CI
 is the authority and must run cold; here CI is the thing being sped up, and the authority is the
-nightly wholesale leg.
+nightly wholesale leg. The lean lane's use of this same mechanism sits on the mutation sweep's
+side of that line — its store is local, it records, and it is never anyone's authority — which is
+why it can record without the second flag CI withholds.
 
 ## Why a tier map at all
 

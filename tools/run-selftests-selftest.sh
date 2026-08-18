@@ -28,16 +28,23 @@ trap 'rm -rf "$BASE"' EXIT
 # hygiene — it is what makes the jobs assertions below mean anything. The lean gate exports that
 # variable into every milestone-3 child, and one of those children is the sweep that runs this
 # file, so an inherited ceiling would silently clip the value every ceiling case asserts.
+#
+# LEAN_SELFTEST_CACHE_DIR (#563) is scrubbed for the identical reason and a sharper consequence:
+# the lean gate exports a STORE too, and an inherited one would turn the cache ON in every case
+# below that asserts nothing is served without --cache-dir. The #563 cases at the end of this
+# file set it deliberately, one invocation at a time, and never through this driver.
 OUT=""; RC=0
 CEILING=""
 run_runner() {
   local root="$1"; shift
   OUT="$BASE/out.$$.$RANDOM"
   if [[ -n "$CEILING" ]]; then
-    env -u TMPDIR -u SELFTEST_JOBS -u RUN_SELFTESTS_DROP_LAST LEAN_JOB_CEILING="$CEILING" \
+    env -u TMPDIR -u SELFTEST_JOBS -u RUN_SELFTESTS_DROP_LAST -u LEAN_SELFTEST_CACHE_DIR \
+      LEAN_JOB_CEILING="$CEILING" \
       bash "$RUNNER" --root "$root" "$@" > "$OUT" 2>&1
   else
-    env -u TMPDIR -u SELFTEST_JOBS -u RUN_SELFTESTS_DROP_LAST -u LEAN_JOB_CEILING \
+    env -u TMPDIR -u SELFTEST_JOBS -u RUN_SELFTESTS_DROP_LAST -u LEAN_SELFTEST_CACHE_DIR \
+      -u LEAN_JOB_CEILING \
       bash "$RUNNER" --root "$root" "$@" > "$OUT" 2>&1
   fi
   RC=$?
@@ -879,6 +886,113 @@ if [[ "$RC" -eq 0 ]] && ! grep -q 'REAPER-RAN' "$OUT"; then
 else
   fail "reaper: the absent-tool control did not hold (rc=$RC)"; sed 's/^/    | /' "$OUT"
 fi
+
+# =========================================================================================
+# #563 — THE LEAN LANE'S ACTIVATION PATH.
+#
+# lean-gate.sh milestone 3 cannot pass a flag to a `test` command it does not own, so it hands
+# the store down as $LEAN_SELFTEST_CACHE_DIR. That is a SECOND way to turn a cache on, and the
+# cardinal risk of this mechanism is a silently skipped gate — so every case here is driven
+# through the env, never the flag, and every skip is paired with the edit that must un-skip it.
+# =========================================================================================
+
+# run_env_cached <store> <root> [args...] — the runner with the store injected and NO cache flag.
+run_env_cached() {
+  local store="$1" root="$2"; shift 2
+  OUT="$BASE/out.$$.$RANDOM"
+  env -u TMPDIR -u SELFTEST_JOBS -u RUN_SELFTESTS_DROP_LAST -u LEAN_JOB_CEILING \
+    LEAN_SELFTEST_CACHE_DIR="$store" \
+    bash "$RUNNER" --root "$root" "$@" > "$OUT" 2>&1
+  RC=$?
+}
+
+RE1="$BASE/env-cache"; mkdir -p "$RE1"
+CDIRE="$BASE/env-store"
+make_suite "$RE1" "e-selftest.sh" 0 'echo E-ran'
+make_suite "$RE1" "e.sh"          0 'echo e-subject'
+make_suite "$RE1" "plain-selftest.sh" 0 'echo PLAIN-ran'
+write_tsv "$RE1" "e-selftest.sh${T}e-selftest.sh" "e-selftest.sh${T}e.sh"
+
+# Cold. The env path RECORDS without --cache-write, which is the one place it departs from the
+# argv contract — so it is asserted here rather than inferred from the hit below.
+run_env_cached "$CDIRE" "$RE1"
+[[ "$RC" -eq 0 ]] && grep -q 'E-ran' "$OUT" \
+  && grep -q 'activated from LEAN_SELFTEST_CACHE_DIR' "$OUT" \
+  && grep -q 'cache: 0 served, 1 recorded' "$OUT" \
+  && ok "#563: the env store activates the cache and records the pass with no --cache-write" \
+  || { fail "#563: the env store did not activate/record (rc=$RC)"; sed 's/^/    | /' "$OUT"; }
+
+# Hot, unchanged inputs: the rowed suite is SERVED, the un-rowed neighbour still runs. This is
+# AC-1 — the close-out sweep of an unmoved head — reached through the gate's channel.
+run_env_cached "$CDIRE" "$RE1"
+[[ "$RC" -eq 0 ]] && ! grep -q 'E-ran' "$OUT" && grep -q 'PLAIN-ran' "$OUT" \
+  && grep -q 'cache: 1 served' "$OUT" \
+  && ok "#563/AC-1: an unchanged re-run is served from the env store; the un-rowed suite still runs" \
+  || { fail "#563/AC-1: the unchanged re-run was not served (rc=$RC)"; sed 's/^/    | /' "$OUT"; }
+
+# AC-2, the un-skip. Editing a DECLARED input re-runs the suite — and the fixture is made red in
+# the same edit, so a runner that served the stale marker would report green on broken content.
+make_suite "$RE1" "e.sh" 1 'echo e-subject-broken'
+run_env_cached "$CDIRE" "$RE1"
+[[ "$RC" -eq 0 ]] && grep -q 'E-ran' "$OUT" && grep -q 'cache: 0 served' "$OUT" \
+  && ok "#563/AC-2: editing a declared input misses the env-store cache and re-runs the suite" \
+  || { fail "#563/AC-2: a moved input was still served (rc=$RC)"; sed 's/^/    | /' "$OUT"; }
+make_suite "$RE1" "e.sh" 0 'echo e-subject'
+
+# AC-2, argv precedence. With BOTH present the flag decides, and the assertion is on the STORES,
+# not on a log line: the marker must land in the flag's store and the env's must stay empty.
+CDIRA="$BASE/argv-store"
+OUT="$BASE/out.argv-wins"
+env -u TMPDIR -u SELFTEST_JOBS -u RUN_SELFTESTS_DROP_LAST -u LEAN_JOB_CEILING \
+  LEAN_SELFTEST_CACHE_DIR="$BASE/never-used-store" \
+  bash "$RUNNER" --root "$RE1" --cache-dir "$CDIRA" --cache-write > "$OUT" 2>&1
+RC=$?
+[[ "$RC" -eq 0 ]] \
+  && [[ "$(find "$CDIRA" -type f 2>/dev/null | grep -c '')" -eq 1 ]] \
+  && [[ "$(find "$BASE/never-used-store" -type f 2>/dev/null | grep -c '')" -eq 0 ]] \
+  && ! grep -q 'activated from LEAN_SELFTEST_CACHE_DIR' "$OUT" \
+  && ok "#563/AC-2: argv --cache-dir wins over the env store, which is never touched" \
+  || { fail "#563/AC-2: the env store overrode or shadowed argv (rc=$RC)"; sed 's/^/    | /' "$OUT"; }
+
+# AC-2, unset is a no-op: the SAME hot store, with neither flag nor variable. Nothing is skipped.
+run_runner "$RE1"
+[[ "$RC" -eq 0 ]] && grep -q 'E-ran' "$OUT" && ! grep -q 'cache:' "$OUT" \
+  && ok "#563/AC-2: with the variable unset a hot store is invisible — the default is still cold" \
+  || { fail "#563/AC-2: a marker was honored with no store declared (rc=$RC)"; sed 's/^/    | /' "$OUT"; }
+
+# AC-3, the worker scrub. A suite must not SEE the store: the cache is decided in the parent, and
+# an inherited value turns a nested runner's fixtures into a different question than the one they
+# assert. The control below proves the probe can observe the variable at all.
+RE2="$BASE/env-scrub"; mkdir -p "$RE2"
+# The single quotes are the assertion: the probe must read the variable in ITS OWN environment
+# when the runner dispatches it, not this suite's at fixture-writing time.
+# shellcheck disable=SC2016
+make_suite "$RE2" "probe-selftest.sh" 0 'echo "PROBE-store=${LEAN_SELFTEST_CACHE_DIR:-unset}"'
+run_env_cached "$BASE/scrub-store" "$RE2"
+[[ "$RC" -eq 0 ]] && grep -q 'PROBE-store=unset' "$OUT" \
+  && ok "#563/AC-3: the store is scrubbed from the dispatched suite's environment" \
+  || { fail "#563/AC-3: LEAN_SELFTEST_CACHE_DIR leaked into a suite (rc=$RC)"; sed 's/^/    | /' "$OUT"; }
+
+OUT="$BASE/out.scrub-control"
+env LEAN_SELFTEST_CACHE_DIR="$BASE/scrub-store" bash "$RE2/probe-selftest.sh" > "$OUT" 2>&1
+grep -q "PROBE-store=$BASE/scrub-store" "$OUT" \
+  && ok "#563/AC-3: control — run directly, the same probe DOES see the variable" \
+  || { fail "#563/AC-3: the scrub control is vacuous — the probe never sees the value"; sed 's/^/    | /' "$OUT"; }
+
+# AC-3, the one asymmetry between the two activation paths. An injected store that cannot be
+# created is not the tree's fault and must not red a milestone about something else; a --cache-dir
+# an operator typed and that cannot work still exits 2.
+printf 'not a directory\n' > "$BASE/blocker"
+run_env_cached "$BASE/blocker/store" "$RE2"
+[[ "$RC" -eq 0 ]] && grep -q 'cache disabled: LEAN_SELFTEST_CACHE_DIR is not creatable' "$OUT" \
+  && grep -q 'PROBE-store=' "$OUT" \
+  && ok "#563/AC-3: an uncreatable env store runs cold with a named notice" \
+  || { fail "#563/AC-3: an uncreatable env store did not degrade to a cold sweep (rc=$RC)"; sed 's/^/    | /' "$OUT"; }
+
+run_runner "$RE2" --cache-dir "$BASE/blocker/store"
+[[ "$RC" -eq 2 ]] \
+  && ok "#563/AC-3: control — an uncreatable argv --cache-dir is still a usage error" \
+  || { fail "#563/AC-3: an uncreatable --cache-dir was accepted (rc=$RC)"; sed 's/^/    | /' "$OUT"; }
 
 echo
 if [[ "$FAILS" -eq 0 ]]; then

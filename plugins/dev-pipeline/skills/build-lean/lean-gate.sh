@@ -1715,6 +1715,49 @@ lane_apply_job_ceiling() {
   return 0
 }
 
+# #563. The SECOND value handed down that same channel, and the same shape for the same reason:
+# the `test` command a consumer configured is a string this gate runs and cannot rewrite, so a
+# flag is not reachable and an environment name is.
+#
+# WHAT IT BUYS: tools/run-selftests.sh already carries a content-addressed pass cache (#448) that
+# CI activates with --cache-dir, and a milestone-3 sweep re-derives the same verdicts every time
+# a run comes back to it — the close-out sweep of an unmoved head being the measured case (#549:
+# ~9:47 of an 82-minute run). Serving those from a store makes the second sweep of unchanged
+# content cost nothing. The cache decides per SUITE on content, never on HEAD, so nothing here
+# is a new trust shortcut: a suite serves iff every input it DECLARED is byte-identical to a
+# recorded pass, and a suite that declared nothing always runs.
+#
+# ADVERTISED, NOT ENFORCED, exactly like the ceiling above: a `test` command that is vitest or
+# pytest never reads this and runs precisely as before.
+#
+# The store lives OUTSIDE every checkout — a worktree teardown must not cost the operator their
+# cache — and is per-machine, which matches a key already scoped by OS and bash major. Same
+# default idiom, same override name shape, and the same 0-valued off switch as
+# tools/mutation-sweep.sh's cache: a cache you cannot turn off is a green you cannot re-check.
+lane_apply_selftest_cache() {
+  local store
+  # THE OFF SWITCH HAS TO SCRUB, not merely decline to export. An operator who already carries
+  # LEAN_SELFTEST_CACHE_DIR in their environment hands it to every lane child by ordinary
+  # inheritance, so a bare `return` here would announce a cold sweep and run a cached one — the
+  # fail-open shape the switch exists to remove, wearing the fix's own output.
+  #
+  # An EMPTY ASSIGNMENT is the scrub, and `-u` is not available at this point: SEAM_SCRUB_ENV
+  # already carries an assignment (LEAN_JOB_CEILING), and `env` stops reading options at the
+  # first NAME=VALUE — a `-u` appended after one is read as the command to run, not as a scrub.
+  # The reader treats empty as absent, so this is the same no-op as never setting it.
+  if [ "${LEAN_SELFTEST_CACHE:-1}" = "0" ]; then
+    say "milestone-3: selftest pass cache DISABLED (LEAN_SELFTEST_CACHE=0) — this sweep runs cold."
+    SEAM_SCRUB_ENV+=("LEAN_SELFTEST_CACHE_DIR=")
+    return 0
+  fi
+  store="${LEAN_SELFTEST_CACHE_DIR:-${XDG_CACHE_HOME:-$HOME/.cache}/second-shift/lean-selftest}"
+  [ -n "$store" ] || return 0
+  say "milestone-3: selftest pass cache store $store."
+  say "  exported as LEAN_SELFTEST_CACHE_DIR to every lane command below: ADVERTISED, not enforced. A command that does not read it runs exactly as before."
+  SEAM_SCRUB_ENV+=("LEAN_SELFTEST_CACHE_DIR=$store")
+  return 0
+}
+
 # Checklist step 9's final act. OUTSIDE the 1..5 progression on purpose (D-2): `cmd_all` runs
 # milestones 1-5 and the checklist mandates it BEFORE step 9, so a self-removing milestone 5
 # would delete the worktree mid-run, before the closing comment is even posted.
@@ -3963,6 +4006,8 @@ cmd_3() {
   # them inherits the ceiling — the setup lanes below, the fixed keys, extraLanes, and the
   # render pre-command cmd_3_render runs at the end.
   lane_apply_job_ceiling
+  # #563. Beside the ceiling and before the same first child, for the same inheritance reason.
+  lane_apply_selftest_cache
   # lanes[] setup steps first, when present. Shape is {name, cwd?, commands[]} — the SAME
   # reader the previous runner used (its step 1), including the non-object backstop (#100): a lane
   # that is not an object must fail loudly, never be silently skipped on the way to green.

@@ -86,10 +86,17 @@ read by `run-selftests.sh`. This ticket adds a sibling coupling.
    per-machine, matching the key's OS/bash-major scoping).
 
 5. **An off switch, because a cache you cannot turn off is a survivor you cannot re-check.**
-   `LEAN_SELFTEST_CACHE=0` suppresses the export, announced, so the lane runs cold — the same
-   escape hatch and the same name shape as `MUTATION_SWEEP_CACHE=0`, which exists in this repo
-   for exactly the "is this green real?" moment. It is the one new knob; `LEAN_SELFTEST_CACHE_DIR`
-   is not new to an operator, it is the runner-side name the gate defaults.
+   `LEAN_SELFTEST_CACHE=0` runs the lane cold, announced — the same escape hatch and the same
+   name shape as `MUTATION_SWEEP_CACHE=0`, which exists in this repo for exactly the "is this
+   green real?" moment. It is the one new knob; `LEAN_SELFTEST_CACHE_DIR` is not new to an
+   operator, it is the runner-side name the gate defaults.
+
+   **It scrubs rather than merely declining to export**, and that distinction is load-bearing:
+   an operator who already carries `LEAN_SELFTEST_CACHE_DIR` hands it to every lane child by
+   ordinary inheritance, so a gate that only skipped its own export would announce a cold sweep
+   and run a cached one. The disarm therefore appends an EMPTY assignment, which the reader
+   treats as absent. `-u` is not available at that point — `SEAM_SCRUB_ENV` already carries an
+   assignment, and `env` stops reading options at the first `NAME=VALUE`.
 
 **No head-diff branch in the gate.** The AC-1 (unchanged head ⇒ serve) / AC-2 (moved head ⇒
 cold) distinction is realized entirely by the runner's content-addressed key, which is exactly
@@ -123,8 +130,10 @@ head-based trust shortcut it would then have to be trusted about.
     lane child echoes `${LEAN_SELFTEST_CACHE_DIR:-unset}` and its value must equal the store
     the gate announced — the `jc1` idiom #526 established for `LEAN_JOB_CEILING`, and the
     reason `scripts/lockstep-manifest.tsv` records that writer↔reader coupling as a **DROPPED**
-    row rather than a presence check. A companion case asserts `LEAN_SELFTEST_CACHE=0` leaves
-    the child reporting `unset`.
+    row rather than a presence check. A second case pins the override on the ANNOUNCEMENT, since
+    an operator-set variable reaches a child by inheritance and so cannot discriminate the
+    export. A third runs the off switch in an environment that ALREADY carries a store and
+    demands the child see none — the only environment in which a disarm can fail.
 
 - **AC-4** (doc): `docs/testing.md` — the cache contract of record — documents the lean
   milestone-3 lane as a third cache participant alongside the two CI lanes, naming the
