@@ -72,6 +72,16 @@ arithmetic — so a wrong hop count in either caller was unguarded. It is guarde
 both ways: mutating `resolve_ledger_lint()`'s `dirname` count reds the two `-gate` cases only, and
 mutating `pipeline-doctor.sh`'s reds the two `-doctor` cases only.
 
+The mutation baseline **shrinks by two rows** as a direct consequence:
+`pipeline-doctor.sh::logic::1` and `::logic::2` are the `&&` in exactly the two prep lines now
+inside `# >>> plugin-dirs`, and both are killed by the new `-doctor` cases. Their ordinals did not
+move (every operator's first-3 matched source lines are byte-identical at base and head) — the
+verdict flipped from survived to killed. Not taken from the local advisory run, whose kill verdicts
+are explicitly not baseline-comparable: each was applied by hand (`&&` → `||`, the `logic`
+operator's own edit) and reds `(rs1-doctor)` and `(rs3-doctor)`. The argument needs no environment
+at all — before this change the suite never executed those lines, so the suite could not have
+killed them; now it does.
+
 ## Verification
 
 - `find . -name '*.sh' -type f -print0 | xargs -0 shellcheck -e SC1091,SC2015,SC2181`
