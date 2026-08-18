@@ -4,6 +4,122 @@ All notable changes to the second-shift marketplace. Versions are per-plugin (`p
 this file tracks the marketplace release. `configVersion` stays `const 1` — v2 is fully backward-compatible for a
 consumer with an empty config; the migration notes below are only for consumers using the changed features.
 
+## v9.0.0
+
+### `design-toolkit` 3.0.0 → 4.0.0
+
+- **feat(dev-pipeline)!: retire the five #348-stranded engines and the config keys they read (#584)** (#584)
+  the four #348-stranded Workflow engines (design-sync, figma, mutation-gate,
+  unit-tests) and pipeline-cost-block.sh's unreachable stateful branch are removed; the
+  design-faithful/figma-faithful skills and the advisory unit-test-mutation-reviewer
+  are unaffected.
+  Migration: delete commands.<repo>.unitTestScope and commands.<repo>.testFile from
+  your config — config-lint now rejects both by name (docs/migrations/v1-to-v2.md,
+  'Dead-key removal (#574)'). gates.mutation and the repo-carried tools/mutation-sweep.sh
+  seam are unchanged.
+  BREAKING — the config keys commands.<repo>.unitTestScope and
+  commands.<repo>.testFile are removed; config-lint now rejects each by name
+  with a pointer to docs/migrations/v1-to-v2.md (fail closed). Their only
+  functional reader, the co-located unit-test mutation engine
+  (workflows/mutation-gate.mjs), lost its dispatcher when #348 deleted the
+  staged lane, so a configured unitTestScope armed nothing — the same
+  silently-disarmed-gate class as the #569 retirement.
+  Migration: delete unitTestScope and testFile from
+  .claude/second-shift.config.json. No configVersion bump, and no drop-in
+  replacement: the mutation seam is repo-carried — ship an executable
+  tools/mutation-sweep.sh at your repo root and lean-gate milestone 3 runs it;
+  gates.mutation remains the declared intent and is unchanged. testFile was the
+  retired engine's per-spec runner template; a repo-carried sweep invokes its
+  own runner however it chooses.
+  **BREAKING:** commands.<repo>.unitTestScope and commands.<repo>.testFile are removed from the config schema and rejected by name; the four Workflow engines and the pipeline-cost-block.sh stateful mode (positional-issue invocation) are removed from the shipped plugin.
+
+### `dev-pipeline` 8.0.0 → 9.0.0
+
+- **feat(dev-pipeline)!: retire the five #348-stranded engines and the config keys they read (#584)** (#584)
+  the four #348-stranded Workflow engines (design-sync, figma, mutation-gate,
+  unit-tests) and pipeline-cost-block.sh's unreachable stateful branch are removed; the
+  design-faithful/figma-faithful skills and the advisory unit-test-mutation-reviewer
+  are unaffected.
+  Migration: delete commands.<repo>.unitTestScope and commands.<repo>.testFile from
+  your config — config-lint now rejects both by name (docs/migrations/v1-to-v2.md,
+  'Dead-key removal (#574)'). gates.mutation and the repo-carried tools/mutation-sweep.sh
+  seam are unchanged.
+  BREAKING — the config keys commands.<repo>.unitTestScope and
+  commands.<repo>.testFile are removed; config-lint now rejects each by name
+  with a pointer to docs/migrations/v1-to-v2.md (fail closed). Their only
+  functional reader, the co-located unit-test mutation engine
+  (workflows/mutation-gate.mjs), lost its dispatcher when #348 deleted the
+  staged lane, so a configured unitTestScope armed nothing — the same
+  silently-disarmed-gate class as the #569 retirement.
+  Migration: delete unitTestScope and testFile from
+  .claude/second-shift.config.json. No configVersion bump, and no drop-in
+  replacement: the mutation seam is repo-carried — ship an executable
+  tools/mutation-sweep.sh at your repo root and lean-gate milestone 3 runs it;
+  gates.mutation remains the declared intent and is unchanged. testFile was the
+  retired engine's per-spec runner template; a repo-carried sweep invokes its
+  own runner however it chooses.
+  **BREAKING:** commands.<repo>.unitTestScope and commands.<repo>.testFile are removed from the config schema and rejected by name; the four Workflow engines and the pipeline-cost-block.sh stateful mode (positional-issue invocation) are removed from the shipped plugin.
+- **feat(dev-pipeline): milestone 3 hands its lane commands the selftest pass cache (#586)** (#586)
+  `lean-gate.sh` milestone 3 exports `LEAN_SELFTEST_CACHE_DIR`, and
+  `tools/run-selftests.sh` activates #448's pass cache from it, so a milestone re-evaluated on
+  an unchanged head serves every declared-inputs suite instead of re-running it. Argv
+  `--cache-dir` still wins and an unset variable changes nothing, so both CI lanes and the
+  nightly leg are unaffected; `LEAN_SELFTEST_CACHE=0` runs the lane cold. Migration: none.
+
+### `review-toolkit` 6.0.0 → 7.0.0
+
+- **feat(dev-pipeline)!: retire the five #348-stranded engines and the config keys they read (#584)** (#584)
+  the four #348-stranded Workflow engines (design-sync, figma, mutation-gate,
+  unit-tests) and pipeline-cost-block.sh's unreachable stateful branch are removed; the
+  design-faithful/figma-faithful skills and the advisory unit-test-mutation-reviewer
+  are unaffected.
+  Migration: delete commands.<repo>.unitTestScope and commands.<repo>.testFile from
+  your config — config-lint now rejects both by name (docs/migrations/v1-to-v2.md,
+  'Dead-key removal (#574)'). gates.mutation and the repo-carried tools/mutation-sweep.sh
+  seam are unchanged.
+  BREAKING — the config keys commands.<repo>.unitTestScope and
+  commands.<repo>.testFile are removed; config-lint now rejects each by name
+  with a pointer to docs/migrations/v1-to-v2.md (fail closed). Their only
+  functional reader, the co-located unit-test mutation engine
+  (workflows/mutation-gate.mjs), lost its dispatcher when #348 deleted the
+  staged lane, so a configured unitTestScope armed nothing — the same
+  silently-disarmed-gate class as the #569 retirement.
+  Migration: delete unitTestScope and testFile from
+  .claude/second-shift.config.json. No configVersion bump, and no drop-in
+  replacement: the mutation seam is repo-carried — ship an executable
+  tools/mutation-sweep.sh at your repo root and lean-gate milestone 3 runs it;
+  gates.mutation remains the declared intent and is unchanged. testFile was the
+  retired engine's per-spec runner template; a repo-carried sweep invokes its
+  own runner however it chooses.
+  **BREAKING:** commands.<repo>.unitTestScope and commands.<repo>.testFile are removed from the config schema and rejected by name; the four Workflow engines and the pipeline-cost-block.sh stateful mode (positional-issue invocation) are removed from the shipped plugin.
+
+### `second-shift` 6.0.0 → 7.0.0
+
+- **feat(dev-pipeline)!: retire the five #348-stranded engines and the config keys they read (#584)** (#584)
+  the four #348-stranded Workflow engines (design-sync, figma, mutation-gate,
+  unit-tests) and pipeline-cost-block.sh's unreachable stateful branch are removed; the
+  design-faithful/figma-faithful skills and the advisory unit-test-mutation-reviewer
+  are unaffected.
+  Migration: delete commands.<repo>.unitTestScope and commands.<repo>.testFile from
+  your config — config-lint now rejects both by name (docs/migrations/v1-to-v2.md,
+  'Dead-key removal (#574)'). gates.mutation and the repo-carried tools/mutation-sweep.sh
+  seam are unchanged.
+  BREAKING — the config keys commands.<repo>.unitTestScope and
+  commands.<repo>.testFile are removed; config-lint now rejects each by name
+  with a pointer to docs/migrations/v1-to-v2.md (fail closed). Their only
+  functional reader, the co-located unit-test mutation engine
+  (workflows/mutation-gate.mjs), lost its dispatcher when #348 deleted the
+  staged lane, so a configured unitTestScope armed nothing — the same
+  silently-disarmed-gate class as the #569 retirement.
+  Migration: delete unitTestScope and testFile from
+  .claude/second-shift.config.json. No configVersion bump, and no drop-in
+  replacement: the mutation seam is repo-carried — ship an executable
+  tools/mutation-sweep.sh at your repo root and lean-gate milestone 3 runs it;
+  gates.mutation remains the declared intent and is unchanged. testFile was the
+  retired engine's per-spec runner template; a repo-carried sweep invokes its
+  own runner however it chooses.
+  **BREAKING:** commands.<repo>.unitTestScope and commands.<repo>.testFile are removed from the config schema and rejected by name; the four Workflow engines and the pipeline-cost-block.sh stateful mode (positional-issue invocation) are removed from the shipped plugin.
+
 ## v8.0.0
 
 ### `audit-toolkit` 3.0.0 → 4.0.0
