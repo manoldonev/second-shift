@@ -8,11 +8,21 @@
 #        it produced. One id per textual mutation — never a prose "family".
 # match  The site-enumerating ERE, applied with `grep -nE --` (the option terminator is
 #        load-bearing: a match may begin with a hyphen, and a match grep cannot run as a
-#        pattern is a named red, never a silent zero-site pass). A SITE IS A MATCHED LINE:
-#        at most one mutation per line per operator. Ordinals index this operator's FULL
-#        matched-line list in file order (1-based), so raising the per-guard budget K
-#        re-keys nothing; editing a guard's applicable-site set DOES re-key its ordinals,
-#        and the PR that edits the guard re-baselines those rows in its own diff.
+#        pattern is a named red, never a silent zero-site pass). A SITE IS A MATCHED LINE
+#        THAT IS NOT A COMMENT: at most one mutation per line per operator, and lines
+#        matching `^[[:space:]]*#` are dropped from the matched-line list BEFORE anything
+#        is counted (#579). Ordinals index that filtered list in file order (1-based), so
+#        raising the per-guard budget K re-keys nothing; editing a guard's applicable-site
+#        set DOES re-key its ordinals, and the PR that edits the guard re-baselines those
+#        rows in its own diff. Adding or deleting a COMMENT no longer re-keys anything.
+#
+#        The exclusion is not an optimization. A comment flip changes no reachable
+#        behavior, so no suite can kill it: every comment site was a permanent baseline
+#        row, and at k=2 they routinely took ordinals 1 and 2 and pushed the real code
+#        sites out of the swept window — a green sweep then proved count and labels, never
+#        identity. It is LEADING `#` only: a trailing comment on a code line still
+#        enumerates (the matches are substring EREs), and `#`-headed heredoc payload stops
+#        enumerating with it. Both residues are accepted; see docs/testing.md.
 # flip   The sed -E program applied to that ONE line. Two-way swaps route through the
 #        placeholder __MUT__ so the program is not self-cancelling (a naive
 #        `s/-eq/-ne/; s/-ne/-eq/` restores the original).
@@ -23,6 +33,10 @@
 # An operator with no applicable site in a guard is NORMAL: it contributes no mutants.
 # Non-application is data, never red. (15 of the 34 same-stem-paired guards contain no
 # literal `exit 1`, so `fail-open` alone is inapplicable to roughly a third of them.)
+#
+# An operator whose matched lines were ALL comments is a DIFFERENT normal state, and the
+# report says which: the `sites_comment_only` column names it per operator rather than
+# emitting the same silence as no-applicable-site. Also data, also never red.
 #
 # A generic mutant that fails `bash -n` is a HARNESS ARTIFACT: skipped and logged, never
 # red. Only CATALOG mutants red on validity (that is anchor drift). The tiers are

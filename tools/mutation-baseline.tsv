@@ -34,38 +34,28 @@ catalog::score-review-title	seeded by the canonical seed run
 catalog::stack-generality-filewide	seeded by the canonical seed run
 catalog::template-doctor-jq-guard	seeded by the canonical seed run
 plugins/audit-toolkit/hooks/audit-tool-calls.sh::logic::2	seeded by the canonical seed run
-plugins/audit-toolkit/hooks/audit-tool-calls.sh::default::1	added for #417: a PROSE site. The main-checkout anchor's rationale block names the resolution's starting point literally (`${CLAUDE_PROJECT_DIR:-$CWD}` stays the starting point), and a comment flip is unkillable by construction. It displaced the one real default site to ordinal 2, where it IS killed (verified by hand: flipping ordinal 2 reds audit-selftest.sh, flipping ordinal 1 reds nothing), so no KILL was lost and the swept window at k=2 still reaches the real site (local advisory sweep, macOS; confirm at the first nightly)
 plugins/audit-toolkit/scripts/audit-history.sh::detector::1	seeded by the canonical seed run
 plugins/audit-toolkit/scripts/audit-history.sh::detector::2	seeded by the canonical seed run
 plugins/audit-toolkit/scripts/audit-history.sh::fail-open::1	seeded by the canonical seed run
 plugins/audit-toolkit/scripts/audit-history.sh::fail-open::2	seeded by the canonical seed run
-plugins/dev-pipeline/skills/build-lean/lean-evidence.sh::cmp-eq::1	unkillable by construction: the operator's first site in this guard is the Seams comment, whose "zero-network" prose contains the literal substring "-ne". The flip changes comment bytes with no reachable behavior. Seeded for #359 from a local advisory sweep (macOS); confirm at the first nightly.
-plugins/dev-pipeline/skills/build-lean/lean-evidence.sh::default::1	unkillable by construction: a PROSE site — the `${GH:-gh}` entry in the Seams block documenting the fetch client. Ordinal 2, the real `GH_CLI="${GH:-gh}"` fallback, is NOT listed: the sweep reported it as a survivor on this guard's first run and (cc2) was written to kill it by driving the live fetch through a stubbed `gh` on PATH rather than the fixture seam. Seeded for #359 from a local advisory sweep (macOS); confirm at the first nightly.
-plugins/dev-pipeline/skills/build-lean/lean-gate.sh::cmp-eq::1	seeded for #303 from a local advisory sweep (macOS); confirm at the first nightly
-plugins/dev-pipeline/skills/build-lean/lean-gate.sh::default::1	seeded for #303 from a local advisory sweep (macOS); confirm at the first nightly
-plugins/dev-pipeline/skills/build-lean/lean-gate.sh::default::2	RE-KEYED for #394: a PROSE site now, like ordinal 1 — the Seams block gained a `${CURL:-curl}` entry documenting the readyProbe client, and a comment flip is unkillable by construction. It displaced `GH_CLI="${GH:-gh}"` (the previous ordinal 2, itself an accepted survivor every selftest seams around) to ordinal 3, beyond k=2 — so the swept window still holds two accepted survivors and no KILL was lost. Every other operator on this guard, and all five on lean-reconcile.sh and check-lean-chain.sh, were diffed against origin/main and are unmoved (local advisory sweep, macOS; confirm at the first nightly)
-plugins/dev-pipeline/skills/build-lean/lean-reconcile.sh::cmp-eq::1	seeded for #303 from a local advisory sweep (macOS); confirm at the first nightly
-plugins/dev-pipeline/skills/build-lean/lean-reconcile.sh::cmp-eq::2	added for #388: a PROSE site, like ordinal 1 — the adapter comment contains "zero-network", whose "-ne" the operator matches, so no test can kill it. Its arrival pushed the one real -eq comparison from ordinal 2 to 3, where it is still killed; ordinals for default/detector/fail-open were diffed against origin/main and are unmoved (local advisory sweep, macOS; confirm at the first nightly)
-plugins/dev-pipeline/skills/build-lean/lean-reconcile.sh::default::1	seeded for #303 from a local advisory sweep (macOS); confirm at the first nightly
-plugins/dev-pipeline/skills/build-lean/lean-reconcile.sh::default::2	seeded for #303 from a local advisory sweep (macOS); confirm at the first nightly
+plugins/dev-pipeline/skills/build-lean/lean-gate.sh::default::1	ARMED BY #579 and accepted: comment exclusion promoted this site from ordinal 3 (beyond k=2) back into the swept window. It is `GH_CLI="${GH:-gh}"`, and it is a RESTORED acceptance rather than new debt — the row #394 replaced said so in as many words ("itself an accepted survivor every selftest seams around", displaced to ordinal 3 by a prose site). GH is the zero-network seam lean-gate-selftest.sh sets, so the default branch is never taken. A known route to close it exists and is NOT taken here: lean-evidence.sh's (cc2) kills the same class by putting a stub `gh` on PATH instead of using the env seam. Follow-up, deliberately out of this slice — lean-gate-selftest.sh is the tree's largest suite. CI evidence: dispatched full sweep on this branch, run 32181527467, shard 7 (ubuntu-latest, SKIP_STRESS=1).
+plugins/dev-pipeline/skills/build-lean/lean-gate.sh::default::2	ARMED BY #579 and accepted: promoted into the window by comment exclusion. It is `CURL_CLI="${CURL:-curl}"`, whose only consumer is the design.liveRender.readyProbe fetch at the milestone-3 arm — reachable only when a consumer configures a probe URL. No fixture sets CURL and none configures a reachable probe, so the real client and the mutant token take the SAME branch: `if ! "$CURL_CLI" ...` is true either way (a missing command and a failed fetch are indistinguishable there). Killing it needs a fixture that arms the probe against a stub, which is the same follow-up as ordinal 1. CI evidence: dispatched full sweep on this branch, run 32181527467, shard 7 (ubuntu-latest, SKIP_STRESS=1).
+plugins/dev-pipeline/skills/build-lean/lean-reconcile.sh::default::1	RE-KEYED for #579: comment lines no longer enumerate as sites, so this row's ordinal-2 predecessor (a comment) is gone and it becomes ordinal 1. Unchanged otherwise — seeded for #303 from a local advisory sweep (macOS); confirm at the first nightly
 plugins/dev-pipeline/skills/build-lean/lean-reconcile.sh::detector::1	re-keyed for #345: the verdict-authorship checks shifted the generic ordinals (local advisory sweep, macOS; confirm at the first nightly)
 plugins/dev-pipeline/skills/build-lean/lean-reconcile.sh::fail-open::2	seeded for #303 from a local advisory sweep (macOS); confirm at the first nightly
+plugins/dev-pipeline/skills/build-lean/lean-reconcile.sh::default::2	ARMED BY #579 and accepted: comment exclusion promoted this site from ordinal 3 (beyond k=2) into the swept window. It is the `${SECOND_SHIFT_CONFIG:-$MAIN_ROOT/.claude/second-shift.config.json}` fallback, and SECOND_SHIFT_CONFIG is the fixture seam every case in lean-reconcile-selftest.sh sets, so the default branch is never taken and no case can observe the mutant. Same seam class as the ${GH:-gh} rows this file already carries. CI evidence: dispatched full sweep on this branch, run 32181527467 (ubuntu-latest, SKIP_STRESS=1).
 plugins/dev-pipeline/tools/pipeline-cost-block.sh::default::1	RE-KEYED for #574: the stateful-branch deletion (839->459 lines) re-enumerated every operator class. This is the `"${2:-}"` arg-parse fallback — a missing flag VALUE defaults to the mutant token instead of empty; every case passes real values, so nothing can observe it. Same benign-robustness class as the seeded default survivors. Verified by the sweep's serial re-run (local advisory, macOS; confirm at the first nightly).
 plugins/dev-pipeline/tools/pipeline-cost-block.sh::default::2	RE-KEYED for #574 (ordinal coincidentally stable across the stateful-branch deletion): still a survivor on the post-#574 tree per the local advisory sweep.
 plugins/dev-pipeline/tools/pipeline-cost-block.sh::logic::2	RE-KEYED for #574 (ordinal coincidentally stable across the stateful-branch deletion): still a survivor on the post-#574 tree per the local advisory sweep. The seeded detector::1 row is GONE with its site class: the old first grep sites lived in the deleted PR-amend/record paths, and the re-enumerated detector mutants are killed by the rewritten suite (applied in the same advisory run, no detector survivor).
 plugins/dev-pipeline/tools/bot-commit.sh::default::2	seeded by the canonical seed run
 plugins/dev-pipeline/tools/check-bounded-exploration.sh::detector::2	seeded by the canonical seed run
 plugins/dev-pipeline/tools/check-bounded-exploration.sh::fail-open::2	re-keyed for #345: dropping the run-lean workflow dir + the stale-list self-check shifted the generic ordinals (local advisory sweep, macOS; confirm at the first nightly)
-plugins/dev-pipeline/tools/check-config-shadowing.sh::fail-open::1	seeded by the canonical seed run
 plugins/dev-pipeline/tools/check-config-shadowing.sh::logic::1	seeded by the canonical seed run
 plugins/dev-pipeline/tools/claim-issue.sh::logic::1	re-keyed after the private wrapper ladder became a gh-bot.sh delegation; the four sibling rows that ordinal shift orphaned are dropped
 plugins/dev-pipeline/tools/claims-lint.sh::default::2	seeded by the canonical seed run
 plugins/dev-pipeline/tools/claims-lint.sh::detector::2	seeded by the canonical seed run
 plugins/dev-pipeline/tools/claims-lint.sh::logic::2	seeded by the canonical seed run
 plugins/dev-pipeline/tools/config-lint.sh::fail-open::1	seeded by the canonical seed run
-plugins/dev-pipeline/tools/is-inert-diff.sh::fail-open::1	seeded by the canonical seed run
-plugins/dev-pipeline/tools/is-inert-diff.sh::fail-open::2	seeded by the canonical seed run
-plugins/dev-pipeline/tools/is-inert-diff.sh::logic::1	seeded by the canonical seed run
 plugins/dev-pipeline/tools/pipeline-doctor.sh::cmp-z::1	seeded by the canonical seed run
 plugins/dev-pipeline/tools/pipeline-doctor.sh::cmp-z::2	seeded by the canonical seed run
 plugins/dev-pipeline/tools/pipeline-doctor.sh::default::1	seeded by the canonical seed run
@@ -78,36 +68,25 @@ plugins/dev-pipeline/tools/preflight.sh::detector::1	seeded by the canonical see
 plugins/dev-pipeline/tools/preflight.sh::detector::2	seeded by the canonical seed run
 plugins/dev-pipeline/tools/preflight.sh::logic::2	seeded by the canonical seed run
 plugins/dev-pipeline/tools/prose-budget.sh::logic::1	seeded by the canonical seed run
-plugins/dev-pipeline/tools/retro-corpus.sh::cmp-eq::1	unkillable by construction: the cmp-eq operator's only site in this guard is a comment line ("...zero-network selftest, the lean-gate.sh precedent") whose "-network" prose coincidentally contains the literal substring "-ne"; the flip changes bytes with no reachable behavior. Seeded for #347 from a local advisory sweep (macOS); confirm at the first nightly.
 plugins/dev-pipeline/tools/retro-corpus.sh::logic::1	unkillable by construction: `SUB="${1:-}"; shift || true` — this script carries no `set -e`, so `shift`'s exit code is never checked by anything downstream regardless of whether it is guarded by `|| true` or `&& true`; both forms reach the same next statement. Seeded for #347 from a local advisory sweep (macOS); confirm at the first nightly.
-plugins/dev-pipeline/tools/retro-corpus.sh::default::1	unkillable by construction: the default operator's first site in this guard is a comment line documenting the `${GH:-gh}` seam, not the assignment itself. Seeded for #347 from a local advisory sweep (macOS); confirm at the first nightly.
-plugins/dev-pipeline/tools/retro-corpus.sh::default::2	`GH_CLI="${GH:-gh}"`, the live-gh fallback exercised only when `open-prs` runs without `--pr-list-file` — every selftest case seams around it. Same site/shape lean-gate.sh carries at `default::3` — accepted there too, though #394's Seams-block edit pushed it past k=2, so it is no longer swept on that guard. Seeded for #347 from a local advisory sweep (macOS); confirm at the first nightly.
+plugins/dev-pipeline/tools/retro-corpus.sh::default::1	RE-KEYED for #579: comment lines no longer enumerate as sites, so this row's ordinal-2 predecessor (a comment) is gone and it becomes ordinal 1. Unchanged otherwise — `GH_CLI="${GH:-gh}"`, the live-gh fallback exercised only when `open-prs` runs without `--pr-list-file` — every selftest case seams around it. Same site/shape lean-gate.sh carries at `default::3` — accepted there too, though #394's Seams-block edit pushed it past k=2, so it is no longer swept on that guard. Seeded for #347 from a local advisory sweep (macOS); confirm at the first nightly.
 plugins/dev-pipeline/tools/score-review.sh::cmp-z::2	seeded by the canonical seed run
 plugins/dev-pipeline/tools/score-review.sh::logic::1	seeded by the canonical seed run
 plugins/dev-pipeline/tools/score-review.sh::logic::2	seeded by the canonical seed run
-plugins/dev-pipeline/skills/run-lean/orchestrate-lean.sh::default::1	added for #397: a PROSE site — the `${GH:-gh}` entry in the Seams header block documenting the tracker client, not the assignment. Same class and same operator as plugins/dev-pipeline/skills/build-lean/lean-evidence.sh::default::1, and mutating a comment changes no behavior, so no case can kill it. Ordinal 2 IS the real `GH_CLI="${GH:-gh}"` assignment and is killed by orchestrate-lean-selftest.sh case (m4), which runs with GH unset so the shipped default is what resolves — deliberately not baselined.
-plugins/intake-toolkit/hooks/exitplan-ledger-gate.sh::cmp-eq::1	seeded by the canonical seed run
-plugins/intake-toolkit/hooks/exitplan-ledger-gate.sh::cmp-eq::2	seeded by the canonical seed run
 plugins/intake-toolkit/hooks/exitplan-ledger-gate.sh::default::1	seeded by the canonical seed run
-plugins/intake-toolkit/hooks/exitplan-ledger-gate.sh::fail-open::1	seeded by the canonical seed run
 plugins/intake-toolkit/hooks/exitplan-ledger-gate.sh::logic::1	seeded by the canonical seed run
-plugins/intake-toolkit/skills/plan-interview/tools/ledger-lint.sh::cmp-eq::1	seeded by the canonical seed run
-plugins/intake-toolkit/skills/plan-interview/tools/ledger-lint.sh::cmp-eq::2	seeded by the canonical seed run
-plugins/intake-toolkit/skills/plan-interview/tools/ledger-lint.sh::cmp-z::1	seeded by the canonical seed run
-plugins/intake-toolkit/skills/plan-interview/tools/ledger-lint.sh::cmp-z::2	seeded by the canonical seed run
+plugins/intake-toolkit/hooks/exitplan-ledger-gate.sh::cmp-eq::1	ARMED BY #579 and unkillable IN THE CANONICAL ENVIRONMENT: promoted into the window by comment exclusion. The site is `NEWER_FLAG=-newermB`, whose value is immediately overwritten with `-newer` on any platform whose find rejects birth-time comparison. ubuntu-latest ships GNU find, which does, so the mutated value never reaches the real find call and no assertion can see it. Kill verdicts are only comparable in that environment (docs/testing.md), so this cannot be closed by a test. CI evidence: dispatched full sweep on this branch, run 32181527467 (ubuntu-latest, SKIP_STRESS=1).
+plugins/intake-toolkit/hooks/exitplan-ledger-gate.sh::cmp-eq::2	ARMED BY #579 and unkillable IN THE CANONICAL ENVIRONMENT: promoted into the window by comment exclusion. The site is the self-referential `find -newermB` PROBE that decides BSD-vs-GNU. GNU find rejects `-newermB` and `-eqwermB` alike, so the probe's non-zero status — and therefore NEWER_FLAG=-newer — is identical with and without the mutant on ubuntu-latest. CI evidence: dispatched full sweep on this branch, run 32181527467 (ubuntu-latest, SKIP_STRESS=1).
 plugins/review-toolkit/scripts/check-model-tiers.sh::cmp-eq::1	seeded by the canonical seed run
 plugins/review-toolkit/scripts/check-model-tiers.sh::cmp-eq::2	seeded by the canonical seed run. STALE CANDIDATE (#574): the local advisory sweep scores this ordinal KILLED after the scalar/executor arms left the guard — left in place because an advisory run cannot prove a shrink (local != CI); remove on the first nightly that agrees.
 plugins/review-toolkit/scripts/check-model-tiers.sh::cmp-z::1	seeded by the canonical seed run
 plugins/review-toolkit/scripts/check-model-tiers.sh::default::2	seeded by the canonical seed run
-plugins/review-toolkit/scripts/check-model-tiers.sh::detector::2	seeded by the canonical seed run
-plugins/review-toolkit/scripts/check-model-tiers.sh::fail-open::1	seeded by the canonical seed run
-plugins/review-toolkit/scripts/check-model-tiers.sh::fail-open::2	seeded by the canonical seed run
+plugins/review-toolkit/scripts/check-model-tiers.sh::fail-open::1	RE-KEYED for #579: comment lines no longer enumerate as sites, so this row's ordinal-2 predecessor (a comment) is gone and it becomes ordinal 1. Unchanged otherwise — seeded by the canonical seed run
 plugins/review-toolkit/scripts/check-model-tiers.sh::logic::2	seeded by the canonical seed run
-plugins/review-toolkit/scripts/check-review-context-sections.sh::cmp-eq::1	seeded by the canonical seed run
-plugins/review-toolkit/scripts/check-review-context-sections.sh::cmp-eq::2	seeded by the canonical seed run
 plugins/review-toolkit/scripts/check-review-context-sections.sh::cmp-z::2	seeded by the canonical seed run
 plugins/review-toolkit/scripts/check-review-context-sections.sh::default::1	seeded by the canonical seed run
 plugins/review-toolkit/scripts/check-review-context-sections.sh::logic::2	seeded by the canonical seed run
+plugins/review-toolkit/scripts/check-review-context-sections.sh::cmp-eq::1	ARMED BY #579 and unkillable by construction — and it is this change's own accepted residue, live: the site is the TRAILING comment on `coverage_line   # exit-neutral informational line`, whose word "exit-neutral" contains the literal `-ne`. The rule excludes LEADING `#` only, so a trailing comment on a code line still enumerates; the flip changes comment bytes with no reachable behavior. Its code sibling at ordinal 2 was armed by the same promotion and IS killed — check-review-context-sections-selftest.sh now asserts the preflight-OK line on both sides of its condition. CI evidence: dispatched full sweep on this branch, run 32181527467 (ubuntu-latest, SKIP_STRESS=1).
 plugins/review-toolkit/scripts/check-review-context.sh::cmp-z::2	seeded by the canonical seed run
 plugins/review-toolkit/scripts/check-review-context.sh::default::1	seeded by the canonical seed run
 plugins/review-toolkit/scripts/check-review-context.sh::default::2	seeded by the canonical seed run
@@ -117,13 +96,11 @@ plugins/review-toolkit/scripts/check-review-context.sh::logic::2	seeded by the c
 plugins/review-toolkit/scripts/check-reviewer-references.sh::cmp-z::1	seeded by the canonical seed run
 plugins/review-toolkit/scripts/check-reviewer-references.sh::default::1	seeded by the canonical seed run
 plugins/review-toolkit/scripts/check-reviewer-references.sh::default::2	seeded by the canonical seed run
-plugins/review-toolkit/scripts/check-reviewer-references.sh::fail-open::1	seeded by the canonical seed run
 plugins/review-toolkit/scripts/check-reviewer-references.sh::logic::1	seeded by the canonical seed run
 plugins/review-toolkit/scripts/check-reviewer-references.sh::logic::2	seeded by the canonical seed run
 plugins/review-toolkit/scripts/check-scope-tracker-namespaces.sh::default::1	seeded by the canonical seed run
 plugins/review-toolkit/scripts/check-scope-tracker-namespaces.sh::default::2	seeded by the canonical seed run
-plugins/review-toolkit/scripts/check-scope-tracker-namespaces.sh::fail-open::1	seeded by the canonical seed run
-plugins/review-toolkit/scripts/check-scope-tracker-namespaces.sh::fail-open::2	seeded by the canonical seed run
+plugins/review-toolkit/scripts/check-scope-tracker-namespaces.sh::fail-open::1	RE-KEYED for #579: comment lines no longer enumerate as sites, so this row's ordinal-2 predecessor (a comment) is gone and it becomes ordinal 1. Unchanged otherwise — seeded by the canonical seed run
 plugins/review-toolkit/scripts/check-scope-tracker-namespaces.sh::logic::1	seeded by the canonical seed run
 plugins/second-shift/skills/doctor/tools/doctor.sh::default::1	seeded by the canonical seed run
 plugins/second-shift/skills/doctor/tools/doctor.sh::default::2	seeded by the canonical seed run
@@ -138,33 +115,21 @@ plugins/second-shift/skills/onboard/tools/detect.sh::default::2	seeded by the ca
 plugins/second-shift/skills/onboard/tools/detect.sh::detector::2	RE-KEYED for #532, identity unchanged: still the `grep -qE "^$t:" Makefile` script probe, the site this row was seeded for — it was ordinal 2 before and is ordinal 2 after. The seeded ordinal 1 (the `claude mcp list | grep -qiE` tracker probe) is the fail-open this ticket CONVERTS, so it left the enumeration entirely; ordinal 1 is now checked_match's own matcher inside the lockstep block, which detect-selftest's matching-MCP case kills. That row is dropped rather than re-noted.
 plugins/second-shift/skills/onboard/tools/pin-resolve.sh::fail-open::2	seeded by the canonical seed run
 plugins/second-shift/skills/onboard/tools/pin-resolve.sh::logic::1	seeded by the canonical seed run
-plugins/second-shift/templates/consumer/second-shift-ci-check.sh::cmp-eq::1	seeded by the canonical seed run
 plugins/second-shift/templates/consumer/second-shift-ci-check.sh::cmp-z::1	seeded by the canonical seed run
 plugins/second-shift/templates/consumer/second-shift-ci-check.sh::default::1	seeded by the canonical seed run
 plugins/second-shift/templates/consumer/second-shift-ci-check.sh::logic::2	seeded by the canonical seed run
 plugins/second-shift/templates/consumer/second-shift-doctor.sh::default::1	seeded by the canonical seed run
 scripts/check-configversion-migration-doc.sh::cmp-z::1	seeded by the canonical seed run
 scripts/check-configversion-migration-doc.sh::logic::2	seeded by the canonical seed run
-scripts/check-fail-open-shapes.sh::logic::1	added for #532: a PROSE site. The `pgrep-count` leg's rationale quotes the `|| echo 0` fabrication it exists to prevent, so the operator matches a comment and the flip changes comment bytes with no reachable behavior — unkillable by construction.
-scripts/check-fail-open-shapes.sh::logic::2	added for #532: a PROSE site, like ordinal 1 — the paragraph recording why the general `$(… || echo <default>)` shape is deliberately NOT a leg. Together the two displace the real sites (the HERE/ROOT resolution) past k=2, and that is the better trade rather than a lost kill: a mutant on either of those resolves ROOT to `/` and sends the guard scanning the whole filesystem, so its "kill" would be the killer timeout firing, not an assertion. Every other operator on this guard lands on real code and is killed.
 scripts/check-frozen-files.sh::cmp-z::2	seeded by the canonical seed run
-scripts/check-frozen-files.sh::fail-open::1	seeded by the canonical seed run
-scripts/check-frozen-files.sh::fail-open::2	seeded by the canonical seed run
-scripts/check-lean-chain.sh::cmp-eq::1	seeded for #303 from a local advisory sweep (macOS); confirm at the first nightly
-scripts/check-lean-chain.sh::cmp-eq::2	seeded for #303 from a local advisory sweep (macOS); confirm at the first nightly
-scripts/check-lean-chain.sh::cmp-z::1	seeded for #303 from a local advisory sweep (macOS); confirm at the first nightly
-scripts/check-lean-chain.sh::default::1	seeded for #303 from a local advisory sweep (macOS); confirm at the first nightly
-scripts/check-lean-chain.sh::default::2	seeded for #303 from a local advisory sweep (macOS); confirm at the first nightly
+scripts/check-lean-chain.sh::default::1	RE-KEYED for #579: comment lines no longer enumerate as sites, so this row's ordinal-2 predecessor (a comment) is gone and it becomes ordinal 1. Unchanged otherwise — seeded for #303 from a local advisory sweep (macOS); confirm at the first nightly
 scripts/check-lockstep-pairs.sh::default::2	seeded by the canonical seed run
 scripts/check-lockstep-pairs.sh::fail-open::1	seeded by the canonical seed run
 scripts/check-lockstep-pairs.sh::logic::1	seeded by the canonical seed run
 scripts/check-lockstep-pairs.sh::logic::2	seeded by the canonical seed run
-scripts/check-pipeline-chain.sh::cmp-eq::1	seeded by the canonical seed run
 scripts/check-pipeline-chain.sh::cmp-z::1	seeded by the canonical seed run
-scripts/check-pipeline-chain.sh::default::1	seeded by the canonical seed run
-scripts/check-pipeline-chain.sh::default::2	seeded by the canonical seed run
+scripts/check-pipeline-chain.sh::default::1	RE-KEYED for #579: comment lines no longer enumerate as sites, so this row's ordinal-2 predecessor (a comment) is gone and it becomes ordinal 1. Unchanged otherwise — seeded by the canonical seed run
 scripts/check-plugin-version-bumps.sh::cmp-z::2	seeded by the canonical seed run
-scripts/check-plugin-version-bumps.sh::fail-open::1	seeded by the canonical seed run
 scripts/check-plugin-version-bumps.sh::logic::2	seeded by the canonical seed run
 scripts/derive-release.sh::default::1	seeded by the canonical seed run
 scripts/derive-release.sh::detector::1	seeded by the canonical seed run
@@ -181,3 +146,4 @@ plugins/dev-pipeline/tools/gh-bot.sh::logic::1	#92: new resolver; generic logic 
 # state anything true about it. Dropped rather than re-keyed: a row for an unswept ordinal reads
 # as "now KILLED — drop the row" on the nightly, which is a claim no run made. Restore it, at
 # whatever ordinal it then holds, if the site re-enters the budget.
+plugins/dev-pipeline/skills/run-lean/orchestrate-lean.sh::default::2	ARMED BY #579 and accepted: promoted into the window by comment exclusion (the old ordinal 1 was the ${GH:-gh} prose line in the Seams header; ordinal 1 is now the real GH_CLI assignment, which IS killed). This site is `SPAWN_BIN="${LEAN_SPAWN_BIN:-claude}"`, and LEAN_SPAWN_BIN is the spawn seam both killers set on every case — CI has no real `claude` to fall back to, so the default branch is unreachable under test. CI evidence: dispatched full sweep on this branch, run 32181527467 (ubuntu-latest, SKIP_STRESS=1).

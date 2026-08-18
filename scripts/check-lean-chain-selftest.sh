@@ -355,8 +355,14 @@ out="$( cd "$TREE" && PIPELINE_BRANCH_PREFIX="" \
         PR_HEAD_REF="claude/acme-42" PR_BODY="$BODY_GOOD" PR_CREATED_AT="$PR_OPEN_AT" \
         PR_HEAD_SHA="$(git -C "$TREE" rev-parse HEAD)" \
         bash "$GATE" --comments-file "$WORK/comments-good.json" --diff-files-file "$WORK/diff-lean.txt" 2>&1 )"; rc=$?
-if [ "$rc" -eq 2 ]; then pass "(K) an empty PIPELINE_BRANCH_PREFIX is an environment error, not a silent exemption"
-else fail "(K) expected rc=2 on an unresolvable prefix, got $rc: $out"; fi
+# The MESSAGE, not just rc=2 — the bare exit-status demotion this file's own #443 block
+# forbids. rc=2 is reachable from several later envfails, so a mutant that lets the prefix
+# check pass (`${PIPELINE_BRANCH_PREFIX:-<anything>}` is always non-empty) still exits 2 and
+# an rc-only assertion scores it a kill. That site entered the swept window when comment
+# lines stopped enumerating (#579).
+if [ "$rc" -eq 2 ] && grep -q 'PIPELINE_BRANCH_PREFIX is unset or empty' <<<"$out"; then
+  pass "(K) an empty PIPELINE_BRANCH_PREFIX is an environment error naming itself, not a silent exemption"
+else fail "(K) expected rc=2 naming PIPELINE_BRANCH_PREFIX, got $rc: $out"; fi
 
 # ---- (L) NON-VACUITY: a zero-matching namespace still classifies -------------------------
 # The successor of the retired mutual-non-prefix-match assertion, and a stronger property than

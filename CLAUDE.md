@@ -184,8 +184,9 @@ binds newly added guards.
 paired selftests; a mutant that survives is a regression the suite would not have caught. It runs
 diff-scoped on every PR and wholesale nightly. Survivors are **data**, not a red build — only a
 survivor absent from `tools/mutation-baseline.tsv`, or a named infra failure, reds a lane. Two
-obligations land on ordinary PRs: editing a guard re-keys its generic survivor ordinals (re-baseline
-those rows in the same diff), and re-anchors any `tools/mutation-catalog.tsv` row addressing it.
+obligations land on ordinary PRs: editing a guard's CODE re-keys its generic survivor ordinals
+(re-baseline those rows in the same diff), and re-anchors any `tools/mutation-catalog.tsv` row
+addressing it. Comment lines are not sites, so a comment-only edit re-keys nothing.
 Full contract: [`docs/testing.md`](docs/testing.md).
 
 **A new gate contract extends the liveness scenario** for every verdict path it touches — a gate
