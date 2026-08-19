@@ -2681,6 +2681,110 @@ if [ "$rc" -eq 5 ] && grep -q 'reviewed patch' <<<"$out"; then
   pass "(v4) milestone-4 refuses once a commit changes the branch's patch after the review, with the inferred arm green"
 else fail "(v4) expected rc=5 on a moved patch identity, got $rc: $out"; fi
 
+# ---- (vb) #597: a BASE ADVANCE must not void a verdict whose reviewed lines never moved ------
+# The #583 sequence, mechanized (AC-5). A verdict is gate-confirmed at head H; an unrelated PR
+# merges into the base touching a file the branch also touches; the branch merges the base in with
+# a resolution that adds not one branch line. BOTH freshness arms redded on that: the inferred one
+# because `git diff <verdict-commit> HEAD` counts every file the merge brought in, the declared one
+# because `branch_patch_id`'s input includes the merge-base — which the merge advances — and
+# `git patch-id` hashes CONTEXT lines, so a base edit three lines above the branch's own addition
+# moves the id. Measured on the real thing: `1decd12550cd -> 86daf57fb18e` with all eight files'
+# `+`/`-` sets byte-identical.
+#
+# The base advance is REAL, and the file it touches is one the branch also edits — a base commit in
+# some other file moves neither arm, and the case would assert nothing. Non-vacuity is asserted in
+# (vb0) against plain git rather than argued, and it is asserted on BOTH arms, because a fixture
+# that only moved one would leave the other's escape hatch unexercised while reading as covered.
+reset_progress
+seed_build_progress r-build-1 sess-build-1
+rm -f "$VERDICT" "$REVIEW_CACHE" "$RUN_ID_CACHE"
+
+# A file long enough that the base's edit lands in the branch hunk's CONTEXT rather than in its
+# own hunk — which is the whole mechanism. Seeded on the BASE so both sides share it.
+vb_branch="$(git -C "$TREE" symbolic-ref --short HEAD 2>/dev/null)"
+git -C "$TREE" branch -f vb-base refs/remotes/origin/main >/dev/null 2>&1
+git -C "$TREE" checkout -q vb-base 2>/dev/null
+printf 'c1\nc2\nc3\nc4\nc5\nc6\nc7\nc8\nc9\nc10\n' > "$TREE/shared.txt"
+git -C "$TREE" add shared.txt >/dev/null 2>&1
+git -C "$TREE" commit -q -m 'base seeds the shared file' >/dev/null 2>&1
+git -C "$TREE" update-ref refs/remotes/origin/main vb-base
+git -C "$TREE" checkout -q "$vb_branch" 2>/dev/null
+git -C "$TREE" merge -q --no-edit vb-base >/dev/null 2>&1
+
+# The branch's own contribution: one appended line at the end of the shared file.
+printf 'c1\nc2\nc3\nc4\nc5\nc6\nc7\nc8\nc9\nc10\nBRANCH-OWN-LINE\n' > "$TREE/shared.txt"
+commit_tree "the branch appends its own line to the shared file"
+out="$(verdict_cmd sess-review-9 r-review-9 --pr 12 --verdict approve)"; rc=$?
+[ "$rc" -eq 0 ] || fail "(vb-fixture) the writer refused, so the (vb) block has no record to gate: $out"
+commit_tree "review commits the record at the pre-merge head"
+vb_pid_before="$(grep -oE 'reviewed_patch_id:[[:space:]]*[A-Za-z0-9._-]+' "$VERDICT" | head -n1 | sed -E 's/^reviewed_patch_id:[[:space:]]*//')"
+vb_vcommit="$(git -C "$TREE" rev-parse HEAD)"
+out="$(gate 4 7)"; rc=$?
+if [ "$rc" -eq 0 ]; then pass "(vb-baseline) milestone-4 passes on the pre-merge head, so the block starts from a confirmed verdict"
+else fail "(vb-baseline) expected rc=0 before the base advance, got $rc: $out"; fi
+
+# The unrelated base advance: an edit INSIDE the branch's hunk context, in the same file.
+reset_progress
+git -C "$TREE" checkout -q vb-base 2>/dev/null
+printf 'c1\nc2\nc3\nc4\nc5\nc6\nc7\nBASE-EDIT\nc9\nc10\n' > "$TREE/shared.txt"
+git -C "$TREE" add shared.txt >/dev/null 2>&1
+git -C "$TREE" commit -q -m 'an unrelated PR lands on the base, in a file the branch also touches' >/dev/null 2>&1
+git -C "$TREE" update-ref refs/remotes/origin/main vb-base
+git -C "$TREE" checkout -q "$vb_branch" 2>/dev/null
+git -C "$TREE" merge -q --no-edit vb-base >/dev/null 2>&1
+vb_merge_ok=$?
+
+# NON-VACUITY, against plain git, on BOTH arms. `vb_pid_now` is recomputed the way the gate does
+# (merge-base of the CURRENT origin/main, record path excluded); `vb_inferred` is the inferred
+# arm's own file list. If either is unmoved the cases below are measuring nothing.
+vb_vrel="$(cd "$TREE" && git ls-files --full-name -- "$VERDICT" 2>/dev/null | head -n1)"
+[ -n "$vb_vrel" ] || vb_vrel="docs/plans/acme-7-lean-verdict.md"
+vb_mb="$(git -C "$TREE" merge-base refs/remotes/origin/main HEAD 2>/dev/null)"
+vb_pid_now="$(git -C "$TREE" diff "$vb_mb" HEAD -- . ":(exclude)$vb_vrel" 2>/dev/null \
+  | git -C "$TREE" patch-id --stable 2>/dev/null | cut -d' ' -f1)"
+vb_inferred="$(git -C "$TREE" diff --name-only "$vb_vcommit" HEAD 2>/dev/null | grep -vxF "$vb_vrel")"
+if [ "$vb_merge_ok" -eq 0 ] && [ -n "$vb_pid_before" ] && [ -n "$vb_pid_now" ] \
+   && [ "$vb_pid_before" != "$vb_pid_now" ] && [ -n "$vb_inferred" ]; then
+  pass "(vb0) the base really advanced into a file the branch touches: the patch identity moved and the inferred arm's file list is non-empty, so BOTH milestone-4 arms would have redded"
+else fail "(vb0) the fixture did not reproduce the #583 state (merge_ok=$vb_merge_ok, pid '$vb_pid_before' -> '$vb_pid_now', inferred='$vb_inferred') — (vb1) would assert nothing"; fi
+
+# AC-1 + AC-5. The verdict STANDS, and the line says why rather than passing silently (S-2).
+out="$(gate 4 7)"; rc=$?
+if [ "$rc" -eq 0 ] && grep -q 'own +/- lines is unchanged' <<<"$out"; then
+  pass "(vb1) AC-1/AC-5: milestone-4 passes after a base advance that altered no reviewed line, and the line names the base advance"
+else fail "(vb1) expected rc=0 with a base-advance line, got $rc: $out"; fi
+
+# ...and the arm is STILL A GATE. Without this, (vb1) reads as "the arms were disabled".
+# AC-3/D-6: the refusal must NAME the affected line — the file, a count, and the offending line
+# inline — because an invalidation that cannot enumerate one is the doubt case that must stand.
+reset_progress
+printf 'c1\nc2\nc3\nc4\nc5\nc6\nc7\nBASE-EDIT\nc9\nc10\nBRANCH-OWN-LINE-EDITED\n' > "$TREE/shared.txt"
+commit_tree "a real fix lands on a reviewed line after the base merge"
+out="$(gate 4 7)"; rc=$?
+if [ "$rc" -eq 5 ] && grep -q 'shared.txt: 1 line(s)' <<<"$out" \
+   && grep -q 'e.g. +BRANCH-OWN-LINE-EDITED' <<<"$out"; then
+  pass "(vb2) AC-3: a genuine post-review edit still reds, and the refusal names the file, the count and the offending line"
+else fail "(vb2) expected rc=5 naming the changed line, got $rc: $out"; fi
+
+# AC-6 / OR-1, the declared fail-open. The comparison cannot be computed — here because the
+# record names a reviewed_head that is not a commit in this checkout — and the operator constraint
+# is that invalidation requires certainty, so the verdict STANDS and the line says which way it
+# defaulted. This is the one unreadable-input path in this gate that does not fail closed, and it
+# is asserted rather than left to a reading of the code.
+reset_progress
+git -C "$TREE" checkout -q -- shared.txt 2>/dev/null
+printf 'c1\nc2\nc3\nc4\nc5\nc6\nc7\nBASE-EDIT\nc9\nc10\nBRANCH-OWN-LINE\n' > "$TREE/shared.txt"
+perl -i -pe 's/^reviewed_head:.*$/reviewed_head: 0123456789abcdef0123456789abcdef01234567/' "$VERDICT"
+commit_tree "the record names a head this checkout does not carry"
+out="$(gate 4 7)"; rc=$?
+if [ "$rc" -eq 0 ] && grep -q 'FAILED OPEN' <<<"$out" && grep -q 'OR-1' <<<"$out"; then
+  pass "(vb3) AC-6/OR-1: an uncomputable comparison passes rather than reds, and the line names the fail-open and its reason"
+else fail "(vb3) expected rc=0 with a named fail-open, got $rc: $out"; fi
+
+# Housekeeping: the (w)/(x) blocks below reason about a branch with no shared.txt and no vb-base.
+rm -f "$TREE/shared.txt"; commit_tree "remove the (vb) shared fixture file"
+git -C "$TREE" branch -D vb-base >/dev/null 2>&1
+
 # ---- (w) --help prints the header, and only the header ------------------------------------
 # `sed -n '2,Np'` is a hand-maintained line number: growing the header silently truncates the
 # help text. check-lean-chain-selftest.sh case (T) has guarded its sibling for exactly this;

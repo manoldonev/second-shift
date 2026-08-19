@@ -529,6 +529,89 @@ LEANBOT
     && pass "(lean-patch-id) a review-written record passes, survives a rebase the SHA arm would have redded, and still reds once a commit changes the branch" \
     || fail "(lean-patch-id) write=$pid_write rebase=$lean_rebased sha-arm-diff='$lean_sha_would_red' rcs=$pid1/$pid2/$pid3, expected 0/0/nonempty/0/0/5"
 
+  # ---- leg 7b: #597 — a BASE ADVANCE does not void a verdict, composed ------
+  # CLAUDE.md: a new gate contract extends the liveness scenario for every verdict path it
+  # touches. Leg 7 composes the arm across a REBASE; this leg composes it across the operation
+  # the rebase case does not reach — merging the base IN. The two differ in exactly the way that
+  # matters: a rebase leaves the merge-base where it was, while a merge ADVANCES it, and
+  # `branch_patch_id` hashes a diff measured from it. On #583 that moved the identity from
+  # 1decd12550cd to 86daf57fb18e over a union resolution that introduced no branch line, spawned a
+  # review against an unmoved head, and forced a hand re-stamp.
+  #
+  # What only a composed leg can show is that BOTH freshness arms clear it together. The per-tool
+  # suite drives each arm; here the inferred arm's file list and the declared arm's hash both move,
+  # and milestone 4 must still be green through `all` — the entry point a resume re-enters through.
+  lean_seed_progress r-lean-1 sess-lean-build
+  rm -f "$LEAN_TREE/.claude/pipeline-state/77-review-run-id"
+  ba_branch="$(git -C "$LEAN_TREE" symbolic-ref --short HEAD 2>/dev/null)"
+  git -C "$LEAN_TREE" branch -f ba-base refs/remotes/origin/main >/dev/null 2>&1
+  git -C "$LEAN_TREE" checkout -q ba-base 2>/dev/null
+  printf 'c1\nc2\nc3\nc4\nc5\nc6\nc7\nc8\nc9\nc10\n' > "$LEAN_TREE/shared.txt"
+  git -C "$LEAN_TREE" add shared.txt >/dev/null 2>&1
+  git -C "$LEAN_TREE" commit -q -m 'base seeds the shared file' >/dev/null 2>&1
+  git -C "$LEAN_TREE" update-ref refs/remotes/origin/main ba-base
+  git -C "$LEAN_TREE" checkout -q "$ba_branch" 2>/dev/null
+  git -C "$LEAN_TREE" merge -q --no-edit ba-base >/dev/null 2>&1
+  printf 'c1\nc2\nc3\nc4\nc5\nc6\nc7\nc8\nc9\nc10\nBRANCH-OWN-LINE\n' > "$LEAN_TREE/shared.txt"
+  lean_commit "the branch appends its own line to the shared file"
+  ( cd "$LEAN_TREE" && SECOND_SHIFT_CONFIG="$LEAN_CFG" LEAN_PROGRESS_FILE="$LEAN_PROG" \
+    CLAUDE_CODE_SESSION_ID=sess-lean-review-11 RUN_ID=r-lean-review-11 \
+    bash "$LEAN_GATE" verdict 77 --pr 5 --verdict approve >/dev/null 2>&1 ); ba_write=$?
+  lean_commit "review commits its record at the pre-merge head"
+  ba_vcommit="$(git -C "$LEAN_TREE" rev-parse HEAD)"
+  ba_pid_before="$(grep -oE 'reviewed_patch_id:[[:space:]]*[A-Za-z0-9._-]+' "$LEAN_VERDICT" \
+                   | head -n1 | sed -E 's/^reviewed_patch_id:[[:space:]]*//')"
+  lean_seed_progress r-lean-1 sess-lean-build
+  lean_gate 4 77 >/dev/null 2>&1; ba1=$?
+
+  # The unrelated base advance, INSIDE the branch hunk's context and in a file the branch also
+  # touches — the shape that moves both arms. A base commit in some other file moves neither.
+  git -C "$LEAN_TREE" checkout -q ba-base 2>/dev/null
+  printf 'c1\nc2\nc3\nc4\nc5\nc6\nc7\nBASE-EDIT\nc9\nc10\n' > "$LEAN_TREE/shared.txt"
+  git -C "$LEAN_TREE" add shared.txt >/dev/null 2>&1
+  git -C "$LEAN_TREE" commit -q -m 'an unrelated PR lands on the base' >/dev/null 2>&1
+  git -C "$LEAN_TREE" update-ref refs/remotes/origin/main ba-base
+  git -C "$LEAN_TREE" checkout -q "$ba_branch" 2>/dev/null
+  git -C "$LEAN_TREE" merge -q --no-edit ba-base >/dev/null 2>&1; ba_merged=$?
+
+  # NON-VACUITY, on BOTH arms, against plain git. If either is unmoved this leg composes nothing.
+  ba_mb="$(git -C "$LEAN_TREE" merge-base refs/remotes/origin/main HEAD 2>/dev/null)"
+  ba_pid_now="$(git -C "$LEAN_TREE" diff "$ba_mb" HEAD -- . ':(exclude)docs/plans/acme-77-lean-verdict.md' 2>/dev/null \
+                | git -C "$LEAN_TREE" patch-id --stable 2>/dev/null | cut -d' ' -f1)"
+  ba_inferred="$(git -C "$LEAN_TREE" diff --name-only "$ba_vcommit" HEAD 2>/dev/null \
+                 | grep -vxF 'docs/plans/acme-77-lean-verdict.md')"
+
+  # Through `all`, not through a direct milestone-4 call: the whole-progression entry point is
+  # where a resume re-enters, and a green arm that `all` never reaches is not a cleared run.
+  lean_seed_progress r-lean-1 sess-lean-build
+  ba_all_out="$(lean_gate all 77 2>&1)"
+  # `all` walks the WHOLE progression, so its own exit code answers for milestone 5 too — which
+  # this fixture has no PR for. What this leg owns is that milestone 4 is reached and SATISFIED on
+  # that walk, recorded in the run's own progress file rather than inferred from a rolled-up rc.
+  ba_all_m4=$(lean_count '| milestone-4 | satisfied')
+  ba_all_m4_red="$(printf '%s\n' "$ba_all_out" | grep '✗ milestone-4' || true)"
+  lean_seed_progress r-lean-1 sess-lean-build
+  lean_gate 4 77 >/dev/null 2>&1; ba2=$?
+
+  # ...and the arms are STILL gates. Without this the leg reads as "milestone 4 was disabled".
+  printf 'c1\nc2\nc3\nc4\nc5\nc6\nc7\nBASE-EDIT\nc9\nc10\nBRANCH-OWN-LINE-EDITED\n' > "$LEAN_TREE/shared.txt"
+  lean_commit "a real fix lands on a reviewed line after the base merge"
+  lean_seed_progress r-lean-1 sess-lean-build
+  lean_gate 4 77 >/dev/null 2>&1; ba3=$?
+
+  [[ "$ba_write" -eq 0 && "$ba_merged" -eq 0 && "$ba1" -eq 0 \
+     && -n "$ba_pid_before" && -n "$ba_pid_now" && "$ba_pid_before" != "$ba_pid_now" \
+     && -n "$ba_inferred" && "$ba_all_m4" -ge 1 && -z "$ba_all_m4_red" \
+     && "$ba2" -eq 0 && "$ba3" -eq 5 ]] \
+    && pass "(lean-base-advance) a verdict survives a base merge that moved BOTH freshness arms' inputs and altered no reviewed line — green through 'all' — and still reds once a reviewed line moves" \
+    || fail "(lean-base-advance) write=$ba_write merged=$ba_merged pid '$ba_pid_before'->'$ba_pid_now' inferred='$ba_inferred' rcs=$ba1/$ba2/$ba3 all-m4-satisfied=$ba_all_m4 all-m4-red='$ba_all_m4_red', expected 0/0/moved/nonempty/0/0/5/>=1/empty
+$ba_all_out"
+
+  # Restore the tree the remaining legs were written against: no shared.txt, no ba-base, and the
+  # base ref back where leg 7 left it. The legs below diff against origin/main.
+  rm -f "$LEAN_TREE/shared.txt"; lean_commit "remove the (lean-base-advance) fixture file"
+  git -C "$LEAN_TREE" branch -D ba-base >/dev/null 2>&1
+
   # Restore the SHA-fallback shape the remaining legs were written against.
   lean_seed_progress r-lean-1 sess-lean-build
   lean_write_verdict approve r-lean-review-10 sess-lean-review-10

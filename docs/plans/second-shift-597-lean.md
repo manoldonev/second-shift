@@ -117,7 +117,7 @@ log lines only. No user-facing surface, no route, no render state.
 
 A `LOCKSTEP-BEGIN contribution-compare` block, byte-identical in
 `plugins/dev-pipeline/skills/build-lean/lean-gate.sh` and
-`plugins/dev-pipeline/skills/build-lean/lean-evidence.sh`, carrying two functions:
+`plugins/dev-pipeline/skills/build-lean/lean-evidence.sh`, carrying three functions:
 
 - `contribution_lines <repo-root> <base-ref> <head-ish> <exclude-path>` — the `+`/`-` lines of
   `diff(merge-base(base-ref, head), head)`, tagged with their path. Column-0 anchored state machine:
@@ -127,6 +127,8 @@ A `LOCKSTEP-BEGIN contribution-compare` block, byte-identical in
 - `contribution_delta <repo-root> <base-ref> <old-head> <new-head> <exclude-path>` — rc **0** the
   contributions are identical, **1** they differ (stdout enumerates `path<TAB>count<TAB>first`,
   `LC_ALL=C sort`ed for determinism), **2** the comparison could not be computed.
+- `contribution_summary` — the rc=1 rows on stdin, rendered as one line in the existing arms'
+  `(e.g. X)` style. No silent cap: past the third file it says how many more there are.
 
 An empty contribution on either side is rc=2, not rc=0 — the same guard `branch_patch_id`'s header
 already states: two failed computations compare EQUAL, and an unguarded reader prints its ✓ having
@@ -165,6 +167,13 @@ enumeration; rc=0 and rc=2 pass, each with its own line.
   clear a gate that could not run, so spawning one is pure cost.
 
 The now-unreachable `3)` arm of the post-spawn `case` is removed and the removal is stated in place.
+
+Note on what the escape hatch makes `reviewed_head` worth. When the patch-ids disagree,
+`reviewed_head` becomes the arm's authority — D-2's decision, and it is what re-shapes
+`lean-evidence-selftest.sh`'s case (s): a fabricated `reviewed_patch_id` alone no longer reds, so
+that fixture now lands a real code commit after the record and the case asserts the enumeration.
+This is no weaker than before: the reviewer writes both keys, and what keeps either honest is the
+authorship arms proving a separate review session wrote the record.
 
 ### 5. Docs (AC-7)
 

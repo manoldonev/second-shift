@@ -387,11 +387,81 @@ if [ "$rc" -eq 1 ] && grep -q 'declares no reviewed_patch_id' <<<"$out"; then
   pass "(r) a record declaring no reviewed_patch_id fails — nothing states which tree was read"
 else fail "(r) expected rc=1 on a patch-id-less record, got $rc: $out"; fi
 
+# #597 D-4 re-shapes this case, and the re-shaping IS the feature. A patch identity that is not
+# this branch's is no longer sufficient on its own: `branch_patch_id`'s input includes the
+# merge-base, so a base advance moves it while the branch alters not one line, and refusing on the
+# hash alone is what forced the #583 re-stamp. The refusal now needs the branch's own `+`/`-` lines
+# to have moved TOO — so the fixture lands a real code commit after the record, and the assertion
+# gains the enumeration D-6 requires.
 write_verdict approve r-review-7 sess-review-7 "0000000000000000000000000000000000000000"
+printf 'a real code change landed after the review\n' >> "$TREE/README.md"
+commit_tree "code changes after the record"
 out="$(ev "claude/acme-42" "$WORK/markers-good.json" "$WORK/diff-lean.txt")"; rc=$?
-if [ "$rc" -eq 1 ] && grep -q 'now hashes to' <<<"$out"; then
-  pass "(s) a reviewed_patch_id that is not this branch's fails"
-else fail "(s) expected rc=1 on a moved patch identity, got $rc: $out"; fi
+if [ "$rc" -eq 1 ] && grep -q 'now hashes to' <<<"$out" \
+   && grep -q 'README.md: 1 line(s)' <<<"$out" \
+   && grep -q 'e.g. +a real code change landed after the review' <<<"$out"; then
+  pass "(s) a patch identity that moved AND a branch line that moved with it fails, naming the file, the count and the offending line"
+else fail "(s) expected rc=1 with an enumerated refusal, got $rc: $out"; fi
+
+# ---- (s2) #597 AC-1/D-4: the base-advance tolerance, at the merge boundary -------------------
+# Without this arm milestone 4 passes in the lane and `pr-gates` still reds on the identical base
+# merge — which is exactly what forced the #583 re-stamp — so AC-1 would be true in the lane and
+# false at merge time. The fixture reproduces the sequence: a record confirmed at head H, then a
+# base advance INTO A FILE THE BRANCH ALSO TOUCHES, merged in with a resolution adding no branch
+# line. Non-vacuity is asserted against plain git in (s2a): if the recomputed identity does not
+# actually move, (s2) is measuring nothing.
+s2_origin_saved="$(git -C "$TREE" rev-parse refs/remotes/origin/main)"
+printf 'c1\nc2\nc3\nc4\nc5\nc6\nc7\nc8\nc9\nc10\n' > "$TREE/shared.txt"
+commit_tree "the shared file, on the branch and about to be on the base"
+s2_base_start="$(git -C "$TREE" rev-parse HEAD)"
+git -C "$TREE" update-ref refs/remotes/origin/main "$s2_base_start"
+printf 'c1\nc2\nc3\nc4\nc5\nc6\nc7\nc8\nc9\nc10\nBRANCH-OWN-LINE\n' > "$TREE/shared.txt"
+commit_tree "the branch appends its own line"
+write_verdict approve r-review-8 sess-review-8
+s2_pid_before="$(grep -oE 'reviewed_patch_id:[[:space:]]*[A-Za-z0-9._-]+' "$VREC" | head -n1 | sed -E 's/^reviewed_patch_id:[[:space:]]*//')"
+out="$(ev "claude/acme-42" "$WORK/markers-good.json" "$WORK/diff-lean.txt")"; rc=$?
+if [ "$rc" -eq 0 ]; then pass "(s2-baseline) the boundary passes on the pre-merge head, so the case starts from a confirmed verdict"
+else fail "(s2-baseline) expected rc=0 before the base advance, got $rc: $out"; fi
+
+# The unrelated base advance, inside the branch hunk's CONTEXT — which is the mechanism, since
+# `git patch-id` hashes context lines. Committed on a detached base ref, then merged in.
+git -C "$TREE" branch -f s2-base "$s2_base_start" >/dev/null 2>&1
+s2_branch="$(git -C "$TREE" symbolic-ref --short HEAD 2>/dev/null)"
+git -C "$TREE" checkout -q s2-base 2>/dev/null
+printf 'c1\nc2\nc3\nc4\nc5\nc6\nc7\nBASE-EDIT\nc9\nc10\n' > "$TREE/shared.txt"
+git -C "$TREE" add shared.txt >/dev/null 2>&1
+git -C "$TREE" commit -q -m 'an unrelated PR lands on the base' >/dev/null 2>&1
+git -C "$TREE" update-ref refs/remotes/origin/main s2-base
+git -C "$TREE" checkout -q "$s2_branch" 2>/dev/null
+git -C "$TREE" merge -q --no-edit s2-base >/dev/null 2>&1; s2_merge_ok=$?
+s2_pid_now="$(tree_patch_id)"
+if [ "$s2_merge_ok" -eq 0 ] && [ -n "$s2_pid_before" ] && [ -n "$s2_pid_now" ] \
+   && [ "$s2_pid_before" != "$s2_pid_now" ]; then
+  pass "(s2a) the base really advanced into a file the branch touches and the recomputed patch identity moved — the arm would have redded"
+else fail "(s2a) the fixture did not reproduce the #583 state (merge_ok=$s2_merge_ok, '$s2_pid_before' -> '$s2_pid_now') — (s2) would assert nothing"; fi
+
+out="$(ev "claude/acme-42" "$WORK/markers-good.json" "$WORK/diff-lean.txt")"; rc=$?
+if [ "$rc" -eq 0 ] && grep -q "own +/- lines is unchanged since reviewed_head" <<<"$out"; then
+  pass "(s2) AC-1: the merge boundary passes a base advance that altered no reviewed line, and says why"
+else fail "(s2) expected rc=0 with a named base-advance line, got $rc: $out"; fi
+
+# (s3) AC-6/OR-1: the declared fail-open, asserted rather than left to a reading of the code.
+# The comparison cannot be computed — the record names a reviewed_head this checkout does not
+# carry — and the operator constraint is that invalidation requires certainty, so the verdict
+# stands and the line names which way it defaulted, on the class-(b) `reduced-strength` channel.
+perl -i -pe 's/^reviewed_head:.*$/reviewed_head: 0123456789abcdef0123456789abcdef01234567/' "$VREC"
+commit_tree "the record names a head this checkout does not carry"
+out="$(ev "claude/acme-42" "$WORK/markers-good.json" "$WORK/diff-lean.txt")"; rc=$?
+if [ "$rc" -eq 0 ] && grep -q 'freshness: reduced-strength' <<<"$out" && grep -q 'OR-1' <<<"$out"; then
+  pass "(s3) AC-6/OR-1: an uncomputable comparison passes rather than reds, on the reduced-strength channel, naming the fail-open"
+else fail "(s3) expected rc=0 with a named fail-open, got $rc: $out"; fi
+
+# Housekeeping, and origin/main is the load-bearing half. The live-git classify cases below
+# (bb2a) measure `diff origin/main HEAD`, so leaving the ref advanced past the spec's own commit
+# would make the spec invisible to them and report applicable=0 for a reason this block invented.
+rm -f "$TREE/shared.txt"; commit_tree "remove the (s2) shared fixture file"
+git -C "$TREE" branch -D s2-base >/dev/null 2>&1
+git -C "$TREE" update-ref refs/remotes/origin/main "$s2_origin_saved"
 
 # THE EXCLUSION, driven behaviorally so no copy of the formula can satisfy it: the writer hashes
 # a head that does not yet carry the record, this reader hashes one that does.
