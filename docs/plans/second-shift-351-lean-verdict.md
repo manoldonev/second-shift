@@ -1,163 +1,173 @@
 # lean review verdict — #351
 
-verdict=needs-work
-run_id: review-351-1
-session_id: 949790fb-0f8c-4e2d-99fb-12a9c2a1d899
-rounds: 1
+verdict=approve
+run_id: review-351-2
+session_id: 6318d547-c0c2-4b09-8cf8-011f50a36c28
+rounds: 2
 pr: #596
-reviewed_head: 1085cd9b48e947528b26978c303025f6d2ca28b7
-reviewed_patch_id: 2c664a9aac8699b33aeafa54dd6aa86d29fc7ea0
-inherited_patch_id: none
-inherited_from_verdict: none
+reviewed_head: 4d21ccb4803cf32b8460d539ce5fc2de95720968
+reviewed_patch_id: eca4c6a756e232335747b9624e5c27b1315b8e76
+inherited_patch_id: 2c664a9aac8699b33aeafa54dd6aa86d29fc7ea0
+inherited_from_verdict: e9467ab39680bd2bd300b072754f6a2b25b5bb99
 fidelity: not-applicable
 model: unknown
 capabilities: pr-marker
 
 ## Review Summary
 
-Round 1, full branch range `eb3046e..HEAD` (chain root — nothing to inherit). The indirection
-itself is well built: one resolution path per engine, merge-not-replace tierMap semantics, the
-lockstep held against the SHIPPED default so a consumer `tierMap` can never red the commit hook,
-and the two-layer alphabet design (enum-anchored extraction takes the variable; the counter-scans
-stay unrestricted) preserved deliberately. Consumer-visible defaults are bit-for-bit unchanged, and
-I verified that directly rather than taking the claim: `check-model-tiers.sh` exits 0 against the
-real tree, and `structured-emitter.md:5` is `haiku`, which is what `emit` resolves to.
+Round 2, delta range `e9467ab..HEAD` (3 files, 114 insertions), inheriting the coverage of patch
+`2c664a9aac86`. Round 1's single blocker is **closed, and closed by measurement rather than by
+argument**. I re-ran round 1's two surviving mutations at this head plus three more, in an
+isolated worktree, and every one of them now dies on the cases that target it:
 
-**One blocker, and it is a coverage blocker, not a design one.** The governed set the spec itself
-declares is TWO files / THREE dispatch shapes. `runtime-shim-selftest.mjs`'s new Case T executes
-only ONE of the two ladders. `intake-review.mjs` carries a byte-for-byte copy of the same
-`tierMap` merge and the same `modelFor`, and nothing anywhere executes it.
+| Mutation of `intake-review.mjs` | Round 1 | This head |
+| --- | --- | --- |
+| `const tierMap = { ...DEFAULT_TIER_MAP }` — consumer map never read | 76/76 GREEN | **82/2** — TI2, TI8 |
+| `modelFor` returns `declared` — no resolution at all, dispatches the literal `'reasoning'` | 76/76 GREEN | **78/6** — TI1, TI2, TI4, TI5, TI6, TI8 |
+| `declared = INTAKE_MODEL[agentType] \|\| 'code'` — `modelOverrides` stops winning | — | **81/3** — TI3, TI5, TI7 |
+| emit leg restored to a hardcoded `model: 'haiku'` | — | **82/2** — TI7, TI8 |
+| *(mine)* replace-instead-of-merge tierMap semantics | — | **83/1** — TI4 |
 
-`[Coverage gap]` `review-toolkit:test-coverage-reviewer` went dark (`died-after-retry` —
-turn-budget, no text on either attempt), so test adequacy was not covered by the panel. That is the
-exact domain the blocker below sits in; it was found by direct probe in this session instead.
+The first four reproduce the PR body's table exactly. The fifth is mine: TI4 states merge-not-replace
+(D-17) as its purpose, and it is the only case that enforces it. **Every one of the eight TI cases is
+killed by at least one mutation** — there is no vacuous case in the block.
+
+The two smaller round-1 items are closed too, both verified against the tree rather than taken:
+`config-lint.sh`'s dead `SHIPPED_TIERS_JSON` fallback is gone and its removal is behavior-preserving
+in the states the new comment names (missing TIER_DOC and table-less TIER_DOC both still reject a
+tier-named `modelOverrides` value, byte-identical to the pre-fix commit), and the corrected
+governed-set counts in `check-model-tiers.sh` are factually right — the scan's own regex returns
+**13 matches in `code-review.mjs` and 3 in `intake-review.mjs`**, all genuine table entries.
+
+**Panel: 5 selected, 5 alive, none dark.** test-coverage — the reviewer that died in round 1 and
+whose domain held the blocker — ran this round and approved with no findings.
 
 ## Strengths
 
-- **The T1/T2 pairing is the right instinct, and the PR body names why.** Dropping the `tierMap`
-  read leaves T1 green because the shipped default and the old hardcoded token are the same string
-  by design; only T2's retarget separates them. That is a real non-vacuity argument, not a count.
-- **`check_inline_default_map` checks BOTH directions.** A tier the authority declares and an
-  engine omits would silently fall through to the engine's own default at dispatch, and the reverse
-  scan catches it. Two of the 18 guard cases pin exactly that.
-- **The duplication is pinned rather than regretted.** The awk parse now lives in two scripts and is
-  anchored as `tier-alphabet-parse` in `scripts/lockstep-manifest.tsv`; `check-lockstep-pairs.sh`
-  reports 23 pairs / 0 failed with the new row live. The unanchorable half was *extended in place*
-  on the existing `reviewers` DROPPED entry instead of a second entry being invented.
-- **Schema honesty.** The `additionalProperties` enum moved to `tierMap` (where the closed set is
-  genuinely expressible) and `modelOverrides` degraded to `string`, with the selftest's enum-mirror
-  check re-pointed at the surviving enum so the mirror is still driven from both sides.
+- **The fix is the right shape.** Case TI executes the *real* `intake-review.mjs` through the shim
+  rather than re-declaring its resolution logic — which the mutation kills prove directly: a
+  hand-maintained copy could not have gone red on an edit to production.
+- **The round-1 control is preserved in the artifact.** The comment block records the three-run
+  proof (kills on the covered file, does not kill on the uncovered one) that made this a gap rather
+  than a guess, so the next reader inherits the reasoning and not just the cases.
+- **The dead fallback was deleted, not re-commented.** The replacement comment states the real
+  mechanism (`jq -s .` emits `[]`) *and* the safety direction — a missing authority rejects rather
+  than waving through — which I confirmed holds.
+- **The comment counts now carry their own decay warning.** "The count moves whenever a table gains
+  an agent; it is documentation of the scan's current precision, never an assertion the script
+  checks" is exactly the annotation that stops this line rotting a third time.
 
 ## Critical (must fix before merge)
 
-- **[Test coverage / Cross-cutting] `plugins/dev-pipeline/workflows/intake-review.mjs:153-157`
-  (confidence: 97) — the intake dispatch ladder's tier resolution has ZERO executing coverage.**
-  Every `opts.model` assertion in `runtime-shim-selftest.mjs` (H1, T1–T8, Q1, Q3) runs through
-  `runCodeReview`. Not one runs through `runIntake`. Probed in an isolated worktree at this head,
-  both directions:
-
-  | Mutation | Suite result |
-  | --- | --- |
-  | `intake-review.mjs`: `const tierMap = { ...DEFAULT_TIER_MAP }` (consumer `tierMap` never read) | shim **76/76**, tiers **18/18** — SURVIVES |
-  | `intake-review.mjs`: `modelFor` returns `declared` (no map resolution at all — dispatches the literal string `reasoning`) | shim **76/76**, tiers **18/18** — SURVIVES |
-  | *control:* the identical first mutation on `code-review.mjs` | shim **74 passed, 2 failed** — KILLED |
-
-  The control is what makes this a finding rather than a guess: the technique kills on the file that
-  is covered and does not kill on the file that is not. The second mutation is not subtle — it makes
-  the intake fan-out dispatch a tier name as if it were a model, i.e. the feature is completely
-  inert on half the governed set — and the whole suite stays green.
-
-  `check-model-tiers.sh` does not close this: it holds the inlined `DEFAULT_TIER_MAP` literal and
-  the table's tiers against the authority statically. It never executes the runtime read of
-  `config.reviewers.tierMap`, which is where both mutations live.
-
-  **AC-1 scoring.** Its named oracle is `runtime-shim-selftest.mjs`, "cases per surviving dispatch
-  ladder" — plural, and the spec's own edit-surface table lists `intake-review.mjs:15` and its
-  `:243` emit leg as two of the three governed shapes. One ladder covered is not that.
-
-  **Remedy is small.** `runIntake(behaviors, argsOverride)` already takes a `config` override
-  (`runtime-shim-selftest.mjs:408-415`), so the T2 / T3 / T4 / T8 shapes port over roughly as-is
-  against `review-toolkit:spec-reviewer` (`reasoning`) and the intake emit leg. Please keep a
-  retargeting case among them — a default-only case is the one that stays green under both
-  mutations above.
+_None._
 
 ## Warnings (should fix)
 
-_None._
+- **[Maintainability] `plugins/dev-pipeline/workflows/runtime-shim-selftest.mjs:503` (confidence: 95)
+  — the Case TI header's non-vacuity claim is measurably false, and the PR body contradicts it.**
+  The comment reads "TI1 alone survives BOTH mutations above". It survives the first (drop the
+  consumer `tierMap` read) and is **killed by the second** — I measured `78 passed, 6 failed` with
+  `FAIL TI1` in the list, and the PR body's own round-2 table puts TI1 in that mutation's 6-killed
+  set. The true statement is narrower: TI1 survives the *dead-map-read* mutation only, which is
+  still a complete argument for TI2 existing. As written it also overstates the conclusion — a
+  default-only case here would not be vacuous, it would catch total resolution failure and miss the
+  dead read. This is the comment that tells the next reader why TI2 is not redundant, so it is worth
+  a one-line correction; it does not touch the coverage, which is correct.
 
 ## Suggestions (consider)
 
-- **[Maintainability] `plugins/dev-pipeline/tools/config-lint.sh:44` (confidence: 82) — the
-  `SHIPPED_TIERS_JSON` fallback is unreachable.** `jq -s .` on empty stdin emits `[]`, which is a
-  non-empty string, so `[[ -n "$SHIPPED_TIERS_JSON" ]]` is always true and the
-  `|| SHIPPED_TIERS_JSON='[]'` arm never runs. Verified: `printf '' | jq -R . | jq -s .` → `[]`.
-  Harmless — the value it would assign is the value already there — but it reads as the
-  empty-alphabet guard and is not one. Either drop it or re-comment it as belt-and-braces.
+- **[Test coverage] `plugins/dev-pipeline/tools/config-lint.sh:43-47` (confidence: 82) — the
+  empty-alphabet path now states a contract that nothing asserts.** The new comment promises that an
+  unreadable or table-less `TIER_DOC` "fails a modelOverrides value naming a shipped tier … a
+  missing authority rejects, it does not wave through". True today — I drove both states through
+  `SECOND_SHIFT_TIER_DOC` and got the rejection — but `config-lint-selftest.sh` has no case for
+  either, so a future change that made it fail *open* would be silent. The path predates this PR, so
+  this is not a regression; the comment is what newly raises it to a stated guarantee.
+- **[Maintainability] the PR body's AC-4 ordinal narrative is superseded, not wrong.** It is derived
+  from a local advisory run on a branch that predates #593, so it argues in position-keyed ordinals.
+  CI checks out `refs/pull/596/merge`, which *includes* #593 — its survivor ids are content hashes
+  (`fail-open::1725a6b8fb0b`, `cmp-eq::83af93e6afa7`, …). The conclusion is identical and CI proves
+  it more directly than the table does, so nothing needs redoing; a future round should just read
+  the CI job rather than re-deriving ordinals by hand.
 
 ## Plan Compliance
 
-Implementation matches the committed spec's design. All nine bound receipt rows are carried
-verbatim, zero departures, and I spot-checked D-1 against the receipt at
-`.claude/pipeline-state/351-ledger.md:25` — it is `user-answered` and amends the ticket in the
-terms the spec restates. Scope creep: none. The one gap is oracle coverage, scored under AC-1.
+Implementation matches the committed spec. The delta contains exactly the three round-1 items and
+nothing else — no scope creep, no spec amendment. All nine bound receipt rows remain carried
+verbatim, zero departures.
 
 ## Per-AC scoring
 
 | AC | Verdict | Basis |
 | --- | --- | --- |
-| **AC-1** | **unsatisfied** | Oracle covers one of two surviving dispatch ladders. Two total-failure mutations of `intake-review.mjs` survive the full suite; the same mutation on `code-review.mjs` kills 2 cases. See Critical. |
-| **AC-2** | satisfied | `config-lint-selftest.sh` green. `valid-tier-named-override.json` (tier-named override accepted), `invalid-override-unknown-tier.json` (`"reasonin"` typo still rejected against a live tierMap — typo detection survives the schema weakening), `invalid-bad-tiermap-value.json` (`"gpt-4"` rejected), and the enum mirror re-pointed at `tierMap` so both sides of the surviving enum are driven. |
-| **AC-3** | satisfied | `check-model-tiers-selftest.sh` **18/18**, including custom-alphabet lockstep, `fable`-in-a-shipped-MAP → UNKNOWN-MODEL, the counter-scan judging against the PARSED alphabet rather than a constant (non-vacuity of the unrestricted layer), and consumer-`tierMap`-retargeting → exit 0. |
-| **AC-4** | satisfied | Settled by CI, not by the advisory local run: `mutation-sweep-pr` is **green on this head** — 21 mutants, 23 verdicts computed, `config-lint.sh` 9/7/2 and `check-model-tiers.sh` 12/7/5, every survivor already baselined and catalog anchors intact (drift would have red the lane). `check-lockstep-pairs.sh` 23 pairs / 0 failed; `:58`'s DROPPED entry was extended in place rather than duplicated, and the newly anchorable half got its own `tier-alphabet-parse` row. |
-| **AC-5** | satisfied | `Changelog:` trailer present on the code commit. Defaults unchanged, verified against the tree rather than the claim: `check-model-tiers.sh` exits 0 with `structured-emitter.md:5 = haiku` ⇔ `emit → haiku`, and T1/T6 pin `code → sonnet` / `emit → haiku`. `check-frozen-files.sh` clean. |
-| **AC-6** | satisfied | `model-tiering.md` carries the `Dispatch token` column and the `emit` row and is genuinely parsed (an UNPARSEABLE-ALPHABET case proves the dependency). The stale "five `.mjs` dispatch tables" prose is corrected. `docs/extension-points.md` EP-4 and `onboard/SKILL.md` state the D-2 union. The clause about `stall-probe.mjs`'s "six named tables" comment was **already true at `eb3046e`** — it reads "two named map tables" at base — so that half is vacuous, not violated. |
+| **AC-1** | **satisfied** | Both surviving dispatch ladders now have executing cases. Five mutations of `intake-review.mjs` measured at this head, each killed by the cases targeting it (table above); all eight TI cases non-vacuous. Suite **84 passed, 0 failed** clean. Round-1's blocker does not survive. |
+| **AC-2** | satisfied | `config-lint-selftest.sh` green in CI's `lint-and-selftests` at this head. The one production line removed was proven dead in round 1 and its removal probed behavior-identical here across normal / missing / table-less `TIER_DOC`, including under `set -euo pipefail` (a failing parse aborts the script, rc=1 — it cannot yield a vacuous pass). |
+| **AC-3** | satisfied | Comment-only edits; `check-model-tiers.sh` exits 0 against the real tree and `check-model-tiers-selftest.sh` is green in CI. The corrected counts are factually right: the scan's own regex yields 13 + 3 = 16, all genuine table entries. |
+| **AC-4** | satisfied | Settled by CI at this head, not by the local advisory run: **`mutation-sweep-pr` green** — 21 mutants, **23 verdicts computed** (not a zero-verdict pass), `config-lint.sh` 9/7/2 and `check-model-tiers.sh` 12/7/5, and every survivor id present in `tools/mutation-baseline.tsv`. No baseline row is orphaned and no catalog anchor drifted. |
+| **AC-5** | satisfied | `Changelog: none` on `4d21ccb`, and the consumer-visible changelog on the code commit is unchanged. No default moved: the delta touches one dead line and two comments. |
+| **AC-6** | satisfied | Inherited by reference to the round-1 record — no doc file is in this round's delta, and round 1 verified each clause against the tree. |
 
 **Fidelity:** `not-applicable` — the spec carries no `## Design` section, the repo configures no
-`design.provider`, and the diff has no rendered surface. Step 5b does not arm.
+`design.provider`, and the delta has no rendered surface. Step 5b does not arm.
 
 ## Pre-existing gaps (not blocking this PR)
 
-- `plugins/review-toolkit/scripts/check-model-tiers.sh:428` still says the MAP scan matches "genuine
-  table entries across all three MAP files today (18/18)", and `:442` says the inline-literal scan
-  "Runs over ALL FIVE parsed workflow files". Both are wrong post-#574/#584 (two files remain) and
-  both were **already wrong at `eb3046e`** — neither line is in this diff, so this is not a
-  regression. Flagged because this PR corrected the same class of stale count in the file header,
-  which makes these two the natural sweep-up; comment-only, so fixing them re-keys nothing.
+- The mutation sweep's WARN that `config-lint-selftest.sh` measures 6s against the 5s bar with no
+  `tools/mutation-slow-suites.tsv` row is correctly flagged in the PR body rather than taken
+  silently — adding that row would drop `config-lint.sh` out of the PR-lane sweep entirely, which is
+  a coverage trade, not a cleanup. It did not fire in CI's run at this head. Leaving it for a
+  deliberate decision is the right call.
 
 ## Suppressed (below confidence threshold)
 
-- `check-model-tiers.sh:~250` (40) — a tab/newline inside a `reviewers.tierMap` value could inject a
-  row into the TAB-separated effective map. Operator-authored local file, no untrusted writer.
-- `config-lint.sh:21` (35) — `SECOND_SHIFT_TIER_DOC` lets the environment redirect the parsed doc.
-  Read-only parse of a local path, matching the repo's existing env-override idioms.
+- `config-lint.sh:44` (45, security-reviewer) — "if the parse pipeline exited non-zero, `--argjson`
+  would error and yield an empty `ERRORS` (vacuous pass)". Checked and **unfounded**: `set -euo
+  pipefail` aborts on a failing command substitution before the next `jq` runs (probed: rc=1, the
+  echo after it never executes), and the deleted line sat *after* that assignment so it could not
+  have helped either way.
+- `docs/plans/second-shift-351-lean.md` (65, scope gate) — key landed at `reviewers.tierMap` rather
+  than the ticket's `models.tierMap`. Not a scope miss: the ticket wrote "or similar" and OR-1 flags
+  it as a reversible open region. Closed by D-3.
+- `tools/mutation-baseline.tsv` (70, scope gate) — the reviewer did not re-run the sweep to confirm
+  the ordinal argument. Settled above by CI's own run at this head.
 
 ## Verdicts
 
 | Reviewer | Verdict | Findings | Confidence Range |
 |---|---|---|---|
-| Scope Completeness | Pass (gate finding overridden — see below) | 2 | 88–92 |
+| Scope Completeness | Fail (gate finding overridden — see below) | 1 | 88 |
 | Security | Pass | 0 | — |
-| Performance | Pass | 0 | — |
 | Complexity | Pass | 0 | — |
-| Maintainability | Pass | 1 | 82 |
-| Test Coverage | **Dark (no output)** | — | — |
+| Maintainability | Pass | 0 | — |
+| Test Coverage | Pass | 0 | — |
 
-`a11y` + design-fidelity not routed: no changed path matched `stageParams.webComponentGlobs`
-(unset → `apps/web/**/*.{tsx,jsx}`).
+a11y + design-fidelity not routed: no changed path matched `stageParams.webComponentGlobs`
+(unset → `apps/web/**/*.{tsx,jsx}`). Performance not selected — round 2 ran the reduced lineup
+(prior-blocker domain + fix-touched scope + the unconditional scope gate).
 
-**Scope gate disposition.** `scope-completeness-reviewer` returned FAIL on issue #351's scope bullet
-1 ("promote abstract tiers to first-class tokens in agent frontmatter"), correctly observing that no
-`agents/*.md` is in the diff and the deferral lives only in the committed plan. That finding is
-**overridden, not dismissed**: receipt row **D-1 is `user-answered`** and states in terms that it
-AMENDS that bullet — `model:` in `agents/*.md` is a harness-owned key, so an abstract token there is
-an unrecognized value in someone else's key. A user-answered pre-flight ledger row is binding input
-that supersedes the issue body, and the committed spec is the definition of done. The gate could not
-see the receipt (it is gitignored and host-local), which is why it read the deferral as
-plan-only. Its second finding is the pre-existing comment staleness recorded above.
+**Scope gate disposition — overridden for the second round, on re-verified evidence.**
+`scope-completeness-reviewer` again returned FAIL (conf 88) on issue #351's scope bullet 1
+("promote abstract tiers to first-class tokens in agent frontmatter"), correctly observing that all
+25 `model:` frontmatter lines still carry vendor tokens and that the deferral lives only in the
+committed plan. It is **overridden, not dismissed.** I read the row in the receipt itself rather
+than the spec's restatement of it: `.claude/pipeline-state/351-ledger.md` row **D-1 is
+`user-answered` / `intent`** and states in terms that it AMENDS that bullet — `model:` in
+`agents/*.md` is a harness-owned key, so an abstract token there is an unrecognized value in someone
+else's key. A user-answered pre-flight ledger row is binding input that supersedes the issue body,
+and review-lean's contract makes the committed spec the definition of done. The gate structurally
+cannot see this: the receipt is gitignored and host-local, so it reads every ledger-carried
+amendment as plan-only.
 
-**Ready to merge?** No.
+**This will recur on every future round and on any re-review, and the durable fix is a one-line
+issue-body edit** — amending #351's scope bullet 1 with D-1's rationale. That is a human-authority
+action, so it is named here rather than taken.
 
-**Reasoning:** One blocker, on AC-1: half the governed set — `intake-review.mjs`'s dispatch ladder —
-has no executing oracle, and a mutation that makes the feature entirely inert there passes the full
-suite. The design, the guards, the docs and the re-baseline are sound and need no rework; the fix is
-additional shim cases against `runIntake`, not a change to the implementation.
+**Ready to merge?** Yes.
+
+**Reasoning:** No blockers. Round 1's coverage blocker is closed by construction and verified by
+five directed mutations at this head, all six ACs score satisfied, the full panel ran with no dark
+reviewer, and CI is green on the substantive lanes — `lint-and-selftests`, `selftests (macos, bash
+3.2)`, and a `mutation-sweep-pr` that computed 23 real verdicts with every survivor baselined. The
+one warning is an inaccurate sentence in a test-file comment; it misstates a measurement without
+weakening the coverage it justifies. The single dissenting verdict is the scope gate, overridden on
+a `user-answered` ledger row I verified in the receipt.
