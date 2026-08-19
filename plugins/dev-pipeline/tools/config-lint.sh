@@ -40,8 +40,12 @@ parse_tier_alphabet() { # parse_tier_alphabet <doc-path>
     ' "$1"
 # LOCKSTEP-END tier-alphabet-parse
 }
+# `jq -s .` emits `[]` on empty stdin, so an unreadable or table-less TIER_DOC already yields
+# an empty alphabet here rather than an empty STRING — no separate fallback assignment is
+# needed, and one that looked like the empty-input guard but could never run was worse than
+# none. An empty alphabet then fails a modelOverrides value naming a shipped tier, which is
+# the safe direction: a missing authority rejects, it does not wave through.
 SHIPPED_TIERS_JSON=$(parse_tier_alphabet "$TIER_DOC" | cut -f1 | jq -R . | jq -s .)
-[[ -n "$SHIPPED_TIERS_JSON" ]] || SHIPPED_TIERS_JSON='[]'
 
 ERRORS=$(jq -r --argjson shippedTiers "$SHIPPED_TIERS_JSON" '
   def err(cond; msg): if cond then [msg] else [] end;

@@ -425,9 +425,11 @@ KNOWN_TIERS_RE="$(printf '%s\n' "$DEFAULT_TIER_MAP_TEXT" | awk -F'\t' 'NF == 2 {
 
 # MAP entries, whole-file — the same shape the enum-anchored grep uses, minus the
 # enum. Deliberately unrestricted rather than region-extracted: it matches only
-# genuine table entries across all three MAP files today (18/18), and a future
-# non-tier `'key': 'value'` string map tripping it fails LOUD, which is the safe
-# direction for this script.
+# genuine table entries across both surviving MAP files today (16/16 — 13 in
+# code-review.mjs, 3 in intake-review.mjs, the emitter row included since #351), and a
+# future non-tier `'key': 'value'` string map tripping it fails LOUD, which is the safe
+# direction for this script. The count moves whenever a table gains an agent; it is
+# documentation of the scan's current precision, never an assertion the script checks.
 scan_unknown_map_entries() {
     local file="$1" tbl="$2" pair m a
     while IFS= read -r pair; do
@@ -439,8 +441,9 @@ scan_unknown_map_entries() {
     done <<< "$(grep -oE "'[a-z0-9:-]+': '[^']+'" "$file")"
 }
 
-# Inline `model:` literals on agentType-bearing lines. Runs over ALL FIVE parsed
-# workflow files: the MAP grep above cannot see an inline literal at all
+# Inline `model:` literals on agentType-bearing lines. Runs over BOTH parsed
+# workflow files (it named five until #574/#584 retired three engines):
+# the MAP grep above cannot see an inline literal at all
 # (`model:` is an unquoted key). This scan catches an OUT-OF-ENUM inline literal
 # in either file; the MAP loop's own inline pass
 # (below, in the `code-review.mjs`/`intake-review.mjs` for-loop)
