@@ -169,7 +169,12 @@
         },
         "modelOverrides": {
           "type": "object",
-          "description": "Per-agent model-tier override, keyed by any agent the .mjs dispatch tables model — the review-lead panel reviewers and the intake fan-out agents (EP-4; the named mutation-executor override left with its engine, #574). Observed need: security-reviewer opus in one repo, sonnet in another. check-model-tiers validates .mjs tables against frontmatter + these overrides. Values must be tiers this consumer's subscription can actually dispatch — an inaccessible tier surfaces as a dead reviewer and the gate fails closed. `fable` is override-only: never a shipped default, and a check-model-tiers error if it appears in a shipped dispatch table.",
+          "description": "Per-agent model-tier override, keyed by any agent the .mjs dispatch tables model — the review-lead panel reviewers, the intake fan-out agents, and the structured-emitter transcription sink (EP-4; the named mutation-executor override left with its engine, #574). Observed need: security-reviewer opus in one repo, sonnet in another. check-model-tiers validates .mjs tables against frontmatter + these overrides. Values must be tiers this consumer's subscription can actually dispatch — an inaccessible tier surfaces as a dead reviewer and the gate fails closed. `fable` is override-only: never a shipped default, and a check-model-tiers error if it appears in a shipped dispatch table.",
+          "additionalProperties": { "type": "string", "description": "A dispatch model (haiku, sonnet, opus, fable) OR a tier name from the effective reviewers.tierMap. That union is a cross-field constraint JSON Schema cannot express — it depends on a sibling property — so this half asserts only \"string\" and config-lint.sh carries the real check, including typo detection. Do not re-add an enum here: it would reject every legal tier name." }
+        },
+        "tierMap": {
+          "type": "object",
+          "description": "Retarget an abstract tier to a different dispatch model (#351). MERGES per tier over the plugin-shipped alphabet in dev-pipeline's model-tiering.md, so a config naming one tier leaves the rest at their defaults and a config naming none dispatches exactly as it did before this key existed. This is the vendor-independence seam: shipped dispatch tables name tiers rather than vendor tokens, so a consumer whose subscription lacks a model class retargets it here instead of forking the plugin. Additive and optional, so configVersion stays at 2.",
           "additionalProperties": { "enum": ["haiku", "sonnet", "opus", "fable"] }
         }
       }

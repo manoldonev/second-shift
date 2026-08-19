@@ -15,7 +15,35 @@ CONFIG="${1:?usage: config-lint.sh <config-file>}"
 
 jq empty "$CONFIG" 2>/dev/null || { echo "config-lint: not valid JSON: $CONFIG" >&2; exit 1; }
 
-ERRORS=$(jq -r '
+# The shipped tier alphabet (#351). A reviewers.modelOverrides value may name a TIER as
+# well as a raw dispatch model, so this lint needs the same alphabet check-model-tiers.sh
+# parses — from the same authority, ../model-tiering.md, rather than a second hardcoded
+# copy that would drift from it. The parse block below is pinned to that script's copy as
+# `tier-alphabet-parse` in scripts/lockstep-manifest.tsv.
+SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+TIER_DOC="${SECOND_SHIFT_TIER_DOC:-$SCRIPT_DIR/../model-tiering.md}"
+parse_tier_alphabet() { # parse_tier_alphabet <doc-path>
+    [ -f "$1" ] || return 0
+# LOCKSTEP-BEGIN tier-alphabet-parse
+    awk '
+        /^##[[:space:]]+Tier alphabet[[:space:]]*$/ { inseg = 1; next }
+        inseg && /^##[[:space:]]/                   { inseg = 0 }
+        inseg && /^\|/ {
+            n = split($0, c, "|")
+            if (n < 4) next
+            tier = c[2]; tok = c[3]
+            gsub(/^[ \t]+|[ \t]+$/, "", tier)
+            gsub(/^[ \t]+|[ \t]+$/, "", tok)
+            if (tier ~ /^[a-z][a-z0-9_-]*$/ && tok ~ /^[a-z][a-z0-9_.-]*$/)
+                printf "%s\t%s\n", tier, tok
+        }
+    ' "$1"
+# LOCKSTEP-END tier-alphabet-parse
+}
+SHIPPED_TIERS_JSON=$(parse_tier_alphabet "$TIER_DOC" | cut -f1 | jq -R . | jq -s .)
+[[ -n "$SHIPPED_TIERS_JSON" ]] || SHIPPED_TIERS_JSON='[]'
+
+ERRORS=$(jq -r --argjson shippedTiers "$SHIPPED_TIERS_JSON" '
   def err(cond; msg): if cond then [msg] else [] end;
   # `lintAutofixes: true` declares the configured lint command MUTATES files, and
   # the onboard detect.sh script derives it from a `--fix` in that command string.
@@ -162,15 +190,28 @@ ERRORS=$(jq -r '
   # ---- reviewers -----------------------------------------------------------
   + err((.reviewers? != null) and ((.reviewers | type) != "object"); "reviewers: must be object")
   + ((.reviewers // {}) |
-      err(((keys) - ["add","remove","modelOverrides"]) != []; "reviewers: unknown keys")
+      (["haiku","sonnet","opus","fable"]) as $models
+      | ($shippedTiers + ((.tierMap // {}) | if type == "object" then keys else [] end)) as $tiers
+      | err(((keys) - ["add","remove","modelOverrides","tierMap"]) != []; "reviewers: unknown keys")
       + err((.add? != null) and ((.add | type) != "array"); "reviewers.add: must be array")
       + err((.remove? != null) and ((.remove | type) != "array"); "reviewers.remove: must be array")
       + ((.remove // []) | if type == "array" then (map(select((type) != "string")) | if length > 0 then ["reviewers.remove: every entry must be a string"] else [] end) else [] end)
       + ((.add // []) | to_entries | map(
           err((.value.name? // "") == ""; "reviewers.add[" + (.key|tostring) + "].name: required")
         ) | add // [])
+      # tierMap VALUES are raw dispatch models — that closed enum is the real one, and the
+      # schema still declares it. Validated before modelOverrides because the effective
+      # alphabet below is built from its keys.
+      + err((.tierMap? != null) and ((.tierMap | type) != "object"); "reviewers.tierMap: must be object")
+      + ((.tierMap // {}) | if type == "object" then (to_entries | map(
+          err((.value | type) != "string" or (.value | IN("haiku","sonnet","opus","fable") | not); "reviewers.tierMap." + .key + ": must be haiku|sonnet|opus|fable")
+        ) | add // []) else [] end)
+      # A modelOverrides value is the closed UNION of the dispatch models and the EFFECTIVE
+      # tier alphabet — the shipped tiers merged with any this config declares. This is the
+      # cross-field constraint JSON Schema cannot express, which is why the schema half
+      # degrades to a bare string and the real check lives here.
       + ((.modelOverrides // {}) | to_entries | map(
-          err(.value | IN("haiku","sonnet","opus","fable") | not; "reviewers.modelOverrides." + .key + ": must be haiku|sonnet|opus|fable")
+          err((.value | IN(($models + $tiers)[])) | not; "reviewers.modelOverrides." + .key + ": must name a dispatch model (haiku, sonnet, opus, fable) or a tier in the effective tierMap")
         ) | add // [])
     )
 

@@ -11,8 +11,9 @@
 # the agent's effective model disagree.
 #
 # Runtime precedence: config reviewers.modelOverrides > .mjs table (every
-# validated .mjs consults modelOverrides before its table); the table is the
-# plugin-shipped default, immutable to consumers. So without an override the
+# validated .mjs consults modelOverrides before its table); the winner is then
+# RESOLVED through the tier map (shipped default, merged with config reviewers.tierMap).
+# The table is the plugin-shipped default, immutable to consumers. So without an override the
 # table must equal the frontmatter (plugin-internal lockstep); with an override,
 # the table may keep the plugin default OR equal the override — a consumer
 # override differing from the shipped table is the per-repo tiering feature
@@ -40,13 +41,17 @@
 # Direction: table -> effective model. Every (agent, model) pair DECLARED in a
 # table must match. The reverse is intentionally NOT checked.
 #
-# Tables validated (unchanged from the single-root era):
+# Tables validated:
 #   - map  REVIEWER_MODEL  in workflows/code-review.mjs
 #   - map  INTAKE_MODEL    in workflows/intake-review.mjs
-#     Each MAP file's dispatch lines may ALSO carry an inline `model: '<tier>'` literal
-#     (the files' shared `structured-emitter` dispatch does); that literal is a
-#     STANDALONE declaration — MAP files have no scalar to fall through to — and is
-#     lockstep-checked against frontmatter/override directly.
+#     Since #351 these declare an abstract TIER, resolved through the alphabet parsed from
+#     model-tiering.md before any comparison. Each file also inlines a DEFAULT_TIER_MAP
+#     copy (the sandbox forbids imports) which is held against that same authority.
+#     A MAP file's dispatch lines may ALSO carry an inline `model: '<tier>'` literal; that
+#     literal is a STANDALONE declaration — MAP files have no scalar to fall through to —
+#     and is lockstep-checked directly. No shipped dispatch carries one today: the
+#     structured-emitter leg that did was moved INTO both maps by #351, which is what gave
+#     it override and tierMap support. The path stays for the next inline carrier.
 #   - a map  DESIGN_MODEL (design-sync.mjs), a scalar UNIT_TEST_MODEL (unit-tests.mjs)
 #     and a scalar EXECUTOR_MODEL (mutation-gate.mjs) — RETIRED in #574 with their
 #     engines; a scalar plan-reviewer constant was RETIRED in #348 with the plan
@@ -56,7 +61,7 @@
 # Error classes:
 #   MISMATCH / DANGLING / NO-FRONTMATTER  the lockstep failures above.
 #   PARSE / MISSING-TABLE / UNLOCATABLE   the script could not read what it validates.
-#   UNKNOWN-MODEL                         a model token outside opus|sonnet|haiku in a
+#   UNKNOWN-MODEL                         a token outside the parsed tier alphabet in a
 #                                         shipped MAP entry (the two map files) or in an
 #                                         inline `model: '<tier>'` literal (BOTH parsed
 #                                         workflow files; further carriers existed until
@@ -194,6 +199,70 @@ fi
 
 errors=()
 
+# --- The tier alphabet, parsed from its authority ----------------------------
+# Shipped dispatch tables name an abstract TIER (`reasoning`), never a vendor token
+# (`opus`). The tier -> dispatch-token map is declared exactly once, in the
+# `## Tier alphabet` table of the dev-pipeline plugin's model-tiering.md, and parsed
+# here. The `.mjs` engines inline a DEFAULT_TIER_MAP copy because the Workflow sandbox
+# forbids imports; check_inline_default_map below holds each copy against this table,
+# which is what makes "one authority" true rather than aspirational.
+#
+# Bash 3.2 compatibility (CI runs a stock-3.2 macOS lane where `declare -A` fails OPEN):
+# the map travels as TAB-separated text and is looked up with awk. No associative
+# arrays anywhere in this script.
+ALPHABET_DOC="$DEV_PIPELINE_ROOT/model-tiering.md"
+
+# Section-anchored: only rows inside `## Tier alphabet` feed the map, so a future table
+# elsewhere in the doc cannot silently extend the alphabet. The header row ('Tier') and
+# the separator row (dashes) fail the lowercase-token patterns and drop out.
+# The parse itself is duplicated in dev-pipeline's config-lint.sh, which needs the same
+# alphabet to judge a modelOverrides value. Pinned as `tier-alphabet-parse` in
+# scripts/lockstep-manifest.tsv — the block between the markers is compared verbatim.
+parse_default_tier_map() { # parse_default_tier_map <doc-path>
+    [ -f "$1" ] || return 0
+# LOCKSTEP-BEGIN tier-alphabet-parse
+    awk '
+        /^##[[:space:]]+Tier alphabet[[:space:]]*$/ { inseg = 1; next }
+        inseg && /^##[[:space:]]/                   { inseg = 0 }
+        inseg && /^\|/ {
+            n = split($0, c, "|")
+            if (n < 4) next
+            tier = c[2]; tok = c[3]
+            gsub(/^[ \t]+|[ \t]+$/, "", tier)
+            gsub(/^[ \t]+|[ \t]+$/, "", tok)
+            if (tier ~ /^[a-z][a-z0-9_-]*$/ && tok ~ /^[a-z][a-z0-9_.-]*$/)
+                printf "%s\t%s\n", tier, tok
+        }
+    ' "$1"
+# LOCKSTEP-END tier-alphabet-parse
+}
+
+# `<tier>` -> dispatch token, or empty when the tier is not in the given map.
+map_lookup() { # map_lookup <map-text> <key>
+    printf '%s\n' "$1" | awk -F'\t' -v k="$2" '$1 == k { print $2; exit }'
+}
+
+DEFAULT_TIER_MAP_TEXT="$(parse_default_tier_map "$ALPHABET_DOC")"
+if [ -z "$DEFAULT_TIER_MAP_TEXT" ]; then
+    errors+=("UNPARSEABLE-ALPHABET: no '## Tier alphabet' table with Tier and Dispatch-token columns in $ALPHABET_DOC. That table is the single authority for the tier -> model default map; without it every shipped table entry is unresolvable, so this fails loud rather than falling back to a hardcoded alphabet that would drift from the doc.")
+fi
+
+# Consumer tierMap (reviewers.tierMap), MERGED over the shipped default per tier: a
+# consumer naming one tier retargets only that tier. Used ONLY to resolve an override
+# value that names a tier — never for the table/frontmatter lockstep, which is held
+# against the shipped default so that a consumer retargeting a tier is not drift. Same
+# posture the modelOverrides precedent already sets below.
+config_tier_map() {
+    [ -n "$CONFIG" ] && [ -f "$CONFIG" ] || return 0
+    jq -r '(.reviewers.tierMap // {}) | to_entries[] | "\(.key)\t\(.value)"' "$CONFIG" 2>/dev/null
+}
+EFFECTIVE_TIER_MAP_TEXT="$(
+    printf '%s\n%s\n' "$DEFAULT_TIER_MAP_TEXT" "$(config_tier_map)" \
+        | awk -F'\t' '
+            NF == 2 { if (!($1 in seen)) { order[++n] = $1; seen[$1] = 1 } m[$1] = $2 }
+            END     { for (i = 1; i <= n; i++) printf "%s\t%s\n", order[i], m[order[i]] }'
+)"
+
 # Strip a leading `plugin:` qualifier, leaving the bare agent name.
 bare() { printf '%s' "$1" | sed -E 's/^[^:]+://'; }
 
@@ -235,12 +304,28 @@ override_model() {
 # from the shipped table is the FEATURE (per-repo tiering from the same plugin),
 # not drift. Without an override, table ↔ frontmatter lockstep is required as
 # before. Agent name compared bare.
+#
+# TIERS (#351): the table now declares a tier, so both sides are compared as RESOLVED
+# dispatch tokens. The table resolves through the SHIPPED DEFAULT map — never the
+# consumer's — so a repo retargeting a tier in `reviewers.tierMap` is not drift, exactly
+# as a differing `modelOverrides` value is not. An override value may itself name a tier
+# (the closed union config-lint enforces), so it resolves through the EFFECTIVE map;
+# a value naming no tier is already a raw dispatch token and passes through.
 check_pair() {
     local raw="$1" table_model="$2" table="$3"
-    local agent file fm ov
+    local agent file fm ov table_resolved ov_resolved
     agent=$(bare "$raw")
     ov=$(override_model "$agent")
     file=$(agent_file "$agent")
+
+    table_resolved=$(map_lookup "$DEFAULT_TIER_MAP_TEXT" "$table_model")
+    if [ -z "$table_resolved" ]; then
+        # Unreachable from the enum-anchored loop (it only yields in-alphabet tiers) and
+        # reported by the counter-scan when it is not. Belt and braces: never compare
+        # against an empty string, which would equal every missing frontmatter.
+        errors+=("UNRESOLVED-TIER: $table declares '$agent' => '$table_model', which the tier alphabet in $ALPHABET_DOC does not define")
+        return
+    fi
     if [ -z "$file" ]; then
         if [ -z "$ov" ]; then
             errors+=("DANGLING: $table declares '$agent' => '$table_model' but no agent file exists in the review-toolkit root ($PLUGIN_AGENTS), the design-toolkit root (${DESIGN_AGENTS:-<not installed>}), or the consumer root, and reviewers.modelOverrides has no entry")
@@ -259,14 +344,50 @@ check_pair() {
         fm="$ov"
     fi
     if [ -n "$ov" ]; then
-        if [ "$table_model" != "$ov" ] && [ "$table_model" != "$fm" ]; then
-            errors+=("MISMATCH: '$agent' — table $table says '$table_model', which matches neither the modelOverride ('$ov') nor the agent frontmatter default ('$fm')")
+        ov_resolved=$(map_lookup "$EFFECTIVE_TIER_MAP_TEXT" "$ov")
+        [ -n "$ov_resolved" ] || ov_resolved="$ov"
+        if [ "$table_resolved" != "$ov_resolved" ] && [ "$table_resolved" != "$fm" ]; then
+            errors+=("MISMATCH: '$agent' — table $table says tier '$table_model' (resolves to '$table_resolved'), which matches neither the modelOverride ('$ov' => '$ov_resolved') nor the agent frontmatter default ('$fm')")
         fi
         return
     fi
-    if [ "$fm" != "$table_model" ]; then
-        errors+=("MISMATCH: '$agent' — frontmatter says '$fm' but $table says '$table_model' (expected '$fm')")
+    if [ "$fm" != "$table_resolved" ]; then
+        errors+=("MISMATCH: '$agent' — frontmatter says '$fm' but $table says tier '$table_model', which resolves to '$table_resolved' (expected a tier resolving to '$fm')")
     fi
+}
+
+# --- The inlined DEFAULT_TIER_MAP copies -------------------------------------
+# The Workflow sandbox forbids imports, so each engine inlines the alphabet. This holds
+# every copy against the parsed authority, which is the whole content of "one authority"
+# once removal is impossible. Keys are UNQUOTED in the .mjs on purpose: the entry scans
+# below match `'key': 'value'`, so a quoted tier map would read as a dispatch table and
+# every tier would be reported DANGLING.
+check_inline_default_map() { # check_inline_default_map <file> <tbl>
+    local file="$1" tbl="$2" block pair tier tok expect
+    block=$(sed -n "/const DEFAULT_TIER_MAP = {/,/^}/p" "$file")
+    if [ -z "$block" ]; then
+        errors+=("MISSING-TIER-MAP: $tbl inlines no 'const DEFAULT_TIER_MAP = {' block, so its tier resolution cannot be held against $ALPHABET_DOC")
+        return
+    fi
+    while IFS= read -r pair; do
+        [ -z "$pair" ] && continue
+        tier=$(printf '%s' "$pair" | sed -E "s/^[[:space:]]*([a-z][a-z0-9_-]*):[[:space:]]*'([^']+)'.*/\1/")
+        tok=$(printf '%s' "$pair" | sed -E "s/^[[:space:]]*([a-z][a-z0-9_-]*):[[:space:]]*'([^']+)'.*/\2/")
+        expect=$(map_lookup "$DEFAULT_TIER_MAP_TEXT" "$tier")
+        if [ -z "$expect" ]; then
+            errors+=("TIER-MAP-DRIFT: $tbl inlines tier '$tier', which the alphabet in $ALPHABET_DOC does not declare")
+        elif [ "$expect" != "$tok" ]; then
+            errors+=("TIER-MAP-DRIFT: $tbl inlines '$tier' => '$tok' but $ALPHABET_DOC declares '$tier' => '$expect'")
+        fi
+    done <<< "$(printf '%s\n' "$block" | grep -E "^[[:space:]]*[a-z][a-z0-9_-]*:[[:space:]]*'[^']+'")"
+
+    # Reverse direction: a tier the authority declares but the engine omits would fall
+    # through to the engine's own default at dispatch, silently, so absence is drift too.
+    while IFS=$'\t' read -r tier _tok; do
+        [ -z "$tier" ] && continue
+        grep -qE "^[[:space:]]*$tier:[[:space:]]*'[^']+'" <<<"$block" && continue
+        errors+=("TIER-MAP-DRIFT: $ALPHABET_DOC declares tier '$tier' but $tbl's DEFAULT_TIER_MAP omits it")
+    done <<< "$DEFAULT_TIER_MAP_TEXT"
 }
 
 # --- UNKNOWN-MODEL: tokens outside the known tier set ------------------------
@@ -279,11 +400,17 @@ check_pair() {
 # UNRESTRICTED and error on anything outside the set, so the enum-anchored parse
 # sites above/below can keep their tri-value strictness without a blind spot.
 #
-# The tier set stays opus|sonnet|haiku for SHIPPED code on purpose. `fable` is an
-# override-only tier (config reviewers.modelOverrides) — a consumer may name it
-# there, where values are never enum-checked, but a shipped table or inline literal
-# declaring it is a lint error BY DESIGN. That is the mechanical half of the
-# override-only posture. If the policy is ever lifted, extend this one constant.
+# The shipped alphabet is now VARIABLE (#351): it is whatever `## Tier alphabet` in
+# model-tiering.md declares, so this constant is derived rather than written. What did
+# NOT change is which layer is restricted — only the enum-anchored EXTRACTION regexes
+# below take this variable; the two counter-scans keep matching `'[^']+'` unrestricted
+# and merely VALIDATE against it, which is the two-layer design that stops an
+# out-of-alphabet token from going invisible.
+#
+# `fable`, and every raw vendor token, is now out-of-alphabet in shipped code by
+# construction: the alphabet holds TIER names, and `fable` is not a tier. A consumer
+# still names it in reviewers.modelOverrides, where values are never enum-checked. That
+# keeps the override-only posture mechanical instead of listed.
 #
 # NOT guarded: agent frontmatter (`frontmatter_model` above). It is read from the
 # consumer root as well as the plugin root, so a repo-local reviewers.add agent may
@@ -291,7 +418,10 @@ check_pair() {
 # it would reject exactly the per-repo expressibility modelOverrides exists to give.
 # A SHIPPED agent that drifts to an unknown tier while named in a table still fails,
 # as MISMATCH rather than UNKNOWN-MODEL, so the failure direction stays safe.
-KNOWN_TIERS_RE='opus|sonnet|haiku'
+KNOWN_TIERS_RE="$(printf '%s\n' "$DEFAULT_TIER_MAP_TEXT" | awk -F'\t' 'NF == 2 { printf "%s%s", sep, $1; sep = "|" }')"
+# An empty alphabet already errored above; keep the regex non-empty so `^()$` cannot
+# match every token and turn the counter-scans into silent no-ops on the way out.
+[ -n "$KNOWN_TIERS_RE" ] || KNOWN_TIERS_RE='\0^NONE'
 
 # MAP entries, whole-file — the same shape the enum-anchored grep uses, minus the
 # enum. Deliberately unrestricted rather than region-extracted: it matches only
@@ -334,6 +464,7 @@ scan_unknown_inline_literals() {
 for tbl in code-review.mjs intake-review.mjs; do
     file="$WF/$tbl"
     [ -f "$file" ] || { errors+=("MISSING-TABLE: $file not found"); continue; }
+    check_inline_default_map "$file" "$tbl"
     scan_unknown_map_entries "$file" "$tbl"
     scan_unknown_inline_literals "$file" "$tbl"
     while IFS= read -r pair; do
@@ -341,7 +472,7 @@ for tbl in code-review.mjs intake-review.mjs; do
         agent=$(printf '%s' "$pair" | sed -E "s/^'([^']+)': '([^']+)'$/\1/")
         model=$(printf '%s' "$pair" | sed -E "s/^'([^']+)': '([^']+)'$/\2/")
         check_pair "$agent" "$model" "$tbl"
-    done <<< "$(grep -oE "'[a-z0-9:-]+': '(opus|sonnet|haiku)'" "$file")"
+    done <<< "$(grep -oE "'[a-z0-9:-]+': '($KNOWN_TIERS_RE)'" "$file")"
 
     # Inline `model:` literals on agentType-bearing dispatch lines. Unlike the scalar
     # loop below, a MAP file has no file-level scalar to fall through to — the inline
@@ -351,9 +482,9 @@ for tbl in code-review.mjs intake-review.mjs; do
     # neither loop's MISMATCH check.
     inline_pairs=$(
         grep -E "agentType: '[a-z0-9:-]+'" "$file" | while IFS= read -r line; do
-            grep -qE "model: '(opus|sonnet|haiku)'" <<<"$line" || continue
+            grep -qE "model: '($KNOWN_TIERS_RE)'" <<<"$line" || continue
             a=$(printf '%s' "$line" | sed -E "s/.*agentType: '([^']+)'.*/\1/")
-            m=$(printf '%s' "$line" | sed -E "s/.*model: '(opus|sonnet|haiku)'.*/\1/")
+            m=$(printf '%s' "$line" | sed -E "s/.*model: '($KNOWN_TIERS_RE)'.*/\1/")
             printf '%s\t%s\n' "$a" "$m"
         done | sort -u
     )

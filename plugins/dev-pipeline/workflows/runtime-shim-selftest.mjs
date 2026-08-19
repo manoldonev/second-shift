@@ -305,6 +305,96 @@ console.log('── Case H: args.config subset delivery (#77)')
 // Function` bodies resolve free variables against the global scope at CALL time (they do
 // not close over this file's lexical scope), and clearTimeout still works normally on the
 // real timer id the patched setTimeout returns.
+
+// ---------------------------------------------------------------------------
+// Case T — the tier seam (#351). Dispatch tables now name an abstract tier, and a
+// config-resolved map turns it into a vendor token. Every assertion here runs the REAL
+// code-review.mjs body through the shim, because this is a resolution ORDER contract
+// (override > table, then map) and the order is invisible to any static read.
+//
+// T1/T2 are the pair that makes this a killer, in the same shape as H2/H3: T1 alone
+// stays green if the tierMap read is dropped entirely, since the shipped default and
+// today's hardcoded token are the same string BY DESIGN — that is the backward-compat
+// requirement. T2 retargets the tier so the two diverge, and only a live map read
+// survives it. T5/T6 are the same pair for the site this ticket brings into the
+// governed set: its model was a hardcoded literal no consumer could reach.
+// ---------------------------------------------------------------------------
+console.log('── Case T: tier resolution through reviewers.tierMap (#351)')
+{
+  // T1 — no tierMap: the tier resolves to exactly the model dispatched before the seam.
+  const { calls } = await runCodeReview([findingsBlock()], {
+    reviewers: ['review-toolkit:complexity-reviewer'],
+    config: { reviewers: {} },
+  })
+  eq('T1 default tierMap resolves code -> sonnet (unchanged for existing consumers)', calls[0]?.opts?.model, 'sonnet')
+}
+{
+  // T2 — a consumer tierMap value REACHES the dispatch. Red if the map is never read.
+  const { calls } = await runCodeReview([findingsBlock()], {
+    reviewers: ['review-toolkit:complexity-reviewer'],
+    config: { reviewers: { tierMap: { code: 'haiku' } } },
+  })
+  eq('T2 a custom tierMap value reaches the dispatched model', calls[0]?.opts?.model, 'haiku')
+}
+{
+  // T3 — precedence: modelOverrides still beats the tierMap for that agent.
+  const { calls } = await runCodeReview([findingsBlock()], {
+    reviewers: ['review-toolkit:complexity-reviewer'],
+    config: { reviewers: { tierMap: { code: 'haiku' }, modelOverrides: { 'complexity-reviewer': 'opus' } } },
+  })
+  eq('T3 modelOverrides beats the tierMap', calls[0]?.opts?.model, 'opus')
+}
+{
+  // T4 — MERGE, not replace: retargeting `code` leaves `reasoning` at its shipped default.
+  // A replace-semantics implementation resolves this to undefined or to the fallback.
+  const { calls } = await runCodeReview([findingsBlock()], {
+    reviewers: ['review-toolkit:security-reviewer'],
+    config: { reviewers: { tierMap: { code: 'haiku' } } },
+  })
+  eq('T4 a partial tierMap leaves untargeted tiers at the shipped default', calls[0]?.opts?.model, 'opus')
+}
+{
+  // T5 — an override may itself NAME a tier (the closed union config-lint enforces),
+  // and it resolves through the effective map rather than reaching dispatch raw.
+  const { calls } = await runCodeReview([findingsBlock()], {
+    reviewers: ['review-toolkit:complexity-reviewer'],
+    config: { reviewers: { modelOverrides: { 'complexity-reviewer': 'reasoning' } } },
+  })
+  eq('T5 an override naming a tier resolves through the map', calls[0]?.opts?.model, 'opus')
+}
+{
+  // T6 — the structured-emitter leg, which carried a hardcoded 'haiku' until #351.
+  const bad = 'REVIEW_RESULT\n```json\n{not valid json,,,}\n```'
+  const emitterObject = { verdict: 'approve', findings: [] }
+  const { calls } = await runCodeReview([bad, bad, emitterObject], {
+    reviewers: ['review-toolkit:complexity-reviewer'],
+    config: { reviewers: {} },
+  })
+  eq('T6 the emit leg still defaults to haiku', calls[2]?.opts?.model, 'haiku')
+}
+{
+  // T7 — and it now HONORS an override, which is the bypass this ticket closes. Red
+  // against the pre-#351 body, whose literal ignored config entirely.
+  const bad = 'REVIEW_RESULT\n```json\n{not valid json,,,}\n```'
+  const emitterObject = { verdict: 'approve', findings: [] }
+  const { calls } = await runCodeReview([bad, bad, emitterObject], {
+    reviewers: ['review-toolkit:complexity-reviewer'],
+    config: { reviewers: { modelOverrides: { 'structured-emitter': 'opus' } } },
+  })
+  eq('T7 the emit leg honors a modelOverrides entry', calls[2]?.opts?.model, 'opus')
+}
+{
+  // T8 — and follows a retargeted `emit` tier too, so a vendor without a haiku-class
+  // model can move the sink without naming the agent.
+  const bad = 'REVIEW_RESULT\n```json\n{not valid json,,,}\n```'
+  const emitterObject = { verdict: 'approve', findings: [] }
+  const { calls } = await runCodeReview([bad, bad, emitterObject], {
+    reviewers: ['review-toolkit:complexity-reviewer'],
+    config: { reviewers: { tierMap: { emit: 'sonnet' } } },
+  })
+  eq('T8 the emit leg follows a retargeted emit tier', calls[2]?.opts?.model, 'sonnet')
+}
+
 // ---------------------------------------------------------------------------
 console.log('── Case M: intake-review.mjs per-agent wall-clock ceiling')
 
