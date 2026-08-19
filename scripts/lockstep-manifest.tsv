@@ -717,3 +717,11 @@ checked-call	verbatim	plugins/dev-pipeline/tools/checked-call.sh	checked-call	pl
 # additionally pinned alone: run-selftests-selftest.sh's AC-1 cases on the writer, (ic1)-(ic5) on
 # the reader. The composed case is repo-only by construction (the staged install cache has no
 # `tools/`), and says so rather than skipping in silence.
+#
+# iso_to_epoch pair (#565). retro-corpus.sh's `timing` mode needs ISO-8601 -> epoch and cannot
+# import pipeline-cost-block.sh's copy: #546 owns every executable line of that file, so
+# extracting a shared helper would collide with it head-on. The contract is the BSD/GNU dual
+# form WITH `-u` on the BSD arm — without it `date -j -f` reads a `Z` string as local time and
+# neither wrong form fails cleanly, so drift here is a silent offset rather than a crash.
+#
+iso-to-epoch	verbatim	plugins/dev-pipeline/tools/pipeline-cost-block.sh	iso-to-epoch	plugins/dev-pipeline/tools/retro-corpus.sh	iso-to-epoch

@@ -25,6 +25,12 @@ comes from `{issue}-lean-progress.md` records already on disk.
   `satisfied(N)` minus the most recent `satisfied` of any lower-numbered milestone, or minus the
   record's first timestamped row when no lower milestone was satisfied. Each span is floored to
   whole minutes. A milestone with no `satisfied` row is absent from `spans`, not zero.
+- **AC-2c:** AC-2's basis is applied LITERALLY on an out-of-order record. `109-lean-progress.md`
+  satisfies milestone 1 at 12:52:14 and milestone 2 at 11:55:09, so span(2) is negative; the
+  value is emitted as measured, floored toward negative infinity, and is never clamped to zero,
+  dropped, or re-based on a different milestone. A clamped span would read as a fast milestone
+  instead of as the out-of-order record it is, and the `fidelity[]` enum is closed, so there is
+  no flag to route it to.
 - **AC-2b:** `spans` NEVER contains a milestone-5 entry. Milestone 5 is close-out bookkeeping
   following the run's defined end (AC-4).
 - **AC-3:** `satisfied(N)` is the record's single `| milestone-N | satisfied` row; no rule
@@ -47,6 +53,9 @@ comes from `{issue}-lean-progress.md` records already on disk.
 - **AC-8:** WHEN any `| milestone-N | started` or `| milestone-N | concluded` row is timestamped
   strictly after that milestone's `satisfied` row THEN the run is flagged `re-run`, and no span
   changes as a result.
+- **AC-7d:** `reverifyMin` and the `re-run` flag scan milestones **1–4**, the same bound `spans`
+  uses. Milestone 5 follows the run's defined end (AC-4), so its churn is close-out bookkeeping
+  and not re-verification of the run.
 - **AC-9:** WHEN a record uses only the pre-`started`/`concluded` grammar THEN AC-2 and AC-4
   still produce values while AC-7 yields null (AC-7b), the run is flagged `old-grammar`, and no
   gate-call-latency field is emitted for any run.
@@ -77,6 +86,11 @@ comes from `{issue}-lean-progress.md` records already on disk.
 - **AC-18:** `perf-retro/SKILL.md` Step 2 no longer names `pauseSpans[]`, `pipelineSessions[]`,
   or the run's `.mode` as fidelity signals; its signals are the `fidelity[]` flags this tool
   emits.
+- **AC-18b:** Step 1's session-id source names what a lean record actually carries (`session_id:`
+  plus its `| session |` rows), not the staged schema's `pipelineSessions[]`, which no run has
+  written since #348. Step 3's per-dispatch-latency bullet reads audit ledgers by session id, so
+  leaving Step 1 pointing at a deleted field would make that bullet unreachable. This is the one
+  Step 1 edit in the change; era enumeration there is untouched.
 - **AC-19:** `perf-retro/SKILL.md` Step 2 states which flags exclude a run from which aggregate
   — at minimum that `over-24h` and `no-chronology` exclude a run from wall-clock aggregates while
   its spans remain usable, and that `re-run` excludes a run from NEITHER — and Step 3 sources

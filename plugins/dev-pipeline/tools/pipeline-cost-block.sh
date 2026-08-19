@@ -18,7 +18,9 @@
 # resolving a state file nothing writes. The two required inputs arrive as ARGUMENTS
 # (the session-id set and a [start, end] time fence, both carried by the lean progress
 # file); the block is emitted to stdout or --out, no PR body is amended, and no
-# cost-log.jsonl row is written (lean is out of the perf corpus by declaration, D-36).
+# cost-log.jsonl row is written (lean is out of the perf corpus by declaration, D-36 —
+# whose CORPUS half is superseded by #565: lean runs are in the perf corpus now, read
+# through `retro-corpus.sh timing`. The no-cost-log-row half above is the live half).
 #
 # TIER BUCKETING. Cost is bucketed by (stage label, TIER), not by stage label alone. The
 # tier comes from each datapoint's `model` telemetry attribute through $TIER_FAMILY_MAP
@@ -184,6 +186,7 @@ FENCE_HI="$ARG_END"
 # everywhere except UTC, which is the same class of bug as trusting the rotated filename.
 # Validated the same way as file_mtime below, and for the same reason: a `date` form that is
 # wrong for the platform is not reliably a non-zero exit, so the digits are the test.
+# LOCKSTEP-BEGIN iso-to-epoch
 iso_to_epoch() {
   local e
   e=$(date -u -j -f "%Y-%m-%dT%H:%M:%SZ" "$1" +%s 2>/dev/null)
@@ -191,6 +194,7 @@ iso_to_epoch() {
   case "$e" in ''|*[!0-9]*) return 1 ;; esac
   printf '%s\n' "$e"
 }
+# LOCKSTEP-END iso-to-epoch
 # BSD `stat -f %m` and GNU `stat -c %Y`, and neither one fails cleanly under the other. On GNU,
 # `-f` is --file-system and `%m` is read as another OPERAND, so the call prints filesystem info
 # for the real file and the `||` fallback never gets a chance to produce a number — the caller
@@ -446,9 +450,10 @@ COST_BLOCK=$(render_block)
 
 # ────────────────────────────────────────────────────────────────────────────
 # Emit. No PR body is amended (the lean session posts the block itself, in its one
-# closing comment) and NO cost-log.jsonl row is written — lean runs are out of the
-# perf corpus by declaration (D-36), so a row here would quietly contaminate
-# cross-run analytics with a harness that has no stages.
+# closing comment) and NO cost-log.jsonl row is written — a row here would quietly
+# contaminate cross-run analytics with a harness that has no stages. This is the LIVE
+# half of D-36; its "lean runs are out of the perf corpus" half is superseded by #565,
+# which derives the lean timing profile from the progress records themselves.
 # ────────────────────────────────────────────────────────────────────────────
 if [ -n "$ARG_OUT" ]; then
   printf '%s\n' "$COST_BLOCK" > "$ARG_OUT" || { log "could not write --out '$ARG_OUT'"; exit 2; }

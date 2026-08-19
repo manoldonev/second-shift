@@ -16,7 +16,7 @@ The data to argue with already exists and has had no systematic consumer. Timing
 - **Read-only over run artifacts.** This skill never mutates existing run state, an eval file, a prior retro, or a tracker item. Everything it wants changed routes through Step 5 and lands elsewhere, under approval. The Step 6 report is its own artifact and the one thing it writes.
 - **No candidate without a measured baseline.** A proposal that cannot cite minutes from the Step 3 profile is not a candidate — it is an impression, and impressions are exactly what this data exists to replace.
 - **Quality is the invariant, not a tradeoff.** A candidate that weakens a gate, drops a review round, removes a retry, or reuses context where a fresh load was deliberate MUST name the concrete mechanism that would catch the regression it risks. Absent one it routes `needs-guard-first` and is **never applied directly** — the guard lands first, in its own change, and the optimization waits for it. Speed is worth having only while the pipeline still catches what it used to.
-- **Server-clock timestamps only.** Every duration derives from the recorded `startedAt`/`completedAt` fields as written by the state helper. Never substitute the wall clock at read time, and never repair a missing field by inference — a missing lifecycle field is a Step 2 signal, not a gap to fill.
+- **Recorded timestamps only.** Every duration derives from stamps the lane already wrote into `{issue}-lean-progress.md` and is read through `retro-corpus.sh timing`, never from the wall clock at read time and never re-derived by hand. Never repair a missing stamp by inference: a run with no terminal marker has a **null** wall-clock and a `fidelity[]` flag, not a substituted merge time, git mtime or last-row fallback. The gap is a Step 2 signal, not a gap to fill.
 - **Per-run timing anomalies stay with `pipeline-retro`.** This skill aggregates across runs; it does not re-audit one run's contract compliance.
 
 ## Step 1: Gather the corpus
@@ -46,8 +46,10 @@ now comes from the cost log and the audit ledgers named below.
 **Completed and aborted runs are both in scope.** An abort is a real cost, often the most expensive shape of run, and excluding it flatters the profile.
 
 Per selected run, gather: the cost log at `<STATE_DIR>/cost-log.jsonl` when present; the timing
-paragraphs of any existing `<key>-retro.md`; and, for each session id in that run's
-`pipelineSessions[]`, the audit ledger at `.claude/audit/<session>.jsonl` when it exists on disk.
+paragraphs of any existing `<key>-retro.md`; and, for each session id the run recorded — the
+progress record's `session_id:` header plus every `| session |` row it appended — the audit
+ledger at `.claude/audit/<session>.jsonl` when it exists on disk. (`pipelineSessions[]` was the
+staged schema's session list and no run has written one since #348 deleted that lane.)
 
 **Model identity (#347 comment, ratified 2026-08-03).** Corpus rows carry `model` so
 cross-model deltas are queryable — an `era: "artifact"` row reads it from the progress/verdict
@@ -59,26 +61,42 @@ by #356/#357, not this step.
 
 ## Step 2: Fidelity triage
 
-**Classify every window trusted or degraded BEFORE aggregating anything.** Some recorded numbers are known-bad, and averaging them in produces a profile that is confidently wrong — worse than no profile, because it survives scrutiny.
+**Classify every run trusted or degraded BEFORE aggregating anything.** Some recorded numbers are known-bad, and averaging them in produces a profile that is confidently wrong — worse than no profile, because it survives scrutiny.
 
-Degraded signals:
+The signals are the `fidelity[]` flags `retro-corpus.sh timing` emits per run. They are read, not re-derived: a triage rule that re-reads the records itself is a second parser that drifts from the first.
 
-1. **Multi-session run with empty or implausibly short pause spans** — wall time far exceeds any plausible compute time, because the idle gap between sessions was never recorded and so was never subtracted.
-2. **Effective equal to wall across calendar days** — the same defect seen from the other side: a run that spans days with nothing subtracted did not pause, according to the data, which cannot be true.
-4. **Human-paced (attended) runs** — a session a human is stepping through measures the human, not the pipeline. Key this off the run's `.mode` (`interactive` ⇒ attended), **not** off `pipelineSessions[].source`: every pipeline-written record carried `source: "interactive"` unconditionally, so that field was a constant and could never discriminate — read literally it degraded every run in the corpus. Seam-registered records carry `source: null`, which makes the constancy visible rather than introducing it.
-6. **A pause with no second session** — a non-empty `pauseSpans[]` alongside fewer than two `pipelineSessions[]` records. A span exists only because a second session resumed, so the two cannot disagree: the run's session accounting is short and its cost is under-attributed by at least one whole session.
+```bash
+bash "${CLAUDE_PLUGIN_ROOT}/tools/retro-corpus.sh" timing --window 15 --json
+```
 
-Degraded windows are **excluded from every aggregate**. They are not discarded: each distinct fidelity defect is a routable instrumentation finding for Step 5, deduped against already-scoped work **by mechanism** — describe what is unrecorded and where, never by ticket number, which rots as fast as it is written.
+| Flag | What it means | Excluded from |
+| --- | --- | --- |
+| `truncated-record` | no `milestone-4` row at all — the build session's record ends where that session ends, so the run's own end was never written | wall-clock aggregates (its `wallClockMin` is null); its spans stay usable |
+| `unterminated` | milestone-4 rows exist but none is `satisfied` — the run got there and did not finish | wall-clock aggregates; spans stay usable |
+| `over-24h` | the measured interval to `milestone-4 \| satisfied` exceeds 24 hours, so it contains unrecorded human idle | wall-clock aggregates; spans stay usable |
+| `no-chronology` | no parseable timestamped row at all | **everything** — there is nothing to aggregate |
+| `re-run` | a milestone was re-verified after it was satisfied | **neither** aggregate. `satisfied` is idempotent, so re-verification moves no span; the churn is reported separately as `reverifyMin` |
+| `old-grammar` | the record predates the `started`/`concluded` vocabulary | nothing. Spans and wall-clock still derive, because both key off `satisfied`, which every generation writes. Only `reverifyMin` is null |
+| `unknown-model` | `model:` absent or `unknown` | nothing. `model` is a reported dimension, never a bucket or a filter |
+
+Read the table as: a flag suppresses the aggregates it names and **no others**. A run excluded from the wall-clock aggregates still contributes its spans, and dropping it wholesale is how a 23-run profile becomes a 5-run one without saying so.
+
+Degraded runs are not discarded. Each distinct fidelity defect is a routable instrumentation finding for Step 5, deduped against already-scoped work **by mechanism** — describe what is unrecorded and where, never by ticket number, which rots as fast as it is written. `truncated-record` is the largest standing one: on the recorded corpus roughly half of all runs carry it.
 
 ## Step 3: Profile
 
-Across trusted runs only, build the table every candidate must cite:
+Across the corpus from Step 1, triaged by Step 2, build the table every candidate must cite. Per-run time comes from `retro-corpus.sh timing` and nowhere else:
 
-- **Per-run effective time** — median, worst, and p90 across the window (nearest-rank, so always a value some run produced).
-- **Review-round count against review time** — one round is the common case, so a round count above one is the first thing to check before attributing the cost to the stage itself.
-- **Ceiling and dark-marker hits** — a dispatch that hit its time ceiling, or died without emitting, costs its full ceiling and returns nothing.
+- **Per-run wall-clock** (`wallClockMin`) — median, worst, and p90 across the runs that carry one (nearest-rank, so always a value some run produced).
+- **Per-milestone spans** (`spans`) — milestones 1–4, the same basis on every run: span(N) is `satisfied(N)` minus the most recent `satisfied` of a lower-numbered milestone. This is where the time actually goes, and it is available on runs whose wall-clock is not. Report per-milestone medians over every run that brackets that milestone, and say how many runs each median is over — the counts differ per column.
+- **Re-verification churn** (`reverifyMin`) — a diagnostic, reported beside the spans and **never summed with them**. Spans are independently floored, so `sum(spans)` does not equal `wallClockMin` and no row should claim it does.
+- **Review rounds** (`rounds`) against milestone-4 span — one round is the common case, so a round count above one is the first thing to check before attributing review cost to the stage itself. Null on records carrying no `round=` token; those are absent from this column, not zero.
 - **Per-dispatch latency** from audit-ledger `SubagentStop` differencing, where ledgers exist. When no ledger covers the window, **omit the column entirely** rather than showing partial rows that read as complete.
 - **Cost rows** where the cost log covers the run.
+
+An artifact-only corpus is a normal input and produces a **populated** table: every field above except the last two derives from the progress records alone. "Not applicable" and an empty table are both wrong answers here — if the profile is thin, that is a Step 2 fidelity count to report, not a table to skip.
+
+Report `model` as a dimension alongside the profile where it shows a difference. Never bucket by it, and never hardcode a vendor model string.
 
 This table is the measured baseline. Steps 4 and 5 refer back to it by number, not by recollection.
 
@@ -112,8 +130,11 @@ Write `.claude/pipeline-state/perf-retro-{YYYY-MM-DD}.md`. A second pass on the 
 
 ## Profile (trusted runs only)
 
-| Run | Effective | p90 | Model | Notes |
-| --- | --------- | --- | ----- | ----- |
+| Run | Wall-clock | Spans (1-4) | Reverify | Rounds | Model | Flags |
+| --- | ---------- | ----------- | -------- | ------ | ----- | ----- |
+
+Runs with a null wall-clock still appear, with their spans and their flags — an omitted row
+reads as a run that did not happen.
 
 Runs profiled: {n} trusted, {d} degraded.
 
