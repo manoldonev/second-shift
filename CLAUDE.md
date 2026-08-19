@@ -186,10 +186,12 @@ diff-scoped on every PR (the `mutation-sweep-pr` CI job) and wholesale nightly. 
 the only places it runs** — the lean gate's milestone 3 does not sweep, and #580 deleted the lane
 that did, because it made the identical invocation the PR job already makes. Survivors are
 **data**, not a red build — only a
-survivor absent from `tools/mutation-baseline.tsv`, or a named infra failure, reds a lane. Two
-obligations land on ordinary PRs: editing a guard's CODE re-keys its generic survivor ordinals
-(re-baseline those rows in the same diff), and re-anchors any `tools/mutation-catalog.tsv` row
-addressing it. Comment lines are not sites, so a comment-only edit re-keys nothing.
+survivor absent from `tools/mutation-baseline.tsv`, or a named infra failure, reds a lane.
+Generic survivor ids are **content-keyed**: the id is derived from the matched line itself, not
+from its position, so inserting a line above a site, moving a block, or editing a comment re-keys
+nothing and an ordinary guard edit carries **no re-baseline obligation**. One obligation still
+lands on ordinary PRs: editing a guard's CODE re-anchors any `tools/mutation-catalog.tsv` row
+addressing it, because catalog anchors are literal seds.
 Full contract: [`docs/testing.md`](docs/testing.md).
 
 **A new gate contract extends the liveness scenario** for every verdict path it touches — a gate

@@ -4,17 +4,22 @@
 #   id <TAB> match <TAB> flip
 #
 # id     A stable token. It is BYTE-COMPARED inside generic survivor ids
-#        (`<guard relpath>::<id>::<ordinal>`), so renaming an id re-keys every survivor
-#        it produced. One id per textual mutation — never a prose "family".
+#        (`<guard relpath>::<id>::<key>`), so renaming an id re-keys every survivor it
+#        produced. One id per textual mutation — never a prose "family".
 # match  The site-enumerating ERE, applied with `grep -nE --` (the option terminator is
 #        load-bearing: a match may begin with a hyphen, and a match grep cannot run as a
 #        pattern is a named red, never a silent zero-site pass). A SITE IS A MATCHED LINE
 #        THAT IS NOT A COMMENT: at most one mutation per line per operator, and lines
 #        matching `^[[:space:]]*#` are dropped from the matched-line list BEFORE anything
-#        is counted (#579). Ordinals index that filtered list in file order (1-based), so
-#        raising the per-guard budget K re-keys nothing; editing a guard's applicable-site
-#        set DOES re-key its ordinals, and the PR that edits the guard re-baselines those
-#        rows in its own diff. Adding or deleting a COMMENT no longer re-keys anything.
+#        is counted (#579). A site's IDENTITY is its content, not its place in that list
+#        (#583): `<key>` is 12 hex of a sha256 over the whitespace-normalized matched line
+#        plus its occurrence index among the operator's normalization-identical matched
+#        lines in the same guard. So raising the per-guard budget K re-keys nothing, adding
+#        or deleting a COMMENT re-keys nothing, inserting a killable line above a site
+#        re-keys nothing, and MOVING a block — indentation changed or not — re-keys nothing.
+#        An ordinary guard edit therefore carries NO re-baseline obligation. Only editing a
+#        site's own line, or removing one of its normalization-identical siblings from
+#        earlier in the file, changes a key.
 #
 #        The exclusion is not an optimization. A comment flip changes no reachable
 #        behavior, so no suite can kill it: every comment site was a permanent baseline
@@ -27,8 +32,9 @@
 #        placeholder __MUT__ so the program is not self-cancelling (a naive
 #        `s/-eq/-ne/; s/-ne/-eq/` restores the original).
 #
-# Editing a `match` regex re-keys that operator's ordinals sweep-wide, and the PR that
-# edits it re-baselines them — the same rule as editing a guard.
+# Editing a `match` regex changes WHICH lines are sites, so it can drop rows sweep-wide and,
+# where it removes a normalization-identical sibling, re-key the ones that followed it. It no
+# longer re-keys an operator's whole set: the sites it leaves matching keep their keys.
 #
 # An operator with no applicable site in a guard is NORMAL: it contributes no mutants.
 # Non-application is data, never red. (15 of the 34 same-stem-paired guards contain no

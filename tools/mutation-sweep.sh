@@ -11,6 +11,16 @@
 #   mutation-sweep.sh --mode full [--seed] [--shard i/N] [--report F] [--baseline-out F] [--slow-out F]
 #   mutation-sweep.sh --mode pr --base <ref> [--report F]
 #   mutation-sweep.sh --mode merge --shards-dir <dir> [--report F] [--baseline-out F] [--slow-out F]
+#   mutation-sweep.sh --emit-site-keys
+#
+# SURVIVOR IDENTITY is `<guard relpath>::<operator id>::<key>` for the generic tier and
+# `catalog::<id>` for the hand-authored one. <key> is CONTENT-derived — 12 hex of a sha256
+# over the whitespace-normalized matched line and its occurrence index among the operator's
+# normalization-identical matched lines in that guard. It is NOT the site's position, so
+# inserting a line above a site, or moving a block (indentation included), re-keys nothing
+# and obliges no re-baseline. `--emit-site-keys` prints
+# `<guard><TAB><operator><TAB><ordinal><TAB><key>` for every enumerated site and scores
+# nothing; the ordinal is a locator for humans, never an identity.
 #
 # SHARDING — `--shard i/N` (full mode only) sweeps the i-th residue class of the sorted
 # non-excluded guard list (round-robin: guard at sorted index j belongs to shard j%N+1).
@@ -33,7 +43,10 @@
 #   run (`baseline-missing`), catalog anchor drift, a bash -n-invalid CATALOG mutant, an
 #   operator match grep cannot run as a pattern, an
 #   unaccounted guard, an unrunnable pair, a baseline environment mismatch
-#   (`baseline-environment-mismatch`), a sandbox failure, or — in merge mode — a guard
+#   (`baseline-environment-mismatch`), a baseline written under different keying
+#   (`baseline-keying-mismatch`, checked in EVERY mode, advisory runs included), two
+#   enumerated sites sharing one 12-hex key (`site-key collision`), no sha binary at the
+#   first key computation (`no-sha-binary`), a sandbox failure, or — in merge mode — a guard
 #   with no shard row (`merge incomplete`, a shard died before publishing), a guard with
 #   several (`merge overlap`, the partition is broken), a shard whose report has no
 #   completion marker (`merge truncated`, streamed partial evidence), or shard artifacts
@@ -227,6 +240,15 @@ SHARDS_DIR=""
 # shard-1-only report rows (excluded guards) emit exactly once.
 SHARD_I=1
 SHARD_N=1
+# --emit-site-keys: enumerate and print `<guard>\t<operator>\t<ordinal>\t<key>`, scoring
+# nothing. It ships as a MODE of this file rather than as a new tools/*.sh because a new
+# script would oblige a paired selftest and enter the guard universe, whereas this one
+# inherits both this file's companion suite and its recursion-guard exclusion. It exists for
+# two consumers: the operator migrating the baseline (the mapping is re-derivable rather than
+# hand-checked) and the companion selftest, which needs a fixture's survivor id WITHOUT a
+# scoring run — the only way to convert the hard-coded positional sids without re-implementing
+# the key function inside the suite, which would be a mirror harness.
+EMIT_KEYS=0
 
 die() { echo "[mutation-sweep] FATAL: $*" >&2; exit 2; }
 
@@ -240,7 +262,8 @@ while [[ $# -gt 0 ]]; do
     --slow-out)     SLOW_OUT="${2:-}"; shift 2 ;;
     --shard)        SHARD_SPEC="${2:-}"; shift 2 ;;
     --shards-dir)   SHARDS_DIR="${2:-}"; shift 2 ;;
-    -h|--help)      sed -n '2,52p' "$0"; exit 0 ;;
+    --emit-site-keys) EMIT_KEYS=1; shift ;;
+    -h|--help)      sed -n '2,65p' "$0"; exit 0 ;;
     *)              die "unknown argument: $1" ;;
   esac
 done
@@ -249,6 +272,18 @@ case "$JOBS" in ''|*[!0-9]*) die "MUTATION_SWEEP_JOBS must be a positive integer
 [[ "$JOBS" -ge 1 ]] || die "MUTATION_SWEEP_JOBS must be at least 1: '$JOBS'"
 case "$CACHE_MAX" in ''|*[!0-9]*) die "MUTATION_SWEEP_CACHE_MAX must be a non-negative integer: '$CACHE_MAX'" ;; esac
 
+if [[ $EMIT_KEYS -eq 1 ]]; then
+  [[ -z "$MODE" || "$MODE" == "full" ]] || die "--emit-site-keys applies only to --mode full"
+  MODE="full"
+  [[ $SEED -eq 0 ]] || die "--emit-site-keys scores nothing, so --seed does not apply"
+  # It derives identity, so it must never serve one from a memo: a cache entry is a VERDICT,
+  # and this mode produces none.
+  CACHE_ENABLED=0
+  # Key rows are the ONLY thing on stdout. `info` writes there, and an operator migrating a
+  # baseline pipes this straight into a mapping — so every diagnostic the run emits moves to
+  # stderr for the duration, and the rows go out on the saved descriptor.
+  exec 3>&1 1>&2
+fi
 [[ "$MODE" == "full" || "$MODE" == "pr" || "$MODE" == "merge" ]] || die "--mode must be 'full', 'pr', or 'merge'"
 [[ "$MODE" == "pr" && -z "$BASE_REF" ]] && die "--mode pr requires --base <ref>"
 [[ "$MODE" == "pr" && $SEED -eq 1 ]] && die "--seed does not apply to PR mode (a diff-scoped baseline would be partial)"
@@ -453,12 +488,19 @@ is_slow() {
 # ------------------------------------------------------------------- hashing
 # shasum ships with macOS and with the ubuntu runner's perl; sha256sum is coreutils. If
 # NEITHER resolves the cache disables itself rather than keying on something weaker — a
-# cache that cannot compute its own key must serve no entries at all.
+# cache that cannot compute its own key must serve no entries at all, and a run that must
+# compute a SITE key reds by name (require_sha, below).
+#
+# sha256sum is PREFERRED, and the order is measured rather than stylistic. Survivor identity
+# is content-keyed, so the sweep now hashes once per enumerated site — 3,117 of them on the
+# current tree — instead of once per cache probe. `shasum` is a perl script and costs ~14ms
+# per invocation against ~3ms for the `sha256sum` C binary: 45s of enumeration versus 10s on
+# the same corpus. Both emit the same digest, so the preference costs nothing but time saved.
 SHA_KIND=""
-if command -v shasum >/dev/null 2>&1; then
-  SHA_KIND="shasum"
-elif command -v sha256sum >/dev/null 2>&1; then
+if command -v sha256sum >/dev/null 2>&1; then
   SHA_KIND="sha256sum"
+elif command -v shasum >/dev/null 2>&1; then
+  SHA_KIND="shasum"
 fi
 
 sha_stdin() {
@@ -471,6 +513,92 @@ sha_stdin() {
 sha_file() {
   [[ -f "$1" ]] || return 1
   sha_stdin < "$1"
+}
+
+# ------------------------------------------------------------- content keying
+# A generic survivor id is `<guard relpath>::<operator id>::<key>`, and <key> identifies the
+# site by its CONTENT. It used to be the ORDINAL — the site's 1-based position in the
+# operator's matched-line list — which made identity positional: inserting one killable line
+# above an existing site renumbered every site below it, so an edit that changed nothing about
+# a mutant still re-keyed its baseline row. That coupling taxed every guard-editing PR with a
+# re-baseline in its own diff, and it left #543 unresolvable outright once its guard moved to
+# the nightly lane and the re-key evidence stopped being obtainable at PR time.
+#
+# THE WIRE FORMAT IS UNCHANGED — three `::`-separated segments — so `${sid%%::*}`, the
+# baseline reader and the well-formedness lint keep working byte for byte.
+#
+# <key> is the first 12 hex of a sha256 over the whitespace-normalized matched line together
+# with that line's occurrence index among the operator's matched lines IN THE SAME GUARD that
+# normalize to the SAME string. Three properties are load-bearing:
+#
+#   * NO CONTEXT WINDOW. `git patch-id --stable` is this repo's trusted content hash and is
+#     the wrong instrument here: it hashes a hunk's CONTEXT lines, so an untouched block
+#     re-keys when a neighbour moves (measured in this repo on PR #452 and PR #480). Context
+#     sensitivity is precisely the property content keying exists to remove.
+#   * THE INDEX RANGES OVER THE SAME EQUIVALENCE CLASS AS THE HASH INPUT. Indexing over
+#     BYTE-identical siblings while hashing the NORMALIZED line would hand two lines that
+#     differ only in indentation the same index over the same string — one key for two sites.
+#     Measured on this tree: 119 normalization-identical duplicate groups against 95
+#     byte-identical ones, so 24 groups would collide and the collision red below would fire
+#     on `main`. awk computes both in one pass for that reason.
+#   * THE INDEX COUNTS ALL MATCHED LINES, not applied ones. mutation-operators.tsv promises
+#     that raising K re-keys nothing; indexing over the applied subset would break that
+#     promise for every site past the budget, and for every site skipped as a no-op or an
+#     unparseable flip.
+SITE_KEYING="content-v1"
+# Width of the emitted key, and of the collision check below. Overridable for the same reason
+# MUTATION_SWEEP_KILLER_MAX_PROCS is: a genuine 12-hex sha collision is a ~2^24 birthday
+# search, so the companion suite could not otherwise reach the red at all. NARROWING THE
+# COMPARISON IS ALL THE SEAM DOES — it never changes an emitted id, so a leaked value can only
+# manufacture a loud false collision, never quietly re-key a baseline. At the default it IS the
+# emitted key, byte for byte.
+SITE_KEY_CMP_HEX="${MUTATION_SWEEP_SITE_KEY_CMP_HEX:-12}"
+case "$SITE_KEY_CMP_HEX" in
+  ''|*[!0-9]*) die "MUTATION_SWEEP_SITE_KEY_CMP_HEX must be an integer in 1..12: '$SITE_KEY_CMP_HEX'" ;;
+esac
+[[ "$SITE_KEY_CMP_HEX" -ge 1 && "$SITE_KEY_CMP_HEX" -le 12 ]] \
+  || die "MUTATION_SWEEP_SITE_KEY_CMP_HEX must be an integer in 1..12: '$SITE_KEY_CMP_HEX'"
+
+# FAIL CLOSED, LAZILY. The hash used to be load-bearing only for the CACHE, which could simply
+# disable itself; it is now load-bearing for IDENTITY, so a run that cannot compute a key must
+# red by name rather than invent one. Fired at the first key computation and NOT at SHA_KIND
+# resolution: resolving-time would red `--mode merge` and the "PR mode: nothing to sweep"
+# early exit, neither of which computes a key, so a doc-only PR would go red on a host that
+# has neither binary.
+SHA_MISSING_REPORTED=0
+require_sha() {
+  [[ -n "$SHA_KIND" ]] && return 0
+  if [[ $SHA_MISSING_REPORTED -eq 0 ]]; then
+    SHA_MISSING_REPORTED=1
+    red "no-sha-binary: survivor ids are content-keyed and neither sha256sum nor shasum resolves, so no site key can be computed."
+    detail "install GNU coreutils (sha256sum) or perl (shasum). Nothing was enumerated."
+  fi
+  return 1
+}
+
+# `<lineno><TAB><ordinal><TAB><key>` for a comment-filtered `grep -n` site list on stdin.
+# Normalization and the occurrence index are computed in ONE awk pass so the two can never
+# range over different equivalence classes; the sha is the only per-site fork. The ordinal is
+# still emitted, but as a LOCATOR for --emit-site-keys and the log — nothing keys on it.
+site_key_rows() {
+  local lineno ord occ norm key
+  while IFS="$TAB" read -r lineno ord occ norm; do
+    [[ -n "$lineno" ]] || continue
+    key="$(printf '%s\n%s\n' "$occ" "$norm" | sha_stdin)" || return 1
+    printf '%s\t%s\t%s\n' "$lineno" "$ord" "${key:0:12}"   # 12 hex, always — SITE_KEY_CMP_HEX narrows only the check
+  done < <(awk '
+    {
+      p = index($0, ":")
+      if (p == 0) next
+      lineno = substr($0, 1, p - 1)
+      line = substr($0, p + 1)
+      gsub(/\t/, " ", line)
+      gsub(/  +/, " ", line)
+      sub(/^ +/, "", line)
+      sub(/ +$/, "", line)
+      occ = ++seen[line]
+      printf "%s\t%d\t%d\t%s\n", lineno, ++ord, occ, line
+    }')
 }
 
 if [[ "$CACHE_ENABLED" == "1" && -z "$SHA_KIND" ]]; then
@@ -840,10 +968,15 @@ if [[ "$MODE" == "merge" ]]; then
     # lines, so a duplicated or dropped header is a broken baseline, not a cosmetic one.
     BL_ENV0="$(grep -m1 '^# environment:' "${SHARD_BASELINES[0]}" || true)"
     BL_K0="$(grep -m1 '^# k=' "${SHARD_BASELINES[0]}" || true)"
-    [[ -n "$BL_ENV0" && -n "$BL_K0" ]] || red "seed merge: shard baseline lacks the environment/k header: ${SHARD_BASELINES[0]}"
+    # `# keying:` joins the equality set rather than only the written header. Without it a
+    # mixed-keying shard set — one shard from a stale checkout — merges silently into a
+    # file that looks valid and whose rows name two different identity functions.
+    BL_KEY0="$(grep -m1 '^# keying:' "${SHARD_BASELINES[0]}" || true)"
+    [[ -n "$BL_ENV0" && -n "$BL_K0" && -n "$BL_KEY0" ]] || red "seed merge: shard baseline lacks the environment/k/keying header: ${SHARD_BASELINES[0]}"
     for f in "${SHARD_BASELINES[@]}"; do
-      [[ "$(grep -m1 '^# environment:' "$f" || true)" == "$BL_ENV0" && "$(grep -m1 '^# k=' "$f" || true)" == "$BL_K0" ]] \
-        || red "seed merge: baseline header mismatch across shards ($f) — shards ran in different environments"
+      [[ "$(grep -m1 '^# environment:' "$f" || true)" == "$BL_ENV0" && "$(grep -m1 '^# k=' "$f" || true)" == "$BL_K0" \
+        && "$(grep -m1 '^# keying:' "$f" || true)" == "$BL_KEY0" ]] \
+        || red "seed merge: baseline header mismatch across shards ($f) — shards ran in different environments or under different keying"
     done
     {
       grep '^#' "${SHARD_BASELINES[0]}"
@@ -881,8 +1014,10 @@ if [[ "$MODE" == "pr" && ${#SWEEP_GUARDS[@]} -eq 0 ]]; then
 fi
 
 # ------------------------------------------------------- baseline + environment
-# Seed mode never enforces; it PRODUCES the baseline. Everything below is skipped for it.
-if [[ $SEED -eq 0 ]]; then
+# Seed mode never enforces; it PRODUCES the baseline. Everything below is skipped for it —
+# and for --emit-site-keys, which compares no survivor and must stay runnable against the
+# very ordinal-keyed baseline an operator is invoking it to migrate.
+if [[ $SEED -eq 0 && $EMIT_KEYS -eq 0 ]]; then
   if [[ ! -f "$BASELINE" ]]; then
     if [[ $ENFORCING -eq 1 ]]; then
       red "baseline-missing: $BASELINE absent in an enforcing non-seed run. Re-seed via mutation-sweep.yml (workflow_dispatch, seed=true)."
@@ -893,6 +1028,19 @@ if [[ $SEED -eq 0 ]]; then
     BL_ENV_LINE="$(grep -m1 '^# environment:' "$BASELINE" 2>/dev/null || true)"
     BL_K_LINE="$(grep -m1 '^# k=' "$BASELINE" 2>/dev/null || true)"
     BL_K="${BL_K_LINE#\# k=}"
+    # The keying header, checked in EVERY mode — advisory as well as enforcing. The env/k
+    # check below is gated on ENFORCING because a local macOS run legitimately differs from
+    # the canonical environment; a keying mismatch is not a lane difference, it is a baseline
+    # written under a DIFFERENT IDENTITY FUNCTION. Read content keys against an ordinal-keyed
+    # baseline and every row reports "now KILLED" while every survivor reports
+    # baseline-absent — a doubled false signal, and the local advisory run is exactly where
+    # that does its damage, since it is the one nobody re-reads in CI.
+    BL_KEYING_LINE="$(grep -m1 '^# keying:' "$BASELINE" 2>/dev/null || true)"
+    if [[ "${BL_KEYING_LINE#\# keying: }" != "$SITE_KEYING" ]]; then
+      red "baseline-keying-mismatch: $BASELINE declares '${BL_KEYING_LINE:-<no keying header>}', this sweep keys survivors '$SITE_KEYING'. Survivors NOT compared."
+      detail "migrate it: bash tools/mutation-sweep.sh --emit-site-keys > site-keys.tsv, then re-key each row by <guard>+<operator>+<ordinal>."
+      finish
+    fi
     if [[ $ENFORCING -eq 1 ]]; then
       # The header's `ubuntu-latest` text is DOCUMENTARY: no Actions variable exposes the
       # runs-on label, and ImageOS is deliberately unstable across image rollouts (keying
@@ -1596,13 +1744,34 @@ for guard in ${SWEEP_GUARDS[@]+"${SWEEP_GUARDS[@]}"}; do
       CMTONLY="${CMTONLY:+$CMTONLY+}$opid:$raw_sites"
       info "all $raw_sites site(s) excluded as comment lines: $opid on $guard"
     fi
-    ordinal=0; used=0; beyond=0
-    while IFS= read -r lineno; do
+    # Every enumerated site gets a key HERE, before the budget gate — the collision check
+    # below ranges over all of them, and --emit-site-keys prints all of them.
+    SITE_ROWS=""
+    if [[ -n "$SITES" ]]; then
+      require_sha || finish
+      SITE_ROWS="$(printf '%s\n' "$SITES" | site_key_rows)"
+      # 12 hex is a real, if remote, collision surface, and the occurrence index cannot close
+      # it: two lines that normalize DIFFERENTLY can still share a prefix. Ranging the check
+      # over every enumerated site rather than the emitted sids is what names such a collision
+      # NOW instead of letting it surface as a silently merged identity the day K rises or a
+      # skip stops firing.
+      DUPKEY="$(printf '%s\n' "$SITE_ROWS" | cut -f3 | cut -c1-"$SITE_KEY_CMP_HEX" | sort | uniq -d | head -1)"
+      if [[ -n "$DUPKEY" ]]; then
+        red "site-key collision: two enumerated sites of $opid on $guard both key to $DUPKEY"
+        detail "colliding lines: $(printf '%s\n' "$SITE_ROWS" | awk -F"$TAB" -v k="$DUPKEY" 'substr($3,1,length(k))==k{printf "%s ", $1}')"
+      fi
+    fi
+    used=0; beyond=0
+    while IFS="$TAB" read -r lineno ordinal key; do
       [[ -n "$lineno" ]] || continue
-      ordinal=$((ordinal + 1))
-      # keep counting ordinals; stop mutating. The declined sites are TALLIED rather than
-      # dropped: they are the difference between a guard with no applicable site and a
-      # guard that is dark, and the report could not previously say which.
+      if [[ $EMIT_KEYS -eq 1 ]]; then
+        printf '%s\t%s\t%s\t%s\n' "$guard" "$opid" "$ordinal" "$key" >&3
+        continue
+      fi
+      # stop mutating past the budget. The declined sites are TALLIED rather than dropped:
+      # they are the difference between a guard with no applicable site and a guard that is
+      # dark, and the report could not previously say which. They keep their keys — the
+      # budget has never been part of a site's identity and still is not.
       [[ $used -ge $K_BUDGET ]] && { beyond=$((beyond + 1)); continue; }
       REPL="$(mktemp -t mutation-sweep-line.XXXXXX)"
       awk -v n="$lineno" 'NR==n' "$GFILE" | sed -E -e "$opflip" > "$REPL"
@@ -1612,16 +1781,16 @@ for guard in ${SWEEP_GUARDS[@]+"${SWEEP_GUARDS[@]}"}; do
         # A generic mutant that will not parse is a HARNESS ARTIFACT, not a finding:
         # sites are machine-enumerated, so a blind flip can land somewhere it cannot be
         # expressed. Skipped and logged, never red. (Catalog mutants are the opposite.)
-        info "skip (bash -n invalid, harness artifact): $guard::$opid::$ordinal"
+        info "skip (bash -n invalid, harness artifact): $guard::$opid::$key"
         restore "$guard"; continue
       fi
       if git -C "$SB0" diff --quiet -- "$guard"; then
-        info "skip (no-op flip): $guard::$opid::$ordinal"
+        info "skip (no-op flip): $guard::$opid::$key"
         restore "$guard"; continue
       fi
       used=$((used + 1))
       GL_APPLIED[gi]=$(( GL_APPLIED[gi] + 1 ))
-      sid="$guard::$opid::$ordinal"
+      sid="$guard::$opid::$key"
       cp "$GFILE" "$WORKDIR/blob.$IDX"
       MKEY=""
       [[ "$CACHE_ENABLED" == "1" ]] && MKEY="$(cache_key "$(sha_file "$GFILE")" "$SSHA")"
@@ -1630,9 +1799,13 @@ for guard in ${SWEEP_GUARDS[@]+"${SWEEP_GUARDS[@]}"}; do
       MUT_SID[IDX]="$sid"
       IDX=$((IDX + 1))
       restore "$guard"
-    done <<< "$(printf '%s\n' "$SITES" | cut -d: -f1)"
+    done <<< "$SITE_ROWS"
     [[ $beyond -gt 0 ]] && BEYOND="${BEYOND:+$BEYOND+}$opid:$beyond"
   done
+  # --emit-site-keys is done with this guard at the generic tier: the catalog tier's ids are
+  # `catalog::<cid>`, hand-authored and already position-free, so it has nothing to derive
+  # there and no reason to pay for applying its seds.
+  [[ $EMIT_KEYS -eq 1 ]] && continue
 
   # ---- catalog tier
   cat_i=0
@@ -1676,6 +1849,15 @@ for guard in ${SWEEP_GUARDS[@]+"${SWEEP_GUARDS[@]}"}; do
   GL_CMTONLY[gi]="$CMTONLY"
   gi=$((gi + 1))
 done
+
+# --emit-site-keys stops HERE — deriving identity is the whole job, and phases 2-5 all score.
+# It exits on $RC rather than 0 so an unaccounted guard or a key collision is still a red
+# answer: a mapping derived from a corpus the sweep cannot account for is not one to migrate a
+# baseline with.
+if [[ $EMIT_KEYS -eq 1 ]]; then
+  info "emitted site keys for ${#SWEEP_GUARDS[@]} guard(s); keying=$SITE_KEYING"
+  exit "$RC"
+fi
 
 # ===================================================================== PHASE 2
 # CACHE PROBE, serially. A hit is written straight to its verdict file; a miss goes to the
@@ -1892,6 +2074,7 @@ if [[ $SEED -eq 1 ]]; then
     echo "# An EMPTY baseline (headers only) is valid; a MISSING baseline in an enforcing run is infra red."
     echo "# environment: ubuntu-latest SKIP_STRESS=1"
     echo "# k=$K_BUDGET"
+    echo "# keying: $SITE_KEYING"
     echo "#"
     echo "# survivor_id<TAB>note"
     for sid in $TOTAL_SURVIVORS; do printf '%s\tseeded by the canonical seed run\n' "$sid"; done
