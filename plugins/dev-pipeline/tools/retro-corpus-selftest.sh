@@ -734,10 +734,38 @@ else
   fail "(565 AC-2/skip) milestone 3 present in spans — got $SP"
 fi
 
+# ── 914: AC-2 applied to an OUT-OF-ORDER record, which the real corpus contains. This is
+# `109-lean-progress.md`'s shape to the second: milestone 1 is satisfied at 12:52:14, AFTER
+# milestone 2 at 11:55:09, so span(2) measures backwards and is genuinely negative. The value is
+# emitted as measured — clamping it to 0 would read as a fast milestone instead of as the
+# out-of-order record it is, and the fidelity enum is closed, so there is no flag to route it to.
+#
+# The stamps are chosen so the negative span is NOT a whole number of minutes: -57m05s floors to
+# -58 and TRUNCATES to -57. bash's `/` truncates toward zero, so an implementation that reaches
+# for it directly — or one that drops the negative arm of the floor — reports -57 here and is
+# correct on every non-negative span in the suite.
+mktiming "$T" 914 "sonnet" <<'EOF'
+2026-08-21T11:30:16Z | milestone-1 | attempt | no committed spec at docs/plans/second-shift-914-lean.md
+2026-08-21T11:55:09Z | milestone-2 | satisfied
+2026-08-21T12:09:21Z | milestone-3 | satisfied
+2026-08-21T12:52:08Z | milestone-4 | satisfied
+2026-08-21T12:52:14Z | milestone-1 | satisfied
+EOF
+OUT="$(run_timing "$T")"
+SP="$(tf "$OUT" 914 '.spans | to_entries | map("\(.key)=\(.value)") | join(",")')"
+W="$(tf "$OUT" 914 .wallClockMin)"
+if [ "$SP" = "1=81,2=-58,3=14,4=42" ] && [ "$W" = "81" ]; then
+  pass "(565 AC-2c) an out-of-order record yields a negative span, FLOORED not truncated, and is never clamped"
+else
+  fail "(565 AC-2c) expected spans 1=81,2=-58,3=14,4=42 and wall 81 — got spans=$SP wall=$W"
+fi
+
 # ── AC-1: window and sort semantics mirror corpus — newest-first on startedAt, THEN the slice.
 OUT="$(run_timing "$T" --window 2)"
 KEYS="$(jq -r '[.[].ticketKey] | join(",")' <<<"$OUT")"
-if [ "$KEYS" = "912,911" ]; then
+# 914 (2026-08-21) then 912 (2026-08-20) are the two newest startedAt values in $T. An
+# unsorted slice would return the two the glob happened to reach first.
+if [ "$KEYS" = "914,912" ]; then
   pass "(565 AC-1) rows sort newest-first on startedAt before the --window slice, matching corpus"
 else
   fail "(565 AC-1/window) expected 912,911 — got $KEYS"
