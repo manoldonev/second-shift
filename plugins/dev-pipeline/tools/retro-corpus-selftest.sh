@@ -788,8 +788,9 @@ fi
 # not adopt it either — two renderings, each stated where it applies.
 TSV="$( cd "$TREE" && bash "$TOOL" timing --state-dir "$T" 2>/dev/null )"
 ROW904="$(printf '%s\n' "$TSV" | awk -F'\t' '$1 == "904"')"
+TSV_HEAD="$(printf '%s\n' "$TSV" | head -n1)"
 if [ "$ROW904" = "$(printf '904\t-\t1=10,2=30,3=30\t-\t-\tindeterminate\tsonnet\ttruncated-record')" ] \
-   && ! printf '%s\n' "$TSV" | head -n1 | grep -qF 'ticketKey'; then
+   && ! grep -qF 'ticketKey' <<<"$TSV_HEAD"; then
   pass "(565 data contract) TSV renders nulls and empties as '-', in column order, with no header row"
 else
   fail "(565 data contract) row904='$ROW904'"

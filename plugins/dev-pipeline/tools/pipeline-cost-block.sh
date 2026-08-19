@@ -18,9 +18,7 @@
 # resolving a state file nothing writes. The two required inputs arrive as ARGUMENTS
 # (the session-id set and a [start, end] time fence, both carried by the lean progress
 # file); the block is emitted to stdout or --out, no PR body is amended, and no
-# cost-log.jsonl row is written (lean is out of the perf corpus by declaration, D-36 —
-# whose CORPUS half is superseded by #565: lean runs are in the perf corpus now, read
-# through `retro-corpus.sh timing`. The no-cost-log-row half above is the live half).
+# cost-log.jsonl row is written (D-36's live half; its perf-corpus half is retired by #565).
 #
 # TIER BUCKETING. Cost is bucketed by (stage label, TIER), not by stage label alone. The
 # tier comes from each datapoint's `model` telemetry attribute through $TIER_FAMILY_MAP
