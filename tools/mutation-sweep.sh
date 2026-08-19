@@ -1070,6 +1070,8 @@ fi
 PR_SWEPT=()
 if [[ "$MODE" == "pr" ]]; then
   fast_count=0
+  pr_scope_count=${#SWEEP_GUARDS[@]}
+  defer_multi=0; defer_slow=0; defer_cap=0
   for g in "${SWEEP_GUARDS[@]}"; do
     ks="$(kill_set_for "$g")"
     n=0; for s in $ks; do n=$((n + 1)); done
@@ -1084,6 +1086,11 @@ if [[ "$MODE" == "pr" ]]; then
     if [[ -n "$defer" ]]; then
       emit_row "$g" "deferred-to-nightly" "${ks// /+}" 0 0 0 "" "" ""
       info "defer $g -> nightly: $defer"
+      case "$defer" in
+        "multi-suite union"*) defer_multi=$((defer_multi + 1)) ;;
+        "slow suite"*)        defer_slow=$((defer_slow + 1)) ;;
+        "PR-lane cap"*)       defer_cap=$((defer_cap + 1)) ;;
+      esac
     else
       fast_count=$((fast_count + 1))
       PR_SWEPT[${#PR_SWEPT[@]}]="$g"
@@ -1091,6 +1098,30 @@ if [[ "$MODE" == "pr" ]]; then
   done
   SWEEP_GUARDS=()
   for g in ${PR_SWEPT[@]+"${PR_SWEPT[@]}"}; do SWEEP_GUARDS[${#SWEEP_GUARDS[@]}]="$g"; done
+
+  # #582 AC-1/AC-2/AC-3 — an all-deferred PR run used to exit 0 having graded nothing, with
+  # nothing distinguishing it from a run that swept guards and found no new survivors. Fire
+  # only when the guard set was nonempty (guaranteed here: an empty diff already exited via
+  # the "nothing to sweep" branch above) AND every one of them deferred — a partial defer
+  # (at least one swept) leaves reporting untouched, per AC-3.
+  if [[ ${#PR_SWEPT[@]} -eq 0 ]]; then
+    reasons=""
+    [[ $defer_multi -gt 0 ]] && reasons="${reasons:+$reasons, }multi-suite union: $defer_multi"
+    [[ $defer_slow  -gt 0 ]] && reasons="${reasons:+$reasons, }slow suite: $defer_slow"
+    [[ $defer_cap   -gt 0 ]] && reasons="${reasons:+$reasons, }PR-lane cap: $defer_cap"
+    ALL_DEFERRED_MSG="PR mode graded NOTHING: all $pr_scope_count in-scope guard(s) deferred to nightly, 0 swept (reasons: $reasons). See tools/mutation-slow-suites.tsv or the nightly mutation-sweep run for real verdicts."
+    warn "$ALL_DEFERRED_MSG"
+    if [[ $ENFORCING -eq 1 ]]; then
+      echo "::warning::mutation-sweep: $ALL_DEFERRED_MSG"
+      if [[ -n "${GITHUB_STEP_SUMMARY:-}" ]]; then
+        {
+          echo "### :warning: mutation-sweep (PR-scoped) graded nothing"
+          echo
+          echo "$ALL_DEFERRED_MSG"
+        } >> "$GITHUB_STEP_SUMMARY"
+      fi
+    fi
+  fi
 fi
 
 # The full-sweep report accounts for the ENTIRE universe, excluded rows included (zero
