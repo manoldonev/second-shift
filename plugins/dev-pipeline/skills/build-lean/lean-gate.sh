@@ -4032,8 +4032,9 @@ cmd_3_render() {
 # docs/config-schema.md, and works on the fixed keys — which is where the repo-carried sweep runs,
 # since `commands[repo].test` is its only call path.
 #
-# SCOPED TO VERIFY LANES. Setup `lanes[]` are already infra by construction, and the repo-carried
-# mutation sweep reports survivors as data rather than through this code — neither reads a 3.
+# SCOPED TO VERIFY LANES. Setup `lanes[]` are already infra by construction — they never read a 3.
+# (The repo-carried mutation sweep used to be the other exception here; #580 retired the lane that
+# ran it, so the only remaining reader of this class is a verify lane.)
 lane_failure_class() { # lane_failure_class <lane-rc> — the class fail_milestone should return
   case "$1" in
     "$LANE_INFRA_RC") echo "$INFRA_CLASS" ;;
@@ -4042,7 +4043,7 @@ lane_failure_class() { # lane_failure_class <lane-rc> — the class fail_milesto
 }
 
 cmd_3() {
-  local cmd rc sweep any_verifying=0
+  local cmd rc any_verifying=0
   # #526. BEFORE the first lane child of any kind, since the whole point is that every one of
   # them inherits the ceiling — the setup lanes below, the fixed keys, extraLanes, and the
   # render pre-command cmd_3_render runs at the end.
@@ -4096,8 +4097,10 @@ cmd_3() {
   # ---- extraLanes (EP-2) ---------------------------------------------------------
   # Additive verify lanes: the schema's slot for everything config-lint forces out of the
   # fixed keys (build lanes, path-scoped suites, a design-driven live-render lane). Run
-  # sequentially AFTER the fixed keys and BEFORE the mutation sweep (AC-6), in declaration
-  # order, fail-fast — the same placement the previous runner gave them.
+  # sequentially AFTER the fixed keys and BEFORE the design live-render (AC-6), in declaration
+  # order, fail-fast — the same placement the previous runner gave them. (#580 deleted the
+  # mutation sweep this clause used to name as the following lane; the ordering it fixes —
+  # fixed keys first, then these — is unchanged.)
   local el_lanes="[]" el_count=0
   if [ -f "$CONFIG" ]; then
     el_lanes="$(jq -c --arg s "$REPO_SLUG" '(.commands[$s].extraLanes // [])' "$CONFIG" 2>/dev/null)"
@@ -4110,10 +4113,11 @@ cmd_3() {
   # config-TIME predicate — the fixed keys above and extraLanes' array LENGTH, not whether a
   # when-scoped lane happened to run on this diff (AC-3: configured-but-skipped is not
   # unverified, so this check runs before extraLanes execution and reads $el_count, never the
-  # diff). Setup `lanes[]` are INFRA-classed and the mutation sweep is repo-carried, not
-  # config — neither counts, matching the staged lane's `allowUnverified` valve, which is
-  # inert as soon as any verifying lane is configured (#98). Checked here, before the
-  # mutation sweep, so a red never pays for a sweep run it was always going to discard.
+  # diff). Setup `lanes[]` are INFRA-classed and so do not count, matching the staged lane's
+  # `allowUnverified` valve, which is inert as soon as any verifying lane is configured (#98).
+  # Checked here, before extraLanes execute, so a red never pays for lane runs it was always
+  # going to discard. (Until #580 this also sat before a repo-carried mutation sweep, which was
+  # the expensive thing it was chiefly protecting against; that lane is gone.)
   if [ "$any_verifying" -eq 0 ] && [ "$el_count" -eq 0 ]; then
     local allow_unverified
     allow_unverified="$(cfg ".commands[\"$REPO_SLUG\"].allowUnverified" 'false')"
@@ -4177,23 +4181,19 @@ cmd_3() {
   fi
 
   # ---- design live-render (#394) -------------------------------------------------
-  # After extraLanes, before the mutation sweep — the same slot, and for the same reason, that
+  # LAST in milestone 3, after extraLanes — the same slot, and for the same reason, that
   # extraLanes took after the fixed keys: cheap deterministic lanes first, then the expensive
   # ones. A no-op on every unarmed run, which is every run in a repo with no design.provider.
+  #
+  # #580 retired what used to follow it: a diff-scoped `tools/mutation-sweep.sh --mode pr` run,
+  # decision D-18. It made the IDENTICAL invocation the `mutation-sweep-pr` CI job already makes,
+  # so it was CI-duplicated work idle-blocking a build session — and it ran on a contended
+  # machine, where a killed sweep orphans fixtures that poison later sweeps. The merge boundary
+  # re-derives the same truth for free. The mutation seam is now repo-carried AND repo-RUN: a
+  # repo that wants one wires its own CI, and this gate no longer looks for `tools/mutation-sweep.sh`
+  # at all. Do not re-add it here — the duplication is the whole reason it went.
   cmd_3_render; rc=$?
   [ "$rc" -eq 0 ] || return "$rc"
-
-  # D-18: the diff-scoped mutation sweep when the target repo carries one. Absent is a
-  # PRINTED skip, never silent — a missing test-the-tests lane must be visible.
-  sweep="$REPO_ROOT/tools/mutation-sweep.sh"
-  if [ -f "$sweep" ]; then
-    say "milestone-3: mutation sweep (diff-scoped) » origin/$BASE_BRANCH"
-    ( cd "$REPO_ROOT" && bash "$sweep" --mode pr --base "origin/$BASE_BRANCH" ); rc=$?
-    [ "$rc" -eq 0 ] || { fail_milestone 3 "mutation sweep failed (rc=$rc)"; return $?; }
-  else
-    say "milestone-3: tools/mutation-sweep.sh absent — mutation sweep SKIPPED (notice, not a silent pass)."
-    append_line "$(now_iso) | milestone-3 | skipped | mutation-sweep.sh absent"
-  fi
 
   pass_milestone 3 "green gate"
 }

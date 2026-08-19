@@ -107,11 +107,12 @@ Ask AT MOST one AskUserQuestion batch, containing ONLY (skip any that detection 
   3. `tracker.branchPrefix` (recommended: `claude/<repo-basename>-` for github; `<user>/` for jira)
   4. gates to enable — **what mutation buys: it breaks your changed code on purpose and fails
      when the specs still pass, which is the difference between tests that exist and tests
-     that would catch a regression. You own the sweep: the green gate runs
-     `tools/mutation-sweep.sh --mode pr --base origin/<baseBranch>` from your repo root when
-     the repo carries one, reds the milestone on a non-zero exit, and prints a SKIPPED notice
-     when it is absent — what it mutates and how is yours** (`docs/onboarding.md`, "Mutation:
-     the repo-carried sweep"; `docs/config-schema.md`, `gates` row).
+     that would catch a regression. You own the sweep AND its wiring: ship
+     `tools/mutation-sweep.sh` and give it a job on your own merge boundary
+     (`--mode pr --base origin/<baseBranch>` from your repo root is the usual invocation).
+     No second-shift gate runs it — #580 retired the milestone-3 lane that used to, because it
+     duplicated the PR check — so this key declares intent and nothing more** (`docs/onboarding.md`,
+     "Mutation: the repo-carried sweep"; `docs/config-schema.md`, `gates` row).
      (**mutation** — `gates.mutation:false` is the explicit off-switch a reader can see;
      setting it true does not by itself buy a sweep. `mutation` is the ONLY `gates` key the
      schema has as of v2.1.6 — `costTracking` was removed (cost attribution now runs

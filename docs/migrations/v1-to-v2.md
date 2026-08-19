@@ -150,8 +150,9 @@ same silently-disarmed-gate class as the #569 entry above, reached the same way 
 upgraded past #348, saw no error, and kept believing their mutation gate ran).
 
 - **`unitTestScope`** — the mutation seam is repo-carried now: ship an executable
-  `tools/mutation-sweep.sh` at your repo root and `lean-gate.sh` milestone 3 runs it
-  (`--mode pr --base origin/<baseBranch>`; non-zero reds the milestone — `docs/onboarding.md`).
+  `tools/mutation-sweep.sh` at your repo root. (As of #580 it is repo-**run** too — wire it on
+  your own merge boundary; the `lean-gate.sh` milestone-3 lane that used to run it is retired)
+  (`--mode pr --base origin/<baseBranch>` — `docs/onboarding.md`).
   `gates.mutation` remains the declared intent (`false` is the explicit off-switch a reader
   can see); it is unchanged by this removal.
 - **`testFile`** — the retired engine's per-spec runner template, read by nothing else. No

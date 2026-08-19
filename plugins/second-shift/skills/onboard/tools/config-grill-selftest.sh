@@ -264,7 +264,9 @@ for dropped in T2.planFilePattern T2.plansDir T2.pipelineStateDir T2.inertPatter
 done
 
 # --- AC-4: trigger 4, the mutation seam ----------------------------------------------------
-# The seam has ONE owner: a repo-carried tools/mutation-sweep.sh that the green gate executes.
+# The seam has ONE owner: a repo-carried tools/mutation-sweep.sh that the CONSUMER executes
+# (#580 retired the green-gate lane that used to; the grill's job is unchanged either way —
+# it grades declared intent against shipped plumbing, never against an executor).
 # So the detectable inconsistency is a config that DECLARES mutation intent over a repo carrying
 # nothing to run it. Since #574 retired commands.<repo>.unitTestScope, gates.mutation is the
 # ONLY declared-intent signal — under RUNTIME semantics: `.gates.mutation // empty` means only
