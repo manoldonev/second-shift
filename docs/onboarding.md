@@ -266,8 +266,17 @@ Field reference — including `extraLanes` and `allowUnverified` — is in
 ### Mutation: the repo-carried sweep
 
 A passing suite proves the tests run, not that they would catch anything. The check for that is
-**yours to carry and ours to run**: if your repo has an executable `tools/mutation-sweep.sh`, the
-green gate executes it as the last step of the verification milestone.
+**yours to carry and yours to run**. Nothing in second-shift executes it for you.
+
+**This changed in #580, and the change is the whole section.** The green gate used to run an
+executable `tools/mutation-sweep.sh` at your repo root as the last step of the verification
+milestone, and to print `mutation sweep SKIPPED` when there was none. It no longer looks for that
+file at all. The lane issued the identical invocation this repo's own PR CI job already made, so
+it was duplicated work idle-blocking a build session; deleting it costs nothing a merge boundary
+was not already re-deriving.
+
+**If you carry a sweep, wire it yourself.** The invocation the retired lane used is a reasonable
+starting point for a CI job of your own:
 
 ```text
 bash tools/mutation-sweep.sh --mode pr --base origin/<baseBranch>
@@ -275,21 +284,22 @@ bash tools/mutation-sweep.sh --mode pr --base origin/<baseBranch>
 
 - **Invocation** — run from your repo root, with `<baseBranch>` taken from your config's
   `topology.repos.<id>.baseBranch`. `--mode pr` means diff-scoped: only what this branch changed.
-- **Exit code is the whole contract.** `0` passes; any non-zero **reds the milestone** and the
-  run stops with the reason written to the progress file. Nothing else about the sweep is
-  inspected — not its stdout, not a report file.
-- **Absent is a printed skip, never a silent pass.** With no such file the gate says
-  `mutation sweep SKIPPED` and records it. That is a legal state; `/second-shift:doctor` raises
-  it as an adoption note once a `test` lane is configured, so the absence stays visible instead
-  of being mistaken for coverage.
-- **Deterministic, and no model calls.** It runs inside a gate on every ticket, so it must be
-  reproducible from the tree alone and must not spend API budget. A sweep that needs the network
-  or an LLM belongs in an `extraLanes` entry you opt into, not here.
+- **Put it on the merge boundary, not in the session.** A gate that blocks an interactive run on
+  work the PR checks already do is the exact cost #580 removed; a required status check on the PR
+  is where the answer is cheap and is re-derived for free.
+- **Deterministic, and no model calls.** Whatever you wire, keep it reproducible from the tree
+  alone and free of API spend. A sweep that needs the network or an LLM belongs in an
+  `extraLanes` entry you opt into.
+- **You can still put it in the gate — explicitly.** An `extraLanes` entry (or your `test`
+  command) runs any command you name. The difference from the retired lane is that you are
+  choosing the cost with your eyes open, rather than inheriting it from a filename.
 
 What the sweep does inside is entirely your choice — a Stryker or `mutmut` wrapper, a per-spec
-harness that flips operators and re-runs the affected file, a shell-guard sweep. The gate asserts
-the outcome; it has no opinion on the method. `gates.mutation` declares the intent and buys
-no sweep on its own (`commands.<id>.unitTestScope`/`testFile` were retired in #574).
+harness that flips operators and re-runs the affected file, a shell-guard sweep. `gates.mutation`
+declares the intent and buys no sweep on its own — it never armed the retired lane either (that
+branched on the file's presence), and it survives #580 unchanged as the declared-intent signal
+`/second-shift:doctor` and `config-grill` grade your plumbing against
+(`commands.<id>.unitTestScope`/`testFile` were retired in #574).
 
 Environment sanity for all of the above in one command: `pipeline-doctor.sh` (ships in the
 dev-pipeline plugin at `tools/pipeline-doctor.sh`, config-aware since 2.0.7 —

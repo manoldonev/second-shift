@@ -250,11 +250,13 @@ t2_key "T2.formatGlob" "stageParams.formatGlob" \
   "This glob scopes the default prettier format lane: while it matches nothing, no changed file is ever format-checked."
 
 # --- trigger 4: internally inconsistent config (AC-4) --------------------------------------
-# The mutation seam has ONE owner: a repo-carried `tools/mutation-sweep.sh`, which the green
-# gate runs diff-scoped and reds the milestone on. The technique inside it — a Stryker wrapper,
-# a per-spec harness, a shell-guard sweep — is the consumer's; the gate asserts the outcome.
-# So the detectable inconsistency is no longer "a scope with no runner": it is a config that
-# DECLARES mutation intent while the repo carries nothing to run.
+# The mutation seam has ONE owner: a repo-carried `tools/mutation-sweep.sh`, which the consumer
+# also RUNS — #580 deleted the green-gate lane that used to execute it, because that lane made
+# the identical invocation the consumer's own PR CI already makes. The technique inside it — a
+# Stryker wrapper, a per-spec harness, a shell-guard sweep — is the consumer's, and so is the
+# wiring. So the detectable inconsistency is unchanged in shape: a config that DECLARES mutation
+# intent while the repo carries nothing to run. What changed is only what we can promise about
+# the file once it exists — nothing here executes it.
 #
 # gates.mutation follows RUNTIME semantics, not the schema default: only the literal `false`
 # takes the off-switch branch, so ABSENT IS NOT FALSE and absent still reads as intent. The
@@ -284,8 +286,8 @@ if [[ -n "$REPO_ID" ]]; then
     fi
     if [[ -n "$mut_desc" ]]; then
       add_finding "T4.mutation-plumbing.$REPO_ID" "gates.mutation" \
-        "$mut_desc — but this repo carries no $SWEEP_REL, so the green gate prints a SKIPPED notice and the run is green with nothing mutated. The config declares coverage the repo cannot execute." \
-        "Add an executable $SWEEP_REL at the repo root: the green gate runs \`bash $SWEEP_REL --mode pr --base origin/<baseBranch>\` from the root and a non-zero exit reds the milestone, so what it mutates and how is yours to choose (docs/onboarding.md). Or declare the opt-out where a reader can see it: set \"gates\": { \"mutation\": false }. $(waiver_hint "T4.mutation-plumbing.$REPO_ID")"
+        "$mut_desc — but this repo carries no $SWEEP_REL, so nothing is ever mutated. The config declares coverage the repo cannot execute." \
+        "Add an executable $SWEEP_REL at the repo root and wire it on your own merge boundary — \`bash $SWEEP_REL --mode pr --base origin/<baseBranch>\` from the root is the usual invocation. Since #580 no second-shift gate runs it for you, so a sweep with no CI job of its own still mutates nothing (docs/onboarding.md). Or declare the opt-out where a reader can see it: set \"gates\": { \"mutation\": false }. $(waiver_hint "T4.mutation-plumbing.$REPO_ID")"
     fi
   fi
 else
@@ -443,16 +445,16 @@ fi
 # two force genuinely different dispositions: one is "your config lies", this is "you have a
 # suite and nothing checks whether it would catch anything".
 #
-# It rides in unadopted[], never findings[]: absence of a sweep is a legal, common state — the
-# green gate says SKIPPED and proceeds — so a doctor FAIL would take every already-green
-# consumer non-zero for a capability many will never adopt. Same severity philosophy as the
-# printed skip it mirrors.
+# It rides in unadopted[], never findings[]: absence of a sweep is a legal, common state — since
+# #580 nothing anywhere even looks for the file — so a doctor FAIL would take every already-green
+# consumer non-zero for a capability many will never adopt. The severity philosophy outlived the
+# printed skip it used to mirror: this is an adoption note, not a defect.
 if [[ -n "$REPO_ID" && "$HAS_SWEEP" -ne 1 ]]; then
   TEST_CMD="$(jq -r --arg r "$REPO_ID" '.commands[$r].test // ""' "$CONFIG")"
   if [[ -n "$TEST_CMD" ]]; then
     add_unadopted "T1.mutation-sweep.$REPO_ID" "commands.$REPO_ID.test" \
-      "commands.$REPO_ID.test is configured (\"$TEST_CMD\") but this repo carries no $SWEEP_REL — there is a suite, and nothing that checks whether it would catch a regression. Absence is legal and is the default: the green gate prints a SKIPPED notice and proceeds, so nothing else will ever raise it." \
-      "Adopt the seam or declare that you don't want it. Add an executable $SWEEP_REL at the repo root; the green gate runs \`bash $SWEEP_REL --mode pr --base origin/<baseBranch>\` from the root on every run, and a non-zero exit reds the milestone. What it mutates and how is yours — a Stryker wrapper, a per-spec harness, a shell-guard sweep — because the gate asserts the outcome, not the method (docs/onboarding.md). $(waiver_hint "T1.mutation-sweep.$REPO_ID")"
+      "commands.$REPO_ID.test is configured (\"$TEST_CMD\") but this repo carries no $SWEEP_REL — there is a suite, and nothing that checks whether it would catch a regression. Absence is legal and is the default, and since #580 no second-shift gate looks for the file, so nothing else will ever raise it." \
+      "Adopt the seam or declare that you don't want it. Add an executable $SWEEP_REL at the repo root and give it a job on your own merge boundary — \`bash $SWEEP_REL --mode pr --base origin/<baseBranch>\` from the root is the usual invocation. What it mutates and how is yours — a Stryker wrapper, a per-spec harness, a shell-guard sweep. Wiring it is yours too: #580 retired the green-gate lane that used to run it, because that lane duplicated the PR check (docs/onboarding.md). $(waiver_hint "T1.mutation-sweep.$REPO_ID")"
   fi
 fi
 

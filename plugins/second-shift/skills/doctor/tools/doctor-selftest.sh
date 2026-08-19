@@ -191,7 +191,8 @@ scenario opt-out-committed plugin-list-green.json  settings-optout-committed.jso
 # just the text — that pairing is the whole point of D-15 and the only reason waivers have to
 # exist. The fixture config leaves gates.mutation absent (absent is NOT false, so mutation reads
 # ON) over a fixture root carrying no tools/mutation-sweep.sh — coverage the config asks for and
-# the repo cannot run.
+# the repo cannot run. (Unchanged by #580: the finding grades intent against plumbing, and no
+# gate ever executed the file on the consumer's behalf again after that slice.)
 scenario grill-finding    plugin-list-green.json   settings-green.json     marketplace-list-pinned.json  1 "config grill [T4.mutation-plumbing.app]" lock-v1.json config-grill-finding.json
 # ...and the waived counterpart, which is what keeps a clean report REACHABLE. config-valid.json
 # carries the `grillWaivers` entry for the finding its own shape would otherwise produce

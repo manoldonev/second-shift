@@ -5,6 +5,6 @@
   "commands": { "app": { "lint": "yarn lint", "test": "yarn test" } },
   "grillWaivers": {
     "T4.mutation-plumbing.app": "fixture repo carries no tools/mutation-sweep.sh; mutation coverage is deliberately declined here",
-    "T1.mutation-sweep.app": "fixture repo has a test lane and deliberately carries no sweep; the green gate SKIPPED notice is the wanted behavior"
+    "T1.mutation-sweep.app": "fixture repo has a test lane and deliberately carries no sweep; carrying none is the wanted behavior"
   }
 }

@@ -109,8 +109,8 @@ Handoff: https://<your provider>/file/abc123
 …or the explicit disarm, `Design: none — <reason>`, which is a conscious per-ticket decision and
 is **state-locked**: once a run has armed, switching to the disarm reds at milestones 1 and 3.
 
-**What the gate does when armed.** Milestone 3, after `extraLanes` and before the mutation sweep,
-renders every declared row through your command, asserts exit 0 and a non-empty PNG per row, and
+**What the gate does when armed.** Milestone 3, last — after `extraLanes` — renders every
+declared row through your command, asserts exit 0 and a non-empty PNG per row, and
 writes a hash manifest at `<plansDir>/<key>-lean-renders.md`. PNG bytes never enter history: they
 land under `.claude/lean-renders/<key>/`, which the gate asserts is git-ignored before it renders.
 Milestone 4 then refuses any verdict that does not score `fidelity: pass`, or whose manifest was
