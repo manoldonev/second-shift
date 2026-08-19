@@ -842,6 +842,13 @@ Edit one of those and any new survivor surfaces at 03:17 UTC, on someone else's 
 diff touches a deferred guard, expect to learn about it from the nightly rather than from your PR —
 though content keying means only a site you actually *wrote* can produce one.
 
+**All-deferred is not silently green (#582).** When every in-scope guard defers — 23% of
+guard-touching PRs, measured by the #567 audit, concentrated on `lean-gate.sh` — the job still
+exits 0, but it no longer reads the same as "swept your guards, found no new survivors". It prints
+an unmissable `WARN:` line naming the count and the reason(s), and, on real CI, a `::warning::`
+check-surface annotation plus a job-summary block when `GITHUB_STEP_SUMMARY` is set. Sweeping at
+least one guard is unchanged — the warn fires only when the graded count is exactly zero.
+
 ## Adversarial tier (operator-run, never CI)
 
 The model tier cannot live in CI without API-billed calls. It runs on demand, by an operator, in

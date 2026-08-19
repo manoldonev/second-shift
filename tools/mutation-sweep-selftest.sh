@@ -733,6 +733,21 @@ else
   bad "(l3) expected a deferred-to-nightly row; got rc=$RC"; printf '%s\n' "$OUT" | tail -4
 fi
 
+echo "(l3b) #582 AC-1/AC-2 — an ALL-deferred PR run warns unmissably and annotates the check surface"
+# This is the SAME fixture as (l3): one in-scope guard, and it defers. That makes it
+# "every in-scope guard deferred" by construction (1/1), the exact scenario #582 fixes: a
+# green PR run that graded nothing. RC stays 0 (this is not a red-build fix) but the run
+# must say so loudly, distinct from the per-guard "defer ... -> nightly" info line already
+# asserted above.
+if [[ $RC -eq 0 ]] \
+  && grep -q 'WARN: PR mode graded NOTHING: all 1 in-scope guard(s) deferred to nightly, 0 swept' <<<"$OUT" \
+  && grep -q 'reasons: slow suite: 1' <<<"$OUT" \
+  && grep -q '^::warning::mutation-sweep: PR mode graded NOTHING' <<<"$OUT"; then
+  ok "all-deferred run warns the count+reason and emits a check-surface annotation"
+else
+  bad "(l3b) expected the AC-1 WARN line and the AC-2 ::warning:: annotation; got rc=$RC"; printf '%s\n' "$OUT" | tail -6
+fi
+
 echo "(l4) slow-list drift is warned AT MEASUREMENT — the diagnosis outlives the timeout it diagnoses"
 # A suite that grows past the threshold while absent from the list keeps its guard in the PR
 # lane, where the cost lands on every mutant that makes the guard spin. That is how
@@ -923,6 +938,15 @@ if [[ $RC -eq 0 && "$SWEPT_N" -eq 6 && "$DEFER_N" -eq 1 ]] \
   ok "cap swept 6 guards, deferred 1 with the cap named as the reason"
 else
   bad "(r) expected swept=6 deferred=1 + the cap reason; got rc=$RC swept=$SWEPT_N deferred=$DEFER_N"; printf '%s\n' "$OUT" | tail -6
+fi
+# #582 AC-3 control — a PARTIAL defer (six swept, one deferred) must leave reporting
+# unchanged: no all-deferred WARN, no check-surface annotation. Without this control a
+# mutant that loosens the AC-1/AC-2 gate from "PR_SWEPT empty" to "any defer occurred"
+# would fire on every capped push and (l3b) alone would not catch it.
+if ! grep -q 'PR mode graded NOTHING' <<<"$OUT" && ! grep -q '^::warning::mutation-sweep:' <<<"$OUT"; then
+  ok "a partial defer (6 swept, 1 deferred) triggers no all-deferred warn or annotation"
+else
+  bad "(r) a partial defer wrongly fired the all-deferred warn/annotation"; printf '%s\n' "$OUT" | tail -6
 fi
 
 echo "(s) leading-hyphen operator matches — the committed cmp rows enumerate real sites"
