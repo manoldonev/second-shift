@@ -57,7 +57,13 @@ expect_violation invalid-bad-tracker.json           "tracker.type must be github
 expect_violation invalid-pair-missing-fe.json       "be-fe-pair requires repos.be and repos.fe"
 expect_violation invalid-monorepo-two-id.json       "commands.<id>.lanes / extraLanes"
 expect_violation invalid-unknown-repo-and-tier.json "commands keyed by unknown repo ids: ghost"
-expect_violation invalid-unknown-repo-and-tier.json "reviewers.modelOverrides.security-reviewer: must be haiku|sonnet|opus|fable"
+expect_violation invalid-unknown-repo-and-tier.json "reviewers.modelOverrides.security-reviewer: must name a dispatch model (haiku, sonnet, opus, fable) or a tier in the effective tierMap"
+# --- #351. The schema half of modelOverrides degraded to a bare string (the legal set is a
+# cross-field union it cannot express), so config-lint is now the ONLY thing rejecting a
+# mistyped override. These two cases are what keeps that from being a silent widening:
+# a tier-shaped typo must still fail, and tierMap values keep the real closed enum.
+expect_violation invalid-override-unknown-tier.json  "reviewers.modelOverrides.security-reviewer: must name a dispatch model"
+expect_violation invalid-bad-tiermap-value.json      "reviewers.tierMap.code: must be haiku|sonnet|opus|fable"
 expect_violation invalid-tracker-unknown-key.json   "tracker: unknown keys"
 expect_violation invalid-bot-app-unknown-key.json   "tracker.bot.app: unknown keys"
 expect_violation invalid-bad-design-provider.json   "design.provider must be figma|claude-design"
@@ -178,12 +184,15 @@ else
 fi
 # LOCKSTEP-END monorepo-probe
 SCHEMA="$ROOT/schema/second-shift.config.schema.json"
-SCHEMA_Q='.properties.reviewers.properties.modelOverrides.additionalProperties.enum'
+# Re-pointed at tierMap (#351): modelOverrides.additionalProperties no longer carries an
+# enum to mirror, and tierMap VALUES are raw dispatch models — expressible, so the schema
+# still declares them and this drives both sides of that copy.
+SCHEMA_Q='.properties.reviewers.properties.tierMap.additionalProperties.enum'
 if [[ ! -f "$SCHEMA" ]]; then
   if [[ "$IN_MONOREPO" -eq 1 ]]; then
-    check "modelOverrides enum mirror: schema readable at $SCHEMA" 1
+    check "tierMap enum mirror: schema readable at $SCHEMA" 1
   else
-    SKIP_REASON="SKIP: schema/second-shift.config.schema.json is a repo-only artifact, unreachable from an install — the modelOverrides enum lockstep did not run"
+    SKIP_REASON="SKIP: schema/second-shift.config.schema.json is a repo-only artifact, unreachable from an install — the tierMap enum lockstep did not run"
   fi
 else
   TIER_TMP="$TMPROOT/tier"
@@ -195,12 +204,12 @@ else
       tracker: { type: "github" },
       topology: { type: "standalone", repos: { app: { path: ".", baseBranch: "main" } } },
       commands: { app: {} },
-      reviewers: { modelOverrides: { "plan-reviewer": $t } }
+      reviewers: { tierMap: { code: $t } }
     }' > "$TIER_TMP/tier.json"
     if "$LINT" "$TIER_TMP/tier.json" > /dev/null 2>&1; then
-      check "schema tier '$tier' accepted by config-lint" 0
+      check "schema dispatch model '$tier' accepted as a tierMap value" 0
     else
-      check "schema tier '$tier' accepted by config-lint" 1
+      check "schema dispatch model '$tier' accepted as a tierMap value" 1
     fi
   done < <(jq -r "${SCHEMA_Q}[]" "$SCHEMA")
 
@@ -215,14 +224,14 @@ else
   # file's `set -e` a failing command substitution aborts the whole suite silently (it did,
   # swallowing this check and every line after it until the demo exposed it).
   ACTUAL_ENUM="$(
-    { "$LINT" "$FIX/invalid-unknown-repo-and-tier.json" 2>&1 || true; } \
-      | sed -n 's/.*reviewers\.modelOverrides\.security-reviewer: must be //p' \
+    { "$LINT" "$FIX/invalid-bad-tiermap-value.json" 2>&1 || true; } \
+      | sed -n 's/.*reviewers\.tierMap\.code: must be //p' \
       | head -1 | tr -d '[:space:]'
   )"
   if [[ -n "$ACTUAL_ENUM" && "$ACTUAL_ENUM" == "$EXPECTED_ENUM" ]]; then
-    check "modelOverrides enum mirror: config-lint reports exactly the schema's '$EXPECTED_ENUM'" 0
+    check "tierMap enum mirror: config-lint reports exactly the schema's '$EXPECTED_ENUM'" 0
   else
-    check "modelOverrides enum mirror: schema says '$EXPECTED_ENUM' but config-lint reports '$ACTUAL_ENUM'" 1
+    check "tierMap enum mirror: schema says '$EXPECTED_ENUM' but config-lint reports '$ACTUAL_ENUM'" 1
   fi
 fi
 

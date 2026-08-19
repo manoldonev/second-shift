@@ -74,6 +74,15 @@ seam-scrub	subset-of	plugins/dev-pipeline/tools/preflight.sh	seam-scrub	plugins/
 # modelOverrides lookup reds H1. Only the prose WORDING is reviewer-guarded, which is the
 # correct tier for it per the no-prose-presence rule.
 #
+# #351 extends this same contract, and does NOT get an entry of its own: `reviewers.tierMap`
+# lands inside the `reviewers` subset this entry already covers, so the caller/callee split and
+# the reason it is unanchorable are unchanged — the tierMap read is another varying-shape
+# expression (`(config && config.reviewers && config.reviewers.tierMap) || {}`) behind another
+# prose comment. Its behavior joins the same guard: runtime-shim-selftest.mjs Case H executes
+# the real bodies and asserts a tierMap value reaches the dispatched model and that
+# modelOverrides still beats it. The tier ALPHABET is a different coupling and IS anchorable —
+# see the `tier-alphabet-parse` row below.
+#
 # Test-tier map (CLAUDE.md "Where a new test goes" table ↔ docs/testing.md "Why a tier map at
 # all" table). Two representations of one routing contract: a tier added to one and not the
 # other sends the next author to the wrong file, which is how a tier accretes per-tool
@@ -717,3 +726,4 @@ checked-call	verbatim	plugins/dev-pipeline/tools/checked-call.sh	checked-call	pl
 # additionally pinned alone: run-selftests-selftest.sh's AC-1 cases on the writer, (ic1)-(ic5) on
 # the reader. The composed case is repo-only by construction (the staged install cache has no
 # `tools/`), and says so rather than skipping in silence.
+tier-alphabet-parse	verbatim	plugins/review-toolkit/scripts/check-model-tiers.sh	tier-alphabet-parse	plugins/dev-pipeline/tools/config-lint.sh	tier-alphabet-parse

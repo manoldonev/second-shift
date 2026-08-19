@@ -1,0 +1,23 @@
+{
+  "configVersion": 2,
+  "tracker": {
+    "type": "github"
+  },
+  "topology": {
+    "type": "standalone",
+    "repos": {
+      "app": {
+        "path": ".",
+        "baseBranch": "main"
+      }
+    }
+  },
+  "commands": {
+    "app": {}
+  },
+  "reviewers": {
+    "modelOverrides": {
+      "security-reviewer": "reasoning"
+    }
+  }
+}
