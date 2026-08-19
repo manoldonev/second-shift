@@ -289,6 +289,113 @@ if [ "$rc" -eq 1 ] && grep -q 'fails ledger-lint' <<<"$out" && grep -q "provenan
   pass "(a8) the bold-heading Decision Ledger form is detected too — an invented provenance under it refuses milestone 1"
 else fail "(a8) expected rc=1 naming the invented provenance under the bold heading, got $rc: $out"; fi
 
+# ---- (a9)-(a14) #517: the committed spec reconciles against the pre-flight receipt --------
+# The receipt is reached through --ledger-file, the seam #533 opened for exactly this reason:
+# the DEFAULT path is $STATE_DIR/<issue>-ledger.md under the git common dir, a directory shared
+# by every worktree on the machine, and a suite writing there would collide with whatever lane
+# is live. Every case below therefore states its own receipt.
+#
+# The receipt binds TWO rows and carries a third it does not, so "the check bound something"
+# and "the check bound everything" are distinguishable in the pass line.
+RC_RECEIPT="$WORK/517-receipt.md"
+printf '%s\n' '# receipt' '## Decision Ledger' \
+  '| ID | Decision | Resolution | Provenance | Kind |' \
+  '| --- | --- | --- | --- | --- |' \
+  '| D-1 | Rate limit | 100/min, per tenant | user-answered | intent |' \
+  '| D-2 | Cache TTL | 5 minutes | codebase-derived | fact |' \
+  '| D-3 | Fix scope | Both call sites | user-delegated | intent |' \
+  > "$RC_RECEIPT"
+rc_spec() { # rc_spec <resolution-for-D-3>
+  printf '%s\n' '# spec' '' '- AC-1: a thing' '' '## Decision Ledger' \
+    '| ID | Decision | Resolution | Provenance |' \
+    '| --- | --- | --- | --- |' \
+    '| D-1 | Rate limit | 100/min, per tenant | user-answered |' \
+    "| D-3 | Fix scope | ${1:-Both call sites} | user-delegated |" > "$SPEC"
+}
+
+# (a9) a bound row the spec drops. rc=1 AND an attempt line: editing the committed spec is a fix
+# the build role can make, so this spends fix budget exactly as #562's provenance lint does.
+reset_progress
+rc_spec; grep -v 'D-3' "$SPEC" > "$SPEC.tmp" && mv "$SPEC.tmp" "$SPEC"
+out="$(gate --ledger-file "$RC_RECEIPT" 1 7)"; rc=$?
+if [ "$rc" -eq 1 ] && grep -q 'does not reconcile with the pre-flight ledger' <<<"$out" \
+   && grep -q 'D-3 (user-delegated)' <<<"$out" \
+   && [ "$(count_in_progress '| milestone-1 | attempt |')" -eq 1 ]; then
+  pass "(a9) #517 AC-2/AC-7: a dropped receipt row refuses milestone 1 and spends a fix attempt"
+else fail "(a9) expected rc=1 naming D-3 plus one attempt line, got $rc / $(count_in_progress '| milestone-1 | attempt |'): $out"; fi
+
+# (a10) the row is there and resolves the other way, with no marker.
+reset_progress
+rc_spec 'Only the import path'
+out="$(gate --ledger-file "$RC_RECEIPT" 1 7)"; rc=$?
+if [ "$rc" -eq 1 ] && grep -q 'no departure marker' <<<"$out"; then
+  pass "(a10) #517 AC-3: a bound row re-decided without a DEPARTURE marker refuses milestone 1"
+else fail "(a10) expected rc=1 on an unflagged reversal, got $rc: $out"; fi
+
+# (a11) the declared departure passes — and AC-8, the pass line disclosing what was reconciled.
+# The COUNTS are asserted, not just the presence of a note: a note reading "0 bound" would sit
+# in the same place and say nothing, which is the shape a silently-inert check hides behind.
+reset_progress
+rc_spec 'DEPARTURE — narrowed to the import path; the export path is dead code'
+out="$(gate --ledger-file "$RC_RECEIPT" 1 7)"; rc=$?
+if [ "$rc" -eq 0 ] && grep -q '2 bound, 1 carried, 1 departure(s)' <<<"$out"; then
+  pass "(a11) #517 AC-4/AC-8: a reasoned DEPARTURE passes, and the pass line discloses the counts"
+else fail "(a11) expected rc=0 with the reconciliation counts on the pass line, got $rc: $out"; fi
+
+# (a12) ABSENT receipt is inert (AC-7). Most tickets never went through pre-flight, so the
+# common case must not acquire a note at all — a pass line that grew one for every run would
+# make the disclosure in (a11) meaningless. The spec here is the (a9) shape that DOES refuse
+# when a receipt is present, so this case cannot be satisfied by a spec that would pass anyway.
+reset_progress
+rc_spec; grep -v 'D-3' "$SPEC" > "$SPEC.tmp" && mv "$SPEC.tmp" "$SPEC"
+out="$(gate 1 7)"; rc=$?
+if [ "$rc" -eq 0 ] && ! grep -q 'bound,' <<<"$out"; then
+  pass "(a12) #517 AC-7: with no pre-flight receipt the check is inert and adds no note"
+else fail "(a12) expected a silent rc=0 with no receipt, got $rc: $out"; fi
+
+# (a13) an UNREADABLE receipt is an ENVIRONMENT refusal, not a fix attempt (AC-7). This is the
+# arm that decides whether the mechanism can fail open: every read inside the reconciliation is
+# a `grep ... || true`, so an unreadable receipt binds nothing and would otherwise report a
+# clean reconciliation. rc=2 and, just as load-bearing, the attempt counter must not move — no
+# edit the build role can make fixes a file it cannot read, and three such blips would
+# hard-stop the run at rc=4 with a rescue path nobody can act on.
+#
+# TWO calls, because the ordinary one is not attributable. #533's check_pause_and_ask reports
+# the same fact for the same file, so deleting the reconciliation entirely leaves the first
+# assertion passing — measured, not assumed. The OBSERVE call is the discriminator: that check
+# sits under the observe guard and is skipped there, so under LEAN_GATE_OBSERVE=1 the only
+# reader left that can refuse an unreadable receipt is this one.
+reset_progress
+rc_spec
+RC_UNREADABLE="$WORK/517-receipt-unreadable.md"
+cp "$RC_RECEIPT" "$RC_UNREADABLE"; chmod 000 "$RC_UNREADABLE"
+if [ -r "$RC_UNREADABLE" ]; then
+  fail "(a13) precondition: chmod 000 left the receipt readable (running as root?) — the fail-open arm is unverified"
+else
+  out="$(gate --ledger-file "$RC_UNREADABLE" 1 7)"; rc=$?
+  obs_out="$( cd "$TREE" && SECOND_SHIFT_CONFIG="$CFG" LEAN_PROGRESS_FILE="$PROG" LEAN_GATE_OBSERVE=1 \
+              bash "$GATE" --issue-file "$ISSUE_NOREGIONS" --ledger-file "$RC_UNREADABLE" 1 7 2>&1 )"; obs_rc=$?
+  if [ "$rc" -eq 2 ] && grep -q 'could not read pre-flight ledger' <<<"$out" \
+     && [ "$obs_rc" -eq 2 ] && grep -q 'while reconciling it against' <<<"$obs_out" \
+     && [ "$(count_in_progress '| milestone-1 | attempt |')" -eq 0 ]; then
+    pass "(a13) #517 AC-7: an unreadable receipt is an envfail (rc=2) in the observe pass too, and spends no fix budget"
+  else fail "(a13) expected rc=2 both ways with no attempt line, got $rc / observe $obs_rc / $(count_in_progress '| milestone-1 | attempt |'): $out || $obs_out"; fi
+fi
+chmod 644 "$RC_UNREADABLE"
+
+# (a14) the reconciliation runs in the OBSERVE pass, above the guard that gates the gh-calling
+# pause-and-ask check (AC-7). `cmd_all`'s cheap pre-pass reaches milestone 1 through that seam,
+# so a check placed below the guard would let `all` report a milestone-1 pass on a spec the very
+# next direct call refuses. The counterpart half is asserted too: observing records nothing.
+reset_progress
+rc_spec; grep -v 'D-3' "$SPEC" > "$SPEC.tmp" && mv "$SPEC.tmp" "$SPEC"
+out="$( cd "$TREE" && SECOND_SHIFT_CONFIG="$CFG" LEAN_PROGRESS_FILE="$PROG" LEAN_GATE_OBSERVE=1 \
+        bash "$GATE" --issue-file "$ISSUE_NOREGIONS" --ledger-file "$RC_RECEIPT" 1 7 2>&1 )"; rc=$?
+if [ "$rc" -eq 1 ] && grep -q 'does not reconcile' <<<"$out" \
+   && [ "$(count_in_progress '| milestone-1 |')" -eq 0 ]; then
+  pass "(a14) #517 AC-7: the reconciliation is evaluated in the observe pass and records nothing there"
+else fail "(a14) expected rc=1 with an empty progress record under LEAN_GATE_OBSERVE, got $rc / $(count_in_progress '| milestone-1 |'): $out"; fi
+
 reset_progress
 printf '# spec\n\n- AC-1: a thing\n- AC-2: another\n' > "$SPEC"
 
@@ -531,16 +638,29 @@ if [ "$rc" -eq 0 ] && grep -qi 'SKIPPED' <<<"$out"; then
   pass "(h) milestone-2 prints a skip notice when the policy scripts are absent (consumer repo)"
 else fail "(h) expected a skip notice, got rc=$rc: $out"; fi
 
-# ---- (i) D-18: mutation sweep absent is a printed skip ------------------------------------
-# The shared $CFG configures zero fixed keys and no extraLanes, so it now depends on its own
+# ---- (i) milestone 3 on a zero-lane, opted-out tree ---------------------------------------
+# The shared $CFG configures zero fixed keys and no extraLanes, so it depends on its own
 # "commands.acme.allowUnverified": true (added for #392, below) to reach milestone 3's green
-# gate at all — the cases in this block are about the mutation-sweep notice, the dead `build`
-# key, and the absent extraLanes token, none of which are about the zero-lane guard itself.
+# gate at all — the cases in this block are about the dead `build` key and the absent
+# extraLanes token, neither of which is about the zero-lane guard itself.
+#
+# #580 DELETED the case that used to open this block: "(i) D-18: mutation sweep absent is a
+# printed skip". Milestone 3 no longer invokes tools/mutation-sweep.sh under any condition, so
+# there is no skip notice to assert — and an assertion kept here would be asserting a deleted
+# behaviour. The green run below is still what the rest of the block reads.
 reset_progress
 out="$(gate 3 7)"; rc=$?
-if [ "$rc" -eq 0 ] && grep -q 'mutation-sweep.sh absent' <<<"$out"; then
-  pass "(i) milestone-3 prints a skip notice when tools/mutation-sweep.sh is absent"
-else fail "(i) expected a mutation-sweep skip notice, got rc=$rc: $out"; fi
+if [ "$rc" -eq 0 ]; then
+  pass "(i) milestone-3 is green on a zero-lane, allowUnverified-opted-out tree"
+else fail "(i) expected a green milestone-3, got rc=$rc: $out"; fi
+
+# #580 AC-1, the negative half: neither D-18 line reaches stdout, on a tree that carries NO
+# tools/mutation-sweep.sh. A positive-carrying tree is covered by (i-580b) further down — the
+# absent branch and the present branch were the two arms of the deleted `if`, so proving only
+# one of them would leave the other free to come back.
+if ! grep -qi 'mutation' <<<"$out"; then
+  pass "(i-580a) AC-1: no mutation-sweep line is emitted when the tree carries no sweep"
+else fail "(i-580a) expected no mutation line at all, got: $(grep -i mutation <<<"$out")"; fi
 
 # #392 AC-1 (second half): the same green run also carries the allowUnverified notice, since
 # the shared fixture has zero fixed keys and no extraLanes.
@@ -568,6 +688,49 @@ else fail "(i-AC10) 'build is null' still printed — the dead key was not remov
 if ! grep -q 'extra lane' <<<"$out"; then
   pass "(i-AC5) no extraLanes key -> no 'extra lane' token in milestone-3 output"
 else fail "(i-AC5) an 'extra lane' token appeared with no extraLanes configured"; fi
+
+# ---- (i-580b) #580 AC-1: a tree that CARRIES a sweep does not get one run ------------------
+# The arm that matters. (i-580a) proves the absent branch stays quiet; this proves the PRESENT
+# branch — the one the deleted `if [ -f "$sweep" ]` actually took in this repo — is gone too.
+# Asserting only the quiet side would leave `[ -f ... ] && run it` free to come back and still
+# pass every case above.
+#
+# The planted sweep is a TRIPWIRE, not a stub: it writes a marker and exits 0, so a gate that
+# still invoked it would go GREEN and the only evidence would be the marker. That is deliberate
+# — an exit-1 tripwire would be caught by the rc assertion alone, which is a weaker claim (it
+# proves the sweep did not FAIL, not that it did not RUN).
+M580_TREE="$WORK/m580-tree"
+mkdir -p "$M580_TREE/docs/plans" "$M580_TREE/tools"
+git -C "$M580_TREE" init -q
+git -C "$M580_TREE" config user.email t@example.invalid
+git -C "$M580_TREE" config user.name t
+printf '.claude/\n' > "$M580_TREE/.gitignore"
+printf '# spec\n\n- AC-1: the thing\n' > "$M580_TREE/docs/plans/acme-7-lean.md"
+M580_MARK="$WORK/m580-sweep-ran"
+cat > "$M580_TREE/tools/mutation-sweep.sh" <<M580EOF
+#!/usr/bin/env bash
+printf 'invoked %s\n' "\$*" >> "$M580_MARK"
+exit 0
+M580EOF
+chmod +x "$M580_TREE/tools/mutation-sweep.sh"
+git -C "$M580_TREE" add -A >/dev/null 2>&1
+git -C "$M580_TREE" commit -q -m base >/dev/null 2>&1
+git -C "$M580_TREE" update-ref refs/remotes/origin/main HEAD
+M580_PROG="$WORK/m580-prog.md"
+attest_at "$M580_TREE" "$CFG" "$M580_PROG" 7
+out="$( cd "$M580_TREE" && ( unset RUN_ID CLAUDE_CODE_SESSION_ID GH_BOT
+  SECOND_SHIFT_CONFIG="$CFG" LEAN_PROGRESS_FILE="$M580_PROG" \
+  bash "$GATE" --issue-file "$ISSUE_NOREGIONS" 3 7 2>&1 ) )"; rc=$?
+if [ "$rc" -eq 0 ] && [ ! -e "$M580_MARK" ] && ! grep -qi 'mutation' <<<"$out"; then
+  pass "(i-580b) AC-1: milestone 3 never invokes a repo-carried tools/mutation-sweep.sh"
+else fail "(i-580b) expected a green milestone-3 with the sweep untouched, got rc=$rc marker=$([ -e "$M580_MARK" ] && cat "$M580_MARK" || echo absent): $out"; fi
+
+# ...and the progress record carries no D-18 skip row either. The stdout half above cannot fail
+# when only the sibling `append_line` comes back, which is the same asymmetry (i-392b) exists
+# for: a reconcile-time reader sees the FILE, not the shell.
+if ! grep -qF 'mutation-sweep.sh absent' "$M580_PROG" && ! grep -qF 'mutation-sweep.sh absent' "$PROG"; then
+  pass "(i-580c) AC-1: no mutation-sweep row is written to the progress record"
+else fail "(i-580c) a mutation-sweep row reached a progress record: $(grep -hF 'mutation-sweep.sh absent' "$M580_PROG" "$PROG" 2>/dev/null)"; fi
 
 # ---- (iz) #392: milestone 3 must not report green having verified nothing -----------------
 # Dedicated configs derived from $CFG, isolating the zero-lane guard from the opt-out the
@@ -740,17 +903,24 @@ if [ "$(el_count_in "milestone-3 | skipped | extra lane 'scoped' — no changed 
   pass "(i6) AC-3: the pinned skip progress-file line is written"
 else fail "(i6) expected the pinned skip line in $prog, got: $(cat "$prog" 2>/dev/null)"; fi
 
-# AC-6: ordering is fixed keys -> extraLanes (declaration order) -> mutation sweep, fail-fast.
+# AC-6: ordering is fixed keys -> extraLanes (declaration order) -> milestone-3's verdict,
+# fail-fast.
+#
+# RE-STATED for #580, not weakened. The third term used to be the mutation sweep's skip notice;
+# that lane is deleted, so the ordering anchors on milestone 3's own terminal pass line instead.
+# Three ordered observables either way — and the new final term is strictly harder to satisfy
+# accidentally than the old one, because an extraLane that migrated AFTER the verdict could not
+# be reported at all, whereas one that migrated after a skip notice still was.
 cfg="$(el_cfg '[{"name":"ord-lane","commands":["echo mid"],"failureClass":"TEST_FAILURE"}]')"
 prog="$WORK/el-prog-ord.md"
 out="$(gate_el "$cfg" "$prog" 3 7)"
 lint_at="$(printf '%s\n' "$out" | grep -n 'lint is null' | head -1 | cut -d: -f1)"
 lane_at="$(printf '%s\n' "$out" | grep -n "extra lane 'ord-lane'" | head -1 | cut -d: -f1)"
-sweep_at="$(printf '%s\n' "$out" | grep -n 'mutation-sweep.sh absent' | head -1 | cut -d: -f1)"
-if [ -n "${lint_at:-}" ] && [ -n "${lane_at:-}" ] && [ -n "${sweep_at:-}" ] \
-   && [ "$lint_at" -lt "$lane_at" ] && [ "$lane_at" -lt "$sweep_at" ]; then
-  pass "(i7) AC-6: observable ordering is fixed keys -> extraLanes -> mutation sweep"
-else fail "(i7) expected lint < extraLane < sweep ordering, got lint=$lint_at lane=$lane_at sweep=$sweep_at"; fi
+done_at="$(printf '%s\n' "$out" | grep -n 'milestone-3: green gate' | head -1 | cut -d: -f1)"
+if [ -n "${lint_at:-}" ] && [ -n "${lane_at:-}" ] && [ -n "${done_at:-}" ] \
+   && [ "$lint_at" -lt "$lane_at" ] && [ "$lane_at" -lt "$done_at" ]; then
+  pass "(i7) AC-6: observable ordering is fixed keys -> extraLanes -> milestone-3 verdict"
+else fail "(i7) expected lint < extraLane < verdict ordering, got lint=$lint_at lane=$lane_at verdict=$done_at"; fi
 
 # AC-7: malformed entries red milestone 3 naming the entry INDEX — three shapes.
 cfg="$(el_cfg '["oops"]')"
@@ -1914,6 +2084,11 @@ else fail "(y17) expected rc=1 naming OR-1 from the default-path ledger, got $rc
 # (y18) AC-4: an unreadable ledger (exists, unreadable — chmod 000, this repo's existing
 # precedent from lane-registry-selftest.sh's (g)) is an environment refusal distinguishable from
 # absence, and spends no fix-budget attempt — mirrors the two gh arms' (y9)/(y10) contract.
+#
+# Since #517 the RECONCILIATION reaches this file first — it runs in the observe pass, above the
+# guard this check sits under — so the message below is now raised there. Deliberately left
+# keyed on the fact rather than on the raiser: what AC-4 buys is that an unreadable ledger is
+# never a silent CLEAR and never a fix attempt, and both halves hold whichever reader reports it.
 reset_progress
 before="$(attempts_1)"
 mkdir -p "$TREE/.claude/pipeline-state"
@@ -3148,6 +3323,52 @@ out="$(dgate 1 55)"; rc=$?
 if [ "$rc" -eq 1 ] && grep -q 'declares no render state' <<<"$out"; then
   pass "(dz7) a section naming neither a render state nor a disarm is refused"
 else fail "(dz7) expected the no-render-state refusal, rc=$rc: $out"; fi
+
+# (a15) #517 AC-8, on the two branches this suite's OTHER config cannot reach. The (a9)-(a14)
+# block above runs through $CFG, which declares no `design` key, so design_state() returns
+# `unarmed` there, the `case` below the reconciliation matches no arm, and every one of those
+# cases scores only the branch where nothing else writes `note`. (a11) therefore cannot fail on
+# an assignment in the armed or disarmed arm — which is exactly the defect it was written to
+# guard against, and exactly the defect that shipped.
+#
+# So drive the SAME reconciliation through the design config instead. Both facts must appear on
+# one pass line: an implementation that assigns rather than appends keeps whichever it wrote
+# last and drops the other, so asserting only one of the two would still pass the clobber.
+# The receipt is fixed and the ONLY thing varying between the two calls is the `## Design`
+# section, which is what makes the design state the attributable cause.
+D_RECEIPT="$WORK/55-receipt.md"
+printf '%s\n' '# receipt' '## Decision Ledger' \
+  '| ID | Decision | Resolution | Provenance | Kind |' \
+  '| --- | --- | --- | --- | --- |' \
+  '| D-1 | Rate limit | 100/min, per tenant | user-answered | intent |' \
+  '| D-2 | Cache TTL | 5 minutes | codebase-derived | fact |' \
+  > "$D_RECEIPT"
+
+# ARMED: the reconciliation counts survive alongside the arming note.
+dreset
+dspec_armed
+printf '%s\n' '' '## Decision Ledger' \
+  '| ID | Decision | Resolution | Provenance |' \
+  '| --- | --- | --- | --- |' \
+  '| D-1 | Rate limit | 100/min, per tenant | user-answered |' >> "$DSPEC"
+out="$(dgate --ledger-file "$D_RECEIPT" 1 55)"; rc=$?
+if [ "$rc" -eq 0 ] && grep -q '1 bound, 1 carried, 0 departure(s)' <<<"$out" \
+   && grep -q 'design lane ARMED' <<<"$out"; then
+  pass "(a15) #517 AC-8: an ARMED design lane does not clobber the reconciliation disclosure"
+else fail "(a15) expected rc=0 carrying BOTH the counts and the arming note, got $rc: $out"; fi
+
+# DISARMED: same tree, same receipt, same bound row — only the section changes.
+dreset
+{ printf '%s\n' '# spec' '' '- AC-1: the thing' '' '## Design' '' \
+    'Design: none — no FE surface in this ticket.' '' '## Decision Ledger' \
+    '| ID | Decision | Resolution | Provenance |' \
+    '| --- | --- | --- | --- |' \
+    '| D-1 | Rate limit | 100/min, per tenant | user-answered |'; } > "$DSPEC"
+out="$(dgate --ledger-file "$D_RECEIPT" 1 55)"; rc=$?
+if [ "$rc" -eq 0 ] && grep -q '1 bound, 1 carried, 0 departure(s)' <<<"$out" \
+   && grep -q 'design lane disarmed for this ticket' <<<"$out"; then
+  pass "(a15) #517 AC-8: a DISARMED design lane does not clobber it either"
+else fail "(a15) expected rc=0 carrying BOTH the counts and the disarm note, got $rc: $out"; fi
 
 # ---- (dr) AC-3: the render pass ----------------------------------------------------------
 # (dr7) the template must carry {out} — there is otherwise nowhere for a screenshot to land.
@@ -5984,11 +6205,16 @@ dj_plant() { # dj_plant <base> <pid> [token]
 dj_tree m1
 out="$(dj_gate m1 3 7)"; rc=$?
 dj1_base="$(dj_base "$out")"
+# RE-ANCHORED for #580. The body line this case keyed on was `mutation sweep SKIPPED`, emitted
+# by the D-18 lane that slice deleted. The replacement is the allowUnverified notice: it is
+# emitted by the milestone-3 BODY on this fixture (zero fixed keys, no extraLanes, the opt-out
+# set), it is not emitted by the waiter, and it is not emitted by any other milestone — so it
+# still separates "the body ran over there" from "the waiter replayed it".
 if [ "$rc" -eq 0 ] \
    && grep -q 'spawned detached' <<<"$out" \
    && [ -n "$dj1_base" ] && [ -s "$dj1_base.log" ] \
-   && grep -qF 'mutation sweep SKIPPED' "$dj1_base.log" \
-   && grep -qF 'mutation sweep SKIPPED' <<<"$out"; then
+   && grep -qF 'allowUnverified opt-out is set' "$dj1_base.log" \
+   && grep -qF 'allowUnverified opt-out is set' <<<"$out"; then
   pass "(dj1) milestone 3 evaluates in a detached process, and the blocking waiter replays its log"
 else fail "(dj1) expected rc=0 with the body's output in both $dj1_base.log and stdout, got rc=$rc: $out"; fi
 

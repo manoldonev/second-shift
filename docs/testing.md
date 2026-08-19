@@ -634,11 +634,22 @@ because during this harness's own intake the `check-emit-deadline` site moved by
 two runs a day apart, and only the expression-addressed entry survived. The generic tier's
 matching obligation is gone: with content keys there is nothing for an ordinary edit to re-key.
 
-**Where it runs.** Diff-scoped on every PR — guards whose kill set is not a single fast suite defer
-to nightly rather than being graded against a weaker criterion than the one that produced the
-baseline — and wholesale in the nightly `mutation-sweep.yml`. Kill verdicts are only comparable
-inside the canonical environment (ubuntu-latest, `SKIP_STRESS=1`), so local runs are advisory and
-say so.
+**Where it runs — two surfaces, both in CI.** Diff-scoped on every PR (the `mutation-sweep-pr`
+job) — guards whose kill set is not a single fast suite defer to nightly rather than being graded
+against a weaker criterion than the one that produced the baseline — and wholesale in the nightly
+`mutation-sweep.yml`. Kill verdicts are only comparable inside the canonical environment
+(ubuntu-latest, `SKIP_STRESS=1`), so local runs are advisory and say so.
+
+**There is deliberately no third surface.** Until #580 `lean-gate.sh` milestone 3 ran a
+`--mode pr` sweep in-session (decision D-18) whenever the target repo carried a
+`tools/mutation-sweep.sh`. It issued the **identical** invocation the PR job above already makes,
+so it was CI-duplicated work idle-blocking a build session — on a contended developer machine,
+where a killed sweep orphans fixtures that poison later sweeps because macOS `mktemp -d` ignores
+`TMPDIR`. It was measured before it was deleted: over 28 branches (2026-08-11..18), 17 of 22
+guard-touching PRs produced 11–71 verdicts each at ~5s wall in CI, so the merge boundary
+re-derives the same truth for free. The seam is therefore repo-carried **and repo-run**: a
+consumer that ships its own `tools/mutation-sweep.sh` wires its own CI for it, and no shipped
+gate looks for that file.
 
 
 ### What it costs, and the three things that stopped it costing that

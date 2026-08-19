@@ -187,7 +187,7 @@
       "description": "Optional pipeline gates/capabilities. Everything defaults to off; a gate that is on but missing its prerequisites must fail closed at run time.",
       "additionalProperties": false,
       "properties": {
-        "mutation": { "type": "boolean", "default": false, "description": "false declares the mutation seam deliberately off (an explicit off-switch a reader can see, as opposed to the silent absence of a sweep). Absent/true = the seam is expected. The lean lane's sweep is repo-carried — lean-gate.sh milestone 3 runs tools/mutation-sweep.sh when the repo ships one and records SKIPPED when it does not — so this key is the declared INTENT that onboard's config-grill grades that plumbing against, not a switch the gate reads." }
+        "mutation": { "type": "boolean", "default": false, "description": "false declares the mutation seam deliberately off (an explicit off-switch a reader can see, as opposed to the silent absence of a sweep). Absent/true = the seam is expected. The mutation seam is repo-carried AND repo-run: ship tools/mutation-sweep.sh and wire it on your own merge boundary. No second-shift gate executes it — #580 retired the lean-gate milestone-3 lane that used to, because it duplicated the PR check. So this key is the declared INTENT that onboard's config-grill grades that plumbing against, and has never been a switch any gate reads." }
       }
     },
     "design": {

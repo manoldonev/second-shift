@@ -233,10 +233,12 @@
 #                            fetches it once from the same endpoint)
 #   --issue-file <path>      milestone 1's pause-and-ask check: read the issue body ({"body":
 #                            "..."}) from a JSON fixture instead of `gh issue view`
-#   --ledger-file <path>     milestone 1's pause-and-ask check: read the pre-flight ledger's
-#                            Open Regions table from this path instead of the default
-#                            $STATE_DIR/<issue>-ledger.md (#533). Read ALONGSIDE the issue body,
-#                            not instead of it — a region declared in either source is seen.
+#   --ledger-file <path>     milestone 1's pause-and-ask check AND its #517 receipt
+#                            reconciliation: read the pre-flight ledger from this path instead
+#                            of the default $STATE_DIR/<issue>-ledger.md (#533). Its Open
+#                            Regions table is read ALONGSIDE the issue body, not instead of it
+#                            — a region declared in either source is seen — while its `D-n`
+#                            rows are the only source for the carry-forward check.
 #   LEAN_RUN_MODEL           #347: the `model:` key stamped into the progress/verdict record
 #                            at creation time (retro-corpus.sh's corpus-aggregation key).
 #                            Read once, not cached; absent reads "unknown", never an error.
@@ -414,7 +416,7 @@ while [ $# -gt 0 ]; do
     --obligations)   PROGRESS_OBLIGATIONS=1; shift ;;
     --m3-token)      M3_RUN_TOKEN="${2:-}"; shift 2 ;;
     --arm)           STALENESS_ARM="${2:-}"; shift 2 ;;
-    -h|--help)       sed -n '2,295p' "$0"; exit 0 ;;
+    -h|--help)       sed -n '2,297p' "$0"; exit 0 ;;
     -*)              envfail "unknown option: $1" ;;
     *)
       if [ "$POSITIONAL" -eq 0 ]; then SUB="$1"; POSITIONAL=1
@@ -2988,7 +2990,8 @@ resolve_ledger_lint() {
 # and NO further content assertion. The path predicate is not an extra check — it is which
 # file "exists" means, and check-lean-chain.sh keys its artifact scan off the same shape.
 cmd_1() {
-  local spec="$REPO_ROOT/$SPEC_REL" n reason pa_rc dstate note="" lint lint_out lint_rc
+  local spec="$REPO_ROOT/$SPEC_REL" n reason pa_rc dstate note="" lint="" lint_out lint_rc
+  local receipt rec_out rec_rc
   # #494: ABSENCE, not a failed fix — block_milestone, whose line kind attempt_count() cannot
   # see. This is the call SKILL.md step 3 orders before the spec can exist.
   [ -f "$spec" ] || { block_milestone 1 "no committed spec at $SPEC_REL"; return $?; }
@@ -3010,6 +3013,40 @@ cmd_1() {
     fi
   fi
 
+  # #517: the pre-flight receipt is BINDING INPUT (SKILL.md step 4) — and until now nothing in
+  # the lane held it beside the spec this run committed. The review session reads the COMMITTED
+  # spec; by the time it looks, a dropped receipt row has left no trace to notice its absence
+  # against, and a row the spec silently re-decided the other way reads as an ordinary choice.
+  # This is the one place both documents are in reach at once.
+  #
+  # It is necessarily LOCAL and never a merge-boundary check: $STATE_DIR is gitignored on every
+  # consumer, this repo included, so check-lean-chain.sh in CI cannot read the receipt at all.
+  #
+  # Same seam as the #562 lint above, and the same reason: the provenance enum stays single-sited
+  # in ledger-lint.sh rather than gaining a third parser here (lockstep-manifest.tsv:370).
+  # `resolve_ledger_lint` is re-used only when the branch above did not already resolve it.
+  receipt="$(pause_and_ask_ledger_path)"
+  if [ -f "$receipt" ]; then
+    [ -n "$lint" ] || lint="$(resolve_ledger_lint)" \
+      || envfail "milestone-1: intake-toolkit's ledger-lint.sh could not be resolved (checked the monorepo layout and the install cache under both plugins) — cannot reconcile $SPEC_REL against the pre-flight ledger. Fix the install."
+    rec_out="$(bash "$lint" --reconcile "$receipt" "$spec" 2>&1)"; rec_rc=$?
+    case "$rec_rc" in
+      0) note="$note, ${rec_out#ledger-lint: reconcile: }" ;;
+      # A fix the build role can make — edit the committed spec — so it spends a fix attempt,
+      # exactly as #562's provenance lint does two blocks up.
+      1) fail_milestone 1 "spec $SPEC_REL does not reconcile with the pre-flight ledger $receipt: $rec_out"; return $? ;;
+      # Anything else is a READ that failed (an unreadable receipt, a broken install). "No
+      # ledger" and "a ledger this could not read" are different facts and neither may report
+      # CLEAR — but the second is not a failed fix either, so it never charges the budget.
+      #
+      # This is the SAME fact #533's check_pause_and_ask reports below, and it is worded so,
+      # because this block now reaches an unreadable ledger first: it runs in the observe pass
+      # (it opens no socket) while that check sits under the guard. The rc and the
+      # no-fix-attempt half of the contract are unchanged — only which reader says it first.
+      *) envfail "milestone-1: could not read pre-flight ledger $receipt while reconciling it against $SPEC_REL (ledger-lint exit $rec_rc): $rec_out" ;;
+    esac
+  fi
+
   # #394 D-8. Grep-shaped like the AC-n assertion above and evaluated in the observe pass with
   # it: both read the committed spec and the config, nothing else — no network, no subprocess
   # beyond grep/awk — so an armed run learns about a malformed `## Design` section before it
@@ -3019,8 +3056,12 @@ cmd_1() {
     error:*)  fail_milestone 1 "${dstate#error:}"; return $? ;;
     disarmed)
       design_was_armed && { fail_milestone 1 "$(design_disarm_locked_msg)"; return $?; }
-      note=", design lane disarmed for this ticket" ;;
-    armed)    note=", design lane ARMED" ;;
+      # APPEND, never assign. Since #517 this is no longer the first writer of `note` — the
+      # receipt reconciliation above puts its counts there — so an assignment here silently
+      # drops that disclosure on exactly the runs that also have a design lane. Invisible to
+      # this repo, which configures no provider and so never reaches either arm.
+      note="$note, design lane disarmed for this ticket" ;;
+    armed)    note="$note, design lane ARMED" ;;
   esac
 
   if [ "${LEAN_GATE_OBSERVE:-0}" != "1" ]; then
@@ -3991,8 +4032,9 @@ cmd_3_render() {
 # docs/config-schema.md, and works on the fixed keys — which is where the repo-carried sweep runs,
 # since `commands[repo].test` is its only call path.
 #
-# SCOPED TO VERIFY LANES. Setup `lanes[]` are already infra by construction, and the repo-carried
-# mutation sweep reports survivors as data rather than through this code — neither reads a 3.
+# SCOPED TO VERIFY LANES. Setup `lanes[]` are already infra by construction — they never read a 3.
+# (The repo-carried mutation sweep used to be the other exception here; #580 retired the lane that
+# ran it, so the only remaining reader of this class is a verify lane.)
 lane_failure_class() { # lane_failure_class <lane-rc> — the class fail_milestone should return
   case "$1" in
     "$LANE_INFRA_RC") echo "$INFRA_CLASS" ;;
@@ -4001,7 +4043,7 @@ lane_failure_class() { # lane_failure_class <lane-rc> — the class fail_milesto
 }
 
 cmd_3() {
-  local cmd rc sweep any_verifying=0
+  local cmd rc any_verifying=0
   # #526. BEFORE the first lane child of any kind, since the whole point is that every one of
   # them inherits the ceiling — the setup lanes below, the fixed keys, extraLanes, and the
   # render pre-command cmd_3_render runs at the end.
@@ -4055,8 +4097,10 @@ cmd_3() {
   # ---- extraLanes (EP-2) ---------------------------------------------------------
   # Additive verify lanes: the schema's slot for everything config-lint forces out of the
   # fixed keys (build lanes, path-scoped suites, a design-driven live-render lane). Run
-  # sequentially AFTER the fixed keys and BEFORE the mutation sweep (AC-6), in declaration
-  # order, fail-fast — the same placement the previous runner gave them.
+  # sequentially AFTER the fixed keys and BEFORE the design live-render (AC-6), in declaration
+  # order, fail-fast — the same placement the previous runner gave them. (#580 deleted the
+  # mutation sweep this clause used to name as the following lane; the ordering it fixes —
+  # fixed keys first, then these — is unchanged.)
   local el_lanes="[]" el_count=0
   if [ -f "$CONFIG" ]; then
     el_lanes="$(jq -c --arg s "$REPO_SLUG" '(.commands[$s].extraLanes // [])' "$CONFIG" 2>/dev/null)"
@@ -4069,10 +4113,11 @@ cmd_3() {
   # config-TIME predicate — the fixed keys above and extraLanes' array LENGTH, not whether a
   # when-scoped lane happened to run on this diff (AC-3: configured-but-skipped is not
   # unverified, so this check runs before extraLanes execution and reads $el_count, never the
-  # diff). Setup `lanes[]` are INFRA-classed and the mutation sweep is repo-carried, not
-  # config — neither counts, matching the staged lane's `allowUnverified` valve, which is
-  # inert as soon as any verifying lane is configured (#98). Checked here, before the
-  # mutation sweep, so a red never pays for a sweep run it was always going to discard.
+  # diff). Setup `lanes[]` are INFRA-classed and so do not count, matching the staged lane's
+  # `allowUnverified` valve, which is inert as soon as any verifying lane is configured (#98).
+  # Checked here, before extraLanes execute, so a red never pays for lane runs it was always
+  # going to discard. (Until #580 this also sat before a repo-carried mutation sweep, which was
+  # the expensive thing it was chiefly protecting against; that lane is gone.)
   if [ "$any_verifying" -eq 0 ] && [ "$el_count" -eq 0 ]; then
     local allow_unverified
     allow_unverified="$(cfg ".commands[\"$REPO_SLUG\"].allowUnverified" 'false')"
@@ -4136,23 +4181,19 @@ cmd_3() {
   fi
 
   # ---- design live-render (#394) -------------------------------------------------
-  # After extraLanes, before the mutation sweep — the same slot, and for the same reason, that
+  # LAST in milestone 3, after extraLanes — the same slot, and for the same reason, that
   # extraLanes took after the fixed keys: cheap deterministic lanes first, then the expensive
   # ones. A no-op on every unarmed run, which is every run in a repo with no design.provider.
+  #
+  # #580 retired what used to follow it: a diff-scoped `tools/mutation-sweep.sh --mode pr` run,
+  # decision D-18. It made the IDENTICAL invocation the `mutation-sweep-pr` CI job already makes,
+  # so it was CI-duplicated work idle-blocking a build session — and it ran on a contended
+  # machine, where a killed sweep orphans fixtures that poison later sweeps. The merge boundary
+  # re-derives the same truth for free. The mutation seam is now repo-carried AND repo-RUN: a
+  # repo that wants one wires its own CI, and this gate no longer looks for `tools/mutation-sweep.sh`
+  # at all. Do not re-add it here — the duplication is the whole reason it went.
   cmd_3_render; rc=$?
   [ "$rc" -eq 0 ] || return "$rc"
-
-  # D-18: the diff-scoped mutation sweep when the target repo carries one. Absent is a
-  # PRINTED skip, never silent — a missing test-the-tests lane must be visible.
-  sweep="$REPO_ROOT/tools/mutation-sweep.sh"
-  if [ -f "$sweep" ]; then
-    say "milestone-3: mutation sweep (diff-scoped) » origin/$BASE_BRANCH"
-    ( cd "$REPO_ROOT" && bash "$sweep" --mode pr --base "origin/$BASE_BRANCH" ); rc=$?
-    [ "$rc" -eq 0 ] || { fail_milestone 3 "mutation sweep failed (rc=$rc)"; return $?; }
-  else
-    say "milestone-3: tools/mutation-sweep.sh absent — mutation sweep SKIPPED (notice, not a silent pass)."
-    append_line "$(now_iso) | milestone-3 | skipped | mutation-sweep.sh absent"
-  fi
 
   pass_milestone 3 "green gate"
 }
