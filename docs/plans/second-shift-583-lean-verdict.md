@@ -5,8 +5,8 @@ run_id: review-583-1
 session_id: e45b5499-1922-4038-9057-f15d34a8158c
 rounds: 1
 pr: #593
-reviewed_head: 37bbfbd9d90ede3503c71fa4080ad7f0443b2ebd
-reviewed_patch_id: 1decd12550cd77340fef38cb1ddf98d290695b5a
+reviewed_head: 5d6024e327f6fc0e6cb1716431932c997e277b27
+reviewed_patch_id: 86daf57fb18eb6741c4410c47263e0e5360dda54
 inherited_patch_id: none
 inherited_from_verdict: none
 fidelity: not-applicable
@@ -92,3 +92,23 @@ a shell/docs diff. Not a coverage gap.
 **Ready to merge?** Yes — `approve`. Ten of ten ACs satisfied, every one of them reproduced against
 production code rather than scored from the PR body; the only red on the head is the missing verdict
 record this document supplies.
+
+### Re-stamp — clean replay onto `main` (no new round)
+
+`origin/main` advanced to `005bd3c` (#592, #595) after this verdict was written, conflicting in
+`CLAUDE.md` where #580 rewrote the same "Test-the-tests" paragraph this branch edits for AC-9.
+`origin/main` was merged in as `5d6024e` and the conflict resolved as a **union**: #580's
+"where it runs" sentence above, this branch's reviewed content-keying sentences below.
+
+The branch's own contribution is **unchanged**. Comparing the `+`/`-` lines of
+`git diff ea299d6 8c8d5cb -- <f>` against `git diff origin/main HEAD -- <f>` for all nine files
+gives an identical hash for every one — the resolution reproduced the reviewed hunk verbatim and
+introduced no new branch line. Per the settled position that a clean replay cannot void a verdict
+about *content*, this round is re-stamped rather than re-run:
+
+| field | was | now |
+| --- | --- | --- |
+| `reviewed_head` | `37bbfbd` | `5d6024e` |
+| `reviewed_patch_id` | `1decd12550cd` | `86daf57fb18e` |
+
+Round count is unchanged (round 1); no finding was re-opened and no new content was reviewed.
