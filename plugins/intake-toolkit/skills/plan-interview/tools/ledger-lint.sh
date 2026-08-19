@@ -3,6 +3,7 @@
 # section of an implementation plan (contract: interviewing-baseline skill).
 #
 # Usage: ledger-lint.sh [--receipt] <plan-path>
+#        ledger-lint.sh --reconcile <receipt-path> <plan-path>
 #
 # Checks (read-only, pure bash — no network, no writes):
 #   1. A `## Decision Ledger` section header is present (any heading level,
@@ -57,6 +58,36 @@
 #   | S-1 | Empty state when no rows load    | decided (D-3)                   |
 #   | S-2 | Print stylesheet                 | out-of-scope — no print in this |
 #
+# RECONCILE MODE (`--reconcile <receipt-path>`) is the third mode, and the only
+# one that reads TWO documents. An intake receipt is binding input to the build
+# run it is handed to; until #517 nothing in the lane held it beside the spec the
+# run committed, so a receipt row could be dropped, or silently re-decided the
+# other way, and leave no trace for the review session to notice its absence
+# against. This mode holds them side by side.
+#
+# It binds exactly the receipt rows whose Provenance is `user-answered` or
+# `user-delegated` — the rows that cost an operator an interview, and the ones a
+# reviewer cannot re-derive from the code the way a `codebase-derived` row can be.
+# The predicate keys on PROVENANCE and not on the receipt's `Kind` cell: 12 of the
+# 41 on-disk receipts predate Kind and carry no such cell, so a Kind-keyed rule
+# would silently no-op on them.
+#
+# For each bound row the plan must carry a `| D-n |` row under the same id, whose
+# Resolution is either the receipt's — compared whitespace-normalized and
+# case-sensitively, markdown left as content — or a departure:
+#
+#   | D-4 | Scope of the fix | DEPARTURE — narrowed to the one call site, because |
+#
+# The reason after `DEPARTURE` is REQUIRED, mirroring the `Design: none — <reason>`
+# disarm the lean gate already enforces at the same milestone: a departure is a
+# decision, and an undocumented one is indistinguishable from an omission.
+#
+# The mode is INERT when the receipt binds no rows, and it is deliberately narrow:
+# it runs no structural check on either document (the caller lints those in default
+# mode) and it says nothing about the receipt's `OR-n` regions, which the lean gate's
+# own `check_pause_and_ask` already owns. What it cannot do is notice a row the
+# interview never wrote down — the same ceiling receipt mode has.
+#
 # Scope honesty: this lint buys structural presence + on-page disclosure,
 # NOT decision quality — a load-bearing decision missing from the ledger
 # entirely is the plan-reviewer's judgment call, not this script's. Receipt mode
@@ -68,11 +99,18 @@
 set -euo pipefail
 
 RECEIPT=0
+RECONCILE=""
 PLAN=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --receipt) RECEIPT=1; shift ;;
-    -h|--help) sed -n '2,67p' "$0"; exit 0 ;;
+    # The value is REQUIRED and read here rather than defaulted: `--reconcile` with no
+    # path would otherwise consume the plan as its receipt and then lint a plan that is
+    # not there, which reports "file not found" for the wrong file.
+    --reconcile)
+      [[ $# -ge 2 && -n "${2:-}" ]] || { echo "ledger-lint: --reconcile needs a receipt path" >&2; exit 2; }
+      RECONCILE="$2"; shift 2 ;;
+    -h|--help) sed -n '2,98p' "$0"; exit 0 ;;
     -*) echo "ledger-lint: unknown option: $1" >&2; exit 2 ;;
     *)
       [[ -z "$PLAN" ]] || { echo "ledger-lint: unexpected argument: $1" >&2; exit 2; }
@@ -82,6 +120,12 @@ done
 
 [[ -n "$PLAN" ]] || { echo "ledger-lint: usage: ledger-lint.sh [--receipt] <plan-path>" >&2; exit 2; }
 [[ -f "$PLAN" ]] || { echo "ledger-lint: plan file not found: $PLAN" >&2; exit 2; }
+# The two extending modes answer different questions about different documents — is THIS
+# receipt well-formed, versus does this plan carry THAT receipt forward — so combining them
+# would silently pick one. Refuse instead of guessing which the caller meant.
+if (( RECEIPT == 1 )) && [[ -n "$RECONCILE" ]]; then
+  echo "ledger-lint: --receipt and --reconcile are different modes; pass one" >&2; exit 2
+fi
 
 VIOLATIONS=0
 violate() { echo "ledger-lint: VIOLATION: $1" >&2; VIOLATIONS=$((VIOLATIONS + 1)); }
@@ -109,6 +153,14 @@ OPEN_EMPTY_FORM='No open regions — every decision in scope is ratified.'
 SURFACE_DISPOSITION_ENUM='decided|out-of-scope'
 SURFACE_EMPTY_FORM='No user-visible surface — this change renders nothing a user reads.'
 
+# The section detector, ONE copy. Both check 1 and reconcile mode ask this question, and
+# a second in-file copy is the shape #562's review round already named: two greps that agree
+# only until somebody widens one. (lean-gate.sh's own copy is the deliberate exception the
+# manifest records — a caller that must answer before it can decide whether to call at all.)
+has_ledger_section() { # has_ledger_section <path>
+  grep -qiE '^(#{1,6}[[:space:]]+|\*\*)[[:space:]]*decision ledger' "$1"
+}
+
 # quoting-safe whitespace trim — xargs aborts on quotes/apostrophes/backslashes in cells
 trim() {
   local s="$1"
@@ -117,8 +169,126 @@ trim() {
   printf '%s' "$s"
 }
 
+# ---- RECONCILE MODE (#517) ---------------------------------------------------
+# Runs INSTEAD of the structural checks below and exits: the caller lints each
+# document in its own mode, and doing both here would report a plan's malformed row
+# twice under two different sentences. The lean gate makes exactly these two calls.
+
+# OR-1's default normalization, and the whole of what "the same Resolution" means.
+# Every run of whitespace collapses to one space and the ends are trimmed, so a
+# re-wrapped cell still reads as carried. Nothing else is stripped: backticks and
+# emphasis are CONTENT, and a spec that quietly drops a row's emphasis has changed
+# what a reader takes from it. Case-sensitive for the same reason.
+normalize_ws() { # normalize_ws <cell>
+  local s="$1"
+  s="${s//$'\t'/ }"
+  while [[ "$s" == *"  "* ]]; do s="${s//  / }"; done
+  trim "$s"
+}
+
+# `| D-n |` rows as `id<TAB>provenance<TAB>normalized-resolution`, from EITHER
+# document. The 4-column (plan, pre-Kind receipt) and 5-column (receipt) arities
+# read identically here because Provenance is the fourth column in both — which is
+# also why this deliberately does not enforce an arity: a malformed row is the other
+# modes' finding, and refusing to parse it here would report the same defect twice.
+# `\|` is masked on both sides, exactly as the loops below mask it, so an escaped
+# pipe compares equal to itself rather than splitting one cell into two.
+ledger_rows() { # ledger_rows <path>
+  local line masked id resolution provenance
+  local -a cells
+  while IFS= read -r line; do
+    masked="${line//\\|/__LEDGER_LINT_PIPE__}"
+    IFS='|' read -r -a cells <<< "$masked"
+    (( ${#cells[@]} >= 5 )) || continue
+    id="$(trim "${cells[1]}")"
+    resolution="$(normalize_ws "${cells[3]}")"
+    provenance="$(trim "${cells[4]}")"
+    printf '%s\t%s\t%s\n' "$id" "$provenance" "$resolution"
+  done < <(grep -E '^\|[[:space:]]*D-[0-9]+[[:space:]]*\|' "$1" || true)
+}
+
+if [[ -n "$RECONCILE" ]]; then
+  [[ -f "$RECONCILE" ]] || { echo "ledger-lint: receipt file not found: $RECONCILE" >&2; exit 2; }
+  # EXPLICIT, because the alternative fails open. Every read below is a `grep ... || true`,
+  # so an unreadable receipt would yield no rows, bind nothing, and report a clean
+  # reconciliation — "no ledger" and "a ledger this could not read" are different facts and
+  # the second may never report CLEAR. The caller turns this 2 into an environment refusal,
+  # which is also what keeps it off the milestone's fix budget.
+  [[ -r "$RECONCILE" ]] || { echo "ledger-lint: receipt file not readable: $RECONCILE" >&2; exit 2; }
+
+  RECEIPT_ROWS="$(ledger_rows "$RECONCILE")"
+  PLAN_ROWS="$(ledger_rows "$PLAN")"
+
+  BOUND=0
+  while IFS=$'\t' read -r r_id r_prov _r_res; do
+    [[ -n "$r_id" ]] || continue
+    [[ "$r_prov" =~ ^(${INTENT_PROVENANCE})$ ]] || continue
+    BOUND=$((BOUND + 1))
+  done <<< "$RECEIPT_ROWS"
+
+  CARRIED=0
+  DEPARTED=0
+  # INERT when the receipt binds nothing. Most receipts predate this mode and many
+  # bind no intent row at all; a mode that demanded a section from them would refuse
+  # every such spec for a receipt that asked nothing of it.
+  if (( BOUND > 0 )); then
+    # The section is mandated once a row is bound, and its absence is reported ONCE
+    # rather than once per row: a spec with no Decision Ledger has one defect, and
+    # eight sentences saying so buries it. This is also the arm that catches a spec
+    # carrying rows under no heading at all.
+    if ! has_ledger_section "$PLAN"; then
+      violate "the pre-flight receipt $RECONCILE carries $BOUND row(s) the plan must carry forward, but $PLAN has no Decision Ledger section at all"
+    else
+      while IFS=$'\t' read -r r_id r_prov r_res; do
+        [[ -n "$r_id" ]] || continue
+        [[ "$r_prov" =~ ^(${INTENT_PROVENANCE})$ ]] || continue
+
+        p_res=""
+        p_found=0
+        while IFS=$'\t' read -r p_id _p_prov p_r; do
+          [[ "$p_id" == "$r_id" ]] || continue
+          p_found=1; p_res="$p_r"; break
+        done <<< "$PLAN_ROWS"
+
+        if (( p_found == 0 )); then
+          # The silent-drop failure, and the one the explicit empty form falls into:
+          # a plan claiming "No material decisions" against a non-empty receipt has no
+          # row for any bound id, so it lands here per row rather than needing a rule
+          # of its own.
+          violate "$r_id ($r_prov) is in the pre-flight receipt $RECONCILE but not in $PLAN's Decision Ledger — carry the row forward, or record it as 'DEPARTURE — <reason>'"
+          continue
+        fi
+
+        # Prefix-anchored on a non-word boundary, the idiom the surface-inventory
+        # disposition check already uses: `DEPARTURE — x` and `DEPARTURE: x` both read
+        # as a departure while `DEPARTURES were made` does not.
+        if [[ "$p_res" =~ ^DEPARTURE([^A-Za-z0-9-]|$) ]]; then
+          if [[ "${p_res#*DEPARTURE}" =~ [A-Za-z0-9] ]]; then
+            DEPARTED=$((DEPARTED + 1))
+          else
+            violate "$r_id row in $PLAN is marked DEPARTURE but states no reason — the form is 'DEPARTURE — <reason>', because an undocumented departure is indistinguishable from an omission"
+          fi
+        elif [[ "$p_res" != "$r_res" ]]; then
+          # The unflagged-reversal failure. Row presence alone would pass here and
+          # leave the reversal to reviewer habit, which is the posture that failed.
+          violate "$r_id row in $PLAN resolves differently from the pre-flight receipt $RECONCILE, with no departure marker. receipt: '$r_res' / plan: '$p_res'"
+        else
+          CARRIED=$((CARRIED + 1))
+        fi
+      done <<< "$RECEIPT_ROWS"
+    fi
+  fi
+
+  echo "ledger-lint: reconcile: $BOUND bound, $CARRIED carried, $DEPARTED departure(s)"
+  if (( VIOLATIONS > 0 )); then
+    echo "ledger-lint: FAIL — $VIOLATIONS violation(s)" >&2
+    exit 1
+  fi
+  exit 0
+fi
+
 # ---- Check 1: section header -------------------------------------------------
-if ! grep -qiE '^(#{1,6}[[:space:]]+|\*\*)[[:space:]]*decision ledger' "$PLAN"; then
+if ! has_ledger_section "$PLAN"; then
   violate "missing mandated section: Decision Ledger (run plan-interview; trivial work uses the explicit empty form)"
   echo "ledger-lint: FAIL — $VIOLATIONS violation(s)" >&2
   exit 1

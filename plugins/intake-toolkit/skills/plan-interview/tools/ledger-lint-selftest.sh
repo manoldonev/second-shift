@@ -534,6 +534,201 @@ rc=$(lint_rc --recipe "$FIX/valid-receipt.md")
   && pass "(ll-z) unknown option → 2" \
   || fail "(ll-z) unknown option — got rc=$rc"
 
+echo "[ledger-lint-selftest] reconcile mode (#517): the receipt beside the plan"
+
+# The reconcile fixtures. The receipt binds TWO rows (one per intent provenance value) and
+# carries a third that is NOT bound, which is what makes every "N bound" assertion below
+# discriminating: a mode that bound every row would report 3 and pass the same greps.
+# Takes no argument, unlike its rc_plan sibling: every case below varies the PLAN's D-3
+# resolution against a fixed receipt, so a parameter here would be dead. shellcheck 0.9.0 (the
+# version CI installs) raises SC2120/SC2119 on a `${1:-…}` no call site ever supplies.
+rc_receipt() {
+  printf '%s\n' '# receipt' '## Decision Ledger' \
+    '| ID | Decision | Resolution | Provenance | Kind |' \
+    '| --- | --- | --- | --- | --- |' \
+    '| D-1 | Rate limit | 100/min, per tenant | user-answered | intent |' \
+    '| D-2 | Cache TTL | 5 minutes | codebase-derived | fact |' \
+    '| D-3 | Fix scope | Both call sites | user-delegated | intent |'
+}
+rc_plan() { # rc_plan <resolution-for-D-3>  — the committed spec's Decision Ledger
+  printf '%s\n' '# spec' '- AC-1: a thing' '## Decision Ledger' \
+    '| ID | Decision | Resolution | Provenance |' \
+    '| --- | --- | --- | --- |' \
+    '| D-1 | Rate limit | 100/min, per tenant | user-answered |' \
+    "| D-3 | Fix scope | ${1:-Both call sites} | user-delegated |"
+}
+rc_receipt > "$TMP/rc-receipt.md"
+
+# (ll-rc1) the positive case, and the RE-WRAP tolerance OR-1's default buys: the plan's D-1
+# cell carries the same words with the whitespace a markdown editor would have left. A
+# byte-exact compare reds here, which is the whole reason the normalization exists.
+# The tab is spelled with bash's own $'\t' rather than left to sed's replacement escapes,
+# which differ between the GNU sed CI runs on and the BSD sed this repo is developed against —
+# a fixture that quietly degraded to a literal 't' on one platform would be asserting a
+# different thing there than here.
+printf '%s\n' '# spec' '- AC-1: a thing' '## Decision Ledger' \
+  '| ID | Decision | Resolution | Provenance |' \
+  '| --- | --- | --- | --- |' \
+  "| D-1 | Rate limit | 100/min,   per"$'\t'"tenant | user-answered |" \
+  '| D-3 | Fix scope | Both call sites | user-delegated |' \
+  > "$TMP/rc-plan-ok.md"
+out=$(bash "$LINT" --reconcile "$TMP/rc-receipt.md" "$TMP/rc-plan-ok.md" 2>&1); rc=$?
+[[ "$rc" -eq 0 ]] && grep -q '2 bound, 2 carried, 0 departure(s)' <<< "$out" \
+  && pass "(ll-rc1) a plan carrying both bound rows reconciles clean, re-wrapped whitespace and all" \
+  || fail "(ll-rc1) faithful carry-forward — rc=$rc out=$out"
+
+# (ll-rc2) THE FOUNDING FAILURE: a bound row silently dropped. Named by id, because a
+# reconciliation that only says "does not match" tells the build role nothing it can act on.
+rc_plan | grep -v 'D-3' > "$TMP/rc-plan-dropped.md"
+rc=$(lint_rc --reconcile "$TMP/rc-receipt.md" "$TMP/rc-plan-dropped.md")
+err=$(bash "$LINT" --reconcile "$TMP/rc-receipt.md" "$TMP/rc-plan-dropped.md" 2>&1 >/dev/null || true)
+[[ "$rc" -eq 1 ]] && grep -q 'D-3 (user-delegated) is in the pre-flight receipt' <<< "$err" \
+  && pass "(ll-rc2) a dropped bound row → 1, named with its provenance" \
+  || fail "(ll-rc2) dropped row — rc=$rc err=$err"
+
+# (ll-rc3) a NON-bound row may be dropped freely. The ticket's own argument: a
+# codebase-derived row is re-derivable by a reviewer from the code, so binding it would cost
+# every spec a transcription with no failure behind it. D-2 is absent from every plan fixture
+# here, so (ll-rc1)'s clean pass already depends on this — this case makes the dependency a
+# stated contract rather than an accident of the fixture.
+printf '%s\n' '# receipt' '## Decision Ledger' \
+  '| ID | Decision | Resolution | Provenance | Kind |' \
+  '| --- | --- | --- | --- | --- |' \
+  '| D-2 | Cache TTL | 5 minutes | codebase-derived | fact |' \
+  '| D-4 | Parked | deferred under OR-1 | deferred | open |' \
+  '| D-5 | Ticket says | see https://example.invalid/1 | ticket-sourced | fact |' \
+  > "$TMP/rc-receipt-nobind.md"
+out=$(bash "$LINT" --reconcile "$TMP/rc-receipt-nobind.md" "$TMP/rc-plan-dropped.md" 2>&1); rc=$?
+[[ "$rc" -eq 0 ]] && grep -q '0 bound, 0 carried, 0 departure(s)' <<< "$out" \
+  && pass "(ll-rc3) codebase-derived, deferred and ticket-sourced rows bind nothing — the mode is inert" \
+  || fail "(ll-rc3) non-intent provenance bound something — rc=$rc out=$out"
+
+# (ll-rc4) THE OTHER FOUNDING FAILURE: the row is present, and resolves the other way. This is
+# the case row-presence alone cannot see, and the one that decides whether this mode is worth
+# more than a `grep -c D-`. Both resolutions are quoted in the message: a reviewer reading the
+# gate output should not have to open two files to see what moved.
+rc_plan 'Only the import path' > "$TMP/rc-plan-reversed.md"
+rc=$(lint_rc --reconcile "$TMP/rc-receipt.md" "$TMP/rc-plan-reversed.md")
+err=$(bash "$LINT" --reconcile "$TMP/rc-receipt.md" "$TMP/rc-plan-reversed.md" 2>&1 >/dev/null || true)
+[[ "$rc" -eq 1 ]] && grep -q 'D-3 row in' <<< "$err" && grep -q 'no departure marker' <<< "$err" \
+  && grep -q "receipt: 'Both call sites' / plan: 'Only the import path'" <<< "$err" \
+  && pass "(ll-rc4) a bound row re-decided without a marker → 1, quoting both resolutions" \
+  || fail "(ll-rc4) unflagged reversal — rc=$rc err=$err"
+
+# (ll-rc5) ...and the SAME reversal, declared. The escape hatch has to work, or the only way
+# past the gate is to lie about what the spec decided.
+rc_plan 'DEPARTURE — narrowed to the import path; the export path is dead code' > "$TMP/rc-plan-departed.md"
+out=$(bash "$LINT" --reconcile "$TMP/rc-receipt.md" "$TMP/rc-plan-departed.md" 2>&1); rc=$?
+[[ "$rc" -eq 0 ]] && grep -q '2 bound, 1 carried, 1 departure(s)' <<< "$out" \
+  && pass "(ll-rc5) the same reversal marked DEPARTURE with a reason → 0, counted as a departure not a carry" \
+  || fail "(ll-rc5) declared departure — rc=$rc out=$out"
+
+# (ll-rc6) a marker with no reason. Mirrors the `Design: none — <reason>` disarm the lean gate
+# already refuses at this milestone: a bare marker is a departure nobody has to justify, which
+# makes the whole mode a formality one word wide.
+rc_plan 'DEPARTURE —' > "$TMP/rc-plan-bare.md"
+rc=$(lint_rc --reconcile "$TMP/rc-receipt.md" "$TMP/rc-plan-bare.md")
+err=$(bash "$LINT" --reconcile "$TMP/rc-receipt.md" "$TMP/rc-plan-bare.md" 2>&1 >/dev/null || true)
+[[ "$rc" -eq 1 ]] && grep -q 'marked DEPARTURE but states no reason' <<< "$err" \
+  && pass "(ll-rc6) a DEPARTURE marker stating no reason → 1" \
+  || fail "(ll-rc6) reasonless departure — rc=$rc err=$err"
+
+# (ll-rc7) the word must be the MARKER, not a word the cell happens to open with. Anchored on
+# a non-word boundary, the idiom the surface-inventory disposition check already uses.
+rc_plan 'DEPARTURES from the receipt were considered and rejected' > "$TMP/rc-plan-prose.md"
+rc=$(lint_rc --reconcile "$TMP/rc-receipt.md" "$TMP/rc-plan-prose.md")
+err=$(bash "$LINT" --reconcile "$TMP/rc-receipt.md" "$TMP/rc-plan-prose.md" 2>&1 >/dev/null || true)
+[[ "$rc" -eq 1 ]] && grep -q 'no departure marker' <<< "$err" \
+  && pass "(ll-rc7) 'DEPARTURES...' is prose, not a marker — the differing row still refuses" \
+  || fail "(ll-rc7) marker matched a longer word — rc=$rc err=$err"
+
+# (ll-rc8) #503's EXACT failure, which is why presence-of-section is not the predicate. A
+# 13-row receipt against a spec whose Decision Ledger reads the explicit empty form — an
+# affirmative claim that no material decisions existed — passes #562's provenance lint CLEAN.
+# Both halves are asserted here: reconcile refuses it, and default mode still accepts it, so
+# the case cannot be satisfied by having quietly made the empty form illegal everywhere.
+printf '%s\n' '# spec' '- AC-1: a thing' '## Decision Ledger' '' \
+  'No material decisions — all choices codebase-derived.' > "$TMP/rc-plan-empty-form.md"
+rc=$(lint_rc --reconcile "$TMP/rc-receipt.md" "$TMP/rc-plan-empty-form.md")
+err=$(bash "$LINT" --reconcile "$TMP/rc-receipt.md" "$TMP/rc-plan-empty-form.md" 2>&1 >/dev/null || true)
+default_rc=$(lint_rc "$TMP/rc-plan-empty-form.md")
+[[ "$rc" -eq 1 && "$default_rc" -eq 0 ]] \
+  && grep -q 'D-1 (user-answered) is in the pre-flight receipt' <<< "$err" \
+  && grep -q 'D-3 (user-delegated) is in the pre-flight receipt' <<< "$err" \
+  && pass "(ll-rc8) the explicit empty form against a binding receipt → 1, while default mode still passes it" \
+  || fail "(ll-rc8) empty-form claim — reconcile rc=$rc default rc=$default_rc err=$err"
+
+# (ll-rc9) no section at all → ONE violation naming the section, not one per bound row. The
+# count matters: a spec with no Decision Ledger has a single defect, and eight sentences
+# saying so is how the actionable line gets lost.
+printf '%s\n' '# spec' '- AC-1: a thing' > "$TMP/rc-plan-nosection.md"
+rc=$(lint_rc --reconcile "$TMP/rc-receipt.md" "$TMP/rc-plan-nosection.md")
+err=$(bash "$LINT" --reconcile "$TMP/rc-receipt.md" "$TMP/rc-plan-nosection.md" 2>&1 >/dev/null || true)
+n_viol=$(grep -c 'VIOLATION' <<< "$err") || n_viol=0
+[[ "$rc" -eq 1 && "$n_viol" -eq 1 ]] && grep -q 'no Decision Ledger section at all' <<< "$err" \
+  && pass "(ll-rc9) a plan with no Decision Ledger section → 1, reported once" \
+  || fail "(ll-rc9) missing section — rc=$rc violations=$n_viol err=$err"
+
+# (ll-rc10) the PRE-KIND receipt arity. 12 of the 41 on-disk receipts predate the Kind cell and
+# carry four columns, so a parse that required five would silently bind NOTHING on them — a
+# mode that reports a clean reconciliation for every legacy receipt in the corpus. Provenance
+# is the fourth column in both shapes, which is what makes one parse enough.
+printf '%s\n' '# receipt' '## Decision Ledger' \
+  '| ID | Decision | Resolution | Provenance |' \
+  '| --- | --- | --- | --- |' \
+  '| D-1 | Rate limit | 100/min, per tenant | user-answered |' \
+  > "$TMP/rc-receipt-4col.md"
+out=$(bash "$LINT" --reconcile "$TMP/rc-receipt-4col.md" "$TMP/rc-plan-ok.md" 2>&1); rc=$?
+[[ "$rc" -eq 0 ]] && grep -q '1 bound, 1 carried, 0 departure(s)' <<< "$out" \
+  && pass "(ll-rc10) a 4-column pre-Kind receipt binds on provenance, not on the Kind cell" \
+  || fail "(ll-rc10) pre-Kind receipt bound nothing — rc=$rc out=$out"
+
+# (ll-rc11) an UNREADABLE receipt is 2, never a clean 0. Every read in the mode is a
+# `grep ... || true`, so the fail-open shape is "no rows, nothing bound, reconciled" — the
+# caller turns a 2 into an environment refusal, which is also what keeps it off the fix budget.
+# The precondition is asserted rather than assumed: as root the chmod does not bite, and a
+# case that silently passed there would report coverage it does not have.
+cp "$TMP/rc-receipt.md" "$TMP/rc-receipt-unreadable.md"
+chmod 000 "$TMP/rc-receipt-unreadable.md"
+if [[ -r "$TMP/rc-receipt-unreadable.md" ]]; then
+  fail "(ll-rc11) precondition: chmod 000 left the file readable (running as root?) — the fail-open arm is unverified"
+else
+  rc=$(lint_rc --reconcile "$TMP/rc-receipt-unreadable.md" "$TMP/rc-plan-ok.md")
+  err=$(bash "$LINT" --reconcile "$TMP/rc-receipt-unreadable.md" "$TMP/rc-plan-ok.md" 2>&1 >/dev/null || true)
+  [[ "$rc" -eq 2 ]] && grep -q 'receipt file not readable' <<< "$err" \
+    && pass "(ll-rc11) an unreadable receipt → 2, never a clean reconciliation" \
+    || fail "(ll-rc11) unreadable receipt — rc=$rc err=$err"
+fi
+chmod 644 "$TMP/rc-receipt-unreadable.md"
+
+# (ll-rc12) MODE ISOLATION, the (ll-y)/(ll-as) obligation for this mode. Reconcile mode runs
+# INSTEAD of the structural checks — the lean gate lints each document in its own mode — so a
+# plan that reconciles perfectly while being structurally broken must still reconcile clean
+# here AND still fail default mode. Without both halves the case cannot tell "the structural
+# checks were skipped" from "the plan happened to be well-formed".
+printf '%s\n' '# spec' '- AC-1: a thing' '## Decision Ledger' \
+  '| ID | Decision | Resolution | Provenance |' \
+  '| --- | --- | --- | --- |' \
+  '| D-1 | Rate limit | 100/min, per tenant | user-answered |' \
+  '| D-3 | Fix scope | Both call sites | user-delegated |' \
+  '| D-3 | Fix scope | Both call sites | assumed |' \
+  > "$TMP/rc-plan-broken.md"
+out=$(bash "$LINT" --reconcile "$TMP/rc-receipt.md" "$TMP/rc-plan-broken.md" 2>&1); rc=$?
+default_rc=$(lint_rc "$TMP/rc-plan-broken.md")
+[[ "$rc" -eq 0 && "$default_rc" -eq 1 ]] && grep -q '2 bound, 2 carried' <<< "$out" \
+  && pass "(ll-rc12) reconcile mode judges carry-forward only — a duplicate-id, illegal-provenance plan still fails default mode" \
+  || fail "(ll-rc12) mode isolation — reconcile rc=$rc default rc=$default_rc out=$out"
+
+# (ll-rc13) usage errors are 2, not a silently-skipped mode. `--reconcile` with no value would
+# otherwise swallow the plan path as its receipt; combining it with `--receipt` asks two
+# different questions about two different documents, so refusing beats guessing.
+rc=$(lint_rc --reconcile)
+rc2=$(lint_rc --receipt --reconcile "$TMP/rc-receipt.md" "$TMP/rc-plan-ok.md")
+rc3=$(lint_rc --reconcile "$TMP/does-not-exist.md" "$TMP/rc-plan-ok.md")
+[[ "$rc" -eq 2 && "$rc2" -eq 2 && "$rc3" -eq 2 ]] \
+  && pass "(ll-rc13) --reconcile with no value, with --receipt, or with a missing receipt → 2" \
+  || fail "(ll-rc13) usage arms — rcs=$rc/$rc2/$rc3"
+
 echo
 echo "[ledger-lint-selftest] summary: $PASS passed, $FAIL failed"
 exit $FAIL

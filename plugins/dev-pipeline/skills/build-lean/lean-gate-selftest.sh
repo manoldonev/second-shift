@@ -289,6 +289,113 @@ if [ "$rc" -eq 1 ] && grep -q 'fails ledger-lint' <<<"$out" && grep -q "provenan
   pass "(a8) the bold-heading Decision Ledger form is detected too — an invented provenance under it refuses milestone 1"
 else fail "(a8) expected rc=1 naming the invented provenance under the bold heading, got $rc: $out"; fi
 
+# ---- (a9)-(a14) #517: the committed spec reconciles against the pre-flight receipt --------
+# The receipt is reached through --ledger-file, the seam #533 opened for exactly this reason:
+# the DEFAULT path is $STATE_DIR/<issue>-ledger.md under the git common dir, a directory shared
+# by every worktree on the machine, and a suite writing there would collide with whatever lane
+# is live. Every case below therefore states its own receipt.
+#
+# The receipt binds TWO rows and carries a third it does not, so "the check bound something"
+# and "the check bound everything" are distinguishable in the pass line.
+RC_RECEIPT="$WORK/517-receipt.md"
+printf '%s\n' '# receipt' '## Decision Ledger' \
+  '| ID | Decision | Resolution | Provenance | Kind |' \
+  '| --- | --- | --- | --- | --- |' \
+  '| D-1 | Rate limit | 100/min, per tenant | user-answered | intent |' \
+  '| D-2 | Cache TTL | 5 minutes | codebase-derived | fact |' \
+  '| D-3 | Fix scope | Both call sites | user-delegated | intent |' \
+  > "$RC_RECEIPT"
+rc_spec() { # rc_spec <resolution-for-D-3>
+  printf '%s\n' '# spec' '' '- AC-1: a thing' '' '## Decision Ledger' \
+    '| ID | Decision | Resolution | Provenance |' \
+    '| --- | --- | --- | --- |' \
+    '| D-1 | Rate limit | 100/min, per tenant | user-answered |' \
+    "| D-3 | Fix scope | ${1:-Both call sites} | user-delegated |" > "$SPEC"
+}
+
+# (a9) a bound row the spec drops. rc=1 AND an attempt line: editing the committed spec is a fix
+# the build role can make, so this spends fix budget exactly as #562's provenance lint does.
+reset_progress
+rc_spec; grep -v 'D-3' "$SPEC" > "$SPEC.tmp" && mv "$SPEC.tmp" "$SPEC"
+out="$(gate --ledger-file "$RC_RECEIPT" 1 7)"; rc=$?
+if [ "$rc" -eq 1 ] && grep -q 'does not reconcile with the pre-flight ledger' <<<"$out" \
+   && grep -q 'D-3 (user-delegated)' <<<"$out" \
+   && [ "$(count_in_progress '| milestone-1 | attempt |')" -eq 1 ]; then
+  pass "(a9) #517 AC-2/AC-7: a dropped receipt row refuses milestone 1 and spends a fix attempt"
+else fail "(a9) expected rc=1 naming D-3 plus one attempt line, got $rc / $(count_in_progress '| milestone-1 | attempt |'): $out"; fi
+
+# (a10) the row is there and resolves the other way, with no marker.
+reset_progress
+rc_spec 'Only the import path'
+out="$(gate --ledger-file "$RC_RECEIPT" 1 7)"; rc=$?
+if [ "$rc" -eq 1 ] && grep -q 'no departure marker' <<<"$out"; then
+  pass "(a10) #517 AC-3: a bound row re-decided without a DEPARTURE marker refuses milestone 1"
+else fail "(a10) expected rc=1 on an unflagged reversal, got $rc: $out"; fi
+
+# (a11) the declared departure passes — and AC-8, the pass line disclosing what was reconciled.
+# The COUNTS are asserted, not just the presence of a note: a note reading "0 bound" would sit
+# in the same place and say nothing, which is the shape a silently-inert check hides behind.
+reset_progress
+rc_spec 'DEPARTURE — narrowed to the import path; the export path is dead code'
+out="$(gate --ledger-file "$RC_RECEIPT" 1 7)"; rc=$?
+if [ "$rc" -eq 0 ] && grep -q '2 bound, 1 carried, 1 departure(s)' <<<"$out"; then
+  pass "(a11) #517 AC-4/AC-8: a reasoned DEPARTURE passes, and the pass line discloses the counts"
+else fail "(a11) expected rc=0 with the reconciliation counts on the pass line, got $rc: $out"; fi
+
+# (a12) ABSENT receipt is inert (AC-7). Most tickets never went through pre-flight, so the
+# common case must not acquire a note at all — a pass line that grew one for every run would
+# make the disclosure in (a11) meaningless. The spec here is the (a9) shape that DOES refuse
+# when a receipt is present, so this case cannot be satisfied by a spec that would pass anyway.
+reset_progress
+rc_spec; grep -v 'D-3' "$SPEC" > "$SPEC.tmp" && mv "$SPEC.tmp" "$SPEC"
+out="$(gate 1 7)"; rc=$?
+if [ "$rc" -eq 0 ] && ! grep -q 'bound,' <<<"$out"; then
+  pass "(a12) #517 AC-7: with no pre-flight receipt the check is inert and adds no note"
+else fail "(a12) expected a silent rc=0 with no receipt, got $rc: $out"; fi
+
+# (a13) an UNREADABLE receipt is an ENVIRONMENT refusal, not a fix attempt (AC-7). This is the
+# arm that decides whether the mechanism can fail open: every read inside the reconciliation is
+# a `grep ... || true`, so an unreadable receipt binds nothing and would otherwise report a
+# clean reconciliation. rc=2 and, just as load-bearing, the attempt counter must not move — no
+# edit the build role can make fixes a file it cannot read, and three such blips would
+# hard-stop the run at rc=4 with a rescue path nobody can act on.
+#
+# TWO calls, because the ordinary one is not attributable. #533's check_pause_and_ask reports
+# the same fact for the same file, so deleting the reconciliation entirely leaves the first
+# assertion passing — measured, not assumed. The OBSERVE call is the discriminator: that check
+# sits under the observe guard and is skipped there, so under LEAN_GATE_OBSERVE=1 the only
+# reader left that can refuse an unreadable receipt is this one.
+reset_progress
+rc_spec
+RC_UNREADABLE="$WORK/517-receipt-unreadable.md"
+cp "$RC_RECEIPT" "$RC_UNREADABLE"; chmod 000 "$RC_UNREADABLE"
+if [ -r "$RC_UNREADABLE" ]; then
+  fail "(a13) precondition: chmod 000 left the receipt readable (running as root?) — the fail-open arm is unverified"
+else
+  out="$(gate --ledger-file "$RC_UNREADABLE" 1 7)"; rc=$?
+  obs_out="$( cd "$TREE" && SECOND_SHIFT_CONFIG="$CFG" LEAN_PROGRESS_FILE="$PROG" LEAN_GATE_OBSERVE=1 \
+              bash "$GATE" --issue-file "$ISSUE_NOREGIONS" --ledger-file "$RC_UNREADABLE" 1 7 2>&1 )"; obs_rc=$?
+  if [ "$rc" -eq 2 ] && grep -q 'could not read pre-flight ledger' <<<"$out" \
+     && [ "$obs_rc" -eq 2 ] && grep -q 'while reconciling it against' <<<"$obs_out" \
+     && [ "$(count_in_progress '| milestone-1 | attempt |')" -eq 0 ]; then
+    pass "(a13) #517 AC-7: an unreadable receipt is an envfail (rc=2) in the observe pass too, and spends no fix budget"
+  else fail "(a13) expected rc=2 both ways with no attempt line, got $rc / observe $obs_rc / $(count_in_progress '| milestone-1 | attempt |'): $out || $obs_out"; fi
+fi
+chmod 644 "$RC_UNREADABLE"
+
+# (a14) the reconciliation runs in the OBSERVE pass, above the guard that gates the gh-calling
+# pause-and-ask check (AC-7). `cmd_all`'s cheap pre-pass reaches milestone 1 through that seam,
+# so a check placed below the guard would let `all` report a milestone-1 pass on a spec the very
+# next direct call refuses. The counterpart half is asserted too: observing records nothing.
+reset_progress
+rc_spec; grep -v 'D-3' "$SPEC" > "$SPEC.tmp" && mv "$SPEC.tmp" "$SPEC"
+out="$( cd "$TREE" && SECOND_SHIFT_CONFIG="$CFG" LEAN_PROGRESS_FILE="$PROG" LEAN_GATE_OBSERVE=1 \
+        bash "$GATE" --issue-file "$ISSUE_NOREGIONS" --ledger-file "$RC_RECEIPT" 1 7 2>&1 )"; rc=$?
+if [ "$rc" -eq 1 ] && grep -q 'does not reconcile' <<<"$out" \
+   && [ "$(count_in_progress '| milestone-1 |')" -eq 0 ]; then
+  pass "(a14) #517 AC-7: the reconciliation is evaluated in the observe pass and records nothing there"
+else fail "(a14) expected rc=1 with an empty progress record under LEAN_GATE_OBSERVE, got $rc / $(count_in_progress '| milestone-1 |'): $out"; fi
+
 reset_progress
 printf '# spec\n\n- AC-1: a thing\n- AC-2: another\n' > "$SPEC"
 
@@ -1914,6 +2021,11 @@ else fail "(y17) expected rc=1 naming OR-1 from the default-path ledger, got $rc
 # (y18) AC-4: an unreadable ledger (exists, unreadable — chmod 000, this repo's existing
 # precedent from lane-registry-selftest.sh's (g)) is an environment refusal distinguishable from
 # absence, and spends no fix-budget attempt — mirrors the two gh arms' (y9)/(y10) contract.
+#
+# Since #517 the RECONCILIATION reaches this file first — it runs in the observe pass, above the
+# guard this check sits under — so the message below is now raised there. Deliberately left
+# keyed on the fact rather than on the raiser: what AC-4 buys is that an unreadable ledger is
+# never a silent CLEAR and never a fix attempt, and both halves hold whichever reader reports it.
 reset_progress
 before="$(attempts_1)"
 mkdir -p "$TREE/.claude/pipeline-state"
@@ -3148,6 +3260,52 @@ out="$(dgate 1 55)"; rc=$?
 if [ "$rc" -eq 1 ] && grep -q 'declares no render state' <<<"$out"; then
   pass "(dz7) a section naming neither a render state nor a disarm is refused"
 else fail "(dz7) expected the no-render-state refusal, rc=$rc: $out"; fi
+
+# (a15) #517 AC-8, on the two branches this suite's OTHER config cannot reach. The (a9)-(a14)
+# block above runs through $CFG, which declares no `design` key, so design_state() returns
+# `unarmed` there, the `case` below the reconciliation matches no arm, and every one of those
+# cases scores only the branch where nothing else writes `note`. (a11) therefore cannot fail on
+# an assignment in the armed or disarmed arm — which is exactly the defect it was written to
+# guard against, and exactly the defect that shipped.
+#
+# So drive the SAME reconciliation through the design config instead. Both facts must appear on
+# one pass line: an implementation that assigns rather than appends keeps whichever it wrote
+# last and drops the other, so asserting only one of the two would still pass the clobber.
+# The receipt is fixed and the ONLY thing varying between the two calls is the `## Design`
+# section, which is what makes the design state the attributable cause.
+D_RECEIPT="$WORK/55-receipt.md"
+printf '%s\n' '# receipt' '## Decision Ledger' \
+  '| ID | Decision | Resolution | Provenance | Kind |' \
+  '| --- | --- | --- | --- | --- |' \
+  '| D-1 | Rate limit | 100/min, per tenant | user-answered | intent |' \
+  '| D-2 | Cache TTL | 5 minutes | codebase-derived | fact |' \
+  > "$D_RECEIPT"
+
+# ARMED: the reconciliation counts survive alongside the arming note.
+dreset
+dspec_armed
+printf '%s\n' '' '## Decision Ledger' \
+  '| ID | Decision | Resolution | Provenance |' \
+  '| --- | --- | --- | --- |' \
+  '| D-1 | Rate limit | 100/min, per tenant | user-answered |' >> "$DSPEC"
+out="$(dgate --ledger-file "$D_RECEIPT" 1 55)"; rc=$?
+if [ "$rc" -eq 0 ] && grep -q '1 bound, 1 carried, 0 departure(s)' <<<"$out" \
+   && grep -q 'design lane ARMED' <<<"$out"; then
+  pass "(a15) #517 AC-8: an ARMED design lane does not clobber the reconciliation disclosure"
+else fail "(a15) expected rc=0 carrying BOTH the counts and the arming note, got $rc: $out"; fi
+
+# DISARMED: same tree, same receipt, same bound row — only the section changes.
+dreset
+{ printf '%s\n' '# spec' '' '- AC-1: the thing' '' '## Design' '' \
+    'Design: none — no FE surface in this ticket.' '' '## Decision Ledger' \
+    '| ID | Decision | Resolution | Provenance |' \
+    '| --- | --- | --- | --- |' \
+    '| D-1 | Rate limit | 100/min, per tenant | user-answered |'; } > "$DSPEC"
+out="$(dgate --ledger-file "$D_RECEIPT" 1 55)"; rc=$?
+if [ "$rc" -eq 0 ] && grep -q '1 bound, 1 carried, 0 departure(s)' <<<"$out" \
+   && grep -q 'design lane disarmed for this ticket' <<<"$out"; then
+  pass "(a15) #517 AC-8: a DISARMED design lane does not clobber it either"
+else fail "(a15) expected rc=0 carrying BOTH the counts and the disarm note, got $rc: $out"; fi
 
 # ---- (dr) AC-3: the render pass ----------------------------------------------------------
 # (dr7) the template must carry {out} — there is otherwise nowhere for a screenshot to land.
