@@ -191,7 +191,10 @@ Generic survivor ids are **content-keyed**: the id is derived from the matched l
 from its position, so inserting a line above a site, moving a block, or editing a comment re-keys
 nothing and an ordinary guard edit carries **no re-baseline obligation**. One obligation still
 lands on ordinary PRs: editing a guard's CODE re-anchors any `tools/mutation-catalog.tsv` row
-addressing it, because catalog anchors are literal seds.
+addressing it, because catalog anchors are literal seds. A register row earns its keep by
+naming the regression class it alone catches; that binds catalog rows and execution surfaces,
+**not** a baseline row recording a site as unkillable by construction — deleting one of those
+reds the next sweep on the survivor it exists to accept.
 Full contract: [`docs/testing.md`](docs/testing.md).
 
 **A new gate contract extends the liveness scenario** for every verdict path it touches — a gate
