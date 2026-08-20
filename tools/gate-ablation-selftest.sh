@@ -137,6 +137,14 @@ check c2 "$(grep -c 'content-moved' "$E1")" 1 "the verdict record's round bounda
 check c3 "$(awk '/^### Decision points/,/^### Firings/' "$E1" | grep -c '| `m1/never` | 1 | — | — |')" 1 "a point that never fired is still enumerated with a zero count"
 check c4 "$(awk '/^### Never fired/,/^### Earn/' "$E1" | grep -c '| `m1/never` | 1 | — |')" 1 "and is listed under Never fired"
 
+# (s) the demotion ranking is the table AC-2 says the report ranks by, so its ORDER is a contract.
+#     Both fixture points carry 2 zero-decision-change firings, so the primary key ties and the
+#     eval-cost tiebreak decides: m1/spec-absent cost 4s, the m5 point 2s, dearest first. A flipped
+#     comparator swaps these two rows and changes nothing else, which is why membership alone is
+#     not enough to catch it.
+RANKED="$(awk '/^### Demotion/,/^### Never fired/' "$E1" | sed -n 's/^| [0-9][0-9]* | `\([^`]*\)` .*/\1/p' | tr '\n' ',')"
+check s "$RANKED" "m1/spec-absent,m5/exit-artifacts:no-open-pr," "a tie on the primary key is broken by evaluation cost, dearest first"
+
 # (d) corpus drift is named, never silently absorbed.
 echo "2026-01-01T00:09:00Z | milestone-3 | started |" >> "$S/900-lean-progress.md"
 OUT="$(run emit --state-dir "$S" --manifest "$M" --classes "$C" --adjudication "$A" --plans-dir "$P")"; rc=$?
@@ -201,6 +209,12 @@ check l "$?" 4 "a session-id-shaped token exits 4"
 A5="$T/adj5.tsv"; sed 's|a source edit|read from /Users/someone/state|' "$A" > "$A5"
 run emit --state-dir "$S3" --manifest "$M2" --classes "$C" --adjudication "$A5" --plans-dir "$P" >/dev/null 2>&1
 check l2 "$?" 4 "an absolute local path exits 4"
+A7="$T/adj7.tsv"; sed 's|a source edit|state_dir=/Users/someone/state|' "$A" > "$A7"
+run emit --state-dir "$S3" --manifest "$M2" --classes "$C" --adjudication "$A7" --plans-dir "$P" >/dev/null 2>&1
+check l3 "$?" 4 "an absolute path glued to a key, with no space in front of it, exits 4 too"
+A8="$T/adj8.tsv"; sed 's|a source edit|see docs/plans and m5/exit-artifacts|' "$A" > "$A8"
+run emit --state-dir "$S3" --manifest "$M2" --classes "$C" --adjudication "$A8" --plans-dir "$P" >/dev/null 2>&1
+check l4 "$?" 0 "a relative path is not an absolute one — the widened anchor leaves a docs-slash-plans shape alone"
 
 # (m) check mode diffs the report's embedded block against a regeneration.
 R="$T/report.md"
@@ -214,6 +228,10 @@ check m2 "$?" 1 "a hand-edited table reds"
 OUT="$(run check --state-dir "$S3" --manifest "$M2" --classes "$C" --adjudication "$A" --plans-dir "$P" --report "$R.none")"; rc=$?
 check m3 "$rc" 1 "a report with no generated block reds"
 check m4 "$(printf '%s\n' "$OUT" | grep -c 'carries no generated block')" 1 "rather than checking an empty block clean"
+{ echo "# fixture report"; echo ""; echo "generated on 11111111-2222-3333-4444-555555555555"; echo ""
+  echo "<!-- BEGIN GENERATED: gate-ablation -->"; cat "$E1"; echo "<!-- END GENERATED: gate-ablation -->"; } > "$R.leaky"
+run check --state-dir "$S3" --manifest "$M2" --classes "$C" --adjudication "$A" --plans-dir "$P" --report "$R.leaky" >/dev/null 2>&1
+check m5 "$?" 4 "a session id in the report's hand-written half reds, not just one in the generated block"
 
 # (n) --granularity milestone collapses the key; the flag is OR-1's reversible half.
 OUT="$(run emit --state-dir "$S3" --manifest "$M2" --classes "$C" --adjudication "$A" --plans-dir "$P" --granularity milestone)"

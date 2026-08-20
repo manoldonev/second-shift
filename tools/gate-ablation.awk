@@ -3,9 +3,12 @@
 # Reads the reason-class map, the adjudication table and the verdict index in BEGIN, then walks the
 # manifest-pinned progress records passed as arguments and emits the report's generated block.
 #
-# One-true-awk portable on purpose: no asort, no ENDFILE, no mktime. The macOS selftest lane runs
-# this under the same awk the lane's other guards do, and a gawk-only builtin would fail there and
-# nowhere else. Epoch conversion is days-from-civil arithmetic for the same reason.
+# Portable across the awks this lane actually meets, which is not the same as one-true-awk
+# portable: no asort, no ENDFILE, no mktime, and epoch conversion is days-from-civil arithmetic.
+# A local run and BOTH macOS CI jobs share a single awk — the bash-3.2 lane shims the shell, not
+# the toolchain — so a green pair there is evidence about one implementation. The job that gates
+# the merge runs on ubuntu, where `awk` resolves through /etc/alternatives to GNU Awk 5.2.1. An
+# edit here is unverified until that job is green; see the seeding note above report().
 #
 # Row grammar (lean-gate.sh's append_line / append_obligation):
 #   TS | milestone-N | started |
@@ -202,10 +205,33 @@ function is_repeat(i, ms, gp,   j, prev) {
 }
 
 # ---------------------------------------------------------------- rendering
+
+# Rendering only ever READS the counters. Saying so in code rather than relying on it matters:
+# gawk 5.2.1 — the `awk` on the ubuntu job that gates the merge — corrupts its heap when a read is
+# also what creates the row being read. `fire[gp] + 0` for a point that never fired creates the
+# element and forces it to a number in one step, and that read lands on a node an earlier `printf`
+# already released: an 8-byte heap-use-after-free in r_force_number, surfacing as exit 139 on Linux
+# and 134 on macOS, mid-table and with the tail of the report silently missing. Seeding is the fix
+# and also the honest description of the tables: every declared point has a row whether or not it
+# fired, and each value seeded here is the zero that row already prints, so no cell moves.
+function zero(arr, k) { if (!(k in arr)) arr[k] = 0 }
+function seed_counters(   i, m, gp) {
+  for (i = 1; i <= ncls; i++) {
+    gp = cls_gp[i]
+    zero(fire, gp);   zero(fire_verb, gp " attempt");    zero(fire_verb, gp " absent")
+    zero(mech_n, gp " content-moved"); zero(mech_n, gp " content-still")
+    zero(mech_n, gp " no-response");   zero(mech_n, gp " unmeasured")
+    zero(dec_n, gp " changed"); zero(dec_n, gp " unchanged"); zero(dec_n, gp " undetermined")
+    zero(eval_s, gp);  zero(eval_cov, gp); zero(rework_s, gp); zero(rework_cov, gp)
+    zero(false_red, gp); zero(repeat_n, gp)
+  }
+  for (m = 1; m <= 5; m++) zero(n_advisory, m "")
+}
 function cell(n) { return (n + 0 == 0) ? "—" : n "" }
 function spanc(gp, tot, cov) { return (cov + 0 == 0) ? "—" : (tot + 0) " (" (cov + 0) "/" fire[gp] ")" }
 
 function report(   i, j, gp, n, order, tmp, cost, ranked, nranked, swapped) {
+  seed_counters()
   print ""
   print "### Corpus"
   print ""

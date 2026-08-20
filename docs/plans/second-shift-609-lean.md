@@ -50,7 +50,9 @@ Recorded before implementation; each changes what the ACs must cover.
   detail.
 - **F-5 — `no committed spec` appears in two row kinds.** Older records record it as
   `milestone-1 | attempt` (39 rows, spending fix budget); newer ones as `milestone-1 | absent`
-  (21 rows, spending none). The same gate decision point straddles a schema change, so the generator
+  (21 rows, spending none). Those two counts predate the corpus pin and are the whole state dir;
+  the shipped report says 36 / 18, the same split over the manifest's corpus with the in-flight
+  lanes of F-7 excluded. The same gate decision point straddles a schema change, so the generator
   must key on the reason class rather than the row verb, and the report must state the split — a
   point counted twice under two identities would fabricate a fire count.
 - **F-6 — repeat `started` rows without an intervening `concluded` are the reap signature, not

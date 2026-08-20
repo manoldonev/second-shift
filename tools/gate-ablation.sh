@@ -203,15 +203,21 @@ if [ "$rc" -ne 0 ]; then
 fi
 
 # D-f. The scrub is a gate, not a convention: the committed report must carry no session id and no
-# absolute local path, and a quoted reason is exactly how one would get in.
-if grep -nE '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}' "$OUT" >&2; then
-  echo "[gate-ablation] ✗ the generated block carries a session-id-shaped token (lines above)" >&2
-  exit 4
-fi
-if grep -nE '(^|[ `(])(/[A-Za-z_.]|~/)' "$OUT" >&2; then
-  echo "[gate-ablation] ✗ the generated block carries an absolute local path (lines above)" >&2
-  exit 4
-fi
+# absolute local path, and a quoted reason is exactly how one would get in. The path anchor takes
+# any non-path character before the slash, not just a space or a bracket: `key=/Users/...` is the
+# same leak as ` /Users/...` and used to walk through. A `/` after a word character is a relative
+# path (`docs/plans`, `m5/exit-artifacts`) and is left alone.
+scrub() { # scrub <file> <what> — exits 4 on the first leak, printing the offending lines
+  if grep -nE '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}' "$1" >&2; then
+    echo "[gate-ablation] ✗ $2 carries a session-id-shaped token (lines above)" >&2
+    exit 4
+  fi
+  if grep -nE '(^|[^A-Za-z0-9._/-])(/[A-Za-z_.]|~/)' "$1" >&2; then
+    echo "[gate-ablation] ✗ $2 carries an absolute local path (lines above)" >&2
+    exit 4
+  fi
+}
+scrub "$OUT" "the generated block"
 
 if [ "$SUB" = emit ]; then
   cat "$OUT"
@@ -220,6 +226,9 @@ fi
 
 # ------------------------------------------------------------------ check
 [ -f "$REPORT" ] || die "no report at $REPORT"
+# The generated block was scrubbed above; AC-5 is about the committed file, so the hand-written
+# prose around the markers is scrubbed too — that is where a pasted path or session id lands.
+scrub "$REPORT" "the committed report"
 EMBEDDED="$(mktemp)"
 trap 'rm -f "$CORPUS_LIST" "$DRIFT" "$OUT" "$VERDICT_INDEX" "$EMBEDDED"' EXIT
 awk '/^<!-- BEGIN GENERATED: gate-ablation -->$/{f=1;next} /^<!-- END GENERATED: gate-ablation -->$/{f=0} f' \
